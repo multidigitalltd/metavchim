@@ -1,0 +1,109 @@
+# 03 · מודל נתונים
+
+## 1. עקרונות
+
+1. **Multi-Tenant בבסיס נתונים משותף**: לכל טבלה עסקית עמודת `tenant_id` (הסוכנות). בידוד נאכף בשלוש שכבות — Global Scope באפליקציה, Policy בכל Endpoint, ו-**Row-Level Security ב-PostgreSQL** כקו הגנה אחרון (גם באג באפליקציה לא ידלוף דאטה בין סוכנויות). ראו [ADR-003](adr/ADR-003-multi-tenancy.md).
+2. **מזהים**: ULID לכל הישויות (ממוין-זמן, לא חושף נפח פעילות, ידידותי לאינדקסים).
+3. **שדות מובנים + JSONB**: מאפייני נכס/דרישות קונה הנפוצים = עמודות אמיתיות (ניתנות לאינדוקס והתאמה); מאפיינים נדירים/עתידיים = `attributes JSONB`. כך מוסיפים מאפיין בלי מיגרציה.
+4. **Soft Delete + היסטוריה**: ישויות ליבה לא נמחקות פיזית; שינויים מהותיים נרשמים ב-Audit.
+5. **PII מוצפן**: טלפון, אימייל ושם של לקוחות קצה מוצפנים ברמת עמודה (ראו מסמך 04); חיפוש לפי טלפון דרך עמודת hash.
+
+## 2. תרשים ישויות מרכזי
+
+```mermaid
+erDiagram
+    TENANT ||--o{ USER : "מעסיקה"
+    TENANT ||--o{ PROPERTY : ""
+    TENANT ||--o{ BUYER : ""
+    TENANT ||--o{ LEAD : ""
+    TENANT ||--o{ CREDIT_LEDGER : ""
+
+    CONTACT ||--o{ LEAD : "פותח"
+    CONTACT ||--o| BUYER : "הוא"
+    CONTACT ||--o{ PROPERTY : "בעלים של"
+
+    LEAD ||--o{ INTERACTION : "ציר זמן"
+    LEAD }o--|| USER : "משויך ל"
+
+    PROPERTY ||--o{ MEDIA : ""
+    PROPERTY ||--o{ MATCH : ""
+    BUYER ||--o{ MATCH : ""
+    MATCH ||--o| OFFER : "הופך ל"
+    OFFER ||--o{ OFFER_EVENT : "נפתח/עניין"
+
+    BUYER ||--o{ APPOINTMENT : ""
+    PROPERTY ||--o{ APPOINTMENT : ""
+    USER ||--o{ TASK : ""
+
+    BUYER ||--o| SHARED_DEMAND : "משותף כ"
+    SHARED_DEMAND ||--o{ COOP_OFFER : "מקבל"
+    COOP_OFFER ||--o| CONNECTION : "בהסכמה"
+```
+
+## 3. ישויות עיקריות
+
+### Identity & Tenancy
+- **tenants** — סוכנות: שם, מסלול, סטטוס, הגדרות (JSONB: מיתוג, שעות פעילות, שפה), `kanko_enabled`, הגדרות שיתוף.
+- **users** — סוכן/מנהל: שייך ל-tenant, תפקיד, טלפון (לוואטסאפ פנימי), העדפות התראה, 2FA.
+- **roles / permissions** — RBAC מבוסס Capabilities (ראו מסמך 04).
+
+### CRM
+- **contacts** — אדם אמיתי אחד (טלפון מנורמל = מפתח ייחודי לכל דייר): שם, טלפונים, אימייל, `phone_hash` לחיפוש. קונה, מוכר וליד מפנים לאותו contact — אין כפילויות אדם.
+- **leads** — פנייה: מקור (voice/whatsapp/web/kanko/manual), כוונה (buy/sell/info), סטטוס (new/in_progress/waiting/converted/closed), `requires_human` + סיבה, שיוך לסוכן, SLA timestamps.
+- **interactions** — ציר זמן אחוד: שיחה (עם קישור להקלטה+תמלול+סיכום), הודעת וואטסאפ, פגישה, הערה. `interaction_type`, `direction`, `payload JSONB`.
+
+### נכסים
+- **properties** — עיר, שכונה, רחוב, סוג, חדרים, מ"ר, קומה/מתוך, מחיר + גמישות, תאריך כניסה, בלעדיות (+תוקף), סטטוס (draft/active/on_hold/sold/rented/archived), בוליאנים נפוצים (מעלית, חניה, ממ"ד, מרפסת, מחסן), מצב הנכס, `attributes JSONB`, `readiness_score` (0–100, מחושב), `marketing_title`, `marketing_description`, `owner_contact_id`, הערות פנימיות.
+- **property_media** — תמונות/מסמכים: S3 key, סוג, סדר, alt text.
+- **voice_intakes** — הקלטת קליטה: קובץ, תמלול, שדות שחולצו, שדות חסרים, סטטוס עיבוד. נשמר לצורך שחזור ותיקון.
+
+### קונים
+- **buyers** — מקושר ל-contact: ערים/שכונות מבוקשות (מערך), תקציב מינ'-מקס', חדרים, סוגי נכס, **must_have / nice_to_have** (JSONB מובנה), גמישות, מצב מימון, `maturity` (very_hot/hot/interested/not_ripe — מחושב + ניתן לדריסה ידנית), מקור, הערות AI, הערות מתווך.
+
+### התאמות והצעות
+- **matches** — `property_id` + `buyer_id` (ייחודי): `score` 0–100, `score_breakdown JSONB` (ניקוד לכל קריטריון — הבסיס להסבר), `explanation` (טקסט מוכן), סטטוס (suggested/dismissed/offered), `computed_at`. מתעדכן מחדש באירועי שינוי.
+- **offers** — הצעה שנשלחה: match, ערוץ, נוסח שנשלח, `public_token` (לדף ההצעה), סטטוס (sent/delivered/opened/interested/declined/expired), מונה פתיחות.
+- **offer_events** — כל פתיחה/קליק/תגובה עם timestamp (מזין את "פתח 3 פעמים — כדאי לחזור אליו").
+
+### יומן ומשימות
+- **appointments** — פגישה/סיור/שיחה: משתתפים, נכס, זמן, סטטוס, `google_event_id`, תוצאת פולו-אפ (אהב/לא מתאים/מו"מ/צריך אחר).
+- **tasks** — משימה: סוג, יעד (polymorphic: ליד/נכס/קונה), עדיפות, due, מקור (ai_suggested/manual/automation).
+- **reminders** — תזכורת מתוזמנת: יעד, ערוץ, זמן, סטטוס שליחה.
+
+### שיתופי פעולה וקרדיטים
+- **shared_demands** — ביקוש אנונימי: נגזר מ-buyer אך **מנותק ממנו פיזית** (טבלה נפרדת, ללא PII, עם `origin_buyer_ref` מוצפן שרק סוכנות המקור יכולה לפענח), טווחי תקציב מעוגלים, אזורים, דרישות. `visibility` (network/kanko/off).
+- **coop_offers** — הצעת נכס לביקוש: סוכנות מציעה, נכס (בחשיפה מדורגת — בלי כתובת מדויקת עד אישור), סטטוס, עלות קרדיטים.
+- **connections** — חיבור שאושר ע"י שני הצדדים: תנאי שיתוף עמלה, ציר זמן, מסמכים.
+- **credit_ledger** — ספר תנועות קרדיטים append-only: סוג פעולה, כמות, יתרה, הפניה לפעולה. אין עמודת "יתרה" שמתעדכנת — היתרה נגזרת (עם Snapshot ל-Cache).
+- **kanko_leads** — לידים שנקלטו מ-Kanko: payload גולמי + מיפוי לליד/ביקוש, סטטוס עיבוד, `external_id` ייחודי (מניעת כפילויות).
+
+### פלטפורמה
+- **messages** — כל הודעה יוצאת/נכנסת: ערוץ, ספק, תבנית, סטטוס ספק (sent/delivered/read/failed), עלות, `provider_message_id`.
+- **outbox_events** — אירועי דומיין ממתינים להפצה (דפוס Outbox).
+- **audit_log** — append-only: מי (user+tenant), מה (action), על מה (entity), מתי, מאיפה (IP), diff שדות רגישים. ללא UPDATE/DELETE ברמת הרשאות DB.
+- **usage_events** — מדידת צריכה: דקות שיחה, הודעות, קריאות AI — לחיוב ומכסות.
+
+## 4. אינדוקס ושאילתות חמות
+
+| שאילתה | אינדקס |
+|--------|--------|
+| דשבורד: לידים פתוחים לסוכן | `leads (tenant_id, assigned_to, status, created_at)` |
+| התאמות לנכס | `matches (tenant_id, property_id, score DESC) WHERE status='suggested'` |
+| חיפוש לקוח לפי טלפון | `contacts (tenant_id, phone_hash)` UNIQUE |
+| קונים לפי אזור+תקציב (מנוע התאמות) | `buyers (tenant_id, maturity)` + GIN על ערים; סינון תקציב בעמודות |
+| ביקושים ברשת לפי אזור | `shared_demands (visibility, city, budget_max)` |
+| הודעות לפי שיחה | `messages (tenant_id, contact_id, created_at)` |
+
+- כל שאילתה עסקית מתחילה ב-`tenant_id` — הוא העמודה הראשונה בכל אינדקס מורכב.
+- ללא `SELECT *` בקוד; שליפת עמודות נדרשות בלבד. מניעת N+1 עם Eager Loading מוצהר.
+
+## 5. מחזור חיים ושימור נתונים (Retention)
+
+| נתון | שימור | הערות |
+|------|-------|-------|
+| הקלטות שיחה | 12 חודשים (ניתן להגדרה פר-דייר) | ואז מחיקה; התמלול נשאר |
+| תמלולים וסיכומים | כל חיי הליד | |
+| לידים סגורים | ארכוב אחרי 24 חודשים | שליפה לפי דרישה |
+| audit_log | 7 שנים | דרישת רגולציה/סכסוכים |
+| usage_events | 24 חודשים מפורט, אגרגציה לנצח | |
+| נתוני דייר שעזב | ייצוא מלא + מחיקה תוך 90 יום | התחייבות חוזית |
