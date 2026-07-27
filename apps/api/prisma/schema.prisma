@@ -222,6 +222,8 @@ model Offer {
   matchId       String    @map("match_id") @db.Char(26)
   channel       String    @db.VarChar(20)
   sentText      String?   @map("sent_text") @db.VarChar(2000)
+  // Snapshot תצוגת הנכס לקונה — בלי PII; הדף הציבורי קורא רק מכאן.
+  presentation  Json      @default("{}")
   // טוקן דף ההצעה הציבורי — אקראי, חד-ערכי, עם תפוגה (docs/06 §6).
   publicToken   String    @unique @map("public_token") @db.Char(43)
   tokenExpires  DateTime  @map("token_expires")

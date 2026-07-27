@@ -2,7 +2,8 @@
 
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
-import { apiGet } from "@/lib/api";
+import { Button } from "@metavchim/ui";
+import { apiGet, apiPost } from "@/lib/api";
 import {
   FIELD_LABELS,
   formatDate,
@@ -43,6 +44,20 @@ interface MatchRow {
   status: string;
 }
 
+interface OfferInfo {
+  id: string;
+  status: string;
+  url: string;
+  openCount: number;
+}
+
+const OFFER_STATUS_LABELS: Record<string, string> = {
+  sent: "הצעה נשלחה",
+  opened: "הקונה פתח את ההצעה",
+  interested: "👍 הקונה מעוניין!",
+  declined: "הקונה דחה",
+};
+
 function scoreLabel(score: number): string {
   if (score >= 85) return "מומלץ לשליחה";
   if (score >= 70) return "ייתכן שמתאים";
@@ -54,6 +69,8 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   const { loading: authLoading } = useRequireAuth();
   const [property, setProperty] = useState<PropertyDetail | null>(null);
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
+  const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
+  const [copiedFor, setCopiedFor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -62,9 +79,24 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
       .then(setProperty)
       .catch(() => setError("הנכס לא נמצא"));
     apiGet<MatchRow[]>(`/properties/${id}/matches`)
-      .then(setMatches)
+      .then((rows) => {
+        setMatches(rows);
+        if (rows.length > 0) {
+          const ids = rows.map((m) => m.id).join(",");
+          apiGet<Record<string, OfferInfo>>(`/offers/for-matches?matchIds=${ids}`)
+            .then(setOffers)
+            .catch(() => undefined);
+        }
+      })
       .catch(() => setMatches([]));
   }, [authLoading, id]);
+
+  async function createOffer(matchId: string) {
+    const offer = await apiPost<OfferInfo & { matchId: string }>("/offers", { matchId });
+    setOffers((prev) => ({ ...prev, [matchId]: offer }));
+    await navigator.clipboard.writeText(offer.url).catch(() => undefined);
+    setCopiedFor(matchId);
+  }
 
   if (error) {
     return (
@@ -152,7 +184,9 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
           </p>
         ) : (
           <ul className="flex flex-col gap-3">
-            {matches.map((m) => (
+            {matches.map((m) => {
+              const offer = offers[m.id];
+              return (
               <li
                 key={m.id}
                 className="rounded-xl border p-4"
@@ -171,9 +205,30 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                   </span>
                   <Link href={`/buyers/${m.buyerId}`} className="underline">לפרופיל הקונה</Link>
                 </div>
-                <p style={{ color: "var(--color-text-muted)" }}>{m.explanation}</p>
+                <p className="mb-3" style={{ color: "var(--color-text-muted)" }}>{m.explanation}</p>
+                {offer ? (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="font-medium" style={{ color: offer.status === "interested" ? "var(--color-success)" : "var(--color-text)" }}>
+                      {OFFER_STATUS_LABELS[offer.status] ?? offer.status}
+                      {offer.openCount > 0 ? ` (${offer.openCount} צפיות)` : ""}
+                    </span>
+                    <a href={offer.url} target="_blank" rel="noreferrer" className="underline">
+                      פתח את דף ההצעה
+                    </a>
+                    {copiedFor === m.id ? (
+                      <span role="status" style={{ color: "var(--color-success)" }}>
+                        ✓ הקישור הועתק — הדביקו בוואטסאפ
+                      </span>
+                    ) : null}
+                  </div>
+                ) : (
+                  <Button variant="secondary" onClick={() => void createOffer(m.id)}>
+                    צור קישור הצעה לקונה
+                  </Button>
+                )}
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </section>

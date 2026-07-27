@@ -8,6 +8,7 @@ import { BuyersModule } from "./modules/buyers/buyers.module";
 import { ContactsModule } from "./modules/contacts/contacts.module";
 import { HealthModule } from "./modules/health/health.module";
 import { MatchingModule } from "./modules/matching/matching.module";
+import { OffersModule } from "./modules/offers/offers.module";
 import { PropertiesModule } from "./modules/properties/properties.module";
 
 /**
@@ -24,6 +25,7 @@ import { PropertiesModule } from "./modules/properties/properties.module";
     PropertiesModule,
     BuyersModule,
     MatchingModule,
+    OffersModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })

@@ -33,3 +33,17 @@ END $$;
 
 -- audit_log הוא Append-Only: אין UPDATE/DELETE גם לתפקיד האפליקציה.
 -- REVOKE UPDATE, DELETE ON audit_log FROM metavchim_app;
+
+-- ============================================================
+-- דף הצעה ציבורי: גישה לשורת ההצעה היחידה שהטוקן שלה הוצג,
+-- בלי הקשר דייר. האפליקציה מריצה SET LOCAL app.offer_token.
+-- אין JOIN לנכס — הדף קורא רק את ה-Snapshot שבהצעה (docs/04 §7).
+-- ============================================================
+DROP POLICY IF EXISTS offer_public_read ON offers;
+CREATE POLICY offer_public_read ON offers FOR SELECT
+  USING (public_token = current_setting('app.offer_token', true));
+
+DROP POLICY IF EXISTS offer_public_update ON offers;
+CREATE POLICY offer_public_update ON offers FOR UPDATE
+  USING (public_token = current_setting('app.offer_token', true))
+  WITH CHECK (public_token = current_setting('app.offer_token', true));

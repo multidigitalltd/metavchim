@@ -1,7 +1,25 @@
 import { z } from "zod";
 import { IdSchema } from "./common.js";
 
-export const OfferChannelSchema = z.enum(["whatsapp", "sms", "email"]);
+export const OfferChannelSchema = z.enum(["link", "whatsapp", "sms", "email"]);
+
+/**
+ * תצוגת הנכס כפי שנשלחה לקונה — Snapshot שנשמר בהצעה עצמה:
+ * ההצעה לא משתנה אם הנכס נערך אחר כך, ואין בה PII או הערות פנימיות.
+ */
+export const OfferPresentationSchema = z.object({
+  title: z.string().max(160),
+  city: z.string().optional(),
+  neighborhood: z.string().optional(),
+  rooms: z.number().optional(),
+  areaSqm: z.number().optional(),
+  floor: z.number().optional(),
+  priceAgorot: z.number().optional(),
+  features: z.array(z.string()).default([]),
+  description: z.string().max(4000).optional(),
+  agencyName: z.string().max(120),
+});
+export type OfferPresentation = z.infer<typeof OfferPresentationSchema>;
 
 export const OfferStatusSchema = z.enum([
   "pending_approval",
