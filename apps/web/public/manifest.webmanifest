@@ -1,0 +1,19 @@
+{
+  "name": "מערכת 360 למתווכים",
+  "short_name": "מערכת 360",
+  "description": "המתווך סוגר עסקאות. המערכת מטפלת בכל השאר.",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1d4ed8",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

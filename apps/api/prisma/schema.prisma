@@ -1,0 +1,244 @@
+// מודל הנתונים — docs/03-data-model.md
+//
+// עקרונות:
+// - tenant_id בכל טבלה עסקית; תמיד העמודה הראשונה באינדקסים מורכבים.
+// - מזהים: ULID, נוצרים בשכבת האפליקציה (אין default ב-DB).
+// - PII (טלפון/אימייל/שם לקוח קצה) מוצפן ברמת האפליקציה; phone_hash לחיפוש.
+// - RLS מופעל על כל הטבלאות — ראו prisma/sql/enable_rls.sql.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id        String   @id @db.Char(26)
+  name      String   @db.VarChar(120)
+  plan      String   @default("basic") @db.VarChar(20)
+  status    String   @default("trial") @db.VarChar(20)
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users      Users[]
+  properties Property[]
+
+  @@map("tenants")
+}
+
+model Users {
+  id           String    @id @db.Char(26)
+  tenantId     String    @map("tenant_id") @db.Char(26)
+  name         String    @db.VarChar(120)
+  email        String    @db.VarChar(254)
+  passwordHash String?   @map("password_hash") @db.VarChar(255)
+  phone        String?   @db.VarChar(20)
+  role         String    @db.VarChar(20)
+  isActive     Boolean   @default(true) @map("is_active")
+  totpSecret   String?   @map("totp_secret") @db.VarChar(255)
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, email])
+  @@index([tenantId, isActive])
+  @@map("users")
+}
+
+// אדם אמיתי אחד — קונה/מוכר/ליד מפנים לכאן; אין כפילויות אדם (docs/03 §3).
+model Contact {
+  id             String   @id @db.Char(26)
+  tenantId       String   @map("tenant_id") @db.Char(26)
+  // PII מוצפן (AES-GCM בשכבת האפליקציה) — לא נשמר בטקסט גלוי.
+  nameEncrypted  String   @map("name_encrypted") @db.Text
+  phoneEncrypted String   @map("phone_encrypted") @db.Text
+  emailEncrypted String?  @map("email_encrypted") @db.Text
+  // HMAC של הטלפון המנורמל — חיפוש ודה-דופליקציה בלי פענוח.
+  phoneHash      String   @map("phone_hash") @db.Char(64)
+  optedOutAt     DateTime? @map("opted_out_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, phoneHash])
+  @@map("contacts")
+}
+
+model Property {
+  id                   String    @id @db.Char(26)
+  tenantId             String    @map("tenant_id") @db.Char(26)
+  status               String    @default("draft") @db.VarChar(20)
+  city                 String?   @db.VarChar(80)
+  neighborhood         String?   @db.VarChar(80)
+  street               String?   @db.VarChar(120)
+  houseNumber          String?   @map("house_number") @db.VarChar(10)
+  propertyType         String?   @map("property_type") @db.VarChar(30)
+  dealType             String?   @map("deal_type") @db.VarChar(10)
+  rooms                Decimal?  @db.Decimal(4, 1)
+  areaSqm              Int?      @map("area_sqm")
+  floor                Int?
+  totalFloors          Int?      @map("total_floors")
+  hasElevator          Boolean?  @map("has_elevator")
+  hasParking           Boolean?  @map("has_parking")
+  hasBalcony           Boolean?  @map("has_balcony")
+  hasSafeRoom          Boolean?  @map("has_safe_room")
+  hasStorage           Boolean?  @map("has_storage")
+  condition            String?   @db.VarChar(20)
+  priceAgorot          BigInt?   @map("price_agorot")
+  priceFlexible        Boolean?  @map("price_flexible")
+  entryDate            DateTime? @map("entry_date") @db.Date
+  exclusive            Boolean?
+  exclusiveUntil       DateTime? @map("exclusive_until") @db.Date
+  ownerContactId       String?   @map("owner_contact_id") @db.Char(26)
+  marketingTitle       String?   @map("marketing_title") @db.VarChar(160)
+  marketingDescription String?   @map("marketing_description")
+  internalNotes        String?   @map("internal_notes")
+  attributes           Json      @default("{}")
+  readinessScore       Int       @default(0) @map("readiness_score")
+  deletedAt            DateTime? @map("deleted_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant          @relation(fields: [tenantId], references: [id])
+  media  PropertyMedia[]
+
+  @@index([tenantId, status, updatedAt])
+  @@index([tenantId, city, status])
+  @@map("properties")
+}
+
+model PropertyMedia {
+  id         String   @id @db.Char(26)
+  tenantId   String   @map("tenant_id") @db.Char(26)
+  propertyId String   @map("property_id") @db.Char(26)
+  kind       String   @db.VarChar(20) // image | document | floorplan
+  s3Key      String   @map("s3_key") @db.VarChar(512)
+  altText    String?  @map("alt_text") @db.VarChar(300)
+  sortOrder  Int      @default(0) @map("sort_order")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  property Property @relation(fields: [propertyId], references: [id])
+
+  @@index([tenantId, propertyId, sortOrder])
+  @@map("property_media")
+}
+
+model Buyer {
+  id                 String    @id @db.Char(26)
+  tenantId           String    @map("tenant_id") @db.Char(26)
+  contactId          String    @map("contact_id") @db.Char(26)
+  // דרישות מובנות (BuyerRequirements בסכמת Zod) — עמודות חמות + JSONB.
+  cities             String[]
+  dealType           String    @map("deal_type") @db.VarChar(10)
+  budgetMinAgorot    BigInt?   @map("budget_min_agorot")
+  budgetMaxAgorot    BigInt    @map("budget_max_agorot")
+  roomsMin           Decimal?  @map("rooms_min") @db.Decimal(4, 1)
+  roomsMax           Decimal?  @map("rooms_max") @db.Decimal(4, 1)
+  requirements       Json      @default("{}")
+  financing          String    @default("unknown") @db.VarChar(20)
+  maturity           String    @default("interested") @db.VarChar(20)
+  maturityOverridden Boolean   @default(false) @map("maturity_overridden")
+  source             String    @db.VarChar(60)
+  aiNotes            String?   @map("ai_notes")
+  agentNotes         String?   @map("agent_notes")
+  deletedAt          DateTime? @map("deleted_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, maturity, updatedAt])
+  @@index([tenantId, dealType, budgetMaxAgorot])
+  @@map("buyers")
+}
+
+model Lead {
+  id                  String    @id @db.Char(26)
+  tenantId            String    @map("tenant_id") @db.Char(26)
+  contactId           String    @map("contact_id") @db.Char(26)
+  source              String    @db.VarChar(20)
+  intent              String    @default("unknown") @db.VarChar(20)
+  status              String    @default("new") @db.VarChar(20)
+  assignedToUserId    String?   @map("assigned_to_user_id") @db.Char(26)
+  requiresHuman       Boolean   @default(false) @map("requires_human")
+  requiresHumanReason String?   @map("requires_human_reason") @db.VarChar(500)
+  propertyId          String?   @map("property_id") @db.Char(26)
+  summary             String?
+  firstResponseAt     DateTime? @map("first_response_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, assignedToUserId, status, createdAt])
+  @@index([tenantId, status, requiresHuman])
+  @@map("leads")
+}
+
+model Match {
+  id          String   @id @db.Char(26)
+  tenantId    String   @map("tenant_id") @db.Char(26)
+  propertyId  String   @map("property_id") @db.Char(26)
+  buyerId     String   @map("buyer_id") @db.Char(26)
+  score       Int
+  breakdown   Json
+  explanation String   @db.VarChar(1000)
+  status      String   @default("suggested") @db.VarChar(20)
+  computedAt  DateTime @map("computed_at")
+
+  @@unique([tenantId, propertyId, buyerId])
+  @@index([tenantId, propertyId, score(sort: Desc)])
+  @@index([tenantId, buyerId, score(sort: Desc)])
+  @@map("matches")
+}
+
+model Offer {
+  id            String    @id @db.Char(26)
+  tenantId      String    @map("tenant_id") @db.Char(26)
+  matchId       String    @map("match_id") @db.Char(26)
+  channel       String    @db.VarChar(20)
+  sentText      String?   @map("sent_text") @db.VarChar(2000)
+  // טוקן דף ההצעה הציבורי — אקראי, חד-ערכי, עם תפוגה (docs/06 §6).
+  publicToken   String    @unique @map("public_token") @db.Char(43)
+  tokenExpires  DateTime  @map("token_expires")
+  status        String    @default("pending_approval") @db.VarChar(20)
+  openCount     Int       @default(0) @map("open_count")
+  sentAt        DateTime? @map("sent_at")
+  firstOpenedAt DateTime? @map("first_opened_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([tenantId, status, createdAt])
+  @@map("offers")
+}
+
+// דפוס Outbox — אירוע נכתב באותה טרנזקציה עם השינוי; Worker מפיץ (docs/02 §5).
+model OutboxEvent {
+  id          String    @id @db.Char(26)
+  tenantId    String    @map("tenant_id") @db.Char(26)
+  name        String    @db.VarChar(60)
+  payload     Json
+  occurredAt  DateTime  @default(now()) @map("occurred_at")
+  publishedAt DateTime? @map("published_at")
+  attempts    Int       @default(0)
+
+  @@index([publishedAt, occurredAt])
+  @@map("outbox_events")
+}
+
+// Append-only. הרשאות ה-DB של האפליקציה: INSERT+SELECT בלבד (ראו enable_rls.sql).
+model AuditLog {
+  id         String   @id @db.Char(26)
+  tenantId   String   @map("tenant_id") @db.Char(26)
+  userId     String?  @map("user_id") @db.Char(26)
+  action     String   @db.VarChar(60)
+  entityType String   @map("entity_type") @db.VarChar(40)
+  entityId   String?  @map("entity_id") @db.Char(26)
+  metadata   Json     @default("{}")
+  ipAddress  String?  @map("ip_address") @db.VarChar(45)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, entityType, entityId, createdAt])
+  @@index([tenantId, userId, createdAt])
+  @@map("audit_log")
+}
