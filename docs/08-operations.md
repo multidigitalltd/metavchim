@@ -14,9 +14,9 @@
 ## 2. CI/CD
 
 Pipeline לכל PR (חוסם מיזוג):
-1. Lint + Static Analysis (PHPStan/Psalm רמה מקסימלית, ESLint)
+1. Lint + Static Analysis (TypeScript strict, ESLint + כללי אבטחה, dependency-cruiser לגבולות מודולים)
 2. בדיקות: Unit (פר-מודול) → Feature → **סוויטת Cross-Tenant** → Architecture tests (גבולות מודולים)
-3. סריקת אבטחה: תלויות (composer/npm audit), סודות, SAST
+3. סריקת אבטחה: תלויות (pnpm audit), סודות, SAST (Semgrep)
 4. נגישות: axe-core על מסכי מפתח; Lighthouse CI (תקציבי ביצועים)
 5. Build + מיגרציות על DB נקי
 
@@ -28,7 +28,7 @@ Deploy: מיזוג ל-main → Staging אוטומטי → Production בקליק 
 |------|-----|---------|
 | APM | Sentry + APM (או מקבילה) | שגיאות, טרנזקציות איטיות, N+1 |
 | תשתית | Prometheus/Grafana או ניטור ענן | CPU/RAM/דיסק/חיבורי DB |
-| תורים | Horizon + התראות | עומק תור, Jobs כושלים, זמן המתנה |
+| תורים | BullMQ Dashboard (Bull Board) + התראות | עומק תור, Jobs כושלים, זמן המתנה |
 | עסקי-תפעולי | דשבורד פנימי | שיחות שנכשלו, Webhooks שנדחו, תבניות שנחסמו, Quality Rating של וואטסאפ, צריכת קרדיטים חריגה |
 | Uptime | בדיקה חיצונית | API, דפי הצעה, Webhook endpoints |
 
