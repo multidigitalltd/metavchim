@@ -1,69 +1,128 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Button } from "@metavchim/ui";
+import { apiGet } from "@/lib/api";
+import { FIELD_LABELS, MATURITY_LABELS } from "@/lib/format";
+import { useRequireAuth } from "@/lib/use-auth";
 
 /**
- * דשבורד — "מה דורש טיפול היום?" (docs/06 §2).
- * כרגע נתוני הדגמה סטטיים; יוחלפו ב-API כשמודולי הדומיין יעלו.
+ * דשבורד "מה דורש טיפול היום?" (docs/06 §2) — פעולות נגזרות מהדאטה
+ * האמיתי: נכסים לא מושלמים, קונים חמים. מודולי לידים/הצעות יוסיפו
+ * פעולות משלהם כשיעלו.
  */
 
-const DEMO_ACTIONS = [
-  {
-    id: "1",
-    title: "לחזור ליעקב כהן",
-    detail: "ביקש שיחה על דירת 4 חדרים ברחוב חזון איש",
-    action: "התקשר",
-    urgent: true,
-  },
-  {
-    id: "2",
-    title: "להשלים מחיר לנכס ברחוב רבי עקיבא",
-    detail: "הנכס 61% מוכן — חסרים מחיר ותאריך כניסה",
-    action: "השלם פרטים",
-    urgent: false,
-  },
-  {
-    id: "3",
-    title: "12 קונים מתאימים לנכס החדש",
-    detail: "דירת 3 חדרים בבני ברק — התאמות מעל 85%",
-    action: "שלח הצעות",
-    urgent: false,
-  },
-] as const;
+interface PropertyRow {
+  id: string;
+  city?: string;
+  street?: string;
+  readinessScore: number;
+  missingFields: string[];
+}
+
+interface BuyerRow {
+  id: string;
+  contact: { name: string };
+  maturity: string;
+}
 
 export default function DashboardPage() {
+  const { user, loading: authLoading } = useRequireAuth();
+  const [properties, setProperties] = useState<PropertyRow[] | null>(null);
+  const [buyers, setBuyers] = useState<BuyerRow[] | null>(null);
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    apiGet<{ items: PropertyRow[] }>("/properties?limit=100")
+      .then((r) => setProperties(r.items))
+      .catch(() => setProperties([]));
+    apiGet<{ items: BuyerRow[] }>("/buyers?limit=100")
+      .then((r) => setBuyers(r.items))
+      .catch(() => setBuyers([]));
+  }, [authLoading, user]);
+
+  if (authLoading || !user) return <p aria-live="polite">טוען…</p>;
+
+  const incomplete = (properties ?? []).filter((p) => p.readinessScore < 80).slice(0, 3);
+  const hotBuyers = (buyers ?? []).filter((b) => b.maturity === "very_hot" || b.maturity === "hot").slice(0, 3);
+  const loading = properties === null || buyers === null;
+
   return (
     <>
-      <h1 className="mb-1 text-2xl font-bold">מה דורש טיפול היום?</h1>
+      <h1 className="mb-1 text-2xl font-bold">שלום, {user.name}</h1>
       <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
-        שלוש הפעולות החשובות ביותר שלך, לפי סדר עדיפות.
+        מה דורש טיפול היום?
       </p>
 
-      <section aria-labelledby="actions-heading">
-        <h2 id="actions-heading" className="mv-visually-hidden">
-          פעולות מומלצות
-        </h2>
-        <ul className="flex flex-col gap-3">
-          {DEMO_ACTIONS.map((item) => (
-            <li
-              key={item.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"
+      <section aria-labelledby="counts-heading" className="mb-8">
+        <h2 id="counts-heading" className="mv-visually-hidden">מונים</h2>
+        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            { label: "נכסים", value: properties?.length, href: "/properties" },
+            { label: "קונים", value: buyers?.length, href: "/buyers" },
+            { label: "קונים חמים", value: buyers?.filter((b) => b.maturity === "very_hot" || b.maturity === "hot").length, href: "/buyers" },
+            { label: "נכסים להשלמה", value: properties?.filter((p) => p.readinessScore < 80).length, href: "/properties" },
+          ].map((card) => (
+            <Link
+              key={card.label}
+              href={card.href}
+              className="rounded-xl border p-4 no-underline"
               style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
             >
-              <div>
-                <h3 className="font-semibold">
-                  {item.urgent ? (
-                    <span style={{ color: "var(--color-danger)" }} aria-hidden="true">
-                      ●{" "}
-                    </span>
-                  ) : null}
-                  {item.title}
-                  {item.urgent ? <span className="mv-visually-hidden"> (דחוף)</span> : null}
-                </h3>
-                <p style={{ color: "var(--color-text-muted)" }}>{item.detail}</p>
-              </div>
-              <Button variant={item.urgent ? "primary" : "secondary"}>{item.action}</Button>
-            </li>
+              <dt className="text-sm" style={{ color: "var(--color-text-muted)" }}>{card.label}</dt>
+              <dd className="text-2xl font-bold">{card.value ?? "…"}</dd>
+            </Link>
           ))}
-        </ul>
+        </dl>
+      </section>
+
+      <section aria-labelledby="actions-heading">
+        <h2 id="actions-heading" className="mb-3 text-lg font-semibold">פעולות מומלצות</h2>
+        {loading ? (
+          <p aria-live="polite">טוען…</p>
+        ) : incomplete.length === 0 && hotBuyers.length === 0 ? (
+          <div className="rounded-xl border p-6 text-center" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+            <p className="mb-3">הכל מטופל ✓ — אפשר להוסיף נכס או קונה חדשים.</p>
+            <div className="flex justify-center gap-3">
+              <Link href="/properties/new"><Button>נכס חדש</Button></Link>
+              <Link href="/buyers/new"><Button variant="secondary">קונה חדש</Button></Link>
+            </div>
+          </div>
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {incomplete.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+                <div>
+                  <h3 className="font-semibold">
+                    להשלים פרטים לנכס {[p.street, p.city].filter(Boolean).join(", ") || "ללא כתובת"}
+                  </h3>
+                  <p style={{ color: "var(--color-text-muted)" }}>
+                    {p.readinessScore}% מוכן — חסרים:{" "}
+                    {p.missingFields.slice(0, 4).map((field) => FIELD_LABELS[field] ?? field).join(", ")}
+                    {p.missingFields.length > 4 ? ` ועוד ${p.missingFields.length - 4}` : ""}
+                  </p>
+                </div>
+                <Link href={`/properties/${p.id}`}><Button variant="secondary">השלם פרטים</Button></Link>
+              </li>
+            ))}
+            {hotBuyers.map((b) => (
+              <li key={b.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+                <div>
+                  <h3 className="font-semibold">
+                    <span style={{ color: "var(--color-danger)" }} aria-hidden="true">● </span>
+                    לבדוק התאמות עבור {b.contact.name}
+                    <span className="mv-visually-hidden"> (קונה {MATURITY_LABELS[b.maturity]})</span>
+                  </h3>
+                  <p style={{ color: "var(--color-text-muted)" }}>
+                    קונה {MATURITY_LABELS[b.maturity] ?? b.maturity} — כדאי לוודא שקיבל הצעות רלוונטיות
+                  </p>
+                </div>
+                <Link href={`/buyers/${b.id}`}><Button>צפה בהתאמות</Button></Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </>
   );

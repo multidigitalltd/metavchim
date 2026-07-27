@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { SkipLink } from "@metavchim/ui";
+import { UserMenu } from "./user-menu";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -41,18 +42,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               מערכת 360 <span className="mv-visually-hidden">— חזרה לדשבורד</span>
             </a>
             <nav aria-label="ניווט ראשי">
-              <ul className="flex flex-wrap gap-1">
+              <ul className="flex flex-wrap items-center gap-1">
                 {NAV_ITEMS.map((item) => (
                   <li key={item.href}>
                     <a
                       href={item.href}
                       className="inline-block rounded-md px-3 py-2 hover:underline"
-                      aria-current={item.href === "/" ? "page" : undefined}
                     >
                       {item.label}
                     </a>
                   </li>
                 ))}
+                <li>
+                  <UserMenu />
+                </li>
               </ul>
             </nav>
           </div>
