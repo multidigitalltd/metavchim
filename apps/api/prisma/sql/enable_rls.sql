@@ -14,8 +14,10 @@ DO $$
 DECLARE
   t text;
 BEGIN
+  -- users/sessions אינן כאן בכוונה: החיפוש בהן קורה לפני שקיים הקשר דייר
+  -- (Login). אין בהן PII של לקוחות קצה; סינון הדייר נאכף בשכבת האפליקציה.
   FOREACH t IN ARRAY ARRAY[
-    'users', 'contacts', 'properties', 'property_media',
+    'contacts', 'properties', 'property_media',
     'buyers', 'leads', 'matches', 'offers', 'outbox_events', 'audit_log'
   ]
   LOOP

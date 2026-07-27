@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
+import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { AppModule } from "./app.module";
 import { loadEnv } from "./config/env";
@@ -12,6 +13,7 @@ async function bootstrap(): Promise<void> {
   });
 
   app.use(helmet());
+  app.use(cookieParser());
 
   // CORS נעול ל-Origin המוצהר בלבד — לא wildcard, לא רשימה דינמית.
   app.enableCors({

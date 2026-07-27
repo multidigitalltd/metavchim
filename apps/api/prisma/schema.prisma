@@ -12,7 +12,10 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // הרצה שוטפת: תפקיד האפליקציה המוגבל (RLS חל עליו)
+  url       = env("DATABASE_URL")
+  // מיגרציות: תפקיד הבעלים — הפרדת הרשאות (docs/04 §2)
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 model Tenant {
@@ -24,17 +27,20 @@ model Tenant {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  users      Users[]
+  users      User[]
   properties Property[]
 
   @@map("tenants")
 }
 
-model Users {
+// הערת RLS: users ו-sessions הן תשתית אימות — החיפוש בהן קורה לפני שקיים
+// הקשר דייר (בזמן Login), ולכן הן מחוץ לפוליסת ה-RLS. הן לא מכילות PII של
+// לקוחות קצה; הסינון לפי דייר נאכף בשכבת האפליקציה.
+model User {
   id           String    @id @db.Char(26)
   tenantId     String    @map("tenant_id") @db.Char(26)
   name         String    @db.VarChar(120)
-  email        String    @db.VarChar(254)
+  email        String    @unique @db.VarChar(254)
   passwordHash String?   @map("password_hash") @db.VarChar(255)
   phone        String?   @db.VarChar(20)
   role         String    @db.VarChar(20)
@@ -44,11 +50,28 @@ model Users {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  sessions Session[]
 
-  @@unique([tenantId, email])
   @@index([tenantId, isActive])
   @@map("users")
+}
+
+model Session {
+  id        String   @id @db.Char(26)
+  userId    String   @map("user_id") @db.Char(26)
+  // בעוגייה נשמר טוקן אקראי; כאן רק ה-SHA-256 שלו — גניבת DB לא מספיקה לחטיפת Session.
+  tokenHash String   @unique @map("token_hash") @db.Char(64)
+  expiresAt DateTime @map("expires_at")
+  ipAddress String?  @map("ip_address") @db.VarChar(45)
+  userAgent String?  @map("user_agent") @db.VarChar(300)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
 }
 
 // אדם אמיתי אחד — קונה/מוכר/ליד מפנים לכאן; אין כפילויות אדם (docs/03 §3).

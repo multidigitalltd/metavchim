@@ -23,10 +23,17 @@ docs/        מסמכי תכנון ו-ADRs
 
 ```bash
 pnpm install
-docker compose up -d          # PostgreSQL, Redis, MinIO, Mailpit
-cp .env.example .env          # ולעדכן ערכים במידת הצורך
-pnpm --filter @metavchim/api prisma:generate
-pnpm dev                      # web על :3000, api על :3001
+docker compose up -d                # PostgreSQL, Redis, MinIO, Mailpit
+cp .env.example .env                # ולעדכן ערכים במידת הצורך
+
+cd apps/api
+npx prisma migrate dev              # סכמה (רץ עם DIRECT_DATABASE_URL — הבעלים)
+psql "$DIRECT_DATABASE_URL" -f prisma/sql/create_app_role.sql   # תפקיד אפליקציה מוגבל
+psql "$DIRECT_DATABASE_URL" -f prisma/sql/enable_rls.sql        # בידוד דיירים ב-DB
+npx prisma db seed                  # שתי סוכנויות דמו (demo-a/b@metavchim.local / Demo1234!)
+cd ../..
+
+pnpm dev                            # web על :3000, api על :3001
 ```
 
 בדיקות ואיכות: `pnpm typecheck` · `pnpm lint` · `pnpm build`
