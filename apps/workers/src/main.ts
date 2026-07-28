@@ -34,6 +34,19 @@ async function processNotification(job: Job): Promise<void> {
   const data = NotificationJobSchema.parse(job.data);
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('app.tenant_id', ${data.tenantId}, true)`;
+
+    // תזכורת מושהית נבדקת בזמן הריצה: פגישה שבוטלה/הסתיימה בינתיים —
+    // אין תזכורת מטעה (ביקורת Codex, PR #2).
+    if (data.type === "appointment_reminder" && data.entityId) {
+      const appointment = await tx.appointment.findFirst({
+        where: { id: data.entityId, tenantId: data.tenantId },
+        select: { status: true },
+      });
+      if (!appointment || appointment.status !== "scheduled") {
+        return;
+      }
+    }
+
     await tx.notification.create({
       data: {
         id: ulid(),

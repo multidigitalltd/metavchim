@@ -98,6 +98,12 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
     setCopiedFor(matchId);
   }
 
+  /** פותח וואטסאפ עם ההודעה והקישור מוכנים — המתווך רק לוחץ שלח (אפיון §10). */
+  async function sendWhatsApp(offerId: string) {
+    const { waUrl } = await apiPost<{ waUrl: string }>(`/offers/${offerId}/whatsapp`, {});
+    window.open(waUrl, "_blank", "noopener");
+  }
+
   if (error) {
     return (
       <p role="alert" style={{ color: "var(--color-danger)" }}>
@@ -212,8 +218,9 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                       {OFFER_STATUS_LABELS[offer.status] ?? offer.status}
                       {offer.openCount > 0 ? ` (${offer.openCount} צפיות)` : ""}
                     </span>
+                    <Button onClick={() => void sendWhatsApp(offer.id)}>📲 שלח בוואטסאפ</Button>
                     <a href={offer.url} target="_blank" rel="noreferrer" className="underline">
-                      פתח את דף ההצעה
+                      דף ההצעה
                     </a>
                     {copiedFor === m.id ? (
                       <span role="status" style={{ color: "var(--color-success)" }}>

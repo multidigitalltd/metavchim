@@ -103,6 +103,12 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         </p>
       ) : null}
 
+      <div className="mb-4">
+        <Link href={`/calendar/new?leadId=${lead.id}`}>
+          <Button variant="secondary">📅 קבע פגישה</Button>
+        </Link>
+      </div>
+
       <div className="mb-8">
         <label htmlFor="status" className="mb-1 block font-medium">סטטוס</label>
         <select

@@ -72,7 +72,32 @@ export function notificationFromEvent<E extends DomainEventName>(
         entityId: p.propertyId,
       };
     }
+    case "appointment.scheduled": {
+      const p = payload as DomainEventPayload<"appointment.scheduled">;
+      return {
+        tenantId: p.tenantId,
+        type: "appointment_scheduled",
+        title: "פגישה חדשה נקבעה ביומן",
+        entityType: "appointment",
+        entityId: p.appointmentId,
+      };
+    }
     default:
       return null;
   }
+}
+
+/** תזכורת שעה לפני פגישה — נכנסת לתור עם Delay (docs/01 §13). */
+export function buildAppointmentReminder(payload: {
+  appointmentId: string;
+  tenantId: string;
+}): NotificationJob {
+  return {
+    tenantId: payload.tenantId,
+    type: "appointment_reminder",
+    title: "⏰ תזכורת: פגישה מתחילה בעוד שעה",
+    body: "בדקו את פרטי הנכס והלקוח לפני היציאה.",
+    entityType: "appointment",
+    entityId: payload.appointmentId,
+  };
 }
