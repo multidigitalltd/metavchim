@@ -19,10 +19,20 @@ export class CoachService {
   constructor(private readonly prisma: PrismaService) {}
 
   async recommendations(): Promise<CoachRecommendation[]> {
-    const tenantId = TenantContext.current().tenantId;
+    const ctx = TenantContext.current();
+    const tenantId = ctx.tenantId;
+    // סיורים כוללים כותרות שעשויות להכיל שם לקוח — רק למי שרשאי ליומן
+    const canSeeCalendar = ctx.capabilities.has("calendar.manage");
     const signals = await this.prisma.withTenant(async (tx): Promise<CoachSignals> => {
       const buyerScope = ownershipFilter("buyers.view_all", "ownerUserId");
       const leadScope = ownershipFilter("leads.view_all", "assignedToUserId");
+      // מזהי הקונים שהמשתמש רשאי אליהם — לסינון הצעות מתלבטות לפי בעלות
+      const scopedBuyerIds = (
+        await tx.buyer.findMany({
+          where: { tenantId, deletedAt: null, ...buyerScope },
+          select: { id: true },
+        })
+      ).map((b) => b.id);
 
       // קונים חמים בלי הצעה כלל
       const hotBuyers = await tx.buyer.findMany({
@@ -41,12 +51,23 @@ export class CoachService {
       const activeProps = await tx.property.findMany({
         where: { tenantId, deletedAt: null, status: { in: ["draft", "active"] } },
       });
+      // ספירת התאמות מוצעות בשאילתה מקובצת אחת — לא N שאילתות (ביקורת Codex)
+      const matchCounts = await tx.match.groupBy({
+        by: ["propertyId"],
+        where: {
+          tenantId,
+          status: "suggested",
+          propertyId: { in: activeProps.map((p) => p.id) },
+        },
+        _count: { _all: true },
+      });
+      const matchCountByProperty = new Map(
+        matchCounts.map((row) => [row.propertyId, row._count._all]),
+      );
       const propertiesWithUnsentMatches: CoachSignals["propertiesWithUnsentMatches"] = [];
       const incompleteProperties: CoachSignals["incompleteProperties"] = [];
       for (const prop of activeProps) {
-        const matchCount = await tx.match.count({
-          where: { tenantId, propertyId: prop.id, status: "suggested" },
-        });
+        const matchCount = matchCountByProperty.get(prop.id) ?? 0;
         const title =
           prop.marketingTitle ?? ([prop.street, prop.city].filter(Boolean).join(", ") || "נכס");
         if (matchCount > 0) {
@@ -65,9 +86,21 @@ export class CoachService {
         }
       }
 
-      // הצעות שנפתחו 3+ פעמים ולא הביעו עניין
+      // הצעות שנפתחו 3+ פעמים ולא הביעו עניין — רק על קונים שהמשתמש רשאי
+      // אליהם (סינון בעלות דרך match→buyer, ביקורת Codex)
+      const scopedMatchIds = (
+        await tx.match.findMany({
+          where: { tenantId, buyerId: { in: scopedBuyerIds } },
+          select: { id: true },
+        })
+      ).map((m) => m.id);
       const hesitating = await tx.offer.findMany({
-        where: { tenantId, openCount: { gte: 3 }, status: { in: ["opened", "sent", "delivered"] } },
+        where: {
+          tenantId,
+          matchId: { in: scopedMatchIds },
+          openCount: { gte: 3 },
+          status: { in: ["opened", "sent", "delivered"] },
+        },
         orderBy: { openCount: "desc" },
         take: 10,
       });
@@ -92,20 +125,25 @@ export class CoachService {
         contactName: "לקוח",
       }));
 
-      // סיורים שהסתיימו בלי סיכום תוצאה
-      const pastViewings = await tx.appointment.findMany({
-        where: {
-          tenantId,
-          kind: "viewing",
-          status: "scheduled",
-          startsAt: { lt: new Date() },
-          outcome: null,
-        },
-        take: 5,
-      });
-      const pastViewingsWithoutOutcome: CoachSignals["pastViewingsWithoutOutcome"] = pastViewings.map(
-        (a) => ({ appointmentId: a.id, title: a.title ?? "סיור" }),
-      );
+      // סיורים שהסתיימו בלי סיכום — רק למי שרשאי ליומן (הכותרת עשויה
+      // להכיל שם לקוח, ביקורת Codex)
+      let pastViewingsWithoutOutcome: CoachSignals["pastViewingsWithoutOutcome"] = [];
+      if (canSeeCalendar) {
+        const pastViewings = await tx.appointment.findMany({
+          where: {
+            tenantId,
+            kind: "viewing",
+            status: "scheduled",
+            startsAt: { lt: new Date() },
+            outcome: null,
+          },
+          take: 5,
+        });
+        pastViewingsWithoutOutcome = pastViewings.map((a) => ({
+          appointmentId: a.id,
+          title: a.title ?? "סיור",
+        }));
+      }
 
       return {
         hotBuyersWithoutOffer,
