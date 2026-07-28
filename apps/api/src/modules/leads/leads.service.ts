@@ -1,0 +1,230 @@
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { ulid } from "ulid";
+import type { Page } from "@metavchim/shared";
+import { TenantContext } from "../../common/tenant-context";
+import { AuditService } from "../../core/audit.service";
+import { OutboxService } from "../../core/outbox.service";
+import { PrismaService } from "../../core/prisma.service";
+import { ContactsService } from "../contacts/contacts.service";
+
+export interface LeadDto {
+  id: string;
+  contact: { id: string; name: string; phone: string };
+  source: string;
+  intent: string;
+  status: string;
+  requiresHuman: boolean;
+  requiresHumanReason?: string;
+  summary?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface InteractionDto {
+  id: string;
+  kind: string;
+  direction?: string;
+  content: string;
+  createdAt: Date;
+}
+
+@Injectable()
+export class LeadsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly contacts: ContactsService,
+    private readonly audit: AuditService,
+    private readonly outbox: OutboxService,
+  ) {}
+
+  async create(input: {
+    contactName: string;
+    contactPhone: string;
+    source: string;
+    intent: string;
+    summary?: string;
+    requiresHuman?: boolean;
+    requiresHumanReason?: string;
+  }): Promise<LeadDto> {
+    const ctx = TenantContext.current();
+    const id = ulid();
+
+    await this.prisma.withTenant(async (tx) => {
+      const contact = await this.contacts.findOrCreateByPhone(tx, {
+        name: input.contactName,
+        phone: input.contactPhone,
+      });
+      await tx.lead.create({
+        data: {
+          id,
+          tenantId: ctx.tenantId,
+          contactId: contact.id,
+          source: input.source,
+          intent: input.intent,
+          status: "new",
+          assignedToUserId: ctx.userId,
+          requiresHuman: input.requiresHuman ?? false,
+          requiresHumanReason: input.requiresHumanReason ?? null,
+          summary: input.summary ?? null,
+        },
+      });
+      if (input.summary) {
+        await tx.interaction.create({
+          data: {
+            id: ulid(),
+            tenantId: ctx.tenantId,
+            leadId: id,
+            kind: "note",
+            content: input.summary,
+            createdBy: ctx.userId,
+          },
+        });
+      }
+      await this.audit.record(tx, { action: "lead.create", entityType: "lead", entityId: id });
+      await this.outbox.emit(tx, "lead.created", {
+        leadId: id,
+        tenantId: ctx.tenantId,
+        source: input.source,
+        requiresHuman: input.requiresHuman ?? false,
+      });
+    });
+
+    return this.getById(id).then((r) => r.lead);
+  }
+
+  async updateStatus(id: string, status: string): Promise<void> {
+    const ctx = TenantContext.current();
+    await this.prisma.withTenant(async (tx) => {
+      const lead = await tx.lead.findFirst({ where: { id, tenantId: ctx.tenantId } });
+      if (!lead) throw new NotFoundException("ליד לא נמצא");
+      await tx.lead.update({
+        where: { id },
+        data: {
+          status,
+          requiresHuman: status === "new" ? lead.requiresHuman : false,
+          ...(lead.firstResponseAt === null && status !== "new"
+            ? { firstResponseAt: new Date() }
+            : {}),
+        },
+      });
+      await tx.interaction.create({
+        data: {
+          id: ulid(),
+          tenantId: ctx.tenantId,
+          leadId: id,
+          kind: "status_change",
+          content: status,
+          createdBy: ctx.userId,
+        },
+      });
+      await this.audit.record(tx, {
+        action: "lead.status",
+        entityType: "lead",
+        entityId: id,
+        metadata: { status },
+      });
+    });
+  }
+
+  async addNote(id: string, content: string): Promise<InteractionDto> {
+    const ctx = TenantContext.current();
+    const noteId = ulid();
+    await this.prisma.withTenant(async (tx) => {
+      const lead = await tx.lead.findFirst({ where: { id, tenantId: ctx.tenantId } });
+      if (!lead) throw new NotFoundException("ליד לא נמצא");
+      await tx.interaction.create({
+        data: {
+          id: noteId,
+          tenantId: ctx.tenantId,
+          leadId: id,
+          kind: "note",
+          content,
+          createdBy: ctx.userId,
+        },
+      });
+    });
+    return { id: noteId, kind: "note", content, createdAt: new Date() };
+  }
+
+  async getById(id: string): Promise<{ lead: LeadDto; timeline: InteractionDto[] }> {
+    return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
+      const row = await tx.lead.findFirst({ where: { id, tenantId } });
+      if (!row) throw new NotFoundException("ליד לא נמצא");
+      const contact = await this.contacts.getById(tx, row.contactId);
+      if (!contact) throw new NotFoundException("איש קשר לא נמצא");
+      const interactions = await tx.interaction.findMany({
+        where: { tenantId, leadId: id },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      });
+      return {
+        lead: toLeadDto(row, contact),
+        timeline: interactions.map((i) => ({
+          id: i.id,
+          kind: i.kind,
+          direction: i.direction ?? undefined,
+          content: i.content,
+          createdAt: i.createdAt,
+        })),
+      };
+    });
+  }
+
+  async list(query: {
+    status?: string;
+    requiresHuman?: boolean;
+    cursor?: string;
+    limit: number;
+  }): Promise<Page<LeadDto>> {
+    return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
+      const rows = await tx.lead.findMany({
+        where: {
+          tenantId,
+          ...(query.status ? { status: query.status } : {}),
+          ...(query.requiresHuman !== undefined ? { requiresHuman: query.requiresHuman } : {}),
+          ...(query.cursor ? { id: { lt: query.cursor } } : {}),
+        },
+        orderBy: { id: "desc" },
+        take: query.limit + 1,
+      });
+      const hasMore = rows.length > query.limit;
+      const page = rows.slice(0, query.limit);
+      const items: LeadDto[] = [];
+      for (const row of page) {
+        const contact = await this.contacts.getById(tx, row.contactId);
+        if (contact) items.push(toLeadDto(row, contact));
+      }
+      return { items, nextCursor: hasMore ? (page.at(-1)?.id ?? null) : null };
+    });
+  }
+}
+
+function toLeadDto(
+  row: {
+    id: string;
+    source: string;
+    intent: string;
+    status: string;
+    requiresHuman: boolean;
+    requiresHumanReason: string | null;
+    summary: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  contact: { id: string; name: string; phone: string },
+): LeadDto {
+  return {
+    id: row.id,
+    contact,
+    source: row.source,
+    intent: row.intent,
+    status: row.status,
+    requiresHuman: row.requiresHuman,
+    requiresHumanReason: row.requiresHumanReason ?? undefined,
+    summary: row.summary ?? undefined,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}

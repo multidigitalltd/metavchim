@@ -178,6 +178,36 @@ model Buyer {
   @@map("buyers")
 }
 
+// ציר הזמן של ליד: הערות, שיחות, הודעות, שינויי סטטוס (docs/03 §3).
+model Interaction {
+  id        String   @id @db.Char(26)
+  tenantId  String   @map("tenant_id") @db.Char(26)
+  leadId    String   @map("lead_id") @db.Char(26)
+  kind      String   @db.VarChar(20) // note | call | whatsapp | status_change | system
+  direction String?  @db.VarChar(10) // in | out
+  content   String
+  createdBy String?  @map("created_by") @db.Char(26)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, leadId, createdAt])
+  @@map("interactions")
+}
+
+// קליטת נכס בקול: התמלול, השדות שחולצו והחוסרים — נשמר לשחזור ותיקון.
+model VoiceIntake {
+  id              String   @id @db.Char(26)
+  tenantId        String   @map("tenant_id") @db.Char(26)
+  transcript      String
+  extractedFields Json     @default("{}") @map("extracted_fields")
+  missingFields   String[] @map("missing_fields")
+  propertyId      String?  @map("property_id") @db.Char(26)
+  createdBy       String?  @map("created_by") @db.Char(26)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@map("voice_intakes")
+}
+
 model Lead {
   id                  String    @id @db.Char(26)
   tenantId            String    @map("tenant_id") @db.Char(26)

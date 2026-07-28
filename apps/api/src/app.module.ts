@@ -7,9 +7,11 @@ import { AuthModule } from "./modules/auth/auth.module";
 import { BuyersModule } from "./modules/buyers/buyers.module";
 import { ContactsModule } from "./modules/contacts/contacts.module";
 import { HealthModule } from "./modules/health/health.module";
+import { LeadsModule } from "./modules/leads/leads.module";
 import { MatchingModule } from "./modules/matching/matching.module";
 import { OffersModule } from "./modules/offers/offers.module";
 import { PropertiesModule } from "./modules/properties/properties.module";
+import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
 
 /**
  * מודול-העל. כל Endpoint מוגן כברירת מחדל (AuthGuard גלובלי);
@@ -26,6 +28,8 @@ import { PropertiesModule } from "./modules/properties/properties.module";
     BuyersModule,
     MatchingModule,
     OffersModule,
+    LeadsModule,
+    VoiceIntakeModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })

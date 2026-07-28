@@ -17,8 +17,9 @@ BEGIN
   -- users/sessions אינן כאן בכוונה: החיפוש בהן קורה לפני שקיים הקשר דייר
   -- (Login). אין בהן PII של לקוחות קצה; סינון הדייר נאכף בשכבת האפליקציה.
   FOREACH t IN ARRAY ARRAY[
-    'contacts', 'properties', 'property_media',
-    'buyers', 'leads', 'matches', 'offers', 'outbox_events', 'audit_log'
+    'contacts', 'properties', 'property_media', 'buyers', 'leads',
+    'interactions', 'voice_intakes', 'matches', 'offers',
+    'outbox_events', 'audit_log'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);

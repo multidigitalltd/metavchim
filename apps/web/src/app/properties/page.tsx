@@ -36,9 +36,14 @@ export default function PropertiesPage() {
     <>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">נכסים</h1>
-        <Link href="/properties/new">
-          <Button>➕ נכס חדש</Button>
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/properties/voice">
+            <Button>🎤 נכס בקול</Button>
+          </Link>
+          <Link href="/properties/new">
+            <Button variant="secondary">➕ נכס חדש</Button>
+          </Link>
+        </div>
       </div>
 
       {error ? (

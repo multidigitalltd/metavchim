@@ -27,10 +27,19 @@ interface BuyerRow {
   maturity: string;
 }
 
+interface LeadRow {
+  id: string;
+  contact: { name: string };
+  status: string;
+  requiresHuman: boolean;
+  requiresHumanReason?: string;
+}
+
 export default function DashboardPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const [properties, setProperties] = useState<PropertyRow[] | null>(null);
   const [buyers, setBuyers] = useState<BuyerRow[] | null>(null);
+  const [leads, setLeads] = useState<LeadRow[] | null>(null);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -40,13 +49,18 @@ export default function DashboardPage() {
     apiGet<{ items: BuyerRow[] }>("/buyers?limit=100")
       .then((r) => setBuyers(r.items))
       .catch(() => setBuyers([]));
+    apiGet<{ items: LeadRow[] }>("/leads?limit=100")
+      .then((r) => setLeads(r.items))
+      .catch(() => setLeads([]));
   }, [authLoading, user]);
 
   if (authLoading || !user) return <p aria-live="polite">טוען…</p>;
 
+  const urgentLeads = (leads ?? []).filter((l) => l.requiresHuman).slice(0, 3);
+  const newLeads = (leads ?? []).filter((l) => l.status === "new" && !l.requiresHuman).slice(0, 2);
   const incomplete = (properties ?? []).filter((p) => p.readinessScore < 80).slice(0, 3);
   const hotBuyers = (buyers ?? []).filter((b) => b.maturity === "very_hot" || b.maturity === "hot").slice(0, 3);
-  const loading = properties === null || buyers === null;
+  const loading = properties === null || buyers === null || leads === null;
 
   return (
     <>
@@ -59,8 +73,8 @@ export default function DashboardPage() {
         <h2 id="counts-heading" className="mv-visually-hidden">מונים</h2>
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
+            { label: "לידים פתוחים", value: leads?.filter((l) => l.status === "new" || l.status === "in_progress").length, href: "/leads" },
             { label: "נכסים", value: properties?.length, href: "/properties" },
-            { label: "קונים", value: buyers?.length, href: "/buyers" },
             { label: "קונים חמים", value: buyers?.filter((b) => b.maturity === "very_hot" || b.maturity === "hot").length, href: "/buyers" },
             { label: "נכסים להשלמה", value: properties?.filter((p) => p.readinessScore < 80).length, href: "/properties" },
           ].map((card) => (
@@ -81,7 +95,7 @@ export default function DashboardPage() {
         <h2 id="actions-heading" className="mb-3 text-lg font-semibold">פעולות מומלצות</h2>
         {loading ? (
           <p aria-live="polite">טוען…</p>
-        ) : incomplete.length === 0 && hotBuyers.length === 0 ? (
+        ) : incomplete.length === 0 && hotBuyers.length === 0 && urgentLeads.length === 0 && newLeads.length === 0 ? (
           <div className="rounded-xl border p-6 text-center" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
             <p className="mb-3">הכל מטופל ✓ — אפשר להוסיף נכס או קונה חדשים.</p>
             <div className="flex justify-center gap-3">
@@ -91,6 +105,25 @@ export default function DashboardPage() {
           </div>
         ) : (
           <ul className="flex flex-col gap-3">
+            {urgentLeads.map((l) => (
+              <li key={l.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4" style={{ borderColor: "var(--color-danger)", background: "var(--color-surface)" }}>
+                <div>
+                  <h3 className="font-semibold" style={{ color: "var(--color-danger)" }}>
+                    ● ליד דורש טיפול אנושי: {l.contact.name}
+                  </h3>
+                  {l.requiresHumanReason ? (
+                    <p style={{ color: "var(--color-text-muted)" }}>{l.requiresHumanReason}</p>
+                  ) : null}
+                </div>
+                <Link href={`/leads/${l.id}`}><Button variant="danger">טפל עכשיו</Button></Link>
+              </li>
+            ))}
+            {newLeads.map((l) => (
+              <li key={l.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+                <h3 className="font-semibold">ליד חדש ממתין: {l.contact.name}</h3>
+                <Link href={`/leads/${l.id}`}><Button>פתח ליד</Button></Link>
+              </li>
+            ))}
             {incomplete.map((p) => (
               <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
                 <div>
