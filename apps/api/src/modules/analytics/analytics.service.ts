@@ -49,11 +49,14 @@ export class AnalyticsService {
         tx.property.count({ where: { tenantId, deletedAt: null, readinessScore: { lt: 80 } } }),
         tx.buyer.count({ where: { tenantId, deletedAt: null } }),
         tx.buyer.count({ where: { tenantId, deletedAt: null, maturity: { in: ["very_hot", "hot"] } } }),
-        tx.lead.count({ where: { tenantId, status: { in: ["new", "in_progress"] } } }),
+        tx.lead.count({
+          where: { tenantId, status: { in: ["new", "in_progress", "waiting_customer"] } },
+        }),
         tx.lead.count({ where: { tenantId, requiresHuman: true } }),
         tx.lead.count({ where: { tenantId, status: "converted" } }),
         tx.offer.count({ where: { tenantId, status: { not: "pending_approval" } } }),
-        tx.offer.count({ where: { tenantId, status: { in: ["opened", "interested"] } } }),
+        // "נפתחה" לפי חותמת הפתיחה ההיסטורית — הצעה שנפתחה ואז נדחתה עדיין נספרת
+        tx.offer.count({ where: { tenantId, firstOpenedAt: { not: null } } }),
         tx.offer.count({ where: { tenantId, status: "interested" } }),
         tx.appointment.count({
           where: { tenantId, status: "scheduled", startsAt: { gte: new Date() } },
@@ -102,15 +105,16 @@ export class AnalyticsService {
       const leadCount = new Map(leadsByUser.map((r) => [r.assignedToUserId, r._count._all]));
       const apptCount = new Map(apptByUser.map((r) => [r.createdBy, r._count._all]));
 
-      // הצעות נספרות דרך הליד המשויך — groupBy עקיף, לכן שאילתה נפרדת קלה
+      // הצעה משויכת לסוכן דרך בעל הקונה (buyer.ownerUserId) — שיוך יחיד
+      // ודטרמיניסטי; לא JOIN דרך לידים שעלול לספור הצעה כמה פעמים
+      // (ביקורת Codex, PR #6).
       const offersByAgent = await tx.$queryRaw<{ agent: string; n: bigint }[]>`
-        SELECT l.assigned_to_user_id AS agent, COUNT(o.id) AS n
+        SELECT b.owner_user_id AS agent, COUNT(o.id) AS n
         FROM offers o
         JOIN matches m ON m.id = o.match_id
         JOIN buyers b ON b.id = m.buyer_id
-        JOIN leads l ON l.contact_id = b.contact_id
-        WHERE o.tenant_id = ${tenantId} AND l.assigned_to_user_id IS NOT NULL
-        GROUP BY l.assigned_to_user_id`;
+        WHERE o.tenant_id = ${tenantId} AND b.owner_user_id IS NOT NULL
+        GROUP BY b.owner_user_id`;
       const offerCount = new Map(offersByAgent.map((r) => [r.agent, Number(r.n)]));
 
       return users.map((u) => ({

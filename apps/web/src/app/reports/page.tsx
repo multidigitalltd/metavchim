@@ -47,10 +47,16 @@ export default function ReportsPage() {
   const { loading: authLoading } = useRequireAuth();
   const [stats, setStats] = useState<OfficeStats | null>(null);
   const [agents, setAgents] = useState<AgentPerfRow[] | null>(null);
+  const [upsell, setUpsell] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
-    apiGet<OfficeStats>("/analytics/office").then(setStats).catch(() => undefined);
+    apiGet<OfficeStats>("/analytics/office")
+      .then(setStats)
+      .catch((err: unknown) => {
+        // מסלול שאינו Agency — הדוחות נעולים (הפיצ'ר נאכף בשרת)
+        if (err instanceof ApiError && err.status === 403) setUpsell(true);
+      });
     apiGet<AgentPerfRow[]>("/analytics/agents")
       .then(setAgents)
       .catch((err: unknown) => {
@@ -59,7 +65,18 @@ export default function ReportsPage() {
       });
   }, [authLoading]);
 
-  if (authLoading || !stats) return <p aria-live="polite">טוען דוחות…</p>;
+  if (authLoading) return <p aria-live="polite">טוען דוחות…</p>;
+  if (upsell) {
+    return (
+      <div className="rounded-xl border p-8 text-center" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+        <h1 className="mb-2 text-2xl font-bold">דוחות ביצועים</h1>
+        <p style={{ color: "var(--color-text-muted)" }}>
+          דוחות הביצועים זמינים במסלול Agency ומעלה. לשדרוג — פנו לבעל המשרד.
+        </p>
+      </div>
+    );
+  }
+  if (!stats) return <p aria-live="polite">טוען דוחות…</p>;
 
   return (
     <>
