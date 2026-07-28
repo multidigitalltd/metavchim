@@ -38,6 +38,8 @@ export class PropertiesService {
   async createForImport(input: {
     fields: PropertyFields;
     marketingTitle?: string;
+    /** שימור סטטוס בייבוא-חזרה של קובץ מיוצא (Round-trip); ברירת מחדל: טיוטה. */
+    status?: string;
   }): Promise<string> {
     const id = await this.persist(input);
     try {
@@ -54,6 +56,7 @@ export class PropertiesService {
     marketingTitle?: string;
     marketingDescription?: string;
     internalNotes?: string;
+    status?: string;
   }): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
     const id = ulid();
@@ -67,7 +70,7 @@ export class PropertiesService {
         data: {
           id,
           tenantId,
-          status: "draft",
+          status: input.status ?? "draft",
           marketingTitle: input.marketingTitle ?? null,
           marketingDescription: input.marketingDescription ?? null,
           internalNotes: input.internalNotes ?? null,

@@ -4,6 +4,7 @@ import {
   DEAL_TYPE_LABELS_HE,
   FINANCING_LABELS_HE,
   MATURITY_LABELS_HE,
+  PROPERTY_STATUS_LABELS_HE,
   PROPERTY_TYPE_LABELS_HE,
   toCsv,
 } from "@metavchim/shared";
@@ -20,7 +21,22 @@ import { rowToFields } from "../properties/property.mapper";
  * ייצוא נרשם ב-Audit — הוצאת PII היא פעולה רגישה.
  */
 
-const EXPORT_CAP = 5000;
+/** גודל אצווה לעימוד — הייצוא תמיד מלא; אין קיטום שקט (ביקורת Codex). */
+const PAGE_SIZE = 1000;
+
+/** שליפת כל השורות בעימוד Cursor — קובץ ייצוא לעולם לא חסר רשומות. */
+async function fetchAll<T extends { id: string }>(
+  fetchPage: (cursor: string | undefined) => Promise<T[]>,
+): Promise<T[]> {
+  const all: T[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await fetchPage(cursor);
+    all.push(...page);
+    if (page.length < PAGE_SIZE) return all;
+    cursor = page[page.length - 1]?.id;
+  }
+}
 
 @Controller("export")
 export class ExportController {
@@ -37,11 +53,14 @@ export class ExportController {
   async properties(): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
     const rows = await this.prisma.withTenant(async (tx) => {
-      const items = await tx.property.findMany({
-        where: { tenantId, deletedAt: null },
-        orderBy: { createdAt: "asc" },
-        take: EXPORT_CAP,
-      });
+      const items = await fetchAll((cursor) =>
+        tx.property.findMany({
+          where: { tenantId, deletedAt: null },
+          orderBy: { id: "asc" },
+          take: PAGE_SIZE,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        }),
+      );
       await this.audit.record(tx, {
         action: "data.export_properties",
         entityType: "tenant",
@@ -65,7 +84,8 @@ export class ExportController {
           agorotToShekelString(f.priceAgorot),
           f.propertyType ? PROPERTY_TYPE_LABELS_HE[f.propertyType] : undefined,
           row.marketingTitle ?? undefined,
-          row.status,
+          PROPERTY_STATUS_LABELS_HE[row.status as keyof typeof PROPERTY_STATUS_LABELS_HE] ??
+            row.status,
         ];
       }),
     );
@@ -78,11 +98,14 @@ export class ExportController {
   async buyers(): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
     const { buyers, contacts } = await this.prisma.withTenant(async (tx) => {
-      const buyerRows = await tx.buyer.findMany({
-        where: { tenantId, deletedAt: null },
-        orderBy: { createdAt: "asc" },
-        take: EXPORT_CAP,
-      });
+      const buyerRows = await fetchAll((cursor) =>
+        tx.buyer.findMany({
+          where: { tenantId, deletedAt: null },
+          orderBy: { id: "asc" },
+          take: PAGE_SIZE,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        }),
+      );
       const contactRows = await tx.contact.findMany({
         where: { tenantId, id: { in: [...new Set(buyerRows.map((b) => b.contactId))] } },
         select: { id: true, nameEncrypted: true, phoneEncrypted: true },

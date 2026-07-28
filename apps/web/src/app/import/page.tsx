@@ -62,7 +62,8 @@ export default function ImportPage() {
   }, [csv, mode]);
 
   const rowCount = mode === "properties" ? parsed.propertyRows.length : parsed.buyerRows.length;
-  const tooMany = rowCount > MAX_ROWS;
+  // קבצים גדולים נשלחים באצוות של 500 — התקרה כאן היא רק רשת ביטחון בדפדפן
+  const tooMany = rowCount > 10_000;
 
   function reset(): void {
     setResult(null);
@@ -83,16 +84,25 @@ export default function ImportPage() {
     setSubmitting(true);
     reset();
     try {
-      const rows =
+      const rows: unknown[] =
         mode === "properties"
-          ? parsed.propertyRows.map((r) =>
-              r.marketingTitle === undefined
-                ? r.fields
-                : { ...r.fields, marketingTitle: r.marketingTitle },
-            )
+          ? parsed.propertyRows.map((r) => ({
+              ...r.fields,
+              ...(r.marketingTitle === undefined ? {} : { marketingTitle: r.marketingTitle }),
+              ...(r.status === undefined ? {} : { status: r.status }),
+            }))
           : parsed.buyerRows;
-      const res = await apiPost<ImportResult>(`/import/${mode}`, { rows });
-      setResult(res);
+
+      // קובץ מיוצא יכול להכיל אלפי שורות — נשלח באצוות בגודל שהשרת מקבל,
+      // עם צבירת תוצאות והיסט מספרי שורות כך שהדיווח נשאר מול הקובץ המקורי.
+      const total: ImportResult = { created: 0, failed: [] };
+      for (let offset = 0; offset < rows.length; offset += MAX_ROWS) {
+        const batch = rows.slice(offset, offset + MAX_ROWS);
+        const res = await apiPost<ImportResult>(`/import/${mode}`, { rows: batch });
+        total.created += res.created;
+        total.failed.push(...res.failed.map((f) => ({ ...f, row: f.row + offset })));
+      }
+      setResult(total);
     } catch (err) {
       if (err instanceof ApiError && err.issues.length > 0) {
         setError(`הנתונים לא עברו ולידציה: ${err.issues.map((i) => i.message).join("; ")}`);
@@ -144,7 +154,7 @@ export default function ImportPage() {
         {mode === "properties"
           ? "העלו קובץ CSV כדי לייבא נכסים קיימים בבת אחת. כותרות בעברית ממופות אוטומטית — עיר, שכונה, רחוב, חדרים, שטח, קומה, מחיר, סוג, כותרת."
           : "העלו קובץ CSV של לקוחות מחפשים. כותרות: שם, טלפון, ערים (מופרדות ב-;), סוג עסקה, תקציב, חדרים, בשלות, מימון, הערות. טלפונים מנורמלים אוטומטית."}{" "}
-        עד {MAX_ROWS} שורות בייבוא.
+        קבצים גדולים נשלחים אוטומטית באצוות של {MAX_ROWS}.
       </p>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -199,7 +209,7 @@ export default function ImportPage() {
 
       {tooMany ? (
         <p role="alert" className="mb-4" style={{ color: "var(--color-danger)" }}>
-          נמצאו {rowCount} שורות — המקסימום הוא {MAX_ROWS}. חלקו את הקובץ.
+          נמצאו {rowCount} שורות — המקסימום בייבוא אחד הוא 10,000. חלקו את הקובץ.
         </p>
       ) : null}
 

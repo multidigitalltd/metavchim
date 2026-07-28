@@ -1,5 +1,5 @@
 import type { BuyerMaturity } from "../schemas/buyer.js";
-import { parseCsvLine, parseShekelsToAgorot } from "./csv-import.js";
+import { parseCsvRecords, parseShekelsToAgorot, unsanitizeFormulaCell } from "./csv-import.js";
 
 /**
  * מיפוי CSV לרשומות קונים (docs/08 §6 — Onboarding): משרד חדש מעלה גם את
@@ -101,24 +101,21 @@ export function parseBuyersCsv(csv: string): {
   rows: ParsedBuyerRow[];
   unmappedHeaders: string[];
 } {
-  const lines = csv
-    .split(/\r?\n/u)
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
-  if (lines.length < 2) return { rows: [], unmappedHeaders: [] };
+  const records = parseCsvRecords(csv.replace(/^\uFEFF/u, ""));
+  if (records.length < 2) return { rows: [], unmappedHeaders: [] };
 
-  const headers = parseCsvLine(lines[0] ?? "");
+  const headers = records[0] ?? [];
   const mapped = headers.map((h) => HEADER_MAP[h.trim()]);
   const unmappedHeaders = headers.filter((_h, i) => mapped[i] === undefined);
 
   const rows: ParsedBuyerRow[] = [];
-  for (let i = 1; i < lines.length; i += 1) {
-    const cells = parseCsvLine(lines[i] ?? "");
+  for (let i = 1; i < records.length; i += 1) {
+    const cells = records[i] ?? [];
     const row: ParsedBuyerRow = { cities: [] };
 
     headers.forEach((_header, col) => {
       const target = mapped[col];
-      const raw = (cells[col] ?? "").trim();
+      const raw = unsanitizeFormulaCell((cells[col] ?? "").trim());
       if (!target || raw === "") return;
 
       if (target === "name" || target === "agentNotes") {

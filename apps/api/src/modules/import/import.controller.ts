@@ -21,6 +21,8 @@ import { PropertiesService } from "../properties/properties.service";
  */
 const ImportRowSchema = PropertyFieldsSchema.extend({
   marketingTitle: z.string().max(160).optional(),
+  /** שימור סטטוס בייבוא-חזרה של קובץ מיוצא (Round-trip). */
+  status: z.enum(["draft", "active", "on_hold", "sold", "rented", "archived"]).optional(),
 }).strict();
 
 const ImportEnvelopeSchema = z
@@ -81,8 +83,8 @@ export class ImportController {
         continue;
       }
       try {
-        const { marketingTitle, ...fields } = parsed.data;
-        await this.properties.createForImport({ fields, marketingTitle });
+        const { marketingTitle, status, ...fields } = parsed.data;
+        await this.properties.createForImport({ fields, marketingTitle, status });
         created += 1;
       } catch (error) {
         failed.push({

@@ -1,4 +1,4 @@
-import { PROPERTY_TYPE_MAP } from "./csv-import.js";
+import { PROPERTY_STATUS_MAP, PROPERTY_TYPE_MAP } from "./csv-import.js";
 import { DEAL_TYPE_MAP, FINANCING_MAP, MATURITY_MAP } from "./csv-import-buyers.js";
 
 /**
@@ -10,12 +10,24 @@ import { DEAL_TYPE_MAP, FINANCING_MAP, MATURITY_MAP } from "./csv-import-buyers.
 /** תו BOM — בלעדיו אקסל מציג עברית כג'יבריש בקידוד UTF-8. */
 export const CSV_BOM = "﻿";
 
-/** בריחת תא CSV: גרשיים כפולים ועטיפה כשיש פסיק/גרש/שורה חדשה. */
-export function escapeCsvCell(value: string): string {
-  if (/[",\n\r]/u.test(value)) {
-    return `"${value.replaceAll('"', '""')}"`;
-  }
+/**
+ * ניטרול נוסחאות גיליון (CSV Injection): תא שמתחיל ב-=, +, @ או במינוס
+ * שאינו מספר מקבל קידומת גרש — אקסל מציג טקסט במקום להריץ נוסחה מתוכן
+ * שהגיע מלקוחות. הפיך בייבוא (unsanitizeFormulaCell מסיר את הקידומת).
+ */
+export function sanitizeFormulaCell(value: string): string {
+  if (/^[=+@\t\r]/u.test(value)) return `'${value}`;
+  if (value.startsWith("-") && !/^-?\d+(\.\d+)?$/u.test(value)) return `'${value}`;
   return value;
+}
+
+/** בריחת תא CSV: ניטרול נוסחה, ואז גרשיים כפולים ועטיפה לפי הצורך. */
+export function escapeCsvCell(value: string): string {
+  const safe = sanitizeFormulaCell(value);
+  if (/[",\n\r]/u.test(safe)) {
+    return `"${safe.replaceAll('"', '""')}"`;
+  }
+  return safe;
 }
 
 /** בונה CSV מלא משורת כותרות ושורות ערכים (undefined → תא ריק). */
@@ -37,6 +49,7 @@ function invert<V extends string>(map: Record<string, V>): Record<V, string> {
 }
 
 export const PROPERTY_TYPE_LABELS_HE = invert(PROPERTY_TYPE_MAP);
+export const PROPERTY_STATUS_LABELS_HE = invert(PROPERTY_STATUS_MAP);
 export const DEAL_TYPE_LABELS_HE = invert(DEAL_TYPE_MAP);
 export const FINANCING_LABELS_HE = invert(
   FINANCING_MAP as Record<string, NonNullable<(typeof FINANCING_MAP)[string]>>,
