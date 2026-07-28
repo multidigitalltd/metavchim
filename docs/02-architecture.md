@@ -75,7 +75,7 @@ flowchart TB
 
 - צוות קטן-בינוני: מונוליט מודולרי = מהירות פיתוח מקסימלית, Deploy אחד, דיבוג פשוט.
 - הגבולות הפנימיים (מודול = חבילה עם API פנימי + אירועים) הם **אותם גבולות** שיאפשרו לחלץ שירות נפרד בעתיד (המועמדים הטבעיים: Voice Agent, Matching) — בלי לשכתב.
-- הכלל המחייב: **מודול לא ניגש לטבלאות של מודול אחר** — רק דרך ה-API הפנימי או אירועים. נאכף ב-Code Review ובבדיקת ארכיטקטורה אוטומטית (deptrac או מקבילה).
+- הכלל המחייב: **מודול לא ניגש לטבלאות של מודול אחר** — רק דרך ה-API הפנימי או אירועים. נאכף ב-Code Review ובבדיקת ארכיטקטורה אוטומטית (dependency-cruiser / Nx boundaries).
 
 ראו [ADR-001](adr/ADR-001-modular-monolith.md).
 
@@ -83,15 +83,18 @@ flowchart TB
 
 | שכבה | בחירה | נימוק |
 |------|-------|-------|
-| Backend | **PHP 8.3 + Laravel 11** | מנצל את מומחיות ה-PHP הקיימת של הצוות; אקוסיסטם בשל: Queues, Scheduler, Policies, Sanctum, Cashier; Modular עם php-artisan modules או מבנה Domain |
-| Frontend | **Vue 3 + Inertia.js (PWA)** | SPA-חוויה בלי לתחזק API-Client כפול; RTL מלא; PWA להתקנה במובייל |
+| Backend | **NestJS (Node 22, TypeScript)** | מערכת מודולים מובנית שממפה 1:1 על ה-Modular Monolith; DI, Guards, Pipes; מצטיין ב-WebSockets וסטרימינג (סוכן קולי, LLM) |
+| Frontend | **Next.js (React) כ-PWA** | מאגר הגיוס הגדול בישראל; SSR לדפי הצעה; RTL מלא; PWA להתקנה במובייל |
+| UI | **Radix UI + Tailwind** | רכיבים Headless נגישים מיסודם (ת"י 5568 / WCAG 2.2 AA) |
+| טיפוסים משותפים | **Monorepo (pnpm + Turborepo) + Zod** | סכמה אחת לשרת, ל-Workers ולממשק — הקומפיילר תופס אי-התאמות חוזה |
+| ORM | **Prisma** | טיפוסים מה-DB עד הממשק; מיגרציות מנוהלות |
 | DB | **PostgreSQL 16** | RLS לבידוד דיירים, JSONB לשדות גמישים, pgvector להתאמות סמנטיות |
-| Cache/Queue | **Redis** | Cache, תורים (Laravel Horizon), Rate Limiting, Locks |
+| Cache/Queue | **Redis + BullMQ** | Cache, תורים עם Retry/Backoff, Rate Limiting, Locks |
 | Storage | **S3-compatible** | הקלטות, תמונות, מסמכים — עם URL חתומים בלבד |
 | חיפוש | **pgvector בהתחלה; Meilisearch אם יידרש** | לא להוסיף רכיב תשתית לפני שיש צורך מוכח |
-| Realtime | **Laravel Reverb (WebSockets)** | התראות חיות בדשבורד ("קונה פתח הצעה") |
+| Realtime | **WebSockets (NestJS Gateway / Socket.IO)** | התראות חיות בדשבורד ("קונה פתח הצעה") |
 
-> חלופה שקולה: NestJS + Next.js אם יגויס צוות Node. ההחלטה תלוית-צוות; כל שאר המסמכים אגנוסטיים לשפה. ראו [ADR-002](adr/ADR-002-tech-stack.md).
+> ההחלטה והחלופות שנשקלו (Laravel, Python, Go, Elixir) — ראו [ADR-002](adr/ADR-002-tech-stack.md).
 
 ## 4. מפת מודולים וגבולות
 
@@ -160,25 +163,17 @@ sequenceDiagram
 ## 7. מבנה ריפו מוצע
 
 ```
-app/
-  Modules/
-    Identity/        # כל מודול: Domain/ Application/ Infrastructure/ Http/
-    Leads/
-    Properties/
-    Buyers/
-    Matching/
-    Offers/
-    Calendar/
-    Collaboration/
-  Platform/
-    Messaging/
-    AI/
-    Voice/
-    Billing/
-    Audit/
-    Notifications/
-  Shared/            # Value Objects, TenantContext, Event Bus, חוזים
-frontend/            # Vue 3 + Inertia
+apps/
+  api/               # NestJS — מודול Nest לכל מודול דומיין/פלטפורמה
+    src/modules/
+      identity/      # כל מודול: domain/ application/ infrastructure/ http/
+      leads/  properties/  buyers/  matching/  offers/  calendar/  collaboration/
+    src/platform/
+      messaging/  ai/  voice/  billing/  audit/  notifications/
+  web/               # Next.js (React) PWA
+  workers/           # BullMQ processors (אותם מודולים, Entry נפרד)
+packages/
+  shared/            # סכמות Zod, טיפוסים, חוזי אירועים, TenantContext
+  ui/                # Design System (Radix + Tailwind) + Storybook
 docs/                # המסמכים האלה
-tests/               # Unit לפי מודול, Feature חוצה-מודולים, Architecture tests
 ```

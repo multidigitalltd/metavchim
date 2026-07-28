@@ -1,0 +1,44 @@
+{
+  "name": "@metavchim/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "nest build",
+    "dev": "nest start --watch",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "prisma:generate": "prisma generate",
+    "prisma:validate": "prisma validate",
+    "db:migrate": "node --env-file=../../.env ./node_modules/prisma/build/index.js migrate dev",
+    "db:deploy": "node --env-file=../../.env ./node_modules/prisma/build/index.js migrate deploy",
+    "db:seed": "node --env-file=../../.env ./node_modules/tsx/dist/cli.mjs prisma/seed.ts"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@metavchim/shared": "workspace:*",
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@prisma/client": "^6.5.0",
+    "argon2": "^0.41.0",
+    "bullmq": "^5.34.0",
+    "cookie-parser": "^1.4.7",
+    "ioredis": "^5.4.0",
+    "helmet": "^8.0.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "ulid": "^2.3.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.0",
+    "@types/cookie-parser": "^1.4.8",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.0",
+    "prisma": "^6.5.0",
+    "tsx": "^4.19.0"
+  }
+}

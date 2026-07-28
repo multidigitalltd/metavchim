@@ -41,13 +41,14 @@
 
 ## 5. אבטחת קלט/פלט (כללי המחייבים כל PR)
 
-- כל קלט: ולידציה בצד שרת (Form Requests) — טיפוס, אורך, טווח, פורמט. הלקוח הוא נוחות, לא אבטחה.
-- כל פלט: Escaping לפי הקשר (תבניות Vue/Blade עושות זאת כברירת מחדל — אסור `v-html`/`{!! !!}` על תוכן משתמש).
-- SQL: אך ורק ORM/Prepared Statements. קונקטנציית SQL = חסימת PR.
-- CSRF: הגנת Framework על כל טופס; SameSite Cookies.
-- העלאות: הרחבה + MIME אמיתי (finfo) + גודל + הרשאה; שמות קבצים מוחלפים (ULID); ללא PHP/HTML executable.
+- כל קלט: ולידציה בצד שרת עם סכמות Zod (דרך NestJS Pipes) — טיפוס, אורך, טווח, פורמט. הלקוח הוא נוחות, לא אבטחה.
+- כל פלט: Escaping לפי הקשר (React עושה זאת כברירת מחדל — אסור `dangerouslySetInnerHTML` על תוכן משתמש).
+- SQL: אך ורק Prisma/Parameterized Queries. `$queryRawUnsafe` וקונקטנציית SQL = חסימת PR.
+- CSRF: SameSite Cookies + טוקן על פעולות משנות-מצב; CORS מוגדר במפורש (Origin ידועים בלבד).
+- העלאות: הרחבה + MIME אמיתי (magic bytes) + גודל + הרשאה; שמות קבצים מוחלפים (ULID); העלאה ישירה ל-S3 עם Presigned URL — קבצים לא נוגעים בשרת האפליקציה.
 - Redirects: רשימת יעדים מותרת בלבד.
-- Mass Assignment: `$fillable` מפורש בכל Model.
+- Mass Assignment: DTO מפורש לכל Endpoint (Zod `strict()`) — שדות לא מוצהרים נדחים.
+- Prototype Pollution / ReDoS: תלות ב-Lint rules ייעודיים + סריקת תלויות.
 
 ## 6. אבטחת אינטגרציות
 
@@ -74,8 +75,8 @@
 
 ## 9. תהליך אבטחה שוטף
 
-- סריקת תלויות (Dependabot/`composer audit`) — שבועי + חסימת CVE קריטי ב-CI.
-- SAST (Psalm/PHPStan ברמה מקסימלית + כללי אבטחה) בכל PR.
+- סריקת תלויות (Dependabot/`pnpm audit`) — שבועי + חסימת CVE קריטי ב-CI.
+- SAST (TypeScript strict + ESLint security rules + Semgrep) בכל PR.
 - בדיקת חדירות חיצונית לפני עליית Production ואחת לשנה.
 - תוכנית תגובה לאירוע: Runbook כתוב, איש קשר, תרגול חצי-שנתי.
 - עיקרון הרשאה מינימלית גם פנימית: גישת Production לצוות מצומצם, דרך Bastion, עם Audit.

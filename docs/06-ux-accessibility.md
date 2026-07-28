@@ -65,7 +65,7 @@
 
 ## 5. Design System
 
-- ספריית רכיבים פנימית אחת (מבוססת Headless — Radix-Vue/Reka — עם עיצוב שלנו): Button, Card, Modal, Toast, Table, Chips, Timeline, VoiceRecorder, MatchScore, StatusBadge...
+- ספריית רכיבים פנימית אחת (מבוססת Headless — Radix UI — עם עיצוב שלנו): Button, Card, Modal, Toast, Table, Chips, Timeline, VoiceRecorder, MatchScore, StatusBadge...
 - טוקנים: צבעים (כולל מצב כהה), טיפוגרפיה, ריווח, צללים — מוכנים ל-White-Label (החלפת טוקנים פר-דייר ב-Enterprise).
 - כל רכיב נולד נגיש; רכיב שלא עומד בבדיקות נגישות לא נכנס לספרייה.
 - Storybook לתיעוד חי + בדיקות ויזואליות.

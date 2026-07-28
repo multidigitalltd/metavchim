@@ -1,0 +1,58 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+import { z } from "zod";
+
+/**
+ * ולידציית סביבה בעליית התהליך — קונפיגורציה שגויה מפילה את השרת מיד,
+ * לא מתגלה באמצע בקשה של לקוח.
+ *
+ * טעינת ‎.env: קובץ השורש של ה-Monorepo (התהליך של README) ואז מקומי;
+ * ערכים שכבר קיימים ב-process.env לא נדרסים (פרודקשן מזריקה ישירות).
+ */
+for (const candidate of [resolve(process.cwd(), "../../.env"), resolve(process.cwd(), ".env")]) {
+  if (existsSync(candidate)) {
+    try {
+      process.loadEnvFile(candidate);
+    } catch {
+      // קובץ פגום — הוולידציה למטה תדווח על מה שחסר
+    }
+  }
+}
+const EnvSchema = z.object({
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  API_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
+  WEB_ORIGIN: z.string().url(),
+  DATABASE_URL: z.string().min(1),
+  REDIS_URL: z.string().min(1),
+  /** מפתח AES-256-GCM להצפנת PII — 32 בייט ב-base64 (docs/04 §4). */
+  DATA_ENCRYPTION_KEY: z
+    .string()
+    .refine((v) => Buffer.from(v, "base64").length === 32, "חייב להיות 32 בייט ב-base64"),
+  /** מפתח HMAC ל-phone_hash — נפרד ממפתח ההצפנה בכוונה. */
+  PHONE_HASH_KEY: z.string().min(32),
+  /** סודות WhatsApp Cloud API — ה-Webhook סגור עד שהם מוגדרים. */
+  WHATSAPP_APP_SECRET: z.string().min(16).optional(),
+  WHATSAPP_VERIFY_TOKEN: z.string().min(16).optional(),
+  /** Secure cookies — חובה true בפרודקשן. */
+  COOKIE_SECURE: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+});
+
+export type Env = z.infer<typeof EnvSchema>;
+
+let cached: Env | null = null;
+
+export function loadEnv(): Env {
+  if (cached) return cached;
+  const parsed = EnvSchema.safeParse(process.env);
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+      .join("; ");
+    throw new Error(`Invalid environment configuration: ${issues}`);
+  }
+  cached = parsed.data;
+  return cached;
+}
