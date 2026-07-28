@@ -44,6 +44,44 @@ export class BuyersService {
     source: string;
     agentNotes?: string;
   }): Promise<BuyerDto> {
+    const id = await this.persist(input);
+    await this.matching.recomputeForBuyer(id);
+    return this.getById(id);
+  }
+
+  /**
+   * ייבוא בכמות (docs/08 §6): ההצלחה נקבעת בגבול הטרנזקציה — ברגע שהקונה
+   * נשמר הוא "נוצר", גם אם חישוב ההתאמות שאחריו נכשל זמנית (best-effort;
+   * יחושב מחדש בעריכה הבאה). מונע דיווח-כזב וכפילויות בניסיון חוזר.
+   */
+  async createForImport(input: {
+    contactName: string;
+    contactPhone: string;
+    requirements: BuyerRequirements;
+    financing?: string;
+    maturity?: string;
+    source: string;
+    agentNotes?: string;
+  }): Promise<string> {
+    const id = await this.persist(input);
+    try {
+      await this.matching.recomputeForBuyer(id);
+    } catch {
+      // הקונה כבר נשמר; חישוב ההתאמות אינו חלק מהצלחת היצירה.
+    }
+    return id;
+  }
+
+  /** יוצר את רשומת הקונה (+ איש הקשר) בטרנזקציה יחידה — גבול ההצלחה. */
+  private async persist(input: {
+    contactName: string;
+    contactPhone: string;
+    requirements: BuyerRequirements;
+    financing?: string;
+    maturity?: string;
+    source: string;
+    agentNotes?: string;
+  }): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
     const id = ulid();
 
@@ -82,8 +120,7 @@ export class BuyersService {
       });
     });
 
-    await this.matching.recomputeForBuyer(id);
-    return this.getById(id);
+    return id;
   }
 
   async update(

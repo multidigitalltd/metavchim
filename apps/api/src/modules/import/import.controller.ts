@@ -1,8 +1,15 @@
 import { Body, Controller, Post } from "@nestjs/common";
 import { z } from "zod";
-import { PropertyFieldsSchema } from "@metavchim/shared";
+import {
+  BuyerMaturitySchema,
+  FinancingStatusSchema,
+  MoneyAgorotSchema,
+  PhoneSchema,
+  PropertyFieldsSchema,
+} from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { BuyersService } from "../buyers/buyers.service";
 import { PropertiesService } from "../properties/properties.service";
 
 /**
@@ -22,6 +29,28 @@ const ImportEnvelopeSchema = z
   })
   .strict();
 
+/**
+ * שורת קונה מיובאת — שטוחה (כמו שמגיע מ-CSV); כאן היא מתורגמת למבנה
+ * BuyerRequirements המקונן. שם, טלפון, עיר אחת לפחות ותקציב — חובה.
+ */
+const ImportBuyerRowSchema = z
+  .object({
+    name: z.string().min(2).max(120),
+    phone: PhoneSchema,
+    cities: z.array(z.string().min(1).max(80)).min(1).max(10),
+    dealType: z.enum(["sale", "rent"], {
+      errorMap: () => ({ message: "סוג עסקה לא מזוהה — יש לציין מכירה או השכרה" }),
+    }),
+    budgetMinAgorot: MoneyAgorotSchema.optional(),
+    budgetMaxAgorot: MoneyAgorotSchema.refine((n) => n > 0, "תקציב חייב להיות חיובי"),
+    roomsMin: z.number().multipleOf(0.5).min(1).max(20).optional(),
+    roomsMax: z.number().multipleOf(0.5).min(1).max(20).optional(),
+    financing: FinancingStatusSchema.optional(),
+    maturity: BuyerMaturitySchema.optional(),
+    agentNotes: z.string().max(4000).optional(),
+  })
+  .strict();
+
 export interface ImportResult {
   created: number;
   failed: { row: number; error: string }[];
@@ -29,7 +58,10 @@ export interface ImportResult {
 
 @Controller("import")
 export class ImportController {
-  constructor(private readonly properties: PropertiesService) {}
+  constructor(
+    private readonly properties: PropertiesService,
+    private readonly buyers: BuyersService,
+  ) {}
 
   @Post("properties")
   @RequireCapability("properties.create")
@@ -51,6 +83,56 @@ export class ImportController {
       try {
         const { marketingTitle, ...fields } = parsed.data;
         await this.properties.createForImport({ fields, marketingTitle });
+        created += 1;
+      } catch (error) {
+        failed.push({
+          row: index + 1,
+          error: error instanceof Error ? error.message : "שגיאה לא צפויה",
+        });
+      }
+    }
+
+    return { created, failed };
+  }
+
+  @Post("buyers")
+  @RequireCapability("buyers.edit")
+  async importBuyers(
+    @Body(new ZodValidationPipe(ImportEnvelopeSchema)) body: z.infer<typeof ImportEnvelopeSchema>,
+  ): Promise<ImportResult> {
+    const failed: ImportResult["failed"] = [];
+    let created = 0;
+
+    for (const [index, rawRow] of body.rows.entries()) {
+      const parsed = ImportBuyerRowSchema.safeParse(rawRow);
+      if (!parsed.success) {
+        failed.push({
+          row: index + 1,
+          error: parsed.error.issues.map((i) => i.message).join("; ") || "שורה לא תקינה",
+        });
+        continue;
+      }
+      try {
+        const row = parsed.data;
+        await this.buyers.createForImport({
+          contactName: row.name,
+          contactPhone: row.phone,
+          requirements: {
+            cities: row.cities,
+            neighborhoods: [],
+            dealType: row.dealType,
+            propertyTypes: [],
+            budgetMinAgorot: row.budgetMinAgorot,
+            budgetMaxAgorot: row.budgetMaxAgorot,
+            roomsMin: row.roomsMin,
+            roomsMax: row.roomsMax,
+            features: {},
+          },
+          financing: row.financing,
+          maturity: row.maturity,
+          source: "ייבוא קובץ",
+          agentNotes: row.agentNotes,
+        });
         created += 1;
       } catch (error) {
         failed.push({

@@ -8,5 +8,6 @@ import { BuyersService } from "./buyers.service";
   imports: [ContactsModule, MatchingModule],
   controllers: [BuyersController],
   providers: [BuyersService],
+  exports: [BuyersService],
 })
 export class BuyersModule {}

@@ -37,6 +37,18 @@ export interface ParsedRow {
   marketingTitle?: string;
 }
 
+/**
+ * המרת מחיר בש"ח לאגורות עם שמירה על נקודה עשרונית: "6,000.00" → 600000
+ * (6,000₪), לא 60,000,000. פסיק = מפריד אלפים; נקודה = עשרוני (עד 2 ספרות).
+ * מחזיר undefined לערך שאינו מספר תקין — עדיף לדלג מאשר לייבא סכום שגוי.
+ */
+export function parseShekelsToAgorot(raw: string): number | undefined {
+  const cleaned = raw.replace(/[₪\s"']/gu, "").replace(/,/gu, "");
+  if (!/^\d+(\.\d{1,2})?$/u.test(cleaned)) return undefined;
+  const shekels = Number(cleaned);
+  return shekels > 0 ? Math.round(shekels * 100) : undefined;
+}
+
 /** פירוק שורת CSV אחת עם תמיכה בגרשיים ופסיקים בתוך שדה. */
 export function parseCsvLine(line: string): string[] {
   const cells: string[] = [];
@@ -103,8 +115,8 @@ export function parsePropertiesCsv(csv: string): {
         const n = Number(raw.replace(/[^\d-]/gu, ""));
         if (!Number.isNaN(n)) fields[target] = n;
       } else if (target === "priceAgorot") {
-        const n = Number(raw.replace(/[^\d]/gu, ""));
-        if (!Number.isNaN(n) && n > 0) fields.priceAgorot = n * 100; // ₪ → אגורות
+        const agorot = parseShekelsToAgorot(raw);
+        if (agorot !== undefined) fields.priceAgorot = agorot;
       } else {
         // שדות טקסט: city, neighborhood, street
         (fields as Record<string, unknown>)[target] = raw;
