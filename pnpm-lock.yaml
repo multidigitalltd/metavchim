@@ -144,6 +144,9 @@ importers:
 
   apps/workers:
     dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.1097.0
+        version: 3.1097.0
       '@metavchim/shared':
         specifier: workspace:*
         version: link:../../packages/shared

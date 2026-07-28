@@ -4,6 +4,8 @@ import { Worker, type Job } from "bullmq";
 import IORedis from "ioredis";
 import { PrismaClient } from "@prisma/client";
 import { ulid } from "ulid";
+import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { z } from "zod";
 import { NotificationJobSchema, QUEUES } from "@metavchim/shared";
 
 for (const candidate of [resolve(process.cwd(), "../../.env"), resolve(process.cwd(), ".env")]) {
@@ -61,8 +63,33 @@ async function processNotification(job: Job): Promise<void> {
   });
 }
 
+const s3 = new S3Client({
+  endpoint: process.env["S3_ENDPOINT"] ?? "http://localhost:9000",
+  region: process.env["S3_REGION"] ?? "us-east-1",
+  forcePathStyle: true,
+  credentials: {
+    accessKeyId: process.env["S3_ACCESS_KEY"] ?? "",
+    secretAccessKey: process.env["S3_SECRET_KEY"] ?? "",
+  },
+});
+const CleanupJobSchema = z.object({ tenantId: z.string(), s3Key: z.string().max(512) });
+
+/**
+ * ניקוי אובייקט אחסון שמחיקתו נכשלה ב-Request (ביקורת Codex, PR #12):
+ * DeleteObject אידמפוטנטי — מפתח שכבר נמחק מסתיים בהצלחה; BullMQ מנסה
+ * שוב עם Backoff עד 10 פעמים.
+ */
+async function processCleanup(job: Job): Promise<void> {
+  if (job.name !== "delete-object") return; // תור low משותף — כל סוג Job ממוין לפי שם
+  const { s3Key } = CleanupJobSchema.parse(job.data);
+  await s3.send(
+    new DeleteObjectCommand({ Bucket: process.env["S3_BUCKET"] ?? "metavchim", Key: s3Key }),
+  );
+}
+
 const workers = [
   new Worker(QUEUES.notifications, processNotification, { connection, concurrency: 10 }),
+  new Worker(QUEUES.low, processCleanup, { connection, concurrency: 2 }),
   // מעבדים נוספים (ai, matching, sync) יירשמו כאן מודול-מודול.
 ];
 

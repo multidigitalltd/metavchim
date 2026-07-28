@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { ulid } from "ulid";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
+import { OutboxService } from "../../core/outbox.service";
 import { PrismaService } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
 
@@ -50,7 +51,23 @@ export class MediaService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly audit: AuditService,
+    private readonly outbox: OutboxService,
   ) {}
+
+  /**
+   * מחיקת אובייקט עם רשת ביטחון: כשל זמני לא נבלע — נרשם אירוע Outbox
+   * שמנותב לתור low ומנוסה שוב עד הצלחה (ביקורת Codex, PR #12).
+   */
+  private async deleteObjectDurably(s3Key: string): Promise<void> {
+    const tenantId = TenantContext.current().tenantId;
+    try {
+      await this.storage.delete(s3Key);
+    } catch {
+      await this.prisma.withTenant(async (tx) => {
+        await this.outbox.emit(tx, "storage.cleanup_object", { tenantId, s3Key });
+      });
+    }
+  }
 
   async upload(propertyId: string, file: Buffer, altText?: string): Promise<MediaDto> {
     const tenantId = TenantContext.current().tenantId;
@@ -66,8 +83,7 @@ export class MediaService {
     const id = ulid();
     const s3Key = `tenants/${tenantId}/properties/${propertyId}/${id}.${sniffed.ext}`;
 
-    // בדיקת קיום הנכס והמכסה בתוך הקשר הדייר; ההעלאה ל-S3 לפני הרשומה —
-    // כך אין רשומה שמצביעה לקובץ שלא קיים (כשל S3 ⇒ אין רשומה).
+    // בדיקה מוקדמת (קיום + מכסה) — כישלון זול לפני כתיבה ל-S3.
     await this.prisma.withTenant(async (tx) => {
       const property = await tx.property.findFirst({
         where: { id: propertyId, tenantId, deletedAt: null },
@@ -80,37 +96,53 @@ export class MediaService {
       }
     });
 
+    // ההעלאה ל-S3 לפני הרשומה — כשל S3 ⇒ אין רשומה שמצביעה לכלום.
     await this.storage.put(s3Key, file, sniffed.mime);
 
-    await this.prisma.withTenant(async (tx) => {
-      const last = await tx.propertyMedia.findFirst({
-        where: { tenantId, propertyId },
-        orderBy: { sortOrder: "desc" },
-        select: { sortOrder: true },
+    let assignedOrder = 0;
+    try {
+      await this.prisma.withTenant(async (tx) => {
+        // נעילת שורת הנכס מסדרת העלאות מקבילות: המכסה וה-sortOrder
+        // מוקצים אטומית תחת אותה נעילה (ביקורת Codex, PR #12).
+        await tx.$queryRaw`SELECT id FROM properties WHERE id = ${propertyId} FOR UPDATE`;
+        const count = await tx.propertyMedia.count({ where: { tenantId, propertyId } });
+        if (count >= MAX_IMAGES_PER_PROPERTY) {
+          throw new BadRequestException(`עד ${MAX_IMAGES_PER_PROPERTY} תמונות לנכס`);
+        }
+        const last = await tx.propertyMedia.findFirst({
+          where: { tenantId, propertyId },
+          orderBy: { sortOrder: "desc" },
+          select: { sortOrder: true },
+        });
+        assignedOrder = (last?.sortOrder ?? -1) + 1;
+        await tx.propertyMedia.create({
+          data: {
+            id,
+            tenantId,
+            propertyId,
+            kind: "image",
+            s3Key,
+            altText: altText ?? null,
+            sortOrder: assignedOrder,
+          },
+        });
+        await this.audit.record(tx, {
+          action: "property.media_upload",
+          entityType: "property",
+          entityId: propertyId,
+        });
       });
-      await tx.propertyMedia.create({
-        data: {
-          id,
-          tenantId,
-          propertyId,
-          kind: "image",
-          s3Key,
-          altText: altText ?? null,
-          sortOrder: (last?.sortOrder ?? -1) + 1,
-        },
-      });
-      await this.audit.record(tx, {
-        action: "property.media_upload",
-        entityType: "property",
-        entityId: propertyId,
-      });
-    });
+    } catch (error) {
+      // הרשומה לא נוצרה — האובייקט שהועלה מנוקה (מיידית או דרך התור)
+      await this.deleteObjectDurably(s3Key);
+      throw error;
+    }
 
     return {
       id,
       kind: "image",
       altText,
-      sortOrder: 0,
+      sortOrder: assignedOrder,
       url: await this.storage.signedGetUrl(s3Key),
     };
   }
@@ -155,13 +187,9 @@ export class MediaService {
       });
       return row.s3Key;
     });
-    // מחיקת האובייקט אחרי הטרנזקציה — כשל כאן משאיר לכל היותר קובץ יתום,
-    // לעולם לא רשומה שמצביעה לכלום.
-    try {
-      await this.storage.delete(s3Key);
-    } catch {
-      /* יתומים מנוקים בתהליך תחזוקה (docs/08) */
-    }
+    // מחיקת האובייקט אחרי הטרנזקציה — כשל זמני מנותב לניסיון חוזר עמיד
+    // דרך Outbox → תור low; לעולם לא רשומה שמצביעה לכלום.
+    await this.deleteObjectDurably(s3Key);
   }
 
   /** הופך תמונה לראשית (sortOrder 0) ומזיז את השאר — התמונה בכרטיס הנכס. */
@@ -182,6 +210,11 @@ export class MediaService {
       for (const [index, rid] of reordered.entries()) {
         await tx.propertyMedia.update({ where: { id: rid }, data: { sortOrder: index } });
       }
+      await this.audit.record(tx, {
+        action: "property.media_primary",
+        entityType: "property",
+        entityId: propertyId,
+      });
     });
   }
 
@@ -194,6 +227,11 @@ export class MediaService {
       });
       if (!row) throw new NotFoundException("תמונה לא נמצאה");
       await tx.propertyMedia.update({ where: { id: mediaId }, data: { altText } });
+      await this.audit.record(tx, {
+        action: "property.media_alt_text",
+        entityType: "property",
+        entityId: propertyId,
+      });
     });
   }
 }

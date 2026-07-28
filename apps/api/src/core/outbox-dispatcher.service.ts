@@ -34,6 +34,7 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
   private running = false;
   private connection: IORedis | null = null;
   private notificationsQueue: Queue | null = null;
+  private lowQueue: Queue | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -41,12 +42,14 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
     const env = loadEnv();
     this.connection = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null, lazyConnect: false });
     this.notificationsQueue = new Queue(QUEUES.notifications, { connection: this.connection });
+    this.lowQueue = new Queue(QUEUES.low, { connection: this.connection });
     this.timer = setInterval(() => void this.tick(), POLL_MS);
   }
 
   async onModuleDestroy(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
     await this.notificationsQueue?.close();
+    await this.lowQueue?.close();
     await this.connection?.quit();
   }
 
@@ -107,6 +110,16 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
         removeOnFail: 5000,
         attempts: 5,
         backoff: { type: "exponential", delay: 2000 },
+      });
+    }
+    // מחיקת אובייקט אחסון שנכשלה — ניסיון חוזר עמיד בתור low (עד 10 ניסיונות).
+    if (name === "storage.cleanup_object" && this.lowQueue) {
+      await this.lowQueue.add("delete-object", payload, {
+        jobId: `cleanup-${event.id}`,
+        removeOnComplete: 1000,
+        removeOnFail: 5000,
+        attempts: 10,
+        backoff: { type: "exponential", delay: 5000 },
       });
     }
     // תזכורת שעה לפני פגישה — Job מושהה; BullMQ מחזיק את התזמון (docs/01 §13).
