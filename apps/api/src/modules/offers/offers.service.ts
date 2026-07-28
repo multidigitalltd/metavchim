@@ -36,11 +36,29 @@ export class OffersService {
     private readonly messaging: MessagingService,
   ) {}
 
-  /** יצירת הצעה מהתאמה: Snapshot של הנכס + קישור ציבורי חתום-טוקן. */
+  /**
+   * יצירת הצעה מהתאמה: Snapshot של הנכס + קישור ציבורי חתום-טוקן.
+   * Idempotent: הצעה אחת פר התאמה — קריאה חוזרת מחזירה את הקיימת;
+   * מרוץ בין בקשות נבלם ע"י unique constraint על match_id (ביקורת Codex).
+   */
   async createFromMatch(matchId: string): Promise<OfferDto> {
     const tenantId = TenantContext.current().tenantId;
     const token = randomBytes(32).toString("base64url"); // 43 תווים
     const id = ulid();
+
+    const existing = await this.prisma.withTenant((tx) =>
+      tx.offer.findFirst({ where: { matchId, tenantId } }),
+    );
+    if (existing) {
+      return {
+        id: existing.id,
+        matchId,
+        status: existing.status,
+        url: this.publicUrl(existing.publicToken),
+        openCount: existing.openCount,
+        createdAt: existing.createdAt,
+      };
+    }
 
     await this.prisma.withTenant(async (tx) => {
       const match = await tx.match.findFirst({ where: { id: matchId, tenantId } });
@@ -197,35 +215,55 @@ export class OffersService {
   /**
    * שליחה מרובה (אפיון §10): הצעות לכל ההתאמות המוצעות מעל סף —
    * "נמצאו 12 קונים מתאימים. לשלוח הצעה?" עם אישור מפורש של המתווך.
-   * מדלג על התאמות שכבר קיבלו הצעה.
+   *
+   * מעבד בסבבים עד שאין מועמדים (בלי תקרה שקטה); התאמה שקיבלה הצעה
+   * עוברת ל-offered ולכן יוצאת מהשאילתה הבאה. מרוץ בין בקשות נבלם
+   * ע"י ה-unique על match_id — כפילות נספרת כ-skipped (ביקורת Codex).
    */
   async createBulk(propertyId: string, minScore: number): Promise<{ created: number; skipped: number }> {
     const tenantId = TenantContext.current().tenantId;
-    const candidates = await this.prisma.withTenant(async (tx) => {
-      const matches = await tx.match.findMany({
-        where: { tenantId, propertyId, status: "suggested", score: { gte: minScore } },
-        select: { id: true },
-        orderBy: { score: "desc" },
-        take: 100,
-      });
-      const existing = await tx.offer.findMany({
-        where: { tenantId, matchId: { in: matches.map((m) => m.id) } },
-        select: { matchId: true },
-      });
-      const withOffer = new Set(existing.map((o) => o.matchId));
-      return matches.filter((m) => !withOffer.has(m.id)).map((m) => m.id);
-    });
-
     let created = 0;
-    for (const matchId of candidates) {
-      try {
-        await this.createFromMatch(matchId);
-        created += 1;
-      } catch {
-        // נכס שירד משיווק בינתיים וכד' — ממשיכים לשאר
+    let skipped = 0;
+
+    const MAX_ROUNDS = 50; // בלם בטיחות: 50×100 = 5,000 הצעות לכל היותר בקריאה
+    for (let round = 0; round < MAX_ROUNDS; round += 1) {
+      const candidates = await this.prisma.withTenant(async (tx) => {
+        const matches = await tx.match.findMany({
+          where: { tenantId, propertyId, status: "suggested", score: { gte: minScore } },
+          select: { id: true },
+          orderBy: { score: "desc" },
+          take: 100,
+        });
+        const existing = await tx.offer.findMany({
+          where: { tenantId, matchId: { in: matches.map((m) => m.id) } },
+          select: { matchId: true },
+        });
+        const withOffer = new Set(existing.map((o) => o.matchId));
+        return matches.map((m) => ({ id: m.id, hasOffer: withOffer.has(m.id) }));
+      });
+      if (candidates.length === 0) break;
+
+      for (const candidate of candidates) {
+        if (candidate.hasOffer) {
+          // התאמה עם הצעה שנשארה suggested — מסמנים offered כדי שתצא מהסבב הבא
+          await this.prisma.withTenant((tx) =>
+            tx.match.updateMany({
+              where: { id: candidate.id, tenantId, status: "suggested" },
+              data: { status: "offered" },
+            }),
+          );
+          skipped += 1;
+          continue;
+        }
+        try {
+          await this.createFromMatch(candidate.id);
+          created += 1;
+        } catch {
+          skipped += 1; // כפילות במרוץ / נכס שירד משיווק — ממשיכים לשאר
+        }
       }
     }
-    return { created, skipped: candidates.length - created };
+    return { created, skipped };
   }
 
   /**

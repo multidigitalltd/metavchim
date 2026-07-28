@@ -29,9 +29,9 @@ export class MatchingController {
     return this.matching.listAll(query);
   }
 
-  /** "סמן לא רלוונטי" — החלטת מתווך; לא תידרס בחישוב מחדש. */
+  /** "סמן לא רלוונטי" — פעולת כתיבה; viewer (צפייה בלבד) חסום (ביקורת Codex). */
   @Patch(":id/dismiss")
-  @RequireCapability("matches.view")
+  @RequireCapability("matches.manage")
   @HttpCode(200)
   async dismiss(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<{ ok: true }> {
     await this.prisma.withTenant((tx) =>

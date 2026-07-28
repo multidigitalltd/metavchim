@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch } from "@/lib/api";
@@ -31,11 +31,19 @@ export default function MatchesPage() {
   const [items, setItems] = useState<MatchRow[] | null>(null);
   const [minScore, setMinScore] = useState(50);
   const [error, setError] = useState<string | null>(null);
+  const requestSeq = useRef(0);
 
   const load = useCallback((threshold: number) => {
+    // מזהה בקשה — תגובה מאוחרת של סף ישן לא דורסת את הסף הנוכחי (ביקורת Codex)
+    const seq = requestSeq.current + 1;
+    requestSeq.current = seq;
     apiGet<MatchRow[]>(`/matches?minScore=${threshold}&limit=100`)
-      .then(setItems)
-      .catch(() => setError("טעינת ההתאמות נכשלה"));
+      .then((rows) => {
+        if (requestSeq.current === seq) setItems(rows);
+      })
+      .catch(() => {
+        if (requestSeq.current === seq) setError("טעינת ההתאמות נכשלה");
+      });
   }, []);
 
   useEffect(() => {
