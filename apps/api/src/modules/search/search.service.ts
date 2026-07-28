@@ -1,0 +1,217 @@
+import { Injectable } from "@nestjs/common";
+import { normalizeIsraeliPhone } from "@metavchim/shared";
+import { TenantContext } from "../../common/tenant-context";
+import { ownershipFilter } from "../../common/ownership";
+import { CryptoService } from "../../core/crypto.service";
+import { PrismaService } from "../../core/prisma.service";
+
+/**
+ * חיפוש גלובלי (docs/06 §3 — "שיחה נכנסת: מי זה?"):
+ * - קלט שנראה כטלפון מנורמל ל-E.164 ומחופש ב-phone_hash — התאמה מדויקת
+ *   בלי לפענח אף רשומה (docs/04 §4).
+ * - טקסט חופשי מחפש נכסים לפי כתובת/כותרת, ואנשי קשר לפי שם (פענוח
+ *   בזיכרון תחת הדייר בלבד, מוגבל ל-1,000 האחרונים).
+ * - קונים ולידים מסוננים לפי בעלות — סוכן עם view_own לא מגלה בחיפוש
+ *   את הלקוחות של סוכן אחר (docs/04 §3).
+ */
+
+export interface SearchResults {
+  /** זהות בהתאמת-טלפון מדויקת — "מי מתקשר אליי?" */
+  contact: { id: string; name: string; phone: string } | null;
+  properties: {
+    id: string;
+    city: string | null;
+    street: string | null;
+    neighborhood: string | null;
+    marketingTitle: string | null;
+    status: string;
+  }[];
+  buyers: { id: string; name: string; maturity: string; cities: string[] }[];
+  leads: { id: string; name: string; status: string; requiresHuman: boolean }[];
+}
+
+const GROUP_LIMIT = 8;
+/** כמה אנשי קשר אחרונים מפוענחים לחיפוש שם — תקרת עלות קבועה לבקשה. */
+const NAME_SCAN_LIMIT = 1000;
+
+@Injectable()
+export class SearchService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly crypto: CryptoService,
+  ) {}
+
+  async search(query: string): Promise<SearchResults> {
+    const ctx = TenantContext.current();
+    const canProperties = ctx.capabilities.has("properties.view");
+    const canBuyers =
+      ctx.capabilities.has("buyers.view_all") || ctx.capabilities.has("buyers.view_own");
+    const canLeads =
+      ctx.capabilities.has("leads.view_all") || ctx.capabilities.has("leads.view_own");
+
+    const phone = normalizeIsraeliPhone(query);
+    return phone !== undefined
+      ? this.searchByPhone(phone, { canProperties, canBuyers, canLeads })
+      : this.searchByText(query, { canProperties, canBuyers, canLeads });
+  }
+
+  private async searchByPhone(
+    phone: string,
+    can: { canProperties: boolean; canBuyers: boolean; canLeads: boolean },
+  ): Promise<SearchResults> {
+    const tenantId = TenantContext.current().tenantId;
+    const phoneHash = this.crypto.phoneHash(phone);
+
+    return this.prisma.withTenant(async (tx) => {
+      const contact = await tx.contact.findUnique({
+        where: { tenantId_phoneHash: { tenantId, phoneHash } },
+        select: { id: true, nameEncrypted: true, phoneEncrypted: true },
+      });
+      if (!contact) return { contact: null, properties: [], buyers: [], leads: [] };
+
+      const identity = {
+        id: contact.id,
+        name: this.crypto.decrypt(contact.nameEncrypted),
+        phone: this.crypto.decrypt(contact.phoneEncrypted),
+      };
+      const [properties, buyers, leads] = await Promise.all([
+        can.canProperties
+          ? tx.property.findMany({
+              where: { tenantId, ownerContactId: contact.id, deletedAt: null },
+              select: {
+                id: true, city: true, street: true, neighborhood: true,
+                marketingTitle: true, status: true,
+              },
+              take: GROUP_LIMIT,
+            })
+          : [],
+        can.canBuyers
+          ? tx.buyer.findMany({
+              where: {
+                tenantId,
+                contactId: contact.id,
+                deletedAt: null,
+                ...ownershipFilter("buyers.view_all", "ownerUserId"),
+              },
+              select: { id: true, maturity: true, cities: true },
+              take: GROUP_LIMIT,
+            })
+          : [],
+        can.canLeads
+          ? tx.lead.findMany({
+              where: {
+                tenantId,
+                contactId: contact.id,
+                ...ownershipFilter("leads.view_all", "assignedToUserId"),
+              },
+              select: { id: true, status: true, requiresHuman: true },
+              take: GROUP_LIMIT,
+            })
+          : [],
+      ]);
+
+      return {
+        contact: identity,
+        properties,
+        buyers: buyers.map((b) => ({ ...b, name: identity.name })),
+        leads: leads.map((l) => ({ ...l, name: identity.name })),
+      };
+    });
+  }
+
+  private async searchByText(
+    query: string,
+    can: { canProperties: boolean; canBuyers: boolean; canLeads: boolean },
+  ): Promise<SearchResults> {
+    const tenantId = TenantContext.current().tenantId;
+    const needle = query.toLowerCase();
+
+    return this.prisma.withTenant(async (tx) => {
+      const properties = can.canProperties
+        ? await tx.property.findMany({
+            where: {
+              tenantId,
+              deletedAt: null,
+              OR: [
+                { city: { contains: query, mode: "insensitive" } },
+                { street: { contains: query, mode: "insensitive" } },
+                { neighborhood: { contains: query, mode: "insensitive" } },
+                { marketingTitle: { contains: query, mode: "insensitive" } },
+              ],
+            },
+            select: {
+              id: true, city: true, street: true, neighborhood: true,
+              marketingTitle: true, status: true,
+            },
+            orderBy: { updatedAt: "desc" },
+            take: GROUP_LIMIT,
+          })
+        : [];
+
+      if (!can.canBuyers && !can.canLeads) {
+        return { contact: null, properties, buyers: [], leads: [] };
+      }
+
+      // חיפוש שם: פענוח בזיכרון של אנשי הקשר האחרונים בלבד — PII לעולם
+      // לא נחשף למנוע ה-DB כטקסט גלוי, והעלות חסומה ב-NAME_SCAN_LIMIT.
+      const recent = await tx.contact.findMany({
+        where: { tenantId },
+        select: { id: true, nameEncrypted: true },
+        orderBy: { updatedAt: "desc" },
+        take: NAME_SCAN_LIMIT,
+      });
+      const nameById = new Map<string, string>();
+      for (const c of recent) {
+        const name = this.crypto.decrypt(c.nameEncrypted);
+        if (name.toLowerCase().includes(needle)) nameById.set(c.id, name);
+      }
+      const matchedIds = [...nameById.keys()];
+      if (matchedIds.length === 0) {
+        return { contact: null, properties, buyers: [], leads: [] };
+      }
+
+      const [buyers, leads] = await Promise.all([
+        can.canBuyers
+          ? tx.buyer.findMany({
+              where: {
+                tenantId,
+                contactId: { in: matchedIds },
+                deletedAt: null,
+                ...ownershipFilter("buyers.view_all", "ownerUserId"),
+              },
+              select: { id: true, maturity: true, cities: true, contactId: true },
+              take: GROUP_LIMIT,
+            })
+          : [],
+        can.canLeads
+          ? tx.lead.findMany({
+              where: {
+                tenantId,
+                contactId: { in: matchedIds },
+                ...ownershipFilter("leads.view_all", "assignedToUserId"),
+              },
+              select: { id: true, status: true, requiresHuman: true, contactId: true },
+              take: GROUP_LIMIT,
+            })
+          : [],
+      ]);
+
+      return {
+        contact: null,
+        properties,
+        buyers: buyers.map((b) => ({
+          id: b.id,
+          maturity: b.maturity,
+          cities: b.cities,
+          name: nameById.get(b.contactId) ?? "",
+        })),
+        leads: leads.map((l) => ({
+          id: l.id,
+          status: l.status,
+          requiresHuman: l.requiresHuman,
+          name: nameById.get(l.contactId) ?? "",
+        })),
+      };
+    });
+  }
+}

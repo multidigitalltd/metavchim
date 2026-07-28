@@ -18,6 +18,7 @@ import { MessagingModule } from "./modules/messaging/messaging.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { OffersModule } from "./modules/offers/offers.module";
 import { PropertiesModule } from "./modules/properties/properties.module";
+import { SearchModule } from "./modules/search/search.module";
 import { SettingsModule } from "./modules/settings/settings.module";
 import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
 
@@ -46,6 +47,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     AnalyticsModule,
     CoachModule,
     ImportModule,
+    SearchModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })
