@@ -31,6 +31,7 @@ const NAV_ITEMS = [
   { href: "/matches", label: "התאמות" },
   { href: "/calendar", label: "יומן" },
   { href: "/collaboration", label: "שיתופי פעולה" },
+  { href: "/settings", label: "הגדרות" },
 ] as const;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

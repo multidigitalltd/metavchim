@@ -25,6 +25,13 @@ const LoginSchema = z
   })
   .strict();
 
+const ChangePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1).max(200),
+    newPassword: z.string().min(10).max(200),
+  })
+  .strict();
+
 @Controller("auth")
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
@@ -74,5 +81,20 @@ export class AuthController {
       throw new UnauthorizedException();
     }
     return { user };
+  }
+
+  @Post("change-password")
+  @HttpCode(200)
+  @UsePipes(new ZodValidationPipe(ChangePasswordSchema))
+  async changePassword(
+    @Body() body: z.infer<typeof ChangePasswordSchema>,
+    @Req() req: Request,
+  ): Promise<{ ok: true }> {
+    const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+    await this.auth.changePassword(user.id, body.currentPassword, body.newPassword);
+    return { ok: true };
   }
 }
