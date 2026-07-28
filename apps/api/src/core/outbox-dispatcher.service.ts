@@ -125,7 +125,13 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
     }
     // תזכורת משימה במועד היעד — Job מושהה (docs/01 — מודול 7).
     if (name === "task.created" && this.notificationsQueue) {
-      const p = payload as { taskId: string; tenantId: string; title: string; dueAt: Date };
+      const p = payload as {
+        taskId: string;
+        tenantId: string;
+        assignedToUserId: string;
+        title: string;
+        dueAt: Date;
+      };
       const delayMs = p.dueAt.getTime() - Date.now();
       if (delayMs > 0) {
         await this.notificationsQueue.add("notify", buildTaskReminder(p), {

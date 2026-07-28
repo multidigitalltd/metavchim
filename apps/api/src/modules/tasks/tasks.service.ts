@@ -82,6 +82,7 @@ export class TasksService {
         await this.outbox.emit(tx, "task.created", {
           taskId: id,
           tenantId: ctx.tenantId,
+          assignedToUserId: ctx.userId,
           title: input.title,
           dueAt: input.dueAt,
         });
@@ -91,20 +92,36 @@ export class TasksService {
     return toDto(row);
   }
 
-  /** רשימת המשימות של המשתמש הנוכחי בלבד — פתוחות תחילה, לפי מועד. */
+  /**
+   * רשימת המשימות של המשתמש הנוכחי בלבד — הפתוחות (עד 200, לפי מועד)
+   * ואחריהן האחרונות שבוצעו (עד 50). שתי שאילתות נפרדות כדי שהמגבלה
+   * לעולם לא תדחוק משימות פתוחות החוצה (ביקורת Codex, PR #13).
+   */
   async list(status?: string): Promise<TaskDto[]> {
     const ctx = TenantContext.current();
-    const rows = await this.prisma.withTenant(async (tx) =>
-      tx.task.findMany({
-        where: {
-          tenantId: ctx.tenantId,
-          assignedToUserId: ctx.userId,
-          ...(status ? { status } : {}),
-        },
-        orderBy: [{ status: "asc" }, { dueAt: { sort: "asc", nulls: "last" } }],
-        take: 200,
-      }),
-    );
+    const base = { tenantId: ctx.tenantId, assignedToUserId: ctx.userId };
+    const rows = await this.prisma.withTenant(async (tx) => {
+      if (status) {
+        return tx.task.findMany({
+          where: { ...base, status },
+          orderBy: { dueAt: { sort: "asc", nulls: "last" } },
+          take: 200,
+        });
+      }
+      const [open, done] = await Promise.all([
+        tx.task.findMany({
+          where: { ...base, status: "open" },
+          orderBy: { dueAt: { sort: "asc", nulls: "last" } },
+          take: 200,
+        }),
+        tx.task.findMany({
+          where: { ...base, status: "done" },
+          orderBy: { updatedAt: "desc" },
+          take: 50,
+        }),
+      ]);
+      return [...open, ...done];
+    });
     return rows.map(toDto);
   }
 
@@ -138,6 +155,7 @@ export class TasksService {
         await this.outbox.emit(tx, "task.created", {
           taskId: id,
           tenantId: ctx.tenantId,
+          assignedToUserId: ctx.userId,
           title: updated.title,
           dueAt: patch.dueAt,
         });

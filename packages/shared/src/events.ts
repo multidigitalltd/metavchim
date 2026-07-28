@@ -62,10 +62,11 @@ export const DomainEvents = {
     tenantId: IdSchema,
     s3Key: z.string().max(512),
   }),
-  /** משימה עם מועד יעד — תזכורת מתוזמנת דרך צינור ההתראות. */
+  /** משימה עם מועד יעד — תזכורת מתוזמנת דרך צינור ההתראות, לנמען בלבד. */
   "task.created": z.object({
     taskId: IdSchema,
     tenantId: IdSchema,
+    assignedToUserId: IdSchema,
     title: z.string().max(200),
     dueAt: z.coerce.date(),
   }),
