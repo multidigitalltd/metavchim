@@ -4,6 +4,7 @@ import { AuthGuard } from "./common/auth.guard";
 import { SessionMiddleware } from "./common/session.middleware";
 import { CoreModule } from "./core/core.module";
 import { AuthModule } from "./modules/auth/auth.module";
+import { AnalyticsModule } from "./modules/analytics/analytics.module";
 import { BuyersModule } from "./modules/buyers/buyers.module";
 import { CalendarModule } from "./modules/calendar/calendar.module";
 import { CollaborationModule } from "./modules/collaboration/collaboration.module";
@@ -40,6 +41,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     CalendarModule,
     CollaborationModule,
     SettingsModule,
+    AnalyticsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })

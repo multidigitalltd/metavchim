@@ -31,6 +31,7 @@ const NAV_ITEMS = [
   { href: "/matches", label: "התאמות" },
   { href: "/calendar", label: "יומן" },
   { href: "/collaboration", label: "שיתופי פעולה" },
+  { href: "/reports", label: "דוחות" },
   { href: "/settings", label: "הגדרות" },
 ] as const;
 
