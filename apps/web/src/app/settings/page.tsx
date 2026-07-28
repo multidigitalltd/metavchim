@@ -96,6 +96,11 @@ export default function SettingsPage() {
     load();
   }
 
+  async function changeRole(member: TeamUser, role: string) {
+    await apiPatch(`/settings/users/${member.id}`, { role });
+    load();
+  }
+
   if (authLoading) return <p aria-live="polite">טוען…</p>;
   if (forbidden) {
     return (
@@ -169,7 +174,29 @@ export default function SettingsPage() {
                       <span className="font-medium">{member.name}</span>
                       <span className="block text-sm" dir="ltr" style={{ color: "var(--color-text-muted)" }}>{member.email}</span>
                     </td>
-                    <td className="p-3">{ROLE_LABELS[member.role] ?? member.role}</td>
+                    <td className="p-3">
+                      {member.role === "owner" || member.id === user?.id ? (
+                        ROLE_LABELS[member.role] ?? member.role
+                      ) : (
+                        <>
+                          <label htmlFor={`role_${member.id}`} className="mv-visually-hidden">
+                            תפקיד של {member.name}
+                          </label>
+                          <select
+                            id={`role_${member.id}`}
+                            value={member.role}
+                            onChange={(event) => void changeRole(member, event.target.value)}
+                            className="rounded-lg border px-2 py-1.5"
+                            style={inputStyle}
+                          >
+                            <option value="admin">מנהל</option>
+                            <option value="agent">סוכן</option>
+                            <option value="assistant">עוזר</option>
+                            <option value="viewer">צפייה בלבד</option>
+                          </select>
+                        </>
+                      )}
+                    </td>
                     <td className="p-3">{member.lastLoginAt ? formatDate(member.lastLoginAt) : "—"}</td>
                     <td className="p-3">
                       {member.role === "owner" || member.id === user?.id ? (

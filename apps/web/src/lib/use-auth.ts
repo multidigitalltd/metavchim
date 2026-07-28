@@ -9,6 +9,7 @@ export interface AuthUser {
   name: string;
   email: string;
   role: string;
+  mustChangePassword: boolean;
 }
 
 /** שומר עמוד מוגן: בלי Session תקף — הפניה ל-/login. */
@@ -21,10 +22,14 @@ export function useRequireAuth(): { user: AuthUser | null; loading: boolean } {
     let cancelled = false;
     apiGet<{ user: AuthUser }>("/auth/me")
       .then((res) => {
-        if (!cancelled) {
-          setUser(res.user);
-          setLoading(false);
+        if (cancelled) return;
+        // סיסמה זמנית — חובה להחליף לפני כל פעולה אחרת (ביקורת Codex)
+        if (res.user.mustChangePassword && window.location.pathname !== "/change-password") {
+          router.replace("/change-password");
+          return;
         }
+        setUser(res.user);
+        setLoading(false);
       })
       .catch((err: unknown) => {
         if (cancelled) return;

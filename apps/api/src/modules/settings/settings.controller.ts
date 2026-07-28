@@ -22,8 +22,8 @@ import { AuthService } from "../auth/auth.service";
 const TenantSettingsSchema = z
   .object({
     name: z.string().min(2).max(120).optional(),
-    /** המספר העסקי לוואטסאפ — ספרות בלבד (ניתוב הודעות נכנסות לדייר) */
-    whatsappNumber: z.string().regex(/^\d{9,15}$/u).optional(),
+    /** המספר העסקי לוואטסאפ — ספרות בלבד; "" מנתק את השיוך */
+    whatsappNumber: z.union([z.string().regex(/^\d{9,15}$/u), z.literal("")]).optional(),
   })
   .strict();
 
@@ -88,24 +88,45 @@ export class SettingsController {
     @Body(new ZodValidationPipe(TenantSettingsSchema)) body: z.infer<typeof TenantSettingsSchema>,
   ): Promise<{ ok: true }> {
     const tenantId = TenantContext.current().tenantId;
+
+    // מספר וואטסאפ ייחודי בין משרדים — אחרת הודעות לקוחות ינותבו למשרד
+    // שגוי (ביקורת Codex, PR #5). אינדקס DB ייחודי משמש כקו הגנה שני.
+    if (body.whatsappNumber) {
+      const taken = await this.prisma.tenant.findFirst({
+        where: {
+          id: { not: tenantId },
+          settings: { path: ["whatsappNumber"], equals: body.whatsappNumber },
+        },
+        select: { id: true },
+      });
+      if (taken) throw new BadRequestException("המספר כבר משויך למשרד אחר");
+    }
+
     const current = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       select: { settings: true },
     });
-    await this.prisma.tenant.update({
-      where: { id: tenantId },
-      data: {
-        ...(body.name !== undefined ? { name: body.name } : {}),
-        ...(body.whatsappNumber !== undefined
-          ? {
-              settings: {
-                ...((current?.settings ?? {}) as object),
-                whatsappNumber: body.whatsappNumber,
-              },
-            }
-          : {}),
-      },
-    });
+    const settings = { ...((current?.settings ?? {}) as Record<string, unknown>) };
+    if (body.whatsappNumber !== undefined) {
+      if (body.whatsappNumber === "") {
+        delete settings["whatsappNumber"]; // ניתוק השיוך
+      } else {
+        settings["whatsappNumber"] = body.whatsappNumber;
+      }
+    }
+
+    try {
+      await this.prisma.tenant.update({
+        where: { id: tenantId },
+        data: {
+          ...(body.name !== undefined ? { name: body.name } : {}),
+          ...(body.whatsappNumber !== undefined ? { settings: settings as object } : {}),
+        },
+      });
+    } catch {
+      // מרוץ מול משרד אחר — האינדקס הייחודי ב-DB חסם
+      throw new BadRequestException("המספר כבר משויך למשרד אחר");
+    }
     await this.prisma.withTenant((tx) =>
       this.audit.record(tx, {
         action: "settings.update",
@@ -149,24 +170,27 @@ export class SettingsController {
 
     const tempPassword = `Mv-${randomBytes(9).toString("base64url")}`;
     const id = ulid();
-    await this.prisma.user.create({
-      data: {
-        id,
-        tenantId,
-        name: body.name,
-        email,
-        role: body.role,
-        passwordHash: await AuthService.hashPassword(tempPassword),
-      },
-    });
-    await this.prisma.withTenant((tx) =>
-      this.audit.record(tx, {
+    const passwordHash = await AuthService.hashPassword(tempPassword);
+    // יצירה + Audit בטרנזקציה אחת — אין חשבון בלי רישום (ביקורת Codex)
+    await this.prisma.withTenant(async (tx) => {
+      await tx.user.create({
+        data: {
+          id,
+          tenantId,
+          name: body.name,
+          email,
+          role: body.role,
+          passwordHash,
+          mustChangePassword: true,
+        },
+      });
+      await this.audit.record(tx, {
         action: "users.create",
         entityType: "user",
         entityId: id,
         metadata: { role: body.role },
-      }),
-    );
+      });
+    });
     return {
       user: { id, name: body.name, email, role: body.role, isActive: true },
       tempPassword,

@@ -16,11 +16,11 @@ export default function LoginPage() {
     setSubmitting(true);
     const form = new FormData(event.currentTarget);
     try {
-      await apiPost("/auth/login", {
+      const { user } = await apiPost<{ user: { mustChangePassword: boolean } }>("/auth/login", {
         email: String(form.get("email")),
         password: String(form.get("password")),
       });
-      router.replace("/");
+      router.replace(user.mustChangePassword ? "/change-password" : "/");
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "שגיאה בהתחברות — נסו שוב");
       setSubmitting(false);

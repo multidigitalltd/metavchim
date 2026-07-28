@@ -14,6 +14,7 @@ export interface AuthenticatedUser {
   name: string;
   email: string;
   role: string;
+  mustChangePassword: boolean;
 }
 
 @Injectable()
@@ -81,8 +82,27 @@ export class AuthService {
         name: user.name,
         email: user.email,
         role: user.role,
+        mustChangePassword: user.mustChangePassword,
       },
     };
+  }
+
+  /** החלפת סיסמה ע"י המשתמש עצמו — מנקה את דגל mustChangePassword. */
+  async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.passwordHash) throw new UnauthorizedException();
+    const ok = await argon2.verify(user.passwordHash, currentPassword).catch(() => false);
+    if (!ok) throw new UnauthorizedException("הסיסמה הנוכחית שגויה");
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        passwordHash: await AuthService.hashPassword(newPassword),
+        mustChangePassword: false,
+      },
+    });
+    // כל שאר ה-Sessions מבוטלים אחרי שינוי סיסמה (השארת הנוכחי בלבד).
+    await this.prisma.session.deleteMany({ where: { userId } });
   }
 
   async logout(token: string): Promise<void> {
@@ -113,6 +133,7 @@ export class AuthService {
         name: session.user.name,
         email: session.user.email,
         role: session.user.role,
+        mustChangePassword: session.user.mustChangePassword,
       },
     };
   }
