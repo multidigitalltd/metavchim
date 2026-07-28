@@ -63,6 +63,11 @@ export default function CalendarPage() {
     load();
   }
 
+  async function setStatus(id: string, status: string) {
+    await apiPatch(`/appointments/${id}`, { status });
+    load();
+  }
+
   const byDay = new Map<string, AppointmentRow[]>();
   for (const item of items ?? []) {
     const key = dayFmt.format(new Date(item.startsAt));
@@ -125,9 +130,9 @@ export default function CalendarPage() {
                         <Link href={`/leads/${a.leadId}`} className="underline">לליד</Link>
                       ) : null}
                     </div>
-                    {isPastScheduled ? (
+                    {isPastScheduled && a.kind === "viewing" ? (
                       <fieldset className="mt-3">
-                        <legend className="mb-2 font-medium">איך היה? (מעדכן את הליד אוטומטית)</legend>
+                        <legend className="mb-2 font-medium">איך היה הסיור? (מעדכן את הליד אוטומטית)</legend>
                         <div className="flex flex-wrap gap-2">
                           {OUTCOMES.map(([value, label]) => (
                             <Button
@@ -140,6 +145,15 @@ export default function CalendarPage() {
                           ))}
                         </div>
                       </fieldset>
+                    ) : isPastScheduled ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button variant="secondary" onClick={() => void setStatus(a.id, "completed")}>
+                          ✓ התקיימה
+                        </Button>
+                        <Button variant="ghost" onClick={() => void setStatus(a.id, "no_show")}>
+                          לא התקיימה
+                        </Button>
+                      </div>
                     ) : null}
                   </li>
                 );

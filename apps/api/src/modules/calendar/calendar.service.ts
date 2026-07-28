@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
@@ -64,6 +64,13 @@ export class CalendarService {
         });
         if (!property) throw new NotFoundException("נכס לא נמצא");
       }
+      if (input.buyerId) {
+        const buyer = await tx.buyer.findFirst({
+          where: { id: input.buyerId, tenantId: ctx.tenantId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!buyer) throw new NotFoundException("קונה לא נמצא");
+      }
 
       await tx.appointment.create({
         data: {
@@ -116,6 +123,11 @@ export class CalendarService {
     await this.prisma.withTenant(async (tx) => {
       const existing = await tx.appointment.findFirst({ where: { id, tenantId: ctx.tenantId } });
       if (!existing) throw new NotFoundException("פגישה לא נמצאה");
+
+      // תוצאות הסיור (אהב/לא מתאים...) הן ספציפיות לנכס — רק לסוג viewing
+      if (patch.outcome && existing.kind !== "viewing") {
+        throw new BadRequestException("תוצאת סיור זמינה רק לפגישות מסוג סיור בנכס");
+      }
 
       await tx.appointment.update({
         where: { id },
