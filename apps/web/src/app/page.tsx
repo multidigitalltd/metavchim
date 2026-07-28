@@ -35,11 +35,20 @@ interface LeadRow {
   requiresHumanReason?: string;
 }
 
+interface AppointmentRow {
+  id: string;
+  kind: string;
+  title?: string;
+  startsAt: string;
+  status: string;
+}
+
 export default function DashboardPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const [properties, setProperties] = useState<PropertyRow[] | null>(null);
   const [buyers, setBuyers] = useState<BuyerRow[] | null>(null);
   const [leads, setLeads] = useState<LeadRow[] | null>(null);
+  const [today, setToday] = useState<AppointmentRow[] | null>(null);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -52,6 +61,12 @@ export default function DashboardPage() {
     apiGet<{ items: LeadRow[] }>("/leads?limit=100")
       .then((r) => setLeads(r.items))
       .catch(() => setLeads([]));
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    apiGet<AppointmentRow[]>(`/appointments?from=${dayStart.toISOString()}&to=${dayEnd.toISOString()}`)
+      .then(setToday)
+      .catch(() => setToday([]));
   }, [authLoading, user]);
 
   if (authLoading || !user) return <p aria-live="polite">טוען…</p>;
@@ -74,7 +89,7 @@ export default function DashboardPage() {
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
             { label: "לידים פתוחים", value: leads?.filter((l) => l.status === "new" || l.status === "in_progress").length, href: "/leads" },
-            { label: "נכסים", value: properties?.length, href: "/properties" },
+            { label: "פגישות היום", value: today?.filter((a) => a.status === "scheduled").length, href: "/calendar" },
             { label: "קונים חמים", value: buyers?.filter((b) => b.maturity === "very_hot" || b.maturity === "hot").length, href: "/buyers" },
             { label: "נכסים להשלמה", value: properties?.filter((p) => p.readinessScore < 80).length, href: "/properties" },
           ].map((card) => (

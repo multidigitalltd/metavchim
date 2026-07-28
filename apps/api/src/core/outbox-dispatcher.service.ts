@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/commo
 import { Queue } from "bullmq";
 import IORedis from "ioredis";
 import {
+  buildAppointmentReminder,
   DomainEvents,
   notificationFromEvent,
   QUEUES,
@@ -107,6 +108,21 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
         attempts: 5,
         backoff: { type: "exponential", delay: 2000 },
       });
+    }
+    // תזכורת שעה לפני פגישה — Job מושהה; BullMQ מחזיק את התזמון (docs/01 §13).
+    if (name === "appointment.scheduled" && this.notificationsQueue) {
+      const p = payload as { appointmentId: string; tenantId: string; startsAt: Date };
+      const delayMs = p.startsAt.getTime() - Date.now() - 60 * 60 * 1000;
+      if (delayMs > 0) {
+        await this.notificationsQueue.add("notify", buildAppointmentReminder(p), {
+          jobId: `remind-${event.id}`,
+          delay: delayMs,
+          removeOnComplete: 1000,
+          removeOnFail: 5000,
+          attempts: 5,
+          backoff: { type: "exponential", delay: 2000 },
+        });
+      }
     }
     // צרכנים נוספים (וואטסאפ יוצא, סנכרון יומן, Kanko) יירשמו כאן — לכל
     // אירוע צרכן משלו ותור משלו, לפי docs/02 §5.
