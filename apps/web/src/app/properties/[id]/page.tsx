@@ -12,6 +12,7 @@ import {
   STATUS_LABELS,
 } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { MediaSection } from "./media-section";
 
 interface PropertyDetail {
   id: string;
@@ -162,6 +163,8 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
         </div>
         <p className="text-2xl font-bold">{formatPrice(property.priceAgorot)}</p>
       </div>
+
+      <MediaSection propertyId={id} address={address} />
 
       {property.missingFields.length > 0 ? (
         <section

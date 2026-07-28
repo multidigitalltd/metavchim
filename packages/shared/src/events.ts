@@ -57,6 +57,11 @@ export const DomainEvents = {
     tenantId: IdSchema,
     fromTenantId: IdSchema,
   }),
+  /** אובייקט אחסון שמחיקתו נכשלה — ניסיון חוזר עמיד דרך תור low. */
+  "storage.cleanup_object": z.object({
+    tenantId: IdSchema,
+    s3Key: z.string().max(512),
+  }),
 } as const;
 
 export type DomainEventName = keyof typeof DomainEvents;
