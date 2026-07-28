@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { parseCsvLine, parsePropertiesCsv } from "./csv-import.js";
+import { parseCsvLine, parsePropertiesCsv, parseShekelsToAgorot } from "./csv-import.js";
+
+describe("parseShekelsToAgorot", () => {
+  it("שומר על נקודה עשרונית ומפריד אלפים", () => {
+    expect(parseShekelsToAgorot("6,000.00")).toBe(600_000); // 6,000₪
+    expect(parseShekelsToAgorot("2,650,000")).toBe(265_000_000);
+    expect(parseShekelsToAgorot("₪ 1,234.5")).toBe(123_450);
+    expect(parseShekelsToAgorot("2650000")).toBe(265_000_000);
+  });
+
+  it("דוחה ערכים לא מספריים או אפס — עדיף לדלג מלייבא סכום שגוי", () => {
+    expect(parseShekelsToAgorot("אין")).toBeUndefined();
+    expect(parseShekelsToAgorot("0")).toBeUndefined();
+    expect(parseShekelsToAgorot("1.234.567")).toBeUndefined();
+  });
+});
 
 describe("parseCsvLine", () => {
   it("מפרק פסיקים פשוטים", () => {

@@ -1,5 +1,5 @@
 import type { BuyerMaturity } from "../schemas/buyer.js";
-import { parseCsvLine } from "./csv-import.js";
+import { parseCsvLine, parseShekelsToAgorot } from "./csv-import.js";
 
 /**
  * מיפוי CSV לרשומות קונים (docs/08 §6 — Onboarding): משרד חדש מעלה גם את
@@ -11,7 +11,8 @@ export interface ParsedBuyerRow {
   name?: string;
   phone?: string;
   cities: string[];
-  dealType?: "sale" | "rent";
+  /** ערך לא מזוהה מועבר כמו-שהוא (string) — השרת ידחה את השורה עם שגיאה ברורה. */
+  dealType?: "sale" | "rent" | (string & {});
   budgetMinAgorot?: number;
   budgetMaxAgorot?: number;
   roomsMin?: number;
@@ -92,11 +93,6 @@ function splitCities(raw: string): string[] {
     .filter((c) => c.length > 0);
 }
 
-function parseShekels(raw: string): number | undefined {
-  const n = Number(raw.replace(/[^\d]/gu, ""));
-  return Number.isNaN(n) || n <= 0 ? undefined : n * 100; // ₪ → אגורות
-}
-
 /**
  * מפרק CSV מלא של קונים. מחזיר שורות + כותרות שלא זוהו (שקיפות למתווך).
  * טלפונים מנורמלים ל-E.164; תקציבים מומרים לאגורות.
@@ -132,13 +128,14 @@ export function parseBuyersCsv(csv: string): {
       } else if (target === "cities") {
         row.cities = splitCities(raw);
       } else if (target === "dealType") {
-        row.dealType = DEAL_TYPE_MAP[raw];
+        // ערך לא מזוהה לא הופך בשקט ל"מכירה" — מועבר גולמי והשרת דוחה את השורה
+        row.dealType = DEAL_TYPE_MAP[raw] ?? raw;
       } else if (target === "financing") {
         row.financing = FINANCING_MAP[raw];
       } else if (target === "maturity") {
         row.maturity = MATURITY_MAP[raw];
       } else if (target === "budgetMinAgorot" || target === "budgetMaxAgorot") {
-        const agorot = parseShekels(raw);
+        const agorot = parseShekelsToAgorot(raw);
         if (agorot !== undefined) row[target] = agorot;
       } else {
         // roomsMin / roomsMax
@@ -147,7 +144,7 @@ export function parseBuyersCsv(csv: string): {
       }
     });
 
-    // ברירת מחדל: קונים מיובאים הם לרוב רוכשים אם לא צוין אחרת
+    // ברירת מחדל "מכירה" רק כשהתא ריק לגמרי — ערך לא מזוהה כבר הועבר גולמי לעיל
     if (row.dealType === undefined) row.dealType = "sale";
     rows.push(row);
   }

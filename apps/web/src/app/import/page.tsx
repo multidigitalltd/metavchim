@@ -122,12 +122,13 @@ export default function ImportPage() {
             type="button"
             role="radio"
             aria-checked={mode === m}
+            disabled={submitting}
             onClick={() => {
               setMode(m);
               setCsv("");
               reset();
             }}
-            className="rounded-md border px-4 py-2 font-medium"
+            className="rounded-md border px-4 py-2 font-medium disabled:opacity-60"
             style={{
               borderColor: "var(--color-border)",
               background: mode === m ? "var(--color-primary)" : "var(--color-surface)",

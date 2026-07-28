@@ -38,7 +38,9 @@ const ImportBuyerRowSchema = z
     name: z.string().min(2).max(120),
     phone: PhoneSchema,
     cities: z.array(z.string().min(1).max(80)).min(1).max(10),
-    dealType: z.enum(["sale", "rent"]),
+    dealType: z.enum(["sale", "rent"], {
+      errorMap: () => ({ message: "סוג עסקה לא מזוהה — יש לציין מכירה או השכרה" }),
+    }),
     budgetMinAgorot: MoneyAgorotSchema.optional(),
     budgetMaxAgorot: MoneyAgorotSchema.refine((n) => n > 0, "תקציב חייב להיות חיובי"),
     roomsMin: z.number().multipleOf(0.5).min(1).max(20).optional(),
