@@ -71,6 +71,8 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
   const [copiedFor, setCopiedFor] = useState<string | null>(null);
+  const [bulkConfirm, setBulkConfirm] = useState(false);
+  const [bulkResult, setBulkResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -102,6 +104,28 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   async function sendWhatsApp(offerId: string) {
     const { waUrl } = await apiPost<{ waUrl: string }>(`/offers/${offerId}/whatsapp`, {});
     window.open(waUrl, "_blank", "noopener");
+  }
+
+  /** שליחה מרובה בשני שלבים — אישור מפורש לפני יצירת הצעות (אפיון §10). */
+  async function bulkSend() {
+    if (!bulkConfirm) {
+      setBulkConfirm(true);
+      return;
+    }
+    setBulkConfirm(false);
+    const result = await apiPost<{ created: number }>("/offers/bulk", {
+      propertyId: id,
+      minScore: 85,
+    });
+    setBulkResult(`נוצרו ${result.created} הצעות — לחצו "שלח בוואטסאפ" על כל אחת`);
+    const rows = await apiGet<MatchRow[]>(`/properties/${id}/matches`);
+    setMatches(rows);
+    if (rows.length > 0) {
+      const ids = rows.map((m) => m.id).join(",");
+      apiGet<Record<string, OfferInfo>>(`/offers/for-matches?matchIds=${ids}`)
+        .then(setOffers)
+        .catch(() => undefined);
+    }
   }
 
   if (error) {
@@ -179,9 +203,23 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
       </section>
 
       <section aria-labelledby="matches-heading">
-        <h2 id="matches-heading" className="mb-3 text-lg font-semibold">
-          קונים מתאימים {matches !== null ? `(${matches.length})` : ""}
-        </h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 id="matches-heading" className="text-lg font-semibold">
+            קונים מתאימים {matches !== null ? `(${matches.length})` : ""}
+          </h2>
+          {(matches ?? []).filter((m) => m.score >= 85 && !offers[m.id]).length >= 2 ? (
+            <Button onClick={() => void bulkSend()} variant={bulkConfirm ? "danger" : "primary"}>
+              {bulkConfirm
+                ? `לאשר יצירת ${(matches ?? []).filter((m) => m.score >= 85 && !offers[m.id]).length} הצעות?`
+                : "📤 צור הצעות לכל המתאימים (85%+)"}
+            </Button>
+          ) : null}
+        </div>
+        {bulkResult ? (
+          <p role="status" className="mb-3 font-medium" style={{ color: "var(--color-success)" }}>
+            ✓ {bulkResult}
+          </p>
+        ) : null}
         {matches === null ? (
           <p aria-live="polite">מחשב התאמות…</p>
         ) : matches.length === 0 ? (

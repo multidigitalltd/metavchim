@@ -195,6 +195,40 @@ export class OffersService {
   }
 
   /**
+   * שליחה מרובה (אפיון §10): הצעות לכל ההתאמות המוצעות מעל סף —
+   * "נמצאו 12 קונים מתאימים. לשלוח הצעה?" עם אישור מפורש של המתווך.
+   * מדלג על התאמות שכבר קיבלו הצעה.
+   */
+  async createBulk(propertyId: string, minScore: number): Promise<{ created: number; skipped: number }> {
+    const tenantId = TenantContext.current().tenantId;
+    const candidates = await this.prisma.withTenant(async (tx) => {
+      const matches = await tx.match.findMany({
+        where: { tenantId, propertyId, status: "suggested", score: { gte: minScore } },
+        select: { id: true },
+        orderBy: { score: "desc" },
+        take: 100,
+      });
+      const existing = await tx.offer.findMany({
+        where: { tenantId, matchId: { in: matches.map((m) => m.id) } },
+        select: { matchId: true },
+      });
+      const withOffer = new Set(existing.map((o) => o.matchId));
+      return matches.filter((m) => !withOffer.has(m.id)).map((m) => m.id);
+    });
+
+    let created = 0;
+    for (const matchId of candidates) {
+      try {
+        await this.createFromMatch(matchId);
+        created += 1;
+      } catch {
+        // נכס שירד משיווק בינתיים וכד' — ממשיכים לשאר
+      }
+    }
+    return { created, skipped: candidates.length - created };
+  }
+
+  /**
    * הכנת שליחה בוואטסאפ (אפיון §10): בונה את נוסח ההודעה, מתעד אותה
    * ב-Messages Hub, ומחזיר קישור wa.me עם הטקסט מוכן — המתווך רק לוחץ
    * שלח. שליחה אוטומטית דרך Cloud API תחליף את ה-Provider בהמשך.
