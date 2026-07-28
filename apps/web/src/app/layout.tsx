@@ -59,6 +59,28 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   </li>
                 ))}
                 <li>
+                  <form action="/search" role="search" className="flex">
+                    <label htmlFor="global-q" className="mv-visually-hidden">
+                      חיפוש לפי טלפון, שם או כתובת
+                    </label>
+                    <input
+                      id="global-q"
+                      name="q"
+                      type="search"
+                      required
+                      minLength={2}
+                      maxLength={80}
+                      placeholder="🔍 חיפוש…"
+                      className="w-28 rounded-md border px-2 py-1.5 focus:w-44"
+                      style={{
+                        borderColor: "var(--color-border)",
+                        background: "var(--color-surface)",
+                        transition: "width 150ms",
+                      }}
+                    />
+                  </form>
+                </li>
+                <li>
                   <NotificationsBell />
                 </li>
                 <li>
