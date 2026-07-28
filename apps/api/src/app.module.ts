@@ -20,6 +20,7 @@ import { OffersModule } from "./modules/offers/offers.module";
 import { PropertiesModule } from "./modules/properties/properties.module";
 import { SearchModule } from "./modules/search/search.module";
 import { SettingsModule } from "./modules/settings/settings.module";
+import { TasksModule } from "./modules/tasks/tasks.module";
 import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
 
 /**
@@ -48,6 +49,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     CoachModule,
     ImportModule,
     SearchModule,
+    TasksModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })

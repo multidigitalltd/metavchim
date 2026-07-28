@@ -112,3 +112,18 @@ export function buildAppointmentReminder(payload: {
     entityId: payload.appointmentId,
   };
 }
+
+/** תזכורת משימה במועד היעד — נכנסת לתור עם Delay (docs/01 — מודול 7). */
+export function buildTaskReminder(payload: {
+  taskId: string;
+  tenantId: string;
+  title: string;
+}): NotificationJob {
+  return {
+    tenantId: payload.tenantId,
+    type: "task_reminder",
+    title: `📌 תזכורת: ${payload.title}`.slice(0, 200),
+    entityType: "task",
+    entityId: payload.taskId,
+  };
+}

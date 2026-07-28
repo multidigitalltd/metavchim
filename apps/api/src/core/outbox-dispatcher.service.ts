@@ -3,6 +3,7 @@ import { Queue } from "bullmq";
 import IORedis from "ioredis";
 import {
   buildAppointmentReminder,
+  buildTaskReminder,
   DomainEvents,
   notificationFromEvent,
   QUEUES,
@@ -121,6 +122,21 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
         attempts: 10,
         backoff: { type: "exponential", delay: 5000 },
       });
+    }
+    // תזכורת משימה במועד היעד — Job מושהה (docs/01 — מודול 7).
+    if (name === "task.created" && this.notificationsQueue) {
+      const p = payload as { taskId: string; tenantId: string; title: string; dueAt: Date };
+      const delayMs = p.dueAt.getTime() - Date.now();
+      if (delayMs > 0) {
+        await this.notificationsQueue.add("notify", buildTaskReminder(p), {
+          jobId: `task-remind-${event.id}`,
+          delay: delayMs,
+          removeOnComplete: 1000,
+          removeOnFail: 5000,
+          attempts: 5,
+          backoff: { type: "exponential", delay: 2000 },
+        });
+      }
     }
     // תזכורת שעה לפני פגישה — Job מושהה; BullMQ מחזיק את התזמון (docs/01 §13).
     if (name === "appointment.scheduled" && this.notificationsQueue) {

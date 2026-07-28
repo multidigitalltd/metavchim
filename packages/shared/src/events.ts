@@ -62,6 +62,13 @@ export const DomainEvents = {
     tenantId: IdSchema,
     s3Key: z.string().max(512),
   }),
+  /** משימה עם מועד יעד — תזכורת מתוזמנת דרך צינור ההתראות. */
+  "task.created": z.object({
+    taskId: IdSchema,
+    tenantId: IdSchema,
+    title: z.string().max(200),
+    dueAt: z.coerce.date(),
+  }),
 } as const;
 
 export type DomainEventName = keyof typeof DomainEvents;

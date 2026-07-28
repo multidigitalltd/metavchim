@@ -49,6 +49,18 @@ async function processNotification(job: Job): Promise<void> {
       }
     }
 
+    // תזכורת משימה: הושלמה/נמחקה — אין תזכורת. נדחתה — ה-Job הישן עדיין
+    // יורה במועד המקורי; משווים ל-dueAt הנוכחי ומדלגים אם אינו "עכשיו"
+    // (עדכון המועד רשם Job חדש למועד החדש).
+    if (data.type === "task_reminder" && data.entityId) {
+      const task = await tx.task.findFirst({
+        where: { id: data.entityId, tenantId: data.tenantId },
+        select: { status: true, dueAt: true },
+      });
+      if (!task || task.status !== "open") return;
+      if (task.dueAt && Math.abs(task.dueAt.getTime() - Date.now()) > 5 * 60 * 1000) return;
+    }
+
     await tx.notification.create({
       data: {
         id: ulid(),
