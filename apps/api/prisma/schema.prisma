@@ -271,6 +271,65 @@ model Offer {
   @@map("offers")
 }
 
+// ביקוש אנונימי משותף ברשת (docs/04 §7): ללא PII, תקציב מעוגל, אזור
+// ברמת עיר. הטבלה היחידה עם קריאת רשת חוצת-דיירים (RLS ייעודי).
+// origin_buyer_id הוא ULID חסר-משמעות בלי גישה לטבלת buyers (מבודדת RLS).
+model SharedDemand {
+  id              String   @id @db.Char(26)
+  tenantId        String   @map("tenant_id") @db.Char(26)
+  originBuyerId   String?  @map("origin_buyer_id") @db.Char(26)
+  source          String   @default("network") @db.VarChar(20) // network | kanko
+  externalId      String?  @unique @map("external_id") @db.VarChar(120)
+  cities          String[]
+  dealType        String   @map("deal_type") @db.VarChar(10)
+  // טווח מעוגל כלפי מעלה ל-100 אלף ₪ — אנונימיזציה אמיתית, לא הסתרה
+  budgetMaxAgorot BigInt   @map("budget_max_agorot")
+  roomsMin        Decimal? @map("rooms_min") @db.Decimal(4, 1)
+  roomsMax        Decimal? @map("rooms_max") @db.Decimal(4, 1)
+  mustFeatures    String[] @map("must_features")
+  notes           String?  @db.VarChar(300)
+  status          String   @default("active") @db.VarChar(20) // active | closed
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([status, dealType, budgetMaxAgorot])
+  @@index([tenantId, status])
+  @@map("shared_demands")
+}
+
+// הצעת נכס לביקוש רשת: גלויה לשתי הסוכנויות בלבד (RLS דו-צדדי).
+// חשיפה מדורגת — אזור ומאפיינים בלבד; כתובת מלאה רק אחרי אישור חיבור.
+model CoopOffer {
+  id            String   @id @db.Char(26)
+  demandId      String   @map("demand_id") @db.Char(26)
+  fromTenantId  String   @map("from_tenant_id") @db.Char(26)
+  toTenantId    String   @map("to_tenant_id") @db.Char(26)
+  propertyId    String   @map("property_id") @db.Char(26)
+  // Snapshot מדורג של הנכס — בלי כתובת מדויקת ובלי פרטי בעלים
+  presentation  Json     @default("{}")
+  status        String   @default("sent") @db.VarChar(20) // sent | interested | declined
+  creditsCost   Int      @default(1) @map("credits_cost")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([demandId, propertyId])
+  @@index([toTenantId, status, createdAt])
+  @@index([fromTenantId, createdAt])
+  @@map("coop_offers")
+}
+
+// ספר קרדיטים Append-Only (docs/03 §3): היתרה נגזרת, לא מאוחסנת.
+model CreditLedger {
+  id        String   @id @db.Char(26)
+  tenantId  String   @map("tenant_id") @db.Char(26)
+  kind      String   @db.VarChar(30) // initial_grant | coop_offer | purchase | refund
+  amount    Int // חיובי = זיכוי, שלילי = חיוב
+  refId     String?  @map("ref_id") @db.Char(26)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@map("credit_ledger")
+}
+
 // כל הודעה יוצאת/נכנסת בכל ערוץ — הבסיס ל-Messaging Hub (docs/03 §3).
 model Message {
   id                String   @id @db.Char(26)

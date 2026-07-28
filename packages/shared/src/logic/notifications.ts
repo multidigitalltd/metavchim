@@ -72,6 +72,17 @@ export function notificationFromEvent<E extends DomainEventName>(
         entityId: p.propertyId,
       };
     }
+    case "coop_offer.sent": {
+      const p = payload as DomainEventPayload<"coop_offer.sent">;
+      return {
+        tenantId: p.tenantId,
+        type: "coop_offer_received",
+        title: "🤝 התקבלה הצעת שיתוף פעולה",
+        body: "סוכנות אחרת הציעה נכס לאחד הביקושים ששיתפת — בדקו אם מתאים לקונה.",
+        entityType: "coop_offer",
+        entityId: p.coopOfferId,
+      };
+    }
     case "appointment.scheduled": {
       const p = payload as DomainEventPayload<"appointment.scheduled">;
       return {

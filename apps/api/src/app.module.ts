@@ -6,6 +6,7 @@ import { CoreModule } from "./core/core.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { BuyersModule } from "./modules/buyers/buyers.module";
 import { CalendarModule } from "./modules/calendar/calendar.module";
+import { CollaborationModule } from "./modules/collaboration/collaboration.module";
 import { ContactsModule } from "./modules/contacts/contacts.module";
 import { HealthModule } from "./modules/health/health.module";
 import { LeadsModule } from "./modules/leads/leads.module";
@@ -36,6 +37,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     NotificationsModule,
     MessagingModule,
     CalendarModule,
+    CollaborationModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })

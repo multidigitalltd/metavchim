@@ -33,6 +33,8 @@ const EnvSchema = z.object({
   /** סודות WhatsApp Cloud API — ה-Webhook סגור עד שהם מוגדרים. */
   WHATSAPP_APP_SECRET: z.string().min(16).optional(),
   WHATSAPP_VERIFY_TOKEN: z.string().min(16).optional(),
+  /** סוד ה-Webhook של Kanko — קליטת ביקושים סגורה עד שהוא מוגדר. */
+  KANKO_WEBHOOK_SECRET: z.string().min(16).optional(),
   /** Secure cookies — חובה true בפרודקשן. */
   COOKIE_SECURE: z
     .enum(["true", "false"])

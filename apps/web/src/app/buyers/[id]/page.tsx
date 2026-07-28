@@ -2,7 +2,8 @@
 
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
-import { apiGet } from "@/lib/api";
+import { Button } from "@metavchim/ui";
+import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { formatPrice, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 
@@ -41,7 +42,17 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
   const { loading: authLoading } = useRequireAuth();
   const [buyer, setBuyer] = useState<BuyerDetail | null>(null);
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  async function shareToNetwork() {
+    try {
+      await apiPost("/collaboration/share", { buyerId: id });
+      setShareStatus("✓ הקונה שותף ברשת כביקוש אנונימי — בלי שם, בלי טלפון, תקציב מעוגל");
+    } catch (err: unknown) {
+      setShareStatus(err instanceof ApiError ? err.message : "השיתוף נכשל");
+    }
+  }
 
   useEffect(() => {
     if (authLoading) return;
@@ -78,6 +89,13 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
         <p style={{ color: "var(--color-text-muted)" }}>
           <span dir="ltr">{buyer.contact.phone}</span> · {MATURITY_LABELS[buyer.maturity] ?? buyer.maturity} · מקור: {buyer.source}
         </p>
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <Button variant="secondary" onClick={() => void shareToNetwork()}>
+          🌐 שתף ברשת (אנונימי)
+        </Button>
+        {shareStatus ? <span role="status">{shareStatus}</span> : null}
       </div>
 
       <section aria-labelledby="req-heading" className="mb-8 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
