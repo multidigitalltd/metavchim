@@ -35,6 +35,18 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   /**
+   * קריאת רשת שיתופי הפעולה: ביקושים אנונימיים גלויים לכל הסוכנויות
+   * (docs/04 §7). פוליסת ה-RLS של shared_demands מתירה SELECT כשמוגדר
+   * app.network_read — אין בטבלה PII, והקישור לקונה לא נחשף בשכבת ה-DTO.
+   */
+  async withNetworkRead<T>(fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.network_read', 'on', true)`;
+      return fn(tx);
+    });
+  }
+
+  /**
    * גישה ציבורית לפי טוקן הצעה (דף ההצעה ללקוח קצה): פוליסת RLS ייעודית
    * חושפת אך ורק את שורת ההצעה שהטוקן שלה הוצג — בלי הקשר דייר,
    * בלי גישה לשום טבלה אחרת.

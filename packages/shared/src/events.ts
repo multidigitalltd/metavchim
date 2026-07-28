@@ -51,6 +51,12 @@ export const DomainEvents = {
     tenantId: IdSchema,
     startsAt: z.coerce.date(),
   }),
+  "coop_offer.sent": z.object({
+    coopOfferId: IdSchema,
+    /** הסוכנות המקבלת — אליה מנותבת ההתראה */
+    tenantId: IdSchema,
+    fromTenantId: IdSchema,
+  }),
 } as const;
 
 export type DomainEventName = keyof typeof DomainEvents;
