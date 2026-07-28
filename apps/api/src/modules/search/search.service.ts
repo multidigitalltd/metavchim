@@ -110,6 +110,17 @@ export class SearchService {
           : [],
       ]);
 
+      // זהות איש הקשר נחשפת רק למי שרואה לפחות ישות מקושרת אחת, או
+      // לבעל ראייה משרדית (view_all) — משתמש view_own שמחפש טלפון של
+      // לקוח של סוכן אחר מקבל "אין תוצאות", בדיוק כמו ברשימות (docs/04 §3).
+      const ctx = TenantContext.current();
+      const officeWide =
+        ctx.capabilities.has("buyers.view_all") || ctx.capabilities.has("leads.view_all");
+      const anyVisible = properties.length + buyers.length + leads.length > 0;
+      if (!anyVisible && !officeWide) {
+        return { contact: null, properties: [], buyers: [], leads: [] };
+      }
+
       return {
         contact: identity,
         properties,
@@ -127,17 +138,23 @@ export class SearchService {
     const needle = query.toLowerCase();
 
     return this.prisma.withTenant(async (tx) => {
+      // "דיזנגוף 10 תל אביב" — כל מילה חייבת להופיע באחד משדות הכתובת
+      // (AND על מילים, OR על שדות), כולל מספר בית; עד 5 מילים.
+      const tokens = query.split(/\s+/u).filter((t) => t.length > 0).slice(0, 5);
       const properties = can.canProperties
         ? await tx.property.findMany({
             where: {
               tenantId,
               deletedAt: null,
-              OR: [
-                { city: { contains: query, mode: "insensitive" } },
-                { street: { contains: query, mode: "insensitive" } },
-                { neighborhood: { contains: query, mode: "insensitive" } },
-                { marketingTitle: { contains: query, mode: "insensitive" } },
-              ],
+              AND: tokens.map((token) => ({
+                OR: [
+                  { city: { contains: token, mode: "insensitive" as const } },
+                  { street: { contains: token, mode: "insensitive" as const } },
+                  { neighborhood: { contains: token, mode: "insensitive" as const } },
+                  { houseNumber: { contains: token, mode: "insensitive" as const } },
+                  { marketingTitle: { contains: token, mode: "insensitive" as const } },
+                ],
+              })),
             },
             select: {
               id: true, city: true, street: true, neighborhood: true,
