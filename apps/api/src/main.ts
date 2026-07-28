@@ -16,6 +16,10 @@ async function bootstrap(): Promise<void> {
   app.use(helmet());
   app.use(cookieParser());
 
+  // req.ip מאחורי LB: סופרים רק שכבות Proxy מוצהרות — 0 בפיתוח מונע
+  // זיוף X-Forwarded-For שעוקף את מגבלת ההתחברות (docs/04 §6).
+  app.getHttpAdapter().getInstance().set("trust proxy", env.TRUST_PROXY_HOPS);
+
   // CORS נעול ל-Origin המוצהר בלבד — לא wildcard, לא רשימה דינמית.
   app.enableCors({
     origin: [env.WEB_ORIGIN],

@@ -15,6 +15,7 @@ import { loadEnv } from "../../config/env";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { Public } from "../../common/auth.decorators";
 import { AuthService, type AuthenticatedUser } from "./auth.service";
+import { LoginThrottleService } from "./login-throttle.service";
 
 export const SESSION_COOKIE = "mv_session";
 
@@ -34,7 +35,10 @@ const ChangePasswordSchema = z
 
 @Controller("auth")
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly throttle: LoginThrottleService,
+  ) {}
 
   @Public()
   @Post("login")
@@ -45,10 +49,26 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ user: AuthenticatedUser }> {
-    const { token, expiresAt, user } = await this.auth.login(body.email, body.password, {
-      ip: req.ip,
-      userAgent: req.headers["user-agent"],
-    });
+    // הזמנה אטומית לפני כל עבודת סיסמה — גם בקשות מקבילות לא עוקפות
+    // את הסף (docs/04 §6; ביקורת Codex, PR #15).
+    await this.throttle.reserveAttempt(body.email, req.ip);
+
+    let result: Awaited<ReturnType<AuthService["login"]>>;
+    try {
+      result = await this.auth.login(body.email, body.password, {
+        ip: req.ip,
+        userAgent: req.headers["user-agent"],
+      });
+    } catch (error) {
+      // רק דחיית אימות נספרת ככשל; תקלת תשתית משחררת את ההזמנה —
+      // נפילת DB זמנית לא נועלת חשבונות ל-15 דקות.
+      if (!(error instanceof UnauthorizedException)) {
+        await this.throttle.releaseOnInfraError(body.email, req.ip);
+      }
+      throw error;
+    }
+    await this.throttle.releaseOnSuccess(body.email, req.ip);
+    const { token, expiresAt, user } = result;
     const env = loadEnv();
     res.cookie(SESSION_COOKIE, token, {
       httpOnly: true,

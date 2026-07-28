@@ -40,6 +40,11 @@ const EnvSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
+  /**
+   * כמה שכבות Proxy אמינות לפני האפליקציה (LB/CDN). 0 = אין (פיתוח,
+   * X-Forwarded-For לא נספר — מונע זיוף IP); בפרודקשן מאחורי LB אחד: 1.
+   */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
