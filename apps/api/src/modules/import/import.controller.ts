@@ -7,16 +7,18 @@ import { PropertiesService } from "../properties/properties.service";
 
 /**
  * ייבוא נכסים בכמות (docs/08 §6 — Onboarding): הפרונט מפרק CSV/אקסל
- * ל-JSON וממפה עמודות; כאן כל שורה עוברת ולידציה ונוצרת. שורה שנכשלת
- * לא מפילה את השאר — מוחזר דיווח שגיאה פר-שורה.
+ * ל-JSON וממפה עמודות; כאן כל שורה עוברת ולידציה בנפרד בתוך הלולאה, כך
+ * ששורה פגומה אחת לא מפילה את כל האצווה — מוחזר דיווח שגיאה פר-שורה.
+ * ה-Pipe מאמת רק את מעטפת האצווה (מערך בגודל סביר); תוכן השורות נבדק
+ * פר-שורה מול ImportRowSchema.
  */
 const ImportRowSchema = PropertyFieldsSchema.extend({
   marketingTitle: z.string().max(160).optional(),
 }).strict();
 
-const ImportSchema = z
+const ImportEnvelopeSchema = z
   .object({
-    rows: z.array(ImportRowSchema).min(1).max(500),
+    rows: z.array(z.record(z.string(), z.unknown())).min(1).max(500),
   })
   .strict();
 
@@ -32,15 +34,23 @@ export class ImportController {
   @Post("properties")
   @RequireCapability("properties.create")
   async importProperties(
-    @Body(new ZodValidationPipe(ImportSchema)) body: z.infer<typeof ImportSchema>,
+    @Body(new ZodValidationPipe(ImportEnvelopeSchema)) body: z.infer<typeof ImportEnvelopeSchema>,
   ): Promise<ImportResult> {
     const failed: ImportResult["failed"] = [];
     let created = 0;
 
-    for (const [index, row] of body.rows.entries()) {
+    for (const [index, rawRow] of body.rows.entries()) {
+      const parsed = ImportRowSchema.safeParse(rawRow);
+      if (!parsed.success) {
+        failed.push({
+          row: index + 1,
+          error: parsed.error.issues.map((i) => i.message).join("; ") || "שורה לא תקינה",
+        });
+        continue;
+      }
       try {
-        const { marketingTitle, ...fields } = row;
-        await this.properties.create({ fields, marketingTitle });
+        const { marketingTitle, ...fields } = parsed.data;
+        await this.properties.createForImport({ fields, marketingTitle });
         created += 1;
       } catch (error) {
         failed.push({
