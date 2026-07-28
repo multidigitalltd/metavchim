@@ -22,7 +22,7 @@ const HEADER_MAP: Record<string, keyof PropertyFields | "marketingTitle"> = {
   סוג: "propertyType",
 };
 
-const PROPERTY_TYPE_MAP: Record<string, PropertyType> = {
+export const PROPERTY_TYPE_MAP: Record<string, PropertyType> = {
   דירה: "apartment",
   "דירת גן": "garden_apartment",
   פנטהאוז: "penthouse",

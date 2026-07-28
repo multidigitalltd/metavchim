@@ -5,6 +5,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { ExportSection } from "./export-section";
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
 
@@ -235,6 +236,8 @@ export default function SettingsPage() {
           <Button type="submit">➕ הוסף איש צוות</Button>
         </form>
       </section>
+
+      <ExportSection />
 
       <section aria-labelledby="audit-heading">
         <h2 id="audit-heading" className="mb-1 text-lg font-semibold">יומן פעילות</h2>

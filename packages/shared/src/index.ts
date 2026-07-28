@@ -13,6 +13,7 @@ export * from "./logic/notifications.js";
 export * from "./logic/coach.js";
 export * from "./logic/csv-import.js";
 export * from "./logic/csv-import-buyers.js";
+export * from "./logic/csv-export.js";
 export * from "./events.js";
 export * from "./rbac.js";
 export * from "./queues.js";

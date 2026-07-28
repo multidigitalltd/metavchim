@@ -46,7 +46,7 @@ const HEADER_MAP: Record<string, BuyerColumn> = {
   הערות: "agentNotes",
 };
 
-const DEAL_TYPE_MAP: Record<string, "sale" | "rent"> = {
+export const DEAL_TYPE_MAP: Record<string, "sale" | "rent"> = {
   מכירה: "sale",
   קנייה: "sale",
   קניה: "sale",
@@ -55,14 +55,14 @@ const DEAL_TYPE_MAP: Record<string, "sale" | "rent"> = {
   שכירות: "rent",
 };
 
-const FINANCING_MAP: Record<string, ParsedBuyerRow["financing"]> = {
+export const FINANCING_MAP: Record<string, ParsedBuyerRow["financing"]> = {
   מזומן: "cash",
   "אישור עקרוני": "pre_approved",
   בתהליך: "in_process",
   "לא התחיל": "not_started",
 };
 
-const MATURITY_MAP: Record<string, BuyerMaturity> = {
+export const MATURITY_MAP: Record<string, BuyerMaturity> = {
   "חם מאוד": "very_hot",
   חם: "hot",
   מתעניין: "interested",
