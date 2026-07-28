@@ -46,9 +46,12 @@ export default function CalendarPage() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
+    // כולל 14 יום אחורה — כדי שסיורים שהסתיימו יופיעו לסיכום תוצאה
+    // (המלצת עוזר המכירות מקשרת אליהם; ביקורת Codex)
     const from = new Date();
     from.setHours(0, 0, 0, 0);
-    const to = new Date(from.getTime() + 14 * 24 * 60 * 60 * 1000);
+    from.setDate(from.getDate() - 14);
+    const to = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
     apiGet<AppointmentRow[]>(`/appointments?from=${from.toISOString()}&to=${to.toISOString()}`)
       .then(setItems)
       .catch(() => setError("טעינת היומן נכשלה"));
@@ -77,7 +80,7 @@ export default function CalendarPage() {
   return (
     <>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">יומן — 14 הימים הקרובים</h1>
+        <h1 className="text-2xl font-bold">יומן</h1>
         <Link href="/calendar/new">
           <Button>➕ פגישה חדשה</Button>
         </Link>
