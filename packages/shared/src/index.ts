@@ -12,6 +12,7 @@ export * from "./logic/extract-property.js";
 export * from "./logic/notifications.js";
 export * from "./logic/coach.js";
 export * from "./logic/csv-import.js";
+export * from "./logic/csv-import-buyers.js";
 export * from "./events.js";
 export * from "./rbac.js";
 export * from "./queues.js";
