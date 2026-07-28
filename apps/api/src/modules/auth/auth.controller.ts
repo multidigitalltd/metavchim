@@ -15,6 +15,7 @@ import { loadEnv } from "../../config/env";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { Public } from "../../common/auth.decorators";
 import { AuthService, type AuthenticatedUser } from "./auth.service";
+import { LoginThrottleService } from "./login-throttle.service";
 
 export const SESSION_COOKIE = "mv_session";
 
@@ -34,7 +35,10 @@ const ChangePasswordSchema = z
 
 @Controller("auth")
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly throttle: LoginThrottleService,
+  ) {}
 
   @Public()
   @Post("login")
@@ -45,10 +49,21 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ user: AuthenticatedUser }> {
-    const { token, expiresAt, user } = await this.auth.login(body.email, body.password, {
-      ip: req.ip,
-      userAgent: req.headers["user-agent"],
-    });
+    // הגנת Brute-Force לפני כל בדיקת סיסמה (docs/04 §6)
+    await this.throttle.assertAllowed(body.email, req.ip);
+
+    let result: Awaited<ReturnType<AuthService["login"]>>;
+    try {
+      result = await this.auth.login(body.email, body.password, {
+        ip: req.ip,
+        userAgent: req.headers["user-agent"],
+      });
+    } catch (error) {
+      await this.throttle.recordFailure(body.email, req.ip);
+      throw error;
+    }
+    await this.throttle.recordSuccess(body.email);
+    const { token, expiresAt, user } = result;
     const env = loadEnv();
     res.cookie(SESSION_COOKIE, token, {
       httpOnly: true,
