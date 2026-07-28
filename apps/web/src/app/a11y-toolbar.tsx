@@ -94,13 +94,41 @@ export function AccessibilityToolbar() {
     }
   }
 
-  // ESC לסגירה + החזרת פוקוס למפעיל
+  // דיאלוג נגיש: העברת פוקוס פנימה בפתיחה, מלכודת Tab, ESC לסגירה
+  // והחזרת פוקוס למפעיל (ביקורת Codex, PR #8).
   useEffect(() => {
     if (!open) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const focusables = (): HTMLElement[] =>
+      Array.from(
+        panel.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => !el.hasAttribute("disabled"));
+
+    // פוקוס לאלמנט הראשון בפאנל
+    focusables()[0]?.focus();
+
     function onKey(event: KeyboardEvent): void {
       if (event.key === "Escape") {
         setOpen(false);
         triggerRef.current?.focus();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusables();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !panelRef.current?.contains(active))) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first?.focus();
       }
     }
     document.addEventListener("keydown", onKey);

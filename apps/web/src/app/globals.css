@@ -145,12 +145,12 @@ body {
    על <html>, ראו a11y-toolbar.tsx.
    ============================================================ */
 
-/* הגדלת/הקטנת טקסט — סקלה על גודל הבסיס */
+/* הגדלת/הקטנת טקסט — סקלה על גודל הבסיס של השורש, כך שכל יחידות
+   ה-rem (כולל מחלקות Tailwind: text-sm/text-2xl וכו') גדלות איתה
+   (ביקורת Codex, PR #8). 1em על <html> = ברירת המחדל של הדפדפן. */
 :root {
   --a11y-font-scale: 1;
-}
-body {
-  font-size: calc(1rem * var(--a11y-font-scale));
+  font-size: calc(1em * var(--a11y-font-scale));
 }
 
 /* ניגודיות גבוהה */
@@ -165,6 +165,12 @@ body {
 :root[data-a11y-contrast="on"] body {
   background: #ffffff;
   color: #000000;
+}
+/* מצב ניגודיות גבוהה: טקסט לבן על כפתורי הפעולה (#0000cc) — גובר על
+   כלל המצב הכהה שמגדיר טקסט כהה (ביקורת Codex, PR #8). */
+:root[data-a11y-contrast="on"] .mv-button--primary,
+:root[data-a11y-contrast="on"] .mv-button--danger {
+  color: #ffffff;
 }
 
 /* גווני אפור */
