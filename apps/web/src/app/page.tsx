@@ -43,12 +43,38 @@ interface AppointmentRow {
   status: string;
 }
 
+interface Recommendation {
+  priority: number;
+  type: string;
+  title: string;
+  body: string;
+  entityType?: "property" | "lead" | "buyer" | "offer" | "appointment";
+  entityId?: string;
+}
+
+function recHref(rec: Recommendation): string | null {
+  if (!rec.entityId) return null;
+  switch (rec.entityType) {
+    case "property":
+      return `/properties/${rec.entityId}`;
+    case "lead":
+      return `/leads/${rec.entityId}`;
+    case "buyer":
+      return `/buyers/${rec.entityId}`;
+    case "appointment":
+      return "/calendar";
+    default:
+      return null;
+  }
+}
+
 export default function DashboardPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const [properties, setProperties] = useState<PropertyRow[] | null>(null);
   const [buyers, setBuyers] = useState<BuyerRow[] | null>(null);
   const [leads, setLeads] = useState<LeadRow[] | null>(null);
   const [today, setToday] = useState<AppointmentRow[] | null>(null);
+  const [recs, setRecs] = useState<Recommendation[] | null>(null);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -67,6 +93,9 @@ export default function DashboardPage() {
     apiGet<AppointmentRow[]>(`/appointments?from=${dayStart.toISOString()}&to=${dayEnd.toISOString()}`)
       .then(setToday)
       .catch(() => setToday([]));
+    apiGet<Recommendation[]>("/coach/recommendations")
+      .then(setRecs)
+      .catch(() => setRecs([]));
   }, [authLoading, user]);
 
   if (authLoading || !user) return <p aria-live="polite">טוען…</p>;
@@ -105,6 +134,43 @@ export default function DashboardPage() {
           ))}
         </dl>
       </section>
+
+      {recs && recs.length > 0 ? (
+        <section aria-labelledby="coach-heading" className="mb-8">
+          <h2 id="coach-heading" className="mb-3 text-lg font-semibold">
+            🧠 עוזר המכירות ממליץ
+          </h2>
+          <ul className="flex flex-col gap-3">
+            {recs.slice(0, 5).map((rec, index) => {
+              const href = recHref(rec);
+              const card = (
+                <div
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"
+                  style={{
+                    borderColor: rec.priority >= 90 ? "var(--color-danger)" : "var(--color-primary)",
+                    background: "var(--color-surface)",
+                  }}
+                >
+                  <div>
+                    <h3 className="font-semibold">{rec.title}</h3>
+                    <p style={{ color: "var(--color-text-muted)" }}>{rec.body}</p>
+                  </div>
+                  {href ? <span aria-hidden="true">←</span> : null}
+                </div>
+              );
+              return (
+                <li key={`${rec.type}-${index}`}>
+                  {href ? (
+                    <Link href={href} className="block no-underline">{card}</Link>
+                  ) : (
+                    card
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
 
       <section aria-labelledby="actions-heading">
         <h2 id="actions-heading" className="mb-3 text-lg font-semibold">פעולות מומלצות</h2>

@@ -7,6 +7,7 @@ import { AuthModule } from "./modules/auth/auth.module";
 import { AnalyticsModule } from "./modules/analytics/analytics.module";
 import { BuyersModule } from "./modules/buyers/buyers.module";
 import { CalendarModule } from "./modules/calendar/calendar.module";
+import { CoachModule } from "./modules/coach/coach.module";
 import { CollaborationModule } from "./modules/collaboration/collaboration.module";
 import { ContactsModule } from "./modules/contacts/contacts.module";
 import { HealthModule } from "./modules/health/health.module";
@@ -42,6 +43,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     CollaborationModule,
     SettingsModule,
     AnalyticsModule,
+    CoachModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })
