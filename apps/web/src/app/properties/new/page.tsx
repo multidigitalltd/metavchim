@@ -12,6 +12,11 @@ const inputStyle = {
   background: "var(--color-bg)",
 } as const;
 
+function triState(form: FormData, name: string): boolean | undefined {
+  const value = String(form.get(name) ?? "");
+  return value === "yes" ? true : value === "no" ? false : undefined;
+}
+
 export default function NewPropertyPage() {
   useRequireAuth();
   const router = useRouter();
@@ -43,10 +48,12 @@ export default function NewPropertyPage() {
         totalFloors: num("totalFloors"),
         priceAgorot: priceShekels === undefined ? undefined : shekelsToAgorot(priceShekels),
         entryDate: entry ? new Date(entry).toISOString() : undefined,
-        hasElevator: f.get("hasElevator") === "on" ? true : undefined,
-        hasParking: f.get("hasParking") === "on" ? true : undefined,
-        hasBalcony: f.get("hasBalcony") === "on" ? true : undefined,
-        hasSafeRoom: f.get("hasSafeRoom") === "on" ? true : undefined,
+        // תלת-מצבי: "" = לא ידוע (נשאר חוסר), yes/no = עובדה מפורשת.
+        // "אין מעלית" הוא מידע קריטי להתאמות — לא היעדר מידע (ביקורת Codex, PR #1).
+        hasElevator: triState(f, "hasElevator"),
+        hasParking: triState(f, "hasParking"),
+        hasBalcony: triState(f, "hasBalcony"),
+        hasSafeRoom: triState(f, "hasSafeRoom"),
         marketingTitle: String(f.get("marketingTitle") ?? "").trim() || undefined,
       });
       router.replace(`/properties/${created.id}`);
@@ -125,18 +132,32 @@ export default function NewPropertyPage() {
           </div>
 
           <fieldset className="mt-4">
-            <legend className="mb-2 font-medium">מאפיינים</legend>
-            <div className="flex flex-wrap gap-4">
+            <legend className="mb-2 font-medium">מאפיינים — יש, אין, או לא ידוע?</legend>
+            <div className="grid gap-2 sm:grid-cols-2">
               {[
                 ["hasElevator", "מעלית"],
                 ["hasParking", "חניה"],
                 ["hasBalcony", "מרפסת"],
                 ["hasSafeRoom", 'ממ"ד'],
               ].map(([name, label]) => (
-                <label key={name} className="flex min-h-11 cursor-pointer items-center gap-2">
-                  <input type="checkbox" name={name} className="size-5" />
-                  {label}
-                </label>
+                <div
+                  key={name}
+                  className="flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3"
+                  style={{ borderColor: "var(--color-border)" }}
+                >
+                  <label htmlFor={`feat_${name}`} className="font-medium">{label}</label>
+                  <select
+                    id={`feat_${name}`}
+                    name={name}
+                    defaultValue=""
+                    className="rounded-md border px-2 py-1.5"
+                    style={inputStyle}
+                  >
+                    <option value="">לא ידוע</option>
+                    <option value="yes">יש</option>
+                    <option value="no">אין</option>
+                  </select>
+                </div>
               ))}
             </div>
           </fieldset>

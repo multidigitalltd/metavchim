@@ -42,8 +42,13 @@ export class MatchingService {
       const property = await tx.property.findFirst({
         where: { id: propertyId, tenantId, deletedAt: null },
       });
-      if (!property || property.city === null || property.priceAgorot === null) {
-        return 0; // בלי עיר ומחיר אין סינון גס אמין — ההתאמות יחושבו כשיושלמו
+      if (
+        !property ||
+        property.city === null ||
+        property.priceAgorot === null ||
+        property.dealType === null
+      ) {
+        return 0; // בלי עיר, מחיר וסוג עסקה אין סינון אמין — יחושב כשיושלם
       }
       const fields = rowToFields(property);
 
@@ -52,7 +57,7 @@ export class MatchingService {
         where: {
           tenantId,
           deletedAt: null,
-          dealType: property.dealType ?? undefined,
+          dealType: property.dealType,
           cities: { has: property.city },
           budgetMaxAgorot: { gte: BigInt(Math.floor(Number(property.priceAgorot) / 1.07)) },
         },

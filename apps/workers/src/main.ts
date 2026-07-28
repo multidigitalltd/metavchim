@@ -1,8 +1,20 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { Worker, type Job } from "bullmq";
 import IORedis from "ioredis";
 import { PrismaClient } from "@prisma/client";
 import { ulid } from "ulid";
 import { NotificationJobSchema, QUEUES } from "@metavchim/shared";
+
+for (const candidate of [resolve(process.cwd(), "../../.env"), resolve(process.cwd(), ".env")]) {
+  if (existsSync(candidate)) {
+    try {
+      process.loadEnvFile(candidate);
+    } catch {
+      /* קובץ פגום — נסמוך על משתני הסביבה הקיימים */
+    }
+  }
+}
 
 /**
  * תהליך ה-Workers — כל עבודה כבדה רצה כאן, לעולם לא ב-Request

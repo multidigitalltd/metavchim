@@ -155,6 +155,8 @@ model Buyer {
   id                 String    @id @db.Char(26)
   tenantId           String    @map("tenant_id") @db.Char(26)
   contactId          String    @map("contact_id") @db.Char(26)
+  // הסוכן שמטפל בקונה — הבסיס לאכיפת buyers.view_own (ביקורת Codex, PR #1)
+  ownerUserId        String?   @map("owner_user_id") @db.Char(26)
   // דרישות מובנות (BuyerRequirements בסכמת Zod) — עמודות חמות + JSONB.
   cities             String[]
   dealType           String    @map("deal_type") @db.VarChar(10)
@@ -175,6 +177,7 @@ model Buyer {
 
   @@index([tenantId, maturity, updatedAt])
   @@index([tenantId, dealType, budgetMaxAgorot])
+  @@index([tenantId, ownerUserId])
   @@map("buyers")
 }
 

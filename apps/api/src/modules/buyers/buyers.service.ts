@@ -5,6 +5,7 @@ import {
   type BuyerRequirements,
   type Page,
 } from "@metavchim/shared";
+import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -56,6 +57,7 @@ export class BuyersService {
           id,
           tenantId,
           contactId: contact.id,
+          ownerUserId: TenantContext.current().userId,
           cities: input.requirements.cities,
           dealType: input.requirements.dealType,
           budgetMinAgorot:
@@ -146,7 +148,12 @@ export class BuyersService {
   async getById(id: string): Promise<BuyerDto> {
     return this.prisma.withTenant(async (tx) => {
       const row = await tx.buyer.findFirst({
-        where: { id, tenantId: TenantContext.current().tenantId, deletedAt: null },
+        where: {
+          id,
+          tenantId: TenantContext.current().tenantId,
+          deletedAt: null,
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
       });
       if (!row) throw new NotFoundException("קונה לא נמצא");
       const contact = await this.contacts.getById(tx, row.contactId);
@@ -161,6 +168,7 @@ export class BuyersService {
         where: {
           tenantId: TenantContext.current().tenantId,
           deletedAt: null,
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
           ...(query.maturity ? { maturity: query.maturity } : {}),
           ...(query.cursor ? { id: { lt: query.cursor } } : {}),
         },

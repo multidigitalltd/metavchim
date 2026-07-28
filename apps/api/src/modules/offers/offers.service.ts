@@ -43,9 +43,15 @@ export class OffersService {
       if (!match) throw new NotFoundException("התאמה לא נמצאה");
 
       const property = await tx.property.findFirst({
-        where: { id: match.propertyId, tenantId, deletedAt: null },
+        where: {
+          id: match.propertyId,
+          tenantId,
+          deletedAt: null,
+          // הצעה רק לנכס משווק — לא לנמכר/הושכר/מוקפא (ביקורת Codex, PR #1)
+          status: { in: ["draft", "active"] },
+        },
       });
-      if (!property) throw new NotFoundException("הנכס כבר אינו זמין");
+      if (!property) throw new NotFoundException("הנכס כבר אינו זמין לשיווק");
 
       const tenant = await tx.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
 

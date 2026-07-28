@@ -1,9 +1,23 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { z } from "zod";
 
 /**
  * ולידציית סביבה בעליית התהליך — קונפיגורציה שגויה מפילה את השרת מיד,
  * לא מתגלה באמצע בקשה של לקוח.
+ *
+ * טעינת ‎.env: קובץ השורש של ה-Monorepo (התהליך של README) ואז מקומי;
+ * ערכים שכבר קיימים ב-process.env לא נדרסים (פרודקשן מזריקה ישירות).
  */
+for (const candidate of [resolve(process.cwd(), "../../.env"), resolve(process.cwd(), ".env")]) {
+  if (existsSync(candidate)) {
+    try {
+      process.loadEnvFile(candidate);
+    } catch {
+      // קובץ פגום — הוולידציה למטה תדווח על מה שחסר
+    }
+  }
+}
 const EnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(3001),

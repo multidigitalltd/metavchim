@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import type { Page } from "@metavchim/shared";
+import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -149,7 +150,9 @@ export class LeadsService {
   async getById(id: string): Promise<{ lead: LeadDto; timeline: InteractionDto[] }> {
     return this.prisma.withTenant(async (tx) => {
       const tenantId = TenantContext.current().tenantId;
-      const row = await tx.lead.findFirst({ where: { id, tenantId } });
+      const row = await tx.lead.findFirst({
+        where: { id, tenantId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
+      });
       if (!row) throw new NotFoundException("ליד לא נמצא");
       const contact = await this.contacts.getById(tx, row.contactId);
       if (!contact) throw new NotFoundException("איש קשר לא נמצא");
@@ -182,6 +185,7 @@ export class LeadsService {
       const rows = await tx.lead.findMany({
         where: {
           tenantId,
+          ...ownershipFilter("leads.view_all", "assignedToUserId"),
           ...(query.status ? { status: query.status } : {}),
           ...(query.requiresHuman !== undefined ? { requiresHuman: query.requiresHuman } : {}),
           ...(query.cursor ? { id: { lt: query.cursor } } : {}),

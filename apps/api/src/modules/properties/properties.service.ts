@@ -95,6 +95,11 @@ export class PropertiesService {
           readinessScore: readiness.score,
         },
       });
+      // נכס שיצא משיווק — ההתאמות המוצעות מתבטלות; אין להציע נכס שנמכר
+      // (ביקורת Codex, PR #1). החלטות ידניות (offered/dismissed) נשמרות כהיסטוריה.
+      if (status !== undefined && !["draft", "active"].includes(status)) {
+        await tx.match.deleteMany({ where: { propertyId: id, status: "suggested" } });
+      }
       await this.audit.record(tx, {
         action: "property.update",
         entityType: "property",

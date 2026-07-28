@@ -9,7 +9,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
     "prisma:generate": "prisma generate",
-    "prisma:validate": "prisma validate"
+    "prisma:validate": "prisma validate",
+    "db:migrate": "node --env-file=../../.env ./node_modules/prisma/build/index.js migrate dev",
+    "db:deploy": "node --env-file=../../.env ./node_modules/prisma/build/index.js migrate deploy",
+    "db:seed": "node --env-file=../../.env ./node_modules/tsx/dist/cli.mjs prisma/seed.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
