@@ -267,6 +267,22 @@ model Offer {
   @@map("offers")
 }
 
+// התראה למתווך: נוצרת ע"י ה-Worker מאירועי דומיין (docs/02 §4 Notifications).
+model Notification {
+  id         String    @id @db.Char(26)
+  tenantId   String    @map("tenant_id") @db.Char(26)
+  type       String    @db.VarChar(40)
+  title      String    @db.VarChar(200)
+  body       String?   @db.VarChar(500)
+  entityType String?   @map("entity_type") @db.VarChar(40)
+  entityId   String?   @map("entity_id") @db.Char(26)
+  readAt     DateTime? @map("read_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([tenantId, readAt, createdAt])
+  @@map("notifications")
+}
+
 // דפוס Outbox — אירוע נכתב באותה טרנזקציה עם השינוי; Worker מפיץ (docs/02 §5).
 model OutboxEvent {
   id          String    @id @db.Char(26)

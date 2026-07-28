@@ -1,46 +1,57 @@
-import { Worker, type Processor } from "bullmq";
+import { Worker, type Job } from "bullmq";
 import IORedis from "ioredis";
-import { QUEUES, type QueueName } from "@metavchim/shared";
+import { PrismaClient } from "@prisma/client";
+import { ulid } from "ulid";
+import { NotificationJobSchema, QUEUES } from "@metavchim/shared";
 
 /**
  * תהליך ה-Workers — כל עבודה כבדה רצה כאן, לעולם לא ב-Request
  * (docs/07-performance.md §2, §6).
  *
- * כל Processor חייב להיות Idempotent: Job יכול לרוץ פעמיים (Retry),
- * והתוצאה חייבת להיות זהה.
+ * כל Processor: Idempotent (jobId ייחודי פר-אירוע), רץ תחת RLS עם
+ * tenant שמגיע מ-payload שנוצר בשרת (לא מקלט משתמש).
  */
 
 const connection = new IORedis(process.env["REDIS_URL"] ?? "redis://localhost:6379", {
   maxRetriesPerRequest: null,
 });
+const prisma = new PrismaClient();
 
-/** מקבילות לפי אופי התור — תורי AI מוגבלים לפי מכסות הספק. */
-const CONCURRENCY: Record<QueueName, number> = {
-  [QUEUES.realtime]: 10,
-  [QUEUES.ai]: 3,
-  [QUEUES.matching]: 5,
-  [QUEUES.notifications]: 10,
-  [QUEUES.sync]: 3,
-  [QUEUES.low]: 1,
-};
+/** כתיבת התראה תחת הקשר הדייר — פוליסות ה-RLS חלות גם על ה-Worker. */
+async function processNotification(job: Job): Promise<void> {
+  const data = NotificationJobSchema.parse(job.data);
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${data.tenantId}, true)`;
+    await tx.notification.create({
+      data: {
+        id: ulid(),
+        tenantId: data.tenantId,
+        type: data.type,
+        title: data.title,
+        body: data.body ?? null,
+        entityType: data.entityType ?? null,
+        entityId: data.entityId ?? null,
+      },
+    });
+  });
+}
 
-const placeholderProcessor: Processor = (job) => {
-  // המעבדים האמיתיים (תמלול, חילוץ, התאמות, שליחות) יירשמו כאן,
-  // מודול-מודול, לפי מפת הדרכים.
-  return Promise.resolve({ handled: false, jobName: job.name });
-};
+const workers = [
+  new Worker(QUEUES.notifications, processNotification, { connection, concurrency: 10 }),
+  // מעבדים נוספים (ai, matching, sync) יירשמו כאן מודול-מודול.
+];
 
-const workers = Object.values(QUEUES).map(
-  (queue) =>
-    new Worker(queue, placeholderProcessor, {
-      connection,
-      concurrency: CONCURRENCY[queue],
-    }),
-);
+for (const worker of workers) {
+  worker.on("failed", (job, error) => {
+    console.error(`[${worker.name}] job ${job?.id ?? "?"} failed: ${error.message}`);
+  });
+}
 
-/** Graceful Shutdown — Jobs פעילים מסיימים לפני יציאה; אין עבודות קטועות. */
+console.warn(`Workers up: ${workers.map((w) => w.name).join(", ")}`);
+
 async function shutdown(): Promise<void> {
   await Promise.allSettled(workers.map((w) => w.close()));
+  await prisma.$disconnect();
   await connection.quit();
   process.exit(0);
 }

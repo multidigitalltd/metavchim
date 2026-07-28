@@ -9,6 +9,8 @@ import { ContactsModule } from "./modules/contacts/contacts.module";
 import { HealthModule } from "./modules/health/health.module";
 import { LeadsModule } from "./modules/leads/leads.module";
 import { MatchingModule } from "./modules/matching/matching.module";
+import { MessagingModule } from "./modules/messaging/messaging.module";
+import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { OffersModule } from "./modules/offers/offers.module";
 import { PropertiesModule } from "./modules/properties/properties.module";
 import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
@@ -30,6 +32,8 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     OffersModule,
     LeadsModule,
     VoiceIntakeModule,
+    NotificationsModule,
+    MessagingModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })

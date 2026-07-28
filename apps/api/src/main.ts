@@ -10,6 +10,7 @@ async function bootstrap(): Promise<void> {
 
   const app = await NestFactory.create(AppModule, {
     logger: env.NODE_ENV === "production" ? ["error", "warn", "log"] : ["debug", "log", "warn", "error"],
+    rawBody: true, // נדרש לאימות חתימות Webhook (WhatsApp)
   });
 
   app.use(helmet());

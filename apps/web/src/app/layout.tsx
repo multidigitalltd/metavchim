@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { SkipLink } from "@metavchim/ui";
+import { NotificationsBell } from "./notifications-bell";
 import { UserMenu } from "./user-menu";
 import "./globals.css";
 
@@ -53,6 +54,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                     </a>
                   </li>
                 ))}
+                <li>
+                  <NotificationsBell />
+                </li>
                 <li>
                   <UserMenu />
                 </li>

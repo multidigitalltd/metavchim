@@ -47,12 +47,18 @@ importers:
       argon2:
         specifier: ^0.41.0
         version: 0.41.1
+      bullmq:
+        specifier: ^5.34.0
+        version: 5.81.2
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
       helmet:
         specifier: ^8.0.0
         version: 8.3.0
+      ioredis:
+        specifier: ^5.4.0
+        version: 5.11.1
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
@@ -127,12 +133,18 @@ importers:
       '@metavchim/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@prisma/client':
+        specifier: ^6.5.0
+        version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
       bullmq:
         specifier: ^5.34.0
         version: 5.81.2
       ioredis:
         specifier: ^5.4.0
         version: 5.11.1
+      ulid:
+        specifier: ^2.3.0
+        version: 2.4.0
       zod:
         specifier: ^3.24.0
         version: 3.25.76

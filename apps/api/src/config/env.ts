@@ -16,6 +16,9 @@ const EnvSchema = z.object({
     .refine((v) => Buffer.from(v, "base64").length === 32, "חייב להיות 32 בייט ב-base64"),
   /** מפתח HMAC ל-phone_hash — נפרד ממפתח ההצפנה בכוונה. */
   PHONE_HASH_KEY: z.string().min(32),
+  /** סודות WhatsApp Cloud API — ה-Webhook סגור עד שהם מוגדרים. */
+  WHATSAPP_APP_SECRET: z.string().min(16).optional(),
+  WHATSAPP_VERIFY_TOKEN: z.string().min(16).optional(),
   /** Secure cookies — חובה true בפרודקשן. */
   COOKIE_SECURE: z
     .enum(["true", "false"])

@@ -14,12 +14,14 @@ DO $$
 DECLARE
   t text;
 BEGIN
-  -- users/sessions אינן כאן בכוונה: החיפוש בהן קורה לפני שקיים הקשר דייר
-  -- (Login). אין בהן PII של לקוחות קצה; סינון הדייר נאכף בשכבת האפליקציה.
+  -- מחוץ ל-RLS בכוונה:
+  --   users/sessions — החיפוש בהן קורה לפני שקיים הקשר דייר (Login).
+  --   outbox_events — טבלת תשתית: ה-Dispatcher חייב לקרוא חוצה-דיירים,
+  --     ואף Endpoint משתמש לא נוגע בה. הבידוד נשמר אצל הצרכנים.
   FOREACH t IN ARRAY ARRAY[
     'contacts', 'properties', 'property_media', 'buyers', 'leads',
     'interactions', 'voice_intakes', 'matches', 'offers',
-    'outbox_events', 'audit_log'
+    'notifications', 'audit_log'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -34,6 +36,11 @@ END $$;
 
 -- audit_log הוא Append-Only: אין UPDATE/DELETE גם לתפקיד האפליקציה.
 -- REVOKE UPDATE, DELETE ON audit_log FROM metavchim_app;
+
+-- הסרת RLS מ-outbox_events אם הופעל בגרסה קודמת (idempotent).
+DROP POLICY IF EXISTS tenant_isolation ON outbox_events;
+ALTER TABLE outbox_events NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE outbox_events DISABLE ROW LEVEL SECURITY;
 
 -- ============================================================
 -- דף הצעה ציבורי: גישה לשורת ההצעה היחידה שהטוקן שלה הוצג,
