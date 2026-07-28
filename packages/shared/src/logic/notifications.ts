@@ -10,11 +10,15 @@ import type { DomainEventName, DomainEventPayload } from "../events.js";
 
 export const NotificationJobSchema = z.object({
   tenantId: IdSchema,
+  /** נמען ספציפי — התראה אישית; חסר = התראה משרדית לכל הדייר. */
+  recipientUserId: IdSchema.optional(),
   type: z.string().min(1).max(40),
   title: z.string().min(1).max(200),
   body: z.string().max(500).optional(),
   entityType: z.string().max(40).optional(),
   entityId: IdSchema.optional(),
+  /** לתזכורות מתוזמנות: המועד שה-Job נקבע אליו — ה-Worker משווה מולו. */
+  scheduledFor: z.coerce.date().optional(),
 });
 export type NotificationJob = z.infer<typeof NotificationJobSchema>;
 
@@ -110,5 +114,27 @@ export function buildAppointmentReminder(payload: {
     body: "בדקו את פרטי הנכס והלקוח לפני היציאה.",
     entityType: "appointment",
     entityId: payload.appointmentId,
+  };
+}
+
+/**
+ * תזכורת משימה במועד היעד — אישית לנמען בלבד (לא לכל המשרד), ונושאת את
+ * המועד שתוזמנה אליו כדי שה-Worker ידלג על Job ישן אחרי דחייה/ביטול מועד.
+ */
+export function buildTaskReminder(payload: {
+  taskId: string;
+  tenantId: string;
+  assignedToUserId: string;
+  title: string;
+  dueAt: Date;
+}): NotificationJob {
+  return {
+    tenantId: payload.tenantId,
+    recipientUserId: payload.assignedToUserId,
+    type: "task_reminder",
+    title: `📌 תזכורת: ${payload.title}`.slice(0, 200),
+    entityType: "task",
+    entityId: payload.taskId,
+    scheduledFor: payload.dueAt,
   };
 }

@@ -376,10 +376,33 @@ model Appointment {
   @@map("appointments")
 }
 
+// משימות ותזכורות (docs/01 — מודול 7): רשימת ה"לעשות" האישית של הסוכן,
+// עם תזכורת במועד היעד דרך צינור ההתראות הקיים.
+model Task {
+  id               String    @id @db.Char(26)
+  tenantId         String    @map("tenant_id") @db.Char(26)
+  /** המשימה אישית — נראית ומנוהלת ע"י הסוכן שהוקצה בלבד. */
+  assignedToUserId String    @map("assigned_to_user_id") @db.Char(26)
+  title            String    @db.VarChar(200)
+  notes            String?   @db.VarChar(2000)
+  dueAt            DateTime? @map("due_at")
+  status           String    @default("open") @db.VarChar(10) // open | done
+  // קישור אופציונלי לישות — "להתקשר לקונה X", "להשלים פרטי נכס Y"
+  entityType       String?   @map("entity_type") @db.VarChar(20) // lead | buyer | property
+  entityId         String?   @map("entity_id") @db.Char(26)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, assignedToUserId, status, dueAt])
+  @@map("tasks")
+}
+
 // התראה למתווך: נוצרת ע"י ה-Worker מאירועי דומיין (docs/02 §4 Notifications).
 model Notification {
   id         String    @id @db.Char(26)
   tenantId   String    @map("tenant_id") @db.Char(26)
+  /** נמען ספציפי (התראות אישיות, כמו תזכורת משימה); NULL = כל המשרד. */
+  userId     String?   @map("user_id") @db.Char(26)
   type       String    @db.VarChar(40)
   title      String    @db.VarChar(200)
   body       String?   @db.VarChar(500)
@@ -388,7 +411,7 @@ model Notification {
   readAt     DateTime? @map("read_at")
   createdAt  DateTime  @default(now()) @map("created_at")
 
-  @@index([tenantId, readAt, createdAt])
+  @@index([tenantId, userId, readAt, createdAt])
   @@map("notifications")
 }
 

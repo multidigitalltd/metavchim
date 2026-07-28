@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
+import { TasksSection } from "./tasks-section";
 
 interface AppointmentRow {
   id: string;
@@ -85,6 +86,8 @@ export default function CalendarPage() {
           <Button>➕ פגישה חדשה</Button>
         </Link>
       </div>
+
+      <TasksSection />
 
       {error ? (
         <p role="alert" style={{ color: "var(--color-danger)" }}>{error}</p>

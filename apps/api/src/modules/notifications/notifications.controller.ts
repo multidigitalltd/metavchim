@@ -29,14 +29,19 @@ export class NotificationsController {
     @Query(new ZodValidationPipe(ListQuerySchema)) query: z.infer<typeof ListQuerySchema>,
   ): Promise<{ items: NotificationDto[]; unreadCount: number }> {
     return this.prisma.withTenant(async (tx) => {
-      const tenantId = TenantContext.current().tenantId;
+      const ctx = TenantContext.current();
+      // התראה אישית (userId מלא) נראית לנמען בלבד; NULL = לכל המשרד
+      const visible = {
+        tenantId: ctx.tenantId,
+        OR: [{ userId: null }, { userId: ctx.userId }],
+      };
       const [rows, unreadCount] = await Promise.all([
         tx.notification.findMany({
-          where: { tenantId },
+          where: visible,
           orderBy: { createdAt: "desc" },
           take: query.limit,
         }),
-        tx.notification.count({ where: { tenantId, readAt: null } }),
+        tx.notification.count({ where: { ...visible, readAt: null } }),
       ]);
       return {
         items: rows.map((n) => ({
@@ -57,9 +62,15 @@ export class NotificationsController {
   @Patch(":id/read")
   @HttpCode(200)
   async markRead(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<{ ok: true }> {
+    const ctx = TenantContext.current();
     await this.prisma.withTenant((tx) =>
       tx.notification.updateMany({
-        where: { id, tenantId: TenantContext.current().tenantId, readAt: null },
+        where: {
+          id,
+          tenantId: ctx.tenantId,
+          OR: [{ userId: null }, { userId: ctx.userId }],
+          readAt: null,
+        },
         data: { readAt: new Date() },
       }),
     );
@@ -69,9 +80,14 @@ export class NotificationsController {
   @Patch("read-all")
   @HttpCode(200)
   async markAllRead(): Promise<{ ok: true }> {
+    const ctx = TenantContext.current();
     await this.prisma.withTenant((tx) =>
       tx.notification.updateMany({
-        where: { tenantId: TenantContext.current().tenantId, readAt: null },
+        where: {
+          tenantId: ctx.tenantId,
+          OR: [{ userId: null }, { userId: ctx.userId }],
+          readAt: null,
+        },
         data: { readAt: new Date() },
       }),
     );

@@ -49,10 +49,25 @@ async function processNotification(job: Job): Promise<void> {
       }
     }
 
+    // תזכורת משימה: יורה רק אם המשימה עדיין פתוחה ומועד היעד הנוכחי הוא
+    // בדיוק המועד שה-Job תוזמן אליו — דחייה/הסרת מועד מבטלות את ה-Job
+    // הישן, ו-Worker שהתעכב עדיין מוסר תזכורת תקפה (ביקורת Codex, PR #13).
+    if (data.type === "task_reminder" && data.entityId) {
+      const task = await tx.task.findFirst({
+        where: { id: data.entityId, tenantId: data.tenantId },
+        select: { status: true, dueAt: true },
+      });
+      if (!task || task.status !== "open") return;
+      const scheduledFor = data.scheduledFor ? new Date(data.scheduledFor).getTime() : null;
+      if (scheduledFor === null || task.dueAt === null) return;
+      if (task.dueAt.getTime() !== scheduledFor) return;
+    }
+
     await tx.notification.create({
       data: {
         id: ulid(),
         tenantId: data.tenantId,
+        userId: data.recipientUserId ?? null, // NULL = התראה משרדית
         type: data.type,
         title: data.title,
         body: data.body ?? null,
