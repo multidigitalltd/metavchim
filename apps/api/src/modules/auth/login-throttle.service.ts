@@ -1,27 +1,34 @@
 import { HttpException, Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
+import { createHmac } from "node:crypto";
 import IORedis from "ioredis";
 import { loadEnv } from "../../config/env";
 
 /**
- * הגנת Brute-Force על ההתחברות (docs/04 §6): מוני כשלים ב-Redis עם חלון
- * גולש — 5 כשלונות לאימייל או 20 ל-IP (משרד שלם מאחורי NAT אחד) בתוך
- * 15 דקות ⇒ 429 עם Retry-After. הצלחה מאפסת את מונה האימייל.
+ * הגנת Brute-Force על ההתחברות (docs/04 §6) — מודל הזמנה אטומית:
+ * כל ניסיון "מזמין" מקום ב-INCR לפני בדיקת הסיסמה, כך שגם 100 בקשות
+ * במקביל לא עוקפות את הסף (אין TOCTOU בין בדיקה לרישום). הצלחה משחררת
+ * את ההזמנה; כשל תשתית (לא-אימות) משחרר גם הוא — נעילה נוצרת רק
+ * מכשלונות אימות אמיתיים.
  *
- * Redis לא זמין ⇒ Fail-Open עם אזהרה ביומן: זמינות ההתחברות גוברת על
- * הנעילה, ו-argon2id ממילא מאט כל ניסיון (הגנה-לעומק, סיכון שיורי מתועד).
+ * המפתחות ב-Redis הם HMAC של האימייל/IP — לא PII גלוי בגיבויים/ניטור
+ * (docs/04 §4). Redis לא זמין ⇒ Fail-Open עם אזהרה: זמינות ההתחברות
+ * גוברת, ו-argon2id ממילא מאט כל ניסיון (סיכון שיורי מתועד).
  */
 
 const WINDOW_SECONDS = 15 * 60;
-const EMAIL_MAX_FAILURES = 5;
-const IP_MAX_FAILURES = 20;
+const EMAIL_MAX_ATTEMPTS = 5;
+const IP_MAX_ATTEMPTS = 20;
 
 @Injectable()
 export class LoginThrottleService implements OnModuleDestroy {
   private readonly logger = new Logger(LoginThrottleService.name);
   private readonly redis: IORedis;
+  private readonly hashKey: string;
 
   constructor() {
-    this.redis = new IORedis(loadEnv().REDIS_URL, { maxRetriesPerRequest: 1, lazyConnect: false });
+    const env = loadEnv();
+    this.redis = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: 1, lazyConnect: false });
+    this.hashKey = env.PHONE_HASH_KEY;
     this.redis.on("error", () => {
       /* נרשם באזהרות הפעולה — אין קריסת תהליך על ניתוק Redis */
     });
@@ -31,60 +38,75 @@ export class LoginThrottleService implements OnModuleDestroy {
     await this.redis.quit().catch(() => undefined);
   }
 
+  /** HMAC קצר — מזהה יציב בלי לחשוף אימייל/IP במפתחות Redis. */
+  private hashed(value: string): string {
+    return createHmac("sha256", this.hashKey).update(value).digest("hex").slice(0, 32);
+  }
+
   private emailKey(email: string): string {
-    return `login:fail:email:${email.toLowerCase()}`;
+    return `login:attempt:email:${this.hashed(email.toLowerCase())}`;
   }
 
   private ipKey(ip: string): string {
-    return `login:fail:ip:${ip}`;
+    return `login:attempt:ip:${this.hashed(ip)}`;
   }
 
-  /** נזרק 429 אם האימייל או ה-IP חצו את סף הכשלונות בחלון הנוכחי. */
-  async assertAllowed(email: string, ip: string | undefined): Promise<void> {
+  /**
+   * הזמנה אטומית של ניסיון: INCR לפני כל עבודת סיסמה; חצייה של הסף
+   * (כולל ההזמנה הנוכחית) ⇒ 429. חסימה נשארת עד פקיעת החלון.
+   */
+  async reserveAttempt(email: string, ip: string | undefined): Promise<void> {
     try {
-      const [emailFails, ipFails, ttl] = await Promise.all([
-        this.redis.get(this.emailKey(email)),
-        ip ? this.redis.get(this.ipKey(ip)) : Promise.resolve(null),
-        this.redis.ttl(this.emailKey(email)),
-      ]);
-      const blocked =
-        Number(emailFails ?? 0) >= EMAIL_MAX_FAILURES || Number(ipFails ?? 0) >= IP_MAX_FAILURES;
-      if (blocked) {
-        const retryAfter = ttl > 0 ? ttl : WINDOW_SECONDS;
+      const pipeline = this.redis.pipeline();
+      pipeline.incr(this.emailKey(email));
+      pipeline.expire(this.emailKey(email), WINDOW_SECONDS, "NX");
+      pipeline.ttl(this.emailKey(email));
+      if (ip) {
+        pipeline.incr(this.ipKey(ip));
+        pipeline.expire(this.ipKey(ip), WINDOW_SECONDS, "NX");
+      }
+      const results = await pipeline.exec();
+      const emailCount = Number(results?.[0]?.[1] ?? 0);
+      const ttl = Number(results?.[2]?.[1] ?? WINDOW_SECONDS);
+      const ipCount = ip ? Number(results?.[3]?.[1] ?? 0) : 0;
+
+      if (emailCount > EMAIL_MAX_ATTEMPTS || ipCount > IP_MAX_ATTEMPTS) {
         throw new HttpException(
           {
             message: "יותר מדי ניסיונות התחברות — נסו שוב מאוחר יותר",
-            retryAfterSeconds: retryAfter,
+            retryAfterSeconds: ttl > 0 ? ttl : WINDOW_SECONDS,
           },
           429,
         );
       }
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      this.logger.warn(`בדיקת Throttle נכשלה (Redis?) — ממשיכים בזהירות: ${String(error)}`);
+      this.logger.warn(`הזמנת Throttle נכשלה (Redis?) — ממשיכים בזהירות: ${String(error)}`);
     }
   }
 
-  /** כשל אימות: מגדילים את שני המונים; ה-TTL נקבע בכשל הראשון בחלון. */
-  async recordFailure(email: string, ip: string | undefined): Promise<void> {
+  /** התחברות מוצלחת: מונה האימייל נמחק וההזמנה ב-IP מוחזרת (DECR). */
+  async releaseOnSuccess(email: string, ip: string | undefined): Promise<void> {
     try {
       const pipeline = this.redis.pipeline();
-      pipeline.incr(this.emailKey(email));
-      pipeline.expire(this.emailKey(email), WINDOW_SECONDS, "NX");
-      if (ip) {
-        pipeline.incr(this.ipKey(ip));
-        pipeline.expire(this.ipKey(ip), WINDOW_SECONDS, "NX");
-      }
+      pipeline.del(this.emailKey(email));
+      if (ip) pipeline.decr(this.ipKey(ip));
       await pipeline.exec();
-    } catch (error) {
-      this.logger.warn(`רישום כשל התחברות נכשל: ${String(error)}`);
+    } catch {
+      /* לא קריטי */
     }
   }
 
-  /** התחברות מוצלחת מאפסת את מונה האימייל (לא את ה-IP — הגנה רוחבית). */
-  async recordSuccess(email: string): Promise<void> {
+  /**
+   * כשל תשתית (DB למטה וכד'): ההזמנה מוחזרת בשני המונים — תקלה זמנית
+   * לא נועלת חשבון ל-15 דקות (ביקורת Codex, PR #15).
+   */
+  async releaseOnInfraError(email: string, ip: string | undefined): Promise<void> {
     try {
-      await this.redis.del(this.emailKey(email));
+      const pipeline = this.redis.pipeline();
+      pipeline.decr(this.emailKey(email));
+      if (ip) pipeline.decr(this.ipKey(ip));
+      await pipeline.exec();
     } catch {
       /* לא קריטי */
     }

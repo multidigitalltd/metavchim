@@ -49,8 +49,9 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ user: AuthenticatedUser }> {
-    // הגנת Brute-Force לפני כל בדיקת סיסמה (docs/04 §6)
-    await this.throttle.assertAllowed(body.email, req.ip);
+    // הזמנה אטומית לפני כל עבודת סיסמה — גם בקשות מקבילות לא עוקפות
+    // את הסף (docs/04 §6; ביקורת Codex, PR #15).
+    await this.throttle.reserveAttempt(body.email, req.ip);
 
     let result: Awaited<ReturnType<AuthService["login"]>>;
     try {
@@ -59,10 +60,14 @@ export class AuthController {
         userAgent: req.headers["user-agent"],
       });
     } catch (error) {
-      await this.throttle.recordFailure(body.email, req.ip);
+      // רק דחיית אימות נספרת ככשל; תקלת תשתית משחררת את ההזמנה —
+      // נפילת DB זמנית לא נועלת חשבונות ל-15 דקות.
+      if (!(error instanceof UnauthorizedException)) {
+        await this.throttle.releaseOnInfraError(body.email, req.ip);
+      }
       throw error;
     }
-    await this.throttle.recordSuccess(body.email);
+    await this.throttle.releaseOnSuccess(body.email, req.ip);
     const { token, expiresAt, user } = result;
     const env = loadEnv();
     res.cookie(SESSION_COOKIE, token, {
