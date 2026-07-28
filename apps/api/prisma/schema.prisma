@@ -270,6 +270,25 @@ model Offer {
   @@map("offers")
 }
 
+// כל הודעה יוצאת/נכנסת בכל ערוץ — הבסיס ל-Messaging Hub (docs/03 §3).
+model Message {
+  id                String   @id @db.Char(26)
+  tenantId          String   @map("tenant_id") @db.Char(26)
+  contactId         String?  @map("contact_id") @db.Char(26)
+  offerId           String?  @map("offer_id") @db.Char(26)
+  direction         String   @db.VarChar(5) // in | out
+  channel           String   @db.VarChar(20) // whatsapp | sms | email
+  provider          String   @db.VarChar(30) // walink | cloud_api | ...
+  body              String   @db.VarChar(4000)
+  providerMessageId String?  @map("provider_message_id") @db.VarChar(120)
+  status            String   @default("sent") @db.VarChar(20)
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, contactId, createdAt])
+  @@index([tenantId, offerId])
+  @@map("messages")
+}
+
 // פגישה/סיור/שיחה ביומן (docs/01 §3 Calendar). google_event_id — לסנכרון עתידי.
 model Appointment {
   id            String    @id @db.Char(26)

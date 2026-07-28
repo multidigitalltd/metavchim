@@ -7,6 +7,8 @@ import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService } from "../../core/prisma.service";
+import { ContactsService } from "../contacts/contacts.service";
+import { buildOfferMessage, MessagingService } from "../messaging/messaging.service";
 
 const TOKEN_TTL_DAYS = 14;
 
@@ -30,6 +32,8 @@ export class OffersService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly outbox: OutboxService,
+    private readonly contacts: ContactsService,
+    private readonly messaging: MessagingService,
   ) {}
 
   /** יצירת הצעה מהתאמה: Snapshot של הנכס + קישור ציבורי חתום-טוקן. */
@@ -187,6 +191,70 @@ export class OffersService {
           },
         });
       }
+    });
+  }
+
+  /**
+   * הכנת שליחה בוואטסאפ (אפיון §10): בונה את נוסח ההודעה, מתעד אותה
+   * ב-Messages Hub, ומחזיר קישור wa.me עם הטקסט מוכן — המתווך רק לוחץ
+   * שלח. שליחה אוטומטית דרך Cloud API תחליף את ה-Provider בהמשך.
+   */
+  async prepareWhatsApp(offerId: string): Promise<{ waUrl: string; message: string }> {
+    const tenantId = TenantContext.current().tenantId;
+    return this.prisma.withTenant(async (tx) => {
+      const offer = await tx.offer.findFirst({ where: { id: offerId, tenantId } });
+      if (!offer) throw new NotFoundException("הצעה לא נמצאה");
+
+      const match = await tx.match.findFirst({
+        where: { id: offer.matchId, tenantId },
+        select: { buyerId: true },
+      });
+      if (!match) throw new NotFoundException("התאמה לא נמצאה");
+      const buyer = await tx.buyer.findFirst({
+        where: { id: match.buyerId, tenantId, deletedAt: null },
+        select: { contactId: true },
+      });
+      if (!buyer) throw new NotFoundException("קונה לא נמצא");
+      const contact = await this.contacts.getById(tx, buyer.contactId);
+      if (!contact) throw new NotFoundException("איש קשר לא נמצא");
+
+      const presentation = OfferPresentationSchema.parse(offer.presentation);
+      const priceText =
+        presentation.priceAgorot === undefined
+          ? ""
+          : new Intl.NumberFormat("he-IL", {
+              style: "currency",
+              currency: "ILS",
+              maximumFractionDigits: 0,
+            }).format(presentation.priceAgorot / 100);
+      const message = buildOfferMessage({
+        title: presentation.title,
+        priceText,
+        url: this.publicUrl(offer.publicToken),
+      });
+
+      await this.messaging.recordOutbound(tx, {
+        contactId: buyer.contactId,
+        offerId: offer.id,
+        channel: "whatsapp",
+        provider: "walink",
+        body: message,
+      });
+      await tx.offer.update({
+        where: { id: offer.id },
+        data: { channel: "whatsapp", sentText: message.slice(0, 2000) },
+      });
+      await this.audit.record(tx, {
+        action: "offer.whatsapp_prepared",
+        entityType: "offer",
+        entityId: offer.id,
+      });
+
+      const phoneDigits = contact.phone.replace(/\D/gu, "");
+      return {
+        waUrl: `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message)}`,
+        message,
+      };
     });
   }
 

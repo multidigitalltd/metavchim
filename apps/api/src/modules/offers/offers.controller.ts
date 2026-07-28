@@ -39,6 +39,16 @@ export class OffersController {
     return Object.fromEntries(map);
   }
 
+  /** קישור wa.me עם הודעה מוכנה — "שלח בוואטסאפ" בלחיצה (אפיון §10). */
+  @Post("offers/:id/whatsapp")
+  @RequireCapability("offers.send")
+  @HttpCode(200)
+  async prepareWhatsApp(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ waUrl: string; message: string }> {
+    return this.offers.prepareWhatsApp(id);
+  }
+
   /** דף ההצעה ללקוח קצה — ציבורי, לפי טוקן בלבד, ללא Session. */
   @Public()
   @Get("public/offers/:token")
