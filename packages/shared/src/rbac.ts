@@ -15,6 +15,7 @@ export const CAPABILITIES = [
   "leads.edit",
   "offers.send",
   "matches.view",
+  "matches.manage",
   "calendar.manage",
   "collaboration.share",
   "collaboration.offer",
@@ -40,6 +41,7 @@ export const ROLE_CAPABILITIES: Record<string, readonly Capability[]> = {
     "leads.edit",
     "offers.send",
     "matches.view",
+    "matches.manage",
     "calendar.manage",
   ],
   assistant: [
@@ -49,6 +51,7 @@ export const ROLE_CAPABILITIES: Record<string, readonly Capability[]> = {
     "leads.view_own",
     "leads.edit",
     "matches.view",
+    "matches.manage",
     "calendar.manage",
   ],
   viewer: ["properties.view", "buyers.view_own", "leads.view_own", "matches.view"],

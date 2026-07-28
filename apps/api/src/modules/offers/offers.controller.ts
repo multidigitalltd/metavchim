@@ -6,6 +6,12 @@ import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { OffersService, type OfferDto, type PublicOfferView } from "./offers.service";
 
 const CreateOfferSchema = z.object({ matchId: IdSchema }).strict();
+const BulkOfferSchema = z
+  .object({
+    propertyId: IdSchema,
+    minScore: z.number().int().min(50).max(100).default(85),
+  })
+  .strict();
 const RespondSchema = z.object({ response: z.enum(["interested", "declined"]) }).strict();
 const TokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
 const ForMatchesQuerySchema = z
@@ -37,6 +43,16 @@ export class OffersController {
       .slice(0, 100);
     const map = await this.offers.listForMatch(ids);
     return Object.fromEntries(map);
+  }
+
+  /** שליחה מרובה: הצעות לכל המתאימים מעל הסף, באישור המתווך (אפיון §10). */
+  @Post("offers/bulk")
+  @RequireCapability("offers.send")
+  @HttpCode(200)
+  async createBulk(
+    @Body(new ZodValidationPipe(BulkOfferSchema)) body: z.infer<typeof BulkOfferSchema>,
+  ): Promise<{ created: number; skipped: number }> {
+    return this.offers.createBulk(body.propertyId, body.minScore);
   }
 
   /** קישור wa.me עם הודעה מוכנה — "שלח בוואטסאפ" בלחיצה (אפיון §10). */

@@ -252,7 +252,8 @@ model Match {
 model Offer {
   id            String    @id @db.Char(26)
   tenantId      String    @map("tenant_id") @db.Char(26)
-  matchId       String    @map("match_id") @db.Char(26)
+  // הצעה אחת פר התאמה — מונע כפילויות במרוץ בין בקשות (ביקורת Codex, PR #3)
+  matchId       String    @unique @map("match_id") @db.Char(26)
   channel       String    @db.VarChar(20)
   sentText      String?   @map("sent_text") @db.VarChar(2000)
   // Snapshot תצוגת הנכס לקונה — בלי PII; הדף הציבורי קורא רק מכאן.

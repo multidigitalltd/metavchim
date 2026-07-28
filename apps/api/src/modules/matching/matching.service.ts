@@ -6,9 +6,11 @@ import {
   MATCH_THRESHOLDS,
   type BuyerRequirements,
 } from "@metavchim/shared";
+import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
+import { ContactsService } from "../contacts/contacts.service";
 import { rowToFields } from "../properties/property.mapper";
 
 export interface MatchDto {
@@ -19,6 +21,13 @@ export interface MatchDto {
   explanation: string;
   status: string;
   computedAt: Date;
+}
+
+/** שורה במסך ההתאמות הדו-צדי (אפיון §15, מסך 4). */
+export interface EnrichedMatchDto extends MatchDto {
+  property: { address: string; title?: string; priceAgorot?: number };
+  /** שם הקונה — רק אם למשתמש יש הרשאה אליו; אחרת מוצג "קונה של סוכן אחר" */
+  buyerName: string | null;
 }
 
 /**
@@ -34,7 +43,65 @@ export class MatchingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly outbox: OutboxService,
+    private readonly contacts: ContactsService,
   ) {}
+
+  /**
+   * כל ההתאמות הפתוחות במשרד — מסך ההתאמות הדו-צדי. שם הקונה נחשף
+   * רק למי שמורשה לקונה (בעלות או view_all) — אין דליפת PII בין סוכנים.
+   */
+  async listAll(query: { minScore: number; limit: number }): Promise<EnrichedMatchDto[]> {
+    const tenantId = TenantContext.current().tenantId;
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.match.findMany({
+        where: { tenantId, status: { not: "dismissed" }, score: { gte: query.minScore } },
+        orderBy: { score: "desc" },
+        take: query.limit,
+      });
+      if (rows.length === 0) return [];
+
+      const properties = await tx.property.findMany({
+        where: { tenantId, id: { in: [...new Set(rows.map((r) => r.propertyId))] } },
+        select: {
+          id: true, street: true, neighborhood: true, city: true,
+          marketingTitle: true, priceAgorot: true,
+        },
+      });
+      const propertyById = new Map(properties.map((p) => [p.id, p]));
+
+      const visibleBuyers = await tx.buyer.findMany({
+        where: {
+          tenantId,
+          id: { in: [...new Set(rows.map((r) => r.buyerId))] },
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
+        select: { id: true, contactId: true },
+      });
+      const buyerNameById = new Map<string, string>();
+      for (const buyer of visibleBuyers) {
+        const contact = await this.contacts.getById(tx, buyer.contactId);
+        if (contact) buyerNameById.set(buyer.id, contact.name);
+      }
+
+      return rows.map((row) => {
+        const property = propertyById.get(row.propertyId);
+        return {
+          ...toMatchDto(row),
+          property: {
+            address: property
+              ? [property.street, property.neighborhood, property.city].filter(Boolean).join(", ")
+              : "נכס",
+            title: property?.marketingTitle ?? undefined,
+            priceAgorot:
+              property === undefined || property.priceAgorot === null
+                ? undefined
+                : Number(property.priceAgorot),
+          },
+          buyerName: buyerNameById.get(row.buyerId) ?? null,
+        };
+      });
+    });
+  }
 
   async recomputeForProperty(propertyId: string): Promise<number> {
     const tenantId = TenantContext.current().tenantId;
