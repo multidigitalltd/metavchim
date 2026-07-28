@@ -23,6 +23,38 @@ export class PropertiesService {
     marketingDescription?: string;
     internalNotes?: string;
   }): Promise<PropertyDto> {
+    const id = await this.persist(input);
+    // חישוב התאמות — סינכרוני בשלב זה; יעבור לתור BullMQ עם עליית ה-Workers (docs/07 §5).
+    await this.matching.recomputeForProperty(id);
+    return this.getById(id);
+  }
+
+  /**
+   * ייבוא בכמות (docs/08 §6): ההצלחה נקבעת בגבול הטרנזקציה — ברגע שהנכס
+   * נשמר הוא "נוצר", גם אם חישוב ההתאמות שאחריו נכשל זמנית (best-effort;
+   * יחושב מחדש בעריכה הבאה). כך אין דיווח-כזב של נכס שכבר קיים ואין כפילויות
+   * בניסיון חוזר. גם חוסך N חישובי-התאמה סינכרוניים בבקשה אחת (docs/07 §5).
+   */
+  async createForImport(input: {
+    fields: PropertyFields;
+    marketingTitle?: string;
+  }): Promise<string> {
+    const id = await this.persist(input);
+    try {
+      await this.matching.recomputeForProperty(id);
+    } catch {
+      // הנכס כבר נשמר; חישוב ההתאמות אינו חלק מהצלחת היצירה.
+    }
+    return id;
+  }
+
+  /** יוצר את רשומת הנכס בטרנזקציה יחידה ומחזיר את המזהה — גבול ההצלחה. */
+  private async persist(input: {
+    fields: PropertyFields;
+    marketingTitle?: string;
+    marketingDescription?: string;
+    internalNotes?: string;
+  }): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
     const id = ulid();
     const readiness = computeReadiness(input.fields, {
@@ -58,9 +90,7 @@ export class PropertiesService {
       }
     });
 
-    // חישוב התאמות — סינכרוני בשלב זה; יעבור לתור BullMQ עם עליית ה-Workers (docs/07 §5).
-    await this.matching.recomputeForProperty(id);
-    return this.getById(id);
+    return id;
   }
 
   async update(id: string, patch: Partial<PropertyFields> & {

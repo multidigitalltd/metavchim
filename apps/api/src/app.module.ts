@@ -11,6 +11,7 @@ import { CoachModule } from "./modules/coach/coach.module";
 import { CollaborationModule } from "./modules/collaboration/collaboration.module";
 import { ContactsModule } from "./modules/contacts/contacts.module";
 import { HealthModule } from "./modules/health/health.module";
+import { ImportModule } from "./modules/import/import.module";
 import { LeadsModule } from "./modules/leads/leads.module";
 import { MatchingModule } from "./modules/matching/matching.module";
 import { MessagingModule } from "./modules/messaging/messaging.module";
@@ -44,6 +45,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     SettingsModule,
     AnalyticsModule,
     CoachModule,
+    ImportModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })
