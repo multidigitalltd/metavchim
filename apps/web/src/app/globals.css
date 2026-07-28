@@ -139,3 +139,129 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* ============================================================
+   סרגל נגישות (ת"י 5568) — ההעדפות מיושמות דרך data-attributes
+   על <html>, ראו a11y-toolbar.tsx.
+   ============================================================ */
+
+/* הגדלת/הקטנת טקסט — סקלה על גודל הבסיס של השורש, כך שכל יחידות
+   ה-rem (כולל מחלקות Tailwind: text-sm/text-2xl וכו') גדלות איתה
+   (ביקורת Codex, PR #8). 1em על <html> = ברירת המחדל של הדפדפן. */
+:root {
+  --a11y-font-scale: 1;
+  font-size: calc(1em * var(--a11y-font-scale));
+}
+
+/* ניגודיות גבוהה */
+:root[data-a11y-contrast="on"] {
+  --color-bg: #ffffff;
+  --color-surface: #ffffff;
+  --color-text: #000000;
+  --color-text-muted: #000000;
+  --color-primary: #0000cc;
+  --color-border: #000000;
+}
+:root[data-a11y-contrast="on"] body {
+  background: #ffffff;
+  color: #000000;
+}
+/* מצב ניגודיות גבוהה: טקסט לבן על כפתורי הפעולה (#0000cc) — גובר על
+   כלל המצב הכהה שמגדיר טקסט כהה (ביקורת Codex, PR #8). */
+:root[data-a11y-contrast="on"] .mv-button--primary,
+:root[data-a11y-contrast="on"] .mv-button--danger {
+  color: #ffffff;
+}
+
+/* גווני אפור */
+:root[data-a11y-grayscale="on"] {
+  filter: grayscale(100%);
+}
+
+/* הדגשת קישורים */
+:root[data-a11y-underline="on"] a {
+  text-decoration: underline !important;
+}
+
+/* הדגשת כותרות */
+:root[data-a11y-headings="on"] :is(h1, h2, h3) {
+  outline: 2px dashed var(--color-primary);
+  outline-offset: 3px;
+}
+
+/* פונט קריא */
+:root[data-a11y-readable="on"] body {
+  font-family: Arial, "Helvetica Neue", sans-serif;
+  letter-spacing: 0.02em;
+  line-height: 1.8;
+}
+
+/* עצירת אנימציות (בחירת המשתמש) */
+:root[data-a11y-no-motion="on"] *,
+:root[data-a11y-no-motion="on"] *::before,
+:root[data-a11y-no-motion="on"] *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* ---------- כפתור ופאנל הסרגל ---------- */
+.mv-a11y-trigger {
+  position: fixed;
+  inset-block-end: 1rem;
+  inset-inline-start: 1rem;
+  z-index: 90;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  background: var(--color-primary);
+  color: #ffffff;
+  font-size: 1.6rem;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+.mv-a11y-panel {
+  position: fixed;
+  inset-block-end: 5rem;
+  inset-inline-start: 1rem;
+  z-index: 95;
+  width: min(320px, calc(100vw - 2rem));
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 1.25rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+}
+.mv-a11y-toggle {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 1rem;
+  cursor: pointer;
+}
+.mv-a11y-toggle[aria-pressed="true"] {
+  background: var(--color-primary);
+  color: #ffffff;
+  border-color: var(--color-primary);
+}
+.mv-reading-guide {
+  position: fixed;
+  inset-inline: 0;
+  height: 2.4rem;
+  z-index: 80;
+  pointer-events: none;
+  background: rgba(29, 78, 216, 0.12);
+  border-block: 2px solid var(--color-primary);
+  transform: translateY(-50%);
+}

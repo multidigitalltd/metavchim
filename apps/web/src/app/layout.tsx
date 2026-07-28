@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { SkipLink } from "@metavchim/ui";
+import { AccessibilityToolbar } from "./a11y-toolbar";
 import { NotificationsBell } from "./notifications-bell";
 import { UserMenu } from "./user-menu";
 import "./globals.css";
@@ -75,6 +76,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             הצהרת נגישות
           </a>
         </footer>
+        <AccessibilityToolbar />
       </body>
     </html>
   );
