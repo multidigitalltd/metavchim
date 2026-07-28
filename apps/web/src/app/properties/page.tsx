@@ -43,6 +43,9 @@ export default function PropertiesPage() {
           <Link href="/properties/new">
             <Button variant="secondary">➕ נכס חדש</Button>
           </Link>
+          <Link href="/import">
+            <Button variant="secondary">📄 ייבוא מקובץ</Button>
+          </Link>
         </div>
       </div>
 
