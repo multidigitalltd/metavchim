@@ -35,6 +35,8 @@ const EnvSchema = z.object({
   WHATSAPP_VERIFY_TOKEN: z.string().min(16).optional(),
   /** סוד ה-Webhook של Kanko — קליטת ביקושים סגורה עד שהוא מוגדר. */
   KANKO_WEBHOOK_SECRET: z.string().min(16).optional(),
+  /** שעות מהפתיחה הראשונה של הצעה ועד משימת פולו-אפ אם הקונה לא הגיב. */
+  OFFER_FOLLOWUP_HOURS: z.coerce.number().positive().default(48),
   /** Secure cookies — חובה true בפרודקשן. */
   COOKIE_SECURE: z
     .enum(["true", "false"])
