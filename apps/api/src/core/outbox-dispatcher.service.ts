@@ -186,6 +186,34 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
         },
       );
     }
+    // פולו-אפ אחרי סיור (docs/09 שלב 2 — "איך היה?"): שעה אחרי סיום
+    // הסיור נוצרת משימת סיכום לסוכן, אם עוד לא נרשמה תוצאה. ה-Worker
+    // מוודא בזמן הירי שהסיור לא בוטל ושאין עדיין outcome.
+    if (name === "appointment.scheduled" && this.lowQueue) {
+      const p = payload as {
+        appointmentId: string;
+        tenantId: string;
+        startsAt: Date;
+        kind?: string;
+        endsAt?: Date | null;
+      };
+      if (p.kind === "viewing") {
+        const startMs = new Date(p.startsAt).getTime();
+        const endMs = p.endsAt ? new Date(p.endsAt).getTime() : startMs + 60 * 60 * 1000;
+        await this.lowQueue.add(
+          "viewing-followup",
+          { appointmentId: p.appointmentId, tenantId: p.tenantId },
+          {
+            jobId: `viewing-fu-${event.id}`,
+            delay: Math.max(0, endMs + 60 * 60 * 1000 - Date.now()),
+            removeOnComplete: 1000,
+            removeOnFail: 5000,
+            attempts: 5,
+            backoff: { type: "exponential", delay: 5000 },
+          },
+        );
+      }
+    }
     // תזכורת שעה לפני פגישה — Job מושהה; BullMQ מחזיק את התזמון (docs/01 §13).
     if (name === "appointment.scheduled" && this.notificationsQueue) {
       const p = payload as { appointmentId: string; tenantId: string; startsAt: Date };

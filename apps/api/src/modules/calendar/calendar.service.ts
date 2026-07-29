@@ -108,6 +108,8 @@ export class CalendarService {
         appointmentId: id,
         tenantId: ctx.tenantId,
         startsAt: input.startsAt,
+        kind: input.kind,
+        endsAt: new Date(input.startsAt.getTime() + input.durationMinutes * 60_000),
       });
     });
 
@@ -138,7 +140,7 @@ export class CalendarService {
         },
       });
 
-      // תוצאת סיור מתועדת בציר הזמן של הליד — ההיסטוריה במקום אחד
+      // תוצאת סיור מתועדת בציר הזמן של הליד ושל הקונה — ההיסטוריה במקום אחד
       if (patch.outcome && existing.leadId) {
         await tx.interaction.create({
           data: {
@@ -149,6 +151,26 @@ export class CalendarService {
             content: `סיכום פגישה: ${OUTCOME_LABELS[patch.outcome] ?? patch.outcome}`,
             createdBy: ctx.userId,
           },
+        });
+      }
+      if (patch.outcome && existing.buyerId) {
+        await tx.interaction.create({
+          data: {
+            id: ulid(),
+            tenantId: ctx.tenantId,
+            buyerId: existing.buyerId,
+            kind: "system",
+            content: `סיכום סיור: ${OUTCOME_LABELS[patch.outcome] ?? patch.outcome}`,
+            createdBy: ctx.userId,
+          },
+        });
+      }
+      // סיכום הסיור — או ביטולו — סוגר את משימת הפולו-אפ אוטומטית;
+      // אין טעם לרדוף אחרי "איך היה?" על סיור שלא התקיים
+      if (patch.outcome || patch.status === "cancelled" || patch.status === "no_show") {
+        await tx.task.updateMany({
+          where: { tenantId: ctx.tenantId, sourceKey: `viewing:${id}`, status: "open" },
+          data: { status: "done" },
         });
       }
       await this.audit.record(tx, {
