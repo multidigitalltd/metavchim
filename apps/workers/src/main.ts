@@ -332,12 +332,91 @@ async function processViewingFollowup(job: Job): Promise<void> {
   });
 }
 
+const LeadSlaJobSchema = z.object({ tenantId: z.string(), leadId: z.string() });
+const LEAD_SLA_TITLE = "ליד ממתין למענה — חלון ה-SLA חלף";
+
+/**
+ * SLA לליד (docs/01 — "כל ליד מקבל מענה"): ליד שנשאר "חדש" בלי מענה
+ * ראשון אחרי N שעות. משויך לסוכן — המשימה וההתראה אליו; ליד יתום
+ * (וואטסאפ נכנס) — המשימה לבעלים הוותיק וההתראה לכל הבעלים הפעילים.
+ * נעילת שורת הליד + sourceKey: מרוץ מול טיפול בליד לא מייצר רעש.
+ */
+async function processLeadSla(job: Job): Promise<void> {
+  const { tenantId, leadId } = LeadSlaJobSchema.parse(job.data);
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+
+    await tx.$executeRaw`SELECT id FROM leads WHERE id = ${leadId} AND tenant_id = ${tenantId} FOR UPDATE`;
+    const lead = await tx.lead.findFirst({ where: { id: leadId, tenantId } });
+    if (!lead) return;
+    // טופל: הסטטוס זז או שנרשם מענה ראשון — אין אסקלציה
+    if (lead.status !== "new" || lead.firstResponseAt !== null) return;
+
+    const sourceKey = `lead-sla:${leadId}`;
+    const existing = await tx.task.findFirst({
+      where: { tenantId, sourceKey, status: "open" },
+      select: { id: true },
+    });
+    if (existing) return;
+
+    const owners = await tx.user.findMany({
+      where: { tenantId, role: "owner", isActive: true },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+    const assignee = lead.assignedToUserId ?? owners[0]?.id;
+    if (!assignee) return;
+    const notifyUserIds = lead.assignedToUserId
+      ? [lead.assignedToUserId]
+      : owners.map((o) => o.id);
+
+    await tx.task.create({
+      data: {
+        id: ulid(),
+        tenantId,
+        assignedToUserId: assignee,
+        title: LEAD_SLA_TITLE,
+        notes: "הליד עדיין בסטטוס \"חדש\" ללא מענה ראשון — לקוח שמחכה עובר למתווך הבא. חזרו אליו עכשיו.",
+        dueAt: new Date(),
+        entityType: "lead",
+        entityId: leadId,
+        sourceKey,
+      },
+    });
+    for (const userId of notifyUserIds) {
+      await tx.notification.create({
+        data: {
+          id: ulid(),
+          tenantId,
+          userId,
+          type: "lead_sla",
+          title: "⏳ ליד ממתין למענה",
+          body: "חלון ה-SLA חלף והליד עדיין ללא טיפול — נוצרה משימה לחזור ללקוח.",
+          entityType: "lead",
+          entityId: leadId,
+        },
+      });
+    }
+    await tx.interaction.create({
+      data: {
+        id: ulid(),
+        tenantId,
+        leadId,
+        kind: "system",
+        content: "חלון ה-SLA חלף — הליד עדיין ללא מענה ראשון; נוצרה משימת אסקלציה",
+        createdBy: null,
+      },
+    });
+  });
+}
+
 /** תור low משותף — כל סוג Job ממוין לפי שמו. */
 async function processLow(job: Job): Promise<void> {
   if (job.name === "delete-object") return processCleanup(job);
   if (job.name === "offer-followup") return processOfferFollowup(job);
   if (job.name === "property-delisted") return processPropertyDelisted(job);
   if (job.name === "viewing-followup") return processViewingFollowup(job);
+  if (job.name === "lead-sla") return processLeadSla(job);
 }
 
 const workers = [

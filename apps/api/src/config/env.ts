@@ -37,6 +37,8 @@ const EnvSchema = z.object({
   KANKO_WEBHOOK_SECRET: z.string().min(16).optional(),
   /** שעות מהפתיחה הראשונה של הצעה ועד משימת פולו-אפ אם הקונה לא הגיב. */
   OFFER_FOLLOWUP_HOURS: z.coerce.number().positive().default(48),
+  /** SLA לליד (docs/01 — "כל ליד מקבל מענה"): שעות עד אסקלציה על ליד ללא טיפול. */
+  LEAD_SLA_HOURS: z.coerce.number().positive().default(2),
   /** Secure cookies — חובה true בפרודקשן. */
   COOKIE_SECURE: z
     .enum(["true", "false"])

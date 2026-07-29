@@ -186,6 +186,25 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
         },
       );
     }
+    // SLA לליד (docs/01 — "כל ליד מקבל מענה"): ליד שנשאר "חדש" בלי
+    // מענה ראשון אחרי N שעות → אסקלציה. החלון נמדד מרגע יצירת הליד
+    // (occurred_at), לא מרגע ההפצה.
+    if (name === "lead.created" && this.lowQueue) {
+      const p = payload as { leadId: string; tenantId: string };
+      const elapsedMs = Date.now() - new Date(event.occurred_at).getTime();
+      await this.lowQueue.add(
+        "lead-sla",
+        { leadId: p.leadId, tenantId: p.tenantId },
+        {
+          jobId: `lead-sla-${event.id}`,
+          delay: Math.max(0, loadEnv().LEAD_SLA_HOURS * 60 * 60 * 1000 - elapsedMs),
+          removeOnComplete: 1000,
+          removeOnFail: 5000,
+          attempts: 5,
+          backoff: { type: "exponential", delay: 5000 },
+        },
+      );
+    }
     // פולו-אפ אחרי סיור (docs/09 שלב 2 — "איך היה?"): שעה אחרי סיום
     // הסיור נוצרת משימת סיכום לסוכן, אם עוד לא נרשמה תוצאה. ה-Worker
     // מוודא בזמן הירי שהסיור לא בוטל ושאין עדיין outcome.

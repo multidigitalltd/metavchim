@@ -93,6 +93,11 @@ export class BuyersService {
         },
       });
       if (claimed.count === 0) throw new ConflictException("הליד כבר הומר לקונה");
+      // המרה = הליד טופל — משימת אסקלציית SLA פתוחה נסגרת
+      await tx.task.updateMany({
+        where: { tenantId: ctx.tenantId, sourceKey: `lead-sla:${leadId}`, status: "open" },
+        data: { status: "done" },
+      });
 
       await tx.buyer.create({
         data: {

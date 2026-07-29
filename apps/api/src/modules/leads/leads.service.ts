@@ -118,6 +118,13 @@ export class LeadsService {
           createdBy: ctx.userId,
         },
       });
+      // הליד טופל — משימת אסקלציית ה-SLA (אם נוצרה) נסגרת אוטומטית
+      if (status !== "new") {
+        await tx.task.updateMany({
+          where: { tenantId: ctx.tenantId, sourceKey: `lead-sla:${id}`, status: "open" },
+          data: { status: "done" },
+        });
+      }
       await this.audit.record(tx, {
         action: "lead.status",
         entityType: "lead",
