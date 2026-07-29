@@ -273,6 +273,10 @@ async function processViewingFollowup(job: Job): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
 
+    // נעילת שורת הפגישה: PATCH של סיכום/ביטול שרץ במקביל מסתדר בתור —
+    // או שה-Worker רואה את המצב החדש ומדלג, או שסגירת המשימות של ה-PATCH
+    // רצה אחרי שהמשימה כבר קיימת וסוגרת אותה (ביקורת Codex)
+    await tx.$executeRaw`SELECT id FROM appointments WHERE id = ${appointmentId} AND tenant_id = ${tenantId} FOR UPDATE`;
     const appt = await tx.appointment.findFirst({ where: { id: appointmentId, tenantId } });
     if (!appt || appt.kind !== "viewing") return;
     // בוטל / לא הגיע — אין סיכום סיור; תוצאה כבר נרשמה — אין מה לדחוף
@@ -280,17 +284,21 @@ async function processViewingFollowup(job: Job): Promise<void> {
     if (appt.outcome !== null) return;
     if (!appt.createdBy) return;
 
+    // גם סיור בלי קונה/ליד מקבל פולו-אפ — זה מסלול היצירה הנפוץ מהיומן;
+    // מקשרים למה שיש: קונה → ליד → נכס → בלי קישור (ביקורת Codex, P1)
     const entity =
       appt.buyerId !== null
         ? { type: "buyer", id: appt.buyerId }
         : appt.leadId !== null
           ? { type: "lead", id: appt.leadId }
-          : null;
-    if (!entity) return;
+          : appt.propertyId !== null
+            ? { type: "property", id: appt.propertyId }
+            : null;
 
     const sourceKey = `viewing:${appointmentId}`;
+    // הדדופ לפי sourceKey בלבד — ייחודי פר פגישה גם בלי ישות מקושרת
     const existing = await tx.task.findFirst({
-      where: { tenantId, entityType: entity.type, entityId: entity.id, sourceKey, status: "open" },
+      where: { tenantId, sourceKey, status: "open" },
       select: { id: true },
     });
     if (existing) return;
@@ -304,8 +312,8 @@ async function processViewingFollowup(job: Job): Promise<void> {
         title: VIEWING_FOLLOWUP_TITLE,
         notes: `"${what}" הסתיים — התקשרו ללקוח ("איך היה?") ורשמו תוצאה בפגישה: אהב / לא מתאים / במשא-ומתן / צריך נכס אחר.`,
         dueAt: new Date(),
-        entityType: entity.type,
-        entityId: entity.id,
+        entityType: entity?.type ?? null,
+        entityId: entity?.id ?? null,
         sourceKey,
       },
     });
@@ -317,8 +325,8 @@ async function processViewingFollowup(job: Job): Promise<void> {
         type: "viewing_followup",
         title: "🚶 סיור הסתיים — איך היה?",
         body: `"${what}" הסתיים ועדיין אין סיכום — נוצרה משימה לחזור ללקוח ולרשום תוצאה.`,
-        entityType: entity.type,
-        entityId: entity.id,
+        entityType: entity?.type ?? null,
+        entityId: entity?.id ?? null,
       },
     });
   });
