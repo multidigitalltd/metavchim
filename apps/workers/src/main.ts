@@ -169,10 +169,101 @@ async function processOfferFollowup(job: Job): Promise<void> {
   });
 }
 
+const DelistedJobSchema = z.object({ tenantId: z.string(), propertyId: z.string() });
+const ALTERNATIVE_TITLE = "הנכס ירד מהשיווק — הציעו חלופה לקונה המעוניין";
+
+/**
+ * סגירת מעגל בנכס שירד משיווק (docs/01 — "שום עסקה לא נופלת בין
+ * הכיסאות"): קונה שסימן "מעוניין" בנכס שנמכר/הוקפא הוא לקוח חם שנשאר
+ * בלי נכס — לכל אחד כזה נוצרת משימת חלופה לסוכן, התראה, ורשומה בציר
+ * הקונה. אידמפוטנטי פר קונה (נעילה + בדיקת משימה פתוחה, כמו בפולו-אפ).
+ */
+async function processPropertyDelisted(job: Job): Promise<void> {
+  const { tenantId, propertyId } = DelistedJobSchema.parse(job.data);
+
+  const interested = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+    const matches = await tx.match.findMany({
+      where: { tenantId, propertyId },
+      select: { id: true, buyerId: true },
+    });
+    if (matches.length === 0) return [];
+    const offers = await tx.offer.findMany({
+      where: { tenantId, matchId: { in: matches.map((m) => m.id) }, status: "interested" },
+      select: { matchId: true, presentation: true },
+    });
+    const byMatch = new Map(matches.map((m) => [m.id, m.buyerId]));
+    return offers.map((o) => ({
+      buyerId: byMatch.get(o.matchId) ?? "",
+      title: (o.presentation as { title?: string } | null)?.title ?? "הנכס",
+    }));
+  });
+
+  // טרנזקציה נפרדת פר קונה: כשל באחד לא מפיל את השאר, וניסיון חוזר
+  // של ה-Job מדלג על מי שכבר טופל (בדיקת המשימה הפתוחה)
+  for (const { buyerId, title } of interested) {
+    if (buyerId === "") continue;
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+      const buyer = await tx.buyer.findFirst({
+        where: { id: buyerId, tenantId, deletedAt: null },
+        select: { id: true, ownerUserId: true },
+      });
+      if (!buyer?.ownerUserId) return;
+      await tx.$executeRaw`SELECT id FROM buyers WHERE id = ${buyer.id} AND tenant_id = ${tenantId} FOR UPDATE`;
+      // הדדופ ממופתח לנכס הספציפי: קונה שהתעניין בשני נכסים שירדו —
+      // שתי משימות; רק ניסיון חוזר על אותו נכס נבלם (ביקורת Codex)
+      const sourceKey = `delisted:${propertyId}`;
+      const existing = await tx.task.findFirst({
+        where: { tenantId, entityType: "buyer", entityId: buyer.id, sourceKey, status: "open" },
+        select: { id: true },
+      });
+      if (existing) return;
+
+      await tx.task.create({
+        data: {
+          id: ulid(),
+          tenantId,
+          assignedToUserId: buyer.ownerUserId,
+          title: ALTERNATIVE_TITLE,
+          notes: `"${title}" כבר לא זמין, והקונה סימן שהוא מעוניין — לקוח חם שנשאר בלי נכס. שווה להציע חלופות עוד היום.`,
+          dueAt: new Date(),
+          entityType: "buyer",
+          entityId: buyer.id,
+          sourceKey,
+        },
+      });
+      await tx.notification.create({
+        data: {
+          id: ulid(),
+          tenantId,
+          userId: buyer.ownerUserId,
+          type: "property_delisted",
+          title: "🏠 קונה מעוניין נשאר בלי נכס",
+          body: `"${title}" ירד מהשיווק — נוצרה משימה להציע חלופות לקונה שסימן עניין.`,
+          entityType: "buyer",
+          entityId: buyer.id,
+        },
+      });
+      await tx.interaction.create({
+        data: {
+          id: ulid(),
+          tenantId,
+          buyerId: buyer.id,
+          kind: "system",
+          content: `הנכס "${title}" ירד מהשיווק אחרי שהקונה סימן עניין — נדרשת חלופה`,
+          createdBy: null,
+        },
+      });
+    });
+  }
+}
+
 /** תור low משותף — כל סוג Job ממוין לפי שמו. */
 async function processLow(job: Job): Promise<void> {
   if (job.name === "delete-object") return processCleanup(job);
   if (job.name === "offer-followup") return processOfferFollowup(job);
+  if (job.name === "property-delisted") return processPropertyDelisted(job);
 }
 
 const workers = [

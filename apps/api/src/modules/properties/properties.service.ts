@@ -132,6 +132,16 @@ export class PropertiesService {
       // (ביקורת Codex, PR #1). החלטות ידניות (offered/dismissed) נשמרות כהיסטוריה.
       if (status !== undefined && !["draft", "active"].includes(status)) {
         await tx.match.deleteMany({ where: { propertyId: id, status: "suggested" } });
+        // מעבר אמיתי החוצה משיווק — סגירת מעגל מול קונים מעוניינים:
+        // Worker יוצר משימות "הצע חלופה" לסוכנים (docs/01 — שום עסקה
+        // לא נופלת בין הכיסאות)
+        if (["draft", "active"].includes(existing.status)) {
+          await this.outbox.emit(tx, "property.delisted", {
+            propertyId: id,
+            tenantId,
+            newStatus: status,
+          });
+        }
       }
       await this.audit.record(tx, {
         action: "property.update",
@@ -219,6 +229,15 @@ export class PropertiesService {
       if (!existing) throw new NotFoundException("נכס לא נמצא");
       await tx.property.update({ where: { id }, data: { deletedAt: new Date(), status: "archived" } });
       await tx.match.deleteMany({ where: { propertyId: id, status: "suggested" } });
+      // גם מחיקה רכה היא ירידה משיווק — קונים מעוניינים מקבלים משימת
+      // חלופה בדיוק כמו במכירה (ביקורת Codex, PR #21)
+      if (["draft", "active"].includes(existing.status)) {
+        await this.outbox.emit(tx, "property.delisted", {
+          propertyId: id,
+          tenantId: TenantContext.current().tenantId,
+          newStatus: "archived",
+        });
+      }
       await this.audit.record(tx, { action: "property.delete", entityType: "property", entityId: id });
     });
   }

@@ -395,10 +395,13 @@ model Task {
   // קישור אופציונלי לישות — "להתקשר לקונה X", "להשלים פרטי נכס Y"
   entityType       String?   @map("entity_type") @db.VarChar(20) // lead | buyer | property
   entityId         String?   @map("entity_id") @db.Char(26)
+  // מפתח אידמפוטנטיות למשימות מאירועים — מבחין בין מקורות (נכסים) שונים
+  sourceKey        String?   @map("source_key") @db.VarChar(120)
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
   @@index([tenantId, assignedToUserId, status, dueAt])
+  @@index([tenantId, entityId, sourceKey])
   @@map("tasks")
 }
 

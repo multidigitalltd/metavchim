@@ -117,7 +117,15 @@ export default function PublicOfferPage({ params }: { params: Promise<{ token: s
 
       {p.description ? <p className="mb-8 whitespace-pre-line">{p.description}</p> : null}
 
-      {responded ? (
+      {offer.status === "unavailable" ? (
+        <p
+          role="status"
+          className="rounded-xl border p-4 text-center font-medium"
+          style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}
+        >
+          הנכס כבר אינו זמין — פנו למתווך לקבלת הצעות דומות.
+        </p>
+      ) : responded ? (
         <p
           role="status"
           className="rounded-xl border p-4 text-center font-medium"
