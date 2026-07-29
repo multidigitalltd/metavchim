@@ -74,6 +74,10 @@ export class BuyersService {
       });
       if (!lead) throw new NotFoundException("ליד לא נמצא");
 
+      // נעילת איש הקשר: שני לידים שונים של אותו אדם שמומרים במקביל
+      // מסתדרים בתור — בדיקת "קונה פעיל קיים" אטומית ברמת ה-contact,
+      // כי אין unique על (tenant, contact) בקונים (ביקורת Codex)
+      await tx.$queryRaw`SELECT id FROM contacts WHERE id = ${lead.contactId} AND tenant_id = ${ctx.tenantId} FOR UPDATE`;
       const existingBuyer = await tx.buyer.findFirst({
         where: { tenantId: ctx.tenantId, contactId: lead.contactId, deletedAt: null },
         select: { id: true },
@@ -95,7 +99,9 @@ export class BuyersService {
           id,
           tenantId: ctx.tenantId,
           contactId: lead.contactId,
-          ownerUserId: ctx.userId,
+          // הקונה שייך לסוכן שמטפל בליד — אדמין שממיר לא גונב בעלות
+          // מסוכן שרואה רק view_own (ביקורת Codex, P1)
+          ownerUserId: lead.assignedToUserId ?? ctx.userId,
           cities: input.requirements.cities,
           dealType: input.requirements.dealType,
           budgetMinAgorot:
@@ -147,7 +153,12 @@ export class BuyersService {
       });
     });
 
-    await this.matching.recomputeForBuyer(id);
+    try {
+      await this.matching.recomputeForBuyer(id);
+    } catch {
+      // ההמרה כבר נשמרה — כישלון זמני בהתאמות לא הופך אותה ל"נכשלה"
+      // (ניסיון חוזר היה מקבל 409); יחושב מחדש בעריכה הבאה, כמו בייבוא.
+    }
     return this.getById(id);
   }
 
