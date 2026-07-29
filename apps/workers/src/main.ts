@@ -444,6 +444,84 @@ async function processLeadSlaSweep(): Promise<void> {
   }
 }
 
+/** גבולות היום הנוכחי בשעון ישראל, כערכי UTC לשאילתות. */
+function jerusalemDayRange(): { start: Date; end: Date } {
+  const now = new Date();
+  const tzNow = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Jerusalem" }));
+  const offsetMs = now.getTime() - tzNow.getTime();
+  const startLocal = new Date(tzNow);
+  startLocal.setHours(0, 0, 0, 0);
+  const endLocal = new Date(tzNow);
+  endLocal.setHours(23, 59, 59, 999);
+  return { start: new Date(startLocal.getTime() + offsetMs), end: new Date(endLocal.getTime() + offsetMs) };
+}
+
+/**
+ * דו"ח בוקר יומי (docs/09 שלב 1 — "תזכורות למתווך"): כל בוקר ב-07:00
+ * שעון ישראל, כל סוכן פעיל מקבל התראה אחת עם תמונת היום שלו —
+ * פגישות היום, משימות להיום/באיחור, ולידים שממתינים למענה.
+ * בלי רעש: אין כלום — אין התראה. אידמפוטנטי פר יום (בדיקת קיים).
+ */
+async function processDailyBrief(): Promise<void> {
+  const { start, end } = jerusalemDayRange();
+  const tenants = await prisma.tenant.findMany({ select: { id: true } });
+  for (const tenant of tenants) {
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      const users = await tx.user.findMany({
+        where: { tenantId: tenant.id, isActive: true },
+        select: { id: true, role: true },
+      });
+      for (const user of users) {
+        const already = await tx.notification.findFirst({
+          where: { tenantId: tenant.id, userId: user.id, type: "daily_brief", createdAt: { gte: start } },
+          select: { id: true },
+        });
+        if (already) continue;
+
+        const [meetings, tasks, waitingLeads] = await Promise.all([
+          tx.appointment.count({
+            where: { tenantId: tenant.id, createdBy: user.id, status: "scheduled", startsAt: { gte: start, lte: end } },
+          }),
+          tx.task.count({
+            where: { tenantId: tenant.id, assignedToUserId: user.id, status: "open", dueAt: { lte: end } },
+          }),
+          tx.lead.count({
+            where: {
+              tenantId: tenant.id,
+              status: "new",
+              firstResponseAt: null,
+              OR: [
+                { assignedToUserId: user.id },
+                // לידים יתומים מוצגים לבעלים — הם האחראים כשאין משויך
+                ...(user.role === "owner" ? [{ assignedToUserId: null }] : []),
+              ],
+            },
+          }),
+        ]);
+        if (meetings === 0 && tasks === 0 && waitingLeads === 0) continue;
+
+        const parts: string[] = [];
+        if (meetings > 0) parts.push(meetings === 1 ? "פגישה אחת היום" : `${meetings} פגישות היום`);
+        if (tasks > 0) parts.push(tasks === 1 ? "משימה אחת להיום" : `${tasks} משימות להיום`);
+        if (waitingLeads > 0)
+          parts.push(waitingLeads === 1 ? "ליד אחד ממתין למענה" : `${waitingLeads} לידים ממתינים למענה`);
+
+        await tx.notification.create({
+          data: {
+            id: ulid(),
+            tenantId: tenant.id,
+            userId: user.id,
+            type: "daily_brief",
+            title: "☀️ דו\"ח בוקר",
+            body: `${parts.join(" · ")} — הדשבורד מחכה לכם.`,
+          },
+        });
+      }
+    });
+  }
+}
+
 /** תור low משותף — כל סוג Job ממוין לפי שמו. */
 async function processLow(job: Job): Promise<void> {
   if (job.name === "delete-object") return processCleanup(job);
@@ -452,6 +530,7 @@ async function processLow(job: Job): Promise<void> {
   if (job.name === "viewing-followup") return processViewingFollowup(job);
   if (job.name === "lead-sla") return processLeadSla(job);
   if (job.name === "lead-sla-sweep") return processLeadSlaSweep();
+  if (job.name === "daily-brief") return processDailyBrief();
 }
 
 // רישום סריקת ה-SLA החוזרת (רבע שעה) — כולל ריצה מיידית בעלייה,
@@ -461,6 +540,12 @@ void lowQueue
   .upsertJobScheduler("lead-sla-sweep", { every: 15 * 60 * 1000 }, { name: "lead-sla-sweep" })
   .catch((error: unknown) => {
     console.error(`lead-sla-sweep scheduler registration failed: ${String(error)}`);
+  });
+// דו"ח בוקר — 07:00 שעון ישראל, כל יום
+void lowQueue
+  .upsertJobScheduler("daily-brief", { pattern: "0 7 * * *", tz: "Asia/Jerusalem" }, { name: "daily-brief" })
+  .catch((error: unknown) => {
+    console.error(`daily-brief scheduler registration failed: ${String(error)}`);
   });
 
 const workers = [
