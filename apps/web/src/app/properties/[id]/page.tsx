@@ -108,6 +108,12 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
     window.open(waUrl, "_blank", "noopener");
   }
 
+  /** עדכון שיווק לבעל הנכס — משפך הנכס בהודעת וואטסאפ מוכנה לשליחה. */
+  async function sendOwnerUpdate() {
+    const { waUrl } = await apiPost<{ waUrl: string }>(`/properties/${id}/owner-update`, {});
+    window.open(waUrl, "_blank", "noopener");
+  }
+
   /** שליחה מרובה בשני שלבים — אישור מפורש לפני יצירת הצעות (אפיון §10). */
   async function bulkSend() {
     if (!bulkConfirm) {
@@ -212,6 +218,13 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
             </div>
           ) : null}
         </dl>
+        {property.ownerContact ? (
+          <div className="mt-3">
+            <Button variant="secondary" onClick={() => void sendOwnerUpdate()}>
+              💬 שלח עדכון שיווק לבעל הנכס
+            </Button>
+          </div>
+        ) : null}
       </section>
 
       <section aria-labelledby="matches-heading">
