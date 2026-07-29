@@ -49,6 +49,8 @@ model User {
   // סיסמה זמנית שחובה להחליף בכניסה ראשונה (ביקורת Codex, PR #5)
   mustChangePassword Boolean @default(false) @map("must_change_password")
   lastLoginAt  DateTime? @map("last_login_at")
+  // מסך "מה חדש": העדכון האחרון שנצפה — הבאנר מוצג רק על חדשות מזה והלאה
+  lastSeenAnnouncement String? @map("last_seen_announcement") @db.VarChar(60)
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
