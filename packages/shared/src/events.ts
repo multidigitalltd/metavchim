@@ -56,6 +56,9 @@ export const DomainEvents = {
     appointmentId: IdSchema,
     tenantId: IdSchema,
     startsAt: z.coerce.date(),
+    /** לסיורים: מאפשר לתזמן פולו-אפ "איך היה?" אחרי סיום הפגישה */
+    kind: z.string().optional(),
+    endsAt: z.coerce.date().nullable().optional(),
   }),
   "coop_offer.sent": z.object({
     coopOfferId: IdSchema,

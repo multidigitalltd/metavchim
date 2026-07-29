@@ -259,11 +259,77 @@ async function processPropertyDelisted(job: Job): Promise<void> {
   }
 }
 
+const ViewingFollowupJobSchema = z.object({ tenantId: z.string(), appointmentId: z.string() });
+const VIEWING_FOLLOWUP_TITLE = "פולו-אפ אחרי סיור — איך היה?";
+
+/**
+ * פולו-אפ אחרי סיור (docs/09 שלב 2): שעה אחרי סיום הסיור, אם הסוכן
+ * עוד לא רשם תוצאה — נוצרת משימת "איך היה?" + התראה. עדכון הסטטוס
+ * לקונה מיד אחרי סיור הוא ההבדל בין עסקה מתקדמת לליד שמתקרר.
+ * אידמפוטנטי: sourceKey לפי הפגישה, ונעילת שורת הישות כמו בשאר.
+ */
+async function processViewingFollowup(job: Job): Promise<void> {
+  const { tenantId, appointmentId } = ViewingFollowupJobSchema.parse(job.data);
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+
+    const appt = await tx.appointment.findFirst({ where: { id: appointmentId, tenantId } });
+    if (!appt || appt.kind !== "viewing") return;
+    // בוטל / לא הגיע — אין סיכום סיור; תוצאה כבר נרשמה — אין מה לדחוף
+    if (appt.status === "cancelled" || appt.status === "no_show") return;
+    if (appt.outcome !== null) return;
+    if (!appt.createdBy) return;
+
+    const entity =
+      appt.buyerId !== null
+        ? { type: "buyer", id: appt.buyerId }
+        : appt.leadId !== null
+          ? { type: "lead", id: appt.leadId }
+          : null;
+    if (!entity) return;
+
+    const sourceKey = `viewing:${appointmentId}`;
+    const existing = await tx.task.findFirst({
+      where: { tenantId, entityType: entity.type, entityId: entity.id, sourceKey, status: "open" },
+      select: { id: true },
+    });
+    if (existing) return;
+
+    const what = appt.title ?? "הסיור";
+    await tx.task.create({
+      data: {
+        id: ulid(),
+        tenantId,
+        assignedToUserId: appt.createdBy,
+        title: VIEWING_FOLLOWUP_TITLE,
+        notes: `"${what}" הסתיים — התקשרו ללקוח ("איך היה?") ורשמו תוצאה בפגישה: אהב / לא מתאים / במשא-ומתן / צריך נכס אחר.`,
+        dueAt: new Date(),
+        entityType: entity.type,
+        entityId: entity.id,
+        sourceKey,
+      },
+    });
+    await tx.notification.create({
+      data: {
+        id: ulid(),
+        tenantId,
+        userId: appt.createdBy,
+        type: "viewing_followup",
+        title: "🚶 סיור הסתיים — איך היה?",
+        body: `"${what}" הסתיים ועדיין אין סיכום — נוצרה משימה לחזור ללקוח ולרשום תוצאה.`,
+        entityType: entity.type,
+        entityId: entity.id,
+      },
+    });
+  });
+}
+
 /** תור low משותף — כל סוג Job ממוין לפי שמו. */
 async function processLow(job: Job): Promise<void> {
   if (job.name === "delete-object") return processCleanup(job);
   if (job.name === "offer-followup") return processOfferFollowup(job);
   if (job.name === "property-delisted") return processPropertyDelisted(job);
+  if (job.name === "viewing-followup") return processViewingFollowup(job);
 }
 
 const workers = [
