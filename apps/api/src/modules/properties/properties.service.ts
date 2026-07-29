@@ -7,6 +7,7 @@ import { OutboxService } from "../../core/outbox.service";
 import { PrismaService } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { MatchingService } from "../matching/matching.service";
+import { MessagingService } from "../messaging/messaging.service";
 import { fieldsToColumns, rowToFields, type PropertyDto } from "./property.mapper";
 
 @Injectable()
@@ -17,6 +18,7 @@ export class PropertiesService {
     private readonly outbox: OutboxService,
     private readonly matching: MatchingService,
     private readonly contacts: ContactsService,
+    private readonly messaging: MessagingService,
   ) {}
 
   async create(input: {
@@ -237,6 +239,65 @@ export class PropertiesService {
         } satisfies PropertyDto;
       });
       return { items, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null };
+    });
+  }
+
+  /**
+   * עדכון לבעל הנכס בוואטסאפ (docs/01 — שקיפות): משפך השיווק של הנכס
+   * בהודעה אחת — כמה קונים הותאמו, כמה קיבלו הצעה, כמה פתחו וכמה סימנו
+   * עניין. המתווך רק לוחץ שלח; ההודעה מתועדת ב-Messages Hub.
+   */
+  async prepareOwnerUpdate(id: string): Promise<{ waUrl: string; message: string }> {
+    const tenantId = TenantContext.current().tenantId;
+    return this.prisma.withTenant(async (tx) => {
+      const property = await tx.property.findFirst({
+        where: { id, tenantId, deletedAt: null },
+      });
+      if (!property) throw new NotFoundException("נכס לא נמצא");
+      if (!property.ownerContactId) {
+        throw new NotFoundException("לנכס לא הוגדר בעל נכס — הוסיפו שם וטלפון בעריכת הנכס");
+      }
+      const owner = await this.contacts.getById(tx, property.ownerContactId);
+      if (!owner) throw new NotFoundException("איש הקשר של בעל הנכס לא נמצא");
+
+      // התאמות שהסוכן דחה כלא-רלוונטיות לא נספרות — לא מנפחים את
+      // המספר שמדווח למוכר (ביקורת Codex, P1; תואם listForProperty)
+      const matches = await tx.match.findMany({
+        where: { tenantId, propertyId: id, status: { not: "dismissed" } },
+        select: { id: true },
+      });
+      const offers = await tx.offer.findMany({
+        where: { tenantId, matchId: { in: matches.map((m) => m.id) } },
+        select: { status: true, openCount: true },
+      });
+      const opened = offers.filter((o) => o.openCount > 0).length;
+      const interested = offers.filter((o) => o.status === "interested").length;
+
+      const title =
+        property.marketingTitle ?? [property.city ?? "", "הנכס"].filter(Boolean).join(" — ");
+      const message = [
+        `שלום ${owner.name}, עדכון שיווק על "${title}":`,
+        `• ${matches.length} קונים מתאימים אותרו במערכת`,
+        `• ${offers.length} הצעות נשלחו`,
+        `• ${opened} פתחו את פרטי הנכס`,
+        `• ${interested} סימנו שהם מעוניינים`,
+        "נמשיך לעדכן בכל התקדמות. לשאלות — אפשר להשיב כאן.",
+      ].join("\n");
+
+      await this.messaging.recordOutbound(tx, {
+        contactId: owner.id,
+        channel: "whatsapp",
+        provider: "walink",
+        body: message,
+      });
+      await this.audit.record(tx, {
+        action: "property.owner_update",
+        entityType: "property",
+        entityId: id,
+      });
+
+      const phoneDigits = owner.phone.replace(/\D/gu, "");
+      return { waUrl: `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message)}`, message };
     });
   }
 

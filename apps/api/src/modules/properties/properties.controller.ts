@@ -101,6 +101,16 @@ export class PropertiesController {
     });
   }
 
+  /** עדכון שיווק לבעל הנכס — נוסח מוכן + קישור wa.me; מתועד ב-Hub. */
+  @Post(":id/owner-update")
+  @RequireCapability("properties.edit")
+  @HttpCode(200)
+  async ownerUpdate(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ waUrl: string; message: string }> {
+    return this.properties.prepareOwnerUpdate(id);
+  }
+
   @Delete(":id")
   @RequireCapability("properties.delete")
   @HttpCode(204)
