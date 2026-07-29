@@ -1,8 +1,19 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
 import { z } from "zod";
-import { IdSchema, LeadSourceSchema, LeadIntentSchema, LeadStatusSchema, PhoneSchema, type Page } from "@metavchim/shared";
+import {
+  BuyerMaturitySchema,
+  BuyerRequirementsSchema,
+  FinancingStatusSchema,
+  IdSchema,
+  LeadSourceSchema,
+  LeadIntentSchema,
+  LeadStatusSchema,
+  PhoneSchema,
+  type Page,
+} from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { BuyersService, type BuyerDto } from "../buyers/buyers.service";
 import { LeadsService, type InteractionDto, type LeadDto } from "./leads.service";
 
 const CreateLeadSchema = z
@@ -20,6 +31,14 @@ const CreateLeadSchema = z
 const StatusSchema = z.object({ status: LeadStatusSchema }).strict();
 const NoteSchema = z.object({ content: z.string().min(1).max(2000) }).strict();
 
+const ConvertSchema = z
+  .object({
+    requirements: BuyerRequirementsSchema,
+    financing: FinancingStatusSchema.optional(),
+    maturity: BuyerMaturitySchema.optional(),
+  })
+  .strict();
+
 const ListQuerySchema = z
   .object({
     status: LeadStatusSchema.optional(),
@@ -34,7 +53,10 @@ const ListQuerySchema = z
 
 @Controller("leads")
 export class LeadsController {
-  constructor(private readonly leads: LeadsService) {}
+  constructor(
+    private readonly leads: LeadsService,
+    private readonly buyers: BuyersService,
+  ) {}
 
   @Post()
   @RequireCapability("leads.edit")
@@ -69,6 +91,19 @@ export class LeadsController {
   ): Promise<{ ok: true }> {
     await this.leads.updateStatus(id, body.status);
     return { ok: true };
+  }
+
+  /**
+   * המרת ליד לקונה: יוצר קונה על אותו contact, מסמן converted, ורושם
+   * בשני הצירים. יוצר ישות קונים — לכן דורש buyers.edit ולא רק leads.edit.
+   */
+  @Post(":id/convert")
+  @RequireCapability("buyers.edit")
+  async convert(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(ConvertSchema)) body: z.infer<typeof ConvertSchema>,
+  ): Promise<BuyerDto> {
+    return this.buyers.convertFromLead(id, body);
   }
 
   @Post(":id/notes")

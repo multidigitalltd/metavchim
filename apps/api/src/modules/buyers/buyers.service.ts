@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   BuyerRequirementsSchema,
@@ -46,6 +46,107 @@ export class BuyersService {
     agentNotes?: string;
   }): Promise<BuyerDto> {
     const id = await this.persist(input);
+    await this.matching.recomputeForBuyer(id);
+    return this.getById(id);
+  }
+
+  /**
+   * המרת ליד לקונה (docs/01): הליד הבשיל — המתווך מוסיף דרישות והאדם
+   * נכנס למנוע ההתאמות. אותו contact (אין כפילות אדם, docs/03 §contacts),
+   * ההמרה נתפסת אטומית (updateMany מותנה — לחיצה כפולה לא יוצרת שני
+   * קונים), ושני הצירים מקבלים רשומת קישור.
+   */
+  async convertFromLead(
+    leadId: string,
+    input: { requirements: BuyerRequirements; financing?: string; maturity?: string },
+  ): Promise<BuyerDto> {
+    const ctx = TenantContext.current();
+    const id = ulid();
+
+    await this.prisma.withTenant(async (tx) => {
+      // ראות הליד לפי אותו פילטר בעלות של מודול הלידים
+      const lead = await tx.lead.findFirst({
+        where: {
+          id: leadId,
+          tenantId: ctx.tenantId,
+          ...ownershipFilter("leads.view_all", "assignedToUserId"),
+        },
+      });
+      if (!lead) throw new NotFoundException("ליד לא נמצא");
+
+      const existingBuyer = await tx.buyer.findFirst({
+        where: { tenantId: ctx.tenantId, contactId: lead.contactId, deletedAt: null },
+        select: { id: true },
+      });
+      if (existingBuyer) throw new ConflictException("כבר קיים קונה פעיל לאיש קשר זה");
+
+      const claimed = await tx.lead.updateMany({
+        where: { id: leadId, tenantId: ctx.tenantId, status: { not: "converted" } },
+        data: {
+          status: "converted",
+          requiresHuman: false,
+          ...(lead.firstResponseAt === null ? { firstResponseAt: new Date() } : {}),
+        },
+      });
+      if (claimed.count === 0) throw new ConflictException("הליד כבר הומר לקונה");
+
+      await tx.buyer.create({
+        data: {
+          id,
+          tenantId: ctx.tenantId,
+          contactId: lead.contactId,
+          ownerUserId: ctx.userId,
+          cities: input.requirements.cities,
+          dealType: input.requirements.dealType,
+          budgetMinAgorot:
+            input.requirements.budgetMinAgorot === undefined
+              ? null
+              : BigInt(input.requirements.budgetMinAgorot),
+          budgetMaxAgorot: BigInt(input.requirements.budgetMaxAgorot),
+          roomsMin: input.requirements.roomsMin ?? null,
+          roomsMax: input.requirements.roomsMax ?? null,
+          requirements: input.requirements as object,
+          financing: input.financing ?? "unknown",
+          maturity: input.maturity ?? "interested",
+          source: `lead:${lead.source}`,
+          agentNotes: lead.summary ?? null,
+        },
+      });
+
+      await tx.interaction.create({
+        data: {
+          id: ulid(),
+          tenantId: ctx.tenantId,
+          leadId,
+          kind: "status_change",
+          content: "converted", // ציר הליד מתרגם ערכי סטטוס לעברית ב-UI
+          createdBy: ctx.userId,
+        },
+      });
+      await tx.interaction.create({
+        data: {
+          id: ulid(),
+          tenantId: ctx.tenantId,
+          buyerId: id,
+          kind: "system",
+          content: `נוצר מהמרת ליד (מקור: ${lead.source})`,
+          createdBy: ctx.userId,
+        },
+      });
+
+      await this.audit.record(tx, {
+        action: "lead.convert",
+        entityType: "lead",
+        entityId: leadId,
+        metadata: { buyerId: id },
+      });
+      await this.outbox.emit(tx, "buyer.updated", {
+        buyerId: id,
+        tenantId: ctx.tenantId,
+        changedFields: ["created"],
+      });
+    });
+
     await this.matching.recomputeForBuyer(id);
     return this.getById(id);
   }
