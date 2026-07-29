@@ -95,16 +95,86 @@ const CleanupJobSchema = z.object({ tenantId: z.string(), s3Key: z.string().max(
  * שוב עם Backoff עד 10 פעמים.
  */
 async function processCleanup(job: Job): Promise<void> {
-  if (job.name !== "delete-object") return; // תור low משותף — כל סוג Job ממוין לפי שם
   const { s3Key } = CleanupJobSchema.parse(job.data);
   await s3.send(
     new DeleteObjectCommand({ Bucket: process.env["S3_BUCKET"] ?? "metavchim", Key: s3Key }),
   );
 }
 
+const FollowupJobSchema = z.object({ tenantId: z.string(), offerId: z.string() });
+const FOLLOWUP_TITLE = "פולו-אפ: הקונה פתח את ההצעה ולא הגיב";
+
+/**
+ * פולו-אפ הצעה (docs/01 — "כלום לא נשכח"): ה-Job תוזמן בפתיחה הראשונה
+ * ויורה אחרי N שעות. אם הקונה עדיין לא הגיב — משימה לסוכן בעל הקונה
+ * + התראה. אידמפוטנטי: משימת פולו-אפ פתוחה קיימת לאותו קונה — לא
+ * נוצרת שנייה (ניסיון חוזר אחרי כשל חלקי בטוח).
+ */
+async function processOfferFollowup(job: Job): Promise<void> {
+  const { tenantId, offerId } = FollowupJobSchema.parse(job.data);
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+
+    const offer = await tx.offer.findFirst({ where: { id: offerId, tenantId } });
+    if (!offer) return;
+    // הקונה כבר הגיב (מעוניין/לא רלוונטי) — אין מה לרדוף
+    if (offer.status === "interested" || offer.status === "declined") return;
+
+    const match = await tx.match.findFirst({
+      where: { id: offer.matchId, tenantId },
+      select: { buyerId: true },
+    });
+    if (!match) return;
+    const buyer = await tx.buyer.findFirst({
+      where: { id: match.buyerId, tenantId, deletedAt: null },
+      select: { id: true, ownerUserId: true },
+    });
+    if (!buyer?.ownerUserId) return;
+
+    const existing = await tx.task.findFirst({
+      where: { tenantId, entityType: "buyer", entityId: buyer.id, title: FOLLOWUP_TITLE, status: "open" },
+      select: { id: true },
+    });
+    if (existing) return;
+
+    const presentation = offer.presentation as { title?: string } | null;
+    const offerTitle = presentation?.title ?? "ההצעה";
+    await tx.task.create({
+      data: {
+        id: ulid(),
+        tenantId,
+        assignedToUserId: buyer.ownerUserId,
+        title: FOLLOWUP_TITLE,
+        notes: `"${offerTitle}" נפתחה ולא נענתה — שווה שיחה קצרה לפני שהעניין מתקרר.`,
+        dueAt: new Date(),
+        entityType: "buyer",
+        entityId: buyer.id,
+      },
+    });
+    await tx.notification.create({
+      data: {
+        id: ulid(),
+        tenantId,
+        userId: buyer.ownerUserId,
+        type: "offer_followup",
+        title: "⏰ הצעה ממתינה לפולו-אפ",
+        body: `"${offerTitle}" נפתחה ולא נענתה — נוצרה משימה לחזור לקונה.`,
+        entityType: "buyer",
+        entityId: buyer.id,
+      },
+    });
+  });
+}
+
+/** תור low משותף — כל סוג Job ממוין לפי שמו. */
+async function processLow(job: Job): Promise<void> {
+  if (job.name === "delete-object") return processCleanup(job);
+  if (job.name === "offer-followup") return processOfferFollowup(job);
+}
+
 const workers = [
   new Worker(QUEUES.notifications, processNotification, { connection, concurrency: 10 }),
-  new Worker(QUEUES.low, processCleanup, { connection, concurrency: 2 }),
+  new Worker(QUEUES.low, processLow, { connection, concurrency: 2 }),
   // מעבדים נוספים (ai, matching, sync) יירשמו כאן מודול-מודול.
 ];
 

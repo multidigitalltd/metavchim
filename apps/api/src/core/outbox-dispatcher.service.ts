@@ -144,6 +144,27 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
         });
       }
     }
+    // פולו-אפ הצעה (docs/01 — "כלום לא נשכח"): נפתחה ולא נענתה תוך N
+    // שעות → משימה לסוכן. מתוזמן רק בפתיחה הראשונה; jobId לפי ההצעה —
+    // אירועי פתיחה חוזרים לא מכפילים. ה-Worker בודק את הסטטוס בזמן
+    // הירי: קונה שכבר הגיב — אין משימה.
+    if (name === "offer.opened" && this.lowQueue) {
+      const p = payload as { offerId: string; tenantId: string; openCount: number };
+      if (p.openCount === 1) {
+        await this.lowQueue.add(
+          "offer-followup",
+          { offerId: p.offerId, tenantId: p.tenantId },
+          {
+            jobId: `followup-${p.offerId}`,
+            delay: loadEnv().OFFER_FOLLOWUP_HOURS * 60 * 60 * 1000,
+            removeOnComplete: 1000,
+            removeOnFail: 5000,
+            attempts: 5,
+            backoff: { type: "exponential", delay: 5000 },
+          },
+        );
+      }
+    }
     // תזכורת שעה לפני פגישה — Job מושהה; BullMQ מחזיק את התזמון (docs/01 §13).
     if (name === "appointment.scheduled" && this.notificationsQueue) {
       const p = payload as { appointmentId: string; tenantId: string; startsAt: Date };
