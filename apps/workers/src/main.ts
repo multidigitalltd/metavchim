@@ -211,8 +211,11 @@ async function processPropertyDelisted(job: Job): Promise<void> {
       });
       if (!buyer?.ownerUserId) return;
       await tx.$executeRaw`SELECT id FROM buyers WHERE id = ${buyer.id} AND tenant_id = ${tenantId} FOR UPDATE`;
+      // הדדופ ממופתח לנכס הספציפי: קונה שהתעניין בשני נכסים שירדו —
+      // שתי משימות; רק ניסיון חוזר על אותו נכס נבלם (ביקורת Codex)
+      const sourceKey = `delisted:${propertyId}`;
       const existing = await tx.task.findFirst({
-        where: { tenantId, entityType: "buyer", entityId: buyer.id, title: ALTERNATIVE_TITLE, status: "open" },
+        where: { tenantId, entityType: "buyer", entityId: buyer.id, sourceKey, status: "open" },
         select: { id: true },
       });
       if (existing) return;
@@ -227,6 +230,7 @@ async function processPropertyDelisted(job: Job): Promise<void> {
           dueAt: new Date(),
           entityType: "buyer",
           entityId: buyer.id,
+          sourceKey,
         },
       });
       await tx.notification.create({

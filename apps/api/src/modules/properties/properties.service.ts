@@ -229,6 +229,15 @@ export class PropertiesService {
       if (!existing) throw new NotFoundException("נכס לא נמצא");
       await tx.property.update({ where: { id }, data: { deletedAt: new Date(), status: "archived" } });
       await tx.match.deleteMany({ where: { propertyId: id, status: "suggested" } });
+      // גם מחיקה רכה היא ירידה משיווק — קונים מעוניינים מקבלים משימת
+      // חלופה בדיוק כמו במכירה (ביקורת Codex, PR #21)
+      if (["draft", "active"].includes(existing.status)) {
+        await this.outbox.emit(tx, "property.delisted", {
+          propertyId: id,
+          tenantId: TenantContext.current().tenantId,
+          newStatus: "archived",
+        });
+      }
       await this.audit.record(tx, { action: "property.delete", entityType: "property", entityId: id });
     });
   }
