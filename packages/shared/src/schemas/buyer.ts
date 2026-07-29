@@ -5,6 +5,14 @@ import { PropertyTypeSchema, DealTypeSchema } from "./property.js";
 export const BuyerMaturitySchema = z.enum(["very_hot", "hot", "interested", "not_ripe"]);
 export type BuyerMaturity = z.infer<typeof BuyerMaturitySchema>;
 
+/** תוויות עברית לבשלות — מקור אמת אחד ל-UI ולטקסטים שהשרת כותב (ציר, ייצוא). */
+export const MATURITY_LABELS: Record<string, string> = {
+  very_hot: "חם מאוד",
+  hot: "חם",
+  interested: "מתעניין",
+  not_ripe: "לא בשל",
+};
+
 export const FinancingStatusSchema = z.enum([
   "cash",
   "pre_approved",

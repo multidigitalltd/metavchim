@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   BuyerRequirementsSchema,
+  MATURITY_LABELS,
   type BuyerRequirements,
   type Page,
 } from "@metavchim/shared";
@@ -134,6 +135,9 @@ export class BuyersService {
   ): Promise<BuyerDto> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {
+      // נעילת השורה: עדכונים מקבילים מסתדרים בתור, כך שהערך הישן שנקרא
+      // לרשומת ה-status_change הוא המעבר שבאמת קרה (ביקורת Codex)
+      await tx.$queryRaw`SELECT id FROM buyers WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`;
       const existing = await tx.buyer.findFirst({
         where: { id, tenantId: TenantContext.current().tenantId, deletedAt: null },
       });
@@ -163,6 +167,19 @@ export class BuyersService {
           ...(patch.agentNotes !== undefined ? { agentNotes: patch.agentNotes } : {}),
         },
       });
+      // שינוי בשלות אמיתי נרשם בציר — קביעה חוזרת של אותו ערך רק מקבעת override
+      if (patch.maturity !== undefined && patch.maturity !== existing.maturity) {
+        await tx.interaction.create({
+          data: {
+            id: ulid(),
+            tenantId,
+            buyerId: id,
+            kind: "status_change",
+            content: `בשלות: ${MATURITY_LABELS[existing.maturity] ?? existing.maturity} ← ${MATURITY_LABELS[patch.maturity] ?? patch.maturity}`,
+            createdBy: TenantContext.current().userId,
+          },
+        });
+      }
       await this.audit.record(tx, {
         action: "buyer.update",
         entityType: "buyer",
