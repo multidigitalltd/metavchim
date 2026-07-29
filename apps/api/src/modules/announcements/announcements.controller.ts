@@ -40,9 +40,17 @@ export class AnnouncementsController {
     @Body(new ZodValidationPipe(SeenSchema)) body: z.infer<typeof SeenSchema>,
   ): Promise<{ ok: true }> {
     const ctx = TenantContext.current();
+    // הסמן רק מתקדם: לקוח ישן (טאב/מכשיר עם snapshot קודם) ששולח מזהה
+    // ישן לא מזיז את הסמן אחורה ולא מחזיר באנרים שכבר נראו. ה-id ממוין
+    // לקסיקוגרפית לפי זמן (YYYY-MM-DD-slug) — ההשוואה אטומית ב-DB
+    // ולכן גם שני טאבים במקביל לא מתחרים (ביקורת Codex).
     await this.prisma.withTenant((tx) =>
       tx.user.updateMany({
-        where: { id: ctx.userId, tenantId: ctx.tenantId },
+        where: {
+          id: ctx.userId,
+          tenantId: ctx.tenantId,
+          OR: [{ lastSeenAnnouncement: null }, { lastSeenAnnouncement: { lt: body.id } }],
+        },
         data: { lastSeenAnnouncement: body.id },
       }),
     );
