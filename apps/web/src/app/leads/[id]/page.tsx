@@ -2,9 +2,11 @@
 
 import { useEffect, useState, use, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
-import { apiGet, apiPost, apiPatch } from "@/lib/api";
-import { formatDate } from "@/lib/format";
+import { MATURITY_LABELS as SHARED_MATURITY, ROLE_CAPABILITIES } from "@metavchim/shared";
+import { apiGet, apiPost, apiPatch, ApiError } from "@/lib/api";
+import { formatDate, shekelsToAgorot } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
 
@@ -34,9 +36,130 @@ const KIND_LABELS: Record<string, string> = {
   system: "⚙️ מערכת",
 };
 
+/**
+ * המרת ליד לקונה בלי לצאת מהעמוד: דרישות מינימליות (ערים, סוג עסקה,
+ * תקציב) — והאדם נכנס למנוע ההתאמות. אותו contact, ההיסטוריה נשמרת.
+ */
+function ConvertSection({ leadId }: { leadId: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onConvert(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setBusy(true);
+    const f = new FormData(event.currentTarget);
+    const budget = Number(String(f.get("budgetMax") ?? "").trim());
+    try {
+      const buyer = await apiPost<{ id: string }>(`/leads/${leadId}/convert`, {
+        maturity: String(f.get("maturity")),
+        requirements: {
+          cities: String(f.get("cities"))
+            .split(",")
+            .map((c) => c.trim())
+            .filter(Boolean),
+          dealType: String(f.get("dealType")),
+          budgetMaxAgorot: shekelsToAgorot(budget),
+        },
+      });
+      router.push(`/buyers/${buyer.id}`);
+    } catch (err: unknown) {
+      setError(
+        err instanceof ApiError && err.status === 409
+          ? "הליד כבר הומר, או שכבר קיים קונה פעיל לאיש קשר זה"
+          : "ההמרה נכשלה — בדקו את הפרטים ונסו שוב",
+      );
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="mb-4">
+        <Button onClick={() => setOpen(true)}>👤 המר לקונה</Button>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={(event) => void onConvert(event)}
+      className="mb-6 rounded-xl border p-4"
+      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+    >
+      <h2 className="mb-3 text-lg font-semibold">המרה לקונה</h2>
+      <div className="mb-3 flex flex-wrap gap-3">
+        <div>
+          <label htmlFor="cv-cities" className="mb-1 block text-sm font-medium">
+            ערים (מופרדות בפסיק)
+          </label>
+          <input
+            id="cv-cities"
+            name="cities"
+            required
+            placeholder="תל אביב, גבעתיים"
+            className="rounded-lg border px-3 py-2"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+          />
+        </div>
+        <div>
+          <label htmlFor="cv-deal" className="mb-1 block text-sm font-medium">סוג עסקה</label>
+          <select
+            id="cv-deal"
+            name="dealType"
+            className="rounded-lg border px-3 py-2"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+          >
+            <option value="sale">קנייה</option>
+            <option value="rent">שכירות</option>
+          </select>
+        </div>
+        <div>
+          <label htmlFor="cv-budget" className="mb-1 block text-sm font-medium">
+            תקציב מקסימלי (₪)
+          </label>
+          <input
+            id="cv-budget"
+            name="budgetMax"
+            type="number"
+            required
+            min={1}
+            className="rounded-lg border px-3 py-2"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+            dir="ltr"
+          />
+        </div>
+        <div>
+          <label htmlFor="cv-maturity" className="mb-1 block text-sm font-medium">בשלות</label>
+          <select
+            id="cv-maturity"
+            name="maturity"
+            defaultValue="interested"
+            className="rounded-lg border px-3 py-2"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+          >
+            {Object.entries(SHARED_MATURITY).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      {error ? (
+        <p role="alert" className="mb-3" style={{ color: "var(--color-danger)" }}>{error}</p>
+      ) : null}
+      <div className="flex gap-2">
+        <Button type="submit" disabled={busy}>{busy ? "ממיר…" : "המר לקונה"}</Button>
+        <Button type="button" variant="secondary" onClick={() => setOpen(false)}>ביטול</Button>
+      </div>
+    </form>
+  );
+}
+
 export default function LeadDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { loading: authLoading } = useRequireAuth();
+  const { user, loading: authLoading } = useRequireAuth();
   const [lead, setLead] = useState<LeadDetail | null>(null);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -108,6 +231,12 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           <Button variant="secondary">📅 קבע פגישה</Button>
         </Link>
       </div>
+
+      {lead.status !== "converted" &&
+      user !== null &&
+      (ROLE_CAPABILITIES[user.role] ?? []).includes("buyers.edit") ? (
+        <ConvertSection leadId={lead.id} />
+      ) : null}
 
       <div className="mb-8">
         <label htmlFor="status" className="mb-1 block font-medium">סטטוס</label>
