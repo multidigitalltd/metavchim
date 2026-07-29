@@ -3,6 +3,7 @@ import { SkipLink } from "@metavchim/ui";
 import { AccessibilityToolbar } from "./a11y-toolbar";
 import { NotificationsBell } from "./notifications-bell";
 import { UserMenu } from "./user-menu";
+import { WhatsNewBanner } from "./whats-new-banner";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -90,6 +91,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </nav>
           </div>
         </header>
+        <WhatsNewBanner />
         <main id="main-content" className="mx-auto max-w-6xl px-4 py-6">
           {children}
         </main>

@@ -5,6 +5,7 @@ import { SessionMiddleware } from "./common/session.middleware";
 import { CoreModule } from "./core/core.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { AnalyticsModule } from "./modules/analytics/analytics.module";
+import { AnnouncementsModule } from "./modules/announcements/announcements.module";
 import { BuyersModule } from "./modules/buyers/buyers.module";
 import { CalendarModule } from "./modules/calendar/calendar.module";
 import { CoachModule } from "./modules/coach/coach.module";
@@ -42,6 +43,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     LeadsModule,
     VoiceIntakeModule,
     NotificationsModule,
+    AnnouncementsModule,
     MessagingModule,
     CalendarModule,
     CollaborationModule,
