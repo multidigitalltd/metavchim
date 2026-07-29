@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
-import type { Page } from "@metavchim/shared";
+import { OPEN_LEAD_STATUSES, type Page } from "@metavchim/shared";
 import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
@@ -46,14 +46,44 @@ export class LeadsService {
     summary?: string;
     requiresHuman?: boolean;
     requiresHumanReason?: string;
-  }): Promise<LeadDto> {
+  }): Promise<LeadDto & { merged: boolean }> {
     const ctx = TenantContext.current();
     const id = ulid();
+    // ליד פתוח קיים לאותו איש קשר ⇒ לא מפצלים ציר זמן: הפנייה מצטרפת אליו
+    let mergedInto: string | null = null;
 
     await this.prisma.withTenant(async (tx) => {
       const contact = await this.contacts.findOrCreateByPhone(tx, {
         name: input.contactName,
         phone: input.contactPhone,
+      });
+      const open = await tx.lead.findFirst({
+        where: { tenantId: ctx.tenantId, contactId: contact.id, status: { in: [...OPEN_LEAD_STATUSES] } },
+        select: { id: true },
+      });
+      if (open) {
+        mergedInto = open.id;
+        await tx.interaction.create({
+          data: {
+            id: ulid(),
+            tenantId: ctx.tenantId,
+            leadId: open.id,
+            kind: "note",
+            content: `פנייה נוספת נקלטה: ${input.summary?.trim() || "ללא פירוט"}`,
+            createdBy: ctx.userId,
+          },
+        });
+        await this.audit.record(tx, {
+          action: "lead.repeat_inquiry",
+          entityType: "lead",
+          entityId: open.id,
+        });
+        return;
+      }
+      // ליד חוזר: לאיש הקשר ליד קודם שנסגר — פנייה מחודשת היא איתות קנייה חזק
+      const previous = await tx.lead.findFirst({
+        where: { tenantId: ctx.tenantId, contactId: contact.id, status: { in: ["converted", "closed"] } },
+        select: { id: true },
       });
       await tx.lead.create({
         data: {
@@ -81,6 +111,30 @@ export class LeadsService {
           },
         });
       }
+      if (previous) {
+        await tx.interaction.create({
+          data: {
+            id: ulid(),
+            tenantId: ctx.tenantId,
+            leadId: id,
+            kind: "system",
+            content: "🔁 ליד חוזר — לאיש הקשר ליד קודם שנסגר. ההיסטוריה המלאה בתיק הלקוח.",
+            createdBy: ctx.userId,
+          },
+        });
+        await tx.notification.create({
+          data: {
+            id: ulid(),
+            tenantId: ctx.tenantId,
+            userId: ctx.userId,
+            type: "lead_returned",
+            title: "🔁 ליד חוזר",
+            body: `${input.contactName} פנה שוב אחרי שהליד הקודם נסגר — שווה עדיפות.`,
+            entityType: "lead",
+            entityId: id,
+          },
+        });
+      }
       await this.audit.record(tx, { action: "lead.create", entityType: "lead", entityId: id });
       await this.outbox.emit(tx, "lead.created", {
         leadId: id,
@@ -90,7 +144,8 @@ export class LeadsService {
       });
     });
 
-    return this.getById(id).then((r) => r.lead);
+    const finalId = mergedInto ?? id;
+    return this.getById(finalId).then((r) => ({ ...r.lead, merged: mergedInto !== null }));
   }
 
   async updateStatus(id: string, status: string): Promise<void> {

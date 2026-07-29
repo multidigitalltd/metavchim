@@ -22,6 +22,9 @@ export const LeadStatusSchema = z.enum([
 ]);
 export type LeadStatus = z.infer<typeof LeadStatusSchema>;
 
+/** סטטוסים שבהם הליד עדיין "חי" — פנייה נוספת מצטרפת אליו במקום לפצל ציר זמן. */
+export const OPEN_LEAD_STATUSES: readonly LeadStatus[] = ["new", "in_progress", "waiting_customer"];
+
 export const LeadSchema = z.object({
   id: IdSchema,
   tenantId: IdSchema,

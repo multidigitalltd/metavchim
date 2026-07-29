@@ -27,14 +27,15 @@ export default function NewLeadPage() {
     setSubmitting(true);
     const f = new FormData(event.currentTarget);
     try {
-      const created = await apiPost<{ id: string }>("/leads", {
+      const created = await apiPost<{ id: string; merged?: boolean }>("/leads", {
         contactName: String(f.get("contactName")).trim(),
         contactPhone: normalizePhone(String(f.get("contactPhone"))),
         source: String(f.get("source")),
         intent: String(f.get("intent")),
         summary: String(f.get("summary") ?? "").trim() || undefined,
       });
-      router.replace(`/leads/${created.id}`);
+      // ליד פתוח כבר קיים לאיש הקשר — השרת מיזג את הפנייה אליו במקום לפצל
+      router.replace(created.merged ? `/leads/${created.id}?merged=1` : `/leads/${created.id}`);
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "שמירת הליד נכשלה");
       setSubmitting(false);

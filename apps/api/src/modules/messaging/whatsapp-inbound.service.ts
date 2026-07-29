@@ -130,6 +130,11 @@ export class WhatsAppInboundService {
         select: { id: true },
       });
       if (!lead) {
+        // ליד חוזר: לאיש הקשר ליד קודם שנסגר — פנייה מחודשת היא איתות קנייה חזק
+        const previous = await tx.lead.findFirst({
+          where: { tenantId, contactId: contact.id, status: { in: ["converted", "closed"] } },
+          select: { id: true },
+        });
         lead = await tx.lead.create({
           data: {
             id: ulid(),
@@ -150,6 +155,30 @@ export class WhatsAppInboundService {
             payload: { leadId: lead.id, tenantId, source: "whatsapp", requiresHuman: false },
           },
         });
+        if (previous) {
+          await tx.interaction.create({
+            data: {
+              id: ulid(),
+              tenantId,
+              leadId: lead.id,
+              kind: "system",
+              content: "🔁 ליד חוזר — לאיש הקשר ליד קודם שנסגר. ההיסטוריה המלאה בתיק הלקוח.",
+            },
+          });
+          // userId=null ⇒ כל המשרד רואה — בליד נכנס מוואטסאפ אין עדיין סוכן משויך
+          await tx.notification.create({
+            data: {
+              id: ulid(),
+              tenantId,
+              userId: null,
+              type: "lead_returned",
+              title: "🔁 ליד חוזר",
+              body: `${msg.senderName} פנה שוב בוואטסאפ אחרי שהליד הקודם נסגר — שווה עדיפות.`,
+              entityType: "lead",
+              entityId: lead.id,
+            },
+          });
+        }
       }
 
       await tx.interaction.create({
