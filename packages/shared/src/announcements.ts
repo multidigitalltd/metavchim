@@ -22,6 +22,13 @@ export interface Announcement {
 
 export const ANNOUNCEMENTS: Announcement[] = [
   {
+    id: "v0012-stale-leads",
+    date: "2026-07-29",
+    emoji: "🧊",
+    title: "ליד מתקרר? המערכת מזכירה",
+    body: "ליד בטיפול שלא נגעתם בו שבוע — מקבל אוטומטית משימת חימום והתראה. אף לקוח לא הולך לאיבוד בין הפגישות.",
+  },
+  {
     id: "v0011-daily-brief",
     date: "2026-07-29",
     emoji: "☀️",

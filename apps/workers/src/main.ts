@@ -444,6 +444,127 @@ async function processLeadSlaSweep(): Promise<void> {
   }
 }
 
+const STALE_LEAD_DAYS = Number(process.env.STALE_LEAD_DAYS ?? 7);
+const OPEN_IN_PROGRESS_STATUSES = ["in_progress", "waiting_customer"];
+
+/**
+ * חימום ליד בודד שהתקרר: משימה + התראה, עם שתי הגנות כפילות —
+ * משימת חימום פתוחה קיימת, או משימת חימום (גם סגורה) שנוצרה אחרי
+ * הפעילות האחרונה בליד. כך סוכן שסגר משימה בלי לתעד פעילות לא
+ * מקבל נדנוד יומי, אבל ליד שטופל ושוב התקרר — כן יקבל משימה חדשה.
+ */
+async function warmStaleLead(tenantId: string, leadId: string, cutoff: Date): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+    await tx.$executeRaw`SELECT id FROM leads WHERE id = ${leadId} AND tenant_id = ${tenantId} FOR UPDATE`;
+    const lead = await tx.lead.findFirst({ where: { id: leadId, tenantId } });
+    if (!lead || !OPEN_IN_PROGRESS_STATUSES.includes(lead.status)) return;
+
+    const lastInteraction = await tx.interaction.findFirst({
+      where: { tenantId, leadId },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    });
+    const lastActivity = new Date(
+      Math.max(lead.updatedAt.getTime(), lastInteraction?.createdAt.getTime() ?? 0),
+    );
+    if (lastActivity > cutoff) return;
+
+    const sourceKey = `lead-stale:${leadId}`;
+    const existing = await tx.task.findFirst({
+      where: {
+        tenantId,
+        sourceKey,
+        OR: [{ status: "open" }, { createdAt: { gte: lastActivity } }],
+      },
+      select: { id: true },
+    });
+    if (existing) return;
+
+    // סוכן משויך שהושבת בינתיים לא רואה משימות — נופלים לבעלים
+    const assignedActive = lead.assignedToUserId
+      ? ((await tx.user.findFirst({
+          where: { id: lead.assignedToUserId, tenantId, isActive: true },
+          select: { id: true },
+        })) !== null)
+      : false;
+    const owners = await tx.user.findMany({
+      where: { tenantId, role: "owner", isActive: true },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+    const assignee = assignedActive ? lead.assignedToUserId! : owners[0]?.id;
+    if (!assignee) return;
+    const notifyUserIds = assignedActive ? [assignee] : owners.map((o) => o.id);
+
+    const staleDays = Math.floor((Date.now() - lastActivity.getTime()) / (24 * 60 * 60 * 1000));
+    await tx.task.create({
+      data: {
+        id: ulid(),
+        tenantId,
+        assignedToUserId: assignee,
+        title: "🧊 הליד מתקרר — חזרו ללקוח",
+        notes: `לא נרשמה שום פעילות בליד כבר ${staleDays} ימים. שיחה קצרה עכשיו שווה יותר מהתנצלות אחר כך.`,
+        dueAt: new Date(),
+        entityType: "lead",
+        entityId: leadId,
+        sourceKey,
+      },
+    });
+    for (const userId of notifyUserIds) {
+      await tx.notification.create({
+        data: {
+          id: ulid(),
+          tenantId,
+          userId,
+          type: "lead_stale",
+          title: "🧊 ליד מתקרר",
+          body: `ליד בטיפול ללא פעילות ${staleDays} ימים — נוצרה משימת חימום.`,
+          entityType: "lead",
+          entityId: leadId,
+        },
+      });
+    }
+    await tx.interaction.create({
+      data: {
+        id: ulid(),
+        tenantId,
+        leadId,
+        kind: "system",
+        content: `הליד ללא פעילות ${staleDays} ימים — נוצרה משימת חימום`,
+        createdBy: null,
+      },
+    });
+  });
+}
+
+/**
+ * סריקת "ליד מתקרר" (docs/09 שלב 1 — "כלום לא נשכח"): ה-SLA מכסה רק
+ * מענה ראשון לליד חדש; ליד שכבר בטיפול ופשוט נשכח לא היה מכוסה.
+ * פעם ביום: כל ליד פתוח שלא הייתה בו פעילות STALE_LEAD_DAYS ימים
+ * מקבל משימת חימום. סינון גס לפי updated_at (זול, באינדקס) ואימות
+ * מדויק מול האינטראקציה האחרונה בתוך הטרנזקציה.
+ */
+async function processStaleLeadSweep(): Promise<void> {
+  const cutoff = new Date(Date.now() - STALE_LEAD_DAYS * 24 * 60 * 60 * 1000);
+  const tenants = await prisma.tenant.findMany({ select: { id: true } });
+  for (const tenant of tenants) {
+    const candidates = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      return tx.lead.findMany({
+        where: {
+          tenantId: tenant.id,
+          status: { in: OPEN_IN_PROGRESS_STATUSES },
+          updatedAt: { lte: cutoff },
+        },
+        select: { id: true },
+        take: 200,
+      });
+    });
+    for (const lead of candidates) await warmStaleLead(tenant.id, lead.id, cutoff);
+  }
+}
+
 const JERUSALEM_TZ = "Asia/Jerusalem";
 
 /** ההיסט של שעון ישראל מ-UTC ברגע נתון (מ"ש) — תלוי-רגע, לא קבוע. */
@@ -568,6 +689,7 @@ async function processLow(job: Job): Promise<void> {
   if (job.name === "lead-sla") return processLeadSla(job);
   if (job.name === "lead-sla-sweep") return processLeadSlaSweep();
   if (job.name === "daily-brief") return processDailyBrief();
+  if (job.name === "stale-lead-sweep") return processStaleLeadSweep();
 }
 
 // רישום סריקת ה-SLA החוזרת (רבע שעה) — כולל ריצה מיידית בעלייה,
@@ -583,6 +705,12 @@ void lowQueue
   .upsertJobScheduler("daily-brief", { pattern: "0 7 * * *", tz: "Asia/Jerusalem" }, { name: "daily-brief" })
   .catch((error: unknown) => {
     console.error(`daily-brief scheduler registration failed: ${String(error)}`);
+  });
+// סריקת "ליד מתקרר" — 09:00 שעון ישראל, כל יום (אחרי דו"ח הבוקר)
+void lowQueue
+  .upsertJobScheduler("stale-lead-sweep", { pattern: "0 9 * * *", tz: "Asia/Jerusalem" }, { name: "stale-lead-sweep" })
+  .catch((error: unknown) => {
+    console.error(`stale-lead-sweep scheduler registration failed: ${String(error)}`);
   });
 
 const workers = [
