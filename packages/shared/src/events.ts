@@ -32,6 +32,12 @@ export const DomainEvents = {
     tenantId: IdSchema,
     changedFields: z.array(z.string()),
   }),
+  /** נכס יצא משיווק (נמכר/הושכר/הוקפא) — סגירת מעגל מול קונים מעוניינים */
+  "property.delisted": z.object({
+    propertyId: IdSchema,
+    tenantId: IdSchema,
+    newStatus: z.string(),
+  }),
   "buyer.updated": z.object({
     buyerId: IdSchema,
     tenantId: IdSchema,

@@ -176,6 +176,15 @@ export class OffersService {
       // הדייר נגזר מההצעה שנמצאה (ערך שרת) — נדרש לפוליסת ה-RLS של ה-Outbox.
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${offer.tenantId}, true)`;
 
+      // נכס שירד משיווק — הדף מציג "לא זמין" בלי לספור פתיחה ובלי
+      // לתזמן פולו-אפ; קישור חי לא מוכר נכס שנמכר (docs/01)
+      if (!(await this.offerPropertyMarketable(tx, offer))) {
+        return {
+          presentation: OfferPresentationSchema.parse(offer.presentation),
+          status: "unavailable",
+        };
+      }
+
       // תפיסת "פתיחה ראשונה" אטומית: רק הטרנזקציה שהעבירה בפועל את
       // firstOpenedAt מ-null רושמת בציר — צפיות מקבילות לא מכפילות (Codex)
       const firstOpen = await tx.offer.updateMany({
@@ -219,6 +228,10 @@ export class OffersService {
       if (offer.tokenExpires < new Date()) throw new GoneException("תוקף ההצעה פג");
 
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${offer.tenantId}, true)`;
+
+      if (!(await this.offerPropertyMarketable(tx, offer))) {
+        throw new GoneException("הנכס כבר אינו זמין");
+      }
 
       // מעבר סטטוס אטומי: רק הטרנזקציה ששינתה בפועל רושמת בציר ומודיעה —
       // לחיצות כפולות/מקבילות על אותה תגובה לא מכפילות (ביקורת Codex)
@@ -384,6 +397,28 @@ export class OffersService {
 
   private publicUrl(token: string): string {
     return `${loadEnv().WEB_ORIGIN}/offer/${token}`;
+  }
+
+  /** האם הנכס של ההצעה עדיין משווק (draft/active ולא נמחק). */
+  private async offerPropertyMarketable(
+    tx: Parameters<Parameters<PrismaService["withTenant"]>[0]>[0],
+    offer: { tenantId: string; matchId: string },
+  ): Promise<boolean> {
+    const match = await tx.match.findFirst({
+      where: { id: offer.matchId, tenantId: offer.tenantId },
+      select: { propertyId: true },
+    });
+    if (!match) return false;
+    const property = await tx.property.findFirst({
+      where: {
+        id: match.propertyId,
+        tenantId: offer.tenantId,
+        deletedAt: null,
+        status: { in: ["draft", "active"] },
+      },
+      select: { id: true },
+    });
+    return property !== null;
   }
 
   /**

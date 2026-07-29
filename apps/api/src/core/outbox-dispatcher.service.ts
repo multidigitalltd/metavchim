@@ -169,6 +169,23 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
         );
       }
     }
+    // נכס ירד משיווק — סגירת מעגל מול קונים שסימנו "מעוניין": Worker
+    // יוצר משימות חלופה לסוכנים. jobId לפי האירוע — ניסיון הפצה חוזר
+    // של אותו אירוע לא מכפיל.
+    if (name === "property.delisted" && this.lowQueue) {
+      const p = payload as { propertyId: string; tenantId: string };
+      await this.lowQueue.add(
+        "property-delisted",
+        { propertyId: p.propertyId, tenantId: p.tenantId },
+        {
+          jobId: `delisted-${event.id}`,
+          removeOnComplete: 1000,
+          removeOnFail: 5000,
+          attempts: 5,
+          backoff: { type: "exponential", delay: 5000 },
+        },
+      );
+    }
     // תזכורת שעה לפני פגישה — Job מושהה; BullMQ מחזיק את התזמון (docs/01 §13).
     if (name === "appointment.scheduled" && this.notificationsQueue) {
       const p = payload as { appointmentId: string; tenantId: string; startsAt: Date };
