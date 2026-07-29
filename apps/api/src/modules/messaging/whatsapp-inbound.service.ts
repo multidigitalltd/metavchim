@@ -124,12 +124,19 @@ export class WhatsAppInboundService {
         select: { id: true },
       });
 
+      // נעילה פר איש-קשר: קליטה מקבילה (וובהוק + ידנית) לא תיצור ליד כפול
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`lead-intake:${tenantId}:${contact.id}`}, 0))`;
       // ליד פתוח קיים ⇒ ההודעה מצטרפת לציר הזמן; אחרת ⇒ ליד חדש
       let lead = await tx.lead.findFirst({
         where: { tenantId, contactId: contact.id, status: { in: ["new", "in_progress", "waiting_customer"] } },
         select: { id: true },
       });
       if (!lead) {
+        // ליד חוזר: לאיש הקשר ליד קודם שנסגר — פנייה מחודשת היא איתות קנייה חזק
+        const previous = await tx.lead.findFirst({
+          where: { tenantId, contactId: contact.id, status: { in: ["converted", "closed"] } },
+          select: { id: true },
+        });
         lead = await tx.lead.create({
           data: {
             id: ulid(),
@@ -150,6 +157,37 @@ export class WhatsAppInboundService {
             payload: { leadId: lead.id, tenantId, source: "whatsapp", requiresHuman: false },
           },
         });
+        if (previous) {
+          const returnedLeadId = lead.id;
+          await tx.interaction.create({
+            data: {
+              id: ulid(),
+              tenantId,
+              leadId: returnedLeadId,
+              kind: "system",
+              content: "🔁 ליד חוזר — לאיש הקשר ליד קודם שנסגר. ההיסטוריה המלאה בתיק הלקוח.",
+            },
+          });
+          // הליד עדיין לא משויך — רק בעלי view_all (owner/admin) רואים אותו,
+          // אז ההתראה הולכת אליהם ולא לכל המשרד (ביקורת Codex: קישור
+          // שמוביל סוכן רגיל ל-404)
+          const managers = await tx.user.findMany({
+            where: { tenantId, isActive: true, role: { in: ["owner", "admin"] } },
+            select: { id: true },
+          });
+          await tx.notification.createMany({
+            data: managers.map((m) => ({
+              id: ulid(),
+              tenantId,
+              userId: m.id,
+              type: "lead_returned",
+              title: "🔁 ליד חוזר",
+              body: `${msg.senderName} פנה שוב בוואטסאפ אחרי שהליד הקודם נסגר — שווה עדיפות.`,
+              entityType: "lead",
+              entityId: returnedLeadId,
+            })),
+          });
+        }
       }
 
       await tx.interaction.create({

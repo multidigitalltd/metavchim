@@ -19,6 +19,8 @@ export default function NewLeadPage() {
   useRequireAuth();
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  // הפנייה מוזגה לליד פתוח של סוכן אחר — אין לאן לנווט (view_own), רק מיידעים
+  const [mergedNotice, setMergedNotice] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -27,14 +29,21 @@ export default function NewLeadPage() {
     setSubmitting(true);
     const f = new FormData(event.currentTarget);
     try {
-      const created = await apiPost<{ id: string }>("/leads", {
+      const created = await apiPost<{ id: string; merged?: boolean; visible?: boolean }>("/leads", {
         contactName: String(f.get("contactName")).trim(),
         contactPhone: normalizePhone(String(f.get("contactPhone"))),
         source: String(f.get("source")),
         intent: String(f.get("intent")),
         summary: String(f.get("summary") ?? "").trim() || undefined,
       });
-      router.replace(`/leads/${created.id}`);
+      if (created.merged && created.visible === false) {
+        // הליד הפתוח שייך לסוכן אחר — הפנייה נוספה אצלו והוא קיבל התראה
+        setMergedNotice(true);
+        setSubmitting(false);
+        return;
+      }
+      // ליד פתוח כבר קיים לאיש הקשר — השרת מיזג את הפנייה אליו במקום לפצל
+      router.replace(created.merged ? `/leads/${created.id}?merged=1` : `/leads/${created.id}`);
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "שמירת הליד נכשלה");
       setSubmitting(false);
@@ -45,6 +54,12 @@ export default function NewLeadPage() {
     <div className="mx-auto max-w-lg">
       <h1 className="mb-6 text-2xl font-bold">ליד חדש</h1>
       <form onSubmit={onSubmit} noValidate>
+        {mergedNotice ? (
+          <p role="status" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+            ℹ️ לאיש הקשר כבר יש ליד פתוח אצל סוכן אחר במשרד — הפנייה נוספה לציר הזמן של הליד שלו והוא קיבל
+            התראה. אין צורך לפתוח ליד חדש.
+          </p>
+        ) : null}
         {error ? (
           <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
             {error}

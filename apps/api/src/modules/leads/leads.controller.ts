@@ -62,7 +62,7 @@ export class LeadsController {
   @RequireCapability("leads.edit")
   async create(
     @Body(new ZodValidationPipe(CreateLeadSchema)) body: z.infer<typeof CreateLeadSchema>,
-  ): Promise<LeadDto> {
+  ): Promise<{ id: string; merged: boolean; visible: boolean }> {
     return this.leads.create(body);
   }
 

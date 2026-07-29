@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use, type FormEvent } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { MATURITY_LABELS as SHARED_MATURITY, ROLE_CAPABILITIES } from "@metavchim/shared";
 import { apiGet, apiPost, apiPatch, ApiError } from "@/lib/api";
@@ -161,6 +161,8 @@ function ConvertSection({ leadId }: { leadId: string }) {
 export default function LeadDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { user, loading: authLoading } = useRequireAuth();
+  // הגעה מטופס "ליד חדש" כשכבר היה ליד פתוח — השרת מיזג את הפנייה לכאן
+  const merged = useSearchParams().get("merged") === "1";
   const [lead, setLead] = useState<LeadDetail | null>(null);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -222,6 +224,12 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
       </p>
 
       <RelatedEntities contactId={lead.contact.id} exclude={{ kind: "lead", id: lead.id }} />
+
+      {merged ? (
+        <p role="status" className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+          ℹ️ לאיש הקשר כבר יש ליד פתוח — הפנייה החדשה נוספה לציר הזמן שלו במקום לפתוח ליד כפול.
+        </p>
+      ) : null}
 
       {lead.requiresHuman ? (
         <p role="alert" className="mb-4 rounded-xl border p-4 font-medium" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
