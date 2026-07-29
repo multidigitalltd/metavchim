@@ -199,6 +199,76 @@ export class BuyersService {
     });
   }
 
+  /**
+   * ציר האינטראקציות של הקונה (הערות/שיחות) — נראה רק למי שרואה את הקונה
+   * עצמו (אותו ownershipFilter; ידיעת ID אינה הרשאה).
+   */
+  async listInteractions(buyerId: string): Promise<
+    { id: string; kind: string; direction?: string; content: string; createdAt: Date }[]
+  > {
+    const tenantId = TenantContext.current().tenantId;
+    return this.prisma.withTenant(async (tx) => {
+      const buyer = await tx.buyer.findFirst({
+        where: {
+          id: buyerId,
+          tenantId,
+          deletedAt: null,
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
+        select: { id: true },
+      });
+      if (!buyer) throw new NotFoundException("קונה לא נמצא");
+      const rows = await tx.interaction.findMany({
+        where: { tenantId, buyerId },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      });
+      return rows.map((i) => ({
+        id: i.id,
+        kind: i.kind,
+        direction: i.direction ?? undefined,
+        content: i.content,
+        createdAt: i.createdAt,
+      }));
+    });
+  }
+
+  /** תיעוד הערה/שיחה על הקונה — נשמר לצמיתות בציר (docs/01 §5). */
+  async addInteraction(
+    buyerId: string,
+    input: { kind: "note" | "call"; direction?: "in" | "out"; content: string },
+  ): Promise<void> {
+    const ctx = TenantContext.current();
+    await this.prisma.withTenant(async (tx) => {
+      const buyer = await tx.buyer.findFirst({
+        where: {
+          id: buyerId,
+          tenantId: ctx.tenantId,
+          deletedAt: null,
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
+        select: { id: true },
+      });
+      if (!buyer) throw new NotFoundException("קונה לא נמצא");
+      await tx.interaction.create({
+        data: {
+          id: ulid(),
+          tenantId: ctx.tenantId,
+          buyerId,
+          kind: input.kind,
+          direction: input.direction ?? null,
+          content: input.content,
+          createdBy: ctx.userId,
+        },
+      });
+      await this.audit.record(tx, {
+        action: "buyer.interaction_add",
+        entityType: "buyer",
+        entityId: buyerId,
+      });
+    });
+  }
+
   async list(query: { maturity?: string; cursor?: string; limit: number }): Promise<Page<BuyerDto>> {
     return this.prisma.withTenant(async (tx) => {
       const rows = await tx.buyer.findMany({

@@ -184,10 +184,12 @@ model Buyer {
 }
 
 // ציר הזמן של ליד: הערות, שיחות, הודעות, שינויי סטטוס (docs/03 §3).
+// אינטראקציה על ליד או על קונה — בדיוק אחד מהם מוגדר (CHECK במיגרציה).
 model Interaction {
   id        String   @id @db.Char(26)
   tenantId  String   @map("tenant_id") @db.Char(26)
-  leadId    String   @map("lead_id") @db.Char(26)
+  leadId    String?  @map("lead_id") @db.Char(26)
+  buyerId   String?  @map("buyer_id") @db.Char(26)
   kind      String   @db.VarChar(20) // note | call | whatsapp | status_change | system
   direction String?  @db.VarChar(10) // in | out
   content   String
@@ -195,6 +197,7 @@ model Interaction {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([tenantId, leadId, createdAt])
+  @@index([tenantId, buyerId, createdAt])
   @@map("interactions")
 }
 

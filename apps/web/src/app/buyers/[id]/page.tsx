@@ -6,6 +6,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { formatPrice, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { TimelineSection } from "./timeline-section";
 
 interface BuyerDetail {
   id: string;
@@ -114,6 +115,8 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
           </div>
         </dl>
       </section>
+
+      <TimelineSection buyerId={id} />
 
       <section aria-labelledby="matches-heading">
         <h2 id="matches-heading" className="mb-3 text-lg font-semibold">
