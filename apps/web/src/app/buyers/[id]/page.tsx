@@ -7,10 +7,11 @@ import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { formatPrice, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { TimelineSection } from "./timeline-section";
+import { RelatedEntities } from "../../related-entities";
 
 interface BuyerDetail {
   id: string;
-  contact: { name: string; phone: string };
+  contact: { id: string; name: string; phone: string };
   requirements: {
     cities: string[];
     budgetMaxAgorot: number;
@@ -91,6 +92,8 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
           <span dir="ltr">{buyer.contact.phone}</span> · {MATURITY_LABELS[buyer.maturity] ?? buyer.maturity} · מקור: {buyer.source}
         </p>
       </div>
+
+      <RelatedEntities contactId={buyer.contact.id} exclude={{ kind: "buyer", id: buyer.id }} />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Button variant="secondary" onClick={() => void shareToNetwork()}>

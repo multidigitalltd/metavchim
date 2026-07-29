@@ -9,10 +9,11 @@ import { apiGet, apiPost, apiPatch, ApiError } from "@/lib/api";
 import { formatDate, shekelsToAgorot } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
+import { RelatedEntities } from "../../related-entities";
 
 interface LeadDetail {
   id: string;
-  contact: { name: string; phone: string };
+  contact: { id: string; name: string; phone: string };
   source: string;
   intent: string;
   status: string;
@@ -219,6 +220,8 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
       <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
         {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent} · מקור: {LEAD_SOURCE_LABELS[lead.source] ?? lead.source}
       </p>
+
+      <RelatedEntities contactId={lead.contact.id} exclude={{ kind: "lead", id: lead.id }} />
 
       {lead.requiresHuman ? (
         <p role="alert" className="mb-4 rounded-xl border p-4 font-medium" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
