@@ -201,10 +201,14 @@ export class BuyersService {
 
   /**
    * ציר האינטראקציות של הקונה (הערות/שיחות) — נראה רק למי שרואה את הקונה
-   * עצמו (אותו ownershipFilter; ידיעת ID אינה הרשאה).
+   * עצמו (אותו ownershipFilter; ידיעת ID אינה הרשאה). עימוד Cursor כמו
+   * בשאר הרשימות — היסטוריה ארוכה נגישה במלואה, לא נקטמת (ביקורת Codex).
    */
-  async listInteractions(buyerId: string): Promise<
-    { id: string; kind: string; direction?: string; content: string; createdAt: Date }[]
+  async listInteractions(
+    buyerId: string,
+    query: { cursor?: string; limit: number },
+  ): Promise<
+    Page<{ id: string; kind: string; direction?: string; content: string; createdAt: Date }>
   > {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
@@ -218,18 +222,28 @@ export class BuyersService {
         select: { id: true },
       });
       if (!buyer) throw new NotFoundException("קונה לא נמצא");
+      // ULID יורד = מהחדש לישן; ה-Cursor הוא ה-id האחרון שהוצג
       const rows = await tx.interaction.findMany({
-        where: { tenantId, buyerId },
-        orderBy: { createdAt: "desc" },
-        take: 100,
+        where: {
+          tenantId,
+          buyerId,
+          ...(query.cursor ? { id: { lt: query.cursor } } : {}),
+        },
+        orderBy: { id: "desc" },
+        take: query.limit + 1,
       });
-      return rows.map((i) => ({
-        id: i.id,
-        kind: i.kind,
-        direction: i.direction ?? undefined,
-        content: i.content,
-        createdAt: i.createdAt,
-      }));
+      const hasMore = rows.length > query.limit;
+      const page = hasMore ? rows.slice(0, query.limit) : rows;
+      return {
+        items: page.map((i) => ({
+          id: i.id,
+          kind: i.kind,
+          direction: i.direction ?? undefined,
+          content: i.content,
+          createdAt: i.createdAt,
+        })),
+        nextCursor: hasMore ? (page.at(-1)?.id ?? null) : null,
+      };
     });
   }
 

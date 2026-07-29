@@ -50,6 +50,13 @@ const AddInteractionSchema = z
   })
   .strict();
 
+const InteractionsQuerySchema = z
+  .object({
+    cursor: z.string().max(30).optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+  })
+  .strict();
+
 @Controller("buyers")
 export class BuyersController {
   constructor(
@@ -95,11 +102,15 @@ export class BuyersController {
     return this.matching.listForBuyer(id);
   }
 
-  /** ציר ההיסטוריה של הקונה — הערות ותיעודי שיחה (docs/01 §5). */
+  /** ציר ההיסטוריה של הקונה — הערות ותיעודי שיחה, מעומד (docs/01 §5). */
   @Get(":id/interactions")
   @RequireCapability("buyers.view_own")
-  async interactions(@Param("id", new ZodValidationPipe(IdSchema)) id: string) {
-    return this.buyers.listInteractions(id);
+  async interactions(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Query(new ZodValidationPipe(InteractionsQuerySchema))
+    query: z.infer<typeof InteractionsQuerySchema>,
+  ) {
+    return this.buyers.listInteractions(id, query);
   }
 
   @Post(":id/interactions")
