@@ -39,6 +39,8 @@ export interface PropertyDto extends PropertyFields {
   internalNotes?: string;
   readinessScore: number;
   missingFields: string[];
+  /** בעל הנכס (המוכר) — מוצג בעמוד הנכס ומזין את התיק המאוחד */
+  ownerContact?: { id: string; name: string; phone: string };
   createdAt: Date;
   updatedAt: Date;
 }
