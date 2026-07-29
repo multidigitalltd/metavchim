@@ -707,22 +707,26 @@ async function processDailyBrief(): Promise<void> {
 async function processWeeklySummary(): Promise<void> {
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  // עוגן לוח-שנה יציב — יום ראשון 00:00 UTC האחרון: חלון 6 ימים מתגלגל
+  // היה משתיק את השבוע העוקב אחרי ריצה שהתעכבה ליום שני (ביקורת Codex)
+  const weekAnchor = new Date(now);
+  weekAnchor.setUTCHours(0, 0, 0, 0);
+  weekAnchor.setUTCDate(weekAnchor.getUTCDate() - weekAnchor.getUTCDay());
   const tenants = await prisma.tenant.findMany({ select: { id: true } });
   for (const tenant of tenants) {
     await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      // נעילת advisory פר-דייר: התור רץ ב-concurrency: 2, ושני Jobs
+      // כפולים היו עוברים שניהם את בדיקת הקיום לפני שאחד כותב (ביקורת Codex)
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`weekly-summary:${tenant.id}`}))`;
       const managers = await tx.user.findMany({
         where: { tenantId: tenant.id, isActive: true, role: { in: ["owner", "admin"] } },
         select: { id: true },
       });
       if (managers.length === 0) return;
-      // הגנה מפני ירייה כפולה: כבר נשלח סיכום ב-6 הימים האחרונים
+      // כבר נשלח סיכום עבור השבוע הקלנדרי הנוכחי
       const already = await tx.notification.findFirst({
-        where: {
-          tenantId: tenant.id,
-          type: "weekly_summary",
-          createdAt: { gte: new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000) },
-        },
+        where: { tenantId: tenant.id, type: "weekly_summary", createdAt: { gte: weekAnchor } },
         select: { id: true },
       });
       if (already) return;
