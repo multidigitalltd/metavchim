@@ -20,12 +20,7 @@ export function formatDate(value: string | Date | undefined): string {
   return value === undefined ? "—" : dateFmt.format(new Date(value));
 }
 
-export const MATURITY_LABELS: Record<string, string> = {
-  very_hot: "חם מאוד",
-  hot: "חם",
-  interested: "מתעניין",
-  not_ripe: "לא בשל",
-};
+export { MATURITY_LABELS } from "@metavchim/shared";
 
 export const PROPERTY_TYPE_LABELS: Record<string, string> = {
   apartment: "דירה",

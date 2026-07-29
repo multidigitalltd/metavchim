@@ -117,6 +117,17 @@ export class OffersService {
         },
       });
       await tx.match.update({ where: { id: matchId }, data: { status: "offered" } });
+      // רגע-ציר על הקונה: "כלום לא נשכח" — ההצעה מופיעה בהיסטוריה שלו
+      await tx.interaction.create({
+        data: {
+          id: ulid(),
+          tenantId,
+          buyerId: match.buyerId,
+          kind: "system",
+          content: `נוצרה הצעה: ${presentation.title}`,
+          createdBy: TenantContext.current().userId,
+        },
+      });
       await this.audit.record(tx, { action: "offer.create", entityType: "offer", entityId: id });
       await this.outbox.emit(tx, "offer.sent", { offerId: id, tenantId });
     });
@@ -181,6 +192,10 @@ export class OffersService {
           payload: { offerId: offer.id, tenantId: offer.tenantId, openCount: offer.openCount + 1 },
         },
       });
+      // פתיחה ראשונה בלבד — צפיות חוזרות לא מציפות את הציר
+      if (offer.firstOpenedAt === null) {
+        await this.recordOfferMoment(tx, offer, "הקונה פתח את ההצעה לראשונה");
+      }
 
       return {
         presentation: OfferPresentationSchema.parse(offer.presentation),
@@ -199,6 +214,14 @@ export class OffersService {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${offer.tenantId}, true)`;
 
       await tx.offer.update({ where: { id: offer.id }, data: { status: response } });
+      // לחיצות חוזרות על אותה תגובה לא מכפילות רשומות בציר
+      if (offer.status !== response) {
+        await this.recordOfferMoment(
+          tx,
+          offer,
+          response === "interested" ? "הקונה סימן: מעוניין בהצעה" : "הקונה סימן: ההצעה לא רלוונטית",
+        );
+      }
       if (response === "interested") {
         await tx.outboxEvent.create({
           data: {
@@ -316,6 +339,20 @@ export class OffersService {
         where: { id: offer.id },
         data: { channel: "whatsapp", sentText: message.slice(0, 2000) },
       });
+      // רק בהכנה הראשונה — פתיחות חוזרות של קישור wa.me לא מכפילות
+      if (offer.channel !== "whatsapp") {
+        await tx.interaction.create({
+          data: {
+            id: ulid(),
+            tenantId,
+            buyerId: match.buyerId,
+            kind: "whatsapp",
+            direction: "out",
+            content: `נשלחה הצעה בוואטסאפ: ${presentation.title}`,
+            createdBy: TenantContext.current().userId,
+          },
+        });
+      }
       await this.audit.record(tx, {
         action: "offer.whatsapp_prepared",
         entityType: "offer",
@@ -332,5 +369,33 @@ export class OffersService {
 
   private publicUrl(token: string): string {
     return `${loadEnv().WEB_ORIGIN}/offer/${token}`;
+  }
+
+  /**
+   * רישום רגע במחזור-החיים של הצעה בציר הקונה (מהדף הציבורי — createdBy
+   * ריק, זו פעולת הקונה). מזהה הקונה נגזר מההתאמה של ההצעה; אם ההתאמה
+   * נמחקה בינתיים לא מפילים את הדף הציבורי על רשומת ציר.
+   */
+  private async recordOfferMoment(
+    tx: Parameters<Parameters<PrismaService["withTenant"]>[0]>[0],
+    offer: { id: string; tenantId: string; matchId: string; presentation: unknown },
+    moment: string,
+  ): Promise<void> {
+    const match = await tx.match.findFirst({
+      where: { id: offer.matchId, tenantId: offer.tenantId },
+      select: { buyerId: true },
+    });
+    if (!match) return;
+    const title = OfferPresentationSchema.parse(offer.presentation).title;
+    await tx.interaction.create({
+      data: {
+        id: ulid(),
+        tenantId: offer.tenantId,
+        buyerId: match.buyerId,
+        kind: "system",
+        content: `${moment}: ${title}`,
+        createdBy: null,
+      },
+    });
   }
 }
