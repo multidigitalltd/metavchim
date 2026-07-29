@@ -444,16 +444,36 @@ async function processLeadSlaSweep(): Promise<void> {
   }
 }
 
-/** גבולות היום הנוכחי בשעון ישראל, כערכי UTC לשאילתות. */
+const JERUSALEM_TZ = "Asia/Jerusalem";
+
+/** ההיסט של שעון ישראל מ-UTC ברגע נתון (מ"ש) — תלוי-רגע, לא קבוע. */
+function jerusalemOffsetMs(at: Date): number {
+  const wallAsUtc = new Date(at.toLocaleString("en-US", { timeZone: JERUSALEM_TZ }));
+  return wallAsUtc.getTime() - at.getTime();
+}
+
+/**
+ * הרגע (UTC) שבו שעת-קיר מקומית מתרחשת: ניחוש ותיקון כפול, כי ההיסט
+ * הנכון הוא זה שבתוקף ברגע המבוקש עצמו — ביום מעבר שעון ההיסט של
+ * חצות שונה מההיסט של שעת ריצת ה-Job (ביקורת Codex).
+ */
+function jerusalemWallToUtc(wallIso: string): Date {
+  const wallMs = new Date(`${wallIso}Z`).getTime();
+  let guess = new Date(wallMs);
+  for (let i = 0; i < 2; i++) guess = new Date(wallMs - jerusalemOffsetMs(guess));
+  return guess;
+}
+
+/** גבולות היום הנוכחי בשעון ישראל, כערכי UTC לשאילתות — כל גבול בהיסט שלו. */
 function jerusalemDayRange(): { start: Date; end: Date } {
-  const now = new Date();
-  const tzNow = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Jerusalem" }));
-  const offsetMs = now.getTime() - tzNow.getTime();
-  const startLocal = new Date(tzNow);
-  startLocal.setHours(0, 0, 0, 0);
-  const endLocal = new Date(tzNow);
-  endLocal.setHours(23, 59, 59, 999);
-  return { start: new Date(startLocal.getTime() + offsetMs), end: new Date(endLocal.getTime() + offsetMs) };
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: JERUSALEM_TZ }).format(new Date());
+  const start = jerusalemWallToUtc(`${today}T00:00:00.000`);
+  // 30 שעות אחרי תחילת היום נופלות תמיד בתוך היום המקומי הבא (גם ביום של 25 שעות)
+  const nextDay = new Intl.DateTimeFormat("en-CA", { timeZone: JERUSALEM_TZ }).format(
+    new Date(start.getTime() + 30 * 60 * 60 * 1000),
+  );
+  const end = new Date(jerusalemWallToUtc(`${nextDay}T00:00:00.000`).getTime() - 1);
+  return { start, end };
 }
 
 /**
@@ -466,39 +486,57 @@ async function processDailyBrief(): Promise<void> {
   const { start, end } = jerusalemDayRange();
   const tenants = await prisma.tenant.findMany({ select: { id: true } });
   for (const tenant of tenants) {
+    // מספר שאילתות קבוע פר דייר (groupBy + createMany), לא פר סוכן —
+    // כדי שהטרנזקציה תישאר הרחק מתחת ל-timeout של Prisma (ביקורת Codex)
     await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
       const users = await tx.user.findMany({
         where: { tenantId: tenant.id, isActive: true },
         select: { id: true, role: true },
       });
-      for (const user of users) {
-        const already = await tx.notification.findFirst({
-          where: { tenantId: tenant.id, userId: user.id, type: "daily_brief", createdAt: { gte: start } },
-          select: { id: true },
-        });
-        if (already) continue;
+      if (users.length === 0) return;
 
-        const [meetings, tasks, waitingLeads] = await Promise.all([
-          tx.appointment.count({
-            where: { tenantId: tenant.id, createdBy: user.id, status: "scheduled", startsAt: { gte: start, lte: end } },
-          }),
-          tx.task.count({
-            where: { tenantId: tenant.id, assignedToUserId: user.id, status: "open", dueAt: { lte: end } },
-          }),
-          tx.lead.count({
-            where: {
-              tenantId: tenant.id,
-              status: "new",
-              firstResponseAt: null,
-              OR: [
-                { assignedToUserId: user.id },
-                // לידים יתומים מוצגים לבעלים — הם האחראים כשאין משויך
-                ...(user.role === "owner" ? [{ assignedToUserId: null }] : []),
-              ],
-            },
-          }),
-        ]);
+      const [sentToday, meetingRows, taskRows, leadRows] = await Promise.all([
+        tx.notification.findMany({
+          where: { tenantId: tenant.id, type: "daily_brief", createdAt: { gte: start } },
+          select: { userId: true },
+        }),
+        tx.appointment.groupBy({
+          by: ["createdBy"],
+          where: { tenantId: tenant.id, status: "scheduled", startsAt: { gte: start, lte: end } },
+          _count: { _all: true },
+        }),
+        tx.task.groupBy({
+          by: ["assignedToUserId"],
+          where: { tenantId: tenant.id, status: "open", dueAt: { lte: end } },
+          _count: { _all: true },
+        }),
+        tx.lead.groupBy({
+          by: ["assignedToUserId"],
+          where: { tenantId: tenant.id, status: "new", firstResponseAt: null },
+          _count: { _all: true },
+        }),
+      ]);
+      const alreadySent = new Set(sentToday.map((n) => n.userId));
+      const meetingsBy = new Map(meetingRows.map((r) => [r.createdBy, r._count._all]));
+      const tasksBy = new Map(taskRows.map((r) => [r.assignedToUserId, r._count._all]));
+      const leadsBy = new Map(leadRows.map((r) => [r.assignedToUserId, r._count._all]));
+      const orphanLeads = leadsBy.get(null) ?? 0;
+
+      const rows: {
+        id: string;
+        tenantId: string;
+        userId: string;
+        type: string;
+        title: string;
+        body: string;
+      }[] = [];
+      for (const user of users) {
+        if (alreadySent.has(user.id)) continue;
+        const meetings = meetingsBy.get(user.id) ?? 0;
+        const tasks = tasksBy.get(user.id) ?? 0;
+        // לידים יתומים מוצגים לבעלים — הם האחראים כשאין משויך
+        const waitingLeads = (leadsBy.get(user.id) ?? 0) + (user.role === "owner" ? orphanLeads : 0);
         if (meetings === 0 && tasks === 0 && waitingLeads === 0) continue;
 
         const parts: string[] = [];
@@ -507,17 +545,16 @@ async function processDailyBrief(): Promise<void> {
         if (waitingLeads > 0)
           parts.push(waitingLeads === 1 ? "ליד אחד ממתין למענה" : `${waitingLeads} לידים ממתינים למענה`);
 
-        await tx.notification.create({
-          data: {
-            id: ulid(),
-            tenantId: tenant.id,
-            userId: user.id,
-            type: "daily_brief",
-            title: "☀️ דו\"ח בוקר",
-            body: `${parts.join(" · ")} — הדשבורד מחכה לכם.`,
-          },
+        rows.push({
+          id: ulid(),
+          tenantId: tenant.id,
+          userId: user.id,
+          type: "daily_brief",
+          title: "☀️ דו\"ח בוקר",
+          body: `${parts.join(" · ")} — הדשבורד מחכה לכם.`,
         });
       }
+      if (rows.length > 0) await tx.notification.createMany({ data: rows });
     });
   }
 }
