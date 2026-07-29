@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { Worker, type Job } from "bullmq";
+import { Queue, Worker, type Job } from "bullmq";
 import IORedis from "ioredis";
 import { PrismaClient } from "@prisma/client";
 import { ulid } from "ulid";
@@ -341,8 +341,7 @@ const LEAD_SLA_TITLE = "ליד ממתין למענה — חלון ה-SLA חלף"
  * (וואטסאפ נכנס) — המשימה לבעלים הוותיק וההתראה לכל הבעלים הפעילים.
  * נעילת שורת הליד + sourceKey: מרוץ מול טיפול בליד לא מייצר רעש.
  */
-async function processLeadSla(job: Job): Promise<void> {
-  const { tenantId, leadId } = LeadSlaJobSchema.parse(job.data);
+async function escalateLeadSla(tenantId: string, leadId: string): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
 
@@ -359,16 +358,21 @@ async function processLeadSla(job: Job): Promise<void> {
     });
     if (existing) return;
 
+    // סוכן משויך שהושבת בינתיים לא רואה משימות — נופלים לבעלים (ביקורת Codex)
+    const assignedActive = lead.assignedToUserId
+      ? ((await tx.user.findFirst({
+          where: { id: lead.assignedToUserId, tenantId, isActive: true },
+          select: { id: true },
+        })) !== null)
+      : false;
     const owners = await tx.user.findMany({
       where: { tenantId, role: "owner", isActive: true },
       orderBy: { createdAt: "asc" },
       select: { id: true },
     });
-    const assignee = lead.assignedToUserId ?? owners[0]?.id;
+    const assignee = assignedActive ? lead.assignedToUserId! : owners[0]?.id;
     if (!assignee) return;
-    const notifyUserIds = lead.assignedToUserId
-      ? [lead.assignedToUserId]
-      : owners.map((o) => o.id);
+    const notifyUserIds = assignedActive ? [assignee] : owners.map((o) => o.id);
 
     await tx.task.create({
       data: {
@@ -410,6 +414,36 @@ async function processLeadSla(job: Job): Promise<void> {
   });
 }
 
+async function processLeadSla(job: Job): Promise<void> {
+  const { tenantId, leadId } = LeadSlaJobSchema.parse(job.data);
+  await escalateLeadSla(tenantId, leadId);
+}
+
+const LEAD_SLA_HOURS = Number(process.env.LEAD_SLA_HOURS ?? 2);
+
+/**
+ * סריקת רשת-ביטחון ל-SLA: ה-Job המושהה נוצר רק מאירוע lead.created
+ * חדש — לידים שקדמו לפריסה (או שה-Job שלהם אבד ב-Redis) לא מכוסים
+ * (ביקורת Codex). כל רבע שעה: לכל דייר, כל ליד "חדש" בלי מענה ראשון
+ * שחלון ה-SLA שלו חלף עובר את אותה אסקלציה — האידמפוטנטיות של
+ * escalateLeadSla (sourceKey + נעילה) מונעת כפילויות מול ה-Job המתוזמן.
+ */
+async function processLeadSlaSweep(): Promise<void> {
+  const cutoff = new Date(Date.now() - LEAD_SLA_HOURS * 60 * 60 * 1000);
+  const tenants = await prisma.tenant.findMany({ select: { id: true } });
+  for (const tenant of tenants) {
+    const stale = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      return tx.lead.findMany({
+        where: { tenantId: tenant.id, status: "new", firstResponseAt: null, createdAt: { lte: cutoff } },
+        select: { id: true },
+        take: 200,
+      });
+    });
+    for (const lead of stale) await escalateLeadSla(tenant.id, lead.id);
+  }
+}
+
 /** תור low משותף — כל סוג Job ממוין לפי שמו. */
 async function processLow(job: Job): Promise<void> {
   if (job.name === "delete-object") return processCleanup(job);
@@ -417,7 +451,17 @@ async function processLow(job: Job): Promise<void> {
   if (job.name === "property-delisted") return processPropertyDelisted(job);
   if (job.name === "viewing-followup") return processViewingFollowup(job);
   if (job.name === "lead-sla") return processLeadSla(job);
+  if (job.name === "lead-sla-sweep") return processLeadSlaSweep();
 }
+
+// רישום סריקת ה-SLA החוזרת (רבע שעה) — כולל ריצה מיידית בעלייה,
+// שמכסה לידים שנוצרו לפני שהפיצ'ר נפרס
+const lowQueue = new Queue(QUEUES.low, { connection });
+void lowQueue
+  .upsertJobScheduler("lead-sla-sweep", { every: 15 * 60 * 1000 }, { name: "lead-sla-sweep" })
+  .catch((error: unknown) => {
+    console.error(`lead-sla-sweep scheduler registration failed: ${String(error)}`);
+  });
 
 const workers = [
   new Worker(QUEUES.notifications, processNotification, { connection, concurrency: 10 }),
