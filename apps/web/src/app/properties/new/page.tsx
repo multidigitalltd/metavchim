@@ -12,6 +12,14 @@ const inputStyle = {
   background: "var(--color-bg)",
 } as const;
 
+/** נרמול טלפון ישראלי ל-E.164 — ‎050-1234567 → ‎+972501234567 */
+function normalizeOwnerPhone(raw: string): string {
+  const digits = raw.replace(/[^\d+]/gu, "");
+  if (digits.startsWith("+972")) return digits;
+  if (digits.startsWith("0")) return `+972${digits.slice(1)}`;
+  return digits;
+}
+
 function triState(form: FormData, name: string): boolean | undefined {
   const value = String(form.get(name) ?? "");
   return value === "yes" ? true : value === "no" ? false : undefined;
@@ -55,6 +63,13 @@ export default function NewPropertyPage() {
         hasBalcony: triState(f, "hasBalcony"),
         hasSafeRoom: triState(f, "hasSafeRoom"),
         marketingTitle: String(f.get("marketingTitle") ?? "").trim() || undefined,
+        ...(String(f.get("ownerName") ?? "").trim() !== "" &&
+        String(f.get("ownerPhone") ?? "").trim() !== ""
+          ? {
+              ownerName: String(f.get("ownerName")).trim(),
+              ownerPhone: normalizeOwnerPhone(String(f.get("ownerPhone"))),
+            }
+          : {}),
       });
       router.replace(`/properties/${created.id}`);
     } catch (err: unknown) {
@@ -181,6 +196,23 @@ export default function NewPropertyPage() {
           <label htmlFor="marketingTitle" className="mb-1 block font-medium">כותרת שיווקית</label>
           <input id="marketingTitle" name="marketingTitle" maxLength={160} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
         </div>
+
+        <fieldset className="mb-6">
+          <legend className="mb-2 font-medium">בעל הנכס (אופציונלי)</legend>
+          <div className="flex flex-wrap gap-3">
+            <div className="flex-1" style={{ minWidth: "180px" }}>
+              <label htmlFor="ownerName" className="mb-1 block text-sm">שם</label>
+              <input id="ownerName" name="ownerName" maxLength={120} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+            </div>
+            <div className="flex-1" style={{ minWidth: "180px" }}>
+              <label htmlFor="ownerPhone" className="mb-1 block text-sm">טלפון</label>
+              <input id="ownerPhone" name="ownerPhone" type="tel" dir="ltr" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+            </div>
+          </div>
+          <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            נקשר לאיש הקשר לפי הטלפון — יופיע בתיק הלקוח המאוחד.
+          </p>
+        </fieldset>
 
         <div className="flex gap-3">
           <Button type="submit" disabled={submitting}>

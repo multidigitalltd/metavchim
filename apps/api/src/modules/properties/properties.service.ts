@@ -5,6 +5,7 @@ import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService } from "../../core/prisma.service";
+import { ContactsService } from "../contacts/contacts.service";
 import { MatchingService } from "../matching/matching.service";
 import { fieldsToColumns, rowToFields, type PropertyDto } from "./property.mapper";
 
@@ -15,6 +16,7 @@ export class PropertiesService {
     private readonly audit: AuditService,
     private readonly outbox: OutboxService,
     private readonly matching: MatchingService,
+    private readonly contacts: ContactsService,
   ) {}
 
   async create(input: {
@@ -22,6 +24,8 @@ export class PropertiesService {
     marketingTitle?: string;
     marketingDescription?: string;
     internalNotes?: string;
+    /** בעל הנכס (המוכר) — נקשר כ-contact לפי טלפון (docs/03: אדם אחד) */
+    owner?: { name: string; phone: string };
   }): Promise<PropertyDto> {
     const id = await this.persist(input);
     // חישוב התאמות — סינכרוני בשלב זה; יעבור לתור BullMQ עם עליית ה-Workers (docs/07 §5).
@@ -57,6 +61,7 @@ export class PropertiesService {
     marketingDescription?: string;
     internalNotes?: string;
     status?: string;
+    owner?: { name: string; phone: string };
   }): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
     const id = ulid();
@@ -66,10 +71,14 @@ export class PropertiesService {
     });
 
     await this.prisma.withTenant(async (tx) => {
+      const ownerContact = input.owner
+        ? await this.contacts.findOrCreateByPhone(tx, input.owner)
+        : null;
       await tx.property.create({
         data: {
           id,
           tenantId,
+          ownerContactId: ownerContact?.id ?? null,
           status: input.status ?? "draft",
           marketingTitle: input.marketingTitle ?? null,
           marketingDescription: input.marketingDescription ?? null,
@@ -101,9 +110,11 @@ export class PropertiesService {
     marketingTitle?: string;
     marketingDescription?: string;
     internalNotes?: string;
+    owner?: { name: string; phone: string };
   }): Promise<PropertyDto> {
     const tenantId = TenantContext.current().tenantId;
-    const { status, marketingTitle, marketingDescription, internalNotes, ...fieldPatch } = patch;
+    const { status, marketingTitle, marketingDescription, internalNotes, owner, ...fieldPatch } =
+      patch;
 
     await this.prisma.withTenant(async (tx) => {
       const existing = await tx.property.findFirst({
@@ -111,6 +122,7 @@ export class PropertiesService {
       });
       if (!existing) throw new NotFoundException("נכס לא נמצא");
 
+      const ownerContact = owner ? await this.contacts.findOrCreateByPhone(tx, owner) : null;
       const mergedFields = { ...rowToFields(existing), ...fieldPatch };
       const readiness = computeReadiness(mergedFields, {
         hasTitle: Boolean(marketingTitle ?? existing.marketingTitle),
@@ -125,6 +137,7 @@ export class PropertiesService {
           ...(marketingTitle !== undefined ? { marketingTitle } : {}),
           ...(marketingDescription !== undefined ? { marketingDescription } : {}),
           ...(internalNotes !== undefined ? { internalNotes } : {}),
+          ...(ownerContact ? { ownerContactId: ownerContact.id } : {}),
           readinessScore: readiness.score,
         },
       });
@@ -171,6 +184,9 @@ export class PropertiesService {
         hasTitle: Boolean(row.marketingTitle),
         hasDescription: Boolean(row.marketingDescription),
       });
+      const ownerContact = row.ownerContactId
+        ? await this.contacts.getById(tx, row.ownerContactId)
+        : null;
       return {
         ...fields,
         id: row.id,
@@ -180,6 +196,9 @@ export class PropertiesService {
         internalNotes: row.internalNotes ?? undefined,
         readinessScore: row.readinessScore,
         missingFields: readiness.missingFields,
+        ...(ownerContact
+          ? { ownerContact: { id: ownerContact.id, name: ownerContact.name, phone: ownerContact.phone } }
+          : {}),
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };

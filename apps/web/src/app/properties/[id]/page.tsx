@@ -35,6 +35,7 @@ interface PropertyDetail {
   marketingTitle?: string;
   readinessScore: number;
   missingFields: string[];
+  ownerContact?: { id: string; name: string; phone: string };
 }
 
 interface MatchRow {
@@ -202,6 +203,14 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
           <div><dt className="inline font-medium">קומה: </dt><dd className="inline">{property.floor ?? "—"}{property.totalFloors ? ` מתוך ${property.totalFloors}` : ""}</dd></div>
           <div><dt className="inline font-medium">כניסה: </dt><dd className="inline">{formatDate(property.entryDate)}</dd></div>
           <div><dt className="inline font-medium">מאפיינים: </dt><dd className="inline">{features.length > 0 ? features.join(", ") : "—"}</dd></div>
+          {property.ownerContact ? (
+            <div>
+              <dt className="inline font-medium">בעל הנכס: </dt>
+              <dd className="inline">
+                {property.ownerContact.name} · <a href={`tel:${property.ownerContact.phone}`} className="underline" dir="ltr">{property.ownerContact.phone}</a>
+              </dd>
+            </div>
+          ) : null}
         </dl>
       </section>
 

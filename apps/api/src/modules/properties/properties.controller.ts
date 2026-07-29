@@ -12,6 +12,7 @@ import {
 import { z } from "zod";
 import {
   IdSchema,
+  PhoneSchema,
   PropertyFieldsSchema,
   PropertyStatusSchema,
   type Page,
@@ -26,6 +27,9 @@ const CreatePropertySchema = PropertyFieldsSchema.extend({
   marketingTitle: z.string().max(160).optional(),
   marketingDescription: z.string().max(4000).optional(),
   internalNotes: z.string().max(4000).optional(),
+  // בעל הנכס (המוכר) — contact לפי טלפון; מזין את התיק המאוחד (docs/03)
+  ownerName: z.string().min(2).max(120).optional(),
+  ownerPhone: PhoneSchema.optional(),
 }).strict();
 
 const UpdatePropertySchema = CreatePropertySchema.partial()
@@ -54,8 +58,17 @@ export class PropertiesController {
     @Body(new ZodValidationPipe(CreatePropertySchema))
     body: z.infer<typeof CreatePropertySchema>,
   ): Promise<PropertyDto> {
-    const { marketingTitle, marketingDescription, internalNotes, ...fields } = body;
-    return this.properties.create({ fields, marketingTitle, marketingDescription, internalNotes });
+    const { marketingTitle, marketingDescription, internalNotes, ownerName, ownerPhone, ...fields } =
+      body;
+    return this.properties.create({
+      fields,
+      marketingTitle,
+      marketingDescription,
+      internalNotes,
+      ...(ownerName !== undefined && ownerPhone !== undefined
+        ? { owner: { name: ownerName, phone: ownerPhone } }
+        : {}),
+    });
   }
 
   @Get()
@@ -79,7 +92,13 @@ export class PropertiesController {
     @Body(new ZodValidationPipe(UpdatePropertySchema))
     body: z.infer<typeof UpdatePropertySchema>,
   ): Promise<PropertyDto> {
-    return this.properties.update(id, body);
+    const { ownerName, ownerPhone, ...rest } = body;
+    return this.properties.update(id, {
+      ...rest,
+      ...(ownerName !== undefined && ownerPhone !== undefined
+        ? { owner: { name: ownerName, phone: ownerPhone } }
+        : {}),
+    });
   }
 
   @Delete(":id")
