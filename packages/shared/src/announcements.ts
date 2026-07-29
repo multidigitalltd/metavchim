@@ -22,6 +22,13 @@ export interface Announcement {
 
 export const ANNOUNCEMENTS: Announcement[] = [
   {
+    id: "v0013-weekly-summary",
+    date: "2026-07-29",
+    emoji: "📊",
+    title: "סיכום שבועי לבעל המשרד",
+    body: "כל יום ראשון ב-08:00 — תמונת השבוע שחלף: לידים ושיעור מענה, הצעות שנפתחו, סיורים והמרות. לדעת איפה העסק בלי לחפור בדוחות.",
+  },
+  {
     id: "v0012-stale-leads",
     date: "2026-07-29",
     emoji: "🧊",
