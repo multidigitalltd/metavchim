@@ -444,6 +444,121 @@ async function processLeadSlaSweep(): Promise<void> {
   }
 }
 
+const JERUSALEM_TZ = "Asia/Jerusalem";
+
+/** ההיסט של שעון ישראל מ-UTC ברגע נתון (מ"ש) — תלוי-רגע, לא קבוע. */
+function jerusalemOffsetMs(at: Date): number {
+  const wallAsUtc = new Date(at.toLocaleString("en-US", { timeZone: JERUSALEM_TZ }));
+  return wallAsUtc.getTime() - at.getTime();
+}
+
+/**
+ * הרגע (UTC) שבו שעת-קיר מקומית מתרחשת: ניחוש ותיקון כפול, כי ההיסט
+ * הנכון הוא זה שבתוקף ברגע המבוקש עצמו — ביום מעבר שעון ההיסט של
+ * חצות שונה מההיסט של שעת ריצת ה-Job (ביקורת Codex).
+ */
+function jerusalemWallToUtc(wallIso: string): Date {
+  const wallMs = new Date(`${wallIso}Z`).getTime();
+  let guess = new Date(wallMs);
+  for (let i = 0; i < 2; i++) guess = new Date(wallMs - jerusalemOffsetMs(guess));
+  return guess;
+}
+
+/** גבולות היום הנוכחי בשעון ישראל, כערכי UTC לשאילתות — כל גבול בהיסט שלו. */
+function jerusalemDayRange(): { start: Date; end: Date } {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: JERUSALEM_TZ }).format(new Date());
+  const start = jerusalemWallToUtc(`${today}T00:00:00.000`);
+  // 30 שעות אחרי תחילת היום נופלות תמיד בתוך היום המקומי הבא (גם ביום של 25 שעות)
+  const nextDay = new Intl.DateTimeFormat("en-CA", { timeZone: JERUSALEM_TZ }).format(
+    new Date(start.getTime() + 30 * 60 * 60 * 1000),
+  );
+  const end = new Date(jerusalemWallToUtc(`${nextDay}T00:00:00.000`).getTime() - 1);
+  return { start, end };
+}
+
+/**
+ * דו"ח בוקר יומי (docs/09 שלב 1 — "תזכורות למתווך"): כל בוקר ב-07:00
+ * שעון ישראל, כל סוכן פעיל מקבל התראה אחת עם תמונת היום שלו —
+ * פגישות היום, משימות להיום/באיחור, ולידים שממתינים למענה.
+ * בלי רעש: אין כלום — אין התראה. אידמפוטנטי פר יום (בדיקת קיים).
+ */
+async function processDailyBrief(): Promise<void> {
+  const { start, end } = jerusalemDayRange();
+  const tenants = await prisma.tenant.findMany({ select: { id: true } });
+  for (const tenant of tenants) {
+    // מספר שאילתות קבוע פר דייר (groupBy + createMany), לא פר סוכן —
+    // כדי שהטרנזקציה תישאר הרחק מתחת ל-timeout של Prisma (ביקורת Codex)
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      const users = await tx.user.findMany({
+        where: { tenantId: tenant.id, isActive: true },
+        select: { id: true, role: true },
+      });
+      if (users.length === 0) return;
+
+      const [sentToday, meetingRows, taskRows, leadRows] = await Promise.all([
+        tx.notification.findMany({
+          where: { tenantId: tenant.id, type: "daily_brief", createdAt: { gte: start } },
+          select: { userId: true },
+        }),
+        tx.appointment.groupBy({
+          by: ["createdBy"],
+          where: { tenantId: tenant.id, status: "scheduled", startsAt: { gte: start, lte: end } },
+          _count: { _all: true },
+        }),
+        tx.task.groupBy({
+          by: ["assignedToUserId"],
+          where: { tenantId: tenant.id, status: "open", dueAt: { lte: end } },
+          _count: { _all: true },
+        }),
+        tx.lead.groupBy({
+          by: ["assignedToUserId"],
+          where: { tenantId: tenant.id, status: "new", firstResponseAt: null },
+          _count: { _all: true },
+        }),
+      ]);
+      const alreadySent = new Set(sentToday.map((n) => n.userId));
+      const meetingsBy = new Map(meetingRows.map((r) => [r.createdBy, r._count._all]));
+      const tasksBy = new Map(taskRows.map((r) => [r.assignedToUserId, r._count._all]));
+      const leadsBy = new Map(leadRows.map((r) => [r.assignedToUserId, r._count._all]));
+      const orphanLeads = leadsBy.get(null) ?? 0;
+
+      const rows: {
+        id: string;
+        tenantId: string;
+        userId: string;
+        type: string;
+        title: string;
+        body: string;
+      }[] = [];
+      for (const user of users) {
+        if (alreadySent.has(user.id)) continue;
+        const meetings = meetingsBy.get(user.id) ?? 0;
+        const tasks = tasksBy.get(user.id) ?? 0;
+        // לידים יתומים מוצגים לבעלים — הם האחראים כשאין משויך
+        const waitingLeads = (leadsBy.get(user.id) ?? 0) + (user.role === "owner" ? orphanLeads : 0);
+        if (meetings === 0 && tasks === 0 && waitingLeads === 0) continue;
+
+        const parts: string[] = [];
+        if (meetings > 0) parts.push(meetings === 1 ? "פגישה אחת היום" : `${meetings} פגישות היום`);
+        if (tasks > 0) parts.push(tasks === 1 ? "משימה אחת להיום" : `${tasks} משימות להיום`);
+        if (waitingLeads > 0)
+          parts.push(waitingLeads === 1 ? "ליד אחד ממתין למענה" : `${waitingLeads} לידים ממתינים למענה`);
+
+        rows.push({
+          id: ulid(),
+          tenantId: tenant.id,
+          userId: user.id,
+          type: "daily_brief",
+          title: "☀️ דו\"ח בוקר",
+          body: `${parts.join(" · ")} — הדשבורד מחכה לכם.`,
+        });
+      }
+      if (rows.length > 0) await tx.notification.createMany({ data: rows });
+    });
+  }
+}
+
 /** תור low משותף — כל סוג Job ממוין לפי שמו. */
 async function processLow(job: Job): Promise<void> {
   if (job.name === "delete-object") return processCleanup(job);
@@ -452,6 +567,7 @@ async function processLow(job: Job): Promise<void> {
   if (job.name === "viewing-followup") return processViewingFollowup(job);
   if (job.name === "lead-sla") return processLeadSla(job);
   if (job.name === "lead-sla-sweep") return processLeadSlaSweep();
+  if (job.name === "daily-brief") return processDailyBrief();
 }
 
 // רישום סריקת ה-SLA החוזרת (רבע שעה) — כולל ריצה מיידית בעלייה,
@@ -461,6 +577,12 @@ void lowQueue
   .upsertJobScheduler("lead-sla-sweep", { every: 15 * 60 * 1000 }, { name: "lead-sla-sweep" })
   .catch((error: unknown) => {
     console.error(`lead-sla-sweep scheduler registration failed: ${String(error)}`);
+  });
+// דו"ח בוקר — 07:00 שעון ישראל, כל יום
+void lowQueue
+  .upsertJobScheduler("daily-brief", { pattern: "0 7 * * *", tz: "Asia/Jerusalem" }, { name: "daily-brief" })
+  .catch((error: unknown) => {
+    console.error(`daily-brief scheduler registration failed: ${String(error)}`);
   });
 
 const workers = [
