@@ -21,6 +21,7 @@ interface ClaimedEvent {
   tenant_id: string;
   name: string;
   payload: unknown;
+  occurred_at: Date;
 }
 
 /**
@@ -70,7 +71,7 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
     // הטרנזקציה רצה כבעלים לוגית של השורות שנתפסו — SKIP LOCKED מונע כפילות.
     await this.prisma.$transaction(async (tx) => {
       const events = await tx.$queryRaw<ClaimedEvent[]>`
-        SELECT id, tenant_id, name, payload FROM outbox_events
+        SELECT id, tenant_id, name, payload, occurred_at FROM outbox_events
         WHERE published_at IS NULL AND attempts < ${MAX_ATTEMPTS}
         ORDER BY occurred_at
         LIMIT ${BATCH}
@@ -151,12 +152,15 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
     if (name === "offer.opened" && this.lowQueue) {
       const p = payload as { offerId: string; tenantId: string; openCount: number };
       if (p.openCount === 1) {
+        // החלון נמדד מרגע הפתיחה (occurred_at), לא מרגע ההפצה — מפיץ
+        // שהיה בפיגור לא דוחה את הפולו-אפ (ביקורת Codex)
+        const elapsedMs = Date.now() - new Date(event.occurred_at).getTime();
         await this.lowQueue.add(
           "offer-followup",
           { offerId: p.offerId, tenantId: p.tenantId },
           {
             jobId: `followup-${p.offerId}`,
-            delay: loadEnv().OFFER_FOLLOWUP_HOURS * 60 * 60 * 1000,
+            delay: Math.max(0, loadEnv().OFFER_FOLLOWUP_HOURS * 60 * 60 * 1000 - elapsedMs),
             removeOnComplete: 1000,
             removeOnFail: 5000,
             attempts: 5,

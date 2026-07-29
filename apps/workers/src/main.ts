@@ -131,6 +131,9 @@ async function processOfferFollowup(job: Job): Promise<void> {
     });
     if (!buyer?.ownerUserId) return;
 
+    // נעילת שורת הקונה: שני פולו-אפים על הצעות שונות של אותו קונה
+    // מסתדרים בתור — בדיקת הכפילות אטומית (ביקורת Codex)
+    await tx.$executeRaw`SELECT id FROM buyers WHERE id = ${buyer.id} AND tenant_id = ${tenantId} FOR UPDATE`;
     const existing = await tx.task.findFirst({
       where: { tenantId, entityType: "buyer", entityId: buyer.id, title: FOLLOWUP_TITLE, status: "open" },
       select: { id: true },
