@@ -432,15 +432,24 @@ async function processLeadSlaSweep(): Promise<void> {
   const cutoff = new Date(Date.now() - LEAD_SLA_HOURS * 60 * 60 * 1000);
   const tenants = await prisma.tenant.findMany({ select: { id: true } });
   for (const tenant of tenants) {
-    const stale = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
-      return tx.lead.findMany({
-        where: { tenantId: tenant.id, status: "new", firstResponseAt: null, createdAt: { lte: cutoff } },
-        select: { id: true },
-        take: 200,
+    // עימוד cursor: הטיפול לא משנה את שורת הליד, כך ש-take בודד היה
+    // מחזיר את אותם 200 לנצח ומרעיב את השאר (ביקורת Codex)
+    let cursor: string | undefined;
+    for (;;) {
+      const batch = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+        return tx.lead.findMany({
+          where: { tenantId: tenant.id, status: "new", firstResponseAt: null, createdAt: { lte: cutoff } },
+          select: { id: true },
+          orderBy: { id: "asc" },
+          take: 200,
+          ...(cursor === undefined ? {} : { cursor: { id: cursor }, skip: 1 }),
+        });
       });
-    });
-    for (const lead of stale) await escalateLeadSla(tenant.id, lead.id);
+      for (const lead of batch) await escalateLeadSla(tenant.id, lead.id);
+      if (batch.length < 200) break;
+      cursor = batch[batch.length - 1]!.id;
+    }
   }
 }
 
@@ -549,19 +558,28 @@ async function processStaleLeadSweep(): Promise<void> {
   const cutoff = new Date(Date.now() - STALE_LEAD_DAYS * 24 * 60 * 60 * 1000);
   const tenants = await prisma.tenant.findMany({ select: { id: true } });
   for (const tenant of tenants) {
-    const candidates = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
-      return tx.lead.findMany({
-        where: {
-          tenantId: tenant.id,
-          status: { in: OPEN_IN_PROGRESS_STATUSES },
-          updatedAt: { lte: cutoff },
-        },
-        select: { id: true },
-        take: 200,
+    // עימוד cursor: החימום לא משנה את שורת הליד, כך ש-take בודד היה
+    // מחזיר את אותם 200 לנצח ומרעיב את השאר (ביקורת Codex)
+    let cursor: string | undefined;
+    for (;;) {
+      const batch = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+        return tx.lead.findMany({
+          where: {
+            tenantId: tenant.id,
+            status: { in: OPEN_IN_PROGRESS_STATUSES },
+            updatedAt: { lte: cutoff },
+          },
+          select: { id: true },
+          orderBy: { id: "asc" },
+          take: 200,
+          ...(cursor === undefined ? {} : { cursor: { id: cursor }, skip: 1 }),
+        });
       });
-    });
-    for (const lead of candidates) await warmStaleLead(tenant.id, lead.id, cutoff);
+      for (const lead of batch) await warmStaleLead(tenant.id, lead.id, cutoff);
+      if (batch.length < 200) break;
+      cursor = batch[batch.length - 1]!.id;
+    }
   }
 }
 
