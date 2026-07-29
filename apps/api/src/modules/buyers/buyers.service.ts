@@ -135,6 +135,9 @@ export class BuyersService {
   ): Promise<BuyerDto> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {
+      // נעילת השורה: עדכונים מקבילים מסתדרים בתור, כך שהערך הישן שנקרא
+      // לרשומת ה-status_change הוא המעבר שבאמת קרה (ביקורת Codex)
+      await tx.$queryRaw`SELECT id FROM buyers WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`;
       const existing = await tx.buyer.findFirst({
         where: { id, tenantId: TenantContext.current().tenantId, deletedAt: null },
       });

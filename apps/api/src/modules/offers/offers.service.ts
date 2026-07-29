@@ -176,13 +176,21 @@ export class OffersService {
       // הדייר נגזר מההצעה שנמצאה (ערך שרת) — נדרש לפוליסת ה-RLS של ה-Outbox.
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${offer.tenantId}, true)`;
 
+      // תפיסת "פתיחה ראשונה" אטומית: רק הטרנזקציה שהעבירה בפועל את
+      // firstOpenedAt מ-null רושמת בציר — צפיות מקבילות לא מכפילות (Codex)
+      const firstOpen = await tx.offer.updateMany({
+        where: { id: offer.id, firstOpenedAt: null },
+        data: { firstOpenedAt: new Date() },
+      });
+      // המעבר ל-opened מותנה ב-DB, לא בקריאה הישנה — פתיחה במקביל לתגובה
+      // לא מחזירה סטטוס interested/declined אחורה ל-opened
+      await tx.offer.updateMany({
+        where: { id: offer.id, status: { in: ["sent", "delivered"] } },
+        data: { status: "opened" },
+      });
       await tx.offer.update({
         where: { id: offer.id },
-        data: {
-          openCount: { increment: 1 },
-          ...(offer.firstOpenedAt === null ? { firstOpenedAt: new Date() } : {}),
-          ...(offer.status === "sent" || offer.status === "delivered" ? { status: "opened" } : {}),
-        },
+        data: { openCount: { increment: 1 } },
       });
       await tx.outboxEvent.create({
         data: {
@@ -192,8 +200,7 @@ export class OffersService {
           payload: { offerId: offer.id, tenantId: offer.tenantId, openCount: offer.openCount + 1 },
         },
       });
-      // פתיחה ראשונה בלבד — צפיות חוזרות לא מציפות את הציר
-      if (offer.firstOpenedAt === null) {
+      if (firstOpen.count === 1) {
         await this.recordOfferMoment(tx, offer, "הקונה פתח את ההצעה לראשונה");
       }
 
@@ -213,24 +220,28 @@ export class OffersService {
 
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${offer.tenantId}, true)`;
 
-      await tx.offer.update({ where: { id: offer.id }, data: { status: response } });
-      // לחיצות חוזרות על אותה תגובה לא מכפילות רשומות בציר
-      if (offer.status !== response) {
+      // מעבר סטטוס אטומי: רק הטרנזקציה ששינתה בפועל רושמת בציר ומודיעה —
+      // לחיצות כפולות/מקבילות על אותה תגובה לא מכפילות (ביקורת Codex)
+      const changed = await tx.offer.updateMany({
+        where: { id: offer.id, status: { not: response } },
+        data: { status: response },
+      });
+      if (changed.count === 1) {
         await this.recordOfferMoment(
           tx,
           offer,
           response === "interested" ? "הקונה סימן: מעוניין בהצעה" : "הקונה סימן: ההצעה לא רלוונטית",
         );
-      }
-      if (response === "interested") {
-        await tx.outboxEvent.create({
-          data: {
-            id: ulid(),
-            tenantId: offer.tenantId,
-            name: "offer.interested",
-            payload: { offerId: offer.id, tenantId: offer.tenantId },
-          },
-        });
+        if (response === "interested") {
+          await tx.outboxEvent.create({
+            data: {
+              id: ulid(),
+              tenantId: offer.tenantId,
+              name: "offer.interested",
+              payload: { offerId: offer.id, tenantId: offer.tenantId },
+            },
+          });
+        }
       }
     });
   }
@@ -335,12 +346,16 @@ export class OffersService {
         provider: "walink",
         body: message,
       });
+      // תפיסת ההכנה הראשונה אטומית — לחיצות מקבילות לא מכפילות (Codex)
+      const firstWhatsApp = await tx.offer.updateMany({
+        where: { id: offer.id, channel: { not: "whatsapp" } },
+        data: { channel: "whatsapp" },
+      });
       await tx.offer.update({
         where: { id: offer.id },
-        data: { channel: "whatsapp", sentText: message.slice(0, 2000) },
+        data: { sentText: message.slice(0, 2000) },
       });
-      // רק בהכנה הראשונה — פתיחות חוזרות של קישור wa.me לא מכפילות
-      if (offer.channel !== "whatsapp") {
+      if (firstWhatsApp.count === 1) {
         await tx.interaction.create({
           data: {
             id: ulid(),
