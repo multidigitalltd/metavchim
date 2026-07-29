@@ -260,8 +260,10 @@ export class PropertiesService {
       const owner = await this.contacts.getById(tx, property.ownerContactId);
       if (!owner) throw new NotFoundException("איש הקשר של בעל הנכס לא נמצא");
 
+      // התאמות שהסוכן דחה כלא-רלוונטיות לא נספרות — לא מנפחים את
+      // המספר שמדווח למוכר (ביקורת Codex, P1; תואם listForProperty)
       const matches = await tx.match.findMany({
-        where: { tenantId, propertyId: id },
+        where: { tenantId, propertyId: id, status: { not: "dismissed" } },
         select: { id: true },
       });
       const offers = await tx.offer.findMany({
