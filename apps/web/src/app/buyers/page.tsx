@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { apiGet } from "@/lib/api";
-import { formatPrice, MATURITY_LABELS } from "@/lib/format";
+import { formatBuyerSource, formatPrice, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { CapNote, FilterSelect, ResultsCount, SearchField, textMatches } from "../list-controls";
 
@@ -160,7 +160,7 @@ export default function BuyersPage() {
                     {b.requirements.roomsMin ?? "—"}–{b.requirements.roomsMax ?? "—"}
                   </td>
                   <td className="p-3">{formatPrice(b.requirements.budgetMaxAgorot)}</td>
-                  <td className="p-3">{b.source}</td>
+                  <td className="p-3">{formatBuyerSource(b.source)}</td>
                 </tr>
               ))}
             </tbody>
