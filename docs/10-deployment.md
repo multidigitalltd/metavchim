@@ -112,16 +112,54 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-
 **חזרה לגרסה קודמת:** כל דחיפה מתויגת גם ב-SHA —
 `IMAGE_TAG=<sha> docker compose ... up -d --no-deps api web workers`.
 
+## גיבוי ושחזור
+
+**גיבוי אוטומטי מובנה** — שירות `backup` שרץ עם המערכת:
+
+- **מסד נתונים:** `pg_dump -Fc` (דחוס) כל 24 שעות, נשמר
+  `BACKUP_KEEP_DAYS` ימים (ברירת מחדל 14).
+- **תמונות (MinIO):** ארכיון `tar.gz` פעם בשבוע (יום ראשון), נשמר
+  `BACKUP_MEDIA_KEEP_DAYS` ימים (ברירת מחדל 28).
+- הקבצים נכתבים ל-`BACKUP_DIR` במארח (ברירת מחדל
+  `/srv/metavchim/backups`), והגיבוי הראשון רץ מיד בעליית השירות —
+  קל לוודא שהמנגנון חי: `ls -lh backups/`.
+
+**חשוב — עותק מחוץ לשרת:** גיבוי על אותו שרת לא מגן מקריסת דיסק או
+מחיקת השרת. סנכרנו את התיקייה החוצה, למשל עם rclone לכל אחסון ענן:
+
+```bash
+apt install rclone && rclone config   # חד-פעמי — הגדרת יעד (S3/Drive/Storage Box)
+# ואז ב-cron היומי של השרת:
+rclone sync /srv/metavchim/backups remote:metavchim-backups
+```
+
+**שחזור מסד נתונים** (עוצר את האפליקציה, משחזר, מעלה חזרה):
+
+```bash
+cd /srv/metavchim
+docker compose -f docker-compose.prod.yml --env-file .env.production stop api workers
+cat backups/db_2026-07-30_0300.dump | \
+  docker compose -f docker-compose.prod.yml --env-file .env.production exec -T postgres \
+  pg_restore -U metavchim -d metavchim --clean --if-exists
+docker compose -f docker-compose.prod.yml --env-file .env.production start api workers
+```
+
+**שחזור תמונות:**
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.production stop minio
+docker run --rm -v metavchim_miniodata:/data -v /srv/metavchim/backups:/backups alpine \
+  sh -c "rm -rf /data/* && tar xzf /backups/media_<תאריך>.tar.gz -C /data"
+docker compose -f docker-compose.prod.yml --env-file .env.production start minio
+```
+
 ## תפעול
 
 ```bash
 # לוגים
 docker compose -f docker-compose.prod.yml --env-file .env.production logs -f api
 docker compose -f docker-compose.prod.yml --env-file .env.production logs updater
-
-# גיבוי DB יומי (הוסיפו ל-cron של השרת)
-docker compose -f docker-compose.prod.yml --env-file .env.production exec -T postgres \
-  pg_dump -U metavchim metavchim | gzip > /srv/backups/metavchim-$(date +%F).sql.gz
+docker compose -f docker-compose.prod.yml --env-file .env.production logs backup
 ```
 
 ## הערות אבטחה

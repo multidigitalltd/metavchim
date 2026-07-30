@@ -107,6 +107,24 @@ services:
       - web
       - api
 
+  # גיבוי אוטומטי — pg_dump יומי + ארכיון תמונות שבועי אל ${BACKUP_DIR}
+  # במארח. שחזור: ראו docs/10-deployment.md §גיבוי ושחזור.
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/backup/run.sh"]
+    environment:
+      PGPASSWORD: ${DB_OWNER_PASSWORD:?חסר DB_OWNER_PASSWORD ב-.env.production}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      BACKUP_MEDIA_KEEP_DAYS: ${BACKUP_MEDIA_KEEP_DAYS:-28}
+    volumes:
+      - ./infra/backup:/backup:ro
+      - ${BACKUP_DIR:-./backups}:/backups
+      - miniodata:/minio-data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   updater:
     image: ${IMAGE_PREFIX:-ghcr.io/multidigitalltd/metavchim}-updater:${IMAGE_TAG:-latest}
     restart: unless-stopped
