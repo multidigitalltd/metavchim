@@ -70,6 +70,14 @@ body {
 }
 
 /* ---------- טקסט לקוראי מסך בלבד ---------- */
+/* כפתור תפריט המובייל — הסתרת משולש ה-details המובנה */
+.mv-mobile-menu-button::-webkit-details-marker {
+  display: none;
+}
+.mv-mobile-menu-button::marker {
+  content: "";
+}
+
 .mv-visually-hidden {
   position: absolute;
   width: 1px;
