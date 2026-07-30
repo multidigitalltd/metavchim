@@ -3,10 +3,12 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   Param,
   Patch,
   Post,
+  StreamableFile,
   UploadedFile,
   UseInterceptors,
 } from "@nestjs/common";
@@ -45,6 +47,21 @@ export class MediaController {
     @Body(new ZodValidationPipe(UploadFieldsSchema)) body: z.infer<typeof UploadFieldsSchema>,
   ): Promise<MediaDto> {
     return this.media.upload(propertyId, file?.buffer ?? Buffer.alloc(0), body.altText);
+  }
+
+  /** הזרמת התמונה עצמה — הדפדפן לא ניגש לשרת האחסון הפנימי ישירות. */
+  @Get(":mediaId/raw")
+  @RequireCapability("properties.view")
+  @Header("Cache-Control", "private, max-age=3600")
+  async raw(
+    @Param("id", IdParam) propertyId: string,
+    @Param("mediaId", IdParam) mediaId: string,
+  ): Promise<StreamableFile> {
+    const obj = await this.media.getRaw(propertyId, mediaId);
+    return new StreamableFile(obj.body as never, {
+      type: obj.contentType ?? "application/octet-stream",
+      ...(obj.contentLength !== undefined ? { length: obj.contentLength } : {}),
+    });
   }
 
   @Delete(":mediaId")

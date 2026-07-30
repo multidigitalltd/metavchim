@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use } from "react";
 import { Button } from "@metavchim/ui";
-import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { API_BASE, apiGet, apiPost, ApiError } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
 
 /**
@@ -91,9 +91,9 @@ export default function PublicOfferPage({ params }: { params: Promise<{ token: s
 
       {offer.images.length > 0 ? (
         <div className="mb-6">
-          {/* img רגיל בכוונה: URL-ים חתומים קצרי-מועד מהאחסון */}
+          {/* img רגיל בכוונה: מוזרם דרך ה-API — ציבורי לפי טוקן */}
           <img
-            src={offer.images[0]!.url}
+            src={API_BASE + offer.images[0]!.url}
             alt={offer.images[0]!.alt ?? p.title}
             className="mb-2 h-64 w-full rounded-xl object-cover"
           />
@@ -102,7 +102,7 @@ export default function PublicOfferPage({ params }: { params: Promise<{ token: s
               {offer.images.slice(1).map((image, index) => (
                 <li key={image.url}>
                   <img
-                    src={image.url}
+                    src={API_BASE + image.url}
                     alt={image.alt ?? `תמונה ${index + 2} של הנכס`}
                     loading="lazy"
                     className="h-20 w-full rounded-lg object-cover"

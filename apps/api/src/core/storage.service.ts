@@ -64,4 +64,19 @@ export class StorageService implements OnModuleInit {
       expiresIn: expiresInSeconds,
     });
   }
+
+  /**
+   * קריאת אובייקט להזרמה דרך ה-API — הדפדפן לא מדבר עם שרת האחסון
+   * ישירות (בפרודקשן MinIO על רשת פנימית בלבד, ללא כתובת ציבורית).
+   */
+  async getObject(
+    key: string,
+  ): Promise<{ body: NodeJS.ReadableStream; contentType?: string; contentLength?: number }> {
+    const res = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+    return {
+      body: res.Body as NodeJS.ReadableStream,
+      contentType: res.ContentType,
+      contentLength: res.ContentLength,
+    };
+  }
 }

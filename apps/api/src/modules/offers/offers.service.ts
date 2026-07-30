@@ -231,14 +231,31 @@ export class OffersService {
       return {
         presentation,
         status: offer.status,
-        images: await Promise.all(
-          presentation.media.map(async (m) => ({
-            url: await this.storage.signedGetUrl(m.key),
-            ...(m.alt !== undefined ? { alt: m.alt } : {}),
-          })),
-        ),
+        // נתיבים יחסיים לבסיס ה-API — התמונות מוזרמות דרך השרת
+        // (שרת האחסון פנימי ואינו נגיש מדפדפן הקונה)
+        images: presentation.media.map((m, index) => ({
+          url: `/public/offers/${token}/media/${index}`,
+          ...(m.alt !== undefined ? { alt: m.alt } : {}),
+        })),
       };
     });
+  }
+
+  /** הזרמת תמונה מ-snapshot ההצעה — ציבורי לפי טוקן, בלי Session. */
+  async publicImage(
+    token: string,
+    index: number,
+  ): Promise<{ body: NodeJS.ReadableStream; contentType?: string; contentLength?: number }> {
+    const key = await this.prisma.withPublicOffer(token, async (tx) => {
+      const offer = await tx.offer.findFirst({ where: { publicToken: token } });
+      if (!offer) throw new NotFoundException("ההצעה לא נמצאה");
+      if (offer.tokenExpires < new Date()) throw new GoneException("תוקף ההצעה פג");
+      const media = OfferPresentationSchema.parse(offer.presentation).media;
+      const entry = media[index];
+      if (!entry) throw new NotFoundException("התמונה לא נמצאה");
+      return entry.key;
+    });
+    return this.storage.getObject(key);
   }
 
   /** תגובת הקונה מהדף הציבורי: מעוניין / לא רלוונטי. */

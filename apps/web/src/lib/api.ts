@@ -3,7 +3,9 @@
  * שגיאות טיפוסיות, ואפס הפתעות.
  */
 
-const BASE = (process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:3001") + "/api/v1";
+/** בסיס ה-API — משמש גם להרכבת URL-ים של תמונות שמוזרמות דרך השרת */
+export const API_BASE = (process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:3001") + "/api/v1";
+const BASE = API_BASE;
 
 export interface ApiIssue {
   path: string;
