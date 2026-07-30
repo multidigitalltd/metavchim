@@ -61,6 +61,11 @@ export const BUYER_SOURCE_LABELS: Record<string, string> = {
   manual: "אחר",
 };
 
+/** קישור צ'אט וואטסאפ מטלפון שמור (E.164) — wa.me דורש ספרות בלבד */
+export function waMeUrl(phone: string): string {
+  return `https://wa.me/${phone.replace(/\D/gu, "")}`;
+}
+
 /** מקור קונה לתצוגה — כולל קונים שהומרו מליד (source = "lead:<מקור הליד>") */
 export function formatBuyerSource(source: string): string {
   if (source.startsWith("lead:")) {

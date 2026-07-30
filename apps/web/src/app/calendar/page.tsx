@@ -136,6 +136,13 @@ export default function CalendarPage() {
                         <Link href={`/leads/${a.leadId}`} className="underline">לליד</Link>
                       ) : null}
                     </div>
+                    {a.status === "scheduled" && !isPastScheduled ? (
+                      <div className="mt-3">
+                        <Button variant="ghost" onClick={() => void setStatus(a.id, "cancelled")}>
+                          בטל פגישה
+                        </Button>
+                      </div>
+                    ) : null}
                     {isPastScheduled && a.kind === "viewing" ? (
                       <fieldset className="mt-3">
                         <legend className="mb-2 font-medium">איך היה הסיור? (מעדכן את הליד אוטומטית)</legend>

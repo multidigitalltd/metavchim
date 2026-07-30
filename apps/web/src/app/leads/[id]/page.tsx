@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { MATURITY_LABELS as SHARED_MATURITY, ROLE_CAPABILITIES } from "@metavchim/shared";
 import { apiGet, apiPost, apiPatch, ApiError } from "@/lib/api";
-import { formatDate, shekelsToAgorot } from "@/lib/format";
+import { formatDate, shekelsToAgorot, waMeUrl } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
 import { RelatedEntities } from "../../related-entities";
@@ -217,6 +217,14 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         <h1 className="text-2xl font-bold">{lead.contact.name}</h1>
         <a href={`tel:${lead.contact.phone}`} className="underline" dir="ltr">
           {lead.contact.phone}
+        </a>
+        <a
+          href={waMeUrl(lead.contact.phone)}
+          target="_blank"
+          rel="noreferrer"
+          className="underline"
+        >
+          💬 וואטסאפ
         </a>
       </div>
       <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
