@@ -45,6 +45,8 @@ export default function CalendarPage() {
   const { loading: authLoading } = useRequireAuth();
   const [items, setItems] = useState<AppointmentRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // ביטול בשני שלבים — לחיצה ראשונה מבקשת אישור (ביקורת Codex)
+  const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
 
   const load = useCallback(() => {
     // כולל 14 יום אחורה — כדי שסיורים שהסתיימו יופיעו לסיכום תוצאה
@@ -137,10 +139,25 @@ export default function CalendarPage() {
                       ) : null}
                     </div>
                     {a.status === "scheduled" && !isPastScheduled ? (
-                      <div className="mt-3">
-                        <Button variant="ghost" onClick={() => void setStatus(a.id, "cancelled")}>
-                          בטל פגישה
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button
+                          variant={cancelConfirmId === a.id ? "danger" : "ghost"}
+                          onClick={() => {
+                            if (cancelConfirmId === a.id) {
+                              setCancelConfirmId(null);
+                              void setStatus(a.id, "cancelled");
+                            } else {
+                              setCancelConfirmId(a.id);
+                            }
+                          }}
+                        >
+                          {cancelConfirmId === a.id ? "לאשר ביטול הפגישה?" : "בטל פגישה"}
                         </Button>
+                        {cancelConfirmId === a.id ? (
+                          <Button variant="ghost" onClick={() => setCancelConfirmId(null)}>
+                            השאר מתוכננת
+                          </Button>
+                        ) : null}
                       </div>
                     ) : null}
                     {isPastScheduled && a.kind === "viewing" ? (
