@@ -103,7 +103,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 </summary>
                 <nav aria-label="ניווט ראשי">
                   <ul
-                    className="absolute end-0 top-full z-20 mt-2 flex w-56 flex-col gap-1 rounded-xl border p-2 shadow-lg"
+                    className="absolute end-0 top-full z-20 mt-2 flex w-56 max-w-[calc(100vw-2rem)] flex-col gap-1 rounded-xl border p-2 shadow-lg"
                     style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
                   >
                     <li>
