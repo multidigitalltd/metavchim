@@ -124,14 +124,22 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-
   `/srv/metavchim/backups`), והגיבוי הראשון רץ מיד בעליית השירות —
   קל לוודא שהמנגנון חי: `ls -lh backups/`.
 
-**חשוב — עותק מחוץ לשרת:** גיבוי על אותו שרת לא מגן מקריסת דיסק או
-מחיקת השרת. סנכרנו את התיקייה החוצה, למשל עם rclone לכל אחסון ענן:
+**עותק מחוץ לשרת (מובנה):** גיבוי על אותו שרת לא מגן מקריסת דיסק או
+מחיקת השרת — שירות `offsite` מסנכרן את הגיבויים לאחסון ענן תואם-S3
+כל 6 שעות. הפעלה:
 
-```bash
-apt install rclone && rclone config   # חד-פעמי — הגדרת יעד (S3/Drive/Storage Box)
-# ואז ב-cron היומי של השרת:
-rclone sync /srv/metavchim/backups remote:metavchim-backups
-```
+1. פתחו חשבון באחסון תואם-S3 — מומלץ
+   [Backblaze B2](https://www.backblaze.com/cloud-storage) (10GB חינם,
+   ואז ~$6/TB לחודש) או Cloudflare R2. צרו Bucket **פרטי** ומפתח גישה.
+2. ב-`.env.production`: הוסיפו `offsite` ל-`COMPOSE_PROFILES`
+   (למשל `COMPOSE_PROFILES=offsite`, או `standalone,offsite` בשרת
+   ייעודי) ומלאו את `OFFSITE_S3_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY`.
+3. `docker compose -f docker-compose.prod.yml --env-file .env.production up -d`
+   ואימות בלוג: `docker compose ... logs offsite` — אמור להופיע
+   `✓ סונכרן`.
+
+השחזור מגיבוי חיצוני: מורידים את הקובץ חזרה לתיקיית הגיבויים
+(דרך ממשק הספק או `rclone copy`) וממשיכים בנוהל השחזור הרגיל למטה.
 
 **שחזור מסד נתונים** (עוצר את האפליקציה, משחזר, מעלה חזרה).
 הפקודות מניחות את ברירת המחדל `BACKUP_DIR=./backups`; אם שיניתם —
