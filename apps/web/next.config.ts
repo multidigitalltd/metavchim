@@ -8,6 +8,8 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // פלט עצמאי לתמונת ה-Docker — server.js מינימלי בלי node_modules מלא
+  output: "standalone",
   transpilePackages: ["@metavchim/ui"],
   poweredByHeader: false,
   headers() {

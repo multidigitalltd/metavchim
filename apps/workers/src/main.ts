@@ -698,6 +698,81 @@ async function processDailyBrief(): Promise<void> {
   }
 }
 
+/**
+ * סיכום שבועי לבעל המשרד — ראשון 08:00 שעון ישראל, על 7 הימים שחלפו:
+ * לידים חדשים ושיעור מענה, הצעות (נשלחו/נפתחו/מעוניינים), סיורים
+ * שהתקיימו והמרות. משלים את דו"ח הבוקר של הסוכן ברמה העסקית.
+ * הולך רק ל-owner/admin (בעלי view_all). אידמפוטנטי פר שבוע.
+ */
+async function processWeeklySummary(): Promise<void> {
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  // עוגן לוח-שנה יציב — יום ראשון 00:00 UTC האחרון: חלון 6 ימים מתגלגל
+  // היה משתיק את השבוע העוקב אחרי ריצה שהתעכבה ליום שני (ביקורת Codex)
+  const weekAnchor = new Date(now);
+  weekAnchor.setUTCHours(0, 0, 0, 0);
+  weekAnchor.setUTCDate(weekAnchor.getUTCDate() - weekAnchor.getUTCDay());
+  const tenants = await prisma.tenant.findMany({ select: { id: true } });
+  for (const tenant of tenants) {
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      // נעילת advisory פר-דייר: התור רץ ב-concurrency: 2, ושני Jobs
+      // כפולים היו עוברים שניהם את בדיקת הקיום לפני שאחד כותב (ביקורת Codex)
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`weekly-summary:${tenant.id}`}))`;
+      const managers = await tx.user.findMany({
+        where: { tenantId: tenant.id, isActive: true, role: { in: ["owner", "admin"] } },
+        select: { id: true },
+      });
+      if (managers.length === 0) return;
+      // כבר נשלח סיכום עבור השבוע הקלנדרי הנוכחי
+      const already = await tx.notification.findFirst({
+        where: { tenantId: tenant.id, type: "weekly_summary", createdAt: { gte: weekAnchor } },
+        select: { id: true },
+      });
+      if (already) return;
+
+      const [newLeads, answered, converted, offersSent, offersOpened, offersInterested, viewingsHeld] =
+        await Promise.all([
+          tx.lead.count({ where: { tenantId: tenant.id, createdAt: { gte: weekAgo } } }),
+          tx.lead.count({
+            where: { tenantId: tenant.id, createdAt: { gte: weekAgo }, firstResponseAt: { not: null } },
+          }),
+          tx.lead.count({ where: { tenantId: tenant.id, status: "converted", updatedAt: { gte: weekAgo } } }),
+          tx.offer.count({ where: { tenantId: tenant.id, sentAt: { gte: weekAgo } } }),
+          tx.offer.count({ where: { tenantId: tenant.id, firstOpenedAt: { gte: weekAgo } } }),
+          // ל-Offer אין updatedAt — "מעוניינים" נספרים מתוך הצעות שנשלחו השבוע
+          tx.offer.count({
+            where: { tenantId: tenant.id, status: "interested", sentAt: { gte: weekAgo } },
+          }),
+          tx.appointment.count({
+            where: { tenantId: tenant.id, kind: "viewing", status: "completed", startsAt: { gte: weekAgo, lte: now } },
+          }),
+        ]);
+      // משרד שקט לגמרי — אין מה לסכם, אין רעש
+      if (newLeads + offersSent + offersOpened + viewingsHeld + converted === 0) return;
+
+      const parts: string[] = [];
+      const answeredPct = newLeads > 0 ? Math.round((answered / newLeads) * 100) : null;
+      parts.push(`${newLeads} לידים חדשים${answeredPct === null ? "" : ` (${answeredPct}% נענו)`}`);
+      if (offersSent + offersOpened + offersInterested > 0)
+        parts.push(`הצעות: ${offersSent} נשלחו · ${offersOpened} נפתחו · ${offersInterested} מעוניינים`);
+      if (viewingsHeld > 0) parts.push(`${viewingsHeld} סיורים התקיימו`);
+      if (converted > 0) parts.push(`${converted} לידים הפכו ללקוחות 🎉`);
+
+      await tx.notification.createMany({
+        data: managers.map((m) => ({
+          id: ulid(),
+          tenantId: tenant.id,
+          userId: m.id,
+          type: "weekly_summary",
+          title: "📊 סיכום שבועי",
+          body: parts.join(" | ").slice(0, 500),
+        })),
+      });
+    });
+  }
+}
+
 /** תור low משותף — כל סוג Job ממוין לפי שמו. */
 async function processLow(job: Job): Promise<void> {
   if (job.name === "delete-object") return processCleanup(job);
@@ -708,6 +783,7 @@ async function processLow(job: Job): Promise<void> {
   if (job.name === "lead-sla-sweep") return processLeadSlaSweep();
   if (job.name === "daily-brief") return processDailyBrief();
   if (job.name === "stale-lead-sweep") return processStaleLeadSweep();
+  if (job.name === "weekly-summary") return processWeeklySummary();
 }
 
 // רישום סריקת ה-SLA החוזרת (רבע שעה) — כולל ריצה מיידית בעלייה,
@@ -729,6 +805,12 @@ void lowQueue
   .upsertJobScheduler("stale-lead-sweep", { pattern: "0 9 * * *", tz: "Asia/Jerusalem" }, { name: "stale-lead-sweep" })
   .catch((error: unknown) => {
     console.error(`stale-lead-sweep scheduler registration failed: ${String(error)}`);
+  });
+// סיכום שבועי לבעל המשרד — ראשון 08:00 שעון ישראל
+void lowQueue
+  .upsertJobScheduler("weekly-summary", { pattern: "0 8 * * 0", tz: "Asia/Jerusalem" }, { name: "weekly-summary" })
+  .catch((error: unknown) => {
+    console.error(`weekly-summary scheduler registration failed: ${String(error)}`);
   });
 
 const workers = [

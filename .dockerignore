@@ -1,0 +1,12 @@
+# ה-Context של בניית התמונות — רק מקור; הבנייה קורית בתוך הקונטיינר
+node_modules
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+.git
+coverage
+*.log
+.env
+.env.*
+!.env.production.example
