@@ -55,6 +55,9 @@ services:
     image: ${IMAGE_PREFIX:-ghcr.io/multidigitalltd/metavchim}-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file: .env.production
+    # loopback בלבד — נגיש ל-Proxy מקומי (nginx קיים) ולדיבוג, לא לאינטרנט
+    ports:
+      - "127.0.0.1:${API_LOCAL_PORT:-8091}:3001"
     environment:
       UPDATER_URL: http://updater:9944
     depends_on:
@@ -81,8 +84,14 @@ services:
   web:
     image: ${IMAGE_PREFIX:-ghcr.io/multidigitalltd/metavchim}-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:${WEB_LOCAL_PORT:-8090}:3000"
 
+  # שער ה-HTTPS המובנה — פעיל רק בפרופיל standalone (שרת ייעודי).
+  # על שרת עם אתר קיים (nginx תופס 80/443) משאירים את הפרופיל כבוי
+  # ומחברים דרך ה-nginx הקיים — ראו docs/10-deployment.md.
   caddy:
+    profiles: ["standalone"]
     image: caddy:2-alpine
     restart: unless-stopped
     ports:
