@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatDateTime } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { ExportSection } from "./export-section";
 import { SystemUpdateSection } from "./system-update";
@@ -32,6 +32,48 @@ const ROLE_LABELS: Record<string, string> = {
   agent: "סוכן",
   assistant: "עוזר",
   viewer: "צפייה בלבד",
+};
+
+const PLAN_LABELS: Record<string, string> = {
+  solo: "Solo — מתווך יחיד",
+  agency: "Agency — משרד",
+  network: "Network — רשת",
+};
+
+/** קודי יומן הפעילות → עברית; קוד לא מוכר מוצג כמו שהוא */
+const AUDIT_ACTION_LABELS: Record<string, string> = {
+  "property.create": "יצירת נכס",
+  "property.update": "עדכון נכס",
+  "property.delete": "העברת נכס לארכיון",
+  "property.media_upload": "העלאת תמונת נכס",
+  "property.media_delete": "מחיקת תמונת נכס",
+  "property.media_primary": "קביעת תמונה ראשית",
+  "property.media_alt_text": "עדכון תיאור תמונה",
+  "property.owner_update": "עדכון שיווק לבעל נכס",
+  "buyer.create": "יצירת קונה",
+  "buyer.update": "עדכון קונה",
+  "buyer.interaction_add": "תיעוד אינטראקציה עם קונה",
+  "lead.create": "יצירת ליד",
+  "lead.status": "עדכון סטטוס ליד",
+  "lead.convert": "המרת ליד לקונה",
+  "lead.repeat_inquiry": "פנייה חוזרת של ליד",
+  "offer.create": "יצירת הצעה",
+  "offer.whatsapp_prepared": "הכנת הצעה לוואטסאפ",
+  "appointment.create": "קביעת פגישה",
+  "appointment.update": "עדכון פגישה",
+  "task.create": "יצירת משימה",
+  "task.update": "עדכון משימה",
+  "task.delete": "מחיקת משימה",
+  "collaboration.share": "שיתוף ברשת",
+  "collaboration.unshare": "הסרת שיתוף מהרשת",
+  "collaboration.offer": "הצעה ברשת שיתוף",
+  "data.export_buyers": "ייצוא קונים",
+  "data.export_properties": "ייצוא נכסים",
+  "settings.update": "עדכון הגדרות",
+  "system.update": "עדכון גרסת מערכת",
+  "users.create": "הוספת איש צוות",
+  "users.update": "עדכון איש צוות",
+  "voice_intake.create": "קליטת נכס בקול",
 };
 
 export default function SettingsPage() {
@@ -137,7 +179,7 @@ export default function SettingsPage() {
               <input id="whatsappNumber" name="whatsappNumber" dir="ltr" placeholder="972501234567" defaultValue={tenant.whatsappNumber ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
             </div>
             <p className="mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
-              מסלול: <strong>{tenant.plan}</strong>
+              מסלול: <strong>{PLAN_LABELS[tenant.plan] ?? tenant.plan}</strong>
             </p>
             <Button type="submit">שמור</Button>
           </form>
@@ -255,9 +297,9 @@ export default function SettingsPage() {
               <li key={index} className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)" }}>
                 <span className="font-medium">{row.userName ?? "מערכת"}</span>
                 {" · "}
-                <span dir="ltr">{row.action}</span>
+                <span>{AUDIT_ACTION_LABELS[row.action] ?? row.action}</span>
                 {" · "}
-                <span style={{ color: "var(--color-text-muted)" }}>{formatDate(row.createdAt)}</span>
+                <span style={{ color: "var(--color-text-muted)" }}>{formatDateTime(row.createdAt)}</span>
               </li>
             ))}
           </ol>

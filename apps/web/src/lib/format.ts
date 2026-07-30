@@ -22,6 +22,12 @@ export function formatDate(value: string | Date | undefined): string {
   return value === undefined ? "—" : dateFmt.format(new Date(value));
 }
 
+const dateTimeFmt = new Intl.DateTimeFormat("he-IL", { dateStyle: "medium", timeStyle: "short" });
+
+export function formatDateTime(value: string | Date | undefined): string {
+  return value === undefined ? "—" : dateTimeFmt.format(new Date(value));
+}
+
 export { MATURITY_LABELS } from "@metavchim/shared";
 
 export const PROPERTY_TYPE_LABELS: Record<string, string> = {
