@@ -138,6 +138,17 @@ export class MatchingService {
         kept += await this.upsertMatch(tx, propertyId, candidate.id, fields, parsed.data);
       }
 
+      // נכס שהשתנה (עיר אחרת, מחיר עלה): קונים שיצאו מהסינון הגס לא
+      // נבדקים ב-upsertMatch — ההתאמות הישנות שלהם נמחקות כאן.
+      await tx.match.deleteMany({
+        where: {
+          tenantId,
+          propertyId,
+          status: "suggested",
+          buyerId: { notIn: candidates.map((c) => c.id) },
+        },
+      });
+
       await this.outbox.emit(tx, "matches.computed", { tenantId, propertyId, matchCount: kept });
       return kept;
     });
@@ -167,6 +178,17 @@ export class MatchingService {
       for (const property of candidates) {
         kept += await this.upsertMatch(tx, property.id, buyerId, rowToFields(property), requirements);
       }
+      // דרישות שצומצמו (עיר הוסרה, תקציב ירד): נכסים שיצאו מהסינון הגס
+      // לא נבדקים ב-upsertMatch — ההתאמות הישנות שלהם נמחקות כאן.
+      // התאמות שהמתווך נגע בהן (הוצעו/נדחו) לא נמחקות — כמו ב-upsertMatch.
+      await tx.match.deleteMany({
+        where: {
+          tenantId,
+          buyerId,
+          status: "suggested",
+          propertyId: { notIn: candidates.map((p) => p.id) },
+        },
+      });
       await this.outbox.emit(tx, "matches.computed", { tenantId, buyerId, matchCount: kept });
       return kept;
     });
