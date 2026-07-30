@@ -39,6 +39,53 @@ docker compose -f docker-compose.prod.yml --env-file .env.production exec api \
 
 נכנסים ל-`https://<הדומיין>`, מתחברים עם הסיסמה הזמנית ומחליפים אותה.
 
+## שרת עם אתר קיים (nginx כבר תופס 80/443)
+
+אין צורך בשרת נפרד: משאירים את ה-nginx הקיים כשער היחיד ומחברים את
+מטווחים דרכו. ה-Web וה-API חשופים תמיד על loopback בלבד
+(‏127.0.0.1:8090 ו-8091 — לא נגישים מהאינטרנט), כך שהאתר הקיים לא
+מושפע כלל.
+
+1. ב-`.env.production` משנים את `COMPOSE_PROFILES=standalone` ל-
+   `COMPOSE_PROFILES=` (ריק) — Caddy לא יעלה ולא יתחרה על הפורטים.
+2. מריצים `up -d` כרגיל (צעד 4 למעלה).
+3. מוסיפים site ל-nginx — `/etc/nginx/sites-available/metavchim`:
+
+```nginx
+server {
+    listen 80;
+    server_name crm.example.co.il;   # הדומיין מ-.env.production
+
+    client_max_body_size 25m;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8091;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:8090;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+```bash
+ln -s /etc/nginx/sites-available/metavchim /etc/nginx/sites-enabled/
+nginx -t && systemctl reload nginx
+# תעודת HTTPS (certbot מוסיף את ה-443 לבד ומחדש אוטומטית)
+certbot --nginx -d crm.example.co.il
+```
+
+‏`TRUST_PROXY_HOPS=1` נשאר כמו שהוא — nginx הוא שכבת ה-Proxy היחידה.
+כפתור העדכון עובד זהה בשני המצבים (הסוכן לא נוגע בשער הכניסה).
+
 ## עדכון גרסה
 
 **הדרך הרגילה — מתוך המערכת:** הגדרות ⟵ "מערכת" ⟵
