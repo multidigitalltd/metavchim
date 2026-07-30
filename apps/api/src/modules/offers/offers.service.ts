@@ -7,6 +7,7 @@ import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService } from "../../core/prisma.service";
+import { StorageService } from "../../core/storage.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { buildOfferMessage, MessagingService } from "../messaging/messaging.service";
 
@@ -24,6 +25,8 @@ export interface OfferDto {
 export interface PublicOfferView {
   presentation: OfferPresentation;
   status: string;
+  /** URL-ים חתומים קצרי-מועד לתמונות ה-snapshot — נחתמים בכל צפייה */
+  images: { url: string; alt?: string }[];
 }
 
 @Injectable()
@@ -34,6 +37,7 @@ export class OffersService {
     private readonly outbox: OutboxService,
     private readonly contacts: ContactsService,
     private readonly messaging: MessagingService,
+    private readonly storage: StorageService,
   ) {}
 
   /**
@@ -77,6 +81,14 @@ export class OffersService {
 
       const tenant = await tx.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
 
+      // תמונות הנכס בזמן היצירה — עד 6, לפי הסדר (הראשית ראשונה)
+      const mediaRows = await tx.propertyMedia.findMany({
+        where: { tenantId, propertyId: property.id },
+        orderBy: { sortOrder: "asc" },
+        take: 6,
+        select: { s3Key: true, altText: true },
+      });
+
       // Snapshot ללא PII וללא הערות פנימיות — רק מה שהקונה אמור לראות.
       const features = [
         property.hasElevator === true ? "מעלית" : null,
@@ -101,6 +113,7 @@ export class OffersService {
         features,
         description: property.marketingDescription ?? undefined,
         agencyName: tenant?.name ?? "משרד התיווך",
+        media: mediaRows.map((m) => ({ key: m.s3Key, alt: m.altText ?? undefined })),
       });
 
       await tx.offer.create({
@@ -182,6 +195,7 @@ export class OffersService {
         return {
           presentation: OfferPresentationSchema.parse(offer.presentation),
           status: "unavailable",
+          images: [],
         };
       }
 
@@ -213,9 +227,16 @@ export class OffersService {
         await this.recordOfferMoment(tx, offer, "הקונה פתח את ההצעה לראשונה");
       }
 
+      const presentation = OfferPresentationSchema.parse(offer.presentation);
       return {
-        presentation: OfferPresentationSchema.parse(offer.presentation),
+        presentation,
         status: offer.status,
+        images: await Promise.all(
+          presentation.media.map(async (m) => ({
+            url: await this.storage.signedGetUrl(m.key),
+            ...(m.alt !== undefined ? { alt: m.alt } : {}),
+          })),
+        ),
       };
     });
   }

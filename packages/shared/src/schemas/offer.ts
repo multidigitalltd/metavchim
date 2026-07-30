@@ -18,6 +18,8 @@ export const OfferPresentationSchema = z.object({
   features: z.array(z.string()).default([]),
   description: z.string().max(4000).optional(),
   agencyName: z.string().max(120),
+  /** מפתחות תמונות הנכס בזמן היצירה — נחתמים ל-URL בכל צפייה ציבורית */
+  media: z.array(z.object({ key: z.string(), alt: z.string().optional() })).default([]),
 });
 export type OfferPresentation = z.infer<typeof OfferPresentationSchema>;
 

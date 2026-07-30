@@ -200,6 +200,9 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
         <Link href={`/properties/${id}/edit`}>
           <Button variant="secondary">✏️ ערוך פרטים</Button>
         </Link>
+        <Link href={`/calendar/new?propertyId=${id}`}>
+          <Button variant="secondary">📅 קבע סיור</Button>
+        </Link>
         <label className="flex items-center gap-2">
           <span className="mv-visually-hidden">שינוי סטטוס הנכס</span>
           <select
