@@ -70,6 +70,9 @@ importers:
       ioredis:
         specifier: ^5.4.0
         version: 5.11.1
+      prisma:
+        specifier: ^6.5.0
+        version: 6.19.3(typescript@5.9.3)
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
@@ -98,9 +101,6 @@ importers:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.1
-      prisma:
-        specifier: ^6.5.0
-        version: 6.19.3(typescript@5.9.3)
       tsx:
         specifier: ^4.19.0
         version: 4.23.1
@@ -159,6 +159,9 @@ importers:
       ioredis:
         specifier: ^5.4.0
         version: 5.11.1
+      prisma:
+        specifier: ^6.5.0
+        version: 6.19.3(typescript@5.9.3)
       ulid:
         specifier: ^2.3.0
         version: 2.4.0

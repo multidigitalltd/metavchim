@@ -22,6 +22,13 @@ export interface Announcement {
 
 export const ANNOUNCEMENTS: Announcement[] = [
   {
+    id: "v0014-one-click-update",
+    date: "2026-07-30",
+    emoji: "🚀",
+    title: "עדכון מערכת בלחיצת כפתור",
+    body: "במסך ההגדרות, תחת \"מערכת\": רואים איזו גרסה מותקנת ומעדכנים לגרסה האחרונה בלחיצה אחת — בלי טכנאי ובלי שורת פקודה.",
+  },
+  {
     id: "v0013-weekly-summary",
     date: "2026-07-29",
     emoji: "📊",

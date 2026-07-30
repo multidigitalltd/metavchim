@@ -1,17 +1,20 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Get,
   Param,
   Patch,
   Post,
   Query,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import { z } from "zod";
 import { IdSchema, UserRoleSchema } from "@metavchim/shared";
+import { loadEnv } from "../../config/env";
 import { RequireCapability } from "../../common/auth.decorators";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -267,5 +270,52 @@ export class SettingsController {
         createdAt: r.createdAt,
       })),
     };
+  }
+
+  /** הגרסה המותקנת (SHA שנאפה לתמונה) + האם עדכון מרחוק זמין בסביבה. */
+  @Get("system")
+  @RequireCapability("settings.manage")
+  systemInfo(): { version: string; updateAvailable: boolean } {
+    const env = loadEnv();
+    return {
+      version: env.APP_VERSION,
+      updateAvailable: env.UPDATER_URL !== undefined && env.UPDATE_SECRET !== undefined,
+    };
+  }
+
+  /**
+   * עדכון גרסה בלחיצת כפתור: קריאה לסוכן העדכון שרץ לצד המערכת על
+   * השרת (infra/updater) — הוא מושך את התמונות העדכניות מ-GHCR ומרים
+   * אותן מחדש. ה-API רק מבקש; ההרשאה בפועל היא הסוד המשותף.
+   */
+  @Post("system/update")
+  @RequireCapability("settings.manage")
+  async triggerUpdate(): Promise<{ status: "started" }> {
+    const env = loadEnv();
+    if (env.UPDATER_URL === undefined || env.UPDATE_SECRET === undefined) {
+      throw new ServiceUnavailableException("עדכון מרחוק אינו מוגדר בסביבה זו");
+    }
+    const tenantId = TenantContext.current().tenantId;
+    let res: Response;
+    try {
+      res = await fetch(`${env.UPDATER_URL}/update`, {
+        method: "POST",
+        headers: { "x-update-secret": env.UPDATE_SECRET },
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      throw new ServiceUnavailableException("סוכן העדכון אינו זמין");
+    }
+    if (res.status === 409) throw new ConflictException("עדכון כבר רץ — המתינו לסיומו");
+    if (!res.ok) throw new ServiceUnavailableException("סוכן העדכון החזיר שגיאה");
+    await this.prisma.withTenant((tx) =>
+      this.audit.record(tx, {
+        action: "system.update",
+        entityType: "tenant",
+        entityId: tenantId,
+        metadata: { fromVersion: env.APP_VERSION },
+      }),
+    );
+    return { status: "started" };
   }
 }

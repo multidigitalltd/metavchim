@@ -49,6 +49,12 @@ const EnvSchema = z.object({
    * X-Forwarded-For לא נספר — מונע זיוף IP); בפרודקשן מאחורי LB אחד: 1.
    */
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
+  /** גרסת הבנייה (SHA) — נאפית לתמונת ה-Docker; "dev" מחוץ לה. */
+  APP_VERSION: z.string().max(64).default("dev"),
+  /** כתובת סוכן העדכון בפרודקשן — כפתור העדכון סגור עד שהיא מוגדרת. */
+  UPDATER_URL: z.string().url().optional(),
+  /** סוד משותף מול סוכן העדכון — חובה יחד עם UPDATER_URL. */
+  UPDATE_SECRET: z.string().min(24).optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

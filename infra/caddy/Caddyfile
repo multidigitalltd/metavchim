@@ -1,0 +1,13 @@
+# Caddy — שער הכניסה היחיד: HTTPS אוטומטי (Let's Encrypt) לדומיין,
+# ‎/api/* אל ה-API וכל השאר אל ה-Web. אותו Origin → בלי CORS בפרודקשן.
+{$DOMAIN} {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy api:3001
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}
