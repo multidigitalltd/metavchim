@@ -112,16 +112,71 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-
 **חזרה לגרסה קודמת:** כל דחיפה מתויגת גם ב-SHA —
 `IMAGE_TAG=<sha> docker compose ... up -d --no-deps api web workers`.
 
+## גיבוי ושחזור
+
+**גיבוי אוטומטי מובנה** — שירות `backup` שרץ עם המערכת:
+
+- **מסד נתונים:** `pg_dump -Fc` (דחוס) כל 24 שעות, נשמר
+  `BACKUP_KEEP_DAYS` ימים (ברירת מחדל 14).
+- **תמונות (MinIO):** ארכיון `tar.gz` פעם בשבוע (יום ראשון), נשמר
+  `BACKUP_MEDIA_KEEP_DAYS` ימים (ברירת מחדל 28).
+- הקבצים נכתבים ל-`BACKUP_DIR` במארח (ברירת מחדל
+  `/srv/metavchim/backups`), והגיבוי הראשון רץ מיד בעליית השירות —
+  קל לוודא שהמנגנון חי: `ls -lh backups/`.
+
+**עותק מחוץ לשרת (מובנה):** גיבוי על אותו שרת לא מגן מקריסת דיסק או
+מחיקת השרת — שירות `offsite` מסנכרן את הגיבויים לאחסון ענן תואם-S3
+כל 6 שעות. הפעלה:
+
+1. פתחו חשבון באחסון תואם-S3 — מומלץ
+   [Backblaze B2](https://www.backblaze.com/cloud-storage) (10GB חינם,
+   ואז ~$6/TB לחודש) או Cloudflare R2. צרו Bucket **פרטי** ומפתח גישה.
+2. ב-`.env.production`: הוסיפו `offsite` ל-`COMPOSE_PROFILES`
+   (למשל `COMPOSE_PROFILES=offsite`, או `standalone,offsite` בשרת
+   ייעודי) ומלאו את `OFFSITE_S3_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY`.
+3. `docker compose -f docker-compose.prod.yml --env-file .env.production up -d`
+   ואימות בלוג: `docker compose ... logs offsite` — אמור להופיע
+   `✓ סונכרן`.
+
+השחזור מגיבוי חיצוני: מורידים את הקובץ חזרה לתיקיית הגיבויים
+(דרך ממשק הספק או `rclone copy`) וממשיכים בנוהל השחזור הרגיל למטה.
+
+**שחזור מסד נתונים** (עוצר את האפליקציה, משחזר, מעלה חזרה).
+הפקודות מניחות את ברירת המחדל `BACKUP_DIR=./backups`; אם שיניתם —
+החליפו את הנתיב בהתאם:
+
+```bash
+cd /srv/metavchim
+docker compose -f docker-compose.prod.yml --env-file .env.production stop api workers
+cat backups/db_2026-07-30_0300.dump | \
+  docker compose -f docker-compose.prod.yml --env-file .env.production exec -T postgres \
+  pg_restore -U metavchim -d metavchim --clean --if-exists
+docker compose -f docker-compose.prod.yml --env-file .env.production start api workers
+```
+
+**שחזור תמונות** (הניקוי עם `find` מוחק גם קבצים נסתרים כמו
+`.minio.sys` — כך ה-volume משוחזר בדיוק למצב הגיבוי):
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.production stop minio
+docker run --rm -v metavchim_miniodata:/data -v /srv/metavchim/backups:/backups alpine \
+  sh -c "find /data -mindepth 1 -delete && tar xzf /backups/media_<תאריך>.tar.gz -C /data"
+docker compose -f docker-compose.prod.yml --env-file .env.production start minio
+```
+
+הערה: גיבוי המדיה השבועי הוא tar על volume חי — העלאה שרצה בדיוק
+ברגע הגיבוי עלולה להיתפס חלקית (חלון קטן — הריצה בשעת לילה, והארכיון
+עצמו מאומת בשלמותו). כשנדרש גיבוי מדיה עקבי-לחלוטין (למשל לפני
+שדרוג מסוכן), עצרו רגעית את minio, הריצו את ה-tar ידנית באותה תבנית
+כמו בפקודת השחזור, והעלו חזרה.
+
 ## תפעול
 
 ```bash
 # לוגים
 docker compose -f docker-compose.prod.yml --env-file .env.production logs -f api
 docker compose -f docker-compose.prod.yml --env-file .env.production logs updater
-
-# גיבוי DB יומי (הוסיפו ל-cron של השרת)
-docker compose -f docker-compose.prod.yml --env-file .env.production exec -T postgres \
-  pg_dump -U metavchim metavchim | gzip > /srv/backups/metavchim-$(date +%F).sql.gz
+docker compose -f docker-compose.prod.yml --env-file .env.production logs backup
 ```
 
 ## הערות אבטחה
