@@ -35,9 +35,10 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const PLAN_LABELS: Record<string, string> = {
-  solo: "Solo — מתווך יחיד",
+  basic: "Basic — בסיסי",
+  pro: "Pro — מקצועי",
   agency: "Agency — משרד",
-  network: "Network — רשת",
+  enterprise: "Enterprise — רשת/ארגון",
 };
 
 /** קודי יומן הפעילות → עברית; קוד לא מוכר מוצג כמו שהוא */
@@ -67,6 +68,8 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   "collaboration.share": "שיתוף ברשת",
   "collaboration.unshare": "הסרת שיתוף מהרשת",
   "collaboration.offer": "הצעה ברשת שיתוף",
+  "collaboration.interested": "עניין בהצעת שיתוף",
+  "collaboration.declined": "דחיית הצעת שיתוף",
   "data.export_buyers": "ייצוא קונים",
   "data.export_properties": "ייצוא נכסים",
   "settings.update": "עדכון הגדרות",
