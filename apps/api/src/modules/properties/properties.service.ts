@@ -5,6 +5,7 @@ import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService } from "../../core/prisma.service";
+import { StorageService } from "../../core/storage.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { MatchingService } from "../matching/matching.service";
 import { MessagingService } from "../messaging/messaging.service";
@@ -19,6 +20,7 @@ export class PropertiesService {
     private readonly matching: MatchingService,
     private readonly contacts: ContactsService,
     private readonly messaging: MessagingService,
+    private readonly storage: StorageService,
   ) {}
 
   async create(input: {
@@ -221,23 +223,40 @@ export class PropertiesService {
         take: query.limit + 1,
       });
       const hasMore = rows.length > query.limit;
-      const items = rows.slice(0, query.limit).map((row) => {
-        const fields = rowToFields(row);
-        const readiness = computeReadiness(fields, {
-          hasTitle: Boolean(row.marketingTitle),
-          hasDescription: Boolean(row.marketingDescription),
-        });
-        return {
-          ...fields,
-          id: row.id,
-          status: row.status,
-          marketingTitle: row.marketingTitle ?? undefined,
-          readinessScore: row.readinessScore,
-          missingFields: readiness.missingFields,
-          createdAt: row.createdAt,
-          updatedAt: row.updatedAt,
-        } satisfies PropertyDto;
+      const pageRows = rows.slice(0, query.limit);
+
+      // תמונה ראשית לכל נכס בעמוד — שאילתה אחת + חתימת URL מקומית (זולה)
+      const media = await tx.propertyMedia.findMany({
+        where: { tenantId: TenantContext.current().tenantId, propertyId: { in: pageRows.map((r) => r.id) } },
+        orderBy: { sortOrder: "asc" },
+        select: { propertyId: true, s3Key: true },
       });
+      const primaryKeyByProperty = new Map<string, string>();
+      for (const m of media) {
+        if (!primaryKeyByProperty.has(m.propertyId)) primaryKeyByProperty.set(m.propertyId, m.s3Key);
+      }
+
+      const items = await Promise.all(
+        pageRows.map(async (row) => {
+          const fields = rowToFields(row);
+          const readiness = computeReadiness(fields, {
+            hasTitle: Boolean(row.marketingTitle),
+            hasDescription: Boolean(row.marketingDescription),
+          });
+          const primaryKey = primaryKeyByProperty.get(row.id);
+          return {
+            ...fields,
+            id: row.id,
+            status: row.status,
+            marketingTitle: row.marketingTitle ?? undefined,
+            readinessScore: row.readinessScore,
+            missingFields: readiness.missingFields,
+            thumbnailUrl: primaryKey ? await this.storage.signedGetUrl(primaryKey) : undefined,
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt,
+          } satisfies PropertyDto & { thumbnailUrl?: string };
+        }),
+      );
       return { items, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null };
     });
   }

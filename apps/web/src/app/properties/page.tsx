@@ -19,6 +19,7 @@ interface PropertyRow {
   status: string;
   readinessScore: number;
   missingFields: string[];
+  thumbnailUrl?: string;
 }
 
 const SORTS: [string, string][] = [
@@ -162,6 +163,9 @@ export default function PropertiesPage() {
                 </caption>
                 <thead style={{ background: "var(--color-surface)" }}>
                   <tr>
+                    <th scope="col" className="p-3 text-start">
+                      <span className="mv-visually-hidden">תמונה</span>
+                    </th>
                     <th scope="col" className="p-3 text-start">כתובת</th>
                     <th scope="col" className="p-3 text-start">סוג</th>
                     <th scope="col" className="p-3 text-start">חדרים</th>
@@ -173,6 +177,24 @@ export default function PropertiesPage() {
                 <tbody>
                   {visible.map((p) => (
                     <tr key={p.id} className="border-t" style={{ borderColor: "var(--color-border)" }}>
+                      <td className="p-2" style={{ width: "72px" }}>
+                        {p.thumbnailUrl ? (
+                          // img רגיל בכוונה: URL חתום זמני מהאחסון, לא לאופטימיזציית Next
+                          <img
+                            src={p.thumbnailUrl}
+                            alt=""
+                            className="h-12 w-16 rounded-lg object-cover"
+                          />
+                        ) : (
+                          <span
+                            aria-hidden="true"
+                            className="flex h-12 w-16 items-center justify-center rounded-lg text-xl"
+                            style={{ background: "var(--color-surface)", color: "var(--color-text-muted)" }}
+                          >
+                            🏠
+                          </span>
+                        )}
+                      </td>
                       <td className="p-3">
                         <Link href={`/properties/${p.id}`} className="font-medium underline">
                           {[p.street, p.neighborhood, p.city].filter(Boolean).join(", ") || "ללא כתובת"}
