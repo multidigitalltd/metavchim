@@ -1,3 +1,5 @@
+import { LEAD_SOURCE_LABELS } from "./lead-labels";
+
 const nis = new Intl.NumberFormat("he-IL", {
   style: "currency",
   currency: "ILS",
@@ -44,6 +46,23 @@ export const STATUS_LABELS: Record<string, string> = {
   rented: "הושכר",
   archived: "בארכיון",
 };
+
+export const BUYER_SOURCE_LABELS: Record<string, string> = {
+  phone: "טלפון",
+  whatsapp: "וואטסאפ",
+  referral: "המלצה",
+  web: "אתר",
+  manual: "אחר",
+};
+
+/** מקור קונה לתצוגה — כולל קונים שהומרו מליד (source = "lead:<מקור הליד>") */
+export function formatBuyerSource(source: string): string {
+  if (source.startsWith("lead:")) {
+    const leadSource = source.slice("lead:".length);
+    return `ליד (${LEAD_SOURCE_LABELS[leadSource] ?? leadSource})`;
+  }
+  return BUYER_SOURCE_LABELS[source] ?? source;
+}
 
 export const FIELD_LABELS: Record<string, string> = {
   city: "עיר",

@@ -4,7 +4,7 @@ import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
-import { formatPrice, MATURITY_LABELS } from "@/lib/format";
+import { formatBuyerSource, formatPrice, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { TimelineSection } from "./timeline-section";
 import { RelatedEntities } from "../../related-entities";
@@ -105,7 +105,7 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
       <div className="mb-6">
         <h1 className="text-2xl font-bold">{buyer.contact.name}</h1>
         <p style={{ color: "var(--color-text-muted)" }}>
-          <span dir="ltr">{buyer.contact.phone}</span> · מקור: {buyer.source}
+          <span dir="ltr">{buyer.contact.phone}</span> · מקור: {formatBuyerSource(buyer.source)}
         </p>
         <label className="mt-2 flex items-center gap-2">
           <span className="font-medium">בשלות:</span>
@@ -125,6 +125,9 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
       <RelatedEntities contactId={buyer.contact.id} exclude={{ kind: "buyer", id: buyer.id }} />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
+        <Link href={`/buyers/${id}/edit`}>
+          <Button variant="secondary">✏️ ערוך דרישות</Button>
+        </Link>
         <Button variant="secondary" onClick={() => void shareToNetwork()}>
           🌐 שתף ברשת (אנונימי)
         </Button>
