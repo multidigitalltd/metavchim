@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { apiGet } from "@/lib/api";
 import { formatPrice, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { FilterSelect, ResultsCount, SearchField, textMatches } from "../list-controls";
 
 interface BuyerRow {
   id: string;
@@ -21,6 +22,8 @@ export default function BuyersPage() {
   const { loading: authLoading } = useRequireAuth();
   const [items, setItems] = useState<BuyerRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [maturity, setMaturity] = useState("");
 
   useEffect(() => {
     if (authLoading) return;
@@ -34,6 +37,16 @@ export default function BuyersPage() {
       )
       .catch(() => setError("טעינת הקונים נכשלה"));
   }, [authLoading]);
+
+  const visible = useMemo(
+    () =>
+      (items ?? []).filter(
+        (b) =>
+          textMatches(query, b.contact.name, b.contact.phone, ...b.requirements.cities) &&
+          (!maturity || b.maturity === maturity),
+      ),
+    [items, query, maturity],
+  );
 
   return (
     <>
@@ -64,6 +77,41 @@ export default function BuyersPage() {
           </Link>
         </div>
       ) : (
+        <>
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <SearchField
+              label="חיפוש קונה"
+              placeholder="🔍 שם, טלפון או עיר מבוקשת"
+              value={query}
+              onChange={setQuery}
+            />
+            <FilterSelect
+              label="סינון לפי בשלות"
+              value={maturity}
+              onChange={setMaturity}
+              allLabel="כל רמות הבשלות"
+              options={Object.entries(MATURITY_LABELS)}
+            />
+            <ResultsCount shown={visible.length} total={items.length} noun="קונים" />
+          </div>
+
+          {visible.length === 0 ? (
+            <div
+              className="rounded-xl border p-8 text-center"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+            >
+              <p className="mb-3">אף קונה לא תואם את הסינון.</p>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setQuery("");
+                  setMaturity("");
+                }}
+              >
+                נקה סינון
+              </Button>
+            </div>
+          ) : (
         <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--color-border)" }}>
           <table className="w-full">
             <caption className="mv-visually-hidden">
@@ -80,7 +128,7 @@ export default function BuyersPage() {
               </tr>
             </thead>
             <tbody>
-              {items.map((b) => (
+              {visible.map((b) => (
                 <tr key={b.id} className="border-t" style={{ borderColor: "var(--color-border)" }}>
                   <td className="p-3">
                     <Link href={`/buyers/${b.id}`} className="font-medium underline">
@@ -118,6 +166,8 @@ export default function BuyersPage() {
             </tbody>
           </table>
         </div>
+          )}
+        </>
       )}
     </>
   );
