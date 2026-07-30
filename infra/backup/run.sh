@@ -11,6 +11,9 @@
 # ============================================================
 set -u
 
+# הגיבויים מכילים את כל נתוני הלקוחות — קבצים נקראים לבעלים בלבד (0600)
+umask 077
+
 KEEP_DAYS="${BACKUP_KEEP_DAYS:-14}"
 MEDIA_KEEP_DAYS="${BACKUP_MEDIA_KEEP_DAYS:-28}"
 
@@ -29,10 +32,13 @@ backup_once() {
   fi
 
   # --- תמונות (MinIO) — פעם בשבוע, ביום ראשון ---
+  # tar על volume חי: העלאה שרצה בדיוק ברגע הגיבוי עלולה להיתפס חלקית
+  # (חלון קטן — הריצה בשעת לילה). האימות עם tar tzf תופס ארכיון קטוע/פגום;
+  # לגיבוי עקבי-לחלוטין עוצרים רגעית את minio ומגבים ידנית (docs/10).
   if [ "$(date +%u)" = "7" ] && [ -d /minio-data ]; then
     mtmp="/backups/media_${stamp}.tar.gz.tmp"
     mout="/backups/media_${stamp}.tar.gz"
-    if tar czf "$mtmp" -C /minio-data .; then
+    if tar czf "$mtmp" -C /minio-data . && tar tzf "$mtmp" > /dev/null; then
       mv "$mtmp" "$mout"
       echo "[backup] ✓ מדיה → ${mout} ($(du -h "$mout" | cut -f1))"
     else

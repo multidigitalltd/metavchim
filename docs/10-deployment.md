@@ -133,7 +133,9 @@ apt install rclone && rclone config   # חד-פעמי — הגדרת יעד (S3/
 rclone sync /srv/metavchim/backups remote:metavchim-backups
 ```
 
-**שחזור מסד נתונים** (עוצר את האפליקציה, משחזר, מעלה חזרה):
+**שחזור מסד נתונים** (עוצר את האפליקציה, משחזר, מעלה חזרה).
+הפקודות מניחות את ברירת המחדל `BACKUP_DIR=./backups`; אם שיניתם —
+החליפו את הנתיב בהתאם:
 
 ```bash
 cd /srv/metavchim
@@ -144,14 +146,21 @@ cat backups/db_2026-07-30_0300.dump | \
 docker compose -f docker-compose.prod.yml --env-file .env.production start api workers
 ```
 
-**שחזור תמונות:**
+**שחזור תמונות** (הניקוי עם `find` מוחק גם קבצים נסתרים כמו
+`.minio.sys` — כך ה-volume משוחזר בדיוק למצב הגיבוי):
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env.production stop minio
 docker run --rm -v metavchim_miniodata:/data -v /srv/metavchim/backups:/backups alpine \
-  sh -c "rm -rf /data/* && tar xzf /backups/media_<תאריך>.tar.gz -C /data"
+  sh -c "find /data -mindepth 1 -delete && tar xzf /backups/media_<תאריך>.tar.gz -C /data"
 docker compose -f docker-compose.prod.yml --env-file .env.production start minio
 ```
+
+הערה: גיבוי המדיה השבועי הוא tar על volume חי — העלאה שרצה בדיוק
+ברגע הגיבוי עלולה להיתפס חלקית (חלון קטן — הריצה בשעת לילה, והארכיון
+עצמו מאומת בשלמותו). כשנדרש גיבוי מדיה עקבי-לחלוטין (למשל לפני
+שדרוג מסוכן), עצרו רגעית את minio, הריצו את ה-tar ידנית באותה תבנית
+כמו בפקודת השחזור, והעלו חזרה.
 
 ## תפעול
 
