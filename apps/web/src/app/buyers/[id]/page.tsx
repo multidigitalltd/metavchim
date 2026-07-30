@@ -3,7 +3,7 @@
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
-import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatPrice, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { TimelineSection } from "./timeline-section";
@@ -46,6 +46,22 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notesDraft, setNotesDraft] = useState<string | null>(null);
+  const [notesSaved, setNotesSaved] = useState(false);
+
+  /** עדכון בשלות במקום — הקונה "התחמם"? בחירה אחת והמערכת מסונכרנת. */
+  async function changeMaturity(maturity: string) {
+    await apiPatch(`/buyers/${id}`, { maturity });
+    setBuyer((prev) => (prev ? { ...prev, maturity } : prev));
+  }
+
+  async function saveNotes() {
+    if (notesDraft === null) return;
+    await apiPatch(`/buyers/${id}`, { agentNotes: notesDraft });
+    setBuyer((prev) => (prev ? { ...prev, agentNotes: notesDraft } : prev));
+    setNotesDraft(null);
+    setNotesSaved(true);
+  }
 
   async function shareToNetwork() {
     try {
@@ -89,8 +105,21 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
       <div className="mb-6">
         <h1 className="text-2xl font-bold">{buyer.contact.name}</h1>
         <p style={{ color: "var(--color-text-muted)" }}>
-          <span dir="ltr">{buyer.contact.phone}</span> · {MATURITY_LABELS[buyer.maturity] ?? buyer.maturity} · מקור: {buyer.source}
+          <span dir="ltr">{buyer.contact.phone}</span> · מקור: {buyer.source}
         </p>
+        <label className="mt-2 flex items-center gap-2">
+          <span className="font-medium">בשלות:</span>
+          <select
+            value={buyer.maturity}
+            onChange={(e) => void changeMaturity(e.target.value)}
+            className="rounded-lg border px-3 py-1.5"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)", color: "var(--color-text)" }}
+          >
+            {Object.entries(MATURITY_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <RelatedEntities contactId={buyer.contact.id} exclude={{ kind: "buyer", id: buyer.id }} />
@@ -117,6 +146,44 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
             <dd className="inline">{nices.length > 0 ? nices.map(([k]) => FEATURE_LABELS[k] ?? k).join(", ") : "—"}</dd>
           </div>
         </dl>
+      </section>
+
+      <section
+        aria-labelledby="notes-heading"
+        className="mb-8 rounded-xl border p-4"
+        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+      >
+        <h2 id="notes-heading" className="mb-3 text-lg font-semibold">הערות הסוכן</h2>
+        {notesDraft === null ? (
+          <>
+            <p className="mb-3 whitespace-pre-wrap">
+              {buyer.agentNotes?.trim() ? buyer.agentNotes : <span style={{ color: "var(--color-text-muted)" }}>אין הערות עדיין.</span>}
+            </p>
+            <div className="flex items-center gap-3">
+              <Button variant="secondary" onClick={() => { setNotesSaved(false); setNotesDraft(buyer.agentNotes ?? ""); }}>
+                {buyer.agentNotes?.trim() ? "ערוך הערות" : "הוסף הערות"}
+              </Button>
+              {notesSaved ? <span role="status" style={{ color: "var(--color-success)" }}>✓ נשמר</span> : null}
+            </div>
+          </>
+        ) : (
+          <>
+            <label htmlFor="agentNotes" className="mv-visually-hidden">הערות הסוכן</label>
+            <textarea
+              id="agentNotes"
+              rows={4}
+              maxLength={4000}
+              value={notesDraft}
+              onChange={(e) => setNotesDraft(e.target.value)}
+              className="mb-3 w-full rounded-lg border px-3 py-2.5"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)" }}
+            />
+            <div className="flex gap-3">
+              <Button onClick={() => void saveNotes()}>שמור הערות</Button>
+              <Button variant="ghost" onClick={() => setNotesDraft(null)}>ביטול</Button>
+            </div>
+          </>
+        )}
       </section>
 
       <TimelineSection buyerId={id} />

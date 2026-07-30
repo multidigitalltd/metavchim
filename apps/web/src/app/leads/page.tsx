@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { apiGet } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
+import { CapNote, FilterSelect, ResultsCount, SearchField, textMatches } from "../list-controls";
 
 interface LeadRow {
   id: string;
@@ -22,6 +23,9 @@ export default function LeadsPage() {
   const { loading: authLoading } = useRequireAuth();
   const [items, setItems] = useState<LeadRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("");
+  const [intent, setIntent] = useState("");
 
   useEffect(() => {
     if (authLoading) return;
@@ -33,6 +37,17 @@ export default function LeadsPage() {
       )
       .catch(() => setError("טעינת הלידים נכשלה"));
   }, [authLoading]);
+
+  const visible = useMemo(
+    () =>
+      (items ?? []).filter(
+        (l) =>
+          textMatches(query, l.contact.name, l.contact.phone) &&
+          (!status || l.status === status) &&
+          (!intent || l.intent === intent),
+      ),
+    [items, query, status, intent],
+  );
 
   return (
     <>
@@ -55,8 +70,51 @@ export default function LeadsPage() {
           </p>
         </div>
       ) : (
+        <>
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <SearchField
+              label="חיפוש ליד"
+              placeholder="🔍 שם או טלפון"
+              value={query}
+              onChange={setQuery}
+            />
+            <FilterSelect
+              label="סינון לפי סטטוס"
+              value={status}
+              onChange={setStatus}
+              allLabel="כל הסטטוסים"
+              options={Object.entries(LEAD_STATUS_LABELS)}
+            />
+            <FilterSelect
+              label="סינון לפי כוונה"
+              value={intent}
+              onChange={setIntent}
+              allLabel="כל הכוונות"
+              options={Object.entries(LEAD_INTENT_LABELS)}
+            />
+            <ResultsCount shown={visible.length} total={items.length} noun="לידים" />
+          </div>
+
+          {visible.length === 0 ? (
+            <div
+              className="rounded-xl border p-8 text-center"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+            >
+              <p className="mb-3">אף ליד לא תואם את הסינון.</p>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setQuery("");
+                  setStatus("");
+                  setIntent("");
+                }}
+              >
+                נקה סינון
+              </Button>
+            </div>
+          ) : (
         <ul className="flex flex-col gap-3">
-          {items.map((lead) => (
+          {visible.map((lead) => (
             <li
               key={lead.id}
               className="rounded-xl border p-4"
@@ -90,6 +148,12 @@ export default function LeadsPage() {
             </li>
           ))}
         </ul>
+          )}
+          <CapNote
+            show={(query.trim() !== "" || status !== "" || intent !== "") && items.length === 100}
+            noun="לידים"
+          />
+        </>
       )}
     </>
   );
