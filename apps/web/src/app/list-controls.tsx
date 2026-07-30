@@ -97,6 +97,20 @@ export function ResultsCount(props: { shown: number; total: number; noun: string
   );
 }
 
+/**
+ * הערת גבול — הסינון והמיון המקומיים רואים רק את עמוד ה-API האחרון
+ * (100 פריטים), ולכן פריט ישן שתואם עלול לא להופיע.
+ */
+export function CapNote(props: { show: boolean; noun: string }) {
+  if (!props.show) return null;
+  return (
+    <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+      הסינון והמיון חלים על 100 ה{props.noun} האחרונים בלבד — לחיפוש בכל המאגר
+      השתמשו בחיפוש הכללי.
+    </p>
+  );
+}
+
 /** התאמת טקסט חופשי — השוואה סלחנית ללא רגישות לרווחים/אותיות */
 export function textMatches(query: string, ...fields: (string | undefined)[]): boolean {
   const q = query.trim().toLowerCase();

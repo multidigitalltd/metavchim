@@ -6,7 +6,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet } from "@/lib/api";
 import { formatPrice, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
-import { FilterSelect, ResultsCount, SearchField, textMatches } from "../list-controls";
+import { CapNote, FilterSelect, ResultsCount, SearchField, textMatches } from "../list-controls";
 
 interface BuyerRow {
   id: string;
@@ -167,6 +167,7 @@ export default function BuyersPage() {
           </table>
         </div>
           )}
+          <CapNote show={(query.trim() !== "" || maturity !== "") && items.length === 100} noun="קונים" />
         </>
       )}
     </>

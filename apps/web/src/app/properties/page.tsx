@@ -6,7 +6,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
-import { FilterSelect, ResultsCount, SearchField, SortSelect, textMatches } from "../list-controls";
+import { CapNote, FilterSelect, ResultsCount, SearchField, SortSelect, textMatches } from "../list-controls";
 
 interface PropertyRow {
   id: string;
@@ -72,7 +72,7 @@ export default function PropertiesPage() {
     return sortRows(filtered, sort);
   }, [items, query, status, type, sort]);
 
-  const filtering = query.trim() !== "" || status !== "" || type !== "";
+  const filtering = query.trim() !== "" || status !== "" || type !== "" || sort !== "newest";
 
   return (
     <>
@@ -203,11 +203,7 @@ export default function PropertiesPage() {
               </table>
             </div>
           )}
-          {filtering && items.length === 100 ? (
-            <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-              הסינון חל על 100 הנכסים האחרונים — לחיפוש בכל המאגר השתמשו בחיפוש הכללי.
-            </p>
-          ) : null}
+          <CapNote show={filtering && items.length === 100} noun="נכסים" />
         </>
       )}
     </>

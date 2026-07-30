@@ -7,7 +7,7 @@ import { apiGet } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
-import { FilterSelect, ResultsCount, SearchField, textMatches } from "../list-controls";
+import { CapNote, FilterSelect, ResultsCount, SearchField, textMatches } from "../list-controls";
 
 interface LeadRow {
   id: string;
@@ -149,6 +149,10 @@ export default function LeadsPage() {
           ))}
         </ul>
           )}
+          <CapNote
+            show={(query.trim() !== "" || status !== "" || intent !== "") && items.length === 100}
+            noun="לידים"
+          />
         </>
       )}
     </>
