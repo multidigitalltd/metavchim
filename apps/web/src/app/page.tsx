@@ -217,7 +217,7 @@ export default function DashboardPage() {
                     {p.missingFields.length > 4 ? ` ועוד ${p.missingFields.length - 4}` : ""}
                   </p>
                 </div>
-                <Link href={`/properties/${p.id}`}><Button variant="secondary">השלם פרטים</Button></Link>
+                <Link href={`/properties/${p.id}/edit`}><Button variant="secondary">השלם פרטים</Button></Link>
               </li>
             ))}
             {hotBuyers.map((b) => (

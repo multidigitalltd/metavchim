@@ -3,7 +3,8 @@
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
-import { apiGet, apiPost } from "@/lib/api";
+import { useRouter } from "next/navigation";
+import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import {
   FIELD_LABELS,
   formatDate,
@@ -69,7 +70,10 @@ function scoreLabel(score: number): string {
 export default function PropertyDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { loading: authLoading } = useRequireAuth();
+  const router = useRouter();
   const [property, setProperty] = useState<PropertyDetail | null>(null);
+  const [archiveConfirm, setArchiveConfirm] = useState(false);
+  const [statusSaving, setStatusSaving] = useState(false);
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
   const [copiedFor, setCopiedFor] = useState<string | null>(null);
@@ -112,6 +116,27 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   async function sendOwnerUpdate() {
     const { waUrl } = await apiPost<{ waUrl: string }>(`/properties/${id}/owner-update`, {});
     window.open(waUrl, "_blank", "noopener");
+  }
+
+  /** שינוי סטטוס (פעיל/בהמתנה/נמכר…) ישירות מהכרטיס — בלי להיכנס לעריכה. */
+  async function changeStatus(status: string) {
+    setStatusSaving(true);
+    try {
+      await apiPatch(`/properties/${id}`, { status });
+      setProperty((prev) => (prev ? { ...prev, status } : prev));
+    } finally {
+      setStatusSaving(false);
+    }
+  }
+
+  /** ארכוב בשני שלבים — לחיצה ראשונה מבקשת אישור, שנייה מבצעת. */
+  async function archive() {
+    if (!archiveConfirm) {
+      setArchiveConfirm(true);
+      return;
+    }
+    await apiDelete(`/properties/${id}`);
+    router.replace("/properties");
   }
 
   /** שליחה מרובה בשני שלבים — אישור מפורש לפני יצירת הצעות (אפיון §10). */
@@ -161,7 +186,7 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
         <span>{address || "נכס"}</span>
       </nav>
 
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">{property.marketingTitle ?? address}</h1>
           <p style={{ color: "var(--color-text-muted)" }}>
@@ -169,6 +194,34 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
           </p>
         </div>
         <p className="text-2xl font-bold">{formatPrice(property.priceAgorot)}</p>
+      </div>
+
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        <Link href={`/properties/${id}/edit`}>
+          <Button variant="secondary">✏️ ערוך פרטים</Button>
+        </Link>
+        <label className="flex items-center gap-2">
+          <span className="mv-visually-hidden">שינוי סטטוס הנכס</span>
+          <select
+            value={property.status}
+            disabled={statusSaving}
+            onChange={(e) => void changeStatus(e.target.value)}
+            className="rounded-lg border px-3 py-2"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)", color: "var(--color-text)" }}
+          >
+            {Object.entries(STATUS_LABELS)
+              .filter(([value]) => value !== "archived")
+              .map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+          </select>
+        </label>
+        <Button variant={archiveConfirm ? "danger" : "ghost"} onClick={() => void archive()}>
+          {archiveConfirm ? "לאשר העברה לארכיון?" : "🗄️ העבר לארכיון"}
+        </Button>
+        {archiveConfirm ? (
+          <Button variant="ghost" onClick={() => setArchiveConfirm(false)}>ביטול</Button>
+        ) : null}
       </div>
 
       <MediaSection propertyId={id} address={address} />
