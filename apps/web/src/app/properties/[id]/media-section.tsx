@@ -152,9 +152,9 @@ export function MediaSection({ propertyId, address }: { propertyId: string; addr
               className="overflow-hidden rounded-xl border"
               style={{ borderColor: index === 0 ? "var(--color-primary)" : "var(--color-border)" }}
             >
-              {/* img רגיל בכוונה: URL חתום זמני מהאחסון, לא לאופטימיזציית Next */}
+              {/* img רגיל בכוונה: מוזרם דרך ה-API (העוגייה נשלחת same-site) */}
               <img
-                src={m.url}
+                src={API_BASE + m.url}
                 alt={m.altText ?? `תמונה ${index + 1} של ${address || "הנכס"}`}
                 className="h-36 w-full object-cover"
               />

@@ -23,6 +23,11 @@ export interface MediaDto {
 const MAX_IMAGES_PER_PROPERTY = 20;
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10MB
 
+/** נתיב הזרמת התמונה יחסית לבסיס ה-API — הלקוח מרכיב את ה-URL המלא */
+export function mediaRawPath(propertyId: string, mediaId: string): string {
+  return `/properties/${propertyId}/media/${mediaId}/raw`;
+}
+
 /** זיהוי סוג תמונה לפי Magic Bytes — לא סומכים על ה-Content-Type של הלקוח. */
 function sniffImageType(buf: Buffer): { ext: string; mime: string } | null {
   if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
@@ -143,8 +148,28 @@ export class MediaService {
       kind: "image",
       altText,
       sortOrder: assignedOrder,
-      url: await this.storage.signedGetUrl(s3Key),
+      url: mediaRawPath(propertyId, id),
     };
+  }
+
+  /**
+   * הזרמת התמונה עצמה דרך ה-API — הדפדפן לא מדבר עם שרת האחסון ישירות
+   * (בפרודקשן MinIO חי על רשת פנימית של compose, בלי כתובת ציבורית;
+   * URL חתום שנוצר מולו לא נגיש מהדפדפן — ביקורת Codex).
+   */
+  async getRaw(
+    propertyId: string,
+    mediaId: string,
+  ): Promise<{ body: NodeJS.ReadableStream; contentType?: string; contentLength?: number }> {
+    const tenantId = TenantContext.current().tenantId;
+    const row = await this.prisma.withTenant((tx) =>
+      tx.propertyMedia.findFirst({
+        where: { id: mediaId, tenantId, propertyId },
+        select: { s3Key: true },
+      }),
+    );
+    if (!row) throw new NotFoundException("תמונה לא נמצאה");
+    return this.storage.getObject(row.s3Key);
   }
 
   async list(propertyId: string): Promise<MediaDto[]> {
@@ -160,20 +185,18 @@ export class MediaService {
         orderBy: { sortOrder: "asc" },
       });
     });
-    return Promise.all(
-      rows.map(async (r) => ({
-        id: r.id,
-        kind: r.kind,
-        altText: r.altText ?? undefined,
-        sortOrder: r.sortOrder,
-        url: await this.storage.signedGetUrl(r.s3Key),
-      })),
-    );
+    return rows.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      altText: r.altText ?? undefined,
+      sortOrder: r.sortOrder,
+      url: mediaRawPath(propertyId, r.id),
+    }));
   }
 
   async remove(propertyId: string, mediaId: string): Promise<void> {
     const tenantId = TenantContext.current().tenantId;
-    const s3Key = await this.prisma.withTenant(async (tx) => {
+    const { s3Key, referencedByOffer } = await this.prisma.withTenant(async (tx) => {
       const row = await tx.propertyMedia.findFirst({
         where: { id: mediaId, tenantId, propertyId },
         select: { s3Key: true },
@@ -185,8 +208,18 @@ export class MediaService {
         entityType: "property",
         entityId: propertyId,
       });
-      return row.s3Key;
+      // הצעה חיה מפנה לתמונה ב-snapshot שלה? האובייקט נשאר עד שתפוג —
+      // אחרת דף ההצעה אצל הקונה נשבר (ביקורת Codex). הרשומה נמחקת כרגיל.
+      const referencing = await tx.$queryRaw<{ exists: boolean }[]>`
+        SELECT EXISTS (
+          SELECT 1 FROM offers
+          WHERE tenant_id = ${tenantId}
+            AND token_expires > now()
+            AND presentation -> 'media' @> ${JSON.stringify([{ key: row.s3Key }])}::jsonb
+        ) AS "exists"`;
+      return { s3Key: row.s3Key, referencedByOffer: referencing[0]?.exists ?? false };
     });
+    if (referencedByOffer) return;
     // מחיקת האובייקט אחרי הטרנזקציה — כשל זמני מנותב לניסיון חוזר עמיד
     // דרך Outbox → תור low; לעולם לא רשומה שמצביעה לכלום.
     await this.deleteObjectDurably(s3Key);

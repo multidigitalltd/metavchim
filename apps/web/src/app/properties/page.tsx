@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
-import { apiGet } from "@/lib/api";
+import { API_BASE, apiGet } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { CapNote, FilterSelect, ResultsCount, SearchField, SortSelect, textMatches } from "../list-controls";
@@ -179,9 +179,9 @@ export default function PropertiesPage() {
                     <tr key={p.id} className="border-t" style={{ borderColor: "var(--color-border)" }}>
                       <td className="p-2" style={{ width: "72px" }}>
                         {p.thumbnailUrl ? (
-                          // img רגיל בכוונה: URL חתום זמני מהאחסון, לא לאופטימיזציית Next
+                          // img רגיל בכוונה: מוזרם דרך ה-API, לא לאופטימיזציית Next
                           <img
-                            src={p.thumbnailUrl}
+                            src={API_BASE + p.thumbnailUrl}
                             alt=""
                             className="h-12 w-16 rounded-lg object-cover"
                           />

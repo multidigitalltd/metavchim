@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use } from "react";
 import { Button } from "@metavchim/ui";
-import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { API_BASE, apiGet, apiPost, ApiError } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
 
 /**
@@ -24,6 +24,7 @@ interface PublicOffer {
     agencyName: string;
   };
   status: string;
+  images: { url: string; alt?: string }[];
 }
 
 export default function PublicOfferPage({ params }: { params: Promise<{ token: string }> }) {
@@ -87,6 +88,31 @@ export default function PublicOfferPage({ params }: { params: Promise<{ token: s
       <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
         {[p.neighborhood, p.city].filter(Boolean).join(", ")}
       </p>
+
+      {offer.images.length > 0 ? (
+        <div className="mb-6">
+          {/* img רגיל בכוונה: מוזרם דרך ה-API — ציבורי לפי טוקן */}
+          <img
+            src={API_BASE + offer.images[0]!.url}
+            alt={offer.images[0]!.alt ?? p.title}
+            className="mb-2 h-64 w-full rounded-xl object-cover"
+          />
+          {offer.images.length > 1 ? (
+            <ul className="grid grid-cols-3 gap-2 sm:grid-cols-5" aria-label="תמונות נוספות">
+              {offer.images.slice(1).map((image, index) => (
+                <li key={image.url}>
+                  <img
+                    src={API_BASE + image.url}
+                    alt={image.alt ?? `תמונה ${index + 2} של הנכס`}
+                    loading="lazy"
+                    className="h-20 w-full rounded-lg object-cover"
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
 
       <p className="mb-6 text-3xl font-bold">{formatPrice(p.priceAgorot)}</p>
 
