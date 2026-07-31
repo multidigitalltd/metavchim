@@ -65,6 +65,12 @@ export class StorageService implements OnModuleInit {
     });
   }
 
+  /** האם השגיאה היא "האובייקט לא קיים" — להבדיל מכשל תשתית זמני. */
+  static isMissingObjectError(error: unknown): boolean {
+    const e = error as { name?: string; $metadata?: { httpStatusCode?: number } };
+    return e?.name === "NoSuchKey" || e?.$metadata?.httpStatusCode === 404;
+  }
+
   /**
    * קריאת אובייקט להזרמה דרך ה-API — הדפדפן לא מדבר עם שרת האחסון
    * ישירות (בפרודקשן MinIO על רשת פנימית בלבד, ללא כתובת ציבורית).

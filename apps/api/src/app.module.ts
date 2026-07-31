@@ -2,6 +2,7 @@ import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { AuthGuard } from "./common/auth.guard";
+import { FloodMiddleware } from "./common/flood.middleware";
 import { SessionMiddleware } from "./common/session.middleware";
 import { CoreModule } from "./core/core.module";
 import { AuthModule } from "./modules/auth/auth.module";
@@ -66,6 +67,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(SessionMiddleware).forRoutes("*");
+    // בלם ההצפה קודם — מקור חסום לא מגיע לפענוח session (שאילתת DB)
+    consumer.apply(FloodMiddleware, SessionMiddleware).forRoutes("*");
   }
 }

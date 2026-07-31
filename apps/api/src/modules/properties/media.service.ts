@@ -171,9 +171,13 @@ export class MediaService {
     if (!row) throw new NotFoundException("תמונה לא נמצאה");
     try {
       return await this.storage.getObject(row.s3Key);
-    } catch {
-      // רשומה קיימת אך האובייקט חסר באחסון — 404 ולא 500
-      throw new NotFoundException("התמונה לא נמצאה באחסון");
+    } catch (error) {
+      // רק "האובייקט לא קיים" ממופה ל-404; כשל תשתית זמני נשאר 500
+      // כדי לא להתקבע בקאש כתמונה חסרה (ביקורת Codex)
+      if (StorageService.isMissingObjectError(error)) {
+        throw new NotFoundException("התמונה לא נמצאה באחסון");
+      }
+      throw error;
     }
   }
 
