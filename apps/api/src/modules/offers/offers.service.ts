@@ -255,7 +255,12 @@ export class OffersService {
       if (!entry) throw new NotFoundException("התמונה לא נמצאה");
       return entry.key;
     });
-    return this.storage.getObject(key);
+    try {
+      return await this.storage.getObject(key);
+    } catch {
+      // snapshot מפנה לאובייקט שכבר לא קיים — 404 ולא 500
+      throw new NotFoundException("התמונה לא נמצאה באחסון");
+    }
   }
 
   /** תגובת הקונה מהדף הציבורי: מעוניין / לא רלוונטי. */

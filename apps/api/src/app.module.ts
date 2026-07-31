@@ -1,5 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
+import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { AuthGuard } from "./common/auth.guard";
 import { SessionMiddleware } from "./common/session.middleware";
 import { CoreModule } from "./core/core.module";
@@ -32,6 +33,9 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
  */
 @Module({
   imports: [
+    // הגבלת קצב גלובלית — רשת ביטחון מול הצפה; נתיבים רגישים (login)
+    // מקבלים מגבלה הדוקה משלהם עם @Throttle. ה-IP נלקח אחרי trust proxy.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     CoreModule,
     AuthModule,
     HealthModule,
@@ -55,7 +59,10 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     TasksModule,
     ExportModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: AuthGuard },
+  ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {

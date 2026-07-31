@@ -169,7 +169,12 @@ export class MediaService {
       }),
     );
     if (!row) throw new NotFoundException("תמונה לא נמצאה");
-    return this.storage.getObject(row.s3Key);
+    try {
+      return await this.storage.getObject(row.s3Key);
+    } catch {
+      // רשומה קיימת אך האובייקט חסר באחסון — 404 ולא 500
+      throw new NotFoundException("התמונה לא נמצאה באחסון");
+    }
   }
 
   async list(propertyId: string): Promise<MediaDto[]> {
