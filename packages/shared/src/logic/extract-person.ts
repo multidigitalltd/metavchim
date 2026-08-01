@@ -125,7 +125,11 @@ export function extractPersonFromTranscript(transcript: string): PersonExtractio
   } else if (/רוצה להשכיר|משכיר|להשכרה שלו/u.test(text)) {
     person.intent = "rent_out";
     evidence.intent = "משכיר";
-  } else if (/מחפש להשכיר|מחפש לשכור|רוצה לשכור|שוכר|שכירות/u.test(text)) {
+  } else if (
+    /מחפש להשכיר|מחפש לשכור|רוצה לשכור|שוכר|שכירות/u.test(text) ||
+    // "מחפש דירה להשכרה" — ביקוש לשכירות, לא היצע (ביקורת Codex)
+    /(?:מחפש|מחפשת|מעוניין|מעוניינת|צריך|צריכה)[^,.]{0,20}להשכרה/u.test(text)
+  ) {
     person.intent = "rent_in";
     person.dealType = "rent";
     evidence.intent = "שוכר";
@@ -223,6 +227,11 @@ export function extractPersonFromTranscript(transcript: string): PersonExtractio
     ["מחסן", "hasStorage"],
   ];
   for (const [word, field] of featureMap) {
+    // שלילה מפורשת ⇒ לא דרישה כלל. "בלי מעלית"/"לא צריך חניה" לא
+    // הופכים לדרישה שתשפיע על ציון ההתאמה (ביקורת Codex)
+    const negated = new RegExp(`(?:בלי|ללא|אין|לא\\s+צריך|לא\\s+חייב|לא\\s+חשוב|לא\\s+מעניין)\\s+(?:[^,.]{0,12}\\s)?${word}`, "u").test(text);
+    if (negated) continue;
+
     if (new RegExp(`(?:חייב|חייבת|הכרחי|חובה)\\s+(?:[^,.]{0,12}\\s)?${word}`, "u").test(text)) {
       person.features[field] = "must";
     } else if (new RegExp(`(?:רוצה|מעדיף|מעדיפה|עדיף|רצוי|כדאי)\\s+(?:[^,.]{0,12}\\s)?${word}`, "u").test(text)) {

@@ -28,7 +28,10 @@ interface RouteResult {
   matched?: string;
   query?: string;
   content: string;
+  appointment?: { startsAt?: string; timeExplicit: boolean; kind: string };
 }
+
+const dateTimeFmt = new Intl.DateTimeFormat("he-IL", { dateStyle: "full", timeStyle: "short" });
 
 export default function VoiceCommandPage() {
   const { loading: authLoading } = useRequireAuth();
@@ -69,9 +72,13 @@ export default function VoiceCommandPage() {
       case "add_lead":
         router.push(`/leads/voice?t=${content}`);
         break;
-      case "schedule_appointment":
-        router.push(`/calendar/new?notes=${content}`);
+      case "schedule_appointment": {
+        const params = new URLSearchParams({ notes: route.content || transcript.trim() });
+        if (route.appointment?.startsAt) params.set("startsAt", route.appointment.startsAt);
+        if (route.appointment?.kind) params.set("kind", route.appointment.kind);
+        router.push(`/calendar/new?${params.toString()}`);
         break;
+      }
       case "search":
         router.push(`/search?q=${encodeURIComponent(route.query ?? route.content)}`);
         break;
@@ -129,11 +136,25 @@ export default function VoiceCommandPage() {
             </p>
           ) : (
             <>
-              <p className="mb-3" style={{ color: "var(--color-text-muted)" }}>
+              <p className="mb-1" style={{ color: "var(--color-text-muted)" }}>
                 {route.action === "search"
                   ? `חיפוש: ${route.query || route.content}`
                   : route.content}
               </p>
+              {route.appointment?.startsAt ? (
+                <p className="mb-3 font-medium">
+                  📅 {dateTimeFmt.format(new Date(route.appointment.startsAt))}
+                  {route.appointment.timeExplicit ? null : (
+                    <span className="font-normal" style={{ color: "var(--color-text-muted)" }}>
+                      {" "}(שעה לא נאמרה — נבחרה 10:00, אפשר לשנות)
+                    </span>
+                  )}
+                </p>
+              ) : route.action === "schedule_appointment" ? (
+                <p className="mb-3" style={{ color: "var(--color-text-muted)" }}>
+                  לא זוהה תאריך — תבחרו אותו במסך הבא.
+                </p>
+              ) : null}
               <Button onClick={proceed}>המשך →</Button>
             </>
           )}

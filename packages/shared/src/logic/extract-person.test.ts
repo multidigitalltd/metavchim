@@ -53,6 +53,18 @@ describe("extractPersonFromTranscript", () => {
     expect(person.maturity).toBe("not_ripe");
   });
 
+  it("'מחפש דירה להשכרה' הוא ביקוש לשכירות ולא מכירה", () => {
+    const { person } = extractPersonFromTranscript("לקוח מחפש דירה להשכרה בחיפה");
+    expect(person.intent).toBe("rent_in");
+    expect(person.dealType).toBe("rent");
+  });
+
+  it("מאפיין שנשלל אינו הופך לדרישה", () => {
+    const { person } = extractPersonFromTranscript("מחפש דירה בלי מעלית, לא צריך חניה");
+    expect(person.features.hasElevator).toBeUndefined();
+    expect(person.features.hasParking).toBeUndefined();
+  });
+
   it("תמלול ריק מחזיר כוונה לא ידועה בלי לזרוק", () => {
     const { person } = extractPersonFromTranscript("");
     expect(person.intent).toBe("unknown");

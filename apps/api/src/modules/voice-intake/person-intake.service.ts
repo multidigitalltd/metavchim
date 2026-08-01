@@ -51,7 +51,8 @@ export class PersonIntakeService {
     const result = await this.leads.create({
       contactName: input.name,
       contactPhone: input.phone,
-      source: "manual",
+      // המקור האמיתי: המתווך תיעד שיחה בקול, לא מילא טופס (ביקורת Codex)
+      source: "voice_call",
       intent: input.intent,
       summary: input.transcript.slice(0, 2000),
     });
@@ -75,13 +76,19 @@ export class PersonIntakeService {
     agentNotes?: string;
   }): Promise<BuyerDto> {
     if (input.cities.length === 0) throw new BadRequestException("חסרה עיר מבוקשת");
+    // התמלול המלא נשמר כהערות הסוכן — פרטים שהחילוץ לא מכסה (שכונות,
+    // תזמון, הקשר חופשי) לא הולכים לאיבוד (ביקורת Codex)
+    const agentNotes = [input.agentNotes, `נקלט בקול: ${input.transcript}`]
+      .filter(Boolean)
+      .join("\n")
+      .slice(0, 4000);
     return this.buyers.create({
       contactName: input.name,
       contactPhone: input.phone,
       source: "voice",
+      agentNotes,
       ...(input.maturity !== undefined ? { maturity: input.maturity } : {}),
       ...(input.financing !== undefined ? { financing: input.financing } : {}),
-      ...(input.agentNotes !== undefined ? { agentNotes: input.agentNotes } : {}),
       requirements: {
         cities: input.cities,
         neighborhoods: [],

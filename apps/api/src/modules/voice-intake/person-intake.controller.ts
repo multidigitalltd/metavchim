@@ -4,6 +4,8 @@ import {
   BuyerMaturitySchema,
   FinancingStatusSchema,
   LeadIntentSchema,
+  parseAppointmentKind,
+  parseHebrewDateTime,
   PhoneSchema,
   routeVoiceCommand,
   stripCommandPrefix,
@@ -71,10 +73,23 @@ export class PersonIntakeController {
   @RequireCapability("properties.view")
   route(
     @Body(new ZodValidationPipe(TranscriptSchema)) body: z.infer<typeof TranscriptSchema>,
-  ): VoiceCommand & { content: string } {
+  ): VoiceCommand & {
+    content: string;
+    /** לפגישה: התאריך והסוג שזוהו — למילוי מראש של הטופס */
+    appointment?: { startsAt?: string; timeExplicit: boolean; kind: string };
+  } {
+    const command = routeVoiceCommand(body.transcript);
+    const base = { ...command, content: stripCommandPrefix(body.transcript) };
+    if (command.action !== "schedule_appointment") return base;
+
+    const parsed = parseHebrewDateTime(body.transcript, new Date());
     return {
-      ...routeVoiceCommand(body.transcript),
-      content: stripCommandPrefix(body.transcript),
+      ...base,
+      appointment: {
+        ...(parsed.date ? { startsAt: parsed.date.toISOString() } : {}),
+        timeExplicit: parsed.timeExplicit,
+        kind: parseAppointmentKind(body.transcript),
+      },
     };
   }
 

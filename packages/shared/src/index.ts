@@ -11,6 +11,7 @@ export * from "./logic/matching.js";
 export * from "./logic/extract-property.js";
 export * from "./logic/extract-person.js";
 export * from "./logic/voice-command.js";
+export * from "./logic/parse-hebrew-datetime.js";
 export * from "./logic/notifications.js";
 export * from "./logic/coach.js";
 export * from "./logic/csv-import.js";
