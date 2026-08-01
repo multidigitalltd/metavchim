@@ -6,6 +6,7 @@ import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { ExportSection } from "./export-section";
+import { LeadWebhookSection } from "./lead-webhook-section";
 import { SystemUpdateSection } from "./system-update";
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
@@ -81,7 +82,12 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
 
 export default function SettingsPage() {
   const { user, loading: authLoading } = useRequireAuth();
-  const [tenant, setTenant] = useState<{ name: string; whatsappNumber?: string; plan: string } | null>(null);
+  const [tenant, setTenant] = useState<{
+    name: string;
+    whatsappNumber?: string;
+    plan: string;
+    leadWebhookKey?: string;
+  } | null>(null);
   const [team, setTeam] = useState<TeamUser[]>([]);
   const [audit, setAudit] = useState<AuditRow[]>([]);
   const [message, setMessage] = useState<string | null>(null);
@@ -89,7 +95,7 @@ export default function SettingsPage() {
   const [forbidden, setForbidden] = useState(false);
 
   const load = useCallback(() => {
-    apiGet<{ name: string; whatsappNumber?: string; plan: string }>("/settings/tenant")
+    apiGet<{ name: string; whatsappNumber?: string; plan: string; leadWebhookKey?: string }>("/settings/tenant")
       .then(setTenant)
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 403) setForbidden(true);
@@ -282,6 +288,8 @@ export default function SettingsPage() {
           <Button type="submit">➕ הוסף איש צוות</Button>
         </form>
       </section>
+
+      {tenant ? <LeadWebhookSection initialKey={tenant.leadWebhookKey} /> : null}
 
       <ExportSection />
 

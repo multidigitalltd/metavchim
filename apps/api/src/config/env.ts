@@ -55,6 +55,19 @@ const EnvSchema = z.object({
   UPDATER_URL: z.string().url().optional(),
   /** סוד משותף מול סוכן העדכון — חובה יחד עם UPDATER_URL. */
   UPDATE_SECRET: z.string().min(24).optional(),
+  /**
+   * אימיילים (מופרדים בפסיק) של מנהלי הפלטפורמה — מי שמקים משרדים
+   * חדשים מהממשק (/platform). ריק = המסך כבוי, הקמה רק ב-bootstrap.
+   */
+  PLATFORM_ADMIN_EMAILS: z
+    .string()
+    .default("")
+    .transform((v) =>
+      v
+        .split(",")
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean),
+    ),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

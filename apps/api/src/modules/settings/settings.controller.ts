@@ -70,7 +70,12 @@ export class SettingsController {
 
   @Get("tenant")
   @RequireCapability("settings.manage")
-  async tenant(): Promise<{ name: string; whatsappNumber?: string; plan: string }> {
+  async tenant(): Promise<{
+    name: string;
+    whatsappNumber?: string;
+    plan: string;
+    leadWebhookKey?: string;
+  }> {
     const tenantId = TenantContext.current().tenantId;
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
@@ -82,7 +87,39 @@ export class SettingsController {
       whatsappNumber:
         typeof settings["whatsappNumber"] === "string" ? settings["whatsappNumber"] : undefined,
       plan: tenant?.plan ?? "basic",
+      leadWebhookKey:
+        typeof settings["leadWebhookKey"] === "string" ? settings["leadWebhookKey"] : undefined,
     };
+  }
+
+  /**
+   * הפעלה/חידוש של מפתח קליטת הלידים מהאתר — מזהה את המשרד בנקודת
+   * הקצה הציבורית ‎/public/leads/:key. חידוש מבטל את המפתח הקודם
+   * (טופס ישן באתר יפסיק לעבוד עד עדכון).
+   */
+  @Post("lead-webhook")
+  @RequireCapability("settings.manage")
+  async regenerateLeadWebhook(): Promise<{ key: string }> {
+    const tenantId = TenantContext.current().tenantId;
+    const key = randomBytes(24).toString("base64url"); // 32 תווים
+    const current = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    const settings = { ...((current?.settings ?? {}) as Record<string, unknown>) };
+    settings["leadWebhookKey"] = key;
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: { settings: settings as object },
+    });
+    await this.prisma.withTenant((tx) =>
+      this.audit.record(tx, {
+        action: "settings.lead_webhook_regenerate",
+        entityType: "tenant",
+        entityId: tenantId,
+      }),
+    );
+    return { key };
   }
 
   @Patch("tenant")

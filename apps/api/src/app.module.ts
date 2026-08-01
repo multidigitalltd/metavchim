@@ -21,6 +21,7 @@ import { MatchingModule } from "./modules/matching/matching.module";
 import { MessagingModule } from "./modules/messaging/messaging.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { OffersModule } from "./modules/offers/offers.module";
+import { PlatformModule } from "./modules/platform/platform.module";
 import { PropertiesModule } from "./modules/properties/properties.module";
 import { SearchModule } from "./modules/search/search.module";
 import { SettingsModule } from "./modules/settings/settings.module";
@@ -45,6 +46,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     BuyersModule,
     MatchingModule,
     OffersModule,
+    PlatformModule,
     LeadsModule,
     VoiceIntakeModule,
     NotificationsModule,
