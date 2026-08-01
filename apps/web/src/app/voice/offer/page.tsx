@@ -37,7 +37,7 @@ function OfferVoiceContent() {
   const [error, setError] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [sent, setSent] = useState<{ matchId: string; url: string } | null>(null);
+  const [sent, setSent] = useState<{ matchId: string; url: string; waUrl: string } | null>(null);
 
   useEffect(() => {
     if (authLoading || transcript.trim() === "") return;
@@ -48,7 +48,11 @@ function OfferVoiceContent() {
       });
   }, [authLoading, transcript]);
 
-  /** שלב 1: יצירת ההצעה. שלב 2 (השליחה בוואטסאפ) בלחיצה נפרדת. */
+  /**
+   * יצירת ההצעה והכנת הודעת הוואטסאפ. הפתיחה עצמה היא קישור שהמתווך
+   * לוחץ עליו — window.open אחרי שתי קריאות רשת נחסם בדפדפנים שדורשים
+   * מחוות משתמש טרייה, והמתווך היה נשאר בלי דרך לשלוח (ביקורת Codex).
+   */
   async function createOffer(candidate: OfferCandidate) {
     setBusy(true);
     setError(null);
@@ -57,8 +61,7 @@ function OfferVoiceContent() {
         matchId: candidate.matchId,
       });
       const { waUrl } = await apiPost<{ waUrl: string }>(`/offers/${offer.id}/whatsapp`, {});
-      setSent({ matchId: candidate.matchId, url: offer.url });
-      window.open(waUrl, "_blank", "noopener");
+      setSent({ matchId: candidate.matchId, url: offer.url, waUrl });
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "יצירת ההצעה נכשלה");
     } finally {
@@ -87,11 +90,14 @@ function OfferVoiceContent() {
 
       {sent ? (
         <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-success)", background: "var(--color-surface)" }}>
-          <p className="mb-2 font-semibold" style={{ color: "var(--color-success)" }}>
-            ✓ ההצעה נוצרה והוואטסאפ נפתח
+          <p className="mb-3 font-semibold" style={{ color: "var(--color-success)" }}>
+            ✓ ההצעה מוכנה — נותר לשלוח
           </p>
-          <p className="mb-2" style={{ color: "var(--color-text-muted)" }}>
-            אם החלון לא נפתח, אפשר להעתיק את הקישור:
+          <a href={sent.waUrl} target="_blank" rel="noreferrer" className="no-underline">
+            <Button>📲 פתח וואטסאפ עם ההודעה</Button>
+          </a>
+          <p className="mt-3 mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            או העתיקו את קישור ההצעה ושלחו בכל דרך:
           </p>
           <p className="overflow-x-auto rounded-lg border p-2 font-mono text-sm" dir="ltr" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
             {sent.url}
@@ -140,7 +146,7 @@ function OfferVoiceContent() {
               </p>
 
               {sent?.matchId === c.matchId ? (
-                <p className="font-medium" style={{ color: "var(--color-success)" }}>✓ נשלח</p>
+                <p className="font-medium" style={{ color: "var(--color-success)" }}>✓ ההצעה נוצרה</p>
               ) : c.alreadyOffered ? (
                 <p style={{ color: "var(--color-text-muted)" }}>
                   כבר נשלחה הצעה על ההתאמה הזו —{" "}

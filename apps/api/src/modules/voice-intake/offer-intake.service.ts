@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { MatchingService } from "../matching/matching.service";
+import { PropertiesService } from "../properties/properties.service";
 import { SearchService } from "../search/search.service";
 
 /**
@@ -47,7 +48,22 @@ export class OfferIntakeService {
   constructor(
     private readonly search: SearchService,
     private readonly matching: MatchingService,
+    private readonly properties: PropertiesService,
   ) {}
+
+  /** תווית נכס לתצוגה במסלול "רק קונה זוהה". */
+  private async propertyLabelById(propertyId: string): Promise<string> {
+    try {
+      const property = await this.properties.getById(propertyId);
+      return (
+        property.marketingTitle ??
+        [property.street, property.neighborhood, property.city].filter(Boolean).join(", ") ??
+        "נכס"
+      );
+    } catch {
+      return "נכס";
+    }
+  }
 
   /**
    * מזהה נכס + קונה מהדיבור ומחזיר את ההתאמות ביניהם. כשרק אחד הצדדים
@@ -80,47 +96,54 @@ export class OfferIntakeService {
     const buyerNameById = new Map(buyers.map((b) => [b.id, b.name]));
     const propertyLabelById = new Map(properties.map((p) => [p.id, propertyLabel(p)]));
 
-    // רשימת ההתאמות המועשרת (כוללת כתובת נכס ושם קונה) — מקור אחד
-    // לשני המסלולים, במקום שאילתה פר ישות
-    const enriched = await this.matching.listAll({ minScore: 50, limit: 100 });
-
-    // מסלול א': זוהה נכס — ההתאמות שלו, מסוננות לקונה שנאמר (אם נאמר)
-    for (const match of enriched) {
-      if (!propertyLabelById.has(match.propertyId)) continue;
-      if (buyerIds.size > 0 && !buyerIds.has(match.buyerId)) continue;
-      candidates.push({
-        propertyId: match.propertyId,
-        propertyLabel: propertyLabelById.get(match.propertyId) ?? match.property.address,
-        buyerId: match.buyerId,
-        buyerLabel: buyerNameById.get(match.buyerId) ?? match.buyerName ?? "קונה",
-        matchId: match.id,
-        score: match.score,
-        explanation: match.explanation,
-        alreadyOffered: match.status === "offered",
-      });
-    }
-
-    // מסלול ב': זוהה רק קונה — ההתאמות שלו, כדי לבחור נכס
-    if (candidates.length === 0 && buyerIds.size > 0) {
-      for (const match of enriched) {
-        if (!buyerIds.has(match.buyerId)) continue;
-        candidates.push({
-          propertyId: match.propertyId,
-          propertyLabel: match.property.title ?? match.property.address,
-          buyerId: match.buyerId,
-          buyerLabel: buyerNameById.get(match.buyerId) ?? "קונה",
-          matchId: match.id,
-          score: match.score,
-          explanation: match.explanation,
-          alreadyOffered: match.status === "offered",
-        });
+    // שאילתה ממוקדת לישויות שזוהו — לא חיתוך של 100 ההתאמות המובילות
+    // במשרד, שהיה מפספס התאמה אמיתית במשרד עמוס (ביקורת Codex)
+    if (properties.length > 0) {
+      // מסלול א': זוהה נכס — ההתאמות שלו, מסוננות לקונה שנאמר (אם נאמר)
+      for (const property of properties.slice(0, 3)) {
+        const matches = await this.matching.listForProperty(property.id);
+        for (const match of matches) {
+          if (buyerIds.size > 0 && !buyerIds.has(match.buyerId)) continue;
+          candidates.push({
+            propertyId: property.id,
+            propertyLabel: propertyLabelById.get(property.id) ?? "נכס",
+            buyerId: match.buyerId,
+            buyerLabel: buyerNameById.get(match.buyerId) ?? "קונה",
+            matchId: match.id,
+            score: match.score,
+            explanation: match.explanation,
+            alreadyOffered: match.status === "offered",
+          });
+        }
+      }
+    } else if (buyers.length > 0) {
+      // מסלול ב': *רק* קונה זוהה — ההתאמות שלו, כדי לבחור נכס.
+      // כשגם נכס נאמר אך אין ביניהם התאמה, לא מציעים נכס אחר בטעות
+      // (ביקורת Codex) — מוחזרת רשימה ריקה עם הערה.
+      for (const buyer of buyers.slice(0, 3)) {
+        const matches = await this.matching.listForBuyer(buyer.id);
+        for (const match of matches) {
+          const label = await this.propertyLabelById(match.propertyId);
+          candidates.push({
+            propertyId: match.propertyId,
+            propertyLabel: label,
+            buyerId: buyer.id,
+            buyerLabel: buyer.name,
+            matchId: match.id,
+            score: match.score,
+            explanation: match.explanation,
+            alreadyOffered: match.status === "offered",
+          });
+        }
       }
     }
 
     candidates.sort((a, b) => b.score - a.score);
     const note =
       candidates.length === 0
-        ? "לא נמצאה התאמה בין הנכס לקונה שזוהו — אפשר לשלוח מכרטיס הנכס"
+        ? properties.length > 0 && buyers.length > 0
+          ? "הנכס והקונה זוהו, אבל אין ביניהם התאמה — אפשר לשלוח ידנית מכרטיס הנכס"
+          : "לא נמצאה התאמה מתאימה — אפשר לשלוח מכרטיס הנכס"
         : undefined;
 
     return { candidates: candidates.slice(0, 10), unresolved, ...(note ? { note } : {}) };
