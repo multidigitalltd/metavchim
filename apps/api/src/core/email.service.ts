@@ -1,31 +1,35 @@
 import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { loadEnv } from "../config/env";
+import { PlatformSettingsService } from "./platform-settings.service";
 
 /**
  * שליחת אימייל — שכבת הפשטה (docs/05 §0): הליבה לא מכירה ספק.
- * הספק המחובר: Postmark (POSTMARK_SERVER_TOKEN + EMAIL_FROM).
- * בלי הגדרות — Fallback ללוג בלבד; פיצ'רים שדורשים אימייל בפועל
- * (אימות כניסה, איפוס סיסמה) בודקים את providerConfigured.
+ * הספק המחובר: Postmark. ההגדרות נקראות קודם מהגדרות הפלטפורמה
+ * (מסך /platform, מוצפן ב-DB) ואם אינן שם — ממשתני הסביבה.
+ * בלי הגדרות כלל — Fallback ללוג; פיצ'רים שדורשים אימייל בפועל
+ * (אימות כניסה) בודקים את isConfigured().
  */
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private readonly token?: string;
-  private readonly from?: string;
 
-  constructor() {
+  constructor(private readonly platformSettings: PlatformSettingsService) {}
+
+  private async credentials(): Promise<{ token: string; from: string } | null> {
     const env = loadEnv();
-    this.token = env.POSTMARK_SERVER_TOKEN;
-    this.from = env.EMAIL_FROM;
+    const token = (await this.platformSettings.get("postmarkServerToken")) ?? env.POSTMARK_SERVER_TOKEN;
+    const from = (await this.platformSettings.get("emailFrom")) ?? env.EMAIL_FROM;
+    return token && from ? { token, from } : null;
   }
 
   /** האם מחובר ספק אמיתי — פיצ'רים שדורשים אימייל בפועל בודקים כאן. */
-  get providerConfigured(): boolean {
-    return this.token !== undefined && this.from !== undefined;
+  async isConfigured(): Promise<boolean> {
+    return (await this.credentials()) !== null;
   }
 
   async send(to: string, subject: string, body: string): Promise<void> {
-    if (!this.token || !this.from) {
+    const creds = await this.credentials();
+    if (!creds) {
       // אין ספק — נרשם ללוג השרת בלבד (לא נשלח לאף אחד)
       this.logger.warn(`[אימייל לא נשלח — אין ספק מחובר] אל: ${to} | ${subject}`);
       return;
@@ -38,10 +42,10 @@ export class EmailService {
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
-          "X-Postmark-Server-Token": this.token,
+          "X-Postmark-Server-Token": creds.token,
         },
         body: JSON.stringify({
-          From: this.from,
+          From: creds.from,
           To: to,
           Subject: subject,
           TextBody: body,
@@ -60,5 +64,14 @@ export class EmailService {
       this.logger.error(`Postmark החזיר ${res.status}: ${detail.slice(0, 300)}`);
       throw new ServiceUnavailableException("שליחת האימייל נכשלה — נסו שוב");
     }
+  }
+
+  /** שליחת מייל בדיקה ממסך ההגדרות — שגיאה מוחזרת לקורא בכוונה. */
+  async sendTest(to: string): Promise<void> {
+    await this.send(
+      to,
+      "בדיקת חיבור — מתווכים",
+      "אם קיבלת את ההודעה הזו, חיבור האימייל של המערכת עובד. אין צורך להשיב.",
+    );
   }
 }

@@ -98,7 +98,7 @@ export class AuthController {
 
     // אימות דו-שלבי בקוד אימייל — רק כשמופעל בסביבה וספק אימייל מחובר
     // (הגנת נעילה; ראו login-otp.service.ts)
-    if (this.otp.active) {
+    if (await this.otp.isActive()) {
       const otpToken = await this.otp.issue(validated.id, validated.email);
       return { otpRequired: true, otpToken };
     }
@@ -120,7 +120,7 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ user: AuthenticatedUser }> {
-    if (!this.otp.active) {
+    if (!(await this.otp.isActive())) {
       throw new UnauthorizedException();
     }
     const userId = await this.otp.verify(body.otpToken, body.code);
@@ -172,12 +172,15 @@ export class AuthController {
   }
 
   @Get("me")
-  me(@Req() req: Request): { user: AuthenticatedUser } {
+  me(@Req() req: Request): { user: AuthenticatedUser & { isPlatformAdmin: boolean } } {
     const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
     if (!user) {
       throw new UnauthorizedException();
     }
-    return { user };
+    // מנהל פלטפורמה — קובע אם קישור "פלטפורמה" מוצג בניווט (האכיפה
+    // עצמה בשרת; זה רק לתצוגה)
+    const isPlatformAdmin = loadEnv().PLATFORM_ADMIN_EMAILS.includes(user.email.toLowerCase());
+    return { user: { ...user, isPlatformAdmin } };
   }
 
   @Post("change-password")

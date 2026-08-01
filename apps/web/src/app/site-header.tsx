@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import { apiGet } from "@/lib/api";
 import { NotificationsBell } from "./notifications-bell";
 import { UserMenu } from "./user-menu";
 import { WhatsNewBanner } from "./whats-new-banner";
@@ -30,11 +32,24 @@ const NAV_ITEMS = [
   { href: "/settings", label: "הגדרות" },
 ] as const;
 
+/** מסך ניהול הפלטפורמה — מוצג רק למי שמורשה (ה-API מחזיר 403 לאחרים) */
+const PLATFORM_ITEM = { href: "/platform", label: "פלטפורמה" } as const;
+
 export function SiteHeader() {
   const pathname = usePathname();
-  if (PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p))) {
-    return null;
-  }
+  const isPublic = PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p));
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+
+  useEffect(() => {
+    if (isPublic) return;
+    apiGet<{ user: { isPlatformAdmin?: boolean } }>("/auth/me")
+      .then((res) => setIsPlatformAdmin(res.user.isPlatformAdmin === true))
+      .catch(() => undefined);
+  }, [isPublic]);
+
+  if (isPublic) return null;
+
+  const navItems = isPlatformAdmin ? [...NAV_ITEMS, PLATFORM_ITEM] : [...NAV_ITEMS];
 
   return (
     <>
@@ -48,7 +63,7 @@ export function SiteHeader() {
             {/* דסקטופ: הניווט המלא בשורה אחת */}
             <nav aria-label="ניווט ראשי" className="hidden md:block">
               <ul className="flex flex-wrap items-center gap-1">
-                {NAV_ITEMS.map((item) => (
+                {navItems.map((item) => (
                   <li key={item.href}>
                     <a
                       href={item.href}
@@ -125,7 +140,7 @@ export function SiteHeader() {
                       />
                     </form>
                   </li>
-                  {NAV_ITEMS.map((item) => (
+                  {navItems.map((item) => (
                     <li key={item.href}>
                       <a href={item.href} className="mv-nav-link block rounded-lg px-3 py-2.5">
                         {item.label}

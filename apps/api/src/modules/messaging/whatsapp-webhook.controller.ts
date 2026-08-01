@@ -12,6 +12,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Request } from "express";
 import { Public } from "../../common/auth.decorators";
 import { loadEnv } from "../../config/env";
+import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { WhatsAppInboundService } from "./whatsapp-inbound.service";
 
 /**
@@ -22,16 +23,21 @@ import { WhatsAppInboundService } from "./whatsapp-inbound.service";
  */
 @Controller("webhooks/whatsapp")
 export class WhatsAppWebhookController {
-  constructor(private readonly inbound: WhatsAppInboundService) {}
+  constructor(
+    private readonly inbound: WhatsAppInboundService,
+    private readonly platformSettings: PlatformSettingsService,
+  ) {}
 
   @Public()
   @Get()
-  verify(
+  async verify(
     @Query("hub.mode") mode?: string,
     @Query("hub.verify_token") token?: string,
     @Query("hub.challenge") challenge?: string,
-  ): string {
-    const expected = loadEnv().WHATSAPP_VERIFY_TOKEN;
+  ): Promise<string> {
+    // הגדרות הפלטפורמה (מסך /platform) קודמות; משתנה הסביבה כ-Fallback
+    const expected =
+      (await this.platformSettings.get("whatsappVerifyToken")) ?? loadEnv().WHATSAPP_VERIFY_TOKEN;
     if (!expected || mode !== "subscribe" || token !== expected || !challenge) {
       throw new UnauthorizedException();
     }
@@ -42,8 +48,8 @@ export class WhatsAppWebhookController {
   @Post()
   @HttpCode(200)
   async receive(@Req() req: Request): Promise<{ ok: true }> {
-    const env = loadEnv();
-    const secret = env.WHATSAPP_APP_SECRET;
+    const secret =
+      (await this.platformSettings.get("whatsappAppSecret")) ?? loadEnv().WHATSAPP_APP_SECRET;
     if (!secret) {
       // אינטגרציה לא מוגדרת — לא מקבלים כלום (אין מצב "פתוח בטעות").
       throw new UnauthorizedException();

@@ -457,3 +457,14 @@ model AuditLog {
   @@index([tenantId, userId, createdAt])
   @@map("audit_log")
 }
+
+/// הגדרות פלטפורמה (מפתחות ספקים) — מנוהלות ממסך /platform, מוצפנות.
+/// מחוץ ל-RLS: רמת פלטפורמה, לא רמת דייר (כמו users/sessions).
+model PlatformSetting {
+  key            String   @id @db.VarChar(60)
+  valueEncrypted String   @map("value_encrypted")
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at")
+  updatedBy      String?  @map("updated_by") @db.Char(26)
+
+  @@map("platform_settings")
+}

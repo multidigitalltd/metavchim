@@ -4,6 +4,7 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  HttpCode,
   Param,
   Patch,
   Post,
@@ -15,6 +16,11 @@ import { IdSchema, TenantPlanSchema, TenantStatusSchema } from "@metavchim/share
 import { loadEnv } from "../../config/env";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { EmailService } from "../../core/email.service";
+import {
+  PlatformSettingsService,
+  type PlatformSettingKey,
+} from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { AuthService } from "../auth/auth.service";
 
@@ -40,6 +46,17 @@ const UpdateAgencySchema = z
   })
   .strict();
 
+/** ערך ריק = מחיקת ההגדרה מה-DB וחזרה למשתנה הסביבה (אם קיים). */
+const UpdateSettingsSchema = z
+  .object({
+    postmarkServerToken: z.union([z.string().min(16).max(200), z.literal("")]).optional(),
+    emailFrom: z.union([z.string().email().max(254), z.literal("")]).optional(),
+    whatsappAppSecret: z.union([z.string().min(16).max(200), z.literal("")]).optional(),
+    whatsappVerifyToken: z.union([z.string().min(16).max(200), z.literal("")]).optional(),
+    loginOtpEnabled: z.boolean().optional(),
+  })
+  .strict();
+
 export interface AgencyRow {
   id: string;
   name: string;
@@ -51,7 +68,11 @@ export interface AgencyRow {
 
 @Controller("platform")
 export class PlatformController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly platformSettings: PlatformSettingsService,
+    private readonly email: EmailService,
+  ) {}
 
   /** אימות מנהל פלטפורמה — מעבר להרשאות המשרד הרגילות. */
   private async requirePlatformAdmin(): Promise<void> {
@@ -154,5 +175,75 @@ export class PlatformController {
       });
     }
     return { ok: true };
+  }
+
+  /**
+   * הגדרות הפלטפורמה — מצב בלבד, בלי לחשוף ערכים. מפתחות שהוגדרו
+   * במשתני סביבה מסומנים כמקור "env" (נשלטים מהשרת, לא מהמסך).
+   */
+  @Get("settings")
+  async settings(): Promise<{
+    postmark: { configured: boolean; source: "db" | "env" | "none"; emailFrom?: string };
+    whatsapp: { configured: boolean; source: "db" | "env" | "none" };
+    loginOtpEnabled: boolean;
+  }> {
+    await this.requirePlatformAdmin();
+    const env = loadEnv();
+    const dbKeys = await this.platformSettings.configuredKeys();
+    const has = (k: PlatformSettingKey): boolean => dbKeys.includes(k);
+
+    const postmarkDb = has("postmarkServerToken") && has("emailFrom");
+    const postmarkEnv = env.POSTMARK_SERVER_TOKEN !== undefined && env.EMAIL_FROM !== undefined;
+    const waDb = has("whatsappAppSecret") && has("whatsappVerifyToken");
+    const waEnv = env.WHATSAPP_APP_SECRET !== undefined && env.WHATSAPP_VERIFY_TOKEN !== undefined;
+    const otpDb = await this.platformSettings.get("loginOtpEnabled");
+
+    return {
+      postmark: {
+        configured: postmarkDb || postmarkEnv,
+        source: postmarkDb ? "db" : postmarkEnv ? "env" : "none",
+        emailFrom: (await this.platformSettings.get("emailFrom")) ?? env.EMAIL_FROM,
+      },
+      whatsapp: {
+        configured: waDb || waEnv,
+        source: waDb ? "db" : waEnv ? "env" : "none",
+      },
+      loginOtpEnabled: otpDb !== undefined ? otpDb === "true" : env.LOGIN_OTP_ENABLED,
+    };
+  }
+
+  @Patch("settings")
+  async updateSettings(
+    @Body(new ZodValidationPipe(UpdateSettingsSchema)) body: z.infer<typeof UpdateSettingsSchema>,
+  ): Promise<{ ok: true }> {
+    await this.requirePlatformAdmin();
+    const userId = TenantContext.current().userId;
+    for (const [key, value] of Object.entries(body) as [PlatformSettingKey, string | boolean][]) {
+      if (typeof value === "boolean") {
+        await this.platformSettings.set(key, String(value), userId);
+      } else if (value === "") {
+        await this.platformSettings.remove(key); // ריק ⇒ חזרה למשתנה הסביבה
+      } else {
+        await this.platformSettings.set(key, value, userId);
+      }
+    }
+    return { ok: true };
+  }
+
+  /** שליחת מייל בדיקה לכתובת של מנהל הפלטפורמה — אימות שהחיבור עובד. */
+  @Post("settings/test-email")
+  @HttpCode(200)
+  async testEmail(): Promise<{ sentTo: string }> {
+    await this.requirePlatformAdmin();
+    const user = await this.prisma.user.findUnique({
+      where: { id: TenantContext.current().userId },
+      select: { email: true },
+    });
+    if (!user) throw new BadRequestException("משתמש לא נמצא");
+    if (!(await this.email.isConfigured())) {
+      throw new BadRequestException("אין ספק אימייל מוגדר — מלאו את פרטי Postmark ושמרו");
+    }
+    await this.email.sendTest(user.email);
+    return { sentTo: user.email };
   }
 }
