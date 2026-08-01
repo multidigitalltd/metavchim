@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState, type FormEvent } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
 
@@ -16,8 +17,9 @@ type LoginResponse =
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const justReset = useSearchParams().get("reset") === "1";
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [otpToken, setOtpToken] = useState<string | null>(null);
@@ -64,11 +66,16 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="mx-auto max-w-sm py-10">
-      <h1 className="mb-1 text-2xl font-bold">התחברות</h1>
-      <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
-        מתווכים — מערכת ניהול למשרדי תיווך
-      </p>
+    <>
+      {justReset ? (
+        <p
+          role="status"
+          className="mb-4 rounded-lg border p-3"
+          style={{ borderColor: "var(--color-success)", background: "var(--color-surface)" }}
+        >
+          ✓ הסיסמה עודכנה — התחברו עם הסיסמה החדשה.
+        </p>
+      ) : null}
 
       {error ? (
         <p
@@ -156,8 +163,25 @@ export default function LoginPage() {
           <Button type="submit" disabled={submitting} className="w-full">
             {submitting ? "מתחבר…" : "התחברות"}
           </Button>
+          <Link href="/forgot-password" className="mt-4 block text-center underline">
+            שכחתי סיסמה
+          </Link>
         </form>
       )}
+    </>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <div className="mx-auto max-w-sm py-10">
+      <h1 className="mb-1 text-2xl font-bold">התחברות</h1>
+      <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
+        מתווכים — מערכת ניהול למשרדי תיווך
+      </p>
+      <Suspense fallback={<p aria-live="polite">טוען…</p>}>
+        <LoginForm />
+      </Suspense>
     </div>
   );
 }

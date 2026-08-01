@@ -45,6 +45,19 @@ export class LoginOtpService implements OnModuleDestroy {
     return createHmac("sha256", this.hmacKey).update(code).digest("hex");
   }
 
+  /**
+   * הגנת נעילה: האימות פעיל רק כשהדגל דלוק *וגם* ספק אימייל מחובר —
+   * דגל דלוק בלי ספק היה שולח קודים לשום-מקום ונועל את כולם בחוץ.
+   */
+  get active(): boolean {
+    if (!loadEnv().LOGIN_OTP_ENABLED) return false;
+    if (!this.email.providerConfigured) {
+      this.logger.warn("LOGIN_OTP_ENABLED=true אבל אין ספק אימייל — האימות מדולג");
+      return false;
+    }
+    return true;
+  }
+
   /** הנפקת קוד למשתמש שסיסמתו אומתה — מחזיר otpToken להמשך הזרימה. */
   async issue(userId: string, emailAddress: string): Promise<string> {
     const token = randomBytes(24).toString("base64url");

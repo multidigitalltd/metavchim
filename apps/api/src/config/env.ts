@@ -55,6 +55,10 @@ const EnvSchema = z.object({
   UPDATER_URL: z.string().url().optional(),
   /** סוד משותף מול סוכן העדכון — חובה יחד עם UPDATER_URL. */
   UPDATE_SECRET: z.string().min(24).optional(),
+  /** Postmark — שליחת אימייל (אימות כניסה, איפוס סיסמה, התראות). */
+  POSTMARK_SERVER_TOKEN: z.string().min(16).optional(),
+  /** כתובת השולח — חייבת להיות Sender Signature מאומתת ב-Postmark. */
+  EMAIL_FROM: z.string().email().optional(),
   /**
    * אימות דו-שלבי בקוד אימייל בכל התחברות. כבוי כברירת מחדל —
    * מדליקים רק אחרי חיבור ספק אימייל אמיתי, אחרת המשתמשים ננעלים בחוץ.

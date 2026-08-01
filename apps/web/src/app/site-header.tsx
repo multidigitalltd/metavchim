@@ -10,7 +10,13 @@ import { WhatsNewBanner } from "./whats-new-banner";
  * ודף ההצעה ללקוח קצה (הקונה של המשרד לא אמור לראות תפריטי מתווך).
  */
 
-const PUBLIC_PREFIXES = ["/login", "/offer/", "/change-password"];
+const PUBLIC_PREFIXES = [
+  "/login",
+  "/offer/",
+  "/change-password",
+  "/forgot-password",
+  "/reset-password",
+];
 
 const NAV_ITEMS = [
   { href: "/", label: "דשבורד" },
