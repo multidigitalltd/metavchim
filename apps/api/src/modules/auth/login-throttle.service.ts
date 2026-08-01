@@ -85,6 +85,21 @@ export class LoginThrottleService implements OnModuleDestroy {
     }
   }
 
+  /** האם האימייל נעול כרגע (חצה את סף הניסיונות בחלון הנוכחי). */
+  async isLocked(email: string): Promise<boolean> {
+    try {
+      const count = Number((await this.redis.get(this.emailKey(email))) ?? 0);
+      return count >= EMAIL_MAX_ATTEMPTS;
+    } catch {
+      return false; // Redis לא זמין — ממילא ה-throttle ב-Fail-Open
+    }
+  }
+
+  /** שחרור נעילה ידני ע"י מנהל המשרד — מוחק את מונה האימייל בלבד. */
+  async unlockEmail(email: string): Promise<void> {
+    await this.redis.del(this.emailKey(email));
+  }
+
   /** התחברות מוצלחת: מונה האימייל נמחק וההזמנה ב-IP מוחזרת (DECR). */
   async releaseOnSuccess(email: string, ip: string | undefined): Promise<void> {
     try {

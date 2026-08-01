@@ -7,6 +7,7 @@ import { formatDate, formatDateTime } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { ExportSection } from "./export-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
+import { WhatsAppStatusSection } from "./whatsapp-status-section";
 import { SystemUpdateSection } from "./system-update";
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
@@ -18,6 +19,7 @@ interface TeamUser {
   role: string;
   isActive: boolean;
   lastLoginAt?: string;
+  locked: boolean;
 }
 
 interface AuditRow {
@@ -77,6 +79,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   "system.update": "עדכון גרסת מערכת",
   "users.create": "הוספת איש צוות",
   "users.update": "עדכון איש צוות",
+  "users.unlock": "שחרור נעילת התחברות",
   "voice_intake.create": "קליטת נכס בקול",
 };
 
@@ -151,6 +154,12 @@ export default function SettingsPage() {
 
   async function changeRole(member: TeamUser, role: string) {
     await apiPatch(`/settings/users/${member.id}`, { role });
+    load();
+  }
+
+  async function unlock(member: TeamUser) {
+    await apiPost(`/settings/users/${member.id}/unlock`, {});
+    setMessage(`✓ הנעילה של ${member.name} שוחררה — אפשר להתחבר מיד`);
     load();
   }
 
@@ -252,13 +261,25 @@ export default function SettingsPage() {
                     </td>
                     <td className="p-3">{member.lastLoginAt ? formatDate(member.lastLoginAt) : "—"}</td>
                     <td className="p-3">
-                      {member.role === "owner" || member.id === user?.id ? (
-                        <span style={{ color: "var(--color-success)" }}>פעיל</span>
-                      ) : (
-                        <Button variant={member.isActive ? "ghost" : "secondary"} onClick={() => void toggleActive(member)}>
-                          {member.isActive ? "השבת" : "הפעל מחדש"}
-                        </Button>
-                      )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {member.locked ? (
+                          <>
+                            <span className="font-medium" style={{ color: "var(--color-danger)" }}>
+                              🔒 נעול זמנית
+                            </span>
+                            <Button variant="secondary" onClick={() => void unlock(member)}>
+                              שחרר נעילה
+                            </Button>
+                          </>
+                        ) : null}
+                        {member.role === "owner" || member.id === user?.id ? (
+                          member.locked ? null : <span style={{ color: "var(--color-success)" }}>פעיל</span>
+                        ) : (
+                          <Button variant={member.isActive ? "ghost" : "secondary"} onClick={() => void toggleActive(member)}>
+                            {member.isActive ? "השבת" : "הפעל מחדש"}
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -288,6 +309,8 @@ export default function SettingsPage() {
           <Button type="submit">➕ הוסף איש צוות</Button>
         </form>
       </section>
+
+      <WhatsAppStatusSection />
 
       {tenant ? <LeadWebhookSection initialKey={tenant.leadWebhookKey} /> : null}
 

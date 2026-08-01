@@ -15,6 +15,7 @@ import { loadEnv } from "../../config/env";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { Public } from "../../common/auth.decorators";
 import { AuthService, type AuthenticatedUser } from "./auth.service";
+import { LoginOtpService } from "./login-otp.service";
 import { LoginThrottleService } from "./login-throttle.service";
 
 export const SESSION_COOKIE = "mv_session";
@@ -33,12 +34,30 @@ const ChangePasswordSchema = z
   })
   .strict();
 
+const VerifyOtpSchema = z
+  .object({
+    otpToken: z.string().regex(/^[A-Za-z0-9_-]{32}$/u),
+    code: z.string().regex(/^\d{6}$/u),
+  })
+  .strict();
+
 @Controller("auth")
 export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly throttle: LoginThrottleService,
+    private readonly otp: LoginOtpService,
   ) {}
+
+  private setSessionCookie(res: Response, token: string, expiresAt: Date): void {
+    res.cookie(SESSION_COOKIE, token, {
+      httpOnly: true,
+      secure: loadEnv().COOKIE_SECURE,
+      sameSite: "lax",
+      expires: expiresAt,
+      path: "/",
+    });
+  }
 
   @Public()
   @Post("login")
@@ -48,17 +67,14 @@ export class AuthController {
     @Body() body: z.infer<typeof LoginSchema>,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ user: AuthenticatedUser }> {
+  ): Promise<{ user: AuthenticatedUser } | { otpRequired: true; otpToken: string }> {
     // הזמנה אטומית לפני כל עבודת סיסמה — גם בקשות מקבילות לא עוקפות
     // את הסף (docs/04 §6; ביקורת Codex, PR #15).
     await this.throttle.reserveAttempt(body.email, req.ip);
 
-    let result: Awaited<ReturnType<AuthService["login"]>>;
+    let validated: Awaited<ReturnType<AuthService["validateCredentials"]>>;
     try {
-      result = await this.auth.login(body.email, body.password, {
-        ip: req.ip,
-        userAgent: req.headers["user-agent"],
-      });
+      validated = await this.auth.validateCredentials(body.email, body.password);
     } catch (error) {
       // רק דחיית אימות נספרת ככשל; תקלת תשתית משחררת את ההזמנה —
       // נפילת DB זמנית לא נועלת חשבונות ל-15 דקות.
@@ -68,15 +84,41 @@ export class AuthController {
       throw error;
     }
     await this.throttle.releaseOnSuccess(body.email, req.ip);
-    const { token, expiresAt, user } = result;
-    const env = loadEnv();
-    res.cookie(SESSION_COOKIE, token, {
-      httpOnly: true,
-      secure: env.COOKIE_SECURE,
-      sameSite: "lax",
-      expires: expiresAt,
-      path: "/",
+
+    // אימות דו-שלבי בקוד אימייל — רק כשמופעל בסביבה (כבוי כברירת מחדל
+    // עד חיבור ספק אימייל; ראו login-otp.service.ts)
+    if (loadEnv().LOGIN_OTP_ENABLED) {
+      const otpToken = await this.otp.issue(validated.id, validated.email);
+      return { otpRequired: true, otpToken };
+    }
+
+    const { token, expiresAt, user } = await this.auth.issueSession(validated, {
+      ip: req.ip,
+      userAgent: req.headers["user-agent"],
     });
+    this.setSessionCookie(res, token, expiresAt);
+    return { user };
+  }
+
+  /** שלב 2 של התחברות עם קוד אימייל — פעיל רק כש-LOGIN_OTP_ENABLED. */
+  @Public()
+  @Post("login/verify")
+  @HttpCode(200)
+  async verifyOtp(
+    @Body(new ZodValidationPipe(VerifyOtpSchema)) body: z.infer<typeof VerifyOtpSchema>,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ user: AuthenticatedUser }> {
+    if (!loadEnv().LOGIN_OTP_ENABLED) {
+      throw new UnauthorizedException();
+    }
+    const userId = await this.otp.verify(body.otpToken, body.code);
+    const user = await this.auth.getUserForSession(userId);
+    const { token, expiresAt } = await this.auth.issueSession(user, {
+      ip: req.ip,
+      userAgent: req.headers["user-agent"],
+    });
+    this.setSessionCookie(res, token, expiresAt);
     return { user };
   }
 

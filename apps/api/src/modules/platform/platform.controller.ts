@@ -4,12 +4,14 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  Param,
+  Patch,
   Post,
 } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import { z } from "zod";
-import { TenantPlanSchema } from "@metavchim/shared";
+import { IdSchema, TenantPlanSchema, TenantStatusSchema } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -28,6 +30,13 @@ const CreateAgencySchema = z
     ownerEmail: z.string().email().max(254),
     ownerName: z.string().min(2).max(120),
     plan: TenantPlanSchema.default("pro"),
+  })
+  .strict();
+
+const UpdateAgencySchema = z
+  .object({
+    plan: TenantPlanSchema.optional(),
+    status: TenantStatusSchema.optional(),
   })
   .strict();
 
@@ -115,5 +124,35 @@ export class PlatformController {
     ]);
 
     return { tenantId, ownerEmail: email, tempPassword };
+  }
+
+  /** מעבר מסלול / שינוי סטטוס (השהיה מנתקת את כל המשתמשים מיידית). */
+  @Patch("agencies/:id")
+  async update(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(UpdateAgencySchema)) body: z.infer<typeof UpdateAgencySchema>,
+  ): Promise<{ ok: true }> {
+    await this.requirePlatformAdmin();
+    const tenant = await this.prisma.tenant.findUnique({ where: { id }, select: { id: true } });
+    if (!tenant) throw new BadRequestException("משרד לא נמצא");
+
+    await this.prisma.tenant.update({
+      where: { id },
+      data: {
+        ...(body.plan !== undefined ? { plan: body.plan } : {}),
+        ...(body.status !== undefined ? { status: body.status } : {}),
+      },
+    });
+    // השהיה — ניתוק מיידי של כל ה-sessions של המשרד
+    if (body.status === "suspended") {
+      const users = await this.prisma.user.findMany({
+        where: { tenantId: id },
+        select: { id: true },
+      });
+      await this.prisma.session.deleteMany({
+        where: { userId: { in: users.map((u) => u.id) } },
+      });
+    }
+    return { ok: true };
   }
 }
