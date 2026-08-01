@@ -18,6 +18,7 @@ const ACTION_LABELS: Record<string, string> = {
   add_buyer: "👤 הוספת קונה",
   add_lead: "📞 הוספת ליד",
   schedule_appointment: "📅 קביעת פגישה",
+  send_offer: "📤 שליחת הצעה ללקוח",
   search: "🔍 חיפוש",
   unknown: "לא זוהתה פקודה",
 };
@@ -79,6 +80,11 @@ export default function VoiceCommandPage() {
         router.push(`/calendar/new?${params.toString()}`);
         break;
       }
+      case "send_offer":
+        // מסך אישור ייעודי — הזיהוי מול המאגר נעשה שם, והשליחה
+        // דורשת לחיצה מפורשת על ההתאמה הנכונה
+        router.push(`/voice/offer?t=${encodeURIComponent(transcript.trim())}`);
+        break;
       case "search":
         router.push(`/search?q=${encodeURIComponent(route.query ?? route.content)}`);
         break;

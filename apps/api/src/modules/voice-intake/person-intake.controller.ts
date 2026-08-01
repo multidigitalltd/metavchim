@@ -6,6 +6,7 @@ import {
   LeadIntentSchema,
   parseAppointmentKind,
   parseHebrewDateTime,
+  parseOfferTargets,
   PhoneSchema,
   routeVoiceCommand,
   stripCommandPrefix,
@@ -14,6 +15,7 @@ import {
 import { RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import type { BuyerDto } from "../buyers/buyers.service";
+import { OfferIntakeService, type OfferResolution } from "./offer-intake.service";
 import {
   PersonIntakeService,
   type LeadIntakeResult,
@@ -65,7 +67,10 @@ const CreateBuyerSchema = z
  */
 @Controller("voice")
 export class PersonIntakeController {
-  constructor(private readonly service: PersonIntakeService) {}
+  constructor(
+    private readonly service: PersonIntakeService,
+    private readonly offers: OfferIntakeService,
+  ) {}
 
   /** מה המתווך ביקש לעשות — לניתוב במסך הפקודה הקולית. */
   @Post("route")
@@ -91,6 +96,20 @@ export class PersonIntakeController {
         kind: parseAppointmentKind(body.transcript),
       },
     };
+  }
+
+  /**
+   * זיהוי נכס+קונה לשליחת הצעה — החזרת מועמדים לאישור בלבד.
+   * היצירה והשליחה נעשות במסלול ההצעות הרגיל, אחרי לחיצה מפורשת.
+   */
+  @Post("offer-resolve")
+  @HttpCode(200)
+  @RequireCapability("offers.send")
+  async offerResolve(
+    @Body(new ZodValidationPipe(TranscriptSchema)) body: z.infer<typeof TranscriptSchema>,
+  ): Promise<OfferResolution> {
+    const targets = parseOfferTargets(body.transcript.replace(/\s+/gu, " ").trim());
+    return this.offers.resolve(targets);
   }
 
   @Post("preview")

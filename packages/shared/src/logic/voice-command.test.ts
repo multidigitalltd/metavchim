@@ -33,6 +33,19 @@ describe("routeVoiceCommand", () => {
     expect(routeVoiceCommand("תוסיף נכס ללקוח שמחפש דירה").action).toBe("add_property");
   });
 
+  it("מזהה שליחת הצעה ומפרק את הנכס והנמען", () => {
+    const command = routeVoiceCommand("שלח את הנכס בהרב שך למשה כהן");
+    expect(command.action).toBe("send_offer");
+    expect(command.offer?.propertyPhrase).toBe("הרב שך");
+    expect(command.offer?.buyerPhrase).toBe("משה כהן");
+  });
+
+  it("שליחת הצעה בלי נכס מפורש — נמען בלבד", () => {
+    const command = routeVoiceCommand("תשלח הצעה לשרה לוי");
+    expect(command.action).toBe("send_offer");
+    expect(command.offer?.buyerPhrase).toBe("שרה לוי");
+  });
+
   it("טקסט שאינו פקודה מסווג כלא ידוע", () => {
     expect(routeVoiceCommand("בוקר טוב").action).toBe("unknown");
   });

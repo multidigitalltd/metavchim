@@ -12,6 +12,7 @@ export type VoiceAction =
   | "add_buyer"
   | "add_lead"
   | "schedule_appointment"
+  | "send_offer"
   | "search"
   | "unknown";
 
@@ -23,9 +24,15 @@ export interface VoiceCommand {
   matched?: string;
   /** לחיפוש: מה לחפש */
   query?: string;
+  /** לשליחת הצעה: מה לזהות במאגר לפני האישור */
+  offer?: { propertyPhrase?: string; buyerPhrase?: string };
 }
 
 const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" }[] = [
+  // --- שליחת הצעה (לפני שאר הכללים: "שלח" חד-משמעי) ---
+  { action: "send_offer", pattern: /(?:שלח|תשלח|שלחי)\s+(?:את\s+)?(?:ה?נכס|ה?דירה|ה?הצעה|הצעה)/u, confidence: "high" },
+  { action: "send_offer", pattern: /(?:שלח|תשלח)\s+ל[א-ת]/u, confidence: "low" },
+
   // --- פגישה/סיור ---
   { action: "schedule_appointment", pattern: /קבע(?:י)?\s+(?:לי\s+)?(?:פגישה|סיור|ביקור)/u, confidence: "high" },
   { action: "schedule_appointment", pattern: /(?:תזמן|לתאם|תיאום)\s+(?:פגישה|סיור|ביקור)/u, confidence: "high" },
@@ -71,11 +78,38 @@ export function routeVoiceCommand(transcript: string): VoiceCommand {
       };
       if (rule.action === "search") {
         command.query = text.replace(rule.pattern, "").trim();
+      } else if (rule.action === "send_offer") {
+        command.offer = parseOfferTargets(text);
       }
       return command;
     }
   }
   return { action: "unknown", confidence: "low" };
+}
+
+/**
+ * "שלח את הנכס בהרב שך למשה כהן" ⟵ מה לזהות במאגר:
+ * הנכס = "הרב שך", הקונה = "משה כהן". שני הביטויים נפתרים בשרת מול
+ * הנתונים של המשרד; אם יש יותר מהתאמה אחת — המתווך בוחר.
+ */
+export function parseOfferTargets(text: string): { propertyPhrase?: string; buyerPhrase?: string } {
+  const result: { propertyPhrase?: string; buyerPhrase?: string } = {};
+
+  // הנמען: "…ל<שם>" בסוף המשפט (עד שתי מילים)
+  const toMatch = /\sל(?<buyer>[א-ת]+(?:\s+[א-ת]+)?)\s*$/u.exec(text);
+  if (toMatch?.groups?.["buyer"]) {
+    result.buyerPhrase = toMatch.groups["buyer"].trim();
+  }
+
+  // הנכס: מה שבין מילת הפקודה לנמען
+  const body = toMatch ? text.slice(0, toMatch.index) : text;
+  const propMatch =
+    /(?:שלח|תשלח|שלחי)\s+(?:את\s+)?(?:ה?נכס|ה?דירה|ה?הצעה|הצעה)\s*(?:ב|של|ה)?\s*(?<prop>.+)/u.exec(body);
+  const phrase = propMatch?.groups?.["prop"]?.trim();
+  if (phrase !== undefined && phrase.length > 1) {
+    result.propertyPhrase = phrase;
+  }
+  return result;
 }
 
 /** התוכן ללא מילות הפקודה — מוזן למנועי החילוץ. */
@@ -88,6 +122,7 @@ export const VOICE_ACTION_LABELS: Record<VoiceAction, string> = {
   add_buyer: "הוספת קונה",
   add_lead: "הוספת ליד",
   schedule_appointment: "קביעת פגישה",
+  send_offer: "שליחת הצעה ללקוח",
   search: "חיפוש",
   unknown: "לא זוהתה פקודה",
 };
