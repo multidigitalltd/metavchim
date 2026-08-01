@@ -4,6 +4,7 @@ import {
   ConflictException,
   Controller,
   Get,
+  HttpCode,
   Param,
   Patch,
   Post,
@@ -21,6 +22,7 @@ import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
 import { PrismaService } from "../../core/prisma.service";
 import { AuthService } from "../auth/auth.service";
+import { LoginThrottleService } from "../auth/login-throttle.service";
 
 const TenantSettingsSchema = z
   .object({
@@ -59,6 +61,8 @@ export interface TeamUserDto {
   role: string;
   isActive: boolean;
   lastLoginAt?: Date;
+  /** נעול זמנית בגלל ניסיונות התחברות כושלים — ניתן לשחרור ע"י המנהל */
+  locked: boolean;
 }
 
 @Controller("settings")
@@ -66,6 +70,7 @@ export class SettingsController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly loginThrottle: LoginThrottleService,
   ) {}
 
   @Get("tenant")
@@ -187,14 +192,44 @@ export class SettingsController {
       orderBy: { createdAt: "asc" },
       select: { id: true, name: true, email: true, role: true, isActive: true, lastLoginAt: true },
     });
-    return rows.map((u) => ({
-      id: u.id,
-      name: u.name,
-      email: u.email,
-      role: u.role,
-      isActive: u.isActive,
-      lastLoginAt: u.lastLoginAt ?? undefined,
-    }));
+    return Promise.all(
+      rows.map(async (u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        isActive: u.isActive,
+        lastLoginAt: u.lastLoginAt ?? undefined,
+        locked: await this.loginThrottle.isLocked(u.email),
+      })),
+    );
+  }
+
+  /**
+   * שחרור נעילת התחברות — משתמש שננעל אחרי יותר מדי ניסיונות שגויים
+   * לא צריך לחכות 15 דקות; המנהל משחרר אותו כאן.
+   */
+  @Post("users/:id/unlock")
+  @RequireCapability("users.manage")
+  @HttpCode(200)
+  async unlockUser(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ ok: true }> {
+    const tenantId = TenantContext.current().tenantId;
+    const target = await this.prisma.user.findFirst({
+      where: { id, tenantId },
+      select: { email: true },
+    });
+    if (!target) throw new BadRequestException("משתמש לא נמצא");
+    await this.loginThrottle.unlockEmail(target.email);
+    await this.prisma.withTenant((tx) =>
+      this.audit.record(tx, {
+        action: "users.unlock",
+        entityType: "user",
+        entityId: id,
+      }),
+    );
+    return { ok: true };
   }
 
   /** הוספת איש צוות: סיסמה זמנית מוצגת פעם אחת בלבד — לא נשמרת בגלוי. */
@@ -232,7 +267,7 @@ export class SettingsController {
       });
     });
     return {
-      user: { id, name: body.name, email, role: body.role, isActive: true },
+      user: { id, name: body.name, email, role: body.role, isActive: true, locked: false },
       tempPassword,
     };
   }
