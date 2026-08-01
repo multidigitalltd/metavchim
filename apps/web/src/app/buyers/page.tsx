@@ -11,7 +11,13 @@ import { CapNote, FilterSelect, ResultsCount, SearchField, textMatches } from ".
 interface BuyerRow {
   id: string;
   contact: { name: string; phone: string };
-  requirements: { cities: string[]; budgetMaxAgorot: number; roomsMin?: number; roomsMax?: number };
+  requirements: {
+    cities: string[];
+    budgetMinAgorot?: number;
+    budgetMaxAgorot: number;
+    roomsMin?: number;
+    roomsMax?: number;
+  };
   maturity: string;
   source: string;
 }
@@ -123,7 +129,7 @@ export default function BuyersPage() {
                 <th scope="col" className="p-3 text-start">בשלות</th>
                 <th scope="col" className="p-3 text-start">אזורים</th>
                 <th scope="col" className="p-3 text-start">חדרים</th>
-                <th scope="col" className="p-3 text-start">תקציב עד</th>
+                <th scope="col" className="p-3 text-start">תקציב</th>
                 <th scope="col" className="p-3 text-start">מקור</th>
               </tr>
             </thead>
@@ -159,7 +165,11 @@ export default function BuyersPage() {
                   <td className="p-3">
                     {b.requirements.roomsMin ?? "—"}–{b.requirements.roomsMax ?? "—"}
                   </td>
-                  <td className="p-3">{formatPrice(b.requirements.budgetMaxAgorot)}</td>
+                  <td className="p-3">
+                    {b.requirements.budgetMinAgorot !== undefined
+                      ? `${formatPrice(b.requirements.budgetMinAgorot)}–${formatPrice(b.requirements.budgetMaxAgorot)}`
+                      : `עד ${formatPrice(b.requirements.budgetMaxAgorot)}`}
+                  </td>
                   <td className="p-3">{formatBuyerSource(b.source)}</td>
                 </tr>
               ))}

@@ -39,9 +39,19 @@ interface AppointmentRow {
   id: string;
   kind: string;
   title?: string;
+  leadId?: string;
+  propertyId?: string;
   startsAt: string;
   status: string;
 }
+
+const APPOINTMENT_KIND_LABELS: Record<string, string> = {
+  viewing: "🏠 סיור בנכס",
+  meeting: "🤝 פגישה",
+  call: "📞 שיחה",
+};
+
+const timeFmt = new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit" });
 
 interface Recommendation {
   priority: number;
@@ -108,10 +118,17 @@ export default function DashboardPage() {
 
   return (
     <>
-      <h1 className="mb-1 text-2xl font-bold">שלום, {user.name}</h1>
-      <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
-        מה דורש טיפול היום?
-      </p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="mb-1 text-2xl font-bold">שלום, {user.name}</h1>
+          <p style={{ color: "var(--color-text-muted)" }}>מה דורש טיפול היום?</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/properties/new"><Button variant="secondary">➕ נכס</Button></Link>
+          <Link href="/buyers/new"><Button variant="secondary">➕ קונה</Button></Link>
+          <Link href="/leads/new"><Button variant="secondary">➕ ליד</Button></Link>
+        </div>
+      </div>
 
       <section aria-labelledby="counts-heading" className="mb-8">
         <h2 id="counts-heading" className="mv-visually-hidden">מונים</h2>
@@ -134,6 +151,40 @@ export default function DashboardPage() {
           ))}
         </dl>
       </section>
+
+      {today !== null && today.filter((a) => a.status === "scheduled").length > 0 ? (
+        <section aria-labelledby="today-heading" className="mb-8">
+          <h2 id="today-heading" className="mb-3 text-lg font-semibold">📅 היום ביומן</h2>
+          <ul className="flex flex-col gap-2">
+            {today
+              .filter((a) => a.status === "scheduled")
+              .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+              .map((a) => (
+                <li
+                  key={a.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3"
+                  style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+                >
+                  <div>
+                    <span className="font-bold">{timeFmt.format(new Date(a.startsAt))}</span>
+                    {" · "}
+                    <span>{APPOINTMENT_KIND_LABELS[a.kind] ?? a.kind}</span>
+                    {a.title ? <span> — {a.title}</span> : null}
+                  </div>
+                  <div className="flex gap-3 text-sm">
+                    {a.propertyId ? (
+                      <Link href={`/properties/${a.propertyId}`} className="underline">לנכס</Link>
+                    ) : null}
+                    {a.leadId ? (
+                      <Link href={`/leads/${a.leadId}`} className="underline">לליד</Link>
+                    ) : null}
+                    <Link href="/calendar" className="underline">ליומן</Link>
+                  </div>
+                </li>
+              ))}
+          </ul>
+        </section>
+      ) : null}
 
       {recs && recs.length > 0 ? (
         <section aria-labelledby="coach-heading" className="mb-8">
