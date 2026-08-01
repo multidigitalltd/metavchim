@@ -48,6 +48,8 @@ model User {
   totpSecret   String?   @map("totp_secret") @db.VarChar(255)
   // סיסמה זמנית שחובה להחליף בכניסה ראשונה (ביקורת Codex, PR #5)
   mustChangePassword Boolean @default(false) @map("must_change_password")
+  /** חותמת שינוי הסיסמה האחרון — Sessions ישנים ממנה נפסלים (docs/04) */
+  passwordChangedAt DateTime @default(now()) @map("password_changed_at")
   lastLoginAt  DateTime? @map("last_login_at")
   // מסך "מה חדש": העדכון האחרון שנצפה — הבאנר מוצג רק על חדשות מזה והלאה
   lastSeenAnnouncement String? @map("last_seen_announcement") @db.VarChar(60)
@@ -67,6 +69,8 @@ model Session {
   // בעוגייה נשמר טוקן אקראי; כאן רק ה-SHA-256 שלו — גניבת DB לא מספיקה לחטיפת Session.
   tokenHash String   @unique @map("token_hash") @db.Char(64)
   expiresAt DateTime @map("expires_at")
+  /** חותמת שינוי-הסיסמה שכנגדה אומת ה-Session; ישנה ⇒ נפסל (docs/04) */
+  passwordEpoch DateTime? @map("password_epoch")
   ipAddress String?  @map("ip_address") @db.VarChar(45)
   userAgent String?  @map("user_agent") @db.VarChar(300)
   createdAt DateTime @default(now()) @map("created_at")

@@ -47,10 +47,17 @@ export class PasswordResetService implements OnModuleDestroy {
   }
 
   /**
-   * בקשת איפוס. לעולם לא מגלה אם הכתובת קיימת — הקורא מחזיר תמיד 200.
+   * בקשת איפוס. חוזרת מיד ומריצה את העבודה ברקע — כך זמן התגובה זהה
+   * לכתובת רשומה ולכתובת שאינה רשומה, וגם כשל של Redis/Postmark לא
+   * מסגיר אילו כתובות קיימות (ביקורת Codex: Timing Oracle + דליפת שגיאה).
    */
-  async request(emailAddress: string): Promise<void> {
-    const normalized = emailAddress.toLowerCase();
+  request(emailAddress: string): void {
+    void this.deliver(emailAddress.toLowerCase()).catch((error: unknown) => {
+      this.logger.error(`שליחת קישור איפוס נכשלה: ${String(error)}`);
+    });
+  }
+
+  private async deliver(normalized: string): Promise<void> {
     const user = await this.prisma.user.findUnique({
       where: { email: normalized },
       select: { id: true, isActive: true, name: true },
@@ -63,12 +70,14 @@ export class PasswordResetService implements OnModuleDestroy {
     if (fresh === null) return;
 
     const token = randomBytes(32).toString("base64url");
-    await this.redis.set(
-      `pwreset:${PasswordResetService.hash(token)}`,
-      user.id,
-      "EX",
-      TOKEN_TTL_SECONDS,
-    );
+    const tokenHash = PasswordResetService.hash(token);
+    // מצביע "הטוקן הפעיל" פר משתמש: בקשה חדשה דורסת אותו, ולכן קישור
+    // ישן — גם אם טרם פג — לא יעבור את בדיקת ההתאמה ב-reset (Codex)
+    await this.redis
+      .multi()
+      .set(`pwreset:${tokenHash}`, user.id, "EX", TOKEN_TTL_SECONDS)
+      .set(`pwreset:user:${user.id}`, tokenHash, "EX", TOKEN_TTL_SECONDS)
+      .exec();
 
     const url = `${loadEnv().WEB_ORIGIN}/reset-password?token=${token}`;
     await this.email.send(
@@ -82,19 +91,31 @@ export class PasswordResetService implements OnModuleDestroy {
 
   /** איפוס בפועל — טוקן חד-פעמי; מבטל את כל ה-sessions של המשתמש. */
   async reset(token: string, newPassword: string): Promise<void> {
-    const key = `pwreset:${PasswordResetService.hash(token)}`;
+    const tokenHash = PasswordResetService.hash(token);
     // GETDEL — שימוש יחיד אטומי: שתי בקשות מקבילות, רק אחת מקבלת ערך
-    const userId = await this.redis.getdel(key);
+    const userId = await this.redis.getdel(`pwreset:${tokenHash}`);
     if (!userId) throw new UnauthorizedException("הקישור פג או שכבר נוצל — בקשו קישור חדש");
+
+    // רק הקישור האחרון שנשלח תקף — בקשה חדשה דורסת את המצביע, וקישור
+    // ישן שנותר בתיבה נפסל כאן (ביקורת Codex)
+    const activeHash = await this.redis.get(`pwreset:user:${userId}`);
+    if (activeHash !== tokenHash) {
+      throw new UnauthorizedException("הקישור אינו בתוקף — בקשו קישור חדש");
+    }
 
     await this.prisma.user.update({
       where: { id: userId },
       data: {
         passwordHash: await AuthService.hashPassword(newPassword),
         mustChangePassword: false,
+        // קידום עידן הסיסמה — פוסל גם Session שנוצר במרוץ מול האיפוס
+        passwordChangedAt: new Date(),
       },
     });
     // כל ה-sessions מבוטלים — אם התוקף היה מחובר, הוא מנותק
     await this.prisma.session.deleteMany({ where: { userId } });
+    // כל קישורי האיפוס האחרים של המשתמש נפסלים (ביקורת Codex):
+    // המצביע לטוקן הפעיל נמחק, וכל טוקן אחר לא יעבור את בדיקת ההתאמה
+    await this.redis.del(`pwreset:user:${userId}`);
   }
 }

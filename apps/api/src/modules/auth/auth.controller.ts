@@ -143,7 +143,7 @@ export class AuthController {
   async forgotPassword(
     @Body(new ZodValidationPipe(ForgotPasswordSchema)) body: z.infer<typeof ForgotPasswordSchema>,
   ): Promise<{ ok: true }> {
-    await this.passwordReset.request(body.email);
+    this.passwordReset.request(body.email);
     return { ok: true };
   }
 
