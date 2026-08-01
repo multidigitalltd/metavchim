@@ -334,7 +334,9 @@ export class SettingsController {
     // ההודעה הנכנסת האחרונה — ההוכחה שהחיבור חי מקצה לקצה
     const lastInbound = await this.prisma.withTenant((tx) =>
       tx.interaction.findFirst({
-        where: { tenantId, kind: "whatsapp" },
+        // נכנסות בלבד — הצעה שנשלחה בוואטסאפ היא direction:out ולא
+        // מעידה שה-webhook מ-Meta עובד (ביקורת Codex)
+        where: { tenantId, kind: "whatsapp", direction: "in" },
         orderBy: { createdAt: "desc" },
         select: { createdAt: true },
       }),

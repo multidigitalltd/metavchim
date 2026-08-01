@@ -183,9 +183,14 @@ export class AuthService {
   ): Promise<{ context: RequestContext; user: AuthenticatedUser } | null> {
     const session = await this.prisma.session.findUnique({
       where: { tokenHash: AuthService.hashToken(token) },
-      include: { user: true },
+      include: { user: { include: { tenant: { select: { status: true } } } } },
     });
     if (!session || session.expiresAt < new Date() || !session.user.isActive) {
+      return null;
+    }
+    // אכיפת השהיית משרד בכל בקשה — session שנוצר במרוץ מול ההשהיה
+    // (login שהספיק לעבור אימות לפני מחיקת ה-sessions) נפסל כאן (Codex)
+    if (!["active", "trial"].includes(session.user.tenant.status)) {
       return null;
     }
     const capabilities = new Set<Capability>(ROLE_CAPABILITIES[session.user.role] ?? []);

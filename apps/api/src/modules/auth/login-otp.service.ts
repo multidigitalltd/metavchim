@@ -20,7 +20,6 @@ const MAX_ATTEMPTS = 5;
 interface OtpRecord {
   userId: string;
   codeHmac: string;
-  attempts: number;
 }
 
 @Injectable()
@@ -50,7 +49,7 @@ export class LoginOtpService implements OnModuleDestroy {
   async issue(userId: string, emailAddress: string): Promise<string> {
     const token = randomBytes(24).toString("base64url");
     const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
-    const record: OtpRecord = { userId, codeHmac: this.hmac(code), attempts: 0 };
+    const record: OtpRecord = { userId, codeHmac: this.hmac(code) };
     await this.redis.set(`login-otp:${token}`, JSON.stringify(record), "EX", OTP_TTL_SECONDS);
     await this.email.send(
       emailAddress,
@@ -63,28 +62,33 @@ export class LoginOtpService implements OnModuleDestroy {
   /** אימות (otpToken, code) — מחזיר את מזהה המשתמש או זורק 401. */
   async verify(token: string, code: string): Promise<string> {
     const key = `login-otp:${token}`;
+    const attemptsKey = `login-otp:attempts:${token}`;
+
+    // הזמנה אטומית לפני ההשוואה: INCR מונה כל ניסיון בדיוק פעם אחת —
+    // גם בקשות מקבילות לא עוקפות את התקרה (ביקורת Codex, אותו דפוס
+    // כמו LoginThrottleService)
+    const attemptNo = await this.redis.incr(attemptsKey);
+    if (attemptNo === 1) {
+      await this.redis.expire(attemptsKey, OTP_TTL_SECONDS);
+    }
+    if (attemptNo > MAX_ATTEMPTS) {
+      await this.redis.del(key, attemptsKey);
+      throw new UnauthorizedException("יותר מדי ניסיונות — התחברו מחדש");
+    }
+
     const raw = await this.redis.get(key);
     if (!raw) throw new UnauthorizedException("הקוד פג או שגוי — התחברו מחדש");
     const record = JSON.parse(raw) as OtpRecord;
-
-    if (record.attempts >= MAX_ATTEMPTS) {
-      await this.redis.del(key);
-      throw new UnauthorizedException("יותר מדי ניסיונות — התחברו מחדש");
-    }
 
     const expected = Buffer.from(record.codeHmac, "hex");
     const actual = Buffer.from(this.hmac(code), "hex");
     const ok = expected.length === actual.length && timingSafeEqual(expected, actual);
 
     if (!ok) {
-      record.attempts += 1;
-      // שמירת מונה הניסיונות עם ה-TTL שנותר
-      const ttl = await this.redis.ttl(key);
-      await this.redis.set(key, JSON.stringify(record), "EX", Math.max(ttl, 1));
       throw new UnauthorizedException("קוד שגוי");
     }
 
-    await this.redis.del(key);
+    await this.redis.del(key, attemptsKey);
     return record.userId;
   }
 }
