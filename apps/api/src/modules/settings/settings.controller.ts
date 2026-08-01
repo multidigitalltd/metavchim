@@ -309,6 +309,46 @@ export class SettingsController {
     };
   }
 
+  /**
+   * סטטוס חיבור הוואטסאפ של המשרד — מה מוגדר, מה חסר, והאם זורמות
+   * הודעות בפועל (ההודעה הנכנסת האחרונה). משמש את מסך ההגדרות כדי
+   * שהמתווך יידע בדיוק איפה החיבור עומד בלי לנחש.
+   */
+  @Get("whatsapp-status")
+  @RequireCapability("settings.manage")
+  async whatsappStatus(): Promise<{
+    serverConfigured: boolean;
+    numberConfigured: boolean;
+    webhookUrl: string;
+    lastInboundAt?: Date;
+  }> {
+    const env = loadEnv();
+    const tenantId = TenantContext.current().tenantId;
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
+    const numberConfigured = typeof settings["whatsappNumber"] === "string";
+
+    // ההודעה הנכנסת האחרונה — ההוכחה שהחיבור חי מקצה לקצה
+    const lastInbound = await this.prisma.withTenant((tx) =>
+      tx.interaction.findFirst({
+        where: { tenantId, kind: "whatsapp" },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true },
+      }),
+    );
+
+    return {
+      serverConfigured:
+        env.WHATSAPP_APP_SECRET !== undefined && env.WHATSAPP_VERIFY_TOKEN !== undefined,
+      numberConfigured,
+      webhookUrl: `${env.WEB_ORIGIN}/api/v1/webhooks/whatsapp`,
+      lastInboundAt: lastInbound?.createdAt,
+    };
+  }
+
   /** הגרסה המותקנת (SHA שנאפה לתמונה) + האם עדכון מרחוק זמין בסביבה. */
   @Get("system")
   @RequireCapability("settings.manage")

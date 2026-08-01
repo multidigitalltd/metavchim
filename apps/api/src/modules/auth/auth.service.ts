@@ -38,6 +38,25 @@ export class AuthService {
     password: string,
     meta: { ip?: string; userAgent?: string },
   ): Promise<{ token: string; expiresAt: Date; user: AuthenticatedUser }> {
+    const user = await this.validateCredentials(email, password);
+    return this.issueSession(user, meta);
+  }
+
+  /**
+   * אימות אימייל+סיסמה בלבד, בלי יצירת Session — משמש גם את שלב
+   * הסיסמה של התחברות עם קוד אימייל (OTP), כשזו מופעלת.
+   */
+  async validateCredentials(
+    email: string,
+    password: string,
+  ): Promise<{
+    id: string;
+    tenantId: string;
+    name: string;
+    email: string;
+    role: string;
+    mustChangePassword: boolean;
+  }> {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
 
     // אימות דמה גם כשאין משתמש — עלות זהה, אין Timing Oracle.
@@ -55,6 +74,66 @@ export class AuthService {
       throw new UnauthorizedException("אימייל או סיסמה שגויים");
     }
 
+    // משרד מושהה/סגור — אין התחברות (השהיה מהפלטפורמה = נעילה מלאה:
+    // ה-sessions הקיימים נמחקים בהשהיה, וכאן נחסמת התחברות מחדש)
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: user.tenantId },
+      select: { status: true },
+    });
+    if (tenant && !["active", "trial"].includes(tenant.status)) {
+      throw new UnauthorizedException("החשבון של המשרד מושהה — פנו לתמיכה");
+    }
+
+    return {
+      id: user.id,
+      tenantId: user.tenantId,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      mustChangePassword: user.mustChangePassword,
+    };
+  }
+
+  /** שליפת משתמש לאחר אימות OTP — כולל בדיקות פעילות/סטטוס משרד. */
+  async getUserForSession(userId: string): Promise<{
+    id: string;
+    tenantId: string;
+    name: string;
+    email: string;
+    role: string;
+    mustChangePassword: boolean;
+  }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.isActive) throw new UnauthorizedException();
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: user.tenantId },
+      select: { status: true },
+    });
+    if (tenant && !["active", "trial"].includes(tenant.status)) {
+      throw new UnauthorizedException("החשבון של המשרד מושהה — פנו לתמיכה");
+    }
+    return {
+      id: user.id,
+      tenantId: user.tenantId,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      mustChangePassword: user.mustChangePassword,
+    };
+  }
+
+  /** יצירת Session למשתמש שכבר אומת (סיסמה, ואם מופעל — גם קוד אימייל). */
+  async issueSession(
+    user: {
+      id: string;
+      tenantId: string;
+      name: string;
+      email: string;
+      role: string;
+      mustChangePassword: boolean;
+    },
+    meta: { ip?: string; userAgent?: string },
+  ): Promise<{ token: string; expiresAt: Date; user: AuthenticatedUser }> {
     const token = randomBytes(32).toString("base64url");
     const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
 
@@ -73,18 +152,7 @@ export class AuthService {
       data: { lastLoginAt: new Date() },
     });
 
-    return {
-      token,
-      expiresAt,
-      user: {
-        id: user.id,
-        tenantId: user.tenantId,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        mustChangePassword: user.mustChangePassword,
-      },
-    };
+    return { token, expiresAt, user };
   }
 
   /** החלפת סיסמה ע"י המשתמש עצמו — מנקה את דגל mustChangePassword. */

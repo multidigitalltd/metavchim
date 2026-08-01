@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@metavchim/ui";
-import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 
@@ -56,6 +56,17 @@ export default function PlatformPage() {
   useEffect(() => {
     if (!authLoading) load();
   }, [authLoading]);
+
+  async function changePlan(id: string, plan: string) {
+    await apiPatch(`/platform/agencies/${id}`, { plan });
+    load();
+  }
+
+  async function toggleSuspend(agency: AgencyRow) {
+    const next = agency.status === "suspended" ? "active" : "suspended";
+    await apiPatch(`/platform/agencies/${agency.id}`, { status: next });
+    load();
+  }
 
   async function onCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -167,16 +178,45 @@ export default function PlatformPage() {
                   <th scope="col" className="p-3 text-start">סטטוס</th>
                   <th scope="col" className="p-3 text-start">משתמשים</th>
                   <th scope="col" className="p-3 text-start">הוקם</th>
+                  <th scope="col" className="p-3 text-start">
+                    <span className="mv-visually-hidden">פעולות</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {agencies.map((a) => (
                   <tr key={a.id} className="border-t" style={{ borderColor: "var(--color-border)" }}>
                     <td className="p-3 font-medium">{a.name}</td>
-                    <td className="p-3">{PLAN_LABELS[a.plan] ?? a.plan}</td>
-                    <td className="p-3">{STATUS_LABELS[a.status] ?? a.status}</td>
+                    <td className="p-3">
+                      <label>
+                        <span className="mv-visually-hidden">מסלול של {a.name}</span>
+                        <select
+                          value={a.plan}
+                          onChange={(e) => void changePlan(a.id, e.target.value)}
+                          className="rounded-lg border px-2 py-1.5"
+                          style={{ borderColor: "var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)" }}
+                        >
+                          {Object.entries(PLAN_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </td>
+                    <td className="p-3">
+                      <span style={a.status === "suspended" ? { color: "var(--color-danger)" } : undefined}>
+                        {STATUS_LABELS[a.status] ?? a.status}
+                      </span>
+                    </td>
                     <td className="p-3">{a.userCount}</td>
                     <td className="p-3">{formatDate(a.createdAt)}</td>
+                    <td className="p-3">
+                      <Button
+                        variant={a.status === "suspended" ? "secondary" : "ghost"}
+                        onClick={() => void toggleSuspend(a)}
+                      >
+                        {a.status === "suspended" ? "הפעל מחדש" : "השהה"}
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
