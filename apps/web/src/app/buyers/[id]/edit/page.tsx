@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, ApiError } from "@/lib/api";
-import { shekelsToAgorot } from "@/lib/format";
+import { FINANCING_LABELS, shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 
 /**
@@ -43,6 +43,7 @@ interface BuyerDetail {
   id: string;
   contact: { name: string };
   requirements: BuyerRequirements;
+  financing: string;
 }
 
 export default function EditBuyerPage({ params }: { params: Promise<{ id: string }> }) {
@@ -78,8 +79,10 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
     }
 
     const budgetShekels = num("budgetMax");
+    const budgetMinShekels = num("budgetMin");
     try {
       await apiPatch(`/buyers/${id}`, {
+        financing: String(f.get("financing")),
         requirements: {
           ...buyer.requirements,
           cities: String(f.get("cities"))
@@ -87,12 +90,15 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
             .map((c) => c.trim())
             .filter(Boolean),
           dealType: String(f.get("dealType")),
+          budgetMinAgorot:
+            budgetMinShekels === undefined ? undefined : shekelsToAgorot(budgetMinShekels),
           budgetMaxAgorot:
             budgetShekels === undefined
               ? buyer.requirements.budgetMaxAgorot
               : shekelsToAgorot(budgetShekels),
           roomsMin: num("roomsMin"),
           roomsMax: num("roomsMax"),
+          areaSqmMin: num("areaSqmMin"),
           features,
         },
       });
@@ -149,20 +155,66 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
                 <option value="rent">שכירות</option>
               </select>
             </div>
-            <div>
-              <label htmlFor="budgetMax" className="mb-1 block font-medium">תקציב מקסימלי (₪) *</label>
-              <input
-                id="budgetMax"
-                name="budgetMax"
-                type="number"
-                required
-                min="1000"
-                step="10000"
-                inputMode="numeric"
-                defaultValue={Math.round(req.budgetMaxAgorot / 100)}
-                className="w-full rounded-lg border px-3 py-2.5"
-                style={inputStyle}
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="budgetMin" className="mb-1 block font-medium">תקציב מ- (₪)</label>
+                <input
+                  id="budgetMin"
+                  name="budgetMin"
+                  type="number"
+                  min="0"
+                  step="10000"
+                  inputMode="numeric"
+                  defaultValue={req.budgetMinAgorot === undefined ? "" : Math.round(req.budgetMinAgorot / 100)}
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label htmlFor="budgetMax" className="mb-1 block font-medium">עד (₪) *</label>
+                <input
+                  id="budgetMax"
+                  name="budgetMax"
+                  type="number"
+                  required
+                  min="1000"
+                  step="10000"
+                  inputMode="numeric"
+                  defaultValue={Math.round(req.budgetMaxAgorot / 100)}
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="areaSqmMin" className="mb-1 block font-medium">שטח מינימלי (מ&quot;ר)</label>
+                <input
+                  id="areaSqmMin"
+                  name="areaSqmMin"
+                  type="number"
+                  min="10"
+                  max="2000"
+                  inputMode="numeric"
+                  defaultValue={req.areaSqmMin ?? ""}
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label htmlFor="financing" className="mb-1 block font-medium">מימון</label>
+                <select
+                  id="financing"
+                  name="financing"
+                  defaultValue={buyer.financing}
+                  className="w-full rounded-lg border px-3 py-2.5"
+                  style={inputStyle}
+                >
+                  {Object.entries(FINANCING_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

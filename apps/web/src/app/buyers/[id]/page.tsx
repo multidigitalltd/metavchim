@@ -4,7 +4,7 @@ import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
-import { formatBuyerSource, formatPrice, MATURITY_LABELS, waMeUrl } from "@/lib/format";
+import { FINANCING_LABELS, formatBuyerSource, formatDate, formatPrice, MATURITY_LABELS, waMeUrl } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { TimelineSection } from "./timeline-section";
 import { RelatedEntities } from "../../related-entities";
@@ -14,11 +14,16 @@ interface BuyerDetail {
   contact: { id: string; name: string; phone: string };
   requirements: {
     cities: string[];
+    budgetMinAgorot?: number;
     budgetMaxAgorot: number;
     roomsMin?: number;
     roomsMax?: number;
+    areaSqmMin?: number;
+    entryBy?: string;
+    flexibilityNotes?: string;
     features: Record<string, "must" | "nice">;
   };
+  financing: string;
   maturity: string;
   source: string;
   agentNotes?: string;
@@ -145,8 +150,25 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
         <h2 id="req-heading" className="mb-3 text-lg font-semibold">מה הוא מחפש</h2>
         <dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
           <div><dt className="inline font-medium">אזורים: </dt><dd className="inline">{buyer.requirements.cities.join(", ")}</dd></div>
-          <div><dt className="inline font-medium">תקציב עד: </dt><dd className="inline">{formatPrice(buyer.requirements.budgetMaxAgorot)}</dd></div>
+          <div>
+            <dt className="inline font-medium">תקציב: </dt>
+            <dd className="inline">
+              {buyer.requirements.budgetMinAgorot !== undefined
+                ? `${formatPrice(buyer.requirements.budgetMinAgorot)}–${formatPrice(buyer.requirements.budgetMaxAgorot)}`
+                : `עד ${formatPrice(buyer.requirements.budgetMaxAgorot)}`}
+            </dd>
+          </div>
           <div><dt className="inline font-medium">חדרים: </dt><dd className="inline">{buyer.requirements.roomsMin ?? "—"}–{buyer.requirements.roomsMax ?? "—"}</dd></div>
+          <div>
+            <dt className="inline font-medium">מימון: </dt>
+            <dd className="inline">{FINANCING_LABELS[buyer.financing] ?? buyer.financing}</dd>
+          </div>
+          {buyer.requirements.areaSqmMin !== undefined ? (
+            <div><dt className="inline font-medium">שטח מינימלי: </dt><dd className="inline">{buyer.requirements.areaSqmMin} מ&quot;ר</dd></div>
+          ) : null}
+          {buyer.requirements.entryBy ? (
+            <div><dt className="inline font-medium">כניסה עד: </dt><dd className="inline">{formatDate(buyer.requirements.entryBy)}</dd></div>
+          ) : null}
           <div>
             <dt className="inline font-medium">חובה: </dt>
             <dd className="inline">{musts.length > 0 ? musts.map(([k]) => FEATURE_LABELS[k] ?? k).join(", ") : "—"}</dd>
@@ -155,6 +177,12 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
             <dt className="inline font-medium">עדיפות: </dt>
             <dd className="inline">{nices.length > 0 ? nices.map(([k]) => FEATURE_LABELS[k] ?? k).join(", ") : "—"}</dd>
           </div>
+          {buyer.requirements.flexibilityNotes ? (
+            <div className="sm:col-span-2">
+              <dt className="inline font-medium">גמישות: </dt>
+              <dd className="inline">{buyer.requirements.flexibilityNotes}</dd>
+            </div>
+          ) : null}
         </dl>
       </section>
 

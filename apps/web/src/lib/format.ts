@@ -53,6 +53,14 @@ export const STATUS_LABELS: Record<string, string> = {
   archived: "בארכיון",
 };
 
+export const FINANCING_LABELS: Record<string, string> = {
+  cash: "מזומן",
+  pre_approved: "אישור עקרוני ביד",
+  in_process: "משכנתא בתהליך",
+  not_started: "טרם התחיל מימון",
+  unknown: "לא ידוע",
+};
+
 export const BUYER_SOURCE_LABELS: Record<string, string> = {
   phone: "טלפון",
   whatsapp: "וואטסאפ",
