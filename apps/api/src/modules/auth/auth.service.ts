@@ -17,6 +17,15 @@ export interface AuthenticatedUser {
   mustChangePassword: boolean;
 }
 
+/**
+ * משתמש שאומת אך טרם קיבל Session. `passwordChangedAt` נלכד בזמן
+ * האימות ונחתם ל-Session — כך Session שנוצר במרוץ מול איפוס סיסמה
+ * (אימות לפני האיפוס, יצירה אחריו) נושא חותמת ישנה ונפסל.
+ */
+export interface ValidatedUser extends AuthenticatedUser {
+  passwordChangedAt: Date;
+}
+
 @Injectable()
 export class AuthService {
   constructor(private readonly prisma: PrismaService) {}
@@ -46,17 +55,7 @@ export class AuthService {
    * אימות אימייל+סיסמה בלבד, בלי יצירת Session — משמש גם את שלב
    * הסיסמה של התחברות עם קוד אימייל (OTP), כשזו מופעלת.
    */
-  async validateCredentials(
-    email: string,
-    password: string,
-  ): Promise<{
-    id: string;
-    tenantId: string;
-    name: string;
-    email: string;
-    role: string;
-    mustChangePassword: boolean;
-  }> {
+  async validateCredentials(email: string, password: string): Promise<ValidatedUser> {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
 
     // אימות דמה גם כשאין משתמש — עלות זהה, אין Timing Oracle.
@@ -91,18 +90,12 @@ export class AuthService {
       email: user.email,
       role: user.role,
       mustChangePassword: user.mustChangePassword,
+      passwordChangedAt: user.passwordChangedAt,
     };
   }
 
   /** שליפת משתמש לאחר אימות OTP — כולל בדיקות פעילות/סטטוס משרד. */
-  async getUserForSession(userId: string): Promise<{
-    id: string;
-    tenantId: string;
-    name: string;
-    email: string;
-    role: string;
-    mustChangePassword: boolean;
-  }> {
+  async getUserForSession(userId: string): Promise<ValidatedUser> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user || !user.isActive) throw new UnauthorizedException();
     const tenant = await this.prisma.tenant.findUnique({
@@ -119,19 +112,13 @@ export class AuthService {
       email: user.email,
       role: user.role,
       mustChangePassword: user.mustChangePassword,
+      passwordChangedAt: user.passwordChangedAt,
     };
   }
 
   /** יצירת Session למשתמש שכבר אומת (סיסמה, ואם מופעל — גם קוד אימייל). */
   async issueSession(
-    user: {
-      id: string;
-      tenantId: string;
-      name: string;
-      email: string;
-      role: string;
-      mustChangePassword: boolean;
-    },
+    user: ValidatedUser,
     meta: { ip?: string; userAgent?: string },
   ): Promise<{ token: string; expiresAt: Date; user: AuthenticatedUser }> {
     const token = randomBytes(32).toString("base64url");
@@ -145,6 +132,9 @@ export class AuthService {
         expiresAt,
         ipAddress: meta.ip ?? null,
         userAgent: meta.userAgent?.slice(0, 300) ?? null,
+        // החותמת שנלכדה באימות — לא הערך העדכני. אם הסיסמה שונתה
+        // בין האימות ליצירה, ה-Session נולד עם חותמת ישנה ונפסל.
+        passwordEpoch: user.passwordChangedAt,
       },
     });
     await this.prisma.user.update({
@@ -167,6 +157,7 @@ export class AuthService {
       data: {
         passwordHash: await AuthService.hashPassword(newPassword),
         mustChangePassword: false,
+        passwordChangedAt: new Date(),
       },
     });
     // כל שאר ה-Sessions מבוטלים אחרי שינוי סיסמה (השארת הנוכחי בלבד).
@@ -191,6 +182,14 @@ export class AuthService {
     // אכיפת השהיית משרד בכל בקשה — session שנוצר במרוץ מול ההשהיה
     // (login שהספיק לעבור אימות לפני מחיקת ה-sessions) נפסל כאן (Codex)
     if (!["active", "trial"].includes(session.user.tenant.status)) {
+      return null;
+    }
+    // עידן הסיסמה: Session שאומת מול סיסמה ישנה נפסל — גם אם נוצר
+    // אחרי מחיקת ה-sessions שבאיפוס (מרוץ; ביקורת Codex)
+    if (
+      session.passwordEpoch === null ||
+      session.passwordEpoch.getTime() < session.user.passwordChangedAt.getTime()
+    ) {
       return null;
     }
     const capabilities = new Set<Capability>(ROLE_CAPABILITIES[session.user.role] ?? []);

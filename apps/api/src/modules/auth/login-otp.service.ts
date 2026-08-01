@@ -3,6 +3,7 @@ import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto
 import IORedis from "ioredis";
 import { loadEnv } from "../../config/env";
 import { EmailService } from "../../core/email.service";
+import { PlatformSettingsService } from "../../core/platform-settings.service";
 
 /**
  * אימות דו-שלבי בקוד אימייל (docs/04) — פעיל רק כש-LOGIN_OTP_ENABLED=true
@@ -28,7 +29,10 @@ export class LoginOtpService implements OnModuleDestroy {
   private readonly redis: IORedis;
   private readonly hmacKey: string;
 
-  constructor(private readonly email: EmailService) {
+  constructor(
+    private readonly email: EmailService,
+    private readonly platformSettings: PlatformSettingsService,
+  ) {
     const env = loadEnv();
     this.redis = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: 1, lazyConnect: false });
     this.hmacKey = env.PHONE_HASH_KEY;
@@ -43,6 +47,22 @@ export class LoginOtpService implements OnModuleDestroy {
 
   private hmac(code: string): string {
     return createHmac("sha256", this.hmacKey).update(code).digest("hex");
+  }
+
+  /**
+   * הגנת נעילה: האימות פעיל רק כשהוא מופעל (מסך הפלטפורמה או משתנה
+   * סביבה) *וגם* ספק אימייל מחובר — אחרת היו נשלחים קודים לשום-מקום
+   * וכולם היו ננעלים בחוץ.
+   */
+  async isActive(): Promise<boolean> {
+    const fromDb = await this.platformSettings.get("loginOtpEnabled");
+    const enabled = fromDb !== undefined ? fromDb === "true" : loadEnv().LOGIN_OTP_ENABLED;
+    if (!enabled) return false;
+    if (!(await this.email.isConfigured())) {
+      this.logger.warn("אימות הכניסה מופעל אך אין ספק אימייל מחובר — האימות מדולג");
+      return false;
+    }
+    return true;
   }
 
   /** הנפקת קוד למשתמש שסיסמתו אומתה — מחזיר otpToken להמשך הזרימה. */

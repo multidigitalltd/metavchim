@@ -17,6 +17,7 @@ import { Public } from "../../common/auth.decorators";
 import { AuthService, type AuthenticatedUser } from "./auth.service";
 import { LoginOtpService } from "./login-otp.service";
 import { LoginThrottleService } from "./login-throttle.service";
+import { PasswordResetService } from "./password-reset.service";
 
 export const SESSION_COOKIE = "mv_session";
 
@@ -41,12 +42,22 @@ const VerifyOtpSchema = z
   })
   .strict();
 
+const ForgotPasswordSchema = z.object({ email: z.string().email().max(254) }).strict();
+
+const ResetPasswordSchema = z
+  .object({
+    token: z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
+    newPassword: z.string().min(10).max(200),
+  })
+  .strict();
+
 @Controller("auth")
 export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly throttle: LoginThrottleService,
     private readonly otp: LoginOtpService,
+    private readonly passwordReset: PasswordResetService,
   ) {}
 
   private setSessionCookie(res: Response, token: string, expiresAt: Date): void {
@@ -85,9 +96,9 @@ export class AuthController {
     }
     await this.throttle.releaseOnSuccess(body.email, req.ip);
 
-    // אימות דו-שלבי בקוד אימייל — רק כשמופעל בסביבה (כבוי כברירת מחדל
-    // עד חיבור ספק אימייל; ראו login-otp.service.ts)
-    if (loadEnv().LOGIN_OTP_ENABLED) {
+    // אימות דו-שלבי בקוד אימייל — רק כשמופעל בסביבה וספק אימייל מחובר
+    // (הגנת נעילה; ראו login-otp.service.ts)
+    if (await this.otp.isActive()) {
       const otpToken = await this.otp.issue(validated.id, validated.email);
       return { otpRequired: true, otpToken };
     }
@@ -109,7 +120,7 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ user: AuthenticatedUser }> {
-    if (!loadEnv().LOGIN_OTP_ENABLED) {
+    if (!(await this.otp.isActive())) {
       throw new UnauthorizedException();
     }
     const userId = await this.otp.verify(body.otpToken, body.code);
@@ -120,6 +131,30 @@ export class AuthController {
     });
     this.setSessionCookie(res, token, expiresAt);
     return { user };
+  }
+
+  /**
+   * "שכחתי סיסמה" — תמיד 200 עם אותה תשובה, בלי לגלות אם הכתובת
+   * רשומה במערכת (מניעת מיפוי משתמשים).
+   */
+  @Public()
+  @Post("forgot-password")
+  @HttpCode(200)
+  async forgotPassword(
+    @Body(new ZodValidationPipe(ForgotPasswordSchema)) body: z.infer<typeof ForgotPasswordSchema>,
+  ): Promise<{ ok: true }> {
+    this.passwordReset.request(body.email);
+    return { ok: true };
+  }
+
+  @Public()
+  @Post("reset-password")
+  @HttpCode(200)
+  async resetPassword(
+    @Body(new ZodValidationPipe(ResetPasswordSchema)) body: z.infer<typeof ResetPasswordSchema>,
+  ): Promise<{ ok: true }> {
+    await this.passwordReset.reset(body.token, body.newPassword);
+    return { ok: true };
   }
 
   @Post("logout")
@@ -137,12 +172,15 @@ export class AuthController {
   }
 
   @Get("me")
-  me(@Req() req: Request): { user: AuthenticatedUser } {
+  me(@Req() req: Request): { user: AuthenticatedUser & { isPlatformAdmin: boolean } } {
     const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
     if (!user) {
       throw new UnauthorizedException();
     }
-    return { user };
+    // מנהל פלטפורמה — קובע אם קישור "פלטפורמה" מוצג בניווט (האכיפה
+    // עצמה בשרת; זה רק לתצוגה)
+    const isPlatformAdmin = loadEnv().PLATFORM_ADMIN_EMAILS.includes(user.email.toLowerCase());
+    return { user: { ...user, isPlatformAdmin } };
   }
 
   @Post("change-password")
