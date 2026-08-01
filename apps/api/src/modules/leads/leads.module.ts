@@ -10,5 +10,6 @@ import { WebLeadService } from "./web-lead.service";
   imports: [ContactsModule, BuyersModule],
   controllers: [LeadsController, WebLeadController],
   providers: [LeadsService, WebLeadService],
+  exports: [LeadsService],
 })
 export class LeadsModule {}

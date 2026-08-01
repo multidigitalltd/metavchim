@@ -59,8 +59,11 @@ export default function BuyersPage() {
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">קונים</h1>
         <div className="flex gap-2">
+          <Link href="/buyers/voice">
+            <Button>🎤 קונה בקול</Button>
+          </Link>
           <Link href="/buyers/new">
-            <Button>➕ קונה חדש</Button>
+            <Button variant="secondary">➕ קונה חדש</Button>
           </Link>
           <Link href="/import">
             <Button variant="secondary">📄 ייבוא מקובץ</Button>

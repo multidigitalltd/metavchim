@@ -14,6 +14,19 @@ function NewAppointmentForm() {
   const params = useSearchParams();
   const leadId = params.get("leadId") ?? undefined;
   const propertyId = params.get("propertyId") ?? undefined;
+  // מהפקודה הקולית: הטקסט נכנס כהערות, והתאריך/שעה/סוג שזוהו ממלאים
+  // את הטופס מראש — המתווך רק מאשר או מתקן
+  const initialNotes = params.get("notes") ?? "";
+  const startsAtParam = params.get("startsAt");
+  const initialKind = params.get("kind") ?? "viewing";
+  const parsedStart = startsAtParam ? new Date(startsAtParam) : null;
+  const validStart = parsedStart && !Number.isNaN(parsedStart.getTime()) ? parsedStart : null;
+  // ערכי input date/time הם מקומיים — נגזרים מהשעון של הדפדפן
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  const initialDate = validStart
+    ? `${validStart.getFullYear()}-${pad(validStart.getMonth() + 1)}-${pad(validStart.getDate())}`
+    : "";
+  const initialTime = validStart ? `${pad(validStart.getHours())}:${pad(validStart.getMinutes())}` : "";
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -60,7 +73,7 @@ function NewAppointmentForm() {
         <div className="mb-4 grid gap-4 sm:grid-cols-2">
           <div>
             <label htmlFor="kind" className="mb-1 block font-medium">סוג *</label>
-            <select id="kind" name="kind" required className="w-full rounded-lg border px-3 py-2.5" style={inputStyle}>
+            <select id="kind" name="kind" required defaultValue={initialKind} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle}>
               <option value="viewing">סיור בנכס</option>
               <option value="meeting">פגישה</option>
               <option value="call">שיחה</option>
@@ -72,11 +85,11 @@ function NewAppointmentForm() {
           </div>
           <div>
             <label htmlFor="date" className="mb-1 block font-medium">תאריך *</label>
-            <input id="date" name="date" type="date" required className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+            <input id="date" name="date" type="date" required defaultValue={initialDate} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
           </div>
           <div>
             <label htmlFor="time" className="mb-1 block font-medium">שעה *</label>
-            <input id="time" name="time" type="time" required className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+            <input id="time" name="time" type="time" required defaultValue={initialTime} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
           </div>
           <div>
             <label htmlFor="duration" className="mb-1 block font-medium">משך (דקות)</label>
@@ -91,7 +104,7 @@ function NewAppointmentForm() {
 
         <div className="mb-6">
           <label htmlFor="notes" className="mb-1 block font-medium">הערות</label>
-          <textarea id="notes" name="notes" rows={2} maxLength={2000} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+          <textarea id="notes" name="notes" rows={2} maxLength={2000} defaultValue={initialNotes} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
         </div>
 
         <div className="flex gap-3">
