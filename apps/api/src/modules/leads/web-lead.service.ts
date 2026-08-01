@@ -1,0 +1,127 @@
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { ulid } from "ulid";
+import { CryptoService } from "../../core/crypto.service";
+import { PrismaService } from "../../core/prisma.service";
+
+/**
+ * קליטת ליד מטופס באתר של המשרד (docs/05) — נקודת קצה ציבורית עם מפתח
+ * ייעודי פר-משרד (settings.leadWebhookKey). אותה משמעת כמו קליטת
+ * הוואטסאפ: איש קשר לפי phone_hash, נעילה פר איש-קשר נגד כפילויות,
+ * פנייה כשיש ליד פתוח מצטרפת לציר הזמן במקום לפתוח ליד כפול.
+ */
+@Injectable()
+export class WebLeadService {
+  private readonly logger = new Logger(WebLeadService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly crypto: CryptoService,
+  ) {}
+
+  /** מזהה את המשרד לפי מפתח הוובהוק — או null אם המפתח לא מוכר. */
+  private async resolveTenant(key: string): Promise<string | null> {
+    const tenant = await this.prisma.tenant.findFirst({
+      where: { settings: { path: ["leadWebhookKey"], equals: key } },
+      select: { id: true },
+    });
+    return tenant?.id ?? null;
+  }
+
+  async ingest(
+    key: string,
+    input: { name: string; phone: string; message?: string; pageUrl?: string },
+  ): Promise<void> {
+    const tenantId = await this.resolveTenant(key);
+    if (!tenantId) {
+      // מפתח לא מוכר — אותה שגיאה גנרית; לא מאשרים קיום/אי-קיום מפתחות
+      throw new NotFoundException("לא נמצא");
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+
+      const phoneHash = this.crypto.phoneHash(input.phone);
+      let contact = await tx.contact.findUnique({
+        where: { tenantId_phoneHash: { tenantId, phoneHash } },
+        select: { id: true },
+      });
+      contact ??= await tx.contact.create({
+        data: {
+          id: ulid(),
+          tenantId,
+          nameEncrypted: this.crypto.encrypt(input.name),
+          phoneEncrypted: this.crypto.encrypt(input.phone),
+          phoneHash,
+        },
+        select: { id: true },
+      });
+
+      // נעילה פר איש-קשר — שליחה כפולה מהטופס לא יוצרת שני לידים
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`lead-intake:${tenantId}:${contact.id}`}, 0))`;
+
+      const summaryParts = [input.message?.trim(), input.pageUrl ? `מקור: ${input.pageUrl}` : null]
+        .filter(Boolean)
+        .join("\n");
+
+      const openLead = await tx.lead.findFirst({
+        where: {
+          tenantId,
+          contactId: contact.id,
+          status: { in: ["new", "in_progress", "waiting_customer"] },
+        },
+        select: { id: true },
+      });
+
+      if (openLead) {
+        // ליד פתוח קיים — הפנייה מצטרפת לציר הזמן שלו
+        await tx.interaction.create({
+          data: {
+            id: ulid(),
+            tenantId,
+            leadId: openLead.id,
+            kind: "note",
+            content: `פנייה נוספת מהאתר: ${summaryParts || "ללא הודעה"}`,
+          },
+        });
+        return;
+      }
+
+      const previous = await tx.lead.findFirst({
+        where: { tenantId, contactId: contact.id, status: { in: ["converted", "closed"] } },
+        select: { id: true },
+      });
+
+      const leadId = ulid();
+      await tx.lead.create({
+        data: {
+          id: leadId,
+          tenantId,
+          contactId: contact.id,
+          source: "web_form",
+          intent: "unknown",
+          status: "new",
+          summary: (summaryParts || "פנייה מהאתר").slice(0, 500),
+          ...(previous ? { requiresHuman: true, requiresHumanReason: "ליד חוזר — פנה בעבר" } : {}),
+        },
+      });
+      await tx.interaction.create({
+        data: {
+          id: ulid(),
+          tenantId,
+          leadId,
+          kind: "note",
+          content: `נקלט מטופס האתר${input.message ? `: ${input.message.slice(0, 1500)}` : ""}`,
+        },
+      });
+      await tx.outboxEvent.create({
+        data: {
+          id: ulid(),
+          tenantId,
+          name: "lead.created",
+          payload: { leadId, tenantId, source: "web_form" },
+        },
+      });
+    });
+    this.logger.log(`ליד מהאתר נקלט (tenant ${tenantId})`);
+  }
+}

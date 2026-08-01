@@ -169,7 +169,16 @@ export class MediaService {
       }),
     );
     if (!row) throw new NotFoundException("תמונה לא נמצאה");
-    return this.storage.getObject(row.s3Key);
+    try {
+      return await this.storage.getObject(row.s3Key);
+    } catch (error) {
+      // רק "האובייקט לא קיים" ממופה ל-404; כשל תשתית זמני נשאר 500
+      // כדי לא להתקבע בקאש כתמונה חסרה (ביקורת Codex)
+      if (StorageService.isMissingObjectError(error)) {
+        throw new NotFoundException("התמונה לא נמצאה באחסון");
+      }
+      throw error;
+    }
   }
 
   async list(propertyId: string): Promise<MediaDto[]> {

@@ -255,7 +255,16 @@ export class OffersService {
       if (!entry) throw new NotFoundException("התמונה לא נמצאה");
       return entry.key;
     });
-    return this.storage.getObject(key);
+    try {
+      return await this.storage.getObject(key);
+    } catch (error) {
+      // רק "האובייקט לא קיים" ממופה ל-404; כשל תשתית זמני נשאר 500
+      // כדי לא להתקבע בקאש כתמונה חסרה (ביקורת Codex)
+      if (StorageService.isMissingObjectError(error)) {
+        throw new NotFoundException("התמונה לא נמצאה באחסון");
+      }
+      throw error;
+    }
   }
 
   /** תגובת הקונה מהדף הציבורי: מעוניין / לא רלוונטי. */

@@ -1,6 +1,8 @@
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
+import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { AuthGuard } from "./common/auth.guard";
+import { FloodMiddleware } from "./common/flood.middleware";
 import { SessionMiddleware } from "./common/session.middleware";
 import { CoreModule } from "./core/core.module";
 import { AuthModule } from "./modules/auth/auth.module";
@@ -19,6 +21,7 @@ import { MatchingModule } from "./modules/matching/matching.module";
 import { MessagingModule } from "./modules/messaging/messaging.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { OffersModule } from "./modules/offers/offers.module";
+import { PlatformModule } from "./modules/platform/platform.module";
 import { PropertiesModule } from "./modules/properties/properties.module";
 import { SearchModule } from "./modules/search/search.module";
 import { SettingsModule } from "./modules/settings/settings.module";
@@ -32,6 +35,9 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
  */
 @Module({
   imports: [
+    // הגבלת קצב גלובלית — רשת ביטחון מול הצפה; נתיבים רגישים (login)
+    // מקבלים מגבלה הדוקה משלהם עם @Throttle. ה-IP נלקח אחרי trust proxy.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     CoreModule,
     AuthModule,
     HealthModule,
@@ -40,6 +46,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     BuyersModule,
     MatchingModule,
     OffersModule,
+    PlatformModule,
     LeadsModule,
     VoiceIntakeModule,
     NotificationsModule,
@@ -55,10 +62,14 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     TasksModule,
     ExportModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: AuthGuard },
+  ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(SessionMiddleware).forRoutes("*");
+    // בלם ההצפה קודם — מקור חסום לא מגיע לפענוח session (שאילתת DB)
+    consumer.apply(FloodMiddleware, SessionMiddleware).forRoutes("*");
   }
 }
