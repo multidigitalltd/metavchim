@@ -8,7 +8,7 @@ import type { PropertyFields } from "../schemas/property.js";
  * נשארים כ-Fallback וכרשת ביקורת על תוצרי ה-LLM.
  */
 
-const CITIES = [
+export const CITIES = [
   "בני ברק",
   "ירושלים",
   "תל אביב",
@@ -30,12 +30,12 @@ const CITIES = [
   "קרית ספר",
 ] as const;
 
-const HEB_NUM: Record<string, number> = {
+export const HEB_NUM: Record<string, number> = {
   אחד: 1, שניים: 2, שני: 2, שלושה: 3, שלוש: 3, ארבעה: 4, ארבע: 4,
   חמישה: 5, חמש: 5, שישה: 6, שש: 6, שבעה: 7, שבע: 7, שמונה: 8,
 };
 
-function parseNumberWord(raw: string): number | undefined {
+export function parseNumberWord(raw: string): number | undefined {
   const asNumber = Number(raw.replace(",", "."));
   if (!Number.isNaN(asNumber)) return asNumber;
   return HEB_NUM[raw.trim()];

@@ -14,6 +14,8 @@ function NewAppointmentForm() {
   const params = useSearchParams();
   const leadId = params.get("leadId") ?? undefined;
   const propertyId = params.get("propertyId") ?? undefined;
+  // טקסט שהגיע מהפקודה הקולית — נכנס כהערות ומשאיר את הפרטים לבחירה
+  const initialNotes = params.get("notes") ?? "";
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -91,7 +93,7 @@ function NewAppointmentForm() {
 
         <div className="mb-6">
           <label htmlFor="notes" className="mb-1 block font-medium">הערות</label>
-          <textarea id="notes" name="notes" rows={2} maxLength={2000} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+          <textarea id="notes" name="notes" rows={2} maxLength={2000} defaultValue={initialNotes} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
         </div>
 
         <div className="flex gap-3">

@@ -53,9 +53,14 @@ export default function LeadsPage() {
     <>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">לידים</h1>
-        <Link href="/leads/new">
-          <Button>➕ ליד חדש</Button>
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/leads/voice">
+            <Button>🎤 ליד בקול</Button>
+          </Link>
+          <Link href="/leads/new">
+            <Button variant="secondary">➕ ליד חדש</Button>
+          </Link>
+        </div>
       </div>
 
       {error ? (

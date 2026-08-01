@@ -22,6 +22,7 @@ const PUBLIC_PREFIXES = [
 
 const NAV_ITEMS = [
   { href: "/", label: "דשבורד" },
+  { href: "/voice", label: "🎤 קול" },
   { href: "/properties", label: "נכסים" },
   { href: "/buyers", label: "קונים" },
   { href: "/leads", label: "לידים" },
