@@ -207,9 +207,16 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --bui
 docker compose -f docker-compose.prod.yml --env-file .env.production logs -f stt
 ```
 
-בלוג אמור להופיע `Application startup complete`. הבדיקה האמיתית:
-במסך 🎤 קול תראו את הכיתוב "התמלול מתבצע על השרת שלכם". התמלול
-הראשון איטי יותר (טעינת המודל לזיכרון), הבאים מהירים.
+בלוג אמור להופיע `Application startup complete`, ומיד אחריו
+`טוען מודל תמלול` — השירות מושך את המודל ברקע כבר בעלייה (כמה
+דקות בפעם הראשונה), כדי שההקלטה הראשונה של המתווך לא תחכה לו.
+כשמופיע `המודל נטען` הכול מוכן; אפשר לוודא גם עם
+`docker compose -f docker-compose.prod.yml --env-file .env.production exec stt \
+python -c "import urllib.request,json;print(json.load(urllib.request.urlopen('http://127.0.0.1:9000/health')))"`
+— השדה `loaded` צריך להיות `true`.
+
+הבדיקה האמיתית: במסך 🎤 קול תראו את הכיתוב "התמלול מתבצע על השרת
+שלכם", והתמלול חוזר תוך שניות.
 
 **כיבוי:** מוחקים את `STT_URL` מהקובץ ומריצים
 `up -d api` (הרמת ה-API מחדש) — הממשק חוזר אוטומטית לזיהוי של

@@ -17,6 +17,8 @@ import hmac
 import logging
 import os
 import tempfile
+import threading
+from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
@@ -40,19 +42,43 @@ if not SHARED_SECRET:
         "STT_SECRET חסר — צרו סוד (openssl rand -hex 24) והוסיפו ל-.env.production"
     )
 
-app = FastAPI(title="metavchim-stt", docs_url=None, redoc_url=None)
 _model: WhisperModel | None = None
+_model_lock = threading.Lock()
 _lock = asyncio.Semaphore(CONCURRENCY)
 
 
 def get_model() -> WhisperModel:
-    """טעינה עצלה — הקונטיינר עולה מיד, המודל נטען בבקשה הראשונה."""
+    """טעינת המודל פעם אחת — מוגן במנעול כדי שהחימום והבקשה
+    הראשונה לא יטענו שני עותקים במקביל (2GB זיכרון מיותרים)."""
     global _model
-    if _model is None:
-        logger.info("טוען מודל תמלול: %s (%s)", MODEL_NAME, COMPUTE_TYPE)
-        _model = WhisperModel(MODEL_NAME, device="cpu", compute_type=COMPUTE_TYPE)
-        logger.info("המודל נטען")
+    with _model_lock:
+        if _model is None:
+            logger.info("טוען מודל תמלול: %s (%s)", MODEL_NAME, COMPUTE_TYPE)
+            _model = WhisperModel(MODEL_NAME, device="cpu", compute_type=COMPUTE_TYPE)
+            logger.info("המודל נטען")
     return _model
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """חימום ברקע: משיכת המודל (~1.5GB) בעלייה, ולא בבקשה הראשונה —
+    אחרת ההקלטה הראשונה של המתווך הייתה נתקעת עד ה-timeout ונופלת
+    לזיהוי הדפדפן. הקונטיינר עונה ל-/health מיד בזמן החימום."""
+
+    def warm() -> None:
+        try:
+            get_model()
+        except Exception:  # noqa: BLE001 — כשל חימום לא מפיל את השירות
+            logger.exception("חימום המודל נכשל — ננסה שוב בבקשה הראשונה")
+
+    task = asyncio.create_task(asyncio.to_thread(warm))
+    try:
+        yield
+    finally:
+        task.cancel()
+
+
+app = FastAPI(title="metavchim-stt", docs_url=None, redoc_url=None, lifespan=lifespan)
 
 
 @app.get("/health")

@@ -15,11 +15,20 @@ RUN apt-get update \
 
 WORKDIR /app
 
+# requests ו-huggingface-hub מוצמדים במפורש: faster-whisper 1.1.0 עושה
+# `import requests` בלי להצהיר עליו, והוא הגיע בעקיפין דרך huggingface-hub.
+# מאז ש-huggingface-hub 1.x עבר ל-httpx החבילה הפסיקה להגיע — והקונטיינר
+# נפל בלולאת ריסטרט עם ModuleNotFoundError.
 RUN pip install --no-cache-dir \
   "faster-whisper==1.1.0" \
+  "huggingface-hub==0.27.1" \
+  "requests==2.32.3" \
   "fastapi==0.115.6" \
   "uvicorn[standard]==0.34.0" \
   "python-multipart==0.0.20"
+
+# בדיקת עשן בזמן הבנייה: תלות חסרה נופלת כאן, לא בלולאת ריסטרט על השרת
+RUN python -c "import faster_whisper, fastapi, multipart, requests"
 
 COPY server.py /app/server.py
 
