@@ -200,8 +200,10 @@ echo "STT_SECRET=$(openssl rand -hex 24)" >> .env.production
 echo "STT_URL=http://stt:9000" >> .env.production
 # 2) הוספת הפרופיל (בשורת COMPOSE_PROFILES הקיימת — למשל: offsite,stt)
 nano .env.production
-# 3) בנייה והרמה — המשיכה הראשונה של המודל לוקחת כמה דקות
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build stt
+# 3) בנייה והרמה — המשיכה הראשונה של המודל לוקחת כמה דקות.
+#    ה-API עולה מחדש כדי לקלוט את STT_URL/STT_SECRET החדשים —
+#    בלעדיו הוא ימשיך לדווח שהתמלול אינו זמין.
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build stt api
 docker compose -f docker-compose.prod.yml --env-file .env.production logs -f stt
 ```
 
@@ -209,8 +211,9 @@ docker compose -f docker-compose.prod.yml --env-file .env.production logs -f stt
 במסך 🎤 קול תראו את הכיתוב "התמלול מתבצע על השרת שלכם". התמלול
 הראשון איטי יותר (טעינת המודל לזיכרון), הבאים מהירים.
 
-**כיבוי:** מוחקים את `STT_URL` מהקובץ ומריצים `up -d` — הממשק חוזר
-אוטומטית לזיהוי של הדפדפן, בלי שגיאות.
+**כיבוי:** מוחקים את `STT_URL` מהקובץ ומריצים
+`up -d api` (הרמת ה-API מחדש) — הממשק חוזר אוטומטית לזיהוי של
+הדפדפן, בלי שגיאות.
 
 ## מוניטורינג — לדעת על תקלה לפני שהלקוח מתקשר
 

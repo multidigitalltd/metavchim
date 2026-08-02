@@ -33,6 +33,13 @@ MAX_UPLOAD_BYTES = int(os.environ.get("STT_MAX_BYTES", str(25 * 1024 * 1024)))
 # תמלול אחד בכל רגע — הגנה על זמני התגובה של שאר המערכת
 CONCURRENCY = int(os.environ.get("STT_CONCURRENCY", "1"))
 
+if not SHARED_SECRET:
+    # בלי סוד משותף כל מי שברשת הפנימית יכול לתמלל — עצירה מיידית
+    # עם הודעה ברורה, במקום שירות פתוח בשקט.
+    raise SystemExit(
+        "STT_SECRET חסר — צרו סוד (openssl rand -hex 24) והוסיפו ל-.env.production"
+    )
+
 app = FastAPI(title="metavchim-stt", docs_url=None, redoc_url=None)
 _model: WhisperModel | None = None
 _lock = asyncio.Semaphore(CONCURRENCY)

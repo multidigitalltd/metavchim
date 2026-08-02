@@ -119,7 +119,10 @@ services:
       STT_MODEL: ${STT_MODEL:-ivrit-ai/whisper-large-v3-turbo-ct2}
       STT_COMPUTE_TYPE: ${STT_COMPUTE_TYPE:-int8}
       STT_LANGUAGE: ${STT_LANGUAGE:-he}
-      STT_SECRET: ${STT_SECRET:?חסר STT_SECRET ב-.env.production}
+      # לא :? — compose מפרש את הקובץ *לפני* סינון הפרופילים, וסוד
+      # חסר היה שובר כל פקודה גם כשהתמלול כבוי. השירות עצמו נכשל
+      # בבירור בעלייה אם הסוד ריק (ראו server.py).
+      STT_SECRET: ${STT_SECRET:-}
       STT_CONCURRENCY: ${STT_CONCURRENCY:-1}
       OMP_NUM_THREADS: ${STT_THREADS:-2}
     volumes:

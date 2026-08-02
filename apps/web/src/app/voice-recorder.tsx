@@ -52,13 +52,31 @@ export function VoiceRecorder({
   const [serverStt, setServerStt] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  // הערך העדכני — התמלול בשרת אורך שניות, והמתווך עשוי לערוך בינתיים.
+  // בלי זה התשובה הייתה דורסת את מה שהקליד (ביקורת Codex).
+  const valueRef = useRef(value);
+  valueRef.current = value;
 
   useEffect(() => {
     setBrowserSupported(getSpeechRecognition() !== null);
     apiGet<{ available: boolean }>("/voice-intakes/transcription-status")
       .then((res) => setServerStt(res.available))
       .catch(() => setServerStt(false));
+  }, []);
+
+  // ניתוק המיקרופון גם כשעוזבים את המסך באמצע הקלטה — בלי זה
+  // ה-MediaStream ממשיך לרוץ אחרי שהרכיב ירד (ביקורת Codex)
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+      if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.stop();
+      }
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    };
   }, []);
 
   const canRecordAudio =
@@ -76,6 +94,7 @@ export function VoiceRecorder({
       onError?.("אין גישה למיקרופון — אשרו הרשאה בדפדפן או הקלידו");
       return;
     }
+    streamRef.current = stream;
     chunksRef.current = [];
     const recorder = new MediaRecorder(stream);
     recorder.ondataavailable = (event) => {
@@ -83,6 +102,7 @@ export function VoiceRecorder({
     };
     recorder.onstop = () => {
       stream.getTracks().forEach((track) => track.stop()); // כיבוי המיקרופון
+      streamRef.current = null;
       void sendForTranscription(new Blob(chunksRef.current, { type: "audio/webm" }));
     };
     mediaRecorderRef.current = recorder;
@@ -108,9 +128,17 @@ export function VoiceRecorder({
         onError?.("לא זוהה דיבור בהקלטה — נסו שוב או הקלידו");
         return;
       }
-      onChange((value ? `${value} ` : "") + text);
+      const current = valueRef.current;
+      onChange((current ? `${current} ` : "") + text);
     } catch {
-      onError?.("התמלול נכשל — אפשר להקליד את הטקסט");
+      // כשל בשירות ⇒ מעבר לזיהוי הדפדפן להקלטות הבאות, במקום לשלוח
+      // שוב ושוב לשירות שלא עונה (ביקורת Codex)
+      setServerStt(false);
+      onError?.(
+        getSpeechRecognition() !== null
+          ? "התמלול בשרת נכשל — ההקלטה הבאה תתומלל בדפדפן"
+          : "התמלול נכשל — אפשר להקליד את הטקסט",
+      );
     } finally {
       setTranscribing(false);
     }
@@ -130,7 +158,8 @@ export function VoiceRecorder({
         const alt = event.results[i]?.[0];
         if (alt) parts.push(alt.transcript);
       }
-      onChange((value ? `${value} ` : "") + parts.join(" ").trim());
+      const current = valueRef.current;
+      onChange((current ? `${current} ` : "") + parts.join(" ").trim());
     };
     recognition.onend = () => setRecording(false);
     recognition.onerror = () => {
