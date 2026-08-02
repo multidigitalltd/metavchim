@@ -160,7 +160,7 @@ export function VoiceRecorder({
     sendQueueRef.current = Promise.resolve();
     setRecording(true);
     startSegment(stream);
-    startSilenceWatcher(stream);
+    startSegmentWatcher(stream);
   }
 
   /**
@@ -180,9 +180,7 @@ export function VoiceRecorder({
       if (continueRef.current) {
         startSegment(stream); // ממשיכים לקטע הבא באותו זרם
       } else {
-        stopWatching();
-        stream.getTracks().forEach((track) => track.stop()); // כיבוי המיקרופון
-        streamRef.current = null;
+        finishRecording();
       }
     };
     mediaRecorderRef.current = recorder;
@@ -191,34 +189,43 @@ export function VoiceRecorder({
     recorder.start();
   }
 
-  /** ניטור עוצמת הקול — חותך את הקטע בהפסקה טבעית של הדובר. */
-  function startSilenceWatcher(stream: MediaStream): void {
+  /**
+   * חותך את הקטע בהפסקה טבעית של הדובר לפי עוצמת הקול. אם WebAudio
+   * לא זמין בדפדפן, הניטור ממשיך לרוץ עם חיתוך לפי זמן בלבד — בלי זה
+   * ההקלטה הייתה הופכת לקטע אחד ארוך שנשלח רק בסוף, כלומר הפיצ'ר
+   * נעלם בשקט (ביקורת Codex).
+   */
+  function startSegmentWatcher(stream: MediaStream): void {
     const Ctor = getAudioContext();
-    if (!Ctor) return; // בלי WebAudio נופלים לחיתוך בזמן מרבי בלבד
-    const context = new Ctor();
-    audioContextRef.current = context;
-    const analyser = context.createAnalyser();
-    analyser.fftSize = 2048;
-    context.createMediaStreamSource(stream).connect(analyser);
-    const samples = new Float32Array(analyser.fftSize);
+    let analyser: AnalyserNode | null = null;
+    let samples: Float32Array<ArrayBuffer> | null = null;
+    if (Ctor) {
+      const context = new Ctor();
+      audioContextRef.current = context;
+      analyser = context.createAnalyser();
+      analyser.fftSize = 2048;
+      context.createMediaStreamSource(stream).connect(analyser);
+      samples = new Float32Array(analyser.fftSize);
+    }
 
     watcherRef.current = setInterval(() => {
       const recorder = mediaRecorderRef.current;
       if (recorder?.state !== "recording") return; // בין קטע לקטע
 
-      analyser.getFloatTimeDomainData(samples);
-      let sum = 0;
-      for (let i = 0; i < samples.length; i += 1) {
-        const sample = samples[i] ?? 0;
-        sum += sample * sample;
-      }
-      const rms = Math.sqrt(sum / samples.length);
-
       const now = performance.now();
-      if (rms < SILENCE_RMS) {
-        silenceSinceRef.current ??= now;
-      } else {
-        silenceSinceRef.current = null;
+      if (analyser && samples) {
+        analyser.getFloatTimeDomainData(samples);
+        let sum = 0;
+        for (let i = 0; i < samples.length; i += 1) {
+          const sample = samples[i] ?? 0;
+          sum += sample * sample;
+        }
+        const rms = Math.sqrt(sum / samples.length);
+        if (rms < SILENCE_RMS) {
+          silenceSinceRef.current ??= now;
+        } else {
+          silenceSinceRef.current = null;
+        }
       }
 
       const minMs = segmentSecondsRef.current * 1000;
@@ -270,8 +277,9 @@ export function VoiceRecorder({
       }
       // כשל חוזר ⇒ מעבר לזיהוי הדפדפן, במקום לשלוח שוב ושוב
       // לשירות שלא עונה (ביקורת Codex)
-      stopServerRecording();
       setServerStt(false);
+      // רק אם ההקלטה עדיין רצה — אחרת היינו סוגרים אותה פעמיים
+      if (continueRef.current) stopServerRecording();
       onError?.(
         getSpeechRecognition() !== null
           ? "התמלול בשרת נכשל — ההקלטה הבאה תתומלל בדפדפן"
@@ -284,16 +292,26 @@ export function VoiceRecorder({
 
   function stopServerRecording(): void {
     continueRef.current = false;
-    const recorder = mediaRecorderRef.current;
-    if (recorder?.state === "recording") recorder.stop();
-    else {
-      stopWatching();
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
     setRecording(false);
-    // ההודעה על "לא זוהה דיבור" נשלחת רק אחרי שכל הקטעים חזרו
+    const recorder = mediaRecorderRef.current;
+    // onstop הוא שמוסיף את הקטע האחרון לתור, ומשם finishRecording
+    if (recorder?.state === "recording") recorder.stop();
+    else finishRecording();
+  }
+
+  /**
+   * סגירת ההקלטה אחרי שהקטע האחרון כבר בתור. חשוב שהבדיקה "לא זוהה
+   * דיבור" תשורשר כאן ולא ב-stopServerRecording: שם התור עדיין לא
+   * כלל את הקטע האחרון, והודעת השגיאה הייתה נורית מיד בכל הקלטה
+   * קצרה — עוד לפני שהטקסט חזר (ביקורת Codex).
+   */
+  function finishRecording(): void {
+    stopWatching();
+    streamRef.current?.getTracks().forEach((track) => track.stop()); // כיבוי המיקרופון
+    streamRef.current = null;
     void sendQueueRef.current.then(() => {
+      // אחרי כשל שירות כבר הוצגה הודעה מדויקת יותר — לא מציפים בשתיים
+      if (failuresRef.current >= MAX_CONSECUTIVE_FAILURES) return;
       if (!producedTextRef.current) onError?.("לא זוהה דיבור בהקלטה — נסו שוב או הקלידו");
     });
   }
