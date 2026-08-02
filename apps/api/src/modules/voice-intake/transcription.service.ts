@@ -1,4 +1,4 @@
-import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
+import { HttpException, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { loadEnv } from "../../config/env";
 
 /**
@@ -9,13 +9,52 @@ import { loadEnv } from "../../config/env";
  * לא מוגדר ⇒ הפיצ'ר פשוט לא מוצע בממשק, והדפדפן ממשיך לתמלל
  * מקומית (Web Speech API) כמו קודם — אין רגרסיה.
  */
+/** מטמון קצר לבדיקת המוכנות — כל טעינת מסך קול שואלת. */
+const READINESS_CACHE_MS = 15_000;
+const HEALTH_TIMEOUT_MS = 3_000;
+
 @Injectable()
 export class TranscriptionService {
   private readonly logger = new Logger(TranscriptionService.name);
+  private readiness: { checkedAt: number; ready: boolean } | null = null;
 
-  get available(): boolean {
+  private get configured(): boolean {
     const env = loadEnv();
     return env.STT_URL !== undefined && env.STT_SECRET !== undefined;
+  }
+
+  /**
+   * האם התמלול בשרת *מוכן באמת* — לא רק מוגדר. בזמן משיכת המודל
+   * הראשונה (כמה דקות), אחרי כשל חימום, או כשהקונטיינר למטה, הגדרה
+   * בלבד הייתה שולחת את הממשק למצב שרת וההקלטה הראשונה הייתה
+   * נתקעת עד ה-timeout. כאן שואלים את /health ובודקים loaded
+   * (ביקורת Codex).
+   */
+  async ready(): Promise<boolean> {
+    if (!this.configured) return false;
+
+    const now = Date.now();
+    if (this.readiness && now - this.readiness.checkedAt < READINESS_CACHE_MS) {
+      return this.readiness.ready;
+    }
+
+    const env = loadEnv();
+    let ready = false;
+    try {
+      const res = await fetch(`${env.STT_URL}/health`, {
+        signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+      });
+      if (res.ok) {
+        const body = (await res.json()) as { loaded?: boolean };
+        ready = body.loaded === true;
+      }
+    } catch {
+      // שירות למטה או איטי ⇒ הממשק ממשיך עם זיהוי הדפדפן
+      ready = false;
+    }
+
+    this.readiness = { checkedAt: now, ready };
+    return ready;
   }
 
   async transcribe(audio: Buffer, filename: string): Promise<{ text: string }> {
@@ -39,6 +78,12 @@ export class TranscriptionService {
     } catch (error) {
       this.logger.error(`שירות התמלול לא זמין: ${String(error)}`);
       throw new ServiceUnavailableException("התמלול נכשל — נסו שוב או הקלידו");
+    }
+
+    if (res.status === 429) {
+      // עומס רגעי — לא כשל של השירות. נשמר כ-429 כדי שהממשק ינסה שוב
+      // במקום לוותר על התמלול בשרת לכל שאר הפעילות
+      throw new HttpException("שירות התמלול עסוק — נסו שוב בעוד רגע", 429);
     }
 
     if (!res.ok) {

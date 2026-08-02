@@ -31,11 +31,11 @@ export class VoiceIntakeController {
     private readonly transcription: TranscriptionService,
   ) {}
 
-  /** האם תמלול בשרת זמין — הממשק בוחר בהתאם (שרת או דפדפן). */
+  /** האם תמלול בשרת מוכן — הממשק בוחר בהתאם (שרת או דפדפן). */
   @Get("transcription-status")
   @RequireCapability("properties.view")
-  transcriptionStatus(): { available: boolean } {
-    return { available: this.transcription.available };
+  async transcriptionStatus(): Promise<{ available: boolean }> {
+    return { available: await this.transcription.ready() };
   }
 
   /**
