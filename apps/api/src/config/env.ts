@@ -55,6 +55,15 @@ const EnvSchema = z.object({
   UPDATER_URL: z.string().url().optional(),
   /** סוד משותף מול סוכן העדכון — חובה יחד עם UPDATER_URL. */
   UPDATE_SECRET: z.string().min(24).optional(),
+  /**
+   * שירות התמלול המקומי (faster-whisper בקונטיינר לצד המערכת).
+   * לא מוגדר ⇒ הפיצ'ר כבוי והדפדפן מתמלל מקומית כמו קודם.
+   */
+  STT_URL: z.string().url().optional(),
+  /** סוד משותף מול שירות התמלול — חובה יחד עם STT_URL. */
+  STT_SECRET: z.string().min(16).optional(),
+  /** תקרת זמן לתמלול — מודל על CPU איטי מ-API בענן. */
+  STT_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(600_000).default(180_000),
   /** Postmark — שליחת אימייל (אימות כניסה, איפוס סיסמה, התראות). */
   POSTMARK_SERVER_TOKEN: z.string().min(16).optional(),
   /** כתובת השולח — חייבת להיות Sender Signature מאומתת ב-Postmark. */

@@ -107,6 +107,39 @@ services:
       - web
       - api
 
+  # תמלול מקומי (faster-whisper על CPU) — ההקלטות לא יוצאות מהשרת.
+  # פעיל רק בפרופיל stt: מוסיפים stt ל-COMPOSE_PROFILES.
+  # דורש ~2GB RAM פנויים; ראו docs/10-deployment.md §תמלול מקומי.
+  stt:
+    profiles: ["stt"]
+    build:
+      context: ./infra/stt
+    restart: unless-stopped
+    environment:
+      STT_MODEL: ${STT_MODEL:-ivrit-ai/whisper-large-v3-turbo-ct2}
+      STT_COMPUTE_TYPE: ${STT_COMPUTE_TYPE:-int8}
+      STT_LANGUAGE: ${STT_LANGUAGE:-he}
+      # לא :? — compose מפרש את הקובץ *לפני* סינון הפרופילים, וסוד
+      # חסר היה שובר כל פקודה גם כשהתמלול כבוי. השירות עצמו נכשל
+      # בבירור בעלייה אם הסוד ריק (ראו server.py).
+      STT_SECRET: ${STT_SECRET:-}
+      STT_CONCURRENCY: ${STT_CONCURRENCY:-1}
+      OMP_NUM_THREADS: ${STT_THREADS:-2}
+    volumes:
+      # מטמון המודל — נמשך פעם אחת ונשאר בין הפעלות
+      - sttmodels:/models
+    # תקרת משאבים: התמלול לא יחנוק את שאר המערכת
+    deploy:
+      resources:
+        limits:
+          memory: ${STT_MEMORY_LIMIT:-3g}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:9000/health')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
   # גיבוי אוטומטי — pg_dump יומי + ארכיון תמונות שבועי אל ${BACKUP_DIR}
   # במארח. שחזור: ראו docs/10-deployment.md §גיבוי ושחזור.
   backup:
@@ -160,6 +193,7 @@ services:
       - ${DOCKER_CONFIG_DIR:-~/.docker}:/root/.docker:ro
 
 volumes:
+  sttmodels:
   pgdata:
   redisdata:
   miniodata:
