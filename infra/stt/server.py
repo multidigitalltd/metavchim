@@ -34,6 +34,10 @@ SHARED_SECRET = os.environ.get("STT_SECRET", "")
 MAX_UPLOAD_BYTES = int(os.environ.get("STT_MAX_BYTES", str(25 * 1024 * 1024)))
 # תמלול אחד בכל רגע — הגנה על זמני התגובה של שאר המערכת
 CONCURRENCY = int(os.environ.get("STT_CONCURRENCY", "1"))
+# תקרת בקשות בו-זמנית (רץ + ממתינים). בלעדיה מטח הקלטות היה יוצר
+# עותק זמני לכל בקשה ממתינה וממלא את הדיסק (ביקורת Codex).
+MAX_QUEUE = int(os.environ.get("STT_MAX_QUEUE", "4"))
+CHUNK_BYTES = 1024 * 1024
 
 if not SHARED_SECRET:
     # בלי סוד משותף כל מי שברשת הפנימית יכול לתמלל — עצירה מיידית
@@ -45,6 +49,8 @@ if not SHARED_SECRET:
 _model: WhisperModel | None = None
 _model_lock = threading.Lock()
 _lock = asyncio.Semaphore(CONCURRENCY)
+# מונה בקשות בטיפול — לולאת האירועים חד-תהליכית, ולכן int פשוט מספיק
+_inflight = 0
 
 
 def get_model() -> WhisperModel:
@@ -94,18 +100,28 @@ async def transcribe(
     if SHARED_SECRET and not hmac.compare_digest(x_stt_secret or "", SHARED_SECRET):
         raise HTTPException(status_code=401, detail="unauthorized")
 
-    audio = await file.read()
-    if not audio:
-        raise HTTPException(status_code=400, detail="empty audio")
-    if len(audio) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="audio too large")
+    global _inflight
+    if _inflight >= MAX_QUEUE:
+        # דחייה מיידית עדיפה על תור שמצטבר: ה-API מתרגם לשגיאה ידידותית
+        # והמתווך מנסה שוב, במקום שהשירות ייחנק
+        raise HTTPException(status_code=429, detail="busy")
+    _inflight += 1
 
     suffix = os.path.splitext(file.filename or "")[1] or ".webm"
     tmp_path: str | None = None
     try:
+        # כתיבה במנות ישירות לקובץ הזמני — לא מחזיקים 25MB בזיכרון
+        # לכל בקשה ממתינה, והחריגה נעצרת באמצע ולא אחרי קריאה מלאה
+        size = 0
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            tmp.write(audio)
             tmp_path = tmp.name
+            while chunk := await file.read(CHUNK_BYTES):
+                size += len(chunk)
+                if size > MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="audio too large")
+                tmp.write(chunk)
+        if size == 0:
+            raise HTTPException(status_code=400, detail="empty audio")
 
         async with _lock:
             # ריצת המודל היא CPU-bound — מועברת ל-thread כדי לא לחסום
@@ -114,6 +130,7 @@ async def transcribe(
 
         return {"text": text, "durationSeconds": duration}
     finally:
+        _inflight -= 1
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)  # האודיו לא נשאר על הדיסק
 

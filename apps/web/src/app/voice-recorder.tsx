@@ -71,8 +71,14 @@ export function VoiceRecorder({
   useEffect(() => {
     return () => {
       recognitionRef.current?.stop();
-      if (mediaRecorderRef.current?.state === "recording") {
-        mediaRecorderRef.current.stop();
+      const recorder = mediaRecorderRef.current;
+      if (recorder?.state === "recording") {
+        // ניתוק ה-callbacks לפני העצירה: בלעדיו onstop היה שולח לתמלול
+        // הקלטה שהמתווך נטש כשעזב את המסך, ומעדכן state של רכיב שירד
+        // (ביקורת Codex)
+        recorder.ondataavailable = null;
+        recorder.onstop = null;
+        recorder.stop();
       }
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
@@ -121,6 +127,11 @@ export function VoiceRecorder({
         credentials: "include",
         body: form,
       });
+      if (res.status === 429) {
+        // עומס רגעי בשרת — נשארים במצב תמלול בשרת ומבקשים לנסות שוב
+        onError?.("שירות התמלול עסוק כרגע — נסו שוב בעוד רגע");
+        return;
+      }
       if (!res.ok) throw new Error("transcribe failed");
       const body = (await res.json()) as { text?: string };
       const text = (body.text ?? "").trim();
