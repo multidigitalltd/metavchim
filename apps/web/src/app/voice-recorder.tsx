@@ -7,12 +7,32 @@ import { API_BASE, apiGet } from "@/lib/api";
 /**
  * מקליט משותף לכל מסכי הקול, בשני מצבים:
  *
- * 1. **תמלול בשרת** (ברירת מחדל כשמוגדר): מקליטים אודיו ושולחים
- *    לשירות התמלול המקומי — איכות עברית גבוהה, עובד בכל דפדפן,
- *    וההקלטה לא יוצאת מהשרת ולא נשמרת.
- * 2. **תמלול בדפדפן** (Web Speech API): גיבוי כשהשרת לא מוגדר או
+ * 1. **תמלול בשרת** (ברירת מחדל כשמוגדר): הטקסט מופיע *תוך כדי הדיבור*.
+ *    ההקלטה נחתכת להפסקות טבעיות ונשלחת לשירות התמלול המקומי —
+ *    איכות עברית גבוהה, עובד בכל דפדפן, וההקלטה לא יוצאת מהשרת.
+ * 2. **תמלול בדפדפן** (Web Speech API): גיבוי כשהשרת לא מוכן או
  *    נכשל — פחות מדויק בעברית, אבל מיידי ובלי עומס על השרת.
+ *
+ * למה חיתוך בהפסקות ולא בטיימר קבוע: Whisper אינו מודל סטרימינג —
+ * הוא מפענח חלון שלם. חיתוך כל N שניות היה חותך מילים באמצע ופוגע
+ * דווקא בשמות רחובות ובמספרים, שהם הכי קריטיים למתווך. לכן מנטרים
+ * את עוצמת הקול ומסיימים קטע כשהדובר עוצר לנשום.
  */
+
+/**
+ * אורך הקטע מגיע מהשרת (נמדד לפי מהירות התמלול בפועל) — Whisper
+ * מקודד תמיד חלון של 30 שניות, ולכן קטע קצר מזמן העיבוד היה יוצר
+ * פיגור מצטבר במקום טקסט חי. עד שהשרת עונה: ערך שמרן.
+ */
+const DEFAULT_SEGMENT_SECONDS = 20;
+/** חיתוך כפוי כשאין הפסקה — פי כמה מהאורך המומלץ. */
+const SEGMENT_MAX_FACTOR = 1.6;
+/** משך שקט שנחשב "הדובר סיים משפט". */
+const SILENCE_MS = 500;
+/** סף RMS לשקט — מתחתיו נחשב שאין דיבור. */
+const SILENCE_RMS = 0.015;
+/** אחרי כמה כשלים רצופים מוותרים על השרת ועוברים לדפדפן. */
+const MAX_CONSECUTIVE_FAILURES = 2;
 
 interface SpeechRecognitionLike {
   lang: string;
@@ -33,6 +53,12 @@ function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
     | null;
 }
 
+function getAudioContext(): (new () => AudioContext) | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as Record<string, unknown>;
+  return (w["AudioContext"] ?? w["webkitAudioContext"] ?? null) as (new () => AudioContext) | null;
+}
+
 export function VoiceRecorder({
   value,
   onChange,
@@ -50,10 +76,21 @@ export function VoiceRecorder({
   const [transcribing, setTranscribing] = useState(false);
   const [browserSupported, setBrowserSupported] = useState(false);
   const [serverStt, setServerStt] = useState(false);
+  const segmentSecondsRef = useRef(DEFAULT_SEGMENT_SECONDS);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
+  // האם להמשיך לקטע הבא כשהנוכחי נסגר (false = המתווך לחץ עצירה)
+  const continueRef = useRef(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const watcherRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const segmentStartRef = useRef(0);
+  const silenceSinceRef = useRef<number | null>(null);
+  // שרשור השליחות: הקטעים חייבים להיכתב לפי הסדר שנאמרו, גם אם
+  // תשובה אחת חוזרת מהר מקודמתה
+  const sendQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const failuresRef = useRef(0);
+  const producedTextRef = useRef(false);
   // הערך העדכני — התמלול בשרת אורך שניות, והמתווך עשוי לערוך בינתיים.
   // בלי זה התשובה הייתה דורסת את מה שהקליד (ביקורת Codex).
   const valueRef = useRef(value);
@@ -61,8 +98,13 @@ export function VoiceRecorder({
 
   useEffect(() => {
     setBrowserSupported(getSpeechRecognition() !== null);
-    apiGet<{ available: boolean }>("/voice-intakes/transcription-status")
-      .then((res) => setServerStt(res.available))
+    apiGet<{ available: boolean; segmentSeconds?: number }>("/voice-intakes/transcription-status")
+      .then((res) => {
+        setServerStt(res.available);
+        if (res.segmentSeconds !== undefined && res.segmentSeconds > 0) {
+          segmentSecondsRef.current = res.segmentSeconds;
+        }
+      })
       .catch(() => setServerStt(false));
   }, []);
 
@@ -71,6 +113,7 @@ export function VoiceRecorder({
   useEffect(() => {
     return () => {
       recognitionRef.current?.stop();
+      continueRef.current = false;
       const recorder = mediaRecorderRef.current;
       if (recorder?.state === "recording") {
         // ניתוק ה-callbacks לפני העצירה: בלעדיו onstop היה שולח לתמלול
@@ -80,6 +123,7 @@ export function VoiceRecorder({
         recorder.onstop = null;
         recorder.stop();
       }
+      stopWatching();
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     };
@@ -91,7 +135,16 @@ export function VoiceRecorder({
     navigator.mediaDevices !== undefined;
   const useServer = serverStt && canRecordAudio;
 
-  /** מצב 1 — הקלטה ושליחה לשרת לתמלול. */
+  function stopWatching(): void {
+    if (watcherRef.current !== null) {
+      clearInterval(watcherRef.current);
+      watcherRef.current = null;
+    }
+    void audioContextRef.current?.close().catch(() => undefined);
+    audioContextRef.current = null;
+  }
+
+  /** מצב 1 — הקלטה רציפה שנחתכת בהפסקות ומתומללת תוך כדי. */
   async function startServerRecording(): Promise<void> {
     let stream: MediaStream;
     try {
@@ -101,19 +154,93 @@ export function VoiceRecorder({
       return;
     }
     streamRef.current = stream;
-    chunksRef.current = [];
+    continueRef.current = true;
+    failuresRef.current = 0;
+    producedTextRef.current = false;
+    sendQueueRef.current = Promise.resolve();
+    setRecording(true);
+    startSegment(stream);
+    startSegmentWatcher(stream);
+  }
+
+  /**
+   * קטע אחד = הקלטת webm שלמה ועצמאית. מפעילים MediaRecorder חדש לכל
+   * קטע במקום לחתוך זרם אחד: חיתוך של זרם webm באמצע מייצר קובץ בלי
+   * כותרת שאי אפשר לפענח.
+   */
+  function startSegment(stream: MediaStream): void {
+    const chunks: Blob[] = [];
     const recorder = new MediaRecorder(stream);
     recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) chunksRef.current.push(event.data);
+      if (event.data.size > 0) chunks.push(event.data);
     };
     recorder.onstop = () => {
-      stream.getTracks().forEach((track) => track.stop()); // כיבוי המיקרופון
-      streamRef.current = null;
-      void sendForTranscription(new Blob(chunksRef.current, { type: "audio/webm" }));
+      const blob = new Blob(chunks, { type: "audio/webm" });
+      enqueueTranscription(blob);
+      if (continueRef.current) {
+        startSegment(stream); // ממשיכים לקטע הבא באותו זרם
+      } else {
+        finishRecording();
+      }
     };
     mediaRecorderRef.current = recorder;
+    segmentStartRef.current = performance.now();
+    silenceSinceRef.current = null;
     recorder.start();
-    setRecording(true);
+  }
+
+  /**
+   * חותך את הקטע בהפסקה טבעית של הדובר לפי עוצמת הקול. אם WebAudio
+   * לא זמין בדפדפן, הניטור ממשיך לרוץ עם חיתוך לפי זמן בלבד — בלי זה
+   * ההקלטה הייתה הופכת לקטע אחד ארוך שנשלח רק בסוף, כלומר הפיצ'ר
+   * נעלם בשקט (ביקורת Codex).
+   */
+  function startSegmentWatcher(stream: MediaStream): void {
+    const Ctor = getAudioContext();
+    let analyser: AnalyserNode | null = null;
+    let samples: Float32Array<ArrayBuffer> | null = null;
+    if (Ctor) {
+      const context = new Ctor();
+      audioContextRef.current = context;
+      analyser = context.createAnalyser();
+      analyser.fftSize = 2048;
+      context.createMediaStreamSource(stream).connect(analyser);
+      samples = new Float32Array(analyser.fftSize);
+    }
+
+    watcherRef.current = setInterval(() => {
+      const recorder = mediaRecorderRef.current;
+      if (recorder?.state !== "recording") return; // בין קטע לקטע
+
+      const now = performance.now();
+      if (analyser && samples) {
+        analyser.getFloatTimeDomainData(samples);
+        let sum = 0;
+        for (let i = 0; i < samples.length; i += 1) {
+          const sample = samples[i] ?? 0;
+          sum += sample * sample;
+        }
+        const rms = Math.sqrt(sum / samples.length);
+        if (rms < SILENCE_RMS) {
+          silenceSinceRef.current ??= now;
+        } else {
+          silenceSinceRef.current = null;
+        }
+      }
+
+      const minMs = segmentSecondsRef.current * 1000;
+      const elapsed = now - segmentStartRef.current;
+      const silentFor = silenceSinceRef.current === null ? 0 : now - silenceSinceRef.current;
+      const pausedAfterSpeech = elapsed >= minMs && silentFor >= SILENCE_MS;
+      if (pausedAfterSpeech || elapsed >= minMs * SEGMENT_MAX_FACTOR) {
+        recorder.stop(); // onstop שולח לתמלול ופותח קטע חדש
+      }
+    }, 100);
+  }
+
+  /** שמירה על סדר הקטעים ועל בקשה אחת בכל רגע. */
+  function enqueueTranscription(blob: Blob): void {
+    sendQueueRef.current = sendQueueRef.current.then(() => sendForTranscription(blob));
   }
 
   async function sendForTranscription(blob: Blob): Promise<void> {
@@ -135,16 +262,24 @@ export function VoiceRecorder({
       if (!res.ok) throw new Error("transcribe failed");
       const body = (await res.json()) as { text?: string };
       const text = (body.text ?? "").trim();
-      if (text === "") {
-        onError?.("לא זוהה דיבור בהקלטה — נסו שוב או הקלידו");
-        return;
-      }
+      failuresRef.current = 0;
+      // קטע ללא דיבור (הפסקה ארוכה) הוא תקין לגמרי בהקלטה רציפה —
+      // מדלגים בשקט במקום להטריד בהודעת שגיאה
+      if (text === "") return;
+      producedTextRef.current = true;
       const current = valueRef.current;
       onChange((current ? `${current} ` : "") + text);
     } catch {
-      // כשל בשירות ⇒ מעבר לזיהוי הדפדפן להקלטות הבאות, במקום לשלוח
-      // שוב ושוב לשירות שלא עונה (ביקורת Codex)
+      failuresRef.current += 1;
+      if (failuresRef.current < MAX_CONSECUTIVE_FAILURES) {
+        onError?.("קטע אחד לא תומלל — ההקלטה ממשיכה");
+        return;
+      }
+      // כשל חוזר ⇒ מעבר לזיהוי הדפדפן, במקום לשלוח שוב ושוב
+      // לשירות שלא עונה (ביקורת Codex)
       setServerStt(false);
+      // רק אם ההקלטה עדיין רצה — אחרת היינו סוגרים אותה פעמיים
+      if (continueRef.current) stopServerRecording();
       onError?.(
         getSpeechRecognition() !== null
           ? "התמלול בשרת נכשל — ההקלטה הבאה תתומלל בדפדפן"
@@ -153,6 +288,32 @@ export function VoiceRecorder({
     } finally {
       setTranscribing(false);
     }
+  }
+
+  function stopServerRecording(): void {
+    continueRef.current = false;
+    setRecording(false);
+    const recorder = mediaRecorderRef.current;
+    // onstop הוא שמוסיף את הקטע האחרון לתור, ומשם finishRecording
+    if (recorder?.state === "recording") recorder.stop();
+    else finishRecording();
+  }
+
+  /**
+   * סגירת ההקלטה אחרי שהקטע האחרון כבר בתור. חשוב שהבדיקה "לא זוהה
+   * דיבור" תשורשר כאן ולא ב-stopServerRecording: שם התור עדיין לא
+   * כלל את הקטע האחרון, והודעת השגיאה הייתה נורית מיד בכל הקלטה
+   * קצרה — עוד לפני שהטקסט חזר (ביקורת Codex).
+   */
+  function finishRecording(): void {
+    stopWatching();
+    streamRef.current?.getTracks().forEach((track) => track.stop()); // כיבוי המיקרופון
+    streamRef.current = null;
+    void sendQueueRef.current.then(() => {
+      // אחרי כשל שירות כבר הוצגה הודעה מדויקת יותר — לא מציפים בשתיים
+      if (failuresRef.current >= MAX_CONSECUTIVE_FAILURES) return;
+      if (!producedTextRef.current) onError?.("לא זוהה דיבור בהקלטה — נסו שוב או הקלידו");
+    });
   }
 
   /** מצב 2 — זיהוי בדפדפן (גיבוי). */
@@ -184,9 +345,11 @@ export function VoiceRecorder({
 
   function toggle(): void {
     if (recording) {
-      if (useServer) mediaRecorderRef.current?.stop();
-      else recognitionRef.current?.stop();
-      setRecording(false);
+      if (useServer) stopServerRecording();
+      else {
+        recognitionRef.current?.stop();
+        setRecording(false);
+      }
       return;
     }
     if (useServer) void startServerRecording();
@@ -204,18 +367,19 @@ export function VoiceRecorder({
             variant={recording ? "danger" : "primary"}
             onClick={toggle}
             aria-pressed={recording}
-            disabled={transcribing}
+            // בזמן הקלטה רציפה תמיד אפשר לעצור, גם כשקטע קודם עדיין מתומלל
+            disabled={transcribing && !recording}
             className="min-w-48"
           >
-            {transcribing ? "מתמלל…" : recording ? "⏹ עצור הקלטה" : "🎤 התחל לדבר"}
+            {recording ? "⏹ עצור הקלטה" : transcribing ? "מתמלל…" : "🎤 התחל לדבר"}
           </Button>
           {recording ? (
             <p aria-live="polite" className="mt-2" style={{ color: "var(--color-danger)" }}>
-              מקליט… דברו חופשי
+              {useServer ? "מקליט… הטקסט מופיע תוך כדי הדיבור" : "מקליט… דברו חופשי"}
             </p>
           ) : transcribing ? (
             <p aria-live="polite" className="mt-2" style={{ color: "var(--color-text-muted)" }}>
-              מתמלל בשרת — כמה שניות…
+              מסיים לתמלל…
             </p>
           ) : useServer ? (
             <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>

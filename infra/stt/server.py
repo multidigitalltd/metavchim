@@ -18,6 +18,7 @@ import logging
 import os
 import tempfile
 import threading
+import time
 from contextlib import asynccontextmanager
 from typing import Annotated
 
@@ -51,6 +52,12 @@ _model_lock = threading.Lock()
 _lock = asyncio.Semaphore(CONCURRENCY)
 # מונה בקשות בטיפול — לולאת האירועים חד-תהליכית, ולכן int פשוט מספיק
 _inflight = 0
+# ממוצע נע של זמן העיבוד לבקשה. Whisper מקודד תמיד חלון של 30 שניות
+# גם עבור קטע של 3 שניות, ולכן העלות לבקשה כמעט קבועה — וזה בדיוק
+# המספר שקובע כמה ארוך צריך להיות קטע בהקלטה רציפה כדי שהתמלול
+# יספיק לרוץ בקצב הדיבור. הממשק שואל אותו ומתאים את עצמו לחומרה.
+_avg_seconds = 0.0
+_AVG_ALPHA = 0.3
 
 
 def get_model() -> WhisperModel:
@@ -89,7 +96,12 @@ app = FastAPI(title="metavchim-stt", docs_url=None, redoc_url=None, lifespan=lif
 
 @app.get("/health")
 def health() -> dict[str, object]:
-    return {"status": "ok", "model": MODEL_NAME, "loaded": _model is not None}
+    return {
+        "status": "ok",
+        "model": MODEL_NAME,
+        "loaded": _model is not None,
+        "avgSeconds": round(_avg_seconds, 2),
+    }
 
 
 @app.post("/transcribe")
@@ -123,10 +135,18 @@ async def transcribe(
         if size == 0:
             raise HTTPException(status_code=400, detail="empty audio")
 
+        global _avg_seconds
         async with _lock:
             # ריצת המודל היא CPU-bound — מועברת ל-thread כדי לא לחסום
             # את לולאת האירועים (בדיקת הבריאות ממשיכה לענות)
+            started = time.monotonic()
             text, duration = await asyncio.to_thread(_run, tmp_path)
+            elapsed = time.monotonic() - started
+
+        _avg_seconds = (
+            elapsed if _avg_seconds == 0.0 else _AVG_ALPHA * elapsed + (1 - _AVG_ALPHA) * _avg_seconds
+        )
+        logger.info("תומלל %.1fs אודיו ב-%.1fs (ממוצע %.1fs)", duration, elapsed, _avg_seconds)
 
         return {"text": text, "durationSeconds": duration}
     finally:

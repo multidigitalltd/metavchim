@@ -12,7 +12,7 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import { z } from "zod";
 import { RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
-import { TranscriptionService } from "./transcription.service";
+import { TranscriptionService, type TranscriptionStatus } from "./transcription.service";
 import { VoiceIntakeService, type IntakeResult } from "./voice-intake.service";
 
 const IntakeSchema = z
@@ -31,11 +31,11 @@ export class VoiceIntakeController {
     private readonly transcription: TranscriptionService,
   ) {}
 
-  /** האם תמלול בשרת מוכן — הממשק בוחר בהתאם (שרת או דפדפן). */
+  /** האם תמלול בשרת מוכן, ובאיזה קצב — הממשק מתאים את עצמו. */
   @Get("transcription-status")
   @RequireCapability("properties.view")
-  async transcriptionStatus(): Promise<{ available: boolean }> {
-    return { available: await this.transcription.ready() };
+  async transcriptionStatus(): Promise<TranscriptionStatus> {
+    return this.transcription.status();
   }
 
   /**

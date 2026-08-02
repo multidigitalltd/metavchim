@@ -1,4 +1,5 @@
 import { HttpException, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
+import { SEGMENT_DEFAULT_SECONDS, recommendSegmentSeconds } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 
 /**
@@ -13,10 +14,16 @@ import { loadEnv } from "../../config/env";
 const READINESS_CACHE_MS = 15_000;
 const HEALTH_TIMEOUT_MS = 3_000;
 
+export interface TranscriptionStatus {
+  available: boolean;
+  /** אורך הקטע המומלץ בהקלטה רציפה (שניות) — ראו stt-segment. */
+  segmentSeconds: number;
+}
+
 @Injectable()
 export class TranscriptionService {
   private readonly logger = new Logger(TranscriptionService.name);
-  private readiness: { checkedAt: number; ready: boolean } | null = null;
+  private readiness: { checkedAt: number; status: TranscriptionStatus } | null = null;
 
   private get configured(): boolean {
     const env = loadEnv();
@@ -30,31 +37,38 @@ export class TranscriptionService {
    * נתקעת עד ה-timeout. כאן שואלים את /health ובודקים loaded
    * (ביקורת Codex).
    */
-  async ready(): Promise<boolean> {
-    if (!this.configured) return false;
+  async status(): Promise<TranscriptionStatus> {
+    const unavailable: TranscriptionStatus = {
+      available: false,
+      segmentSeconds: SEGMENT_DEFAULT_SECONDS,
+    };
+    if (!this.configured) return unavailable;
 
     const now = Date.now();
     if (this.readiness && now - this.readiness.checkedAt < READINESS_CACHE_MS) {
-      return this.readiness.ready;
+      return this.readiness.status;
     }
 
     const env = loadEnv();
-    let ready = false;
+    let status = unavailable;
     try {
       const res = await fetch(`${env.STT_URL}/health`, {
         signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
       });
       if (res.ok) {
-        const body = (await res.json()) as { loaded?: boolean };
-        ready = body.loaded === true;
+        const body = (await res.json()) as { loaded?: boolean; avgSeconds?: number };
+        status = {
+          available: body.loaded === true,
+          segmentSeconds: recommendSegmentSeconds(body.avgSeconds),
+        };
       }
     } catch {
       // שירות למטה או איטי ⇒ הממשק ממשיך עם זיהוי הדפדפן
-      ready = false;
+      status = unavailable;
     }
 
-    this.readiness = { checkedAt: now, ready };
-    return ready;
+    this.readiness = { checkedAt: now, status };
+    return status;
   }
 
   async transcribe(audio: Buffer, filename: string): Promise<{ text: string }> {
