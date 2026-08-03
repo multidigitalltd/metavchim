@@ -235,6 +235,22 @@ export class PropertiesService {
         if (!primaryIdByProperty.has(m.propertyId)) primaryIdByProperty.set(m.propertyId, m.id);
       }
 
+      // מספר הקונים הממתינים לכל נכס — זו הפעולה הבאה שהמתווך מחפש
+      // ברשימה ("יש 17 קונים, שלח להם"). שאילתה מקובצת אחת על האינדקס
+      // (tenantId, propertyId), לא שאילתה לכל שורה.
+      const matchCounts = await tx.match.groupBy({
+        by: ["propertyId"],
+        where: {
+          tenantId: TenantContext.current().tenantId,
+          propertyId: { in: pageRows.map((r) => r.id) },
+          status: "suggested",
+        },
+        _count: { _all: true },
+      });
+      const matchCountByProperty = new Map(
+        matchCounts.map((row) => [row.propertyId, row._count._all]),
+      );
+
       const items = pageRows.map((row) => {
         const fields = rowToFields(row);
         const readiness = computeReadiness(fields, {
@@ -250,9 +266,10 @@ export class PropertiesService {
           readinessScore: row.readinessScore,
           missingFields: readiness.missingFields,
           thumbnailUrl: primaryId ? mediaRawPath(row.id, primaryId) : undefined,
+          suggestedMatchCount: matchCountByProperty.get(row.id) ?? 0,
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,
-        } satisfies PropertyDto & { thumbnailUrl?: string };
+        } satisfies PropertyDto & { thumbnailUrl?: string; suggestedMatchCount: number };
       });
       return { items, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null };
     });

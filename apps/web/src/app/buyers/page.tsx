@@ -24,6 +24,27 @@ interface BuyerRow {
 
 const MATURITY_ORDER = ["very_hot", "hot", "interested", "not_ripe"];
 
+function budgetText(b: BuyerRow): string {
+  return b.requirements.budgetMinAgorot !== undefined
+    ? `${formatPrice(b.requirements.budgetMinAgorot)}–${formatPrice(b.requirements.budgetMaxAgorot)}`
+    : `עד ${formatPrice(b.requirements.budgetMaxAgorot)}`;
+}
+
+function MaturityBadge({ maturity }: { maturity: string }) {
+  const hot = maturity === "very_hot" || maturity === "hot";
+  return (
+    <span
+      className="rounded-full px-3 py-1 text-sm font-medium"
+      style={{
+        background: hot ? "var(--color-danger)" : "var(--color-border)",
+        color: hot ? "var(--color-bg)" : "var(--color-text)",
+      }}
+    >
+      {MATURITY_LABELS[maturity] ?? maturity}
+    </span>
+  );
+}
+
 export default function BuyersPage() {
   const { loading: authLoading } = useRequireAuth();
   const [items, setItems] = useState<BuyerRow[] | null>(null);
@@ -121,7 +142,48 @@ export default function BuyersPage() {
               </Button>
             </div>
           ) : (
-        <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--color-border)" }}>
+        <>
+        {/* מובייל: כרטיסים במקום טבלה בת 6 עמודות (docs/06 §1.5) */}
+        <ul className="flex flex-col gap-3 sm:hidden">
+          {visible.map((b) => (
+            <li
+              key={b.id}
+              className="rounded-xl border p-3"
+              style={{
+                borderColor: "var(--color-border)",
+                background: "var(--color-surface)",
+                boxShadow: "var(--shadow-card)",
+              }}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Link href={`/buyers/${b.id}`} className="font-semibold underline">
+                  {b.contact.name}
+                </Link>
+                <MaturityBadge maturity={b.maturity} />
+              </div>
+              <a
+                href={`tel:${b.contact.phone}`}
+                dir="ltr"
+                className="mt-1 block text-sm underline"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                {b.contact.phone}
+              </a>
+              <p className="mt-2" style={{ color: "var(--color-text-muted)" }}>
+                {b.requirements.cities.join(", ")}
+                {b.requirements.roomsMin || b.requirements.roomsMax
+                  ? ` · ${b.requirements.roomsMin ?? "—"}–${b.requirements.roomsMax ?? "—"} חד׳`
+                  : ""}
+              </p>
+              <p style={{ color: "var(--color-text-muted)" }}>{budgetText(b)}</p>
+            </li>
+          ))}
+        </ul>
+
+        <div
+          className="hidden overflow-x-auto rounded-xl border sm:block"
+          style={{ borderColor: "var(--color-border)" }}
+        >
           <table className="w-full">
             <caption className="mv-visually-hidden">
               רשימת הקונים במשרד לפי רמת בשלות: שם, טלפון, אזורים, תקציב
@@ -148,37 +210,20 @@ export default function BuyersPage() {
                     </span>
                   </td>
                   <td className="p-3">
-                    <span
-                      className="rounded-full px-3 py-1 text-sm font-medium"
-                      style={{
-                        background:
-                          b.maturity === "very_hot" || b.maturity === "hot"
-                            ? "var(--color-danger)"
-                            : "var(--color-border)",
-                        color:
-                          b.maturity === "very_hot" || b.maturity === "hot"
-                            ? "var(--color-bg)"
-                            : "var(--color-text)",
-                      }}
-                    >
-                      {MATURITY_LABELS[b.maturity] ?? b.maturity}
-                    </span>
+                    <MaturityBadge maturity={b.maturity} />
                   </td>
                   <td className="p-3">{b.requirements.cities.join(", ")}</td>
                   <td className="p-3">
                     {b.requirements.roomsMin ?? "—"}–{b.requirements.roomsMax ?? "—"}
                   </td>
-                  <td className="p-3">
-                    {b.requirements.budgetMinAgorot !== undefined
-                      ? `${formatPrice(b.requirements.budgetMinAgorot)}–${formatPrice(b.requirements.budgetMaxAgorot)}`
-                      : `עד ${formatPrice(b.requirements.budgetMaxAgorot)}`}
-                  </td>
+                  <td className="p-3">{budgetText(b)}</td>
                   <td className="p-3">{formatBuyerSource(b.source)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        </>
           )}
           <CapNote show={(query.trim() !== "" || maturity !== "") && items.length === 100} noun="קונים" />
         </>

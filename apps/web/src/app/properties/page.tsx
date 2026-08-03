@@ -20,6 +20,51 @@ interface PropertyRow {
   readinessScore: number;
   missingFields: string[];
   thumbnailUrl?: string;
+  /** קונים שממתינים להצעה על הנכס — הפעולה הבאה של המתווך */
+  suggestedMatchCount?: number;
+}
+
+function addressOf(p: PropertyRow): string {
+  return [p.street, p.neighborhood, p.city].filter(Boolean).join(", ") || "ללא כתובת";
+}
+
+function Thumb({ url, size }: { url?: string; size: "sm" | "lg" }) {
+  const box = size === "sm" ? "h-12 w-16" : "h-20 w-24";
+  if (url) {
+    // img רגיל בכוונה: מוזרם דרך ה-API, לא לאופטימיזציית Next
+    return <img src={API_BASE + url} alt="" className={`${box} rounded-lg object-cover`} />;
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className={`${box} flex items-center justify-center rounded-lg text-xl`}
+      style={{ background: "var(--color-surface)", color: "var(--color-text-muted)" }}
+    >
+      🏠
+    </span>
+  );
+}
+
+/** תג "N קונים מתאימים" — קישור ישיר להתאמות של הנכס. */
+function MatchesBadge({ id, count }: { id: string; count: number }) {
+  if (count === 0) return null;
+  return (
+    <Link
+      href={`/matches?property=${id}`}
+      className="inline-block rounded-full px-2.5 py-1 text-sm font-medium"
+      style={{ background: "var(--color-success-soft)", color: "var(--color-success)" }}
+    >
+      {count} קונים מתאימים ←
+    </Link>
+  );
+}
+
+function ReadinessText({ score, missing }: { score: number; missing: number }) {
+  return (
+    <span style={{ color: score >= 80 ? "var(--color-success)" : "var(--color-danger)" }}>
+      {score}%{missing > 0 ? <span className="mv-visually-hidden"> — חסרים {missing} פרטים</span> : null}
+    </span>
+  );
 }
 
 const SORTS: [string, string][] = [
@@ -156,7 +201,56 @@ export default function PropertiesPage() {
               </Button>
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--color-border)" }}>
+            <>
+            {/* מובייל: כרטיסים. טבלה בת 8 עמודות במסך 375px דורשת גלילה
+                לצדדים — והמתווך עומד בשטח עם יד אחת פנויה (docs/06 §1.5) */}
+            <ul className="flex flex-col gap-3 sm:hidden">
+              {visible.map((p) => (
+                <li
+                  key={p.id}
+                  className="rounded-xl border p-3"
+                  style={{
+                    borderColor: "var(--color-border)",
+                    background: "var(--color-surface)",
+                    boxShadow: "var(--shadow-card)",
+                  }}
+                >
+                  <div className="flex gap-3">
+                    <Thumb url={p.thumbnailUrl} size="lg" />
+                    <div className="min-w-0 flex-1">
+                      <Link href={`/properties/${p.id}`} className="font-semibold underline">
+                        {addressOf(p)}
+                      </Link>
+                      <p className="mt-1" style={{ color: "var(--color-text-muted)" }}>
+                        {[
+                          p.propertyType ? PROPERTY_TYPE_LABELS[p.propertyType] : null,
+                          p.rooms ? `${p.rooms} חד׳` : null,
+                          formatPrice(p.priceAgorot),
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                      <p className="mt-1 text-sm">
+                        <span style={{ color: "var(--color-text-muted)" }}>
+                          {STATUS_LABELS[p.status] ?? p.status} · מוכנות{" "}
+                        </span>
+                        <ReadinessText score={p.readinessScore} missing={p.missingFields.length} />
+                      </p>
+                    </div>
+                  </div>
+                  {p.suggestedMatchCount ? (
+                    <div className="mt-3">
+                      <MatchesBadge id={p.id} count={p.suggestedMatchCount} />
+                    </div>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+
+            <div
+              className="hidden overflow-x-auto rounded-xl border sm:block"
+              style={{ borderColor: "var(--color-border)" }}
+            >
               <table className="w-full text-start">
                 <caption className="mv-visually-hidden">
                   רשימת הנכסים במשרד: כתובת, פרטים, מחיר, סטטוס ומוכנות לשיווק
@@ -172,32 +266,18 @@ export default function PropertiesPage() {
                     <th scope="col" className="p-3 text-start">מחיר</th>
                     <th scope="col" className="p-3 text-start">סטטוס</th>
                     <th scope="col" className="p-3 text-start">מוכנות</th>
+                    <th scope="col" className="p-3 text-start">קונים מתאימים</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visible.map((p) => (
                     <tr key={p.id} className="border-t" style={{ borderColor: "var(--color-border)" }}>
                       <td className="p-2" style={{ width: "72px" }}>
-                        {p.thumbnailUrl ? (
-                          // img רגיל בכוונה: מוזרם דרך ה-API, לא לאופטימיזציית Next
-                          <img
-                            src={API_BASE + p.thumbnailUrl}
-                            alt=""
-                            className="h-12 w-16 rounded-lg object-cover"
-                          />
-                        ) : (
-                          <span
-                            aria-hidden="true"
-                            className="flex h-12 w-16 items-center justify-center rounded-lg text-xl"
-                            style={{ background: "var(--color-surface)", color: "var(--color-text-muted)" }}
-                          >
-                            🏠
-                          </span>
-                        )}
+                        <Thumb url={p.thumbnailUrl} size="sm" />
                       </td>
                       <td className="p-3">
                         <Link href={`/properties/${p.id}`} className="font-medium underline">
-                          {[p.street, p.neighborhood, p.city].filter(Boolean).join(", ") || "ללא כתובת"}
+                          {addressOf(p)}
                         </Link>
                       </td>
                       <td className="p-3">{p.propertyType ? PROPERTY_TYPE_LABELS[p.propertyType] : "—"}</td>
@@ -205,25 +285,21 @@ export default function PropertiesPage() {
                       <td className="p-3">{formatPrice(p.priceAgorot)}</td>
                       <td className="p-3">{STATUS_LABELS[p.status] ?? p.status}</td>
                       <td className="p-3">
-                        <span
-                          style={{
-                            color: p.readinessScore >= 80 ? "var(--color-success)" : "var(--color-danger)",
-                          }}
-                        >
-                          {p.readinessScore}%
-                        </span>
-                        {p.missingFields.length > 0 ? (
-                          <span className="mv-visually-hidden">
-                            {" "}
-                            — חסרים {p.missingFields.length} פרטים
-                          </span>
-                        ) : null}
+                        <ReadinessText score={p.readinessScore} missing={p.missingFields.length} />
+                      </td>
+                      <td className="p-3">
+                        {p.suggestedMatchCount ? (
+                          <MatchesBadge id={p.id} count={p.suggestedMatchCount} />
+                        ) : (
+                          <span style={{ color: "var(--color-text-muted)" }}>—</span>
+                        )}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            </>
           )}
           <CapNote show={filtering && items.length === 100} noun="נכסים" />
         </>

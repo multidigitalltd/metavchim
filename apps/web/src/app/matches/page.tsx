@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
@@ -27,28 +28,44 @@ function scoreLabel(score: number): string {
 }
 
 export default function MatchesPage() {
+  // useSearchParams דורש גבול Suspense ב-App Router
+  return (
+    <Suspense fallback={<p aria-live="polite">טוען התאמות…</p>}>
+      <MatchesView />
+    </Suspense>
+  );
+}
+
+function MatchesView() {
   const { loading: authLoading } = useRequireAuth();
+  const searchParams = useSearchParams();
+  // הגעה מ"17 קונים מתאימים" ברשימת הנכסים — מסננים לנכס אחד
+  const propertyId = searchParams.get("property");
   const [items, setItems] = useState<MatchRow[] | null>(null);
   const [minScore, setMinScore] = useState(50);
   const [error, setError] = useState<string | null>(null);
   const requestSeq = useRef(0);
 
-  const load = useCallback((threshold: number) => {
-    // מזהה בקשה — תגובה מאוחרת של סף ישן לא דורסת את הסף הנוכחי (ביקורת Codex)
-    const seq = requestSeq.current + 1;
-    requestSeq.current = seq;
-    apiGet<MatchRow[]>(`/matches?minScore=${threshold}&limit=100`)
-      .then((rows) => {
-        if (requestSeq.current === seq) setItems(rows);
-      })
-      .catch(() => {
-        if (requestSeq.current === seq) setError("טעינת ההתאמות נכשלה");
-      });
-  }, []);
+  const load = useCallback(
+    (threshold: number, property: string | null) => {
+      // מזהה בקשה — תגובה מאוחרת של סף ישן לא דורסת את הסף הנוכחי (ביקורת Codex)
+      const seq = requestSeq.current + 1;
+      requestSeq.current = seq;
+      const scope = property ? `&propertyId=${encodeURIComponent(property)}` : "";
+      apiGet<MatchRow[]>(`/matches?minScore=${threshold}&limit=100${scope}`)
+        .then((rows) => {
+          if (requestSeq.current === seq) setItems(rows);
+        })
+        .catch(() => {
+          if (requestSeq.current === seq) setError("טעינת ההתאמות נכשלה");
+        });
+    },
+    [],
+  );
 
   useEffect(() => {
-    if (!authLoading) load(minScore);
-  }, [authLoading, minScore, load]);
+    if (!authLoading) load(minScore, propertyId);
+  }, [authLoading, minScore, propertyId, load]);
 
   async function dismiss(id: string) {
     await apiPatch(`/matches/${id}/dismiss`, {});
@@ -75,6 +92,21 @@ export default function MatchesPage() {
         </div>
       </div>
 
+      {propertyId ? (
+        <p className="mb-4 flex flex-wrap items-center gap-2">
+          <span
+            className="rounded-full px-3 py-1"
+            style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}
+          >
+            מסונן להתאמות של נכס אחד
+            {items && items[0] ? `: ${items[0].property.title ?? items[0].property.address}` : ""}
+          </span>
+          <Link href="/matches" className="underline">
+            הצג את כל ההתאמות
+          </Link>
+        </p>
+      ) : null}
+
       {error ? (
         <p role="alert" style={{ color: "var(--color-danger)" }}>{error}</p>
       ) : items === null ? (
@@ -83,7 +115,9 @@ export default function MatchesPage() {
         <div className="rounded-xl border p-8 text-center" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
           <p className="mb-2 text-lg font-semibold">אין התאמות בסף הזה</p>
           <p style={{ color: "var(--color-text-muted)" }}>
-            הוסיפו נכסים וקונים — ההתאמות מחושבות אוטומטית.
+            {propertyId
+              ? "אפשר להוריד את סף ההתאמה, או לחזור לכל ההתאמות."
+              : "הוסיפו נכסים וקונים — ההתאמות מחושבות אוטומטית."}
           </p>
         </div>
       ) : (
