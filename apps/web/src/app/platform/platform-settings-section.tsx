@@ -15,6 +15,7 @@ const inputStyle = { borderColor: "var(--color-border)", background: "var(--colo
 interface PlatformSettings {
   postmark: { configured: boolean; source: "db" | "env" | "none"; emailFrom?: string };
   whatsapp: { configured: boolean; source: "db" | "env" | "none" };
+  google: { configured: boolean; source: "db" | "env" | "none"; redirectUri: string };
   loginOtpEnabled: boolean;
 }
 
@@ -85,6 +86,30 @@ export function PlatformSettingsSection() {
       });
       form.reset();
       setMessage("✓ הגדרות הוואטסאפ נשמרו");
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveGoogle(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setMessage(null);
+    setBusy(true);
+    const form = event.currentTarget;
+    const f = new FormData(form);
+    try {
+      const clientId = String(f.get("googleClientId")).trim();
+      const clientSecret = String(f.get("googleClientSecret")).trim();
+      await apiPatch("/platform/settings", {
+        ...(clientId !== "" ? { googleClientId: clientId } : {}),
+        ...(clientSecret !== "" ? { googleClientSecret: clientSecret } : {}),
+      });
+      form.reset();
+      setMessage("✓ הגדרות Google נשמרו — כפתור ההתחברות יופיע במסך הכניסה");
       load();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
@@ -192,6 +217,58 @@ export function PlatformSettingsSection() {
               שלח מייל בדיקה
             </Button>
           ) : null}
+        </form>
+      </div>
+
+      {/* ---------- התחברות עם Google ---------- */}
+      <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-semibold">🔑 התחברות עם Google</h3>
+          <StatusBadge configured={settings.google.configured} source={settings.google.source} />
+        </div>
+        <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          מ-Google Cloud Console ⟵ APIs &amp; Services ⟵ Credentials ⟵ OAuth client ID
+          (סוג: Web application). ההתחברות פותחת חשבונות קיימים בלבד — משתמש
+          שלא הוזמן למשרד לא ייכנס.
+        </p>
+        <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          כתובת החזרה שיש להזין שם (Authorized redirect URI):{" "}
+          <code dir="ltr" className="rounded px-1" style={{ background: "var(--color-bg)" }}>
+            {settings.google.redirectUri}
+          </code>
+        </p>
+        <form onSubmit={(e) => void saveGoogle(e)} className="flex flex-wrap items-end gap-3">
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="googleClientId" className="mb-1 block font-medium">
+              Client ID {settings.google.configured ? <span className="font-normal">(ריק = ללא שינוי)</span> : null}
+            </label>
+            <input
+              id="googleClientId"
+              name="googleClientId"
+              type="text"
+              dir="ltr"
+              autoComplete="off"
+              placeholder={settings.google.configured ? "••••••••" : "…apps.googleusercontent.com"}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="googleClientSecret" className="mb-1 block font-medium">
+              Client Secret {settings.google.configured ? <span className="font-normal">(ריק = ללא שינוי)</span> : null}
+            </label>
+            <input
+              id="googleClientSecret"
+              name="googleClientSecret"
+              type="password"
+              dir="ltr"
+              autoComplete="off"
+              placeholder={settings.google.configured ? "••••••••" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <Button type="submit" disabled={busy}>שמור</Button>
         </form>
       </div>
 

@@ -16,7 +16,9 @@ export type PlatformSettingKey =
   | "emailFrom"
   | "whatsappAppSecret"
   | "whatsappVerifyToken"
-  | "loginOtpEnabled";
+  | "loginOtpEnabled"
+  | "googleClientId"
+  | "googleClientSecret";
 
 const CACHE_TTL_MS = 30_000;
 

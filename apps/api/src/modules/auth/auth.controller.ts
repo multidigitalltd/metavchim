@@ -15,11 +15,15 @@ import { loadEnv } from "../../config/env";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { Public } from "../../common/auth.decorators";
 import { AuthService, type AuthenticatedUser } from "./auth.service";
+import { GoogleAuthService } from "./google-auth.service";
 import { LoginOtpService } from "./login-otp.service";
 import { LoginThrottleService } from "./login-throttle.service";
 import { PasswordResetService } from "./password-reset.service";
 
 export const SESSION_COOKIE = "mv_session";
+/** state+nonce של סבב ה-OAuth — קצר-חיים, נמחק מיד בסיום. */
+const OAUTH_COOKIE = "mv_oauth";
+const OAUTH_TTL_MS = 10 * 60 * 1000;
 
 const LoginSchema = z
   .object({
@@ -58,7 +62,82 @@ export class AuthController {
     private readonly throttle: LoginThrottleService,
     private readonly otp: LoginOtpService,
     private readonly passwordReset: PasswordResetService,
+    private readonly google: GoogleAuthService,
   ) {}
+
+  /** אילו אמצעי התחברות פעילים — מסך הכניסה מציג לפי זה. */
+  @Public()
+  @Get("providers")
+  async providers(): Promise<{ google: boolean }> {
+    return { google: await this.google.isConfigured() };
+  }
+
+  /**
+   * שלב 1 — הפניה ל-Google. ה-state וה-nonce נשמרים בעוגייה
+   * httpOnly קצרת-חיים: state מגן מ-CSRF (תשובה שלא נולדה מבקשה
+   * שלנו), ו-nonce מונע שידור חוזר של id_token ישן.
+   */
+  @Public()
+  @Get("google/start")
+  async googleStart(@Res() res: Response): Promise<void> {
+    const { state, nonce } = GoogleAuthService.newHandshake();
+    res.cookie(OAUTH_COOKIE, `${state}.${nonce}`, {
+      httpOnly: true,
+      secure: loadEnv().COOKIE_SECURE,
+      // lax ולא strict: העוגייה חייבת להישלח בחזרה מהניווט של Google
+      sameSite: "lax",
+      maxAge: OAUTH_TTL_MS,
+      path: "/",
+    });
+    res.redirect(await this.google.authorizationUrl(state, nonce));
+  }
+
+  /**
+   * שלב 2 — חזרה מ-Google. בסיום מפנים תמיד למסך של האפליקציה
+   * (הצלחה או שגיאה), כי זה ניווט של הדפדפן ולא קריאת API.
+   */
+  @Public()
+  @Get("google/callback")
+  async googleCallback(@Req() req: Request, @Res() res: Response): Promise<void> {
+    const webOrigin = loadEnv().WEB_ORIGIN;
+    const query = req.query as Record<string, string | undefined>;
+    const handshake = (req.cookies as Record<string, string> | undefined)?.[OAUTH_COOKIE];
+    res.clearCookie(OAUTH_COOKIE, { path: "/" }); // חד-פעמי בכל מקרה
+
+    const [expectedState, expectedNonce] = (handshake ?? "").split(".");
+    const code = query["code"];
+
+    if (query["error"] !== undefined || !code || !expectedState || !expectedNonce) {
+      res.redirect(`${webOrigin}/login?googleError=failed`);
+      return;
+    }
+    // השוואת state לפני כל פנייה החוצה
+    if (query["state"] !== expectedState) {
+      res.redirect(`${webOrigin}/login?googleError=failed`);
+      return;
+    }
+
+    try {
+      const identity = await this.google.exchangeCode(code, expectedNonce);
+      // כתובת שלא אומתה אצל Google אינה הוכחת בעלות
+      if (!identity.emailVerified) {
+        res.redirect(`${webOrigin}/login?googleError=unverified`);
+        return;
+      }
+      const user = await this.auth.loginWithVerifiedEmail(identity.email);
+      const { token, expiresAt } = await this.auth.issueSession(user, {
+        ip: req.ip,
+        userAgent: req.headers["user-agent"],
+      });
+      this.setSessionCookie(res, token, expiresAt);
+      res.redirect(`${webOrigin}/`);
+    } catch (error) {
+      // אימייל שאינו רשום במשרד — הודעה נפרדת, כי זו לא תקלה אלא
+      // חוסר הרשאה, והמתווך צריך לדעת לפנות למנהל
+      const unknown = error instanceof UnauthorizedException && /לא קיים/u.test(error.message);
+      res.redirect(`${webOrigin}/login?googleError=${unknown ? "unknown" : "failed"}`);
+    }
+  }
 
   private setSessionCookie(res: Response, token: string, expiresAt: Date): void {
     res.cookie(SESSION_COOKIE, token, {

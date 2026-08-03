@@ -1,10 +1,10 @@
 "use client";
 
-import { Suspense, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
-import { apiPost, ApiError } from "@/lib/api";
+import { API_BASE, apiGet, apiPost, ApiError } from "@/lib/api";
 
 /**
  * התחברות בשני שלבים אפשריים: אימייל+סיסמה, ואם השרת דורש (LOGIN_OTP_ENABLED)
@@ -17,12 +17,31 @@ type LoginResponse =
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
 
+/** שגיאות חזרה מ-Google — הודעה מדויקת בלי לחשוף פרטי מערכת. */
+const GOOGLE_ERRORS: Record<string, string> = {
+  unknown: "החשבון לא קיים במערכת — בקשו ממנהל המשרד להוסיף אתכם",
+  unverified: "כתובת האימייל אינה מאומתת אצל Google",
+  failed: "ההתחברות עם Google נכשלה — נסו שוב או התחברו עם סיסמה",
+};
+
 function LoginForm() {
   const router = useRouter();
-  const justReset = useSearchParams().get("reset") === "1";
-  const [error, setError] = useState<string | null>(null);
+  const params = useSearchParams();
+  const justReset = params.get("reset") === "1";
+  const googleError = params.get("googleError");
+  const [error, setError] = useState<string | null>(
+    googleError ? (GOOGLE_ERRORS[googleError] ?? GOOGLE_ERRORS["failed"]!) : null,
+  );
   const [submitting, setSubmitting] = useState(false);
   const [otpToken, setOtpToken] = useState<string | null>(null);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
+
+  // הכפתור מוצג רק כשהחיבור מוגדר בפועל — אחרת הוא היה מוביל לשגיאה
+  useEffect(() => {
+    apiGet<{ google: boolean }>("/auth/providers")
+      .then((res) => setGoogleEnabled(res.google))
+      .catch(() => setGoogleEnabled(false));
+  }, []);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -163,6 +182,24 @@ function LoginForm() {
           <Button type="submit" disabled={submitting} className="w-full">
             {submitting ? "מתחבר…" : "התחברות"}
           </Button>
+
+          {googleEnabled ? (
+            <>
+              <div className="my-4 flex items-center gap-3" aria-hidden="true">
+                <span className="h-px flex-1" style={{ background: "var(--color-border)" }} />
+                <span style={{ color: "var(--color-text-muted)" }}>או</span>
+                <span className="h-px flex-1" style={{ background: "var(--color-border)" }} />
+              </div>
+              {/* ניווט מלא ולא fetch: זרימת OAuth דורשת הפניה של הדפדפן */}
+              <a
+                href={`${API_BASE}/auth/google/start`}
+                className="mv-button mv-button--secondary w-full"
+              >
+                <span aria-hidden="true">🔑</span> התחברות עם Google
+              </a>
+            </>
+          ) : null}
+
           <Link href="/forgot-password" className="mt-4 block text-center underline">
             שכחתי סיסמה
           </Link>

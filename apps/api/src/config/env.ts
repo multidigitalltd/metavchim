@@ -77,6 +77,12 @@ const EnvSchema = z.object({
     .default("false")
     .transform((v) => v === "true"),
   /**
+   * התחברות עם Google (OAuth 2.0 / OIDC). לא מוגדר ⇒ הכפתור לא מוצג
+   * והמסלול חסום. אפשר להגדיר גם מ-/platform (מוצפן ב-DB).
+   */
+  GOOGLE_CLIENT_ID: z.string().min(10).optional(),
+  GOOGLE_CLIENT_SECRET: z.string().min(10).optional(),
+  /**
    * אימיילים (מופרדים בפסיק) של מנהלי הפלטפורמה — מי שמקים משרדים
    * חדשים מהממשק (/platform). ריק = המסך כבוי, הקמה רק ב-bootstrap.
    */
