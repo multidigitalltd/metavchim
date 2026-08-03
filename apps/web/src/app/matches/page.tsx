@@ -21,6 +21,9 @@ interface MatchRow {
   buyerName: string | null;
 }
 
+/** תקרת ה-API. תג "N קונים מתאימים" עשוי להצביע על יותר — ואז מוצגת הערה. */
+const LIST_LIMIT = 200;
+
 function scoreLabel(score: number): string {
   if (score >= 85) return "מומלץ לשליחה";
   if (score >= 70) return "ייתכן שמתאים";
@@ -52,7 +55,7 @@ function MatchesView() {
       const seq = requestSeq.current + 1;
       requestSeq.current = seq;
       const scope = property ? `&propertyId=${encodeURIComponent(property)}` : "";
-      apiGet<MatchRow[]>(`/matches?minScore=${threshold}&limit=100${scope}`)
+      apiGet<MatchRow[]>(`/matches?minScore=${threshold}&limit=${LIST_LIMIT}${scope}`)
         .then((rows) => {
           if (requestSeq.current === seq) setItems(rows);
         })
@@ -170,6 +173,15 @@ function MatchesView() {
           ))}
         </ul>
       )}
+
+      {/* המספר בתג "N קונים מתאימים" סופר את כל ההתאמות, והרשימה חסומה
+          בתקרה — בלי ההערה הזו התאמות היו נעלמות בשקט (ביקורת Codex) */}
+      {items && items.length === LIST_LIMIT ? (
+        <p className="mt-3" style={{ color: "var(--color-text-muted)" }}>
+          מוצגות {LIST_LIMIT} ההתאמות בעלות הציון הגבוה ביותר. יש התאמות
+          נוספות מתחתיהן — העלו את סף ההתאמה כדי לצמצם את הרשימה.
+        </p>
+      ) : null}
     </>
   );
 }

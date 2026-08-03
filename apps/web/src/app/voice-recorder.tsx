@@ -91,6 +91,9 @@ export function VoiceRecorder({
   const sendQueueRef = useRef<Promise<void>>(Promise.resolve());
   const failuresRef = useRef(0);
   const producedTextRef = useRef(false);
+  // הרכיב ירד מהמסך — אין לשלוח, לעדכן state או להציג שגיאות
+  const disposedRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
   // הערך העדכני — התמלול בשרת אורך שניות, והמתווך עשוי לערוך בינתיים.
   // בלי זה התשובה הייתה דורסת את מה שהקליד (ביקורת Codex).
   const valueRef = useRef(value);
@@ -112,6 +115,11 @@ export function VoiceRecorder({
   // ה-MediaStream ממשיך לרוץ אחרי שהרכיב ירד (ביקורת Codex)
   useEffect(() => {
     return () => {
+      // דגל נטישה: קטעים שכבר בתור לא ייצאו לרשת, והבקשה שבאוויר
+      // מבוטלת. בלעדיו הקלטות שהמתווך נטש היו ממשיכות להישלח לתמלול
+      // אחרי שעזב את המסך (ביקורת Codex)
+      disposedRef.current = true;
+      abortRef.current?.abort();
       recognitionRef.current?.stop();
       continueRef.current = false;
       const recorder = mediaRecorderRef.current;
@@ -244,8 +252,12 @@ export function VoiceRecorder({
   }
 
   async function sendForTranscription(blob: Blob): Promise<void> {
-    if (blob.size === 0) return;
+    // נבדק כאן ולא רק בכניסה לתור: קטע שממתין בתור עשוי להגיע לתורו
+    // אחרי שהמתווך כבר עזב את המסך
+    if (blob.size === 0 || disposedRef.current) return;
     setTranscribing(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const form = new FormData();
       form.append("file", blob, "recording.webm");
@@ -253,7 +265,9 @@ export function VoiceRecorder({
         method: "POST",
         credentials: "include",
         body: form,
+        signal: controller.signal,
       });
+      if (disposedRef.current) return;
       if (res.status === 429) {
         // עומס רגעי בשרת — נשארים במצב תמלול בשרת ומבקשים לנסות שוב
         onError?.("שירות התמלול עסוק כרגע — נסו שוב בעוד רגע");
@@ -270,6 +284,8 @@ export function VoiceRecorder({
       const current = valueRef.current;
       onChange((current ? `${current} ` : "") + text);
     } catch {
+      // ביטול בעקבות עזיבת המסך אינו כשל של השירות
+      if (disposedRef.current) return;
       failuresRef.current += 1;
       if (failuresRef.current < MAX_CONSECUTIVE_FAILURES) {
         onError?.("קטע אחד לא תומלל — ההקלטה ממשיכה");
@@ -310,6 +326,7 @@ export function VoiceRecorder({
     streamRef.current?.getTracks().forEach((track) => track.stop()); // כיבוי המיקרופון
     streamRef.current = null;
     void sendQueueRef.current.then(() => {
+      if (disposedRef.current) return; // הרכיב כבר ירד מהמסך
       // אחרי כשל שירות כבר הוצגה הודעה מדויקת יותר — לא מציפים בשתיים
       if (failuresRef.current >= MAX_CONSECUTIVE_FAILURES) return;
       if (!producedTextRef.current) onError?.("לא זוהה דיבור בהקלטה — נסו שוב או הקלידו");
