@@ -18,6 +18,7 @@ export * from "./logic/csv-import.js";
 export * from "./logic/csv-import-buyers.js";
 export * from "./logic/csv-export.js";
 export * from "./logic/stt-segment.js";
+export * from "./logic/lead-waiting.js";
 export * from "./announcements.js";
 export * from "./events.js";
 export * from "./rbac.js";
