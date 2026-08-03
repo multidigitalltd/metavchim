@@ -50,11 +50,20 @@ export class MatchingService {
    * כל ההתאמות הפתוחות במשרד — מסך ההתאמות הדו-צדי. שם הקונה נחשף
    * רק למי שמורשה לקונה (בעלות או view_all) — אין דליפת PII בין סוכנים.
    */
-  async listAll(query: { minScore: number; limit: number }): Promise<EnrichedMatchDto[]> {
+  async listAll(query: {
+    minScore: number;
+    limit: number;
+    propertyId?: string;
+  }): Promise<EnrichedMatchDto[]> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
       const rows = await tx.match.findMany({
-        where: { tenantId, status: { not: "dismissed" }, score: { gte: query.minScore } },
+        where: {
+          tenantId,
+          status: { not: "dismissed" },
+          score: { gte: query.minScore },
+          ...(query.propertyId ? { propertyId: query.propertyId } : {}),
+        },
         orderBy: { score: "desc" },
         take: query.limit,
       });
