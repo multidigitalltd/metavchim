@@ -161,6 +161,23 @@ function LoginForm() {
         </form>
       ) : (
         <form onSubmit={onSubmit} noValidate aria-describedby={error ? "login-error" : undefined}>
+          {googleEnabled ? (
+            <>
+              {/* ניווט מלא ולא fetch: זרימת OAuth דורשת הפניה של הדפדפן */}
+              <a
+                href={`${API_BASE}/auth/google/start`}
+                className="mv-button mv-button--secondary w-full"
+              >
+                <span aria-hidden="true">🔑</span> התחברות עם Google
+              </a>
+              <div className="my-4 flex items-center gap-3" aria-hidden="true">
+                <span className="h-px flex-1" style={{ background: "var(--color-border)" }} />
+                <span style={{ color: "var(--color-text-muted)" }}>או עם אימייל וסיסמה</span>
+                <span className="h-px flex-1" style={{ background: "var(--color-border)" }} />
+              </div>
+            </>
+          ) : null}
+
           <div className="mb-4">
             <label htmlFor="email" className="mb-1 block font-medium">
               אימייל
@@ -197,23 +214,6 @@ function LoginForm() {
           <Button type="submit" disabled={submitting} className="w-full">
             {submitting ? "מתחבר…" : "התחברות"}
           </Button>
-
-          {googleEnabled ? (
-            <>
-              <div className="my-4 flex items-center gap-3" aria-hidden="true">
-                <span className="h-px flex-1" style={{ background: "var(--color-border)" }} />
-                <span style={{ color: "var(--color-text-muted)" }}>או</span>
-                <span className="h-px flex-1" style={{ background: "var(--color-border)" }} />
-              </div>
-              {/* ניווט מלא ולא fetch: זרימת OAuth דורשת הפניה של הדפדפן */}
-              <a
-                href={`${API_BASE}/auth/google/start`}
-                className="mv-button mv-button--secondary w-full"
-              >
-                <span aria-hidden="true">🔑</span> התחברות עם Google
-              </a>
-            </>
-          ) : null}
 
           <Link href="/forgot-password" className="mt-4 block text-center underline">
             שכחתי סיסמה
