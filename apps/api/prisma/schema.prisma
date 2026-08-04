@@ -484,3 +484,33 @@ model AgreementTemplate {
   @@unique([tenantId, kind])
   @@map("agreement_templates")
 }
+
+/// הסכם שנשלח ללקוח לחתימה. rendered_body הוא צילום הנוסח שהלקוח
+/// ראה, ו-bodyHash מאפשר להוכיח שהטקסט לא שונה אחרי החתימה.
+model Agreement {
+  id              String    @id @db.Char(26)
+  tenantId        String    @map("tenant_id") @db.Char(26)
+  /// brokerage | exclusivity
+  kind            String    @db.VarChar(20)
+  contactId       String    @map("contact_id") @db.Char(26)
+  propertyId      String?   @map("property_id") @db.Char(26)
+  /// pending | viewed | signed | declined
+  status          String    @default("pending") @db.VarChar(20)
+  renderedBody    String    @map("rendered_body")
+  bodyHash        String    @map("body_hash") @db.Char(64)
+  publicToken     String    @unique @map("public_token") @db.VarChar(64)
+  tokenExpires    DateTime  @map("token_expires")
+  signerName      String?   @map("signer_name") @db.VarChar(120)
+  signerIdNumber  String?   @map("signer_id_number") @db.VarChar(20)
+  signedAt        DateTime? @map("signed_at")
+  signedIp        String?   @map("signed_ip") @db.VarChar(45)
+  signedUserAgent String?   @map("signed_user_agent") @db.VarChar(300)
+  viewedAt        DateTime? @map("viewed_at")
+  declinedAt      DateTime? @map("declined_at")
+  createdBy       String?   @map("created_by") @db.Char(26)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, contactId, kind])
+  @@map("agreements")
+}

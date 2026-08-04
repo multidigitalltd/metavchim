@@ -15,6 +15,7 @@ import { WhatsNewBanner } from "./whats-new-banner";
 const PUBLIC_PREFIXES = [
   "/login",
   "/offer/",
+  "/sign/",
   "/change-password",
   "/forgot-password",
   "/reset-password",

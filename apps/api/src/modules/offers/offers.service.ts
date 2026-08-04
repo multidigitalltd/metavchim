@@ -1,8 +1,9 @@
-import { GoneException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import { OfferPresentationSchema, type OfferPresentation } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
+import { AgreementsService } from "../agreements/agreements.service";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -38,6 +39,7 @@ export class OffersService {
     private readonly contacts: ContactsService,
     private readonly messaging: MessagingService,
     private readonly storage: StorageService,
+    private readonly agreements: AgreementsService,
   ) {}
 
   /**
@@ -373,7 +375,7 @@ export class OffersService {
 
       const match = await tx.match.findFirst({
         where: { id: offer.matchId, tenantId },
-        select: { buyerId: true },
+        select: { buyerId: true, propertyId: true },
       });
       if (!match) throw new NotFoundException("התאמה לא נמצאה");
       const buyer = await tx.buyer.findFirst({
@@ -383,6 +385,22 @@ export class OffersService {
       if (!buyer) throw new NotFoundException("קונה לא נמצא");
       const contact = await this.contacts.getById(tx, buyer.contactId);
       if (!contact) throw new NotFoundException("איש קשר לא נמצא");
+
+      // שער ההחתמה: הזכות לדמי תיווך מותנית בהזמנה בכתב חתומה (חוק
+      // המתווכים במקרקעין §9), ולכן הצעה לא יוצאת ללקוח שטרם חתם.
+      // במקום שגיאה סתומה — נוצר ההסכם ומוחזר קישור להחתמה.
+      if (!(await this.agreements.hasSigned(tx, buyer.contactId, "brokerage"))) {
+        const agreement = await this.agreements.create(tx, {
+          kind: "brokerage",
+          contactId: buyer.contactId,
+          propertyId: match.propertyId,
+        });
+        throw new ConflictException({
+          message: "הלקוח טרם חתם על הזמנה בכתב — שלחו לו קודם את ההסכם לחתימה",
+          code: "signature_required",
+          signUrl: agreement.url,
+        });
+      }
 
       const presentation = OfferPresentationSchema.parse(offer.presentation);
       const priceText =
