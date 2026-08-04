@@ -8,6 +8,7 @@ import { useRequireAuth } from "@/lib/use-auth";
 import { ExportSection } from "./export-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
 import { WhatsAppStatusSection } from "./whatsapp-status-section";
+import { AgreementTemplatesSection } from "./agreement-templates-section";
 import { SystemUpdateSection } from "./system-update";
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
@@ -315,6 +316,8 @@ export default function SettingsPage() {
       {tenant ? <LeadWebhookSection initialKey={tenant.leadWebhookKey} /> : null}
 
       <ExportSection />
+
+      <AgreementTemplatesSection />
 
       <SystemUpdateSection />
 
