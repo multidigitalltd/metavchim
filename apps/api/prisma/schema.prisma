@@ -468,3 +468,19 @@ model PlatformSetting {
 
   @@map("platform_settings")
 }
+
+/// נוסחי ההסכמים של המשרד. אין שורה ⇒ נוסח ברירת המחדל שבקוד
+/// (packages/shared — agreement-template.ts), כך שמשרד חדש עובד מיד.
+model AgreementTemplate {
+  id        String   @id @db.Char(26)
+  tenantId  String   @map("tenant_id") @db.Char(26)
+  /// brokerage | exclusivity
+  kind      String   @db.VarChar(20)
+  body      String
+  updatedBy String?  @map("updated_by") @db.Char(26)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, kind])
+  @@map("agreement_templates")
+}

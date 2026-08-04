@@ -27,6 +27,11 @@ const TenantSettingsSchema = z
     name: z.string().min(2).max(120).optional(),
     /** המספר העסקי לוואטסאפ — ספרות בלבד; "" מנתק את השיוך */
     whatsappNumber: z.union([z.string().regex(/^\d{9,15}$/u), z.literal("")]).optional(),
+    /* פרטי המשרד שנכנסים לנוסחי ההסכמים. מספר רישיון התיווך הוא
+       פרט חובה בהזמנה בכתב לפי חוק המתווכים במקרקעין. */
+    licenseNumber: z.union([z.string().max(40), z.literal("")]).optional(),
+    officeAddress: z.union([z.string().max(200), z.literal("")]).optional(),
+    officePhone: z.union([z.string().max(30), z.literal("")]).optional(),
   })
   .strict();
 
@@ -78,6 +83,9 @@ export class SettingsController {
     whatsappNumber?: string;
     plan: string;
     leadWebhookKey?: string;
+    licenseNumber?: string;
+    officeAddress?: string;
+    officePhone?: string;
   }> {
     const tenantId = TenantContext.current().tenantId;
     const tenant = await this.prisma.tenant.findUnique({
@@ -92,6 +100,12 @@ export class SettingsController {
       plan: tenant?.plan ?? "basic",
       leadWebhookKey:
         typeof settings["leadWebhookKey"] === "string" ? settings["leadWebhookKey"] : undefined,
+      licenseNumber:
+        typeof settings["licenseNumber"] === "string" ? settings["licenseNumber"] : undefined,
+      officeAddress:
+        typeof settings["officeAddress"] === "string" ? settings["officeAddress"] : undefined,
+      officePhone:
+        typeof settings["officePhone"] === "string" ? settings["officePhone"] : undefined,
     };
   }
 
