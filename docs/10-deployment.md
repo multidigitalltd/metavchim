@@ -274,6 +274,84 @@ docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail
 על הכתובת, ולכן היא מבטלת את הסיסמה הזמנית לגמרי (שלא תישאר דלת פתוחה
 שמנהל המשרד מכיר) ומכניסה ישירות. אם ירצה גם סיסמה — "שכחתי סיסמה".
 
+## ריפו פרטי — מה צריך כדי שהשרת ימשיך להתעדכן
+
+הפיכת הריפו לפרטי שוברת **שני** נתיבים, וכל אחד דורש אישור נפרד:
+
+| נתיב | למה משמש | מה נדרש |
+|------|----------|---------|
+| `docker compose pull` | משיכת תמונות מ-GHCR — גם כפתור "עדכן גרסה" | `docker login ghcr.io` עם טוקן `read:packages` |
+| `git fetch origin` | עדכון קובץ ה-compose וקבצי infra | מפתח פריסה (Deploy Key) לקריאה בלבד |
+
+ה-CI עצמו לא נשבר: `GITHUB_TOKEN` ממשיך לדחוף תמונות גם בריפו פרטי.
+
+### 1. ב-GitHub (בדפדפן)
+
+1. **Settings ⟵ General ⟵ Danger Zone ⟵ Change visibility ⟵ Private.**
+2. **חשוב ולא אוטומטי:** התמונות ב-GHCR **לא** הופכות לפרטיות יחד עם
+   הריפו. עוברים לעמוד הארגון ⟵ Packages, ולכל אחת מארבע החבילות
+   (`metavchim-api`, `-web`, `-workers`, `-updater`) ⟵ Package
+   settings ⟵ Change visibility ⟵ Private. בלי השלב הזה הקוד פרטי
+   אבל התמונות עדיין פתוחות לכל העולם.
+
+### 2. טוקן למשיכת תמונות
+
+**Settings ⟵ Developer settings ⟵ Personal access tokens ⟵ Tokens
+(classic) ⟵ Generate new token.** מסמנים **אך ורק** `read:packages`.
+
+הטוקן נשמר על השרת ב-`~/.docker/config.json` בקידוד base64 (לא
+מוצפן) — לכן הרשאת קריאה בלבד היא לא קוסמטיקה: מי שמשיג את הקובץ
+לא יוכל לדחוף תמונות או לגעת בקוד.
+
+```bash
+# הטוקן לא נשמר בהיסטוריית הפקודות (read -s)
+read -s -p "GHCR token: " GHCR_TOKEN; echo
+echo "$GHCR_TOKEN" | docker login ghcr.io -u <שם המשתמש בגיטהאב> --password-stdin
+unset GHCR_TOKEN
+
+# בדיקה
+cd /srv/metavchim && \
+docker compose -f docker-compose.prod.yml --env-file .env.production pull api
+```
+
+כפתור "עדכן גרסה" ממשיך לעבוד: שירות ה-updater כבר טוען את
+`~/.docker` לקריאה בלבד, והקובץ המעודכן נראה לו מיד.
+
+### 3. מפתח פריסה ל-git
+
+```bash
+ssh-keygen -t ed25519 -C "metavchim-server" -f /root/.ssh/metavchim_deploy -N ""
+cat /root/.ssh/metavchim_deploy.pub
+```
+
+את הפלט מדביקים ב-**Settings ⟵ Deploy keys ⟵ Add deploy key**,
+**בלי** לסמן "Allow write access". מפתח כזה תקף לריפו הזה בלבד — גם
+אם השרת ייפרץ, אין ממנו דרך לשאר החשבון.
+
+```bash
+cat >> /root/.ssh/config <<'EOF'
+Host github.com
+  IdentityFile /root/.ssh/metavchim_deploy
+  IdentitiesOnly yes
+EOF
+chmod 600 /root/.ssh/config
+
+cd /srv/metavchim && \
+git remote set-url origin git@github.com:multidigitalltd/metavchim.git && \
+ssh -o StrictHostKeyChecking=accept-new -T git@github.com; \
+git fetch origin main && echo "✓ גישת git עובדת"
+```
+
+(השורה של `ssh -T` מחזירה "does not provide shell access" — זו תשובה
+תקינה, לא שגיאה.)
+
+### עלות שכדאי לקחת בחשבון
+
+ב-GitHub Free, דקות Actions הן ללא הגבלה בריפו ציבורי ומוגבלות
+ל-2,000 דקות בחודש בריפו פרטי. בניית ארבע התמונות בכל מיזוג ל-main
+היא הצרכן העיקרי. אם מתקרבים לתקרה — למזג בקבוצות במקום כל שינוי
+בנפרד, או לשדרג מסלול.
+
 ## מוניטורינג — לדעת על תקלה לפני שהלקוח מתקשר
 
 למערכת שני נתיבי בדיקה ציבוריים (ללא נתוני לקוחות):
