@@ -94,6 +94,34 @@ export class AuthService {
     };
   }
 
+  /**
+   * כניסה עם זהות חיצונית מאומתת (Google) — **בלי הרשמה עצמית**.
+   * הספק מוכיח בעלות על כתובת אימייל; ההרשאה עצמה תלויה בכך שהמשתמש
+   * כבר הוזמן למשרד. אימייל לא מוכר ⇒ דחייה.
+   */
+  async loginWithVerifiedEmail(email: string): Promise<ValidatedUser> {
+    const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException("החשבון לא קיים במערכת — פנו למנהל המשרד");
+    }
+
+    /*
+     * משתמש שהוזמן וטרם החליף את הסיסמה הזמנית: הכניסה עם Google
+     * מוכיחה בעלות על הכתובת, ולכן אין טעם לחסום אותו במסך החלפת
+     * סיסמה שהוא לא יוכל לעבור (הוא לא מכיר את הזמנית). במקביל
+     * הסיסמה הזמנית — שמנהל המשרד יצר ומכיר — מבוטלת לגמרי, כדי
+     * שלא תישאר דלת פתוחה לחשבון (docs/04 §3).
+     */
+    if (user.mustChangePassword) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash: null, mustChangePassword: false, passwordChangedAt: new Date() },
+      });
+    }
+
+    return this.getUserForSession(user.id);
+  }
+
   /** שליפת משתמש לאחר אימות OTP — כולל בדיקות פעילות/סטטוס משרד. */
   async getUserForSession(userId: string): Promise<ValidatedUser> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });

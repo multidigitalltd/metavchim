@@ -54,6 +54,8 @@ const UpdateSettingsSchema = z
     whatsappAppSecret: z.union([z.string().min(16).max(200), z.literal("")]).optional(),
     whatsappVerifyToken: z.union([z.string().min(16).max(200), z.literal("")]).optional(),
     loginOtpEnabled: z.boolean().optional(),
+    googleClientId: z.union([z.string().min(10).max(200), z.literal("")]).optional(),
+    googleClientSecret: z.union([z.string().min(10).max(200), z.literal("")]).optional(),
   })
   .strict();
 
@@ -185,6 +187,7 @@ export class PlatformController {
   async settings(): Promise<{
     postmark: { configured: boolean; source: "db" | "env" | "none"; emailFrom?: string };
     whatsapp: { configured: boolean; source: "db" | "env" | "none" };
+    google: { configured: boolean; source: "db" | "env" | "none"; redirectUri: string };
     loginOtpEnabled: boolean;
   }> {
     await this.requirePlatformAdmin();
@@ -196,6 +199,8 @@ export class PlatformController {
     const postmarkEnv = env.POSTMARK_SERVER_TOKEN !== undefined && env.EMAIL_FROM !== undefined;
     const waDb = has("whatsappAppSecret") && has("whatsappVerifyToken");
     const waEnv = env.WHATSAPP_APP_SECRET !== undefined && env.WHATSAPP_VERIFY_TOKEN !== undefined;
+    const googleDb = has("googleClientId") && has("googleClientSecret");
+    const googleEnv = env.GOOGLE_CLIENT_ID !== undefined && env.GOOGLE_CLIENT_SECRET !== undefined;
     const otpDb = await this.platformSettings.get("loginOtpEnabled");
 
     return {
@@ -207,6 +212,13 @@ export class PlatformController {
       whatsapp: {
         configured: waDb || waEnv,
         source: waDb ? "db" : waEnv ? "env" : "none",
+      },
+      google: {
+        configured: googleDb || googleEnv,
+        source: googleDb ? "db" : googleEnv ? "env" : "none",
+        // הכתובת שחייבת להירשם ב-Google Cloud Console — מוצגת כדי
+        // שלא יהיה צורך לנחש אותה
+        redirectUri: `${env.WEB_ORIGIN}/api/v1/auth/google/callback`,
       },
       loginOtpEnabled: otpDb !== undefined ? otpDb === "true" : env.LOGIN_OTP_ENABLED,
     };
