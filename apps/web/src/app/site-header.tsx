@@ -31,6 +31,7 @@ const NAV_ITEMS = [
   { href: "/collaboration", label: "שיתופי פעולה" },
   { href: "/reports", label: "דוחות" },
   { href: "/settings", label: "הגדרות" },
+  { href: "/setup", label: "הקמה" },
 ] as const;
 
 /** מסך ניהול הפלטפורמה — מוצג רק למי שמורשה (ה-API מחזיר 403 לאחרים) */

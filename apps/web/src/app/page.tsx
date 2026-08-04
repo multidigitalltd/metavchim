@@ -6,6 +6,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet } from "@/lib/api";
 import { FIELD_LABELS, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { SetupBanner } from "./setup-banner";
 
 /**
  * דשבורד "מה דורש טיפול היום?" (docs/06 §2) — פעולות נגזרות מהדאטה
@@ -118,6 +119,8 @@ export default function DashboardPage() {
 
   return (
     <>
+      <SetupBanner />
+
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="mb-1 text-2xl font-bold">שלום, {user.name}</h1>

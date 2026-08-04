@@ -14,6 +14,7 @@ import { ulid } from "ulid";
 import { z } from "zod";
 import { IdSchema, UserRoleSchema } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
+import { onboardingSteps, type OnboardingProgress } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -409,5 +410,42 @@ export class SettingsController {
     return { version: loadEnv().APP_VERSION };
   }
 
-}
+  /**
+   * "מה נשאר להפעיל" — מסך הקליטה של משרד חדש.
+   *
+   * מוצג לכל מי שרואה את הדשבורד ולא רק למנהל: סוכן שמגלה שאפשר
+   * לקלוט נכס בדיבור מאמץ את המערכת מהר יותר. הצעדים עצמם מוגדרים
+   * בלוגיקה משותפת (packages/shared — onboarding.ts).
+   */
+  @Get("onboarding")
+  async onboarding(): Promise<OnboardingProgress> {
+    const tenantId = TenantContext.current().tenantId;
+    const env = loadEnv();
 
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, settings: true },
+    });
+    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
+    const filled = (key: string): boolean =>
+      typeof settings[key] === "string" && (settings[key] as string).trim() !== "";
+
+    const [activeUsers, properties, buyers] = await Promise.all([
+      this.prisma.user.count({ where: { tenantId, isActive: true } }),
+      this.prisma.withTenant((tx) => tx.property.count({ where: { tenantId, deletedAt: null } })),
+      this.prisma.withTenant((tx) => tx.buyer.count({ where: { tenantId, deletedAt: null } })),
+    ]);
+
+    return onboardingSteps({
+      // מספר הרישיון הוא פרט חובה בהזמנה בכתב — בלעדיו ההסכמים פגומים
+      officeProfileComplete:
+        (tenant?.name ?? "").trim() !== "" && filled("licenseNumber") && filled("officePhone"),
+      activeUsers,
+      properties,
+      buyers,
+      leadWebhookConfigured: filled("leadWebhookKey"),
+      whatsappConfigured: filled("whatsappNumber"),
+      transcriptionAvailable: env.STT_URL !== undefined && env.STT_SECRET !== undefined,
+    });
+  }
+}
