@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ThemeToggle } from "./theme-toggle";
 
 /**
  * סרגל נגישות לפי ת"י 5568 (מסמך התקן המצורף): הגדלת/הקטנת טקסט,
@@ -168,7 +169,13 @@ export function AccessibilityToolbar() {
           aria-label="הגדרות נגישות"
           className="mv-a11y-panel"
         >
-          <h2 className="mb-3 text-lg font-bold">נגישות</h2>
+          <h2 className="mb-3 text-lg font-bold">תצוגה ונגישות</h2>
+
+          {/* ערכת נושא היא העדפת תצוגה אישית ולא הגדרת מערכת — מקומה
+              כאן, לצד שאר בקרות התצוגה, ולא במסך ההגדרות של המשרד */}
+          <div className="mb-4">
+            <ThemeToggle />
+          </div>
 
           <div className="mb-4">
             <p id="fontsize-label" className="mb-1 font-medium">

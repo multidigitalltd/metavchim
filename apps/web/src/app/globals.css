@@ -25,24 +25,71 @@
   --header-bg: rgba(255, 255, 255, 0.85);
 }
 
+/* ---------- ערכת נושא כהה ----------
+   הערכים מוגדרים פעם אחת כ---dk-*, והמיפוי אליהם חוזר בשני מצבים:
+   לפי העדפת המכשיר, ולפי בחירה מפורשת של המשתמש. בורר הערכה (ראו
+   theme-toggle.tsx) כותב data-theme על <html>, וסלקטור התכונה גובר
+   על ה-media query בשני הכיוונים — כך שמי שבחר "בהיר" מקבל בהיר גם
+   במכשיר כהה, ולהפך. */
+:root {
+  --dk-bg: #0b1120;
+  --dk-surface: #151d31;
+  --dk-text: #e8edf5;       /* על הרקע: ~13.5:1 */
+  --dk-text-muted: #a8b6cc; /* על הרקע: ~7.6:1 */
+  --dk-primary: #a5b4fc;    /* אינדיגו בהיר — על כהה: ~9:1 */
+  --dk-primary-hover: #c7d2fe;
+  --dk-primary-soft: #1e2749;
+  --dk-danger: #ff9d9d;
+  --dk-success: #6fd095;
+  --dk-success-soft: #17301f; /* הטקסט עליו: ~7.5:1 */
+  --dk-border: #2a3552;
+  --dk-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --dk-shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --dk-header-bg: rgba(11, 17, 32, 0.85);
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
-    --color-bg: #0b1120;
-    --color-surface: #151d31;
-    --color-text: #e8edf5;       /* על הרקע: ~13.5:1 */
-    --color-text-muted: #a8b6cc; /* על הרקע: ~7.6:1 */
-    --color-primary: #a5b4fc;    /* אינדיגו בהיר — על כהה: ~9:1 */
-    --color-primary-hover: #c7d2fe;
-    --color-primary-soft: #1e2749;
-    --color-danger: #ff9d9d;
-    --color-success: #6fd095;
-    --color-success-soft: #17301f; /* הטקסט עליו: ~7.5:1 */
-    --color-border: #2a3552;
-    --color-focus: #a5b4fc;
-    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.5);
-    --header-bg: rgba(11, 17, 32, 0.85);
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-bg: var(--dk-bg);
+    --color-surface: var(--dk-surface);
+    --color-text: var(--dk-text);
+    --color-text-muted: var(--dk-text-muted);
+    --color-primary: var(--dk-primary);
+    --color-primary-hover: var(--dk-primary-hover);
+    --color-primary-soft: var(--dk-primary-soft);
+    --color-danger: var(--dk-danger);
+    --color-success: var(--dk-success);
+    --color-success-soft: var(--dk-success-soft);
+    --color-border: var(--dk-border);
+    --color-focus: var(--dk-primary);
+    --shadow-card: var(--dk-shadow-card);
+    --shadow-pop: var(--dk-shadow-pop);
+    --header-bg: var(--dk-header-bg);
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: var(--dk-bg);
+  --color-surface: var(--dk-surface);
+  --color-text: var(--dk-text);
+  --color-text-muted: var(--dk-text-muted);
+  --color-primary: var(--dk-primary);
+  --color-primary-hover: var(--dk-primary-hover);
+  --color-primary-soft: var(--dk-primary-soft);
+  --color-danger: var(--dk-danger);
+  --color-success: var(--dk-success);
+  --color-success-soft: var(--dk-success-soft);
+  --color-border: var(--dk-border);
+  --color-focus: var(--dk-primary);
+  --shadow-card: var(--dk-shadow-card);
+  --shadow-pop: var(--dk-shadow-pop);
+  --header-bg: var(--dk-header-bg);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 /* ---------- כותרת דביקה עם טשטוש רקע ---------- */
@@ -160,9 +207,15 @@ body {
   box-shadow: var(--shadow-pop);
 }
 @media (prefers-color-scheme: dark) {
-  .mv-button--primary {
+  :root:not([data-theme="light"]) .mv-button--primary {
     color: #0f1522; /* טקסט כהה על primary בהיר במצב כהה — ניגודיות ~7.9:1 */
   }
+}
+:root[data-theme="dark"] .mv-button--primary {
+  color: #0f1522;
+}
+:root[data-theme="light"] .mv-button--primary {
+  color: #ffffff;
 }
 .mv-button--secondary {
   background: var(--color-surface);
@@ -180,9 +233,15 @@ body {
   box-shadow: var(--shadow-card);
 }
 @media (prefers-color-scheme: dark) {
-  .mv-button--danger {
+  :root:not([data-theme="light"]) .mv-button--danger {
     color: #0f1522;
   }
+}
+:root[data-theme="dark"] .mv-button--danger {
+  color: #0f1522;
+}
+:root[data-theme="light"] .mv-button--danger {
+  color: #ffffff;
 }
 .mv-button--ghost {
   background: transparent;
