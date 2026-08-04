@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { SkipLink } from "@metavchim/ui";
 import { AccessibilityToolbar } from "./a11y-toolbar";
 import { SiteHeader } from "./site-header";
+import { THEME_INIT_SCRIPT } from "./theme-toggle";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,6 +27,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="he" dir="rtl">
+      <head>
+        {/* יישום ערכת הנושא לפני הצביעה הראשונה — בלי זה מסך כהה
+            שנבחר ידנית היה מהבהב בלבן בכל טעינת דף */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body>
         <SkipLink targetId="main-content" />
         <SiteHeader />

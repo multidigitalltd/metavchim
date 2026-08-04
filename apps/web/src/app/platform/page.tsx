@@ -6,6 +6,7 @@ import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { PlatformSettingsSection } from "./platform-settings-section";
+import { SystemUpdateSection } from "./system-update-section";
 
 /**
  * ניהול הפלטפורמה — הקמת משרדי תיווך חדשים בלי SSH. נגיש רק למנהלי
@@ -132,6 +133,8 @@ export default function PlatformPage() {
           </Button>
         </div>
       ) : null}
+
+      <SystemUpdateSection />
 
       <PlatformSettingsSection />
 

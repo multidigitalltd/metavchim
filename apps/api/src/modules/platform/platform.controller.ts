@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   ForbiddenException,
   Get,
@@ -8,6 +9,7 @@ import {
   Param,
   Patch,
   Post,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
@@ -257,5 +259,45 @@ export class PlatformController {
     }
     await this.email.sendTest(user.email);
     return { sentTo: user.email };
+  }
+
+  /** גרסה מותקנת + זמינות סוכן העדכון — למסך הפלטפורמה. */
+  @Get("system")
+  async systemInfo(): Promise<{ version: string; updateAvailable: boolean }> {
+    await this.requirePlatformAdmin();
+    const env = loadEnv();
+    return {
+      version: env.APP_VERSION,
+      updateAvailable: env.UPDATER_URL !== undefined && env.UPDATE_SECRET !== undefined,
+    };
+  }
+
+  /**
+   * עדכון גרסה בלחיצת כפתור — **בעל הפלטפורמה בלבד**. הקריאה מגיעה
+   * לסוכן העדכון שרץ לצד המערכת (infra/updater), שמושך תמונות עדכניות
+   * ומרים אותן מחדש. ההפעלה מחדש היא של כל השרת, כלומר של כל המשרדים
+   * יחד — ולכן זו לא פעולה של מנהל משרד.
+   */
+  @Post("system/update")
+  @HttpCode(200)
+  async triggerUpdate(): Promise<{ status: "started" }> {
+    await this.requirePlatformAdmin();
+    const env = loadEnv();
+    if (env.UPDATER_URL === undefined || env.UPDATE_SECRET === undefined) {
+      throw new ServiceUnavailableException("עדכון מרחוק אינו מוגדר בסביבה זו");
+    }
+    let res: Response;
+    try {
+      res = await fetch(`${env.UPDATER_URL}/update`, {
+        method: "POST",
+        headers: { "x-update-secret": env.UPDATE_SECRET },
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      throw new ServiceUnavailableException("סוכן העדכון אינו זמין");
+    }
+    if (res.status === 409) throw new ConflictException("עדכון כבר רץ — המתינו לסיומו");
+    if (!res.ok) throw new ServiceUnavailableException("סוכן העדכון החזיר שגיאה");
+    return { status: "started" };
   }
 }
