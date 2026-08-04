@@ -34,6 +34,7 @@ function LoginForm() {
   );
   const [submitting, setSubmitting] = useState(false);
   const [otpToken, setOtpToken] = useState<string | null>(null);
+  const [code, setCode] = useState("");
   const [googleEnabled, setGoogleEnabled] = useState(false);
 
   // הכפתור מוצג רק כשהחיבור מוגדר בפועל — אחרת הוא היה מוביל לשגיאה
@@ -56,6 +57,7 @@ function LoginForm() {
       if ("otpRequired" in result) {
         // השרת דורש קוד אימייל — מעבר לשלב 2
         setOtpToken(result.otpToken);
+        setCode("");
         setSubmitting(false);
         return;
       }
@@ -71,11 +73,10 @@ function LoginForm() {
     if (!otpToken) return;
     setError(null);
     setSubmitting(true);
-    const form = new FormData(event.currentTarget);
     try {
       const { user } = await apiPost<{ user: { mustChangePassword: boolean } }>(
         "/auth/login/verify",
-        { otpToken, code: String(form.get("code")).trim() },
+        { otpToken, code },
       );
       router.replace(user.mustChangePassword ? "/change-password" : "/");
     } catch (err: unknown) {
@@ -116,11 +117,24 @@ function LoginForm() {
             <label htmlFor="code" className="mb-1 block font-medium">
               קוד אימות
             </label>
+            {/* שדה מבוקר שמקבל ספרות בלבד. מנהלי הסיסמאות של הדפדפן
+                נוטים למלא אוטומטית את הסיסמה השמורה לשדה הטקסט היחיד
+                שבטופס — ואז היא מוצגת על המסך בגלוי. הסינון כאן מוחק
+                כל תו שאינו ספרה ברגע שהוא נכנס, וה-data-*ignore
+                מבקשים מהמנהלים הנפוצים לדלג על השדה מלכתחילה. */}
             <input
               id="code"
-              name="code"
+              name="mv-otp"
+              value={code}
+              onChange={(event) => setCode(event.target.value.replace(/\D/gu, "").slice(0, 6))}
               inputMode="numeric"
               autoComplete="one-time-code"
+              autoCorrect="off"
+              spellCheck={false}
+              data-1p-ignore=""
+              data-lpignore="true"
+              data-bwignore=""
+              data-form-type="other"
               pattern="\d{6}"
               maxLength={6}
               required
@@ -129,7 +143,7 @@ function LoginForm() {
               style={inputStyle}
             />
           </div>
-          <Button type="submit" disabled={submitting} className="w-full">
+          <Button type="submit" disabled={submitting || code.length !== 6} className="w-full">
             {submitting ? "מאמת…" : "אימות והתחברות"}
           </Button>
           <Button
@@ -138,6 +152,7 @@ function LoginForm() {
             className="mt-2 w-full"
             onClick={() => {
               setOtpToken(null);
+              setCode("");
               setError(null);
             }}
           >
