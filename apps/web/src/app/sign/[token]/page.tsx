@@ -139,14 +139,14 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
 
           <div className="mb-4">
             <label htmlFor="signerIdNumber" className="mb-1 block font-medium">
-              תעודת זהות
+              תעודת זהות / דרכון
             </label>
             <input
               id="signerIdNumber"
               name="signerIdNumber"
               required
               inputMode="numeric"
-              pattern="\d{5,9}"
+              pattern="[0-9A-Za-z]{5,20}"
               dir="ltr"
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}

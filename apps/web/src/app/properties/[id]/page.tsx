@@ -13,6 +13,7 @@ import {
   STATUS_LABELS,
 } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { AgreementsPanel } from "../../agreements-panel";
 import { MediaSection } from "./media-section";
 
 interface PropertyDetail {
@@ -282,6 +283,16 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
           </div>
         ) : null}
       </section>
+
+      {/* בלעדיות נחתמת מול בעל הנכס — ולכן היא כאן ולא בכרטיס הקונה */}
+      {property.ownerContact ? (
+        <AgreementsPanel
+          contactId={property.ownerContact.id}
+          kind="exclusivity"
+          propertyId={property.id}
+          title="הסכם בלעדיות מול בעל הנכס"
+        />
+      ) : null}
 
       <section aria-labelledby="matches-heading">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">

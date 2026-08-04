@@ -21,11 +21,15 @@ const CreateSchema = z
   })
   .strict();
 
-/** ת"ז ישראלית — 9 ספרות; הבדיקה כאן מבנית בלבד. */
+/*
+ * "מספר זיהוי" בתקנות אינו בהכרח תעודת זהות ישראלית — רוכשים תושבי
+ * חוץ נפוצים בשוק, והמספר שלהם הוא דרכון עם אותיות. ולידציה של
+ * 9 ספרות בלבד הייתה חוסמת אותם מלחתום.
+ */
 const SignSchema = z
   .object({
     signerName: z.string().min(2).max(120),
-    signerIdNumber: z.string().regex(/^\d{5,9}$/u, 'מספר תעודת זהות אינו תקין'),
+    signerIdNumber: z.string().regex(/^[0-9A-Za-z]{5,20}$/u, "מספר הזיהוי אינו תקין"),
     confirmed: z.literal(true),
   })
   .strict();

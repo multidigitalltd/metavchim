@@ -8,6 +8,7 @@ import { FINANCING_LABELS, formatBuyerSource, formatDate, formatPrice, MATURITY_
 import { useRequireAuth } from "@/lib/use-auth";
 import { TimelineSection } from "./timeline-section";
 import { RelatedEntities } from "../../related-entities";
+import { AgreementsPanel } from "../../agreements-panel";
 
 interface BuyerDetail {
   id: string;
@@ -133,6 +134,12 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
           </select>
         </label>
       </div>
+
+      <AgreementsPanel
+        contactId={buyer.contact.id}
+        kind="brokerage"
+        title="הזמנה בכתב (הסכם תיווך)"
+      />
 
       <RelatedEntities contactId={buyer.contact.id} exclude={{ kind: "buyer", id: buyer.id }} />
 
