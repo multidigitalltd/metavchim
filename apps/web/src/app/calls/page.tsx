@@ -6,6 +6,8 @@ import { Button } from "@metavchim/ui";
 import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { FilterBar, SearchField, textMatches } from "../list-controls";
+import { DictateFor } from "../dictation-field";
 
 /**
  * יומן שיחות — תיעוד ידני של שיחות שהמתווך קיים.
@@ -62,6 +64,8 @@ export default function CallsPage() {
   const { loading: authLoading } = useRequireAuth();
   const [items, setItems] = useState<CallRow[] | null>(null);
   const [outcome, setOutcome] = useState("");
+  const [query, setQuery] = useState("");
+  const [direction, setDirection] = useState("");
   const [selected, setSelected] = useState<CallRow | null>(null);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -106,6 +110,15 @@ export default function CallsPage() {
       setBusy(false);
     }
   }
+
+  /* סינון מקומי: חיפוש בשם, בטלפון ובסיכום — סיכום השיחה הוא בדיוק
+     המקום שבו המתווך זוכר "מישהו שאל על נכס בהרצל" */
+  const visible = (items ?? []).filter(
+    (c) =>
+      textMatches(query, c.contactName, c.phone, c.summary) &&
+      (direction === "" || c.direction === direction),
+  );
+  const filtering = query.trim() !== "" || direction !== "" || outcome !== "";
 
   async function onDelete(id: string): Promise<void> {
     if (!window.confirm("למחוק את תיעוד השיחה?")) return;
@@ -188,6 +201,7 @@ export default function CallsPage() {
           <label className="mt-3 block">
             <span className="mb-1 block font-medium">סיכום השיחה</span>
             <textarea
+              id="callSummary"
               name="summary"
               rows={3}
               placeholder="מה סוכם, מה הלקוח מחפש, מה הצעד הבא"
@@ -195,6 +209,7 @@ export default function CallsPage() {
               style={inputStyle}
             />
           </label>
+          <DictateFor targetId="callSummary" />
           <div className="mt-3">
             <Button type="submit" disabled={busy}>
               {busy ? "שומר…" : "שמור שיחה"}
@@ -215,12 +230,41 @@ export default function CallsPage() {
             {label}
           </button>
         ))}
-        {items !== null && items.length > 0 ? (
-          <span className="ms-1.5 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
-            {items.length} שיחות{items.some((c) => c.outcome !== "answered") ? ` · ${items.filter((c) => c.outcome !== "answered").length} ללא מענה` : ""}
-          </span>
-        ) : null}
       </div>
+
+      {items !== null && items.length > 0 ? (
+        <FilterBar
+          shown={visible.length}
+          total={items.length}
+          noun="שיחות"
+          active={filtering}
+          onClear={() => {
+            setQuery("");
+            setDirection("");
+            setOutcome("");
+          }}
+        >
+          <SearchField
+            label="חיפוש שיחה"
+            placeholder="🔍 שם, טלפון או מה נאמר בשיחה"
+            value={query}
+            onChange={setQuery}
+          />
+          <label className="flex items-center gap-1.5 text-sm">
+            <span className="mv-visually-hidden">סינון לפי כיוון</span>
+            <select
+              value={direction}
+              onChange={(e) => setDirection(e.target.value)}
+              className="rounded-lg border px-2 py-1.5"
+              style={{ borderColor: "var(--color-input-border)", background: "var(--color-surface)", color: "var(--color-text)" }}
+            >
+              <option value="">נכנסות ויוצאות</option>
+              <option value="inbound">נכנסות</option>
+              <option value="outbound">יוצאות</option>
+            </select>
+          </label>
+        </FilterBar>
+      ) : null}
 
       {items === null ? (
         <p aria-live="polite">טוען שיחות…</p>
@@ -238,7 +282,7 @@ export default function CallsPage() {
         /* שני חלוניות כמו בעיצוב: רשימה מימין, פרטים משמאל */
         <div className="grid gap-4 lg:grid-cols-[330px_1fr] lg:items-start">
           <ul className="mv-list-card">
-            {items.map((call) => {
+            {visible.map((call) => {
               const active = selected?.id === call.id;
               return (
                 <li key={call.id}>

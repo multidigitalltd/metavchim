@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { apiGet } from "@/lib/api";
-import { MATURITY_LABELS, STATUS_LABELS } from "@/lib/format";
+import { formatDateTime, MATURITY_LABELS, STATUS_LABELS } from "@/lib/format";
 import { LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
 
@@ -20,6 +20,42 @@ interface SearchResults {
   }[];
   buyers: { id: string; name: string; maturity: string; cities: string[] }[];
   leads: { id: string; name: string; status: string; requiresHuman: boolean }[];
+  appointments: { id: string; title: string; kind: string; startsAt: string; status: string }[];
+  tasks: { id: string; title: string; status: string; dueAt: string | null }[];
+  calls: { id: string; summary: string; occurredAt: string; direction: string }[];
+  notes: {
+    id: string;
+    content: string;
+    createdAt: string;
+    leadId: string | null;
+    buyerId: string | null;
+  }[];
+}
+
+const APPOINTMENT_KIND_LABELS: Record<string, string> = {
+  viewing: "סיור בנכס",
+  meeting: "פגישה",
+  call: "שיחה",
+};
+
+/** מדגיש את מילות החיפוש בתוך טקסט חופשי — כדי שיהיה ברור למה השורה עלתה. */
+function Highlight({ text, needle }: { text: string; needle: string }) {
+  const at = text.toLowerCase().indexOf(needle.toLowerCase());
+  if (at < 0 || needle === "") return <>{text.slice(0, 200)}</>;
+  // חלון סביב ההתאמה — הערה ארוכה לא משתלטת על התוצאה
+  const from = Math.max(0, at - 60);
+  const to = Math.min(text.length, at + needle.length + 120);
+  return (
+    <>
+      {from > 0 ? "…" : ""}
+      {text.slice(from, at)}
+      <mark style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}>
+        {text.slice(at, at + needle.length)}
+      </mark>
+      {text.slice(at + needle.length, to)}
+      {to < text.length ? "…" : ""}
+    </>
+  );
 }
 
 function SearchResultsView() {
@@ -45,7 +81,11 @@ function SearchResultsView() {
     results.contact === null &&
     results.properties.length === 0 &&
     results.buyers.length === 0 &&
-    results.leads.length === 0;
+    results.leads.length === 0 &&
+    results.appointments.length === 0 &&
+    results.tasks.length === 0 &&
+    results.calls.length === 0 &&
+    results.notes.length === 0;
 
   return (
     <>
@@ -63,7 +103,7 @@ function SearchResultsView() {
           required
           minLength={2}
           maxLength={80}
-          placeholder="טלפון, שם לקוח או כתובת…"
+          placeholder="טלפון, שם, כתובת, סיכום שיחה, הערה או משימה…"
           className="w-full rounded-md border px-3 py-2"
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
         />
@@ -78,7 +118,8 @@ function SearchResultsView() {
 
       {q.length < 2 ? (
         <p style={{ color: "var(--color-text-muted)" }}>
-          הקלידו לפחות 2 תווים — מספר טלפון מאתר לקוח מיידית.
+          הקלידו לפחות 2 תווים. החיפוש עובר על נכסים, קונים, לידים, פגישות,
+          משימות, סיכומי שיחות והערות — ומספר טלפון מאתר לקוח מיידית.
         </p>
       ) : error ? (
         <p role="alert" style={{ color: "var(--color-danger)" }}>{error}</p>
@@ -151,6 +192,134 @@ function SearchResultsView() {
                       <span style={{ color: "var(--color-text-muted)" }}>
                         — {LEAD_STATUS_LABELS[l.status] ?? l.status}
                         {l.requiresHuman ? " · דורש טיפול אנושי" : ""}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {results.calls.length > 0 ? (
+            <section aria-labelledby="calls-h">
+              <h2 id="calls-h" className="mb-2 text-lg font-semibold">
+                שיחות ({results.calls.length})
+              </h2>
+              <ul className="flex flex-col gap-2">
+                {results.calls.map((c) => (
+                  <li key={c.id}>
+                    <Link
+                      href="/calls"
+                      className="block rounded-xl border p-4 no-underline"
+                      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+                    >
+                      <span className="block text-sm" style={{ color: "var(--color-text-muted)" }}>
+                        {c.direction === "inbound" ? "שיחה נכנסת" : "שיחה יוצאת"} ·{" "}
+                        {formatDateTime(c.occurredAt)}
+                      </span>
+                      <span className="block">
+                        <Highlight text={c.summary} needle={q} />
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {results.notes.length > 0 ? (
+            <section aria-labelledby="notes-h">
+              <h2 id="notes-h" className="mb-2 text-lg font-semibold">
+                הערות ותיעודים ({results.notes.length})
+              </h2>
+              <ul className="flex flex-col gap-2">
+                {results.notes.map((n) => {
+                  const href = n.leadId
+                    ? `/leads/${n.leadId}`
+                    : n.buyerId
+                      ? `/buyers/${n.buyerId}`
+                      : null;
+                  const body = (
+                    <>
+                      <span className="block text-sm" style={{ color: "var(--color-text-muted)" }}>
+                        {formatDateTime(n.createdAt)}
+                        {n.leadId ? " · ליד" : n.buyerId ? " · קונה" : ""}
+                      </span>
+                      <span className="block">
+                        <Highlight text={n.content} needle={q} />
+                      </span>
+                    </>
+                  );
+                  return (
+                    <li key={n.id}>
+                      {href ? (
+                        <Link
+                          href={href}
+                          className="block rounded-xl border p-4 no-underline"
+                          style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+                        >
+                          {body}
+                        </Link>
+                      ) : (
+                        <div
+                          className="rounded-xl border p-4"
+                          style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+                        >
+                          {body}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ) : null}
+
+          {results.appointments.length > 0 ? (
+            <section aria-labelledby="appts-h">
+              <h2 id="appts-h" className="mb-2 text-lg font-semibold">
+                יומן ({results.appointments.length})
+              </h2>
+              <ul className="flex flex-col gap-2">
+                {results.appointments.map((a) => (
+                  <li key={a.id}>
+                    <Link
+                      href="/calendar"
+                      className="block rounded-xl border p-4 no-underline"
+                      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+                    >
+                      <span className="font-semibold">
+                        <Highlight text={a.title} needle={q} />
+                      </span>{" "}
+                      <span style={{ color: "var(--color-text-muted)" }}>
+                        — {APPOINTMENT_KIND_LABELS[a.kind] ?? a.kind} · {formatDateTime(a.startsAt)}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {results.tasks.length > 0 ? (
+            <section aria-labelledby="tasks-h">
+              <h2 id="tasks-h" className="mb-2 text-lg font-semibold">
+                המשימות שלי ({results.tasks.length})
+              </h2>
+              <ul className="flex flex-col gap-2">
+                {results.tasks.map((t) => (
+                  <li key={t.id}>
+                    <Link
+                      href="/calendar"
+                      className="block rounded-xl border p-4 no-underline"
+                      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+                    >
+                      <span className="font-semibold">
+                        <Highlight text={t.title} needle={q} />
+                      </span>{" "}
+                      <span style={{ color: "var(--color-text-muted)" }}>
+                        — {t.status === "done" ? "בוצעה" : "פתוחה"}
+                        {t.dueAt ? ` · ליום ${formatDateTime(t.dueAt)}` : ""}
                       </span>
                     </Link>
                   </li>

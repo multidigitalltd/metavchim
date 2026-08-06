@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
+import { DictateFor } from "../../dictation-field";
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
 
@@ -101,6 +102,7 @@ export default function NewLeadPage() {
         <div className="mb-6">
           <label htmlFor="summary" className="mb-1 block font-medium">סיכום הפנייה</label>
           <textarea id="summary" name="summary" rows={3} maxLength={2000} placeholder="מה הוא סיפר? מה סוכם?" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+          <DictateFor targetId="summary" />
         </div>
 
         <div className="flex gap-3">

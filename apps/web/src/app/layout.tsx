@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { SkipLink } from "@metavchim/ui";
-import { AccessibilityToolbar } from "./a11y-toolbar";
+import { AccessibilityRuntime } from "./a11y-toolbar";
 import { AppShell } from "./app-shell";
 import { THEME_INIT_SCRIPT } from "./theme-toggle";
 import "./globals.css";
@@ -34,15 +34,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <SkipLink targetId="main-content" />
-        <AppShell>
-          {children}
-          <footer className="mt-10 text-sm" style={{ color: "var(--color-text-muted)" }}>
-            <a href="/accessibility" className="underline">
-              הצהרת נגישות
-            </a>
-          </footer>
-        </AppShell>
-        <AccessibilityToolbar />
+        {/* הצהרת הנגישות מופיעה באתר התדמית, לא בתוך המערכת —
+            עמוד /accessibility נשאר זמין בכתובת ישירה לקישור משם */}
+        <AppShell>{children}</AppShell>
+        <AccessibilityRuntime />
       </body>
     </html>
   );

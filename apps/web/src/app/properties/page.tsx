@@ -7,7 +7,7 @@ import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
-import { CapNote, SearchField, SortSelect, textMatches } from "../list-controls";
+import { CapNote, FilterBar, FilterChips, SearchField, SortSelect, textMatches } from "../list-controls";
 
 /**
  * מסך הנכסים לפי קובץ העיצוב: צ'יפי ערים לסינון, טבלת grid עם תג
@@ -130,17 +130,12 @@ export default function PropertiesPage() {
     <>
       {/* שורת הצ'יפים והפעולות — כמו בעיצוב */}
       <div className="mb-[18px] flex flex-wrap items-center gap-2.5">
-        {cities.map((c) => (
-          <button
-            key={c}
-            type="button"
-            className="mv-chip"
-            aria-pressed={city === c}
-            onClick={() => setCity(c)}
-          >
-            {c}
-          </button>
-        ))}
+        <FilterChips
+          label="סינון לפי עיר"
+          value={city}
+          onChange={setCity}
+          options={cities.map((c) => [c, c] as [string, string])}
+        />
         <div className="ms-auto flex flex-wrap gap-2.5">
           <Link href="/import" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
             ייבוא מאקסל
@@ -175,7 +170,17 @@ export default function PropertiesPage() {
         </div>
       ) : (
         <>
-          <div className="mb-3.5 flex flex-wrap items-center gap-2">
+          <FilterBar
+            shown={visible.length}
+            total={items.length}
+            noun="נכסים"
+            active={filtering}
+            onClear={() => {
+              setQuery("");
+              setCity("הכל");
+              setSort("newest");
+            }}
+          >
             <SearchField
               label="חיפוש נכס"
               placeholder="🔍 רחוב, שכונה או עיר"
@@ -183,10 +188,7 @@ export default function PropertiesPage() {
               onChange={setQuery}
             />
             <SortSelect value={sort} onChange={setSort} options={SORTS} />
-            <span className="text-sm" style={{ color: "var(--color-text-muted)" }} aria-live="polite">
-              {visible.length} מתוך {items.length} נכסים
-            </span>
-          </div>
+          </FilterBar>
 
           {visible.length === 0 ? (
             <div

@@ -671,6 +671,12 @@ textarea {
   display: flex;
   align-items: center;
   gap: 10px;
+  text-decoration: none;
+  transition: background-color 0.15s ease;
+}
+.mv-sidebar-user:hover {
+  background: rgba(255, 255, 255, 0.1);
+  text-decoration: none;
 }
 .mv-avatar {
   width: 34px;
@@ -1199,4 +1205,100 @@ button.mv-list-row:hover {
   font-weight: 800;
   margin-top: 2px;
   line-height: 1.15;
+}
+
+/* ============================================================
+   הכתבה בשדות טקסט — שני מצבים, "מהיר" (דפדפן) ו"מדויק" (שרת).
+   הפקדים יושבים מתחת לשדה ולא בתוכו: שני כפתורים בתוך input היו
+   דוחקים את הטקסט, ובעברית גם מתנגשים עם כיוון הכתיבה.
+   ============================================================ */
+.mv-field {
+  width: 100%;
+  border: 1px solid var(--color-input-border);
+  border-radius: 10px;
+  background: var(--color-field);
+  padding: 10px 14px;
+  font-size: 14.5px;
+  color: var(--color-text);
+  outline: none;
+}
+.mv-field::placeholder {
+  color: var(--color-text-muted);
+}
+.mv-field:focus {
+  border-color: #2ecc66;
+  background: var(--color-surface);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
+
+.mv-dictate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.mv-dictate-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--color-input-border);
+  background: var(--color-surface);
+  color: var(--color-text-soft);
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 99px;
+  padding: 4px 11px;
+  cursor: pointer;
+}
+.mv-dictate-btn:hover {
+  background: var(--color-hover-soft);
+}
+/* המצב האחרון שנבחר — מודגש, אבל השני נשאר לחיץ באותה מידה */
+.mv-dictate-btn[data-preferred="true"] {
+  border-color: #bdf4cb;
+  background: #f1fef4;
+  color: var(--color-primary);
+}
+:root[data-theme="dark"] .mv-dictate-btn[data-preferred="true"],
+:root:not([data-theme="light"]) .mv-dictate-btn[data-preferred="true"] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.mv-dictate-stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: var(--color-danger);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 99px;
+  padding: 5px 13px;
+  cursor: pointer;
+}
+.mv-dictate-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.mv-dictate-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-danger);
+  animation: mvSoftPulse 1.1s infinite;
+}
+@keyframes mvSoftPulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+.mv-dictate-error {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--color-danger);
 }

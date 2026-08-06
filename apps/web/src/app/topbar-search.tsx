@@ -6,8 +6,12 @@ import { apiGet } from "@/lib/api";
 
 /**
  * חיפוש גלובלי בשורת הכותרת — לפי קובץ העיצוב: שדה קבוע עם תוצאות
- * נפתחות תחתיו, כל תוצאה עם תג סוג (נכס/קונה/ליד) בצבע משלו.
- * משתמש ב-API החיפוש הקיים (GET /search) עם השהיית הקלדה.
+ * נפתחות תחתיו, כל תוצאה עם תג סוג בצבע משלו.
+ *
+ * החיפוש עובר על כל המערכת: נכסים, קונים ולידים לפי שם/כתובת/טלפון,
+ * וגם על הטקסט החופשי שנכתב בתוכה — סיכומי שיחות, הערות על לקוחות,
+ * כותרות ופתקים ביומן ומשימות. השורה האחרונה בתפריט מובילה לעמוד
+ * החיפוש המלא, כי התפריט מוגבל לכמה שורות לכל קבוצה.
  */
 
 interface SearchResults {
@@ -22,6 +26,10 @@ interface SearchResults {
   }[];
   buyers: { id: string; name: string; maturity: string; cities: string[] }[];
   leads: { id: string; name: string; status: string }[];
+  appointments: { id: string; title: string; startsAt: string }[];
+  tasks: { id: string; title: string; status: string }[];
+  calls: { id: string; summary: string; occurredAt: string }[];
+  notes: { id: string; content: string; leadId: string | null; buyerId: string | null }[];
 }
 
 interface Row {
@@ -38,6 +46,14 @@ interface Row {
 const KIND_PROPERTY = { fg: "#0C6E34", bg: "#E5FCEA" };
 const KIND_BUYER = { fg: "#7a5c1f", bg: "#f7efdd" };
 const KIND_LEAD = { fg: "#3F4742", bg: "#EDEFED" };
+/* טקסט חופשי שנכתב במערכת — יומן, משימות, שיחות והערות */
+const KIND_TEXT = { fg: "#68716a", bg: "#eef1ec" };
+
+/** קיצור לשורה אחת בתפריט — הערה ארוכה לא שוברת את הפריסה. */
+function snip(text: string): string {
+  const clean = text.replace(/\s+/gu, " ").trim();
+  return clean.length > 64 ? `${clean.slice(0, 64)}…` : clean;
+}
 
 const DEBOUNCE_MS = 250;
 
@@ -71,6 +87,46 @@ function toRows(r: SearchResults): Row[] {
       label: l.name,
       sub: "",
       href: `/leads/${l.id}`,
+    });
+  }
+  for (const c of r.calls.slice(0, 2)) {
+    rows.push({
+      key: `c-${c.id}`,
+      kind: "שיחה",
+      ...KIND_TEXT,
+      label: snip(c.summary),
+      sub: "",
+      href: "/calls",
+    });
+  }
+  for (const n of r.notes.slice(0, 2)) {
+    rows.push({
+      key: `n-${n.id}`,
+      kind: "הערה",
+      ...KIND_TEXT,
+      label: snip(n.content),
+      sub: "",
+      href: n.leadId ? `/leads/${n.leadId}` : n.buyerId ? `/buyers/${n.buyerId}` : "/search",
+    });
+  }
+  for (const a of r.appointments.slice(0, 2)) {
+    rows.push({
+      key: `a-${a.id}`,
+      kind: "יומן",
+      ...KIND_TEXT,
+      label: snip(a.title),
+      sub: "",
+      href: "/calendar",
+    });
+  }
+  for (const t of r.tasks.slice(0, 2)) {
+    rows.push({
+      key: `t-${t.id}`,
+      kind: "משימה",
+      ...KIND_TEXT,
+      label: snip(t.title),
+      sub: "",
+      href: "/calendar",
     });
   }
   return rows;
@@ -136,8 +192,8 @@ export function TopbarSearch() {
         onFocus={() => {
           if (rows !== null) setOpen(true);
         }}
-        placeholder="חיפוש נכס, קונה או ליד…"
-        aria-label="חיפוש נכס, קונה או ליד"
+        placeholder="חיפוש בכל המערכת…"
+        aria-label="חיפוש בכל המערכת — נכסים, קונים, לידים, שיחות, הערות ומשימות"
         role="combobox"
         aria-expanded={open}
         aria-controls="mv-search-results"
@@ -148,7 +204,8 @@ export function TopbarSearch() {
           {rows.length === 0 ? (
             <div className="mv-search-empty">לא נמצאו תוצאות</div>
           ) : (
-            rows.map((r) => (
+            <>
+            {rows.map((r) => (
               <button
                 key={r.key}
                 type="button"
@@ -163,7 +220,16 @@ export function TopbarSearch() {
                 <span className="mv-search-label">{r.label}</span>
                 {r.sub ? <span className="mv-search-sub">{r.sub}</span> : null}
               </button>
-            ))
+            ))}
+            <button
+              type="button"
+              className="mv-search-row"
+              onClick={() => go(`/search?q=${encodeURIComponent(q.trim())}`)}
+              style={{ justifyContent: "center", fontWeight: 700, color: "var(--color-primary)" }}
+            >
+              כל התוצאות עבור „{q.trim()}"
+            </button>
+            </>
           )}
         </div>
       ) : null}

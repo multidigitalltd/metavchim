@@ -10,6 +10,9 @@ export interface AuthUser {
   email: string;
   role: string;
   mustChangePassword: boolean;
+  /** שם המשרד — מגיע עם ה-Session, מוצג בפרופיל ובסרגל הצד */
+  tenantName?: string;
+  isPlatformAdmin?: boolean;
 }
 
 /** שומר עמוד מוגן: בלי Session תקף — הפניה ל-/login. */

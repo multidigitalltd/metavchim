@@ -6,6 +6,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { FINANCING_LABELS, formatBuyerSource, formatDate, formatPrice, MATURITY_LABELS, waMeUrl } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { WithDictation } from "../../dictation-field";
 import { TimelineSection } from "./timeline-section";
 import { RelatedEntities } from "../../related-entities";
 
@@ -420,16 +421,18 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
         ) : (
           <>
             <label htmlFor="agentNotes" className="mv-visually-hidden">הערות הסוכן</label>
-            <textarea
-              id="agentNotes"
-              rows={4}
-              maxLength={4000}
-              value={notesDraft}
-              onChange={(e) => setNotesDraft(e.target.value)}
-              className="mb-3 w-full rounded-lg border px-3 py-2.5"
-              style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)", color: "var(--color-text)" }}
-            />
-            <div className="flex gap-3">
+            <WithDictation value={notesDraft} onChange={setNotesDraft}>
+              <textarea
+                id="agentNotes"
+                rows={4}
+                maxLength={4000}
+                value={notesDraft}
+                onChange={(e) => setNotesDraft(e.target.value)}
+                className="mb-2 w-full rounded-lg border px-3 py-2.5"
+                style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)", color: "var(--color-text)" }}
+              />
+            </WithDictation>
+            <div className="mt-3 flex gap-3">
               <Button onClick={() => void saveNotes()}>שמור הערות</Button>
               <Button variant="ghost" onClick={() => setNotesDraft(null)}>ביטול</Button>
             </div>

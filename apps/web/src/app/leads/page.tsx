@@ -9,7 +9,7 @@ import { apiGet } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
-import { CapNote, SearchField, textMatches } from "../list-controls";
+import { CapNote, FilterBar, FilterSelect, SearchField, textMatches } from "../list-controls";
 
 /**
  * מסך הלידים לפי קובץ העיצוב: טבלת grid עם תג "דחוף", זמן המתנה
@@ -51,6 +51,7 @@ export default function LeadsPage() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
+  const [urgency, setUrgency] = useState("");
   // שעון קפוא לרינדור — כדי שכל השורות ימדדו מול אותו רגע
   const [now, setNow] = useState<Date | null>(null);
 
@@ -69,9 +70,15 @@ export default function LeadsPage() {
       (items ?? []).filter(
         (l) =>
           textMatches(query, l.contact.name, l.contact.phone) &&
-          (!status || l.status === status),
+          (!status || l.status === status) &&
+          // "מי מחכה יותר מדי" — הסינון שמייצר את שיחת הטלפון הבאה
+          (urgency === "" ||
+            (urgency === "human" && l.requiresHuman) ||
+            (urgency === "late" &&
+              now !== null &&
+              leadWaiting(l.createdAt, l.status, now)?.level === "late")),
       ),
-    [items, query, status],
+    [items, query, status, urgency, now],
   );
 
   /*
@@ -115,31 +122,41 @@ export default function LeadsPage() {
         </div>
       ) : (
         <>
-          <div className="mb-3.5 flex flex-wrap items-center gap-2">
+          <FilterBar
+            shown={visible.length}
+            total={items.length}
+            noun="לידים"
+            active={query.trim() !== "" || status !== "" || urgency !== ""}
+            onClear={() => {
+              setQuery("");
+              setStatus("");
+              setUrgency("");
+            }}
+          >
             <SearchField
               label="חיפוש ליד"
               placeholder="🔍 שם או טלפון"
               value={query}
               onChange={setQuery}
             />
-            <label className="flex items-center gap-1.5 text-sm">
-              <span className="mv-visually-hidden">סינון לפי סטטוס</span>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-                className="rounded-lg border px-2 py-1.5"
-                style={{ borderColor: "var(--color-input-border)", background: "var(--color-surface)", color: "var(--color-text)" }}
-              >
-                <option value="">כל הסטטוסים</option>
-                {Object.entries(LEAD_STATUS_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
-            </label>
-            <span className="text-sm" style={{ color: "var(--color-text-muted)" }} aria-live="polite">
-              {visible.length} מתוך {items.length} לידים
-            </span>
-          </div>
+            <FilterSelect
+              label="סינון לפי סטטוס"
+              value={status}
+              onChange={setStatus}
+              allLabel="כל הסטטוסים"
+              options={Object.entries(LEAD_STATUS_LABELS)}
+            />
+            <FilterSelect
+              label="סינון לפי דחיפות"
+              value={urgency}
+              onChange={setUrgency}
+              allLabel="כל רמות הדחיפות"
+              options={[
+                ["human", "דורשים טיפול אנושי"],
+                ["late", "ממתינים יותר מדי"],
+              ]}
+            />
+          </FilterBar>
 
           {visible.length === 0 ? (
             <div
@@ -152,6 +169,7 @@ export default function LeadsPage() {
                 onClick={() => {
                   setQuery("");
                   setStatus("");
+                  setUrgency("");
                 }}
               >
                 נקה סינון
@@ -274,7 +292,7 @@ export default function LeadsPage() {
           </div>
 
           <CapNote
-            show={(query.trim() !== "" || status !== "") && items.length === 100}
+            show={(query.trim() !== "" || status !== "" || urgency !== "") && items.length === 100}
             noun="לידים"
           />
         </>

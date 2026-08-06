@@ -5,6 +5,7 @@ import { Button } from "@metavchim/ui";
 import { ROLE_CAPABILITIES } from "@metavchim/shared";
 import { apiGet, apiPost } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
+import { WithDictation } from "../../dictation-field";
 
 /**
  * ציר ההיסטוריה של הקונה (docs/01 §5): כל הערה ותיעוד שיחה במקום אחד —
@@ -115,16 +116,18 @@ export function TimelineSection({ buyerId }: { buyerId: string }) {
             <label htmlFor="int-content" className="mb-1 block text-sm font-medium">
               תיעוד חדש
             </label>
-            <input
-              id="int-content"
-              type="text"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              maxLength={4000}
-              placeholder='למשל: "דיברנו — מחפש כניסה מיידית, גמיש בתקציב עד 2.7"'
-              className="w-full rounded-md border px-3 py-2"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-            />
+            <WithDictation value={content} onChange={setContent}>
+              <input
+                id="int-content"
+                type="text"
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                maxLength={4000}
+                placeholder='למשל: "דיברנו — מחפש כניסה מיידית, גמיש בתקציב עד 2.7"'
+                className="w-full rounded-md border px-3 py-2"
+                style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+              />
+            </WithDictation>
           </div>
           <Button type="submit" disabled={busy || content.trim() === ""}>
             הוסף

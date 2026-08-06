@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { apiGet, apiPost } from "@/lib/api";
+import { usePathname } from "next/navigation";
+import { apiGet } from "@/lib/api";
 import { NotificationsBell } from "./notifications-bell";
 import { TopbarSearch } from "./topbar-search";
 import { WhatsNewBanner } from "./whats-new-banner";
@@ -25,6 +25,7 @@ const PUBLIC_PREFIXES = [
   "/offer/",
   "/sign/",
   "/p/", // דף נחיתה של נכס — הלקוח לא רואה תפריטי מתווך
+  "/accessibility", // הצהרת נגישות — מקושרת מאתר התדמית
   "/change-password",
   "/forgot-password",
   "/reset-password",
@@ -47,6 +48,7 @@ const SCREEN_TITLES: [prefix: string, title: string][] = [
   ["/voice", "קליטה בקול"],
   ["/notifications", "התראות"],
   ["/search", "חיפוש"],
+  ["/profile", "הפרופיל שלי"],
   ["/tasks", "משימות"],
 ];
 
@@ -202,7 +204,6 @@ function initials(name: string): string {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
   const isPublic = PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p));
   const [me, setMe] = useState<Me | null>(null);
   const [counts, setCounts] = useState<NavSummary | null>(null);
@@ -254,14 +255,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   const isManager = me !== null && MANAGER_ROLES.has(me.role);
-
-  async function logout(): Promise<void> {
-    try {
-      await apiPost("/auth/logout", {});
-    } finally {
-      router.replace("/login");
-    }
-  }
 
   const navLink = (
     href: string,
@@ -329,7 +322,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </nav>
 
       {me ? (
-        <div className="mv-sidebar-user">
+        <Link href="/profile" className="mv-sidebar-user" aria-label={`הפרופיל של ${me.name}`}>
           <span className="mv-avatar" aria-hidden="true">
             {initials(me.name)}
           </span>
@@ -337,7 +330,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="mv-sidebar-user-name">{me.name}</span>
             <span className="mv-sidebar-user-role">{ROLE_LABELS[me.role] ?? me.role}</span>
           </span>
-        </div>
+        </Link>
       ) : null}
     </>
   );
@@ -408,13 +401,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               קליטה בקול
             </Link>
 
-            <button
-              type="button"
-              className="mv-icon-button"
-              aria-label="התנתקות"
-              title="התנתקות"
-              onClick={() => void logout()}
-            >
+            <Link href="/profile" className="mv-icon-button" aria-label="הפרופיל שלי" title="הפרופיל שלי">
               <svg
                 width="18"
                 height="18"
@@ -426,11 +413,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                 strokeLinejoin="round"
                 aria-hidden="true"
               >
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <path d="m16 17 5-5-5-5" />
-                <line x1="21" y1="12" x2="9" y2="12" />
+                <circle cx="12" cy="8" r="3.5" />
+                <path d="M4.5 20c0-3.6 3.4-6 7.5-6s7.5 2.4 7.5 6" />
               </svg>
-            </button>
+            </Link>
           </div>
         </header>
 
