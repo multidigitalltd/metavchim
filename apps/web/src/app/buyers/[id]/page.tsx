@@ -9,6 +9,12 @@ import { useRequireAuth } from "@/lib/use-auth";
 import { TimelineSection } from "./timeline-section";
 import { RelatedEntities } from "../../related-entities";
 
+/**
+ * כרטיס הקונה לפי קובץ העיצוב: כרטיס כותרת עם אווטאר וגלולת בשלות,
+ * "מה הוא מחפש" בטור צדדי (תקציב גדול, דרישות חובה כגלולות כהות),
+ * ולצידו נכסים מתאימים עם טבעות ניקוד והיסטוריית הצעות.
+ */
+
 interface BuyerDetail {
   id: string;
   contact: { id: string; name: string; phone: string };
@@ -34,6 +40,15 @@ interface MatchRow {
   propertyId: string;
   score: number;
   explanation: string;
+  status: string;
+  property: { address: string; title?: string; priceAgorot?: number };
+}
+
+interface OfferInfo {
+  id: string;
+  status: string;
+  url: string;
+  openCount: number;
 }
 
 const FEATURE_LABELS: Record<string, string> = {
@@ -44,15 +59,37 @@ const FEATURE_LABELS: Record<string, string> = {
   hasStorage: "מחסן",
 };
 
+const MATURITY_PILL: Record<string, { fg: string; bg: string }> = {
+  very_hot: { fg: "#b0512c", bg: "#faf1ec" },
+  hot: { fg: "#7a5c1f", bg: "#f7efdd" },
+  interested: { fg: "#0C6E34", bg: "#E5FCEA" },
+  not_ripe: { fg: "#68716a", bg: "#eef1ec" },
+};
+
+/* גלולות סטטוס ההצעה בהיסטוריה — כללי stChip מהעיצוב */
+function offerChip(o: OfferInfo): { label: string; fg: string; bg: string } {
+  if (o.status === "interested") return { label: "מעוניין ✓", fg: "#0C6E34", bg: "#E5FCEA" };
+  if (o.status === "declined") return { label: "לא מתאים", fg: "#68716a", bg: "#eef1ec" };
+  if (o.openCount >= 3) return { label: "מתלבט — שווה טלפון", fg: "#7a5c1f", bg: "#f7efdd" };
+  if (o.openCount > 0) return { label: "נפתחה", fg: "#3F4742", bg: "#EDEFED" };
+  return { label: "נשלחה", fg: "#68716a", bg: "#eef1ec" };
+}
+
+function initials(name: string): string {
+  return name.trim().slice(0, 1);
+}
+
 export default function BuyerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { loading: authLoading } = useRequireAuth();
   const [buyer, setBuyer] = useState<BuyerDetail | null>(null);
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
+  const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState<string | null>(null);
   const [notesSaved, setNotesSaved] = useState(false);
+  const [sending, setSending] = useState<string | null>(null);
 
   /** עדכון בשלות במקום — הקונה "התחמם"? בחירה אחת והמערכת מסונכרנת. */
   async function changeMaturity(maturity: string) {
@@ -77,13 +114,31 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
     }
   }
 
+  async function sendOffer(m: MatchRow) {
+    setSending(m.id);
+    try {
+      const offer = await apiPost<OfferInfo>("/offers", { matchId: m.id });
+      setOffers((prev) => ({ ...prev, [m.id]: offer }));
+    } finally {
+      setSending(null);
+    }
+  }
+
   useEffect(() => {
     if (authLoading) return;
     apiGet<BuyerDetail>(`/buyers/${id}`)
       .then(setBuyer)
       .catch(() => setError("הקונה לא נמצא"));
     apiGet<MatchRow[]>(`/buyers/${id}/matches`)
-      .then(setMatches)
+      .then((rows) => {
+        setMatches(rows);
+        if (rows.length > 0) {
+          const ids = rows.map((m) => m.id).join(",");
+          apiGet<Record<string, OfferInfo>>(`/offers/for-matches?matchIds=${ids}`)
+            .then(setOffers)
+            .catch(() => undefined);
+        }
+      })
       .catch(() => setMatches([]));
   }, [authLoading, id]);
 
@@ -98,110 +153,268 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
 
   const musts = Object.entries(buyer.requirements.features).filter(([, l]) => l === "must");
   const nices = Object.entries(buyer.requirements.features).filter(([, l]) => l === "nice");
+  const pill = MATURITY_PILL[buyer.maturity] ?? MATURITY_PILL["not_ripe"]!;
+  const sentOffers = Object.entries(offers);
+  const isHotNoOffers =
+    (buyer.maturity === "very_hot" || buyer.maturity === "hot") && sentOffers.length === 0;
 
   return (
     <>
-      <nav aria-label="נתיב" className="mb-4 text-sm">
-        <Link href="/buyers" className="underline">קונים</Link>
-        <span aria-hidden="true"> / </span>
-        <span>{buyer.contact.name}</span>
-      </nav>
+      <Link
+        href="/buyers"
+        className="mb-3.5 inline-block text-[13.5px] font-bold no-underline hover:underline"
+        style={{ color: "var(--color-primary)" }}
+      >
+        → חזרה לרשימת הקונים
+      </Link>
 
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">{buyer.contact.name}</h1>
-        <p style={{ color: "var(--color-text-muted)" }}>
-          <a href={`tel:${buyer.contact.phone}`} className="underline" dir="ltr">
-            {buyer.contact.phone}
-          </a>
-          {" · "}
-          <a href={waMeUrl(buyer.contact.phone)} target="_blank" rel="noreferrer" className="underline">
-            💬 וואטסאפ
-          </a>
-          {" · "}מקור: {formatBuyerSource(buyer.source)}
-        </p>
-        <label className="mt-2 flex items-center gap-2">
-          <span className="font-medium">בשלות:</span>
-          <select
-            value={buyer.maturity}
-            onChange={(e) => void changeMaturity(e.target.value)}
-            className="rounded-lg border px-3 py-1.5"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)", color: "var(--color-text)" }}
+      {/* ---- כרטיס הכותרת ---- */}
+      <div className="mv-list-card mb-[18px] flex flex-wrap items-center gap-4 p-6" style={{ overflow: "visible" }}>
+        <span
+          aria-hidden="true"
+          className="grid flex-none place-items-center rounded-full"
+          style={{ width: 52, height: 52, background: "var(--color-primary-soft)", color: "var(--color-primary)", fontWeight: 800, fontSize: 19 }}
+        >
+          {initials(buyer.contact.name)}
+        </span>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="m-0" style={{ fontSize: 22, fontWeight: 800 }}>{buyer.contact.name}</h1>
+            <label>
+              <span className="mv-visually-hidden">עדכון בשלות</span>
+              <select
+                value={buyer.maturity}
+                onChange={(e) => void changeMaturity(e.target.value)}
+                className="mv-pill border-0"
+                style={{ color: pill.fg, background: pill.bg, cursor: "pointer", fontSize: 12.5 }}
+              >
+                {Object.entries(MATURITY_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p className="m-0 mt-1 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
+            <span dir="ltr">{buyer.contact.phone}</span> · מקור: {formatBuyerSource(buyer.source)} ·
+            מימון: {FINANCING_LABELS[buyer.financing] ?? buyer.financing}
+          </p>
+        </div>
+        <div className="ms-auto flex flex-wrap gap-2">
+          <a
+            href={waMeUrl(buyer.contact.phone)}
+            target="_blank"
+            rel="noreferrer"
+            className="mv-btn-plain"
+            style={{ padding: "7px 14px", fontSize: 13 }}
           >
-            {Object.entries(MATURITY_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-        </label>
+            וואטסאפ
+          </a>
+          <a href={`tel:${buyer.contact.phone}`} className="mv-btn-plain" style={{ padding: "7px 14px", fontSize: 13 }}>
+            חייג
+          </a>
+          <Link href={`/buyers/${id}/edit`} className="mv-btn-plain" style={{ padding: "7px 14px", fontSize: 13 }}>
+            ערוך דרישות
+          </Link>
+          <button type="button" className="mv-btn-soft" style={{ padding: "7px 14px", fontSize: 13 }} onClick={() => void shareToNetwork()}>
+            שתף ברשת (אנונימי)
+          </button>
+        </div>
+        {shareStatus ? (
+          <p role="status" className="m-0 w-full text-sm" style={{ color: "var(--color-primary)" }}>
+            {shareStatus}
+          </p>
+        ) : null}
       </div>
 
       <RelatedEntities contactId={buyer.contact.id} exclude={{ kind: "buyer", id: buyer.id }} />
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <Link href={`/buyers/${id}/edit`}>
-          <Button variant="secondary">✏️ ערוך דרישות</Button>
-        </Link>
-        <Button variant="secondary" onClick={() => void shareToNetwork()}>
-          🌐 שתף ברשת (אנונימי)
-        </Button>
-        {shareStatus ? <span role="status">{shareStatus}</span> : null}
-      </div>
+      <div className="grid items-start gap-[18px] lg:[grid-template-columns:340px_1fr]">
+        {/* ---- מה הוא מחפש ---- */}
+        <section className="mv-list-card px-5 py-[18px]" aria-labelledby="req-heading">
+          <h2 id="req-heading" className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>
+            מה הוא מחפש
+          </h2>
 
-      <section aria-labelledby="req-heading" className="mb-8 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-        <h2 id="req-heading" className="mb-3 text-lg font-semibold">מה הוא מחפש</h2>
-        <dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
-          <div><dt className="inline font-medium">אזורים: </dt><dd className="inline">{buyer.requirements.cities.join(", ")}</dd></div>
-          <div>
-            <dt className="inline font-medium">תקציב: </dt>
-            <dd className="inline">
-              {buyer.requirements.budgetMinAgorot !== undefined
-                ? `${formatPrice(buyer.requirements.budgetMinAgorot)}–${formatPrice(buyer.requirements.budgetMaxAgorot)}`
-                : `עד ${formatPrice(buyer.requirements.budgetMaxAgorot)}`}
-            </dd>
+          <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>תקציב</div>
+          <div className="mb-[13px]" style={{ fontSize: 19, fontWeight: 800 }}>
+            {buyer.requirements.budgetMinAgorot !== undefined
+              ? `${formatPrice(buyer.requirements.budgetMinAgorot)}–${formatPrice(buyer.requirements.budgetMaxAgorot)}`
+              : `עד ${formatPrice(buyer.requirements.budgetMaxAgorot)}`}
           </div>
-          <div><dt className="inline font-medium">חדרים: </dt><dd className="inline">{buyer.requirements.roomsMin ?? "—"}–{buyer.requirements.roomsMax ?? "—"}</dd></div>
-          <div>
-            <dt className="inline font-medium">מימון: </dt>
-            <dd className="inline">{FINANCING_LABELS[buyer.financing] ?? buyer.financing}</dd>
-          </div>
+
+          <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>אזורים</div>
+          <div className="mb-3.5 text-[14.5px] font-bold">{buyer.requirements.cities.join(", ") || "—"}</div>
+
+          {buyer.requirements.roomsMin !== undefined || buyer.requirements.roomsMax !== undefined ? (
+            <>
+              <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>חדרים</div>
+              <div className="mb-3.5 text-[14.5px] font-bold">
+                {buyer.requirements.roomsMin ?? "—"}–{buyer.requirements.roomsMax ?? "—"}
+              </div>
+            </>
+          ) : null}
           {buyer.requirements.areaSqmMin !== undefined ? (
-            <div><dt className="inline font-medium">שטח מינימלי: </dt><dd className="inline">{buyer.requirements.areaSqmMin} מ&quot;ר</dd></div>
+            <>
+              <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>שטח מינימלי</div>
+              <div className="mb-3.5 text-[14.5px] font-bold">{buyer.requirements.areaSqmMin} מ&quot;ר</div>
+            </>
           ) : null}
           {buyer.requirements.entryBy ? (
-            <div><dt className="inline font-medium">כניסה עד: </dt><dd className="inline">{formatDate(buyer.requirements.entryBy)}</dd></div>
+            <>
+              <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>כניסה עד</div>
+              <div className="mb-3.5 text-[14.5px] font-bold">{formatDate(buyer.requirements.entryBy)}</div>
+            </>
           ) : null}
-          <div>
-            <dt className="inline font-medium">חובה: </dt>
-            <dd className="inline">{musts.length > 0 ? musts.map(([k]) => FEATURE_LABELS[k] ?? k).join(", ") : "—"}</dd>
-          </div>
-          <div>
-            <dt className="inline font-medium">עדיפות: </dt>
-            <dd className="inline">{nices.length > 0 ? nices.map(([k]) => FEATURE_LABELS[k] ?? k).join(", ") : "—"}</dd>
-          </div>
-          {buyer.requirements.flexibilityNotes ? (
-            <div className="sm:col-span-2">
-              <dt className="inline font-medium">גמישות: </dt>
-              <dd className="inline">{buyer.requirements.flexibilityNotes}</dd>
-            </div>
-          ) : null}
-        </dl>
-      </section>
 
+          <div className="mb-[7px] text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
+            דרישות חובה — שוברות התאמה
+          </div>
+          <div className="mb-3.5 flex flex-wrap gap-[7px]">
+            {musts.length === 0 ? (
+              <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>אין</span>
+            ) : (
+              musts.map(([k]) => (
+                <span key={k} className="mv-pill" style={{ background: "#111513", color: "#fff", fontSize: 12.5, padding: "4px 12px" }}>
+                  {FEATURE_LABELS[k] ?? k}
+                </span>
+              ))
+            )}
+          </div>
+
+          <div className="mb-[7px] text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
+            עדיפויות — משפיעות על הניקוד בלבד
+          </div>
+          <div className="flex flex-wrap gap-[7px]">
+            {nices.length === 0 ? (
+              <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>אין</span>
+            ) : (
+              nices.map(([k]) => (
+                <span key={k} className="mv-pill" style={{ background: "#eef1ec", color: "#4a534c", fontSize: 12.5, padding: "4px 12px" }}>
+                  {FEATURE_LABELS[k] ?? k}
+                </span>
+              ))
+            )}
+          </div>
+
+          {buyer.requirements.flexibilityNotes ? (
+            <>
+              <div className="mb-1.5 mt-3.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>גמישות</div>
+              <div className="text-sm">{buyer.requirements.flexibilityNotes}</div>
+            </>
+          ) : null}
+        </section>
+
+        {/* ---- נכסים מתאימים + היסטוריית הצעות ---- */}
+        <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="matches-heading">
+          <h2 id="matches-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+            נכסים מתאימים
+          </h2>
+          <p className="m-0 mb-2.5 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+            נכסים ששוברים דרישת חובה אינם מופיעים
+          </p>
+
+          {matches === null ? (
+            <p aria-live="polite">מחשב התאמות…</p>
+          ) : matches.length === 0 ? (
+            <p className="m-0 py-2" style={{ color: "var(--color-text-muted)" }}>
+              אין עדיין נכסים מתאימים במאגר.
+            </p>
+          ) : (
+            matches.map((m) => {
+              const offer = offers[m.id];
+              return (
+                <div key={m.id} className="flex flex-wrap items-center gap-[15px] py-[13px]" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
+                  <span
+                    className="mv-score-ring"
+                    style={{ width: 46, height: 46, background: `conic-gradient(#2ECC66 ${Math.round(m.score * 3.6)}deg, var(--color-progress-track) 0deg)` }}
+                    aria-hidden="true"
+                  >
+                    <span style={{ width: 35, height: 35, fontSize: 12 }}>{m.score}%</span>
+                  </span>
+                  <div className="min-w-0 flex-1" style={{ lineHeight: 1.4 }}>
+                    <div className="text-[14.5px] font-bold">
+                      <Link href={`/properties/${m.propertyId}`} className="no-underline hover:underline" style={{ color: "inherit" }}>
+                        {m.property.title ?? m.property.address}
+                      </Link>
+                      {m.property.priceAgorot !== undefined ? (
+                        <span className="ms-1.5 text-[12.5px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                          · {formatPrice(m.property.priceAgorot)}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>{m.explanation}</div>
+                  </div>
+                  <div className="ms-auto flex-none">
+                    {offer ? (
+                      <a href={offer.url} target="_blank" rel="noreferrer" className="mv-pill no-underline" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}>
+                        הצעה נשלחה ✓
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        className="mv-btn-action"
+                        style={{ padding: "7px 15px", fontSize: 13 }}
+                        disabled={sending !== null}
+                        onClick={() => void sendOffer(m)}
+                      >
+                        {sending === m.id ? "שולח…" : "שלח הצעה"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+
+          <h2 className="mb-2 mt-[18px]" style={{ fontSize: 15.5, fontWeight: 800 }}>
+            היסטוריית הצעות
+          </h2>
+          {sentOffers.length === 0 ? (
+            isHotNoOffers ? (
+              <p className="m-0 rounded-[9px] px-[13px] py-2.5 text-[13.5px] font-bold" style={{ color: "#b0512c", background: "#faf1ec" }}>
+                קונה חם שעדיין לא קיבל אף הצעה — שווה לטפל היום.
+              </p>
+            ) : (
+              <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                עוד לא נשלחו הצעות לקונה הזה.
+              </p>
+            )
+          ) : (
+            sentOffers.map(([matchId, offer]) => {
+              const match = (matches ?? []).find((m) => m.id === matchId);
+              const chip = offerChip(offer);
+              return (
+                <div key={offer.id} className="flex flex-wrap items-center gap-2.5 py-[9px] text-[13.5px]" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
+                  <span className="font-bold">{match?.property.title ?? match?.property.address ?? "נכס"}</span>
+                  <span style={{ color: "var(--color-text-muted)" }}>
+                    {offer.openCount === 0 ? "טרם נפתחה" : `נפתחה ${offer.openCount} פעמים`}
+                  </span>
+                  <span className="mv-pill ms-auto" style={{ color: chip.fg, background: chip.bg, fontSize: 12.5 }}>
+                    {chip.label}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </section>
+      </div>
+
+      {/* ---- הערות הסוכן + ציר הזמן ---- */}
       <section
         aria-labelledby="notes-heading"
-        className="mb-8 rounded-xl border p-4"
-        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+        className="mv-list-card mb-[18px] mt-[18px] px-[22px] py-[18px]"
       >
-        <h2 id="notes-heading" className="mb-3 text-lg font-semibold">הערות הסוכן</h2>
+        <h2 id="notes-heading" className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>הערות הסוכן</h2>
         {notesDraft === null ? (
           <>
-            <p className="mb-3 whitespace-pre-wrap">
+            <p className="mb-3 mt-0 whitespace-pre-wrap">
               {buyer.agentNotes?.trim() ? buyer.agentNotes : <span style={{ color: "var(--color-text-muted)" }}>אין הערות עדיין.</span>}
             </p>
             <div className="flex items-center gap-3">
-              <Button variant="secondary" onClick={() => { setNotesSaved(false); setNotesDraft(buyer.agentNotes ?? ""); }}>
+              <button type="button" className="mv-btn-plain" onClick={() => { setNotesSaved(false); setNotesDraft(buyer.agentNotes ?? ""); }}>
                 {buyer.agentNotes?.trim() ? "ערוך הערות" : "הוסף הערות"}
-              </Button>
-              {notesSaved ? <span role="status" style={{ color: "var(--color-success)" }}>✓ נשמר</span> : null}
+              </button>
+              {notesSaved ? <span role="status" style={{ color: "var(--color-primary)" }}>✓ נשמר</span> : null}
             </div>
           </>
         ) : (
@@ -214,7 +427,7 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
               value={notesDraft}
               onChange={(e) => setNotesDraft(e.target.value)}
               className="mb-3 w-full rounded-lg border px-3 py-2.5"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)" }}
+              style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)", color: "var(--color-text)" }}
             />
             <div className="flex gap-3">
               <Button onClick={() => void saveNotes()}>שמור הערות</Button>
@@ -225,29 +438,6 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
       </section>
 
       <TimelineSection buyerId={id} />
-
-      <section aria-labelledby="matches-heading">
-        <h2 id="matches-heading" className="mb-3 text-lg font-semibold">
-          נכסים מתאימים {matches !== null ? `(${matches.length})` : ""}
-        </h2>
-        {matches === null ? (
-          <p aria-live="polite">מחשב התאמות…</p>
-        ) : matches.length === 0 ? (
-          <p style={{ color: "var(--color-text-muted)" }}>אין עדיין נכסים מתאימים במאגר.</p>
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {matches.map((m) => (
-              <li key={m.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-                <div className="mb-1 flex flex-wrap items-center gap-3">
-                  <span className="text-xl font-bold">{m.score}%</span>
-                  <Link href={`/properties/${m.propertyId}`} className="underline">לכרטיס הנכס</Link>
-                </div>
-                <p style={{ color: "var(--color-text-muted)" }}>{m.explanation}</p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
     </>
   );
 }
