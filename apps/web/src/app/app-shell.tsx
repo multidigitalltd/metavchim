@@ -2,15 +2,16 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { apiGet } from "@/lib/api";
+import { usePathname, useRouter } from "next/navigation";
+import { apiGet, apiPost } from "@/lib/api";
 import { NotificationsBell } from "./notifications-bell";
-import { UserMenu } from "./user-menu";
+import { TopbarSearch } from "./topbar-search";
 import { WhatsNewBanner } from "./whats-new-banner";
 
 /**
- * מעטפת האפליקציה לפי קובץ העיצוב: סרגל צד כהה עם ניווט אנכי, ושורת
- * כותרת עליונה עם התראות וכניסה מהירה לקליטה בקול.
+ * מעטפת האפליקציה לפי קובץ העיצוב: סרגל צד כהה עם ניווט אנכי, מונים
+ * ותגים ליד הפריטים, ושורת כותרת לבנה עם כותרת המסך, חיפוש גלובלי,
+ * התראות וכפתור "קליטה בקול".
  *
  * במסכים ציבוריים — התחברות, דף ההצעה ודף החתימה — המעטפת נעלמת
  * לגמרי: הקונה של המשרד לא אמור לראות תפריטי מתווך.
@@ -28,13 +29,40 @@ const PUBLIC_PREFIXES = [
   "/reset-password",
 ];
 
-interface NavItem {
-  href: string;
-  label: string;
-  icon: ReactNode;
+/** כותרות המסכים בשורת הכותרת — מיפוי הנתיבים מקובץ העיצוב. */
+const SCREEN_TITLES: [prefix: string, title: string][] = [
+  ["/properties", "נכסים"],
+  ["/buyers", "קונים"],
+  ["/leads", "לידים"],
+  ["/calls", "שיחות"],
+  ["/matches", "התאמות"],
+  ["/offers", "הצעות"],
+  ["/calendar", "יומן"],
+  ["/reports", "דוחות"],
+  ["/collaboration", 'שת"פ בין משרדים'],
+  ["/settings", "ניהול משרד"],
+  ["/setup", "הקמה"],
+  ["/platform", "פלטפורמה"],
+  ["/voice", "קליטה בקול"],
+  ["/notifications", "התראות"],
+  ["/search", "חיפוש"],
+  ["/tasks", "משימות"],
+];
+
+function screenTitle(pathname: string): string {
+  if (pathname === "/") return "דשבורד";
+  return SCREEN_TITLES.find(([prefix]) => pathname.startsWith(prefix))?.[1] ?? "";
 }
 
-/** אייקוני קו דקים, בסגנון קובץ העיצוב. */
+interface NavSummary {
+  properties: number;
+  buyers: number;
+  newLeads: number;
+  matches: number;
+  credits: number | null;
+}
+
+/** אייקוני קו דקים — הנתיבים המדויקים מקובץ העיצוב. */
 function Icon({ children }: { children: ReactNode }) {
   return (
     <svg
@@ -54,133 +82,90 @@ function Icon({ children }: { children: ReactNode }) {
   );
 }
 
-const NAV_ITEMS: NavItem[] = [
-  {
-    href: "/",
-    label: "דשבורד",
-    icon: (
-      <Icon>
-        <rect x="3" y="3" width="8" height="8" rx="2" />
-        <rect x="13" y="3" width="8" height="8" rx="2" />
-        <rect x="3" y="13" width="8" height="8" rx="2" />
-        <rect x="13" y="13" width="8" height="8" rx="2" />
-      </Icon>
-    ),
-  },
-  {
-    href: "/properties",
-    label: "נכסים",
-    icon: (
-      <Icon>
-        <path d="M3 10.5 12 3l9 7.5" />
-        <path d="M5 9.5V21h14V9.5" />
-      </Icon>
-    ),
-  },
-  {
-    href: "/buyers",
-    label: "קונים",
-    icon: (
-      <Icon>
-        <circle cx="9" cy="8" r="3.2" />
-        <path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5" />
-        <path d="M17 11.5a3 3 0 1 0-1.5-5.6" />
-      </Icon>
-    ),
-  },
-  {
-    href: "/leads",
-    label: "לידים",
-    icon: (
-      <Icon>
-        <path d="M4 5h16v11H7l-3 3z" />
-      </Icon>
-    ),
-  },
-  {
-    href: "/calls",
-    label: "שיחות",
-    icon: (
-      <Icon>
-        <path d="M4.5 4.5h4l1.5 4-2 1.5a12 12 0 0 0 6 6l1.5-2 4 1.5v4a1.5 1.5 0 0 1-1.7 1.5A16.5 16.5 0 0 1 3 6.2 1.5 1.5 0 0 1 4.5 4.5z" />
-      </Icon>
-    ),
-  },
-  {
-    href: "/matches",
-    label: "התאמות",
-    icon: (
-      <Icon>
-        <path d="M4 8h9l-2.5-2.5" />
-        <path d="M20 16h-9l2.5 2.5" />
-      </Icon>
-    ),
-  },
-  {
-    href: "/offers",
-    label: "הצעות",
-    icon: (
-      <Icon>
-        <rect x="4" y="3" width="16" height="18" rx="2.5" />
-        <path d="M8 8h8M8 12h8M8 16h5" />
-      </Icon>
-    ),
-  },
-  {
-    href: "/calendar",
-    label: "יומן",
-    icon: (
-      <Icon>
-        <rect x="3.5" y="5" width="17" height="16" rx="2.5" />
-        <path d="M3.5 10h17M8 3v4M16 3v4" />
-      </Icon>
-    ),
-  },
-  {
-    href: "/reports",
-    label: "דוחות",
-    icon: (
-      <Icon>
-        <path d="M5 20V10M12 20V4M19 20v-7" />
-      </Icon>
-    ),
-  },
-  {
-    href: "/collaboration",
-    label: 'שת"פ בין משרדים',
-    icon: (
-      <Icon>
-        <circle cx="7" cy="12" r="3" />
-        <circle cx="17" cy="12" r="3" />
-        <path d="M10 12h4" />
-      </Icon>
-    ),
-  },
-  {
-    href: "/settings",
-    label: "ניהול משרד",
-    icon: (
-      <Icon>
-        <circle cx="12" cy="12" r="3" />
-        <circle cx="12" cy="12" r="8" />
-      </Icon>
-    ),
-  },
-  {
-    href: "/setup",
-    label: "הקמה",
-    icon: (
-      <Icon>
-        <path d="M20 6 9 17l-5-5" />
-      </Icon>
-    ),
-  },
-];
-
-const PLATFORM_ITEM: NavItem = {
-  href: "/platform",
-  label: "פלטפורמה",
-  icon: (
+const ICONS = {
+  dashboard: (
+    <Icon>
+      <rect x="3" y="3" width="8" height="8" rx="2" />
+      <rect x="13" y="3" width="8" height="8" rx="2" />
+      <rect x="3" y="13" width="8" height="8" rx="2" />
+      <rect x="13" y="13" width="8" height="8" rx="2" />
+    </Icon>
+  ),
+  properties: (
+    <Icon>
+      <polyline points="3 11 12 4 21 11" />
+      <rect x="6" y="11" width="12" height="9" />
+    </Icon>
+  ),
+  buyers: (
+    <Icon>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" />
+      <circle cx="17" cy="9" r="2.5" />
+    </Icon>
+  ),
+  leads: (
+    <Icon>
+      <path d="M13 3 5 13h6l-1 8 8-10h-6z" />
+    </Icon>
+  ),
+  calls: (
+    <Icon>
+      <path d="M5 4h4l2 5-2.5 1.5c1 2.6 3.4 5 6 6L16 14l5 2v4a1.5 1.5 0 0 1-1.6 1.5C11 20.8 3.2 13 3.5 5.6A1.5 1.5 0 0 1 5 4z" />
+    </Icon>
+  ),
+  matches: (
+    <Icon>
+      <circle cx="9" cy="12" r="5.5" />
+      <circle cx="15" cy="12" r="5.5" />
+    </Icon>
+  ),
+  offers: (
+    <Icon>
+      <rect x="4" y="3" width="16" height="18" rx="2" />
+      <line x1="8" y1="8" x2="16" y2="8" />
+      <line x1="8" y1="12" x2="16" y2="12" />
+      <line x1="8" y1="16" x2="13" y2="16" />
+    </Icon>
+  ),
+  calendar: (
+    <Icon>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+      <line x1="8" y1="3" x2="8" y2="7" />
+      <line x1="16" y1="3" x2="16" y2="7" />
+    </Icon>
+  ),
+  reports: (
+    <Icon>
+      <line x1="5" y1="21" x2="5" y2="12" />
+      <line x1="12" y1="21" x2="12" y2="5" />
+      <line x1="19" y1="21" x2="19" y2="9" />
+    </Icon>
+  ),
+  coop: (
+    <Icon>
+      <circle cx="7" cy="7" r="3" />
+      <circle cx="17" cy="17" r="3" />
+      <line x1="9" y1="9" x2="15" y2="15" />
+    </Icon>
+  ),
+  office: (
+    <Icon>
+      <circle cx="12" cy="12" r="3" />
+      <circle cx="12" cy="12" r="8" />
+      <line x1="12" y1="1.5" x2="12" y2="4" />
+      <line x1="12" y1="20" x2="12" y2="22.5" />
+      <line x1="1.5" y1="12" x2="4" y2="12" />
+      <line x1="20" y1="12" x2="22.5" y2="12" />
+    </Icon>
+  ),
+  setup: (
+    <Icon>
+      <path d="M20 6 9 17l-5-5" />
+    </Icon>
+  ),
+  platform: (
     <Icon>
       <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" />
     </Icon>
@@ -194,6 +179,9 @@ const ROLE_LABELS: Record<string, string> = {
   assistant: "עוזר",
   viewer: "צפייה",
 };
+
+/** מי רואה את מסכי הניהול — "דוחות" ו"ניהול משרד" בעיצוב מוצגים למנהל בלבד. */
+const MANAGER_ROLES = new Set(["owner", "admin"]);
 
 interface Me {
   name: string;
@@ -213,8 +201,10 @@ function initials(name: string): string {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const isPublic = PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p));
   const [me, setMe] = useState<Me | null>(null);
+  const [counts, setCounts] = useState<NavSummary | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -225,6 +215,15 @@ export function AppShell({ children }: { children: ReactNode }) {
       .then((res) => setMe(res.user))
       .catch(() => undefined);
   }, [isPublic]);
+
+  /* המונים מתרעננים במעבר מסך — פעולה במסך אחד (קליטת ליד) צריכה
+     להשתקף בתג כשעוברים הלאה, בלי Polling קבוע */
+  useEffect(() => {
+    if (isPublic) return;
+    apiGet<NavSummary>("/nav/summary")
+      .then(setCounts)
+      .catch(() => undefined);
+  }, [isPublic, pathname]);
 
   // סגירת המגירה במעבר מסך — אחרת היא נשארת פתוחה מעל התוכן החדש
   useEffect(() => {
@@ -253,7 +252,39 @@ export function AppShell({ children }: { children: ReactNode }) {
     return <main id="main-content" className="mx-auto max-w-6xl px-4 py-6">{children}</main>;
   }
 
-  const navItems = me?.isPlatformAdmin ? [...NAV_ITEMS, PLATFORM_ITEM] : NAV_ITEMS;
+  const isManager = me !== null && MANAGER_ROLES.has(me.role);
+
+  async function logout(): Promise<void> {
+    try {
+      await apiPost("/auth/logout", {});
+    } finally {
+      router.replace("/login");
+    }
+  }
+
+  const navLink = (
+    href: string,
+    label: string,
+    icon: ReactNode,
+    end?: ReactNode,
+  ): ReactNode => {
+    const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+    return (
+      <Link
+        key={href}
+        href={href}
+        className="mv-sidebar-link"
+        aria-current={active ? "page" : undefined}
+      >
+        {icon}
+        <span>{label}</span>
+        {end}
+      </Link>
+    );
+  };
+
+  const count = (n: number | undefined): ReactNode =>
+    n !== undefined && n > 0 ? <span className="mv-nav-count">{n}</span> : null;
 
   const sidebar = (
     <>
@@ -261,24 +292,39 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="mv-logo">
           מתווכים<span style={{ color: "var(--color-action)" }}>.</span>
         </div>
-        <div className="mv-sidebar-sub">{me?.tenantName ?? " "}</div>
+        <div className="mv-sidebar-sub">{me?.tenantName ?? " "}</div>
       </div>
 
       <nav aria-label="ניווט ראשי" className="mv-sidebar-nav">
-        {navItems.map((item) => {
-          const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="mv-sidebar-link"
-              aria-current={active ? "page" : undefined}
-            >
-              {item.icon}
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
+        {navLink("/", "דשבורד", ICONS.dashboard)}
+        {navLink("/properties", "נכסים", ICONS.properties, count(counts?.properties))}
+        {navLink("/buyers", "קונים", ICONS.buyers, count(counts?.buyers))}
+        {navLink(
+          "/leads",
+          "לידים",
+          ICONS.leads,
+          counts !== null && counts.newLeads > 0 ? (
+            <span className="mv-nav-badge">{counts.newLeads}</span>
+          ) : null,
+        )}
+        {navLink("/calls", "שיחות", ICONS.calls)}
+        {navLink("/matches", "התאמות", ICONS.matches, count(counts?.matches))}
+        {navLink("/offers", "הצעות", ICONS.offers)}
+        {navLink("/calendar", "יומן", ICONS.calendar)}
+        {isManager ? navLink("/reports", "דוחות", ICONS.reports) : null}
+
+        <div className="mv-nav-group">רשת</div>
+        {navLink(
+          "/collaboration",
+          'שת"פ בין משרדים',
+          ICONS.coop,
+          counts?.credits !== null && counts?.credits !== undefined ? (
+            <span className="mv-nav-credits">{counts.credits} קרדיטים</span>
+          ) : null,
+        )}
+        {isManager ? navLink("/settings", "ניהול משרד", ICONS.office) : null}
+        {isManager ? navLink("/setup", "הקמה", ICONS.setup) : null}
+        {me?.isPlatformAdmin ? navLink("/platform", "פלטפורמה", ICONS.platform) : null}
       </nav>
 
       {me ? (
@@ -334,13 +380,56 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span aria-hidden="true">☰</span> תפריט
           </button>
 
-          <Link href="/voice" className="mv-button mv-button--primary mv-voice-button">
-            <span aria-hidden="true">🎤</span> קליטה בקול
-          </Link>
+          {/* לא h1 — הכותרת הסמנטית של הדף נמצאת בתוכן עצמו */}
+          <p className="mv-screen-title">{screenTitle(pathname)}</p>
+
+          <TopbarSearch />
 
           <div className="mv-topbar-end">
             <NotificationsBell />
-            <UserMenu />
+
+            <Link href="/voice" className="mv-voice-button">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <rect x="9" y="2.5" width="6" height="11" rx="3" />
+                <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
+                <line x1="12" y1="17.5" x2="12" y2="21" />
+              </svg>
+              קליטה בקול
+            </Link>
+
+            <button
+              type="button"
+              className="mv-icon-button"
+              aria-label="התנתקות"
+              title="התנתקות"
+              onClick={() => void logout()}
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <path d="m16 17 5-5-5-5" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
           </div>
         </header>
 
