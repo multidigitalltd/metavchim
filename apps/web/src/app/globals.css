@@ -445,3 +445,211 @@ textarea {
   border-block: 2px solid var(--color-primary);
   transform: translateY(-50%);
 }
+
+/* ============================================================
+   מעטפת האפליקציה — סרגל צד כהה + שורת כותרת, לפי קובץ העיצוב.
+   ============================================================ */
+.mv-app {
+  display: flex;
+  min-height: 100vh;
+}
+
+.mv-sidebar {
+  width: 230px;
+  flex: none;
+  background: #0e100f;
+  color: #e8ece8;
+  display: none; /* במובייל — מגירה; ראו mv-sidebar--drawer */
+  flex-direction: column;
+  padding-bottom: 14px;
+}
+@media (min-width: 1024px) {
+  .mv-sidebar {
+    display: flex;
+  }
+}
+
+/* המגירה במובייל: אותו סרגל, מרחף מעל התוכן */
+.mv-sidebar--drawer {
+  display: flex;
+  position: fixed;
+  inset-block: 0;
+  inset-inline-start: 0;
+  z-index: 50;
+  overflow-y: auto;
+  box-shadow: var(--shadow-pop);
+}
+.mv-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  border: 0;
+  background: rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+}
+
+.mv-sidebar-head {
+  padding: 22px 22px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.mv-logo {
+  font-weight: 900;
+  font-size: 27px;
+  color: #fff;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+.mv-sidebar-sub {
+  font-size: 12px;
+  color: #9aa89e;
+  margin-top: 5px;
+  min-height: 1em;
+}
+
+.mv-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 12px;
+  flex: 1;
+  overflow-y: auto;
+}
+.mv-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: #cfd8d0;
+  text-decoration: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.mv-sidebar-link:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  text-decoration: none;
+}
+/* הפריט הפעיל — ירוק המותג על רקע כהה: 11.2:1 */
+.mv-sidebar-link[aria-current="page"] {
+  background: rgba(112, 238, 145, 0.14);
+  color: var(--dk-primary);
+}
+.mv-sidebar-link:focus-visible {
+  outline: 3px solid var(--dk-primary);
+  outline-offset: -2px;
+}
+
+.mv-sidebar-user {
+  margin: 0 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mv-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--color-action);
+  color: var(--color-on-action);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 14px;
+  flex: none;
+}
+.mv-sidebar-user-name {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #fff;
+}
+.mv-sidebar-user-role {
+  display: block;
+  font-size: 11.5px;
+  color: #9aa89e;
+}
+
+.mv-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.mv-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--header-bg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.mv-topbar-end {
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mv-menu-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: 600;
+  cursor: pointer;
+}
+@media (min-width: 1024px) {
+  .mv-menu-button {
+    display: none;
+  }
+}
+.mv-voice-button {
+  min-height: 40px;
+  padding-inline: 16px;
+}
+.mv-content {
+  flex: 1;
+  padding: 24px 16px 44px;
+  max-width: 1240px;
+  width: 100%;
+  margin: 0 auto;
+}
+@media (min-width: 640px) {
+  .mv-content {
+    padding-inline: 28px;
+  }
+}
+
+/* כרטיס מונה בדשבורד — לפי קובץ העיצוב: מספר גדול ומסגרת שמתחדדת בריחוף */
+.mv-stat-card {
+  display: block;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  transition: border-color 0.15s ease;
+}
+.mv-stat-card:hover {
+  border-color: var(--color-primary-accent);
+  text-decoration: none;
+}
+.mv-stat-value {
+  font-size: 28px;
+  font-weight: 800;
+  margin-top: 2px;
+  line-height: 1.15;
+}

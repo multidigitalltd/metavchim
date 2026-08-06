@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { SkipLink } from "@metavchim/ui";
 import { AccessibilityToolbar } from "./a11y-toolbar";
-import { SiteHeader } from "./site-header";
+import { AppShell } from "./app-shell";
 import { THEME_INIT_SCRIPT } from "./theme-toggle";
 import "./globals.css";
 
@@ -34,15 +34,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <SkipLink targetId="main-content" />
-        <SiteHeader />
-        <main id="main-content" className="mx-auto max-w-6xl px-4 py-6">
+        <AppShell>
           {children}
-        </main>
-        <footer className="mx-auto max-w-6xl px-4 py-6 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          <a href="/accessibility" className="underline">
-            הצהרת נגישות
-          </a>
-        </footer>
+          <footer className="mt-10 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            <a href="/accessibility" className="underline">
+              הצהרת נגישות
+            </a>
+          </footer>
+        </AppShell>
         <AccessibilityToolbar />
       </body>
     </html>
