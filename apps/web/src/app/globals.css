@@ -479,6 +479,14 @@ textarea {
   overflow-y: auto;
   box-shadow: var(--shadow-pop);
 }
+/* במעבר לרוחב שולחני המגירה מיותרת — בלי זה היא נשארת פתוחה לצד
+   הסרגל הקבוע, ושני אזורי ניווט זהים מבלבלים קורא מסך */
+@media (min-width: 1024px) {
+  .mv-sidebar--drawer,
+  .mv-scrim {
+    display: none;
+  }
+}
 .mv-scrim {
   position: fixed;
   inset: 0;

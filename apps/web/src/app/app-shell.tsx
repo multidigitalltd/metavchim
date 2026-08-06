@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { apiGet } from "@/lib/api";
@@ -207,6 +207,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const isPublic = PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p));
   const [me, setMe] = useState<Me | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const drawerRef = useRef<HTMLElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (isPublic) return;
@@ -219,6 +221,24 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     setMenuOpen(false);
   }, [pathname]);
+
+  /*
+   * המגירה מתנהגת כדיאלוג: ESC סוגר, הפוקוס נכנס אליה בפתיחה וחוזר
+   * לכפתור בסגירה. בלי זה ניווט במקלדת נשאר תקוע מאחורי שכבת הכיסוי
+   * (docs/06 §4).
+   */
+  useEffect(() => {
+    if (!menuOpen) return;
+    drawerRef.current?.querySelector<HTMLElement>("a")?.focus();
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
 
   if (isPublic) {
     return <main id="main-content" className="mx-auto max-w-6xl px-4 py-6">{children}</main>;
@@ -281,7 +301,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             aria-label="סגירת התפריט"
             onClick={() => setMenuOpen(false)}
           />
-          <aside className="mv-sidebar mv-sidebar--drawer" aria-label="תפריט המערכת">
+          <aside
+            ref={drawerRef}
+            className="mv-sidebar mv-sidebar--drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="תפריט המערכת"
+          >
             {sidebar}
           </aside>
         </>
@@ -290,6 +316,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="mv-main">
         <header className="mv-topbar">
           <button
+            ref={menuButtonRef}
             type="button"
             className="mv-menu-button"
             aria-expanded={menuOpen}
