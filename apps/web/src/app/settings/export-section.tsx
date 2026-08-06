@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@metavchim/ui";
 
 /**
  * ייצוא נתונים (docs/08): הנתונים שייכים למשרד — הורדת CSV בכותרות
@@ -38,33 +37,35 @@ export function ExportSection() {
   }
 
   return (
-    <section aria-labelledby="export-heading" className="mb-8">
-      <h2 id="export-heading" className="mb-1 text-lg font-semibold">ייצוא נתונים</h2>
-      <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
-        הנתונים שייכים למשרד. הקבצים בעברית, נפתחים באקסל וניתנים לייבוא חזרה. כל ייצוא
-        מתועד ביומן הפעילות.
-      </p>
-      <div className="flex flex-wrap gap-3">
-        <Button
-          variant="secondary"
+    <div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          className="mv-btn-plain flex-1 text-center"
+          style={{ padding: "8px 0", fontSize: 13 }}
           disabled={busy !== null}
           onClick={() => download("/export/properties.csv", "properties.csv")}
         >
-          {busy === "properties.csv" ? "מוריד…" : "⬇️ ייצוא נכסים (CSV)"}
-        </Button>
-        <Button
-          variant="secondary"
+          {busy === "properties.csv" ? "מוריד…" : "ייצוא נכסים"}
+        </button>
+        <button
+          type="button"
+          className="mv-btn-plain flex-1 text-center"
+          style={{ padding: "8px 0", fontSize: 13 }}
           disabled={busy !== null}
           onClick={() => download("/export/buyers.csv", "buyers.csv")}
         >
-          {busy === "buyers.csv" ? "מוריד…" : "⬇️ ייצוא קונים (CSV)"}
-        </Button>
+          {busy === "buyers.csv" ? "מוריד…" : "ייצוא קונים"}
+        </button>
       </div>
+      <p className="m-0 mt-[9px] text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+        קבצים בעברית שנפתחים באקסל וניתנים לייבוא חזרה. כל ייצוא מתועד ביומן הפעילות.
+      </p>
       {error ? (
         <p role="alert" className="mt-2" style={{ color: "var(--color-danger)" }}>
           {error}
         </p>
       ) : null}
-    </section>
+    </div>
   );
 }
