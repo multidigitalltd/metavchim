@@ -19,6 +19,7 @@ import { ImportModule } from "./modules/import/import.module";
 import { LeadsModule } from "./modules/leads/leads.module";
 import { MatchingModule } from "./modules/matching/matching.module";
 import { MessagingModule } from "./modules/messaging/messaging.module";
+import { NavModule } from "./modules/nav/nav.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { CallsModule } from "./modules/calls/calls.module";
 import { OffersModule } from "./modules/offers/offers.module";
@@ -51,6 +52,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     PlatformModule,
     LeadsModule,
     VoiceIntakeModule,
+    NavModule,
     NotificationsModule,
     AnnouncementsModule,
     MessagingModule,

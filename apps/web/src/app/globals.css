@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* רדיוסי Tailwind מיושרים לקובץ העיצוב: כרטיסים גדולים 14px (rounded-xl),
+   שדות וכפתורים 10px (rounded-lg) — בלי לגעת בכל מסך בנפרד. */
+@theme {
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+}
+
 /* ============================================================
    טוקני עיצוב — כל צירופי הצבע נבדקו לניגודיות WCAG AA:
    טקסט רגיל ≥ 4.5:1, טקסט גדול/רכיבי UI ≥ 3:1 (docs/06 §4).
@@ -55,6 +62,13 @@
   --color-success: #0C6E34;
   --color-success-soft: #E5FCEA;
   --color-border: #e2e6e0;
+  /* גבולות עדינים יותר מהעיצוב: שדות קלט והתחדדות בריחוף */
+  --color-input-border: #dfe4dd;
+  --color-border-hover: #b9cfc1;
+  --color-field: #f6f8f5;
+  --color-hover-soft: #f1f5f0;
+  --color-row-border: #f2f4f0;
+  --color-card-head-border: #eef1ec;
   --color-focus: #0C6E34;
   --radius: 13px;
   --shadow-card: 0 1px 2px rgba(30, 40, 32, 0.06), 0 1px 3px rgba(30, 40, 32, 0.08);
@@ -83,6 +97,12 @@
   --dk-success: #5FE083;
   --dk-success-soft: #17301f;
   --dk-border: #26332a;
+  --dk-input-border: #2c392f;
+  --dk-border-hover: #3b4f41;
+  --dk-field: #101812;
+  --dk-hover-soft: #1a231c;
+  --dk-row-border: #1c2620;
+  --dk-card-head-border: #212c24;
   --dk-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
   --dk-shadow-pop: 0 16px 38px rgba(0, 0, 0, 0.5);
   --dk-header-bg: rgba(13, 19, 15, 0.85);
@@ -106,6 +126,12 @@
     --color-success: var(--dk-success);
     --color-success-soft: var(--dk-success-soft);
     --color-border: var(--dk-border);
+    --color-input-border: var(--dk-input-border);
+    --color-border-hover: var(--dk-border-hover);
+    --color-field: var(--dk-field);
+    --color-hover-soft: var(--dk-hover-soft);
+    --color-row-border: var(--dk-row-border);
+    --color-card-head-border: var(--dk-card-head-border);
     --color-focus: var(--dk-primary);
     --shadow-card: var(--dk-shadow-card);
     --shadow-pop: var(--dk-shadow-pop);
@@ -130,6 +156,12 @@
   --color-success: var(--dk-success);
   --color-success-soft: var(--dk-success-soft);
   --color-border: var(--dk-border);
+    --color-input-border: var(--dk-input-border);
+    --color-border-hover: var(--dk-border-hover);
+    --color-field: var(--dk-field);
+    --color-hover-soft: var(--dk-hover-soft);
+    --color-row-border: var(--dk-row-border);
+    --color-card-head-border: var(--dk-card-head-border);
   --color-focus: var(--dk-primary);
   --shadow-card: var(--dk-shadow-card);
   --shadow-pop: var(--dk-shadow-pop);
@@ -223,7 +255,37 @@ textarea {
 }
 
 ::selection {
-  background: var(--color-primary-soft);
+  background: #c4f7d0; /* מקובץ העיצוב */
+}
+:root[data-theme="dark"] ::selection {
+  background: var(--dk-primary-soft);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) ::selection {
+    background: var(--dk-primary-soft);
+  }
+}
+
+/* פס גלילה — לפי קובץ העיצוב */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #cdd4cc;
+  border-radius: 8px;
+  border: 2px solid var(--color-bg);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: #3b4f41;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) ::-webkit-scrollbar-thumb {
+    background: #3b4f41;
+  }
 }
 
 .mv-visually-hidden {
@@ -530,7 +592,7 @@ textarea {
   border-radius: 9px;
   font-size: 14.5px;
   font-weight: 600;
-  color: #cfd8d0;
+  color: #c3ccc4; /* הגוון מקובץ העיצוב — על #0E100F:‏ ~10:1 */
   text-decoration: none;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
@@ -539,10 +601,42 @@ textarea {
   color: #fff;
   text-decoration: none;
 }
-/* הפריט הפעיל — ירוק המותג על רקע כהה: 11.2:1 */
+/* הפריט הפעיל — הערכים המדויקים מקובץ העיצוב: ‎#8CF2A6‎ על ‎16%‎ ירוק */
 .mv-sidebar-link[aria-current="page"] {
-  background: rgba(112, 238, 145, 0.14);
-  color: var(--dk-primary);
+  background: rgba(112, 238, 145, 0.16);
+  color: #8cf2a6;
+}
+/* מונה ליד פריט ניווט (נכסים, קונים, התאמות) */
+.mv-nav-count {
+  margin-inline-start: auto;
+  font-size: 12px;
+  font-weight: 700;
+  color: #9aa89e;
+}
+/* תג "חדשים" — לידים שממתינים */
+.mv-nav-badge {
+  margin-inline-start: auto;
+  background: #b0512c;
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  border-radius: 99px;
+  padding: 1px 8px;
+}
+/* יתרת הקרדיטים על פריט השת"פ */
+.mv-nav-credits {
+  margin-inline-start: auto;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--color-action);
+}
+/* כותרת קבוצה בניווט ("רשת") */
+.mv-nav-group {
+  margin: 12px 4px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #7d8a80;
 }
 .mv-sidebar-link:focus-visible {
   outline: 3px solid var(--dk-primary);
@@ -588,24 +682,230 @@ textarea {
   display: flex;
   flex-direction: column;
 }
+/* שורת הכותרת — לפי העיצוב: 64px, רקע אחיד (בלי טשטוש), גבול תחתון */
 .mv-topbar {
+  height: 64px;
+  flex: none;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 16px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--color-border);
-  background: var(--header-bg);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: var(--color-surface);
   position: sticky;
   top: 0;
   z-index: 30;
+}
+@media (min-width: 640px) {
+  .mv-topbar {
+    gap: 16px;
+    padding: 0 26px;
+  }
 }
 .mv-topbar-end {
   margin-inline-start: auto;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
+}
+.mv-screen-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+@media (min-width: 640px) {
+  .mv-screen-title {
+    min-width: 170px;
+  }
+}
+
+/* ---------- חיפוש גלובלי בשורת הכותרת ---------- */
+.mv-search {
+  position: relative;
+  width: 300px;
+  max-width: 40vw;
+  display: none;
+}
+@media (min-width: 768px) {
+  .mv-search {
+    display: block;
+  }
+}
+.mv-search-input {
+  width: 100%;
+  height: 38px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 10px;
+  background: var(--color-field);
+  padding: 0 14px;
+  font-size: 14px;
+  color: var(--color-text);
+  outline: none;
+}
+.mv-search-input::placeholder {
+  color: var(--color-text-muted);
+}
+.mv-search-input:focus {
+  border-color: #2ecc66;
+  background: var(--color-surface);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
+.mv-search-pop {
+  position: absolute;
+  top: 44px;
+  inset-inline-end: 0;
+  width: 360px;
+  max-width: 80vw;
+  background: var(--color-surface);
+  border: 1px solid var(--color-input-border);
+  border-radius: 12px;
+  box-shadow: 0 14px 34px rgba(30, 40, 32, 0.14);
+  padding: 8px;
+  z-index: 40;
+}
+.mv-search-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: start;
+  color: var(--color-text);
+}
+.mv-search-row:hover {
+  background: var(--color-hover-soft);
+}
+.mv-search-kind {
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 6px;
+  padding: 2px 7px;
+  flex: none;
+}
+.mv-search-label {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mv-search-sub {
+  margin-inline-start: auto;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  flex: none;
+}
+.mv-search-empty {
+  padding: 12px;
+  font-size: 13.5px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+/* ---------- כפתור אייקון בשורת הכותרת (התראות, התנתקות) ---------- */
+.mv-icon-button {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: var(--color-text);
+  position: relative;
+}
+.mv-icon-button:hover {
+  background: var(--color-hover-soft);
+}
+.mv-icon-dot {
+  position: absolute;
+  top: 8px;
+  inset-inline-start: 9px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #b0512c;
+  border: 2px solid var(--color-surface);
+}
+
+/* ---------- פאנל ההתראות הנפתח ---------- */
+.mv-notif-pop {
+  position: absolute;
+  top: 48px;
+  inset-inline-end: 0;
+  width: 370px;
+  max-width: calc(100vw - 2rem);
+  background: var(--color-surface);
+  border: 1px solid var(--color-input-border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  z-index: 40;
+}
+.mv-notif-head {
+  display: flex;
+  align-items: center;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--color-card-head-border);
+  font-size: 14.5px;
+  font-weight: 800;
+}
+.mv-notif-mark {
+  margin-inline-start: auto;
+  border: none;
+  background: none;
+  color: var(--color-primary);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.mv-notif-item {
+  display: flex;
+  gap: 11px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--color-row-border);
+  align-items: flex-start;
+}
+.mv-notif-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex: none;
+}
+.mv-notif-text {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text);
+  line-height: 1.4;
+}
+.mv-notif-time {
+  display: block;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.mv-notif-empty {
+  margin: 0;
+  padding: 16px;
+  font-size: 13.5px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+.mv-notif-all {
+  display: block;
+  padding: 11px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-primary);
+  text-align: center;
 }
 .mv-menu-button {
   display: inline-flex;
@@ -625,9 +925,27 @@ textarea {
     display: none;
   }
 }
+/* כפתור "קליטה בקול" — הערכים המדויקים מקובץ העיצוב */
 .mv-voice-button {
-  min-height: 40px;
-  padding-inline: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  height: 40px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 10px;
+  background: var(--color-action);
+  color: var(--color-on-action);
+  font-size: 14.5px;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  box-shadow: 0 1px 2px rgba(30, 40, 32, 0.2);
+  white-space: nowrap;
+}
+.mv-voice-button:hover {
+  background: var(--color-action-hover);
+  text-decoration: none;
 }
 .mv-content {
   flex: 1;
@@ -638,7 +956,7 @@ textarea {
 }
 @media (min-width: 640px) {
   .mv-content {
-    padding-inline: 28px;
+    padding: 30px 34px 44px;
   }
 }
 
@@ -652,7 +970,7 @@ textarea {
   transition: border-color 0.15s ease;
 }
 .mv-stat-card:hover {
-  border-color: var(--color-primary-accent);
+  border-color: var(--color-border-hover); /* ‎#b9cfc1‎ — כמו בעיצוב */
   text-decoration: none;
 }
 .mv-stat-value {
