@@ -25,6 +25,11 @@ import {
 } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { AuthService } from "../auth/auth.service";
+import {
+  BackupsService,
+  type BackupsOverview,
+  type RestoreStatus,
+} from "./backups.service";
 
 /**
  * ניהול הפלטפורמה — הקמת משרדי תיווך חדשים מהממשק, בלי SSH.
@@ -61,6 +66,9 @@ const UpdateSettingsSchema = z
   })
   .strict();
 
+/** שם קובץ גיבוי — הוולידציה המחייבת היא ב-BackupsService (רשימת היתר). */
+const BackupNameSchema = z.object({ name: z.string().min(1).max(120) }).strict();
+
 export interface AgencyRow {
   id: string;
   name: string;
@@ -76,6 +84,7 @@ export class PlatformController {
     private readonly prisma: PrismaService,
     private readonly platformSettings: PlatformSettingsService,
     private readonly email: EmailService,
+    private readonly backups: BackupsService,
   ) {}
 
   /** אימות מנהל פלטפורמה — מעבר להרשאות המשרד הרגילות. */
@@ -299,5 +308,47 @@ export class PlatformController {
     if (res.status === 409) throw new ConflictException("עדכון כבר רץ — המתינו לסיומו");
     if (!res.ok) throw new ServiceUnavailableException("סוכן העדכון החזיר שגיאה");
     return { status: "started" };
+  }
+
+  /** מצב הגיבויים: רשימה מקומית, חיווי טריות ומצב העותק מחוץ לשרת. */
+  @Get("backups")
+  async backupsOverview(): Promise<BackupsOverview> {
+    await this.requirePlatformAdmin();
+    return this.backups.overview();
+  }
+
+  /**
+   * מחיקת גיבוי. השירות חוסם מחיקה של הדאמפ האחרון של המסד — ואם
+   * הסנכרון החיצוני פעיל, העותק המרוחק עובר לארכיון ולא נמחק.
+   */
+  @Post("backups/delete")
+  @HttpCode(200)
+  async deleteBackup(
+    @Body(new ZodValidationPipe(BackupNameSchema)) body: z.infer<typeof BackupNameSchema>,
+  ): Promise<{ ok: true }> {
+    await this.requirePlatformAdmin();
+    await this.backups.remove(body.name);
+    return { ok: true };
+  }
+
+  /**
+   * שחזור מגיבוי — **בעל הפלטפורמה בלבד**, והפעולה ההרסנית ביותר
+   * במערכת: היא מחליפה את הנתונים של כל המשרדים יחד ומפילה את
+   * השירות לכמה דקות. סוכן העדכון לוקח דאמפ בטיחות לפני שהוא מתחיל.
+   */
+  @Post("backups/restore")
+  @HttpCode(202)
+  async restoreBackup(
+    @Body(new ZodValidationPipe(BackupNameSchema)) body: z.infer<typeof BackupNameSchema>,
+  ): Promise<{ status: "started" }> {
+    await this.requirePlatformAdmin();
+    await this.backups.startRestore(body.name);
+    return { status: "started" };
+  }
+
+  @Get("backups/restore/status")
+  async restoreStatus(): Promise<RestoreStatus> {
+    await this.requirePlatformAdmin();
+    return this.backups.restoreStatus();
   }
 }
