@@ -15,6 +15,8 @@ export interface AuthenticatedUser {
   email: string;
   role: string;
   mustChangePassword: boolean;
+  /** שם המשרד — מוצג בסרגל הצד; נטען פעם אחת עם ה-Session */
+  tenantName?: string;
 }
 
 /**
@@ -202,7 +204,7 @@ export class AuthService {
   ): Promise<{ context: RequestContext; user: AuthenticatedUser } | null> {
     const session = await this.prisma.session.findUnique({
       where: { tokenHash: AuthService.hashToken(token) },
-      include: { user: { include: { tenant: { select: { status: true } } } } },
+      include: { user: { include: { tenant: { select: { status: true, name: true } } } } },
     });
     if (!session || session.expiresAt < new Date() || !session.user.isActive) {
       return null;
@@ -234,6 +236,7 @@ export class AuthService {
         email: session.user.email,
         role: session.user.role,
         mustChangePassword: session.user.mustChangePassword,
+        tenantName: session.user.tenant.name,
       },
     };
   }

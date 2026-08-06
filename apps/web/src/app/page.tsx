@@ -79,6 +79,14 @@ function recHref(rec: Recommendation): string | null {
   }
 }
 
+/** ברכה לפי שעת היום — הדשבורד בעיצוב פותח ב"בוקר טוב". */
+function greeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return "בוקר טוב";
+  if (hour < 18) return "צהריים טובים";
+  return "ערב טוב";
+}
+
 export default function DashboardPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const [properties, setProperties] = useState<PropertyRow[] | null>(null);
@@ -123,7 +131,7 @@ export default function DashboardPage() {
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="mb-1 text-2xl font-bold">שלום, {user.name}</h1>
+          <h1 className="mb-1 text-2xl font-bold">{greeting()}, {user.name}</h1>
           <p style={{ color: "var(--color-text-muted)" }}>מה דורש טיפול היום?</p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -145,11 +153,12 @@ export default function DashboardPage() {
             <Link
               key={card.label}
               href={card.href}
-              className="rounded-xl border p-4 no-underline"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+              className="mv-stat-card no-underline"
             >
-              <dt className="text-sm" style={{ color: "var(--color-text-muted)" }}>{card.label}</dt>
-              <dd className="text-2xl font-bold">{card.value ?? "…"}</dd>
+              <dt className="text-sm font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                {card.label}
+              </dt>
+              <dd className="mv-stat-value">{card.value ?? "…"}</dd>
             </Link>
           ))}
         </dl>

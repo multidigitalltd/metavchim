@@ -484,3 +484,31 @@ model AgreementTemplate {
   @@unique([tenantId, kind])
   @@map("agreement_templates")
 }
+
+/// יומן שיחות. כרגע מתועד ידנית; שיחות מספק טלפוניה ייכנסו לאותה
+/// טבלה עם source="provider" כשייכנס חיבור כזה.
+model Call {
+  id              String   @id @db.Char(26)
+  tenantId        String   @map("tenant_id") @db.Char(26)
+  /// inbound | outbound
+  direction       String   @db.VarChar(10)
+  /// manual | provider
+  source          String   @default("manual") @db.VarChar(20)
+  contactId       String?  @map("contact_id") @db.Char(26)
+  leadId          String?  @map("lead_id") @db.Char(26)
+  phoneEncrypted  String?  @map("phone_encrypted")
+  phoneHash       String?  @map("phone_hash") @db.Char(64)
+  occurredAt      DateTime @map("occurred_at")
+  durationMinutes Int?     @map("duration_minutes")
+  /// answered | missed | no_answer | voicemail
+  outcome         String   @default("answered") @db.VarChar(20)
+  summary         String?  @db.VarChar(4000)
+  createdBy       String?  @map("created_by") @db.Char(26)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId, occurredAt(sort: Desc)])
+  @@index([tenantId, contactId])
+  @@index([tenantId, leadId])
+  @@map("calls")
+}
