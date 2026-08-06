@@ -24,6 +24,7 @@ const PUBLIC_PREFIXES = [
   "/login",
   "/offer/",
   "/sign/",
+  "/p/", // דף נחיתה של נכס — הלקוח לא רואה תפריטי מתווך
   "/change-password",
   "/forgot-password",
   "/reset-password",

@@ -10,6 +10,7 @@ export const LEAD_SOURCE_LABELS: Record<string, string> = {
   voice_call: "שיחה",
   whatsapp: "וואטסאפ",
   web_form: "אתר",
+  landing: "דף נחיתה",
   kanko: "Kanko",
   referral: "המלצה",
   manual: "ידני",

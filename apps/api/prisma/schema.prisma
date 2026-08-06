@@ -131,6 +131,8 @@ model Property {
   internalNotes        String?   @map("internal_notes")
   attributes           Json      @default("{}")
   readinessScore       Int       @default(0) @map("readiness_score")
+  // דף הנחיתה הציבורי של הנכס — הטוקן הוא ההרשאה (פוליסת RLS ייעודית)
+  landingToken         String?   @unique @map("landing_token") @db.Char(43)
   deletedAt            DateTime? @map("deleted_at")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")

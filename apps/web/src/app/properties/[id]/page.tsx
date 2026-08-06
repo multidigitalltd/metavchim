@@ -2,18 +2,24 @@
 
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
-import { Button } from "@metavchim/ui";
 import { useRouter } from "next/navigation";
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import {
   FIELD_LABELS,
   formatDate,
   formatPrice,
+  MATURITY_LABELS,
   PROPERTY_TYPE_LABELS,
   STATUS_LABELS,
 } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { MediaSection } from "./media-section";
+
+/**
+ * כרטיס הנכס לפי קובץ העיצוב: כרטיס כותרת עם מחיר ופעולות (עריכה /
+ * צור דף נחיתה / מצא לי קונים), ולוח דו-טורי — פרטי הנכס והקונים
+ * המתאימים משמאל, מוכנות לשיווק ותמונות בטור הצדדי.
+ */
 
 interface PropertyDetail {
   id: string;
@@ -45,6 +51,8 @@ interface MatchRow {
   score: number;
   explanation: string;
   status: string;
+  buyerName: string | null;
+  buyerMaturity: string | null;
 }
 
 interface OfferInfo {
@@ -61,10 +69,22 @@ const OFFER_STATUS_LABELS: Record<string, string> = {
   declined: "הקונה דחה",
 };
 
-function scoreLabel(score: number): string {
-  if (score >= 85) return "מומלץ לשליחה";
-  if (score >= 70) return "ייתכן שמתאים";
-  return "דורש בדיקה";
+const MATURITY_TAG: Record<string, { fg: string; bg: string }> = {
+  very_hot: { fg: "#b0512c", bg: "#faf1ec" },
+  hot: { fg: "#7a5c1f", bg: "#f7efdd" },
+  interested: { fg: "#0C6E34", bg: "#E5FCEA" },
+  not_ripe: { fg: "#68716a", bg: "#eef1ec" },
+};
+
+function readinessColor(score: number): string {
+  if (score >= 85) return "#12A150";
+  if (score >= 70) return "#c98a2e";
+  return "#b0512c";
+}
+function readinessTextColor(score: number): string {
+  if (score >= 85) return "var(--color-primary)";
+  if (score >= 70) return "#8a6414";
+  return "#b0512c";
 }
 
 export default function PropertyDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -79,6 +99,8 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   const [copiedFor, setCopiedFor] = useState<string | null>(null);
   const [bulkConfirm, setBulkConfirm] = useState(false);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
+  const [landingUrl, setLandingUrl] = useState<string | null>(null);
+  const [landingBusy, setLandingBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -116,6 +138,18 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   async function sendOwnerUpdate() {
     const { waUrl } = await apiPost<{ waUrl: string }>(`/properties/${id}/owner-update`, {});
     window.open(waUrl, "_blank", "noopener");
+  }
+
+  /** דף נחיתה ציבורי לנכס — יצירת הקישור והעתקתו ללוח. */
+  async function createLanding() {
+    setLandingBusy(true);
+    try {
+      const { url } = await apiPost<{ url: string }>(`/properties/${id}/landing`, {});
+      setLandingUrl(url);
+      await navigator.clipboard.writeText(url).catch(() => undefined);
+    } finally {
+      setLandingBusy(false);
+    }
   }
 
   /** שינוי סטטוס (פעיל/בהמתנה/נמכר…) ישירות מהכרטיס — בלי להיכנס לעריכה. */
@@ -178,186 +212,274 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
     property.hasSafeRoom && 'ממ"ד',
   ].filter(Boolean) as string[];
 
+  const detailFields: [string, string][] = [
+    ["סוג", property.propertyType ? (PROPERTY_TYPE_LABELS[property.propertyType] ?? property.propertyType) : "—"],
+    ["חדרים", property.rooms !== undefined ? String(property.rooms) : "—"],
+    ["שטח", property.areaSqm ? `${property.areaSqm} מ"ר` : "—"],
+    ["קומה", property.floor !== undefined ? `${property.floor}${property.totalFloors ? ` מתוך ${property.totalFloors}` : ""}` : "—"],
+    ["כניסה", formatDate(property.entryDate) || "—"],
+    ["מאפיינים", features.length > 0 ? features.join(", ") : "—"],
+  ];
+
+  const bulkEligible = (matches ?? []).filter((m) => m.score >= 85 && !offers[m.id]).length;
+
   return (
     <>
-      <nav aria-label="נתיב" className="mb-4 text-sm">
-        <Link href="/properties" className="underline">נכסים</Link>
-        <span aria-hidden="true"> / </span>
-        <span>{address || "נכס"}</span>
-      </nav>
+      <Link
+        href="/properties"
+        className="mb-3.5 inline-block text-[13.5px] font-bold no-underline hover:underline"
+        style={{ color: "var(--color-primary)" }}
+      >
+        → חזרה לרשימת הנכסים
+      </Link>
 
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">{property.marketingTitle ?? address}</h1>
-          <p style={{ color: "var(--color-text-muted)" }}>
-            {address} · {STATUS_LABELS[property.status] ?? property.status}
-          </p>
-        </div>
-        <p className="text-2xl font-bold">{formatPrice(property.priceAgorot)}</p>
-      </div>
-
-      <div className="mb-6 flex flex-wrap items-center gap-2">
-        <Link href={`/properties/${id}/edit`}>
-          <Button variant="secondary">✏️ ערוך פרטים</Button>
-        </Link>
-        <Link href={`/calendar/new?propertyId=${id}`}>
-          <Button variant="secondary">📅 קבע סיור</Button>
-        </Link>
-        <label className="flex items-center gap-2">
-          <span className="mv-visually-hidden">שינוי סטטוס הנכס</span>
-          <select
-            value={property.status}
-            disabled={statusSaving}
-            onChange={(e) => void changeStatus(e.target.value)}
-            className="rounded-lg border px-3 py-2"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)", color: "var(--color-text)" }}
-          >
-            {Object.entries(STATUS_LABELS)
-              .filter(([value]) => value !== "archived")
-              .map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-          </select>
-        </label>
-        <Button variant={archiveConfirm ? "danger" : "ghost"} onClick={() => void archive()}>
-          {archiveConfirm ? "לאשר העברה לארכיון?" : "🗄️ העבר לארכיון"}
-        </Button>
-        {archiveConfirm ? (
-          <Button variant="ghost" onClick={() => setArchiveConfirm(false)}>ביטול</Button>
-        ) : null}
-      </div>
-
-      <MediaSection propertyId={id} address={address} />
-
-      {property.missingFields.length > 0 ? (
-        <section
-          aria-labelledby="missing-heading"
-          className="mb-6 rounded-xl border p-4"
-          style={{ borderColor: "var(--color-danger)" }}
-        >
-          <h2 id="missing-heading" className="mb-2 font-semibold">
-            הנכס {property.readinessScore}% מוכן — חסרים {property.missingFields.length} פרטים להשלמה:
-          </h2>
-          <ul className="flex flex-wrap gap-2">
-            {property.missingFields.map((field) => (
-              <li
-                key={field}
-                className="rounded-full border px-3 py-1 text-sm"
-                style={{ borderColor: "var(--color-border)" }}
-              >
-                {FIELD_LABELS[field] ?? field}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : (
-        <p className="mb-6 font-medium" style={{ color: "var(--color-success)" }}>
-          ✓ הנכס מוכן לשיווק — {property.readinessScore}%
-        </p>
-      )}
-
-      <section aria-labelledby="details-heading" className="mb-8">
-        <h2 id="details-heading" className="mb-3 text-lg font-semibold">פרטי הנכס</h2>
-        <dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
-          <div><dt className="inline font-medium">סוג: </dt><dd className="inline">{property.propertyType ? PROPERTY_TYPE_LABELS[property.propertyType] : "—"}</dd></div>
-          <div><dt className="inline font-medium">חדרים: </dt><dd className="inline">{property.rooms ?? "—"}</dd></div>
-          <div><dt className="inline font-medium">שטח: </dt><dd className="inline">{property.areaSqm ? `${property.areaSqm} מ"ר` : "—"}</dd></div>
-          <div><dt className="inline font-medium">קומה: </dt><dd className="inline">{property.floor ?? "—"}{property.totalFloors ? ` מתוך ${property.totalFloors}` : ""}</dd></div>
-          <div><dt className="inline font-medium">כניסה: </dt><dd className="inline">{formatDate(property.entryDate)}</dd></div>
-          <div><dt className="inline font-medium">מאפיינים: </dt><dd className="inline">{features.length > 0 ? features.join(", ") : "—"}</dd></div>
-          {property.ownerContact ? (
-            <div>
-              <dt className="inline font-medium">בעל הנכס: </dt>
-              <dd className="inline">
-                {property.ownerContact.name} · <a href={`tel:${property.ownerContact.phone}`} className="underline" dir="ltr">{property.ownerContact.phone}</a>
-              </dd>
+      {/* ---- כרטיס הכותרת ---- */}
+      <div className="mv-list-card mb-[18px] p-6" style={{ overflow: "visible" }}>
+        <div className="flex flex-wrap items-start gap-4">
+          <div>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="m-0" style={{ fontSize: 23, fontWeight: 800 }}>
+                {property.marketingTitle ?? (address || "נכס")}
+              </h1>
+              <label>
+                <span className="mv-visually-hidden">שינוי סטטוס הנכס</span>
+                <select
+                  value={property.status}
+                  disabled={statusSaving}
+                  onChange={(e) => void changeStatus(e.target.value)}
+                  className="mv-pill border-0"
+                  style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)", cursor: "pointer" }}
+                >
+                  {Object.entries(STATUS_LABELS)
+                    .filter(([value]) => value !== "archived")
+                    .map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                </select>
+              </label>
             </div>
-          ) : null}
-        </dl>
-        {property.ownerContact ? (
-          <div className="mt-3">
-            <Button variant="secondary" onClick={() => void sendOwnerUpdate()}>
-              💬 שלח עדכון שיווק לבעל הנכס
-            </Button>
+            <p className="m-0 mt-[5px] text-sm" style={{ color: "var(--color-text-muted)" }}>
+              {address}
+              {property.ownerContact ? (
+                <>
+                  {" · בעל הנכס: "}
+                  {property.ownerContact.name}{" "}
+                  <a href={`tel:${property.ownerContact.phone}`} className="underline" dir="ltr">
+                    {property.ownerContact.phone}
+                  </a>
+                </>
+              ) : null}
+            </p>
           </div>
-        ) : null}
-      </section>
+          <div className="ms-auto text-start">
+            <div style={{ fontSize: 25, fontWeight: 800 }}>{formatPrice(property.priceAgorot)}</div>
+            <div className="mt-[9px] flex flex-wrap gap-2">
+              <Link href={`/properties/${id}/edit`} className="mv-btn-plain" style={{ padding: "7px 13px", fontSize: 13 }}>
+                עריכה
+              </Link>
+              <Link href={`/calendar/new?propertyId=${id}`} className="mv-btn-plain" style={{ padding: "7px 13px", fontSize: 13 }}>
+                קבע סיור
+              </Link>
+              <button
+                type="button"
+                className="mv-btn-soft"
+                style={{ padding: "7px 13px", fontSize: 13 }}
+                disabled={landingBusy}
+                onClick={() => void createLanding()}
+              >
+                {landingBusy ? "יוצר…" : "צור דף נחיתה"}
+              </button>
+              <a href="#matches-heading" className="mv-btn-action" style={{ padding: "7px 15px", fontSize: 13 }}>
+                מצא לי קונים
+              </a>
+            </div>
+          </div>
+        </div>
 
-      <section aria-labelledby="matches-heading">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 id="matches-heading" className="text-lg font-semibold">
-            קונים מתאימים {matches !== null ? `(${matches.length})` : ""}
-          </h2>
-          {(matches ?? []).filter((m) => m.score >= 85 && !offers[m.id]).length >= 2 ? (
-            <Button onClick={() => void bulkSend()} variant={bulkConfirm ? "danger" : "primary"}>
-              {bulkConfirm
-                ? `לאשר יצירת ${(matches ?? []).filter((m) => m.score >= 85 && !offers[m.id]).length} הצעות?`
-                : "📤 צור הצעות לכל המתאימים (85%+)"}
-            </Button>
+        {landingUrl ? (
+          <p role="status" className="m-0 mt-3 flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-sm" style={{ background: "#F1FEF4", border: "1px solid #BDF4CB" }}>
+            <span className="font-bold" style={{ color: "var(--color-primary)" }}>✓ דף הנחיתה מוכן והקישור הועתק:</span>
+            <a href={landingUrl} target="_blank" rel="noopener noreferrer" dir="ltr" className="underline" style={{ color: "var(--color-primary)" }}>
+              {landingUrl}
+            </a>
+            <span style={{ color: "var(--color-text-muted)" }}>
+              — שלחו בוואטסאפ, פרסמו במודעה, וכל פנייה מהדף תיכנס ללידים.
+            </span>
+          </p>
+        ) : null}
+      </div>
+
+      <div className="grid items-start gap-[18px] lg:[grid-template-columns:1fr_340px]">
+        {/* ---- הטור הראשי ---- */}
+        <div className="flex flex-col gap-[18px]">
+          <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="details-heading">
+            <h2 id="details-heading" className="m-0 mb-3.5" style={{ fontSize: 15.5, fontWeight: 800 }}>
+              פרטי הנכס
+            </h2>
+            <dl className="m-0 grid gap-x-[18px] gap-y-3.5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}>
+              {detailFields.map(([label, value]) => (
+                <div key={label}>
+                  <dt className="text-xs font-semibold" style={{ color: "var(--color-text-muted)" }}>{label}</dt>
+                  <dd className="m-0 mt-0.5 text-[14.5px] font-bold">{value}</dd>
+                </div>
+              ))}
+            </dl>
+            {property.ownerContact ? (
+              <button type="button" className="mv-btn-plain mt-3.5" onClick={() => void sendOwnerUpdate()}>
+                💬 שלח עדכון שיווק לבעל הנכס
+              </button>
+            ) : null}
+          </section>
+
+          <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="matches-heading">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <h2 id="matches-heading" className="m-0" style={{ fontSize: 15.5, fontWeight: 800 }}>
+                קונים מתאימים מהמאגר
+              </h2>
+              <span className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                כל התאמה מוסברת — בלי קופסה שחורה
+              </span>
+              {bulkEligible >= 2 ? (
+                <button
+                  type="button"
+                  className={bulkConfirm ? "mv-btn-plain ms-auto" : "mv-btn-action ms-auto"}
+                  style={bulkConfirm ? { color: "var(--color-danger)" } : { padding: "7px 15px", fontSize: 13 }}
+                  onClick={() => void bulkSend()}
+                >
+                  {bulkConfirm ? `לאשר יצירת ${bulkEligible} הצעות?` : "צור הצעות לכל המתאימים (85%+)"}
+                </button>
+              ) : null}
+            </div>
+            {bulkResult ? (
+              <p role="status" className="mb-3 text-sm font-bold" style={{ color: "var(--color-primary)" }}>
+                ✓ {bulkResult}
+              </p>
+            ) : null}
+
+            {matches === null ? (
+              <p aria-live="polite">מחשב התאמות…</p>
+            ) : matches.length === 0 ? (
+              <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
+                אין עדיין קונים מתאימים. <Link href="/buyers/new" className="underline">הוסיפו קונה</Link> — וההתאמות יחושבו אוטומטית.
+              </p>
+            ) : (
+              matches.map((m) => {
+                const offer = offers[m.id];
+                const tag = m.buyerMaturity ? MATURITY_TAG[m.buyerMaturity] : undefined;
+                return (
+                  <div key={m.id} className="flex flex-wrap items-center gap-[15px] py-[13px]" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
+                    <span
+                      className="mv-score-ring"
+                      style={{ width: 46, height: 46, background: `conic-gradient(#2ECC66 ${Math.round(m.score * 3.6)}deg, var(--color-progress-track) 0deg)` }}
+                      aria-hidden="true"
+                    >
+                      <span style={{ width: 35, height: 35, fontSize: 12 }}>{m.score}%</span>
+                    </span>
+                    <div className="min-w-0 flex-1" style={{ lineHeight: 1.4 }}>
+                      <div className="text-[14.5px] font-bold">
+                        {m.buyerName ? (
+                          <Link href={`/buyers/${m.buyerId}`} className="no-underline hover:underline" style={{ color: "inherit" }}>
+                            {m.buyerName}
+                          </Link>
+                        ) : (
+                          <span style={{ color: "var(--color-text-muted)" }}>קונה של סוכן אחר</span>
+                        )}
+                        {tag && m.buyerMaturity ? (
+                          <span className="mv-tag ms-1.5" style={{ color: tag.fg, background: tag.bg, fontWeight: 600, fontSize: 12.5, padding: "1px 8px" }}>
+                            {MATURITY_LABELS[m.buyerMaturity] ?? m.buyerMaturity}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>{m.explanation}</div>
+                      {offer ? (
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-[13px]">
+                          <span className="font-bold" style={{ color: offer.status === "interested" ? "var(--color-primary)" : "var(--color-text-soft)" }}>
+                            {OFFER_STATUS_LABELS[offer.status] ?? offer.status}
+                            {offer.openCount > 0 ? ` (${offer.openCount} צפיות)` : ""}
+                          </span>
+                          <a href={offer.url} target="_blank" rel="noreferrer" className="underline">דף ההצעה</a>
+                          {copiedFor === m.id ? (
+                            <span role="status" style={{ color: "var(--color-primary)" }}>✓ הקישור הועתק</span>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="ms-auto flex flex-none gap-2">
+                      {offer ? (
+                        <button type="button" className="mv-btn-action" style={{ padding: "7px 15px", fontSize: 13 }} onClick={() => void sendWhatsApp(offer.id)}>
+                          שלח בוואטסאפ
+                        </button>
+                      ) : (
+                        <button type="button" className="mv-btn-action" style={{ padding: "7px 15px", fontSize: 13 }} onClick={() => void createOffer(m.id)}>
+                          שלח הצעה
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+            <p className="m-0 mt-3 rounded-[9px] px-[13px] py-[9px] text-[12.5px]" style={{ color: "var(--color-text-muted)", background: "var(--color-table-head)" }}>
+              קונים שדרישת חובה שלהם נשברת (למשל: חובה מעלית ואין) — לא מוצגים כאן בכלל.
+            </p>
+          </section>
+        </div>
+
+        {/* ---- הטור הצדדי ---- */}
+        <div className="flex flex-col gap-[18px]">
+          <section className="mv-list-card px-5 py-[18px]" aria-labelledby="readiness-heading">
+            <div className="flex items-baseline">
+              <h2 id="readiness-heading" className="m-0" style={{ fontSize: 15.5, fontWeight: 800 }}>
+                מוכנות לשיווק
+              </h2>
+              <span className="ms-auto" style={{ fontSize: 21, fontWeight: 800, color: readinessTextColor(property.readinessScore) }}>
+                {property.readinessScore}%
+              </span>
+            </div>
+            <div className="my-[11px] mb-[13px] overflow-hidden rounded-full" style={{ height: 7, background: "var(--color-progress-track)" }}>
+              <div style={{ height: "100%", width: `${property.readinessScore}%`, background: readinessColor(property.readinessScore), borderRadius: 99 }} />
+            </div>
+            {property.missingFields.length === 0 ? (
+              <p className="m-0 text-[13px] font-bold" style={{ color: "var(--color-primary)" }}>
+                ✓ הנכס מוכן לשיווק
+              </p>
+            ) : (
+              property.missingFields.map((field) => (
+                <div key={field} className="flex items-center gap-2 py-[5px] text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+                  <span aria-hidden="true" className="h-1.5 w-1.5 flex-none rounded-full" style={{ background: "#c98a2e" }} />
+                  {FIELD_LABELS[field] ?? field}
+                </div>
+              ))
+            )}
+            {property.missingFields.length > 0 ? (
+              <Link href={`/properties/${id}/edit`} className="mv-btn-soft mt-2 inline-block">
+                השלם פרטים
+              </Link>
+            ) : null}
+          </section>
+
+          <section className="mv-list-card px-5 py-[18px]" aria-labelledby="media-heading">
+            <h2 id="media-heading" className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>
+              תמונות
+            </h2>
+            <MediaSection propertyId={id} address={address} />
+          </section>
+
+          <button
+            type="button"
+            className="mv-btn-plain self-start"
+            style={{ color: archiveConfirm ? "var(--color-danger)" : "var(--color-text-muted)" }}
+            onClick={() => void archive()}
+          >
+            {archiveConfirm ? "לאשר העברה לארכיון?" : "העבר לארכיון"}
+          </button>
+          {archiveConfirm ? (
+            <button type="button" className="mv-btn-plain self-start" onClick={() => setArchiveConfirm(false)}>
+              ביטול
+            </button>
           ) : null}
         </div>
-        {bulkResult ? (
-          <p role="status" className="mb-3 font-medium" style={{ color: "var(--color-success)" }}>
-            ✓ {bulkResult}
-          </p>
-        ) : null}
-        {matches === null ? (
-          <p aria-live="polite">מחשב התאמות…</p>
-        ) : matches.length === 0 ? (
-          <p style={{ color: "var(--color-text-muted)" }}>
-            אין עדיין קונים מתאימים. <Link href="/buyers/new" className="underline">הוסיפו קונה</Link> — וההתאמות יחושבו אוטומטית.
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {matches.map((m) => {
-              const offer = offers[m.id];
-              return (
-              <li
-                key={m.id}
-                className="rounded-xl border p-4"
-                style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-              >
-                <div className="mb-1 flex flex-wrap items-center gap-3">
-                  <span className="text-xl font-bold">{m.score}%</span>
-                  <span
-                    className="rounded-full px-3 py-0.5 text-sm font-medium"
-                    style={{
-                      background: m.score >= 85 ? "var(--color-primary)" : "var(--color-border)",
-                      color: m.score >= 85 ? "var(--color-bg)" : "var(--color-text)",
-                    }}
-                  >
-                    {scoreLabel(m.score)}
-                  </span>
-                  <Link href={`/buyers/${m.buyerId}`} className="underline">לפרופיל הקונה</Link>
-                </div>
-                <p className="mb-3" style={{ color: "var(--color-text-muted)" }}>{m.explanation}</p>
-                {offer ? (
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className="font-medium" style={{ color: offer.status === "interested" ? "var(--color-success)" : "var(--color-text)" }}>
-                      {OFFER_STATUS_LABELS[offer.status] ?? offer.status}
-                      {offer.openCount > 0 ? ` (${offer.openCount} צפיות)` : ""}
-                    </span>
-                    <Button onClick={() => void sendWhatsApp(offer.id)}>📲 שלח בוואטסאפ</Button>
-                    <a href={offer.url} target="_blank" rel="noreferrer" className="underline">
-                      דף ההצעה
-                    </a>
-                    {copiedFor === m.id ? (
-                      <span role="status" style={{ color: "var(--color-success)" }}>
-                        ✓ הקישור הועתק — הדביקו בוואטסאפ
-                      </span>
-                    ) : null}
-                  </div>
-                ) : (
-                  <Button variant="secondary" onClick={() => void createOffer(m.id)}>
-                    צור קישור הצעה לקונה
-                  </Button>
-                )}
-              </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+      </div>
     </>
   );
 }

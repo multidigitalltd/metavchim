@@ -253,33 +253,94 @@ export class MatchingService {
     return 1;
   }
 
-  async listForProperty(propertyId: string): Promise<MatchDto[]> {
+  async listForProperty(
+    propertyId: string,
+  ): Promise<(MatchDto & { buyerName: string | null; buyerMaturity: string | null })[]> {
     return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
       const rows = await tx.match.findMany({
         where: {
-          tenantId: TenantContext.current().tenantId,
+          tenantId,
           propertyId,
           status: { not: "dismissed" },
         },
         orderBy: { score: "desc" },
         take: 100,
       });
-      return rows.map(toMatchDto);
+
+      /*
+       * העשרה לכרטיס הנכס (קובץ העיצוב): שם הקונה ותג הבשלות ליד כל
+       * התאמה. השם מכבד בעלות — סוכן עם view_own רואה "קונה של סוכן
+       * אחר"; הבשלות אינה מזהה ולכן מוצגת תמיד.
+       */
+      const buyers = await tx.buyer.findMany({
+        where: { tenantId, id: { in: [...new Set(rows.map((r) => r.buyerId))] } },
+        select: { id: true, contactId: true, maturity: true },
+      });
+      const visibleBuyers = await tx.buyer.findMany({
+        where: {
+          tenantId,
+          id: { in: buyers.map((b) => b.id) },
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
+        select: { id: true, contactId: true },
+      });
+      const maturityById = new Map(buyers.map((b) => [b.id, b.maturity]));
+      const nameById = new Map<string, string>();
+      for (const buyer of visibleBuyers) {
+        const contact = await this.contacts.getById(tx, buyer.contactId);
+        if (contact) nameById.set(buyer.id, contact.name);
+      }
+
+      return rows.map((row) => ({
+        ...toMatchDto(row),
+        buyerName: nameById.get(row.buyerId) ?? null,
+        buyerMaturity: maturityById.get(row.buyerId) ?? null,
+      }));
     });
   }
 
-  async listForBuyer(buyerId: string): Promise<MatchDto[]> {
+  async listForBuyer(
+    buyerId: string,
+  ): Promise<(MatchDto & { property: { address: string; title?: string; priceAgorot?: number } })[]> {
     return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
       const rows = await tx.match.findMany({
         where: {
-          tenantId: TenantContext.current().tenantId,
+          tenantId,
           buyerId,
           status: { not: "dismissed" },
         },
         orderBy: { score: "desc" },
         take: 100,
       });
-      return rows.map(toMatchDto);
+
+      // שם הנכס לכל התאמה — לכרטיס הקונה (קובץ העיצוב); שאילתה אחת לעמוד
+      const properties = await tx.property.findMany({
+        where: { tenantId, id: { in: [...new Set(rows.map((r) => r.propertyId))] } },
+        select: {
+          id: true, street: true, neighborhood: true, city: true,
+          marketingTitle: true, priceAgorot: true,
+        },
+      });
+      const propertyById = new Map(properties.map((p) => [p.id, p]));
+
+      return rows.map((row) => {
+        const property = propertyById.get(row.propertyId);
+        return {
+          ...toMatchDto(row),
+          property: {
+            address: property
+              ? [property.street, property.neighborhood, property.city].filter(Boolean).join(", ")
+              : "נכס",
+            title: property?.marketingTitle ?? undefined,
+            priceAgorot:
+              property === undefined || property.priceAgorot === null
+                ? undefined
+                : Number(property.priceAgorot),
+          },
+        };
+      });
     });
   }
 }
