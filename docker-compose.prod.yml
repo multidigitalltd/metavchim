@@ -60,6 +60,13 @@ services:
       - "127.0.0.1:${API_LOCAL_PORT:-8091}:3001"
     environment:
       UPDATER_URL: http://updater:9944
+    volumes:
+      # רשימת הגיבויים ומחיקה מהמסך /platform. הרשאת כתיבה מכוונת:
+      # השחזור עצמו עובר דרך סוכן העדכון, אבל מחיקה נעשית כאן.
+      - ${BACKUP_DIR:-./backups}:/backups
+      # מצב הסנכרון החיצוני — לקריאה בלבד. אישורי ה-R2 נשארים
+      # בקונטיינר offsite ולא נחשפים לאפליקציה.
+      - offsitestate:/state:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -181,8 +188,28 @@ services:
     volumes:
       - ./infra/backup:/backup:ro
       - ${BACKUP_DIR:-./backups}:/backups:ro
+      # קובץ מצב הסנכרון שה-API קורא (/platform ⟵ גיבויים)
+      - offsitestate:/state
     depends_on:
       - backup
+
+  # שחזור מגיבוי — אף פעם לא עולה מעצמו (פרופיל ייעודי). סוכן העדכון
+  # מריץ אותו כפעולה חד-פעמית אחרי שעצר את שירותי האפליקציה.
+  restore:
+    profiles: ["restore"]
+    image: postgres:16-alpine
+    entrypoint: ["/bin/sh", "/backup/restore.sh"]
+    environment:
+      PGPASSWORD: ${DB_OWNER_PASSWORD:?חסר DB_OWNER_PASSWORD ב-.env.production}
+    volumes:
+      - ./infra/backup:/backup:ro
+      # כתיבה — גם דאמפ הבטיחות לפני השחזור נשמר כאן
+      - ${BACKUP_DIR:-./backups}:/backups
+      # שחזור התמונות דורס את תוכן ה-volume, ולכן אינו read-only
+      - miniodata:/minio-data
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   updater:
     image: ${IMAGE_PREFIX:-ghcr.io/multidigitalltd/metavchim}-updater:${IMAGE_TAG:-latest}
@@ -204,3 +231,4 @@ volumes:
   miniodata:
   caddydata:
   caddyconfig:
+  offsitestate:

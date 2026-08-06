@@ -56,6 +56,13 @@ const EnvSchema = z.object({
   /** סוד משותף מול סוכן העדכון — חובה יחד עם UPDATER_URL. */
   UPDATE_SECRET: z.string().min(24).optional(),
   /**
+   * תיקיית הגיבויים כפי שהיא ממופה לתוך קונטיינר ה-API, ולצידה
+   * תיקיית המצב שקונטיינר ה-offsite כותב אליה. בפיתוח הן פשוט לא
+   * קיימות — ומסך הגיבויים מדווח "לא זמין" במקום להיכשל.
+   */
+  BACKUP_PATH: z.string().default("/backups"),
+  OFFSITE_STATE_PATH: z.string().default("/state"),
+  /**
    * שירות התמלול המקומי (faster-whisper בקונטיינר לצד המערכת).
    * לא מוגדר ⇒ הפיצ'ר כבוי והדפדפן מתמלל מקומית כמו קודם.
    */
