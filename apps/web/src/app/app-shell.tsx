@@ -98,6 +98,15 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    href: "/calls",
+    label: "שיחות",
+    icon: (
+      <Icon>
+        <path d="M4.5 4.5h4l1.5 4-2 1.5a12 12 0 0 0 6 6l1.5-2 4 1.5v4a1.5 1.5 0 0 1-1.7 1.5A16.5 16.5 0 0 1 3 6.2 1.5 1.5 0 0 1 4.5 4.5z" />
+      </Icon>
+    ),
+  },
+  {
     href: "/matches",
     label: "התאמות",
     icon: (

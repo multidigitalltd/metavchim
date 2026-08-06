@@ -170,6 +170,67 @@ docker compose -f docker-compose.prod.yml --env-file .env.production start minio
 שדרוג מסוכן), עצרו רגעית את minio, הריצו את ה-tar ידנית באותה תבנית
 כמו בפקודת השחזור, והעלו חזרה.
 
+### עותק גיבוי מחוץ לשרת — Cloudflare R2
+
+**למה זה לא אופציונלי:** בלי זה הגיבוי יושב על אותה מכונה כמו המערכת.
+תקלת דיסק אחת מוחקת את שניהם — כלומר את המאגר של כל המשרדים ואת
+הגיבוי שלו יחד.
+
+#### 1. ב-Cloudflare
+
+1. **R2 ⟵ Create bucket** — שם למשל `metavchim-backups`, מיקום
+   אוטומטי או אירופה.
+2. **R2 ⟵ Manage API Tokens ⟵ Create API Token**, הרשאה
+   **Object Read & Write**, ומוגבל לדלי הזה בלבד. טוקן מצומצם לא יוכל
+   למחוק דליים אחרים גם אם השרת ייפרץ.
+3. מעתיקים **Access Key ID**, **Secret Access Key**, ואת כתובת
+   ה-endpoint שמוצגת שם בצורה
+   `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`.
+
+#### 2. על השרת
+
+```bash
+cd /srv/metavchim
+cat >> .env.production <<'EOF'
+OFFSITE_S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+OFFSITE_S3_BUCKET=metavchim-backups
+OFFSITE_S3_ACCESS_KEY=<ACCESS_KEY_ID>
+OFFSITE_S3_SECRET_KEY=<SECRET_ACCESS_KEY>
+EOF
+# הוספת הפרופיל לשורת COMPOSE_PROFILES הקיימת
+nano .env.production
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d offsite
+docker compose -f docker-compose.prod.yml --env-file .env.production logs -f offsite
+```
+
+בלוג צריך להופיע `סונכרן ✓`. אין צורך להגדיר region או provider —
+ברירת המחדל בקומפוז היא כבר R2.
+
+#### מה מגן מפני מחיקה בטעות
+
+`rclone sync` משקף מחיקות, כלומר תיקייה מקומית ריקה הייתה מוחקת גם את
+העותק המרוחק — והורסת בדיוק את מה שאמור להציל. שתי הגנות:
+
+1. **בדיקת ריקנות לפני כל סנכרון.** אין קבצים מקומיים ⇒ הסנכרון
+   מדולג והשגיאה נרשמת בלוג. הדלי המרוחק לא נוגע.
+2. **ארכיון במקום מחיקה.** קובץ שנמחק או הוחלף עובר אל
+   `metavchim-archive/<תאריך>` בדלי, ולא נמחק. מחיקה שגויה ניתנת
+   לשחזור.
+
+מומלץ להפעיל גם **Object Lifecycle** ב-R2 שימחק את תיקיית הארכיון
+אחרי 90 יום, כדי שהעלות לא תטפס.
+
+#### בדיקה שהגיבוי באמת עובד
+
+גיבוי שלא נבדק אינו גיבוי. אחרי הסנכרון הראשון:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.production run --rm \
+  --entrypoint rclone offsite ls offsite:metavchim-backups/metavchim-backups
+```
+
+צריכה להופיע רשימת קבצי ה-dump עם גדלים סבירים (עשרות עד מאות MB).
+
 ## תמלול מקומי (הקלטות שלא יוצאות מהשרת)
 
 הפיצ'ר הקולי עובד כברירת מחדל עם זיהוי הדיבור של הדפדפן. הפעלת
