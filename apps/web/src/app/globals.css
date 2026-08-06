@@ -4,24 +4,61 @@
    טוקני עיצוב — כל צירופי הצבע נבדקו לניגודיות WCAG AA:
    טקסט רגיל ≥ 4.5:1, טקסט גדול/רכיבי UI ≥ 3:1 (docs/06 §4).
    ============================================================ */
-/* מראה מודרני: רקע עמוד רך, משטחים (כרטיסים/טבלאות) לבנים עם הצללה
-   עדינה — ההיפוך הקלאסי של דור המוצרים הנוכחי. הפלטה: אינדיגו. */
+/* פלטת המותג: ירוק על רקע ירקרק-רך, לפי קובץ העיצוב. משטחים לבנים
+   עם הצללה עדינה ופינות 13px. */
+
+/* ---------- הפונט העברי של המותג ----------
+   מוגש מהשרת עצמו (public/fonts) ולא מ-CDN: אין בקשה לצד שלישי,
+   ואין תלות ברשת חיצונית בזמן טעינה. font-display: swap מציג טקסט
+   מיד בפונט המערכת ומחליף כשהקובץ מוכן — עדיף על מסך ריק. */
+@font-face {
+  font-family: Almoni;
+  src: url("/fonts/almoni-regular-aaa.woff") format("woff");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: Almoni;
+  src: url("/fonts/almoni-medium-aaa.woff") format("woff");
+  font-weight: 500 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: Almoni;
+  src: url("/fonts/almoni-bold-aaa.woff") format("woff");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: Almoni;
+  src: url("/fonts/almoni-ultrabold-aaa.woff") format("woff");
+  font-weight: 800 900;
+  font-display: swap;
+}
 :root {
-  --color-bg: #f4f6fb;
+  --color-bg: #f4f6f3;
   --color-surface: #ffffff;
-  --color-text: #101828;        /* על הרקע: ~15:1 */
-  --color-text-muted: #475467;  /* על הרקע: ~7:1 */
-  --color-primary: #4338ca;     /* אינדיגו — על לבן: ~7.7:1 */
-  --color-primary-hover: #3730a3;
-  --color-primary-soft: #eef1ff; /* רקע עדין לפריט פעיל/נבחר */
-  --color-danger: #b91c1c;      /* לבן עליו: ~6.6:1 */
-  --color-success: #15803d;
-  --color-success-soft: #eaf7ee; /* רקע תג הצלחה — הטקסט עליו: ~4.6:1 */
-  --color-border: #e3e8f0;
-  --color-focus: #4338ca;
-  --radius: 12px;
-  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.08);
-  --shadow-pop: 0 8px 24px rgba(16, 24, 40, 0.14);
+  --color-text: #212722;        /* על הרקע: ~14:1 */
+  --color-text-muted: #68716a;  /* על הרקע: ~4.7:1 */
+  /* ירוק המותג #0F8A43 נותן 4.4:1 על לבן — מתחת לסף AA לטקסט רגיל.
+     לטקסט ולקישורים משמש הגוון הכהה מהעיצוב (6.4:1); הבהיר נשמר
+     לאלמנטים גרפיים, שם הסף הוא 3:1 (docs/06 §4). */
+  --color-primary: #0C6E34;
+  --color-primary-hover: #095427;
+  --color-primary-accent: #0F8A43; /* אייקונים, מסגרות, פסי התקדמות */
+  --color-primary-soft: #E5FCEA;
+  /* כפתור הפעולה מהעיצוב: ירוק בהיר עם טקסט כהה — 11.8:1 */
+  --color-action: #70EE91;
+  --color-action-hover: #5FE083;
+  --color-on-action: #0B1F12;
+  --color-danger: #b0512c;      /* לבן עליו: ~5.2:1 */
+  --color-success: #0C6E34;
+  --color-success-soft: #E5FCEA;
+  --color-border: #e2e6e0;
+  --color-focus: #0C6E34;
+  --radius: 13px;
+  --shadow-card: 0 1px 2px rgba(30, 40, 32, 0.06), 0 1px 3px rgba(30, 40, 32, 0.08);
+  --shadow-pop: 0 16px 38px rgba(30, 40, 32, 0.16);
   --header-bg: rgba(255, 255, 255, 0.85);
 }
 
@@ -32,20 +69,23 @@
    על ה-media query בשני הכיוונים — כך שמי שבחר "בהיר" מקבל בהיר גם
    במכשיר כהה, ולהפך. */
 :root {
-  --dk-bg: #0b1120;
-  --dk-surface: #151d31;
-  --dk-text: #e8edf5;       /* על הרקע: ~13.5:1 */
-  --dk-text-muted: #a8b6cc; /* על הרקע: ~7.6:1 */
-  --dk-primary: #a5b4fc;    /* אינדיגו בהיר — על כהה: ~9:1 */
-  --dk-primary-hover: #c7d2fe;
-  --dk-primary-soft: #1e2749;
-  --dk-danger: #ff9d9d;
-  --dk-success: #6fd095;
-  --dk-success-soft: #17301f; /* הטקסט עליו: ~7.5:1 */
-  --dk-border: #2a3552;
+  --dk-bg: #0d130f;
+  --dk-surface: #151d17;
+  --dk-text: #e8f0ea;       /* על הרקע: ~16:1 */
+  --dk-text-muted: #a3b0a6; /* על הרקע: ~8.3:1 */
+  --dk-primary: #5FE083;    /* ירוק בהיר — על כהה: ~11.2:1 */
+  --dk-primary-hover: #70EE91;
+  --dk-primary-accent: #70EE91;
+  --dk-primary-soft: #17301f;
+  --dk-action: #5FE083;
+  --dk-action-hover: #70EE91;
+  --dk-danger: #f0a58a;     /* על הרקע: ~9.4:1 */
+  --dk-success: #5FE083;
+  --dk-success-soft: #17301f;
+  --dk-border: #26332a;
   --dk-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --dk-shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.5);
-  --dk-header-bg: rgba(11, 17, 32, 0.85);
+  --dk-shadow-pop: 0 16px 38px rgba(0, 0, 0, 0.5);
+  --dk-header-bg: rgba(13, 19, 15, 0.85);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -57,7 +97,11 @@
     --color-text-muted: var(--dk-text-muted);
     --color-primary: var(--dk-primary);
     --color-primary-hover: var(--dk-primary-hover);
+    --color-primary-accent: var(--dk-primary-accent);
     --color-primary-soft: var(--dk-primary-soft);
+    --color-action: var(--dk-action);
+    --color-action-hover: var(--dk-action-hover);
+    --color-on-action: var(--dk-bg);
     --color-danger: var(--dk-danger);
     --color-success: var(--dk-success);
     --color-success-soft: var(--dk-success-soft);
@@ -77,7 +121,11 @@
   --color-text-muted: var(--dk-text-muted);
   --color-primary: var(--dk-primary);
   --color-primary-hover: var(--dk-primary-hover);
+  --color-primary-accent: var(--dk-primary-accent);
   --color-primary-soft: var(--dk-primary-soft);
+  --color-action: var(--dk-action);
+  --color-action-hover: var(--dk-action-hover);
+  --color-on-action: var(--dk-bg);
   --color-danger: var(--dk-danger);
   --color-success: var(--dk-success);
   --color-success-soft: var(--dk-success-soft);
@@ -129,8 +177,7 @@ html {
 body {
   background: var(--color-bg);
   color: var(--color-text);
-  /* system-ui מכסה עברית מצוין בכל הפלטפורמות — בלי בקשת רשת לפונט */
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Heebo", Arial, sans-serif;
+  font-family: Almoni, Assistant, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }
@@ -167,6 +214,18 @@ body {
   content: "";
 }
 
+/* פקדי טופס יורשים את פונט המותג — הדפדפן לא עושה זאת לבד */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+::selection {
+  background: var(--color-primary-soft);
+}
+
 .mv-visually-hidden {
   position: absolute;
   width: 1px;
@@ -198,25 +257,17 @@ body {
   transform: translateY(1px);
 }
 .mv-button--primary {
-  background: var(--color-primary);
-  color: #ffffff;
+  /* כפתור הפעולה של העיצוב: ירוק בהיר עם טקסט כהה — 11.8:1, גבוה
+     מהניגודיות של ירוק כהה עם טקסט לבן, ובולט יותר על רקע בהיר */
+  background: var(--color-action);
+  color: var(--color-on-action);
   box-shadow: var(--shadow-card);
 }
 .mv-button--primary:hover {
-  background: var(--color-primary-hover);
+  background: var(--color-action-hover);
   box-shadow: var(--shadow-pop);
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .mv-button--primary {
-    color: #0f1522; /* טקסט כהה על primary בהיר במצב כהה — ניגודיות ~7.9:1 */
-  }
-}
-:root[data-theme="dark"] .mv-button--primary {
-  color: #0f1522;
-}
-:root[data-theme="light"] .mv-button--primary {
-  color: #ffffff;
-}
+
 .mv-button--secondary {
   background: var(--color-surface);
   color: var(--color-primary);
@@ -232,13 +283,14 @@ body {
   color: #ffffff;
   box-shadow: var(--shadow-card);
 }
+/* במצב כהה צבע ה-danger בהיר — טקסט כהה עליו */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .mv-button--danger {
-    color: #0f1522;
+    color: var(--dk-bg);
   }
 }
 :root[data-theme="dark"] .mv-button--danger {
-  color: #0f1522;
+  color: var(--dk-bg);
 }
 :root[data-theme="light"] .mv-button--danger {
   color: #ffffff;
@@ -282,8 +334,8 @@ body {
   --color-surface: #ffffff;
   --color-text: #000000;
   --color-text-muted: #000000;
-  --color-primary: #0000cc;
-  --color-primary-soft: #e6e6ff;
+  --color-primary: #00521f;
+  --color-primary-soft: #ddf3e4;
   --color-border: #000000;
   --header-bg: #ffffff;
   --shadow-card: none;
@@ -297,6 +349,7 @@ body {
    כלל המצב הכהה שמגדיר טקסט כהה (ביקורת Codex, PR #8). */
 :root[data-a11y-contrast="on"] .mv-button--primary,
 :root[data-a11y-contrast="on"] .mv-button--danger {
+  background: var(--color-primary);
   color: #ffffff;
 }
 

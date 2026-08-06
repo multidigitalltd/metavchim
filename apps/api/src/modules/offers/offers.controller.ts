@@ -13,7 +13,12 @@ import { z } from "zod";
 import { IdSchema } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
-import { OffersService, type OfferDto, type PublicOfferView } from "./offers.service";
+import {
+  OffersService,
+  type OfferDto,
+  type OfferListItem,
+  type PublicOfferView,
+} from "./offers.service";
 
 const CreateOfferSchema = z.object({ matchId: IdSchema }).strict();
 const BulkOfferSchema = z
@@ -24,6 +29,14 @@ const BulkOfferSchema = z
   .strict();
 const RespondSchema = z.object({ response: z.enum(["interested", "declined"]) }).strict();
 const TokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
+const ListQuerySchema = z
+  .object({
+    status: z
+      .enum(["pending_approval", "sent", "delivered", "opened", "interested", "declined"])
+      .optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(100),
+  })
+  .strict();
 const ForMatchesQuerySchema = z
   .object({ matchIds: z.string().max(2800) })
   .strict();
@@ -41,6 +54,15 @@ export class OffersController {
   }
 
   /** סטטוס הצעות עבור סט התאמות — לתצוגה בכרטיס הנכס. */
+  /** רשימת ההצעות של המשרד — "מה שלחתי ומה קרה איתו". */
+  @Get("offers")
+  @RequireCapability("offers.send")
+  async list(
+    @Query(new ZodValidationPipe(ListQuerySchema)) query: z.infer<typeof ListQuerySchema>,
+  ): Promise<OfferListItem[]> {
+    return this.offers.listAll(query);
+  }
+
   @Get("offers/for-matches")
   @RequireCapability("matches.view")
   async forMatches(

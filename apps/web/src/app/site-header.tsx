@@ -27,6 +27,7 @@ const NAV_ITEMS = [
   { href: "/buyers", label: "קונים" },
   { href: "/leads", label: "לידים" },
   { href: "/matches", label: "התאמות" },
+  { href: "/offers", label: "הצעות" },
   { href: "/calendar", label: "יומן" },
   { href: "/collaboration", label: "שיתופי פעולה" },
   { href: "/reports", label: "דוחות" },
