@@ -2,6 +2,7 @@ import { GoneException, Injectable, NotFoundException } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import { OfferPresentationSchema, type OfferPresentation } from "@metavchim/shared";
+import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
@@ -27,6 +28,20 @@ export interface PublicOfferView {
   status: string;
   /** URL-ים חתומים קצרי-מועד לתמונות ה-snapshot — נחתמים בכל צפייה */
   images: { url: string; alt?: string }[];
+}
+
+export interface OfferListItem {
+  id: string;
+  status: string;
+  title: string;
+  priceAgorot?: number;
+  score?: number;
+  buyerName: string | null;
+  openCount: number;
+  sentAt?: Date;
+  firstOpenedAt?: Date;
+  url: string;
+  createdAt: Date;
 }
 
 @Injectable()
@@ -493,6 +508,66 @@ export class OffersService {
         content: `${moment}: ${title}`,
         createdBy: null,
       },
+    });
+  }
+
+  /**
+   * רשימת ההצעות של המשרד — המסך שחסר: עד היום אפשר היה לראות הצעה
+   * רק דרך ההתאמה או כרטיס הנכס, ולא "מה שלחתי ומה קרה איתו".
+   *
+   * שמות הנכס והקונה נשלפים בשאילתה מקובצת אחת לכל העמוד, לא לכל שורה.
+   */
+  async listAll(query: { status?: string; limit: number }): Promise<OfferListItem[]> {
+    const tenantId = TenantContext.current().tenantId;
+    return this.prisma.withTenant(async (tx) => {
+      const offers = await tx.offer.findMany({
+        where: {
+          tenantId,
+          ...(query.status ? { status: query.status } : {}),
+        },
+        orderBy: { createdAt: "desc" },
+        take: query.limit,
+      });
+      if (offers.length === 0) return [];
+
+      const matches = await tx.match.findMany({
+        where: { tenantId, id: { in: offers.map((o) => o.matchId) } },
+        select: { id: true, buyerId: true, score: true },
+      });
+      const matchById = new Map(matches.map((m) => [m.id, m]));
+
+      const buyers = await tx.buyer.findMany({
+        where: {
+          tenantId,
+          id: { in: [...new Set(matches.map((m) => m.buyerId))] },
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
+        select: { id: true, contactId: true },
+      });
+      const buyerNameById = new Map<string, string>();
+      for (const buyer of buyers) {
+        const contact = await this.contacts.getById(tx, buyer.contactId);
+        if (contact) buyerNameById.set(buyer.id, contact.name);
+      }
+
+      return offers.map((offer) => {
+        const match = matchById.get(offer.matchId);
+        const presentation = OfferPresentationSchema.parse(offer.presentation);
+        return {
+          id: offer.id,
+          status: offer.status,
+          title: presentation.title,
+          priceAgorot: presentation.priceAgorot,
+          score: match?.score,
+          // קונה של סוכן אחר — ההצעה מוצגת, השם לא (אותו כלל כמו במסך ההתאמות)
+          buyerName: match ? (buyerNameById.get(match.buyerId) ?? null) : null,
+          openCount: offer.openCount,
+          sentAt: offer.sentAt ?? undefined,
+          firstOpenedAt: offer.firstOpenedAt ?? undefined,
+          url: this.publicUrl(offer.publicToken),
+          createdAt: offer.createdAt,
+        };
+      });
     });
   }
 }
