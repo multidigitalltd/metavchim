@@ -45,8 +45,8 @@ export function WhatsAppStatusSection() {
   if (!status) return null;
 
   return (
-    <section aria-labelledby="wa-status-heading" className="mb-8">
-      <h2 id="wa-status-heading" className="mb-1 text-lg font-semibold">חיבור וואטסאפ</h2>
+    <section aria-labelledby="wa-status-heading" className="mv-list-card px-5 py-[17px]">
+      <h2 id="wa-status-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>חיבור וואטסאפ</h2>
       <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
         הודעות וואטסאפ למספר העסקי הופכות ללידים אוטומטית. שלושה שלבים לחיבור:
       </p>

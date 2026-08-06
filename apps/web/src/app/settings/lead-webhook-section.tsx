@@ -60,8 +60,8 @@ export function LeadWebhookSection({ initialKey }: { initialKey?: string }) {
   }
 
   return (
-    <section aria-labelledby="webhook-heading" className="mb-8">
-      <h2 id="webhook-heading" className="mb-1 text-lg font-semibold">לידים מהאתר שלך</h2>
+    <section aria-labelledby="webhook-heading" className="mv-list-card px-5 py-[17px]">
+      <h2 id="webhook-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>לידים מהאתר שלך</h2>
       <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
         כל שליחת טופס באתר המשרד נכנסת לכאן כליד אוטומטית — כולל זיהוי פנייה
         חוזרת ומניעת כפילויות.

@@ -25,11 +25,11 @@ export function SystemUpdateSection() {
 
   return (
     <section
-      className="rounded-xl border p-4"
+      className="mv-list-card px-5 py-[17px]"
       style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
       aria-labelledby="system-update-title"
     >
-      <h2 id="system-update-title" className="mb-2 text-lg font-semibold">
+      <h2 id="system-update-title" className="m-0 mb-2" style={{ fontSize: 15.5, fontWeight: 800 }}>
         מערכת
       </h2>
       <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>

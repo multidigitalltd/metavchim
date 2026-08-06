@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
+import { ROLE_CAPABILITIES } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
-import { formatDate, formatDateTime } from "@/lib/format";
+import { formatDateTime } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { ExportSection } from "./export-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
@@ -37,6 +39,18 @@ const ROLE_LABELS: Record<string, string> = {
   assistant: "עוזר",
   viewer: "צפייה בלבד",
 };
+
+const TEAM_GRID = "1.4fr 1fr 1.1fr 0.8fr 1fr";
+
+/* רשימת "אבטחה ופרטיות" מקובץ העיצוב — כל שורה נכונה בפועל במערכת */
+const SECURITY_ROWS = [
+  "הפרדה מוחלטת בין משרדים — ברמת בסיס הנתונים",
+  "טלפונים ואימיילים מוצפנים במסד הנתונים",
+  "הקלטות קול נמחקות מיד אחרי התמלול",
+  "חסימה אוטומטית אחרי ניסיונות כניסה כושלים",
+  "תיעוד מלא: מי עשה מה ומתי",
+  "גיבוי יומי אוטומטי + עותק מחוץ לשרת",
+];
 
 const PLAN_LABELS: Record<string, string> = {
   basic: "Basic — בסיסי",
@@ -97,6 +111,7 @@ export default function SettingsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [tempPassword, setTempPassword] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
+  const [adding, setAdding] = useState(false);
 
   const load = useCallback(() => {
     apiGet<{ name: string; whatsappNumber?: string; plan: string; leadWebhookKey?: string }>("/settings/tenant")
@@ -175,173 +190,250 @@ export default function SettingsPage() {
 
   return (
     <>
-      <h1 className="mb-6 text-2xl font-bold">הגדרות המשרד</h1>
-
       {message ? (
-        <p role="status" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-primary)" }}>
+        <p role="status" className="mb-4 rounded-xl border p-3" style={{ borderColor: "var(--color-primary)", background: "var(--color-surface)" }}>
           {message}
         </p>
       ) : null}
 
-      <section aria-labelledby="office-heading" className="mb-8">
-        <h2 id="office-heading" className="mb-3 text-lg font-semibold">פרטי המשרד</h2>
-        {tenant ? (
-          <form onSubmit={(e) => void saveTenant(e)} className="max-w-md">
-            <div className="mb-4">
-              <label htmlFor="name" className="mb-1 block font-medium">שם המשרד</label>
-              <input id="name" name="name" defaultValue={tenant.name} required minLength={2} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+      <div className="grid items-start gap-[18px] lg:[grid-template-columns:1fr_360px]">
+        {/* ================= הטור הראשי ================= */}
+        <div className="flex flex-col gap-[18px]">
+          {/* ---- סוכני המשרד — הטבלה מקובץ העיצוב ---- */}
+          <section className="mv-list-card" aria-labelledby="team-heading">
+            <div className="flex items-center px-5 py-[15px]" style={{ borderBottom: "1px solid var(--color-card-head-border)" }}>
+              <h2 id="team-heading" className="m-0" style={{ fontSize: 15.5, fontWeight: 800 }}>
+                סוכני המשרד
+              </h2>
+              <button
+                type="button"
+                className="mv-btn-action ms-auto"
+                style={{ padding: "6px 13px", fontSize: 12.5 }}
+                onClick={() => setAdding((v) => !v)}
+              >
+                {adding ? "ביטול" : "+ הוסף סוכן"}
+              </button>
             </div>
-            <div className="mb-4">
-              <label htmlFor="whatsappNumber" className="mb-1 block font-medium">
-                מספר וואטסאפ עסקי <span className="font-normal">(לניתוב הודעות נכנסות)</span>
-              </label>
-              <input id="whatsappNumber" name="whatsappNumber" dir="ltr" placeholder="972501234567" defaultValue={tenant.whatsappNumber ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
-            </div>
-            <p className="mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
-              מסלול: <strong>{PLAN_LABELS[tenant.plan] ?? tenant.plan}</strong>
-            </p>
-            <Button type="submit">שמור</Button>
-          </form>
-        ) : (
-          <p aria-live="polite">טוען…</p>
-        )}
-      </section>
 
-      <section aria-labelledby="team-heading" className="mb-8">
-        <h2 id="team-heading" className="mb-3 text-lg font-semibold">הצוות ({team.length})</h2>
+            {tempPassword ? (
+              <div role="alert" className="mx-5 mt-3 rounded-xl border p-3" style={{ borderColor: "var(--color-success)" }}>
+                <p className="m-0 font-medium">המשתמש נוצר! סיסמה זמנית (מוצגת פעם אחת בלבד):</p>
+                <p className="m-0 mt-1 font-mono text-lg" dir="ltr">{tempPassword}</p>
+                <Button variant="ghost" className="mt-2" onClick={() => setTempPassword(null)}>סגור</Button>
+              </div>
+            ) : null}
 
-        {tempPassword ? (
-          <div role="alert" className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-success)" }}>
-            <p className="font-medium">המשתמש נוצר! סיסמה זמנית (מוצגת פעם אחת בלבד):</p>
-            <p className="mt-1 font-mono text-lg" dir="ltr">{tempPassword}</p>
-            <Button variant="ghost" className="mt-2" onClick={() => setTempPassword(null)}>סגור</Button>
-          </div>
-        ) : null}
+            {adding ? (
+              <form onSubmit={(e) => void addUser(e)} className="flex flex-wrap items-end gap-3 px-5 py-4" style={{ borderBottom: "1px solid var(--color-card-head-border)" }}>
+                <div>
+                  <label htmlFor="newName" className="mb-1 block text-sm font-semibold">שם</label>
+                  <input id="newName" name="newName" required minLength={2} className="rounded-lg border px-3 py-2" style={inputStyle} />
+                </div>
+                <div>
+                  <label htmlFor="newEmail" className="mb-1 block text-sm font-semibold">אימייל</label>
+                  <input id="newEmail" name="newEmail" type="email" required dir="ltr" className="rounded-lg border px-3 py-2" style={inputStyle} />
+                </div>
+                <div>
+                  <label htmlFor="newRole" className="mb-1 block text-sm font-semibold">תפקיד</label>
+                  <select id="newRole" name="newRole" defaultValue="agent" className="rounded-lg border px-3 py-2" style={inputStyle}>
+                    <option value="admin">מנהל</option>
+                    <option value="agent">סוכן</option>
+                    <option value="assistant">עוזר</option>
+                    <option value="viewer">צפייה בלבד</option>
+                  </select>
+                </div>
+                <button type="submit" className="mv-btn-action">הוסף</button>
+              </form>
+            ) : null}
 
-        {team.length > 0 ? (
-          <div className="mb-4 overflow-x-auto rounded-xl border" style={{ borderColor: "var(--color-border)" }}>
-            <table className="w-full">
-              <caption className="mv-visually-hidden">אנשי הצוות במשרד: שם, תפקיד, סטטוס</caption>
-              <thead style={{ background: "var(--color-surface)" }}>
-                <tr>
-                  <th scope="col" className="p-3 text-start">שם</th>
-                  <th scope="col" className="p-3 text-start">תפקיד</th>
-                  <th scope="col" className="p-3 text-start">כניסה אחרונה</th>
-                  <th scope="col" className="p-3 text-start">סטטוס</th>
-                </tr>
-              </thead>
-              <tbody>
-                {team.map((member) => (
-                  <tr key={member.id} className="border-t" style={{ borderColor: "var(--color-border)" }}>
-                    <td className="p-3">
-                      <span className="font-medium">{member.name}</span>
-                      <span className="block text-sm" dir="ltr" style={{ color: "var(--color-text-muted)" }}>{member.email}</span>
-                    </td>
-                    <td className="p-3">
-                      {member.role === "owner" || member.id === user?.id ? (
-                        ROLE_LABELS[member.role] ?? member.role
-                      ) : (
-                        <>
-                          <label htmlFor={`role_${member.id}`} className="mv-visually-hidden">
-                            תפקיד של {member.name}
-                          </label>
-                          <select
-                            id={`role_${member.id}`}
-                            value={member.role}
-                            onChange={(event) => void changeRole(member, event.target.value)}
-                            className="rounded-lg border px-2 py-1.5"
-                            style={inputStyle}
-                          >
-                            <option value="admin">מנהל</option>
-                            <option value="agent">סוכן</option>
-                            <option value="assistant">עוזר</option>
-                            <option value="viewer">צפייה בלבד</option>
-                          </select>
-                        </>
-                      )}
-                    </td>
-                    <td className="p-3">{member.lastLoginAt ? formatDate(member.lastLoginAt) : "—"}</td>
-                    <td className="p-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {member.locked ? (
+            <div className="overflow-x-auto">
+              <div style={{ minWidth: 640 }}>
+                <div className="mv-list-head" style={{ gridTemplateColumns: TEAM_GRID }}>
+                  <span>שם</span>
+                  <span>תפקיד</span>
+                  <span>רואה קונים</span>
+                  <span>ייצוא נתונים</span>
+                  <span><span className="mv-visually-hidden">פעולות</span></span>
+                </div>
+                {team.map((member) => {
+                  const caps = ROLE_CAPABILITIES[member.role] ?? [];
+                  const canExport = caps.includes("data.export");
+                  const seesAll = caps.includes("buyers.view_all");
+                  const editable = member.role !== "owner" && member.id !== user?.id;
+                  return (
+                    <div key={member.id} className="mv-list-row" style={{ gridTemplateColumns: TEAM_GRID, opacity: member.isActive ? 1 : 0.55 }}>
+                      <span className="flex items-center gap-2.5 text-sm font-bold">
+                        <span
+                          aria-hidden="true"
+                          className="grid flex-none place-items-center rounded-full"
+                          style={{ width: 30, height: 30, background: "var(--color-primary-soft)", color: "var(--color-primary)", fontSize: 12.5, fontWeight: 800 }}
+                        >
+                          {member.name.trim().slice(0, 1)}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate">{member.name}{member.isActive ? "" : " (מושבת)"}</span>
+                          <span className="block truncate text-xs font-normal" dir="ltr" style={{ color: "var(--color-text-muted)" }}>
+                            {member.email}
+                          </span>
+                        </span>
+                      </span>
+                      <span className="text-[13px]" style={{ color: "var(--color-text-soft)" }}>
+                        {editable ? (
                           <>
-                            <span className="font-medium" style={{ color: "var(--color-danger)" }}>
-                              🔒 נעול זמנית
-                            </span>
-                            <Button variant="secondary" onClick={() => void unlock(member)}>
-                              שחרר נעילה
-                            </Button>
+                            <label htmlFor={`role_${member.id}`} className="mv-visually-hidden">תפקיד של {member.name}</label>
+                            <select
+                              id={`role_${member.id}`}
+                              value={member.role}
+                              onChange={(event) => void changeRole(member, event.target.value)}
+                              className="rounded-lg border px-2 py-1"
+                              style={inputStyle}
+                            >
+                              <option value="admin">מנהל</option>
+                              <option value="agent">סוכן</option>
+                              <option value="assistant">עוזר</option>
+                              <option value="viewer">צפייה בלבד</option>
+                            </select>
                           </>
-                        ) : null}
-                        {member.role === "owner" || member.id === user?.id ? (
-                          member.locked ? null : <span style={{ color: "var(--color-success)" }}>פעיל</span>
                         ) : (
-                          <Button variant={member.isActive ? "ghost" : "secondary"} onClick={() => void toggleActive(member)}>
-                            {member.isActive ? "השבת" : "הפעל מחדש"}
-                          </Button>
+                          ROLE_LABELS[member.role] ?? member.role
                         )}
-                      </div>
-                    </td>
-                  </tr>
+                      </span>
+                      <span className="text-[13px]" style={{ color: "var(--color-text-soft)" }}>
+                        {seesAll ? "את כל הקונים" : "רק את הקונים שלו"}
+                      </span>
+                      <span>
+                        <span
+                          className="mv-pill"
+                          style={{
+                            fontSize: 12,
+                            color: canExport ? "#0C6E34" : "#68716a",
+                            background: canExport ? "#E5FCEA" : "#eef1ec",
+                          }}
+                        >
+                          {canExport ? "מותר" : "חסום"}
+                        </span>
+                      </span>
+                      <span className="flex flex-wrap justify-end gap-1.5">
+                        {member.locked ? (
+                          <button type="button" className="mv-btn-soft" onClick={() => void unlock(member)}>
+                            🔒 שחרר נעילה
+                          </button>
+                        ) : null}
+                        {editable ? (
+                          <button type="button" className="mv-btn-plain" onClick={() => void toggleActive(member)}>
+                            {member.isActive ? "השבת" : "הפעל"}
+                          </button>
+                        ) : null}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <p className="m-0 px-5 py-[13px] text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+              הרשאות לפי תפקיד — הגנה מפני סוכן שעוזב עם המאגר. כל פעולה מתועדת: מי עשה מה ומתי.
+            </p>
+          </section>
+
+          {/* ---- פרטי המשרד ---- */}
+          <section className="mv-list-card px-5 py-[17px]" aria-labelledby="office-heading">
+            <h2 id="office-heading" className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>פרטי המשרד</h2>
+            {tenant ? (
+              <form onSubmit={(e) => void saveTenant(e)} className="max-w-md">
+                <div className="mb-3.5">
+                  <label htmlFor="name" className="mb-1 block text-sm font-semibold">שם המשרד</label>
+                  <input id="name" name="name" defaultValue={tenant.name} required minLength={2} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+                </div>
+                <div className="mb-3.5">
+                  <label htmlFor="whatsappNumber" className="mb-1 block text-sm font-semibold">
+                    מספר וואטסאפ עסקי <span className="font-normal">(לניתוב הודעות נכנסות)</span>
+                  </label>
+                  <input id="whatsappNumber" name="whatsappNumber" dir="ltr" placeholder="972501234567" defaultValue={tenant.whatsappNumber ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+                </div>
+                <p className="mb-3.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                  מסלול: <strong>{PLAN_LABELS[tenant.plan] ?? tenant.plan}</strong>
+                </p>
+                <button type="submit" className="mv-btn-action">שמור</button>
+              </form>
+            ) : (
+              <p aria-live="polite">טוען…</p>
+            )}
+          </section>
+
+          <WhatsAppStatusSection />
+
+          {tenant ? <LeadWebhookSection initialKey={tenant.leadWebhookKey} /> : null}
+
+          <AgreementTemplatesSection />
+
+          {/* ---- יומן פעילות ---- */}
+          <section className="mv-list-card" aria-labelledby="audit-heading">
+            <div className="px-5 py-[15px]" style={{ borderBottom: "1px solid var(--color-card-head-border)" }}>
+              <h2 id="audit-heading" className="m-0" style={{ fontSize: 15.5, fontWeight: 800 }}>יומן פעילות</h2>
+              <p className="m-0 mt-0.5 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                מי עשה מה ומתי — כל פעולה במערכת מתועדת ואינה ניתנת למחיקה.
+              </p>
+            </div>
+            {audit.length === 0 ? (
+              <p className="px-5 py-4" style={{ color: "var(--color-text-muted)" }}>אין רישומים עדיין.</p>
+            ) : (
+              <ol className="m-0 list-none p-0">
+                {audit.map((row, index) => (
+                  <li key={index} className="flex flex-wrap gap-1.5 px-5 py-2.5 text-[13.5px]" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
+                    <span className="font-bold">{row.userName ?? "מערכת"}</span>
+                    <span style={{ color: "var(--color-text-soft)" }}>{AUDIT_ACTION_LABELS[row.action] ?? row.action}</span>
+                    <span className="ms-auto" style={{ color: "var(--color-text-muted)" }}>{formatDateTime(row.createdAt)}</span>
+                  </li>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
+              </ol>
+            )}
+          </section>
+        </div>
 
-        <form onSubmit={(e) => void addUser(e)} className="flex flex-wrap items-end gap-3">
-          <div>
-            <label htmlFor="newName" className="mb-1 block font-medium">שם</label>
-            <input id="newName" name="newName" required minLength={2} className="rounded-lg border px-3 py-2.5" style={inputStyle} />
-          </div>
-          <div>
-            <label htmlFor="newEmail" className="mb-1 block font-medium">אימייל</label>
-            <input id="newEmail" name="newEmail" type="email" required dir="ltr" className="rounded-lg border px-3 py-2.5" style={inputStyle} />
-          </div>
-          <div>
-            <label htmlFor="newRole" className="mb-1 block font-medium">תפקיד</label>
-            <select id="newRole" name="newRole" defaultValue="agent" className="rounded-lg border px-3 py-2.5" style={inputStyle}>
-              <option value="admin">מנהל</option>
-              <option value="agent">סוכן</option>
-              <option value="assistant">עוזר</option>
-              <option value="viewer">צפייה בלבד</option>
-            </select>
-          </div>
-          <Button type="submit">➕ הוסף איש צוות</Button>
-        </form>
-      </section>
-
-      <WhatsAppStatusSection />
-
-      {tenant ? <LeadWebhookSection initialKey={tenant.leadWebhookKey} /> : null}
-
-      <ExportSection />
-
-      <AgreementTemplatesSection />
-
-      <SystemUpdateSection />
-
-      <section aria-labelledby="audit-heading">
-        <h2 id="audit-heading" className="mb-1 text-lg font-semibold">יומן פעילות</h2>
-        <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          מי עשה מה ומתי — כל פעולה במערכת מתועדת ואינה ניתנת למחיקה.
-        </p>
-        {audit.length === 0 ? (
-          <p style={{ color: "var(--color-text-muted)" }}>אין רישומים עדיין.</p>
-        ) : (
-          <ol className="flex flex-col gap-1 text-sm">
-            {audit.map((row, index) => (
-              <li key={index} className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)" }}>
-                <span className="font-medium">{row.userName ?? "מערכת"}</span>
-                {" · "}
-                <span>{AUDIT_ACTION_LABELS[row.action] ?? row.action}</span>
-                {" · "}
-                <span style={{ color: "var(--color-text-muted)" }}>{formatDateTime(row.createdAt)}</span>
-              </li>
+        {/* ================= הטור הצדדי ================= */}
+        <div className="flex flex-col gap-4">
+          {/* ---- אבטחה ופרטיות — הרשימה מקובץ העיצוב ---- */}
+          <section className="mv-list-card px-5 py-[17px]" aria-labelledby="security-heading">
+            <h2 id="security-heading" className="m-0 mb-[11px]" style={{ fontSize: 15.5, fontWeight: 800 }}>
+              אבטחה ופרטיות
+            </h2>
+            {SECURITY_ROWS.map((row) => (
+              <div key={row} className="flex items-center gap-[9px] py-1.5 text-[13.5px]" style={{ color: "var(--color-text-soft)" }}>
+                <span aria-hidden="true" className="font-extrabold" style={{ color: "#2ECC66" }}>✓</span>
+                {row}
+              </div>
             ))}
-          </ol>
-        )}
-      </section>
+          </section>
+
+          {/* ---- נתונים ---- */}
+          <section className="mv-list-card px-5 py-[17px]" aria-labelledby="data-heading">
+            <h2 id="data-heading" className="m-0 mb-[11px]" style={{ fontSize: 15.5, fontWeight: 800 }}>נתונים</h2>
+            <div className="mb-2 flex gap-2">
+              <Link href="/import" className="mv-btn-plain flex-1 text-center" style={{ padding: "8px 0", fontSize: 13 }}>
+                ייבוא מאקסל
+              </Link>
+            </div>
+            <ExportSection />
+          </section>
+
+          <SystemUpdateSection />
+
+          {/* ---- בפיתוח עכשיו — מקובץ העיצוב ---- */}
+          <section className="rounded-xl border px-5 py-[17px]" style={{ background: "var(--color-table-head)", borderColor: "var(--color-border)" }} aria-labelledby="roadmap-heading">
+            <div className="mb-[9px] flex items-center gap-[9px]">
+              <span className="mv-tag" style={{ background: "#111513", color: "#fff" }}>בקרוב</span>
+              <h2 id="roadmap-heading" className="m-0" style={{ fontSize: 14.5, fontWeight: 800 }}>בפיתוח עכשיו</h2>
+            </div>
+            <p className="m-0 text-[13px]" style={{ color: "var(--color-text-soft)", lineHeight: 1.6 }}>
+              סוכן קולי שעונה לשיחות שלא נענו · שליחה אוטומטית בוואטסאפ · סנכרון יומן
+              Google · התראות לנייד
+            </p>
+            <p className="m-0 mt-2 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+              כשפיצ׳ר עולה — באנר "מה חדש" מופיע לכולם בכניסה הבאה.
+            </p>
+          </section>
+        </div>
+      </div>
     </>
   );
 }
