@@ -115,11 +115,13 @@ export default function CallsPage() {
 
   return (
     <>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">שיחות</h1>
-        <Button onClick={() => setAdding((v) => !v)}>
-          {adding ? "ביטול" : "➕ תעד שיחה"}
-        </Button>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          תיעוד שיחה לוקח 20 שניות ושומר את ההקשר לפעם הבאה שתדברו עם הלקוח.
+        </p>
+        <button type="button" className="mv-btn-action ms-auto" onClick={() => setAdding((v) => !v)}>
+          {adding ? "ביטול" : "+ תעד שיחה"}
+        </button>
       </div>
 
       {error ? (
@@ -201,26 +203,23 @@ export default function CallsPage() {
         </form>
       ) : null}
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        {FILTERS.map(([value, label]) => {
-          const active = outcome === value;
-          return (
-            <button
-              key={value || "all"}
-              type="button"
-              aria-pressed={active}
-              onClick={() => setOutcome(value)}
-              className="min-h-11 rounded-full border px-4 py-1.5 font-medium"
-              style={{
-                borderColor: active ? "var(--color-primary)" : "var(--color-border)",
-                background: active ? "var(--color-primary-soft)" : "var(--color-surface)",
-                color: active ? "var(--color-primary)" : "var(--color-text)",
-              }}
-            >
-              {label}
-            </button>
-          );
-        })}
+      <div className="mb-[18px] flex flex-wrap items-center gap-2.5">
+        {FILTERS.map(([value, label]) => (
+          <button
+            key={value || "all"}
+            type="button"
+            className="mv-chip"
+            aria-pressed={outcome === value}
+            onClick={() => setOutcome(value)}
+          >
+            {label}
+          </button>
+        ))}
+        {items !== null && items.length > 0 ? (
+          <span className="ms-1.5 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+            {items.length} שיחות{items.some((c) => c.outcome !== "answered") ? ` · ${items.filter((c) => c.outcome !== "answered").length} ללא מענה` : ""}
+          </span>
+        ) : null}
       </div>
 
       {items === null ? (
@@ -238,10 +237,7 @@ export default function CallsPage() {
       ) : (
         /* שני חלוניות כמו בעיצוב: רשימה מימין, פרטים משמאל */
         <div className="grid gap-4 lg:grid-cols-[330px_1fr] lg:items-start">
-          <ul
-            className="overflow-hidden rounded-xl border"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-          >
+          <ul className="mv-list-card">
             {items.map((call) => {
               const active = selected?.id === call.id;
               return (
@@ -250,30 +246,45 @@ export default function CallsPage() {
                     type="button"
                     onClick={() => setSelected(call)}
                     aria-current={active ? "true" : undefined}
-                    className="flex w-full items-center gap-3 border-b p-3 text-start"
+                    className="flex w-full items-center gap-3 px-4 py-[13px] text-start"
                     style={{
-                      borderColor: "var(--color-border)",
-                      background: active ? "var(--color-primary-soft)" : "transparent",
+                      border: "none",
+                      borderBottom: "1px solid var(--color-row-border)",
+                      background: active ? "var(--color-row-hover)" : "transparent",
+                      cursor: "pointer",
                     }}
                   >
                     <span
                       aria-hidden="true"
                       className="h-2.5 w-2.5 flex-none rounded-full"
-                      style={{
-                        background:
-                          call.outcome === "answered"
-                            ? "var(--color-success)"
-                            : "var(--color-danger)",
-                      }}
+                      style={{ background: call.outcome === "answered" ? "#12A150" : "#b0512c" }}
                     />
-                    <span className="min-w-0">
-                      <span className="block font-semibold">
+                    <span className="min-w-0" style={{ lineHeight: 1.35 }}>
+                      <span className="block truncate text-[14.5px] font-bold">
                         {call.contactName ?? call.phone ?? "לא מזוהה"}
                       </span>
-                      <span className="block text-sm" style={{ color: "var(--color-text-muted)" }}>
+                      <span className="block text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
                         {call.direction === "inbound" ? "נכנסת" : "יוצאת"} ·{" "}
                         {timeFmt.format(new Date(call.occurredAt))}
                       </span>
+                    </span>
+                    <span className="ms-auto flex-none text-start" style={{ lineHeight: 1.4 }}>
+                      <span
+                        className="mv-pill block"
+                        style={{
+                          fontSize: 12,
+                          padding: "2px 10px",
+                          color: call.outcome === "answered" ? "#0C6E34" : "#b0512c",
+                          background: call.outcome === "answered" ? "#E5FCEA" : "#faf1ec",
+                        }}
+                      >
+                        {OUTCOME_LABELS[call.outcome] ?? call.outcome}
+                      </span>
+                      {call.durationMinutes !== undefined ? (
+                        <span className="mt-[3px] block text-[11.5px]" style={{ color: "var(--color-text-muted)" }}>
+                          {call.durationMinutes} דק׳
+                        </span>
+                      ) : null}
                     </span>
                   </button>
                 </li>
@@ -282,60 +293,68 @@ export default function CallsPage() {
           </ul>
 
           {selected ? (
-            <section
-              aria-label="פרטי השיחה"
-              className="rounded-xl border p-4"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-            >
-              <h2 className="text-lg font-semibold">
-                {selected.contactName ?? selected.phone ?? "לא מזוהה"}
-              </h2>
-              <p style={{ color: "var(--color-text-muted)" }}>
-                {selected.direction === "inbound" ? "שיחה נכנסת" : "שיחה יוצאת"} ·{" "}
-                {OUTCOME_LABELS[selected.outcome] ?? selected.outcome} ·{" "}
-                {timeFmt.format(new Date(selected.occurredAt))}
-                {selected.durationMinutes !== undefined ? ` · ${selected.durationMinutes} דק׳` : ""}
-              </p>
-
-              {selected.phone ? (
-                <p className="mt-3 flex flex-wrap items-center gap-3">
-                  <a href={`tel:${selected.phone}`} className="font-medium underline">
-                    📞 חייג
-                  </a>
-                  <a
-                    href={waMeUrl(selected.phone)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-medium underline"
-                  >
-                    💬 וואטסאפ
-                  </a>
-                  <span dir="ltr" style={{ color: "var(--color-text-muted)" }}>
-                    {selected.phone}
-                  </span>
-                </p>
-              ) : null}
-
-              <p className="mt-4 whitespace-pre-wrap">
-                {selected.summary ?? (
-                  <span style={{ color: "var(--color-text-muted)" }}>לא נרשם סיכום.</span>
-                )}
-              </p>
-
-              <div className="mt-4 flex flex-wrap gap-3">
-                {selected.leadId ? (
-                  <Link href={`/leads/${selected.leadId}`} className="underline">
-                    לכרטיס הליד
-                  </Link>
+            <section aria-label="פרטי השיחה" className="mv-list-card">
+              <div
+                className="flex flex-wrap items-center gap-3 px-[22px] py-4"
+                style={{ borderBottom: "1px solid var(--color-card-head-border)" }}
+              >
+                <div style={{ lineHeight: 1.35 }}>
+                  <h2 className="m-0" style={{ fontSize: 17, fontWeight: 800 }}>
+                    {selected.contactName ?? selected.phone ?? "לא מזוהה"}
+                  </h2>
+                  <p className="m-0 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+                    {selected.phone ? <span dir="ltr">{selected.phone} · </span> : null}
+                    {selected.direction === "inbound" ? "שיחה נכנסת" : "שיחה יוצאת"} ·{" "}
+                    {timeFmt.format(new Date(selected.occurredAt))}
+                    {selected.durationMinutes !== undefined ? ` · משך ${selected.durationMinutes} דק׳` : ""}
+                  </p>
+                </div>
+                {selected.phone ? (
+                  <div className="ms-auto flex gap-2">
+                    <a
+                      href={waMeUrl(selected.phone)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mv-btn-plain"
+                      style={{ padding: "7px 14px", fontSize: 13 }}
+                    >
+                      וואטסאפ
+                    </a>
+                    <a href={`tel:${selected.phone}`} className="mv-btn-plain" style={{ padding: "7px 14px", fontSize: 13 }}>
+                      חייג
+                    </a>
+                  </div>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={() => void onDelete(selected.id)}
-                  className="underline"
-                  style={{ color: "var(--color-danger)" }}
+              </div>
+
+              <div className="px-[22px] py-5">
+                <p className="mb-2.5 mt-0 text-[13px] font-extrabold" style={{ color: "var(--color-text-muted)" }}>
+                  סיכום השיחה
+                </p>
+                <div
+                  className="whitespace-pre-wrap rounded-[13px] border p-3.5 text-sm"
+                  style={{ background: "var(--color-field)", borderColor: "var(--color-border)", lineHeight: 1.55 }}
                 >
-                  מחק תיעוד
-                </button>
+                  {selected.summary ?? (
+                    <span style={{ color: "var(--color-text-muted)" }}>לא נרשם סיכום.</span>
+                  )}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-3">
+                  {selected.leadId ? (
+                    <Link href={`/leads/${selected.leadId}`} className="mv-btn-soft">
+                      לכרטיס הליד
+                    </Link>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void onDelete(selected.id)}
+                    className="mv-btn-plain"
+                    style={{ color: "var(--color-danger)" }}
+                  >
+                    מחק תיעוד
+                  </button>
+                </div>
               </div>
             </section>
           ) : null}

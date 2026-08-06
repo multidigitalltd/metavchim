@@ -69,6 +69,11 @@
   --color-hover-soft: #f1f5f0;
   --color-row-border: #f2f4f0;
   --color-card-head-border: #eef1ec;
+  --color-table-head: #f8faf7;
+  --color-row-hover: #f6f9f6;
+  --color-text-soft: #4a534c;
+  --color-progress-track: #e8ece6;
+  --color-seg-track: #e8ece6;
   --color-focus: #0C6E34;
   --radius: 13px;
   --shadow-card: 0 1px 2px rgba(30, 40, 32, 0.06), 0 1px 3px rgba(30, 40, 32, 0.08);
@@ -103,6 +108,11 @@
   --dk-hover-soft: #1a231c;
   --dk-row-border: #1c2620;
   --dk-card-head-border: #212c24;
+  --dk-table-head: #101812;
+  --dk-row-hover: #1a231c;
+  --dk-text-soft: #a3b0a6;
+  --dk-progress-track: #26332a;
+  --dk-seg-track: #1c2620;
   --dk-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
   --dk-shadow-pop: 0 16px 38px rgba(0, 0, 0, 0.5);
   --dk-header-bg: rgba(13, 19, 15, 0.85);
@@ -132,6 +142,11 @@
     --color-hover-soft: var(--dk-hover-soft);
     --color-row-border: var(--dk-row-border);
     --color-card-head-border: var(--dk-card-head-border);
+    --color-table-head: var(--dk-table-head);
+    --color-row-hover: var(--dk-row-hover);
+    --color-text-soft: var(--dk-text-soft);
+    --color-progress-track: var(--dk-progress-track);
+    --color-seg-track: var(--dk-seg-track);
     --color-focus: var(--dk-primary);
     --shadow-card: var(--dk-shadow-card);
     --shadow-pop: var(--dk-shadow-pop);
@@ -162,6 +177,11 @@
     --color-hover-soft: var(--dk-hover-soft);
     --color-row-border: var(--dk-row-border);
     --color-card-head-border: var(--dk-card-head-border);
+    --color-table-head: var(--dk-table-head);
+    --color-row-hover: var(--dk-row-hover);
+    --color-text-soft: var(--dk-text-soft);
+    --color-progress-track: var(--dk-progress-track);
+    --color-seg-track: var(--dk-seg-track);
   --color-focus: var(--dk-primary);
   --shadow-card: var(--dk-shadow-card);
   --shadow-pop: var(--dk-shadow-pop);
@@ -958,6 +978,207 @@ textarea {
   .mv-content {
     padding: 30px 34px 44px;
   }
+}
+
+/* ============================================================
+   תבנית הרשימות מקובץ העיצוב — כרטיס לבן radius 14, שורת כותרות
+   על רקע ‎#f8faf7‎, שורות grid עם ריחוף ‎#f6f9f6‎, גלולות וצ'יפים.
+   העמודות (grid-template-columns) נקבעות inline בכל מסך — הן חלק
+   מהתוכן; כאן רק המעטפת המשותפת.
+   ============================================================ */
+.mv-list-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.mv-list-head {
+  display: grid;
+  gap: 10px;
+  padding: 11px 20px;
+  background: var(--color-table-head);
+  border-bottom: 1px solid var(--color-card-head-border);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+.mv-list-row {
+  display: grid;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  text-align: start;
+  padding: 13px 20px;
+  border: none;
+  border-bottom: 1px solid var(--color-row-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-decoration: none;
+}
+a.mv-list-row:hover,
+button.mv-list-row {
+  cursor: pointer;
+}
+a.mv-list-row:hover,
+button.mv-list-row:hover {
+  background: var(--color-row-hover);
+  text-decoration: none;
+}
+/* שורה שמושכת תשומת לב (הצעה שהקונה מתלבט עליה, נכס חדש) */
+.mv-list-row--highlight {
+  background: #fdfaf3;
+}
+.mv-list-row--new {
+  background: #f4f9f5;
+}
+
+/* גלולה (סטטוס, בשלות) — radius מלא */
+.mv-pill {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 99px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+/* תג קטן ("חדש", "דחוף") — פינות 6px */
+.mv-tag {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 800;
+  border-radius: 6px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+/* צ'יפ סינון (ערים בנכסים, סוגי שיחות) */
+.mv-chip {
+  border: 1px solid var(--color-input-border);
+  background: var(--color-surface);
+  color: var(--color-text-soft);
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 99px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+.mv-chip[aria-pressed="true"] {
+  background: #111513;
+  color: #ffffff;
+  border-color: #111513;
+}
+
+/* כפתורי הפעולה מהעיצוב */
+.mv-btn-action {
+  border: none;
+  background: var(--color-action);
+  color: var(--color-on-action);
+  font-size: 13.5px;
+  font-weight: 700;
+  border-radius: 9px;
+  padding: 8px 16px;
+  cursor: pointer;
+  display: inline-block;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.mv-btn-action:hover {
+  background: var(--color-action-hover);
+  text-decoration: none;
+}
+.mv-btn-soft {
+  border: 1px solid #bdf4cb;
+  background: #f1fef4;
+  color: var(--color-primary);
+  font-size: 12.5px;
+  font-weight: 700;
+  border-radius: 8px;
+  padding: 6px 11px;
+  cursor: pointer;
+  display: inline-block;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.mv-btn-soft:hover {
+  background: var(--color-primary-soft);
+  text-decoration: none;
+}
+.mv-btn-plain {
+  border: 1px solid var(--color-input-border);
+  background: var(--color-surface);
+  color: var(--color-text-soft);
+  font-size: 12.5px;
+  font-weight: 700;
+  border-radius: 8px;
+  padding: 6px 11px;
+  cursor: pointer;
+  display: inline-block;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.mv-btn-plain:hover {
+  background: var(--color-hover-soft);
+  text-decoration: none;
+}
+
+/* פס מוכנות לשיווק */
+.mv-progress {
+  flex: 1;
+  max-width: 76px;
+  height: 5px;
+  border-radius: 99px;
+  background: var(--color-progress-track);
+  overflow: hidden;
+  display: block;
+}
+.mv-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+}
+
+/* טבעת ניקוד התאמה — conic-gradient לפי אחוז (נקבע inline) */
+.mv-score-ring {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+.mv-score-ring > span {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  display: grid;
+  place-items: center;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--color-primary);
+}
+
+/* מתג מקטעים (התאמות: לפי נכס / לפי קונה) */
+.mv-seg {
+  display: inline-flex;
+  background: var(--color-seg-track);
+  border-radius: 10px;
+  padding: 3px;
+}
+.mv-seg > button {
+  border: none;
+  border-radius: 8px;
+  padding: 7px 16px;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  background: transparent;
+  color: var(--color-text-soft);
+}
+.mv-seg > button[aria-pressed="true"] {
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: 0 1px 2px rgba(30, 40, 32, 0.15);
 }
 
 /* כרטיס מונה בדשבורד — לפי קובץ העיצוב: מספר גדול ומסגרת שמתחדדת בריחוף */

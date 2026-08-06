@@ -17,6 +17,8 @@ export class ApiError extends Error {
     public readonly status: number,
     message: string,
     public readonly issues: ApiIssue[] = [],
+    /** גוף השגיאה המלא — לשגיאות שנושאות מידע פעולה (code, signUrl…) */
+    public readonly body: Record<string, unknown> = {},
   ) {
     super(message);
   }
@@ -35,7 +37,12 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     const message = Array.isArray(record.message)
       ? record.message.join(", ")
       : (record.message ?? "שגיאה לא צפויה");
-    throw new ApiError(res.status, message, record.issues ?? []);
+    throw new ApiError(
+      res.status,
+      message,
+      record.issues ?? [],
+      (body ?? {}) as Record<string, unknown>,
+    );
   }
   return body as T;
 }
