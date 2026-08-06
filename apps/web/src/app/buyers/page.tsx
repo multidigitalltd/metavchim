@@ -7,7 +7,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet } from "@/lib/api";
 import { formatPrice, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
-import { CapNote, SearchField, textMatches } from "../list-controls";
+import { CapNote, FilterBar, FilterSelect, SearchField, textMatches } from "../list-controls";
 
 /**
  * מסך הקונים לפי קובץ העיצוב: מקרא בשלות בכותרת, טבלת grid עם גלולת
@@ -82,6 +82,7 @@ export default function BuyersPage() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [maturity, setMaturity] = useState("");
+  const [offersFilter, setOffersFilter] = useState("");
 
   useEffect(() => {
     if (authLoading) return;
@@ -101,9 +102,13 @@ export default function BuyersPage() {
       (items ?? []).filter(
         (b) =>
           textMatches(query, b.contact.name, b.contact.phone, ...b.requirements.cities) &&
-          (!maturity || b.maturity === maturity),
+          (!maturity || b.maturity === maturity) &&
+          // "מי לא קיבל כלום" הוא הסינון שמייצר עבודה בפועל
+          (offersFilter === "" ||
+            (offersFilter === "none" && (b.offersReceived ?? 0) === 0) ||
+            (offersFilter === "some" && (b.offersReceived ?? 0) > 0)),
       ),
-    [items, query, maturity],
+    [items, query, maturity, offersFilter],
   );
 
   return (
@@ -145,31 +150,41 @@ export default function BuyersPage() {
         </div>
       ) : (
         <>
-          <div className="mb-3.5 flex flex-wrap items-center gap-2">
+          <FilterBar
+            shown={visible.length}
+            total={items.length}
+            noun="קונים"
+            active={query.trim() !== "" || maturity !== "" || offersFilter !== ""}
+            onClear={() => {
+              setQuery("");
+              setMaturity("");
+              setOffersFilter("");
+            }}
+          >
             <SearchField
               label="חיפוש קונה"
               placeholder="🔍 שם, טלפון או עיר מבוקשת"
               value={query}
               onChange={setQuery}
             />
-            <label className="flex items-center gap-1.5 text-sm">
-              <span className="mv-visually-hidden">סינון לפי בשלות</span>
-              <select
-                value={maturity}
-                onChange={(e) => setMaturity(e.target.value)}
-                className="rounded-lg border px-2 py-1.5"
-                style={{ borderColor: "var(--color-input-border)", background: "var(--color-surface)", color: "var(--color-text)" }}
-              >
-                <option value="">כל רמות הבשלות</option>
-                {Object.entries(MATURITY_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
-            </label>
-            <span className="text-sm" style={{ color: "var(--color-text-muted)" }} aria-live="polite">
-              {visible.length} מתוך {items.length} קונים
-            </span>
-          </div>
+            <FilterSelect
+              label="סינון לפי בשלות"
+              value={maturity}
+              onChange={setMaturity}
+              allLabel="כל רמות הבשלות"
+              options={Object.entries(MATURITY_LABELS)}
+            />
+            <FilterSelect
+              label="סינון לפי הצעות שקיבל"
+              value={offersFilter}
+              onChange={setOffersFilter}
+              allLabel="עם הצעות ובלי"
+              options={[
+                ["none", "לא קיבלו אף הצעה"],
+                ["some", "קיבלו הצעות"],
+              ]}
+            />
+          </FilterBar>
 
           {visible.length === 0 ? (
             <div
@@ -273,7 +288,7 @@ export default function BuyersPage() {
               </div>
             </>
           )}
-          <CapNote show={(query.trim() !== "" || maturity !== "") && items.length === 100} noun="קונים" />
+          <CapNote show={(query.trim() !== "" || maturity !== "" || offersFilter !== "") && items.length === 100} noun="קונים" />
         </>
       )}
     </>

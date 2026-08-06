@@ -5,6 +5,7 @@ import Link from "next/link";
 import { apiGet } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { FilterBar, SearchField, textMatches } from "../list-controls";
 
 /**
  * מסך ההצעות לפי קובץ העיצוב: טבלת grid — קונה / נכס / נשלחה /
@@ -55,6 +56,8 @@ export default function OffersPage() {
   const { loading: authLoading } = useRequireAuth();
   const [items, setItems] = useState<OfferRow[] | null>(null);
   const [status, setStatus] = useState("");
+  const [query, setQuery] = useState("");
+  const [openness, setOpenness] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -69,6 +72,22 @@ export default function OffersPage() {
     () => (items ?? []).filter(isMulling).sort((a, b) => b.openCount - a.openCount)[0],
     [items],
   );
+
+  /* סינון מקומי מעל הסינון בשרת: חיפוש חופשי בשם הקונה ובנכס,
+     ומצב פתיחות — "מי לא פתח בכלל" הוא השאלה שהמתווך שואל בפועל */
+  const visible = useMemo(
+    () =>
+      (items ?? []).filter(
+        (o) =>
+          textMatches(query, o.buyerName ?? undefined, o.title) &&
+          (openness === "" ||
+            (openness === "unopened" && o.openCount === 0) ||
+            (openness === "opened" && o.openCount > 0) ||
+            (openness === "mulling" && isMulling(o))),
+      ),
+    [items, query, openness],
+  );
+  const filtering = query.trim() !== "" || openness !== "" || status !== "";
 
   return (
     <>
@@ -92,6 +111,41 @@ export default function OffersPage() {
         </div>
       </div>
 
+      {items !== null && items.length > 0 ? (
+        <FilterBar
+          shown={visible.length}
+          total={items.length}
+          noun="הצעות"
+          active={filtering}
+          onClear={() => {
+            setQuery("");
+            setOpenness("");
+            setStatus("");
+          }}
+        >
+          <SearchField
+            label="חיפוש הצעה"
+            placeholder="🔍 שם קונה או נכס"
+            value={query}
+            onChange={setQuery}
+          />
+          <label className="flex items-center gap-1.5 text-sm">
+            <span className="mv-visually-hidden">סינון לפי פתיחות</span>
+            <select
+              value={openness}
+              onChange={(e) => setOpenness(e.target.value)}
+              className="rounded-lg border px-2 py-1.5"
+              style={{ borderColor: "var(--color-input-border)", background: "var(--color-surface)", color: "var(--color-text)" }}
+            >
+              <option value="">כל מצבי הפתיחה</option>
+              <option value="unopened">טרם נפתחו</option>
+              <option value="opened">נפתחו</option>
+              <option value="mulling">מתלבטים (3+ פתיחות)</option>
+            </select>
+          </label>
+        </FilterBar>
+      ) : null}
+
       {error ? (
         <p role="alert" style={{ color: "var(--color-danger)" }}>
           {error}
@@ -113,7 +167,7 @@ export default function OffersPage() {
         <>
           {/* מובייל: כרטיסים (docs/06 §1.5) */}
           <ul className="flex flex-col gap-3 sm:hidden">
-            {items.map((offer) => {
+            {visible.map((offer) => {
               const chip = statusChip(offer);
               return (
                 <li
@@ -155,7 +209,7 @@ export default function OffersPage() {
               <span>סטטוס</span>
               <span />
             </div>
-            {items.map((offer) => {
+            {visible.map((offer) => {
               const chip = statusChip(offer);
               return (
                 <div
