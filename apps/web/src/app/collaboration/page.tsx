@@ -5,6 +5,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import Link from "next/link";
 
 /** רשת שיתופי הפעולה (אפיון §11-12): ביקושים אנונימיים + קרדיטים. */
 
@@ -107,10 +108,23 @@ export default function CollaborationPage() {
     <>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">שיתופי פעולה</h1>
-        <span className="rounded-full border px-4 py-1.5 font-medium" style={{ borderColor: "var(--color-border)" }}>
-          💎 {balance ?? "…"} קרדיטים
-        </span>
+        <div className="flex flex-wrap items-center gap-3">
+          {/* הפרסום עצמו נעשה מכרטיס הקונה — הביקוש נגזר מדרישות
+              אמיתיות ולא מטופס ריק. אבל מי שנוחת כאן צריך לדעת שזה
+              קיים ואיפה, אחרת המסך נראה כמו רשימה לצפייה בלבד. */}
+          <Link href="/buyers" className="mv-btn-action" style={{ textDecoration: "none" }}>
+            + פרסם ביקוש
+          </Link>
+          <span className="rounded-full border px-4 py-1.5 font-medium" style={{ borderColor: "var(--color-border)" }}>
+            💎 {balance ?? "…"} קרדיטים
+          </span>
+        </div>
       </div>
+
+      <p className="mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
+        פרסום ביקוש נעשה מכרטיס הקונה — כך הוא נושא את הדרישות האמיתיות שלו.
+        בחרו קונה, ובכרטיס שלו לחצו על שיתוף לרשת.
+      </p>
 
       {message ? (
         <p role="status" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-primary)" }}>

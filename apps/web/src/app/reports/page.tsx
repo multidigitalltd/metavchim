@@ -11,6 +11,9 @@ interface OfficeStats {
   buyers: { total: number; hot: number };
   leads: { open: number; requiresHuman: number; converted: number };
   offers: { sent: number; opened: number; interested: number };
+  deals: { closed: number };
+  viewings: { held: number; missingOutcome: number };
+  daysToFirstOffer: number | null;
   appointments: { upcoming: number };
   offerOpenRate: number;
 }
@@ -120,6 +123,36 @@ export default function ReportsPage() {
           <StatCard label="לידים פתוחים" value={stats.leads.open} />
           <StatCard label="דורש טיפול אנושי" value={stats.leads.requiresHuman} />
           <StatCard label="פגישות מתוכננות" value={stats.appointments.upcoming} />
+        </dl>
+      </section>
+
+      {/* תוצאות לפני פעילות, במכוון: מתווך שפותח דוח רוצה לדעת כמה
+          סגר — לא כמה שלח. פעילות היא הסבר לתוצאה, לא תחליף לה. */}
+      <section aria-labelledby="results-heading" className="mb-8">
+        <h2 id="results-heading" className="mb-1 text-lg font-semibold">תוצאות בתקופה</h2>
+        <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          {WINDOWS.find(([value]) => value === days)?.[1]}
+        </p>
+        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <StatCard
+            label="עסקאות שנסגרו"
+            value={stats.deals.closed}
+            hint="נכסים שסומנו נמכר או הושכר"
+          />
+          <StatCard
+            label="סיורים שהתקיימו"
+            value={stats.viewings.held}
+            hint={
+              stats.viewings.missingOutcome > 0
+                ? `${stats.viewings.missingOutcome} ללא תיעוד תוצאה`
+                : "כולם תועדו"
+            }
+          />
+          <StatCard
+            label="זמן עד הצעה ראשונה"
+            value={stats.daysToFirstOffer === null ? "—" : `${stats.daysToFirstOffer} ימים`}
+            hint="מרגע כניסת הקונה ועד ההצעה הראשונה אליו"
+          />
         </dl>
       </section>
 
