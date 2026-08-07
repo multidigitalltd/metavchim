@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { TenantContext } from "../../common/tenant-context";
 import { PrismaService } from "../../core/prisma.service";
 
@@ -20,6 +21,23 @@ export interface OfficeStats {
   appointments: { upcoming: number };
   /** תנועה בתקופה שנבחרה */
   offers: { sent: number; opened: number; interested: number };
+  /**
+   * עסקאות שנסגרו בתקופה — נכסים שעברו ל"נמכר" או "הושכר".
+   * זה המדד היחיד כאן שמודד **תוצאה** ולא פעילות, ולכן הוא ראשון
+   * בדוח: מתווך שמסתכל על דוח רוצה לדעת כמה סגר, לא כמה שלח.
+   */
+  deals: { closed: number };
+  /**
+   * סיורים שהתקיימו בתקופה, ומתוכם כמה ללא תיעוד תוצאה. סיור בלי
+   * תיעוד הוא ידע שאבד — הקונה אמר משהו והמערכת לא יודעת מה.
+   */
+  viewings: { held: number; missingOutcome: number };
+  /**
+   * ימים ממוצעים מיצירת הקונה ועד ההצעה הראשונה שנשלחה אליו.
+   * null = טרם נשלחה אף הצעה בתקופה. מדד המהירות של המשרד —
+   * קונה שמקבל הצעה באותו יום נסגר אחרת מקונה שממתין שבוע.
+   */
+  daysToFirstOffer: number | null;
   /** אחוז הצעות שנפתחו מתוך שנשלחו — מדד יעילות ההצעות */
   offerOpenRate: number;
   windowDays: ReportWindowDays;
@@ -66,6 +84,9 @@ export class AnalyticsService {
         offersOpened,
         offersInterested,
         appointmentsUpcoming,
+        dealsClosed,
+        viewingsHeld,
+        viewingsMissingOutcome,
       ] = await Promise.all([
         tx.property.count({ where: { tenantId, deletedAt: null } }),
         tx.property.count({ where: { tenantId, deletedAt: null, status: "active" } }),
@@ -84,9 +105,41 @@ export class AnalyticsService {
         tx.appointment.count({
           where: { tenantId, status: "scheduled", startsAt: { gte: new Date() } },
         }),
+        // עסקאות: נמדדות לפי updatedAt ולא createdAt — מה שקובע הוא
+        // מתי הנכס נסגר, לא מתי נקלט. נכס שנקלט בינואר ונמכר במרץ
+        // שייך למרץ.
+        tx.property.count({
+          where: {
+            tenantId,
+            status: { in: ["sold", "rented"] },
+            ...(from ? { updatedAt: { gte: from } } : {}),
+          },
+        }),
+        tx.appointment.count({
+          where: {
+            tenantId,
+            kind: "viewing",
+            status: "completed",
+            ...(from ? { startsAt: { gte: from } } : {}),
+          },
+        }),
+        tx.appointment.count({
+          where: {
+            tenantId,
+            kind: "viewing",
+            status: "completed",
+            outcome: null,
+            ...(from ? { startsAt: { gte: from } } : {}),
+          },
+        }),
       ]);
 
+      const daysToFirstOffer = await this.averageDaysToFirstOffer(tx, tenantId, from);
+
       return {
+        deals: { closed: dealsClosed },
+        viewings: { held: viewingsHeld, missingOutcome: viewingsMissingOutcome },
+        daysToFirstOffer,
         properties: { total: propsTotal, active: propsActive, needsCompletion: propsIncomplete },
         buyers: { total: buyersTotal, hot: buyersHot },
         leads: { open: leadsOpen, requiresHuman: leadsRequiresHuman, converted: leadsConverted },
@@ -96,6 +149,42 @@ export class AnalyticsService {
         windowDays,
       };
     });
+  }
+
+  /**
+   * ימים ממוצעים מיצירת הקונה ועד ההצעה הראשונה שנשלחה אליו.
+   *
+   * נמדד על ההצעה **הראשונה** לכל קונה ולא על כל הצעה: קונה שקיבל
+   * חמש הצעות לאורך חודשיים היה מושך את הממוצע כלפי מעלה ומסתיר את
+   * מה שהמדד בא לענות עליו — כמה מהר המשרד מגיב לקונה חדש.
+   *
+   * שאילתה גולמית אחת ולא שליפה לזיכרון: החישוב הוא צימוד של הצעות,
+   * התאמות וקונים, ובמאגר של אלפי הצעות שליפה לצד הלקוח הייתה
+   * מיותרת לגמרי.
+   */
+  private async averageDaysToFirstOffer(
+    tx: Parameters<Parameters<PrismaService["withTenant"]>[0]>[0],
+    tenantId: string,
+    from: Date | undefined,
+  ): Promise<number | null> {
+    const rows = await tx.$queryRaw<{ avg_days: number | null }[]>`
+      SELECT AVG(EXTRACT(EPOCH FROM (first_offer - b.created_at)) / 86400)::float AS avg_days
+      FROM (
+        SELECT m.buyer_id, MIN(o.sent_at) AS first_offer
+        FROM offers o
+        JOIN matches m ON m.id = o.match_id AND m.tenant_id = o.tenant_id
+        WHERE o.tenant_id = ${tenantId}
+          AND o.sent_at IS NOT NULL
+          ${from ? Prisma.sql`AND o.sent_at >= ${from}` : Prisma.empty}
+        GROUP BY m.buyer_id
+      ) f
+      JOIN buyers b ON b.id = f.buyer_id AND b.tenant_id = ${tenantId}
+      -- הצעה שנשלחה לפני יצירת הקונה היא נתון פגום (ייבוא, תיקון
+      -- ידני); היא הייתה מושכת את הממוצע למספר שלילי חסר משמעות
+      WHERE f.first_offer >= b.created_at
+    `;
+    const avg = rows[0]?.avg_days;
+    return avg === null || avg === undefined ? null : Math.round(avg * 10) / 10;
   }
 
   /** ביצועים לפי סוכן — לניהול צוות במסלול Agency (דורש users.manage). */
