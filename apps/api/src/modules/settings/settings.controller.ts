@@ -165,12 +165,31 @@ export class SettingsController {
       select: { settings: true },
     });
     const settings = { ...((current?.settings ?? {}) as Record<string, unknown>) };
-    if (body.whatsappNumber !== undefined) {
-      if (body.whatsappNumber === "") {
-        delete settings["whatsappNumber"]; // ניתוק השיוך
-      } else {
-        settings["whatsappNumber"] = body.whatsappNumber;
-      }
+
+    /*
+     * כל השדות שיושבים ב-settings עוברים באותה לולאה.
+     *
+     * קודם רק whatsappNumber נכתב, ושלושת פרטי המשרד נבלעו בשקט: הם
+     * עברו ולידציה, חזרו ב-GET, ומעולם לא נשמרו. משתמש שמילא מספר
+     * רישיון, שמר, וראה "נשמר" — קיבל שדה ריק בטעינה הבאה. שמירה
+     * שמדווחת הצלחה ולא כותבת גרועה משדה שלא קיים.
+     *
+     * מחרוזת ריקה מוחקת את המפתח (ניקוי שדה), ולא שומרת "" —
+     * כדי שהתבניות יראו "חסר" ולא ידפיסו רישיון ריק בהסכם.
+     */
+    const SETTINGS_FIELDS = [
+      "whatsappNumber",
+      "licenseNumber",
+      "officeAddress",
+      "officePhone",
+    ] as const;
+    let settingsTouched = false;
+    for (const field of SETTINGS_FIELDS) {
+      const value = body[field];
+      if (value === undefined) continue;
+      settingsTouched = true;
+      if (value === "") delete settings[field];
+      else settings[field] = value;
     }
 
     try {
@@ -178,7 +197,7 @@ export class SettingsController {
         where: { id: tenantId },
         data: {
           ...(body.name !== undefined ? { name: body.name } : {}),
-          ...(body.whatsappNumber !== undefined ? { settings: settings as object } : {}),
+          ...(settingsTouched ? { settings: settings as object } : {}),
         },
       });
     } catch {
