@@ -52,6 +52,7 @@ export default function LeadsPage() {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [urgency, setUrgency] = useState("");
+  const [intent, setIntent] = useState("");
   // שעון קפוא לרינדור — כדי שכל השורות ימדדו מול אותו רגע
   const [now, setNow] = useState<Date | null>(null);
 
@@ -71,6 +72,7 @@ export default function LeadsPage() {
         (l) =>
           textMatches(query, l.contact.name, l.contact.phone) &&
           (!status || l.status === status) &&
+          (!intent || l.intent === intent) &&
           // "מי מחכה יותר מדי" — הסינון שמייצר את שיחת הטלפון הבאה
           (urgency === "" ||
             (urgency === "human" && l.requiresHuman) ||
@@ -78,7 +80,7 @@ export default function LeadsPage() {
               now !== null &&
               leadWaiting(l.createdAt, l.status, now)?.level === "late")),
       ),
-    [items, query, status, urgency, now],
+    [items, query, status, intent, urgency, now],
   );
 
   /*
@@ -126,10 +128,11 @@ export default function LeadsPage() {
             shown={visible.length}
             total={items.length}
             noun="לידים"
-            active={query.trim() !== "" || status !== "" || urgency !== ""}
+            active={query.trim() !== "" || status !== "" || intent !== "" || urgency !== ""}
             onClear={() => {
               setQuery("");
               setStatus("");
+              setIntent("");
               setUrgency("");
             }}
           >
@@ -145,6 +148,13 @@ export default function LeadsPage() {
               onChange={setStatus}
               allLabel="כל הסטטוסים"
               options={Object.entries(LEAD_STATUS_LABELS)}
+            />
+            <FilterSelect
+              label="סינון לפי כוונה"
+              value={intent}
+              onChange={setIntent}
+              allLabel="כל הכוונות"
+              options={Object.entries(LEAD_INTENT_LABELS)}
             />
             <FilterSelect
               label="סינון לפי דחיפות"
@@ -169,6 +179,7 @@ export default function LeadsPage() {
                 onClick={() => {
                   setQuery("");
                   setStatus("");
+                  setIntent("");
                   setUrgency("");
                 }}
               >
@@ -292,7 +303,7 @@ export default function LeadsPage() {
           </div>
 
           <CapNote
-            show={(query.trim() !== "" || status !== "" || urgency !== "") && items.length === 100}
+            show={(query.trim() !== "" || status !== "" || intent !== "" || urgency !== "") && items.length === 100}
             noun="לידים"
           />
         </>
