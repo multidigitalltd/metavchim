@@ -32,8 +32,16 @@ export function loadPreferredMode(): DictationMode {
   return stored === "browser" || stored === "server" ? stored : DEFAULT_DICTATION_MODE;
 }
 
+/**
+ * אירוע שינוי ההעדפה — שדות שכבר מוצגים על המסך מסמנים מחדש את
+ * הכפתור המועדף בלי לחכות לניווט. אותו דפוס כמו `mv-a11y-change`.
+ */
+export const DICTATION_MODE_EVENT = "mv-dictation-mode-change";
+
 export function savePreferredMode(mode: DictationMode): void {
-  if (typeof window !== "undefined") window.localStorage.setItem(MODE_STORAGE_KEY, mode);
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(MODE_STORAGE_KEY, mode);
+  window.dispatchEvent(new CustomEvent(DICTATION_MODE_EVENT, { detail: mode }));
 }
 
 /* ---------- גישה ל-API של הדפדפן ---------- */
