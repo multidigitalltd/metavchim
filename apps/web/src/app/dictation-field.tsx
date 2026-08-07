@@ -1,14 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import {
-  DEFAULT_DICTATION_MODE,
-  DICTATION_MODE_EVENT,
-  loadPreferredMode,
-  savePreferredMode,
-  useDictation,
-  type DictationMode,
-} from "@/lib/dictation";
+import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useDictation, type DictationMode } from "@/lib/dictation";
 
 /**
  * שדה טקסט שאפשר להכתיב אליו במקום להקליד — input או textarea.
@@ -17,8 +10,9 @@ import {
  * תמיד (ראו lib/dictation.ts): "מהיר" מציג טקסט תוך כדי הדיבור,
  * "מדויק" שולח לתמלול בשרת ומחזיר עברית טובה יותר בסוף.
  *
- * הבחירה האחרונה נשמרת ומודגשת, אבל שני הכפתורים תמיד לחיצים —
- * מתווך שמכתיב כתובת רוצה דיוק, ומי שמסכם שיחה רוצה מהירות.
+ * אין העדפה שמורה ואין מצב "מודגש": שני הכפתורים שווים, והבחירה
+ * נעשית בכל פעם מחדש לפי מה שמכתיבים. מתווך שמכתיב כתובת רוצה
+ * דיוק, ומי שמסכם שיחה רוצה מהירות — אותו אדם, אותו יום.
  */
 
 interface CommonProps {
@@ -68,24 +62,6 @@ export function DictationControls({
   onIdle?: () => void;
   disabled?: boolean;
 }) {
-  /*
-   * ההעדפה נקראת אחרי ההרכבה ולא באתחול ה-state.
-   *
-   * הרינדור בשרת אינו יכול לקרוא localStorage, ולכן הוא תמיד מסמן את
-   * ברירת המחדל כמועדפת. אם קוראים את ההעדפה באתחול, ה-HTML מהשרת
-   * וה-state בלקוח נחלקים, ו-React משאיר את הסימון של השרת — כלומר
-   * שינוי ההעדפה בפרופיל פשוט לא נראה על השדות. אותו דפוס כמו העדפות
-   * הנגישות בעמוד הפרופיל.
-   */
-  const [mode, setMode] = useState<DictationMode>(DEFAULT_DICTATION_MODE);
-  useEffect(() => {
-    setMode(loadPreferredMode());
-    // שינוי בפרופיל תופס מיד גם בשדות שכבר מוצגים באותו מסך
-    const sync = (): void => setMode(loadPreferredMode());
-    window.addEventListener(DICTATION_MODE_EVENT, sync);
-    return () => window.removeEventListener(DICTATION_MODE_EVENT, sync);
-  }, []);
-
   const { browserReady, serverReady, recording, transcribing, error, start, stop } = useDictation(
     (text) => onAppend(text),
   );
@@ -107,8 +83,6 @@ export function DictationControls({
   if (!browserReady && !serverReady) return null;
 
   function begin(next: DictationMode): void {
-    setMode(next);
-    savePreferredMode(next);
     start(next);
   }
 
@@ -132,7 +106,6 @@ export function DictationControls({
             <button
               type="button"
               className="mv-dictate-btn"
-              data-preferred={mode === "browser"}
               disabled={disabled}
               onClick={() => begin("browser")}
               title="זיהוי בדפדפן — הטקסט מופיע תוך כדי הדיבור"
@@ -144,7 +117,6 @@ export function DictationControls({
             <button
               type="button"
               className="mv-dictate-btn"
-              data-preferred={mode === "server"}
               disabled={disabled}
               onClick={() => begin("server")}
               title="תמלול על השרת שלכם — מדויק יותר בעברית, מגיע בסוף ההקלטה"

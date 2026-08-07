@@ -115,7 +115,12 @@ async function runUpdate() {
 async function runBackup() {
   backup = { running: true, startedAt: new Date().toISOString(), finishedAt: null, ok: null, message: "מגבה…" };
   try {
-    await compose(["run", "--rm", "--no-deps", "backup", "/backup/run.sh", "once"], 30 * 60 * 1000);
+    // רק "once" — ה-entrypoint של השירות הוא כבר `/bin/sh /backup/run.sh`,
+    // ו-`compose run` מחליף את ה-command בלבד. העברת נתיב הסקריפט כאן
+    // הייתה מגיעה כ-$1, הבדיקה `$1 = once` הייתה נכשלת, והקונטיינר היה
+    // נכנס ללולאה האינסופית של הגיבוי המתוזמן ותקוע עד ה-timeout.
+    // אותה צורה בדיוק כמו `run --rm restore safety-dump`.
+    await compose(["run", "--rm", "--no-deps", "backup", "once"], 30 * 60 * 1000);
     backup.ok = true;
     backup.message = "הגיבוי הושלם";
     console.log("[updater] manual backup finished");

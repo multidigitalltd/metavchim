@@ -1,12 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import {
-  DEFAULT_DICTATION_MODE,
-  DICTATION_MODE_EVENT,
-  loadPreferredMode,
-  type DictationMode,
-} from "@/lib/dictation";
+import type { DictationMode } from "@/lib/dictation";
 import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet } from "@/lib/api";
 
@@ -82,13 +77,14 @@ export function VoiceRecorder({
   const [transcribing, setTranscribing] = useState(false);
   const [browserSupported, setBrowserSupported] = useState(false);
   const [serverStt, setServerStt] = useState(false);
-  /*
-   * ההעדפה מעמוד הפרופיל. נקראת אחרי ההרכבה ולא באתחול ה-state:
-   * הרינדור בשרת אינו יכול לקרוא localStorage, וקריאה באתחול הייתה
-   * מייצרת אי-התאמה בהידרציה שמשאירה את ערך השרת (אותו באג שתוקן
-   * בפקדי ההכתבה).
+  /**
+   * המצב של ההקלטה שרצה כרגע; null = לא מקליטים.
+   *
+   * אין כאן העדפה שמורה: המשתמש בוחר בכל לחיצה. הגדרה מרוחקת שקובעת
+   * מה יקרה במסך אחר היא בדיוק מה שגרם למשתמש לחשוב שהמערכת מתעלמת
+   * ממנו — הבחירה חייבת להיות במקום שבו לוחצים.
    */
-  const [preferred, setPreferred] = useState<DictationMode>(DEFAULT_DICTATION_MODE);
+  const [activeMode, setActiveMode] = useState<DictationMode | null>(null);
   const segmentSecondsRef = useRef(DEFAULT_SEGMENT_SECONDS);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -111,13 +107,6 @@ export function VoiceRecorder({
   // בלי זה התשובה הייתה דורסת את מה שהקליד (ביקורת Codex).
   const valueRef = useRef(value);
   valueRef.current = value;
-
-  useEffect(() => {
-    setPreferred(loadPreferredMode());
-    const sync = (): void => setPreferred(loadPreferredMode());
-    window.addEventListener(DICTATION_MODE_EVENT, sync);
-    return () => window.removeEventListener(DICTATION_MODE_EVENT, sync);
-  }, []);
 
   useEffect(() => {
     setBrowserSupported(getSpeechRecognition() !== null);
@@ -172,8 +161,9 @@ export function VoiceRecorder({
    * מי שבחר "מהיר" ואין לו תמיכה בדפדפן עדיין מקבל את השרת — עדיף
    * שיעבוד מאשר שיישאר בלי מיקרופון בכלל.
    */
-  const wantsBrowser = preferred === "browser" && browserSupported;
-  const useServer = !wantsBrowser && serverStt && canRecordAudio;
+  // שתי היכולות, בלי הכרעה ביניהן — ההכרעה היא של המשתמש בלחיצה
+  const serverAvailable = serverStt && canRecordAudio;
+  const browserAvailable = browserSupported;
 
   function stopWatching(): void {
     if (watcherRef.current !== null) {
@@ -330,7 +320,9 @@ export function VoiceRecorder({
       if (continueRef.current) stopServerRecording();
       onError?.(
         getSpeechRecognition() !== null
-          ? "התמלול בשרת נכשל — ההקלטה הבאה תתומלל בדפדפן"
+          // כפתור "מדויק" נעלם עד לרענון — אומרים את זה, במקום להבטיח
+          // מעבר אוטומטי שכבר אינו קיים מאז שהבחירה היא של המשתמש
+          ? "התמלול בשרת נכשל — אפשר להמשיך עם ההקלטה המהירה בדפדפן"
           : "התמלול נכשל — אפשר להקליד את הטקסט",
       );
     } finally {
@@ -341,6 +333,7 @@ export function VoiceRecorder({
   function stopServerRecording(): void {
     continueRef.current = false;
     setRecording(false);
+      setActiveMode(null);
     const recorder = mediaRecorderRef.current;
     // onstop הוא שמוסיף את הקטע האחרון לתור, ומשם finishRecording
     if (recorder?.state === "recording") recorder.stop();
@@ -383,8 +376,10 @@ export function VoiceRecorder({
       onChange((current ? `${current} ` : "") + parts.join(" ").trim());
     };
     recognition.onend = () => setRecording(false);
+      setActiveMode(null);
     recognition.onerror = () => {
       setRecording(false);
+      setActiveMode(null);
       onError?.("זיהוי הדיבור נכשל — אפשר להקליד במקום");
     };
     recognitionRef.current = recognition;
@@ -392,62 +387,81 @@ export function VoiceRecorder({
     setRecording(true);
   }
 
-  function toggle(): void {
-    if (recording) {
-      if (useServer) stopServerRecording();
-      else {
-        recognitionRef.current?.stop();
-        setRecording(false);
-      }
-      return;
+  /** עצירה — לפי המצב שרץ בפועל, לא לפי מה שזמין. */
+  function stop(): void {
+    if (activeMode === "server") stopServerRecording();
+    else {
+      recognitionRef.current?.stop();
+      setRecording(false);
+      setActiveMode(null);
     }
-    if (useServer) void startServerRecording();
+    setActiveMode(null);
+  }
+
+  function begin(mode: DictationMode): void {
+    setActiveMode(mode);
+    if (mode === "server") void startServerRecording();
     else startBrowserRecognition();
   }
 
-  const canRecord = useServer || browserSupported;
+  const canRecord = serverAvailable || browserAvailable;
 
   return (
     <>
       {canRecord ? (
         <div className="mb-4 text-center">
-          <Button
-            type="button"
-            variant={recording ? "danger" : "primary"}
-            onClick={toggle}
-            aria-pressed={recording}
-            // בזמן הקלטה רציפה תמיד אפשר לעצור, גם כשקטע קודם עדיין מתומלל
-            disabled={transcribing && !recording}
-            className="min-w-48"
-          >
-            {recording ? "⏹ עצור הקלטה" : transcribing ? "מתמלל…" : "🎤 התחל לדבר"}
-          </Button>
           {recording ? (
-            <p aria-live="polite" className="mt-2" style={{ color: "var(--color-danger)" }}>
-              {/* ניסוח מדויק לכל מצב: בשרת הטקסט חוזר בסוף כל הפסקה,
-                  ורק בזיהוי הדפדפן הוא באמת זוחל תוך כדי הדיבור */}
-              {useServer
-                ? "מקליט… כל הפסקה נשלחת לתמלול"
-                : wantsBrowser
-                  ? "מקליט… הטקסט מופיע תוך כדי הדיבור"
-                  : "מקליט… דברו חופשי"}
-            </p>
+            <>
+              <Button type="button" variant="danger" onClick={stop} className="min-w-48">
+                ⏹ עצור הקלטה
+              </Button>
+              <p aria-live="polite" className="mt-2" style={{ color: "var(--color-danger)" }}>
+                {/* ניסוח מדויק לכל מצב: בשרת הטקסט חוזר בסוף כל הפסקה,
+                    ורק בזיהוי הדפדפן הוא באמת זוחל תוך כדי הדיבור */}
+                {activeMode === "server"
+                  ? "מקליט… כל הפסקה נשלחת לתמלול"
+                  : "מקליט… הטקסט מופיע תוך כדי הדיבור"}
+              </p>
+            </>
           ) : transcribing ? (
             <p aria-live="polite" className="mt-2" style={{ color: "var(--color-text-muted)" }}>
               מסיים לתמלל…
             </p>
-          ) : useServer ? (
-            <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-              🔒 התמלול מתבצע על השרת שלכם — ההקלטה לא נשלחת לשום גורם חיצוני
-            </p>
-          ) : wantsBrowser ? (
-            // אומרים במפורש איזה מצב פועל ואיפה משנים אותו — אחרת
-            // ההעדפה בפרופיל נראית כאילו לא עשתה כלום
-            <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-              ⚡ זיהוי מהיר בדפדפן, לפי ההעדפה שלכם בפרופיל. לעברית מדויקת יותר
-              אפשר לעבור שם ל&quot;מדויק&quot;.
-            </p>
-          ) : null}
+          ) : (
+            <>
+              {/* שני הכפתורים, תמיד, ובלי מודגש: הבחירה נעשית כאן ועכשיו
+                  לפי מה שמקליטים — כתובת רוצים מדויקת, סיכום רוצים מהר */}
+              <div className="flex flex-wrap justify-center gap-2">
+                {browserAvailable ? (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    onClick={() => begin("browser")}
+                    className="min-w-44"
+                  >
+                    ⚡ מהיר — בדפדפן
+                  </Button>
+                ) : null}
+                {serverAvailable ? (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    onClick={() => begin("server")}
+                    className="min-w-44"
+                  >
+                    🎯 מדויק — בשרת
+                  </Button>
+                ) : null}
+              </div>
+              <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                {browserAvailable && serverAvailable
+                  ? "מהיר — הטקסט מופיע תוך כדי הדיבור, פחות מדויק בעברית. מדויק — התמלול על השרת שלכם, איטי יותר ולא יוצא החוצה."
+                  : serverAvailable
+                    ? "🔒 התמלול מתבצע על השרת שלכם — ההקלטה לא נשלחת לשום גורם חיצוני"
+                    : "⚡ זיהוי הדיבור של הדפדפן. לעברית מדויקת יותר נדרש שירות תמלול בשרת."}
+              </p>
+            </>
+          )}
         </div>
       ) : (
         <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>

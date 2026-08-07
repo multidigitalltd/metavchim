@@ -10,6 +10,7 @@ import { formatDate, shekelsToAgorot, waMeUrl } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
 import { ContactPeople } from "../../contact-people";
+import { DictateFor } from "../../dictation-field";
 import { RelatedEntities } from "../../related-entities";
 
 interface LeadDetail {
@@ -291,6 +292,11 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           />
           <Button type="submit" variant="secondary">הוסף</Button>
         </form>
+        {/* הערה אחרי שיחה היא הטקסט שהכי כדאי להכתיב — המתווך עדיין
+            עם הטלפון ביד ולא ליד המקלדת */}
+        <div className="mb-4">
+          <DictateFor targetId="note" />
+        </div>
 
         {timeline.length === 0 ? (
           <p style={{ color: "var(--color-text-muted)" }}>אין עדיין פעילות בליד.</p>

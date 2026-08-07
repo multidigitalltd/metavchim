@@ -22,27 +22,15 @@ import { API_BASE, apiGet } from "@/lib/api";
 
 export type DictationMode = "browser" | "server";
 
-/** ברירת המחדל — דיוק העברית חשוב יותר מהמיידיות ברוב השדות. */
-export const DEFAULT_DICTATION_MODE: DictationMode = "server";
-const MODE_STORAGE_KEY = "mv-dictation-mode";
-
-export function loadPreferredMode(): DictationMode {
-  if (typeof window === "undefined") return DEFAULT_DICTATION_MODE;
-  const stored = window.localStorage.getItem(MODE_STORAGE_KEY);
-  return stored === "browser" || stored === "server" ? stored : DEFAULT_DICTATION_MODE;
-}
-
 /**
- * אירוע שינוי ההעדפה — שדות שכבר מוצגים על המסך מסמנים מחדש את
- * הכפתור המועדף בלי לחכות לניווט. אותו דפוס כמו `mv-a11y-change`.
+ * אין ברירת מחדל ואין העדפה שמורה.
+ *
+ * היה כאן מצב מועדף שנבחר בעמוד הפרופיל, והוא היה טעות: הוא הוסיף
+ * מסך שצריך למצוא, הוא לא היה גלוי במקום שבו מקליטים, וכל מסך
+ * שהתעלם ממנו נראה שבור. במקומו — שני כפתורים מפורשים בכל מקום
+ * שיש בו הקלטה, והמשתמש בוחר בכל פעם מחדש לפי מה שהוא עושה עכשיו:
+ * כתובת רוצים מדויקת, סיכום שיחה רוצים מהר.
  */
-export const DICTATION_MODE_EVENT = "mv-dictation-mode-change";
-
-export function savePreferredMode(mode: DictationMode): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(MODE_STORAGE_KEY, mode);
-  window.dispatchEvent(new CustomEvent(DICTATION_MODE_EVENT, { detail: mode }));
-}
 
 /* ---------- גישה ל-API של הדפדפן ---------- */
 
