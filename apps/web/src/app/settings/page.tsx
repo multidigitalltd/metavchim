@@ -98,14 +98,24 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   "voice_intake.create": "קליטת נכס בקול",
 };
 
+/**
+ * פרטי המשרד. השלושה האחרונים נכנסים לנוסחי ההסכמים ולהצעות —
+ * מספר רישיון התיווך הוא פרט חובה בהזמנה בכתב לפי חוק המתווכים
+ * במקרקעין, ובלעדיו התבנית מדפיסה מקום ריק.
+ */
+interface TenantSettings {
+  name: string;
+  whatsappNumber?: string;
+  plan: string;
+  leadWebhookKey?: string;
+  licenseNumber?: string;
+  officeAddress?: string;
+  officePhone?: string;
+}
+
 export default function SettingsPage() {
   const { user, loading: authLoading } = useRequireAuth();
-  const [tenant, setTenant] = useState<{
-    name: string;
-    whatsappNumber?: string;
-    plan: string;
-    leadWebhookKey?: string;
-  } | null>(null);
+  const [tenant, setTenant] = useState<TenantSettings | null>(null);
   const [team, setTeam] = useState<TeamUser[]>([]);
   const [audit, setAudit] = useState<AuditRow[]>([]);
   const [message, setMessage] = useState<string | null>(null);
@@ -114,7 +124,7 @@ export default function SettingsPage() {
   const [adding, setAdding] = useState(false);
 
   const load = useCallback(() => {
-    apiGet<{ name: string; whatsappNumber?: string; plan: string; leadWebhookKey?: string }>("/settings/tenant")
+    apiGet<TenantSettings>("/settings/tenant")
       .then(setTenant)
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 403) setForbidden(true);
@@ -134,9 +144,14 @@ export default function SettingsPage() {
     const f = new FormData(event.currentTarget);
     const whatsapp = String(f.get("whatsappNumber") ?? "").replace(/\D/gu, "");
     try {
+      // כל שדה נשלח תמיד, גם ריק: השרת מפרש "" כמחיקה, ובלי זה אי אפשר
+      // היה לנקות שדה שמולא בטעות — הערך הריק פשוט לא נשלח ונשאר כשהיה
       await apiPatch("/settings/tenant", {
         name: String(f.get("name")).trim(),
-        ...(whatsapp ? { whatsappNumber: whatsapp } : {}),
+        whatsappNumber: whatsapp,
+        licenseNumber: String(f.get("licenseNumber") ?? "").trim(),
+        officeAddress: String(f.get("officeAddress") ?? "").trim(),
+        officePhone: String(f.get("officePhone") ?? "").trim(),
       });
       setMessage("✓ ההגדרות נשמרו");
       load();
@@ -349,6 +364,27 @@ export default function SettingsPage() {
                     מספר וואטסאפ עסקי <span className="font-normal">(לניתוב הודעות נכנסות)</span>
                   </label>
                   <input id="whatsappNumber" name="whatsappNumber" dir="ltr" placeholder="972501234567" defaultValue={tenant.whatsappNumber ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+                </div>
+                <div className="mb-3.5">
+                  <label htmlFor="licenseNumber" className="mb-1 block text-sm font-semibold">
+                    מספר רישיון תיווך
+                  </label>
+                  <p className="m-0 mb-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                    נכנס לנוסח ההזמנה בכתב — פרט חובה לפי חוק המתווכים במקרקעין.
+                  </p>
+                  <input id="licenseNumber" name="licenseNumber" dir="ltr" defaultValue={tenant.licenseNumber ?? ""} maxLength={40} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+                </div>
+                <div className="mb-3.5">
+                  <label htmlFor="officeAddress" className="mb-1 block text-sm font-semibold">
+                    כתובת המשרד
+                  </label>
+                  <input id="officeAddress" name="officeAddress" placeholder="הרצל 10, תל אביב" defaultValue={tenant.officeAddress ?? ""} maxLength={200} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+                </div>
+                <div className="mb-3.5">
+                  <label htmlFor="officePhone" className="mb-1 block text-sm font-semibold">
+                    טלפון המשרד
+                  </label>
+                  <input id="officePhone" name="officePhone" dir="ltr" inputMode="tel" placeholder="03-1234567" defaultValue={tenant.officePhone ?? ""} maxLength={30} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
                 </div>
                 <p className="mb-3.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
                   מסלול: <strong>{PLAN_LABELS[tenant.plan] ?? tenant.plan}</strong>
