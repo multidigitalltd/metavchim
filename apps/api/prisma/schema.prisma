@@ -96,8 +96,55 @@ model Contact {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
+  phones       ContactPhone[]
+  links        ContactLink[]  @relation("primaryContact")
+  linkedFrom   ContactLink[]  @relation("relatedContact")
+
   @@unique([tenantId, phoneHash])
   @@map("contacts")
+}
+
+/**
+ * טלפון נוסף לאותו אדם. הטלפון הראשי נשאר על `contacts` — כאן רק
+ * המספרים הנוספים, עם אותו HMAC, כך שחיפוש נכנס מוצא את האדם דרך
+ * כל אחד ממספריו באותו מנגנון בדיוק.
+ */
+model ContactPhone {
+  id             String   @id @db.Char(26)
+  tenantId       String   @map("tenant_id") @db.Char(26)
+  contactId      String   @map("contact_id") @db.Char(26)
+  phoneEncrypted String   @map("phone_encrypted") @db.Text
+  phoneHash      String   @map("phone_hash") @db.Char(64)
+  /** mobile | home | work | other */
+  label          String   @default("mobile") @db.VarChar(10)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, phoneHash])
+  @@index([tenantId, contactId])
+  @@map("contact_phones")
+}
+
+/**
+ * אדם נוסף על אותו כרטיס — בן/בת זוג, מיופה כוח, בן שמטפל בהורים.
+ * הכרטיס ממשיך להצביע על איש קשר ראשי אחד; אלה תלויים בו.
+ */
+model ContactLink {
+  id               String   @id @db.Char(26)
+  tenantId         String   @map("tenant_id") @db.Char(26)
+  contactId        String   @map("contact_id") @db.Char(26)
+  relatedContactId String   @map("related_contact_id") @db.Char(26)
+  /** spouse | partner | parent | child | attorney | other */
+  role             String   @default("other") @db.VarChar(20)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  contact Contact @relation("primaryContact", fields: [contactId], references: [id], onDelete: Cascade)
+  related Contact @relation("relatedContact", fields: [relatedContactId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, contactId, relatedContactId])
+  @@index([tenantId, relatedContactId])
+  @@map("contact_links")
 }
 
 model Property {
