@@ -14,7 +14,7 @@ import { LEAD_STATUS_LABELS } from "@/lib/lead-labels";
  */
 
 interface Related {
-  buyer: { id: string; maturity: string } | null;
+  buyers: { id: string; maturity: string }[];
   leads: { id: string; status: string; intent: string; createdAt: string }[];
   ownedProperties: { id: string; title: string; status: string }[];
 }
@@ -41,17 +41,19 @@ export function RelatedEntities({
   }, [contactId]);
 
   if (related === null) return null;
-  const buyer = related.buyer && exclude?.kind === "buyer" && exclude.id === related.buyer.id
-    ? null
-    : related.buyer;
+  // כל כרטיסי הקונה, לא רק הראשון: אחרי מיזוג כפילויות ייתכנו שניים
+  // לאותו אדם, והשני היה נשאר בלי דרך להגיע אליו
+  const buyers = related.buyers.filter(
+    (b) => !(exclude?.kind === "buyer" && exclude.id === b.id),
+  );
   const leads = related.leads.filter((l) => !(exclude?.kind === "lead" && exclude.id === l.id));
-  if (!buyer && leads.length === 0 && related.ownedProperties.length === 0) return null;
+  if (buyers.length === 0 && leads.length === 0 && related.ownedProperties.length === 0) return null;
 
   return (
     <section aria-label="ישויות מקושרות לאותו אדם" className="mb-4">
       <ul className="flex list-none flex-wrap gap-2 p-0">
-        {buyer ? (
-          <li>
+        {buyers.map((buyer) => (
+          <li key={buyer.id}>
             <Link
               href={`/buyers/${buyer.id}`}
               className="inline-block rounded-full border px-3 py-1 text-sm underline"
@@ -60,7 +62,7 @@ export function RelatedEntities({
               👤 קונה פעיל · {MATURITY_LABELS[buyer.maturity] ?? buyer.maturity}
             </Link>
           </li>
-        ) : null}
+        ))}
         {leads.map((l) => (
           <li key={l.id}>
             <Link

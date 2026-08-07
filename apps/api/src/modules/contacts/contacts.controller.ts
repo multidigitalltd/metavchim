@@ -56,7 +56,13 @@ const AddPersonSchema = z
  */
 
 export interface RelatedEntitiesDto {
-  buyer: { id: string; maturity: string } | null;
+  /**
+   * רשימה ולא ערך יחיד: לאותו אדם יכולים להיות שני כרטיסי קונה —
+   * מלכתחילה (שום דבר לא מנע זאת), ובמיוחד אחרי מיזוג כפילויות
+   * שמאחד שני כרטיסים לאיש קשר אחד. `findFirst` היה מסתיר את השני
+   * ומשאיר אותו בלי דרך להגיע אליו.
+   */
+  buyers: { id: string; maturity: string }[];
   leads: { id: string; status: string; intent: string; createdAt: Date }[];
   ownedProperties: { id: string; title: string; status: string }[];
 }
@@ -108,14 +114,16 @@ export class ContactsController {
       });
       if (!contact) throw new NotFoundException("איש קשר לא נמצא");
 
-      const [buyer, leads, properties] = await Promise.all([
-        tx.buyer.findFirst({
+      const [buyers, leads, properties] = await Promise.all([
+        tx.buyer.findMany({
           where: {
             tenantId,
             contactId: id,
             deletedAt: null,
             ...ownershipFilter("buyers.view_all", "ownerUserId"),
           },
+          orderBy: { createdAt: "asc" },
+          take: 5,
           select: { id: true, maturity: true },
         }),
         tx.lead.findMany({
@@ -138,7 +146,7 @@ export class ContactsController {
       ]);
 
       return {
-        buyer,
+        buyers,
         leads,
         ownedProperties: properties.map((p) => ({
           id: p.id,
