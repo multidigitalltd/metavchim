@@ -71,6 +71,18 @@ const EnvSchema = z.object({
   STT_SECRET: z.string().min(16).optional(),
   /** תקרת זמן לתמלול — מודל על CPU איטי מ-API בענן. */
   STT_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(600_000).default(180_000),
+  /**
+   * התראות פוש בדפדפן (Web Push / VAPID). שלושתם יחד או אף אחד —
+   * בלעדיהם הפיצ'ר כבוי, המסך מציג "לא מוגדר", ואף אחד לא מנסה
+   * להירשם למנוי שאי אפשר לשלוח אליו.
+   *
+   * המפתחות נוצרים פעם אחת: `npx web-push generate-vapid-keys`.
+   * החלפתם מבטלת את כל המנויים הקיימים — ראו docs/08.
+   */
+  VAPID_PUBLIC_KEY: z.string().min(80).optional(),
+  VAPID_PRIVATE_KEY: z.string().min(40).optional(),
+  /** כתובת ליצירת קשר עבור ספק הפוש — mailto: או https:. */
+  VAPID_SUBJECT: z.string().regex(/^(mailto:|https:\/\/)/u).optional(),
   /** Postmark — שליחת אימייל (אימות כניסה, איפוס סיסמה, התראות). */
   POSTMARK_SERVER_TOKEN: z.string().min(16).optional(),
   /** כתובת השולח — חייבת להיות Sender Signature מאומתת ב-Postmark. */

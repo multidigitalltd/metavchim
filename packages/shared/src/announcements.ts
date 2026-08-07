@@ -22,6 +22,13 @@ export interface Announcement {
 
 export const ANNOUNCEMENTS: Announcement[] = [
   {
+    id: "v0015-browser-push",
+    date: "2026-08-07",
+    emoji: "🔔",
+    title: "התראות קופצות גם כשהמערכת סגורה",
+    body: "בעמוד הפרופיל, תחת \"התראות בדפדפן\": ליד חדש, הצעה שנפתחה או תזכורת לפגישה מגיעים למסך גם כשהמערכת סגורה. מפעילים בכל מכשיר בנפרד.",
+  },
+  {
     id: "v0014-one-click-update",
     date: "2026-07-30",
     emoji: "🚀",

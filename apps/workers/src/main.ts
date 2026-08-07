@@ -6,7 +6,15 @@ import { PrismaClient } from "@prisma/client";
 import { ulid } from "ulid";
 import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { z } from "zod";
-import { NotificationJobSchema, QUEUES } from "@metavchim/shared";
+import webpush from "web-push";
+import {
+  NotificationJobSchema,
+  QUEUES,
+  pushOutcome,
+  pushPayload,
+  shouldPush,
+  shouldRetireAfterFailure,
+} from "@metavchim/shared";
 
 for (const candidate of [resolve(process.cwd(), "../../.env"), resolve(process.cwd(), ".env")]) {
   if (existsSync(candidate)) {
@@ -773,8 +781,143 @@ async function processWeeklySummary(): Promise<void> {
   }
 }
 
+/* ==================== התראות פוש בדפדפן ==================== */
+
+/**
+ * סורק ההתראות שטרם נדחפו.
+ *
+ * למה סורק ולא שליחה בכל מקום שיוצר התראה: שורות `notifications`
+ * נכתבות מתריסר מקומות שונים בקובץ הזה וב-API, וכל מקום חדש היה
+ * צריך לזכור גם לדחוף. סורק על `pushed_at IS NULL` מכסה את כולם —
+ * גם את מי שייכתב בעתיד — והוא אידמפוטנטי מטבעו: סריקה שנפלה
+ * באמצע פשוט תרים את מה שנשאר בפעם הבאה.
+ *
+ * הסימון `pushed_at` נכתב **גם** להתראה שאין לה נמענים ולזו שסוננה
+ * ע"י `shouldPush`. אחרת כל סריקה הייתה שולפת אותן מחדש לנצח.
+ */
+const PUSH_BATCH = 100;
+/** לא מנסים לדחוף התראה ישנה — פוש שמגיע יום אחרי האירוע הוא רעש. */
+const PUSH_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+let pushConfigured: boolean | null = null;
+
+function configurePush(): boolean {
+  if (pushConfigured !== null) return pushConfigured;
+  const publicKey = process.env["VAPID_PUBLIC_KEY"];
+  const privateKey = process.env["VAPID_PRIVATE_KEY"];
+  const subject = process.env["VAPID_SUBJECT"];
+  pushConfigured = Boolean(publicKey && privateKey && subject);
+  if (pushConfigured) {
+    webpush.setVapidDetails(subject as string, publicKey as string, privateKey as string);
+  }
+  return pushConfigured;
+}
+
+async function processPushSweep(): Promise<void> {
+  if (!configurePush()) return;
+  const since = new Date(Date.now() - PUSH_MAX_AGE_MS);
+  const tenants = await prisma.tenant.findMany({ select: { id: true } });
+
+  for (const tenant of tenants) {
+    // השליחה עצמה יוצאת החוצה לרשת ולכן אינה יושבת בתוך טרנזקציה:
+    // עשרות בקשות HTTP בתוך טרנזקציה אחת היו מחזיקות חיבור DB פתוח
+    // לשניות ארוכות. קוראים בטרנזקציה, שולחים מחוצה לה, מסמנים בשנייה.
+    const pending = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      return tx.notification.findMany({
+        where: { tenantId: tenant.id, pushedAt: null, createdAt: { gte: since } },
+        orderBy: { createdAt: "asc" },
+        take: PUSH_BATCH,
+        select: {
+          id: true,
+          userId: true,
+          type: true,
+          title: true,
+          body: true,
+          entityType: true,
+          entityId: true,
+        },
+      });
+    });
+    if (pending.length === 0) continue;
+
+    const subscriptions = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      return tx.pushSubscription.findMany({ where: { tenantId: tenant.id } });
+    });
+
+    const byUser = new Map<string, typeof subscriptions>();
+    for (const sub of subscriptions) {
+      const list = byUser.get(sub.userId) ?? [];
+      list.push(sub);
+      byUser.set(sub.userId, list);
+    }
+
+    const retire: string[] = [];
+    const bumpFailure: string[] = [];
+    const succeeded: string[] = [];
+
+    for (const notification of pending) {
+      if (!shouldPush(notification)) continue;
+      // התראה משרדית (userId ריק) הולכת לכל מי שנרשם במשרד
+      const targets = notification.userId
+        ? (byUser.get(notification.userId) ?? [])
+        : subscriptions;
+      const payload = JSON.stringify(pushPayload(notification));
+
+      for (const sub of targets) {
+        try {
+          await webpush.sendNotification(
+            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+            payload,
+          );
+          succeeded.push(sub.id);
+        } catch (error: unknown) {
+          const status =
+            typeof error === "object" && error !== null && "statusCode" in error
+              ? Number((error as { statusCode: unknown }).statusCode)
+              : 0;
+          const outcome = pushOutcome(status);
+          if (outcome === "retire" || shouldRetireAfterFailure(sub.failureCount + 1)) {
+            retire.push(sub.id);
+          } else if (outcome !== "delivered") {
+            bumpFailure.push(sub.id);
+          }
+        }
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      // כולן מסומנות, גם המסוננות — אחרת הן יישלפו שוב בכל סריקה
+      await tx.notification.updateMany({
+        where: { tenantId: tenant.id, id: { in: pending.map((n) => n.id) } },
+        data: { pushedAt: new Date() },
+      });
+      if (succeeded.length > 0) {
+        await tx.pushSubscription.updateMany({
+          where: { tenantId: tenant.id, id: { in: succeeded } },
+          data: { failureCount: 0, lastSuccessAt: new Date() },
+        });
+      }
+      if (bumpFailure.length > 0) {
+        await tx.pushSubscription.updateMany({
+          where: { tenantId: tenant.id, id: { in: bumpFailure } },
+          data: { failureCount: { increment: 1 } },
+        });
+      }
+      if (retire.length > 0) {
+        await tx.pushSubscription.deleteMany({
+          where: { tenantId: tenant.id, id: { in: retire } },
+        });
+      }
+    });
+  }
+}
+
 /** תור low משותף — כל סוג Job ממוין לפי שמו. */
 async function processLow(job: Job): Promise<void> {
+  if (job.name === "push-sweep") return processPushSweep();
   if (job.name === "delete-object") return processCleanup(job);
   if (job.name === "offer-followup") return processOfferFollowup(job);
   if (job.name === "property-delisted") return processPropertyDelisted(job);
@@ -793,6 +936,13 @@ void lowQueue
   .upsertJobScheduler("lead-sla-sweep", { every: 15 * 60 * 1000 }, { name: "lead-sla-sweep" })
   .catch((error: unknown) => {
     console.error(`lead-sla-sweep scheduler registration failed: ${String(error)}`);
+  });
+// סורק הפוש — כל 30 שניות. השהיה של חצי דקה בהתראה מקובלת; סריקה
+// תכופה יותר הייתה מייצרת עומס קבוע על כל דייר בלי רווח מורגש.
+void lowQueue
+  .upsertJobScheduler("push-sweep", { every: 30 * 1000 }, { name: "push-sweep" })
+  .catch((error: unknown) => {
+    console.error(`push-sweep scheduler registration failed: ${String(error)}`);
   });
 // דו"ח בוקר — 07:00 שעון ישראל, כל יום
 void lowQueue

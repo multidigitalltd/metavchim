@@ -424,9 +424,33 @@ model Notification {
   entityId   String?   @map("entity_id") @db.Char(26)
   readAt     DateTime? @map("read_at")
   createdAt  DateTime  @default(now()) @map("created_at")
+  /** מתי נדחפה כהתראת דפדפן; NULL = טרם נשלחה (הסורק מחפש בדיוק את אלה). */
+  pushedAt   DateTime? @map("pushed_at")
 
   @@index([tenantId, userId, readAt, createdAt])
   @@map("notifications")
+}
+
+/**
+ * מנוי לפוש בדפדפן — צמד (משתמש, דפדפן). אותו סוכן במחשב ובנייד
+ * מייצר שתי שורות בכוונה: הוא רוצה את ההתראה בשניהם.
+ */
+model PushSubscription {
+  id            String    @id @db.Char(26)
+  tenantId      String    @map("tenant_id") @db.Char(26)
+  userId        String    @map("user_id") @db.Char(26)
+  /** המפתח היציב שהדפדפן מנפיק — ייחודי גלובלית. */
+  endpoint      String    @unique
+  p256dh        String
+  auth          String
+  userAgent     String?   @map("user_agent") @db.VarChar(300)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  lastSuccessAt DateTime? @map("last_success_at")
+  /** כישלונות רצופים; מתאפס בהצלחה. חציית התקרה מוחקת את המנוי. */
+  failureCount  Int       @default(0) @map("failure_count")
+
+  @@index([tenantId, userId])
+  @@map("push_subscriptions")
 }
 
 // דפוס Outbox — אירוע נכתב באותה טרנזקציה עם השינוי; Worker מפיץ (docs/02 §5).
