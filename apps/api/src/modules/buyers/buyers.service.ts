@@ -256,7 +256,15 @@ export class BuyersService {
       // לרשומת ה-status_change הוא המעבר שבאמת קרה (ביקורת Codex)
       await tx.$queryRaw`SELECT id FROM buyers WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`;
       const existing = await tx.buyer.findFirst({
-        where: { id, tenantId: TenantContext.current().tenantId, deletedAt: null },
+        where: {
+          id,
+          tenantId,
+          deletedAt: null,
+          // הרשאה בשליפה עצמה: בלעדיה העדכון היה נכתב לשורה של סוכן
+          // אחר ורק אז נכשל בקריאה החוזרת המסוננת — כתיבה שהצליחה
+          // בשקט מאחורי הודעת שגיאה
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
       });
       if (!existing) throw new NotFoundException("קונה לא נמצא");
 

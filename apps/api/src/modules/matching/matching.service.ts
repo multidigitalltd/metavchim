@@ -6,7 +6,7 @@ import {
   MATCH_THRESHOLDS,
   type BuyerRequirements,
 } from "@metavchim/shared";
-import { ownershipFilter } from "../../common/ownership";
+import { assertBuyerAccess, assertMatchAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
@@ -305,6 +305,9 @@ export class MatchingService {
   ): Promise<(MatchDto & { property: { address: string; title?: string; priceAgorot?: number } })[]> {
     return this.prisma.withTenant(async (tx) => {
       const tenantId = TenantContext.current().tenantId;
+      // ההתאמות של קונה הן מידע על הקונה — מי שאינו רשאי לראות את
+      // הכרטיס אינו רשאי לראות לאילו נכסים הוא מותאם
+      await assertBuyerAccess(tx, tenantId, buyerId);
       const rows = await tx.match.findMany({
         where: {
           tenantId,
@@ -340,6 +343,22 @@ export class MatchingService {
                 : Number(property.priceAgorot),
           },
         };
+      });
+    });
+  }
+
+  /**
+   * "סמן לא רלוונטי" — פעולת כתיבה על ההתאמה של קונה מסוים, ולכן
+   * כפופה לבעלות על אותו קונה. ישבה עד כה בבקר עם גישה ישירה ל-Prisma,
+   * ושם קל היה לפספס שמדובר בכתיבה על נתון של מישהו אחר.
+   */
+  async dismiss(matchId: string): Promise<void> {
+    const tenantId = TenantContext.current().tenantId;
+    await this.prisma.withTenant(async (tx) => {
+      await assertMatchAccess(tx, tenantId, matchId);
+      await tx.match.updateMany({
+        where: { id: matchId, tenantId, status: "suggested" },
+        data: { status: "dismissed" },
       });
     });
   }

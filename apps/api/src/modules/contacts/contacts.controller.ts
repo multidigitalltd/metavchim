@@ -4,6 +4,7 @@ import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { PrismaService } from "../../core/prisma.service";
+import { AnyAuthenticated } from "../../common/auth.decorators";
 
 /**
  * תיק לקוח מאוחד (docs/03 §contacts): אדם אחד = contact אחד, וקונה,
@@ -24,6 +25,10 @@ export interface RelatedEntitiesDto {
 export class ContactsController {
   constructor(private readonly prisma: PrismaService) {}
 
+  // אין כאן יכולת אחת נדרשת: כל תת-רשימה נשלטת ע"י כלל המודול שלה
+  // (הקונה והלידים בפילטר הבעלות, הנכסים כלל-משרדיים) — לכן ההצהרה
+  // היא "מחובר", וההרשאה בפועל נאכפת בתוך השאילתה עצמה.
+  @AnyAuthenticated()
   @Get(":id/related")
   async related(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,

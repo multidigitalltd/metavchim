@@ -30,7 +30,7 @@ export class AnalyticsController {
   constructor(private readonly analytics: AnalyticsService) {}
 
   @Get("office")
-  @RequireCapability("matches.view")
+  @RequireCapability("analytics.view")
   async office(
     @Query(new ZodValidationPipe(WindowSchema)) query: z.infer<typeof WindowSchema>,
   ): Promise<OfficeStats> {

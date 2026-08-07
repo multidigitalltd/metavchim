@@ -2,9 +2,7 @@ import { Controller, Get, HttpCode, Param, Patch, Query } from "@nestjs/common";
 import { z } from "zod";
 import { IdSchema } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
-import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
-import { PrismaService } from "../../core/prisma.service";
 import { MatchingService, type EnrichedMatchDto } from "./matching.service";
 
 const ListQuerySchema = z
@@ -18,10 +16,7 @@ const ListQuerySchema = z
 
 @Controller("matches")
 export class MatchingController {
-  constructor(
-    private readonly matching: MatchingService,
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly matching: MatchingService) {}
 
   @Get()
   @RequireCapability("matches.view")
@@ -36,12 +31,7 @@ export class MatchingController {
   @RequireCapability("matches.manage")
   @HttpCode(200)
   async dismiss(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<{ ok: true }> {
-    await this.prisma.withTenant((tx) =>
-      tx.match.updateMany({
-        where: { id, tenantId: TenantContext.current().tenantId, status: "suggested" },
-        data: { status: "dismissed" },
-      }),
-    );
+    await this.matching.dismiss(id);
     return { ok: true };
   }
 }
