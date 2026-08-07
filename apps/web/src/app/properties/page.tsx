@@ -7,7 +7,7 @@ import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
-import { CapNote, FilterBar, FilterChips, SearchField, SortSelect, textMatches } from "../list-controls";
+import { CapNote, FilterBar, FilterChips, FilterSelect, SearchField, SortSelect, textMatches } from "../list-controls";
 
 /**
  * מסך הנכסים לפי קובץ העיצוב: צ'יפי ערים לסינון, טבלת grid עם תג
@@ -96,6 +96,8 @@ export default function PropertiesPage() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [city, setCity] = useState("הכל");
+  const [status, setStatus] = useState("");
+  const [type, setType] = useState("");
   const [sort, setSort] = useState("newest");
 
   useEffect(() => {
@@ -119,12 +121,15 @@ export default function PropertiesPage() {
     const filtered = items.filter(
       (p) =>
         textMatches(query, p.street, p.neighborhood, p.city) &&
-        (city === "הכל" || p.city === city),
+        (city === "הכל" || p.city === city) &&
+        (!status || p.status === status) &&
+        (!type || p.propertyType === type),
     );
     return sortRows(filtered, sort);
-  }, [items, query, city, sort]);
+  }, [items, query, city, status, type, sort]);
 
-  const filtering = query.trim() !== "" || city !== "הכל" || sort !== "newest";
+  const filtering =
+    query.trim() !== "" || city !== "הכל" || status !== "" || type !== "" || sort !== "newest";
 
   return (
     <>
@@ -178,6 +183,8 @@ export default function PropertiesPage() {
             onClear={() => {
               setQuery("");
               setCity("הכל");
+              setStatus("");
+              setType("");
               setSort("newest");
             }}
           >
@@ -186,6 +193,20 @@ export default function PropertiesPage() {
               placeholder="🔍 רחוב, שכונה או עיר"
               value={query}
               onChange={setQuery}
+            />
+            <FilterSelect
+              label="סינון לפי סטטוס"
+              value={status}
+              onChange={setStatus}
+              allLabel="כל הסטטוסים"
+              options={Object.entries(STATUS_LABELS)}
+            />
+            <FilterSelect
+              label="סינון לפי סוג נכס"
+              value={type}
+              onChange={setType}
+              allLabel="כל הסוגים"
+              options={Object.entries(PROPERTY_TYPE_LABELS)}
             />
             <SortSelect value={sort} onChange={setSort} options={SORTS} />
           </FilterBar>
@@ -201,6 +222,8 @@ export default function PropertiesPage() {
                 onClick={() => {
                   setQuery("");
                   setCity("הכל");
+                  setStatus("");
+                  setType("");
                 }}
               >
                 נקה סינון

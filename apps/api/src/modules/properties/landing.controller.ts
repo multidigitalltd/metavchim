@@ -9,6 +9,7 @@ import {
   Post,
   StreamableFile,
 } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
 import { IdSchema, PhoneSchema } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
@@ -79,8 +80,12 @@ export class LandingController {
     });
   }
 
-  /** פנייה מהטופס בדף — נכנסת ללידים של המשרד עם הקשר הנכס. */
+  /**
+   * פנייה מהטופס בדף — נכנסת ללידים של המשרד עם הקשר הנכס.
+   * מגבלה הדוקה כמו בטופס האתר: נתיב ציבורי שכותב שורות.
+   */
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Post("public/landing/:token/lead")
   @HttpCode(200)
   async lead(

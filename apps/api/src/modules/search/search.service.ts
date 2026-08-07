@@ -1,9 +1,9 @@
 import { Injectable } from "@nestjs/common";
-import { normalizeIsraeliPhone } from "@metavchim/shared";
+import { filterVisibleNotes, normalizeIsraeliPhone } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { ownershipFilter } from "../../common/ownership";
 import { CryptoService } from "../../core/crypto.service";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 
 /**
  * חיפוש גלובלי (docs/06 §3 — "שיחה נכנסת: מי זה?"):
@@ -55,6 +55,11 @@ const EMPTY: SearchResults = {
 };
 
 const GROUP_LIMIT = 8;
+/**
+ * הערות נשלפות בעודף ומסוננות לפי בעלות אחרי כן (ראו visibleNotes) —
+ * בלי העודף, סינון של סוכן עם view_own היה מרוקן את הקבוצה כמעט תמיד.
+ */
+const NOTE_CANDIDATE_LIMIT = 60;
 /** כמה אנשי קשר אחרונים מפוענחים לחיפוש שם — תקרת עלות קבועה לבקשה. */
 const NAME_SCAN_LIMIT = 1000;
 
@@ -231,18 +236,23 @@ export class SearchService {
           orderBy: { occurredAt: "desc" },
           take: GROUP_LIMIT,
         }),
+        /*
+         * מועמדים בלבד — הסינון לפי בעלות נעשה מיד אחרי, ולכן שולפים
+         * יותר מהתקרה כדי שלא נישאר עם רשימה ריקה אחרי הסינון.
+         */
         tx.interaction.findMany({
           where: { tenantId, content: like },
           select: { id: true, content: true, createdAt: true, leadId: true, buyerId: true },
           orderBy: { createdAt: "desc" },
-          take: GROUP_LIMIT,
+          take: NOTE_CANDIDATE_LIMIT,
         }),
       ]);
+
       const freeText = {
         appointments: appointments.map((a) => ({ ...a, title: a.title ?? "פגישה" })),
         tasks,
         calls: calls.map((c) => ({ ...c, summary: c.summary ?? "" })),
-        notes,
+        notes: await this.visibleNotes(tx, tenantId, notes),
       };
 
       if (!can.canBuyers && !can.canLeads) {
@@ -311,5 +321,63 @@ export class SearchService {
         })),
       };
     });
+  }
+
+  /**
+   * סינון הערות ותיעודים לפי בעלות. ההערות עצמן אינן נושאות בעלים —
+   * הן תלויות בליד או בקונה שאליו הן מקושרות, ולכן הנראות נגזרת משם,
+   * בדיוק כמו ב-listInteractions (docs/04 §3).
+   *
+   * בלי זה סוכן עם view_own היה מוצא בחיפוש חופשי הערות על הלקוחות של
+   * סוכן אחר — וזה בדיוק המידע המסחרי הרגיש ביותר במערכת (תקציב,
+   * מניעים, מצב מו"מ).
+   */
+  private async visibleNotes(
+    tx: TenantTx,
+    tenantId: string,
+    candidates: {
+      id: string;
+      content: string;
+      createdAt: Date;
+      leadId: string | null;
+      buyerId: string | null;
+    }[],
+  ): Promise<typeof candidates> {
+    const ctx = TenantContext.current();
+    const seesAllLeads = ctx.capabilities.has("leads.view_all");
+    const seesAllBuyers = ctx.capabilities.has("buyers.view_all");
+    if (seesAllLeads && seesAllBuyers) return candidates.slice(0, GROUP_LIMIT);
+
+    const leadIds = [...new Set(candidates.map((n) => n.leadId).filter((id): id is string => id !== null))];
+    const buyerIds = [...new Set(candidates.map((n) => n.buyerId).filter((id): id is string => id !== null))];
+
+    const [leads, buyers] = await Promise.all([
+      leadIds.length > 0
+        ? tx.lead.findMany({
+            where: {
+              tenantId,
+              id: { in: leadIds },
+              ...ownershipFilter("leads.view_all", "assignedToUserId"),
+            },
+            select: { id: true },
+          })
+        : [],
+      buyerIds.length > 0
+        ? tx.buyer.findMany({
+            where: {
+              tenantId,
+              id: { in: buyerIds },
+              deletedAt: null,
+              ...ownershipFilter("buyers.view_all", "ownerUserId"),
+            },
+            select: { id: true },
+          })
+        : [],
+    ]);
+    return filterVisibleNotes(
+      candidates,
+      { leadIds: new Set(leads.map((l) => l.id)), buyerIds: new Set(buyers.map((b) => b.id)) },
+      GROUP_LIMIT,
+    );
   }
 }
