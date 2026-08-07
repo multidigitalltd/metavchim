@@ -9,6 +9,7 @@ import { apiGet, apiPost, apiPatch, ApiError } from "@/lib/api";
 import { formatDate, shekelsToAgorot, waMeUrl } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
+import { ContactPeople } from "../../contact-people";
 import { RelatedEntities } from "../../related-entities";
 
 interface LeadDetail {
@@ -161,6 +162,8 @@ function ConvertSection({ leadId }: { leadId: string }) {
 export default function LeadDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { user, loading: authLoading } = useRequireAuth();
+  // אותה יכולת שמגינה על "המר לקונה" למטה — הרשאת עריכת לקוח
+  const canEditPeople = (ROLE_CAPABILITIES[user?.role ?? ""] ?? []).includes("buyers.edit");
   // הגעה מטופס "ליד חדש" כשכבר היה ליד פתוח — השרת מיזג את הפנייה לכאן
   const merged = useSearchParams().get("merged") === "1";
   const [lead, setLead] = useState<LeadDetail | null>(null);
@@ -232,6 +235,8 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
       </p>
 
       <RelatedEntities contactId={lead.contact.id} exclude={{ kind: "lead", id: lead.id }} />
+
+      <ContactPeople contactId={lead.contact.id} canEdit={canEditPeople} />
 
       {merged ? (
         <p role="status" className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>

@@ -3,11 +3,13 @@
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
+import { ROLE_CAPABILITIES } from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { FINANCING_LABELS, formatBuyerSource, formatDate, formatPrice, MATURITY_LABELS, waMeUrl } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { WithDictation } from "../../dictation-field";
 import { TimelineSection } from "./timeline-section";
+import { ContactPeople } from "../../contact-people";
 import { RelatedEntities } from "../../related-entities";
 
 /**
@@ -82,7 +84,10 @@ function initials(name: string): string {
 
 export default function BuyerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { loading: authLoading } = useRequireAuth();
+  const { user, loading: authLoading } = useRequireAuth();
+  // היכולת נגזרת מטבלת התפקידים המשותפת ולא מרשימת תפקידים מקומית —
+  // שינוי הרשאות במקום אחד לא ישאיר כאן כפתור שהשרת ידחה
+  const canEditPeople = (ROLE_CAPABILITIES[user?.role ?? ""] ?? []).includes("buyers.edit");
   const [buyer, setBuyer] = useState<BuyerDetail | null>(null);
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
@@ -228,6 +233,8 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
       </div>
 
       <RelatedEntities contactId={buyer.contact.id} exclude={{ kind: "buyer", id: buyer.id }} />
+
+      <ContactPeople contactId={buyer.contact.id} canEdit={canEditPeople} />
 
       <div className="grid items-start gap-[18px] lg:[grid-template-columns:340px_1fr]">
         {/* ---- מה הוא מחפש ---- */}

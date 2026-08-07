@@ -95,3 +95,41 @@ export async function assertMatchAccess(
   });
   if (!buyer) throw new NotFoundException("התאמה לא נמצאה");
 }
+
+/**
+ * איש קשר: אין לו בעלים משלו — הוא אדם שמופיע ככרטיס קונה, כליד או
+ * כבעלים של נכס. הרשות לגעת בו נגזרת מהישויות שמצביעות עליו.
+ *
+ * בלי השער הזה כל משתמש מחובר היה יכול לקרוא ולשנות את מספרי הטלפון
+ * של הלקוחות של סוכן אחר לפי מזהה — אותה משפחת תקלות שנסגרה ב-#66,
+ * והפעם על ה-PII עצמו ולא על מטא-דאטה.
+ *
+ * נכסים גלויים לכל המשרד בכוונה (אין להם פילטר בעלות), ולכן בעל נכס
+ * נגיש לכל סוכן — זו התנהגות קיימת ולא הקלה חדשה.
+ */
+export async function assertContactAccess(
+  tx: TenantTx,
+  tenantId: string,
+  contactId: string,
+): Promise<void> {
+  const [buyer, lead, property] = await Promise.all([
+    tx.buyer.findFirst({
+      where: {
+        tenantId,
+        contactId,
+        deletedAt: null,
+        ...ownershipFilter("buyers.view_all", "ownerUserId"),
+      },
+      select: { id: true },
+    }),
+    tx.lead.findFirst({
+      where: { tenantId, contactId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
+      select: { id: true },
+    }),
+    tx.property.findFirst({
+      where: { tenantId, ownerContactId: contactId, deletedAt: null },
+      select: { id: true },
+    }),
+  ]);
+  if (!buyer && !lead && !property) throw new NotFoundException("איש קשר לא נמצא");
+}
