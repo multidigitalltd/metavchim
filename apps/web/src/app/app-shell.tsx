@@ -25,7 +25,11 @@ const PUBLIC_PREFIXES = [
   "/offer/",
   "/sign/",
   "/p/", // דף נחיתה של נכס — הלקוח לא רואה תפריטי מתווך
-  "/accessibility", // הצהרת נגישות — מקושרת מאתר התדמית
+  // מסמכים ציבוריים — מקושרים מאתר התדמית ומדף ההצעה, ונקראים גם
+  // ע"י מי שאינו משתמש רשום (לקוח קצה שקיבל הצעה, משרד ששוקל להצטרף)
+  "/accessibility",
+  "/privacy",
+  "/terms",
   "/change-password",
   "/forgot-password",
   "/reset-password",

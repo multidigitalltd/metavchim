@@ -2,6 +2,8 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
+  DEFAULT_DICTATION_MODE,
+  DICTATION_MODE_EVENT,
   loadPreferredMode,
   savePreferredMode,
   useDictation,
@@ -66,7 +68,24 @@ export function DictationControls({
   onIdle?: () => void;
   disabled?: boolean;
 }) {
-  const [mode, setMode] = useState<DictationMode>(() => loadPreferredMode());
+  /*
+   * ההעדפה נקראת אחרי ההרכבה ולא באתחול ה-state.
+   *
+   * הרינדור בשרת אינו יכול לקרוא localStorage, ולכן הוא תמיד מסמן את
+   * ברירת המחדל כמועדפת. אם קוראים את ההעדפה באתחול, ה-HTML מהשרת
+   * וה-state בלקוח נחלקים, ו-React משאיר את הסימון של השרת — כלומר
+   * שינוי ההעדפה בפרופיל פשוט לא נראה על השדות. אותו דפוס כמו העדפות
+   * הנגישות בעמוד הפרופיל.
+   */
+  const [mode, setMode] = useState<DictationMode>(DEFAULT_DICTATION_MODE);
+  useEffect(() => {
+    setMode(loadPreferredMode());
+    // שינוי בפרופיל תופס מיד גם בשדות שכבר מוצגים באותו מסך
+    const sync = (): void => setMode(loadPreferredMode());
+    window.addEventListener(DICTATION_MODE_EVENT, sync);
+    return () => window.removeEventListener(DICTATION_MODE_EVENT, sync);
+  }, []);
+
   const { browserReady, serverReady, recording, transcribing, error, start, stop } = useDictation(
     (text) => onAppend(text),
   );

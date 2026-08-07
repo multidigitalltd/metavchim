@@ -229,8 +229,18 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
         )}
       </section>
 
+      {/* לקוח קצה שמשאיר פרטים בטופס הזה זכאי לדעת מה נעשה בהם — הקישור
+          למדיניות הפרטיות הוא חלק מהאיסוף, לא קישוט בתחתית העמוד */}
       <p className="mt-6 text-center text-xs" style={{ color: "var(--color-text-muted)" }}>
         הדף מופעל על ידי {view.officeName} · מערכת מתווכים
+        <br />
+        <a href="/privacy" className="underline">
+          מדיניות פרטיות
+        </a>{" "}
+        ·{" "}
+        <a href="/accessibility" className="underline">
+          הצהרת נגישות
+        </a>
       </p>
     </div>
   );
