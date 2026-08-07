@@ -2,6 +2,7 @@ import { Controller, Get } from "@nestjs/common";
 import { TenantContext } from "../../common/tenant-context";
 import { ownershipFilter } from "../../common/ownership";
 import { PrismaService } from "../../core/prisma.service";
+import { AnyAuthenticated } from "../../common/auth.decorators";
 
 /**
  * מוני סרגל הצד — לפי קובץ העיצוב: מספר ליד כל פריט ניווט (נכסים,
@@ -28,6 +29,7 @@ export interface NavSummary {
 export class NavController {
   constructor(private readonly prisma: PrismaService) {}
 
+  @AnyAuthenticated()
   @Get("summary")
   async summary(): Promise<NavSummary> {
     const { tenantId } = TenantContext.current();

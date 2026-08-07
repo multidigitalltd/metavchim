@@ -4,6 +4,7 @@ import { IdSchema } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { PrismaService } from "../../core/prisma.service";
+import { AnyAuthenticated } from "../../common/auth.decorators";
 
 const ListQuerySchema = z
   .object({ limit: z.coerce.number().int().min(1).max(100).default(30) })
@@ -24,6 +25,7 @@ export interface NotificationDto {
 export class NotificationsController {
   constructor(private readonly prisma: PrismaService) {}
 
+  @AnyAuthenticated()
   @Get()
   async list(
     @Query(new ZodValidationPipe(ListQuerySchema)) query: z.infer<typeof ListQuerySchema>,
@@ -59,6 +61,7 @@ export class NotificationsController {
     });
   }
 
+  @AnyAuthenticated()
   @Patch(":id/read")
   @HttpCode(200)
   async markRead(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<{ ok: true }> {
@@ -77,6 +80,7 @@ export class NotificationsController {
     return { ok: true };
   }
 
+  @AnyAuthenticated()
   @Patch("read-all")
   @HttpCode(200)
   async markAllRead(): Promise<{ ok: true }> {

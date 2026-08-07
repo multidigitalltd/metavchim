@@ -24,6 +24,12 @@ export const CAPABILITIES = [
   "settings.manage",
   "data.export",
   "audit.view",
+  /**
+   * דוח המשרד: מספרי הלידים, הקונים החמים, ההצעות ושיעור ההמרה —
+   * התמונה העסקית של הסוכנות. עד כה הוא נשמר מאחורי matches.view,
+   * שיש גם ל-viewer, ולכן היה גלוי לכל מי שנכנס למערכת.
+   */
+  "analytics.view",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];

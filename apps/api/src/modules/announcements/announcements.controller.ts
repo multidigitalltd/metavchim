@@ -4,6 +4,7 @@ import { ANNOUNCEMENTS, type Announcement } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { PrismaService } from "../../core/prisma.service";
+import { AnyAuthenticated } from "../../common/auth.decorators";
 
 /**
  * מסך "מה חדש" (docs/09 שלב 2): התוכן חי בקוד (packages/shared) —
@@ -22,6 +23,7 @@ const SeenSchema = z
 export class AnnouncementsController {
   constructor(private readonly prisma: PrismaService) {}
 
+  @AnyAuthenticated()
   @Get()
   async list(): Promise<{ items: Announcement[]; lastSeenId: string | null }> {
     const ctx = TenantContext.current();
@@ -34,6 +36,7 @@ export class AnnouncementsController {
     return { items: ANNOUNCEMENTS, lastSeenId: user?.lastSeenAnnouncement ?? null };
   }
 
+  @AnyAuthenticated()
   @Post("seen")
   @HttpCode(200)
   async markSeen(

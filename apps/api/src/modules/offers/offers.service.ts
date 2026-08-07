@@ -2,7 +2,7 @@ import { GoneException, Injectable, NotFoundException } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import { OfferPresentationSchema, type OfferPresentation } from "@metavchim/shared";
-import { ownershipFilter } from "../../common/ownership";
+import { assertMatchAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
@@ -65,9 +65,12 @@ export class OffersService {
     const token = randomBytes(32).toString("base64url"); // 43 תווים
     const id = ulid();
 
-    const existing = await this.prisma.withTenant((tx) =>
-      tx.offer.findFirst({ where: { matchId, tenantId } }),
-    );
+    // הבדיקה קודמת גם למסלול ה-Idempotent: בלעדיה סוכן שמכיר מזהה
+    // התאמה של סוכן אחר היה מקבל בחזרה את הקישור הציבורי להצעה שלו
+    const existing = await this.prisma.withTenant(async (tx) => {
+      await assertMatchAccess(tx, tenantId, matchId);
+      return tx.offer.findFirst({ where: { matchId, tenantId } });
+    });
     if (existing) {
       return {
         id: existing.id,
@@ -392,10 +395,17 @@ export class OffersService {
       });
       if (!match) throw new NotFoundException("התאמה לא נמצאה");
       const buyer = await tx.buyer.findFirst({
-        where: { id: match.buyerId, tenantId, deletedAt: null },
+        where: {
+          id: match.buyerId,
+          tenantId,
+          deletedAt: null,
+          // הפעולה הזו מחזירה מספר טלפון של אדם. בלי פילטר הבעלות
+          // היא הייתה נתיב לשליפת ה-PII של הקונים של סוכן אחר.
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
         select: { contactId: true },
       });
-      if (!buyer) throw new NotFoundException("קונה לא נמצא");
+      if (!buyer) throw new NotFoundException("הצעה לא נמצאה");
       const contact = await this.contacts.getById(tx, buyer.contactId);
       if (!contact) throw new NotFoundException("איש קשר לא נמצא");
 

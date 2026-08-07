@@ -15,7 +15,7 @@ import { z } from "zod";
 import { IdSchema, UserRoleSchema } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { onboardingSteps, type OnboardingProgress } from "@metavchim/shared";
-import { RequireCapability } from "../../common/auth.decorators";
+import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorators";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
@@ -417,6 +417,7 @@ export class SettingsController {
    * לקלוט נכס בדיבור מאמץ את המערכת מהר יותר. הצעדים עצמם מוגדרים
    * בלוגיקה משותפת (packages/shared — onboarding.ts).
    */
+  @AnyAuthenticated()
   @Get("onboarding")
   async onboarding(): Promise<OnboardingProgress> {
     const tenantId = TenantContext.current().tenantId;
