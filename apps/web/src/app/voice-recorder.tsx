@@ -1,6 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  DEFAULT_DICTATION_MODE,
+  DICTATION_MODE_EVENT,
+  loadPreferredMode,
+  type DictationMode,
+} from "@/lib/dictation";
 import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet } from "@/lib/api";
 
@@ -76,6 +82,13 @@ export function VoiceRecorder({
   const [transcribing, setTranscribing] = useState(false);
   const [browserSupported, setBrowserSupported] = useState(false);
   const [serverStt, setServerStt] = useState(false);
+  /*
+   * ההעדפה מעמוד הפרופיל. נקראת אחרי ההרכבה ולא באתחול ה-state:
+   * הרינדור בשרת אינו יכול לקרוא localStorage, וקריאה באתחול הייתה
+   * מייצרת אי-התאמה בהידרציה שמשאירה את ערך השרת (אותו באג שתוקן
+   * בפקדי ההכתבה).
+   */
+  const [preferred, setPreferred] = useState<DictationMode>(DEFAULT_DICTATION_MODE);
   const segmentSecondsRef = useRef(DEFAULT_SEGMENT_SECONDS);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -98,6 +111,13 @@ export function VoiceRecorder({
   // בלי זה התשובה הייתה דורסת את מה שהקליד (ביקורת Codex).
   const valueRef = useRef(value);
   valueRef.current = value;
+
+  useEffect(() => {
+    setPreferred(loadPreferredMode());
+    const sync = (): void => setPreferred(loadPreferredMode());
+    window.addEventListener(DICTATION_MODE_EVENT, sync);
+    return () => window.removeEventListener(DICTATION_MODE_EVENT, sync);
+  }, []);
 
   useEffect(() => {
     setBrowserSupported(getSpeechRecognition() !== null);
@@ -141,7 +161,19 @@ export function VoiceRecorder({
     typeof navigator !== "undefined" &&
     typeof MediaRecorder !== "undefined" &&
     navigator.mediaDevices !== undefined;
-  const useServer = serverStt && canRecordAudio;
+  /*
+   * ההעדפה קודמת לזמינות.
+   *
+   * קודם היה כאן `serverStt && canRecordAudio` בלבד — כלומר ברגע
+   * ששירות התמלול זמין, הוא נבחר תמיד, וזיהוי הדפדפן שימש רק כגיבוי
+   * לכשל. משתמש שבחר "מהיר — זיהוי בדפדפן" בפרופיל קיבל בכל זאת
+   * תמלול בשרת, וההעדפה שלו נראתה כאילו אינה עושה כלום.
+   *
+   * מי שבחר "מהיר" ואין לו תמיכה בדפדפן עדיין מקבל את השרת — עדיף
+   * שיעבוד מאשר שיישאר בלי מיקרופון בכלל.
+   */
+  const wantsBrowser = preferred === "browser" && browserSupported;
+  const useServer = !wantsBrowser && serverStt && canRecordAudio;
 
   function stopWatching(): void {
     if (watcherRef.current !== null) {
@@ -392,7 +424,13 @@ export function VoiceRecorder({
           </Button>
           {recording ? (
             <p aria-live="polite" className="mt-2" style={{ color: "var(--color-danger)" }}>
-              {useServer ? "מקליט… הטקסט מופיע תוך כדי הדיבור" : "מקליט… דברו חופשי"}
+              {/* ניסוח מדויק לכל מצב: בשרת הטקסט חוזר בסוף כל הפסקה,
+                  ורק בזיהוי הדפדפן הוא באמת זוחל תוך כדי הדיבור */}
+              {useServer
+                ? "מקליט… כל הפסקה נשלחת לתמלול"
+                : wantsBrowser
+                  ? "מקליט… הטקסט מופיע תוך כדי הדיבור"
+                  : "מקליט… דברו חופשי"}
             </p>
           ) : transcribing ? (
             <p aria-live="polite" className="mt-2" style={{ color: "var(--color-text-muted)" }}>
@@ -401,6 +439,13 @@ export function VoiceRecorder({
           ) : useServer ? (
             <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
               🔒 התמלול מתבצע על השרת שלכם — ההקלטה לא נשלחת לשום גורם חיצוני
+            </p>
+          ) : wantsBrowser ? (
+            // אומרים במפורש איזה מצב פועל ואיפה משנים אותו — אחרת
+            // ההעדפה בפרופיל נראית כאילו לא עשתה כלום
+            <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              ⚡ זיהוי מהיר בדפדפן, לפי ההעדפה שלכם בפרופיל. לעברית מדויקת יותר
+              אפשר לעבור שם ל&quot;מדויק&quot;.
             </p>
           ) : null}
         </div>

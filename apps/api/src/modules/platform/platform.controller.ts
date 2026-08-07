@@ -30,6 +30,7 @@ import { AuthService } from "../auth/auth.service";
 import {
   BackupsService,
   type BackupsOverview,
+  type BackupRunStatus,
   type RestoreStatus,
 } from "./backups.service";
 
@@ -328,5 +329,22 @@ export class PlatformController {
   @Get("backups/restore/status")
   async restoreStatus(): Promise<RestoreStatus> {
     return this.backups.restoreStatus();
+  }
+
+  /**
+   * גיבוי ידני — "גבה עכשיו". לפני עדכון גרסה, לפני שינוי גדול, או
+   * פשוט כדי לא לחכות לגיבוי היומי הבא. הקובץ שנוצר זהה לחלוטין
+   * לגיבוי האוטומטי ומופיע באותה רשימה.
+   */
+  @Post("backups/run")
+  @HttpCode(202)
+  async runBackup(): Promise<{ status: "started" }> {
+    await this.backups.startBackup();
+    return { status: "started" };
+  }
+
+  @Get("backups/run/status")
+  async backupRunStatus(): Promise<BackupRunStatus> {
+    return this.backups.backupStatus();
   }
 }

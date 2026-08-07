@@ -42,6 +42,15 @@ export interface BackupsOverview {
   restoreAvailable: boolean;
 }
 
+/** מצב ריצת גיבוי ידני; אין לו שם קובץ — הוא נקבע בזמן ההרצה. */
+export interface BackupRunStatus {
+  running: boolean;
+  startedAt: string | null;
+  finishedAt: string | null;
+  ok: boolean | null;
+  message: string | null;
+}
+
 export interface RestoreStatus {
   running: boolean;
   name: string | null;
@@ -159,6 +168,24 @@ export class BackupsService {
     if (res.status === 409) throw new ConflictException("פעולה אחרת כבר רצה — המתינו לסיומה");
     if (!res.ok) throw new ServiceUnavailableException("סוכן העדכון החזיר שגיאה");
     this.logger.warn(`שחזור מגיבוי הופעל ממסך הפלטפורמה: ${name}`);
+  }
+
+  /**
+   * גיבוי ידני — "גבה עכשיו". מריץ את אותו סקריפט של הגיבוי המתוזמן
+   * דרך סוכן העדכון, כך שהקובץ שנוצר זהה בפורמט ובשם, ומופיע ברשימה
+   * ובשחזור בדיוק כמו גיבוי אוטומטי.
+   */
+  async startBackup(): Promise<void> {
+    const res = await this.callAgent("/backup", { method: "POST" });
+    if (res.status === 409) throw new ConflictException("פעולה אחרת כבר רצה — המתינו לסיומה");
+    if (!res.ok) throw new ServiceUnavailableException("סוכן העדכון החזיר שגיאה");
+    this.logger.log("גיבוי ידני הופעל ממסך הפלטפורמה");
+  }
+
+  async backupStatus(): Promise<BackupRunStatus> {
+    const res = await this.callAgent("/backup/status", { method: "GET" });
+    if (!res.ok) throw new ServiceUnavailableException("סוכן העדכון החזיר שגיאה");
+    return (await res.json()) as BackupRunStatus;
   }
 
   async restoreStatus(): Promise<RestoreStatus> {
