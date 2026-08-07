@@ -5,6 +5,7 @@ import Link from "next/link";
 import { apiGet } from "@/lib/api";
 import { FIELD_LABELS, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { DuplicateContacts } from "./duplicate-contacts";
 import { SetupBanner } from "./setup-banner";
 
 /**
@@ -276,6 +277,8 @@ export default function DashboardPage() {
           {dateFmt.format(new Date())}
         </span>
       </div>
+
+      <DuplicateContacts />
 
       <section aria-labelledby="counts-heading" className="mb-7">
         <h2 id="counts-heading" className="mv-visually-hidden">מונים</h2>

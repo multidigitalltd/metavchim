@@ -92,6 +92,8 @@ model Contact {
   emailEncrypted String?  @map("email_encrypted") @db.Text
   // HMAC של הטלפון המנורמל — חיפוש ודה-דופליקציה בלי פענוח.
   phoneHash      String   @map("phone_hash") @db.Char(64)
+  /** HMAC של השם המנורמל — איתור כפילויות בלי לפענח. NULL עד ההשלמה. */
+  nameHash       String?  @map("name_hash") @db.Char(64)
   optedOutAt     DateTime? @map("opted_out_at")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")

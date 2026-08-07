@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   isContactRole,
+  normalizeNameForMatch,
   orderPeople,
   type ContactPerson,
   type ContactRole,
@@ -81,6 +82,9 @@ export class ContactsService {
         nameEncrypted: this.crypto.encrypt(input.name),
         phoneEncrypted: this.crypto.encrypt(input.phone),
         phoneHash,
+        // חתימת השם נכתבת מיד — כרטיס חדש נכנס לאיתור הכפילויות
+        // בלי להמתין לסריקת ההשלמה
+        nameHash: this.crypto.nameHash(normalizeNameForMatch(input.name)),
       },
     });
     return { id, name: input.name, phone: input.phone };

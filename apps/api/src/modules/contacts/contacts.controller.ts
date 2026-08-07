@@ -17,6 +17,7 @@ import {
   PhoneSchema,
   normalizePhone,
   type ContactPerson,
+  type DuplicateGroup,
 } from "@metavchim/shared";
 import { assertContactAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -24,9 +25,14 @@ import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { PrismaService } from "../../core/prisma.service";
 import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorators";
 import { ContactsService } from "./contacts.service";
+import { DuplicatesService } from "./duplicates.service";
 
 /** אותו נרמול של קליטת הלידים — שני כתיבים של מספר חייבים להתלכד. */
 const PhoneField = z.string().trim().max(25).transform(normalizePhone).pipe(PhoneSchema);
+
+const MergeSchema = z
+  .object({ survivorId: IdSchema, duplicateId: IdSchema })
+  .strict();
 
 const AddPhoneSchema = z
   .object({ phone: PhoneField, label: z.enum(PHONE_LABELS).default("mobile") })
@@ -60,7 +66,31 @@ export class ContactsController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly contacts: ContactsService,
+    private readonly duplicates: DuplicatesService,
   ) {}
+
+  /* ---------- כרטיסים כפולים ---------- */
+
+  /**
+   * כפילויות אפשריות. דורש ראות רוחבית על הלקוחות — סוכן עם view_own
+   * רואה חצי מהתמונה, והצעת מיזוג על סמך חצי תמונה היא הצעה למחוק
+   * כרטיס שהוא לא רואה.
+   */
+  @RequireCapability("buyers.view_all")
+  @Get("duplicates")
+  async duplicateGroups(): Promise<DuplicateGroup[]> {
+    return this.duplicates.findDuplicates();
+  }
+
+  /** מיזוג. פעולה הרסנית — נרשמת ביומן הביקורת עם המזהה שנעלם. */
+  @RequireCapability("buyers.view_all")
+  @Post("duplicates/merge")
+  @HttpCode(200)
+  async merge(
+    @Body(new ZodValidationPipe(MergeSchema)) body: z.infer<typeof MergeSchema>,
+  ): Promise<{ moved: number }> {
+    return this.duplicates.merge(body.survivorId, body.duplicateId);
+  }
 
   // אין כאן יכולת אחת נדרשת: כל תת-רשימה נשלטת ע"י כלל המודול שלה
   // (הקונה והלידים בפילטר הבעלות, הנכסים כלל-משרדיים) — לכן ההצהרה

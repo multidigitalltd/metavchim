@@ -38,4 +38,13 @@ export class CryptoService {
   phoneHash(normalizedPhone: string): string {
     return createHmac("sha256", this.hashKey).update(normalizedPhone).digest("hex");
   }
+
+  /**
+   * חתימת שם לאיתור כפילויות. תחילית נפרדת כדי שחתימת שם וחתימת
+   * טלפון לעולם לא יתנגשו — בלעדיה מספר שנכתב כשם היה מייצר את אותו
+   * ערך, ושתי טבלאות שונות היו "מוצאות" התאמה שאינה קיימת.
+   */
+  nameHash(normalizedName: string): string {
+    return createHmac("sha256", this.hashKey).update(`name:${normalizedName}`).digest("hex");
+  }
 }
