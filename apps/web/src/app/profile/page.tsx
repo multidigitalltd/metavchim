@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiPost, ApiError } from "@/lib/api";
 import {
@@ -18,6 +18,7 @@ import {
   savePreferredMode,
   type DictationMode,
 } from "@/lib/dictation";
+import { disablePush, enablePush, readPushState, type PushState } from "@/lib/push";
 import { useRequireAuth } from "@/lib/use-auth";
 import { ThemeToggle } from "../theme-toggle";
 
@@ -187,6 +188,8 @@ export default function ProfilePage() {
             </div>
           </section>
 
+          <PushSection />
+
           {/* ---- סיסמה ---- */}
           <section className="mv-list-card px-5 py-[17px]" aria-labelledby="password-heading">
             <h2 id="password-heading" className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>
@@ -285,5 +288,99 @@ export default function ProfilePage() {
         </section>
       </div>
     </>
+  );
+}
+
+/**
+ * התראות פוש בדפדפן.
+ *
+ * שלושה תנאים בלתי-תלויים חייבים להתקיים, ולכל אחד יש הודעה משלו:
+ * הדפדפן תומך, השרת הוגדר עם מפתחות VAPID, והמשתמש אישר. "לא זמין"
+ * גנרי היה שולח מתווך לחפש תקלה במקום הלא נכון — למשל להאשים את
+ * המערכת כשההרשאה נחסמה בהגדרות הדפדפן שלו.
+ */
+function PushSection() {
+  const [state, setState] = useState<PushState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(() => {
+    void readPushState().then(setState);
+  }, []);
+
+  useEffect(refresh, [refresh]);
+
+  async function toggle(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      if (state?.subscribed) {
+        await disablePush();
+      } else {
+        const failure = await enablePush();
+        if (failure) setError(failure);
+      }
+      refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mv-list-card px-5 py-[17px]" aria-labelledby="push-heading">
+      <h2 id="push-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+        התראות בדפדפן
+      </h2>
+      <p className="m-0 mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+        ליד חדש, הצעה שנפתחה או תזכורת לפגישה — קופצים על המסך גם כשהמערכת
+        סגורה. ההגדרה היא לדפדפן הזה בלבד; במכשיר אחר צריך להפעיל שוב.
+      </p>
+
+      {state === null ? (
+        <p aria-live="polite" className="m-0 text-sm">בודק…</p>
+      ) : state.support === "unsupported" ? (
+        <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          הדפדפן הזה אינו תומך בהתראות. באייפון צריך להוסיף את המערכת למסך
+          הבית (שיתוף ← הוסף למסך הבית) ואז להפעיל משם.
+        </p>
+      ) : state.support === "not-configured" ? (
+        <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          התראות הדפדפן טרם הופעלו בשרת של המשרד. פנו למנהל המערכת.
+        </p>
+      ) : (
+        <>
+          <button
+            type="button"
+            className="mv-a11y-toggle"
+            aria-pressed={state.subscribed}
+            disabled={busy}
+            onClick={() => void toggle()}
+          >
+            <span className="text-start">
+              <span className="block font-bold">
+                {state.subscribed ? "התראות פעילות בדפדפן הזה" : "הפעל התראות בדפדפן הזה"}
+              </span>
+              <span className="block text-xs" style={{ opacity: 0.85 }}>
+                {state.subscribed
+                  ? "לחיצה תכבה אותן במכשיר הזה"
+                  : "הדפדפן יבקש אישור פעם אחת"}
+              </span>
+            </span>
+            <span aria-hidden="true">{state.subscribed ? "✓" : ""}</span>
+          </button>
+
+          {state.permission === "denied" && !state.subscribed ? (
+            <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              ההרשאה חסומה בהגדרות הדפדפן לאתר הזה. יש לאפשר אותה שם, ואז לחזור לכאן.
+            </p>
+          ) : null}
+          {error ? (
+            <p role="alert" className="mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
+              {error}
+            </p>
+          ) : null}
+        </>
+      )}
+    </section>
   );
 }
