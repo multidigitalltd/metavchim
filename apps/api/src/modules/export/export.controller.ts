@@ -9,6 +9,7 @@ import {
   toCsv,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
+import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -100,7 +101,18 @@ export class ExportController {
     const { buyers, contacts } = await this.prisma.withTenant(async (tx) => {
       const buyerRows = await fetchAll((cursor) =>
         tx.buyer.findMany({
-          where: { tenantId, deletedAt: null },
+          where: {
+            tenantId,
+            deletedAt: null,
+            /*
+             * גם כאן פילטר הבעלות. היום data.export שמורה לבעלים
+             * ולמנהל בלבד, ולשניהם יש buyers.view_all — כלומר הפילטר
+             * ריק ואין שינוי בפועל. הוא קיים כדי שהנכונות לא תישען
+             * על צירוף המקרים הזה: הרגע שבו מישהו יעניק ייצוא לתפקיד
+             * צר יותר לא אמור להיות הרגע שבו נוצרת דליפה.
+             */
+            ...ownershipFilter("buyers.view_all", "ownerUserId"),
+          },
           orderBy: { id: "asc" },
           take: PAGE_SIZE,
           ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),

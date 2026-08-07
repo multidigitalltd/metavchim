@@ -57,6 +57,7 @@ const backupKind = (name) => (DB_NAME.test(name) ? "db" : MEDIA_NAME.test(name) 
 
 let updating = false;
 let restore = { running: false, name: null, startedAt: null, finishedAt: null, ok: null, message: null };
+let backup = { running: false, startedAt: null, finishedAt: null, ok: null, message: null };
 
 const json = (res, status, body) => {
   res.writeHead(status, { "content-type": "application/json" });
@@ -98,6 +99,38 @@ async function runUpdate() {
     console.error(`[updater] update failed: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     updating = false;
+  }
+}
+
+/**
+ * גיבוי ידני — "גבה עכשיו" ממסך הפלטפורמה.
+ *
+ * מריץ את אותו `backup_once` של שירות הגיבוי המתוזמן, דרך
+ * `run.sh once`. אותו קוד ואותו פורמט קובץ בכוונה: גיבוי ידני
+ * שנוצר אחרת היה עלול לא להתאים לזרימת השחזור, וזה בדיוק הרגע
+ * שבו מגלים את זה — כשצריך לשחזר.
+ *
+ * `--no-deps` כדי שלא יגרור הרמה של שירותים; ה-DB כבר רץ.
+ */
+async function runBackup() {
+  backup = { running: true, startedAt: new Date().toISOString(), finishedAt: null, ok: null, message: "מגבה…" };
+  try {
+    // רק "once" — ה-entrypoint של השירות הוא כבר `/bin/sh /backup/run.sh`,
+    // ו-`compose run` מחליף את ה-command בלבד. העברת נתיב הסקריפט כאן
+    // הייתה מגיעה כ-$1, הבדיקה `$1 = once` הייתה נכשלת, והקונטיינר היה
+    // נכנס ללולאה האינסופית של הגיבוי המתוזמן ותקוע עד ה-timeout.
+    // אותה צורה בדיוק כמו `run --rm restore safety-dump`.
+    await compose(["run", "--rm", "--no-deps", "backup", "once"], 30 * 60 * 1000);
+    backup.ok = true;
+    backup.message = "הגיבוי הושלם";
+    console.log("[updater] manual backup finished");
+  } catch (error) {
+    backup.ok = false;
+    backup.message = "הגיבוי נכשל — ראו את הלוג של סוכן העדכון";
+    console.error(`[updater] manual backup failed: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    backup.running = false;
+    backup.finishedAt = new Date().toISOString();
   }
 }
 
@@ -163,6 +196,23 @@ const server = createServer((req, res) => {
 
   if (req.method === "GET" && req.url === "/restore/status") {
     json(res, 200, restore);
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/backup/status") {
+    json(res, 200, backup);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/backup") {
+    // שחזור וגיבוי לא רצים יחד: שניהם נוגעים באותה תיקייה, ודאמפ
+    // שנכתב בזמן שחזור היה מצלם מצב באמצע
+    if (backup.running || restore.running) {
+      json(res, 409, { error: "operation already running" });
+      return;
+    }
+    json(res, 202, { status: "started" });
+    void runBackup();
     return;
   }
 

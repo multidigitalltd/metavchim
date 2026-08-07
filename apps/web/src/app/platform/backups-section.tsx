@@ -68,12 +68,20 @@ function formatSize(bytes: number): string {
   return `${(mb / 1024).toFixed(2)} GB`;
 }
 
+/** מצב ריצת גיבוי ידני; אין לו שם קובץ — הוא נקבע בזמן ההרצה. */
+interface BackupRunStatus {
+  running: boolean;
+  ok: boolean | null;
+  message: string | null;
+}
+
 export function BackupsSection() {
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [restore, setRestore] = useState<RestoreStatus | null>(null);
+  const [backupRun, setBackupRun] = useState<BackupRunStatus | null>(null);
   // ה-API יורד באמצע השחזור (הסוכן עוצר אותו) — הדגל מבדיל בין
   // "השרת נפל" לבין "זה בדיוק מה שאמור לקרות עכשיו"
   const restoringRef = useRef(false);
@@ -112,7 +120,37 @@ export function BackupsSection() {
     return () => clearInterval(timer);
   }, [restore, load]);
 
+  /* מעקב אחרי גיבוי ידני שרץ. בניגוד לשחזור, המערכת נשארת באוויר —
+     ולכן שגיאת רשת כאן היא באמת תקלה ולא חלק מהתהליך. */
+  useEffect(() => {
+    if (backupRun === null || !backupRun.running) return;
+    const timer = setInterval(() => {
+      apiGet<BackupRunStatus>("/platform/backups/run/status")
+        .then((s) => {
+          setBackupRun(s);
+          if (!s.running) load();
+        })
+        .catch(() => undefined);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [backupRun, load]);
+
   if (data === null) return null;
+
+  /** "גבה עכשיו" — לפני עדכון גרסה, או כדי לא לחכות לגיבוי היומי. */
+  async function onBackupNow() {
+    setBusy("backup-now");
+    setError(null);
+    setNotice(null);
+    try {
+      await apiPost("/platform/backups/run", {});
+      setBackupRun({ running: true, ok: null, message: "מגבה…" });
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "הפעלת הגיבוי נכשלה");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function onDelete(name: string) {
     if (!window.confirm(`למחוק את הגיבוי ${name}?\n\nהפעולה אינה הפיכה בשרת המקומי.`)) return;
@@ -170,9 +208,29 @@ export function BackupsSection() {
         גיבויים
       </h2>
       <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
-        גיבוי מסד נתונים יומי, ארכיון תמונות שבועי, וסנכרון אוטומטי לאחסון מחוץ לשרת
-        כל 6 שעות.
+        גיבוי מסד נתונים כל 24 שעות, ארכיון תמונות בימי ראשון, וסנכרון אוטומטי
+        לאחסון מחוץ לשרת כל 6 שעות. שמירה: 14 יום למסד, 28 לתמונות.
       </p>
+
+      {data.available ? (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            className="mv-btn-action"
+            disabled={busy !== null || backupRun?.running === true || restore?.running === true}
+            onClick={() => void onBackupNow()}
+          >
+            {backupRun?.running ? "מגבה…" : "גבה עכשיו"}
+          </button>
+          <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+            {backupRun && !backupRun.running && backupRun.ok !== null
+              ? backupRun.ok
+                ? "✓ הגיבוי הושלם"
+                : `✗ ${backupRun.message ?? "הגיבוי נכשל"}`
+              : "יוצר גיבוי מיידי — זהה בפורמט לגיבוי האוטומטי"}
+          </span>
+        </div>
+      ) : null}
 
       {!data.available ? (
         <div
