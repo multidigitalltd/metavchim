@@ -2,7 +2,16 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { apiPost, ApiError } from "@/lib/api";
+import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
+
+/** הפרופיל כפי שהשרת מחזיר אותו (‎GET /auth/profile). */
+interface ProfileDto {
+  name: string;
+  email: string;
+  phone: string;
+  hasPassword: boolean;
+  preferences: Record<string, unknown>;
+}
 import {
   A11Y_DEFAULTS,
   A11Y_TOGGLES,
@@ -36,6 +45,8 @@ const ROLE_LABELS: Record<string, string> = {
   viewer: "צפייה בלבד",
 };
 
+const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
+
 export default function ProfilePage() {
   const { user, loading } = useRequireAuth();
   const router = useRouter();
@@ -43,16 +54,45 @@ export default function ProfilePage() {
   const [passwordMsg, setPasswordMsg] = useState<string | null>(null);
   const [passwordErr, setPasswordErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [profile, setProfile] = useState<ProfileDto | null>(null);
+  const [detailsMsg, setDetailsMsg] = useState<string | null>(null);
+  const [detailsErr, setDetailsErr] = useState<string | null>(null);
 
   useEffect(() => {
+    // המטמון מוחל מיד כדי שלא יהיה הבהוב, והשרת גובר עליו כשהוא עונה
     setPrefs(loadA11y());
+    apiGet<ProfileDto>("/auth/profile")
+      .then((res) => {
+        setProfile(res);
+        const fromServer = res.preferences?.a11y as Partial<A11yPrefs> | undefined;
+        if (!fromServer) return;
+        const merged = { ...A11Y_DEFAULTS, ...fromServer };
+        setPrefs(merged);
+        applyA11y(merged);
+        saveA11y(merged);
+        window.dispatchEvent(new CustomEvent("mv-a11y-change", { detail: merged }));
+      })
+      .catch(() => undefined);
   }, []);
+
+  /**
+   * שמירה בשרת היא מה שהופך את ההעדפה לאישית ולא למכשירית.
+   *
+   * היא נשלחת ולא מומתנת: המשתמש כבר רואה את השינוי מהמטמון, וכישלון
+   * רשת לא צריך להחזיר לו את המסך אחורה — הוא ייסנכרן בשינוי הבא.
+   */
+  function persist(next: A11yPrefs): void {
+    apiPatch("/auth/profile", { preferences: { ...(profile?.preferences ?? {}), a11y: next } }).catch(
+      () => undefined,
+    );
+  }
 
   function update(patch: Partial<A11yPrefs>): void {
     const next = { ...prefs, ...patch };
     setPrefs(next);
     applyA11y(next);
     saveA11y(next);
+    persist(next);
     // הרכיב שמרנדר את קו הקריאה יושב ב-layout ולא כאן
     window.dispatchEvent(new CustomEvent("mv-a11y-change", { detail: next }));
   }
@@ -61,7 +101,37 @@ export default function ProfilePage() {
     setPrefs(A11Y_DEFAULTS);
     applyA11y(A11Y_DEFAULTS);
     clearA11y();
+    persist(A11Y_DEFAULTS);
     window.dispatchEvent(new CustomEvent("mv-a11y-change", { detail: A11Y_DEFAULTS }));
+  }
+
+  async function saveDetails(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const nextEmail = String(data.get("email") ?? "").trim();
+    const emailChanging = profile !== null && nextEmail.toLowerCase() !== profile.email.toLowerCase();
+    setDetailsMsg(null);
+    setDetailsErr(null);
+    try {
+      const updated = await apiPatch<ProfileDto>("/auth/profile", {
+        name: String(data.get("name") ?? "").trim(),
+        phone: String(data.get("phone") ?? "").trim(),
+        email: nextEmail,
+        ...(emailChanging
+          ? { currentPassword: String(data.get("emailPassword") ?? "") }
+          : {}),
+      });
+      setProfile(updated);
+      form.reset();
+      setDetailsMsg(
+        emailChanging
+          ? "✓ הפרטים נשמרו. כתובת ההתחברות השתנתה — חיבורים פתוחים אחרים נותקו."
+          : "✓ הפרטים נשמרו",
+      );
+    } catch (err: unknown) {
+      setDetailsErr(err instanceof ApiError ? err.message : "השמירה נכשלה");
+    }
   }
 
   async function changePassword(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -126,6 +196,62 @@ export default function ProfilePage() {
 
       <div className="grid items-start gap-[18px] lg:[grid-template-columns:1fr_1fr]">
         <div className="flex flex-col gap-[18px]">
+          {/* ---- הפרטים שלי ---- */}
+          <section className="mv-list-card px-5 py-[17px]" aria-labelledby="details-heading">
+            <h2 id="details-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+              הפרטים שלי
+            </h2>
+            <p className="m-0 mb-3 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+              הטלפון ישמש להתראות בוואטסאפ כשהחיבור יופעל במשרד.
+            </p>
+
+            {detailsMsg ? (
+              <p role="status" className="m-0 mb-3 text-sm" style={{ color: "var(--color-primary)" }}>
+                {detailsMsg}
+              </p>
+            ) : null}
+            {detailsErr ? (
+              <p role="alert" className="m-0 mb-3 text-sm" style={{ color: "var(--color-danger)" }}>
+                {detailsErr}
+              </p>
+            ) : null}
+
+            {profile ? (
+              <form onSubmit={(e) => void saveDetails(e)}>
+                <div className="mb-3">
+                  <label htmlFor="pf-name" className="mb-1 block text-sm font-semibold">שם מלא</label>
+                  <input id="pf-name" name="name" defaultValue={profile.name} required minLength={2} maxLength={120} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+                </div>
+                <div className="mb-3">
+                  <label htmlFor="pf-phone" className="mb-1 block text-sm font-semibold">טלפון</label>
+                  <input id="pf-phone" name="phone" dir="ltr" inputMode="tel" placeholder="050-1234567" defaultValue={profile.phone} maxLength={20} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+                </div>
+                <div className="mb-3">
+                  <label htmlFor="pf-email" className="mb-1 block text-sm font-semibold">כתובת אימייל</label>
+                  <input id="pf-email" name="email" type="email" dir="ltr" defaultValue={profile.email} required maxLength={254} disabled={!profile.hasPassword} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+                  {profile.hasPassword ? (
+                    <>
+                      <label htmlFor="pf-email-password" className="mb-1 mt-2 block text-sm font-semibold">
+                        סיסמה נוכחית <span className="font-normal">(רק אם שיניתם את האימייל)</span>
+                      </label>
+                      <p className="m-0 mb-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                        האימייל הוא כתובת ההתחברות, ולכן שינוי שלו דורש אימות ומנתק חיבורים פתוחים אחרים.
+                      </p>
+                      <input id="pf-email-password" name="emailPassword" type="password" autoComplete="current-password" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+                    </>
+                  ) : (
+                    <p className="m-0 mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                      החשבון מחובר דרך Google — כתובת האימייל מנוהלת שם.
+                    </p>
+                  )}
+                </div>
+                <button type="submit" className="mv-btn-action">שמור פרטים</button>
+              </form>
+            ) : (
+              <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>טוען…</p>
+            )}
+          </section>
+
           {/* ---- תצוגה ---- */}
           <section className="mv-list-card px-5 py-[17px]" aria-labelledby="display-heading">
             <h2 id="display-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>

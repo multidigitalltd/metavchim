@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, Injectable, UnauthorizedException } from "@nestjs/common";
 import * as argon2 from "argon2";
 import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
@@ -24,6 +24,16 @@ export interface AuthenticatedUser {
  * האימות ונחתם ל-Session — כך Session שנוצר במרוץ מול איפוס סיסמה
  * (אימות לפני האיפוס, יצירה אחריו) נושא חותמת ישנה ונפסל.
  */
+/** הפרופיל של המשתמש עצמו — כולל העדפות שנוסעות איתו בין מכשירים. */
+export interface ProfileDto {
+  name: string;
+  email: string;
+  phone: string;
+  /** false = החשבון מחובר דרך Google ואין לו סיסמה במערכת */
+  hasPassword: boolean;
+  preferences: Record<string, unknown>;
+}
+
 export interface ValidatedUser extends AuthenticatedUser {
   passwordChangedAt: Date;
 }
@@ -173,6 +183,86 @@ export class AuthService {
     });
 
     return { token, expiresAt, user };
+  }
+
+  async getProfile(userId: string): Promise<ProfileDto> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException();
+    return {
+      name: user.name,
+      email: user.email,
+      phone: user.phone ?? "",
+      hasPassword: user.passwordHash !== null,
+      preferences: (user.preferences ?? {}) as Record<string, unknown>,
+    };
+  }
+
+  /**
+   * עריכת הפרופיל של המשתמש עצמו.
+   *
+   * שינוי האימייל מטופל בנפרד משאר השדות, כי הוא שינוי *זהות
+   * ההתחברות* ולא עדכון פרט: מי שתפס מסך פתוח לרגע היה יכול להעביר
+   * את החשבון לכתובת שלו ואז "לשכוח סיסמה". לכן נדרשת הסיסמה
+   * הנוכחית, וכל שאר ה-Sessions מבוטלים אחריו.
+   */
+  async updateProfile(
+    userId: string,
+    input: {
+      name?: string;
+      phone?: string;
+      email?: string;
+      currentPassword?: string;
+      preferences?: Record<string, unknown>;
+    },
+  ): Promise<ProfileDto> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException();
+
+    const data: {
+      name?: string;
+      phone?: string | null;
+      email?: string;
+      preferences?: object;
+    } = {};
+    if (input.name !== undefined) data.name = input.name.trim();
+    if (input.phone !== undefined) data.phone = input.phone.trim() === "" ? null : input.phone.trim();
+    if (input.preferences !== undefined) data.preferences = input.preferences as object;
+
+    const nextEmail = input.email?.trim().toLowerCase();
+    const emailChanging = nextEmail !== undefined && nextEmail !== user.email;
+    if (emailChanging) {
+      if (user.passwordHash === null) {
+        // חשבון Google: אין סיסמה לאמת מולה, והכתובת מנוהלת אצל הספק
+        throw new BadRequestException(
+          "החשבון מחובר דרך Google — כתובת האימייל מנוהלת שם ולא כאן",
+        );
+      }
+      if (!input.currentPassword) {
+        throw new BadRequestException("להחלפת כתובת האימייל יש להזין את הסיסמה הנוכחית");
+      }
+      const ok = await argon2.verify(user.passwordHash, input.currentPassword).catch(() => false);
+      if (!ok) throw new UnauthorizedException("הסיסמה הנוכחית שגויה");
+
+      const taken = await this.prisma.user.findUnique({ where: { email: nextEmail } });
+      if (taken) throw new BadRequestException("הכתובת כבר רשומה במערכת");
+      data.email = nextEmail;
+    }
+
+    const updated = await this.prisma.user.update({ where: { id: userId }, data });
+
+    if (emailChanging) {
+      // הכתובת היא זהות ההתחברות — כל חיבור פתוח אחר נסגר, בדיוק
+      // כמו אחרי שינוי סיסמה
+      await this.prisma.session.deleteMany({ where: { userId } });
+    }
+
+    return {
+      name: updated.name,
+      email: updated.email,
+      phone: updated.phone ?? "",
+      hasPassword: updated.passwordHash !== null,
+      preferences: (updated.preferences ?? {}) as Record<string, unknown>,
+    };
   }
 
   /** החלפת סיסמה ע"י המשתמש עצמו — מנקה את דגל mustChangePassword. */
