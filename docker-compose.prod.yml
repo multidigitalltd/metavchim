@@ -105,7 +105,13 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      DOMAIN: ${DOMAIN:?חסר DOMAIN ב-.env.production}
+      # לא :? — compose מפרש את הקובץ *לפני* סינון הפרופילים, ולכן
+      # DOMAIN חסר היה מפיל **כל** פקודת compose בשרת שמריץ מאחורי
+      # nginx קיים (שם הפרופיל standalone כבוי ו-Caddy לא רץ בכלל).
+      # התסמין קשה לאבחון: גם `logs`, גם `ps` וגם `up -d` נופלים על
+      # שירות שאינו בשימוש — וגיבוי חיצוני שלא הורם נראה כמו תקלת
+      # גיבוי. Caddy עצמו נכשל בבירור אם הפרופיל דלוק והערך ריק.
+      DOMAIN: ${DOMAIN:-}
     volumes:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddydata:/data
@@ -146,6 +152,36 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
+
+  # זיהוי דוברים בשיחות טלפון (pyannote על CPU) — "מי אמר מה" בתמלול.
+  # פעיל רק בפרופיל diarize, *בנוסף* ל-stt: התמלול עצמו נשאר בשירות stt
+  # והשירות הזה מוסיף לו רק את תורי הדיבור.
+  # דורש HF_TOKEN ואישור תנאי המודל; ראו docs/10-deployment.md §זיהוי דוברים.
+  diarize:
+    profiles: ["diarize"]
+    build:
+      context: ./infra/diarize
+    restart: unless-stopped
+    environment:
+      DIARIZE_MODEL: ${DIARIZE_MODEL:-pyannote/speaker-diarization-3.1}
+      # אותו סוד משותף של שירות התמלול — שני השירותים באותה רשת פנימית
+      STT_SECRET: ${STT_SECRET:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+      DIARIZE_MAX_SPEAKERS: ${DIARIZE_MAX_SPEAKERS:-4}
+      DIARIZE_CONCURRENCY: ${DIARIZE_CONCURRENCY:-1}
+      OMP_NUM_THREADS: ${DIARIZE_THREADS:-2}
+    volumes:
+      - diarizemodels:/models
+    deploy:
+      resources:
+        limits:
+          memory: ${DIARIZE_MEMORY_LIMIT:-4g}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:9001/health')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
 
   # גיבוי אוטומטי — pg_dump יומי + ארכיון תמונות שבועי אל ${BACKUP_DIR}
   # במארח. שחזור: ראו docs/10-deployment.md §גיבוי ושחזור.
@@ -200,7 +236,10 @@ services:
     image: postgres:16-alpine
     entrypoint: ["/bin/sh", "/backup/restore.sh"]
     environment:
-      PGPASSWORD: ${DB_OWNER_PASSWORD:?חסר DB_OWNER_PASSWORD ב-.env.production}
+      # לא :? מאותה סיבה כמו ב-caddy — שירות מאחורי פרופיל שדורש
+      # משתנה מפיל כל פקודת compose. אין כאן ויתור על הבדיקה:
+      # postgres ו-backup, שרצים תמיד, כבר דורשים את המשתנה הזה.
+      PGPASSWORD: ${DB_OWNER_PASSWORD:-}
     volumes:
       - ./infra/backup:/backup:ro
       # כתיבה — גם דאמפ הבטיחות לפני השחזור נשמר כאן
@@ -211,21 +250,37 @@ services:
       postgres:
         condition: service_healthy
 
+  # ------------------------------------------------------------------
+  # סוכן העדכון. הוא מריץ docker compose מול ה-Docker של המארח, ולכן
+  # כל נתיב יחסי בקובץ הזה נפתר פעמיים: פעם על ידי ה-CLI *בתוך*
+  # הקונטיינר, ופעם על ידי ה-daemon *על המארח*.
+  #
+  # לכן הריפו מחובר בדיוק לאותו נתיב מוחלט שבו הוא יושב על המארח.
+  # קודם הוא חובר ל-/srv/repo, ואז `./backups` נפתר ל-/srv/repo/backups
+  # על המארח — תיקייה שלא קיימת שם. Docker יצר אותה ריקה וחיבר אותה,
+  # וכך אחרי "עדכן גרסה" מתוך המערכת ה-API ראה תיקיית גיבויים ריקה
+  # בזמן שהקבצים עצמם ישבו שלמים ב-${BACKUP_DIR}. עדכון ידני מתוך
+  # תיקיית הריפו עבד תקין — ומכאן שהתסמין נראה אקראי.
+  # ------------------------------------------------------------------
   updater:
     image: ${IMAGE_PREFIX:-ghcr.io/multidigitalltd/metavchim}-updater:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
-      UPDATE_SECRET: ${UPDATE_SECRET:?חסר UPDATE_SECRET ב-.env.production}
-      REPO_DIR: /srv/repo
+      UPDATE_SECRET: ${UPDATE_SECRET:-}
+      REPO_DIR: ${REPO_DIR:-/srv/metavchim}
     volumes:
       # שליטה ב-Docker של המארח — כך הסוכן מרים גרסאות חדשות
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./:/srv/repo:ro
-      # אישורי ה-Registry של המארח (docker login ghcr.io) לצורך pull
-      - ${DOCKER_CONFIG_DIR:-~/.docker}:/root/.docker:ro
+      # אותו נתיב מוחלט בדיוק כמו על המארח — ראו ההסבר למעלה
+      - ./:${REPO_DIR:-/srv/metavchim}:ro
+      # אישורי ה-Registry של המארח (docker login ghcr.io) לצורך pull.
+      # לא ~/.docker — compose אינו מרחיב טילדה, והנתיב היה נפתר
+      # כתיקייה יחסית בשם "~" במקום כספריית הבית.
+      - ${DOCKER_CONFIG_DIR:-/root/.docker}:/root/.docker:ro
 
 volumes:
   sttmodels:
+  diarizemodels:
   pgdata:
   redisdata:
   miniodata:
