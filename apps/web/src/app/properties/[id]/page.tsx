@@ -3,7 +3,7 @@
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import {
   FIELD_LABELS,
   formatDate,
@@ -125,10 +125,28 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   }, [authLoading, id]);
 
   async function createOffer(matchId: string) {
-    const offer = await apiPost<OfferInfo & { matchId: string }>("/offers", { matchId });
-    setOffers((prev) => ({ ...prev, [matchId]: offer }));
-    await navigator.clipboard.writeText(offer.url).catch(() => undefined);
-    setCopiedFor(matchId);
+    try {
+      const offer = await apiPost<OfferInfo & { matchId: string }>("/offers", { matchId });
+      setOffers((prev) => ({ ...prev, [matchId]: offer }));
+      await navigator.clipboard.writeText(offer.url).catch(() => undefined);
+      setCopiedFor(matchId);
+    } catch (err: unknown) {
+      /*
+       * שער ההחתמה מוחזר כ-409 עם קישור לחתימה. בלי הטיפול הזה
+       * הלחיצה נכשלה בשקט: המתווך לא ראה שגיאה, לא קיבל קישור,
+       * ולא היה לו שום רמז מה לעשות — בזמן שהשרת כבר יצר עבורו את
+       * ההסכם (ביקורת Codex).
+       */
+      const signUrl =
+        err instanceof ApiError && err.body["code"] === "signature_required"
+          ? String(err.body["signUrl"] ?? "")
+          : "";
+      if (signUrl) {
+        setAwaitingSignature((prev) => ({ ...prev, [matchId]: signUrl }));
+        return;
+      }
+      throw err;
+    }
   }
 
   /** פותח וואטסאפ עם ההודעה והקישור מוכנים — המתווך רק לוחץ שלח (אפיון §10). */

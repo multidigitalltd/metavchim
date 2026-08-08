@@ -81,15 +81,21 @@ export class AgreementsService {
    * האם ללקוח יש הסכם חתום מסוג נתון. זו הבדיקה ששולטת בשער
    * ההצעות — הצעה לא נחשפת ללקוח שטרם חתם על הזמנה בכתב.
    */
+  /**
+   * ה-tenantId מפורש ולא מ-TenantContext: הבדיקה נקראת גם מהדף
+   * הציבורי של ההצעה, שרץ בלי הקשר בקשה מאומת — שם הקריאה ל-context
+   * הייתה זורקת.
+   */
   async hasSigned(
     tx: TenantTx,
+    tenantId: string,
     contactId: string,
     kind: AgreementKind,
     propertyId?: string,
   ): Promise<boolean> {
     const signed = await tx.agreement.findFirst({
       where: {
-        tenantId: TenantContext.current().tenantId,
+        tenantId,
         contactId,
         kind,
         // ההזמנה בכתב נוקבת בנכס מסוים, ולכן חתימה עליו אינה מכסה
@@ -308,9 +314,6 @@ export class AgreementsService {
       טלפון_המשרד: asText("officePhone"),
       שם_הלקוח: contact.name,
       טלפון_הלקוח: contact.phone,
-      // שורה למילוי ולא ערך: החותם מזין את מספר הזהות שלו במסך
-      // החתימה, ורק אז הוא נכנס לגוף המסמך
-      תעודת_זהות_הלקוח: SIGNER_BLANK,
       סוג_העסקה: dealText,
       תיאור_הנכס: propertyText,
       מחיר_משוער: priceText,
@@ -326,6 +329,17 @@ export class AgreementsService {
       מועד_תשלום: asText("defaultPaymentTerms"),
       תאריך: new Date().toLocaleDateString("he-IL"),
       ...input.values,
+      /*
+       * שדות שהחותם ממלא נשארים בשליטת השרת — **אחרי** פריסת הערכים
+       * מהבקשה ולא לפניה.
+       *
+       * POST /agreements מקבל רשימת ערכים חופשית, ולכן קורא יכול היה
+       * לשלוח תעודת זהות משלו ולדרוס את הסימון. אז fillSignerId לא
+       * מוצא אותו בחתימה, המסמך הקפוא נשאר עם הזהות ששלח הקורא בזמן
+       * ש-signerIdNumber מתעד זהות אחרת — והגיבוב מאמת בדיוק את
+       * חוסר ההתאמה הזה (ביקורת Codex).
+       */
+      תעודת_זהות_הלקוח: SIGNER_BLANK,
     };
   }
 

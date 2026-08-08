@@ -85,7 +85,7 @@ export class OffersService {
         select: { contactId: true },
       });
       if (!buyer) return null;
-      if (await this.agreements.hasSigned(tx, buyer.contactId, "brokerage", match.propertyId)) {
+      if (await this.agreements.hasSigned(tx, tenantId, buyer.contactId, "brokerage", match.propertyId)) {
         return null;
       }
       return this.agreements.create(tx, {
@@ -94,6 +94,29 @@ export class OffersService {
         propertyId: match.propertyId,
       });
     });
+  }
+
+  /**
+   * האם ההצעה מגובה בהזמנה בכתב חתומה על אותו נכס.
+   *
+   * רץ בתוך הטרנזקציה של הדף הציבורי, אחרי שהדייר כבר הוגדר ממנה —
+   * ולכן פוליסות ה-RLS חלות כרגיל.
+   */
+  private async offerSignatureSatisfied(
+    tx: Parameters<Parameters<PrismaService["withTenant"]>[0]>[0],
+    offer: { tenantId: string; matchId: string },
+  ): Promise<boolean> {
+    const match = await tx.match.findFirst({
+      where: { id: offer.matchId, tenantId: offer.tenantId },
+      select: { buyerId: true, propertyId: true },
+    });
+    if (!match) return false;
+    const buyer = await tx.buyer.findFirst({
+      where: { id: match.buyerId, tenantId: offer.tenantId, deletedAt: null },
+      select: { contactId: true },
+    });
+    if (!buyer) return false;
+    return this.agreements.hasSigned(tx, offer.tenantId, buyer.contactId, "brokerage", match.propertyId);
   }
 
   private static signatureRequired(signUrl: string): ConflictException {
@@ -266,6 +289,26 @@ export class OffersService {
       // הדייר נגזר מההצעה שנמצאה (ערך שרת) — נדרש לפוליסת ה-RLS של ה-Outbox.
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${offer.tenantId}, true)`;
 
+      /*
+       * השער נאכף גם כאן, בהגשת הדף עצמו — ולא רק ביצירת ההצעה.
+       *
+       * שער שיושב רק ביצירה שומר על הצעות חדשות בלבד: כתובת שנוצרה
+       * לפני הפיצ'ר, או כזו שכבר שותפה, המשיכה להיפתח כרגיל. בנוסף
+       * הסכם יכול להידחות או לפוג *אחרי* שההצעה נוצרה, וקישור חי
+       * שממשיך להציג נכס ללקוח שלא חתום מרוקן את ההגנה מתוכן
+       * (ביקורת Codex, סבב שלישי).
+       *
+       * הדף מציג "לא זמין" ולא שגיאה: הלקוח אינו הצד שאמור להתמודד
+       * עם זה, והמתווך רואה את הסיבה במסך שלו.
+       */
+      if (!(await this.offerSignatureSatisfied(tx, offer))) {
+        return {
+          presentation: OfferPresentationSchema.parse(offer.presentation),
+          status: "unavailable",
+          images: [],
+        };
+      }
+
       // נכס שירד משיווק — הדף מציג "לא זמין" בלי לספור פתיחה ובלי
       // לתזמן פולו-אפ; קישור חי לא מוכר נכס שנמכר (docs/01)
       if (!(await this.offerPropertyMarketable(tx, offer))) {
@@ -411,6 +454,13 @@ export class OffersService {
     let created = 0;
     let skipped = 0;
     const awaitingSignature: { matchId: string; signUrl: string }[] = [];
+    /*
+     * התאמה שנחסמה בשער נשארת בסטטוס suggested, ולכן הסבב הבא היה
+     * בוחר אותה שוב — ושוב, עד תקרת 50 הסבבים. עם מאה קונים לא
+     * חתומים זה 5,000 טרנזקציות מיותרות ואותם קישורים שוב ושוב.
+     * הרשימה הזו מוציאה אותן מהסבבים הבאים (ביקורת Codex).
+     */
+    const blocked = new Set<string>();
 
     const MAX_ROUNDS = 50; // בלם בטיחות: 50×100 = 5,000 הצעות לכל היותר בקריאה
     for (let round = 0; round < MAX_ROUNDS; round += 1) {
@@ -429,8 +479,11 @@ export class OffersService {
         return matches.map((m) => ({ id: m.id, hasOffer: withOffer.has(m.id) }));
       });
       if (candidates.length === 0) break;
+      const pending = candidates.filter((c) => !blocked.has(c.id));
+      // כל מה שנשאר בסבב הזה כבר נחסם — אין טעם בסבב נוסף
+      if (pending.length === 0) break;
 
-      for (const candidate of candidates) {
+      for (const candidate of pending) {
         if (candidate.hasOffer) {
           // התאמה עם הצעה שנשארה suggested — מסמנים offered כדי שתצא מהסבב הבא
           await this.prisma.withTenant((tx) =>
@@ -452,6 +505,7 @@ export class OffersService {
               : null;
           if (body?.code === "signature_required" && body.signUrl) {
             awaitingSignature.push({ matchId: candidate.id, signUrl: body.signUrl });
+            blocked.add(candidate.id);
             continue;
           }
           skipped += 1; // כפילות במרוץ / נכס שירד משיווק — ממשיכים לשאר
