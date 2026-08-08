@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
-import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
+import { API_BASE, ApiError, apiDelete, apiGet, apiPost } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { FilterBar, SearchField, textMatches } from "../list-controls";
@@ -28,6 +28,9 @@ interface CallRow {
   durationMinutes?: number;
   outcome: string;
   summary?: string;
+  /** pending | running | done | failed | unavailable — חסר = לא הועלתה הקלטה. */
+  transcriptionStatus?: string;
+  transcript?: string;
 }
 
 const OUTCOME_LABELS: Record<string, string> = {
@@ -384,6 +387,8 @@ export default function CallsPage() {
                   )}
                 </div>
 
+                <CallRecording call={selected} onChanged={load} />
+
                 <div className="mt-4 flex flex-wrap gap-3">
                   {selected.leadId ? (
                     <Link href={`/leads/${selected.leadId}`} className="mv-btn-soft">
@@ -405,5 +410,102 @@ export default function CallsPage() {
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * הקלטת השיחה: העלאה, מצב התמלול, והתמלול המלא.
+ *
+ * ההקלטה **נשמרת** ואינה נמחקת אחרי התמלול — בניגוד להקלטת הכתבה
+ * או הוראה קולית, שהיא אמצעי חד-פעמי. שיחה עם לקוח היא תיעוד של
+ * הקשר, ומתווך שחוזר אליה בעוד חודש רוצה לשמוע מה נאמר ולא רק
+ * לקרוא סיכום. מדיניות הפרטיות אומרת את ההבחנה הזו במפורש.
+ */
+function CallRecording({ call, onChanged }: { call: CallRow; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showFull, setShowFull] = useState(false);
+
+  async function upload(file: File): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${API_BASE}/calls/${call.id}/recording`, {
+        method: "POST",
+        credentials: "include",
+        body: form,
+      });
+      if (!res.ok) throw new Error("upload failed");
+      onChanged();
+    } catch {
+      setError("העלאת ההקלטה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const status = call.transcriptionStatus;
+
+  return (
+    <div className="mt-4">
+      <p className="mb-2 mt-0 text-[13px] font-extrabold" style={{ color: "var(--color-text-muted)" }}>
+        הקלטת השיחה
+      </p>
+
+      {status === undefined ? (
+        <label className="mv-btn-plain inline-block cursor-pointer">
+          {busy ? "מעלה…" : "🎙 צרף הקלטה"}
+          <input
+            type="file"
+            accept="audio/*"
+            className="mv-visually-hidden"
+            disabled={busy}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void upload(file);
+            }}
+          />
+        </label>
+      ) : status === "unavailable" ? (
+        <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          ההקלטה נשמרה. שירות התמלול אינו מופעל בשרת — ראו docs/10.
+        </p>
+      ) : status === "pending" || status === "running" ? (
+        <p className="m-0 text-sm" aria-live="polite" style={{ color: "var(--color-text-muted)" }}>
+          ⏳ ההקלטה נשמרה וממתינה לתמלול. זה לוקח כמה דקות — אפשר לעזוב את המסך.
+        </p>
+      ) : status === "failed" ? (
+        <p className="m-0 text-sm" style={{ color: "var(--color-danger)" }}>
+          התמלול נכשל. ההקלטה עצמה נשמרה ולא אבדה.
+        </p>
+      ) : (
+        <>
+          <button
+            type="button"
+            className="mv-btn-plain"
+            aria-expanded={showFull}
+            onClick={() => setShowFull((v) => !v)}
+          >
+            {showFull ? "הסתר תמלול מלא" : "📄 הצג תמלול מלא"}
+          </button>
+          {showFull ? (
+            <div
+              className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap rounded-[13px] border p-3.5 text-sm"
+              style={{ background: "var(--color-field)", borderColor: "var(--color-border)", lineHeight: 1.6 }}
+            >
+              {call.transcript}
+            </div>
+          ) : null}
+        </>
+      )}
+
+      {error ? (
+        <p role="alert" className="m-0 mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }
