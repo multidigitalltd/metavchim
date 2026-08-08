@@ -3,11 +3,16 @@ import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import {
   AGREEMENT_KIND_LABELS,
+  REQUIRED_PLACEHOLDERS,
+  SIGNER_BLANK,
+  SIGNER_PROVIDED_PLACEHOLDERS,
   defaultAgreementTemplate,
+  fillSignerId,
   renderAgreement,
   type AgreementKind,
   type AgreementValues,
 } from "@metavchim/shared";
+import { assertContactAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
@@ -76,12 +81,21 @@ export class AgreementsService {
    * האם ללקוח יש הסכם חתום מסוג נתון. זו הבדיקה ששולטת בשער
    * ההצעות — הצעה לא נחשפת ללקוח שטרם חתם על הזמנה בכתב.
    */
-  async hasSigned(tx: TenantTx, contactId: string, kind: AgreementKind): Promise<boolean> {
+  async hasSigned(
+    tx: TenantTx,
+    contactId: string,
+    kind: AgreementKind,
+    propertyId?: string,
+  ): Promise<boolean> {
     const signed = await tx.agreement.findFirst({
       where: {
         tenantId: TenantContext.current().tenantId,
         contactId,
         kind,
+        // ההזמנה בכתב נוקבת בנכס מסוים, ולכן חתימה עליו אינה מכסה
+        // נכס אחר. בלי הסינון הזה חתימה אחת הייתה פותחת את השער לכל
+        // הנכסים שיוצעו ללקוח מכאן והלאה (ביקורת Codex).
+        propertyId: propertyId ?? null,
         status: "signed",
       },
       select: { id: true },
@@ -94,12 +108,16 @@ export class AgreementsService {
     tx: TenantTx,
     contactId: string,
     kind: AgreementKind,
+    propertyId?: string,
   ): Promise<{ id: string; publicToken: string } | null> {
     return tx.agreement.findFirst({
       where: {
         tenantId: TenantContext.current().tenantId,
         contactId,
         kind,
+        // אותו היקף בדיוק כמו ב-hasSigned: מסמך ממתין על נכס אחד לא
+        // נחשב "כבר נשלח" עבור נכס אחר
+        propertyId: propertyId ?? null,
         status: { in: ["pending", "viewed"] },
         tokenExpires: { gt: new Date() },
       },
@@ -118,7 +136,18 @@ export class AgreementsService {
   ): Promise<{ id: string; url: string; unfilled: string[]; reused: boolean }> {
     const { tenantId, userId } = TenantContext.current();
 
-    const existing = await this.pendingFor(tx, input.contactId, input.kind);
+    /*
+     * בדיקת הבעלות רצה **ראשונה**, לפני כל דבר אחר.
+     *
+     * הכניסה לכאן היא מכמה נתיבים (POST /agreements, שער ההצעות),
+     * וכשהיא ישבה רק באחד מהם — סוכן עם offers.send ו-buyers.view_own
+     * יכול היה להעביר מזהה איש קשר של סוכן אחר ולקבל בחזרה קישור
+     * חתימה נושא־טוקן ללקוח שאינו שלו. הענף של "הסכם ממתין קיים"
+     * החזיר את הקישור מיד, בלי שום בדיקה (ביקורת Codex).
+     */
+    await assertContactAccess(tx, tenantId, input.contactId);
+
+    const existing = await this.pendingFor(tx, input.contactId, input.kind, input.propertyId);
     if (existing) {
       return { id: existing.id, url: this.publicUrl(existing.publicToken), unfilled: [], reused: true };
     }
@@ -130,21 +159,67 @@ export class AgreementsService {
     const template = await this.templateFor(tx, input.kind);
     const { text, unfilled } = renderAgreement(template, values);
 
+    /*
+     * מסמך לא שלם לא נקפא ולא נשלח.
+     *
+     * קודם הוא כן: פרטי חובה שלא הוזנו הודפסו בגוף ההסכם כ-[חסר: …],
+     * הלקוח חתם, ו-hasSigned פתח את שער ההצעות — כלומר בדיוק ההגנה
+     * המשפטית שהפיצ'ר קיים בשבילה נשחקה בשקט. עדיף להיעצר כאן עם
+     * הודעה שאומרת מה למלא ואיפה (ביקורת Codex).
+     *
+     * תעודת הזהות יוצאת מן הכלל: היא נכנסת לנוסח ברגע החתימה, מהחותם
+     * עצמו — ולכן מוצגת עד אז כשורה למילוי ולא כשדה חסר.
+     */
+    const blocking = unfilled.filter(
+      (name) =>
+        REQUIRED_PLACEHOLDERS[input.kind].includes(name as keyof AgreementValues) &&
+        !SIGNER_PROVIDED_PLACEHOLDERS.includes(name as keyof AgreementValues),
+    );
+    if (blocking.length > 0) {
+      throw new BadRequestException(
+        `אי אפשר לשלוח הסכם לחתימה בלי פרטי החובה: ${blocking
+          .map((name) => name.replace(/_/gu, " "))
+          .join(", ")}. השלימו אותם בהגדרות המשרד או בטופס השליחה.`,
+      );
+    }
+
     const token = randomBytes(32).toString("base64url");
-    const row = await tx.agreement.create({
-      data: {
-        id: ulid(),
-        tenantId,
-        kind: input.kind,
-        contactId: input.contactId,
-        propertyId: input.propertyId ?? null,
-        renderedBody: text,
-        bodyHash: AgreementsService.hashBody(text),
-        publicToken: token,
-        tokenExpires: new Date(Date.now() + TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000),
-        createdBy: userId,
-      },
-    });
+    /*
+     * המחזור של "הסכם ממתין קיים" למעלה הוא בדיקה ואז יצירה — ושתי
+     * בקשות במקביל ראו שתיהן "אין שורה" וייצרו שני מסמכים עם שני
+     * טוקנים. כיוון שנעילת החתימה מותנית בשורה, כל אחד מהם היה ניתן
+     * לחתימה בנפרד: שתי חתימות על אותה הזמנה (ביקורת Codex).
+     *
+     * האכיפה עברה למסד — אינדקס ייחודי חלקי על הסכם פעיל. המפסיד
+     * במרוץ מקבל הודעה ברורה במקום מסמך כפול; אי אפשר לקרוא כאן את
+     * השורה המנצחת, כי הפרת האילוץ כבר ביטלה את הטרנזקציה.
+     */
+    const row = await tx.agreement
+      .create({
+        data: {
+          id: ulid(),
+          tenantId,
+          kind: input.kind,
+          contactId: input.contactId,
+          propertyId: input.propertyId ?? null,
+          renderedBody: text,
+          bodyHash: AgreementsService.hashBody(text),
+          presentedHash: AgreementsService.hashBody(text),
+          publicToken: token,
+          tokenExpires: new Date(Date.now() + TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000),
+          createdBy: userId,
+        },
+      })
+      .catch((error: unknown) => {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          (error as { code?: string }).code === "P2002"
+        ) {
+          throw new BadRequestException("הסכם לחתימה כבר נשלח ללקוח — רעננו את המסך");
+        }
+        throw error;
+      });
 
     await this.audit.record(tx, {
       action: "agreement.send",
@@ -173,12 +248,23 @@ export class AgreementsService {
 
     let propertyText = "";
     let priceText = "";
+    let dealText = "";
     if (input.propertyId !== undefined) {
       const property = await tx.property.findFirst({
         where: { id: input.propertyId, tenantId },
-        select: { street: true, neighborhood: true, city: true, rooms: true, priceAgorot: true },
+        select: {
+          street: true,
+          neighborhood: true,
+          city: true,
+          rooms: true,
+          priceAgorot: true,
+          dealType: true,
+        },
       });
       if (property) {
+        // סוג העסקה הוא פרט חובה בתקנות, והוא יושב על הנכס — אין סיבה
+        // לבקש מהמתווך להקליד אותו שוב
+        dealText = property.dealType === "rent" ? "שכירות" : property.dealType === "sale" ? "מכר" : "";
         propertyText = [
           property.rooms !== null ? `דירת ${property.rooms} חדרים` : null,
           [property.street, property.neighborhood, property.city].filter(Boolean).join(", "),
@@ -199,8 +285,22 @@ export class AgreementsService {
       טלפון_המשרד: asText("officePhone"),
       שם_הלקוח: contact.name,
       טלפון_הלקוח: contact.phone,
+      // שורה למילוי ולא ערך: החותם מזין את מספר הזהות שלו במסך
+      // החתימה, ורק אז הוא נכנס לגוף המסמך
+      תעודת_זהות_הלקוח: SIGNER_BLANK,
+      סוג_העסקה: dealText,
       תיאור_הנכס: propertyText,
       מחיר_משוער: priceText,
+      /*
+       * ברירות המחדל של המשרד לדמי התיווך ומועד התשלום.
+       *
+       * שניהם פרטי חובה בתקנות, ושער ההצעות יוצר הסכם בלי שאיש הזין
+       * אותם — כלומר בלעדיהם השער לא היה יכול לייצר מסמך תקף בכלל.
+       * ערך מפורש בטופס השליחה גובר עליהם (הפריסה של input.values
+       * למטה).
+       */
+      דמי_תיווך: asText("defaultCommission"),
+      מועד_תשלום: asText("defaultPaymentTerms"),
       תאריך: new Date().toLocaleDateString("he-IL"),
       ...input.values,
     };
@@ -254,12 +354,27 @@ export class AgreementsService {
       if (row.status === "declined") throw new BadRequestException("ההסכם נדחה");
 
       const signedAt = new Date();
+      /*
+       * מספר הזהות נכנס לגוף המסמך, לא רק לשדה נפרד.
+       *
+       * התקנות דורשות שההזמנה בכתב תכלול את מספרי הזיהוי של הצדדים.
+       * מסמך שכתוב בו `ת"ז ____________`, בזמן שהמספר יושב בעמודה
+       * אחרת בבסיס הנתונים, לא מקיים את הדרישה (ביקורת Codex).
+       *
+       * הגיבוב מחושב מחדש על הנוסח הסופי — הוא צריך להעיד על מה
+       * שנחתם. הגיבוב שהוצג ללקוח לפני החתימה נשמר ב-presented_hash,
+       * כך שאפשר להוכיח גם מה הוצג וגם מה נחתם.
+       */
+      const finalBody = fillSignerId(row.renderedBody, input.signerIdNumber);
       const updated = await tx.agreement.updateMany({
         where: { id: row.id, status: { in: ["pending", "viewed"] } },
         data: {
           status: "signed",
           signerName: input.signerName,
           signerIdNumber: input.signerIdNumber,
+          renderedBody: finalBody,
+          presentedHash: row.bodyHash,
+          bodyHash: AgreementsService.hashBody(finalBody),
           signedAt,
           signedIp: input.ip ?? null,
           signedUserAgent: input.userAgent?.slice(0, 300) ?? null,

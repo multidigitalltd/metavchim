@@ -49,11 +49,25 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
     setError(null);
     setSubmitting(true);
     const form = new FormData(event.currentTarget);
+    /*
+     * ההצהרה נקראת מהתיבה עצמה ולא נשלחת כ-true קבוע.
+     *
+     * קודם היא נשלחה תמיד כ-true, והטופס גם ויתר על ולידציית הדפדפן
+     * (noValidate) — כך שלחיצה רגילה חתמה על ההסכם בלי שהחותם אישר
+     * דבר, והשרת רשם אישור שמעולם לא ניתן. בהסכם שכל ערכו הוא ראייתי
+     * זה מרוקן את החתימה מתוכן (ביקורת Codex).
+     */
+    const confirmed = form.get("confirmed") === "on";
+    if (!confirmed) {
+      setSubmitting(false);
+      setError("יש לאשר את ההצהרה לפני החתימה");
+      return;
+    }
     try {
       const res = await apiPost<{ signedAt: string }>(`/public/agreements/${token}/sign`, {
         signerName: String(form.get("signerName")).trim(),
         signerIdNumber: String(form.get("signerIdNumber")).trim(),
-        confirmed: true,
+        confirmed,
       });
       setSignedAt(res.signedAt);
     } catch (err: unknown) {
@@ -106,7 +120,6 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
       ) : (
         <form
           onSubmit={onSign}
-          noValidate
           className="rounded-xl border p-5"
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
         >
@@ -154,7 +167,7 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
           </div>
 
           <label className="mb-4 flex items-start gap-2">
-            <input type="checkbox" required className="mt-1.5" />
+            <input type="checkbox" name="confirmed" required className="mt-1.5" />
             <span>
               קראתי את ההסכם, הבנתי את תוכנו, ואני חותם עליו מרצוני החופשי. ידוע לי
               שהחתימה האלקטרונית מחייבת אותי כמו חתימה בכתב יד.

@@ -62,6 +62,48 @@ export class OffersService {
    * Idempotent: הצעה אחת פר התאמה — קריאה חוזרת מחזירה את הקיימת;
    * מרוץ בין בקשות נבלם ע"י unique constraint על match_id (ביקורת Codex).
    */
+  /**
+   * שער ההחתמה — הזכות לדמי תיווך מותנית בהזמנה בכתב חתומה (חוק
+   * המתווכים במקרקעין §9), ולכן הצעה לא יוצאת ללקוח שטרם חתם.
+   *
+   * מחזיר את פרטי ההסכם לחתימה כשהשער חוסם, ו-null כשהוא פתוח.
+   *
+   * הבדיקה רצה בטרנזקציה *נפרדת* ומסתיימת לפני שנזרקת השגיאה: יצירת
+   * ההסכם וזריקת החריגה באותה טרנזקציה היו מגלגלות את ה-INSERT
+   * אחורה, והמתווך היה מקבל קישור להסכם שאינו קיים.
+   */
+  private async signatureGate(matchId: string): Promise<{ url: string } | null> {
+    const tenantId = TenantContext.current().tenantId;
+    return this.prisma.withTenant(async (tx) => {
+      const match = await tx.match.findFirst({
+        where: { id: matchId, tenantId },
+        select: { buyerId: true, propertyId: true },
+      });
+      if (!match) return null; // הזרימה הרגילה תחזיר את השגיאה המדויקת
+      const buyer = await tx.buyer.findFirst({
+        where: { id: match.buyerId, tenantId, deletedAt: null },
+        select: { contactId: true },
+      });
+      if (!buyer) return null;
+      if (await this.agreements.hasSigned(tx, buyer.contactId, "brokerage", match.propertyId)) {
+        return null;
+      }
+      return this.agreements.create(tx, {
+        kind: "brokerage",
+        contactId: buyer.contactId,
+        propertyId: match.propertyId,
+      });
+    });
+  }
+
+  private static signatureRequired(signUrl: string): ConflictException {
+    return new ConflictException({
+      message: "הלקוח טרם חתם על הזמנה בכתב — שלחו לו קודם את ההסכם לחתימה",
+      code: "signature_required",
+      signUrl,
+    });
+  }
+
   async createFromMatch(matchId: string): Promise<OfferDto> {
     const tenantId = TenantContext.current().tenantId;
     const token = randomBytes(32).toString("base64url"); // 43 תווים
@@ -73,6 +115,21 @@ export class OffersService {
       await assertMatchAccess(tx, tenantId, matchId);
       return tx.offer.findFirst({ where: { matchId, tenantId } });
     });
+
+    /*
+     * השער רץ **כאן**, לפני שמוחזרת כתובת ההצעה — ולא רק בהכנת
+     * ההודעה לוואטסאפ.
+     *
+     * הכתובת הזו היא קישור ציבורי נושא־טוקן: ברגע ש-POST /offers
+     * מחזיר אותה, מסך הנכס מעתיק אותה ומסך ההתאמות מציג אותה, והיא
+     * ניתנת לשליחה בכל דרך שהיא. שער שיושב רק בערוץ אחד מתוך כמה
+     * אינו שער (ביקורת Codex).
+     *
+     * גם המסלול האידמפוטנטי עובר כאן: הצעה שנוצרה לפני שההסכם נדחה
+     * לא אמורה להמשיך להחזיר קישור.
+     */
+    const gate = await this.signatureGate(matchId);
+    if (gate) throw OffersService.signatureRequired(gate.url);
     if (existing) {
       return {
         id: existing.id,
@@ -389,45 +446,18 @@ export class OffersService {
     const tenantId = TenantContext.current().tenantId;
 
     /*
-     * שער ההחתמה — הזכות לדמי תיווך מותנית בהזמנה בכתב חתומה (חוק
-     * המתווכים במקרקעין §9), ולכן הצעה לא יוצאת ללקוח שטרם חתם.
-     *
-     * הבדיקה רצה בטרנזקציה *נפרדת* ומסתיימת לפני שנזרקת השגיאה: יצירת
-     * ההסכם וזריקת החריגה באותה טרנזקציה היו מגלגלות את ה-INSERT
-     * אחורה, והמתווך היה מקבל קישור להסכם שאינו קיים.
+     * השער נבדק שוב לפני השליחה בפועל, אף שהוא כבר נבדק ביצירת ההצעה:
+     * הסכם יכול להידחות או לפוג בין השניים, וזו הנקודה שבה ההצעה
+     * באמת יוצאת ללקוח.
      */
-    const gate = await this.prisma.withTenant(async (tx) => {
-      const offer = await tx.offer.findFirst({
-        where: { id: offerId, tenantId },
-        select: { matchId: true },
-      });
-      // בלי היציאה הזו היה נשלח findFirst עם id: undefined — ש-Prisma
-      // מפרש כ"בלי סינון" ומחזיר התאמה שרירותית, כלומר הסכם ללקוח הלא נכון
-      if (!offer) return null; // הזרימה למטה תחזיר את השגיאה המדויקת
-      const match = await tx.match.findFirst({
-        where: { id: offer.matchId, tenantId },
-        select: { buyerId: true, propertyId: true },
-      });
-      if (!match) return null;
-      const buyer = await tx.buyer.findFirst({
-        where: { id: match.buyerId, tenantId, deletedAt: null },
-        select: { contactId: true },
-      });
-      if (!buyer) return null;
-      if (await this.agreements.hasSigned(tx, buyer.contactId, "brokerage")) return null;
-      return this.agreements.create(tx, {
-        kind: "brokerage",
-        contactId: buyer.contactId,
-        propertyId: match.propertyId,
-      });
-    });
-
-    if (gate) {
-      throw new ConflictException({
-        message: "הלקוח טרם חתם על הזמנה בכתב — שלחו לו קודם את ההסכם לחתימה",
-        code: "signature_required",
-        signUrl: gate.url,
-      });
+    const matchOfOffer = await this.prisma.withTenant((tx) =>
+      tx.offer.findFirst({ where: { id: offerId, tenantId }, select: { matchId: true } }),
+    );
+    // בלי היציאה הזו היה נשלח findFirst עם id: undefined — ש-Prisma
+    // מפרש כ"בלי סינון"; הזרימה למטה מחזירה את השגיאה המדויקת
+    if (matchOfOffer) {
+      const gate = await this.signatureGate(matchOfOffer.matchId);
+      if (gate) throw OffersService.signatureRequired(gate.url);
     }
 
     return this.prisma.withTenant(async (tx) => {

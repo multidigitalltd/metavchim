@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   REQUIRED_PLACEHOLDERS,
+  SIGNER_BLANK,
+  SIGNER_PROVIDED_PLACEHOLDERS,
   defaultAgreementTemplate,
+  fillSignerId,
   missingRequiredPlaceholders,
   renderAgreement,
   type AgreementKind,
@@ -88,6 +91,37 @@ describe("renderAgreement", () => {
       expect(result.unfilled).toEqual([]);
       expect(result.text).not.toContain("{{");
       expect(result.text).not.toContain("[חסר");
+    }
+  });
+});
+
+describe("fillSignerId", () => {
+  it("ממלא את השורה הריקה במספר שהחותם הזין", () => {
+    expect(fillSignerId(`הלקוח: דנה · ת"ז ${SIGNER_BLANK}`, "123456789")).toBe(
+      'הלקוח: דנה · ת"ז 123456789',
+    );
+  });
+
+  it("מחליף רק את ההופעה הראשונה — שורת חתימה לא מתמלאת במספר זהות", () => {
+    const body = `ת"ז ${SIGNER_BLANK}\n\nחתימה: ${SIGNER_BLANK}`;
+    const filled = fillSignerId(body, "123456789");
+    expect(filled).toBe(`ת"ז 123456789\n\nחתימה: ${SIGNER_BLANK}`);
+  });
+
+  it("נוסח בלי שורה למילוי חוזר כמות שהוא", () => {
+    expect(fillSignerId("בלי מקום למילוי", "123456789")).toBe("בלי מקום למילוי");
+  });
+
+  it("מספר ריק לא מוחק את השורה", () => {
+    const body = `ת"ז ${SIGNER_BLANK}`;
+    expect(fillSignerId(body, "   ")).toBe(body);
+  });
+});
+
+describe("SIGNER_PROVIDED_PLACEHOLDERS", () => {
+  it("כל פרט שהחותם ממלא הוא גם פרט חובה — אחרת אין סיבה לטפל בו בנפרד", () => {
+    for (const name of SIGNER_PROVIDED_PLACEHOLDERS) {
+      expect(REQUIRED_PLACEHOLDERS.brokerage).toContain(name);
     }
   });
 });
