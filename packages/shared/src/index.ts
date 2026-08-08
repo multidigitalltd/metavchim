@@ -26,6 +26,7 @@ export * from "./logic/note-visibility.js";
 export * from "./logic/web-push.js";
 export * from "./logic/contact-people.js";
 export * from "./logic/duplicate-contacts.js";
+export * from "./logic/call-summary.js";
 export * from "./announcements.js";
 export * from "./events.js";
 export * from "./rbac.js";

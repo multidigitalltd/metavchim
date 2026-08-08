@@ -4,7 +4,7 @@ import { Queue, Worker, type Job } from "bullmq";
 import IORedis from "ioredis";
 import { PrismaClient } from "@prisma/client";
 import { ulid } from "ulid";
-import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { z } from "zod";
 import webpush from "web-push";
 import {
@@ -14,6 +14,7 @@ import {
   pushPayload,
   shouldPush,
   shouldRetireAfterFailure,
+  summarizeCall,
 } from "@metavchim/shared";
 
 for (const candidate of [resolve(process.cwd(), "../../.env"), resolve(process.cwd(), ".env")]) {
@@ -96,6 +97,16 @@ const s3 = new S3Client({
   },
 });
 const CleanupJobSchema = z.object({ tenantId: z.string(), s3Key: z.string().max(512) });
+
+/** קריאת אובייקט מהאחסון אל הזיכרון — להזנת שירות התמלול. */
+async function storageGet(key: string): Promise<Buffer> {
+  const res = await s3.send(
+    new GetObjectCommand({ Bucket: process.env["S3_BUCKET"] ?? "metavchim", Key: key }),
+  );
+  const bytes = await res.Body?.transformToByteArray();
+  if (!bytes) throw new Error(`empty object: ${key}`);
+  return Buffer.from(bytes);
+}
 
 /**
  * ניקוי אובייקט אחסון שמחיקתו נכשלה ב-Request (ביקורת Codex, PR #12):
@@ -781,6 +792,139 @@ async function processWeeklySummary(): Promise<void> {
   }
 }
 
+
+/* ==================== תמלול וסיכום שיחות ==================== */
+
+/**
+ * סורק השיחות שממתינות לתמלול (docs/09 שלב 2).
+ *
+ * אותה תבנית של סורק הפוש ומאותה סיבה: העלאת ההקלטה רק מסמנת
+ * `pending`, והעבודה הכבדה קורית כאן. תמלול של שיחה בת עשר דקות
+ * אורך דקות על CPU — בקשת HTTP שממתינה לו נופלת על timeout
+ * ומשאירה את המתווך בלי מושג מה קרה.
+ *
+ * אחת בכל סבב, לא בקבוצה: שירות התמלול מוגבל במקבילות (STT_CONCURRENCY),
+ * ושליחת חמש הקלטות במקביל רק תייצר 429 ותאט את כולן.
+ */
+/** תקרת שדה התוכן של ציר הזמן; הטקסט המלא נשאר על כרטיס השיחה. */
+const INTERACTION_CONTENT_LIMIT = 4000;
+
+const CALL_TRANSCRIBE_TIMEOUT_MS = Number(process.env["STT_TIMEOUT_MS"] ?? 180_000);
+
+async function transcribeOneCall(): Promise<void> {
+  const sttUrl = process.env["STT_URL"];
+  const sttSecret = process.env["STT_SECRET"];
+  if (!sttUrl || !sttSecret) return;
+
+  const tenants = await prisma.tenant.findMany({ select: { id: true } });
+  for (const tenant of tenants) {
+    const pending = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      const row = await tx.call.findFirst({
+        where: { tenantId: tenant.id, transcriptionStatus: "pending" },
+        orderBy: { occurredAt: "asc" },
+        select: { id: true, recordingKey: true, leadId: true, contactId: true },
+      });
+      if (!row?.recordingKey) return null;
+      // תפיסה אטומית: שני סבבים חופפים לא ייקחו את אותה שיחה
+      const claimed = await tx.call.updateMany({
+        where: { id: row.id, tenantId: tenant.id, transcriptionStatus: "pending" },
+        data: { transcriptionStatus: "running" },
+      });
+      return claimed.count === 1 ? row : null;
+    });
+    if (!pending?.recordingKey) continue;
+
+    try {
+      const audio = await storageGet(pending.recordingKey);
+      const form = new FormData();
+      form.append("file", new Blob([new Uint8Array(audio)]), "call.webm");
+      const res = await fetch(`${sttUrl}/transcribe`, {
+        method: "POST",
+        headers: { "x-stt-secret": sttSecret },
+        body: form,
+        signal: AbortSignal.timeout(CALL_TRANSCRIBE_TIMEOUT_MS),
+      });
+      if (!res.ok) throw new Error(`stt ${res.status}`);
+      const body = (await res.json()) as { text?: string };
+      const transcript = (body.text ?? "").trim();
+      const { summary } = summarizeCall(transcript);
+
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+        await tx.call.updateMany({
+          where: { id: pending.id, tenantId: tenant.id },
+          data: {
+            transcript,
+            // הסיכום נכתב רק כשלא נרשם אחד ידנית — מה שהמתווך
+            // כתב בעצמו גובר תמיד על החילוץ האוטומטי
+            ...(summary ? { summary } : {}),
+            transcriptionStatus: "done",
+            transcribedAt: new Date(),
+          },
+        });
+        /*
+         * ציר הזמן של הלקוח מקבל את הסיכום **ואת התמלול המלא**.
+         *
+         * הסיכום לבדו לא מספיק: מתווך שחוזר לשיחה מלפני חודש רוצה
+         * לדעת מה בדיוק נאמר, לא רק "הביע עניין · 4 חדרים". התמלול
+         * נחתך לתקרת השדה כדי שלא ייחסם בכתיבה — הטקסט המלא נשאר
+         * תמיד על כרטיס השיחה.
+         */
+        const timelineText = summary
+          ? `סיכום שיחה: ${summary}${transcript ? `\n\n${transcript}` : ""}`
+          : transcript;
+        if (timelineText) {
+          const content = timelineText.slice(0, INTERACTION_CONTENT_LIMIT);
+          if (pending.leadId) {
+            await tx.interaction.create({
+              data: {
+                id: ulid(),
+                tenantId: tenant.id,
+                leadId: pending.leadId,
+                kind: "system",
+                content,
+                createdBy: null,
+              },
+            });
+          }
+          // שיחה שאינה קשורה לליד אך כן לאיש קשר — הכרטיס שלו הוא
+          // כרטיס הקונה, ושם ציר הזמן מוצג לפי buyerId
+          if (!pending.leadId && pending.contactId) {
+            const buyer = await tx.buyer.findFirst({
+              where: { tenantId: tenant.id, contactId: pending.contactId, deletedAt: null },
+              select: { id: true },
+            });
+            if (buyer) {
+              await tx.interaction.create({
+                data: {
+                  id: ulid(),
+                  tenantId: tenant.id,
+                  buyerId: buyer.id,
+                  kind: "system",
+                  content,
+                  createdBy: null,
+                },
+              });
+            }
+          }
+        }
+      });
+    } catch (error) {
+      console.error(`[call-transcribe] ${pending.id} failed: ${String(error)}`);
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+        await tx.call.updateMany({
+          where: { id: pending.id, tenantId: tenant.id },
+          data: { transcriptionStatus: "failed" },
+        });
+      });
+    }
+    // שיחה אחת לסבב — הסבב הבא בעוד דקה ייקח את הבאה בתור
+    return;
+  }
+}
+
 /* ==================== התראות פוש בדפדפן ==================== */
 
 /**
@@ -918,6 +1062,7 @@ async function processPushSweep(): Promise<void> {
 /** תור low משותף — כל סוג Job ממוין לפי שמו. */
 async function processLow(job: Job): Promise<void> {
   if (job.name === "push-sweep") return processPushSweep();
+  if (job.name === "call-transcribe") return transcribeOneCall();
   if (job.name === "delete-object") return processCleanup(job);
   if (job.name === "offer-followup") return processOfferFollowup(job);
   if (job.name === "property-delisted") return processPropertyDelisted(job);
@@ -936,6 +1081,12 @@ void lowQueue
   .upsertJobScheduler("lead-sla-sweep", { every: 15 * 60 * 1000 }, { name: "lead-sla-sweep" })
   .catch((error: unknown) => {
     console.error(`lead-sla-sweep scheduler registration failed: ${String(error)}`);
+  });
+// סורק תמלול השיחות — כל דקה, שיחה אחת בכל פעם
+void lowQueue
+  .upsertJobScheduler("call-transcribe", { every: 60 * 1000 }, { name: "call-transcribe" })
+  .catch((error: unknown) => {
+    console.error(`call-transcribe scheduler registration failed: ${String(error)}`);
   });
 // סורק הפוש — כל 30 שניות. השהיה של חצי דקה בהתראה מקובלת; סריקה
 // תכופה יותר הייתה מייצרת עומס קבוע על כל דייר בלי רווח מורגש.

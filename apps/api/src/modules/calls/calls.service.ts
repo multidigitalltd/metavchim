@@ -4,7 +4,9 @@ import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
+import { StorageService } from "../../core/storage.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { TranscriptionService } from "../voice-intake/transcription.service";
 
 /**
  * יומן שיחות.
@@ -26,6 +28,9 @@ export interface CallDto {
   durationMinutes?: number;
   outcome: string;
   summary?: string;
+  /** pending | running | done | failed | unavailable — null = לא הועלתה הקלטה. */
+  transcriptionStatus?: string;
+  transcript?: string;
   createdAt: Date;
 }
 
@@ -47,6 +52,8 @@ export class CallsService {
     private readonly crypto: CryptoService,
     private readonly contacts: ContactsService,
     private readonly audit: AuditService,
+    private readonly storage: StorageService,
+    private readonly transcription: TranscriptionService,
   ) {}
 
   async create(input: CreateCallInput): Promise<CallDto> {
@@ -116,6 +123,50 @@ export class CallsService {
     });
   }
 
+
+  /**
+   * צירוף הקלטה לשיחה קיימת.
+   *
+   * ההקלטה נשמרת ב-S3 והתמלול מתבצע ברקע — לא בבקשה. תמלול של שיחה
+   * בת עשר דקות אורך דקות על CPU, ובקשת HTTP שממתינה לו נופלת על
+   * timeout ומשאירה את המתווך בלי מושג מה קרה.
+   *
+   * הסטטוס נכתב מיד ל-pending, כך שהמסך אומר "ממתין לתמלול" ולא
+   * נראה כאילו ההעלאה לא קרתה.
+   */
+  async attachRecording(
+    id: string,
+    file: { buffer: Buffer; mimetype: string },
+  ): Promise<{ status: string }> {
+    const tenantId = TenantContext.current().tenantId;
+    const available = (await this.transcription.status()).available;
+
+    const key = `calls/${tenantId}/${id}/${ulid()}`;
+    await this.storage.put(key, file.buffer, file.mimetype || "audio/webm");
+
+    await this.prisma.withTenant(async (tx) => {
+      const updated = await tx.call.updateMany({
+        where: { id, tenantId },
+        data: {
+          recordingKey: key,
+          // שירות תמלול כבוי אינו כשל אלא תצורה — המסך אומר זאת אחרת,
+          // והעובד לא יאסוף את השיחה לסריקה אינסופית
+          transcriptionStatus: available ? "pending" : "unavailable",
+          transcript: null,
+          transcribedAt: null,
+        },
+      });
+      if (updated.count === 0) throw new NotFoundException("שיחה לא נמצאה");
+      await this.audit.record(tx, {
+        action: "call.recording_attached",
+        entityType: "call",
+        entityId: id,
+      });
+    });
+
+    return { status: available ? "pending" : "unavailable" };
+  }
+
   private async toDto(
     tx: TenantTx,
     row: {
@@ -129,6 +180,8 @@ export class CallsService {
       durationMinutes: number | null;
       outcome: string;
       summary: string | null;
+      transcriptionStatus?: string | null;
+      transcript?: string | null;
       createdAt: Date;
     },
   ): Promise<CallDto> {
@@ -150,6 +203,8 @@ export class CallsService {
       ...(row.durationMinutes !== null ? { durationMinutes: row.durationMinutes } : {}),
       outcome: row.outcome,
       ...(row.summary ? { summary: row.summary } : {}),
+      ...(row.transcriptionStatus ? { transcriptionStatus: row.transcriptionStatus } : {}),
+      ...(row.transcript ? { transcript: row.transcript } : {}),
       createdAt: row.createdAt,
     };
   }
