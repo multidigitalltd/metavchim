@@ -391,10 +391,26 @@ export class OffersService {
    * עוברת ל-offered ולכן יוצאת מהשאילתה הבאה. מרוץ בין בקשות נבלם
    * ע"י ה-unique על match_id — כפילות נספרת כ-skipped (ביקורת Codex).
    */
-  async createBulk(propertyId: string, minScore: number): Promise<{ created: number; skipped: number }> {
+  /**
+   * יצירת הצעות בבת אחת לכל ההתאמות של נכס.
+   *
+   * `awaitingSignature` מוחזר בנפרד מ-`skipped` ולא נבלע בו: לקוח
+   * שטרם חתם אינו "דילוג טכני" אלא בדיוק הפעולה הבאה של המתווך,
+   * והוא צריך לקבל את קישורי החתימה. קודם התוצאה הייתה "נוצרו 0
+   * הצעות" בלי שום רמז מה לעשות (ביקורת Codex).
+   */
+  async createBulk(
+    propertyId: string,
+    minScore: number,
+  ): Promise<{
+    created: number;
+    skipped: number;
+    awaitingSignature: { matchId: string; signUrl: string }[];
+  }> {
     const tenantId = TenantContext.current().tenantId;
     let created = 0;
     let skipped = 0;
+    const awaitingSignature: { matchId: string; signUrl: string }[] = [];
 
     const MAX_ROUNDS = 50; // בלם בטיחות: 50×100 = 5,000 הצעות לכל היותר בקריאה
     for (let round = 0; round < MAX_ROUNDS; round += 1) {
@@ -429,12 +445,20 @@ export class OffersService {
         try {
           await this.createFromMatch(candidate.id);
           created += 1;
-        } catch {
+        } catch (error: unknown) {
+          const body =
+            error instanceof ConflictException
+              ? (error.getResponse() as { code?: string; signUrl?: string })
+              : null;
+          if (body?.code === "signature_required" && body.signUrl) {
+            awaitingSignature.push({ matchId: candidate.id, signUrl: body.signUrl });
+            continue;
+          }
           skipped += 1; // כפילות במרוץ / נכס שירד משיווק — ממשיכים לשאר
         }
       }
     }
-    return { created, skipped };
+    return { created, skipped, awaitingSignature };
   }
 
   /**

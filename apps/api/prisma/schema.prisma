@@ -569,7 +569,9 @@ model Agreement {
   kind            String    @db.VarChar(20)
   contactId       String    @map("contact_id") @db.Char(26)
   propertyId      String?   @map("property_id") @db.Char(26)
-  /// pending | viewed | signed | declined
+  /// pending | viewed | signed | declined | expired
+  /// expired נקבע כשקישור שפג מפנה את מקומו להסכם חדש — האינדקס
+  /// הייחודי על הסכם פעיל לא יכול לבדוק תאריך בעצמו.
   status          String    @default("pending") @db.VarChar(20)
   renderedBody    String    @map("rendered_body")
   /// גיבוב הנוסח החתום. עד החתימה זהה ל-presentedHash; ברגע החתימה

@@ -102,10 +102,22 @@ describe("fillSignerId", () => {
     );
   });
 
-  it("מחליף רק את ההופעה הראשונה — שורת חתימה לא מתמלאת במספר זהות", () => {
-    const body = `ת"ז ${SIGNER_BLANK}\n\nחתימה: ${SIGNER_BLANK}`;
+  it("מחליף רק את ההופעה הראשונה", () => {
+    const body = `ת"ז ${SIGNER_BLANK}\n\nושוב: ${SIGNER_BLANK}`;
     const filled = fillSignerId(body, "123456789");
-    expect(filled).toBe(`ת"ז 123456789\n\nחתימה: ${SIGNER_BLANK}`);
+    expect(filled).toBe(`ת"ז 123456789\n\nושוב: ${SIGNER_BLANK}`);
+  });
+
+  it("קו תחתון רגיל בנוסח מותאם לא נבלע — שורת חתימה נשארת ריקה", () => {
+    // נוסח שמכיל שורת חתימה *לפני* מקום תעודת הזהות: בלי הסימון
+    // הבלתי נראה, החיפוש היה ממלא את שורת החתימה במספר הזהות
+    const body = `חתימת הלקוח: ____________\n\nת"ז ${SIGNER_BLANK}`;
+    const filled = fillSignerId(body, "123456789");
+    expect(filled).toBe('חתימת הלקוח: ____________\n\nת"ז 123456789');
+  });
+
+  it("הסימון בלתי נראה — השורה נראית כקווים תחתונים בלבד", () => {
+    expect(SIGNER_BLANK.replace(/⁠/gu, "")).toBe("____________");
   });
 
   it("נוסח בלי שורה למילוי חוזר כמות שהוא", () => {

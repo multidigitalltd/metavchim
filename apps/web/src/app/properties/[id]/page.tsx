@@ -100,6 +100,8 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   const [copiedFor, setCopiedFor] = useState<string | null>(null);
   const [bulkConfirm, setBulkConfirm] = useState(false);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
+  /** matchId ⟵ קישור חתימה, להתאמות שנחסמו בשער ההחתמה */
+  const [awaitingSignature, setAwaitingSignature] = useState<Record<string, string>>({});
   const [landingUrl, setLandingUrl] = useState<string | null>(null);
   const [landingBusy, setLandingBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -181,11 +183,33 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
       return;
     }
     setBulkConfirm(false);
-    const result = await apiPost<{ created: number }>("/offers/bulk", {
-      propertyId: id,
-      minScore: 85,
-    });
-    setBulkResult(`נוצרו ${result.created} הצעות — לחצו "שלח בוואטסאפ" על כל אחת`);
+    const result = await apiPost<{
+      created: number;
+      awaitingSignature: { matchId: string; signUrl: string }[];
+    }>("/offers/bulk", { propertyId: id, minScore: 85 });
+    /*
+     * לקוח שטרם חתם על הזמנה בכתב אינו דילוג — הוא הפעולה הבאה של
+     * המתווך. בלי השורה הזו התוצאה הייתה "נוצרו 0 הצעות" בלי שום
+     * רמז למה ומה עושים עכשיו (ביקורת Codex).
+     */
+    const waiting = result.awaitingSignature?.length ?? 0;
+    setBulkResult(
+      [
+        result.created > 0
+          ? `נוצרו ${result.created} הצעות — לחצו "שלח בוואטסאפ" על כל אחת`
+          : "לא נוצרו הצעות חדשות",
+        waiting > 0
+          ? `${waiting} לקוחות ממתינים לחתימה על הזמנה בכתב — הקישור לחתימה מופיע בשורת ההתאמה שלהם`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(". "),
+    );
+    setAwaitingSignature(
+      Object.fromEntries(
+        (result.awaitingSignature ?? []).map((row) => [row.matchId, row.signUrl]),
+      ),
+    );
     const rows = await apiGet<MatchRow[]>(`/properties/${id}/matches`);
     setMatches(rows);
     if (rows.length > 0) {
@@ -403,6 +427,22 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                         ) : null}
                       </div>
                       <div className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>{m.explanation}</div>
+                      {awaitingSignature[m.id] ? (
+                        <div className="mt-1.5 text-[13px]">
+                          <span style={{ color: "var(--color-danger)" }}>
+                            ממתין לחתימה על הזמנה בכתב
+                          </span>
+                          {" · "}
+                          <a
+                            href={awaitingSignature[m.id]}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline"
+                          >
+                            קישור לחתימה
+                          </a>
+                        </div>
+                      ) : null}
                       {offer ? (
                         <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-[13px]">
                           <span className="font-bold" style={{ color: offer.status === "interested" ? "var(--color-primary)" : "var(--color-text-soft)" }}>

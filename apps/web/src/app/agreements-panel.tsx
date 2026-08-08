@@ -32,6 +32,21 @@ const STATUS_LABELS: Record<string, string> = {
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
 
+/** נכס לבחירה כשההסכם נשלח ממסך שאינו מזהה נכס בעצמו (כרטיס הקונה). */
+interface PropertyOption {
+  id: string;
+  city?: string;
+  neighborhood?: string;
+  street?: string;
+  rooms?: number;
+}
+
+function propertyLabel(p: PropertyOption): string {
+  const where = [p.street, p.neighborhood, p.city].filter(Boolean).join(", ");
+  const rooms = p.rooms !== undefined ? `${p.rooms} חדרים` : "";
+  return [rooms, where].filter(Boolean).join(" · ") || "נכס ללא כתובת";
+}
+
 export function AgreementsPanel({
   contactId,
   kind,
@@ -49,9 +64,20 @@ export function AgreementsPanel({
   const [error, setError] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
   const [unfilled, setUnfilled] = useState<string[]>([]);
-  const [fee, setFee] = useState("2% ממחיר העסקה");
-  const [payment, setPayment] = useState("במועד חתימת חוזה מחייב");
-  const [period, setPeriod] = useState("6 חודשים");
+  /*
+   * ריק = "השתמש בברירת המחדל של המשרד".
+   *
+   * קודם ישבו כאן מחרוזות קשיחות ("2% ממחיר העסקה"), והן נשלחו
+   * לשרת גם כשהמתווך לא נגע בשדה. כיוון שערכי הבקשה גוברים על
+   * הגדרות המשרד, משרד שהגדיר עמלה אחרת קיבל בשקט את הקשיחה —
+   * ותנאים כספיים שגויים נקפאו ונחתמו (ביקורת Codex).
+   */
+  const [fee, setFee] = useState("");
+  const [payment, setPayment] = useState("");
+  const [period, setPeriod] = useState("");
+  /** הנכס שההסכם חל עליו — נבחר כאן כשהמסך לא מספק אותו */
+  const [chosenProperty, setChosenProperty] = useState("");
+  const [properties, setProperties] = useState<PropertyOption[] | null>(null);
 
   function load(): void {
     apiGet<AgreementRow[]>(`/agreements/contact/${contactId}`)
@@ -61,7 +87,28 @@ export function AgreementsPanel({
 
   useEffect(load, [contactId, kind]);
 
+  /*
+   * ההזמנה בכתב נוקבת בנכס מסוים — היא מתארת אותו, ושער ההצעות
+   * מחפש חתימה על אותו נכס בדיוק. מכרטיס הקונה אין נכס בהקשר, ולכן
+   * הוא נבחר כאן; בלי הבחירה המסמך היה נוצר בלי תיאור, מחיר וסוג
+   * עסקה — ולא היה פותח שום הצעה (ביקורת Codex).
+   */
+  const needsProperty = propertyId === undefined;
+
+  useEffect(() => {
+    if (!open || !needsProperty || properties !== null) return;
+    apiGet<{ items: PropertyOption[] }>("/properties?limit=100")
+      .then((res) => setProperties(res.items))
+      .catch(() => setProperties([]));
+  }, [open, needsProperty, properties]);
+
+  const effectiveProperty = propertyId ?? chosenProperty;
+
   async function send(): Promise<void> {
+    if (needsProperty && chosenProperty === "") {
+      setError("בחרו את הנכס שההסכם חל עליו");
+      return;
+    }
     setBusy(true);
     setError(null);
     setLink(null);
@@ -71,11 +118,15 @@ export function AgreementsPanel({
         {
           kind,
           contactId,
-          ...(propertyId !== undefined ? { propertyId } : {}),
+          // שדה ריק לא נשלח כלל: ערך בבקשה גובר על הגדרות המשרד,
+          // ולכן "" היה מוחק את ברירת המחדל במקום ליפול אליה
+          ...(effectiveProperty !== "" ? { propertyId: effectiveProperty } : {}),
           values: {
-            דמי_תיווך: fee,
-            מועד_תשלום: payment,
-            ...(kind === "exclusivity" ? { תקופת_בלעדיות: period } : {}),
+            ...(fee.trim() !== "" ? { דמי_תיווך: fee.trim() } : {}),
+            ...(payment.trim() !== "" ? { מועד_תשלום: payment.trim() } : {}),
+            ...(kind === "exclusivity" && period.trim() !== ""
+              ? { תקופת_בלעדיות: period.trim() }
+              : {}),
           },
         },
       );
@@ -155,6 +206,30 @@ export function AgreementsPanel({
 
       {open ? (
         <div className="flex flex-col gap-3">
+          {needsProperty ? (
+            <div>
+              <label htmlFor={`prop-${kind}`} className="mb-1 block font-medium">
+                הנכס שההסכם חל עליו
+              </label>
+              <p className="m-0 mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                ההזמנה בכתב מתארת נכס מסוים, וחתימה עליה פותחת הצעות על אותו נכס.
+              </p>
+              <select
+                id={`prop-${kind}`}
+                value={chosenProperty}
+                onChange={(event) => setChosenProperty(event.target.value)}
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              >
+                <option value="">בחרו נכס…</option>
+                {(properties ?? []).map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {propertyLabel(option)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <div>
             <label htmlFor={`fee-${kind}`} className="mb-1 block font-medium">
               דמי תיווך
@@ -162,6 +237,7 @@ export function AgreementsPanel({
             <input
               id={`fee-${kind}`}
               value={fee}
+              placeholder="ברירת המחדל של המשרד"
               onChange={(event) => setFee(event.target.value)}
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
@@ -174,6 +250,7 @@ export function AgreementsPanel({
             <input
               id={`pay-${kind}`}
               value={payment}
+              placeholder="ברירת המחדל של המשרד"
               onChange={(event) => setPayment(event.target.value)}
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
@@ -187,6 +264,7 @@ export function AgreementsPanel({
               <input
                 id="period"
                 value={period}
+                placeholder="ברירת המחדל של המשרד"
                 onChange={(event) => setPeriod(event.target.value)}
                 className="w-full rounded-lg border px-3 py-2.5"
                 style={inputStyle}

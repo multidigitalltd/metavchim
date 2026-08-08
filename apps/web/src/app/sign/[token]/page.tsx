@@ -70,6 +70,17 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
         confirmed,
       });
       setSignedAt(res.signedAt);
+      /*
+       * טעינה מחדש אחרי החתימה, ולא רק עדכון התאריך.
+       *
+       * ברגע החתימה השרת מכניס את מספר הזהות לגוף המסמך ומחשב מחדש
+       * את הגיבוב. בלי הרענון הדף היה ממשיך להציג את הנוסח שלפני
+       * החתימה ומציג את הגיבוב הישן כ"מזהה המסמך" — כלומר מספר
+       * שאינו תואם את המסמך שנשמר (ביקורת Codex).
+       */
+      apiGet<AgreementView>(`/public/agreements/${token}`)
+        .then(setView)
+        .catch(() => undefined);
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "החתימה נכשלה — נסו שוב");
       setSubmitting(false);

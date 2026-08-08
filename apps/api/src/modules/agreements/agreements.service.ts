@@ -147,6 +147,29 @@ export class AgreementsService {
      */
     await assertContactAccess(tx, tenantId, input.contactId);
 
+    /*
+     * שחרור הסכמים שפג תוקפם, לפני הכל.
+     *
+     * `pendingFor` מפסיק במכוון למחזר קישור שפג — הלקוח כבר לא יכול
+     * לחתום עליו. אבל האינדקס הייחודי מסתכל על הסטטוס בלבד (תנאי
+     * אינדקס ב-Postgres חייב להיות אימוטבילי, ולכן `now()` לא יכול
+     * להשתתף בו), כך שהשורה שפגה הייתה חוסמת לנצח כל הסכם חדש לאותו
+     * לקוח, סוג ונכס — היקף שנתקע בלי דרך לצאת ממנו (ביקורת Codex).
+     *
+     * המעבר ל-expired הוא גם התיעוד: רואים שההסכם נשלח ולא נחתם.
+     */
+    await tx.agreement.updateMany({
+      where: {
+        tenantId,
+        contactId: input.contactId,
+        kind: input.kind,
+        propertyId: input.propertyId ?? null,
+        status: { in: ["pending", "viewed"] },
+        tokenExpires: { lte: new Date() },
+      },
+      data: { status: "expired" },
+    });
+
     const existing = await this.pendingFor(tx, input.contactId, input.kind, input.propertyId);
     if (existing) {
       return { id: existing.id, url: this.publicUrl(existing.publicToken), unfilled: [], reused: true };
