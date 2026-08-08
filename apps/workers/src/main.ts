@@ -10,11 +10,15 @@ import webpush from "web-push";
 import {
   NotificationJobSchema,
   QUEUES,
+  diarizeTimeoutMs,
+  formatDiarizedTranscript,
   pushOutcome,
   pushPayload,
   shouldPush,
   shouldRetireAfterFailure,
   summarizeCall,
+  type SpeakerTurn,
+  type TranscriptSegment,
 } from "@metavchim/shared";
 
 for (const candidate of [resolve(process.cwd(), "../../.env"), resolve(process.cwd(), ".env")]) {
@@ -811,6 +815,40 @@ const INTERACTION_CONTENT_LIMIT = 4000;
 
 const CALL_TRANSCRIBE_TIMEOUT_MS = Number(process.env["STT_TIMEOUT_MS"] ?? 180_000);
 
+/**
+ * מבקש את תורי הדיבור מהשירות האופציונלי של זיהוי הדוברים.
+ *
+ * חלון הזמן נגזר מאורך ההקלטה ולא מקבוע: קבוע קצר היה מפיל *כל*
+ * שיחה ארוכה אחרי שהשרת כבר עשה את העבודה, וקבוע ארוך היה משאיר
+ * כשל אמיתי תוקע את התור (המקבילות היא 1). ראו diarizeTimeoutMs.
+ *
+ * מחזיר מערך ריק בכל כשל — וזו החלטה מכוונת: שיחה מתומללת בלי
+ * תוויות דובר עדיפה בהרבה על שיחה שנופלת ל-failed בגלל שירות
+ * שהוא ממילא תוספת. הכשל נרשם ללוג ולא מגיע למתווך.
+ */
+async function fetchSpeakerTurns(audio: Uint8Array, audioSeconds: number): Promise<SpeakerTurn[]> {
+  const diarizeUrl = process.env["DIARIZE_URL"];
+  const sttSecret = process.env["STT_SECRET"];
+  if (!diarizeUrl || !sttSecret) return [];
+
+  try {
+    const form = new FormData();
+    form.append("file", new Blob([audio]), "call.webm");
+    const res = await fetch(`${diarizeUrl}/diarize`, {
+      method: "POST",
+      headers: { "x-stt-secret": sttSecret },
+      body: form,
+      signal: AbortSignal.timeout(diarizeTimeoutMs(audioSeconds)),
+    });
+    if (!res.ok) throw new Error(`diarize ${res.status}`);
+    const body = (await res.json()) as { turns?: SpeakerTurn[] };
+    return body.turns ?? [];
+  } catch (error) {
+    console.error(`[call-transcribe] diarization skipped: ${String(error)}`);
+    return [];
+  }
+}
+
 async function transcribeOneCall(): Promise<void> {
   const sttUrl = process.env["STT_URL"];
   const sttSecret = process.env["STT_SECRET"];
@@ -836,9 +874,9 @@ async function transcribeOneCall(): Promise<void> {
     if (!pending?.recordingKey) continue;
 
     try {
-      const audio = await storageGet(pending.recordingKey);
+      const audio = new Uint8Array(await storageGet(pending.recordingKey));
       const form = new FormData();
-      form.append("file", new Blob([new Uint8Array(audio)]), "call.webm");
+      form.append("file", new Blob([audio]), "call.webm");
       const res = await fetch(`${sttUrl}/transcribe`, {
         method: "POST",
         headers: { "x-stt-secret": sttSecret },
@@ -846,9 +884,25 @@ async function transcribeOneCall(): Promise<void> {
         signal: AbortSignal.timeout(CALL_TRANSCRIBE_TIMEOUT_MS),
       });
       if (!res.ok) throw new Error(`stt ${res.status}`);
-      const body = (await res.json()) as { text?: string };
-      const transcript = (body.text ?? "").trim();
-      const { summary } = summarizeCall(transcript);
+      const body = (await res.json()) as {
+        text?: string;
+        segments?: TranscriptSegment[];
+        durationSeconds?: number;
+      };
+      /*
+       * זיהוי הדוברים רץ *אחרי* התמלול ולא במקביל לו — שני המודלים
+       * מתחרים על אותן ליבות, והרצה במקביל רק מאריכה את שניהם.
+       */
+      const segments = body.segments ?? [];
+      // אורך ההקלטה מגיע מהתמלול עצמו; כשהוא חסר נגזר מהמקטע האחרון
+      const audioSeconds = body.durationSeconds ?? segments[segments.length - 1]?.end ?? 0;
+      const turns = segments.length > 0 ? await fetchSpeakerTurns(audio, audioSeconds) : [];
+      const diarized = formatDiarizedTranscript(segments, turns);
+      // נפילה חזרה ל-text כשהשירות הישן עדיין לא מחזיר segments
+      const transcript = (diarized.text || body.text || "").trim();
+      // הסיכום מחולץ מהטקסט הנקי, בלי תוויות הדובר וחותמות הזמן —
+      // ביטויי המפתח שהוא מחפש היו נשברים על "[01:15] דובר 2:"
+      const { summary } = summarizeCall((body.text ?? "").trim() || transcript);
 
       await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
