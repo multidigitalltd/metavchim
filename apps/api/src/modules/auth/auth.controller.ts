@@ -42,7 +42,9 @@ const LoginSchema = z
  */
 const UpdateProfileSchema = z
   .object({
-    name: z.string().min(2).max(120).optional(),
+    // trim לפני הבדיקה: בלעדיו שם של רווחים בלבד עובר min(2) ואז
+    // נשמר כמחרוזת ריקה, ושובר את כותרת הפרופיל (ביקורת Codex)
+    name: z.string().trim().min(2).max(120).optional(),
     /** ספרות, רווחים ומקפים; "" מנקה את השדה */
     phone: z.union([z.string().regex(/^[\d\-+ ]{9,20}$/u), z.literal("")]).optional(),
     email: z.string().email().max(254).optional(),
@@ -314,7 +316,8 @@ export class AuthController {
   ): Promise<ProfileDto> {
     const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
     if (!user) throw new UnauthorizedException();
-    return this.auth.updateProfile(user.id, body);
+    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
+    return this.auth.updateProfile(user.id, body, token);
   }
 
   @AnyAuthenticated()
@@ -329,7 +332,8 @@ export class AuthController {
     if (!user) {
       throw new UnauthorizedException();
     }
-    await this.auth.changePassword(user.id, body.currentPassword, body.newPassword);
+    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
+    await this.auth.changePassword(user.id, body.currentPassword, body.newPassword, token);
     return { ok: true };
   }
 }

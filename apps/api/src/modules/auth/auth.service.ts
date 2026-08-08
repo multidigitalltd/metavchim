@@ -214,6 +214,8 @@ export class AuthService {
       currentPassword?: string;
       preferences?: Record<string, unknown>;
     },
+    /** הטוקן של הבקשה הנוכחית — נשמר כשמנתקים את שאר החיבורים */
+    currentSessionToken?: string,
   ): Promise<ProfileDto> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new UnauthorizedException();
@@ -251,9 +253,15 @@ export class AuthService {
     const updated = await this.prisma.user.update({ where: { id: userId }, data });
 
     if (emailChanging) {
-      // הכתובת היא זהות ההתחברות — כל חיבור פתוח אחר נסגר, בדיוק
-      // כמו אחרי שינוי סיסמה
-      await this.prisma.session.deleteMany({ where: { userId } });
+      /*
+       * כל חיבור פתוח *אחר* נסגר — למעט זה שמבצע את השינוי.
+       *
+       * מחיקה גורפת הייתה מנתקת גם את המשתמש שעומד מול המסך: העוגייה
+       * שלו מצביעה על שורה שנמחקה, הבקשה הבאה מוציאה אותו, ושמירות
+       * שנעשו באותו מסך נבלעות. הסרת ה-Session הנוכחי מהמחיקה נותנת
+       * בדיוק את מה שהודעת המסך מבטיחה (ביקורת Codex).
+       */
+      await this.revokeOtherSessions(userId, currentSessionToken);
     }
 
     return {
@@ -266,7 +274,12 @@ export class AuthService {
   }
 
   /** החלפת סיסמה ע"י המשתמש עצמו — מנקה את דגל mustChangePassword. */
-  async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+    currentSessionToken?: string,
+  ): Promise<void> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user?.passwordHash) throw new UnauthorizedException();
     const ok = await argon2.verify(user.passwordHash, currentPassword).catch(() => false);
@@ -280,8 +293,24 @@ export class AuthService {
         passwordChangedAt: new Date(),
       },
     });
-    // כל שאר ה-Sessions מבוטלים אחרי שינוי סיסמה (השארת הנוכחי בלבד).
-    await this.prisma.session.deleteMany({ where: { userId } });
+    // כל שאר ה-Sessions מבוטלים אחרי שינוי סיסמה — הנוכחי נשאר.
+    // ההערה כאן תמיד הבטיחה זאת, אבל המחיקה הייתה גורפת בפועל.
+    await this.revokeOtherSessions(userId, currentSessionToken);
+  }
+
+  /**
+   * ביטול כל החיבורים הפתוחים של המשתמש חוץ מזה שמבצע את הפעולה.
+   *
+   * בלי הטוקן הנוכחי (קריאה פנימית ללא הקשר בקשה) המחיקה גורפת —
+   * וזו ההתנהגות הנכונה שם.
+   */
+  private async revokeOtherSessions(userId: string, currentToken?: string): Promise<void> {
+    await this.prisma.session.deleteMany({
+      where: {
+        userId,
+        ...(currentToken ? { tokenHash: { not: AuthService.hashToken(currentToken) } } : {}),
+      },
+    });
   }
 
   async logout(token: string): Promise<void> {

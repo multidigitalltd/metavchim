@@ -59,18 +59,17 @@ export default function ProfilePage() {
   const [detailsErr, setDetailsErr] = useState<string | null>(null);
 
   useEffect(() => {
-    // המטמון מוחל מיד כדי שלא יהיה הבהוב, והשרת גובר עליו כשהוא עונה
+    /*
+     * הסנכרון מהשרת עצמו כבר קרה ב-AccessibilityRuntime, שמורכב בכל
+     * מסך. כאן נדרשים רק פרטי הפרופיל לטופס, וההעדפות נקראות
+     * מהמטמון — שכבר מעודכן מהשרת באותה נקודה.
+     */
     setPrefs(loadA11y());
     apiGet<ProfileDto>("/auth/profile")
       .then((res) => {
         setProfile(res);
         const fromServer = res.preferences?.a11y as Partial<A11yPrefs> | undefined;
-        if (!fromServer) return;
-        const merged = { ...A11Y_DEFAULTS, ...fromServer };
-        setPrefs(merged);
-        applyA11y(merged);
-        saveA11y(merged);
-        window.dispatchEvent(new CustomEvent("mv-a11y-change", { detail: merged }));
+        setPrefs(fromServer ? { ...A11Y_DEFAULTS, ...fromServer } : A11Y_DEFAULTS);
       })
       .catch(() => undefined);
   }, []);
