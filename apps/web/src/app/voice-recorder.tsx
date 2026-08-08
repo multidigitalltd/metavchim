@@ -333,7 +333,7 @@ export function VoiceRecorder({
   function stopServerRecording(): void {
     continueRef.current = false;
     setRecording(false);
-      setActiveMode(null);
+    setActiveMode(null);
     const recorder = mediaRecorderRef.current;
     // onstop הוא שמוסיף את הקטע האחרון לתור, ומשם finishRecording
     if (recorder?.state === "recording") recorder.stop();
@@ -358,25 +358,40 @@ export function VoiceRecorder({
     });
   }
 
-  /** מצב 2 — זיהוי בדפדפן (גיבוי). */
+  /** מצב "מהיר" — זיהוי הדפדפן, הטקסט זוחל על המסך תוך כדי הדיבור. */
   function startBrowserRecognition(): void {
     const Ctor = getSpeechRecognition();
     if (!Ctor) return;
     const recognition = new Ctor();
     recognition.lang = "he-IL";
     recognition.continuous = true;
-    recognition.interimResults = false;
+    /*
+     * זה כל ההבדל בין "מהיר" ל"מדויק", והוא היה כבוי.
+     *
+     * עם interimResults=false הדפדפן מדווח רק תוצאות סופיות, ולכן
+     * הטקסט הופיע רק בסוף — כלומר המצב "המהיר" התנהג בדיוק כמו
+     * המצב האיטי, והכיתוב על המסך הבטיח משהו שלא קרה.
+     */
+    recognition.interimResults = true;
+
+    // טקסט הבסיס נלכד פעם אחת בתחילת הסבב: התוצאות הזמניות מתעדכנות
+    // שוב ושוב על אותו קטע, ובלי בסיס קבוע כל עדכון היה מצטבר כפול
+    const base = valueRef.current;
+
     recognition.onresult = (event) => {
-      const parts: string[] = [];
+      let text = "";
       for (let i = 0; i < event.results.length; i += 1) {
         const alt = event.results[i]?.[0];
-        if (alt) parts.push(alt.transcript);
+        if (alt) text += alt.transcript;
       }
-      const current = valueRef.current;
-      onChange((current ? `${current} ` : "") + parts.join(" ").trim());
+      const spoken = text.trim();
+      if (spoken === "") return;
+      onChange(base.trim() === "" ? spoken : `${base.trimEnd()} ${spoken}`);
     };
-    recognition.onend = () => setRecording(false);
+    recognition.onend = () => {
+      setRecording(false);
       setActiveMode(null);
+    };
     recognition.onerror = () => {
       setRecording(false);
       setActiveMode(null);

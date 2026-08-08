@@ -608,6 +608,12 @@ model Call {
   /// answered | missed | no_answer | voicemail
   outcome         String   @default("answered") @db.VarChar(20)
   summary         String?  @db.VarChar(4000)
+  /** מפתח ההקלטה ב-S3; ההקלטה עצמה לא יושבת בטבלה שנשלפת בכל רשימה. */
+  recordingKey    String?  @map("recording_key") @db.VarChar(300)
+  transcript      String?
+  transcribedAt   DateTime? @map("transcribed_at")
+  /** pending | running | done | failed | unavailable */
+  transcriptionStatus String? @map("transcription_status") @db.VarChar(20)
   createdBy       String?  @map("created_by") @db.Char(26)
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")

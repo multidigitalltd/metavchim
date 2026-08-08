@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { LoadError } from "../load-error";
 
 /**
  * סטטוס חיבור הוואטסאפ — שלושה שלבים עם חיווי ✓/✗, כתובת ה-webhook
@@ -12,7 +13,6 @@ import { formatDateTime } from "@/lib/format";
 interface WhatsAppStatus {
   serverConfigured: boolean;
   numberConfigured: boolean;
-  webhookUrl: string;
   lastInboundAt?: string;
 }
 
@@ -35,13 +35,32 @@ function StatusRow({ ok, label, detail }: { ok: boolean; label: string; detail?:
 
 export function WhatsAppStatusSection() {
   const [status, setStatus] = useState<WhatsAppStatus | null>(null);
+  const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
+  /*
+   * כישלון טעינה אינו "וואטסאפ אינו מחובר".
+   * קודם הקטע פשוט נעלם מהמסך, ומנהל שבא לבדוק את החיבור היה מסיק
+   * שאין כזה — ואולי מתחיל להגדיר מחדש מספר שכבר משויך.
+   */
+  const load = useCallback(() => {
+    setFailed(false);
     apiGet<WhatsAppStatus>("/settings/whatsapp-status")
       .then(setStatus)
-      .catch(() => undefined);
+      .catch(() => setFailed(true));
   }, []);
 
+  useEffect(load, [load]);
+
+  if (failed) {
+    return (
+      <section aria-labelledby="wa-status-heading" className="mv-list-card px-5 py-[17px]">
+        <h2 id="wa-status-heading" className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>
+          חיבור וואטסאפ
+        </h2>
+        <LoadError message="לא הצלחנו לבדוק את מצב החיבור" onRetry={load} />
+      </section>
+    );
+  }
   if (!status) return null;
 
   return (
@@ -58,7 +77,9 @@ export function WhatsAppStatusSection() {
             detail={
               status.serverConfigured
                 ? "מפתחות ה-API מוגדרים בשרת"
-                : "חסרים מפתחות בשרת (WHATSAPP_APP_SECRET / VERIFY_TOKEN) — מוגדר פעם אחת לכל הפלטפורמה"
+                // בלי שמות משתני הסביבה: מנהל משרד אינו יכול להגדיר אותם,
+                // והצגתם רק מזמינה אותו לחפש קובץ שאין לו גישה אליו
+                : "החיבור הכללי טרם הופעל — פנו למנהל המערכת"
             }
           />
           <StatusRow
@@ -80,12 +101,6 @@ export function WhatsAppStatusSection() {
             }
           />
         </ul>
-        <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
-          <p className="mb-1 text-sm font-medium">כתובת ה-Webhook להגדרה במטא (Meta for Developers):</p>
-          <p className="overflow-x-auto rounded-lg border p-2 font-mono text-sm" dir="ltr" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
-            {status.webhookUrl}
-          </p>
-        </div>
       </div>
     </section>
   );

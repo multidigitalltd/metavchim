@@ -1,4 +1,17 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Query,
+  UploadedFile,
+  UseInterceptors,
+} from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { z } from "zod";
 import { IdSchema } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
@@ -28,6 +41,9 @@ const ListQuerySchema = z
   })
   .strict();
 
+/** שיחה של חצי שעה ב-webm שוקלת בערך 15MB; 40 נותן מרווח נוח. */
+const MAX_RECORDING_BYTES = 40 * 1024 * 1024;
+
 /** יומן שיחות — תיעוד ידני של שיחות שהמתווך קיים. */
 @Controller("calls")
 export class CallsController {
@@ -47,6 +63,23 @@ export class CallsController {
     @Body(new ZodValidationPipe(CreateSchema)) body: z.infer<typeof CreateSchema>,
   ): Promise<CallDto> {
     return this.calls.create(body);
+  }
+
+  /**
+   * צירוף הקלטה לשיחה. התמלול רץ ברקע — ראו CallsService.
+   * תקרת הגודל נאכפת ב-Multer ולא בקוד: קובץ ענק נחסם לפני שהוא
+   * נטען לזיכרון של התהליך.
+   */
+  @Post(":id/recording")
+  @RequireCapability("leads.edit")
+  @HttpCode(200)
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_RECORDING_BYTES, files: 1 } }))
+  async attachRecording(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+  ): Promise<{ status: string }> {
+    if (!file) throw new BadRequestException("לא צורף קובץ");
+    return this.calls.attachRecording(id, { buffer: file.buffer, mimetype: file.mimetype });
   }
 
   @Delete(":id")

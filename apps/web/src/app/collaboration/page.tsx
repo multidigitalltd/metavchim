@@ -6,6 +6,7 @@ import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import Link from "next/link";
+import { LoadError } from "../load-error";
 
 /** רשת שיתופי הפעולה (אפיון §11-12): ביקושים אנונימיים + קרדיטים. */
 
@@ -65,9 +66,18 @@ export default function CollaborationPage() {
   const [balance, setBalance] = useState<number | null>(null);
   const [selectedProperty, setSelectedProperty] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const load = useCallback(() => {
-    apiGet<DemandRow[]>("/collaboration/demands").then(setDemands).catch(() => setDemands([]));
+    setLoadFailed(false);
+    /*
+     * כישלון בטעינת הביקושים אינו "אין ביקושים ברשת".
+     * קודם הוא הפך ל-[] והמסך הציג את מצב הריק — כלומר תקלת רשת
+     * נראתה כמו מסקנה עסקית ("אין מה לעשות כאן"), והמתווך היה עוזב.
+     */
+    apiGet<DemandRow[]>("/collaboration/demands")
+      .then(setDemands)
+      .catch(() => setLoadFailed(true));
     apiGet<CoopOfferRow[]>("/collaboration/offers").then(setCoopOffers).catch(() => undefined);
     apiGet<{ balance: number }>("/collaboration/credits")
       .then((r) => setBalance(r.balance))
@@ -170,7 +180,9 @@ export default function CollaborationPage() {
         <p className="mb-3" style={{ color: "var(--color-text-muted)" }}>
           קונים אנונימיים מסוכנויות אחרות ומ-Kanko. יש לך נכס מתאים? שליחת הצעה עולה קרדיט אחד.
         </p>
-        {demands === null ? (
+        {loadFailed ? (
+          <LoadError message="לא הצלחנו לטעון את הביקושים ברשת" onRetry={load} />
+        ) : demands === null ? (
           <p aria-live="polite">טוען…</p>
         ) : demands.length === 0 ? (
           <p style={{ color: "var(--color-text-muted)" }}>

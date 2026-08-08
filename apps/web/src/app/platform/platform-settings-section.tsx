@@ -14,7 +14,7 @@ const inputStyle = { borderColor: "var(--color-border)", background: "var(--colo
 
 interface PlatformSettings {
   postmark: { configured: boolean; source: "db" | "env" | "none"; emailFrom?: string };
-  whatsapp: { configured: boolean; source: "db" | "env" | "none" };
+  whatsapp: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
   google: { configured: boolean; source: "db" | "env" | "none"; redirectUri: string };
   loginOtpEnabled: boolean;
 }
@@ -282,6 +282,19 @@ export function PlatformSettingsSection() {
           מפתחות האפליקציה ב-Meta for Developers. כל משרד מזין אחר כך את המספר
           העסקי שלו בהגדרות שלו, וההודעות מנותבות אליו אוטומטית.
         </p>
+        {/* הכתובת שמוזנת ב-Meta for Developers. היא ישבה קודם בהגדרות
+            המשרד, שם מנהל משרד ראה פרט תפעולי של הפלטפורמה שאין לו שום
+            דרך לפעול עליו — אין לו אפליקציית Meta. */}
+        <div className="mb-3">
+          <p className="mb-1 text-sm font-medium">כתובת ה-Webhook להזנה במטא:</p>
+          <p
+            className="overflow-x-auto rounded-lg border p-2 font-mono text-sm"
+            dir="ltr"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+          >
+            {settings.whatsapp.webhookUrl}
+          </p>
+        </div>
         <form onSubmit={(e) => void saveWhatsApp(e)} className="flex flex-wrap items-end gap-3">
           <div className="flex-1" style={{ minWidth: "220px" }}>
             <label htmlFor="whatsappAppSecret" className="mb-1 block font-medium">
