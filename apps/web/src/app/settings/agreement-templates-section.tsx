@@ -37,6 +37,20 @@ interface TemplateDto {
   updatedAt?: string;
 }
 
+/**
+ * השדות שמופיעים בנוסח בפועל.
+ *
+ * אותה תבנית שמנוע הרינדור משתמש בה, כדי שהסימון במסך יסכים תמיד
+ * עם מה שיקרה בשליחה.
+ */
+function usedPlaceholders(template: string): Set<string> {
+  const found = new Set<string>();
+  for (const match of template.matchAll(/\{\{\s*([\p{L}_]+)\s*\}\}/gu)) {
+    if (match[1]) found.add(match[1]);
+  }
+  return found;
+}
+
 export function AgreementTemplatesSection() {
   const [templates, setTemplates] = useState<TemplateDto[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -87,6 +101,9 @@ export function AgreementTemplatesSection() {
   }
 
   async function reset(kind: string): Promise<void> {
+    // אישור לפני מחיקה: הכפתור יושב ליד "שמור נוסח", והפעולה מוחקת
+    // לצמיתות נוסח שהמשרד ניסח — כולל טיוטה שטרם נשמרה
+    if (!window.confirm("לשחזר את נוסח ברירת המחדל? הנוסח שהזנתם יימחק.")) return;
     setBusy(kind);
     setMessage(null);
     setError(null);
@@ -135,6 +152,8 @@ export function AgreementTemplatesSection() {
       {templates.map((template) => {
         const draft = drafts[template.kind] ?? "";
         const preview = renderAgreement(draft, SAMPLE_AGREEMENT_VALUES);
+        // פעם אחת לכל נוסח, ולא פעם לכל שדה
+        const used = usedPlaceholders(draft);
         return (
           <div
             key={template.kind}
@@ -227,7 +246,7 @@ export function AgreementTemplatesSection() {
                     </p>
                     <div className="mt-1 flex flex-wrap gap-1.5">
                       {group.names.map((name) => {
-                        const used = draft.includes(`{{${name}}}`);
+                        const inUse = used.has(name);
                         return (
                           <button
                             key={name}
@@ -235,12 +254,12 @@ export function AgreementTemplatesSection() {
                             className="mv-chip"
                             onClick={() => insert(template.kind, name)}
                             title={
-                              used
+                              inUse
                                 ? `${PLACEHOLDER_LABELS[name]} — כבר מופיע בנוסח`
                                 : `הוספת ${PLACEHOLDER_LABELS[name]} במקום הסמן`
                             }
                           >
-                            {used ? "✓ " : "+ "}
+                            {inUse ? "✓ " : "+ "}
                             {PLACEHOLDER_LABELS[name]}
                           </button>
                         );
