@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  PLACEHOLDER_GROUPS,
+  PLACEHOLDER_LABELS,
+  PLACEHOLDER_NAMES,
   REQUIRED_PLACEHOLDERS,
+  SAMPLE_AGREEMENT_VALUES,
   defaultAgreementTemplate,
   missingRequiredPlaceholders,
   renderAgreement,
@@ -89,5 +93,32 @@ describe("renderAgreement", () => {
       expect(result.text).not.toContain("{{");
       expect(result.text).not.toContain("[חסר");
     }
+  });
+});
+
+describe("מטא-דאטה לעורך הנוסחים", () => {
+  it("לכל שדה יש שם קריא — שדה חדש לא יופיע במסך כקוד גולמי", () => {
+    for (const name of PLACEHOLDER_NAMES) {
+      expect(PLACEHOLDER_LABELS[name]).toBeTruthy();
+      expect(PLACEHOLDER_LABELS[name]).not.toContain("_");
+    }
+  });
+
+  it("כל שדה שייך לקבוצה אחת בדיוק", () => {
+    const grouped = PLACEHOLDER_GROUPS.flatMap((g) => g.names);
+    expect([...grouped].sort()).toEqual([...PLACEHOLDER_NAMES].sort());
+    expect(grouped.length).toBe(new Set(grouped).size);
+  });
+
+  it("לכל שדה יש ערך דוגמה — התצוגה המקדימה לא תציג [חסר]", () => {
+    for (const kind of KINDS) {
+      const result = renderAgreement(defaultAgreementTemplate(kind), SAMPLE_AGREEMENT_VALUES);
+      expect(result.unfilled).toEqual([]);
+      expect(result.text).not.toContain("[חסר");
+    }
+  });
+
+  it("ערכי הדוגמה מסומנים כדוגמה ולא נראים כלקוח אמיתי", () => {
+    expect(SAMPLE_AGREEMENT_VALUES.שם_הלקוח).toContain("לדוגמה");
   });
 });
