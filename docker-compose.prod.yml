@@ -105,7 +105,13 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      DOMAIN: ${DOMAIN:?חסר DOMAIN ב-.env.production}
+      # לא :? — compose מפרש את הקובץ *לפני* סינון הפרופילים, ולכן
+      # DOMAIN חסר היה מפיל **כל** פקודת compose בשרת שמריץ מאחורי
+      # nginx קיים (שם הפרופיל standalone כבוי ו-Caddy לא רץ בכלל).
+      # התסמין קשה לאבחון: גם `logs`, גם `ps` וגם `up -d` נופלים על
+      # שירות שאינו בשימוש — וגיבוי חיצוני שלא הורם נראה כמו תקלת
+      # גיבוי. Caddy עצמו נכשל בבירור אם הפרופיל דלוק והערך ריק.
+      DOMAIN: ${DOMAIN:-}
     volumes:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddydata:/data
@@ -200,7 +206,10 @@ services:
     image: postgres:16-alpine
     entrypoint: ["/bin/sh", "/backup/restore.sh"]
     environment:
-      PGPASSWORD: ${DB_OWNER_PASSWORD:?חסר DB_OWNER_PASSWORD ב-.env.production}
+      # לא :? מאותה סיבה כמו ב-caddy — שירות מאחורי פרופיל שדורש
+      # משתנה מפיל כל פקודת compose. אין כאן ויתור על הבדיקה:
+      # postgres ו-backup, שרצים תמיד, כבר דורשים את המשתנה הזה.
+      PGPASSWORD: ${DB_OWNER_PASSWORD:-}
     volumes:
       - ./infra/backup:/backup:ro
       # כתיבה — גם דאמפ הבטיחות לפני השחזור נשמר כאן
