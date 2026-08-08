@@ -7,12 +7,23 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
 } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import { z } from "zod";
-import { IdSchema, UserRoleSchema } from "@metavchim/shared";
+import {
+  CAPABILITIES,
+  IdSchema,
+  UserRoleSchema,
+  clearEffect,
+  describeOverride,
+  isOverrideActive,
+  overrideRejectionReason,
+  resolveCapabilities,
+  type Capability,
+} from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { onboardingSteps, type OnboardingProgress } from "@metavchim/shared";
 import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorators";
@@ -38,6 +49,36 @@ const TenantSettingsSchema = z
 
 // owner אינו ניתן להקצאה דרך ה-API — מוקם בהקמת הסוכנות בלבד
 const AssignableRoleSchema = UserRoleSchema.exclude(["owner"]);
+
+/**
+ * שינוי הרשאות: רשימת יכולות ולא יכולת בודדת, כדי שחסימת מודול שלם
+ * תהיה פעולה אחת בטרנזקציה אחת. `clear` מחזיר לברירת המחדל של התפקיד.
+ */
+const SetCapabilitiesSchema = z
+  .object({
+    capabilities: z.array(z.enum(CAPABILITIES)).min(1).max(CAPABILITIES.length),
+    effect: z.enum(["grant", "deny", "clear"]),
+    /** ISO; null/חסר = לצמיתות */
+    expiresAt: z.string().datetime().nullish(),
+    reason: z.string().max(200).optional(),
+  })
+  .strict();
+
+type UserCapabilitiesDto = {
+  userId: string;
+  name: string;
+  role: string;
+  protected: boolean;
+  effective: string[];
+  overrides: {
+    capability: string;
+    effect: string;
+    expiresAt?: string;
+    reason?: string;
+    description: string;
+    active: boolean;
+  }[];
+};
 
 const CreateUserSchema = z
   .object({
@@ -261,6 +302,164 @@ export class SettingsController {
         entityId: id,
       }),
     );
+    return { ok: true };
+  }
+
+  /**
+   * ההרשאות בפועל של איש צוות אחד — התפקיד, החריגים, והתוצאה.
+   *
+   * המסך צריך את שלושתם: התפקיד כדי להראות מאיפה התחלנו, החריגים
+   * כדי להראות מה המנהל שינה ועד מתי, והתוצאה כדי שלא יצטרך לחשב
+   * בעצמו מה יוצא מהצירוף.
+   */
+  @Get("users/:id/capabilities")
+  @RequireCapability("users.manage")
+  async userCapabilities(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<UserCapabilitiesDto> {
+    const tenantId = TenantContext.current().tenantId;
+    const target = await this.prisma.user.findFirst({
+      where: { id, tenantId },
+      select: { id: true, name: true, role: true },
+    });
+    if (!target) throw new BadRequestException("משתמש לא נמצא");
+
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.userCapability.findMany({
+        where: { userId: id, tenantId },
+        select: { capability: true, effect: true, expiresAt: true, reason: true },
+        orderBy: { capability: "asc" },
+      }),
+    );
+    const now = new Date();
+    const overrides = rows.map((row) => ({
+      capability: row.capability as Capability,
+      effect: row.effect === "grant" ? ("grant" as const) : ("deny" as const),
+      expiresAt: row.expiresAt,
+    }));
+
+    return {
+      userId: target.id,
+      name: target.name,
+      role: target.role,
+      // בעל המשרד מוגן בשרת; המסך מקבל את הדגל כדי להסביר למה
+      protected: target.role === "owner" || target.id === TenantContext.current().userId,
+      effective: [...resolveCapabilities(target.role, overrides, now)],
+      overrides: rows.map((row, index) => ({
+        capability: row.capability,
+        effect: row.effect,
+        expiresAt: row.expiresAt?.toISOString(),
+        reason: row.reason ?? undefined,
+        description: describeOverride(overrides[index]!, now),
+        active: isOverrideActive(overrides[index]!, now),
+      })),
+    };
+  }
+
+  /**
+   * שינוי הרשאות של איש צוות — יכולת בודדת או מודול שלם.
+   *
+   * הרשימה במקום ערך יחיד היא מה שמאפשר "חסום את מודול הנכסים
+   * לשבוע" בפעולה אחת ובטרנזקציה אחת, במקום ארבע קריאות שיכולות
+   * להיכשל באמצע ולהשאיר חצי מודול חסום.
+   *
+   * שלוש מגבלות ההגנה (לא על עצמך, לא על בעל המשרד, ואי אפשר להעניק
+   * מה שאין לך) נאכפות כאן בשרת ולא רק במסך — הנימוק המלא יושב
+   * ב-overrideRejectionReason.
+   */
+  @Put("users/:id/capabilities")
+  @RequireCapability("users.manage")
+  async setUserCapabilities(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(SetCapabilitiesSchema)) body: z.infer<typeof SetCapabilitiesSchema>,
+  ): Promise<{ ok: true }> {
+    const ctx = TenantContext.current();
+    const target = await this.prisma.user.findFirst({
+      where: { id, tenantId: ctx.tenantId },
+      select: { id: true, role: true },
+    });
+    if (!target) throw new BadRequestException("משתמש לא נמצא");
+
+    /*
+     * הבדיקה נעשית לפי מה שהשינוי *עושה בפועל*, לא לפי שמו.
+     *
+     * ניקוי חריג אינו ניטרלי: מחיקת חסימה על יכולת שהתפקיד כן נותן
+     * מחזירה גישה — כלומר היא הענקה. בלי ההבחנה הזו מנהל שנחסמה
+     * ממנו יכולת יכול היה לנקות אותה אצל מנהל אחר ולהחזיר גישה
+     * שהוא עצמו אינו רשאי להעניק (ביקורת Codex).
+     */
+    const current = await this.prisma.withTenant((tx) =>
+      tx.userCapability.findMany({
+        where: { userId: id, tenantId: ctx.tenantId, capability: { in: body.capabilities } },
+        select: { capability: true, effect: true },
+      }),
+    );
+    const currentEffect = new Map(
+      current.map((row) => [row.capability, row.effect === "grant" ? "grant" : "deny"] as const),
+    );
+
+    for (const capability of body.capabilities) {
+      const effect =
+        body.effect === "clear"
+          ? clearEffect(target.role, capability, currentEffect.get(capability) ?? null)
+          : body.effect;
+      const reason = overrideRejectionReason({
+        actorUserId: ctx.userId,
+        actorCapabilities: ctx.capabilities,
+        targetUserId: target.id,
+        targetRole: target.role,
+        capability,
+        effect,
+      });
+      if (reason) throw new BadRequestException(reason);
+    }
+
+    const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
+    if (expiresAt && expiresAt.getTime() <= Date.now()) {
+      throw new BadRequestException("מועד סיום החסימה חייב להיות בעתיד");
+    }
+
+    await this.prisma.withTenant(async (tx) => {
+      for (const capability of body.capabilities) {
+        if (body.effect === "clear") {
+          await tx.userCapability.deleteMany({
+            where: { userId: id, tenantId: ctx.tenantId, capability },
+          });
+          continue;
+        }
+        // upsert ידני על צמד (משתמש, יכולת): שינוי חוזר מעדכן שורה
+        // אחת ולא מערים שורות סותרות
+        const updated = await tx.userCapability.updateMany({
+          where: { userId: id, tenantId: ctx.tenantId, capability },
+          data: { effect: body.effect, expiresAt, reason: body.reason ?? null },
+        });
+        if (updated.count === 0) {
+          await tx.userCapability.create({
+            data: {
+              id: ulid(),
+              tenantId: ctx.tenantId,
+              userId: id,
+              capability,
+              effect: body.effect,
+              expiresAt,
+              reason: body.reason ?? null,
+              createdBy: ctx.userId,
+            },
+          });
+        }
+      }
+      await this.audit.record(tx, {
+        action: `users.capabilities.${body.effect}`,
+        entityType: "user",
+        entityId: id,
+        metadata: {
+          capabilities: body.capabilities,
+          expiresAt: expiresAt?.toISOString() ?? null,
+          reason: body.reason ?? null,
+        },
+      });
+    });
+
     return { ok: true };
   }
 
