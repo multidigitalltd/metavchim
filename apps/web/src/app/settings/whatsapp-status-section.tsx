@@ -13,7 +13,6 @@ import { LoadError } from "../load-error";
 interface WhatsAppStatus {
   serverConfigured: boolean;
   numberConfigured: boolean;
-  webhookUrl: string;
   lastInboundAt?: string;
 }
 
@@ -78,7 +77,9 @@ export function WhatsAppStatusSection() {
             detail={
               status.serverConfigured
                 ? "מפתחות ה-API מוגדרים בשרת"
-                : "חסרים מפתחות בשרת (WHATSAPP_APP_SECRET / VERIFY_TOKEN) — מוגדר פעם אחת לכל הפלטפורמה"
+                // בלי שמות משתני הסביבה: מנהל משרד אינו יכול להגדיר אותם,
+                // והצגתם רק מזמינה אותו לחפש קובץ שאין לו גישה אליו
+                : "החיבור הכללי טרם הופעל — פנו למנהל המערכת"
             }
           />
           <StatusRow
@@ -100,12 +101,6 @@ export function WhatsAppStatusSection() {
             }
           />
         </ul>
-        <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
-          <p className="mb-1 text-sm font-medium">כתובת ה-Webhook להגדרה במטא (Meta for Developers):</p>
-          <p className="overflow-x-auto rounded-lg border p-2 font-mono text-sm" dir="ltr" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
-            {status.webhookUrl}
-          </p>
-        </div>
       </div>
     </section>
   );
