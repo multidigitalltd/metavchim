@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { loadA11y, applyA11y } from "@/lib/a11y-prefs";
+import { syncA11yFromServer } from "@/lib/a11y-sync";
 
 /**
  * מיישם את העדפות הנגישות של המשתמש בכל טעינת דף, ומרנדר את קו
@@ -12,9 +13,16 @@ export function AccessibilityRuntime() {
   const [guide, setGuide] = useState(false);
 
   useEffect(() => {
+    // המטמון מוחל מיד כדי שלא יהיה הבהוב, והשרת גובר עליו כשהוא עונה
     const prefs = loadA11y();
     applyA11y(prefs);
     setGuide(prefs.readingGuide);
+
+    // הרכיב הזה מורכב בכל מסך, ולכן זו הנקודה הנכונה למשוך את
+    // ההעדפות של המשתמש — לא עמוד הפרופיל, שאליו כמעט לא נכנסים
+    void syncA11yFromServer().then((next) => {
+      if (next) setGuide(next.readingGuide);
+    });
 
     // עמוד הפרופיל משדר את השינוי — כך הקו נדלק ונכבה מיד, בלי רענון
     function onChange(event: Event): void {
