@@ -47,3 +47,20 @@ ALTER TABLE calls ADD COLUMN provider_call_id VARCHAR(80);
 CREATE UNIQUE INDEX calls_provider_call_id_key
   ON calls (tenant_id, provider_call_id)
   WHERE provider_call_id IS NOT NULL;
+
+-- קריאה ציבורית לפי מפתח ה-Webhook.
+--
+-- בלי הפוליסה הזו החיבור מת: הנתיב שהמרכזייה קוראת לו ציבורי, ולכן
+-- אין בו הקשר דייר — והטבלה תחת FORCE RLS. השאילתה הייתה מחזירה אפס
+-- שורות **בלי שגיאה**, כל מפתח תקין היה נדחה ב-404, ואף אירוע לא היה
+-- נקלט (ביקורת Codex).
+--
+-- אותה תבנית בדיוק של דף ההצעה ודף החתימה: SELECT בלבד, על השורה
+-- שהמפתח שלה הוצג, ובלי גישה לשום טבלה אחרת.
+CREATE POLICY integration_public_read ON integrations FOR SELECT
+  USING (webhook_key = current_setting('app.integration_key', true));
+
+-- עדכון חותמת האירוע האחרון — הנתיב הציבורי צריך לכתוב רק אותה.
+CREATE POLICY integration_public_touch ON integrations FOR UPDATE
+  USING (webhook_key = current_setting('app.integration_key', true))
+  WITH CHECK (webhook_key = current_setting('app.integration_key', true));

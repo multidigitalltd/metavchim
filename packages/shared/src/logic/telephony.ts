@@ -74,6 +74,12 @@ export function telephonyProvider(id: string): TelephonyProvider | undefined {
 
 /* ==================== אירוע שיחה ==================== */
 
+/**
+ * אותה תבנית של PhoneSchema — מספר ישראלי תקין אחרי נרמול.
+ * מוגדרת כאן ולא מיובאת כדי שהקובץ יישאר בלי תלות ב-zod.
+ */
+const ISRAELI_PHONE = /^\+972[2-9]\d{7,8}$/u;
+
 export type CallEventType = "ringing" | "answered" | "ended" | "missed";
 export type CallDirection = "inbound" | "outbound";
 
@@ -108,16 +114,32 @@ export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEven
     return "";
   };
 
-  const peerRaw = pick("caller", "caller_id", "callerid", "from", "phone", "src", "did_caller");
   const providerCallId = pick("call_id", "callId", "uniqueid", "unique_id", "id", "session_id");
-  if (peerRaw === "" || providerCallId === "") return null;
-
-  const peerPhone = normalizePhone(peerRaw);
-  if (peerPhone === "") return null;
+  if (providerCallId === "") return null;
 
   const directionRaw = pick("direction", "call_type", "type").toLowerCase();
   const direction: CallDirection =
     directionRaw.includes("out") || directionRaw.includes("יוצא") ? "outbound" : "inbound";
+
+  /*
+   * "הצד השני" תלוי בכיוון.
+   *
+   * בשיחה נכנסת הלקוח הוא המקור; בשיחה יוצאת הוא היעד, והמקור הוא
+   * מספר המשרד. בחירה קבועה במקור הייתה תולה כל שיחה יוצאת על מספר
+   * המשרד עצמו במקום על הלקוח שאליו התקשרו (ביקורת Codex).
+   */
+  const source = pick("caller", "caller_id", "callerid", "from", "src", "did_caller", "phone");
+  const destination = pick("to", "destination", "called", "dst", "callee");
+  const peerRaw = direction === "outbound" ? destination || source : source || destination;
+  if (peerRaw === "") return null;
+
+  /*
+   * ולידציה ולא רק נרמול: normalizePhone מסיר תווים ומוסיף קידומת,
+   * אבל אינו מאמת. בלי הבדיקה כאן ערך כמו "123" היה נשמר כשיחה, ואף
+   * פותח כרטיס לקוח וליד עבור מספר שאינו קיים.
+   */
+  const peerPhone = normalizePhone(peerRaw);
+  if (!ISRAELI_PHONE.test(peerPhone)) return null;
 
   const status = pick("status", "event", "state", "call_status").toLowerCase();
   const durationRaw = pick("duration", "billsec", "seconds");
@@ -128,7 +150,8 @@ export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEven
     direction,
     peerPhone,
     providerCallId,
-    extension: pick("extension", "ext", "agent", "destination", "to") || undefined,
+    // השלוחה היא של המשרד; ביעד כבר השתמשנו לבחירת הצד השני
+    extension: pick("extension", "ext", "agent") || undefined,
     durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : undefined,
   };
 }

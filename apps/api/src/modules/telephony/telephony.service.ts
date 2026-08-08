@@ -153,10 +153,19 @@ export class TelephonyService {
    * בכוונה מתעלמים ממנו (צלצול חוזר, אירוע שכבר נרשם) אינו כשל.
    */
   async ingest(key: string, payload: Record<string, unknown>): Promise<void> {
-    const integration = await this.prisma.integration.findUnique({
-      where: { webhookKey: key },
-      select: { tenantId: true, id: true, status: true },
-    });
+    /*
+     * דרך הפוליסה הציבורית ולא בשאילתה ישירה.
+     *
+     * הנתיב הזה ציבורי ואין בו הקשר דייר, והטבלה תחת FORCE RLS —
+     * שאילתה ישירה הייתה מחזירה אפס שורות **בלי שגיאה**, כל מפתח
+     * תקין היה נדחה ב-404, ואף אירוע לא היה נקלט (ביקורת Codex).
+     */
+    const integration = await this.prisma.withPublicIntegration(key, (tx) =>
+      tx.integration.findFirst({
+        where: { webhookKey: key },
+        select: { tenantId: true, id: true, status: true },
+      }),
+    );
     // מפתח לא מוכר — אותה שגיאה גנרית כמו בקליטת הלידים; לא מאשרים
     // קיום או אי-קיום של מפתחות
     if (!integration || integration.status !== "active") throw new NotFoundException("לא נמצא");
@@ -172,14 +181,41 @@ export class TelephonyService {
       });
 
       const phoneHash = this.crypto.phoneHash(event.peerPhone);
-      const contact = await tx.contact.findUnique({
-        where: { tenantId_phoneHash: { tenantId, phoneHash } },
+      /*
+       * גם המספרים המשניים של איש הקשר, לא רק הראשי.
+       *
+       * לקוח שמתקשר מהמספר השני שלו הוא אותו אדם. חיפוש בטבלת
+       * contacts בלבד היה מסמן אותו כלא-מוכר, וייצר לו כרטיס שני
+       * וליד מיותר — בדיוק מה שתמיכת ריבוי המספרים באה למנוע
+       * (ביקורת Codex).
+       */
+      const primary = await tx.contact.findFirst({
+        where: { tenantId, phoneHash },
         select: { id: true, nameEncrypted: true },
       });
+      const secondary = primary
+        ? null
+        : await tx.contactPhone.findFirst({
+            where: { tenantId, phoneHash },
+            select: { contact: { select: { id: true, nameEncrypted: true } } },
+          });
+      const contact = primary ?? secondary?.contact ?? null;
       const action = callAction(event, contact !== null);
       const contactName = contact ? this.crypto.decrypt(contact.nameEncrypted) : null;
 
+      /*
+       * בדיקת הכפילות רצה לפני הפיצול לענפים, ולא רק במסלול הרישום.
+       *
+       * ספק ששולח שוב אירוע צלצול — כי לא קיבל 200, או סתם — היה
+       * מייצר התראה נוספת על אותה שיחה בכל שליחה (ביקורת Codex).
+       */
+      const seen = await tx.call.findFirst({
+        where: { tenantId, providerCallId: event.providerCallId },
+        select: { id: true, outcome: true },
+      });
+
       if (action.notify) {
+        if (seen) return; // כבר טופל — לא מתריעים פעמיים
         /*
          * ההתראה נכתבת לכל המשרד (userId = null) ולא לסוכן מסוים:
          * השלוחה שהמרכזייה מדווחת עליה היא של המכשיר שמצלצל, ואין
@@ -201,18 +237,22 @@ export class TelephonyService {
         return;
       }
 
-      if (!action.logCall) return;
+      if (!action.logCall || seen) return;
 
       /*
-       * אידמפוטנטיות: המרכזייה שולחת את אותו אירוע שוב כשהיא לא
-       * מקבלת 200, ולפעמים גם בלי סיבה. בלי הבדיקה הזו כל שליחה
-       * חוזרת הייתה מוסיפה שורת שיחה נוספת לכרטיס הלקוח.
+       * הלקוח והליד נוצרים **לפני** שורת השיחה, ולא אחריה.
+       *
+       * בסדר ההפוך שורת השיחה נכתבה עם contactId ריק ונשארה כך
+       * לתמיד — כלומר הלקוח שנפתח מהשיחה לא היה מקושר לשיחה שיצרה
+       * אותו, ומכרטיסו אי אפשר היה להגיע אליה (ביקורת Codex).
        */
-      const already = await tx.call.findFirst({
-        where: { tenantId, providerCallId: event.providerCallId },
-        select: { id: true },
-      });
-      if (already) return;
+      let contactId = contact?.id ?? null;
+      let leadId: string | null = null;
+      if (action.createLead) {
+        const opened = await this.openLeadForUnknownCaller(tx, tenantId, event.peerPhone, phoneHash);
+        contactId = opened.contactId;
+        leadId = opened.leadId;
+      }
 
       await tx.call.create({
         data: {
@@ -221,22 +261,21 @@ export class TelephonyService {
           direction: event.direction,
           source: "provider",
           providerCallId: event.providerCallId,
-          contactId: contact?.id ?? null,
+          contactId,
+          leadId,
           phoneEncrypted: this.crypto.encrypt(event.peerPhone),
           phoneHash,
           occurredAt: new Date(),
+          // שיחה שלא נענתה נשארת בלי משך. עיגול כלפי מעלה היה מציג
+          // "דקה אחת" על שיחה שהסיכום שלה אומר שלא נענתה כלל.
           durationMinutes:
-            event.durationSeconds === undefined
+            event.type === "missed" || event.durationSeconds === undefined
               ? null
               : Math.max(1, Math.round(event.durationSeconds / 60)),
           outcome: event.type === "missed" ? "missed" : "answered",
           summary: describeCall(event),
         },
       });
-
-      if (action.createLead) {
-        await this.openLeadForUnknownCaller(tx, tenantId, event.peerPhone, phoneHash);
-      }
     });
   }
 
@@ -251,7 +290,7 @@ export class TelephonyService {
     tenantId: string,
     phone: string,
     phoneHash: string,
-  ): Promise<void> {
+  ): Promise<{ contactId: string; leadId: string }> {
     const contact = await tx.contact.create({
       data: {
         id: ulid(),
@@ -262,9 +301,10 @@ export class TelephonyService {
       },
       select: { id: true },
     });
+    const leadId = ulid();
     await tx.lead.create({
       data: {
-        id: ulid(),
+        id: leadId,
         tenantId,
         contactId: contact.id,
         source: "phone",
@@ -272,5 +312,21 @@ export class TelephonyService {
         summary: "נפתח אוטומטית משיחה נכנסת ממספר שאינו מוכר",
       },
     });
+    /*
+     * אירוע lead.created, כמו בכל שאר מסלולי הקליטה.
+     *
+     * ה-Dispatcher מתזמן ממנו את משימת ה-SLA. בלעדיו ליד שנפתח
+     * משיחה היה היחיד שלא מקבל התראת "ליד ממתין" אם אף אחד לא נוגע
+     * בו — כלומר בדיוק הליד שהכי קל לשכוח (ביקורת Codex).
+     */
+    await tx.outboxEvent.create({
+      data: {
+        id: ulid(),
+        tenantId,
+        name: "lead.created",
+        payload: { leadId, tenantId, source: "phone" },
+      },
+    });
+    return { contactId: contact.id, leadId };
   }
 }

@@ -163,3 +163,60 @@ describe("רשימת הספקים", () => {
     }
   });
 });
+
+describe("בחירת הצד השני לפי הכיוון", () => {
+  it("בשיחה נכנסת הלקוח הוא המקור", () => {
+    const parsed = parseTelephonyEvent({
+      caller: "0501234567",
+      to: "037654321",
+      call_id: "x",
+      direction: "inbound",
+    });
+    expect(parsed?.peerPhone).toBe("+972501234567");
+  });
+
+  it("בשיחה יוצאת הלקוח הוא היעד ולא מספר המשרד", () => {
+    // בלי זה כל שיחה יוצאת הייתה נתלית על מספר המשרד עצמו
+    const parsed = parseTelephonyEvent({
+      caller: "037654321",
+      to: "0501234567",
+      call_id: "x",
+      direction: "outbound",
+    });
+    expect(parsed?.peerPhone).toBe("+972501234567");
+  });
+
+  it("כשיש רק שדה אחד הוא נבחר בכל כיוון", () => {
+    expect(parseTelephonyEvent({ to: "0501234567", call_id: "x", direction: "inbound" })?.peerPhone).toBe(
+      "+972501234567",
+    );
+    expect(parseTelephonyEvent({ caller: "0501234567", call_id: "x", direction: "outbound" })?.peerPhone).toBe(
+      "+972501234567",
+    );
+  });
+
+  it("היעד לא נשאר גם כשלוחה — הוא כבר שימש לזיהוי הלקוח", () => {
+    const parsed = parseTelephonyEvent({
+      caller: "037654321",
+      to: "0501234567",
+      call_id: "x",
+      direction: "outbound",
+    });
+    expect(parsed?.extension).toBeUndefined();
+  });
+});
+
+describe("ולידציה של המספר", () => {
+  it("מספר קצר מדי נדחה — אחרת היה נפתח לו כרטיס לקוח וליד", () => {
+    expect(parseTelephonyEvent({ caller: "123", call_id: "x" })).toBeNull();
+  });
+
+  it("מספר ארוך מדי נדחה", () => {
+    expect(parseTelephonyEvent({ caller: "05012345678901", call_id: "x" })).toBeNull();
+  });
+
+  it("מספר ישראלי תקין מתקבל — נייד וקווי", () => {
+    expect(parseTelephonyEvent({ caller: "0501234567", call_id: "x" })?.peerPhone).toBe("+972501234567");
+    expect(parseTelephonyEvent({ caller: "037654321", call_id: "x" })?.peerPhone).toBe("+97237654321");
+  });
+});
