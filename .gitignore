@@ -11,3 +11,7 @@ coverage/
 backups/
 *.log
 .DS_Store
+
+# פסולת של מפרש פייתון (שירותי infra/stt ו-infra/diarize)
+__pycache__/
+*.pyc

@@ -147,6 +147,36 @@ services:
       retries: 5
       start_period: 60s
 
+  # זיהוי דוברים בשיחות טלפון (pyannote על CPU) — "מי אמר מה" בתמלול.
+  # פעיל רק בפרופיל diarize, *בנוסף* ל-stt: התמלול עצמו נשאר בשירות stt
+  # והשירות הזה מוסיף לו רק את תורי הדיבור.
+  # דורש HF_TOKEN ואישור תנאי המודל; ראו docs/10-deployment.md §זיהוי דוברים.
+  diarize:
+    profiles: ["diarize"]
+    build:
+      context: ./infra/diarize
+    restart: unless-stopped
+    environment:
+      DIARIZE_MODEL: ${DIARIZE_MODEL:-pyannote/speaker-diarization-3.1}
+      # אותו סוד משותף של שירות התמלול — שני השירותים באותה רשת פנימית
+      STT_SECRET: ${STT_SECRET:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+      DIARIZE_MAX_SPEAKERS: ${DIARIZE_MAX_SPEAKERS:-4}
+      DIARIZE_CONCURRENCY: ${DIARIZE_CONCURRENCY:-1}
+      OMP_NUM_THREADS: ${DIARIZE_THREADS:-2}
+    volumes:
+      - diarizemodels:/models
+    deploy:
+      resources:
+        limits:
+          memory: ${DIARIZE_MEMORY_LIMIT:-4g}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:9001/health')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
   # גיבוי אוטומטי — pg_dump יומי + ארכיון תמונות שבועי אל ${BACKUP_DIR}
   # במארח. שחזור: ראו docs/10-deployment.md §גיבוי ושחזור.
   backup:
@@ -226,6 +256,7 @@ services:
 
 volumes:
   sttmodels:
+  diarizemodels:
   pgdata:
   redisdata:
   miniodata:
