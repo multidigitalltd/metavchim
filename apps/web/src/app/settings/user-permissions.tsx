@@ -139,7 +139,13 @@ export function UserPermissions({
         {CAPABILITY_MODULES.map((module) => {
           const granted = module.capabilities.filter((c) => effective.has(c));
           const inRole = module.capabilities.filter((c) => roleCaps.has(c));
-          const blocked = module.capabilities.filter((c) => overrideOf.get(c)?.effect === "deny");
+          // רק חסימות שעדיין בתוקף: חריג שפג נשאר בטבלה כתיעוד, וספירה
+          // שלו הייתה מציגה "חלקי" ומציעה "החזר גישה" על מודול שכבר
+          // פתוח — מצב מוצג שסותר את ההרשאה בפועל (ביקורת Codex)
+          const blocked = module.capabilities.filter((c) => {
+            const row = overrideOf.get(c);
+            return row?.effect === "deny" && row.active;
+          });
           // מודול שהתפקיד ממילא לא כולל אינו "חסום" — אין מה להחזיר בו
           const state =
             granted.length === 0 && inRole.length === 0

@@ -233,11 +233,17 @@ export class AuthService {
      *
      * הסינון לפי תפוגה נעשה בקוד (resolveCapabilities) ולא ב-SQL,
      * כדי שאותו כלל יהיה גם מה שהבדיקות מכסות וגם מה שהמסך מציג.
+     *
+     * withExplicitTenant ולא שאילתה ישירה: הפונקציה הזו רצה לפני
+     * שקיים הקשר דייר, והטבלה תחת FORCE RLS — בלי app.tenant_id
+     * התוצאה הייתה אפס שורות בשקט, כלומר כל ההרשאות מתעלמות.
      */
-    const overrides = await this.prisma.userCapability.findMany({
-      where: { userId: session.user.id, tenantId: session.user.tenantId },
-      select: { capability: true, effect: true, expiresAt: true },
-    });
+    const overrides = await this.prisma.withExplicitTenant(session.user.tenantId, (tx) =>
+      tx.userCapability.findMany({
+        where: { userId: session.user.id, tenantId: session.user.tenantId },
+        select: { capability: true, effect: true, expiresAt: true },
+      }),
+    );
     const capabilities = resolveCapabilities(
       session.user.role,
       overrides.map((o) => ({

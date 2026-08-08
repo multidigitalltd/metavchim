@@ -159,6 +159,28 @@ export type OverrideRequest = {
 };
 
 /**
+ * מה *באמת* עושה ניקוי חריג — הוספה או צמצום.
+ *
+ * ניקוי אינו פעולה ניטרלית: מחיקת חסימה על יכולת שהתפקיד כן נותן
+ * מחזירה גישה, כלומר היא הענקה לכל דבר. בלי ההבחנה הזו מנהל שנחסמה
+ * ממנו יכולת מסוימת יכול היה לנקות אותה אצל מנהל אחר ולהחזיר לו
+ * גישה שהוא עצמו לא רשאי להעניק (ביקורת Codex).
+ *
+ * מחיקת *הענקה* היא צמצום, ולכן מותרת תמיד.
+ */
+export function clearEffect(
+  targetRole: string,
+  capability: Capability,
+  existing: OverrideEffect | null,
+): OverrideEffect {
+  if (existing === "deny") {
+    const roleGives = (ROLE_CAPABILITIES[targetRole] ?? []).includes(capability);
+    return roleGives ? "grant" : "deny";
+  }
+  return "deny";
+}
+
+/**
  * מחזיר הודעת סירוב, או null כשהשינוי מותר.
  *
  * שלוש המגבלות כאן הן מה שמונע ממסך ההרשאות להפוך לדלת אחורית:

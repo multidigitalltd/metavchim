@@ -4,6 +4,7 @@ import {
   CAPABILITY_LABELS,
   CAPABILITY_MODULES,
   capabilitiesWithoutModule,
+  clearEffect,
   describeOverride,
   isOverrideActive,
   overrideRejectionReason,
@@ -212,5 +213,43 @@ describe("שלמות הקיבוץ למודולים", () => {
     for (const capability of CAPABILITIES) {
       expect(CAPABILITY_LABELS[capability]).toBeTruthy();
     }
+  });
+});
+
+describe("clearEffect", () => {
+  it("ניקוי חסימה על יכולת שהתפקיד נותן הוא הענקה", () => {
+    // agent מקבל offers.send מהתפקיד — הסרת החסימה מחזירה גישה
+    expect(clearEffect("agent", "offers.send", "deny")).toBe("grant");
+  });
+
+  it("ניקוי חסימה על יכולת שהתפקיד לא נותן אינו מחזיר כלום", () => {
+    expect(clearEffect("agent", "billing.manage", "deny")).toBe("deny");
+  });
+
+  it("ניקוי הענקה הוא צמצום ולכן מותר תמיד", () => {
+    expect(clearEffect("agent", "analytics.view", "grant")).toBe("deny");
+  });
+
+  it("ניקוי בלי חריג קיים אינו מוסיף דבר", () => {
+    expect(clearEffect("agent", "offers.send", null)).toBe("deny");
+  });
+
+  it("הכלל סוגר את נתיב ההסלמה שהתגלה בביקורת", () => {
+    // מנהל שנחסמה ממנו data.export לא יוכל להחזיר אותה למנהל אחר
+    const actorCaps = new Set<Capability>(
+      (ROLE_CAPABILITIES["admin"] ?? []).filter((c) => c !== "data.export"),
+    );
+    const effect = clearEffect("admin", "data.export", "deny");
+    expect(effect).toBe("grant");
+    expect(
+      overrideRejectionReason({
+        actorUserId: "a",
+        actorCapabilities: actorCaps,
+        targetUserId: "b",
+        targetRole: "admin",
+        capability: "data.export",
+        effect,
+      }),
+    ).toContain("שאין לכם");
   });
 });

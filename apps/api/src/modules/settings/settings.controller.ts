@@ -17,6 +17,7 @@ import {
   CAPABILITIES,
   IdSchema,
   UserRoleSchema,
+  clearEffect,
   describeOverride,
   isOverrideActive,
   overrideRejectionReason,
@@ -379,32 +380,38 @@ export class SettingsController {
     });
     if (!target) throw new BadRequestException("משתמש לא נמצא");
 
-    if (body.effect !== "clear") {
-      for (const capability of body.capabilities) {
-        const reason = overrideRejectionReason({
-          actorUserId: ctx.userId,
-          actorCapabilities: ctx.capabilities,
-          targetUserId: target.id,
-          targetRole: target.role,
-          capability,
-          effect: body.effect,
-        });
-        if (reason) throw new BadRequestException(reason);
-      }
-    } else {
-      // גם ניקוי חריג הוא שינוי הרשאות: ביטול חסימה על בעל המשרד או
-      // על עצמך היה עוקף את המגבלות דרך הדלת האחורית
-      for (const capability of body.capabilities) {
-        const reason = overrideRejectionReason({
-          actorUserId: ctx.userId,
-          actorCapabilities: ctx.capabilities,
-          targetUserId: target.id,
-          targetRole: target.role,
-          capability,
-          effect: "deny",
-        });
-        if (reason) throw new BadRequestException(reason);
-      }
+    /*
+     * הבדיקה נעשית לפי מה שהשינוי *עושה בפועל*, לא לפי שמו.
+     *
+     * ניקוי חריג אינו ניטרלי: מחיקת חסימה על יכולת שהתפקיד כן נותן
+     * מחזירה גישה — כלומר היא הענקה. בלי ההבחנה הזו מנהל שנחסמה
+     * ממנו יכולת יכול היה לנקות אותה אצל מנהל אחר ולהחזיר גישה
+     * שהוא עצמו אינו רשאי להעניק (ביקורת Codex).
+     */
+    const current = await this.prisma.withTenant((tx) =>
+      tx.userCapability.findMany({
+        where: { userId: id, tenantId: ctx.tenantId, capability: { in: body.capabilities } },
+        select: { capability: true, effect: true },
+      }),
+    );
+    const currentEffect = new Map(
+      current.map((row) => [row.capability, row.effect === "grant" ? "grant" : "deny"] as const),
+    );
+
+    for (const capability of body.capabilities) {
+      const effect =
+        body.effect === "clear"
+          ? clearEffect(target.role, capability, currentEffect.get(capability) ?? null)
+          : body.effect;
+      const reason = overrideRejectionReason({
+        actorUserId: ctx.userId,
+        actorCapabilities: ctx.capabilities,
+        targetUserId: target.id,
+        targetRole: target.role,
+        capability,
+        effect,
+      });
+      if (reason) throw new BadRequestException(reason);
     }
 
     const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
