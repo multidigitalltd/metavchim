@@ -109,6 +109,13 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-
 לא מכסה אותם — `git pull` על השרת ואז `up -d`. עדכון הסוכן עצמו:
 `pull updater && up -d updater`.
 
+**הריפו לא ב-`/srv/metavchim`?** הוסיפו `REPO_DIR=/הנתיב/שלכם`
+ל-`.env.production`. הסוכן מריץ `docker compose` מול ה-Docker של
+המארח, ולכן נתיבים יחסיים בקובץ ה-compose (למשל `./backups`) נפתרים
+מול המארח — והריפו מחובר לסוכן באותו נתיב מוחלט בדיוק. ערך שגוי
+מתבטא בכך שאחרי עדכון מתוך המערכת מסך הגיבויים מופיע ריק בזמן
+שהקבצים שלמים על הדיסק.
+
 **חזרה לגרסה קודמת:** כל דחיפה מתויגת גם ב-SHA —
 `IMAGE_TAG=<sha> docker compose ... up -d --no-deps api web workers`.
 
