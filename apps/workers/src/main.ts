@@ -10,6 +10,7 @@ import webpush from "web-push";
 import {
   NotificationJobSchema,
   QUEUES,
+  diarizeTimeoutMs,
   formatDiarizedTranscript,
   pushOutcome,
   pushPayload,
@@ -813,17 +814,19 @@ async function processWeeklySummary(): Promise<void> {
 const INTERACTION_CONTENT_LIMIT = 4000;
 
 const CALL_TRANSCRIBE_TIMEOUT_MS = Number(process.env["STT_TIMEOUT_MS"] ?? 180_000);
-/** זיהוי דוברים איטי מהתמלול — צינור pyannote עובר על ההקלטה פעמיים. */
-const DIARIZE_TIMEOUT_MS = Number(process.env["DIARIZE_TIMEOUT_MS"] ?? 300_000);
 
 /**
  * מבקש את תורי הדיבור מהשירות האופציונלי של זיהוי הדוברים.
+ *
+ * חלון הזמן נגזר מאורך ההקלטה ולא מקבוע: קבוע קצר היה מפיל *כל*
+ * שיחה ארוכה אחרי שהשרת כבר עשה את העבודה, וקבוע ארוך היה משאיר
+ * כשל אמיתי תוקע את התור (המקבילות היא 1). ראו diarizeTimeoutMs.
  *
  * מחזיר מערך ריק בכל כשל — וזו החלטה מכוונת: שיחה מתומללת בלי
  * תוויות דובר עדיפה בהרבה על שיחה שנופלת ל-failed בגלל שירות
  * שהוא ממילא תוספת. הכשל נרשם ללוג ולא מגיע למתווך.
  */
-async function fetchSpeakerTurns(audio: Uint8Array): Promise<SpeakerTurn[]> {
+async function fetchSpeakerTurns(audio: Uint8Array, audioSeconds: number): Promise<SpeakerTurn[]> {
   const diarizeUrl = process.env["DIARIZE_URL"];
   const sttSecret = process.env["STT_SECRET"];
   if (!diarizeUrl || !sttSecret) return [];
@@ -835,7 +838,7 @@ async function fetchSpeakerTurns(audio: Uint8Array): Promise<SpeakerTurn[]> {
       method: "POST",
       headers: { "x-stt-secret": sttSecret },
       body: form,
-      signal: AbortSignal.timeout(DIARIZE_TIMEOUT_MS),
+      signal: AbortSignal.timeout(diarizeTimeoutMs(audioSeconds)),
     });
     if (!res.ok) throw new Error(`diarize ${res.status}`);
     const body = (await res.json()) as { turns?: SpeakerTurn[] };
@@ -881,13 +884,19 @@ async function transcribeOneCall(): Promise<void> {
         signal: AbortSignal.timeout(CALL_TRANSCRIBE_TIMEOUT_MS),
       });
       if (!res.ok) throw new Error(`stt ${res.status}`);
-      const body = (await res.json()) as { text?: string; segments?: TranscriptSegment[] };
+      const body = (await res.json()) as {
+        text?: string;
+        segments?: TranscriptSegment[];
+        durationSeconds?: number;
+      };
       /*
        * זיהוי הדוברים רץ *אחרי* התמלול ולא במקביל לו — שני המודלים
        * מתחרים על אותן ליבות, והרצה במקביל רק מאריכה את שניהם.
        */
       const segments = body.segments ?? [];
-      const turns = segments.length > 0 ? await fetchSpeakerTurns(audio) : [];
+      // אורך ההקלטה מגיע מהתמלול עצמו; כשהוא חסר נגזר מהמקטע האחרון
+      const audioSeconds = body.durationSeconds ?? segments[segments.length - 1]?.end ?? 0;
+      const turns = segments.length > 0 ? await fetchSpeakerTurns(audio, audioSeconds) : [];
       const diarized = formatDiarizedTranscript(segments, turns);
       // נפילה חזרה ל-text כשהשירות הישן עדיין לא מחזיר segments
       const transcript = (diarized.text || body.text || "").trim();

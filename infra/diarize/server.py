@@ -65,6 +65,11 @@ torch.set_num_threads(int(os.environ.get("OMP_NUM_THREADS", "2")))
 
 _pipeline: Pipeline | None = None
 _pipeline_lock = threading.Lock()
+# סיבת הכישלון האחרונה בטעינת המודל. הכשל הנפוץ כאן קבוע ולא חולף —
+# טוקן שגוי או תנאי מודל שלא אושרו — ולכן הוא חייב להשתקף ב-/health:
+# קונטיינר שמדווח "בריא" בזמן שהוא לא מסוגל לטעון מודל היה שולח כל
+# שיחה לניסיון טעינה כושל נוסף, ומאבד תוויות דוברים בשקט.
+_load_error: str | None = None
 _lock = asyncio.Semaphore(CONCURRENCY)
 _inflight = 0
 
@@ -72,18 +77,26 @@ _inflight = 0
 def get_pipeline() -> Pipeline:
     """טעינת הצינור פעם אחת, מוגן במנעול כדי שהחימום והבקשה הראשונה
     לא יטענו שני עותקים במקביל."""
-    global _pipeline
+    global _pipeline, _load_error
     with _pipeline_lock:
         if _pipeline is None:
             logger.info("טוען מודל זיהוי דוברים: %s", MODEL_NAME)
-            pipeline = Pipeline.from_pretrained(MODEL_NAME, use_auth_token=HF_TOKEN)
-            if pipeline is None:
-                # from_pretrained מחזיר None (ולא זורק) כשהטוקן תקין אך
-                # התנאים של המודל לא אושרו — כישלון שקט שקשה לאבחן
-                raise RuntimeError(
-                    f"טעינת {MODEL_NAME} נכשלה — ודאו שאישרתם את תנאי המודל בחשבון ה-Hugging Face"
-                )
-            _pipeline = pipeline.to(torch.device("cpu"))
+            try:
+                pipeline = Pipeline.from_pretrained(MODEL_NAME, use_auth_token=HF_TOKEN)
+                if pipeline is None:
+                    # from_pretrained מחזיר None (ולא זורק) כשהטוקן תקין אך
+                    # התנאים של המודל לא אושרו — כישלון שקט שקשה לאבחן
+                    raise RuntimeError(
+                        f"טעינת {MODEL_NAME} נכשלה — ודאו שאישרתם את תנאי המודל "
+                        "בחשבון ה-Hugging Face שהטוקן שייך לו"
+                    )
+                _pipeline = pipeline.to(torch.device("cpu"))
+            except Exception as error:
+                _load_error = str(error)
+                raise
+            # תקלה חולפת (רשת בזמן המשיכה) לא משאירה את השירות מסומן
+            # ככשל לנצח — הצלחה מנקה את הסימון
+            _load_error = None
             logger.info("מודל זיהוי הדוברים נטען")
     return _pipeline
 
@@ -108,6 +121,11 @@ app = FastAPI(title="metavchim-diarize", docs_url=None, redoc_url=None, lifespan
 
 @app.get("/health")
 def health() -> dict[str, object]:
+    if _pipeline is None and _load_error is not None:
+        # 503 מפיל את ה-healthcheck של compose, וזה בדיוק מה שצריך
+        # לקרות: טוקן שגוי או תנאים שלא אושרו הם תקלת הקמה שהמפעיל
+        # חייב לראות, ולא מצב שממנו השירות מתאושש מעצמו.
+        raise HTTPException(status_code=503, detail=f"טעינת המודל נכשלה: {_load_error}")
     return {"status": "ok", "model": MODEL_NAME, "loaded": _pipeline is not None}
 
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assignSpeakers,
   countSpeakers,
+  diarizeTimeoutMs,
   formatDiarizedTranscript,
   formatTimestamp,
   mergeConsecutive,
@@ -182,6 +183,27 @@ describe("formatDiarizedTranscript", () => {
 
   it("תמלול ריק לגמרי", () => {
     expect(formatDiarizedTranscript([], [])).toEqual({ text: "", speakerCount: 0 });
+  });
+});
+
+describe("diarizeTimeoutMs", () => {
+  it("הקלטה קצרה מקבלת את הרצפה — טעינת הצינור עולה זמן בכל מקרה", () => {
+    expect(diarizeTimeoutMs(30)).toBe(300_000);
+  });
+
+  it("שיחה של עשר דקות מקבלת יותר מהטווח המתועד (5–15 דקות)", () => {
+    // 600 שניות × 3 = 30 דקות; בלי זה כל שיחה ארוכה איבדה תוויות בשקט
+    expect(diarizeTimeoutMs(600)).toBe(1_800_000);
+    expect(diarizeTimeoutMs(600)).toBeGreaterThan(15 * 60_000);
+  });
+
+  it("לא עובר את התקרה — בקשה תקועה לא תחזיק את התור לנצח", () => {
+    expect(diarizeTimeoutMs(100_000)).toBe(3_600_000);
+  });
+
+  it("אורך לא תקין לא מייצר ערך שלילי", () => {
+    expect(diarizeTimeoutMs(-5)).toBe(300_000);
+    expect(diarizeTimeoutMs(0)).toBe(300_000);
   });
 });
 
