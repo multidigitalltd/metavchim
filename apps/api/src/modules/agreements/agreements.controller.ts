@@ -2,7 +2,10 @@ import { Body, Controller, Get, HttpCode, Param, Post, Req } from "@nestjs/commo
 import type { Request } from "express";
 import { z } from "zod";
 import { IdSchema } from "@metavchim/shared";
+import { Throttle } from "@nestjs/throttler";
 import { Public, RequireCapability } from "../../common/auth.decorators";
+import { assertContactAccess } from "../../common/ownership";
+import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { PrismaService } from "../../core/prisma.service";
 import {
@@ -49,23 +52,38 @@ export class AgreementsController {
     return this.prisma.withTenant((tx) => this.agreements.create(tx, body));
   }
 
+  /**
+   * ההסכמים של איש קשר.
+   *
+   * `assertContactAccess` הוא חובה כאן ולא הידור: התשובה כוללת את
+   * **הקישור הציבורי לחתימה**, ומי שמחזיק בו יכול לפתוח את ההסכם
+   * ולחתום עליו בלי להתחבר. בלי השער הזה סוכן יכול היה לשלוף לפי
+   * מזהה את קישור ההחתמה של הלקוח של סוכן אחר — כלומר גם לקרוא את
+   * שם החותם ומספר הזהות שלו, וגם לחתום בשמו.
+   */
   @Get("agreements/contact/:contactId")
   @RequireCapability("buyers.view_own")
   async listForContact(
     @Param("contactId", new ZodValidationPipe(IdSchema)) contactId: string,
   ): Promise<AgreementSummary[]> {
-    return this.prisma.withTenant((tx) => this.agreements.listForContact(tx, contactId));
+    const tenantId = TenantContext.current().tenantId;
+    return this.prisma.withTenant(async (tx) => {
+      await assertContactAccess(tx, tenantId, contactId);
+      return this.agreements.listForContact(tx, contactId);
+    });
   }
 
   /** ---------- הלקוח החותם: ללא התחברות, הטוקן שבקישור הוא המפתח ---------- */
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @Get("public/agreements/:token")
   async publicView(@Param("token") token: string): Promise<PublicAgreementView> {
     return this.agreements.publicView(token);
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @Post("public/agreements/:token/sign")
   @HttpCode(200)
   async sign(
@@ -82,6 +100,7 @@ export class AgreementsController {
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @Post("public/agreements/:token/decline")
   @HttpCode(200)
   async decline(@Param("token") token: string): Promise<{ ok: true }> {
