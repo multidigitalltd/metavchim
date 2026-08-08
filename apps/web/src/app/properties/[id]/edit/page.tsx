@@ -7,6 +7,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, ApiError } from "@/lib/api";
 import { shekelsToAgorot, PROPERTY_TYPE_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { DictateFor } from "../../../dictation-field";
 
 /**
  * עריכת נכס קיים — סוגר את הלולאה של "השלם פרטים": הדשבורד שולח לכאן
@@ -270,10 +271,12 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
         <div className="mb-4">
           <label htmlFor="marketingTitle" className="mb-1 block font-medium">כותרת שיווקית</label>
           <input id="marketingTitle" name="marketingTitle" maxLength={160} defaultValue={property.marketingTitle ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+          <DictateFor targetId="marketingTitle" />
         </div>
         <div className="mb-6">
           <label htmlFor="marketingDescription" className="mb-1 block font-medium">תיאור שיווקי</label>
           <textarea id="marketingDescription" name="marketingDescription" rows={4} maxLength={4000} defaultValue={property.marketingDescription ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+          <DictateFor targetId="marketingDescription" />
         </div>
 
         <div className="flex gap-3">

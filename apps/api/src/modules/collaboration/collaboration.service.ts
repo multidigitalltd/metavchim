@@ -1,15 +1,28 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
-import { BuyerRequirementsSchema } from "@metavchim/shared";
+import { BuyerRequirementsSchema, scoreMatch, type BuyerRequirements } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
+import { rowToFields } from "../properties/property.mapper";
+
+/** שורת נכס כפי ש-Prisma מחזירה — הטיפוס נגזר ולא מועתק ידנית. */
+type PropertyRow = Parameters<typeof rowToFields>[0];
 
 const INITIAL_CREDITS = 20;
 const COOP_OFFER_COST = 1;
 /** עיגול תקציב כלפי מעלה ל-100 אלף ₪ — אנונימיזציה (docs/04 §7) */
 const BUDGET_ROUND_AGOROT = 10_000_000;
+
+/** נכס שלי שמתאים לביקוש ברשת — כדי שלא צריך לנחש מתוך רשימה. */
+export interface DemandMatchDto {
+  propertyId: string;
+  title: string;
+  score: number;
+  explanation: string;
+}
 
 export interface SharedDemandDto {
   id: string;
@@ -25,6 +38,8 @@ export interface SharedDemandDto {
   mine: boolean;
   originBuyerId?: string;
   createdAt: Date;
+  /** הנכסים שלי שמתאימים — מחושב במנוע ההתאמות, לא ניחוש */
+  myMatches?: DemandMatchDto[];
 }
 
 export interface CoopOfferDto {
@@ -117,7 +132,70 @@ export class CollaborationService {
         take: 100,
       }),
     );
-    return rows.map((row) => this.toDemandDto(row, tenantId));
+
+    /*
+     * לכל ביקוש מחושבות ההתאמות מתוך הנכסים *שלי* — בדיוק אותו מנוע
+     * שמשמש את ההתאמות הפנימיות. בלי זה המתווך היה בוחר נכס מרשימה
+     * נפתחת של עשרות, מנחש, ומבזבז קרדיט על נכס שלא מתאים.
+     *
+     * הנכסים נטענים פעם אחת לכל הרשימה; הניקוד עצמו הוא פונקציה
+     * טהורה בזיכרון.
+     */
+    const myProperties = await this.prisma.withTenant((tx) =>
+      tx.property.findMany({
+        // נכס שנמכר או ירד משיווק לא אמור להיות מוצע לרשת
+        where: { tenantId, deletedAt: null, status: "active" },
+        take: 200,
+      }),
+    );
+
+    return rows.map((row) => {
+      const dto = this.toDemandDto(row, tenantId);
+      if (dto.mine) return dto;
+      const matches = this.matchOwnProperties(myProperties, row);
+      return matches.length > 0 ? { ...dto, myMatches: matches } : dto;
+    });
+  }
+
+  /** שלוש ההתאמות הטובות ביותר מבין הנכסים שלי, מעל סף שווה-הצגה. */
+  private matchOwnProperties(
+    properties: PropertyRow[],
+    demand: {
+      cities: string[];
+      dealType: string;
+      budgetMaxAgorot: bigint;
+      roomsMin: Prisma.Decimal | null;
+      roomsMax: Prisma.Decimal | null;
+      mustFeatures: string[];
+    },
+  ): DemandMatchDto[] {
+    const requirements = {
+      cities: demand.cities,
+      neighborhoods: [],
+      dealType: demand.dealType,
+      propertyTypes: [],
+      budgetMaxAgorot: Number(demand.budgetMaxAgorot),
+      ...(demand.roomsMin !== null ? { roomsMin: Number(demand.roomsMin) } : {}),
+      ...(demand.roomsMax !== null ? { roomsMax: Number(demand.roomsMax) } : {}),
+      features: Object.fromEntries(demand.mustFeatures.map((f) => [f, "must"])),
+    } as unknown as BuyerRequirements;
+
+    return properties
+      .map((property) => {
+        const result = scoreMatch(rowToFields(property), requirements);
+        return { property, result };
+      })
+      .filter(({ result }) => !result.excluded && result.score >= 70)
+      .sort((a, b) => b.result.score - a.result.score)
+      .slice(0, 3)
+      .map(({ property, result }) => ({
+        propertyId: property.id,
+        title:
+          property.marketingTitle ??
+          ([property.street, property.city].filter(Boolean).join(", ") || "נכס"),
+        score: result.score,
+        explanation: result.explanation,
+      }));
   }
 
   private async getDemand(id: string): Promise<SharedDemandDto> {

@@ -36,7 +36,18 @@ export class WebLeadService {
       // מפתח לא מוכר — אותה שגיאה גנרית; לא מאשרים קיום/אי-קיום מפתחות
       throw new NotFoundException("לא נמצא");
     }
+    await this.ingestForTenant(tenantId, input, "web_form");
+  }
 
+  /**
+   * קליטה כשהדייר כבר זוהה בערוץ אחר (דף נחיתה של נכס — הטוקן זיהה).
+   * אותה משמעת בדיוק: phone_hash, נעילה פר איש-קשר, הצטרפות לליד פתוח.
+   */
+  async ingestForTenant(
+    tenantId: string,
+    input: { name: string; phone: string; message?: string; pageUrl?: string },
+    source: "web_form" | "landing",
+  ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
 
@@ -80,7 +91,7 @@ export class WebLeadService {
             tenantId,
             leadId: openLead.id,
             kind: "note",
-            content: `פנייה נוספת מהאתר: ${summaryParts || "ללא הודעה"}`,
+            content: `${source === "landing" ? "פנייה נוספת מדף נחיתה" : "פנייה נוספת מהאתר"}: ${summaryParts || "ללא הודעה"}`,
           },
         });
         return;
@@ -97,10 +108,10 @@ export class WebLeadService {
           id: leadId,
           tenantId,
           contactId: contact.id,
-          source: "web_form",
+          source,
           intent: "unknown",
           status: "new",
-          summary: (summaryParts || "פנייה מהאתר").slice(0, 500),
+          summary: (summaryParts || (source === "landing" ? "פנייה מדף נחיתה" : "פנייה מהאתר")).slice(0, 500),
           ...(previous ? { requiresHuman: true, requiresHumanReason: "ליד חוזר — פנה בעבר" } : {}),
         },
       });
@@ -110,7 +121,7 @@ export class WebLeadService {
           tenantId,
           leadId,
           kind: "note",
-          content: `נקלט מטופס האתר${input.message ? `: ${input.message.slice(0, 1500)}` : ""}`,
+          content: `${source === "landing" ? "נקלט מדף נחיתה של נכס" : "נקלט מטופס האתר"}${input.message ? `: ${input.message.slice(0, 1500)}` : ""}`,
         },
       });
       await tx.outboxEvent.create({
@@ -118,7 +129,7 @@ export class WebLeadService {
           id: ulid(),
           tenantId,
           name: "lead.created",
-          payload: { leadId, tenantId, source: "web_form" },
+          payload: { leadId, tenantId, source },
         },
       });
     });

@@ -5,6 +5,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { BackupsSection } from "./backups-section";
 import { PlatformSettingsSection } from "./platform-settings-section";
 import { SystemUpdateSection } from "./system-update-section";
 
@@ -135,6 +136,8 @@ export default function PlatformPage() {
       ) : null}
 
       <SystemUpdateSection />
+
+      <BackupsSection />
 
       <PlatformSettingsSection />
 

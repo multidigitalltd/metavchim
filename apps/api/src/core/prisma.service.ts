@@ -65,4 +65,15 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       return fn(tx);
     });
   }
+
+  /**
+   * גישה ציבורית לפי טוקן דף נחיתה של נכס — אותו דפוס: הפוליסה חושפת
+   * את שורת הנכס של הטוקן ואת התמונות שלו בלבד.
+   */
+  async withPublicLanding<T>(token: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.landing_token', ${token}, true)`;
+      return fn(tx);
+    });
+  }
 }

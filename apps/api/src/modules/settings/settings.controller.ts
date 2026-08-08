@@ -14,7 +14,8 @@ import { ulid } from "ulid";
 import { z } from "zod";
 import { IdSchema, UserRoleSchema } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
-import { RequireCapability } from "../../common/auth.decorators";
+import { onboardingSteps, type OnboardingProgress } from "@metavchim/shared";
+import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorators";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
@@ -164,12 +165,31 @@ export class SettingsController {
       select: { settings: true },
     });
     const settings = { ...((current?.settings ?? {}) as Record<string, unknown>) };
-    if (body.whatsappNumber !== undefined) {
-      if (body.whatsappNumber === "") {
-        delete settings["whatsappNumber"]; // ניתוק השיוך
-      } else {
-        settings["whatsappNumber"] = body.whatsappNumber;
-      }
+
+    /*
+     * כל השדות שיושבים ב-settings עוברים באותה לולאה.
+     *
+     * קודם רק whatsappNumber נכתב, ושלושת פרטי המשרד נבלעו בשקט: הם
+     * עברו ולידציה, חזרו ב-GET, ומעולם לא נשמרו. משתמש שמילא מספר
+     * רישיון, שמר, וראה "נשמר" — קיבל שדה ריק בטעינה הבאה. שמירה
+     * שמדווחת הצלחה ולא כותבת גרועה משדה שלא קיים.
+     *
+     * מחרוזת ריקה מוחקת את המפתח (ניקוי שדה), ולא שומרת "" —
+     * כדי שהתבניות יראו "חסר" ולא ידפיסו רישיון ריק בהסכם.
+     */
+    const SETTINGS_FIELDS = [
+      "whatsappNumber",
+      "licenseNumber",
+      "officeAddress",
+      "officePhone",
+    ] as const;
+    let settingsTouched = false;
+    for (const field of SETTINGS_FIELDS) {
+      const value = body[field];
+      if (value === undefined) continue;
+      settingsTouched = true;
+      if (value === "") delete settings[field];
+      else settings[field] = value;
     }
 
     try {
@@ -177,7 +197,7 @@ export class SettingsController {
         where: { id: tenantId },
         data: {
           ...(body.name !== undefined ? { name: body.name } : {}),
-          ...(body.whatsappNumber !== undefined ? { settings: settings as object } : {}),
+          ...(settingsTouched ? { settings: settings as object } : {}),
         },
       });
     } catch {
@@ -409,5 +429,43 @@ export class SettingsController {
     return { version: loadEnv().APP_VERSION };
   }
 
-}
+  /**
+   * "מה נשאר להפעיל" — מסך הקליטה של משרד חדש.
+   *
+   * מוצג לכל מי שרואה את הדשבורד ולא רק למנהל: סוכן שמגלה שאפשר
+   * לקלוט נכס בדיבור מאמץ את המערכת מהר יותר. הצעדים עצמם מוגדרים
+   * בלוגיקה משותפת (packages/shared — onboarding.ts).
+   */
+  @AnyAuthenticated()
+  @Get("onboarding")
+  async onboarding(): Promise<OnboardingProgress> {
+    const tenantId = TenantContext.current().tenantId;
+    const env = loadEnv();
 
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, settings: true },
+    });
+    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
+    const filled = (key: string): boolean =>
+      typeof settings[key] === "string" && (settings[key] as string).trim() !== "";
+
+    const [activeUsers, properties, buyers] = await Promise.all([
+      this.prisma.user.count({ where: { tenantId, isActive: true } }),
+      this.prisma.withTenant((tx) => tx.property.count({ where: { tenantId, deletedAt: null } })),
+      this.prisma.withTenant((tx) => tx.buyer.count({ where: { tenantId, deletedAt: null } })),
+    ]);
+
+    return onboardingSteps({
+      // מספר הרישיון הוא פרט חובה בהזמנה בכתב — בלעדיו ההסכמים פגומים
+      officeProfileComplete:
+        (tenant?.name ?? "").trim() !== "" && filled("licenseNumber") && filled("officePhone"),
+      activeUsers,
+      properties,
+      buyers,
+      leadWebhookConfigured: filled("leadWebhookKey"),
+      whatsappConfigured: filled("whatsappNumber"),
+      transcriptionAvailable: env.STT_URL !== undefined && env.STT_SECRET !== undefined,
+    });
+  }
+}

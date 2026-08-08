@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
+import { DictateFor } from "../../dictation-field";
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
 
@@ -105,6 +106,7 @@ function NewAppointmentForm() {
         <div className="mb-6">
           <label htmlFor="notes" className="mb-1 block font-medium">הערות</label>
           <textarea id="notes" name="notes" rows={2} maxLength={2000} defaultValue={initialNotes} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+          <DictateFor targetId="notes" />
         </div>
 
         <div className="flex gap-3">

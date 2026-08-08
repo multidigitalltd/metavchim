@@ -53,6 +53,18 @@ backup_once() {
   find /backups -name '*.tmp' -mmin +120 -delete 2>/dev/null
 }
 
+# הרצה חד-פעמית: `run.sh once` מבצע גיבוי ויוצא.
+#
+# זה מה שמפעיל כפתור "גבה עכשיו" במסך הפלטפורמה, דרך סוכן העדכון.
+# אותו backup_once בדיוק — כדי שגיבוי ידני וגיבוי מתוזמן ייצרו את
+# אותו קובץ באותו פורמט, ושחזור לא יצטרך להבחין ביניהם.
+if [ "${1:-}" = "once" ]; then
+  echo "[backup] גיבוי ידני מתחיל"
+  backup_once
+  echo "[backup] גיבוי ידני הסתיים"
+  exit 0
+fi
+
 echo "[backup] שירות הגיבוי עלה — גיבוי DB כל 24 שעות, מדיה בימי ראשון, שמירה ${KEEP_DAYS} ימים"
 while true; do
   backup_once

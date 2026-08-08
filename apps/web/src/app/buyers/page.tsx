@@ -2,11 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiGet } from "@/lib/api";
-import { formatBuyerSource, formatPrice, MATURITY_LABELS } from "@/lib/format";
+import { formatPrice, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
-import { CapNote, FilterSelect, ResultsCount, SearchField, textMatches } from "../list-controls";
+import { CapNote, FilterBar, FilterSelect, SearchField, textMatches } from "../list-controls";
+
+/**
+ * מסך הקונים לפי קובץ העיצוב: מקרא בשלות בכותרת, טבלת grid עם גלולת
+ * בשלות, "הצעות שקיבל" ו"פעילות אחרונה".
+ */
 
 interface BuyerRow {
   id: string;
@@ -20,9 +26,19 @@ interface BuyerRow {
   };
   maturity: string;
   source: string;
+  offersReceived?: number;
+  lastActivityAt?: string;
 }
 
 const MATURITY_ORDER = ["very_hot", "hot", "interested", "not_ripe"];
+
+/* גלולות הבשלות — הפלטה המדויקת מקובץ העיצוב (mat()) */
+const MATURITY_PILL: Record<string, { fg: string; bg: string }> = {
+  very_hot: { fg: "#b0512c", bg: "#faf1ec" },
+  hot: { fg: "#7a5c1f", bg: "#f7efdd" },
+  interested: { fg: "#0C6E34", bg: "#E5FCEA" },
+  not_ripe: { fg: "#68716a", bg: "#eef1ec" },
+};
 
 function budgetText(b: BuyerRow): string {
   return b.requirements.budgetMinAgorot !== undefined
@@ -30,27 +46,43 @@ function budgetText(b: BuyerRow): string {
     : `עד ${formatPrice(b.requirements.budgetMaxAgorot)}`;
 }
 
-function MaturityBadge({ maturity }: { maturity: string }) {
-  const hot = maturity === "very_hot" || maturity === "hot";
+function wantsText(b: BuyerRow): string {
+  const rooms =
+    b.requirements.roomsMin || b.requirements.roomsMax
+      ? `${b.requirements.roomsMin ?? ""}–${b.requirements.roomsMax ?? ""} חד׳`
+      : "";
+  return [rooms, b.requirements.cities.slice(0, 2).join(", ")].filter(Boolean).join(" · ") || "—";
+}
+
+function lastActivityText(iso?: string): string {
+  if (!iso) return "—";
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (days === 0) return "היום";
+  if (days === 1) return "אתמול";
+  if (days < 30) return `לפני ${days} ימים`;
+  const months = Math.floor(days / 30);
+  return months === 1 ? "לפני חודש" : `לפני ${months} חודשים`;
+}
+
+function MaturityPill({ maturity }: { maturity: string }) {
+  const colors = MATURITY_PILL[maturity] ?? MATURITY_PILL["not_ripe"]!;
   return (
-    <span
-      className="rounded-full px-3 py-1 text-sm font-medium"
-      style={{
-        background: hot ? "var(--color-danger)" : "var(--color-border)",
-        color: hot ? "var(--color-bg)" : "var(--color-text)",
-      }}
-    >
+    <span className="mv-pill" style={{ color: colors.fg, background: colors.bg }}>
       {MATURITY_LABELS[maturity] ?? maturity}
     </span>
   );
 }
 
+const GRID = "1.6fr 0.9fr 1.1fr 1.4fr 0.9fr 0.9fr";
+
 export default function BuyersPage() {
   const { loading: authLoading } = useRequireAuth();
+  const router = useRouter();
   const [items, setItems] = useState<BuyerRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [maturity, setMaturity] = useState("");
+  const [offersFilter, setOffersFilter] = useState("");
 
   useEffect(() => {
     if (authLoading) return;
@@ -70,24 +102,34 @@ export default function BuyersPage() {
       (items ?? []).filter(
         (b) =>
           textMatches(query, b.contact.name, b.contact.phone, ...b.requirements.cities) &&
-          (!maturity || b.maturity === maturity),
+          (!maturity || b.maturity === maturity) &&
+          // "מי לא קיבל כלום" הוא הסינון שמייצר עבודה בפועל
+          (offersFilter === "" ||
+            (offersFilter === "none" && (b.offersReceived ?? 0) === 0) ||
+            (offersFilter === "some" && (b.offersReceived ?? 0) > 0)),
       ),
-    [items, query, maturity],
+    [items, query, maturity, offersFilter],
   );
 
   return (
     <>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">קונים</h1>
-        <div className="flex gap-2">
-          <Link href="/buyers/voice">
-            <Button>🎤 קונה בקול</Button>
+      {/* מקרא הבשלות + פעולות — כמו בעיצוב */}
+      <div className="mb-[18px] flex flex-wrap items-center gap-3">
+        <div className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+          דירוג בשלות: <b style={{ color: "#b0512c" }}>חם מאוד</b> ·{" "}
+          <b style={{ color: "#8a6414" }}>חם</b> ·{" "}
+          <b style={{ color: "var(--color-primary)" }}>מתעניין</b> ·{" "}
+          <b style={{ color: "var(--color-text-muted)" }}>לא בשל</b>
+        </div>
+        <div className="ms-auto flex flex-wrap gap-2.5">
+          <Link href="/import" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
+            ייבוא מאקסל
           </Link>
-          <Link href="/buyers/new">
-            <Button variant="secondary">➕ קונה חדש</Button>
+          <Link href="/buyers/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
+            🎤 קונה בקול
           </Link>
-          <Link href="/import">
-            <Button variant="secondary">📄 ייבוא מקובץ</Button>
+          <Link href="/buyers/new" className="mv-btn-action">
+            + קונה חדש
           </Link>
         </div>
       </div>
@@ -108,7 +150,17 @@ export default function BuyersPage() {
         </div>
       ) : (
         <>
-          <div className="mb-4 flex flex-wrap items-center gap-2">
+          <FilterBar
+            shown={visible.length}
+            total={items.length}
+            noun="קונים"
+            active={query.trim() !== "" || maturity !== "" || offersFilter !== ""}
+            onClear={() => {
+              setQuery("");
+              setMaturity("");
+              setOffersFilter("");
+            }}
+          >
             <SearchField
               label="חיפוש קונה"
               placeholder="🔍 שם, טלפון או עיר מבוקשת"
@@ -122,8 +174,17 @@ export default function BuyersPage() {
               allLabel="כל רמות הבשלות"
               options={Object.entries(MATURITY_LABELS)}
             />
-            <ResultsCount shown={visible.length} total={items.length} noun="קונים" />
-          </div>
+            <FilterSelect
+              label="סינון לפי הצעות שקיבל"
+              value={offersFilter}
+              onChange={setOffersFilter}
+              allLabel="עם הצעות ובלי"
+              options={[
+                ["none", "לא קיבלו אף הצעה"],
+                ["some", "קיבלו הצעות"],
+              ]}
+            />
+          </FilterBar>
 
           {visible.length === 0 ? (
             <div
@@ -142,90 +203,92 @@ export default function BuyersPage() {
               </Button>
             </div>
           ) : (
-        <>
-        {/* מובייל: כרטיסים במקום טבלה בת 6 עמודות (docs/06 §1.5) */}
-        <ul className="flex flex-col gap-3 sm:hidden">
-          {visible.map((b) => (
-            <li
-              key={b.id}
-              className="rounded-xl border p-3"
-              style={{
-                borderColor: "var(--color-border)",
-                background: "var(--color-surface)",
-                boxShadow: "var(--shadow-card)",
-              }}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <Link href={`/buyers/${b.id}`} className="font-semibold underline">
-                  {b.contact.name}
-                </Link>
-                <MaturityBadge maturity={b.maturity} />
-              </div>
-              <a
-                href={`tel:${b.contact.phone}`}
-                dir="ltr"
-                className="mt-1 block text-sm underline"
-                style={{ color: "var(--color-text-muted)" }}
-              >
-                {b.contact.phone}
-              </a>
-              <p className="mt-2" style={{ color: "var(--color-text-muted)" }}>
-                {b.requirements.cities.join(", ")}
-                {b.requirements.roomsMin || b.requirements.roomsMax
-                  ? ` · ${b.requirements.roomsMin ?? "—"}–${b.requirements.roomsMax ?? "—"} חד׳`
-                  : ""}
-              </p>
-              <p style={{ color: "var(--color-text-muted)" }}>{budgetText(b)}</p>
-            </li>
-          ))}
-        </ul>
-
-        <div
-          className="hidden overflow-x-auto rounded-xl border sm:block"
-          style={{ borderColor: "var(--color-border)" }}
-        >
-          <table className="w-full">
-            <caption className="mv-visually-hidden">
-              רשימת הקונים במשרד לפי רמת בשלות: שם, טלפון, אזורים, תקציב
-            </caption>
-            <thead style={{ background: "var(--color-surface)" }}>
-              <tr>
-                <th scope="col" className="p-3 text-start">שם</th>
-                <th scope="col" className="p-3 text-start">בשלות</th>
-                <th scope="col" className="p-3 text-start">אזורים</th>
-                <th scope="col" className="p-3 text-start">חדרים</th>
-                <th scope="col" className="p-3 text-start">תקציב</th>
-                <th scope="col" className="p-3 text-start">מקור</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((b) => (
-                <tr key={b.id} className="border-t" style={{ borderColor: "var(--color-border)" }}>
-                  <td className="p-3">
-                    <Link href={`/buyers/${b.id}`} className="font-medium underline">
-                      {b.contact.name}
-                    </Link>
-                    <span className="block text-sm" dir="ltr" style={{ color: "var(--color-text-muted)" }}>
+            <>
+              {/* מובייל: כרטיסים במקום טבלה בת 6 עמודות (docs/06 §1.5) */}
+              <ul className="flex flex-col gap-3 sm:hidden">
+                {visible.map((b) => (
+                  <li
+                    key={b.id}
+                    className="rounded-xl border p-3"
+                    style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <Link href={`/buyers/${b.id}`} className="font-bold underline">
+                        {b.contact.name}
+                      </Link>
+                      <MaturityPill maturity={b.maturity} />
+                    </div>
+                    <a
+                      href={`tel:${b.contact.phone}`}
+                      dir="ltr"
+                      className="mt-1 block text-sm underline"
+                      style={{ color: "var(--color-text-muted)" }}
+                    >
                       {b.contact.phone}
-                    </span>
-                  </td>
-                  <td className="p-3">
-                    <MaturityBadge maturity={b.maturity} />
-                  </td>
-                  <td className="p-3">{b.requirements.cities.join(", ")}</td>
-                  <td className="p-3">
-                    {b.requirements.roomsMin ?? "—"}–{b.requirements.roomsMax ?? "—"}
-                  </td>
-                  <td className="p-3">{budgetText(b)}</td>
-                  <td className="p-3">{formatBuyerSource(b.source)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        </>
+                    </a>
+                    <p className="mt-2" style={{ color: "var(--color-text-muted)" }}>
+                      {wantsText(b)} · {budgetText(b)}
+                    </p>
+                    <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+                      {b.offersReceived
+                        ? `${b.offersReceived} הצעות`
+                        : "אף הצעה עדיין"}{" "}
+                      · {lastActivityText(b.lastActivityAt)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+
+              {/* שולחני: טבלת ה-grid מהעיצוב */}
+              <div className="mv-list-card hidden sm:block">
+                <div className="mv-list-head" style={{ gridTemplateColumns: GRID }}>
+                  <span>שם</span>
+                  <span>בשלות</span>
+                  <span>תקציב</span>
+                  <span>מחפש</span>
+                  <span>הצעות שקיבל</span>
+                  <span>פעילות אחרונה</span>
+                </div>
+                {visible.map((b) => {
+                  const noOffers = (b.offersReceived ?? 0) === 0;
+                  return (
+                    <button
+                      key={b.id}
+                      type="button"
+                      className="mv-list-row"
+                      style={{ gridTemplateColumns: GRID }}
+                      onClick={() => router.push(`/buyers/${b.id}`)}
+                    >
+                      <span className="truncate text-[14.5px] font-bold">{b.contact.name}</span>
+                      <span>
+                        <MaturityPill maturity={b.maturity} />
+                      </span>
+                      <span className="text-sm font-bold">{budgetText(b)}</span>
+                      <span className="truncate text-[13px]" style={{ color: "var(--color-text-soft)" }}>
+                        {wantsText(b)}
+                      </span>
+                      <span
+                        className="text-[13.5px] font-bold"
+                        style={{
+                          // קונה חם מאוד בלי אף הצעה — הדגשה באדום, כמו בעיצוב
+                          color:
+                            noOffers && b.maturity === "very_hot"
+                              ? "var(--color-danger)"
+                              : "var(--color-text-soft)",
+                        }}
+                      >
+                        {noOffers ? "אף אחת עדיין" : `${b.offersReceived} הצעות`}
+                      </span>
+                      <span className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                        {lastActivityText(b.lastActivityAt)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
           )}
-          <CapNote show={(query.trim() !== "" || maturity !== "") && items.length === 100} noun="קונים" />
+          <CapNote show={(query.trim() !== "" || maturity !== "" || offersFilter !== "") && items.length === 100} noun="קונים" />
         </>
       )}
     </>

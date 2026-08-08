@@ -1,9 +1,9 @@
 import { Injectable } from "@nestjs/common";
-import { normalizeIsraeliPhone } from "@metavchim/shared";
+import { filterVisibleNotes, normalizeIsraeliPhone } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { ownershipFilter } from "../../common/ownership";
 import { CryptoService } from "../../core/crypto.service";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 
 /**
  * חיפוש גלובלי (docs/06 §3 — "שיחה נכנסת: מי זה?"):
@@ -28,9 +28,38 @@ export interface SearchResults {
   }[];
   buyers: { id: string; name: string; maturity: string; cities: string[] }[];
   leads: { id: string; name: string; status: string; requiresHuman: boolean }[];
+  /* --- טקסט חופשי שנכתב בתוך המערכת: לא רק "מי", גם "מה נאמר" --- */
+  appointments: { id: string; title: string; kind: string; startsAt: Date; status: string }[];
+  tasks: { id: string; title: string; status: string; dueAt: Date | null }[];
+  calls: { id: string; summary: string; occurredAt: Date; direction: string }[];
+  /** הערות ותיעודי שיחה על לידים וקונים. */
+  notes: {
+    id: string;
+    content: string;
+    createdAt: Date;
+    leadId: string | null;
+    buyerId: string | null;
+  }[];
 }
 
+/** תוצאה ריקה — נקודת פתיחה אחת לכל מסלולי החיפוש. */
+const EMPTY: SearchResults = {
+  contact: null,
+  properties: [],
+  buyers: [],
+  leads: [],
+  appointments: [],
+  tasks: [],
+  calls: [],
+  notes: [],
+};
+
 const GROUP_LIMIT = 8;
+/**
+ * הערות נשלפות בעודף ומסוננות לפי בעלות אחרי כן (ראו visibleNotes) —
+ * בלי העודף, סינון של סוכן עם view_own היה מרוקן את הקבוצה כמעט תמיד.
+ */
+const NOTE_CANDIDATE_LIMIT = 60;
 /** כמה אנשי קשר אחרונים מפוענחים לחיפוש שם — תקרת עלות קבועה לבקשה. */
 const NAME_SCAN_LIMIT = 1000;
 
@@ -67,7 +96,7 @@ export class SearchService {
         where: { tenantId_phoneHash: { tenantId, phoneHash } },
         select: { id: true, nameEncrypted: true, phoneEncrypted: true },
       });
-      if (!contact) return { contact: null, properties: [], buyers: [], leads: [] };
+      if (!contact) return EMPTY;
 
       const identity = {
         id: contact.id,
@@ -118,14 +147,25 @@ export class SearchService {
         ctx.capabilities.has("buyers.view_all") || ctx.capabilities.has("leads.view_all");
       const anyVisible = properties.length + buyers.length + leads.length > 0;
       if (!anyVisible && !officeWide) {
-        return { contact: null, properties: [], buyers: [], leads: [] };
+        return EMPTY;
       }
 
+      // שיחות מהמספר הזה — התשובה ל"מי התקשר אליי" כוללת גם את
+      // ההיסטוריה של השיחות איתו, לא רק את הכרטיס
+      const calls = await tx.call.findMany({
+        where: { tenantId, contactId: contact.id },
+        select: { id: true, summary: true, occurredAt: true, direction: true },
+        orderBy: { occurredAt: "desc" },
+        take: GROUP_LIMIT,
+      });
+
       return {
+        ...EMPTY,
         contact: identity,
         properties,
         buyers: buyers.map((b) => ({ ...b, name: identity.name })),
         leads: leads.map((l) => ({ ...l, name: identity.name })),
+        calls: calls.map((c) => ({ ...c, summary: c.summary ?? "" })),
       };
     });
   }
@@ -165,8 +205,58 @@ export class SearchService {
           })
         : [];
 
+      /*
+       * טקסט חופשי שנכתב בתוך המערכת: כותרות ופתקים ביומן, משימות,
+       * סיכומי שיחות והערות. אלה לא מכילים PII מוצפן, ולכן אפשר לחפש
+       * בהם ישירות במסד. משימות מסוננות לבעליהן — סוכן לא רואה את
+       * המשימות של סוכן אחר בחיפוש (docs/04 §3).
+       */
+      const { userId } = TenantContext.current();
+      const like = { contains: query, mode: "insensitive" as const };
+      const [appointments, tasks, calls, notes] = await Promise.all([
+        tx.appointment.findMany({
+          where: { tenantId, OR: [{ title: like }, { notes: like }] },
+          select: { id: true, title: true, kind: true, startsAt: true, status: true },
+          orderBy: { startsAt: "desc" },
+          take: GROUP_LIMIT,
+        }),
+        tx.task.findMany({
+          where: {
+            tenantId,
+            assignedToUserId: userId,
+            OR: [{ title: like }, { notes: like }],
+          },
+          select: { id: true, title: true, status: true, dueAt: true },
+          orderBy: { createdAt: "desc" },
+          take: GROUP_LIMIT,
+        }),
+        tx.call.findMany({
+          where: { tenantId, summary: like },
+          select: { id: true, summary: true, occurredAt: true, direction: true },
+          orderBy: { occurredAt: "desc" },
+          take: GROUP_LIMIT,
+        }),
+        /*
+         * מועמדים בלבד — הסינון לפי בעלות נעשה מיד אחרי, ולכן שולפים
+         * יותר מהתקרה כדי שלא נישאר עם רשימה ריקה אחרי הסינון.
+         */
+        tx.interaction.findMany({
+          where: { tenantId, content: like },
+          select: { id: true, content: true, createdAt: true, leadId: true, buyerId: true },
+          orderBy: { createdAt: "desc" },
+          take: NOTE_CANDIDATE_LIMIT,
+        }),
+      ]);
+
+      const freeText = {
+        appointments: appointments.map((a) => ({ ...a, title: a.title ?? "פגישה" })),
+        tasks,
+        calls: calls.map((c) => ({ ...c, summary: c.summary ?? "" })),
+        notes: await this.visibleNotes(tx, tenantId, notes),
+      };
+
       if (!can.canBuyers && !can.canLeads) {
-        return { contact: null, properties, buyers: [], leads: [] };
+        return { ...EMPTY, properties, ...freeText };
       }
 
       // חיפוש שם: פענוח בזיכרון של אנשי הקשר האחרונים בלבד — PII לעולם
@@ -184,7 +274,7 @@ export class SearchService {
       }
       const matchedIds = [...nameById.keys()];
       if (matchedIds.length === 0) {
-        return { contact: null, properties, buyers: [], leads: [] };
+        return { ...EMPTY, properties, ...freeText };
       }
 
       const [buyers, leads] = await Promise.all([
@@ -214,8 +304,9 @@ export class SearchService {
       ]);
 
       return {
-        contact: null,
+        ...EMPTY,
         properties,
+        ...freeText,
         buyers: buyers.map((b) => ({
           id: b.id,
           maturity: b.maturity,
@@ -230,5 +321,63 @@ export class SearchService {
         })),
       };
     });
+  }
+
+  /**
+   * סינון הערות ותיעודים לפי בעלות. ההערות עצמן אינן נושאות בעלים —
+   * הן תלויות בליד או בקונה שאליו הן מקושרות, ולכן הנראות נגזרת משם,
+   * בדיוק כמו ב-listInteractions (docs/04 §3).
+   *
+   * בלי זה סוכן עם view_own היה מוצא בחיפוש חופשי הערות על הלקוחות של
+   * סוכן אחר — וזה בדיוק המידע המסחרי הרגיש ביותר במערכת (תקציב,
+   * מניעים, מצב מו"מ).
+   */
+  private async visibleNotes(
+    tx: TenantTx,
+    tenantId: string,
+    candidates: {
+      id: string;
+      content: string;
+      createdAt: Date;
+      leadId: string | null;
+      buyerId: string | null;
+    }[],
+  ): Promise<typeof candidates> {
+    const ctx = TenantContext.current();
+    const seesAllLeads = ctx.capabilities.has("leads.view_all");
+    const seesAllBuyers = ctx.capabilities.has("buyers.view_all");
+    if (seesAllLeads && seesAllBuyers) return candidates.slice(0, GROUP_LIMIT);
+
+    const leadIds = [...new Set(candidates.map((n) => n.leadId).filter((id): id is string => id !== null))];
+    const buyerIds = [...new Set(candidates.map((n) => n.buyerId).filter((id): id is string => id !== null))];
+
+    const [leads, buyers] = await Promise.all([
+      leadIds.length > 0
+        ? tx.lead.findMany({
+            where: {
+              tenantId,
+              id: { in: leadIds },
+              ...ownershipFilter("leads.view_all", "assignedToUserId"),
+            },
+            select: { id: true },
+          })
+        : [],
+      buyerIds.length > 0
+        ? tx.buyer.findMany({
+            where: {
+              tenantId,
+              id: { in: buyerIds },
+              deletedAt: null,
+              ...ownershipFilter("buyers.view_all", "ownerUserId"),
+            },
+            select: { id: true },
+          })
+        : [],
+    ]);
+    return filterVisibleNotes(
+      candidates,
+      { leadIds: new Set(leads.map((l) => l.id)), buyerIds: new Set(buyers.map((b) => b.id)) },
+      GROUP_LIMIT,
+    );
   }
 }

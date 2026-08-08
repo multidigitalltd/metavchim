@@ -12,7 +12,8 @@
     "prisma:validate": "prisma validate",
     "db:migrate": "node --env-file=../../.env ./node_modules/prisma/build/index.js migrate dev",
     "db:deploy": "node --env-file=../../.env ./node_modules/prisma/build/index.js migrate deploy",
-    "db:seed": "node --env-file=../../.env ./node_modules/tsx/dist/cli.mjs prisma/seed.ts"
+    "db:seed": "node --env-file=../../.env ./node_modules/tsx/dist/cli.mjs prisma/seed.ts",
+    "test": "vitest run"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -43,6 +44,8 @@
     "@types/express": "^5.0.0",
     "@types/multer": "^2.2.0",
     "@types/node": "^22.10.0",
-    "tsx": "^4.19.0"
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
   }
 }

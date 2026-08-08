@@ -85,8 +85,8 @@ export function AgreementTemplatesSection() {
   if (!templates) return null;
 
   return (
-    <section aria-labelledby="agreements-heading" className="mb-8">
-      <h2 id="agreements-heading" className="mb-1 text-lg font-semibold">
+    <section aria-labelledby="agreements-heading" className="mv-list-card px-5 py-[17px]">
+      <h2 id="agreements-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
         נוסחי הסכמים
       </h2>
       <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>

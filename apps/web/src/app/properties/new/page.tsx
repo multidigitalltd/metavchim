@@ -6,6 +6,7 @@ import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
 import { shekelsToAgorot, PROPERTY_TYPE_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { DictateFor } from "../../dictation-field";
 
 const inputStyle = {
   borderColor: "var(--color-border)",
@@ -195,6 +196,7 @@ export default function NewPropertyPage() {
         <div className="mb-6">
           <label htmlFor="marketingTitle" className="mb-1 block font-medium">כותרת שיווקית</label>
           <input id="marketingTitle" name="marketingTitle" maxLength={160} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+          <DictateFor targetId="marketingTitle" />
         </div>
 
         <fieldset className="mb-6">

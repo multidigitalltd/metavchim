@@ -5,8 +5,16 @@ import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import Link from "next/link";
 
 /** רשת שיתופי הפעולה (אפיון §11-12): ביקושים אנונימיים + קרדיטים. */
+
+interface DemandMatch {
+  propertyId: string;
+  title: string;
+  score: number;
+  explanation: string;
+}
 
 interface DemandRow {
   id: string;
@@ -18,6 +26,7 @@ interface DemandRow {
   mustFeatures: string[];
   source: string;
   mine: boolean;
+  myMatches?: DemandMatch[];
 }
 
 interface CoopOfferRow {
@@ -75,6 +84,10 @@ export default function CollaborationPage() {
   async function sendOffer(demandId: string) {
     const propertyId = selectedProperty[demandId];
     if (!propertyId) return;
+    await sendOfferFor(demandId, propertyId);
+  }
+
+  async function sendOfferFor(demandId: string, propertyId: string) {
     try {
       await apiPost(`/collaboration/demands/${demandId}/offer`, { propertyId });
       setMessage("✓ ההצעה נשלחה לסוכנות (עלות: קרדיט אחד). אם הקונה יתעניין — תקבלו התראה.");
@@ -95,10 +108,23 @@ export default function CollaborationPage() {
     <>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">שיתופי פעולה</h1>
-        <span className="rounded-full border px-4 py-1.5 font-medium" style={{ borderColor: "var(--color-border)" }}>
-          💎 {balance ?? "…"} קרדיטים
-        </span>
+        <div className="flex flex-wrap items-center gap-3">
+          {/* הפרסום עצמו נעשה מכרטיס הקונה — הביקוש נגזר מדרישות
+              אמיתיות ולא מטופס ריק. אבל מי שנוחת כאן צריך לדעת שזה
+              קיים ואיפה, אחרת המסך נראה כמו רשימה לצפייה בלבד. */}
+          <Link href="/buyers" className="mv-btn-action" style={{ textDecoration: "none" }}>
+            + פרסם ביקוש
+          </Link>
+          <span className="rounded-full border px-4 py-1.5 font-medium" style={{ borderColor: "var(--color-border)" }}>
+            💎 {balance ?? "…"} קרדיטים
+          </span>
+        </div>
       </div>
+
+      <p className="mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
+        פרסום ביקוש נעשה מכרטיס הקונה — כך הוא נושא את הדרישות האמיתיות שלו.
+        בחרו קונה, ובכרטיס שלו לחצו על שיתוף לרשת.
+      </p>
 
       {message ? (
         <p role="status" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-primary)" }}>
@@ -172,34 +198,79 @@ export default function CollaborationPage() {
                   </p>
                 ) : null}
                 {!demand.mine ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <label htmlFor={`prop_${demand.id}`} className="mv-visually-hidden">
-                      בחר נכס להצעה
-                    </label>
-                    <select
-                      id={`prop_${demand.id}`}
-                      value={selectedProperty[demand.id] ?? ""}
-                      onChange={(event) =>
-                        setSelectedProperty((prev) => ({ ...prev, [demand.id]: event.target.value }))
-                      }
-                      className="rounded-lg border px-3 py-2"
-                      style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
-                    >
-                      <option value="">בחר נכס להצעה…</option>
-                      {properties.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.marketingTitle ?? [p.street, p.city].filter(Boolean).join(", ")}
-                        </option>
-                      ))}
-                    </select>
-                    <Button
-                      variant="secondary"
-                      disabled={!selectedProperty[demand.id]}
-                      onClick={() => void sendOffer(demand.id)}
-                    >
-                      הצע נכס (קרדיט אחד)
-                    </Button>
-                  </div>
+                  <>
+                    {/* המערכת מחשבת אילו מהנכסים שלי מתאימים — במקום
+                        לבחור מרשימה של עשרות ולבזבז קרדיט על ניחוש */}
+                    {demand.myMatches && demand.myMatches.length > 0 ? (
+                      <div className="mb-3">
+                        <p className="mb-2 font-medium" style={{ color: "var(--color-success)" }}>
+                          ✓ {demand.myMatches.length} מהנכסים שלכם מתאימים
+                        </p>
+                        <ul className="flex flex-col gap-2">
+                          {demand.myMatches.map((match) => (
+                            <li
+                              key={match.propertyId}
+                              className="rounded-lg border p-3"
+                              style={{ borderColor: "var(--color-border)" }}
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="font-medium">
+                                  {match.score}% · {match.title}
+                                </span>
+                                <Button
+                                  variant="secondary"
+                                  onClick={() => void sendOfferFor(demand.id, match.propertyId)}
+                                >
+                                  הצע נכס זה (קרדיט אחד)
+                                </Button>
+                              </div>
+                              <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                                {match.explanation}
+                              </p>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : (
+                      <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                        אין לכם כרגע נכס פעיל שמתאים לביקוש הזה.
+                      </p>
+                    )}
+
+                    <details>
+                      <summary className="cursor-pointer text-sm" style={{ color: "var(--color-text-muted)" }}>
+                        להציע נכס אחר
+                      </summary>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <label htmlFor={`prop_${demand.id}`} className="mv-visually-hidden">
+                          בחר נכס להצעה
+                        </label>
+                        <select
+                          id={`prop_${demand.id}`}
+                          value={selectedProperty[demand.id] ?? ""}
+                          onChange={(event) =>
+                            setSelectedProperty((prev) => ({ ...prev, [demand.id]: event.target.value }))
+                          }
+                          className="rounded-lg border px-3 py-2"
+                          style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                        >
+                          <option value="">בחר נכס להצעה…</option>
+                          {properties.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.marketingTitle ?? [p.street, p.city].filter(Boolean).join(", ")}
+                            </option>
+                          ))}
+                        </select>
+                        <Button
+                          variant="secondary"
+                          disabled={!selectedProperty[demand.id]}
+                          onClick={() => void sendOffer(demand.id)}
+                        >
+                          הצע נכס (קרדיט אחד)
+                        </Button>
+                      </div>
+                    </details>
+                  </>
                 ) : null}
               </li>
             ))}

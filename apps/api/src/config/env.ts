@@ -56,6 +56,13 @@ const EnvSchema = z.object({
   /** סוד משותף מול סוכן העדכון — חובה יחד עם UPDATER_URL. */
   UPDATE_SECRET: z.string().min(24).optional(),
   /**
+   * תיקיית הגיבויים כפי שהיא ממופה לתוך קונטיינר ה-API, ולצידה
+   * תיקיית המצב שקונטיינר ה-offsite כותב אליה. בפיתוח הן פשוט לא
+   * קיימות — ומסך הגיבויים מדווח "לא זמין" במקום להיכשל.
+   */
+  BACKUP_PATH: z.string().default("/backups"),
+  OFFSITE_STATE_PATH: z.string().default("/state"),
+  /**
    * שירות התמלול המקומי (faster-whisper בקונטיינר לצד המערכת).
    * לא מוגדר ⇒ הפיצ'ר כבוי והדפדפן מתמלל מקומית כמו קודם.
    */
@@ -64,6 +71,18 @@ const EnvSchema = z.object({
   STT_SECRET: z.string().min(16).optional(),
   /** תקרת זמן לתמלול — מודל על CPU איטי מ-API בענן. */
   STT_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(600_000).default(180_000),
+  /**
+   * התראות פוש בדפדפן (Web Push / VAPID). שלושתם יחד או אף אחד —
+   * בלעדיהם הפיצ'ר כבוי, המסך מציג "לא מוגדר", ואף אחד לא מנסה
+   * להירשם למנוי שאי אפשר לשלוח אליו.
+   *
+   * המפתחות נוצרים פעם אחת: `npx web-push generate-vapid-keys`.
+   * החלפתם מבטלת את כל המנויים הקיימים — ראו docs/08.
+   */
+  VAPID_PUBLIC_KEY: z.string().min(80).optional(),
+  VAPID_PRIVATE_KEY: z.string().min(40).optional(),
+  /** כתובת ליצירת קשר עבור ספק הפוש — mailto: או https:. */
+  VAPID_SUBJECT: z.string().regex(/^(mailto:|https:\/\/)/u).optional(),
   /** Postmark — שליחת אימייל (אימות כניסה, איפוס סיסמה, התראות). */
   POSTMARK_SERVER_TOKEN: z.string().min(16).optional(),
   /** כתובת השולח — חייבת להיות Sender Signature מאומתת ב-Postmark. */

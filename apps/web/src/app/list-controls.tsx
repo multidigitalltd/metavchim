@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, ReactNode } from "react";
 
 /**
  * פקדי סינון/מיון משותפים לעמודי הרשימות (נכסים, קונים, לידים).
@@ -108,6 +108,59 @@ export function CapNote(props: { show: boolean; noun: string }) {
       הסינון והמיון חלים על 100 ה{props.noun} האחרונים בלבד — לחיפוש בכל המאגר
       השתמשו בחיפוש הכללי.
     </p>
+  );
+}
+
+/**
+ * שורת סינון אחידה לכל מסכי הרשימה: חיפוש, מסננים, מיון, מונה חי
+ * וכפתור ניקוי שמופיע רק כשיש מה לנקות.
+ *
+ * הפקדים עצמם מגיעים כ-children — לכל מסך יש מסננים משלו, אבל
+ * הפריסה, המונה וההתנהגות של "נקה" זהים בכולם.
+ */
+export function FilterBar(props: {
+  children: ReactNode;
+  shown: number;
+  total: number;
+  noun: string;
+  /** האם מופעל סינון כלשהו כרגע — קובע אם מוצג כפתור הניקוי. */
+  active: boolean;
+  onClear: () => void;
+}) {
+  return (
+    <div className="mb-3.5 flex flex-wrap items-center gap-2">
+      {props.children}
+      <ResultsCount shown={props.shown} total={props.total} noun={props.noun} />
+      {props.active ? (
+        <button type="button" className="mv-btn-plain" onClick={props.onClear}>
+          נקה סינון
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** צ'יפים לסינון מהיר — הדפוס מקובץ העיצוב (ערים בנכסים, סוגי שיחות). */
+export function FilterChips(props: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: [value: string, label: string][];
+}) {
+  return (
+    <div role="group" aria-label={props.label} className="flex flex-wrap items-center gap-2">
+      {props.options.map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          className="mv-chip"
+          aria-pressed={props.value === value}
+          onClick={() => props.onChange(value)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }
 

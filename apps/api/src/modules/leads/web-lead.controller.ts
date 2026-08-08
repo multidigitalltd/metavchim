@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, Param, Post } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
 import { PhoneSchema } from "@metavchim/shared";
 import { Public } from "../../common/auth.decorators";
@@ -34,7 +35,13 @@ const KeySchema = z.string().regex(/^[A-Za-z0-9_-]{20,64}$/u);
 export class WebLeadController {
   constructor(private readonly webLeads: WebLeadService) {}
 
+  /*
+   * מגבלה הדוקה משלה: הנתיב ציבורי ו*כותב* שורות (איש קשר + ליד).
+   * המגבלה הגלובלית (300/דקה) נועדה לקריאות, ומאפשרת הצפת המאגר
+   * בלידים מזויפים מכתובת אחת. טופס אמיתי נשלח פעם-פעמיים.
+   */
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Post(":key")
   @HttpCode(200)
   async ingest(

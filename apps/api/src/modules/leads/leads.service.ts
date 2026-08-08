@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import { OPEN_LEAD_STATUSES, type Page } from "@metavchim/shared";
-import { ownershipFilter } from "../../common/ownership";
+import { assertLeadAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -180,6 +180,8 @@ export class LeadsService {
   async updateStatus(id: string, status: string): Promise<void> {
     const ctx = TenantContext.current();
     await this.prisma.withTenant(async (tx) => {
+      // הרשאה לפני הכתיבה: סוכן שאינו רואה את הליד גם אינו משנה אותו
+      await assertLeadAccess(tx, ctx.tenantId, id);
       const lead = await tx.lead.findFirst({ where: { id, tenantId: ctx.tenantId } });
       if (!lead) throw new NotFoundException("ליד לא נמצא");
       await tx.lead.update({
@@ -222,8 +224,7 @@ export class LeadsService {
     const ctx = TenantContext.current();
     const noteId = ulid();
     await this.prisma.withTenant(async (tx) => {
-      const lead = await tx.lead.findFirst({ where: { id, tenantId: ctx.tenantId } });
-      if (!lead) throw new NotFoundException("ליד לא נמצא");
+      await assertLeadAccess(tx, ctx.tenantId, id);
       await tx.interaction.create({
         data: {
           id: noteId,

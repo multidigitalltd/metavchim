@@ -92,12 +92,61 @@ model Contact {
   emailEncrypted String?  @map("email_encrypted") @db.Text
   // HMAC של הטלפון המנורמל — חיפוש ודה-דופליקציה בלי פענוח.
   phoneHash      String   @map("phone_hash") @db.Char(64)
+  /** HMAC של השם המנורמל — איתור כפילויות בלי לפענח. NULL עד ההשלמה. */
+  nameHash       String?  @map("name_hash") @db.Char(64)
   optedOutAt     DateTime? @map("opted_out_at")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
+  phones       ContactPhone[]
+  links        ContactLink[]  @relation("primaryContact")
+  linkedFrom   ContactLink[]  @relation("relatedContact")
+
   @@unique([tenantId, phoneHash])
   @@map("contacts")
+}
+
+/**
+ * טלפון נוסף לאותו אדם. הטלפון הראשי נשאר על `contacts` — כאן רק
+ * המספרים הנוספים, עם אותו HMAC, כך שחיפוש נכנס מוצא את האדם דרך
+ * כל אחד ממספריו באותו מנגנון בדיוק.
+ */
+model ContactPhone {
+  id             String   @id @db.Char(26)
+  tenantId       String   @map("tenant_id") @db.Char(26)
+  contactId      String   @map("contact_id") @db.Char(26)
+  phoneEncrypted String   @map("phone_encrypted") @db.Text
+  phoneHash      String   @map("phone_hash") @db.Char(64)
+  /** mobile | home | work | other */
+  label          String   @default("mobile") @db.VarChar(10)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, phoneHash])
+  @@index([tenantId, contactId])
+  @@map("contact_phones")
+}
+
+/**
+ * אדם נוסף על אותו כרטיס — בן/בת זוג, מיופה כוח, בן שמטפל בהורים.
+ * הכרטיס ממשיך להצביע על איש קשר ראשי אחד; אלה תלויים בו.
+ */
+model ContactLink {
+  id               String   @id @db.Char(26)
+  tenantId         String   @map("tenant_id") @db.Char(26)
+  contactId        String   @map("contact_id") @db.Char(26)
+  relatedContactId String   @map("related_contact_id") @db.Char(26)
+  /** spouse | partner | parent | child | attorney | other */
+  role             String   @default("other") @db.VarChar(20)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  contact Contact @relation("primaryContact", fields: [contactId], references: [id], onDelete: Cascade)
+  related Contact @relation("relatedContact", fields: [relatedContactId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, contactId, relatedContactId])
+  @@index([tenantId, relatedContactId])
+  @@map("contact_links")
 }
 
 model Property {
@@ -131,6 +180,8 @@ model Property {
   internalNotes        String?   @map("internal_notes")
   attributes           Json      @default("{}")
   readinessScore       Int       @default(0) @map("readiness_score")
+  // דף הנחיתה הציבורי של הנכס — הטוקן הוא ההרשאה (פוליסת RLS ייעודית)
+  landingToken         String?   @unique @map("landing_token") @db.Char(43)
   deletedAt            DateTime? @map("deleted_at")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
@@ -422,9 +473,33 @@ model Notification {
   entityId   String?   @map("entity_id") @db.Char(26)
   readAt     DateTime? @map("read_at")
   createdAt  DateTime  @default(now()) @map("created_at")
+  /** מתי נדחפה כהתראת דפדפן; NULL = טרם נשלחה (הסורק מחפש בדיוק את אלה). */
+  pushedAt   DateTime? @map("pushed_at")
 
   @@index([tenantId, userId, readAt, createdAt])
   @@map("notifications")
+}
+
+/**
+ * מנוי לפוש בדפדפן — צמד (משתמש, דפדפן). אותו סוכן במחשב ובנייד
+ * מייצר שתי שורות בכוונה: הוא רוצה את ההתראה בשניהם.
+ */
+model PushSubscription {
+  id            String    @id @db.Char(26)
+  tenantId      String    @map("tenant_id") @db.Char(26)
+  userId        String    @map("user_id") @db.Char(26)
+  /** המפתח היציב שהדפדפן מנפיק — ייחודי גלובלית. */
+  endpoint      String    @unique
+  p256dh        String
+  auth          String
+  userAgent     String?   @map("user_agent") @db.VarChar(300)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  lastSuccessAt DateTime? @map("last_success_at")
+  /** כישלונות רצופים; מתאפס בהצלחה. חציית התקרה מוחקת את המנוי. */
+  failureCount  Int       @default(0) @map("failure_count")
+
+  @@index([tenantId, userId])
+  @@map("push_subscriptions")
 }
 
 // דפוס Outbox — אירוע נכתב באותה טרנזקציה עם השינוי; Worker מפיץ (docs/02 §5).
@@ -513,4 +588,32 @@ model Agreement {
 
   @@index([tenantId, contactId, kind])
   @@map("agreements")
+}
+
+/// יומן שיחות. כרגע מתועד ידנית; שיחות מספק טלפוניה ייכנסו לאותה
+/// טבלה עם source="provider" כשייכנס חיבור כזה.
+model Call {
+  id              String   @id @db.Char(26)
+  tenantId        String   @map("tenant_id") @db.Char(26)
+  /// inbound | outbound
+  direction       String   @db.VarChar(10)
+  /// manual | provider
+  source          String   @default("manual") @db.VarChar(20)
+  contactId       String?  @map("contact_id") @db.Char(26)
+  leadId          String?  @map("lead_id") @db.Char(26)
+  phoneEncrypted  String?  @map("phone_encrypted")
+  phoneHash       String?  @map("phone_hash") @db.Char(64)
+  occurredAt      DateTime @map("occurred_at")
+  durationMinutes Int?     @map("duration_minutes")
+  /// answered | missed | no_answer | voicemail
+  outcome         String   @default("answered") @db.VarChar(20)
+  summary         String?  @db.VarChar(4000)
+  createdBy       String?  @map("created_by") @db.Char(26)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId, occurredAt(sort: Desc)])
+  @@index([tenantId, contactId])
+  @@index([tenantId, leadId])
+  @@map("calls")
 }

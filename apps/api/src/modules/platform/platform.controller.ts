@@ -3,19 +3,21 @@ import {
   Body,
   ConflictException,
   Controller,
-  ForbiddenException,
   Get,
   HttpCode,
   Param,
   Patch,
   Post,
   ServiceUnavailableException,
+  UseGuards,
 } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import { z } from "zod";
 import { IdSchema, TenantPlanSchema, TenantStatusSchema } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
+import { PlatformAdmin } from "../../common/auth.decorators";
+import { PlatformAdminGuard } from "../../common/platform-admin.guard";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { EmailService } from "../../core/email.service";
@@ -25,6 +27,12 @@ import {
 } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { AuthService } from "../auth/auth.service";
+import {
+  BackupsService,
+  type BackupsOverview,
+  type BackupRunStatus,
+  type RestoreStatus,
+} from "./backups.service";
 
 /**
  * ניהול הפלטפורמה — הקמת משרדי תיווך חדשים מהממשק, בלי SSH.
@@ -61,6 +69,9 @@ const UpdateSettingsSchema = z
   })
   .strict();
 
+/** שם קובץ גיבוי — הוולידציה המחייבת היא ב-BackupsService (רשימת היתר). */
+const BackupNameSchema = z.object({ name: z.string().min(1).max(120) }).strict();
+
 export interface AgencyRow {
   id: string;
   name: string;
@@ -71,30 +82,18 @@ export interface AgencyRow {
 }
 
 @Controller("platform")
+@UseGuards(PlatformAdminGuard)
+@PlatformAdmin()
 export class PlatformController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly platformSettings: PlatformSettingsService,
     private readonly email: EmailService,
+    private readonly backups: BackupsService,
   ) {}
-
-  /** אימות מנהל פלטפורמה — מעבר להרשאות המשרד הרגילות. */
-  private async requirePlatformAdmin(): Promise<void> {
-    const admins = loadEnv().PLATFORM_ADMIN_EMAILS;
-    if (admins.length === 0) throw new ForbiddenException("ניהול הפלטפורמה אינו מופעל");
-    const { userId } = TenantContext.current();
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { email: true },
-    });
-    if (!user || !admins.includes(user.email.toLowerCase())) {
-      throw new ForbiddenException("אין הרשאת ניהול פלטפורמה");
-    }
-  }
 
   @Get("agencies")
   async list(): Promise<AgencyRow[]> {
-    await this.requirePlatformAdmin();
     const tenants = await this.prisma.tenant.findMany({
       orderBy: { createdAt: "desc" },
       select: {
@@ -121,7 +120,6 @@ export class PlatformController {
   async create(
     @Body(new ZodValidationPipe(CreateAgencySchema)) body: z.infer<typeof CreateAgencySchema>,
   ): Promise<{ tenantId: string; ownerEmail: string; tempPassword: string }> {
-    await this.requirePlatformAdmin();
     const email = body.ownerEmail.toLowerCase();
 
     const existing = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
@@ -157,7 +155,6 @@ export class PlatformController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Body(new ZodValidationPipe(UpdateAgencySchema)) body: z.infer<typeof UpdateAgencySchema>,
   ): Promise<{ ok: true }> {
-    await this.requirePlatformAdmin();
     const tenant = await this.prisma.tenant.findUnique({ where: { id }, select: { id: true } });
     if (!tenant) throw new BadRequestException("משרד לא נמצא");
 
@@ -192,7 +189,6 @@ export class PlatformController {
     google: { configured: boolean; source: "db" | "env" | "none"; redirectUri: string };
     loginOtpEnabled: boolean;
   }> {
-    await this.requirePlatformAdmin();
     const env = loadEnv();
     const dbKeys = await this.platformSettings.configuredKeys();
     const has = (k: PlatformSettingKey): boolean => dbKeys.includes(k);
@@ -230,7 +226,6 @@ export class PlatformController {
   async updateSettings(
     @Body(new ZodValidationPipe(UpdateSettingsSchema)) body: z.infer<typeof UpdateSettingsSchema>,
   ): Promise<{ ok: true }> {
-    await this.requirePlatformAdmin();
     const userId = TenantContext.current().userId;
     for (const [key, value] of Object.entries(body) as [PlatformSettingKey, string | boolean][]) {
       if (typeof value === "boolean") {
@@ -248,7 +243,6 @@ export class PlatformController {
   @Post("settings/test-email")
   @HttpCode(200)
   async testEmail(): Promise<{ sentTo: string }> {
-    await this.requirePlatformAdmin();
     const user = await this.prisma.user.findUnique({
       where: { id: TenantContext.current().userId },
       select: { email: true },
@@ -264,7 +258,6 @@ export class PlatformController {
   /** גרסה מותקנת + זמינות סוכן העדכון — למסך הפלטפורמה. */
   @Get("system")
   async systemInfo(): Promise<{ version: string; updateAvailable: boolean }> {
-    await this.requirePlatformAdmin();
     const env = loadEnv();
     return {
       version: env.APP_VERSION,
@@ -281,7 +274,6 @@ export class PlatformController {
   @Post("system/update")
   @HttpCode(200)
   async triggerUpdate(): Promise<{ status: "started" }> {
-    await this.requirePlatformAdmin();
     const env = loadEnv();
     if (env.UPDATER_URL === undefined || env.UPDATE_SECRET === undefined) {
       throw new ServiceUnavailableException("עדכון מרחוק אינו מוגדר בסביבה זו");
@@ -299,5 +291,60 @@ export class PlatformController {
     if (res.status === 409) throw new ConflictException("עדכון כבר רץ — המתינו לסיומו");
     if (!res.ok) throw new ServiceUnavailableException("סוכן העדכון החזיר שגיאה");
     return { status: "started" };
+  }
+
+  /** מצב הגיבויים: רשימה מקומית, חיווי טריות ומצב העותק מחוץ לשרת. */
+  @Get("backups")
+  async backupsOverview(): Promise<BackupsOverview> {
+    return this.backups.overview();
+  }
+
+  /**
+   * מחיקת גיבוי. השירות חוסם מחיקה של הדאמפ האחרון של המסד — ואם
+   * הסנכרון החיצוני פעיל, העותק המרוחק עובר לארכיון ולא נמחק.
+   */
+  @Post("backups/delete")
+  @HttpCode(200)
+  async deleteBackup(
+    @Body(new ZodValidationPipe(BackupNameSchema)) body: z.infer<typeof BackupNameSchema>,
+  ): Promise<{ ok: true }> {
+    await this.backups.remove(body.name);
+    return { ok: true };
+  }
+
+  /**
+   * שחזור מגיבוי — **בעל הפלטפורמה בלבד**, והפעולה ההרסנית ביותר
+   * במערכת: היא מחליפה את הנתונים של כל המשרדים יחד ומפילה את
+   * השירות לכמה דקות. סוכן העדכון לוקח דאמפ בטיחות לפני שהוא מתחיל.
+   */
+  @Post("backups/restore")
+  @HttpCode(202)
+  async restoreBackup(
+    @Body(new ZodValidationPipe(BackupNameSchema)) body: z.infer<typeof BackupNameSchema>,
+  ): Promise<{ status: "started" }> {
+    await this.backups.startRestore(body.name);
+    return { status: "started" };
+  }
+
+  @Get("backups/restore/status")
+  async restoreStatus(): Promise<RestoreStatus> {
+    return this.backups.restoreStatus();
+  }
+
+  /**
+   * גיבוי ידני — "גבה עכשיו". לפני עדכון גרסה, לפני שינוי גדול, או
+   * פשוט כדי לא לחכות לגיבוי היומי הבא. הקובץ שנוצר זהה לחלוטין
+   * לגיבוי האוטומטי ומופיע באותה רשימה.
+   */
+  @Post("backups/run")
+  @HttpCode(202)
+  async runBackup(): Promise<{ status: "started" }> {
+    await this.backups.startBackup();
+    return { status: "started" };
+  }
+
+  @Get("backups/run/status")
+  async backupRunStatus(): Promise<BackupRunStatus> {
+    return this.backups.backupStatus();
   }
 }

@@ -1,14 +1,17 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Button } from "@metavchim/ui";
-import { apiGet, apiPatch } from "@/lib/api";
+import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 
-/** מסך ההתאמות הדו-צדי (אפיון §15, מסך 4): קונים ⇄ נכסים עם אחוז והסבר. */
+/**
+ * מסך ההתאמות לפי קובץ העיצוב: מתג "לפי נכס ← קונים / לפי קונה ←
+ * נכסים", קבוצות ככרטיסים עם כותרת ומונה, וכל שורה עם טבעת ניקוד
+ * (conic-gradient), הסבר מילולי וכפתור "שלח הצעה".
+ */
 
 interface MatchRow {
   id: string;
@@ -24,10 +27,51 @@ interface MatchRow {
 /** תקרת ה-API. תג "N קונים מתאימים" עשוי להצביע על יותר — ואז מוצגת הערה. */
 const LIST_LIMIT = 200;
 
-function scoreLabel(score: number): string {
-  if (score >= 85) return "מומלץ לשליחה";
-  if (score >= 70) return "ייתכן שמתאים";
-  return "דורש בדיקה";
+type Direction = "byProperty" | "byBuyer";
+
+interface Group {
+  key: string;
+  title: string;
+  sub: string;
+  items: MatchRow[];
+}
+
+function groupMatches(items: MatchRow[], direction: Direction): Group[] {
+  const map = new Map<string, Group>();
+  for (const m of items) {
+    const key = direction === "byProperty" ? m.propertyId : m.buyerId;
+    let group = map.get(key);
+    if (group === undefined) {
+      group =
+        direction === "byProperty"
+          ? {
+              key,
+              title: m.property.title ?? m.property.address,
+              sub: m.property.priceAgorot !== undefined ? formatPrice(m.property.priceAgorot) : "",
+              items: [],
+            }
+          : { key, title: m.buyerName ?? "קונה של סוכן אחר", sub: "", items: [] };
+      map.set(key, group);
+    }
+    group.items.push(m);
+  }
+  const groups = [...map.values()];
+  for (const g of groups) g.items.sort((a, b) => b.score - a.score);
+  // הקבוצה עם ההתאמה החזקה ביותר — ראשונה
+  groups.sort((a, b) => (b.items[0]?.score ?? 0) - (a.items[0]?.score ?? 0));
+  return groups;
+}
+
+function ScoreRing({ score }: { score: number }) {
+  return (
+    <span
+      className="mv-score-ring"
+      style={{ background: `conic-gradient(#2ECC66 ${Math.round(score * 3.6)}deg, var(--color-progress-track) 0deg)` }}
+      aria-hidden="true"
+    >
+      <span>{score}%</span>
+    </span>
+  );
 }
 
 export default function MatchesPage() {
@@ -45,8 +89,12 @@ function MatchesView() {
   // הגעה מ"17 קונים מתאימים" ברשימת הנכסים — מסננים לנכס אחד
   const propertyId = searchParams.get("property");
   const [items, setItems] = useState<MatchRow[] | null>(null);
+  const [direction, setDirection] = useState<Direction>("byProperty");
   const [minScore, setMinScore] = useState(50);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [signUrl, setSignUrl] = useState<string | null>(null);
+  const [sending, setSending] = useState<string | null>(null);
   const requestSeq = useRef(0);
 
   const load = useCallback(
@@ -70,43 +118,103 @@ function MatchesView() {
     if (!authLoading) load(minScore, propertyId);
   }, [authLoading, minScore, propertyId, load]);
 
+  const groups = useMemo(
+    () => (items === null ? [] : groupMatches(items, direction)),
+    [items, direction],
+  );
+
   async function dismiss(id: string) {
     await apiPatch(`/matches/${id}/dismiss`, {});
     setItems((prev) => (prev ? prev.filter((m) => m.id !== id) : prev));
   }
 
+  /** שליחת הצעה מהשורה. קונה שטרם חתם על הסכם — מוצג קישור ההחתמה. */
+  async function sendOffer(m: MatchRow): Promise<void> {
+    setSending(m.id);
+    setNotice(null);
+    setSignUrl(null);
+    try {
+      await apiPost("/offers", { matchId: m.id });
+      setNotice(`ההצעה נשלחה — ${m.buyerName ?? "הקונה"} · ${m.property.title ?? m.property.address}`);
+      setItems((prev) =>
+        prev ? prev.map((x) => (x.id === m.id ? { ...x, status: "offered" } : x)) : prev,
+      );
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        // שער החתימה (הסכמי תיווך): ההצעה חסומה עד שהקונה חותם
+        if (err.body["code"] === "signature_required" && typeof err.body["signUrl"] === "string") {
+          setSignUrl(err.body["signUrl"]);
+          setNotice("הקונה טרם חתם על הסכם התיווך — שלחו לו קודם את קישור החתימה:");
+        } else {
+          setNotice(err.message);
+        }
+      } else {
+        setNotice("שליחת ההצעה נכשלה — נסו שוב");
+      }
+    } finally {
+      setSending(null);
+    }
+  }
+
   return (
     <>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">התאמות</h1>
-        <div>
-          <label htmlFor="minScore" className="me-2 font-medium">סף התאמה:</label>
+      <div className="mb-4 flex flex-wrap items-center gap-3.5">
+        <div className="mv-seg" role="group" aria-label="כיוון ההתאמות">
+          <button
+            type="button"
+            aria-pressed={direction === "byProperty"}
+            onClick={() => setDirection("byProperty")}
+          >
+            לפי נכס ← קונים
+          </button>
+          <button
+            type="button"
+            aria-pressed={direction === "byBuyer"}
+            onClick={() => setDirection("byBuyer")}
+          >
+            לפי קונה ← נכסים
+          </button>
+        </div>
+        <span className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+          כל ניקוד מוסבר. דרישת חובה שנשברת — הנכס לא מוצג בכלל. מידע חסר מוריד ניקוד, לא פוסל.
+        </span>
+        <label className="ms-auto flex items-center gap-1.5 text-sm">
+          <span className="mv-visually-hidden">סף התאמה</span>
           <select
-            id="minScore"
             value={minScore}
             onChange={(event) => setMinScore(Number(event.target.value))}
-            className="rounded-lg border px-3 py-2"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+            className="rounded-lg border px-2 py-1.5"
+            style={{ borderColor: "var(--color-input-border)", background: "var(--color-surface)", color: "var(--color-text)" }}
           >
             <option value={85}>85%+ — מומלץ לשליחה</option>
             <option value={70}>70%+ — ייתכן שמתאים</option>
             <option value={50}>50%+ — הכל</option>
           </select>
-        </div>
+        </label>
       </div>
 
       {propertyId ? (
         <p className="mb-4 flex flex-wrap items-center gap-2">
-          <span
-            className="rounded-full px-3 py-1"
-            style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}
-          >
+          <span className="mv-pill" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}>
             מסונן להתאמות של נכס אחד
-            {items && items[0] ? `: ${items[0].property.title ?? items[0].property.address}` : ""}
           </span>
           <Link href="/matches" className="underline">
             הצג את כל ההתאמות
           </Link>
+        </p>
+      ) : null}
+
+      {notice ? (
+        <p role="status" className="mb-4 rounded-xl border px-4 py-3 text-sm" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+          {notice}
+          {signUrl ? (
+            <>
+              {" "}
+              <a href={signUrl} target="_blank" rel="noopener noreferrer" className="font-bold underline" style={{ color: "var(--color-primary)" }}>
+                פתח את דף החתימה
+              </a>
+            </>
+          ) : null}
         </p>
       ) : null}
 
@@ -124,54 +232,87 @@ function MatchesView() {
           </p>
         </div>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {items.map((m) => (
-            <li
-              key={m.id}
-              className="rounded-xl border p-4"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+        groups.map((g) => (
+          <section key={g.key} className="mv-list-card mb-3.5" aria-label={g.title}>
+            <div
+              className="flex flex-wrap items-center gap-2.5 px-5 py-[13px]"
+              style={{ background: "var(--color-table-head)", borderBottom: "1px solid var(--color-card-head-border)" }}
             >
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-2xl font-bold" style={{ minWidth: "4rem" }}>{m.score}%</span>
-                <div className="flex-1">
-                  <p>
-                    <Link href={`/properties/${m.propertyId}`} className="font-semibold underline">
-                      {m.property.title ?? m.property.address}
-                    </Link>
-                    {m.property.priceAgorot !== undefined ? (
-                      <span style={{ color: "var(--color-text-muted)" }}>
-                        {" "}· {formatPrice(m.property.priceAgorot)}
-                      </span>
-                    ) : null}
-                  </p>
-                  <p>
-                    <span aria-hidden="true">⇄ </span>
-                    {m.buyerName ? (
-                      <Link href={`/buyers/${m.buyerId}`} className="underline">{m.buyerName}</Link>
-                    ) : (
-                      <span style={{ color: "var(--color-text-muted)" }}>קונה של סוכן אחר</span>
-                    )}
-                  </p>
-                </div>
-                <span
-                  className="rounded-full px-3 py-0.5 text-sm font-medium"
-                  style={{
-                    background: m.score >= 85 ? "var(--color-primary)" : "var(--color-border)",
-                    color: m.score >= 85 ? "var(--color-bg)" : "var(--color-text)",
-                  }}
-                >
-                  {m.status === "offered" ? "הצעה נשלחה" : scoreLabel(m.score)}
+              <span className="text-[15px] font-extrabold">
+                {direction === "byProperty" ? (
+                  <Link href={`/properties/${g.items[0]?.propertyId}`} className="no-underline hover:underline" style={{ color: "inherit" }}>
+                    {g.title}
+                  </Link>
+                ) : g.items[0]?.buyerName ? (
+                  <Link href={`/buyers/${g.items[0].buyerId}`} className="no-underline hover:underline" style={{ color: "inherit" }}>
+                    {g.title}
+                  </Link>
+                ) : (
+                  g.title
+                )}
+              </span>
+              {g.sub ? (
+                <span className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                  {g.sub}
                 </span>
-                {m.status === "suggested" ? (
-                  <Button variant="ghost" onClick={() => void dismiss(m.id)}>
-                    לא רלוונטי
-                  </Button>
-                ) : null}
+              ) : null}
+              <span className="mv-pill ms-auto" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)", fontSize: 12 }}>
+                {g.items.length} התאמות
+              </span>
+            </div>
+            {g.items.map((m) => (
+              <div key={m.id} className="flex items-center gap-[15px] px-5 py-3" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
+                <ScoreRing score={m.score} />
+                <div className="min-w-0" style={{ lineHeight: 1.4 }}>
+                  <div className="text-[14.5px] font-bold">
+                    {direction === "byProperty" ? (
+                      m.buyerName ? (
+                        <Link href={`/buyers/${m.buyerId}`} className="no-underline hover:underline" style={{ color: "inherit" }}>
+                          {m.buyerName}
+                        </Link>
+                      ) : (
+                        <span style={{ color: "var(--color-text-muted)" }}>קונה של סוכן אחר</span>
+                      )
+                    ) : (
+                      <Link href={`/properties/${m.propertyId}`} className="no-underline hover:underline" style={{ color: "inherit" }}>
+                        {m.property.title ?? m.property.address}
+                      </Link>
+                    )}
+                  </div>
+                  <div className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+                    {m.explanation}
+                  </div>
+                </div>
+                <div className="ms-auto flex flex-none items-center gap-2">
+                  {m.status === "offered" ? (
+                    <span className="mv-pill" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}>
+                      הצעה נשלחה
+                    </span>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="mv-btn-plain"
+                        onClick={() => void dismiss(m.id)}
+                      >
+                        לא רלוונטי
+                      </button>
+                      <button
+                        type="button"
+                        className="mv-btn-action"
+                        style={{ padding: "7px 15px", fontSize: 13 }}
+                        disabled={sending !== null}
+                        onClick={() => void sendOffer(m)}
+                      >
+                        {sending === m.id ? "שולח…" : "שלח הצעה"}
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-              <p className="mt-1" style={{ color: "var(--color-text-muted)" }}>{m.explanation}</p>
-            </li>
-          ))}
-        </ul>
+            ))}
+          </section>
+        ))
       )}
 
       {/* המספר בתג "N קונים מתאימים" סופר את כל ההתאמות, והרשימה חסומה

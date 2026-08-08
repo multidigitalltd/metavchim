@@ -9,11 +9,12 @@ import {
   UnauthorizedException,
   UsePipes,
 } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { loadEnv } from "../../config/env";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
-import { Public } from "../../common/auth.decorators";
+import { AnyAuthenticated, Public } from "../../common/auth.decorators";
 import { AuthService, type AuthenticatedUser } from "./auth.service";
 import { GoogleAuthService } from "./google-auth.service";
 import { LoginOtpService } from "./login-otp.service";
@@ -193,6 +194,9 @@ export class AuthController {
   /** שלב 2 של התחברות עם קוד אימייל — פעיל רק כש-LOGIN_OTP_ENABLED. */
   @Public()
   @Post("login/verify")
+  // חמישה ניסיונות פר otpToken כבר נאכפים ב-LoginOtpService; זו התקרה
+  // המשלימה על ה-IP, כדי שהנפקה חוזרת של טוקנים לא תיצור ניחוש רחב
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @HttpCode(200)
   async verifyOtp(
     @Body(new ZodValidationPipe(VerifyOtpSchema)) body: z.infer<typeof VerifyOtpSchema>,
@@ -218,6 +222,9 @@ export class AuthController {
    */
   @Public()
   @Post("forgot-password")
+  // הצינון ב-PasswordResetService הוא פר כתובת; זו התקרה פר IP, שמונעת
+  // הצפת תיבות של רשימת כתובות שלמה מאותו מקור (ועלות שליחה מיותרת)
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @HttpCode(200)
   async forgotPassword(
     @Body(new ZodValidationPipe(ForgotPasswordSchema)) body: z.infer<typeof ForgotPasswordSchema>,
@@ -228,6 +235,7 @@ export class AuthController {
 
   @Public()
   @Post("reset-password")
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @HttpCode(200)
   async resetPassword(
     @Body(new ZodValidationPipe(ResetPasswordSchema)) body: z.infer<typeof ResetPasswordSchema>,
@@ -236,6 +244,7 @@ export class AuthController {
     return { ok: true };
   }
 
+  @AnyAuthenticated()
   @Post("logout")
   @HttpCode(200)
   async logout(
@@ -250,6 +259,7 @@ export class AuthController {
     return { ok: true };
   }
 
+  @AnyAuthenticated()
   @Get("me")
   me(@Req() req: Request): { user: AuthenticatedUser & { isPlatformAdmin: boolean } } {
     const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
@@ -262,6 +272,7 @@ export class AuthController {
     return { user: { ...user, isPlatformAdmin } };
   }
 
+  @AnyAuthenticated()
   @Post("change-password")
   @HttpCode(200)
   @UsePipes(new ZodValidationPipe(ChangePasswordSchema))

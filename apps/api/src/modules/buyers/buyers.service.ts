@@ -256,7 +256,15 @@ export class BuyersService {
       // לרשומת ה-status_change הוא המעבר שבאמת קרה (ביקורת Codex)
       await tx.$queryRaw`SELECT id FROM buyers WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`;
       const existing = await tx.buyer.findFirst({
-        where: { id, tenantId: TenantContext.current().tenantId, deletedAt: null },
+        where: {
+          id,
+          tenantId,
+          deletedAt: null,
+          // הרשאה בשליפה עצמה: בלעדיה העדכון היה נכתב לשורה של סוכן
+          // אחר ורק אז נכשל בקריאה החוזרת המסוננת — כתיבה שהצליחה
+          // בשקט מאחורי הודעת שגיאה
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
       });
       if (!existing) throw new NotFoundException("קונה לא נמצא");
 
@@ -432,10 +440,51 @@ export class BuyersService {
       });
       const hasMore = rows.length > query.limit;
       const page = rows.slice(0, query.limit);
-      const items: BuyerDto[] = [];
+
+      /*
+       * העשרה למסך הרשימה (קובץ העיצוב): "הצעות שקיבל" ו"פעילות
+       * אחרונה". שתי שאילתות מקובצות לעמוד כולו — לא לכל שורה.
+       * אין קשרי Prisma בסכימה, ולכן ספירת ההצעות עוברת דרך ההתאמות:
+       * offer.matchId ⟵ match.buyerId.
+       */
+      const tenantId = TenantContext.current().tenantId;
+      const buyerIds = page.map((r) => r.id);
+      const pageMatches = await tx.match.findMany({
+        where: { tenantId, buyerId: { in: buyerIds } },
+        select: { id: true, buyerId: true },
+      });
+      const buyerByMatch = new Map(pageMatches.map((m) => [m.id, m.buyerId]));
+      const offers = await tx.offer.findMany({
+        where: { tenantId, matchId: { in: pageMatches.map((m) => m.id) } },
+        select: { matchId: true },
+      });
+      const offerCountByBuyer = new Map<string, number>();
+      for (const o of offers) {
+        const buyerId = buyerByMatch.get(o.matchId);
+        if (buyerId !== undefined) {
+          offerCountByBuyer.set(buyerId, (offerCountByBuyer.get(buyerId) ?? 0) + 1);
+        }
+      }
+      const lastInteractions = await tx.interaction.groupBy({
+        by: ["buyerId"],
+        where: { tenantId, buyerId: { in: buyerIds } },
+        _max: { createdAt: true },
+      });
+      const lastByBuyer = new Map(
+        lastInteractions.map((row) => [row.buyerId, row._max.createdAt]),
+      );
+
+      const items: (BuyerDto & { offersReceived: number; lastActivityAt: Date })[] = [];
       for (const row of page) {
         const contact = await this.contacts.getById(tx, row.contactId);
-        if (contact) items.push(this.toDto(row, contact));
+        if (contact) {
+          items.push({
+            ...this.toDto(row, contact),
+            offersReceived: offerCountByBuyer.get(row.id) ?? 0,
+            // אין תיעוד אינטראקציה ⇒ העדכון האחרון של הכרטיס עצמו
+            lastActivityAt: lastByBuyer.get(row.id) ?? row.updatedAt,
+          });
+        }
       }
       return { items, nextCursor: hasMore ? (page.at(-1)?.id ?? null) : null };
     });
