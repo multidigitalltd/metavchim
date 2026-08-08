@@ -2,7 +2,7 @@ import { Injectable, UnauthorizedException } from "@nestjs/common";
 import * as argon2 from "argon2";
 import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
-import { ROLE_CAPABILITIES, type Capability } from "@metavchim/shared";
+import { resolveCapabilities, type Capability } from "@metavchim/shared";
 import { PrismaService } from "../../core/prisma.service";
 import type { RequestContext } from "../../common/tenant-context";
 
@@ -222,7 +222,31 @@ export class AuthService {
     ) {
       return null;
     }
-    const capabilities = new Set<Capability>(ROLE_CAPABILITIES[session.user.role] ?? []);
+    /*
+     * חריגי ההרשאה של המשתמש נטענים בכל בקשה, ולא נצרבים ב-Session.
+     *
+     * זו הנקודה היחידה במערכת שבה נקבעות היכולות בפועל, וזה מכוון:
+     * מנהל שחוסם מודול מסוכן מצפה שזה יתפוס *עכשיו*, לא בכניסה הבאה
+     * שלו. חריג צרוב היה משאיר סוכן מפוטר עם גישה מלאה עד שה-Session
+     * יפוג. המחיר הוא שאילתה אחת לפי אינדקס — זניח מול בקשה שממילא
+     * טוענת את המשתמש והדייר.
+     *
+     * הסינון לפי תפוגה נעשה בקוד (resolveCapabilities) ולא ב-SQL,
+     * כדי שאותו כלל יהיה גם מה שהבדיקות מכסות וגם מה שהמסך מציג.
+     */
+    const overrides = await this.prisma.userCapability.findMany({
+      where: { userId: session.user.id, tenantId: session.user.tenantId },
+      select: { capability: true, effect: true, expiresAt: true },
+    });
+    const capabilities = resolveCapabilities(
+      session.user.role,
+      overrides.map((o) => ({
+        capability: o.capability as Capability,
+        effect: o.effect === "grant" ? "grant" : "deny",
+        expiresAt: o.expiresAt,
+      })),
+      new Date(),
+    );
     return {
       context: {
         tenantId: session.user.tenantId,
