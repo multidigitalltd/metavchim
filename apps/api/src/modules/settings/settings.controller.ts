@@ -386,7 +386,6 @@ export class SettingsController {
   async whatsappStatus(): Promise<{
     serverConfigured: boolean;
     numberConfigured: boolean;
-    webhookUrl: string;
     lastInboundAt?: Date;
   }> {
     const env = loadEnv();
@@ -413,7 +412,14 @@ export class SettingsController {
       serverConfigured:
         env.WHATSAPP_APP_SECRET !== undefined && env.WHATSAPP_VERIFY_TOKEN !== undefined,
       numberConfigured,
-      webhookUrl: `${env.WEB_ORIGIN}/api/v1/webhooks/whatsapp`,
+      /*
+       * כתובת ה-Webhook **אינה** מוחזרת כאן.
+       *
+       * היא מוגדרת פעם אחת במטא לכל הפלטפורמה, ולמנהל משרד אין אפליקציית
+       * Meta שאפשר להזין אותה בה. הצגתה לו רק שידרה שיש כאן משהו שהוא
+       * צריך לעשות — ובמקביל חשפה פרט תפעולי של הפלטפורמה לכל דייר.
+       * מקומה במסך /platform, שם היא באמת ניתנת לפעולה.
+       */
       lastInboundAt: lastInbound?.createdAt,
     };
   }

@@ -222,6 +222,21 @@ export function AppShell({ children }: { children: ReactNode }) {
       .catch(() => undefined);
   }, [isPublic]);
 
+  /*
+   * לשונית ההקמה נעלמת ברגע שהמשרד סיים.
+   *
+   * הבאנר בדשבורד כבר ידע להיעלם, אבל הלשונית נשארה — כלומר משרד
+   * ותיק ראה לנצח קישור למסך שאין בו מה לעשות, וכל כניסה אליו רק
+   * מאשרת שהכל מסומן. נשאל רק עבור מנהלים, כי רק להם הלשונית מוצגת.
+   */
+  const [setupDone, setSetupDone] = useState(false);
+  useEffect(() => {
+    if (isPublic || me === null || !MANAGER_ROLES.has(me.role)) return;
+    apiGet<{ ready: boolean }>("/settings/onboarding")
+      .then((p) => setSetupDone(p.ready))
+      .catch(() => undefined);
+  }, [isPublic, me, pathname]);
+
   /* המונים מתרעננים במעבר מסך — פעולה במסך אחד (קליטת ליד) צריכה
      להשתקף בתג כשעוברים הלאה, בלי Polling קבוע */
   useEffect(() => {
@@ -321,7 +336,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           ) : null,
         )}
         {isManager ? navLink("/settings", "ניהול משרד", ICONS.office) : null}
-        {isManager ? navLink("/setup", "הקמה", ICONS.setup) : null}
+        {isManager && !setupDone ? navLink("/setup", "הקמה", ICONS.setup) : null}
         {me?.isPlatformAdmin ? navLink("/platform", "פלטפורמה", ICONS.platform) : null}
       </nav>
 

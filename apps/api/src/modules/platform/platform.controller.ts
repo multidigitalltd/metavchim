@@ -185,7 +185,8 @@ export class PlatformController {
   @Get("settings")
   async settings(): Promise<{
     postmark: { configured: boolean; source: "db" | "env" | "none"; emailFrom?: string };
-    whatsapp: { configured: boolean; source: "db" | "env" | "none" };
+    /** webhookUrl מוגדר פעם אחת במטא לכל הפלטפורמה — ולכן הוא כאן ולא בהגדרות המשרד. */
+    whatsapp: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
     google: { configured: boolean; source: "db" | "env" | "none"; redirectUri: string };
     loginOtpEnabled: boolean;
   }> {
@@ -210,6 +211,7 @@ export class PlatformController {
       whatsapp: {
         configured: waDb || waEnv,
         source: waDb ? "db" : waEnv ? "env" : "none",
+        webhookUrl: `${env.WEB_ORIGIN}/api/v1/webhooks/whatsapp`,
       },
       google: {
         configured: googleDb || googleEnv,
