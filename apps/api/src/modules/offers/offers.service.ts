@@ -1,9 +1,10 @@
-import { GoneException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import { OfferPresentationSchema, type OfferPresentation } from "@metavchim/shared";
 import { assertMatchAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
+import { AgreementsService } from "../agreements/agreements.service";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -53,6 +54,7 @@ export class OffersService {
     private readonly contacts: ContactsService,
     private readonly messaging: MessagingService,
     private readonly storage: StorageService,
+    private readonly agreements: AgreementsService,
   ) {}
 
   /**
@@ -385,13 +387,56 @@ export class OffersService {
    */
   async prepareWhatsApp(offerId: string): Promise<{ waUrl: string; message: string }> {
     const tenantId = TenantContext.current().tenantId;
+
+    /*
+     * שער ההחתמה — הזכות לדמי תיווך מותנית בהזמנה בכתב חתומה (חוק
+     * המתווכים במקרקעין §9), ולכן הצעה לא יוצאת ללקוח שטרם חתם.
+     *
+     * הבדיקה רצה בטרנזקציה *נפרדת* ומסתיימת לפני שנזרקת השגיאה: יצירת
+     * ההסכם וזריקת החריגה באותה טרנזקציה היו מגלגלות את ה-INSERT
+     * אחורה, והמתווך היה מקבל קישור להסכם שאינו קיים.
+     */
+    const gate = await this.prisma.withTenant(async (tx) => {
+      const offer = await tx.offer.findFirst({
+        where: { id: offerId, tenantId },
+        select: { matchId: true },
+      });
+      // בלי היציאה הזו היה נשלח findFirst עם id: undefined — ש-Prisma
+      // מפרש כ"בלי סינון" ומחזיר התאמה שרירותית, כלומר הסכם ללקוח הלא נכון
+      if (!offer) return null; // הזרימה למטה תחזיר את השגיאה המדויקת
+      const match = await tx.match.findFirst({
+        where: { id: offer.matchId, tenantId },
+        select: { buyerId: true, propertyId: true },
+      });
+      if (!match) return null;
+      const buyer = await tx.buyer.findFirst({
+        where: { id: match.buyerId, tenantId, deletedAt: null },
+        select: { contactId: true },
+      });
+      if (!buyer) return null;
+      if (await this.agreements.hasSigned(tx, buyer.contactId, "brokerage")) return null;
+      return this.agreements.create(tx, {
+        kind: "brokerage",
+        contactId: buyer.contactId,
+        propertyId: match.propertyId,
+      });
+    });
+
+    if (gate) {
+      throw new ConflictException({
+        message: "הלקוח טרם חתם על הזמנה בכתב — שלחו לו קודם את ההסכם לחתימה",
+        code: "signature_required",
+        signUrl: gate.url,
+      });
+    }
+
     return this.prisma.withTenant(async (tx) => {
       const offer = await tx.offer.findFirst({ where: { id: offerId, tenantId } });
       if (!offer) throw new NotFoundException("הצעה לא נמצאה");
 
       const match = await tx.match.findFirst({
         where: { id: offer.matchId, tenantId },
-        select: { buyerId: true },
+        select: { buyerId: true, propertyId: true },
       });
       if (!match) throw new NotFoundException("התאמה לא נמצאה");
       const buyer = await tx.buyer.findFirst({

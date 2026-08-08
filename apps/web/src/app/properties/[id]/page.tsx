@@ -14,6 +14,7 @@ import {
 } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { MediaSection } from "./media-section";
+import { AgreementsPanel } from "../../agreements-panel";
 
 /**
  * כרטיס הנכס לפי קובץ העיצוב: כרטיס כותרת עם מחיר ופעולות (עריכה /
@@ -330,6 +331,17 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
               </button>
             ) : null}
           </section>
+
+          {/* בלעדיות נחתמת מול בעל הנכס — ולכן היא כאן, מתחת לפרטי
+              הנכס ומעל הקונים, ולא בכרטיס הקונה */}
+          {property.ownerContact ? (
+            <AgreementsPanel
+              contactId={property.ownerContact.id}
+              kind="exclusivity"
+              propertyId={property.id}
+              title="הסכם בלעדיות מול בעל הנכס"
+            />
+          ) : null}
 
           <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="matches-heading">
             <div className="mb-3 flex flex-wrap items-center gap-2">
