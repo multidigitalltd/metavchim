@@ -140,7 +140,7 @@ async def transcribe(
             # ריצת המודל היא CPU-bound — מועברת ל-thread כדי לא לחסום
             # את לולאת האירועים (בדיקת הבריאות ממשיכה לענות)
             started = time.monotonic()
-            text, duration = await asyncio.to_thread(_run, tmp_path)
+            text, duration, segments = await asyncio.to_thread(_run, tmp_path)
             elapsed = time.monotonic() - started
 
         _avg_seconds = (
@@ -148,14 +148,17 @@ async def transcribe(
         )
         logger.info("תומלל %.1fs אודיו ב-%.1fs (ממוצע %.1fs)", duration, elapsed, _avg_seconds)
 
-        return {"text": text, "durationSeconds": duration}
+        # segments נוסף לצד text ולא במקומו: ההכתבה בדפדפן צורכת רק
+        # את text, ורק תמלול שיחה מצרף אליו תורי דיבור (infra/diarize)
+        # כדי לשייך כל משפט לדובר שלו.
+        return {"text": text, "durationSeconds": duration, "segments": segments}
     finally:
         _inflight -= 1
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)  # האודיו לא נשאר על הדיסק
 
 
-def _run(path: str) -> tuple[str, float]:
+def _run(path: str) -> tuple[str, float, list[dict[str, object]]]:
     model = get_model()
     segments, info = model.transcribe(
         path,
@@ -165,5 +168,14 @@ def _run(path: str) -> tuple[str, float]:
         vad_parameters={"min_silence_duration_ms": 500},
         condition_on_previous_text=False,  # מונע גרירת הזיות בין קטעים
     )
-    text = " ".join(segment.text.strip() for segment in segments).strip()
-    return text, float(info.duration)
+    # segments הוא גנרטור עצל — עוברים עליו פעם אחת בלבד ושומרים
+    # גם את הטקסט וגם את חותמות הזמן. איטרציה שנייה הייתה מחזירה ריק.
+    items: list[dict[str, object]] = []
+    parts: list[str] = []
+    for segment in segments:
+        text = segment.text.strip()
+        if not text:
+            continue
+        parts.append(text)
+        items.append({"start": round(segment.start, 2), "end": round(segment.end, 2), "text": text})
+    return " ".join(parts).strip(), float(info.duration), items
