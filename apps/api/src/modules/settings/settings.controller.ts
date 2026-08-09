@@ -187,7 +187,13 @@ export class SettingsController {
           // רק משתמשים פעילים — האכיפה סופרת פעילים בלבד, וספירת
           // חשבונות שהושבתו הייתה מציגה מכסה מלאה בזמן שהוספה עוד
           // מותרת (ביקורת Codex)
-          _count: { select: { users: { where: { isActive: true } }, properties: true } },
+          _count: {
+            select: {
+              users: { where: { isActive: true } },
+              // כמו האכיפה: נכס בארכיון אינו תופס מכסה
+              properties: { where: { deletedAt: null } },
+            },
+          },
         },
       }),
     ]);

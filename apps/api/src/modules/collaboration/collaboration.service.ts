@@ -5,6 +5,7 @@ import { BuyerRequirementsSchema, scoreMatch, type BuyerRequirements } from "@me
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { rowToFields } from "../properties/property.mapper";
 
@@ -57,6 +58,7 @@ export class CollaborationService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly outbox: OutboxService,
+    private readonly plans: PlanCatalogService,
   ) {}
 
   /** שיתוף קונה כביקוש אנונימי: בלי שם, בלי טלפון, תקציב מעוגל. */
@@ -134,6 +136,29 @@ export class CollaborationService {
     );
 
     /*
+     * ביקוש של משרד שאיבד את הפיצ'ר יורד מהפיד.
+     *
+     * המשרד שפרסם אותו כבר לא יכול לראות תשובות ואפילו לא להסיר
+     * אותו — השער חוסם את כל המודול אצלו. משרד אחר שהיה מציע נכס
+     * לביקוש כזה היה מבזבז קרדיט על פנייה שאיש לא יקרא (ביקורת
+     * Codex).
+     *
+     * הסינון על התוצאה ולא בשאילתה: `plans` אינה טבלה שאפשר לצרף
+     * אליה כאן, והמסלולים ממילא במטמון.
+     */
+    const owners = [...new Set(rows.map((row) => row.tenantId))];
+    const entitled = new Set(
+      (
+        await Promise.all(
+          owners.map(async (owner) =>
+            (await this.plans.tenantHasFeature(owner, "collaboration")) ? owner : null,
+          ),
+        )
+      ).filter((owner): owner is string => owner !== null),
+    );
+    const visible = rows.filter((row) => entitled.has(row.tenantId));
+
+    /*
      * לכל ביקוש מחושבות ההתאמות מתוך הנכסים *שלי* — בדיוק אותו מנוע
      * שמשמש את ההתאמות הפנימיות. בלי זה המתווך היה בוחר נכס מרשימה
      * נפתחת של עשרות, מנחש, ומבזבז קרדיט על נכס שלא מתאים.
@@ -149,7 +174,7 @@ export class CollaborationService {
       }),
     );
 
-    return rows.map((row) => {
+    return visible.map((row) => {
       const dto = this.toDemandDto(row, tenantId);
       if (dto.mine) return dto;
       const matches = this.matchOwnProperties(myProperties, row);
@@ -217,6 +242,10 @@ export class CollaborationService {
       tx.sharedDemand.findFirst({ where: { id: demandId, status: "active" } }),
     );
     if (!demand) throw new NotFoundException("הביקוש לא נמצא או נסגר");
+    // אותו כלל גם בכתיבה: הפיד יכול להיות ישן בלשונית פתוחה
+    if (!(await this.plans.tenantHasFeature(demand.tenantId, "collaboration"))) {
+      throw new NotFoundException("הביקוש לא נמצא או נסגר");
+    }
     if (demand.tenantId === ctx.tenantId) {
       throw new BadRequestException("זה ביקוש שלך — ההתאמות הפנימיות כבר כיסו אותו");
     }

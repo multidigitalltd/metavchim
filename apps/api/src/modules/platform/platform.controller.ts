@@ -259,7 +259,12 @@ export class PlatformController {
         plan: true,
         // רק פעילים, כמו האכיפה עצמה — אחרת אזהרת ההורדה הייתה
         // מדווחת חריגה שלא קיימת (ביקורת Codex)
-        _count: { select: { users: { where: { isActive: true } }, properties: true } },
+        _count: {
+          select: {
+            users: { where: { isActive: true } },
+            properties: { where: { deletedAt: null } },
+          },
+        },
       },
     });
     if (!tenant) throw new BadRequestException("משרד לא נמצא");

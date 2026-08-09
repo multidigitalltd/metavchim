@@ -67,7 +67,15 @@ export class PropertiesService {
     const limit = plan?.maxProperties ?? null;
     if (limit === null) return;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`property-quota:${tenantId}`}))`;
-    const used = await tx.property.count({ where: { tenantId } });
+    /*
+      * נכסים בארכיון אינם נספרים.
+      *
+      * `softDelete` רק מסמן `deletedAt`, וכל קריאה רגילה מסננת אותם.
+      * ספירה שכוללת אותם הייתה חוסמת משרד **לצמיתות**: הוא מוחק נכס
+      * כדי לפנות מקום, המונה לא יורד, ובסוף אין לו אף נכס גלוי והוא
+      * עדיין חסום (ביקורת Codex).
+      */
+     const used = await tx.property.count({ where: { tenantId, deletedAt: null } });
     if (limitState(used, limit).blocked) {
       throw new BadRequestException(
         `מסלול "${plan?.name ?? ""}" כולל ${limit} נכסים. לתוספת נכסים יש לשדרג מסלול.`,
