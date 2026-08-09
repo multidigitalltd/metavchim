@@ -215,18 +215,93 @@ export type TelephonyParseIssue =
   | "invalid_phone";
 
 export function telephonyParseIssue(raw: Record<string, unknown>): TelephonyParseIssue | null {
-  const pick = pickFrom(raw);
-  if (pick("call_id", "callId", "uniqueid", "unique_id", "id", "session_id") === "") {
-    return "no_call_id";
-  }
-  const directionRaw = pick("direction", "call_type", "type").toLowerCase();
-  const direction = directionRaw.includes("out") || directionRaw.includes("יוצא") ? "outbound" : "inbound";
-  const source = pick("caller", "caller_id", "callerid", "from", "src", "did_caller", "phone");
-  const destination = pick("to", "destination", "called", "dst", "callee");
-  const peerRaw = direction === "outbound" ? destination || source : source || destination;
-  if (peerRaw === "") return "no_phone";
-  if (!ISRAELI_PHONE.test(normalizePhone(peerRaw))) return "invalid_phone";
+  const core = readCore(raw);
+  if (core.providerCallId === "") return "no_call_id";
+  if (core.peerRaw === "") return "no_phone";
+  if (!ISRAELI_PHONE.test(normalizePhone(core.peerRaw))) return "invalid_phone";
   return null;
+}
+
+/*
+ * שמות השדות — **רשימה אחת**, לא שתיים.
+ *
+ * הניתוח והאבחון חלקו עד כה את `pickFrom` בלבד, כלומר את מנגנון
+ * הקריאה — אבל כל אחד מהם החזיק עותק משלו של שמות השדות. הוספת שם
+ * חדש לצד אחד בלבד הייתה יוצרת בדיוק את הסתירה שהשיתוף בא למנוע:
+ * אירוע שנקלט בהצלחה ומאובחן כ"חסר מספר", או להפך.
+ */
+const CALL_ID_KEYS = [
+  "call_id",
+  "callId",
+  // ‎`#callid#`‎ של 015; `uniqueid` שלו הוא רגל בודדת ולכן פחות טוב
+  "callid",
+  "uniqueid",
+  "unique_id",
+  "id",
+  "session_id",
+] as const;
+const DIRECTION_KEYS = ["direction", "call_type", "type"] as const;
+/*
+ * ‎`callerid_external` לפני `snumber`: הראשון הוא המספר החיצוני
+ * שהתקשר, והשני יכול להיות שלוחה פנימית — שלוחה אינה עוברת את
+ * ולידציית המספר, כלומר השיחה הייתה נזרקת במקום להיתלות על הלקוח.
+ */
+const SOURCE_KEYS = [
+  "caller",
+  "caller_id",
+  "callerid",
+  "callerid_external",
+  "snumber",
+  "from",
+  "src",
+  "did_caller",
+  "phone",
+] as const;
+const DESTINATION_KEYS = [
+  "to",
+  "destination",
+  "called",
+  "dst",
+  "callee",
+  // ‎`#cnumber#`/`#dnumber#`‎ של 015 — היעד בחיוג יוצא הוא הלקוח
+  "cnumber",
+  "dnumber",
+] as const;
+const STATUS_KEYS = ["status", "event", "state", "call_status"] as const;
+/*
+ * ‎`talktime` **לפני** `totaltime`: הראשון אינו כולל צלצול. שיחה שלא
+ * נענתה מגיעה מ-015 עם ‎`totaltime`‎ חיובי (היא צלצלה) ו-`talktime`
+ * אפס — והעדפת `totaltime` הייתה מסווגת כל שיחה שלא נענתה כשיחה
+ * שהתקיימה, כלומר בדיוק ההפך ממה שהמתווך צריך לראות.
+ */
+const DURATION_KEYS = ["duration", "billsec", "seconds", "talktime", "totaltime"] as const;
+const EXTENSION_KEYS = ["extension", "ext", "agent"] as const;
+
+/** מזהה, כיוון והמספר של הצד השני — הבסיס שגם הניתוח וגם האבחון צריכים. */
+function readCore(raw: Record<string, unknown>): {
+  providerCallId: string;
+  direction: CallDirection;
+  peerRaw: string;
+} {
+  const pick = pickFrom(raw);
+  const providerCallId = pick(...CALL_ID_KEYS);
+  const directionRaw = pick(...DIRECTION_KEYS).toLowerCase();
+  const direction: CallDirection =
+    directionRaw.includes("out") || directionRaw.includes("יוצא") ? "outbound" : "inbound";
+  /*
+   * "הצד השני" תלוי בכיוון.
+   *
+   * בשיחה נכנסת הלקוח הוא המקור; בשיחה יוצאת הוא היעד, והמקור הוא
+   * מספר המשרד. בחירה קבועה במקור הייתה תולה כל שיחה יוצאת על מספר
+   * המשרד עצמו במקום על הלקוח שאליו התקשרו (ביקורת Codex).
+   */
+  const source = pick(...SOURCE_KEYS);
+  const destination = pick(...DESTINATION_KEYS);
+  return {
+    providerCallId,
+    direction,
+    peerRaw: direction === "outbound" ? destination || source : source || destination,
+  };
 }
 
 /** קורא שדה בשמות המקובלים. משותף לניתוח ולאבחון — לא שני העתקים. */
@@ -264,26 +339,10 @@ export function safeDiagnosticKeys(keys: readonly string[]): string {
 }
 
 export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEvent | null {
-  // אותו קורא שדות בדיוק כמו באבחון — שני העתקים היו מתחילים להיפרד
+  // אותם שמות שדות בדיוק כמו באבחון — readCore הוא המקור היחיד
   const pick = pickFrom(raw);
-
-  const providerCallId = pick("call_id", "callId", "uniqueid", "unique_id", "id", "session_id");
+  const { providerCallId, direction, peerRaw } = readCore(raw);
   if (providerCallId === "") return null;
-
-  const directionRaw = pick("direction", "call_type", "type").toLowerCase();
-  const direction: CallDirection =
-    directionRaw.includes("out") || directionRaw.includes("יוצא") ? "outbound" : "inbound";
-
-  /*
-   * "הצד השני" תלוי בכיוון.
-   *
-   * בשיחה נכנסת הלקוח הוא המקור; בשיחה יוצאת הוא היעד, והמקור הוא
-   * מספר המשרד. בחירה קבועה במקור הייתה תולה כל שיחה יוצאת על מספר
-   * המשרד עצמו במקום על הלקוח שאליו התקשרו (ביקורת Codex).
-   */
-  const source = pick("caller", "caller_id", "callerid", "from", "src", "did_caller", "phone");
-  const destination = pick("to", "destination", "called", "dst", "callee");
-  const peerRaw = direction === "outbound" ? destination || source : source || destination;
   if (peerRaw === "") return null;
 
   /*
@@ -294,8 +353,8 @@ export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEven
   const peerPhone = normalizePhone(peerRaw);
   if (!ISRAELI_PHONE.test(peerPhone)) return null;
 
-  const status = pick("status", "event", "state", "call_status").toLowerCase();
-  const durationRaw = pick("duration", "billsec", "seconds");
+  const status = pick(...STATUS_KEYS).toLowerCase();
+  const durationRaw = pick(...DURATION_KEYS);
   const durationSeconds = durationRaw === "" ? undefined : Number(durationRaw);
 
   return {
@@ -304,7 +363,7 @@ export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEven
     peerPhone,
     providerCallId,
     // השלוחה היא של המשרד; ביעד כבר השתמשנו לבחירת הצד השני
-    extension: pick("extension", "ext", "agent") || undefined,
+    extension: pick(...EXTENSION_KEYS) || undefined,
     durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : undefined,
   };
 }
@@ -316,15 +375,44 @@ export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEven
  * בשם הסטטוס, אבל כולם עקביים במשך — ולכן המשך מכריע כשיש סתירה.
  */
 function eventTypeOf(status: string, duration: number | undefined): CallEventType {
-  if (status.includes("ring") || status.includes("start") || status.includes("incoming")) {
-    return "ringing";
+  /*
+   * **סיום נבדק ראשון.** ‎"Hangup Answered Only" של 015 הוא אירוע
+   * ניתוק, אבל הוא מכיל את המילה "answered" — ובדיקת המענה לפניו
+   * הייתה מסווגת את אירוע הניתוק **היחיד** שהמרכזייה שולחת כ"נענתה",
+   * ואז שורת השיחה לא הייתה נרשמת כלל, כי רק אירוע סופי נרשם.
+   */
+  if (status.includes("hangup") || status.includes("end") || status.includes("complete")) {
+    return duration !== undefined && duration <= 0 ? "missed" : "ended";
   }
-  if (status.includes("answer") || status.includes("bridge")) return "answered";
-  if (status.includes("miss") || status.includes("noanswer") || status.includes("busy")) {
+  /*
+   * הצורות השליליות לפני "answer" מאותה סיבה: `"noanswer".includes("answer")`
+   * הוא אמת, ולכן הבדיקה הזו הייתה קוד מת עד היום — כל "noanswer"
+   * סווג כשיחה שנענתה. ‎"abandon" של 015 הוא מתקשר שוויתר בהמתנה בתור,
+   * וזו שיחה שלא נענתה לכל דבר: המתווך צריך לראות אותה.
+   */
+  if (
+    status.includes("miss") ||
+    status.includes("noanswer") ||
+    status.includes("no_answer") ||
+    status.includes("unanswer") ||
+    status.includes("busy") ||
+    status.includes("abandon")
+  ) {
     return "missed";
   }
-  if (status.includes("end") || status.includes("hangup") || status.includes("complete")) {
-    return duration !== undefined && duration <= 0 ? "missed" : "ended";
+  if (status.includes("answer") || status.includes("bridge")) return "answered";
+  /*
+   * ‎"calling" הוא שם האירוע של 015 לתחילת שיחה. בלעדיו הוא נפל
+   * לברירת המחדל שבתחתית, שהחזירה "ringing" רק במקרה — התנהגות נכונה
+   * שאיש לא הבטיח, ושהייתה נשברת ברגע ש-015 יצרף משך לאירוע.
+   */
+  if (
+    status.includes("ring") ||
+    status.includes("start") ||
+    status.includes("incoming") ||
+    status.includes("calling")
+  ) {
+    return "ringing";
   }
   return duration !== undefined && duration > 0 ? "ended" : "ringing";
 }
