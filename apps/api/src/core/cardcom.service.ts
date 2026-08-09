@@ -363,4 +363,56 @@ export class CardcomService {
       message: res.Description ?? "",
     };
   }
+
+  /**
+   * זיכוי עסקה — מלא או חלקי.
+   *
+   * `RefundByTransactionId` ולא `Documents/CancelDoc`: ביטול מסמך
+   * מבטל חשבונית, והמסוף שלנו אינו מפיק חשבוניות בכלל
+   * (ראו `document` למעלה) — כלומר אין שם מה לבטל. מה שצריך לחזור
+   * הוא **הכסף**, וזה מה שהנתיב הזה עושה.
+   *
+   * `ApiPassword` נדרש כאן, בשונה מחיוב: קארדקום מסווג זיכוי כפעולה
+   * מסוכנת, וסיסמת ה-API היא ההגנה עליה. בלעדיה הבקשה נדחית
+   * ב-ResponseCode שאינו אפס, ולכן חסרונה ייראה כזיכוי שנכשל ולא
+   * כזיכוי שקרה בשקט.
+   *
+   * `PartialSum` נשלח רק בזיכוי חלקי — שליחת הסכום המלא כ"חלקי"
+   * מתקבלת אצל קארדקום, אבל היא מתעדת שם עסקה מסוג אחר, ומקשה על
+   * ההתאמה מול הדוחות שלהם.
+   */
+  async refund(input: {
+    transactionId: string;
+    /** ‎undefined = זיכוי מלא */
+    partialAgorot?: number;
+  }): Promise<{ refunded: boolean; refundTransactionId: string | null; message: string }> {
+    const creds = await this.credentials();
+    if (creds === null) throw new ServiceUnavailableException("הסליקה טרם הופעלה במערכת");
+    if (creds.apiPassword === "") {
+      throw new ServiceUnavailableException(
+        "זיכוי דורש סיסמת API של קארדקום — השלימו אותה בהגדרות הפלטפורמה",
+      );
+    }
+
+    const transactionId = Number(input.transactionId);
+    if (!Number.isInteger(transactionId) || transactionId <= 0) {
+      throw new ServiceUnavailableException("מזהה העסקה לזיכוי אינו תקין");
+    }
+
+    const res = await this.post("/Transactions/RefundByTransactionId", {
+      ApiName: creds.apiName,
+      ApiPassword: creds.apiPassword,
+      TransactionId: transactionId,
+      ...(input.partialAgorot !== undefined
+        ? { PartialSum: Math.round(input.partialAgorot) / 100 }
+        : {}),
+    });
+
+    const refundId = num(res["TranzactionId"]) ?? num(res["NewTranzactionId"]);
+    return {
+      refunded: res.ResponseCode === 0,
+      refundTransactionId: refundId === null ? null : String(refundId),
+      message: res.Description ?? "",
+    };
+  }
 }

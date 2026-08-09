@@ -7,6 +7,7 @@ import { formatDate } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { BackupsSection } from "./backups-section";
 import { LeadPricesSection } from "./lead-prices-section";
+import { PaymentsSection } from "./payments-section";
 import { PlansSection } from "./plans-section";
 import { PlatformSettingsSection } from "./platform-settings-section";
 import { SystemUpdateSection } from "./system-update-section";
@@ -199,6 +200,7 @@ export default function PlatformPage() {
 
       <PlansSection onCatalogChange={loadPlanOptions} />
       <LeadPricesSection />
+      <PaymentsSection />
 
       <PlatformSettingsSection />
 

@@ -729,9 +729,16 @@ model Payment {
   transactionId String?   @map("transaction_id") @db.VarChar(40)
   /// מסמך שקארדקום הפיק, אם המסוף מוגדר להפקה. אצלנו הוא אינו מוגדר
   /// כך (החשבוניות מופקות במערכת אחרת), ולכן השדות נשארים ריקים.
-  /// הם קיימים כי זיכוי דרך CancelDoc מחייב מספר מסמך.
+  /// הם קיימים ליום שבו יוחלט להפיק חשבוניות שם — הזיכוי עצמו אינו
+  /// זקוק להם, הוא עובד מול מזהה העסקה.
   documentType   String?  @map("document_type") @db.VarChar(40)
   documentNumber Int?     @map("document_number")
+  /// כמה זוכה בפועל. סכום ולא דגל: זיכוי חלקי (החזר יחסי על חודש
+  /// שלא נוצל) הוא המקרה הנפוץ, ו"זוכה כן/לא" לא היה יודע לתארו.
+  refundedAgorot Int?     @map("refunded_agorot")
+  refundedAt     DateTime? @map("refunded_at")
+  refundTransactionId String? @map("refund_transaction_id") @db.VarChar(40)
+  refundReason   String?  @map("refund_reason") @db.VarChar(300)
   /// מה קארדקום אמר כשזה נכשל — לתמיכה, לא למשתמש
   failureReason String?   @map("failure_reason") @db.VarChar(300)
   paidAt        DateTime? @map("paid_at")

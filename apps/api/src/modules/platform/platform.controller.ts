@@ -36,6 +36,7 @@ import {
   PlatformSettingsService,
   type PlatformSettingKey,
 } from "../../core/platform-settings.service";
+import { CardcomService } from "../../core/cardcom.service";
 import { LeadPricingService } from "../../core/lead-pricing.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
@@ -148,6 +149,36 @@ const LeadPriceSchema = z
 /** שם קובץ גיבוי — הוולידציה המחייבת היא ב-BackupsService (רשימת היתר). */
 const BackupNameSchema = z.object({ name: z.string().min(1).max(120) }).strict();
 
+/**
+ * זיכוי. הסכום ברשות — חסר פירושו זיכוי מלא.
+ *
+ * `int` ולא `number`: אגורה היא היחידה, ושבר אגורה בבקשה היה יוצא
+ * לקארדקום כשקל מעוגל ומשאיר פער בין מה שנרשם למה שיצא.
+ */
+const RefundSchema = z
+  .object({
+    amountAgorot: z.number().int().positive().optional(),
+    reason: z.string().max(300).optional(),
+  })
+  .strict();
+
+export interface PaymentRow {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  planCode: string;
+  billingCycle: string;
+  amountAgorot: number;
+  status: string;
+  transactionId: string | null;
+  failureReason: string | null;
+  paidAt: Date | null;
+  refundedAgorot: number | null;
+  refundedAt: Date | null;
+  refundReason: string | null;
+  createdAt: Date;
+}
+
 export interface AgencyRow {
   id: string;
   name: string;
@@ -180,6 +211,7 @@ export class PlatformController {
     private readonly backups: BackupsService,
     private readonly plans: PlanCatalogService,
     private readonly leadPricing: LeadPricingService,
+    private readonly cardcom: CardcomService,
   ) {}
 
   /**
@@ -248,6 +280,105 @@ export class PlatformController {
     if (reason) throw new BadRequestException(reason);
     await this.leadPricing.upsert(price, TenantContext.current().userId);
     return { ok: true };
+  }
+
+  /**
+   * התשלומים — עמוד אחרון, לא הכול.
+   *
+   * זו טבלה שגדלה לנצח, והמסך שמציג אותה משמש לזיהוי תשלום מסוים
+   * ולזיכוי שלו; היסטוריה מלאה היא עבודה של דוח, לא של רשימה.
+   */
+  @Get("payments")
+  async payments(@Query("tenantId") tenantId?: string): Promise<PaymentRow[]> {
+    const rows = await this.prisma.payment.findMany({
+      where: tenantId !== undefined && tenantId !== "" ? { tenantId } : {},
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    const tenants = await this.prisma.tenant.findMany({
+      where: { id: { in: [...new Set(rows.map((r) => r.tenantId))] } },
+      select: { id: true, name: true },
+    });
+    const names = new Map(tenants.map((t) => [t.id, t.name]));
+    return rows.map((row) => ({
+      id: row.id,
+      tenantId: row.tenantId,
+      tenantName: names.get(row.tenantId) ?? row.tenantId,
+      planCode: row.planCode,
+      billingCycle: row.billingCycle,
+      amountAgorot: row.amountAgorot,
+      status: row.status,
+      transactionId: row.transactionId,
+      failureReason: row.failureReason,
+      paidAt: row.paidAt,
+      refundedAgorot: row.refundedAgorot,
+      refundedAt: row.refundedAt,
+      refundReason: row.refundReason,
+      createdAt: row.createdAt,
+    }));
+  }
+
+  /**
+   * זיכוי תשלום — מלא או חלקי.
+   *
+   * הבדיקות כאן ולא בקארדקום: הם ישמחו לזכות פעמיים, והתוצאה היא
+   * כסף שיצא ולא נרשם. התפיסה נעשית **לפני** הפנייה, בעדכון מותנה
+   * על `refunded_at: null` — בדיוק כמו בחידוש — ומוחזרת לאחור אם
+   * הזיכוי נדחה.
+   */
+  @Post("payments/:id/refund")
+  @HttpCode(200)
+  async refund(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(RefundSchema)) body: z.infer<typeof RefundSchema>,
+  ): Promise<{ refundedAgorot: number; message: string }> {
+    const payment = await this.prisma.payment.findUnique({ where: { id } });
+    if (!payment) throw new BadRequestException("התשלום לא נמצא");
+    if (payment.status !== "paid") throw new BadRequestException("רק תשלום שנגבה ניתן לזיכוי");
+    if (payment.refundedAt !== null) throw new ConflictException("התשלום כבר זוכה");
+    if (!payment.transactionId) {
+      throw new BadRequestException("לתשלום אין מזהה עסקה — לא ניתן לזכות אותו אוטומטית");
+    }
+    const amount = body.amountAgorot ?? payment.amountAgorot;
+    if (amount <= 0 || amount > payment.amountAgorot) {
+      throw new BadRequestException("סכום הזיכוי חייב להיות בין אגורה אחת לסכום ששולם");
+    }
+
+    const claimed = await this.prisma.payment.updateMany({
+      where: { id, refundedAt: null },
+      data: { refundedAt: new Date(), refundedAgorot: amount, refundReason: body.reason ?? null },
+    });
+    if (claimed.count === 0) throw new ConflictException("התשלום כבר זוכה");
+
+    let result: Awaited<ReturnType<CardcomService["refund"]>>;
+    try {
+      result = await this.cardcom.refund({
+        transactionId: payment.transactionId,
+        // זיכוי מלא נשלח בלי PartialSum — ראו ההנמקה ב-CardcomService
+        ...(amount < payment.amountAgorot ? { partialAgorot: amount } : {}),
+      });
+    } catch (error) {
+      await this.releaseRefund(id);
+      throw error;
+    }
+    if (!result.refunded) {
+      await this.releaseRefund(id);
+      throw new BadRequestException(result.message || "הזיכוי נדחה בקארדקום");
+    }
+
+    await this.prisma.payment.update({
+      where: { id },
+      data: { refundTransactionId: result.refundTransactionId },
+    });
+    return { refundedAgorot: amount, message: result.message };
+  }
+
+  /** שחרור התפיסה כשהזיכוי לא עבר — אחרת התשלום נראה מזוכה ואינו. */
+  private async releaseRefund(id: string): Promise<void> {
+    await this.prisma.payment.update({
+      where: { id },
+      data: { refundedAt: null, refundedAgorot: null, refundReason: null },
+    });
   }
 
   @Get("agencies")
