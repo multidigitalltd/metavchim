@@ -25,7 +25,16 @@ const RecurrenceSchema = z
     minute: z.number().int().min(0).max(59),
     /** null = לכל סוכן פעיל במשרד; מזהה = לסוכן אחד. */
     assignedToUserId: IdSchema.nullable().optional(),
-    isActive: z.boolean().optional(),
+    /*
+     * `isActive` **אינו** חלק מהסכימה הזו.
+     *
+     * הפעלה חייבת לעבור דרך `PATCH /:id/active`, כי רק שם נקודת
+     * הייחוס מתאפסת. עריכה רגילה שמפעילה כלל שהושהה לחודש — בין אם
+     * בהשמטת השדה ובין אם בשליחתו במפורש — הייתה משאירה `lastRunAt`
+     * ישן, והסורק היה מייצר את כל המופעים שהוחמצו אחד-אחד
+     * (ביקורת Codex). סכימה strict דוחה את השדה בבירור במקום
+     * להתעלם ממנו בשקט.
+     */
   })
   .strict();
 

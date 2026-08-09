@@ -792,6 +792,29 @@ async function processRecurringTasks(): Promise<void> {
           })),
           skipDuplicates: true,
         });
+
+        /*
+         * התראה לכל נמען — אחרת המשימה מופיעה בשקט.
+         *
+         * משימה שנוצרת ידנית רושמת אירוע Outbox שהופך לתזכורת במועד,
+         * אבל משימה חוזרת נוצרת **כשהמועד כבר הגיע** — אין למה
+         * לתזמן. בלי ההתראה כאן היא פשוט מופיעה ברשימה, והסוכן מגלה
+         * אותה רק כשהוא נכנס לבדוק (ביקורת Codex).
+         *
+         * createMany באותה טרנזקציה של המשימות: אם היצירה נכשלת, גם
+         * ההתראה לא נשלחת, ואין תזכורת למשימה שלא קיימת.
+         */
+        await tx.notification.createMany({
+          data: targets.map((user) => ({
+            id: ulid(),
+            tenantId: rule.tenantId,
+            userId: user.id,
+            type: "task.due",
+            title: rule.title,
+            body: rule.notes,
+            entityType: "task",
+          })),
+        });
       });
     } catch (error) {
       // כלל אחד שנכשל לא עוצר את השאר — הוא ינוסה בסריקה הבאה

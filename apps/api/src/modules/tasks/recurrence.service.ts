@@ -50,7 +50,6 @@ export interface RecurrenceInput {
   hour: number;
   minute: number;
   assignedToUserId?: string | null;
-  isActive?: boolean;
 }
 
 interface RecurrenceRow {
@@ -321,14 +320,14 @@ export class RecurrenceService {
       minute: input.minute,
       assignedToUserId: input.assignedToUserId ?? null,
       /*
-       * עריכה רגילה לא מפעילה כלל מושהה.
+       * עריכה לעולם לא משנה את מצב ההפעלה.
        *
-       * `isActive` אופציונלי בסכימה, ו-`?? true` הפך כל PATCH שלא
-       * שלח אותו להפעלה שקטה — בלי איפוס נקודת הייחוס שההפעלה
-       * הייעודית עושה, כלומר גם הצפה במופעים שהוחמצו. הפעלה עוברת
-       * דרך `PATCH /:id/active` בלבד (ביקורת Codex).
+       * הפעלה עוברת דרך `PATCH /:id/active` בלבד, כי רק שם נקודת
+       * הייחוס מתאפסת — בלעדיה כלל שהושהה לחודש היה מייצר את כל
+       * המופעים שהוחמצו (ביקורת Codex). הכלל נוצר פעיל, ומשם רק
+       * הנתיב הייעודי נוגע בשדה.
        */
-      isActive: input.isActive ?? existing?.isActive ?? true,
+      isActive: existing?.isActive ?? true,
     };
   }
 }
