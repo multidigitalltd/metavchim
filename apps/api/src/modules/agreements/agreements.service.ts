@@ -280,7 +280,10 @@ export class AgreementsService {
     let dealText = "";
     if (input.propertyId !== undefined) {
       const property = await tx.property.findFirst({
-        where: { id: input.propertyId, tenantId },
+        // נכס מחוק אינו נכס שמחתימים עליו הזמנה בכתב. השדות יישארו
+        // ריקים והזרימה תדווח עליהם כ-unfilled, וזה נכון: עדיף הסכם
+        // שלא ניתן לשלוח מהסכם שמפנה לנכס שאינו קיים.
+        where: { id: input.propertyId, tenantId, deletedAt: null },
         select: {
           street: true,
           neighborhood: true,

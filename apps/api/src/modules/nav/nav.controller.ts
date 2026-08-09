@@ -48,11 +48,18 @@ export class NavController {
     const plan = await this.plans.forTenant(tenantId);
     return this.prisma.withTenant(async (tx) => {
       const [properties, buyers, newLeads, matches, ledger] = await Promise.all([
+        // deletedAt מפורש בשני אלה: אלה המונים שליד שמות המסכים,
+        // והמסכים עצמם מסננים מחוקים. בלי הסינון כאן הבאדג' מראה
+        // מספר אחד והרשימה מספר אחר — וזה נקרא כתקלה, בצדק.
         tx.property.count({
-          where: { tenantId, status: { in: ["draft", "active", "on_hold"] } },
+          where: { tenantId, deletedAt: null, status: { in: ["draft", "active", "on_hold"] } },
         }),
         tx.buyer.count({
-          where: { tenantId, ...ownershipFilter("buyers.view_all", "ownerUserId") },
+          where: {
+            tenantId,
+            deletedAt: null,
+            ...ownershipFilter("buyers.view_all", "ownerUserId"),
+          },
         }),
         tx.lead.count({
           where: {

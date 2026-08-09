@@ -89,9 +89,11 @@ export class DuplicatesService {
       // מדד הפעילות בחמש שאילתות מקובצות ולא אחת לכל כרטיס — משרד
       // עם חמישים כפילויות לא ישלח מאתיים וחמישים שאילתות
       const [buyers, leads, properties, calls, messages] = await Promise.all([
-        tx.buyer.groupBy({ by: ["contactId"], where: { tenantId, contactId: { in: ids } }, _count: { _all: true } }),
+        // מחוקים אינם פעילות. הציון הזה קובע איזה כרטיס נשאר הראשי
+        // במיזוג — ניפוח שלו בגלל רשומות מחוקות בוחר את הכרטיס הלא נכון.
+        tx.buyer.groupBy({ by: ["contactId"], where: { tenantId, deletedAt: null, contactId: { in: ids } }, _count: { _all: true } }),
         tx.lead.groupBy({ by: ["contactId"], where: { tenantId, contactId: { in: ids } }, _count: { _all: true } }),
-        tx.property.groupBy({ by: ["ownerContactId"], where: { tenantId, ownerContactId: { in: ids } }, _count: { _all: true } }),
+        tx.property.groupBy({ by: ["ownerContactId"], where: { tenantId, deletedAt: null, ownerContactId: { in: ids } }, _count: { _all: true } }),
         tx.call.groupBy({ by: ["contactId"], where: { tenantId, contactId: { in: ids } }, _count: { _all: true } }),
         tx.message.groupBy({ by: ["contactId"], where: { tenantId, contactId: { in: ids } }, _count: { _all: true } }),
       ]);
