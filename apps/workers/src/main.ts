@@ -12,6 +12,8 @@ import {
   QUEUES,
   diarizeTimeoutMs,
   formatDiarizedTranscript,
+  nextOccurrence,
+  type RecurrenceRule,
   pushOutcome,
   pushPayload,
   shouldPush,
@@ -638,6 +640,149 @@ function jerusalemDayRange(): { start: Date; end: Date } {
   return { start, end };
 }
 
+
+/**
+ * משימות אוטומטיות קבועות — יצירת המופע שהגיע זמנו.
+ *
+ * הכלל שייך למשרד, המשימה שנוצרת ממנו שייכת לסוכן. כלל בלי סוכן
+ * מוגדר מייצר משימה **לכל סוכן פעיל** — "לעבור על הקונים החמים" הוא
+ * משימה של כל אחד בנפרד, לא משימה אחת שמישהו יסמן בשביל כולם.
+ *
+ * ## שעון
+ *
+ * `nextOccurrence` עובד על שדות מקומיים של ה-Date. תהליך ה-Worker רץ
+ * ב-UTC, ולכן "09:00" היה נופל ב-12:00 בישראל. הפתרון הוא לעבוד
+ * כולו ב"מרחב שעון-קיר": ממירים את נקודת הייחוס לשעת קיר ירושלמית,
+ * מריצים את החישוב שם, וממירים את התוצאה בחזרה ל-UTC. אותה תבנית
+ * שכבר משרתת את דו"ח הבוקר.
+ *
+ * ## אידמפוטנטיות
+ *
+ * `sourceKey` נגזר מהכלל ומהמופע, ו-`lastRunAt` מתעדכן באותה
+ * טרנזקציה. ריצה כפולה של הסורק — או שתי מכונות Worker — לא תיצור
+ * את אותה משימה פעמיים.
+ */
+const RECURRING_BATCH = 50;
+
+/** שעת הקיר הירושלמית של רגע נתון, כ-Date שהשדות המקומיים שלו הם אותה שעה. */
+function toJerusalemWall(at: Date): Date {
+  const wall = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: JERUSALEM_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(at);
+  // "2026-08-09 09:00:00" → נקרא כזמן מקומי, ולכן השדות המקומיים
+  // שלו הם בדיוק שעת הקיר הירושלמית
+  return new Date(wall.replace(" ", "T"));
+}
+
+/** ISO של שעת קיר מתוך השדות המקומיים — הקלט של jerusalemWallToUtc. */
+function localWallIso(d: Date): string {
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00.000`;
+}
+
+async function processRecurringTasks(): Promise<void> {
+  const now = new Date();
+  /*
+   * הכללים נשלפים דייר-דייר ולא בשאילתה אחת.
+   *
+   * `task_recurrences` תחת FORCE RLS: שאילתה בלי `app.tenant_id`
+   * מחזירה אפס שורות **בלי שגיאה**, כלומר הסורק היה רץ כל עשר דקות
+   * ולא עושה דבר, בלי לוג ובלי כשל. זו אותה תבנית של שאר הסורקים
+   * כאן, ומאותה סיבה בדיוק.
+   */
+  const tenants = await prisma.tenant.findMany({ select: { id: true } });
+  const rules: {
+    id: string;
+    tenantId: string;
+    title: string;
+    notes: string | null;
+    frequency: string;
+    weekdays: number[];
+    dayOfMonth: number | null;
+    hour: number;
+    minute: number;
+    assignedToUserId: string | null;
+    lastRunAt: Date | null;
+    createdAt: Date;
+  }[] = [];
+  for (const tenant of tenants) {
+    const batch = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      return tx.taskRecurrence.findMany({
+        where: { tenantId: tenant.id, isActive: true },
+        orderBy: { id: "asc" },
+        take: RECURRING_BATCH,
+      });
+    });
+    rules.push(...batch);
+  }
+
+  for (const rule of rules) {
+    const spec: RecurrenceRule = {
+      frequency: rule.frequency as RecurrenceRule["frequency"],
+      weekdays: rule.weekdays,
+      ...(rule.dayOfMonth !== null ? { dayOfMonth: rule.dayOfMonth } : {}),
+      hour: rule.hour,
+      minute: rule.minute,
+    };
+    const since = rule.lastRunAt ?? rule.createdAt;
+    const nextWall = nextOccurrence(spec, toJerusalemWall(since));
+    if (nextWall === null) continue;
+    const dueAt = jerusalemWallToUtc(localWallIso(nextWall));
+    if (dueAt > now) continue;
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${rule.tenantId}, true)`;
+
+        /*
+         * העדכון המותנה הוא המנעול.
+         * שתי מכונות Worker שסורקות במקביל יגיעו לאותו כלל; רק זו
+         * שה-lastRunAt שראתה עדיין תקף תצליח לעדכן, והשנייה תצא
+         * בלי ליצור כלום.
+         */
+        const claimed = await tx.taskRecurrence.updateMany({
+          where: { id: rule.id, lastRunAt: rule.lastRunAt },
+          data: { lastRunAt: dueAt },
+        });
+        if (claimed.count === 0) return;
+
+        const targets = rule.assignedToUserId
+          ? [{ id: rule.assignedToUserId }]
+          : await tx.user.findMany({
+              where: { tenantId: rule.tenantId, isActive: true },
+              select: { id: true },
+            });
+        if (targets.length === 0) return;
+
+        const sourceKey = `recurrence:${rule.id}:${dueAt.toISOString()}`;
+        await tx.task.createMany({
+          data: targets.map((user) => ({
+            id: ulid(),
+            tenantId: rule.tenantId,
+            assignedToUserId: user.id,
+            title: rule.title,
+            notes: rule.notes,
+            dueAt,
+            sourceKey,
+          })),
+          skipDuplicates: true,
+        });
+      });
+    } catch (error) {
+      // כלל אחד שנכשל לא עוצר את השאר — הוא ינוסה בסריקה הבאה
+      console.error(`recurring-task ${rule.id} failed: ${String(error)}`);
+    }
+  }
+}
+
 /**
  * דו"ח בוקר יומי (docs/09 שלב 1 — "תזכורות למתווך"): כל בוקר ב-07:00
  * שעון ישראל, כל סוכן פעיל מקבל התראה אחת עם תמונת היום שלו —
@@ -1126,6 +1271,7 @@ async function processLow(job: Job): Promise<void> {
   if (job.name === "daily-brief") return processDailyBrief();
   if (job.name === "stale-lead-sweep") return processStaleLeadSweep();
   if (job.name === "weekly-summary") return processWeeklySummary();
+  if (job.name === "recurring-tasks") return processRecurringTasks();
 }
 
 // רישום סריקת ה-SLA החוזרת (רבע שעה) — כולל ריצה מיידית בעלייה,
@@ -1148,6 +1294,14 @@ void lowQueue
   .upsertJobScheduler("push-sweep", { every: 30 * 1000 }, { name: "push-sweep" })
   .catch((error: unknown) => {
     console.error(`push-sweep scheduler registration failed: ${String(error)}`);
+  });
+// משימות אוטומטיות קבועות — כל 10 דקות. הרזולוציה של הכלל היא דקה,
+// אבל איחור של עד עשר דקות במשימה יומית אינו מורגש, וסריקה תכופה
+// יותר הייתה מייצרת עומס קבוע בלי רווח.
+void lowQueue
+  .upsertJobScheduler("recurring-tasks", { every: 10 * 60 * 1000 }, { name: "recurring-tasks" })
+  .catch((error: unknown) => {
+    console.error(`recurring-tasks scheduler registration failed: ${String(error)}`);
   });
 // דו"ח בוקר — 07:00 שעון ישראל, כל יום
 void lowQueue

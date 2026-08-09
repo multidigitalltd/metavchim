@@ -31,6 +31,8 @@ export * from "./logic/capability-overrides.js";
 export * from "./logic/telephony.js";
 export * from "./logic/list-filters.js";
 export * from "./logic/call-summary.js";
+export * from "./logic/hebrew-date.js";
+export * from "./logic/recurrence.js";
 export * from "./announcements.js";
 export * from "./events.js";
 export * from "./rbac.js";
