@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { ulid } from "ulid";
 import type { PlanDefinition } from "@metavchim/shared";
+import { loadEnv } from "../../config/env";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import { EmailService } from "../../core/email.service";
@@ -154,12 +155,15 @@ export class SignupService {
   ): Promise<void> {
     try {
       if (!(await this.email.isConfigured())) return;
-      const until = ` תקופת הניסיון פתוחה עד ${trialEndsAt.toLocaleDateString("he-IL")}.`;
-      await this.email.send(
-        email,
-        "ברוכים הבאים למתווכים",
-        `שלום ${name},\n\nהמשרד שלכם נפתח במסלול "${plan.name}".${until}\n\nאפשר להתחיל להזין נכסים וקונים כבר עכשיו.`,
-      );
+      await this.email.send(email, "ברוכים הבאים למתווכים", {
+        heading: "המשרד שלכם מוכן",
+        greeting: `שלום ${name},`,
+        paragraphs: [
+          `המשרד נפתח במסלול "${plan.name}", ותקופת הניסיון פתוחה עד ${trialEndsAt.toLocaleDateString("he-IL")}.`,
+          "אפשר להתחיל להזין נכסים וקונים כבר עכשיו — המערכת תתאים ביניהם בעצמה.",
+        ],
+        button: { label: "כניסה למערכת", url: loadEnv().WEB_ORIGIN },
+      });
     } catch {
       // שליחת מייל אינה חלק מהצלחת ההרשמה
     }

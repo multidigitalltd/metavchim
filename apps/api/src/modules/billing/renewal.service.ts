@@ -10,6 +10,7 @@ import {
   nextPeriodEnd,
   type BillingCycle,
 } from "@metavchim/shared";
+import { loadEnv } from "../../config/env";
 import { CardcomService } from "../../core/cardcom.service";
 import { CryptoService } from "../../core/crypto.service";
 import { EmailService } from "../../core/email.service";
@@ -235,13 +236,15 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
   private async notifyFailure(tenantId: string, payer: { email: string }, planName: string): Promise<void> {
     if (!payer.email || !(await this.email.isConfigured())) return;
     try {
-      await this.email.send(
-        payer.email,
-        "חידוש המנוי לא הושלם",
-        `החיוב עבור מסלול "${planName}" לא עבר.\n\n` +
-          `ייתכן שתוקף הכרטיס פג או שהחיוב נדחה. אפשר לעדכן אמצעי תשלום ` +
-          `במסך "מנוי ותשלומים" במערכת. השירות ממשיך לפעול עוד ${BILLING_GRACE_DAYS} ימים.`,
-      );
+      await this.email.send(payer.email, "חידוש המנוי לא הושלם", {
+        heading: "החיוב לא עבר",
+        paragraphs: [
+          `החיוב עבור מסלול "${planName}" נדחה. הסיבה הנפוצה היא כרטיס שתוקפו פג.`,
+          `השירות ממשיך לפעול עוד ${BILLING_GRACE_DAYS} ימים, ואפשר לעדכן אמצעי תשלום עכשיו.`,
+        ],
+        button: { label: "למסך המנוי", url: `${loadEnv().WEB_ORIGIN}/settings/billing` },
+        footnote: "לא בוצע חיוב. אם עדכנתם כבר אמצעי תשלום — אפשר להתעלם מהודעה זו.",
+      });
     } catch (error) {
       this.logger.warn(`שליחת הודעה על חידוש שנכשל נכשלה (${tenantId}): ${String(error)}`);
     }

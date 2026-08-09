@@ -36,6 +36,7 @@ export * from "./logic/plans.js";
 export * from "./logic/recurrence.js";
 export * from "./logic/trial.js";
 export * from "./logic/billing.js";
+export * from "./logic/email-template.js";
 export * from "./announcements.js";
 export * from "./events.js";
 export * from "./rbac.js";

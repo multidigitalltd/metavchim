@@ -80,12 +80,14 @@ export class PasswordResetService implements OnModuleDestroy {
       .exec();
 
     const url = `${loadEnv().WEB_ORIGIN}/reset-password?token=${token}`;
-    await this.email.send(
-      normalized,
-      "איפוס סיסמה — מתווכים",
-      `שלום ${user.name},\n\nלאיפוס הסיסמה שלך במערכת מתווכים, היכנס לקישור:\n${url}\n\n` +
-        `הקישור תקף ל-30 דקות וניתן לשימוש פעם אחת.\nאם לא ביקשת לאפס סיסמה — התעלם מהודעה זו.`,
-    );
+    await this.email.send(normalized, "איפוס סיסמה — מתווכים", {
+      heading: "איפוס סיסמה",
+      greeting: `שלום ${user.name},`,
+      paragraphs: ["התקבלה בקשה לאיפוס הסיסמה שלכם במערכת מתווכים."],
+      button: { label: "לאיפוס הסיסמה", url },
+      footnote:
+        "הקישור תקף לשלושים דקות וניתן לשימוש פעם אחת. אם לא ביקשתם לאפס סיסמה — אפשר להתעלם מהודעה זו, ולא יבוצע שום שינוי.",
+    });
     this.logger.log("נשלח קישור איפוס סיסמה");
   }
 

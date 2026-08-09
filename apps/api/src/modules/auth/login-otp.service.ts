@@ -71,11 +71,13 @@ export class LoginOtpService implements OnModuleDestroy {
     const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
     const record: OtpRecord = { userId, codeHmac: this.hmac(code) };
     await this.redis.set(`login-otp:${token}`, JSON.stringify(record), "EX", OTP_TTL_SECONDS);
-    await this.email.send(
-      emailAddress,
-      "קוד הכניסה שלך למערכת מתווכים",
-      `קוד הכניסה: ${code}\nהקוד תקף ל-10 דקות. אם לא ניסית להתחבר — החלף סיסמה מיד.`,
-    );
+    await this.email.send(emailAddress, "קוד הכניסה שלך למערכת מתווכים", {
+      heading: "קוד הכניסה שלך",
+      paragraphs: ["הזינו את הקוד במסך הכניסה כדי להשלים את ההתחברות."],
+      code,
+      footnote:
+        "הקוד תקף לעשר דקות וניתן לשימוש פעם אחת. אם לא ניסיתם להתחבר — החליפו סיסמה מיד.",
+    });
     return token;
   }
 
