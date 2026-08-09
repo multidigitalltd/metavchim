@@ -243,10 +243,23 @@ export function AppShell({ children }: { children: ReactNode }) {
   /* המונים מתרעננים במעבר מסך — פעולה במסך אחד (קליטת ליד) צריכה
      להשתקף בתג כשעוברים הלאה, בלי Polling קבוע */
   useEffect(() => {
-    if (isPublic) return;
+    /*
+     * מעבר למסך ציבורי (יציאה) מנקה את הסיכום.
+     *
+     * ה-AppShell נשאר טעון בין משתמשים — יציאה וכניסה של משרד אחר הן
+     * `router.replace` ולא טעינה מחדש. בלי הניקוי, המשרד החדש היה
+     * מקבל את רשימת הפיצ'רים של הקודם עד שהשאילתה מצליחה, ולתמיד אם
+     * היא נכשלת: כפתורים חסומים שמוצגים, ופעילים שמוסתרים (ביקורת
+     * Codex).
+     */
+    if (isPublic) {
+      setCounts(null);
+      setMe(null);
+      return;
+    }
     apiGet<NavSummary>("/nav/summary")
       .then(setCounts)
-      .catch(() => undefined);
+      .catch(() => setCounts(null));
   }, [isPublic, pathname]);
 
   // סגירת המגירה במעבר מסך — אחרת היא נשארת פתוחה מעל התוכן החדש

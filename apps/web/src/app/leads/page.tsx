@@ -9,6 +9,7 @@ import { apiGet } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
+import { useFeature } from "@/lib/use-features";
 import { CapNote, FilterBar, FilterSelect, SearchField, textMatches } from "../list-controls";
 
 /**
@@ -46,6 +47,7 @@ const GRID = "1.4fr 1fr 1.6fr 1fr 0.9fr 1.3fr";
 
 export default function LeadsPage() {
   const { loading: authLoading } = useRequireAuth();
+  const canVoice = useFeature("voice_intake");
   const router = useRouter();
   const [items, setItems] = useState<LeadRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -98,9 +100,11 @@ export default function LeadsPage() {
           לידים מטופס האתר נכנסים לכאן אוטומטית, בלי העתקה ידנית.
         </p>
         <div className="ms-auto flex flex-wrap gap-2.5">
-          <Link href="/leads/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
-            🎤 ליד בקול
-          </Link>
+          {canVoice ? (
+            <Link href="/leads/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
+              🎤 ליד בקול
+            </Link>
+          ) : null}
           <Link href="/leads/new" className="mv-btn-action">
             + ליד ידני
           </Link>
