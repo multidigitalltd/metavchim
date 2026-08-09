@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
-import { TELEPHONY_PROVIDERS } from "@metavchim/shared";
+import { IdSchema, TELEPHONY_PROVIDERS } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -18,6 +18,17 @@ const ConnectSchema = z
   .strict();
 
 const KeySchema = z.string().regex(/^[A-Za-z0-9_-]{20,64}$/u);
+
+/**
+ * חיוג — **מזהה איש קשר, לא מספר**.
+ *
+ * `phone` מותר רק כדי לבחור בין המספרים של אותו איש קשר (בעל/אישה),
+ * והשרת מאמת אותו מולם. מספר חופשי בבקשה היה הופך את הנתיב לחייגן
+ * פתוח על חשבון המשרד.
+ */
+const DialSchema = z
+  .object({ contactId: IdSchema, phone: z.string().max(30).optional() })
+  .strict();
 
 /*
  * שער ברמת המחלקה. ה-Webhook הציבורי שבתוכה מסומן @Public ולכן
@@ -49,6 +60,22 @@ export class TelephonyController {
     @Body(new ZodValidationPipe(ConnectSchema)) body: z.infer<typeof ConnectSchema>,
   ): Promise<{ ok: true }> {
     return this.telephony.connect(body);
+  }
+
+  /**
+   * חיוג בלחיצה. **מקבל מזהה איש קשר ולא מספר** — ראו TelephonyService.dial:
+   * נתיב שמקבל מספר חופשי הוא חייגן פתוח על חשבון המשרד.
+   *
+   * `leads.edit` — חיוג ללקוח הוא פעולה של סוכן עובד, לא של צופה.
+   */
+  @Post("dial")
+  @RequireCapability("leads.edit")
+  @RequireFeature("telephony")
+  @HttpCode(200)
+  async dial(
+    @Body(new ZodValidationPipe(DialSchema)) body: z.infer<typeof DialSchema>,
+  ): Promise<{ ok: boolean; callId?: string; message: string }> {
+    return this.telephony.dial(body);
   }
 
   @Delete()

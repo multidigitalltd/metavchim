@@ -82,6 +82,8 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   "data.export": "ייצוא נתונים",
   "audit.view": "צפייה ביומן הפעולות",
   "analytics.view": "דוח המשרד",
+  "tasks.assign": "הטלת משימות על סוכנים אחרים",
+  "tasks.view_all": "צפייה בלוח המשימות של המשרד",
 };
 
 export const CAPABILITY_MODULES: readonly CapabilityModule[] = [
@@ -117,9 +119,20 @@ export const CAPABILITY_MODULES: readonly CapabilityModule[] = [
   },
   {
     key: "calendar",
-    label: "יומן",
-    description: "פגישות, סיורים ותזכורות",
+    label: "יומן ומשימות",
+    description: "פגישות, סיורים, תזכורות ומשימות",
     capabilities: ["calendar.manage"],
+  },
+  {
+    /*
+     * מודול נפרד מ"יומן" בכוונה: לכל סוכן יש משימות משלו וזה חלק
+     * מ-calendar.manage, אבל **להטיל על אחרים** ו**לראות את לוח
+     * המשרד** הן החלטות ניהוליות שמנהל אמור להעניק במפורש.
+     */
+    key: "tasks_management",
+    label: "ניהול משימות הצוות",
+    description: "הטלת משימות על סוכנים אחרים וצפייה בלוח המשימות של המשרד",
+    capabilities: ["tasks.assign", "tasks.view_all"],
   },
   {
     key: "collaboration",

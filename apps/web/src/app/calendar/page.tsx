@@ -4,9 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { hebrewDateFull, hebrewDateShort } from "@metavchim/shared";
+import { NowStamp } from "../now-stamp";
+import { AppointmentFollowUp } from "./appointment-followup";
 import { apiGet, apiPatch } from "@/lib/api";
+import { useFeature } from "@/lib/use-features";
 import { useRequireAuth } from "@/lib/use-auth";
-import { TasksSection } from "./tasks-section";
+import { TasksBoard } from "../tasks/tasks-board";
 import { RecurrenceSection } from "./recurrence-section";
 
 /**
@@ -89,10 +92,14 @@ export default function CalendarPage() {
     if (!authLoading) load();
   }, [authLoading, load]);
 
-  async function setOutcome(id: string, outcome: string) {
-    await apiPatch(`/appointments/${id}`, { outcome });
-    load();
-  }
+  // העלאת הקלטה מוצגת רק כשהתמלול כלול במסלול — שדה שמוביל ל-403
+  // גרוע משדה שלא קיים
+  const canTranscribe = useFeature("transcription");
+
+  /** איזו פגישה פתוחה לטיפול, ובאיזה מצב. אחת בכל רגע — לא רשת טפסים. */
+  const [followUp, setFollowUp] = useState<{ id: string; mode: "reschedule" | "document" } | null>(
+    null,
+  );
 
   async function setStatus(id: string, status: string) {
     await apiPatch(`/appointments/${id}`, { status });
@@ -157,7 +164,8 @@ export default function CalendarPage() {
 
       {tab === "tasks" ? (
         <div id="panel-tasks" role="tabpanel" aria-labelledby="tab-tasks">
-          <TasksSection />
+          {/* אותו לוח בדיוק כמו במסך /tasks — לא עותק שיתחיל להיפרד */}
+          <TasksBoard heading="המשימות שלי" />
           <RecurrenceSection />
         </div>
       ) : (
@@ -176,6 +184,8 @@ export default function CalendarPage() {
             {hebrewDateFull(start)}
           </span>
         ) : null}
+        {/* ועכשיו — התאריך המלא והשעה, אותו רכיב כמו בדשבורד */}
+        <NowStamp className="text-[12.5px]" />
         <Link href="/calendar/new" className="mv-btn-action ms-auto">
           + פגישה חדשה
         </Link>
@@ -286,40 +296,42 @@ export default function CalendarPage() {
                       {longFmt.format(new Date(a.startsAt))}
                     </div>
                   </div>
+                  {/*
+                    שני הכפתורים פותחים טופס ולא כותבים סטטוס ונגמרים:
+                    "לא התקיימה" צריכה מועד חדש, ו"התקיימה" צריכה לדעת
+                    מה קרה בה. הקיצור של לחיצה אחת איבד את שניהם.
+                  */}
                   <div className="ms-auto flex flex-wrap items-center gap-[7px]">
-                    {a.kind === "viewing" ? (
-                      <>
-                        <button type="button" className="mv-btn-soft" onClick={() => void setOutcome(a.id, "liked")}>
-                          התקיים · מעוניין
-                        </button>
-                        <button type="button" className="mv-btn-plain" onClick={() => void setOutcome(a.id, "not_fit")}>
-                          התקיים · לא מתאים
-                        </button>
-                        <button
-                          type="button"
-                          className="mv-btn-plain"
-                          style={{ color: "var(--color-text-muted)" }}
-                          onClick={() => void setStatus(a.id, "no_show")}
-                        >
-                          לא הגיע
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button type="button" className="mv-btn-soft" onClick={() => void setStatus(a.id, "completed")}>
-                          התקיימה ✓
-                        </button>
-                        <button
-                          type="button"
-                          className="mv-btn-plain"
-                          style={{ color: "var(--color-text-muted)" }}
-                          onClick={() => void setStatus(a.id, "no_show")}
-                        >
-                          לא התקיימה
-                        </button>
-                      </>
-                    )}
+                    <button
+                      type="button"
+                      className="mv-btn-soft"
+                      aria-expanded={followUp?.id === a.id && followUp.mode === "document"}
+                      onClick={() => setFollowUp({ id: a.id, mode: "document" })}
+                    >
+                      התקיימה ✓
+                    </button>
+                    <button
+                      type="button"
+                      className="mv-btn-plain"
+                      style={{ color: "var(--color-text-muted)" }}
+                      aria-expanded={followUp?.id === a.id && followUp.mode === "reschedule"}
+                      onClick={() => setFollowUp({ id: a.id, mode: "reschedule" })}
+                    >
+                      לא התקיימה — קבע מחדש
+                    </button>
                   </div>
+                  {followUp?.id === a.id ? (
+                    <AppointmentFollowUp
+                      appointment={a}
+                      mode={followUp.mode}
+                      canTranscribe={canTranscribe}
+                      onCancel={() => setFollowUp(null)}
+                      onDone={() => {
+                        setFollowUp(null);
+                        void load();
+                      }}
+                    />
+                  ) : null}
                 </div>
               ))}
             </section>

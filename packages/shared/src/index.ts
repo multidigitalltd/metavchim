@@ -44,3 +44,4 @@ export * from "./rbac.js";
 export * from "./queues.js";
 export * from "./logic/whatsapp-link.js";
 export * from "./logic/signature-image.js";
+export * from "./logic/tasks.js";

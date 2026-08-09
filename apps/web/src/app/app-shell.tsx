@@ -79,6 +79,8 @@ interface NavSummary {
   newLeads: number;
   matches: number;
   credits: number | null;
+  /** משימות שלי באיחור או להיום — התג הכתום. */
+  urgentTasks: number;
   /** הפיצ'רים שכלולים במסלול המשרד — פריט שלא כלול לא מוצג. */
   features?: string[];
 }
@@ -438,6 +440,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         {navLink("/matches", "התאמות", ICONS.matches, count(counts?.matches))}
         {navLink("/offers", "הצעות", ICONS.offers)}
         {navLink("/calendar", "יומן", ICONS.calendar)}
+        {navLink(
+          "/tasks",
+          "משימות",
+          ICONS.calendar,
+          /* באיחור או להיום — התג הכתום, כמו בלידים חדשים */
+          counts !== null && counts.urgentTasks > 0 ? (
+            <span className="mv-nav-badge">{counts.urgentTasks}</span>
+          ) : null,
+        )}
         {isManager && hasFeature("analytics")
           ? navLink("/reports", "דוחות", ICONS.reports)
           : null}

@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
 import { z } from "zod";
-import { IdSchema } from "@metavchim/shared";
+import { IdSchema, TASK_PRIORITIES } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { TasksService, type TaskDto } from "./tasks.service";
@@ -14,8 +14,11 @@ const CreateTaskSchema = z
     title: z.string().min(1).max(200),
     notes: z.string().max(2000).optional(),
     dueAt: z.coerce.date().optional(),
+    priority: z.enum(TASK_PRIORITIES).optional(),
     entityType: z.enum(["lead", "buyer", "property"]).optional(),
     entityId: IdSchema.optional(),
+    /** ריק = על עצמי. אחר דורש tasks.assign — נאכף בשירות. */
+    assignedToUserId: IdSchema.optional(),
   })
   .strict()
   .refine((v) => (v.entityId === undefined) === (v.entityType === undefined), {
@@ -28,12 +31,25 @@ const UpdateTaskSchema = z
     notes: z.string().max(2000).optional(),
     dueAt: z.coerce.date().nullable().optional(),
     status: z.enum(["open", "done"]).optional(),
+    priority: z.enum(TASK_PRIORITIES).optional(),
+    assignedToUserId: IdSchema.optional(),
   })
   .strict();
 
+/**
+ * `assignee`: ‎me‎ (ברירת מחדל) | ‎all‎ | מזהה סוכן.
+ *
+ * זהו סינון תצוגה **בתוך** ההיקף המותר ולא הרחבה שלו — מי שאין לו
+ * `tasks.view_all` מקבל את שלו בלבד גם כשהוא נוקב במזהה של אחר.
+ */
 const ListQuerySchema = z
-  .object({ status: z.enum(["open", "done"]).optional() })
+  .object({
+    status: z.enum(["open", "done"]).optional(),
+    assignee: z.union([z.literal("me"), z.literal("all"), IdSchema]).optional(),
+  })
   .strict();
+
+const EntityTypeSchema = z.enum(["lead", "buyer", "property"]);
 
 const IdParam = new ZodValidationPipe(IdSchema);
 
@@ -46,7 +62,33 @@ export class TasksController {
   list(
     @Query(new ZodValidationPipe(ListQuerySchema)) query: z.infer<typeof ListQuerySchema>,
   ): Promise<TaskDto[]> {
-    return this.tasks.list(query.status);
+    return this.tasks.list(query);
+  }
+
+  /**
+   * מי אפשר להטיל עליו. `tasks.assign` ולא `users.manage`: זו רשימה
+   * לבחירה, לא ניהול צוות.
+   */
+  @Get("assignees")
+  @RequireCapability("tasks.assign")
+  assignees(): Promise<{ id: string; name: string }[]> {
+    return this.tasks.assignees();
+  }
+
+  /**
+   * המשימות של ישות אחת — הפאנל בכרטיס הנכס/הקונה/הליד.
+   *
+   * הקישור `entityType`/`entityId` קיים בנתונים מהיום הראשון ומעולם
+   * לא הוצג: משימה שנוצרה מ-SLA של ליד נראתה כמו משימה שהוקלדה ביד,
+   * בלי דרך לדעת על מי היא.
+   */
+  @Get("for/:entityType/:entityId")
+  @RequireCapability("calendar.manage")
+  listForEntity(
+    @Param("entityType", new ZodValidationPipe(EntityTypeSchema)) entityType: string,
+    @Param("entityId", IdParam) entityId: string,
+  ): Promise<TaskDto[]> {
+    return this.tasks.listForEntity(entityType, entityId);
   }
 
   @Post()

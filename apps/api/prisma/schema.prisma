@@ -507,6 +507,11 @@ model Appointment {
   /// יומן של מי. `createdBy` הוא "מי הקליד" ואינו אותו דבר: פגישה
   /// שמנהל קובע לסוכן צריכה להופיע ביומן של הסוכן.
   ownerUserId   String?   @map("owner_user_id") @db.Char(26)
+  /// המועד הקודם, כשהפגישה נדחתה. בלעדיו "נדחתה" אובד ברגע שהשדה
+  /// נדרס — והמתווך אינו יודע שהפגישה כבר נדחתה פעמיים, שזה בדיוק
+  /// הסימן שהעסקה מתקררת.
+  rescheduledFrom DateTime? @map("rescheduled_from")
+  rescheduleCount Int      @default(0) @map("reschedule_count") @db.SmallInt
   createdBy     String?   @map("created_by") @db.Char(26)
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
@@ -522,8 +527,18 @@ model Appointment {
 model Task {
   id               String    @id @db.Char(26)
   tenantId         String    @map("tenant_id") @db.Char(26)
-  /** המשימה אישית — נראית ומנוהלת ע"י הסוכן שהוקצה בלבד. */
+  /**
+   * הסוכן האחראי. הוא רואה ומנהל אותה; מנהל עם `tasks.view_all`
+   * רואה גם את של האחרים.
+   */
   assignedToUserId String    @map("assigned_to_user_id") @db.Char(26)
+  /**
+   * מי הטיל. הפך למידע ברגע שאפשר להטיל על אחר — עד כה הוא היה
+   * תמיד זהה ל-assignedToUserId, ולכן לא נשמר.
+   */
+  createdByUserId  String?   @map("created_by_user_id") @db.Char(26)
+  /// low | normal | high
+  priority         String    @default("normal") @db.VarChar(10)
   title            String    @db.VarChar(200)
   notes            String?   @db.VarChar(2000)
   dueAt            DateTime? @map("due_at")
@@ -538,6 +553,9 @@ model Task {
 
   @@index([tenantId, assignedToUserId, status, dueAt])
   @@index([tenantId, entityId, sourceKey])
+  /// לוח המשרד: "מה פתוח, לפי מועד" בלי סינון לפי סוכן — האינדקס
+  /// הראשון מתחיל ב-assignedToUserId ולכן אינו משמש אותו
+  @@index([tenantId, status, dueAt])
   @@map("tasks")
 }
 
@@ -854,12 +872,18 @@ model Call {
   tenantId        String   @map("tenant_id") @db.Char(26)
   /// inbound | outbound
   direction       String   @db.VarChar(10)
-  /// manual | provider
+  /// manual | provider | meeting
+  ///
+  /// `meeting` = הקלטה של פגישה מהיומן. הטבלה הזו היא בפועל "שיחה
+  /// מוקלטת עם סיכום", וצינור התמלול שלה כבר עובד; מסלול מקביל
+  /// לפגישות היה משכפל אחסון, תמלול, סיכום וסטטוס.
   source          String   @default("manual") @db.VarChar(20)
   /// מזהה השיחה אצל ספק המרכזייה — מפתח אידמפוטנטיות מול שליחות חוזרות
   providerCallId  String?  @map("provider_call_id") @db.VarChar(80)
   contactId       String?  @map("contact_id") @db.Char(26)
   leadId          String?  @map("lead_id") @db.Char(26)
+  /// הפגישה שההקלטה הזו מתעדת, כשהמקור הוא `meeting`.
+  appointmentId   String?  @map("appointment_id") @db.Char(26)
   phoneEncrypted  String?  @map("phone_encrypted")
   phoneHash       String?  @map("phone_hash") @db.Char(64)
   occurredAt      DateTime @map("occurred_at")
@@ -880,6 +904,7 @@ model Call {
   @@index([tenantId, occurredAt(sort: Desc)])
   @@index([tenantId, contactId])
   @@index([tenantId, leadId])
+  @@index([tenantId, appointmentId])
   @@map("calls")
 }
 

@@ -1,18 +1,28 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import {
+  build015DialUrl,
   callAction,
   describeCall,
   incomingCallTitle,
+  parse015DialResponse,
   parseTelephonyEvent,
   telephonyProvider,
 } from "@metavchim/shared";
+import { assertContactAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
+import { ContactsService } from "../contacts/contacts.service";
 import { loadEnv } from "../../config/env";
 
 /**
@@ -28,11 +38,14 @@ import { loadEnv } from "../../config/env";
  */
 @Injectable()
 export class TelephonyService {
+  private readonly logger = new Logger(TelephonyService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly audit: AuditService,
     private readonly plans: PlanCatalogService,
+    private readonly contacts: ContactsService,
   ) {}
 
   private webhookUrl(key: string): string {
@@ -126,6 +139,108 @@ export class TelephonyService {
       });
     });
     return { ok: true };
+  }
+
+  /**
+   * חיוג יוצא בלחיצה — 015 בלבד.
+   *
+   * **המספר לא מגיע מהבקשה.** הקורא נוקב במזהה איש קשר, והמספר
+   * נפתר בשרת מתוך הכרטיס שלו. זו אינה קפדנות: נתיב שמקבל מספר
+   * חופשי הוא **חייגן פתוח על חשבון המשרד** — מי שמשיג Session של
+   * סוכן זוטר יכול לחייג למספרי פרימיום בחו"ל כל הלילה, והחשבון
+   * מגיע ללקוח שלנו. הפרמטר `phone` מותר רק כדי לבחור בין המספרים
+   * של אותו איש קשר, ונבדק מולם.
+   *
+   * השיחה מצלצלת קודם **לטלפון של הסוכן** מהפרופיל שלו. קו משרדי
+   * אחד לכולם היה מחבר את הלקוח למי שבמקרה הרים.
+   */
+  async dial(input: { contactId: string; phone?: string }): Promise<{
+    ok: boolean;
+    callId?: string;
+    message: string;
+  }> {
+    const { tenantId, userId } = TenantContext.current();
+
+    const row = await this.prisma.withTenant((tx) =>
+      tx.integration.findFirst({ where: { tenantId, kind: "telephony" } }),
+    );
+    if (!row || row.status !== "active") {
+      throw new BadRequestException("לא מחוברת מרכזייה — חברו אותה בהגדרות המשרד");
+    }
+    const provider = telephonyProvider(row.provider);
+    if (!provider?.clickToDial) {
+      throw new BadRequestException(`חיוג יוצא אינו נתמך עבור ${provider?.label ?? row.provider}`);
+    }
+
+    const secrets = row.secretsEncrypted
+      ? (JSON.parse(this.crypto.decrypt(row.secretsEncrypted)) as Record<string, string>)
+      : {};
+    const config = (row.config ?? {}) as Record<string, string>;
+    const authUsername = secrets["authUsername"] ?? "";
+    const authPassword = secrets["authPassword"] ?? "";
+    if (authUsername === "" || authPassword === "") {
+      throw new BadRequestException("חסרים פרטי ההתחברות ל-015 — השלימו אותם בהגדרות");
+    }
+
+    /*
+     * המספר של הלקוח — **מהכרטיס**, אחרי בדיקת בעלות. `assertContactAccess`
+     * הוא אותו שער של שאר הפעולות: סוכן עם view_own לא מחייג ללקוח
+     * של סוכן אחר, בדיוק כפי שאינו רואה אותו.
+     */
+    const destination = await this.prisma.withTenant(async (tx) => {
+      await assertContactAccess(tx, tenantId, input.contactId);
+      const phones = await this.contacts.phonesFor(tx, input.contactId);
+      if (phones.length === 0) throw new NotFoundException("לאיש הקשר אין מספר טלפון");
+      if (input.phone === undefined) return phones[0]!.phone;
+      const chosen = phones.find((p) => p.phone === input.phone);
+      // מספר שאינו של איש הקשר הזה — לא מחייגים אליו, נקודה
+      if (!chosen) throw new BadRequestException("המספר אינו שייך לאיש הקשר");
+      return chosen.phone;
+    });
+
+    const agent = await this.prisma.user.findFirst({
+      where: { id: userId, tenantId },
+      select: { phone: true },
+    });
+    const agentLine = agent?.phone?.trim() || config["defaultLine"]?.trim() || "";
+    if (agentLine === "") {
+      throw new BadRequestException(
+        "אין טלפון בפרופיל שלכם ולא הוגדר קו ברירת מחדל — החיוג לא יודע לאן לצלצל",
+      );
+    }
+
+    const url = build015DialUrl({
+      authUsername,
+      authPassword,
+      agentLine,
+      destination,
+      ...(config["callerId"] ? { callerId: config["callerId"] } : {}),
+    });
+
+    let body: unknown;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+      body = await res.json();
+    } catch (error) {
+      this.logger.error(`חיוג דרך 015 נכשל: ${String(error)}`);
+      throw new ServiceUnavailableException("המרכזייה אינה מגיבה כרגע");
+    }
+
+    const result = parse015DialResponse(body);
+    await this.prisma.withTenant(async (tx) => {
+      await this.audit.record(tx, {
+        action: "telephony.dial",
+        entityType: "contact",
+        entityId: input.contactId,
+        metadata: { ok: result.ok, ...(result.callId ? { callId: result.callId } : {}) },
+      });
+    });
+    /*
+     * השיחה עצמה **אינה** נרשמת כאן. היא תירשם כשהמרכזייה תדווח
+     * שהסתיימה, דרך אותו Webhook של כל שיחה אחרת — רישום כאן היה
+     * מייצר שורה כפולה על כל חיוג, ושורה על שיחה שהסוכן לא ענה לה.
+     */
+    return result;
   }
 
   /**

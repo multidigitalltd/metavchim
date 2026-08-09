@@ -43,6 +43,10 @@ export interface CreateCallInput {
   durationMinutes?: number;
   outcome: string;
   summary?: string;
+  /** manual (ברירת מחדל) | meeting — הקלטה של פגישה מהיומן. */
+  source?: string;
+  /** הפגישה שההקלטה מתעדת, כשהמקור הוא `meeting`. */
+  appointmentId?: string;
 }
 
 @Injectable()
@@ -74,7 +78,8 @@ export class CallsService {
           id: ulid(),
           tenantId,
           direction: input.direction,
-          source: "manual",
+          source: input.source ?? "manual",
+          appointmentId: input.appointmentId ?? null,
           contactId: contactId ?? null,
           leadId: input.leadId ?? null,
           phoneEncrypted: input.phone ? this.crypto.encrypt(input.phone) : null,

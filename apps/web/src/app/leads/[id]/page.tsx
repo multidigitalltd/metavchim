@@ -12,6 +12,7 @@ import { can, useRequireAuth } from "@/lib/use-auth";
 import { ContactPeople } from "../../contact-people";
 import { DictateFor } from "../../dictation-field";
 import { RelatedEntities } from "../../related-entities";
+import { EntityTasks } from "../../entity-tasks";
 
 interface LeadDetail {
   id: string;
@@ -236,6 +237,8 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
       </p>
 
       <RelatedEntities contactId={lead.contact.id} exclude={{ kind: "lead", id: lead.id }} />
+
+      <EntityTasks entityType="lead" entityId={id} />
 
       <ContactPeople contactId={lead.contact.id} canEdit={canEditPeople} />
 

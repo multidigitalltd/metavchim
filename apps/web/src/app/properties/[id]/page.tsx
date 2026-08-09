@@ -16,6 +16,7 @@ import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { MediaSection } from "./media-section";
 import { AgreementsPanel } from "../../agreements-panel";
+import { EntityTasks } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
 
 /**
@@ -404,6 +405,8 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
               title="הסכם בלעדיות מול בעל הנכס"
             />
           ) : null}
+
+          <EntityTasks entityType="property" entityId={property.id} />
 
           <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="matches-heading">
             <div className="mb-3 flex flex-wrap items-center gap-2">
