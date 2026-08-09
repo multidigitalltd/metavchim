@@ -286,7 +286,14 @@ export class AuthController {
   @Get("me")
   me(
     @Req() req: Request,
-  ): { user: AuthenticatedUser & { isPlatformAdmin: boolean; capabilities: string[] } } {
+  ): {
+    user: AuthenticatedUser & {
+      isPlatformAdmin: boolean;
+      capabilities: string[];
+      /** התקופה נגמרה — המסכים מציגים את מסך המנוי בלבד. */
+      billingOnly: boolean;
+    };
+  } {
     const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
     if (!user) {
       throw new UnauthorizedException();
@@ -303,8 +310,13 @@ export class AuthController {
      * 403, ו-viewer שקיבל יכולת לא ראה אותו כלל. השרת כבר מחשב את
      * הקבוצה האפקטיבית בכל בקשה — נשאר רק להחזיר אותה (ביקורת Codex).
      */
-    const capabilities = [...TenantContext.current().capabilities];
-    return { user: { ...user, isPlatformAdmin, capabilities } };
+    const ctx = TenantContext.current();
+    const capabilities = [...ctx.capabilities];
+    /*
+     * הדגל מוחזר כדי שהמסכים לא יציגו תפריט שכל קישור בו נחסם.
+     * האכיפה עצמה בשרת (AuthGuard) — זה לתצוגה בלבד, כמו isPlatformAdmin.
+     */
+    return { user: { ...user, isPlatformAdmin, capabilities, billingOnly: ctx.billingOnly } };
   }
 
   /**

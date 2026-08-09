@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import { FeaturesProvider } from "@/lib/use-features";
 import { NotificationsBell } from "./notifications-bell";
 import { TopbarSearch } from "./topbar-search";
@@ -211,6 +211,8 @@ interface Me {
   isPlatformAdmin?: boolean;
   /** סוף תקופת הניסיון; null = אין תפוגה. */
   trialEndsAt?: string | null;
+  /** התקופה נגמרה — רק מסך המנוי פתוח. */
+  billingOnly?: boolean;
 }
 
 function initials(name: string): string {
@@ -267,7 +269,9 @@ export function AppShell({ children }: { children: ReactNode }) {
    */
   const [setupDone, setSetupDone] = useState(false);
   useEffect(() => {
-    if (isPublic || me === null || !MANAGER_ROLES.has(me.role)) return;
+    // משרד שתקופתו נגמרה — כל נתיב שאינו מסך המנוי מוחזר 402; אין
+    // טעם לשאול ולקבל שגיאה
+    if (isPublic || me === null || me.billingOnly === true || !MANAGER_ROLES.has(me.role)) return;
     apiGet<{ ready: boolean }>("/settings/onboarding")
       .then((p) => setSetupDone(p.ready))
       .catch(() => undefined);
@@ -290,6 +294,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       setMe(null);
       return;
     }
+    if (me?.billingOnly === true) {
+      setCounts(null);
+      return;
+    }
     let cancelled = false;
     apiGet<NavSummary>("/nav/summary")
       .then((summary) => {
@@ -301,7 +309,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [isPublic, pathname]);
+  }, [isPublic, pathname, me]);
 
   // סגירת המגירה במעבר מסך — אחרת היא נשארת פתוחה מעל התוכן החדש
   useEffect(() => {
@@ -331,6 +339,39 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
   if (isPublic) {
     return <main id="main-content" className="mx-auto max-w-6xl px-4 py-6">{children}</main>;
+  }
+
+  /*
+   * תקופה שנגמרה — מסגרת מינימלית סביב מסך המנוי.
+   *
+   * תפריט מלא כאן היה תפריט שכל קישור בו מוחזר 402 ומקפיץ בחזרה
+   * לאותו מסך. עדיף לא להציג אותו מלכתחילה: מה שנשאר הוא הכותרת,
+   * התוכן, ויציאה.
+   */
+  if (me?.billingOnly === true) {
+    return (
+      <div className="mx-auto max-w-4xl px-4 py-6">
+        <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <strong>{me.tenantName ?? "מתווכים"}</strong>
+          {/*
+            דרך ה-API כמו בכל מקום אחר: ה-API יושב על מקור נפרד,
+            ו-form שמצביע לנתיב יחסי היה מגיע לשרת ה-Next.
+          */}
+          <button
+            type="button"
+            className="mv-btn-ghost"
+            onClick={() => {
+              void apiPost("/auth/logout", {})
+                .catch(() => undefined)
+                .finally(() => window.location.assign("/login"));
+            }}
+          >
+            יציאה
+          </button>
+        </header>
+        <main id="main-content">{children}</main>
+      </div>
+    );
   }
 
   const isManager = me !== null && MANAGER_ROLES.has(me.role);
