@@ -18,6 +18,7 @@ import {
   telephonyParseIssue,
   telephonyProvider,
   mergeIntegrationSecrets,
+  mergeLegacySecretsIntoConfig,
   telephonySecretKeys,
 } from "@metavchim/shared";
 import { assertContactAccess } from "../../common/ownership";
@@ -105,9 +106,13 @@ export class TelephonyService {
     if (!row) return { connected: false, clickToDial: false, config: {}, secretsSet: [] };
     const provider = telephonyProvider(row.provider);
     const stored = this.readSecrets(row.secretsEncrypted);
+    const secretKeys = provider ? telephonySecretKeys(provider) : [];
     return {
-      // רק השמות. הערכים אינם עוזבים את השרת, גם לא למנהל המשרד.
-      secretsSet: Object.keys(stored).filter((key) => (stored[key] ?? "").trim() !== ""),
+      /*
+       * רק השמות, ורק של סודות שהספק הנוכחי באמת מכיר. הערכים אינם
+       * עוזבים את השרת, גם לא למנהל המשרד.
+       */
+      secretsSet: secretKeys.filter((key) => (stored[key] ?? "").trim() !== ""),
       connected: true,
       provider: row.provider,
       providerLabel: provider?.label ?? row.provider,
@@ -120,7 +125,18 @@ export class TelephonyService {
       ...(row.lastEventOk !== null ? { lastEventOk: row.lastEventOk } : {}),
       ...(row.lastEventIssue ? { lastEventIssue: row.lastEventIssue } : {}),
       clickToDial: provider?.clickToDial ?? false,
-      config: (row.config ?? {}) as Record<string, unknown>,
+      /*
+       * שדה שהיה סוד והפך לגלוי נקרא מהמקום שבו הוא באמת שמור. בלי
+       * זה הטופס היה מציג שם משתמש ריק לחיבור ותיק, והשמירה הראשונה
+       * הייתה מוחקת אותו לתמיד (ביקורת Codex).
+       */
+      config: provider
+        ? mergeLegacySecretsIntoConfig(
+            provider,
+            (row.config ?? {}) as Record<string, unknown>,
+            stored,
+          )
+        : ((row.config ?? {}) as Record<string, unknown>),
     };
   }
 

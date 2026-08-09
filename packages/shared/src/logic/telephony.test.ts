@@ -14,6 +14,7 @@ import {
   telephonyParseIssue,
   mergeIntegrationSecrets,
   telephonySecretKeys,
+  mergeLegacySecretsIntoConfig,
 } from "./telephony.js";
 
 function event(overrides: Partial<TelephonyEvent> = {}): TelephonyEvent {
@@ -420,5 +421,49 @@ describe("telephonySecretKeys", () => {
       );
       expect(Object.keys(kept).sort()).toEqual([...keys].sort());
     }
+  });
+});
+
+describe("mergeLegacySecretsIntoConfig", () => {
+  const p015 = telephonyProvider("015")!;
+
+  it("שם משתמש ששמור בגוש המוצפן מוצג כשדה גלוי", () => {
+    const out = mergeLegacySecretsIntoConfig(p015, {}, { authUsername: "office" });
+    expect(out["authUsername"]).toBe("office");
+  });
+
+  it("ערך שכבר ב-config גובר על הישן", () => {
+    const out = mergeLegacySecretsIntoConfig(
+      p015,
+      { authUsername: "חדש" },
+      { authUsername: "ישן" },
+    );
+    expect(out["authUsername"]).toBe("חדש");
+  });
+
+  it("סוד אמיתי לעולם אינו נחשף דרך config", () => {
+    const out = mergeLegacySecretsIntoConfig(p015, {}, { authPassword: "s3cret" });
+    expect(out["authPassword"]).toBeUndefined();
+  });
+
+  it("שדה ריק ב-config נחשב חסר — כך נראה טופס שנשמר לפני ההגירה", () => {
+    const out = mergeLegacySecretsIntoConfig(p015, { authUsername: "  " }, { authUsername: "office" });
+    expect(out["authUsername"]).toBe("office");
+  });
+
+  it("החזרה מלאה: הגישור מציג, השמירה מהגרת, והעותק הישן נזרק", () => {
+    /*
+     * זה הרצף שבו הבאג נולד — טופס שהציג ריק, שמירה שכתבה ריק,
+     * ומיזוג שזרק את הערך הישן כי הוא כבר לא מפתח סוד.
+     */
+    const legacy = { authUsername: "office", authPassword: "s3cret" };
+    // 1. המסך קורא — ורואה את שם המשתמש
+    const shown = mergeLegacySecretsIntoConfig(p015, {}, legacy);
+    expect(shown["authUsername"]).toBe("office");
+    // 2. המנהל שומר; הטופס מחזיר את מה שהוצג, והסיסמה נשארת ריקה
+    const savedSecrets = mergeIntegrationSecrets(legacy, {}, telephonySecretKeys(p015));
+    // 3. הסיסמה שרדה, שם המשתמש עבר ל-config ואינו נשאר מוצפן
+    expect(savedSecrets).toEqual({ authPassword: "s3cret" });
+    expect(shown["authUsername"]).toBe("office");
   });
 });

@@ -138,6 +138,37 @@ export function telephonySecretKeys(provider: TelephonyProvider): string[] {
   return provider.fields.filter((f) => f.secret).map((f) => f.key);
 }
 
+/**
+ * שדה שהיה סוד והפך לגלוי — נקרא מהמקום שבו הוא **באמת** שמור.
+ *
+ * `authUsername` נשמר עד היום בגוש המוצפן. מרגע שהוא שדה גלוי, המסך
+ * קורא אותו מ-`config` — שם הוא לא קיים בחיבורים ותיקים. בלי הגישור
+ * הזה הטופס היה מציג שם משתמש ריק, השמירה הראשונה הייתה כותבת ריק
+ * ל-`config`, ו-`mergeIntegrationSecrets` היה זורק את הערך הישן מהגוש
+ * כי הוא כבר אינו מפתח סוד מוכר — כלומר בדיוק אותה מחיקה שקטה שה-PR
+ * הזה בא לתקן, רק דרך אחרת (ביקורת Codex).
+ *
+ * הגישור הוא **קריאה בלבד**, והוא מהגר את עצמו: ברגע שהטופס מציג את
+ * הערך הנכון, השמירה הבאה כותבת אותו ל-`config` והעותק המוצפן נזרק.
+ * ערך קיים ב-`config` תמיד גובר, ולכן מנהל שמנקה שדה בכוונה מנקה
+ * אותו באמת.
+ */
+export function mergeLegacySecretsIntoConfig(
+  provider: TelephonyProvider,
+  config: Record<string, unknown>,
+  storedSecrets: Record<string, string>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...config };
+  for (const field of provider.fields) {
+    if (field.secret) continue;
+    const current = out[field.key];
+    const isEmpty = current === undefined || current === null || String(current).trim() === "";
+    const legacy = (storedSecrets[field.key] ?? "").trim();
+    if (isEmpty && legacy !== "") out[field.key] = legacy;
+  }
+  return out;
+}
+
 /* ==================== אירוע שיחה ==================== */
 
 /**
