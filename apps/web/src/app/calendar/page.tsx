@@ -3,14 +3,24 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
+import { hebrewDateFull, hebrewDateShort } from "@metavchim/shared";
 import { apiGet, apiPatch } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
 import { TasksSection } from "./tasks-section";
+import { RecurrenceSection } from "./recurrence-section";
 
 /**
  * היומן לפי קובץ העיצוב: רשת שבועית ראשון–שישי עם בלוקי אירועים
  * צבועים לפי סוג, ומתחתיה "סיורים שהתקיימו — וטרם תועדה תוצאה"
  * עם תיעוד בלחיצה אחת.
+ *
+ * שתי לשוניות ולא מסך אחד ארוך: היומן והמשימות הם שני מצבי עבודה
+ * שונים — "מה קורה השבוע" מול "מה עליי לעשות" — והמשימות היו נדחקות
+ * לתחתית הדף מתחת לכל רשת השבוע.
+ *
+ * לצד כל תאריך לועזי מופיע התאריך העברי. מתווך בישראל עובד עם שני
+ * לוחות במקביל: פגישה נקבעת ל-"רביעי ה-12", אבל "אחרי סוכות" הוא מה
+ * שקובע מתי השוק זז.
  */
 
 interface AppointmentRow {
@@ -57,8 +67,11 @@ function weekStart(offsetWeeks: number): Date {
   return d;
 }
 
+type Tab = "calendar" | "tasks";
+
 export default function CalendarPage() {
   const { loading: authLoading } = useRequireAuth();
+  const [tab, setTab] = useState<Tab>("calendar");
   const [items, setItems] = useState<AppointmentRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [weekOffset, setWeekOffset] = useState(0);
@@ -115,6 +128,40 @@ export default function CalendarPage() {
 
   return (
     <>
+      {/* לשוניות — יומן ומשימות. tablist ולא קישורים: שתי תצוגות של
+          אותו מסך, בלי ניווט ובלי טעינה מחדש. */}
+      <div className="mv-seg mb-[14px]" role="tablist" aria-label="תצוגת היומן">
+        <button
+          type="button"
+          role="tab"
+          id="tab-calendar"
+          aria-selected={tab === "calendar"}
+          aria-controls="panel-calendar"
+          aria-pressed={tab === "calendar"}
+          onClick={() => setTab("calendar")}
+        >
+          יומן
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="tab-tasks"
+          aria-selected={tab === "tasks"}
+          aria-controls="panel-tasks"
+          aria-pressed={tab === "tasks"}
+          onClick={() => setTab("tasks")}
+        >
+          משימות
+        </button>
+      </div>
+
+      {tab === "tasks" ? (
+        <div id="panel-tasks" role="tabpanel" aria-labelledby="tab-tasks">
+          <TasksSection />
+          <RecurrenceSection />
+        </div>
+      ) : (
+      <div id="panel-calendar" role="tabpanel" aria-labelledby="tab-calendar">
       <div className="mb-[18px] flex flex-wrap items-center gap-2.5">
         <div className="mv-seg" role="group" aria-label="ניווט שבועות">
           <button type="button" onClick={() => setWeekOffset((w) => w - 1)}>→ שבוע קודם</button>
@@ -123,6 +170,12 @@ export default function CalendarPage() {
           </button>
           <button type="button" onClick={() => setWeekOffset((w) => w + 1)}>שבוע הבא ←</button>
         </div>
+        {/* התאריך העברי של תחילת השבוע — הקשר ללוח שהמתווך חי בו */}
+        {hebrewDateFull(start) ? (
+          <span className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+            {hebrewDateFull(start)}
+          </span>
+        ) : null}
         <Link href="/calendar/new" className="mv-btn-action ms-auto">
           + פגישה חדשה
         </Link>
@@ -156,6 +209,12 @@ export default function CalendarPage() {
                     <div className="text-[11.5px]" style={{ color: "var(--color-text-muted)" }}>
                       {shortDateFmt.format(d.date)}
                     </div>
+                    {/* התאריך העברי — תוספת, ולכן ריק כשההמרה לא זמינה */}
+                    {hebrewDateShort(d.date) ? (
+                      <div className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>
+                        {hebrewDateShort(d.date)}
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -324,8 +383,8 @@ export default function CalendarPage() {
           ) : null}
         </>
       )}
-
-      <TasksSection />
+      </div>
+      )}
     </>
   );
 }

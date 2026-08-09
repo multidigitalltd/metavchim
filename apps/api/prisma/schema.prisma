@@ -517,6 +517,37 @@ model Task {
   @@map("tasks")
 }
 
+/// כלל למשימה אוטומטית קבועה — ברמת המשרד.
+///
+/// הכלל שייך למשרד; המשימות שנוצרות ממנו שייכות לסוכן. `lastRunAt`
+/// הוא המופע האחרון שנוצר בפועל, ו-null פירושו שהכלל טרם רץ — המופע
+/// הראשון שלו נמדד מרגע היצירה ולא רטרואקטיבית.
+model TaskRecurrence {
+  id               String    @id @db.Char(26)
+  tenantId         String    @map("tenant_id") @db.Char(26)
+  title            String    @db.VarChar(200)
+  notes            String?   @db.VarChar(2000)
+  /// daily | weekly | monthly
+  frequency        String    @db.VarChar(10)
+  /// 0 (ראשון) עד 6; ריק = פעם בשבוע ביום שבו נוצר הכלל
+  weekdays         Int[]     @db.SmallInt
+  /// 31 נופל ליום האחרון בחודש קצר ולא מדלג על החודש
+  dayOfMonth       Int?      @map("day_of_month") @db.SmallInt
+  hour             Int       @default(9) @db.SmallInt
+  minute           Int       @default(0) @db.SmallInt
+  /// null = לכל סוכן פעיל במשרד, כל אחד מקבל משימה משלו
+  assignedToUserId String?   @map("assigned_to_user_id") @db.Char(26)
+  isActive         Boolean   @default(true) @map("is_active")
+  lastRunAt        DateTime? @map("last_run_at")
+  createdBy        String?   @map("created_by") @db.Char(26)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([isActive, lastRunAt])
+  @@index([tenantId])
+  @@map("task_recurrences")
+}
+
 // התראה למתווך: נוצרת ע"י ה-Worker מאירועי דומיין (docs/02 §4 Notifications).
 model Notification {
   id         String    @id @db.Char(26)
