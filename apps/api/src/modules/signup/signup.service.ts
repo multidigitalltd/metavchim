@@ -28,9 +28,16 @@ export class SignupService {
     private readonly email: EmailService,
   ) {}
 
-  /** המסלולים שמוצגים בדף ההרשמה. */
+  /**
+   * המסלולים שמוצגים בדף ההרשמה.
+   *
+   * **מסלול בלי ימי ניסיון אינו נמכר בהרשמה עצמית.** ההרשמה פותחת
+   * משרד בסטטוס `trial`, והתפוגה היא מה שמגביל אותו; מסלול עם אפס
+   * ימים היה נפתח בלי תאריך תפוגה כלל — כלומר גישה מלאה, לתמיד,
+   * בלי תשלום. עד שיש סליקה, מסלול כזה נסגר בשיחה (ביקורת Codex).
+   */
   async offeredPlans(): Promise<PlanDefinition[]> {
-    return this.plans.publicPlans();
+    return (await this.plans.publicPlans()).filter((plan) => plan.trialDays > 0);
   }
 
   async register(input: {
@@ -40,7 +47,7 @@ export class SignupService {
     phone?: string;
     password: string;
     plan: string;
-  }): Promise<{ user: ValidatedUser; trialEndsAt: Date | null }> {
+  }): Promise<{ user: ValidatedUser; trialEndsAt: Date }> {
     const email = input.email.toLowerCase().trim();
 
     const plan = await this.plans.byCode(input.plan);
@@ -49,7 +56,7 @@ export class SignupService {
      * הבחירה מגיעה מהדפדפן, ולכן "לא מוצג במסך" אינו אכיפה — בלי
      * הבדיקה הזו כל אחד היה יכול להירשם למסלול הרשת בשליחת הקוד שלו.
      */
-    if (!plan || !plan.isPublic) {
+    if (!plan || !plan.isPublic || plan.trialDays <= 0) {
       throw new BadRequestException("המסלול שנבחר אינו זמין להרשמה");
     }
 
@@ -69,10 +76,14 @@ export class SignupService {
     const tenantId = ulid();
     const userId = ulid();
     const passwordHash = await AuthService.hashPassword(input.password);
-    const trialEndsAt =
-      plan.trialDays > 0
-        ? new Date(Date.now() + plan.trialDays * 24 * 60 * 60 * 1000)
-        : null;
+    /*
+     * תמיד תאריך תפוגה, לעולם לא null.
+     *
+     * `null` פירושו "בלי תפוגה", וזה המצב של משרד משלם. הרשמה עצמית
+     * לא מייצרת אחד כזה: `offeredPlans` כבר סינן מסלולים בלי ימי
+     * ניסיון, והבדיקה למעלה חוסמת קוד שנשלח ידנית.
+     */
+    const trialEndsAt = new Date(Date.now() + plan.trialDays * 24 * 60 * 60 * 1000);
 
     /*
      * דייר ומשתמש בטרנזקציה אחת.
@@ -135,14 +146,11 @@ export class SignupService {
     email: string,
     name: string,
     plan: PlanDefinition,
-    trialEndsAt: Date | null,
+    trialEndsAt: Date,
   ): Promise<void> {
     try {
       if (!(await this.email.isConfigured())) return;
-      const until =
-        trialEndsAt === null
-          ? ""
-          : ` תקופת הניסיון פתוחה עד ${trialEndsAt.toLocaleDateString("he-IL")}.`;
+      const until = ` תקופת הניסיון פתוחה עד ${trialEndsAt.toLocaleDateString("he-IL")}.`;
       await this.email.send(
         email,
         "ברוכים הבאים למתווכים",

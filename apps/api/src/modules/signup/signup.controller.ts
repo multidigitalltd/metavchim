@@ -94,7 +94,7 @@ export class SignupController {
     @Body(new ZodValidationPipe(SignupSchema)) body: z.infer<typeof SignupSchema>,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ trialEndsAt: string | null }> {
+  ): Promise<{ trialEndsAt: string }> {
     const { user, trialEndsAt } = await this.signup.register(body);
     const { token, expiresAt } = await this.auth.issueSession(user, {
       ip: req.ip,
@@ -107,6 +107,6 @@ export class SignupController {
       expires: expiresAt,
       path: "/",
     });
-    return { trialEndsAt: trialEndsAt?.toISOString() ?? null };
+    return { trialEndsAt: trialEndsAt.toISOString() };
   }
 }

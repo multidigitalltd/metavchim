@@ -41,6 +41,15 @@ export default function SignupPage(): React.JSX.Element {
   const [chosen, setChosen] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /*
+   * אישור התנאים במצב מבוקר ולא כשדה בטופס.
+   *
+   * הטופס הוא noValidate (כדי לשלוט בהודעות השגיאה בעברית), ולכן
+   * `required` על תיבת הסימון אינו עוצר שליחה. שליחת `acceptTerms:
+   * true` קבוע הייתה יוצרת חשבון עם הסכמה שהמשתמש מעולם לא נתן —
+   * ולא רק באג טכני אלא הצהרה שגויה (ביקורת Codex).
+   */
+  const [accepted, setAccepted] = useState(false);
 
   useEffect(() => {
     apiGet<{ plans: OfferedPlan[] }>("/signup/plans")
@@ -56,6 +65,10 @@ export default function SignupPage(): React.JSX.Element {
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (chosen === null) return;
+    if (!accepted) {
+      setError("יש לאשר את תנאי השימוש ומדיניות הפרטיות");
+      return;
+    }
     const form = new FormData(event.currentTarget);
     setSubmitting(true);
     setError(null);
@@ -262,7 +275,12 @@ export default function SignupPage(): React.JSX.Element {
             תיבה שלא סומנה עוצרת כאן ולא בשגיאת שרת סתומה.
           */}
           <label className="mb-4 flex items-start gap-2 text-[13.5px]">
-            <input type="checkbox" required className="mt-1" />
+            <input
+              type="checkbox"
+              checked={accepted}
+              onChange={(event) => setAccepted(event.target.checked)}
+              className="mt-1"
+            />
             <span>
               קראתי ואני מסכים/ה ל
               <Link href="/terms" className="underline">
@@ -275,7 +293,11 @@ export default function SignupPage(): React.JSX.Element {
             </span>
           </label>
 
-          <button type="submit" disabled={submitting || chosen === null} className="mv-auth-submit">
+          <button
+            type="submit"
+            disabled={submitting || chosen === null || !accepted}
+            className="mv-auth-submit"
+          >
             {submitting ? "פותח משרד…" : "פתחו את המשרד"}
           </button>
         </form>
