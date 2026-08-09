@@ -10,8 +10,10 @@ import { useRequireAuth } from "@/lib/use-auth";
 import { ExportSection } from "./export-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
 import { WhatsAppStatusSection } from "./whatsapp-status-section";
+import { TelephonySection } from "./telephony-section";
 import { AgreementTemplatesSection } from "./agreement-templates-section";
 import { SystemUpdateSection } from "./system-update";
+import { UserPermissions } from "./user-permissions";
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
 
@@ -124,6 +126,8 @@ export default function SettingsPage() {
   const [tempPassword, setTempPassword] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [adding, setAdding] = useState(false);
+  /** מזהה המשתמש שפאנל ההרשאות שלו פתוח — אחד בכל רגע */
+  const [permissionsFor, setPermissionsFor] = useState<string | null>(null);
 
   const load = useCallback(() => {
     apiGet<TenantSettings>("/settings/tenant")
@@ -280,7 +284,8 @@ export default function SettingsPage() {
                   const seesAll = caps.includes("buyers.view_all");
                   const editable = member.role !== "owner" && member.id !== user?.id;
                   return (
-                    <div key={member.id} className="mv-list-row" style={{ gridTemplateColumns: TEAM_GRID, opacity: member.isActive ? 1 : 0.55 }}>
+                    <div key={member.id}>
+                    <div className="mv-list-row" style={{ gridTemplateColumns: TEAM_GRID, opacity: member.isActive ? 1 : 0.55 }}>
                       <span className="flex items-center gap-2.5 text-sm font-bold">
                         <span
                           aria-hidden="true"
@@ -339,11 +344,30 @@ export default function SettingsPage() {
                           </button>
                         ) : null}
                         {editable ? (
+                          <button
+                            type="button"
+                            className="mv-btn-plain"
+                            aria-expanded={permissionsFor === member.id}
+                            onClick={() =>
+                              setPermissionsFor(permissionsFor === member.id ? null : member.id)
+                            }
+                          >
+                            🔑 הרשאות
+                          </button>
+                        ) : null}
+                        {editable ? (
                           <button type="button" className="mv-btn-plain" onClick={() => void toggleActive(member)}>
                             {member.isActive ? "השבת" : "הפעל"}
                           </button>
                         ) : null}
                       </span>
+                    </div>
+                    {permissionsFor === member.id ? (
+                      <UserPermissions
+                        userId={member.id}
+                        onClose={() => setPermissionsFor(null)}
+                      />
+                    ) : null}
                     </div>
                   );
                 })}
@@ -417,6 +441,7 @@ export default function SettingsPage() {
           </section>
 
           <WhatsAppStatusSection />
+          <TelephonySection />
 
           {tenant ? <LeadWebhookSection initialKey={tenant.leadWebhookKey} /> : null}
 

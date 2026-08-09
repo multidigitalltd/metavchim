@@ -53,14 +53,65 @@ model User {
   lastLoginAt  DateTime? @map("last_login_at")
   // מסך "מה חדש": העדכון האחרון שנצפה — הבאנר מוצג רק על חדשות מזה והלאה
   lastSeenAnnouncement String? @map("last_seen_announcement") @db.VarChar(60)
+  /// העדפות אישיות (נגישות ותצוגה) — נוסעות עם המשתמש בין מכשירים
+  preferences  Json     @default("{}")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
   tenant   Tenant    @relation(fields: [tenantId], references: [id])
   sessions Session[]
+  capabilityOverrides UserCapability[]
 
   @@index([tenantId, isActive])
   @@map("users")
+}
+
+/// חריג הרשאה למשתמש בודד — מעל מה שהתפקיד נותן (docs/04 §3).
+/// הפירוט וההנמקה: packages/shared/src/logic/capability-overrides.ts
+model UserCapability {
+  id         String    @id @db.Char(26)
+  tenantId   String    @map("tenant_id") @db.Char(26)
+  userId     String    @map("user_id") @db.Char(26)
+  capability String    @db.VarChar(40)
+  /// "grant" = הוספה מעבר לתפקיד, "deny" = חסימה
+  effect     String    @db.VarChar(10)
+  /// null = לצמיתות. התפוגה נאכפת בקריאה, לא בעבודת ניקוי.
+  expiresAt  DateTime? @map("expires_at")
+  reason     String?   @db.VarChar(200)
+  createdBy  String?   @map("created_by") @db.Char(26)
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, capability])
+  @@index([tenantId, userId])
+  @@map("user_capabilities")
+}
+
+/// חיבור של המשרד לשירות חיצוני (מרכזייה וכו').
+/// ההנמקה והחלטות הזיהוי: packages/shared/src/logic/telephony.ts
+model Integration {
+  id        String   @id @db.Char(26)
+  tenantId  String   @map("tenant_id") @db.Char(26)
+  /// telephony
+  kind      String   @db.VarChar(30)
+  provider  String   @db.VarChar(30)
+  /// active | disabled
+  status    String   @default("active") @db.VarChar(20)
+  /// הגדרות שאינן סוד — מוצגות במסך
+  config    Json     @default("{}")
+  /// אישורי הספק, מוצפנים; לעולם לא מוחזרים ללקוח
+  secretsEncrypted String? @map("secrets_encrypted")
+  /// מזהה המשרד בכתובת ה-Webhook הציבורית
+  webhookKey String  @unique @map("webhook_key") @db.VarChar(64)
+  lastEventAt DateTime? @map("last_event_at")
+  createdBy String?  @map("created_by") @db.Char(26)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, kind])
+  @@map("integrations")
 }
 
 model Session {
@@ -605,6 +656,8 @@ model Call {
   direction       String   @db.VarChar(10)
   /// manual | provider
   source          String   @default("manual") @db.VarChar(20)
+  /// מזהה השיחה אצל ספק המרכזייה — מפתח אידמפוטנטיות מול שליחות חוזרות
+  providerCallId  String?  @map("provider_call_id") @db.VarChar(80)
   contactId       String?  @map("contact_id") @db.Char(26)
   leadId          String?  @map("lead_id") @db.Char(26)
   phoneEncrypted  String?  @map("phone_encrypted")

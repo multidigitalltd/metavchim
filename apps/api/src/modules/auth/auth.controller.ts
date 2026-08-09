@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  Patch,
   Post,
   Req,
   Res,
@@ -15,7 +16,8 @@ import { z } from "zod";
 import { loadEnv } from "../../config/env";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AnyAuthenticated, Public } from "../../common/auth.decorators";
-import { AuthService, type AuthenticatedUser } from "./auth.service";
+import { TenantContext } from "../../common/tenant-context";
+import { AuthService, type AuthenticatedUser, type ProfileDto } from "./auth.service";
 import { GoogleAuthService } from "./google-auth.service";
 import { LoginOtpService } from "./login-otp.service";
 import { LoginThrottleService } from "./login-throttle.service";
@@ -30,6 +32,25 @@ const LoginSchema = z
   .object({
     email: z.string().email().max(254),
     password: z.string().min(8).max(200),
+  })
+  .strict();
+
+/**
+ * עריכת הפרופיל.
+ *
+ * שינוי אימייל דורש סיסמה נוכחית: הכתובת היא זהות ההתחברות, ומי
+ * שהשתלט על מסך פתוח לרגע יכול היה בלעדיה להעביר את החשבון אליו.
+ */
+const UpdateProfileSchema = z
+  .object({
+    // trim לפני הבדיקה: בלעדיו שם של רווחים בלבד עובר min(2) ואז
+    // נשמר כמחרוזת ריקה, ושובר את כותרת הפרופיל (ביקורת Codex)
+    name: z.string().trim().min(2).max(120).optional(),
+    /** ספרות, רווחים ומקפים; "" מנקה את השדה */
+    phone: z.union([z.string().regex(/^[\d\-+ ]{9,20}$/u), z.literal("")]).optional(),
+    email: z.string().email().max(254).optional(),
+    currentPassword: z.string().min(1).max(200).optional(),
+    preferences: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 
@@ -261,7 +282,9 @@ export class AuthController {
 
   @AnyAuthenticated()
   @Get("me")
-  me(@Req() req: Request): { user: AuthenticatedUser & { isPlatformAdmin: boolean } } {
+  me(
+    @Req() req: Request,
+  ): { user: AuthenticatedUser & { isPlatformAdmin: boolean; capabilities: string[] } } {
     const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
     if (!user) {
       throw new UnauthorizedException();
@@ -269,7 +292,45 @@ export class AuthController {
     // מנהל פלטפורמה — קובע אם קישור "פלטפורמה" מוצג בניווט (האכיפה
     // עצמה בשרת; זה רק לתצוגה)
     const isPlatformAdmin = loadEnv().PLATFORM_ADMIN_EMAILS.includes(user.email.toLowerCase());
-    return { user: { ...user, isPlatformAdmin } };
+    /*
+     * היכולות בפועל, כולל חריגי המשתמש.
+     *
+     * המסכים גזרו אותן עד כה מ-ROLE_CAPABILITIES[role] — כלומר
+     * מברירת המחדל של התפקיד. מרגע שיש חריגים ברמת המשתמש (#80) שתי
+     * התשובות נפרדו: סוכן שנחסמה לו יכולת עדיין ראה את הכפתור וקיבל
+     * 403, ו-viewer שקיבל יכולת לא ראה אותו כלל. השרת כבר מחשב את
+     * הקבוצה האפקטיבית בכל בקשה — נשאר רק להחזיר אותה (ביקורת Codex).
+     */
+    const capabilities = [...TenantContext.current().capabilities];
+    return { user: { ...user, isPlatformAdmin, capabilities } };
+  }
+
+  /**
+   * הפרופיל של המשתמש עצמו — לקריאה ולעריכה.
+   *
+   * מופרד מ-/settings/users: שם מנהל עורך *אחרים* ונדרשת
+   * users.manage, וכאן כל משתמש עורך את עצמו בלבד. המזהה נלקח
+   * מה-Session ולא מהבקשה, ולכן אין כאן נתיב לעריכת פרופיל של אחר.
+   */
+  @AnyAuthenticated()
+  @Get("profile")
+  async profile(@Req() req: Request): Promise<ProfileDto> {
+    const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
+    if (!user) throw new UnauthorizedException();
+    return this.auth.getProfile(user.id);
+  }
+
+  @AnyAuthenticated()
+  @Patch("profile")
+  @UsePipes(new ZodValidationPipe(UpdateProfileSchema))
+  async updateProfile(
+    @Body() body: z.infer<typeof UpdateProfileSchema>,
+    @Req() req: Request,
+  ): Promise<ProfileDto> {
+    const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
+    if (!user) throw new UnauthorizedException();
+    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
+    return this.auth.updateProfile(user.id, body, token);
   }
 
   @AnyAuthenticated()
@@ -284,7 +345,8 @@ export class AuthController {
     if (!user) {
       throw new UnauthorizedException();
     }
-    await this.auth.changePassword(user.id, body.currentPassword, body.newPassword);
+    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
+    await this.auth.changePassword(user.id, body.currentPassword, body.newPassword, token);
     return { ok: true };
   }
 }

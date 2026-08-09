@@ -15,6 +15,8 @@ export interface ContactDto {
   id: string;
   name: string;
   phone: string;
+  /** אופציונלי: כרטיס שנוצר משיחה נכנסת או מטופס לא תמיד כולל אימייל */
+  email?: string;
 }
 
 /**
@@ -93,13 +95,15 @@ export class ContactsService {
   async getById(tx: TenantTx, id: string): Promise<ContactDto | null> {
     const row = await tx.contact.findFirst({
       where: { id, tenantId: TenantContext.current().tenantId },
-      select: { id: true, nameEncrypted: true, phoneEncrypted: true },
+      select: { id: true, nameEncrypted: true, phoneEncrypted: true, emailEncrypted: true },
     });
     if (!row) return null;
     return {
       id: row.id,
       name: this.crypto.decrypt(row.nameEncrypted),
       phone: this.crypto.decrypt(row.phoneEncrypted),
+      // האימייל אופציונלי — כרטיס שנוצר משיחה או מטופס לא תמיד כולל אותו
+      ...(row.emailEncrypted ? { email: this.crypto.decrypt(row.emailEncrypted) } : {}),
     };
   }
 

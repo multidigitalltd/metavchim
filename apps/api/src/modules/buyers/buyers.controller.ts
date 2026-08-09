@@ -37,6 +37,13 @@ const UpdateBuyerSchema = z
 const ListQuerySchema = z
   .object({
     maturity: BuyerMaturitySchema.optional(),
+    /** חיפוש חופשי — ערים מבוקשות, הערות הסוכן, סיכומי AI ומקור */
+    q: z.string().max(120).optional(),
+    /** בשקלים; נבדק בחפיפה מול טווח התקציב של הקונה */
+    minPrice: z.coerce.number().min(0).optional(),
+    maxPrice: z.coerce.number().min(0).optional(),
+    minRooms: z.coerce.number().min(0).max(30).optional(),
+    maxRooms: z.coerce.number().min(0).max(30).optional(),
     cursor: z.string().max(30).optional(),
     limit: z.coerce.number().int().min(1).max(100).default(50),
   })

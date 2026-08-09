@@ -7,6 +7,8 @@ import {
   type Page,
 } from "@metavchim/shared";
 import { ownershipFilter } from "../../common/ownership";
+import { freeTextTerms, normalizeRange, priceRangeAgorot } from "@metavchim/shared";
+import type { Prisma } from "@prisma/client";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -425,7 +427,79 @@ export class BuyersService {
     });
   }
 
-  async list(query: { maturity?: string; cursor?: string; limit: number }): Promise<Page<BuyerDto>> {
+  async list(query: {
+    maturity?: string;
+    q?: string;
+    minPrice?: number;
+    maxPrice?: number;
+    minRooms?: number;
+    maxRooms?: number;
+    cursor?: string;
+    limit: number;
+  }): Promise<Page<BuyerDto>> {
+    const budget = priceRangeAgorot(query.minPrice, query.maxPrice);
+    const rooms = normalizeRange(query.minRooms, query.maxRooms);
+    const terms = freeTextTerms(query.q);
+
+    /*
+     * כל התנאים נאספים לרשימת AND אחת ולא נפרשים כמפתחות נפרדים.
+     *
+     * שני תנאים שמשתמשים ב-OR באותה רמה היו דורסים זה את זה בפריסת
+     * האובייקט: המפתח השני מנצח, והראשון נעלם בשקט בלי שום שגיאה.
+     */
+    const conditions: Prisma.BuyerWhereInput[] = [];
+
+    /*
+     * חפיפה, לא הכלה. לקונה יש *טווח* תקציב ולא מחיר אחד, ולכן מי
+     * שמסנן "1–2 מיליון" מקבל גם קונה עם 1.5–2.5. בדיקת הכלה הייתה
+     * מסתירה בדיוק את הקונים שבגבול, שהם לרוב המעניינים.
+     * הנימוק המלא ב-list-filters (rangesOverlap).
+     *
+     * קצה חסר = פתוח, ולכן null חייב לעבור: ב-SQL `NULL <= x` אינו
+     * true אלא NULL, וקונה שלא הגדיר תקציב מינימלי היה נעלם מכל
+     * סינון "עד X" — הסמנטיקה ההפוכה בדיוק ממה שהלוגיקה המשותפת
+     * מגדירה ובודקת (ביקורת Codex).
+     */
+    if (budget.max !== undefined) {
+      conditions.push({ OR: [{ budgetMinAgorot: { lte: budget.max } }, { budgetMinAgorot: null }] });
+    }
+    if (budget.min !== undefined) conditions.push({ budgetMaxAgorot: { gte: budget.min } });
+    if (rooms.max !== undefined) {
+      conditions.push({ OR: [{ roomsMin: { lte: rooms.max } }, { roomsMin: null }] });
+    }
+    if (rooms.min !== undefined) {
+      conditions.push({ OR: [{ roomsMax: { gte: rooms.min } }, { roomsMax: null }] });
+    }
+
+    /*
+     * שתי דרכים להתאים לחיפוש החופשי, ומספיקה אחת:
+     *   1. כל המונחים נמצאים בשדות הטקסט (AND בין מונחים).
+     *   2. שורת החיפוש **כולה** היא עיר מבוקשת.
+     *
+     * הפיצול נדרש כי `has` על מערך דורש התאמה מדויקת לאיבר שלם:
+     * "רמת גן" מתפרק ל"רמת" ו"גן", ואף אחד מהם אינו שווה לאיבר
+     * "רמת גן" — כלומר רוב ערי ישראל לא היו נמצאות (ביקורת Codex).
+     *
+     * שם הלקוח והטלפון אינם כאן: הם מוצפנים במסד, ואי אפשר לחפש
+     * בהם ILIKE. חיפוש לפי שם עובר דרך החיפוש הגלובלי (name_hash).
+     */
+    if (terms.length > 0) {
+      conditions.push({
+        OR: [
+          {
+            AND: terms.map((term) => ({
+              OR: [
+                { agentNotes: { contains: term, mode: "insensitive" as const } },
+                { aiNotes: { contains: term, mode: "insensitive" as const } },
+                { source: { contains: term, mode: "insensitive" as const } },
+              ],
+            })),
+          },
+          { cities: { has: (query.q ?? "").trim() } },
+        ],
+      });
+    }
+
     return this.prisma.withTenant(async (tx) => {
       const rows = await tx.buyer.findMany({
         where: {
@@ -433,6 +507,7 @@ export class BuyersService {
           deletedAt: null,
           ...ownershipFilter("buyers.view_all", "ownerUserId"),
           ...(query.maturity ? { maturity: query.maturity } : {}),
+          ...(conditions.length > 0 ? { AND: conditions } : {}),
           ...(query.cursor ? { id: { lt: query.cursor } } : {}),
         },
         orderBy: { id: "desc" },

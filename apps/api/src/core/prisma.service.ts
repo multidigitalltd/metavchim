@@ -35,6 +35,26 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   /**
+   * גישה תחת דייר שמזוהה במפורש, ולא מהקשר הבקשה.
+   *
+   * קיים בשביל מקרה אחד: פענוח ה-Session. הוא רץ *לפני*
+   * `TenantContext.run`, ולכן `withTenant` לא יכול לשמש שם — הוא היה
+   * זורק. שאילתה ישירה גם היא לא פתרון: הטבלאות העסקיות תחת FORCE
+   * RLS, ותפקיד האפליקציה אינו עוקף אותן, כך שבלי `app.tenant_id`
+   * התוצאה היא אפס שורות **בשקט** — הרשאות שנשמרו היו נעלמות בלי
+   * שום שגיאה (ביקורת Codex).
+   *
+   * ה-tenantId חייב להגיע ממקור שרת מאומת (שורת ה-Session), לעולם
+   * לא מקלט משתמש.
+   */
+  async withExplicitTenant<T>(tenantId: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+      return fn(tx);
+    });
+  }
+
+  /**
    * קריאת רשת שיתופי הפעולה: ביקושים אנונימיים גלויים לכל הסוכנויות
    * (docs/04 §7). פוליסת ה-RLS של shared_demands מתירה SELECT כשמוגדר
    * app.network_read — אין בטבלה PII, והקישור לקונה לא נחשף בשכבת ה-DTO.
@@ -62,6 +82,21 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   async withPublicAgreement<T>(token: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> {
     return this.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.agreement_token', ${token}, true)`;
+      return fn(tx);
+    });
+  }
+
+  /**
+   * גישה ציבורית לפי מפתח ה-Webhook של אינטגרציה (מרכזיית טלפון).
+   *
+   * הנתיב שהספק קורא לו ציבורי מעצם טבעו — מרכזייה לא מתחברת עם
+   * עוגייה — ולכן אין בו הקשר דייר. אותה תבנית של דף ההצעה: הפוליסה
+   * חושפת את שורת האינטגרציה של המפתח בלבד, ומשם נגזר הדייר לשאר
+   * העבודה.
+   */
+  async withPublicIntegration<T>(key: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.integration_key', ${key}, true)`;
       return fn(tx);
     });
   }

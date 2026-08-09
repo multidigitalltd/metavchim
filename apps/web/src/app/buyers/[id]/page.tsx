@@ -3,10 +3,9 @@
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
-import { ROLE_CAPABILITIES } from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { FINANCING_LABELS, formatBuyerSource, formatDate, formatPrice, MATURITY_LABELS, waMeUrl } from "@/lib/format";
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import { WithDictation } from "../../dictation-field";
 import { TimelineSection } from "./timeline-section";
 import { ContactPeople } from "../../contact-people";
@@ -88,7 +87,7 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
   const { user, loading: authLoading } = useRequireAuth();
   // היכולת נגזרת מטבלת התפקידים המשותפת ולא מרשימת תפקידים מקומית —
   // שינוי הרשאות במקום אחד לא ישאיר כאן כפתור שהשרת ידחה
-  const canEditPeople = (ROLE_CAPABILITIES[user?.role ?? ""] ?? []).includes("buyers.edit");
+  const canEditPeople = can(user, "buyers.edit");
   const [buyer, setBuyer] = useState<BuyerDetail | null>(null);
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
