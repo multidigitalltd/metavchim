@@ -12,6 +12,7 @@ import { ExportSection } from "./export-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
 import { PlanSection } from "./plan-section";
 import { WhatsAppStatusSection } from "./whatsapp-status-section";
+import { LockedFeature } from "./locked-feature";
 import { TelephonySection } from "./telephony-section";
 import { AgreementTemplatesSection } from "./agreement-templates-section";
 import { SystemUpdateSection } from "./system-update";
@@ -449,11 +450,25 @@ export default function SettingsPage() {
           </section>
 
           <WhatsAppStatusSection />
-          {canTelephony ? <TelephonySection /> : null}
+          {canTelephony ? (
+            <TelephonySection />
+          ) : (
+            <LockedFeature
+              code="telephony"
+              description="שיחות נכנסות נכנסות למערכת אוטומטית עם זיהוי הלקוח, וחיוג יוצא בלחיצה מתוך הכרטיס. תומך ב-015, Vonage ובכל מרכזייה ששולחת Webhook."
+            />
+          )}
 
           {tenant ? <LeadWebhookSection initialKey={tenant.leadWebhookKey} /> : null}
 
-          {canAgreements ? <AgreementTemplatesSection /> : null}
+          {canAgreements ? (
+            <AgreementTemplatesSection />
+          ) : (
+            <LockedFeature
+              code="agreements"
+              description="הסכמי תיווך ובלעדיות נשלחים לחתימה בקישור, נחתמים מהנייד ונשמרים בכרטיס — בלי מדפסת ובלי סורק."
+            />
+          )}
 
           {/* ---- יומן פעילות ---- */}
           <section className="mv-list-card" aria-labelledby="audit-heading">

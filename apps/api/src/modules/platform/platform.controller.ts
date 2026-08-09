@@ -109,6 +109,11 @@ const UpdateSettingsSchema = z
     loginOtpEnabled: z.boolean().optional(),
     googleClientId: z.union([z.string().min(10).max(200), z.literal("")]).optional(),
     googleClientSecret: z.union([z.string().min(10).max(200), z.literal("")]).optional(),
+    // מספר המסוף מגיע כמחרוזת ולא כמספר: הוא מזהה, לא כמות, ואפסים
+    // מובילים בו משמעותיים
+    cardcomTerminalNumber: z.union([z.string().regex(/^\d{1,12}$/u), z.literal("")]).optional(),
+    cardcomApiName: z.union([z.string().min(3).max(100), z.literal("")]).optional(),
+    cardcomApiPassword: z.union([z.string().min(6).max(200), z.literal("")]).optional(),
   })
   .strict();
 
@@ -329,6 +334,8 @@ export class PlatformController {
     /** webhookUrl מוגדר פעם אחת במטא לכל הפלטפורמה — ולכן הוא כאן ולא בהגדרות המשרד. */
     whatsapp: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
     google: { configured: boolean; source: "db" | "env" | "none"; redirectUri: string };
+    /** webhookUrl היא הכתובת שנרשמת אצל קארדקום — מוצגת כדי שלא ינחשו אותה. */
+    cardcom: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
     loginOtpEnabled: boolean;
   }> {
     const env = loadEnv();
@@ -341,6 +348,14 @@ export class PlatformController {
     const waEnv = env.WHATSAPP_APP_SECRET !== undefined && env.WHATSAPP_VERIFY_TOKEN !== undefined;
     const googleDb = has("googleClientId") && has("googleClientSecret");
     const googleEnv = env.GOOGLE_CLIENT_ID !== undefined && env.GOOGLE_CLIENT_SECRET !== undefined;
+    // שלושת השדות יחד: מסוף בלי סיסמת API הוא סליקה שנופלת בלחיצה
+    // הראשונה, וזה בדיוק המצב שאסור להציג כ"מוגדר"
+    const cardcomDb =
+      has("cardcomTerminalNumber") && has("cardcomApiName") && has("cardcomApiPassword");
+    const cardcomEnv =
+      env.CARDCOM_TERMINAL_NUMBER !== undefined &&
+      env.CARDCOM_API_NAME !== undefined &&
+      env.CARDCOM_API_PASSWORD !== undefined;
     const otpDb = await this.platformSettings.get("loginOtpEnabled");
 
     return {
@@ -360,6 +375,11 @@ export class PlatformController {
         // הכתובת שחייבת להירשם ב-Google Cloud Console — מוצגת כדי
         // שלא יהיה צורך לנחש אותה
         redirectUri: `${env.WEB_ORIGIN}/api/v1/auth/google/callback`,
+      },
+      cardcom: {
+        configured: cardcomDb || cardcomEnv,
+        source: cardcomDb ? "db" : cardcomEnv ? "env" : "none",
+        webhookUrl: `${env.WEB_ORIGIN}/api/v1/webhooks/cardcom`,
       },
       loginOtpEnabled: otpDb !== undefined ? otpDb === "true" : env.LOGIN_OTP_ENABLED,
     };
