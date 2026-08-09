@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { apiGet } from "@/lib/api";
 
 /**
@@ -158,8 +159,17 @@ export function PlanSection(): React.JSX.Element | null {
               </li>
             ))}
           </ul>
-          <p className="m-0 mt-3 text-xs" style={{ color: "var(--color-text-muted)" }}>
-            לשדרוג מסלול — פנו אלינו. השינוי נכנס לתוקף מיד, בלי להתקין כלום.
+          {/*
+            כפתור ולא "פנו אלינו". מתווך שנתקל בחסימה בשבע בערב אינו
+            מתקשר — הוא מוותר, וזו המכירה שאבדה.
+          */}
+          <p className="m-0 mt-4">
+            <Link href="/settings/billing" className="mv-btn-primary inline-block">
+              מסלולים ותשלום
+            </Link>
+          </p>
+          <p className="m-0 mt-2 text-xs" style={{ color: "var(--color-text-muted)" }}>
+            השינוי נכנס לתוקף מיד, בלי להתקין כלום.
           </p>
         </>
       )}

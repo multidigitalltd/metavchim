@@ -18,7 +18,10 @@ export type PlatformSettingKey =
   | "whatsappVerifyToken"
   | "loginOtpEnabled"
   | "googleClientId"
-  | "googleClientSecret";
+  | "googleClientSecret"
+  | "cardcomTerminalNumber"
+  | "cardcomApiName"
+  | "cardcomApiPassword";
 
 const CACHE_TTL_MS = 30_000;
 

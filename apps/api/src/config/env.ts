@@ -102,6 +102,14 @@ const EnvSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().min(10).optional(),
   GOOGLE_CLIENT_SECRET: z.string().min(10).optional(),
   /**
+   * קארדקום — סליקת המנויים. שלושתם יחד או אף אחד: בלעדיהם הסליקה
+   * כבויה, המסך מציג "טרם הופעלה" ואין כפתור תשלום שנופל. אפשר
+   * להגדיר גם מ-/platform (מוצפן ב-DB), וזה הדפוס המומלץ.
+   */
+  CARDCOM_TERMINAL_NUMBER: z.string().min(1).optional(),
+  CARDCOM_API_NAME: z.string().min(3).optional(),
+  CARDCOM_API_PASSWORD: z.string().min(6).optional(),
+  /**
    * אימיילים (מופרדים בפסיק) של מנהלי הפלטפורמה — מי שמקים משרדים
    * חדשים מהממשק (/platform). ריק = המסך כבוי, הקמה רק ב-bootstrap.
    */

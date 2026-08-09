@@ -9,6 +9,7 @@ import { CoreModule } from "./core/core.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { AnalyticsModule } from "./modules/analytics/analytics.module";
 import { AnnouncementsModule } from "./modules/announcements/announcements.module";
+import { BillingModule } from "./modules/billing/billing.module";
 import { BuyersModule } from "./modules/buyers/buyers.module";
 import { CalendarModule } from "./modules/calendar/calendar.module";
 import { CoachModule } from "./modules/coach/coach.module";
@@ -65,6 +66,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     CollaborationModule,
     SettingsModule,
     SignupModule,
+    BillingModule,
     TelephonyModule,
     AnalyticsModule,
     CoachModule,

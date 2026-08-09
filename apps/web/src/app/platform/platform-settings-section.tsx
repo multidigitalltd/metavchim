@@ -16,6 +16,7 @@ interface PlatformSettings {
   postmark: { configured: boolean; source: "db" | "env" | "none"; emailFrom?: string };
   whatsapp: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
   google: { configured: boolean; source: "db" | "env" | "none"; redirectUri: string };
+  cardcom: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
   loginOtpEnabled: boolean;
 }
 
@@ -110,6 +111,32 @@ export function PlatformSettingsSection() {
       });
       form.reset();
       setMessage("✓ הגדרות Google נשמרו — כפתור ההתחברות יופיע במסך הכניסה");
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveCardcom(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setMessage(null);
+    setBusy(true);
+    const form = event.currentTarget;
+    const f = new FormData(form);
+    try {
+      const terminal = String(f.get("cardcomTerminalNumber")).trim();
+      const apiName = String(f.get("cardcomApiName")).trim();
+      const apiPassword = String(f.get("cardcomApiPassword")).trim();
+      await apiPatch("/platform/settings", {
+        ...(terminal !== "" ? { cardcomTerminalNumber: terminal } : {}),
+        ...(apiName !== "" ? { cardcomApiName: apiName } : {}),
+        ...(apiPassword !== "" ? { cardcomApiPassword: apiPassword } : {}),
+      });
+      form.reset();
+      setMessage("✓ פרטי הסליקה נשמרו — כפתור הרכישה יופיע במסך המנוי של כל משרד");
       load();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
@@ -264,6 +291,80 @@ export function PlatformSettingsSection() {
               dir="ltr"
               autoComplete="off"
               placeholder={settings.google.configured ? "••••••••" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <Button type="submit" disabled={busy}>שמור</Button>
+        </form>
+      </div>
+
+      {/* ---------- סליקה (קארדקום) ---------- */}
+      <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-semibold">💳 סליקה (קארדקום)</h3>
+          <StatusBadge configured={settings.cardcom.configured} source={settings.cardcom.source} />
+        </div>
+        <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          מספר המסוף ופרטי ה-API מאזור הניהול של קארדקום ⟵ הגדרות ⟵ משתמשי API.
+          בלעדיהם מסך המנוי מציג &quot;התשלום המקוון טרם הופעל&quot; ואין כפתור רכישה.
+        </p>
+        <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          פרטי כרטיס האשראי מוקלדים בדף של קארדקום ואינם עוברים במערכת בשום שלב.
+        </p>
+        <div className="mb-3">
+          <p className="mb-1 text-sm font-medium">כתובת ה-Webhook להזנה בקארדקום:</p>
+          <p
+            className="overflow-x-auto rounded-lg border p-2 font-mono text-sm"
+            dir="ltr"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+          >
+            {settings.cardcom.webhookUrl}
+          </p>
+        </div>
+        <form onSubmit={(e) => void saveCardcom(e)} className="flex flex-wrap items-end gap-3">
+          <div style={{ minWidth: "140px" }}>
+            <label htmlFor="cardcomTerminalNumber" className="mb-1 block font-medium">
+              מספר מסוף {settings.cardcom.configured ? <span className="font-normal">(ריק = ללא שינוי)</span> : null}
+            </label>
+            <input
+              id="cardcomTerminalNumber"
+              name="cardcomTerminalNumber"
+              type="text"
+              inputMode="numeric"
+              dir="ltr"
+              autoComplete="off"
+              placeholder={settings.cardcom.configured ? "••••" : "1000"}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div className="flex-1" style={{ minWidth: "180px" }}>
+            <label htmlFor="cardcomApiName" className="mb-1 block font-medium">
+              שם משתמש API {settings.cardcom.configured ? <span className="font-normal">(ריק = ללא שינוי)</span> : null}
+            </label>
+            <input
+              id="cardcomApiName"
+              name="cardcomApiName"
+              type="text"
+              dir="ltr"
+              autoComplete="off"
+              placeholder={settings.cardcom.configured ? "••••••••" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div className="flex-1" style={{ minWidth: "180px" }}>
+            <label htmlFor="cardcomApiPassword" className="mb-1 block font-medium">
+              סיסמת API {settings.cardcom.configured ? <span className="font-normal">(ריק = ללא שינוי)</span> : null}
+            </label>
+            <input
+              id="cardcomApiPassword"
+              name="cardcomApiPassword"
+              type="password"
+              dir="ltr"
+              autoComplete="off"
+              placeholder={settings.cardcom.configured ? "••••••••" : ""}
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
             />

@@ -464,8 +464,8 @@ export function PlansSection({
                     */}
                     {plan.isPublic && plan.trialDays === 0 ? (
                       <p className="m-0 mb-2 text-xs" style={{ color: "#8a6414" }}>
-                        ⚠️ בלי ימי ניסיון המסלול לא יופיע בדף ההרשמה — עד שתהיה סליקה הוא
-                        נסגר בשיחה.
+                        ⚠️ בלי ימי ניסיון המסלול לא יופיע בדף ההרשמה. הוא עדיין ניתן
+                        לרכישה ממסך המנוי של משרד קיים.
                       </p>
                     ) : null}
                     <Button variant="ghost" onClick={() => startEdit(plan)}>

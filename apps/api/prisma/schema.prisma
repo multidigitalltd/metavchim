@@ -650,6 +650,63 @@ model Plan {
   @@map("plans")
 }
 
+/// מחוץ ל-RLS: רמת פלטפורמה, כמו plans ו-platform_settings.
+///
+/// ההחלטה הזו אינה נוחות. הוובהוק של קארדקום מגיע לנתיב **ציבורי**,
+/// בלי Session ובלי הקשר דייר — טבלה תחת FORCE RLS הייתה מחזירה לו
+/// אפס שורות בשקט, התשלום היה נרשם כאילו לא נמצא, והמנוי לא היה
+/// מופעל. אין כאן מידע על לקוחות הקצה של המשרד, רק מזהה דייר, סכום
+/// ומזהי עסקה; הסינון לפי דייר נאכף בשכבת האפליקציה, כמו ב-users.
+model Subscription {
+  id                 String    @id @db.Char(26)
+  /// דייר אחד, מנוי אחד. מסלול נוסף הוא שינוי של השורה הזו.
+  tenantId           String    @unique @map("tenant_id") @db.Char(26)
+  planCode           String    @map("plan_code") @db.VarChar(20)
+  /// monthly | yearly
+  billingCycle       String    @default("monthly") @map("billing_cycle") @db.VarChar(10)
+  /// trial | active | past_due | cancelled
+  status             String    @default("trial") @db.VarChar(20)
+  /// עד מתי שולם. null במצב ניסיון — שם התפוגה היא tenants.trial_ends_at.
+  currentPeriodEnd   DateTime? @map("current_period_end")
+  /// טוקן קארדקום לחיוב חוזר, מוצפן באותו מנגנון של platform_settings.
+  /// null = אין כרטיס שמור, והחידוש יהיה ידני.
+  cardTokenEncrypted String?   @map("card_token_encrypted")
+  /// ארבע ספרות ותוקף — לתצוגה בלבד, כדי שהמשרד יזהה איזה כרטיס שמור.
+  cardLast4          String?   @map("card_last4") @db.VarChar(4)
+  cardExpiry         String?   @map("card_expiry") @db.VarChar(5)
+  cancelledAt        DateTime? @map("cancelled_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, currentPeriodEnd])
+  @@map("subscriptions")
+}
+
+/// תשלום יחיד. מחוץ ל-RLS מאותה סיבה בדיוק כמו subscriptions.
+model Payment {
+  id            String    @id @db.Char(26)
+  tenantId      String    @map("tenant_id") @db.Char(26)
+  planCode      String    @map("plan_code") @db.VarChar(20)
+  billingCycle  String    @map("billing_cycle") @db.VarChar(10)
+  amountAgorot  Int       @map("amount_agorot")
+  /// pending | paid | failed
+  status        String    @default("pending") @db.VarChar(20)
+  /// מזהה דף התשלום אצל קארדקום. **ייחודי, וזה מה שהופך את הוובהוק
+  /// לאידמפוטנטי**: קארדקום שולח הודעה יותר מפעם אחת, ובלי המפתח הזה
+  /// אותו תשלום היה מאריך את התקופה פעמיים.
+  lowProfileId  String    @unique @map("low_profile_id") @db.VarChar(64)
+  transactionId String?   @map("transaction_id") @db.VarChar(40)
+  /// מה קארדקום אמר כשזה נכשל — לתמיכה, לא למשתמש
+  failureReason String?   @map("failure_reason") @db.VarChar(300)
+  paidAt        DateTime? @map("paid_at")
+  createdBy     String?   @map("created_by") @db.Char(26)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, createdAt])
+  @@map("payments")
+}
+
 model PlatformSetting {
   key            String   @id @db.VarChar(60)
   valueEncrypted String   @map("value_encrypted")
