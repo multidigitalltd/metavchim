@@ -684,9 +684,14 @@ model Subscription {
   /// טוקן קארדקום לחיוב חוזר, מוצפן באותו מנגנון של platform_settings.
   /// null = אין כרטיס שמור, והחידוש יהיה ידני.
   cardTokenEncrypted String?   @map("card_token_encrypted")
-  /// ארבע ספרות ותוקף — לתצוגה בלבד, כדי שהמשרד יזהה איזה כרטיס שמור.
+  /// ארבע ספרות — לתצוגה בלבד, כדי שהמשרד יזהה איזה כרטיס שמור.
   cardLast4          String?   @map("card_last4") @db.VarChar(4)
-  cardExpiry         String?   @map("card_expiry") @db.VarChar(5)
+  /// תוקף הכרטיס. שני שדות ולא מחרוזת אחת: החיוב החוזר דורש MMYY
+  /// מרופד באפסים, ופיצול מחרוזת בכל חיוב הוא מקום להיווצרות באג.
+  cardMonth          Int?      @map("card_month") @db.SmallInt
+  cardYear           Int?      @map("card_year") @db.SmallInt
+  /// ת"ז של בעל הכרטיס, מוצפנת — קארדקום דורש אותה בחיוב בטוקן.
+  cardOwnerIdEncrypted String? @map("card_owner_id_encrypted")
   cancelledAt        DateTime? @map("cancelled_at")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
@@ -709,6 +714,10 @@ model Payment {
   /// אותו תשלום היה מאריך את התקופה פעמיים.
   lowProfileId  String    @unique @map("low_profile_id") @db.VarChar(64)
   transactionId String?   @map("transaction_id") @db.VarChar(40)
+  /// החשבונית שקארדקום הפיק. נשמרת כי היא מה שנדרש כדי לזכות את
+  /// העסקה, ובלעדיה זיכוי מחייב כניסה לממשק של קארדקום.
+  documentType   String?  @map("document_type") @db.VarChar(40)
+  documentNumber Int?     @map("document_number")
   /// מה קארדקום אמר כשזה נכשל — לתמיכה, לא למשתמש
   failureReason String?   @map("failure_reason") @db.VarChar(300)
   paidAt        DateTime? @map("paid_at")

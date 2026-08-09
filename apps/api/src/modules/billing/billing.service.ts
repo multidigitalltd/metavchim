@@ -13,7 +13,7 @@ import {
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
-import { CardcomService } from "../../core/cardcom.service";
+import { CardcomService, type Payer } from "../../core/cardcom.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
@@ -66,7 +66,12 @@ export class BillingService {
       currentPeriodEnd: row.currentPeriodEnd,
       daysLeft: periodDaysLeft(row.currentPeriodEnd, new Date()),
       cardLast4: row.cardLast4,
-      cardExpiry: row.cardExpiry,
+      // מורכב לתצוגה כאן ולא נשמר כמחרוזת: שני השדות הם מה שהחיוב
+      // החוזר צריך, ומחרוזת מקבילה הייתה עוד מקום שיכול להיות לא מסונכרן
+      cardExpiry:
+        row.cardMonth !== null && row.cardYear !== null
+          ? `${String(row.cardMonth).padStart(2, "0")}/${String(row.cardYear % 100).padStart(2, "0")}`
+          : null,
       cancelledAt: row.cancelledAt,
     };
   }
@@ -84,7 +89,8 @@ export class BillingService {
     status: string;
     currentPeriodEnd: Date | null;
     cardLast4: string | null;
-    cardExpiry: string | null;
+    cardMonth: number | null;
+    cardYear: number | null;
     cancelledAt: Date | null;
   }> {
     const existing = await this.prisma.subscription.findUnique({ where: { tenantId } });
@@ -104,6 +110,34 @@ export class BillingService {
         status: tenant.status === "active" ? "active" : "trial",
       },
     });
+  }
+
+  /**
+   * מי משלם — לשם על החשבונית ולמילוי מראש של דף התשלום.
+   *
+   * בעל/ת המשרד ולא המשתמש שלחץ: החשבונית מונפקת למשרד. אם אין
+   * בעלים (מצב שלא אמור לקרות), נופלים למי שלחץ — חשבונית עם שם
+   * ריק גרועה מחשבונית עם השם הלא-מדויק.
+   */
+  private async payer(tenantId: string, userId: string): Promise<Payer> {
+    const [tenant, owner, actor] = await Promise.all([
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }),
+      this.prisma.user.findFirst({
+        where: { tenantId, role: "owner", isActive: true },
+        select: { email: true, phone: true },
+        orderBy: { createdAt: "asc" },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true, phone: true },
+      }),
+    ]);
+    const contact = owner ?? actor;
+    return {
+      name: tenant?.name ?? "לקוח",
+      email: contact?.email ?? "",
+      phone: contact?.phone ?? "",
+    };
   }
 
   /**
@@ -157,6 +191,7 @@ export class BillingService {
         failureUrl: `${origin}/settings/billing/return?payment=${paymentId}&failed=1`,
         webhookUrl: `${origin}/api/v1/webhooks/cardcom`,
         createToken: true,
+        payer: await this.payer(input.tenantId, input.userId),
       });
       await this.prisma.payment.update({
         where: { id: paymentId },
@@ -188,27 +223,33 @@ export class BillingService {
     if (!verified.paid) {
       // כישלון מסומן, אבל רק על שורה שעדיין ממתינה — הודעת כישלון
       // מאוחרת לא תבטל תשלום שכבר נקלט
-      if (verified.reference) {
-        await this.prisma.payment.updateMany({
-          where: { id: verified.reference, status: "pending" },
-          data: {
-            status: "failed",
-            failureReason: verified.message.slice(0, 300) || "התשלום לא אושר",
-          },
-        });
-      }
+      await this.prisma.payment.updateMany({
+        where: { lowProfileId, status: "pending" },
+        data: {
+          status: "failed",
+          failureReason: verified.message.slice(0, 300) || "התשלום לא אושר",
+        },
+      });
       return { applied: false, status: "failed" };
     }
 
-    if (!verified.reference) {
-      this.logger.warn(`תשלום שאושר בקארדקום הגיע בלי מזהה שלנו: ${lowProfileId}`);
+    /*
+     * ההתאמה לשורה שלנו נעשית **לפי `LowProfileId` ולא לפי
+     * `ReturnValue`** — אזהרה מפורשת של קארדקום, ואותה החלטה כמו
+     * באינטגרציה שכבר רצה אצלנו בפרודקשן. ה-`ReturnValue` משמש
+     * לצילוב בלבד: כשהוא קיים ואינו תואם, משהו לא במקומו והתשלום
+     * לא מופעל.
+     */
+    const payment = await this.prisma.payment.findUnique({ where: { lowProfileId } });
+    if (!payment) {
+      // עסקה על אותו מסוף שאינה שלנו — למשל תשלום ממערכת אחרת
+      this.logger.warn(`התקבל אישור על דף תשלום שאינו מוכר: ${lowProfileId}`);
       return { applied: false, status: "unknown" };
     }
-
-    const payment = await this.prisma.payment.findUnique({ where: { id: verified.reference } });
-    if (!payment) {
-      // עסקה על אותו מסוף שאינה שלנו — למשל תשלום שנעשה במערכת אחרת
-      this.logger.warn(`התקבל אישור על תשלום שאינו מוכר: ${verified.reference}`);
+    if (verified.reference !== null && verified.reference !== payment.id) {
+      this.logger.error(
+        `אי-התאמה בין דף התשלום ${lowProfileId} לבין המזהה שהוחזר ${verified.reference}`,
+      );
       return { applied: false, status: "unknown" };
     }
     if (payment.status === "paid") return { applied: false, status: "paid" };
@@ -254,7 +295,13 @@ export class BillingService {
     const outcome = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.payment.updateMany({
         where: { id: payment.id, status: "pending" },
-        data: { status: "paid", paidAt: now, transactionId: verified.transactionId },
+        data: {
+          status: "paid",
+          paidAt: now,
+          transactionId: verified.transactionId,
+          documentType: verified.documentType,
+          documentNumber: verified.documentNumber,
+        },
       });
       if (claimed.count === 0) return null; // מישהו הקדים — אין מה לעשות
 
@@ -280,7 +327,11 @@ export class BillingService {
             ? {
                 cardTokenEncrypted: token,
                 cardLast4: verified.cardLast4,
-                cardExpiry: verified.cardExpiry,
+                cardMonth: verified.cardMonth,
+                cardYear: verified.cardYear,
+                cardOwnerIdEncrypted: verified.cardOwnerIdentity
+                  ? this.crypto.encrypt(verified.cardOwnerIdentity)
+                  : null,
               }
             : {}),
         },
@@ -378,7 +429,9 @@ export class BillingService {
           // אינה משהו שצריך להסביר בדיעבד
           cardTokenEncrypted: null,
           cardLast4: null,
-          cardExpiry: null,
+          cardMonth: null,
+          cardYear: null,
+          cardOwnerIdEncrypted: null,
         },
       });
       await this.audit.record(tx, {

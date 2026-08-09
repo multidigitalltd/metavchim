@@ -20,7 +20,12 @@ CREATE TABLE subscriptions (
   -- טוקן קארדקום לחיוב חוזר, מוצפן. NULL = אין כרטיס שמור
   card_token_encrypted TEXT,
   card_last4           VARCHAR(4),
-  card_expiry          VARCHAR(5),
+  -- תוקף הכרטיס בשני שדות ולא במחרוזת אחת: החיוב החוזר דורש MMYY
+  -- מרופד באפסים, ופיצול מחרוזת בכל חיוב הוא מקום להיווצרות באג.
+  card_month           SMALLINT,
+  card_year            SMALLINT,
+  -- ת"ז של בעל הכרטיס, מוצפנת. קארדקום דורש אותה בחיוב בטוקן.
+  card_owner_id_encrypted TEXT,
   cancelled_at         TIMESTAMP(3),
   created_at           TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at           TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -42,6 +47,10 @@ CREATE TABLE payments (
   -- אותו תשלום היה מאריך את התקופה פעמיים.
   low_profile_id VARCHAR(64)  NOT NULL UNIQUE,
   transaction_id VARCHAR(40),
+  -- החשבונית שקארדקום הפיק. נשמרת כי היא מה שנדרש כדי לזכות את
+  -- העסקה; בלעדיה זיכוי מחייב כניסה לממשק של קארדקום.
+  document_type  VARCHAR(40),
+  document_number INTEGER,
   failure_reason VARCHAR(300),
   paid_at        TIMESTAMP(3),
   created_by     CHAR(26),

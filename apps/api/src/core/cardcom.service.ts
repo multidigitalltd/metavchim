@@ -3,23 +3,26 @@ import { loadEnv } from "../config/env";
 import { PlatformSettingsService } from "./platform-settings.service";
 
 /**
- * קארדקום — יצירת דף תשלום ואימות תוצאה.
+ * קארדקום v11 — דף תשלום, אימות תוצאה, וחיוב חוזר בטוקן.
  *
- * שתי החלטות שקובעות את כל השאר:
+ * המימוש כאן נגזר מאינטגרציה שכבר רצה בפרודקשן (kanko-board-manager,
+ * `class-kbm-billing.php`) ולא מהתיעוד בלבד. ההבדל חשוב: כמה משדות
+ * התשובה יושבים במקום אחר ממה שהתיעוד מרמז, וזה בדיוק סוג הפער
+ * שמתגלה רק בעסקה אמיתית.
  *
- * **1. פרטי הכרטיס לא עוברים במערכת.** אנחנו מבקשים מקארדקום דף
- * תשלום מתארח (LowProfile) ומפנים אליו את הדפדפן. המשרד מקליד את
- * מספר הכרטיס בדף של קארדקום. המשמעות: אין אצלנו PAN, לא בזיכרון,
- * לא בלוג ולא בגיבוי — וזה מוציא את המערכת מרוב היקף ה-PCI.
+ * שלוש החלטות שקובעות את השאר:
  *
- * **2. הוובהוק אינו מקור אמת.** קארדקום לא חותם את ההודעה שהוא
- * שולח, כלומר כל מי שיודע את הכתובת יכול לשלוח "שולם". לכן ההודעה
- * משמשת **טריגר בלבד**, והתשובה היחידה שנחשבת היא זו שאנחנו מושכים
- * מקארדקום ביוזמתנו (`GetLpResult`) על מזהה שאנחנו יצרנו. בלי
- * ההפרדה הזו כל אחד היה מפעיל לעצמו מנוי בחינם בבקשת POST אחת.
+ * **1. פרטי הכרטיס לא עוברים במערכת.** דף התשלום מתארח אצל קארדקום.
+ * אין אצלנו PAN, לא בזיכרון, לא בלוג ולא בגיבוי.
  *
- * האישורים נשמרים ב-platform_settings (מוצפנים, נשלטים מהמסך), עם
- * נפילה למשתני סביבה — אותו דפוס בדיוק כמו Postmark ווואטסאפ.
+ * **2. הוובהוק אינו מקור אמת.** קארדקום אינו חותם את ההודעה, ולכן
+ * ממנה נלקח שדה אחד — `LowProfileId` — וגם הוא רק כדי לשאול את
+ * קארדקום מה קרה (`GetLpResult`). ההתאמה לשורה שלנו נעשית **לפי
+ * `LowProfileId` ולא לפי `ReturnValue`** — זו אזהרה מפורשת של קארדקום.
+ *
+ * **3. חיוב חוזר אינו מצריך וובהוק בכלל.** `Transactions/Transaction`
+ * עם הטוקן השמור מחזיר תשובה סינכרונית שאומרת אם החיוב עבר. אין דף,
+ * אין הפניה, אין המתנה — ולכן החידוש האוטומטי הוא פשוט סורק.
  */
 
 const API_BASE = "https://secure.cardcom.solutions/api/v11";
@@ -29,11 +32,19 @@ const ILS = 1;
 export interface CardcomCredentials {
   terminalNumber: number;
   apiName: string;
+  /** משמשת **רק** לביטול מסמך (זיכוי). לא נשלחת ב-GetLpResult. */
   apiPassword: string;
 }
 
+/** מי משלם — ממלא מראש את הדף ואת גוף החשבונית. */
+export interface Payer {
+  name: string;
+  email: string;
+  phone?: string;
+}
+
 export interface CreatePaymentPageInput {
-  /** המזהה שלנו לעסקה — חוזר אלינו ב-ReturnValue ומקשר בחזרה לתשלום. */
+  /** המזהה שלנו — חוזר ב-ReturnValue, לניפוי שגיאות בלבד. */
   reference: string;
   amountAgorot: number;
   productName: string;
@@ -42,6 +53,7 @@ export interface CreatePaymentPageInput {
   webhookUrl: string;
   /** לחיוב חוזר: מבקשים גם טוקן, לא רק חיוב חד-פעמי. */
   createToken: boolean;
+  payer: Payer;
 }
 
 export interface PaymentPage {
@@ -52,37 +64,63 @@ export interface PaymentPage {
 /** תוצאת עסקה כפי ש**נמשכה** מקארדקום — לא כפי שהוובהוק טען. */
 export interface VerifiedPayment {
   paid: boolean;
-  /** המזהה שלנו כפי שהוחזר; חוסר התאמה פוסל את התוצאה. */
+  /** המזהה שלנו כפי שהוחזר. לצילוב בלבד — ההתאמה לפי LowProfileId. */
   reference: string | null;
   amountAgorot: number | null;
   transactionId: string | null;
+  /** הטוקן לחיוב חוזר, כשביקשנו אותו. */
   token: string | null;
+  /** חודש ושנה של תוקף הכרטיס — נדרשים כ-MMYY בחיוב החוזר. */
+  cardMonth: number | null;
+  cardYear: number | null;
   cardLast4: string | null;
-  cardExpiry: string | null;
+  /** ת"ז של בעל הכרטיס — נדרשת ב-CardOwnerInformation בחיוב החוזר. */
+  cardOwnerIdentity: string | null;
+  /** החשבונית שקארדקום הפיק — מספרה נדרש לזיכוי. */
+  documentType: string | null;
+  documentNumber: number | null;
   /** תיאור הכישלון מקארדקום — לתמיכה */
   message: string;
 }
 
-interface LowProfileCreateResponse {
-  ResponseCode?: number;
-  Description?: string;
-  LowProfileId?: string;
-  Url?: string;
+/** תוצאת חיוב בטוקן — סינכרונית, בלי וובהוק. */
+export interface TokenChargeResult {
+  paid: boolean;
+  transactionId: string | null;
+  documentType: string | null;
+  documentNumber: number | null;
+  message: string;
 }
 
-interface LowProfileResultResponse {
+interface CardcomResponse {
   ResponseCode?: number;
   Description?: string;
-  ReturnValue?: string;
-  TranzactionInfo?: {
-    ResponseCode?: number;
-    Amount?: number;
-    TranzactionId?: number;
-    Last4CardDigits?: number;
-    CardMonth?: number;
-    CardYear?: number;
-  } | null;
-  TokenInfo?: { Token?: string } | null;
+  [key: string]: unknown;
+}
+
+/** קריאת מספר מאובייקט לא-מהימן. */
+function num(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function str(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
+function obj(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+/**
+ * שדה שקארדקום מחזיר לפעמים ברמה העליונה ולפעמים בתוך אובייקט משנה.
+ *
+ * הקריאה הכפולה אינה זהירות-יתר: המימוש שרץ בפרודקשן קורא
+ * `TranzactionId` ברמה העליונה, בעוד שהתיעוד מציג אותו בתוך
+ * `TranzactionInfo`. שתי הצורות נצפו, ומי שקורא רק אחת מהן מקבל
+ * `undefined` בשקט — כלומר עסקה שנראית חסרת מזהה.
+ */
+function pick(root: Record<string, unknown>, nested: Record<string, unknown>, key: string): unknown {
+  return nested[key] ?? root[key];
 }
 
 @Injectable()
@@ -103,9 +141,9 @@ export class CardcomService {
       (await this.settings.get("cardcomTerminalNumber")) ?? env.CARDCOM_TERMINAL_NUMBER;
     const apiName = (await this.settings.get("cardcomApiName")) ?? env.CARDCOM_API_NAME;
     const apiPassword =
-      (await this.settings.get("cardcomApiPassword")) ?? env.CARDCOM_API_PASSWORD;
+      (await this.settings.get("cardcomApiPassword")) ?? env.CARDCOM_API_PASSWORD ?? "";
 
-    if (!terminalRaw || !apiName || !apiPassword) return null;
+    if (!terminalRaw || !apiName) return null;
     const terminalNumber = Number(terminalRaw);
     if (!Number.isInteger(terminalNumber) || terminalNumber <= 0) {
       this.logger.warn("מספר המסוף של קארדקום אינו מספר — הסליקה כבויה");
@@ -118,14 +156,18 @@ export class CardcomService {
     return (await this.credentials()) !== null;
   }
 
-  private async post<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  private async post<T extends CardcomResponse>(
+    path: string,
+    body: Record<string, unknown>,
+    timeoutMs = 25_000,
+  ): Promise<T> {
     let res: Response;
     try {
       res = await fetch(`${API_BASE}${path}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(20_000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
       this.logger.error(`קארדקום אינו נגיש (${path}): ${String(error)}`);
@@ -139,6 +181,26 @@ export class CardcomService {
   }
 
   /**
+   * גוף החשבונית. `DocumentTypeToCreate: "Auto"` גורם לקארדקום להפיק
+   * את המסמך בעצמו — כלומר החשבונית נשלחת ללקוח בלי שנחבר ספק
+   * חשבוניות נפרד.
+   *
+   * `UnitCost × Quantity` **חייב** להסתכם בדיוק ב-`Amount`; אחרת
+   * קארדקום דוחה את הבקשה.
+   */
+  private document(payer: Payer, productName: string, amountNis: number): Record<string, unknown> {
+    return {
+      DocumentTypeToCreate: "Auto",
+      IsAllowEditDocument: true,
+      Name: payer.name,
+      Email: payer.email,
+      Mobile: payer.phone ?? "",
+      Language: "he",
+      Products: [{ Description: productName, UnitCost: amountNis, Quantity: 1 }],
+    };
+  }
+
+  /**
    * דף תשלום חדש.
    *
    * הסכום נשלח בשקלים כי זה מה שקארדקום מצפה לו, והמערכת מחזיקה
@@ -148,11 +210,12 @@ export class CardcomService {
     const creds = await this.credentials();
     if (creds === null) throw new ServiceUnavailableException("הסליקה טרם הופעלה במערכת");
 
-    const payload = {
+    const amountNis = Math.round(input.amountAgorot) / 100;
+    const res = await this.post("/LowProfile/Create", {
       TerminalNumber: creds.terminalNumber,
       ApiName: creds.apiName,
       ReturnValue: input.reference,
-      Amount: input.amountAgorot / 100,
+      Amount: amountNis,
       ISOCoinId: ILS,
       Operation: input.createToken ? "ChargeAndCreateToken" : "ChargeOnly",
       Language: "he",
@@ -160,53 +223,136 @@ export class CardcomService {
       FailedRedirectUrl: input.failureUrl,
       WebHookUrl: input.webhookUrl,
       ProductName: input.productName,
-    };
+      // מילוי מראש — פחות הקלדה בדף שאיננו שולטים בעיצובו
+      UIDefinition: {
+        CardOwnerNameValue: input.payer.name,
+        CardOwnerEmailValue: input.payer.email,
+        CardOwnerPhoneValue: input.payer.phone ?? "",
+      },
+      Document: this.document(input.payer, input.productName, amountNis),
+    });
 
-    const res = await this.post<LowProfileCreateResponse>("/LowProfile/Create", payload);
-    if (res.ResponseCode !== 0 || !res.Url || !res.LowProfileId) {
+    const url = str(res["Url"]);
+    const lowProfileId = str(res["LowProfileId"]);
+    if (res.ResponseCode !== 0 || url === null || lowProfileId === null) {
       this.logger.error(`יצירת דף תשלום נכשלה: ${res.ResponseCode} ${res.Description ?? ""}`);
       throw new ServiceUnavailableException("פתיחת דף התשלום נכשלה");
     }
-    return { lowProfileId: res.LowProfileId, url: res.Url };
+    return { lowProfileId, url };
   }
 
   /**
    * מה קרה בפועל עם דף תשלום — **הקריאה היחידה שסומכים עליה**.
    *
    * נקראת עם מזהה שאנחנו שמרנו, מול קארדקום, בערוץ מאומת. הוובהוק
-   * רק אומר "לך תבדוק"; מה שכתוב בגופו אינו נכנס לכאן ואינו משפיע
-   * על התשובה.
+   * רק אומר "לך תבדוק"; מה שכתוב בגופו אינו נכנס לכאן.
+   *
+   * הבקשה **אינה כוללת ApiPassword** — זה מה שהמימוש שרץ בפרודקשן
+   * שולח, והסיסמה משמשת רק לביטול מסמך. פסק זמן קצר עם ניסיון חוזר,
+   * כי זו קריאה שחוסמת תשובה למשתמש שממתין מול המסך.
    */
   async verify(lowProfileId: string): Promise<VerifiedPayment> {
     const creds = await this.credentials();
     if (creds === null) throw new ServiceUnavailableException("הסליקה טרם הופעלה במערכת");
 
-    const res = await this.post<LowProfileResultResponse>("/LowProfile/GetLpResult", {
+    const body = {
       TerminalNumber: creds.terminalNumber,
       ApiName: creds.apiName,
-      ApiPassword: creds.apiPassword,
       LowProfileId: lowProfileId,
-    });
+    };
+    let res: CardcomResponse;
+    try {
+      res = await this.post("/LowProfile/GetLpResult", body, 5_000);
+    } catch {
+      res = await this.post("/LowProfile/GetLpResult", body, 5_000);
+    }
 
-    const tran = res.TranzactionInfo ?? null;
-    // שני קודים ולא אחד: העסקה יכולה להיכשל בתוך דף שנפתח בהצלחה
-    const paid = res.ResponseCode === 0 && tran !== null && tran.ResponseCode === 0;
+    const tran = obj(res["TranzactionInfo"]);
+    const token = obj(res["TokenInfo"]);
+    const doc = obj(res["DocumentInfo"]);
+
+    // שני קודים ולא אחד: העסקה יכולה להיכשל בתוך דף שנפתח בהצלחה.
+    // כשאין קוד פנימי כלל נופלים על החיצוני — היעדרו אינו כישלון.
+    const innerCode = num(tran["ResponseCode"]);
+    const paid = res.ResponseCode === 0 && (innerCode === null || innerCode === 0);
+
+    const amountNis = num(pick(res, tran, "Amount"));
+    const last4 = pick(res, tran, "Last4CardDigits");
+    const month = num(pick(res, token, "CardMonth")) ?? num(tran["CardMonth"]);
+    const year = num(pick(res, token, "CardYear")) ?? num(tran["CardYear"]);
 
     return {
       paid,
-      reference: typeof res.ReturnValue === "string" && res.ReturnValue !== "" ? res.ReturnValue : null,
+      reference: str(res["ReturnValue"]),
       // הסכום חוזר בשקלים; מוחזר לאגורות ומעוגל כדי שלא ייווצר שבר
-      amountAgorot: typeof tran?.Amount === "number" ? Math.round(tran.Amount * 100) : null,
-      transactionId: typeof tran?.TranzactionId === "number" ? String(tran.TranzactionId) : null,
-      token: typeof res.TokenInfo?.Token === "string" ? res.TokenInfo.Token : null,
+      amountAgorot: amountNis === null ? null : Math.round(amountNis * 100),
+      transactionId:
+        str(pick(res, tran, "TranzactionId")) ?? num(pick(res, tran, "TranzactionId"))?.toString() ?? null,
+      token: str(token["Token"]),
+      cardMonth: month,
+      cardYear: year,
       cardLast4:
-        typeof tran?.Last4CardDigits === "number"
-          ? String(tran.Last4CardDigits).padStart(4, "0")
-          : null,
-      cardExpiry:
-        typeof tran?.CardMonth === "number" && typeof tran?.CardYear === "number"
-          ? `${String(tran.CardMonth).padStart(2, "0")}/${String(tran.CardYear).slice(-2)}`
-          : null,
+        typeof last4 === "number"
+          ? String(last4).padStart(4, "0")
+          : typeof last4 === "string" && last4 !== ""
+            ? last4.slice(-4)
+            : null,
+      cardOwnerIdentity: str(token["CardOwnerIdentityNumber"]),
+      documentType: str(doc["DocumentType"]),
+      documentNumber: num(doc["DocumentNumber"]),
+      message: res.Description ?? "",
+    };
+  }
+
+  /**
+   * חיוב בטוקן שמור — **בלי דף תשלום ובלי וובהוק**.
+   *
+   * זו הנקודה שהופכת את החידוש האוטומטי לפשוט: התשובה סינכרונית
+   * ואומרת מיד אם החיוב עבר, ולכן הסורק שמחדש מנויים אינו צריך
+   * להמתין לשום דבר.
+   *
+   * `CardExpirationMMYY` הוא בדיוק ארבע ספרות מרופדות באפסים. שנה
+   * דו-ספרתית וארבע-ספרתית שתיהן נתמכות בקלט; מה שנשלח הוא תמיד
+   * שתי הספרות האחרונות.
+   */
+  async chargeToken(input: {
+    token: string;
+    amountAgorot: number;
+    cardMonth: number;
+    cardYear: number;
+    cardOwnerIdentity?: string | null;
+    productName: string;
+    payer: Payer;
+  }): Promise<TokenChargeResult> {
+    const creds = await this.credentials();
+    if (creds === null) throw new ServiceUnavailableException("הסליקה טרם הופעלה במערכת");
+
+    const amountNis = Math.round(input.amountAgorot) / 100;
+    const mm = String(input.cardMonth).padStart(2, "0");
+    const yy = String(input.cardYear > 99 ? input.cardYear % 100 : input.cardYear).padStart(2, "0");
+
+    const res = await this.post("/Transactions/Transaction", {
+      TerminalNumber: creds.terminalNumber,
+      ApiName: creds.apiName,
+      Amount: amountNis,
+      Token: input.token,
+      CardExpirationMMYY: `${mm}${yy}`,
+      NumOfPayments: 1,
+      ISOCoinId: ILS,
+      CardOwnerInformation: {
+        FullName: input.payer.name,
+        IdentityNumber: input.cardOwnerIdentity ?? "",
+        CardOwnerEmail: input.payer.email,
+      },
+      Document: this.document(input.payer, input.productName, amountNis),
+    });
+
+    const transactionId = num(res["TranzactionId"]);
+    return {
+      paid: res.ResponseCode === 0 && transactionId !== null && transactionId > 0,
+      transactionId: transactionId === null ? null : String(transactionId),
+      documentType: str(res["DocumentType"]),
+      documentNumber: num(res["DocumentNumber"]),
       message: res.Description ?? "",
     };
   }
