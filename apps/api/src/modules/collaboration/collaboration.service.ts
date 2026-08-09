@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import { BuyerRequirementsSchema, scoreMatch, type BuyerRequirements } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
+import { KANKO_TENANT_ID } from "./kanko-webhook.controller";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
@@ -124,6 +125,20 @@ export class CollaborationService {
     });
   }
 
+  /**
+   * האם ביקושים של הדייר הזה עדיין רלוונטיים לרשת.
+   *
+   * דייר מערכתי — כרגע Kanko — פטור מהבדיקה. הוא עוגן אינטגרציה ולא
+   * משרד מנוי: אין לו משתמשים, איש לא בחר לו מסלול, והמסלול שהוא
+   * נושא הוא פרט טכני מהמיגרציה. סינון שלו לפי זכאות מסחרית היה
+   * מוחק את כל מלאי Kanko מהרשת ברגע שמישהו עורך את מסלול הרשת —
+   * גם עבור משרדים שהשת"פ כן כלול אצלם (ביקורת Codex).
+   */
+  private async canPublish(tenantId: string): Promise<boolean> {
+    if (tenantId === KANKO_TENANT_ID) return true;
+    return this.plans.tenantHasFeature(tenantId, "collaboration");
+  }
+
   /** פיד הביקושים: הרשת כולה (כולל שלי, מסומנים). קריאת הרשת רצה כ-withNetwork. */
   async listDemands(): Promise<SharedDemandDto[]> {
     const tenantId = TenantContext.current().tenantId;
@@ -146,9 +161,7 @@ export class CollaborationService {
     const entitled = (
       await Promise.all(
         publishers.map(async (row) =>
-          (await this.plans.tenantHasFeature(row.tenantId, "collaboration"))
-            ? row.tenantId
-            : null,
+          (await this.canPublish(row.tenantId)) ? row.tenantId : null,
         ),
       )
     ).filter((owner): owner is string => owner !== null);
@@ -249,7 +262,7 @@ export class CollaborationService {
     );
     if (!demand) throw new NotFoundException("הביקוש לא נמצא או נסגר");
     // אותו כלל גם בכתיבה: הפיד יכול להיות ישן בלשונית פתוחה
-    if (!(await this.plans.tenantHasFeature(demand.tenantId, "collaboration"))) {
+    if (!(await this.canPublish(demand.tenantId))) {
       throw new NotFoundException("הביקוש לא נמצא או נסגר");
     }
     if (demand.tenantId === ctx.tenantId) {
