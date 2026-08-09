@@ -636,3 +636,34 @@ describe("softphoneGap", () => {
     expect(softphoneGap({ connected: true, username: "", hasPassword: false })).toBe("no_wss");
   });
 });
+
+describe("telephonyParseIssue — בקשה ריקה", () => {
+  it("גוף ריק הוא אבחנה נפרדת ולא 'חסר מזהה שיחה'", () => {
+    /*
+     * כך נראית אי-התאמה בין Content-Type לתבנית: השרת לא מפרסר,
+     * הגוף מגיע כאובייקט ריק, וכל שדה חסר. הודעה על מזהה שיחה הייתה
+     * שולחת לחפש הגדרה אצל הספק במקום שורה אחת בכותרות.
+     */
+    expect(telephonyParseIssue({})).toBe("no_fields");
+  });
+
+  it("שדות קיימים בלי מזהה — עדיין no_call_id", () => {
+    expect(telephonyParseIssue({ caller: "0501234567" })).toBe("no_call_id");
+  });
+});
+
+describe("sipUriFor — ניקוי לפני הכול", () => {
+  it("תווי בקרה אינם מגיעים לכתובת גם בענף הישראלי", () => {
+    /*
+     * שורה חדשה בתוך URI היא הזרקת כותרת ב-SIP. הענף של +972 עשה
+     * slice בלי לנקות, ולכן מספר שמור פגום היה עובר דרכו כמו שהוא.
+     */
+    expect(sipUriFor("+972\r\nTo: <sip:evil@x>\r\n501234567", "pbx")).toBe(
+      "sip:0501234567@pbx",
+    );
+  });
+
+  it("רווחים ונקודות אינם שורדים", () => {
+    expect(sipUriFor("+972 50 123 4567", "pbx")).toBe("sip:0501234567@pbx");
+  });
+});

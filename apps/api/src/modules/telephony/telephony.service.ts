@@ -328,9 +328,15 @@ export class TelephonyService {
    * מי מתקשר — לשיחה נכנסת בסופטפון.
    *
    * הדפדפן מקבל מספר מה-INVITE ולא שם. הפונקציה הזו היא היחידה
-   * שיודעת לגשר, והיא **מחזירה שם רק על איש קשר של המשרד** — היא
-   * אינה מאשרת קיום מספר שאינו שלנו, ולכן אינה הופכת לכלי לבדיקת
-   * מספרים.
+   * שיודעת לגשר, והיא **מחזירה שם רק על איש קשר שהמשתמש הזה רשאי
+   * לראות** — לא רק של המשרד.
+   *
+   * ההבחנה הזו היא כל האבטחה של הנתיב. בלי `assertContactAccess`
+   * הוא היה עוקף את מסנן הבעלות שכל שאר המערכת אוכפת: סוכן עם
+   * `view_own` היה מקבל את שמו של לקוח של סוכן אחר לפי מספר טלפון
+   * בלבד, בדיוק ה-IDOR שנסגר בכל נתיבי הכתיבה. מספר שאינו מוכר
+   * ומספר שאינו שלי מחזירים את אותה תשובה ריקה — תשובה שונה הייתה
+   * מסגירה את עצם קיומו.
    */
   async resolveCaller(phone: string): Promise<{ name?: string; contactId?: string }> {
     const { tenantId } = TenantContext.current();
@@ -349,6 +355,11 @@ export class TelephonyService {
           });
       const contact = primary ?? secondary?.contact ?? null;
       if (!contact) return {};
+      try {
+        await assertContactAccess(tx, tenantId, contact.id);
+      } catch {
+        return {}; // קיים אך לא שלי — כמו מספר לא מוכר, ובכוונה
+      }
       return { name: this.crypto.decrypt(contact.nameEncrypted), contactId: contact.id };
     });
   }

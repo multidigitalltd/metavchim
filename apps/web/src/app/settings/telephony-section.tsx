@@ -75,12 +75,21 @@ function issueExplanation(issue: string | undefined): {
           "שיחה ממספר חסוי. זו אינה תקלת הגדרה: שיחה ממספר גלוי תיקלט כרגיל.",
         showKeys: false,
       };
+    case "no_fields":
+      return {
+        tone: "warning",
+        text:
+          "הבקשה הגיעה ריקה — בלי שום שדה. כמעט תמיד זה אומר שה-Content-Type " +
+          "שבכותרות אינו תואם לתבנית: כותרת שאומרת JSON וגוף URL-encoded, או להפך. " +
+          "ודאו שב-Headers כתוב content-type: application/json ושה-Template הוא ה-JSON שלמטה.",
+        showKeys: false,
+      };
     case "no_call_id":
       return {
         tone: "warning",
         text:
-          "האירוע הגיע עם מספר מתקשר אך בלי מזהה שיחה. בלעדיו אי אפשר לחבר את " +
-          "הצלצול, המענה והניתוק לשיחה אחת — יש להפעיל אצל הספק שליחת מזהה שיחה.",
+          "האירוע הגיע עם שדות, אבל בלי מזהה שיחה. בלעדיו אי אפשר לחבר את הצלצול, " +
+          "המענה והניתוק לשיחה אחת. ודאו שהתבנית כוללת את השורה של callid.",
         showKeys: true,
       };
     default:

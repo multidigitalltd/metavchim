@@ -230,7 +230,16 @@ export function softphoneGap(input: {
  * הבינלאומית גורמת ל-404 מהמרכזייה על מספר תקין לחלוטין.
  */
 export function sipUriFor(phone: string, domain: string): string {
-  const local = phone.startsWith("+972") ? `0${phone.slice(4)}` : phone.replace(/[^\d+]/gu, "");
+  /*
+   * הניקוי קודם לכול, ולא רק בענף אחד.
+   *
+   * קודם ענף ה-+972 עשה `slice` בלי לנקות, והענף השני ניקה — אי-סימטריה
+   * שקטה שהופכת מספר שמור פגום לזריקת תווים לתוך כתובת SIP. שורה
+   * חדשה בתוך URI היא הזרקת כותרת בפרוטוקול הזה, ואין סיבה שהפונקציה
+   * תסמוך על מי שקרא לה.
+   */
+  const clean = phone.replace(/[^\d+]/gu, "");
+  const local = clean.startsWith("+972") ? `0${clean.slice(4)}` : clean;
   return `sip:${local}@${domain}`;
 }
 
@@ -281,11 +290,21 @@ export interface TelephonyEvent {
  * לחפש בעיה שאינה קיימת (ביקורת Codex).
  */
 export type TelephonyParseIssue =
+  | "no_fields"
   | "no_call_id"
   | "no_phone"
   | "invalid_phone";
 
 export function telephonyParseIssue(raw: Record<string, unknown>): TelephonyParseIssue | null {
+  /*
+   * **בקשה ריקה היא אבחנה בפני עצמה, ולא "חסר מזהה שיחה".**
+   *
+   * זה המצב שנוצר כשה-Content-Type אינו תואם לתבנית — כותרת שאומרת
+   * JSON וגוף שהוא URL-encoded, או להפך. השרת לא מצליח לפרסר, הגוף
+   * מגיע כאובייקט ריק, וכל שדה כמובן חסר. הודעה על "מזהה שיחה" הייתה
+   * שולחת לחפש הגדרה אצל הספק, בזמן שהתקלה היא שורה אחת בכותרות.
+   */
+  if (Object.keys(raw).length === 0) return "no_fields";
   const core = readCore(raw);
   if (core.providerCallId === "") return "no_call_id";
   if (core.peerRaw === "") return "no_phone";
