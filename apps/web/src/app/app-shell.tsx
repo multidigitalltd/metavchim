@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { apiGet } from "@/lib/api";
+import { FeaturesProvider } from "@/lib/use-features";
 import { NotificationsBell } from "./notifications-bell";
 import { TopbarSearch } from "./topbar-search";
 import { WhatsNewBanner } from "./whats-new-banner";
@@ -310,6 +311,9 @@ export function AppShell({ children }: { children: ReactNode }) {
    */
   const hasFeature = (code: string): boolean =>
     counts?.features === undefined || counts.features.includes(code);
+  // אותה רשימה מחולקת למסכים עצמם — הניווט לא יכול להיות המקום
+  // היחיד שיודע מה כלול (ראו lib/use-features)
+  const features = counts?.features ?? null;
 
   const sidebar = (
     <>
@@ -463,7 +467,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <main id="main-content" className="mv-content">
           <WhatsNewBanner />
-          {children}
+          <FeaturesProvider features={features}>{children}</FeaturesProvider>
         </main>
       </div>
     </div>

@@ -24,6 +24,7 @@ import {
 import { disablePush, enablePush, readPushState, type PushState } from "@/lib/push";
 import { useRequireAuth } from "@/lib/use-auth";
 import { ThemeToggle } from "../theme-toggle";
+import { PlanSection } from "../settings/plan-section";
 
 /**
  * הפרופיל האישי — כל מה ששייך למשתמש הזה ולא למשרד: ערכת נושא,
@@ -172,6 +173,14 @@ export default function ProfilePage() {
 
   return (
     <>
+      {/*
+        המסלול מוצג בפרופיל ולא רק בהגדרות המשרד.
+        סוכן, עוזר וצופה הם בדיוק מי שנתקל בקיר של פיצ'ר — ומסך
+        ההגדרות סגור בפניהם (settings.manage). בלעדי זה ההסבר שהשרת
+        מכין להם היה בלתי נגיש (ביקורת Codex).
+      */}
+      <PlanSection />
+
       {/* ---- כרטיס הזהות ---- */}
       <div className="mv-list-card mb-[18px] flex flex-wrap items-center gap-4 p-6">
         <span

@@ -7,6 +7,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { useFeature } from "@/lib/use-features";
 import { ExportSection } from "./export-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
 import { PlanSection } from "./plan-section";
@@ -118,6 +119,7 @@ interface TenantSettings {
 
 export default function SettingsPage() {
   const { user, loading: authLoading } = useRequireAuth();
+  const canDataIo = useFeature("data_io");
   const [tenant, setTenant] = useState<TenantSettings | null>(null);
   const [team, setTeam] = useState<TeamUser[]>([]);
   const [audit, setAudit] = useState<AuditRow[]>([]);
@@ -470,16 +472,18 @@ export default function SettingsPage() {
             ))}
           </section>
 
-          {/* ---- נתונים ---- */}
-          <section className="mv-list-card px-5 py-[17px]" aria-labelledby="data-heading">
-            <h2 id="data-heading" className="m-0 mb-[11px]" style={{ fontSize: 15.5, fontWeight: 800 }}>נתונים</h2>
-            <div className="mb-2 flex gap-2">
-              <Link href="/import" className="mv-btn-plain flex-1 text-center" style={{ padding: "8px 0", fontSize: 13 }}>
-                ייבוא מאקסל
-              </Link>
-            </div>
-            <ExportSection />
-          </section>
+          {/* ---- נתונים — כולו מאחורי data_io ---- */}
+          {canDataIo ? (
+            <section className="mv-list-card px-5 py-[17px]" aria-labelledby="data-heading">
+              <h2 id="data-heading" className="m-0 mb-[11px]" style={{ fontSize: 15.5, fontWeight: 800 }}>נתונים</h2>
+              <div className="mb-2 flex gap-2">
+                <Link href="/import" className="mv-btn-plain flex-1 text-center" style={{ padding: "8px 0", fontSize: 13 }}>
+                  ייבוא מאקסל
+                </Link>
+              </div>
+              <ExportSection />
+            </section>
+          ) : null}
 
           <SystemUpdateSection />
 
