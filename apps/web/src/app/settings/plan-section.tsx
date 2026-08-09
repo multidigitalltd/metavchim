@@ -24,6 +24,8 @@ interface PlanInfo {
   code: string;
   name: string;
   description: string;
+  /** false = קוד המסלול אינו נפתר; כל הוספה חסומה עד טיפול. */
+  resolved?: boolean;
   features: { code: string; label: string; description: string; included: boolean }[];
   limits: {
     users: { used: number; limit: number | null; state: LimitState };
@@ -105,6 +107,17 @@ export function PlanSection(): React.JSX.Element | null {
             <strong style={{ color: "var(--color-text)" }}>{plan.name}</strong>
             {plan.description ? ` — ${plan.description}` : ""}
           </p>
+
+          {plan.resolved === false ? (
+            <p
+              role="alert"
+              className="m-0 mb-3 rounded-lg border p-3 text-sm"
+              style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}
+            >
+              המסלול של המשרד אינו מוגדר במערכת. הוספת נכסים ומשתמשים חסומה עד שהעניין
+              יטופל — פנו אלינו.
+            </p>
+          ) : null}
 
           <LimitRow
             label="משתמשים במשרד"

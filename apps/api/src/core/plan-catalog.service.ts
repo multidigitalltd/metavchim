@@ -30,11 +30,21 @@ export class PlanCatalogService {
    */
   private cache: { plans: PlanDefinition[]; until: number } | null = null;
   private static readonly TTL_MS = 30_000;
+  /**
+   * מונה ביטולים — מונע מטעינה ישנה למלא את המטמון בחזרה.
+   *
+   * טעינה שהתחילה לפני `upsert` יכולה להסתיים אחריו, ואז היא כותבת
+   * למטמון בדיוק את ההגדרות שהמנהל הרגע שינה — ולשלושים שניות
+   * השערים והמכסות ממשיכים לאשר מה שנסגר. הבדיקה היא מה היה המונה
+   * כשהטעינה התחילה מול מה שהוא עכשיו (ביקורת Codex).
+   */
+  private generation = 0;
 
   constructor(private readonly prisma: PrismaService) {}
 
   invalidate(): void {
     this.cache = null;
+    this.generation += 1;
   }
 
   /**
@@ -51,6 +61,7 @@ export class PlanCatalogService {
     if (this.cache && this.cache.until > now) return this.cache.plans;
 
     const client = tx ?? this.prisma;
+    const startedAt = this.generation;
     const rows = await client.plan.findMany({ orderBy: { sortOrder: "asc" } });
     const stored = new Map(rows.map((row) => [row.code, this.fromRow(row)]));
 
@@ -65,7 +76,14 @@ export class PlanCatalogService {
     }
     merged.sort((a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code));
 
-    this.cache = { plans: merged, until: now + PlanCatalogService.TTL_MS };
+    /*
+     * התוצאה מוחזרת תמיד, אבל נשמרת רק אם לא הייתה כתיבה בינתיים.
+     * קורא שקיבל תמונה בת רגע אחד הוא בסדר; מטמון ששומר אותה
+     * לשלושים שניות אחרי שינוי הוא לא.
+     */
+    if (this.generation === startedAt) {
+      this.cache = { plans: merged, until: now + PlanCatalogService.TTL_MS };
+    }
     return merged;
   }
 

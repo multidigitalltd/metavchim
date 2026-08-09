@@ -419,24 +419,28 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="mv-topbar-end">
             <NotificationsBell />
 
-            <Link href="/voice" className="mv-voice-button">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <rect x="9" y="2.5" width="6" height="11" rx="3" />
-                <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
-                <line x1="12" y1="17.5" x2="12" y2="21" />
-              </svg>
-              קליטה בקול
-            </Link>
+          {/* קליטה קולית נחסמת בשרת בלי הפיצ'ר — קישור ל-403 גרוע
+              מקישור שלא קיים */}
+          {hasFeature("voice_intake") ? (
+              <Link href="/voice" className="mv-voice-button">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="9" y="2.5" width="6" height="11" rx="3" />
+                  <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
+                  <line x1="12" y1="17.5" x2="12" y2="21" />
+                </svg>
+                קליטה בקול
+              </Link>
+          ) : null}
 
             <Link href="/profile" className="mv-icon-button" aria-label="הפרופיל שלי" title="הפרופיל שלי">
               <svg

@@ -171,6 +171,14 @@ export class SettingsController {
     code: string;
     name: string;
     description: string;
+    /**
+     * false = קוד המסלול של המשרד אינו נפתר לשום הגדרה.
+     *
+     * זה לא "בלי מגבלות" אלא מצב תקלה: האכיפה חוסמת כל הוספה, ולכן
+     * מסך שמציג "ללא הגבלה" היה סותר את מה שהמשתמש חווה בפועל
+     * (ביקורת Codex).
+     */
+    resolved: boolean;
     features: { code: string; label: string; description: string; included: boolean }[];
     limits: {
       users: { used: number; limit: number | null; state: LimitState };
@@ -197,12 +205,24 @@ export class SettingsController {
         tx.property.count({ where: { tenantId, deletedAt: null } }),
       ),
     ]);
+    /*
+     * מסלול שלא נפתר מוצג כחסום ולא כ"ללא הגבלה".
+     *
+     * `null` במגבלה פירושו ללא הגבלה, וזו בדיוק התשובה ההפוכה
+     * מהמציאות: האכיפה דוחה כל הוספה. `blocked: true` עם `limit: 0`
+     * הוא הייצוג הכן של המצב.
+     */
+    const unresolved: LimitState = { blocked: true, remaining: 0, percent: 100, warn: true };
+    const limitFor = (used: number, limit: number | null): LimitState =>
+      plan === undefined ? unresolved : limitState(used, limit);
+
     return {
       code: plan?.code ?? (tenant?.plan ?? ""),
       // מסלול לא מוכר לא נופל אלא מוצג ככזה: הוא מצב תקלה שדורש
       // טיפול של בעל הפלטפורמה, ומסך ריק לא היה מסגיר אותו
       name: plan?.name ?? "מסלול לא מוגדר",
       description: plan?.description ?? "",
+      resolved: plan !== undefined,
       features: PLAN_FEATURES.map((feature) => ({
         ...feature,
         included: plan?.features.includes(feature.code) ?? false,
@@ -211,12 +231,12 @@ export class SettingsController {
         users: {
           used: users,
           limit: plan?.maxUsers ?? null,
-          state: limitState(users, plan?.maxUsers ?? null),
+          state: limitFor(users, plan?.maxUsers ?? null),
         },
         properties: {
           used: properties,
           limit: plan?.maxProperties ?? null,
-          state: limitState(properties, plan?.maxProperties ?? null),
+          state: limitFor(properties, plan?.maxProperties ?? null),
         },
       },
     };
