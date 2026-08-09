@@ -761,12 +761,22 @@ async function processRecurringTasks(): Promise<void> {
         });
         if (claimed.count === 0) return;
 
-        const targets = rule.assignedToUserId
-          ? [{ id: rule.assignedToUserId }]
-          : await tx.user.findMany({
-              where: { tenantId: rule.tenantId, isActive: true },
-              select: { id: true },
-            });
+        /*
+         * גם נמען מפורש חייב להיות פעיל.
+         *
+         * סוכן שהושבת מאבד את ה-Sessions שלו, ולכן משימות שנוצרות לו
+         * אינן נראות לאיש ואי אפשר לסמן אותן — הכלל היה ממשיך להתקדם
+         * ולצבור שורות שלא ניתנות להשלמה (ביקורת Codex). אותה שאילתה
+         * בדיוק של הענף הקבוצתי, רק מצומצמת לנמען אחד.
+         */
+        const targets = await tx.user.findMany({
+          where: {
+            tenantId: rule.tenantId,
+            isActive: true,
+            ...(rule.assignedToUserId ? { id: rule.assignedToUserId } : {}),
+          },
+          select: { id: true },
+        });
         if (targets.length === 0) return;
 
         const sourceKey = `recurrence:${rule.id}:${dueAt.toISOString()}`;

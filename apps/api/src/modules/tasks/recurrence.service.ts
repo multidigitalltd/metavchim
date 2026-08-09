@@ -278,7 +278,7 @@ export class RecurrenceService {
    */
   private columns(
     input: RecurrenceInput,
-    existing?: { dayOfMonth: number | null; weekdays: number[] },
+    existing?: { dayOfMonth: number | null; weekdays: number[]; isActive: boolean },
   ): {
     title: string;
     notes: string | null;
@@ -320,7 +320,15 @@ export class RecurrenceService {
       hour: input.hour,
       minute: input.minute,
       assignedToUserId: input.assignedToUserId ?? null,
-      isActive: input.isActive ?? true,
+      /*
+       * עריכה רגילה לא מפעילה כלל מושהה.
+       *
+       * `isActive` אופציונלי בסכימה, ו-`?? true` הפך כל PATCH שלא
+       * שלח אותו להפעלה שקטה — בלי איפוס נקודת הייחוס שההפעלה
+       * הייעודית עושה, כלומר גם הצפה במופעים שהוחמצו. הפעלה עוברת
+       * דרך `PATCH /:id/active` בלבד (ביקורת Codex).
+       */
+      isActive: input.isActive ?? existing?.isActive ?? true,
     };
   }
 }
