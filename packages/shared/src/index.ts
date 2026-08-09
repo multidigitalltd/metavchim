@@ -42,3 +42,5 @@ export * from "./announcements.js";
 export * from "./events.js";
 export * from "./rbac.js";
 export * from "./queues.js";
+export * from "./logic/whatsapp-link.js";
+export * from "./logic/signature-image.js";

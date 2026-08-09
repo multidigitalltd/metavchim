@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Req } from "@nestjs/common";
 import type { Request } from "express";
 import { z } from "zod";
-import { IdSchema } from "@metavchim/shared";
+import { IdSchema, isSignatureDataUrl } from "@metavchim/shared";
 import { Throttle } from "@nestjs/throttler";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { assertContactAccess } from "../../common/ownership";
@@ -24,6 +24,8 @@ const CreateSchema = z
   })
   .strict();
 
+const SendSchema = z.object({ channel: z.enum(["whatsapp", "email"]) }).strict();
+
 /*
  * "מספר זיהוי" בתקנות אינו בהכרח תעודת זהות ישראלית — רוכשים תושבי
  * חוץ נפוצים בשוק, והמספר שלהם הוא דרכון עם אותיות. ולידציה של
@@ -34,6 +36,16 @@ const SignSchema = z
     signerName: z.string().min(2).max(120),
     signerIdNumber: z.string().regex(/^[0-9A-Za-z]{5,20}$/u, "מספר הזיהוי אינו תקין"),
     confirmed: z.literal(true),
+    /*
+     * החתימה המצוירת — רשות בסכמה, חובה במסך.
+     *
+     * דפדפן ישן בלי קנבס עדיין צריך להיות מסוגל לחתום; מה שמחייב את
+     * המסמך הוא האישור, מספר הזהות והגיבוב, והתמונה מצטרפת אליהם.
+     */
+    signatureImage: z
+      .string()
+      .refine(isSignatureDataUrl, "החתימה אינה תקינה — נסו לחתום שוב")
+      .optional(),
   })
   .strict();
 
@@ -50,6 +62,23 @@ export class AgreementsController {
     @Body(new ZodValidationPipe(CreateSchema)) body: z.infer<typeof CreateSchema>,
   ): Promise<{ id: string; url: string; unfilled: string[]; reused: boolean }> {
     return this.prisma.withTenant((tx) => this.agreements.create(tx, body));
+  }
+
+  /**
+   * שליחת הקישור ללקוח.
+   *
+   * `offers.send` ולא יכולת חדשה: זו אותה פעולה בדיוק כמו יצירת
+   * ההסכם — מי שרשאי לייצר את הקישור רשאי גם לשלוח אותו. בדיקת
+   * הבעלות על איש הקשר נעשית בשירות.
+   */
+  @Post("agreements/:id/send")
+  @RequireCapability("offers.send")
+  @HttpCode(200)
+  async send(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(SendSchema)) body: z.infer<typeof SendSchema>,
+  ): Promise<{ waUrl?: string; sentTo?: string; message: string }> {
+    return this.prisma.withTenant((tx) => this.agreements.deliver(tx, id, body.channel));
   }
 
   /**
@@ -73,6 +102,20 @@ export class AgreementsController {
     });
   }
 
+  /**
+   * המסמך החתום להצגה ולהדפסה.
+   *
+   * `buyers.view_own` ולא `offers.send`: זו קריאה, ומי שרואה את
+   * הלקוח רואה את מה שהלקוח חתם עליו. בדיקת הבעלות בשירות.
+   */
+  @Get("agreements/:id/document")
+  @RequireCapability("buyers.view_own")
+  async document(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<Awaited<ReturnType<AgreementsService["document"]>>> {
+    return this.prisma.withTenant((tx) => this.agreements.document(tx, id));
+  }
+
   /** ---------- הלקוח החותם: ללא התחברות, הטוקן שבקישור הוא המפתח ---------- */
 
   @Public()
@@ -94,6 +137,7 @@ export class AgreementsController {
     return this.agreements.sign(token, {
       signerName: body.signerName,
       signerIdNumber: body.signerIdNumber,
+      ...(body.signatureImage !== undefined ? { signatureImage: body.signatureImage } : {}),
       ip: req.ip,
       userAgent: req.headers["user-agent"],
     });

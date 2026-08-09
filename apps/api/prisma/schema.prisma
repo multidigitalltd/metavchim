@@ -802,11 +802,21 @@ model Agreement {
   tokenExpires    DateTime  @map("token_expires")
   signerName      String?   @map("signer_name") @db.VarChar(120)
   signerIdNumber  String?   @map("signer_id_number") @db.VarChar(20)
+  /// חתימת היד כפי שצוירה, כתמונת PNG (data URL).
+  ///
+  /// תיבת סימון מוכיחה שמישהו לחץ; חתימה מצוירת היא מה שנראה כמו
+  /// חתימה למי שקורא את המסמך אחר כך, וזה מה שמבקשים במסמך חתום.
+  /// היא **אינה** מחליפה את הגיבוב — ההוכחה שהטקסט לא שונה נשארת
+  /// bodyHash/presentedHash.
+  signatureImage  String?   @map("signature_image")
   signedAt        DateTime? @map("signed_at")
   signedIp        String?   @map("signed_ip") @db.VarChar(45)
   signedUserAgent String?   @map("signed_user_agent") @db.VarChar(300)
   viewedAt        DateTime? @map("viewed_at")
   declinedAt      DateTime? @map("declined_at")
+  /// מתי נשלח ללקוח בפעם האחרונה — לא זהה ל-createdAt: מזכירים שוב
+  /// ושוב ללקוח שלא חתם
+  sentAt          DateTime? @map("sent_at")
   createdBy       String?   @map("created_by") @db.Char(26)
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")

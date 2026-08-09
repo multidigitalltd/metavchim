@@ -6,6 +6,7 @@ import {
   freeTextTerms,
   normalizeRange,
   priceRangeAgorot,
+  whatsappLink,
 } from "@metavchim/shared";
 
 /** סוגי נכס שהתווית העברית שלהם מכילה את המונח שהוקלד. */
@@ -488,8 +489,7 @@ export class PropertiesService {
         entityId: id,
       });
 
-      const phoneDigits = owner.phone.replace(/\D/gu, "");
-      return { waUrl: `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message)}`, message };
+      return { waUrl: whatsappLink(owner.phone, message), message };
     });
   }
 

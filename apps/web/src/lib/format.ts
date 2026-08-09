@@ -1,3 +1,4 @@
+import { normalizePhoneForWhatsapp } from "@metavchim/shared";
 import { LEAD_SOURCE_LABELS } from "./lead-labels";
 
 const nis = new Intl.NumberFormat("he-IL", {
@@ -71,7 +72,9 @@ export const BUYER_SOURCE_LABELS: Record<string, string> = {
 
 /** קישור צ'אט וואטסאפ מטלפון שמור (E.164) — wa.me דורש ספרות בלבד */
 export function waMeUrl(phone: string): string {
-  return `https://wa.me/${phone.replace(/\D/gu, "")}`;
+  // הנרמול משותף עם השרת: `wa.me/0501234567` אינו נפתח — וואטסאפ
+  // קורא את הספרות הראשונות כקידומת מדינה
+  return `https://wa.me/${normalizePhoneForWhatsapp(phone)}`;
 }
 
 /** מקור קונה לתצוגה — כולל קונים שהומרו מליד (source = "lead:<מקור הליד>") */
