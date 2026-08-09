@@ -31,6 +31,8 @@ interface Status {
   lastEventIssue?: string;
   clickToDial: boolean;
   config: Record<string, unknown>;
+  /** שמות הסודות ששמורים בפועל — בלי הערכים. */
+  secretsSet?: string[];
 }
 
 /**
@@ -286,24 +288,47 @@ export function TelephonySection() {
           ) : null}
         </div>
 
-        {(provider?.fields ?? []).map((field) => (
-          <div key={field.key} className="mb-3">
-            <label htmlFor={`tel-${field.key}`} className="mb-1 block text-sm font-semibold">
-              {field.label}
-            </label>
-            <input
-              id={`tel-${field.key}`}
-              name={field.key}
-              type={field.secret ? "password" : "text"}
-              dir="ltr"
-              autoComplete="off"
-              defaultValue={field.secret ? "" : String(status.config[field.key] ?? "")}
-              placeholder={field.secret && status.connected ? "שמור — השאירו ריק כדי לא לשנות" : undefined}
-              className="w-full rounded-lg border px-3 py-2.5"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
-            />
-          </div>
-        ))}
+        {(provider?.fields ?? []).map((field) => {
+          const stored = (status.secretsSet ?? []).includes(field.key);
+          return (
+            <div key={field.key} className="mb-3">
+              <label htmlFor={`tel-${field.key}`} className="mb-1 block text-sm font-semibold">
+                {field.label}
+              </label>
+              <input
+                id={`tel-${field.key}`}
+                name={field.key}
+                type={field.secret ? "password" : "text"}
+                dir="ltr"
+                /*
+                  ‎`new-password`‎ ולא `off`: כרום מתעלם מ-`off` בשדות
+                  סיסמה וממלא לתוכם סיסמה שמורה של המשתמש — כלומר את
+                  הסיסמה הפרטית שלו לתוך שדה הסיסמה של המרכזייה.
+                */
+                autoComplete={field.secret ? "new-password" : "off"}
+                defaultValue={field.secret ? "" : String(status.config[field.key] ?? "")}
+                placeholder={
+                  field.secret && stored ? "שמורה — השאירו ריק כדי לא לשנות" : undefined
+                }
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+              />
+              {/*
+                ההבחנה בין "שמור" ל"חסר" היא כל העניין: קודם שני המצבים
+                נראו זהים — שדה ריק עם אותו טקסט — והחיבור נראה תקין
+                בזמן שהחיוג נכשל על סוד שלא היה שם.
+              */}
+              {field.secret && status.connected ? (
+                <p
+                  className="m-0 mt-1 text-xs"
+                  style={{ color: stored ? "var(--color-success)" : "var(--color-danger)" }}
+                >
+                  {stored ? "✓ שמורה בשרת" : "⚠ לא שמורה — החיוג היוצא לא יעבוד בלעדיה"}
+                </p>
+              ) : null}
+            </div>
+          );
+        })}
 
         <button type="submit" className="mv-btn-action" disabled={busy}>
           {status.connected ? "עדכן חיבור" : "חבר מרכזייה"}

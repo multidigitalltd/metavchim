@@ -12,6 +12,8 @@ import {
   PBX015_MAKE_URL,
   safeDiagnosticKeys,
   telephonyParseIssue,
+  mergeIntegrationSecrets,
+  telephonySecretKeys,
 } from "./telephony.js";
 
 function event(overrides: Partial<TelephonyEvent> = {}): TelephonyEvent {
@@ -347,5 +349,76 @@ describe("safeDiagnosticKeys", () => {
     const out = safeDiagnosticKeys(many);
     expect(out.length).toBeLessThanOrEqual(400);
     expect(out.split(", ").length).toBeLessThanOrEqual(25);
+  });
+});
+
+describe("mergeIntegrationSecrets", () => {
+  const KEYS = ["authPassword", "apiSecret"];
+
+  it("סוד שלא נשלח נשמר — זה הבאג שמחק סיסמה שמורה", () => {
+    const out = mergeIntegrationSecrets({ authPassword: "סיסמה" }, {}, KEYS);
+    expect(out["authPassword"]).toBe("סיסמה");
+  });
+
+  it("שמירה שמילאה רק שדה אחד אינה מוחקת את השני", () => {
+    const out = mergeIntegrationSecrets(
+      { authPassword: "סיסמה", apiSecret: "סוד" },
+      { apiSecret: "סוד-חדש" },
+      KEYS,
+    );
+    expect(out).toEqual({ authPassword: "סיסמה", apiSecret: "סוד-חדש" });
+  });
+
+  it("ערך חדש דורס את הישן", () => {
+    const out = mergeIntegrationSecrets({ authPassword: "ישן" }, { authPassword: "חדש" }, KEYS);
+    expect(out["authPassword"]).toBe("חדש");
+  });
+
+  it("החלפת ספק מנקה — סוד של ספק קודם לא נגרר", () => {
+    const out = mergeIntegrationSecrets({ apiSecret: "של-Zadarma" }, { authPassword: "של-015" }, KEYS, {
+      providerChanged: true,
+    });
+    expect(out).toEqual({ authPassword: "של-015" });
+  });
+
+  it("מפתח שאינו ברשימת הסודות של הספק נזרק", () => {
+    // כך שם המשתמש, שעבר להיות שדה גלוי, מתנקה מהגוש המוצפן מעצמו
+    const out = mergeIntegrationSecrets({ authUsername: "עברי" }, { authPassword: "ס" }, KEYS);
+    expect(out["authUsername"]).toBeUndefined();
+  });
+
+  it("מחרוזת ריקה או רווחים אינה נשמרת כערך", () => {
+    const out = mergeIntegrationSecrets({}, { authPassword: "   " }, KEYS);
+    expect(out).toEqual({});
+  });
+
+  it("ערכים נשמרים מקוצצי רווחים — הדבקה מהדפדפן גוררת רווח בסוף", () => {
+    const out = mergeIntegrationSecrets({}, { authPassword: " סיסמה " }, KEYS);
+    expect(out["authPassword"]).toBe("סיסמה");
+  });
+});
+
+describe("telephonySecretKeys", () => {
+  it("ב-015 רק הסיסמה סודה — שם המשתמש הוא שם, לא מפתח", () => {
+    const provider = telephonyProvider("015")!;
+    expect(telephonySecretKeys(provider)).toEqual(["authPassword"]);
+  });
+
+  it("כל ספק עם יותר מסוד אחד חייב מיזוג לפי מפתח", () => {
+    /*
+     * הבדיקה הזו אינה על ההווה אלא על העתיד: ברגע שספק כלשהו יקבל
+     * סוד שני, הריקוד של "השאירו ריק כדי לא לשנות" חוזר להיות מסוכן.
+     * `mergeIntegrationSecrets` הוא הדרך היחידה לשמור סודות, וכאן
+     * מוודאים שהיא מחזיקה בדיוק את מה שהספק מכריז עליו.
+     */
+    for (const provider of TELEPHONY_PROVIDERS) {
+      const keys = telephonySecretKeys(provider);
+      const kept = mergeIntegrationSecrets(
+        Object.fromEntries(keys.map((k) => [k, `ערך-${k}`])),
+        {},
+        keys,
+      );
+      expect(Object.keys(kept).sort()).toEqual([...keys].sort());
+    }
   });
 });

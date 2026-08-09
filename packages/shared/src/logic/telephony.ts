@@ -48,8 +48,14 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
      * 015 — הספק היחיד עם חיוג יוצא ממומש.
      *
      * ה-API שלו מאמת ב**שם משתמש וסיסמה** ולא בטוקן (`auth_username`,
-     * `auth_password`), וזה מה שהיה כתוב כאן קודם בטעות. שניהם סודות:
-     * מי שמחזיק בהם יכול לחייג על חשבון המשרד.
+     * `auth_password`), וזה מה שהיה כתוב כאן קודם בטעות.
+     *
+     * **רק הסיסמה סודה.** שם המשתמש הוא שם, ולא מפתח שפותח משהו —
+     * בדיוק כמו `apiKey` מול `apiSecret` אצל Zadarma כאן למטה. סימונו
+     * כסוד גרם לשלושה נזקים ממשיים: השדה רונדר כ-`password`, ולכן
+     * הדפדפן מילא לתוכו סיסמה שמורה של המשתמש; הערך לא הוצג בחזרה,
+     * ולכן אי אפשר היה לבדוק מה בעצם שמור; והוא נגרר לריקוד
+     * "השאירו ריק כדי לא לשנות" בלי סיבה.
      *
      * `defaultLine` הוא נפילה-לאחור בלבד. השיחה מצלצלת קודם **לטלפון
      * של הסוכן** (הפרופיל שלו), כי זו כל הנקודה של חיוג בלחיצה; קו
@@ -58,7 +64,7 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
     id: "015",
     label: "015 / 012 מובייל",
     fields: [
-      { key: "authUsername", label: "שם משתמש ב-015", secret: true },
+      { key: "authUsername", label: "שם משתמש ב-015", secret: false },
       { key: "authPassword", label: "סיסמה ב-015", secret: true },
       { key: "defaultLine", label: "קו ברירת מחדל (כשלסוכן אין טלפון בפרופיל)", secret: false },
       { key: "callerId", label: "מזהה מתקשר שיוצג ללקוח (לא חובה)", secret: false },
@@ -89,6 +95,47 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
 
 export function telephonyProvider(id: string): TelephonyProvider | undefined {
   return TELEPHONY_PROVIDERS.find((p) => p.id === id);
+}
+
+/**
+ * מיזוג הסודות של אינטגרציה — **לפי מפתח, לא כגוש אחד**.
+ *
+ * המסך אומר "השאירו ריק כדי לא לשנות", ושדה סוד ריק פשוט אינו נשלח.
+ * הכלל הזה עובד כשיש סוד אחד. עם שניים הוא הרס נתונים שקט: שמירה
+ * חוזרת שבה מולא רק שם המשתמש שלחה ‎`{authUsername}`‎, והשרת החליף את
+ * **כל** הגוש — כלומר מחק את הסיסמה. המסך הראה חיבור תקין, והחיוג
+ * ענה "חסרים פרטי ההתחברות", בלי שאיש נגע בסיסמה.
+ *
+ * שלושה כללים, וכל אחד מהם מונע תקלה אחרת:
+ *
+ * - **מיזוג לפי מפתח** — סוד שלא נשלח נשמר כפי שהיה.
+ * - **החלפת ספק מנקה** — הסוד של Zadarma לא נגרר לחיבור 015. הוא
+ *   חסר משמעות שם, ובעיקר: אין סיבה שיישאר מוצפן בבסיס הנתונים אחרי
+ *   שהמשרד עזב את הספק.
+ * - **רק מפתחות שהספק מכיר, ורק ערכים לא ריקים** — כך שדה שהוסר
+ *   מרשימת הסודות (או עבר להיות גלוי) מתנקה מעצמו בשמירה הבאה,
+ *   ומחרוזת ריקה לא נשמרת כאילו היא ערך.
+ */
+export function mergeIntegrationSecrets(
+  previous: Record<string, string>,
+  incoming: Record<string, string>,
+  secretKeys: readonly string[],
+  options: { providerChanged: boolean } = { providerChanged: false },
+): Record<string, string> {
+  const allowed = new Set(secretKeys);
+  const base = options.providerChanged ? {} : previous;
+  const merged: Record<string, string> = {};
+  for (const [key, value] of Object.entries({ ...base, ...incoming })) {
+    if (allowed.has(key) && typeof value === "string" && value.trim() !== "") {
+      merged[key] = value.trim();
+    }
+  }
+  return merged;
+}
+
+/** מפתחות הסוד של ספק — הרשימה שמותר לשמור עבורו. */
+export function telephonySecretKeys(provider: TelephonyProvider): string[] {
+  return provider.fields.filter((f) => f.secret).map((f) => f.key);
 }
 
 /* ==================== אירוע שיחה ==================== */

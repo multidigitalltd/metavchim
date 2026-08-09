@@ -17,6 +17,8 @@ import {
   safeDiagnosticKeys,
   telephonyParseIssue,
   telephonyProvider,
+  mergeIntegrationSecrets,
+  telephonySecretKeys,
 } from "@metavchim/shared";
 import { assertContactAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -54,6 +56,23 @@ export class TelephonyService {
     return `${loadEnv().WEB_ORIGIN}/api/v1/public/telephony/${key}`;
   }
 
+  /**
+   * פענוח גוש הסודות. גוש פגום מחזיר ריק ולא מפיל את המסך — מנהל
+   * שלא יכול לפתוח את הגדרות המרכזייה גם לא יכול לתקן אותן.
+   */
+  private readSecrets(encrypted: string | null): Record<string, string> {
+    if (!encrypted) return {};
+    try {
+      const parsed: unknown = JSON.parse(this.crypto.decrypt(encrypted));
+      return typeof parsed === "object" && parsed !== null
+        ? (parsed as Record<string, string>)
+        : {};
+    } catch {
+      this.logger.error("גוש הסודות של המרכזייה אינו ניתן לפענוח");
+      return {};
+    }
+  }
+
   /** מצב החיבור כפי שמנהל המשרד רואה אותו — בלי הסודות. */
   async status(): Promise<{
     connected: boolean;
@@ -70,14 +89,25 @@ export class TelephonyService {
     lastEventOk?: boolean;
     /** למה לא הובן — מספר חסוי אינו תקלת מיפוי. */
     lastEventIssue?: string;
+    /**
+     * אילו סודות **שמורים** — שמות המפתחות בלבד, בלי הערכים.
+     *
+     * בלי זה המסך לא יכול להבדיל בין "סיסמה שמורה, השאירו ריק" לבין
+     * "אין סיסמה כלל", ושתיהן נראו זהות: שדה ריק עם אותו placeholder.
+     * כך נראה חיבור שנראה תקין וחיוג שנכשל, בלי שום רמז מה חסר.
+     */
+    secretsSet: string[];
   }> {
     const tenantId = TenantContext.current().tenantId;
     const row = await this.prisma.withTenant((tx) =>
       tx.integration.findFirst({ where: { tenantId, kind: "telephony" } }),
     );
-    if (!row) return { connected: false, clickToDial: false, config: {} };
+    if (!row) return { connected: false, clickToDial: false, config: {}, secretsSet: [] };
     const provider = telephonyProvider(row.provider);
+    const stored = this.readSecrets(row.secretsEncrypted);
     return {
+      // רק השמות. הערכים אינם עוזבים את השרת, גם לא למנהל המשרד.
+      secretsSet: Object.keys(stored).filter((key) => (stored[key] ?? "").trim() !== ""),
       connected: true,
       provider: row.provider,
       providerLabel: provider?.label ?? row.provider,
@@ -112,10 +142,27 @@ export class TelephonyService {
         where: { tenantId, kind: "telephony" },
         select: { id: true, secretsEncrypted: true, provider: true },
       });
-      const secretsGiven = Object.keys(input.secrets).length > 0;
-      const secretsEncrypted = secretsGiven
-        ? this.crypto.encrypt(JSON.stringify(input.secrets))
-        : (existing?.secretsEncrypted ?? null);
+      const providerChanged = existing !== null && existing.provider !== input.provider;
+
+      /*
+       * הסודות ממוזגים **לפי מפתח**, לא מוחלפים כגוש.
+       *
+       * קודם כל שמירה החליפה את הגוש כולו, והמסך אומר "השאירו ריק כדי
+       * לא לשנות" — כלומר שדה סוד ריק אינו נשלח. עם סוד אחד זה עבד;
+       * עם שניים זה מחק נתונים בשקט: שמירה חוזרת שמילאה רק את שם
+       * המשתמש שלחה `{authUsername}` בלבד, והסיסמה נמחקה. המסך המשיך
+       * להראות "מחובר", והחיוג ענה "חסרים פרטי ההתחברות" — בלי שאיש
+       * נגע בסיסמה. התגלה בשימוש אמיתי.
+       */
+      const previousSecrets = this.readSecrets(existing?.secretsEncrypted ?? null);
+      const merged = mergeIntegrationSecrets(
+        previousSecrets,
+        input.secrets,
+        telephonySecretKeys(provider),
+        { providerChanged },
+      );
+      const secretsEncrypted =
+        Object.keys(merged).length > 0 ? this.crypto.encrypt(JSON.stringify(merged)) : null;
 
       if (existing) {
         /*
@@ -125,7 +172,6 @@ export class TelephonyService {
          * שהספק החדש עובד — והמנהל מפסיק לחפש למה שיחות לא נכנסות
          * (ביקורת Codex).
          */
-        const providerChanged = existing.provider !== input.provider;
         await tx.integration.updateMany({
           where: { id: existing.id, tenantId },
           data: {
@@ -194,14 +240,31 @@ export class TelephonyService {
       throw new BadRequestException(`חיוג יוצא אינו נתמך עבור ${provider?.label ?? row.provider}`);
     }
 
-    const secrets = row.secretsEncrypted
-      ? (JSON.parse(this.crypto.decrypt(row.secretsEncrypted)) as Record<string, string>)
-      : {};
+    const secrets = this.readSecrets(row.secretsEncrypted);
     const config = (row.config ?? {}) as Record<string, string>;
-    const authUsername = secrets["authUsername"] ?? "";
-    const authPassword = secrets["authPassword"] ?? "";
+    /*
+     * שם המשתמש מ-`config`, עם נפילה-לאחור ל-`secrets`.
+     *
+     * הוא היה מסומן כסוד ולכן נשמר מוצפן; מרגע שהוא שדה גלוי הוא
+     * נשמר ב-`config`. הנפילה-לאחור היא בשביל משרד שחיבר לפני
+     * השינוי — בלעדיה החיוג שלו היה נשבר בעדכון גרסה, בלי שנגע בכלום.
+     */
+    const authUsername = (config["authUsername"] ?? secrets["authUsername"] ?? "").trim();
+    const authPassword = (secrets["authPassword"] ?? "").trim();
+    /*
+     * ההודעה נוקבת ב**שדה החסר**. "חסרים פרטי ההתחברות" שלח את המשתמש
+     * למסך שבו שם המשתמש נראה מלא, ולכן לא היה ברור מה בעצם להשלים.
+     */
     if (authUsername === "" || authPassword === "") {
-      throw new BadRequestException("חסרים פרטי ההתחברות ל-015 — השלימו אותם בהגדרות");
+      const missing =
+        authUsername === "" && authPassword === ""
+          ? "שם המשתמש והסיסמה"
+          : authUsername === ""
+            ? "שם המשתמש"
+            : "הסיסמה";
+      throw new BadRequestException(
+        `חסר ${missing} של 015 — השלימו בהגדרות המשרד, במרכזיית הטלפון`,
+      );
     }
 
     /*
