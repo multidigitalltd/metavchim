@@ -95,6 +95,18 @@ async function runUpdate() {
     console.log("[updater] restarting with new images…");
     await compose(["up", "-d", "--no-deps", ...SERVICES]);
     console.log("[updater] update finished");
+    // התמונה של הסוכן עצמו נמשכת **בנפרד ואחרי** העדכון, ולעולם לא
+    // מורמת: הרמה מחדש הורגת את התהליך הזה באמצע פקודת ה-compose
+    // ומשאירה את השרת בלי סוכן. הכישלון כאן אינו מפיל את העדכון —
+    // עדכון תקין של המערכת חשוב מרענון הסוכן.
+    try {
+      await compose(["pull", "updater"]);
+      console.log(
+        `[updater] תמונת הסוכן נמשכה. להשלמה בשרת: docker compose -f ${REPO_DIR}/docker-compose.prod.yml --env-file ${REPO_DIR}/${ENV_FILE} up -d updater`,
+      );
+    } catch (error) {
+      console.warn(`[updater] self-image pull failed (לא קריטי): ${error instanceof Error ? error.message : String(error)}`);
+    }
   } catch (error) {
     console.error(`[updater] update failed: ${error instanceof Error ? error.message : String(error)}`);
   } finally {

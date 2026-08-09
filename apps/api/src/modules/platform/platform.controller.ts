@@ -43,6 +43,7 @@ import {
   type BackupRunStatus,
   type RestoreStatus,
 } from "./backups.service";
+import { callUpdaterAgent, updaterFailure } from "./updater-agent";
 
 /**
  * ניהול הפלטפורמה — הקמת משרדי תיווך חדשים מהממשק, בלי SSH.
@@ -420,18 +421,9 @@ export class PlatformController {
     if (env.UPDATER_URL === undefined || env.UPDATE_SECRET === undefined) {
       throw new ServiceUnavailableException("עדכון מרחוק אינו מוגדר בסביבה זו");
     }
-    let res: Response;
-    try {
-      res = await fetch(`${env.UPDATER_URL}/update`, {
-        method: "POST",
-        headers: { "x-update-secret": env.UPDATE_SECRET },
-        signal: AbortSignal.timeout(10_000),
-      });
-    } catch {
-      throw new ServiceUnavailableException("סוכן העדכון אינו זמין");
-    }
+    const res = await callUpdaterAgent("/update", { method: "POST" });
     if (res.status === 409) throw new ConflictException("עדכון כבר רץ — המתינו לסיומו");
-    if (!res.ok) throw new ServiceUnavailableException("סוכן העדכון החזיר שגיאה");
+    if (!res.ok) throw updaterFailure(res);
     return { status: "started" };
   }
 

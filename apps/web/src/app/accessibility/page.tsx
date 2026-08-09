@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { LEGAL } from "../../lib/legal";
+import { LegalDemoNotice } from "../legal-demo-notice";
 
 export const metadata: Metadata = { title: "הצהרת נגישות" };
 
@@ -16,6 +17,8 @@ export default function AccessibilityStatementPage() {
   return (
     <article className="mx-auto max-w-2xl">
       <h1 className="mb-4 text-2xl font-bold">הצהרת נגישות</h1>
+
+      <LegalDemoNotice />
 
       <p className="mb-4">
         אנו רואים חשיבות רבה במתן שירות שוויוני לכלל הלקוחות ובשיפור השירות
@@ -61,7 +64,7 @@ export default function AccessibilityStatementPage() {
         ונטפל בפנייה בהקדם.
       </p>
 
-      <p className="text-sm text-[var(--mv-muted)]">
+      <p className="text-sm text-[var(--color-text-muted)]">
         עודכן לאחרונה: {LEGAL.updatedAt}
         <br />
         ראו גם:{" "}
