@@ -7,6 +7,7 @@ import {
   type Page,
 } from "@metavchim/shared";
 import { ownershipFilter } from "../../common/ownership";
+import { freeTextTerms, normalizeRange, priceRangeAgorot } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -425,7 +426,20 @@ export class BuyersService {
     });
   }
 
-  async list(query: { maturity?: string; cursor?: string; limit: number }): Promise<Page<BuyerDto>> {
+  async list(query: {
+    maturity?: string;
+    q?: string;
+    minPrice?: number;
+    maxPrice?: number;
+    minRooms?: number;
+    maxRooms?: number;
+    cursor?: string;
+    limit: number;
+  }): Promise<Page<BuyerDto>> {
+    const budget = priceRangeAgorot(query.minPrice, query.maxPrice);
+    const rooms = normalizeRange(query.minRooms, query.maxRooms);
+    const terms = freeTextTerms(query.q);
+
     return this.prisma.withTenant(async (tx) => {
       const rows = await tx.buyer.findMany({
         where: {
@@ -433,6 +447,37 @@ export class BuyersService {
           deletedAt: null,
           ...ownershipFilter("buyers.view_all", "ownerUserId"),
           ...(query.maturity ? { maturity: query.maturity } : {}),
+          /*
+           * חפיפה, לא הכלה.
+           *
+           * לקונה יש *טווח* תקציב, ולא מחיר אחד. מתווך שמסנן
+           * "1–2 מיליון" מחפש את מי שהטווח שלו נחתך עם זה — קונה עם
+           * 1.5–2.5 מיליון רלוונטי לו לגמרי. בדיקת הכלה הייתה מסתירה
+           * בדיוק את הקונים שבגבול, שהם לרוב המעניינים.
+           * הנימוק המלא ב-list-filters (rangesOverlap).
+           */
+          ...(budget.max !== undefined ? { budgetMinAgorot: { lte: budget.max } } : {}),
+          ...(budget.min !== undefined ? { budgetMaxAgorot: { gte: budget.min } } : {}),
+          ...(rooms.max !== undefined ? { roomsMin: { lte: rooms.max } } : {}),
+          ...(rooms.min !== undefined ? { roomsMax: { gte: rooms.min } } : {}),
+          /*
+           * החיפוש החופשי מכסה את מה שנכתב על הקונה — ערים מבוקשות,
+           * הערות הסוכן וסיכומי השיחות. שם הלקוח *אינו* כאן: הוא
+           * מוצפן במסד, ואי אפשר לחפש בו ILIKE. חיפוש לפי שם עובר
+           * דרך החיפוש הגלובלי, שמשתמש ב-name_hash.
+           */
+          ...(terms.length > 0
+            ? {
+                AND: terms.map((term) => ({
+                  OR: [
+                    { cities: { has: term } },
+                    { agentNotes: { contains: term, mode: "insensitive" as const } },
+                    { aiNotes: { contains: term, mode: "insensitive" as const } },
+                    { source: { contains: term, mode: "insensitive" as const } },
+                  ],
+                })),
+              }
+            : {}),
           ...(query.cursor ? { id: { lt: query.cursor } } : {}),
         },
         orderBy: { id: "desc" },

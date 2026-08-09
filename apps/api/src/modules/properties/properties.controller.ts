@@ -40,6 +40,13 @@ const ListQuerySchema = z
   .object({
     status: PropertyStatusSchema.optional(),
     city: z.string().max(80).optional(),
+    /** חיפוש חופשי — כתובת, תיאור שיווקי, סוג נכס והערות פנימיות */
+    q: z.string().max(120).optional(),
+    /** בשקלים; ההמרה לאגורות בשרת */
+    minPrice: z.coerce.number().min(0).optional(),
+    maxPrice: z.coerce.number().min(0).optional(),
+    minRooms: z.coerce.number().min(0).max(30).optional(),
+    maxRooms: z.coerce.number().min(0).max(30).optional(),
     cursor: z.string().max(30).optional(),
     limit: z.coerce.number().int().min(1).max(100).default(50),
   })

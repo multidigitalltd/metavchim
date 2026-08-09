@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import { computeReadiness, type Page, type PropertyFields } from "@metavchim/shared";
+import { freeTextTerms, normalizeRange, priceRangeAgorot } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -208,7 +209,21 @@ export class PropertiesService {
     });
   }
 
-  async list(query: { status?: string; city?: string; cursor?: string; limit: number }): Promise<Page<PropertyDto>> {
+  async list(query: {
+    status?: string;
+    city?: string;
+    q?: string;
+    minPrice?: number;
+    maxPrice?: number;
+    minRooms?: number;
+    maxRooms?: number;
+    cursor?: string;
+    limit: number;
+  }): Promise<Page<PropertyDto>> {
+    const price = priceRangeAgorot(query.minPrice, query.maxPrice);
+    const rooms = normalizeRange(query.minRooms, query.maxRooms);
+    const terms = freeTextTerms(query.q);
+
     return this.prisma.withTenant(async (tx) => {
       const rows = await tx.property.findMany({
         where: {
@@ -216,6 +231,46 @@ export class PropertiesService {
           deletedAt: null,
           ...(query.status ? { status: query.status } : {}),
           ...(query.city ? { city: query.city } : {}),
+          ...(price.min !== undefined || price.max !== undefined
+            ? {
+                priceAgorot: {
+                  ...(price.min !== undefined ? { gte: price.min } : {}),
+                  ...(price.max !== undefined ? { lte: price.max } : {}),
+                },
+              }
+            : {}),
+          ...(rooms.min !== undefined || rooms.max !== undefined
+            ? {
+                rooms: {
+                  ...(rooms.min !== undefined ? { gte: rooms.min } : {}),
+                  ...(rooms.max !== undefined ? { lte: rooms.max } : {}),
+                },
+              }
+            : {}),
+          /*
+           * כל מונח חייב להתאים, וכל אחד יכול להתאים בשדה אחר —
+           * כך ש"פנטהאוז רמת גן" מוצא נכס שסוגו פנטהאוז ועירו רמת גן.
+           * AND בין המונחים, OR בין השדות; הנימוק המלא ב-list-filters.
+           *
+           * החיפוש כבר לא מוגבל לכתובת: הוא מכסה גם את הכותרת
+           * השיווקית, התיאור, סוג הנכס וההערות הפנימיות — שם יושב
+           * מה שהמתווך באמת זוכר על הנכס.
+           */
+          ...(terms.length > 0
+            ? {
+                AND: terms.map((term) => ({
+                  OR: [
+                    { street: { contains: term, mode: "insensitive" as const } },
+                    { neighborhood: { contains: term, mode: "insensitive" as const } },
+                    { city: { contains: term, mode: "insensitive" as const } },
+                    { propertyType: { contains: term, mode: "insensitive" as const } },
+                    { marketingTitle: { contains: term, mode: "insensitive" as const } },
+                    { marketingDescription: { contains: term, mode: "insensitive" as const } },
+                    { internalNotes: { contains: term, mode: "insensitive" as const } },
+                  ],
+                })),
+              }
+            : {}),
           ...(query.cursor ? { id: { lt: query.cursor } } : {}),
         },
         orderBy: { id: "desc" }, // ULID ממוין-זמן — חדש ראשון

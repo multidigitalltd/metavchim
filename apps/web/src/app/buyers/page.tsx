@@ -7,7 +7,14 @@ import { Button } from "@metavchim/ui";
 import { apiGet } from "@/lib/api";
 import { formatPrice, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
-import { CapNote, FilterBar, FilterSelect, SearchField, textMatches } from "../list-controls";
+import { CapNote, FilterBar, FilterSelect, textMatches } from "../list-controls";
+import {
+  EMPTY_FILTERS,
+  ListFilters,
+  filtersToQuery,
+  hasActiveFilters,
+  type ListFilterValues,
+} from "../list-filters";
 
 /**
  * מסך הקונים לפי קובץ העיצוב: מקרא בשלות בכותרת, טבלת grid עם גלולת
@@ -80,13 +87,22 @@ export default function BuyersPage() {
   const router = useRouter();
   const [items, setItems] = useState<BuyerRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
+  const [filters, setFilters] = useState<ListFilterValues>(EMPTY_FILTERS);
   const [maturity, setMaturity] = useState("");
   const [offersFilter, setOffersFilter] = useState("");
 
+  /*
+   * טווחי התקציב והחדרים נשלחים לשרת; החיפוש הטקסטואלי נשאר בדפדפן.
+   *
+   * ההפרדה אינה שרירותית: שם הלקוח והטלפון שלו **מוצפנים במסד**,
+   * ואי אפשר לחפש בהם בשאילתה. חיפוש שרת היה מאבד בדיוק את מה
+   * שמתווך מחפש הכי הרבה — "איפה הכרטיס של כהן". החיפוש לפי שם על
+   * פני כל המאגר קיים בחיפוש הגלובלי, שמשתמש ב-name_hash.
+   */
   useEffect(() => {
     if (authLoading) return;
-    apiGet<{ items: BuyerRow[] }>("/buyers?limit=100")
+    setItems(null);
+    apiGet<{ items: BuyerRow[] }>(`/buyers?limit=100${filtersToQuery({ ...filters, q: "" })}`)
       .then((res) =>
         setItems(
           [...res.items].sort(
@@ -95,20 +111,20 @@ export default function BuyersPage() {
         ),
       )
       .catch(() => setError("טעינת הקונים נכשלה"));
-  }, [authLoading]);
+  }, [authLoading, filters]);
 
   const visible = useMemo(
     () =>
       (items ?? []).filter(
         (b) =>
-          textMatches(query, b.contact.name, b.contact.phone, ...b.requirements.cities) &&
+          textMatches(filters.q, b.contact.name, b.contact.phone, ...b.requirements.cities) &&
           (!maturity || b.maturity === maturity) &&
           // "מי לא קיבל כלום" הוא הסינון שמייצר עבודה בפועל
           (offersFilter === "" ||
             (offersFilter === "none" && (b.offersReceived ?? 0) === 0) ||
             (offersFilter === "some" && (b.offersReceived ?? 0) > 0)),
       ),
-    [items, query, maturity, offersFilter],
+    [items, filters.q, maturity, offersFilter],
   );
 
   return (
@@ -150,23 +166,25 @@ export default function BuyersPage() {
         </div>
       ) : (
         <>
+          <ListFilters
+            values={filters}
+            onApply={setFilters}
+            searchLabel="חיפוש קונה"
+            searchHint="🔍 שם, טלפון או עיר מבוקשת"
+            priceLabel="תקציב"
+          />
           <FilterBar
             shown={visible.length}
             total={items.length}
             noun="קונים"
-            active={query.trim() !== "" || maturity !== "" || offersFilter !== ""}
+            active={hasActiveFilters(filters) || maturity !== "" || offersFilter !== ""}
             onClear={() => {
-              setQuery("");
+              setFilters(EMPTY_FILTERS);
+              setFilters(EMPTY_FILTERS);
               setMaturity("");
               setOffersFilter("");
             }}
           >
-            <SearchField
-              label="חיפוש קונה"
-              placeholder="🔍 שם, טלפון או עיר מבוקשת"
-              value={query}
-              onChange={setQuery}
-            />
             <FilterSelect
               label="סינון לפי בשלות"
               value={maturity}
@@ -195,7 +213,7 @@ export default function BuyersPage() {
               <Button
                 variant="secondary"
                 onClick={() => {
-                  setQuery("");
+                  setFilters(EMPTY_FILTERS);
                   setMaturity("");
                 }}
               >
@@ -288,7 +306,7 @@ export default function BuyersPage() {
               </div>
             </>
           )}
-          <CapNote show={(query.trim() !== "" || maturity !== "" || offersFilter !== "") && items.length === 100} noun="קונים" />
+          <CapNote show={(hasActiveFilters(filters) || maturity !== "" || offersFilter !== "") && items.length === 100} noun="קונים" />
         </>
       )}
     </>
