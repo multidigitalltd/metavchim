@@ -68,21 +68,35 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }): 
   const connect = useCallback(async (): Promise<void> => {
     setBusy(true);
     setGap(null);
+    let dto: SoftphoneDto;
     try {
-      const dto = await apiGet<SoftphoneDto>("/settings/telephony/softphone");
-      if (!dto.ready) {
-        setGap(GAP_TEXT[dto.gap ?? ""] ?? "הסופטפון אינו מוגדר");
-        return;
-      }
+      dto = await apiGet<SoftphoneDto>("/settings/telephony/softphone");
+    } catch {
+      setGap("לא הצלחנו לטעון את פרטי החיבור");
+      setBusy(false);
+      return;
+    }
+    if (!dto.ready) {
+      setGap(GAP_TEXT[dto.gap ?? ""] ?? "הסופטפון אינו מוגדר");
+      setBusy(false);
+      return;
+    }
+    try {
       await instance().connect({
         wssUrl: dto.wssUrl!,
         domain: dto.domain!,
         username: dto.username!,
         password: dto.password!,
       });
+      /*
+       * הדגל נשמר **רק אחרי הצלחה**. קודם הוא נשמר גם על כישלון, כי
+       * `connect` בלע את השגיאה — וכל רענון דף חזר על אותו כישלון
+       * שקט (ביקורת Codex).
+       */
       window.localStorage.setItem(REMEMBER_KEY, "1");
     } catch {
-      setGap("לא הצלחנו לטעון את פרטי החיבור");
+      // ההודעה כבר במצב של הסופטפון עצמו; gap כאן היה מסתיר אותה
+      window.localStorage.removeItem(REMEMBER_KEY);
     } finally {
       setBusy(false);
     }
@@ -99,6 +113,16 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }): 
     if (window.localStorage.getItem(REMEMBER_KEY) === "1") void connect();
     return () => {
       unsubscribe();
+      /*
+       * **ניתוק מלא בפירוק הרכיב, ולא רק ביטול המנוי.**
+       *
+       * ביציאה מהמערכת ה-AppShell מסיר את הספק הזה. בלי הניתוק
+       * ה-UserAgent נשאר רשום למרכזייה: שיחה שהייתה באוויר ממשיכה
+       * אחרי היציאה, ולקוח ממשיך לקבל שיחות נכנסות בלי שום פס על
+       * המסך שדרכו אפשר לענות או לנתק (ביקורת Codex).
+       */
+      phoneRef.current = null;
+      void phone.destroy();
     };
   }, [enabled, instance, connect]);
 

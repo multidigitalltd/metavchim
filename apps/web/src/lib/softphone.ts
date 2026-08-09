@@ -131,26 +131,54 @@ export class Softphone {
       this.ua = ua;
       this.registerer = registerer;
     } catch (error: unknown) {
+      /*
+       * **הניקוי אינו מוחק את השגיאה, והכישלון עולה החוצה.**
+       *
+       * קודם ה-catch כתב `failed` ומיד קרא ל-`disconnect`, שמאפס
+       * למצב ההתחלתי — כלומר ההודעה נמחקה לפני שמישהו ראה אותה.
+       * וגרוע מכך: הקורא קיבל Promise שהצליח, שמר "התחבר בהצלחה"
+       * במכשיר, וכל רענון דף חזר על אותו כישלון שקט (ביקורת Codex).
+       */
+      await this.teardown();
       this.set({
         status: "failed",
         error: error instanceof Error ? error.message : "החיבור למרכזייה נכשל",
       });
-      await this.disconnect();
+      throw error;
     }
   }
 
-  async disconnect(): Promise<void> {
+  /** שחרור המשאבים בלבד — בלי לגעת במצב המוצג. */
+  private async teardown(): Promise<void> {
     try {
       await this.registerer?.unregister();
       await this.ua?.stop();
     } catch {
-      // ניתוק שנכשל אינו מצב שהמשתמש יכול לתקן — העיקר שהמצב יתאפס
+      // ניתוק שנכשל אינו מצב שהמשתמש יכול לתקן
     }
     this.registerer = null;
     this.ua = null;
     this.session = null;
+  }
+
+  async disconnect(): Promise<void> {
+    await this.teardown();
     this.state = INITIAL;
     for (const fn of this.listeners) fn(this.state);
+  }
+
+  /**
+   * סוף החיים — ביציאה מהמערכת.
+   *
+   * ‎`disconnect` לבדו משאיר את אלמנט האודיו תלוי ב-DOM. הוא קטן,
+   * אבל הוא נוצר מחדש בכל טעינה של הרכיב, ואלמנט שמנגן שמע של שיחה
+   * שהסתיימה הוא בדיוק סוג הדבר שלא רוצים שיישאר אחרי יציאה.
+   */
+  async destroy(): Promise<void> {
+    await this.disconnect();
+    this.listeners.clear();
+    this.audio.srcObject = null;
+    this.audio.remove();
   }
 
   /** חיוג יוצא. המספר מגיע מהכרטיס, כמו בכל שאר המערכת. */
