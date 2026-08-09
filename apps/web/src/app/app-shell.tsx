@@ -8,6 +8,7 @@ import { FeaturesProvider } from "@/lib/use-features";
 import { NotificationsBell } from "./notifications-bell";
 import { TopbarSearch } from "./topbar-search";
 import { WhatsNewBanner } from "./whats-new-banner";
+import { TrialBanner } from "./trial-banner";
 
 /**
  * מעטפת האפליקציה לפי קובץ העיצוב: סרגל צד כהה עם ניווט אנכי, מונים
@@ -21,8 +22,18 @@ import { WhatsNewBanner } from "./whats-new-banner";
  * ממסך של 375px.
  */
 
+/**
+ * מסכי הכניסה מביאים מעטפת משלהם (AuthShell) — כולל ה-main.
+ *
+ * בלי ההפרדה הזו היו שני `<main id="main-content">` באותו דף:
+ * זה של המעטפת הכללית וזה של המסך. מזהה כפול שובר את קישור הדילוג
+ * ומבלבל קורא מסך.
+ */
+const AUTH_PREFIXES = ["/login", "/signup", "/forgot-password", "/reset-password", "/change-password"];
+
 const PUBLIC_PREFIXES = [
   "/login",
+  "/signup",
   "/offer/",
   "/sign/",
   "/p/", // דף נחיתה של נכס — הלקוח לא רואה תפריטי מתווך
@@ -198,6 +209,8 @@ interface Me {
   role: string;
   tenantName?: string;
   isPlatformAdmin?: boolean;
+  /** סוף תקופת הניסיון; null = אין תפוגה. */
+  trialEndsAt?: string | null;
 }
 
 function initials(name: string): string {
@@ -313,6 +326,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [menuOpen]);
 
+  if (AUTH_PREFIXES.some((p) => pathname === p || pathname.startsWith(p))) {
+    return <>{children}</>;
+  }
   if (isPublic) {
     return <main id="main-content" className="mx-auto max-w-6xl px-4 py-6">{children}</main>;
   }
@@ -507,6 +523,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
 
         <main id="main-content" className="mv-content">
+          <TrialBanner trialEndsAt={me?.trialEndsAt} />
           <WhatsNewBanner />
           <FeaturesProvider features={features}>{children}</FeaturesProvider>
         </main>

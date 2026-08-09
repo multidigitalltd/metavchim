@@ -2,10 +2,9 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
+import { AuthShell } from "../auth-shell";
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
 
 /** החלפת סיסמה — חובה בכניסה ראשונה עם סיסמה זמנית (ביקורת Codex). */
 export default function ChangePasswordPage() {
@@ -36,11 +35,11 @@ export default function ChangePasswordPage() {
   }
 
   return (
-    <div className="mx-auto max-w-sm py-8">
-      <h1 className="mb-1 text-2xl font-bold">בחירת סיסמה חדשה</h1>
-      <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
-        לפני שממשיכים — החליפו את הסיסמה הזמנית בסיסמה קבועה משלכם.
-      </p>
+    <AuthShell
+      title="בחירת סיסמה חדשה"
+      subtitle="לפני שממשיכים — החליפו את הסיסמה הזמנית בסיסמה קבועה משלכם."
+      points={["הסיסמה הזמנית תפוג ברגע שתשמרו", "בחרו סיסמה שרק אתם מכירים", "אפשר לשנות אותה שוב מהפרופיל"]}
+    >
       <form onSubmit={(e) => void onSubmit(e)} noValidate>
         {error ? (
           <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
@@ -49,20 +48,20 @@ export default function ChangePasswordPage() {
         ) : null}
         <div className="mb-4">
           <label htmlFor="currentPassword" className="mb-1 block font-medium">הסיסמה הזמנית</label>
-          <input id="currentPassword" name="currentPassword" type="password" required dir="ltr" autoComplete="current-password" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+          <input id="currentPassword" name="currentPassword" type="password" required dir="ltr" autoComplete="current-password" className="mv-auth-input" />
         </div>
         <div className="mb-4">
           <label htmlFor="newPassword" className="mb-1 block font-medium">סיסמה חדשה <span className="font-normal">(10 תווים לפחות)</span></label>
-          <input id="newPassword" name="newPassword" type="password" required minLength={10} dir="ltr" autoComplete="new-password" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+          <input id="newPassword" name="newPassword" type="password" required minLength={10} dir="ltr" autoComplete="new-password" className="mv-auth-input" />
         </div>
         <div className="mb-6">
           <label htmlFor="confirm" className="mb-1 block font-medium">אימות סיסמה</label>
-          <input id="confirm" name="confirm" type="password" required minLength={10} dir="ltr" autoComplete="new-password" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+          <input id="confirm" name="confirm" type="password" required minLength={10} dir="ltr" autoComplete="new-password" className="mv-auth-input" />
         </div>
-        <Button type="submit" disabled={submitting} className="w-full">
-          {submitting ? "שומר…" : "שמור והמשך"}
-        </Button>
+        <button type="submit" disabled={submitting} className="mv-auth-submit">
+        {submitting ? "שומר…" : "שמור והמשך"}
+      </button>
       </form>
-    </div>
+    </AuthShell>
   );
 }

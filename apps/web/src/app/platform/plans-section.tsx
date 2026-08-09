@@ -457,6 +457,17 @@ export function PlansSection({
                       {" · "}
                       {plan.isPublic ? "מוצג בדף ההרשמה" : "לא מוצג בדף ההרשמה"}
                     </p>
+                    {/*
+                      מסלול ציבורי בלי ימי ניסיון לא יופיע בהרשמה בפועל:
+                      ההרשמה פותחת משרד בסטטוס ניסיון, והתפוגה היא מה
+                      שמגביל אותו. בלי ימים לא היה תאריך תפוגה כלל.
+                    */}
+                    {plan.isPublic && plan.trialDays === 0 ? (
+                      <p className="m-0 mb-2 text-xs" style={{ color: "#8a6414" }}>
+                        ⚠️ בלי ימי ניסיון המסלול לא יופיע בדף ההרשמה — עד שתהיה סליקה הוא
+                        נסגר בשיחה.
+                      </p>
+                    ) : null}
                     <Button variant="ghost" onClick={() => startEdit(plan)}>
                       ערוך
                     </Button>
