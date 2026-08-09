@@ -7,7 +7,14 @@ import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
-import { CapNote, FilterBar, FilterChips, FilterSelect, SearchField, SortSelect, textMatches } from "../list-controls";
+import { CapNote, FilterBar, FilterChips, FilterSelect, SortSelect } from "../list-controls";
+import {
+  EMPTY_FILTERS,
+  ListFilters,
+  filtersToQuery,
+  hasActiveFilters,
+  type ListFilterValues,
+} from "../list-filters";
 
 /**
  * מסך הנכסים לפי קובץ העיצוב: צ'יפי ערים לסינון, טבלת grid עם תג
@@ -94,18 +101,27 @@ export default function PropertiesPage() {
   const router = useRouter();
   const [items, setItems] = useState<PropertyRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
   const [city, setCity] = useState("הכל");
   const [status, setStatus] = useState("");
   const [type, setType] = useState("");
   const [sort, setSort] = useState("newest");
+  const [filters, setFilters] = useState<ListFilterValues>(EMPTY_FILTERS);
 
+  /*
+   * הסינון רץ בשרת ולא בדפדפן.
+   *
+   * הצ'יפים של הערים והמיון עובדים על מה שכבר נטען, וזה בסדר לרשימה
+   * של מאה נכסים. חיפוש טקסט וטווחים הם משהו אחר: משרד עם אלפי
+   * נכסים חייב שהסינון יקרה במסד, אחרת הוא מסנן רק את המאה
+   * הראשונים ומחזיר "אין תוצאות" על נכס שקיים.
+   */
   useEffect(() => {
     if (authLoading) return;
-    apiGet<{ items: PropertyRow[] }>("/properties?limit=100")
+    setItems(null);
+    apiGet<{ items: PropertyRow[] }>(`/properties?limit=100${filtersToQuery(filters)}`)
       .then((res) => setItems(res.items))
       .catch(() => setError("טעינת הנכסים נכשלה"));
-  }, [authLoading]);
+  }, [authLoading, filters]);
 
   /* צ'יפי הערים נבנים מהנתונים עצמם — הערים שבאמת יש בהן נכסים */
   const cities = useMemo(() => {
@@ -120,19 +136,31 @@ export default function PropertiesPage() {
     if (!items) return [];
     const filtered = items.filter(
       (p) =>
-        textMatches(query, p.street, p.neighborhood, p.city) &&
+        // החיפוש החופשי כבר סונן בשרת; כאן נשארו רק הצ'יפים והמיון
         (city === "הכל" || p.city === city) &&
         (!status || p.status === status) &&
         (!type || p.propertyType === type),
     );
     return sortRows(filtered, sort);
-  }, [items, query, city, status, type, sort]);
+  }, [items, city, status, type, sort]);
 
   const filtering =
-    query.trim() !== "" || city !== "הכל" || status !== "" || type !== "" || sort !== "newest";
+    hasActiveFilters(filters) ||
+    city !== "הכל" ||
+    status !== "" ||
+    type !== "" ||
+    sort !== "newest";
 
   return (
     <>
+      <ListFilters
+        values={filters}
+        onApply={setFilters}
+        searchLabel="חיפוש נכס"
+        searchHint="🔍 כתובת, תיאור, סוג נכס או הערה"
+        priceLabel="מחיר"
+      />
+
       {/* שורת הצ'יפים והפעולות — כמו בעיצוב */}
       <div className="mb-[18px] flex flex-wrap items-center gap-2.5">
         <FilterChips
@@ -160,7 +188,7 @@ export default function PropertiesPage() {
         </p>
       ) : items === null ? (
         <p aria-live="polite">טוען נכסים…</p>
-      ) : items.length === 0 ? (
+      ) : items.length === 0 && !hasActiveFilters(filters) ? (
         <div
           className="rounded-xl border p-8 text-center"
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
@@ -181,19 +209,13 @@ export default function PropertiesPage() {
             noun="נכסים"
             active={filtering}
             onClear={() => {
-              setQuery("");
+              setFilters(EMPTY_FILTERS);
               setCity("הכל");
               setStatus("");
               setType("");
               setSort("newest");
             }}
           >
-            <SearchField
-              label="חיפוש נכס"
-              placeholder="🔍 רחוב, שכונה או עיר"
-              value={query}
-              onChange={setQuery}
-            />
             <FilterSelect
               label="סינון לפי סטטוס"
               value={status}
@@ -220,7 +242,7 @@ export default function PropertiesPage() {
               <Button
                 variant="secondary"
                 onClick={() => {
-                  setQuery("");
+                  setFilters(EMPTY_FILTERS);
                   setCity("הכל");
                   setStatus("");
                   setType("");
