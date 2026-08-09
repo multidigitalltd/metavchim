@@ -113,6 +113,8 @@ interface TenantSettings {
   licenseNumber?: string;
   officeAddress?: string;
   officePhone?: string;
+  defaultCommission?: string;
+  defaultPaymentTerms?: string;
 }
 
 export default function SettingsPage() {
@@ -156,6 +158,8 @@ export default function SettingsPage() {
         licenseNumber: String(f.get("licenseNumber") ?? "").trim(),
         officeAddress: String(f.get("officeAddress") ?? "").trim(),
         officePhone: String(f.get("officePhone") ?? "").trim(),
+        defaultCommission: String(f.get("defaultCommission") ?? "").trim(),
+        defaultPaymentTerms: String(f.get("defaultPaymentTerms") ?? "").trim(),
       });
       setMessage("✓ ההגדרות נשמרו");
       load();
@@ -409,6 +413,22 @@ export default function SettingsPage() {
                     טלפון המשרד
                   </label>
                   <input id="officePhone" name="officePhone" dir="ltr" inputMode="tel" placeholder="03-1234567" defaultValue={tenant.officePhone ?? ""} maxLength={30} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+                </div>
+                <div className="mb-3.5">
+                  <label htmlFor="defaultCommission" className="mb-1 block text-sm font-semibold">
+                    דמי תיווך — ברירת מחדל
+                  </label>
+                  <p className="m-0 mb-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                    פרט חובה בהזמנה בכתב. נכנס אוטומטית לכל הסכם שנשלח לחתימה,
+                    ואפשר לשנות אותו בשליחה בודדת.
+                  </p>
+                  <input id="defaultCommission" name="defaultCommission" placeholder="2% ממחיר העסקה" defaultValue={tenant.defaultCommission ?? ""} maxLength={80} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+                </div>
+                <div className="mb-3.5">
+                  <label htmlFor="defaultPaymentTerms" className="mb-1 block text-sm font-semibold">
+                    מועד תשלום דמי התיווך — ברירת מחדל
+                  </label>
+                  <input id="defaultPaymentTerms" name="defaultPaymentTerms" placeholder="במועד חתימת חוזה מחייב" defaultValue={tenant.defaultPaymentTerms ?? ""} maxLength={120} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
                 </div>
                 <p className="mb-3.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
                   מסלול: <strong>{PLAN_LABELS[tenant.plan] ?? tenant.plan}</strong>

@@ -10,6 +10,7 @@ import { WithDictation } from "../../dictation-field";
 import { TimelineSection } from "./timeline-section";
 import { ContactPeople } from "../../contact-people";
 import { RelatedEntities } from "../../related-entities";
+import { AgreementsPanel } from "../../agreements-panel";
 
 /**
  * כרטיס הקונה לפי קובץ העיצוב: כרטיס כותרת עם אווטאר וגלולת בשלות,
@@ -230,6 +231,12 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
           </p>
         ) : null}
       </div>
+
+      <AgreementsPanel
+        contactId={buyer.contact.id}
+        kind="brokerage"
+        title="הזמנה בכתב (הסכם תיווך)"
+      />
 
       <RelatedEntities contactId={buyer.contact.id} exclude={{ kind: "buyer", id: buyer.id }} />
 
