@@ -15,7 +15,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import { loadEnv } from "../../config/env";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
-import { AnyAuthenticated, Public } from "../../common/auth.decorators";
+import { AnyAuthenticated, BillingAllowed, Public } from "../../common/auth.decorators";
 import { TenantContext } from "../../common/tenant-context";
 import { AuthService, type AuthenticatedUser, type ProfileDto } from "./auth.service";
 import { GoogleAuthService } from "./google-auth.service";
@@ -266,6 +266,7 @@ export class AuthController {
   }
 
   @AnyAuthenticated()
+  @BillingAllowed()
   @Post("logout")
   @HttpCode(200)
   async logout(
@@ -281,6 +282,7 @@ export class AuthController {
   }
 
   @AnyAuthenticated()
+  @BillingAllowed()
   @Get("me")
   me(
     @Req() req: Request,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { tenantCanOperate } from "./auth.service";
+import { tenantCanOperate, tenantPeriodEnded, tenantSuspended } from "./auth.service";
 
 /**
  * שער ההרשאה של המשרד.
@@ -61,5 +61,35 @@ describe("tenantCanOperate — מנוי בתשלום", () => {
 
   it("שתי התפוגות יחד — הרלוונטית לסטטוס היא שקובעת", () => {
     expect(tenantCanOperate({ status: "active", trialEndsAt: past, paidUntil: future })).toBe(true);
+  });
+});
+
+describe("השהיה ותפוגה אינן אותו דבר", () => {
+  it("ניסיון שפג אינו מושהה — הוא חייב להצליח להתחבר", () => {
+    // זו כל הנקודה: נעילה בהתחברות הייתה חוסמת אותו מחוץ למסך המנוי,
+    // כלומר הופכת כל ניסיון שפג ללקוח אבוד
+    const tenant = { status: "trial", trialEndsAt: past };
+    expect(tenantSuspended(tenant)).toBe(false);
+    expect(tenantPeriodEnded(tenant)).toBe(true);
+    expect(tenantCanOperate(tenant)).toBe(false);
+  });
+
+  it("מנוי שהסתיים אינו מושהה", () => {
+    const tenant = { status: "active", paidUntil: past };
+    expect(tenantSuspended(tenant)).toBe(false);
+    expect(tenantPeriodEnded(tenant)).toBe(true);
+  });
+
+  it("משרד מושהה מושהה, ותפוגה אינה רלוונטית לו", () => {
+    // סטטוס שאינו active/trial חוסם התחברות לגמרי; אין טעם לבדוק
+    // תאריכים על משרד שבעל הפלטפורמה סגר
+    const tenant = { status: "suspended", paidUntil: future };
+    expect(tenantSuspended(tenant)).toBe(true);
+    expect(tenantPeriodEnded(tenant)).toBe(false);
+  });
+
+  it("משרד תקין אינו אף אחד מהשניים", () => {
+    expect(tenantSuspended({ status: "active", paidUntil: future })).toBe(false);
+    expect(tenantPeriodEnded({ status: "active", paidUntil: future })).toBe(false);
   });
 });

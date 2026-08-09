@@ -32,6 +32,20 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (res.status === 204) return undefined as T;
   const body: unknown = await res.json().catch(() => null);
+  /*
+   * 402 — התקופה של המשרד נגמרה.
+   *
+   * המשרד מחובר, אבל כל נתיב שאינו מסך המנוי חסום. הפניה אוטומטית
+   * לשם היא ההתנהגות הנכונה: כל מסך אחר יציג שגיאה שאי אפשר לפעול
+   * לפיה, ומסך המנוי הוא מה שפותר את המצב.
+   *
+   * ההפניה מדלגת כשכבר שם, אחרת נוצרת לולאה.
+   */
+  if (res.status === 402 && typeof window !== "undefined") {
+    if (!window.location.pathname.startsWith("/settings/billing")) {
+      window.location.assign("/settings/billing?expired=1");
+    }
+  }
   if (!res.ok) {
     const record = (body ?? {}) as { message?: string | string[]; issues?: ApiIssue[] };
     const message = Array.isArray(record.message)

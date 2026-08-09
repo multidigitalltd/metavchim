@@ -12,6 +12,15 @@ export interface RequestContext {
   tenantId: string;
   userId: string;
   capabilities: ReadonlySet<Capability>;
+  /**
+   * המשרד מחובר אבל אינו רשאי לעבוד — ניסיון שפג או מנוי שהסתיים.
+   *
+   * זה **לא** אותו דבר כמו השהיה מהפלטפורמה. משרד מושהה אינו מתחבר
+   * בכלל; משרד שתקופתו נגמרה נכנס, ומגיע למסך המנוי ולשם בלבד. אחרת
+   * הוא נעול מחוץ למסך היחיד שיכול לפתור לו את הבעיה — וזה בדיוק
+   * הרגע שבו הוא אמור לשלם.
+   */
+  billingOnly: boolean;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();
