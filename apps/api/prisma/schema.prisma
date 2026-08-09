@@ -522,8 +522,18 @@ model Appointment {
 model Task {
   id               String    @id @db.Char(26)
   tenantId         String    @map("tenant_id") @db.Char(26)
-  /** המשימה אישית — נראית ומנוהלת ע"י הסוכן שהוקצה בלבד. */
+  /**
+   * הסוכן האחראי. הוא רואה ומנהל אותה; מנהל עם `tasks.view_all`
+   * רואה גם את של האחרים.
+   */
   assignedToUserId String    @map("assigned_to_user_id") @db.Char(26)
+  /**
+   * מי הטיל. הפך למידע ברגע שאפשר להטיל על אחר — עד כה הוא היה
+   * תמיד זהה ל-assignedToUserId, ולכן לא נשמר.
+   */
+  createdByUserId  String?   @map("created_by_user_id") @db.Char(26)
+  /// low | normal | high
+  priority         String    @default("normal") @db.VarChar(10)
   title            String    @db.VarChar(200)
   notes            String?   @db.VarChar(2000)
   dueAt            DateTime? @map("due_at")
@@ -538,6 +548,9 @@ model Task {
 
   @@index([tenantId, assignedToUserId, status, dueAt])
   @@index([tenantId, entityId, sourceKey])
+  /// לוח המשרד: "מה פתוח, לפי מועד" בלי סינון לפי סוכן — האינדקס
+  /// הראשון מתחיל ב-assignedToUserId ולכן אינו משמש אותו
+  @@index([tenantId, status, dueAt])
   @@map("tasks")
 }
 

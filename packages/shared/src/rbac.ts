@@ -30,6 +30,22 @@ export const CAPABILITIES = [
    * שיש גם ל-viewer, ולכן היה גלוי לכל מי שנכנס למערכת.
    */
   "analytics.view",
+  /**
+   * הטלת משימה על סוכן אחר.
+   *
+   * עד כה משימה נוצרה תמיד על שם היוצר, ולכן מנהל משרד לא יכול היה
+   * להטיל דבר — מה שהפך את המודול לפנקס אישי במקום לכלי ניהול.
+   * יכולת נפרדת ולא חלק מ-`calendar.manage`: לכל סוכן יש משימות
+   * משלו, ולא לכל סוכן יש רשות להעמיס על אחרים.
+   */
+  "tasks.assign",
+  /**
+   * לוח המשימות של המשרד — לראות את מה שהוטל על כולם.
+   *
+   * אותו דפוס בדיוק כמו `buyers.view_all` ו-`leads.view_all`, ומופעל
+   * דרך אותו `ownershipFilter`.
+   */
+  "tasks.view_all",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
