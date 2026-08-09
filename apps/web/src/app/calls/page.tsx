@@ -6,6 +6,7 @@ import { Button } from "@metavchim/ui";
 import { API_BASE, ApiError, apiDelete, apiGet, apiPost } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { useFeature } from "@/lib/use-features";
 import { FilterBar, SearchField, textMatches } from "../list-controls";
 import { DictateFor } from "../dictation-field";
 
@@ -422,6 +423,7 @@ export default function CallsPage() {
  * לקרוא סיכום. מדיניות הפרטיות אומרת את ההבחנה הזו במפורש.
  */
 function CallRecording({ call, onChanged }: { call: CallRow; onChanged: () => void }) {
+  const canTranscribe = useFeature("transcription");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showFull, setShowFull] = useState(false);
@@ -447,6 +449,12 @@ function CallRecording({ call, onChanged }: { call: CallRow; onChanged: () => vo
   }
 
   const status = call.transcriptionStatus;
+
+  /*
+   * בלי הפיצ'ר אין טעם בסעיף כולו: ההעלאה נחסמת בשרת, והתמלול —
+   * שהוא כל מטרת ההקלטה — לא ירוץ ממילא.
+   */
+  if (!canTranscribe && status === undefined) return null;
 
   return (
     <div className="mt-4">

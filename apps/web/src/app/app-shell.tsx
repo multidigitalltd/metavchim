@@ -218,11 +218,31 @@ export function AppShell({ children }: { children: ReactNode }) {
   const drawerRef = useRef<HTMLElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
+  /*
+   * תשובה שהתחילה לפני יציאה נזרקת.
+   *
+   * ה-AppShell נשאר טעון בין משתמשים. בקשה שהייתה באוויר ברגע
+   * היציאה יכולה להסתיים אחריה ולמלא בחזרה את המשתמש הקודם — ואם
+   * הבקשה של המשתמש החדש נכשלת, השם, המשרד והתפריט של הקודם
+   * נשארים על המסך לצמיתות (ביקורת Codex).
+   *
+   * דגל cancelled ב-cleanup ולא AbortController: אותה תוצאה, בלי
+   * לשנות את חתימת apiGet לכל הקוראים.
+   */
   useEffect(() => {
     if (isPublic) return;
+    let cancelled = false;
     apiGet<{ user: Me }>("/auth/me")
-      .then((res) => setMe(res.user))
-      .catch(() => undefined);
+      .then((res) => {
+        if (!cancelled) setMe(res.user);
+      })
+      .catch(() => {
+        // כשל מאפס במקום להשאיר את הקודם
+        if (!cancelled) setMe(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [isPublic]);
 
   /*
@@ -257,9 +277,17 @@ export function AppShell({ children }: { children: ReactNode }) {
       setMe(null);
       return;
     }
+    let cancelled = false;
     apiGet<NavSummary>("/nav/summary")
-      .then(setCounts)
-      .catch(() => setCounts(null));
+      .then((summary) => {
+        if (!cancelled) setCounts(summary);
+      })
+      .catch(() => {
+        if (!cancelled) setCounts(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [isPublic, pathname]);
 
   // סגירת המגירה במעבר מסך — אחרת היא נשארת פתוחה מעל התוכן החדש

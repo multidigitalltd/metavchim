@@ -13,6 +13,7 @@ import {
   STATUS_LABELS,
 } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { useFeature } from "@/lib/use-features";
 import { MediaSection } from "./media-section";
 
 /**
@@ -90,6 +91,8 @@ function readinessTextColor(score: number): string {
 export default function PropertyDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { loading: authLoading } = useRequireAuth();
+  const canLanding = useFeature("landing_pages");
+  const canWhatsApp = useFeature("whatsapp");
   const router = useRouter();
   const [property, setProperty] = useState<PropertyDetail | null>(null);
   const [archiveConfirm, setArchiveConfirm] = useState(false);
@@ -280,15 +283,17 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
               <Link href={`/calendar/new?propertyId=${id}`} className="mv-btn-plain" style={{ padding: "7px 13px", fontSize: 13 }}>
                 קבע סיור
               </Link>
-              <button
-                type="button"
-                className="mv-btn-soft"
-                style={{ padding: "7px 13px", fontSize: 13 }}
-                disabled={landingBusy}
-                onClick={() => void createLanding()}
-              >
-                {landingBusy ? "יוצר…" : "צור דף נחיתה"}
-              </button>
+              {canLanding ? (
+                <button
+                  type="button"
+                  className="mv-btn-soft"
+                  style={{ padding: "7px 13px", fontSize: 13 }}
+                  disabled={landingBusy}
+                  onClick={() => void createLanding()}
+                >
+                  {landingBusy ? "יוצר…" : "צור דף נחיתה"}
+                </button>
+              ) : null}
               <a href="#matches-heading" className="mv-btn-action" style={{ padding: "7px 15px", fontSize: 13 }}>
                 מצא לי קונים
               </a>
@@ -324,7 +329,7 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                 </div>
               ))}
             </dl>
-            {property.ownerContact ? (
+            {property.ownerContact && canWhatsApp ? (
               <button type="button" className="mv-btn-plain mt-3.5" onClick={() => void sendOwnerUpdate()}>
                 💬 שלח עדכון שיווק לבעל הנכס
               </button>
@@ -405,11 +410,11 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                       ) : null}
                     </div>
                     <div className="ms-auto flex flex-none gap-2">
-                      {offer ? (
+                      {offer && canWhatsApp ? (
                         <button type="button" className="mv-btn-action" style={{ padding: "7px 15px", fontSize: 13 }} onClick={() => void sendWhatsApp(offer.id)}>
                           שלח בוואטסאפ
                         </button>
-                      ) : (
+                      ) : offer ? null : (
                         <button type="button" className="mv-btn-action" style={{ padding: "7px 15px", fontSize: 13 }} onClick={() => void createOffer(m.id)}>
                           שלח הצעה
                         </button>

@@ -119,6 +119,8 @@ interface TenantSettings {
 
 export default function SettingsPage() {
   const { user, loading: authLoading } = useRequireAuth();
+  const canTelephony = useFeature("telephony");
+  const canAgreements = useFeature("agreements");
   const canDataIo = useFeature("data_io");
   const [tenant, setTenant] = useState<TenantSettings | null>(null);
   const [team, setTeam] = useState<TeamUser[]>([]);
@@ -427,11 +429,11 @@ export default function SettingsPage() {
           </section>
 
           <WhatsAppStatusSection />
-          <TelephonySection />
+          {canTelephony ? <TelephonySection /> : null}
 
           {tenant ? <LeadWebhookSection initialKey={tenant.leadWebhookKey} /> : null}
 
-          <AgreementTemplatesSection />
+          {canAgreements ? <AgreementTemplatesSection /> : null}
 
           {/* ---- יומן פעילות ---- */}
           <section className="mv-list-card" aria-labelledby="audit-heading">
