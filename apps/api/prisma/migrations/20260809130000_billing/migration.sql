@@ -47,8 +47,9 @@ CREATE TABLE payments (
   -- אותו תשלום היה מאריך את התקופה פעמיים.
   low_profile_id VARCHAR(64)  NOT NULL UNIQUE,
   transaction_id VARCHAR(40),
-  -- החשבונית שקארדקום הפיק. נשמרת כי היא מה שנדרש כדי לזכות את
-  -- העסקה; בלעדיה זיכוי מחייב כניסה לממשק של קארדקום.
+  -- מסמך שקארדקום הפיק, אם המסוף מוגדר להפקה. אצלנו הוא אינו מוגדר
+  -- כך (החשבוניות מופקות במערכת אחרת), ולכן השדות נשארים ריקים.
+  -- הם קיימים כי זיכוי דרך CancelDoc מחייב מספר מסמך.
   document_type  VARCHAR(40),
   document_number INTEGER,
   failure_reason VARCHAR(300),

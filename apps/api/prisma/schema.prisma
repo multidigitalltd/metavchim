@@ -714,8 +714,9 @@ model Payment {
   /// אותו תשלום היה מאריך את התקופה פעמיים.
   lowProfileId  String    @unique @map("low_profile_id") @db.VarChar(64)
   transactionId String?   @map("transaction_id") @db.VarChar(40)
-  /// החשבונית שקארדקום הפיק. נשמרת כי היא מה שנדרש כדי לזכות את
-  /// העסקה, ובלעדיה זיכוי מחייב כניסה לממשק של קארדקום.
+  /// מסמך שקארדקום הפיק, אם המסוף מוגדר להפקה. אצלנו הוא אינו מוגדר
+  /// כך (החשבוניות מופקות במערכת אחרת), ולכן השדות נשארים ריקים.
+  /// הם קיימים כי זיכוי דרך CancelDoc מחייב מספר מסמך.
   documentType   String?  @map("document_type") @db.VarChar(40)
   documentNumber Int?     @map("document_number")
   /// מה קארדקום אמר כשזה נכשל — לתמיכה, לא למשתמש
