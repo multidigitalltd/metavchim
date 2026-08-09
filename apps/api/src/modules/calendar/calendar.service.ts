@@ -4,6 +4,7 @@ import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService } from "../../core/prisma.service";
+import { CallsService } from "../calls/calls.service";
 
 export interface AppointmentDto {
   id: string;
@@ -32,6 +33,8 @@ export class CalendarService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly outbox: OutboxService,
+    // ההקלטה של פגישה נשמרת כשורת `calls` — אותו צינור תמלול בדיוק
+    private readonly calls: CallsService,
   ) {}
 
   async create(input: {
@@ -123,10 +126,99 @@ export class CalendarService {
     return this.getById(id);
   }
 
+  /**
+   * דחיית פגישה למועד חדש.
+   *
+   * זה מה שקורה בפועל כשפגישה "לא התקיימה": הלקוח לא הגיע, והמתווך
+   * צריך מועד חדש — לא לבטל ולפתוח פגישה מאפס, כי אז נשבר הקשר לנכס,
+   * לקונה ולהיסטוריה.
+   *
+   * המועד הקודם נשמר (`rescheduledFrom`) והמונה עולה: פגישה שנדחתה
+   * שלוש פעמים היא סימן שהעסקה מתקררת, ובלי המונה זה מידע שנמחק
+   * בכל דחייה.
+   */
+  async reschedule(
+    id: string,
+    input: { startsAt: Date; durationMinutes: number; reason?: string },
+  ): Promise<AppointmentDto> {
+    const ctx = TenantContext.current();
+    await this.prisma.withTenant(async (tx) => {
+      const existing = await tx.appointment.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+      });
+      if (!existing) throw new NotFoundException("פגישה לא נמצאה");
+      if (existing.status === "completed") {
+        throw new BadRequestException("פגישה שהתקיימה אינה נדחית — פתחו פגישת המשך");
+      }
+
+      const endsAt = new Date(input.startsAt.getTime() + input.durationMinutes * 60_000);
+      await tx.appointment.update({
+        where: { id },
+        data: {
+          startsAt: input.startsAt,
+          endsAt,
+          // חוזרת להיות פגישה שעתידה להתקיים, גם אם סומנה כ"לא הגיע"
+          status: "scheduled",
+          outcome: null,
+          rescheduledFrom: existing.startsAt,
+          rescheduleCount: existing.rescheduleCount + 1,
+          // איפוס חותמת הסנכרון = "צריך דחיפה מחדש" ליומן Google
+          googleSyncedAt: null,
+        },
+      });
+
+      /*
+       * הדחייה מתועדת בציר הזמן של הלקוח ולא רק בשדה.
+       *
+       * "נדחתה מ-X ל-Y" הוא בדיוק סוג המידע שסוכן אחר צריך כשהוא
+       * מרים את הכרטיס, והשדה לבדו אינו מספר את הסיפור.
+       */
+      const line = [
+        `הפגישה נדחתה מ-${existing.startsAt.toLocaleString("he-IL")}`,
+        `ל-${input.startsAt.toLocaleString("he-IL")}`,
+        input.reason ? `(${input.reason})` : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      for (const link of [
+        existing.leadId ? { leadId: existing.leadId } : null,
+        existing.buyerId ? { buyerId: existing.buyerId } : null,
+      ]) {
+        if (!link) continue;
+        await tx.interaction.create({
+          data: {
+            id: ulid(),
+            tenantId: ctx.tenantId,
+            ...link,
+            kind: "system",
+            content: line,
+            createdBy: ctx.userId,
+          },
+        });
+      }
+
+      await this.audit.record(tx, {
+        action: "appointment.reschedule",
+        entityType: "appointment",
+        entityId: id,
+        metadata: { from: existing.startsAt.toISOString(), to: input.startsAt.toISOString() },
+      });
+      // תזכורת חדשה למועד החדש; הישנה תדולג בזמן ריצה
+      await this.outbox.emit(tx, "appointment.scheduled", {
+        appointmentId: id,
+        tenantId: ctx.tenantId,
+        startsAt: input.startsAt,
+        kind: existing.kind,
+        endsAt,
+      });
+    });
+    return this.getById(id);
+  }
+
   /** עדכון סטטוס/תוצאה — פולו-אפ "איך היה הסיור?" (אפיון §13). */
   async update(
     id: string,
-    patch: { status?: string; outcome?: string; notes?: string },
+    patch: { status?: string; outcome?: string; notes?: string; title?: string },
   ): Promise<AppointmentDto> {
     const ctx = TenantContext.current();
     await this.prisma.withTenant(async (tx) => {
@@ -144,6 +236,7 @@ export class CalendarService {
           ...(patch.status !== undefined ? { status: patch.status } : {}),
           ...(patch.outcome !== undefined ? { outcome: patch.outcome, status: "completed" } : {}),
           ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
+          ...(patch.title !== undefined ? { title: patch.title } : {}),
           /*
            * איפוס חותמת הסנכרון = "צריך דחיפה מחדש".
            *
@@ -197,6 +290,47 @@ export class CalendarService {
       });
     });
     return this.getById(id);
+  }
+
+  /**
+   * צירוף הקלטה לפגישה שהתקיימה.
+   *
+   * ההקלטה נשמרת כשורת `calls` עם `source: "meeting"` ולא כצינור
+   * תמלול שני. `calls` היא בפועל "שיחה מוקלטת עם סיכום" — יש בה
+   * הקלטה, תמלול, סטטוס וסיכום, והעובד שמתמלל אותה כבר עובד. מסלול
+   * מקביל לפגישות היה משכפל אחסון, תמלול, סיכום וסטטוס: ארבעה
+   * מקומות שיתחילו להיפרד ברגע שאחד מהם ישתנה.
+   */
+  async attachRecording(
+    id: string,
+    file: { buffer: Buffer; mimetype: string },
+  ): Promise<{ callId: string; status: string }> {
+    const ctx = TenantContext.current();
+    const appointment = await this.prisma.withTenant(async (tx) => {
+      const row = await tx.appointment.findFirst({ where: { id, tenantId: ctx.tenantId } });
+      if (!row) throw new NotFoundException("פגישה לא נמצאה");
+      if (row.buyerId === null) return row;
+      // הקונה מספק את איש הקשר, כדי שההקלטה תיקשר לכרטיס הלקוח
+      const buyer = await tx.buyer.findFirst({
+        where: { id: row.buyerId, tenantId: ctx.tenantId },
+        select: { contactId: true },
+      });
+      return { ...row, contactId: buyer?.contactId ?? null };
+    });
+
+    const call = await this.calls.create({
+      direction: "inbound",
+      source: "meeting",
+      appointmentId: id,
+      ...("contactId" in appointment && appointment.contactId
+        ? { contactId: appointment.contactId }
+        : {}),
+      ...(appointment.leadId ? { leadId: appointment.leadId } : {}),
+      occurredAt: appointment.startsAt,
+      outcome: "answered",
+    });
+    const result = await this.calls.attachRecording(call.id, file);
+    return { callId: call.id, status: result.status };
   }
 
   async getById(id: string): Promise<AppointmentDto> {
