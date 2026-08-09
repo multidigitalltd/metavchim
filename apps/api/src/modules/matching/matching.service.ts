@@ -129,10 +129,15 @@ export class MatchingService {
         },
         select: { id: true, contactId: true },
       });
+      // שאילתה אחת לכל השמות בעמוד, לא אחת לכל שורה
+      const contactsById = await this.contacts.getByIds(
+        tx,
+        visibleBuyers.map((b) => b.contactId),
+      );
       const buyerNameById = new Map<string, string>();
       for (const buyer of visibleBuyers) {
-        const contact = await this.contacts.getById(tx, buyer.contactId);
-        if (contact) buyerNameById.set(buyer.id, contact.name);
+        const name = contactsById.get(buyer.contactId)?.name;
+        if (name !== undefined) buyerNameById.set(buyer.id, name);
       }
 
       return rows
@@ -336,10 +341,14 @@ export class MatchingService {
         select: { id: true, contactId: true },
       });
       const maturityById = new Map(buyers.map((b) => [b.id, b.maturity]));
+      const contactsById = await this.contacts.getByIds(
+        tx,
+        visibleBuyers.map((b) => b.contactId),
+      );
       const nameById = new Map<string, string>();
       for (const buyer of visibleBuyers) {
-        const contact = await this.contacts.getById(tx, buyer.contactId);
-        if (contact) nameById.set(buyer.id, contact.name);
+        const name = contactsById.get(buyer.contactId)?.name;
+        if (name !== undefined) nameById.set(buyer.id, name);
       }
 
       return rows

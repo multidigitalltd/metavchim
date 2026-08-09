@@ -287,9 +287,14 @@ export class LeadsService {
       });
       const hasMore = rows.length > query.limit;
       const page = rows.slice(0, query.limit);
+      // שאילתה אחת לכל אנשי הקשר בעמוד, לא אחת לכל שורה
+      const contactsById = await this.contacts.getByIds(
+        tx,
+        page.map((row) => row.contactId),
+      );
       const items: LeadDto[] = [];
       for (const row of page) {
-        const contact = await this.contacts.getById(tx, row.contactId);
+        const contact = contactsById.get(row.contactId);
         if (contact) items.push(toLeadDto(row, contact));
       }
       return { items, nextCursor: hasMore ? (page.at(-1)?.id ?? null) : null };
