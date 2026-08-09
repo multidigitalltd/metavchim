@@ -31,6 +31,7 @@ export function PropertyOwner({
   canEdit,
   canEditPeople,
   onChanged,
+  canSendUpdate,
   onSendUpdate,
 }: {
   propertyId: string;
@@ -48,6 +49,8 @@ export function PropertyOwner({
    */
   canEditPeople: boolean;
   onChanged: () => void;
+  /** האם וואטסאפ כלול במסלול — בלעדיו השליחה נחסמת בשרת ממילא. */
+  canSendUpdate: boolean;
   /** "שלח עדכון שיווק" — היה מתחת לפרטי הנכס, מקומו כאן ליד הבעלים. */
   onSendUpdate: () => void;
 }): React.JSX.Element {
@@ -82,9 +85,11 @@ export function PropertyOwner({
         </h2>
         {owner ? (
           <span className="flex flex-wrap gap-2">
-            <button type="button" className="mv-btn-plain" onClick={onSendUpdate}>
-              💬 שלח עדכון שיווק
-            </button>
+            {canSendUpdate ? (
+              <button type="button" className="mv-btn-plain" onClick={onSendUpdate}>
+                💬 שלח עדכון שיווק
+              </button>
+            ) : null}
             <a
               href={waMeUrl(owner.phone)}
               target="_blank"

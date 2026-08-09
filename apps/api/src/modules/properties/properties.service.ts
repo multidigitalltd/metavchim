@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
-import { computeReadiness, type Page, type PropertyFields } from "@metavchim/shared";
+import { computeReadiness, limitState, type Page, type PropertyFields } from "@metavchim/shared";
 import {
   PROPERTY_TYPE_LABELS_HE,
   freeTextTerms,
@@ -18,7 +18,8 @@ function propertyTypesFor(term: string): string[] {
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
-import { PrismaService } from "../../core/prisma.service";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { MatchingService } from "../matching/matching.service";
 import { MessagingService } from "../messaging/messaging.service";
@@ -34,7 +35,64 @@ export class PropertiesService {
     private readonly matching: MatchingService,
     private readonly contacts: ContactsService,
     private readonly messaging: MessagingService,
+    private readonly plans: PlanCatalogService,
   ) {}
+
+  /**
+   * מכסת הנכסים של המסלול.
+   *
+   * נבדקת על **הנכס הבא** ולא על המצב הקיים, ולכן משרד שחרג אחרי
+   * שינוי תמחור ממשיך לראות ולערוך את מה שיש לו — רק ההוספה נחסמת.
+   * נכסים בארכיון נספרים כמו כל השאר: הם עדיין במסד ועדיין ניתנים
+   * לשחזור, ולכן לא היו מכסת חינם.
+   */
+  /**
+   * מכסת הנכסים של המסלול — **בתוך הטרנזקציה שכותבת**.
+   *
+   * הבדיקה קיבלה `tx` ולא פותחת אחת משלה, ולפניה ננעל מנעול ייעוץ
+   * ברמת הדייר. שתי בקשות מקבילות שספרו את אותו מצב לפני שאחת מהן
+   * כתבה היו שתיהן עוברות, והמכסה הייתה נחצית בשקט — במיוחד בייבוא,
+   * ששולח הרבה יצירות ברצף (ביקורת Codex).
+   *
+   * המנעול הוא `pg_advisory_xact_lock` ולא נעילת שורה: אין שורה
+   * שמייצגת "המכסה של הדייר", והוא משתחרר מעצמו בסוף הטרנזקציה —
+   * גם כשהיא נכשלת.
+   *
+   * הספירה חייבת לרוץ בהקשר דייר: `properties` תחת FORCE RLS, ובלי
+   * `app.tenant_id` היא מחזירה אפס שורות **בלי שגיאה** — כלומר מכסה
+   * שלעולם אינה נחצית, ובדיקה שנראית עובדת.
+   */
+  private async assertCanAddProperty(tx: TenantTx, tenantId: string): Promise<void> {
+    const plan = await this.plans.forTenant(tenantId, tx);
+    /*
+     * מסלול שאי אפשר לפתור — חוסם, לא פותח.
+     *
+     * `tenants.plan` הוא varchar בלי מפתח זר, ולכן קוד ישן או שגוי
+     * אפשרי. `undefined` שהומר ל-null היה נקרא כ"ללא הגבלה", כלומר
+     * דווקא המשרד עם המצב השבור היה מקבל מכסה אינסופית. אותו כיוון
+     * בטוח כמו `planAllows(undefined) === false` (ביקורת Codex).
+     */
+    if (plan === undefined) {
+      throw new BadRequestException("המסלול של המשרד אינו מוגדר — פנו לתמיכה");
+    }
+    const limit = plan.maxProperties;
+    if (limit === null) return;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`property-quota:${tenantId}`}))`;
+    /*
+      * נכסים בארכיון אינם נספרים.
+      *
+      * `softDelete` רק מסמן `deletedAt`, וכל קריאה רגילה מסננת אותם.
+      * ספירה שכוללת אותם הייתה חוסמת משרד **לצמיתות**: הוא מוחק נכס
+      * כדי לפנות מקום, המונה לא יורד, ובסוף אין לו אף נכס גלוי והוא
+      * עדיין חסום (ביקורת Codex).
+      */
+     const used = await tx.property.count({ where: { tenantId, deletedAt: null } });
+    if (limitState(used, limit).blocked) {
+      throw new BadRequestException(
+        `מסלול "${plan.name}" כולל ${limit} נכסים. לתוספת נכסים יש לשדרג מסלול.`,
+      );
+    }
+  }
 
   async create(input: {
     fields: PropertyFields;
@@ -62,6 +120,8 @@ export class PropertiesService {
     /** שימור סטטוס בייבוא-חזרה של קובץ מיוצא (Round-trip); ברירת מחדל: טיוטה. */
     status?: string;
   }): Promise<string> {
+    // גם בייבוא: קובץ של אלף נכסים לא אמור לעקוף מכסה שהוספה ידנית
+    // נחסמת בה. הבדיקה עצמה בתוך persist, באותה טרנזקציה של הכתיבה.
     const id = await this.persist(input);
     try {
       await this.matching.recomputeForProperty(id);
@@ -88,6 +148,9 @@ export class PropertiesService {
     });
 
     await this.prisma.withTenant(async (tx) => {
+      // המכסה נבדקת כאן ולא לפני הקריאה: אותה טרנזקציה שכותבת היא
+      // זו שסופרת, ולכן שתי בקשות מקבילות לא יכולות לעבור יחד
+      await this.assertCanAddProperty(tx, tenantId);
       const ownerContact = input.owner
         ? await this.contacts.findOrCreateByPhone(tx, input.owner)
         : null;

@@ -7,6 +7,7 @@ import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { useFeature } from "@/lib/use-features";
 import { CapNote, FilterBar, FilterChips, FilterSelect, SortSelect } from "../list-controls";
 import {
   EMPTY_FILTERS,
@@ -98,6 +99,8 @@ function Thumb({ url }: { url?: string }) {
 
 export default function PropertiesPage() {
   const { loading: authLoading } = useRequireAuth();
+  const canImport = useFeature("data_io");
+  const canVoice = useFeature("voice_intake");
   const router = useRouter();
   const [items, setItems] = useState<PropertyRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -170,12 +173,18 @@ export default function PropertiesPage() {
           options={cities.map((c) => [c, c] as [string, string])}
         />
         <div className="ms-auto flex flex-wrap gap-2.5">
-          <Link href="/import" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
-            ייבוא מאקסל
-          </Link>
-          <Link href="/properties/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
-            🎤 נכס בקול
-          </Link>
+          {/* כפתור שמוביל לפיצ'ר שאינו במסלול נחסם בשרת ממילא —
+              עדיף לא להציג אותו מאשר להסביר 403 אחרי בחירת קובץ */}
+          {canImport ? (
+            <Link href="/import" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
+              ייבוא מאקסל
+            </Link>
+          ) : null}
+          {canVoice ? (
+            <Link href="/properties/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
+              🎤 נכס בקול
+            </Link>
+          ) : null}
           <Link href="/properties/new" className="mv-btn-action">
             + נכס חדש
           </Link>

@@ -13,6 +13,7 @@ import {
   STATUS_LABELS,
 } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
+import { useFeature } from "@/lib/use-features";
 import { MediaSection } from "./media-section";
 import { AgreementsPanel } from "../../agreements-panel";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
@@ -95,6 +96,8 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   const canEditOwner = can(user, "properties.edit");
   // אנשי הקשר של הבעלים נאכפים ב-ContactsController תחת buyers.edit
   const canEditOwnerPeople = can(user, "buyers.edit");
+  const canLanding = useFeature("landing_pages");
+  const canWhatsApp = useFeature("whatsapp");
   const router = useRouter();
   const [property, setProperty] = useState<PropertyDetail | null>(null);
   const [archiveConfirm, setArchiveConfirm] = useState(false);
@@ -332,15 +335,17 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
               <Link href={`/calendar/new?propertyId=${id}`} className="mv-btn-plain" style={{ padding: "7px 13px", fontSize: 13 }}>
                 קבע סיור
               </Link>
-              <button
-                type="button"
-                className="mv-btn-soft"
-                style={{ padding: "7px 13px", fontSize: 13 }}
-                disabled={landingBusy}
-                onClick={() => void createLanding()}
-              >
-                {landingBusy ? "יוצר…" : "צור דף נחיתה"}
-              </button>
+              {canLanding ? (
+                <button
+                  type="button"
+                  className="mv-btn-soft"
+                  style={{ padding: "7px 13px", fontSize: 13 }}
+                  disabled={landingBusy}
+                  onClick={() => void createLanding()}
+                >
+                  {landingBusy ? "יוצר…" : "צור דף נחיתה"}
+                </button>
+              ) : null}
               <a href="#matches-heading" className="mv-btn-action" style={{ padding: "7px 15px", fontSize: 13 }}>
                 מצא לי קונים
               </a>
@@ -376,6 +381,7 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                 </div>
               ))}
             </dl>
+
           </section>
 
           <PropertyOwner
@@ -384,6 +390,7 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
             canEdit={canEditOwner}
             canEditPeople={canEditOwnerPeople}
             onChanged={loadProperty}
+            canSendUpdate={canWhatsApp}
             onSendUpdate={() => void sendOwnerUpdate()}
           />
 
@@ -488,11 +495,11 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                       ) : null}
                     </div>
                     <div className="ms-auto flex flex-none gap-2">
-                      {offer ? (
+                      {offer && canWhatsApp ? (
                         <button type="button" className="mv-btn-action" style={{ padding: "7px 15px", fontSize: 13 }} onClick={() => void sendWhatsApp(offer.id)}>
                           שלח בוואטסאפ
                         </button>
-                      ) : (
+                      ) : offer ? null : (
                         <button type="button" className="mv-btn-action" style={{ padding: "7px 15px", fontSize: 13 }} onClick={() => void createOffer(m.id)}>
                           שלח הצעה
                         </button>

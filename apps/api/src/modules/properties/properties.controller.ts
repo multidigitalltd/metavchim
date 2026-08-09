@@ -18,6 +18,7 @@ import {
   type Page,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
+import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { MatchingService, type MatchDto } from "../matching/matching.service";
 import { PropertiesService } from "./properties.service";
@@ -111,6 +112,7 @@ export class PropertiesController {
   /** עדכון שיווק לבעל הנכס — נוסח מוכן + קישור wa.me; מתועד ב-Hub. */
   @Post(":id/owner-update")
   @RequireCapability("properties.edit")
+  @RequireFeature("whatsapp")
   @HttpCode(200)
   async ownerUpdate(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,

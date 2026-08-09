@@ -7,6 +7,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet } from "@/lib/api";
 import { formatPrice, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { useFeature } from "@/lib/use-features";
 import { CapNote, FilterBar, FilterSelect, textMatches } from "../list-controls";
 import {
   EMPTY_FILTERS,
@@ -84,6 +85,8 @@ const GRID = "1.6fr 0.9fr 1.1fr 1.4fr 0.9fr 0.9fr";
 
 export default function BuyersPage() {
   const { loading: authLoading } = useRequireAuth();
+  const canImport = useFeature("data_io");
+  const canVoice = useFeature("voice_intake");
   const router = useRouter();
   const [items, setItems] = useState<BuyerRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -138,12 +141,18 @@ export default function BuyersPage() {
           <b style={{ color: "var(--color-text-muted)" }}>לא בשל</b>
         </div>
         <div className="ms-auto flex flex-wrap gap-2.5">
-          <Link href="/import" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
-            ייבוא מאקסל
-          </Link>
-          <Link href="/buyers/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
-            🎤 קונה בקול
-          </Link>
+          {/* כפתור שמוביל לפיצ'ר שאינו במסלול נחסם בשרת ממילא —
+              עדיף לא להציג אותו מאשר להסביר 403 אחרי בחירת קובץ */}
+          {canImport ? (
+            <Link href="/import" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
+              ייבוא מאקסל
+            </Link>
+          ) : null}
+          {canVoice ? (
+            <Link href="/buyers/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
+              🎤 קונה בקול
+            </Link>
+          ) : null}
           <Link href="/buyers/new" className="mv-btn-action">
             + קונה חדש
           </Link>

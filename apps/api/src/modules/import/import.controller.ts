@@ -8,6 +8,7 @@ import {
   PropertyFieldsSchema,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
+import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { BuyersService } from "../buyers/buyers.service";
 import { PropertiesService } from "../properties/properties.service";
@@ -58,6 +59,7 @@ export interface ImportResult {
   failed: { row: number; error: string }[];
 }
 
+@RequireFeature("data_io")
 @Controller("import")
 export class ImportController {
   constructor(

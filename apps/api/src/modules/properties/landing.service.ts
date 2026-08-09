@@ -2,7 +2,8 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { loadEnv } from "../../config/env";
 import { TenantContext } from "../../common/tenant-context";
-import { PrismaService } from "../../core/prisma.service";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
 import { WebLeadService } from "../leads/web-lead.service";
 
@@ -43,7 +44,31 @@ export class LandingService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly webLeads: WebLeadService,
+    private readonly plans: PlanCatalogService,
   ) {}
+
+  /**
+   * זכאות המסלול לדפי נחיתה — בנתיבים הציבוריים.
+   *
+   * `FeatureGuard` מדלג במפורש על נתיב ציבורי: אין לו הקשר דייר בזמן
+   * השער. לכן ביטול הפיצ'ר במסלול היה סוגר רק את יצירת הקישור,
+   * בעוד דפים שכבר הונפקו היו ממשיכים להיות מוגשים ולקלוט לידים —
+   * לנצח (ביקורת Codex).
+   *
+   * המשרד נודע רק אחרי שהטוקן נפתר, וזו הנקודה הראשונה שאפשר לשאול
+   * בה. השגיאה זהה לזו של טוקן לא מוכר: מבקר מזדמן לא אמור ללמוד
+   * מהתשובה דבר על מצב המנוי של המשרד.
+   *
+   * `tx` מועבר כשהקריאה מתוך טרנזקציה פתוחה. בלעדיו השאילתה מושכת
+   * חיבור שני מה-pool בזמן שהחיצונית מחזיקה אחד, ותחת עומס כל
+   * הבקשות ממתינות לחיבור שלא יתפנה (ביקורת Codex). ב-`publicLead`
+   * הטרנזקציה כבר נסגרה, ולכן שם הוא לא נדרש.
+   */
+  private async assertLandingEnabled(tenantId: string, tx?: TenantTx): Promise<void> {
+    if (!(await this.plans.tenantHasFeature(tenantId, "landing_pages", tx))) {
+      throw new NotFoundException("הדף לא נמצא");
+    }
+  }
 
   /** יצירת הקישור (או החזרתו אם כבר קיים) — פעולה של המתווך המחובר. */
   async ensure(propertyId: string): Promise<{ url: string }> {
@@ -79,6 +104,7 @@ export class LandingService {
     return this.prisma.withPublicLanding(token, async (tx) => {
       const p = await tx.property.findFirst({ where: { landingToken: token } });
       if (!p || p.deletedAt !== null) throw new NotFoundException("הדף לא נמצא");
+      await this.assertLandingEnabled(p.tenantId, tx);
 
       // שם המשרד — ההקשר נקבע מהנכס שנמצא (ערך שרת, לא קלט)
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${p.tenantId}, true)`;
@@ -136,9 +162,10 @@ export class LandingService {
     const s3Key = await this.prisma.withPublicLanding(token, async (tx) => {
       const property = await tx.property.findFirst({
         where: { landingToken: token },
-        select: { id: true, deletedAt: true },
+        select: { id: true, tenantId: true, deletedAt: true },
       });
       if (!property || property.deletedAt !== null) throw new NotFoundException("הדף לא נמצא");
+      await this.assertLandingEnabled(property.tenantId, tx);
       const row = await tx.propertyMedia.findFirst({
         where: { id: mediaId, propertyId: property.id },
         select: { s3Key: true },
@@ -168,6 +195,7 @@ export class LandingService {
       }),
     );
     if (!property || property.deletedAt !== null) throw new NotFoundException("הדף לא נמצא");
+    await this.assertLandingEnabled(property.tenantId);
     const label =
       property.marketingTitle ??
       [property.neighborhood, property.city].filter(Boolean).join(", ");

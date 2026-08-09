@@ -10,8 +10,11 @@ import webpush from "web-push";
 import {
   NotificationJobSchema,
   QUEUES,
+  DEFAULT_PLANS,
   diarizeTimeoutMs,
   formatDiarizedTranscript,
+  sanitizeFeatures,
+  type PlanFeature,
   pushOutcome,
   pushPayload,
   shouldPush,
@@ -849,6 +852,42 @@ async function fetchSpeakerTurns(audio: Uint8Array, audioSeconds: number): Promi
   }
 }
 
+
+/**
+ * זכאות המסלול — בתוך ה-Worker.
+ *
+ * השער בשרת חוסם העלאת הקלטה חדשה, אבל הסורק ממשיך לעבוד על מה
+ * שכבר בתור. משרד שהפיצ'ר בוטל אצלו היה ממשיך לקבל תמלולים —
+ * ולצרוך STT ו-diarization — עד שהתור מתרוקן (ביקורת Codex).
+ *
+ * הקטלוג נקרא ישירות מהטבלה (היא ברמת הפלטפורמה, בלי RLS) ונופל
+ * לברירות המחדל שבקוד, בדיוק כמו PlanCatalogService בשרת. מטמון קצר
+ * כדי לא לשאול בכל סריקה.
+ */
+const PLAN_CACHE_TTL_MS = 30_000;
+let planCache: { features: Map<string, PlanFeature[]>; until: number } | null = null;
+
+async function planFeatures(): Promise<Map<string, PlanFeature[]>> {
+  const now = Date.now();
+  if (planCache && planCache.until > now) return planCache.features;
+  const rows = await prisma.plan.findMany({ select: { code: true, features: true } });
+  const features = new Map<string, PlanFeature[]>();
+  for (const plan of DEFAULT_PLANS) features.set(plan.code, [...plan.features]);
+  for (const row of rows) features.set(row.code, sanitizeFeatures(row.features));
+  planCache = { features, until: now + PLAN_CACHE_TTL_MS };
+  return features;
+}
+
+/** מסלול שאינו נפתר אינו מזכה בכלום — אותו כיוון בטוח כמו בשרת. */
+async function tenantHasFeature(tenantId: string, feature: PlanFeature): Promise<boolean> {
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { plan: true },
+  });
+  if (!tenant) return false;
+  return (await planFeatures()).get(tenant.plan)?.includes(feature) ?? false;
+}
+
 async function transcribeOneCall(): Promise<void> {
   const sttUrl = process.env["STT_URL"];
   const sttSecret = process.env["STT_SECRET"];
@@ -856,6 +895,8 @@ async function transcribeOneCall(): Promise<void> {
 
   const tenants = await prisma.tenant.findMany({ select: { id: true } });
   for (const tenant of tenants) {
+    // המסלול נבדק לפני התפיסה: תור קיים אינו עוקף ביטול של הפיצ'ר
+    if (!(await tenantHasFeature(tenant.id, "transcription"))) continue;
     const pending = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
       const row = await tx.call.findFirst({

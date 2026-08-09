@@ -8,13 +8,22 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   ServiceUnavailableException,
   UseGuards,
 } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import { z } from "zod";
-import { IdSchema, TenantPlanSchema, TenantStatusSchema } from "@metavchim/shared";
+import {
+  IdSchema,
+  PLAN_FEATURES,
+  TenantStatusSchema,
+  downgradeWarnings,
+  planRejectionReason,
+  sanitizeFeatures,
+  type PlanDefinition,
+} from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { PlatformAdmin } from "../../common/auth.decorators";
 import { PlatformAdminGuard } from "../../common/platform-admin.guard";
@@ -25,6 +34,7 @@ import {
   PlatformSettingsService,
   type PlatformSettingKey,
 } from "../../core/platform-settings.service";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import { AuthService } from "../auth/auth.service";
 import {
@@ -40,19 +50,51 @@ import {
  * להתחברות רגילה. כשהרשימה ריקה — המסך כבוי לגמרי.
  */
 
+/**
+ * קוד מסלול — מחרוזת ולא enum.
+ *
+ * המסלולים הפכו לנתונים שבעל הפלטפורמה עורך, ולכן enum בקוד היה
+ * חוסם בדיוק את מה שהמסך נועד לאפשר: מסלול חדש. התקינות נבדקת מול
+ * הקטלוג בפועל, שם היא גם רלוונטית.
+ */
+const PlanCodeSchema = z
+  .string()
+  .min(2)
+  .max(20)
+  .regex(/^[a-z0-9_]+$/u, "קוד מסלול באותיות לטיניות קטנות, ספרות וקו תחתון");
+
 const CreateAgencySchema = z
   .object({
     name: z.string().min(2).max(120),
     ownerEmail: z.string().email().max(254),
     ownerName: z.string().min(2).max(120),
-    plan: TenantPlanSchema.default("pro"),
+    plan: PlanCodeSchema.default("pro"),
   })
   .strict();
 
 const UpdateAgencySchema = z
   .object({
-    plan: TenantPlanSchema.optional(),
+    plan: PlanCodeSchema.optional(),
     status: TenantStatusSchema.optional(),
+  })
+  .strict();
+
+/** `null` במגבלה = ללא הגבלה, ולכן nullable ולא optional. */
+const LimitSchema = z.number().int().min(0).max(100_000).nullable();
+
+const UpsertPlanSchema = z
+  .object({
+    code: PlanCodeSchema,
+    name: z.string().trim().min(2).max(60),
+    description: z.string().trim().max(500).default(""),
+    monthlyPriceAgorot: z.number().int().min(0).max(100_000_000),
+    yearlyPriceAgorot: z.number().int().min(0).max(1_000_000_000).nullable(),
+    maxUsers: LimitSchema,
+    maxProperties: LimitSchema,
+    features: z.array(z.string().max(40)).max(50),
+    trialDays: z.number().int().min(0).max(90),
+    isPublic: z.boolean(),
+    sortOrder: z.number().int().min(0).max(9999),
   })
   .strict();
 
@@ -90,7 +132,53 @@ export class PlatformController {
     private readonly platformSettings: PlatformSettingsService,
     private readonly email: EmailService,
     private readonly backups: BackupsService,
+    private readonly plans: PlanCatalogService,
   ) {}
+
+  /**
+   * קטלוג המסלולים לעריכה — כולל קטלוג הפיצ'רים עצמו.
+   *
+   * הפיצ'רים נשלחים מהשרת ולא נצרבים במסך: הרשימה היא מה שהקוד באמת
+   * אוכף, ומסך שמציג רשימה משלו היה מבטיח פיצ'רים שאין להם אכיפה.
+   */
+  @Get("plans")
+  async listPlans(): Promise<{
+    plans: PlanDefinition[];
+    features: typeof PLAN_FEATURES;
+    usage: Record<string, number>;
+  }> {
+    const [plans, counts] = await Promise.all([
+      this.plans.all(),
+      this.prisma.tenant.groupBy({ by: ["plan"], _count: { _all: true } }),
+    ]);
+    const usage: Record<string, number> = {};
+    for (const row of counts) usage[row.plan] = row._count._all;
+    return { plans, features: PLAN_FEATURES, usage };
+  }
+
+  /**
+   * שמירת הגדרת מסלול.
+   *
+   * קודי פיצ'רים לא מוכרים נזרקים ולא נשמרים: פיצ'ר קיים רק אם יש קוד
+   * שאוכף אותו, ומסלול שמבטיח משהו שאיש לא אוכף הוא הבטחה שבורה.
+   */
+  @Patch("plans/:code")
+  async upsertPlan(
+    @Param("code", new ZodValidationPipe(PlanCodeSchema)) code: string,
+    @Body(new ZodValidationPipe(UpsertPlanSchema.omit({ code: true })))
+    body: Omit<z.infer<typeof UpsertPlanSchema>, "code">,
+  ): Promise<{ ok: true }> {
+    const plan: PlanDefinition = {
+      ...body,
+      code,
+      features: sanitizeFeatures(body.features),
+    };
+    const reason = planRejectionReason(plan);
+    if (reason) throw new BadRequestException(reason);
+
+    await this.plans.upsert(plan, TenantContext.current().userId);
+    return { ok: true };
+  }
 
   @Get("agencies")
   async list(): Promise<AgencyRow[]> {
@@ -124,6 +212,9 @@ export class PlatformController {
 
     const existing = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
     if (existing) throw new BadRequestException("האימייל כבר רשום במערכת");
+    if ((await this.plans.byCode(body.plan)) === undefined) {
+      throw new BadRequestException("מסלול לא מוכר");
+    }
 
     const tempPassword = `Mv-${randomBytes(9).toString("base64url")}`;
     const passwordHash = await AuthService.hashPassword(tempPassword);
@@ -149,6 +240,48 @@ export class PlatformController {
     return { tenantId, ownerEmail: email, tempPassword };
   }
 
+  /**
+   * מה ייחסם אם המשרד יעבור למסלול הזה — לפני האישור.
+   *
+   * הורדת מסלול בשקט היא הדרך המהירה ביותר לשבור משרד עובד: סוכנים
+   * מעל המכסה, מרכזייה שמפסיקה לקלוט שיחות. עדיף לראות את זה כאן
+   * מאשר בטלפון של התמיכה.
+   */
+  @Get("agencies/:id/plan-preview")
+  async planPreview(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Query(new ZodValidationPipe(z.object({ plan: PlanCodeSchema }).strict()))
+    query: { plan: string },
+  ): Promise<{ warnings: string[] }> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: { plan: true },
+    });
+    if (!tenant) throw new BadRequestException("משרד לא נמצא");
+    const target = await this.plans.byCode(query.plan);
+    if (!target) throw new BadRequestException("מסלול לא מוכר");
+
+    /*
+     * הספירות בדיוק כמו באכיפה: משתמש פעיל בלבד, ונכס שאינו בארכיון.
+     *
+     * הנכסים דרך `withExplicitTenant` — הטבלה תחת FORCE RLS, ובלי
+     * הקשר דייר הספירה מחזירה אפס, כלומר אזהרת ההורדה הייתה שותקת
+     * בדיוק כשהיא הכי נחוצה (ביקורת Codex).
+     */
+    const [users, properties] = await Promise.all([
+      this.prisma.user.count({ where: { tenantId: id, isActive: true } }),
+      this.prisma.withExplicitTenant(id, (tx) =>
+        tx.property.count({ where: { tenantId: id, deletedAt: null } }),
+      ),
+    ]);
+    return {
+      warnings: downgradeWarnings(await this.plans.byCode(tenant.plan), target, {
+        users,
+        properties,
+      }),
+    };
+  }
+
   /** מעבר מסלול / שינוי סטטוס (השהיה מנתקת את כל המשתמשים מיידית). */
   @Patch("agencies/:id")
   async update(
@@ -157,6 +290,13 @@ export class PlatformController {
   ): Promise<{ ok: true }> {
     const tenant = await this.prisma.tenant.findUnique({ where: { id }, select: { id: true } });
     if (!tenant) throw new BadRequestException("משרד לא נמצא");
+    /*
+     * קוד מסלול נבדק מול הקטלוג ולא מול enum: מסלול שאינו קיים היה
+     * נשמר על המשרד ומשאיר אותו בלי אף פיצ'ר, בלי שום שגיאה.
+     */
+    if (body.plan !== undefined && (await this.plans.byCode(body.plan)) === undefined) {
+      throw new BadRequestException("מסלול לא מוכר");
+    }
 
     await this.prisma.tenant.update({
       where: { id },

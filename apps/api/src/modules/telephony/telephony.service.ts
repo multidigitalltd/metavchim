@@ -11,6 +11,7 @@ import {
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import { loadEnv } from "../../config/env";
 
@@ -31,6 +32,7 @@ export class TelephonyService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly audit: AuditService,
+    private readonly plans: PlanCatalogService,
   ) {}
 
   private webhookUrl(key: string): string {
@@ -169,6 +171,21 @@ export class TelephonyService {
     // מפתח לא מוכר — אותה שגיאה גנרית כמו בקליטת הלידים; לא מאשרים
     // קיום או אי-קיום של מפתחות
     if (!integration || integration.status !== "active") throw new NotFoundException("לא נמצא");
+
+    /*
+     * זכאות המסלול — כאן ולא בשער.
+     *
+     * הנתיב ציבורי ואין בו הקשר דייר, ולכן FeatureGuard מדלג עליו.
+     * המשרד נודע רק אחרי שהמפתח נפתר, וזו הנקודה הראשונה שבה אפשר
+     * לשאול. בלי הבדיקה, ביטול הפיצ'ר במסלול היה סוגר את מסך
+     * ההגדרות אבל משאיר את קליטת השיחות פועלת (ביקורת Codex).
+     *
+     * אותה שגיאה גנרית של מפתח לא מוכר: הספק החיצוני לא אמור ללמוד
+     * מהתשובה דבר על מצב המנוי של הלקוח.
+     */
+    if (!(await this.plans.tenantHasFeature(integration.tenantId, "telephony"))) {
+      throw new NotFoundException("לא נמצא");
+    }
 
     const event = parseTelephonyEvent(payload);
     if (!event) return; // חסר מספר או מזהה — אין מה לעשות איתו

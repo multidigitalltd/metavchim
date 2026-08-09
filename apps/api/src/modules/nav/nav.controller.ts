@@ -1,6 +1,7 @@
 import { Controller, Get } from "@nestjs/common";
 import { TenantContext } from "../../common/tenant-context";
 import { ownershipFilter } from "../../common/ownership";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import { AnyAuthenticated } from "../../common/auth.decorators";
 
@@ -23,16 +24,28 @@ export interface NavSummary {
   matches: number;
   /** יתרת הקרדיטים לשת"פ; null כשאין עדיין תנועות (אין מענק בצפייה). */
   credits: number | null;
+  /**
+   * הפיצ'רים שכלולים במסלול המשרד.
+   *
+   * הניווט מסתיר לפיהם פריטים שיוליכו לקיר: הכניסה למסך תיחסם
+   * בשרת בכל מקרה, וקישור שמוביל ל-403 גרוע מקישור שלא קיים. זו
+   * תצוגה בלבד — האכיפה היא ב-FeatureGuard.
+   */
+  features: string[];
 }
 
 @Controller("nav")
 export class NavController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly plans: PlanCatalogService,
+  ) {}
 
   @AnyAuthenticated()
   @Get("summary")
   async summary(): Promise<NavSummary> {
     const { tenantId } = TenantContext.current();
+    const plan = await this.plans.forTenant(tenantId);
     return this.prisma.withTenant(async (tx) => {
       const [properties, buyers, newLeads, matches, ledger] = await Promise.all([
         tx.property.count({
@@ -63,6 +76,7 @@ export class NavController {
         newLeads,
         matches,
         credits: ledger._count === 0 ? null : (ledger._sum.amount ?? 0),
+        features: plan?.features ?? [],
       };
     });
   }

@@ -586,6 +586,33 @@ model AuditLog {
 
 /// הגדרות פלטפורמה (מפתחות ספקים) — מנוהלות ממסך /platform, מוצפנות.
 /// מחוץ ל-RLS: רמת פלטפורמה, לא רמת דייר (כמו users/sessions).
+/// הגדרת מסלול מנוי — מה כלול בו, כמה הוא עולה ומה המגבלות.
+///
+/// טבלה ברמת הפלטפורמה (כמו platform_settings): אין בה נתוני לקוחות,
+/// והיא נקראת גם מתוך הקשר דייר כדי לדעת מה מותר למשרד. אין שורה
+/// לקוד מסוים ⇒ ברירת המחדל שבקוד (packages/shared — plans.ts), כך
+/// שמערכת שעלתה זה עתה עובדת לפני שנגעו במסך.
+model Plan {
+  code               String   @id @db.VarChar(20)
+  name               String   @db.VarChar(60)
+  description        String   @default("") @db.VarChar(500)
+  monthlyPriceAgorot Int      @default(0) @map("monthly_price_agorot")
+  /// null = נמכר חודשי בלבד
+  yearlyPriceAgorot  Int?     @map("yearly_price_agorot")
+  /// null = ללא הגבלה — ערך תקין ומכוון, לא "לא הוגדר"
+  maxUsers           Int?     @map("max_users")
+  maxProperties      Int?     @map("max_properties")
+  features           String[] @default([])
+  trialDays          Int      @default(14) @map("trial_days")
+  isPublic           Boolean  @default(true) @map("is_public")
+  sortOrder          Int      @default(0) @map("sort_order")
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
+  updatedBy          String?  @map("updated_by") @db.Char(26)
+
+  @@index([sortOrder])
+  @@map("plans")
+}
+
 model PlatformSetting {
   key            String   @id @db.VarChar(60)
   valueEncrypted String   @map("value_encrypted")

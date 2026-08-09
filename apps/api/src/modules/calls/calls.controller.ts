@@ -15,6 +15,7 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import { z } from "zod";
 import { IdSchema } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
+import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { CallsService, type CallDto } from "./calls.service";
 
@@ -72,6 +73,8 @@ export class CallsController {
    */
   @Post(":id/recording")
   @RequireCapability("leads.edit")
+  // ההקלטה נשמרת כדי להיות מתומללת — בלי הפיצ'ר אין טעם להעלות אותה
+  @RequireFeature("transcription")
   @HttpCode(200)
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_RECORDING_BYTES, files: 1 } }))
   async attachRecording(

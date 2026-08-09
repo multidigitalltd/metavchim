@@ -11,6 +11,7 @@ import {
 import { FileInterceptor } from "@nestjs/platform-express";
 import { z } from "zod";
 import { RequireCapability } from "../../common/auth.decorators";
+import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { TranscriptionService, type TranscriptionStatus } from "./transcription.service";
 import { VoiceIntakeService, type IntakeResult } from "./voice-intake.service";
@@ -24,6 +25,7 @@ const IntakeSchema = z
 /** גבול גודל להעלאת אודיו — דקות ספורות של הקלטה דחוסה. */
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 
+@RequireFeature("voice_intake")
 @Controller("voice-intakes")
 export class VoiceIntakeController {
   constructor(

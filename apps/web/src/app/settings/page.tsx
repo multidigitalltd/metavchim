@@ -7,8 +7,10 @@ import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { useFeature } from "@/lib/use-features";
 import { ExportSection } from "./export-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
+import { PlanSection } from "./plan-section";
 import { WhatsAppStatusSection } from "./whatsapp-status-section";
 import { TelephonySection } from "./telephony-section";
 import { AgreementTemplatesSection } from "./agreement-templates-section";
@@ -119,6 +121,9 @@ interface TenantSettings {
 
 export default function SettingsPage() {
   const { user, loading: authLoading } = useRequireAuth();
+  const canTelephony = useFeature("telephony");
+  const canAgreements = useFeature("agreements");
+  const canDataIo = useFeature("data_io");
   const [tenant, setTenant] = useState<TenantSettings | null>(null);
   const [team, setTeam] = useState<TeamUser[]>([]);
   const [audit, setAudit] = useState<AuditRow[]>([]);
@@ -222,6 +227,9 @@ export default function SettingsPage() {
       <div className="grid items-start gap-[18px] lg:[grid-template-columns:1fr_360px]">
         {/* ================= הטור הראשי ================= */}
         <div className="flex flex-col gap-[18px]">
+          {/* ---- המסלול: מה כלול ואיפה המשרד עומד מול המכסות ---- */}
+          <PlanSection />
+
           {/* ---- סוכני המשרד — הטבלה מקובץ העיצוב ---- */}
           <section className="mv-list-card" aria-labelledby="team-heading">
             <div className="flex items-center px-5 py-[15px]" style={{ borderBottom: "1px solid var(--color-card-head-border)" }}>
@@ -441,11 +449,11 @@ export default function SettingsPage() {
           </section>
 
           <WhatsAppStatusSection />
-          <TelephonySection />
+          {canTelephony ? <TelephonySection /> : null}
 
           {tenant ? <LeadWebhookSection initialKey={tenant.leadWebhookKey} /> : null}
 
-          <AgreementTemplatesSection />
+          {canAgreements ? <AgreementTemplatesSection /> : null}
 
           {/* ---- יומן פעילות ---- */}
           <section className="mv-list-card" aria-labelledby="audit-heading">
@@ -486,16 +494,18 @@ export default function SettingsPage() {
             ))}
           </section>
 
-          {/* ---- נתונים ---- */}
-          <section className="mv-list-card px-5 py-[17px]" aria-labelledby="data-heading">
-            <h2 id="data-heading" className="m-0 mb-[11px]" style={{ fontSize: 15.5, fontWeight: 800 }}>נתונים</h2>
-            <div className="mb-2 flex gap-2">
-              <Link href="/import" className="mv-btn-plain flex-1 text-center" style={{ padding: "8px 0", fontSize: 13 }}>
-                ייבוא מאקסל
-              </Link>
-            </div>
-            <ExportSection />
-          </section>
+          {/* ---- נתונים — כולו מאחורי data_io ---- */}
+          {canDataIo ? (
+            <section className="mv-list-card px-5 py-[17px]" aria-labelledby="data-heading">
+              <h2 id="data-heading" className="m-0 mb-[11px]" style={{ fontSize: 15.5, fontWeight: 800 }}>נתונים</h2>
+              <div className="mb-2 flex gap-2">
+                <Link href="/import" className="mv-btn-plain flex-1 text-center" style={{ padding: "8px 0", fontSize: 13 }}>
+                  ייבוא מאקסל
+                </Link>
+              </div>
+              <ExportSection />
+            </section>
+          ) : null}
 
           <SystemUpdateSection />
 

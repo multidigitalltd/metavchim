@@ -16,13 +16,16 @@ import { z } from "zod";
 import {
   CAPABILITIES,
   IdSchema,
+  PLAN_FEATURES,
   UserRoleSchema,
   clearEffect,
   describeOverride,
   isOverrideActive,
+  limitState,
   overrideRejectionReason,
   resolveCapabilities,
   type Capability,
+  type LimitState,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { onboardingSteps, type OnboardingProgress } from "@metavchim/shared";
@@ -30,7 +33,8 @@ import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorator
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
-import { PrismaService } from "../../core/prisma.service";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { AuthService } from "../auth/auth.service";
 import { LoginThrottleService } from "../auth/login-throttle.service";
 
@@ -121,6 +125,7 @@ export class SettingsController {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly loginThrottle: LoginThrottleService,
+    private readonly plans: PlanCatalogService,
   ) {}
 
   @Get("tenant")
@@ -163,6 +168,92 @@ export class SettingsController {
         typeof settings["defaultPaymentTerms"] === "string"
           ? settings["defaultPaymentTerms"]
           : undefined,
+    };
+  }
+
+  /**
+   * המסלול של המשרד — מה כלול בו ואיפה הוא עומד מול המגבלות.
+   *
+   * `@AnyAuthenticated` ולא `settings.manage`: זו לא הגדרה אלא מידע
+   * שכל מי שנתקל בקיר במסך צריך לראות. סוכן שלוחץ "ייצוא" ומקבל
+   * חסימה זכאי לדעת שזה המסלול ולא תקלה.
+   *
+   * המחירים לא מוחזרים כאן — זה מסך של מה מותר, לא של כמה זה עולה.
+   */
+  @Get("plan")
+  @AnyAuthenticated()
+  async plan(): Promise<{
+    code: string;
+    name: string;
+    description: string;
+    /**
+     * false = קוד המסלול של המשרד אינו נפתר לשום הגדרה.
+     *
+     * זה לא "בלי מגבלות" אלא מצב תקלה: האכיפה חוסמת כל הוספה, ולכן
+     * מסך שמציג "ללא הגבלה" היה סותר את מה שהמשתמש חווה בפועל
+     * (ביקורת Codex).
+     */
+    resolved: boolean;
+    features: { code: string; label: string; description: string; included: boolean }[];
+    limits: {
+      users: { used: number; limit: number | null; state: LimitState };
+      properties: { used: number; limit: number | null; state: LimitState };
+    };
+  }> {
+    const tenantId = TenantContext.current().tenantId;
+    /*
+     * ספירת הנכסים דרך `withTenant`, ובנפרד ממוני המשתמשים.
+     *
+     * `properties` תחת FORCE RLS, ולכן `_count` דרך הלקוח הישיר החזיר
+     * **אפס** — המסך היה מדווח שאין נכסים בכלל, גם למשרד עם מאות.
+     * `users` מחוץ ל-RLS (ראו הערה ב-schema.prisma) ולכן נשאר כאן
+     * (ביקורת Codex — הפעם החמישית שהתבנית הזו חוזרת).
+     *
+     * הסינונים זהים לאלה של האכיפה: משתמש פעיל בלבד, ונכס שאינו
+     * בארכיון.
+     */
+    const [plan, tenant, users, properties] = await Promise.all([
+      this.plans.forTenant(tenantId),
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { plan: true } }),
+      this.prisma.user.count({ where: { tenantId, isActive: true } }),
+      this.prisma.withTenant((tx) =>
+        tx.property.count({ where: { tenantId, deletedAt: null } }),
+      ),
+    ]);
+    /*
+     * מסלול שלא נפתר מוצג כחסום ולא כ"ללא הגבלה".
+     *
+     * `null` במגבלה פירושו ללא הגבלה, וזו בדיוק התשובה ההפוכה
+     * מהמציאות: האכיפה דוחה כל הוספה. `blocked: true` עם `limit: 0`
+     * הוא הייצוג הכן של המצב.
+     */
+    const unresolved: LimitState = { blocked: true, remaining: 0, percent: 100, warn: true };
+    const limitFor = (used: number, limit: number | null): LimitState =>
+      plan === undefined ? unresolved : limitState(used, limit);
+
+    return {
+      code: plan?.code ?? (tenant?.plan ?? ""),
+      // מסלול לא מוכר לא נופל אלא מוצג ככזה: הוא מצב תקלה שדורש
+      // טיפול של בעל הפלטפורמה, ומסך ריק לא היה מסגיר אותו
+      name: plan?.name ?? "מסלול לא מוגדר",
+      description: plan?.description ?? "",
+      resolved: plan !== undefined,
+      features: PLAN_FEATURES.map((feature) => ({
+        ...feature,
+        included: plan?.features.includes(feature.code) ?? false,
+      })),
+      limits: {
+        users: {
+          used: users,
+          limit: plan?.maxUsers ?? null,
+          state: limitFor(users, plan?.maxUsers ?? null),
+        },
+        properties: {
+          used: properties,
+          limit: plan?.maxProperties ?? null,
+          state: limitFor(properties, plan?.maxProperties ?? null),
+        },
+      },
     };
   }
 
@@ -481,6 +572,43 @@ export class SettingsController {
   }
 
   /** הוספת איש צוות: סיסמה זמנית מוצגת פעם אחת בלבד — לא נשמרת בגלוי. */
+  /**
+   * מכסת המשתמשים הפעילים של המסלול.
+   *
+   * נבדקת על **המושב הבא** ולא על המצב הקיים: משרד שהמכסה שלו הוקטנה
+   * ממשיך לעבוד עם מי שכבר יש לו, ורק תפיסת מושב נוסף נחסמת. חסימת
+   * הקיימים הייתה מנתקת סוכנים באמצע יום עבודה בגלל שינוי תמחור.
+   *
+   * נקראת משתי נקודות ולא רק מיצירה: **הפעלה מחדש של משתמש מושבת
+   * תופסת מושב בדיוק כמו יצירה**. בלי זה אפשר היה להשבית סוכן, ליצור
+   * מחליף, ולהפעיל את הראשון בחזרה — ולעבור את המכסה בלי שום חסימה
+   * (ביקורת Codex).
+   *
+   * הטבלה users מחוץ ל-RLS (ראו הערה ב-schema.prisma), ולכן הספירה
+   * הישירה כאן תקפה — התנאי `tenantId` הוא זה שמבודד.
+   */
+  private async assertSeatAvailable(tx: TenantTx, tenantId: string): Promise<void> {
+    const plan = await this.plans.forTenant(tenantId, tx);
+    // מסלול שאי אפשר לפתור חוסם ולא פותח — ראו properties.service
+    if (plan === undefined) {
+      throw new BadRequestException("המסלול של המשרד אינו מוגדר — פנו לתמיכה");
+    }
+    if (plan.maxUsers === null) return;
+    /*
+     * מנעול ייעוץ ברמת הדייר, בתוך הטרנזקציה שכותבת.
+     *
+     * שתי בקשות מקבילות שספרו את אותו מצב לפני שאחת מהן כתבה היו
+     * שתיהן עוברות, והמכסה הייתה נחצית בשקט (ביקורת Codex).
+     */
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seat-quota:${tenantId}`}))`;
+    const used = await tx.user.count({ where: { tenantId, isActive: true } });
+    if (limitState(used, plan.maxUsers).blocked) {
+      throw new BadRequestException(
+        `מסלול "${plan.name}" כולל ${plan.maxUsers} משתמשים. לתוספת משתמשים יש לשדרג מסלול.`,
+      );
+    }
+  }
+
   @Post("users")
   @RequireCapability("users.manage")
   async createUser(
@@ -496,6 +624,8 @@ export class SettingsController {
     const passwordHash = await AuthService.hashPassword(tempPassword);
     // יצירה + Audit בטרנזקציה אחת — אין חשבון בלי רישום (ביקורת Codex)
     await this.prisma.withTenant(async (tx) => {
+      // המכסה נבדקת באותה טרנזקציה שיוצרת, אחרי נעילת הדייר
+      await this.assertSeatAvailable(tx, tenantId);
       await tx.user.create({
         data: {
           id,
@@ -530,21 +660,38 @@ export class SettingsController {
     if (id === ctx.userId) {
       throw new BadRequestException("אי אפשר לשנות את המשתמש של עצמך מכאן");
     }
-    const target = await this.prisma.user.findFirst({
-      where: { id, tenantId: ctx.tenantId },
-      select: { role: true },
-    });
-    if (!target) throw new BadRequestException("משתמש לא נמצא");
-    if (target.role === "owner") {
-      throw new BadRequestException("אי אפשר לשנות את בעל המשרד");
-    }
-
-    await this.prisma.user.update({
-      where: { id },
-      data: {
-        ...(body.role !== undefined ? { role: body.role } : {}),
-        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
-      },
+    await this.prisma.withTenant(async (tx) => {
+      /*
+       * המנעול נלקח **לפני** קריאת המצב, והמצב נקרא בתוך הטרנזקציה.
+       *
+       * קריאה מחוץ לנעילה יכולה להתיישן: הבקשה רואה את המשתמש כפעיל,
+       * בקשה אחרת משביתה אותו ויוצרת מחליף עד המכסה, ואז הבקשה הזו
+       * מדלגת על הבדיקה — כי לפי מה שהיא קראה זו לא הפעלה מחדש —
+       * ומחזירה אותו לפעילות מעל המכסה (ביקורת Codex).
+       *
+       * pg_advisory_xact_lock ניתן לנעילה חוזרת באותה טרנזקציה, ולכן
+       * assertSeatAvailable שלוקח אותו שוב אינו נחסם.
+       */
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seat-quota:${ctx.tenantId}`}))`;
+      const target = await tx.user.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+        select: { role: true, isActive: true },
+      });
+      if (!target) throw new BadRequestException("משתמש לא נמצא");
+      if (target.role === "owner") {
+        throw new BadRequestException("אי אפשר לשנות את בעל המשרד");
+      }
+      // הפעלה מחדש תופסת מושב — אותה מכסה בדיוק כמו ביצירה
+      if (body.isActive === true && !target.isActive) {
+        await this.assertSeatAvailable(tx, ctx.tenantId);
+      }
+      await tx.user.update({
+        where: { id },
+        data: {
+          ...(body.role !== undefined ? { role: body.role } : {}),
+          ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+        },
+      });
     });
     if (body.isActive === false) {
       // ניתוק מיידי: משתמש שהושבת לא ממשיך לעבוד עם Session חי

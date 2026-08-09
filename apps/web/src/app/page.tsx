@@ -5,6 +5,7 @@ import Link from "next/link";
 import { apiGet } from "@/lib/api";
 import { FIELD_LABELS, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { useFeature } from "@/lib/use-features";
 import { DuplicateContacts } from "./duplicate-contacts";
 import { SetupBanner } from "./setup-banner";
 
@@ -121,6 +122,7 @@ interface TaskRow {
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useRequireAuth();
+  const canVoice = useFeature("voice_intake");
   const [properties, setProperties] = useState<PropertyRow[] | null>(null);
   const [buyers, setBuyers] = useState<BuyerRow[] | null>(null);
   const [leads, setLeads] = useState<LeadRow[] | null>(null);
@@ -424,43 +426,46 @@ export default function DashboardPage() {
             )}
           </section>
 
-          {/* כרטיס הקידום הכהה מקובץ העיצוב */}
-          <section
-            aria-labelledby="voice-promo-heading"
-            className="rounded-xl p-[18px]"
-            style={{ background: "#111513", color: "#dfe3e0" }}
-          >
-            <div className="mb-2 flex items-center gap-2">
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#70EE91"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                aria-hidden="true"
-              >
-                <rect x="9" y="2.5" width="6" height="11" rx="3" />
-                <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
-                <line x1="12" y1="17.5" x2="12" y2="21" />
-              </svg>
-              <h2 id="voice-promo-heading" className="m-0 text-sm font-extrabold" style={{ color: "#fff" }}>
-                קלטו נכס בדיבור
-              </h2>
-            </div>
-            <p className="m-0 text-[13px]" style={{ lineHeight: 1.5, color: "#aab3ad" }}>
-              ״דירת 4 חדרים בהרצל 12 בית שמש, קומה 3, עם מעלית וחניה, 2.4 מיליון״ — פחות
-              מדקה, וכרטיס הנכס מוכן.
-            </p>
-            <Link
-              href="/voice"
-              className="mt-3 block rounded-[9px] py-[9px] text-center text-[13.5px] font-bold no-underline"
-              style={{ background: "#70EE91", color: "#0B1F12" }}
+          {/* קידום שמוביל לפיצ'ר שאינו במסלול נחסם בשרת — אין טעם
+              להזמין אליו */}
+          {canVoice ? (
+            <section
+              aria-labelledby="voice-promo-heading"
+              className="rounded-xl p-[18px]"
+              style={{ background: "#111513", color: "#dfe3e0" }}
             >
-              נסו עכשיו
-            </Link>
-          </section>
+              <div className="mb-2 flex items-center gap-2">
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#70EE91"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  aria-hidden="true"
+                >
+                  <rect x="9" y="2.5" width="6" height="11" rx="3" />
+                  <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
+                  <line x1="12" y1="17.5" x2="12" y2="21" />
+                </svg>
+                <h2 id="voice-promo-heading" className="m-0 text-sm font-extrabold" style={{ color: "#fff" }}>
+                  קלטו נכס בדיבור
+                </h2>
+              </div>
+              <p className="m-0 text-[13px]" style={{ lineHeight: 1.5, color: "#aab3ad" }}>
+                ״דירת 4 חדרים בהרצל 12 בית שמש, קומה 3, עם מעלית וחניה, 2.4 מיליון״ — פחות
+                מדקה, וכרטיס הנכס מוכן.
+              </p>
+              <Link
+                href="/voice"
+                className="mt-3 block rounded-[9px] py-[9px] text-center text-[13.5px] font-bold no-underline"
+                style={{ background: "#70EE91", color: "#0B1F12" }}
+              >
+                נסו עכשיו
+              </Link>
+            </section>
+          ) : null}
         </div>
       </div>
     </>
