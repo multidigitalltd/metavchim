@@ -78,6 +78,14 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     });
   }
 
+  /** גישת הלקוח החותם — הטוקן שבקישור הוא המפתח, בלי הקשר דייר. */
+  async withPublicAgreement<T>(token: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.agreement_token', ${token}, true)`;
+      return fn(tx);
+    });
+  }
+
   /**
    * גישה ציבורית לפי מפתח ה-Webhook של אינטגרציה (מרכזיית טלפון).
    *

@@ -5,7 +5,10 @@ import {
   PLACEHOLDER_NAMES,
   REQUIRED_PLACEHOLDERS,
   SAMPLE_AGREEMENT_VALUES,
+  SIGNER_BLANK,
+  SIGNER_PROVIDED_PLACEHOLDERS,
   defaultAgreementTemplate,
+  fillSignerId,
   missingRequiredPlaceholders,
   renderAgreement,
   type AgreementKind,
@@ -92,6 +95,49 @@ describe("renderAgreement", () => {
       expect(result.unfilled).toEqual([]);
       expect(result.text).not.toContain("{{");
       expect(result.text).not.toContain("[חסר");
+    }
+  });
+});
+
+describe("fillSignerId", () => {
+  it("ממלא את השורה הריקה במספר שהחותם הזין", () => {
+    expect(fillSignerId(`הלקוח: דנה · ת"ז ${SIGNER_BLANK}`, "123456789")).toBe(
+      'הלקוח: דנה · ת"ז 123456789',
+    );
+  });
+
+  it("מחליף רק את ההופעה הראשונה", () => {
+    const body = `ת"ז ${SIGNER_BLANK}\n\nושוב: ${SIGNER_BLANK}`;
+    const filled = fillSignerId(body, "123456789");
+    expect(filled).toBe(`ת"ז 123456789\n\nושוב: ${SIGNER_BLANK}`);
+  });
+
+  it("קו תחתון רגיל בנוסח מותאם לא נבלע — שורת חתימה נשארת ריקה", () => {
+    // נוסח שמכיל שורת חתימה *לפני* מקום תעודת הזהות: בלי הסימון
+    // הבלתי נראה, החיפוש היה ממלא את שורת החתימה במספר הזהות
+    const body = `חתימת הלקוח: ____________\n\nת"ז ${SIGNER_BLANK}`;
+    const filled = fillSignerId(body, "123456789");
+    expect(filled).toBe('חתימת הלקוח: ____________\n\nת"ז 123456789');
+  });
+
+  it("הסימון בלתי נראה — השורה נראית כקווים תחתונים בלבד", () => {
+    expect(SIGNER_BLANK.replace(/⁠/gu, "")).toBe("____________");
+  });
+
+  it("נוסח בלי שורה למילוי חוזר כמות שהוא", () => {
+    expect(fillSignerId("בלי מקום למילוי", "123456789")).toBe("בלי מקום למילוי");
+  });
+
+  it("מספר ריק לא מוחק את השורה", () => {
+    const body = `ת"ז ${SIGNER_BLANK}`;
+    expect(fillSignerId(body, "   ")).toBe(body);
+  });
+});
+
+describe("SIGNER_PROVIDED_PLACEHOLDERS", () => {
+  it("כל פרט שהחותם ממלא הוא גם פרט חובה — אחרת אין סיבה לטפל בו בנפרד", () => {
+    for (const name of SIGNER_PROVIDED_PLACEHOLDERS) {
+      expect(REQUIRED_PLACEHOLDERS.brokerage).toContain(name);
     }
   });
 });

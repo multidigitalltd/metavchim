@@ -48,6 +48,11 @@ const TenantSettingsSchema = z
     licenseNumber: z.union([z.string().max(40), z.literal("")]).optional(),
     officeAddress: z.union([z.string().max(200), z.literal("")]).optional(),
     officePhone: z.union([z.string().max(30), z.literal("")]).optional(),
+    /* ברירות המחדל לנוסחי ההסכמים. דמי התיווך ומועד התשלום הם פרטי
+       חובה בתקנות, ושער ההחתמה יוצר הסכם בלי שאיש הזין אותם — בלי
+       ברירת מחדל ברמת המשרד הוא לא יכול לייצר מסמך תקף כלל. */
+    defaultCommission: z.union([z.string().max(80), z.literal("")]).optional(),
+    defaultPaymentTerms: z.union([z.string().max(120), z.literal("")]).optional(),
   })
   .strict();
 
@@ -133,6 +138,8 @@ export class SettingsController {
     licenseNumber?: string;
     officeAddress?: string;
     officePhone?: string;
+    defaultCommission?: string;
+    defaultPaymentTerms?: string;
   }> {
     const tenantId = TenantContext.current().tenantId;
     const tenant = await this.prisma.tenant.findUnique({
@@ -153,6 +160,14 @@ export class SettingsController {
         typeof settings["officeAddress"] === "string" ? settings["officeAddress"] : undefined,
       officePhone:
         typeof settings["officePhone"] === "string" ? settings["officePhone"] : undefined,
+      defaultCommission:
+        typeof settings["defaultCommission"] === "string"
+          ? settings["defaultCommission"]
+          : undefined,
+      defaultPaymentTerms:
+        typeof settings["defaultPaymentTerms"] === "string"
+          ? settings["defaultPaymentTerms"]
+          : undefined,
     };
   }
 
@@ -314,6 +329,8 @@ export class SettingsController {
       "licenseNumber",
       "officeAddress",
       "officePhone",
+      "defaultCommission",
+      "defaultPaymentTerms",
     ] as const;
     let settingsTouched = false;
     for (const field of SETTINGS_FIELDS) {

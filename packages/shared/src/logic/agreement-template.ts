@@ -284,6 +284,45 @@ export function renderAgreement(
   return { text, unfilled };
 }
 
+/**
+ * הפרט היחיד מרשימת החובה שאינו ידוע ברגע השליחה — הלקוח מזין אותו
+ * בעצמו במסך החתימה.
+ *
+ * לכן הוא לא מסומן כ"חסר" (מה שהיה מייצר מסמך משפטי עם `[חסר: …]`
+ * מודפס באמצע), אלא מוצג כשורה למילוי — ומוחלף בערך האמיתי ברגע
+ * החתימה. כל שאר פרטי החובה חייבים להיות מלאים כבר בשליחה.
+ */
+export const SIGNER_PROVIDED_PLACEHOLDERS: (keyof AgreementValues)[] = ["תעודת_זהות_הלקוח"];
+
+/**
+ * השורה שנשארת בנוסח עד שהחותם ממלא אותה.
+ *
+ * הקווים התחתונים עטופים ב-U+2060 (WORD JOINER) — תו בלתי נראה
+ * שאינו משנה את מראה השורה ואינו שובר גלישת שורות. הוא שם כדי
+ * שהחיפוש ברגע החתימה יזהה *בדיוק* את השורה הזו: נוסח מותאם שכולל
+ * קו תחתון ארוך במקום אחר (שורת חתימה, ראשי תיבות) אינו נושא את
+ * התו, ולכן לא ייבלע בטעות ויקבל את מספר הזהות במקום המיועד לו.
+ */
+const BLANK_MARK = "⁠";
+export const SIGNER_BLANK = `${BLANK_MARK}____________${BLANK_MARK}`;
+
+/**
+ * מילוי תעודת הזהות בגוף ההסכם ברגע החתימה.
+ *
+ * בלי זה מספר הזהות היה נשמר בשדה נפרד בלבד, והמסמך עצמו — שהוא
+ * הראיה — היה נשאר בלי אחד מפרטי החובה שבתקנות.
+ *
+ * מוחלפת ההופעה הראשונה בלבד: נוסח שמזכיר את תעודת הזהות פעמיים
+ * ממלא רק את הראשונה, ולא הופך את השנייה למספר כפול.
+ */
+export function fillSignerId(body: string, idNumber: string): string {
+  const value = idNumber.trim();
+  if (value === "") return body;
+  const at = body.indexOf(SIGNER_BLANK);
+  if (at === -1) return body;
+  return body.slice(0, at) + value + body.slice(at + SIGNER_BLANK.length);
+}
+
 /** פרטי חובה מהתקנות שהנוסח המותאם השמיט. ריק = תקין. */
 export function missingRequiredPlaceholders(
   kind: AgreementKind,

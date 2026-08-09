@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useCallback, useEffect, useState, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import {
   FIELD_LABELS,
   formatDate,
@@ -12,9 +12,11 @@ import {
   PROPERTY_TYPE_LABELS,
   STATUS_LABELS,
 } from "@/lib/format";
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { MediaSection } from "./media-section";
+import { AgreementsPanel } from "../../agreements-panel";
+import { PropertyOwner, type OwnerContact } from "../property-owner";
 
 /**
  * כרטיס הנכס לפי קובץ העיצוב: כרטיס כותרת עם מחיר ופעולות (עריכה /
@@ -43,7 +45,7 @@ interface PropertyDetail {
   marketingTitle?: string;
   readinessScore: number;
   missingFields: string[];
-  ownerContact?: { id: string; name: string; phone: string };
+  ownerContact?: OwnerContact;
 }
 
 interface MatchRow {
@@ -90,7 +92,10 @@ function readinessTextColor(score: number): string {
 
 export default function PropertyDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { loading: authLoading } = useRequireAuth();
+  const { user, loading: authLoading } = useRequireAuth();
+  const canEditOwner = can(user, "properties.edit");
+  // אנשי הקשר של הבעלים נאכפים ב-ContactsController תחת buyers.edit
+  const canEditOwnerPeople = can(user, "buyers.edit");
   const canLanding = useFeature("landing_pages");
   const canWhatsApp = useFeature("whatsapp");
   const router = useRouter();
@@ -102,15 +107,27 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   const [copiedFor, setCopiedFor] = useState<string | null>(null);
   const [bulkConfirm, setBulkConfirm] = useState(false);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
+  /** matchId ⟵ קישור חתימה, להתאמות שנחסמו בשער ההחתמה */
+  const [awaitingSignature, setAwaitingSignature] = useState<Record<string, string>>({});
   const [landingUrl, setLandingUrl] = useState<string | null>(null);
   const [landingBusy, setLandingBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (authLoading) return;
+  /*
+   * טעינת הנכס נשלפה מתוך ה-effect כדי שגם הוספת בעל נכס תוכל
+   * לרענן אותה. עדכון מקומי של ה-state לא היה מספיק: השרת מחזיר
+   * מזהה איש קשר שנוצר (או קיים), והרכיב של אנשי הקשר הנוספים
+   * צריך אותו.
+   */
+  const loadProperty = useCallback((): void => {
     apiGet<PropertyDetail>(`/properties/${id}`)
       .then(setProperty)
       .catch(() => setError("הנכס לא נמצא"));
+  }, [id]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    loadProperty();
     apiGet<MatchRow[]>(`/properties/${id}/matches`)
       .then((rows) => {
         setMatches(rows);
@@ -122,13 +139,31 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
         }
       })
       .catch(() => setMatches([]));
-  }, [authLoading, id]);
+  }, [authLoading, id, loadProperty]);
 
   async function createOffer(matchId: string) {
-    const offer = await apiPost<OfferInfo & { matchId: string }>("/offers", { matchId });
-    setOffers((prev) => ({ ...prev, [matchId]: offer }));
-    await navigator.clipboard.writeText(offer.url).catch(() => undefined);
-    setCopiedFor(matchId);
+    try {
+      const offer = await apiPost<OfferInfo & { matchId: string }>("/offers", { matchId });
+      setOffers((prev) => ({ ...prev, [matchId]: offer }));
+      await navigator.clipboard.writeText(offer.url).catch(() => undefined);
+      setCopiedFor(matchId);
+    } catch (err: unknown) {
+      /*
+       * שער ההחתמה מוחזר כ-409 עם קישור לחתימה. בלי הטיפול הזה
+       * הלחיצה נכשלה בשקט: המתווך לא ראה שגיאה, לא קיבל קישור,
+       * ולא היה לו שום רמז מה לעשות — בזמן שהשרת כבר יצר עבורו את
+       * ההסכם (ביקורת Codex).
+       */
+      const signUrl =
+        err instanceof ApiError && err.body["code"] === "signature_required"
+          ? String(err.body["signUrl"] ?? "")
+          : "";
+      if (signUrl) {
+        setAwaitingSignature((prev) => ({ ...prev, [matchId]: signUrl }));
+        return;
+      }
+      throw err;
+    }
   }
 
   /** פותח וואטסאפ עם ההודעה והקישור מוכנים — המתווך רק לוחץ שלח (אפיון §10). */
@@ -183,11 +218,33 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
       return;
     }
     setBulkConfirm(false);
-    const result = await apiPost<{ created: number }>("/offers/bulk", {
-      propertyId: id,
-      minScore: 85,
-    });
-    setBulkResult(`נוצרו ${result.created} הצעות — לחצו "שלח בוואטסאפ" על כל אחת`);
+    const result = await apiPost<{
+      created: number;
+      awaitingSignature: { matchId: string; signUrl: string }[];
+    }>("/offers/bulk", { propertyId: id, minScore: 85 });
+    /*
+     * לקוח שטרם חתם על הזמנה בכתב אינו דילוג — הוא הפעולה הבאה של
+     * המתווך. בלי השורה הזו התוצאה הייתה "נוצרו 0 הצעות" בלי שום
+     * רמז למה ומה עושים עכשיו (ביקורת Codex).
+     */
+    const waiting = result.awaitingSignature?.length ?? 0;
+    setBulkResult(
+      [
+        result.created > 0
+          ? `נוצרו ${result.created} הצעות — לחצו "שלח בוואטסאפ" על כל אחת`
+          : "לא נוצרו הצעות חדשות",
+        waiting > 0
+          ? `${waiting} לקוחות ממתינים לחתימה על הזמנה בכתב — הקישור לחתימה מופיע בשורת ההתאמה שלהם`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(". "),
+    );
+    setAwaitingSignature(
+      Object.fromEntries(
+        (result.awaitingSignature ?? []).map((row) => [row.matchId, row.signUrl]),
+      ),
+    );
     const rows = await apiGet<MatchRow[]>(`/properties/${id}/matches`);
     setMatches(rows);
     if (rows.length > 0) {
@@ -262,16 +319,11 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
               </label>
             </div>
             <p className="m-0 mt-[5px] text-sm" style={{ color: "var(--color-text-muted)" }}>
+              {/*
+                בעל הנכס היה כאן כשורה בכותרת המשנה. הוא עבר לסעיף
+                משלו בטור הראשי — הוא צד לעסקה, לא הערת שוליים לכתובת.
+              */}
               {address}
-              {property.ownerContact ? (
-                <>
-                  {" · בעל הנכס: "}
-                  {property.ownerContact.name}{" "}
-                  <a href={`tel:${property.ownerContact.phone}`} className="underline" dir="ltr">
-                    {property.ownerContact.phone}
-                  </a>
-                </>
-              ) : null}
             </p>
           </div>
           <div className="ms-auto text-start">
@@ -329,12 +381,29 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                 </div>
               ))}
             </dl>
-            {property.ownerContact && canWhatsApp ? (
-              <button type="button" className="mv-btn-plain mt-3.5" onClick={() => void sendOwnerUpdate()}>
-                💬 שלח עדכון שיווק לבעל הנכס
-              </button>
-            ) : null}
+
           </section>
+
+          <PropertyOwner
+            propertyId={id}
+            owner={property.ownerContact}
+            canEdit={canEditOwner}
+            canEditPeople={canEditOwnerPeople}
+            onChanged={loadProperty}
+            canSendUpdate={canWhatsApp}
+            onSendUpdate={() => void sendOwnerUpdate()}
+          />
+
+          {/* בלעדיות נחתמת מול בעל הנכס — ולכן מיד אחרי הסעיף שלו,
+              ולא בכרטיס הקונה */}
+          {property.ownerContact ? (
+            <AgreementsPanel
+              contactId={property.ownerContact.id}
+              kind="exclusivity"
+              propertyId={property.id}
+              title="הסכם בלעדיות מול בעל הנכס"
+            />
+          ) : null}
 
           <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="matches-heading">
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -396,6 +465,22 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                         ) : null}
                       </div>
                       <div className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>{m.explanation}</div>
+                      {awaitingSignature[m.id] ? (
+                        <div className="mt-1.5 text-[13px]">
+                          <span style={{ color: "var(--color-danger)" }}>
+                            ממתין לחתימה על הזמנה בכתב
+                          </span>
+                          {" · "}
+                          <a
+                            href={awaitingSignature[m.id]}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline"
+                          >
+                            קישור לחתימה
+                          </a>
+                        </div>
+                      ) : null}
                       {offer ? (
                         <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-[13px]">
                           <span className="font-bold" style={{ color: offer.status === "interested" ? "var(--color-primary)" : "var(--color-text-soft)" }}>

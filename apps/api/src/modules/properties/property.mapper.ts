@@ -40,7 +40,8 @@ export interface PropertyDto extends PropertyFields {
   readinessScore: number;
   missingFields: string[];
   /** בעל הנכס (המוכר) — מוצג בעמוד הנכס ומזין את התיק המאוחד */
-  ownerContact?: { id: string; name: string; phone: string };
+  /** בעל הנכס — הוא המוכר או המשכיר, ולכן כרטיס מלא כמו של קונה */
+  ownerContact?: { id: string; name: string; phone: string; email?: string };
   createdAt: Date;
   updatedAt: Date;
 }

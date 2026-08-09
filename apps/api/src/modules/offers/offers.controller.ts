@@ -84,7 +84,11 @@ export class OffersController {
   @HttpCode(200)
   async createBulk(
     @Body(new ZodValidationPipe(BulkOfferSchema)) body: z.infer<typeof BulkOfferSchema>,
-  ): Promise<{ created: number; skipped: number }> {
+  ): Promise<{
+    created: number;
+    skipped: number;
+    awaitingSignature: { matchId: string; signUrl: string }[];
+  }> {
     return this.offers.createBulk(body.propertyId, body.minScore);
   }
 
