@@ -144,3 +144,69 @@ export function describeRecurrence(rule: RecurrenceRule): string {
   if (day === 31) return `בסוף כל חודש ב-${time}`;
   return `ב-${day} לכל חודש ב-${time}`;
 }
+
+/* ============================================================
+   שעון ישראל
+   ============================================================
+   `nextOccurrence` עובד על השדות **המקומיים** של ה-Date, כלומר על
+   שעון-קיר. זה מה שהמשרד התכוון אליו כשהוא כתב 09:00 — אבל תהליכי
+   השרת רצים ב-UTC, ושם 09:00 מקומי הוא 12:00 בישראל.
+
+   הפונקציות כאן עושות את התרגום פעם אחת, ומשמשות גם את הסורק שיוצר
+   את המשימות וגם את התצוגה שמבטיחה למשתמש מתי זה יקרה. שתי גרסאות
+   של ההמרה היו נפרדות ביום מעבר השעון — והמסך היה מבטיח שעה אחת
+   בזמן שהסורק מריץ אחרת.
+   ============================================================ */
+
+const JERUSALEM_TZ = "Asia/Jerusalem";
+
+/** ההיסט של שעון ישראל מ-UTC ברגע נתון (מ״ש) — תלוי-רגע, לא קבוע. */
+function jerusalemOffsetMs(at: Date): number {
+  const wallAsUtc = new Date(at.toLocaleString("en-US", { timeZone: JERUSALEM_TZ }));
+  return wallAsUtc.getTime() - at.getTime();
+}
+
+/**
+ * שעת הקיר הירושלמית של רגע נתון, כ-Date שהשדות **המקומיים** שלו הם
+ * אותה שעה — הצורה ש-`nextOccurrence` יודע לקרוא.
+ */
+export function toJerusalemWall(at: Date): Date {
+  const wall = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: JERUSALEM_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(at);
+  return new Date(wall.replace(" ", "T"));
+}
+
+/**
+ * הרגע (UTC) שבו שעת-קיר ירושלמית מתרחשת.
+ *
+ * ניחוש ותיקון כפול, כי ההיסט הנכון הוא זה שבתוקף ברגע המבוקש עצמו:
+ * ביום מעבר שעון ההיסט של חצות שונה מזה של הצהריים.
+ */
+export function jerusalemWallToUtc(wall: Date): Date {
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  const iso = `${wall.getFullYear()}-${pad(wall.getMonth() + 1)}-${pad(wall.getDate())}T${pad(wall.getHours())}:${pad(wall.getMinutes())}:00.000Z`;
+  const wallMs = new Date(iso).getTime();
+  let guess = new Date(wallMs);
+  for (let i = 0; i < 2; i += 1) guess = new Date(wallMs - jerusalemOffsetMs(guess));
+  return guess;
+}
+
+/**
+ * המופע הבא כרגע ב-UTC.
+ *
+ * **זו הפונקציה שכל צרכן אמיתי צריך.** `nextOccurrence` נשארת
+ * מיוצאת כי היא הלוגיקה הטהורה שהבדיקות מכסות, אבל היא מדברת
+ * שעון-קיר — ומי שיקרא לה ישירות בשרת יקבל שעה שגויה בשלוש שעות.
+ */
+export function nextOccurrenceUtc(rule: RecurrenceRule, since: Date): Date | null {
+  const wall = nextOccurrence(rule, toJerusalemWall(since));
+  return wall === null ? null : jerusalemWallToUtc(wall);
+}

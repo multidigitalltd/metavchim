@@ -3,6 +3,7 @@ import {
   describeRecurrence,
   isDue,
   nextOccurrence,
+  nextOccurrenceUtc,
   recurrenceRejectionReason,
   type RecurrenceRule,
 } from "./recurrence.js";
@@ -201,5 +202,51 @@ describe("describeRecurrence", () => {
 
   it("31 מנוסח כסוף החודש — זה מה שהוא עושה בפועל", () => {
     expect(describeRecurrence(rule({ frequency: "monthly", dayOfMonth: 31 }))).toContain("בסוף כל חודש");
+  });
+});
+
+describe("nextOccurrenceUtc", () => {
+  /** השעה שהרגע הזה מייצג בישראל — מה שהמשתמש באמת יראה. */
+  const jerusalemHour = (at: Date): string =>
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Jerusalem",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(at);
+
+  it("09:00 הוא 09:00 בישראל — לא בשעון השרת", () => {
+    // זה כל העניין: תהליכי השרת רצים ב-UTC, ושם 09:00 מקומי הוא
+    // 12:00 בישראל בשעון קיץ
+    const next = nextOccurrenceUtc(rule({ hour: 9 }), new Date("2026-08-09T20:00:00Z"));
+    expect(next).not.toBeNull();
+    expect(jerusalemHour(next!)).toBe("09:00");
+  });
+
+  it("נכון גם בשעון חורף", () => {
+    const next = nextOccurrenceUtc(rule({ hour: 9 }), new Date("2026-01-15T20:00:00Z"));
+    expect(jerusalemHour(next!)).toBe("09:00");
+  });
+
+  it("תמיד בעתיד ביחס לנקודת הייחוס", () => {
+    const since = new Date("2026-08-09T20:00:00Z");
+    expect(nextOccurrenceUtc(rule({ hour: 9 }), since)!.getTime()).toBeGreaterThan(since.getTime());
+  });
+
+  it("שבועי — היום בשבוע נמדד בישראל", () => {
+    // 2026-08-09T21:30Z הוא כבר יום שני 00:30 בישראל
+    const next = nextOccurrenceUtc(
+      rule({ frequency: "weekly", weekdays: [1], hour: 9 }),
+      new Date("2026-08-09T21:30:00Z"),
+    );
+    expect(jerusalemHour(next!)).toBe("09:00");
+    // אותו יום שני, לא בעוד שבוע
+    expect(next!.getTime() - new Date("2026-08-09T21:30:00Z").getTime()).toBeLessThan(
+      12 * 60 * 60 * 1000,
+    );
+  });
+
+  it("כלל לא תקין מחזיר null", () => {
+    expect(nextOccurrenceUtc(rule({ hour: 99 }), new Date())).toBeNull();
   });
 });

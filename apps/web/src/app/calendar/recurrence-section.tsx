@@ -86,19 +86,15 @@ export function RecurrenceSection(): React.JSX.Element {
     }
   }
 
+  /*
+   * השהיה/הפעלה דרך נתיב ייעודי ולא דרך העריכה המלאה.
+   *
+   * `PATCH /:id` מחליף את כל השדות, ולכן שליחה חלקית מכאן הייתה
+   * מוחקת שדה שנשכח — למשל הסוכן שהוקצה, וכלל של אדם אחד היה הופך
+   * בשקט לכלל של כל המשרד (ביקורת Codex).
+   */
   async function toggle(rule: Recurrence): Promise<void> {
-    await apiPatch(`/task-recurrences/${rule.id}`, {
-      title: rule.title,
-      ...(rule.notes ? { notes: rule.notes } : {}),
-      frequency: rule.frequency,
-      ...(rule.frequency === "weekly" ? { weekdays: rule.weekdays } : {}),
-      ...(rule.frequency === "monthly" && rule.dayOfMonth !== undefined
-        ? { dayOfMonth: rule.dayOfMonth }
-        : {}),
-      hour: rule.hour,
-      minute: rule.minute,
-      isActive: !rule.isActive,
-    });
+    await apiPatch(`/task-recurrences/${rule.id}/active`, { isActive: !rule.isActive });
     load();
   }
 

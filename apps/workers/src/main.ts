@@ -12,7 +12,7 @@ import {
   QUEUES,
   diarizeTimeoutMs,
   formatDiarizedTranscript,
-  nextOccurrence,
+  nextOccurrenceUtc,
   type RecurrenceRule,
   pushOutcome,
   pushPayload,
@@ -662,30 +662,7 @@ function jerusalemDayRange(): { start: Date; end: Date } {
  * טרנזקציה. ריצה כפולה של הסורק — או שתי מכונות Worker — לא תיצור
  * את אותה משימה פעמיים.
  */
-const RECURRING_BATCH = 50;
-
-/** שעת הקיר הירושלמית של רגע נתון, כ-Date שהשדות המקומיים שלו הם אותה שעה. */
-function toJerusalemWall(at: Date): Date {
-  const wall = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: JERUSALEM_TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(at);
-  // "2026-08-09 09:00:00" → נקרא כזמן מקומי, ולכן השדות המקומיים
-  // שלו הם בדיוק שעת הקיר הירושלמית
-  return new Date(wall.replace(" ", "T"));
-}
-
-/** ISO של שעת קיר מתוך השדות המקומיים — הקלט של jerusalemWallToUtc. */
-function localWallIso(d: Date): string {
-  const pad = (n: number): string => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00.000`;
-}
+const RECURRING_PAGE = 50;
 
 async function processRecurringTasks(): Promise<void> {
   const now = new Date();
@@ -713,15 +690,28 @@ async function processRecurringTasks(): Promise<void> {
     createdAt: Date;
   }[] = [];
   for (const tenant of tenants) {
-    const batch = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
-      return tx.taskRecurrence.findMany({
-        where: { tenantId: tenant.id, isActive: true },
-        orderBy: { id: "asc" },
-        take: RECURRING_BATCH,
+    /*
+     * עימוד cursor ולא take בודד.
+     *
+     * הכללים לא משנים סדר בין הסריקות, ולכן `take: 50` היה מחזיר
+     * לנצח את אותם חמישים הראשונים — וכלל מספר 51 של משרד גדול לא
+     * היה נוצר אף פעם, בלי שגיאה ובלי שאיש ישים לב (ביקורת Codex).
+     */
+    let cursor: string | undefined;
+    for (;;) {
+      const page = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+        return tx.taskRecurrence.findMany({
+          where: { tenantId: tenant.id, isActive: true },
+          orderBy: { id: "asc" },
+          take: RECURRING_PAGE,
+          ...(cursor === undefined ? {} : { cursor: { id: cursor }, skip: 1 }),
+        });
       });
-    });
-    rules.push(...batch);
+      rules.push(...page);
+      if (page.length < RECURRING_PAGE) break;
+      cursor = page[page.length - 1]!.id;
+    }
   }
 
   for (const rule of rules) {
@@ -733,10 +723,10 @@ async function processRecurringTasks(): Promise<void> {
       minute: rule.minute,
     };
     const since = rule.lastRunAt ?? rule.createdAt;
-    const nextWall = nextOccurrence(spec, toJerusalemWall(since));
-    if (nextWall === null) continue;
-    const dueAt = jerusalemWallToUtc(localWallIso(nextWall));
-    if (dueAt > now) continue;
+    // ההמרה לשעון ישראל ובחזרה נעשית ב-shared, באותה פונקציה שהמסך
+    // משתמש בה לתצוגת "המופע הבא" — אחרת השתיים היו נפרדות
+    const dueAt = nextOccurrenceUtc(spec, since);
+    if (dueAt === null || dueAt > now) continue;
 
     try {
       await prisma.$transaction(async (tx) => {

@@ -56,6 +56,22 @@ export class RecurrenceController {
     return this.recurrences.update(id, body);
   }
 
+  /**
+   * השהיה/הפעלה — נתיב נפרד מהעריכה.
+   *
+   * `PATCH /:id` מחליף את כל השדות, ולכן מסך שרצה רק להשהות היה
+   * חייב לשלוח מחדש את כולם — ושדה שנשכח היה נמחק בשקט.
+   */
+  @Patch(":id/active")
+  @RequireCapability("settings.manage")
+  setActive(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(z.object({ isActive: z.boolean() }).strict()))
+    body: { isActive: boolean },
+  ): Promise<RecurrenceDto> {
+    return this.recurrences.setActive(id, body.isActive);
+  }
+
   @Delete(":id")
   @RequireCapability("settings.manage")
   @HttpCode(204)

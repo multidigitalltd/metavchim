@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { ulid } from "ulid";
 import {
   describeRecurrence,
-  nextOccurrence,
+  nextOccurrenceUtc,
   recurrenceRejectionReason,
   type RecurrenceFrequency,
   type RecurrenceRule,
@@ -100,10 +100,14 @@ function toDto(row: RecurrenceRow): RecurrenceDto {
     description: describeRecurrence(rule),
     /*
      * המופע הבא נמדד מהריצה האחרונה, ובכלל חדש — מרגע היצירה.
-     * זו אותה נקודת ייחוס שהסורק משתמש בה, כדי שמה שהמסך מבטיח יהיה
-     * מה שבאמת יקרה.
+     *
+     * `nextOccurrenceUtc` ולא `nextOccurrence`: זו אותה פונקציה
+     * בדיוק שהסורק מריץ, כולל התרגום משעון ישראל. הגרסה הטהורה
+     * מדברת שעון-קיר, ותהליך ה-API רץ ב-UTC — כלומר כלל של 09:00
+     * היה מוצג כ-12:00 בדיוק בזמן שהסורק מריץ אותו ב-09:00
+     * (ביקורת Codex).
      */
-    nextRunAt: row.isActive ? nextOccurrence(rule, row.lastRunAt ?? row.createdAt) : null,
+    nextRunAt: row.isActive ? nextOccurrenceUtc(rule, row.lastRunAt ?? row.createdAt) : null,
   };
 }
 
@@ -163,6 +167,44 @@ export class RecurrenceService {
         entityType: "task_recurrence",
         entityId: id,
         metadata: { title: input.title },
+      });
+      return updated;
+    });
+    return toDto(row);
+  }
+
+  /**
+   * השהיה והפעלה מחדש — נתיב נפרד ולא עריכה מלאה.
+   *
+   * שתי סיבות, ושתיהן התגלו בביקורת:
+   *
+   * 1. `update` הוא **החלפה** של כל השדות. מסך שרצה רק להשהות ושלח
+   *    את שאר השדות "כמו שהם" היה מאבד את `assignedToUserId` —
+   *    כלומר כלל של סוכן אחד היה הופך בשקט לכלל של כל המשרד.
+   *
+   * 2. **הפעלה מחדש מאפסת את נקודת הייחוס.** כלל שהושהה לחודש
+   *    שומר `lastRunAt` ישן, והסורק היה רואה את כל המופעים שהוחמצו
+   *    כמאחרים — ויוצר אותם אחד-אחד בסריקות הבאות, כלומר מציף את
+   *    הסוכנים במשימות מהעבר. השהיה אינה מוחקת את ההיסטוריה
+   *    (`lastRunAt` נשמר כמות שהוא), ורק ההפעלה מקדמת אותה.
+   */
+  async setActive(id: string, isActive: boolean): Promise<RecurrenceDto> {
+    const tenantId = TenantContext.current().tenantId;
+    const row = await this.prisma.withTenant(async (tx) => {
+      const existing = await tx.taskRecurrence.findFirst({ where: { id, tenantId } });
+      if (!existing) throw new NotFoundException("הכלל לא נמצא");
+      const updated = await tx.taskRecurrence.update({
+        where: { id },
+        data: {
+          isActive,
+          ...(isActive && !existing.isActive ? { lastRunAt: new Date() } : {}),
+        },
+      });
+      await this.audit.record(tx, {
+        action: isActive ? "task_recurrence.activate" : "task_recurrence.pause",
+        entityType: "task_recurrence",
+        entityId: id,
+        metadata: { title: existing.title },
       });
       return updated;
     });
