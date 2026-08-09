@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
-import { computeReadiness, type Page, type PropertyFields } from "@metavchim/shared";
+import { computeReadiness, limitState, type Page, type PropertyFields } from "@metavchim/shared";
 import {
   PROPERTY_TYPE_LABELS_HE,
   freeTextTerms,
@@ -18,6 +18,7 @@ function propertyTypesFor(term: string): string[] {
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { MatchingService } from "../matching/matching.service";
@@ -34,7 +35,29 @@ export class PropertiesService {
     private readonly matching: MatchingService,
     private readonly contacts: ContactsService,
     private readonly messaging: MessagingService,
+    private readonly plans: PlanCatalogService,
   ) {}
+
+  /**
+   * מכסת הנכסים של המסלול.
+   *
+   * נבדקת על **הנכס הבא** ולא על המצב הקיים, ולכן משרד שחרג אחרי
+   * שינוי תמחור ממשיך לראות ולערוך את מה שיש לו — רק ההוספה נחסמת.
+   * נכסים בארכיון נספרים כמו כל השאר: הם עדיין במסד ועדיין ניתנים
+   * לשחזור, ולכן לא היו מכסת חינם.
+   */
+  private async assertCanAddProperty(): Promise<void> {
+    const tenantId = TenantContext.current().tenantId;
+    const plan = await this.plans.forTenant(tenantId);
+    const limit = plan?.maxProperties ?? null;
+    if (limit === null) return;
+    const used = await this.prisma.property.count({ where: { tenantId } });
+    if (limitState(used, limit).blocked) {
+      throw new BadRequestException(
+        `מסלול "${plan?.name ?? ""}" כולל ${limit} נכסים. לתוספת נכסים יש לשדרג מסלול.`,
+      );
+    }
+  }
 
   async create(input: {
     fields: PropertyFields;
@@ -44,6 +67,7 @@ export class PropertiesService {
     /** בעל הנכס (המוכר) — נקשר כ-contact לפי טלפון (docs/03: אדם אחד) */
     owner?: { name: string; phone: string };
   }): Promise<PropertyDto> {
+    await this.assertCanAddProperty();
     const id = await this.persist(input);
     // חישוב התאמות — סינכרוני בשלב זה; יעבור לתור BullMQ עם עליית ה-Workers (docs/07 §5).
     await this.matching.recomputeForProperty(id);
@@ -62,6 +86,9 @@ export class PropertiesService {
     /** שימור סטטוס בייבוא-חזרה של קובץ מיוצא (Round-trip); ברירת מחדל: טיוטה. */
     status?: string;
   }): Promise<string> {
+    // גם בייבוא: קובץ של אלף נכסים לא אמור לעקוף מכסה שהוספה ידנית
+    // נחסמת בה
+    await this.assertCanAddProperty();
     const id = await this.persist(input);
     try {
       await this.matching.recomputeForProperty(id);

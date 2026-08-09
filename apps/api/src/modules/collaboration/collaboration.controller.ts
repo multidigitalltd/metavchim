@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from "@ne
 import { z } from "zod";
 import { IdSchema } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
+import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
   CollaborationService,
@@ -13,6 +14,7 @@ const ShareSchema = z.object({ buyerId: IdSchema }).strict();
 const OfferSchema = z.object({ propertyId: IdSchema }).strict();
 const RespondSchema = z.object({ response: z.enum(["interested", "declined"]) }).strict();
 
+@RequireFeature("collaboration")
 @Controller("collaboration")
 export class CollaborationController {
   constructor(private readonly collaboration: CollaborationService) {}

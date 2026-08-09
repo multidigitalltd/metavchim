@@ -9,6 +9,7 @@ import { formatDateTime } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { ExportSection } from "./export-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
+import { PlanSection } from "./plan-section";
 import { WhatsAppStatusSection } from "./whatsapp-status-section";
 import { TelephonySection } from "./telephony-section";
 import { AgreementTemplatesSection } from "./agreement-templates-section";
@@ -218,6 +219,9 @@ export default function SettingsPage() {
       <div className="grid items-start gap-[18px] lg:[grid-template-columns:1fr_360px]">
         {/* ================= הטור הראשי ================= */}
         <div className="flex flex-col gap-[18px]">
+          {/* ---- המסלול: מה כלול ואיפה המשרד עומד מול המכסות ---- */}
+          <PlanSection />
+
           {/* ---- סוכני המשרד — הטבלה מקובץ העיצוב ---- */}
           <section className="mv-list-card" aria-labelledby="team-heading">
             <div className="flex items-center px-5 py-[15px]" style={{ borderBottom: "1px solid var(--color-card-head-border)" }}>

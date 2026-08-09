@@ -6,6 +6,7 @@ import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { BackupsSection } from "./backups-section";
+import { PlansSection } from "./plans-section";
 import { PlatformSettingsSection } from "./platform-settings-section";
 import { SystemUpdateSection } from "./system-update-section";
 
@@ -25,12 +26,16 @@ interface AgencyRow {
   createdAt: string;
 }
 
-const PLAN_LABELS: Record<string, string> = {
-  basic: "Basic",
-  pro: "Pro",
-  agency: "Agency",
-  enterprise: "Enterprise",
-};
+/**
+ * רשימת המסלולים מגיעה מהקטלוג ולא מקבועה במסך.
+ *
+ * הרשימה הייתה כתובה כאן, ולכן מסלול שבעל הפלטפורמה הגדיר לא היה
+ * מופיע בטופס — כלומר אי אפשר היה לשייך אליו משרד.
+ */
+interface PlanOption {
+  code: string;
+  name: string;
+}
 
 const STATUS_LABELS: Record<string, string> = {
   active: "פעיל",
@@ -46,6 +51,7 @@ export default function PlatformPage() {
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ ownerEmail: string; tempPassword: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [planOptions, setPlanOptions] = useState<PlanOption[]>([]);
 
   function load() {
     apiGet<AgencyRow[]>("/platform/agencies")
@@ -57,10 +63,33 @@ export default function PlatformPage() {
   }
 
   useEffect(() => {
-    if (!authLoading) load();
+    if (!authLoading) {
+      load();
+      apiGet<{ plans: PlanOption[] }>("/platform/plans")
+        .then((res) => setPlanOptions(res.plans))
+        .catch(() => undefined);
+    }
   }, [authLoading]);
 
+  /**
+   * מעבר מסלול — עם אזהרה לפני, לא הודעה אחרי.
+   *
+   * הורדת מסלול היא הדרך המהירה ביותר לשבור משרד עובד: סוכנים מעל
+   * המכסה, מרכזייה שמפסיקה לקלוט. השרת יודע בדיוק מה ייסגר, ולכן
+   * שואלים אותו לפני שמאשרים ולא משאירים את זה לניחוש.
+   */
   async function changePlan(id: string, plan: string) {
+    try {
+      const { warnings } = await apiGet<{ warnings: string[] }>(
+        `/platform/agencies/${id}/plan-preview?plan=${encodeURIComponent(plan)}`,
+      );
+      if (warnings.length > 0 && !window.confirm(`${warnings.join("\n")}\n\nלהמשיך?`)) {
+        load(); // מחזיר את הבורר לערך שבשרת
+        return;
+      }
+    } catch {
+      // תצוגה מקדימה היא שיפור, לא תנאי — כשל בה לא חוסם את השינוי
+    }
     await apiPatch(`/platform/agencies/${id}`, { plan });
     load();
   }
@@ -139,6 +168,8 @@ export default function PlatformPage() {
 
       <BackupsSection />
 
+      <PlansSection />
+
       <PlatformSettingsSection />
 
       <section aria-labelledby="new-agency" className="mb-8 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
@@ -159,8 +190,8 @@ export default function PlatformPage() {
           <div>
             <label htmlFor="plan" className="mb-1 block font-medium">מסלול</label>
             <select id="plan" name="plan" defaultValue="pro" className="rounded-lg border px-3 py-2.5" style={inputStyle}>
-              {Object.entries(PLAN_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
+              {planOptions.map((plan) => (
+                <option key={plan.code} value={plan.code}>{plan.name}</option>
               ))}
             </select>
           </div>
@@ -205,8 +236,8 @@ export default function PlatformPage() {
                           className="rounded-lg border px-2 py-1.5"
                           style={{ borderColor: "var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)" }}
                         >
-                          {Object.entries(PLAN_LABELS).map(([value, label]) => (
-                            <option key={value} value={value}>{label}</option>
+                          {planOptions.map((plan) => (
+                            <option key={plan.code} value={plan.code}>{plan.name}</option>
                           ))}
                         </select>
                       </label>

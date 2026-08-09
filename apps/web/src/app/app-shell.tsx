@@ -67,6 +67,8 @@ interface NavSummary {
   newLeads: number;
   matches: number;
   credits: number | null;
+  /** הפיצ'רים שכלולים במסלול המשרד — פריט שלא כלול לא מוצג. */
+  features?: string[];
 }
 
 /** אייקוני קו דקים — הנתיבים המדויקים מקובץ העיצוב. */
@@ -299,6 +301,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   const count = (n: number | undefined): ReactNode =>
     n !== undefined && n > 0 ? <span className="mv-nav-count">{n}</span> : null;
 
+  /*
+   * פריט ניווט לפיצ'ר שאינו במסלול לא מוצג.
+   *
+   * הכניסה למסך תיחסם בשרת בכל מקרה (FeatureGuard), וקישור שמוביל
+   * ל-403 גרוע מקישור שלא קיים. כל עוד המונים לא נטענו — מציגים,
+   * כדי שהתפריט לא "יקפוץ" ולא ייעלם על רשת איטית.
+   */
+  const hasFeature = (code: string): boolean =>
+    counts?.features === undefined || counts.features.includes(code);
+
   const sidebar = (
     <>
       <div className="mv-sidebar-head">
@@ -324,17 +336,23 @@ export function AppShell({ children }: { children: ReactNode }) {
         {navLink("/matches", "התאמות", ICONS.matches, count(counts?.matches))}
         {navLink("/offers", "הצעות", ICONS.offers)}
         {navLink("/calendar", "יומן", ICONS.calendar)}
-        {isManager ? navLink("/reports", "דוחות", ICONS.reports) : null}
+        {isManager && hasFeature("analytics")
+          ? navLink("/reports", "דוחות", ICONS.reports)
+          : null}
 
-        <div className="mv-nav-group">רשת</div>
-        {navLink(
-          "/collaboration",
-          'שת"פ בין משרדים',
-          ICONS.coop,
-          counts?.credits !== null && counts?.credits !== undefined ? (
-            <span className="mv-nav-credits">{counts.credits} קרדיטים</span>
-          ) : null,
-        )}
+        {hasFeature("collaboration") ? (
+          <>
+            <div className="mv-nav-group">רשת</div>
+            {navLink(
+              "/collaboration",
+              'שת"פ בין משרדים',
+              ICONS.coop,
+              counts?.credits !== null && counts?.credits !== undefined ? (
+                <span className="mv-nav-credits">{counts.credits} קרדיטים</span>
+              ) : null,
+            )}
+          </>
+        ) : null}
         {isManager ? navLink("/settings", "ניהול משרד", ICONS.office) : null}
         {isManager && !setupDone ? navLink("/setup", "הקמה", ICONS.setup) : null}
         {me?.isPlatformAdmin ? navLink("/platform", "פלטפורמה", ICONS.platform) : null}

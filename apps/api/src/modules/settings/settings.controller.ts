@@ -16,13 +16,16 @@ import { z } from "zod";
 import {
   CAPABILITIES,
   IdSchema,
+  PLAN_FEATURES,
   UserRoleSchema,
   clearEffect,
   describeOverride,
   isOverrideActive,
+  limitState,
   overrideRejectionReason,
   resolveCapabilities,
   type Capability,
+  type LimitState,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { onboardingSteps, type OnboardingProgress } from "@metavchim/shared";
@@ -30,6 +33,7 @@ import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorator
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import { AuthService } from "../auth/auth.service";
 import { LoginThrottleService } from "../auth/login-throttle.service";
@@ -116,6 +120,7 @@ export class SettingsController {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly loginThrottle: LoginThrottleService,
+    private readonly plans: PlanCatalogService,
   ) {}
 
   @Get("tenant")
@@ -148,6 +153,62 @@ export class SettingsController {
         typeof settings["officeAddress"] === "string" ? settings["officeAddress"] : undefined,
       officePhone:
         typeof settings["officePhone"] === "string" ? settings["officePhone"] : undefined,
+    };
+  }
+
+  /**
+   * המסלול של המשרד — מה כלול בו ואיפה הוא עומד מול המגבלות.
+   *
+   * `@AnyAuthenticated` ולא `settings.manage`: זו לא הגדרה אלא מידע
+   * שכל מי שנתקל בקיר במסך צריך לראות. סוכן שלוחץ "ייצוא" ומקבל
+   * חסימה זכאי לדעת שזה המסלול ולא תקלה.
+   *
+   * המחירים לא מוחזרים כאן — זה מסך של מה מותר, לא של כמה זה עולה.
+   */
+  @Get("plan")
+  @AnyAuthenticated()
+  async plan(): Promise<{
+    code: string;
+    name: string;
+    description: string;
+    features: { code: string; label: string; description: string; included: boolean }[];
+    limits: {
+      users: { used: number; limit: number | null; state: LimitState };
+      properties: { used: number; limit: number | null; state: LimitState };
+    };
+  }> {
+    const tenantId = TenantContext.current().tenantId;
+    const [plan, counts] = await Promise.all([
+      this.plans.forTenant(tenantId),
+      this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { plan: true, _count: { select: { users: true, properties: true } } },
+      }),
+    ]);
+    const users = counts?._count.users ?? 0;
+    const properties = counts?._count.properties ?? 0;
+    return {
+      code: plan?.code ?? (counts?.plan ?? ""),
+      // מסלול לא מוכר לא נופל אלא מוצג ככזה: הוא מצב תקלה שדורש
+      // טיפול של בעל הפלטפורמה, ומסך ריק לא היה מסגיר אותו
+      name: plan?.name ?? "מסלול לא מוגדר",
+      description: plan?.description ?? "",
+      features: PLAN_FEATURES.map((feature) => ({
+        ...feature,
+        included: plan?.features.includes(feature.code) ?? false,
+      })),
+      limits: {
+        users: {
+          used: users,
+          limit: plan?.maxUsers ?? null,
+          state: limitState(users, plan?.maxUsers ?? null),
+        },
+        properties: {
+          used: properties,
+          limit: plan?.maxProperties ?? null,
+          state: limitState(properties, plan?.maxProperties ?? null),
+        },
+      },
     };
   }
 
@@ -473,6 +534,24 @@ export class SettingsController {
     const email = body.email.toLowerCase();
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) throw new BadRequestException("האימייל כבר רשום במערכת");
+
+    /*
+     * מכסת המשתמשים של המסלול.
+     *
+     * נבדקת על **המשתמש הבא** ולא על המצב הקיים: משרד שהמכסה שלו
+     * הוקטנה ממשיך לעבוד עם מי שכבר יש לו, ורק ההוספה נחסמת. חסימת
+     * הקיימים הייתה מנתקת סוכנים באמצע יום עבודה בגלל שינוי תמחור.
+     */
+    const plan = await this.plans.forTenant(tenantId);
+    const seats = limitState(
+      await this.prisma.user.count({ where: { tenantId, isActive: true } }),
+      plan?.maxUsers ?? null,
+    );
+    if (seats.blocked) {
+      throw new BadRequestException(
+        `מסלול "${plan?.name ?? ""}" כולל ${plan?.maxUsers} משתמשים. לתוספת משתמשים יש לשדרג מסלול.`,
+      );
+    }
 
     const tempPassword = `Mv-${randomBytes(9).toString("base64url")}`;
     const id = ulid();

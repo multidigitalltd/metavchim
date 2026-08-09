@@ -1,7 +1,7 @@
-import { Controller, Get, Query, UseGuards } from "@nestjs/common";
+import { Controller, Get, Query } from "@nestjs/common";
 import { z } from "zod";
 import { RequireCapability } from "../../common/auth.decorators";
-import { PlanGuard, RequirePlan } from "../../common/plan.guard";
+import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
   AnalyticsService,
@@ -22,10 +22,15 @@ function toWindow(days: string): ReportWindowDays {
   return days === "all" ? null : (Number(days) as 30 | 90 | 365);
 }
 
-/** דוחות — פיצ'ר מסלול Agency ומעלה, נאכף בשרת (PlanGuard). */
+/**
+ * דוחות — פיצ'ר של המסלול, נאכף בשרת.
+ *
+ * היה `@RequirePlan("agency", "enterprise")`. ההבדל אינו סגנוני:
+ * רשימת מסלולים בקוד פירושה שפתיחת הדוחות למסלול מקצועי מחייבת
+ * שינוי קוד ועליית גרסה, במקום סימון תיבה במסך הפלטפורמה.
+ */
 @Controller("analytics")
-@UseGuards(PlanGuard)
-@RequirePlan("agency", "enterprise")
+@RequireFeature("analytics")
 export class AnalyticsController {
   constructor(private readonly analytics: AnalyticsService) {}
 

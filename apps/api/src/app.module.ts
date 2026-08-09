@@ -2,6 +2,7 @@ import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { AuthGuard } from "./common/auth.guard";
+import { FeatureGuard } from "./common/feature.guard";
 import { FloodMiddleware } from "./common/flood.middleware";
 import { SessionMiddleware } from "./common/session.middleware";
 import { CoreModule } from "./core/core.module";
@@ -71,6 +72,12 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
+    /*
+     * שער הפיצ'רים אחרי שער האימות ולא לפניו: שאלה על המסלול של
+     * המשרד מחייבת שכבר ידוע איזה משרד זה. הוא שקוף ל-Endpoint שלא
+     * הצהיר @RequireFeature, ולכן אין לו מחיר על שאר הנתיבים.
+     */
+    { provide: APP_GUARD, useClass: FeatureGuard },
   ],
 })
 export class AppModule implements NestModule {
