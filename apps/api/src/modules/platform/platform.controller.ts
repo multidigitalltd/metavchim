@@ -631,6 +631,21 @@ export class PlatformController {
   }
 
   /** גרסה מותקנת + זמינות סוכן העדכון — למסך הפלטפורמה. */
+  /**
+   * בדיקת חיבור לקארדקום.
+   *
+   * שדה מלא אינו אישור תקין. ספרה שהוקלדה לא נכון במספר המסוף מתגלה
+   * אחרת רק בעסקה הראשונה של לקוח משלם — כלומר במקום הגרוע ביותר.
+   */
+  @Post("settings/test-cardcom")
+  @HttpCode(200)
+  async testCardcom(): Promise<{ ok: boolean; terminalNumber: number; message: string }> {
+    if (!(await this.cardcom.isConfigured())) {
+      throw new BadRequestException("הסליקה טרם הוגדרה — מלאו מספר מסוף ושם API ושמרו");
+    }
+    return this.cardcom.testConnection();
+  }
+
   @Get("system")
   async systemInfo(): Promise<{ version: string; updateAvailable: boolean }> {
     const env = loadEnv();

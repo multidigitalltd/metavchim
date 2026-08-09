@@ -119,6 +119,31 @@ export function PlatformSettingsSection() {
     }
   }
 
+  /**
+   * בדיקת חיבור אמיתית מול קארדקום.
+   *
+   * שדה מלא אינו אישור תקין: ספרה שהוקלדה לא נכון במספר המסוף, או שם
+   * API של סביבת בדיקות, מתגלים אחרת רק בעסקה הראשונה של לקוח משלם.
+   * הבדיקה פותחת דף תשלום ואינה גובה דבר — הכתובת פשוט לא נפתחת.
+   */
+  async function testCardcom(): Promise<void> {
+    setBusy(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await apiPost<{ ok: boolean; terminalNumber: number; message: string }>(
+        "/platform/settings/test-cardcom",
+        {},
+      );
+      if (res.ok) setMessage(`✓ החיבור לקארדקום תקין (מסוף ${res.terminalNumber})`);
+      else setError(`קארדקום דחה את הבקשה: ${res.message}`);
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "בדיקת החיבור נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveCardcom(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -312,6 +337,15 @@ export function PlatformSettingsSection() {
         <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
           פרטי כרטיס האשראי מוקלדים בדף של קארדקום ואינם עוברים במערכת בשום שלב.
         </p>
+        {/*
+          נאמר במפורש ולא מוסתר: בדיקת החיבור מאמתת מסוף ושם API בלבד,
+          כי לקארדקום אין קריאה שמאמתת סיסמה בלי לזכות משהו. "✓ החיבור
+          תקין" שהיה מכסה גם על סיסמה שגויה היה מתגלה בזיכוי הראשון.
+        */}
+        <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          <strong>סיסמת ה-API נדרשת לזיכויים.</strong> בדיקת החיבור מאמתת את מספר המסוף
+          ואת שם ה-API; הסיסמה נבדקת רק בזיכוי הראשון בפועל.
+        </p>
         <div className="mb-3">
           <p className="mb-1 text-sm font-medium">כתובת ה-Webhook להזנה בקארדקום:</p>
           <p
@@ -370,6 +404,11 @@ export function PlatformSettingsSection() {
             />
           </div>
           <Button type="submit" disabled={busy}>שמור</Button>
+          {settings.cardcom.configured ? (
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => void testCardcom()}>
+              בדוק חיבור
+            </Button>
+          ) : null}
         </form>
       </div>
 
