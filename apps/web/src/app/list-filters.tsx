@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 /**
  * סרגל הסינון של מסכי הרשימה — נכסים וקונים.
@@ -29,11 +29,23 @@ export const EMPTY_FILTERS: ListFilterValues = {
   maxRooms: "",
 };
 
+/**
+ * ניקוי מפרידי אלפים לפני השליחה.
+ *
+ * ההנחיה במסך מדגימה "1,000,000" — וזה בדיוק הערך שהיה נשלח כמות
+ * שהוא, מתפרש כ-NaN בשרת, ומחזיר 400 עם הודעת טעינה כללית. משתמש
+ * שמקליד את מה שכתוב בדוגמה לא אמור לקבל שגיאה (ביקורת Codex).
+ */
+function numericValue(raw: string): string {
+  return raw.replace(/[,\s₪]/gu, "");
+}
+
 /** מחרוזת ה-query — רק שדות שמולאו בפועל. */
 export function filtersToQuery(values: ListFilterValues): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(values)) {
-    if (value.trim() !== "") params.set(key, value.trim());
+    const clean = key === "q" ? value.trim() : numericValue(value);
+    if (clean !== "") params.set(key, clean);
   }
   const text = params.toString();
   return text === "" ? "" : `&${text}`;
@@ -60,6 +72,18 @@ export function ListFilters({
 }): React.JSX.Element {
   const [draft, setDraft] = useState(values);
   const [open, setOpen] = useState(hasActiveFilters(values));
+
+  /*
+   * הטיוטה מתעדכנת כשההורה משנה את הערכים.
+   *
+   * כפתור "נקה" של מסך הרשימה מאפס את ה-state של ההורה, אבל הרכיב
+   * הזה כבר מורכב — בלי הסנכרון הוא היה ממשיך להציג את הטיוטה
+   * הישנה, ולחיצה על "חפש" הייתה מחזירה את הסינון שכביכול נוקה
+   * (ביקורת Codex).
+   */
+  useEffect(() => {
+    setDraft(values);
+  }, [values]);
 
   function submit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();

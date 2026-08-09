@@ -188,7 +188,7 @@ export default function PropertiesPage() {
         </p>
       ) : items === null ? (
         <p aria-live="polite">טוען נכסים…</p>
-      ) : items.length === 0 ? (
+      ) : items.length === 0 && !hasActiveFilters(filters) ? (
         <div
           className="rounded-xl border p-8 text-center"
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}

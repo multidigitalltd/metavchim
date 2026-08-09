@@ -1,7 +1,20 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import { computeReadiness, type Page, type PropertyFields } from "@metavchim/shared";
-import { freeTextTerms, normalizeRange, priceRangeAgorot } from "@metavchim/shared";
+import {
+  PROPERTY_TYPE_LABELS_HE,
+  freeTextTerms,
+  normalizeRange,
+  priceRangeAgorot,
+} from "@metavchim/shared";
+
+/** סוגי נכס שהתווית העברית שלהם מכילה את המונח שהוקלד. */
+function propertyTypesFor(term: string): string[] {
+  const needle = term.toLowerCase();
+  return Object.entries(PROPERTY_TYPE_LABELS_HE)
+    .filter(([, label]) => label.toLowerCase().includes(needle))
+    .map(([value]) => value);
+}
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -260,10 +273,18 @@ export class PropertiesService {
             ? {
                 AND: terms.map((term) => ({
                   OR: [
+                    /*
+                     * סוג הנכס נשמר באנגלית (apartment), והמסך מבטיח
+                     * חיפוש בעברית. בלי התרגום הזה "דירה" לא היה
+                     * מוצא דירה אלא במקרה, אם המילה הופיעה בשדה טקסט
+                     * אחר (ביקורת Codex).
+                     */
+                    ...(propertyTypesFor(term).length > 0
+                      ? [{ propertyType: { in: propertyTypesFor(term) } }]
+                      : []),
                     { street: { contains: term, mode: "insensitive" as const } },
                     { neighborhood: { contains: term, mode: "insensitive" as const } },
                     { city: { contains: term, mode: "insensitive" as const } },
-                    { propertyType: { contains: term, mode: "insensitive" as const } },
                     { marketingTitle: { contains: term, mode: "insensitive" as const } },
                     { marketingDescription: { contains: term, mode: "insensitive" as const } },
                     { internalNotes: { contains: term, mode: "insensitive" as const } },

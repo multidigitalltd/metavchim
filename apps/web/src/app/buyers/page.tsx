@@ -154,7 +154,7 @@ export default function BuyersPage() {
         <p role="alert" style={{ color: "var(--color-danger)" }}>{error}</p>
       ) : items === null ? (
         <p aria-live="polite">טוען קונים…</p>
-      ) : items.length === 0 ? (
+      ) : items.length === 0 && !hasActiveFilters(filters) ? (
         <div
           className="rounded-xl border p-8 text-center"
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
@@ -166,6 +166,13 @@ export default function BuyersPage() {
         </div>
       ) : (
         <>
+          {/*
+            הסינון מוצג גם כשאין תוצאות.
+            מאז שהסינון עבר לשרת, רשימה ריקה כבר לא אומרת "אין
+            קונים במשרד" אלא "הסינון לא מצא כלום" — ומסך שמסתיר את
+            הסינון במצב הזה משאיר את המשתמש בלי דרך לנקות אותו,
+            מלבד רענון הדף (ביקורת Codex).
+          */}
           <ListFilters
             values={filters}
             onApply={setFilters}
