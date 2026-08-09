@@ -688,6 +688,7 @@ async function processRecurringTasks(): Promise<void> {
     assignedToUserId: string | null;
     lastRunAt: Date | null;
     createdAt: Date;
+    updatedAt: Date;
   }[] = [];
   for (const tenant of tenants) {
     /*
@@ -738,11 +739,24 @@ async function processRecurringTasks(): Promise<void> {
          * שה-lastRunAt שראתה עדיין תקף תצליח לעדכן, והשנייה תצא
          * בלי ליצור כלום.
          */
+        /*
+         * התפיסה מותנית גם ב-`updatedAt` וגם ב-`isActive`.
+         *
+         * הסריקה מחזיקה עותק בזיכרון, וכל שינוי בין הקריאה לתפיסה —
+         * השהיה, שעה חדשה, נמען אחר, כותרת אחרת — לא נוגע ב-lastRunAt
+         * ולכן לא היה נתפס. התוצאה: משימה שנוצרת לפי לוח שכבר לא
+         * קיים, ולפעמים לאדם הלא נכון (ביקורת Codex).
+         *
+         * כלל שהשתנה פשוט יידחה כאן ויטופל בסריקה הבאה עם הערכים
+         * המעודכנים — עשר דקות איחור, ולא משימה שגויה.
+         */
         const claimed = await tx.taskRecurrence.updateMany({
-          // isActive בתנאי: השהיה שקרתה אחרי הסריקה ולפני התפיסה לא
-          // משנה את lastRunAt, ובלעדיו הסורק היה יוצר עוד משימה אחת
-          // מכלל שכבר הושהה (ביקורת Codex)
-          where: { id: rule.id, lastRunAt: rule.lastRunAt, isActive: true },
+          where: {
+            id: rule.id,
+            lastRunAt: rule.lastRunAt,
+            updatedAt: rule.updatedAt,
+            isActive: true,
+          },
           data: { lastRunAt: dueAt },
         });
         if (claimed.count === 0) return;

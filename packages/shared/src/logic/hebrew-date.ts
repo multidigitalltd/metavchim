@@ -33,8 +33,6 @@ const HEBREW_HUNDREDS = ["", "ק", "ר", "ש", "ת"];
  */
 export function hebrewNumeral(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return String(value);
-  if (value === 15) return "ט״ו";
-  if (value === 16) return "ט״ז";
 
   let rest = Math.floor(value);
   let out = "";
@@ -44,9 +42,22 @@ export function hebrewNumeral(value: number): string {
   }
   out += HEBREW_HUNDREDS[Math.floor(rest / 100)] ?? "";
   rest %= 100;
-  out += HEBREW_TENS[Math.floor(rest / 10)] ?? "";
-  rest %= 10;
-  out += HEBREW_ONES[rest] ?? "";
+
+  /*
+   * החריג חל על **השארית אחרי המאות**, לא על המספר כולו.
+   *
+   * שנת 5715 היא תשט״ו ולא תשי״ה: הצירוף שנמנע הוא של שתי האותיות
+   * האחרונות, ואין לו שום קשר לספרת המאות שלפניהן. בדיקה על הערך
+   * המלא תפסה רק את 15 ו-16 עצמם (ביקורת Codex).
+   */
+  if (rest === 15 || rest === 16) {
+    out += rest === 15 ? "טו" : "טז";
+    rest = 0;
+  } else {
+    out += HEBREW_TENS[Math.floor(rest / 10)] ?? "";
+    rest %= 10;
+    out += HEBREW_ONES[rest] ?? "";
+  }
 
   if (out.length === 1) return `${out}׳`;
   if (out.length > 1) return `${out.slice(0, -1)}״${out.slice(-1)}`;

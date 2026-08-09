@@ -90,3 +90,24 @@ describe("hebrewDateFull", () => {
     expect(morning).toBe(evening);
   });
 });
+
+describe("hebrewNumeral — החריג אחרי המאות", () => {
+  it("715 הוא תשט״ו ולא תשי״ה", () => {
+    // הצירוף שנמנע הוא של שתי האותיות האחרונות, בלי קשר למאות
+    expect(hebrewNumeral(715)).toBe("תשט״ו");
+  });
+
+  it("716 הוא תשט״ז", () => {
+    expect(hebrewNumeral(716)).toBe("תשט״ז");
+  });
+
+  it("115 ו-215 גם הם", () => {
+    expect(hebrewNumeral(115)).toBe("קט״ו");
+    expect(hebrewNumeral(215)).toBe("רט״ז".replace("ז", "ו"));
+  });
+
+  it("שאר השנים לא נפגעות", () => {
+    expect(hebrewNumeral(786)).toBe("תשפ״ו");
+    expect(hebrewNumeral(714)).toBe("תשי״ד");
+  });
+});

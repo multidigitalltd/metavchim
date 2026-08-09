@@ -161,7 +161,7 @@ export class RecurrenceService {
       await this.assertAssigneeInTenant(tenantId, input.assignedToUserId);
       const updated = await tx.taskRecurrence.update({
         where: { id },
-        data: this.columns(input),
+        data: this.columns(input, existing),
       });
       await this.audit.record(tx, {
         action: "task_recurrence.update",
@@ -232,6 +232,14 @@ export class RecurrenceService {
     });
   }
 
+  /** ימי השבוע לשמירה — ריק נופל לקיים, ואם אין — ליום הנוכחי. */
+  private weekdayAnchor(sent: number[] | undefined, existing: number[] | undefined): number[] {
+    const chosen = [...new Set(sent ?? [])].sort();
+    if (chosen.length > 0) return chosen;
+    if (existing && existing.length > 0) return existing;
+    return [toJerusalemWall(new Date()).getDay()];
+  }
+
   private assertValid(input: RecurrenceInput): void {
     const reason = recurrenceRejectionReason({
       frequency: input.frequency,
@@ -261,7 +269,17 @@ export class RecurrenceService {
     if (!user) throw new BadRequestException("הסוכן שנבחר אינו במשרד");
   }
 
-  private columns(input: RecurrenceInput): {
+  /**
+   * העמודות לשמירה.
+   *
+   * `existing` מועבר בעדכון, וקיים כדי שעוגן שלא נשלח יישמר ולא
+   * יחושב מחדש: PATCH שמשנה רק כותרת היה מזיז את כל המופעים העתידיים
+   * ליום העריכה (ביקורת Codex).
+   */
+  private columns(
+    input: RecurrenceInput,
+    existing?: { dayOfMonth: number | null; weekdays: number[] },
+  ): {
     title: string;
     notes: string | null;
     frequency: string;
@@ -276,20 +294,28 @@ export class RecurrenceService {
       title: input.title.trim(),
       notes: input.notes?.trim() || null,
       frequency: input.frequency,
-      // ימי שבוע רק לכלל שבועי — שאריות משינוי תדירות היו מבלבלות
-      // גם את המסך וגם את החישוב
-      weekdays: input.frequency === "weekly" ? [...new Set(input.weekdays ?? [])].sort() : [],
       /*
-       * עוגן היום בחודש נשמר תמיד, גם כשלא נשלח.
+       * **כל עוגן נשמר במפורש ולעולם לא נגזר ממצב משתנה.**
        *
-       * בלעדיו `nextOccurrence` גוזר אותו מהמופע האחרון, וכלל שנוצר
-       * ב-31 בינואר היה רץ ב-28 בפברואר ואז **נשאר** על ה-28 לתמיד
-       * במקום לחזור ל-31. ברירת המחדל היא היום שבו הכלל נוצר, בשעון
-       * ישראל — זו הכוונה של "פעם בחודש מהיום" (ביקורת Codex).
+       * זו הייתה מחלקת התקלות של הכלל הזה: `nextOccurrence` יודע
+       * לגזור יום בחודש או יום בשבוע מנקודת הייחוס כשהם חסרים, אבל
+       * נקודת הייחוס זזה — בהפעלה מחדש, אחרי כל מופע, ובכל עריכה.
+       * התוצאה הייתה כלל נודד: 31 בינואר שנתקע על ה-28, וכלל שבועי
+       * שעבר ליום שבו הופעל מחדש (ביקורת Codex).
+       *
+       * לכן: יום בחודש נשמר תמיד לכלל חודשי, ויום בשבוע נשמר תמיד
+       * לכלל שבועי. `existing` גובר על ברירת המחדל, כדי ש-PATCH
+       * שמשנה רק כותרת לא יזיז את הלוח.
        */
+      weekdays:
+        input.frequency === "weekly"
+          ? this.weekdayAnchor(input.weekdays, existing?.weekdays)
+          : [],
       dayOfMonth:
         input.frequency === "monthly"
-          ? (input.dayOfMonth ?? toJerusalemWall(new Date()).getDate())
+          ? (input.dayOfMonth ??
+            existing?.dayOfMonth ??
+            toJerusalemWall(new Date()).getDate())
           : null,
       hour: input.hour,
       minute: input.minute,
