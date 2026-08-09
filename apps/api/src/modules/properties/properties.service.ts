@@ -63,8 +63,19 @@ export class PropertiesService {
    * שלעולם אינה נחצית, ובדיקה שנראית עובדת.
    */
   private async assertCanAddProperty(tx: TenantTx, tenantId: string): Promise<void> {
-    const plan = await this.plans.forTenant(tenantId);
-    const limit = plan?.maxProperties ?? null;
+    const plan = await this.plans.forTenant(tenantId, tx);
+    /*
+     * מסלול שאי אפשר לפתור — חוסם, לא פותח.
+     *
+     * `tenants.plan` הוא varchar בלי מפתח זר, ולכן קוד ישן או שגוי
+     * אפשרי. `undefined` שהומר ל-null היה נקרא כ"ללא הגבלה", כלומר
+     * דווקא המשרד עם המצב השבור היה מקבל מכסה אינסופית. אותו כיוון
+     * בטוח כמו `planAllows(undefined) === false` (ביקורת Codex).
+     */
+    if (plan === undefined) {
+      throw new BadRequestException("המסלול של המשרד אינו מוגדר — פנו לתמיכה");
+    }
+    const limit = plan.maxProperties;
     if (limit === null) return;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`property-quota:${tenantId}`}))`;
     /*
@@ -78,7 +89,7 @@ export class PropertiesService {
      const used = await tx.property.count({ where: { tenantId, deletedAt: null } });
     if (limitState(used, limit).blocked) {
       throw new BadRequestException(
-        `מסלול "${plan?.name ?? ""}" כולל ${limit} נכסים. לתוספת נכסים יש לשדרג מסלול.`,
+        `מסלול "${plan.name}" כולל ${limit} נכסים. לתוספת נכסים יש לשדרג מסלול.`,
       );
     }
   }

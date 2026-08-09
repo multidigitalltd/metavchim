@@ -194,7 +194,18 @@ function planEditor(
   );
 }
 
-export function PlansSection(): React.JSX.Element {
+export function PlansSection({
+  onCatalogChange,
+}: {
+  /**
+   * הקטלוג השתנה — ההורה טוען מחדש את בוררי המסלול שלו.
+   *
+   * בלי זה, מסלול שנוצר עכשיו לא היה מופיע בטופס הקמת המשרד ובבורר
+   * ההחלפה עד רענון מלא של הדף — כלומר בדיוק המקום שבו רוצים
+   * להשתמש בו (ביקורת Codex).
+   */
+  onCatalogChange?: () => void;
+}): React.JSX.Element {
   const [data, setData] = useState<PlansPayload | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState<PlanDefinition | null>(null);
@@ -301,6 +312,7 @@ export function PlansSection(): React.JSX.Element {
       setCreating(false);
       setDraft(null);
       load();
+      onCatalogChange?.();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "שמירת המסלול נכשלה");
     } finally {

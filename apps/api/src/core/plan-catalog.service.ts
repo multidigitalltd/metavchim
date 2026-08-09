@@ -5,7 +5,7 @@ import {
   type PlanDefinition,
   type PlanFeature,
 } from "@metavchim/shared";
-import { PrismaService } from "./prisma.service";
+import { PrismaService, type TenantTx } from "./prisma.service";
 
 /**
  * קטלוג המסלולים — מקור האמת היחיד לשאלה "מה כלול במסלול".
@@ -68,17 +68,30 @@ export class PlanCatalogService {
     return (await this.all()).filter((plan) => plan.isPublic);
   }
 
-  /** המסלול של משרד — לפי הקוד ששמור עליו. */
-  async forTenant(tenantId: string): Promise<PlanDefinition | undefined> {
-    const tenant = await this.prisma.tenant.findUnique({
+  /**
+   * המסלול של משרד — לפי הקוד ששמור עליו.
+   *
+   * `tx` אופציונלי, וחובה כשהקריאה מגיעה **מתוך** טרנזקציה פתוחה.
+   * בלעדיו השאילתה מושכת חיבור שני מה-pool בזמן שהחיצונית מחזיקה
+   * אחד — ותחת עומס, כשכל החיבורים תפוסים בטרנזקציות חיצוניות, כולן
+   * ממתינות לפנימיות שלעולם לא יקבלו חיבור. דפי הנחיתה הציבוריים
+   * היו נופלים בתעבורת תמונות סבירה (ביקורת Codex).
+   */
+  async forTenant(tenantId: string, tx?: TenantTx): Promise<PlanDefinition | undefined> {
+    const client = tx ?? this.prisma;
+    const tenant = await client.tenant.findUnique({
       where: { id: tenantId },
       select: { plan: true },
     });
     return tenant ? this.byCode(tenant.plan) : undefined;
   }
 
-  async tenantHasFeature(tenantId: string, feature: PlanFeature): Promise<boolean> {
-    const plan = await this.forTenant(tenantId);
+  async tenantHasFeature(
+    tenantId: string,
+    feature: PlanFeature,
+    tx?: TenantTx,
+  ): Promise<boolean> {
+    const plan = await this.forTenant(tenantId, tx);
     return plan?.features.includes(feature) ?? false;
   }
 

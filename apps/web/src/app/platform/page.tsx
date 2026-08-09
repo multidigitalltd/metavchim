@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDate } from "@/lib/format";
@@ -62,14 +62,18 @@ export default function PlatformPage() {
       });
   }
 
+  const loadPlanOptions = useCallback(() => {
+    apiGet<{ plans: PlanOption[] }>("/platform/plans")
+      .then((res) => setPlanOptions(res.plans))
+      .catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     if (!authLoading) {
       load();
-      apiGet<{ plans: PlanOption[] }>("/platform/plans")
-        .then((res) => setPlanOptions(res.plans))
-        .catch(() => undefined);
+      loadPlanOptions();
     }
-  }, [authLoading]);
+  }, [authLoading, loadPlanOptions]);
 
   /**
    * מעבר מסלול — עם אזהרה לפני, לא הודעה אחרי.
@@ -168,7 +172,7 @@ export default function PlatformPage() {
 
       <BackupsSection />
 
-      <PlansSection />
+      <PlansSection onCatalogChange={loadPlanOptions} />
 
       <PlatformSettingsSection />
 

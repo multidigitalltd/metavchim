@@ -551,8 +551,12 @@ export class SettingsController {
    * הישירה כאן תקפה — התנאי `tenantId` הוא זה שמבודד.
    */
   private async assertSeatAvailable(tx: TenantTx, tenantId: string): Promise<void> {
-    const plan = await this.plans.forTenant(tenantId);
-    if ((plan?.maxUsers ?? null) === null) return;
+    const plan = await this.plans.forTenant(tenantId, tx);
+    // מסלול שאי אפשר לפתור חוסם ולא פותח — ראו properties.service
+    if (plan === undefined) {
+      throw new BadRequestException("המסלול של המשרד אינו מוגדר — פנו לתמיכה");
+    }
+    if (plan.maxUsers === null) return;
     /*
      * מנעול ייעוץ ברמת הדייר, בתוך הטרנזקציה שכותבת.
      *
@@ -561,9 +565,9 @@ export class SettingsController {
      */
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seat-quota:${tenantId}`}))`;
     const used = await tx.user.count({ where: { tenantId, isActive: true } });
-    if (limitState(used, plan?.maxUsers ?? null).blocked) {
+    if (limitState(used, plan.maxUsers).blocked) {
       throw new BadRequestException(
-        `מסלול "${plan?.name ?? ""}" כולל ${plan?.maxUsers} משתמשים. לתוספת משתמשים יש לשדרג מסלול.`,
+        `מסלול "${plan.name}" כולל ${plan.maxUsers} משתמשים. לתוספת משתמשים יש לשדרג מסלול.`,
       );
     }
   }

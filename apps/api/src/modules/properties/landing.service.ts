@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { loadEnv } from "../../config/env";
 import { TenantContext } from "../../common/tenant-context";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
 import { WebLeadService } from "../leads/web-lead.service";
 
@@ -58,9 +58,14 @@ export class LandingService {
    * המשרד נודע רק אחרי שהטוקן נפתר, וזו הנקודה הראשונה שאפשר לשאול
    * בה. השגיאה זהה לזו של טוקן לא מוכר: מבקר מזדמן לא אמור ללמוד
    * מהתשובה דבר על מצב המנוי של המשרד.
+   *
+   * `tx` מועבר כשהקריאה מתוך טרנזקציה פתוחה. בלעדיו השאילתה מושכת
+   * חיבור שני מה-pool בזמן שהחיצונית מחזיקה אחד, ותחת עומס כל
+   * הבקשות ממתינות לחיבור שלא יתפנה (ביקורת Codex). ב-`publicLead`
+   * הטרנזקציה כבר נסגרה, ולכן שם הוא לא נדרש.
    */
-  private async assertLandingEnabled(tenantId: string): Promise<void> {
-    if (!(await this.plans.tenantHasFeature(tenantId, "landing_pages"))) {
+  private async assertLandingEnabled(tenantId: string, tx?: TenantTx): Promise<void> {
+    if (!(await this.plans.tenantHasFeature(tenantId, "landing_pages", tx))) {
       throw new NotFoundException("הדף לא נמצא");
     }
   }
@@ -99,7 +104,7 @@ export class LandingService {
     return this.prisma.withPublicLanding(token, async (tx) => {
       const p = await tx.property.findFirst({ where: { landingToken: token } });
       if (!p || p.deletedAt !== null) throw new NotFoundException("הדף לא נמצא");
-      await this.assertLandingEnabled(p.tenantId);
+      await this.assertLandingEnabled(p.tenantId, tx);
 
       // שם המשרד — ההקשר נקבע מהנכס שנמצא (ערך שרת, לא קלט)
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${p.tenantId}, true)`;
@@ -160,7 +165,7 @@ export class LandingService {
         select: { id: true, tenantId: true, deletedAt: true },
       });
       if (!property || property.deletedAt !== null) throw new NotFoundException("הדף לא נמצא");
-      await this.assertLandingEnabled(property.tenantId);
+      await this.assertLandingEnabled(property.tenantId, tx);
       const row = await tx.propertyMedia.findFirst({
         where: { id: mediaId, propertyId: property.id },
         select: { s3Key: true },
