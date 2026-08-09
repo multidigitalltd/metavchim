@@ -27,8 +27,52 @@ interface Status {
   lastEventAt?: string;
   lastEventKeys?: string;
   lastEventOk?: boolean;
+  /** ‎no_phone | invalid_phone | no_call_id‎ — למה האירוע לא זוהה */
+  lastEventIssue?: string;
   clickToDial: boolean;
   config: Record<string, unknown>;
+}
+
+/**
+ * למה האירוע לא זוהה — ולמי הבעיה שייכת.
+ *
+ * ההבחנה כאן אינה קוסמטית: `invalid_phone` הוא **מצב תקין**. כך נראית
+ * שיחה ממספר חסוי, והיא נפוצה. הודעה שאומרת למנהל המשרד "המרכזייה
+ * שולחת שדות שאיננו מכירים" במקרה הזה שולחת אותו לרדוף אחרי תקלה
+ * שאינה קיימת — ובפעם הבאה שהאזהרה תופיע באמת, הוא כבר יתעלם ממנה.
+ */
+function issueExplanation(issue: string | undefined): {
+  tone: "warning" | "muted";
+  text: string;
+  showKeys: boolean;
+} {
+  switch (issue) {
+    case "invalid_phone":
+      return {
+        tone: "muted",
+        text:
+          "האירוע התקבל והובן, אבל המספר שהגיע אינו מספר טלפון תקין — כך נראית " +
+          "שיחה ממספר חסוי. זו אינה תקלת הגדרה: שיחה ממספר גלוי תיקלט כרגיל.",
+        showKeys: false,
+      };
+    case "no_call_id":
+      return {
+        tone: "warning",
+        text:
+          "האירוע הגיע עם מספר מתקשר אך בלי מזהה שיחה. בלעדיו אי אפשר לחבר את " +
+          "הצלצול, המענה והניתוק לשיחה אחת — יש להפעיל אצל הספק שליחת מזהה שיחה.",
+        showKeys: true,
+      };
+    default:
+      // no_phone, וגם כל קוד עתידי שהמסך הזה עדיין אינו מכיר
+      return {
+        tone: "warning",
+        text:
+          "האירוע לא זוהה: לא נמצא בו מספר מתקשר. כלומר הכתובת נכונה, והמרכזייה " +
+          "שולחת שמות שדות שהמערכת עדיין אינה מכירה.",
+        showKeys: true,
+      };
+  }
 }
 
 export function TelephonySection() {
@@ -168,21 +212,37 @@ export function TelephonySection() {
                 בצעו שיחת בדיקה, ואם עדיין ריק כאן, הכתובת אצלו אינה מצביעה לכאן.
               </p>
             ) : status.lastEventOk === false ? (
-              <>
-                <p className="m-0 text-[12.5px]" style={{ color: "var(--color-warning)" }}>
-                  ⚠ האירוע האחרון הגיע ב-{new Date(status.lastEventAt).toLocaleString("he-IL")} —
-                  אבל לא זוהה. כלומר הכתובת נכונה, והמרכזייה שולחת שמות שדות
-                  שהמערכת עדיין אינה מכירה.
-                </p>
-                {status.lastEventKeys ? (
-                  <p className="m-0 mt-1 text-[12px]" dir="ltr" style={{ color: "var(--color-text-muted)" }}>
-                    {status.lastEventKeys}
-                  </p>
-                ) : null}
-                <p className="m-0 mt-1 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
-                  שלחו לנו את השורה הזו — היא כל מה שצריך כדי להוסיף את המיפוי.
-                </p>
-              </>
+              (() => {
+                const why = issueExplanation(status.lastEventIssue);
+                return (
+                  <>
+                    <p
+                      className="m-0 text-[12.5px]"
+                      style={{
+                        color: why.tone === "warning" ? "var(--color-warning)" : "var(--color-text-muted)",
+                      }}
+                    >
+                      {why.tone === "warning" ? "⚠ " : "ℹ "}
+                      האירוע האחרון הגיע ב-{new Date(status.lastEventAt).toLocaleString("he-IL")}.{" "}
+                      {why.text}
+                    </p>
+                    {why.showKeys && status.lastEventKeys ? (
+                      <>
+                        <p
+                          className="m-0 mt-1 text-[12px]"
+                          dir="ltr"
+                          style={{ color: "var(--color-text-muted)" }}
+                        >
+                          {status.lastEventKeys}
+                        </p>
+                        <p className="m-0 mt-1 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                          שלחו לנו את השורה הזו — היא כל מה שצריך כדי להוסיף את המיפוי.
+                        </p>
+                      </>
+                    ) : null}
+                  </>
+                );
+              })()
             ) : (
               <p className="m-0 text-[12.5px]" style={{ color: "var(--color-success)" }}>
                 ✓ אירוע אחרון התקבל וזוהה ב-{new Date(status.lastEventAt).toLocaleString("he-IL")}

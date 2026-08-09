@@ -123,8 +123,37 @@ export interface TelephonyEvent {
  * במקום לנחש: אירוע בלי מספר לא ניתן לשייך לאיש קשר, ואירוע בלי
  * מזהה יירשם שוב בכל ניסיון חוזר של הספק.
  */
-export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEvent | null {
-  const pick = (...keys: string[]): string => {
+/**
+ * **למה** האירוע לא נקלט — לאבחון, לא לזרימה.
+ *
+ * `parseTelephonyEvent` מחזיר `null` מארבע סיבות שונות לגמרי, ואחת
+ * מהן — מספר חסוי — היא מצב נורמלי לחלוטין ולא תקלת הגדרה. הצגת
+ * "שמות השדות אינם נתמכים" על שיחה ממספר חסוי שולחת את מנהל המשרד
+ * לחפש בעיה שאינה קיימת (ביקורת Codex).
+ */
+export type TelephonyParseIssue =
+  | "no_call_id"
+  | "no_phone"
+  | "invalid_phone";
+
+export function telephonyParseIssue(raw: Record<string, unknown>): TelephonyParseIssue | null {
+  const pick = pickFrom(raw);
+  if (pick("call_id", "callId", "uniqueid", "unique_id", "id", "session_id") === "") {
+    return "no_call_id";
+  }
+  const directionRaw = pick("direction", "call_type", "type").toLowerCase();
+  const direction = directionRaw.includes("out") || directionRaw.includes("יוצא") ? "outbound" : "inbound";
+  const source = pick("caller", "caller_id", "callerid", "from", "src", "did_caller", "phone");
+  const destination = pick("to", "destination", "called", "dst", "callee");
+  const peerRaw = direction === "outbound" ? destination || source : source || destination;
+  if (peerRaw === "") return "no_phone";
+  if (!ISRAELI_PHONE.test(normalizePhone(peerRaw))) return "invalid_phone";
+  return null;
+}
+
+/** קורא שדה בשמות המקובלים. משותף לניתוח ולאבחון — לא שני העתקים. */
+function pickFrom(raw: Record<string, unknown>): (...keys: string[]) => string {
+  return (...keys: string[]): string => {
     for (const key of keys) {
       const value = raw[key];
       if (typeof value === "string" && value.trim() !== "") return value.trim();
@@ -132,6 +161,33 @@ export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEven
     }
     return "";
   };
+}
+
+/**
+ * שמות שדות בטוחים לשמירה לאבחון.
+ *
+ * `Object.keys` אינו בהכרח רשימת שמות תמימה: ספק שמייצר מפתחות
+ * דינמיים יכול לשלוח `{"0501234567": "..."}`, וכך מספר הטלפון של
+ * הלקוח היה נשמר בעמודה גלויה ונכתב ללוג — בדיוק מה שההצפנה בכל
+ * שאר המערכת מונעת (ביקורת Codex).
+ *
+ * לכן רשימת היתר: רק מה שנראה כמו שם שדה נשמר, וכל השאר מוחלף
+ * בסימון. זה עדיין מספיק למיפוי, כי שם שדה אמיתי תמיד עובר.
+ */
+const SAFE_KEY = /^[A-Za-z][A-Za-z0-9_.-]{0,39}$/u;
+const MAX_DIAGNOSTIC_KEYS = 25;
+
+export function safeDiagnosticKeys(keys: readonly string[]): string {
+  const seen = new Set<string>();
+  for (const key of keys.slice(0, MAX_DIAGNOSTIC_KEYS)) {
+    seen.add(SAFE_KEY.test(key) ? key : "‹שדה לא תקני›");
+  }
+  return [...seen].join(", ").slice(0, 400);
+}
+
+export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEvent | null {
+  // אותו קורא שדות בדיוק כמו באבחון — שני העתקים היו מתחילים להיפרד
+  const pick = pickFrom(raw);
 
   const providerCallId = pick("call_id", "callId", "uniqueid", "unique_id", "id", "session_id");
   if (providerCallId === "") return null;

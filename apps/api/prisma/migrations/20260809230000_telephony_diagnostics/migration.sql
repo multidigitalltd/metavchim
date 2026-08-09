@@ -10,3 +10,9 @@
 -- שנקראת בטקסט גלוי.
 ALTER TABLE integrations ADD COLUMN last_event_keys VARCHAR(400);
 ALTER TABLE integrations ADD COLUMN last_event_ok BOOLEAN;
+
+-- **למה** האירוע לא נקלט. `parseTelephonyEvent` מחזיר null מארבע
+-- סיבות שונות, ואחת מהן — מספר חסוי — היא מצב נורמלי ולא תקלת
+-- הגדרה. בלי ההבחנה, שיחה ממספר חסוי הייתה מוצגת כ"שמות השדות אינם
+-- נתמכים" ושולחת לחפש בעיה שאינה קיימת.
+ALTER TABLE integrations ADD COLUMN last_event_issue VARCHAR(40);

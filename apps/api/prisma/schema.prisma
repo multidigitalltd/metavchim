@@ -128,6 +128,10 @@ model Integration {
   /// האם ידענו לפרש את האירוע האחרון. `false` = הגיע ולא הובן,
   /// וזה מצב שונה לגמרי מ"לא הגיע כלום".
   lastEventOk Boolean? @map("last_event_ok")
+  /// no_call_id | no_phone | invalid_phone — **למה** לא נקלט.
+  /// מספר חסוי הוא מצב נורמלי ולא תקלת מיפוי, וההבחנה היא ההבדל
+  /// בין הודעה שמכוונת נכון להודעה ששולחת לחפש בעיה שאינה קיימת.
+  lastEventIssue String? @map("last_event_issue") @db.VarChar(40)
   createdBy String?  @map("created_by") @db.Char(26)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

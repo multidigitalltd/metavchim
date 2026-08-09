@@ -14,6 +14,8 @@ import {
   incomingCallTitle,
   parse015DialResponse,
   parseTelephonyEvent,
+  safeDiagnosticKeys,
+  telephonyParseIssue,
   telephonyProvider,
 } from "@metavchim/shared";
 import { assertContactAccess } from "../../common/ownership";
@@ -66,6 +68,8 @@ export class TelephonyService {
     lastEventKeys?: string;
     /** false = אירוע הגיע ולא הובן. שונה לגמרי מ"לא הגיע כלום". */
     lastEventOk?: boolean;
+    /** למה לא הובן — מספר חסוי אינו תקלת מיפוי. */
+    lastEventIssue?: string;
   }> {
     const tenantId = TenantContext.current().tenantId;
     const row = await this.prisma.withTenant((tx) =>
@@ -84,6 +88,7 @@ export class TelephonyService {
       lastEventAt: row.lastEventAt ?? undefined,
       ...(row.lastEventKeys ? { lastEventKeys: row.lastEventKeys } : {}),
       ...(row.lastEventOk !== null ? { lastEventOk: row.lastEventOk } : {}),
+      ...(row.lastEventIssue ? { lastEventIssue: row.lastEventIssue } : {}),
       clickToDial: provider?.clickToDial ?? false,
       config: (row.config ?? {}) as Record<string, unknown>,
     };
@@ -105,7 +110,7 @@ export class TelephonyService {
     await this.prisma.withTenant(async (tx) => {
       const existing = await tx.integration.findFirst({
         where: { tenantId, kind: "telephony" },
-        select: { id: true, secretsEncrypted: true },
+        select: { id: true, secretsEncrypted: true, provider: true },
       });
       const secretsGiven = Object.keys(input.secrets).length > 0;
       const secretsEncrypted = secretsGiven
@@ -113,6 +118,14 @@ export class TelephonyService {
         : (existing?.secretsEncrypted ?? null);
 
       if (existing) {
+        /*
+         * החלפת ספק מאפסת את האבחון.
+         *
+         * בלי האיפוס, האירוע האחרון של הספק **הקודם** מוצג כהוכחה
+         * שהספק החדש עובד — והמנהל מפסיק לחפש למה שיחות לא נכנסות
+         * (ביקורת Codex).
+         */
+        const providerChanged = existing.provider !== input.provider;
         await tx.integration.updateMany({
           where: { id: existing.id, tenantId },
           data: {
@@ -120,6 +133,9 @@ export class TelephonyService {
             status: "active",
             config: input.config,
             secretsEncrypted,
+            ...(providerChanged
+              ? { lastEventAt: null, lastEventKeys: null, lastEventOk: null, lastEventIssue: null }
+              : {}),
           },
         });
       } else {
@@ -320,22 +336,26 @@ export class TelephonyService {
      * שני המצבים דורשים פעולה הפוכה: כתובת שגויה אצל הספק מול מיפוי
      * שדות חסר אצלנו, ובלי ההבחנה אי אפשר לדעת במה מדובר.
      *
-     * נשמרים **שמות השדות בלבד**. הם מספיקים כדי למפות ספק חדש,
-     * ואינם מכניסים את מספר הטלפון של הלקוח לעמודה גלויה.
+     * `safeDiagnosticKeys` ולא `Object.keys` גולמי: ספק עם מפתחות
+     * דינמיים יכול לשלוח `{"0501234567": "..."}`, וכך מספר הלקוח היה
+     * נשמר בעמודה גלויה ונכתב ללוג — בדיוק מה שההצפנה בכל שאר
+     * המערכת מונעת (ביקורת Codex).
      */
     await this.prisma.withExplicitTenant(tenantId, async (tx) => {
       await tx.integration.updateMany({
         where: { id: integration.id, tenantId },
         data: {
           lastEventAt: new Date(),
-          lastEventKeys: Object.keys(payload).join(", ").slice(0, 400),
+          lastEventKeys: safeDiagnosticKeys(Object.keys(payload)),
           lastEventOk: event !== null,
+          lastEventIssue: event === null ? telephonyParseIssue(payload) : null,
         },
       });
     });
     if (!event) {
       this.logger.warn(
-        `אירוע מרכזייה שלא זוהה (${integration.tenantId}). שדות: ${Object.keys(payload).join(", ")}`,
+        `אירוע מרכזייה שלא זוהה (${integration.tenantId}): ${telephonyParseIssue(payload) ?? "לא ידוע"}. ` +
+          `שדות: ${safeDiagnosticKeys(Object.keys(payload))}`,
       );
       return; // חסר מספר או מזהה — אין מה לעשות איתו
     }

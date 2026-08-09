@@ -10,6 +10,8 @@ import {
   build015DialUrl,
   parse015DialResponse,
   PBX015_MAKE_URL,
+  safeDiagnosticKeys,
+  telephonyParseIssue,
 } from "./telephony.js";
 
 function event(overrides: Partial<TelephonyEvent> = {}): TelephonyEvent {
@@ -290,5 +292,60 @@ describe("parse015DialResponse", () => {
   it("תשובה משובשת אינה נקראת כהצלחה", () => {
     expect(parse015DialResponse(null).ok).toBe(false);
     expect(parse015DialResponse({ responses: [] }).ok).toBe(false);
+  });
+});
+
+describe("telephonyParseIssue", () => {
+  const ok = { call_id: "1", caller: "0501234567", status: "hangup", duration: "30" };
+
+  it("אירוע תקין — אין בעיה", () => {
+    expect(telephonyParseIssue(ok)).toBeNull();
+  });
+
+  it("בלי מזהה שיחה", () => {
+    expect(telephonyParseIssue({ caller: "0501234567" })).toBe("no_call_id");
+  });
+
+  it("בלי מספר — למשל שמות שדות שאיננו מכירים", () => {
+    expect(telephonyParseIssue({ call_id: "1", weird_field: "0501234567" })).toBe("no_phone");
+  });
+
+  it("מספר חסוי הוא 'לא תקין' ולא 'שדות לא מוכרים'", () => {
+    /*
+     * זו כל הנקודה: מספר חסוי הוא מצב נורמלי, והצגתו כתקלת מיפוי
+     * שולחת את מנהל המשרד לחפש בעיה שאינה קיימת.
+     */
+    expect(telephonyParseIssue({ ...ok, caller: "anonymous" })).toBe("invalid_phone");
+    expect(telephonyParseIssue({ ...ok, caller: "" , from: "private" })).toBe("invalid_phone");
+  });
+
+  it("מסכים עם parseTelephonyEvent — null בדיוק כשיש בעיה", () => {
+    expect(parseTelephonyEvent(ok) === null).toBe(telephonyParseIssue(ok) !== null);
+    const bad = { ...ok, caller: "123" };
+    expect(parseTelephonyEvent(bad) === null).toBe(telephonyParseIssue(bad) !== null);
+  });
+});
+
+describe("safeDiagnosticKeys", () => {
+  it("שמות שדות רגילים עוברים כמו שהם", () => {
+    expect(safeDiagnosticKeys(["call_id", "caller", "status"])).toBe("call_id, caller, status");
+  });
+
+  it("מפתח שנראה כמו מספר טלפון אינו נשמר", () => {
+    // ספק עם מפתחות דינמיים היה מכניס PII לעמודה גלויה וללוג
+    const out = safeDiagnosticKeys(["call_id", "0501234567"]);
+    expect(out).not.toContain("0501234567");
+    expect(out).toContain("call_id");
+  });
+
+  it("כפילויות מתמזגות — לא עשרים פעם אותו סימון", () => {
+    expect(safeDiagnosticKeys(["+97250111", "+97250222"])).toBe("‹שדה לא תקני›");
+  });
+
+  it("חסום באורך ובכמות", () => {
+    const many = Array.from({ length: 200 }, (_, i) => `field_${i}`);
+    const out = safeDiagnosticKeys(many);
+    expect(out.length).toBeLessThanOrEqual(400);
+    expect(out.split(", ").length).toBeLessThanOrEqual(25);
   });
 });
