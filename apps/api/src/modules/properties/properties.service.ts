@@ -214,7 +214,14 @@ export class PropertiesService {
         readinessScore: row.readinessScore,
         missingFields: readiness.missingFields,
         ...(ownerContact
-          ? { ownerContact: { id: ownerContact.id, name: ownerContact.name, phone: ownerContact.phone } }
+          ? {
+              ownerContact: {
+                id: ownerContact.id,
+                name: ownerContact.name,
+                phone: ownerContact.phone,
+                ...(ownerContact.email ? { email: ownerContact.email } : {}),
+              },
+            }
           : {}),
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,

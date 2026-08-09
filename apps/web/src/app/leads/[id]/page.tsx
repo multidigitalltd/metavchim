@@ -4,11 +4,11 @@ import { useEffect, useState, use, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
-import { MATURITY_LABELS as SHARED_MATURITY, ROLE_CAPABILITIES } from "@metavchim/shared";
+import { MATURITY_LABELS as SHARED_MATURITY } from "@metavchim/shared";
 import { apiGet, apiPost, apiPatch, ApiError } from "@/lib/api";
 import { formatDate, shekelsToAgorot, waMeUrl } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import { ContactPeople } from "../../contact-people";
 import { DictateFor } from "../../dictation-field";
 import { RelatedEntities } from "../../related-entities";
@@ -164,7 +164,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
   const { id } = use(params);
   const { user, loading: authLoading } = useRequireAuth();
   // אותה יכולת שמגינה על "המר לקונה" למטה — הרשאת עריכת לקוח
-  const canEditPeople = (ROLE_CAPABILITIES[user?.role ?? ""] ?? []).includes("buyers.edit");
+  const canEditPeople = can(user, "buyers.edit");
   // הגעה מטופס "ליד חדש" כשכבר היה ליד פתוח — השרת מיזג את הפנייה לכאן
   const merged = useSearchParams().get("merged") === "1";
   const [lead, setLead] = useState<LeadDetail | null>(null);
@@ -257,9 +257,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         </Link>
       </div>
 
-      {lead.status !== "converted" &&
-      user !== null &&
-      (ROLE_CAPABILITIES[user.role] ?? []).includes("buyers.edit") ? (
+      {lead.status !== "converted" && can(user, "buyers.edit") ? (
         <ConvertSection leadId={lead.id} />
       ) : null}
 

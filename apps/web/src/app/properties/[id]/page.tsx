@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useCallback, useEffect, useState, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
@@ -12,8 +12,9 @@ import {
   PROPERTY_TYPE_LABELS,
   STATUS_LABELS,
 } from "@/lib/format";
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import { MediaSection } from "./media-section";
+import { PropertyOwner, type OwnerContact } from "../property-owner";
 
 /**
  * כרטיס הנכס לפי קובץ העיצוב: כרטיס כותרת עם מחיר ופעולות (עריכה /
@@ -42,7 +43,7 @@ interface PropertyDetail {
   marketingTitle?: string;
   readinessScore: number;
   missingFields: string[];
-  ownerContact?: { id: string; name: string; phone: string };
+  ownerContact?: OwnerContact;
 }
 
 interface MatchRow {
@@ -89,7 +90,10 @@ function readinessTextColor(score: number): string {
 
 export default function PropertyDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { loading: authLoading } = useRequireAuth();
+  const { user, loading: authLoading } = useRequireAuth();
+  const canEditOwner = can(user, "properties.edit");
+  // אנשי הקשר של הבעלים נאכפים ב-ContactsController תחת buyers.edit
+  const canEditOwnerPeople = can(user, "buyers.edit");
   const router = useRouter();
   const [property, setProperty] = useState<PropertyDetail | null>(null);
   const [archiveConfirm, setArchiveConfirm] = useState(false);
@@ -103,11 +107,21 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   const [landingBusy, setLandingBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (authLoading) return;
+  /*
+   * טעינת הנכס נשלפה מתוך ה-effect כדי שגם הוספת בעל נכס תוכל
+   * לרענן אותה. עדכון מקומי של ה-state לא היה מספיק: השרת מחזיר
+   * מזהה איש קשר שנוצר (או קיים), והרכיב של אנשי הקשר הנוספים
+   * צריך אותו.
+   */
+  const loadProperty = useCallback((): void => {
     apiGet<PropertyDetail>(`/properties/${id}`)
       .then(setProperty)
       .catch(() => setError("הנכס לא נמצא"));
+  }, [id]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    loadProperty();
     apiGet<MatchRow[]>(`/properties/${id}/matches`)
       .then((rows) => {
         setMatches(rows);
@@ -119,7 +133,7 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
         }
       })
       .catch(() => setMatches([]));
-  }, [authLoading, id]);
+  }, [authLoading, id, loadProperty]);
 
   async function createOffer(matchId: string) {
     const offer = await apiPost<OfferInfo & { matchId: string }>("/offers", { matchId });
@@ -259,16 +273,11 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
               </label>
             </div>
             <p className="m-0 mt-[5px] text-sm" style={{ color: "var(--color-text-muted)" }}>
+              {/*
+                בעל הנכס היה כאן כשורה בכותרת המשנה. הוא עבר לסעיף
+                משלו בטור הראשי — הוא צד לעסקה, לא הערת שוליים לכתובת.
+              */}
               {address}
-              {property.ownerContact ? (
-                <>
-                  {" · בעל הנכס: "}
-                  {property.ownerContact.name}{" "}
-                  <a href={`tel:${property.ownerContact.phone}`} className="underline" dir="ltr">
-                    {property.ownerContact.phone}
-                  </a>
-                </>
-              ) : null}
             </p>
           </div>
           <div className="ms-auto text-start">
@@ -324,12 +333,16 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                 </div>
               ))}
             </dl>
-            {property.ownerContact ? (
-              <button type="button" className="mv-btn-plain mt-3.5" onClick={() => void sendOwnerUpdate()}>
-                💬 שלח עדכון שיווק לבעל הנכס
-              </button>
-            ) : null}
           </section>
+
+          <PropertyOwner
+            propertyId={id}
+            owner={property.ownerContact}
+            canEdit={canEditOwner}
+            canEditPeople={canEditOwnerPeople}
+            onChanged={loadProperty}
+            onSendUpdate={() => void sendOwnerUpdate()}
+          />
 
           <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="matches-heading">
             <div className="mb-3 flex flex-wrap items-center gap-2">

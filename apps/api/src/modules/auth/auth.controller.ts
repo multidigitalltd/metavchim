@@ -16,6 +16,7 @@ import { z } from "zod";
 import { loadEnv } from "../../config/env";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AnyAuthenticated, Public } from "../../common/auth.decorators";
+import { TenantContext } from "../../common/tenant-context";
 import { AuthService, type AuthenticatedUser, type ProfileDto } from "./auth.service";
 import { GoogleAuthService } from "./google-auth.service";
 import { LoginOtpService } from "./login-otp.service";
@@ -281,7 +282,9 @@ export class AuthController {
 
   @AnyAuthenticated()
   @Get("me")
-  me(@Req() req: Request): { user: AuthenticatedUser & { isPlatformAdmin: boolean } } {
+  me(
+    @Req() req: Request,
+  ): { user: AuthenticatedUser & { isPlatformAdmin: boolean; capabilities: string[] } } {
     const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
     if (!user) {
       throw new UnauthorizedException();
@@ -289,7 +292,17 @@ export class AuthController {
     // מנהל פלטפורמה — קובע אם קישור "פלטפורמה" מוצג בניווט (האכיפה
     // עצמה בשרת; זה רק לתצוגה)
     const isPlatformAdmin = loadEnv().PLATFORM_ADMIN_EMAILS.includes(user.email.toLowerCase());
-    return { user: { ...user, isPlatformAdmin } };
+    /*
+     * היכולות בפועל, כולל חריגי המשתמש.
+     *
+     * המסכים גזרו אותן עד כה מ-ROLE_CAPABILITIES[role] — כלומר
+     * מברירת המחדל של התפקיד. מרגע שיש חריגים ברמת המשתמש (#80) שתי
+     * התשובות נפרדו: סוכן שנחסמה לו יכולת עדיין ראה את הכפתור וקיבל
+     * 403, ו-viewer שקיבל יכולת לא ראה אותו כלל. השרת כבר מחשב את
+     * הקבוצה האפקטיבית בכל בקשה — נשאר רק להחזיר אותה (ביקורת Codex).
+     */
+    const capabilities = [...TenantContext.current().capabilities];
+    return { user: { ...user, isPlatformAdmin, capabilities } };
   }
 
   /**
