@@ -120,6 +120,18 @@ model Integration {
   /// מזהה המשרד בכתובת ה-Webhook הציבורית
   webhookKey String  @unique @map("webhook_key") @db.VarChar(64)
   lastEventAt DateTime? @map("last_event_at")
+  /// שמות השדות באירוע האחרון — **בלי הערכים**.
+  ///
+  /// מספיק כדי למפות ספק שמשתמש בשמות אחרים, ואינו מכניס מספרי
+  /// טלפון של לקוחות לעמודה שנקראת בטקסט גלוי.
+  lastEventKeys String? @map("last_event_keys") @db.VarChar(400)
+  /// האם ידענו לפרש את האירוע האחרון. `false` = הגיע ולא הובן,
+  /// וזה מצב שונה לגמרי מ"לא הגיע כלום".
+  lastEventOk Boolean? @map("last_event_ok")
+  /// no_call_id | no_phone | invalid_phone — **למה** לא נקלט.
+  /// מספר חסוי הוא מצב נורמלי ולא תקלת מיפוי, וההבחנה היא ההבדל
+  /// בין הודעה שמכוונת נכון להודעה ששולחת לחפש בעיה שאינה קיימת.
+  lastEventIssue String? @map("last_event_issue") @db.VarChar(40)
   createdBy String?  @map("created_by") @db.Char(26)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

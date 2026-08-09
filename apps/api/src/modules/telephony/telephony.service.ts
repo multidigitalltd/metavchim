@@ -14,6 +14,8 @@ import {
   incomingCallTitle,
   parse015DialResponse,
   parseTelephonyEvent,
+  safeDiagnosticKeys,
+  telephonyParseIssue,
   telephonyProvider,
 } from "@metavchim/shared";
 import { assertContactAccess } from "../../common/ownership";
@@ -62,6 +64,12 @@ export class TelephonyService {
     lastEventAt?: Date;
     clickToDial: boolean;
     config: Record<string, unknown>;
+    /** שמות השדות באירוע האחרון — לאבחון מיפוי מול הספק. */
+    lastEventKeys?: string;
+    /** false = אירוע הגיע ולא הובן. שונה לגמרי מ"לא הגיע כלום". */
+    lastEventOk?: boolean;
+    /** למה לא הובן — מספר חסוי אינו תקלת מיפוי. */
+    lastEventIssue?: string;
   }> {
     const tenantId = TenantContext.current().tenantId;
     const row = await this.prisma.withTenant((tx) =>
@@ -78,6 +86,9 @@ export class TelephonyService {
       // ומנהל המשרד חייב אותה כדי להזין אותה במרכזייה שלו
       webhookUrl: this.webhookUrl(row.webhookKey),
       lastEventAt: row.lastEventAt ?? undefined,
+      ...(row.lastEventKeys ? { lastEventKeys: row.lastEventKeys } : {}),
+      ...(row.lastEventOk !== null ? { lastEventOk: row.lastEventOk } : {}),
+      ...(row.lastEventIssue ? { lastEventIssue: row.lastEventIssue } : {}),
       clickToDial: provider?.clickToDial ?? false,
       config: (row.config ?? {}) as Record<string, unknown>,
     };
@@ -99,7 +110,7 @@ export class TelephonyService {
     await this.prisma.withTenant(async (tx) => {
       const existing = await tx.integration.findFirst({
         where: { tenantId, kind: "telephony" },
-        select: { id: true, secretsEncrypted: true },
+        select: { id: true, secretsEncrypted: true, provider: true },
       });
       const secretsGiven = Object.keys(input.secrets).length > 0;
       const secretsEncrypted = secretsGiven
@@ -107,6 +118,14 @@ export class TelephonyService {
         : (existing?.secretsEncrypted ?? null);
 
       if (existing) {
+        /*
+         * החלפת ספק מאפסת את האבחון.
+         *
+         * בלי האיפוס, האירוע האחרון של הספק **הקודם** מוצג כהוכחה
+         * שהספק החדש עובד — והמנהל מפסיק לחפש למה שיחות לא נכנסות
+         * (ביקורת Codex).
+         */
+        const providerChanged = existing.provider !== input.provider;
         await tx.integration.updateMany({
           where: { id: existing.id, tenantId },
           data: {
@@ -114,6 +133,9 @@ export class TelephonyService {
             status: "active",
             config: input.config,
             secretsEncrypted,
+            ...(providerChanged
+              ? { lastEventAt: null, lastEventKeys: null, lastEventOk: null, lastEventIssue: null }
+              : {}),
           },
         });
       } else {
@@ -205,7 +227,13 @@ export class TelephonyService {
     const agentLine = agent?.phone?.trim() || config["defaultLine"]?.trim() || "";
     if (agentLine === "") {
       throw new BadRequestException(
-        "אין טלפון בפרופיל שלכם ולא הוגדר קו ברירת מחדל — החיוג לא יודע לאן לצלצל",
+        /*
+         * ההודעה אומרת גם *איפה* לתקן. "החיוג לא יודע לאן לצלצל" הוא
+         * תיאור מדויק של התקלה ועדיין משאיר את המשתמש לחפש — והמסך
+         * שבו מוסיפים את המספר אינו מסך המרכזייה, אלא הפרופיל.
+         */
+        "אין טלפון בפרופיל שלכם ולא הוגדר קו ברירת מחדל — החיוג לא יודע לאן לצלצל. " +
+          "הוסיפו את מספר הטלפון שלכם במסך הפרופיל, או קו ברירת מחדל בהגדרות המרכזייה.",
       );
     }
 
@@ -303,14 +331,42 @@ export class TelephonyService {
     }
 
     const event = parseTelephonyEvent(payload);
-    if (!event) return; // חסר מספר או מזהה — אין מה לעשות איתו
-
     const tenantId = integration.tenantId;
+
+    /*
+     * **התיעוד נרשם על ההגעה, לא על ההצלחה.**
+     *
+     * קודם `lastEventAt` נכתב רק אחרי שהאירוע נותח בהצלחה, ולכן
+     * מרכזייה ששלחה payload בשמות שדות שאיננו מכירים השאירה את המסך
+     * אומר "לא התקבל אף אירוע" — בדיוק כמו מרכזייה שמעולם לא פנתה.
+     * שני המצבים דורשים פעולה הפוכה: כתובת שגויה אצל הספק מול מיפוי
+     * שדות חסר אצלנו, ובלי ההבחנה אי אפשר לדעת במה מדובר.
+     *
+     * `safeDiagnosticKeys` ולא `Object.keys` גולמי: ספק עם מפתחות
+     * דינמיים יכול לשלוח `{"0501234567": "..."}`, וכך מספר הלקוח היה
+     * נשמר בעמודה גלויה ונכתב ללוג — בדיוק מה שההצפנה בכל שאר
+     * המערכת מונעת (ביקורת Codex).
+     */
     await this.prisma.withExplicitTenant(tenantId, async (tx) => {
       await tx.integration.updateMany({
         where: { id: integration.id, tenantId },
-        data: { lastEventAt: new Date() },
+        data: {
+          lastEventAt: new Date(),
+          lastEventKeys: safeDiagnosticKeys(Object.keys(payload)),
+          lastEventOk: event !== null,
+          lastEventIssue: event === null ? telephonyParseIssue(payload) : null,
+        },
       });
+    });
+    if (!event) {
+      this.logger.warn(
+        `אירוע מרכזייה שלא זוהה (${integration.tenantId}): ${telephonyParseIssue(payload) ?? "לא ידוע"}. ` +
+          `שדות: ${safeDiagnosticKeys(Object.keys(payload))}`,
+      );
+      return; // חסר מספר או מזהה — אין מה לעשות איתו
+    }
+
+    await this.prisma.withExplicitTenant(tenantId, async (tx) => {
 
       const phoneHash = this.crypto.phoneHash(event.peerPhone);
       /*
