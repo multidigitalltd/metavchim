@@ -643,17 +643,28 @@ export class SettingsController {
     if (id === ctx.userId) {
       throw new BadRequestException("אי אפשר לשנות את המשתמש של עצמך מכאן");
     }
-    const target = await this.prisma.user.findFirst({
-      where: { id, tenantId: ctx.tenantId },
-      select: { role: true, isActive: true },
-    });
-    if (!target) throw new BadRequestException("משתמש לא נמצא");
-    if (target.role === "owner") {
-      throw new BadRequestException("אי אפשר לשנות את בעל המשרד");
-    }
     await this.prisma.withTenant(async (tx) => {
-      // הפעלה מחדש תופסת מושב — אותה מכסה בדיוק כמו ביצירה, ובאותה
-      // טרנזקציה שמעדכנת כדי ששתי הפעלות במקביל לא יעברו יחד
+      /*
+       * המנעול נלקח **לפני** קריאת המצב, והמצב נקרא בתוך הטרנזקציה.
+       *
+       * קריאה מחוץ לנעילה יכולה להתיישן: הבקשה רואה את המשתמש כפעיל,
+       * בקשה אחרת משביתה אותו ויוצרת מחליף עד המכסה, ואז הבקשה הזו
+       * מדלגת על הבדיקה — כי לפי מה שהיא קראה זו לא הפעלה מחדש —
+       * ומחזירה אותו לפעילות מעל המכסה (ביקורת Codex).
+       *
+       * pg_advisory_xact_lock ניתן לנעילה חוזרת באותה טרנזקציה, ולכן
+       * assertSeatAvailable שלוקח אותו שוב אינו נחסם.
+       */
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seat-quota:${ctx.tenantId}`}))`;
+      const target = await tx.user.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+        select: { role: true, isActive: true },
+      });
+      if (!target) throw new BadRequestException("משתמש לא נמצא");
+      if (target.role === "owner") {
+        throw new BadRequestException("אי אפשר לשנות את בעל המשרד");
+      }
+      // הפעלה מחדש תופסת מושב — אותה מכסה בדיוק כמו ביצירה
       if (body.isActive === true && !target.isActive) {
         await this.assertSeatAvailable(tx, ctx.tenantId);
       }
