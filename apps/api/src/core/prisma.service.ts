@@ -79,6 +79,21 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   /**
+   * גישה ציבורית לפי מפתח ה-Webhook של אינטגרציה (מרכזיית טלפון).
+   *
+   * הנתיב שהספק קורא לו ציבורי מעצם טבעו — מרכזייה לא מתחברת עם
+   * עוגייה — ולכן אין בו הקשר דייר. אותה תבנית של דף ההצעה: הפוליסה
+   * חושפת את שורת האינטגרציה של המפתח בלבד, ומשם נגזר הדייר לשאר
+   * העבודה.
+   */
+  async withPublicIntegration<T>(key: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.integration_key', ${key}, true)`;
+      return fn(tx);
+    });
+  }
+
+  /**
    * גישה ציבורית לפי טוקן דף נחיתה של נכס — אותו דפוס: הפוליסה חושפת
    * את שורת הנכס של הטוקן ואת התמונות שלו בלבד.
    */

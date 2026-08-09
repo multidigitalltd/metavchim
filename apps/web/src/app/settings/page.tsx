@@ -10,6 +10,7 @@ import { useRequireAuth } from "@/lib/use-auth";
 import { ExportSection } from "./export-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
 import { WhatsAppStatusSection } from "./whatsapp-status-section";
+import { TelephonySection } from "./telephony-section";
 import { AgreementTemplatesSection } from "./agreement-templates-section";
 import { SystemUpdateSection } from "./system-update";
 import { UserPermissions } from "./user-permissions";
@@ -420,6 +421,7 @@ export default function SettingsPage() {
           </section>
 
           <WhatsAppStatusSection />
+          <TelephonySection />
 
           {tenant ? <LeadWebhookSection initialKey={tenant.leadWebhookKey} /> : null}
 
