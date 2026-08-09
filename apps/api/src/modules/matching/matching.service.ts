@@ -31,6 +31,12 @@ export interface EnrichedMatchDto extends MatchDto {
 }
 
 /**
+ * כמה שורות לשלוף מעבר למבוקש, כדי שסינון של צד מחוק לא יקצר את
+ * התוצאה. מספר קטן ומכוון: המקור מתוקן, וזו רשת ביטחון בלבד.
+ */
+const LIVE_HEADROOM = 20;
+
+/**
  * מנוע ההתאמות (docs/07 §5) — צנרת שני שלבים:
  * 1. סינון גס ב-SQL (עיר, תקציב, סוג עסקה) — מצמצם למועמדים רלוונטיים.
  * 2. ניקוד מפורט בפונקציה הטהורה scoreMatch — עם הסבר בעברית.
@@ -57,6 +63,15 @@ export class MatchingService {
   }): Promise<EnrichedMatchDto[]> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
+      /*
+       * מרווח מעל המבוקש, כי הסינון של צד מחוק קורה בזיכרון.
+       *
+       * `take` שווה בדיוק ל-limit היה נותן פחות מהמבוקש כשהשורות
+       * העליונות מסוננות — ועם limit=1 אפילו רשימה ריקה בזמן שיש
+       * התאמה תקינה שורה מתחת (ביקורת Codex). המקור מתוקן ממילא
+       * (התאמה לנכס מחוק מסומנת dismissed), ולכן המרווח הוא רשת
+       * ביטחון לשורות ישנות ולא הפתרון עצמו.
+       */
       const rows = await tx.match.findMany({
         where: {
           tenantId,
@@ -65,7 +80,7 @@ export class MatchingService {
           ...(query.propertyId ? { propertyId: query.propertyId } : {}),
         },
         orderBy: { score: "desc" },
-        take: query.limit,
+        take: query.limit + LIVE_HEADROOM,
       });
       if (rows.length === 0) return [];
 
@@ -123,6 +138,7 @@ export class MatchingService {
       return rows
         // התאמה שצידה האחד נמחק אינה התאמה
         .filter((row) => propertyById.has(row.propertyId) && liveBuyerIds.has(row.buyerId))
+        .slice(0, query.limit)
         .map((row) => {
           const property = propertyById.get(row.propertyId)!;
           return {

@@ -280,9 +280,6 @@ export class AgreementsService {
     let dealText = "";
     if (input.propertyId !== undefined) {
       const property = await tx.property.findFirst({
-        // נכס מחוק אינו נכס שמחתימים עליו הזמנה בכתב. השדות יישארו
-        // ריקים והזרימה תדווח עליהם כ-unfilled, וזה נכון: עדיף הסכם
-        // שלא ניתן לשלוח מהסכם שמפנה לנכס שאינו קיים.
         where: { id: input.propertyId, tenantId, deletedAt: null },
         select: {
           street: true,
@@ -293,7 +290,18 @@ export class AgreementsService {
           dealType: true,
         },
       });
-      if (property) {
+      /*
+       * נכס שאינו קיים או שנמחק — **דחייה**, לא שדות ריקים.
+       *
+       * הסתמכות על כך שהשדות יישארו ריקים אינה אכיפה: `input.values`
+       * נפרש מעל אותם שדות, ולכן קורא יכול לספק את סוג העסקה, תיאור
+       * הנכס והמחיר בעצמו, לעבור את בדיקת החוסרים, ולקבל הסכם בר-חתימה
+       * שה-propertyId השמור בו מצביע על נכס מחוק (ביקורת Codex).
+       */
+      if (!property) {
+        throw new NotFoundException("הנכס לא נמצא או שנמחק — לא ניתן להפיק עליו הסכם");
+      }
+      {
         // סוג העסקה הוא פרט חובה בתקנות, והוא יושב על הנכס — אין סיבה
         // לבקש מהמתווך להקליד אותו שוב
         dealText = property.dealType === "rent" ? "שכירות" : property.dealType === "sale" ? "מכר" : "";

@@ -224,7 +224,20 @@ export class PropertiesService {
       // נכס שיצא משיווק — ההתאמות המוצעות מתבטלות; אין להציע נכס שנמכר
       // (ביקורת Codex, PR #1). החלטות ידניות (offered/dismissed) נשמרות כהיסטוריה.
       if (status !== undefined && !["draft", "active"].includes(status)) {
-        await tx.match.deleteMany({ where: { propertyId: id, status: "suggested" } });
+        /*
+       * **כל** ההתאמות של הנכס יורדות, לא רק ה-`suggested`.
+       *
+       * הסינון הקודם השאיר התאמות במצב `offered` מצביעות על נכס
+       * מחוק, והרשימות מסננות `dismissed` בלבד — כלומר הן הופיעו
+       * במסך, ובמונה שלידו. מחיקה שלהן הייתה מיותמת הצעה שנשלחה
+       * (`offers.match_id`), ולכן הן מסומנות `dismissed`: יוצאות מכל
+       * מסך ומכל מונה, וההיסטוריה נשמרת.
+       */
+      await tx.match.deleteMany({ where: { propertyId: id, status: "suggested" } });
+      await tx.match.updateMany({
+        where: { propertyId: id, status: { not: "dismissed" } },
+        data: { status: "dismissed" },
+      });
         // מעבר אמיתי החוצה משיווק — סגירת מעגל מול קונים מעוניינים:
         // Worker יוצר משימות "הצע חלופה" לסוכנים (docs/01 — שום עסקה
         // לא נופלת בין הכיסאות)
