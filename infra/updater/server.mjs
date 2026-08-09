@@ -102,7 +102,7 @@ async function runUpdate() {
     try {
       await compose(["pull", "updater"]);
       console.log(
-        "[updater] תמונת הסוכן עודכנה מקומית. להשלמה בשרת: docker compose … up -d updater",
+        `[updater] תמונת הסוכן נמשכה. להשלמה בשרת: docker compose -f ${REPO_DIR}/docker-compose.prod.yml --env-file ${REPO_DIR}/${ENV_FILE} up -d updater`,
       );
     } catch (error) {
       console.warn(`[updater] self-image pull failed (לא קריטי): ${error instanceof Error ? error.message : String(error)}`);

@@ -15,6 +15,11 @@ import { loadEnv } from "../../config/env";
  * תשובה כושלת להודעה שאומרת מה לעשות.
  */
 
+const COMPOSE = "docker compose -f docker-compose.prod.yml --env-file .env.production";
+
+/** שתי הפקודות שמעדכנות את הסוכן, מלאות — להדבקה ישירה בשרת. */
+export const UPDATER_RESTART_COMMAND = `${COMPOSE} pull updater && ${COMPOSE} up -d updater`;
+
 /** תשובת הסוכן ↵ הודעה בעברית שאפשר לפעול לפיה. */
 export function updaterFailure(res: Response): ServiceUnavailableException {
   if (res.status === 401) {
@@ -23,10 +28,12 @@ export function updaterFailure(res: Response): ServiceUnavailableException {
     );
   }
   if (res.status === 404) {
+    // הפקודה מלאה ומודבקת כמות שהיא. קיצור בשלוש נקודות היה מייצר
+    // שורה שנראית שמישה ואינה רצה — ומי שקורא את ההודעה הזו כבר
+    // באמצע תקלה.
     return new ServiceUnavailableException(
       "סוכן העדכון שרץ בשרת ישן מהמערכת ואינו מכיר את הפעולה הזו. " +
-        "עדכנו אותו בשרת: docker compose -f docker-compose.prod.yml " +
-        "--env-file .env.production pull updater && ... up -d updater",
+        `הריצו בתיקיית הריפו בשרת: ${UPDATER_RESTART_COMMAND}`,
     );
   }
   return new ServiceUnavailableException(`סוכן העדכון החזיר שגיאה (${res.status})`);
