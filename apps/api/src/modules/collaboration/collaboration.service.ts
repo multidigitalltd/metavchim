@@ -127,36 +127,42 @@ export class CollaborationService {
   /** פיד הביקושים: הרשת כולה (כולל שלי, מסומנים). קריאת הרשת רצה כ-withNetwork. */
   async listDemands(): Promise<SharedDemandDto[]> {
     const tenantId = TenantContext.current().tenantId;
-    const rows = await this.prisma.withNetworkRead((tx) =>
-      tx.sharedDemand.findMany({
-        where: { status: "active" },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-      }),
-    );
-
     /*
-     * ביקוש של משרד שאיבד את הפיצ'ר יורד מהפיד.
+     * הזכאות נקבעת **לפני** התקרה ולא אחריה.
      *
-     * המשרד שפרסם אותו כבר לא יכול לראות תשובות ואפילו לא להסיר
-     * אותו — השער חוסם את כל המודול אצלו. משרד אחר שהיה מציע נכס
-     * לביקוש כזה היה מבזבז קרדיט על פנייה שאיש לא יקרא (ביקורת
-     * Codex).
+     * `take: 100` על כל הביקושים הפעילים, ואז סינון, היה יכול להחזיר
+     * רשימה ריקה: מאה הביקושים החדשים שייכים למשרדים שאיבדו את
+     * הפיצ'ר, והישנים־יותר של משרדים זכאים לא מגיעים ללקוח לעולם.
+     * המשרדים האלה גם חסומים מלהסיר את הביקושים שלהם, ולכן המצב הזה
+     * לא מתקן את עצמו — הפיד היה מורעב לצמיתות (ביקורת Codex).
      *
-     * הסינון על התוצאה ולא בשאילתה: `plans` אינה טבלה שאפשר לצרף
-     * אליה כאן, והמסלולים ממילא במטמון.
+     * שני שלבים: קודם אילו משרדים בכלל מפרסמים, ואז שאילתה מסוננת
+     * לזכאים בלבד. `groupBy` ולא `findMany` — מספר המשרדים ברשת קטן
+     * בסדרי גודל ממספר הביקושים.
      */
-    const owners = [...new Set(rows.map((row) => row.tenantId))];
-    const entitled = new Set(
-      (
-        await Promise.all(
-          owners.map(async (owner) =>
-            (await this.plans.tenantHasFeature(owner, "collaboration")) ? owner : null,
-          ),
-        )
-      ).filter((owner): owner is string => owner !== null),
+    const publishers = await this.prisma.withNetworkRead((tx) =>
+      tx.sharedDemand.groupBy({ by: ["tenantId"], where: { status: "active" } }),
     );
-    const visible = rows.filter((row) => entitled.has(row.tenantId));
+    const entitled = (
+      await Promise.all(
+        publishers.map(async (row) =>
+          (await this.plans.tenantHasFeature(row.tenantId, "collaboration"))
+            ? row.tenantId
+            : null,
+        ),
+      )
+    ).filter((owner): owner is string => owner !== null);
+
+    const visible =
+      entitled.length === 0
+        ? []
+        : await this.prisma.withNetworkRead((tx) =>
+            tx.sharedDemand.findMany({
+              where: { status: "active", tenantId: { in: entitled } },
+              orderBy: { createdAt: "desc" },
+              take: 100,
+            }),
+          );
 
     /*
      * לכל ביקוש מחושבות ההתאמות מתוך הנכסים *שלי* — בדיוק אותו מנוע

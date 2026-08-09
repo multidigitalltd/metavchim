@@ -37,11 +37,21 @@ export class PlanCatalogService {
     this.cache = null;
   }
 
-  async all(): Promise<PlanDefinition[]> {
+  /**
+   * `tx` חובה כשהקריאה מגיעה **מתוך** טרנזקציה פתוחה.
+   *
+   * המטמון חוסך את השאילתה ברוב הקריאות, אבל לא בכולן: מטמון קר או
+   * TTL שפג מחזירים אותנו ל-DB. שאילתה דרך הלקוח הראשי בזמן שטרנזקציה
+   * חיצונית מחזיקה חיבור מושכת חיבור שני, ותחת עומס כל החיבורים
+   * תפוסים בחיצוניות שממתינות לפנימיות — deadlock (ביקורת Codex;
+   * התיקון הקודם העביר רק את שאילתת הדייר ולא את זו של הקטלוג).
+   */
+  async all(tx?: TenantTx): Promise<PlanDefinition[]> {
     const now = Date.now();
     if (this.cache && this.cache.until > now) return this.cache.plans;
 
-    const rows = await this.prisma.plan.findMany({ orderBy: { sortOrder: "asc" } });
+    const client = tx ?? this.prisma;
+    const rows = await client.plan.findMany({ orderBy: { sortOrder: "asc" } });
     const stored = new Map(rows.map((row) => [row.code, this.fromRow(row)]));
 
     /*
@@ -59,8 +69,8 @@ export class PlanCatalogService {
     return merged;
   }
 
-  async byCode(code: string): Promise<PlanDefinition | undefined> {
-    return (await this.all()).find((plan) => plan.code === code);
+  async byCode(code: string, tx?: TenantTx): Promise<PlanDefinition | undefined> {
+    return (await this.all(tx)).find((plan) => plan.code === code);
   }
 
   /** המסלולים שמוצגים בדף ההרשמה הציבורי. */
@@ -83,7 +93,7 @@ export class PlanCatalogService {
       where: { id: tenantId },
       select: { plan: true },
     });
-    return tenant ? this.byCode(tenant.plan) : undefined;
+    return tenant ? this.byCode(tenant.plan, tx) : undefined;
   }
 
   async tenantHasFeature(
