@@ -19,6 +19,7 @@ interface SystemInfo {
 export function SystemUpdateSection() {
   const [info, setInfo] = useState<SystemInfo | null>(null);
   const [busy, setBusy] = useState(false);
+  const [agentBusy, setAgentBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,6 +54,38 @@ export function SystemUpdateSection() {
       });
   }
 
+  /**
+   * עדכון סוכן העדכון עצמו.
+   *
+   * הסוכן אינו מתעדכן עם המערכת — הוא מריץ את פקודת ההרמה, ואינו
+   * יכול להרים את עצמו בלי להסתכן בהריגת התהליך באמצע. עד כה זו
+   * הייתה פקודה שמדביקים ב-SSH; עכשיו הוא מעביר את ההחלפה לקונטיינר
+   * עזר חד-פעמי, ומכאן זה כפתור.
+   *
+   * הוא נשאר **נפרד** מ"עדכן לגרסה האחרונה": כישלון בהחלפת הסוכן
+   * לא אמור להפיל עדכון מערכת תקין.
+   */
+  function updateAgent(): void {
+    if (
+      !window.confirm(
+        "לעדכן את סוכן העדכון?\n\nהסוכן יוחלף תוך כמה שניות. המערכת עצמה אינה מושפעת.",
+      )
+    ) {
+      return;
+    }
+    setAgentBusy(true);
+    setMessage(null);
+    setError(null);
+    apiPost<{ status: string }>("/platform/system/update-agent", {})
+      .then(() => {
+        setMessage("סוכן העדכון מתחלף — המתינו כמה שניות ורעננו. המערכת עצמה ממשיכה לרוץ.");
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof ApiError ? err.message : "עדכון הסוכן נכשל");
+      })
+      .finally(() => setAgentBusy(false));
+  }
+
   return (
     <section aria-labelledby="platform-system-heading" className="mb-8">
       <h2 id="platform-system-heading" className="mb-1 text-lg font-semibold">
@@ -71,9 +104,16 @@ export function SystemUpdateSection() {
           גרסה מותקנת: <code dir="ltr">{info.version.slice(0, 12)}</code>
         </p>
         {info.updateAvailable ? (
-          <div className="mt-3">
-            <Button onClick={update} disabled={busy}>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button onClick={update} disabled={busy || agentBusy}>
               {busy ? "מעדכן…" : "משוך ועדכן לגרסה האחרונה"}
+            </Button>
+            {/*
+              נפרד ומשני: הסוכן מתעדכן לעיתים רחוקות, ורק כשפעולה
+              חדשה מוחזרת ממנו כ-404 ("הסוכן ישן מהמערכת").
+            */}
+            <Button variant="ghost" onClick={updateAgent} disabled={busy || agentBusy}>
+              {agentBusy ? "מחליף…" : "עדכן את סוכן העדכון"}
             </Button>
           </div>
         ) : (

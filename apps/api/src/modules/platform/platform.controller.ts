@@ -659,6 +659,24 @@ export class PlatformController {
     return { status: "started" };
   }
 
+  /**
+   * עדכון סוכן העדכון עצמו.
+   *
+   * נפרד מ-`system/update` בכוונה ולא חלק ממנו: הסוכן מחליף את עצמו,
+   * וכל כישלון שם היה מפיל עדכון מערכת תקין. הפרדה גם אומרת שאפשר
+   * לעדכן את המערכת עשר פעמים בלי לגעת בסוכן, ולגעת בו כשצריך.
+   *
+   * עד כה זו הייתה פקודה שמדביקים ב-SSH.
+   */
+  @Post("system/update-agent")
+  @HttpCode(200)
+  async updateAgent(): Promise<{ status: "started" }> {
+    const res = await callUpdaterAgent("/update/self", { method: "POST" });
+    if (res.status === 409) throw new ConflictException("פעולה כבר רצה — המתינו לסיומה");
+    if (!res.ok) throw updaterFailure(res);
+    return { status: "started" };
+  }
+
   /** מצב הגיבויים: רשימה מקומית, חיווי טריות ומצב העותק מחוץ לשרת. */
   @Get("backups")
   async backupsOverview(): Promise<BackupsOverview> {
