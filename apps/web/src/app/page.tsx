@@ -8,6 +8,7 @@ import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { DuplicateContacts } from "./duplicate-contacts";
 import { SetupBanner } from "./setup-banner";
+import { NowStamp } from "./now-stamp";
 
 /**
  * דשבורד לפי קובץ העיצוב: ברכה עם תאריך, ארבעה כרטיסי מונים,
@@ -64,11 +65,6 @@ const APPOINTMENT_KIND_LABELS: Record<string, string> = {
 };
 
 const timeFmt = new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit" });
-const dateFmt = new Intl.DateTimeFormat("he-IL", {
-  weekday: "long",
-  day: "numeric",
-  month: "long",
-});
 
 interface Recommendation {
   priority: number;
@@ -275,9 +271,8 @@ export default function DashboardPage() {
         <h1 className="m-0" style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-0.01em" }}>
           {greeting()}, {user.name.split(" ")[0]}
         </h1>
-        <span style={{ fontSize: 14.5, color: "var(--color-text-muted)" }}>
-          {dateFmt.format(new Date())}
-        </span>
+        {/* לועזי + עברי + שעון — מתווך ישראלי חי בשני לוחות */}
+        <NowStamp />
       </div>
 
       <DuplicateContacts />

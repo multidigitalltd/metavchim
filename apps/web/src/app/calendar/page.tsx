@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { hebrewDateFull, hebrewDateShort } from "@metavchim/shared";
+import { NowStamp } from "../now-stamp";
 import { apiGet, apiPatch } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
 import { TasksBoard } from "../tasks/tasks-board";
@@ -177,6 +178,8 @@ export default function CalendarPage() {
             {hebrewDateFull(start)}
           </span>
         ) : null}
+        {/* ועכשיו — התאריך המלא והשעה, אותו רכיב כמו בדשבורד */}
+        <NowStamp className="text-[12.5px]" />
         <Link href="/calendar/new" className="mv-btn-action ms-auto">
           + פגישה חדשה
         </Link>

@@ -1,5 +1,9 @@
 import { Injectable } from "@nestjs/common";
-import { filterVisibleNotes, normalizeIsraeliPhone } from "@metavchim/shared";
+import {
+  filterVisibleNotes,
+  normalizeIsraeliPhone,
+  normalizeNameForMatch,
+} from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { ownershipFilter } from "../../common/ownership";
 import { CryptoService } from "../../core/crypto.service";
@@ -9,8 +13,20 @@ import { PrismaService, type TenantTx } from "../../core/prisma.service";
  * חיפוש גלובלי (docs/06 §3 — "שיחה נכנסת: מי זה?"):
  * - קלט שנראה כטלפון מנורמל ל-E.164 ומחופש ב-phone_hash — התאמה מדויקת
  *   בלי לפענח אף רשומה (docs/04 §4).
- * - טקסט חופשי מחפש נכסים לפי כתובת/כותרת, ואנשי קשר לפי שם (פענוח
- *   בזיכרון תחת הדייר בלבד, מוגבל ל-1,000 האחרונים).
+ * - טקסט חופשי מחפש נכסים לפי כתובת/כותרת, ואנשי קשר לפי שם.
+ *
+ * **איך קונה נמצא.** עד כה רק דרך שם הלקוח, ורק אם איש הקשר שלו היה
+ * בין 1,000 האחרונים שעודכנו — כלומר חיפוש "תל אביב" החזיר נכסים ואף
+ * קונה, ובמשרד עם יותר מאלף אנשי קשר קונים ותיקים נעלמו **בשקט**.
+ * שני מסלולים נוספו:
+ *
+ * 1. **גיבוב השם** (`name_hash`) — התאמה מדויקת בלי פענוח ובלי תקרה,
+ *    ולכן שם מלא מוצא את הלקוח בכל גודל מאגר. זה מה שהעמודה נועדה לו.
+ * 2. **ערי החיפוש של הקונה** — `cities` אינו מוצפן, ולכן "תל אביב"
+ *    מוצא את מי שמחפש שם. זה החיפוש שמתווך באמת עושה.
+ *
+ * הסריקה המפוענחת נשארת להתאמה חלקית ("דוד" מוצא את "דוד כהן"), עם
+ * אותה תקרה — היא כבר לא הדרך היחידה.
  * - קונים ולידים מסוננים לפי בעלות — סוכן עם view_own לא מגלה בחיפוש
  *   את הלקוחות של סוכן אחר (docs/04 §3).
  */
@@ -259,8 +275,21 @@ export class SearchService {
         return { ...EMPTY, properties, ...freeText };
       }
 
-      // חיפוש שם: פענוח בזיכרון של אנשי הקשר האחרונים בלבד — PII לעולם
-      // לא נחשף למנוע ה-DB כטקסט גלוי, והעלות חסומה ב-NAME_SCAN_LIMIT.
+      /*
+       * שלושה מסלולים לאיתור אנשי קשר, ומאוחדים למפה אחת:
+       *
+       * 1. **גיבוב השם** — התאמה מדויקת, בלי פענוח ו**בלי תקרה**. זה
+       *    מה שמבטיח ששם מלא נמצא גם במאגר של עשרות אלפים.
+       * 2. סריקה מפוענחת של האחרונים — להתאמה חלקית ("דוד" ⟵ "דוד
+       *    כהן"). חסומה ב-NAME_SCAN_LIMIT, כי כאן משלמים בפענוח.
+       *
+       * PII לעולם אינו נחשף למנוע ה-DB כטקסט גלוי בשני המסלולים.
+       */
+      const exact = await tx.contact.findMany({
+        where: { tenantId, nameHash: this.crypto.nameHash(normalizeNameForMatch(query)) },
+        select: { id: true, nameEncrypted: true },
+        take: GROUP_LIMIT * 4,
+      });
       const recent = await tx.contact.findMany({
         where: { tenantId },
         select: { id: true, nameEncrypted: true },
@@ -268,29 +297,43 @@ export class SearchService {
         take: NAME_SCAN_LIMIT,
       });
       const nameById = new Map<string, string>();
+      for (const c of exact) nameById.set(c.id, this.crypto.decrypt(c.nameEncrypted));
       for (const c of recent) {
+        if (nameById.has(c.id)) continue;
         const name = this.crypto.decrypt(c.nameEncrypted);
         if (name.toLowerCase().includes(needle)) nameById.set(c.id, name);
       }
       const matchedIds = [...nameById.keys()];
-      if (matchedIds.length === 0) {
-        return { ...EMPTY, properties, ...freeText };
-      }
+
+      /*
+       * **3. ערי החיפוש של הקונה.**
+       *
+       * `cities` אינו מוצפן, ולכן הוא נשאל ישירות — וזה החיפוש שמתווך
+       * באמת עושה: "מי מחפש בתל אביב". `hasSome` הוא התאמה מדויקת של
+       * איבר במערך, ולכן נשלחים גם הביטוי המלא (שמות ערים דו-מיליים
+       * כמו "תל אביב") וגם המילים הבודדות.
+       */
+      const cityTerms = [...new Set([query.trim(), ...tokens])].filter((t) => t.length >= 2);
+      const buyerWhere = {
+        tenantId,
+        deletedAt: null,
+        ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        OR: [
+          ...(matchedIds.length > 0 ? [{ contactId: { in: matchedIds } }] : []),
+          ...(cityTerms.length > 0 ? [{ cities: { hasSome: cityTerms } }] : []),
+        ],
+      };
 
       const [buyers, leads] = await Promise.all([
-        can.canBuyers
+        can.canBuyers && buyerWhere.OR.length > 0
           ? tx.buyer.findMany({
-              where: {
-                tenantId,
-                contactId: { in: matchedIds },
-                deletedAt: null,
-                ...ownershipFilter("buyers.view_all", "ownerUserId"),
-              },
+              where: buyerWhere,
               select: { id: true, maturity: true, cities: true, contactId: true },
+              orderBy: { updatedAt: "desc" },
               take: GROUP_LIMIT,
             })
           : [],
-        can.canLeads
+        can.canLeads && matchedIds.length > 0
           ? tx.lead.findMany({
               where: {
                 tenantId,
@@ -302,6 +345,20 @@ export class SearchService {
             })
           : [],
       ]);
+
+      /*
+       * קונה שנמצא לפי עיר — שם הלקוח שלו לא עבר במפה, ולכן הוא
+       * מפוענח כאן. אלה בודדים (עד GROUP_LIMIT), ובלי זה התוצאה הייתה
+       * שורה בלי שם.
+       */
+      const missing = buyers.map((b) => b.contactId).filter((id) => !nameById.has(id));
+      if (missing.length > 0) {
+        const extra = await tx.contact.findMany({
+          where: { tenantId, id: { in: [...new Set(missing)] } },
+          select: { id: true, nameEncrypted: true },
+        });
+        for (const c of extra) nameById.set(c.id, this.crypto.decrypt(c.nameEncrypted));
+      }
 
       return {
         ...EMPTY,
