@@ -24,6 +24,10 @@ interface AgencyRow {
   status: string;
   userCount: number;
   createdAt: string;
+  trialEndsAt: string | null;
+  paidUntil: string | null;
+  /** true = מחובר אך מוגבל למסך המנוי. */
+  periodEnded: boolean;
 }
 
 /**
@@ -101,6 +105,26 @@ export default function PlatformPage() {
   async function toggleSuspend(agency: AgencyRow) {
     const next = agency.status === "suspended" ? "active" : "suspended";
     await apiPatch(`/platform/agencies/${agency.id}`, { status: next });
+    load();
+  }
+
+  /**
+   * שחרור ידני של משרד שתקופתו נגמרה.
+   *
+   * עד כה לא הייתה לזה שום דרך מהממשק: הסטטוס הוא רק אחד מתנאי
+   * הגישה, ומשרד שהסטטוס שלו "פעיל" עדיין נחסם לפי התאריך. הכפתור
+   * מנקה את התפוגה, כלומר "המשרד הזה פתוח בלי קשר לחיוב" — אותה
+   * משמעות של משרד שהוקם ידנית.
+   */
+  async function grantAccess(agency: AgencyRow) {
+    if (
+      !window.confirm(
+        `לפתוח את "${agency.name}" ללא תפוגה? הגישה תינתן בלי קשר לתשלום, עד שתוגדר תפוגה חדשה.`,
+      )
+    ) {
+      return;
+    }
+    await apiPatch(`/platform/agencies/${agency.id}`, { paidUntil: null });
     load();
   }
 
@@ -250,6 +274,24 @@ export default function PlatformPage() {
                       <span style={a.status === "suspended" ? { color: "var(--color-danger)" } : undefined}>
                         {STATUS_LABELS[a.status] ?? a.status}
                       </span>
+                      {/*
+                        הסטטוס לבדו הטעה: משרד "פעיל" שתקופתו נגמרה
+                        אינו מצליח לעבוד, ומי שראה כאן "פעיל" לא ידע
+                        למה הוא מתלונן.
+                      */}
+                      {a.periodEnded ? (
+                        <span className="block text-xs" style={{ color: "var(--color-danger)" }}>
+                          התקופה הסתיימה — מוגבל למסך המנוי
+                        </span>
+                      ) : a.paidUntil !== null ? (
+                        <span className="block text-xs" style={{ color: "var(--color-text-muted)" }}>
+                          שולם עד {formatDate(a.paidUntil)}
+                        </span>
+                      ) : a.trialEndsAt !== null ? (
+                        <span className="block text-xs" style={{ color: "var(--color-text-muted)" }}>
+                          ניסיון עד {formatDate(a.trialEndsAt)}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="p-3">{a.userCount}</td>
                     <td className="p-3">{formatDate(a.createdAt)}</td>
@@ -260,6 +302,11 @@ export default function PlatformPage() {
                       >
                         {a.status === "suspended" ? "הפעל מחדש" : "השהה"}
                       </Button>
+                      {a.periodEnded ? (
+                        <Button variant="secondary" onClick={() => void grantAccess(a)}>
+                          פתח ללא תפוגה
+                        </Button>
+                      ) : null}
                     </td>
                   </tr>
                 ))}

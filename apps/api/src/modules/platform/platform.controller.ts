@@ -36,7 +36,7 @@ import {
 } from "../../core/platform-settings.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
-import { AuthService } from "../auth/auth.service";
+import { AuthService, tenantPeriodEnded } from "../auth/auth.service";
 import {
   BackupsService,
   type BackupsOverview,
@@ -77,6 +77,18 @@ const UpdateAgencySchema = z
   .object({
     plan: PlanCodeSchema.optional(),
     status: TenantStatusSchema.optional(),
+    /**
+     * הענקת גישה ידנית: תאריך, או `null` ל"בלי תפוגה".
+     *
+     * זה הכלי שהיה חסר. משרד שתקופתו נגמרה נשאר חסום גם אחרי
+     * שהסטטוס שלו `active`, כי הסטטוס אינו התנאי היחיד — ולמנהל
+     * הפלטפורמה לא הייתה שום דרך לשחרר אותו בלי לגעת בבסיס הנתונים.
+     *
+     * שדה נפרד ולא תופעת לוואי של שינוי הסטטוס: מחיקה שקטה של
+     * תאריך תשלום בזמן שמישהו רק החזיר משרד מהשהיה היא בדיוק סוג
+     * ההפתעה שאסור שתהיה בכלי ניהול.
+     */
+    paidUntil: z.union([z.string().datetime(), z.null()]).optional(),
   })
   .strict();
 
@@ -127,6 +139,18 @@ export interface AgencyRow {
   status: string;
   userCount: number;
   createdAt: Date;
+  /**
+   * התפוגות, ומה שנגזר מהן.
+   *
+   * בלעדיהן המסך הזה מציג "פעיל" למשרד שאינו מצליח להיכנס: הסטטוס
+   * הוא רק אחד משלושת התנאים, והשניים האחרים הם תאריכים. מנהל
+   * פלטפורמה שרואה "פעיל" ושומע "אני לא נכנס" אין לו מה לעשות עם
+   * זה.
+   */
+  trialEndsAt: Date | null;
+  paidUntil: Date | null;
+  /** true = המשרד מחובר אך מוגבל למסך המנוי. */
+  periodEnded: boolean;
 }
 
 @Controller("platform")
@@ -195,6 +219,8 @@ export class PlatformController {
         name: true,
         plan: true,
         status: true,
+        trialEndsAt: true,
+        paidUntil: true,
         createdAt: true,
         _count: { select: { users: true } },
       },
@@ -206,6 +232,10 @@ export class PlatformController {
       status: t.status,
       userCount: t._count.users,
       createdAt: t.createdAt,
+      trialEndsAt: t.trialEndsAt,
+      paidUntil: t.paidUntil,
+      // אותה פונקציה שהשרת אוכף לפיה, ולא העתק שלה
+      periodEnded: tenantPeriodEnded(t),
     }));
   }
 
@@ -309,6 +339,17 @@ export class PlatformController {
       data: {
         ...(body.plan !== undefined ? { plan: body.plan } : {}),
         ...(body.status !== undefined ? { status: body.status } : {}),
+        ...(body.paidUntil !== undefined
+          ? {
+              paidUntil: body.paidUntil === null ? null : new Date(body.paidUntil),
+              /*
+               * הענקה ידנית מסיימת גם את הניסיון: משרד עם שני
+               * תאריכים פעילים היה נחסם לפי זה שרלוונטי לסטטוס שלו,
+               * ומנהל שהעניק גישה לא היה מבין למה היא לא נכנסה לתוקף.
+               */
+              trialEndsAt: null,
+            }
+          : {}),
       },
     });
     // השהיה — ניתוק מיידי של כל ה-sessions של המשרד
