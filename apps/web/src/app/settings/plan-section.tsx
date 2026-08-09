@@ -38,11 +38,20 @@ function LimitRow({
   used,
   limit,
   state,
+  resolved,
 }: {
   label: string;
   used: number;
   limit: number | null;
   state: LimitState;
+  /**
+   * false = קוד המסלול אינו נפתר, ואין מכסה שאפשר להציג.
+   *
+   * השרת מחזיר `null` במגבלה גם במצב הזה, ו-`null` פירושו "ללא
+   * הגבלה" — כלומר בלי הדגל הזה השורה הייתה מכריזה "ללא הגבלה"
+   * ישירות מתחת להודעה שהכול חסום (ביקורת Codex).
+   */
+  resolved: boolean;
 }): React.JSX.Element {
   const color = state.blocked
     ? "var(--color-danger)"
@@ -54,10 +63,14 @@ function LimitRow({
       <p className="m-0 mb-1 flex flex-wrap justify-between gap-2 text-sm">
         <span>{label}</span>
         <strong style={state.warn || state.blocked ? { color } : undefined}>
-          {limit === null ? `${used} — ללא הגבלה` : `${used} מתוך ${limit}`}
+          {!resolved
+            ? `${used} — המכסה אינה ידועה`
+            : limit === null
+              ? `${used} — ללא הגבלה`
+              : `${used} מתוך ${limit}`}
         </strong>
       </p>
-      {state.percent !== null ? (
+      {resolved && state.percent !== null ? (
         <div
           className="h-1.5 overflow-hidden rounded-full"
           style={{ background: "var(--color-border)" }}
@@ -67,7 +80,7 @@ function LimitRow({
           <div style={{ width: `${state.percent}%`, height: "100%", background: color }} />
         </div>
       ) : null}
-      {state.blocked ? (
+      {resolved && state.blocked ? (
         <p className="m-0 mt-1 text-xs" style={{ color: "var(--color-danger)" }}>
           הגעתם למכסה — הוספה נוספת תיחסם עד שדרוג מסלול.
         </p>
@@ -124,12 +137,14 @@ export function PlanSection(): React.JSX.Element | null {
             used={plan.limits.users.used}
             limit={plan.limits.users.limit}
             state={plan.limits.users.state}
+            resolved={plan.resolved !== false}
           />
           <LimitRow
             label="נכסים"
             used={plan.limits.properties.used}
             limit={plan.limits.properties.limit}
             state={plan.limits.properties.state}
+            resolved={plan.resolved !== false}
           />
 
           <h3 className="mb-1 mt-4 text-sm font-bold">מה כלול</h3>
