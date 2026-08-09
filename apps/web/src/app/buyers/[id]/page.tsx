@@ -15,6 +15,7 @@ import { WithDictation } from "../../dictation-field";
 import { TimelineSection } from "./timeline-section";
 import { ContactPeople } from "../../contact-people";
 import { RelatedEntities } from "../../related-entities";
+import { EntityTasks } from "../../entity-tasks";
 import { AgreementsPanel } from "../../agreements-panel";
 
 /**
@@ -267,6 +268,8 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
       />
 
       <RelatedEntities contactId={buyer.contact.id} exclude={{ kind: "buyer", id: buyer.id }} />
+
+      <EntityTasks entityType="buyer" entityId={id} />
 
       <ContactPeople contactId={buyer.contact.id} canEdit={canEditPeople} />
 

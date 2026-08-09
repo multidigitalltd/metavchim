@@ -66,6 +66,16 @@ export class TasksController {
   }
 
   /**
+   * מי אפשר להטיל עליו. `tasks.assign` ולא `users.manage`: זו רשימה
+   * לבחירה, לא ניהול צוות.
+   */
+  @Get("assignees")
+  @RequireCapability("tasks.assign")
+  assignees(): Promise<{ id: string; name: string }[]> {
+    return this.tasks.assignees();
+  }
+
+  /**
    * המשימות של ישות אחת — הפאנל בכרטיס הנכס/הקונה/הליד.
    *
    * הקישור `entityType`/`entityId` קיים בנתונים מהיום הראשון ומעולם

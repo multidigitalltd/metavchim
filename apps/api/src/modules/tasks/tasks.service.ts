@@ -209,6 +209,26 @@ export class TasksService {
     });
   }
 
+  /**
+   * מי אפשר להטיל עליו — שמות בלבד.
+   *
+   * נתיב נפרד ולא `/settings/users`: זה דורש `users.manage`, שהיא
+   * הרשאה לנהל את הצוות ולא להטיל עליו משימה. מי שיש לו
+   * `tasks.assign` ואין לו ניהול משתמשים היה נשאר בלי רשימה, ולכן
+   * בלי הפיצ'ר.
+   *
+   * מוחזרים שם ומזהה בלבד: אימייל, תפקיד ומצב נעילה אינם נחוצים
+   * לבחירה מרשימה, וכל שדה מיותר הוא חשיפה מיותרת.
+   */
+  async assignees(): Promise<{ id: string; name: string }[]> {
+    const tenantId = TenantContext.current().tenantId;
+    return this.prisma.user.findMany({
+      where: { tenantId, isActive: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    });
+  }
+
   async create(input: {
     title: string;
     notes?: string;

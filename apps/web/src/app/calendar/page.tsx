@@ -6,7 +6,7 @@ import { Button } from "@metavchim/ui";
 import { hebrewDateFull, hebrewDateShort } from "@metavchim/shared";
 import { apiGet, apiPatch } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
-import { TasksSection } from "./tasks-section";
+import { TasksBoard } from "../tasks/tasks-board";
 import { RecurrenceSection } from "./recurrence-section";
 
 /**
@@ -157,7 +157,8 @@ export default function CalendarPage() {
 
       {tab === "tasks" ? (
         <div id="panel-tasks" role="tabpanel" aria-labelledby="tab-tasks">
-          <TasksSection />
+          {/* אותו לוח בדיוק כמו במסך /tasks — לא עותק שיתחיל להיפרד */}
+          <TasksBoard heading="המשימות שלי" />
           <RecurrenceSection />
         </div>
       ) : (
