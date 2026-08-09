@@ -17,6 +17,7 @@ import {
   type BackupHealth,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
+import { callUpdaterAgent, updaterFailure } from "./updater-agent";
 
 /** מצב הסנכרון החיצוני כפי שקונטיינר ה-offsite כותב אותו. */
 export interface OffsiteStatus {
@@ -166,7 +167,7 @@ export class BackupsService {
       body: JSON.stringify({ name }),
     });
     if (res.status === 409) throw new ConflictException("פעולה אחרת כבר רצה — המתינו לסיומה");
-    if (!res.ok) throw new ServiceUnavailableException("סוכן העדכון החזיר שגיאה");
+    if (!res.ok) throw updaterFailure(res);
     this.logger.warn(`שחזור מגיבוי הופעל ממסך הפלטפורמה: ${name}`);
   }
 
@@ -178,35 +179,23 @@ export class BackupsService {
   async startBackup(): Promise<void> {
     const res = await this.callAgent("/backup", { method: "POST" });
     if (res.status === 409) throw new ConflictException("פעולה אחרת כבר רצה — המתינו לסיומה");
-    if (!res.ok) throw new ServiceUnavailableException("סוכן העדכון החזיר שגיאה");
+    if (!res.ok) throw updaterFailure(res);
     this.logger.log("גיבוי ידני הופעל ממסך הפלטפורמה");
   }
 
   async backupStatus(): Promise<BackupRunStatus> {
     const res = await this.callAgent("/backup/status", { method: "GET" });
-    if (!res.ok) throw new ServiceUnavailableException("סוכן העדכון החזיר שגיאה");
+    if (!res.ok) throw updaterFailure(res);
     return (await res.json()) as BackupRunStatus;
   }
 
   async restoreStatus(): Promise<RestoreStatus> {
     const res = await this.callAgent("/restore/status", { method: "GET" });
-    if (!res.ok) throw new ServiceUnavailableException("סוכן העדכון החזיר שגיאה");
+    if (!res.ok) throw updaterFailure(res);
     return (await res.json()) as RestoreStatus;
   }
 
-  private async callAgent(path: string, init: RequestInit): Promise<Response> {
-    const env = loadEnv();
-    if (env.UPDATER_URL === undefined || env.UPDATE_SECRET === undefined) {
-      throw new ServiceUnavailableException("שחזור מהממשק אינו מוגדר בסביבה זו");
-    }
-    try {
-      return await fetch(`${env.UPDATER_URL}${path}`, {
-        ...init,
-        headers: { ...(init.headers ?? {}), "x-update-secret": env.UPDATE_SECRET },
-        signal: AbortSignal.timeout(10_000),
-      });
-    } catch {
-      throw new ServiceUnavailableException("סוכן העדכון אינו זמין");
-    }
+  private callAgent(path: string, init: RequestInit): Promise<Response> {
+    return callUpdaterAgent(path, init);
   }
 }

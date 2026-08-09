@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { LEGAL } from "../../lib/legal";
+import { LegalDemoNotice } from "../legal-demo-notice";
 
 export const metadata: Metadata = { title: "תנאי שימוש" };
 
@@ -24,9 +25,11 @@ export default function TermsOfServicePage() {
   return (
     <article className="mx-auto max-w-2xl pb-12">
       <h1 className="mb-1 text-2xl font-bold">תנאי שימוש</h1>
-      <p className="mb-6 text-sm text-[var(--mv-muted)]">
+      <p className="mb-6 text-sm text-[var(--color-text-muted)]">
         עודכן לאחרונה: {LEGAL.updatedAt}
       </p>
+
+      <LegalDemoNotice />
 
       <p className="mb-4">
         תנאים אלה חלים על השימוש בשירות {LEGAL.productName}, המופעל על ידי{" "}
@@ -160,7 +163,7 @@ export default function TermsOfServicePage() {
         </p>
       </Section>
 
-      <p className="mt-8 text-sm text-[var(--mv-muted)]">
+      <p className="mt-8 text-sm text-[var(--color-text-muted)]">
         ראו גם:{" "}
         <a href="/privacy" className="underline">
           מדיניות פרטיות

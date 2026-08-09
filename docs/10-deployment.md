@@ -97,17 +97,25 @@ certbot --nginx -d crm.example.co.il
 ה-API החדש מריץ `prisma migrate deploy` לפני שהוא עולה — סכימה וקוד
 מתעדכנים יחד.
 
-**עדכון ידני (גיבוי):**
+**הסוכן אינו מעדכן את עצמו.** הוא מריץ את פקודת ה-compose מתוך
+הקונטיינר שלו, והרמה מחדש של אותו קונטיינר הייתה הורגת את הפקודה
+באמצע ומשאירה את השרת בלי סוכן. לכן הוא רק **מושך** את התמונה
+החדשה של עצמו בסוף כל עדכון, וההרמה נשארת פעולה ידנית של שורה אחת.
+
+זה מצב שקורה בפועל ושווה להכיר: המערכת חדשה, הסוכן ישן, וכפתור
+שנוסף מאז (למשל "גבה עכשיו") מחזיר שגיאה כי הנתיב אינו קיים בסוכן.
+ההודעה במסך אומרת את זה מפורשות ומצטטת את הפקודה.
+
+**עדכון ידני (גיבוי) — כולל הסוכן:**
 
 ```bash
-cd /srv/metavchim
-docker compose -f docker-compose.prod.yml --env-file .env.production pull api web workers
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-deps api web workers
+cd /srv/metavchim && git pull
+docker compose -f docker-compose.prod.yml --env-file .env.production pull api web workers updater
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-deps api web workers updater
 ```
 
 **שינויים מבניים** (קבצי compose/Caddyfile חדשים, שירות חדש): הכפתור
-לא מכסה אותם — `git pull` על השרת ואז `up -d`. עדכון הסוכן עצמו:
-`pull updater && up -d updater`.
+לא מכסה אותם — `git pull` על השרת ואז `up -d`.
 
 **הריפו לא ב-`/srv/metavchim`?** הוסיפו `REPO_DIR=/הנתיב/שלכם`
 ל-`.env.production`. הסוכן מריץ `docker compose` מול ה-Docker של

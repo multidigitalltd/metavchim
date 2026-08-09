@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { LEGAL, SUBPROCESSORS } from "../../lib/legal";
+import { LegalDemoNotice } from "../legal-demo-notice";
 
 export const metadata: Metadata = { title: "מדיניות פרטיות" };
 
@@ -29,9 +30,11 @@ export default function PrivacyPolicyPage() {
   return (
     <article className="mx-auto max-w-2xl pb-12">
       <h1 className="mb-1 text-2xl font-bold">מדיניות פרטיות</h1>
-      <p className="mb-6 text-sm text-[var(--mv-muted)]">
+      <p className="mb-6 text-sm text-[var(--color-text-muted)]">
         עודכן לאחרונה: {LEGAL.updatedAt}
       </p>
+
+      <LegalDemoNotice />
 
       <p className="mb-4">
         מדיניות זו מסבירה איזה מידע נאסף בשירות {LEGAL.productName} (להלן
