@@ -19,7 +19,7 @@ import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { MatchingService } from "../matching/matching.service";
 import { MessagingService } from "../messaging/messaging.service";
@@ -46,20 +46,28 @@ export class PropertiesService {
    * נכסים בארכיון נספרים כמו כל השאר: הם עדיין במסד ועדיין ניתנים
    * לשחזור, ולכן לא היו מכסת חינם.
    */
-  private async assertCanAddProperty(): Promise<void> {
-    const tenantId = TenantContext.current().tenantId;
+  /**
+   * מכסת הנכסים של המסלול — **בתוך הטרנזקציה שכותבת**.
+   *
+   * הבדיקה קיבלה `tx` ולא פותחת אחת משלה, ולפניה ננעל מנעול ייעוץ
+   * ברמת הדייר. שתי בקשות מקבילות שספרו את אותו מצב לפני שאחת מהן
+   * כתבה היו שתיהן עוברות, והמכסה הייתה נחצית בשקט — במיוחד בייבוא,
+   * ששולח הרבה יצירות ברצף (ביקורת Codex).
+   *
+   * המנעול הוא `pg_advisory_xact_lock` ולא נעילת שורה: אין שורה
+   * שמייצגת "המכסה של הדייר", והוא משתחרר מעצמו בסוף הטרנזקציה —
+   * גם כשהיא נכשלת.
+   *
+   * הספירה חייבת לרוץ בהקשר דייר: `properties` תחת FORCE RLS, ובלי
+   * `app.tenant_id` היא מחזירה אפס שורות **בלי שגיאה** — כלומר מכסה
+   * שלעולם אינה נחצית, ובדיקה שנראית עובדת.
+   */
+  private async assertCanAddProperty(tx: TenantTx, tenantId: string): Promise<void> {
     const plan = await this.plans.forTenant(tenantId);
     const limit = plan?.maxProperties ?? null;
     if (limit === null) return;
-    /*
-     * הספירה חייבת לרוץ בתוך הקשר דייר.
-     *
-     * `properties` תחת FORCE RLS: שאילתה בלי `app.tenant_id` מחזירה
-     * אפס שורות **בלי שגיאה**, גם כשהתנאי `tenantId` כתוב במפורש.
-     * כלומר המכסה לעולם לא הייתה נחצית, והבדיקה הייתה נראית עובדת
-     * (ביקורת Codex).
-     */
-    const used = await this.prisma.withTenant((tx) => tx.property.count({ where: { tenantId } }));
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`property-quota:${tenantId}`}))`;
+    const used = await tx.property.count({ where: { tenantId } });
     if (limitState(used, limit).blocked) {
       throw new BadRequestException(
         `מסלול "${plan?.name ?? ""}" כולל ${limit} נכסים. לתוספת נכסים יש לשדרג מסלול.`,
@@ -75,7 +83,6 @@ export class PropertiesService {
     /** בעל הנכס (המוכר) — נקשר כ-contact לפי טלפון (docs/03: אדם אחד) */
     owner?: { name: string; phone: string };
   }): Promise<PropertyDto> {
-    await this.assertCanAddProperty();
     const id = await this.persist(input);
     // חישוב התאמות — סינכרוני בשלב זה; יעבור לתור BullMQ עם עליית ה-Workers (docs/07 §5).
     await this.matching.recomputeForProperty(id);
@@ -95,8 +102,7 @@ export class PropertiesService {
     status?: string;
   }): Promise<string> {
     // גם בייבוא: קובץ של אלף נכסים לא אמור לעקוף מכסה שהוספה ידנית
-    // נחסמת בה
-    await this.assertCanAddProperty();
+    // נחסמת בה. הבדיקה עצמה בתוך persist, באותה טרנזקציה של הכתיבה.
     const id = await this.persist(input);
     try {
       await this.matching.recomputeForProperty(id);
@@ -123,6 +129,9 @@ export class PropertiesService {
     });
 
     await this.prisma.withTenant(async (tx) => {
+      // המכסה נבדקת כאן ולא לפני הקריאה: אותה טרנזקציה שכותבת היא
+      // זו שסופרת, ולכן שתי בקשות מקבילות לא יכולות לעבור יחד
+      await this.assertCanAddProperty(tx, tenantId);
       const ownerContact = input.owner
         ? await this.contacts.findOrCreateByPhone(tx, input.owner)
         : null;

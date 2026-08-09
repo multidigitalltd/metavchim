@@ -34,7 +34,7 @@ import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { AuthService } from "../auth/auth.service";
 import { LoginThrottleService } from "../auth/login-throttle.service";
 
@@ -182,7 +182,13 @@ export class SettingsController {
       this.plans.forTenant(tenantId),
       this.prisma.tenant.findUnique({
         where: { id: tenantId },
-        select: { plan: true, _count: { select: { users: true, properties: true } } },
+        select: {
+          plan: true,
+          // רק משתמשים פעילים — האכיפה סופרת פעילים בלבד, וספירת
+          // חשבונות שהושבתו הייתה מציגה מכסה מלאה בזמן שהוספה עוד
+          // מותרת (ביקורת Codex)
+          _count: { select: { users: { where: { isActive: true } }, properties: true } },
+        },
       }),
     ]);
     const users = counts?._count.users ?? 0;
@@ -540,9 +546,17 @@ export class SettingsController {
    * הטבלה users מחוץ ל-RLS (ראו הערה ב-schema.prisma), ולכן הספירה
    * הישירה כאן תקפה — התנאי `tenantId` הוא זה שמבודד.
    */
-  private async assertSeatAvailable(tenantId: string): Promise<void> {
+  private async assertSeatAvailable(tx: TenantTx, tenantId: string): Promise<void> {
     const plan = await this.plans.forTenant(tenantId);
-    const used = await this.prisma.user.count({ where: { tenantId, isActive: true } });
+    if ((plan?.maxUsers ?? null) === null) return;
+    /*
+     * מנעול ייעוץ ברמת הדייר, בתוך הטרנזקציה שכותבת.
+     *
+     * שתי בקשות מקבילות שספרו את אותו מצב לפני שאחת מהן כתבה היו
+     * שתיהן עוברות, והמכסה הייתה נחצית בשקט (ביקורת Codex).
+     */
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seat-quota:${tenantId}`}))`;
+    const used = await tx.user.count({ where: { tenantId, isActive: true } });
     if (limitState(used, plan?.maxUsers ?? null).blocked) {
       throw new BadRequestException(
         `מסלול "${plan?.name ?? ""}" כולל ${plan?.maxUsers} משתמשים. לתוספת משתמשים יש לשדרג מסלול.`,
@@ -560,13 +574,13 @@ export class SettingsController {
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) throw new BadRequestException("האימייל כבר רשום במערכת");
 
-    await this.assertSeatAvailable(tenantId);
-
     const tempPassword = `Mv-${randomBytes(9).toString("base64url")}`;
     const id = ulid();
     const passwordHash = await AuthService.hashPassword(tempPassword);
     // יצירה + Audit בטרנזקציה אחת — אין חשבון בלי רישום (ביקורת Codex)
     await this.prisma.withTenant(async (tx) => {
+      // המכסה נבדקת באותה טרנזקציה שיוצרת, אחרי נעילת הדייר
+      await this.assertSeatAvailable(tx, tenantId);
       await tx.user.create({
         data: {
           id,
@@ -609,17 +623,19 @@ export class SettingsController {
     if (target.role === "owner") {
       throw new BadRequestException("אי אפשר לשנות את בעל המשרד");
     }
-    // הפעלה מחדש תופסת מושב — אותה מכסה בדיוק כמו ביצירה
-    if (body.isActive === true && !target.isActive) {
-      await this.assertSeatAvailable(ctx.tenantId);
-    }
-
-    await this.prisma.user.update({
-      where: { id },
-      data: {
-        ...(body.role !== undefined ? { role: body.role } : {}),
-        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
-      },
+    await this.prisma.withTenant(async (tx) => {
+      // הפעלה מחדש תופסת מושב — אותה מכסה בדיוק כמו ביצירה, ובאותה
+      // טרנזקציה שמעדכנת כדי ששתי הפעלות במקביל לא יעברו יחד
+      if (body.isActive === true && !target.isActive) {
+        await this.assertSeatAvailable(tx, ctx.tenantId);
+      }
+      await tx.user.update({
+        where: { id },
+        data: {
+          ...(body.role !== undefined ? { role: body.role } : {}),
+          ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+        },
+      });
     });
     if (body.isActive === false) {
       // ניתוק מיידי: משתמש שהושבת לא ממשיך לעבוד עם Session חי

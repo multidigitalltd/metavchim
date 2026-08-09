@@ -255,7 +255,12 @@ export class PlatformController {
   ): Promise<{ warnings: string[] }> {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id },
-      select: { plan: true, _count: { select: { users: true, properties: true } } },
+      select: {
+        plan: true,
+        // רק פעילים, כמו האכיפה עצמה — אחרת אזהרת ההורדה הייתה
+        // מדווחת חריגה שלא קיימת (ביקורת Codex)
+        _count: { select: { users: { where: { isActive: true } }, properties: true } },
+      },
     });
     if (!tenant) throw new BadRequestException("משרד לא נמצא");
     const target = await this.plans.byCode(query.plan);
