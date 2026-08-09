@@ -62,6 +62,10 @@ export class TelephonyService {
     lastEventAt?: Date;
     clickToDial: boolean;
     config: Record<string, unknown>;
+    /** שמות השדות באירוע האחרון — לאבחון מיפוי מול הספק. */
+    lastEventKeys?: string;
+    /** false = אירוע הגיע ולא הובן. שונה לגמרי מ"לא הגיע כלום". */
+    lastEventOk?: boolean;
   }> {
     const tenantId = TenantContext.current().tenantId;
     const row = await this.prisma.withTenant((tx) =>
@@ -78,6 +82,8 @@ export class TelephonyService {
       // ומנהל המשרד חייב אותה כדי להזין אותה במרכזייה שלו
       webhookUrl: this.webhookUrl(row.webhookKey),
       lastEventAt: row.lastEventAt ?? undefined,
+      ...(row.lastEventKeys ? { lastEventKeys: row.lastEventKeys } : {}),
+      ...(row.lastEventOk !== null ? { lastEventOk: row.lastEventOk } : {}),
       clickToDial: provider?.clickToDial ?? false,
       config: (row.config ?? {}) as Record<string, unknown>,
     };
@@ -303,14 +309,38 @@ export class TelephonyService {
     }
 
     const event = parseTelephonyEvent(payload);
-    if (!event) return; // חסר מספר או מזהה — אין מה לעשות איתו
-
     const tenantId = integration.tenantId;
+
+    /*
+     * **התיעוד נרשם על ההגעה, לא על ההצלחה.**
+     *
+     * קודם `lastEventAt` נכתב רק אחרי שהאירוע נותח בהצלחה, ולכן
+     * מרכזייה ששלחה payload בשמות שדות שאיננו מכירים השאירה את המסך
+     * אומר "לא התקבל אף אירוע" — בדיוק כמו מרכזייה שמעולם לא פנתה.
+     * שני המצבים דורשים פעולה הפוכה: כתובת שגויה אצל הספק מול מיפוי
+     * שדות חסר אצלנו, ובלי ההבחנה אי אפשר לדעת במה מדובר.
+     *
+     * נשמרים **שמות השדות בלבד**. הם מספיקים כדי למפות ספק חדש,
+     * ואינם מכניסים את מספר הטלפון של הלקוח לעמודה גלויה.
+     */
     await this.prisma.withExplicitTenant(tenantId, async (tx) => {
       await tx.integration.updateMany({
         where: { id: integration.id, tenantId },
-        data: { lastEventAt: new Date() },
+        data: {
+          lastEventAt: new Date(),
+          lastEventKeys: Object.keys(payload).join(", ").slice(0, 400),
+          lastEventOk: event !== null,
+        },
       });
+    });
+    if (!event) {
+      this.logger.warn(
+        `אירוע מרכזייה שלא זוהה (${integration.tenantId}). שדות: ${Object.keys(payload).join(", ")}`,
+      );
+      return; // חסר מספר או מזהה — אין מה לעשות איתו
+    }
+
+    await this.prisma.withExplicitTenant(tenantId, async (tx) => {
 
       const phoneHash = this.crypto.phoneHash(event.peerPhone);
       /*

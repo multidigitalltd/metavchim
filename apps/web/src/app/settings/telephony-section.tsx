@@ -25,6 +25,8 @@ interface Status {
   providerLabel?: string;
   webhookUrl?: string;
   lastEventAt?: string;
+  lastEventKeys?: string;
+  lastEventOk?: boolean;
   clickToDial: boolean;
   config: Record<string, unknown>;
 }
@@ -155,6 +157,39 @@ export function TelephonySection() {
               {copied ? "✓ הועתק" : "העתק"}
             </button>
           </div>
+          {/*
+            אבחון: שלושה מצבים שונים לגמרי, ובלי ההבחנה ביניהם אי אפשר
+            לדעת אם הבעיה אצל הספק או אצלנו.
+          */}
+          <div className="mt-2.5 rounded-lg border p-2.5" style={{ borderColor: "var(--color-border)" }}>
+            {status.lastEventAt === undefined ? (
+              <p className="m-0 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                טרם התקבל אף אירוע מהמרכזייה. אם כבר הזנתם את הכתובת אצל הספק —
+                בצעו שיחת בדיקה, ואם עדיין ריק כאן, הכתובת אצלו אינה מצביעה לכאן.
+              </p>
+            ) : status.lastEventOk === false ? (
+              <>
+                <p className="m-0 text-[12.5px]" style={{ color: "var(--color-warning)" }}>
+                  ⚠ האירוע האחרון הגיע ב-{new Date(status.lastEventAt).toLocaleString("he-IL")} —
+                  אבל לא זוהה. כלומר הכתובת נכונה, והמרכזייה שולחת שמות שדות
+                  שהמערכת עדיין אינה מכירה.
+                </p>
+                {status.lastEventKeys ? (
+                  <p className="m-0 mt-1 text-[12px]" dir="ltr" style={{ color: "var(--color-text-muted)" }}>
+                    {status.lastEventKeys}
+                  </p>
+                ) : null}
+                <p className="m-0 mt-1 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                  שלחו לנו את השורה הזו — היא כל מה שצריך כדי להוסיף את המיפוי.
+                </p>
+              </>
+            ) : (
+              <p className="m-0 text-[12.5px]" style={{ color: "var(--color-success)" }}>
+                ✓ אירוע אחרון התקבל וזוהה ב-{new Date(status.lastEventAt).toLocaleString("he-IL")}
+              </p>
+            )}
+          </div>
+
           <p className="m-0 mt-2 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
             המרכזייה יכולה לקרוא לכתובת ב-GET עם פרמטרים או ב-POST. השדות הנדרשים:
             מספר המתקשר, מזהה שיחה, וסטטוס (‎ringing / answered / hangup‎).
