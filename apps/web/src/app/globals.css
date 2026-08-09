@@ -1302,3 +1302,150 @@ button.mv-list-row:hover {
   font-size: 12px;
   color: var(--color-danger);
 }
+
+/* ============================================================
+   מסכי הכניסה — התחברות, הרשמה, איפוס סיסמה.
+   ============================================================
+   מסך הכניסה הוא הדבר הראשון שמשרד רואה, ועד כה הוא היה טופס
+   בודד על רקע ריק בזמן שכל שאר המערכת כבר עוצבה. הפריסה כאן היא
+   שני טורים: לוח מותג ירוק עם הבטחת הערך, ולצידו הטופס על משטח
+   לבן — אותם טוקנים בדיוק של שאר המסכים, בלי פלטה שנייה.
+
+   במסך צר הלוח מתקפל לכותרת קצרה מעל הטופס ולא נעלם: הוא נושא את
+   שם המערכת, ובלעדיו הדף מתחיל בשדה אימייל בלי הקשר. */
+.mv-auth {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 1fr;
+  background: var(--color-bg);
+}
+@media (min-width: 900px) {
+  .mv-auth {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  }
+}
+
+.mv-auth-brand {
+  background: linear-gradient(160deg, var(--color-primary) 0%, #0a5b2b 100%);
+  color: #ffffff;
+  padding: 28px 26px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+}
+@media (min-width: 900px) {
+  .mv-auth-brand {
+    padding: 56px 52px;
+  }
+}
+.mv-auth-brand h1 {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 1.15;
+}
+@media (min-width: 900px) {
+  .mv-auth-brand h1 {
+    font-size: 40px;
+  }
+}
+.mv-auth-brand p {
+  margin: 0;
+  font-size: 15.5px;
+  line-height: 1.6;
+  /* לבן ב-88% על הירוק הכהה — עדיין מעל 7:1 */
+  color: rgba(255, 255, 255, 0.88);
+}
+.mv-auth-brand-logo {
+  font-size: 21px;
+  font-weight: 900;
+  letter-spacing: -0.4px;
+}
+.mv-auth-points {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 9px;
+}
+.mv-auth-points li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 14.5px;
+  color: rgba(255, 255, 255, 0.92);
+}
+.mv-auth-points li::before {
+  content: "✓";
+  flex: none;
+  font-weight: 900;
+  color: var(--color-action);
+}
+
+.mv-auth-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 26px 20px 40px;
+}
+.mv-auth-card {
+  width: 100%;
+  max-width: 420px;
+}
+.mv-auth-card h2 {
+  margin: 0 0 4px;
+  font-size: 23px;
+  font-weight: 800;
+}
+.mv-auth-sub {
+  margin: 0 0 20px;
+  color: var(--color-text-muted);
+  font-size: 14.5px;
+}
+.mv-auth-field {
+  margin-bottom: 14px;
+}
+.mv-auth-field > label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.mv-auth-input {
+  width: 100%;
+  border: 1px solid var(--color-input-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-radius: 10px;
+  padding: 11px 13px;
+  font-size: 15px;
+}
+.mv-auth-input:focus-visible {
+  outline: 2px solid var(--color-primary-accent);
+  outline-offset: 1px;
+}
+.mv-auth-submit {
+  width: 100%;
+  border: none;
+  background: var(--color-action);
+  color: var(--color-on-action);
+  font-size: 15px;
+  font-weight: 800;
+  border-radius: 10px;
+  padding: 12px 18px;
+  cursor: pointer;
+}
+.mv-auth-submit:hover:not(:disabled) {
+  background: var(--color-action-hover);
+}
+.mv-auth-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.mv-auth-foot {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet, apiPost, ApiError } from "@/lib/api";
+import { AuthShell } from "../auth-shell";
 
 /**
  * התחברות בשני שלבים אפשריים: אימייל+סיסמה, ואם השרת דורש (LOGIN_OTP_ENABLED)
@@ -14,8 +15,6 @@ import { API_BASE, apiGet, apiPost, ApiError } from "@/lib/api";
 type LoginResponse =
   | { user: { mustChangePassword: boolean } }
   | { otpRequired: true; otpToken: string };
-
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
 
 /** שגיאות חזרה מ-Google — הודעה מדויקת בלי לחשוף פרטי מערכת. */
 const GOOGLE_ERRORS: Record<string, string> = {
@@ -139,13 +138,16 @@ function LoginForm() {
               maxLength={6}
               required
               dir="ltr"
-              className="w-full rounded-lg border px-3 py-2.5 text-center text-2xl tracking-widest"
-              style={inputStyle}
+              className="mv-auth-input text-center text-2xl tracking-widest"
             />
           </div>
-          <Button type="submit" disabled={submitting || code.length !== 6} className="w-full">
+          <button
+            type="submit"
+            disabled={submitting || code.length !== 6}
+            className="mv-auth-submit"
+          >
             {submitting ? "מאמת…" : "אימות והתחברות"}
-          </Button>
+          </button>
           <Button
             type="button"
             variant="ghost"
@@ -178,10 +180,8 @@ function LoginForm() {
             </>
           ) : null}
 
-          <div className="mb-4">
-            <label htmlFor="email" className="mb-1 block font-medium">
-              אימייל
-            </label>
+          <div className="mv-auth-field">
+            <label htmlFor="email">אימייל</label>
             <input
               id="email"
               name="email"
@@ -189,15 +189,12 @@ function LoginForm() {
               autoComplete="email"
               required
               dir="ltr"
-              className="w-full rounded-lg border px-3 py-2.5"
-              style={inputStyle}
+              className="mv-auth-input"
             />
           </div>
 
-          <div className="mb-6">
-            <label htmlFor="password" className="mb-1 block font-medium">
-              סיסמה
-            </label>
+          <div className="mv-auth-field" style={{ marginBottom: 22 }}>
+            <label htmlFor="password">סיסמה</label>
             <input
               id="password"
               name="password"
@@ -206,14 +203,13 @@ function LoginForm() {
               required
               minLength={8}
               dir="ltr"
-              className="w-full rounded-lg border px-3 py-2.5"
-              style={inputStyle}
+              className="mv-auth-input"
             />
           </div>
 
-          <Button type="submit" disabled={submitting} className="w-full">
+          <button type="submit" disabled={submitting} className="mv-auth-submit">
             {submitting ? "מתחבר…" : "התחברות"}
-          </Button>
+          </button>
 
           <Link href="/forgot-password" className="mt-4 block text-center underline">
             שכחתי סיסמה
@@ -226,14 +222,21 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div className="mx-auto max-w-sm py-10">
-      <h1 className="mb-1 text-2xl font-bold">התחברות</h1>
-      <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
-        מתווכים — מערכת ניהול למשרדי תיווך
-      </p>
+    <AuthShell
+      title="התחברות"
+      subtitle="ברוכים השבים — הזינו את פרטי הכניסה למשרד."
+      foot={
+        <>
+          עוד אין לכם חשבון?{" "}
+          <Link href="/signup" className="underline font-bold">
+            פתחו משרד בחינם
+          </Link>
+        </>
+      }
+    >
       <Suspense fallback={<p aria-live="polite">טוען…</p>}>
         <LoginForm />
       </Suspense>
-    </div>
+    </AuthShell>
   );
 }

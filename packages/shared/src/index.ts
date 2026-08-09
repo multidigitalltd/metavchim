@@ -32,6 +32,7 @@ export * from "./logic/telephony.js";
 export * from "./logic/list-filters.js";
 export * from "./logic/call-summary.js";
 export * from "./logic/plans.js";
+export * from "./logic/trial.js";
 export * from "./announcements.js";
 export * from "./events.js";
 export * from "./rbac.js";

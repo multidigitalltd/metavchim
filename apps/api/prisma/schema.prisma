@@ -23,6 +23,11 @@ model Tenant {
   name      String   @db.VarChar(120)
   plan      String   @default("basic") @db.VarChar(20)
   status    String   @default("trial") @db.VarChar(20)
+  /// סוף תקופת הניסיון. null = אין תפוגה — משרד שהוקם ידנית או ששילם.
+  /// עמודה ולא שדה ב-settings: היא נבדקת בכל אימות Session.
+  trialEndsAt DateTime? @map("trial_ends_at")
+  /// self | manual — מאיזה ערוץ המשרד הגיע. לדוח ולתמיכה, לא להרשאות.
+  signupSource String  @default("manual") @map("signup_source") @db.VarChar(20)
   settings  Json     @default("{}")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -30,6 +35,7 @@ model Tenant {
   users      User[]
   properties Property[]
 
+  @@index([trialEndsAt])
   @@map("tenants")
 }
 
