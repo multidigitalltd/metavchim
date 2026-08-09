@@ -7,6 +7,9 @@ import {
   parseTelephonyEvent,
   telephonyProvider,
   type TelephonyEvent,
+  build015DialUrl,
+  parse015DialResponse,
+  PBX015_MAKE_URL,
 } from "./telephony.js";
 
 function event(overrides: Partial<TelephonyEvent> = {}): TelephonyEvent {
@@ -218,5 +221,74 @@ describe("ולידציה של המספר", () => {
   it("מספר ישראלי תקין מתקבל — נייד וקווי", () => {
     expect(parseTelephonyEvent({ caller: "0501234567", call_id: "x" })?.peerPhone).toBe("+972501234567");
     expect(parseTelephonyEvent({ caller: "037654321", call_id: "x" })?.peerPhone).toBe("+97237654321");
+  });
+});
+
+describe("build015DialUrl", () => {
+  const base = {
+    authUsername: "office",
+    authPassword: "s3cret",
+    agentLine: "0501234567",
+    destination: "0529876543",
+  };
+
+  it("שמות הפרמטרים בדיוק כמו בתיעוד של 015", () => {
+    const url = new URL(build015DialUrl(base));
+    expect(url.origin + url.pathname).toBe(PBX015_MAKE_URL);
+    expect(url.searchParams.get("auth_username")).toBe("office");
+    expect(url.searchParams.get("auth_password")).toBe("s3cret");
+    expect(url.searchParams.get("stype")).toBe("phone");
+    expect(url.searchParams.get("snumber")).toBe("0501234567");
+    expect(url.searchParams.get("cnumber")).toBe("0529876543");
+  });
+
+  it("הסוכן ראשון והלקוח שני — ולא הפוך", () => {
+    // היפוך היה מצלצל אצל הלקוח וממתין שהוא יענה כדי לחייג לסוכן
+    const url = new URL(build015DialUrl(base));
+    expect(url.searchParams.get("snumber")).toBe(base.agentLine);
+    expect(url.searchParams.get("cnumber")).toBe(base.destination);
+  });
+
+  it("wait נשלח תמיד — בלעדיו אין callid לקשור אליו את הוובהוק", () => {
+    expect(new URL(build015DialUrl(base)).searchParams.get("wait")).toBe("5");
+  });
+
+  it("מזהה המתקשר יושב על הרגל השנייה — זו שהלקוח רואה", () => {
+    const url = new URL(build015DialUrl({ ...base, callerId: "037654321" }));
+    expect(url.searchParams.get("callerid2")).toBe("037654321");
+    expect(url.searchParams.get("callerid1")).toBeNull();
+  });
+
+  it("בלי מזהה מתקשר — הפרמטר לא נשלח כלל", () => {
+    expect(new URL(build015DialUrl(base)).searchParams.get("callerid2")).toBeNull();
+  });
+});
+
+describe("parse015DialResponse", () => {
+  it("200 מחזיר את מזהה השיחה", () => {
+    const res = parse015DialResponse({
+      responses: [{ code: "200", message: "OK" }],
+      data: { server: "server01", callid: "1234567890.123456" },
+    });
+    expect(res.ok).toBe(true);
+    expect(res.callId).toBe("1234567890.123456");
+  });
+
+  it("204 הוא הצלחה ולא כשל — השיחה כבר מצלצלת", () => {
+    // התייחסות ל-204 ככשל הייתה מציגה שגיאה על שיחה שיוצאת בפועל
+    const res = parse015DialResponse({ responses: [{ code: "204", message: "OK" }] });
+    expect(res.ok).toBe(true);
+    expect(res.callId).toBeUndefined();
+  });
+
+  it("401 מתורגם למה שצריך לתקן", () => {
+    const res = parse015DialResponse({ responses: [{ code: "401", message: "Unauthorized" }] });
+    expect(res.ok).toBe(false);
+    expect(res.message).toContain("שם המשתמש או הסיסמה");
+  });
+
+  it("תשובה משובשת אינה נקראת כהצלחה", () => {
+    expect(parse015DialResponse(null).ok).toBe(false);
+    expect(parse015DialResponse({ responses: [] }).ok).toBe(false);
   });
 });

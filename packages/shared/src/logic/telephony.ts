@@ -12,14 +12,19 @@
  */
 import { normalizePhone } from "./contact-people.js";
 
-export type TelephonyProviderId = "generic" | "zadarma" | "voicenter" | "012";
+export type TelephonyProviderId = "generic" | "zadarma" | "voicenter" | "015";
 
 export interface TelephonyProvider {
   id: TelephonyProviderId;
   label: string;
   /** מה המשרד צריך להזין כדי לחבר את הספק. */
   fields: { key: string; label: string; secret: boolean }[];
-  /** האם הספק תומך בחיוג יוצא מהמערכת. */
+  /**
+   * האם **קיים מימוש** של חיוג יוצא לספק הזה — לא האם הספק תומך.
+   *
+   * הדגל הזה היה מוצהר `true` על שלושה ספקים בלי שורת קוד שמחייגת,
+   * והמסך הבטיח פיצ'ר שלא קרה. הוא נכון רק כשיש `dial` בשירות.
+   */
   clickToDial: boolean;
 }
 
@@ -39,6 +44,28 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
     clickToDial: false,
   },
   {
+    /*
+     * 015 — הספק היחיד עם חיוג יוצא ממומש.
+     *
+     * ה-API שלו מאמת ב**שם משתמש וסיסמה** ולא בטוקן (`auth_username`,
+     * `auth_password`), וזה מה שהיה כתוב כאן קודם בטעות. שניהם סודות:
+     * מי שמחזיק בהם יכול לחייג על חשבון המשרד.
+     *
+     * `defaultLine` הוא נפילה-לאחור בלבד. השיחה מצלצלת קודם **לטלפון
+     * של הסוכן** (הפרופיל שלו), כי זו כל הנקודה של חיוג בלחיצה; קו
+     * משרדי אחד לכולם היה מחבר את הלקוח למי שבמקרה הרים.
+     */
+    id: "015",
+    label: "015 / 012 מובייל",
+    fields: [
+      { key: "authUsername", label: "שם משתמש ב-015", secret: true },
+      { key: "authPassword", label: "סיסמה ב-015", secret: true },
+      { key: "defaultLine", label: "קו ברירת מחדל (כשלסוכן אין טלפון בפרופיל)", secret: false },
+      { key: "callerId", label: "מזהה מתקשר שיוצג ללקוח (לא חובה)", secret: false },
+    ],
+    clickToDial: true,
+  },
+  {
     id: "zadarma",
     label: "Zadarma",
     fields: [
@@ -46,7 +73,8 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
       { key: "apiSecret", label: "סוד API", secret: true },
       { key: "callerId", label: "שלוחה לחיוג יוצא", secret: false },
     ],
-    clickToDial: true,
+    // קליטת שיחות עובדת; חיוג יוצא טרם מומש מול ה-API שלהם
+    clickToDial: false,
   },
   {
     id: "voicenter",
@@ -55,16 +83,7 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
       { key: "token", label: "טוקן API", secret: true },
       { key: "extension", label: "שלוחה לחיוג יוצא", secret: false },
     ],
-    clickToDial: true,
-  },
-  {
-    id: "012",
-    label: "012 מובייל / 015",
-    fields: [
-      { key: "token", label: "טוקן API", secret: true },
-      { key: "extension", label: "שלוחה לחיוג יוצא", secret: false },
-    ],
-    clickToDial: true,
+    clickToDial: false,
   },
 ];
 
@@ -231,3 +250,95 @@ export function describeCall(event: TelephonyEvent): string {
   const length = minutes > 0 ? `${minutes} דק׳ ${rest} שנ׳` : `${rest} שנ׳`;
   return `${direction} · ${length}`;
 }
+
+/* ==================== חיוג יוצא — 015 ==================== */
+
+/**
+ * ‎`calls/make` של 015 — בניית הבקשה.
+ *
+ * **השיחה דו-שלבית**: 015 מצלצל קודם ל-`snumber` (הטלפון של הסוכן),
+ * וכשהוא עונה — מחייג ל-`cnumber` (הלקוח) ומחבר ביניהם. זה המודל
+ * הנכון לחיוג בלחיצה: הסוכן לא צריך להקליד, והלקוח רואה שיחה
+ * מהמשרד.
+ *
+ * `wait` נשלח בכוונה: בלעדיו 015 מחזיר 204 בלי `callid`, ואז אין
+ * לנו מזהה לקשור אליו את האירועים שיגיעו ב-Webhook — כלומר השיחה
+ * שהמערכת יזמה תיראה כמו שיחה זרה.
+ *
+ * הפונקציה מחזירה URL ולא שולחת אותו: כך היא ניתנת לבדיקה בלי רשת,
+ * וכל ההחלטות על שמות הפרמטרים נבדקות מול התיעוד פעם אחת.
+ */
+export const PBX015_MAKE_URL = "https://www.015pbx.net/local/api/json/calls/make/";
+
+export function build015DialUrl(input: {
+  authUsername: string;
+  authPassword: string;
+  /** הטלפון של הסוכן — הצד שמצלצל ראשון. */
+  agentLine: string;
+  /** הלקוח — הצד שאליו מחברים אחרי שהסוכן ענה. */
+  destination: string;
+  /** מזהה המתקשר שיוצג ללקוח, כשהוגדר. */
+  callerId?: string;
+  /** כמה שניות להמתין לתשובה עם מזהה שיחה. */
+  waitSeconds?: number;
+}): string {
+  /*
+   * בנייה ידנית ולא `URLSearchParams`: החבילה הזו רצה גם בדפדפן וגם
+   * בשרת, והיא מוגדרת מול `lib: ES2023` בלבד — בלי DOM ובלי Node.
+   * הרחבת ה-lib בשביל שורה אחת הייתה פותחת את כל ה-API של הדפדפן
+   * לקוד שאמור להישאר ניטרלי.
+   */
+  const params: [string, string][] = [
+    ["auth_username", input.authUsername],
+    ["auth_password", input.authPassword],
+    // "phone" = קו טלפון ולא מספר חיצוני; זו הצורה של שלוחת הסוכן
+    ["stype", "phone"],
+    ["snumber", input.agentLine],
+    ["cnumber", input.destination],
+    ["wait", String(input.waitSeconds ?? 5)],
+    // מזהה המתקשר על הרגל **השנייה** — זה מה שהלקוח רואה
+    ...(input.callerId ? ([["callerid2", input.callerId]] as [string, string][]) : []),
+  ];
+  const query = params
+    .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+    .join("&");
+  return `${PBX015_MAKE_URL}?${query}`;
+}
+
+/**
+ * פענוח התשובה של 015.
+ *
+ * 200 = התקבל עם מזהה שיחה, 204 = התקבל בלי. **שניהם הצלחה** —
+ * קריאה שמתייחסת ל-204 ככשל הייתה מציגה שגיאה על שיחה שכבר מצלצלת
+ * אצל הסוכן.
+ */
+export function parse015DialResponse(
+  body: unknown,
+): { ok: boolean; callId?: string; message: string } {
+  const root = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  const responses = Array.isArray(root["responses"]) ? root["responses"] : [];
+  const first =
+    typeof responses[0] === "object" && responses[0] !== null
+      ? (responses[0] as Record<string, unknown>)
+      : {};
+  const code = String(first["code"] ?? "");
+  const message = typeof first["message"] === "string" ? first["message"] : "";
+  const data =
+    typeof root["data"] === "object" && root["data"] !== null
+      ? (root["data"] as Record<string, unknown>)
+      : {};
+  const callId = typeof data["callid"] === "string" ? data["callid"] : undefined;
+
+  if (code === "200" || code === "204") {
+    return { ok: true, ...(callId ? { callId } : {}), message: message || "השיחה יוצאת" };
+  }
+  return { ok: false, message: DIAL_ERRORS[code] ?? message ?? `שגיאה מ-015 (${code})` };
+}
+
+/** תרגום קודי השגיאה של 015 למה שהמתווך צריך לעשות. */
+const DIAL_ERRORS: Record<string, string> = {
+  "400": "פרטי החיוג שגויים — בדקו את הקו של הסוכן ואת מספר הלקוח",
+  "401": "שם המשתמש או הסיסמה של 015 שגויים",
+  "402": "למשתמש ב-015 אין הרשאה לחייג",
+  "403": "חבילת ה-015 אינה מאפשרת את החיוג הזה",
+};

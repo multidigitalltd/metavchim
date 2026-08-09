@@ -16,6 +16,7 @@ import { TimelineSection } from "./timeline-section";
 import { ContactPeople } from "../../contact-people";
 import { RelatedEntities } from "../../related-entities";
 import { EntityTasks } from "../../entity-tasks";
+import { ClickToDial } from "../../click-to-dial";
 import { AgreementsPanel } from "../../agreements-panel";
 
 /**
@@ -228,9 +229,12 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
           >
             וואטסאפ
           </a>
+          {/* מהמכשיר — תמיד זמין, ולא נרשם במערכת */}
           <a href={`tel:${buyer.contact.phone}`} className="mv-btn-plain" style={{ padding: "7px 14px", fontSize: 13 }}>
-            חייג
+            חייג מהנייד
           </a>
+          {/* דרך המרכזייה — נרשם בכרטיס מעצמו, עם משך והקלטה */}
+          <ClickToDial contactId={buyer.contact.id} phone={buyer.contact.phone} label="חייג מהמרכזייה" />
           <Link href={`/buyers/${id}/edit`} className="mv-btn-plain" style={{ padding: "7px 14px", fontSize: 13 }}>
             ערוך דרישות
           </Link>
