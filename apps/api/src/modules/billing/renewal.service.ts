@@ -1,6 +1,8 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
+  BILLING_GRACE_DAYS,
+  accessUntil,
   billingAnchorDay,
   cyclePriceAgorot,
   describeCycle,
@@ -35,16 +37,6 @@ import { PrismaService } from "../../core/prisma.service";
 const TICK_MS = 60 * 60 * 1000;
 /** כמה מנויים לחדש בכל סבב. תקרה, לא יעד. */
 const BATCH = 25;
-/**
- * חלון החסד אחרי סוף התקופה.
- *
- * חיוב שנכשל אינו נועל את המשרד באותו רגע: כרטיס שפג תוקפו הוא
- * המצב הנפוץ, והוא נפתר בעדכון פרטים — לא בהשבתה. בתוך החלון
- * המערכת ממשיכה לנסות, ואחריו `paid_until` כבר חלף וההרשאה נסגרת
- * מעצמה.
- */
-const GRACE_DAYS = 3;
-
 @Injectable()
 export class RenewalService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RenewalService.name);
@@ -195,7 +187,6 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
       return false;
     }
 
-    const graceUntil = new Date(periodEnd.getTime() + GRACE_DAYS * 86_400_000);
     await this.prisma.$transaction([
       this.prisma.payment.update({
         where: { id: paymentId },
@@ -211,7 +202,7 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
         where: { id: tenantId },
         // חלון החסד נכנס ל-paid_until ולא לתקופה עצמה: התקופה
         // הבאה נמדדת מהמועד האמיתי, וחלון החסד לא נצבר משנה לשנה
-        data: { paidUntil: graceUntil },
+        data: { paidUntil: accessUntil(periodEnd) },
       }),
     ]);
 
@@ -249,7 +240,7 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
         "חידוש המנוי לא הושלם",
         `החיוב עבור מסלול "${planName}" לא עבר.\n\n` +
           `ייתכן שתוקף הכרטיס פג או שהחיוב נדחה. אפשר לעדכן אמצעי תשלום ` +
-          `במסך "מנוי ותשלומים" במערכת. השירות ממשיך לפעול עוד ${GRACE_DAYS} ימים.`,
+          `במסך "מנוי ותשלומים" במערכת. השירות ממשיך לפעול עוד ${BILLING_GRACE_DAYS} ימים.`,
       );
     } catch (error) {
       this.logger.warn(`שליחת הודעה על חידוש שנכשל נכשלה (${tenantId}): ${String(error)}`);

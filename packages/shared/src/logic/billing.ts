@@ -23,6 +23,8 @@ export type BillingCycle = "monthly" | "yearly";
  */
 export type SubscriptionStatus = "trial" | "active" | "past_due" | "cancelled";
 
+const DAY_MS = 86_400_000;
+
 export const BILLING_CYCLES: readonly BillingCycle[] = ["monthly", "yearly"];
 
 export function isBillingCycle(value: string): value is BillingCycle {
@@ -112,6 +114,29 @@ export function billingAnchorDay(firstPeriodStart: Date): number {
 }
 
 /**
+ * חלון החסד בין סוף התקופה לבין סגירת הגישה.
+ *
+ * הוא קיים בגלל סדר הפעולות: החיוב החוזר נבדק **אחרי** שהתקופה
+ * נגמרה, ובמרווח שבין הרגע הזה לבין הריצה הבאה של הסורק המשרד היה
+ * נעול בחוץ — כלומר כל משרד משלם, בכל מחזור, למשך עד שעה. חלון החסד
+ * הופך את סוף התקופה לרגע שבו **מנסים לחייב**, ולא לרגע שבו נועלים.
+ *
+ * הוא גם מה שמאפשר לכרטיס שפג תוקפו להיפתר בעדכון פרטים במקום
+ * בהשבתה.
+ */
+export const BILLING_GRACE_DAYS = 3;
+
+/**
+ * עד מתי הגישה פתוחה בפועל, בהינתן סוף תקופה ששולמה.
+ *
+ * פונקציה אחת ולא חישוב בשני מקומות: התשלום הראשון והחידוש כתבו
+ * ערכים שונים ל-`paid_until`, ורק אחד מהם כלל את חלון החסד.
+ */
+export function accessUntil(periodEnd: Date): Date {
+  return new Date(periodEnd.getTime() + BILLING_GRACE_DAYS * DAY_MS);
+}
+
+/**
  * האם המנוי מקנה גישה כרגע.
  *
  * `cancelled` עדיין מקנה גישה עד סוף התקופה ששולמה — זו לא נדיבות
@@ -137,8 +162,6 @@ export function subscriptionGrantsAccess(
 
 /** ברירת המחדל של החלון שבו מזכירים שהחידוש מתקרב. */
 export const RENEWAL_WARN_WITHIN_DAYS = 7;
-
-const DAY_MS = 86_400_000;
 
 /**
  * כמה ימים נותרו לתקופה. מעוגל כלפי מעלה, מאותה סיבה כמו בניסיון:
