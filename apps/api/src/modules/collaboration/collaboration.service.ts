@@ -1,11 +1,18 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
-import { BuyerRequirementsSchema, scoreMatch, type BuyerRequirements } from "@metavchim/shared";
+import {
+  BuyerRequirementsSchema,
+  commissionSplitRejectionReason,
+  coopOfferCost,
+  scoreMatch,
+  type BuyerRequirements,
+  type LeadSourcePrice,
+} from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
-import { KANKO_TENANT_ID } from "./kanko-webhook.controller";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
+import { LeadPricingService } from "../../core/lead-pricing.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { rowToFields } from "../properties/property.mapper";
@@ -14,7 +21,6 @@ import { rowToFields } from "../properties/property.mapper";
 type PropertyRow = Parameters<typeof rowToFields>[0];
 
 const INITIAL_CREDITS = 20;
-const COOP_OFFER_COST = 1;
 /** עיגול תקציב כלפי מעלה ל-100 אלף ₪ — אנונימיזציה (docs/04 §7) */
 const BUDGET_ROUND_AGOROT = 10_000_000;
 
@@ -35,6 +41,15 @@ export interface SharedDemandDto {
   roomsMax?: number;
   mustFeatures: string[];
   source: string;
+  /**
+   * כמה קרדיטים תעלה הצעה על הביקוש הזה. 0 = חינם.
+   *
+   * מוחזר מהשרת ולא מחושב במסך: המסך שמראה "חינם" על ביקוש שיחייב
+   * הוא הפתעה בתשלום.
+   */
+  creditsCost: number;
+  /** אחוז העמלה שהמשרד המשתף מבקש; לצד השני נשאר המשלים. */
+  commissionSplit: number;
   status: string;
   /** true אם הביקוש שלי — רק אז יש קישור לקונה */
   mine: boolean;
@@ -50,6 +65,13 @@ export interface CoopOfferDto {
   direction: "incoming" | "outgoing";
   presentation: Record<string, unknown>;
   status: string;
+  /**
+   * אחוז העמלה שהמשרד ה**מציע** לוקח.
+   *
+   * מוחזר לשני הצדדים: המקבל צריך לדעת על מה הוא מסכים לפני שהוא
+   * מסמן "מעוניין", ולא אחרי.
+   */
+  commissionSplit: number;
   createdAt: Date;
 }
 
@@ -60,12 +82,21 @@ export class CollaborationService {
     private readonly audit: AuditService,
     private readonly outbox: OutboxService,
     private readonly plans: PlanCatalogService,
+    private readonly pricing: LeadPricingService,
   ) {}
 
-  /** שיתוף קונה כביקוש אנונימי: בלי שם, בלי טלפון, תקציב מעוגל. */
-  async shareBuyer(buyerId: string): Promise<SharedDemandDto> {
+  /**
+   * שיתוף קונה כביקוש אנונימי: בלי שם, בלי טלפון, תקציב מעוגל.
+   *
+   * `commissionSplit` הוא האחוז שהמשרד המשתף לוקח. הוא נקבע כאן, ברגע
+   * השיתוף, ולא בסוף העסקה — מו"מ על אחוזים אחרי שהקונה כבר התעניין
+   * הוא המקום שבו שיתופי פעולה נשברים.
+   */
+  async shareBuyer(buyerId: string, commissionSplit: number): Promise<SharedDemandDto> {
     const tenantId = TenantContext.current().tenantId;
     const id = ulid();
+    const splitRejection = commissionSplitRejectionReason(commissionSplit);
+    if (splitRejection !== null) throw new BadRequestException(splitRejection);
 
     await this.prisma.withTenant(async (tx) => {
       const buyer = await tx.buyer.findFirst({
@@ -86,6 +117,7 @@ export class CollaborationService {
       await tx.sharedDemand.create({
         data: {
           id,
+          commissionSplit,
           tenantId,
           originBuyerId: buyerId,
           cities: requirements.cities,
@@ -125,53 +157,23 @@ export class CollaborationService {
     });
   }
 
-  /**
-   * האם ביקושים של הדייר הזה עדיין רלוונטיים לרשת.
-   *
-   * דייר מערכתי — כרגע Kanko — פטור מהבדיקה. הוא עוגן אינטגרציה ולא
-   * משרד מנוי: אין לו משתמשים, איש לא בחר לו מסלול, והמסלול שהוא
-   * נושא הוא פרט טכני מהמיגרציה. סינון שלו לפי זכאות מסחרית היה
-   * מוחק את כל מלאי Kanko מהרשת ברגע שמישהו עורך את מסלול הרשת —
-   * גם עבור משרדים שהשת"פ כן כלול אצלם (ביקורת Codex).
-   */
-  private async canPublish(tenantId: string): Promise<boolean> {
-    if (tenantId === KANKO_TENANT_ID) return true;
-    return this.plans.tenantHasFeature(tenantId, "collaboration");
-  }
-
   /** פיד הביקושים: הרשת כולה (כולל שלי, מסומנים). קריאת הרשת רצה כ-withNetwork. */
   async listDemands(): Promise<SharedDemandDto[]> {
     const tenantId = TenantContext.current().tenantId;
     /*
-     * הזכאות נקבעת **לפני** התקרה ולא אחריה.
+     * אין עוד סינון זכאות.
      *
-     * `take: 100` על כל הביקושים הפעילים, ואז סינון, היה יכול להחזיר
-     * רשימה ריקה: מאה הביקושים החדשים שייכים למשרדים שאיבדו את
-     * הפיצ'ר, והישנים־יותר של משרדים זכאים לא מגיעים ללקוח לעולם.
-     * המשרדים האלה גם חסומים מלהסיר את הביקושים שלהם, ולכן המצב הזה
-     * לא מתקן את עצמו — הפיד היה מורעב לצמיתות (ביקורת Codex).
+     * הפיד סינן קודם משרדים שהמסלול שלהם אינו כולל שיתוף פעולה, וזה
+     * חייב שני שלבים ושאילתת מסלול לכל משרד מפרסם — רק כדי להסתיר
+     * ביקושים. מרגע שהשת"פ הבסיסי פתוח בכל המסלולים אין מי לסנן,
+     * וכל המנגנון ההוא נעלם יחד עם ה-N+1 שהיה בו.
      *
-     * שני שלבים: קודם אילו משרדים בכלל מפרסמים, ואז שאילתה מסוננת
-     * לזכאים בלבד. `groupBy` ולא `findMany` — מספר המשרדים ברשת קטן
-     * בסדרי גודל ממספר הביקושים.
+     * מה שהחליף אותו הוא תמחור לפי מקור: הביקושים מוצגים לכולם,
+     * ולכל אחד מהם מוחזרת העלות שלו.
      */
-    const publishers = await this.prisma.withNetworkRead((tx) =>
-      tx.sharedDemand.groupBy({ by: ["tenantId"], where: { status: "active" } }),
-    );
-    const entitled = (
-      await Promise.all(
-        publishers.map(async (row) =>
-          (await this.canPublish(row.tenantId)) ? row.tenantId : null,
-        ),
-      )
-    ).filter((owner): owner is string => owner !== null);
-
-    const visible =
-      entitled.length === 0
-        ? []
-        : await this.prisma.withNetworkRead((tx) =>
+    const visible = await this.prisma.withNetworkRead((tx) =>
             tx.sharedDemand.findMany({
-              where: { status: "active", tenantId: { in: entitled } },
+              where: { status: "active" },
               orderBy: { createdAt: "desc" },
               take: 100,
             }),
@@ -193,8 +195,9 @@ export class CollaborationService {
       }),
     );
 
+    const prices = await this.pricing.all();
     return visible.map((row) => {
-      const dto = this.toDemandDto(row, tenantId);
+      const dto = this.toDemandDto(row, tenantId, prices);
       if (dto.mine) return dto;
       const matches = this.matchOwnProperties(myProperties, row);
       return matches.length > 0 ? { ...dto, myMatches: matches } : dto;
@@ -244,15 +247,20 @@ export class CollaborationService {
 
   private async getDemand(id: string): Promise<SharedDemandDto> {
     const tenantId = TenantContext.current().tenantId;
+    const prices = await this.pricing.all();
     const row = await this.prisma.withTenant((tx) =>
       tx.sharedDemand.findFirst({ where: { id, tenantId } }),
     );
     if (!row) throw new NotFoundException("ביקוש לא נמצא");
-    return this.toDemandDto(row, tenantId);
+    return this.toDemandDto(row, tenantId, prices);
   }
 
   /** הצעת נכס לביקוש רשת — עולה קרדיט; חשיפה מדורגת בלי כתובת מדויקת. */
-  async offerProperty(demandId: string, propertyId: string): Promise<CoopOfferDto> {
+  async offerProperty(
+    demandId: string,
+    propertyId: string,
+    commissionSplit: number,
+  ): Promise<CoopOfferDto> {
     const ctx = TenantContext.current();
     const id = ulid();
 
@@ -261,14 +269,13 @@ export class CollaborationService {
       tx.sharedDemand.findFirst({ where: { id: demandId, status: "active" } }),
     );
     if (!demand) throw new NotFoundException("הביקוש לא נמצא או נסגר");
-    // אותו כלל גם בכתיבה: הפיד יכול להיות ישן בלשונית פתוחה
-    if (!(await this.canPublish(demand.tenantId))) {
-      throw new NotFoundException("הביקוש לא נמצא או נסגר");
-    }
     if (demand.tenantId === ctx.tenantId) {
       throw new BadRequestException("זה ביקוש שלך — ההתאמות הפנימיות כבר כיסו אותו");
     }
 
+    const splitRejection = commissionSplitRejectionReason(commissionSplit);
+    if (splitRejection !== null) throw new BadRequestException(splitRejection);
+    const prices = await this.pricing.all();
     await this.prisma.withTenant(async (tx) => {
       const property = await tx.property.findFirst({
         where: {
@@ -280,9 +287,17 @@ export class CollaborationService {
       });
       if (!property) throw new NotFoundException("נכס לא נמצא או אינו משווק");
 
-      const balance = await this.balanceInTx(tx, ctx.tenantId);
-      if (balance < COOP_OFFER_COST) {
-        throw new BadRequestException("אין מספיק קרדיטים — ניתן לרכוש בהגדרות");
+      /*
+       * העלות נגזרת ממקור הביקוש ולא מהמסלול: הצעה למשרד תיווך אחר
+       * חינם, וליד ממקור חיצוני עולה קרדיטים — ראו
+       * packages/shared/logic/collaboration-cost.ts.
+       */
+      const cost = coopOfferCost(demand.source, prices);
+      if (cost > 0) {
+        const balance = await this.balanceInTx(tx, ctx.tenantId);
+        if (balance < cost) {
+          throw new BadRequestException("אין מספיק קרדיטים — ניתן לרכוש בהגדרות");
+        }
       }
 
       // חשיפה מדורגת: שכונה+מאפיינים; בלי רחוב, בלי בעלים (docs/04 §7)
@@ -304,18 +319,23 @@ export class CollaborationService {
           toTenantId: demand.tenantId,
           propertyId,
           presentation,
-          creditsCost: COOP_OFFER_COST,
+          creditsCost: cost,
+          commissionSplit,
         },
       });
-      await tx.creditLedger.create({
-        data: {
-          id: ulid(),
-          tenantId: ctx.tenantId,
-          kind: "coop_offer",
-          amount: -COOP_OFFER_COST,
-          refId: id,
-        },
-      });
+      // תנועה נרשמת רק כשיש חיוב: שורה בסכום אפס היא רעש ביומן
+      // הקרדיטים, ומקשה על קריאה של מה באמת נגבה
+      if (cost > 0) {
+        await tx.creditLedger.create({
+          data: {
+            id: ulid(),
+            tenantId: ctx.tenantId,
+            kind: "coop_offer",
+            amount: -cost,
+            refId: id,
+          },
+        });
+      }
       await this.audit.record(tx, {
         action: "collaboration.offer",
         entityType: "coop_offer",
@@ -339,6 +359,7 @@ export class CollaborationService {
       direction: "outgoing",
       presentation: {},
       status: "sent",
+      commissionSplit,
       createdAt: new Date(),
     };
   }
@@ -357,6 +378,7 @@ export class CollaborationService {
       id: row.id,
       demandId: row.demandId,
       direction: row.toTenantId === tenantId ? "incoming" : "outgoing",
+      commissionSplit: row.commissionSplit,
       presentation: row.presentation as Record<string, unknown>,
       status: row.status,
       createdAt: row.createdAt,
@@ -419,9 +441,11 @@ export class CollaborationService {
       mustFeatures: string[];
       source: string;
       status: string;
+      commissionSplit: number;
       createdAt: Date;
     },
     viewerTenantId: string,
+    prices: readonly LeadSourcePrice[],
   ): SharedDemandDto {
     const mine = row.tenantId === viewerTenantId;
     return {
@@ -433,6 +457,8 @@ export class CollaborationService {
       roomsMax: row.roomsMax === null ? undefined : Number(row.roomsMax),
       mustFeatures: row.mustFeatures,
       source: row.source,
+      creditsCost: coopOfferCost(row.source, prices),
+      commissionSplit: row.commissionSplit,
       status: row.status,
       mine,
       // הקישור לקונה נחשף רק לסוכנות המקור — לעולם לא לרשת (docs/04 §7)

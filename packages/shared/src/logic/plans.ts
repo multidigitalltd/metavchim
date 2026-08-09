@@ -20,7 +20,6 @@ export type PlanFeature =
   | "analytics"
   | "telephony"
   | "transcription"
-  | "collaboration"
   | "agreements"
   | "landing_pages"
   | "whatsapp"
@@ -57,11 +56,6 @@ export const PLAN_FEATURES: readonly PlanFeatureInfo[] = [
     code: "transcription",
     label: "תמלול שיחות וזיהוי דוברים",
     description: "כל שיחה מוקלטת מתומללת בעברית, עם הפרדה בין המתווך ללקוח.",
-  },
-  {
-    code: "collaboration",
-    label: "שיתופי פעולה בין משרדים",
-    description: "שיתוף נכסים וקונים עם משרדים אחרים וחלוקת עמלה מוסכמת.",
   },
   {
     code: "agreements",
@@ -195,7 +189,6 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
       "analytics",
       "telephony",
       "transcription",
-      "collaboration",
     ],
     trialDays: 14,
     isPublic: true,

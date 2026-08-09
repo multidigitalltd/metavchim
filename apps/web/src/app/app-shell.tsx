@@ -442,19 +442,16 @@ export function AppShell({ children }: { children: ReactNode }) {
           ? navLink("/reports", "דוחות", ICONS.reports)
           : null}
 
-        {hasFeature("collaboration") ? (
-          <>
-            <div className="mv-nav-group">רשת</div>
-            {navLink(
-              "/collaboration",
-              'שת"פ בין משרדים',
-              ICONS.coop,
-              counts?.credits !== null && counts?.credits !== undefined ? (
-                <span className="mv-nav-credits">{counts.credits} קרדיטים</span>
-              ) : null,
-            )}
-          </>
-        ) : null}
+        {/* בלי שער מסלול: השת"פ הבסיסי פתוח בכל המסלולים */}
+        <div className="mv-nav-group">רשת</div>
+        {navLink(
+          "/collaboration",
+          'שת"פ בין משרדים',
+          ICONS.coop,
+          counts?.credits !== null && counts?.credits !== undefined ? (
+            <span className="mv-nav-credits">{counts.credits} קרדיטים</span>
+          ) : null,
+        )}
         {isManager ? navLink("/settings", "ניהול משרד", ICONS.office) : null}
         {isManager && !setupDone ? navLink("/setup", "הקמה", ICONS.setup) : null}
         {me?.isPlatformAdmin ? navLink("/platform", "פלטפורמה", ICONS.platform) : null}

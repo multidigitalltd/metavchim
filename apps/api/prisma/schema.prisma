@@ -416,6 +416,10 @@ model SharedDemand {
   mustFeatures    String[] @map("must_features")
   notes           String?  @db.VarChar(300)
   status          String   @default("active") @db.VarChar(20) // active | closed
+  /// אחוז העמלה שהמשרד **המשתף** לוקח; לצד השני נשאר המשלים.
+  /// נקבע ברגע השיתוף ולא בסופו — מו"מ אחרי שהקונה התעניין הוא
+  /// המקום שבו שיתופי פעולה נשברים. מינימום 33% לכל צד.
+  commissionSplit Int      @default(50) @map("commission_split") @db.SmallInt
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
@@ -436,6 +440,9 @@ model CoopOffer {
   presentation  Json     @default("{}")
   status        String   @default("sent") @db.VarChar(20) // sent | interested | declined
   creditsCost   Int      @default(1) @map("credits_cost")
+  /// אחוז העמלה שהמשרד **המציע** לוקח. נגזר מהביקוש כברירת מחדל,
+  /// וניתן להצעה נגדית — החלוקה היא הצעה עד שהצד השני מסכים.
+  commissionSplit Int    @default(50) @map("commission_split") @db.SmallInt
   createdAt     DateTime @default(now()) @map("created_at")
 
   @@unique([demandId, propertyId])
@@ -728,6 +735,23 @@ model Payment {
 
   @@index([tenantId, createdAt])
   @@map("payments")
+}
+
+/// מחיר ליד לפי מקור. מחוץ ל-RLS: רמת פלטפורמה, כמו plans.
+///
+/// טבלה ולא קבוע בקוד, כי המחיר שמשלמים לספק שונה בין ספק לספק
+/// ומשתנה בזמן — מחיר אחד לכולם היה מחייב שינוי קוד בכל משא ומתן.
+/// אין שורה למקור ⇒ ברירת המחדל שבקוד (packages/shared —
+/// collaboration-cost.ts), כך שמערכת שעלתה זה עתה עובדת.
+model LeadSourcePrice {
+  /// המזהה כפי שהוא נשמר על הביקוש (shared_demands.source)
+  source      String   @id @db.VarChar(20)
+  label       String   @db.VarChar(60)
+  creditsCost Int      @default(1) @map("credits_cost")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by") @db.Char(26)
+
+  @@map("lead_source_prices")
 }
 
 model PlatformSetting {

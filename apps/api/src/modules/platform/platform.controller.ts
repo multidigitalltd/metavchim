@@ -20,6 +20,8 @@ import {
   PLAN_FEATURES,
   TenantStatusSchema,
   downgradeWarnings,
+  leadPriceRejectionReason,
+  type LeadSourcePrice,
   planRejectionReason,
   sanitizeFeatures,
   type PlanDefinition,
@@ -34,6 +36,7 @@ import {
   PlatformSettingsService,
   type PlatformSettingKey,
 } from "../../core/platform-settings.service";
+import { LeadPricingService } from "../../core/lead-pricing.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import { AuthService, tenantPeriodEnded } from "../auth/auth.service";
@@ -129,6 +132,19 @@ const UpdateSettingsSchema = z
   })
   .strict();
 
+/**
+ * מחיר ליד לפי מקור.
+ *
+ * הגבולות מגיעים מהכלל המשותף (`leadPriceRejectionReason`) ולא
+ * נכתבים כאן שוב — הסכימה חוסמת קלט שבור, והכלל הוא מה שקובע.
+ */
+const LeadPriceSchema = z
+  .object({
+    label: z.string().trim().min(2).max(60),
+    creditsCost: z.number().int().min(0).max(1000),
+  })
+  .strict();
+
 /** שם קובץ גיבוי — הוולידציה המחייבת היא ב-BackupsService (רשימת היתר). */
 const BackupNameSchema = z.object({ name: z.string().min(1).max(120) }).strict();
 
@@ -163,6 +179,7 @@ export class PlatformController {
     private readonly email: EmailService,
     private readonly backups: BackupsService,
     private readonly plans: PlanCatalogService,
+    private readonly leadPricing: LeadPricingService,
   ) {}
 
   /**
@@ -207,6 +224,29 @@ export class PlatformController {
     if (reason) throw new BadRequestException(reason);
 
     await this.plans.upsert(plan, TenantContext.current().userId);
+    return { ok: true };
+  }
+
+  /**
+   * מחירי הלידים לפי מקור.
+   *
+   * מוחזרים מה-Service ולא מהטבלה ישירות, כדי שהמסך יראה את מה
+   * שהמערכת באמת תגבה — כולל ברירות המחדל של מקורות שטרם תומחרו.
+   */
+  @Get("lead-prices")
+  async leadPrices(): Promise<{ prices: LeadSourcePrice[] }> {
+    return { prices: await this.leadPricing.all() };
+  }
+
+  @Patch("lead-prices/:source")
+  async upsertLeadPrice(
+    @Param("source") source: string,
+    @Body(new ZodValidationPipe(LeadPriceSchema)) body: z.infer<typeof LeadPriceSchema>,
+  ): Promise<{ ok: true }> {
+    const price: LeadSourcePrice = { source, ...body };
+    const reason = leadPriceRejectionReason(price);
+    if (reason) throw new BadRequestException(reason);
+    await this.leadPricing.upsert(price, TenantContext.current().userId);
     return { ok: true };
   }
 

@@ -3,6 +3,7 @@ import { AuditService } from "./audit.service";
 import { CryptoService } from "./crypto.service";
 import { EmailService } from "./email.service";
 import { OutboxDispatcherService } from "./outbox-dispatcher.service";
+import { LeadPricingService } from "./lead-pricing.service";
 import { PlanCatalogService } from "./plan-catalog.service";
 import { PlatformSettingsService } from "./platform-settings.service";
 import { OutboxService } from "./outbox.service";
@@ -21,6 +22,7 @@ import { StorageService } from "./storage.service";
     OutboxDispatcherService,
     PlatformSettingsService,
     PlanCatalogService,
+    LeadPricingService,
     StorageService,
   ],
   exports: [
@@ -31,6 +33,7 @@ import { StorageService } from "./storage.service";
     OutboxService,
     PlatformSettingsService,
     PlanCatalogService,
+    LeadPricingService,
     StorageService,
   ],
 })
