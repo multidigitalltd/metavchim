@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   RENEWAL_WARN_WITHIN_DAYS,
+  billingAnchorDay,
   checkoutRejectionReason,
   cyclePriceAgorot,
   describeCycle,
@@ -102,6 +103,56 @@ describe("nextPeriodEnd", () => {
     expect(nextPeriodEnd(new Date("לא תאריך"), NOW, "monthly").toISOString()).toBe(
       "2026-09-09T10:00:00.000Z",
     );
+  });
+
+  describe("עוגן יום החיוב", () => {
+    it("חוזר ל-31 אחרי שפברואר קיצר ל-28 — ולא נשאר ב-28", () => {
+      // בלי העוגן הקיצור החד-פעמי היה הופך לקבוע: 3 ימים בכל חודש,
+      // לתמיד (ביקורת Codex)
+      const feb28 = new Date("2026-02-28T08:00:00Z");
+      expect(
+        nextPeriodEnd(feb28, new Date("2026-02-20T08:00:00Z"), "monthly", 31).toISOString(),
+      ).toBe("2026-03-31T08:00:00.000Z");
+    });
+
+    it("ומשם שוב לאפריל, שיש בו 30", () => {
+      const mar31 = new Date("2026-03-31T08:00:00Z");
+      expect(
+        nextPeriodEnd(mar31, new Date("2026-03-20T08:00:00Z"), "monthly", 31).toISOString(),
+      ).toBe("2026-04-30T08:00:00.000Z");
+    });
+
+    it("עוגן 28 אמיתי נשאר 28 ולא קופץ לסוף החודש", () => {
+      // ההבחנה שדורשת עוגן שמור: 28 בפברואר יכול להיות 31 מקוצר או
+      // 28 אמיתי, ואי אפשר להסיק זאת מהתאריך עצמו
+      const feb28 = new Date("2026-02-28T08:00:00Z");
+      expect(
+        nextPeriodEnd(feb28, new Date("2026-02-20T08:00:00Z"), "monthly", 28).toISOString(),
+      ).toBe("2026-03-28T08:00:00.000Z");
+    });
+
+    it("עוגן לא תקין מדולג ולא מפיל את החישוב", () => {
+      const end = new Date("2026-08-16T10:00:00Z");
+      expect(nextPeriodEnd(end, NOW, "monthly", 0).toISOString()).toBe("2026-09-16T10:00:00.000Z");
+      expect(nextPeriodEnd(end, NOW, "monthly", 99).toISOString()).toBe("2026-09-16T10:00:00.000Z");
+      expect(nextPeriodEnd(end, NOW, "monthly", null).toISOString()).toBe(
+        "2026-09-16T10:00:00.000Z",
+      );
+    });
+
+    it("שנתי מכבד גם הוא את העוגן", () => {
+      const feb28 = new Date("2027-02-28T08:00:00Z");
+      expect(
+        nextPeriodEnd(feb28, new Date("2027-02-20T08:00:00Z"), "yearly", 31).toISOString(),
+      ).toBe("2028-02-29T08:00:00.000Z");
+    });
+  });
+});
+
+describe("billingAnchorDay", () => {
+  it("היום בחודש של תחילת המנוי", () => {
+    expect(billingAnchorDay(new Date("2026-01-31T08:00:00Z"))).toBe(31);
+    expect(billingAnchorDay(new Date("2026-08-09T10:00:00Z"))).toBe(9);
   });
 });
 

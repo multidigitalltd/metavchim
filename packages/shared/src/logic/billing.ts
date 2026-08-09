@@ -49,7 +49,7 @@ function daysInMonth(year: number, monthIndex: number): number {
 /**
  * סוף התקופה אחרי תשלום.
  *
- * שני דברים שקל לפספס:
+ * שלושה דברים שקל לפספס:
  *
  * 1. **ההארכה היא מהמאוחר מבין "עכשיו" לבין הסוף הנוכחי.** משרד
  *    שמשלם שבוע לפני שהמנוי נגמר לא מוותר על השבוע ההוא. חישוב
@@ -58,11 +58,18 @@ function daysInMonth(year: number, monthIndex: number): number {
  * 2. **31 בינואר ועוד חודש הוא 28/29 בפברואר, לא 3 במרץ.** הוספה
  *    נאיבית של חודש גולשת לחודש הבא ומזיזה את יום החיוב לתמיד: כל
  *    חידוש דוחף אותו עוד קצת.
+ *
+ * 3. **`anchorDay` הוא יום החיוב המקורי, ובלעדיו הקיצור של סעיף 2
+ *    הופך לקבוע.** מנוי שנפתח ב-31 בינואר נגמר ב-28 בפברואר —
+ *    ומכאן, בלי עוגן, החישוב הבא יוצא מ-28 ומגיע ל-28 במרץ במקום
+ *    ל-31. שלושה ימים בכל חודש, לתמיד. העוגן נקבע פעם אחת ביצירת
+ *    המנוי ואינו נגזר מהתאריך המקוצר (ביקורת Codex).
  */
 export function nextPeriodEnd(
   currentEnd: Date | null | undefined,
   now: Date,
   cycle: BillingCycle,
+  anchorDay?: number | null,
 ): Date {
   const base =
     currentEnd instanceof Date && !Number.isNaN(currentEnd.getTime()) && currentEnd > now
@@ -74,7 +81,12 @@ export function nextPeriodEnd(
   const monthIndex = base.getUTCMonth() + months;
   const targetYear = year + Math.floor(monthIndex / 12);
   const targetMonth = ((monthIndex % 12) + 12) % 12;
-  const day = Math.min(base.getUTCDate(), daysInMonth(targetYear, targetMonth));
+
+  const wanted =
+    typeof anchorDay === "number" && Number.isInteger(anchorDay) && anchorDay >= 1 && anchorDay <= 31
+      ? anchorDay
+      : base.getUTCDate();
+  const day = Math.min(wanted, daysInMonth(targetYear, targetMonth));
 
   return new Date(
     Date.UTC(
@@ -87,6 +99,16 @@ export function nextPeriodEnd(
       base.getUTCMilliseconds(),
     ),
   );
+}
+
+/**
+ * יום החיוב שנקבע למנוי — נשמר פעם אחת ואינו מחושב מחדש.
+ *
+ * נגזר מרגע התשלום הראשון, כי זה מה שהמשרד מצפה לו: "שילמתי ב-31,
+ * החיוב שלי ב-31".
+ */
+export function billingAnchorDay(firstPeriodStart: Date): number {
+  return firstPeriodStart.getUTCDate();
 }
 
 /**

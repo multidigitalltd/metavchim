@@ -26,6 +26,13 @@ model Tenant {
   /// סוף תקופת הניסיון. null = אין תפוגה — משרד שהוקם ידנית או ששילם.
   /// עמודה ולא שדה ב-settings: היא נבדקת בכל אימות Session.
   trialEndsAt DateTime? @map("trial_ends_at")
+  /// עד מתי שולם. null = אין תפוגה (משרד שהוקם ידנית).
+  ///
+  /// יושבת כאן ולא רק ב-subscriptions **בכוונה**: זהו שער ההרשאה,
+  /// והוא נבדק בכל אימות Session יחד עם trial_ends_at. תפוגה שנשענת
+  /// על סורק שירוץ אי-פעם הייתה נותנת גישה חינם לכל מי ששילם פעם
+  /// אחת, בדיוק כפי שקרה קודם עם הניסיון (ביקורת Codex).
+  paidUntil   DateTime? @map("paid_until")
   /// self | manual — מאיזה ערוץ המשרד הגיע. לדוח ולתמיכה, לא להרשאות.
   signupSource String  @default("manual") @map("signup_source") @db.VarChar(20)
   settings  Json     @default("{}")
@@ -36,6 +43,7 @@ model Tenant {
   properties Property[]
 
   @@index([trialEndsAt])
+  @@index([paidUntil])
   @@map("tenants")
 }
 
@@ -668,6 +676,11 @@ model Subscription {
   status             String    @default("trial") @db.VarChar(20)
   /// עד מתי שולם. null במצב ניסיון — שם התפוגה היא tenants.trial_ends_at.
   currentPeriodEnd   DateTime? @map("current_period_end")
+  /// יום החיוב בחודש (1–31), כפי שנקבע בתשלום הראשון.
+  ///
+  /// בלעדיו מנוי שנפתח ב-31 בינואר היה נגמר ב-28 בפברואר ומשם ממשיך
+  /// ב-28 לתמיד — הקיצור החד-פעמי של חודש קצר הופך לקבוע.
+  billingAnchorDay   Int?      @map("billing_anchor_day") @db.SmallInt
   /// טוקן קארדקום לחיוב חוזר, מוצפן באותו מנגנון של platform_settings.
   /// null = אין כרטיס שמור, והחידוש יהיה ידני.
   cardTokenEncrypted String?   @map("card_token_encrypted")

@@ -46,21 +46,41 @@ export interface ValidatedUser extends AuthenticatedUser {
 /**
  * האם המשרד רשאי לעבוד עכשיו.
  *
- * שני תנאים ולא אחד: הסטטוס (השהיה מהפלטפורמה) **וגם** תפוגת
- * הניסיון. עד כה נבדק רק הראשון, ולכן משרד בניסיון היה ממשיך לעבוד
- * לנצח — הסטטוס `trial` לא משתנה מעצמו, ואין תהליך שמשנה אותו.
+ * שלושה תנאים ולא אחד: הסטטוס (השהיה מהפלטפורמה), תפוגת הניסיון,
+ * ותפוגת המנוי בתשלום. שני האחרונים נוספו אחרי אותה תקלה בדיוק —
+ * סטטוס אינו משתנה מעצמו, ולכן משרד היה ממשיך לעבוד לנצח.
  *
- * `trialEndsAt = null` פירושו "בלי תפוגה", וזה המצב של כל משרד
- * שהוקם ידנית או ששילם. ההפרדה הזו היא מה שמאפשר להפעיל משרד בלי
- * למחוק את היסטוריית הניסיון שלו.
+ * **התפוגות נבדקות כאן ולא בסורק.** זו הנקודה: סורק שלא רץ, או
+ * שנפל, או שטרם הגיע לשורה הזו, היה נותן גישה חינם. התאריך על שורת
+ * הדייר הוא מקור האמת, והוא נקרא ממילא בכל אימות Session.
+ *
+ * `null` בשני התאריכים פירושו "בלי תפוגה", וזה המצב של משרד שהוקם
+ * ידנית מהפלטפורמה. ההפרדה בין שני השדות היא מה שמאפשר להפעיל משרד
+ * בלי למחוק את היסטוריית הניסיון שלו.
  */
 export function tenantCanOperate(tenant: {
   status: string;
   trialEndsAt?: Date | null;
+  paidUntil?: Date | null;
 }): boolean {
   if (!["active", "trial"].includes(tenant.status)) return false;
   // אותו כלל בדיוק שהבאנר מציג — ראו packages/shared/logic/trial.ts
   if (tenant.status === "trial" && isTrialExpired(tenant.trialEndsAt, new Date())) return false;
+  /*
+   * תפוגת המנוי בתשלום — אותו מבנה בדיוק כמו הניסיון, ומאותה סיבה.
+   *
+   * `paidUntil = null` פירושו "בלי תפוגה": משרד שהוקם ידנית מהפלטפורמה
+   * ולא נרכש. משרד ששילם מקבל תאריך, וכשהוא עובר הגישה נסגרת **כאן**,
+   * באימות ה-Session, ולא בסורק שאולי ירוץ. סורק שלא רץ היה נותן גישה
+   * חינם לכל מי ששילם פעם אחת (ביקורת Codex).
+   */
+  if (
+    tenant.status === "active" &&
+    tenant.paidUntil instanceof Date &&
+    tenant.paidUntil.getTime() <= Date.now()
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -115,7 +135,7 @@ export class AuthService {
     // ה-sessions הקיימים נמחקים בהשהיה, וכאן נחסמת התחברות מחדש)
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: user.tenantId },
-      select: { status: true, trialEndsAt: true },
+      select: { status: true, trialEndsAt: true, paidUntil: true },
     });
     if (tenant && !tenantCanOperate(tenant)) {
       throw new UnauthorizedException(
@@ -170,7 +190,7 @@ export class AuthService {
     if (!user || !user.isActive) throw new UnauthorizedException();
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: user.tenantId },
-      select: { status: true, trialEndsAt: true },
+      select: { status: true, trialEndsAt: true, paidUntil: true },
     });
     if (tenant && !tenantCanOperate(tenant)) {
       throw new UnauthorizedException(
@@ -358,7 +378,13 @@ export class AuthService {
     const session = await this.prisma.session.findUnique({
       where: { tokenHash: AuthService.hashToken(token) },
       include: {
-        user: { include: { tenant: { select: { status: true, name: true, trialEndsAt: true } } } },
+        user: {
+          include: {
+            tenant: {
+              select: { status: true, name: true, trialEndsAt: true, paidUntil: true },
+            },
+          },
+        },
       },
     });
     if (!session || session.expiresAt < new Date() || !session.user.isActive) {

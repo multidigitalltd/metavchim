@@ -15,6 +15,8 @@ import {
   formatDiarizedTranscript,
   nextOccurrenceUtc,
   sanitizeFeatures,
+  subscriptionGrantsAccess,
+  type SubscriptionStatus,
   type PlanFeature,
   type RecurrenceRule,
   pushOutcome,
@@ -456,6 +458,45 @@ const LEAD_SLA_HOURS = Number(process.env.LEAD_SLA_HOURS ?? 2);
  * שחלון ה-SLA שלו חלף עובר את אותה אסקלציה — האידמפוטנטיות של
  * escalateLeadSla (sourceKey + נעילה) מונעת כפילויות מול ה-Job המתוזמן.
  */
+/**
+ * מנויים שתקופתם הסתיימה ⟵ `past_due`.
+ *
+ * **הסורק הזה אינו שער האבטחה.** הגישה נחסמת ב-`tenantCanOperate`
+ * לפי `tenants.paid_until`, בכל אימות Session, בלי תלות בכך שמשהו
+ * ירוץ — סורק שנפל היה אחרת נותן גישה חינם לכל מי ששילם פעם אחת.
+ * מה שהסורק עושה הוא ליישר את מצב המנוי לתצוגה: בלעדיו מסך החיוב
+ * היה מציג "מנוי פעיל" למשרד שתקופתו נגמרה.
+ *
+ * מבוטל שתקופתו נגמרה נכנס גם הוא — הוא כבר לא "בוטל, זמין עד",
+ * הוא פשוט נגמר.
+ */
+async function processSubscriptionExpiry(): Promise<void> {
+  const now = new Date();
+  const candidates = await prisma.subscription.findMany({
+    where: {
+      status: { in: ["active", "cancelled"] },
+      currentPeriodEnd: { not: null, lte: now },
+    },
+    select: { tenantId: true, status: true, currentPeriodEnd: true },
+    take: 500,
+  });
+
+  let expired = 0;
+  for (const row of candidates) {
+    // אותו כלל שהמסך מציג, ולא העתק שלו
+    if (subscriptionGrantsAccess(row.status as SubscriptionStatus, row.currentPeriodEnd, now)) {
+      continue;
+    }
+    // מותנה בסטטוס שנקרא: תשלום שנכנס בין הקריאה לכתיבה לא נדרס
+    const changed = await prisma.subscription.updateMany({
+      where: { tenantId: row.tenantId, status: row.status, currentPeriodEnd: row.currentPeriodEnd },
+      data: { status: "past_due" },
+    });
+    expired += changed.count;
+  }
+  if (expired > 0) console.warn(`[subscription-expiry] ${expired} מנויים סומנו כהסתיימו`);
+}
+
 async function processLeadSlaSweep(): Promise<void> {
   const cutoff = new Date(Date.now() - LEAD_SLA_HOURS * 60 * 60 * 1000);
   const tenants = await prisma.tenant.findMany({ select: { id: true } });
@@ -1353,6 +1394,7 @@ async function processLow(job: Job): Promise<void> {
   if (job.name === "stale-lead-sweep") return processStaleLeadSweep();
   if (job.name === "weekly-summary") return processWeeklySummary();
   if (job.name === "recurring-tasks") return processRecurringTasks();
+  if (job.name === "subscription-expiry") return processSubscriptionExpiry();
 }
 
 // רישום סריקת ה-SLA החוזרת (רבע שעה) — כולל ריצה מיידית בעלייה,
@@ -1383,6 +1425,13 @@ void lowQueue
   .upsertJobScheduler("recurring-tasks", { every: 10 * 60 * 1000 }, { name: "recurring-tasks" })
   .catch((error: unknown) => {
     console.error(`recurring-tasks scheduler registration failed: ${String(error)}`);
+  });
+// תפוגת מנויים — פעם בשעה. הרזולוציה מספיקה: שער הגישה עצמו נבדק
+// בכל אימות Session לפי tenants.paid_until, וזה כאן רק יישור התצוגה.
+void lowQueue
+  .upsertJobScheduler("subscription-expiry", { every: 60 * 60 * 1000 }, { name: "subscription-expiry" })
+  .catch((error: unknown) => {
+    console.error(`subscription-expiry scheduler registration failed: ${String(error)}`);
   });
 // דו"ח בוקר — 07:00 שעון ישראל, כל יום
 void lowQueue

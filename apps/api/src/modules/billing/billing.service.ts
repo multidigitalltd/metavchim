@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
+  billingAnchorDay,
   checkoutRejectionReason,
   cyclePriceAgorot,
   describeCycle,
@@ -213,12 +214,14 @@ export class BillingService {
     if (payment.status === "paid") return { applied: false, status: "paid" };
 
     /*
-     * הסכום שנגבה בפועל חייב להתאים לסכום שנרשם. בלי הבדיקה הזו
-     * שינוי של הסכום בדף התשלום היה מפעיל מנוי מלא בתשלום סמלי.
+     * הסכום שנגבה בפועל חייב להתאים לסכום שנרשם, ו**חייב להיות ידוע**.
+     * תשובה שאין בה סכום אינה "בסדר" — היא תשובה שאי אפשר לאמת, ובלי
+     * הדרישה הזו קודי תגובה תקינים לבדם היו מפעילים מנוי מלא (ביקורת
+     * Codex). בלי הבדיקה בכלל, שינוי הסכום בדף התשלום היה מספיק.
      */
-    if (verified.amountAgorot !== null && verified.amountAgorot !== payment.amountAgorot) {
+    if (verified.amountAgorot === null || verified.amountAgorot !== payment.amountAgorot) {
       this.logger.error(
-        `סכום שאינו תואם בתשלום ${payment.id}: נגבו ${verified.amountAgorot} מול ${payment.amountAgorot}`,
+        `סכום שאינו תואם בתשלום ${payment.id}: נגבו ${verified.amountAgorot ?? "לא ידוע"} מול ${payment.amountAgorot}`,
       );
       await this.prisma.payment.updateMany({
         where: { id: payment.id, status: "pending" },
@@ -228,57 +231,79 @@ export class BillingService {
     }
 
     const now = new Date();
-
-    // המעבר המותנה הוא השער: רק מי שהצליח לשנות את השורה ממשיך
-    const claimed = await this.prisma.payment.updateMany({
-      where: { id: payment.id, status: "pending" },
-      data: {
-        status: "paid",
-        paidAt: now,
-        transactionId: verified.transactionId,
-      },
-    });
-    if (claimed.count === 0) return { applied: false, status: "paid" };
-
     const cycle: BillingCycle = isBillingCycle(payment.billingCycle)
       ? payment.billingCycle
       : "monthly";
-    const subscription = await this.ensureSubscription(payment.tenantId);
-    const periodEnd = nextPeriodEnd(subscription.currentPeriodEnd, now, cycle);
+    // מחוץ לטרנזקציה כי הוא עשוי ליצור שורה; מה שנקרא ממנו נקרא שוב
+    // בפנים, ושם זה קובע
+    await this.ensureSubscription(payment.tenantId);
+    const token = verified.token ? this.crypto.encrypt(verified.token) : null;
 
-    await this.prisma.$transaction([
-      this.prisma.subscription.update({
+    /*
+     * **הכול בטרנזקציה אחת, כולל סימון התשלום כשולם.**
+     *
+     * הסימון היה קודם לפניה. משמעות הפער: תהליך שנפל בין השניים היה
+     * משאיר תשלום מסומן "שולם" ומנוי שלא הופעל — ולנצח, כי כל ניסיון
+     * חוזר של הוובהוק נעצר בדיוק על הסימון הזה. לקוח מחויב בלי שירות
+     * ובלי מסלול התאוששות (ביקורת Codex).
+     *
+     * המעבר המותנה `pending ⟵ paid` נשאר השער מול הודעות כפולות; הוא
+     * פשוט נבדק עכשיו **בתוך** הטרנזקציה, כך שאו ששניהם קורים או
+     * שאף אחד.
+     */
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.payment.updateMany({
+        where: { id: payment.id, status: "pending" },
+        data: { status: "paid", paidAt: now, transactionId: verified.transactionId },
+      });
+      if (claimed.count === 0) return null; // מישהו הקדים — אין מה לעשות
+
+      const subscription = await tx.subscription.findUnique({
+        where: { tenantId: payment.tenantId },
+      });
+      // העוגן נקבע פעם אחת ואינו מחושב מחדש מהתאריך המקוצר
+      const anchorDay = subscription?.billingAnchorDay ?? billingAnchorDay(now);
+      const periodEnd = nextPeriodEnd(subscription?.currentPeriodEnd, now, cycle, anchorDay);
+
+      await tx.subscription.update({
         where: { tenantId: payment.tenantId },
         data: {
           planCode: payment.planCode,
           billingCycle: cycle,
           status: "active",
           currentPeriodEnd: periodEnd,
+          billingAnchorDay: anchorDay,
           // ביטול קודם מתבטל ברכישה חדשה — אחרת המשרד היה משלם
           // וממשיך לראות "המנוי בוטל"
           cancelledAt: null,
-          ...(verified.token
+          ...(token
             ? {
-                cardTokenEncrypted: this.crypto.encrypt(verified.token),
+                cardTokenEncrypted: token,
                 cardLast4: verified.cardLast4,
                 cardExpiry: verified.cardExpiry,
               }
             : {}),
         },
-      }),
-      this.prisma.tenant.update({
+      });
+      await tx.tenant.update({
         where: { id: payment.tenantId },
         data: {
           plan: payment.planCode,
           status: "active",
           // הניסיון נגמר ברכישה; השארתו הייתה נועלת משרד משלם ביום התפוגה
           trialEndsAt: null,
+          // שער ההרשאה. בלעדיו תשלום אחד היה פותח גישה לנצח, כי
+          // `tenantCanOperate` קורא את שורת הדייר ולא את המנוי
+          paidUntil: periodEnd,
         },
-      }),
-    ]);
+      });
+      return periodEnd;
+    });
+
+    if (outcome === null) return { applied: false, status: "paid" };
 
     this.logger.log(
-      `מנוי הופעל: משרד ${payment.tenantId}, מסלול ${payment.planCode}, עד ${periodEnd.toISOString()}`,
+      `מנוי הופעל: משרד ${payment.tenantId}, מסלול ${payment.planCode}, עד ${outcome.toISOString()}`,
     );
     return { applied: true, status: "paid" };
   }

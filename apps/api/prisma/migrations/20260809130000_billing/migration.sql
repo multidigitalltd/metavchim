@@ -65,3 +65,19 @@ SELECT
   CURRENT_TIMESTAMP
 FROM tenants t
 ON CONFLICT (tenant_id) DO NOTHING;
+
+-- שער ההרשאה: עד מתי שולם, על שורת הדייר עצמה.
+--
+-- לא רק ב-subscriptions בכוונה. `tenantCanOperate` נבדק בכל אימות
+-- Session וקורא את שורת הדייר; תפוגה שנשענת על סורק שירוץ אי-פעם
+-- הייתה נותנת גישה חינם לכל מי ששילם פעם אחת — בדיוק התקלה שכבר
+-- הייתה עם תקופת הניסיון. NULL = אין תפוגה (משרד שהוקם ידנית).
+ALTER TABLE tenants ADD COLUMN paid_until TIMESTAMP(3);
+CREATE INDEX tenants_paid_until_idx ON tenants (paid_until);
+
+-- יום החיוב בחודש, כפי שנקבע בתשלום הראשון.
+--
+-- בלעדיו מנוי שנפתח ב-31 בינואר נגמר ב-28 בפברואר וממשיך ב-28
+-- לתמיד: הקיצור החד-פעמי של חודש קצר הופך לקבוע, שלושה ימים בכל
+-- חודש. העוגן נשמר ואינו נגזר מהתאריך המקוצר.
+ALTER TABLE subscriptions ADD COLUMN billing_anchor_day SMALLINT;
