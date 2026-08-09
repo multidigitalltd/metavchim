@@ -4,6 +4,7 @@ import {
   describeRecurrence,
   nextOccurrenceUtc,
   recurrenceRejectionReason,
+  toJerusalemWall,
   type RecurrenceFrequency,
   type RecurrenceRule,
 } from "@metavchim/shared";
@@ -278,7 +279,18 @@ export class RecurrenceService {
       // ימי שבוע רק לכלל שבועי — שאריות משינוי תדירות היו מבלבלות
       // גם את המסך וגם את החישוב
       weekdays: input.frequency === "weekly" ? [...new Set(input.weekdays ?? [])].sort() : [],
-      dayOfMonth: input.frequency === "monthly" ? (input.dayOfMonth ?? null) : null,
+      /*
+       * עוגן היום בחודש נשמר תמיד, גם כשלא נשלח.
+       *
+       * בלעדיו `nextOccurrence` גוזר אותו מהמופע האחרון, וכלל שנוצר
+       * ב-31 בינואר היה רץ ב-28 בפברואר ואז **נשאר** על ה-28 לתמיד
+       * במקום לחזור ל-31. ברירת המחדל היא היום שבו הכלל נוצר, בשעון
+       * ישראל — זו הכוונה של "פעם בחודש מהיום" (ביקורת Codex).
+       */
+      dayOfMonth:
+        input.frequency === "monthly"
+          ? (input.dayOfMonth ?? toJerusalemWall(new Date()).getDate())
+          : null,
       hour: input.hour,
       minute: input.minute,
       assignedToUserId: input.assignedToUserId ?? null,

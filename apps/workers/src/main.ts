@@ -739,7 +739,10 @@ async function processRecurringTasks(): Promise<void> {
          * בלי ליצור כלום.
          */
         const claimed = await tx.taskRecurrence.updateMany({
-          where: { id: rule.id, lastRunAt: rule.lastRunAt },
+          // isActive בתנאי: השהיה שקרתה אחרי הסריקה ולפני התפיסה לא
+          // משנה את lastRunAt, ובלעדיו הסורק היה יוצר עוד משימה אחת
+          // מכלל שכבר הושהה (ביקורת Codex)
+          where: { id: rule.id, lastRunAt: rule.lastRunAt, isActive: true },
           data: { lastRunAt: dueAt },
         });
         if (claimed.count === 0) return;
