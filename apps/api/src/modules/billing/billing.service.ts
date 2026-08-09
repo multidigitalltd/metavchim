@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
+  accessUntil,
   billingAnchorDay,
   checkoutRejectionReason,
   cyclePriceAgorot,
@@ -343,9 +344,16 @@ export class BillingService {
           status: "active",
           // הניסיון נגמר ברכישה; השארתו הייתה נועלת משרד משלם ביום התפוגה
           trialEndsAt: null,
-          // שער ההרשאה. בלעדיו תשלום אחד היה פותח גישה לנצח, כי
-          // `tenantCanOperate` קורא את שורת הדייר ולא את המנוי
-          paidUntil: periodEnd,
+          /*
+           * שער ההרשאה. בלעדיו תשלום אחד היה פותח גישה לנצח, כי
+           * `tenantCanOperate` קורא את שורת הדייר ולא את המנוי.
+           *
+           * `accessUntil` ולא `periodEnd`: החיוב החוזר נבדק **אחרי**
+           * סוף התקופה, ובלי חלון החסד כל משרד משלם היה ננעל בחוץ בכל
+           * מחזור עד שהסורק רץ. אותה פונקציה משמשת גם את החידוש, כי
+           * שני ערכים שונים ל-`paid_until` היו בדיוק הבאג הזה.
+           */
+          paidUntil: accessUntil(periodEnd),
         },
       });
       return periodEnd;

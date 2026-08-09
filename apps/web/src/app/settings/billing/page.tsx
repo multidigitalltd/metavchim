@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   describeCycle,
   describeCyclePrice,
@@ -58,7 +59,8 @@ const PAYMENT_STATUS: Record<string, string> = {
   failed: "נכשל",
 };
 
-export default function BillingPage(): React.JSX.Element | null {
+function BillingContent(): React.JSX.Element | null {
+  const expired = useSearchParams().get("expired") === "1";
   const { user, loading } = useRequireAuth();
   const [data, setData] = useState<Overview | null>(null);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
@@ -135,6 +137,21 @@ export default function BillingPage(): React.JSX.Element | null {
       <p className="mb-5 text-sm" style={{ color: "var(--color-text-muted)" }}>
         פרטי האשראי מוקלדים בדף המאובטח של חברת הסליקה ואינם נשמרים במערכת.
       </p>
+
+      {/*
+        המשרד הופנה לכאן כי התקופה שלו נגמרה. ההסבר חייב להיות כאן
+        ולא רק בשגיאה שנעלמה בדרך — אחרת הוא רואה מסך מנוי בלי לדעת
+        למה נזרק אליו.
+      */}
+      {expired ? (
+        <p
+          role="alert"
+          className="mb-5 rounded-xl border p-3 text-sm font-medium"
+          style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}
+        >
+          התקופה הסתיימה. שאר המסכים ייפתחו מיד עם חידוש המנוי.
+        </p>
+      ) : null}
 
       {error ? (
         <p role="alert" className="mb-4 rounded-lg border p-3 text-sm" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
@@ -303,5 +320,14 @@ export default function BillingPage(): React.JSX.Element | null {
         </>
       )}
     </main>
+  );
+}
+
+export default function BillingPage(): React.JSX.Element {
+  // useSearchParams מחייב גבול Suspense בבנייה סטטית של Next
+  return (
+    <Suspense fallback={<main className="py-10 text-center">טוען…</main>}>
+      <BillingContent />
+    </Suspense>
   );
 }

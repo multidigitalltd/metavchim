@@ -48,11 +48,18 @@ export class NavController {
     const plan = await this.plans.forTenant(tenantId);
     return this.prisma.withTenant(async (tx) => {
       const [properties, buyers, newLeads, matches, ledger] = await Promise.all([
+        // deletedAt מפורש בשני אלה: אלה המונים שליד שמות המסכים,
+        // והמסכים עצמם מסננים מחוקים. בלי הסינון כאן הבאדג' מראה
+        // מספר אחד והרשימה מספר אחר — וזה נקרא כתקלה, בצדק.
         tx.property.count({
-          where: { tenantId, status: { in: ["draft", "active", "on_hold"] } },
+          where: { tenantId, deletedAt: null, status: { in: ["draft", "active", "on_hold"] } },
         }),
         tx.buyer.count({
-          where: { tenantId, ...ownershipFilter("buyers.view_all", "ownerUserId") },
+          where: {
+            tenantId,
+            deletedAt: null,
+            ...ownershipFilter("buyers.view_all", "ownerUserId"),
+          },
         }),
         tx.lead.count({
           where: {
@@ -61,6 +68,17 @@ export class NavController {
             ...ownershipFilter("leads.view_all", "assignedToUserId"),
           },
         }),
+        /*
+         * `suggested` בלבד — הבאדג' סופר הצעות חדשות שממתינות, לא את
+         * כל מה שמופיע במסך ההתאמות (שמציג גם `offered`). זו כוונה,
+         * לא אי-התאמה.
+         *
+         * מה שכן חייב להתקיים: התאמה לצד שנמחק אינה נספרת כאן. היא
+         * אינה נספרת כי **מחיקה רכה מסמנת את כל ההתאמות של הנכס
+         * כ-`dismissed`** (properties.service.ts, softDelete) — ולכן
+         * אין צורך בבדיקה נוספת כאן. אם ייווצר נתיב מחיקה לקונה, הוא
+         * חייב לעשות את אותו הדבר, אחרת המונה הזה יתפח בשקט.
+         */
         tx.match.count({ where: { tenantId, status: "suggested" } }),
         // צפייה בלבד — המענק ההתחלתי נרשם רק במסך השת"פ עצמו, כדי
         // שסרגל הצד לא ייצור תנועות כספיות כתופעת לוואי של רינדור

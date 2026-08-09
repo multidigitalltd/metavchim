@@ -20,6 +20,8 @@ import {
   PLAN_FEATURES,
   TenantStatusSchema,
   downgradeWarnings,
+  leadPriceRejectionReason,
+  type LeadSourcePrice,
   planRejectionReason,
   sanitizeFeatures,
   type PlanDefinition,
@@ -34,9 +36,11 @@ import {
   PlatformSettingsService,
   type PlatformSettingKey,
 } from "../../core/platform-settings.service";
+import { CardcomService } from "../../core/cardcom.service";
+import { LeadPricingService } from "../../core/lead-pricing.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
-import { AuthService } from "../auth/auth.service";
+import { AuthService, tenantPeriodEnded } from "../auth/auth.service";
 import {
   BackupsService,
   type BackupsOverview,
@@ -77,6 +81,18 @@ const UpdateAgencySchema = z
   .object({
     plan: PlanCodeSchema.optional(),
     status: TenantStatusSchema.optional(),
+    /**
+     * הענקת גישה ידנית: תאריך, או `null` ל"בלי תפוגה".
+     *
+     * זה הכלי שהיה חסר. משרד שתקופתו נגמרה נשאר חסום גם אחרי
+     * שהסטטוס שלו `active`, כי הסטטוס אינו התנאי היחיד — ולמנהל
+     * הפלטפורמה לא הייתה שום דרך לשחרר אותו בלי לגעת בבסיס הנתונים.
+     *
+     * שדה נפרד ולא תופעת לוואי של שינוי הסטטוס: מחיקה שקטה של
+     * תאריך תשלום בזמן שמישהו רק החזיר משרד מהשהיה היא בדיוק סוג
+     * ההפתעה שאסור שתהיה בכלי ניהול.
+     */
+    paidUntil: z.union([z.string().datetime(), z.null()]).optional(),
   })
   .strict();
 
@@ -117,8 +133,51 @@ const UpdateSettingsSchema = z
   })
   .strict();
 
+/**
+ * מחיר ליד לפי מקור.
+ *
+ * הגבולות מגיעים מהכלל המשותף (`leadPriceRejectionReason`) ולא
+ * נכתבים כאן שוב — הסכימה חוסמת קלט שבור, והכלל הוא מה שקובע.
+ */
+const LeadPriceSchema = z
+  .object({
+    label: z.string().trim().min(2).max(60),
+    creditsCost: z.number().int().min(0).max(1000),
+  })
+  .strict();
+
 /** שם קובץ גיבוי — הוולידציה המחייבת היא ב-BackupsService (רשימת היתר). */
 const BackupNameSchema = z.object({ name: z.string().min(1).max(120) }).strict();
+
+/**
+ * זיכוי. הסכום ברשות — חסר פירושו זיכוי מלא.
+ *
+ * `int` ולא `number`: אגורה היא היחידה, ושבר אגורה בבקשה היה יוצא
+ * לקארדקום כשקל מעוגל ומשאיר פער בין מה שנרשם למה שיצא.
+ */
+const RefundSchema = z
+  .object({
+    amountAgorot: z.number().int().positive().optional(),
+    reason: z.string().max(300).optional(),
+  })
+  .strict();
+
+export interface PaymentRow {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  planCode: string;
+  billingCycle: string;
+  amountAgorot: number;
+  status: string;
+  transactionId: string | null;
+  failureReason: string | null;
+  paidAt: Date | null;
+  refundedAgorot: number | null;
+  refundedAt: Date | null;
+  refundReason: string | null;
+  createdAt: Date;
+}
 
 export interface AgencyRow {
   id: string;
@@ -127,6 +186,18 @@ export interface AgencyRow {
   status: string;
   userCount: number;
   createdAt: Date;
+  /**
+   * התפוגות, ומה שנגזר מהן.
+   *
+   * בלעדיהן המסך הזה מציג "פעיל" למשרד שאינו מצליח להיכנס: הסטטוס
+   * הוא רק אחד משלושת התנאים, והשניים האחרים הם תאריכים. מנהל
+   * פלטפורמה שרואה "פעיל" ושומע "אני לא נכנס" אין לו מה לעשות עם
+   * זה.
+   */
+  trialEndsAt: Date | null;
+  paidUntil: Date | null;
+  /** true = המשרד מחובר אך מוגבל למסך המנוי. */
+  periodEnded: boolean;
 }
 
 @Controller("platform")
@@ -139,6 +210,8 @@ export class PlatformController {
     private readonly email: EmailService,
     private readonly backups: BackupsService,
     private readonly plans: PlanCatalogService,
+    private readonly leadPricing: LeadPricingService,
+    private readonly cardcom: CardcomService,
   ) {}
 
   /**
@@ -186,6 +259,128 @@ export class PlatformController {
     return { ok: true };
   }
 
+  /**
+   * מחירי הלידים לפי מקור.
+   *
+   * מוחזרים מה-Service ולא מהטבלה ישירות, כדי שהמסך יראה את מה
+   * שהמערכת באמת תגבה — כולל ברירות המחדל של מקורות שטרם תומחרו.
+   */
+  @Get("lead-prices")
+  async leadPrices(): Promise<{ prices: LeadSourcePrice[] }> {
+    return { prices: await this.leadPricing.all() };
+  }
+
+  @Patch("lead-prices/:source")
+  async upsertLeadPrice(
+    @Param("source") source: string,
+    @Body(new ZodValidationPipe(LeadPriceSchema)) body: z.infer<typeof LeadPriceSchema>,
+  ): Promise<{ ok: true }> {
+    const price: LeadSourcePrice = { source, ...body };
+    const reason = leadPriceRejectionReason(price);
+    if (reason) throw new BadRequestException(reason);
+    await this.leadPricing.upsert(price, TenantContext.current().userId);
+    return { ok: true };
+  }
+
+  /**
+   * התשלומים — עמוד אחרון, לא הכול.
+   *
+   * זו טבלה שגדלה לנצח, והמסך שמציג אותה משמש לזיהוי תשלום מסוים
+   * ולזיכוי שלו; היסטוריה מלאה היא עבודה של דוח, לא של רשימה.
+   */
+  @Get("payments")
+  async payments(@Query("tenantId") tenantId?: string): Promise<PaymentRow[]> {
+    const rows = await this.prisma.payment.findMany({
+      where: tenantId !== undefined && tenantId !== "" ? { tenantId } : {},
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    const tenants = await this.prisma.tenant.findMany({
+      where: { id: { in: [...new Set(rows.map((r) => r.tenantId))] } },
+      select: { id: true, name: true },
+    });
+    const names = new Map(tenants.map((t) => [t.id, t.name]));
+    return rows.map((row) => ({
+      id: row.id,
+      tenantId: row.tenantId,
+      tenantName: names.get(row.tenantId) ?? row.tenantId,
+      planCode: row.planCode,
+      billingCycle: row.billingCycle,
+      amountAgorot: row.amountAgorot,
+      status: row.status,
+      transactionId: row.transactionId,
+      failureReason: row.failureReason,
+      paidAt: row.paidAt,
+      refundedAgorot: row.refundedAgorot,
+      refundedAt: row.refundedAt,
+      refundReason: row.refundReason,
+      createdAt: row.createdAt,
+    }));
+  }
+
+  /**
+   * זיכוי תשלום — מלא או חלקי.
+   *
+   * הבדיקות כאן ולא בקארדקום: הם ישמחו לזכות פעמיים, והתוצאה היא
+   * כסף שיצא ולא נרשם. התפיסה נעשית **לפני** הפנייה, בעדכון מותנה
+   * על `refunded_at: null` — בדיוק כמו בחידוש — ומוחזרת לאחור אם
+   * הזיכוי נדחה.
+   */
+  @Post("payments/:id/refund")
+  @HttpCode(200)
+  async refund(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(RefundSchema)) body: z.infer<typeof RefundSchema>,
+  ): Promise<{ refundedAgorot: number; message: string }> {
+    const payment = await this.prisma.payment.findUnique({ where: { id } });
+    if (!payment) throw new BadRequestException("התשלום לא נמצא");
+    if (payment.status !== "paid") throw new BadRequestException("רק תשלום שנגבה ניתן לזיכוי");
+    if (payment.refundedAt !== null) throw new ConflictException("התשלום כבר זוכה");
+    if (!payment.transactionId) {
+      throw new BadRequestException("לתשלום אין מזהה עסקה — לא ניתן לזכות אותו אוטומטית");
+    }
+    const amount = body.amountAgorot ?? payment.amountAgorot;
+    if (amount <= 0 || amount > payment.amountAgorot) {
+      throw new BadRequestException("סכום הזיכוי חייב להיות בין אגורה אחת לסכום ששולם");
+    }
+
+    const claimed = await this.prisma.payment.updateMany({
+      where: { id, refundedAt: null },
+      data: { refundedAt: new Date(), refundedAgorot: amount, refundReason: body.reason ?? null },
+    });
+    if (claimed.count === 0) throw new ConflictException("התשלום כבר זוכה");
+
+    let result: Awaited<ReturnType<CardcomService["refund"]>>;
+    try {
+      result = await this.cardcom.refund({
+        transactionId: payment.transactionId,
+        // זיכוי מלא נשלח בלי PartialSum — ראו ההנמקה ב-CardcomService
+        ...(amount < payment.amountAgorot ? { partialAgorot: amount } : {}),
+      });
+    } catch (error) {
+      await this.releaseRefund(id);
+      throw error;
+    }
+    if (!result.refunded) {
+      await this.releaseRefund(id);
+      throw new BadRequestException(result.message || "הזיכוי נדחה בקארדקום");
+    }
+
+    await this.prisma.payment.update({
+      where: { id },
+      data: { refundTransactionId: result.refundTransactionId },
+    });
+    return { refundedAgorot: amount, message: result.message };
+  }
+
+  /** שחרור התפיסה כשהזיכוי לא עבר — אחרת התשלום נראה מזוכה ואינו. */
+  private async releaseRefund(id: string): Promise<void> {
+    await this.prisma.payment.update({
+      where: { id },
+      data: { refundedAt: null, refundedAgorot: null, refundReason: null },
+    });
+  }
+
   @Get("agencies")
   async list(): Promise<AgencyRow[]> {
     const tenants = await this.prisma.tenant.findMany({
@@ -195,6 +390,8 @@ export class PlatformController {
         name: true,
         plan: true,
         status: true,
+        trialEndsAt: true,
+        paidUntil: true,
         createdAt: true,
         _count: { select: { users: true } },
       },
@@ -206,6 +403,10 @@ export class PlatformController {
       status: t.status,
       userCount: t._count.users,
       createdAt: t.createdAt,
+      trialEndsAt: t.trialEndsAt,
+      paidUntil: t.paidUntil,
+      // אותה פונקציה שהשרת אוכף לפיה, ולא העתק שלה
+      periodEnded: tenantPeriodEnded(t),
     }));
   }
 
@@ -309,6 +510,17 @@ export class PlatformController {
       data: {
         ...(body.plan !== undefined ? { plan: body.plan } : {}),
         ...(body.status !== undefined ? { status: body.status } : {}),
+        ...(body.paidUntil !== undefined
+          ? {
+              paidUntil: body.paidUntil === null ? null : new Date(body.paidUntil),
+              /*
+               * הענקה ידנית מסיימת גם את הניסיון: משרד עם שני
+               * תאריכים פעילים היה נחסם לפי זה שרלוונטי לסטטוס שלו,
+               * ומנהל שהעניק גישה לא היה מבין למה היא לא נכנסה לתוקף.
+               */
+              trialEndsAt: null,
+            }
+          : {}),
       },
     });
     // השהיה — ניתוק מיידי של כל ה-sessions של המשרד
@@ -419,6 +631,21 @@ export class PlatformController {
   }
 
   /** גרסה מותקנת + זמינות סוכן העדכון — למסך הפלטפורמה. */
+  /**
+   * בדיקת חיבור לקארדקום.
+   *
+   * שדה מלא אינו אישור תקין. ספרה שהוקלדה לא נכון במספר המסוף מתגלה
+   * אחרת רק בעסקה הראשונה של לקוח משלם — כלומר במקום הגרוע ביותר.
+   */
+  @Post("settings/test-cardcom")
+  @HttpCode(200)
+  async testCardcom(): Promise<{ ok: boolean; terminalNumber: number; message: string }> {
+    if (!(await this.cardcom.isConfigured())) {
+      throw new BadRequestException("הסליקה טרם הוגדרה — מלאו מספר מסוף ושם API ושמרו");
+    }
+    return this.cardcom.testConnection();
+  }
+
   @Get("system")
   async systemInfo(): Promise<{ version: string; updateAvailable: boolean }> {
     const env = loadEnv();
@@ -443,6 +670,24 @@ export class PlatformController {
     }
     const res = await callUpdaterAgent("/update", { method: "POST" });
     if (res.status === 409) throw new ConflictException("עדכון כבר רץ — המתינו לסיומו");
+    if (!res.ok) throw updaterFailure(res);
+    return { status: "started" };
+  }
+
+  /**
+   * עדכון סוכן העדכון עצמו.
+   *
+   * נפרד מ-`system/update` בכוונה ולא חלק ממנו: הסוכן מחליף את עצמו,
+   * וכל כישלון שם היה מפיל עדכון מערכת תקין. הפרדה גם אומרת שאפשר
+   * לעדכן את המערכת עשר פעמים בלי לגעת בסוכן, ולגעת בו כשצריך.
+   *
+   * עד כה זו הייתה פקודה שמדביקים ב-SSH.
+   */
+  @Post("system/update-agent")
+  @HttpCode(200)
+  async updateAgent(): Promise<{ status: "started" }> {
+    const res = await callUpdaterAgent("/update/self", { method: "POST" });
+    if (res.status === 409) throw new ConflictException("פעולה כבר רצה — המתינו לסיומה");
     if (!res.ok) throw updaterFailure(res);
     return { status: "started" };
   }

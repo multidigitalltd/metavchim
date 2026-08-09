@@ -3,6 +3,11 @@
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
+import {
+  COMMISSION_SPLIT_OPTIONS,
+  DEFAULT_COMMISSION_SPLIT,
+  describeCommissionSplit,
+} from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { FINANCING_LABELS, formatBuyerSource, formatDate, formatPrice, MATURITY_LABELS, waMeUrl } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -92,6 +97,11 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
   const [shareStatus, setShareStatus] = useState<string | null>(null);
+  /*
+   * חלוקת העמלה נבחרת **לפני** השיתוף ולא אחריו. מו"מ על אחוזים
+   * אחרי שהקונה כבר התעניין הוא המקום שבו שיתופי פעולה נשברים.
+   */
+  const [shareSplit, setShareSplit] = useState(DEFAULT_COMMISSION_SPLIT);
   const [error, setError] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState<string | null>(null);
   const [notesSaved, setNotesSaved] = useState(false);
@@ -113,8 +123,10 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
 
   async function shareToNetwork() {
     try {
-      await apiPost("/collaboration/share", { buyerId: id });
-      setShareStatus("✓ הקונה שותף ברשת כביקוש אנונימי — בלי שם, בלי טלפון, תקציב מעוגל");
+      await apiPost("/collaboration/share", { buyerId: id, commissionSplit: shareSplit });
+      setShareStatus(
+        `✓ הקונה שותף ברשת כביקוש אנונימי — בלי שם, בלי טלפון, תקציב מעוגל. חלוקת עמלה: ${describeCommissionSplit(shareSplit)}`,
+      );
     } catch (err: unknown) {
       setShareStatus(err instanceof ApiError ? err.message : "השיתוף נכשל");
     }
@@ -221,6 +233,22 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
           <Link href={`/buyers/${id}/edit`} className="mv-btn-plain" style={{ padding: "7px 14px", fontSize: 13 }}>
             ערוך דרישות
           </Link>
+          <label className="flex items-center gap-1.5 text-sm">
+            <span>חלוקת עמלה</span>
+            <select
+              value={shareSplit}
+              onChange={(e) => setShareSplit(Number(e.target.value))}
+              className="rounded-lg border px-2 py-1.5"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+              aria-label="חלוקת העמלה בשיתוף"
+            >
+              {COMMISSION_SPLIT_OPTIONS.map((share) => (
+                <option key={share} value={share}>
+                  {describeCommissionSplit(share)}
+                </option>
+              ))}
+            </select>
+          </label>
           <button type="button" className="mv-btn-soft" style={{ padding: "7px 14px", fontSize: 13 }} onClick={() => void shareToNetwork()}>
             שתף ברשת (אנונימי)
           </button>

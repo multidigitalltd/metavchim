@@ -107,6 +107,37 @@ export class ContactsService {
     };
   }
 
+  /**
+   * כמה אנשי קשר בשאילתה אחת — לרשימות.
+   *
+   * המסכים שמציגים שם ליד כל שורה קראו ל-`getById` בלולאה: עמוד של
+   * חמישים קונים היה חמישים שאילתות, ומסך ההתאמות עשה את זה פעמיים.
+   * הפענוח נשאר לכל שורה (הוא מקומי וזול); מה שהוסר הוא הלוך-ושוב
+   * לבסיס הנתונים.
+   *
+   * מזהה שאינו נמצא פשוט חסר מהמפה — הקוראים כבר מדלגים על שורה בלי
+   * איש קשר, וזו התנהגות שנשמרת.
+   */
+  async getByIds(tx: TenantTx, ids: readonly string[]): Promise<Map<string, ContactDto>> {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) return new Map();
+
+    const rows = await tx.contact.findMany({
+      where: { id: { in: unique }, tenantId: TenantContext.current().tenantId },
+      select: { id: true, nameEncrypted: true, phoneEncrypted: true, emailEncrypted: true },
+    });
+    const byId = new Map<string, ContactDto>();
+    for (const row of rows) {
+      byId.set(row.id, {
+        id: row.id,
+        name: this.crypto.decrypt(row.nameEncrypted),
+        phone: this.crypto.decrypt(row.phoneEncrypted),
+        ...(row.emailEncrypted ? { email: this.crypto.decrypt(row.emailEncrypted) } : {}),
+      });
+    }
+    return byId;
+  }
+
   /* ---------- טלפונים נוספים ---------- */
 
   /** כל הטלפונים של אדם: הראשי תחילה, ואחריו הנוספים לפי סדר ההוספה. */

@@ -1,8 +1,12 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from "@nestjs/common";
 import { z } from "zod";
-import { IdSchema } from "@metavchim/shared";
+import {
+  DEFAULT_COMMISSION_SPLIT,
+  IdSchema,
+  MAX_COMMISSION_SHARE,
+  MIN_COMMISSION_SHARE,
+} from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
-import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
   CollaborationService,
@@ -10,11 +14,33 @@ import {
   type SharedDemandDto,
 } from "./collaboration.service";
 
-const ShareSchema = z.object({ buyerId: IdSchema }).strict();
-const OfferSchema = z.object({ propertyId: IdSchema }).strict();
+/**
+ * חלוקת העמלה. הגבולות מגיעים מהכלל המשותף ולא נכתבים כאן שוב —
+ * שני מקורות למינימום היו נפרדים ביום שמישהו משנה אחד מהם.
+ */
+const CommissionSplitSchema = z
+  .number()
+  .int()
+  .min(MIN_COMMISSION_SHARE)
+  .max(MAX_COMMISSION_SHARE)
+  .default(DEFAULT_COMMISSION_SPLIT);
+
+const ShareSchema = z
+  .object({ buyerId: IdSchema, commissionSplit: CommissionSplitSchema })
+  .strict();
+const OfferSchema = z
+  .object({ propertyId: IdSchema, commissionSplit: CommissionSplitSchema })
+  .strict();
 const RespondSchema = z.object({ response: z.enum(["interested", "declined"]) }).strict();
 
-@RequireFeature("collaboration")
+/*
+ * **בלי שער מסלול.** שיתוף פעולה בין משרדים פתוח בכל המסלולים —
+ * רשת שרק המסלולים הגבוהים נמצאים בה אינה רשת, ומשרד שאינו יכול
+ * להציע נכס לעמית פשוט לא ישתף גם את הביקושים שלו.
+ *
+ * מה שכן עולה הוא **ליד ממקור חיצוני**, והתמחור לפי מקור הביקוש
+ * ולא לפי המסלול — ראו packages/shared/logic/collaboration-cost.ts.
+ */
 @Controller("collaboration")
 export class CollaborationController {
   constructor(private readonly collaboration: CollaborationService) {}
@@ -24,7 +50,7 @@ export class CollaborationController {
   async share(
     @Body(new ZodValidationPipe(ShareSchema)) body: z.infer<typeof ShareSchema>,
   ): Promise<SharedDemandDto> {
-    return this.collaboration.shareBuyer(body.buyerId);
+    return this.collaboration.shareBuyer(body.buyerId, body.commissionSplit);
   }
 
   @Delete("demands/:id")
@@ -46,7 +72,7 @@ export class CollaborationController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Body(new ZodValidationPipe(OfferSchema)) body: z.infer<typeof OfferSchema>,
   ): Promise<CoopOfferDto> {
-    return this.collaboration.offerProperty(id, body.propertyId);
+    return this.collaboration.offerProperty(id, body.propertyId, body.commissionSplit);
   }
 
   @Get("offers")

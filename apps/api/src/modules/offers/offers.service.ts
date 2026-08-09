@@ -1,7 +1,7 @@
 import { ConflictException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
-import { OfferPresentationSchema, type OfferPresentation } from "@metavchim/shared";
+import { OfferPresentationSchema, whatsappLink, type OfferPresentation } from "@metavchim/shared";
 import { assertMatchAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AgreementsService } from "../agreements/agreements.service";
@@ -612,11 +612,7 @@ export class OffersService {
         entityId: offer.id,
       });
 
-      const phoneDigits = contact.phone.replace(/\D/gu, "");
-      return {
-        waUrl: `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message)}`,
-        message,
-      };
+      return { waUrl: whatsappLink(contact.phone, message), message };
     });
   }
 
@@ -707,10 +703,15 @@ export class OffersService {
         },
         select: { id: true, contactId: true },
       });
+      // שאילתה אחת לכל השמות בעמוד, לא אחת לכל שורה
+      const contactsById = await this.contacts.getByIds(
+        tx,
+        buyers.map((b) => b.contactId),
+      );
       const buyerNameById = new Map<string, string>();
       for (const buyer of buyers) {
-        const contact = await this.contacts.getById(tx, buyer.contactId);
-        if (contact) buyerNameById.set(buyer.id, contact.name);
+        const name = contactsById.get(buyer.contactId)?.name;
+        if (name !== undefined) buyerNameById.set(buyer.id, name);
       }
 
       return offers.map((offer) => {

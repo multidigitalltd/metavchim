@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  BILLING_GRACE_DAYS,
   RENEWAL_WARN_WITHIN_DAYS,
+  accessUntil,
   billingAnchorDay,
   checkoutRejectionReason,
   cyclePriceAgorot,
@@ -302,5 +304,22 @@ describe("describeSubscription", () => {
 
   it("past_due", () => {
     expect(describeSubscription("past_due", null)).toContain("נדרש חידוש");
+  });
+});
+
+describe("accessUntil", () => {
+  const end = new Date("2026-09-09T10:00:00Z");
+
+  it("מוסיף את חלון החסד לסוף התקופה", () => {
+    expect(accessUntil(end).toISOString()).toBe("2026-09-12T10:00:00.000Z");
+  });
+
+  it("החלון גדול מאפס — אחרת סוף התקופה הוא רגע הנעילה", () => {
+    /*
+     * זו הנקודה: החיוב החוזר נבדק אחרי סוף התקופה, ובלי חלון כל
+     * משרד משלם היה נעול בחוץ בכל מחזור עד שהסורק רץ.
+     */
+    expect(BILLING_GRACE_DAYS).toBeGreaterThan(0);
+    expect(accessUntil(end).getTime()).toBeGreaterThan(end.getTime());
   });
 });

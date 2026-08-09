@@ -1,4 +1,5 @@
 import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
+import { renderEmailHtml, renderEmailText, type EmailContent } from "@metavchim/shared";
 import { loadEnv } from "../config/env";
 import { PlatformSettingsService } from "./platform-settings.service";
 
@@ -8,6 +9,14 @@ import { PlatformSettingsService } from "./platform-settings.service";
  * (מסך /platform, מוצפן ב-DB) ואם אינן שם — ממשתני הסביבה.
  * בלי הגדרות כלל — Fallback ללוג; פיצ'רים שדורשים אימייל בפועל
  * (אימות כניסה) בודקים את isConfigured().
+ *
+ * כל הודעה נשלחת בשתי גרסאות: HTML מעוצב מימין לשמאל, וטקסט.
+ * שתיהן נגזרות מאותו `EmailContent` (packages/shared) ולא נכתבות
+ * בנפרד — גרסת הטקסט היא זו שאיש לא רואה בבדיקה, כי היא מוצגת רק
+ * ללקוחות שחוסמים HTML, ולכן היא בדיוק זו שהייתה מתיישנת.
+ *
+ * שליחת שתיהן אינה קישוט: הודעה עם HTML בלבד נענשת במסננים, ולקוחות
+ * טקסט-בלבד היו מקבלים תגיות גולמיות.
  */
 @Injectable()
 export class EmailService {
@@ -27,7 +36,15 @@ export class EmailService {
     return (await this.credentials()) !== null;
   }
 
-  async send(to: string, subject: string, body: string): Promise<void> {
+  /**
+   * שליחה.
+   *
+   * `content` מקבל גם מחרוזת, כדי שקריאה פשוטה לא תחייב אובייקט —
+   * היא נקראת כפסקה יחידה ועוברת באותה תבנית בדיוק.
+   */
+  async send(to: string, subject: string, content: EmailContent | string): Promise<void> {
+    const body: EmailContent =
+      typeof content === "string" ? { paragraphs: [content] } : content;
     const creds = await this.credentials();
     if (!creds) {
       // אין ספק — נרשם ללוג השרת בלבד (לא נשלח לאף אחד)
@@ -48,7 +65,8 @@ export class EmailService {
           From: creds.from,
           To: to,
           Subject: subject,
-          TextBody: body,
+          HtmlBody: renderEmailHtml(body),
+          TextBody: renderEmailText(body),
           MessageStream: "outbound",
         }),
         signal: AbortSignal.timeout(10_000),
@@ -68,10 +86,10 @@ export class EmailService {
 
   /** שליחת מייל בדיקה ממסך ההגדרות — שגיאה מוחזרת לקורא בכוונה. */
   async sendTest(to: string): Promise<void> {
-    await this.send(
-      to,
-      "בדיקת חיבור — מתווכים",
-      "אם קיבלת את ההודעה הזו, חיבור האימייל של המערכת עובד. אין צורך להשיב.",
-    );
+    await this.send(to, "בדיקת חיבור — מתווכים", {
+      heading: "חיבור האימייל עובד",
+      paragraphs: ["אם קיבלתם את ההודעה הזו, שליחת האימייל מהמערכת מוגדרת כראוי."],
+      footnote: "הודעת בדיקה שנשלחה ממסך ניהול הפלטפורמה. אין צורך להשיב.",
+    });
   }
 }

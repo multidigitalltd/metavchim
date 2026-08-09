@@ -19,8 +19,10 @@ interface AgreementRow {
   kindLabel: string;
   status: string;
   signedAt?: string;
+  sentAt?: string;
   url: string;
   createdAt: string;
+  canEmail: boolean;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -63,7 +65,11 @@ export function AgreementsPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
+  /** ההסכם שנמצא כרגע בשליחה — כדי לא לנטרל את כל השורות בבת אחת */
+  const [sending, setSending] = useState<string | null>(null);
+  const [sentNote, setSentNote] = useState<string | null>(null);
   const [unfilled, setUnfilled] = useState<string[]>([]);
+  const [createdId, setCreatedId] = useState<string | null>(null);
   /*
    * ריק = "השתמש בברירת המחדל של המשרד".
    *
@@ -113,7 +119,7 @@ export function AgreementsPanel({
     setError(null);
     setLink(null);
     try {
-      const res = await apiPost<{ url: string; unfilled: string[]; reused: boolean }>(
+      const res = await apiPost<{ id: string; url: string; unfilled: string[]; reused: boolean }>(
         "/agreements",
         {
           kind,
@@ -131,6 +137,7 @@ export function AgreementsPanel({
         },
       );
       setLink(res.url);
+      setCreatedId(res.id);
       setUnfilled(res.unfilled);
       setOpen(false);
       load();
@@ -138,6 +145,40 @@ export function AgreementsPanel({
       setError(err instanceof ApiError ? err.message : "יצירת ההסכם נכשלה");
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * שליחה בפועל.
+   *
+   * וואטסאפ נפתח בלשונית חדשה עם ההודעה מוכנה — הדפדפן חייב לפתוח
+   * אותה בתוך אותו טיפול באירוע? לא: `window.open` אחרי `await`
+   * נחסם בחלק מהדפדפנים כחלון קופץ, ולכן הלשונית נפתחת מיד ורק אחר
+   * כך מקבלת כתובת.
+   */
+  async function deliver(id: string, channel: "whatsapp" | "email"): Promise<void> {
+    setSending(id);
+    setError(null);
+    setSentNote(null);
+    const tab = channel === "whatsapp" ? window.open("", "_blank", "noopener") : null;
+    try {
+      const res = await apiPost<{ waUrl?: string; sentTo?: string }>(
+        `/agreements/${id}/send`,
+        { channel },
+      );
+      if (channel === "whatsapp" && res.waUrl) {
+        if (tab) tab.location.href = res.waUrl;
+        else window.open(res.waUrl, "_blank", "noopener");
+        setSentNote("וואטסאפ נפתח עם ההודעה — נותר ללחוץ שלח");
+      } else if (res.sentTo) {
+        setSentNote(`ההסכם נשלח לכתובת ${res.sentTo}`);
+      }
+      load();
+    } catch (err: unknown) {
+      tab?.close();
+      setError(err instanceof ApiError ? err.message : "השליחה נכשלה");
+    } finally {
+      setSending(null);
     }
   }
 
@@ -172,8 +213,40 @@ export function AgreementsPanel({
             <li key={row.id} className="flex flex-wrap items-center gap-2">
               <span>{STATUS_LABELS[row.status] ?? row.status}</span>
               {row.status !== "signed" && row.status !== "declined" ? (
-                <a href={row.url} target="_blank" rel="noopener noreferrer" className="underline">
-                  קישור לחתימה
+                <>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={sending === row.id}
+                    onClick={() => void deliver(row.id, "whatsapp")}
+                  >
+                    שלח בוואטסאפ
+                  </Button>
+                  {/* מייל רק כשיש כתובת — טלפון הוא שדה חובה, אימייל אינו */}
+                  {row.canEmail ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={sending === row.id}
+                      onClick={() => void deliver(row.id, "email")}
+                    >
+                      שלח במייל
+                    </Button>
+                  ) : null}
+                  <a href={row.url} target="_blank" rel="noopener noreferrer" className="underline">
+                    קישור לחתימה
+                  </a>
+                  {row.sentAt ? (
+                    <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+                      נשלח {new Date(row.sentAt).toLocaleDateString("he-IL")}
+                    </span>
+                  ) : null}
+                </>
+              ) : null}
+              {row.status === "signed" ? (
+                /* המסמך החתום עצמו — עד כה החתימה נשמרה ולא היה מה להראות */
+                <a href={`/agreements/${row.id}/document`} className="underline">
+                  📄 המסמך החתום
                 </a>
               ) : null}
             </li>
@@ -187,12 +260,32 @@ export function AgreementsPanel({
         </p>
       ) : null}
 
+      {sentNote ? (
+        <p className="mb-2" aria-live="polite" style={{ color: "var(--color-success)" }}>
+          {sentNote}
+        </p>
+      ) : null}
+
       {link ? (
         <div
           className="mb-3 rounded-lg border p-3"
           style={{ borderColor: "var(--color-success)" }}
         >
-          <p className="mb-1 font-medium">ההסכם מוכן — שלחו ללקוח את הקישור:</p>
+          <p className="mb-1 font-medium">ההסכם מוכן — שלחו אותו ללקוח:</p>
+          {createdId ? (
+            <div className="mb-2 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                disabled={sending === createdId}
+                onClick={() => void deliver(createdId, "whatsapp")}
+              >
+                שלח בוואטסאפ
+              </Button>
+            </div>
+          ) : null}
+          <p className="mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            או העתיקו את הקישור:
+          </p>
           <a href={link} target="_blank" rel="noopener noreferrer" className="underline" dir="ltr">
             {link}
           </a>

@@ -21,6 +21,14 @@ const REPO_DIR = process.env.REPO_DIR ?? "/srv/repo";
 const ENV_FILE = process.env.ENV_FILE ?? ".env.production";
 /** רק שירותי האפליקציה מתעדכנים — לא התשתית ולא הסוכן עצמו. */
 const SERVICES = ["api", "web", "workers"];
+/**
+ * התמונה שמריצה את ההרמה-מחדש של הסוכן עצמו.
+ *
+ * מוצמדת לגרסה ולא ל-latest: זו הפקודה שמרימה את מה שמרים את הכול,
+ * והיום שבו `docker:cli` ישבור תאימות אינו היום שבו רוצים לגלות
+ * שהעדכון האחרון השאיר את השרת בלי סוכן.
+ */
+const CLI_IMAGE = process.env.DOCKER_CLI_IMAGE ?? "docker:27-cli";
 /** מי נעצר לפני שחזור — כל מי שכותב לנתונים. MinIO נעצר בנוסף,
  *  ורק בשחזור תמונות, כי אז דורסים את ה-volume שלו. */
 const RESTORE_STOP = ["api", "web", "workers"];
@@ -46,6 +54,14 @@ const compose = (args, timeoutMs = 10 * 60 * 1000) =>
     );
   });
 
+/** קריאה ישירה ל-Docker (בלי compose) — לקונטיינר העזר של עדכון עצמי. */
+const docker = (args, timeoutMs = 5 * 60 * 1000) =>
+  new Promise((resolve, reject) => {
+    execFile("docker", args, { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) =>
+      error ? reject(new Error(`${error.message}\n${stderr}`)) : resolve(stdout),
+    );
+  });
+
 /**
  * רשימת היתר לשמות גיבוי — זהה ל-packages/shared/src/logic/backup-file.ts
  * ול-infra/backup/restore.sh. משוכפלת בכוונה: הסוכן הוא קובץ ‎.mjs‎ בלי
@@ -56,6 +72,7 @@ const MEDIA_NAME = /^media_\d{4}-\d{2}-\d{2}_\d{4}(?:_[a-z][a-z-]{0,23})?\.tar\.
 const backupKind = (name) => (DB_NAME.test(name) ? "db" : MEDIA_NAME.test(name) ? "media" : null);
 
 let updating = false;
+let selfUpdate = { running: false, startedAt: null, message: null };
 let restore = { running: false, name: null, startedAt: null, finishedAt: null, ok: null, message: null };
 let backup = { running: false, startedAt: null, finishedAt: null, ok: null, message: null };
 
@@ -101,9 +118,7 @@ async function runUpdate() {
     // עדכון תקין של המערכת חשוב מרענון הסוכן.
     try {
       await compose(["pull", "updater"]);
-      console.log(
-        `[updater] תמונת הסוכן נמשכה. להשלמה בשרת: docker compose -f ${REPO_DIR}/docker-compose.prod.yml --env-file ${REPO_DIR}/${ENV_FILE} up -d updater`,
-      );
+      console.log('[updater] תמונת הסוכן נמשכה. להשלמה: "עדכן את סוכן העדכון" במסך הפלטפורמה');
     } catch (error) {
       console.warn(`[updater] self-image pull failed (לא קריטי): ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -111,6 +126,62 @@ async function runUpdate() {
     console.error(`[updater] update failed: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     updating = false;
+  }
+}
+
+/**
+ * עדכון הסוכן עצמו.
+ *
+ * הסוכן אינו יכול להרים את עצמו: `docker compose up -d updater` רץ
+ * **מתוך** הקונטיינר שהוא עומד להחליף, ואם התהליך נהרג בין "עצור
+ * את הישן" ל"הפעל את החדש" — השרת נשאר בלי סוכן, כלומר בלי הדבר
+ * שמתקן דברים. עד כה הפתרון היה שתי פקודות שמדביקים ב-SSH.
+ *
+ * במקום זה: קונטיינר עזר חד-פעמי. הוא מקבל את ה-socket ואת תיקיית
+ * הריפו, ממתין רגע כדי שהתשובה הזו תספיק לצאת, ואז מרים את הסוכן.
+ * הוא **אינו** הסוכן, ולכן החלפת הסוכן אינה נוגעת בו.
+ *
+ * `-d` ולא המתנה: `docker run` שהיה מחכה לסיום היה נהרג יחד עם
+ * הסוכן, וזה בדיוק המרוץ שהקונטיינר בא למנוע.
+ */
+async function runSelfUpdate() {
+  selfUpdate = { running: true, startedAt: new Date().toISOString(), message: "מושך תמונה חדשה…" };
+  try {
+    await compose(["pull", "updater"]);
+
+    // התמונה של העזר נמשכת מראש ובנפרד: `docker run` שמושך תוך כדי
+    // היה נכשל בשרת בלי גישה ל-Docker Hub אחרי שהסוכן כבר סומן
+    // לעדכון, והכישלון היה מתגלה רק בלוג.
+    selfUpdate.message = "מכין את קונטיינר העזר…";
+    await docker(["pull", CLI_IMAGE]);
+
+    const upCommand = [
+      "docker compose",
+      `--project-directory ${REPO_DIR}`,
+      `-f ${REPO_DIR}/docker-compose.prod.yml`,
+      `--env-file ${REPO_DIR}/${ENV_FILE}`,
+      "up -d updater",
+    ].join(" ");
+
+    selfUpdate.message = "מרים את הסוכן מחדש…";
+    await docker([
+      "run", "--rm", "-d",
+      "-v", "/var/run/docker.sock:/var/run/docker.sock",
+      // אותו נתיב מוחלט כמו על המארח — כך compose מוצא את הקבצים
+      "-v", `${REPO_DIR}:${REPO_DIR}:ro`,
+      "-w", REPO_DIR,
+      CLI_IMAGE,
+      "sh", "-c", `sleep 3; ${upCommand}`,
+    ]);
+
+    // מכאן והלאה התהליך הזה חי על זמן שאול — הקונטיינר יוחלף בעוד
+    // שלוש שניות. אין `finally` שמנקה כלום: אין למי.
+    selfUpdate.message = "הסוכן מתחלף — רעננו בעוד כמה שניות";
+    console.log("[updater] self-update handed off to helper container");
+  } catch (error) {
+    selfUpdate.running = false;
+    selfUpdate.message = "עדכון הסוכן נכשל — ראו את הלוג של סוכן העדכון";
+    console.error(`[updater] self-update failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -225,6 +296,23 @@ const server = createServer((req, res) => {
     }
     json(res, 202, { status: "started" });
     void runBackup();
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/update/self/status") {
+    json(res, 200, selfUpdate);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/update/self") {
+    // לא בזמן עדכון או שחזור: שניהם מריצים פקודות compose ארוכות,
+    // והחלפת הסוכן באמצע הייתה הורגת אותן
+    if (updating || restore.running || selfUpdate.running) {
+      json(res, 409, { error: "operation already running" });
+      return;
+    }
+    json(res, 202, { status: "started" });
+    void runSelfUpdate();
     return;
   }
 

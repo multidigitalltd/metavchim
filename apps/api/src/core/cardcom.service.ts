@@ -249,6 +249,52 @@ export class CardcomService {
   }
 
   /**
+   * בדיקת האישורים — "בדוק חיבור" במסך הפלטפורמה.
+   *
+   * פותחת דף תשלום ולא בודקת "האם השדות מלאים": שדה מלא אינו אישור
+   * תקין, ו**אין** נתיב "בדוק אותי" אצל קארדקום. הכישלון האמיתי —
+   * ספרה שהוקלדה לא נכון במספר המסוף, שם API של סביבת בדיקות —
+   * מתגלה אחרת רק בעסקה הראשונה של לקוח משלם.
+   *
+   * הדף שנפתח אינו גובה דבר: `LowProfile/Create` רק מייצר כתובת,
+   * והחיוב קורה כשמישהו מקליד שם כרטיס. הכתובת הזו פשוט לא נפתחת
+   * לעולם. סכום סמלי כדי שגם אם מישהו יפתח אותה בטעות, לא ייגבה סכום.
+   *
+   * **סיסמת ה-API אינה נבדקת כאן** — היא נדרשת רק בזיכוי, ולקארדקום
+   * אין קריאה שמאמתת אותה בלי לזכות משהו. זה נאמר במסך במפורש ולא
+   * מוסתר מאחורי "✓ החיבור תקין".
+   */
+  async testConnection(): Promise<{ ok: boolean; terminalNumber: number; message: string }> {
+    const creds = await this.credentials();
+    if (creds === null) throw new ServiceUnavailableException("הסליקה טרם הופעלה במערכת");
+
+    const webOrigin = loadEnv().WEB_ORIGIN;
+    const res = await this.post("/LowProfile/Create", {
+      TerminalNumber: creds.terminalNumber,
+      ApiName: creds.apiName,
+      ReturnValue: "connection-test",
+      Amount: 1,
+      ISOCoinId: ILS,
+      Operation: "ChargeOnly",
+      Language: "he",
+      SuccessRedirectUrl: `${webOrigin}/platform`,
+      FailedRedirectUrl: `${webOrigin}/platform`,
+      ProductName: "בדיקת חיבור",
+    });
+
+    const ok = res.ResponseCode === 0 && str(res["Url"]) !== null;
+    if (!ok) {
+      this.logger.warn(`בדיקת חיבור לקארדקום נכשלה: ${res.ResponseCode} ${res.Description ?? ""}`);
+    }
+    return {
+      ok,
+      terminalNumber: creds.terminalNumber,
+      // התיאור מקארדקום ולא הודעה שלנו: הוא זה שאומר *מה* לא בסדר
+      message: ok ? "החיבור תקין" : res.Description || `קארדקום דחה את הבקשה (${res.ResponseCode})`,
+    };
+  }
+
+  /**
    * מה קרה בפועל עם דף תשלום — **הקריאה היחידה שסומכים עליה**.
    *
    * נקראת עם מזהה שאנחנו שמרנו, מול קארדקום, בערוץ מאומת. הוובהוק
@@ -360,6 +406,58 @@ export class CardcomService {
       transactionId: transactionId === null ? null : String(transactionId),
       documentType: str(res["DocumentType"]),
       documentNumber: num(res["DocumentNumber"]),
+      message: res.Description ?? "",
+    };
+  }
+
+  /**
+   * זיכוי עסקה — מלא או חלקי.
+   *
+   * `RefundByTransactionId` ולא `Documents/CancelDoc`: ביטול מסמך
+   * מבטל חשבונית, והמסוף שלנו אינו מפיק חשבוניות בכלל
+   * (ראו `document` למעלה) — כלומר אין שם מה לבטל. מה שצריך לחזור
+   * הוא **הכסף**, וזה מה שהנתיב הזה עושה.
+   *
+   * `ApiPassword` נדרש כאן, בשונה מחיוב: קארדקום מסווג זיכוי כפעולה
+   * מסוכנת, וסיסמת ה-API היא ההגנה עליה. בלעדיה הבקשה נדחית
+   * ב-ResponseCode שאינו אפס, ולכן חסרונה ייראה כזיכוי שנכשל ולא
+   * כזיכוי שקרה בשקט.
+   *
+   * `PartialSum` נשלח רק בזיכוי חלקי — שליחת הסכום המלא כ"חלקי"
+   * מתקבלת אצל קארדקום, אבל היא מתעדת שם עסקה מסוג אחר, ומקשה על
+   * ההתאמה מול הדוחות שלהם.
+   */
+  async refund(input: {
+    transactionId: string;
+    /** ‎undefined = זיכוי מלא */
+    partialAgorot?: number;
+  }): Promise<{ refunded: boolean; refundTransactionId: string | null; message: string }> {
+    const creds = await this.credentials();
+    if (creds === null) throw new ServiceUnavailableException("הסליקה טרם הופעלה במערכת");
+    if (creds.apiPassword === "") {
+      throw new ServiceUnavailableException(
+        "זיכוי דורש סיסמת API של קארדקום — השלימו אותה בהגדרות הפלטפורמה",
+      );
+    }
+
+    const transactionId = Number(input.transactionId);
+    if (!Number.isInteger(transactionId) || transactionId <= 0) {
+      throw new ServiceUnavailableException("מזהה העסקה לזיכוי אינו תקין");
+    }
+
+    const res = await this.post("/Transactions/RefundByTransactionId", {
+      ApiName: creds.apiName,
+      ApiPassword: creds.apiPassword,
+      TransactionId: transactionId,
+      ...(input.partialAgorot !== undefined
+        ? { PartialSum: Math.round(input.partialAgorot) / 100 }
+        : {}),
+    });
+
+    const refundId = num(res["TranzactionId"]) ?? num(res["NewTranzactionId"]);
+    return {
+      refunded: res.ResponseCode === 0,
+      refundTransactionId: refundId === null ? null : String(refundId),
       message: res.Description ?? "",
     };
   }

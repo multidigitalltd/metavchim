@@ -1,6 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import {
+  COMMISSION_SPLIT_OPTIONS,
+  DEFAULT_COMMISSION_SPLIT,
+  describeCommissionSplit,
+} from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
@@ -26,6 +31,10 @@ interface DemandRow {
   roomsMax?: number;
   mustFeatures: string[];
   source: string;
+  /** כמה קרדיטים תעלה הצעה. 0 = חינם (ביקוש של משרד אחר). */
+  creditsCost: number;
+  /** אחוז העמלה שהמשרד המשתף מבקש; לצד השני נשאר המשלים. */
+  commissionSplit: number;
   mine: boolean;
   myMatches?: DemandMatch[];
 }
@@ -65,6 +74,11 @@ export default function CollaborationPage() {
   const [properties, setProperties] = useState<PropertyOption[]>([]);
   const [balance, setBalance] = useState<number | null>(null);
   const [selectedProperty, setSelectedProperty] = useState<Record<string, string>>({});
+  /*
+   * החלוקה לכל ביקוש בנפרד. ברירת המחדל היא מה שהמשרד המשתף ביקש,
+   * ואפשר להציע אחרת — זו הצעה עד שהצד השני מסמן "מעוניין".
+   */
+  const [offerSplit, setOfferSplit] = useState<Record<string, number>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
 
@@ -99,8 +113,18 @@ export default function CollaborationPage() {
 
   async function sendOfferFor(demandId: string, propertyId: string) {
     try {
-      await apiPost(`/collaboration/demands/${demandId}/offer`, { propertyId });
-      setMessage("✓ ההצעה נשלחה לסוכנות (עלות: קרדיט אחד). אם הקונה יתעניין — תקבלו התראה.");
+      /*
+       * החלוקה שהמשרד המשתף ביקש היא ברירת המחדל של ההצעה — הצעה
+       * שמשנה אותה בשקט הייתה הפתעה לצד השני.
+       */
+      await apiPost(`/collaboration/demands/${demandId}/offer`, {
+        propertyId,
+        commissionSplit:
+          offerSplit[demandId] ??
+          demands?.find((d) => d.id === demandId)?.commissionSplit ??
+          DEFAULT_COMMISSION_SPLIT,
+      });
+      setMessage("✓ ההצעה נשלחה. אם הקונה יתעניין — תקבלו התראה.");
       load();
     } catch (err: unknown) {
       setMessage(err instanceof ApiError ? err.message : "שליחת ההצעה נכשלה");
@@ -178,7 +202,8 @@ export default function CollaborationPage() {
       <section aria-labelledby="demands-heading">
         <h2 id="demands-heading" className="mb-1 text-lg font-semibold">ביקושים ברשת</h2>
         <p className="mb-3" style={{ color: "var(--color-text-muted)" }}>
-          קונים אנונימיים מסוכנויות אחרות ומ-Kanko. יש לך נכס מתאים? שליחת הצעה עולה קרדיט אחד.
+          קונים אנונימיים ממשרדי תיווך אחרים ומ-Kanko. הצעה למשרד אחר היא חינם, בכל
+          המסלולים; ליד ממקור חיצוני עולה קרדיטים.
         </p>
         {loadFailed ? (
           <LoadError message="לא הצלחנו לטעון את הביקושים ברשת" onRetry={load} />
@@ -200,6 +225,31 @@ export default function CollaborationPage() {
                   {demand.source === "kanko" ? (
                     <span className="rounded-full border px-2 py-0.5 text-sm" style={{ borderColor: "var(--color-border)" }}>Kanko</span>
                   ) : null}
+                  {/*
+                    העלות ליד כל ביקוש ולא רק בכותרת: הכותרת מסבירה את
+                    הכלל, והתווית הזו אומרת מה קורה בלחיצה הזו.
+                  */}
+                  {!demand.mine ? (
+                    <span
+                      className="rounded-full px-2 py-0.5 text-sm"
+                      style={
+                        demand.creditsCost > 0
+                          ? { background: "#f7efdd", color: "#7a5c1f" }
+                          : { background: "var(--color-primary-soft)", color: "var(--color-primary)" }
+                      }
+                    >
+                      {demand.creditsCost > 0 ? `${demand.creditsCost} קרדיטים` : "חינם"}
+                    </span>
+                  ) : null}
+                  {!demand.mine ? (
+                    <span
+                      className="rounded-full border px-2 py-0.5 text-sm"
+                      style={{ borderColor: "var(--color-border)" }}
+                      title="חלוקת העמלה שהמשרד המשתף ביקש"
+                    >
+                      עמלה {describeCommissionSplit(demand.commissionSplit)}
+                    </span>
+                  ) : null}
                   {demand.mine ? (
                     <span className="rounded-full px-2 py-0.5 text-sm" style={{ background: "var(--color-border)" }}>הביקוש שלך</span>
                   ) : null}
@@ -211,6 +261,31 @@ export default function CollaborationPage() {
                 ) : null}
                 {!demand.mine ? (
                   <>
+                    {/*
+                      החלוקה נבחרת לפני השליחה. ברירת המחדל היא מה
+                      שהמשרד המשתף ביקש — הצעה שמשנה אותה בשקט הייתה
+                      הפתעה לצד השני.
+                    */}
+                    <label className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+                      <span>חלוקת עמלה בהצעה</span>
+                      <select
+                        value={offerSplit[demand.id] ?? demand.commissionSplit}
+                        onChange={(e) =>
+                          setOfferSplit((prev) => ({
+                            ...prev,
+                            [demand.id]: Number(e.target.value),
+                          }))
+                        }
+                        className="rounded-lg border px-2 py-1.5"
+                        style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                      >
+                        {COMMISSION_SPLIT_OPTIONS.map((share) => (
+                          <option key={share} value={share}>
+                            {describeCommissionSplit(share)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     {/* המערכת מחשבת אילו מהנכסים שלי מתאימים — במקום
                         לבחור מרשימה של עשרות ולבזבז קרדיט על ניחוש */}
                     {demand.myMatches && demand.myMatches.length > 0 ? (
@@ -233,7 +308,9 @@ export default function CollaborationPage() {
                                   variant="secondary"
                                   onClick={() => void sendOfferFor(demand.id, match.propertyId)}
                                 >
-                                  הצע נכס זה (קרדיט אחד)
+                                  {demand.creditsCost > 0
+                                    ? `הצע נכס זה (${demand.creditsCost} קרדיטים)`
+                                    : "הצע נכס זה"}
                                 </Button>
                               </div>
                               <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -278,7 +355,9 @@ export default function CollaborationPage() {
                           disabled={!selectedProperty[demand.id]}
                           onClick={() => void sendOffer(demand.id)}
                         >
-                          הצע נכס (קרדיט אחד)
+                          {demand.creditsCost > 0
+                            ? `הצע נכס (${demand.creditsCost} קרדיטים)`
+                            : "הצע נכס"}
                         </Button>
                       </div>
                     </details>

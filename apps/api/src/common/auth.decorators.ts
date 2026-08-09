@@ -30,3 +30,17 @@ export const PLATFORM_ADMIN_KEY = "platformAdmin";
  * ועדכון גרסה על המכונה). ההרשאה נאכפת ב-PlatformAdminGuard.
  */
 export const PlatformAdmin = () => SetMetadata(PLATFORM_ADMIN_KEY, true);
+
+export const BILLING_ALLOWED_KEY = "billingAllowed";
+/**
+ * נתיב שנשאר פתוח גם למשרד שתקופתו נגמרה.
+ *
+ * משרד כזה מתחבר אבל אינו רשאי לעבוד — הוא רואה את מסך המנוי בלבד.
+ * הסימון הזה הוא רשימת ההיתר: מה שהוא צריך כדי לשלם ולצאת מהמצב.
+ * הכול חוץ ממנו מוחזר עם 402, וה-web מפנה למסך המנוי.
+ *
+ * להוסיף כאן רק מה שנדרש כדי **לשלם** או **לצאת** — לא נתיב שמחזיר
+ * נתוני עבודה. משרד שתקופתו נגמרה לא אמור לקרוא את רשימת הנכסים
+ * שלו דרך נתיב שנשאר פתוח בהיסח הדעת.
+ */
+export const BillingAllowed = () => SetMetadata(BILLING_ALLOWED_KEY, true);

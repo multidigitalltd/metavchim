@@ -31,6 +31,12 @@ export interface EnrichedMatchDto extends MatchDto {
 }
 
 /**
+ * כמה שורות לשלוף מעבר למבוקש, כדי שסינון של צד מחוק לא יקצר את
+ * התוצאה. מספר קטן ומכוון: המקור מתוקן, וזו רשת ביטחון בלבד.
+ */
+const LIVE_HEADROOM = 20;
+
+/**
  * מנוע ההתאמות (docs/07 §5) — צנרת שני שלבים:
  * 1. סינון גס ב-SQL (עיר, תקציב, סוג עסקה) — מצמצם למועמדים רלוונטיים.
  * 2. ניקוד מפורט בפונקציה הטהורה scoreMatch — עם הסבר בעברית.
@@ -57,6 +63,15 @@ export class MatchingService {
   }): Promise<EnrichedMatchDto[]> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
+      /*
+       * מרווח מעל המבוקש, כי הסינון של צד מחוק קורה בזיכרון.
+       *
+       * `take` שווה בדיוק ל-limit היה נותן פחות מהמבוקש כשהשורות
+       * העליונות מסוננות — ועם limit=1 אפילו רשימה ריקה בזמן שיש
+       * התאמה תקינה שורה מתחת (ביקורת Codex). המקור מתוקן ממילא
+       * (התאמה לנכס מחוק מסומנת dismissed), ולכן המרווח הוא רשת
+       * ביטחון לשורות ישנות ולא הפתרון עצמו.
+       */
       const rows = await tx.match.findMany({
         where: {
           tenantId,
@@ -65,12 +80,24 @@ export class MatchingService {
           ...(query.propertyId ? { propertyId: query.propertyId } : {}),
         },
         orderBy: { score: "desc" },
-        take: query.limit,
+        take: query.limit + LIVE_HEADROOM,
       });
       if (rows.length === 0) return [];
 
+      /*
+       * `deletedAt: null` כאן **וגם** סינון השורות למטה.
+       *
+       * ל-matches אין קשר מוצהר ל-properties, ולכן אי אפשר לסנן נכס
+       * מחוק בשאילתה עצמה. סינון רק כאן היה משאיר את השורה במסך עם
+       * הכתובת "נכס" — התאמה לנכס שנמחק, שנראית כמו תקלת תצוגה. מה
+       * שנכון הוא להוציא את השורה.
+       */
       const properties = await tx.property.findMany({
-        where: { tenantId, id: { in: [...new Set(rows.map((r) => r.propertyId))] } },
+        where: {
+          tenantId,
+          id: { in: [...new Set(rows.map((r) => r.propertyId))] },
+          deletedAt: null,
+        },
         select: {
           id: true, street: true, neighborhood: true, city: true,
           marketingTitle: true, priceAgorot: true,
@@ -78,37 +105,60 @@ export class MatchingService {
       });
       const propertyById = new Map(properties.map((p) => [p.id, p]));
 
-      const visibleBuyers = await tx.buyer.findMany({
+      // קונה מחוק מוציא את ההתאמה, בדיוק כמו נכס מחוק
+      const liveBuyers = await tx.buyer.findMany({
         where: {
           tenantId,
           id: { in: [...new Set(rows.map((r) => r.buyerId))] },
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      const liveBuyerIds = new Set(liveBuyers.map((b) => b.id));
+
+      /*
+       * הבעלות נשארת סינון נפרד: קונה של סוכן אחר **קיים** ואינו
+       * מוציא את ההתאמה — רק שמו אינו מוצג. מיזוג שני הסינונים היה
+       * מסתיר התאמות אמיתיות מסוכן עם view_own.
+       */
+      const visibleBuyers = await tx.buyer.findMany({
+        where: {
+          tenantId,
+          id: { in: [...liveBuyerIds] },
           ...ownershipFilter("buyers.view_all", "ownerUserId"),
         },
         select: { id: true, contactId: true },
       });
+      // שאילתה אחת לכל השמות בעמוד, לא אחת לכל שורה
+      const contactsById = await this.contacts.getByIds(
+        tx,
+        visibleBuyers.map((b) => b.contactId),
+      );
       const buyerNameById = new Map<string, string>();
       for (const buyer of visibleBuyers) {
-        const contact = await this.contacts.getById(tx, buyer.contactId);
-        if (contact) buyerNameById.set(buyer.id, contact.name);
+        const name = contactsById.get(buyer.contactId)?.name;
+        if (name !== undefined) buyerNameById.set(buyer.id, name);
       }
 
-      return rows.map((row) => {
-        const property = propertyById.get(row.propertyId);
-        return {
-          ...toMatchDto(row),
-          property: {
-            address: property
-              ? [property.street, property.neighborhood, property.city].filter(Boolean).join(", ")
-              : "נכס",
-            title: property?.marketingTitle ?? undefined,
-            priceAgorot:
-              property === undefined || property.priceAgorot === null
-                ? undefined
-                : Number(property.priceAgorot),
-          },
-          buyerName: buyerNameById.get(row.buyerId) ?? null,
-        };
-      });
+      return rows
+        // התאמה שצידה האחד נמחק אינה התאמה
+        .filter((row) => propertyById.has(row.propertyId) && liveBuyerIds.has(row.buyerId))
+        .slice(0, query.limit)
+        .map((row) => {
+          const property = propertyById.get(row.propertyId)!;
+          return {
+            ...toMatchDto(row),
+            property: {
+              address: [property.street, property.neighborhood, property.city]
+                .filter(Boolean)
+                .join(", "),
+              title: property.marketingTitle ?? undefined,
+              priceAgorot:
+                property.priceAgorot === null ? undefined : Number(property.priceAgorot),
+            },
+            buyerName: buyerNameById.get(row.buyerId) ?? null,
+          };
+        });
     });
   }
 
@@ -274,7 +324,12 @@ export class MatchingService {
        * אחר"; הבשלות אינה מזהה ולכן מוצגת תמיד.
        */
       const buyers = await tx.buyer.findMany({
-        where: { tenantId, id: { in: [...new Set(rows.map((r) => r.buyerId))] } },
+        // קונה מחוק אינו התאמה — הסינון כאן, וההשמטה בשורות למטה
+        where: {
+          tenantId,
+          id: { in: [...new Set(rows.map((r) => r.buyerId))] },
+          deletedAt: null,
+        },
         select: { id: true, contactId: true, maturity: true },
       });
       const visibleBuyers = await tx.buyer.findMany({
@@ -286,17 +341,23 @@ export class MatchingService {
         select: { id: true, contactId: true },
       });
       const maturityById = new Map(buyers.map((b) => [b.id, b.maturity]));
+      const contactsById = await this.contacts.getByIds(
+        tx,
+        visibleBuyers.map((b) => b.contactId),
+      );
       const nameById = new Map<string, string>();
       for (const buyer of visibleBuyers) {
-        const contact = await this.contacts.getById(tx, buyer.contactId);
-        if (contact) nameById.set(buyer.id, contact.name);
+        const name = contactsById.get(buyer.contactId)?.name;
+        if (name !== undefined) nameById.set(buyer.id, name);
       }
 
-      return rows.map((row) => ({
-        ...toMatchDto(row),
-        buyerName: nameById.get(row.buyerId) ?? null,
-        buyerMaturity: maturityById.get(row.buyerId) ?? null,
-      }));
+      return rows
+        .filter((row) => maturityById.has(row.buyerId))
+        .map((row) => ({
+          ...toMatchDto(row),
+          buyerName: nameById.get(row.buyerId) ?? null,
+          buyerMaturity: maturityById.get(row.buyerId) ?? null,
+        }));
     });
   }
 
@@ -320,7 +381,12 @@ export class MatchingService {
 
       // שם הנכס לכל התאמה — לכרטיס הקונה (קובץ העיצוב); שאילתה אחת לעמוד
       const properties = await tx.property.findMany({
-        where: { tenantId, id: { in: [...new Set(rows.map((r) => r.propertyId))] } },
+        // נכס מחוק אינו התאמה — הסינון כאן, וההשמטה בשורות למטה
+        where: {
+          tenantId,
+          id: { in: [...new Set(rows.map((r) => r.propertyId))] },
+          deletedAt: null,
+        },
         select: {
           id: true, street: true, neighborhood: true, city: true,
           marketingTitle: true, priceAgorot: true,
@@ -328,22 +394,22 @@ export class MatchingService {
       });
       const propertyById = new Map(properties.map((p) => [p.id, p]));
 
-      return rows.map((row) => {
-        const property = propertyById.get(row.propertyId);
-        return {
-          ...toMatchDto(row),
-          property: {
-            address: property
-              ? [property.street, property.neighborhood, property.city].filter(Boolean).join(", ")
-              : "נכס",
-            title: property?.marketingTitle ?? undefined,
-            priceAgorot:
-              property === undefined || property.priceAgorot === null
-                ? undefined
-                : Number(property.priceAgorot),
-          },
-        };
-      });
+      return rows
+        .filter((row) => propertyById.has(row.propertyId))
+        .map((row) => {
+          const property = propertyById.get(row.propertyId)!;
+          return {
+            ...toMatchDto(row),
+            property: {
+              address: [property.street, property.neighborhood, property.city]
+                .filter(Boolean)
+                .join(", "),
+              title: property.marketingTitle ?? undefined,
+              priceAgorot:
+                property.priceAgorot === null ? undefined : Number(property.priceAgorot),
+            },
+          };
+        });
     });
   }
 

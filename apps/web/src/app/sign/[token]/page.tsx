@@ -3,6 +3,7 @@
 import { use, useEffect, useState, type FormEvent } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { SignaturePad } from "./signature-pad";
 
 /**
  * חתימה על הסכם — דף ציבורי ללקוח, בלי התחברות. הטוקן שבקישור הוא
@@ -32,6 +33,7 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [signedAt, setSignedAt] = useState<string | null>(null);
+  const [signature, setSignature] = useState<string | null>(null);
 
   useEffect(() => {
     apiGet<AgreementView>(`/public/agreements/${token}`)
@@ -63,11 +65,24 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
       setError("יש לאשר את ההצהרה לפני החתימה");
       return;
     }
+    /*
+     * החתימה המצוירת נדרשת כאן ולא בשרת.
+     *
+     * בשרת היא רשות בכוונה — דפדפן בלי קנבס עדיין צריך לחתום, ומה
+     * שמחייב את המסמך הוא ההצהרה, מספר הזהות והגיבוב. במסך היא כן
+     * חובה: זה מה שהופך את המסמך למשהו שנראה חתום.
+     */
+    if (signature === null) {
+      setSubmitting(false);
+      setError("חתמו בשדה החתימה לפני השליחה");
+      return;
+    }
     try {
       const res = await apiPost<{ signedAt: string }>(`/public/agreements/${token}/sign`, {
         signerName: String(form.get("signerName")).trim(),
         signerIdNumber: String(form.get("signerIdNumber")).trim(),
         confirmed,
+        signatureImage: signature,
       });
       setSignedAt(res.signedAt);
       /*
@@ -175,6 +190,10 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
             />
+          </div>
+
+          <div className="mb-4">
+            <SignaturePad onChange={setSignature} disabled={submitting} />
           </div>
 
           <label className="mb-4 flex items-start gap-2">

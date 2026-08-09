@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, Post } from "@nestjs/common";
 import { z } from "zod";
 import type { PlanDefinition } from "@metavchim/shared";
-import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorators";
+import { AnyAuthenticated, BillingAllowed, RequireCapability } from "../../common/auth.decorators";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { CardcomService } from "../../core/cardcom.service";
@@ -23,6 +23,11 @@ const CheckoutSchema = z
  * בנעילה בלי שראה אזהרה. **לשלם ולבטל** דורש `billing.manage`,
  * שיושבת אצל בעל המשרד בלבד (docs/04 §3).
  */
+/*
+ * כל הבקר פתוח גם למשרד שתקופתו נגמרה. זה בדיוק המסך שהוא צריך
+ * להגיע אליו כדי לצאת מהמצב — ראו BillingAllowed.
+ */
+@BillingAllowed()
 @Controller("billing")
 export class BillingController {
   constructor(

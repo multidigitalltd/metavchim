@@ -9,6 +9,7 @@ import {
   defaultAgreementTemplate,
   fillSignerId,
   renderAgreement,
+  whatsappLink,
   type AgreementKind,
   type AgreementValues,
 } from "@metavchim/shared";
@@ -16,8 +17,10 @@ import { assertContactAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
+import { EmailService } from "../../core/email.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { MessagingService } from "../messaging/messaging.service";
 
 /**
  * הסכמים לחתימה דיגיטלית.
@@ -38,8 +41,11 @@ export interface AgreementSummary {
   contactId: string;
   propertyId?: string;
   signedAt?: Date;
+  sentAt?: Date;
   url: string;
   createdAt: Date;
+  /** האם ללקוח יש כתובת אימייל — קובע אם כפתור "שלח במייל" מוצג */
+  canEmail: boolean;
 }
 
 export interface PublicAgreementView {
@@ -59,6 +65,8 @@ export class AgreementsService {
     private readonly prisma: PrismaService,
     private readonly contacts: ContactsService,
     private readonly audit: AuditService,
+    private readonly messaging: MessagingService,
+    private readonly email: EmailService,
   ) {}
 
   private publicUrl(token: string): string {
@@ -260,6 +268,107 @@ export class AgreementsService {
     return { id: row.id, url: this.publicUrl(token), unfilled, reused: false };
   }
 
+  /**
+   * שליחת הקישור ללקוח בפועל.
+   *
+   * עד כה הקישור רק **הוצג** על המסך, והמתווך היה אמור להעתיק אותו
+   * לאנשהו. זה נקודת הנשירה של כל התהליך: מסמך שנוצר ולא נשלח אינו
+   * מסמך.
+   *
+   * וואטסאפ הוא ערוץ ברירת המחדל כי טלפון הוא שדה חובה על כל איש קשר
+   * ואילו אימייל הוא רשות — כלומר לחלק גדול מהלקוחות פשוט אין כתובת
+   * שאליה אפשר לשלוח. הקישור מוחזר לדפדפן ונפתח שם, כמו בעדכון לבעל
+   * הנכס ובשליחת ההצעות.
+   */
+  async deliver(
+    tx: TenantTx,
+    id: string,
+    channel: "whatsapp" | "email",
+  ): Promise<{ waUrl?: string; sentTo?: string; message: string }> {
+    const tenantId = TenantContext.current().tenantId;
+    const row = await tx.agreement.findFirst({ where: { id, tenantId } });
+    if (!row) throw new NotFoundException("ההסכם לא נמצא");
+    /*
+     * בדיקת הבעלות על איש הקשר, לא רק על הדייר.
+     *
+     * התשובה כוללת את הקישור נושא־הטוקן, בדיוק כמו ב-`listForContact`
+     * — ומי שמחזיק בו יכול לחתום בשם הלקוח.
+     */
+    await assertContactAccess(tx, tenantId, row.contactId);
+    if (row.status === "signed") throw new BadRequestException("ההסכם כבר נחתם");
+    if (row.status === "declined") throw new BadRequestException("הלקוח דחה את ההסכם");
+    if (row.tokenExpires < new Date()) {
+      throw new GoneException("תוקף הקישור פג — צרו הסכם חדש");
+    }
+
+    const contact = await this.contacts.getById(tx, row.contactId);
+    if (!contact) throw new NotFoundException("איש הקשר לא נמצא");
+
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true },
+    });
+    const officeName = tenant?.name ?? "המשרד";
+    const kindLabel = AGREEMENT_KIND_LABELS[row.kind as AgreementKind];
+    const url = this.publicUrl(row.publicToken);
+    const message = [
+      `שלום ${contact.name},`,
+      `מצורף ${kindLabel} מאת ${officeName} לחתימה דיגיטלית:`,
+      url,
+      "החתימה נעשית בדפדפן, ללא צורך בהדפסה. הקישור אישי — נא לא להעביר.",
+    ].join("\n");
+
+    if (channel === "email") {
+      if (!contact.email) {
+        throw new BadRequestException("לאיש הקשר אין כתובת אימייל — שלחו בוואטסאפ");
+      }
+      if (!(await this.email.isConfigured())) {
+        throw new BadRequestException("שליחת אימייל אינה מוגדרת במערכת — שלחו בוואטסאפ");
+      }
+      await this.email.send(contact.email, `${kindLabel} לחתימה — ${officeName}`, {
+        heading: `${kindLabel} לחתימה`,
+        greeting: `שלום ${contact.name},`,
+        paragraphs: [
+          `${officeName} שלח לכם ${kindLabel} לחתימה דיגיטלית.`,
+          "החתימה נעשית ישירות בדפדפן, ללא צורך בהדפסה או בסריקה.",
+        ],
+        button: { label: "לצפייה ולחתימה", url },
+        footnote: "הקישור אישי ותקף 30 יום. אם לא ציפיתם להודעה זו — אפשר להתעלם ממנה.",
+      });
+      await this.messaging.recordOutbound(tx, {
+        contactId: contact.id,
+        channel: "email",
+        provider: "system",
+        body: message,
+      });
+    } else {
+      await this.messaging.recordOutbound(tx, {
+        contactId: contact.id,
+        channel: "whatsapp",
+        provider: "walink",
+        body: message,
+      });
+    }
+
+    /*
+     * הסטטוס חוזר ל-pending אחרי שליחה חוזרת? לא.
+     *
+     * `viewed` מתעד שהלקוח פתח, וזה מידע שאסור למחוק בשליחה נוספת —
+     * המתווך צריך לדעת שהלקוח ראה ולא חתם.
+     */
+    await tx.agreement.update({ where: { id: row.id }, data: { sentAt: new Date() } });
+    await this.audit.record(tx, {
+      action: "agreement.deliver",
+      entityType: "agreement",
+      entityId: row.id,
+      metadata: { channel },
+    });
+
+    return channel === "email"
+      ? { sentTo: contact.email, message }
+      : { waUrl: whatsappLink(contact.phone, message), message };
+  }
+
   /** איסוף הערכים שממלאים את הנוסח — משרד, לקוח ונכס. */
   private async collectValues(
     tx: TenantTx,
@@ -280,7 +389,7 @@ export class AgreementsService {
     let dealText = "";
     if (input.propertyId !== undefined) {
       const property = await tx.property.findFirst({
-        where: { id: input.propertyId, tenantId },
+        where: { id: input.propertyId, tenantId, deletedAt: null },
         select: {
           street: true,
           neighborhood: true,
@@ -290,7 +399,18 @@ export class AgreementsService {
           dealType: true,
         },
       });
-      if (property) {
+      /*
+       * נכס שאינו קיים או שנמחק — **דחייה**, לא שדות ריקים.
+       *
+       * הסתמכות על כך שהשדות יישארו ריקים אינה אכיפה: `input.values`
+       * נפרש מעל אותם שדות, ולכן קורא יכול לספק את סוג העסקה, תיאור
+       * הנכס והמחיר בעצמו, לעבור את בדיקת החוסרים, ולקבל הסכם בר-חתימה
+       * שה-propertyId השמור בו מצביע על נכס מחוק (ביקורת Codex).
+       */
+      if (!property) {
+        throw new NotFoundException("הנכס לא נמצא או שנמחק — לא ניתן להפיק עליו הסכם");
+      }
+      {
         // סוג העסקה הוא פרט חובה בתקנות, והוא יושב על הנכס — אין סיבה
         // לבקש מהמתווך להקליד אותו שוב
         dealText = property.dealType === "rent" ? "שכירות" : property.dealType === "sale" ? "מכר" : "";
@@ -381,7 +501,13 @@ export class AgreementsService {
    */
   async sign(
     token: string,
-    input: { signerName: string; signerIdNumber: string; ip?: string; userAgent?: string },
+    input: {
+      signerName: string;
+      signerIdNumber: string;
+      signatureImage?: string;
+      ip?: string;
+      userAgent?: string;
+    },
   ): Promise<{ signedAt: Date }> {
     return this.prisma.withPublicAgreement(token, async (tx) => {
       const row = await tx.agreement.findFirst({ where: { publicToken: token } });
@@ -413,6 +539,7 @@ export class AgreementsService {
           presentedHash: row.bodyHash,
           bodyHash: AgreementsService.hashBody(finalBody),
           signedAt,
+          signatureImage: input.signatureImage ?? null,
           signedIp: input.ip ?? null,
           signedUserAgent: input.userAgent?.slice(0, 300) ?? null,
         },
@@ -434,11 +561,71 @@ export class AgreementsService {
     });
   }
 
+  /**
+   * המסמך החתום המלא — הנוסח, החתימה והראיות.
+   *
+   * זה מה שהיה חסר: הלקוח חתם, ובכרטיס שלו לא היה שום מסמך להראות.
+   * העמוד שמציג את התשובה הזו בנוי להדפסה, ו"שמור כ-PDF" של הדפדפן
+   * מייצר ממנו קובץ — בלי ספריית PDF בשרת ובלי גופנים עבריים
+   * שצריך לארוז איתה.
+   *
+   * "מאומת" כאן הוא הגיבוב ולא חתימה קריפטוגרפית על הקובץ: המסמך
+   * מציג את `bodyHash` ואת `presentedHash`, וכל אחד יכול לחשב
+   * SHA-256 על הנוסח המודפס ולראות שהוא תואם.
+   */
+  async document(
+    tx: TenantTx,
+    id: string,
+  ): Promise<{
+    id: string;
+    kindLabel: string;
+    officeName: string;
+    body: string;
+    status: string;
+    signerName?: string;
+    signerIdNumber?: string;
+    signatureImage?: string;
+    signedAt?: Date;
+    signedIp?: string;
+    bodyHash: string;
+    presentedHash?: string;
+    createdAt: Date;
+  }> {
+    const tenantId = TenantContext.current().tenantId;
+    const row = await tx.agreement.findFirst({ where: { id, tenantId } });
+    if (!row) throw new NotFoundException("ההסכם לא נמצא");
+    await assertContactAccess(tx, tenantId, row.contactId);
+
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true },
+    });
+
+    return {
+      id: row.id,
+      kindLabel: AGREEMENT_KIND_LABELS[row.kind as AgreementKind],
+      officeName: tenant?.name ?? "",
+      body: row.renderedBody,
+      status: row.status,
+      signerName: row.signerName ?? undefined,
+      signerIdNumber: row.signerIdNumber ?? undefined,
+      signatureImage: row.signatureImage ?? undefined,
+      signedAt: row.signedAt ?? undefined,
+      signedIp: row.signedIp ?? undefined,
+      bodyHash: row.bodyHash,
+      presentedHash: row.presentedHash ?? undefined,
+      createdAt: row.createdAt,
+    };
+  }
+
   async listForContact(tx: TenantTx, contactId: string): Promise<AgreementSummary[]> {
     const rows = await tx.agreement.findMany({
       where: { tenantId: TenantContext.current().tenantId, contactId },
       orderBy: { createdAt: "desc" },
     });
+    // שאילתה אחת לכל הרשימה ולא אחת לשורה — כולן על אותו איש קשר
+    const contact = rows.length > 0 ? await this.contacts.getById(tx, contactId) : null;
+    const canEmail = Boolean(contact?.email);
     return rows.map((row) => ({
       id: row.id,
       kind: row.kind as AgreementKind,
@@ -447,8 +634,10 @@ export class AgreementsService {
       contactId: row.contactId,
       propertyId: row.propertyId ?? undefined,
       signedAt: row.signedAt ?? undefined,
+      sentAt: row.sentAt ?? undefined,
       url: this.publicUrl(row.publicToken),
       createdAt: row.createdAt,
+      canEmail,
     }));
   }
 }

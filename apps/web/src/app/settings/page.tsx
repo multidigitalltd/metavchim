@@ -14,6 +14,7 @@ import { PlanSection } from "./plan-section";
 import { WhatsAppStatusSection } from "./whatsapp-status-section";
 import { LockedFeature } from "./locked-feature";
 import { TelephonySection } from "./telephony-section";
+import { GoogleCalendarSection } from "./google-calendar-section";
 import { AgreementTemplatesSection } from "./agreement-templates-section";
 import { SystemUpdateSection } from "./system-update";
 import { UserPermissions } from "./user-permissions";
@@ -449,17 +450,47 @@ export default function SettingsPage() {
             )}
           </section>
 
-          <WhatsAppStatusSection />
-          {canTelephony ? (
-            <TelephonySection />
-          ) : (
-            <LockedFeature
-              code="telephony"
-              description="שיחות נכנסות נכנסות למערכת אוטומטית עם זיהוי הלקוח, וחיוג יוצא בלחיצה מתוך הכרטיס. תומך ב-015, Vonage ובכל מרכזייה ששולחת Webhook."
-            />
-          )}
+          {/*
+            מדף המודולים. הקטעים עצמם נשארים כאן — החנות היא איך
+            מוצאים אותם, לא איפה מגדירים אותם.
+          */}
+          <section
+            className="mb-8 rounded-xl border px-5 py-[17px]"
+            style={{ background: "var(--color-table-head)", borderColor: "var(--color-border)" }}
+            aria-labelledby="modules-heading"
+          >
+            <h2 id="modules-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+              מודולים וחיבורים
+            </h2>
+            <p className="m-0 mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              מרכזייה, וואטסאפ, לידים מאתרים חיצוניים ועוד — במסך אחד עם הסטטוס של כל אחד.
+            </p>
+            <Link href="/settings/integrations" className="mv-btn-ghost inline-block">
+              לחנות המודולים
+            </Link>
+          </section>
 
-          {tenant ? <LeadWebhookSection initialKey={tenant.leadWebhookKey} /> : null}
+          <div id="whatsapp">
+            <WhatsAppStatusSection />
+          </div>
+          <div id="telephony">
+            {canTelephony ? (
+              <TelephonySection />
+            ) : (
+              <LockedFeature
+                code="telephony"
+                description="שיחות נכנסות נכנסות למערכת אוטומטית עם זיהוי הלקוח, וחיוג יוצא בלחיצה מתוך הכרטיס. תומך ב-015, Vonage ובכל מרכזייה ששולחת Webhook."
+              />
+            )}
+          </div>
+
+          <div id="google-calendar">
+            <GoogleCalendarSection />
+          </div>
+
+          <div id="lead-webhook">
+            {tenant ? <LeadWebhookSection initialKey={tenant.leadWebhookKey} /> : null}
+          </div>
 
           {canAgreements ? (
             <AgreementTemplatesSection />
@@ -511,7 +542,7 @@ export default function SettingsPage() {
 
           {/* ---- נתונים — כולו מאחורי data_io ---- */}
           {canDataIo ? (
-            <section className="mv-list-card px-5 py-[17px]" aria-labelledby="data-heading">
+            <section id="data" className="mv-list-card px-5 py-[17px]" aria-labelledby="data-heading">
               <h2 id="data-heading" className="m-0 mb-[11px]" style={{ fontSize: 15.5, fontWeight: 800 }}>נתונים</h2>
               <div className="mb-2 flex gap-2">
                 <Link href="/import" className="mv-btn-plain flex-1 text-center" style={{ padding: "8px 0", fontSize: 13 }}>

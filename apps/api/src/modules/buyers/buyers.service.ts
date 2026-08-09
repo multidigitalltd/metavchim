@@ -549,9 +549,14 @@ export class BuyersService {
         lastInteractions.map((row) => [row.buyerId, row._max.createdAt]),
       );
 
+      // שאילתה אחת לכל אנשי הקשר בעמוד, לא אחת לכל שורה
+      const contactsById = await this.contacts.getByIds(
+        tx,
+        page.map((row) => row.contactId),
+      );
       const items: (BuyerDto & { offersReceived: number; lastActivityAt: Date })[] = [];
       for (const row of page) {
-        const contact = await this.contacts.getById(tx, row.contactId);
+        const contact = contactsById.get(row.contactId);
         if (contact) {
           items.push({
             ...this.toDto(row, contact),

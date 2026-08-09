@@ -50,6 +50,11 @@ export interface ValidatedUser extends AuthenticatedUser {
  * ותפוגת המנוי בתשלום. שני האחרונים נוספו אחרי אותה תקלה בדיוק —
  * סטטוס אינו משתנה מעצמו, ולכן משרד היה ממשיך לעבוד לנצח.
  *
+ * **הפרדה חשובה:** השהיה ותפוגה אינן אותו דבר. משרד מושהה אינו
+ * מתחבר; משרד שתקופתו נגמרה **כן** מתחבר — ומגיע למסך המנוי ולשם
+ * בלבד. נעילה מלאה שלו הייתה חוסמת אותו מחוץ למסך היחיד שפותר את
+ * הבעיה, כלומר הופכת כל ניסיון שפג ללקוח אבוד.
+ *
  * **התפוגות נבדקות כאן ולא בסורק.** זו הנקודה: סורק שלא רץ, או
  * שנפל, או שטרם הגיע לשורה הזו, היה נותן גישה חינם. התאריך על שורת
  * הדייר הוא מקור האמת, והוא נקרא ממילא בכל אימות Session.
@@ -58,30 +63,42 @@ export interface ValidatedUser extends AuthenticatedUser {
  * ידנית מהפלטפורמה. ההפרדה בין שני השדות היא מה שמאפשר להפעיל משרד
  * בלי למחוק את היסטוריית הניסיון שלו.
  */
-export function tenantCanOperate(tenant: {
+export interface TenantGateInput {
   status: string;
   trialEndsAt?: Date | null;
   paidUntil?: Date | null;
-}): boolean {
-  if (!["active", "trial"].includes(tenant.status)) return false;
-  // אותו כלל בדיוק שהבאנר מציג — ראו packages/shared/logic/trial.ts
-  if (tenant.status === "trial" && isTrialExpired(tenant.trialEndsAt, new Date())) return false;
-  /*
-   * תפוגת המנוי בתשלום — אותו מבנה בדיוק כמו הניסיון, ומאותה סיבה.
-   *
-   * `paidUntil = null` פירושו "בלי תפוגה": משרד שהוקם ידנית מהפלטפורמה
-   * ולא נרכש. משרד ששילם מקבל תאריך, וכשהוא עובר הגישה נסגרת **כאן**,
-   * באימות ה-Session, ולא בסורק שאולי ירוץ. סורק שלא רץ היה נותן גישה
-   * חינם לכל מי ששילם פעם אחת (ביקורת Codex).
-   */
-  if (
-    tenant.status === "active" &&
-    tenant.paidUntil instanceof Date &&
-    tenant.paidUntil.getTime() <= Date.now()
-  ) {
-    return false;
+}
+
+/**
+ * השהיה מהפלטפורמה — נעילה מלאה, בלי התחברות בכלל.
+ *
+ * זו הנעילה של בעל הפלטפורמה, ולא של החיוב. משרד כזה אינו אמור
+ * להיכנס לשום מסך, כולל מסך המנוי.
+ */
+export function tenantSuspended(tenant: TenantGateInput): boolean {
+  return !["active", "trial"].includes(tenant.status);
+}
+
+/**
+ * התקופה נגמרה — ניסיון שפג או מנוי בתשלום שהסתיים.
+ *
+ * `paidUntil`/`trialEndsAt` שווים `null` פירושם "בלי תפוגה", וזה
+ * המצב של משרד שהוקם ידנית מהפלטפורמה.
+ *
+ * התפוגה נבדקת **כאן**, על שורת הדייר, ולא בסורק שאולי ירוץ: סורק
+ * שנפל היה נותן גישה חינם לכל מי ששילם פעם אחת (ביקורת Codex).
+ */
+export function tenantPeriodEnded(tenant: TenantGateInput): boolean {
+  const now = Date.now();
+  if (tenant.status === "trial") return isTrialExpired(tenant.trialEndsAt, new Date());
+  if (tenant.status === "active") {
+    return tenant.paidUntil instanceof Date && tenant.paidUntil.getTime() <= now;
   }
-  return true;
+  return false;
+}
+
+export function tenantCanOperate(tenant: TenantGateInput): boolean {
+  return !tenantSuspended(tenant) && !tenantPeriodEnded(tenant);
 }
 
 @Injectable()
@@ -137,12 +154,9 @@ export class AuthService {
       where: { id: user.tenantId },
       select: { status: true, trialEndsAt: true, paidUntil: true },
     });
-    if (tenant && !tenantCanOperate(tenant)) {
-      throw new UnauthorizedException(
-        tenant.status === "trial"
-          ? "תקופת הניסיון הסתיימה — פנו אלינו כדי להמשיך"
-          : "החשבון של המשרד מושהה — פנו לתמיכה",
-      );
+    // השהיה חוסמת התחברות; תפוגה לא — ראו tenantCanOperate
+    if (tenant && tenantSuspended(tenant)) {
+      throw new UnauthorizedException("החשבון של המשרד מושהה — פנו לתמיכה");
     }
 
     return {
@@ -192,12 +206,8 @@ export class AuthService {
       where: { id: user.tenantId },
       select: { status: true, trialEndsAt: true, paidUntil: true },
     });
-    if (tenant && !tenantCanOperate(tenant)) {
-      throw new UnauthorizedException(
-        tenant.status === "trial"
-          ? "תקופת הניסיון הסתיימה — פנו אלינו כדי להמשיך"
-          : "החשבון של המשרד מושהה — פנו לתמיכה",
-      );
+    if (tenant && tenantSuspended(tenant)) {
+      throw new UnauthorizedException("החשבון של המשרד מושהה — פנו לתמיכה");
     }
     return {
       id: user.id,
@@ -392,7 +402,7 @@ export class AuthService {
     }
     // אכיפת השהיית משרד בכל בקשה — session שנוצר במרוץ מול ההשהיה
     // (login שהספיק לעבור אימות לפני מחיקת ה-sessions) נפסל כאן (Codex)
-    if (!tenantCanOperate(session.user.tenant)) {
+    if (tenantSuspended(session.user.tenant)) {
       return null;
     }
     // עידן הסיסמה: Session שאומת מול סיסמה ישנה נפסל — גם אם נוצר
@@ -439,6 +449,9 @@ export class AuthService {
         tenantId: session.user.tenantId,
         userId: session.user.id,
         capabilities,
+        // תקופה שנגמרה אינה פוסלת את ה-Session — היא מצמצמת אותו
+        // למסך המנוי. האכיפה ב-AuthGuard.
+        billingOnly: tenantPeriodEnded(session.user.tenant),
       },
       user: {
         id: session.user.id,

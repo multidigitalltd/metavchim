@@ -416,6 +416,10 @@ model SharedDemand {
   mustFeatures    String[] @map("must_features")
   notes           String?  @db.VarChar(300)
   status          String   @default("active") @db.VarChar(20) // active | closed
+  /// אחוז העמלה שהמשרד **המשתף** לוקח; לצד השני נשאר המשלים.
+  /// נקבע ברגע השיתוף ולא בסופו — מו"מ אחרי שהקונה התעניין הוא
+  /// המקום שבו שיתופי פעולה נשברים. מינימום 33% לכל צד.
+  commissionSplit Int      @default(50) @map("commission_split") @db.SmallInt
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
@@ -436,6 +440,9 @@ model CoopOffer {
   presentation  Json     @default("{}")
   status        String   @default("sent") @db.VarChar(20) // sent | interested | declined
   creditsCost   Int      @default(1) @map("credits_cost")
+  /// אחוז העמלה שהמשרד **המציע** לוקח. נגזר מהביקוש כברירת מחדל,
+  /// וניתן להצעה נגדית — החלוקה היא הצעה עד שהצד השני מסכים.
+  commissionSplit Int    @default(50) @map("commission_split") @db.SmallInt
   createdAt     DateTime @default(now()) @map("created_at")
 
   @@unique([demandId, propertyId])
@@ -492,12 +499,21 @@ model Appointment {
   outcome       String?   @db.VarChar(20)
   notes         String?   @db.VarChar(2000)
   googleEventId String?   @map("google_event_id") @db.VarChar(120)
+  googleSyncedAt DateTime? @map("google_synced_at")
+  /// system = נקבעה כאן | google = נמשכה מהיומן.
+  /// בלי ההבחנה הדחיפה החוצה הייתה מחזירה ל-Google אירוע שזה עתה
+  /// הגיע ממנו — לולאה שבה כל צד "מעדכן" את השני לנצח.
+  syncSource    String    @default("system") @map("sync_source") @db.VarChar(10)
+  /// יומן של מי. `createdBy` הוא "מי הקליד" ואינו אותו דבר: פגישה
+  /// שמנהל קובע לסוכן צריכה להופיע ביומן של הסוכן.
+  ownerUserId   String?   @map("owner_user_id") @db.Char(26)
   createdBy     String?   @map("created_by") @db.Char(26)
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
   @@index([tenantId, startsAt])
   @@index([tenantId, status, startsAt])
+  @@index([tenantId, googleEventId])
   @@map("appointments")
 }
 
@@ -692,6 +708,12 @@ model Subscription {
   cardYear           Int?      @map("card_year") @db.SmallInt
   /// ת"ז של בעל הכרטיס, מוצפנת — קארדקום דורש אותה בחיוב בטוקן.
   cardOwnerIdEncrypted String? @map("card_owner_id_encrypted")
+  /// התקופה שעבורה כבר נשלחה תזכורת לפני חיוב.
+  ///
+  /// לא דגל בוליאני: הסורק רץ כל שעה, ו"נשלח" סתם היה שולח תזכורת
+  /// בכל סבב עד החיוב. ההשוואה ל-currentPeriodEnd מאפסת את עצמה
+  /// בכל חידוש.
+  renewalReminderFor DateTime? @map("renewal_reminder_for")
   cancelledAt        DateTime? @map("cancelled_at")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
@@ -716,9 +738,16 @@ model Payment {
   transactionId String?   @map("transaction_id") @db.VarChar(40)
   /// מסמך שקארדקום הפיק, אם המסוף מוגדר להפקה. אצלנו הוא אינו מוגדר
   /// כך (החשבוניות מופקות במערכת אחרת), ולכן השדות נשארים ריקים.
-  /// הם קיימים כי זיכוי דרך CancelDoc מחייב מספר מסמך.
+  /// הם קיימים ליום שבו יוחלט להפיק חשבוניות שם — הזיכוי עצמו אינו
+  /// זקוק להם, הוא עובד מול מזהה העסקה.
   documentType   String?  @map("document_type") @db.VarChar(40)
   documentNumber Int?     @map("document_number")
+  /// כמה זוכה בפועל. סכום ולא דגל: זיכוי חלקי (החזר יחסי על חודש
+  /// שלא נוצל) הוא המקרה הנפוץ, ו"זוכה כן/לא" לא היה יודע לתארו.
+  refundedAgorot Int?     @map("refunded_agorot")
+  refundedAt     DateTime? @map("refunded_at")
+  refundTransactionId String? @map("refund_transaction_id") @db.VarChar(40)
+  refundReason   String?  @map("refund_reason") @db.VarChar(300)
   /// מה קארדקום אמר כשזה נכשל — לתמיכה, לא למשתמש
   failureReason String?   @map("failure_reason") @db.VarChar(300)
   paidAt        DateTime? @map("paid_at")
@@ -728,6 +757,23 @@ model Payment {
 
   @@index([tenantId, createdAt])
   @@map("payments")
+}
+
+/// מחיר ליד לפי מקור. מחוץ ל-RLS: רמת פלטפורמה, כמו plans.
+///
+/// טבלה ולא קבוע בקוד, כי המחיר שמשלמים לספק שונה בין ספק לספק
+/// ומשתנה בזמן — מחיר אחד לכולם היה מחייב שינוי קוד בכל משא ומתן.
+/// אין שורה למקור ⇒ ברירת המחדל שבקוד (packages/shared —
+/// collaboration-cost.ts), כך שמערכת שעלתה זה עתה עובדת.
+model LeadSourcePrice {
+  /// המזהה כפי שהוא נשמר על הביקוש (shared_demands.source)
+  source      String   @id @db.VarChar(20)
+  label       String   @db.VarChar(60)
+  creditsCost Int      @default(1) @map("credits_cost")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by") @db.Char(26)
+
+  @@map("lead_source_prices")
 }
 
 model PlatformSetting {
@@ -778,11 +824,21 @@ model Agreement {
   tokenExpires    DateTime  @map("token_expires")
   signerName      String?   @map("signer_name") @db.VarChar(120)
   signerIdNumber  String?   @map("signer_id_number") @db.VarChar(20)
+  /// חתימת היד כפי שצוירה, כתמונת PNG (data URL).
+  ///
+  /// תיבת סימון מוכיחה שמישהו לחץ; חתימה מצוירת היא מה שנראה כמו
+  /// חתימה למי שקורא את המסמך אחר כך, וזה מה שמבקשים במסמך חתום.
+  /// היא **אינה** מחליפה את הגיבוב — ההוכחה שהטקסט לא שונה נשארת
+  /// bodyHash/presentedHash.
+  signatureImage  String?   @map("signature_image")
   signedAt        DateTime? @map("signed_at")
   signedIp        String?   @map("signed_ip") @db.VarChar(45)
   signedUserAgent String?   @map("signed_user_agent") @db.VarChar(300)
   viewedAt        DateTime? @map("viewed_at")
   declinedAt      DateTime? @map("declined_at")
+  /// מתי נשלח ללקוח בפעם האחרונה — לא זהה ל-createdAt: מזכירים שוב
+  /// ושוב ללקוח שלא חתם
+  sentAt          DateTime? @map("sent_at")
   createdBy       String?   @map("created_by") @db.Char(26)
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
@@ -825,4 +881,32 @@ model Call {
   @@index([tenantId, contactId])
   @@index([tenantId, leadId])
   @@map("calls")
+}
+
+/**
+ * חיבור יומן Google של משתמש.
+ *
+ * למשתמש ולא למשרד: ליומן יש בעלים אחד, וחיבור ברמת המשרד היה מחייב
+ * חשבון Google משותף — מה שאף משרד לא עושה.
+ */
+model GoogleCalendarLink {
+  id                     String    @id @db.Char(26)
+  tenantId               String    @map("tenant_id") @db.Char(26)
+  userId                 String    @unique @map("user_id") @db.Char(26)
+  googleEmail            String    @map("google_email") @db.VarChar(254)
+  calendarId             String    @default("primary") @map("calendar_id") @db.VarChar(200)
+  /// refresh token ארוך-טווח, מוצפן. לעולם אינו מוחזר ללקוח — מי
+  /// שמחזיק בו קורא וכותב ביומן הפרטי של הסוכן.
+  refreshTokenEncrypted  String    @map("refresh_token_encrypted")
+  /// טוקן הסנכרון המצטבר של Google — הבקשה הבאה מקבלת רק מה שהשתנה.
+  syncToken              String?   @map("sync_token")
+  lastSyncAt             DateTime? @map("last_sync_at")
+  /// מה קרה בסבב האחרון. מוצג למשתמש: חיבור שנשבר בשקט הוא חיבור
+  /// שסומכים עליו ואינו עובד.
+  lastError              String?   @map("last_error") @db.VarChar(300)
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@map("google_calendar_links")
 }

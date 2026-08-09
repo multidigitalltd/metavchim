@@ -111,6 +111,8 @@ export class AnalyticsService {
         tx.property.count({
           where: {
             tenantId,
+            // נכס שנמחק אינו עסקה שנסגרה, גם אם הסטטוס שלו נשאר "נמכר"
+            deletedAt: null,
             status: { in: ["sold", "rented"] },
             ...(from ? { updatedAt: { gte: from } } : {}),
           },

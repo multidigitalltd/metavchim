@@ -6,6 +6,7 @@ import {
   freeTextTerms,
   normalizeRange,
   priceRangeAgorot,
+  whatsappLink,
 } from "@metavchim/shared";
 
 /** סוגי נכס שהתווית העברית שלהם מכילה את המונח שהוקלד. */
@@ -224,7 +225,7 @@ export class PropertiesService {
       // נכס שיצא משיווק — ההתאמות המוצעות מתבטלות; אין להציע נכס שנמכר
       // (ביקורת Codex, PR #1). החלטות ידניות (offered/dismissed) נשמרות כהיסטוריה.
       if (status !== undefined && !["draft", "active"].includes(status)) {
-        await tx.match.deleteMany({ where: { propertyId: id, status: "suggested" } });
+        await this.retireMatches(tx, id);
         // מעבר אמיתי החוצה משיווק — סגירת מעגל מול קונים מעוניינים:
         // Worker יוצר משימות "הצע חלופה" לסוכנים (docs/01 — שום עסקה
         // לא נופלת בין הכיסאות)
@@ -475,8 +476,25 @@ export class PropertiesService {
         entityId: id,
       });
 
-      const phoneDigits = owner.phone.replace(/\D/gu, "");
-      return { waUrl: `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message)}`, message };
+      return { waUrl: whatsappLink(owner.phone, message), message };
+    });
+  }
+
+  /**
+   * הורדת ההתאמות של נכס שיצא משיווק — במכירה, בהשכרה או במחיקה רכה.
+   *
+   * **כל** ההתאמות יורדות, לא רק ה-`suggested`. הסינון הקודם השאיר
+   * התאמות במצב `offered` מצביעות על נכס מחוק, והרשימות מסננות
+   * `dismissed` בלבד — כלומר הן הופיעו במסך, ובמונה שלידו. מחיקה
+   * שלהן הייתה מיותמת הצעה שנשלחה (`offers.match_id`), ולכן הן
+   * מסומנות `dismissed`: יוצאות מכל מסך ומכל מונה, וההיסטוריה
+   * נשמרת.
+   */
+  private async retireMatches(tx: TenantTx, propertyId: string): Promise<void> {
+    await tx.match.deleteMany({ where: { propertyId, status: "suggested" } });
+    await tx.match.updateMany({
+      where: { propertyId, status: { not: "dismissed" } },
+      data: { status: "dismissed" },
     });
   }
 
@@ -487,7 +505,14 @@ export class PropertiesService {
       });
       if (!existing) throw new NotFoundException("נכס לא נמצא");
       await tx.property.update({ where: { id }, data: { deletedAt: new Date(), status: "archived" } });
-      await tx.match.deleteMany({ where: { propertyId: id, status: "suggested" } });
+      /*
+       * אותו טיפול בדיוק כמו ביציאה משיווק, ולא רק מחיקת ה-`suggested`.
+       *
+       * מחיקה רכה שהשאירה התאמות `offered` על נכס מחוק הייתה מסתמכת
+       * על כך שכל רשימה תסנן אותן בזיכרון — שלושה מקומות שצריכים
+       * לזכור, ומונה הניווט שלא זכר. מטפלים במקור.
+       */
+      await this.retireMatches(tx, id);
       // גם מחיקה רכה היא ירידה משיווק — קונים מעוניינים מקבלים משימת
       // חלופה בדיוק כמו במכירה (ביקורת Codex, PR #21)
       if (["draft", "active"].includes(existing.status)) {

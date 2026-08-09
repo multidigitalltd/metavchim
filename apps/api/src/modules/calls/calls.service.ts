@@ -5,7 +5,7 @@ import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
-import { ContactsService } from "../contacts/contacts.service";
+import { ContactsService, type ContactDto } from "../contacts/contacts.service";
 import { TranscriptionService } from "../voice-intake/transcription.service";
 
 /**
@@ -110,7 +110,16 @@ export class CallsService {
         orderBy: { occurredAt: "desc" },
         take: query.limit,
       });
-      return Promise.all(rows.map((row) => this.toDto(tx, row)));
+      /*
+       * שאילתה אחת לכל אנשי הקשר בעמוד. `Promise.all` על `toDto`
+       * נראה מקבילי, אבל כל קריאה בתוכו הייתה שאילתה נפרדת על אותו
+       * חיבור — כלומר עמוד של חמישים שיחות היה חמישים הלוך-ושוב.
+       */
+      const contactsById = await this.contacts.getByIds(
+        tx,
+        rows.map((row) => row.contactId).filter((id): id is string => id !== null),
+      );
+      return Promise.all(rows.map((row) => this.toDto(tx, row, contactsById)));
     });
   }
 
@@ -184,8 +193,16 @@ export class CallsService {
       transcript?: string | null;
       createdAt: Date;
     },
+    /**
+     * אנשי הקשר של העמוד, כשהקורא כבר שלף אותם. חסר ⇒ שליפה בודדת,
+     * וזה הנתיב של יצירה או של כרטיס יחיד.
+     */
+    contactsById?: Map<string, ContactDto>,
   ): Promise<CallDto> {
-    const contact = row.contactId ? await this.contacts.getById(tx, row.contactId) : null;
+    const contact =
+      row.contactId === null
+        ? null
+        : (contactsById?.get(row.contactId) ?? (await this.contacts.getById(tx, row.contactId)));
     return {
       id: row.id,
       direction: row.direction as "inbound" | "outbound",
