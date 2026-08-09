@@ -68,6 +68,13 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
       { key: "authPassword", label: "סיסמה ב-015", secret: true },
       { key: "defaultLine", label: "קו ברירת מחדל (כשלסוכן אין טלפון בפרופיל)", secret: false },
       { key: "callerId", label: "מזהה מתקשר שיוצג ללקוח (לא חובה)", secret: false },
+      /*
+       * שני השדות של הסופטפון. הם ברמת המשרד ולא ברמת הסוכן כי הם
+       * זהים לכולם — מה שמשתנה בין סוכנים הוא קו ה-SIP האישי, והוא
+       * יושב על המשתמש.
+       */
+      { key: "sipWssUrl", label: "כתובת WSS לסופטפון (wss://…)", secret: false },
+      { key: "sipDomain", label: "דומיין SIP (למשל sip.015.net)", secret: false },
     ],
     clickToDial: true,
   },
@@ -167,6 +174,70 @@ export function mergeLegacySecretsIntoConfig(
     if (isEmpty && legacy !== "") out[field.key] = legacy;
   }
   return out;
+}
+
+/* ==================== סופטפון בדפדפן (WebRTC) ==================== */
+
+/**
+ * מה שהדפדפן צריך כדי להירשם למרכזייה.
+ *
+ * ‎`wssUrl` הוא **חובה ולא נוחות**: דפדפן אינו יכול לדבר SIP רגיל
+ * (UDP/TCP), רק SIP over WebSocket מאובטח. מרכזייה בלי WSS פשוט אינה
+ * ניתנת לחיבור מהדפדפן, ואין דרך לעקוף את זה בקוד שלנו.
+ */
+export interface SoftphoneConfig {
+  wssUrl: string;
+  domain: string;
+  username: string;
+  password: string;
+}
+
+/** למה הסופטפון אינו זמין — כל סיבה והפעולה שסוגרת אותה. */
+export type SoftphoneGap =
+  | "no_integration"
+  | "no_wss"
+  | "no_domain"
+  | "no_line"
+  | "no_line_password";
+
+/**
+ * מה חסר כדי שהסופטפון יעבוד. `null` = הכול מוכן.
+ *
+ * ההפרדה בין החוסרים אינה קוסמטית: שניים מהם באחריות מנהל המשרד
+ * (כתובת WSS ודומיין) ושניים באחריות הסוכן עצמו (הקו והסיסמה שלו).
+ * הודעה אחת גנרית הייתה שולחת את הסוכן למסך שאין לו בכלל גישה אליו.
+ */
+export function softphoneGap(input: {
+  connected: boolean;
+  wssUrl?: string;
+  domain?: string;
+  username?: string;
+  hasPassword: boolean;
+}): SoftphoneGap | null {
+  if (!input.connected) return "no_integration";
+  if ((input.wssUrl ?? "").trim() === "") return "no_wss";
+  if ((input.domain ?? "").trim() === "") return "no_domain";
+  if ((input.username ?? "").trim() === "") return "no_line";
+  if (!input.hasPassword) return "no_line_password";
+  return null;
+}
+
+/**
+ * כתובת SIP לחיוג יוצא.
+ *
+ * המספר מנורמל ל-E.164 בכל המערכת, אבל מרכזיות ישראליות מצפות
+ * לצורה המקומית בחיוג (‎0501234567‎ ולא ‎+972501234567‎) — שליחת הצורה
+ * הבינלאומית גורמת ל-404 מהמרכזייה על מספר תקין לחלוטין.
+ */
+export function sipUriFor(phone: string, domain: string): string {
+  const local = phone.startsWith("+972") ? `0${phone.slice(4)}` : phone.replace(/[^\d+]/gu, "");
+  return `sip:${local}@${domain}`;
+}
+
+/** המספר מתוך כתובת SIP נכנסת — ‎`sip:0501234567@host`‎ → ‎`0501234567`‎. */
+export function phoneFromSipUri(uri: string): string {
+  const user = uri.replace(/^sips?:/u, "").split("@")[0] ?? "";
+  return user.replace(/[^\d+]/gu, "");
 }
 
 /* ==================== אירוע שיחה ==================== */

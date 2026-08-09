@@ -69,6 +69,10 @@ model User {
   lastSeenAnnouncement String? @map("last_seen_announcement") @db.VarChar(60)
   /// העדפות אישיות (נגישות ותצוגה) — נוסעות עם המשתמש בין מכשירים
   preferences  Json     @default("{}")
+  /// קו ה-SIP האישי לסופטפון בדפדפן. של האדם ולא של המשרד: שיחה
+  /// נכנסת צריכה לצלצל אצל מי שהיא מיועדת לו.
+  sipUsername  String?  @map("sip_username") @db.VarChar(80)
+  sipPasswordEncrypted String? @map("sip_password_encrypted")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 

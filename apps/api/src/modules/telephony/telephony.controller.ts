@@ -30,6 +30,16 @@ const DialSchema = z
   .object({ contactId: IdSchema, phone: z.string().max(30).optional() })
   .strict();
 
+/** קו ה-SIP האישי. סיסמה חסרה = השאר את מה שכבר שמור. */
+const MyLineSchema = z
+  .object({
+    username: z.string().max(80).optional(),
+    password: z.string().max(200).optional(),
+  })
+  .strict();
+
+const ResolveSchema = z.object({ phone: z.string().min(3).max(30) }).strict();
+
 /*
  * שער ברמת המחלקה. ה-Webhook הציבורי שבתוכה מסומן @Public ולכן
  * מדולג כאן — הזכאות שלו נבדקת ב-TelephonyService, אחרי שהמפתח זיהה
@@ -76,6 +86,54 @@ export class TelephonyController {
     @Body(new ZodValidationPipe(DialSchema)) body: z.infer<typeof DialSchema>,
   ): Promise<{ ok: boolean; callId?: string; message: string }> {
     return this.telephony.dial(body);
+  }
+
+  /*
+   * הסופטפון — שלושת הנתיבים הבאים.
+   *
+   * ‎`leads.edit` ולא `settings.manage`: לדבר עם לקוח זו עבודת הסוכן,
+   * ואם רק מנהל המשרד יכול היה להירשם לסופטפון, הפיצ'ר היה חסר
+   * משמעות. מה שכן שמור למנהל הוא **הגדרת** המרכזייה (‎POST /‎).
+   */
+
+  /** קו ה-SIP האישי — של המשתמש המחובר, ואין דרך לנקוב באחר. */
+  @Get("my-line")
+  @RequireCapability("leads.edit")
+  async myLine(): Promise<{ username: string; hasPassword: boolean }> {
+    return this.telephony.myLine();
+  }
+
+  @Post("my-line")
+  @RequireCapability("leads.edit")
+  @HttpCode(200)
+  async saveMyLine(
+    @Body(new ZodValidationPipe(MyLineSchema)) body: z.infer<typeof MyLineSchema>,
+  ): Promise<{ ok: true }> {
+    return this.telephony.saveMyLine(body);
+  }
+
+  /**
+   * פרטי הרישום לדפדפן. מחזיר סיסמת SIP — של המשתמש המחובר בלבד,
+   * ולעולם לא של אחר. ראו TelephonyService.softphone.
+   */
+  @Get("softphone")
+  @RequireCapability("leads.edit")
+  async softphone(): ReturnType<TelephonyService["softphone"]> {
+    return this.telephony.softphone();
+  }
+
+  /**
+   * מי מתקשר. מוגבל בקצב: הוא מקבל מספר ומחזיר האם הוא מוכר, וללא
+   * הגבלה אפשר היה לסרוק דרכו מספרים ולגלות מי לקוח של המשרד.
+   */
+  @Post("resolve-caller")
+  @RequireCapability("leads.edit")
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @HttpCode(200)
+  async resolveCaller(
+    @Body(new ZodValidationPipe(ResolveSchema)) body: z.infer<typeof ResolveSchema>,
+  ): Promise<{ name?: string; contactId?: string }> {
+    return this.telephony.resolveCaller(body.phone);
   }
 
   @Delete()

@@ -3,17 +3,23 @@
 import { useState } from "react";
 import { apiPost, ApiError } from "@/lib/api";
 import { useFeature } from "@/lib/use-features";
+import { useSoftphone } from "./softphone-bar";
 
 /**
- * חיוג בלחיצה דרך המרכזייה.
+ * חיוג בלחיצה — **שתי דרכים, לפי מה שזמין**.
  *
- * **לא `tel:`** — הקישור הזה כבר קיים לצידו ופותח את החייגן של
- * המכשיר. כאן המרכזייה עצמה יוזמת: היא מצלצלת קודם לטלפון של הסוכן,
- * וכשהוא עונה מחברת את הלקוח. ההבדל המעשי הוא שהשיחה נרשמת בכרטיס
- * מעצמה, עם משך והקלטה — שיחה מהנייד הפרטי לא מגיעה למערכת בכלל.
+ * כשהסופטפון מחובר, הלחיצה מחייגת ישירות מהדפדפן: הסוכן מדבר
+ * באוזניות ולא מרים כלום. זו הדרך המהירה, ולכן היא הראשונה.
  *
- * הכפתור נעלם כשהתמלול/הטלפוניה אינם במסלול או כשאין מרכזייה
- * מחוברת: כפתור שמחזיר 400 בכל לחיצה גרוע מכפתור שלא קיים.
+ * כשהוא אינו מחובר — בנייד, במחשב אחר, או כשהמשרד לא הגדיר WSS —
+ * הלחיצה נופלת לחיוג הדו-שלבי: המרכזייה מצלצלת לטלפון של הסוכן,
+ * וכשהוא עונה היא מחברת את הלקוח. מסורבל יותר, אבל עובד בכל מקום.
+ *
+ * **לא `tel:`** בשני המקרים — הקישור הזה כבר קיים לצידו ופותח את
+ * החייגן של המכשיר, ושיחה כזו לא מגיעה למערכת בכלל.
+ *
+ * הכפתור נעלם כשהטלפוניה אינה במסלול: כפתור שמחזיר 400 בכל לחיצה
+ * גרוע מכפתור שלא קיים.
  */
 
 export function ClickToDial({
@@ -27,11 +33,19 @@ export function ClickToDial({
   label?: string;
 }): React.JSX.Element | null {
   const enabled = useFeature("telephony");
+  const softphone = useSoftphone();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   if (!enabled) return null;
+
+  /*
+   * הסופטפון דורש מספר, והמספר כאן הוא של איש הקשר שהכרטיס כבר
+   * הציג — לא קלט חופשי. מסלול השרת ממשיך לקבל `contactId` בלבד
+   * ולפתור את המספר בעצמו, כי שם הוא כן חשוף לבקשות מזויפות.
+   */
+  const viaSoftphone = softphone.call !== undefined && phone !== undefined && phone !== "";
 
   async function dial(): Promise<void> {
     setBusy(true);
@@ -63,9 +77,20 @@ export function ClickToDial({
         className="mv-btn-plain"
         style={{ padding: "7px 14px", fontSize: 13 }}
         disabled={busy}
-        onClick={() => void dial()}
+        onClick={() => {
+          if (viaSoftphone) {
+            softphone.call!(phone!);
+            return;
+          }
+          void dial();
+        }}
+        title={
+          viaSoftphone
+            ? "שיחה מהדפדפן — דברו באוזניות"
+            : "המרכזייה תצלצל לטלפון שלכם, וכשתענו תחבר את הלקוח"
+        }
       >
-        {busy ? "מחייג…" : `📞 ${label}`}
+        {busy ? "מחייג…" : viaSoftphone ? `🎧 ${label}` : `📞 ${label}`}
       </button>
       {note ? (
         <span aria-live="polite" className="text-sm" style={{ color: "var(--color-success)" }}>

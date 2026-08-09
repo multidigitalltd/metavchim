@@ -20,6 +20,10 @@ import {
   mergeIntegrationSecrets,
   mergeLegacySecretsIntoConfig,
   telephonySecretKeys,
+  softphoneGap,
+  normalizePhone,
+  type SoftphoneConfig,
+  type SoftphoneGap,
 } from "@metavchim/shared";
 import { assertContactAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -223,6 +227,130 @@ export class TelephonyService {
       });
     });
     return { ok: true };
+  }
+
+  /**
+   * קו ה-SIP האישי של הסוכן — מה שמאפשר לו לדבר מהדפדפן.
+   *
+   * הקו הוא **של האדם ולא של המשרד**, ולכן הוא נשמר על המשתמש: שיחה
+   * נכנסת צריכה לצלצל אצל מי שהיא מיועדת לו. קו אחד משותף היה מחזיר
+   * אותנו לבעיה שחיוג בלחיצה בא לפתור.
+   *
+   * הסיסמה נכתבת רק כשנשלחה — אותו כלל של סודות המרכזייה, ומאותה
+   * סיבה: סוכן שמעדכן את שם הקו לא אמור להקליד סיסמה מחדש.
+   */
+  async myLine(): Promise<{ username: string; hasPassword: boolean }> {
+    const { tenantId, userId } = TenantContext.current();
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, tenantId },
+      select: { sipUsername: true, sipPasswordEncrypted: true },
+    });
+    // האם יש סיסמה, לא הסיסמה עצמה — המסך צריך להבדיל בין "שמורה,
+    // השאירו ריק" ל"אין", וזה כל מה שהוא צריך לשם כך
+    return {
+      username: user?.sipUsername ?? "",
+      hasPassword: (user?.sipPasswordEncrypted ?? null) !== null,
+    };
+  }
+
+  async saveMyLine(input: { username?: string; password?: string }): Promise<{ ok: true }> {
+    const { tenantId, userId } = TenantContext.current();
+    const data: { sipUsername?: string | null; sipPasswordEncrypted?: string | null } = {};
+    if (input.username !== undefined) {
+      const trimmed = input.username.trim();
+      data.sipUsername = trimmed === "" ? null : trimmed;
+      /*
+       * ניקוי שם הקו מנקה גם את הסיסמה. סיסמה מוצפנת ששייכת לקו
+       * שכבר לא קיים היא סוד שנשמר בלי סיבה, ואיש לא יזכור למחוק
+       * אותה בנפרד.
+       */
+      if (trimmed === "") data.sipPasswordEncrypted = null;
+    }
+    if (input.password !== undefined && input.password.trim() !== "") {
+      data.sipPasswordEncrypted = this.crypto.encrypt(input.password.trim());
+    }
+    if (Object.keys(data).length === 0) return { ok: true };
+
+    await this.prisma.withTenant(async (tx) => {
+      // updateMany עם tenantId: משתמש של משרד אחר אינו נגיש גם בטעות
+      await tx.user.updateMany({ where: { id: userId, tenantId }, data });
+      await this.audit.record(tx, {
+        action: "telephony.line.update",
+        entityType: "user",
+        entityId: userId,
+        metadata: { hasUsername: (data.sipUsername ?? null) !== null },
+      });
+    });
+    return { ok: true };
+  }
+
+  /**
+   * מה שהדפדפן צריך כדי להירשם למרכזייה — **של המשתמש הנוכחי בלבד**.
+   *
+   * הסיסמה כן מגיעה לדפדפן: ‎SIP over WebSocket‎ מחייב את הלקוח
+   * להירשם בעצמו, ואין בפרוטוקול טוקן קצר-מועד שאפשר להנפיק במקומה.
+   * לכן היא נשלחת רק לבעליה, רק על חיבור מאומת, ורק כשהמסלול כולל
+   * טלפוניה — והיא **לעולם אינה** נשלחת עבור משתמש אחר, גם לא למנהל
+   * המשרד. זו הסיבה שאין כאן פרמטר `userId`.
+   */
+  async softphone(): Promise<
+    { ready: false; gap: SoftphoneGap } | ({ ready: true } & SoftphoneConfig)
+  > {
+    const { tenantId, userId } = TenantContext.current();
+    const [row, user] = await Promise.all([
+      this.prisma.withTenant((tx) =>
+        tx.integration.findFirst({ where: { tenantId, kind: "telephony" } }),
+      ),
+      this.prisma.user.findFirst({
+        where: { id: userId, tenantId },
+        select: { sipUsername: true, sipPasswordEncrypted: true },
+      }),
+    ]);
+    const config = (row?.config ?? {}) as Record<string, string>;
+    const gap = softphoneGap({
+      connected: row !== null && row.status === "active",
+      wssUrl: config["sipWssUrl"],
+      domain: config["sipDomain"],
+      username: user?.sipUsername ?? "",
+      hasPassword: (user?.sipPasswordEncrypted ?? null) !== null,
+    });
+    if (gap) return { ready: false, gap };
+    return {
+      ready: true,
+      wssUrl: config["sipWssUrl"]!.trim(),
+      domain: config["sipDomain"]!.trim(),
+      username: user!.sipUsername!.trim(),
+      password: this.crypto.decrypt(user!.sipPasswordEncrypted!),
+    };
+  }
+
+  /**
+   * מי מתקשר — לשיחה נכנסת בסופטפון.
+   *
+   * הדפדפן מקבל מספר מה-INVITE ולא שם. הפונקציה הזו היא היחידה
+   * שיודעת לגשר, והיא **מחזירה שם רק על איש קשר של המשרד** — היא
+   * אינה מאשרת קיום מספר שאינו שלנו, ולכן אינה הופכת לכלי לבדיקת
+   * מספרים.
+   */
+  async resolveCaller(phone: string): Promise<{ name?: string; contactId?: string }> {
+    const { tenantId } = TenantContext.current();
+    const normalized = normalizePhone(phone);
+    const phoneHash = this.crypto.phoneHash(normalized);
+    return this.prisma.withTenant(async (tx) => {
+      const primary = await tx.contact.findFirst({
+        where: { tenantId, phoneHash },
+        select: { id: true, nameEncrypted: true },
+      });
+      const secondary = primary
+        ? null
+        : await tx.contactPhone.findFirst({
+            where: { tenantId, phoneHash },
+            select: { contact: { select: { id: true, nameEncrypted: true } } },
+          });
+      const contact = primary ?? secondary?.contact ?? null;
+      if (!contact) return {};
+      return { name: this.crypto.decrypt(contact.nameEncrypted), contactId: contact.id };
+    });
   }
 
   /**

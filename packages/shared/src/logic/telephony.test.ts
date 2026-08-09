@@ -15,6 +15,9 @@ import {
   mergeIntegrationSecrets,
   telephonySecretKeys,
   mergeLegacySecretsIntoConfig,
+  sipUriFor,
+  phoneFromSipUri,
+  softphoneGap,
 } from "./telephony.js";
 
 function event(overrides: Partial<TelephonyEvent> = {}): TelephonyEvent {
@@ -563,5 +566,73 @@ describe("שמות השדות של 015", () => {
     const noId = pbx015({ callid: "", uniqueid: "" });
     expect(parseTelephonyEvent(noId)).toBeNull();
     expect(telephonyParseIssue(noId)).toBe("no_call_id");
+  });
+});
+
+describe("sipUriFor", () => {
+  it("מחייג בצורה המקומית ולא הבינלאומית", () => {
+    /*
+     * המספרים נשמרים אצלנו ב-E.164, אבל מרכזייה ישראלית מחזירה 404
+     * על +972501234567 — מספר תקין לחלוטין שפשוט אינו בצורה שהיא
+     * מכירה. השגיאה נראית כמו "המספר לא קיים" ואינה קשורה למספר.
+     */
+    expect(sipUriFor("+972501234567", "sip.015.net")).toBe("sip:0501234567@sip.015.net");
+  });
+
+  it("מספר מקומי נשאר כפי שהוא", () => {
+    expect(sipUriFor("037654321", "pbx.example")).toBe("sip:037654321@pbx.example");
+  });
+
+  it("מנקה תווי עיצוב", () => {
+    expect(sipUriFor("050-123-4567", "pbx.example")).toBe("sip:0501234567@pbx.example");
+  });
+
+  it("מספר זר אינו מומר בכוח לצורה ישראלית", () => {
+    expect(sipUriFor("+14155550123", "pbx.example")).toBe("sip:+14155550123@pbx.example");
+  });
+});
+
+describe("phoneFromSipUri", () => {
+  it("מחלץ את המספר מכתובת נכנסת", () => {
+    expect(phoneFromSipUri("sip:0501234567@pbx.example")).toBe("0501234567");
+  });
+
+  it("עובד גם על sips", () => {
+    expect(phoneFromSipUri("sips:0501234567@pbx.example:5061")).toBe("0501234567");
+  });
+
+  it("מספר חסוי מחזיר ריק ולא זבל", () => {
+    // "anonymous" הוא מה ש-SIP שולח על מספר חסוי — לא מספר
+    expect(phoneFromSipUri("sip:anonymous@anonymous.invalid")).toBe("");
+  });
+});
+
+describe("softphoneGap", () => {
+  const ready = {
+    connected: true,
+    wssUrl: "wss://pbx.example/ws",
+    domain: "pbx.example",
+    username: "101",
+    hasPassword: true,
+  };
+
+  it("הכול מוכן — אין חוסר", () => {
+    expect(softphoneGap(ready)).toBeNull();
+  });
+
+  it("כל חוסר מזוהה בנפרד — שניים על המנהל ושניים על הסוכן", () => {
+    expect(softphoneGap({ ...ready, connected: false })).toBe("no_integration");
+    expect(softphoneGap({ ...ready, wssUrl: "" })).toBe("no_wss");
+    expect(softphoneGap({ ...ready, domain: "  " })).toBe("no_domain");
+    expect(softphoneGap({ ...ready, username: "" })).toBe("no_line");
+    expect(softphoneGap({ ...ready, hasPassword: false })).toBe("no_line_password");
+  });
+
+  it("חוסר של המשרד קודם לחוסר של הסוכן", () => {
+    /*
+     * סוכן שאין לו קו, במשרד שאין לו WSS, יראה את הבעיה של המשרד.
+     * ההפך היה שולח אותו למלא קו שלא יעבוד ממילא.
+     */
+    expect(softphoneGap({ connected: true, username: "", hasPassword: false })).toBe("no_wss");
   });
 });

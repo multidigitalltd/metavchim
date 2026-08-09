@@ -9,6 +9,7 @@ import { NotificationsBell } from "./notifications-bell";
 import { TopbarSearch } from "./topbar-search";
 import { WhatsNewBanner } from "./whats-new-banner";
 import { TrialBanner } from "./trial-banner";
+import { SoftphoneProvider } from "./softphone-bar";
 
 /**
  * מעטפת האפליקציה לפי קובץ העיצוב: סרגל צד כהה עם ניווט אנכי, מונים
@@ -574,7 +575,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         <main id="main-content" className="mv-content">
           <TrialBanner trialEndsAt={me?.trialEndsAt} />
           <WhatsNewBanner />
-          <FeaturesProvider features={features}>{children}</FeaturesProvider>
+          {/*
+            הסופטפון עוטף מבפנים ל-FeaturesProvider כי הוא נשען על
+            `useFeature("telephony")`. פס השיחה עצמו ממוקם `fixed`,
+            ולכן העטיפה כאן אינה כולאת אותו בתוך אזור התוכן.
+          */}
+          <FeaturesProvider features={features}>
+            <SoftphoneProvider>{children}</SoftphoneProvider>
+          </FeaturesProvider>
         </main>
       </div>
     </div>
