@@ -4,9 +4,11 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { apiGet } from "@/lib/api";
+import { FeaturesProvider } from "@/lib/use-features";
 import { NotificationsBell } from "./notifications-bell";
 import { TopbarSearch } from "./topbar-search";
 import { WhatsNewBanner } from "./whats-new-banner";
+import { TrialBanner } from "./trial-banner";
 
 /**
  * מעטפת האפליקציה לפי קובץ העיצוב: סרגל צד כהה עם ניווט אנכי, מונים
@@ -20,8 +22,18 @@ import { WhatsNewBanner } from "./whats-new-banner";
  * ממסך של 375px.
  */
 
+/**
+ * מסכי הכניסה מביאים מעטפת משלהם (AuthShell) — כולל ה-main.
+ *
+ * בלי ההפרדה הזו היו שני `<main id="main-content">` באותו דף:
+ * זה של המעטפת הכללית וזה של המסך. מזהה כפול שובר את קישור הדילוג
+ * ומבלבל קורא מסך.
+ */
+const AUTH_PREFIXES = ["/login", "/signup", "/forgot-password", "/reset-password", "/change-password"];
+
 const PUBLIC_PREFIXES = [
   "/login",
+  "/signup",
   "/offer/",
   "/sign/",
   "/p/", // דף נחיתה של נכס — הלקוח לא רואה תפריטי מתווך
@@ -67,6 +79,8 @@ interface NavSummary {
   newLeads: number;
   matches: number;
   credits: number | null;
+  /** הפיצ'רים שכלולים במסלול המשרד — פריט שלא כלול לא מוצג. */
+  features?: string[];
 }
 
 /** אייקוני קו דקים — הנתיבים המדויקים מקובץ העיצוב. */
@@ -195,6 +209,8 @@ interface Me {
   role: string;
   tenantName?: string;
   isPlatformAdmin?: boolean;
+  /** סוף תקופת הניסיון; null = אין תפוגה. */
+  trialEndsAt?: string | null;
 }
 
 function initials(name: string): string {
@@ -215,11 +231,31 @@ export function AppShell({ children }: { children: ReactNode }) {
   const drawerRef = useRef<HTMLElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
+  /*
+   * תשובה שהתחילה לפני יציאה נזרקת.
+   *
+   * ה-AppShell נשאר טעון בין משתמשים. בקשה שהייתה באוויר ברגע
+   * היציאה יכולה להסתיים אחריה ולמלא בחזרה את המשתמש הקודם — ואם
+   * הבקשה של המשתמש החדש נכשלת, השם, המשרד והתפריט של הקודם
+   * נשארים על המסך לצמיתות (ביקורת Codex).
+   *
+   * דגל cancelled ב-cleanup ולא AbortController: אותה תוצאה, בלי
+   * לשנות את חתימת apiGet לכל הקוראים.
+   */
   useEffect(() => {
     if (isPublic) return;
+    let cancelled = false;
     apiGet<{ user: Me }>("/auth/me")
-      .then((res) => setMe(res.user))
-      .catch(() => undefined);
+      .then((res) => {
+        if (!cancelled) setMe(res.user);
+      })
+      .catch(() => {
+        // כשל מאפס במקום להשאיר את הקודם
+        if (!cancelled) setMe(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [isPublic]);
 
   /*
@@ -240,10 +276,31 @@ export function AppShell({ children }: { children: ReactNode }) {
   /* המונים מתרעננים במעבר מסך — פעולה במסך אחד (קליטת ליד) צריכה
      להשתקף בתג כשעוברים הלאה, בלי Polling קבוע */
   useEffect(() => {
-    if (isPublic) return;
+    /*
+     * מעבר למסך ציבורי (יציאה) מנקה את הסיכום.
+     *
+     * ה-AppShell נשאר טעון בין משתמשים — יציאה וכניסה של משרד אחר הן
+     * `router.replace` ולא טעינה מחדש. בלי הניקוי, המשרד החדש היה
+     * מקבל את רשימת הפיצ'רים של הקודם עד שהשאילתה מצליחה, ולתמיד אם
+     * היא נכשלת: כפתורים חסומים שמוצגים, ופעילים שמוסתרים (ביקורת
+     * Codex).
+     */
+    if (isPublic) {
+      setCounts(null);
+      setMe(null);
+      return;
+    }
+    let cancelled = false;
     apiGet<NavSummary>("/nav/summary")
-      .then(setCounts)
-      .catch(() => undefined);
+      .then((summary) => {
+        if (!cancelled) setCounts(summary);
+      })
+      .catch(() => {
+        if (!cancelled) setCounts(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [isPublic, pathname]);
 
   // סגירת המגירה במעבר מסך — אחרת היא נשארת פתוחה מעל התוכן החדש
@@ -269,6 +326,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [menuOpen]);
 
+  if (AUTH_PREFIXES.some((p) => pathname === p || pathname.startsWith(p))) {
+    return <>{children}</>;
+  }
   if (isPublic) {
     return <main id="main-content" className="mx-auto max-w-6xl px-4 py-6">{children}</main>;
   }
@@ -299,6 +359,19 @@ export function AppShell({ children }: { children: ReactNode }) {
   const count = (n: number | undefined): ReactNode =>
     n !== undefined && n > 0 ? <span className="mv-nav-count">{n}</span> : null;
 
+  /*
+   * פריט ניווט לפיצ'ר שאינו במסלול לא מוצג.
+   *
+   * הכניסה למסך תיחסם בשרת בכל מקרה (FeatureGuard), וקישור שמוביל
+   * ל-403 גרוע מקישור שלא קיים. כל עוד המונים לא נטענו — מציגים,
+   * כדי שהתפריט לא "יקפוץ" ולא ייעלם על רשת איטית.
+   */
+  const hasFeature = (code: string): boolean =>
+    counts?.features === undefined || counts.features.includes(code);
+  // אותה רשימה מחולקת למסכים עצמם — הניווט לא יכול להיות המקום
+  // היחיד שיודע מה כלול (ראו lib/use-features)
+  const features = counts?.features ?? null;
+
   const sidebar = (
     <>
       <div className="mv-sidebar-head">
@@ -324,17 +397,23 @@ export function AppShell({ children }: { children: ReactNode }) {
         {navLink("/matches", "התאמות", ICONS.matches, count(counts?.matches))}
         {navLink("/offers", "הצעות", ICONS.offers)}
         {navLink("/calendar", "יומן", ICONS.calendar)}
-        {isManager ? navLink("/reports", "דוחות", ICONS.reports) : null}
+        {isManager && hasFeature("analytics")
+          ? navLink("/reports", "דוחות", ICONS.reports)
+          : null}
 
-        <div className="mv-nav-group">רשת</div>
-        {navLink(
-          "/collaboration",
-          'שת"פ בין משרדים',
-          ICONS.coop,
-          counts?.credits !== null && counts?.credits !== undefined ? (
-            <span className="mv-nav-credits">{counts.credits} קרדיטים</span>
-          ) : null,
-        )}
+        {hasFeature("collaboration") ? (
+          <>
+            <div className="mv-nav-group">רשת</div>
+            {navLink(
+              "/collaboration",
+              'שת"פ בין משרדים',
+              ICONS.coop,
+              counts?.credits !== null && counts?.credits !== undefined ? (
+                <span className="mv-nav-credits">{counts.credits} קרדיטים</span>
+              ) : null,
+            )}
+          </>
+        ) : null}
         {isManager ? navLink("/settings", "ניהול משרד", ICONS.office) : null}
         {isManager && !setupDone ? navLink("/setup", "הקמה", ICONS.setup) : null}
         {me?.isPlatformAdmin ? navLink("/platform", "פלטפורמה", ICONS.platform) : null}
@@ -401,24 +480,28 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="mv-topbar-end">
             <NotificationsBell />
 
-            <Link href="/voice" className="mv-voice-button">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <rect x="9" y="2.5" width="6" height="11" rx="3" />
-                <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
-                <line x1="12" y1="17.5" x2="12" y2="21" />
-              </svg>
-              קליטה בקול
-            </Link>
+          {/* קליטה קולית נחסמת בשרת בלי הפיצ'ר — קישור ל-403 גרוע
+              מקישור שלא קיים */}
+          {hasFeature("voice_intake") ? (
+              <Link href="/voice" className="mv-voice-button">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="9" y="2.5" width="6" height="11" rx="3" />
+                  <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
+                  <line x1="12" y1="17.5" x2="12" y2="21" />
+                </svg>
+                קליטה בקול
+              </Link>
+          ) : null}
 
             <Link href="/profile" className="mv-icon-button" aria-label="הפרופיל שלי" title="הפרופיל שלי">
               <svg
@@ -440,8 +523,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
 
         <main id="main-content" className="mv-content">
+          <TrialBanner trialEndsAt={me?.trialEndsAt} />
           <WhatsNewBanner />
-          {children}
+          <FeaturesProvider features={features}>{children}</FeaturesProvider>
         </main>
       </div>
     </div>

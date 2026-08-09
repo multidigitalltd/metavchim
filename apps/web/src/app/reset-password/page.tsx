@@ -3,12 +3,11 @@
 import { Suspense, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
+import { AuthShell } from "../auth-shell";
 
 /** קביעת סיסמה חדשה מקישור האיפוס שנשלח למייל (טוקן חד-פעמי). */
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
 
 function ResetForm() {
   const router = useRouter();
@@ -72,8 +71,7 @@ function ResetForm() {
           minLength={10}
           dir="ltr"
           autoComplete="new-password"
-          className="w-full rounded-lg border px-3 py-2.5"
-          style={inputStyle}
+          className="mv-auth-input"
         />
       </div>
 
@@ -89,28 +87,27 @@ function ResetForm() {
           minLength={10}
           dir="ltr"
           autoComplete="new-password"
-          className="w-full rounded-lg border px-3 py-2.5"
-          style={inputStyle}
+          className="mv-auth-input"
         />
       </div>
 
-      <Button type="submit" disabled={submitting} className="w-full">
+      <button type="submit" disabled={submitting} className="mv-auth-submit">
         {submitting ? "שומר…" : "קבע סיסמה חדשה"}
-      </Button>
+      </button>
     </form>
   );
 }
 
 export default function ResetPasswordPage() {
   return (
-    <div className="mx-auto max-w-sm py-10">
-      <h1 className="mb-1 text-2xl font-bold">סיסמה חדשה</h1>
-      <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
-        בחרו סיסמה חדשה לחשבון שלכם.
-      </p>
+    <AuthShell
+      title="סיסמה חדשה"
+      subtitle="בחרו סיסמה חדשה לחשבון שלכם."
+      points={["בחרו סיסמה שלא השתמשתם בה במקום אחר", "כל החיבורים הפתוחים ינותקו", "10 תווים לפחות"]}
+    >
       <Suspense fallback={<p aria-live="polite">טוען…</p>}>
         <ResetForm />
       </Suspense>
-    </div>
+    </AuthShell>
   );
 }

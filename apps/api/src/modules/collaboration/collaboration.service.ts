@@ -3,8 +3,10 @@ import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import { BuyerRequirementsSchema, scoreMatch, type BuyerRequirements } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
+import { KANKO_TENANT_ID } from "./kanko-webhook.controller";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { rowToFields } from "../properties/property.mapper";
 
@@ -57,6 +59,7 @@ export class CollaborationService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly outbox: OutboxService,
+    private readonly plans: PlanCatalogService,
   ) {}
 
   /** שיתוף קונה כביקוש אנונימי: בלי שם, בלי טלפון, תקציב מעוגל. */
@@ -122,16 +125,57 @@ export class CollaborationService {
     });
   }
 
+  /**
+   * האם ביקושים של הדייר הזה עדיין רלוונטיים לרשת.
+   *
+   * דייר מערכתי — כרגע Kanko — פטור מהבדיקה. הוא עוגן אינטגרציה ולא
+   * משרד מנוי: אין לו משתמשים, איש לא בחר לו מסלול, והמסלול שהוא
+   * נושא הוא פרט טכני מהמיגרציה. סינון שלו לפי זכאות מסחרית היה
+   * מוחק את כל מלאי Kanko מהרשת ברגע שמישהו עורך את מסלול הרשת —
+   * גם עבור משרדים שהשת"פ כן כלול אצלם (ביקורת Codex).
+   */
+  private async canPublish(tenantId: string): Promise<boolean> {
+    if (tenantId === KANKO_TENANT_ID) return true;
+    return this.plans.tenantHasFeature(tenantId, "collaboration");
+  }
+
   /** פיד הביקושים: הרשת כולה (כולל שלי, מסומנים). קריאת הרשת רצה כ-withNetwork. */
   async listDemands(): Promise<SharedDemandDto[]> {
     const tenantId = TenantContext.current().tenantId;
-    const rows = await this.prisma.withNetworkRead((tx) =>
-      tx.sharedDemand.findMany({
-        where: { status: "active" },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-      }),
+    /*
+     * הזכאות נקבעת **לפני** התקרה ולא אחריה.
+     *
+     * `take: 100` על כל הביקושים הפעילים, ואז סינון, היה יכול להחזיר
+     * רשימה ריקה: מאה הביקושים החדשים שייכים למשרדים שאיבדו את
+     * הפיצ'ר, והישנים־יותר של משרדים זכאים לא מגיעים ללקוח לעולם.
+     * המשרדים האלה גם חסומים מלהסיר את הביקושים שלהם, ולכן המצב הזה
+     * לא מתקן את עצמו — הפיד היה מורעב לצמיתות (ביקורת Codex).
+     *
+     * שני שלבים: קודם אילו משרדים בכלל מפרסמים, ואז שאילתה מסוננת
+     * לזכאים בלבד. `groupBy` ולא `findMany` — מספר המשרדים ברשת קטן
+     * בסדרי גודל ממספר הביקושים.
+     */
+    const publishers = await this.prisma.withNetworkRead((tx) =>
+      tx.sharedDemand.groupBy({ by: ["tenantId"], where: { status: "active" } }),
     );
+    const entitled = (
+      await Promise.all(
+        publishers.map(async (row) =>
+          (await this.canPublish(row.tenantId)) ? row.tenantId : null,
+        ),
+      )
+    ).filter((owner): owner is string => owner !== null);
+
+    const visible =
+      entitled.length === 0
+        ? []
+        : await this.prisma.withNetworkRead((tx) =>
+            tx.sharedDemand.findMany({
+              where: { status: "active", tenantId: { in: entitled } },
+              orderBy: { createdAt: "desc" },
+              take: 100,
+            }),
+          );
 
     /*
      * לכל ביקוש מחושבות ההתאמות מתוך הנכסים *שלי* — בדיוק אותו מנוע
@@ -149,7 +193,7 @@ export class CollaborationService {
       }),
     );
 
-    return rows.map((row) => {
+    return visible.map((row) => {
       const dto = this.toDemandDto(row, tenantId);
       if (dto.mine) return dto;
       const matches = this.matchOwnProperties(myProperties, row);
@@ -217,6 +261,10 @@ export class CollaborationService {
       tx.sharedDemand.findFirst({ where: { id: demandId, status: "active" } }),
     );
     if (!demand) throw new NotFoundException("הביקוש לא נמצא או נסגר");
+    // אותו כלל גם בכתיבה: הפיד יכול להיות ישן בלשונית פתוחה
+    if (!(await this.canPublish(demand.tenantId))) {
+      throw new NotFoundException("הביקוש לא נמצא או נסגר");
+    }
     if (demand.tenantId === ctx.tenantId) {
       throw new BadRequestException("זה ביקוש שלך — ההתאמות הפנימיות כבר כיסו אותו");
     }

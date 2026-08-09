@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import {
   FIELD_LABELS,
   formatDate,
@@ -13,7 +13,9 @@ import {
   STATUS_LABELS,
 } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
+import { useFeature } from "@/lib/use-features";
 import { MediaSection } from "./media-section";
+import { AgreementsPanel } from "../../agreements-panel";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
 
 /**
@@ -94,6 +96,8 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   const canEditOwner = can(user, "properties.edit");
   // אנשי הקשר של הבעלים נאכפים ב-ContactsController תחת buyers.edit
   const canEditOwnerPeople = can(user, "buyers.edit");
+  const canLanding = useFeature("landing_pages");
+  const canWhatsApp = useFeature("whatsapp");
   const router = useRouter();
   const [property, setProperty] = useState<PropertyDetail | null>(null);
   const [archiveConfirm, setArchiveConfirm] = useState(false);
@@ -103,6 +107,8 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   const [copiedFor, setCopiedFor] = useState<string | null>(null);
   const [bulkConfirm, setBulkConfirm] = useState(false);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
+  /** matchId ⟵ קישור חתימה, להתאמות שנחסמו בשער ההחתמה */
+  const [awaitingSignature, setAwaitingSignature] = useState<Record<string, string>>({});
   const [landingUrl, setLandingUrl] = useState<string | null>(null);
   const [landingBusy, setLandingBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -136,10 +142,28 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   }, [authLoading, id, loadProperty]);
 
   async function createOffer(matchId: string) {
-    const offer = await apiPost<OfferInfo & { matchId: string }>("/offers", { matchId });
-    setOffers((prev) => ({ ...prev, [matchId]: offer }));
-    await navigator.clipboard.writeText(offer.url).catch(() => undefined);
-    setCopiedFor(matchId);
+    try {
+      const offer = await apiPost<OfferInfo & { matchId: string }>("/offers", { matchId });
+      setOffers((prev) => ({ ...prev, [matchId]: offer }));
+      await navigator.clipboard.writeText(offer.url).catch(() => undefined);
+      setCopiedFor(matchId);
+    } catch (err: unknown) {
+      /*
+       * שער ההחתמה מוחזר כ-409 עם קישור לחתימה. בלי הטיפול הזה
+       * הלחיצה נכשלה בשקט: המתווך לא ראה שגיאה, לא קיבל קישור,
+       * ולא היה לו שום רמז מה לעשות — בזמן שהשרת כבר יצר עבורו את
+       * ההסכם (ביקורת Codex).
+       */
+      const signUrl =
+        err instanceof ApiError && err.body["code"] === "signature_required"
+          ? String(err.body["signUrl"] ?? "")
+          : "";
+      if (signUrl) {
+        setAwaitingSignature((prev) => ({ ...prev, [matchId]: signUrl }));
+        return;
+      }
+      throw err;
+    }
   }
 
   /** פותח וואטסאפ עם ההודעה והקישור מוכנים — המתווך רק לוחץ שלח (אפיון §10). */
@@ -194,11 +218,33 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
       return;
     }
     setBulkConfirm(false);
-    const result = await apiPost<{ created: number }>("/offers/bulk", {
-      propertyId: id,
-      minScore: 85,
-    });
-    setBulkResult(`נוצרו ${result.created} הצעות — לחצו "שלח בוואטסאפ" על כל אחת`);
+    const result = await apiPost<{
+      created: number;
+      awaitingSignature: { matchId: string; signUrl: string }[];
+    }>("/offers/bulk", { propertyId: id, minScore: 85 });
+    /*
+     * לקוח שטרם חתם על הזמנה בכתב אינו דילוג — הוא הפעולה הבאה של
+     * המתווך. בלי השורה הזו התוצאה הייתה "נוצרו 0 הצעות" בלי שום
+     * רמז למה ומה עושים עכשיו (ביקורת Codex).
+     */
+    const waiting = result.awaitingSignature?.length ?? 0;
+    setBulkResult(
+      [
+        result.created > 0
+          ? `נוצרו ${result.created} הצעות — לחצו "שלח בוואטסאפ" על כל אחת`
+          : "לא נוצרו הצעות חדשות",
+        waiting > 0
+          ? `${waiting} לקוחות ממתינים לחתימה על הזמנה בכתב — הקישור לחתימה מופיע בשורת ההתאמה שלהם`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(". "),
+    );
+    setAwaitingSignature(
+      Object.fromEntries(
+        (result.awaitingSignature ?? []).map((row) => [row.matchId, row.signUrl]),
+      ),
+    );
     const rows = await apiGet<MatchRow[]>(`/properties/${id}/matches`);
     setMatches(rows);
     if (rows.length > 0) {
@@ -289,15 +335,17 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
               <Link href={`/calendar/new?propertyId=${id}`} className="mv-btn-plain" style={{ padding: "7px 13px", fontSize: 13 }}>
                 קבע סיור
               </Link>
-              <button
-                type="button"
-                className="mv-btn-soft"
-                style={{ padding: "7px 13px", fontSize: 13 }}
-                disabled={landingBusy}
-                onClick={() => void createLanding()}
-              >
-                {landingBusy ? "יוצר…" : "צור דף נחיתה"}
-              </button>
+              {canLanding ? (
+                <button
+                  type="button"
+                  className="mv-btn-soft"
+                  style={{ padding: "7px 13px", fontSize: 13 }}
+                  disabled={landingBusy}
+                  onClick={() => void createLanding()}
+                >
+                  {landingBusy ? "יוצר…" : "צור דף נחיתה"}
+                </button>
+              ) : null}
               <a href="#matches-heading" className="mv-btn-action" style={{ padding: "7px 15px", fontSize: 13 }}>
                 מצא לי קונים
               </a>
@@ -333,6 +381,7 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                 </div>
               ))}
             </dl>
+
           </section>
 
           <PropertyOwner
@@ -341,8 +390,20 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
             canEdit={canEditOwner}
             canEditPeople={canEditOwnerPeople}
             onChanged={loadProperty}
+            canSendUpdate={canWhatsApp}
             onSendUpdate={() => void sendOwnerUpdate()}
           />
+
+          {/* בלעדיות נחתמת מול בעל הנכס — ולכן מיד אחרי הסעיף שלו,
+              ולא בכרטיס הקונה */}
+          {property.ownerContact ? (
+            <AgreementsPanel
+              contactId={property.ownerContact.id}
+              kind="exclusivity"
+              propertyId={property.id}
+              title="הסכם בלעדיות מול בעל הנכס"
+            />
+          ) : null}
 
           <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="matches-heading">
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -404,6 +465,22 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                         ) : null}
                       </div>
                       <div className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>{m.explanation}</div>
+                      {awaitingSignature[m.id] ? (
+                        <div className="mt-1.5 text-[13px]">
+                          <span style={{ color: "var(--color-danger)" }}>
+                            ממתין לחתימה על הזמנה בכתב
+                          </span>
+                          {" · "}
+                          <a
+                            href={awaitingSignature[m.id]}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline"
+                          >
+                            קישור לחתימה
+                          </a>
+                        </div>
+                      ) : null}
                       {offer ? (
                         <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-[13px]">
                           <span className="font-bold" style={{ color: offer.status === "interested" ? "var(--color-primary)" : "var(--color-text-soft)" }}>
@@ -418,11 +495,11 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                       ) : null}
                     </div>
                     <div className="ms-auto flex flex-none gap-2">
-                      {offer ? (
+                      {offer && canWhatsApp ? (
                         <button type="button" className="mv-btn-action" style={{ padding: "7px 15px", fontSize: 13 }} onClick={() => void sendWhatsApp(offer.id)}>
                           שלח בוואטסאפ
                         </button>
-                      ) : (
+                      ) : offer ? null : (
                         <button type="button" className="mv-btn-action" style={{ padding: "7px 15px", fontSize: 13 }} onClick={() => void createOffer(m.id)}>
                           שלח הצעה
                         </button>

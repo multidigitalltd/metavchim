@@ -1,9 +1,10 @@
-import { GoneException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import { OfferPresentationSchema, type OfferPresentation } from "@metavchim/shared";
 import { assertMatchAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
+import { AgreementsService } from "../agreements/agreements.service";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -53,6 +54,7 @@ export class OffersService {
     private readonly contacts: ContactsService,
     private readonly messaging: MessagingService,
     private readonly storage: StorageService,
+    private readonly agreements: AgreementsService,
   ) {}
 
   /**
@@ -60,6 +62,71 @@ export class OffersService {
    * Idempotent: הצעה אחת פר התאמה — קריאה חוזרת מחזירה את הקיימת;
    * מרוץ בין בקשות נבלם ע"י unique constraint על match_id (ביקורת Codex).
    */
+  /**
+   * שער ההחתמה — הזכות לדמי תיווך מותנית בהזמנה בכתב חתומה (חוק
+   * המתווכים במקרקעין §9), ולכן הצעה לא יוצאת ללקוח שטרם חתם.
+   *
+   * מחזיר את פרטי ההסכם לחתימה כשהשער חוסם, ו-null כשהוא פתוח.
+   *
+   * הבדיקה רצה בטרנזקציה *נפרדת* ומסתיימת לפני שנזרקת השגיאה: יצירת
+   * ההסכם וזריקת החריגה באותה טרנזקציה היו מגלגלות את ה-INSERT
+   * אחורה, והמתווך היה מקבל קישור להסכם שאינו קיים.
+   */
+  private async signatureGate(matchId: string): Promise<{ url: string } | null> {
+    const tenantId = TenantContext.current().tenantId;
+    return this.prisma.withTenant(async (tx) => {
+      const match = await tx.match.findFirst({
+        where: { id: matchId, tenantId },
+        select: { buyerId: true, propertyId: true },
+      });
+      if (!match) return null; // הזרימה הרגילה תחזיר את השגיאה המדויקת
+      const buyer = await tx.buyer.findFirst({
+        where: { id: match.buyerId, tenantId, deletedAt: null },
+        select: { contactId: true },
+      });
+      if (!buyer) return null;
+      if (await this.agreements.hasSigned(tx, tenantId, buyer.contactId, "brokerage", match.propertyId)) {
+        return null;
+      }
+      return this.agreements.create(tx, {
+        kind: "brokerage",
+        contactId: buyer.contactId,
+        propertyId: match.propertyId,
+      });
+    });
+  }
+
+  /**
+   * האם ההצעה מגובה בהזמנה בכתב חתומה על אותו נכס.
+   *
+   * רץ בתוך הטרנזקציה של הדף הציבורי, אחרי שהדייר כבר הוגדר ממנה —
+   * ולכן פוליסות ה-RLS חלות כרגיל.
+   */
+  private async offerSignatureSatisfied(
+    tx: Parameters<Parameters<PrismaService["withTenant"]>[0]>[0],
+    offer: { tenantId: string; matchId: string },
+  ): Promise<boolean> {
+    const match = await tx.match.findFirst({
+      where: { id: offer.matchId, tenantId: offer.tenantId },
+      select: { buyerId: true, propertyId: true },
+    });
+    if (!match) return false;
+    const buyer = await tx.buyer.findFirst({
+      where: { id: match.buyerId, tenantId: offer.tenantId, deletedAt: null },
+      select: { contactId: true },
+    });
+    if (!buyer) return false;
+    return this.agreements.hasSigned(tx, offer.tenantId, buyer.contactId, "brokerage", match.propertyId);
+  }
+
+  private static signatureRequired(signUrl: string): ConflictException {
+    return new ConflictException({
+      message: "הלקוח טרם חתם על הזמנה בכתב — שלחו לו קודם את ההסכם לחתימה",
+      code: "signature_required",
+      signUrl,
+    });
+  }
+
   async createFromMatch(matchId: string): Promise<OfferDto> {
     const tenantId = TenantContext.current().tenantId;
     const token = randomBytes(32).toString("base64url"); // 43 תווים
@@ -71,6 +138,21 @@ export class OffersService {
       await assertMatchAccess(tx, tenantId, matchId);
       return tx.offer.findFirst({ where: { matchId, tenantId } });
     });
+
+    /*
+     * השער רץ **כאן**, לפני שמוחזרת כתובת ההצעה — ולא רק בהכנת
+     * ההודעה לוואטסאפ.
+     *
+     * הכתובת הזו היא קישור ציבורי נושא־טוקן: ברגע ש-POST /offers
+     * מחזיר אותה, מסך הנכס מעתיק אותה ומסך ההתאמות מציג אותה, והיא
+     * ניתנת לשליחה בכל דרך שהיא. שער שיושב רק בערוץ אחד מתוך כמה
+     * אינו שער (ביקורת Codex).
+     *
+     * גם המסלול האידמפוטנטי עובר כאן: הצעה שנוצרה לפני שההסכם נדחה
+     * לא אמורה להמשיך להחזיר קישור.
+     */
+    const gate = await this.signatureGate(matchId);
+    if (gate) throw OffersService.signatureRequired(gate.url);
     if (existing) {
       return {
         id: existing.id,
@@ -207,6 +289,26 @@ export class OffersService {
       // הדייר נגזר מההצעה שנמצאה (ערך שרת) — נדרש לפוליסת ה-RLS של ה-Outbox.
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${offer.tenantId}, true)`;
 
+      /*
+       * השער נאכף גם כאן, בהגשת הדף עצמו — ולא רק ביצירת ההצעה.
+       *
+       * שער שיושב רק ביצירה שומר על הצעות חדשות בלבד: כתובת שנוצרה
+       * לפני הפיצ'ר, או כזו שכבר שותפה, המשיכה להיפתח כרגיל. בנוסף
+       * הסכם יכול להידחות או לפוג *אחרי* שההצעה נוצרה, וקישור חי
+       * שממשיך להציג נכס ללקוח שלא חתום מרוקן את ההגנה מתוכן
+       * (ביקורת Codex, סבב שלישי).
+       *
+       * הדף מציג "לא זמין" ולא שגיאה: הלקוח אינו הצד שאמור להתמודד
+       * עם זה, והמתווך רואה את הסיבה במסך שלו.
+       */
+      if (!(await this.offerSignatureSatisfied(tx, offer))) {
+        return {
+          presentation: OfferPresentationSchema.parse(offer.presentation),
+          status: "unavailable",
+          images: [],
+        };
+      }
+
       // נכס שירד משיווק — הדף מציג "לא זמין" בלי לספור פתיחה ובלי
       // לתזמן פולו-אפ; קישור חי לא מוכר נכס שנמכר (docs/01)
       if (!(await this.offerPropertyMarketable(tx, offer))) {
@@ -332,10 +434,33 @@ export class OffersService {
    * עוברת ל-offered ולכן יוצאת מהשאילתה הבאה. מרוץ בין בקשות נבלם
    * ע"י ה-unique על match_id — כפילות נספרת כ-skipped (ביקורת Codex).
    */
-  async createBulk(propertyId: string, minScore: number): Promise<{ created: number; skipped: number }> {
+  /**
+   * יצירת הצעות בבת אחת לכל ההתאמות של נכס.
+   *
+   * `awaitingSignature` מוחזר בנפרד מ-`skipped` ולא נבלע בו: לקוח
+   * שטרם חתם אינו "דילוג טכני" אלא בדיוק הפעולה הבאה של המתווך,
+   * והוא צריך לקבל את קישורי החתימה. קודם התוצאה הייתה "נוצרו 0
+   * הצעות" בלי שום רמז מה לעשות (ביקורת Codex).
+   */
+  async createBulk(
+    propertyId: string,
+    minScore: number,
+  ): Promise<{
+    created: number;
+    skipped: number;
+    awaitingSignature: { matchId: string; signUrl: string }[];
+  }> {
     const tenantId = TenantContext.current().tenantId;
     let created = 0;
     let skipped = 0;
+    const awaitingSignature: { matchId: string; signUrl: string }[] = [];
+    /*
+     * התאמה שנחסמה בשער נשארת בסטטוס suggested, ולכן הסבב הבא היה
+     * בוחר אותה שוב — ושוב, עד תקרת 50 הסבבים. עם מאה קונים לא
+     * חתומים זה 5,000 טרנזקציות מיותרות ואותם קישורים שוב ושוב.
+     * הרשימה הזו מוציאה אותן מהסבבים הבאים (ביקורת Codex).
+     */
+    const blocked = new Set<string>();
 
     const MAX_ROUNDS = 50; // בלם בטיחות: 50×100 = 5,000 הצעות לכל היותר בקריאה
     for (let round = 0; round < MAX_ROUNDS; round += 1) {
@@ -354,8 +479,11 @@ export class OffersService {
         return matches.map((m) => ({ id: m.id, hasOffer: withOffer.has(m.id) }));
       });
       if (candidates.length === 0) break;
+      const pending = candidates.filter((c) => !blocked.has(c.id));
+      // כל מה שנשאר בסבב הזה כבר נחסם — אין טעם בסבב נוסף
+      if (pending.length === 0) break;
 
-      for (const candidate of candidates) {
+      for (const candidate of pending) {
         if (candidate.hasOffer) {
           // התאמה עם הצעה שנשארה suggested — מסמנים offered כדי שתצא מהסבב הבא
           await this.prisma.withTenant((tx) =>
@@ -370,12 +498,21 @@ export class OffersService {
         try {
           await this.createFromMatch(candidate.id);
           created += 1;
-        } catch {
+        } catch (error: unknown) {
+          const body =
+            error instanceof ConflictException
+              ? (error.getResponse() as { code?: string; signUrl?: string })
+              : null;
+          if (body?.code === "signature_required" && body.signUrl) {
+            awaitingSignature.push({ matchId: candidate.id, signUrl: body.signUrl });
+            blocked.add(candidate.id);
+            continue;
+          }
           skipped += 1; // כפילות במרוץ / נכס שירד משיווק — ממשיכים לשאר
         }
       }
     }
-    return { created, skipped };
+    return { created, skipped, awaitingSignature };
   }
 
   /**
@@ -385,13 +522,29 @@ export class OffersService {
    */
   async prepareWhatsApp(offerId: string): Promise<{ waUrl: string; message: string }> {
     const tenantId = TenantContext.current().tenantId;
+
+    /*
+     * השער נבדק שוב לפני השליחה בפועל, אף שהוא כבר נבדק ביצירת ההצעה:
+     * הסכם יכול להידחות או לפוג בין השניים, וזו הנקודה שבה ההצעה
+     * באמת יוצאת ללקוח.
+     */
+    const matchOfOffer = await this.prisma.withTenant((tx) =>
+      tx.offer.findFirst({ where: { id: offerId, tenantId }, select: { matchId: true } }),
+    );
+    // בלי היציאה הזו היה נשלח findFirst עם id: undefined — ש-Prisma
+    // מפרש כ"בלי סינון"; הזרימה למטה מחזירה את השגיאה המדויקת
+    if (matchOfOffer) {
+      const gate = await this.signatureGate(matchOfOffer.matchId);
+      if (gate) throw OffersService.signatureRequired(gate.url);
+    }
+
     return this.prisma.withTenant(async (tx) => {
       const offer = await tx.offer.findFirst({ where: { id: offerId, tenantId } });
       if (!offer) throw new NotFoundException("הצעה לא נמצאה");
 
       const match = await tx.match.findFirst({
         where: { id: offer.matchId, tenantId },
-        select: { buyerId: true },
+        select: { buyerId: true, propertyId: true },
       });
       if (!match) throw new NotFoundException("התאמה לא נמצאה");
       const buyer = await tx.buyer.findFirst({

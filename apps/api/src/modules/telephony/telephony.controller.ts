@@ -3,6 +3,7 @@ import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
 import { TELEPHONY_PROVIDERS } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
+import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { TelephonyService } from "./telephony.service";
 
@@ -18,6 +19,12 @@ const ConnectSchema = z
 
 const KeySchema = z.string().regex(/^[A-Za-z0-9_-]{20,64}$/u);
 
+/*
+ * שער ברמת המחלקה. ה-Webhook הציבורי שבתוכה מסומן @Public ולכן
+ * מדולג כאן — הזכאות שלו נבדקת ב-TelephonyService, אחרי שהמפתח זיהה
+ * את המשרד (ביקורת Codex).
+ */
+@RequireFeature("telephony")
 @Controller("settings/telephony")
 export class TelephonyController {
   constructor(private readonly telephony: TelephonyService) {}

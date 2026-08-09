@@ -2,6 +2,7 @@ import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { AuthGuard } from "./common/auth.guard";
+import { FeatureGuard } from "./common/feature.guard";
 import { FloodMiddleware } from "./common/flood.middleware";
 import { SessionMiddleware } from "./common/session.middleware";
 import { CoreModule } from "./core/core.module";
@@ -21,12 +22,14 @@ import { MatchingModule } from "./modules/matching/matching.module";
 import { MessagingModule } from "./modules/messaging/messaging.module";
 import { NavModule } from "./modules/nav/nav.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
+import { AgreementsModule } from "./modules/agreements/agreements.module";
 import { CallsModule } from "./modules/calls/calls.module";
 import { OffersModule } from "./modules/offers/offers.module";
 import { PlatformModule } from "./modules/platform/platform.module";
 import { PropertiesModule } from "./modules/properties/properties.module";
 import { SearchModule } from "./modules/search/search.module";
 import { SettingsModule } from "./modules/settings/settings.module";
+import { SignupModule } from "./modules/signup/signup.module";
 import { TelephonyModule } from "./modules/telephony/telephony.module";
 import { TasksModule } from "./modules/tasks/tasks.module";
 import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
@@ -48,6 +51,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     PropertiesModule,
     BuyersModule,
     MatchingModule,
+    AgreementsModule,
     CallsModule,
     OffersModule,
     PlatformModule,
@@ -60,6 +64,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     CalendarModule,
     CollaborationModule,
     SettingsModule,
+    SignupModule,
     TelephonyModule,
     AnalyticsModule,
     CoachModule,
@@ -71,6 +76,12 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
+    /*
+     * שער הפיצ'רים אחרי שער האימות ולא לפניו: שאלה על המסלול של
+     * המשרד מחייבת שכבר ידוע איזה משרד זה. הוא שקוף ל-Endpoint שלא
+     * הצהיר @RequireFeature, ולכן אין לו מחיר על שאר הנתיבים.
+     */
+    { provide: APP_GUARD, useClass: FeatureGuard },
   ],
 })
 export class AppModule implements NestModule {

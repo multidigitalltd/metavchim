@@ -9,6 +9,7 @@ import {
   toCsv,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
+import { RequireFeature } from "../../common/feature.guard";
 import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
@@ -39,6 +40,7 @@ async function fetchAll<T extends { id: string }>(
   }
 }
 
+@RequireFeature("data_io")
 @Controller("export")
 export class ExportController {
   constructor(

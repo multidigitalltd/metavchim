@@ -23,6 +23,11 @@ model Tenant {
   name      String   @db.VarChar(120)
   plan      String   @default("basic") @db.VarChar(20)
   status    String   @default("trial") @db.VarChar(20)
+  /// סוף תקופת הניסיון. null = אין תפוגה — משרד שהוקם ידנית או ששילם.
+  /// עמודה ולא שדה ב-settings: היא נבדקת בכל אימות Session.
+  trialEndsAt DateTime? @map("trial_ends_at")
+  /// self | manual — מאיזה ערוץ המשרד הגיע. לדוח ולתמיכה, לא להרשאות.
+  signupSource String  @default("manual") @map("signup_source") @db.VarChar(20)
   settings  Json     @default("{}")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -30,6 +35,7 @@ model Tenant {
   users      User[]
   properties Property[]
 
+  @@index([trialEndsAt])
   @@map("tenants")
 }
 
@@ -617,6 +623,33 @@ model AuditLog {
 
 /// הגדרות פלטפורמה (מפתחות ספקים) — מנוהלות ממסך /platform, מוצפנות.
 /// מחוץ ל-RLS: רמת פלטפורמה, לא רמת דייר (כמו users/sessions).
+/// הגדרת מסלול מנוי — מה כלול בו, כמה הוא עולה ומה המגבלות.
+///
+/// טבלה ברמת הפלטפורמה (כמו platform_settings): אין בה נתוני לקוחות,
+/// והיא נקראת גם מתוך הקשר דייר כדי לדעת מה מותר למשרד. אין שורה
+/// לקוד מסוים ⇒ ברירת המחדל שבקוד (packages/shared — plans.ts), כך
+/// שמערכת שעלתה זה עתה עובדת לפני שנגעו במסך.
+model Plan {
+  code               String   @id @db.VarChar(20)
+  name               String   @db.VarChar(60)
+  description        String   @default("") @db.VarChar(500)
+  monthlyPriceAgorot Int      @default(0) @map("monthly_price_agorot")
+  /// null = נמכר חודשי בלבד
+  yearlyPriceAgorot  Int?     @map("yearly_price_agorot")
+  /// null = ללא הגבלה — ערך תקין ומכוון, לא "לא הוגדר"
+  maxUsers           Int?     @map("max_users")
+  maxProperties      Int?     @map("max_properties")
+  features           String[] @default([])
+  trialDays          Int      @default(14) @map("trial_days")
+  isPublic           Boolean  @default(true) @map("is_public")
+  sortOrder          Int      @default(0) @map("sort_order")
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
+  updatedBy          String?  @map("updated_by") @db.Char(26)
+
+  @@index([sortOrder])
+  @@map("plans")
+}
+
 model PlatformSetting {
   key            String   @id @db.VarChar(60)
   valueEncrypted String   @map("value_encrypted")
@@ -640,6 +673,42 @@ model AgreementTemplate {
 
   @@unique([tenantId, kind])
   @@map("agreement_templates")
+}
+
+/// הסכם שנשלח ללקוח לחתימה. rendered_body הוא צילום הנוסח שהלקוח
+/// ראה, ו-bodyHash מאפשר להוכיח שהטקסט לא שונה אחרי החתימה.
+model Agreement {
+  id              String    @id @db.Char(26)
+  tenantId        String    @map("tenant_id") @db.Char(26)
+  /// brokerage | exclusivity
+  kind            String    @db.VarChar(20)
+  contactId       String    @map("contact_id") @db.Char(26)
+  propertyId      String?   @map("property_id") @db.Char(26)
+  /// pending | viewed | signed | declined | expired
+  /// expired נקבע כשקישור שפג מפנה את מקומו להסכם חדש — האינדקס
+  /// הייחודי על הסכם פעיל לא יכול לבדוק תאריך בעצמו.
+  status          String    @default("pending") @db.VarChar(20)
+  renderedBody    String    @map("rendered_body")
+  /// גיבוב הנוסח החתום. עד החתימה זהה ל-presentedHash; ברגע החתימה
+  /// נכנס מספר הזהות לגוף המסמך והגיבוב מחושב מחדש.
+  bodyHash        String    @map("body_hash") @db.Char(64)
+  /// הגיבוב שהוצג ללקוח לפני החתימה — מוכיח מה הוצג, לצד מה שנחתם
+  presentedHash   String?   @map("presented_hash") @db.Char(64)
+  publicToken     String    @unique @map("public_token") @db.VarChar(64)
+  tokenExpires    DateTime  @map("token_expires")
+  signerName      String?   @map("signer_name") @db.VarChar(120)
+  signerIdNumber  String?   @map("signer_id_number") @db.VarChar(20)
+  signedAt        DateTime? @map("signed_at")
+  signedIp        String?   @map("signed_ip") @db.VarChar(45)
+  signedUserAgent String?   @map("signed_user_agent") @db.VarChar(300)
+  viewedAt        DateTime? @map("viewed_at")
+  declinedAt      DateTime? @map("declined_at")
+  createdBy       String?   @map("created_by") @db.Char(26)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, contactId, kind])
+  @@map("agreements")
 }
 
 /// יומן שיחות. כרגע מתועד ידנית; שיחות מספק טלפוניה ייכנסו לאותה

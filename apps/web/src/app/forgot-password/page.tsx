@@ -2,8 +2,8 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
+import { AuthShell } from "../auth-shell";
 
 /**
  * "שכחתי סיסמה" — התשובה זהה תמיד, בין אם הכתובת רשומה ובין אם לא
@@ -30,11 +30,11 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="mx-auto max-w-sm py-10">
-      <h1 className="mb-1 text-2xl font-bold">איפוס סיסמה</h1>
-      <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
-        נשלח לך קישור לאיפוס הסיסמה במייל.
-      </p>
+    <AuthShell
+      title="איפוס סיסמה"
+      subtitle="נשלח לך קישור לאיפוס הסיסמה במייל."
+      points={["הקישור תקף ל-30 דקות", "נשלח רק לכתובת שרשומה במערכת", "אף אחד אחר לא מקבל התראה"]}
+    >
 
       {sent ? (
         <>
@@ -73,19 +73,18 @@ export default function ForgotPasswordPage() {
               autoComplete="email"
               required
               dir="ltr"
-              className="w-full rounded-lg border px-3 py-2.5"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+              className="mv-auth-input"
             />
           </div>
 
-          <Button type="submit" disabled={submitting} className="w-full">
-            {submitting ? "שולח…" : "שלח קישור לאיפוס"}
-          </Button>
+          <button type="submit" disabled={submitting} className="mv-auth-submit">
+        {submitting ? "שולח…" : "שלח קישור לאיפוס"}
+      </button>
           <Link href="/login" className="mt-4 block text-center underline">
             חזרה להתחברות
           </Link>
         </form>
       )}
-    </div>
+    </AuthShell>
   );
 }

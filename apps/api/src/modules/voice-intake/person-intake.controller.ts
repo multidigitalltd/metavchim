@@ -13,6 +13,7 @@ import {
   type VoiceCommand,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
+import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import type { BuyerDto } from "../buyers/buyers.service";
 import { OfferIntakeService, type OfferResolution } from "./offer-intake.service";
@@ -65,6 +66,15 @@ const CreateBuyerSchema = z
  * הזרימה תמיד דו-שלבית: חילוץ ⟵ אישור המתווך ⟵ יצירה. פעולה
  * לעולם לא מתבצעת ישירות מהדיבור.
  */
+/*
+ * אותו שער של /voice-intakes.
+ *
+ * הדפדפן יכול לייצר תמלול בעצמו (Speech Recognition) בלי לעבור
+ * בנתיב המתומלל בשרת, ואז /voice/preview, /voice/buyers ו-/voice/leads
+ * היו ממשיכים לחלץ וליצור רשומות — כלומר קליטה קולית שממשיכה לעבוד
+ * אחרי שהפיצ'ר בוטל במסלול (ביקורת Codex).
+ */
+@RequireFeature("voice_intake")
 @Controller("voice")
 export class PersonIntakeController {
   constructor(

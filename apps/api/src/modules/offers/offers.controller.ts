@@ -12,6 +12,7 @@ import {
 import { z } from "zod";
 import { IdSchema } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
+import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
   OffersService,
@@ -83,12 +84,17 @@ export class OffersController {
   @HttpCode(200)
   async createBulk(
     @Body(new ZodValidationPipe(BulkOfferSchema)) body: z.infer<typeof BulkOfferSchema>,
-  ): Promise<{ created: number; skipped: number }> {
+  ): Promise<{
+    created: number;
+    skipped: number;
+    awaitingSignature: { matchId: string; signUrl: string }[];
+  }> {
     return this.offers.createBulk(body.propertyId, body.minScore);
   }
 
   /** קישור wa.me עם הודעה מוכנה — "שלח בוואטסאפ" בלחיצה (אפיון §10). */
   @Post("offers/:id/whatsapp")
+  @RequireFeature("whatsapp")
   @RequireCapability("offers.send")
   @HttpCode(200)
   async prepareWhatsApp(

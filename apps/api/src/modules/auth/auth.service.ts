@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, UnauthorizedException } from "@nestjs/
 import * as argon2 from "argon2";
 import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
-import { resolveCapabilities, type Capability } from "@metavchim/shared";
+import { isTrialExpired, resolveCapabilities, type Capability } from "@metavchim/shared";
 import { PrismaService } from "../../core/prisma.service";
 import type { RequestContext } from "../../common/tenant-context";
 
@@ -17,6 +17,11 @@ export interface AuthenticatedUser {
   mustChangePassword: boolean;
   /** שם המשרד — מוצג בסרגל הצד; נטען פעם אחת עם ה-Session */
   tenantName?: string;
+  /**
+   * סוף תקופת הניסיון — כדי שהמערכת תוכל להזהיר לפני שהיא נועלת.
+   * null = אין תפוגה (משרד משלם או שהוקם ידנית).
+   */
+  trialEndsAt?: string | null;
 }
 
 /**
@@ -36,6 +41,27 @@ export interface ProfileDto {
 
 export interface ValidatedUser extends AuthenticatedUser {
   passwordChangedAt: Date;
+}
+
+/**
+ * האם המשרד רשאי לעבוד עכשיו.
+ *
+ * שני תנאים ולא אחד: הסטטוס (השהיה מהפלטפורמה) **וגם** תפוגת
+ * הניסיון. עד כה נבדק רק הראשון, ולכן משרד בניסיון היה ממשיך לעבוד
+ * לנצח — הסטטוס `trial` לא משתנה מעצמו, ואין תהליך שמשנה אותו.
+ *
+ * `trialEndsAt = null` פירושו "בלי תפוגה", וזה המצב של כל משרד
+ * שהוקם ידנית או ששילם. ההפרדה הזו היא מה שמאפשר להפעיל משרד בלי
+ * למחוק את היסטוריית הניסיון שלו.
+ */
+export function tenantCanOperate(tenant: {
+  status: string;
+  trialEndsAt?: Date | null;
+}): boolean {
+  if (!["active", "trial"].includes(tenant.status)) return false;
+  // אותו כלל בדיוק שהבאנר מציג — ראו packages/shared/logic/trial.ts
+  if (tenant.status === "trial" && isTrialExpired(tenant.trialEndsAt, new Date())) return false;
+  return true;
 }
 
 @Injectable()
@@ -89,10 +115,14 @@ export class AuthService {
     // ה-sessions הקיימים נמחקים בהשהיה, וכאן נחסמת התחברות מחדש)
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: user.tenantId },
-      select: { status: true },
+      select: { status: true, trialEndsAt: true },
     });
-    if (tenant && !["active", "trial"].includes(tenant.status)) {
-      throw new UnauthorizedException("החשבון של המשרד מושהה — פנו לתמיכה");
+    if (tenant && !tenantCanOperate(tenant)) {
+      throw new UnauthorizedException(
+        tenant.status === "trial"
+          ? "תקופת הניסיון הסתיימה — פנו אלינו כדי להמשיך"
+          : "החשבון של המשרד מושהה — פנו לתמיכה",
+      );
     }
 
     return {
@@ -140,10 +170,14 @@ export class AuthService {
     if (!user || !user.isActive) throw new UnauthorizedException();
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: user.tenantId },
-      select: { status: true },
+      select: { status: true, trialEndsAt: true },
     });
-    if (tenant && !["active", "trial"].includes(tenant.status)) {
-      throw new UnauthorizedException("החשבון של המשרד מושהה — פנו לתמיכה");
+    if (tenant && !tenantCanOperate(tenant)) {
+      throw new UnauthorizedException(
+        tenant.status === "trial"
+          ? "תקופת הניסיון הסתיימה — פנו אלינו כדי להמשיך"
+          : "החשבון של המשרד מושהה — פנו לתמיכה",
+      );
     }
     return {
       id: user.id,
@@ -323,14 +357,16 @@ export class AuthService {
   ): Promise<{ context: RequestContext; user: AuthenticatedUser } | null> {
     const session = await this.prisma.session.findUnique({
       where: { tokenHash: AuthService.hashToken(token) },
-      include: { user: { include: { tenant: { select: { status: true, name: true } } } } },
+      include: {
+        user: { include: { tenant: { select: { status: true, name: true, trialEndsAt: true } } } },
+      },
     });
     if (!session || session.expiresAt < new Date() || !session.user.isActive) {
       return null;
     }
     // אכיפת השהיית משרד בכל בקשה — session שנוצר במרוץ מול ההשהיה
     // (login שהספיק לעבור אימות לפני מחיקת ה-sessions) נפסל כאן (Codex)
-    if (!["active", "trial"].includes(session.user.tenant.status)) {
+    if (!tenantCanOperate(session.user.tenant)) {
       return null;
     }
     // עידן הסיסמה: Session שאומת מול סיסמה ישנה נפסל — גם אם נוצר
@@ -386,6 +422,7 @@ export class AuthService {
         role: session.user.role,
         mustChangePassword: session.user.mustChangePassword,
         tenantName: session.user.tenant.name,
+        trialEndsAt: session.user.tenant.trialEndsAt?.toISOString() ?? null,
       },
     };
   }
