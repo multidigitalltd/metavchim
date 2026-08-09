@@ -31,7 +31,27 @@ interface Status {
   lastEventIssue?: string;
   clickToDial: boolean;
   config: Record<string, unknown>;
+  /** שמות הסודות ששמורים בפועל — בלי הערכים. */
+  secretsSet?: string[];
 }
+
+/**
+ * תבנית גוף ה-JSON להדבקה במסך ה-Webhook של 015.
+ *
+ * השמות הם **שמותיו של 015** (‎`#callid#`‎ וחבריו) ולא שמות פנימיים
+ * שלנו: המנהל מדביק ולא מתרגם, והמפרסר יודע לקרוא אותם.
+ */
+const PBX015_TEMPLATE = `{
+  "callid": "#callid#",
+  "status": "#status#",
+  "direction": "#direction#",
+  "callerid_external": "#callerid_external#",
+  "snumber": "#snumber#",
+  "cnumber": "#cnumber#",
+  "talktime": "#talktime#",
+  "totaltime": "#totaltime#",
+  "extension": "#extension#"
+}`;
 
 /**
  * למה האירוע לא זוהה — ולמי הבעיה שייכת.
@@ -83,6 +103,7 @@ export function TelephonySection() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedTemplate, setCopiedTemplate] = useState(false);
 
   function load(): void {
     apiGet<Provider[]>("/settings/telephony/providers")
@@ -250,10 +271,64 @@ export function TelephonySection() {
             )}
           </div>
 
-          <p className="m-0 mt-2 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
-            המרכזייה יכולה לקרוא לכתובת ב-GET עם פרמטרים או ב-POST. השדות הנדרשים:
-            מספר המתקשר, מזהה שיחה, וסטטוס (‎ringing / answered / hangup‎).
-          </p>
+          {status.provider === "015" ? (
+            /*
+              מסך ה-Webhook של 015 אינו "הדביקו כתובת וזהו": הוא דורש
+              לבחור אירועים, שיטה, כותרת ותבנית גוף — וכל אחד מהם יכול
+              להיות נכון בפני עצמו ועדיין לא לשלוח כלום. ההוראות כאן
+              הן בדיוק מה שצריך להיות בכל שדה, ולא הסבר כללי.
+            */
+            <details className="mt-2.5">
+              <summary className="cursor-pointer text-[13px] font-bold">
+                מה להגדיר במסך ה-Webhook של 015
+              </summary>
+              <ol
+                className="m-0 mt-2 pr-5 text-[12.5px]"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                <li className="mb-1">
+                  <b>אירועים</b> — סמנו <b>Calling</b>, <b>Answer</b> ו-<b>Hangup</b>. בלי
+                  אירוע מסומן אחד לפחות המרכזייה לא שולחת כלום, וזה המצב שנראה כאן
+                  כ&quot;טרם התקבל אף אירוע&quot;.
+                </li>
+                <li className="mb-1">
+                  <b>URL</b> — הכתובת שלמעלה. <b>Method</b> — ‎POST‎.
+                </li>
+                <li className="mb-1">
+                  <b>Headers</b> — <code dir="ltr">content-type: application/json</code>
+                </li>
+                <li className="mb-1">
+                  <b>Template</b> — הדביקו את זה כמו שהוא:
+                </li>
+              </ol>
+              <pre
+                dir="ltr"
+                className="mt-1 overflow-x-auto rounded p-2 text-[11.5px]"
+                style={{ background: "var(--color-bg)" }}
+              >
+                {PBX015_TEMPLATE}
+              </pre>
+              <button
+                type="button"
+                className="mv-btn-plain"
+                onClick={() => {
+                  void navigator.clipboard.writeText(PBX015_TEMPLATE);
+                  setCopiedTemplate(true);
+                }}
+              >
+                {copiedTemplate ? "✓ הועתק" : "העתק תבנית"}
+              </button>
+              <p className="m-0 mt-2 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                ‎<code dir="ltr">talktime</code> ו-<code dir="ltr">totaltime</code> שניהם
+                נחוצים: ההפרש ביניהם הוא מה שמבדיל בין שיחה שנענתה לשיחה שרק צלצלה.
+              </p>
+            </details>
+          ) : (
+            <p className="m-0 mt-2 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+              המרכזייה יכולה לקרוא לכתובת ב-GET עם פרמטרים או ב-POST. השדות הנדרשים:
+              מספר המתקשר, מזהה שיחה, וסטטוס (‎ringing / answered / hangup‎).
+            </p>
+          )}
 
           <button type="button" className="mv-btn-plain mt-3" disabled={busy} onClick={() => void disconnect()}>
             נתק מרכזייה
@@ -286,24 +361,47 @@ export function TelephonySection() {
           ) : null}
         </div>
 
-        {(provider?.fields ?? []).map((field) => (
-          <div key={field.key} className="mb-3">
-            <label htmlFor={`tel-${field.key}`} className="mb-1 block text-sm font-semibold">
-              {field.label}
-            </label>
-            <input
-              id={`tel-${field.key}`}
-              name={field.key}
-              type={field.secret ? "password" : "text"}
-              dir="ltr"
-              autoComplete="off"
-              defaultValue={field.secret ? "" : String(status.config[field.key] ?? "")}
-              placeholder={field.secret && status.connected ? "שמור — השאירו ריק כדי לא לשנות" : undefined}
-              className="w-full rounded-lg border px-3 py-2.5"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
-            />
-          </div>
-        ))}
+        {(provider?.fields ?? []).map((field) => {
+          const stored = (status.secretsSet ?? []).includes(field.key);
+          return (
+            <div key={field.key} className="mb-3">
+              <label htmlFor={`tel-${field.key}`} className="mb-1 block text-sm font-semibold">
+                {field.label}
+              </label>
+              <input
+                id={`tel-${field.key}`}
+                name={field.key}
+                type={field.secret ? "password" : "text"}
+                dir="ltr"
+                /*
+                  ‎`new-password`‎ ולא `off`: כרום מתעלם מ-`off` בשדות
+                  סיסמה וממלא לתוכם סיסמה שמורה של המשתמש — כלומר את
+                  הסיסמה הפרטית שלו לתוך שדה הסיסמה של המרכזייה.
+                */
+                autoComplete={field.secret ? "new-password" : "off"}
+                defaultValue={field.secret ? "" : String(status.config[field.key] ?? "")}
+                placeholder={
+                  field.secret && stored ? "שמורה — השאירו ריק כדי לא לשנות" : undefined
+                }
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+              />
+              {/*
+                ההבחנה בין "שמור" ל"חסר" היא כל העניין: קודם שני המצבים
+                נראו זהים — שדה ריק עם אותו טקסט — והחיבור נראה תקין
+                בזמן שהחיוג נכשל על סוד שלא היה שם.
+              */}
+              {field.secret && status.connected ? (
+                <p
+                  className="m-0 mt-1 text-xs"
+                  style={{ color: stored ? "var(--color-success)" : "var(--color-danger)" }}
+                >
+                  {stored ? "✓ שמורה בשרת" : "⚠ לא שמורה — החיוג היוצא לא יעבוד בלעדיה"}
+                </p>
+              ) : null}
+            </div>
+          );
+        })}
 
         <button type="submit" className="mv-btn-action" disabled={busy}>
           {status.connected ? "עדכן חיבור" : "חבר מרכזייה"}

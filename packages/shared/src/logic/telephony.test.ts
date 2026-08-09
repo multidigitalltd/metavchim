@@ -12,6 +12,9 @@ import {
   PBX015_MAKE_URL,
   safeDiagnosticKeys,
   telephonyParseIssue,
+  mergeIntegrationSecrets,
+  telephonySecretKeys,
+  mergeLegacySecretsIntoConfig,
 } from "./telephony.js";
 
 function event(overrides: Partial<TelephonyEvent> = {}): TelephonyEvent {
@@ -347,5 +350,218 @@ describe("safeDiagnosticKeys", () => {
     const out = safeDiagnosticKeys(many);
     expect(out.length).toBeLessThanOrEqual(400);
     expect(out.split(", ").length).toBeLessThanOrEqual(25);
+  });
+});
+
+describe("mergeIntegrationSecrets", () => {
+  const KEYS = ["authPassword", "apiSecret"];
+
+  it("סוד שלא נשלח נשמר — זה הבאג שמחק סיסמה שמורה", () => {
+    const out = mergeIntegrationSecrets({ authPassword: "סיסמה" }, {}, KEYS);
+    expect(out["authPassword"]).toBe("סיסמה");
+  });
+
+  it("שמירה שמילאה רק שדה אחד אינה מוחקת את השני", () => {
+    const out = mergeIntegrationSecrets(
+      { authPassword: "סיסמה", apiSecret: "סוד" },
+      { apiSecret: "סוד-חדש" },
+      KEYS,
+    );
+    expect(out).toEqual({ authPassword: "סיסמה", apiSecret: "סוד-חדש" });
+  });
+
+  it("ערך חדש דורס את הישן", () => {
+    const out = mergeIntegrationSecrets({ authPassword: "ישן" }, { authPassword: "חדש" }, KEYS);
+    expect(out["authPassword"]).toBe("חדש");
+  });
+
+  it("החלפת ספק מנקה — סוד של ספק קודם לא נגרר", () => {
+    const out = mergeIntegrationSecrets({ apiSecret: "של-Zadarma" }, { authPassword: "של-015" }, KEYS, {
+      providerChanged: true,
+    });
+    expect(out).toEqual({ authPassword: "של-015" });
+  });
+
+  it("מפתח שאינו ברשימת הסודות של הספק נזרק", () => {
+    // כך שם המשתמש, שעבר להיות שדה גלוי, מתנקה מהגוש המוצפן מעצמו
+    const out = mergeIntegrationSecrets({ authUsername: "עברי" }, { authPassword: "ס" }, KEYS);
+    expect(out["authUsername"]).toBeUndefined();
+  });
+
+  it("מחרוזת ריקה או רווחים אינה נשמרת כערך", () => {
+    const out = mergeIntegrationSecrets({}, { authPassword: "   " }, KEYS);
+    expect(out).toEqual({});
+  });
+
+  it("ערכים נשמרים מקוצצי רווחים — הדבקה מהדפדפן גוררת רווח בסוף", () => {
+    const out = mergeIntegrationSecrets({}, { authPassword: " סיסמה " }, KEYS);
+    expect(out["authPassword"]).toBe("סיסמה");
+  });
+});
+
+describe("telephonySecretKeys", () => {
+  it("ב-015 רק הסיסמה סודה — שם המשתמש הוא שם, לא מפתח", () => {
+    const provider = telephonyProvider("015")!;
+    expect(telephonySecretKeys(provider)).toEqual(["authPassword"]);
+  });
+
+  it("כל ספק עם יותר מסוד אחד חייב מיזוג לפי מפתח", () => {
+    /*
+     * הבדיקה הזו אינה על ההווה אלא על העתיד: ברגע שספק כלשהו יקבל
+     * סוד שני, הריקוד של "השאירו ריק כדי לא לשנות" חוזר להיות מסוכן.
+     * `mergeIntegrationSecrets` הוא הדרך היחידה לשמור סודות, וכאן
+     * מוודאים שהיא מחזיקה בדיוק את מה שהספק מכריז עליו.
+     */
+    for (const provider of TELEPHONY_PROVIDERS) {
+      const keys = telephonySecretKeys(provider);
+      const kept = mergeIntegrationSecrets(
+        Object.fromEntries(keys.map((k) => [k, `ערך-${k}`])),
+        {},
+        keys,
+      );
+      expect(Object.keys(kept).sort()).toEqual([...keys].sort());
+    }
+  });
+});
+
+describe("mergeLegacySecretsIntoConfig", () => {
+  const p015 = telephonyProvider("015")!;
+
+  it("שם משתמש ששמור בגוש המוצפן מוצג כשדה גלוי", () => {
+    const out = mergeLegacySecretsIntoConfig(p015, {}, { authUsername: "office" });
+    expect(out["authUsername"]).toBe("office");
+  });
+
+  it("ערך שכבר ב-config גובר על הישן", () => {
+    const out = mergeLegacySecretsIntoConfig(
+      p015,
+      { authUsername: "חדש" },
+      { authUsername: "ישן" },
+    );
+    expect(out["authUsername"]).toBe("חדש");
+  });
+
+  it("סוד אמיתי לעולם אינו נחשף דרך config", () => {
+    const out = mergeLegacySecretsIntoConfig(p015, {}, { authPassword: "s3cret" });
+    expect(out["authPassword"]).toBeUndefined();
+  });
+
+  it("שדה ריק ב-config נחשב חסר — כך נראה טופס שנשמר לפני ההגירה", () => {
+    const out = mergeLegacySecretsIntoConfig(p015, { authUsername: "  " }, { authUsername: "office" });
+    expect(out["authUsername"]).toBe("office");
+  });
+
+  it("החזרה מלאה: הגישור מציג, השמירה מהגרת, והעותק הישן נזרק", () => {
+    /*
+     * זה הרצף שבו הבאג נולד — טופס שהציג ריק, שמירה שכתבה ריק,
+     * ומיזוג שזרק את הערך הישן כי הוא כבר לא מפתח סוד.
+     */
+    const legacy = { authUsername: "office", authPassword: "s3cret" };
+    // 1. המסך קורא — ורואה את שם המשתמש
+    const shown = mergeLegacySecretsIntoConfig(p015, {}, legacy);
+    expect(shown["authUsername"]).toBe("office");
+    // 2. המנהל שומר; הטופס מחזיר את מה שהוצג, והסיסמה נשארת ריקה
+    const savedSecrets = mergeIntegrationSecrets(legacy, {}, telephonySecretKeys(p015));
+    // 3. הסיסמה שרדה, שם המשתמש עבר ל-config ואינו נשאר מוצפן
+    expect(savedSecrets).toEqual({ authPassword: "s3cret" });
+    expect(shown["authUsername"]).toBe("office");
+  });
+});
+
+describe("שמות השדות של 015", () => {
+  /** מה ש-015 שולח כשמדביקים את תבנית ה-JSON שלו כמו שהיא. */
+  function pbx015(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      callid: "1712345678.99",
+      uniqueid: "leg-1",
+      status: "Hangup",
+      callerid_external: "0501234567",
+      snumber: "101",
+      cnumber: "037654321",
+      direction: "inbound",
+      totaltime: "35",
+      talktime: "0",
+      extension: "101",
+      ...overrides,
+    };
+  }
+
+  it("התבנית המקורית של 015 נקלטת בלי לגעת בה", () => {
+    const parsed = parseTelephonyEvent(pbx015());
+    expect(parsed).not.toBeNull();
+    expect(parsed?.peerPhone).toBe("+972501234567");
+    expect(parsed?.providerCallId).toBe("1712345678.99");
+  });
+
+  it("callid עדיף על uniqueid — uniqueid הוא רגל בודדת", () => {
+    // שתי רגליים של אותה שיחה נושאות callid זהה; חיבור לפי uniqueid
+    // היה רושם את הצלצול ואת הניתוק כשתי שיחות נפרדות
+    expect(parseTelephonyEvent(pbx015())?.providerCallId).toBe("1712345678.99");
+  });
+
+  it("talktime אפס עם totaltime חיובי = שיחה שלא נענתה", () => {
+    /*
+     * זה בדיוק המקרה שהמשתמש דיווח עליו: התקשר ולא נענה. העדפת
+     * totaltime הייתה מסווגת אותו כשיחה שהתקיימה — 35 שניות של צלצול
+     * שנרשמות כשיחה בת 35 שניות.
+     */
+    expect(parseTelephonyEvent(pbx015())?.type).toBe("missed");
+  });
+
+  it("שיחה שנענתה באמת מקבלת את משך הדיבור", () => {
+    const parsed = parseTelephonyEvent(pbx015({ totaltime: "95", talktime: "60" }));
+    expect(parsed?.type).toBe("ended");
+    expect(parsed?.durationSeconds).toBe(60);
+  });
+
+  it("Calling הוא צלצול ולא ניחוש של ברירת המחדל", () => {
+    expect(parseTelephonyEvent(pbx015({ status: "Calling", talktime: "" }))?.type).toBe("ringing");
+  });
+
+  it("Hangup Answered Only הוא סיום ולא מענה", () => {
+    /*
+     * הוא מכיל "answered". בדיקת המענה לפני הסיום הייתה מסווגת את
+     * אירוע הניתוק היחיד כ"נענתה" — ואז שורת השיחה לא נרשמת כלל,
+     * כי רק אירוע סופי נרשם.
+     */
+    const parsed = parseTelephonyEvent(pbx015({ status: "Hangup Answered Only", talktime: "42" }));
+    expect(parsed?.type).toBe("ended");
+    expect(callAction(parsed!, true).logCall).toBe(true);
+  });
+
+  it("Abandon — מתקשר שוויתר בתור — נרשם כשיחה שלא נענתה", () => {
+    expect(parseTelephonyEvent(pbx015({ status: "Abandon", talktime: "" }))?.type).toBe("missed");
+  });
+
+  it("noanswer אינו 'נענתה' — הבדיקה הזו הייתה קוד מת", () => {
+    // "noanswer".includes("answer") הוא אמת
+    expect(parseTelephonyEvent(pbx015({ status: "NoAnswer", talktime: "" }))?.type).toBe("missed");
+  });
+
+  it("שיחה יוצאת נתלית על cnumber — הלקוח, לא השלוחה", () => {
+    const parsed = parseTelephonyEvent(
+      pbx015({ direction: "outbound", snumber: "0501111111", cnumber: "0529876543" }),
+    );
+    expect(parsed?.peerPhone).toBe("+972529876543");
+  });
+
+  it("שלוחה פנימית ב-snumber אינה מפילה שיחה נכנסת", () => {
+    // callerid_external נקרא לפניו; בלי זה "101" היה נכשל בוולידציה
+    expect(parseTelephonyEvent(pbx015())?.peerPhone).toBe("+972501234567");
+  });
+
+  it("האבחון והניתוח מסכימים על כל שדות 015", () => {
+    /*
+     * הבדיקה האמיתית מאחורי readCore: שמות השדות היו בשני עותקים,
+     * והוספת שם לצד אחד בלבד הייתה יוצרת אירוע שנקלט ומאובחן
+     * כ"חסר מספר", או להפך.
+     */
+    expect(telephonyParseIssue(pbx015())).toBeNull();
+    const noPhone = pbx015({ callerid_external: "", snumber: "", cnumber: "", dnumber: "" });
+    expect(parseTelephonyEvent(noPhone)).toBeNull();
+    expect(telephonyParseIssue(noPhone)).toBe("no_phone");
+    const noId = pbx015({ callid: "", uniqueid: "" });
+    expect(parseTelephonyEvent(noId)).toBeNull();
+    expect(telephonyParseIssue(noId)).toBe("no_call_id");
   });
 });
