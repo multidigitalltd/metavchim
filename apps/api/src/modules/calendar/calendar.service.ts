@@ -84,6 +84,13 @@ export class CalendarService {
           startsAt: input.startsAt,
           endsAt,
           notes: input.notes ?? null,
+          /*
+           * יומן של מי. `createdBy` הוא "מי הקליד" ואינו אותו דבר:
+           * מנהל שקובע סיור לסוכן צריך שהאירוע יופיע ביומן של הסוכן.
+           * כרגע הם זהים — השדה קיים כדי שהעברת בעלות תהיה שינוי
+           * ערך ולא שינוי מודל.
+           */
+          ownerUserId: ctx.userId,
           createdBy: ctx.userId,
         },
       });
@@ -137,6 +144,15 @@ export class CalendarService {
           ...(patch.status !== undefined ? { status: patch.status } : {}),
           ...(patch.outcome !== undefined ? { outcome: patch.outcome, status: "completed" } : {}),
           ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
+          /*
+           * איפוס חותמת הסנכרון = "צריך דחיפה מחדש".
+           *
+           * זו הדרך שבה סורק היומן יודע שהשורה השתנתה. ההשוואה
+           * החלופית — googleSyncedAt מול updatedAt — נשמעת מדויקת
+           * יותר וברירה: כל כתיבה שולית מזיזה את updatedAt, כולל זו
+           * של הדחיפה עצמה, וייצרה דחיפה נצחית.
+           */
+          googleSyncedAt: null,
         },
       });
 

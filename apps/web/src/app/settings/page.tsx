@@ -14,6 +14,7 @@ import { PlanSection } from "./plan-section";
 import { WhatsAppStatusSection } from "./whatsapp-status-section";
 import { LockedFeature } from "./locked-feature";
 import { TelephonySection } from "./telephony-section";
+import { GoogleCalendarSection } from "./google-calendar-section";
 import { AgreementTemplatesSection } from "./agreement-templates-section";
 import { SystemUpdateSection } from "./system-update";
 import { UserPermissions } from "./user-permissions";
@@ -481,6 +482,10 @@ export default function SettingsPage() {
                 description="שיחות נכנסות נכנסות למערכת אוטומטית עם זיהוי הלקוח, וחיוג יוצא בלחיצה מתוך הכרטיס. תומך ב-015, Vonage ובכל מרכזייה ששולחת Webhook."
               />
             )}
+          </div>
+
+          <div id="google-calendar">
+            <GoogleCalendarSection />
           </div>
 
           <div id="lead-webhook">

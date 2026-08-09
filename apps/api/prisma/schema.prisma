@@ -499,12 +499,21 @@ model Appointment {
   outcome       String?   @db.VarChar(20)
   notes         String?   @db.VarChar(2000)
   googleEventId String?   @map("google_event_id") @db.VarChar(120)
+  googleSyncedAt DateTime? @map("google_synced_at")
+  /// system = נקבעה כאן | google = נמשכה מהיומן.
+  /// בלי ההבחנה הדחיפה החוצה הייתה מחזירה ל-Google אירוע שזה עתה
+  /// הגיע ממנו — לולאה שבה כל צד "מעדכן" את השני לנצח.
+  syncSource    String    @default("system") @map("sync_source") @db.VarChar(10)
+  /// יומן של מי. `createdBy` הוא "מי הקליד" ואינו אותו דבר: פגישה
+  /// שמנהל קובע לסוכן צריכה להופיע ביומן של הסוכן.
+  ownerUserId   String?   @map("owner_user_id") @db.Char(26)
   createdBy     String?   @map("created_by") @db.Char(26)
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
   @@index([tenantId, startsAt])
   @@index([tenantId, status, startsAt])
+  @@index([tenantId, googleEventId])
   @@map("appointments")
 }
 
@@ -872,4 +881,32 @@ model Call {
   @@index([tenantId, contactId])
   @@index([tenantId, leadId])
   @@map("calls")
+}
+
+/**
+ * חיבור יומן Google של משתמש.
+ *
+ * למשתמש ולא למשרד: ליומן יש בעלים אחד, וחיבור ברמת המשרד היה מחייב
+ * חשבון Google משותף — מה שאף משרד לא עושה.
+ */
+model GoogleCalendarLink {
+  id                     String    @id @db.Char(26)
+  tenantId               String    @map("tenant_id") @db.Char(26)
+  userId                 String    @unique @map("user_id") @db.Char(26)
+  googleEmail            String    @map("google_email") @db.VarChar(254)
+  calendarId             String    @default("primary") @map("calendar_id") @db.VarChar(200)
+  /// refresh token ארוך-טווח, מוצפן. לעולם אינו מוחזר ללקוח — מי
+  /// שמחזיק בו קורא וכותב ביומן הפרטי של הסוכן.
+  refreshTokenEncrypted  String    @map("refresh_token_encrypted")
+  /// טוקן הסנכרון המצטבר של Google — הבקשה הבאה מקבלת רק מה שהשתנה.
+  syncToken              String?   @map("sync_token")
+  lastSyncAt             DateTime? @map("last_sync_at")
+  /// מה קרה בסבב האחרון. מוצג למשתמש: חיבור שנשבר בשקט הוא חיבור
+  /// שסומכים עליו ואינו עובד.
+  lastError              String?   @map("last_error") @db.VarChar(300)
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@map("google_calendar_links")
 }

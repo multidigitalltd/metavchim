@@ -49,6 +49,7 @@ export default function IntegrationsPage() {
   const canDataIo = useFeature("data_io");
   const [telephonyConnected, setTelephonyConnected] = useState<boolean | null>(null);
   const [whatsappConnected, setWhatsappConnected] = useState<boolean | null>(null);
+  const [calendar, setCalendar] = useState<{ available: boolean; connected: boolean } | null>(null);
 
   useEffect(() => {
     if (loading) return;
@@ -68,6 +69,9 @@ export default function IntegrationsPage() {
         .then((res) => setWhatsappConnected(res.serverConfigured && res.numberConfigured))
         .catch(() => setWhatsappConnected(null));
     }
+    apiGet<{ available: boolean; connected: boolean }>("/calendar/google/status")
+      .then(setCalendar)
+      .catch(() => setCalendar(null));
   }, [loading, canTelephony, canWhatsapp]);
 
   const modules: Module[] = [
@@ -125,10 +129,16 @@ export default function IntegrationsPage() {
       icon: "📅",
       title: "יומן Google",
       description:
-        "סנכרון דו-כיווני: פגישה שנקבעת במערכת מופיעה ביומן הפרטי, ולהפך — כדי שלא יתנגשו.",
+        "סנכרון דו-כיווני: פגישה שנקבעת במערכת מופיעה ביומן הפרטי, ולהפך — כדי שלא ייקבעו שתי פגישות באותה שעה. אישי לכל משתמש.",
       feature: null,
-      href: "/settings/integrations",
-      state: "soon",
+      href: "/settings#google-calendar",
+      // `available: false` פירושו שאישורי Google טרם הוגדרו בפלטפורמה
+      state:
+        calendar === null || !calendar.available
+          ? "soon"
+          : calendar.connected
+            ? "connected"
+            : "available",
     },
   ];
 
