@@ -525,6 +525,31 @@ export class SettingsController {
   }
 
   /** הוספת איש צוות: סיסמה זמנית מוצגת פעם אחת בלבד — לא נשמרת בגלוי. */
+  /**
+   * מכסת המשתמשים הפעילים של המסלול.
+   *
+   * נבדקת על **המושב הבא** ולא על המצב הקיים: משרד שהמכסה שלו הוקטנה
+   * ממשיך לעבוד עם מי שכבר יש לו, ורק תפיסת מושב נוסף נחסמת. חסימת
+   * הקיימים הייתה מנתקת סוכנים באמצע יום עבודה בגלל שינוי תמחור.
+   *
+   * נקראת משתי נקודות ולא רק מיצירה: **הפעלה מחדש של משתמש מושבת
+   * תופסת מושב בדיוק כמו יצירה**. בלי זה אפשר היה להשבית סוכן, ליצור
+   * מחליף, ולהפעיל את הראשון בחזרה — ולעבור את המכסה בלי שום חסימה
+   * (ביקורת Codex).
+   *
+   * הטבלה users מחוץ ל-RLS (ראו הערה ב-schema.prisma), ולכן הספירה
+   * הישירה כאן תקפה — התנאי `tenantId` הוא זה שמבודד.
+   */
+  private async assertSeatAvailable(tenantId: string): Promise<void> {
+    const plan = await this.plans.forTenant(tenantId);
+    const used = await this.prisma.user.count({ where: { tenantId, isActive: true } });
+    if (limitState(used, plan?.maxUsers ?? null).blocked) {
+      throw new BadRequestException(
+        `מסלול "${plan?.name ?? ""}" כולל ${plan?.maxUsers} משתמשים. לתוספת משתמשים יש לשדרג מסלול.`,
+      );
+    }
+  }
+
   @Post("users")
   @RequireCapability("users.manage")
   async createUser(
@@ -535,23 +560,7 @@ export class SettingsController {
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) throw new BadRequestException("האימייל כבר רשום במערכת");
 
-    /*
-     * מכסת המשתמשים של המסלול.
-     *
-     * נבדקת על **המשתמש הבא** ולא על המצב הקיים: משרד שהמכסה שלו
-     * הוקטנה ממשיך לעבוד עם מי שכבר יש לו, ורק ההוספה נחסמת. חסימת
-     * הקיימים הייתה מנתקת סוכנים באמצע יום עבודה בגלל שינוי תמחור.
-     */
-    const plan = await this.plans.forTenant(tenantId);
-    const seats = limitState(
-      await this.prisma.user.count({ where: { tenantId, isActive: true } }),
-      plan?.maxUsers ?? null,
-    );
-    if (seats.blocked) {
-      throw new BadRequestException(
-        `מסלול "${plan?.name ?? ""}" כולל ${plan?.maxUsers} משתמשים. לתוספת משתמשים יש לשדרג מסלול.`,
-      );
-    }
+    await this.assertSeatAvailable(tenantId);
 
     const tempPassword = `Mv-${randomBytes(9).toString("base64url")}`;
     const id = ulid();
@@ -594,11 +603,15 @@ export class SettingsController {
     }
     const target = await this.prisma.user.findFirst({
       where: { id, tenantId: ctx.tenantId },
-      select: { role: true },
+      select: { role: true, isActive: true },
     });
     if (!target) throw new BadRequestException("משתמש לא נמצא");
     if (target.role === "owner") {
       throw new BadRequestException("אי אפשר לשנות את בעל המשרד");
+    }
+    // הפעלה מחדש תופסת מושב — אותה מכסה בדיוק כמו ביצירה
+    if (body.isActive === true && !target.isActive) {
+      await this.assertSeatAvailable(ctx.tenantId);
     }
 
     await this.prisma.user.update({

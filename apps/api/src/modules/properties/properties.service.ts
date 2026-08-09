@@ -51,7 +51,15 @@ export class PropertiesService {
     const plan = await this.plans.forTenant(tenantId);
     const limit = plan?.maxProperties ?? null;
     if (limit === null) return;
-    const used = await this.prisma.property.count({ where: { tenantId } });
+    /*
+     * הספירה חייבת לרוץ בתוך הקשר דייר.
+     *
+     * `properties` תחת FORCE RLS: שאילתה בלי `app.tenant_id` מחזירה
+     * אפס שורות **בלי שגיאה**, גם כשהתנאי `tenantId` כתוב במפורש.
+     * כלומר המכסה לעולם לא הייתה נחצית, והבדיקה הייתה נראית עובדת
+     * (ביקורת Codex).
+     */
+    const used = await this.prisma.withTenant((tx) => tx.property.count({ where: { tenantId } }));
     if (limitState(used, limit).blocked) {
       throw new BadRequestException(
         `מסלול "${plan?.name ?? ""}" כולל ${limit} נכסים. לתוספת נכסים יש לשדרג מסלול.`,

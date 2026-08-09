@@ -12,6 +12,7 @@ import {
 import { z } from "zod";
 import { IdSchema } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
+import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
   OffersService,
@@ -89,6 +90,7 @@ export class OffersController {
 
   /** קישור wa.me עם הודעה מוכנה — "שלח בוואטסאפ" בלחיצה (אפיון §10). */
   @Post("offers/:id/whatsapp")
+  @RequireFeature("whatsapp")
   @RequireCapability("offers.send")
   @HttpCode(200)
   async prepareWhatsApp(

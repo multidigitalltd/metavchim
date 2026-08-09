@@ -13,6 +13,7 @@ import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
 import { IdSchema, PhoneSchema } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
+import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { LandingService, type LandingView } from "./landing.service";
 
@@ -48,6 +49,7 @@ export class LandingController {
   /** יצירת קישור דף הנחיתה (או החזרתו אם קיים). */
   @Post("properties/:id/landing")
   @RequireCapability("properties.edit")
+  @RequireFeature("landing_pages")
   ensure(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<{ url: string }> {
     return this.landing.ensure(id);
   }

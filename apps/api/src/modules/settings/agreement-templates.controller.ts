@@ -8,6 +8,7 @@ import {
   type AgreementKind,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
+import { RequireFeature } from "../../common/feature.guard";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
@@ -35,6 +36,7 @@ export interface AgreementTemplateDto {
   updatedAt?: Date;
 }
 
+@RequireFeature("agreements")
 @Controller("settings/agreement-templates")
 export class AgreementTemplatesController {
   constructor(
