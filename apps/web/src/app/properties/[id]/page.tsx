@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ROLE_CAPABILITIES } from "@metavchim/shared";
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import {
   FIELD_LABELS,
@@ -13,7 +12,7 @@ import {
   PROPERTY_TYPE_LABELS,
   STATUS_LABELS,
 } from "@/lib/format";
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import { MediaSection } from "./media-section";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
 
@@ -92,7 +91,9 @@ function readinessTextColor(score: number): string {
 export default function PropertyDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { user, loading: authLoading } = useRequireAuth();
-  const canEditOwner = (ROLE_CAPABILITIES[user?.role ?? ""] ?? []).includes("properties.edit");
+  const canEditOwner = can(user, "properties.edit");
+  // אנשי הקשר של הבעלים נאכפים ב-ContactsController תחת buyers.edit
+  const canEditOwnerPeople = can(user, "buyers.edit");
   const router = useRouter();
   const [property, setProperty] = useState<PropertyDetail | null>(null);
   const [archiveConfirm, setArchiveConfirm] = useState(false);
@@ -338,6 +339,7 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
             propertyId={id}
             owner={property.ownerContact}
             canEdit={canEditOwner}
+            canEditPeople={canEditOwnerPeople}
             onChanged={loadProperty}
             onSendUpdate={() => void sendOwnerUpdate()}
           />

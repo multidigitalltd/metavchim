@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
-import { ROLE_CAPABILITIES } from "@metavchim/shared";
 import { apiGet, apiPost } from "@/lib/api";
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import { WithDictation } from "../../dictation-field";
 
 /**
@@ -45,8 +44,7 @@ export function TimelineSection({ buyerId }: { buyerId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canEdit =
-    user !== null && (ROLE_CAPABILITIES[user.role] ?? []).includes("buyers.edit");
+  const canEdit = can(user, "buyers.edit");
 
   useEffect(() => {
     apiGet<InteractionsPage>(`/buyers/${buyerId}/interactions`)

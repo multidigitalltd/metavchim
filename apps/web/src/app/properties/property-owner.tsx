@@ -29,12 +29,24 @@ export function PropertyOwner({
   propertyId,
   owner,
   canEdit,
+  canEditPeople,
   onChanged,
   onSendUpdate,
 }: {
   propertyId: string;
   owner?: OwnerContact;
+  /** שיוך בעלים לנכס — `PATCH /properties/:id`, כלומר `properties.edit`. */
   canEdit: boolean;
+  /**
+   * עריכת אנשי הקשר והטלפונים — `buyers.edit`, ולא אותה יכולת.
+   *
+   * שתי היכולות נפרדו כי הן נאכפות בשני Controllers שונים: הוספת
+   * בעלים היא עריכת נכס, אבל הוספת בן/בת זוג או מספר נוסף היא עריכת
+   * כרטיס לקוח. תפקיד assistant מחזיק את הראשונה ולא את השנייה — עם
+   * דגל אחד הוא היה רואה את כל הכפתורים ומקבל 403 על כל אחד מהם
+   * (ביקורת Codex).
+   */
+  canEditPeople: boolean;
   onChanged: () => void;
   /** "שלח עדכון שיווק" — היה מתחת לפרטי הנכס, מקומו כאן ליד הבעלים. */
   onSendUpdate: () => void;
@@ -112,7 +124,7 @@ export function PropertyOwner({
             אותו רכיב של כרטיס הקונה — מספרים נוספים ואנשי קשר
             (בן/בת זוג, בעלים שותף, בן שמטפל בהורים).
           */}
-          <ContactPeople contactId={owner.id} canEdit={canEdit} />
+          <ContactPeople contactId={owner.id} canEdit={canEditPeople} />
         </>
       ) : adding ? (
         <form onSubmit={(e) => void save(e)} className="max-w-sm">
