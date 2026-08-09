@@ -255,25 +255,29 @@ export class PlatformController {
   ): Promise<{ warnings: string[] }> {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id },
-      select: {
-        plan: true,
-        // רק פעילים, כמו האכיפה עצמה — אחרת אזהרת ההורדה הייתה
-        // מדווחת חריגה שלא קיימת (ביקורת Codex)
-        _count: {
-          select: {
-            users: { where: { isActive: true } },
-            properties: { where: { deletedAt: null } },
-          },
-        },
-      },
+      select: { plan: true },
     });
     if (!tenant) throw new BadRequestException("משרד לא נמצא");
     const target = await this.plans.byCode(query.plan);
     if (!target) throw new BadRequestException("מסלול לא מוכר");
+
+    /*
+     * הספירות בדיוק כמו באכיפה: משתמש פעיל בלבד, ונכס שאינו בארכיון.
+     *
+     * הנכסים דרך `withExplicitTenant` — הטבלה תחת FORCE RLS, ובלי
+     * הקשר דייר הספירה מחזירה אפס, כלומר אזהרת ההורדה הייתה שותקת
+     * בדיוק כשהיא הכי נחוצה (ביקורת Codex).
+     */
+    const [users, properties] = await Promise.all([
+      this.prisma.user.count({ where: { tenantId: id, isActive: true } }),
+      this.prisma.withExplicitTenant(id, (tx) =>
+        tx.property.count({ where: { tenantId: id, deletedAt: null } }),
+      ),
+    ]);
     return {
       warnings: downgradeWarnings(await this.plans.byCode(tenant.plan), target, {
-        users: tenant._count.users,
-        properties: tenant._count.properties,
+        users,
+        properties,
       }),
     };
   }

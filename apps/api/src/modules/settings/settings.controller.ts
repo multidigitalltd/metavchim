@@ -178,29 +178,27 @@ export class SettingsController {
     };
   }> {
     const tenantId = TenantContext.current().tenantId;
-    const [plan, counts] = await Promise.all([
+    /*
+     * ספירת הנכסים דרך `withTenant`, ובנפרד ממוני המשתמשים.
+     *
+     * `properties` תחת FORCE RLS, ולכן `_count` דרך הלקוח הישיר החזיר
+     * **אפס** — המסך היה מדווח שאין נכסים בכלל, גם למשרד עם מאות.
+     * `users` מחוץ ל-RLS (ראו הערה ב-schema.prisma) ולכן נשאר כאן
+     * (ביקורת Codex — הפעם החמישית שהתבנית הזו חוזרת).
+     *
+     * הסינונים זהים לאלה של האכיפה: משתמש פעיל בלבד, ונכס שאינו
+     * בארכיון.
+     */
+    const [plan, tenant, users, properties] = await Promise.all([
       this.plans.forTenant(tenantId),
-      this.prisma.tenant.findUnique({
-        where: { id: tenantId },
-        select: {
-          plan: true,
-          // רק משתמשים פעילים — האכיפה סופרת פעילים בלבד, וספירת
-          // חשבונות שהושבתו הייתה מציגה מכסה מלאה בזמן שהוספה עוד
-          // מותרת (ביקורת Codex)
-          _count: {
-            select: {
-              users: { where: { isActive: true } },
-              // כמו האכיפה: נכס בארכיון אינו תופס מכסה
-              properties: { where: { deletedAt: null } },
-            },
-          },
-        },
-      }),
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { plan: true } }),
+      this.prisma.user.count({ where: { tenantId, isActive: true } }),
+      this.prisma.withTenant((tx) =>
+        tx.property.count({ where: { tenantId, deletedAt: null } }),
+      ),
     ]);
-    const users = counts?._count.users ?? 0;
-    const properties = counts?._count.properties ?? 0;
     return {
-      code: plan?.code ?? (counts?.plan ?? ""),
+      code: plan?.code ?? (tenant?.plan ?? ""),
       // מסלול לא מוכר לא נופל אלא מוצג ככזה: הוא מצב תקלה שדורש
       // טיפול של בעל הפלטפורמה, ומסך ריק לא היה מסגיר אותו
       name: plan?.name ?? "מסלול לא מוגדר",

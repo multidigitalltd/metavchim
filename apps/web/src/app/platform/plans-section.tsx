@@ -54,6 +54,146 @@ function toLimit(value: string): number | null {
   return Number.isFinite(parsed) ? Math.round(parsed) : null;
 }
 
+/**
+ * שדות הגדרת המסלול — משותפים לעריכה וליצירה.
+ *
+ * שני עותקים של הטופס היו נפרדים בפועל אחרי השינוי הראשון: שדה
+ * שנוסף בעריכה ולא ביצירה נשמר כברירת מחדל בלי שאיש יבחין.
+ */
+function planEditor(
+  draft: PlanDefinition,
+  setDraft: (next: PlanDefinition) => void,
+  features: FeatureInfo[],
+  toggleFeature: (code: string) => void,
+): React.JSX.Element {
+  return (
+    <div className="grid gap-2.5">
+      <label className="text-xs font-semibold">
+        שם המסלול
+        <input
+          value={draft.name}
+          onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+          className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
+          style={inputStyle}
+        />
+      </label>
+      <label className="text-xs font-semibold">
+        תיאור — מה המשרד מקבל
+        <textarea
+          value={draft.description}
+          rows={2}
+          onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+          className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
+          style={inputStyle}
+        />
+      </label>
+      <div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <label className="text-xs font-semibold">
+          ₪ לחודש
+          <input
+            value={toShekels(draft.monthlyPriceAgorot)}
+            inputMode="decimal"
+            onChange={(e) =>
+              setDraft({ ...draft, monthlyPriceAgorot: toAgorot(e.target.value) ?? 0 })
+            }
+            className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
+            style={inputStyle}
+          />
+        </label>
+        <label className="text-xs font-semibold">
+          ₪ לשנה (ריק = חודשי בלבד)
+          <input
+            value={toShekels(draft.yearlyPriceAgorot)}
+            inputMode="decimal"
+            onChange={(e) =>
+              setDraft({ ...draft, yearlyPriceAgorot: toAgorot(e.target.value) })
+            }
+            className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
+            style={inputStyle}
+          />
+        </label>
+        <label className="text-xs font-semibold">
+          מקסימום משתמשים (ריק = ללא הגבלה)
+          <input
+            value={draft.maxUsers === null ? "" : String(draft.maxUsers)}
+            inputMode="numeric"
+            onChange={(e) => setDraft({ ...draft, maxUsers: toLimit(e.target.value) })}
+            className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
+            style={inputStyle}
+          />
+        </label>
+        <label className="text-xs font-semibold">
+          מקסימום נכסים (ריק = ללא הגבלה)
+          <input
+            value={draft.maxProperties === null ? "" : String(draft.maxProperties)}
+            inputMode="numeric"
+            onChange={(e) =>
+              setDraft({ ...draft, maxProperties: toLimit(e.target.value) })
+            }
+            className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
+            style={inputStyle}
+          />
+        </label>
+        <label className="text-xs font-semibold">
+          ימי ניסיון
+          <input
+            value={String(draft.trialDays)}
+            inputMode="numeric"
+            onChange={(e) =>
+              setDraft({ ...draft, trialDays: Number(e.target.value) || 0 })
+            }
+            className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
+            style={inputStyle}
+          />
+        </label>
+        <label className="text-xs font-semibold">
+          סדר תצוגה
+          <input
+            value={String(draft.sortOrder)}
+            inputMode="numeric"
+            onChange={(e) =>
+              setDraft({ ...draft, sortOrder: Number(e.target.value) || 0 })
+            }
+            className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
+            style={inputStyle}
+          />
+        </label>
+      </div>
+
+      <fieldset className="m-0 border-0 p-0">
+        <legend className="mb-1 text-xs font-semibold">מה כלול</legend>
+        {features.map((feature) => (
+          <label key={feature.code} className="mb-1 flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={draft.features.includes(
+                feature.code as PlanDefinition["features"][number],
+              )}
+              onChange={() => toggleFeature(feature.code)}
+            />
+            <span>
+              {feature.label}
+              <span className="block text-xs" style={{ color: "var(--color-text-muted)" }}>
+                {feature.description}
+              </span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={draft.isPublic}
+          onChange={(e) => setDraft({ ...draft, isPublic: e.target.checked })}
+        />
+        מוצג בדף ההרשמה הציבורי
+      </label>
+    </div>
+  );
+}
+
 export function PlansSection(): React.JSX.Element {
   const [data, setData] = useState<PlansPayload | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
@@ -61,6 +201,14 @@ export function PlansSection(): React.JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  /*
+   * קוד המסלול נערך רק ביצירה.
+   *
+   * הוא המפתח הראשי, והוא זה ששמור על כל משרד — שינוי שלו במסלול
+   * קיים היה יוצר מסלול חדש ומשאיר את המשרדים מצביעים על קוד שנעלם,
+   * כלומר בלי אף פיצ'ר.
+   */
+  const [creating, setCreating] = useState(false);
 
   function load(): void {
     apiGet<PlansPayload>("/platform/plans")
@@ -71,10 +219,41 @@ export function PlansSection(): React.JSX.Element {
   useEffect(load, []);
 
   function startEdit(plan: PlanDefinition): void {
+    setCreating(false);
     setEditing(plan.code);
     setDraft({ ...plan, features: [...plan.features] });
     setError(null);
     setSaved(null);
+  }
+
+  /**
+   * מסלול חדש — הסיבה שהמסלולים הפכו לנתונים מלכתחילה.
+   *
+   * בלי זה המסך רק עורך את הארבעה שהגיעו עם המערכת, והוספת מסלול
+   * עדיין דורשת קריאת API ידנית — כלומר בדיוק מה שהשינוי הזה בא
+   * לבטל (ביקורת Codex).
+   *
+   * ברירות המחדל הן של מסלול צנוע ולא ריק: טופס שמתחיל באפסים מזמין
+   * שמירה של מסלול שאי אפשר להשתמש בו.
+   */
+  function startCreate(): void {
+    setEditing(null);
+    setCreating(true);
+    setError(null);
+    setSaved(null);
+    setDraft({
+      code: "",
+      name: "",
+      description: "",
+      monthlyPriceAgorot: 0,
+      yearlyPriceAgorot: null,
+      maxUsers: 5,
+      maxProperties: 100,
+      features: [],
+      trialDays: 14,
+      isPublic: false,
+      sortOrder: (data?.plans.at(-1)?.sortOrder ?? 0) + 10,
+    });
   }
 
   function toggleFeature(code: string): void {
@@ -97,6 +276,16 @@ export function PlansSection(): React.JSX.Element {
      * לא במקומה — בשרת היא הקובעת — אלא כדי שטעות הקלדה תיעצר עם
      * ההודעה המדויקת במקום 400 כללי.
      */
+    if (creating) {
+      if (!/^[a-z0-9_]{2,20}$/u.test(draft.code)) {
+        setError("קוד מסלול: אותיות לטיניות קטנות, ספרות וקו תחתון (2–20 תווים)");
+        return;
+      }
+      if (data?.plans.some((plan) => plan.code === draft.code)) {
+        setError("כבר קיים מסלול עם הקוד הזה");
+        return;
+      }
+    }
     const reason = planRejectionReason(draft);
     if (reason !== null) {
       setError(reason);
@@ -109,6 +298,7 @@ export function PlansSection(): React.JSX.Element {
       await apiPatch(`/platform/plans/${code}`, body);
       setSaved(code);
       setEditing(null);
+      setCreating(false);
       setDraft(null);
       load();
     } catch (err: unknown) {
@@ -141,6 +331,50 @@ export function PlansSection(): React.JSX.Element {
         <p role="status" className="mb-3 text-sm font-bold" style={{ color: "var(--color-primary)" }}>
           ✓ המסלול נשמר
         </p>
+      ) : null}
+
+      {data !== null && !creating ? (
+        <button type="button" className="mv-btn-plain mb-3" onClick={startCreate}>
+          + מסלול חדש
+        </button>
+      ) : null}
+
+      {creating && draft !== null ? (
+        <article
+          className="mb-3 rounded-xl border p-3.5"
+          style={{ borderColor: "var(--color-primary-accent)", background: "var(--color-bg)" }}
+        >
+          <h3 className="m-0 mb-2" style={{ fontSize: 15, fontWeight: 800 }}>
+            מסלול חדש
+          </h3>
+          <label className="mb-2.5 block text-xs font-semibold">
+            קוד מסלול (לטינית, קבוע — לא ניתן לשינוי אחר כך)
+            <input
+              value={draft.code}
+              dir="ltr"
+              placeholder="premium"
+              onChange={(e) => setDraft({ ...draft, code: e.target.value.trim().toLowerCase() })}
+              className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
+              style={inputStyle}
+            />
+          </label>
+          {planEditor(draft, setDraft, data?.features ?? [], toggleFeature)}
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            <Button onClick={() => void save()} disabled={busy}>
+              {busy ? "שומר…" : "צור מסלול"}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setCreating(false);
+                setDraft(null);
+                setError(null);
+              }}
+            >
+              ביטול
+            </Button>
+          </div>
+        </article>
       ) : null}
 
       {data === null ? (
@@ -217,129 +451,7 @@ export function PlansSection(): React.JSX.Element {
                   </>
                 ) : (
                   <div className="grid gap-2.5">
-                    <label className="text-xs font-semibold">
-                      שם המסלול
-                      <input
-                        value={draft.name}
-                        onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                        className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
-                        style={inputStyle}
-                      />
-                    </label>
-                    <label className="text-xs font-semibold">
-                      תיאור — מה המשרד מקבל
-                      <textarea
-                        value={draft.description}
-                        rows={2}
-                        onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-                        className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
-                        style={inputStyle}
-                      />
-                    </label>
-                    <div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                      <label className="text-xs font-semibold">
-                        ₪ לחודש
-                        <input
-                          value={toShekels(draft.monthlyPriceAgorot)}
-                          inputMode="decimal"
-                          onChange={(e) =>
-                            setDraft({ ...draft, monthlyPriceAgorot: toAgorot(e.target.value) ?? 0 })
-                          }
-                          className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
-                          style={inputStyle}
-                        />
-                      </label>
-                      <label className="text-xs font-semibold">
-                        ₪ לשנה (ריק = חודשי בלבד)
-                        <input
-                          value={toShekels(draft.yearlyPriceAgorot)}
-                          inputMode="decimal"
-                          onChange={(e) =>
-                            setDraft({ ...draft, yearlyPriceAgorot: toAgorot(e.target.value) })
-                          }
-                          className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
-                          style={inputStyle}
-                        />
-                      </label>
-                      <label className="text-xs font-semibold">
-                        מקסימום משתמשים (ריק = ללא הגבלה)
-                        <input
-                          value={draft.maxUsers === null ? "" : String(draft.maxUsers)}
-                          inputMode="numeric"
-                          onChange={(e) => setDraft({ ...draft, maxUsers: toLimit(e.target.value) })}
-                          className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
-                          style={inputStyle}
-                        />
-                      </label>
-                      <label className="text-xs font-semibold">
-                        מקסימום נכסים (ריק = ללא הגבלה)
-                        <input
-                          value={draft.maxProperties === null ? "" : String(draft.maxProperties)}
-                          inputMode="numeric"
-                          onChange={(e) =>
-                            setDraft({ ...draft, maxProperties: toLimit(e.target.value) })
-                          }
-                          className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
-                          style={inputStyle}
-                        />
-                      </label>
-                      <label className="text-xs font-semibold">
-                        ימי ניסיון
-                        <input
-                          value={String(draft.trialDays)}
-                          inputMode="numeric"
-                          onChange={(e) =>
-                            setDraft({ ...draft, trialDays: Number(e.target.value) || 0 })
-                          }
-                          className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
-                          style={inputStyle}
-                        />
-                      </label>
-                      <label className="text-xs font-semibold">
-                        סדר תצוגה
-                        <input
-                          value={String(draft.sortOrder)}
-                          inputMode="numeric"
-                          onChange={(e) =>
-                            setDraft({ ...draft, sortOrder: Number(e.target.value) || 0 })
-                          }
-                          className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
-                          style={inputStyle}
-                        />
-                      </label>
-                    </div>
-
-                    <fieldset className="m-0 border-0 p-0">
-                      <legend className="mb-1 text-xs font-semibold">מה כלול</legend>
-                      {data.features.map((feature) => (
-                        <label key={feature.code} className="mb-1 flex items-start gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            className="mt-1"
-                            checked={draft.features.includes(
-                              feature.code as PlanDefinition["features"][number],
-                            )}
-                            onChange={() => toggleFeature(feature.code)}
-                          />
-                          <span>
-                            {feature.label}
-                            <span className="block text-xs" style={{ color: "var(--color-text-muted)" }}>
-                              {feature.description}
-                            </span>
-                          </span>
-                        </label>
-                      ))}
-                    </fieldset>
-
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={draft.isPublic}
-                        onChange={(e) => setDraft({ ...draft, isPublic: e.target.checked })}
-                      />
-                      מוצג בדף ההרשמה הציבורי
-                    </label>
-
+                    {planEditor(draft, setDraft, data.features, toggleFeature)}
                     {tenants > 0 ? (
                       <p className="m-0 text-xs" style={{ color: "var(--color-text-muted)" }}>
                         ⚠️ {tenants} משרדים יושבים על המסלול — צמצום פיצ׳רים או מגבלות ישפיע
