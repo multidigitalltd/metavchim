@@ -39,8 +39,13 @@ export function TrialBanner({
     >
       <strong>{describeTrialLeft(days)}</strong>
       <span>— כדי להמשיך לעבוד בלי הפרעה, השלימו את המנוי.</span>
-      <Link href="/settings" className="underline font-bold">
-        לפרטי המסלול
+      {/*
+        ישירות למסך המנוי ולא ל-/settings.
+        זו הקליקה שבה ההחלטה כבר התקבלה, ומסך הגדרות עם עשר לשוניות
+        באמצע הדרך הוא בדיוק המקום שבו היא מתבטלת.
+      */}
+      <Link href="/settings/billing" className="underline font-bold">
+        {expired ? "להשלמת התשלום" : "לרכישת מנוי"}
       </Link>
     </p>
   );

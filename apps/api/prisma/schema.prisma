@@ -699,6 +699,12 @@ model Subscription {
   cardYear           Int?      @map("card_year") @db.SmallInt
   /// ת"ז של בעל הכרטיס, מוצפנת — קארדקום דורש אותה בחיוב בטוקן.
   cardOwnerIdEncrypted String? @map("card_owner_id_encrypted")
+  /// התקופה שעבורה כבר נשלחה תזכורת לפני חיוב.
+  ///
+  /// לא דגל בוליאני: הסורק רץ כל שעה, ו"נשלח" סתם היה שולח תזכורת
+  /// בכל סבב עד החיוב. ההשוואה ל-currentPeriodEnd מאפסת את עצמה
+  /// בכל חידוש.
+  renewalReminderFor DateTime? @map("renewal_reminder_for")
   cancelledAt        DateTime? @map("cancelled_at")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
