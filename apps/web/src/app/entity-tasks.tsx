@@ -25,6 +25,8 @@ interface Task {
   priority: string;
   assigneeName?: string;
   automatic: boolean;
+  /** השרת אומר; המסך לא מנחש. משימה של עמית אינה ניתנת לשינוי. */
+  canEdit: boolean;
 }
 
 const dueFmt = new Intl.DateTimeFormat("he-IL", { dateStyle: "short", timeStyle: "short" });
@@ -125,12 +127,14 @@ export function EntityTasks({
                   type="checkbox"
                   className="mt-1.5"
                   checked={task.status === "done"}
-                  disabled={busy}
+                  disabled={busy || !task.canEdit}
                   onChange={() => void toggle(task)}
                   aria-label={
-                    task.status === "open"
-                      ? `סמן כבוצע: ${task.title}`
-                      : `החזר לפתוחות: ${task.title}`
+                    task.canEdit
+                      ? task.status === "open"
+                        ? `סמן כבוצע: ${task.title}`
+                        : `החזר לפתוחות: ${task.title}`
+                      : `${task.title} — משימה של סוכן אחר, לא ניתנת לשינוי`
                   }
                 />
                 <div>

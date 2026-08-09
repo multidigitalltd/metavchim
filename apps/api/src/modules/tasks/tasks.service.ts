@@ -40,6 +40,15 @@ export interface TaskDto {
   assignedByName?: string;
   /** אוטומטית: נוצרה מאירוע במערכת ולא בידי אדם */
   automatic: boolean;
+  /**
+   * האם המשתמש הנוכחי רשאי לשנות אותה.
+   *
+   * נחתך בשרת ולא נמצא במסך: פאנל הישות מציג בכוונה את משימות כל
+   * המשרד, וסוכן בלי `tasks.view_all` רואה שם משימה של עמית — אבל
+   * `PATCH` עליה נדחה ב-404. תיבת סימון שנכשלת בכל לחיצה גרועה
+   * מתיבה מנוטרלת (ביקורת Codex).
+   */
+  canEdit: boolean;
   createdAt: Date;
 }
 
@@ -182,6 +191,8 @@ export class TasksService {
       this.userNames(rows.flatMap((r) => [r.assignedToUserId, r.createdByUserId ?? ""])),
       this.entityLabels(tx, rows),
     ]);
+    const ctx = TenantContext.current();
+    const canEditAny = ctx.capabilities.has("tasks.view_all");
     return rows.map((row) => {
       const delegated = row.createdByUserId !== null && row.createdByUserId !== row.assignedToUserId;
       return {
@@ -204,6 +215,9 @@ export class TasksService {
           : {}),
         // משימה מאירוע מערכת נושאת sourceKey ואין לה יוצר אנושי
         automatic: row.sourceKey !== null && row.createdByUserId === null,
+        // אותו כלל בדיוק שאוכף `scopeFilter` — נאמר כאן במקום להשאיר
+        // למסך לנחש אותו ולטעות
+        canEdit: canEditAny || row.assignedToUserId === ctx.userId,
         createdAt: row.createdAt,
       };
     });
@@ -336,12 +350,27 @@ export class TasksService {
   async listForEntity(entityType: string, entityId: string): Promise<TaskDto[]> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
-      const rows = await tx.task.findMany({
-        where: { tenantId, entityType, entityId },
-        orderBy: [{ status: "asc" }, { dueAt: { sort: "asc", nulls: "last" } }],
-        take: 50,
-      });
-      return this.toDtos(tx, rows);
+      /*
+       * שתי שאילתות ולא מיון לפי סטטוס.
+       *
+       * `orderBy: status asc` ממיין לקסיקלית, ו-`done` קודם ל-`open`:
+       * ישות עם 50 משימות שבוצעו הייתה ממלאת את התקרה ומחזירה אפס
+       * פתוחות — כרטיס שמדווח "אין מה לעשות" בזמן שיש (ביקורת Codex).
+       * אותו דפוס בדיוק כמו ב-`list`.
+       */
+      const [open, done] = await Promise.all([
+        tx.task.findMany({
+          where: { tenantId, entityType, entityId, status: "open" },
+          orderBy: { dueAt: { sort: "asc", nulls: "last" } },
+          take: 50,
+        }),
+        tx.task.findMany({
+          where: { tenantId, entityType, entityId, status: "done" },
+          orderBy: { updatedAt: "desc" },
+          take: 20,
+        }),
+      ]);
+      return this.toDtos(tx, [...open, ...done]);
     });
   }
 

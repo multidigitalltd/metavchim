@@ -9,6 +9,15 @@
  * הלוגיקה יושבת ב-shared ולא במסך כי גם השרת סופר לפיה (הבאדג'
  * בסרגל הצד), ושני חישובים שאמורים להסכים הם שני חישובים שיפסיקו
  * להסכים.
+ *
+ * **הגבולות נחתכים בשעון ישראל, לא בשעון התהליך.** ה-API רץ ב-UTC
+ * והדפדפן בשעון המשתמש; חצות היא נקודה שונה בכל אחד מהם, ולכן משימה
+ * ל-01:00 בלילה הופיעה בדלי "היום" במסך ונעדרה מהמונה בסרגל — אותה
+ * משימה, שתי תשובות. אותה בעיה בדיוק שנפתרה ב-recurrence.ts, ואותם
+ * כלים פותרים אותה גם כאן.
+ *
+ * החישוב הוא **על תאריכי לוח** ולא על הפרשי מילישניות: הוספת 24 שעות
+ * שוברת ביום מעבר השעון, שבו יום אחד ארוך או קצר בשעה.
  */
 
 /** נמוכה | רגילה | גבוהה. שלוש רמות — ארבע כבר אף אחד לא מבדיל. */
@@ -45,13 +54,24 @@ export const TASK_BUCKET_LABELS: Record<TaskBucket, string> = {
   someday: "בלי מועד",
 };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const JERUSALEM_TZ = "Asia/Jerusalem";
 
-/** תחילת היום המקומי — הגבול בין "היום" ל"מחר" הוא חצות, לא 24 שעות. */
-function startOfDay(date: Date): Date {
-  const copy = new Date(date);
-  copy.setHours(0, 0, 0, 0);
-  return copy;
+/**
+ * מספר היום בלוח הירושלמי — ימים שלמים מאז 1970, לפי שעון ישראל.
+ *
+ * זה מה שמאפשר להשוות "איזה יום זה" בלי לגעת בשעות: ההפרש בין שני
+ * מספרים כאלה הוא מספר הימים שביניהם, גם כשאחד מהם הוא יום מעבר
+ * שעון בן 23 או 25 שעות.
+ */
+function jerusalemDayNumber(at: Date): number {
+  // sv-SE נותן YYYY-MM-DD; קריאתו כ-UTC הופכת אותו למספר יום יציב
+  const ymd = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: JERUSALEM_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(at);
+  return Math.floor(new Date(`${ymd}T00:00:00.000Z`).getTime() / 86_400_000);
 }
 
 /**
@@ -63,22 +83,23 @@ function startOfDay(date: Date): Date {
  *
  * משימה שמועדה עבר היום היא **באיחור** ולא "היום" — 09:00 שחלף
  * בשעה 11:00 הוא איחור, וזו כל הנקודה של הדלי הראשון.
+ *
+ * ההשוואה בין הדליים היא על **תאריכי לוח ירושלמיים**, ולכן היא
+ * מחזירה את אותה תשובה בשרת שרץ ב-UTC ובדפדפן בכל אזור זמן.
  */
 export function taskBucket(dueAt: Date | string | null | undefined, now: Date): TaskBucket {
   if (dueAt === null || dueAt === undefined) return "someday";
   const due = dueAt instanceof Date ? dueAt : new Date(dueAt);
   if (Number.isNaN(due.getTime())) return "someday";
 
+  // "באיחור" הוא רגע ולא יום — כאן ההשוואה נכונה בכל אזור זמן
   if (due.getTime() < now.getTime()) return "overdue";
 
-  const todayStart = startOfDay(now);
-  const tomorrowStart = new Date(todayStart.getTime() + DAY_MS);
-  if (due.getTime() < tomorrowStart.getTime()) return "today";
-
-  // שבעה ימים קדימה מתחילת היום — "השבוע" במובן של טווח, לא של
-  // שבוע קלנדרי שנגמר במוצאי שבת ומרוקן את הדלי ביום ראשון
-  const weekEnd = new Date(todayStart.getTime() + 7 * DAY_MS);
-  return due.getTime() < weekEnd.getTime() ? "week" : "later";
+  const daysAhead = jerusalemDayNumber(due) - jerusalemDayNumber(now);
+  if (daysAhead <= 0) return "today";
+  // שבעה ימי לוח קדימה — "השבוע" במובן של טווח, לא של שבוע קלנדרי
+  // שנגמר במוצאי שבת ומרוקן את הדלי ביום ראשון
+  return daysAhead < 7 ? "week" : "later";
 }
 
 /** האם המשימה דורשת תשומת לב עכשיו — הבסיס לבאדג' בסרגל. */

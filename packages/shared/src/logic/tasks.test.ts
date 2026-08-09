@@ -7,9 +7,17 @@ import {
   taskEntityHref,
 } from "./tasks.js";
 
-/** רביעי, 14:00 מקומי — אמצע יום ואמצע שבוע, כדי ששני הגבולות ייבדקו. */
-const NOW = new Date(2026, 7, 12, 14, 0, 0);
-const at = (day: number, hour: number): Date => new Date(2026, 7, day, hour, 0, 0);
+/*
+ * הזמנים מוגדרים ב-UTC ולא בשעון המקומי של המריץ: הבדיקה חייבת
+ * להיות אותה בדיקה ב-CI שרץ ב-UTC ובמחשב של מפתח בישראל.
+ *
+ * אוגוסט = שעון קיץ ישראלי, כלומר UTC+3. 11:00Z הוא 14:00 בירושלים.
+ */
+const utc = (day: number, hour: number): Date =>
+  new Date(Date.UTC(2026, 7, day, hour, 0, 0));
+/** רביעי, 14:00 שעון ישראל — אמצע יום ואמצע שבוע. */
+const NOW = utc(12, 11);
+const at = (day: number, hour: number): Date => utc(day, hour - 3);
 
 describe("taskBucket", () => {
   it("מועד שחלף הוא איחור — גם אם הוא היום", () => {
@@ -41,6 +49,32 @@ describe("taskBucket", () => {
 
   it("תאריך פגום אינו מפיל ואינו מתחזה לאיחור", () => {
     expect(taskBucket("לא תאריך", NOW)).toBe("someday");
+  });
+
+  it("הגבול הוא חצות **ירושלמית** ולא חצות של התהליך", () => {
+    /*
+     * 21:30Z ב-12 באוגוסט הוא 00:30 של ה-13 בישראל. שרת שרץ ב-UTC
+     * היה קורא לזה "היום" והדפדפן הישראלי "מחר" — אותה משימה, שתי
+     * תשובות, וזה בדיוק הפער בין המונה בסרגל לדלי במסך.
+     */
+    const justAfterIsraeliMidnight = new Date(Date.UTC(2026, 7, 12, 21, 30));
+    expect(taskBucket(justAfterIsraeliMidnight, NOW)).toBe("week");
+
+    // ורגע לפני אותה חצות — עדיין היום
+    expect(taskBucket(new Date(Date.UTC(2026, 7, 12, 20, 30)), NOW)).toBe("today");
+  });
+
+  it("מעבר שעון אינו מזיז את הגבול", () => {
+    /*
+     * שעון החורף בישראל מתחיל ב-25.10.2026 (יום בן 25 שעות). ספירה
+     * של 7×24 שעות הייתה מחליקה יום אחורה סביב המעבר; ספירת ימי לוח
+     * אינה מושפעת.
+     */
+    const beforeDst = new Date(Date.UTC(2026, 9, 22, 9, 0)); // 22.10, 12:00 בישראל
+    const sixDaysLater = new Date(Date.UTC(2026, 9, 28, 10, 0)); // 28.10, אחרי המעבר
+    expect(taskBucket(sixDaysLater, beforeDst)).toBe("week");
+    const sevenDaysLater = new Date(Date.UTC(2026, 9, 29, 10, 0));
+    expect(taskBucket(sevenDaysLater, beforeDst)).toBe("later");
   });
 
   it("מחרוזת ISO מתקבלת כמו Date — התשובה מהשרת היא מחרוזת", () => {

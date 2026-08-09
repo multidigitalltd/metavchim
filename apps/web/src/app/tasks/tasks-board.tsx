@@ -44,6 +44,8 @@ interface Task {
   assigneeName?: string;
   assignedByName?: string;
   automatic: boolean;
+  /** השרת אומר; המסך לא מנחש. */
+  canEdit: boolean;
   createdAt: string;
 }
 
@@ -171,7 +173,7 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
             type="checkbox"
             className="mt-1.5"
             checked={task.status === "done"}
-            disabled={busy}
+            disabled={busy || !task.canEdit}
             onChange={() =>
               void patch(task.id, { status: task.status === "open" ? "done" : "open" })
             }
@@ -218,7 +220,7 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {task.status === "open" ? (
+          {task.status === "open" && task.canEdit ? (
             <button
               type="button"
               onClick={() =>
@@ -238,7 +240,7 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
           <button
             type="button"
             onClick={() => void onDelete(task.id)}
-            disabled={busy}
+            disabled={busy || !task.canEdit}
             className="text-sm underline"
             style={{ color: "var(--color-danger)" }}
           >

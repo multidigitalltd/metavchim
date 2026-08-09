@@ -75,12 +75,24 @@ async function processNotification(job: Job): Promise<void> {
     if (data.type === "task_reminder" && data.entityId) {
       const task = await tx.task.findFirst({
         where: { id: data.entityId, tenantId: data.tenantId },
-        select: { status: true, dueAt: true },
+        select: { status: true, dueAt: true, assignedToUserId: true },
       });
       if (!task || task.status !== "open") return;
       const scheduledFor = data.scheduledFor ? new Date(data.scheduledFor).getTime() : null;
       if (scheduledFor === null || task.dueAt === null) return;
       if (task.dueAt.getTime() !== scheduledFor) return;
+      /*
+       * גם **מי אחראי** נבדק, לא רק הסטטוס והמועד.
+       *
+       * מאז שאפשר להעביר משימה לסוכן אחר, העברה בלי שינוי מועד
+       * משאירה את ה-Job הישן תקף לגמרי לפי שתי הבדיקות שמעליו —
+       * ואז שני אנשים מקבלים תזכורת, כולל מי שכבר אינו אחראי, עם
+       * הכותרת המעודכנת של המשימה (ביקורת Codex).
+       *
+       * הבדיקה כאן ולא בשליחה: `task.created` נשלח גם ביצירה וגם
+       * בהעברה, וה-Job הישן כבר יושב בתור ואי אפשר לבטלו.
+       */
+      if (data.recipientUserId && task.assignedToUserId !== data.recipientUserId) return;
     }
 
     await tx.notification.create({

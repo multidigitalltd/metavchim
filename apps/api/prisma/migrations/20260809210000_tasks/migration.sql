@@ -6,9 +6,17 @@
 -- שמקבל אותה צריך לדעת ממי היא הגיעה.
 ALTER TABLE tasks ADD COLUMN created_by_user_id CHAR(26);
 
--- למשימות הקיימות: מי שהמשימה עליו הוא גם מי שיצר אותה. זה נכון
--- היסטורית — עד עכשיו לא הייתה דרך אחרת.
-UPDATE tasks SET created_by_user_id = assigned_to_user_id WHERE created_by_user_id IS NULL;
+-- למשימות הקיימות שאדם יצר: מי שהמשימה עליו הוא גם מי שיצר אותה.
+-- זה נכון היסטורית — עד עכשיו לא הייתה דרך אחרת.
+--
+-- **משימה אוטומטית נשארת בלי יוצר, וזה לא פספוס.** משימות שנוצרו
+-- מ-SLA של ליד, מפולו-אפ אחרי סיור, מנכס שירד משיווק ומכללי
+-- החזרתיות נושאות `source_key` ואין להן יוצר אנושי. מילוי שלהן היה
+-- מייחס אותן לסוכן שהן הוטלו עליו לצמיתות, והתצוגה "נוצרה אוטומטית"
+-- (שנשענת על יוצר ריק) הייתה נעלמת מכל ההיסטוריה (ביקורת Codex).
+UPDATE tasks
+SET created_by_user_id = assigned_to_user_id
+WHERE created_by_user_id IS NULL AND source_key IS NULL;
 
 -- low | normal | high. ברירת המחדל היא מה שכל המשימות הקיימות הן.
 ALTER TABLE tasks ADD COLUMN priority VARCHAR(10) NOT NULL DEFAULT 'normal';
