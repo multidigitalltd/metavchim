@@ -44,6 +44,110 @@ const KIND_LABELS: Record<string, string> = {
  * המרת ליד לקונה בלי לצאת מהעמוד: דרישות מינימליות (ערים, סוג עסקה,
  * תקציב) — והאדם נכנס למנוע ההתאמות. אותו contact, ההיסטוריה נשמרת.
  */
+
+/**
+ * המרה לנכס — התאום של ההמרה לקונה.
+ *
+ * ליד אינו תמיד קונה: "יש לי דירה למכור" הוא בעל נכס. הטופס מבקש רק
+ * את המינימום שנכס חדש דורש (עיר, סוג עסקה); כל השאר מושלם בכרטיס
+ * הנכס אחר כך, ואיש הקשר של הליד הופך לבעל הנכס אוטומטית.
+ */
+function ConvertToPropertySection({ leadId }: { leadId: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const f = new FormData(event.currentTarget);
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiPost<{ id: string }>(`/leads/${leadId}/convert-to-property`, {
+        city: String(f.get("city") ?? "").trim(),
+        dealType: String(f.get("dealType") ?? "sale"),
+        propertyType: String(f.get("propertyType") ?? "apartment"),
+        ...(String(f.get("address") ?? "").trim() !== ""
+          ? { address: String(f.get("address") ?? "").trim() }
+          : {}),
+        ...(String(f.get("price") ?? "").trim() !== ""
+          ? { priceAgorot: Math.round(Number(f.get("price")) * 100) }
+          : {}),
+        ...(String(f.get("rooms") ?? "").trim() !== "" ? { rooms: Number(f.get("rooms")) } : {}),
+      });
+      router.push(`/properties/${res.id}`);
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "ההמרה נכשלה");
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="mb-4">
+        <Button variant="secondary" onClick={() => setOpen(true)}>
+          🏠 המר לנכס (בעל נכס)
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={(e) => void submit(e)}
+      className="mb-4 rounded-xl border p-4"
+      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+    >
+      <p className="m-0 mb-3 font-bold">המרה לנכס — איש הקשר יהפוך לבעל הנכס</p>
+      {error ? (
+        <p role="alert" className="mb-2 text-sm" style={{ color: "var(--color-danger)" }}>
+          {error}
+        </p>
+      ) : null}
+      <div className="flex flex-wrap items-end gap-2">
+        <div>
+          <label htmlFor="cp-city" className="mb-1 block text-sm">עיר</label>
+          <input id="cp-city" name="city" required className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }} />
+        </div>
+        <div>
+          <label htmlFor="cp-address" className="mb-1 block text-sm">כתובת (לא חובה)</label>
+          <input id="cp-address" name="address" className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }} />
+        </div>
+        <div>
+          <label htmlFor="cp-deal" className="mb-1 block text-sm">עסקה</label>
+          <select id="cp-deal" name="dealType" className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
+            <option value="sale">מכירה</option>
+            <option value="rent">השכרה</option>
+          </select>
+        </div>
+        <div>
+          <label htmlFor="cp-type" className="mb-1 block text-sm">סוג נכס</label>
+          <select id="cp-type" name="propertyType" className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
+            <option value="apartment">דירה</option>
+            <option value="garden_apartment">דירת גן</option>
+            <option value="penthouse">פנטהאוז</option>
+            <option value="house">בית פרטי</option>
+            <option value="duplex">דופלקס</option>
+            <option value="lot">מגרש</option>
+            <option value="commercial">מסחרי</option>
+          </select>
+        </div>
+        <div>
+          <label htmlFor="cp-price" className="mb-1 block text-sm">מחיר בש"ח (לא חובה)</label>
+          <input id="cp-price" name="price" type="number" min={0} className="w-32 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }} />
+        </div>
+        <div>
+          <label htmlFor="cp-rooms" className="mb-1 block text-sm">חדרים (לא חובה)</label>
+          <input id="cp-rooms" name="rooms" type="number" min={1} max={20} step={0.5} className="w-24 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }} />
+        </div>
+        <Button type="submit" disabled={busy}>{busy ? "ממיר…" : "צור נכס"}</Button>
+        <Button type="button" variant="ghost" onClick={() => setOpen(false)}>ביטול</Button>
+      </div>
+    </form>
+  );
+}
+
 function ConvertSection({ leadId }: { leadId: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -262,6 +366,11 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
 
       {lead.status !== "converted" && can(user, "buyers.edit") ? (
         <ConvertSection leadId={lead.id} />
+      ) : null}
+
+      {/* ליד אינו תמיד קונה — "יש לי דירה למכור" הוא בעל נכס */}
+      {lead.status !== "converted" && can(user, "properties.edit") ? (
+        <ConvertToPropertySection leadId={lead.id} />
       ) : null}
 
       <div className="mb-8">

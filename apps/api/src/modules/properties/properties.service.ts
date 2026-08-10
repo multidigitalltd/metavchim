@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import { computeReadiness, limitState, type Page, type PropertyFields } from "@metavchim/shared";
 import {
@@ -16,8 +16,10 @@ function propertyTypesFor(term: string): string[] {
     .filter(([, label]) => label.toLowerCase().includes(needle))
     .map(([value]) => value);
 }
+import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
+import { CryptoService } from "../../core/crypto.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
@@ -37,6 +39,7 @@ export class PropertiesService {
     private readonly contacts: ContactsService,
     private readonly messaging: MessagingService,
     private readonly plans: PlanCatalogService,
+    private readonly crypto: CryptoService,
   ) {}
 
   /**
@@ -115,6 +118,75 @@ export class PropertiesService {
    * יחושב מחדש בעריכה הבאה). כך אין דיווח-כזב של נכס שכבר קיים ואין כפילויות
    * בניסיון חוזר. גם חוסך N חישובי-התאמה סינכרוניים בבקשה אחת (docs/07 §5).
    */
+
+  /**
+   * המרת ליד לנכס — התאום של ‎BuyersService.convertFromLead‎.
+   *
+   * ליד אינו תמיד קונה: מי שהתקשר "יש לי דירה למכור" הוא בעל נכס,
+   * ועד היום הדרך היחידה הייתה לפתוח נכס מאפס ולאבד את הקשר לליד,
+   * לשיחות ולהיסטוריה. איש הקשר של הליד הופך לבעל הנכס — אותו אדם,
+   * בלי כרטיס כפול.
+   *
+   * הסדר: תפיסת הליד (CAS על הסטטוס) ואז יצירת הנכס, עם החזרה של
+   * הסטטוס אם היצירה נכשלה — עדיף ליד שחוזר לרגע מ"הומר" על נכס
+   * יתום שנוצר פעמיים מלחיצה כפולה.
+   */
+  async convertFromLead(leadId: string, fields: PropertyFields): Promise<PropertyDto> {
+    const ctx = TenantContext.current();
+
+    const owner = await this.prisma.withTenant(async (tx) => {
+      const lead = await tx.lead.findFirst({
+        where: {
+          id: leadId,
+          tenantId: ctx.tenantId,
+          ...ownershipFilter("leads.view_all", "assignedToUserId"),
+        },
+      });
+      if (!lead) throw new NotFoundException("ליד לא נמצא");
+
+      const claimed = await tx.lead.updateMany({
+        where: { id: leadId, tenantId: ctx.tenantId, status: { not: "converted" } },
+        data: {
+          status: "converted",
+          requiresHuman: false,
+          ...(lead.firstResponseAt === null ? { firstResponseAt: new Date() } : {}),
+        },
+      });
+      if (claimed.count === 0) throw new ConflictException("הליד כבר הומר");
+      // המרה = הליד טופל — אסקלציית SLA פתוחה נסגרת, כמו בהמרה לקונה
+      await tx.task.updateMany({
+        where: { tenantId: ctx.tenantId, sourceKey: `lead-sla:${leadId}`, status: "open" },
+        data: { status: "done" },
+      });
+
+      const contact = await tx.contact.findFirst({
+        where: { id: lead.contactId, tenantId: ctx.tenantId },
+        select: { nameEncrypted: true, phoneEncrypted: true },
+      });
+      if (!contact) throw new NotFoundException("איש הקשר של הליד לא נמצא");
+      return {
+        name: this.crypto.decrypt(contact.nameEncrypted),
+        phone: this.crypto.decrypt(contact.phoneEncrypted),
+      };
+    });
+
+    try {
+      // אותו נתיב יצירה של נכס רגיל — האיש נפתר לפי טלפון לאותו contact
+      return await this.create({ fields, owner });
+    } catch (error) {
+      // היצירה נכשלה — הליד חוזר לחיים במקום להיתקע כ"הומר" על כלום
+      await this.prisma
+        .withTenant((tx) =>
+          tx.lead.updateMany({
+            where: { id: leadId, tenantId: ctx.tenantId, status: "converted" },
+            data: { status: "in_progress" },
+          }),
+        )
+        .catch(() => undefined);
+      throw error;
+    }
+  }
+
   async createForImport(input: {
     fields: PropertyFields;
     marketingTitle?: string;
