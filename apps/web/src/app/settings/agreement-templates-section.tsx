@@ -10,6 +10,7 @@ import {
 } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiDelete, apiGet, apiPut, ApiError } from "@/lib/api";
+import { IconEdit, IconEye, IconWarning } from "../icons";
 
 /**
  * עורך נוסחי ההסכמים של המשרד.
@@ -173,7 +174,7 @@ export function AgreementTemplatesSection() {
                 className="mb-3 rounded-lg border p-3 text-sm"
                 style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}
               >
-                ⚠ בנוסח חסרים פרטים שתקנות המתווכים במקרקעין מחייבות בהזמנה בכתב:{" "}
+                <IconWarning s={15} /> בנוסח חסרים פרטים שתקנות המתווכים במקרקעין מחייבות בהזמנה בכתב:{" "}
                 {template.missingRequired
                   .map((f) => PLACEHOLDER_LABELS[f as keyof AgreementValues] ?? f.replace(/_/gu, " "))
                   .join(", ")}
@@ -191,7 +192,11 @@ export function AgreementTemplatesSection() {
                   setPreviewing(previewing === template.kind ? null : template.kind)
                 }
               >
-                {previewing === template.kind ? "✎ חזרה לעריכה" : "👁 תצוגה מקדימה"}
+                {previewing === template.kind ? (
+                  <><IconEdit s={15} /> חזרה לעריכה</>
+                ) : (
+                  <><IconEye s={15} /> תצוגה מקדימה</>
+                )}
               </button>
             </div>
 

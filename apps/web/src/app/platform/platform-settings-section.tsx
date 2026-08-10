@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
+import { IconCard, IconChat, IconKey, IconLock, IconMail } from "../icons";
 
 /**
  * הגדרות הפלטפורמה — מפתחות הספקים (Postmark, WhatsApp) והפעלת אימות
@@ -230,7 +231,7 @@ export function PlatformSettingsSection() {
       {/* ---------- אימייל ---------- */}
       <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-semibold">📧 אימייל (Postmark)</h3>
+          <h3 className="font-semibold"><IconMail s={16} /> אימייל (Postmark)</h3>
           <StatusBadge configured={settings.postmark.configured} source={settings.postmark.source} />
         </div>
         <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -279,7 +280,7 @@ export function PlatformSettingsSection() {
       {/* ---------- התחברות עם Google ---------- */}
       <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-semibold">🔑 התחברות עם Google</h3>
+          <h3 className="font-semibold"><IconKey s={16} /> התחברות עם Google</h3>
           <StatusBadge configured={settings.google.configured} source={settings.google.source} />
         </div>
         <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -355,7 +356,7 @@ export function PlatformSettingsSection() {
       {/* ---------- סליקה (קארדקום) ---------- */}
       <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-semibold">💳 סליקה (קארדקום)</h3>
+          <h3 className="font-semibold"><IconCard s={16} /> סליקה (קארדקום)</h3>
           <StatusBadge configured={settings.cardcom.configured} source={settings.cardcom.source} />
         </div>
         <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -443,7 +444,7 @@ export function PlatformSettingsSection() {
       {/* ---------- וואטסאפ ---------- */}
       <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-semibold">💬 וואטסאפ (Meta Cloud API)</h3>
+          <h3 className="font-semibold"><IconChat s={16} /> וואטסאפ (Meta Cloud API)</h3>
           <StatusBadge configured={settings.whatsapp.configured} source={settings.whatsapp.source} />
         </div>
         <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -501,7 +502,7 @@ export function PlatformSettingsSection() {
       {/* ---------- אימות כניסה ---------- */}
       <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-semibold">🔐 אימות כניסה בקוד למייל</h3>
+          <h3 className="font-semibold"><IconLock s={16} /> אימות כניסה בקוד למייל</h3>
           <Button
             variant={settings.loginOtpEnabled ? "danger" : "primary"}
             disabled={!settings.postmark.configured}

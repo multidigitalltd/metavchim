@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
+import { IconHome, IconMic, IconSend, IconUser } from "../../icons";
 
 /**
  * שליחת הצעה בקול — מסך האישור. הפקודה כבר פוענחה בשרת לישויות
@@ -74,7 +75,7 @@ function OfferVoiceContent() {
 
   return (
     <div className="mx-auto max-w-xl">
-      <h1 className="mb-2 text-2xl font-bold">🎤 שליחת הצעה</h1>
+      <h1 className="mb-2 text-2xl font-bold"><IconMic s={16} /> שליחת הצעה</h1>
       <p className="mb-1" style={{ color: "var(--color-text-muted)" }}>
         אמרתם: &quot;{transcript}&quot;
       </p>
@@ -94,7 +95,7 @@ function OfferVoiceContent() {
             ✓ ההצעה מוכנה — נותר לשלוח
           </p>
           <a href={sent.waUrl} target="_blank" rel="noreferrer" className="no-underline">
-            <Button>📲 פתח וואטסאפ עם ההודעה</Button>
+            <Button><IconSend s={15} /> פתח וואטסאפ עם ההודעה</Button>
           </a>
           <p className="mt-3 mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
             או העתיקו את קישור ההצעה ושלחו בכל דרך:
@@ -137,8 +138,8 @@ function OfferVoiceContent() {
               <div className="mb-2 flex flex-wrap items-center gap-3">
                 <span className="text-xl font-bold">{c.score}%</span>
                 <div className="flex-1">
-                  <p className="font-semibold">🏠 {c.propertyLabel}</p>
-                  <p>👤 {c.buyerLabel}</p>
+                  <p className="font-semibold"><IconHome s={15} /> {c.propertyLabel}</p>
+                  <p><IconUser s={15} /> {c.buyerLabel}</p>
                 </div>
               </div>
               <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -163,7 +164,7 @@ function OfferVoiceContent() {
                   <Button variant="ghost" onClick={() => setConfirmingId(null)}>ביטול</Button>
                 </div>
               ) : (
-                <Button onClick={() => setConfirmingId(c.matchId)}>📤 שלח הצעה</Button>
+                <Button onClick={() => setConfirmingId(c.matchId)}><IconSend s={15} /> שלח הצעה</Button>
               )}
             </li>
           ))}

@@ -9,6 +9,7 @@ import {
   type PlanDefinition,
 } from "@metavchim/shared";
 import { apiGet, apiPatch, ApiError } from "@/lib/api";
+import { IconCard, IconWarning } from "../icons";
 
 /**
  * הגדרת המסלולים — מה כלול בכל מסלול, כמה הוא עולה ומה המגבלות.
@@ -327,7 +328,7 @@ export function PlansSection({
       style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
     >
       <h2 id="plans-heading" className="mb-1 text-lg font-semibold">
-        💳 מסלולי מנוי
+        <IconCard s={16} /> מסלולי מנוי
       </h2>
       <p className="mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
         מה כלול בכל מסלול, כמה הוא עולה ומה המגבלות. השינוי נכנס לתוקף מיד לכל
@@ -464,7 +465,7 @@ export function PlansSection({
                     */}
                     {plan.isPublic && plan.trialDays === 0 ? (
                       <p className="m-0 mb-2 text-xs" style={{ color: "#8a6414" }}>
-                        ⚠️ בלי ימי ניסיון המסלול לא יופיע בדף ההרשמה. הוא עדיין ניתן
+                        <IconWarning s={15} /> בלי ימי ניסיון המסלול לא יופיע בדף ההרשמה. הוא עדיין ניתן
                         לרכישה ממסך המנוי של משרד קיים.
                       </p>
                     ) : null}
@@ -477,7 +478,7 @@ export function PlansSection({
                     {planEditor(draft, setDraft, data.features, toggleFeature)}
                     {tenants > 0 ? (
                       <p className="m-0 text-xs" style={{ color: "var(--color-text-muted)" }}>
-                        ⚠️ {tenants} משרדים יושבים על המסלול — צמצום פיצ׳רים או מגבלות ישפיע
+                        <IconWarning s={15} /> {tenants} משרדים יושבים על המסלול — צמצום פיצ׳רים או מגבלות ישפיע
                         עליהם מיד.
                       </p>
                     ) : null}

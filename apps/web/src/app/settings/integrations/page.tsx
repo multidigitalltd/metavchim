@@ -1,11 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import type { PlanFeature } from "@metavchim/shared";
 import { apiGet } from "@/lib/api";
 import { useFeature } from "@/lib/use-features";
 import { useRequireAuth } from "@/lib/use-auth";
+import {
+  IconCalendar,
+  IconChat,
+  IconHandshake,
+  IconLink,
+  IconPhone,
+  IconSend,
+} from "../../icons";
 
 /**
  * חנות המודולים — מסך אחד שאומר מה אפשר לחבר ומה כבר מחובר.
@@ -24,7 +32,7 @@ type State = "connected" | "available" | "locked" | "soon";
 
 interface Module {
   key: string;
-  icon: string;
+  icon: ReactNode;
   title: string;
   description: string;
   /** null = לא דורש פיצ'ר במסלול */
@@ -77,7 +85,7 @@ export default function IntegrationsPage() {
   const modules: Module[] = [
     {
       key: "telephony",
-      icon: "☎️",
+      icon: <IconPhone s={16} />,
       title: "מרכזייה טלפונית",
       description:
         "שיחה נכנסת פותחת את כרטיס הלקוח מעצמה, וחיוג יוצא בלחיצה מתוך הכרטיס. תומך ב-015, Vonage ובכל מרכזייה ששולחת Webhook.",
@@ -87,7 +95,7 @@ export default function IntegrationsPage() {
     },
     {
       key: "whatsapp",
-      icon: "💬",
+      icon: <IconChat s={16} />,
       title: "וואטסאפ עסקי",
       description:
         "הצעות ועדכוני שיווק נפתחים עם ההודעה מוכנה, ותשובות הלקוח חוזרות ל-Messages Hub.",
@@ -97,7 +105,7 @@ export default function IntegrationsPage() {
     },
     {
       key: "lead_webhook",
-      icon: "🎣",
+      icon: <IconLink s={16} />,
       title: "לידים מאתרים חיצוניים",
       description:
         "כתובת Webhook אישית למשרד — יד2, מדלן, קמפיין פייסבוק או טופס באתר שולחים לידים ישירות למערכת.",
@@ -107,7 +115,7 @@ export default function IntegrationsPage() {
     },
     {
       key: "data_io",
-      icon: "📤",
+      icon: <IconSend s={16} />,
       title: "ייבוא וייצוא נתונים",
       description: "העלאת קובץ נכסים או קונים ממערכת קודמת, וייצוא הכול בכל רגע — הנתונים שלכם.",
       feature: "data_io",
@@ -116,7 +124,7 @@ export default function IntegrationsPage() {
     },
     {
       key: "network",
-      icon: "🤝",
+      icon: <IconHandshake s={16} />,
       title: "שיתופי פעולה בין משרדים",
       description:
         "שיתוף נכסים וקונים עם משרדים אחרים ברשת, כולל חלוקת עמלה מוסכמת מראש. בסיסי — כלול בכל המסלולים.",
@@ -126,7 +134,7 @@ export default function IntegrationsPage() {
     },
     {
       key: "google_calendar",
-      icon: "📅",
+      icon: <IconCalendar s={16} />,
       title: "יומן Google",
       description:
         "סנכרון דו-כיווני: פגישה שנקבעת במערכת מופיעה ביומן הפרטי, ולהפך — כדי שלא ייקבעו שתי פגישות באותה שעה. אישי לכל משתמש.",
@@ -166,7 +174,7 @@ export default function IntegrationsPage() {
             >
               <div className="mb-2 flex items-start justify-between gap-2">
                 <h2 className="m-0 text-lg font-semibold">
-                  <span aria-hidden="true">{module.icon}</span> {module.title}
+                  {module.icon} {module.title}
                 </h2>
                 <span
                   className="shrink-0 rounded-full px-2.5 py-1 text-sm font-medium"
