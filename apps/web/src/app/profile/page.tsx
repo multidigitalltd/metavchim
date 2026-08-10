@@ -174,15 +174,6 @@ export default function ProfilePage() {
 
   return (
     <>
-      {/*
-        המסלול מוצג בפרופיל ולא רק בהגדרות המשרד.
-        סוכן, עוזר וצופה הם בדיוק מי שנתקל בקיר של פיצ'ר — ומסך
-        ההגדרות סגור בפניהם (settings.manage). בלעדי זה ההסבר שהשרת
-        מכין להם היה בלתי נגיש (ביקורת Codex).
-      */}
-      <PlanSection />
-      <SipLineSection />
-
       {/* ---- כרטיס הזהות ---- */}
       <div className="mv-list-card mb-[18px] flex flex-wrap items-center gap-4 p-6">
         <span
@@ -371,6 +362,19 @@ export default function ProfilePage() {
             אפס את כל ההתאמות
           </button>
         </section>
+      </div>
+
+      {/*
+        בתחתית ולא בראש: אלה כרטיסי עיון — מה כלול במסלול, ואיזה קו
+        SIP מוגדר לי — לא פעולות יומיומיות, והם דחפו את הפרטים האישיים
+        מתחת לקו המסך. המסלול נשאר בפרופיל בכלל כי סוכן, עוזר וצופה הם
+        בדיוק מי שנתקל בקיר של פיצ'ר — ומסך ההגדרות סגור בפניהם
+        (settings.manage); בלעדי זה ההסבר שהשרת מכין להם היה בלתי נגיש
+        (ביקורת Codex).
+      */}
+      <div className="mt-[18px] flex flex-col gap-[18px]">
+        <SipLineSection />
+        <PlanSection />
       </div>
     </>
   );
