@@ -131,6 +131,21 @@ interface TenantSettings {
   defaultPaymentTerms?: string;
 }
 
+/**
+ * עוגנים ישנים → הלשונית שמכילה אותם.
+ *
+ * חנות המודולים ומסך הלידים מקשרים ל-‎/settings#telephony‎ וחבריו;
+ * המיפוי הזה שומר על הקישורים האלה עובדים אחרי הפיצול ללשוניות.
+ */
+const HASH_TABS: Record<string, string> = {
+  whatsapp: "integrations",
+  telephony: "integrations",
+  "google-calendar": "integrations",
+  gmail: "integrations",
+  "lead-webhook": "integrations",
+  data: "data",
+};
+
 /** לשוניות ניהול המשרד — הסדר הוא סדר השימוש בפועל. */
 const TABS: [key: string, label: string][] = [
   ["team", "צוות והרשאות"],
@@ -150,10 +165,26 @@ export default function SettingsPage() {
    * ל-‎?tab=billing‎ (למשל מכרטיס המסלול) נוחת במקום הנכון, ורענון
    * לא זורק חזרה ללשונית הראשונה. replaceState ולא ניווט: אין כאן
    * טעינת עמוד, רק החלפת תצוגה.
+   *
+   * גם עוגנים ישנים ממופים: קישורים כמו ‎/settings#telephony‎ פזורים
+   * בחנות המודולים ובמסך הלידים, ומאז הפיצול ללשוניות הם היו נוחתים
+   * על הלשונית הראשונה — שבה האלמנט שאליו כיוונו כלל אינו מורכב
+   * (ביקורת Codex). אחרי בחירת הלשונית גוללים לעוגן עצמו.
    */
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get("tab");
-    if (requested && TABS.some(([key]) => key === requested)) setTab(requested);
+    if (requested && TABS.some(([key]) => key === requested)) {
+      setTab(requested);
+      return;
+    }
+    const anchor = window.location.hash.replace("#", "");
+    const owning = HASH_TABS[anchor];
+    if (!owning) return;
+    setTab(owning);
+    // הגלילה אחרי שהלשונית הורכבה — לפני כן האלמנט לא קיים
+    window.setTimeout(() => {
+      document.getElementById(anchor)?.scrollIntoView({ block: "start" });
+    }, 120);
   }, []);
 
   function selectTab(next: string): void {
