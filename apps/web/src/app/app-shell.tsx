@@ -68,6 +68,7 @@ const SCREEN_TITLES: [prefix: string, title: string][] = [
   ["/search", "חיפוש"],
   ["/profile", "הפרופיל שלי"],
   ["/tasks", "משימות"],
+  ["/guides", "הדרכות"],
 ];
 
 function screenTitle(pathname: string): string {
@@ -198,6 +199,13 @@ const ICONS = {
   setup: (
     <Icon>
       <path d="M20 6 9 17l-5-5" />
+    </Icon>
+  ),
+  guides: (
+    <Icon>
+      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15.5H6.5A2.5 2.5 0 0 0 4 21Z" />
+      <path d="M4 5.5V21" />
+      <path d="M8.5 7.5h7M8.5 11h7" />
     </Icon>
   ),
   platform: (
@@ -475,6 +483,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="mv-nav-credits">{counts.credits} קרדיטים</span>
           ) : null,
         )}
+        {navLink("/guides", "הדרכות", ICONS.guides)}
         {isManager ? navLink("/settings", "ניהול משרד", ICONS.office) : null}
         {isManager && !setupDone ? navLink("/setup", "הקמה", ICONS.setup) : null}
         {me?.isPlatformAdmin ? navLink("/platform", "פלטפורמה", ICONS.platform) : null}
@@ -548,7 +557,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {/* קליטה קולית נחסמת בשרת בלי הפיצ'ר — קישור ל-403 גרוע
               מקישור שלא קיים */}
           {hasFeature("voice_intake") ? (
-              <Link href="/voice" className="mv-voice-button" aria-label="קליטה בקול">
+              <Link href="/voice" className="mv-voice-button" aria-label="פקודה קולית">
                 <svg
                   width="16"
                   height="16"
@@ -564,7 +573,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
                   <line x1="12" y1="17.5" x2="12" y2="21" />
                 </svg>
-                <span className="mv-topbar-label">קליטה בקול</span>
+                <span className="mv-topbar-label">פקודה קולית</span>
               </Link>
           ) : null}
 
