@@ -473,9 +473,16 @@ export default function SettingsPage() {
             </Link>
           </section>
 
-          <div id="whatsapp">
-            <WhatsAppStatusSection />
-          </div>
+          {/*
+            סטטוס הוואטסאפ לבעל המשרד בלבד. השלב הראשון בו ("חיבור
+            השרת ל-Meta") הוא עניין של מנהל המערכת, ולשאר הצוות הקטע
+            רק מציג ✗ אדומים שאין להם מה לעשות איתם.
+          */}
+          {user?.role === "owner" ? (
+            <div id="whatsapp">
+              <WhatsAppStatusSection />
+            </div>
+          ) : null}
           {/* גישת תמיכה אינה תלוית-מסלול — כל משרד יכול לבקש עזרה */}
           <SupportAccessSection />
 
