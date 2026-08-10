@@ -129,6 +129,17 @@ export class CollaborationController {
     await this.collaboration.withdrawLead(id);
   }
 
+  /**
+   * הרישומים שלי בלבד — תחת יכולת ה**שיתוף**: מי שמותר לו למכור חייב
+   * לראות ולהסיר את מה שפרסם גם בלי יכולת הקנייה, אחרת כרטיס הליד
+   * מציג "לא משותף" על ליד שכן משותף (ביקורת Codex).
+   */
+  @Get("leads/mine")
+  @RequireCapability("collaboration.share")
+  async mySharedLeads(): Promise<SharedLeadDto[]> {
+    return this.collaboration.listMySharedLeads();
+  }
+
   @Get("leads")
   @RequireCapability("collaboration.offer")
   async sharedLeads(): Promise<SharedLeadDto[]> {

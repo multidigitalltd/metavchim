@@ -73,11 +73,11 @@ function SellLeadSection({ leadId }: { leadId: string }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    apiGet<MySharedLead[]>("/collaboration/leads")
+    // ‎leads/mine‎ — נגיש עם יכולת השיתוף בלבד, כמו המדור הזה עצמו
+    apiGet<MySharedLead[]>("/collaboration/leads/mine")
       .then((rows) =>
         setShared(
-          rows.find((r) => r.mine && r.originLeadId === leadId && r.status !== "withdrawn") ??
-            null,
+          rows.find((r) => r.originLeadId === leadId && r.status !== "withdrawn") ?? null,
         ),
       )
       .catch(() => setShared(null));

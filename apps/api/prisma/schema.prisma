@@ -517,7 +517,7 @@ model SharedLead {
 model CreditLedger {
   id        String   @id @db.Char(26)
   tenantId  String   @map("tenant_id") @db.Char(26)
-  kind      String   @db.VarChar(30) // initial_grant | coop_offer | purchase | refund | lead_purchase | lead_sale | lead_sale_reversal
+  kind      String   @db.VarChar(30) // initial_grant | coop_offer | purchase | refund | lead_purchase | lead_sale
   amount    Int // חיובי = זיכוי, שלילי = חיוב
   refId     String?  @map("ref_id") @db.Char(26)
   createdAt DateTime @default(now()) @map("created_at")

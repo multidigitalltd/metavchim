@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
@@ -94,8 +94,6 @@ export interface SharedLeadDto {
 
 @Injectable()
 export class CollaborationService {
-  private readonly logger = new Logger(CollaborationService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -313,6 +311,8 @@ export class CollaborationService {
        */
       const cost = coopOfferCost(demand.source, prices);
       if (cost > 0) {
+        // אותה נעילה כמו בקניית ליד — בדיקת יתרה וחיוב סדרתיים פר-משרד
+        await this.lockCreditSpend(tx, ctx.tenantId);
         const balance = await this.balanceInTx(tx, ctx.tenantId);
         if (balance < cost) {
           throw new BadRequestException("אין מספיק קרדיטים — ניתן לרכוש בהגדרות");
@@ -450,6 +450,17 @@ export class CollaborationService {
       if (lead.status === "converted") {
         throw new BadRequestException("ליד שהומר כבר טופל — אין מה למכור בו");
       }
+      /*
+       * ליד שכבר נמכר לא חוזר לשוק לעולם: האינדקס החלקי מכסה רק
+       * active, ובלי הבדיקה הזו מוכר היה מפרסם ומוכר את אותו איש קשר
+       * שוב ושוב (ביקורת Codex). הסרה מרצון (withdrawn) כן מאפשרת
+       * פרסום מחדש.
+       */
+      const sold = await tx.sharedLead.findFirst({
+        where: { tenantId: ctx.tenantId, originLeadId: leadId, status: "sold" },
+        select: { id: true },
+      });
+      if (sold) throw new BadRequestException("הליד הזה כבר נמכר ברשת — אין למכור אותו שוב");
       const contact = await tx.contact.findFirst({
         where: { id: lead.contactId, tenantId: ctx.tenantId },
         select: { nameEncrypted: true, phoneEncrypted: true, phoneHash: true },
@@ -509,6 +520,19 @@ export class CollaborationService {
     });
   }
 
+  /** הלידים ששיתפתי, בכל סטטוס — נגיש עם יכולת השיתוף בלבד. */
+  async listMySharedLeads(): Promise<SharedLeadDto[]> {
+    const tenantId = TenantContext.current().tenantId;
+    const mine = await this.prisma.withTenant((tx) =>
+      tx.sharedLead.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }),
+    );
+    return mine.map((row) => this.toSharedLeadDto(row, tenantId));
+  }
+
   /**
    * פיד השוק: הלידים הפעילים ברשת, ובנוסף הלידים ששיתפתי בכל סטטוס —
    * המוכר צריך לראות "נמכר" בלי לחפש ביומן הקרדיטים.
@@ -522,32 +546,27 @@ export class CollaborationService {
         take: 100,
       }),
     );
-    const mine = await this.prisma.withTenant((tx) =>
-      tx.sharedLead.findMany({
-        where: { tenantId },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-      }),
-    );
+    const mine = await this.listMySharedLeads();
     const seen = new Set<string>();
-    const merged = [...mine, ...network].filter((row) => {
-      if (seen.has(row.id)) return false;
-      seen.add(row.id);
-      return true;
-    });
+    const merged = [...mine, ...network.map((row) => this.toSharedLeadDto(row, tenantId))].filter(
+      (dto) => {
+        if (seen.has(dto.id)) return false;
+        seen.add(dto.id);
+        return true;
+      },
+    );
     merged.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-    return merged.map((row) => this.toSharedLeadDto(row, tenantId));
+    return merged;
   }
 
   /**
-   * קניית ליד מהשוק.
+   * קניית ליד מהשוק — **טרנזקציה אחת לשני הצדדים.**
    *
-   * הסדר קריטי ומכוון:
-   * 1. תפיסה אטומית אצל המוכר (active→sold) + זיכוי המוכר — טרנזקציה
-   *    אחת. שני קונים במקביל: רק אחד עובר את ה-updateMany המותנה.
-   * 2. אצל הקונה: בדיקת יתרה, העתקת איש הקשר, יצירת הליד, חיוב.
-   * 3. כשל בשלב 2 ⇒ השורה חוזרת ל-active והזיכוי מתקזז ברשומה נגדית —
-   *    היומן Append-Only, מוחקים בו כלום.
+   * `set_config(..., is_local=true)` תקף פר-משפט, ולכן אפשר לעבור
+   * מהקשר המוכר להקשר הקונה בתוך אותה טרנזקציה. קריסה, פריסה או
+   * ניתוק בכל נקודה מחזירים את הכול — אין רגע שבו הליד sold, המוכר
+   * זוכה והקונה לא חויב (ביקורת Codex). זה גם מייתר רשומות קיזוז:
+   * מה שלא הושלם פשוט לא קרה.
    */
   async buyLead(sharedLeadId: string): Promise<{ leadId: string }> {
     const ctx = TenantContext.current();
@@ -561,153 +580,156 @@ export class CollaborationService {
     }
     const cost = row.priceCredits;
 
-    // בדיקת יתרה מוקדמת — לא לתפוס ליד אצל המוכר רק כדי להחזיר אותו
-    const balance = await this.prisma.withTenant((tx) => this.balanceInTx(tx, ctx.tenantId));
-    if (balance < cost) {
-      throw new BadRequestException("אין מספיק קרדיטים — ניתן לרכוש בהגדרות");
+    /*
+     * המוכר המיר את הליד אחרי הפרסום? הרישום יורד מהשוק במקום שקונה
+     * ישלם על ליד שכבר טופל (ביקורת Codex). מחוץ לטרנזקציית הקנייה —
+     * ההסרה צריכה להישאר גם כשהקנייה נכשלת.
+     */
+    const origin = await this.prisma.withExplicitTenant(row.tenantId, (tx) =>
+      tx.lead.findFirst({
+        where: { id: row.originLeadId, tenantId: row.tenantId },
+        select: { status: true },
+      }),
+    );
+    if (!origin || origin.status === "converted") {
+      await this.prisma.withExplicitTenant(row.tenantId, (tx) =>
+        tx.sharedLead.updateMany({
+          where: { id: sharedLeadId, status: "active" },
+          data: { status: "withdrawn" },
+        }),
+      );
+      throw new BadRequestException("הליד כבר טופל אצל המשרד המוכר — הוסר מהשוק");
     }
 
-    const claimed = await this.prisma.withExplicitTenant(row.tenantId, async (tx) => {
-      const result = await tx.sharedLead.updateMany({
+    const leadId = await this.prisma.$transaction(async (tx) => {
+      // צד המוכר: תפיסה מותנית + זיכוי
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${row.tenantId}, true)`;
+      const claimed = await tx.sharedLead.updateMany({
         where: { id: sharedLeadId, status: "active" },
         data: { status: "sold", buyerTenantId: ctx.tenantId, soldAt: new Date() },
       });
-      if (result.count === 0) return false;
+      if (claimed.count === 0) throw new BadRequestException("הליד נמכר הרגע למשרד אחר");
       await tx.creditLedger.create({
-        data: { id: ulid(), tenantId: row.tenantId, kind: "lead_sale", amount: cost, refId: sharedLeadId },
+        data: {
+          id: ulid(),
+          tenantId: row.tenantId,
+          kind: "lead_sale",
+          amount: cost,
+          refId: sharedLeadId,
+        },
       });
-      return true;
-    });
-    if (!claimed) throw new BadRequestException("הליד נמכר הרגע למשרד אחר");
+      await tx.outboxEvent.create({
+        data: {
+          id: ulid(),
+          tenantId: row.tenantId,
+          name: "shared_lead.sold",
+          payload: { sharedLeadId, tenantId: row.tenantId, priceCredits: cost },
+        },
+      });
 
-    let leadId: string;
-    try {
-      leadId = await this.prisma.withTenant(async (tx) => {
-        // הבדיקה המחייבת — בתוך הטרנזקציה, אחרי המוקדמת שבחוץ
-        if ((await this.balanceInTx(tx, ctx.tenantId)) < cost) {
-          throw new BadRequestException("אין מספיק קרדיטים — ניתן לרכוש בהגדרות");
-        }
-        /*
-         * ההצפנה במפתח אפליקטיבי אחיד, לכן הצילום מועתק כמות שהוא —
-         * בלי פענוח ביניים. אם הטלפון כבר מוכר למשרד הקונה (לפי
-         * ה-HMAC) לא נוצר כרטיס כפול.
-         */
-        let contact = await tx.contact.findUnique({
-          where: {
-            tenantId_phoneHash: { tenantId: ctx.tenantId, phoneHash: row.contactPhoneHash },
-          },
-          select: { id: true },
-        });
-        contact ??= await tx.contact.create({
-          data: {
-            id: ulid(),
-            tenantId: ctx.tenantId,
-            nameEncrypted: row.contactNameEncrypted,
-            phoneEncrypted: row.contactPhoneEncrypted,
-            phoneHash: row.contactPhoneHash,
-          },
-          select: { id: true },
-        });
+      // צד הקונה — אותה טרנזקציה, הקשר דייר חדש
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${ctx.tenantId}, true)`;
+      /*
+       * נעילת הוצאות פר-משרד: שתי קניות מקבילות של אותו משרד היו
+       * קוראות שתיהן את אותה יתרה לפני ששתיהן חייבו, ועוברות יחד גם
+       * כשהסכום המשותף גדול מהיתרה (ביקורת Codex). הנעילה משחררת
+       * בסוף הטרנזקציה.
+       */
+      await this.lockCreditSpend(tx, ctx.tenantId);
+      if ((await this.balanceInTx(tx, ctx.tenantId)) < cost) {
+        throw new BadRequestException("אין מספיק קרדיטים — ניתן לרכוש בהגדרות");
+      }
+      /*
+       * ההצפנה במפתח אפליקטיבי אחיד, לכן הצילום מועתק כמות שהוא —
+       * בלי פענוח ביניים. אם הטלפון כבר מוכר למשרד הקונה (לפי
+       * ה-HMAC) לא נוצר כרטיס כפול.
+       */
+      let contact = await tx.contact.findUnique({
+        where: {
+          tenantId_phoneHash: { tenantId: ctx.tenantId, phoneHash: row.contactPhoneHash },
+        },
+        select: { id: true },
+      });
+      contact ??= await tx.contact.create({
+        data: {
+          id: ulid(),
+          tenantId: ctx.tenantId,
+          nameEncrypted: row.contactNameEncrypted,
+          phoneEncrypted: row.contactPhoneEncrypted,
+          phoneHash: row.contactPhoneHash,
+        },
+        select: { id: true },
+      });
 
-        const newLeadId = ulid();
-        const summary = [row.note, row.city ? `עיר: ${row.city}` : null]
-          .filter(Boolean)
-          .join("\n");
-        await tx.lead.create({
-          data: {
-            id: newLeadId,
-            tenantId: ctx.tenantId,
-            contactId: contact.id,
-            source: "network",
-            intent: row.intent,
-            status: "new",
-            summary: (summary || "ליד שנרכש ברשת השת\"פ").slice(0, 500),
-          },
-        });
-        await tx.interaction.create({
-          data: {
-            id: ulid(),
-            tenantId: ctx.tenantId,
+      const newLeadId = ulid();
+      const summary = [row.note, row.city ? `עיר: ${row.city}` : null]
+        .filter(Boolean)
+        .join("\n");
+      await tx.lead.create({
+        data: {
+          id: newLeadId,
+          tenantId: ctx.tenantId,
+          contactId: contact.id,
+          source: "network",
+          intent: row.intent,
+          status: "new",
+          // הקונה עצמו — סוכן עם view_own חייב לראות את מה שקנה
+          assignedToUserId: ctx.userId,
+          summary: (summary || "ליד שנרכש ברשת השת\"פ").slice(0, 500),
+        },
+      });
+      await tx.interaction.create({
+        data: {
+          id: ulid(),
+          tenantId: ctx.tenantId,
+          leadId: newLeadId,
+          kind: "note",
+          content: `נרכש ברשת השת"פ תמורת ${cost} קרדיטים`,
+          createdBy: ctx.userId,
+        },
+      });
+      await tx.creditLedger.create({
+        data: {
+          id: ulid(),
+          tenantId: ctx.tenantId,
+          kind: "lead_purchase",
+          amount: -cost,
+          refId: sharedLeadId,
+        },
+      });
+      await this.audit.record(tx, {
+        action: "collaboration.lead_buy",
+        entityType: "shared_lead",
+        entityId: sharedLeadId,
+        metadata: { leadId: newLeadId, priceCredits: cost },
+      });
+      // ליד רגיל לכל דבר — SLA והתראות מטפלים בו כמו בכל ליד חדש
+      await tx.outboxEvent.create({
+        data: {
+          id: ulid(),
+          tenantId: ctx.tenantId,
+          name: "lead.created",
+          payload: {
             leadId: newLeadId,
-            kind: "note",
-            content: `נרכש ברשת השת"פ תמורת ${cost} קרדיטים`,
-            createdBy: ctx.userId,
-          },
-        });
-        await tx.creditLedger.create({
-          data: {
-            id: ulid(),
             tenantId: ctx.tenantId,
-            kind: "lead_purchase",
-            amount: -cost,
-            refId: sharedLeadId,
+            source: "network",
+            requiresHuman: false,
           },
-        });
-        await this.audit.record(tx, {
-          action: "collaboration.lead_buy",
-          entityType: "shared_lead",
-          entityId: sharedLeadId,
-          metadata: { leadId: newLeadId, priceCredits: cost },
-        });
-        // ליד רגיל לכל דבר — SLA והתראות מטפלים בו כמו בכל ליד חדש
-        await tx.outboxEvent.create({
-          data: {
-            id: ulid(),
-            tenantId: ctx.tenantId,
-            name: "lead.created",
-            payload: {
-              leadId: newLeadId,
-              tenantId: ctx.tenantId,
-              source: "network",
-              requiresHuman: false,
-            },
-          },
-        });
-        return newLeadId;
+        },
       });
-    } catch (error) {
-      // שחרור: הליד חוזר לשוק והזיכוי מתקזז ברשומה נגדית
-      await this.prisma
-        .withExplicitTenant(row.tenantId, async (tx) => {
-          await tx.sharedLead.updateMany({
-            where: { id: sharedLeadId, status: "sold", buyerTenantId: ctx.tenantId },
-            data: { status: "active", buyerTenantId: null, soldAt: null },
-          });
-          await tx.creditLedger.create({
-            data: {
-              id: ulid(),
-              tenantId: row.tenantId,
-              kind: "lead_sale_reversal",
-              amount: -cost,
-              refId: sharedLeadId,
-            },
-          });
-        })
-        .catch((releaseError: unknown) => {
-          this.logger.error(
-            `שחרור ליד ${sharedLeadId} אחרי קנייה כושלת נכשל: ${String(releaseError)}`,
-          );
-        });
-      throw error;
-    }
-
-    // התראה למוכר — אחרי שהקנייה הושלמה; כשל כאן אינו מבטל את המכירה
-    await this.prisma
-      .withExplicitTenant(row.tenantId, (tx) =>
-        tx.outboxEvent.create({
-          data: {
-            id: ulid(),
-            tenantId: row.tenantId,
-            name: "shared_lead.sold",
-            payload: { sharedLeadId, tenantId: row.tenantId, priceCredits: cost },
-          },
-        }),
-      )
-      .catch((error: unknown) => {
-        this.logger.error(`התראת מכירת ליד ${sharedLeadId} לא נשלחה: ${String(error)}`);
-      });
+      return newLeadId;
+    });
 
     return { leadId };
+  }
+
+  /**
+   * נעילת הוצאת קרדיטים של משרד עד סוף הטרנזקציה — בדיקת יתרה וחיוב
+   * הופכים לסדרתיים. בלעדיה שתי הוצאות מקבילות עוברות יחד את בדיקת
+   * היתרה והיומן יורד למינוס.
+   */
+  private async lockCreditSpend(tx: TenantTx, tenantId: string): Promise<void> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`credits:${tenantId}`}, 0))`;
   }
 
   private toSharedLeadDto(
