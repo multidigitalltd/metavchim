@@ -190,15 +190,28 @@ export class GmailService {
    * מספיק לזיהוי טלפון ולתיעוד, בלי לפרסר MIME ובלי להחזיק תוכן
    * מלא של תכתובת פרטית.
    */
-  async newInboundMessages(link: GmailLinkRow, limit = 25): Promise<InboundEmail[]> {
+  async newInboundMessages(link: GmailLinkRow, pageSize = 25): Promise<InboundEmail[]> {
     const token = await this.accessToken(link);
     // newer_than גס בכוונה — הסינון המדויק נעשה מול הסמן אצלנו
     const query = encodeURIComponent("in:inbox newer_than:2d");
-    const list = await this.fetchJson<{ messages?: { id: string }[] }>(
-      `${GMAIL_BASE}/messages?q=${query}&maxResults=${limit}`,
-      { token },
-    );
-    const ids = (list.messages ?? []).map((m) => m.id);
+
+    /*
+     * עימוד מלא ולא עמוד ראשון בלבד: Gmail מחזיר מהחדשה לישנה, ובלי
+     * המשך ל-nextPageToken עומס של יותר מעמוד אחד בין סבבים היה
+     * מקדם את הסמן אל ההודעה החדשה ביותר ומפיל את הישנות לתמיד
+     * (ביקורת Codex). newer_than:2d חוסם את העומק, והתקרה הכוללת
+     * היא רשת ביטחון בלבד.
+     */
+    const ids: string[] = [];
+    let pageToken: string | undefined;
+    do {
+      const page: { messages?: { id: string }[]; nextPageToken?: string } = await this.fetchJson(
+        `${GMAIL_BASE}/messages?q=${query}&maxResults=${pageSize}${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""}`,
+        { token },
+      );
+      ids.push(...(page.messages ?? []).map((m) => m.id));
+      pageToken = page.nextPageToken;
+    } while (pageToken !== undefined && ids.length < 200);
     if (ids.length === 0) return [];
 
     const out: InboundEmail[] = [];

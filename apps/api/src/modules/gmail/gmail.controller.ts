@@ -69,7 +69,9 @@ export class GmailController {
   @RequireCapability("settings.manage")
   async callback(@Req() req: Request, @Res() res: Response): Promise<void> {
     const webOrigin = loadEnv().WEB_ORIGIN;
-    const done = `${webOrigin}/settings/integrations`;
+    // חוזרים אל מסך ההגדרות, ישירות לקטע ה-Gmail — שם התוצאה נקראת
+    // ומוצגת; ההפניה למסך האינטגרציות הייתה נוחתת על דף שלא מציג כלום
+    const done = (result: string): string => `${webOrigin}/settings?gmail=${result}#gmail`;
     const query = req.query as Record<string, string | undefined>;
     const expected = (req.cookies as Record<string, string> | undefined)?.[STATE_COOKIE];
     res.clearCookie(STATE_COOKIE, { path: "/" }); // חד-פעמי בכל מקרה
@@ -77,16 +79,16 @@ export class GmailController {
     const code = query["code"];
     // השוואת state לפני כל פנייה החוצה — תשובה שלא נולדה מבקשה שלנו
     if (query["error"] !== undefined || !code || !expected || query["state"] !== expected) {
-      res.redirect(`${done}?gmail=failed`);
+      res.redirect(done("failed"));
       return;
     }
 
     const { tenantId, userId } = TenantContext.current();
     try {
       await this.gmail.connect(code, tenantId, userId);
-      res.redirect(`${done}?gmail=connected`);
+      res.redirect(done("connected"));
     } catch {
-      res.redirect(`${done}?gmail=failed`);
+      res.redirect(done("failed"));
     }
   }
 

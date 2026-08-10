@@ -110,17 +110,30 @@ export class GmailSyncService implements OnModuleInit, OnModuleDestroy {
     let imported = 0;
     let skipped = 0;
     let cursor = Number(link.lastInternalMs);
+    let failure: string | null = null;
 
+    /*
+     * ההודעות ממוינות מהישנה לחדשה והסמן מתקדם אחרי כל אחת — גם אם
+     * הודעה באמצע נכשלת, מה שכבר נקלט לא ייקלט שוב בסבב הבא
+     * (ביקורת Codex). הודעה שנכשלה נספרת כדילוג והסמן ממשיך:
+     * הודעה רעילה אחת לא חוסמת את התיבה לנצח.
+     */
     for (const message of messages) {
-      const handled = await this.handleMessage(link, message);
-      if (handled) imported += 1;
-      else skipped += 1;
+      try {
+        const handled = await this.handleMessage(link, message);
+        if (handled) imported += 1;
+        else skipped += 1;
+      } catch (err) {
+        skipped += 1;
+        failure = (err instanceof Error ? err.message : "שגיאה בקליטת הודעה").slice(0, 300);
+        this.logger.warn(`הודעת Gmail ${message.id} נכשלה: ${failure}`);
+      }
       cursor = Math.max(cursor, message.internalMs);
     }
 
     await this.gmail.markSynced(link, {
       lastInternalMs: cursor,
-      error: null,
+      error: failure,
       skippedDelta: skipped,
     });
     if (messages.length > 0) {
