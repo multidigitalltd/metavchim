@@ -41,6 +41,8 @@ model Tenant {
   /// הראשון שמצליח. העתק ולא קריאה מהקופון: עריכה או כיבוי שלו
   /// אינם אמורים לשנות למפרע את מה שכבר הובטח.
   couponPercentOff Int? @map("coupon_percent_off")
+  /// המסלול שהקופון הוגבל אליו ברגע המימוש — ההנחה חלה רק עליו.
+  couponPlanCode String? @map("coupon_plan_code") @db.VarChar(20)
   settings  Json     @default("{}")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

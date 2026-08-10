@@ -32,3 +32,7 @@ CREATE INDEX coupons_is_active_idx ON coupons (is_active);
 -- למי שנרשם.
 ALTER TABLE tenants ADD COLUMN coupon_code VARCHAR(40);
 ALTER TABLE tenants ADD COLUMN coupon_percent_off INTEGER;
+
+-- המסלול שהקופון הוגבל אליו, כפי שהיה ברגע המימוש. בלעדיו מי שנרשם
+-- למסלול הזול עם קופון מוגבל היה רוכש מיד את היקר באותה הנחה.
+ALTER TABLE tenants ADD COLUMN coupon_plan_code VARCHAR(20);

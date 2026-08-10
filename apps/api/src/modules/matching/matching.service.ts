@@ -184,7 +184,8 @@ export class MatchingService {
           tenantId,
           deletedAt: null,
           dealType: property.dealType,
-          cities: { has: property.city },
+          // רשימת ערים ריקה = בלי מגבלת אזור — הקונה נשאר מועמד
+          OR: [{ cities: { has: property.city } }, { cities: { isEmpty: true } }],
           budgetMaxAgorot: { gte: BigInt(Math.floor(Number(property.priceAgorot) / 1.07)) },
         },
         select: { id: true, requirements: true },
@@ -227,7 +228,7 @@ export class MatchingService {
           tenantId,
           deletedAt: null,
           status: { in: ["draft", "active"] },
-          city: { in: requirements.cities },
+          ...(requirements.cities.length > 0 ? { city: { in: requirements.cities } } : {}),
           ...(requirements.dealType ? { dealType: requirements.dealType } : {}),
           priceAgorot: { lte: BigInt(Math.floor(Number(requirements.budgetMaxAgorot) * 1.07)) },
         },

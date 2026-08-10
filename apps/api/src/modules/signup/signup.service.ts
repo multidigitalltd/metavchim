@@ -88,7 +88,12 @@ export class SignupService {
      * בקופון מוגבל. מאוחר מדי — הדייר כבר קיים כשמתברר שהקוד נגמר.
      * מה שנשאר בין לבין הוא כישלון כתיבה, ולכן יש `release`.
      */
-    let redeemed: { code: string; percentOff: number | null; freeDays: number | null } | null = null;
+    let redeemed: {
+      code: string;
+      percentOff: number | null;
+      freeDays: number | null;
+      planCode: string | null;
+    } | null = null;
     if (input.coupon !== undefined && input.coupon.trim() !== "") {
       const result = await this.coupons.redeem(input.coupon, plan.code);
       if (!result.ok) throw new BadRequestException(couponRejectionMessage(result.rejection));
@@ -96,6 +101,7 @@ export class SignupService {
         code: result.coupon.code,
         percentOff: result.coupon.kind === "percent" ? result.coupon.percentOff : null,
         freeDays: result.coupon.kind === "free_days" ? result.coupon.freeDays : null,
+        planCode: result.coupon.planCode,
       };
     }
 
@@ -144,6 +150,8 @@ export class SignupService {
                    * מה שכבר הובטח.
                    */
                   couponPercentOff: redeemed.percentOff,
+                  // ההגבלה למסלול מועתקת גם היא — הרכישה אוכפת אותה
+                  couponPlanCode: redeemed.planCode,
                 }
               : {}),
           },

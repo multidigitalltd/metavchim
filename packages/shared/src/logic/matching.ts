@@ -34,8 +34,8 @@ export function scoreMatch(property: PropertyFields, buyer: BuyerRequirements): 
   const parts: ScoreComponent[] = [];
   let excluded = false;
 
-  // --- מיקום (0.25) ---
-  if (property.city !== undefined) {
+  // --- מיקום (0.25) --- קונה בלי ערים = בלי מגבלת אזור, הקריטריון מדולג
+  if (property.city !== undefined && buyer.cities.length > 0) {
     const cityOk = buyer.cities.some((c) => c.trim() === property.city?.trim());
     const neighborhoodBonus =
       cityOk &&

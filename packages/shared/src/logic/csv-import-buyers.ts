@@ -11,6 +11,8 @@ export interface ParsedBuyerRow {
   name?: string;
   phone?: string;
   cities: string[];
+  /** "מקור הגעה" — שדה אמיתי בכרטיס הקונה שלא היה ניתן לייבוא כלל. */
+  source?: string;
   /** ערך לא מזוהה מועבר כמו-שהוא (string) — השרת ידחה את השורה עם שגיאה ברורה. */
   dealType?: "sale" | "rent" | (string & {});
   budgetMinAgorot?: number;
@@ -24,26 +26,109 @@ export interface ParsedBuyerRow {
 
 type BuyerColumn = keyof ParsedBuyerRow;
 
-/** מיפוי כותרת עברית (מנורמלת) → שדה קונה */
+/**
+ * נרמול כותרת לפני ההשוואה.
+ *
+ * גיליון אמיתי לא מגיע נקי: מרכאות שנשארו מייצוא, כוכבית שמסמנת
+ * "חובה", ניקוד, רווח כפול, ורווח קשיח שנראה זהה לרווח רגיל. כל אחד
+ * מהם לבדו הופך כותרת מוכרת ללא-מוכרת, והמשתמש רואה עמודה שנזרקה
+ * בלי לדעת למה.
+ */
+function normalizeHeader(raw: string): string {
+  return raw
+    .replace(/^\uFEFF/u, "")
+    .replace(/["'*׳״]/gu, "")
+    .replace(/[\u0591-\u05C7]/gu, "") // ניקוד וטעמים
+    .replace(/[\u00A0\s]+/gu, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * מיפוי כותרת → שדה קונה.
+ *
+ * הרשימה ארוכה בכוונה. כל משרד מגיע עם הגיליון שלו, ולכל שדה יש
+ * ארבע-חמש דרכים מקובלות לקרוא לו בעברית. כותרת שלא זוהתה אינה
+ * מפילה את הייבוא — היא מדווחת למסך — אבל היא כן אומרת שהמידע
+ * שבעמודה הזו הלך לאיבוד, וזה מה שהרשימה באה למנוע.
+ */
 const HEADER_MAP: Record<string, BuyerColumn> = {
+  // --- שם ---
   שם: "name",
   "שם מלא": "name",
+  "שם הלקוח": "name",
+  "שם לקוח": "name",
+  "שם פרטי": "name",
   לקוח: "name",
+  קונה: "name",
+  "שם הקונה": "name",
+  name: "name",
+  "full name": "name",
+  // --- טלפון ---
   טלפון: "phone",
   נייד: "phone",
+  "טלפון נייד": "phone",
+  "מספר טלפון": "phone",
+  "מס טלפון": "phone",
+  "טלפון ראשי": "phone",
+  סלולרי: "phone",
+  phone: "phone",
+  mobile: "phone",
+  // --- ערים ---
   עיר: "cities",
   ערים: "cities",
+  אזור: "cities",
+  איזור: "cities",
+  ישוב: "cities",
+  יישוב: "cities",
+  "עיר מבוקשת": "cities",
+  "אזור מבוקש": "cities",
+  city: "cities",
+  // --- סוג עסקה ---
   "סוג עסקה": "dealType",
   עסקה: "dealType",
+  "סוג העסקה": "dealType",
+  "סוג הנכס המבוקש": "dealType",
+  "מכירה/השכרה": "dealType",
+  // --- תקציב ---
   תקציב: "budgetMaxAgorot",
   "תקציב מקסימלי": "budgetMaxAgorot",
+  "תקציב מקסימום": "budgetMaxAgorot",
+  "תקציב עד": "budgetMaxAgorot",
+  "מחיר מקסימלי": "budgetMaxAgorot",
+  budget: "budgetMaxAgorot",
   "תקציב מינימלי": "budgetMinAgorot",
+  "תקציב מינימום": "budgetMinAgorot",
+  "תקציב מ": "budgetMinAgorot",
+  // --- חדרים ---
   חדרים: "roomsMin",
+  "מספר חדרים": "roomsMin",
   "חדרים מינימום": "roomsMin",
+  "חדרים מ": "roomsMin",
   "חדרים מקסימום": "roomsMax",
+  "חדרים עד": "roomsMax",
+  // --- מימון ---
   מימון: "financing",
+  "סטטוס מימון": "financing",
+  משכנתא: "financing",
+  // --- בשלות ---
   בשלות: "maturity",
+  סטטוס: "maturity",
+  "סטטוס לקוח": "maturity",
+  שלב: "maturity",
+  status: "maturity",
+  // --- מקור ---
+  מקור: "source",
+  "מקור הגעה": "source",
+  "מקור ליד": "source",
+  "איך הגיע": "source",
+  "מאיפה הגיע": "source",
+  source: "source",
+  // --- הערות ---
   הערות: "agentNotes",
+  הערה: "agentNotes",
+  "הערות פנימיות": "agentNotes",
+  notes: "agentNotes",
 };
 
 export const DEAL_TYPE_MAP: Record<string, "sale" | "rent"> = {
@@ -51,8 +136,16 @@ export const DEAL_TYPE_MAP: Record<string, "sale" | "rent"> = {
   קנייה: "sale",
   קניה: "sale",
   רכישה: "sale",
+  לקנות: "sale",
+  קונה: "sale",
+  מכר: "sale",
+  sale: "sale",
+  buy: "sale",
   השכרה: "rent",
   שכירות: "rent",
+  לשכור: "rent",
+  שוכר: "rent",
+  rent: "rent",
 };
 
 export const FINANCING_MAP: Record<string, ParsedBuyerRow["financing"]> = {
@@ -64,9 +157,17 @@ export const FINANCING_MAP: Record<string, ParsedBuyerRow["financing"]> = {
 
 export const MATURITY_MAP: Record<string, BuyerMaturity> = {
   "חם מאוד": "very_hot",
+  דחוף: "very_hot",
   חם: "hot",
+  פעיל: "hot",
+  רציני: "hot",
   מתעניין: "interested",
+  בתהליך: "interested",
+  חדש: "interested",
   "לא בשל": "not_ripe",
+  קר: "not_ripe",
+  ממתין: "not_ripe",
+  מוקפא: "not_ripe",
 };
 
 /**
@@ -105,7 +206,7 @@ export function parseBuyersCsv(csv: string): {
   if (records.length < 2) return { rows: [], unmappedHeaders: [] };
 
   const headers = records[0] ?? [];
-  const mapped = headers.map((h) => HEADER_MAP[h.trim()]);
+  const mapped = headers.map((h) => HEADER_MAP[normalizeHeader(h)]);
   const unmappedHeaders = headers.filter((_h, i) => mapped[i] === undefined);
 
   const rows: ParsedBuyerRow[] = [];
@@ -118,19 +219,33 @@ export function parseBuyersCsv(csv: string): {
       const raw = unsanitizeFormulaCell((cells[col] ?? "").trim());
       if (!target || raw === "") return;
 
-      if (target === "name" || target === "agentNotes") {
-        row[target] = raw;
+      if (target === "name") {
+        row.name = raw;
+      } else if (target === "agentNotes") {
+        // צירוף ולא דריסה: עמודת הסטטוס אולי כבר כתבה לכאן
+        row.agentNotes = row.agentNotes ? `${raw} | ${row.agentNotes}` : raw;
       } else if (target === "phone") {
         row.phone = normalizeIsraeliPhone(raw) ?? raw;
       } else if (target === "cities") {
         row.cities = splitCities(raw);
       } else if (target === "dealType") {
         // ערך לא מזוהה לא הופך בשקט ל"מכירה" — מועבר גולמי והשרת דוחה את השורה
-        row.dealType = DEAL_TYPE_MAP[raw] ?? raw;
+        row.dealType = DEAL_TYPE_MAP[raw.trim()] ?? raw;
+      } else if (target === "source") {
+        row.source = raw;
       } else if (target === "financing") {
-        row.financing = FINANCING_MAP[raw];
+        row.financing = FINANCING_MAP[raw.trim()];
       } else if (target === "maturity") {
-        row.maturity = MATURITY_MAP[raw];
+        /*
+         * בשלות שאינה מזוהה **אינה מפילה את השורה** — היא נופלת
+         * לברירת המחדל, והמילה המקורית נשמרת בהערות. "סטטוס"
+         * בגיליונות אמיתיים מכיל כל דבר ("בטיפול", "חוזר אליו"),
+         * ושורה של לקוח אמיתי שנזרקת בגלל מילה בעמודת סטטוס היא
+         * עסקת חליפין גרועה. כלום לא הולך לאיבוד.
+         */
+        const known = MATURITY_MAP[raw.trim()];
+        if (known) row.maturity = known;
+        else row.agentNotes = row.agentNotes ? `${row.agentNotes} | סטטוס: ${raw}` : `סטטוס: ${raw}`;
       } else if (target === "budgetMinAgorot" || target === "budgetMaxAgorot") {
         const agorot = parseShekelsToAgorot(raw);
         if (agorot !== undefined) row[target] = agorot;

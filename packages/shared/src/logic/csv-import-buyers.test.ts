@@ -68,3 +68,50 @@ describe("parseBuyersCsv", () => {
     expect(parseBuyersCsv("").rows).toHaveLength(0);
   });
 });
+
+describe("הגיליון האמיתי שנדחה — שם/טלפון/תקציב/סוג עסקה/סטטוס/הערות/מקור", () => {
+  const CSV = [
+    "שם,טלפון,תקציב,סוג עסקה,סטטוס,הערות,מקור הגעה",
+    'משה כהן,050-1234567,"2,500,000",קנייה,חם,מחפש דחוף,פייסבוק',
+    "דנה לוי,052-7654321,8000,שכירות,בטיפול,,המלצה",
+  ].join("\n");
+
+  it("כל הכותרות מזוהות — אין עמודה שנזרקת בשקט", () => {
+    const { unmappedHeaders } = parseBuyersCsv(CSV);
+    expect(unmappedHeaders).toEqual([]);
+  });
+
+  it("השורות נקלטות בלי עמודת עיר בכלל", () => {
+    const { rows } = parseBuyersCsv(CSV);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      name: "משה כהן",
+      phone: "+972501234567",
+      budgetMaxAgorot: 250_000_000,
+      dealType: "sale",
+      maturity: "hot",
+      source: "פייסבוק",
+      cities: [],
+    });
+  });
+
+  it("סטטוס לא מזוהה לא מפיל את השורה — הוא עובר להערות", () => {
+    const { rows } = parseBuyersCsv(CSV);
+    expect(rows[1]?.maturity).toBeUndefined();
+    expect(rows[1]?.agentNotes).toContain("סטטוס: בטיפול");
+  });
+
+  it("כותרת עם רווחים, כוכבית או רישיות שונה עדיין מזוהה", () => {
+    const messy = 'שם מלא *, טלפון , "מקור הגעה"\nרון,0501111111,אתר';
+    const { rows, unmappedHeaders } = parseBuyersCsv(messy);
+    expect(unmappedHeaders).toEqual([]);
+    expect(rows[0]?.source).toBe("אתר");
+  });
+
+  it("הערות מהקובץ ומעמודת הסטטוס חיות יחד", () => {
+    const csv = "שם,טלפון,סטטוס,הערות\nרון,0501111111,בטיפול,לקוח ותיק";
+    const { rows } = parseBuyersCsv(csv);
+    expect(rows[0]?.agentNotes).toContain("לקוח ותיק");
+    expect(rows[0]?.agentNotes).toContain("סטטוס: בטיפול");
+  });
+});
