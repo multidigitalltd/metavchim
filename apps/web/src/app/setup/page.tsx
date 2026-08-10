@@ -46,16 +46,26 @@ interface CreatedAgent {
 }
 
 /** שלב 1 — פרטי המשרד: מה שמופיע על כל הצעה ודף נחיתה. */
-function StepOffice({ onSaved }: { onSaved: () => void }) {
+function StepOffice({ allowed, onSaved }: { allowed: boolean; onSaved: () => void }) {
   const [values, setValues] = useState<OfficeSettings | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = () => {
+    setLoadFailed(false);
     apiGet<OfficeSettings>("/settings/tenant")
       .then(setValues)
-      .catch(() => setValues({ name: "" }));
-  }, []);
+      .catch(() => setLoadFailed(true));
+  };
+  /*
+   * כשל טעינה אינו הופך לטופס ריק: טופס ריק שנשמר היה מוחק את
+   * הטלפון, הכתובת והרישיון הקיימים (ביקורת Codex). במקום זה —
+   * הודעה וכפתור ניסיון חוזר.
+   */
+  useEffect(() => {
+    if (allowed) load();
+  }, [allowed]);
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -76,6 +86,28 @@ function StepOffice({ onSaved }: { onSaved: () => void }) {
     }
   }
 
+  // ההרשאה נבדקת גם בשרת (settings.manage) — כאן רק לא מציגים
+  // טופס שכל שמירה בו תסתיים ב-403 (ביקורת Codex)
+  if (!allowed) {
+    return (
+      <div>
+        <h2 className="mb-1 text-xl font-bold">נתחיל מהמשרד</h2>
+        <p style={{ color: "var(--color-text-muted)" }}>
+          עריכת פרטי המשרד שמורה לבעל המשרד או למנהל — אפשר לדלג לשלב הבא.
+        </p>
+      </div>
+    );
+  }
+  if (loadFailed) {
+    return (
+      <div>
+        <p role="alert" className="mb-3" style={{ color: "var(--color-danger)" }}>
+          טעינת פרטי המשרד נכשלה — לא נציג טופס ריק כדי לא לדרוס נתונים קיימים.
+        </p>
+        <Button variant="secondary" onClick={load}>נסו שוב</Button>
+      </div>
+    );
+  }
   if (!values) return <p aria-live="polite">טוען…</p>;
 
   return (
@@ -291,7 +323,9 @@ export default function SetupPage() {
       </div>
 
       <div className="rounded-2xl border p-6" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)", minHeight: 320 }}>
-        {step === 1 ? <StepOffice onSaved={() => setStep(2)} /> : null}
+        {step === 1 ? (
+          <StepOffice allowed={can(user, "settings.manage")} onSaved={() => setStep(2)} />
+        ) : null}
 
         {step === 2 ? (
           <div>
