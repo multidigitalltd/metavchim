@@ -10,7 +10,12 @@ import { ContactsService } from "../contacts/contacts.service";
 
 export interface LeadDto {
   id: string;
-  contact: { id: string; name: string; phone: string };
+  /**
+   * האימייל אופציונלי: ליד שנפתח מתיבת הדואר מביא איתו את כתובת
+   * השולח, וזו הדרך הטבעית להשיב לו. ליד משיחה נכנסת לא תמיד יודע
+   * אותה, ולכן השדה אינו חובה.
+   */
+  contact: { id: string; name: string; phone: string; email?: string };
   source: string;
   intent: string;
   status: string;
@@ -314,7 +319,7 @@ function toLeadDto(
     createdAt: Date;
     updatedAt: Date;
   },
-  contact: { id: string; name: string; phone: string },
+  contact: { id: string; name: string; phone: string; email?: string },
 ): LeadDto {
   return {
     id: row.id,
