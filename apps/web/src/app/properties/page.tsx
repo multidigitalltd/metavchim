@@ -8,7 +8,7 @@ import { API_BASE, apiGet } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
-import { IconHome, IconMic } from "../icons";
+import { IconHome, IconMic, IconPlus, IconSheet } from "../icons";
 import { CapNote, FilterBar, FilterChips, FilterSelect, SortSelect } from "../list-controls";
 import {
   EMPTY_FILTERS,
@@ -173,21 +173,21 @@ export default function PropertiesPage() {
           onChange={setCity}
           options={cities.map((c) => [c, c] as [string, string])}
         />
-        <div className="ms-auto flex flex-wrap gap-2.5">
+        <div className="ms-auto flex flex-wrap items-center gap-2.5">
           {/* כפתור שמוביל לפיצ'ר שאינו במסלול נחסם בשרת ממילא —
               עדיף לא להציג אותו מאשר להסביר 403 אחרי בחירת קובץ */}
           {canImport ? (
-            <Link href="/import" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
-              ייבוא מאקסל
+            <Link href="/import" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "13.5px" }}>
+              <IconSheet s={15} /> ייבוא מאקסל
             </Link>
           ) : null}
           {canVoice ? (
-            <Link href="/properties/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
+            <Link href="/properties/voice" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "13.5px" }}>
               <IconMic s={15} /> נכס בקול
             </Link>
           ) : null}
-          <Link href="/properties/new" className="mv-btn-action">
-            + נכס חדש
+          <Link href="/properties/new" className="mv-btn-action" style={{ minHeight: 38 }}>
+            <IconPlus s={15} /> נכס חדש
           </Link>
         </div>
       </div>

@@ -12,6 +12,7 @@ import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { FINANCING_LABELS, formatBuyerSource, formatDate, formatPrice, MATURITY_LABELS, waMeUrl } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { WithDictation } from "../../dictation-field";
+import { IconChat, IconEdit, IconHandshake, IconPhone } from "../../icons";
 import { TimelineSection } from "./timeline-section";
 import { ContactPeople } from "../../contact-people";
 import { RelatedEntities } from "../../related-entities";
@@ -227,32 +228,41 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
             מימון: {FINANCING_LABELS[buyer.financing] ?? buyer.financing}
           </p>
         </div>
-        <div className="ms-auto flex flex-wrap gap-2">
+        {/* שורת פעולות אחידה: אותו גובה לכל כפתור, אייקון לכל פעולה */}
+        <div className="ms-auto flex flex-wrap items-center gap-2">
           <a
             href={waMeUrl(buyer.contact.phone)}
             target="_blank"
             rel="noreferrer"
             className="mv-btn-plain"
-            style={{ padding: "7px 14px", fontSize: 13 }}
+            style={{ minHeight: 36, paddingInline: 14, fontSize: 13 }}
           >
-            וואטסאפ
+            <IconChat s={14} /> וואטסאפ
           </a>
           {/* מהמכשיר — תמיד זמין, ולא נרשם במערכת */}
-          <a href={`tel:${buyer.contact.phone}`} className="mv-btn-plain" style={{ padding: "7px 14px", fontSize: 13 }}>
-            חייג מהנייד
+          <a
+            href={`tel:${buyer.contact.phone}`}
+            className="mv-btn-plain"
+            style={{ minHeight: 36, paddingInline: 14, fontSize: 13 }}
+          >
+            <IconPhone s={14} /> חייג מהנייד
           </a>
           {/* דרך המרכזייה — נרשם בכרטיס מעצמו, עם משך והקלטה */}
           <ClickToDial contactId={buyer.contact.id} phone={buyer.contact.phone} label="חייג מהמרכזייה" />
-          <Link href={`/buyers/${id}/edit`} className="mv-btn-plain" style={{ padding: "7px 14px", fontSize: 13 }}>
-            ערוך דרישות
+          <Link
+            href={`/buyers/${id}/edit`}
+            className="mv-btn-plain"
+            style={{ minHeight: 36, paddingInline: 14, fontSize: 13 }}
+          >
+            <IconEdit s={14} /> ערוך דרישות
           </Link>
           <label className="flex items-center gap-1.5 text-sm">
             <span>חלוקת עמלה</span>
             <select
               value={shareSplit}
               onChange={(e) => setShareSplit(Number(e.target.value))}
-              className="rounded-lg border px-2 py-1.5"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+              className="mv-select"
+              style={{ minHeight: 36 }}
               aria-label="חלוקת העמלה בשיתוף"
             >
               {COMMISSION_SPLIT_OPTIONS.map((share) => (
@@ -265,11 +275,11 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
           <button
             type="button"
             className="mv-btn-soft"
-            style={{ padding: "7px 14px", fontSize: 13 }}
+            style={{ minHeight: 36, paddingInline: 14, fontSize: 13 }}
             aria-expanded={shareOpen}
             onClick={() => setShareOpen((v) => !v)}
           >
-            שתף ברשת (אנונימי)
+            <IconHandshake s={14} /> שתף ברשת (אנונימי)
           </button>
         </div>
         {shareOpen ? (

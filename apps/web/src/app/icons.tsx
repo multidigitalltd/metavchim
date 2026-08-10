@@ -376,6 +376,12 @@ export const IconInfo = ({ s }: IconProps) => (
   </svg>
 );
 
+export const IconFilter = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M3.5 5h17l-6.5 7.6v5.4l-4 2v-7.4Z" />
+  </svg>
+);
+
 export const IconDownload = ({ s }: IconProps) => (
   <svg {...svgProps(s)}>
     <path d="M12 4v11" />

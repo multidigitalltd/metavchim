@@ -8,7 +8,7 @@ import { apiGet } from "@/lib/api";
 import { formatPrice, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
-import { IconMic } from "../icons";
+import { IconMic, IconPlus, IconSheet } from "../icons";
 import { CapNote, FilterBar, FilterSelect, textMatches } from "../list-controls";
 import {
   EMPTY_FILTERS,
@@ -27,6 +27,7 @@ interface BuyerRow {
   id: string;
   contact: { name: string; phone: string };
   requirements: {
+    dealType?: string;
     cities: string[];
     budgetMinAgorot?: number;
     budgetMaxAgorot: number;
@@ -94,6 +95,8 @@ export default function BuyersPage() {
   const [filters, setFilters] = useState<ListFilterValues>(EMPTY_FILTERS);
   const [maturity, setMaturity] = useState("");
   const [offersFilter, setOffersFilter] = useState("");
+  /** קונה (sale) או שוכר (rent) — הלשונית היא "קונים · שוכרים" */
+  const [dealType, setDealType] = useState("");
 
   /*
    * טווחי התקציב והחדרים נשלחים לשרת; החיפוש הטקסטואלי נשאר בדפדפן.
@@ -123,12 +126,13 @@ export default function BuyersPage() {
         (b) =>
           textMatches(filters.q, b.contact.name, b.contact.phone, ...b.requirements.cities) &&
           (!maturity || b.maturity === maturity) &&
+          (!dealType || (b.requirements.dealType ?? "sale") === dealType) &&
           // "מי לא קיבל כלום" הוא הסינון שמייצר עבודה בפועל
           (offersFilter === "" ||
             (offersFilter === "none" && (b.offersReceived ?? 0) === 0) ||
             (offersFilter === "some" && (b.offersReceived ?? 0) > 0)),
       ),
-    [items, filters.q, maturity, offersFilter],
+    [items, filters.q, maturity, offersFilter, dealType],
   );
 
   return (
@@ -141,21 +145,21 @@ export default function BuyersPage() {
           <b style={{ color: "var(--color-primary)" }}>מתעניין</b> ·{" "}
           <b style={{ color: "var(--color-text-muted)" }}>לא בשל</b>
         </div>
-        <div className="ms-auto flex flex-wrap gap-2.5">
+        <div className="ms-auto flex flex-wrap items-center gap-2.5">
           {/* כפתור שמוביל לפיצ'ר שאינו במסלול נחסם בשרת ממילא —
               עדיף לא להציג אותו מאשר להסביר 403 אחרי בחירת קובץ */}
           {canImport ? (
-            <Link href="/import" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
-              ייבוא מאקסל
+            <Link href="/import" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "13.5px" }}>
+              <IconSheet s={15} /> ייבוא מאקסל
             </Link>
           ) : null}
           {canVoice ? (
-            <Link href="/buyers/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
+            <Link href="/buyers/voice" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "13.5px" }}>
               <IconMic s={15} /> קונה בקול
             </Link>
           ) : null}
-          <Link href="/buyers/new" className="mv-btn-action">
-            + קונה חדש
+          <Link href="/buyers/new" className="mv-btn-action" style={{ minHeight: 38 }}>
+            <IconPlus s={15} /> קונה חדש
           </Link>
         </div>
       </div>
@@ -194,14 +198,26 @@ export default function BuyersPage() {
             shown={visible.length}
             total={items.length}
             noun="קונים"
-            active={hasActiveFilters(filters) || maturity !== "" || offersFilter !== ""}
+            active={
+              hasActiveFilters(filters) || maturity !== "" || offersFilter !== "" || dealType !== ""
+            }
             onClear={() => {
-              setFilters(EMPTY_FILTERS);
               setFilters(EMPTY_FILTERS);
               setMaturity("");
               setOffersFilter("");
+              setDealType("");
             }}
           >
+            <FilterSelect
+              label="סינון לפי קונה או שוכר"
+              value={dealType}
+              onChange={setDealType}
+              allLabel="קונים ושוכרים"
+              options={[
+                ["sale", "קונים"],
+                ["rent", "שוכרים"],
+              ]}
+            />
             <FilterSelect
               label="סינון לפי בשלות"
               value={maturity}
@@ -232,6 +248,8 @@ export default function BuyersPage() {
                 onClick={() => {
                   setFilters(EMPTY_FILTERS);
                   setMaturity("");
+                  setOffersFilter("");
+                  setDealType("");
                 }}
               >
                 נקה סינון
@@ -323,7 +341,16 @@ export default function BuyersPage() {
               </div>
             </>
           )}
-          <CapNote show={(hasActiveFilters(filters) || maturity !== "" || offersFilter !== "") && items.length === 100} noun="קונים" />
+          <CapNote
+            show={
+              (hasActiveFilters(filters) ||
+                maturity !== "" ||
+                offersFilter !== "" ||
+                dealType !== "") &&
+              items.length === 100
+            }
+            noun="קונים"
+          />
         </>
       )}
     </>
