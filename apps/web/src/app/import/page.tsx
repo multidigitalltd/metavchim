@@ -18,7 +18,12 @@ interface ImportResult {
   failed: { row: number; error: string }[];
 }
 
-const MAX_ROWS = 500;
+/*
+ * 250 ולא 500: הערות מוגבלות ל-4,000 תווים לשורה, ואצווה של 500
+ * שורות מלאות מתקרבת לתקרת ה-2MB של השרת. 250 משאיר מרווח כפול —
+ * "request entity too large" על קובץ לגיטימי לא אמור לחזור.
+ */
+const MAX_ROWS = 250;
 
 type Mode = "properties" | "buyers";
 
@@ -36,6 +41,24 @@ const SAMPLES: Record<Mode, string> = {
 };
 
 const MODE_LABELS: Record<Mode, string> = { properties: "נכסים", buyers: "קונים" };
+
+
+/**
+ * קובצי התבנית להורדה — **כל** הכותרות שהמערכת מזהה, עם שורת דוגמה.
+ * מי שמדביק את הנתונים שלו לתוך התבנית מקבל ייבוא שעובר בפעם הראשונה.
+ */
+const TEMPLATE_CSV: Record<Mode, string> = {
+  properties: [
+    "עיר,שכונה,רחוב,חדרים,שטח,קומה,מחיר,סוג,סטטוס,כותרת",
+    'בני ברק,פרדס כץ,רבי עקיבא 10,3.5,80,2,1750000,דירה,פעיל,"דירה משופצת ומוארת"',
+  ].join("\n"),
+  buyers: [
+        // "סטטוס" אינו בתבנית בכוונה: הוא כינוי נרדף ל"בשלות" במפרק,
+    // ושתי עמודות שנראות שונות ונכתבות לאותו שדה הן מלכודת שקטה
+    "שם,טלפון,עיר,סוג עסקה,תקציב,תקציב מינימלי,חדרים מינימום,חדרים מקסימום,מימון,בשלות,מקור,הערות",
+    'משה כהן,050-1234567,"בני ברק, רמת גן",קנייה,1750000,1500000,3,4,אישור עקרוני,חם,פייסבוק,"מחפש דירה משופצת, גמיש בקומה"',
+  ].join("\n"),
+};
 
 export default function ImportPage() {
   const { loading: authLoading } = useRequireAuth();
@@ -106,14 +129,38 @@ export default function ImportPage() {
             }))
           : parsed.buyerRows;
 
-      // קובץ מיוצא יכול להכיל אלפי שורות — נשלח באצוות בגודל שהשרת מקבל,
-      // עם צבירת תוצאות והיסט מספרי שורות כך שהדיווח נשאר מול הקובץ המקורי.
+      /*
+       * האצוות נחתכות לפי **בייטים**, לא לפי מספר שורות.
+       *
+       * מספר קבוע נראה בטוח עד שקובץ חוקי לגמרי — הערות במקסימום,
+       * עברית (שני בייטים לתו) — עובר את תקרת השרת, וה-413 נופל על
+       * אצווה מאוחרת אחרי שהקודמות כבר נקלטו: ייבוא חלקי, הגרוע
+       * מכל התוצאות (ביקורת Codex). מגה-בייט לאצווה = חצי מהתקרה.
+       */
+      const encoder = new TextEncoder();
+      const BATCH_BYTES = 1_000_000;
+      const batches: { start: number; rows: typeof rows }[] = [];
+      let current: typeof rows = [];
+      let currentBytes = 0;
+      let start = 0;
+      rows.forEach((row, i) => {
+        const size = encoder.encode(JSON.stringify(row)).length + 1;
+        if (current.length > 0 && (currentBytes + size > BATCH_BYTES || current.length >= MAX_ROWS)) {
+          batches.push({ start, rows: current });
+          current = [];
+          currentBytes = 0;
+          start = i;
+        }
+        current.push(row);
+        currentBytes += size;
+      });
+      if (current.length > 0) batches.push({ start, rows: current });
+
       const total: ImportResult = { created: 0, failed: [] };
-      for (let offset = 0; offset < rows.length; offset += MAX_ROWS) {
-        const batch = rows.slice(offset, offset + MAX_ROWS);
-        const res = await apiPost<ImportResult>(`/import/${mode}`, { rows: batch });
+      for (const batch of batches) {
+        const res = await apiPost<ImportResult>(`/import/${mode}`, { rows: batch.rows });
         total.created += res.created;
-        total.failed.push(...res.failed.map((f) => ({ ...f, row: f.row + offset })));
+        total.failed.push(...res.failed.map((f) => ({ ...f, row: f.row + batch.start })));
       }
       setResult(total);
     } catch (err) {
@@ -178,14 +225,34 @@ export default function ImportPage() {
           <span>📄 בחרו קובץ CSV</span>
           <input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="mv-visually-hidden" onChange={onFile} />
         </label>
+        {/*
+          הורדה ולא רק טעינה למסך: המתווך פותח את הקובץ באקסל, רואה
+          את כל הכותרות שהמערכת מכירה, ומדביק את הנתונים שלו לתוכן —
+          זו הדרך הבטוחה ביותר לקובץ שעובר בפעם הראשונה.
+        */}
         <Button
           variant="secondary"
+          onClick={() => {
+            const blob = new Blob(["\uFEFF" + TEMPLATE_CSV[mode]], {
+              type: "text/csv;charset=utf-8",
+            });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = mode === "properties" ? "תבנית-נכסים.csv" : "תבנית-לקוחות.csv";
+            a.click();
+            URL.revokeObjectURL(a.href);
+          }}
+        >
+          ⬇️ הורדת קובץ לדוגמה (כל הכותרות)
+        </Button>
+        <Button
+          variant="ghost"
           onClick={() => {
             setCsv(SAMPLES[mode]);
             reset();
           }}
         >
-          טענו דוגמה
+          טענו דוגמה למסך
         </Button>
       </div>
 
@@ -211,13 +278,28 @@ export default function ImportPage() {
       </p>
 
       {parsed.unmappedHeaders.length > 0 ? (
-        <p
-          role="status"
-          className="mb-4 rounded-md p-3"
-          style={{ background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-text)" }}
+        /*
+          alert ולא status, ובולט: עמודה שנזרקת בשקט היא נתונים
+          שהמתווך בטוח שנכנסו — והוא מגלה את החוסר חודש אחרי, מול
+          לקוח. ליד האזהרה כתוב גם **מה עושים**, לא רק מה קרה.
+        */
+        <div
+          role="alert"
+          className="mb-4 rounded-xl border-2 p-4"
+          style={{ borderColor: "var(--color-warning, #d97706)", background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-text)" }}
         >
-          ⚠️ כותרות שלא זוהו ולא ייובאו: {parsed.unmappedHeaders.join(", ")}
-        </p>
+          <p className="m-0 mb-1 font-bold" style={{ fontSize: 15 }}>
+            ⚠️ {parsed.unmappedHeaders.length} עמודות לא זוהו — הנתונים שבהן לא ייובאו
+          </p>
+          <p className="m-0 mb-2 text-sm" dir="ltr">
+            {parsed.unmappedHeaders.join(" · ")}
+          </p>
+          <p className="m-0 text-sm">
+            <b>איך מתקנים:</b> הורידו את קובץ הדוגמה (הכפתור למעלה) וראו את שמות
+            העמודות שהמערכת מכירה. שינוי שם עמודה בקובץ שלכם לשם מוכר — והיא תיובא.
+            עמודות שאינן רלוונטיות אפשר להשאיר; הן פשוט ידולגו.
+          </p>
+        </div>
       ) : null}
 
       {tooMany ? (
