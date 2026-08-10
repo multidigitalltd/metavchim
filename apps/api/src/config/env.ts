@@ -101,6 +101,9 @@ const EnvSchema = z.object({
    */
   GOOGLE_CLIENT_ID: z.string().min(10).optional(),
   GOOGLE_CLIENT_SECRET: z.string().min(10).optional(),
+  /** Gemini Flash לפקודות קוליות — אופציונלי; בלעדיו עובדים החוקים */
+  GEMINI_API_KEY: z.string().min(10).optional(),
+  GEMINI_MODEL: z.string().min(3).optional(),
   /**
    * קארדקום — סליקת המנויים. שלושתם יחד או אף אחד: בלעדיהם הסליקה
    * כבויה, המסך מציג "טרם הופעלה" ואין כפתור תשלום שנופל. אפשר

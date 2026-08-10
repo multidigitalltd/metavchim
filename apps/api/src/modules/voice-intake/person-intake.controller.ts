@@ -12,6 +12,7 @@ import {
   stripCommandPrefix,
   type VoiceCommand,
 } from "@metavchim/shared";
+import { GeminiService } from "../../core/gemini.service";
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -74,25 +75,64 @@ const CreateBuyerSchema = z
  * היו ממשיכים לחלץ וליצור רשומות — כלומר קליטה קולית שממשיכה לעבוד
  * אחרי שהפיצ'ר בוטל במסלול (ביקורת Codex).
  */
+/** מה ש-Gemini רשאי להחזיר — כל מה שמחוץ לזה נזרק, לא מנוחש. */
+const LlmRouteSchema = z
+  .object({
+    action: z.enum([
+      "add_property",
+      "add_buyer",
+      "add_lead",
+      "schedule_appointment",
+      "send_offer",
+      "search",
+      "unknown",
+    ]),
+    content: z.string().max(2000).optional(),
+    query: z.string().max(300).optional(),
+    offer: z
+      .object({
+        propertyPhrase: z.string().max(200).optional(),
+        buyerPhrase: z.string().max(200).optional(),
+      })
+      .optional(),
+    appointmentKind: z.enum(["viewing", "meeting", "call"]).optional(),
+  })
+  .passthrough();
+
 @RequireFeature("voice_intake")
 @Controller("voice")
 export class PersonIntakeController {
   constructor(
     private readonly service: PersonIntakeService,
     private readonly offers: OfferIntakeService,
+    private readonly gemini: GeminiService,
   ) {}
 
   /** מה המתווך ביקש לעשות — לניתוב במסך הפקודה הקולית. */
   @Post("route")
   @HttpCode(200)
   @RequireCapability("properties.view")
-  route(
+  async route(
     @Body(new ZodValidationPipe(TranscriptSchema)) body: z.infer<typeof TranscriptSchema>,
-  ): VoiceCommand & {
-    content: string;
-    /** לפגישה: התאריך והסוג שזוהו — למילוי מראש של הטופס */
-    appointment?: { startsAt?: string; timeExplicit: boolean; kind: string };
-  } {
+  ): Promise<
+    VoiceCommand & {
+      content: string;
+      /** לפגישה: התאריך והסוג שזוהו — למילוי מראש של הטופס */
+      appointment?: { startsAt?: string; timeExplicit: boolean; kind: string };
+    }
+  > {
+    /*
+     * Gemini קודם, חוקים כנפילה-לאחור — **וגם כמכריע**.
+     *
+     * ה-LLM טוב ממנוע החוקים בזיהוי הכוונה בניסוח חופשי, אבל הוא
+     * מנחש בתאריכים ("יום שלישי הקרוב" דורש לוח שנה, לא שפה). לכן
+     * הכוונה נלקחת ממנו, והתאריך תמיד מחושב אצלנו, דטרמיניסטית,
+     * בשעון ירושלים. כל כשל — אין מפתח, timeout, JSON לא צפוי —
+     * מחזיר בשקט את החוקים, שעובדים היום.
+     */
+    const llm = await this.routeViaLlm(body.transcript);
+    if (llm) return llm;
+
     const command = routeVoiceCommand(body.transcript);
     const base = { ...command, content: stripCommandPrefix(body.transcript) };
     if (command.action !== "schedule_appointment") return base;
@@ -104,6 +144,60 @@ export class PersonIntakeController {
         ...(parsed.date ? { startsAt: parsed.date.toISOString() } : {}),
         timeExplicit: parsed.timeExplicit,
         kind: parseAppointmentKind(body.transcript),
+      },
+    };
+  }
+
+  /** ניתוב דרך Gemini. null = לא מוגדר או נכשל — נופלים לחוקים. */
+  private async routeViaLlm(transcript: string): Promise<
+    | (VoiceCommand & {
+        content: string;
+        appointment?: { startsAt?: string; timeExplicit: boolean; kind: string };
+      })
+    | null
+  > {
+    if (!(await this.gemini.isConfigured())) return null;
+    const raw = await this.gemini.generateJson(
+      [
+        "אתה מנתב פקודות במערכת CRM למתווכי נדל\"ן. נתח את המשפט וחזור JSON בלבד.",
+        'שדות: action (אחד מ: add_property, add_buyer, add_lead, schedule_appointment, send_offer, search, unknown),',
+        'content (המשפט בלי מילות הפקודה), query (לחיפוש בלבד),',
+        'offer (לשליחת הצעה: {propertyPhrase, buyerPhrase}),',
+        'appointmentKind (לפגישה: viewing/meeting/call).',
+        "אל תנחש: אם הכוונה אינה ברורה החזר unknown. אל תמציא שדות.",
+        `המשפט: "${transcript.replaceAll('"', "'")}"`,
+      ].join("\n"),
+    );
+    const parsed = LlmRouteSchema.safeParse(raw);
+    if (!parsed.success) return null;
+    const out = parsed.data;
+    const base: VoiceCommand & { content: string } = {
+      action: out.action,
+      // ה-LLM זיהה בניסוח חופשי — מהימנות גבוהה מהותית מניחוש regex
+      confidence: "high",
+      matched: transcript.slice(0, 60),
+      content: out.content?.trim() || stripCommandPrefix(transcript),
+      ...(out.action === "search" && out.query ? { query: out.query } : {}),
+      ...(out.action === "send_offer" && out.offer
+        ? {
+            offer: {
+              ...(out.offer.propertyPhrase ? { propertyPhrase: out.offer.propertyPhrase } : {}),
+              ...(out.offer.buyerPhrase ? { buyerPhrase: out.offer.buyerPhrase } : {}),
+            },
+          }
+        : {}),
+    };
+    if (out.action === "unknown") return null; // אולי החוקים דווקא מכירים
+    if (out.action !== "schedule_appointment") return base;
+
+    // התאריך תמיד מהמנוע הדטרמיניסטי — לוח שנה אינו עניין של ניסוח
+    const when = parseHebrewDateTime(transcript, new Date());
+    return {
+      ...base,
+      appointment: {
+        ...(when.date ? { startsAt: when.date.toISOString() } : {}),
+        timeExplicit: when.timeExplicit,
+        kind: out.appointmentKind ?? parseAppointmentKind(transcript),
       },
     };
   }

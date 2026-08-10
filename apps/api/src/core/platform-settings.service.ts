@@ -19,6 +19,8 @@ export type PlatformSettingKey =
   | "loginOtpEnabled"
   | "googleClientId"
   | "googleClientSecret"
+  | "geminiApiKey"
+  | "geminiModel"
   | "cardcomTerminalNumber"
   | "cardcomApiName"
   | "cardcomApiPassword";

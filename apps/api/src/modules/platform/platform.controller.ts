@@ -136,6 +136,9 @@ const UpdateSettingsSchema = z
     loginOtpEnabled: z.boolean().optional(),
     googleClientId: z.union([z.string().min(10).max(200), z.literal("")]).optional(),
     googleClientSecret: z.union([z.string().min(10).max(200), z.literal("")]).optional(),
+    /** Gemini לפקודות קוליות — מפתח בלבד מספיק; המודל אופציונלי */
+    geminiApiKey: z.union([z.string().min(10).max(200), z.literal("")]).optional(),
+    geminiModel: z.union([z.string().min(3).max(60), z.literal("")]).optional(),
     // מספר המסוף מגיע כמחרוזת ולא כמספר: הוא מזהה, לא כמות, ואפסים
     // מובילים בו משמעותיים
     cardcomTerminalNumber: z.union([z.string().regex(/^\d{1,12}$/u), z.literal("")]).optional(),
@@ -597,6 +600,8 @@ export class PlatformController {
     /** webhookUrl מוגדר פעם אחת במטא לכל הפלטפורמה — ולכן הוא כאן ולא בהגדרות המשרד. */
     whatsapp: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
     google: { configured: boolean; source: "db" | "env" | "none"; redirectUri: string };
+    /** Gemini לפקודות קוליות — model מוצג כדי שיהיה ברור מה באמת רץ. */
+    gemini: { configured: boolean; source: "db" | "env" | "none"; model: string };
     /** webhookUrl היא הכתובת שנרשמת אצל קארדקום — מוצגת כדי שלא ינחשו אותה. */
     cardcom: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
     loginOtpEnabled: boolean;
@@ -611,6 +616,8 @@ export class PlatformController {
     const waEnv = env.WHATSAPP_APP_SECRET !== undefined && env.WHATSAPP_VERIFY_TOKEN !== undefined;
     const googleDb = has("googleClientId") && has("googleClientSecret");
     const googleEnv = env.GOOGLE_CLIENT_ID !== undefined && env.GOOGLE_CLIENT_SECRET !== undefined;
+    const geminiDb = has("geminiApiKey");
+    const geminiEnv = env.GEMINI_API_KEY !== undefined;
     // שלושת השדות יחד: מסוף בלי סיסמת API הוא סליקה שנופלת בלחיצה
     // הראשונה, וזה בדיוק המצב שאסור להציג כ"מוגדר"
     const cardcomDb =
@@ -638,6 +645,14 @@ export class PlatformController {
         // הכתובת שחייבת להירשם ב-Google Cloud Console — מוצגת כדי
         // שלא יהיה צורך לנחש אותה
         redirectUri: `${env.WEB_ORIGIN}/api/v1/auth/google/callback`,
+      },
+      gemini: {
+        configured: geminiDb || geminiEnv,
+        source: geminiDb ? "db" : geminiEnv ? "env" : "none",
+        model:
+          (await this.platformSettings.get("geminiModel")) ??
+          env.GEMINI_MODEL ??
+          "gemini-2.5-flash-lite",
       },
       cardcom: {
         configured: cardcomDb || cardcomEnv,
