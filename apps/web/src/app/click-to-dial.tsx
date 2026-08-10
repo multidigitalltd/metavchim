@@ -76,7 +76,7 @@ export function ClickToDial({
       <button
         type="button"
         className="mv-btn-plain"
-        style={{ padding: "7px 14px", fontSize: 13 }}
+        style={{ minHeight: 36, paddingInline: 14, fontSize: 13 }}
         disabled={busy}
         onClick={() => {
           if (viaSoftphone) {

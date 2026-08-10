@@ -43,13 +43,12 @@ export function FilterSelect(props: {
   options: [string, string][];
 }) {
   return (
-    <label className="flex flex-col gap-1">
+    <label className="flex min-w-0 flex-col gap-1">
       <span className="mv-visually-hidden">{props.label}</span>
       <select
         value={props.value}
         onChange={(e: ChangeEvent<HTMLSelectElement>) => props.onChange(e.target.value)}
-        className="rounded-lg border px-3 py-2"
-        style={inputStyle}
+        className="mv-select"
       >
         <option value="">{props.allLabel}</option>
         {props.options.map(([value, label]) => (
@@ -68,13 +67,12 @@ export function SortSelect(props: {
   options: [string, string][];
 }) {
   return (
-    <label className="flex flex-col gap-1">
+    <label className="flex min-w-0 flex-col gap-1">
       <span className="mv-visually-hidden">מיון</span>
       <select
         value={props.value}
         onChange={(e: ChangeEvent<HTMLSelectElement>) => props.onChange(e.target.value)}
-        className="rounded-lg border px-3 py-2"
-        style={inputStyle}
+        className="mv-select"
       >
         {props.options.map(([value, label]) => (
           <option key={value} value={value}>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { IconFilter, IconSearch, IconX } from "./icons";
 
 /**
  * סרגל הסינון של מסכי הרשימה — נכסים וקונים.
@@ -120,8 +121,10 @@ export function ListFilters({
 
   return (
     <form onSubmit={submit} className="mb-4">
+      {/* גובה אחיד (38px) לשדה ולכפתונים — שורה אחת ישרה שגם נשברת
+          יפה במובייל בזכות flex-wrap */}
       <div className="flex flex-wrap items-end gap-2">
-        <div className="min-w-0 flex-1" style={{ minWidth: 220 }}>
+        <div className="min-w-0 flex-1" style={{ minWidth: 200 }}>
           <label htmlFor="flt-q" className="mb-1 block text-xs font-semibold">
             {searchLabel}
           </label>
@@ -130,24 +133,30 @@ export function ListFilters({
             value={draft.q}
             placeholder={searchHint}
             onChange={(event) => setDraft({ ...draft, q: event.target.value })}
-            className="w-full rounded-lg border px-3 py-2 text-sm"
-            style={inputStyle}
+            className="w-full rounded-lg border px-3 text-sm"
+            style={{ ...inputStyle, minHeight: 38 }}
           />
         </div>
-        <button type="submit" className="mv-btn-action">
-          חפש
+        <button type="submit" className="mv-btn-action" style={{ minHeight: 38 }}>
+          <IconSearch s={15} /> חפש
         </button>
         <button
           type="button"
           className="mv-btn-plain"
+          style={{ minHeight: 38, fontSize: "13px", paddingInline: 14 }}
           aria-expanded={open}
           onClick={() => setOpen(!open)}
         >
-          {open ? "פחות סינון" : "עוד סינון"}
+          <IconFilter s={15} /> {open ? "פחות סינון" : "עוד סינון"}
         </button>
         {hasActiveFilters(draft) ? (
-          <button type="button" className="mv-btn-plain" onClick={clear}>
-            נקה
+          <button
+            type="button"
+            className="mv-btn-plain"
+            style={{ minHeight: 38, fontSize: "13px", paddingInline: 14 }}
+            onClick={clear}
+          >
+            <IconX s={14} /> נקה
           </button>
         ) : null}
       </div>

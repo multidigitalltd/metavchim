@@ -1099,6 +1099,38 @@ button.mv-list-row:hover {
   border-color: #111513;
 }
 
+/*
+ * דרופ-דאון בשפה העיצובית — במקום מראה הדפדפן: חץ קו מותאם (בצד
+ * שמאל, כי הממשק RTL), גובה אחיד עם הכפתורים, וטבעת פוקוס ירוקה.
+ * ה-select נשאר נייטיב בכוונה — במובייל הוא נפתח כגלגלת המערכת,
+ * שנוחה בהרבה מכל תפריט מותאם.
+ */
+.mv-select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--color-input-border);
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 10px;
+  min-height: 38px;
+  padding: 0 14px;
+  padding-inline-start: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='%237a857d' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: left 12px center;
+  cursor: pointer;
+  max-width: 100%;
+}
+.mv-select:hover {
+  background-color: var(--color-hover-soft);
+}
+.mv-select:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
 /* כפתורי הפעולה מהעיצוב */
 .mv-btn-action {
   border: none;
@@ -1109,7 +1141,12 @@ button.mv-list-row:hover {
   border-radius: 9px;
   padding: 8px 16px;
   cursor: pointer;
-  display: inline-block;
+  /* inline-flex ולא inline-block: אייקון וטקסט באותה שורה, ממורכזים
+     אנכית — בלי זה כפתור צר שבר את האייקון לשורה נפרדת והתנפח */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   text-decoration: none;
   white-space: nowrap;
 }
@@ -1126,7 +1163,10 @@ button.mv-list-row:hover {
   border-radius: 8px;
   padding: 6px 11px;
   cursor: pointer;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   text-decoration: none;
   white-space: nowrap;
 }
@@ -1143,7 +1183,10 @@ button.mv-list-row:hover {
   border-radius: 8px;
   padding: 6px 11px;
   cursor: pointer;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   text-decoration: none;
   white-space: nowrap;
 }
