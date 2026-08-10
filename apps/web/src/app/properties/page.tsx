@@ -8,6 +8,7 @@ import { API_BASE, apiGet } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
+import { IconHome, IconMic } from "../icons";
 import { CapNote, FilterBar, FilterChips, FilterSelect, SortSelect } from "../list-controls";
 import {
   EMPTY_FILTERS,
@@ -92,7 +93,7 @@ function Thumb({ url }: { url?: string }) {
       className="flex h-20 w-24 items-center justify-center rounded-lg text-xl"
       style={{ background: "var(--color-field)", color: "var(--color-text-muted)" }}
     >
-      🏠
+      <IconHome s={20} />
     </span>
   );
 }
@@ -160,7 +161,7 @@ export default function PropertiesPage() {
         values={filters}
         onApply={setFilters}
         searchLabel="חיפוש נכס"
-        searchHint="🔍 כתובת, תיאור, סוג נכס או הערה"
+        searchHint="כתובת, תיאור, סוג נכס או הערה"
         priceLabel="מחיר"
       />
 
@@ -182,7 +183,7 @@ export default function PropertiesPage() {
           ) : null}
           {canVoice ? (
             <Link href="/properties/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
-              🎤 נכס בקול
+              <IconMic s={15} /> נכס בקול
             </Link>
           ) : null}
           <Link href="/properties/new" className="mv-btn-action">

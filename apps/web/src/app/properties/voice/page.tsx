@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
+import { IconMic } from "../../icons";
 import { VoiceRecorder } from "../../voice-recorder";
 
 /**
@@ -41,7 +42,7 @@ function VoiceIntakeForm() {
 
   return (
     <div className="mx-auto max-w-xl">
-      <h1 className="mb-2 text-2xl font-bold">🎤 הוסף נכס בקול</h1>
+      <h1 className="mb-2 text-2xl font-bold"><IconMic s={22} /> הוסף נכס בקול</h1>
       <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
         ספרו על הנכס בקול חופשי — עיר, רחוב, חדרים, קומה, מחיר, מאפיינים.
         המערכת תפרק הכל לשדות ותסמן מה חסר.

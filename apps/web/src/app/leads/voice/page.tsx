@@ -6,6 +6,7 @@ import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
 import { LEAD_INTENT_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
+import { IconMic } from "../../icons";
 import { VoiceRecorder } from "../../voice-recorder";
 
 /**
@@ -83,7 +84,7 @@ function LeadVoiceForm() {
 
   return (
     <div className="mx-auto max-w-xl">
-      <h1 className="mb-2 text-2xl font-bold">🎤 הוסף ליד בקול</h1>
+      <h1 className="mb-2 text-2xl font-bold"><IconMic s={22} /> הוסף ליד בקול</h1>
       <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
         ירדתם מהשיחה? ספרו מה היה — שם, טלפון ומה הוא רוצה. המערכת תפרק
         לשדות, והתמלול המלא יישמר כסיכום הליד.
