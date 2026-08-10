@@ -36,6 +36,8 @@ interface AuditRow {
   action: string;
   entityType: string;
   userName?: string;
+  /** הפעולה בוצעה ע"י התמיכה — הכתובת שנכנסה. */
+  supportAdmin?: string;
   createdAt: string;
 }
 
@@ -519,7 +521,16 @@ export default function SettingsPage() {
               <ol className="m-0 list-none p-0">
                 {audit.map((row, index) => (
                   <li key={index} className="flex flex-wrap gap-1.5 px-5 py-2.5 text-[13.5px]" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
-                    <span className="font-bold">{row.userName ?? "מערכת"}</span>
+                    <span className="font-bold">
+                      {row.userName ?? "מערכת"}
+                      {row.supportAdmin ? (
+                        /* פעולת תמיכה נראית ככזו — לא מוסתרת מאחורי שם המשתמש */
+                        <span className="font-normal" style={{ color: "var(--color-warning)" }}>
+                          {" "}
+                          (תמיכה: <span dir="ltr">{row.supportAdmin}</span>)
+                        </span>
+                      ) : null}
+                    </span>
                     <span style={{ color: "var(--color-text-soft)" }}>{AUDIT_ACTION_LABELS[row.action] ?? row.action}</span>
                     <span className="ms-auto" style={{ color: "var(--color-text-muted)" }}>{formatDateTime(row.createdAt)}</span>
                   </li>

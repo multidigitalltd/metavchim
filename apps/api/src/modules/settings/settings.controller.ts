@@ -714,14 +714,23 @@ export class SettingsController {
   @RequireCapability("audit.view")
   async auditLog(
     @Query(new ZodValidationPipe(AuditQuerySchema)) query: z.infer<typeof AuditQuerySchema>,
-  ): Promise<{ items: { action: string; entityType: string; userName?: string; createdAt: Date }[] }> {
+  ): Promise<{
+    items: {
+      action: string;
+      entityType: string;
+      userName?: string;
+      /** פעולה שבוצעה ע"י התמיכה — הכתובת שנכנסה. היומן אומר אמת. */
+      supportAdmin?: string;
+      createdAt: Date;
+    }[];
+  }> {
     const tenantId = TenantContext.current().tenantId;
     const rows = await this.prisma.withTenant((tx) =>
       tx.auditLog.findMany({
         where: { tenantId },
         orderBy: { createdAt: "desc" },
         take: query.limit,
-        select: { action: true, entityType: true, userId: true, createdAt: true },
+        select: { action: true, entityType: true, userId: true, createdAt: true, metadata: true },
       }),
     );
     const userIds = [...new Set(rows.map((r) => r.userId).filter((u): u is string => u !== null))];
@@ -731,12 +740,19 @@ export class SettingsController {
     });
     const nameById = new Map(users.map((u) => [u.id, u.name]));
     return {
-      items: rows.map((r) => ({
-        action: r.action,
-        entityType: r.entityType,
-        userName: r.userId ? nameById.get(r.userId) : undefined,
-        createdAt: r.createdAt,
-      })),
+      items: rows.map((r) => {
+        const supportAdmin =
+          typeof r.metadata === "object" && r.metadata !== null && "supportAdmin" in r.metadata
+            ? String((r.metadata as Record<string, unknown>)["supportAdmin"])
+            : undefined;
+        return {
+          action: r.action,
+          entityType: r.entityType,
+          userName: r.userId ? nameById.get(r.userId) : undefined,
+          ...(supportAdmin ? { supportAdmin } : {}),
+          createdAt: r.createdAt,
+        };
+      }),
     };
   }
 
@@ -870,18 +886,23 @@ export class SettingsController {
     const { tenantId, userId } = TenantContext.current();
     // 60 דקות — קבוע ולא פרמטר: חלון שמישהו יכול למתוח הוא לא חלון
     const until = new Date(Date.now() + 60 * 60 * 1000);
-    await this.prisma.tenant.update({
-      where: { id: tenantId },
-      data: { supportAccessUntil: until, supportAccessGrantedBy: userId },
-    });
-    await this.prisma.withTenant((tx) =>
-      this.audit.record(tx, {
+    /*
+     * ההענקה והתיעוד בטרנזקציה אחת. בנפרד, כשל בכתיבת היומן היה
+     * מחזיר שגיאה למשתמש ומשאיר את הדלת פתוחה לשעה — חלון פתוח,
+     * מסך שאומר "נכשל", ואפס עדות ביומן (ביקורת Codex).
+     */
+    await this.prisma.withTenant(async (tx) => {
+      await tx.tenant.update({
+        where: { id: tenantId },
+        data: { supportAccessUntil: until, supportAccessGrantedBy: userId },
+      });
+      await this.audit.record(tx, {
         action: "support.access.grant",
         entityType: "tenant",
         entityId: tenantId,
         metadata: { until: until.toISOString() },
-      }),
-    );
+      });
+    });
     return { activeUntil: until.toISOString() };
   }
 
@@ -889,25 +910,26 @@ export class SettingsController {
   @RequireCapability("settings.manage")
   async revokeSupportAccess(): Promise<{ ok: true }> {
     const { tenantId } = TenantContext.current();
-    await this.prisma.tenant.update({
-      where: { id: tenantId },
-      data: { supportAccessUntil: null, supportAccessGrantedBy: null },
+    // אותה אטומיות של ההענקה — הסגירה והעדות הן פעולה אחת
+    await this.prisma.withTenant(async (tx) => {
+      await tx.tenant.update({
+        where: { id: tenantId },
+        data: { supportAccessUntil: null, supportAccessGrantedBy: null },
+      });
+      await this.audit.record(tx, {
+        action: "support.access.revoke",
+        entityType: "tenant",
+        entityId: tenantId,
+      });
     });
     /*
-     * ה-Sessions של התמיכה נמחקים כאן ולא רק נפסלים בבדיקה הבאה —
-     * חגורה וגם כתפיות: resolveSession כבר דוחה אותם, אבל שורה
-     * שנשארת בטבלה אחרי ביטול היא שורה שמישהו ישאל עליה.
+     * ה-Sessions של התמיכה נמחקים אחרי הסגירה, מחוץ לטרנזקציה: הם
+     * כבר מתים ממילא — resolveSession דוחה אותם ברגע שהחלון נסגר —
+     * והמחיקה היא ניקיון, לא אכיפה. גם אם היא נכשלת, הדלת סגורה.
      */
     await this.prisma.session.deleteMany({
       where: { supportAdminEmail: { not: null }, user: { tenantId } },
     });
-    await this.prisma.withTenant((tx) =>
-      this.audit.record(tx, {
-        action: "support.access.revoke",
-        entityType: "tenant",
-        entityId: tenantId,
-      }),
-    );
     return { ok: true };
   }
 }

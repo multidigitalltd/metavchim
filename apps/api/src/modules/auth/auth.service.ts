@@ -473,6 +473,9 @@ export class AuthService {
         // תקופה שנגמרה אינה פוסלת את ה-Session — היא מצמצמת אותו
         // למסך המנוי. האכיפה ב-AuthGuard.
         billingOnly: tenantPeriodEnded(session.user.tenant),
+        ...(session.supportAdminEmail !== null
+          ? { supportAdminEmail: session.supportAdminEmail }
+          : {}),
       },
       user: {
         id: session.user.id,
