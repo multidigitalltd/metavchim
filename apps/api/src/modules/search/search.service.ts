@@ -3,6 +3,8 @@ import {
   filterVisibleNotes,
   normalizeIsraeliPhone,
   normalizeNameForMatch,
+  parseSearchQuery,
+  type ParsedSearchQuery,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { ownershipFilter } from "../../common/ownership";
@@ -193,33 +195,56 @@ export class SearchService {
     const tenantId = TenantContext.current().tenantId;
     const needle = query.toLowerCase();
 
+    /*
+     * "קונים 4 חדרים בני ברק" — שאילתה שעד כה החזירה כלום, כי המחרוזת
+     * השלמה חופשה בשמות ובכתובות ולא נמצאה. הפרסור מפריד אותה
+     * לאילוצים (ישות, חדרים, עיר, תקציב) ולשארית טקסטואלית, והשארית
+     * ממשיכה בדיוק במסלול הקודם — שאילתה רגילה מתנהגת כשהייתה.
+     */
+    const parsed = parseSearchQuery(query);
+    const needleText = parsed.structured ? parsed.rest.toLowerCase() : needle;
+    const textForMatch = parsed.structured ? parsed.rest : query;
+
     return this.prisma.withTenant(async (tx) => {
       // "דיזנגוף 10 תל אביב" — כל מילה חייבת להופיע באחד משדות הכתובת
       // (AND על מילים, OR על שדות), כולל מספר בית; עד 5 מילים.
-      const tokens = query.split(/\s+/u).filter((t) => t.length > 0).slice(0, 5);
-      const properties = can.canProperties
-        ? await tx.property.findMany({
-            where: {
-              tenantId,
-              deletedAt: null,
-              AND: tokens.map((token) => ({
-                OR: [
-                  { city: { contains: token, mode: "insensitive" as const } },
-                  { street: { contains: token, mode: "insensitive" as const } },
-                  { neighborhood: { contains: token, mode: "insensitive" as const } },
-                  { houseNumber: { contains: token, mode: "insensitive" as const } },
-                  { marketingTitle: { contains: token, mode: "insensitive" as const } },
-                ],
-              })),
-            },
-            select: {
-              id: true, city: true, street: true, neighborhood: true,
-              marketingTitle: true, status: true,
-            },
-            orderBy: { updatedAt: "desc" },
-            take: GROUP_LIMIT,
-          })
-        : [];
+      const tokens = textForMatch.split(/\s+/u).filter((t) => t.length > 0).slice(0, 5);
+
+      // ישות מבוקשת מדירה את האחרות: "קונים ..." לא יחזיר נכסים
+      const wantsProperties = parsed.entity === undefined || parsed.entity === "properties";
+      const wantsBuyers = parsed.entity === undefined || parsed.entity === "buyers";
+      const wantsLeads = parsed.entity === undefined || parsed.entity === "leads";
+
+      const properties =
+        can.canProperties && wantsProperties
+          ? await tx.property.findMany({
+              where: {
+                tenantId,
+                deletedAt: null,
+                ...(parsed.city !== undefined
+                  ? { city: { contains: parsed.city, mode: "insensitive" as const } }
+                  : {}),
+                ...(parsed.dealType !== undefined ? { dealType: parsed.dealType } : {}),
+                ...this.roomsFilter(parsed),
+                ...this.priceFilter(parsed),
+                AND: tokens.map((token) => ({
+                  OR: [
+                    { city: { contains: token, mode: "insensitive" as const } },
+                    { street: { contains: token, mode: "insensitive" as const } },
+                    { neighborhood: { contains: token, mode: "insensitive" as const } },
+                    { houseNumber: { contains: token, mode: "insensitive" as const } },
+                    { marketingTitle: { contains: token, mode: "insensitive" as const } },
+                  ],
+                })),
+              },
+              select: {
+                id: true, city: true, street: true, neighborhood: true,
+                marketingTitle: true, status: true,
+              },
+              orderBy: { updatedAt: "desc" },
+              take: GROUP_LIMIT,
+            })
+          : [];
 
       /*
        * טקסט חופשי שנכתב בתוך המערכת: כותרות ופתקים ביומן, משימות,
@@ -228,7 +253,13 @@ export class SearchService {
        * המשימות של סוכן אחר בחיפוש (docs/04 §3).
        */
       const { userId } = TenantContext.current();
-      const like = { contains: query, mode: "insensitive" as const };
+      /*
+       * הטקסט החופשי מחופש בשארית ולא בשאילתה המלאה: "קונים 4 חדרים
+       * בני ברק" כמחרוזת שלמה לא מופיע באף פתק. כששאילתה מובְנית לא
+       * הותירה שארית, אין מה לחפש כאן בכלל והקבוצות נשארות ריקות.
+       */
+      const searchesFreeText = textForMatch.trim().length > 0;
+      const like = { contains: textForMatch, mode: "insensitive" as const };
       const [appointments, tasks, calls, notes] = await Promise.all([
         tx.appointment.findMany({
           where: { tenantId, OR: [{ title: like }, { notes: like }] },
@@ -264,12 +295,14 @@ export class SearchService {
         }),
       ]);
 
-      const freeText = {
-        appointments: appointments.map((a) => ({ ...a, title: a.title ?? "פגישה" })),
-        tasks,
-        calls: calls.map((c) => ({ ...c, summary: c.summary ?? "" })),
-        notes: await this.visibleNotes(tx, tenantId, notes),
-      };
+      const freeText = searchesFreeText
+        ? {
+            appointments: appointments.map((a) => ({ ...a, title: a.title ?? "פגישה" })),
+            tasks,
+            calls: calls.map((c) => ({ ...c, summary: c.summary ?? "" })),
+            notes: await this.visibleNotes(tx, tenantId, notes),
+          }
+        : { appointments: [], tasks: [], calls: [], notes: [] };
 
       if (!can.canBuyers && !can.canLeads) {
         return { ...EMPTY, properties, ...freeText };
@@ -285,23 +318,25 @@ export class SearchService {
        *
        * PII לעולם אינו נחשף למנוע ה-DB כטקסט גלוי בשני המסלולים.
        */
-      const exact = await tx.contact.findMany({
-        where: { tenantId, nameHash: this.crypto.nameHash(normalizeNameForMatch(query)) },
-        select: { id: true, nameEncrypted: true },
-        take: GROUP_LIMIT * 4,
-      });
-      const recent = await tx.contact.findMany({
-        where: { tenantId },
-        select: { id: true, nameEncrypted: true },
-        orderBy: { updatedAt: "desc" },
-        take: NAME_SCAN_LIMIT,
-      });
       const nameById = new Map<string, string>();
-      for (const c of exact) nameById.set(c.id, this.crypto.decrypt(c.nameEncrypted));
-      for (const c of recent) {
-        if (nameById.has(c.id)) continue;
-        const name = this.crypto.decrypt(c.nameEncrypted);
-        if (name.toLowerCase().includes(needle)) nameById.set(c.id, name);
+      if (searchesFreeText) {
+        const exact = await tx.contact.findMany({
+          where: { tenantId, nameHash: this.crypto.nameHash(normalizeNameForMatch(textForMatch)) },
+          select: { id: true, nameEncrypted: true },
+          take: GROUP_LIMIT * 4,
+        });
+        const recent = await tx.contact.findMany({
+          where: { tenantId },
+          select: { id: true, nameEncrypted: true },
+          orderBy: { updatedAt: "desc" },
+          take: NAME_SCAN_LIMIT,
+        });
+        for (const c of exact) nameById.set(c.id, this.crypto.decrypt(c.nameEncrypted));
+        for (const c of recent) {
+          if (nameById.has(c.id)) continue;
+          const name = this.crypto.decrypt(c.nameEncrypted);
+          if (name.toLowerCase().includes(needleText)) nameById.set(c.id, name);
+        }
       }
       const matchedIds = [...nameById.keys()];
 
@@ -313,19 +348,46 @@ export class SearchService {
        * איבר במערך, ולכן נשלחים גם הביטוי המלא (שמות ערים דו-מיליים
        * כמו "תל אביב") וגם המילים הבודדות.
        */
-      const cityTerms = [...new Set([query.trim(), ...tokens])].filter((t) => t.length >= 2);
+      const cityTerms = [...new Set([textForMatch.trim(), ...tokens])].filter((t) => t.length >= 2);
+
+      /*
+       * שני סוגי תנאים, והם מתנהגים אחרת לגמרי:
+       *
+       * - **אילוצים מובְנים** (עיר מזוהה, חדרים, תקציב, סוג עסקה) הם
+       *   AND: "קונים 4 חדרים בני ברק" חייב לקיים את שלושתם.
+       * - **טקסט חופשי** הוא OR בין שם הלקוח לערי החיפוש, כמו קודם.
+       *
+       * הצירוף הזה הוא מה שגורם לשאילתה לעבוד: בלי האילוצים כ-AND
+       * היו חוזרים כל הקונים בבני ברק בלי קשר לחדרים, ובלי ה-OR
+       * לטקסט חופשי "כהן" היה מפסיק למצוא את מר כהן.
+       */
+      const structuredBuyer = {
+        ...(parsed.city !== undefined ? { cities: { has: parsed.city } } : {}),
+        ...(parsed.dealType !== undefined ? { dealType: parsed.dealType } : {}),
+        ...this.buyerRoomsFilter(parsed),
+        ...this.buyerBudgetFilter(parsed),
+      };
+      const hasStructured = Object.keys(structuredBuyer).length > 0;
+
+      const freeTextOr = [
+        ...(matchedIds.length > 0 ? [{ contactId: { in: matchedIds } }] : []),
+        ...(searchesFreeText && cityTerms.length > 0
+          ? [{ cities: { hasSome: cityTerms } }]
+          : []),
+      ];
+
       const buyerWhere = {
         tenantId,
         deletedAt: null,
         ...ownershipFilter("buyers.view_all", "ownerUserId"),
-        OR: [
-          ...(matchedIds.length > 0 ? [{ contactId: { in: matchedIds } }] : []),
-          ...(cityTerms.length > 0 ? [{ cities: { hasSome: cityTerms } }] : []),
-        ],
+        ...structuredBuyer,
+        ...(freeTextOr.length > 0 ? { OR: freeTextOr } : {}),
       };
+      // בלי תנאי כלשהו לא מחזירים את כל המשרד — "אין מה לחפש"
+      const buyerQueryable = hasStructured || freeTextOr.length > 0;
 
       const [buyers, leads] = await Promise.all([
-        can.canBuyers && buyerWhere.OR.length > 0
+        can.canBuyers && wantsBuyers && buyerQueryable
           ? tx.buyer.findMany({
               where: buyerWhere,
               select: { id: true, maturity: true, cities: true, contactId: true },
@@ -333,7 +395,7 @@ export class SearchService {
               take: GROUP_LIMIT,
             })
           : [],
-        can.canLeads && matchedIds.length > 0
+        can.canLeads && wantsLeads && matchedIds.length > 0
           ? tx.lead.findMany({
               where: {
                 tenantId,
@@ -378,6 +440,66 @@ export class SearchService {
         })),
       };
     });
+  }
+
+  /* ---------- תרגום האילוצים המפורסרים לתנאי Prisma ---------- */
+
+  /** חדרי הנכס בתוך הטווח המבוקש. */
+  private roomsFilter(parsed: ParsedSearchQuery): Record<string, unknown> {
+    if (parsed.rooms === undefined) return {};
+    return {
+      rooms: {
+        ...(parsed.rooms.min !== undefined ? { gte: parsed.rooms.min } : {}),
+        ...(parsed.rooms.max !== undefined ? { lte: parsed.rooms.max } : {}),
+      },
+    };
+  }
+
+  /** מחיר הנכס בתוך טווח התקציב. */
+  private priceFilter(parsed: ParsedSearchQuery): Record<string, unknown> {
+    if (parsed.budget === undefined) return {};
+    return {
+      priceAgorot: {
+        ...(parsed.budget.minAgorot !== undefined ? { gte: parsed.budget.minAgorot } : {}),
+        ...(parsed.budget.maxAgorot !== undefined ? { lte: parsed.budget.maxAgorot } : {}),
+      },
+    };
+  }
+
+  /**
+   * **חפיפה** בין הטווח המבוקש לטווח שהקונה מחפש, ולא הכלה.
+   *
+   * קונה שרשום "3 עד 5 חדרים" הוא תשובה נכונה ל"קונים 4 חדרים" — הוא
+   * ייקח דירה כזו. בדיקת הכלה הייתה מחזירה רק את מי שרשום בדיוק 4—4,
+   * כלומר מסתירה את רוב המאגר. טווח פתוח מצד אחד (roomsMax ריק) נחשב
+   * כאינסוף ולכן מותר, ומטופל ב-null.
+   */
+  private buyerRoomsFilter(parsed: ParsedSearchQuery): Record<string, unknown> {
+    if (parsed.rooms === undefined) return {};
+    const conditions: Record<string, unknown>[] = [];
+    if (parsed.rooms.max !== undefined) {
+      conditions.push({ OR: [{ roomsMin: null }, { roomsMin: { lte: parsed.rooms.max } }] });
+    }
+    if (parsed.rooms.min !== undefined) {
+      conditions.push({ OR: [{ roomsMax: null }, { roomsMax: { gte: parsed.rooms.min } }] });
+    }
+    return conditions.length > 0 ? { AND: conditions } : {};
+  }
+
+  /**
+   * תקציב הקונה מול הסכום בשאילתה.
+   *
+   * "קונים עד 2 מיליון" = מי שהתקציב שלו אינו עולה על 2 מיליון, ולכן
+   * ההשוואה היא מול budgetMaxAgorot — השדה שמייצג כמה הוא מוכן לשלם.
+   */
+  private buyerBudgetFilter(parsed: ParsedSearchQuery): Record<string, unknown> {
+    if (parsed.budget === undefined) return {};
+    return {
+      budgetMaxAgorot: {
+        ...(parsed.budget.minAgorot !== undefined ? { gte: parsed.budget.minAgorot } : {}),
+        ...(parsed.budget.maxAgorot !== undefined ? { lte: parsed.budget.maxAgorot } : {}),
+      },
+    };
   }
 
   /**

@@ -251,12 +251,18 @@ export class ContactsService {
     // אנשים לא ישלח ארבע שאילתות
     const related = await tx.contact.findMany({
       where: { tenantId, id: { in: links.map((l) => l.relatedContactId) } },
-      select: { id: true, nameEncrypted: true, phoneEncrypted: true },
+      select: { id: true, nameEncrypted: true, phoneEncrypted: true, emailEncrypted: true },
     });
     const byId = new Map(related.map((r) => [r.id, r]));
 
     const people: ContactPerson[] = [
-      { contactId: primary.id, name: primary.name, phone: primary.phone, role: null },
+      {
+        contactId: primary.id,
+        name: primary.name,
+        phone: primary.phone,
+        ...(primary.email !== undefined ? { email: primary.email } : {}),
+        role: null,
+      },
     ];
     for (const link of links) {
       const row = byId.get(link.relatedContactId);
@@ -265,10 +271,42 @@ export class ContactsService {
         contactId: row.id,
         name: this.crypto.decrypt(row.nameEncrypted),
         phone: this.crypto.decrypt(row.phoneEncrypted),
+        // האימייל אופציונלי לכל אדם בנפרד — לבן/בת זוג יש תיבה משלהם
+        ...(row.emailEncrypted ? { email: this.crypto.decrypt(row.emailEncrypted) } : {}),
         role: isContactRole(link.role) ? link.role : "other",
       });
     }
     return orderPeople(people);
+  }
+
+  /**
+   * קביעת אימייל לאדם מקושר.
+   *
+   * הקישור נבדק לפני הכתיבה ולא רק הדיירוּת: בלי הבדיקה הזו מזהה של
+   * כל איש קשר במשרד היה מתקבל בנתיב הזה, וסוכן שרואה כרטיס אחד היה
+   * יכול לשנות אימייל של לקוח אחר שאינו קשור אליו.
+   */
+  async setPersonEmail(
+    tx: TenantTx,
+    contactId: string,
+    relatedContactId: string,
+    email: string,
+  ): Promise<{ ok: boolean }> {
+    const tenantId = TenantContext.current().tenantId;
+    // האדם הראשי עצמו אינו מקושר לכרטיס — הוא הכרטיס
+    if (relatedContactId === contactId) {
+      await this.setEmail(tx, contactId, email);
+      return { ok: true };
+    }
+
+    const link = await tx.contactLink.findFirst({
+      where: { tenantId, contactId, relatedContactId },
+      select: { id: true },
+    });
+    if (!link) return { ok: false };
+
+    await this.setEmail(tx, relatedContactId, email);
+    return { ok: true };
   }
 
   /**
@@ -279,11 +317,17 @@ export class ContactsService {
   async linkPerson(
     tx: TenantTx,
     contactId: string,
-    input: { name: string; phone: string; role: ContactRole },
+    input: { name: string; phone: string; role: ContactRole; email?: string },
   ): Promise<{ ok: boolean; reason?: "self" }> {
     const tenantId = TenantContext.current().tenantId;
     const person = await this.findOrCreateByPhone(tx, { name: input.name, phone: input.phone });
     if (person.id === contactId) return { ok: false, reason: "self" };
+
+    // האימייל נכתב רק כשנמסר: קישור חוזר של אדם קיים בלי שדה אימייל
+    // לא ימחק את הכתובת שכבר יש לו
+    if (input.email !== undefined && input.email !== "") {
+      await this.setEmail(tx, person.id, input.email);
+    }
 
     await tx.contactLink.upsert({
       where: {

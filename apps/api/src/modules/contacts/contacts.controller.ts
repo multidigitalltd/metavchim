@@ -54,6 +54,8 @@ const AddPersonSchema = z
     name: z.string().trim().min(2).max(120),
     phone: PhoneField,
     role: z.enum(CONTACT_ROLES).default("spouse"),
+    // אופציונלי: המתווך לא תמיד יודע את האימייל בזמן ההוספה
+    email: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
   })
   .strict();
 
@@ -234,6 +236,28 @@ export class ContactsController {
       await assertContactAccess(tx, tenantId, id);
       const result = await this.contacts.linkPerson(tx, id, body);
       if (!result.ok) throw new BadRequestException("זה אותו אדם — אי אפשר לקשר כרטיס לעצמו");
+    });
+    return { ok: true };
+  }
+
+  /**
+   * אימייל של אדם מקושר — לבן/בת זוג תיבה משלהם, ולעיתים דווקא היא
+   * זו שקוראת את ההצעות. הקישור עצמו נבדק בשירות: מזהה של איש קשר
+   * שאינו מקושר לכרטיס הזה נדחה ולא נכתב.
+   */
+  @RequireCapability("buyers.edit")
+  @Patch(":id/people/:relatedId/email")
+  @HttpCode(200)
+  async setPersonEmail(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("relatedId", new ZodValidationPipe(IdSchema)) relatedId: string,
+    @Body(new ZodValidationPipe(UpdateEmailSchema)) body: z.infer<typeof UpdateEmailSchema>,
+  ): Promise<{ ok: true }> {
+    const tenantId = TenantContext.current().tenantId;
+    await this.prisma.withTenant(async (tx) => {
+      await assertContactAccess(tx, tenantId, id);
+      const result = await this.contacts.setPersonEmail(tx, id, relatedId, body.email.trim());
+      if (!result.ok) throw new NotFoundException("איש הקשר אינו מקושר לכרטיס הזה");
     });
     return { ok: true };
   }
