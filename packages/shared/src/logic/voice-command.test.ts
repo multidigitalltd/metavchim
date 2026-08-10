@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { routeVoiceCommand, stripCommandPrefix } from "./voice-command.js";
+import {
+  routeVoiceCommand,
+  stripCommandPrefix,
+  taskTitleFromTranscript,
+} from "./voice-command.js";
 
 describe("routeVoiceCommand", () => {
   it("מזהה הוספת נכס בניסוח מפורש", () => {
@@ -104,6 +108,53 @@ describe("סדר הכללים — פועל מפורש מנצח ניסוח בלי
   it("ובלי פועל מפורש — עדיין פגישה", () => {
     expect(routeVoiceCommand("פגישה עם שמוליק על ההצעה שהצעתי לו").action).toBe(
       "schedule_appointment",
+    );
+  });
+});
+
+describe("תזכורות בקול", () => {
+  it("'תזכיר לי' — תזכורת, בכל ניסוח", () => {
+    expect(routeVoiceCommand("תזכיר לי מחר להתקשר לדוד").action).toBe("add_task");
+    expect(routeVoiceCommand("תוסיף משימה לבדוק את החוזה").action).toBe("add_task");
+  });
+
+  it("'תזכיר לי' גובר על פעולות אחרות — התוכן הוא התזכורת, לא פקודה", () => {
+    /*
+     * "תזכיר לי לקבוע פגישה עם משה" הוא תזכורת לקבוע — לא קביעה
+     * עכשיו, ו"תזכיר לי לשלוח את ההצעה" בטח שלא שולח שום דבר ללקוח.
+     */
+    expect(routeVoiceCommand("תזכיר לי לקבוע פגישה עם משה").action).toBe("add_task");
+    expect(routeVoiceCommand("תזכיר לי לשלוח את ההצעה למשה כהן").action).toBe("add_task");
+  });
+
+  it("כותרת התזכורת — בלי מילות הפקודה", () => {
+    expect(taskTitleFromTranscript("תזכיר לי מחר בעשר להתקשר לדוד")).toBe(
+      "מחר בעשר להתקשר לדוד",
+    );
+    expect(taskTitleFromTranscript("תוסיף משימה לבדוק את החוזה")).toBe("לבדוק את החוזה");
+  });
+});
+
+describe("שאלות על המאגר", () => {
+  it("'מי מחפש …' — שאילתת קונים, לא חיפוש טקסט ולא הוספת קונה", () => {
+    /*
+     * "מי מחפש 4 חדרים בגבעתיים?" — התשובה היא רשימת קונים לפי
+     * קריטריונים. בלי הכלל הזה המשפט היה נופל ל-add_buyer (בגלל
+     * "מחפש דירה") או לחיפוש שמות שלא מוצא כלום.
+     */
+    expect(routeVoiceCommand("מי מחפש 4 חדרים בגבעתיים?").action).toBe("query_buyers");
+    expect(routeVoiceCommand("מי מעוניין בדירה ברמת גן").action).toBe("query_buyers");
+    expect(routeVoiceCommand("אילו קונים יש לי עד 2 מיליון").action).toBe("query_buyers");
+  });
+
+  it("'תחפש מי מחפש' — עדיין שאילתת קונים; 'חפש את משה' נשאר חיפוש", () => {
+    expect(routeVoiceCommand("תחפש מי מחפש 4 חדרים בגבעתיים").action).toBe("query_buyers");
+    expect(routeVoiceCommand("חפש את משה כהן").action).toBe("search");
+  });
+
+  it("'מחפש דירה' בלי 'מי' — עדיין הוספת קונה", () => {
+    expect(routeVoiceCommand("דיברתי עם יוסי שמחפש דירה בבני ברק").action).not.toBe(
+      "query_buyers",
     );
   });
 });

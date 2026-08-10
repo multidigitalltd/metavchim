@@ -22,6 +22,25 @@ export interface LeadIntakeResult {
   visible: boolean;
 }
 
+/** תשובה לשאלה "מי מחפש …" — הקריטריונים שהובנו + הקונים שנמצאו. */
+export interface BuyerQueryAnswer {
+  criteria: {
+    cities: string[];
+    roomsMin?: number;
+    roomsMax?: number;
+    budgetMaxShekels?: number;
+  };
+  buyers: {
+    id: string;
+    name: string;
+    cities: string[];
+    roomsMin?: number;
+    roomsMax?: number;
+    budgetMaxAgorot?: number;
+    maturity: string;
+  }[];
+}
+
 @Injectable()
 export class PersonIntakeService {
   constructor(
@@ -40,6 +59,56 @@ export class PersonIntakeService {
       if (person.budgetMaxAgorot === undefined) missing.push("תקציב");
     }
     return { person, evidence: evidence as Record<string, string>, missing };
+  }
+
+  /**
+   * "מי מחפש 4 חדרים בגבעתיים?" — שאלה על המאגר, לא חיפוש טקסט.
+   *
+   * הקריטריונים מחולצים באותו מנוע דטרמיניסטי של קליטת קונה
+   * (extractPerson: חדרים, תקציב, ערים), והסינון הוא אותו סינון של
+   * מסך הקונים — כולל סמנטיקת החפיפה של טווחי תקציב. אפס לוגיקה
+   * חדשה: שאלה = חילוץ קיים + פילטר קיים.
+   */
+  async queryBuyers(transcript: string): Promise<BuyerQueryAnswer> {
+    const { person } = extractPersonFromTranscript(transcript);
+    const budgetMaxShekels =
+      person.budgetMaxAgorot !== undefined
+        ? Math.round(person.budgetMaxAgorot / 100)
+        : undefined;
+
+    const page = await this.buyers.list({
+      limit: 10,
+      // "4 חדרים" סתם ⇒ min=max=4, והחפיפה מוצאת כל קונה שהטווח
+      // שלו כולל 4 (גם "3–5 חדרים")
+      ...(person.roomsMin !== undefined ? { minRooms: person.roomsMin } : {}),
+      ...(person.roomsMax !== undefined ? { maxRooms: person.roomsMax } : {}),
+      ...(budgetMaxShekels !== undefined ? { maxPrice: budgetMaxShekels } : {}),
+      ...(person.cities.length > 0 ? { q: person.cities[0] } : {}),
+    });
+
+    return {
+      criteria: {
+        cities: person.cities,
+        ...(person.roomsMin !== undefined ? { roomsMin: person.roomsMin } : {}),
+        ...(person.roomsMax !== undefined ? { roomsMax: person.roomsMax } : {}),
+        ...(budgetMaxShekels !== undefined ? { budgetMaxShekels } : {}),
+      },
+      buyers: page.items.map((buyer) => ({
+        id: buyer.id,
+        name: buyer.contact.name,
+        cities: buyer.requirements.cities,
+        ...(buyer.requirements.roomsMin !== undefined
+          ? { roomsMin: buyer.requirements.roomsMin }
+          : {}),
+        ...(buyer.requirements.roomsMax !== undefined
+          ? { roomsMax: buyer.requirements.roomsMax }
+          : {}),
+        ...(buyer.requirements.budgetMaxAgorot !== undefined
+          ? { budgetMaxAgorot: buyer.requirements.budgetMaxAgorot }
+          : {}),
+        maturity: buyer.maturity,
+      })),
+    };
   }
 
   async createLead(input: {

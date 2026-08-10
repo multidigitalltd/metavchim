@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
+import { formatPrice } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { VoiceRecorder } from "../voice-recorder";
 
@@ -18,6 +19,8 @@ const ACTION_LABELS: Record<string, string> = {
   add_buyer: "👤 הוספת קונה",
   add_lead: "📞 הוספת ליד",
   schedule_appointment: "📅 קביעת פגישה",
+  add_task: "⏰ תזכורת / משימה",
+  query_buyers: "👥 שאלה על המאגר",
   send_offer: "📤 שליחת הצעה ללקוח",
   search: "🔍 חיפוש",
   unknown: "לא זוהתה פקודה",
@@ -30,7 +33,28 @@ interface RouteResult {
   query?: string;
   content: string;
   appointment?: { startsAt?: string; timeExplicit: boolean; kind: string };
+  task?: { title: string; dueAt?: string; timeExplicit: boolean };
 }
+
+interface BuyerAnswer {
+  criteria: { cities: string[]; roomsMin?: number; roomsMax?: number; budgetMaxShekels?: number };
+  buyers: {
+    id: string;
+    name: string;
+    cities: string[];
+    roomsMin?: number;
+    roomsMax?: number;
+    budgetMaxAgorot?: number;
+    maturity: string;
+  }[];
+}
+
+const MATURITY_ICONS: Record<string, string> = {
+  very_hot: "🔥",
+  hot: "♨️",
+  warm: "🌤",
+  cold: "❄️",
+};
 
 const dateTimeFmt = new Intl.DateTimeFormat("he-IL", { dateStyle: "full", timeStyle: "short" });
 
@@ -39,6 +63,8 @@ export default function VoiceCommandPage() {
   const router = useRouter();
   const [transcript, setTranscript] = useState("");
   const [route, setRoute] = useState<RouteResult | null>(null);
+  const [answer, setAnswer] = useState<BuyerAnswer | null>(null);
+  const [taskDone, setTaskDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -49,11 +75,46 @@ export default function VoiceCommandPage() {
     }
     setBusy(true);
     setError(null);
+    setAnswer(null);
+    setTaskDone(false);
     try {
       const result = await apiPost<RouteResult>("/voice/route", { transcript: transcript.trim() });
       setRoute(result);
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "ניתוח הפקודה נכשל");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** תזכורת — נוצרת כאן, אחרי האישור, דרך מסלול המשימות הרגיל. */
+  async function createTask() {
+    if (!route?.task) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiPost("/tasks", {
+        title: route.task.title,
+        ...(route.task.dueAt ? { dueAt: route.task.dueAt } : {}),
+      });
+      setTaskDone(true);
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "יצירת התזכורת נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** שאלה על המאגר — התשובה מוצגת כאן, לא במסך אחר. */
+  async function fetchAnswer() {
+    setBusy(true);
+    setError(null);
+    try {
+      setAnswer(
+        await apiPost<BuyerAnswer>("/voice/query-buyers", { transcript: transcript.trim() }),
+      );
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "השאילתה נכשלה");
     } finally {
       setBusy(false);
     }
@@ -101,7 +162,8 @@ export default function VoiceCommandPage() {
       <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
         אמרו מה לעשות — המערכת תזהה ותכין את המסך המתאים לאישורכם.
         למשל: &quot;תוסיף קונה משה כהן, 4 חדרים בבני ברק עד 2.3 מיליון&quot;,
-        &quot;קבע פגישה מחר בעשר&quot;, &quot;חפש את שרה לוי&quot;.
+        &quot;קבע פגישה מחר בעשר&quot;, &quot;תזכיר לי מחר להתקשר לדוד&quot;,
+        &quot;מי מחפש 4 חדרים בגבעתיים?&quot;, &quot;חפש את שרה לוי&quot;.
       </p>
 
       {error ? (
@@ -168,7 +230,83 @@ export default function VoiceCommandPage() {
                   לא זוהה תאריך — תבחרו אותו במסך הבא.
                 </p>
               ) : null}
-              <Button onClick={proceed}>המשך →</Button>
+
+              {route.action === "add_task" && route.task ? (
+                taskDone ? (
+                  <p className="font-medium" style={{ color: "var(--color-success)" }}>
+                    ✓ התזכורת נוצרה{route.task.dueAt ? " — תקבלו התראה במועד" : ""}.{" "}
+                    <a href="/calendar" className="underline">ליומן ולמשימות ←</a>
+                  </p>
+                ) : (
+                  <>
+                    <p className="mb-1 font-medium">📌 {route.task.title}</p>
+                    {route.task.dueAt ? (
+                      <p className="mb-3">
+                        ⏰ {dateTimeFmt.format(new Date(route.task.dueAt))}
+                        {route.task.timeExplicit ? null : (
+                          <span style={{ color: "var(--color-text-muted)" }}>
+                            {" "}(שעה לא נאמרה — נבחרה 10:00)
+                          </span>
+                        )}
+                      </p>
+                    ) : (
+                      <p className="mb-3" style={{ color: "var(--color-text-muted)" }}>
+                        בלי מועד — המשימה תופיע ברשימה, בלי התראה מתוזמנת.
+                      </p>
+                    )}
+                    <Button onClick={() => void createTask()} disabled={busy}>
+                      {busy ? "יוצר…" : "צור תזכורת"}
+                    </Button>
+                  </>
+                )
+              ) : route.action === "query_buyers" ? (
+                answer ? (
+                  <div>
+                    {answer.buyers.length === 0 ? (
+                      <p style={{ color: "var(--color-text-muted)" }}>
+                        לא נמצאו קונים שמתאימים לקריטריונים האלה.
+                      </p>
+                    ) : (
+                      <>
+                        <p className="mb-2 font-medium" style={{ color: "var(--color-success)" }}>
+                          ✓ נמצאו {answer.buyers.length} קונים:
+                        </p>
+                        <ul className="flex flex-col gap-2">
+                          {answer.buyers.map((b) => (
+                            <li key={b.id} className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+                              <a href={`/buyers/${b.id}`} className="font-medium underline">
+                                {MATURITY_ICONS[b.maturity] ?? ""} {b.name}
+                              </a>
+                              <span style={{ color: "var(--color-text-muted)" }}>
+                                {" · "}
+                                {[
+                                  b.roomsMin !== undefined
+                                    ? b.roomsMax !== undefined && b.roomsMax !== b.roomsMin
+                                      ? `${b.roomsMin}–${b.roomsMax} חדרים`
+                                      : `${b.roomsMin} חדרים`
+                                    : null,
+                                  b.cities.join(" / ") || null,
+                                  b.budgetMaxAgorot !== undefined
+                                    ? `עד ${formatPrice(b.budgetMaxAgorot)}`
+                                    : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <Button onClick={() => void fetchAnswer()} disabled={busy}>
+                    {busy ? "בודק במאגר…" : "הצג תשובה"}
+                  </Button>
+                )
+              ) : (
+                <Button onClick={proceed}>המשך →</Button>
+              )}
             </>
           )}
         </div>
