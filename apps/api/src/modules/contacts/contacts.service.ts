@@ -148,12 +148,22 @@ export class ContactsService {
     return row?.emailEncrypted ? this.crypto.decrypt(row.emailEncrypted) : undefined;
   }
 
-  /** קביעת/ניקוי האימייל של הכרטיס — מוצפן כמו השם והטלפון. */
+  /**
+   * קביעת/ניקוי האימייל של הכרטיס — מוצפן כמו השם והטלפון, ולצידו
+   * חתימת HMAC שמאפשרת לסנכרון ה-Gmail להתאים שולח נכנס לכרטיס.
+   */
   async setEmail(tx: TenantTx, contactId: string, email: string): Promise<void> {
     const tenantId = TenantContext.current().tenantId;
+    const normalized = email.trim().toLowerCase();
     await tx.contact.updateMany({
       where: { id: contactId, tenantId },
-      data: { emailEncrypted: email === "" ? null : this.crypto.encrypt(email) },
+      data:
+        normalized === ""
+          ? { emailEncrypted: null, emailHash: null }
+          : {
+              emailEncrypted: this.crypto.encrypt(email),
+              emailHash: this.crypto.emailHash(normalized),
+            },
     });
   }
 

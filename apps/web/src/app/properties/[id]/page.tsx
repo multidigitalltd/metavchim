@@ -18,6 +18,7 @@ import { MediaSection } from "./media-section";
 import { AgreementsPanel } from "../../agreements-panel";
 import { EntityTasks } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
+import { RelatedEntities } from "../../related-entities";
 import { IconThumbUp } from "../../icons";
 
 /**
@@ -395,6 +396,18 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
             canSendUpdate={canWhatsApp}
             onSendUpdate={() => void sendOwnerUpdate()}
           />
+
+          {/*
+            הכובעים האחרים של בעל הנכס — מוכר שהוא גם קונה פעיל (או
+            ליד) מוצג כאן כצ'יפ, בדיוק כמו שכרטיס הקונה מציג את
+            הנכסים שבבעלותו. אותו endpoint, אותם פילטרי הרשאה.
+          */}
+          {property.ownerContact ? (
+            <RelatedEntities
+              contactId={property.ownerContact.id}
+              exclude={{ kind: "property", id: property.id }}
+            />
+          ) : null}
 
           {/* בלעדיות נחתמת מול בעל הנכס — ולכן מיד אחרי הסעיף שלו,
               ולא בכרטיס הקונה */}

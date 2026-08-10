@@ -31,7 +31,7 @@ export function RelatedEntities({
 }: {
   contactId: string;
   /** הישות שמוצגת כרגע — לא מציגים אותה כקישור לעצמה */
-  exclude?: { kind: "lead" | "buyer"; id: string };
+  exclude?: { kind: "lead" | "buyer" | "property"; id: string };
 }) {
   const [related, setRelated] = useState<Related | null>(null);
 
@@ -48,7 +48,10 @@ export function RelatedEntities({
     (b) => !(exclude?.kind === "buyer" && exclude.id === b.id),
   );
   const leads = related.leads.filter((l) => !(exclude?.kind === "lead" && exclude.id === l.id));
-  if (buyers.length === 0 && leads.length === 0 && related.ownedProperties.length === 0) return null;
+  const ownedProperties = related.ownedProperties.filter(
+    (p) => !(exclude?.kind === "property" && exclude.id === p.id),
+  );
+  if (buyers.length === 0 && leads.length === 0 && ownedProperties.length === 0) return null;
 
   return (
     <section aria-label="ישויות מקושרות לאותו אדם" className="mb-4">
@@ -75,7 +78,7 @@ export function RelatedEntities({
             </Link>
           </li>
         ))}
-        {related.ownedProperties.map((p) => (
+        {ownedProperties.map((p) => (
           <li key={p.id}>
             <Link
               href={`/properties/${p.id}`}

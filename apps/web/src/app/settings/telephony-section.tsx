@@ -424,6 +424,133 @@ export function TelephonySection() {
         </button>
       </form>
 
+      {/* הקצאת קווי SIP — של המנהל, לא של כל סוכן בפרופיל שלו */}
+      {status.connected ? <TeamSipLines /> : null}
     </section>
+  );
+}
+
+interface TeamLine {
+  userId: string;
+  name: string;
+  username: string;
+  hasPassword: boolean;
+}
+
+/**
+ * קווי הסופטפון של הצוות — מוקצים כאן, בידי מנהל המשרד.
+ *
+ * הקווים והסיסמאות מגיעים ממנהל המרכזייה אל מנהל המשרד — ולכן הוא
+ * זה שמזין אותם, פעם אחת לכל סוכן. הסוכן עצמו רק לוחץ "חבר סופטפון".
+ * (קודם כל סוכן הזין קו בעצמו בפרופיל — והקו נשאר ריק אצל רובם.)
+ */
+function TeamSipLines() {
+  const [lines, setLines] = useState<TeamLine[] | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [savedId, setSavedId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function load(): void {
+    apiGet<TeamLine[]>("/settings/telephony/lines")
+      .then(setLines)
+      .catch(() => setLines([]));
+  }
+
+  useEffect(load, []);
+
+  async function save(userId: string, form: HTMLFormElement): Promise<void> {
+    const data = new FormData(form);
+    const password = String(data.get("password") ?? "");
+    setBusyId(userId);
+    setError(null);
+    setSavedId(null);
+    try {
+      await apiPost(`/settings/telephony/lines/${userId}`, {
+        username: String(data.get("username") ?? "").trim(),
+        // סיסמה ריקה = השאר את השמורה; שליחתה הייתה מוחקת אותה
+        ...(password.trim() !== "" ? { password } : {}),
+      });
+      setSavedId(userId);
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "שמירת הקו נכשלה");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="mt-6 border-t pt-4" style={{ borderColor: "var(--color-border)" }}>
+      <h3 className="m-0 mb-1 text-sm font-extrabold">קווי סופטפון לצוות</h3>
+      <p className="m-0 mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+        הקצו לכל סוכן את הקו והסיסמה שקיבלתם ממנהל המרכזייה — אצלו יופיע כפתור
+        &quot;חבר סופטפון&quot; והוא יוכל לדבר מהדפדפן. סיסמה שמורה לא מוצגת; השאירו
+        ריק כדי לא לשנות אותה.
+      </p>
+
+      {error ? (
+        <p role="alert" className="m-0 mb-2 text-sm" style={{ color: "var(--color-danger)" }}>
+          {error}
+        </p>
+      ) : null}
+
+      {lines === null ? (
+        <p aria-live="polite" className="m-0 text-sm">טוען…</p>
+      ) : (
+        <ul className="m-0 flex list-none flex-col gap-2 p-0">
+          {lines.map((line) => (
+            <li key={line.userId}>
+              <form
+                className="flex flex-wrap items-end gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void save(line.userId, event.currentTarget);
+                }}
+              >
+                <span className="w-36 truncate pb-2 text-sm font-semibold">{line.name}</span>
+                <div>
+                  <label htmlFor={`line-u-${line.userId}`} className="mb-1 block text-xs font-semibold">
+                    קו / שלוחה
+                  </label>
+                  <input
+                    id={`line-u-${line.userId}`}
+                    name="username"
+                    dir="ltr"
+                    defaultValue={line.username}
+                    maxLength={80}
+                    autoComplete="off"
+                    className="w-32 rounded-lg border px-2.5 py-1.5 text-sm"
+                    style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                  />
+                </div>
+                <div>
+                  <label htmlFor={`line-p-${line.userId}`} className="mb-1 block text-xs font-semibold">
+                    סיסמת הקו
+                  </label>
+                  <input
+                    id={`line-p-${line.userId}`}
+                    name="password"
+                    type="password"
+                    dir="ltr"
+                    autoComplete="new-password"
+                    placeholder={line.hasPassword ? "שמורה — השאירו ריק" : ""}
+                    className="w-36 rounded-lg border px-2.5 py-1.5 text-sm"
+                    style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                  />
+                </div>
+                <button type="submit" className="mv-btn-plain" disabled={busyId !== null}>
+                  {busyId === line.userId ? "שומר…" : "שמור"}
+                </button>
+                {savedId === line.userId ? (
+                  <span role="status" className="pb-2 text-sm" style={{ color: "var(--color-success)" }}>
+                    ✓ נשמר
+                  </span>
+                ) : null}
+              </form>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

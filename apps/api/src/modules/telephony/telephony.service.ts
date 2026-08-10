@@ -240,21 +240,35 @@ export class TelephonyService {
    * הסיסמה נכתבת רק כשנשלחה — אותו כלל של סודות המרכזייה, ומאותה
    * סיבה: סוכן שמעדכן את שם הקו לא אמור להקליד סיסמה מחדש.
    */
-  async myLine(): Promise<{ username: string; hasPassword: boolean }> {
-    const { tenantId, userId } = TenantContext.current();
-    const user = await this.prisma.user.findFirst({
-      where: { id: userId, tenantId },
-      select: { sipUsername: true, sipPasswordEncrypted: true },
+  /**
+   * קווי ה-SIP של כל הצוות — למסך הגדרות המרכזייה של מנהל המשרד.
+   *
+   * הקו מוגדר בידי המנהל ולא בידי כל סוכן: המנהל הוא מי שמקבל את
+   * הקווים ממנהל המרכזייה, והוא מקצה אותם — הסוכן רק לוחץ "חבר
+   * סופטפון" ועובד. מוחזר האם יש סיסמה, לא הסיסמה עצמה.
+   */
+  async lines(): Promise<
+    { userId: string; name: string; username: string; hasPassword: boolean }[]
+  > {
+    const { tenantId } = TenantContext.current();
+    const users = await this.prisma.user.findMany({
+      where: { tenantId, isActive: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, sipUsername: true, sipPasswordEncrypted: true },
     });
-    // האם יש סיסמה, לא הסיסמה עצמה — המסך צריך להבדיל בין "שמורה,
-    // השאירו ריק" ל"אין", וזה כל מה שהוא צריך לשם כך
-    return {
-      username: user?.sipUsername ?? "",
-      hasPassword: (user?.sipPasswordEncrypted ?? null) !== null,
-    };
+    return users.map((u) => ({
+      userId: u.id,
+      name: u.name,
+      username: u.sipUsername ?? "",
+      hasPassword: u.sipPasswordEncrypted !== null,
+    }));
   }
 
-  async saveMyLine(input: { username?: string; password?: string }): Promise<{ ok: true }> {
+  /** הקצאת קו לסוכן — בידי מנהל המשרד בלבד (נאכף בבקר). */
+  async saveLineFor(
+    targetUserId: string,
+    input: { username?: string; password?: string },
+  ): Promise<{ ok: true }> {
     const { tenantId, userId } = TenantContext.current();
     const data: { sipUsername?: string | null; sipPasswordEncrypted?: string | null } = {};
     if (input.username !== undefined) {
@@ -274,12 +288,16 @@ export class TelephonyService {
 
     await this.prisma.withTenant(async (tx) => {
       // updateMany עם tenantId: משתמש של משרד אחר אינו נגיש גם בטעות
-      await tx.user.updateMany({ where: { id: userId, tenantId }, data });
+      const updated = await tx.user.updateMany({
+        where: { id: targetUserId, tenantId },
+        data,
+      });
+      if (updated.count === 0) throw new NotFoundException("המשתמש לא נמצא");
       await this.audit.record(tx, {
         action: "telephony.line.update",
         entityType: "user",
-        entityId: userId,
-        metadata: { hasUsername: (data.sipUsername ?? null) !== null },
+        entityId: targetUserId,
+        metadata: { hasUsername: (data.sipUsername ?? null) !== null, byUserId: userId },
       });
     });
     return { ok: true };

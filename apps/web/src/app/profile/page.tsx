@@ -25,7 +25,6 @@ import { disablePush, enablePush, readPushState, type PushState } from "@/lib/pu
 import { useRequireAuth } from "@/lib/use-auth";
 import { ThemeToggle } from "../theme-toggle";
 import { PlanSection } from "../settings/plan-section";
-import { SipLineSection } from "./sip-line";
 
 /**
  * הפרופיל האישי — כל מה ששייך למשתמש הזה ולא למשרד: ערכת נושא,
@@ -365,15 +364,14 @@ export default function ProfilePage() {
       </div>
 
       {/*
-        בתחתית ולא בראש: אלה כרטיסי עיון — מה כלול במסלול, ואיזה קו
-        SIP מוגדר לי — לא פעולות יומיומיות, והם דחפו את הפרטים האישיים
-        מתחת לקו המסך. המסלול נשאר בפרופיל בכלל כי סוכן, עוזר וצופה הם
-        בדיוק מי שנתקל בקיר של פיצ'ר — ומסך ההגדרות סגור בפניהם
-        (settings.manage); בלעדי זה ההסבר שהשרת מכין להם היה בלתי נגיש
-        (ביקורת Codex).
+        בתחתית ולא בראש: כרטיס עיון — לא פעולה יומיומית, והוא דחף את
+        הפרטים האישיים מתחת לקו המסך. המסלול נשאר בפרופיל בכלל כי
+        סוכן, עוזר וצופה הם בדיוק מי שנתקל בקיר של פיצ'ר — ומסך
+        ההגדרות סגור בפניהם (settings.manage); בלעדי זה ההסבר שהשרת
+        מכין להם היה בלתי נגיש (ביקורת Codex). קו ה-SIP האישי כבר לא
+        כאן — הקווים מוקצים בידי מנהל המשרד בהגדרות המרכזייה.
       */}
       <div className="mt-[18px] flex flex-col gap-[18px]">
-        <SipLineSection />
         <PlanSection />
       </div>
     </>

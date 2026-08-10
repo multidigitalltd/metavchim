@@ -47,8 +47,8 @@ const GAP_TEXT: Record<string, string> = {
   no_integration: "לא מחוברת מרכזייה במשרד",
   no_wss: "מנהל המשרד צריך להזין כתובת WSS בהגדרות המרכזייה",
   no_domain: "מנהל המשרד צריך להזין דומיין SIP בהגדרות המרכזייה",
-  no_line: "הזינו את קו ה-SIP שלכם בהגדרות המרכזייה",
-  no_line_password: "הזינו את סיסמת קו ה-SIP שלכם בהגדרות המרכזייה",
+  no_line: "מנהל המשרד טרם הקצה לכם קו SIP — בקשו ממנו בהגדרות המרכזייה",
+  no_line_password: "לקו ה-SIP שלכם חסרה סיסמה — בקשו ממנהל המשרד להשלים אותה",
 };
 
 export function SoftphoneProvider({ children }: { children: React.ReactNode }): React.JSX.Element {

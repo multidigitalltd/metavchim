@@ -89,27 +89,28 @@ export class TelephonyController {
   }
 
   /*
-   * הסופטפון — שלושת הנתיבים הבאים.
-   *
-   * ‎`leads.edit` ולא `settings.manage`: לדבר עם לקוח זו עבודת הסוכן,
-   * ואם רק מנהל המשרד יכול היה להירשם לסופטפון, הפיצ'ר היה חסר
-   * משמעות. מה שכן שמור למנהל הוא **הגדרת** המרכזייה (‎POST /‎).
+   * הסופטפון. *ההתחברות* פתוחה לסוכן (‎leads.edit‎) — לדבר עם לקוח
+   * זו עבודת הסוכן. *ההקצאה* של הקווים שמורה למנהל המשרד
+   * (‎settings.manage‎): הוא מי שמקבל את הקווים ממנהל המרכזייה,
+   * והסוכן לא אמור להזין סיסמאות SIP בעצמו.
    */
 
-  /** קו ה-SIP האישי — של המשתמש המחובר, ואין דרך לנקוב באחר. */
-  @Get("my-line")
-  @RequireCapability("leads.edit")
-  async myLine(): Promise<{ username: string; hasPassword: boolean }> {
-    return this.telephony.myLine();
+  /** קווי ה-SIP של כל הצוות — למסך ההגדרות של המנהל. */
+  @Get("lines")
+  @RequireCapability("settings.manage")
+  async lines(): ReturnType<TelephonyService["lines"]> {
+    return this.telephony.lines();
   }
 
-  @Post("my-line")
-  @RequireCapability("leads.edit")
+  /** הקצאת קו לסוכן. סיסמה חסרה = השאר את השמורה. */
+  @Post("lines/:userId")
+  @RequireCapability("settings.manage")
   @HttpCode(200)
-  async saveMyLine(
+  async saveLine(
+    @Param("userId", new ZodValidationPipe(IdSchema)) userId: string,
     @Body(new ZodValidationPipe(MyLineSchema)) body: z.infer<typeof MyLineSchema>,
   ): Promise<{ ok: true }> {
-    return this.telephony.saveMyLine(body);
+    return this.telephony.saveLineFor(userId, body);
   }
 
   /**

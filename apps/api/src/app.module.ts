@@ -12,6 +12,7 @@ import { AnnouncementsModule } from "./modules/announcements/announcements.modul
 import { BillingModule } from "./modules/billing/billing.module";
 import { BuyersModule } from "./modules/buyers/buyers.module";
 import { CalendarModule } from "./modules/calendar/calendar.module";
+import { GmailModule } from "./modules/gmail/gmail.module";
 import { CoachModule } from "./modules/coach/coach.module";
 import { CollaborationModule } from "./modules/collaboration/collaboration.module";
 import { ContactsModule } from "./modules/contacts/contacts.module";
@@ -63,6 +64,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     AnnouncementsModule,
     MessagingModule,
     CalendarModule,
+    GmailModule,
     CollaborationModule,
     SettingsModule,
     SignupModule,

@@ -155,6 +155,7 @@ export class AccountDeletionService {
          */
         await tx.duplicateDismissal.deleteMany({ where: { tenantId } });
         await tx.googleCalendarLink.deleteMany({ where: { tenantId } });
+        await tx.gmailLink.deleteMany({ where: { tenantId } });
         await tx.userCapability.deleteMany({ where: { tenantId } });
         await tx.propertyMedia.deleteMany({ where: { tenantId } });
         await tx.property.deleteMany({ where: { tenantId } });
