@@ -13,6 +13,7 @@ import { ContactPeople } from "../../contact-people";
 import { DictateFor } from "../../dictation-field";
 import { RelatedEntities } from "../../related-entities";
 import { EntityTasks } from "../../entity-tasks";
+import { ReplyEmail } from "./reply-email";
 import {
   IconCalendar,
   IconCart,
@@ -513,6 +514,14 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           </p>
         </section>
       ) : null}
+
+      {/* מיד אחרי תוכן הפנייה: קראת מה הוא רצה — עכשיו תענה לו */}
+      <ReplyEmail
+        contactId={lead.contact.id}
+        leadId={lead.id}
+        contactName={lead.contact.name}
+        {...(lead.contact.email !== undefined ? { contactEmail: lead.contact.email } : {})}
+      />
 
       <RelatedEntities contactId={lead.contact.id} exclude={{ kind: "lead", id: lead.id }} />
 

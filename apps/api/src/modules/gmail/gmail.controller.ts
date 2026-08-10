@@ -1,10 +1,37 @@
-import { Controller, Delete, Get, HttpCode, Post, Req, Res } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Post,
+  Req,
+  Res,
+} from "@nestjs/common";
 import type { Request, Response } from "express";
+import { z } from "zod";
+import { IdSchema } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { TenantContext } from "../../common/tenant-context";
+import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { loadEnv } from "../../config/env";
+import { GmailOutboundService } from "./gmail-outbound.service";
 import { GmailSyncService } from "./gmail-sync.service";
 import { GmailService } from "./gmail.service";
+
+/**
+ * היעד אינו מתקבל מהמסך אלא נגזר מהכרטיס — ראו הנימוק ב-
+ * GmailOutboundService. המסך מוסר מזהה לקוח, לא כתובת.
+ */
+const SendSchema = z
+  .object({
+    contactId: IdSchema,
+    leadId: IdSchema.optional(),
+    subject: z.string().trim().min(1).max(200),
+    body: z.string().trim().min(1).max(5000),
+  })
+  .strict();
 
 /**
  * חיבור Gmail וניתוקו — אותה תבנית כמו חיבור יומן Google, כולל
@@ -22,6 +49,7 @@ export class GmailController {
   constructor(
     private readonly gmail: GmailService,
     private readonly sync: GmailSyncService,
+    private readonly outbound: GmailOutboundService,
   ) {}
 
   @Get("status")
@@ -108,5 +136,40 @@ export class GmailController {
   async syncNow(): Promise<{ imported: number; skipped: number }> {
     const { tenantId, userId } = TenantContext.current();
     return this.sync.syncOne(tenantId, userId);
+  }
+
+  /**
+   * האם המשתמש הזה יכול לשלוח — כלומר יש לו תיבה מחוברת.
+   *
+   * החיבור הוא **אישי** ולא משרדי: כל סוכן שולח מהתיבה שלו, והתשובה
+   * חוזרת אליו. לכן זו שאלה על המשתמש הנוכחי ולא על המשרד.
+   */
+  @Get("can-send")
+  @RequireCapability("leads.edit")
+  async canSend(): Promise<{ canSend: boolean; from?: string }> {
+    const { tenantId, userId } = TenantContext.current();
+    const link = await this.gmail.linkFor(tenantId, userId);
+    return link ? { canSend: true, from: link.googleEmail } : { canSend: false };
+  }
+
+  /**
+   * שליחת מייל ללקוח מהתיבה המחוברת.
+   *
+   * ‎leads.edit‎ ולא ‎settings.manage‎: שליחת מייל ללקוח היא עבודה
+   * יומיומית של סוכן, בעוד שחיבור התיבה עצמה הוא החלטת מנהל.
+   */
+  @Post("send")
+  @RequireCapability("leads.edit")
+  @HttpCode(200)
+  async send(
+    @Body(new ZodValidationPipe(SendSchema)) body: z.infer<typeof SendSchema>,
+  ): Promise<{ ok: true }> {
+    const { tenantId, userId } = TenantContext.current();
+    const link = await this.gmail.linkFor(tenantId, userId);
+    if (!link) {
+      throw new BadRequestException("לא מחוברת תיבת Gmail — חברו אותה בהגדרות");
+    }
+    await this.outbound.sendToContact(link, body);
+    return { ok: true };
   }
 }

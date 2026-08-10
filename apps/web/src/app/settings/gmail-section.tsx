@@ -120,6 +120,15 @@ export function GmailSection(): React.JSX.Element | null {
           <p className="m-0 mb-1 text-sm">
             מחובר לתיבה: <b dir="ltr">{status.email}</b>
           </p>
+          {/*
+            הרשאת השליחה נוספה אחרי שחיבורים כבר היו קיימים, ואסימון
+            ישן אינו נושא אותה — שליחה דרכו תיכשל. הכיתוב חוסך את
+            הניסיון והכישלון.
+          */}
+          <p className="m-0 mb-2 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+            כדי לשלוח מיילים ללקוחות מתוך הכרטיס נדרשת גם הרשאת שליחה. אם חיברתם את
+            התיבה לפני העדכון — נתקו וחברו מחדש, ואשרו את ההרשאה החדשה.
+          </p>
           <p className="m-0 mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
             {status.lastSyncAt
               ? `משיכה אחרונה: ${formatDateTime(status.lastSyncAt)} · נבדק אוטומטית כל רבע שעה`
