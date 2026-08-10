@@ -9,13 +9,11 @@ import {
   LeadIntentSchema,
   LeadStatusSchema,
   PhoneSchema,
-  PropertyFieldsSchema,
   type Page,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { BuyersService, type BuyerDto } from "../buyers/buyers.service";
-import { PropertiesService } from "../properties/properties.service";
 import { LeadsService, type InteractionDto, type LeadDto } from "./leads.service";
 
 const CreateLeadSchema = z
@@ -58,7 +56,6 @@ export class LeadsController {
   constructor(
     private readonly leads: LeadsService,
     private readonly buyers: BuyersService,
-    private readonly properties: PropertiesService,
   ) {}
 
   @Post()
@@ -107,21 +104,6 @@ export class LeadsController {
     @Body(new ZodValidationPipe(ConvertSchema)) body: z.infer<typeof ConvertSchema>,
   ): Promise<BuyerDto> {
     return this.buyers.convertFromLead(id, body);
-  }
-
-  /**
-   * המרת ליד לנכס: מי שהתקשר "יש לי דירה למכור" הוא בעל נכס, לא
-   * קונה. איש הקשר של הליד הופך לבעל הנכס — אותו אדם, בלי כרטיס
-   * כפול. יוצר ישות נכסים — לכן properties.edit.
-   */
-  @Post(":id/convert-to-property")
-  @RequireCapability("properties.edit")
-  async convertToProperty(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Body(new ZodValidationPipe(PropertyFieldsSchema)) body: z.infer<typeof PropertyFieldsSchema>,
-  ): Promise<{ id: string }> {
-    const property = await this.properties.convertFromLead(id, body);
-    return { id: property.id };
   }
 
   @Post(":id/notes")

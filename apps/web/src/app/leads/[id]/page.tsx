@@ -64,12 +64,12 @@ function ConvertToPropertySection({ leadId }: { leadId: string }) {
     setBusy(true);
     setError(null);
     try {
-      const res = await apiPost<{ id: string }>(`/leads/${leadId}/convert-to-property`, {
+      const res = await apiPost<{ id: string }>(`/properties/from-lead/${leadId}`, {
         city: String(f.get("city") ?? "").trim(),
         dealType: String(f.get("dealType") ?? "sale"),
         propertyType: String(f.get("propertyType") ?? "apartment"),
-        ...(String(f.get("address") ?? "").trim() !== ""
-          ? { address: String(f.get("address") ?? "").trim() }
+        ...(String(f.get("street") ?? "").trim() !== ""
+          ? { street: String(f.get("street") ?? "").trim() }
           : {}),
         ...(String(f.get("price") ?? "").trim() !== ""
           ? { priceAgorot: Math.round(Number(f.get("price")) * 100) }
@@ -111,8 +111,8 @@ function ConvertToPropertySection({ leadId }: { leadId: string }) {
           <input id="cp-city" name="city" required className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }} />
         </div>
         <div>
-          <label htmlFor="cp-address" className="mb-1 block text-sm">כתובת (לא חובה)</label>
-          <input id="cp-address" name="address" className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }} />
+          <label htmlFor="cp-address" className="mb-1 block text-sm">רחוב ומספר (לא חובה)</label>
+          <input id="cp-address" name="street" className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }} />
         </div>
         <div>
           <label htmlFor="cp-deal" className="mb-1 block text-sm">עסקה</label>
@@ -127,9 +127,9 @@ function ConvertToPropertySection({ leadId }: { leadId: string }) {
             <option value="apartment">דירה</option>
             <option value="garden_apartment">דירת גן</option>
             <option value="penthouse">פנטהאוז</option>
-            <option value="house">בית פרטי</option>
+            <option value="private_house">בית פרטי</option>
             <option value="duplex">דופלקס</option>
-            <option value="lot">מגרש</option>
+            <option value="plot">מגרש</option>
             <option value="commercial">מסחרי</option>
           </select>
         </div>
@@ -369,7 +369,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
       ) : null}
 
       {/* ליד אינו תמיד קונה — "יש לי דירה למכור" הוא בעל נכס */}
-      {lead.status !== "converted" && can(user, "properties.edit") ? (
+      {lead.status !== "converted" && can(user, "properties.create") ? (
         <ConvertToPropertySection leadId={lead.id} />
       ) : null}
 

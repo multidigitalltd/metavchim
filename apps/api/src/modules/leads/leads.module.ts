@@ -1,5 +1,4 @@
 import { Module } from "@nestjs/common";
-import { PropertiesModule } from "../properties/properties.module";
 import { BuyersModule } from "../buyers/buyers.module";
 import { ContactsModule } from "../contacts/contacts.module";
 import { LeadsController } from "./leads.controller";
@@ -8,7 +7,7 @@ import { WebLeadController } from "./web-lead.controller";
 import { WebLeadService } from "./web-lead.service";
 
 @Module({
-  imports: [ContactsModule, BuyersModule, PropertiesModule],
+  imports: [ContactsModule, BuyersModule],
   controllers: [LeadsController, WebLeadController],
   providers: [LeadsService, WebLeadService],
   exports: [LeadsService, WebLeadService],

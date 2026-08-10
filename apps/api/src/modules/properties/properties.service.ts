@@ -122,19 +122,25 @@ export class PropertiesService {
   /**
    * המרת ליד לנכס — התאום של ‎BuyersService.convertFromLead‎.
    *
-   * ליד אינו תמיד קונה: מי שהתקשר "יש לי דירה למכור" הוא בעל נכס,
-   * ועד היום הדרך היחידה הייתה לפתוח נכס מאפס ולאבד את הקשר לליד,
-   * לשיחות ולהיסטוריה. איש הקשר של הליד הופך לבעל הנכס — אותו אדם,
-   * בלי כרטיס כפול.
+   * ליד אינו תמיד קונה: מי שהתקשר "יש לי דירה למכור" הוא בעל נכס.
+   * איש הקשר של הליד הופך לבעל הנכס — אותו אדם, בלי כרטיס כפול.
    *
-   * הסדר: תפיסת הליד (CAS על הסטטוס) ואז יצירת הנכס, עם החזרה של
-   * הסטטוס אם היצירה נכשלה — עדיף ליד שחוזר לרגע מ"הומר" על נכס
-   * יתום שנוצר פעמיים מלחיצה כפולה.
+   * הסדר: תפיסת הליד (CAS על הסטטוס) ⟵ שמירת הנכס ⟵ התאמות.
+   * שני הכללים שמחזיקים את זה ישרים (ביקורת Codex):
+   *
+   * - **ההתאמות הן best-effort**, כמו בהמרה לקונה ובייבוא: הנכס כבר
+   *   נשמר, וכשל בחישוב אינו "ההמרה נכשלה" — הוא יחושב בעריכה הבאה.
+   *   בלי זה, כשל התאמות היה מחזיר שגיאה על נכס שקיים, והניסיון
+   *   החוזר היה יוצר נכס שני לאותו ליד.
+   * - **הרולבק מחזיר את כל מה שהתפיסה שינתה** — סטטוס מקורי,
+   *   requiresHuman, firstResponseAt, ומשימות ה-SLA שנסגרו — לא רק
+   *   סטטוס גנרי. כישלון המרה (למשל מכסת נכסים) אינו אמור לשנות
+   *   לצמיתות את מצב הטיפול בליד.
    */
   async convertFromLead(leadId: string, fields: PropertyFields): Promise<PropertyDto> {
     const ctx = TenantContext.current();
 
-    const owner = await this.prisma.withTenant(async (tx) => {
+    const claim = await this.prisma.withTenant(async (tx) => {
       const lead = await tx.lead.findFirst({
         where: {
           id: leadId,
@@ -153,9 +159,14 @@ export class PropertiesService {
         },
       });
       if (claimed.count === 0) throw new ConflictException("הליד כבר הומר");
-      // המרה = הליד טופל — אסקלציית SLA פתוחה נסגרת, כמו בהמרה לקונה
-      await tx.task.updateMany({
+
+      // מזהי משימות ה-SLA שנסגרות — כדי שהרולבק יפתח בדיוק אותן
+      const slaTasks = await tx.task.findMany({
         where: { tenantId: ctx.tenantId, sourceKey: `lead-sla:${leadId}`, status: "open" },
+        select: { id: true },
+      });
+      await tx.task.updateMany({
+        where: { id: { in: slaTasks.map((t) => t.id) }, tenantId: ctx.tenantId },
         data: { status: "done" },
       });
 
@@ -165,26 +176,50 @@ export class PropertiesService {
       });
       if (!contact) throw new NotFoundException("איש הקשר של הליד לא נמצא");
       return {
-        name: this.crypto.decrypt(contact.nameEncrypted),
-        phone: this.crypto.decrypt(contact.phoneEncrypted),
+        owner: {
+          name: this.crypto.decrypt(contact.nameEncrypted),
+          phone: this.crypto.decrypt(contact.phoneEncrypted),
+        },
+        prior: {
+          status: lead.status,
+          requiresHuman: lead.requiresHuman,
+          firstResponseAt: lead.firstResponseAt,
+        },
+        slaTaskIds: slaTasks.map((t) => t.id),
       };
     });
 
+    let propertyId: string;
     try {
-      // אותו נתיב יצירה של נכס רגיל — האיש נפתר לפי טלפון לאותו contact
-      return await this.create({ fields, owner });
+      // persist בלבד — לא create: ההתאמות מופרדות ל-best-effort למטה
+      propertyId = await this.persist({ fields, owner: claim.owner });
     } catch (error) {
-      // היצירה נכשלה — הליד חוזר לחיים במקום להיתקע כ"הומר" על כלום
+      // השמירה נכשלה — הליד חוzר בדיוק למצבו, לא למצב גנרי
       await this.prisma
-        .withTenant((tx) =>
-          tx.lead.updateMany({
+        .withTenant(async (tx) => {
+          await tx.lead.updateMany({
             where: { id: leadId, tenantId: ctx.tenantId, status: "converted" },
-            data: { status: "in_progress" },
-          }),
-        )
+            data: {
+              status: claim.prior.status,
+              requiresHuman: claim.prior.requiresHuman,
+              firstResponseAt: claim.prior.firstResponseAt,
+            },
+          });
+          await tx.task.updateMany({
+            where: { id: { in: claim.slaTaskIds }, tenantId: ctx.tenantId },
+            data: { status: "open" },
+          });
+        })
         .catch(() => undefined);
       throw error;
     }
+
+    try {
+      await this.matching.recomputeForProperty(propertyId);
+    } catch {
+      // הנכס כבר קיים; ההתאמות יחושבו בעריכה הבאה
+    }
+    return this.getById(propertyId);
   }
 
   async createForImport(input: {
