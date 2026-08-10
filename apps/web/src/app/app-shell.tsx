@@ -10,6 +10,7 @@ import { TopbarSearch } from "./topbar-search";
 import { WhatsNewBanner } from "./whats-new-banner";
 import { TrialBanner } from "./trial-banner";
 import { SoftphoneProvider } from "./softphone-bar";
+import { IconMenu } from "./icons";
 
 /**
  * מעטפת האפליקציה לפי קובץ העיצוב: סרגל צד כהה עם ניווט אנכי, מונים
@@ -532,7 +533,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen(true)}
           >
-            <span aria-hidden="true">☰</span>
+            <IconMenu s={15} />
             <span className="mv-topbar-label" aria-hidden="true">תפריט</span>
           </button>
 

@@ -1,4 +1,5 @@
 import { LEGAL_IS_DEMO } from "../lib/legal";
+import { IconWarning } from "./icons";
 
 /**
  * כותרת האזהרה שמופיעה בראש כל מסמך משפטי כל עוד התוכן הוא דמו.
@@ -24,7 +25,7 @@ export function LegalDemoNotice() {
         background: "var(--color-surface)",
       }}
     >
-      ⚠️ טיוטה לתצוגה בלבד — פרטי המפעילה במסמך זה הם תוכן דמו, והנוסח
+      <IconWarning s={15} /> טיוטה לתצוגה בלבד — פרטי המפעילה במסמך זה הם תוכן דמו, והנוסח
       טרם עבר בדיקה משפטית. אין להסתמך עליו כמסמך מחייב.
     </p>
   );
