@@ -1208,6 +1208,24 @@ button.mv-list-row:hover {
   text-decoration: none;
 }
 
+/*
+ * גרסת "פעולה הרסנית" של הכפתור הקומפקטי — מחיקת תמונה וכדומה.
+ *
+ * מוגדרת כאן ולא כצבע inline במסך, כדי שמצב הניגודיות הגבוהה יוכל
+ * לגבור עליה: ‎--color-danger‎ במצב כהה הוא גוון בהיר, וכלל הניגודיות
+ * מכריח רקע לבן — הצירוף נותן יחס של כ-2:1 והטקסט נעשה בלתי קריא
+ * (ביקורת Codex). כצמד כלל+override הוא מכוסה כמו שאר הכפתורים.
+ */
+.mv-btn-plain--danger {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+:root[data-a11y-contrast="on"] .mv-btn-plain--danger {
+  color: #000000;
+  background: #ffffff;
+  border-color: #000000;
+}
+
 /* פס מוכנות לשיווק */
 .mv-progress {
   flex: 1;

@@ -187,11 +187,18 @@ export function MediaSection({ propertyId, address }: { propertyId: string; addr
                     <IconStar s={13} /> ראשית
                   </span>
                 ) : (
+                  /*
+                   * כפתורים ולא קישורי טקסט: הטקסט לבדו משאיר יעד מגע
+                   * בגודל התווים בלבד, ומחיקה בטעות במגע היא הרסנית
+                   * (ביקורת Codex). mv-btn-plain נותן ריפוד ומסגרת,
+                   * ו-min-height מבטיח יעד נוח גם בגופן קטן.
+                   */
                   <button
                     type="button"
                     onClick={() => onMakePrimary(m.id)}
                     disabled={busy}
-                    className="text-[12.5px] underline"
+                    className="mv-btn-plain"
+                    style={{ minHeight: 32, padding: "5px 10px", fontSize: 12 }}
                   >
                     הפוך לראשית
                   </button>
@@ -200,8 +207,8 @@ export function MediaSection({ propertyId, address }: { propertyId: string; addr
                   type="button"
                   onClick={() => onDelete(m.id)}
                   disabled={busy}
-                  className="text-[12.5px] underline"
-                  style={{ color: "var(--color-danger)" }}
+                  className="mv-btn-plain mv-btn-plain--danger"
+                  style={{ minHeight: 32, padding: "5px 10px", fontSize: 12 }}
                 >
                   מחק<span className="mv-visually-hidden"> את {m.altText ?? `תמונה ${index + 1}`}</span>
                 </button>
