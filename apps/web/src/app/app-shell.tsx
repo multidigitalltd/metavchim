@@ -472,11 +472,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="mv-nav-badge">{counts.urgentTasks}</span>
           ) : null,
         )}
-        {isManager && hasFeature("analytics")
-          ? navLink("/reports", "דוחות", ICONS.reports)
-          : null}
-
-        {/* בלי שער מסלול: השת"פ הבסיסי פתוח בכל המסלולים */}
+        {/*
+          השת"פ לפני הדוחות: הוא עבודה יומיומית של הסוכן, והדוחות הם
+          מסך שמנהל פותח פעם בשבוע. בלי שער מסלול — השת"פ הבסיסי פתוח
+          בכל המסלולים.
+        */}
         <div className="mv-nav-group">רשת</div>
         {navLink(
           "/collaboration",
@@ -486,6 +486,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="mv-nav-credits">{counts.credits} קרדיטים</span>
           ) : null,
         )}
+        {isManager && hasFeature("analytics")
+          ? navLink("/reports", "דוחות", ICONS.reports)
+          : null}
         {navLink("/guides", "הדרכות", ICONS.guides)}
         {isManager ? navLink("/settings", "ניהול משרד", ICONS.office) : null}
         {isManager && !setupDone ? navLink("/setup", "הקמה", ICONS.setup) : null}

@@ -1259,6 +1259,43 @@ button.mv-list-row:hover {
   box-shadow: 0 1px 2px rgba(30, 40, 32, 0.15);
 }
 
+/*
+ * לשוניות פנימיות במסך (ניהול משרד). נגללות לרוחב במובייל במקום
+ * להישבר לשלוש שורות — פס לשוניות שמתפרס על חצי מסך הוא ניווט שקשה
+ * לסרוק בעין.
+ */
+.mv-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--color-seg-track);
+  border-radius: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.mv-tabs::-webkit-scrollbar {
+  display: none;
+}
+.mv-tabs > button {
+  border: none;
+  border-radius: 9px;
+  padding: 8px 15px;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  background: transparent;
+  color: var(--color-text-soft);
+  white-space: nowrap;
+}
+.mv-tabs > button:hover {
+  color: var(--color-text);
+}
+.mv-tabs > button[aria-selected="true"] {
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: 0 1px 2px rgba(30, 40, 32, 0.15);
+}
+
 /* כרטיס מונה בדשבורד — לפי קובץ העיצוב: מספר גדול ומסגרת שמתחדדת בריחוף */
 .mv-stat-card {
   display: block;

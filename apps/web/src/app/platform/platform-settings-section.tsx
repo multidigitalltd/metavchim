@@ -238,7 +238,7 @@ export function PlatformSettingsSection() {
           נדרש לאיפוס סיסמה ולאימות כניסה. הטוקן: Postmark ⟵ Servers ⟵ API Tokens.
           כתובת השולח חייבת להיות מאומתת ב-Postmark (Sender Signature או דומיין).
         </p>
-        <form onSubmit={(e) => void saveEmail(e)} className="flex flex-wrap items-end gap-3">
+        <form autoComplete="off" onSubmit={(e) => void saveEmail(e)} className="flex flex-wrap items-end gap-3">
           <div className="flex-1" style={{ minWidth: "220px" }}>
             <label htmlFor="postmarkServerToken" className="mb-1 block font-medium">
               Server Token {settings.postmark.configured ? <span className="font-normal">(ריק = ללא שינוי)</span> : null}
@@ -248,7 +248,9 @@ export function PlatformSettingsSection() {
               name="postmarkServerToken"
               type="password"
               dir="ltr"
-              autoComplete="off"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
               placeholder={settings.postmark.configured ? "••••••••" : ""}
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
@@ -294,7 +296,14 @@ export function PlatformSettingsSection() {
             {settings.google.redirectUri}
           </code>
         </p>
-        <form onSubmit={(e) => void saveGoogle(e)} className="flex flex-wrap items-end gap-3">
+        {/*
+          שכבות ההגנה מפני מילוי אוטומטי אינן קישוט: Chrome התעלם
+          מ-‎autocomplete="off"‎ בשדה סיסמה ומילא לתוך Client Secret את
+          הסיסמה השמורה של המשתמש — הערך נשמר, ו-Google החזיר
+          invalid_client על כל ההתחברות. ‎new-password‎ עוצר את הדפדפן,
+          ו-data-1p-ignore/data-lpignore את מנהלי הסיסמאות החיצוניים.
+        */}
+        <form autoComplete="off" onSubmit={(e) => void saveGoogle(e)} className="flex flex-wrap items-end gap-3">
           <div className="flex-1" style={{ minWidth: "220px" }}>
             <label htmlFor="googleClientId" className="mb-1 block font-medium">
               Client ID {settings.google.configured ? <span className="font-normal">(ריק = ללא שינוי)</span> : null}
@@ -304,7 +313,9 @@ export function PlatformSettingsSection() {
               name="googleClientId"
               type="text"
               dir="ltr"
-              autoComplete="off"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
               placeholder={settings.google.configured ? "••••••••" : "…apps.googleusercontent.com"}
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
@@ -319,7 +330,9 @@ export function PlatformSettingsSection() {
               name="googleClientSecret"
               type="password"
               dir="ltr"
-              autoComplete="off"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
               placeholder={settings.google.configured ? "••••••••" : ""}
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
@@ -343,7 +356,9 @@ export function PlatformSettingsSection() {
               name="geminiApiKey"
               type="password"
               dir="ltr"
-              autoComplete="off"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
               placeholder={settings.gemini?.configured ? "••••••••" : "מ-Google AI Studio"}
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
@@ -385,7 +400,7 @@ export function PlatformSettingsSection() {
             {settings.cardcom.webhookUrl}
           </p>
         </div>
-        <form onSubmit={(e) => void saveCardcom(e)} className="flex flex-wrap items-end gap-3">
+        <form autoComplete="off" onSubmit={(e) => void saveCardcom(e)} className="flex flex-wrap items-end gap-3">
           <div style={{ minWidth: "140px" }}>
             <label htmlFor="cardcomTerminalNumber" className="mb-1 block font-medium">
               מספר מסוף {settings.cardcom.configured ? <span className="font-normal">(ריק = ללא שינוי)</span> : null}
@@ -396,7 +411,9 @@ export function PlatformSettingsSection() {
               type="text"
               inputMode="numeric"
               dir="ltr"
-              autoComplete="off"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
               placeholder={settings.cardcom.configured ? "••••" : "1000"}
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
@@ -411,7 +428,9 @@ export function PlatformSettingsSection() {
               name="cardcomApiName"
               type="text"
               dir="ltr"
-              autoComplete="off"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
               placeholder={settings.cardcom.configured ? "••••••••" : ""}
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
@@ -426,7 +445,9 @@ export function PlatformSettingsSection() {
               name="cardcomApiPassword"
               type="password"
               dir="ltr"
-              autoComplete="off"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
               placeholder={settings.cardcom.configured ? "••••••••" : ""}
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
@@ -464,7 +485,7 @@ export function PlatformSettingsSection() {
             {settings.whatsapp.webhookUrl}
           </p>
         </div>
-        <form onSubmit={(e) => void saveWhatsApp(e)} className="flex flex-wrap items-end gap-3">
+        <form autoComplete="off" onSubmit={(e) => void saveWhatsApp(e)} className="flex flex-wrap items-end gap-3">
           <div className="flex-1" style={{ minWidth: "220px" }}>
             <label htmlFor="whatsappAppSecret" className="mb-1 block font-medium">
               App Secret {settings.whatsapp.configured ? <span className="font-normal">(ריק = ללא שינוי)</span> : null}
@@ -474,7 +495,9 @@ export function PlatformSettingsSection() {
               name="whatsappAppSecret"
               type="password"
               dir="ltr"
-              autoComplete="off"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
               placeholder={settings.whatsapp.configured ? "••••••••" : ""}
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
@@ -489,7 +512,9 @@ export function PlatformSettingsSection() {
               name="whatsappVerifyToken"
               type="password"
               dir="ltr"
-              autoComplete="off"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
               placeholder={settings.whatsapp.configured ? "••••••••" : ""}
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
