@@ -160,6 +160,16 @@ const ICONS = {
       <line x1="16" y1="3" x2="16" y2="7" />
     </Icon>
   ),
+  tasks: (
+    <Icon>
+      <path d="M4 5.5 5.5 7 8 4.5" />
+      <line x1="11" y1="6" x2="20" y2="6" />
+      <path d="M4 11.5 5.5 13 8 10.5" />
+      <line x1="11" y1="12" x2="20" y2="12" />
+      <path d="M4 17.5 5.5 19 8 16.5" />
+      <line x1="11" y1="18" x2="20" y2="18" />
+    </Icon>
+  ),
   reports: (
     <Icon>
       <line x1="5" y1="21" x2="5" y2="12" />
@@ -444,7 +454,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {navLink(
           "/tasks",
           "משימות",
-          ICONS.calendar,
+          ICONS.tasks,
           /* באיחור או להיום — התג הכתום, כמו בלידים חדשים */
           counts !== null && counts.urgentTasks > 0 ? (
             <span className="mv-nav-badge">{counts.urgentTasks}</span>

@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -109,6 +110,11 @@ const AuditQuerySchema = z
   .object({ limit: z.coerce.number().int().min(1).max(100).default(50) })
   .strict();
 
+/** שם המקור נכנס כ-source של הליד — ולכן מוגבל לאורך העמודה שם (20) */
+const LeadWebhookSchema = z
+  .object({ sourceLabel: z.string().trim().min(2).max(20) })
+  .strict();
+
 export interface TeamUserDto {
   id: string;
   name: string;
@@ -135,7 +141,6 @@ export class SettingsController {
     name: string;
     whatsappNumber?: string;
     plan: string;
-    leadWebhookKey?: string;
     licenseNumber?: string;
     officeAddress?: string;
     officePhone?: string;
@@ -153,8 +158,6 @@ export class SettingsController {
       whatsappNumber:
         typeof settings["whatsappNumber"] === "string" ? settings["whatsappNumber"] : undefined,
       plan: tenant?.plan ?? "basic",
-      leadWebhookKey:
-        typeof settings["leadWebhookKey"] === "string" ? settings["leadWebhookKey"] : undefined,
       licenseNumber:
         typeof settings["licenseNumber"] === "string" ? settings["licenseNumber"] : undefined,
       officeAddress:
@@ -258,34 +261,73 @@ export class SettingsController {
     };
   }
 
-  /**
-   * הפעלה/חידוש של מפתח קליטת הלידים מהאתר — מזהה את המשרד בנקודת
-   * הקצה הציבורית ‎/public/leads/:key. חידוש מבטל את המפתח הקודם
-   * (טופס ישן באתר יפסיק לעבוד עד עדכון).
+  /*
+   * מפתחות קליטת הלידים — כמה לכל משרד, עם שם מקור לכל אחד ("אתר",
+   * "פייסבוק"...). כל מפתח מזהה את המשרד בנקודת הקצה הציבורית
+   * ‎/public/leads/:key, ושם המקור שלו נכנס כ-source של הליד.
    */
-  @Post("lead-webhook")
+
+  @Get("lead-webhooks")
   @RequireCapability("settings.manage")
-  async regenerateLeadWebhook(): Promise<{ key: string }> {
+  async leadWebhooks(): Promise<
+    { id: string; key: string; sourceLabel: string; createdAt: Date }[]
+  > {
     const tenantId = TenantContext.current().tenantId;
-    const key = randomBytes(24).toString("base64url"); // 32 תווים
-    const current = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { settings: true },
+    return this.prisma.leadWebhook.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, key: true, sourceLabel: true, createdAt: true },
     });
-    const settings = { ...((current?.settings ?? {}) as Record<string, unknown>) };
-    settings["leadWebhookKey"] = key;
-    await this.prisma.tenant.update({
-      where: { id: tenantId },
-      data: { settings: settings as object },
+  }
+
+  @Post("lead-webhooks")
+  @RequireCapability("settings.manage")
+  @HttpCode(200)
+  async createLeadWebhook(
+    @Body(new ZodValidationPipe(LeadWebhookSchema)) body: z.infer<typeof LeadWebhookSchema>,
+  ): Promise<{ id: string; key: string; sourceLabel: string }> {
+    const tenantId = TenantContext.current().tenantId;
+    // גבול שפוי, לא מכסה: מונע יצירה בלולאה ממסך תקוע
+    const count = await this.prisma.leadWebhook.count({ where: { tenantId } });
+    if (count >= 20) {
+      throw new BadRequestException("אפשר עד 20 מקורות קליטה — מחקו אחד קיים");
+    }
+    const created = await this.prisma.leadWebhook.create({
+      data: {
+        id: ulid(),
+        tenantId,
+        key: randomBytes(24).toString("base64url"), // 32 תווים
+        sourceLabel: body.sourceLabel,
+      },
+      select: { id: true, key: true, sourceLabel: true },
     });
     await this.prisma.withTenant((tx) =>
       this.audit.record(tx, {
-        action: "settings.lead_webhook_regenerate",
+        action: "settings.lead_webhook_create",
+        entityType: "tenant",
+        entityId: tenantId,
+        metadata: { sourceLabel: body.sourceLabel },
+      }),
+    );
+    return created;
+  }
+
+  /** מחיקת מפתח — הטופס שמצביע עליו יפסיק לעבוד מיד. */
+  @Delete("lead-webhooks/:id")
+  @RequireCapability("settings.manage")
+  @HttpCode(204)
+  async deleteLeadWebhook(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<void> {
+    const tenantId = TenantContext.current().tenantId;
+    // deleteMany עם tenantId — מזהה של משרד אחר פשוט לא מוחק כלום
+    const result = await this.prisma.leadWebhook.deleteMany({ where: { id, tenantId } });
+    if (result.count === 0) throw new NotFoundException("מקור הקליטה לא נמצא");
+    await this.prisma.withTenant((tx) =>
+      this.audit.record(tx, {
+        action: "settings.lead_webhook_delete",
         entityType: "tenant",
         entityId: tenantId,
       }),
     );
-    return { key };
   }
 
   @Patch("tenant")
@@ -836,10 +878,11 @@ export class SettingsController {
     const filled = (key: string): boolean =>
       typeof settings[key] === "string" && (settings[key] as string).trim() !== "";
 
-    const [activeUsers, properties, buyers] = await Promise.all([
+    const [activeUsers, properties, buyers, leadWebhooks] = await Promise.all([
       this.prisma.user.count({ where: { tenantId, isActive: true } }),
       this.prisma.withTenant((tx) => tx.property.count({ where: { tenantId, deletedAt: null } })),
       this.prisma.withTenant((tx) => tx.buyer.count({ where: { tenantId, deletedAt: null } })),
+      this.prisma.leadWebhook.count({ where: { tenantId } }),
     ]);
 
     return onboardingSteps({
@@ -849,7 +892,7 @@ export class SettingsController {
       activeUsers,
       properties,
       buyers,
-      leadWebhookConfigured: filled("leadWebhookKey"),
+      leadWebhookConfigured: leadWebhooks > 0,
       whatsappConfigured: filled("whatsappNumber"),
       transcriptionAvailable: env.STT_URL !== undefined && env.STT_SECRET !== undefined,
     });

@@ -116,7 +116,6 @@ interface TenantSettings {
   name: string;
   whatsappNumber?: string;
   plan: string;
-  leadWebhookKey?: string;
   licenseNumber?: string;
   officeAddress?: string;
   officePhone?: string;
@@ -502,7 +501,7 @@ export default function SettingsPage() {
           </div>
 
           <div id="lead-webhook">
-            {tenant ? <LeadWebhookSection initialKey={tenant.leadWebhookKey} /> : null}
+            <LeadWebhookSection />
           </div>
 
           {canAgreements ? (

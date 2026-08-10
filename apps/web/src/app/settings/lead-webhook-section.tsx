@@ -1,99 +1,188 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Button } from "@metavchim/ui";
-import { API_BASE, apiPost } from "@/lib/api";
+import { API_BASE, apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
+import { LoadError } from "../load-error";
 
 /**
- * "לידים מהאתר שלך" — מפתח קליטה ייעודי למשרד + קוד מוכן להדבקה.
- * כל שליחת טופס באתר המשרד הופכת לליד במערכת (עם מניעת כפילויות).
+ * "לידים מהאתר שלך" — כמה מקורות קליטה, מפתח לכל אחד.
+ *
+ * כל מקור מקבל שם ("אתר", "פייסבוק"...) שנכנס כ-source של הליד, כך
+ * שברשימת הלידים רואים מאיפה כל פנייה הגיעה. הכתובת נמסרת לבונה
+ * האתר / מוגדרת בכלי האוטומציה — שולחים אליה POST עם ‎name, phone,
+ * message. (טופס ההטמעה המוכן הוסר לבקשת המשתמש.)
  */
-export function LeadWebhookSection({ initialKey }: { initialKey?: string }) {
-  const [key, setKey] = useState<string | undefined>(initialKey);
+
+interface LeadWebhook {
+  id: string;
+  key: string;
+  sourceLabel: string;
+}
+
+const SOURCE_SUGGESTIONS = ["אתר", "פייסבוק", "אינסטגרם", "יד2", "מדלן", "גוגל"];
+
+export function LeadWebhookSection() {
+  const [hooks, setHooks] = useState<LeadWebhook[] | null>(null);
+  const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [confirmRegen, setConfirmRegen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  const endpoint = key ? `${window.location.origin}${API_BASE}/public/leads/${key}` : null;
+  const load = useCallback(() => {
+    setFailed(false);
+    apiGet<LeadWebhook[]>("/settings/lead-webhooks")
+      .then(setHooks)
+      .catch(() => setFailed(true));
+  }, []);
 
-  const snippet = endpoint
-    ? `<form onsubmit="event.preventDefault();
-  fetch('${endpoint}', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-      name: this.name.value,
-      phone: this.phone.value,
-      message: this.message.value,
-      pageUrl: location.href,
-      website: this.website.value
-    })
-  }).then(function(){ alert('תודה! נחזור אליכם בהקדם.'); });">
-  <input name="name" placeholder="שם מלא" required minlength="2">
-  <input name="phone" type="tel" placeholder="טלפון" required>
-  <textarea name="message" placeholder="במה נוכל לעזור?"></textarea>
-  <input name="website" style="display:none" tabindex="-1" autocomplete="off">
-  <button type="submit">שלחו לי פרטים</button>
-</form>`
-    : null;
+  useEffect(load, [load]);
 
-  async function generate() {
-    if (key && !confirmRegen) {
-      setConfirmRegen(true);
-      return;
-    }
-    setConfirmRegen(false);
+  function endpointFor(key: string): string {
+    return `${window.location.origin}${API_BASE}/public/leads/${key}`;
+  }
+
+  async function create(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const label = String(new FormData(form).get("sourceLabel") ?? "").trim();
+    if (label.length < 2) return;
     setBusy(true);
+    setError(null);
     try {
-      const result = await apiPost<{ key: string }>("/settings/lead-webhook", {});
-      setKey(result.key);
+      await apiPost("/settings/lead-webhooks", { sourceLabel: label });
+      form.reset();
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "יצירת המקור נכשלה");
     } finally {
       setBusy(false);
     }
   }
 
-  async function copySnippet() {
-    if (!snippet) return;
-    await navigator.clipboard.writeText(snippet).catch(() => undefined);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 3000);
+  async function remove(id: string): Promise<void> {
+    if (confirmDeleteId !== id) {
+      setConfirmDeleteId(id);
+      return;
+    }
+    setConfirmDeleteId(null);
+    setBusy(true);
+    setError(null);
+    try {
+      await apiDelete(`/settings/lead-webhooks/${id}`);
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "המחיקה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copy(hook: LeadWebhook): Promise<void> {
+    await navigator.clipboard.writeText(endpointFor(hook.key)).catch(() => undefined);
+    setCopiedId(hook.id);
+    setTimeout(() => setCopiedId(null), 3000);
   }
 
   return (
     <section aria-labelledby="webhook-heading" className="mv-list-card px-5 py-[17px]">
       <h2 id="webhook-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>לידים מהאתר שלך</h2>
       <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
-        כל שליחת טופס באתר המשרד נכנסת לכאן כליד אוטומטית — כולל זיהוי פנייה
-        חוזרת ומניעת כפילויות.
+        כל מקור מקבל כתובת קליטה משלו, והשם שלו מופיע על הליד — כך רואים אם
+        הפנייה הגיעה מהאתר, מפייסבוק או מכל ערוץ אחר. שולחים לכתובת POST עם
+        השדות <code dir="ltr">name, phone, message</code> (כולל זיהוי פנייה חוזרת
+        ומניעת כפילויות).
       </p>
 
-      {!key ? (
-        <Button onClick={() => void generate()} disabled={busy}>
-          {busy ? "מפעיל…" : "🔗 הפעל קליטת לידים מהאתר"}
-        </Button>
+      {error ? (
+        <p role="alert" className="mb-3 text-sm" style={{ color: "var(--color-danger)" }}>{error}</p>
+      ) : null}
+
+      {failed ? (
+        <LoadError message="לא הצלחנו לטעון את מקורות הקליטה" onRetry={load} />
+      ) : hooks === null ? (
+        <p aria-live="polite" className="m-0 text-sm">טוען…</p>
       ) : (
-        <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-          <p className="mb-1 font-medium">כתובת הקליטה של המשרד:</p>
-          <p className="mb-3 overflow-x-auto rounded-lg border p-2 font-mono text-sm" dir="ltr" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
-            {endpoint}
-          </p>
-          <p className="mb-1 font-medium">קוד מוכן להדבקה באתר (או למסירה לבונה האתר):</p>
-          <pre className="mb-3 max-h-48 overflow-auto rounded-lg border p-2 text-xs" dir="ltr" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
-            {snippet}
-          </pre>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button variant="secondary" onClick={() => void copySnippet()}>
-              📋 העתק קוד
+        <>
+          {hooks.length > 0 ? (
+            <ul className="m-0 mb-4 flex list-none flex-col gap-3 p-0">
+              {hooks.map((hook) => (
+                <li
+                  key={hook.id}
+                  className="rounded-xl border p-3"
+                  style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+                >
+                  <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                    <span className="font-bold">{hook.sourceLabel}</span>
+                    <button
+                      type="button"
+                      className="mv-btn-plain ms-auto"
+                      onClick={() => void copy(hook)}
+                    >
+                      העתק כתובת
+                    </button>
+                    {copiedId === hook.id ? (
+                      <span role="status" className="text-sm" style={{ color: "var(--color-success)" }}>✓ הועתקה</span>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="mv-btn-plain"
+                      style={{ color: "var(--color-danger)" }}
+                      disabled={busy}
+                      onClick={() => void remove(hook.id)}
+                    >
+                      {confirmDeleteId === hook.id ? "לאשר מחיקה? הטופס שמצביע לכאן יפסיק לעבוד" : "מחק"}
+                    </button>
+                    {confirmDeleteId === hook.id ? (
+                      <button type="button" className="mv-btn-plain" onClick={() => setConfirmDeleteId(null)}>
+                        ביטול
+                      </button>
+                    ) : null}
+                  </div>
+                  <p
+                    className="m-0 overflow-x-auto rounded-lg border p-2 font-mono text-xs"
+                    dir="ltr"
+                    style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                  >
+                    {endpointFor(hook.key)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              עדיין אין מקורות קליטה — צרו את הראשון:
+            </p>
+          )}
+
+          <form onSubmit={(e) => void create(e)} className="flex flex-wrap items-end gap-3">
+            <div>
+              <label htmlFor="lw-source" className="mb-1 block text-sm font-semibold">
+                שם המקור החדש
+              </label>
+              <input
+                id="lw-source"
+                name="sourceLabel"
+                list="lw-source-suggestions"
+                required
+                minLength={2}
+                maxLength={20}
+                placeholder="למשל: פייסבוק"
+                className="rounded-lg border px-3 py-2.5"
+                style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+              />
+              <datalist id="lw-source-suggestions">
+                {SOURCE_SUGGESTIONS.map((s) => (
+                  <option key={s} value={s} />
+                ))}
+              </datalist>
+            </div>
+            <Button type="submit" disabled={busy}>
+              {busy ? "יוצר…" : "צור מקור קליטה"}
             </Button>
-            {copied ? <span role="status" style={{ color: "var(--color-success)" }}>✓ הועתק</span> : null}
-            <Button variant={confirmRegen ? "danger" : "ghost"} onClick={() => void generate()} disabled={busy}>
-              {confirmRegen ? "לאשר חידוש? הטופס הקיים באתר יפסיק לעבוד" : "חדש מפתח"}
-            </Button>
-            {confirmRegen ? (
-              <Button variant="ghost" onClick={() => setConfirmRegen(false)}>ביטול</Button>
-            ) : null}
-          </div>
-        </div>
+          </form>
+        </>
       )}
     </section>
   );
