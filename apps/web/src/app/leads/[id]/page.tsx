@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use, type FormEvent } from "react";
+import { useEffect, useState, use, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
@@ -13,6 +13,18 @@ import { ContactPeople } from "../../contact-people";
 import { DictateFor } from "../../dictation-field";
 import { RelatedEntities } from "../../related-entities";
 import { EntityTasks } from "../../entity-tasks";
+import {
+  IconCalendar,
+  IconCart,
+  IconChat,
+  IconCoins,
+  IconDoc,
+  IconGear,
+  IconHome,
+  IconPhone,
+  IconRefresh,
+  IconUser,
+} from "../../icons";
 
 interface LeadDetail {
   id: string;
@@ -32,12 +44,12 @@ interface TimelineItem {
   createdAt: string;
 }
 
-const KIND_LABELS: Record<string, string> = {
-  note: "📝 הערה",
-  call: "📞 שיחה",
-  whatsapp: "💬 וואטסאפ",
-  status_change: "🔄 שינוי סטטוס",
-  system: "⚙️ מערכת",
+const KIND_LABELS: Record<string, ReactNode> = {
+  note: <><IconDoc s={15} /> הערה</>,
+  call: <><IconPhone s={15} /> שיחה</>,
+  whatsapp: <><IconChat s={15} /> וואטסאפ</>,
+  status_change: <><IconRefresh s={15} /> שינוי סטטוס</>,
+  system: <><IconGear s={15} /> מערכת</>,
 };
 
 /**
@@ -119,7 +131,7 @@ function SellLeadSection({ leadId }: { leadId: string }) {
   if (shared?.status === "sold") {
     return (
       <p className="mb-4 rounded-xl border p-4 font-medium" style={{ borderColor: "var(--color-success)", color: "var(--color-success)" }}>
-        💰 הליד נמכר ברשת — {shared.priceCredits} קרדיטים נוספו ליתרת המשרד.
+        <IconCoins s={15} /> הליד נמכר ברשת — {shared.priceCredits} קרדיטים נוספו ליתרת המשרד.
       </p>
     );
   }
@@ -128,7 +140,7 @@ function SellLeadSection({ leadId }: { leadId: string }) {
     return (
       <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
         <p className="mb-2 font-medium">
-          🛒 הליד מוצע למכירה ברשת השת"פ ב-{shared.priceCredits} קרדיטים.
+          <IconCart s={15} /> הליד מוצע למכירה ברשת השת"פ ב-{shared.priceCredits} קרדיטים.
         </p>
         {error ? <p role="alert" className="mb-2" style={{ color: "var(--color-danger)" }}>{error}</p> : null}
         <Button variant="ghost" disabled={busy} onClick={() => void withdraw()}>
@@ -140,7 +152,7 @@ function SellLeadSection({ leadId }: { leadId: string }) {
 
   return (
     <details className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-      <summary className="cursor-pointer font-medium">💰 מכור ליד ברשת השת"פ</summary>
+      <summary className="cursor-pointer font-medium"><IconCoins s={15} /> מכור ליד ברשת השת"פ</summary>
       <p className="mt-2 mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
         ליד שלא תטפלו בו יכול להימכר בקרדיטים למשרד אחר. בפיד יופיעו רק
         הכוונה, המקור והתיאור שתכתבו — שם וטלפון נחשפים לקונה רק אחרי הרכישה.
@@ -215,7 +227,7 @@ function ConvertToPropertySection({ leadId }: { leadId: string }) {
     return (
       <div className="mb-4">
         <Button variant="secondary" onClick={() => setOpen(true)}>
-          🏠 המר לנכס (בעל נכס)
+          <IconHome s={15} /> המר לנכס (בעל נכס)
         </Button>
       </div>
     );
@@ -314,7 +326,7 @@ function ConvertSection({ leadId }: { leadId: string }) {
   if (!open) {
     return (
       <div className="mb-4">
-        <Button onClick={() => setOpen(true)}>👤 המר לקונה</Button>
+        <Button onClick={() => setOpen(true)}><IconUser s={15} /> המר לקונה</Button>
       </div>
     );
   }
@@ -461,7 +473,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           rel="noreferrer"
           className="underline"
         >
-          💬 וואטסאפ
+          <IconChat s={15} /> וואטסאפ
         </a>
       </div>
       <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
@@ -488,7 +500,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
 
       <div className="mb-4">
         <Link href={`/calendar/new?leadId=${lead.id}`}>
-          <Button variant="secondary">📅 קבע פגישה</Button>
+          <Button variant="secondary"><IconCalendar s={15} /> קבע פגישה</Button>
         </Link>
       </div>
 

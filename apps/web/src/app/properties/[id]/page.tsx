@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, use } from "react";
+import { useCallback, useEffect, useState, use, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
@@ -18,6 +18,7 @@ import { MediaSection } from "./media-section";
 import { AgreementsPanel } from "../../agreements-panel";
 import { EntityTasks } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
+import { IconThumbUp } from "../../icons";
 
 /**
  * כרטיס הנכס לפי קובץ העיצוב: כרטיס כותרת עם מחיר ופעולות (עריכה /
@@ -66,10 +67,10 @@ interface OfferInfo {
   openCount: number;
 }
 
-const OFFER_STATUS_LABELS: Record<string, string> = {
+const OFFER_STATUS_LABELS: Record<string, ReactNode> = {
   sent: "הצעה נשלחה",
   opened: "הקונה פתח את ההצעה",
-  interested: "👍 הקונה מעוניין!",
+  interested: <><IconThumbUp s={15} /> הקונה מעוניין!</>,
   declined: "הקונה דחה",
 };
 

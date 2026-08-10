@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { api, apiGet } from "@/lib/api";
+import { IconCamera, IconStar } from "../../icons";
 
 /**
  * גלריית תמונות הנכס: העלאה (עם טקסט חלופי — ת"י 5568), תמונה ראשית,
@@ -120,7 +121,7 @@ export function MediaSection({ propertyId, address }: { propertyId: string; addr
             opacity: busy ? 0.6 : 1,
           }}
         >
-          <span>{busy ? "מעלה…" : "📷 העלה תמונה"}</span>
+          <span>{busy ? "מעלה…" : <><IconCamera s={15} /> העלה תמונה</>}</span>
           <input
             ref={fileRef}
             type="file"
@@ -161,7 +162,7 @@ export function MediaSection({ propertyId, address }: { propertyId: string; addr
               <div className="flex items-center justify-between gap-1 p-2">
                 {index === 0 ? (
                   <span className="text-sm font-medium" style={{ color: "var(--color-primary)" }}>
-                    ★ ראשית
+                    <IconStar s={15} /> ראשית
                   </span>
                 ) : (
                   <button
