@@ -53,8 +53,10 @@ const TEMPLATE_CSV: Record<Mode, string> = {
     'בני ברק,פרדס כץ,רבי עקיבא 10,3.5,80,2,1750000,דירה,פעיל,"דירה משופצת ומוארת"',
   ].join("\n"),
   buyers: [
-    "שם,טלפון,עיר,סוג עסקה,תקציב,תקציב מינימלי,חדרים מינימום,חדרים מקסימום,מימון,בשלות,סטטוס,מקור,הערות",
-    'משה כהן,050-1234567,"בני ברק, רמת גן",קנייה,1750000,1500000,3,4,אישור עקרוני,חם,פעיל,פייסבוק,"מחפש דירה משופצת, גמיש בקומה"',
+        // "סטטוס" אינו בתבנית בכוונה: הוא כינוי נרדף ל"בשלות" במפרק,
+    // ושתי עמודות שנראות שונות ונכתבות לאותו שדה הן מלכודת שקטה
+    "שם,טלפון,עיר,סוג עסקה,תקציב,תקציב מינימלי,חדרים מינימום,חדרים מקסימום,מימון,בשלות,מקור,הערות",
+    'משה כהן,050-1234567,"בני ברק, רמת גן",קנייה,1750000,1500000,3,4,אישור עקרוני,חם,פייסבוק,"מחפש דירה משופצת, גמיש בקומה"',
   ].join("\n"),
 };
 
@@ -127,14 +129,38 @@ export default function ImportPage() {
             }))
           : parsed.buyerRows;
 
-      // קובץ מיוצא יכול להכיל אלפי שורות — נשלח באצוות בגודל שהשרת מקבל,
-      // עם צבירת תוצאות והיסט מספרי שורות כך שהדיווח נשאר מול הקובץ המקורי.
+      /*
+       * האצוות נחתכות לפי **בייטים**, לא לפי מספר שורות.
+       *
+       * מספר קבוע נראה בטוח עד שקובץ חוקי לגמרי — הערות במקסימום,
+       * עברית (שני בייטים לתו) — עובר את תקרת השרת, וה-413 נופל על
+       * אצווה מאוחרת אחרי שהקודמות כבר נקלטו: ייבוא חלקי, הגרוע
+       * מכל התוצאות (ביקורת Codex). מגה-בייט לאצווה = חצי מהתקרה.
+       */
+      const encoder = new TextEncoder();
+      const BATCH_BYTES = 1_000_000;
+      const batches: { start: number; rows: typeof rows }[] = [];
+      let current: typeof rows = [];
+      let currentBytes = 0;
+      let start = 0;
+      rows.forEach((row, i) => {
+        const size = encoder.encode(JSON.stringify(row)).length + 1;
+        if (current.length > 0 && (currentBytes + size > BATCH_BYTES || current.length >= MAX_ROWS)) {
+          batches.push({ start, rows: current });
+          current = [];
+          currentBytes = 0;
+          start = i;
+        }
+        current.push(row);
+        currentBytes += size;
+      });
+      if (current.length > 0) batches.push({ start, rows: current });
+
       const total: ImportResult = { created: 0, failed: [] };
-      for (let offset = 0; offset < rows.length; offset += MAX_ROWS) {
-        const batch = rows.slice(offset, offset + MAX_ROWS);
-        const res = await apiPost<ImportResult>(`/import/${mode}`, { rows: batch });
+      for (const batch of batches) {
+        const res = await apiPost<ImportResult>(`/import/${mode}`, { rows: batch.rows });
         total.created += res.created;
-        total.failed.push(...res.failed.map((f) => ({ ...f, row: f.row + offset })));
+        total.failed.push(...res.failed.map((f) => ({ ...f, row: f.row + batch.start })));
       }
       setResult(total);
     } catch (err) {
