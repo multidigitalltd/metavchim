@@ -25,7 +25,7 @@ import { PrismaService } from "../../core/prisma.service";
  * ‎tenants/{id}/…‎ (תמונות נכסים) ו-‎calls/{id}/…‎ (הקלטות) — דרך
  * אירועי ‎storage.cleanup_object‎ שה-worker מריץ עד הצלחה.
  *
- * מה נשאר, ולמה — שני חריגים מתועדים:
+ * מה נשאר, ולמה — שלושה חריגים מתועדים, כולם בלי פרט אישי:
  * - `payments`: רשומות הסליקה של הפלטפורמה מול המשרד. אלה מסמכים
  *   כספיים בחובת שמירה חוקית, והם אינם מכילים פרט אישי — סכומים,
  *   מזהי עסקה ומספרי מסמך בלבד.
@@ -34,6 +34,9 @@ import { PrismaService } from "../../core/prisma.service";
  *   לטשטש עקבות. נשארות בו שורות פעולה עם מזהים בלבד (בלי שמות,
  *   טלפונים או תוכן). רשומת המחיקה עצמה נכתבת אליו במכוון — זו
  *   הראיה היחידה שהמשרד היה קיים ונמחק.
+ * - `credit_ledger`: מאזן הקרדיטים של שוק השת"פ — Append-Only עם
+ *   אותו REVOKE, כי תנועת קרדיטים שנמחקת היא כסף שנעלם מהמאזן.
+ *   מזהים, סוג תנועה וסכום בלבד.
  *
  * גיבויים: קבצי הגיבוי היומיים מתגלגלים החוצה לפי מדיניות השמירה
  * שלהם — הנתונים נעלמים גם משם בתוך חלון השמירה.
@@ -141,7 +144,15 @@ export class AccountDeletionService {
         await tx.coopOffer.deleteMany({
           where: { OR: [{ fromTenantId: tenantId }, { toTenantId: tenantId }] },
         });
-        await tx.creditLedger.deleteMany({ where: { tenantId } });
+        /*
+         * credit_ledger **לא** נמחק — חריג שלישי, מאותו טעם כמו
+         * audit_log: הטבלה Append-Only עם REVOKE UPDATE, DELETE
+         * מתפקיד האפליקציה (מיגרציית collaboration), כי היא מאזן
+         * הקרדיטים של שוק השת"פ ותנועה שנעלמת היא כסף שנעלם.
+         * ניסיון deleteMany כאן היה נופל על permission denied ומפיל
+         * את כל המחיקה (ביקורת Codex). אין בשורות שום פרט אישי —
+         * מזהים, סוג תנועה וסכום בלבד.
+         */
         await tx.duplicateDismissal.deleteMany({ where: { tenantId } });
         await tx.googleCalendarLink.deleteMany({ where: { tenantId } });
         await tx.userCapability.deleteMany({ where: { tenantId } });

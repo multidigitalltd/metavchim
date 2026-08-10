@@ -96,12 +96,15 @@ export default function EditAppointmentPage({ params }: { params: Promise<{ id: 
           durationMinutes: duration,
         });
       }
+      const title = String(f.get("title") ?? "").trim();
+      const notes = String(f.get("notes") ?? "").trim();
       await apiPatch(`/appointments/${id}`, {
-        title: String(f.get("title") ?? "").trim() || undefined,
+        // שדה שנוקה נשלח כ-null — השמטה הייתה משאירה את הערך הישן
+        title: title === "" ? null : title,
         status: String(f.get("status")),
-        notes: String(f.get("notes") ?? "").trim() || undefined,
-        // תוצאת סיור — רק לסוג viewing, והשרת קובע ממנה גם "התקיימה"
-        ...(appointment.kind === "viewing" && outcome !== "" ? { outcome } : {}),
+        notes: notes === "" ? null : notes,
+        // תוצאת סיור — רק לסוג viewing; מחרוזת קובעת גם "התקיימה", null מנקה
+        ...(appointment.kind === "viewing" ? { outcome: outcome === "" ? null : outcome } : {}),
       });
       router.replace("/calendar");
     } catch (err: unknown) {

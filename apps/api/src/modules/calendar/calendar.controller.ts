@@ -35,12 +35,13 @@ const CreateSchema = z
   })
   .strict();
 
+// null = ניקוי מפורש; שדה חסר = השאר כמו שהוא (PATCH חלקי)
 const UpdateSchema = z
   .object({
     status: z.enum(["scheduled", "completed", "cancelled", "no_show"]).optional(),
-    outcome: z.enum(["liked", "not_fit", "negotiating", "needs_other"]).optional(),
-    notes: z.string().max(2000).optional(),
-    title: z.string().max(200).optional(),
+    outcome: z.enum(["liked", "not_fit", "negotiating", "needs_other"]).nullable().optional(),
+    notes: z.string().max(2000).nullable().optional(),
+    title: z.string().max(200).nullable().optional(),
   })
   .strict();
 

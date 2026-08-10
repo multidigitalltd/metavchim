@@ -141,14 +141,17 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
     }
   }
 
-  async function patch(id: string, body: Record<string, unknown>): Promise<void> {
+  /** מחזיר האם הצליח — טופס העריכה נסגר רק על הצלחה, לא על שגיאה. */
+  async function patch(id: string, body: Record<string, unknown>): Promise<boolean> {
     setBusy(true);
     setError(null);
     try {
       await api(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(body) });
       load();
+      return true;
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "עדכון המשימה נכשל");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -294,7 +297,9 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
                 ...(canAssign && nextAssignee !== "" && nextAssignee !== task.assignedToUserId
                   ? { assignedToUserId: nextAssignee }
                   : {}),
-              }).then(() => setEditingId(null));
+              }).then((ok) => {
+                if (ok) setEditingId(null);
+              });
             }}
           >
             <div className="flex-1" style={{ minWidth: "220px" }}>
