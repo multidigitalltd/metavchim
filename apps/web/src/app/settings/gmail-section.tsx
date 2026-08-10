@@ -92,7 +92,8 @@ export function GmailSection(): React.JSX.Element | null {
       <p className="m-0 mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
         אימיילים שנכנסים לתיבה הופכים ללידים אוטומטית: שולח מוכר מצטרף לכרטיס
         הקיים שלו, ופנייה חדשה עם מספר טלפון (כמו מיד2 ומהפורטלים) נפתחת כליד.
-        חברו את התיבה שאליה מגיעות הפניות של המשרד.
+        חברו את התיבה שאליה מגיעות הפניות של המשרד. אימייל הופך לליד כשהשולח מוכר
+        למערכת או כשיש בהודעה מספר טלפון; מה שאין בו אף אחד מהשניים מדולג במכוון.
       </p>
 
       {message ? (
@@ -123,8 +124,49 @@ export function GmailSection(): React.JSX.Element | null {
             {status.lastSyncAt
               ? `משיכה אחרונה: ${formatDateTime(status.lastSyncAt)} · נבדק אוטומטית כל רבע שעה`
               : "טרם נמשכו הודעות — המשיכה הראשונה תרוץ בדקות הקרובות"}
-            {status.skippedCount ? ` · ${status.skippedCount} אימיילים דולגו (בלי שולח מוכר או טלפון)` : ""}
+            {status.skippedCount ? ` · ${status.skippedCount} אימיילים דולגו` : ""}
           </p>
+
+          {/*
+            הסבר מלא ולא רק המונה.
+            "1 אימיילים דולגו" בלי הסבר נקרא כתקלה, והמשתמש מחפש מה
+            שבור — בעוד שהדילוג הוא התנהגות מכוונת. ההסבר מופיע רק
+            כשבאמת דולג משהו, כדי שלא יהיה רעש קבוע במסך.
+          */}
+          {status.skippedCount ? (
+            <details className="mb-3">
+              <summary className="cursor-pointer text-[12.5px]" style={{ color: "var(--color-primary)" }}>
+                למה אימיילים מדולגים?
+              </summary>
+              <div
+                className="mt-2 rounded-lg border p-3 text-[12.5px]"
+                style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+              >
+                <p className="m-0 mb-2">אימייל נקלט בשתי דרכים:</p>
+                <ol className="m-0 mb-2 ps-4">
+                  <li>
+                    <b>השולח מוכר</b> — כתובת האימייל שלו רשומה על כרטיס קיים, והפנייה
+                    נכנסת לכרטיס הזה.
+                  </li>
+                  <li>
+                    <b>יש טלפון בהודעה</b> — פורטלים כמו יד2 שולחים את הטלפון של הפונה,
+                    והמערכת פותחת ליד חדש.
+                  </li>
+                </ol>
+                <p className="m-0 mb-2">
+                  אימייל שאין בו אף אחד מהשניים מדולג — <b>בכוונה</b>. הטלפון הוא המפתח
+                  שכל המערכת בנויה עליו: זיהוי כפילויות, וואטסאפ וחיוג. כרטיס בלי טלפון
+                  היה רשומה יתומה שאי אפשר לעשות איתה דבר, ולכן עדיף לדלג מאשר ליצור
+                  אותה.
+                </p>
+                <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
+                  ניוזלטרים, פרסומות והודעות מערכת נופלים לכאן — וזה בדיוק מה שאמור
+                  לקרות. נסרקים רק אימיילים בתיבה הראשית (Inbox); מה שמסונן ל&quot;קידומי
+                  מכירות&quot; או לתווית אחרת לא ייקלט.
+                </p>
+              </div>
+            </details>
+          ) : null}
           {status.lastError ? (
             <p role="alert" className="m-0 mb-3 text-sm" style={{ color: "var(--color-danger)" }}>
               <IconWarning s={15} /> {status.lastError}
