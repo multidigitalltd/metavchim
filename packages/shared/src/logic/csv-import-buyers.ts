@@ -301,6 +301,14 @@ export function parseBuyersCsv(csv: string): {
 
     // ברירת מחדל "מכירה" רק כשהתא ריק לגמרי — ערך לא מזוהה כבר הועבר גולמי לעיל
     if (row.dealType === undefined) row.dealType = "sale";
+    /*
+     * אין שם אבל יש טלפון ⇒ הטלפון נהיה גם השם. כרטיס "0501234567"
+     * שאפשר להתקשר אליו עדיף על שורה שנזרקת — את השם משלימים בשיחה
+     * הראשונה, ומנגנון הדה-דופליקציה ממילא עובד לפי הטלפון.
+     */
+    if ((row.name === undefined || row.name.trim().length < 2) && row.phone !== undefined) {
+      row.name = row.phone;
+    }
     rows.push(row);
   }
 
