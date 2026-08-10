@@ -6,7 +6,7 @@ import { Button } from "@metavchim/ui";
 import { hebrewDateFull, hebrewDateShort } from "@metavchim/shared";
 import { NowStamp } from "../now-stamp";
 import { AppointmentFollowUp } from "./appointment-followup";
-import { apiGet, apiPatch } from "@/lib/api";
+import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { useFeature } from "@/lib/use-features";
 import { useRequireAuth } from "@/lib/use-auth";
 import { TasksBoard } from "../tasks/tasks-board";
@@ -33,8 +33,10 @@ interface AppointmentRow {
   leadId?: string;
   propertyId?: string;
   startsAt: string;
+  endsAt?: string;
   status: string;
   outcome?: string;
+  notes?: string;
 }
 
 const KIND_LABELS: Record<string, string> = {
@@ -72,6 +74,119 @@ function weekStart(offsetWeeks: number): Date {
 
 type Tab = "calendar" | "tasks";
 
+const editInputStyle = {
+  borderColor: "var(--color-border)",
+  background: "var(--color-bg)",
+} as const;
+
+/**
+ * עריכה/הזזה של פגישה עתידית — במקום, בלי לבטל ולפתוח מחדש.
+ *
+ * שינוי מועד עובר דרך `reschedule` (שומר את מונה הדחיות ואת הקשר
+ * לנכס ולליד); כותרת והערות דרך העדכון הרגיל. כל בקשה נשלחת רק אם
+ * משהו בתחומה באמת השתנה — הזזה לא "מעדכנת" כותרת שלא נגעו בה,
+ * ותיקון כותרת לא נספר כדחייה.
+ */
+function EditAppointment({
+  appointment,
+  onDone,
+  onCancel,
+}: {
+  appointment: AppointmentRow;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const start = new Date(appointment.startsAt);
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  const initialDate = `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`;
+  const initialTime = `${pad(start.getHours())}:${pad(start.getMinutes())}`;
+  const initialDuration = appointment.endsAt
+    ? Math.max(15, Math.round((new Date(appointment.endsAt).getTime() - start.getTime()) / 60_000))
+    : 60;
+
+  const [date, setDate] = useState(initialDate);
+  const [time, setTime] = useState(initialTime);
+  const [duration, setDuration] = useState(initialDuration);
+  const [title, setTitle] = useState(appointment.title ?? "");
+  const [notes, setNotes] = useState(appointment.notes ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      const timeChanged =
+        date !== initialDate || time !== initialTime || duration !== initialDuration;
+      if (timeChanged) {
+        await apiPost(`/appointments/${appointment.id}/reschedule`, {
+          startsAt: new Date(`${date}T${time}`).toISOString(),
+          durationMinutes: duration,
+        });
+      }
+      const detailsChanged =
+        title.trim() !== (appointment.title ?? "") || notes.trim() !== (appointment.notes ?? "");
+      if (detailsChanged) {
+        await apiPatch(`/appointments/${appointment.id}`, {
+          ...(title.trim() !== (appointment.title ?? "") ? { title: title.trim() } : {}),
+          ...(notes.trim() !== (appointment.notes ?? "") ? { notes: notes.trim() } : {}),
+        });
+      }
+      onDone();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "השמירה נכשלה");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="w-full rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+      {error ? (
+        <p role="alert" className="mb-2 text-sm" style={{ color: "var(--color-danger)" }}>
+          {error}
+        </p>
+      ) : null}
+      <div className="mb-2 flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1 text-sm">
+          <span>תאריך</span>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg border px-2 py-1.5" style={editInputStyle} />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span>שעה</span>
+          <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="rounded-lg border px-2 py-1.5" style={editInputStyle} />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span>משך (דקות)</span>
+          <input
+            type="number"
+            min={15}
+            max={480}
+            step={15}
+            value={duration}
+            onChange={(e) => setDuration(Number(e.target.value))}
+            className="w-24 rounded-lg border px-2 py-1.5"
+            style={editInputStyle}
+          />
+        </label>
+      </div>
+      <label className="mb-2 flex flex-col gap-1 text-sm">
+        <span>כותרת</span>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} className="rounded-lg border px-2 py-1.5" style={editInputStyle} />
+      </label>
+      <label className="mb-3 flex flex-col gap-1 text-sm">
+        <span>הערות</span>
+        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} rows={2} className="rounded-lg border px-2 py-1.5" style={editInputStyle} />
+      </label>
+      <div className="flex gap-2">
+        <Button onClick={() => void save()} disabled={busy}>
+          {busy ? "שומר…" : "שמור שינויים"}
+        </Button>
+        <Button variant="ghost" onClick={onCancel}>ביטול</Button>
+      </div>
+    </div>
+  );
+}
+
 export default function CalendarPage() {
   const { loading: authLoading } = useRequireAuth();
   const [tab, setTab] = useState<Tab>("calendar");
@@ -100,6 +215,8 @@ export default function CalendarPage() {
   const [followUp, setFollowUp] = useState<{ id: string; mode: "reschedule" | "document" } | null>(
     null,
   );
+  /** איזו פגישה קרובה פתוחה לעריכה/הזזה. */
+  const [editing, setEditing] = useState<string | null>(null);
 
   async function setStatus(id: string, status: string) {
     await apiPatch(`/appointments/${id}`, { status });
@@ -371,6 +488,14 @@ export default function CalendarPage() {
                       <button
                         type="button"
                         className="mv-btn-plain"
+                        aria-expanded={editing === a.id}
+                        onClick={() => setEditing(editing === a.id ? null : a.id)}
+                      >
+                        ✏️ ערוך / הזז
+                      </button>
+                      <button
+                        type="button"
+                        className="mv-btn-plain"
                         style={{ color: "var(--color-danger)" }}
                         onClick={() => {
                           if (window.confirm("לבטל את הפגישה?")) void setStatus(a.id, "cancelled");
@@ -379,6 +504,16 @@ export default function CalendarPage() {
                         בטל
                       </button>
                     </span>
+                    {editing === a.id ? (
+                      <EditAppointment
+                        appointment={a}
+                        onCancel={() => setEditing(null)}
+                        onDone={() => {
+                          setEditing(null);
+                          load();
+                        }}
+                      />
+                    ) : null}
                   </div>
                 ))}
               </section>
