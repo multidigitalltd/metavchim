@@ -37,6 +37,10 @@ export interface DemandMatchDto {
 export interface SharedDemandDto {
   id: string;
   cities: string[];
+  /** שכונות מבוקשות — מדרישות הקונה; מדויק יותר מעיר, עדיין אנונימי */
+  neighborhoods: string[];
+  /** תיאור חופשי שהמשרד המשתף כתב — "מה הקונה מחפש" במילים */
+  notes?: string;
   dealType: string;
   budgetMaxAgorot: number;
   roomsMin?: number;
@@ -109,7 +113,11 @@ export class CollaborationService {
    * השיתוף, ולא בסוף העסקה — מו"מ על אחוזים אחרי שהקונה כבר התעניין
    * הוא המקום שבו שיתופי פעולה נשברים.
    */
-  async shareBuyer(buyerId: string, commissionSplit: number): Promise<SharedDemandDto> {
+  async shareBuyer(
+    buyerId: string,
+    commissionSplit: number,
+    note?: string,
+  ): Promise<SharedDemandDto> {
     const tenantId = TenantContext.current().tenantId;
     const id = ulid();
     const splitRejection = commissionSplitRejectionReason(commissionSplit);
@@ -138,6 +146,10 @@ export class CollaborationService {
           tenantId,
           originBuyerId: buyerId,
           cities: requirements.cities,
+          // שכונות מדרישות הקונה — מדויק יותר מעיר, עדיין בלי PII
+          neighborhoods: requirements.neighborhoods ?? [],
+          // התיאור החופשי של המשתף: "מה הקונה מחפש" במילים שלו
+          notes: note?.trim() || null,
           dealType: buyer.dealType,
           budgetMaxAgorot: BigInt(roundedBudget),
           roomsMin: buyer.roomsMin,
@@ -795,6 +807,8 @@ export class CollaborationService {
       tenantId: string;
       originBuyerId: string | null;
       cities: string[];
+      neighborhoods: string[];
+      notes: string | null;
       dealType: string;
       budgetMaxAgorot: bigint;
       roomsMin: unknown;
@@ -812,6 +826,8 @@ export class CollaborationService {
     return {
       id: row.id,
       cities: row.cities,
+      neighborhoods: row.neighborhoods,
+      ...(row.notes ? { notes: row.notes } : {}),
       dealType: row.dealType,
       budgetMaxAgorot: Number(row.budgetMaxAgorot),
       roomsMin: row.roomsMin === null ? undefined : Number(row.roomsMin),
