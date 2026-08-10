@@ -35,6 +35,14 @@ model Tenant {
   paidUntil   DateTime? @map("paid_until")
   /// self | manual — מאיזה ערוץ המשרד הגיע. לדוח ולתמיכה, לא להרשאות.
   signupSource String  @default("manual") @map("signup_source") @db.VarChar(20)
+  /// הקופון שמומש בהרשמה — לתמיכה ולדוח.
+  couponCode   String? @map("coupon_code") @db.VarChar(40)
+  /// ההנחה שעוד לא נוצלה, כפי שהובטחה ברגע המימוש. נמחקת בתשלום
+  /// הראשון שמצליח. העתק ולא קריאה מהקופון: עריכה או כיבוי שלו
+  /// אינם אמורים לשנות למפרע את מה שכבר הובטח.
+  couponPercentOff Int? @map("coupon_percent_off")
+  /// המסלול שהקופון הוגבל אליו ברגע המימוש — ההנחה חלה רק עליו.
+  couponPlanCode String? @map("coupon_plan_code") @db.VarChar(20)
   settings  Json     @default("{}")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -687,6 +695,32 @@ model AuditLog {
 /// והיא נקראת גם מתוך הקשר דייר כדי לדעת מה מותר למשרד. אין שורה
 /// לקוד מסוים ⇒ ברירת המחדל שבקוד (packages/shared — plans.ts), כך
 /// שמערכת שעלתה זה עתה עובדת לפני שנגעו במסך.
+/// קוד קופון להצטרפות. מחוץ ל-RLS, כמו plans ו-platform_settings.
+///
+/// הוא נקרא בנתיב ההרשמה **הציבורי**, לפני שקיים דייר שאפשר לסנן
+/// לפיו — טבלה תחת FORCE RLS הייתה מחזירה שם אפס שורות בשקט, וכל
+/// קוד היה נראה כלא קיים. אין בה מידע על לקוחות קצה.
+model Coupon {
+  code            String    @id @db.VarChar(40)
+  description     String    @default("") @db.VarChar(200)
+  /// percent | free_days
+  kind            String    @db.VarChar(20)
+  percentOff      Int?      @map("percent_off")
+  freeDays        Int?      @map("free_days")
+  /// null = חל על כל המסלולים
+  planCode        String?   @map("plan_code") @db.VarChar(20)
+  /// null = בלי הגבלת כמות
+  maxRedemptions  Int?      @map("max_redemptions")
+  redemptions     Int       @default(0)
+  expiresAt       DateTime? @map("expires_at")
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  createdBy       String?   @map("created_by") @db.Char(26)
+
+  @@index([isActive])
+  @@map("coupons")
+}
+
 model Plan {
   code               String   @id @db.VarChar(20)
   name               String   @db.VarChar(60)

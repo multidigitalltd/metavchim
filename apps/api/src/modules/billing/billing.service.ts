@@ -6,6 +6,7 @@ import {
   checkoutRejectionReason,
   cyclePriceAgorot,
   describeCycle,
+  discountedAgorot,
   isBillingCycle,
   nextPeriodEnd,
   periodDaysLeft,
@@ -160,13 +161,95 @@ export class BillingService {
 
     // אחרי הבדיקה שני אלה ודאיים; ההצהרה כאן היא כדי ש-TypeScript ידע
     const cycle = input.cycle as BillingCycle;
-    const amountAgorot = cyclePriceAgorot(plan!, cycle)!;
+    const fullAgorot = cyclePriceAgorot(plan!, cycle)!;
+
+    /*
+     * הנחת הקופון — **מחושבת כאן ולא מתקבלת מהדפדפן**.
+     *
+     * הסכום שנשלח לסולק ונשמר בשורת התשלום הוא זה שנחשב בשרת מתוך
+     * מה שנשמר על הדייר ברגע ההרשמה. סכום שמגיע מהלקוח הוא הזמנה
+     * לשלם כמה שרוצים, וגם הוובהוק מאמת מולו.
+     *
+     * ההנחה **אינה נמחקת כאן** אלא רק כשתשלום מצליח: מי שפתח דף
+     * תשלום ונטש לא אמור לאבד את מה שהובטח לו.
+     *
+     * הגבלת המסלול של הקופון נאכפת **גם כאן**, לא רק בהרשמה: בלעדיה
+     * מי שנרשם למסלול הזול עם קופון מוגבל היה רוכש מיד את היקר
+     * באותה הנחה (ביקורת Codex). מסלול אחר ⇒ מחיר מלא, והזכאות
+     * נשארת שמורה למסלול הנכון.
+     */
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: input.tenantId },
+      select: { couponPercentOff: true, couponPlanCode: true },
+    });
+    const couponEligible =
+      tenant?.couponPlanCode === null ||
+      tenant?.couponPlanCode === undefined ||
+      tenant.couponPlanCode === plan!.code;
+    const percentOff = couponEligible ? (tenant?.couponPercentOff ?? null) : null;
+    const amountAgorot = discountedAgorot(fullAgorot, percentOff);
+
+    /*
+     * **תשלום פתוח אחד לכל משרד.**
+     *
+     * שני דפי תשלום פתוחים במקביל היו נושאים שניהם את ההנחה: הראשון
+     * שמצליח מוחק אותה, אבל השני כבר נוצר עם הסכום המוזל — והנחה
+     * שהובטחה לתשלום הראשון הייתה חלה פעמיים (ביקורת Codex). סגירת
+     * הקודמים היא הכלל הפשוט שמונע את זה, והוא נכון גם בלי קופון:
+     * דף תשלום ישן שמישהו ישלם בו הוא הזמנה ישנה במחיר ישן.
+     */
+    await this.prisma.payment.updateMany({
+      where: { tenantId: input.tenantId, status: "pending" },
+      data: { status: "failed", failureReason: "נפתח דף תשלום חדש במקומו" },
+    });
+
+    const paymentId = ulid();
+
+    /*
+     * קופון של 100% ⇒ אין מה לגבות, ואין מה לשלוח לסולק.
+     *
+     * דף תשלום על אפס שקלים אינו רק מיותר — קארדקום עלולה לדחות
+     * אותו, והלקוח עם הקופון התקין ביותר היה היחיד שלא מצליח לקבל
+     * את המנוי (ביקורת Codex). ההפעלה ישירה, באותה ליבה של תשלום
+     * שהצליח, עם שורת תשלום על 0 כדי שהדוח יראה את המימוש.
+     */
+    if (amountAgorot === 0) {
+      const now = new Date();
+      await this.ensureSubscription(input.tenantId);
+      await this.prisma.$transaction(async (tx) => {
+        await tx.payment.create({
+          data: {
+            id: paymentId,
+            tenantId: input.tenantId,
+            planCode: plan!.code,
+            billingCycle: cycle,
+            amountAgorot: 0,
+            status: "paid",
+            paidAt: now,
+            lowProfileId: paymentId,
+            createdBy: input.userId,
+          },
+        });
+        await this.activateWithin(tx, {
+          tenantId: input.tenantId,
+          planCode: plan!.code,
+          cycle,
+          now,
+          card: null,
+        });
+      });
+      this.logger.log(`מנוי הופעל בקופון מלא: משרד ${input.tenantId}, מסלול ${plan!.code}`);
+      // חוזרים לדף החזרה הרגיל — הוא כבר יודע להציג "המנוי פעיל"
+      return {
+        url: `${loadEnv().WEB_ORIGIN}/settings/billing/return?payment=${paymentId}`,
+        paymentId,
+      };
+    }
 
     if (!(await this.cardcom.isConfigured())) {
       throw new BadRequestException("הסליקה טרם הופעלה במערכת — פנו אלינו");
     }
 
-    const paymentId = ulid();
     await this.prisma.payment.create({
       data: {
         id: paymentId,
@@ -306,55 +389,22 @@ export class BillingService {
       });
       if (claimed.count === 0) return null; // מישהו הקדים — אין מה לעשות
 
-      const subscription = await tx.subscription.findUnique({
-        where: { tenantId: payment.tenantId },
-      });
-      // העוגן נקבע פעם אחת ואינו מחושב מחדש מהתאריך המקוצר
-      const anchorDay = subscription?.billingAnchorDay ?? billingAnchorDay(now);
-      const periodEnd = nextPeriodEnd(subscription?.currentPeriodEnd, now, cycle, anchorDay);
-
-      await tx.subscription.update({
-        where: { tenantId: payment.tenantId },
-        data: {
-          planCode: payment.planCode,
-          billingCycle: cycle,
-          status: "active",
-          currentPeriodEnd: periodEnd,
-          billingAnchorDay: anchorDay,
-          // ביטול קודם מתבטל ברכישה חדשה — אחרת המשרד היה משלם
-          // וממשיך לראות "המנוי בוטל"
-          cancelledAt: null,
-          ...(token
-            ? {
-                cardTokenEncrypted: token,
-                cardLast4: verified.cardLast4,
-                cardMonth: verified.cardMonth,
-                cardYear: verified.cardYear,
-                cardOwnerIdEncrypted: verified.cardOwnerIdentity
-                  ? this.crypto.encrypt(verified.cardOwnerIdentity)
-                  : null,
-              }
-            : {}),
-        },
-      });
-      await tx.tenant.update({
-        where: { id: payment.tenantId },
-        data: {
-          plan: payment.planCode,
-          status: "active",
-          // הניסיון נגמר ברכישה; השארתו הייתה נועלת משרד משלם ביום התפוגה
-          trialEndsAt: null,
-          /*
-           * שער ההרשאה. בלעדיו תשלום אחד היה פותח גישה לנצח, כי
-           * `tenantCanOperate` קורא את שורת הדייר ולא את המנוי.
-           *
-           * `accessUntil` ולא `periodEnd`: החיוב החוזר נבדק **אחרי**
-           * סוף התקופה, ובלי חלון החסד כל משרד משלם היה ננעל בחוץ בכל
-           * מחזור עד שהסורק רץ. אותה פונקציה משמשת גם את החידוש, כי
-           * שני ערכים שונים ל-`paid_until` היו בדיוק הבאג הזה.
-           */
-          paidUntil: accessUntil(periodEnd),
-        },
+      const periodEnd = await this.activateWithin(tx, {
+        tenantId: payment.tenantId,
+        planCode: payment.planCode,
+        cycle,
+        now,
+        card: token
+          ? {
+              cardTokenEncrypted: token,
+              cardLast4: verified.cardLast4,
+              cardMonth: verified.cardMonth,
+              cardYear: verified.cardYear,
+              cardOwnerIdEncrypted: verified.cardOwnerIdentity
+                ? this.crypto.encrypt(verified.cardOwnerIdentity)
+                : null,
+            }
+          : null,
       });
       return periodEnd;
     });
@@ -365,6 +415,78 @@ export class BillingService {
       `מנוי הופעל: משרד ${payment.tenantId}, מסלול ${payment.planCode}, עד ${outcome.toISOString()}`,
     );
     return { applied: true, status: "paid" };
+  }
+
+  /**
+   * הפעלת המנוי — הליבה המשותפת לתשלום רגיל ולרכישה בקופון של 100%.
+   *
+   * חייבת לרוץ בתוך טרנזקציה של הקורא, אחרי שהוא תפס את שורת התשלום
+   * שלו (`pending ⟵ paid`). שני מסלולי הפעלה עם שני עותקים של הקוד
+   * הזה היו נפרדים בדיוק בשדה אחד — וזה השדה שהיה מתגלה בחשבונית.
+   */
+  private async activateWithin(
+    tx: Parameters<Parameters<PrismaService["$transaction"]>[0]>[0],
+    input: {
+      tenantId: string;
+      planCode: string;
+      cycle: BillingCycle;
+      now: Date;
+      card: {
+        cardTokenEncrypted: string;
+        cardLast4: string | null;
+        cardMonth: number | null;
+        cardYear: number | null;
+        cardOwnerIdEncrypted: string | null;
+      } | null;
+    },
+  ): Promise<Date> {
+    const subscription = await tx.subscription.findUnique({
+      where: { tenantId: input.tenantId },
+    });
+    // העוגן נקבע פעם אחת ואינו מחושב מחדש מהתאריך המקוצר
+    const anchorDay = subscription?.billingAnchorDay ?? billingAnchorDay(input.now);
+    const periodEnd = nextPeriodEnd(subscription?.currentPeriodEnd, input.now, input.cycle, anchorDay);
+
+    await tx.subscription.update({
+      where: { tenantId: input.tenantId },
+      data: {
+        planCode: input.planCode,
+        billingCycle: input.cycle,
+        status: "active",
+        currentPeriodEnd: periodEnd,
+        billingAnchorDay: anchorDay,
+        // ביטול קודם מתבטל ברכישה חדשה — אחרת המשרד היה משלם
+        // וממשיך לראות "המנוי בוטל"
+        cancelledAt: null,
+        ...(input.card ?? {}),
+      },
+    });
+    await tx.tenant.update({
+      where: { id: input.tenantId },
+      data: {
+        plan: input.planCode,
+        status: "active",
+        // הניסיון נגמר ברכישה; השארתו הייתה נועלת משרד משלם ביום התפוגה
+        trialEndsAt: null,
+        /*
+         * שער ההרשאה. בלעדיו תשלום אחד היה פותח גישה לנצח, כי
+         * `tenantCanOperate` קורא את שורת הדייר ולא את המנוי.
+         *
+         * `accessUntil` ולא `periodEnd`: החיוב החוזר נבדק **אחרי**
+         * סוף התקופה, ובלי חלון החסד כל משרד משלם היה ננעל בחוץ בכל
+         * מחזור עד שהסורק רץ. אותה פונקציה משמשת גם את החידוש, כי
+         * שני ערכים שונים ל-`paid_until` היו בדיוק הבאג הזה.
+         */
+        paidUntil: accessUntil(periodEnd),
+        /*
+         * ההנחה נצרכת **כאן**, בתשלום שהצליח, ולא בפתיחת דף
+         * התשלום: מי שפתח דף ונטש לא אמור לאבד את מה שהובטח לו.
+         * `couponCode` נשאר לתמיכה ולדוח — הוא היסטוריה, לא זכאות.
+         */
+        couponPercentOff: null,
+      },
+    });
+    return periodEnd;
   }
 
   /** מצב תשלום בודד — דף החזרה שואל עליו עד שהוא נסגר. */

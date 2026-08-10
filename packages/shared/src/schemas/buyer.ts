@@ -25,7 +25,13 @@ export const FinancingStatusSchema = z.enum([
 export const RequirementLevelSchema = z.enum(["must", "nice"]);
 
 export const BuyerRequirementsSchema = z.object({
-  cities: z.array(z.string().min(1)).min(1),
+  /*
+   * ריק = בלי מגבלת אזור, וזה ערך תקין: ייבוא מגיליון בלי עמודת עיר
+   * לא אמור להידחות, וקונה "כל הארץ" הוא לקוח אמיתי. ההתאמות
+   * מדלגות על קריטריון המיקום כשהרשימה ריקה — חוסר מידע אינו
+   * אי-התאמה, כפי שכבר נכון לשאר השדות.
+   */
+  cities: z.array(z.string().min(1)).default([]),
   neighborhoods: z.array(z.string()).default([]),
   dealType: DealTypeSchema,
   propertyTypes: z.array(PropertyTypeSchema).default([]),

@@ -36,23 +36,65 @@ const ImportEnvelopeSchema = z
  * שורת קונה מיובאת — שטוחה (כמו שמגיע מ-CSV); כאן היא מתורגמת למבנה
  * BuyerRequirements המקונן. שם, טלפון, עיר אחת לפחות ותקציב — חובה.
  */
+/*
+ * **חובה: שם וטלפון. כל השאר — אם יש, יש.**
+ *
+ * הסכימה דרשה קודם גם עיר וגם תקציב, וגיליון אמיתי של משרד — "שם,
+ * טלפון, תקציב, סוג עסקה, סטטוס, הערות, מקור" — נדחה כולו: אפס שורות
+ * נכנסו, בלי שום רמז שהבעיה היא עמודת עיר שאינה קיימת בכלל בקובץ.
+ * ייבוא הוא קליטת מה שיש, לא טופס קבלה; מה שחסר מושלם בכרטיס.
+ *
+ * שם וטלפון כן נדרשים: כרטיס קונה בלי דרך ליצור קשר אינו כרטיס.
+ */
 const ImportBuyerRowSchema = z
   .object({
     name: z.string().min(2).max(120),
     phone: PhoneSchema,
-    cities: z.array(z.string().min(1).max(80)).min(1).max(10),
+    cities: z.array(z.string().min(1).max(80)).max(10).default([]),
     dealType: z.enum(["sale", "rent"], {
       errorMap: () => ({ message: "סוג עסקה לא מזוהה — יש לציין מכירה או השכרה" }),
     }),
     budgetMinAgorot: MoneyAgorotSchema.optional(),
+    // תקציב הוא חובה שלישית מלבד שם וטלפון — עוגן מנוע ההתאמות
+    // ועמודה שאינה ריקה בבסיס הנתונים. הודעת החוסר מתורגמת למטה.
     budgetMaxAgorot: MoneyAgorotSchema.refine((n) => n > 0, "תקציב חייב להיות חיובי"),
     roomsMin: z.number().multipleOf(0.5).min(1).max(20).optional(),
     roomsMax: z.number().multipleOf(0.5).min(1).max(20).optional(),
     financing: FinancingStatusSchema.optional(),
     maturity: BuyerMaturitySchema.optional(),
+    source: z.string().max(60).optional(),
     agentNotes: z.string().max(4000).optional(),
   })
   .strict();
+
+/**
+ * שגיאת שורה בעברית שאומרת **מה** חסר.
+ *
+ * "Required" של zod על שדה חסר היה מוצג כמו שהוא, והמתווך שכל
+ * הקובץ שלו נדחה קיבל עמודת שגיאות באנגלית בלי שם שדה. שם השדה
+ * ומילת החוסר הם כל ההבדל בין "לתקן את הקובץ" ל"לוותר על הייבוא".
+ */
+const FIELD_LABELS: Record<string, string> = {
+  name: "שם",
+  phone: "טלפון",
+  budgetMaxAgorot: "תקציב",
+  budgetMinAgorot: "תקציב מינימלי",
+  dealType: "סוג עסקה",
+  cities: "עיר",
+  roomsMin: "חדרים",
+  roomsMax: "חדרים",
+};
+
+function describeRowIssues(error: z.ZodError): string {
+  const parts = error.issues.map((issue) => {
+    const field = FIELD_LABELS[String(issue.path[0] ?? "")] ?? String(issue.path[0] ?? "");
+    if (issue.code === "invalid_type" && issue.received === "undefined") {
+      return field ? `חסר ${field}` : "שדה חסר";
+    }
+    return field ? `${field}: ${issue.message}` : issue.message;
+  });
+  return [...new Set(parts)].join("; ") || "שורה לא תקינה";
+}
 
 export interface ImportResult {
   created: number;
@@ -110,10 +152,7 @@ export class ImportController {
     for (const [index, rawRow] of body.rows.entries()) {
       const parsed = ImportBuyerRowSchema.safeParse(rawRow);
       if (!parsed.success) {
-        failed.push({
-          row: index + 1,
-          error: parsed.error.issues.map((i) => i.message).join("; ") || "שורה לא תקינה",
-        });
+        failed.push({ row: index + 1, error: describeRowIssues(parsed.error) });
         continue;
       }
       try {
@@ -134,7 +173,8 @@ export class ImportController {
           },
           financing: row.financing,
           maturity: row.maturity,
-          source: "ייבוא קובץ",
+          // "מקור הגעה" מהקובץ עצמו; "ייבוא קובץ" רק כשאין עמודה כזו
+          source: row.source?.trim() || "ייבוא קובץ",
           agentNotes: row.agentNotes,
         });
         created += 1;

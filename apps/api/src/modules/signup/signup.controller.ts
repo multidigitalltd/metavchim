@@ -2,13 +2,19 @@ import { Body, Controller, Get, HttpCode, Post, Req, Res } from "@nestjs/common"
 import { Throttle } from "@nestjs/throttler";
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { formatPlanPrice, yearlySavingPercent, type PlanFeature } from "@metavchim/shared";
+import {
+  couponRejectionMessage,
+  formatPlanPrice,
+  yearlySavingPercent,
+  type PlanFeature,
+} from "@metavchim/shared";
 import { Public } from "../../common/auth.decorators";
 import { loadEnv } from "../../config/env";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuthService } from "../auth/auth.service";
 import { SESSION_COOKIE } from "../auth/auth.controller";
 import { SignupService } from "./signup.service";
+import { CouponService } from "./coupon.service";
 
 /**
  * הרשמה עצמית — הנתיב הציבורי היחיד שיוצר דייר חדש.
@@ -31,9 +37,15 @@ const SignupSchema = z
      */
     password: z.string().min(10).max(200),
     plan: z.string().min(2).max(20),
+    /** קוד קופון — לא חובה. הנרמול והבדיקה בשרת. */
+    coupon: z.string().max(40).optional(),
     /** אישור מפורש לתנאים — נדרש לפני יצירת החשבון. */
     acceptTerms: z.literal(true),
   })
+  .strict();
+
+const CouponCheckSchema = z
+  .object({ code: z.string().min(1).max(40), plan: z.string().min(2).max(20) })
   .strict();
 
 /** מה שדף התמחור צריך — בלי חלקים פנימיים של הגדרת המסלול. */
@@ -55,6 +67,7 @@ export class SignupController {
   constructor(
     private readonly signup: SignupService,
     private readonly auth: AuthService,
+    private readonly coupons: CouponService,
   ) {}
 
   /** המסלולים שאפשר להירשם אליהם — לדף התמחור הציבורי. */
@@ -80,6 +93,28 @@ export class SignupController {
   }
 
   /**
+   * "האם הקוד תקף" — לפני שליחת הטופס.
+   *
+   * **מוגבל בקצב חזק יותר מהרשמה עצמה.** נתיב שאומר "קיים / לא קיים"
+   * על מחרוזת קצרה הוא כלי ניחוש קודים, וקוד שנוחש שווה כסף. עשר
+   * בדיקות בשעה מספיקות בהחלט למי שמקליד קוד שקיבל, ולא מספיקות
+   * לסריקה.
+   *
+   * התשובה מחזירה **תיאור** ולא תנאים: החישוב נשאר בשרת.
+   */
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 3_600_000 } })
+  @Post("coupon")
+  @HttpCode(200)
+  async coupon(
+    @Body(new ZodValidationPipe(CouponCheckSchema)) body: z.infer<typeof CouponCheckSchema>,
+  ): Promise<{ valid: boolean; description?: string; message?: string }> {
+    const result = await this.coupons.check(body.code, body.plan);
+    if (result.valid) return { valid: true, description: result.description! };
+    return { valid: false, message: couponRejectionMessage(result.rejection!) };
+  }
+
+  /**
    * פתיחת משרד חדש והתחברות מיידית.
    *
    * ה-Session מונפק כאן ולא במסך התחברות נפרד: משרד שסיים להירשם
@@ -94,8 +129,8 @@ export class SignupController {
     @Body(new ZodValidationPipe(SignupSchema)) body: z.infer<typeof SignupSchema>,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ trialEndsAt: string }> {
-    const { user, trialEndsAt } = await this.signup.register(body);
+  ): Promise<{ trialEndsAt: string; couponApplied?: string }> {
+    const { user, trialEndsAt, couponApplied } = await this.signup.register(body);
     const { token, expiresAt } = await this.auth.issueSession(user, {
       ip: req.ip,
       userAgent: req.headers["user-agent"],
@@ -107,6 +142,9 @@ export class SignupController {
       expires: expiresAt,
       path: "/",
     });
-    return { trialEndsAt: trialEndsAt.toISOString() };
+    return {
+      trialEndsAt: trialEndsAt.toISOString(),
+      ...(couponApplied ? { couponApplied } : {}),
+    };
   }
 }

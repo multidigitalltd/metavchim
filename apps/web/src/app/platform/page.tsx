@@ -9,6 +9,7 @@ import { BackupsSection } from "./backups-section";
 import { LeadPricesSection } from "./lead-prices-section";
 import { PaymentsSection } from "./payments-section";
 import { PlansSection } from "./plans-section";
+import { CouponsSection } from "./coupons-section";
 import { PlatformSettingsSection } from "./platform-settings-section";
 import { SystemUpdateSection } from "./system-update-section";
 
@@ -199,6 +200,7 @@ export default function PlatformPage() {
       <BackupsSection />
 
       <PlansSection onCatalogChange={loadPlanOptions} />
+      <CouponsSection />
       <LeadPricesSection />
       <PaymentsSection />
 

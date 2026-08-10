@@ -28,6 +28,7 @@ export * from "./logic/contact-people.js";
 export * from "./logic/duplicate-contacts.js";
 export * from "./logic/diarize.js";
 export * from "./logic/capability-overrides.js";
+export * from "./logic/coupon.js";
 export * from "./logic/telephony.js";
 export * from "./logic/list-filters.js";
 export * from "./logic/call-summary.js";

@@ -50,6 +50,17 @@ export default function SignupPage(): React.JSX.Element {
    * ולא רק באג טכני אלא הצהרה שגויה (ביקורת Codex).
    */
   const [accepted, setAccepted] = useState(false);
+  /*
+   * הקופון נבדק בלחיצה ולא בכל הקלדה.
+   *
+   * בדיקה בכל תו הייתה מקישה על נתיב ציבורי עשרות פעמים בזמן שהמשתמש
+   * מקליד קוד אחד, ומגבלת הקצב שם הדוקה בכוונה — הוא היה נחסם באמצע
+   * ההקלדה ורואה "הקוד אינו תקף" על קוד תקין לגמרי.
+   */
+  const [coupon, setCoupon] = useState("");
+  const [couponState, setCouponState] = useState<
+    { status: "idle" } | { status: "checking" } | { status: "ok"; text: string } | { status: "bad"; text: string }
+  >({ status: "idle" });
 
   useEffect(() => {
     apiGet<{ plans: OfferedPlan[] }>("/signup/plans")
@@ -61,6 +72,31 @@ export default function SignupPage(): React.JSX.Element {
       })
       .catch(() => setPlans([]));
   }, []);
+
+  async function checkCoupon(): Promise<void> {
+    if (chosen === null) return;
+    setCouponState({ status: "checking" });
+    try {
+      const res = await apiPost<{ valid: boolean; description?: string; message?: string }>(
+        "/signup/coupon",
+        { code: coupon.trim(), plan: chosen },
+      );
+      setCouponState(
+        res.valid
+          ? { status: "ok", text: res.description ?? "הקוד תקף" }
+          : { status: "bad", text: res.message ?? "הקוד אינו תקף" },
+      );
+    } catch (err: unknown) {
+      /*
+       * 429 כאן הוא מגבלת הקצב, וההודעה מהשרת אומרת את זה. הצגתה
+       * כ"הקוד אינו תקף" הייתה שולחת את המשתמש לזרוק קוד תקין.
+       */
+      setCouponState({
+        status: "bad",
+        text: err instanceof ApiError ? err.message : "לא הצלחנו לבדוק את הקוד",
+      });
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -80,6 +116,8 @@ export default function SignupPage(): React.JSX.Element {
         phone: String(form.get("phone") ?? "").trim(),
         password: String(form.get("password") ?? ""),
         plan: chosen,
+        // נשלח רק כשהוזן; השרת מנרמל ובודק שוב — הבדיקה במסך היא נוחות
+        ...(coupon.trim() !== "" ? { coupon: coupon.trim() } : {}),
         acceptTerms: true,
       });
       /*
@@ -267,6 +305,49 @@ export default function SignupPage(): React.JSX.Element {
             <p id="password-hint" className="m-0 mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
               לפחות 10 תווים. זו הסיסמה שמגינה על נתוני הלקוחות של המשרד.
             </p>
+          </div>
+
+          {/*
+            הקופון אחרון ולא ראשון, ומסומן "לא חובה".
+            שדה קוד בראש טופס הרשמה גורם למי שאין לו קוד לחשוב שהוא
+            מפסיד משהו, ולעצור כדי לחפש אחד.
+          */}
+          <div className="mv-auth-field">
+            <label htmlFor="coupon">קוד קופון (לא חובה)</label>
+            <div className="flex gap-2">
+              <input
+                id="coupon"
+                value={coupon}
+                onChange={(e) => {
+                  setCoupon(e.target.value);
+                  setCouponState({ status: "idle" });
+                }}
+                maxLength={40}
+                dir="ltr"
+                autoComplete="off"
+                className="mv-auth-input"
+              />
+              <button
+                type="button"
+                className="mv-btn-plain"
+                disabled={coupon.trim() === "" || couponState.status === "checking" || chosen === null}
+                onClick={() => void checkCoupon()}
+              >
+                {couponState.status === "checking" ? "בודק…" : "בדיקה"}
+              </button>
+            </div>
+            {couponState.status === "ok" || couponState.status === "bad" ? (
+              <p
+                aria-live="polite"
+                className="m-0 mt-1 text-xs"
+                style={{
+                  color:
+                    couponState.status === "ok" ? "var(--color-success)" : "var(--color-danger)",
+                }}
+              >
+                {couponState.status === "ok" ? `✓ ${couponState.text}` : couponState.text}
+              </p>
+            ) : null}
           </div>
 
           {/*
