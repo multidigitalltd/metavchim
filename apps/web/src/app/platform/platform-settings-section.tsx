@@ -16,6 +16,8 @@ interface PlatformSettings {
   postmark: { configured: boolean; source: "db" | "env" | "none"; emailFrom?: string };
   whatsapp: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
   google: { configured: boolean; source: "db" | "env" | "none"; redirectUri: string };
+  /** אופציונלי — שרת ישן עוד לא מחזיר אותו, והמסך לא נופל על זה */
+  gemini?: { configured: boolean; source: "db" | "env" | "none"; model: string };
   cardcom: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
   loginOtpEnabled: boolean;
 }
@@ -105,9 +107,11 @@ export function PlatformSettingsSection() {
     try {
       const clientId = String(f.get("googleClientId")).trim();
       const clientSecret = String(f.get("googleClientSecret")).trim();
+      const geminiKey = String(f.get("geminiApiKey") ?? "").trim();
       await apiPatch("/platform/settings", {
         ...(clientId !== "" ? { googleClientId: clientId } : {}),
         ...(clientSecret !== "" ? { googleClientSecret: clientSecret } : {}),
+        ...(geminiKey !== "" ? { geminiApiKey: geminiKey } : {}),
       });
       form.reset();
       setMessage("✓ הגדרות Google נשמרו — כפתור ההתחברות יופיע במסך הכניסה");
@@ -316,6 +320,30 @@ export function PlatformSettingsSection() {
               dir="ltr"
               autoComplete="off"
               placeholder={settings.google.configured ? "••••••••" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          {/*
+            מפתח Gemini באותו טופס: שני מפתחות Google, מסך אחד.
+            "מוגדר" מציג גם את המודל שרץ בפועל — אחרת אין דרך לדעת.
+          */}
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="geminiApiKey" className="mb-1 block font-medium">
+              Gemini API Key (פקודות קוליות){" "}
+              {settings.gemini?.configured ? (
+                <span className="font-normal">
+                  ✓ מוגדר · {settings.gemini.model} (ריק = ללא שינוי)
+                </span>
+              ) : null}
+            </label>
+            <input
+              id="geminiApiKey"
+              name="geminiApiKey"
+              type="password"
+              dir="ltr"
+              autoComplete="off"
+              placeholder={settings.gemini?.configured ? "••••••••" : "מ-Google AI Studio"}
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
             />
