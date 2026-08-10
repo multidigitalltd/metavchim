@@ -124,6 +124,27 @@ const HEADER_MAP: Record<string, BuyerColumn> = {
   "איך הגיע": "source",
   "מאיפה הגיע": "source",
   source: "source",
+  /*
+   * --- כותרות של ייצוא ממערכות CRM אחרות ---
+   *
+   * קובץ הלקוחות הראשון שמשרד אמיתי ניסה לייבא לא הגיע מאקסל שמישהו
+   * הקליד — הוא הגיע מייצוא של המערכת הקודמת שלו, עם שמות שדות
+   * טכניים באנגלית. משרד שעובר אלינו מגיע בדיוק עם קובץ כזה, ולכן
+   * השמות האלה חשובים לא פחות מהעבריים.
+   */
+  phonenumber: "phone",
+  callerphonenumber: "phone",
+  contactfullname: "name",
+  callerfirstname: "name",
+  customerbudget: "budgetMaxAgorot",
+  interestedincitiesdistinct: "cities",
+  additionalnotes: "agentNotes",
+  contactorigin: "source",
+  customerseriousness: "maturity",
+  roomsmin: "roomsMin",
+  roomsmax: "roomsMax",
+  crmstatus: "maturity",
+
   // --- הערות ---
   הערות: "agentNotes",
   הערה: "agentNotes",
@@ -188,8 +209,9 @@ export function normalizeIsraeliPhone(raw: string): string | undefined {
 
 /** "תל אביב; רמת גן / גבעתיים" → ["תל אביב","רמת גן","גבעתיים"] */
 function splitCities(raw: string): string[] {
+  // פסיק נכלל: "בני ברק, רמת גן" נפוץ בייצוא. שם עיר אינו מכיל פסיק.
   return raw
-    .split(/[;/|]/u)
+    .split(/[;/|,]/u)
     .map((c) => c.trim())
     .filter((c) => c.length > 0);
 }
