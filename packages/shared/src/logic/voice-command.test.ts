@@ -46,6 +46,34 @@ describe("routeVoiceCommand", () => {
     expect(command.offer?.buyerPhrase).toBe("שרה לוי");
   });
 
+
+  it("מזהה קביעת פגישה בלי מילת פועל", () => {
+    /*
+     * זה התמלול שנדחה בשימוש אמיתי. משפט ברור לחלוטין, שנפסל רק
+     * משום שחסרה בו המילה "קבע" — ומתווך שקיבל דחייה כזו פעם אחת
+     * מפסיק לדבר אל המערכת.
+     */
+    const command = routeVoiceCommand("פגישה עם שמוליק על ההצעה שהצעתי לו");
+    expect(command.action).toBe("schedule_appointment");
+    expect(command.confidence).toBe("high");
+  });
+
+  it("מזהה 'נפגש עם' ו'להיפגש עם'", () => {
+    expect(routeVoiceCommand("נפגש עם דנה מחר בארבע").action).toBe("schedule_appointment");
+    expect(routeVoiceCommand("להיפגש עם משה כהן ביום שלישי").action).toBe("schedule_appointment");
+  });
+
+  it("'אני מראה לו את הדירה מחר' הוא סיור", () => {
+    expect(routeVoiceCommand("אני מראה לו את הדירה מחר בעשר").action).toBe(
+      "schedule_appointment",
+    );
+  });
+
+  it("'תקבע' ו'לקבוע' עובדים כמו 'קבע'", () => {
+    expect(routeVoiceCommand("תקבע פגישה מחר").action).toBe("schedule_appointment");
+    expect(routeVoiceCommand("לקבוע סיור ביום חמישי").action).toBe("schedule_appointment");
+  });
+
   it("טקסט שאינו פקודה מסווג כלא ידוע", () => {
     expect(routeVoiceCommand("בוקר טוב").action).toBe("unknown");
   });

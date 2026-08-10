@@ -33,10 +33,21 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
   { action: "send_offer", pattern: /(?:שלח|תשלח|שלחי)\s+(?:את\s+)?(?:ה?נכס|ה?דירה|ה?הצעה|הצעה)/u, confidence: "high" },
   { action: "send_offer", pattern: /(?:שלח|תשלח)\s+ל[א-ת]/u, confidence: "low" },
 
-  // --- פגישה/סיור ---
-  { action: "schedule_appointment", pattern: /קבע(?:י)?\s+(?:לי\s+)?(?:פגישה|סיור|ביקור)/u, confidence: "high" },
-  { action: "schedule_appointment", pattern: /(?:תזמן|לתאם|תיאום)\s+(?:פגישה|סיור|ביקור)/u, confidence: "high" },
-  { action: "schedule_appointment", pattern: /(?:פגישה|סיור)\s+(?:מחר|היום|ביום|בשעה)/u, confidence: "low" },
+  /*
+   * --- פגישה/סיור ---
+   *
+   * הדיבור האמיתי אינו מתחיל בפועל. "פגישה עם שמוליק על ההצעה
+   * שהצעתי לו" הוא משפט שלם, ברור לחלוטין, שנדחה כ"לא זוהתה פקודה"
+   * רק משום שחסרה בו המילה "קבע". מתווך שקיבל דחייה כזו פעם אחת
+   * מפסיק לדבר אל המערכת — ולכן הצורות הנפוצות בלי פועל נכנסות כאן.
+   */
+  { action: "schedule_appointment", pattern: /(?:קבע(?:י)?|תקבע(?:י)?|לקבוע)\s+(?:לי\s+)?(?:פגישה|סיור|ביקור)/u, confidence: "high" },
+  { action: "schedule_appointment", pattern: /(?:תזמן|תתאם|לתאם|תיאום)\s+(?:פגישה|סיור|ביקור)/u, confidence: "high" },
+  { action: "schedule_appointment", pattern: /(?:פגישה|סיור|ביקור)\s+עם\s+[א-ת]/u, confidence: "high" },
+  { action: "schedule_appointment", pattern: /(?:נפגש|להיפגש|אפגוש|תפגוש)\s+(?:עם\s+)?[א-ת]/u, confidence: "high" },
+  { action: "schedule_appointment", pattern: /(?:פגישה|סיור)\s+(?:מחר|היום|מחרתיים|ביום|בשעה|ב-)/u, confidence: "low" },
+  // "אני מראה לו את הדירה מחר" — סיור לכל דבר, בלי אף מילת פקודה
+  { action: "schedule_appointment", pattern: /(?:להראות|מראה)\s+(?:לו|לה|להם)?\s*(?:את\s+)?(?:ה?דירה|ה?נכס|ה?בית)/u, confidence: "low" },
 
   // --- נכס ---
   { action: "add_property", pattern: /(?:הוסף|תוסיף|רשום|תרשום|קלוט)\s+(?:לי\s+)?(?:נכס|דירה|בית)/u, confidence: "high" },
@@ -59,7 +70,7 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
 
 /** מסירה את מילות הפקודה כדי שהחילוץ יקבל רק את התוכן. */
 const COMMAND_PREFIX =
-  /^(?:היי\s+)?(?:מערכת[,\s]+)?(?:בבקשה\s+)?(?:הוסף|תוסיף|רשום|תרשום|קלוט|קבע|קבעי|תזמן|חפש|תחפש|מצא|תמצא)\s+(?:לי\s+)?(?:נכס|דירה|בית|קונה|לקוח|ליד|פגישה|סיור|ביקור)?\s*/u;
+  /^(?:היי\s+)?(?:מערכת[,\s]+)?(?:בבקשה\s+)?(?:הוסף|תוסיף|רשום|תרשום|קלוט|קבע|קבעי|תקבע|תקבעי|לקבוע|תזמן|תתאם|לתאם|חפש|תחפש|מצא|תמצא)\s+(?:לי\s+)?(?:נכס|דירה|בית|קונה|לקוח|ליד|פגישה|סיור|ביקור)?\s*/u;
 
 export function routeVoiceCommand(transcript: string): VoiceCommand {
   const text = transcript.replace(/\s+/gu, " ").trim();
