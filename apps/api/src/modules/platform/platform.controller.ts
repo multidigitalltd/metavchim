@@ -127,23 +127,28 @@ const UpsertPlanSchema = z
   .strict();
 
 /** ערך ריק = מחיקת ההגדרה מה-DB וחזרה למשתנה הסביבה (אם קיים). */
+/*
+ * ‎.trim()‎ על כל סוד ומזהה: הערכים מודבקים מלוחות של ספקים, ורווח
+ * או שורת-חדשה שנגררים בהדבקה נשמרים ונשלחים כמו שהם — Google, למשל,
+ * מחזיר על זה ‎invalid_client‎ ושובר את ההתחברות לכל המערכת.
+ */
 const UpdateSettingsSchema = z
   .object({
-    postmarkServerToken: z.union([z.string().min(16).max(200), z.literal("")]).optional(),
-    emailFrom: z.union([z.string().email().max(254), z.literal("")]).optional(),
-    whatsappAppSecret: z.union([z.string().min(16).max(200), z.literal("")]).optional(),
-    whatsappVerifyToken: z.union([z.string().min(16).max(200), z.literal("")]).optional(),
+    postmarkServerToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
+    emailFrom: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+    whatsappAppSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
+    whatsappVerifyToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     loginOtpEnabled: z.boolean().optional(),
-    googleClientId: z.union([z.string().min(10).max(200), z.literal("")]).optional(),
-    googleClientSecret: z.union([z.string().min(10).max(200), z.literal("")]).optional(),
+    googleClientId: z.union([z.string().trim().min(10).max(200), z.literal("")]).optional(),
+    googleClientSecret: z.union([z.string().trim().min(10).max(200), z.literal("")]).optional(),
     /** Gemini לפקודות קוליות — מפתח בלבד מספיק; המודל אופציונלי */
-    geminiApiKey: z.union([z.string().min(10).max(200), z.literal("")]).optional(),
-    geminiModel: z.union([z.string().min(3).max(60), z.literal("")]).optional(),
+    geminiApiKey: z.union([z.string().trim().min(10).max(200), z.literal("")]).optional(),
+    geminiModel: z.union([z.string().trim().min(3).max(60), z.literal("")]).optional(),
     // מספר המסוף מגיע כמחרוזת ולא כמספר: הוא מזהה, לא כמות, ואפסים
     // מובילים בו משמעותיים
-    cardcomTerminalNumber: z.union([z.string().regex(/^\d{1,12}$/u), z.literal("")]).optional(),
-    cardcomApiName: z.union([z.string().min(3).max(100), z.literal("")]).optional(),
-    cardcomApiPassword: z.union([z.string().min(6).max(200), z.literal("")]).optional(),
+    cardcomTerminalNumber: z.union([z.string().trim().regex(/^\d{1,12}$/u), z.literal("")]).optional(),
+    cardcomApiName: z.union([z.string().trim().min(3).max(100), z.literal("")]).optional(),
+    cardcomApiPassword: z.union([z.string().trim().min(6).max(200), z.literal("")]).optional(),
   })
   .strict();
 
