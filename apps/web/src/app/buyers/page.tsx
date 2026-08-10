@@ -248,6 +248,8 @@ export default function BuyersPage() {
                 onClick={() => {
                   setFilters(EMPTY_FILTERS);
                   setMaturity("");
+                  setOffersFilter("");
+                  setDealType("");
                 }}
               >
                 נקה סינון
@@ -339,7 +341,16 @@ export default function BuyersPage() {
               </div>
             </>
           )}
-          <CapNote show={(hasActiveFilters(filters) || maturity !== "" || offersFilter !== "") && items.length === 100} noun="קונים" />
+          <CapNote
+            show={
+              (hasActiveFilters(filters) ||
+                maturity !== "" ||
+                offersFilter !== "" ||
+                dealType !== "") &&
+              items.length === 100
+            }
+            noun="קונים"
+          />
         </>
       )}
     </>
