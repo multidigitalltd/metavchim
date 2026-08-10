@@ -115,3 +115,23 @@ describe("הגיליון האמיתי שנדחה — שם/טלפון/תקציב/
     expect(rows[0]?.agentNotes).toContain("סטטוס: בטיפול");
   });
 });
+
+describe("עדיפות שם — לא תלוית סדר עמודות (ביקורת Codex)", () => {
+  it("contactFullName גובר גם כשהוא מופיע לפני callerFirstName", () => {
+    const csv = "contactFullName,callerFirstName,phoneNumber\nמשה כהן,משה,0501234567";
+    const { rows } = parseBuyersCsv(csv);
+    expect(rows[0]?.name).toBe("משה כהן");
+  });
+
+  it("contactFullName גובר גם כשהוא מופיע אחרי", () => {
+    const csv = "callerFirstName,contactFullName,phoneNumber\nמשה,משה כהן,0501234567";
+    const { rows } = parseBuyersCsv(csv);
+    expect(rows[0]?.name).toBe("משה כהן");
+  });
+
+  it("כשאין שם מלא — השם הפרטי משמש", () => {
+    const csv = "callerFirstName,contactFullName,phoneNumber\nזיוה,,0501234567";
+    const { rows } = parseBuyersCsv(csv);
+    expect(rows[0]?.name).toBe("זיוה");
+  });
+});

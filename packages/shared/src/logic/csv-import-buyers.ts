@@ -136,6 +136,9 @@ const HEADER_MAP: Record<string, BuyerColumn> = {
   callerphonenumber: "phone",
   contactfullname: "name",
   callerfirstname: "name",
+  // ⬑ שתי עמודות שם: contactFullName הוא השם המלא, callerFirstName
+  //   רק פרטי. העדיפות מוכרעת ב-FALLBACK_NAME_HEADERS, לא בסדר
+  //   העמודות בקובץ — סדר הוא מזל, לא כלל.
   customerbudget: "budgetMaxAgorot",
   interestedincitiesdistinct: "cities",
   additionalnotes: "agentNotes",
@@ -192,6 +195,16 @@ export const MATURITY_MAP: Record<string, BuyerMaturity> = {
 };
 
 /**
+ * עמודות שם שהן **נפילה-לאחור בלבד** — שם פרטי, לא שם מלא.
+ *
+ * שתיהן ממופות ל-name, אבל "משה כהן" מ-contactFullName אסור שיוחלף
+ * ב"משה" מ-callerFirstName רק כי העמודה שלו מאוחרת יותר בקובץ.
+ * ההכרעה לפי זהות העמודה ולא לפי סדרה: סדר עמודות בייצוא הוא מקרה,
+ * וקובץ עם סדר הפוך היה מוחק את שם המשפחה של כל לקוח (ביקורת Codex).
+ */
+const FALLBACK_NAME_HEADERS = new Set(["callerfirstname"]);
+
+/**
  * נורמליזציה של טלפון ישראלי ל-E.164 (‎+972…). מקבל 050-1234567,
  * 03 1234567, 972501234567 וכד'. מחזיר undefined אם לא ניתן לנרמל —
  * ההחלטה הסופית (דחיית השורה) נעשית בוולידציה בצד השרת.
@@ -228,13 +241,16 @@ export function parseBuyersCsv(csv: string): {
   if (records.length < 2) return { rows: [], unmappedHeaders: [] };
 
   const headers = records[0] ?? [];
-  const mapped = headers.map((h) => HEADER_MAP[normalizeHeader(h)]);
+  const normalized = headers.map((h) => normalizeHeader(h));
+  const mapped = normalized.map((h) => HEADER_MAP[h]);
   const unmappedHeaders = headers.filter((_h, i) => mapped[i] === undefined);
 
   const rows: ParsedBuyerRow[] = [];
   for (let i = 1; i < records.length; i += 1) {
     const cells = records[i] ?? [];
     const row: ParsedBuyerRow = { cities: [] };
+    /** שם שהגיע מעמודה ראשית — נפילה-לאחור לא דורסת אותו */
+    let namePrimary = false;
 
     headers.forEach((_header, col) => {
       const target = mapped[col];
@@ -242,7 +258,12 @@ export function parseBuyersCsv(csv: string): {
       if (!target || raw === "") return;
 
       if (target === "name") {
-        row.name = raw;
+        const fallback = FALLBACK_NAME_HEADERS.has(normalized[col] ?? "");
+        if (fallback && namePrimary) return; // שם מלא כבר קיים
+        if (!fallback) namePrimary = true;
+        // נפילה-לאחור אינה דורסת נפילה-לאחור קודמת רק אם היא ריקה —
+        // raw ריק ממילא סונן למעלה, אז ההשמה כאן תמיד מוסיפה מידע
+        if (!fallback || row.name === undefined) row.name = raw;
       } else if (target === "agentNotes") {
         // צירוף ולא דריסה: עמודת הסטטוס אולי כבר כתבה לכאן
         row.agentNotes = row.agentNotes ? `${raw} | ${row.agentNotes}` : raw;
