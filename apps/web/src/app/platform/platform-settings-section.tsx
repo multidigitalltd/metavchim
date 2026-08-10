@@ -16,7 +16,12 @@ const inputStyle = { borderColor: "var(--color-border)", background: "var(--colo
 interface PlatformSettings {
   postmark: { configured: boolean; source: "db" | "env" | "none"; emailFrom?: string };
   whatsapp: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
-  google: { configured: boolean; source: "db" | "env" | "none"; redirectUri: string };
+  google: {
+    configured: boolean;
+    source: "db" | "env" | "none";
+    redirectUri: string;
+    redirectUris: { label: string; url: string }[];
+  };
   /** אופציונלי — שרת ישן עוד לא מחזיר אותו, והמסך לא נופל על זה */
   gemini?: { configured: boolean; source: "db" | "env" | "none"; model: string };
   cardcom: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
@@ -279,23 +284,48 @@ export function PlatformSettingsSection() {
         </form>
       </div>
 
-      {/* ---------- התחברות עם Google ---------- */}
+      {/* ---------- חיבורי Google ---------- */}
       <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-semibold"><IconKey s={16} /> התחברות עם Google</h3>
+          {/*
+            השם היה "התחברות עם Google" בלבד, ולכן מי שחיפש איפה
+            מחברים את יומן Google או את Gmail הסיק שאין לזה מקום —
+            בעוד ששלושתם קוראים בדיוק את אותם שני ערכים.
+          */}
+          {/*
+            מזהה משלו: הקיצור בראש העמוד מכוון לכאן ולא לכותרת
+            הכללית של "חיבורי המערכת" — קפיצה לשם הנחיתה את הקורא
+            לפני כרטיס Postmark, וכרטיס Google נשאר מתחת למסך
+            (ביקורת Codex).
+          */}
+          <h3 id="google-connections" className="font-semibold">
+            <IconKey s={16} /> חיבורי Google — התחברות, יומן ו-Gmail
+          </h3>
           <StatusBadge configured={settings.google.configured} source={settings.google.source} />
         </div>
         <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
           מ-Google Cloud Console ⟵ APIs &amp; Services ⟵ Credentials ⟵ OAuth client ID
-          (סוג: Web application). ההתחברות פותחת חשבונות קיימים בלבד — משתמש
-          שלא הוזמן למשרד לא ייכנס.
+          (סוג: Web application). <strong>אותם שני ערכים משרתים את שלושת החיבורים</strong> —
+          אין צורך ליצור אפליקציה נפרדת ליומן או ל-Gmail. ההתחברות פותחת חשבונות
+          קיימים בלבד — משתמש שלא הוזמן למשרד לא ייכנס.
         </p>
-        <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          כתובת החזרה שיש להזין שם (Authorized redirect URI):{" "}
-          <code dir="ltr" className="rounded px-1" style={{ background: "var(--color-bg)" }}>
-            {settings.google.redirectUri}
-          </code>
-        </p>
+        <div className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          <p className="mb-1">
+            כתובות החזרה שיש להזין ב-Google (Authorized redirect URIs) —{" "}
+            <strong>כל השלוש</strong>, אחרת החיבור החסר ייפול על
+            <code dir="ltr" className="mx-1">redirect_uri_mismatch</code>:
+          </p>
+          <ul className="m-0 list-none p-0">
+            {settings.google.redirectUris.map((entry) => (
+              <li key={entry.url} className="flex flex-wrap items-center gap-2 py-0.5">
+                <span style={{ minWidth: 130 }}>{entry.label}</span>
+                <code dir="ltr" className="rounded px-1" style={{ background: "var(--color-bg)" }}>
+                  {entry.url}
+                </code>
+              </li>
+            ))}
+          </ul>
+        </div>
         {/*
           שכבות ההגנה מפני מילוי אוטומטי אינן קישוט: Chrome התעלם
           מ-‎autocomplete="off"‎ בשדה סיסמה ומילא לתוך Client Secret את

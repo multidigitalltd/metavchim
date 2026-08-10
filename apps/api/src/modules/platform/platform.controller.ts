@@ -604,7 +604,18 @@ export class PlatformController {
     postmark: { configured: boolean; source: "db" | "env" | "none"; emailFrom?: string };
     /** webhookUrl מוגדר פעם אחת במטא לכל הפלטפורמה — ולכן הוא כאן ולא בהגדרות המשרד. */
     whatsapp: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
-    google: { configured: boolean; source: "db" | "env" | "none"; redirectUri: string };
+    /**
+     * אותם Client ID ו-Secret משרתים שלושה חיבורים — התחברות, יומן
+     * ו-Gmail — ולכן מוחזרות **כל** כתובות החזרה. הצגת אחת בלבד
+     * הובילה לרישום חלקי ב-Google Cloud, ואז הסנכרון נפל על
+     * redirect_uri_mismatch בלי שיהיה ברור למה.
+     */
+    google: {
+      configured: boolean;
+      source: "db" | "env" | "none";
+      redirectUri: string;
+      redirectUris: { label: string; url: string }[];
+    };
     /** Gemini לפקודות קוליות — model מוצג כדי שיהיה ברור מה באמת רץ. */
     gemini: { configured: boolean; source: "db" | "env" | "none"; model: string };
     /** webhookUrl היא הכתובת שנרשמת אצל קארדקום — מוצגת כדי שלא ינחשו אותה. */
@@ -650,6 +661,16 @@ export class PlatformController {
         // הכתובת שחייבת להירשם ב-Google Cloud Console — מוצגת כדי
         // שלא יהיה צורך לנחש אותה
         redirectUri: `${env.WEB_ORIGIN}/api/v1/auth/google/callback`,
+        // הכתובות נבנות כאן ולא במסך: הן חייבות להתאים תו-בתו למה
+        // ששלושת השירותים שולחים בפועל ב-redirect_uri
+        redirectUris: [
+          { label: "התחברות עם Google", url: `${env.WEB_ORIGIN}/api/v1/auth/google/callback` },
+          {
+            label: "סנכרון יומן Google",
+            url: `${env.WEB_ORIGIN}/api/v1/calendar/google/callback`,
+          },
+          { label: "סנכרון Gmail", url: `${env.WEB_ORIGIN}/api/v1/gmail/callback` },
+        ],
       },
       gemini: {
         configured: geminiDb || geminiEnv,
