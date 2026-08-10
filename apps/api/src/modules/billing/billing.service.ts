@@ -6,6 +6,7 @@ import {
   checkoutRejectionReason,
   cyclePriceAgorot,
   describeCycle,
+  discountedAgorot,
   isBillingCycle,
   nextPeriodEnd,
   periodDaysLeft,
@@ -160,7 +161,23 @@ export class BillingService {
 
     // אחרי הבדיקה שני אלה ודאיים; ההצהרה כאן היא כדי ש-TypeScript ידע
     const cycle = input.cycle as BillingCycle;
-    const amountAgorot = cyclePriceAgorot(plan!, cycle)!;
+    const fullAgorot = cyclePriceAgorot(plan!, cycle)!;
+
+    /*
+     * הנחת הקופון — **מחושבת כאן ולא מתקבלת מהדפדפן**.
+     *
+     * הסכום שנשלח לסולק ונשמר בשורת התשלום הוא זה שנחשב בשרת מתוך
+     * מה שנשמר על הדייר ברגע ההרשמה. סכום שמגיע מהלקוח הוא הזמנה
+     * לשלם כמה שרוצים, וגם הוובהוק מאמת מולו.
+     *
+     * ההנחה **אינה נמחקת כאן** אלא רק כשתשלום מצליח: מי שפתח דף
+     * תשלום ונטש לא אמור לאבד את מה שהובטח לו.
+     */
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: input.tenantId },
+      select: { couponPercentOff: true },
+    });
+    const amountAgorot = discountedAgorot(fullAgorot, tenant?.couponPercentOff ?? null);
 
     if (!(await this.cardcom.isConfigured())) {
       throw new BadRequestException("הסליקה טרם הופעלה במערכת — פנו אלינו");
@@ -354,6 +371,12 @@ export class BillingService {
            * שני ערכים שונים ל-`paid_until` היו בדיוק הבאג הזה.
            */
           paidUntil: accessUntil(periodEnd),
+          /*
+           * ההנחה נצרכת **כאן**, בתשלום שהצליח, ולא בפתיחת דף
+           * התשלום: מי שפתח דף ונטש לא אמור לאבד את מה שהובטח לו.
+           * `couponCode` נשאר לתמיכה ולדוח — הוא היסטוריה, לא זכאות.
+           */
+          couponPercentOff: null,
         },
       });
       return periodEnd;

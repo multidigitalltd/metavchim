@@ -3,6 +3,7 @@ import {
   Body,
   ConflictException,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -18,6 +19,11 @@ import { z } from "zod";
 import {
   IdSchema,
   PLAN_FEATURES,
+  couponDefinitionRejection,
+  describeCoupon,
+  normalizeCouponCode,
+  type CouponDefinition,
+  type CouponKind,
   TenantStatusSchema,
   downgradeWarnings,
   leadPriceRejectionReason,
@@ -198,6 +204,38 @@ export interface AgencyRow {
   paidUntil: Date | null;
   /** true = המשרד מחובר אך מוגבל למסך המנוי. */
   periodEnded: boolean;
+}
+
+/** הגדרת קופון מהמסך. `redemptions` אינו כאן — הוא מונה ולא שדה. */
+const CouponSchema = z
+  .object({
+    code: z.string().min(1).max(40),
+    description: z.string().max(200).optional(),
+    kind: z.enum(["percent", "free_days"]),
+    percentOff: z.number().int().min(1).max(100).nullable().optional(),
+    freeDays: z.number().int().min(1).max(730).nullable().optional(),
+    planCode: z.string().max(20).nullable().optional(),
+    maxRedemptions: z.number().int().min(1).nullable().optional(),
+    expiresAt: z.string().datetime().optional(),
+    isActive: z.boolean().optional(),
+  })
+  .strict();
+
+/** שורת קופון למסך — כולל התיאור בעברית שהשרת מחשב. */
+interface CouponRow {
+  code: string;
+  kind: CouponKind;
+  percentOff: number | null;
+  freeDays: number | null;
+  planCode: string | null;
+  maxRedemptions: number | null;
+  redemptions: number;
+  expiresAt: Date | null;
+  isActive: boolean;
+  /** מה הקופון נותן, בעברית. */
+  description: string;
+  /** ההערה החופשית שנכתבה עליו. */
+  note: string;
 }
 
 @Controller("platform")
@@ -745,5 +783,86 @@ export class PlatformController {
   @Get("backups/run/status")
   async backupRunStatus(): Promise<BackupRunStatus> {
     return this.backups.backupStatus();
+  }
+
+  /* ==================== קודי קופון ==================== */
+
+  /**
+   * הקופונים, החדשים קודם. מוצג גם כמה פעמים כל אחד מומש — זה המספר
+   * היחיד שבעל הפלטפורמה באמת בודק אחרי שהוא מפרסם קוד.
+   */
+  @Get("coupons")
+  async listCoupons(): Promise<{ coupons: CouponRow[] }> {
+    const rows = await this.prisma.coupon.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
+    return {
+      coupons: rows.map((row) => ({
+        ...row,
+        kind: row.kind as CouponKind,
+        description: describeCoupon(row as CouponDefinition),
+        note: row.description,
+      })),
+    };
+  }
+
+  /**
+   * יצירה או עדכון של קופון.
+   *
+   * הקוד מנורמל לפני השמירה, ולכן "welcome 20" ו-"WELCOME20" הם אותה
+   * רשומה — אחרת היו נוצרים שני קופונים שנראים זהים במסך ומתנהגים
+   * שונה. `redemptions` לעולם אינו נכתב כאן: הוא מונה מימושים, ולא
+   * שדה שעורכים.
+   */
+  @Post("coupons")
+  @HttpCode(200)
+  async saveCoupon(
+    @Body(new ZodValidationPipe(CouponSchema)) body: z.infer<typeof CouponSchema>,
+  ): Promise<{ ok: true }> {
+    /*
+     * ‎`?? null`‎ ולא `body` כמו שהוא: הסכימה מרשה `undefined` (השדה
+     * לא נשלח) והבדיקה מדברת ב-`null` (אין ערך). שני מצבים שנראים
+     * זהים במסך חייבים להגיע לבדיקה כאחד, אחרת קופון בלי אחוז היה
+     * עובר רק משום שהשדה הושמט.
+     */
+    const rejection = couponDefinitionRejection({
+      code: body.code,
+      kind: body.kind,
+      percentOff: body.percentOff ?? null,
+      freeDays: body.freeDays ?? null,
+      maxRedemptions: body.maxRedemptions ?? null,
+    });
+    if (rejection !== null) throw new BadRequestException(rejection);
+    const code = normalizeCouponCode(body.code);
+    const data = {
+      description: body.description ?? "",
+      kind: body.kind,
+      percentOff: body.kind === "percent" ? body.percentOff : null,
+      freeDays: body.kind === "free_days" ? body.freeDays : null,
+      planCode: body.planCode ?? null,
+      maxRedemptions: body.maxRedemptions ?? null,
+      expiresAt: body.expiresAt === undefined ? null : new Date(body.expiresAt),
+      isActive: body.isActive ?? true,
+    };
+    await this.prisma.coupon.upsert({
+      where: { code },
+      update: data,
+      create: { ...data, code, createdBy: TenantContext.current().userId },
+    });
+    return { ok: true };
+  }
+
+  /**
+   * כיבוי קופון — ולא מחיקה.
+   *
+   * מחיקה הייתה מוחקת גם את העדות: משרד שנרשם עם הקוד ממשיך לשאת
+   * אותו ב-`coupon_code`, ובלי הרשומה אי אפשר לענות לשאלה "מה
+   * הבטחנו לו". קופון כבוי פשוט אינו מתקבל יותר.
+   */
+  @Delete("coupons/:code")
+  async disableCoupon(@Param("code") code: string): Promise<{ ok: true }> {
+    await this.prisma.coupon.updateMany({
+      where: { code: normalizeCouponCode(code) },
+      data: { isActive: false },
+    });
+    return { ok: true };
   }
 }
