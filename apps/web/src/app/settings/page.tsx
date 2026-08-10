@@ -105,6 +105,10 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   "users.update": "עדכון איש צוות",
   "users.unlock": "שחרור נעילת התחברות",
   "voice_intake.create": "קליטת נכס בקול",
+  "contact.merge": "מיזוג כרטיסים כפולים",
+  "contact.duplicate_dismiss": "דחיית הצעת מיזוג",
+  "settings.lead_webhook_create": "יצירת מקור קליטת לידים",
+  "settings.lead_webhook_delete": "מחיקת מקור קליטת לידים",
 };
 
 /**
