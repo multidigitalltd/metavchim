@@ -25,6 +25,7 @@ import { disablePush, enablePush, readPushState, type PushState } from "@/lib/pu
 import { useRequireAuth } from "@/lib/use-auth";
 import { ThemeToggle } from "../theme-toggle";
 import { PlanSection } from "../settings/plan-section";
+import { SipLineSection } from "./sip-line";
 
 /**
  * הפרופיל האישי — כל מה ששייך למשתמש הזה ולא למשרד: ערכת נושא,
@@ -180,6 +181,7 @@ export default function ProfilePage() {
         מכין להם היה בלתי נגיש (ביקורת Codex).
       */}
       <PlanSection />
+      <SipLineSection />
 
       {/* ---- כרטיס הזהות ---- */}
       <div className="mv-list-card mb-[18px] flex flex-wrap items-center gap-4 p-6">
