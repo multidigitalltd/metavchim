@@ -209,12 +209,32 @@ export function AgreementsPanel({
           עדיין לא נשלח הסכם.
         </p>
       ) : (
-        <ul className="mb-3 flex flex-col gap-2">
+        /*
+         * כל הסכם ככרטיס משלו: סטטוס ותאריך בשורה עליונה, פעולות
+         * בשורה נפרדת מתחתיו. קודם הכול ישב בשורה אחת — הסטטוס
+         * "נשלח — ממתין לחתימה", שני כפתורים וקישור התערבבו לרצף
+         * אחד בלי היררכיה, ולא היה ברור מה מצב ההסכם ומה אפשר לעשות.
+         */
+        <ul className="mb-3 flex list-none flex-col gap-2 p-0">
           {rows.map((row) => (
-            <li key={row.id} className="flex flex-wrap items-center gap-2">
-              <span>{STATUS_LABELS[row.status] ?? row.status}</span>
+            <li
+              key={row.id}
+              className="rounded-xl border p-3"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+            >
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span className="mv-chip" style={{ cursor: "default" }}>
+                  {STATUS_LABELS[row.status] ?? row.status}
+                </span>
+                {row.sentAt ? (
+                  <span className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                    נשלח {new Date(row.sentAt).toLocaleDateString("he-IL")}
+                  </span>
+                ) : null}
+              </div>
+
               {row.status !== "signed" && row.status !== "declined" ? (
-                <>
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     type="button"
                     variant="secondary"
@@ -234,19 +254,20 @@ export function AgreementsPanel({
                       שלח במייל
                     </Button>
                   ) : null}
-                  <a href={row.url} target="_blank" rel="noopener noreferrer" className="underline">
+                  <a
+                    href={row.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[13px] underline"
+                  >
                     קישור לחתימה
                   </a>
-                  {row.sentAt ? (
-                    <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-                      נשלח {new Date(row.sentAt).toLocaleDateString("he-IL")}
-                    </span>
-                  ) : null}
-                </>
+                </div>
               ) : null}
+
               {row.status === "signed" ? (
                 /* המסמך החתום עצמו — עד כה החתימה נשמרה ולא היה מה להראות */
-                <a href={`/agreements/${row.id}/document`} className="underline">
+                <a href={`/agreements/${row.id}/document`} className="text-[13px] underline">
                   <IconDoc s={15} /> המסמך החתום
                 </a>
               ) : null}
