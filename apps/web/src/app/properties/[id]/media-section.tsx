@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@metavchim/ui";
 import { api, apiGet } from "@/lib/api";
 import { IconCamera, IconStar } from "../../icons";
 
@@ -146,37 +145,66 @@ export function MediaSection({ propertyId, address }: { propertyId: string; addr
           אין תמונות עדיין — נכס עם תמונות מקבל יותר פניות.
         </p>
       ) : (
-        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+        /*
+         * רוחב מינימלי לתא ולא מספר עמודות קבוע: הסעיף יושב גם בטור
+         * צדדי צר, ושם grid-cols-2 ייצר תאים של ~150px — התמונה
+         * נמתחה, והכפתורים לא נכנסו לשורה ונחתכו ע"י overflow-hidden.
+         * auto-fill מוריד לעמודה אחת במקום לדחוס שתיים.
+         */
+        <ul className="m-0 grid list-none gap-3 p-0 [grid-template-columns:repeat(auto-fill,minmax(180px,1fr))]">
           {items.map((m, index) => (
             <li
               key={m.id}
               className="overflow-hidden rounded-xl border"
-              style={{ borderColor: index === 0 ? "var(--color-primary)" : "var(--color-border)" }}
+              style={{
+                borderColor: index === 0 ? "var(--color-primary)" : "var(--color-border)",
+                background: "var(--color-surface)",
+              }}
             >
+              {/*
+                יחס קבוע ולא גובה קבוע — תמונה לאורך ותמונה לרוחב
+                מקבלות מסגרת זהה, והרשת נראית מסודרת בלי קשר למה
+                שהמתווך צילם בטלפון.
+              */}
               {/* img רגיל בכוונה: מוזרם דרך ה-API (העוגייה נשלחת same-site) */}
               <img
                 src={API_BASE + m.url}
                 alt={m.altText ?? `תמונה ${index + 1} של ${address || "הנכס"}`}
-                className="h-36 w-full object-cover"
+                className="block aspect-[4/3] w-full object-cover"
+                style={{ background: "var(--color-bg)" }}
               />
-              <div className="flex items-center justify-between gap-1 p-2">
+              <div className="flex flex-wrap items-center justify-between gap-1.5 p-2">
                 {index === 0 ? (
-                  <span className="text-sm font-medium" style={{ color: "var(--color-primary)" }}>
-                    <IconStar s={15} /> ראשית
+                  <span
+                    className="mv-chip"
+                    style={{
+                      cursor: "default",
+                      padding: "2px 9px",
+                      fontSize: 12,
+                      color: "var(--color-primary)",
+                    }}
+                  >
+                    <IconStar s={13} /> ראשית
                   </span>
                 ) : (
                   <button
                     type="button"
                     onClick={() => onMakePrimary(m.id)}
                     disabled={busy}
-                    className="text-sm underline"
+                    className="text-[12.5px] underline"
                   >
                     הפוך לראשית
                   </button>
                 )}
-                <Button variant="danger" onClick={() => onDelete(m.id)} disabled={busy}>
+                <button
+                  type="button"
+                  onClick={() => onDelete(m.id)}
+                  disabled={busy}
+                  className="text-[12.5px] underline"
+                  style={{ color: "var(--color-danger)" }}
+                >
                   מחק<span className="mv-visually-hidden"> את {m.altText ?? `תמונה ${index + 1}`}</span>
-                </Button>
+                </button>
               </div>
             </li>
           ))}
