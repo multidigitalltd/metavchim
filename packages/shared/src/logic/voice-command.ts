@@ -33,10 +33,9 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
   { action: "send_offer", pattern: /(?:שלח|תשלח|שלחי)\s+(?:את\s+)?(?:ה?נכס|ה?דירה|ה?הצעה|הצעה)/u, confidence: "high" },
   { action: "send_offer", pattern: /(?:שלח|תשלח)\s+ל[א-ת]/u, confidence: "low" },
 
-  // --- פגישה/סיור ---
-  { action: "schedule_appointment", pattern: /קבע(?:י)?\s+(?:לי\s+)?(?:פגישה|סיור|ביקור)/u, confidence: "high" },
-  { action: "schedule_appointment", pattern: /(?:תזמן|לתאם|תיאום)\s+(?:פגישה|סיור|ביקור)/u, confidence: "high" },
-  { action: "schedule_appointment", pattern: /(?:פגישה|סיור)\s+(?:מחר|היום|ביום|בשעה)/u, confidence: "low" },
+  // --- פגישה/סיור, בניסוח עם פועל ---
+  { action: "schedule_appointment", pattern: /(?:קבע(?:י)?|תקבע(?:י)?|לקבוע)\s+(?:לי\s+)?(?:פגישה|סיור|ביקור)/u, confidence: "high" },
+  { action: "schedule_appointment", pattern: /(?:תזמן|תתאם|לתאם|תיאום)\s+(?:פגישה|סיור|ביקור)/u, confidence: "high" },
 
   // --- נכס ---
   { action: "add_property", pattern: /(?:הוסף|תוסיף|רשום|תרשום|קלוט)\s+(?:לי\s+)?(?:נכס|דירה|בית)/u, confidence: "high" },
@@ -55,11 +54,32 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
 
   // --- חיפוש ---
   { action: "search", pattern: /(?:חפש|תחפש|מצא|תמצא|איפה)\s+/u, confidence: "high" },
+
+  /*
+   * --- פגישה בלי מילת פועל ---
+   *
+   * הדיבור האמיתי אינו מתחיל בפועל. "פגישה עם שמוליק על ההצעה
+   * שהצעתי לו" הוא משפט שלם וברור שנדחה כ"לא זוהתה פקודה" רק משום
+   * שחסרה בו המילה "קבע" — ומתווך שקיבל דחייה כזו פעם אחת מפסיק
+   * לדבר אל המערכת.
+   *
+   * **המיקום כאן, בסוף, הוא חלק מהנכונות ולא סדר שרירותי.** בתוך
+   * אותה רמת ביטחון הכלל הראשון שמתאים מנצח, ולכן כלל בלי פועל
+   * שיושב למעלה חוטף משפטים שיש בהם פועל מפורש אחר: "חפש פגישה עם
+   * משה" היה נקבע כפגישה במקום להיות חיפוש, ו"תוסיף נכס מהביקור עם
+   * משה" היה קובע פגישה במקום להוסיף נכס (ביקורת Codex). כאן, כל
+   * פועל מפורש כבר קיבל את הזדמנותו.
+   */
+  { action: "schedule_appointment", pattern: /(?:פגישה|סיור|ביקור)\s+עם\s+[א-ת]/u, confidence: "high" },
+  { action: "schedule_appointment", pattern: /(?:נפגש|להיפגש|אפגוש|תפגוש)\s+(?:עם\s+)?[א-ת]/u, confidence: "high" },
+  { action: "schedule_appointment", pattern: /(?:פגישה|סיור)\s+(?:מחר|היום|מחרתיים|ביום|בשעה|ב-)/u, confidence: "low" },
+  // "אני מראה לו את הדירה מחר" — סיור לכל דבר, בלי אף מילת פקודה
+  { action: "schedule_appointment", pattern: /(?:להראות|מראה)\s+(?:לו|לה|להם)?\s*(?:את\s+)?(?:ה?דירה|ה?נכס|ה?בית)/u, confidence: "low" },
 ];
 
 /** מסירה את מילות הפקודה כדי שהחילוץ יקבל רק את התוכן. */
 const COMMAND_PREFIX =
-  /^(?:היי\s+)?(?:מערכת[,\s]+)?(?:בבקשה\s+)?(?:הוסף|תוסיף|רשום|תרשום|קלוט|קבע|קבעי|תזמן|חפש|תחפש|מצא|תמצא)\s+(?:לי\s+)?(?:נכס|דירה|בית|קונה|לקוח|ליד|פגישה|סיור|ביקור)?\s*/u;
+  /^(?:היי\s+)?(?:מערכת[,\s]+)?(?:בבקשה\s+)?(?:הוסף|תוסיף|רשום|תרשום|קלוט|קבע|קבעי|תקבע|תקבעי|לקבוע|תזמן|תתאם|לתאם|חפש|תחפש|מצא|תמצא)\s+(?:לי\s+)?(?:נכס|דירה|בית|קונה|לקוח|ליד|פגישה|סיור|ביקור)?\s*/u;
 
 export function routeVoiceCommand(transcript: string): VoiceCommand {
   const text = transcript.replace(/\s+/gu, " ").trim();
