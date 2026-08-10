@@ -592,8 +592,7 @@ export default function SettingsPage() {
               <h2 id="roadmap-heading" className="m-0" style={{ fontSize: 14.5, fontWeight: 800 }}>בפיתוח עכשיו</h2>
             </div>
             <p className="m-0 text-[13px]" style={{ color: "var(--color-text-soft)", lineHeight: 1.6 }}>
-              סוכן קולי שעונה לשיחות שלא נענו · שליחה אוטומטית בוואטסאפ · סנכרון יומן
-              Google · התראות לנייד
+              שליחה אוטומטית בוואטסאפ · סנכרון אימיילים מ-Gmail
             </p>
             <p className="m-0 mt-2 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
               כשפיצ׳ר עולה — באנר "מה חדש" מופיע לכולם בכניסה הבאה.
