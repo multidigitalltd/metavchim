@@ -519,7 +519,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen(true)}
           >
-            <span aria-hidden="true">☰</span> תפריט
+            <span aria-hidden="true">☰</span>
+            <span className="mv-topbar-label">תפריט</span>
           </button>
 
           {/* לא h1 — הכותרת הסמנטית של הדף נמצאת בתוכן עצמו */}
@@ -549,7 +550,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
                   <line x1="12" y1="17.5" x2="12" y2="21" />
                 </svg>
-                קליטה בקול
+                <span className="mv-topbar-label">קליטה בקול</span>
               </Link>
           ) : null}
 

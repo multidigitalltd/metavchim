@@ -7,6 +7,7 @@ import {
   HttpCode,
   NotFoundException,
   Param,
+  Patch,
   Post,
 } from "@nestjs/common";
 import { z } from "zod";
@@ -32,6 +33,11 @@ const PhoneField = z.string().trim().max(25).transform(normalizePhone).pipe(Phon
 
 const MergeSchema = z
   .object({ survivorId: IdSchema, duplicateId: IdSchema })
+  .strict();
+
+/** אימייל תקין או מחרוזת ריקה למחיקה — אין מצב "לא נשלח" דו-משמעי. */
+const UpdateEmailSchema = z
+  .object({ email: z.union([z.string().trim().email().max(254), z.literal("")]) })
   .strict();
 
 const AddPhoneSchema = z
@@ -170,16 +176,34 @@ export class ContactsController {
   ): Promise<{
     people: ContactPerson[];
     phones: { id: string | null; phone: string; label: string; primary: boolean }[];
+    email?: string;
   }> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
       await assertContactAccess(tx, tenantId, id);
-      const [people, phones] = await Promise.all([
+      const [people, phones, email] = await Promise.all([
         this.contacts.peopleFor(tx, id),
         this.contacts.phonesFor(tx, id),
+        this.contacts.emailFor(tx, id),
       ]);
-      return { people, phones };
+      return { people, phones, ...(email !== undefined ? { email } : {}) };
     });
+  }
+
+  /** אימייל הכרטיס — עריכת לקוח; מחרוזת ריקה מוחקת. */
+  @RequireCapability("buyers.edit")
+  @Patch(":id/email")
+  @HttpCode(200)
+  async setEmail(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(UpdateEmailSchema)) body: z.infer<typeof UpdateEmailSchema>,
+  ): Promise<{ ok: true }> {
+    const tenantId = TenantContext.current().tenantId;
+    await this.prisma.withTenant(async (tx) => {
+      await assertContactAccess(tx, tenantId, id);
+      await this.contacts.setEmail(tx, id, body.email.trim());
+    });
+    return { ok: true };
   }
 
   /** הוספת אדם לכרטיס — עריכת לקוח, ולכן יכולת עריכה ולא צפייה. */

@@ -732,18 +732,43 @@ textarea {
   margin-inline-start: auto;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  flex: none;
 }
+@media (min-width: 640px) {
+  .mv-topbar-end {
+    gap: 12px;
+  }
+}
+/*
+ * במובייל הכותרת נדחסת ונחתכת עם שלוש נקודות במקום לדחוף את
+ * הכפתורים החוצה מהמסך — הטופ-בר לעולם לא גולש אופקית.
+ */
 .mv-screen-title {
   margin: 0;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 800;
   color: var(--color-text);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
 }
 @media (min-width: 640px) {
   .mv-screen-title {
+    font-size: 17px;
     min-width: 170px;
+    flex: none;
+  }
+}
+/* תוויות טקסט בטופ-בר — במובייל נשארים רק האייקונים */
+.mv-topbar-label {
+  display: none;
+}
+@media (min-width: 640px) {
+  .mv-topbar-label {
+    display: inline;
   }
 }
 

@@ -138,6 +138,25 @@ export class ContactsService {
     return byId;
   }
 
+  /** האימייל של הכרטיס — מפוענח לתצוגה; undefined כשאין. */
+  async emailFor(tx: TenantTx, contactId: string): Promise<string | undefined> {
+    const tenantId = TenantContext.current().tenantId;
+    const row = await tx.contact.findFirst({
+      where: { id: contactId, tenantId },
+      select: { emailEncrypted: true },
+    });
+    return row?.emailEncrypted ? this.crypto.decrypt(row.emailEncrypted) : undefined;
+  }
+
+  /** קביעת/ניקוי האימייל של הכרטיס — מוצפן כמו השם והטלפון. */
+  async setEmail(tx: TenantTx, contactId: string, email: string): Promise<void> {
+    const tenantId = TenantContext.current().tenantId;
+    await tx.contact.updateMany({
+      where: { id: contactId, tenantId },
+      data: { emailEncrypted: email === "" ? null : this.crypto.encrypt(email) },
+    });
+  }
+
   /* ---------- טלפונים נוספים ---------- */
 
   /** כל הטלפונים של אדם: הראשי תחילה, ואחריו הנוספים לפי סדר ההוספה. */
