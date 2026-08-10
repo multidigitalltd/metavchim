@@ -175,3 +175,42 @@ describe("parseAppointmentKind", () => {
     expect(parseAppointmentKind("להיפגש עם משה")).toBe("meeting");
   });
 });
+
+describe("תאריך מפורש — מקרי קצה מביקורת Codex", () => {
+  it("'31 בפברואר' נדחה ולא הופך ל-3 במרץ", () => {
+    /*
+     * setFullYear מגלגל בשקט, והתוצאה הוצגה כתאריך שזוהה בהצלחה —
+     * כלומר המתווך אישר פגישה ביום שאיש לא אמר.
+     */
+    expect(parseHebrewDateTime("פגישה 31 בפברואר", NOW).date).toBeUndefined();
+  });
+
+  it("חודש שאינו קיים נדחה", () => {
+    expect(parseHebrewDateTime("פגישה בתאריך 10.19", NOW).date).toBeUndefined();
+  });
+
+  it("29 בפברואר בשנה מעוברת מתקבל", () => {
+    // 2028 מעוברת; NOW הוא פברואר 2026, ולכן צריך שנה מפורשת
+    const result = parseHebrewDateTime("פגישה בתאריך 29.2.2028", NOW);
+    expect(il(result.date)).toMatchObject({ day: 29, month: 2 });
+  });
+
+  it("אתמול מתגלגל לשנה הבאה", () => {
+    /*
+     * הסובלנות של יממה גרמה ל"9 באוגוסט" שנאמר ב-10 באוגוסט ליפול
+     * בין הכיסאות: בדיוק יממה אחורה, לא עמד בתנאי, ונשמר כפגישה
+     * בעבר — ונתיב הפגישות מקבל זמנים בעבר בשקט.
+     */
+    const aug10 = new Date("2026-08-10T09:00:00.000Z");
+    const result = parseHebrewDateTime("פגישה 9 באוגוסט", aug10);
+    expect(result.date?.getUTCFullYear()).toBe(2027);
+  });
+
+  it("היום עצמו אינו מתגלגל, גם כשהשעה כבר עברה", () => {
+    // 10 באוגוסט בצהריים, "10 באוגוסט בשעה 9 בבוקר" — היום, לא 2027
+    const noon = new Date("2026-08-10T09:00:00.000Z"); // 12:00 בישראל
+    const result = parseHebrewDateTime("פגישה 10 באוגוסט בשעה 9 בבוקר", noon);
+    expect(result.date?.getUTCFullYear()).toBe(2026);
+    expect(il(result.date)).toMatchObject({ day: 10, month: 8, hour: 9 });
+  });
+});

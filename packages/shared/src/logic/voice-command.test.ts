@@ -83,3 +83,27 @@ describe("routeVoiceCommand", () => {
     expect(stripCommandPrefix("קבע פגישה מחר בעשר")).toBe("מחר בעשר");
   });
 });
+
+describe("סדר הכללים — פועל מפורש מנצח ניסוח בלי פועל", () => {
+  it("'חפש פגישה עם משה' הוא חיפוש ולא קביעת פגישה", () => {
+    /*
+     * בתוך אותה רמת ביטחון הכלל הראשון שמתאים מנצח. כלל בלי פועל
+     * שיושב למעלה חוטף משפטים שיש בהם פועל מפורש אחר (ביקורת Codex).
+     */
+    expect(routeVoiceCommand("חפש פגישה עם משה").action).toBe("search");
+  });
+
+  it("'תוסיף נכס מהביקור עם משה' מוסיף נכס", () => {
+    expect(routeVoiceCommand("תוסיף נכס מהביקור עם משה").action).toBe("add_property");
+  });
+
+  it("'תשלח הצעה לפני הפגישה עם משה' היא שליחת הצעה", () => {
+    expect(routeVoiceCommand("תשלח הצעה לפני הפגישה עם משה").action).toBe("send_offer");
+  });
+
+  it("ובלי פועל מפורש — עדיין פגישה", () => {
+    expect(routeVoiceCommand("פגישה עם שמוליק על ההצעה שהצעתי לו").action).toBe(
+      "schedule_appointment",
+    );
+  });
+});

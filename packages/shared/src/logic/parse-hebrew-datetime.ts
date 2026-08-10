@@ -54,6 +54,12 @@ const ORDINAL_MONTHS: Record<string, number> = {
   שביעי: 7, שמיני: 8, תשיעי: 9, עשירי: 10, "אחד עשר": 11, "שנים עשר": 12,
 };
 
+/** כמה ימים יש בחודש — כולל פברואר של שנה מעוברת. */
+function daysInMonth(year: number, month: number): number {
+  // היום ה-0 של החודש הבא הוא היום האחרון של החודש המבוקש
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
 /** שעה מהטקסט: "בעשר", "ב-16:30", "בשעה 4", "ב-9 בבוקר" */
 function parseTime(text: string): { hour: number; minute: number; evidence: string } | undefined {
   let hour: number | undefined;
@@ -192,38 +198,65 @@ export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTi
    */
   const explicit = parseExplicitDate(text);
   if (explicit) {
-    wall = new Date(base);
-    const year = explicit.year ?? base.getFullYear();
-    wall.setFullYear(year, explicit.month - 1, explicit.day);
     /*
-     * בלי שנה מפורשת: תאריך שכבר חלף שייך לשנה הבאה. "11 לינואר"
-     * שנאמר באוגוסט הוא ינואר הקרוב, לא זה שעבר.
+     * בלי שנה מפורשת: תאריך שכבר חלף שייך לשנה הבאה. ההשוואה היא
+     * **בין ימי לוח** ולא בין רגעים.
+     *
+     * קודם היא הפחיתה יממה כדי לא לגלגל תאריך שהוא היום עצמו אחרי
+     * שהשעה כבר עברה — ובדיוק בגלל זה "9 באוגוסט" שנאמר ב-10 באוגוסט
+     * נפל בין הכיסאות: הוא בדיוק יממה אחורה, לא עמד בתנאי, ונשמר
+     * כפגישה בעבר. נתיב הפגישות מקבל זמנים בעבר, ולכן זה נשמר בשקט
+     * (ביקורת Codex).
      */
-    if (explicit.year === undefined && wall.getTime() < base.getTime() - 86_400_000) {
-      wall.setFullYear(year + 1);
-    }
-    evidenceParts.push(explicit.evidence);
-  } else if (/מחרתיים/u.test(text)) {
-    wall = new Date(base);
-    wall.setDate(wall.getDate() + 2);
-    evidenceParts.push("מחרתיים");
-  } else if (/מחר/u.test(text)) {
-    wall = new Date(base);
-    wall.setDate(wall.getDate() + 1);
-    evidenceParts.push("מחר");
-  } else if (/היום/u.test(text)) {
-    wall = new Date(base);
-    evidenceParts.push("היום");
-  } else {
-    // --- יום בשבוע: הקרוב שעוד לא עבר ---
-    for (const [pattern, weekday] of WEEKDAYS) {
-      const match = pattern.exec(text);
-      if (!match) continue;
+    const year = explicit.year ?? base.getFullYear();
+    const beforeToday =
+      explicit.month < base.getMonth() + 1 ||
+      (explicit.month === base.getMonth() + 1 && explicit.day < base.getDate());
+    const chosenYear = explicit.year === undefined && beforeToday ? year + 1 : year;
+
+    /*
+     * **תאריך לא חוקי נדחה ולא מנורמל.**
+     *
+     * ‎`setFullYear`‎ מגלגל בשקט: "31 בפברואר" הופך ל-3 במרץ, ו"10.19"
+     * לחודש שאינו קיים. התוצאה הוצגה כתאריך שזוהה בהצלחה, כלומר
+     * המתווך אישר פגישה ביום שאיש לא אמר. שדה ריק עדיף — הוא לפחות
+     * נראה כמו משהו שצריך למלא (ביקורת Codex).
+     */
+    if (
+      explicit.month >= 1 &&
+      explicit.month <= 12 &&
+      explicit.day >= 1 &&
+      explicit.day <= daysInMonth(chosenYear, explicit.month)
+    ) {
       wall = new Date(base);
-      const diff = (weekday - base.getDay() + 7) % 7;
-      wall.setDate(wall.getDate() + (diff === 0 ? 7 : diff));
-      evidenceParts.push(match[0]);
-      break;
+      wall.setFullYear(chosenYear, explicit.month - 1, explicit.day);
+      evidenceParts.push(explicit.evidence);
+    }
+  }
+
+  if (wall === undefined) {
+    if (/מחרתיים/u.test(text)) {
+      wall = new Date(base);
+      wall.setDate(wall.getDate() + 2);
+      evidenceParts.push("מחרתיים");
+    } else if (/מחר/u.test(text)) {
+      wall = new Date(base);
+      wall.setDate(wall.getDate() + 1);
+      evidenceParts.push("מחר");
+    } else if (/היום/u.test(text)) {
+      wall = new Date(base);
+      evidenceParts.push("היום");
+    } else {
+      // --- יום בשבוע: הקרוב שעוד לא עבר ---
+      for (const [pattern, weekday] of WEEKDAYS) {
+        const match = pattern.exec(text);
+        if (!match) continue;
+        wall = new Date(base);
+        const diff = (weekday - base.getDay() + 7) % 7;
+        wall.setDate(wall.getDate() + (diff === 0 ? 7 : diff));
+        evidenceParts.push(match[0]);
+        break;
+      }
     }
   }
 
