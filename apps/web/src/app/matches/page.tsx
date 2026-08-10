@@ -175,9 +175,6 @@ function MatchesView() {
             לפי קונה ← נכסים
           </button>
         </div>
-        <span className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>
-          כל ניקוד מוסבר. דרישת חובה שנשברת — הנכס לא מוצג בכלל. מידע חסר מוריד ניקוד, לא פוסל.
-        </span>
         <label className="ms-auto flex items-center gap-1.5 text-sm">
           <span className="mv-visually-hidden">סף התאמה</span>
           <select

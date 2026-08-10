@@ -10,7 +10,7 @@ import {
   isPhoneLabel,
   type ContactPerson,
 } from "@metavchim/shared";
-import { ApiError, apiDelete, apiGet, apiPost } from "@/lib/api";
+import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 
 /**
  * מי עומד מאחורי הכרטיס — בעל ואישה שקונים יחד, מיופה כוח, בן שמטפל
@@ -32,6 +32,7 @@ interface PhoneRow {
 interface PeopleResponse {
   people: ContactPerson[];
   phones: PhoneRow[];
+  email?: string;
 }
 
 function roleLabel(role: ContactPerson["role"]): string {
@@ -55,6 +56,7 @@ export function ContactPeople({
   const [error, setError] = useState<string | null>(null);
   const [addingPerson, setAddingPerson] = useState(false);
   const [addingPhone, setAddingPhone] = useState(false);
+  const [editingEmail, setEditingEmail] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => {
@@ -73,6 +75,7 @@ export function ContactPeople({
       load();
       setAddingPerson(false);
       setAddingPhone(false);
+      setEditingEmail(false);
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "הפעולה נכשלה");
     } finally {
@@ -88,6 +91,16 @@ export function ContactPeople({
         name: String(form.get("name")).trim(),
         phone: String(form.get("phone")).trim(),
         role: String(form.get("role")),
+      }),
+    );
+  }
+
+  function submitEmail(event: FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    void run(() =>
+      apiPatch(`/contacts/${contactId}/email`, {
+        email: String(form.get("email")).trim(),
       }),
     );
   }
@@ -169,6 +182,54 @@ export function ContactPeople({
           </li>
         ))}
       </ul>
+
+      {/* ---- אימייל הכרטיס ---- */}
+      {editingEmail ? (
+        <form onSubmit={submitEmail} className="mb-3 flex flex-wrap items-end gap-2">
+          <label className="grow">
+            <span className="mb-1 block text-xs font-semibold">אימייל (ריק = מחיקה)</span>
+            <input
+              name="email"
+              type="email"
+              dir="ltr"
+              defaultValue={data.email ?? ""}
+              placeholder="name@example.com"
+              className="mv-field"
+            />
+          </label>
+          <button type="submit" className="mv-btn-action" disabled={busy}>
+            שמור
+          </button>
+          <button type="button" className="mv-btn-plain" onClick={() => setEditingEmail(false)}>
+            ביטול
+          </button>
+        </form>
+      ) : (
+        <div className="mb-3 flex items-center gap-2 py-1">
+          <span className="mv-chip" style={{ minWidth: 52, justifyContent: "center" }}>
+            אימייל
+          </span>
+          {data.email ? (
+            <a href={`mailto:${data.email}`} dir="ltr" className="text-sm underline">
+              {data.email}
+            </a>
+          ) : (
+            <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+              לא הוזן
+            </span>
+          )}
+          {canEdit ? (
+            <button
+              type="button"
+              className="mv-btn-plain ms-auto"
+              style={{ padding: "3px 9px", fontSize: 12 }}
+              onClick={() => setEditingEmail(true)}
+            >
+              {data.email ? "ערוך" : "הוסף אימייל"}
+            </button>
+          ) : null}
+        </div>
+      )}
 
       {addingPhone ? (
         <form onSubmit={submitPhone} className="mb-3 flex flex-wrap items-end gap-2">

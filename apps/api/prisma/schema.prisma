@@ -439,6 +439,8 @@ model SharedDemand {
   source          String   @default("network") @db.VarChar(20) // network | kanko
   externalId      String?  @unique @map("external_id") @db.VarChar(120)
   cities          String[]
+  /// שכונות מבוקשות — מועתקות מדרישות הקונה בשיתוף; אנונימיות כמו ערים
+  neighborhoods   String[] @default([])
   dealType        String   @map("deal_type") @db.VarChar(10)
   // טווח מעוגל כלפי מעלה ל-100 אלף ₪ — אנונימיזציה אמיתית, לא הסתרה
   budgetMaxAgorot BigInt   @map("budget_max_agorot")

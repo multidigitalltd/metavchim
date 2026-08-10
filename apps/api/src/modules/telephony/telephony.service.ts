@@ -21,6 +21,7 @@ import {
   mergeLegacySecretsIntoConfig,
   telephonySecretKeys,
   softphoneGap,
+  softphoneOfficeReady,
   normalizePhone,
   type SoftphoneConfig,
   type SoftphoneGap,
@@ -293,6 +294,28 @@ export class TelephonyService {
    * טלפוניה — והיא **לעולם אינה** נשלחת עבור משתמש אחר, גם לא למנהל
    * המשרד. זו הסיבה שאין כאן פרמטר `userId`.
    */
+  /**
+   * האם להציג את כפתור "חבר סופטפון" — בדיקת צד המשרד בלבד.
+   *
+   * נשאל בטעינת כל עמוד, ולכן הוא בכוונה לא נוגע בקו האישי ולא
+   * מחזיר שום סוד: רק "יש/אין למשרד מרכזייה שדפדפן יכול להתחבר
+   * אליה". פרטי הרישום המלאים נשלפים רק בלחיצה על הכפתור עצמו.
+   */
+  async softphoneAvailability(): Promise<{ available: boolean }> {
+    const { tenantId } = TenantContext.current();
+    const row = await this.prisma.withTenant((tx) =>
+      tx.integration.findFirst({ where: { tenantId, kind: "telephony" } }),
+    );
+    const config = (row?.config ?? {}) as Record<string, string>;
+    return {
+      available: softphoneOfficeReady({
+        connected: row !== null && row.status === "active",
+        wssUrl: config["sipWssUrl"],
+        domain: config["sipDomain"],
+      }),
+    };
+  }
+
   async softphone(): Promise<
     { ready: false; gap: SoftphoneGap } | ({ ready: true } & SoftphoneConfig)
   > {

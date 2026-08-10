@@ -56,6 +56,12 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }): 
   const [state, setState] = useState<SoftphoneState>({ status: "idle", muted: false });
   const [gap, setGap] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /*
+   * האם למשרד בכלל יש מרכזייה שסופטפון יכול להתחבר אליה. עד שהשרת
+   * עונה — `false`, כלומר שום כפתור: כפתור "חבר סופטפון" אצל סוכן
+   * שהמשרד שלו מעולם לא חיבר מרכזייה מוביל רק להודעת שגיאה.
+   */
+  const [available, setAvailable] = useState(false);
 
   const instance = useCallback((): Softphone => {
     phoneRef.current ??= new Softphone(async (phone: string) => {
@@ -78,6 +84,12 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }): 
     }
     if (!dto.ready) {
       setGap(GAP_TEXT[dto.gap ?? ""] ?? "הסופטפון אינו מוגדר");
+      /*
+       * בלי זה, משרד שניתק את המרכזייה היה משאיר את מי שהתחבר בעבר
+       * עם הודעת שגיאה קבועה בכל טעינת עמוד — החיבור-מחדש האוטומטי
+       * היה מנסה ונכשל לנצח.
+       */
+      window.localStorage.removeItem(REMEMBER_KEY);
       setBusy(false);
       return;
     }
@@ -101,6 +113,21 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }): 
       setBusy(false);
     }
   }, [instance]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    apiGet<{ available: boolean }>("/settings/telephony/softphone/availability")
+      .then((res) => {
+        if (!cancelled) setAvailable(res.available);
+      })
+      .catch(() => {
+        // אין תשובה — אין כפתור; מי שכבר מחובר לא תלוי בבדיקה הזו
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -144,6 +171,7 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }): 
           state={state}
           gap={gap}
           busy={busy}
+          available={available}
           onConnect={() => void connect()}
           onDisconnect={() => {
             window.localStorage.removeItem(REMEMBER_KEY);
@@ -175,6 +203,7 @@ function CallBar({
   state,
   gap,
   busy,
+  available,
   onConnect,
   onDisconnect,
   onAnswer,
@@ -184,6 +213,7 @@ function CallBar({
   state: SoftphoneState;
   gap: string | null;
   busy: boolean;
+  available: boolean;
   onConnect: () => void;
   onDisconnect: () => void;
   onAnswer: () => void;
@@ -196,7 +226,11 @@ function CallBar({
 
   // בלי שיחה ובלי חיבור הפס לא קיים — הוא לא תופס מקום סתם
   if (!busyCall && state.status === "idle" && gap === null && !busy) {
-    return <ConnectChip onConnect={onConnect} busy={busy} />;
+    /*
+     * שבב "חבר סופטפון" רק כשלמשרד באמת יש מרכזייה שדפדפן יכול
+     * להתחבר אליה. אצל כל השאר הכפתור היה מוביל להודעת שגיאה בלבד.
+     */
+    return available ? <ConnectChip onConnect={onConnect} busy={busy} /> : null;
   }
 
   const who = state.peerName ?? state.peerPhone ?? "מספר חסוי";

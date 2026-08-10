@@ -29,7 +29,12 @@ const CommissionSplitSchema = z
   .default(DEFAULT_COMMISSION_SPLIT);
 
 const ShareSchema = z
-  .object({ buyerId: IdSchema, commissionSplit: CommissionSplitSchema })
+  .object({
+    buyerId: IdSchema,
+    commissionSplit: CommissionSplitSchema,
+    /** "מה הקונה מחפש" במילים — מוצג בפיד; באחריות המשתף בלי PII */
+    note: z.string().trim().max(300).optional(),
+  })
   .strict();
 const OfferSchema = z
   .object({ propertyId: IdSchema, commissionSplit: CommissionSplitSchema })
@@ -60,7 +65,7 @@ export class CollaborationController {
   async share(
     @Body(new ZodValidationPipe(ShareSchema)) body: z.infer<typeof ShareSchema>,
   ): Promise<SharedDemandDto> {
-    return this.collaboration.shareBuyer(body.buyerId, body.commissionSplit);
+    return this.collaboration.shareBuyer(body.buyerId, body.commissionSplit, body.note);
   }
 
   @Delete("demands/:id")

@@ -104,6 +104,9 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
    * אחרי שהקונה כבר התעניין הוא המקום שבו שיתופי פעולה נשברים.
    */
   const [shareSplit, setShareSplit] = useState(DEFAULT_COMMISSION_SPLIT);
+  /** פתיחת טופס השיתוף — התיאור החופשי נכתב לפני הפרסום, לא אחריו. */
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareNote, setShareNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState<string | null>(null);
   const [notesSaved, setNotesSaved] = useState(false);
@@ -125,7 +128,12 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
 
   async function shareToNetwork() {
     try {
-      await apiPost("/collaboration/share", { buyerId: id, commissionSplit: shareSplit });
+      await apiPost("/collaboration/share", {
+        buyerId: id,
+        commissionSplit: shareSplit,
+        ...(shareNote.trim() ? { note: shareNote.trim() } : {}),
+      });
+      setShareOpen(false);
       setShareStatus(
         `✓ הקונה שותף ברשת כביקוש אנונימי — בלי שם, בלי טלפון, תקציב מעוגל. חלוקת עמלה: ${describeCommissionSplit(shareSplit)}`,
       );
@@ -254,10 +262,39 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
               ))}
             </select>
           </label>
-          <button type="button" className="mv-btn-soft" style={{ padding: "7px 14px", fontSize: 13 }} onClick={() => void shareToNetwork()}>
+          <button
+            type="button"
+            className="mv-btn-soft"
+            style={{ padding: "7px 14px", fontSize: 13 }}
+            aria-expanded={shareOpen}
+            onClick={() => setShareOpen((v) => !v)}
+          >
             שתף ברשת (אנונימי)
           </button>
         </div>
+        {shareOpen ? (
+          <div className="mt-2 w-full rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+            <label htmlFor="shareNote" className="mb-1 block text-sm font-medium">
+              מה הקונה מחפש — תיאור חופשי שיוצג ברשת (בלי שם ובלי טלפון)
+            </label>
+            <textarea
+              id="shareNote"
+              value={shareNote}
+              onChange={(e) => setShareNote(e.target.value)}
+              maxLength={300}
+              rows={2}
+              placeholder='לדוגמה: "מחפשים דירה משופצת לכניסה מהירה, גמישים על קומה אם יש מעלית"'
+              className="mb-2 w-full rounded-lg border px-3 py-2"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+            />
+            <p className="mb-2 text-xs" style={{ color: "var(--color-text-muted)" }}>
+              השכונות המבוקשות מהדרישות יצורפו לביקוש אוטומטית.
+            </p>
+            <button type="button" className="mv-btn-action" onClick={() => void shareToNetwork()}>
+              פרסם ביקוש ברשת
+            </button>
+          </div>
+        ) : null}
         {shareStatus ? (
           <p role="status" className="m-0 w-full text-sm" style={{ color: "var(--color-primary)" }}>
             {shareStatus}

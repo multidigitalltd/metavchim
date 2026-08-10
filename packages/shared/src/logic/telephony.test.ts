@@ -18,6 +18,7 @@ import {
   sipUriFor,
   phoneFromSipUri,
   softphoneGap,
+  softphoneOfficeReady,
 } from "./telephony.js";
 
 function event(overrides: Partial<TelephonyEvent> = {}): TelephonyEvent {
@@ -634,6 +635,20 @@ describe("softphoneGap", () => {
      * ההפך היה שולח אותו למלא קו שלא יעבוד ממילא.
      */
     expect(softphoneGap({ connected: true, username: "", hasPassword: false })).toBe("no_wss");
+  });
+});
+
+describe("softphoneOfficeReady", () => {
+  it("מרכזייה פעילה עם WSS ודומיין — מוכן, בלי קשר לקו של הסוכן", () => {
+    expect(
+      softphoneOfficeReady({ connected: true, wssUrl: "wss://pbx.example/ws", domain: "pbx.example" }),
+    ).toBe(true);
+  });
+
+  it("כל חוסר בצד המשרד מסתיר את הכפתור", () => {
+    expect(softphoneOfficeReady({ connected: false, wssUrl: "wss://x/ws", domain: "x" })).toBe(false);
+    expect(softphoneOfficeReady({ connected: true, wssUrl: "  ", domain: "x" })).toBe(false);
+    expect(softphoneOfficeReady({ connected: true, wssUrl: "wss://x/ws" })).toBe(false);
   });
 });
 

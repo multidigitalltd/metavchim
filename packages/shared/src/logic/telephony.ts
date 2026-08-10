@@ -214,12 +214,31 @@ export function softphoneGap(input: {
   username?: string;
   hasPassword: boolean;
 }): SoftphoneGap | null {
-  if (!input.connected) return "no_integration";
-  if ((input.wssUrl ?? "").trim() === "") return "no_wss";
-  if ((input.domain ?? "").trim() === "") return "no_domain";
+  if (!softphoneOfficeReady(input)) {
+    if (!input.connected) return "no_integration";
+    if ((input.wssUrl ?? "").trim() === "") return "no_wss";
+    return "no_domain";
+  }
   if ((input.username ?? "").trim() === "") return "no_line";
   if (!input.hasPassword) return "no_line_password";
   return null;
+}
+
+/**
+ * האם צד **המשרד** מוכן לסופטפון — מרכזייה פעילה עם WSS ודומיין.
+ *
+ * זו הבדיקה שקובעת אם להציג בכלל את כפתור "חבר סופטפון": במשרד
+ * שהמרכזייה שלו לא תומכת בחיבור מהדפדפן (או שאין לו מרכזייה) הכפתור
+ * הוא הבטחת שווא — אין שום דבר שהסוכן יכול לעשות כדי שהוא יעבוד.
+ * חוסר בצד הסוכן (קו וסיסמה) דווקא כן מציג אותו: הלחיצה מסבירה מה
+ * להשלים ואיפה.
+ */
+export function softphoneOfficeReady(input: {
+  connected: boolean;
+  wssUrl?: string;
+  domain?: string;
+}): boolean {
+  return input.connected && (input.wssUrl ?? "").trim() !== "" && (input.domain ?? "").trim() !== "";
 }
 
 /**

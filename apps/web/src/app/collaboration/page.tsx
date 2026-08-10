@@ -26,6 +26,8 @@ interface DemandMatch {
 interface DemandRow {
   id: string;
   cities: string[];
+  neighborhoods?: string[];
+  notes?: string;
   dealType: string;
   budgetMaxAgorot: number;
   roomsMin?: number;
@@ -384,9 +386,20 @@ export default function CollaborationPage() {
                     <span className="rounded-full px-2 py-0.5 text-sm" style={{ background: "var(--color-border)" }}>הביקוש שלך</span>
                   ) : null}
                 </div>
+                {demand.neighborhoods && demand.neighborhoods.length > 0 ? (
+                  <p className="mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                    שכונות: {demand.neighborhoods.join(", ")}
+                  </p>
+                ) : null}
                 {demand.mustFeatures.length > 0 ? (
                   <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
                     חובה: {demand.mustFeatures.map((f) => FEATURE_LABELS[f] ?? f).join(", ")}
+                  </p>
+                ) : null}
+                {demand.notes ? (
+                  // התיאור החופשי של המשרד המשתף — "מה הקונה מחפש" במילים
+                  <p className="mb-2 rounded-lg border p-2.5 text-sm" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
+                    „{demand.notes}”
                   </p>
                 ) : null}
                 {!demand.mine ? (
