@@ -430,6 +430,8 @@ export class BuyersService {
   async list(query: {
     maturity?: string;
     q?: string;
+    /** ערים מפורשות — קונה מתאים אם אחת מהן ברשימת הערים שלו (hasSome) */
+    cities?: string[];
     minPrice?: number;
     maxPrice?: number;
     minRooms?: number;
@@ -469,6 +471,15 @@ export class BuyersService {
     }
     if (rooms.min !== undefined) {
       conditions.push({ OR: [{ roomsMax: { gte: rooms.min } }, { roomsMax: null }] });
+    }
+
+    /*
+     * ערים מפורשות (השאילתה הקולית): hasSome — חיתוך לא-ריק בין
+     * הערים שנשאלו לערים שהקונה מחפש. "תל אביב או רמת גן" מוצא גם
+     * קונה שמעוניין רק בשנייה; ה-q הטקסטואלי נשאר למסך הסינון.
+     */
+    if (query.cities !== undefined && query.cities.length > 0) {
+      conditions.push({ cities: { hasSome: query.cities } });
     }
 
     /*

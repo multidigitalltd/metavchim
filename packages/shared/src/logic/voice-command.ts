@@ -12,6 +12,8 @@ export type VoiceAction =
   | "add_buyer"
   | "add_lead"
   | "schedule_appointment"
+  | "add_task"
+  | "query_buyers"
   | "send_offer"
   | "search"
   | "unknown";
@@ -29,6 +31,14 @@ export interface VoiceCommand {
 }
 
 const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" }[] = [
+  /*
+   * --- "תזכיר לי" ראשון, מעל הכול ---
+   * המילים שאחריו מתארות את *תוכן* התזכורת, לא פקודה לביצוע עכשיו:
+   * "תזכיר לי לקבוע פגישה עם משה" הוא תזכורת, לא קביעת פגישה,
+   * ו"תזכיר לי לשלוח את ההצעה" אינו שולח שום דבר.
+   */
+  { action: "add_task", pattern: /תזכיר(?:י)?\s+לי/u, confidence: "high" },
+
   // --- שליחת הצעה (לפני שאר הכללים: "שלח" חד-משמעי) ---
   { action: "send_offer", pattern: /(?:שלח|תשלח|שלחי)\s+(?:את\s+)?(?:ה?נכס|ה?דירה|ה?הצעה|הצעה)/u, confidence: "high" },
   { action: "send_offer", pattern: /(?:שלח|תשלח)\s+ל[א-ת]/u, confidence: "low" },
@@ -51,6 +61,29 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
   { action: "add_lead", pattern: /(?:הוסף|תוסיף|רשום|תרשום)\s+(?:לי\s+)?ליד/u, confidence: "high" },
   { action: "add_lead", pattern: /ליד\s+חדש/u, confidence: "high" },
   { action: "add_lead", pattern: /(?:התקשר|התקשרה|פנה|פנתה|דיברתי עם)\s/u, confidence: "low" },
+
+  // --- תזכורת/משימה בניסוחים נוספים ("תזכיר לי" כבר נתפס למעלה) ---
+  { action: "add_task", pattern: /(?:הוסף|תוסיף|רשום|תרשום|צור|תצור)\s+(?:לי\s+)?(?:משימה|תזכורת|פולו[־\s-]?אפ)/u, confidence: "high" },
+  { action: "add_task", pattern: /(?:משימה|תזכורת)\s+(?:חדשה|ל[א-ת])/u, confidence: "low" },
+
+  /*
+   * --- שאלה על המאגר — לפני "חיפוש" בכוונה ---
+   *
+   * "מי מחפש 4 חדרים בגבעתיים?" היא שאלה שהתשובה עליה היא רשימת
+   * קונים לפי קריטריונים, לא חיפוש טקסט בשמות. היא יושבת לפני כלל
+   * החיפוש כדי ש"תחפש מי מחפש 4 חדרים" יקבל את התשובה הנכונה —
+   * ו"חפש את משה כהן" נשאר חיפוש כי אין בו "מי".
+   */
+  { action: "query_buyers", pattern: /מי\s+(?:מחפש|רוצה|צריך|מעוניין)/u, confidence: "high" },
+  { action: "query_buyers", pattern: /(?:איזה|אילו)\s+קונים/u, confidence: "high" },
+  /*
+   * "תחפש קונים ארבע חדרים" — פועל חיפוש + **קונים ברבים** הוא שאלה
+   * על המאגר, לא חיפוש שמות: התשובה הנכונה היא רשימת קונים לפי
+   * הקריטריונים. ביחיד ("חפש את הקונה משה") זה נשאר חיפוש רגיל.
+   */
+  { action: "query_buyers", pattern: /(?:חפש|תחפש|מצא|תמצא|הצג|תציג|תביא|תראה)\s+(?:לי\s+)?(?:את\s+)?ה?קונים/u, confidence: "high" },
+  { action: "query_buyers", pattern: /קונים\s+(?:שמחפשים|מתאימים|עם|עד\s|ל[א-ת0-9]|ב[א-ת])/u, confidence: "low" },
+  { action: "query_buyers", pattern: /יש\s+(?:לי\s+|לנו\s+)?קונ(?:ה|ים)\s+ל/u, confidence: "low" },
 
   // --- חיפוש ---
   { action: "search", pattern: /(?:חפש|תחפש|מצא|תמצא|איפה)\s+/u, confidence: "high" },
@@ -137,11 +170,29 @@ export function stripCommandPrefix(transcript: string): string {
   return transcript.replace(/\s+/gu, " ").trim().replace(COMMAND_PREFIX, "").trim();
 }
 
+/**
+ * כותרת התזכורת מתוך המשפט: בלי "תזכיר לי", ובלי ה-ל' של שם הפועל
+ * שנשארת אחריו — "תזכיר לי להתקשר לדוד" ⟵ "להתקשר לדוד" נשאר קריא,
+ * אבל "תזכיר לי מחר על החוזה" ⟵ "מחר על החוזה". המועד עצמו מחולץ
+ * בנפרד (parseHebrewDateTime) ולא מוסר מהכותרת — כותרת עם "מחר"
+ * מיותר עדיפה על כותרת שנחתכה לא נכון.
+ */
+export function taskTitleFromTranscript(transcript: string): string {
+  const text = transcript.replace(/\s+/gu, " ").trim();
+  const stripped = text
+    .replace(/^.*?תזכיר(?:י)?\s+לי\s*/u, "")
+    .replace(/^(?:הוסף|תוסיף|רשום|תרשום|צור|תצור)\s+(?:לי\s+)?(?:משימה|תזכורת|פולו[־\s-]?אפ)\s*(?:של)?\s*/u, "")
+    .trim();
+  return stripped === "" ? text : stripped;
+}
+
 export const VOICE_ACTION_LABELS: Record<VoiceAction, string> = {
   add_property: "הוספת נכס",
   add_buyer: "הוספת קונה",
   add_lead: "הוספת ליד",
   schedule_appointment: "קביעת פגישה",
+  add_task: "תזכורת / משימה",
+  query_buyers: "שאלה על המאגר — מי מחפש",
   send_offer: "שליחת הצעה ללקוח",
   search: "חיפוש",
   unknown: "לא זוהתה פקודה",

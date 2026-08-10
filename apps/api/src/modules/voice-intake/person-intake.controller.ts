@@ -10,6 +10,7 @@ import {
   PhoneSchema,
   routeVoiceCommand,
   stripCommandPrefix,
+  taskTitleFromTranscript,
   type VoiceCommand,
 } from "@metavchim/shared";
 import { GeminiService } from "../../core/gemini.service";
@@ -20,6 +21,7 @@ import type { BuyerDto } from "../buyers/buyers.service";
 import { OfferIntakeService, type OfferResolution } from "./offer-intake.service";
 import {
   PersonIntakeService,
+  type BuyerQueryAnswer,
   type LeadIntakeResult,
   type PersonIntakePreview,
 } from "./person-intake.service";
@@ -83,6 +85,8 @@ const LlmRouteSchema = z
       "add_buyer",
       "add_lead",
       "schedule_appointment",
+      "add_task",
+      "query_buyers",
       "send_offer",
       "search",
       "unknown",
@@ -96,6 +100,8 @@ const LlmRouteSchema = z
       })
       .optional(),
     appointmentKind: z.enum(["viewing", "meeting", "call"]).optional(),
+    /** לתזכורת: כותרת המשימה בלי מילות הפקודה. המועד לעולם לא מכאן. */
+    taskTitle: z.string().max(200).optional(),
   })
   .passthrough();
 
@@ -119,6 +125,8 @@ export class PersonIntakeController {
       content: string;
       /** לפגישה: התאריך והסוג שזוהו — למילוי מראש של הטופס */
       appointment?: { startsAt?: string; timeExplicit: boolean; kind: string };
+      /** לתזכורת: כותרת ומועד שזוהו — נוצרת רק אחרי אישור במסך */
+      task?: { title: string; dueAt?: string; timeExplicit: boolean };
     }
   > {
     /*
@@ -135,6 +143,9 @@ export class PersonIntakeController {
 
     const command = routeVoiceCommand(body.transcript);
     const base = { ...command, content: stripCommandPrefix(body.transcript) };
+    if (command.action === "add_task") {
+      return { ...base, task: this.taskDraft(body.transcript) };
+    }
     if (command.action !== "schedule_appointment") return base;
 
     const parsed = parseHebrewDateTime(body.transcript, new Date());
@@ -148,23 +159,54 @@ export class PersonIntakeController {
     };
   }
 
+  /** טיוטת תזכורת: כותרת מהמשפט (או מה-LLM), מועד תמיד מהמנוע שלנו. */
+  private taskDraft(
+    transcript: string,
+    llmTitle?: string,
+  ): { title: string; dueAt?: string; timeExplicit: boolean } {
+    const when = parseHebrewDateTime(transcript, new Date());
+    const title = (llmTitle?.trim() || taskTitleFromTranscript(transcript)).slice(0, 200);
+    return {
+      title,
+      ...(when.date ? { dueAt: when.date.toISOString() } : {}),
+      timeExplicit: when.timeExplicit,
+    };
+  }
+
   /** ניתוב דרך Gemini. null = לא מוגדר או נכשל — נופלים לחוקים. */
   private async routeViaLlm(transcript: string): Promise<
     | (VoiceCommand & {
         content: string;
         appointment?: { startsAt?: string; timeExplicit: boolean; kind: string };
+        task?: { title: string; dueAt?: string; timeExplicit: boolean };
       })
     | null
   > {
     if (!(await this.gemini.isConfigured())) return null;
+    /*
+     * פרומפט עם דוגמאות (few-shot) ולא רק רשימת שמות: מודל Flash-Lite
+     * מדייק בסדר גודל כשהוא רואה איך נראית כל כוונה בעברית מדוברת,
+     * ובמיוחד את זוגות ההבחנה הקשים (קונים-ברבים מול חיפוש-שם,
+     * "תזכיר לי לקבוע" מול קביעה עכשיו).
+     */
     const raw = await this.gemini.generateJson(
       [
-        "אתה מנתב פקודות במערכת CRM למתווכי נדל\"ן. נתח את המשפט וחזור JSON בלבד.",
-        'שדות: action (אחד מ: add_property, add_buyer, add_lead, schedule_appointment, send_offer, search, unknown),',
-        'content (המשפט בלי מילות הפקודה), query (לחיפוש בלבד),',
-        'offer (לשליחת הצעה: {propertyPhrase, buyerPhrase}),',
-        'appointmentKind (לפגישה: viewing/meeting/call).',
-        "אל תנחש: אם הכוונה אינה ברורה החזר unknown. אל תמציא שדות.",
+        'אתה מנתב פקודות קוליות במערכת CRM למתווכי נדל"ן בישראל. המשתמש אמר משפט אחד בעברית מדוברת (ייתכנו שגיאות תמלול). החזר JSON בלבד.',
+        "",
+        "הפעולות ודוגמאות:",
+        '- add_property — קליטת נכס חדש: "תוסיף דירת 4 חדרים ברמת גן", "קיבלתי בלעדיות על פנטהאוז בנתניה"',
+        '- add_buyer — קליטת לקוח קונה/שוכר עם פרטיו: "תוסיף קונה משה כהן 050-1234567, מחפש 3 חדרים בחולון"',
+        '- add_lead — תיעוד פנייה או שיחה: "דיברתי עם יוסי שרוצה למכור את הדירה שלו", "התקשרה שרה, מתעניינת"',
+        '- schedule_appointment — קביעת פגישה/סיור עכשיו: "קבע סיור מחר בעשר", "פגישה עם משפחת לוי ביום שלישי"',
+        '- add_task — תזכורת או משימה: "תזכיר לי מחר להתקשר לדוד", "תוסיף משימה לבדוק את החוזה". כלל: "תזכיר לי X" הוא תמיד add_task גם כש-X נשמע כמו פעולה אחרת — "תזכיר לי לקבוע פגישה" הוא תזכורת, לא קביעה.',
+        '- query_buyers — שאלה על מאגר הקונים לפי קריטריונים: "מי מחפש 4 חדרים בגבעתיים?", "תחפש קונים ארבע חדרים", "יש לי קונים עד שני מיליון?", "תראה לי קונים לרמת גן". כלל: "קונים" ברבים עם קריטריונים ⇒ query_buyers.',
+        '- send_offer — שליחת נכס ללקוח: "שלח את הדירה בהרב שך למשה כהן"',
+        '- search — חיפוש אדם או נכס ספציפי בשמו: "חפש את שרה לוי", "איפה הכרטיס של יוסי"',
+        "- unknown — הכוונה לא ברורה. אל תנחש.",
+        "",
+        "שדות JSON: action, content (המשפט בלי מילות הפקודה), query (ל-search בלבד), offer {propertyPhrase, buyerPhrase} (ל-send_offer), appointmentKind אחד מ-viewing/meeting/call (לפגישה), taskTitle (ל-add_task: מה להזכיר, בלי המילים \"תזכיר לי\").",
+        "אל תמציא שדות ואל תחזיר תאריכים או שעות — המערכת מחשבת מועדים בעצמה.",
+        "",
         `המשפט: "${transcript.replaceAll('"', "'")}"`,
       ].join("\n"),
     );
@@ -188,6 +230,9 @@ export class PersonIntakeController {
         : {}),
     };
     if (out.action === "unknown") return null; // אולי החוקים דווקא מכירים
+    if (out.action === "add_task") {
+      return { ...base, task: this.taskDraft(transcript, out.taskTitle) };
+    }
     if (out.action !== "schedule_appointment") return base;
 
     // התאריך תמיד מהמנוע הדטרמיניסטי — לוח שנה אינו עניין של ניסוח
@@ -214,6 +259,21 @@ export class PersonIntakeController {
   ): Promise<OfferResolution> {
     const targets = parseOfferTargets(body.transcript.replace(/\s+/gu, " ").trim());
     return this.offers.resolve(targets);
+  }
+
+  /**
+   * "מי מחפש 4 חדרים בגבעתיים?" — תשובה אמיתית מהמאגר: חילוץ
+   * קריטריונים + הפילטר של מסך הקונים. קריאה בלבד, אותה יכולת כמו
+   * רשימת הקונים עצמה (עם ownershipFilter בפנים — סוכן view_own
+   * רואה רק את הקונים שלו גם כאן).
+   */
+  @Post("query-buyers")
+  @HttpCode(200)
+  @RequireCapability("buyers.view_own")
+  async queryBuyers(
+    @Body(new ZodValidationPipe(TranscriptSchema)) body: z.infer<typeof TranscriptSchema>,
+  ): Promise<BuyerQueryAnswer> {
+    return this.service.queryBuyers(body.transcript);
   }
 
   @Post("preview")

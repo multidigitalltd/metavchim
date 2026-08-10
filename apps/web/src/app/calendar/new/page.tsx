@@ -3,11 +3,18 @@
 import { Suspense, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
-import { apiPost, ApiError } from "@/lib/api";
+import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { waMeUrl } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../dictation-field";
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
+
+const KIND_LABELS: Record<string, string> = {
+  viewing: "סיור בנכס",
+  meeting: "פגישה",
+  call: "שיחה",
+};
 
 function NewAppointmentForm() {
   useRequireAuth();
@@ -30,6 +37,8 @@ function NewAppointmentForm() {
   const initialTime = validStart ? `${pad(validStart.getHours())}:${pad(validStart.getMinutes())}` : "";
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  /** אחרי היצירה, כשהפגישה מקושרת לליד: הצעה לעדכן את הלקוח בוואטסאפ. */
+  const [notify, setNotify] = useState<{ waUrl: string } | null>(null);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -38,9 +47,10 @@ function NewAppointmentForm() {
     const f = new FormData(event.currentTarget);
     const date = String(f.get("date"));
     const time = String(f.get("time"));
+    const kind = String(f.get("kind"));
     try {
       await apiPost("/appointments", {
-        kind: String(f.get("kind")),
+        kind,
         title: String(f.get("title") ?? "").trim() || undefined,
         startsAt: new Date(`${date}T${time}`).toISOString(),
         durationMinutes: Number(f.get("duration")),
@@ -48,11 +58,57 @@ function NewAppointmentForm() {
         leadId,
         propertyId,
       });
+      /*
+       * "תיאום ביומן עם הודעה ללקוח": כשהפגישה מקושרת לליד, ההודעה
+       * נפתחת בוואטסאפ מנוסחת ומוכנה — המתווך רק לוחץ שליחה. השליחה
+       * לעולם לא אוטומטית: הודעה ללקוח יוצאת רק ביד של בן אדם.
+       */
+      if (leadId) {
+        try {
+          // התשובה עטופה: { lead, timeline } — לא LeadDto ישירות (ביקורת Codex)
+          const { lead } = await apiGet<{ lead: { contact: { name: string; phone: string } } }>(
+            `/leads/${leadId}`,
+          );
+          const when = new Intl.DateTimeFormat("he-IL", {
+            dateStyle: "full",
+            timeStyle: "short",
+          }).format(new Date(`${date}T${time}`));
+          setNotify({
+            waUrl: waMeUrl(
+              lead.contact.phone,
+              `שלום ${lead.contact.name}, קבענו ${KIND_LABELS[kind] ?? "פגישה"} ל${when}. נתראה!`,
+            ),
+          });
+          setSubmitting(false);
+          return;
+        } catch {
+          // אין גישה לליד — פשוט בלי ההצעה; הפגישה כבר נקבעה
+        }
+      }
       router.replace("/calendar");
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "קביעת הפגישה נכשלה");
       setSubmitting(false);
     }
+  }
+
+  if (notify) {
+    return (
+      <div className="mx-auto max-w-lg">
+        <h1 className="mb-2 text-2xl font-bold">✓ הפגישה נקבעה</h1>
+        <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
+          רוצים לעדכן את הלקוח? ההודעה כבר מנוסחת — נשאר רק ללחוץ שליחה בוואטסאפ.
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <a href={notify.waUrl} target="_blank" rel="noopener noreferrer" className="mv-btn-action" style={{ textDecoration: "none" }}>
+            💬 שלח עדכון ללקוח בוואטסאפ
+          </a>
+          <Button variant="ghost" onClick={() => router.replace("/calendar")}>
+            סיום — ליומן
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (
