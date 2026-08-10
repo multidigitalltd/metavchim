@@ -165,7 +165,7 @@ export function PlanSection(): React.JSX.Element | null {
             מתקשר — הוא מוותר, וזו המכירה שאבדה.
           */}
           <p className="m-0 mt-4">
-            <Link href="/settings/billing" className="mv-btn-primary inline-block">
+            <Link href="/settings?tab=billing" className="mv-btn-primary inline-block">
               מסלולים ותשלום
             </Link>
           </p>

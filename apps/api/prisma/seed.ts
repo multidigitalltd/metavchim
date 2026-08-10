@@ -32,7 +32,7 @@ async function main(): Promise<void> {
       data: {
         id: ulid(),
         tenantId,
-        name: "בעל המשרד",
+        name: "דנה כהן",
         email: t.email,
         passwordHash: password,
         role: "owner",

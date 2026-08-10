@@ -9,6 +9,7 @@ import { formatDateTime } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { IconKey, IconLock } from "../icons";
+import { BillingSection } from "./billing-section";
 import { DeleteAccountSection } from "./delete-account-section";
 import { ExportSection } from "./export-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
@@ -130,8 +131,68 @@ interface TenantSettings {
   defaultPaymentTerms?: string;
 }
 
+/**
+ * עוגנים ישנים → הלשונית שמכילה אותם.
+ *
+ * חנות המודולים ומסך הלידים מקשרים ל-‎/settings#telephony‎ וחבריו;
+ * המיפוי הזה שומר על הקישורים האלה עובדים אחרי הפיצול ללשוניות.
+ */
+const HASH_TABS: Record<string, string> = {
+  whatsapp: "integrations",
+  telephony: "integrations",
+  "google-calendar": "integrations",
+  gmail: "integrations",
+  "lead-webhook": "integrations",
+  data: "data",
+};
+
+/** לשוניות ניהול המשרד — הסדר הוא סדר השימוש בפועל. */
+const TABS: [key: string, label: string][] = [
+  ["team", "צוות והרשאות"],
+  ["office", "פרטי המשרד"],
+  ["billing", "מנוי ותשלום"],
+  ["integrations", "חיבורים ומודולים"],
+  ["documents", "מסמכים והסכמים"],
+  ["data", "נתונים ואבטחה"],
+];
+
 export default function SettingsPage() {
   const { user, loading: authLoading } = useRequireAuth();
+  const [tab, setTab] = useState("team");
+
+  /*
+   * הלשונית נקראת מהכתובת בטעינה ונכתבת אליה בכל מעבר — כך קישור
+   * ל-‎?tab=billing‎ (למשל מכרטיס המסלול) נוחת במקום הנכון, ורענון
+   * לא זורק חזרה ללשונית הראשונה. replaceState ולא ניווט: אין כאן
+   * טעינת עמוד, רק החלפת תצוגה.
+   *
+   * גם עוגנים ישנים ממופים: קישורים כמו ‎/settings#telephony‎ פזורים
+   * בחנות המודולים ובמסך הלידים, ומאז הפיצול ללשוניות הם היו נוחתים
+   * על הלשונית הראשונה — שבה האלמנט שאליו כיוונו כלל אינו מורכב
+   * (ביקורת Codex). אחרי בחירת הלשונית גוללים לעוגן עצמו.
+   */
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("tab");
+    if (requested && TABS.some(([key]) => key === requested)) {
+      setTab(requested);
+      return;
+    }
+    const anchor = window.location.hash.replace("#", "");
+    const owning = HASH_TABS[anchor];
+    if (!owning) return;
+    setTab(owning);
+    // הגלילה אחרי שהלשונית הורכבה — לפני כן האלמנט לא קיים
+    window.setTimeout(() => {
+      document.getElementById(anchor)?.scrollIntoView({ block: "start" });
+    }, 120);
+  }, []);
+
+  function selectTab(next: string): void {
+    setTab(next);
+    const params = new URLSearchParams(window.location.search);
+    params.set("tab", next);
+    window.history.replaceState({}, "", `?${params.toString()}`);
+  }
   const canTelephony = useFeature("telephony");
   const canAgreements = useFeature("agreements");
   const canDataIo = useFeature("data_io");
@@ -235,13 +296,51 @@ export default function SettingsPage() {
         </p>
       ) : null}
 
-      <div className="grid items-start gap-[18px] lg:[grid-template-columns:1fr_360px]">
+      {/*
+        לשוניות ולא עמוד אחד ארוך: מסך ההגדרות צמח לשנים-עשר קטעים,
+        ו"איפה משנים מסלול" הפך לגלילה ארוכה שרוב המשתמשים ויתרו
+        עליה. הלשונית נשמרת בכתובת (‎?tab=‎) כדי שקישור לקטע מסוים
+        יפתח אותו, ורענון לא יזרוק חזרה ללשונית הראשונה.
+      */}
+      <div className="mv-tabs mb-[18px]" role="tablist" aria-label="נושאי ניהול המשרד">
+        {TABS.map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            id={`tab-${key}`}
+            aria-selected={tab === key}
+            aria-controls={`panel-${key}`}
+            onClick={() => selectTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div
+        id={`panel-${tab}`}
+        role="tabpanel"
+        aria-labelledby={`tab-${tab}`}
+        className="grid items-start gap-[18px] lg:[grid-template-columns:1fr_360px]"
+      >
         {/* ================= הטור הראשי ================= */}
         <div className="flex flex-col gap-[18px]">
           {/* ---- המסלול: מה כלול ואיפה המשרד עומד מול המכסות ---- */}
-          <PlanSection />
+          {tab === "billing" ? (
+            <>
+              <PlanSection />
+              <section className="mv-list-card px-5 py-[17px]" aria-labelledby="billing-heading">
+                <span id="billing-heading" className="mv-visually-hidden">
+                  מנוי, מסלולים ואמצעי תשלום
+                </span>
+                <BillingSection />
+              </section>
+            </>
+          ) : null}
 
           {/* ---- סוכני המשרד — הטבלה מקובץ העיצוב ---- */}
+          {tab === "team" ? (
           <section className="mv-list-card" aria-labelledby="team-heading">
             <div className="flex items-center px-5 py-[15px]" style={{ borderBottom: "1px solid var(--color-card-head-border)" }}>
               <h2 id="team-heading" className="m-0" style={{ fontSize: 15.5, fontWeight: 800 }}>
@@ -396,8 +495,10 @@ export default function SettingsPage() {
               הרשאות לפי תפקיד — הגנה מפני סוכן שעוזב עם המאגר. כל פעולה מתועדת: מי עשה מה ומתי.
             </p>
           </section>
+          ) : null}
 
           {/* ---- פרטי המשרד ---- */}
+          {tab === "office" ? (
           <section className="mv-list-card px-5 py-[17px]" aria-labelledby="office-heading">
             <h2 id="office-heading" className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>פרטי המשרד</h2>
             {tenant ? (
@@ -458,7 +559,10 @@ export default function SettingsPage() {
               <p aria-live="polite">טוען…</p>
             )}
           </section>
+          ) : null}
 
+          {tab === "integrations" ? (
+          <>
           {/*
             מדף המודולים. הקטעים עצמם נשארים כאן — החנות היא איך
             מוצאים אותם, לא איפה מגדירים אותם.
@@ -514,17 +618,22 @@ export default function SettingsPage() {
           <div id="lead-webhook">
             <LeadWebhookSection />
           </div>
+          </>
+          ) : null}
 
-          {canAgreements ? (
-            <AgreementTemplatesSection />
-          ) : (
-            <LockedFeature
-              code="agreements"
-              description="הסכמי תיווך ובלעדיות נשלחים לחתימה בקישור, נחתמים מהנייד ונשמרים בכרטיס — בלי מדפסת ובלי סורק."
-            />
-          )}
+          {tab === "documents" ? (
+            canAgreements ? (
+              <AgreementTemplatesSection />
+            ) : (
+              <LockedFeature
+                code="agreements"
+                description="הסכמי תיווך ובלעדיות נשלחים לחתימה בקישור, נחתמים מהנייד ונשמרים בכרטיס — בלי מדפסת ובלי סורק."
+              />
+            )
+          ) : null}
 
           {/* ---- יומן פעילות ---- */}
+          {tab === "data" ? (
           <section className="mv-list-card" aria-labelledby="audit-heading">
             <div className="px-5 py-[15px]" style={{ borderBottom: "1px solid var(--color-card-head-border)" }}>
               <h2 id="audit-heading" className="m-0" style={{ fontSize: 15.5, fontWeight: 800 }}>יומן פעילות</h2>
@@ -563,11 +672,13 @@ export default function SettingsPage() {
               </ol>
             )}
           </section>
+          ) : null}
         </div>
 
         {/* ================= הטור הצדדי ================= */}
         <div className="flex flex-col gap-4">
           {/* ---- אבטחה ופרטיות — הרשימה מקובץ העיצוב ---- */}
+          {tab === "data" ? (
           <section className="mv-list-card px-5 py-[17px]" aria-labelledby="security-heading">
             <h2 id="security-heading" className="m-0 mb-[11px]" style={{ fontSize: 15.5, fontWeight: 800 }}>
               אבטחה ופרטיות
@@ -579,9 +690,10 @@ export default function SettingsPage() {
               </div>
             ))}
           </section>
+          ) : null}
 
           {/* ---- נתונים — כולו מאחורי data_io ---- */}
-          {canDataIo ? (
+          {tab === "data" && canDataIo ? (
             <section id="data" className="mv-list-card px-5 py-[17px]" aria-labelledby="data-heading">
               <h2 id="data-heading" className="m-0 mb-[11px]" style={{ fontSize: 15.5, fontWeight: 800 }}>נתונים</h2>
               <div className="mb-2 flex gap-2">
@@ -593,9 +705,10 @@ export default function SettingsPage() {
             </section>
           ) : null}
 
-          <SystemUpdateSection />
+          {tab === "data" ? <SystemUpdateSection /> : null}
 
           {/* ---- בפיתוח עכשיו — מקובץ העיצוב ---- */}
+          {tab === "data" ? (
           <section className="rounded-xl border px-5 py-[17px]" style={{ background: "var(--color-table-head)", borderColor: "var(--color-border)" }} aria-labelledby="roadmap-heading">
             <div className="mb-[9px] flex items-center gap-[9px]">
               <span className="mv-tag" style={{ background: "#111513", color: "#fff" }}>בקרוב</span>
@@ -608,11 +721,14 @@ export default function SettingsPage() {
               כשפיצ׳ר עולה — באנר "מה חדש" מופיע לכולם בכניסה הבאה.
             </p>
           </section>
+          ) : null}
         </div>
       </div>
 
-      {/* אזור הסכנה — בעל המשרד בלבד, בתחתית ובמכוון רחוק מהיד */}
-      {user?.role === "owner" && tenant ? <DeleteAccountSection tenantName={tenant.name} /> : null}
+      {/* אזור הסכנה — בעל המשרד בלבד, בלשונית הנתונים ורחוק מהיד */}
+      {tab === "data" && user?.role === "owner" && tenant ? (
+        <DeleteAccountSection tenantName={tenant.name} />
+      ) : null}
     </>
   );
 }

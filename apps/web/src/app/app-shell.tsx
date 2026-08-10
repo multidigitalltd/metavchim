@@ -10,7 +10,7 @@ import { TopbarSearch } from "./topbar-search";
 import { WhatsNewBanner } from "./whats-new-banner";
 import { TrialBanner } from "./trial-banner";
 import { SoftphoneProvider } from "./softphone-bar";
-import { IconMenu } from "./icons";
+import { IconMenu, LogoMark } from "./icons";
 
 /**
  * מעטפת האפליקציה לפי קובץ העיצוב: סרגל צד כהה עם ניווט אנכי, מונים
@@ -439,7 +439,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     <>
       <div className="mv-sidebar-head">
         <div className="mv-logo">
-          מתווכים<span style={{ color: "var(--color-action)" }}>.</span>
+          <LogoMark s={30} />
+          <span>
+            מתווכים<span style={{ color: "var(--color-action)" }}>.</span>
+          </span>
         </div>
         <div className="mv-sidebar-sub">{me?.tenantName ?? " "}</div>
       </div>
@@ -469,11 +472,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="mv-nav-badge">{counts.urgentTasks}</span>
           ) : null,
         )}
-        {isManager && hasFeature("analytics")
-          ? navLink("/reports", "דוחות", ICONS.reports)
-          : null}
-
-        {/* בלי שער מסלול: השת"פ הבסיסי פתוח בכל המסלולים */}
+        {/*
+          השת"פ לפני הדוחות: הוא עבודה יומיומית של הסוכן, והדוחות הם
+          מסך שמנהל פותח פעם בשבוע. בלי שער מסלול — השת"פ הבסיסי פתוח
+          בכל המסלולים.
+        */}
         <div className="mv-nav-group">רשת</div>
         {navLink(
           "/collaboration",
@@ -483,6 +486,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="mv-nav-credits">{counts.credits} קרדיטים</span>
           ) : null,
         )}
+        {isManager && hasFeature("analytics")
+          ? navLink("/reports", "דוחות", ICONS.reports)
+          : null}
         {navLink("/guides", "הדרכות", ICONS.guides)}
         {isManager ? navLink("/settings", "ניהול משרד", ICONS.office) : null}
         {isManager && !setupDone ? navLink("/setup", "הקמה", ICONS.setup) : null}
