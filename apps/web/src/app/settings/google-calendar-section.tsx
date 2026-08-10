@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { API_BASE, apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
+import { IconCalendar, IconWarning } from "../icons";
 
 /**
  * חיבור יומן Google.
@@ -90,7 +91,7 @@ export function GoogleCalendarSection(): React.JSX.Element | null {
       aria-labelledby="gcal-heading"
     >
       <h2 id="gcal-heading" className="mb-1 text-lg font-semibold">
-        📅 יומן Google
+        <IconCalendar s={16} /> יומן Google
       </h2>
       <p className="m-0 mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
         סנכרון דו-כיווני: פגישה שנקבעת כאן מופיעה ביומן שלכם, ואירוע שנקבע ביומן מופיע
@@ -128,7 +129,7 @@ export function GoogleCalendarSection(): React.JSX.Element | null {
           */}
           {status.lastError ? (
             <p className="mb-3 text-sm" style={{ color: "var(--color-danger)" }}>
-              ⚠ הסנכרון האחרון נכשל: {status.lastError}
+              <IconWarning s={15} /> הסנכרון האחרון נכשל: {status.lastError}
             </p>
           ) : null}
           <div className="flex flex-wrap gap-2">

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { IconCard } from "../icons";
 
 /**
  * תשלומים וזיכויים.
@@ -100,7 +101,7 @@ export function PaymentsSection(): React.JSX.Element {
       aria-labelledby="payments-heading"
     >
       <h2 id="payments-heading" className="mb-1 text-lg font-semibold">
-        💳 תשלומים וזיכויים
+        <IconCard s={16} /> תשלומים וזיכויים
       </h2>
       <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
         מאה התשלומים האחרונים. הזיכוי יוצא לקארדקום ונרשם על אותה שורה — לא כתשלום נוסף.

@@ -6,6 +6,7 @@ import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
 import { formatPrice, shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { IconMic } from "../../icons";
 import { VoiceRecorder } from "../../voice-recorder";
 
 /**
@@ -110,7 +111,7 @@ function BuyerVoiceForm() {
 
   return (
     <div className="mx-auto max-w-xl">
-      <h1 className="mb-2 text-2xl font-bold">🎤 הוסף קונה בקול</h1>
+      <h1 className="mb-2 text-2xl font-bold"><IconMic s={22} /> הוסף קונה בקול</h1>
       <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
         ספרו על הקונה — שם, טלפון, מה הוא מחפש, תקציב ומה חשוב לו.
         המערכת תפרק לשדות ותציג לאישור.

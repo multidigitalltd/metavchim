@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { apiGet, apiPost } from "@/lib/api";
 import { useFeature } from "@/lib/use-features";
 import { Softphone, type SoftphoneState } from "@/lib/softphone";
+import { IconMic, IconMicOff, IconPhone } from "./icons";
 
 /**
  * פס השיחה — הסופטפון כפי שרואים אותו.
@@ -249,11 +250,15 @@ function CallBar({
       {busyCall ? (
         <>
           <span className="font-bold">
-            {state.status === "ringing"
-              ? `📞 ${who} מתקשר`
-              : state.status === "calling"
-                ? `מחייג ל-${who}…`
-                : who}
+            {state.status === "ringing" ? (
+              <>
+                <IconPhone s={15} /> {who} מתקשר
+              </>
+            ) : state.status === "calling" ? (
+              `מחייג ל-${who}…`
+            ) : (
+              who
+            )}
           </span>
           {state.status === "in_call" ? (
             <span dir="ltr" style={{ color: "var(--color-text-muted)" }}>
@@ -272,7 +277,15 @@ function CallBar({
               onClick={onToggleMute}
               aria-pressed={state.muted}
             >
-              {state.muted ? "🔇 מושתק" : "🎤 השתק"}
+              {state.muted ? (
+                <>
+                  <IconMicOff s={15} /> מושתק
+                </>
+              ) : (
+                <>
+                  <IconMic s={15} /> השתק
+                </>
+              )}
             </button>
           ) : null}
           <button
@@ -287,13 +300,17 @@ function CallBar({
       ) : (
         <>
           <span className="text-sm">
-            {busy
-              ? "מתחבר למרכזייה…"
-              : state.status === "registered"
-                ? "☎️ הסופטפון מחובר"
-                : state.status === "failed"
-                  ? `הסופטפון לא התחבר — ${state.error ?? ""}`
-                  : (gap ?? "הסופטפון מנותק")}
+            {busy ? (
+              "מתחבר למרכזייה…"
+            ) : state.status === "registered" ? (
+              <>
+                <IconPhone s={15} /> הסופטפון מחובר
+              </>
+            ) : state.status === "failed" ? (
+              `הסופטפון לא התחבר — ${state.error ?? ""}`
+            ) : (
+              gap ?? "הסופטפון מנותק"
+            )}
           </span>
           {state.status === "registered" ? (
             <button type="button" className="mv-btn-plain" onClick={onDisconnect}>
@@ -320,7 +337,7 @@ function ConnectChip({ onConnect, busy }: { onConnect: () => void; busy: boolean
       onClick={onConnect}
       title="חיבור הסופטפון מאפשר לדבר עם אוזניות ישירות מהמסך"
     >
-      ☎️ חבר סופטפון
+      <IconPhone s={15} /> חבר סופטפון
     </button>
   );
 }

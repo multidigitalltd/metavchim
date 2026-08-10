@@ -12,6 +12,7 @@ import {
 } from "@metavchim/shared";
 import { api, apiGet, apiPost, ApiError } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
+import { IconClock, IconUser } from "../icons";
 
 /**
  * לוח המשימות — רכיב אחד, שני מקומות.
@@ -219,7 +220,7 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
             <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
               {task.dueAt ? (
                 <span style={{ color: "var(--color-text-muted)" }}>
-                  ⏰ {dueFmt.format(new Date(task.dueAt))}
+                  <IconClock s={15} /> {dueFmt.format(new Date(task.dueAt))}
                 </span>
               ) : null}
               {task.priority === "high" ? (
@@ -237,7 +238,7 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
                 </Link>
               ) : null}
               {scope !== "me" && task.assigneeName ? (
-                <span style={{ color: "var(--color-text-muted)" }}>👤 {task.assigneeName}</span>
+                <span style={{ color: "var(--color-text-muted)" }}><IconUser s={15} /> {task.assigneeName}</span>
               ) : null}
               {task.assignedByName ? (
                 <span style={{ color: "var(--color-text-muted)" }}>

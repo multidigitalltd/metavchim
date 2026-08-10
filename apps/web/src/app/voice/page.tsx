@@ -1,11 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import {
+  IconCalendar,
+  IconClock,
+  IconCloudSun,
+  IconFlame,
+  IconHome,
+  IconMic,
+  IconPhone,
+  IconPin,
+  IconSearch,
+  IconSend,
+  IconSnow,
+  IconUser,
+  IconUsers,
+} from "../icons";
 import { VoiceRecorder } from "../voice-recorder";
 
 /**
@@ -14,15 +29,15 @@ import { VoiceRecorder } from "../voice-recorder";
  * עם אישור, כדי שדיבור לא יהפוך בטעות לפעולה מול לקוח.
  */
 
-const ACTION_LABELS: Record<string, string> = {
-  add_property: "🏠 הוספת נכס",
-  add_buyer: "👤 הוספת קונה",
-  add_lead: "📞 הוספת ליד",
-  schedule_appointment: "📅 קביעת פגישה",
-  add_task: "⏰ תזכורת / משימה",
-  query_buyers: "👥 שאלה על המאגר",
-  send_offer: "📤 שליחת הצעה ללקוח",
-  search: "🔍 חיפוש",
+const ACTION_LABELS: Record<string, ReactNode> = {
+  add_property: <><IconHome s={15} /> הוספת נכס</>,
+  add_buyer: <><IconUser s={15} /> הוספת קונה</>,
+  add_lead: <><IconPhone s={15} /> הוספת ליד</>,
+  schedule_appointment: <><IconCalendar s={15} /> קביעת פגישה</>,
+  add_task: <><IconClock s={15} /> תזכורת / משימה</>,
+  query_buyers: <><IconUsers s={15} /> שאלה על המאגר</>,
+  send_offer: <><IconSend s={15} /> שליחת הצעה ללקוח</>,
+  search: <><IconSearch s={15} /> חיפוש</>,
   unknown: "לא זוהתה פקודה",
 };
 
@@ -50,11 +65,11 @@ interface BuyerAnswer {
   }[];
 }
 
-const MATURITY_ICONS: Record<string, string> = {
-  very_hot: "🔥",
-  hot: "♨️",
-  warm: "🌤",
-  cold: "❄️",
+const MATURITY_ICONS: Record<string, ReactNode> = {
+  very_hot: <IconFlame s={15} />,
+  hot: <IconFlame s={15} />,
+  warm: <IconCloudSun s={15} />,
+  cold: <IconSnow s={15} />,
 };
 
 const dateTimeFmt = new Intl.DateTimeFormat("he-IL", { dateStyle: "full", timeStyle: "short" });
@@ -159,7 +174,7 @@ export default function VoiceCommandPage() {
 
   return (
     <div className="mx-auto max-w-xl">
-      <h1 className="mb-2 text-2xl font-bold">🎤 פקודה קולית</h1>
+      <h1 className="mb-2 text-2xl font-bold"><IconMic s={16} /> פקודה קולית</h1>
       <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
         אמרו מה לעשות — המערכת תזהה ותכין את המסך המתאים לאישורכם.
         למשל: &quot;תוסיף קונה משה כהן, 4 חדרים בבני ברק עד 2.3 מיליון&quot;,
@@ -219,7 +234,7 @@ export default function VoiceCommandPage() {
               </p>
               {route.appointment?.startsAt ? (
                 <p className="mb-3 font-medium">
-                  📅 {dateTimeFmt.format(new Date(route.appointment.startsAt))}
+                  <IconCalendar s={15} /> {dateTimeFmt.format(new Date(route.appointment.startsAt))}
                   {route.appointment.timeExplicit ? null : (
                     <span className="font-normal" style={{ color: "var(--color-text-muted)" }}>
                       {" "}(שעה לא נאמרה — נבחרה 10:00, אפשר לשנות)
@@ -240,10 +255,10 @@ export default function VoiceCommandPage() {
                   </p>
                 ) : (
                   <>
-                    <p className="mb-1 font-medium">📌 {route.task.title}</p>
+                    <p className="mb-1 font-medium"><IconPin s={15} /> {route.task.title}</p>
                     {route.task.dueAt ? (
                       <p className="mb-3">
-                        ⏰ {dateTimeFmt.format(new Date(route.task.dueAt))}
+                        <IconClock s={15} /> {dateTimeFmt.format(new Date(route.task.dueAt))}
                         {route.task.timeExplicit ? null : (
                           <span style={{ color: "var(--color-text-muted)" }}>
                             {" "}(שעה לא נאמרה — נבחרה 10:00)

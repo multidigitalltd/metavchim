@@ -6,6 +6,7 @@ import { MATURITY_LABELS } from "@metavchim/shared";
 import { apiGet } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { LEAD_STATUS_LABELS } from "@/lib/lead-labels";
+import { IconHome, IconPhone, IconUser } from "./icons";
 
 /**
  * תיק לקוח מאוחד (docs/03): צ'יפים "לאדם הזה יש גם…" — קונה פעיל,
@@ -59,7 +60,7 @@ export function RelatedEntities({
               className="inline-block rounded-full border px-3 py-1 text-sm underline"
               style={chipStyle}
             >
-              👤 קונה פעיל · {MATURITY_LABELS[buyer.maturity] ?? buyer.maturity}
+              <IconUser s={15} /> קונה פעיל · {MATURITY_LABELS[buyer.maturity] ?? buyer.maturity}
             </Link>
           </li>
         ))}
@@ -70,7 +71,7 @@ export function RelatedEntities({
               className="inline-block rounded-full border px-3 py-1 text-sm underline"
               style={chipStyle}
             >
-              📞 ליד {LEAD_STATUS_LABELS[l.status] ?? l.status} · {formatDate(l.createdAt)}
+              <IconPhone s={15} /> ליד {LEAD_STATUS_LABELS[l.status] ?? l.status} · {formatDate(l.createdAt)}
             </Link>
           </li>
         ))}
@@ -81,7 +82,7 @@ export function RelatedEntities({
               className="inline-block rounded-full border px-3 py-1 text-sm underline"
               style={chipStyle}
             >
-              🏠 בעלים של: {p.title}
+              <IconHome s={15} /> בעלים של: {p.title}
             </Link>
           </li>
         ))}

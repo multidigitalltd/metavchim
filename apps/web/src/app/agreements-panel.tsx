@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { IconDoc, IconEdit, IconWarning } from "./icons";
 
 /**
  * שליחת הסכם לחתימה ומעקב אחריו — מוצג בכרטיס הקונה (הזמנה בכתב)
@@ -246,7 +247,7 @@ export function AgreementsPanel({
               {row.status === "signed" ? (
                 /* המסמך החתום עצמו — עד כה החתימה נשמרה ולא היה מה להראות */
                 <a href={`/agreements/${row.id}/document`} className="underline">
-                  📄 המסמך החתום
+                  <IconDoc s={15} /> המסמך החתום
                 </a>
               ) : null}
             </li>
@@ -291,7 +292,7 @@ export function AgreementsPanel({
           </a>
           {unfilled.length > 0 ? (
             <p className="mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
-              ⚠ פרטים שלא הושלמו במסמך: {unfilled.map((f) => f.replace(/_/gu, " ")).join(", ")}
+              <IconWarning s={15} /> פרטים שלא הושלמו במסמך: {unfilled.map((f) => f.replace(/_/gu, " ")).join(", ")}
             </p>
           ) : null}
         </div>
@@ -375,7 +376,7 @@ export function AgreementsPanel({
         </div>
       ) : (
         <Button type="button" variant="secondary" onClick={() => setOpen(true)}>
-          ✍️ שלח הסכם לחתימה
+          <IconEdit s={15} /> שלח הסכם לחתימה
         </Button>
       )}
     </section>

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPost } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { WithDictation } from "../../dictation-field";
+import { IconChat, IconDoc, IconGear, IconPhone, IconRefresh } from "../../icons";
 
 /**
  * ציר ההיסטוריה של הקונה (docs/01 §5): כל הערה ותיעוד שיחה במקום אחד —
@@ -25,12 +26,12 @@ interface InteractionsPage {
   nextCursor: string | null;
 }
 
-const KIND_LABELS: Record<string, string> = {
-  note: "📝 הערה",
-  call: "📞 שיחה",
-  whatsapp: "💬 וואטסאפ",
-  status_change: "🔄 שינוי סטטוס",
-  system: "⚙️ מערכת",
+const KIND_LABELS: Record<string, ReactNode> = {
+  note: <><IconDoc s={15} /> הערה</>,
+  call: <><IconPhone s={15} /> שיחה</>,
+  whatsapp: <><IconChat s={15} /> וואטסאפ</>,
+  status_change: <><IconRefresh s={15} /> שינוי סטטוס</>,
+  system: <><IconGear s={15} /> מערכת</>,
 };
 
 const timeFmt = new Intl.DateTimeFormat("he-IL", { dateStyle: "short", timeStyle: "short" });

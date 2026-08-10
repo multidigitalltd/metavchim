@@ -22,6 +22,8 @@ function svgProps(s?: number) {
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
     "aria-hidden": true,
+    // בתוך שורת טקסט האייקון מתיישר לעין בלי עטיפת flex סביבו
+    style: { verticalAlign: "-0.18em" as const },
   };
 }
 
@@ -196,5 +198,188 @@ export const IconCart = ({ s }: IconProps) => (
     <circle cx="9" cy="20" r="1.4" />
     <circle cx="17.5" cy="20" r="1.4" />
     <path d="M3 4h2.5l2.3 11.5h11L21 8H6.2" />
+  </svg>
+);
+
+export const IconMenu = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M4 6.5h16M4 12h16M4 17.5h16" />
+  </svg>
+);
+
+export const IconWarning = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M12 3.5 21.5 20h-19Z" />
+    <path d="M12 9.5v4.5" />
+    <path d="M12 17.2h.01" />
+  </svg>
+);
+
+export const IconCard = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <rect x="3" y="5.5" width="18" height="13" rx="2.2" />
+    <path d="M3 10h18M6.5 14.5h4" />
+  </svg>
+);
+
+export const IconStop = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <rect x="6.5" y="6.5" width="11" height="11" rx="1.6" />
+  </svg>
+);
+
+export const IconDoc = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M6 3.5h8l4 4v13H6Z" />
+    <path d="M14 3.5v4h4" />
+    <path d="M9 12h6M9 15.5h6" />
+  </svg>
+);
+
+export const IconRefresh = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" />
+    <path d="M19.5 3.5v3.8h-3.8" />
+  </svg>
+);
+
+export const IconGear = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <circle cx="12" cy="12" r="3.2" />
+    <path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8" />
+  </svg>
+);
+
+export const IconThumbUp = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M7 11 11.5 3c1.2 0 2 .9 2 2.1V9h5c1.2 0 2 1 1.8 2.1l-1.1 6.5A2 2 0 0 1 17.2 19H7" />
+    <rect x="3" y="10.5" width="4" height="9.5" rx="1" />
+  </svg>
+);
+
+export const IconSun = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2.8v2M12 19.2v2M2.8 12h2M19.2 12h2M5.2 5.2l1.4 1.4M17.4 17.4l1.4 1.4M18.8 5.2l-1.4 1.4M6.6 17.4l-1.4 1.4" />
+  </svg>
+);
+
+export const IconMoon = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4 7 7 0 0 0 20 14.5Z" />
+  </svg>
+);
+
+export const IconMonitor = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <rect x="3" y="4.5" width="18" height="12.5" rx="2" />
+    <path d="M9 20.5h6M12 17v3.5" />
+  </svg>
+);
+
+export const IconMicOff = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <rect x="9" y="2.6" width="6" height="11" rx="3" />
+    <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0" />
+    <path d="M12 18v3.2" />
+    <path d="m4 4 16 16" />
+  </svg>
+);
+
+export const IconHeadphones = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M4 14v-2.5a8 8 0 0 1 16 0V14" />
+    <rect x="3.5" y="13.5" width="4.5" height="6.5" rx="1.6" />
+    <rect x="16" y="13.5" width="4.5" height="6.5" rx="1.6" />
+  </svg>
+);
+
+export const IconPlus = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+
+export const IconPrinter = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M7 8V3.5h10V8" />
+    <rect x="4" y="8" width="16" height="8" rx="1.8" />
+    <path d="M7 13h10v7.5H7Z" />
+  </svg>
+);
+
+export const IconFlame = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M12 3s5.5 4.5 5.5 10a5.5 5.5 0 0 1-11 0C6.5 8.5 9 7 9.5 4.5c1 .8 1.6 1.7 2 3C12 6 12 4.5 12 3Z" />
+  </svg>
+);
+
+export const IconSnow = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9" />
+  </svg>
+);
+
+export const IconCloudSun = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M16.5 6.5a3.5 3.5 0 0 0-3-2M18 3v1.2M21 6h-1.2" />
+    <path d="M6.5 19.5h9a4 4 0 0 0 .5-8 5.5 5.5 0 0 0-10.4 1.6A3.3 3.3 0 0 0 6.5 19.5Z" />
+  </svg>
+);
+
+export const IconPin = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M12 21s-6.5-5.7-6.5-10.5a6.5 6.5 0 0 1 13 0C18.5 15.3 12 21 12 21Z" />
+    <circle cx="12" cy="10.5" r="2.2" />
+  </svg>
+);
+
+export const IconEye = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+export const IconLink = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M10 14a4 4 0 0 0 6 .4l2.5-2.5a4 4 0 1 0-5.7-5.7l-1.2 1.2" />
+    <path d="M14 10a4 4 0 0 0-6-.4l-2.5 2.5a4 4 0 1 0 5.7 5.7l1.2-1.2" />
+  </svg>
+);
+
+export const IconDiamond = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M7 4h10l4 5.5L12 20.5 3 9.5Z" />
+    <path d="M3 9.5h18M12 20.5 8.5 9.5 12 4l3.5 5.5Z" />
+  </svg>
+);
+
+export const IconCamera = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M4 7.5h3.5L9 5.5h6l1.5 2H20a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8.5a1 1 0 0 1 1-1Z" />
+    <circle cx="12" cy="13" r="3.4" />
+  </svg>
+);
+
+export const IconStar = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.8Z" />
+  </svg>
+);
+
+export const IconInfo = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 11v5" />
+    <path d="M12 7.8h.01" />
+  </svg>
+);
+
+export const IconDownload = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M12 4v11" />
+    <path d="m7.5 11 4.5 4.5L16.5 11" />
+    <path d="M4.5 16v2a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-2" />
   </svg>
 );

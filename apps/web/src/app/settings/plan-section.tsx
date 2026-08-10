@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiGet } from "@/lib/api";
+import { IconCard } from "../icons";
 
 /**
  * המסלול של המשרד — מה כלול בו ואיפה הוא עומד מול המגבלות.
@@ -111,7 +112,7 @@ export function PlanSection(): React.JSX.Element | null {
       style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
     >
       <h2 id="plan-heading" className="mb-1 text-lg font-semibold">
-        💳 המסלול שלכם
+        <IconCard s={16} /> המסלול שלכם
       </h2>
       {plan === null ? (
         <p aria-live="polite">טוען…</p>

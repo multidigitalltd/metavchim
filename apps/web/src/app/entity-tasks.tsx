@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { api, apiGet, apiPost, ApiError } from "@/lib/api";
+import { IconCheck, IconClock, IconUser } from "./icons";
 
 /**
  * המשימות של לקוח או נכס — בתוך הכרטיס שלו.
@@ -101,7 +102,7 @@ export function EntityTasks({
       aria-labelledby={`tasks-${entityId}`}
     >
       <h2 id={`tasks-${entityId}`} className="mb-3 text-lg font-semibold">
-        ✅ משימות {tasks ? `(${open.length})` : ""}
+        <IconCheck s={16} /> משימות {tasks ? `(${open.length})` : ""}
       </h2>
 
       {error ? (
@@ -148,13 +149,15 @@ export function EntityTasks({
                           color: overdue ? "var(--color-danger)" : "var(--color-text-muted)",
                         }}
                       >
-                        ⏰ {dueFmt.format(new Date(task.dueAt))}
+                        <IconClock s={15} /> {dueFmt.format(new Date(task.dueAt))}
                         {overdue ? " — באיחור" : ""}
                       </span>
                     ) : null}
                     {/* מי אחראי — הכרטיס מציג את משימות כל המשרד */}
                     {task.assigneeName ? (
-                      <span style={{ color: "var(--color-text-muted)" }}>👤 {task.assigneeName}</span>
+                      <span style={{ color: "var(--color-text-muted)" }}>
+                        <IconUser s={15} /> {task.assigneeName}
+                      </span>
                     ) : null}
                     {task.priority === "high" ? (
                       <span style={{ color: "var(--color-danger)" }}>דחוף</span>

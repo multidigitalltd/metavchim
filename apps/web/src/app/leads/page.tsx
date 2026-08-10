@@ -10,6 +10,7 @@ import { waMeUrl } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
+import { IconMic } from "../icons";
 import { CapNote, FilterBar, FilterSelect, SearchField, textMatches } from "../list-controls";
 
 /**
@@ -102,7 +103,7 @@ export default function LeadsPage() {
         <div className="ms-auto flex flex-wrap gap-2.5">
           {canVoice ? (
             <Link href="/leads/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
-              🎤 ליד בקול
+              <IconMic s={15} /> ליד בקול
             </Link>
           ) : null}
           <Link href="/leads/new" className="mv-btn-action">
@@ -142,7 +143,7 @@ export default function LeadsPage() {
           >
             <SearchField
               label="חיפוש ליד"
-              placeholder="🔍 שם או טלפון"
+              placeholder="שם או טלפון"
               value={query}
               onChange={setQuery}
             />

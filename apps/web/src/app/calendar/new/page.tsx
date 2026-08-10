@@ -7,6 +7,7 @@ import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../dictation-field";
+import { IconChat } from "../../icons";
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
 
@@ -101,7 +102,7 @@ function NewAppointmentForm() {
         </p>
         <div className="flex flex-wrap gap-3">
           <a href={notify.waUrl} target="_blank" rel="noopener noreferrer" className="mv-btn-action" style={{ textDecoration: "none" }}>
-            💬 שלח עדכון ללקוח בוואטסאפ
+            <IconChat s={15} /> שלח עדכון ללקוח בוואטסאפ
           </a>
           <Button variant="ghost" onClick={() => router.replace("/calendar")}>
             סיום — ליומן

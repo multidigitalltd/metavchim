@@ -4,6 +4,7 @@ import { useEffect, useState, use } from "react";
 import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet, apiPost, ApiError } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
+import { IconThumbUp } from "../../icons";
 
 /**
  * דף ההצעה ללקוח קצה (docs/06 §6) — ציבורי, בלי התחברות, לפי טוקן בלבד.
@@ -164,7 +165,7 @@ export default function PublicOfferPage({ params }: { params: Promise<{ token: s
       ) : (
         <div className="flex flex-col gap-3" role="group" aria-label="מה דעתכם על הנכס?">
           <Button disabled={submitting} onClick={() => void respond("interested")} className="w-full">
-            👍 מעוניין — שהמתווך יחזור אליי
+            <IconThumbUp s={15} /> מעוניין — שהמתווך יחזור אליי
           </Button>
           <Button
             disabled={submitting}

@@ -11,6 +11,7 @@ import { useFeature } from "@/lib/use-features";
 import { useRequireAuth } from "@/lib/use-auth";
 import { TasksBoard } from "../tasks/tasks-board";
 import { RecurrenceSection } from "./recurrence-section";
+import { IconEdit } from "../icons";
 
 /**
  * היומן לפי קובץ העיצוב: רשת שבועית ראשון–שישי עם בלוקי אירועים
@@ -486,7 +487,7 @@ export default function CalendarPage() {
                         aria-expanded={editing === a.id}
                         onClick={() => setEditing(editing === a.id ? null : a.id)}
                       >
-                        ✏️ ערוך / הזז
+                        <IconEdit s={15} /> ערוך / הזז
                       </button>
                       <button
                         type="button"

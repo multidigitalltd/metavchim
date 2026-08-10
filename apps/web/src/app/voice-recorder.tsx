@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { DictationMode } from "@/lib/dictation";
 import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet } from "@/lib/api";
+import { IconLock, IconStop } from "./icons";
 
 /**
  * מקליט משותף לכל מסכי הקול, בשני מצבים:
@@ -428,7 +429,7 @@ export function VoiceRecorder({
           {recording ? (
             <>
               <Button type="button" variant="danger" onClick={stop} className="min-w-48">
-                ⏹ עצור הקלטה
+                <IconStop s={15} /> עצור הקלטה
               </Button>
               <p aria-live="polite" className="mt-2" style={{ color: "var(--color-danger)" }}>
                 {/* ניסוח מדויק לכל מצב: בשרת הטקסט חוזר בסוף כל הפסקה,
@@ -454,7 +455,7 @@ export function VoiceRecorder({
                     onClick={() => begin("browser")}
                     className="min-w-44"
                   >
-                    ⚡ מהיר — בדפדפן
+                    מהיר — בדפדפן
                   </Button>
                 ) : null}
                 {serverAvailable ? (
@@ -464,7 +465,7 @@ export function VoiceRecorder({
                     onClick={() => begin("server")}
                     className="min-w-44"
                   >
-                    🎯 מדויק — בשרת
+                    מדויק — בשרת
                   </Button>
                 ) : null}
               </div>
@@ -472,8 +473,8 @@ export function VoiceRecorder({
                 {browserAvailable && serverAvailable
                   ? "מהיר — הטקסט מופיע תוך כדי הדיבור, פחות מדויק בעברית. מדויק — התמלול על השרת שלכם, איטי יותר ולא יוצא החוצה."
                   : serverAvailable
-                    ? "🔒 התמלול מתבצע על השרת שלכם — ההקלטה לא נשלחת לשום גורם חיצוני"
-                    : "⚡ זיהוי הדיבור של הדפדפן. לעברית מדויקת יותר נדרש שירות תמלול בשרת."}
+                    ? <><IconLock s={15} /> התמלול מתבצע על השרת שלכם — ההקלטה לא נשלחת לשום גורם חיצוני</>
+                    : "זיהוי הדיבור של הדפדפן. לעברית מדויקת יותר נדרש שירות תמלול בשרת."}
               </p>
             </>
           )}

@@ -125,7 +125,7 @@ export default function OffersPage() {
         >
           <SearchField
             label="חיפוש הצעה"
-            placeholder="🔍 שם קונה או נכס"
+            placeholder="שם קונה או נכס"
             value={query}
             onChange={setQuery}
           />

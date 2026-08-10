@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { featureLabel, type PlanFeature } from "@metavchim/shared";
+import { IconLock } from "../icons";
 
 /**
  * מודול שאינו כלול במסלול — מוצג נעול, לא נעלם.
@@ -30,7 +31,7 @@ export function LockedFeature({
         className="mb-1 text-lg font-semibold"
         style={{ color: "var(--color-text-muted)" }}
       >
-        🔒 {featureLabel(code)}
+        <IconLock s={16} /> {featureLabel(code)}
       </h2>
       <p className="m-0 mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
         {description}

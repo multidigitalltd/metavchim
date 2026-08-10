@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet, apiPost, ApiError } from "@/lib/api";
 import { AuthShell } from "../auth-shell";
+import { IconKey, IconMail } from "../icons";
 
 /**
  * התחברות בשני שלבים אפשריים: אימייל+סיסמה, ואם השרת דורש (LOGIN_OTP_ENABLED)
@@ -110,7 +111,7 @@ function LoginForm() {
       {otpToken ? (
         <form onSubmit={onVerify} noValidate aria-describedby={error ? "login-error" : undefined}>
           <p role="status" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-            📧 שלחנו קוד בן 6 ספרות לאימייל שלך — הקלד אותו כאן. הקוד תקף ל-10 דקות.
+            <IconMail s={15} /> שלחנו קוד בן 6 ספרות לאימייל שלך — הקלד אותו כאן. הקוד תקף ל-10 דקות.
           </p>
           <div className="mb-6">
             <label htmlFor="code" className="mb-1 block font-medium">
@@ -170,7 +171,7 @@ function LoginForm() {
                 href={`${API_BASE}/auth/google/start`}
                 className="mv-button mv-button--secondary w-full"
               >
-                <span aria-hidden="true">🔑</span> התחברות עם Google
+                <IconKey s={15} /> התחברות עם Google
               </a>
               <div className="my-4 flex items-center gap-3" aria-hidden="true">
                 <span className="h-px flex-1" style={{ background: "var(--color-border)" }} />

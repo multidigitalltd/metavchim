@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet, ApiError } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
+import { IconPrinter } from "../../../icons";
 
 /**
  * המסמך החתום — מה שהיה חסר בכרטיס הלקוח.
@@ -70,7 +71,7 @@ export default function AgreementDocumentPage({ params }: { params: Promise<{ id
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2 print:hidden">
         <h1 className="text-xl font-bold">{doc.kindLabel}</h1>
         <Button type="button" onClick={() => window.print()}>
-          🖨️ הדפסה / שמירה כ-PDF
+          <IconPrinter s={15} /> הדפסה / שמירה כ-PDF
         </Button>
       </div>
 

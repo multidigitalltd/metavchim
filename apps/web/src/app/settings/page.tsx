@@ -8,6 +8,7 @@ import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
+import { IconKey, IconLock } from "../icons";
 import { DeleteAccountSection } from "./delete-account-section";
 import { ExportSection } from "./export-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
@@ -357,7 +358,7 @@ export default function SettingsPage() {
                       <span className="flex flex-wrap justify-end gap-1.5">
                         {member.locked ? (
                           <button type="button" className="mv-btn-soft" onClick={() => void unlock(member)}>
-                            🔒 שחרר נעילה
+                            <IconLock s={15} /> שחרר נעילה
                           </button>
                         ) : null}
                         {editable ? (
@@ -369,7 +370,7 @@ export default function SettingsPage() {
                               setPermissionsFor(permissionsFor === member.id ? null : member.id)
                             }
                           >
-                            🔑 הרשאות
+                            <IconKey s={15} /> הרשאות
                           </button>
                         ) : null}
                         {editable ? (

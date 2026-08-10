@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { IconMonitor, IconMoon, IconSun } from "./icons";
 
 /**
  * בורר ערכת נושא: בהיר / כהה / אוטומטי לפי המכשיר.
@@ -28,10 +29,10 @@ function apply(choice: ThemeChoice): void {
   else root.setAttribute("data-theme", choice);
 }
 
-const OPTIONS: { value: ThemeChoice; label: string; icon: string }[] = [
-  { value: "light", label: "בהיר", icon: "☀️" },
-  { value: "dark", label: "כהה", icon: "🌙" },
-  { value: "auto", label: "אוטומטי", icon: "🖥️" },
+const OPTIONS: { value: ThemeChoice; label: string; icon: ReactNode }[] = [
+  { value: "light", label: "בהיר", icon: <IconSun s={15} /> },
+  { value: "dark", label: "כהה", icon: <IconMoon s={15} /> },
+  { value: "auto", label: "אוטומטי", icon: <IconMonitor s={15} /> },
 ];
 
 export function ThemeToggle() {

@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@metavchim/ui";
 import type { LeadSourcePrice } from "@metavchim/shared";
 import { apiGet, apiPatch, ApiError } from "@/lib/api";
+import { IconDiamond } from "../icons";
 
 /**
  * מחיר ליד לפי מקור.
@@ -56,7 +57,7 @@ export function LeadPricesSection(): React.JSX.Element {
       aria-labelledby="lead-prices-heading"
     >
       <h2 id="lead-prices-heading" className="mb-1 text-lg font-semibold">
-        💠 מחירי לידים
+        <IconDiamond s={16} /> מחירי לידים
       </h2>
       <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
         כמה קרדיטים עולה למשרד להציע נכס על ביקוש, לפי מקור הביקוש. שיתוף פעולה בין

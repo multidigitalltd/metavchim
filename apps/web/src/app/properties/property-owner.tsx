@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { apiPatch, ApiError } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { ContactPeople } from "../contact-people";
+import { IconChat } from "../icons";
 
 /**
  * בעל הנכס — המוכר או המשכיר.
@@ -87,7 +88,7 @@ export function PropertyOwner({
           <span className="flex flex-wrap gap-2">
             {canSendUpdate ? (
               <button type="button" className="mv-btn-plain" onClick={onSendUpdate}>
-                💬 שלח עדכון שיווק
+                <IconChat s={15} /> שלח עדכון שיווק
               </button>
             ) : null}
             <a

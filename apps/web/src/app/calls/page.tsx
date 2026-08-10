@@ -9,6 +9,7 @@ import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { FilterBar, SearchField, textMatches } from "../list-controls";
 import { DictateFor } from "../dictation-field";
+import { IconClock, IconDoc, IconMic } from "../icons";
 
 /**
  * יומן שיחות — תיעוד ידני של שיחות שהמתווך קיים.
@@ -250,7 +251,7 @@ export default function CallsPage() {
         >
           <SearchField
             label="חיפוש שיחה"
-            placeholder="🔍 שם, טלפון או מה נאמר בשיחה"
+            placeholder="שם, טלפון או מה נאמר בשיחה"
             value={query}
             onChange={setQuery}
           />
@@ -464,7 +465,7 @@ function CallRecording({ call, onChanged }: { call: CallRow; onChanged: () => vo
 
       {status === undefined ? (
         <label className="mv-btn-plain inline-block cursor-pointer">
-          {busy ? "מעלה…" : "🎙 צרף הקלטה"}
+          {busy ? "מעלה…" : <><IconMic s={15} /> צרף הקלטה</>}
           <input
             type="file"
             accept="audio/*"
@@ -482,7 +483,7 @@ function CallRecording({ call, onChanged }: { call: CallRow; onChanged: () => vo
         </p>
       ) : status === "pending" || status === "running" ? (
         <p className="m-0 text-sm" aria-live="polite" style={{ color: "var(--color-text-muted)" }}>
-          ⏳ ההקלטה נשמרה וממתינה לתמלול. זה לוקח כמה דקות — אפשר לעזוב את המסך.
+          <IconClock s={15} /> ההקלטה נשמרה וממתינה לתמלול. זה לוקח כמה דקות — אפשר לעזוב את המסך.
         </p>
       ) : status === "failed" ? (
         <p className="m-0 text-sm" style={{ color: "var(--color-danger)" }}>
@@ -496,7 +497,7 @@ function CallRecording({ call, onChanged }: { call: CallRow; onChanged: () => vo
             aria-expanded={showFull}
             onClick={() => setShowFull((v) => !v)}
           >
-            {showFull ? "הסתר תמלול מלא" : "📄 הצג תמלול מלא"}
+            {showFull ? "הסתר תמלול מלא" : <><IconDoc s={15} /> הצג תמלול מלא</>}
           </button>
           {showFull ? (
             <div

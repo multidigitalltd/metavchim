@@ -12,6 +12,7 @@ import {
 import { ApiError, apiPost } from "@/lib/api";
 import { formatPrice, MATURITY_LABELS, PROPERTY_TYPE_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { IconDoc, IconDownload, IconWarning } from "../icons";
 
 interface ImportResult {
   created: number;
@@ -222,7 +223,7 @@ export default function ImportPage() {
           className="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2"
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
         >
-          <span>📄 בחרו קובץ CSV</span>
+          <span><IconDoc s={15} /> בחרו קובץ CSV</span>
           <input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="mv-visually-hidden" onChange={onFile} />
         </label>
         {/*
@@ -243,7 +244,7 @@ export default function ImportPage() {
             URL.revokeObjectURL(a.href);
           }}
         >
-          ⬇️ הורדת קובץ לדוגמה (כל הכותרות)
+          <IconDownload s={15} /> הורדת קובץ לדוגמה (כל הכותרות)
         </Button>
         <Button
           variant="ghost"
@@ -289,7 +290,7 @@ export default function ImportPage() {
           style={{ borderColor: "var(--color-warning, #d97706)", background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-text)" }}
         >
           <p className="m-0 mb-1 font-bold" style={{ fontSize: 15 }}>
-            ⚠️ {parsed.unmappedHeaders.length} עמודות לא זוהו — הנתונים שבהן לא ייובאו
+            <IconWarning s={15} /> {parsed.unmappedHeaders.length} עמודות לא זוהו — הנתונים שבהן לא ייובאו
           </p>
           <p className="m-0 mb-2 text-sm" dir="ltr">
             {parsed.unmappedHeaders.join(" · ")}

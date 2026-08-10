@@ -13,6 +13,7 @@ import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
 import Link from "next/link";
 import { LoadError } from "../load-error";
+import { IconCart, IconDiamond, IconHandshake } from "../icons";
 
 /** רשת שיתופי הפעולה (אפיון §11-12): ביקושים אנונימיים + קרדיטים. */
 
@@ -204,7 +205,7 @@ export default function CollaborationPage() {
             + פרסם ביקוש
           </Link>
           <span className="rounded-full border px-4 py-1.5 font-medium" style={{ borderColor: "var(--color-border)" }}>
-            💎 {balance ?? "…"} קרדיטים
+            <IconDiamond s={15} /> {balance ?? "…"} קרדיטים
           </span>
         </div>
       </div>
@@ -231,7 +232,7 @@ export default function CollaborationPage() {
       {incoming.length > 0 ? (
         <section aria-labelledby="incoming-heading" className="mb-8">
           <h2 id="incoming-heading" className="mb-3 text-lg font-semibold">
-            🤝 הצעות שהתקבלו על הביקושים שלך ({incoming.length})
+            <IconHandshake s={16} /> הצעות שהתקבלו על הביקושים שלך ({incoming.length})
           </h2>
           <ul className="flex flex-col gap-3">
             {incoming.map((offer) => (
@@ -263,7 +264,7 @@ export default function CollaborationPage() {
 
       {leadsForSale.length > 0 || myListedLeads.length > 0 ? (
         <section aria-labelledby="lead-market-heading" className="mb-8">
-          <h2 id="lead-market-heading" className="mb-1 text-lg font-semibold">🛒 שוק הלידים</h2>
+          <h2 id="lead-market-heading" className="mb-1 text-lg font-semibold"><IconCart s={16} /> שוק הלידים</h2>
           <p className="mb-3" style={{ color: "var(--color-text-muted)" }}>
             לידים שמשרדים אחרים מוכרים בקרדיטים. שם וטלפון נחשפים רק אחרי הקנייה;
             מכירת ליד נעשית מכרטיס הליד עצמו.

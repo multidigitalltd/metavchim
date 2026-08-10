@@ -4,6 +4,7 @@ import { useState } from "react";
 import { apiPost, ApiError } from "@/lib/api";
 import { useFeature } from "@/lib/use-features";
 import { useSoftphone } from "./softphone-bar";
+import { IconHeadphones, IconPhone } from "./icons";
 
 /**
  * חיוג בלחיצה — **שתי דרכים, לפי מה שזמין**.
@@ -90,7 +91,17 @@ export function ClickToDial({
             : "המרכזייה תצלצל לטלפון שלכם, וכשתענו תחבר את הלקוח"
         }
       >
-        {busy ? "מחייג…" : viaSoftphone ? `🎧 ${label}` : `📞 ${label}`}
+        {busy ? (
+          "מחייג…"
+        ) : viaSoftphone ? (
+          <>
+            <IconHeadphones s={15} /> {label}
+          </>
+        ) : (
+          <>
+            <IconPhone s={15} /> {label}
+          </>
+        )}
       </button>
       {note ? (
         <span aria-live="polite" className="text-sm" style={{ color: "var(--color-success)" }}>

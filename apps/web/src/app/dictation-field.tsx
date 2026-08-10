@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { useDictation, type DictationMode } from "@/lib/dictation";
+import { IconStop } from "./icons";
 
 /**
  * שדה טקסט שאפשר להכתיב אליו במקום להקליד — input או textarea.
@@ -97,7 +98,7 @@ export function DictationControls({
       {recording !== null ? (
         <>
           <button type="button" className="mv-dictate-stop" onClick={stop}>
-            ⏹ עצור
+            <IconStop s={13} /> עצור
           </button>
           <span className="mv-dictate-live" aria-live="polite">
             <span className="mv-dictate-dot" aria-hidden="true" />

@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { apiPost, ApiError } from "@/lib/api";
 import { AuthShell } from "../auth-shell";
+import { IconMail } from "../icons";
 
 /**
  * "שכחתי סיסמה" — התשובה זהה תמיד, בין אם הכתובת רשומה ובין אם לא
@@ -43,7 +44,7 @@ export default function ForgotPasswordPage() {
             className="mb-4 rounded-lg border p-3"
             style={{ borderColor: "var(--color-success)", background: "var(--color-surface)" }}
           >
-            📧 אם הכתובת רשומה במערכת — נשלח אליה קישור לאיפוס הסיסמה. הקישור תקף
+            <IconMail s={15} /> אם הכתובת רשומה במערכת — נשלח אליה קישור לאיפוס הסיסמה. הקישור תקף
             ל-30 דקות. בדקו גם בתיקיית הספאם.
           </p>
           <Link href="/login" className="underline">

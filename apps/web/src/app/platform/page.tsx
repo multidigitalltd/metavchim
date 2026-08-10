@@ -5,6 +5,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { IconPlus } from "../icons";
 import { BackupsSection } from "./backups-section";
 import { LeadPricesSection } from "./lead-prices-section";
 import { PaymentsSection } from "./payments-section";
@@ -226,7 +227,7 @@ export default function PlatformPage() {
       <PlatformSettingsSection />
 
       <section aria-labelledby="new-agency" className="mb-8 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-        <h2 id="new-agency" className="mb-3 text-lg font-semibold">➕ משרד חדש</h2>
+        <h2 id="new-agency" className="mb-3 text-lg font-semibold"><IconPlus s={16} /> משרד חדש</h2>
         <form onSubmit={(e) => void onCreate(e)} className="flex flex-wrap items-end gap-3">
           <div>
             <label htmlFor="name" className="mb-1 block font-medium">שם המשרד</label>

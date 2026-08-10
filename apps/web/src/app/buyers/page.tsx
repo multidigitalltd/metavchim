@@ -8,6 +8,7 @@ import { apiGet } from "@/lib/api";
 import { formatPrice, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
+import { IconMic } from "../icons";
 import { CapNote, FilterBar, FilterSelect, textMatches } from "../list-controls";
 import {
   EMPTY_FILTERS,
@@ -150,7 +151,7 @@ export default function BuyersPage() {
           ) : null}
           {canVoice ? (
             <Link href="/buyers/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
-              🎤 קונה בקול
+              <IconMic s={15} /> קונה בקול
             </Link>
           ) : null}
           <Link href="/buyers/new" className="mv-btn-action">
@@ -186,7 +187,7 @@ export default function BuyersPage() {
             values={filters}
             onApply={setFilters}
             searchLabel="חיפוש קונה"
-            searchHint="🔍 שם, טלפון או עיר מבוקשת"
+            searchHint="שם, טלפון או עיר מבוקשת"
             priceLabel="תקציב"
           />
           <FilterBar

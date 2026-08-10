@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { IconInfo, IconWarning } from "../icons";
 
 /**
  * חיבור מרכזיית הטלפון של המשרד.
@@ -252,7 +253,7 @@ export function TelephonySection() {
                         color: why.tone === "warning" ? "var(--color-warning)" : "var(--color-text-muted)",
                       }}
                     >
-                      {why.tone === "warning" ? "⚠ " : "ℹ "}
+                      {why.tone === "warning" ? <IconWarning s={15} /> : <IconInfo s={15} />}{" "}
                       האירוע האחרון הגיע ב-{new Date(status.lastEventAt).toLocaleString("he-IL")}.{" "}
                       {why.text}
                     </p>
@@ -405,7 +406,13 @@ export function TelephonySection() {
                   className="m-0 mt-1 text-xs"
                   style={{ color: stored ? "var(--color-success)" : "var(--color-danger)" }}
                 >
-                  {stored ? "✓ שמורה בשרת" : "⚠ לא שמורה — החיוג היוצא לא יעבוד בלעדיה"}
+                  {stored ? (
+                    "✓ שמורה בשרת"
+                  ) : (
+                    <>
+                      <IconWarning s={15} /> לא שמורה — החיוג היוצא לא יעבוד בלעדיה
+                    </>
+                  )}
                 </p>
               ) : null}
             </div>
