@@ -391,7 +391,13 @@ export class AuthService {
         user: {
           include: {
             tenant: {
-              select: { status: true, name: true, trialEndsAt: true, paidUntil: true },
+              select: {
+                status: true,
+                name: true,
+                trialEndsAt: true,
+                paidUntil: true,
+                supportAccessUntil: true,
+              },
             },
           },
         },
@@ -410,6 +416,21 @@ export class AuthService {
     if (
       session.passwordEpoch === null ||
       session.passwordEpoch.getTime() < session.user.passwordChangedAt.getTime()
+    ) {
+      return null;
+    }
+    /*
+     * Session של תמיכה חי רק בתוך חלון ההסכמה — **נבדק בכל בקשה**.
+     *
+     * הביטול של בעל המשרד חייב לתפוס מיד, לא בפקיעה הבאה: "ביטלתי
+     * את הגישה" שמשאיר את התמיכה בפנים עוד שעה הופך את כפתור הביטול
+     * להצהרה ריקה. תפוגת ה-Session עצמה מיושרת לחלון ממילא, אבל
+     * הבדיקה כאן היא מה שהופך את הביטול המוקדם לאמיתי.
+     */
+    if (
+      session.supportAdminEmail !== null &&
+      (session.user.tenant.supportAccessUntil === null ||
+        session.user.tenant.supportAccessUntil.getTime() <= Date.now())
     ) {
       return null;
     }
@@ -452,6 +473,9 @@ export class AuthService {
         // תקופה שנגמרה אינה פוסלת את ה-Session — היא מצמצמת אותו
         // למסך המנוי. האכיפה ב-AuthGuard.
         billingOnly: tenantPeriodEnded(session.user.tenant),
+        ...(session.supportAdminEmail !== null
+          ? { supportAdminEmail: session.supportAdminEmail }
+          : {}),
       },
       user: {
         id: session.user.id,

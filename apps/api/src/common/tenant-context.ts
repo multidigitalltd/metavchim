@@ -21,6 +21,12 @@ export interface RequestContext {
    * הרגע שבו הוא אמור לשלם.
    */
   billingOnly: boolean;
+  /**
+   * לא undefined = הבקשה הזו מבוצעת ע"י התמיכה, בתוך חלון ההסכמה.
+   * כל רישום ביומן נושא את הכתובת — "מי עשה" חייב להיות אמת גם
+   * כשהתמיכה פועלת בשם המשתמש.
+   */
+  supportAdminEmail?: string;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();

@@ -27,7 +27,16 @@ export class AuditService {
         action: entry.action,
         entityType: entry.entityType,
         entityId: entry.entityId ?? null,
-        metadata: (entry.metadata ?? {}) as object,
+        /*
+         * פעולה שבוצעה ע"י התמיכה מסומנת ככזו — תמיד, אוטומטית.
+         * בלי הסימון, כל מה שהתמיכה עשתה היה מיוחס למשתמש שבשמו
+         * היא פעלה, וההבטחה "רואים מי עשה מה" הייתה שקר מנומס
+         * (ביקורת Codex).
+         */
+        metadata: {
+          ...(entry.metadata ?? {}),
+          ...(ctx.supportAdminEmail ? { supportAdmin: ctx.supportAdminEmail } : {}),
+        } as object,
       },
     });
   }

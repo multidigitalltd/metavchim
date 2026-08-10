@@ -14,6 +14,7 @@ import { PlanSection } from "./plan-section";
 import { WhatsAppStatusSection } from "./whatsapp-status-section";
 import { LockedFeature } from "./locked-feature";
 import { TelephonySection } from "./telephony-section";
+import { SupportAccessSection } from "./support-access-section";
 import { GoogleCalendarSection } from "./google-calendar-section";
 import { AgreementTemplatesSection } from "./agreement-templates-section";
 import { SystemUpdateSection } from "./system-update";
@@ -35,6 +36,8 @@ interface AuditRow {
   action: string;
   entityType: string;
   userName?: string;
+  /** הפעולה בוצעה ע"י התמיכה — הכתובת שנכנסה. */
+  supportAdmin?: string;
   createdAt: string;
 }
 
@@ -473,6 +476,9 @@ export default function SettingsPage() {
           <div id="whatsapp">
             <WhatsAppStatusSection />
           </div>
+          {/* גישת תמיכה אינה תלוית-מסלול — כל משרד יכול לבקש עזרה */}
+          <SupportAccessSection />
+
           <div id="telephony">
             {canTelephony ? (
               <TelephonySection />
@@ -515,7 +521,24 @@ export default function SettingsPage() {
               <ol className="m-0 list-none p-0">
                 {audit.map((row, index) => (
                   <li key={index} className="flex flex-wrap gap-1.5 px-5 py-2.5 text-[13.5px]" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
-                    <span className="font-bold">{row.userName ?? "מערכת"}</span>
+                    <span className="font-bold">
+                      {/*
+                        פעולת תמיכה נקראת "תמיכה", לא בשם המשתמש שבשמו
+                        פעלו: המשתמש לא עשה את זה, והצגת שמו הייתה
+                        בדיוק הייחוס השגוי שהסימון בא למנוע. הכתובת
+                        נשמרת לצידה — "תמיכה" אנונימי אינו אחריות.
+                      */}
+                      {row.supportAdmin ? (
+                        <span style={{ color: "var(--color-warning)" }}>
+                          תמיכה{" "}
+                          <span className="font-normal text-[12px]" dir="ltr">
+                            ({row.supportAdmin})
+                          </span>
+                        </span>
+                      ) : (
+                        (row.userName ?? "מערכת")
+                      )}
+                    </span>
                     <span style={{ color: "var(--color-text-soft)" }}>{AUDIT_ACTION_LABELS[row.action] ?? row.action}</span>
                     <span className="ms-auto" style={{ color: "var(--color-text-muted)" }}>{formatDateTime(row.createdAt)}</span>
                   </li>

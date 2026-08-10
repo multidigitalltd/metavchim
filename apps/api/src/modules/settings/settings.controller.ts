@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -713,14 +714,23 @@ export class SettingsController {
   @RequireCapability("audit.view")
   async auditLog(
     @Query(new ZodValidationPipe(AuditQuerySchema)) query: z.infer<typeof AuditQuerySchema>,
-  ): Promise<{ items: { action: string; entityType: string; userName?: string; createdAt: Date }[] }> {
+  ): Promise<{
+    items: {
+      action: string;
+      entityType: string;
+      userName?: string;
+      /** פעולה שבוצעה ע"י התמיכה — הכתובת שנכנסה. היומן אומר אמת. */
+      supportAdmin?: string;
+      createdAt: Date;
+    }[];
+  }> {
     const tenantId = TenantContext.current().tenantId;
     const rows = await this.prisma.withTenant((tx) =>
       tx.auditLog.findMany({
         where: { tenantId },
         orderBy: { createdAt: "desc" },
         take: query.limit,
-        select: { action: true, entityType: true, userId: true, createdAt: true },
+        select: { action: true, entityType: true, userId: true, createdAt: true, metadata: true },
       }),
     );
     const userIds = [...new Set(rows.map((r) => r.userId).filter((u): u is string => u !== null))];
@@ -730,12 +740,19 @@ export class SettingsController {
     });
     const nameById = new Map(users.map((u) => [u.id, u.name]));
     return {
-      items: rows.map((r) => ({
-        action: r.action,
-        entityType: r.entityType,
-        userName: r.userId ? nameById.get(r.userId) : undefined,
-        createdAt: r.createdAt,
-      })),
+      items: rows.map((r) => {
+        const supportAdmin =
+          typeof r.metadata === "object" && r.metadata !== null && "supportAdmin" in r.metadata
+            ? String((r.metadata as Record<string, unknown>)["supportAdmin"])
+            : undefined;
+        return {
+          action: r.action,
+          entityType: r.entityType,
+          userName: r.userId ? nameById.get(r.userId) : undefined,
+          ...(supportAdmin ? { supportAdmin } : {}),
+          createdAt: r.createdAt,
+        };
+      }),
     };
   }
 
@@ -836,5 +853,83 @@ export class SettingsController {
       whatsappConfigured: filled("whatsappNumber"),
       transcriptionAvailable: env.STT_URL !== undefined && env.STT_SECRET !== undefined,
     });
+  }
+
+  /* ==================== גישת תמיכה בהסכמה ==================== */
+
+  /**
+   * חלון גישת התמיכה — המודל של "המשתמש לוחץ, התמיכה נכנסת".
+   *
+   * אין למנהל הפלטפורמה דלת קבועה למשרד. הדלת נפתחת רק כאן, בלחיצה
+   * של מי שמחזיק settings.manage, נסגרת מעצמה אחרי שעה, וניתנת
+   * לסגירה מוקדמת בלחיצה. הפתיחה, הכניסה והביטול נרשמים ביומן
+   * הפעילות של המשרד — השקיפות היא חלק מהעסקה, לא תוספת.
+   */
+  @Get("support-access")
+  @RequireCapability("settings.manage")
+  async supportAccess(): Promise<{ activeUntil: string | null }> {
+    const { tenantId } = TenantContext.current();
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { supportAccessUntil: true },
+    });
+    const until = tenant?.supportAccessUntil ?? null;
+    return {
+      activeUntil: until !== null && until.getTime() > Date.now() ? until.toISOString() : null,
+    };
+  }
+
+  @Post("support-access")
+  @RequireCapability("settings.manage")
+  @HttpCode(200)
+  async grantSupportAccess(): Promise<{ activeUntil: string }> {
+    const { tenantId, userId } = TenantContext.current();
+    // 60 דקות — קבוע ולא פרמטר: חלון שמישהו יכול למתוח הוא לא חלון
+    const until = new Date(Date.now() + 60 * 60 * 1000);
+    /*
+     * ההענקה והתיעוד בטרנזקציה אחת. בנפרד, כשל בכתיבת היומן היה
+     * מחזיר שגיאה למשתמש ומשאיר את הדלת פתוחה לשעה — חלון פתוח,
+     * מסך שאומר "נכשל", ואפס עדות ביומן (ביקורת Codex).
+     */
+    await this.prisma.withTenant(async (tx) => {
+      await tx.tenant.update({
+        where: { id: tenantId },
+        data: { supportAccessUntil: until, supportAccessGrantedBy: userId },
+      });
+      await this.audit.record(tx, {
+        action: "support.access.grant",
+        entityType: "tenant",
+        entityId: tenantId,
+        metadata: { until: until.toISOString() },
+      });
+    });
+    return { activeUntil: until.toISOString() };
+  }
+
+  @Delete("support-access")
+  @RequireCapability("settings.manage")
+  async revokeSupportAccess(): Promise<{ ok: true }> {
+    const { tenantId } = TenantContext.current();
+    // אותה אטומיות של ההענקה — הסגירה והעדות הן פעולה אחת
+    await this.prisma.withTenant(async (tx) => {
+      await tx.tenant.update({
+        where: { id: tenantId },
+        data: { supportAccessUntil: null, supportAccessGrantedBy: null },
+      });
+      await this.audit.record(tx, {
+        action: "support.access.revoke",
+        entityType: "tenant",
+        entityId: tenantId,
+      });
+    });
+    /*
+     * ה-Sessions של התמיכה נמחקים אחרי הסגירה, מחוץ לטרנזקציה: הם
+     * כבר מתים ממילא — resolveSession דוחה אותם ברגע שהחלון נסגר —
+     * והמחיקה היא ניקיון, לא אכיפה. גם אם היא נכשלת, הדלת סגורה.
+     */
+    await this.prisma.session.deleteMany({
+      where: { supportAdminEmail: { not: null }, user: { tenantId } },
+    });
+    return { ok: true };
   }
 }
