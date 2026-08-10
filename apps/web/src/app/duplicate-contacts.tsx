@@ -29,6 +29,21 @@ export function DuplicateContacts() {
 
   useEffect(load, [load]);
 
+  async function dismiss(key: string): Promise<void> {
+    setBusyId(key);
+    setError(null);
+    setDone(null);
+    try {
+      await apiPost("/contacts/duplicates/dismiss", { key });
+      setDone("ההצעה הוסרה — היא תחזור רק אם ייווסף כרטיס נוסף עם השם הזה");
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "הדחייה נכשלה");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function merge(survivorId: string, duplicateId: string): Promise<void> {
     setBusyId(duplicateId);
     setError(null);
@@ -85,6 +100,16 @@ export function DuplicateContacts() {
                 נשמר: <span dir="ltr">{group.survivor.phone}</span>
                 {group.survivor.activity > 0 ? ` · ${group.survivor.activity} רשומות` : " · ללא פעילות"}
               </span>
+              {/* שני אנשים שונים עם אותו שם — ההצעה מוסרת ולא חוזרת */}
+              <button
+                type="button"
+                className="mv-btn-plain ms-auto"
+                style={{ padding: "4px 10px", fontSize: 12 }}
+                disabled={busyId !== null}
+                onClick={() => void dismiss(group.key)}
+              >
+                {busyId === group.key ? "מסיר…" : "לא כפילות"}
+              </button>
             </div>
 
             {group.duplicates.map((dupe) => (

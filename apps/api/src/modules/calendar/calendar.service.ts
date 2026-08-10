@@ -218,7 +218,12 @@ export class CalendarService {
   /** עדכון סטטוס/תוצאה — פולו-אפ "איך היה הסיור?" (אפיון §13). */
   async update(
     id: string,
-    patch: { status?: string; outcome?: string; notes?: string; title?: string },
+    patch: {
+      status?: string;
+      outcome?: string | null;
+      notes?: string | null;
+      title?: string | null;
+    },
   ): Promise<AppointmentDto> {
     const ctx = TenantContext.current();
     await this.prisma.withTenant(async (tx) => {
@@ -234,7 +239,12 @@ export class CalendarService {
         where: { id },
         data: {
           ...(patch.status !== undefined ? { status: patch.status } : {}),
-          ...(patch.outcome !== undefined ? { outcome: patch.outcome, status: "completed" } : {}),
+          // תוצאה חדשה גוררת "התקיימה"; ניקוי תוצאה (null) לא נוגע בסטטוס
+          ...(patch.outcome !== undefined
+            ? patch.outcome === null
+              ? { outcome: null }
+              : { outcome: patch.outcome, status: "completed" }
+            : {}),
           ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
           ...(patch.title !== undefined ? { title: patch.title } : {}),
           /*

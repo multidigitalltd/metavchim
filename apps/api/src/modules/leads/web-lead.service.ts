@@ -18,35 +18,37 @@ export class WebLeadService {
     private readonly crypto: CryptoService,
   ) {}
 
-  /** מזהה את המשרד לפי מפתח הוובהוק — או null אם המפתח לא מוכר. */
-  private async resolveTenant(key: string): Promise<string | null> {
-    const tenant = await this.prisma.tenant.findFirst({
-      where: { settings: { path: ["leadWebhookKey"], equals: key } },
-      select: { id: true },
-    });
-    return tenant?.id ?? null;
-  }
-
   async ingest(
     key: string,
     input: { name: string; phone: string; message?: string; pageUrl?: string },
   ): Promise<void> {
-    const tenantId = await this.resolveTenant(key);
-    if (!tenantId) {
+    /*
+     * המפתח מזהה גם את המשרד וגם את הערוץ: שם המקור שנבחר בהקמת
+     * הוובהוק ("אתר", "פייסבוק"...) נכנס כ-source של הליד.
+     */
+    const webhook = await this.prisma.leadWebhook.findUnique({
+      where: { key },
+      select: { tenantId: true, sourceLabel: true },
+    });
+    if (!webhook) {
       // מפתח לא מוכר — אותה שגיאה גנרית; לא מאשרים קיום/אי-קיום מפתחות
       throw new NotFoundException("לא נמצא");
     }
-    await this.ingestForTenant(tenantId, input, "web_form");
+    await this.ingestForTenant(webhook.tenantId, input, webhook.sourceLabel);
   }
 
   /**
-   * קליטה כשהדייר כבר זוהה בערוץ אחר (דף נחיתה של נכס — הטוקן זיהה).
-   * אותה משמעת בדיוק: phone_hash, נעילה פר איש-קשר, הצטרפות לליד פתוח.
+   * קליטה כשהדייר כבר זוהה בערוץ אחר (דף נחיתה של נכס — הטוקן זיהה)
+   * או דרך וובהוק. אותה משמעת בדיוק: phone_hash, נעילה פר איש-קשר,
+   * הצטרפות לליד פתוח.
+   *
+   * `source` הוא "landing" או שם המקור החופשי של הוובהוק — הוא נשמר
+   * כמו שהוא על הליד ומוצג ברשימה (עד 20 תווים, כאורך העמודה).
    */
   async ingestForTenant(
     tenantId: string,
     input: { name: string; phone: string; message?: string; pageUrl?: string },
-    source: "web_form" | "landing",
+    source: string,
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
@@ -91,7 +93,7 @@ export class WebLeadService {
             tenantId,
             leadId: openLead.id,
             kind: "note",
-            content: `${source === "landing" ? "פנייה נוספת מדף נחיתה" : "פנייה נוספת מהאתר"}: ${summaryParts || "ללא הודעה"}`,
+            content: `${source === "landing" ? "פנייה נוספת מדף נחיתה" : `פנייה נוספת (${source})`}: ${summaryParts || "ללא הודעה"}`,
           },
         });
         return;
@@ -111,7 +113,7 @@ export class WebLeadService {
           source,
           intent: "unknown",
           status: "new",
-          summary: (summaryParts || (source === "landing" ? "פנייה מדף נחיתה" : "פנייה מהאתר")).slice(0, 500),
+          summary: (summaryParts || (source === "landing" ? "פנייה מדף נחיתה" : `פנייה — ${source}`)).slice(0, 500),
           ...(previous ? { requiresHuman: true, requiresHumanReason: "ליד חוזר — פנה בעבר" } : {}),
         },
       });
@@ -121,7 +123,7 @@ export class WebLeadService {
           tenantId,
           leadId,
           kind: "note",
-          content: `${source === "landing" ? "נקלט מדף נחיתה של נכס" : "נקלט מטופס האתר"}${input.message ? `: ${input.message.slice(0, 1500)}` : ""}`,
+          content: `${source === "landing" ? "נקלט מדף נחיתה של נכס" : `נקלט מטופס (${source})`}${input.message ? `: ${input.message.slice(0, 1500)}` : ""}`,
         },
       });
       await tx.outboxEvent.create({

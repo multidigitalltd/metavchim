@@ -30,17 +30,18 @@ const CreateSchema = z
     propertyId: IdSchema.optional(),
     buyerId: IdSchema.optional(),
     startsAt: z.coerce.date(),
-    durationMinutes: z.number().int().min(15).max(480).default(60),
+    durationMinutes: z.number().int().min(15).max(480).default(30),
     notes: z.string().max(2000).optional(),
   })
   .strict();
 
+// null = ניקוי מפורש; שדה חסר = השאר כמו שהוא (PATCH חלקי)
 const UpdateSchema = z
   .object({
     status: z.enum(["scheduled", "completed", "cancelled", "no_show"]).optional(),
-    outcome: z.enum(["liked", "not_fit", "negotiating", "needs_other"]).optional(),
-    notes: z.string().max(2000).optional(),
-    title: z.string().max(200).optional(),
+    outcome: z.enum(["liked", "not_fit", "negotiating", "needs_other"]).nullable().optional(),
+    notes: z.string().max(2000).nullable().optional(),
+    title: z.string().max(200).nullable().optional(),
   })
   .strict();
 
@@ -53,7 +54,7 @@ const UpdateSchema = z
 const RescheduleSchema = z
   .object({
     startsAt: z.coerce.date(),
-    durationMinutes: z.number().int().min(15).max(480).default(60),
+    durationMinutes: z.number().int().min(15).max(480).default(30),
     reason: z.string().max(300).optional(),
   })
   .strict();
@@ -86,6 +87,13 @@ export class CalendarController {
     @Query(new ZodValidationPipe(ListQuerySchema)) query: z.infer<typeof ListQuerySchema>,
   ): Promise<AppointmentDto[]> {
     return this.calendar.list(query);
+  }
+
+  /** פגישה בודדת — מסך העריכה נטען ממנה. */
+  @Get(":id")
+  @RequireCapability("calendar.manage")
+  async getOne(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<AppointmentDto> {
+    return this.calendar.getById(id);
   }
 
   /**

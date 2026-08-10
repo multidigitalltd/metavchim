@@ -107,7 +107,7 @@ export class DuplicatesService {
       for (const r of calls) add(r.contactId, r._count._all);
       for (const r of messages) add(r.contactId, r._count._all);
 
-      return groupDuplicates(
+      const groups = groupDuplicates(
         contacts.map((c) => ({
           contactId: c.id,
           name: this.crypto.decrypt(c.nameEncrypted),
@@ -117,6 +117,44 @@ export class DuplicatesService {
           nameKey: c.nameHash ?? "",
         })),
       );
+
+      /*
+       * קבוצה שנדחתה ("אלה לא אותו אדם") מוסתרת — אבל רק כל עוד היא
+       * באותו גודל. כרטיס נוסף שנוצר מאז עם אותו שם הוא שאלה חדשה,
+       * וההצעה חוזרת.
+       */
+      const dismissals = await tx.duplicateDismissal.findMany({
+        where: { tenantId, nameHash: { in: hashes } },
+        select: { nameHash: true, contactCount: true },
+      });
+      const dismissedAtCount = new Map(dismissals.map((d) => [d.nameHash, d.contactCount]));
+      return groups.filter(
+        (g) => (dismissedAtCount.get(g.key) ?? 0) < g.duplicates.length + 1,
+      );
+    });
+  }
+
+  /**
+   * דחיית הצעת מיזוג — הקבוצה לא תוצג שוב כל עוד לא נוסף לה כרטיס.
+   * גודל הקבוצה נמדד כאן, ברגע הדחייה, ולא נלקח מהלקוח.
+   */
+  async dismiss(nameKey: string): Promise<{ ok: true }> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const count = await tx.contact.count({ where: { tenantId, nameHash: nameKey } });
+      if (count < 2) throw new NotFoundException("קבוצת הכפילות לא נמצאה");
+      await tx.duplicateDismissal.upsert({
+        where: { tenantId_nameHash: { tenantId, nameHash: nameKey } },
+        create: { id: ulid(), tenantId, nameHash: nameKey, contactCount: count },
+        update: { contactCount: count },
+      });
+      await this.audit.record(tx, {
+        action: "contact.duplicate_dismiss",
+        entityType: "contact",
+        entityId: nameKey,
+        metadata: { contactCount: count, byUserId: userId },
+      });
+      return { ok: true };
     });
   }
 

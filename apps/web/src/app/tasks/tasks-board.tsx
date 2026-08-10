@@ -67,6 +67,14 @@ const BUCKET_COLOR: Record<TaskBucket, string> = {
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
 
+/** ISO → ערך לשדה datetime-local (בזמן המקומי של הדפדפן). */
+function toLocalInput(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
   const { user, loading } = useRequireAuth();
   const [tasks, setTasks] = useState<Task[] | null>(null);
@@ -84,6 +92,9 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
 
   const canAssign = can(user, "tasks.assign");
   const canViewAll = can(user, "tasks.view_all");
+
+  /** המשימה שהטופס שלה פתוח — אחת בכל רגע, כמו הפולו-אפ ביומן. */
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const load = useCallback(() => {
     apiGet<Task[]>(`/tasks?assignee=${encodeURIComponent(scope)}`)
@@ -130,14 +141,17 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
     }
   }
 
-  async function patch(id: string, body: Record<string, unknown>): Promise<void> {
+  /** מחזיר האם הצליח — טופס העריכה נסגר רק על הצלחה, לא על שגיאה. */
+  async function patch(id: string, body: Record<string, unknown>): Promise<boolean> {
     setBusy(true);
     setError(null);
     try {
       await api(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(body) });
       load();
+      return true;
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "עדכון המשימה נכשל");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -181,10 +195,27 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
               task.status === "open" ? `סמן כבוצע: ${task.title}` : `החזר לפתוחות: ${task.title}`
             }
           />
-          <div>
-            <span className={task.status === "done" ? "line-through opacity-70" : "font-medium"}>
-              {task.title}
-            </span>
+          <div className="flex-1">
+            {/* הכותרת היא הכפתור: לחיצה פותחת את המשימה לעריכה */}
+            {task.canEdit ? (
+              <button
+                type="button"
+                className={`text-start ${task.status === "done" ? "line-through opacity-70" : "font-medium"}`}
+                aria-expanded={editingId === task.id}
+                onClick={() => setEditingId(editingId === task.id ? null : task.id)}
+              >
+                {task.title}
+              </button>
+            ) : (
+              <span className={task.status === "done" ? "line-through opacity-70" : "font-medium"}>
+                {task.title}
+              </span>
+            )}
+            {task.notes && editingId !== task.id ? (
+              <p className="m-0 mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                {task.notes}
+              </p>
+            ) : null}
             <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
               {task.dueAt ? (
                 <span style={{ color: "var(--color-text-muted)" }}>
@@ -247,6 +278,64 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
             מחק<span className="mv-visually-hidden"> את {task.title}</span>
           </button>
         </div>
+
+        {editingId === task.id ? (
+          <form
+            className="mt-2 flex w-full flex-wrap items-end gap-2 border-t pt-3"
+            style={{ borderColor: "var(--color-input-border)" }}
+            onSubmit={(event) => {
+              event.preventDefault();
+              const f = new FormData(event.currentTarget);
+              const due = String(f.get("dueAt") ?? "");
+              const nextAssignee = String(f.get("assignee") ?? "");
+              void patch(task.id, {
+                title: String(f.get("title") ?? "").trim() || task.title,
+                notes: String(f.get("notes") ?? "").trim(),
+                // ריק = ניקוי המועד; null עובר ולידציה כ"אין מועד"
+                dueAt: due === "" ? null : new Date(due).toISOString(),
+                priority: String(f.get("priority") ?? task.priority),
+                ...(canAssign && nextAssignee !== "" && nextAssignee !== task.assignedToUserId
+                  ? { assignedToUserId: nextAssignee }
+                  : {}),
+              }).then((ok) => {
+                if (ok) setEditingId(null);
+              });
+            }}
+          >
+            <div className="flex-1" style={{ minWidth: "220px" }}>
+              <label htmlFor={`et-${task.id}`} className="mb-1 block text-sm font-medium">כותרת</label>
+              <input id={`et-${task.id}`} name="title" defaultValue={task.title} required maxLength={200} className="w-full rounded-lg border px-3 py-2" style={inputStyle} />
+            </div>
+            <div>
+              <label htmlFor={`ed-${task.id}`} className="mb-1 block text-sm font-medium">מועד</label>
+              <input id={`ed-${task.id}`} name="dueAt" type="datetime-local" defaultValue={toLocalInput(task.dueAt)} className="rounded-lg border px-3 py-2" style={inputStyle} />
+            </div>
+            <div>
+              <label htmlFor={`ep-${task.id}`} className="mb-1 block text-sm font-medium">עדיפות</label>
+              <select id={`ep-${task.id}`} name="priority" defaultValue={task.priority} className="rounded-lg border px-3 py-2" style={inputStyle}>
+                {TASK_PRIORITIES.map((p) => (
+                  <option key={p} value={p}>{TASK_PRIORITY_LABELS[p]}</option>
+                ))}
+              </select>
+            </div>
+            {canAssign && members.length > 0 ? (
+              <div>
+                <label htmlFor={`ea-${task.id}`} className="mb-1 block text-sm font-medium">אחראי</label>
+                <select id={`ea-${task.id}`} name="assignee" defaultValue={task.assignedToUserId} className="rounded-lg border px-3 py-2" style={inputStyle}>
+                  {members.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            <div className="w-full">
+              <label htmlFor={`en-${task.id}`} className="mb-1 block text-sm font-medium">הערות</label>
+              <textarea id={`en-${task.id}`} name="notes" rows={2} maxLength={2000} defaultValue={task.notes ?? ""} className="w-full rounded-lg border px-3 py-2" style={inputStyle} />
+            </div>
+            <Button type="submit" disabled={busy}>שמור</Button>
+            <Button type="button" variant="ghost" onClick={() => setEditingId(null)}>ביטול</Button>
+          </form>
+        ) : null}
       </li>
     );
   }

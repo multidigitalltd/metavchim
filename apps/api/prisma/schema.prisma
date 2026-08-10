@@ -390,6 +390,37 @@ model Lead {
   @@map("leads")
 }
 
+/// דחיית הצעת מיזוג כרטיסים: "אלה לא אותו אדם". נשמרת לפי חתימת
+/// השם של הקבוצה (name_hash) יחד עם גודל הקבוצה בזמן הדחייה —
+/// כרטיס נוסף שנוצר אחר-כך עם אותו שם מגדיל את הקבוצה ומחזיר את
+/// ההצעה, כי זו כבר שאלה חדשה.
+model DuplicateDismissal {
+  id           String   @id @db.Char(26)
+  tenantId     String   @map("tenant_id") @db.Char(26)
+  nameHash     String   @map("name_hash") @db.Char(64)
+  contactCount Int      @map("contact_count")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, nameHash])
+  @@map("duplicate_dismissals")
+}
+
+/// מפתחות קליטת לידים מהאתר — כמה לכל משרד, עם שם מקור לכל מפתח
+/// ("אתר", "פייסבוק"...). מחוץ ל-RLS בכוונה: הנתיב הציבורי
+/// ‎/public/leads/:key מזהה את המשרד *לפי* המפתח, לפני שיש הקשר
+/// דייר — אותו דגם כמו subscriptions מול ה-webhook של קארדקום.
+model LeadWebhook {
+  id          String   @id @db.Char(26)
+  tenantId    String   @map("tenant_id") @db.Char(26)
+  key         String   @unique @db.VarChar(64)
+  /// נכנס כ-source של הליד — ולכן מוגבל לאורך העמודה שם (20)
+  sourceLabel String   @map("source_label") @db.VarChar(20)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@map("lead_webhooks")
+}
+
 model Match {
   id          String   @id @db.Char(26)
   tenantId    String   @map("tenant_id") @db.Char(26)

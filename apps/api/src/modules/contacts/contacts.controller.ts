@@ -35,6 +35,11 @@ const MergeSchema = z
   .object({ survivorId: IdSchema, duplicateId: IdSchema })
   .strict();
 
+/** מפתח קבוצת הכפילות — חתימת השם (hex של HMAC, 64 תווים). */
+const DismissSchema = z
+  .object({ key: z.string().regex(/^[0-9a-f]{64}$/iu) })
+  .strict();
+
 /** אימייל תקין או מחרוזת ריקה למחיקה — אין מצב "לא נשלח" דו-משמעי. */
 const UpdateEmailSchema = z
   .object({ email: z.union([z.string().trim().email().max(254), z.literal("")]) })
@@ -102,6 +107,16 @@ export class ContactsController {
     @Body(new ZodValidationPipe(MergeSchema)) body: z.infer<typeof MergeSchema>,
   ): Promise<{ moved: number }> {
     return this.duplicates.merge(body.survivorId, body.duplicateId);
+  }
+
+  /** "אלה לא אותו אדם" — ההצעה לא תחזור כל עוד הקבוצה לא גדלה. */
+  @RequireCapability("buyers.view_all")
+  @Post("duplicates/dismiss")
+  @HttpCode(200)
+  async dismissDuplicates(
+    @Body(new ZodValidationPipe(DismissSchema)) body: z.infer<typeof DismissSchema>,
+  ): Promise<{ ok: true }> {
+    return this.duplicates.dismiss(body.key);
   }
 
   // אין כאן יכולת אחת נדרשת: כל תת-רשימה נשלטת ע"י כלל המודול שלה

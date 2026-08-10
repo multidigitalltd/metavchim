@@ -335,7 +335,7 @@ export default function CollaborationPage() {
         <h2 id="demands-heading" className="mb-1 text-lg font-semibold">ביקושים ברשת</h2>
         <p className="mb-3" style={{ color: "var(--color-text-muted)" }}>
           קונים אנונימיים ממשרדי תיווך אחרים ומ-Kanko. הצעה למשרד אחר היא חינם, בכל
-          המסלולים; ליד ממקור חיצוני עולה קרדיטים.
+          המסלולים; ליד ממקור חיצוני עולה קרדיטים, ללא חלוקה בדמי התיווך.
         </p>
         {loadFailed ? (
           <LoadError message="לא הצלחנו לטעון את הביקושים ברשת" onRetry={load} />

@@ -8,6 +8,7 @@ import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
+import { DeleteAccountSection } from "./delete-account-section";
 import { ExportSection } from "./export-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
 import { PlanSection } from "./plan-section";
@@ -105,6 +106,10 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   "users.update": "עדכון איש צוות",
   "users.unlock": "שחרור נעילת התחברות",
   "voice_intake.create": "קליטת נכס בקול",
+  "contact.merge": "מיזוג כרטיסים כפולים",
+  "contact.duplicate_dismiss": "דחיית הצעת מיזוג",
+  "settings.lead_webhook_create": "יצירת מקור קליטת לידים",
+  "settings.lead_webhook_delete": "מחיקת מקור קליטת לידים",
 };
 
 /**
@@ -116,7 +121,6 @@ interface TenantSettings {
   name: string;
   whatsappNumber?: string;
   plan: string;
-  leadWebhookKey?: string;
   licenseNumber?: string;
   officeAddress?: string;
   officePhone?: string;
@@ -473,9 +477,16 @@ export default function SettingsPage() {
             </Link>
           </section>
 
-          <div id="whatsapp">
-            <WhatsAppStatusSection />
-          </div>
+          {/*
+            סטטוס הוואטסאפ לבעל המשרד בלבד. השלב הראשון בו ("חיבור
+            השרת ל-Meta") הוא עניין של מנהל המערכת, ולשאר הצוות הקטע
+            רק מציג ✗ אדומים שאין להם מה לעשות איתם.
+          */}
+          {user?.role === "owner" ? (
+            <div id="whatsapp">
+              <WhatsAppStatusSection />
+            </div>
+          ) : null}
           {/* גישת תמיכה אינה תלוית-מסלול — כל משרד יכול לבקש עזרה */}
           <SupportAccessSection />
 
@@ -495,7 +506,7 @@ export default function SettingsPage() {
           </div>
 
           <div id="lead-webhook">
-            {tenant ? <LeadWebhookSection initialKey={tenant.leadWebhookKey} /> : null}
+            <LeadWebhookSection />
           </div>
 
           {canAgreements ? (
@@ -585,8 +596,7 @@ export default function SettingsPage() {
               <h2 id="roadmap-heading" className="m-0" style={{ fontSize: 14.5, fontWeight: 800 }}>בפיתוח עכשיו</h2>
             </div>
             <p className="m-0 text-[13px]" style={{ color: "var(--color-text-soft)", lineHeight: 1.6 }}>
-              סוכן קולי שעונה לשיחות שלא נענו · שליחה אוטומטית בוואטסאפ · סנכרון יומן
-              Google · התראות לנייד
+              שליחה אוטומטית בוואטסאפ · סנכרון אימיילים מ-Gmail
             </p>
             <p className="m-0 mt-2 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
               כשפיצ׳ר עולה — באנר "מה חדש" מופיע לכולם בכניסה הבאה.
@@ -594,6 +604,9 @@ export default function SettingsPage() {
           </section>
         </div>
       </div>
+
+      {/* אזור הסכנה — בעל המשרד בלבד, בתחתית ובמכוון רחוק מהיד */}
+      {user?.role === "owner" && tenant ? <DeleteAccountSection tenantName={tenant.name} /> : null}
     </>
   );
 }

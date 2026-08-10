@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { SkipLink } from "@metavchim/ui";
 import { AccessibilityRuntime } from "./a11y-toolbar";
 import { AppShell } from "./app-shell";
+import { GlobalDictation } from "./global-dictation";
 import { THEME_INIT_SCRIPT } from "./theme-toggle";
 import "./globals.css";
 
@@ -38,6 +39,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             עמוד /accessibility נשאר זמין בכתובת ישירה לקישור משם */}
         <AppShell>{children}</AppShell>
         <AccessibilityRuntime />
+        {/* מיקרופון בכל שדה טקסט — צץ מתחת לשדה שבפוקוס */}
+        <GlobalDictation />
       </body>
     </html>
   );

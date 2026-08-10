@@ -55,11 +55,14 @@ function MicIcon() {
 export function DictationControls({
   onAppend,
   onIdle,
+  onBusyChange,
   disabled,
 }: {
   onAppend: (text: string) => void;
   /** נקרא כשסבב ההקלטה הסתיים — הזדמנות לאפס את טקסט הבסיס. */
   onIdle?: () => void;
+  /** מקליט או מתמלל כרגע — המיקרופון הגלובלי לא מתקפל באמצע סבב. */
+  onBusyChange?: (busy: boolean) => void;
   disabled?: boolean;
 }) {
   const { browserReady, serverReady, recording, transcribing, error, start, stop } = useDictation(
@@ -73,11 +76,14 @@ export function DictationControls({
    */
   const idleRef = useRef(onIdle);
   idleRef.current = onIdle;
+  const busyRef = useRef(onBusyChange);
+  busyRef.current = onBusyChange;
   const busy = recording !== null || transcribing;
   const wasBusyRef = useRef(false);
   useEffect(() => {
     if (wasBusyRef.current && !busy) idleRef.current?.();
     wasBusyRef.current = busy;
+    busyRef.current?.(busy);
   }, [busy]);
 
   if (!browserReady && !serverReady) return null;
