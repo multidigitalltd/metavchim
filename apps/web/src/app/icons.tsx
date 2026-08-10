@@ -27,6 +27,40 @@ function svgProps(s?: number) {
   };
 }
 
+/**
+ * סימן המותג — שני סוגריים וריבוע במרכז.
+ *
+ * מוטמע כרכיב ולא כ-`<img src="/logo-mark-dark.svg">` כדי שהצלע
+ * הלבנה תהיה `currentColor`: אותו סימן בדיוק עובד על סרגל הצד הכהה
+ * (לבן), על מסך ההתחברות הבהיר (כהה) ובערכת הנושא הכהה — בלי שני
+ * קבצים שצריך לזכור להחליף ביניהם. הירוק נשאר ‎--color-action‎, שהוא
+ * בדיוק הגוון של קובץ המקור.
+ */
+export const LogoMark = ({ s = 30 }: IconProps) => (
+  <svg
+    viewBox="0 0 48 48"
+    width={s}
+    height={s}
+    fill="none"
+    aria-hidden="true"
+    className="flex-none"
+  >
+    <path
+      d="M28.5 6.5h7a6 6 0 0 1 6 6v23a6 6 0 0 1-6 6h-7"
+      stroke="currentColor"
+      strokeWidth="5"
+      strokeLinecap="round"
+    />
+    <path
+      d="M19.5 6.5h-7a6 6 0 0 0-6 6v23a6 6 0 0 0 6 6h7"
+      stroke="var(--color-action)"
+      strokeWidth="5"
+      strokeLinecap="round"
+    />
+    <rect x="19.4" y="19.4" width="9.2" height="9.2" rx="2.4" fill="var(--color-action)" />
+  </svg>
+);
+
 export const IconHome = ({ s }: IconProps) => (
   <svg {...svgProps(s)}>
     <path d="M3 10.5 12 3l9 7.5" />

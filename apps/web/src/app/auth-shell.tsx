@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LogoMark } from "./icons";
 
 /**
  * המעטפת של מסכי הכניסה — התחברות, הרשמה, איפוס והחלפת סיסמה.
@@ -30,7 +31,10 @@ export function AuthShell({
     <div className="mv-auth">
       <aside className="mv-auth-brand">
         <div className="mv-auth-brand-logo">
-          מתווכים<span style={{ color: "var(--color-action)" }}>.</span>
+          <LogoMark s={26} />
+          <span>
+            מתווכים<span style={{ color: "var(--color-action)" }}>.</span>
+          </span>
         </div>
         <h1>המתווך סוגר עסקאות. המערכת מטפלת בכל השאר.</h1>
         <p>מערכת ניהול למשרדי תיווך בישראל — נכסים, קונים, התאמות והצעות במקום אחד.</p>

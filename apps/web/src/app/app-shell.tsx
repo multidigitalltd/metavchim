@@ -10,7 +10,7 @@ import { TopbarSearch } from "./topbar-search";
 import { WhatsNewBanner } from "./whats-new-banner";
 import { TrialBanner } from "./trial-banner";
 import { SoftphoneProvider } from "./softphone-bar";
-import { IconMenu } from "./icons";
+import { IconMenu, LogoMark } from "./icons";
 
 /**
  * מעטפת האפליקציה לפי קובץ העיצוב: סרגל צד כהה עם ניווט אנכי, מונים
@@ -439,7 +439,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     <>
       <div className="mv-sidebar-head">
         <div className="mv-logo">
-          מתווכים<span style={{ color: "var(--color-action)" }}>.</span>
+          <LogoMark s={30} />
+          <span>
+            מתווכים<span style={{ color: "var(--color-action)" }}>.</span>
+          </span>
         </div>
         <div className="mv-sidebar-sub">{me?.tenantName ?? " "}</div>
       </div>

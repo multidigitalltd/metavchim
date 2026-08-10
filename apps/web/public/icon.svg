@@ -1,5 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="מתווכים">
-  <rect width="64" height="64" rx="14" fill="#0F8A43"/>
-  <path d="M16 34 L32 20 L48 34" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="24" y="34" width="16" height="14" rx="2" fill="#ffffff"/>
+  <!-- סימן המותג על ריבוע כהה — אותו מראה כמו בסרגל הצד -->
+  <rect width="64" height="64" rx="14" fill="#111513"/>
+  <g transform="translate(10 10) scale(0.9167)">
+    <path d="M28.5 6.5h7a6 6 0 0 1 6 6v23a6 6 0 0 1-6 6h-7" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
+    <path d="M19.5 6.5h-7a6 6 0 0 0-6 6v23a6 6 0 0 0 6 6h7" fill="none" stroke="#70EE91" stroke-width="5" stroke-linecap="round"/>
+    <rect x="19.4" y="19.4" width="9.2" height="9.2" rx="2.4" fill="#70EE91"/>
+  </g>
 </svg>
