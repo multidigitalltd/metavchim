@@ -76,6 +76,13 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
    */
   { action: "query_buyers", pattern: /מי\s+(?:מחפש|רוצה|צריך|מעוניין)/u, confidence: "high" },
   { action: "query_buyers", pattern: /(?:איזה|אילו)\s+קונים/u, confidence: "high" },
+  /*
+   * "תחפש קונים ארבע חדרים" — פועל חיפוש + **קונים ברבים** הוא שאלה
+   * על המאגר, לא חיפוש שמות: התשובה הנכונה היא רשימת קונים לפי
+   * הקריטריונים. ביחיד ("חפש את הקונה משה") זה נשאר חיפוש רגיל.
+   */
+  { action: "query_buyers", pattern: /(?:חפש|תחפש|מצא|תמצא|הצג|תציג|תביא|תראה)\s+(?:לי\s+)?(?:את\s+)?ה?קונים/u, confidence: "high" },
+  { action: "query_buyers", pattern: /קונים\s+(?:שמחפשים|מתאימים|עם|עד\s|ל[א-ת0-9]|ב[א-ת])/u, confidence: "low" },
   { action: "query_buyers", pattern: /יש\s+(?:לי\s+|לנו\s+)?קונ(?:ה|ים)\s+ל/u, confidence: "low" },
 
   // --- חיפוש ---

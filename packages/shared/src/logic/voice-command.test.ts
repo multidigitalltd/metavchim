@@ -152,6 +152,16 @@ describe("שאלות על המאגר", () => {
     expect(routeVoiceCommand("חפש את משה כהן").action).toBe("search");
   });
 
+  it("פועל חיפוש + קונים ברבים = שאלה על המאגר (המקרה מהשטח)", () => {
+    /*
+     * "תחפש קונים ארבע חדרים" נפל לחיפוש טקסט בשמות — שלא מוצא
+     * כלום. קונים **ברבים** אחרי פועל חיפוש הוא תמיד שאלה על המאגר.
+     */
+    expect(routeVoiceCommand("תחפש קונים ארבע חדרים").action).toBe("query_buyers");
+    expect(routeVoiceCommand("מצא לי קונים לדירה בגבעתיים").action).toBe("query_buyers");
+    expect(routeVoiceCommand("תראה לי את הקונים עד 2 מיליון").action).toBe("query_buyers");
+  });
+
   it("'מחפש דירה' בלי 'מי' — עדיין הוספת קונה", () => {
     expect(routeVoiceCommand("דיברתי עם יוסי שמחפש דירה בבני ברק").action).not.toBe(
       "query_buyers",
