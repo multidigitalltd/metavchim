@@ -57,6 +57,8 @@ export function ContactPeople({
   const [addingPerson, setAddingPerson] = useState(false);
   const [addingPhone, setAddingPhone] = useState(false);
   const [editingEmail, setEditingEmail] = useState(false);
+  /** מזהה האדם המקושר שהאימייל שלו נערך כרגע — אחד בכל רגע. */
+  const [editingPersonEmail, setEditingPersonEmail] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => {
@@ -76,6 +78,7 @@ export function ContactPeople({
       setAddingPerson(false);
       setAddingPhone(false);
       setEditingEmail(false);
+      setEditingPersonEmail(null);
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "הפעולה נכשלה");
     } finally {
@@ -91,6 +94,7 @@ export function ContactPeople({
         name: String(form.get("name")).trim(),
         phone: String(form.get("phone")).trim(),
         role: String(form.get("role")),
+        email: String(form.get("email") ?? "").trim(),
       }),
     );
   }
@@ -100,6 +104,16 @@ export function ContactPeople({
     const form = new FormData(event.currentTarget);
     void run(() =>
       apiPatch(`/contacts/${contactId}/email`, {
+        email: String(form.get("email")).trim(),
+      }),
+    );
+  }
+
+  function submitPersonEmail(event: FormEvent<HTMLFormElement>, personId: string): void {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    void run(() =>
+      apiPatch(`/contacts/${contactId}/people/${personId}/email`, {
         email: String(form.get("email")).trim(),
       }),
     );
@@ -263,18 +277,73 @@ export function ContactPeople({
               <a href={`tel:${person.phone}`} dir="ltr" className="text-sm underline">
                 {person.phone}
               </a>
+              {/* האימייל של האדם הזה, לא של הכרטיס — לבן/בת זוג תיבה משלהם */}
+              {person.email ? (
+                <a href={`mailto:${person.email}`} dir="ltr" className="text-sm underline">
+                  {person.email}
+                </a>
+              ) : (
+                <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+                  בלי אימייל
+                </span>
+              )}
               {canEdit ? (
-                <button
-                  type="button"
-                  className="mv-btn-plain ms-auto"
-                  style={{ padding: "3px 9px", fontSize: 12 }}
-                  disabled={busy}
-                  onClick={() =>
-                    void run(() => apiDelete(`/contacts/${contactId}/people/${person.contactId}`))
-                  }
+                <span className="ms-auto flex gap-2">
+                  <button
+                    type="button"
+                    className="mv-btn-plain"
+                    style={{ padding: "3px 9px", fontSize: 12 }}
+                    onClick={() =>
+                      setEditingPersonEmail((current) =>
+                        current === person.contactId ? null : person.contactId,
+                      )
+                    }
+                  >
+                    {person.email ? "ערוך אימייל" : "הוסף אימייל"}
+                  </button>
+                  <button
+                    type="button"
+                    className="mv-btn-plain"
+                    style={{ padding: "3px 9px", fontSize: 12 }}
+                    disabled={busy}
+                    onClick={() =>
+                      void run(() => apiDelete(`/contacts/${contactId}/people/${person.contactId}`))
+                    }
+                  >
+                    נתק
+                  </button>
+                </span>
+              ) : null}
+
+              {editingPersonEmail === person.contactId ? (
+                <form
+                  onSubmit={(event) => submitPersonEmail(event, person.contactId)}
+                  className="flex w-full flex-wrap items-end gap-2 ps-2"
                 >
-                  נתק
-                </button>
+                  <label className="grow">
+                    <span className="mb-1 block text-xs font-semibold">
+                      אימייל של {person.name} (ריק = מחיקה)
+                    </span>
+                    <input
+                      name="email"
+                      type="email"
+                      dir="ltr"
+                      defaultValue={person.email ?? ""}
+                      placeholder="name@example.com"
+                      className="mv-field"
+                    />
+                  </label>
+                  <button type="submit" className="mv-btn-action" disabled={busy}>
+                    שמור
+                  </button>
+                  <button
+                    type="button"
+                    className="mv-btn-plain"
+                    onClick={() => setEditingPersonEmail(null)}
+                  >
+                    ביטול
+                  </button>
+                </form>
               ) : null}
             </li>
           ))}
@@ -290,6 +359,16 @@ export function ContactPeople({
           <label className="grow">
             <span className="mb-1 block text-xs font-semibold">טלפון</span>
             <input name="phone" dir="ltr" required placeholder="050-1234567" className="mv-field" />
+          </label>
+          <label className="grow">
+            <span className="mb-1 block text-xs font-semibold">אימייל (לא חובה)</span>
+            <input
+              name="email"
+              type="email"
+              dir="ltr"
+              placeholder="name@example.com"
+              className="mv-field"
+            />
           </label>
           <label>
             <span className="mb-1 block text-xs font-semibold">תפקיד</span>
