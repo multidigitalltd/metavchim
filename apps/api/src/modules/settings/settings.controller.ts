@@ -39,6 +39,7 @@ import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { AuthService } from "../auth/auth.service";
 import { LoginThrottleService } from "../auth/login-throttle.service";
+import { AccountDeletionService } from "./account-deletion.service";
 
 const TenantSettingsSchema = z
   .object({
@@ -115,6 +116,14 @@ const LeadWebhookSchema = z
   .object({ sourceLabel: z.string().trim().min(2).max(20) })
   .strict();
 
+/** מחיקת חשבון: שם המשרד כאישור + סיסמה (לחשבון Google — שם בלבד). */
+const DeleteAccountSchema = z
+  .object({
+    confirmName: z.string().min(1).max(120),
+    currentPassword: z.string().max(200).optional(),
+  })
+  .strict();
+
 export interface TeamUserDto {
   id: string;
   name: string;
@@ -133,7 +142,22 @@ export class SettingsController {
     private readonly audit: AuditService,
     private readonly loginThrottle: LoginThrottleService,
     private readonly plans: PlanCatalogService,
+    private readonly accountDeletion: AccountDeletionService,
   ) {}
+
+  /**
+   * מחיקת חשבון מלאה. הבדיקות המהותיות — בעלים בלבד, שם המשרד
+   * והסיסמה — בשירות; ראו AccountDeletionService על מה נמחק ומה
+   * נשאר (payments בחובת שמירה, audit_log מוגן ברמת המסד).
+   */
+  @Post("delete-account")
+  @RequireCapability("settings.manage")
+  @HttpCode(200)
+  async deleteAccount(
+    @Body(new ZodValidationPipe(DeleteAccountSchema)) body: z.infer<typeof DeleteAccountSchema>,
+  ): Promise<{ ok: true }> {
+    return this.accountDeletion.deleteAccount(body);
+  }
 
   @Get("tenant")
   @RequireCapability("settings.manage")

@@ -8,6 +8,7 @@ import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
+import { DeleteAccountSection } from "./delete-account-section";
 import { ExportSection } from "./export-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
 import { PlanSection } from "./plan-section";
@@ -603,6 +604,9 @@ export default function SettingsPage() {
           </section>
         </div>
       </div>
+
+      {/* אזור הסכנה — בעל המשרד בלבד, בתחתית ובמכוון רחוק מהיד */}
+      {user?.role === "owner" && tenant ? <DeleteAccountSection tenantName={tenant.name} /> : null}
     </>
   );
 }
