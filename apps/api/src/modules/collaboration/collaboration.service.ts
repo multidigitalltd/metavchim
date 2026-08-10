@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
@@ -6,9 +6,11 @@ import {
   commissionSplitRejectionReason,
   coopOfferCost,
   scoreMatch,
+  sharedLeadPrice,
   type BuyerRequirements,
   type LeadSourcePrice,
 } from "@metavchim/shared";
+import { assertLeadAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -75,8 +77,25 @@ export interface CoopOfferDto {
   createdAt: Date;
 }
 
+/** ליד בשוק — בפיד רק מה שאנונימי; פרטי הקשר לעולם לא כאן. */
+export interface SharedLeadDto {
+  id: string;
+  intent: string;
+  source: string;
+  city?: string;
+  note?: string;
+  priceCredits: number;
+  status: string;
+  mine: boolean;
+  /** קישור לליד המקורי — רק למשרד המוכר */
+  originLeadId?: string;
+  createdAt: Date;
+}
+
 @Injectable()
 export class CollaborationService {
+  private readonly logger = new Logger(CollaborationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -400,6 +419,326 @@ export class CollaborationService {
         entityId: id,
       });
     });
+  }
+
+  /* ============================================================
+     שוק הלידים: משרד מוכר ליד שהוא לא יטפל בו, משרד אחר קונה
+     בקרדיטים. הקרדיטים עוברים מהקונה למוכר.
+     ============================================================ */
+
+  /**
+   * הצעת ליד למכירה. בפיד יופיע רק מידע אנונימי; פרטי הקשר נשמרים
+   * כצילום מוצפן על השורה ומועתקים לקונה רק אחרי רכישה.
+   *
+   * המחיר נקבע כאן, ברגע השיתוף — לפי מקור הליד ומטבלת התמחור של
+   * הפלטפורמה — ונשמר על השורה. הקונה משלם את מה שראה בפיד, גם אם
+   * התמחור השתנה בינתיים.
+   */
+  async shareLead(leadId: string, note?: string, city?: string): Promise<SharedLeadDto> {
+    const ctx = TenantContext.current();
+    const id = ulid();
+    const prices = await this.pricing.all();
+
+    const row = await this.prisma.withTenant(async (tx) => {
+      // סוכן עם view_own לא מוכר את הליד של סוכן אחר
+      await assertLeadAccess(tx, ctx.tenantId, leadId);
+      const lead = await tx.lead.findFirst({
+        where: { id: leadId, tenantId: ctx.tenantId },
+        select: { source: true, intent: true, status: true, contactId: true },
+      });
+      if (!lead) throw new NotFoundException("ליד לא נמצא");
+      if (lead.status === "converted") {
+        throw new BadRequestException("ליד שהומר כבר טופל — אין מה למכור בו");
+      }
+      const contact = await tx.contact.findFirst({
+        where: { id: lead.contactId, tenantId: ctx.tenantId },
+        select: { nameEncrypted: true, phoneEncrypted: true, phoneHash: true },
+      });
+      if (!contact) throw new NotFoundException("איש הקשר של הליד לא נמצא");
+
+      const created = await tx.sharedLead
+        .create({
+          data: {
+            id,
+            tenantId: ctx.tenantId,
+            originLeadId: leadId,
+            source: lead.source,
+            intent: lead.intent,
+            city: city?.trim() || null,
+            note: note?.trim() || null,
+            contactNameEncrypted: contact.nameEncrypted,
+            contactPhoneEncrypted: contact.phoneEncrypted,
+            contactPhoneHash: contact.phoneHash,
+            priceCredits: sharedLeadPrice(lead.source, prices),
+          },
+        })
+        .catch((error: unknown) => {
+          // האינדקס החלקי (tenant, origin_lead) WHERE active — שתי
+          // לחיצות שיתוף במקביל לא יפרסמו את אותו ליד פעמיים
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+            throw new BadRequestException("הליד כבר מוצע ברשת");
+          }
+          throw error;
+        });
+      await this.audit.record(tx, {
+        action: "collaboration.lead_share",
+        entityType: "shared_lead",
+        entityId: id,
+        metadata: { leadId },
+      });
+      return created;
+    });
+
+    return this.toSharedLeadDto(row, ctx.tenantId);
+  }
+
+  /** הסרת ליד מהשוק — רק כל עוד לא נמכר. */
+  async withdrawLead(sharedLeadId: string): Promise<void> {
+    const tenantId = TenantContext.current().tenantId;
+    await this.prisma.withTenant(async (tx) => {
+      const result = await tx.sharedLead.updateMany({
+        where: { id: sharedLeadId, tenantId, status: "active" },
+        data: { status: "withdrawn" },
+      });
+      if (result.count === 0) throw new NotFoundException("הליד לא נמצא בשוק או כבר נמכר");
+      await this.audit.record(tx, {
+        action: "collaboration.lead_withdraw",
+        entityType: "shared_lead",
+        entityId: sharedLeadId,
+      });
+    });
+  }
+
+  /**
+   * פיד השוק: הלידים הפעילים ברשת, ובנוסף הלידים ששיתפתי בכל סטטוס —
+   * המוכר צריך לראות "נמכר" בלי לחפש ביומן הקרדיטים.
+   */
+  async listSharedLeads(): Promise<SharedLeadDto[]> {
+    const tenantId = TenantContext.current().tenantId;
+    const network = await this.prisma.withNetworkRead((tx) =>
+      tx.sharedLead.findMany({
+        where: { status: "active" },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      }),
+    );
+    const mine = await this.prisma.withTenant((tx) =>
+      tx.sharedLead.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }),
+    );
+    const seen = new Set<string>();
+    const merged = [...mine, ...network].filter((row) => {
+      if (seen.has(row.id)) return false;
+      seen.add(row.id);
+      return true;
+    });
+    merged.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return merged.map((row) => this.toSharedLeadDto(row, tenantId));
+  }
+
+  /**
+   * קניית ליד מהשוק.
+   *
+   * הסדר קריטי ומכוון:
+   * 1. תפיסה אטומית אצל המוכר (active→sold) + זיכוי המוכר — טרנזקציה
+   *    אחת. שני קונים במקביל: רק אחד עובר את ה-updateMany המותנה.
+   * 2. אצל הקונה: בדיקת יתרה, העתקת איש הקשר, יצירת הליד, חיוב.
+   * 3. כשל בשלב 2 ⇒ השורה חוזרת ל-active והזיכוי מתקזז ברשומה נגדית —
+   *    היומן Append-Only, מוחקים בו כלום.
+   */
+  async buyLead(sharedLeadId: string): Promise<{ leadId: string }> {
+    const ctx = TenantContext.current();
+
+    const row = await this.prisma.withNetworkRead((tx) =>
+      tx.sharedLead.findFirst({ where: { id: sharedLeadId, status: "active" } }),
+    );
+    if (!row) throw new NotFoundException("הליד לא נמצא בשוק או כבר נמכר");
+    if (row.tenantId === ctx.tenantId) {
+      throw new BadRequestException("זה ליד שלך — אפשר להסיר אותו מהשוק, לא לקנות");
+    }
+    const cost = row.priceCredits;
+
+    // בדיקת יתרה מוקדמת — לא לתפוס ליד אצל המוכר רק כדי להחזיר אותו
+    const balance = await this.prisma.withTenant((tx) => this.balanceInTx(tx, ctx.tenantId));
+    if (balance < cost) {
+      throw new BadRequestException("אין מספיק קרדיטים — ניתן לרכוש בהגדרות");
+    }
+
+    const claimed = await this.prisma.withExplicitTenant(row.tenantId, async (tx) => {
+      const result = await tx.sharedLead.updateMany({
+        where: { id: sharedLeadId, status: "active" },
+        data: { status: "sold", buyerTenantId: ctx.tenantId, soldAt: new Date() },
+      });
+      if (result.count === 0) return false;
+      await tx.creditLedger.create({
+        data: { id: ulid(), tenantId: row.tenantId, kind: "lead_sale", amount: cost, refId: sharedLeadId },
+      });
+      return true;
+    });
+    if (!claimed) throw new BadRequestException("הליד נמכר הרגע למשרד אחר");
+
+    let leadId: string;
+    try {
+      leadId = await this.prisma.withTenant(async (tx) => {
+        // הבדיקה המחייבת — בתוך הטרנזקציה, אחרי המוקדמת שבחוץ
+        if ((await this.balanceInTx(tx, ctx.tenantId)) < cost) {
+          throw new BadRequestException("אין מספיק קרדיטים — ניתן לרכוש בהגדרות");
+        }
+        /*
+         * ההצפנה במפתח אפליקטיבי אחיד, לכן הצילום מועתק כמות שהוא —
+         * בלי פענוח ביניים. אם הטלפון כבר מוכר למשרד הקונה (לפי
+         * ה-HMAC) לא נוצר כרטיס כפול.
+         */
+        let contact = await tx.contact.findUnique({
+          where: {
+            tenantId_phoneHash: { tenantId: ctx.tenantId, phoneHash: row.contactPhoneHash },
+          },
+          select: { id: true },
+        });
+        contact ??= await tx.contact.create({
+          data: {
+            id: ulid(),
+            tenantId: ctx.tenantId,
+            nameEncrypted: row.contactNameEncrypted,
+            phoneEncrypted: row.contactPhoneEncrypted,
+            phoneHash: row.contactPhoneHash,
+          },
+          select: { id: true },
+        });
+
+        const newLeadId = ulid();
+        const summary = [row.note, row.city ? `עיר: ${row.city}` : null]
+          .filter(Boolean)
+          .join("\n");
+        await tx.lead.create({
+          data: {
+            id: newLeadId,
+            tenantId: ctx.tenantId,
+            contactId: contact.id,
+            source: "network",
+            intent: row.intent,
+            status: "new",
+            summary: (summary || "ליד שנרכש ברשת השת\"פ").slice(0, 500),
+          },
+        });
+        await tx.interaction.create({
+          data: {
+            id: ulid(),
+            tenantId: ctx.tenantId,
+            leadId: newLeadId,
+            kind: "note",
+            content: `נרכש ברשת השת"פ תמורת ${cost} קרדיטים`,
+            createdBy: ctx.userId,
+          },
+        });
+        await tx.creditLedger.create({
+          data: {
+            id: ulid(),
+            tenantId: ctx.tenantId,
+            kind: "lead_purchase",
+            amount: -cost,
+            refId: sharedLeadId,
+          },
+        });
+        await this.audit.record(tx, {
+          action: "collaboration.lead_buy",
+          entityType: "shared_lead",
+          entityId: sharedLeadId,
+          metadata: { leadId: newLeadId, priceCredits: cost },
+        });
+        // ליד רגיל לכל דבר — SLA והתראות מטפלים בו כמו בכל ליד חדש
+        await tx.outboxEvent.create({
+          data: {
+            id: ulid(),
+            tenantId: ctx.tenantId,
+            name: "lead.created",
+            payload: {
+              leadId: newLeadId,
+              tenantId: ctx.tenantId,
+              source: "network",
+              requiresHuman: false,
+            },
+          },
+        });
+        return newLeadId;
+      });
+    } catch (error) {
+      // שחרור: הליד חוזר לשוק והזיכוי מתקזז ברשומה נגדית
+      await this.prisma
+        .withExplicitTenant(row.tenantId, async (tx) => {
+          await tx.sharedLead.updateMany({
+            where: { id: sharedLeadId, status: "sold", buyerTenantId: ctx.tenantId },
+            data: { status: "active", buyerTenantId: null, soldAt: null },
+          });
+          await tx.creditLedger.create({
+            data: {
+              id: ulid(),
+              tenantId: row.tenantId,
+              kind: "lead_sale_reversal",
+              amount: -cost,
+              refId: sharedLeadId,
+            },
+          });
+        })
+        .catch((releaseError: unknown) => {
+          this.logger.error(
+            `שחרור ליד ${sharedLeadId} אחרי קנייה כושלת נכשל: ${String(releaseError)}`,
+          );
+        });
+      throw error;
+    }
+
+    // התראה למוכר — אחרי שהקנייה הושלמה; כשל כאן אינו מבטל את המכירה
+    await this.prisma
+      .withExplicitTenant(row.tenantId, (tx) =>
+        tx.outboxEvent.create({
+          data: {
+            id: ulid(),
+            tenantId: row.tenantId,
+            name: "shared_lead.sold",
+            payload: { sharedLeadId, tenantId: row.tenantId, priceCredits: cost },
+          },
+        }),
+      )
+      .catch((error: unknown) => {
+        this.logger.error(`התראת מכירת ליד ${sharedLeadId} לא נשלחה: ${String(error)}`);
+      });
+
+    return { leadId };
+  }
+
+  private toSharedLeadDto(
+    row: {
+      id: string;
+      tenantId: string;
+      originLeadId: string;
+      source: string;
+      intent: string;
+      city: string | null;
+      note: string | null;
+      priceCredits: number;
+      status: string;
+      createdAt: Date;
+    },
+    viewerTenantId: string,
+  ): SharedLeadDto {
+    const mine = row.tenantId === viewerTenantId;
+    return {
+      id: row.id,
+      intent: row.intent,
+      source: row.source,
+      city: row.city ?? undefined,
+      note: row.note ?? undefined,
+      priceCredits: row.priceCredits,
+      status: row.status,
+      mine,
+      // הקישור לליד המקורי נחשף רק למוכר — לעולם לא לרשת
+      originLeadId: mine ? row.originLeadId : undefined,
+      createdAt: row.createdAt,
+    };
   }
 
   async credits(): Promise<{ balance: number }> {

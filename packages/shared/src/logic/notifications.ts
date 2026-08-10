@@ -87,6 +87,17 @@ export function notificationFromEvent<E extends DomainEventName>(
         entityId: p.coopOfferId,
       };
     }
+    case "shared_lead.sold": {
+      const p = payload as DomainEventPayload<"shared_lead.sold">;
+      return {
+        tenantId: p.tenantId,
+        type: "shared_lead_sold",
+        title: "💰 הליד ששיתפת נמכר",
+        body: `משרד אחר רכש את הליד — ${p.priceCredits} קרדיטים נוספו ליתרה שלכם.`,
+        entityType: "shared_lead",
+        entityId: p.sharedLeadId,
+      };
+    }
     case "appointment.scheduled": {
       const p = payload as DomainEventPayload<"appointment.scheduled">;
       return {

@@ -482,11 +482,42 @@ model CoopOffer {
   @@map("coop_offers")
 }
 
+// ליד למכירה בשוק השת"פ: בפיד רק מידע אנונימי (כוונה, מקור, עיר,
+// הערה); פרטי הקשר הם צילום מוצפן שמועתק לקונה רק אחרי רכישה.
+// אותו דגם RLS כמו shared_demands — בעלות מלאה למוכר + קריאת רשת.
+model SharedLead {
+  id           String  @id @db.Char(26)
+  tenantId     String  @map("tenant_id") @db.Char(26)
+  originLeadId String  @map("origin_lead_id") @db.Char(26)
+  source       String  @db.VarChar(20)
+  intent       String  @db.VarChar(20)
+  /// ללידים אין עמודת עיר — המוכר מזין ידנית כדי שהפיד יהיה שמיש
+  city         String? @db.VarChar(120)
+  note         String? @db.VarChar(300)
+  /// צילום איש הקשר במפתח ההצפנה האפליקטיבי (אחיד לכל הדיירים) —
+  /// לכן הקונה מקבל עותק בלי פענוח ביניים. לעולם לא מוחזר בפיד.
+  contactNameEncrypted  String @map("contact_name_encrypted") @db.Text
+  contactPhoneEncrypted String @map("contact_phone_encrypted") @db.Text
+  contactPhoneHash      String @map("contact_phone_hash") @db.Char(64)
+  /// המחיר נקבע ברגע השיתוף ולא בזמן הקנייה — שינוי תמחור מאוחר
+  /// לא משנה ליד שכבר פורסם (packages/shared/logic/lead-marketplace.ts)
+  priceCredits  Int       @map("price_credits")
+  status        String    @default("active") @db.VarChar(20) // active | sold | withdrawn
+  buyerTenantId String?   @map("buyer_tenant_id") @db.Char(26)
+  soldAt        DateTime? @map("sold_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@index([tenantId, status])
+  @@map("shared_leads")
+}
+
 // ספר קרדיטים Append-Only (docs/03 §3): היתרה נגזרת, לא מאוחסנת.
 model CreditLedger {
   id        String   @id @db.Char(26)
   tenantId  String   @map("tenant_id") @db.Char(26)
-  kind      String   @db.VarChar(30) // initial_grant | coop_offer | purchase | refund
+  kind      String   @db.VarChar(30) // initial_grant | coop_offer | purchase | refund | lead_purchase | lead_sale | lead_sale_reversal
   amount    Int // חיובי = זיכוי, שלילי = חיוב
   refId     String?  @map("ref_id") @db.Char(26)
   createdAt DateTime @default(now()) @map("created_at")

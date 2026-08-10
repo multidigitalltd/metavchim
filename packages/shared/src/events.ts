@@ -66,6 +66,13 @@ export const DomainEvents = {
     tenantId: IdSchema,
     fromTenantId: IdSchema,
   }),
+  /** ליד ששותף בשוק נקנה — ההתראה מנותבת למשרד המוכר. */
+  "shared_lead.sold": z.object({
+    sharedLeadId: IdSchema,
+    /** המשרד המוכר — אליו מנותבת ההתראה והזיכוי */
+    tenantId: IdSchema,
+    priceCredits: z.number().int().positive(),
+  }),
   /** אובייקט אחסון שמחיקתו נכשלה — ניסיון חוזר עמיד דרך תור low. */
   "storage.cleanup_object": z.object({
     tenantId: IdSchema,

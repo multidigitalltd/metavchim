@@ -27,6 +27,8 @@ function entityHref(n: NotificationRow): string | null {
       return `/leads/${n.entityId}`;
     case "offer":
       return null; // הצעה נצפית דרך כרטיס הנכס
+    case "shared_lead":
+      return "/collaboration"; // "נמכר" מוצג בשוק הלידים
     default:
       return null;
   }
