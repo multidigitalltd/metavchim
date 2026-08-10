@@ -74,6 +74,19 @@ export default function ImportPage() {
     const file = event.target.files?.[0];
     if (!file) return;
     reset();
+    /*
+     * xlsx נקרא כקובץ בינארי ומומר ל-CSV; קריאתו כטקסט — מה שקרה
+     * קודם — נותנת ג'יבריש ואפס שורות, בלי שום הסבר. רוב המשרדים
+     * מייצאים מהמערכת הקודמת שלהם דווקא xlsx.
+     */
+    if (/\.xlsx$/iu.test(file.name)) {
+      file
+        .arrayBuffer()
+        .then((buf) => import("@/lib/xlsx").then((m) => m.xlsxFileToCsv(buf)))
+        .then(setCsv)
+        .catch(() => setError("קריאת קובץ ה-xlsx נכשלה — אפשר לשמור אותו כ-CSV ולנסות שוב"));
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => setCsv(typeof reader.result === "string" ? reader.result : "");
     reader.onerror = () => setError("קריאת הקובץ נכשלה");
@@ -163,7 +176,7 @@ export default function ImportPage() {
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
         >
           <span>📄 בחרו קובץ CSV</span>
-          <input type="file" accept=".csv,text/csv" className="mv-visually-hidden" onChange={onFile} />
+          <input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="mv-visually-hidden" onChange={onFile} />
         </label>
         <Button
           variant="secondary"
