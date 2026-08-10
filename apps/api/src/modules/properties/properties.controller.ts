@@ -60,6 +60,27 @@ export class PropertiesController {
     private readonly matching: MatchingService,
   ) {}
 
+
+  /**
+   * המרת ליד לנכס: "יש לי דירה למכור" הוא בעל נכס, לא קונה. הנתיב
+   * יושב כאן ולא במודול הלידים — LeadsModule כבר מיובא ע"י
+   * PropertiesModule, והכיוון ההפוך היה מעגל מודולים שמפיל את השרת
+   * בעלייה (ביקורת Codex, P0).
+   *
+   * properties.create ולא properties.edit: הנתיב יוצר נכס, ועוזר
+   * שמורשה לערוך אך לא ליצור אינו אמור לעקוף את זה דרך המרה
+   * (ביקורת Codex).
+   */
+  @Post("from-lead/:leadId")
+  @RequireCapability("properties.create")
+  async convertFromLead(
+    @Param("leadId", new ZodValidationPipe(IdSchema)) leadId: string,
+    @Body(new ZodValidationPipe(PropertyFieldsSchema)) body: z.infer<typeof PropertyFieldsSchema>,
+  ): Promise<{ id: string }> {
+    const property = await this.properties.convertFromLead(leadId, body);
+    return { id: property.id };
+  }
+
   @Post()
   @RequireCapability("properties.create")
   async create(

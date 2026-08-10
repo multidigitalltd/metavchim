@@ -51,7 +51,7 @@ const PUBLIC_PREFIXES = [
 /** כותרות המסכים בשורת הכותרת — מיפוי הנתיבים מקובץ העיצוב. */
 const SCREEN_TITLES: [prefix: string, title: string][] = [
   ["/properties", "נכסים"],
-  ["/buyers", "קונים"],
+  ["/buyers", "קונים · שוכרים"],
   ["/leads", "לידים"],
   ["/calls", "שיחות"],
   ["/matches", "התאמות"],
@@ -428,7 +428,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <nav aria-label="ניווט ראשי" className="mv-sidebar-nav">
         {navLink("/", "דשבורד", ICONS.dashboard)}
         {navLink("/properties", "נכסים", ICONS.properties, count(counts?.properties))}
-        {navLink("/buyers", "קונים", ICONS.buyers, count(counts?.buyers))}
+        {navLink("/buyers", "קונים · שוכרים", ICONS.buyers, count(counts?.buyers))}
         {navLink(
           "/leads",
           "לידים",

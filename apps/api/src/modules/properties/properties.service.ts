@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import { computeReadiness, limitState, type Page, type PropertyFields } from "@metavchim/shared";
 import {
@@ -16,8 +16,10 @@ function propertyTypesFor(term: string): string[] {
     .filter(([, label]) => label.toLowerCase().includes(needle))
     .map(([value]) => value);
 }
+import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
+import { CryptoService } from "../../core/crypto.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
@@ -37,6 +39,7 @@ export class PropertiesService {
     private readonly contacts: ContactsService,
     private readonly messaging: MessagingService,
     private readonly plans: PlanCatalogService,
+    private readonly crypto: CryptoService,
   ) {}
 
   /**
@@ -115,6 +118,110 @@ export class PropertiesService {
    * יחושב מחדש בעריכה הבאה). כך אין דיווח-כזב של נכס שכבר קיים ואין כפילויות
    * בניסיון חוזר. גם חוסך N חישובי-התאמה סינכרוניים בבקשה אחת (docs/07 §5).
    */
+
+  /**
+   * המרת ליד לנכס — התאום של ‎BuyersService.convertFromLead‎.
+   *
+   * ליד אינו תמיד קונה: מי שהתקשר "יש לי דירה למכור" הוא בעל נכס.
+   * איש הקשר של הליד הופך לבעל הנכס — אותו אדם, בלי כרטיס כפול.
+   *
+   * הסדר: תפיסת הליד (CAS על הסטטוס) ⟵ שמירת הנכס ⟵ התאמות.
+   * שני הכללים שמחזיקים את זה ישרים (ביקורת Codex):
+   *
+   * - **ההתאמות הן best-effort**, כמו בהמרה לקונה ובייבוא: הנכס כבר
+   *   נשמר, וכשל בחישוב אינו "ההמרה נכשלה" — הוא יחושב בעריכה הבאה.
+   *   בלי זה, כשל התאמות היה מחזיר שגיאה על נכס שקיים, והניסיון
+   *   החוזר היה יוצר נכס שני לאותו ליד.
+   * - **הרולבק מחזיר את כל מה שהתפיסה שינתה** — סטטוס מקורי,
+   *   requiresHuman, firstResponseAt, ומשימות ה-SLA שנסגרו — לא רק
+   *   סטטוס גנרי. כישלון המרה (למשל מכסת נכסים) אינו אמור לשנות
+   *   לצמיתות את מצב הטיפול בליד.
+   */
+  async convertFromLead(leadId: string, fields: PropertyFields): Promise<PropertyDto> {
+    const ctx = TenantContext.current();
+
+    const claim = await this.prisma.withTenant(async (tx) => {
+      const lead = await tx.lead.findFirst({
+        where: {
+          id: leadId,
+          tenantId: ctx.tenantId,
+          ...ownershipFilter("leads.view_all", "assignedToUserId"),
+        },
+      });
+      if (!lead) throw new NotFoundException("ליד לא נמצא");
+
+      const claimed = await tx.lead.updateMany({
+        where: { id: leadId, tenantId: ctx.tenantId, status: { not: "converted" } },
+        data: {
+          status: "converted",
+          requiresHuman: false,
+          ...(lead.firstResponseAt === null ? { firstResponseAt: new Date() } : {}),
+        },
+      });
+      if (claimed.count === 0) throw new ConflictException("הליד כבר הומר");
+
+      // מזהי משימות ה-SLA שנסגרות — כדי שהרולבק יפתח בדיוק אותן
+      const slaTasks = await tx.task.findMany({
+        where: { tenantId: ctx.tenantId, sourceKey: `lead-sla:${leadId}`, status: "open" },
+        select: { id: true },
+      });
+      await tx.task.updateMany({
+        where: { id: { in: slaTasks.map((t) => t.id) }, tenantId: ctx.tenantId },
+        data: { status: "done" },
+      });
+
+      const contact = await tx.contact.findFirst({
+        where: { id: lead.contactId, tenantId: ctx.tenantId },
+        select: { nameEncrypted: true, phoneEncrypted: true },
+      });
+      if (!contact) throw new NotFoundException("איש הקשר של הליד לא נמצא");
+      return {
+        owner: {
+          name: this.crypto.decrypt(contact.nameEncrypted),
+          phone: this.crypto.decrypt(contact.phoneEncrypted),
+        },
+        prior: {
+          status: lead.status,
+          requiresHuman: lead.requiresHuman,
+          firstResponseAt: lead.firstResponseAt,
+        },
+        slaTaskIds: slaTasks.map((t) => t.id),
+      };
+    });
+
+    let propertyId: string;
+    try {
+      // persist בלבד — לא create: ההתאמות מופרדות ל-best-effort למטה
+      propertyId = await this.persist({ fields, owner: claim.owner });
+    } catch (error) {
+      // השמירה נכשלה — הליד חוzר בדיוק למצבו, לא למצב גנרי
+      await this.prisma
+        .withTenant(async (tx) => {
+          await tx.lead.updateMany({
+            where: { id: leadId, tenantId: ctx.tenantId, status: "converted" },
+            data: {
+              status: claim.prior.status,
+              requiresHuman: claim.prior.requiresHuman,
+              firstResponseAt: claim.prior.firstResponseAt,
+            },
+          });
+          await tx.task.updateMany({
+            where: { id: { in: claim.slaTaskIds }, tenantId: ctx.tenantId },
+            data: { status: "open" },
+          });
+        })
+        .catch(() => undefined);
+      throw error;
+    }
+
+    try {
+      await this.matching.recomputeForProperty(propertyId);
+    } catch {
+      // הנכס כבר קיים; ההתאמות יחושבו בעריכה הבאה
+    }
+    return this.getById(propertyId);
+  }
+
   async createForImport(input: {
     fields: PropertyFields;
     marketingTitle?: string;
