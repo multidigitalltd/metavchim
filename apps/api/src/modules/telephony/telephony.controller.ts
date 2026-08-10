@@ -113,6 +113,16 @@ export class TelephonyController {
   }
 
   /**
+   * האם להציג את כפתור "חבר סופטפון". נשאל בטעינת כל עמוד — ולכן
+   * מחזיר ביט אחד ואף סוד, ראו TelephonyService.softphoneAvailability.
+   */
+  @Get("softphone/availability")
+  @RequireCapability("leads.edit")
+  async softphoneAvailability(): Promise<{ available: boolean }> {
+    return this.telephony.softphoneAvailability();
+  }
+
+  /**
    * פרטי הרישום לדפדפן. מחזיר סיסמת SIP — של המשתמש המחובר בלבד,
    * ולעולם לא של אחר. ראו TelephonyService.softphone.
    */
