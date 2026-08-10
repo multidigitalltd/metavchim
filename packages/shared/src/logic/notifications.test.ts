@@ -31,6 +31,17 @@ describe("notificationFromEvent", () => {
     expect(n?.title).toContain("17");
   });
 
+  it("ליד נמכר בשוק ⇒ התראה למוכר עם הסכום", () => {
+    const n = notificationFromEvent("shared_lead.sold", {
+      sharedLeadId: ID,
+      tenantId: TENANT,
+      priceCredits: 3,
+    });
+    expect(n?.type).toBe("shared_lead_sold");
+    expect(n?.tenantId).toBe(TENANT);
+    expect(n?.body).toContain("3 קרדיטים");
+  });
+
   it("אירוע לא ממופה ⇒ null", () => {
     expect(notificationFromEvent("property.ready", { propertyId: ID, tenantId: TENANT, readinessScore: 90 })).toBeNull();
   });

@@ -4,6 +4,8 @@ import {
   DEFAULT_COMMISSION_SPLIT,
   IdSchema,
   MAX_COMMISSION_SHARE,
+  MAX_SHARED_LEAD_CITY,
+  MAX_SHARED_LEAD_NOTE,
   MIN_COMMISSION_SHARE,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
@@ -12,6 +14,7 @@ import {
   CollaborationService,
   type CoopOfferDto,
   type SharedDemandDto,
+  type SharedLeadDto,
 } from "./collaboration.service";
 
 /**
@@ -32,6 +35,13 @@ const OfferSchema = z
   .object({ propertyId: IdSchema, commissionSplit: CommissionSplitSchema })
   .strict();
 const RespondSchema = z.object({ response: z.enum(["interested", "declined"]) }).strict();
+const ShareLeadSchema = z
+  .object({
+    leadId: IdSchema,
+    note: z.string().trim().max(MAX_SHARED_LEAD_NOTE).optional(),
+    city: z.string().trim().max(MAX_SHARED_LEAD_CITY).optional(),
+  })
+  .strict();
 
 /*
  * **בלי שער מסלול.** שיתוף פעולה בין משרדים פתוח בכל המסלולים —
@@ -96,5 +106,51 @@ export class CollaborationController {
   @RequireCapability("collaboration.offer")
   async credits(): Promise<{ balance: number }> {
     return this.collaboration.credits();
+  }
+
+  /* ============================================================
+     שוק הלידים: מכירת ליד בקרדיטים בין משרדים.
+     שיתוף = אותה יכולת כמו שיתוף ביקוש; קנייה = אותה יכולת כמו
+     הצעה על ביקוש — אין תפקיד חדש לנהל.
+     ============================================================ */
+
+  @Post("leads")
+  @RequireCapability("collaboration.share")
+  async shareLead(
+    @Body(new ZodValidationPipe(ShareLeadSchema)) body: z.infer<typeof ShareLeadSchema>,
+  ): Promise<SharedLeadDto> {
+    return this.collaboration.shareLead(body.leadId, body.note, body.city);
+  }
+
+  @Delete("leads/:id")
+  @RequireCapability("collaboration.share")
+  @HttpCode(204)
+  async withdrawLead(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<void> {
+    await this.collaboration.withdrawLead(id);
+  }
+
+  /**
+   * הרישומים שלי בלבד — תחת יכולת ה**שיתוף**: מי שמותר לו למכור חייב
+   * לראות ולהסיר את מה שפרסם גם בלי יכולת הקנייה, אחרת כרטיס הליד
+   * מציג "לא משותף" על ליד שכן משותף (ביקורת Codex).
+   */
+  @Get("leads/mine")
+  @RequireCapability("collaboration.share")
+  async mySharedLeads(): Promise<SharedLeadDto[]> {
+    return this.collaboration.listMySharedLeads();
+  }
+
+  @Get("leads")
+  @RequireCapability("collaboration.offer")
+  async sharedLeads(): Promise<SharedLeadDto[]> {
+    return this.collaboration.listSharedLeads();
+  }
+
+  @Post("leads/:id/buy")
+  @RequireCapability("collaboration.offer")
+  async buyLead(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ leadId: string }> {
+    return this.collaboration.buyLead(id);
   }
 }

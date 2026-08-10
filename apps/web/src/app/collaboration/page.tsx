@@ -7,8 +7,9 @@ import {
   describeCommissionSplit,
 } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
-import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
+import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
 import Link from "next/link";
 import { LoadError } from "../load-error";
@@ -52,6 +53,18 @@ interface CoopOfferRow {
   status: string;
 }
 
+interface SharedLeadRow {
+  id: string;
+  intent: string;
+  source: string;
+  city?: string;
+  note?: string;
+  priceCredits: number;
+  status: string;
+  mine: boolean;
+  originLeadId?: string;
+}
+
 interface PropertyOption {
   id: string;
   city?: string;
@@ -70,6 +83,9 @@ const FEATURE_LABELS: Record<string, string> = {
 export default function CollaborationPage() {
   const { loading: authLoading } = useRequireAuth();
   const [demands, setDemands] = useState<DemandRow[] | null>(null);
+  const [sharedLeads, setSharedLeads] = useState<SharedLeadRow[]>([]);
+  const [buyingLead, setBuyingLead] = useState<string | null>(null);
+  const [boughtLeadId, setBoughtLeadId] = useState<string | null>(null);
   const [coopOffers, setCoopOffers] = useState<CoopOfferRow[]>([]);
   const [properties, setProperties] = useState<PropertyOption[]>([]);
   const [balance, setBalance] = useState<number | null>(null);
@@ -79,8 +95,14 @@ export default function CollaborationPage() {
    * ואפשר להציע אחרת — זו הצעה עד שהצד השני מסמן "מעוניין".
    */
   const [offerSplit, setOfferSplit] = useState<Record<string, number>>({});
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessageState] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+
+  /** כל הודעה חדשה מוחקת את קישור "פתח את הליד" של הקנייה הקודמת. */
+  function setMessage(text: string | null, leadId: string | null = null) {
+    setMessageState(text);
+    setBoughtLeadId(leadId);
+  }
 
   const load = useCallback(() => {
     setLoadFailed(false);
@@ -93,6 +115,7 @@ export default function CollaborationPage() {
       .then(setDemands)
       .catch(() => setLoadFailed(true));
     apiGet<CoopOfferRow[]>("/collaboration/offers").then(setCoopOffers).catch(() => undefined);
+    apiGet<SharedLeadRow[]>("/collaboration/leads").then(setSharedLeads).catch(() => undefined);
     apiGet<{ balance: number }>("/collaboration/credits")
       .then((r) => setBalance(r.balance))
       .catch(() => undefined);
@@ -136,7 +159,36 @@ export default function CollaborationPage() {
     load();
   }
 
+  async function buyLead(id: string, price: number) {
+    /*
+     * אישור מפורש לפני חיוב — קנייה בלחיצה אחת בלי שאלה היא בדיוק
+     * איך מבזבזים קרדיטים בטעות.
+     */
+    if (!window.confirm(`לקנות את הליד תמורת ${price} קרדיטים? פרטי הקשר ייחשפו מיד.`)) return;
+    setBuyingLead(id);
+    try {
+      const { leadId } = await apiPost<{ leadId: string }>(`/collaboration/leads/${id}/buy`, {});
+      setMessage("✓ הליד נרכש — פרטי הקשר המלאים מחכים לכם בכרטיס הליד.", leadId);
+      load();
+    } catch (err: unknown) {
+      setMessage(err instanceof ApiError ? err.message : "הקנייה נכשלה");
+    } finally {
+      setBuyingLead(null);
+    }
+  }
+
+  async function withdrawLead(id: string) {
+    try {
+      await apiDelete(`/collaboration/leads/${id}`);
+      load();
+    } catch (err: unknown) {
+      setMessage(err instanceof ApiError ? err.message : "ההסרה נכשלה");
+    }
+  }
+
   const incoming = coopOffers.filter((o) => o.direction === "incoming");
+  const leadsForSale = sharedLeads.filter((l) => !l.mine && l.status === "active");
+  const myListedLeads = sharedLeads.filter((l) => l.mine);
 
   return (
     <>
@@ -163,6 +215,14 @@ export default function CollaborationPage() {
       {message ? (
         <p role="status" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-primary)" }}>
           {message}
+          {boughtLeadId ? (
+            <>
+              {" "}
+              <Link href={`/leads/${boughtLeadId}`} className="font-medium underline">
+                פתח את הליד ←
+              </Link>
+            </>
+          ) : null}
         </p>
       ) : null}
 
@@ -193,6 +253,76 @@ export default function CollaborationPage() {
                     {offer.status === "interested" ? "✓ אושר — הסוכנויות מחוברות" : "נדחה"}
                   </span>
                 )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {leadsForSale.length > 0 || myListedLeads.length > 0 ? (
+        <section aria-labelledby="lead-market-heading" className="mb-8">
+          <h2 id="lead-market-heading" className="mb-1 text-lg font-semibold">🛒 שוק הלידים</h2>
+          <p className="mb-3" style={{ color: "var(--color-text-muted)" }}>
+            לידים שמשרדים אחרים מוכרים בקרדיטים. שם וטלפון נחשפים רק אחרי הקנייה;
+            מכירת ליד נעשית מכרטיס הליד עצמו.
+          </p>
+          <ul className="flex flex-col gap-3">
+            {myListedLeads.map((lead) => (
+              <li key={lead.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold">
+                    {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent}
+                    {lead.city ? ` · ${lead.city}` : ""}
+                  </span>
+                  <span className="rounded-full px-2 py-0.5 text-sm" style={{ background: "var(--color-border)" }}>הליד שלך</span>
+                  {lead.status === "sold" ? (
+                    <span className="font-medium" style={{ color: "var(--color-success)" }}>
+                      ✓ נמכר — {lead.priceCredits} קרדיטים נוספו ליתרה
+                    </span>
+                  ) : lead.status === "withdrawn" ? (
+                    <span style={{ color: "var(--color-text-muted)" }}>הוסר מהשוק</span>
+                  ) : (
+                    <>
+                      <span className="rounded-full px-2 py-0.5 text-sm" style={{ background: "#f7efdd", color: "#7a5c1f" }}>
+                        {lead.priceCredits} קרדיטים
+                      </span>
+                      <Button variant="ghost" onClick={() => void withdrawLead(lead.id)}>
+                        הסר מהשוק
+                      </Button>
+                    </>
+                  )}
+                </div>
+                {lead.note ? (
+                  <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>{lead.note}</p>
+                ) : null}
+              </li>
+            ))}
+            {leadsForSale.map((lead) => (
+              <li key={lead.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                  <span className="font-semibold">
+                    {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent}
+                    {lead.city ? ` · ${lead.city}` : ""}
+                  </span>
+                  <span className="rounded-full border px-2 py-0.5 text-sm" style={{ borderColor: "var(--color-border)" }}>
+                    מקור: {LEAD_SOURCE_LABELS[lead.source] ?? lead.source}
+                  </span>
+                  <span className="rounded-full px-2 py-0.5 text-sm" style={{ background: "#f7efdd", color: "#7a5c1f" }}>
+                    {lead.priceCredits} קרדיטים
+                  </span>
+                </div>
+                {lead.note ? (
+                  <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>{lead.note}</p>
+                ) : null}
+                <Button
+                  variant="secondary"
+                  disabled={buyingLead !== null}
+                  onClick={() => void buyLead(lead.id, lead.priceCredits)}
+                >
+                  {buyingLead === lead.id
+                    ? "קונה…"
+                    : `קנה ליד (${lead.priceCredits} קרדיטים)`}
+                </Button>
               </li>
             ))}
           </ul>

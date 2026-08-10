@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { MATURITY_LABELS as SHARED_MATURITY } from "@metavchim/shared";
-import { apiGet, apiPost, apiPatch, ApiError } from "@/lib/api";
+import { apiDelete, apiGet, apiPost, apiPatch, ApiError } from "@/lib/api";
 import { formatDate, shekelsToAgorot, waMeUrl } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -52,6 +52,134 @@ const KIND_LABELS: Record<string, string> = {
  * את המינימום שנכס חדש דורש (עיר, סוג עסקה); כל השאר מושלם בכרטיס
  * הנכס אחר כך, ואיש הקשר של הליד הופך לבעל הנכס אוטומטית.
  */
+interface MySharedLead {
+  id: string;
+  status: string;
+  priceCredits: number;
+  mine: boolean;
+  originLeadId?: string;
+}
+
+/**
+ * מכירת הליד בשוק השת"פ — הדרך השלישית לצד המרה לקונה או לנכס:
+ * ליד שהמשרד לא יטפל בו נמכר בקרדיטים למשרד אחר במקום להירקב.
+ * בפיד מופיע רק מידע אנונימי; פרטי הקשר נחשפים לקונה רק אחרי רכישה.
+ */
+function SellLeadSection({ leadId }: { leadId: string }) {
+  const [shared, setShared] = useState<MySharedLead | null | undefined>(undefined);
+  const [note, setNote] = useState("");
+  const [city, setCity] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // ‎leads/mine‎ — נגיש עם יכולת השיתוף בלבד, כמו המדור הזה עצמו
+    apiGet<MySharedLead[]>("/collaboration/leads/mine")
+      .then((rows) =>
+        setShared(
+          rows.find((r) => r.originLeadId === leadId && r.status !== "withdrawn") ?? null,
+        ),
+      )
+      .catch(() => setShared(null));
+  }, [leadId]);
+
+  async function share() {
+    setBusy(true);
+    setError(null);
+    try {
+      const row = await apiPost<MySharedLead>("/collaboration/leads", {
+        leadId,
+        ...(note.trim() ? { note: note.trim() } : {}),
+        ...(city.trim() ? { city: city.trim() } : {}),
+      });
+      setShared(row);
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "השיתוף נכשל");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function withdraw() {
+    if (!shared) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiDelete(`/collaboration/leads/${shared.id}`);
+      setShared(null);
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "ההסרה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (shared === undefined) return null;
+
+  if (shared?.status === "sold") {
+    return (
+      <p className="mb-4 rounded-xl border p-4 font-medium" style={{ borderColor: "var(--color-success)", color: "var(--color-success)" }}>
+        💰 הליד נמכר ברשת — {shared.priceCredits} קרדיטים נוספו ליתרת המשרד.
+      </p>
+    );
+  }
+
+  if (shared) {
+    return (
+      <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+        <p className="mb-2 font-medium">
+          🛒 הליד מוצע למכירה ברשת השת"פ ב-{shared.priceCredits} קרדיטים.
+        </p>
+        {error ? <p role="alert" className="mb-2" style={{ color: "var(--color-danger)" }}>{error}</p> : null}
+        <Button variant="ghost" disabled={busy} onClick={() => void withdraw()}>
+          הסר מהשוק
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <details className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+      <summary className="cursor-pointer font-medium">💰 מכור ליד ברשת השת"פ</summary>
+      <p className="mt-2 mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+        ליד שלא תטפלו בו יכול להימכר בקרדיטים למשרד אחר. בפיד יופיעו רק
+        הכוונה, המקור והתיאור שתכתבו — שם וטלפון נחשפים לקונה רק אחרי הרכישה.
+      </p>
+      <div className="mb-3 flex flex-col gap-2">
+        <label className="flex flex-col gap-1 text-sm">
+          <span>עיר (לתצוגה בפיד)</span>
+          <input
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            maxLength={120}
+            className="rounded-lg border px-3 py-2"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+          />
+        </label>
+        <label htmlFor="sellNote" className="flex flex-col gap-1 text-sm">
+          <span>תיאור קצר לקונים (בלי שם ובלי טלפון)</span>
+          <div className="flex items-start gap-2">
+            <textarea
+              id="sellNote"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              maxLength={300}
+              rows={2}
+              className="flex-1 rounded-lg border px-3 py-2"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+            />
+            <DictateFor targetId="sellNote" />
+          </div>
+        </label>
+      </div>
+      {error ? <p role="alert" className="mb-2" style={{ color: "var(--color-danger)" }}>{error}</p> : null}
+      <Button disabled={busy} onClick={() => void share()}>
+        {busy ? "משתף…" : "הצע למכירה"}
+      </Button>
+    </details>
+  );
+}
+
 function ConvertToPropertySection({ leadId }: { leadId: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -371,6 +499,11 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
       {/* ליד אינו תמיד קונה — "יש לי דירה למכור" הוא בעל נכס */}
       {lead.status !== "converted" && can(user, "properties.create") ? (
         <ConvertToPropertySection leadId={lead.id} />
+      ) : null}
+
+      {/* הדרך השלישית: ליד שלא מטפלים בו נמכר בקרדיטים למשרד אחר */}
+      {lead.status !== "converted" && can(user, "collaboration.share") ? (
+        <SellLeadSection leadId={lead.id} />
       ) : null}
 
       <div className="mb-8">
