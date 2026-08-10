@@ -54,6 +54,24 @@ const STATUS_LABELS: Record<string, string> = {
   churned: "עזב",
 };
 
+/**
+ * קיצורי הקפיצה בראש העמוד — [עוגן, תווית].
+ *
+ * הסדר הוא סדר הסעיפים בעמוד, כדי שהשורה תתפקד גם כתוכן עניינים.
+ * "התחברות עם Google" מופיע כאן במפורש: זה הסעיף שמחפשים כשמחברים
+ * את המערכת לראשונה, והוא היה קבור בין עשרה סעיפים אחרים.
+ */
+const JUMP_LINKS: readonly (readonly [string, string])[] = [
+  ["platform-system-heading", "עדכוני מערכת"],
+  ["platform-backups-heading", "גיבויים"],
+  ["plans-heading", "מסלולים"],
+  ["coupons-heading", "קופונים"],
+  ["lead-prices-heading", "תמחור לידים"],
+  ["payments-heading", "תשלומים"],
+  ["platform-settings-heading", "התחברות עם Google"],
+  ["new-agency", "משרד חדש"],
+];
+
 export default function PlatformPage() {
   const { loading: authLoading } = useRequireAuth();
   const [agencies, setAgencies] = useState<AgencyRow[] | null>(null);
@@ -189,9 +207,23 @@ export default function PlatformPage() {
   return (
     <>
       <h1 className="mb-2 text-2xl font-bold">ניהול הפלטפורמה</h1>
-      <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
+      <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
         הקמת משרדי תיווך חדשים וניהולם — כל משרד מבודד לחלוטין, עם הצוות והנתונים שלו.
       </p>
+
+      {/*
+        קיצורי קפיצה לסעיפים. העמוד צמח לעשרה סעיפים, ו"התחברות עם
+        Google" — הסעיף שמחפשים בו בפועל כשמחברים את המערכת — יושב
+        באמצע ואי אפשר למצוא אותו בלי לגלול את כולו. עוגנים ולא
+        לשוניות: הסעיפים כאן נקראים ברצף ואין סיבה להסתיר אף אחד.
+      */}
+      <nav aria-label="קיצורי דרך בעמוד" className="mb-6 flex flex-wrap gap-2">
+        {JUMP_LINKS.map(([anchor, label]) => (
+          <a key={anchor} href={`#${anchor}`} className="mv-chip" style={{ textDecoration: "none" }}>
+            {label}
+          </a>
+        ))}
+      </nav>
 
       {error ? (
         <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
