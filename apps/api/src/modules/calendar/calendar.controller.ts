@@ -88,6 +88,13 @@ export class CalendarController {
     return this.calendar.list(query);
   }
 
+  /** פגישה בודדת — מסך העריכה נטען ממנה. */
+  @Get(":id")
+  @RequireCapability("calendar.manage")
+  async getOne(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<AppointmentDto> {
+    return this.calendar.getById(id);
+  }
+
   /**
    * דחייה למועד חדש. `calendar.manage` — אותה יכולת שקובעת פגישה.
    */

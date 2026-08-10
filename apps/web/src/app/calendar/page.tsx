@@ -357,31 +357,26 @@ export default function CalendarPage() {
                   >
                     {d.events.map((a) => {
                       const colors = KIND_COLORS[a.kind] ?? KIND_COLORS["call"]!;
-                      const href = a.propertyId
-                        ? `/properties/${a.propertyId}`
-                        : a.leadId
-                          ? `/leads/${a.leadId}`
-                          : null;
-                      const block = (
-                        <div
-                          className="rounded-lg px-[9px] py-[7px]"
-                          style={{ background: colors.bg, lineHeight: 1.3 }}
-                        >
-                          <div className="text-[11.5px] font-extrabold" style={{ color: colors.fg }}>
-                            {timeFmt.format(new Date(a.startsAt))} · {KIND_LABELS[a.kind] ?? a.kind}
+                      /*
+                       * הלחיצה פותחת את הפגישה עצמה לעריכה — לא את
+                       * הנכס או הליד; אליהם יש קישורים בתוך מסך
+                       * העריכה. קודם פגישה בלי קישור לא הגיבה בכלל.
+                       */
+                      return (
+                        <Link key={a.id} href={`/calendar/${a.id}/edit`} className="no-underline">
+                          <div
+                            className="rounded-lg px-[9px] py-[7px]"
+                            style={{ background: colors.bg, lineHeight: 1.3 }}
+                          >
+                            <div className="text-[11.5px] font-extrabold" style={{ color: colors.fg }}>
+                              {timeFmt.format(new Date(a.startsAt))} · {KIND_LABELS[a.kind] ?? a.kind}
+                            </div>
+                            <div className="text-[12.5px] font-bold" style={{ color: "#212722" }}>
+                              {a.title ?? ""}
+                              {a.outcome ? " ✓" : ""}
+                            </div>
                           </div>
-                          <div className="text-[12.5px] font-bold" style={{ color: "#212722" }}>
-                            {a.title ?? ""}
-                            {a.outcome ? " ✓" : ""}
-                          </div>
-                        </div>
-                      );
-                      return href ? (
-                        <Link key={a.id} href={href} className="no-underline">
-                          {block}
                         </Link>
-                      ) : (
-                        <div key={a.id}>{block}</div>
                       );
                     })}
                   </div>
