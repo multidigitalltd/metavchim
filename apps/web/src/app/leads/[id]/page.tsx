@@ -21,6 +21,7 @@ import {
   IconDoc,
   IconGear,
   IconHome,
+  IconInfo,
   IconPhone,
   IconRefresh,
   IconUser,
@@ -488,7 +489,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
 
       {merged ? (
         <p role="status" className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-          ℹ️ לאיש הקשר כבר יש ליד פתוח — הפנייה החדשה נוספה לציר הזמן שלו במקום לפתוח ליד כפול.
+          <IconInfo s={15} /> לאיש הקשר כבר יש ליד פתוח — הפנייה החדשה נוספה לציר הזמן שלו במקום לפתוח ליד כפול.
         </p>
       ) : null}
 
