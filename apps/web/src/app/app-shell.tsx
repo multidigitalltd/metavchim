@@ -512,15 +512,18 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <div className="mv-main">
         <header className="mv-topbar">
+          {/* aria-label קבוע: מתחת ל-640px התווית הוויזואלית מוסתרת,
+              וקורא מסך חייב שם נגיש שאינו תלוי ברוחב (ביקורת Codex) */}
           <button
             ref={menuButtonRef}
             type="button"
             className="mv-menu-button"
+            aria-label="תפריט"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen(true)}
           >
             <span aria-hidden="true">☰</span>
-            <span className="mv-topbar-label">תפריט</span>
+            <span className="mv-topbar-label" aria-hidden="true">תפריט</span>
           </button>
 
           {/* לא h1 — הכותרת הסמנטית של הדף נמצאת בתוכן עצמו */}
@@ -534,7 +537,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {/* קליטה קולית נחסמת בשרת בלי הפיצ'ר — קישור ל-403 גרוע
               מקישור שלא קיים */}
           {hasFeature("voice_intake") ? (
-              <Link href="/voice" className="mv-voice-button">
+              <Link href="/voice" className="mv-voice-button" aria-label="קליטה בקול">
                 <svg
                   width="16"
                   height="16"

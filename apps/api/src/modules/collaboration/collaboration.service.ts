@@ -238,6 +238,7 @@ export class CollaborationService {
     properties: PropertyRow[],
     demand: {
       cities: string[];
+      neighborhoods: string[];
       dealType: string;
       budgetMaxAgorot: bigint;
       roomsMin: Prisma.Decimal | null;
@@ -247,7 +248,9 @@ export class CollaborationService {
   ): DemandMatchDto[] {
     const requirements = {
       cities: demand.cities,
-      neighborhoods: [],
+      // השכונות משפיעות על הניקוד כמו בהתאמות הפנימיות — נכס באותה
+      // עיר מחוץ לשכונות המבוקשות לא מקבל את מלוא נקודות המיקום
+      neighborhoods: demand.neighborhoods,
       dealType: demand.dealType,
       propertyTypes: [],
       budgetMaxAgorot: Number(demand.budgetMaxAgorot),
