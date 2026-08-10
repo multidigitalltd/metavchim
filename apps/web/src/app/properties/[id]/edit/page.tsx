@@ -8,6 +8,7 @@ import { apiGet, apiPatch, ApiError } from "@/lib/api";
 import { shekelsToAgorot, PROPERTY_TYPE_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../../dictation-field";
+import { FeatureChips } from "../../feature-chips";
 
 /**
  * עריכת נכס קיים — סוגר את הלולאה של "השלם פרטים": הדשבורד שולח לכאן
@@ -45,11 +46,6 @@ interface PropertyDetail {
 function triState(form: FormData, name: string): boolean | undefined {
   const value = String(form.get(name) ?? "");
   return value === "yes" ? true : value === "no" ? false : undefined;
-}
-
-/** boolean → ערך תלת-מצבי לבורר בטופס */
-function boolToTri(value: boolean | undefined): string {
-  return value === true ? "yes" : value === false ? "no" : "";
 }
 
 const FEATURES: [keyof PropertyDetail & string, string][] = [
@@ -210,31 +206,12 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
             </div>
           </div>
 
-          <fieldset className="mt-4">
-            <legend className="mb-2 font-medium">מאפיינים — יש, אין, או לא ידוע?</legend>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {FEATURES.map(([name, label]) => (
-                <div
-                  key={name}
-                  className="flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3"
-                  style={{ borderColor: "var(--color-border)" }}
-                >
-                  <label htmlFor={`feat_${name}`} className="font-medium">{label}</label>
-                  <select
-                    id={`feat_${name}`}
-                    name={name}
-                    defaultValue={boolToTri(property[name] as boolean | undefined)}
-                    className="rounded-md border px-2 py-1.5"
-                    style={inputStyle}
-                  >
-                    <option value="">לא ידוע</option>
-                    <option value="yes">יש</option>
-                    <option value="no">אין</option>
-                  </select>
-                </div>
-              ))}
-            </div>
-          </fieldset>
+          <FeatureChips
+            features={FEATURES}
+            initial={Object.fromEntries(
+              FEATURES.map(([name]) => [name, property[name] as boolean | undefined]),
+            )}
+          />
         </fieldset>
 
         <fieldset className="mb-6 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
