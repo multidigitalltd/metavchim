@@ -30,7 +30,7 @@ const CreateSchema = z
     propertyId: IdSchema.optional(),
     buyerId: IdSchema.optional(),
     startsAt: z.coerce.date(),
-    durationMinutes: z.number().int().min(15).max(480).default(60),
+    durationMinutes: z.number().int().min(15).max(480).default(30),
     notes: z.string().max(2000).optional(),
   })
   .strict();
@@ -54,7 +54,7 @@ const UpdateSchema = z
 const RescheduleSchema = z
   .object({
     startsAt: z.coerce.date(),
-    durationMinutes: z.number().int().min(15).max(480).default(60),
+    durationMinutes: z.number().int().min(15).max(480).default(30),
     reason: z.string().max(300).optional(),
   })
   .strict();

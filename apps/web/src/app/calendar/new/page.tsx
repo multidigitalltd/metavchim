@@ -150,8 +150,10 @@ function NewAppointmentForm() {
           </div>
           <div>
             <label htmlFor="duration" className="mb-1 block font-medium">משך (דקות)</label>
-            <select id="duration" name="duration" defaultValue="60" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle}>
+            <select id="duration" name="duration" defaultValue="30" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle}>
+              <option value="15">15</option>
               <option value="30">30</option>
+              <option value="45">45</option>
               <option value="60">60</option>
               <option value="90">90</option>
               <option value="120">120</option>

@@ -85,7 +85,7 @@ export default function EditAppointmentPage({ params }: { params: Promise<{ id: 
     const currentDuration =
       appointment.endsAt !== undefined
         ? Math.round((new Date(appointment.endsAt).getTime() - started.getTime()) / 60_000)
-        : 60;
+        : 30;
     const nextStart = new Date(`${date}T${time}`);
     const moved = nextStart.getTime() !== started.getTime() || duration !== currentDuration;
 
@@ -126,7 +126,7 @@ export default function EditAppointmentPage({ params }: { params: Promise<{ id: 
   const durationMinutes =
     appointment.endsAt !== undefined
       ? Math.round((new Date(appointment.endsAt).getTime() - starts.getTime()) / 60_000)
-      : 60;
+      : 30;
 
   return (
     <div className="mx-auto max-w-lg">
