@@ -344,8 +344,11 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
   return (
     <div className="mx-auto max-w-4xl">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h1 className="m-0 text-2xl font-bold">
-          {heading} {tasks ? `(${open.length})` : ""}
+        {/* המונה כתגית ולא בסוגריים — אותה שפה שבה נספרות כל שאר
+            הקבוצות במערכת, כדי שמסך המשימות לא ייראה כמו מסך זר */}
+        <h1 className="m-0 flex items-center gap-2 text-2xl font-bold">
+          {heading}
+          {tasks ? <span className="mv-chip">{open.length}</span> : null}
         </h1>
         {canViewAll ? (
           <div>
@@ -469,10 +472,11 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
             <section key={group.bucket} className="mb-5" aria-labelledby={`b-${group.bucket}`}>
               <h2
                 id={`b-${group.bucket}`}
-                className="mb-2 text-sm font-bold"
+                className="mb-2 flex items-center gap-2 text-sm font-bold"
                 style={{ color: BUCKET_COLOR[group.bucket] }}
               >
-                {group.label} ({group.tasks.length})
+                {group.label}
+                <span className="mv-chip">{group.tasks.length}</span>
               </h2>
               <ul className="flex flex-col gap-2">{group.tasks.map(row)}</ul>
             </section>

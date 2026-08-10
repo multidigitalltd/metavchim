@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { parseSearchQuery, type ParsedSearchQuery } from "@metavchim/shared";
 import { apiGet } from "@/lib/api";
 import { formatDateTime, MATURITY_LABELS, STATUS_LABELS } from "@/lib/format";
 import { LEAD_STATUS_LABELS } from "@/lib/lead-labels";
@@ -58,6 +59,28 @@ function Highlight({ text, needle }: { text: string; needle: string }) {
   );
 }
 
+/** "4 חדרים" / "3–4 חדרים" / "מ-3 חדרים" — כפי שהמתווך היה אומר. */
+function describeRooms(rooms: NonNullable<ParsedSearchQuery["rooms"]>): string {
+  if (rooms.min !== undefined && rooms.max !== undefined) {
+    return rooms.min === rooms.max
+      ? `${rooms.min} חדרים`
+      : `${rooms.min}–${rooms.max} חדרים`;
+  }
+  if (rooms.min !== undefined) return `מ-${rooms.min} חדרים`;
+  return `עד ${rooms.max} חדרים`;
+}
+
+/** סכומים בשקלים ולא באגורות — האגורות הן ייצוג פנימי בלבד. */
+function describeBudget(budget: NonNullable<ParsedSearchQuery["budget"]>): string {
+  const shekels = (agorot: number): string =>
+    new Intl.NumberFormat("he-IL", { maximumFractionDigits: 0 }).format(agorot / 100);
+  if (budget.minAgorot !== undefined && budget.maxAgorot !== undefined) {
+    return `₪${shekels(budget.minAgorot)}–${shekels(budget.maxAgorot)}`;
+  }
+  if (budget.maxAgorot !== undefined) return `עד ₪${shekels(budget.maxAgorot)}`;
+  return `מעל ₪${shekels(budget.minAgorot ?? 0)}`;
+}
+
 function SearchResultsView() {
   const { loading: authLoading } = useRequireAuth();
   const params = useSearchParams();
@@ -87,6 +110,24 @@ function SearchResultsView() {
     results.calls.length === 0 &&
     results.notes.length === 0;
 
+  /*
+   * אותו פרסור שרץ בשרת, כאן רק לתצוגה — כדי שהמתווך יראה לפי מה
+   * סיננו. הלוגיקה יושבת ב-shared ולכן אין כאן עותק שני שיסטה.
+   */
+  const parsed = parseSearchQuery(q);
+  const understood: string[] = [];
+  if (parsed.structured) {
+    if (parsed.entity === "buyers") {
+      understood.push(parsed.dealType === "rent" ? "שוכרים" : "קונים");
+    }
+    if (parsed.entity === "properties") understood.push("נכסים");
+    if (parsed.entity === "leads") understood.push("לידים");
+    if (parsed.rooms) understood.push(describeRooms(parsed.rooms));
+    if (parsed.city !== undefined) understood.push(parsed.city);
+    if (parsed.budget) understood.push(describeBudget(parsed.budget));
+    if (parsed.rest !== "") understood.push(`„${parsed.rest}"`);
+  }
+
   return (
     <>
       <h1 className="mb-2 text-2xl font-bold">חיפוש</h1>
@@ -103,7 +144,7 @@ function SearchResultsView() {
           required
           minLength={2}
           maxLength={80}
-          placeholder="טלפון, שם, כתובת, סיכום שיחה, הערה או משימה…"
+          placeholder="קונים 4 חדרים בני ברק · טלפון · שם · כתובת…"
           className="w-full rounded-md border px-3 py-2"
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
         />
@@ -116,10 +157,26 @@ function SearchResultsView() {
         </button>
       </form>
 
+      {/*
+        מה הובן מהשאילתה. בלי זה, שאילתה שפורסרה חלקית נראית כמו תקלה:
+        המתווך מקבל פחות תוצאות ואין לו דרך לדעת למה. הצ'יפים אומרים
+        לו במפורש לפי מה סיננו, והוא יכול לתקן את הניסוח.
+      */}
+      {understood.length > 0 ? (
+        <p className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+          <span style={{ color: "var(--color-text-muted)" }}>הבנתי:</span>
+          {understood.map((chip) => (
+            <span key={chip} className="mv-chip">
+              {chip}
+            </span>
+          ))}
+        </p>
+      ) : null}
+
       {q.length < 2 ? (
         <p style={{ color: "var(--color-text-muted)" }}>
-          הקלידו לפחות 2 תווים. החיפוש עובר על נכסים, קונים, לידים, פגישות,
-          משימות, סיכומי שיחות והערות — ומספר טלפון מאתר לקוח מיידית.
+          הקלידו לפחות 2 תווים. אפשר לכתוב כמו שמדברים — „קונים 4 חדרים בני ברק"
+          או „דירות עד 2 מיליון" — וגם טלפון, שם, כתובת, סיכום שיחה או הערה.
         </p>
       ) : error ? (
         <p role="alert" style={{ color: "var(--color-danger)" }}>{error}</p>
