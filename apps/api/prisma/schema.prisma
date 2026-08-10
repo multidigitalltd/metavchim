@@ -43,6 +43,10 @@ model Tenant {
   couponPercentOff Int? @map("coupon_percent_off")
   /// המסלול שהקופון הוגבל אליו ברגע המימוש — ההנחה חלה רק עליו.
   couponPlanCode String? @map("coupon_plan_code") @db.VarChar(20)
+  /// עד מתי פתוח חלון גישת התמיכה שהמשרד העניק. null = סגור.
+  /// נפתח רק בלחיצת בעל המשרד, לעולם לא מהפלטפורמה.
+  supportAccessUntil DateTime? @map("support_access_until")
+  supportAccessGrantedBy String? @map("support_access_granted_by") @db.Char(26)
   settings  Json     @default("{}")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -162,6 +166,9 @@ model Session {
   passwordEpoch DateTime? @map("password_epoch")
   ipAddress String?  @map("ip_address") @db.VarChar(45)
   userAgent String?  @map("user_agent") @db.VarChar(300)
+  /// לא null = Session של תמיכה: חי רק בתוך חלון ההסכמה של המשרד,
+  /// והביטול הורג אותו בבקשה הבאה. הערך הוא מי מהתמיכה נכנס.
+  supportAdminEmail String? @map("support_admin_email") @db.VarChar(254)
   createdAt DateTime @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

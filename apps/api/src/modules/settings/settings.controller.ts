@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -836,5 +837,77 @@ export class SettingsController {
       whatsappConfigured: filled("whatsappNumber"),
       transcriptionAvailable: env.STT_URL !== undefined && env.STT_SECRET !== undefined,
     });
+  }
+
+  /* ==================== גישת תמיכה בהסכמה ==================== */
+
+  /**
+   * חלון גישת התמיכה — המודל של "המשתמש לוחץ, התמיכה נכנסת".
+   *
+   * אין למנהל הפלטפורמה דלת קבועה למשרד. הדלת נפתחת רק כאן, בלחיצה
+   * של מי שמחזיק settings.manage, נסגרת מעצמה אחרי שעה, וניתנת
+   * לסגירה מוקדמת בלחיצה. הפתיחה, הכניסה והביטול נרשמים ביומן
+   * הפעילות של המשרד — השקיפות היא חלק מהעסקה, לא תוספת.
+   */
+  @Get("support-access")
+  @RequireCapability("settings.manage")
+  async supportAccess(): Promise<{ activeUntil: string | null }> {
+    const { tenantId } = TenantContext.current();
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { supportAccessUntil: true },
+    });
+    const until = tenant?.supportAccessUntil ?? null;
+    return {
+      activeUntil: until !== null && until.getTime() > Date.now() ? until.toISOString() : null,
+    };
+  }
+
+  @Post("support-access")
+  @RequireCapability("settings.manage")
+  @HttpCode(200)
+  async grantSupportAccess(): Promise<{ activeUntil: string }> {
+    const { tenantId, userId } = TenantContext.current();
+    // 60 דקות — קבוע ולא פרמטר: חלון שמישהו יכול למתוח הוא לא חלון
+    const until = new Date(Date.now() + 60 * 60 * 1000);
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: { supportAccessUntil: until, supportAccessGrantedBy: userId },
+    });
+    await this.prisma.withTenant((tx) =>
+      this.audit.record(tx, {
+        action: "support.access.grant",
+        entityType: "tenant",
+        entityId: tenantId,
+        metadata: { until: until.toISOString() },
+      }),
+    );
+    return { activeUntil: until.toISOString() };
+  }
+
+  @Delete("support-access")
+  @RequireCapability("settings.manage")
+  async revokeSupportAccess(): Promise<{ ok: true }> {
+    const { tenantId } = TenantContext.current();
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: { supportAccessUntil: null, supportAccessGrantedBy: null },
+    });
+    /*
+     * ה-Sessions של התמיכה נמחקים כאן ולא רק נפסלים בבדיקה הבאה —
+     * חגורה וגם כתפיות: resolveSession כבר דוחה אותם, אבל שורה
+     * שנשארת בטבלה אחרי ביטול היא שורה שמישהו ישאל עליה.
+     */
+    await this.prisma.session.deleteMany({
+      where: { supportAdminEmail: { not: null }, user: { tenantId } },
+    });
+    await this.prisma.withTenant((tx) =>
+      this.audit.record(tx, {
+        action: "support.access.revoke",
+        entityType: "tenant",
+        entityId: tenantId,
+      }),
+    );
+    return { ok: true };
   }
 }

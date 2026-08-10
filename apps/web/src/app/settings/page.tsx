@@ -14,6 +14,7 @@ import { PlanSection } from "./plan-section";
 import { WhatsAppStatusSection } from "./whatsapp-status-section";
 import { LockedFeature } from "./locked-feature";
 import { TelephonySection } from "./telephony-section";
+import { SupportAccessSection } from "./support-access-section";
 import { GoogleCalendarSection } from "./google-calendar-section";
 import { AgreementTemplatesSection } from "./agreement-templates-section";
 import { SystemUpdateSection } from "./system-update";
@@ -473,6 +474,9 @@ export default function SettingsPage() {
           <div id="whatsapp">
             <WhatsAppStatusSection />
           </div>
+          {/* גישת תמיכה אינה תלוית-מסלול — כל משרד יכול לבקש עזרה */}
+          <SupportAccessSection />
+
           <div id="telephony">
             {canTelephony ? (
               <TelephonySection />

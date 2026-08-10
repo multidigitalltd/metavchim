@@ -31,6 +31,8 @@ interface AgencyRow {
   paidUntil: string | null;
   /** true = מחובר אך מוגבל למסך המנוי. */
   periodEnded: boolean;
+  /** חלון גישת תמיכה פתוח — null כשאין הסכמה בתוקף. */
+  supportAccessUntil: string | null;
 }
 
 /**
@@ -103,6 +105,23 @@ export default function PlatformPage() {
     }
     await apiPatch(`/platform/agencies/${id}`, { plan });
     load();
+  }
+
+  async function supportEnter(agency: AgencyRow) {
+    if (
+      !window.confirm(
+        `להיכנס למשרד "${agency.name}" כתמיכה?\n\nהכניסה תחליף את החיבור הנוכחי שלך — כדי לחזור לפלטפורמה יש להתנתק ולהתחבר שוב. הכניסה נרשמת ביומן הפעילות של המשרד.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await apiPost(`/platform/agencies/${agency.id}/support-session`, {});
+      // העוגייה הוחלפה — מעכשיו אנחנו המשתמש של המשרד
+      window.location.href = "/";
+    } catch (err) {
+      window.alert(err instanceof ApiError ? err.message : "הכניסה נכשלה");
+    }
   }
 
   async function toggleSuspend(agency: AgencyRow) {
@@ -308,6 +327,16 @@ export default function PlatformPage() {
                       >
                         {a.status === "suspended" ? "הפעל מחדש" : "השהה"}
                       </Button>
+                      {/*
+                        הכפתור קיים רק כשהמשרד פתח חלון בעצמו — אין
+                        "כניסה" קבועה. הלחיצה מחליפה את העוגייה, ולכן
+                        היציאה מהפלטפורמה נאמרת מראש.
+                      */}
+                      {a.supportAccessUntil ? (
+                        <Button variant="secondary" onClick={() => void supportEnter(a)}>
+                          כניסת תמיכה
+                        </Button>
+                      ) : null}
                       {a.periodEnded ? (
                         <Button variant="secondary" onClick={() => void grantAccess(a)}>
                           פתח ללא תפוגה

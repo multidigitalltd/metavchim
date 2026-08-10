@@ -4,15 +4,19 @@ import {
   ConflictException,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   Param,
   Patch,
   Post,
   Query,
+  Req,
+  Res,
   ServiceUnavailableException,
   UseGuards,
 } from "@nestjs/common";
+import type { Request, Response } from "express";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import { z } from "zod";
@@ -47,6 +51,7 @@ import { LeadPricingService } from "../../core/lead-pricing.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import { AuthService, tenantPeriodEnded } from "../auth/auth.service";
+import { SESSION_COOKIE } from "../auth/auth.controller";
 import {
   BackupsService,
   type BackupsOverview,
@@ -192,6 +197,8 @@ export interface AgencyRow {
   status: string;
   userCount: number;
   createdAt: Date;
+  /** חלון גישת תמיכה פתוח — null כשאין הסכמה בתוקף. */
+  supportAccessUntil: Date | null;
   /**
    * התפוגות, ומה שנגזר מהן.
    *
@@ -430,6 +437,7 @@ export class PlatformController {
         status: true,
         trialEndsAt: true,
         paidUntil: true,
+        supportAccessUntil: true,
         createdAt: true,
         _count: { select: { users: true } },
       },
@@ -443,6 +451,11 @@ export class PlatformController {
       createdAt: t.createdAt,
       trialEndsAt: t.trialEndsAt,
       paidUntil: t.paidUntil,
+      // חלון גישת תמיכה פתוח? המסך מראה כפתור כניסה רק כשיש הסכמה
+      supportAccessUntil:
+        t.supportAccessUntil !== null && t.supportAccessUntil.getTime() > Date.now()
+          ? t.supportAccessUntil
+          : null,
       // אותה פונקציה שהשרת אוכף לפיה, ולא העתק שלה
       periodEnded: tenantPeriodEnded(t),
     }));
@@ -864,5 +877,95 @@ export class PlatformController {
       data: { isActive: false },
     });
     return { ok: true };
+  }
+
+  /**
+   * כניסת תמיכה למשרד — **רק דרך חלון שהמשרד פתח בעצמו**.
+   *
+   * אין כאן כוח פלטפורמה: בלי הסכמה בתוקף הנתיב מסרב, נקודה. גם עם
+   * הסכמה, ה-Session שנוצר:
+   * - שייך למי שהעניק את הגישה (או לבעלים) — ההרשאות הן שלו, לא יותר
+   * - פג יחד עם החלון, לא אחרי שבועיים כמו Session רגיל
+   * - מסומן בכתובת של איש התמיכה, וביטול ההסכמה הורג אותו מיד
+   * - נרשם ביומן הפעילות **של המשרד**, גלוי לעיני בעל המשרד
+   *
+   * העוגייה מוחלפת: מנהל הפלטפורמה הופך זמנית למשתמש במשרד, וכדי
+   * לחזור לפלטפורמה הוא מתנתק ומתחבר שוב. פשוט עדיף על שתי זהויות
+   * חיות באותו דפדפן.
+   */
+  @Post("agencies/:id/support-session")
+  @HttpCode(200)
+  async supportSession(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ ok: true; until: string }> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: { supportAccessUntil: true, supportAccessGrantedBy: true },
+    });
+    const until = tenant?.supportAccessUntil ?? null;
+    if (until === null || until.getTime() <= Date.now()) {
+      throw new ForbiddenException(
+        "המשרד לא פתח חלון גישת תמיכה. בקשו מבעל המשרד ללחוץ על 'אפשר גישת תמיכה' בהגדרות.",
+      );
+    }
+
+    // מי שהעניק — או הבעלים, אם המעניק כבר אינו פעיל
+    const target =
+      (tenant?.supportAccessGrantedBy
+        ? await this.prisma.user.findFirst({
+            where: { id: tenant.supportAccessGrantedBy, tenantId: id, isActive: true },
+          })
+        : null) ??
+      (await this.prisma.user.findFirst({
+        where: { tenantId: id, role: "owner", isActive: true },
+        orderBy: { createdAt: "asc" },
+      }));
+    if (!target) throw new BadRequestException("למשרד אין משתמש פעיל להיכנס אליו");
+
+    const admin = await this.prisma.user.findUnique({
+      where: { id: TenantContext.current().userId },
+      select: { email: true },
+    });
+
+    const token = randomBytes(32).toString("base64url");
+    await this.prisma.session.create({
+      data: {
+        id: ulid(),
+        userId: target.id,
+        tokenHash: AuthService.hashToken(token),
+        // פג עם חלון ההסכמה — לא TTL רגיל של שבועיים
+        expiresAt: until,
+        passwordEpoch: target.passwordChangedAt,
+        supportAdminEmail: admin?.email ?? "support",
+        userAgent: `support:${(req.headers["user-agent"] ?? "").slice(0, 280)}`,
+        ipAddress: req.ip ?? null,
+      },
+    });
+
+    // ביומן של **המשרד** — בעל המשרד רואה מי נכנס ומתי
+    await this.prisma.withExplicitTenant(id, (tx) =>
+      tx.auditLog.create({
+        data: {
+          id: ulid(),
+          tenantId: id,
+          userId: target.id,
+          action: "support.session.start",
+          entityType: "tenant",
+          entityId: id,
+          metadata: { supportAdmin: admin?.email ?? "" } as object,
+        },
+      }),
+    );
+
+    res.cookie(SESSION_COOKIE, token, {
+      httpOnly: true,
+      secure: loadEnv().COOKIE_SECURE,
+      sameSite: "lax",
+      expires: until,
+      path: "/",
+    });
+    return { ok: true, until: until.toISOString() };
   }
 }
