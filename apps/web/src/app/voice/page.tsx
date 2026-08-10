@@ -37,6 +37,7 @@ interface RouteResult {
 }
 
 interface BuyerAnswer {
+  hasMore: boolean;
   criteria: { cities: string[]; roomsMin?: number; roomsMax?: number; budgetMaxShekels?: number };
   buyers: {
     id: string;
@@ -269,7 +270,9 @@ export default function VoiceCommandPage() {
                     ) : (
                       <>
                         <p className="mb-2 font-medium" style={{ color: "var(--color-success)" }}>
-                          ✓ נמצאו {answer.buyers.length} קונים:
+                          {answer.hasMore
+                            ? `✓ נמצאו יותר מ-${answer.buyers.length} — מוצגים ${answer.buyers.length} הראשונים (הרשימה המלאה במסך הקונים):`
+                            : `✓ נמצאו ${answer.buyers.length} קונים:`}
                         </p>
                         <ul className="flex flex-col gap-2">
                           {answer.buyers.map((b) => (

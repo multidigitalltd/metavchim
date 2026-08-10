@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { api, apiGet } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { notificationHref } from "@/lib/notification-links";
 import { useRequireAuth } from "@/lib/use-auth";
 
 interface NotificationRow {
@@ -18,20 +19,9 @@ interface NotificationRow {
   createdAt: string;
 }
 
+/** היעד — מהמקור המשותף עם הפעמון (lib/notification-links). */
 function entityHref(n: NotificationRow): string | null {
-  if (!n.entityType || !n.entityId) return null;
-  switch (n.entityType) {
-    case "property":
-      return `/properties/${n.entityId}`;
-    case "lead":
-      return `/leads/${n.entityId}`;
-    case "offer":
-      return null; // הצעה נצפית דרך כרטיס הנכס
-    case "shared_lead":
-      return "/collaboration"; // "נמכר" מוצג בשוק הלידים
-    default:
-      return null;
-  }
+  return notificationHref(n.entityType, n.entityId);
 }
 
 export default function NotificationsPage() {

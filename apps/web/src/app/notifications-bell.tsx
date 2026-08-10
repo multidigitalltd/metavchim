@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { apiGet, apiPatch } from "@/lib/api";
+import { notificationHref } from "@/lib/notification-links";
 
 const POLL_MS = 30_000;
 
@@ -12,6 +13,8 @@ interface NotificationDto {
   type: string;
   title: string;
   body?: string;
+  entityType?: string;
+  entityId?: string;
   readAt?: string;
   createdAt: string;
 }
@@ -131,19 +134,48 @@ export function NotificationsBell() {
           {items.length === 0 ? (
             <p className="mv-notif-empty">אין התראות חדשות</p>
           ) : (
-            items.map((n) => (
-              <div key={n.id} className="mv-notif-item" style={{ opacity: n.readAt ? 0.6 : 1 }}>
-                <span
-                  className="mv-notif-dot"
-                  style={{ background: dotColor(n.type) }}
-                  aria-hidden="true"
-                />
-                <span className="min-w-0">
-                  <span className="mv-notif-text">{n.title}</span>
-                  <span className="mv-notif-time">{timeAgo(n.createdAt)}</span>
-                </span>
-              </div>
-            ))
+            items.map((n) => {
+              const href = notificationHref(n.entityType, n.entityId);
+              const inner = (
+                <>
+                  <span
+                    className="mv-notif-dot"
+                    style={{ background: dotColor(n.type) }}
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0">
+                    <span className="mv-notif-text">{n.title}</span>
+                    <span className="mv-notif-time">{timeAgo(n.createdAt)}</span>
+                  </span>
+                </>
+              );
+              /*
+               * התראה עם יעד היא קישור — לוחצים ומגיעים לפגישה/לליד,
+               * לא רק קוראים עליהם. הלחיצה גם מסמנת כנקראה (מיטבי:
+               * הניווט לא מחכה לסימון ולא נכשל בגללו).
+               */
+              return href ? (
+                <Link
+                  key={n.id}
+                  href={href}
+                  className="mv-notif-item"
+                  style={{ opacity: n.readAt ? 0.6 : 1, textDecoration: "none", color: "inherit" }}
+                  onClick={() => {
+                    setOpen(false);
+                    if (!n.readAt) {
+                      void apiPatch(`/notifications/${n.id}/read`, {}).catch(() => undefined);
+                      setUnread((u) => Math.max(0, u - 1));
+                    }
+                  }}
+                >
+                  {inner}
+                </Link>
+              ) : (
+                <div key={n.id} className="mv-notif-item" style={{ opacity: n.readAt ? 0.6 : 1 }}>
+                  {inner}
+                </div>
+              );
+            })
           )}
           <Link href="/notifications" className="mv-notif-all" onClick={() => setOpen(false)}>
             לכל ההתראות

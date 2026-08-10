@@ -65,7 +65,8 @@ function NewAppointmentForm() {
        */
       if (leadId) {
         try {
-          const lead = await apiGet<{ contact: { name: string; phone: string } }>(
+          // התשובה עטופה: { lead, timeline } — לא LeadDto ישירות (ביקורת Codex)
+          const { lead } = await apiGet<{ lead: { contact: { name: string; phone: string } } }>(
             `/leads/${leadId}`,
           );
           const when = new Intl.DateTimeFormat("he-IL", {

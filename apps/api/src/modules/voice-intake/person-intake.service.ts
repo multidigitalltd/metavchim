@@ -24,10 +24,13 @@ export interface LeadIntakeResult {
 
 /** תשובה לשאלה "מי מחפש …" — הקריטריונים שהובנו + הקונים שנמצאו. */
 export interface BuyerQueryAnswer {
+  /** יש עוד מעבר ל-50 שהוחזרו — המסך אומר זאת במקום "נמצאו 50" חלקי */
+  hasMore: boolean;
   criteria: {
     cities: string[];
     roomsMin?: number;
     roomsMax?: number;
+    budgetMinShekels?: number;
     budgetMaxShekels?: number;
   };
   buyers: {
@@ -75,22 +78,34 @@ export class PersonIntakeService {
       person.budgetMaxAgorot !== undefined
         ? Math.round(person.budgetMaxAgorot / 100)
         : undefined;
+    // "בין 1.5 ל-2 מיליון" — בלי הרצפה, קונה שכל התקציב שלו מתחת
+    // ל-1.5 היה עובר את בדיקת החפיפה (ביקורת Codex)
+    const budgetMinShekels =
+      person.budgetMinAgorot !== undefined
+        ? Math.round(person.budgetMinAgorot / 100)
+        : undefined;
 
     const page = await this.buyers.list({
-      limit: 10,
+      limit: 50,
       // "4 חדרים" סתם ⇒ min=max=4, והחפיפה מוצאת כל קונה שהטווח
       // שלו כולל 4 (גם "3–5 חדרים")
       ...(person.roomsMin !== undefined ? { minRooms: person.roomsMin } : {}),
       ...(person.roomsMax !== undefined ? { maxRooms: person.roomsMax } : {}),
+      ...(budgetMinShekels !== undefined ? { minPrice: budgetMinShekels } : {}),
       ...(budgetMaxShekels !== undefined ? { maxPrice: budgetMaxShekels } : {}),
-      ...(person.cities.length > 0 ? { q: person.cities[0] } : {}),
+      // כל הערים שנאמרו, לא רק הראשונה — "תל אביב או רמת גן" מוצא
+      // גם קונה שמעוניין רק בשנייה (ביקורת Codex)
+      ...(person.cities.length > 0 ? { cities: person.cities } : {}),
     });
 
     return {
+      // תשובה חתוכה מסומנת — "נמצאו 50" כשיש יותר הוא שקר שקט
+      hasMore: page.nextCursor !== null,
       criteria: {
         cities: person.cities,
         ...(person.roomsMin !== undefined ? { roomsMin: person.roomsMin } : {}),
         ...(person.roomsMax !== undefined ? { roomsMax: person.roomsMax } : {}),
+        ...(budgetMinShekels !== undefined ? { budgetMinShekels } : {}),
         ...(budgetMaxShekels !== undefined ? { budgetMaxShekels } : {}),
       },
       buyers: page.items.map((buyer) => ({
