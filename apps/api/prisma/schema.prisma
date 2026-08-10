@@ -190,6 +190,8 @@ model Contact {
   phoneHash      String   @map("phone_hash") @db.Char(64)
   /** HMAC של השם המנורמל — איתור כפילויות בלי לפענח. NULL עד ההשלמה. */
   nameHash       String?  @map("name_hash") @db.Char(64)
+  /// חתימת האימייל (HMAC) — התאמת שולח נכנס מ-Gmail לכרטיס קיים.
+  emailHash      String?  @map("email_hash") @db.Char(64)
   optedOutAt     DateTime? @map("opted_out_at")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
@@ -388,6 +390,28 @@ model Lead {
   @@index([tenantId, assignedToUserId, status, createdAt])
   @@index([tenantId, status, requiresHuman])
   @@map("leads")
+}
+
+/// חיבור Gmail — אימיילים נכנסים הופכים ללידים או מצטרפים לכרטיס
+/// קיים. מבנה זהה ל-GoogleCalendarLink: חיבור אישי (userId ייחודי),
+/// refresh token מוצפן, ושגיאת הסבב האחרון מוצגת למשתמש.
+model GmailLink {
+  id                    String    @id @db.Char(26)
+  tenantId              String    @map("tenant_id") @db.Char(26)
+  userId                String    @unique @map("user_id") @db.Char(26)
+  googleEmail           String    @map("google_email") @db.VarChar(254)
+  refreshTokenEncrypted String    @map("refresh_token_encrypted")
+  /// סמן ההתקדמות: internalDate (מילישניות) של ההודעה האחרונה שעובדה.
+  lastInternalMs        BigInt    @default(0) @map("last_internal_ms")
+  lastSyncAt            DateTime? @map("last_sync_at")
+  lastError             String?   @map("last_error") @db.VarChar(300)
+  /// אימיילים שדולגו כי לא זוהה בהם שולח מוכר או טלפון — שקיפות במסך.
+  skippedCount          Int       @default(0) @map("skipped_count")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@map("gmail_links")
 }
 
 /// דחיית הצעת מיזוג כרטיסים: "אלה לא אותו אדם". נשמרת לפי חתימת

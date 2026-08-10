@@ -17,6 +17,7 @@ import { WhatsAppStatusSection } from "./whatsapp-status-section";
 import { LockedFeature } from "./locked-feature";
 import { TelephonySection } from "./telephony-section";
 import { SupportAccessSection } from "./support-access-section";
+import { GmailSection } from "./gmail-section";
 import { GoogleCalendarSection } from "./google-calendar-section";
 import { AgreementTemplatesSection } from "./agreement-templates-section";
 import { SystemUpdateSection } from "./system-update";
@@ -506,6 +507,10 @@ export default function SettingsPage() {
             <GoogleCalendarSection />
           </div>
 
+          <div id="gmail">
+            <GmailSection />
+          </div>
+
           <div id="lead-webhook">
             <LeadWebhookSection />
           </div>
@@ -597,7 +602,7 @@ export default function SettingsPage() {
               <h2 id="roadmap-heading" className="m-0" style={{ fontSize: 14.5, fontWeight: 800 }}>בפיתוח עכשיו</h2>
             </div>
             <p className="m-0 text-[13px]" style={{ color: "var(--color-text-soft)", lineHeight: 1.6 }}>
-              שליחה אוטומטית בוואטסאפ · סנכרון אימיילים מ-Gmail
+              שליחה אוטומטית בוואטסאפ
             </p>
             <p className="m-0 mt-2 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
               כשפיצ׳ר עולה — באנר "מה חדש" מופיע לכולם בכניסה הבאה.

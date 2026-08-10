@@ -47,4 +47,13 @@ export class CryptoService {
   nameHash(normalizedName: string): string {
     return createHmac("sha256", this.hashKey).update(`name:${normalizedName}`).digest("hex");
   }
+
+  /**
+   * חתימת אימייל — התאמת שולח נכנס (Gmail) לכרטיס בלי לפענח את כל
+   * המאגר. אותה תחילית-תחום כמו בשם: "email:" מבטיח שאימייל, שם
+   * וטלפון לעולם לא יתנגשו זה עם זה.
+   */
+  emailHash(normalizedEmail: string): string {
+    return createHmac("sha256", this.hashKey).update(`email:${normalizedEmail}`).digest("hex");
+  }
 }

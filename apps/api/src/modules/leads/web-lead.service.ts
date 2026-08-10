@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
@@ -69,72 +70,108 @@ export class WebLeadService {
         select: { id: true },
       });
 
-      // נעילה פר איש-קשר — שליחה כפולה מהטופס לא יוצרת שני לידים
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`lead-intake:${tenantId}:${contact.id}`}, 0))`;
-
-      const summaryParts = [input.message?.trim(), input.pageUrl ? `מקור: ${input.pageUrl}` : null]
-        .filter(Boolean)
-        .join("\n");
-
-      const openLead = await tx.lead.findFirst({
-        where: {
-          tenantId,
-          contactId: contact.id,
-          status: { in: ["new", "in_progress", "waiting_customer"] },
-        },
-        select: { id: true },
+      await this.attachOrCreateLead(tx, tenantId, contact.id, {
+        message: input.message,
+        pageUrl: input.pageUrl,
+        source,
       });
+    });
+    this.logger.log(`ליד מהאתר נקלט (tenant ${tenantId})`);
+  }
 
-      if (openLead) {
-        // ליד פתוח קיים — הפנייה מצטרפת לציר הזמן שלו
-        await tx.interaction.create({
-          data: {
-            id: ulid(),
-            tenantId,
-            leadId: openLead.id,
-            kind: "note",
-            content: `${source === "landing" ? "פנייה נוספת מדף נחיתה" : `פנייה נוספת (${source})`}: ${summaryParts || "ללא הודעה"}`,
-          },
-        });
-        return;
-      }
-
-      const previous = await tx.lead.findFirst({
-        where: { tenantId, contactId: contact.id, status: { in: ["converted", "closed"] } },
-        select: { id: true },
+  /**
+   * קליטת פנייה לכרטיס **קיים** — אימייל נכנס מזוהה לפי כתובת השולח.
+   * אותה משמעת בדיוק, בלי הדרישה לטלפון: הכרטיס כבר קיים עם טלפון.
+   */
+  async ingestForContact(
+    tenantId: string,
+    contactId: string,
+    input: { message?: string; source: string },
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+      await this.attachOrCreateLead(tx, tenantId, contactId, {
+        message: input.message,
+        source: input.source,
       });
+    });
+  }
 
-      const leadId = ulid();
-      await tx.lead.create({
-        data: {
-          id: leadId,
-          tenantId,
-          contactId: contact.id,
-          source,
-          intent: "unknown",
-          status: "new",
-          summary: (summaryParts || (source === "landing" ? "פנייה מדף נחיתה" : `פנייה — ${source}`)).slice(0, 500),
-          ...(previous ? { requiresHuman: true, requiresHumanReason: "ליד חוזר — פנה בעבר" } : {}),
-        },
-      });
+  /**
+   * הלב המשותף של כל ערוצי הקליטה, אחרי שאיש הקשר ידוע: נעילה
+   * פר-איש-קשר, הצטרפות לליד פתוח אם יש, אחרת ליד חדש + תיעוד.
+   */
+  private async attachOrCreateLead(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    contactId: string,
+    input: { message?: string; pageUrl?: string; source: string },
+  ): Promise<void> {
+    const { source } = input;
+    // נעילה פר איש-קשר — שליחה כפולה מהטופס לא יוצרת שני לידים
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`lead-intake:${tenantId}:${contactId}`}, 0))`;
+
+    const summaryParts = [input.message?.trim(), input.pageUrl ? `מקור: ${input.pageUrl}` : null]
+      .filter(Boolean)
+      .join("\n");
+
+    const openLead = await tx.lead.findFirst({
+      where: {
+        tenantId,
+        contactId,
+        status: { in: ["new", "in_progress", "waiting_customer"] },
+      },
+      select: { id: true },
+    });
+
+    if (openLead) {
+      // ליד פתוח קיים — הפנייה מצטרפת לציר הזמן שלו
       await tx.interaction.create({
         data: {
           id: ulid(),
           tenantId,
-          leadId,
+          leadId: openLead.id,
           kind: "note",
-          content: `${source === "landing" ? "נקלט מדף נחיתה של נכס" : `נקלט מטופס (${source})`}${input.message ? `: ${input.message.slice(0, 1500)}` : ""}`,
+          content: `${source === "landing" ? "פנייה נוספת מדף נחיתה" : `פנייה נוספת (${source})`}: ${summaryParts || "ללא הודעה"}`,
         },
       });
-      await tx.outboxEvent.create({
-        data: {
-          id: ulid(),
-          tenantId,
-          name: "lead.created",
-          payload: { leadId, tenantId, source },
-        },
-      });
+      return;
+    }
+
+    const previous = await tx.lead.findFirst({
+      where: { tenantId, contactId, status: { in: ["converted", "closed"] } },
+      select: { id: true },
     });
-    this.logger.log(`ליד מהאתר נקלט (tenant ${tenantId})`);
+
+    const leadId = ulid();
+    await tx.lead.create({
+      data: {
+        id: leadId,
+        tenantId,
+        contactId,
+        source,
+        intent: "unknown",
+        status: "new",
+        summary: (summaryParts || (source === "landing" ? "פנייה מדף נחיתה" : `פנייה — ${source}`)).slice(0, 500),
+        ...(previous ? { requiresHuman: true, requiresHumanReason: "ליד חוזר — פנה בעבר" } : {}),
+      },
+    });
+    await tx.interaction.create({
+      data: {
+        id: ulid(),
+        tenantId,
+        leadId,
+        kind: "note",
+        content: `${source === "landing" ? "נקלט מדף נחיתה של נכס" : `נקלט מטופס (${source})`}${input.message ? `: ${input.message.slice(0, 1500)}` : ""}`,
+      },
+    });
+    await tx.outboxEvent.create({
+      data: {
+        id: ulid(),
+        tenantId,
+        name: "lead.created",
+        payload: { leadId, tenantId, source },
+      },
+    });
   }
 }
