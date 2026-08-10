@@ -148,11 +148,14 @@ export class DuplicatesService {
         create: { id: ulid(), tenantId, nameHash: nameKey, contactCount: count },
         update: { contactCount: count },
       });
+      /*
+       * חתימת השם (64 תווים) לא נכנסת ל-entityId — העמודה היא
+       * CHAR(26) והכתיבה הפילה את כל הדחייה. היא נשמרת ב-metadata.
+       */
       await this.audit.record(tx, {
         action: "contact.duplicate_dismiss",
         entityType: "contact",
-        entityId: nameKey,
-        metadata: { contactCount: count, byUserId: userId },
+        metadata: { nameHash: nameKey, contactCount: count, byUserId: userId },
       });
       return { ok: true };
     });

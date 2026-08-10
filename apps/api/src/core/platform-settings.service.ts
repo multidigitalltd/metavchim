@@ -58,10 +58,17 @@ export class PlatformSettingsService {
     }
   }
 
-  /** ערך ההגדרה מה-DB, או undefined אם לא הוגדרה שם. */
+  /**
+   * ערך ההגדרה מה-DB, או undefined אם לא הוגדרה שם.
+   *
+   * ‎trim‎ גם בקריאה: כל הערכים כאן הם מזהים וסודות של ספקים, ורווח
+   * שנגרר בהדבקה ונשמר בעבר היה נשלח כמו שהוא — Google מחזיר על זה
+   * ‎invalid_client‎ ושובר את ההתחברות. הניקוי בקריאה מתקן גם ערכים
+   * מלוכלכים שכבר שמורים, בלי לחכות לשמירה מחדש.
+   */
   async get(key: PlatformSettingKey): Promise<string | undefined> {
     await this.load();
-    return this.cache.get(key) ?? undefined;
+    return this.cache.get(key)?.trim() ?? undefined;
   }
 
   async set(key: PlatformSettingKey, value: string, updatedBy: string): Promise<void> {
