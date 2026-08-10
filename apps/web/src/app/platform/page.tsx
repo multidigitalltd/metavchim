@@ -68,8 +68,12 @@ const JUMP_LINKS: readonly (readonly [string, string])[] = [
   ["coupons-heading", "קופונים"],
   ["lead-prices-heading", "תמחור לידים"],
   ["payments-heading", "תשלומים"],
-  ["platform-settings-heading", "התחברות עם Google"],
+  ["platform-settings-heading", "חיבורי המערכת"],
+  // ישירות אל כרטיס Google ולא אל כותרת הסעיף: זה הקיצור שבאמת
+  // מחפשים, והוא חייב לנחות על השדות עצמם
+  ["google-connections", "חיבורי Google"],
   ["new-agency", "משרד חדש"],
+  ["agencies-list", "המשרדים"],
 ];
 
 export default function PlatformPage() {
