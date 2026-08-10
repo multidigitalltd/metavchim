@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   COMMISSION_SPLIT_OPTIONS,
   describeCommissionSplit,
 } from "@metavchim/shared";
-import { ApiError, apiPost } from "@/lib/api";
+import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { IconHandshake } from "../../icons";
 
 /**
@@ -20,28 +20,87 @@ import { IconHandshake } from "../../icons";
  * הזרימה: הזמנה ← הגדרת עמלה ותיאור ← שליחה ← אישור.
  */
 
-/** שלב בזרימה. `sent` נשאר על המסך עד רענון — האישור הוא התוצר. */
-type Stage = "invite" | "form" | "sent";
+/** שלב בזרימה. `loading` קיים כי מצב השיתוף נקרא מהשרת. */
+type Stage = "loading" | "invite" | "form" | "sent";
+
+/** הביקוש הפעיל של הקונה, כפי שהשרת מחזיר אותו. */
+interface ActiveDemand {
+  id: string;
+  commissionSplit: number;
+  notes?: string | null;
+}
 
 export function NetworkShareSection({ buyerId }: { buyerId: string }) {
-  const [stage, setStage] = useState<Stage>("invite");
+  const [stage, setStage] = useState<Stage>("loading");
   const [split, setSplit] = useState<number>(50);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** קיים = הקונה משותף כרגע; משמש כדי לעדכן במקום לפרסם מחדש. */
+  const [demand, setDemand] = useState<ActiveDemand | null>(null);
 
+  /*
+   * מצב השיתוף נקרא מהשרת ולא מונח מראש. בלי זה רענון של הכרטיס
+   * החזיר את המסך למצב "הזמנה" גם כשהקונה כבר משותף, והשיתוף החוזר
+   * נדחה ב"הקונה כבר משותף ברשת" — שגיאה על פעולה שהמסך הציע.
+   */
+  const load = useCallback(() => {
+    apiGet<ActiveDemand | null>(`/collaboration/share/buyer/${buyerId}`)
+      .then((active) => {
+        if (active) {
+          setDemand(active);
+          setSplit(active.commissionSplit);
+          setNote(active.notes ?? "");
+          setStage("sent");
+        } else {
+          setDemand(null);
+          setStage("invite");
+        }
+      })
+      // כשל בקריאה לא נועל את האזור: המסך נופל למצב ההזמנה,
+      // והשרת עדיין יאכוף שיתוף כפול אם ינסו
+      .catch(() => setStage("invite"));
+  }, [buyerId]);
+
+  useEffect(load, [load]);
+
+  /** פרסום חדש, או עדכון כשהקונה כבר משותף — הכפתור אחד לשניהם. */
   async function publish(): Promise<void> {
     setBusy(true);
     setError(null);
     try {
-      await apiPost("/collaboration/share", {
-        buyerId,
+      const payload = {
         commissionSplit: split,
         ...(note.trim() ? { note: note.trim() } : {}),
-      });
-      setStage("sent");
+      };
+      if (demand) {
+        await apiPatch(`/collaboration/share/buyer/${buyerId}`, payload);
+      } else {
+        await apiPost("/collaboration/share", { buyerId, ...payload });
+      }
+      load();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "השיתוף נכשל — נסו שוב");
+      setBusy(false);
+      return;
+    }
+    setBusy(false);
+  }
+
+  /** הפסקת שיתוף — הביקוש נסגר ואינו מוצג יותר ברשת. */
+  async function stopSharing(): Promise<void> {
+    if (!demand) return;
+    if (!window.confirm("להפסיק את שיתוף הקונה ברשת? הביקוש לא יוצג יותר למשרדים אחרים.")) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await apiDelete(`/collaboration/demands/${demand.id}`);
+      setNote("");
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "הפסקת השיתוף נכשלה");
     } finally {
       setBusy(false);
     }
@@ -60,7 +119,11 @@ export function NetworkShareSection({ buyerId }: { buyerId: string }) {
         <IconHandshake s={16} /> שיתוף פעולה עם משרדים אחרים
       </h2>
 
-      {stage === "sent" ? (
+      {stage === "loading" ? (
+        <p className="m-0 mt-2 text-[13px]" aria-live="polite" style={{ color: "var(--color-text-muted)" }}>
+          טוען…
+        </p>
+      ) : stage === "sent" ? (
         <div
           role="status"
           className="mt-3 rounded-xl border p-4"
@@ -75,17 +138,34 @@ export function NetworkShareSection({ buyerId }: { buyerId: string }) {
             <strong>{describeCommissionSplit(split)}</strong>.
           </p>
           {/*
-            השארת דרך לפרסם שוב: הסוכן עשוי לרצות לשנות חלוקת עמלה או
-            לחדד את התיאור אחרי שלא קיבל פניות
+            עדכון ולא פרסום מחדש: הביקוש הקיים מתעדכן במקום, ולכן
+            ההיסטוריה וההצעות שכבר התקבלו עליו נשמרות
           */}
-          <button
-            type="button"
-            className="mv-btn-plain mt-3"
-            style={{ padding: "5px 12px", fontSize: 12.5 }}
-            onClick={() => setStage("form")}
-          >
-            עדכן ופרסם מחדש
-          </button>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="mv-btn-plain"
+              style={{ padding: "5px 12px", fontSize: 12.5 }}
+              disabled={busy}
+              onClick={() => setStage("form")}
+            >
+              עדכן עמלה או תיאור
+            </button>
+            <button
+              type="button"
+              className="mv-btn-plain"
+              style={{ padding: "5px 12px", fontSize: 12.5 }}
+              disabled={busy}
+              onClick={() => void stopSharing()}
+            >
+              הפסק שיתוף
+            </button>
+          </div>
+          {error ? (
+            <p role="alert" className="m-0 mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
+              {error}
+            </p>
+          ) : null}
         </div>
       ) : stage === "invite" ? (
         <>
@@ -160,9 +240,14 @@ export function NetworkShareSection({ buyerId }: { buyerId: string }) {
               disabled={busy}
               onClick={() => void publish()}
             >
-              {busy ? "שולח…" : "שלח לרשת המתווכים"}
+              {busy ? "שולח…" : demand ? "שמור עדכון" : "שלח לרשת המתווכים"}
             </button>
-            <button type="button" className="mv-btn-plain" onClick={() => setStage("invite")}>
+            <button
+              type="button"
+              className="mv-btn-plain"
+              // ביטול חוזר למצב האמיתי: משותף ⟵ אישור, לא משותף ⟵ הזמנה
+              onClick={() => setStage(demand ? "sent" : "invite")}
+            >
               ביטול
             </button>
           </div>
