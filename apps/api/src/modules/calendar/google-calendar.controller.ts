@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import { RequireCapability } from "../../common/auth.decorators";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
-import { CalendarSyncService } from "./calendar-sync.service";
+import { CalendarSyncService, type SyncResult } from "./calendar-sync.service";
 import { GoogleCalendarService } from "./google-calendar.service";
 
 /**
@@ -116,8 +116,25 @@ export class GoogleCalendarController {
   @Post("sync")
   @RequireCapability("calendar.manage")
   @HttpCode(200)
-  async syncNow(): Promise<{ pulled: number; pushed: number }> {
+  async syncNow(): Promise<SyncResult> {
     const { tenantId, userId } = TenantContext.current();
     return this.sync.syncOne(tenantId, userId);
+  }
+
+  /**
+   * "דחוף הכול מחדש" — מאפס את סימוני הסנכרון ומריץ סבב.
+   *
+   * פגישה שנמחקה בטעות ביומן Google לא הייתה חוזרת לעולם: היא כבר
+   * מסומנת כמסונכרנת ולכן אינה נחשבת ממתינה. זה המסלול לתקן את זה
+   * בלי לגעת בבסיס הנתונים.
+   */
+  @Post("resync")
+  @RequireCapability("calendar.manage")
+  @HttpCode(200)
+  async resync(): Promise<SyncResult & { reset: number }> {
+    const { tenantId, userId } = TenantContext.current();
+    const reset = await this.sync.resetSyncMarks(tenantId, userId);
+    const result = await this.sync.syncOne(tenantId, userId);
+    return { ...result, reset };
   }
 }

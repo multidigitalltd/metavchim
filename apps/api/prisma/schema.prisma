@@ -661,6 +661,10 @@ model Task {
   title            String    @db.VarChar(200)
   notes            String?   @db.VarChar(2000)
   dueAt            DateTime? @map("due_at")
+  /* דחיפה ליומן Google — מקביל לשדות שעל appointments; null
+     ב-googleSyncedAt פירושו "ממתין לדחיפה" (ראו CalendarSyncService). */
+  googleEventId    String?   @map("google_event_id") @db.VarChar(255)
+  googleSyncedAt   DateTime? @map("google_synced_at")
   status           String    @default("open") @db.VarChar(10) // open | done
   // קישור אופציונלי לישות — "להתקשר לקונה X", "להשלים פרטי נכס Y"
   entityType       String?   @map("entity_type") @db.VarChar(20) // lead | buyer | property

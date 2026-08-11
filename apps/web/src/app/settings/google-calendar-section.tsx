@@ -24,6 +24,37 @@ interface Status {
   lastError?: string;
 }
 
+
+/** תוצאת הסנכרון כפי שהשרת מדווח אותה. */
+interface SyncResult {
+  pulled: number;
+  pushed: number;
+  alreadySynced: number;
+  notMine: number;
+}
+
+/**
+ * הודעה שמסבירה את עצמה.
+ *
+ * "✓ סונכרן: 0 נמשכו, 0 נדחפו" הוא דיווח נכון שנקרא כתקלה: מתווך
+ * שרואה פגישה ביומן שלו מסיק שהסנכרון שבור, בעוד שברוב המקרים היא
+ * כבר מסונכרנת. המונים המאבחנים הופכים את השורה לתשובה.
+ */
+function describeSync(res: SyncResult): string {
+  const moved: string[] = [];
+  if (res.pulled > 0) moved.push(`${res.pulled} נמשכו מ-Google`);
+  if (res.pushed > 0) moved.push(`${res.pushed} נדחפו ל-Google`);
+  if (moved.length > 0) return `✓ סונכרן: ${moved.join(", ")}`;
+
+  if (res.alreadySynced > 0) {
+    return `✓ הכול מעודכן — ${res.alreadySynced} פגישות שלכם כבר ביומן Google, ואין שינויים חדשים`;
+  }
+  if (res.notMine > 0) {
+    return `✓ אין מה לסנכרן. ${res.notMine} פגישות בחלון שייכות לסוכנים אחרים — כל סוכן מסנכרן ליומן שלו`;
+  }
+  return "✓ אין מה לסנכרן — אין פגישות חדשות בשני הצדדים";
+}
+
 export function GoogleCalendarSection(): React.JSX.Element | null {
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
@@ -67,13 +98,33 @@ export function GoogleCalendarSection(): React.JSX.Element | null {
     }
   }
 
+  /** איפוס סימוני הסנכרון ודחיפה מחדש — מסלול התיקון. */
+  async function resyncAll(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await apiPost<SyncResult & { reset: number }>("/calendar/google/resync", {});
+      setMessage(
+        res.pushed > 0
+          ? `✓ ${res.pushed} פגישות ומשימות נדחפו מחדש ל-Google`
+          : `✓ אופסו ${res.reset} רשומות — אין מה לדחוף בחלון של היממה האחרונה ואילך`,
+      );
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "הדחיפה מחדש נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function syncNow(): Promise<void> {
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
-      const res = await apiPost<{ pulled: number; pushed: number }>("/calendar/google/sync", {});
-      setMessage(`✓ סונכרן: ${res.pulled} נמשכו מהיומן, ${res.pushed} נדחפו אליו`);
+      const res = await apiPost<SyncResult>("/calendar/google/sync", {});
+      setMessage(describeSync(res));
       load();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "הסנכרון נכשל");
@@ -136,10 +187,22 @@ export function GoogleCalendarSection(): React.JSX.Element | null {
             <Button type="button" disabled={busy} onClick={() => void syncNow()}>
               {busy ? "מסנכרן…" : "סנכרן עכשיו"}
             </Button>
+            {/*
+              מסלול תיקון: פגישה שנמחקה בטעות ב-Google מסומנת אצלנו
+              כמסונכרנת ולכן לא הייתה חוזרת לעולם. הכפתור מאפס את
+              הסימון ודוחף הכול מחדש.
+            */}
+            <Button type="button" variant="secondary" disabled={busy} onClick={() => void resyncAll()}>
+              {busy ? "דוחף…" : "דחוף הכול מחדש"}
+            </Button>
             <Button type="button" variant="ghost" disabled={busy} onClick={() => void disconnect()}>
               נתק יומן
             </Button>
           </div>
+          <p className="m-0 mt-2 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+            נדחפות הפגישות והמשימות <b>שלכם</b> בלבד — לכל סוכן יומן משלו. משימה עם
+            מועד יעד מופיעה ב-Google כאירוע של חצי שעה עם הקידומת „משימה".
+          </p>
         </div>
       ) : (
         /*
