@@ -48,16 +48,31 @@ export class WebLeadService {
    */
   async ingestForTenant(
     tenantId: string,
-    input: { name: string; phone: string; message?: string; pageUrl?: string },
+    input: { name: string; phone: string; message?: string; pageUrl?: string; email?: string },
     source: string,
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
 
       const phoneHash = this.crypto.phoneHash(input.phone);
+      /*
+       * האימייל נשמר על הכרטיס כשהוא ידוע — פנייה שהגיעה מתיבת
+       * הדואר מביאה איתה את כתובת השולח, ובלי לשמור אותה ההודעה
+       * **הבאה** מאותה כתובת הייתה נחשבת שוב לשולח לא מוכר.
+       * החתימה (emailHash) היא מה שמאפשר את ההתאמה הזו.
+       */
+      const normalizedEmail = input.email?.trim().toLowerCase();
+      const emailFields =
+        normalizedEmail !== undefined && normalizedEmail !== ""
+          ? {
+              emailEncrypted: this.crypto.encrypt(normalizedEmail),
+              emailHash: this.crypto.emailHash(normalizedEmail),
+            }
+          : {};
+
       let contact = await tx.contact.findUnique({
         where: { tenantId_phoneHash: { tenantId, phoneHash } },
-        select: { id: true },
+        select: { id: true, emailHash: true },
       });
       contact ??= await tx.contact.create({
         data: {
@@ -66,9 +81,16 @@ export class WebLeadService {
           nameEncrypted: this.crypto.encrypt(input.name),
           phoneEncrypted: this.crypto.encrypt(input.phone),
           phoneHash,
+          ...emailFields,
         },
-        select: { id: true },
+        select: { id: true, emailHash: true },
       });
+
+      // כרטיס קיים בלי אימייל מקבל אותו כאן; כרטיס שכבר יש לו אימייל
+      // אינו נדרס — הכתובת שהמתווך הזין ידנית גוברת על זו שהתגלתה
+      if (contact.emailHash === null && Object.keys(emailFields).length > 0) {
+        await tx.contact.updateMany({ where: { id: contact.id, tenantId }, data: emailFields });
+      }
 
       await this.attachOrCreateLead(tx, tenantId, contact.id, {
         message: input.message,

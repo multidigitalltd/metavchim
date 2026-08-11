@@ -171,7 +171,10 @@ export class GmailSyncService implements OnModuleInit, OnModuleDestroy {
       const name = normalizeNameForMatch(message.fromName) !== "" ? message.fromName : message.fromEmail;
       await this.webLeads.ingestForTenant(
         link.tenantId,
-        { name: name.slice(0, 120), phone, message: summary },
+        // כתובת השולח נשמרת על הכרטיס: בלעדיה ההודעה הבאה מאותה
+        // כתובת הייתה נחשבת שוב לשולח לא מוכר, ונקלטת רק אם במקרה
+        // יש בה גם טלפון
+        { name: name.slice(0, 120), phone, message: summary, email: message.fromEmail },
         "אימייל",
       );
       return true;

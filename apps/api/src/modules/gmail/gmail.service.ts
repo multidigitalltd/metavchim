@@ -21,7 +21,16 @@ import { PrismaService } from "../../core/prisma.service";
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
-const SCOPE = "https://www.googleapis.com/auth/gmail.readonly openid email";
+/*
+ * קריאה **ושליחה**.
+ *
+ * ‎gmail.send‎ מתיר לשלוח בשם המשתמש ותו לא — הוא אינו נותן גישה
+ * לקריאה, למחיקה או לשינוי תוויות, ולכן הוא הצמצום הנכון לתיבה של
+ * מתווך. הוספת ההרשאה מחייבת **חיבור מחדש** של תיבות קיימות: אסימון
+ * שהונפק לפני השינוי אינו נושא אותה, ושליחה דרכו תיכשל.
+ */
+const SCOPE =
+  "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send openid email";
 
 export interface GmailLinkRow {
   id: string;
@@ -245,6 +254,48 @@ export class GmailService {
     return out;
   }
 
+  /**
+   * שליחת אימייל מהתיבה המחוברת.
+   *
+   * ההודעה נבנית כ-RFC 2822 ונשלחת ב-base64url — זה מה ש-Gmail API
+   * מצפה לו. הכותרות מקודדות ב-MIME encoded-word (RFC 2047), אחרת
+   * נושא בעברית מגיע כג'יבריש; הגוף מוצהר כ-UTF-8.
+   *
+   * `threadId` משמר שרשור: תשובה שנשלחת בלי הוא נראית ללקוח כהודעה
+   * חדשה ומנותקת, והשיחה מתפצלת לשניים בתיבה שלו.
+   */
+  async sendMail(
+    link: GmailLinkRow,
+    input: { to: string; subject: string; body: string; threadId?: string },
+  ): Promise<{ id: string; threadId: string }> {
+    const token = await this.accessToken(link);
+
+    const mime = [
+      `To: ${input.to}`,
+      `From: ${link.googleEmail}`,
+      `Subject: ${encodeHeader(input.subject)}`,
+      "MIME-Version: 1.0",
+      'Content-Type: text/plain; charset="UTF-8"',
+      "Content-Transfer-Encoding: base64",
+      "",
+      Buffer.from(input.body, "utf8").toString("base64"),
+    ].join("\r\n");
+
+    const res = await this.fetchJson<{ id?: string; threadId?: string }>(
+      `${GMAIL_BASE}/messages/send`,
+      {
+        token,
+        method: "POST",
+        json: {
+          raw: Buffer.from(mime, "utf8").toString("base64url"),
+          ...(input.threadId !== undefined ? { threadId: input.threadId } : {}),
+        },
+      },
+    );
+    if (!res.id) throw new ServiceUnavailableException("Google לא אישר את השליחה");
+    return { id: res.id, threadId: res.threadId ?? "" };
+  }
+
   async markSynced(
     link: GmailLinkRow,
     patch: { lastInternalMs?: number; error?: string | null; skippedDelta?: number },
@@ -266,15 +317,17 @@ export class GmailService {
 
   private async fetchJson<T>(
     url: string,
-    init: { method?: string; body?: URLSearchParams; token?: string },
+    init: { method?: string; body?: URLSearchParams; token?: string; json?: unknown },
   ): Promise<T> {
     const res = await fetch(url, {
       method: init.method ?? "GET",
       headers: {
         ...(init.token ? { authorization: `Bearer ${init.token}` } : {}),
         ...(init.body ? { "content-type": "application/x-www-form-urlencoded" } : {}),
+        ...(init.json !== undefined ? { "content-type": "application/json" } : {}),
       },
-      body: init.body,
+      // גוף JSON לשליחת הודעות; form-urlencoded נשאר לחילופי אסימונים
+      body: init.json !== undefined ? JSON.stringify(init.json) : init.body,
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
@@ -301,6 +354,19 @@ export class GmailService {
 }
 
 /** ‎"דנה לוי <dana@x.co.il>"‎ → שם + כתובת (מנורמלת לאותיות קטנות). */
+/**
+ * קידוד כותרת ל-MIME encoded-word (RFC 2047).
+ *
+ * כותרות אימייל הן ASCII בלבד. נושא בעברית שנשלח כמות שהוא מגיע
+ * ללקוח כג'יבריש, ולכן הוא נעטף ב-‎=?UTF-8?B?…?=‎. כותרת שכולה ASCII
+ * נשלחת כפי שהיא — אין טעם לקודד "Re: meeting".
+ */
+export function encodeHeader(value: string): string {
+  // ASCII מודפס בלבד — הטווח שכותרת אימייל רשאית לשאת ללא קידוד
+  if (/^[\x20-\x7e]*$/u.test(value)) return value;
+  return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
+}
+
 export function parseFromHeader(value: string): { name: string; email: string } {
   const match = /^(.*?)<([^>]+)>\s*$/u.exec(value);
   if (match) {

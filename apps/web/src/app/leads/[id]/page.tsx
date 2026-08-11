@@ -13,6 +13,7 @@ import { ContactPeople } from "../../contact-people";
 import { DictateFor } from "../../dictation-field";
 import { RelatedEntities } from "../../related-entities";
 import { EntityTasks } from "../../entity-tasks";
+import { ReplyEmail } from "./reply-email";
 import {
   IconCalendar,
   IconCart,
@@ -29,7 +30,7 @@ import {
 
 interface LeadDetail {
   id: string;
-  contact: { id: string; name: string; phone: string };
+  contact: { id: string; name: string; phone: string; email?: string };
   source: string;
   intent: string;
   status: string;
@@ -476,10 +477,51 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         >
           <IconChat s={15} /> וואטסאפ
         </a>
+        {/* האימייל ליד הטלפון — ליד שנפתח מתיבת הדואר מביא איתו את
+            כתובת השולח, והיא הדרך הטבעית להשיב לו */}
+        {lead.contact.email ? (
+          <a href={`mailto:${lead.contact.email}`} className="underline" dir="ltr">
+            {lead.contact.email}
+          </a>
+        ) : null}
       </div>
       <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
         {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent} · מקור: {LEAD_SOURCE_LABELS[lead.source] ?? lead.source}
       </p>
+
+      {/*
+        תוכן הפנייה בראש הכרטיס.
+        הוא נשמר מאז ומתמיד בשדה summary, אבל הוצג רק כהערה בציר
+        הזמן בתחתית העמוד — כלומר הדבר הראשון שהמתווך צריך לדעת
+        ("מה הוא רצה?") היה הדבר האחרון שהוא ראה.
+      */}
+      {lead.summary ? (
+        <section
+          aria-labelledby="lead-summary-heading"
+          className="mb-4 rounded-xl border p-4"
+          style={{ borderColor: "var(--color-primary)", background: "var(--color-primary-soft)" }}
+        >
+          <h2
+            id="lead-summary-heading"
+            className="m-0 mb-1.5"
+            style={{ fontSize: 13, fontWeight: 800, color: "var(--color-primary)" }}
+          >
+            תוכן הפנייה
+          </h2>
+          {/* whitespace-pre-line: שורות ההודעה נשמרות כפי שנשלחו */}
+          <p className="m-0 whitespace-pre-line" style={{ fontSize: 14.5, lineHeight: 1.5 }}>
+            {lead.summary}
+          </p>
+        </section>
+      ) : null}
+
+      {/* מיד אחרי תוכן הפנייה: קראת מה הוא רצה — עכשיו תענה לו */}
+      <ReplyEmail
+        contactId={lead.contact.id}
+        leadId={lead.id}
+        contactName={lead.contact.name}
+        {...(lead.contact.email !== undefined ? { contactEmail: lead.contact.email } : {})}
+      />
 
       <RelatedEntities contactId={lead.contact.id} exclude={{ kind: "lead", id: lead.id }} />
 
