@@ -26,6 +26,7 @@ export * from "./logic/note-visibility.js";
 export * from "./logic/web-push.js";
 export * from "./logic/contact-people.js";
 export * from "./logic/parse-search-query.js";
+export * from "./logic/price-words.js";
 export * from "./logic/duplicate-contacts.js";
 export * from "./logic/diarize.js";
 export * from "./logic/capability-overrides.js";

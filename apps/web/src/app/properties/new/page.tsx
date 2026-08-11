@@ -7,6 +7,7 @@ import { apiPost, ApiError } from "@/lib/api";
 import { shekelsToAgorot, PROPERTY_TYPE_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../dictation-field";
+import { PriceField } from "../../price-field";
 import { FeatureChips } from "../feature-chips";
 
 const inputStyle = {
@@ -161,10 +162,8 @@ export default function NewPropertyPage() {
         <fieldset className="mb-6 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
           <legend className="px-2 font-semibold">מחיר וכניסה</legend>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label htmlFor="price" className="mb-1 block font-medium">מחיר (₪)</label>
-              <input id="price" name="price" type="number" min="0" step="1000" inputMode="numeric" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
-            </div>
+            {/* המחיר גם במילים — ספרה עודפת במיליונים קופצת לעין */}
+            <PriceField id="price" name="price" label="מחיר (₪)" />
             <div>
               <label htmlFor="entryDate" className="mb-1 block font-medium">תאריך כניסה</label>
               <input id="entryDate" name="entryDate" type="date" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />

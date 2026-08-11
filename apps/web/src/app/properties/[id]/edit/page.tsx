@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, ApiError } from "@/lib/api";
+import { PriceField } from "../../../price-field";
 import { shekelsToAgorot, PROPERTY_TYPE_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../../dictation-field";
@@ -217,20 +218,12 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
         <fieldset className="mb-6 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
           <legend className="px-2 font-semibold">מחיר וכניסה</legend>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label htmlFor="price" className="mb-1 block font-medium">מחיר (₪)</label>
-              <input
-                id="price"
-                name="price"
-                type="number"
-                min="0"
-                step="1000"
-                inputMode="numeric"
-                defaultValue={property.priceAgorot === undefined ? "" : Math.round(property.priceAgorot / 100)}
-                className="w-full rounded-lg border px-3 py-2.5"
-                style={inputStyle}
-              />
-            </div>
+            <PriceField
+              id="price"
+              name="price"
+              label="מחיר (₪)"
+              defaultValue={property.priceAgorot === undefined ? "" : Math.round(property.priceAgorot / 100)}
+            />
             <div>
               <label htmlFor="entryDate" className="mb-1 block font-medium">תאריך כניסה</label>
               <input
