@@ -174,6 +174,18 @@ export function NetworkShareSection({ buyerId }: { buyerId: string }) {
             ברשת. פרטיו האישיים <strong>לא נחשפים</strong> — מתפרסם ביקוש
             אנונימי בלבד, ואתם בוחרים את חלוקת העמלה.
           </p>
+          {/*
+            "כמה זה עולה לי" היא השאלה הראשונה שמתווך שואל לפני שהוא
+            משתף, ובלי תשובה הוא פשוט לא לוחץ. שיתוף פעולה חינם;
+            קרדיטים נוגעים אך ורק לקניית ליד בשוק הלידים.
+          */}
+          <p className="m-0 mb-3 text-[13px]">
+            <strong style={{ color: "var(--color-primary)" }}>השיתוף חינם</strong>{" "}
+            <span style={{ color: "var(--color-text-muted)" }}>
+              — בכל המסלולים ובלי קרדיטים. התשלום היחיד הוא חלוקת העמלה עם המשרד
+              שיסגור איתכם את העסקה.
+            </span>
+          </p>
           <button
             type="button"
             className="mv-btn-action"
@@ -206,6 +218,15 @@ export function NetworkShareSection({ buyerId }: { buyerId: string }) {
                 </option>
               ))}
             </select>
+            {/*
+              "50%" בלי הקשר לא אומר דבר — חצי ממה, ומי גובה ממי.
+              זו השאלה שחוזרת בכל שיחת תמיכה על שת"פ.
+            */}
+            <p className="m-0 mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
+              זהו חלקכם <b>בדמי התיווך של העסקה</b> — לא סכום שמשולם למערכת. כל
+              צד גובה מהלקוח שלו לפי ההסכם שחתם איתו, והחלוקה נקבעת עכשיו ולא
+              במו&quot;מ אחרי שהעסקה כבר על השולחן.
+            </p>
           </div>
 
           <div className="mb-3">
