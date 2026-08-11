@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
+import { PriceField } from "../../price-field";
 import { shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 
@@ -114,10 +115,8 @@ export default function NewBuyerPage() {
                 <option value="rent">שכירות</option>
               </select>
             </div>
-            <div>
-              <label htmlFor="budgetMax" className="mb-1 block font-medium">תקציב מקסימלי (₪) *</label>
-              <input id="budgetMax" name="budgetMax" type="number" required min="1000" step="10000" inputMode="numeric" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
-            </div>
+            {/* התקציב גם במילים — טעות ספרה במיליונים משנה קונה לגמרי */}
+            <PriceField id="budgetMax" name="budgetMax" label="תקציב מקסימלי (₪) *" required />
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label htmlFor="roomsMin" className="mb-1 block font-medium">חדרים מ-</label>

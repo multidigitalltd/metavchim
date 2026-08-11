@@ -3,6 +3,7 @@
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
+import { priceInWordsWithCurrency } from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { FINANCING_LABELS, formatBuyerSource, formatDate, formatPrice, MATURITY_LABELS, waMeUrl } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -264,6 +265,10 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
             {buyer.requirements.budgetMinAgorot !== undefined
               ? `${formatPrice(buyer.requirements.budgetMinAgorot)}–${formatPrice(buyer.requirements.budgetMaxAgorot)}`
               : `עד ${formatPrice(buyer.requirements.budgetMaxAgorot)}`}
+          </div>
+          {/* גם במילים — אימות מהיר שהסכום שנשמר הוא הסכום שהתכוונו לו */}
+          <div className="mb-[13px] -mt-2 text-[12px]" style={{ color: "var(--color-text-muted)" }}>
+            {priceInWordsWithCurrency(Math.round(buyer.requirements.budgetMaxAgorot / 100))}
           </div>
 
           <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>אזורים</div>

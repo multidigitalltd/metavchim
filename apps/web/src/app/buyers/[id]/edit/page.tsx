@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, ApiError } from "@/lib/api";
+import { PriceField } from "../../../price-field";
 import { FINANCING_LABELS, shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 
@@ -156,35 +157,19 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
               </select>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label htmlFor="budgetMin" className="mb-1 block font-medium">תקציב מ- (₪)</label>
-                <input
-                  id="budgetMin"
-                  name="budgetMin"
-                  type="number"
-                  min="0"
-                  step="10000"
-                  inputMode="numeric"
-                  defaultValue={req.budgetMinAgorot === undefined ? "" : Math.round(req.budgetMinAgorot / 100)}
-                  className="w-full rounded-lg border px-3 py-2.5"
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label htmlFor="budgetMax" className="mb-1 block font-medium">עד (₪) *</label>
-                <input
-                  id="budgetMax"
-                  name="budgetMax"
-                  type="number"
-                  required
-                  min="1000"
-                  step="10000"
-                  inputMode="numeric"
-                  defaultValue={Math.round(req.budgetMaxAgorot / 100)}
-                  className="w-full rounded-lg border px-3 py-2.5"
-                  style={inputStyle}
-                />
-              </div>
+              <PriceField
+                id="budgetMin"
+                name="budgetMin"
+                label="תקציב מ- (₪)"
+                defaultValue={req.budgetMinAgorot === undefined ? "" : Math.round(req.budgetMinAgorot / 100)}
+              />
+              <PriceField
+                id="budgetMax"
+                name="budgetMax"
+                label="עד (₪) *"
+                required
+                defaultValue={Math.round(req.budgetMaxAgorot / 100)}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
