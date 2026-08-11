@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import { OPEN_LEAD_STATUSES, leadDeletionRejectionReason, type Page } from "@metavchim/shared";
+import { lockContact } from "../../common/locks";
 import { assertLeadAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
@@ -258,9 +259,15 @@ export class LeadsService {
       const rejection = leadDeletionRejectionReason(lead.status);
       if (rejection) throw new BadRequestException(rejection);
 
-      await tx.sharedLead.updateMany({
-        where: { tenantId: ctx.tenantId, originLeadId: id, status: "active" },
-        data: { status: "withdrawn" },
+      /*
+       * רישום בשוק שלא נמכר **נמחק** ולא רק יורד לסטטוס `withdrawn`:
+       * על השורה יושב צילום מוצפן של השם והטלפון, ו"הסרה מהשוק"
+       * שמשאירה אותו הייתה הופכת את הבטחת המחיקה לחצי הבטחה
+       * (ביקורת Codex). רישום שכבר נמכר נשאר — הוא התיעוד של עסקה
+       * שקרתה ושל הקרדיטים שעברו בה, והצילום שבו כבר בידי הקונה.
+       */
+      await tx.sharedLead.deleteMany({
+        where: { tenantId: ctx.tenantId, originLeadId: id, status: { not: "sold" } },
       });
       await tx.interaction.deleteMany({ where: { tenantId: ctx.tenantId, leadId: id } });
       await tx.appointment.updateMany({
@@ -291,7 +298,19 @@ export class LeadsService {
           googleEventId: null,
         },
       });
-      await tx.lead.delete({ where: { id } });
+      /*
+       * המחיקה עצמה מותנית בסטטוס, ולא רק בבדיקה שלמעלה: המרה
+       * שרצה במקביל מסמנת `converted` ב-CAS משלה, והקריאה שלנו
+       * הספיקה לראות ליד פתוח. מחיקה לא מותנית הייתה מוחקת ליד
+       * שהומר בשנייה שעברה, ומשאירה את כרטיס הקונה שנוצר ממנו בלי
+       * מקור (ביקורת Codex).
+       */
+      const deleted = await tx.lead.deleteMany({
+        where: { id, tenantId: ctx.tenantId, status: { not: "converted" } },
+      });
+      if (deleted.count === 0) {
+        throw new BadRequestException("הליד הומר בזמן המחיקה — מחקו את הכרטיס שנוצר ממנו");
+      }
 
       const contactDeleted = await this.deleteContactIfOrphan(tx, lead.contactId);
       await this.audit.record(tx, {
@@ -314,6 +333,13 @@ export class LeadsService {
    */
   private async deleteContactIfOrphan(tx: TenantTx, contactId: string): Promise<boolean> {
     const tenantId = TenantContext.current().tenantId;
+    /*
+     * הנעילה לפני הספירה, לא אחריה: ליד נכנס מאותו טלפון שמגיע
+     * בדיוק עכשיו ממחזר את הכרטיס הזה, ובלי מפתחות זרים המסד לא
+     * יעצור מחיקה שתשאיר אותו מצביע על כלום. מי שממחזר נועל את אותו
+     * מפתח וקורא שוב אחרי הנעילה (ראו `common/locks.ts`).
+     */
+    await lockContact(tx, contactId);
     const [leads, buyers, properties, agreements, calls, messages, linkedTo] = await Promise.all([
       tx.lead.count({ where: { tenantId, contactId } }),
       tx.buyer.count({ where: { tenantId, contactId } }),

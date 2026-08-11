@@ -10,6 +10,7 @@ import {
   type BuyerRequirements,
   type LeadSourcePrice,
 } from "@metavchim/shared";
+import { lockContact } from "../../common/locks";
 import { assertLeadAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
@@ -732,6 +733,20 @@ export class CollaborationService {
         },
         select: { id: true },
       });
+      /*
+       * מיחזור כרטיס קיים נועל אותו וקורא שוב — אותו כלל כמו
+       * ב-`ContactsService.findOrCreateByPhone`: כרטיס בלי שום קשר
+       * עלול להימחק בדיוק כאן, ולידים שיצביעו עליו לא ייפתחו.
+       */
+      if (contact) {
+        await lockContact(tx, contact.id);
+        contact = await tx.contact.findUnique({
+          where: {
+            tenantId_phoneHash: { tenantId: ctx.tenantId, phoneHash: row.contactPhoneHash },
+          },
+          select: { id: true },
+        });
+      }
       contact ??= await tx.contact.create({
         data: {
           id: ulid(),

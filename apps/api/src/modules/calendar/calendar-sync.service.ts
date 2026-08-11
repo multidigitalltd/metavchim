@@ -165,14 +165,26 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
         where: {
           tenantId: link.tenantId,
           assignedToUserId: link.userId,
-          dueAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
           googleSyncedAt: null,
-          /*
-           * גם משימה שנסגרה נכנסת לתור — כדי **למחוק** את האירוע
-           * שלה ביומן. סינון ל-open בלבד היה משאיר משימה שבוצעה
-           * תלויה ב-Google לנצח (ביקורת Codex).
-           */
-          OR: [{ status: "open" }, { googleEventId: { not: null } }],
+          OR: [
+            /*
+             * ניקוי אחרי מחיקה — **בלי חלון הזמן.** משימה שנמחקה
+             * ומועדה חלף לפני יותר מיממה לא הייתה נכנסת לסבב לעולם,
+             * ולכן גם האירוע ב-Google וגם השורה במסד היו נשארים
+             * לנצח: `deletedAfterSync` ממתין לדחיפה שלא תגיע
+             * (ביקורת Codex).
+             */
+            { deletedAfterSync: true },
+            {
+              dueAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
+              /*
+               * גם משימה שנסגרה נכנסת לתור — כדי **למחוק** את האירוע
+               * שלה ביומן. סינון ל-open בלבד היה משאיר משימה שבוצעה
+               * תלויה ב-Google לנצח (ביקורת Codex).
+               */
+              OR: [{ status: "open" }, { googleEventId: { not: null } }],
+            },
+          ],
         },
         orderBy: { dueAt: "asc" },
         take: PUSH_BATCH,
@@ -181,14 +193,20 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
 
     let count = 0;
     for (const task of pending) {
-      if (!task.dueAt) continue;
+      /*
+       * משימה שממתינה לניקוי ואיבדה את מועדה עדיין צריכה לבטל את
+       * האירוע שלה; `now` כאן הוא רק מילוי לשדה חובה, והאירוע נמחק
+       * ממילא. משימה רגילה בלי מועד אינה שייכת ליומן.
+       */
+      const dueAt = task.dueAt ?? (task.deletedAfterSync ? now : null);
+      if (!dueAt) continue;
       const googleEventId = await this.google.upsertEvent(link, {
         googleEventId: task.googleEventId,
         // הקידומת מבדילה ביומן בין משימה לפגישה במבט
         summary: `משימה: ${task.title}`,
         description: task.notes ?? undefined,
-        startsAt: task.dueAt,
-        endsAt: new Date(task.dueAt.getTime() + 30 * 60_000),
+        startsAt: dueAt,
+        endsAt: new Date(dueAt.getTime() + 30 * 60_000),
         // משימה שבוצעה — האירוע נמחק מהיומן במקום להישאר תלוי
         cancelled: task.status !== "open",
       });
