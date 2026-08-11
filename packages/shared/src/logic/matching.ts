@@ -49,6 +49,28 @@ export const DEFAULT_MATCH_WEIGHTS = {
 } as const;
 
 export type MatchCriterion = keyof typeof DEFAULT_MATCH_WEIGHTS;
+
+/**
+ * קריטריונים שאינם ניתנים לביטול.
+ *
+ * שלושת אלה אינם רק משוקללים — הם **פוסלים**: עיר שאינה ברשימת
+ * הקונה, מחיר מעל התקציב, ודרישת חובה שהנכס מפר, כולם מוציאים את
+ * ההתאמה מהרשימה לגמרי. חלקם אף מסננים כבר ב-SQL, לפני שהניקוד
+ * בכלל רץ.
+ *
+ * לכן משקל אפס עליהם היה שקר: המסך היה מציג "מבוטל" בעוד שהקריטריון
+ * ממשיך למחוק מועמדים (ביקורת Codex). במקום להתיר ביטול מדומה,
+ * נאכף מינימום — ומי שרוצה באמת להתעלם מהמיקום, מסיר את הערים
+ * מדרישות הקונה.
+ */
+export const HARD_MATCH_CRITERIA: readonly MatchCriterion[] = [
+  "location",
+  "budget",
+  "features_must",
+];
+
+/** המשקל המזערי לקריטריון פוסל. */
+export const MIN_HARD_WEIGHT = 0.05;
 export type MatchWeights = Record<MatchCriterion, number>;
 
 /** תוויות בעברית — למסך ההגדרות ולהסברים. */
@@ -173,7 +195,15 @@ export function scoreMatch(
         score: 0,
         note: `חסר: ${mustMissingExplicit.join(", ")} (חובה עבור הקונה)`,
       });
-    } else {
+    } else if (featureEntries.some(([, level]) => level === "must")) {
+      /*
+       * רק כשבאמת נדרשה דרישת חובה.
+       *
+       * קונה שסימן הכול כ"נחמד שיהיה" קיבל כאן ציון מלא על קריטריון
+       * שלא ביקש, ומשרד שמעלה את משקל דרישות החובה היה מנפח בטעות
+       * דווקא את ההתאמות האלה — ודוחף אותן מעל סף התצוגה מסיבה
+       * שאינה קשורה לכלום (ביקורת Codex).
+       */
       const mustScore = mustUnknown.length === 0 ? 1 : 0.5;
       parts.push({
         criterion: "features_must",
@@ -265,6 +295,8 @@ export function resolveMatchWeights(stored: unknown): MatchWeights {
     const raw = source[key];
     const value = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : undefined;
     if (value !== undefined) out[key] = value;
+    // קריטריון פוסל לא יורד מתחת למינימום — ראו HARD_MATCH_CRITERIA
+    if (HARD_MATCH_CRITERIA.includes(key)) out[key] = Math.max(out[key], MIN_HARD_WEIGHT);
     sum += out[key];
   }
 

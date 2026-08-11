@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import {
+  HARD_MATCH_CRITERIA,
   MATCH_CRITERION_LABELS,
+  MIN_HARD_WEIGHT,
   type MatchCriterion,
   type MatchWeights,
 } from "@metavchim/shared";
@@ -90,7 +92,7 @@ export function MatchWeightsSection() {
       </h3>
       <p className="m-0 mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
         כמה כל קריטריון שוקל בציון ההתאמה בין נכס לקונה. מה שחשוב לכם — העלו;
-        מה שפחות — הורידו. אפשר גם לאפס קריטריון לגמרי.
+        מה שפחות — הורידו, ואת מי שלא רלוונטי אפשר לאפס לגמרי.
       </p>
 
       {/*
@@ -110,10 +112,20 @@ export function MatchWeightsSection() {
       <ul className="m-0 mb-4 flex list-none flex-col gap-3 p-0">
         {CRITERIA.map((criterion) => {
           const percent = toPercent(weights[criterion]);
+          // קריטריון פוסל אינו יורד לאפס — ראו ההסבר מתחת לרשימה
+          const isHard = HARD_MATCH_CRITERIA.includes(criterion);
+          const minPercent = isHard ? toPercent(MIN_HARD_WEIGHT) : 0;
           return (
             <li key={criterion}>
               <label htmlFor={`w-${criterion}`} className="mb-1 flex items-baseline justify-between gap-2 text-sm">
-                <span className="font-medium">{MATCH_CRITERION_LABELS[criterion]}</span>
+                <span className="font-medium">
+                  {MATCH_CRITERION_LABELS[criterion]}
+                  {isHard ? (
+                    <span className="ms-1.5 text-[11.5px]" style={{ color: "var(--color-text-muted)" }}>
+                      (פוסל)
+                    </span>
+                  ) : null}
+                </span>
                 <span
                   className="font-bold"
                   style={{
@@ -127,7 +139,7 @@ export function MatchWeightsSection() {
               <input
                 id={`w-${criterion}`}
                 type="range"
-                min={0}
+                min={minPercent}
                 max={50}
                 step={5}
                 value={percent}
@@ -143,6 +155,16 @@ export function MatchWeightsSection() {
       <p className="m-0 mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
         סך המשקלים: {total}%. אין צורך להגיע ל-100 — הציון נקבע לפי היחס ביניהם,
         וקריטריון שאין עליו מידע בנכס פשוט מדולג.
+      </p>
+      {/*
+        למה שלושה קריטריונים לא יורדים לאפס: הם לא רק משוקללים אלא
+        פוסלים. משקל אפס עליהם היה מציג "מבוטל" בעוד שהם ממשיכים
+        למחוק מועמדים מהרשימה — כלומר שקר במסך.
+      */}
+      <p className="m-0 mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+        שלושת המסומנים כ„פוסל" אינם יורדים לאפס: הם לא רק משפיעים על הציון אלא
+        מוציאים התאמה מהרשימה — עיר מחוץ לרשימת הקונה, מחיר מעל התקציב, או דרישת
+        חובה שהנכס מפר. כדי להתעלם מהמיקום, הסירו את הערים מדרישות הקונה עצמו.
       </p>
 
       {error ? (

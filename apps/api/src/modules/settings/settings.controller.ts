@@ -29,6 +29,7 @@ import {
   type Capability,
   type LimitState,
   DEFAULT_MATCH_WEIGHTS,
+  MIN_HARD_WEIGHT,
   resolveMatchWeights,
   type MatchWeights,
 } from "@metavchim/shared";
@@ -126,11 +127,12 @@ const LeadWebhookSchema = z
  */
 const MatchWeightsSchema = z
   .object({
-    location: z.number().min(0).max(1),
-    budget: z.number().min(0).max(1),
+    // שלושת הפוסלים לא יורדים מתחת למינימום — ראו HARD_MATCH_CRITERIA
+    location: z.number().min(MIN_HARD_WEIGHT).max(1),
+    budget: z.number().min(MIN_HARD_WEIGHT).max(1),
     rooms: z.number().min(0).max(1),
     property_type: z.number().min(0).max(1),
-    features_must: z.number().min(0).max(1),
+    features_must: z.number().min(MIN_HARD_WEIGHT).max(1),
     features_nice: z.number().min(0).max(1),
     area: z.number().min(0).max(1),
     entry_date: z.number().min(0).max(1),
@@ -212,15 +214,19 @@ export class SettingsController {
     @Body(new ZodValidationPipe(MatchWeightsSchema)) body: z.infer<typeof MatchWeightsSchema>,
   ): Promise<{ weights: MatchWeights }> {
     const tenantId = TenantContext.current().tenantId;
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { settings: true },
-    });
-    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
-    await this.prisma.tenant.update({
-      where: { id: tenantId },
-      data: { settings: { ...settings, matchWeights: body } },
-    });
+    /*
+     * ‎jsonb_set‎ ולא קריאה-שינוי-כתיבה של כל העמודה.
+     *
+     * שמירה מקבילה של פרטי המשרד הייתה נדרסת: שתי הבקשות קוראות את
+     * אותו JSON ישן, וזו שמסיימת אחרונה מוחקת בשקט את השינוי של
+     * השנייה (ביקורת Codex). העדכון כאן נוגע במפתח אחד בלבד, ברמת
+     * בסיס הנתונים.
+     */
+    await this.prisma.$executeRaw`
+      UPDATE tenants
+      SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{matchWeights}', ${JSON.stringify(body)}::jsonb, true)
+      WHERE id = ${tenantId}
+    `;
     return { weights: resolveMatchWeights(body) };
   }
 
