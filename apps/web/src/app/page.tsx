@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { apiGet } from "@/lib/api";
 import { FIELD_LABELS, MATURITY_LABELS } from "@/lib/format";
@@ -9,6 +9,8 @@ import { useFeature } from "@/lib/use-features";
 import { DuplicateContacts } from "./duplicate-contacts";
 import { SetupBanner } from "./setup-banner";
 import { NowStamp } from "./now-stamp";
+import { BarChart, DonutChart, type Slice } from "./charts";
+import { IconBell, IconFilter, IconFlame, IconHome, IconSend, IconStar, IconUsers, IconWarning } from "./icons";
 
 /**
  * דשבורד לפי קובץ העיצוב: ברכה עם תאריך, ארבעה כרטיסי מונים,
@@ -114,6 +116,13 @@ interface TaskRow {
   why: string;
   action: string;
   href: string | null;
+  /**
+   * אייקון לפי **סוג** הפעולה ולא לפי דחיפותה.
+   *
+   * הצבע כבר מסמן דחיפות; האייקון עונה על השאלה השנייה — "מה זה
+   * בכלל?" — ומאפשר לזהות שורה בסריקה, לפני קריאת הכותרת.
+   */
+  icon: ReactNode;
 }
 
 export default function DashboardPage() {
@@ -181,6 +190,7 @@ export default function DashboardPage() {
       title: `ליד דורש טיפול אנושי: ${l.contact.name}`,
       why: l.requiresHumanReason ?? "העוזר הדיגיטלי לא הצליח להתקדם לבד.",
       action: "טפל עכשיו",
+      icon: <IconWarning s={16} />,
       href: `/leads/${l.id}`,
     });
   }
@@ -191,6 +201,7 @@ export default function DashboardPage() {
       title: rec.title,
       why: rec.body,
       action: "לפרטים",
+      icon: <IconStar s={16} />,
       href: recHref(rec),
     });
   }
@@ -201,6 +212,7 @@ export default function DashboardPage() {
       title: `ליד חדש ממתין: ${l.contact.name}`,
       why: "מענה מהיר מכפיל את סיכוי ההמרה.",
       action: "פתח ליד",
+      icon: <IconBell s={16} />,
       href: `/leads/${l.id}`,
     });
   }
@@ -211,6 +223,7 @@ export default function DashboardPage() {
       title: `${[p.street, p.city].filter(Boolean).join(", ") || "נכס ללא כתובת"} — מוכנות ${p.readinessScore}%`,
       why: `חסרים: ${p.missingFields.slice(0, 3).map((f) => FIELD_LABELS[f] ?? f).join(", ")}${p.missingFields.length > 3 ? " ועוד" : ""}. השלמה תפתח קונים חדשים.`,
       action: "השלם פרטים",
+      icon: <IconHome s={16} />,
       href: `/properties/${p.id}/edit`,
     });
   }
@@ -221,6 +234,7 @@ export default function DashboardPage() {
       title: `לבדוק התאמות עבור ${b.contact.name}`,
       why: `קונה ${MATURITY_LABELS[b.maturity] ?? b.maturity} — כדאי לוודא שקיבל הצעות רלוונטיות.`,
       action: "צפה בהתאמות",
+      icon: <IconUsers s={16} />,
       href: `/buyers/${b.id}`,
     });
   }
@@ -231,6 +245,10 @@ export default function DashboardPage() {
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
     .slice(0, 4);
 
+  /*
+   * כל מונה נושא אייקון משלו. זה לא קישוט: בסריקה מהירה של ארבעה
+   * מספרים דומים, הצורה היא מה שמבדיל ביניהם לפני שקוראים מילה.
+   */
   const statCards = [
     {
       label: "נכסים פעילים",
@@ -238,6 +256,8 @@ export default function DashboardPage() {
       sub: incomplete.length > 0 ? `${incomplete.length} ממתינים להשלמת פרטים` : "כולם מוכנים לשיווק",
       href: "/properties",
       valueColor: undefined as string | undefined,
+      icon: <IconHome s={17} />,
+      tone: "var(--color-primary)",
     },
     {
       label: "קונים חמים",
@@ -245,6 +265,8 @@ export default function DashboardPage() {
       sub: buyers === null ? "" : `מתוך ${buyers.length} קונים במאגר`,
       href: "/buyers",
       valueColor: "var(--color-danger)",
+      icon: <IconFlame s={17} />,
+      tone: "var(--color-danger)",
     },
     {
       label: "הצעות ממתינות למענה",
@@ -252,6 +274,8 @@ export default function DashboardPage() {
       sub: mullingOffer !== undefined ? `אחת נפתחה ${mullingOffer.openCount} פעמים` : "",
       href: "/offers",
       valueColor: undefined,
+      icon: <IconSend s={17} />,
+      tone: "var(--color-primary)",
     },
     {
       label: "לידים חדשים",
@@ -259,7 +283,28 @@ export default function DashboardPage() {
       sub: urgentLeads.length > 0 ? `${urgentLeads.length} דורשים טיפול אנושי` : "",
       href: "/leads",
       valueColor: undefined,
+      icon: <IconBell s={17} />,
+      tone: "var(--color-primary)",
     },
+  ];
+
+  /*
+   * הפילוחים נגזרים מהנתונים שכבר נטענו למסך — אין קריאה נוספת
+   * לשרת בשביל הגרפים. כל פרוסה מקשרת לרשימה המסוננת, כי פילוח
+   * שאי אפשר לצלול אליו הוא קישוט.
+   */
+  const maturitySlices: Slice[] = [
+    { label: "חם מאוד", value: (buyers ?? []).filter((b) => b.maturity === "very_hot").length, color: "#b0512c", href: "/buyers?maturity=very_hot" },
+    { label: "חם", value: (buyers ?? []).filter((b) => b.maturity === "hot").length, color: "#d9a441", href: "/buyers?maturity=hot" },
+    { label: "מתעניין", value: (buyers ?? []).filter((b) => b.maturity === "interested").length, color: "var(--color-primary-accent)", href: "/buyers?maturity=interested" },
+    { label: "לא בשל", value: (buyers ?? []).filter((b) => b.maturity === "not_ripe").length, color: "#9aa79d", href: "/buyers?maturity=not_ripe" },
+  ];
+
+  const leadSlices: Slice[] = [
+    { label: "חדש", value: (leads ?? []).filter((l) => l.status === "new").length, color: "var(--color-primary-accent)", href: "/leads?status=new" },
+    { label: "בטיפול", value: (leads ?? []).filter((l) => l.status === "in_progress").length, color: "#d9a441", href: "/leads?status=in_progress" },
+    { label: "ממתין ללקוח", value: (leads ?? []).filter((l) => l.status === "waiting_customer").length, color: "#7a9bd4", href: "/leads?status=waiting_customer" },
+    { label: "הומר", value: (leads ?? []).filter((l) => l.status === "converted").length, color: "var(--color-primary)", href: "/leads?status=converted" },
   ];
 
   return (
@@ -282,7 +327,10 @@ export default function DashboardPage() {
         <dl className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
           {statCards.map((card) => (
             <Link key={card.label} href={card.href} className="mv-stat-card no-underline">
-              <dt className="text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
+              <dt className="flex items-center gap-2 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                <span className="mv-stat-icon" style={{ color: card.tone }} aria-hidden="true">
+                  {card.icon}
+                </span>
                 {card.label}
               </dt>
               <dd className="mv-stat-value m-0" style={card.valueColor ? { color: card.valueColor } : undefined}>
@@ -291,9 +339,41 @@ export default function DashboardPage() {
               <dd className="m-0 text-[12.5px]" style={{ color: "var(--color-text-muted)", minHeight: "1.2em" }}>
                 {card.sub}
               </dd>
+              {/* חץ שמופיע בריחוף — רמז שהכרטיס כולו לחיץ */}
+              <span className="mv-stat-go" aria-hidden="true">←</span>
             </Link>
           ))}
         </dl>
+      </section>
+
+      {/* ---- פילוחים: איפה עומד המשרד, במבט אחד ---- */}
+      <section aria-labelledby="charts-heading" className="mb-7">
+        <h2 id="charts-heading" className="mv-visually-hidden">פילוחי המאגר</h2>
+        <div className="grid gap-3.5 lg:grid-cols-2">
+          <div className="mv-list-card px-5 py-[18px]">
+            <h3 className="m-0 mb-1 flex items-center gap-2" style={{ fontSize: 14.5, fontWeight: 800 }}>
+              <IconUsers s={16} /> בשלות הקונים
+            </h3>
+            <p className="m-0 mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+              לחיצה על שורה פותחת את הרשימה המסוננת.
+            </p>
+            <DonutChart
+              slices={maturitySlices}
+              centerValue={buyers === null ? "…" : String(buyers.length)}
+              centerLabel="קונים"
+            />
+          </div>
+
+          <div className="mv-list-card px-5 py-[18px]">
+            <h3 className="m-0 mb-1 flex items-center gap-2" style={{ fontSize: 14.5, fontWeight: 800 }}>
+              <IconFilter s={16} /> מצב הלידים
+            </h3>
+            <p className="m-0 mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+              המשפך מהפנייה ועד ההמרה.
+            </p>
+            <BarChart slices={leadSlices} />
+          </div>
+        </div>
       </section>
 
       <div className="grid items-start gap-6 lg:[grid-template-columns:1fr_340px]">
@@ -334,12 +414,18 @@ export default function DashboardPage() {
               {shownTasks.map((t, index) => (
                 <li
                   key={t.key}
-                  className="flex items-center gap-3.5 px-5 py-3.5"
+                  className="mv-todo-row flex items-center gap-3.5 px-5 py-3.5"
                   style={{ borderBottom: "1px solid var(--color-row-border)" }}
                 >
+                  {/*
+                    אייקון במקום מספר סידורי: המספר חזר על עצמו בכל
+                    שורה ולא אמר דבר על התוכן, בעוד שהצורה מזהה את סוג
+                    הפעולה במבט. הסדר עצמו נשמר במיקום ברשימה, ונקרא
+                    לקורא מסך דרך aria-label.
+                  */}
                   <span
                     aria-hidden="true"
-                    className="grid flex-none place-items-center text-[13px] font-extrabold"
+                    className="grid flex-none place-items-center"
                     style={{
                       width: 34,
                       height: 34,
@@ -348,8 +434,9 @@ export default function DashboardPage() {
                       color: TONE[t.tone].fg,
                     }}
                   >
-                    {index + 1}
+                    {t.icon}
                   </span>
+                  <span className="mv-visually-hidden">פעולה {index + 1}:</span>
                   <span className="min-w-0" style={{ lineHeight: 1.35 }}>
                     <span className="block text-[14.5px] font-bold">{t.title}</span>
                     <span className="block text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>

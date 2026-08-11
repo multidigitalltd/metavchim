@@ -1118,6 +1118,76 @@ button.mv-list-row:hover {
  * ה-select נשאר נייטיב בכוונה — במובייל הוא נפתח כגלגלת המערכת,
  * שנוחה בהרבה מכל תפריט מותאם.
  */
+/* ---------- רשימה נפתחת מעוצבת (SelectMenu) ----------
+   רשימת ה-option של select מקורי מצוירת בידי מערכת ההפעלה ואי אפשר
+   לעצב אותה — לכן הרשימה כאן מצוירת בעצמנו. הכפתור נשאר זהה במראהו
+   ל-.mv-select כדי ששורת סינון מעורבת תיראה אחידה. */
+.mv-select-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid var(--color-input-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 10px;
+  min-height: 38px;
+  padding: 0 14px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.mv-select-button:hover {
+  background: var(--color-hover-soft);
+  border-color: var(--color-border-hover);
+}
+.mv-select-button[aria-expanded="true"] {
+  border-color: var(--color-primary);
+}
+
+.mv-select-list {
+  position: absolute;
+  z-index: 40;
+  inset-inline-start: 0;
+  top: calc(100% + 6px);
+  min-width: 100%;
+  max-height: 280px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 5px;
+  list-style: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pop);
+}
+
+.mv-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 11px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+/* הסימון עוקב אחרי המקלדת ואחרי העכבר גם יחד — data-active נקבע
+   בשניהם, ולכן אין שתי הדגשות סותרות על המסך */
+.mv-select-option[data-active="true"] {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+.mv-select-option[aria-selected="true"] {
+  font-weight: 800;
+  color: var(--color-primary);
+}
+
 .mv-select {
   appearance: none;
   -webkit-appearance: none;
@@ -1308,15 +1378,89 @@ button.mv-list-row:hover {
 /* כרטיס מונה בדשבורד — לפי קובץ העיצוב: מספר גדול ומסגרת שמתחדדת בריחוף */
 .mv-stat-card {
   display: block;
+  position: relative;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   padding: 16px 18px;
-  transition: border-color 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
+/*
+ * הכרטיס כולו הוא קישור, אבל בלי משוב ריחוף הוא נראה כטקסט סטטי
+ * והמשתמש לא מנסה ללחוץ. ההרמה עדינה בכוונה — ארבעה כרטיסים
+ * שקופצים יחד הם רעש, לא היררכיה.
+ */
 .mv-stat-card:hover {
   border-color: var(--color-border-hover); /* ‎#b9cfc1‎ — כמו בעיצוב */
+  box-shadow: var(--shadow-card);
+  transform: translateY(-2px);
   text-decoration: none;
+}
+.mv-stat-card:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* עיגול רך סביב האייקון — מבדיל אותו מהטקסט בלי להתחרות במספר */
+.mv-stat-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--color-primary-soft);
+  flex: none;
+}
+
+/* החץ מופיע רק בריחוף — רמז ולא רעש קבוע */
+.mv-stat-go {
+  position: absolute;
+  inset-inline-start: 16px;
+  top: 16px;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--color-primary);
+  opacity: 0;
+  transform: translateX(4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.mv-stat-card:hover .mv-stat-go,
+.mv-stat-card:focus-visible .mv-stat-go {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* שורת "מה חשוב לעשות היום" — הדגשה בריחוף כדי שיהיה ברור
+   שהשורה היא יחידה אחת עם פעולה, ולא טקסט זורם */
+.mv-todo-row {
+  transition: background-color 0.15s ease;
+}
+.mv-todo-row:hover {
+  background: var(--color-row-hover);
+}
+
+/* ---------- שורות מקרא/עמודה בגרפים ---------- */
+.mv-legend-row,
+.mv-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 7px;
+  border-radius: 8px;
+  transition: background-color 0.15s ease;
+}
+.mv-bar-row {
+  display: block;
+  padding: 5px 7px;
+}
+a.mv-legend-row:hover,
+a.mv-bar-row:hover {
+  background: var(--color-hover-soft);
+}
+a.mv-legend-row:focus-visible,
+a.mv-bar-row:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
 }
 .mv-stat-value {
   font-size: 28px;
