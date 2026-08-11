@@ -14,8 +14,21 @@ import { useRequireAuth } from "@/lib/use-auth";
 import Link from "next/link";
 import { LoadError } from "../load-error";
 import { IconCart, IconDiamond, IconHandshake } from "../icons";
+import { CollaborationGuide, CommissionPanel, PrivacyPanel } from "./guide";
 
-/** רשת שיתופי הפעולה (אפיון §11-12): ביקושים אנונימיים + קרדיטים. */
+/**
+ * רשת שיתופי הפעולה (אפיון §11-12).
+ *
+ * שלוש לשוניות ולא מסך אחד: שיתוף פעולה בין משרדים (חינם) ושוק
+ * הלידים (בקרדיטים) הם שני מנגנונים שונים לגמרי, וההצגה שלהם יחד
+ * היא מה שגרם למתווכים לחשוב ששת"פ עולה כסף.
+ */
+const COOP_TABS: [key: string, label: string][] = [
+  ["demands", "ביקושים ברשת"],
+  ["incoming", "הצעות שקיבלתי"],
+  ["market", "שוק לידים"],
+];
+
 
 interface DemandMatch {
   propertyId: string;
@@ -85,6 +98,7 @@ const FEATURE_LABELS: Record<string, string> = {
 
 export default function CollaborationPage() {
   const { loading: authLoading } = useRequireAuth();
+  const [coopTab, setCoopTab] = useState<string>("demands");
   const [demands, setDemands] = useState<DemandRow[] | null>(null);
   const [sharedLeads, setSharedLeads] = useState<SharedLeadRow[]>([]);
   const [buyingLead, setBuyingLead] = useState<string | null>(null);
@@ -99,7 +113,14 @@ export default function CollaborationPage() {
    */
   const [offerSplit, setOfferSplit] = useState<Record<string, number>>({});
   const [message, setMessageState] = useState<string | null>(null);
+  /*
+   * כישלון טעינה נשמר בנפרד לכל רשימה, ולא מכווץ ל-[].
+   * מצב ריק אומר למתווך "אין כאן כלום, אין מה לעשות" — והוא עוזב.
+   * תקלת רשת אינה מסקנה עסקית, ולכן היא מוצגת ככשל עם ניסיון חוזר.
+   */
   const [loadFailed, setLoadFailed] = useState(false);
+  const [offersFailed, setOffersFailed] = useState(false);
+  const [leadsFailed, setLeadsFailed] = useState(false);
 
   /** כל הודעה חדשה מוחקת את קישור "פתח את הליד" של הקנייה הקודמת. */
   function setMessage(text: string | null, leadId: string | null = null) {
@@ -109,6 +130,8 @@ export default function CollaborationPage() {
 
   const load = useCallback(() => {
     setLoadFailed(false);
+    setOffersFailed(false);
+    setLeadsFailed(false);
     /*
      * כישלון בטעינת הביקושים אינו "אין ביקושים ברשת".
      * קודם הוא הפך ל-[] והמסך הציג את מצב הריק — כלומר תקלת רשת
@@ -117,8 +140,12 @@ export default function CollaborationPage() {
     apiGet<DemandRow[]>("/collaboration/demands")
       .then(setDemands)
       .catch(() => setLoadFailed(true));
-    apiGet<CoopOfferRow[]>("/collaboration/offers").then(setCoopOffers).catch(() => undefined);
-    apiGet<SharedLeadRow[]>("/collaboration/leads").then(setSharedLeads).catch(() => undefined);
+    apiGet<CoopOfferRow[]>("/collaboration/offers")
+      .then(setCoopOffers)
+      .catch(() => setOffersFailed(true));
+    apiGet<SharedLeadRow[]>("/collaboration/leads")
+      .then(setSharedLeads)
+      .catch(() => setLeadsFailed(true));
     apiGet<{ balance: number }>("/collaboration/credits")
       .then((r) => setBalance(r.balance))
       .catch(() => undefined);
@@ -195,25 +222,45 @@ export default function CollaborationPage() {
 
   return (
     <>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">שיתופי פעולה</h1>
-        <div className="flex flex-wrap items-center gap-3">
-          {/* הפרסום עצמו נעשה מכרטיס הקונה — הביקוש נגזר מדרישות
-              אמיתיות ולא מטופס ריק. אבל מי שנוחת כאן צריך לדעת שזה
-              קיים ואיפה, אחרת המסך נראה כמו רשימה לצפייה בלבד. */}
-          <Link href="/buyers" className="mv-btn-action" style={{ textDecoration: "none" }}>
-            + פרסם ביקוש
-          </Link>
-          <span className="rounded-full border px-4 py-1.5 font-medium" style={{ borderColor: "var(--color-border)" }}>
-            <IconDiamond s={15} /> {balance ?? "…"} קרדיטים
-          </span>
-        </div>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="m-0 text-2xl font-bold">שיתופי פעולה</h1>
+        {/* הפרסום עצמו נעשה מכרטיס הקונה — הביקוש נגזר מדרישות
+            אמיתיות ולא מטופס ריק. אבל מי שנוחת כאן צריך לדעת שזה
+            קיים ואיפה, אחרת המסך נראה כמו רשימה לצפייה בלבד. */}
+        <Link href="/buyers" className="mv-btn-action" style={{ textDecoration: "none" }}>
+          + פרסם ביקוש
+        </Link>
       </div>
 
-      <p className="mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
-        פרסום ביקוש נעשה מכרטיס הקונה — כך הוא נושא את הדרישות האמיתיות שלו.
-        בחרו קונה, ובכרטיס שלו לחצו על שיתוף לרשת.
-      </p>
+      <CollaborationGuide />
+
+      {/*
+        שלוש לשוניות ולא מסך אחד ארוך.
+        שני מנגנונים שונים חיו כאן יחד — שת"פ חינם ושוק לידים
+        בתשלום — ומי שנחת על המסך לא ידע מה שייך למה. ההפרדה היא
+        גם הפתרון לבלבול בקרדיטים: הם מופיעים בלשונית אחת בלבד.
+      */}
+      <div className="mv-seg mb-[18px]" role="tablist" aria-label="אזורי הרשת">
+        {COOP_TABS.map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            id={`coop-tab-${key}`}
+            aria-selected={coopTab === key}
+            aria-controls={`coop-panel-${key}`}
+            aria-pressed={coopTab === key}
+            onClick={() => setCoopTab(key)}
+          >
+            {label}
+            {key === "incoming" && incoming.length > 0 ? (
+              <span className="mv-chip ms-1.5" style={{ padding: "1px 7px", fontSize: 11.5 }}>
+                {incoming.length}
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </div>
 
       {message ? (
         <p role="status" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-primary)" }}>
@@ -229,11 +276,19 @@ export default function CollaborationPage() {
         </p>
       ) : null}
 
-      {incoming.length > 0 ? (
-        <section aria-labelledby="incoming-heading" className="mb-8">
+      {coopTab === "incoming" ? (
+        <section
+          id="coop-panel-incoming"
+          role="tabpanel"
+          aria-labelledby="coop-tab-incoming"
+          className="mb-8"
+        >
           <h2 id="incoming-heading" className="mb-3 text-lg font-semibold">
             <IconHandshake s={16} /> הצעות שהתקבלו על הביקושים שלך ({incoming.length})
           </h2>
+          {offersFailed ? (
+            <LoadError message="לא הצלחנו לטעון את ההצעות שהתקבלו" onRetry={load} />
+          ) : null}
           <ul className="flex flex-col gap-3">
             {incoming.map((offer) => (
               <li key={offer.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-primary)", background: "var(--color-surface)" }}>
@@ -259,16 +314,52 @@ export default function CollaborationPage() {
               </li>
             ))}
           </ul>
+          {incoming.length === 0 && !offersFailed ? (
+            <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              עדיין לא התקבלו הצעות. פרסמו ביקוש מכרטיס קונה, ומשרדים שיש להם נכס
+              מתאים יציעו אותו כאן.
+            </p>
+          ) : null}
         </section>
       ) : null}
 
-      {leadsForSale.length > 0 || myListedLeads.length > 0 ? (
-        <section aria-labelledby="lead-market-heading" className="mb-8">
+      {coopTab === "market" ? (
+        <section
+          id="coop-panel-market"
+          role="tabpanel"
+          aria-labelledby="coop-tab-market"
+          className="mb-8"
+        >
           <h2 id="lead-market-heading" className="mb-1 text-lg font-semibold"><IconCart s={16} /> שוק הלידים</h2>
           <p className="mb-3" style={{ color: "var(--color-text-muted)" }}>
             לידים שמשרדים אחרים מוכרים בקרדיטים. שם וטלפון נחשפים רק אחרי הקנייה;
             מכירת ליד נעשית מכרטיס הליד עצמו.
           </p>
+          {/*
+            היתרה יושבת כאן ולא בראש המסך. כשהיא הופיעה בכותרת הכללית
+            היא נראתה כמו "מה נשאר לי לשיתופי פעולה" — וזה בדיוק מה
+            שגרם למתווכים לחשוב ששת"פ עולה קרדיטים. הקרדיטים שייכים
+            למסך הזה בלבד.
+          */}
+          <div
+            className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border p-3"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+          >
+            <span style={{ color: "var(--color-primary)" }}>
+              <IconDiamond s={16} />
+            </span>
+            <b className="text-[13.5px]">
+              היתרה שלכם: {balance === null ? "…" : `${balance} קרדיטים`}
+            </b>
+            <span className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+              · קרדיטים יורדים על לידים ממקור חיצוני בלבד — קנייה כאן, או הצעה על
+              ביקוש שמסומן במקור חיצוני. שיתוף פעולה עם משרד תיווך אינו עולה
+              קרדיטים.
+            </span>
+          </div>
+          {leadsFailed ? (
+            <LoadError message="לא הצלחנו לטעון את שוק הלידים" onRetry={load} />
+          ) : null}
           <ul className="flex flex-col gap-3">
             {myListedLeads.map((lead) => (
               <li key={lead.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
@@ -329,15 +420,34 @@ export default function CollaborationPage() {
               </li>
             ))}
           </ul>
+          {leadsForSale.length === 0 && myListedLeads.length === 0 && !leadsFailed ? (
+            <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              אין כרגע לידים למכירה בשוק. שימו לב שזו לשונית נפרדת — ביקוש של
+              משרד תיווך אחר אינו עולה קרדיטים.
+            </p>
+          ) : null}
         </section>
       ) : null}
 
-      <section aria-labelledby="demands-heading">
-        <h2 id="demands-heading" className="mb-1 text-lg font-semibold">ביקושים ברשת</h2>
-        <p className="mb-3" style={{ color: "var(--color-text-muted)" }}>
-          קונים אנונימיים ממשרדי תיווך אחרים ומ-Kanko. הצעה למשרד אחר היא חינם, בכל
-          המסלולים; ליד ממקור חיצוני עולה קרדיטים, ללא חלוקה בדמי התיווך.
+      {coopTab === "demands" ? (
+      <section id="coop-panel-demands" role="tabpanel" aria-labelledby="coop-tab-demands">
+        <h2 id="demands-heading" className="mb-1 text-lg font-semibold">
+          <IconHandshake s={16} /> ביקושים ברשת
+        </h2>
+        <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
+          קונים של משרדי תיווך אחרים, בלי שם ובלי טלפון. יש לכם נכס שמתאים לאחד
+          מהם? הציעו אותו — <b>ההצעה חינם</b>, ואם העסקה תיסגר תתחלקו בעמלה עם
+          המשרד השני. היוצא מן הכלל היחיד הוא ביקוש שמסומן „Kanko”: הוא הגיע
+          ממקור חיצוני בתשלום, וכל שורה כזו נושאת תווית מחיר משלה.
         </p>
+
+        {/*
+          שני ההסברים שנשאלים הכי הרבה יושבים כאן ולא בעמוד עזרה:
+          זה המקום שבו מחליטים אם לשתף, וזה הרגע שבו החשש עולה.
+        */}
+        <PrivacyPanel />
+        <CommissionPanel />
+
         {loadFailed ? (
           <LoadError message="לא הצלחנו לטעון את הביקושים ברשת" onRetry={load} />
         ) : demands === null ? (
@@ -512,6 +622,7 @@ export default function CollaborationPage() {
           </ul>
         )}
       </section>
+      ) : null}
     </>
   );
 }

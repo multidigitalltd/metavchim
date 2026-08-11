@@ -648,12 +648,6 @@ textarea {
   padding: 1px 8px;
 }
 /* יתרת הקרדיטים על פריט השת"פ */
-.mv-nav-credits {
-  margin-inline-start: auto;
-  font-size: 11.5px;
-  font-weight: 700;
-  color: var(--color-action);
-}
 /* כותרת קבוצה בניווט ("רשת") */
 .mv-nav-group {
   margin: 12px 4px 6px;

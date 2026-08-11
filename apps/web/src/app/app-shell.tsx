@@ -81,7 +81,6 @@ interface NavSummary {
   buyers: number;
   newLeads: number;
   matches: number;
-  credits: number | null;
   /** משימות שלי באיחור או להיום — התג הכתום. */
   urgentTasks: number;
   /** הפיצ'רים שכלולים במסלול המשרד — פריט שלא כלול לא מוצג. */
@@ -478,14 +477,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           בכל המסלולים.
         */}
         <div className="mv-nav-group">רשת</div>
-        {navLink(
-          "/collaboration",
-          'שת"פ בין משרדים',
-          ICONS.coop,
-          counts?.credits !== null && counts?.credits !== undefined ? (
-            <span className="mv-nav-credits">{counts.credits} קרדיטים</span>
-          ) : null,
-        )}
+        {/*
+          יתרת הקרדיטים ישבה כאן, צמודה לשת"פ — וזה בדיוק מה שלימד את
+          המתווכים ששיתוף פעולה עולה כסף. שיתוף פעולה חינם; קרדיטים
+          נוגעים אך ורק לקניית ליד. היתרה עברה ללשונית "שוק לידים",
+          שם היא באמת רלוונטית.
+        */}
+        {navLink("/collaboration", 'שת"פ בין משרדים', ICONS.coop)}
         {isManager && hasFeature("analytics")
           ? navLink("/reports", "דוחות", ICONS.reports)
           : null}
