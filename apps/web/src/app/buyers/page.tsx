@@ -9,7 +9,9 @@ import { formatPrice, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { IconMic, IconPlus, IconSheet } from "../icons";
-import { CapNote, FilterBar, FilterSelect, textMatches } from "../list-controls";
+import { CapNote, FilterBar, FilterSelect, textMatches,
+  useFilterFromUrl,
+} from "../list-controls";
 import {
   EMPTY_FILTERS,
   ListFilters,
@@ -97,6 +99,9 @@ export default function BuyersPage() {
   const [offersFilter, setOffersFilter] = useState("");
   /** קונה (sale) או שוכר (rent) — הלשונית היא "קונים · שוכרים" */
   const [dealType, setDealType] = useState("");
+
+  // קישורי הפילוח מהדשבורד: /buyers?maturity=hot וכדומה
+  useFilterFromUrl({ maturity: setMaturity, dealType: setDealType });
 
   /*
    * טווחי התקציב והחדרים נשלחים לשרת; החיפוש הטקסטואלי נשאר בדפדפן.

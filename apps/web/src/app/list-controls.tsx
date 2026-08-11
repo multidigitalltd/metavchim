@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import type { ChangeEvent, ReactNode } from "react";
+import { SelectMenu } from "./select-menu";
 
 /**
  * פקדי סינון/מיון משותפים לעמודי הרשימות (נכסים, קונים, לידים).
@@ -35,6 +37,11 @@ export function SearchField(props: {
   );
 }
 
+/*
+ * SelectMenu ולא ‎<select>‎ מקורי: רשימת ה-option של הפקד המקורי
+ * מצוירת בידי מערכת ההפעלה, ולכן הסינונים נפתחו כרשימה כחולה של
+ * ווינדוס באמצע מסך ירוק. ההחלפה כאן מספיקה לכל מסכי הרשימות.
+ */
 export function FilterSelect(props: {
   label: string;
   value: string;
@@ -43,21 +50,15 @@ export function FilterSelect(props: {
   options: [string, string][];
 }) {
   return (
-    <label className="flex min-w-0 flex-col gap-1">
-      <span className="mv-visually-hidden">{props.label}</span>
-      <select
-        value={props.value}
-        onChange={(e: ChangeEvent<HTMLSelectElement>) => props.onChange(e.target.value)}
-        className="mv-select"
-      >
-        <option value="">{props.allLabel}</option>
-        {props.options.map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
-      </select>
-    </label>
+    <SelectMenu
+      label={props.label}
+      value={props.value}
+      onChange={props.onChange}
+      options={[
+        { value: "", label: props.allLabel },
+        ...props.options.map(([value, label]) => ({ value, label })),
+      ]}
+    />
   );
 }
 
@@ -67,20 +68,13 @@ export function SortSelect(props: {
   options: [string, string][];
 }) {
   return (
-    <label className="flex min-w-0 flex-col gap-1">
-      <span className="mv-visually-hidden">מיון</span>
-      <select
-        value={props.value}
-        onChange={(e: ChangeEvent<HTMLSelectElement>) => props.onChange(e.target.value)}
-        className="mv-select"
-      >
-        {props.options.map(([value, label]) => (
-          <option key={value} value={value}>
-            מיון: {label}
-          </option>
-        ))}
-      </select>
-    </label>
+    <SelectMenu
+      label="מיון"
+      value={props.value}
+      onChange={props.onChange}
+      minWidth={190}
+      options={props.options.map(([value, label]) => ({ value, label: `מיון: ${label}` }))}
+    />
   );
 }
 
@@ -167,4 +161,28 @@ export function textMatches(query: string, ...fields: (string | undefined)[]): b
   const q = query.trim().toLowerCase();
   if (!q) return true;
   return fields.some((f) => f?.toLowerCase().includes(q));
+}
+
+/**
+ * אתחול מסנן מפרמטר בכתובת — ‎/leads?status=new‎ וחבריו.
+ *
+ * הדשבורד מקשר לרשימות מסוננות מכל פרוסה בגרף, אבל מסכי הרשימה
+ * התעלמו מהפרמטרים ופתחו את הרשימה המלאה: הבטחה שלא קוימה (ביקורת
+ * Codex).
+ *
+ * הקריאה ב-‎useEffect‎ ולא באתחול ה-state בכוונה: ‎window‎ אינו קיים
+ * בעיבוד בשרת, ואתחול ממנו היה יוצר אי-התאמה בהידרציה. הריצה
+ * חד-פעמית בטעינה, ולכן שינוי ידני של המסנן אחר כך אינו נדרס.
+ */
+export function useFilterFromUrl(
+  params: Record<string, (value: string) => void>,
+): void {
+  useEffect(() => {
+    const search = new URLSearchParams(window.location.search);
+    for (const [key, apply] of Object.entries(params)) {
+      const value = search.get(key);
+      if (value !== null && value !== "") apply(value);
+    }
+    // מערך תלויות ריק בכוונה: קריאה חד-פעמית בטעינה
+  }, []);
 }

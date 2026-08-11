@@ -427,6 +427,33 @@ export class BuyersService {
     });
   }
 
+  /**
+   * פילוח לפי בשלות, מכל המאגר — לגרף בדשבורד.
+   *
+   * groupBy סופר בבסיס הנתונים ואינו מושך רשומות, ולכן העלות קבועה
+   * גם במשרד עם עשרות אלפי קונים; אין כאן שום פענוח PII, כי הבשלות
+   * אינה מוצפנת. פילטר הבעלות זהה לזה של הרשימה, אחרת המונה היה
+   * מדווח על קונים שאינם גלויים למשתמש.
+   */
+  async breakdown(): Promise<{ total: number; byMaturity: Record<string, number> }> {
+    const tenantId = TenantContext.current().tenantId;
+    const where = {
+      tenantId,
+      deletedAt: null,
+      ...ownershipFilter("buyers.view_all", "ownerUserId"),
+    };
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.buyer.groupBy({ by: ["maturity"], where, _count: { _all: true } }),
+    );
+    const byMaturity: Record<string, number> = {};
+    let total = 0;
+    for (const row of rows) {
+      byMaturity[row.maturity] = row._count._all;
+      total += row._count._all;
+    }
+    return { total, byMaturity };
+  }
+
   async list(query: {
     maturity?: string;
     q?: string;
