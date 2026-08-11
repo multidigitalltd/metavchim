@@ -113,7 +113,14 @@ export default function CollaborationPage() {
    */
   const [offerSplit, setOfferSplit] = useState<Record<string, number>>({});
   const [message, setMessageState] = useState<string | null>(null);
+  /*
+   * כישלון טעינה נשמר בנפרד לכל רשימה, ולא מכווץ ל-[].
+   * מצב ריק אומר למתווך "אין כאן כלום, אין מה לעשות" — והוא עוזב.
+   * תקלת רשת אינה מסקנה עסקית, ולכן היא מוצגת ככשל עם ניסיון חוזר.
+   */
   const [loadFailed, setLoadFailed] = useState(false);
+  const [offersFailed, setOffersFailed] = useState(false);
+  const [leadsFailed, setLeadsFailed] = useState(false);
 
   /** כל הודעה חדשה מוחקת את קישור "פתח את הליד" של הקנייה הקודמת. */
   function setMessage(text: string | null, leadId: string | null = null) {
@@ -123,6 +130,8 @@ export default function CollaborationPage() {
 
   const load = useCallback(() => {
     setLoadFailed(false);
+    setOffersFailed(false);
+    setLeadsFailed(false);
     /*
      * כישלון בטעינת הביקושים אינו "אין ביקושים ברשת".
      * קודם הוא הפך ל-[] והמסך הציג את מצב הריק — כלומר תקלת רשת
@@ -131,8 +140,12 @@ export default function CollaborationPage() {
     apiGet<DemandRow[]>("/collaboration/demands")
       .then(setDemands)
       .catch(() => setLoadFailed(true));
-    apiGet<CoopOfferRow[]>("/collaboration/offers").then(setCoopOffers).catch(() => undefined);
-    apiGet<SharedLeadRow[]>("/collaboration/leads").then(setSharedLeads).catch(() => undefined);
+    apiGet<CoopOfferRow[]>("/collaboration/offers")
+      .then(setCoopOffers)
+      .catch(() => setOffersFailed(true));
+    apiGet<SharedLeadRow[]>("/collaboration/leads")
+      .then(setSharedLeads)
+      .catch(() => setLeadsFailed(true));
     apiGet<{ balance: number }>("/collaboration/credits")
       .then((r) => setBalance(r.balance))
       .catch(() => undefined);
@@ -273,6 +286,9 @@ export default function CollaborationPage() {
           <h2 id="incoming-heading" className="mb-3 text-lg font-semibold">
             <IconHandshake s={16} /> הצעות שהתקבלו על הביקושים שלך ({incoming.length})
           </h2>
+          {offersFailed ? (
+            <LoadError message="לא הצלחנו לטעון את ההצעות שהתקבלו" onRetry={load} />
+          ) : null}
           <ul className="flex flex-col gap-3">
             {incoming.map((offer) => (
               <li key={offer.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-primary)", background: "var(--color-surface)" }}>
@@ -298,7 +314,7 @@ export default function CollaborationPage() {
               </li>
             ))}
           </ul>
-          {incoming.length === 0 ? (
+          {incoming.length === 0 && !offersFailed ? (
             <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
               עדיין לא התקבלו הצעות. פרסמו ביקוש מכרטיס קונה, ומשרדים שיש להם נכס
               מתאים יציעו אותו כאן.
@@ -336,10 +352,14 @@ export default function CollaborationPage() {
               היתרה שלכם: {balance === null ? "…" : `${balance} קרדיטים`}
             </b>
             <span className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
-              · קרדיטים יורדים רק בקניית ליד מהשוק. שיתוף פעולה עם משרד אחר אינו
-              עולה קרדיטים.
+              · קרדיטים יורדים על לידים ממקור חיצוני בלבד — קנייה כאן, או הצעה על
+              ביקוש שמסומן במקור חיצוני. שיתוף פעולה עם משרד תיווך אינו עולה
+              קרדיטים.
             </span>
           </div>
+          {leadsFailed ? (
+            <LoadError message="לא הצלחנו לטעון את שוק הלידים" onRetry={load} />
+          ) : null}
           <ul className="flex flex-col gap-3">
             {myListedLeads.map((lead) => (
               <li key={lead.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
@@ -400,10 +420,10 @@ export default function CollaborationPage() {
               </li>
             ))}
           </ul>
-          {leadsForSale.length === 0 && myListedLeads.length === 0 ? (
+          {leadsForSale.length === 0 && myListedLeads.length === 0 && !leadsFailed ? (
             <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
-              אין כרגע לידים למכירה בשוק. שימו לב שזהו מסך נפרד משיתופי הפעולה —
-              הביקושים ברשת אינם עולים קרדיטים.
+              אין כרגע לידים למכירה בשוק. שימו לב שזו לשונית נפרדת — ביקוש של
+              משרד תיווך אחר אינו עולה קרדיטים.
             </p>
           ) : null}
         </section>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { IconCart, IconCoins, IconHandshake, IconInfo, IconLock } from "../icons";
 
@@ -13,8 +13,10 @@ import { IconCart, IconCoins, IconHandshake, IconInfo, IconLock } from "../icons
  * אלא התנאי לשימוש.
  *
  * שני מנגנונים שונים לגמרי חיו במסך אחד ובלי הבחנה, ומכאן הבלבול
- * בקרדיטים: **שיתוף פעולה בין משרדים הוא חינם**, וקרדיטים משמשים
- * אך ורק לקניית ליד בשוק הלידים. ההפרדה הזו מודגשת בכל מקום.
+ * בקרדיטים. הקו העובר ביניהם הוא **מקור הליד ולא סוג הפעולה**:
+ * ביקוש של משרד תיווך אחר הוא חינם — פרסום והצעה כאחד — וליד ממקור
+ * חיצוני עולה קרדיטים, בין שקונים אותו בשוק ובין שמציעים נכס על
+ * ביקוש שהגיע ממנו. ראו `coopOfferCost` ב-collaboration-cost.
  */
 
 /** מה הרשת נותנת — שלושה שלבים, בשפה של מתווך. */
@@ -43,15 +45,24 @@ const STEPS = [
 const SEEN_KEY = "mv_coop_guide_seen";
 
 export function CollaborationGuide() {
-  const [open, setOpen] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    return window.localStorage.getItem(SEEN_KEY) !== "1";
-  });
+  /*
+   * `null` = טרם ידוע. השרת אינו יכול לדעת מה יש ב-localStorage,
+   * ולכן קריאה ממנו בזמן האתחול הייתה מייצרת רינדור שרת שונה
+   * מרינדור הדפדפן — hydration mismatch בכל כניסה חוזרת. הקריאה
+   * נעשית אחרי ההרכבה, ועד אז לא מוצג דבר.
+   */
+  const [open, setOpen] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    setOpen(window.localStorage.getItem(SEEN_KEY) !== "1");
+  }, []);
 
   function dismiss(): void {
     setOpen(false);
     window.localStorage.setItem(SEEN_KEY, "1");
   }
+
+  if (open === null) return null;
 
   if (!open) {
     return (
@@ -115,10 +126,10 @@ export function CollaborationGuide() {
             <tr>
               <td className="p-2.5" style={{ borderBottom: "1px solid var(--color-row-border)", width: "42%" }}>
                 <b>
-                  <IconHandshake s={14} /> שיתוף פעולה עם משרד
+                  <IconHandshake s={14} /> שיתוף פעולה עם משרד תיווך
                 </b>
                 <div style={{ color: "var(--color-text-muted)" }}>
-                  פרסום ביקוש · הצעת נכס
+                  פרסום ביקוש · הצעת נכס לביקוש של משרד אחר
                 </div>
               </td>
               <td className="p-2.5" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
@@ -131,17 +142,19 @@ export function CollaborationGuide() {
             <tr>
               <td className="p-2.5">
                 <b>
-                  <IconCart s={14} /> קניית ליד בשוק
+                  <IconCart s={14} /> ליד ממקור חיצוני
                 </b>
                 <div style={{ color: "var(--color-text-muted)" }}>
-                  ליד ממקור חיצוני
+                  קנייה בשוק הלידים · הצעה על ביקוש שמסומן במקור חיצוני
+                  (למשל „Kanko”)
                 </div>
               </td>
               <td className="p-2.5">
                 <b>עולה קרדיטים</b>
                 <div style={{ color: "var(--color-text-muted)" }}>
-                  הליד נקנה בכסף אמיתי מהספק, ולכן יש לו מחיר. זה המקום היחיד
-                  שבו קרדיטים יורדים.
+                  הליד נקנה בכסף אמיתי מהספק, ולכן יש לו מחיר. אלה שני המקומות
+                  היחידים שבהם קרדיטים יורדים, וכל אחד מהם נושא תווית מחיר לפני
+                  הלחיצה — קרדיט לא יורד בהפתעה.
                 </div>
               </td>
             </tr>
