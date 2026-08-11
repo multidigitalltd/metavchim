@@ -88,6 +88,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   "buyer.interaction_add": "תיעוד אינטראקציה עם קונה",
   "lead.create": "יצירת ליד",
   "lead.status": "עדכון סטטוס ליד",
+  "lead.delete": "מחיקת ליד",
   "lead.convert": "המרת ליד לקונה",
   "lead.repeat_inquiry": "פנייה חוזרת של ליד",
   "offer.create": "יצירת הצעה",

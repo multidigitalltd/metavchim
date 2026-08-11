@@ -194,6 +194,57 @@ function SellLeadSection({ leadId }: { leadId: string }) {
   );
 }
 
+/**
+ * מחיקת ליד שאינו רלוונטי — ספאם, טעות במספר, פנייה שאינה נדל"ן.
+ *
+ * בתחתית הכרטיס ולא ליד הכפתורים למעלה: זו הפעולה היחידה כאן שאי
+ * אפשר לחזור ממנה, והמקום שלה הוא אחרי שכבר ראו את כל מה שנמחק.
+ */
+function DeleteLeadSection({ leadId, contactName }: { leadId: string; contactName: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function remove() {
+    if (
+      !window.confirm(
+        `למחוק את הליד של ${contactName}?\n\nציר הזמן נמחק איתו, וגם כרטיס איש הקשר — אם אין לו קונה, נכס או ליד אחר במשרד. הפעולה אינה הפיכה.`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await apiDelete(`/leads/${leadId}`);
+      router.push("/leads");
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "המחיקה נכשלה");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section
+      aria-labelledby="delete-lead-heading"
+      className="mt-8 rounded-xl border p-4"
+      style={{ borderColor: "var(--color-danger)" }}
+    >
+      <h2 id="delete-lead-heading" className="mb-1 font-semibold" style={{ color: "var(--color-danger)" }}>
+        מחיקת הליד
+      </h2>
+      <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+        פנייה שאינה רלוונטית בכלל — ספאם, טעות במספר או משהו שאינו נדל"ן.
+        מחיקה מוציאה אותה מהמאגר; פגישות ושיחות מוקלטות שכבר נרשמו נשארות.
+      </p>
+      {error ? <p role="alert" className="mb-2" style={{ color: "var(--color-danger)" }}>{error}</p> : null}
+      <Button variant="ghost" disabled={busy} onClick={() => void remove()}>
+        {busy ? "מוחק…" : "מחק ליד"}
+      </Button>
+    </section>
+  );
+}
+
 function ConvertToPropertySection({ leadId }: { leadId: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -615,6 +666,11 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           </ol>
         )}
       </section>
+
+      {/* ליד שהומר כבר יצר כרטיס — מוחקים את הכרטיס, לא את המקור שלו */}
+      {lead.status !== "converted" && can(user, "leads.delete") ? (
+        <DeleteLeadSection leadId={lead.id} contactName={lead.contact.name} />
+      ) : null}
     </>
   );
 }

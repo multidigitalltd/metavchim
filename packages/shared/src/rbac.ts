@@ -13,6 +13,16 @@ export const CAPABILITIES = [
   "leads.view_all",
   "leads.view_own",
   "leads.edit",
+  /**
+   * מחיקת ליד — יכולת נפרדת מ-`leads.edit` בכוונה, כמו
+   * `properties.delete` מול `properties.edit`.
+   *
+   * ליד ספאם או טעות במספר הוא זבל שצריך להיעלם, אבל מחיקה מוחקת
+   * גם את ציר הזמן ואת איש הקשר שנשאר בלי כלום — ולכן היא החלטה
+   * ניהולית ולא חלק משגרת הטיפול. בעל משרד שרוצה לתת אותה לסוכן
+   * מעניק אותה במפורש במסך ההרשאות.
+   */
+  "leads.delete",
   "offers.send",
   "matches.view",
   "matches.manage",

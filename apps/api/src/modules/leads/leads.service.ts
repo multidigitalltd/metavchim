@@ -1,11 +1,11 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
-import { OPEN_LEAD_STATUSES, type Page } from "@metavchim/shared";
+import { OPEN_LEAD_STATUSES, leadDeletionRejectionReason, type Page } from "@metavchim/shared";
 import { assertLeadAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 
 export interface LeadDto {
@@ -223,6 +223,110 @@ export class LeadsService {
         metadata: { status },
       });
     });
+  }
+
+  /**
+   * מחיקת ליד שאינו רלוונטי — ספאם, טעות במספר, פנייה שאינה נדל"ן.
+   *
+   * מחיקה קשה ולא `deletedAt`: מה שנמחק כאן הוא שם וטלפון של מישהו
+   * שלא ביקש להיות במאגר, ומחיקה רכה שמשאירה אותו בטבלה היא בדיוק מה
+   * שהמשרד חשב שהוא מנע (docs/04 §5).
+   *
+   * מה קורה למה שמצביע על הליד:
+   * - **ציר הזמן** נמחק איתו — הוא חלק מהליד, ולא היסטוריה עצמאית.
+   * - **הצעה פעילה בשוק השת"פ** יורדת מהשוק. רישום שכבר נמכר נשאר:
+   *   הוא הרשומה של עסקה שקרתה, והוא גם השומר שמונע מכירה חוזרת.
+   * - **פגישות ושיחות** נשארות ומאבדות את הקישור בלבד — ליומן ולמוקד
+   *   יש חיים משל עצמם, ומחיקת פגישה שנקבעה היא לא מה שביקשו.
+   * - **משימות** על הליד נמחקות; משימה שכבר נדחפה ליומן Google עוברת
+   *   את אותו מסלול כמו ב-`TasksService.remove`, אחרת האירוע נשאר
+   *   ביומן בלי מזהה שמצביע עליו.
+   * - **איש הקשר** נמחק רק אם לא נשאר לו שום קשר אחר במשרד. הוא נוצר
+   *   בשביל הליד הזה; אם הוא גם קונה, גם בעל נכס או גם ליד אחר —
+   *   הוא נשאר, ומחיקת הליד לא נוגעת בו.
+   */
+  async remove(id: string): Promise<{ contactDeleted: boolean }> {
+    const ctx = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      // הרשאה לפני הכתיבה, כמו בכל פעולה על ליד
+      await assertLeadAccess(tx, ctx.tenantId, id);
+      const lead = await tx.lead.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+        select: { status: true, source: true, contactId: true },
+      });
+      if (!lead) throw new NotFoundException("ליד לא נמצא");
+      const rejection = leadDeletionRejectionReason(lead.status);
+      if (rejection) throw new BadRequestException(rejection);
+
+      await tx.sharedLead.updateMany({
+        where: { tenantId: ctx.tenantId, originLeadId: id, status: "active" },
+        data: { status: "withdrawn" },
+      });
+      await tx.interaction.deleteMany({ where: { tenantId: ctx.tenantId, leadId: id } });
+      await tx.appointment.updateMany({
+        where: { tenantId: ctx.tenantId, leadId: id },
+        data: { leadId: null },
+      });
+      await tx.call.updateMany({
+        where: { tenantId: ctx.tenantId, leadId: id },
+        data: { leadId: null },
+      });
+      await tx.notification.deleteMany({
+        where: { tenantId: ctx.tenantId, entityType: "lead", entityId: id },
+      });
+      await tx.task.updateMany({
+        where: {
+          tenantId: ctx.tenantId,
+          entityType: "lead",
+          entityId: id,
+          googleEventId: { not: null },
+        },
+        data: { status: "done", deletedAfterSync: true, googleSyncedAt: null },
+      });
+      await tx.task.deleteMany({
+        where: {
+          tenantId: ctx.tenantId,
+          entityType: "lead",
+          entityId: id,
+          googleEventId: null,
+        },
+      });
+      await tx.lead.delete({ where: { id } });
+
+      const contactDeleted = await this.deleteContactIfOrphan(tx, lead.contactId);
+      await this.audit.record(tx, {
+        action: "lead.delete",
+        entityType: "lead",
+        entityId: id,
+        // מזהים וסטטוס בלבד — ביומן הביקורת לא נשמר מה שנמחק
+        metadata: { status: lead.status, source: lead.source, contactDeleted },
+      });
+      return { contactDeleted };
+    });
+  }
+
+  /**
+   * איש קשר שנשאר בלי אף קשר במשרד נמחק איתו.
+   *
+   * הרשימה כאן היא כל מי שמצביע על `contacts`; שכחה של טבלה אחת
+   * פירושה כרטיס קונה או הסכם חתום שמצביעים על איש קשר שאיננו.
+   * `contact_phones` ו-`contact_links` יורדים ב-Cascade של המסד.
+   */
+  private async deleteContactIfOrphan(tx: TenantTx, contactId: string): Promise<boolean> {
+    const tenantId = TenantContext.current().tenantId;
+    const [leads, buyers, properties, agreements, calls, messages, linkedTo] = await Promise.all([
+      tx.lead.count({ where: { tenantId, contactId } }),
+      tx.buyer.count({ where: { tenantId, contactId } }),
+      tx.property.count({ where: { tenantId, ownerContactId: contactId } }),
+      tx.agreement.count({ where: { tenantId, contactId } }),
+      tx.call.count({ where: { tenantId, contactId } }),
+      tx.message.count({ where: { tenantId, contactId } }),
+      // הוא בן/בת הזוג על כרטיס של מישהו אחר
+      tx.contactLink.count({ where: { tenantId, relatedContactId: contactId } }),
+    ]);
+    if (leads + buyers + properties + agreements + calls + messages + linkedTo > 0) return false;
+    await tx.contact.delete({ where: { id: contactId } });
+    return true;
   }
 
   async addNote(id: string, content: string): Promise<InteractionDto> {

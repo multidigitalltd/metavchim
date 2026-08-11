@@ -70,6 +70,7 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   "leads.view_all": "צפייה בכל הלידים במשרד",
   "leads.view_own": "צפייה בלידים שלו",
   "leads.edit": "עריכת לידים",
+  "leads.delete": "מחיקת ליד",
   "offers.send": "שליחת הצעות",
   "matches.view": "צפייה בהתאמות",
   "matches.manage": "ניהול התאמות",
@@ -103,7 +104,7 @@ export const CAPABILITY_MODULES: readonly CapabilityModule[] = [
     key: "leads",
     label: "לידים",
     description: "לידים נכנסים והטיפול בהם",
-    capabilities: ["leads.view_all", "leads.view_own", "leads.edit"],
+    capabilities: ["leads.view_all", "leads.view_own", "leads.edit", "leads.delete"],
   },
   {
     key: "matches",
