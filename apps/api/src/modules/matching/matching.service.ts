@@ -2,9 +2,11 @@ import { Injectable } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   BuyerRequirementsSchema,
+  resolveMatchWeights,
   scoreMatch,
   MATCH_THRESHOLDS,
   type BuyerRequirements,
+  type MatchWeights,
 } from "@metavchim/shared";
 import { assertBuyerAccess, assertMatchAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -191,11 +193,13 @@ export class MatchingService {
         select: { id: true, requirements: true },
       });
 
+      // פעם אחת לכל הסבב — ראו weightsFor
+      const weights = await this.weightsFor(tx);
       let kept = 0;
       for (const candidate of candidates) {
         const parsed = BuyerRequirementsSchema.safeParse(candidate.requirements);
         if (!parsed.success) continue;
-        kept += await this.upsertMatch(tx, propertyId, candidate.id, fields, parsed.data);
+        kept += await this.upsertMatch(tx, propertyId, candidate.id, fields, parsed.data, weights);
       }
 
       // נכס שהשתנה (עיר אחרת, מחיר עלה): קונים שיצאו מהסינון הגס לא
@@ -234,9 +238,10 @@ export class MatchingService {
         },
       });
 
+      const weights = await this.weightsFor(tx);
       let kept = 0;
       for (const property of candidates) {
-        kept += await this.upsertMatch(tx, property.id, buyerId, rowToFields(property), requirements);
+        kept += await this.upsertMatch(tx, property.id, buyerId, rowToFields(property), requirements, weights);
       }
       // דרישות שצומצמו (עיר הוסרה, תקציב ירד): נכסים שיצאו מהסינון הגס
       // לא נבדקים ב-upsertMatch — ההתאמות הישנות שלהם נמחקות כאן.
@@ -254,15 +259,32 @@ export class MatchingService {
     });
   }
 
+  /**
+   * משקלי ההתאמה של המשרד, בקריאה אחת לכל סבב.
+   *
+   * נקראים כאן ולא בתוך הלולאה: recompute רץ על עשרות נכסים, ושאילתת
+   * הגדרות לכל אחד מהם הייתה N+1 על נתון שאינו משתנה באמצע הסבב.
+   */
+  private async weightsFor(tx: TenantTx): Promise<MatchWeights> {
+    const tenantId = TenantContext.current().tenantId;
+    const tenant = await tx.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
+    return resolveMatchWeights(settings["matchWeights"]);
+  }
+
   private async upsertMatch(
     tx: TenantTx,
     propertyId: string,
     buyerId: string,
     fields: ReturnType<typeof rowToFields>,
     requirements: BuyerRequirements,
+    weights: MatchWeights,
   ): Promise<number> {
     const tenantId = TenantContext.current().tenantId;
-    const result = scoreMatch(fields, requirements);
+    const result = scoreMatch(fields, requirements, weights);
     const existing = await tx.match.findUnique({
       where: { tenantId_propertyId_buyerId: { tenantId, propertyId, buyerId } },
       select: { id: true, status: true },

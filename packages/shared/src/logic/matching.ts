@@ -30,7 +30,74 @@ const FEATURE_LABELS: Record<string, string> = {
  * - שדה לא ידוע בנכס ⇒ ניקוד חלקי, לא פסילה — חוסר מידע אינו אי-התאמה.
  * - כל קריטריון תורם משקל; הציון הוא ממוצע משוקלל של המשקלים שנבחנו בפועל.
  */
-export function scoreMatch(property: PropertyFields, buyer: BuyerRequirements): MatchResult {
+/**
+ * משקלי הקריטריונים — ברירת המחדל של המערכת.
+ *
+ * הערכים הם היחס ביניהם ולא אחוזים: הציון הסופי מנרמל לפי סכום
+ * המשקלים שנבחנו **בפועל**, ולכן קריטריון שדולג (קונה בלי ערים,
+ * נכס בלי שטח) אינו גורע מהציון.
+ */
+export const DEFAULT_MATCH_WEIGHTS = {
+  location: 0.25,
+  budget: 0.25,
+  rooms: 0.15,
+  property_type: 0.1,
+  features_must: 0.15,
+  features_nice: 0.05,
+  area: 0.05,
+  entry_date: 0.05,
+} as const;
+
+export type MatchCriterion = keyof typeof DEFAULT_MATCH_WEIGHTS;
+
+/**
+ * קריטריונים שאינם ניתנים לביטול.
+ *
+ * שלושת אלה אינם רק משוקללים — הם **פוסלים**: עיר שאינה ברשימת
+ * הקונה, מחיר מעל התקציב, ודרישת חובה שהנכס מפר, כולם מוציאים את
+ * ההתאמה מהרשימה לגמרי. חלקם אף מסננים כבר ב-SQL, לפני שהניקוד
+ * בכלל רץ.
+ *
+ * לכן משקל אפס עליהם היה שקר: המסך היה מציג "מבוטל" בעוד שהקריטריון
+ * ממשיך למחוק מועמדים (ביקורת Codex). במקום להתיר ביטול מדומה,
+ * נאכף מינימום — ומי שרוצה באמת להתעלם מהמיקום, מסיר את הערים
+ * מדרישות הקונה.
+ */
+export const HARD_MATCH_CRITERIA: readonly MatchCriterion[] = [
+  "location",
+  "budget",
+  "features_must",
+];
+
+/** המשקל המזערי לקריטריון פוסל. */
+export const MIN_HARD_WEIGHT = 0.05;
+export type MatchWeights = Record<MatchCriterion, number>;
+
+/** תוויות בעברית — למסך ההגדרות ולהסברים. */
+export const MATCH_CRITERION_LABELS: Record<MatchCriterion, string> = {
+  location: "מיקום (עיר ושכונה)",
+  budget: "תקציב",
+  rooms: "מספר חדרים",
+  property_type: "סוג הנכס",
+  features_must: "דרישות חובה",
+  features_nice: "נחמד שיהיה",
+  area: "שטח",
+  entry_date: "מועד כניסה",
+};
+
+/**
+ * ניקוד התאמה בין נכס לקונה.
+ *
+ * `weights` אופציונלי בכוונה: **התאמות בשוק השת"פ חייבות לרוץ
+ * בברירת המחדל**. משרד ששולט במשקלים שלו לא אמור לשנות את הציון
+ * שמשרד אחר רואה על הביקוש שלו — אחרת "80% התאמה" מאבד כל משמעות
+ * משותפת, ואפשר היה לנפח ציונים כדי למשוך הצעות.
+ */
+export function scoreMatch(
+  property: PropertyFields,
+  buyer: BuyerRequirements,
+  weights: MatchWeights = DEFAULT_MATCH_WEIGHTS,
+): MatchResult {
   const parts: ScoreComponent[] = [];
   let excluded = false;
 
@@ -44,7 +111,7 @@ export function scoreMatch(property: PropertyFields, buyer: BuyerRequirements): 
       buyer.neighborhoods.includes(property.neighborhood);
     parts.push({
       criterion: "location",
-      weight: 0.25,
+      weight: weights.location,
       score: cityOk ? (buyer.neighborhoods.length === 0 || neighborhoodBonus ? 1 : 0.75) : 0,
       note: cityOk ? `באזור המבוקש (${property.city})` : `מחוץ לאזורים המבוקשים`,
     });
@@ -72,7 +139,7 @@ export function scoreMatch(property: PropertyFields, buyer: BuyerRequirements): 
       score = Math.min(score, 0.5);
       note = "מתחת לרף התקציב שהוגדר";
     }
-    parts.push({ criterion: "budget", weight: 0.25, score, note });
+    parts.push({ criterion: "budget", weight: weights.budget, score, note });
   }
 
   // --- חדרים (0.15) ---
@@ -83,7 +150,7 @@ export function scoreMatch(property: PropertyFields, buyer: BuyerRequirements): 
     const nearMiss = property.rooms >= min - 0.5 && property.rooms <= max + 0.5;
     parts.push({
       criterion: "rooms",
-      weight: 0.15,
+      weight: weights.rooms,
       score: inRange ? 1 : nearMiss ? 0.5 : 0,
       note: inRange ? `${property.rooms} חדרים — בטווח` : `${property.rooms} חדרים — מחוץ לטווח המבוקש`,
     });
@@ -94,7 +161,7 @@ export function scoreMatch(property: PropertyFields, buyer: BuyerRequirements): 
     const ok = buyer.propertyTypes.includes(property.propertyType);
     parts.push({
       criterion: "property_type",
-      weight: 0.1,
+      weight: weights.property_type,
       score: ok ? 1 : 0,
       note: ok ? undefined : "סוג הנכס שונה מהמבוקש",
     });
@@ -124,15 +191,23 @@ export function scoreMatch(property: PropertyFields, buyer: BuyerRequirements): 
       excluded = true;
       parts.push({
         criterion: "features_must",
-        weight: 0.15,
+        weight: weights.features_must,
         score: 0,
         note: `חסר: ${mustMissingExplicit.join(", ")} (חובה עבור הקונה)`,
       });
-    } else {
+    } else if (featureEntries.some(([, level]) => level === "must")) {
+      /*
+       * רק כשבאמת נדרשה דרישת חובה.
+       *
+       * קונה שסימן הכול כ"נחמד שיהיה" קיבל כאן ציון מלא על קריטריון
+       * שלא ביקש, ומשרד שמעלה את משקל דרישות החובה היה מנפח בטעות
+       * דווקא את ההתאמות האלה — ודוחף אותן מעל סף התצוגה מסיבה
+       * שאינה קשורה לכלום (ביקורת Codex).
+       */
       const mustScore = mustUnknown.length === 0 ? 1 : 0.5;
       parts.push({
         criterion: "features_must",
-        weight: 0.15,
+        weight: weights.features_must,
         score: mustScore,
         note:
           mustUnknown.length > 0
@@ -146,7 +221,7 @@ export function scoreMatch(property: PropertyFields, buyer: BuyerRequirements): 
         .map(([f]) => FEATURE_LABELS[f] ?? f);
       parts.push({
         criterion: "features_nice",
-        weight: 0.05,
+        weight: weights.features_nice,
         score: niceHit / niceTotal,
         note:
           missedNice.length > 0
@@ -161,7 +236,7 @@ export function scoreMatch(property: PropertyFields, buyer: BuyerRequirements): 
     const ok = property.areaSqm >= buyer.areaSqmMin;
     parts.push({
       criterion: "area",
-      weight: 0.05,
+      weight: weights.area,
       score: ok ? 1 : property.areaSqm >= buyer.areaSqmMin * 0.9 ? 0.5 : 0,
       note: ok ? undefined : `שטח קטן מהמבוקש (${property.areaSqm} מ"ר)`,
     });
@@ -172,7 +247,7 @@ export function scoreMatch(property: PropertyFields, buyer: BuyerRequirements): 
     const ok = property.entryDate <= buyer.entryBy;
     parts.push({
       criterion: "entry_date",
-      weight: 0.05,
+      weight: weights.entry_date,
       score: ok ? 1 : 0.3,
       note: ok ? undefined : "תאריך הכניסה מאוחר מהמבוקש",
     });
@@ -198,4 +273,32 @@ function buildExplanation(parts: ScoreComponent[], excluded: boolean): string {
     return blocker?.note ?? "לא מתאים לדרישות הקונה";
   }
   return notes.length > 0 ? notes.join(". ") + "." : "התאמה מלאה לדרישות שהוגדרו.";
+}
+
+/**
+ * קריאת משקלים שנשמרו במשרד, עם נפילה לברירת המחדל.
+ *
+ * ההגנות כאן אינן פורמליות: הערכים מגיעים מ-JSON בבסיס הנתונים,
+ * וקריטריון עם משקל שלילי או NaN היה מייצר ציונים חסרי משמעות (ואף
+ * שליליים) בלי שום שגיאה גלויה. ערך פסול נופל לברירת המחדל של אותו
+ * קריטריון בלבד — לא של כולם.
+ *
+ * סכום אפס מוחזר כברירת המחדל המלאה: משרד שאיפס את הכול היה מקבל
+ * ציון 0 לכל נכס, וזה מסך ריק בלי הסבר.
+ */
+export function resolveMatchWeights(stored: unknown): MatchWeights {
+  const source = (stored ?? {}) as Record<string, unknown>;
+  const out = { ...DEFAULT_MATCH_WEIGHTS } as MatchWeights;
+  let sum = 0;
+
+  for (const key of Object.keys(DEFAULT_MATCH_WEIGHTS) as MatchCriterion[]) {
+    const raw = source[key];
+    const value = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : undefined;
+    if (value !== undefined) out[key] = value;
+    // קריטריון פוסל לא יורד מתחת למינימום — ראו HARD_MATCH_CRITERIA
+    if (HARD_MATCH_CRITERIA.includes(key)) out[key] = Math.max(out[key], MIN_HARD_WEIGHT);
+    sum += out[key];
+  }
+
+  return sum > 0 ? out : { ...DEFAULT_MATCH_WEIGHTS };
 }
