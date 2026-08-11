@@ -165,9 +165,14 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
         where: {
           tenantId: link.tenantId,
           assignedToUserId: link.userId,
-          status: "open",
           dueAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
           googleSyncedAt: null,
+          /*
+           * גם משימה שנסגרה נכנסת לתור — כדי **למחוק** את האירוע
+           * שלה ביומן. סינון ל-open בלבד היה משאיר משימה שבוצעה
+           * תלויה ב-Google לנצח (ביקורת Codex).
+           */
+          OR: [{ status: "open" }, { googleEventId: { not: null } }],
         },
         orderBy: { dueAt: "asc" },
         take: PUSH_BATCH,
@@ -184,9 +189,15 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
         description: task.notes ?? undefined,
         startsAt: task.dueAt,
         endsAt: new Date(task.dueAt.getTime() + 30 * 60_000),
-        cancelled: false,
+        // משימה שבוצעה — האירוע נמחק מהיומן במקום להישאר תלוי
+        cancelled: task.status !== "open",
       });
       await this.prisma.withExplicitTenant(link.tenantId, async (tx) => {
+        // משימה שנמחקה והאירוע שלה נוקה — עכשיו אפשר להסיר את השורה
+        if (task.deletedAfterSync) {
+          await tx.task.delete({ where: { id: task.id } });
+          return;
+        }
         await tx.task.update({
           where: { id: task.id },
           data: { googleEventId, googleSyncedAt: new Date() },
@@ -204,20 +215,25 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
    * googleSyncedAt נשאר מלא, ולכן היא כבר לא נחשבת ממתינה. בלי דרך
    * לאפס אותו, הפגישה נעלמת מהיומן בלי שום מסלול לתקן.
    *
-   * מנוקה גם googleEventId: המזהה הישן מצביע על אירוע שנמחק, ושליחה
-   * אליו הייתה מחזירה שגיאה במקום ליצור אירוע חדש.
+   * המזהה עצמו **נשמר** — ראו ההסבר בגוף הפונקציה.
    */
   async resetSyncMarks(tenantId: string, userId: string, now = new Date()): Promise<number> {
     const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     return this.prisma.withExplicitTenant(tenantId, async (tx) => {
       const [appointments, tasks] = await Promise.all([
+        /*
+         * המזהה **נשמר**. ניקויו היה הופך כל דחיפה חוזרת ליצירה,
+         * כלומר משכפל ביומן כל פגישה תקינה במקום לתקן אחת שנמחקה
+         * (ביקורת Codex). upsertEvent מנסה עדכון תחילה ונופל ליצירה
+         * רק כשהאירוע באמת איננו.
+         */
         tx.appointment.updateMany({
           where: { tenantId, ownerUserId: userId, syncSource: "system", startsAt: { gte: from } },
-          data: { googleSyncedAt: null, googleEventId: null },
+          data: { googleSyncedAt: null },
         }),
         tx.task.updateMany({
           where: { tenantId, assignedToUserId: userId, status: "open", dueAt: { gte: from } },
-          data: { googleSyncedAt: null, googleEventId: null },
+          data: { googleSyncedAt: null },
         }),
       ]);
       return appointments.count + tasks.count;
@@ -277,6 +293,19 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
          * ביקש — וגם מדליפה פרטים אישיים לתוך מערכת של מקום העבודה.
          */
         if (!times) continue;
+
+        /*
+         * אירוע שנוצר ממשימה שלנו — לדלג.
+         *
+         * הדחיפה יוצרת אותו ב-Google, והמשיכה הבאה מחזירה אותו
+         * כאירוע "חדש": בלי הבדיקה הזו נוצרה פגישה מקבילה לכל
+         * משימה, בכל סבב, עד אינסוף (ביקורת Codex).
+         */
+        const fromTask = await tx.task.findFirst({
+          where: { tenantId: link.tenantId, googleEventId: event.id },
+          select: { id: true },
+        });
+        if (fromTask) continue;
 
         const existing = await tx.appointment.findFirst({
           where: { tenantId: link.tenantId, googleEventId: event.id },

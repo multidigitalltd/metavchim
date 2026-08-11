@@ -665,6 +665,8 @@ model Task {
      ב-googleSyncedAt פירושו "ממתין לדחיפה" (ראו CalendarSyncService). */
   googleEventId    String?   @map("google_event_id") @db.VarChar(255)
   googleSyncedAt   DateTime? @map("google_synced_at")
+  /* מחיקה שממתינה לניקוי האירוע ב-Google — ראו TasksService.remove */
+  deletedAfterSync Boolean   @default(false) @map("deleted_after_sync")
   status           String    @default("open") @db.VarChar(10) // open | done
   // קישור אופציונלי לישות — "להתקשר לקונה X", "להשלים פרטי נכס Y"
   entityType       String?   @map("entity_type") @db.VarChar(20) // lead | buyer | property

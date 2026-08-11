@@ -245,11 +245,27 @@ export class GoogleCalendarService {
     };
 
     if (event.googleEventId) {
-      const updated = await this.fetchJson<{ id?: string }>(
+      /*
+       * עדכון קודם ליצירה, ונפילה ליצירה רק כשהאירוע **באמת** נעלם.
+       *
+       * אירוע שנמחק ביומן מחזיר 404 (או 410 כשהוא רק בוטל). בלי
+       * הטיפול הזה נותרו שתי אפשרויות גרועות: לוותר על הפגישה
+       * לנצח, או למחוק את המזהה מראש — וזה היה משכפל **כל** פגישה
+       * תקינה בכל דחיפה מחדש (ביקורת Codex).
+       */
+      const patched = await this.fetchRaw(
         `${CALENDAR_BASE}/calendars/${calendar}/events/${event.googleEventId}`,
         { method: "PATCH", json: payload, token },
       );
-      return updated.id ?? event.googleEventId;
+      if (patched.ok) {
+        const updated = (await patched.json()) as { id?: string };
+        return updated.id ?? event.googleEventId;
+      }
+      if (patched.status !== 404 && patched.status !== 410) {
+        this.logger.error(`Google החזיר ${patched.status} בעדכון אירוע`);
+        throw new ServiceUnavailableException("Google החזיר שגיאה");
+      }
+      // נמחק ביומן — נוצר מחדש בהמשך הפונקציה
     }
     const created = await this.fetchJson<{ id?: string }>(
       `${CALENDAR_BASE}/calendars/${calendar}/events`,
