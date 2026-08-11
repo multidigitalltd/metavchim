@@ -266,6 +266,25 @@ export class LeadsService {
     });
   }
 
+  /** פילוח לפי סטטוס מכל המאגר — לגרף המשפך בדשבורד. */
+  async breakdown(): Promise<{ total: number; byStatus: Record<string, number> }> {
+    const tenantId = TenantContext.current().tenantId;
+    const where = {
+      tenantId,
+      ...ownershipFilter("leads.view_all", "assignedToUserId"),
+    };
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.lead.groupBy({ by: ["status"], where, _count: { _all: true } }),
+    );
+    const byStatus: Record<string, number> = {};
+    let total = 0;
+    for (const row of rows) {
+      byStatus[row.status] = row._count._all;
+      total += row._count._all;
+    }
+    return { total, byStatus };
+  }
+
   async list(query: {
     status?: string;
     requiresHuman?: boolean;

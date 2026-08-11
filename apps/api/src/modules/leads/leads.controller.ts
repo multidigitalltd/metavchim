@@ -74,6 +74,16 @@ export class LeadsController {
     return this.leads.list(query);
   }
 
+  /**
+   * ספירת לידים לפי סטטוס — בבסיס הנתונים ולא מתוך 100 השורות
+   * שהמסך במקרה טען (ביקורת Codex). אותו פילטר בעלות כמו הרשימה.
+   */
+  @Get("breakdown")
+  @RequireCapability("leads.view_own")
+  async breakdown(): Promise<{ total: number; byStatus: Record<string, number> }> {
+    return this.leads.breakdown();
+  }
+
   @Get(":id")
   @RequireCapability("leads.view_own")
   async get(

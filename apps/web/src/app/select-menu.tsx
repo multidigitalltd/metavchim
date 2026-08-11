@@ -143,6 +143,14 @@ export function SelectMenu({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={label}
+        /*
+         * הפוקוס נשאר על הכפתור בזמן הניווט בחצים, ולכן בלי
+         * aria-activedescendant קורא המסך שתק לחלוטין והמשתמש בחר
+         * בעיוורון (ביקורת Codex). שלושת המאפיינים האלה יחד הם מה
+         * שהופך את הרשימה לנשמעת: מה נשלט, מה פתוח, ומה פעיל כרגע.
+         */
+        aria-controls={open ? listId : undefined}
+        aria-activedescendant={open ? `${listId}-${active}` : undefined}
         onClick={() => setOpen((v) => !v)}
         onKeyDown={onKeyDown}
       >
@@ -176,8 +184,11 @@ export function SelectMenu({
           {options.map((option, index) => (
             <li
               key={option.value}
+              id={`${listId}-${index}`}
               role="option"
-              aria-selected={option.value === value}
+              // הפריט הפעיל מדווח כנבחר בזמן הניווט: זה מה שקורא
+              // המסך מקריא, והבחירה מאושרת רק ב-Enter
+              aria-selected={index === active}
               data-active={index === active}
               className="mv-select-option"
               onMouseEnter={() => setActive(index)}

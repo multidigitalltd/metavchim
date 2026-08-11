@@ -87,6 +87,23 @@ export class BuyersController {
     return this.buyers.list(query);
   }
 
+  /**
+   * ספירת קונים לפי בשלות — **בבסיס הנתונים**.
+   *
+   * הדשבורד חישב את הפילוח מתוך 100 הקונים שהרשימה במקרה טענה, ולכן
+   * במשרד עם יותר מ-100 קונים הוא הציג התפלגות של מדגם שרירותי
+   * כאילו היא של המאגר כולו (ביקורת Codex). groupBy סופר את הכול
+   * בשאילתה אחת, ובלי לפענח שום PII.
+   *
+   * הנתיב חייב לכבד את אותו פילטר בעלות כמו הרשימה — אחרת סוכן
+   * view_own היה רואה במונה קונים שאינו רשאי לראות ברשימה.
+   */
+  @Get("breakdown")
+  @RequireCapability("buyers.view_own")
+  async breakdown(): Promise<{ total: number; byMaturity: Record<string, number> }> {
+    return this.buyers.breakdown();
+  }
+
   @Get(":id")
   @RequireCapability("buyers.view_own")
   async get(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<BuyerDto> {

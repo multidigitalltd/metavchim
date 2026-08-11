@@ -11,7 +11,9 @@ import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/li
 import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { IconMic } from "../icons";
-import { CapNote, FilterBar, FilterSelect, SearchField, textMatches } from "../list-controls";
+import { CapNote, FilterBar, FilterSelect, SearchField, textMatches,
+  useFilterFromUrl,
+} from "../list-controls";
 
 /**
  * מסך הלידים לפי קובץ העיצוב: טבלת grid עם תג "דחוף", זמן המתנה
@@ -56,6 +58,9 @@ export default function LeadsPage() {
   const [status, setStatus] = useState("");
   const [urgency, setUrgency] = useState("");
   const [intent, setIntent] = useState("");
+
+  // קישורי המשפך מהדשבורד: /leads?status=new וכדומה
+  useFilterFromUrl({ status: setStatus, intent: setIntent });
   // שעון קפוא לרינדור — כדי שכל השורות ימדדו מול אותו רגע
   const [now, setNow] = useState<Date | null>(null);
 

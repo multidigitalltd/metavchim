@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 import { SelectMenu } from "./select-menu";
 
@@ -160,4 +161,28 @@ export function textMatches(query: string, ...fields: (string | undefined)[]): b
   const q = query.trim().toLowerCase();
   if (!q) return true;
   return fields.some((f) => f?.toLowerCase().includes(q));
+}
+
+/**
+ * אתחול מסנן מפרמטר בכתובת — ‎/leads?status=new‎ וחבריו.
+ *
+ * הדשבורד מקשר לרשימות מסוננות מכל פרוסה בגרף, אבל מסכי הרשימה
+ * התעלמו מהפרמטרים ופתחו את הרשימה המלאה: הבטחה שלא קוימה (ביקורת
+ * Codex).
+ *
+ * הקריאה ב-‎useEffect‎ ולא באתחול ה-state בכוונה: ‎window‎ אינו קיים
+ * בעיבוד בשרת, ואתחול ממנו היה יוצר אי-התאמה בהידרציה. הריצה
+ * חד-פעמית בטעינה, ולכן שינוי ידני של המסנן אחר כך אינו נדרס.
+ */
+export function useFilterFromUrl(
+  params: Record<string, (value: string) => void>,
+): void {
+  useEffect(() => {
+    const search = new URLSearchParams(window.location.search);
+    for (const [key, apply] of Object.entries(params)) {
+      const value = search.get(key);
+      if (value !== null && value !== "") apply(value);
+    }
+    // מערך תלויות ריק בכוונה: קריאה חד-פעמית בטעינה
+  }, []);
 }

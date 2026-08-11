@@ -54,6 +54,14 @@ interface AppointmentRow {
   status: string;
 }
 
+/**
+ * פילוח שנספר בבסיס הנתונים.
+ *
+ * הגרפים חושבו קודם מתוך 100 הרשומות שהרשימה טענה, ולכן במשרד עם
+ * יותר מכך הוצגה התפלגות של מדגם שרירותי כאילו היא של המאגר כולו.
+ */
+type Breakdown<K extends string> = { total: number } & Record<K, Record<string, number>>;
+
 interface OfferRow {
   id: string;
   status: string;
@@ -134,6 +142,8 @@ export default function DashboardPage() {
   const [today, setToday] = useState<AppointmentRow[] | null>(null);
   const [recs, setRecs] = useState<Recommendation[] | null>(null);
   const [offers, setOffers] = useState<OfferRow[] | null>(null);
+  const [buyerBreakdown, setBuyerBreakdown] = useState<Breakdown<"byMaturity"> | null>(null);
+  const [leadBreakdown, setLeadBreakdown] = useState<Breakdown<"byStatus"> | null>(null);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -152,6 +162,12 @@ export default function DashboardPage() {
     apiGet<AppointmentRow[]>(`/appointments?from=${dayStart.toISOString()}&to=${dayEnd.toISOString()}`)
       .then(setToday)
       .catch(() => setToday([]));
+    apiGet<Breakdown<"byMaturity">>("/buyers/breakdown")
+      .then(setBuyerBreakdown)
+      .catch(() => setBuyerBreakdown(null));
+    apiGet<Breakdown<"byStatus">>("/leads/breakdown")
+      .then(setLeadBreakdown)
+      .catch(() => setLeadBreakdown(null));
     apiGet<Recommendation[]>("/coach/recommendations")
       .then(setRecs)
       .catch(() => setRecs([]));
@@ -293,20 +309,21 @@ export default function DashboardPage() {
    * לשרת בשביל הגרפים. כל פרוסה מקשרת לרשימה המסוננת, כי פילוח
    * שאי אפשר לצלול אליו הוא קישוט.
    */
+  const bm = buyerBreakdown?.byMaturity ?? {};
   const maturitySlices: Slice[] = [
-    { label: "חם מאוד", value: (buyers ?? []).filter((b) => b.maturity === "very_hot").length, color: "#b0512c", href: "/buyers?maturity=very_hot" },
-    { label: "חם", value: (buyers ?? []).filter((b) => b.maturity === "hot").length, color: "#d9a441", href: "/buyers?maturity=hot" },
-    { label: "מתעניין", value: (buyers ?? []).filter((b) => b.maturity === "interested").length, color: "var(--color-primary-accent)", href: "/buyers?maturity=interested" },
-    { label: "לא בשל", value: (buyers ?? []).filter((b) => b.maturity === "not_ripe").length, color: "#9aa79d", href: "/buyers?maturity=not_ripe" },
+    { label: "חם מאוד", value: bm["very_hot"] ?? 0, color: "#b0512c", href: "/buyers?maturity=very_hot" },
+    { label: "חם", value: bm["hot"] ?? 0, color: "#d9a441", href: "/buyers?maturity=hot" },
+    { label: "מתעניין", value: bm["interested"] ?? 0, color: "var(--color-primary-accent)", href: "/buyers?maturity=interested" },
+    { label: "לא בשל", value: bm["not_ripe"] ?? 0, color: "#9aa79d", href: "/buyers?maturity=not_ripe" },
   ];
 
+  const ls = leadBreakdown?.byStatus ?? {};
   const leadSlices: Slice[] = [
-    { label: "חדש", value: (leads ?? []).filter((l) => l.status === "new").length, color: "var(--color-primary-accent)", href: "/leads?status=new" },
-    { label: "בטיפול", value: (leads ?? []).filter((l) => l.status === "in_progress").length, color: "#d9a441", href: "/leads?status=in_progress" },
-    { label: "ממתין ללקוח", value: (leads ?? []).filter((l) => l.status === "waiting_customer").length, color: "#7a9bd4", href: "/leads?status=waiting_customer" },
-    { label: "הומר", value: (leads ?? []).filter((l) => l.status === "converted").length, color: "var(--color-primary)", href: "/leads?status=converted" },
+    { label: "חדש", value: ls["new"] ?? 0, color: "var(--color-primary-accent)", href: "/leads?status=new" },
+    { label: "בטיפול", value: ls["in_progress"] ?? 0, color: "#d9a441", href: "/leads?status=in_progress" },
+    { label: "ממתין ללקוח", value: ls["waiting_customer"] ?? 0, color: "#7a9bd4", href: "/leads?status=waiting_customer" },
+    { label: "הומר", value: ls["converted"] ?? 0, color: "var(--color-primary)", href: "/leads?status=converted" },
   ];
-
   return (
     <>
       <SetupBanner />
@@ -359,7 +376,7 @@ export default function DashboardPage() {
             </p>
             <DonutChart
               slices={maturitySlices}
-              centerValue={buyers === null ? "…" : String(buyers.length)}
+              centerValue={buyerBreakdown === null ? "…" : String(buyerBreakdown.total)}
               centerLabel="קונים"
             />
           </div>
