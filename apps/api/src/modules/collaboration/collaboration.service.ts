@@ -170,6 +170,66 @@ export class CollaborationService {
     return this.getDemand(id);
   }
 
+  /**
+   * הביקוש הפעיל של קונה מסוים, אם הוא משותף.
+   *
+   * בלי זה כרטיס הקונה לא ידע בטעינה שהוא כבר משותף: הוא היה מציע
+   * לשתף שוב, והשיתוף היה נדחה ב"הקונה כבר משותף ברשת" — הסוכן רואה
+   * שגיאה על פעולה שהמסך עצמו הציע לו.
+   */
+  async activeDemandForBuyer(buyerId: string): Promise<SharedDemandDto | null> {
+    const tenantId = TenantContext.current().tenantId;
+    const row = await this.prisma.withTenant(async (tx) =>
+      tx.sharedDemand.findFirst({
+        where: { tenantId, originBuyerId: buyerId, status: "active" },
+        select: { id: true },
+      }),
+    );
+    return row ? this.getDemand(row.id) : null;
+  }
+
+  /**
+   * עדכון ביקוש קיים — חלוקת עמלה ותיאור.
+   *
+   * סוכן שלא קיבל פניות ירצה להעלות את חלקו של הצד השני או לחדד את
+   * התיאור. בלי מסלול עדכון הדרך היחידה הייתה לסגור ולפרסם מחדש,
+   * וזה מאבד את ההיסטוריה של הביקוש ואת ההצעות שכבר התקבלו עליו.
+   *
+   * שאר שדות הביקוש (ערים, תקציב, חדרים) נגזרים מהקונה ואינם
+   * נערכים כאן — הם מתעדכנים דרך עריכת דרישות הקונה.
+   */
+  async updateSharedDemand(
+    buyerId: string,
+    commissionSplit: number,
+    note?: string,
+  ): Promise<SharedDemandDto> {
+    const tenantId = TenantContext.current().tenantId;
+    const splitRejection = commissionSplitRejectionReason(commissionSplit);
+    if (splitRejection !== null) throw new BadRequestException(splitRejection);
+
+    const demandId = await this.prisma.withTenant(async (tx) => {
+      const existing = await tx.sharedDemand.findFirst({
+        where: { tenantId, originBuyerId: buyerId, status: "active" },
+        select: { id: true },
+      });
+      if (!existing) throw new NotFoundException("הקונה אינו משותף ברשת");
+
+      await tx.sharedDemand.updateMany({
+        where: { id: existing.id, tenantId, status: "active" },
+        data: { commissionSplit, notes: note?.trim() || null },
+      });
+      await this.audit.record(tx, {
+        action: "collaboration.share_update",
+        entityType: "shared_demand",
+        entityId: existing.id,
+        metadata: { buyerId, commissionSplit },
+      });
+      return existing.id;
+    });
+
+    return this.getDemand(demandId);
+  }
+
   async unshare(demandId: string): Promise<void> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {

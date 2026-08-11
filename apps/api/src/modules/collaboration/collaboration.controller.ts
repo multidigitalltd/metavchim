@@ -36,6 +36,13 @@ const ShareSchema = z
     note: z.string().trim().max(300).optional(),
   })
   .strict();
+/** עדכון ביקוש קיים — הקונה מגיע מהנתיב, ולכן אינו חוזר בגוף הבקשה. */
+const UpdateShareSchema = z
+  .object({
+    commissionSplit: CommissionSplitSchema,
+    note: z.string().trim().max(300).optional(),
+  })
+  .strict();
 const OfferSchema = z
   .object({ propertyId: IdSchema, commissionSplit: CommissionSplitSchema })
   .strict();
@@ -66,6 +73,30 @@ export class CollaborationController {
     @Body(new ZodValidationPipe(ShareSchema)) body: z.infer<typeof ShareSchema>,
   ): Promise<SharedDemandDto> {
     return this.collaboration.shareBuyer(body.buyerId, body.commissionSplit, body.note);
+  }
+
+  /**
+   * מצב השיתוף של קונה — null כשאינו משותף.
+   *
+   * כרטיס הקונה קורא את זה בטעינה: בלי זה הוא היה מציע לשתף קונה
+   * שכבר משותף, והשרת היה דוחה בשגיאה על פעולה שהמסך עצמו הציע.
+   */
+  @Get("share/buyer/:buyerId")
+  @RequireCapability("collaboration.share")
+  async buyerShare(
+    @Param("buyerId", new ZodValidationPipe(IdSchema)) buyerId: string,
+  ): Promise<SharedDemandDto | null> {
+    return this.collaboration.activeDemandForBuyer(buyerId);
+  }
+
+  /** עדכון חלוקת עמלה ותיאור של ביקוש קיים, בלי לסגור ולפרסם מחדש. */
+  @Patch("share/buyer/:buyerId")
+  @RequireCapability("collaboration.share")
+  async updateShare(
+    @Param("buyerId", new ZodValidationPipe(IdSchema)) buyerId: string,
+    @Body(new ZodValidationPipe(UpdateShareSchema)) body: z.infer<typeof UpdateShareSchema>,
+  ): Promise<SharedDemandDto> {
+    return this.collaboration.updateSharedDemand(buyerId, body.commissionSplit, body.note);
   }
 
   @Delete("demands/:id")

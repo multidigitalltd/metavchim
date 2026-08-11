@@ -3,16 +3,12 @@
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
-import {
-  COMMISSION_SPLIT_OPTIONS,
-  DEFAULT_COMMISSION_SPLIT,
-  describeCommissionSplit,
-} from "@metavchim/shared";
-import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
+import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { FINANCING_LABELS, formatBuyerSource, formatDate, formatPrice, MATURITY_LABELS, waMeUrl } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { WithDictation } from "../../dictation-field";
-import { IconChat, IconEdit, IconHandshake, IconPhone } from "../../icons";
+import { IconChat, IconEdit, IconPhone } from "../../icons";
+import { NetworkShareSection } from "./network-share-section";
 import { TimelineSection } from "./timeline-section";
 import { ContactPeople } from "../../contact-people";
 import { RelatedEntities } from "../../related-entities";
@@ -99,15 +95,6 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
   const [buyer, setBuyer] = useState<BuyerDetail | null>(null);
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
-  const [shareStatus, setShareStatus] = useState<string | null>(null);
-  /*
-   * חלוקת העמלה נבחרת **לפני** השיתוף ולא אחריו. מו"מ על אחוזים
-   * אחרי שהקונה כבר התעניין הוא המקום שבו שיתופי פעולה נשברים.
-   */
-  const [shareSplit, setShareSplit] = useState(DEFAULT_COMMISSION_SPLIT);
-  /** פתיחת טופס השיתוף — התיאור החופשי נכתב לפני הפרסום, לא אחריו. */
-  const [shareOpen, setShareOpen] = useState(false);
-  const [shareNote, setShareNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState<string | null>(null);
   const [notesSaved, setNotesSaved] = useState(false);
@@ -125,22 +112,6 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
     setBuyer((prev) => (prev ? { ...prev, agentNotes: notesDraft } : prev));
     setNotesDraft(null);
     setNotesSaved(true);
-  }
-
-  async function shareToNetwork() {
-    try {
-      await apiPost("/collaboration/share", {
-        buyerId: id,
-        commissionSplit: shareSplit,
-        ...(shareNote.trim() ? { note: shareNote.trim() } : {}),
-      });
-      setShareOpen(false);
-      setShareStatus(
-        `✓ הקונה שותף ברשת כביקוש אנונימי — בלי שם, בלי טלפון, תקציב מעוגל. חלוקת עמלה: ${describeCommissionSplit(shareSplit)}`,
-      );
-    } catch (err: unknown) {
-      setShareStatus(err instanceof ApiError ? err.message : "השיתוף נכשל");
-    }
   }
 
   async function sendOffer(m: MatchRow) {
@@ -256,61 +227,20 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
           >
             <IconEdit s={14} /> ערוך דרישות
           </Link>
-          <label className="flex items-center gap-1.5 text-sm">
-            <span>חלוקת עמלה</span>
-            <select
-              value={shareSplit}
-              onChange={(e) => setShareSplit(Number(e.target.value))}
-              className="mv-select"
-              style={{ minHeight: 36 }}
-              aria-label="חלוקת העמלה בשיתוף"
-            >
-              {COMMISSION_SPLIT_OPTIONS.map((share) => (
-                <option key={share} value={share}>
-                  {describeCommissionSplit(share)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            className="mv-btn-soft"
-            style={{ minHeight: 36, paddingInline: 14, fontSize: 13 }}
-            aria-expanded={shareOpen}
-            onClick={() => setShareOpen((v) => !v)}
-          >
-            <IconHandshake s={14} /> שתף ברשת (אנונימי)
-          </button>
         </div>
-        {shareOpen ? (
-          <div className="mt-2 w-full rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
-            <label htmlFor="shareNote" className="mb-1 block text-sm font-medium">
-              מה הקונה מחפש — תיאור חופשי שיוצג ברשת (בלי שם ובלי טלפון)
-            </label>
-            <textarea
-              id="shareNote"
-              value={shareNote}
-              onChange={(e) => setShareNote(e.target.value)}
-              maxLength={300}
-              rows={2}
-              placeholder='לדוגמה: "מחפשים דירה משופצת לכניסה מהירה, גמישים על קומה אם יש מעלית"'
-              className="mb-2 w-full rounded-lg border px-3 py-2"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
-            />
-            <p className="mb-2 text-xs" style={{ color: "var(--color-text-muted)" }}>
-              השכונות המבוקשות מהדרישות יצורפו לביקוש אוטומטית.
-            </p>
-            <button type="button" className="mv-btn-action" onClick={() => void shareToNetwork()}>
-              פרסם ביקוש ברשת
-            </button>
-          </div>
-        ) : null}
-        {shareStatus ? (
-          <p role="status" className="m-0 w-full text-sm" style={{ color: "var(--color-primary)" }}>
-            {shareStatus}
-          </p>
-        ) : null}
       </div>
+
+      {/*
+        סדר האזורים הוא סדר העבודה של המתווך על הכרטיס: קודם מי
+        הלקוח ומה הוא מחפש, אחר כך מה עושים איתו (הסכם, שת"פ), ולבסוף
+        המעקב (משימות, הערות). עד כה השת"פ היה כפתור בשורת הפעולות
+        של הכותרת — בין "וואטסאפ" ל"חייג" — ולכן נראה כמו עוד דרך
+        ליצור קשר ולא כהחלטה עסקית על חלוקת עמלה.
+      */}
+
+      <ContactPeople contactId={buyer.contact.id} canEdit={canEditPeople} />
+
+      <RelatedEntities contactId={buyer.contact.id} exclude={{ kind: "buyer", id: buyer.id }} />
 
       <AgreementsPanel
         contactId={buyer.contact.id}
@@ -318,11 +248,9 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
         title="הזמנה בכתב (הסכם תיווך)"
       />
 
-      <RelatedEntities contactId={buyer.contact.id} exclude={{ kind: "buyer", id: buyer.id }} />
+      <NetworkShareSection buyerId={id} />
 
       <EntityTasks entityType="buyer" entityId={id} />
-
-      <ContactPeople contactId={buyer.contact.id} canEdit={canEditPeople} />
 
       <div className="grid items-start gap-[18px] lg:[grid-template-columns:340px_1fr]">
         {/* ---- מה הוא מחפש ---- */}
