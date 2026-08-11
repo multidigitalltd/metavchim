@@ -20,6 +20,7 @@ import { TelephonySection } from "./telephony-section";
 import { SupportAccessSection } from "./support-access-section";
 import { GmailSection } from "./gmail-section";
 import { GoogleCalendarSection } from "./google-calendar-section";
+import { MatchWeightsSection } from "./match-weights-section";
 import { AgreementTemplatesSection } from "./agreement-templates-section";
 import { SystemUpdateSection } from "./system-update";
 import { UserPermissions } from "./user-permissions";
@@ -138,6 +139,7 @@ interface TenantSettings {
  * המיפוי הזה שומר על הקישורים האלה עובדים אחרי הפיצול ללשוניות.
  */
 const HASH_TABS: Record<string, string> = {
+  "match-weights": "matching",
   whatsapp: "integrations",
   telephony: "integrations",
   "google-calendar": "integrations",
@@ -151,6 +153,7 @@ const TABS: [key: string, label: string][] = [
   ["team", "צוות והרשאות"],
   ["office", "פרטי המשרד"],
   ["billing", "מנוי ותשלום"],
+  ["matching", "התאמות"],
   ["integrations", "חיבורים ומודולים"],
   ["documents", "מסמכים והסכמים"],
   ["data", "נתונים ואבטחה"],
@@ -631,6 +634,8 @@ export default function SettingsPage() {
               />
             )
           ) : null}
+
+          {tab === "matching" ? <MatchWeightsSection /> : null}
 
           {/* ---- יומן פעילות ---- */}
           {tab === "data" ? (

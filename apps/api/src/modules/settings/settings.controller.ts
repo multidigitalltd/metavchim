@@ -28,6 +28,9 @@ import {
   resolveCapabilities,
   type Capability,
   type LimitState,
+  DEFAULT_MATCH_WEIGHTS,
+  resolveMatchWeights,
+  type MatchWeights,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { onboardingSteps, type OnboardingProgress } from "@metavchim/shared";
@@ -117,6 +120,27 @@ const LeadWebhookSchema = z
   .strict();
 
 /** מחיקת חשבון: שם המשרד כאישור + סיסמה (לחשבון Google — שם בלבד). */
+/**
+ * משקלי ההתאמה. כל קריטריון בין 0 ל-1, וסכום חיובי אחד לפחות —
+ * איפוס מוחלט היה מייצר ציון 0 לכל נכס, כלומר מסך ריק בלי הסבר.
+ */
+const MatchWeightsSchema = z
+  .object({
+    location: z.number().min(0).max(1),
+    budget: z.number().min(0).max(1),
+    rooms: z.number().min(0).max(1),
+    property_type: z.number().min(0).max(1),
+    features_must: z.number().min(0).max(1),
+    features_nice: z.number().min(0).max(1),
+    area: z.number().min(0).max(1),
+    entry_date: z.number().min(0).max(1),
+  })
+  .strict()
+  .refine(
+    (w) => Object.values(w).reduce((sum, v) => sum + v, 0) > 0,
+    { message: "לפחות קריטריון אחד חייב משקל גדול מאפס" },
+  );
+
 const DeleteAccountSchema = z
   .object({
     confirmName: z.string().min(1).max(120),
@@ -157,6 +181,47 @@ export class SettingsController {
     @Body(new ZodValidationPipe(DeleteAccountSchema)) body: z.infer<typeof DeleteAccountSchema>,
   ): Promise<{ ok: true }> {
     return this.accountDeletion.deleteAccount(body);
+  }
+
+  /**
+   * משקלי ההתאמה של המשרד.
+   *
+   * **חלים בתוך המשרד בלבד.** התאמות בשוק השת"פ ממשיכות לרוץ
+   * בברירת המחדל, אחרת משרד היה משנה את הציון שמשרד אחר רואה על
+   * הביקוש שלו — ו"80% התאמה" היה מאבד כל משמעות משותפת.
+   */
+  @Get("match-weights")
+  @RequireCapability("settings.manage")
+  async matchWeights(): Promise<{ weights: MatchWeights; defaults: MatchWeights }> {
+    const tenantId = TenantContext.current().tenantId;
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
+    return {
+      weights: resolveMatchWeights(settings["matchWeights"]),
+      defaults: { ...DEFAULT_MATCH_WEIGHTS },
+    };
+  }
+
+  @Patch("match-weights")
+  @RequireCapability("settings.manage")
+  @HttpCode(200)
+  async saveMatchWeights(
+    @Body(new ZodValidationPipe(MatchWeightsSchema)) body: z.infer<typeof MatchWeightsSchema>,
+  ): Promise<{ weights: MatchWeights }> {
+    const tenantId = TenantContext.current().tenantId;
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: { settings: { ...settings, matchWeights: body } },
+    });
+    return { weights: resolveMatchWeights(body) };
   }
 
   @Get("tenant")

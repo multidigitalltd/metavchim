@@ -321,6 +321,13 @@ export class CollaborationService {
 
     return properties
       .map((property) => {
+        /*
+         * **בלי משקלי המשרד — בכוונה.**
+         *
+         * הציון הזה מוצג לצד השני ברשת, ומשקלים מקומיים היו הופכים
+         * אותו לבלתי ניתן להשוואה: משרד יכול היה לנפח "95% התאמה"
+         * על כל נכס כדי למשוך הצעות. ברשת יש שפה אחת.
+         */
         const result = scoreMatch(rowToFields(property), requirements);
         return { property, result };
       })
