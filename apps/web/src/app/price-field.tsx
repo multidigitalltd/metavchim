@@ -56,16 +56,22 @@ export function PriceField({
         aria-live: מי שמקליד בעיוורון או משתמש בקורא מסך שומע את
         הסכום במילים בזמן ההקלדה — שם הבדיקה הזו נחוצה אף יותר.
       */}
-      {words !== "" ? (
-        <p
-          aria-live="polite"
-          className="m-0 mt-1 text-[12.5px] font-semibold"
-          style={{ color: "var(--color-primary)" }}
-        >
-          {words}
-        </p>
-      ) : hint !== undefined ? (
-        <p className="m-0 mt-1 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+      {/*
+        האזור החי מורכב תמיד, גם כשהוא ריק.
+        קורא מסך מכריז על **שינוי** בתוך אזור קיים, ולא על תוכן של
+        אזור שזה עתה נוסף ל-DOM. בטופס יצירה השדה מתחיל ריק, ולכן
+        הרכבה מותנית הייתה משתיקה בדיוק את המקרה הקריטי: הדבקת מחיר
+        שלם בפעולה אחת (ביקורת Codex).
+      */}
+      <p
+        aria-live="polite"
+        className="m-0 mt-1 text-[12.5px] font-semibold"
+        style={{ color: "var(--color-primary)", minHeight: "1.1em" }}
+      >
+        {words}
+      </p>
+      {words === "" && hint !== undefined ? (
+        <p className="m-0 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
           {hint}
         </p>
       ) : null}
