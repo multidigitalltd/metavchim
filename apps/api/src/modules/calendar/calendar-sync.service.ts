@@ -28,6 +28,16 @@ const WINDOW_BACK_DAYS = 7;
 /** כמה פגישות לדחוף בסבב לכל משתמש. */
 const PUSH_BATCH = 50;
 
+/** תוצאת סבב סנכרון — כולל מונים מאבחנים לתצוגה. */
+export interface SyncResult {
+  pulled: number;
+  pushed: number;
+  /** פגישות שלי שכבר יושבות ב-Google — "אין מה לדחוף" ולא "נשבר". */
+  alreadySynced: number;
+  /** פגישות של סוכנים אחרים בחלון — לא נכנסות ליומן האישי הזה. */
+  notMine: number;
+}
+
 @Injectable()
 export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CalendarSyncService.name);
@@ -90,6 +100,7 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
         try {
           pulled += await this.pull(link, now);
           pushed += await this.push(link, now);
+          pushed += await this.pushTasks(link, now);
           await this.markSynced(link, null, now);
         } catch (error) {
           const message = String(error).slice(0, 300);
@@ -111,20 +122,157 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
    * בכל משרד להריץ סבב על כל הפלטפורמה בלחיצה, כלומר עומס שמכפיל
    * את עצמו לפי מספר המשתמשים ושורף את מכסת ה-API של Google.
    */
-  async syncOne(tenantId: string, userId: string, now = new Date()): Promise<{ pulled: number; pushed: number }> {
-    if (!(await this.google.isConfigured())) return { pulled: 0, pushed: 0 };
+  async syncOne(tenantId: string, userId: string, now = new Date()): Promise<SyncResult> {
+    const empty: SyncResult = { pulled: 0, pushed: 0, alreadySynced: 0, notMine: 0 };
+    if (!(await this.google.isConfigured())) return empty;
     const link = await this.google.linkFor(tenantId, userId);
-    if (!link) return { pulled: 0, pushed: 0 };
+    if (!link) return empty;
     try {
       const pulled = await this.pull(link, now);
       const pushed = await this.push(link, now);
       await this.markSynced(link, null, now);
-      return { pulled, pushed };
+      /*
+       * מונים מאבחנים ולא רק "0 ו-0".
+       *
+       * מתווך שרואה פגישה ביומן שלו ומקבל "0 נדחפו" מסיק שהסנכרון
+       * שבור — בעוד שברוב המקרים הפגישה כבר מסונכרנת, או שהיא של
+       * סוכן אחר. שני המונים האלה הופכים את ההודעה לתשובה.
+       */
+      const pushedTasks = await this.pushTasks(link, now);
+      const context = await this.pushContext(link, now);
+      return { pulled, pushed: pushed + pushedTasks, ...context };
     } catch (error) {
       const message = String(error).slice(0, 300);
       await this.markSynced(link, message, now);
       throw error;
     }
+  }
+
+  /**
+   * משימות עם מועד יעד → יומן Google.
+   *
+   * עד כה נדחפו פגישות בלבד, ומשימה עם מועד לא הופיעה ביומן — מתווך
+   * שראה אותה במערכת ולא ב-Google הסיק שהסנכרון שבור. משימה נדחפת
+   * כאירוע של חצי שעה: היא נקודת זמן ולא פגישה, וחסימה של שעה שלמה
+   * ביומן על "לחזור לדוד" היא הצפה.
+   *
+   * רק משימות פתוחות: משימה שסומנה כבוצעה לפני שהסבב הגיע אליה
+   * אינה צריכה להופיע ביומן בכלל.
+   */
+  private async pushTasks(link: CalendarLink, now: Date): Promise<number> {
+    const pending = await this.prisma.withExplicitTenant(link.tenantId, async (tx) =>
+      tx.task.findMany({
+        where: {
+          tenantId: link.tenantId,
+          assignedToUserId: link.userId,
+          dueAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
+          googleSyncedAt: null,
+          /*
+           * גם משימה שנסגרה נכנסת לתור — כדי **למחוק** את האירוע
+           * שלה ביומן. סינון ל-open בלבד היה משאיר משימה שבוצעה
+           * תלויה ב-Google לנצח (ביקורת Codex).
+           */
+          OR: [{ status: "open" }, { googleEventId: { not: null } }],
+        },
+        orderBy: { dueAt: "asc" },
+        take: PUSH_BATCH,
+      }),
+    );
+
+    let count = 0;
+    for (const task of pending) {
+      if (!task.dueAt) continue;
+      const googleEventId = await this.google.upsertEvent(link, {
+        googleEventId: task.googleEventId,
+        // הקידומת מבדילה ביומן בין משימה לפגישה במבט
+        summary: `משימה: ${task.title}`,
+        description: task.notes ?? undefined,
+        startsAt: task.dueAt,
+        endsAt: new Date(task.dueAt.getTime() + 30 * 60_000),
+        // משימה שבוצעה — האירוע נמחק מהיומן במקום להישאר תלוי
+        cancelled: task.status !== "open",
+      });
+      await this.prisma.withExplicitTenant(link.tenantId, async (tx) => {
+        // משימה שנמחקה והאירוע שלה נוקה — עכשיו אפשר להסיר את השורה
+        if (task.deletedAfterSync) {
+          await tx.task.delete({ where: { id: task.id } });
+          return;
+        }
+        await tx.task.update({
+          where: { id: task.id },
+          data: { googleEventId, googleSyncedAt: new Date() },
+        });
+      });
+      count += 1;
+    }
+    return count;
+  }
+
+  /**
+   * איפוס סימוני הסנכרון — "דחוף הכול מחדש".
+   *
+   * פגישה שנדחפה פעם אחת ואז נמחקה ב-Google לא הייתה חוזרת לעולם:
+   * googleSyncedAt נשאר מלא, ולכן היא כבר לא נחשבת ממתינה. בלי דרך
+   * לאפס אותו, הפגישה נעלמת מהיומן בלי שום מסלול לתקן.
+   *
+   * המזהה עצמו **נשמר** — ראו ההסבר בגוף הפונקציה.
+   */
+  async resetSyncMarks(tenantId: string, userId: string, now = new Date()): Promise<number> {
+    const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    return this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      const [appointments, tasks] = await Promise.all([
+        /*
+         * המזהה **נשמר**. ניקויו היה הופך כל דחיפה חוזרת ליצירה,
+         * כלומר משכפל ביומן כל פגישה תקינה במקום לתקן אחת שנמחקה
+         * (ביקורת Codex). upsertEvent מנסה עדכון תחילה ונופל ליצירה
+         * רק כשהאירוע באמת איננו.
+         */
+        tx.appointment.updateMany({
+          where: { tenantId, ownerUserId: userId, syncSource: "system", startsAt: { gte: from } },
+          data: { googleSyncedAt: null },
+        }),
+        tx.task.updateMany({
+          where: { tenantId, assignedToUserId: userId, status: "open", dueAt: { gte: from } },
+          data: { googleSyncedAt: null },
+        }),
+      ]);
+      return appointments.count + tasks.count;
+    });
+  }
+
+  /**
+   * מה מצב הדחיפה **אחרי** הסבב — כדי שההודעה תסביר את עצמה.
+   *
+   * ‎alreadySynced‎: פגישות שלי בחלון שכבר יושבות ב-Google.
+   * ‎notMine‎: פגישות של סוכנים אחרים בחלון — הן לעולם לא ייכנסו
+   *   ליומן שלי, וזה מכוון: יומן אישי ולא יומן משרדי.
+   */
+  private async pushContext(
+    link: CalendarLink,
+    now: Date,
+  ): Promise<{ alreadySynced: number; notMine: number }> {
+    const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    return this.prisma.withExplicitTenant(link.tenantId, async (tx) => {
+      const [alreadySynced, notMine] = await Promise.all([
+        tx.appointment.count({
+          where: {
+            tenantId: link.tenantId,
+            ownerUserId: link.userId,
+            startsAt: { gte: from },
+            googleSyncedAt: { not: null },
+          },
+        }),
+        tx.appointment.count({
+          where: {
+            tenantId: link.tenantId,
+            ownerUserId: { not: link.userId },
+            syncSource: "system",
+            startsAt: { gte: from },
+          },
+        }),
+      ]);
+      return { alreadySynced, notMine };
+    });
   }
 
   /** ---------- Google → המערכת ---------- */
@@ -145,6 +293,19 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
          * ביקש — וגם מדליפה פרטים אישיים לתוך מערכת של מקום העבודה.
          */
         if (!times) continue;
+
+        /*
+         * אירוע שנוצר ממשימה שלנו — לדלג.
+         *
+         * הדחיפה יוצרת אותו ב-Google, והמשיכה הבאה מחזירה אותו
+         * כאירוע "חדש": בלי הבדיקה הזו נוצרה פגישה מקבילה לכל
+         * משימה, בכל סבב, עד אינסוף (ביקורת Codex).
+         */
+        const fromTask = await tx.task.findFirst({
+          where: { tenantId: link.tenantId, googleEventId: event.id },
+          select: { id: true },
+        });
+        if (fromTask) continue;
 
         const existing = await tx.appointment.findFirst({
           where: { tenantId: link.tenantId, googleEventId: event.id },

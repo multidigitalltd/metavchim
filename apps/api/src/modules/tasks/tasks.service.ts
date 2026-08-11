@@ -312,7 +312,17 @@ export class TasksService {
         : query.assignee === "all"
           ? {}
           : { assignedToUserId: query.assignee };
-    const base = { tenantId: ctx.tenantId, ...requested, ...this.scopeFilter() };
+    /*
+     * ‎deletedAfterSync‎ מוסתר מכל הרשימות: המשתמש כבר מחק את
+     * המשימה, והשורה שורדת רק עד שהסבב ינקה את האירוע ב-Google.
+     * הצגתה הייתה נראית כמחיקה שלא עבדה.
+     */
+    const base = {
+      tenantId: ctx.tenantId,
+      deletedAfterSync: false,
+      ...requested,
+      ...this.scopeFilter(),
+    };
 
     return this.prisma.withTenant(async (tx) => {
       const rows = query.status
@@ -360,7 +370,7 @@ export class TasksService {
        */
       const [open, done] = await Promise.all([
         tx.task.findMany({
-          where: { tenantId, entityType, entityId, status: "open" },
+          where: { tenantId, entityType, entityId, status: "open", deletedAfterSync: false },
           orderBy: { dueAt: { sort: "asc", nulls: "last" } },
           take: 50,
         }),
@@ -439,6 +449,21 @@ export class TasksService {
           ...(patch.status !== undefined ? { status: patch.status } : {}),
           ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
           ...(assignee !== existing.assignedToUserId ? { assignedToUserId: assignee } : {}),
+          /*
+           * כל שינוי שנראה ביומן מחזיר את המשימה לתור הדחיפה.
+           *
+           * בלי זה האירוע ב-Google נשאר עם הכותרת והשעה הישנות
+           * לנצח, ומשימה שהועברה לסוכן אחר נותרת ביומן של הקודם
+           * (ביקורת Codex). null = "ממתין לדחיפה", אותה מוסכמה
+           * כמו על appointments.
+           */
+          ...(patch.title !== undefined ||
+          patch.notes !== undefined ||
+          patch.dueAt !== undefined ||
+          patch.status !== undefined ||
+          assignee !== existing.assignedToUserId
+            ? { googleSyncedAt: null }
+            : {}),
         },
       });
       await this.audit.record(tx, { action: "task.update", entityType: "task", entityId: id });
@@ -469,10 +494,24 @@ export class TasksService {
     await this.prisma.withTenant(async (tx) => {
       const existing = await tx.task.findFirst({
         where: { id, tenantId: ctx.tenantId, ...this.scopeFilter() },
-        select: { id: true },
+        select: { id: true, googleEventId: true },
       });
       if (!existing) throw new NotFoundException("משימה לא נמצאה");
-      await tx.task.delete({ where: { id } });
+      /*
+       * מחיקה שיש לה אירוע ביומן אינה מוחקת את השורה מיד: היא
+       * מסומנת כבוצעה וממתינה לדחיפה, וסבב הסנכרון הבא הוא שמוחק
+       * את האירוע מ-Google ואז מנקה את השורה. מחיקה ישירה הייתה
+       * מוחקת את המזהה היחיד שמצביע על האירוע, והוא היה נשאר
+       * ביומן לנצח בלי דרך להגיע אליו (ביקורת Codex).
+       */
+      if (existing.googleEventId !== null) {
+        await tx.task.update({
+          where: { id },
+          data: { status: "done", deletedAfterSync: true, googleSyncedAt: null },
+        });
+      } else {
+        await tx.task.delete({ where: { id } });
+      }
       await this.audit.record(tx, { action: "task.delete", entityType: "task", entityId: id });
     });
   }
