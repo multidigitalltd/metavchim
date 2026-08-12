@@ -62,6 +62,10 @@ interface DemandRow {
 interface CoopOfferRow {
   id: string;
   direction: "incoming" | "outgoing";
+  /** אחוז העמלה שהמשרד המציע לוקח — מוצג לפני ההסכמה */
+  commissionSplit: number;
+  buyerId?: string;
+  buyerName?: string;
   presentation: {
     city?: string;
     neighborhood?: string;
@@ -111,7 +115,23 @@ const FEATURE_LABELS: Record<string, string> = {
 
 export default function CollaborationPage() {
   const { loading: authLoading } = useRequireAuth();
+  /*
+   * ההתראה על הצעה חדשה הובילה ל-/collaboration והמסך נפתח תמיד על
+   * "ביקושים ברשת" — כלומר על לשונית שאינה זו שההתראה דיברה עליה,
+   * וההצעה נראתה כאילו איננה. הכתובת קובעת.
+   */
   const [coopTab, setCoopTab] = useState<string>("demands");
+  /*
+   * הקריאה ל-window ב-useEffect ולא באתחול ה-state: הדף עובר
+   * prerender בבנייה, ושם אין window כלל — קריאה ישירה מפילה את
+   * הבנייה כולה.
+   */
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("tab");
+    if (requested !== null && COOP_TABS.some(([key]) => key === requested)) {
+      setCoopTab(requested);
+    }
+  }, []);
   const [demands, setDemands] = useState<DemandRow[] | null>(null);
   const [sharedLeads, setSharedLeads] = useState<SharedLeadRow[]>([]);
   const [buyingLead, setBuyingLead] = useState<string | null>(null);
@@ -316,11 +336,29 @@ export default function CollaborationPage() {
           <ul className="flex flex-col gap-3">
             {incoming.map((offer) => (
               <li key={offer.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-primary)", background: "var(--color-surface)" }}>
+                {/*
+                  לאיזה קונה ההצעה — השורה הראשונה, לא פרט שולי.
+                  משרד ששיתף חמישה ביקושים קיבל חמש הצעות שנראו זהות,
+                  ולא ידע לאיזה לקוח להתקשר.
+                */}
+                {offer.buyerId !== undefined ? (
+                  <p className="m-0 mb-1 text-[13px] font-semibold" style={{ color: "var(--color-primary)" }}>
+                    עבור{" "}
+                    <Link href={`/buyers/${offer.buyerId}`} className="underline">
+                      {offer.buyerName}
+                    </Link>
+                  </p>
+                ) : null}
                 <p className="mb-2 font-medium">
                   {offer.presentation.title ??
                     `${offer.presentation.rooms ?? "?"} חדרים ב${offer.presentation.neighborhood ?? offer.presentation.city ?? "?"}`}
                   {" · "}
                   {formatPrice(offer.presentation.priceAgorot)}
+                </p>
+                {/* חלוקת העמלה לפני ההסכמה ולא אחריה */}
+                <p className="m-0 mb-1 text-[13px]">
+                  העמלה שלי: <b>{100 - offer.commissionSplit}%</b> · למשרד המציע{" "}
+                  {offer.commissionSplit}%
                 </p>
                 <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
                   כתובת מלאה ופרטי הסוכנות ייחשפו אחרי אישור החיבור (חשיפה מדורגת).

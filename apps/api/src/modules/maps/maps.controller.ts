@@ -16,6 +16,12 @@ const PointSchema = z
 const SearchSchema = z.object({ q: z.string().trim().min(2).max(120) }).strict();
 
 /**
+ * סגנון פתוח, בלי מפתח ובלי חשבון — כדי שמפה תעבוד מהרגע הראשון.
+ * תקן MapLibre: כל הכתובות בתוכו HTTPS רגיל.
+ */
+const DEFAULT_MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+
+/**
  * הגדרת המפה לאפליקציה.
  *
  * הטוקן נמסר מהשרת ולא נצרב בבנייה של המסך: החלפת ספק אריחים או
@@ -32,22 +38,26 @@ export class MapsController {
     private readonly geocoding: GeocodingService,
   ) {}
 
+  /**
+   * סגנון האריחים.
+   *
+   * **המפה עובדת בלי מפתח, וזה תיקון ולא ויתור.** קודם הוחזר כאן
+   * סגנון של Mapbox, ו-MapLibre אינה יודעת לפענח את הפרוטוקול
+   * `mapbox://` שהוא מפנה אליו פנימית — ולכן המפה נטענה ריקה בזמן
+   * שפענוח הכתובות (REST רגיל) דווקא עבד. זה גם היה שימוש באריחים
+   * מחוץ ל-SDK של הספק, כלומר נגד תנאיו.
+   *
+   * הכתובת ניתנת להחלפה מהפלטפורמה: מעבר למפ"י או לכל מקור אחר הוא
+   * שינוי הגדרה. התנאי היחיד הוא שהסגנון יהיה תקן MapLibre — כלומר
+   * שכל הכתובות בתוכו הן HTTPS רגיל.
+   */
   @AnyAuthenticated()
   @Get("config")
   async config(): Promise<{ configured: boolean; token?: string; styleUrl?: string }> {
-    const token = await this.platformSettings.get("mapboxToken");
-    if (!token) return { configured: false };
-    /*
-     * סגנון האריחים נבנה כאן ולא במסך.
-     *
-     * זו הנקודה היחידה שקושרת אותנו לספק — החלפה למפ"י או לכל מקור
-     * אחר היא שינוי הכתובת הזו בלבד. הספרייה עצמה (MapLibre) פתוחה
-     * ואינה קשורה לאף ספק.
-     */
+    const configured = await this.platformSettings.get("mapStyleUrl");
     return {
       configured: true,
-      token,
-      styleUrl: "mapbox://styles/mapbox/streets-v12",
+      styleUrl: configured !== null && configured !== "" ? configured : DEFAULT_MAP_STYLE,
     };
   }
 

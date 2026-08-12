@@ -623,26 +623,29 @@ export function PlatformSettingsSection() {
           />
         </div>
         <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          טוקן ציבורי לאריחי מפה. כל עוד הוא ריק, המפות במערכת מוצגות ככבויות ושום
-          דבר אחר לא מושפע. <b>אריחים בלבד</b> — המערכת אינה שולחת לספק כתובות של
-          לקוחות ואינה שומרת נתונים שלו, ולכן אפשר להפעיל את זה בלי המתנה להכרעה על
-          פענוח כתובות.
+          <b>המפה עובדת כברירת מחדל ובלי מפתח.</b> השדה כאן נועד להחליף את מקור
+          האריחים — למשל למפ&quot;י — ואפשר להשאיר אותו ריק. הסגנון חייב להיות תקן
+          MapLibre, כלומר כל הכתובות בתוכו ‎https‎ רגיל; סגנון של Mapbox מפנה פנימית
+          ל-‎mapbox://‎ שהספרייה אינה מפענחת, והמפה נטענת ריקה.
+          <br />
+          <b>אריחים בלבד</b> — המערכת אינה שולחת לספק האריחים כתובות של לקוחות. זה
+          קורה רק בפענוח כתובות, למטה.
         </p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void saveSetting("mapboxToken", new FormData(e.currentTarget).get("mapboxToken"));
+            void saveSetting("mapStyleUrl", new FormData(e.currentTarget).get("mapStyleUrl"));
           }}
           className="flex flex-wrap items-end gap-2"
         >
           <label className="grow">
             <span className="mb-1 block text-xs font-semibold">
-              טוקן ציבורי (ריק = מפות כבויות)
+              כתובת סגנון אריחים (ריק = הסגנון הפתוח שברירת המחדל)
             </span>
             <input
-              name="mapboxToken"
+              name="mapStyleUrl"
               dir="ltr"
-              placeholder="pk...."
+              placeholder="https://tiles.openfreemap.org/styles/liberty"
               className="w-full rounded-lg border px-2.5 py-2"
               style={inputStyle}
             />
@@ -658,6 +661,27 @@ export function PlatformSettingsSection() {
             <b> זה הכיוון שבו כתובות של לקוחות נשלחות לשירות חיצוני</b>, ולכן זו החלטה
             נפרדת מהאריחים. &quot;ללא&quot; = לא פונים לאיש, והסוכן מסמן ידנית.
           </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void saveSetting("mapboxToken", new FormData(e.currentTarget).get("mapboxToken"));
+            }}
+            className="mb-2 flex flex-wrap items-end gap-2"
+          >
+            <label className="grow">
+              <span className="mb-1 block text-xs font-semibold">
+                טוקן Mapbox לפענוח כתובות (ריק = כבוי)
+              </span>
+              <input
+                name="mapboxToken"
+                dir="ltr"
+                placeholder="pk...."
+                className="w-full rounded-lg border px-2.5 py-2"
+                style={inputStyle}
+              />
+            </label>
+            <Button type="submit" disabled={busy}>שמור</Button>
+          </form>
           <div className="flex flex-wrap items-center gap-2">
             <select
               value={settings.geocoding?.provider ?? "none"}

@@ -33,7 +33,10 @@ interface NetworkPropertyOffer {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  pending: "ממתין לתגובה",
+  // "sent" ולא "pending" — זה הערך שהשרת כותב בפועל
+  // (`CoopOffer.status` ברירת מחדל). ההנחה השגויה הסתירה את כפתורי
+  // התגובה לחלוטין: הם נבדקו מול ערך שלא קיים.
+  sent: "ממתין לתגובה",
   interested: "סומן כמעניין",
   declined: "נדחה",
 };
@@ -145,7 +148,7 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
               </div>
             </div>
             <div className="ms-auto flex flex-none gap-2">
-              {offer.status === "pending" ? (
+              {offer.status === "sent" ? (
                 <>
                   <button
                     type="button"

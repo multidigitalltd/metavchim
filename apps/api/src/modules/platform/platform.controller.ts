@@ -182,8 +182,17 @@ const UpdateSettingsSchema = z
     referralFeePercent: z
       .union([z.number().int().min(0).max(MAX_PLATFORM_FEE_PERCENT), z.literal("")])
       .optional(),
-    /** טוקן ציבורי לאריחי מפה — ‎pk.*‎ אצל Mapbox, ריק = מפה כבויה. */
+    /** טוקן פענוח כתובות — ‎pk.*‎ אצל Mapbox. אינו קשור לאריחי המפה. */
     mapboxToken: z.union([z.string().trim().min(20).max(200), z.literal("")]).optional(),
+    /**
+     * כתובת סגנון האריחים. ריק = הסגנון הפתוח שברירת המחדל.
+     *
+     * חייבת להיות HTTPS: MapLibre אינה מפענחת `mapbox://`, וסגנון
+     * כזה נטען בלי לצייר דבר — בדיוק התקלה שהייתה.
+     */
+    mapStyleUrl: z
+      .union([z.string().trim().url().startsWith("https://").max(300), z.literal("")])
+      .optional(),
     /** ספק פענוח הכתובות. ‎none‎ = לא פונים לאיש. */
     geocodingProvider: z.enum(["none", "govmap", "mapbox"]).optional(),
   })
@@ -809,7 +818,7 @@ export class PlatformController {
      */
     referralFeePercent: number;
     /** אריחי המפה — סטטוס בלבד; הטוקן עצמו נמסר לאפליקציה בנתיב שלה. */
-    maps: { configured: boolean };
+    maps: { configured: boolean; customStyle: boolean };
     /** פענוח כתובות: מי הספק ומה הוא יודע לעשות. */
     geocoding: { provider: string; forward: boolean; reverse: boolean };
   }> {
@@ -841,7 +850,8 @@ export class PlatformController {
 
     return {
       referralFeePercent,
-      maps: { configured: has("mapboxToken") },
+      // המפה עובדת תמיד — ברירת המחדל היא סגנון פתוח בלי מפתח
+      maps: { configured: true, customStyle: has("mapStyleUrl") },
       geocoding: {
         provider: await this.geocoding.provider(),
         ...(await this.geocoding.capabilities()),
