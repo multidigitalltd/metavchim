@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { CAPABILITIES, ROLE_CAPABILITIES, type Capability } from "../rbac.js";
 import {
+  BLOCKABLE_MODULE_KEYS,
   CAPABILITY_LABELS,
   CAPABILITY_MODULES,
+  applyBlockedModules,
+  blockedModulesRejectionReason,
   capabilitiesWithoutModule,
   clearEffect,
+  moduleLabel,
   describeOverride,
   isOverrideActive,
   overrideRejectionReason,
@@ -251,5 +255,52 @@ describe("clearEffect", () => {
         effect,
       }),
     ).toContain("שאין לכם");
+  });
+});
+
+describe("חסימת מודול ברמת המשרד", () => {
+  it("מודול חסום מוריד את כל היכולות שלו", () => {
+    const capabilities = resolveCapabilities("owner", [], new Date());
+    const after = applyBlockedModules(capabilities, ["collaboration"]);
+    expect(after.has("collaboration.share")).toBe(false);
+    expect(after.has("collaboration.offer")).toBe(false);
+    // שאר המודולים לא נגעו
+    expect(after.has("properties.view")).toBe(true);
+  });
+
+  it("בלי חסימות — אותן יכולות בדיוק", () => {
+    const capabilities = resolveCapabilities("agent", [], new Date());
+    expect([...applyBlockedModules(capabilities, [])].sort()).toEqual([...capabilities].sort());
+  });
+
+  it("החסימה גוברת על הענקה מפורשת של מנהל המשרד", () => {
+    /*
+     * זו כל הנקודה: חריג grant ברמת המשתמש אינו מבטל החלטת
+     * פלטפורמה, אחרת מנהל המשרד היה מסיר את החסימה בלחיצה.
+     */
+    const capabilities = resolveCapabilities(
+      "agent",
+      [{ capability: "collaboration.offer", effect: "grant", expiresAt: null }],
+      new Date(),
+    );
+    expect(capabilities.has("collaboration.offer")).toBe(true);
+    expect(applyBlockedModules(capabilities, ["collaboration"]).has("collaboration.offer")).toBe(
+      false,
+    );
+  });
+
+  it("מפתח לא מוכר נדחה בשמירה, ואינו מחסיר דבר בהחלה", () => {
+    expect(blockedModulesRejectionReason(["collaboration"])).toBeNull();
+    expect(blockedModulesRejectionReason(["collaboration", "nope"])).not.toBeNull();
+    const capabilities = resolveCapabilities("owner", [], new Date());
+    expect(applyBlockedModules(capabilities, ["nope"]).size).toBe(capabilities.size);
+  });
+
+  it("כל מפתח חסימה הוא מודול אמיתי מהקטלוג", () => {
+    expect([...BLOCKABLE_MODULE_KEYS].sort()).toEqual(
+      CAPABILITY_MODULES.map((m) => m.key).sort(),
+    );
+    expect(moduleLabel("collaboration")).toBe("שיתוף פעולה בין משרדים");
+    expect(moduleLabel("nope")).toBe("nope");
   });
 });

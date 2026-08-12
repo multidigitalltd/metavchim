@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useState, use, type ReactNode } from "react";
 import Link from "next/link";
+import { describeEntry } from "@metavchim/shared";
 import { useRouter } from "next/navigation";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import {
   FIELD_LABELS,
-  formatDate,
   formatPrice,
   MATURITY_LABELS,
   PROPERTY_TYPE_LABELS,
@@ -15,9 +15,11 @@ import {
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { MediaSection } from "./media-section";
+import { NetworkDemandMatches } from "../network-demand-matches";
 import { AgreementsPanel } from "../../agreements-panel";
 import { EntityTasks } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
+import { LocationPicker } from "../location-picker";
 import { RelatedEntities } from "../../related-entities";
 import { IconThumbUp } from "../../icons";
 
@@ -32,6 +34,11 @@ interface PropertyDetail {
   city?: string;
   neighborhood?: string;
   street?: string;
+  latitude?: number;
+  longitude?: number;
+  /** בארכיון — רק אז מוצגת מחיקה לצמיתות. */
+  archived?: boolean;
+  locationSource?: "pin" | "geocode";
   propertyType?: string;
   dealType?: string;
   rooms?: number;
@@ -43,7 +50,9 @@ interface PropertyDetail {
   hasBalcony?: boolean;
   hasSafeRoom?: boolean;
   priceAgorot?: number;
+  entryType?: string;
   entryDate?: string;
+  entryNote?: string;
   status: string;
   marketingTitle?: string;
   readinessScore: number;
@@ -104,6 +113,8 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   const router = useRouter();
   const [property, setProperty] = useState<PropertyDetail | null>(null);
   const [archiveConfirm, setArchiveConfirm] = useState(false);
+  const [purgeConfirm, setPurgeConfirm] = useState(false);
+  const [purgeError, setPurgeError] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
@@ -214,6 +225,27 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
     router.replace("/properties");
   }
 
+  /**
+   * מחיקה לצמיתות — רק מנכס שכבר בארכיון, ובשני שלבים גם כאן.
+   *
+   * הארכיון הוא ברירת המחדל כי נכס שנמכר הוא היסטוריה עסקית; זה
+   * הנתיב לנכס שנקלט בטעות או לכפילות. התמונות נמחקות איתו מהאחסון.
+   */
+  async function purge() {
+    if (!purgeConfirm) {
+      setPurgeConfirm(true);
+      return;
+    }
+    setPurgeError(null);
+    try {
+      await apiDelete(`/properties/${id}/permanent`);
+      router.replace("/properties");
+    } catch (err: unknown) {
+      setPurgeError(err instanceof ApiError ? err.message : "המחיקה נכשלה");
+      setPurgeConfirm(false);
+    }
+  }
+
   /** שליחה מרובה בשני שלבים — אישור מפורש לפני יצירת הצעות (אפיון §10). */
   async function bulkSend() {
     if (!bulkConfirm) {
@@ -280,7 +312,16 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
     ["חדרים", property.rooms !== undefined ? String(property.rooms) : "—"],
     ["שטח", property.areaSqm ? `${property.areaSqm} מ"ר` : "—"],
     ["קומה", property.floor !== undefined ? `${property.floor}${property.totalFloors ? ` מתוך ${property.totalFloors}` : ""}` : "—"],
-    ["כניסה", formatDate(property.entryDate) || "—"],
+    [
+      "כניסה / מסירה",
+      // מצב + תאריך + ההערה החופשית בשורה אחת; "מיידי" ו"גמיש" הם
+      // תשובות ולא חוסר, ולכן אינם מוצגים כמקף
+      describeEntry({
+        entryType: property.entryType as Parameters<typeof describeEntry>[0]["entryType"],
+        ...(property.entryDate !== undefined ? { entryDate: new Date(property.entryDate) } : {}),
+        ...(property.entryNote !== undefined ? { entryNote: property.entryNote } : {}),
+      }) ?? "—",
+    ],
     ["מאפיינים", features.length > 0 ? features.join(", ") : "—"],
   ];
 
@@ -387,7 +428,30 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
 
           </section>
 
+          {/*
+            מיקום הנכס — טקסט ומפה בשני הכיוונים. יושב ליד פרטי הנכס
+            ולא במסך נפרד: זה חלק מהפרטים, וסוכן שצריך לנווט למסך אחר
+            כדי למקם נכס פשוט לא ימקם אותו.
+          */}
+          <section className="mv-list-card mb-[18px] p-5">
+            <h2 className="m-0 mb-2 text-[15px] font-bold">מיקום על המפה</h2>
+            <LocationPicker
+              value={{
+                latitude: property.latitude,
+                longitude: property.longitude,
+                locationSource: property.locationSource,
+              }}
+              addressText={address}
+              disabled={!canEditOwner}
+              onChange={(next) => {
+                setProperty({ ...property, ...next });
+                void apiPatch(`/properties/${id}`, next).catch(() => undefined);
+              }}
+            />
+          </section>
+
           <PropertyOwner
+            canErase={can(user, "contacts.delete")}
             propertyId={id}
             owner={property.ownerContact}
             canEdit={canEditOwner}
@@ -422,6 +486,13 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
 
           <EntityTasks entityType="property" entityId={property.id} />
 
+          {/*
+            ---- שתי עמודות ההתאמה ----
+            שמאל: המאגר הפנימי. ימין: הרשת. אותה שאלה ("מי מתאים
+            לנכס הזה") משני מקורות, ובאותו סרגל ניקוד — כל עוד הן
+            היו במסכים נפרדים הסוכן ראה חצי תשובה וסגר את הכרטיס.
+          */}
+          <div className="grid items-start gap-4 lg:grid-cols-2">
           <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="matches-heading">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <h2 id="matches-heading" className="m-0" style={{ fontSize: 15.5, fontWeight: 800 }}>
@@ -530,6 +601,9 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
               קונים שדרישת חובה שלהם נשברת (למשל: חובה מעלית ואין) — לא מוצגים כאן בכלל.
             </p>
           </section>
+
+          <NetworkDemandMatches propertyId={id} />
+          </div>
         </div>
 
         {/* ---- הטור הצדדי ---- */}
@@ -584,6 +658,35 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
             <button type="button" className="mv-btn-plain self-start" onClick={() => setArchiveConfirm(false)}>
               ביטול
             </button>
+          ) : null}
+
+          {/*
+            מחיקה לצמיתות מוצגת רק לנכס שכבר בארכיון: שני שלבים
+            נפרדים, כדי שנכס פעיל לא ייעלם בלחיצה אחת.
+          */}
+          {property.archived ? (
+            <>
+              <button
+                type="button"
+                className="mv-btn-plain self-start"
+                style={{ color: "var(--color-danger)" }}
+                onClick={() => void purge()}
+              >
+                {purgeConfirm
+                  ? "לאשר מחיקה לצמיתות? התמונות יימחקו גם מהאחסון"
+                  : "מחק לצמיתות"}
+              </button>
+              {purgeConfirm ? (
+                <button type="button" className="mv-btn-plain self-start" onClick={() => setPurgeConfirm(false)}>
+                  ביטול
+                </button>
+              ) : null}
+              {purgeError !== null ? (
+                <p role="alert" className="m-0 text-sm" style={{ color: "var(--color-danger)" }}>
+                  {purgeError}
+                </p>
+              ) : null}
+            </>
           ) : null}
         </div>
       </div>

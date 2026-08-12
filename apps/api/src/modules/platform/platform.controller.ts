@@ -21,8 +21,12 @@ import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import { z } from "zod";
 import {
+  BLOCKABLE_MODULE_KEYS,
   IdSchema,
+  MAX_PLATFORM_FEE_PERCENT,
+  resolveReferralFeePercent,
   PLAN_FEATURES,
+  blockedModulesRejectionReason,
   couponDefinitionRejection,
   describeCoupon,
   normalizeCouponCode,
@@ -47,6 +51,8 @@ import {
   type PlatformSettingKey,
 } from "../../core/platform-settings.service";
 import { CardcomService } from "../../core/cardcom.service";
+import { GeocodingService } from "../../core/geocoding.service";
+import { AccountDeletionService } from "../settings/account-deletion.service";
 import { LeadPricingService } from "../../core/lead-pricing.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
@@ -87,6 +93,24 @@ const CreateAgencySchema = z
     plan: PlanCodeSchema.default("pro"),
   })
   .strict();
+
+/** חסימת מודולים: הרשימה המבוקשת במלואה, לא תוספת. */
+const BlockedModulesSchema = z
+  .object({
+    blockedModules: z.array(z.string().min(1).max(40)).max(BLOCKABLE_MODULE_KEYS.length),
+  })
+  .strict();
+
+/** מחיקת משרד: שם המשרד במדויק — ההגנה מפני השורה הלא נכונה. */
+const DeleteAgencySchema = z.object({ confirmName: z.string().min(1).max(120) }).strict();
+
+/**
+ * מחיקת מסלול: חובה לנקוב במסלול היעד.
+ *
+ * לא אופציונלי בכוונה. מסלול שנמחק בלי יעד משאיר משרדים עם קוד
+ * שאינו בקטלוג — ומשרד כזה מאבד את כל הפיצ'רים והמכסות בשקט.
+ */
+const DeletePlanSchema = z.object({ moveTo: PlanCodeSchema }).strict();
 
 const UpdateAgencySchema = z
   .object({
@@ -149,6 +173,19 @@ const UpdateSettingsSchema = z
     cardcomTerminalNumber: z.union([z.string().trim().regex(/^\d{1,12}$/u), z.literal("")]).optional(),
     cardcomApiName: z.union([z.string().trim().min(3).max(100), z.literal("")]).optional(),
     cardcomApiPassword: z.union([z.string().trim().min(6).max(200), z.literal("")]).optional(),
+    /*
+     * עמלת ההפניות באחוזים. ריק = חזרה לברירת המחדל של המערכת;
+     * אפס = החלטה מפורשת לא לגבות. התקרה היא הגנת שפיות — עמלה
+     * שמעליה הופכת את ההפניה ללא כדאית למי שמפנה, כלומר סוגרת את
+     * הלוח.
+     */
+    referralFeePercent: z
+      .union([z.number().int().min(0).max(MAX_PLATFORM_FEE_PERCENT), z.literal("")])
+      .optional(),
+    /** טוקן ציבורי לאריחי מפה — ‎pk.*‎ אצל Mapbox, ריק = מפה כבויה. */
+    mapboxToken: z.union([z.string().trim().min(20).max(200), z.literal("")]).optional(),
+    /** ספק פענוח הכתובות. ‎none‎ = לא פונים לאיש. */
+    geocodingProvider: z.enum(["none", "govmap", "mapbox"]).optional(),
   })
   .strict();
 
@@ -207,6 +244,8 @@ export interface AgencyRow {
   createdAt: Date;
   /** חלון גישת תמיכה פתוח — null כשאין הסכמה בתוקף. */
   supportAccessUntil: Date | null;
+  /** מודולים שהפלטפורמה חסמה למשרד — מפתחות מקטלוג המודולים. */
+  blockedModules: string[];
   /**
    * התפוגות, ומה שנגזר מהן.
    *
@@ -265,6 +304,8 @@ export class PlatformController {
     private readonly plans: PlanCatalogService,
     private readonly leadPricing: LeadPricingService,
     private readonly cardcom: CardcomService,
+    private readonly accountDeletion: AccountDeletionService,
+    private readonly geocoding: GeocodingService,
   ) {}
 
   /**
@@ -310,6 +351,80 @@ export class PlatformController {
 
     await this.plans.upsert(plan, TenantContext.current().userId);
     return { ok: true };
+  }
+
+  /**
+   * מחיקת מסלול — **עם העברת המשרדים שבו למסלול אחר.**
+   *
+   * ההעברה אינה תוספת נוחות אלא תנאי: קוד מסלול שאינו בקטלוג משאיר
+   * את המשרד בלי פיצ'רים ובלי מכסות, בלי שום שגיאה שמישהו יראה.
+   * לכן שתי הפעולות באותה טרנזקציה — אין רגע שבו המסלול נעלם
+   * והמשרדים עוד מצביעים עליו.
+   *
+   * גם הקופונים שהוגבלו למסלול הנמחק עוברים איתו: קופון שמצביע על
+   * מסלול שאיננו הוא הנחה שלא תמומש לעולם.
+   */
+  @Delete("plans/:code")
+  @HttpCode(200)
+  async deletePlan(
+    @Param("code", new ZodValidationPipe(PlanCodeSchema)) code: string,
+    @Body(new ZodValidationPipe(DeletePlanSchema)) body: z.infer<typeof DeletePlanSchema>,
+  ): Promise<{ ok: true; movedTenants: number }> {
+    if (body.moveTo === code) throw new BadRequestException("יש לבחור מסלול יעד אחר");
+    const actor = TenantContext.current().userId;
+
+    const movedTenants = await this.prisma.$transaction(async (tx) => {
+      /*
+       * נעילת הקטלוג לכל אורך הטרנזקציה, ואימות **בתוכה**.
+       *
+       * שני מנהלים שמוחקים בו-זמנית את A ואת B ובוחרים זה את מסלולו
+       * של זה כיעד היו עוברים שניהם אימות מול אותה תמונה ישנה,
+       * ומשאירים משרדים על שני קודים שאינם קיימים (ביקורת Codex).
+       * מחיקת מסלול היא פעולה נדירה של בעל הפלטפורמה — נעילה גלובלית
+       * כאן אינה עולה דבר.
+       */
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('plans:catalog', 0))`;
+      const all = await this.plans.freshAll(tx);
+      const plan = all.find((p) => p.code === code);
+      if (!plan) throw new BadRequestException("המסלול לא נמצא");
+      if (!all.some((p) => p.code === body.moveTo)) {
+        throw new BadRequestException("מסלול היעד לא מוכר");
+      }
+      /*
+       * המסלול האחרון אינו נמחק. מערכת בלי אף מסלול אינה מצב תקין —
+       * הרשמה חדשה נופלת, ואין לאן להעביר את מי שכבר קיים.
+       */
+      if (all.length <= 1) throw new BadRequestException("זהו המסלול היחיד — אי אפשר למחוק אותו");
+
+      const moved = await tx.tenant.updateMany({
+        where: { plan: code },
+        data: { plan: body.moveTo },
+      });
+      /*
+       * המנוי ולא רק המשרד. `subscriptions.plan_code` הוא מה
+       * ש-RenewalService מתמחר לפיו, והוא מדלג על מסלול שאינו מוכר —
+       * כלומר לקוח משלם היה מפסיק להתחדש בשקט בזמן שהמשרד שלו נראה
+       * תקין לגמרי (ביקורת Codex).
+       */
+      await tx.subscription.updateMany({
+        where: { planCode: code },
+        data: { planCode: body.moveTo },
+      });
+      await tx.coupon.updateMany({ where: { planCode: code }, data: { planCode: body.moveTo } });
+      /*
+       * ההנחה שכבר הובטחה למשרד בהרשמה מוצמדת לקוד המסלול שהיה.
+       * בלי העברה היא הייתה מפסיקה לחול — כלומר הבטחה שנשברה בגלל
+       * שינוי קטלוג שאין לה שום קשר אליו.
+       */
+      await tx.tenant.updateMany({
+        where: { couponPlanCode: code },
+        data: { couponPlanCode: body.moveTo },
+      });
+      await this.plans.retire(tx, plan, actor);
+      return moved.count;
+    });
+    this.plans.invalidate();
+    return { ok: true, movedTenants };
   }
 
   /**
@@ -446,6 +561,7 @@ export class PlatformController {
         trialEndsAt: true,
         paidUntil: true,
         supportAccessUntil: true,
+        blockedModules: true,
         createdAt: true,
         _count: { select: { users: true } },
       },
@@ -456,6 +572,7 @@ export class PlatformController {
       plan: t.plan,
       status: t.status,
       userCount: t._count.users,
+      blockedModules: t.blockedModules,
       createdAt: t.createdAt,
       trialEndsAt: t.trialEndsAt,
       paidUntil: t.paidUntil,
@@ -596,6 +713,68 @@ export class PlatformController {
   }
 
   /**
+   * חסימת מודולים למשרד — החלטת פלטפורמה שמנהל המשרד אינו יכול לבטל.
+   *
+   * הרשימה **מוחלפת** ולא מתווספת: מסך שמסמן תיבות שולח את המצב
+   * המבוקש, ופעולה מצטברת הייתה מחייבת אותו לזכור מה כבר חסום כדי
+   * לבטל. אין תפוגה — זו החלטה עסקית ולא ענישה זמנית; להסיר, שולחים
+   * רשימה בלי המודול.
+   *
+   * אין כאן מחיקת Sessions: היכולות נפתרות בכל בקשה מחדש, ולכן
+   * החסימה תופסת בקליק הבא בלי לנתק אף אחד באמצע עבודה.
+   */
+  @Patch("agencies/:id/modules")
+  async setBlockedModules(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(BlockedModulesSchema)) body: z.infer<typeof BlockedModulesSchema>,
+  ): Promise<{ ok: true; blockedModules: string[] }> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: { id: true, blockedModules: true },
+    });
+    if (!tenant) throw new BadRequestException("משרד לא נמצא");
+    const reason = blockedModulesRejectionReason(body.blockedModules);
+    if (reason) throw new BadRequestException(reason);
+
+    // כפילויות אינן שגיאה אבל גם אינן נשמרות פעמיים
+    const blockedModules = [...new Set(body.blockedModules)];
+    await this.prisma.tenant.update({ where: { id }, data: { blockedModules } });
+    /*
+     * ביומן של המשרד עצמו ולא רק בלוג השרת: בעל המשרד יראה למה
+     * מודול נעלם לו, ובלי הרישום הזה ההיעלמות נראית כמו תקלה.
+     */
+    await this.prisma.withExplicitTenant(id, (tx) =>
+      tx.auditLog.create({
+        data: {
+          id: ulid(),
+          tenantId: id,
+          userId: null,
+          action: "platform.blocked_modules",
+          entityType: "tenant",
+          entityId: id,
+          metadata: { before: tenant.blockedModules, after: blockedModules },
+        },
+      }),
+    );
+    return { ok: true, blockedModules };
+  }
+
+  /**
+   * מחיקת משרד לצמיתות — כל התכנים, כמו מחיקה עצמית של בעל המשרד.
+   *
+   * האישור הוא הקלדת שם המשרד: אין לפלטפורמה סיסמה של הבעלים, ומה
+   * שצריך למנוע כאן הוא לחיצה על השורה הלא נכונה ברשימה.
+   */
+  @Delete("agencies/:id")
+  @HttpCode(200)
+  async deleteAgency(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(DeleteAgencySchema)) body: z.infer<typeof DeleteAgencySchema>,
+  ): Promise<{ ok: true }> {
+    return this.accountDeletion.deleteTenantFromPlatform(id, body.confirmName);
+  }
+
+  /**
    * הגדרות הפלטפורמה — מצב בלבד, בלי לחשוף ערכים. מפתחות שהוגדרו
    * במשתני סביבה מסומנים כמקור "env" (נשלטים מהשרת, לא מהמסך).
    */
@@ -621,6 +800,18 @@ export class PlatformController {
     /** webhookUrl היא הכתובת שנרשמת אצל קארדקום — מוצגת כדי שלא ינחשו אותה. */
     cardcom: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
     loginOtpEnabled: boolean;
+    /**
+     * אחוז העמלה ממכירת הפניה — **הערך עצמו ולא רק "מוגדר".**
+     *
+     * זה מספר עסקי ולא סוד ספק: הוא מוצג לשני צדדי העסקה ממילא, ומי
+     * שעורך אותו חייב לראות מה הוא משנה. תיבה ריקה שמתיימרת לייצג
+     * מספר שגובים בפועל היא בדיוק איך משנים אותו בטעות.
+     */
+    referralFeePercent: number;
+    /** אריחי המפה — סטטוס בלבד; הטוקן עצמו נמסר לאפליקציה בנתיב שלה. */
+    maps: { configured: boolean };
+    /** פענוח כתובות: מי הספק ומה הוא יודע לעשות. */
+    geocoding: { provider: string; forward: boolean; reverse: boolean };
   }> {
     const env = loadEnv();
     const dbKeys = await this.platformSettings.configuredKeys();
@@ -643,8 +834,18 @@ export class PlatformController {
       env.CARDCOM_API_NAME !== undefined &&
       env.CARDCOM_API_PASSWORD !== undefined;
     const otpDb = await this.platformSettings.get("loginOtpEnabled");
+    // אותה פונקציה שהשרת גובה לפיה — לא העתק שלה
+    const referralFeePercent = resolveReferralFeePercent(
+      await this.platformSettings.get("referralFeePercent"),
+    );
 
     return {
+      referralFeePercent,
+      maps: { configured: has("mapboxToken") },
+      geocoding: {
+        provider: await this.geocoding.provider(),
+        ...(await this.geocoding.capabilities()),
+      },
       postmark: {
         configured: postmarkDb || postmarkEnv,
         source: postmarkDb ? "db" : postmarkEnv ? "env" : "none",
@@ -694,8 +895,13 @@ export class PlatformController {
     @Body(new ZodValidationPipe(UpdateSettingsSchema)) body: z.infer<typeof UpdateSettingsSchema>,
   ): Promise<{ ok: true }> {
     const userId = TenantContext.current().userId;
-    for (const [key, value] of Object.entries(body) as [PlatformSettingKey, string | boolean][]) {
-      if (typeof value === "boolean") {
+    for (const [key, value] of Object.entries(body) as [
+      PlatformSettingKey,
+      string | boolean | number,
+    ][]) {
+      // מספר (אחוז העמלה) נשמר כמחרוזת, כמו כל שאר הערכים; אפס הוא
+      // ערך תקין ולכן ההשוואה היא לטיפוס ולא לאמיתות
+      if (typeof value === "boolean" || typeof value === "number") {
         await this.platformSettings.set(key, String(value), userId);
       } else if (value === "") {
         await this.platformSettings.remove(key); // ריק ⇒ חזרה למשתנה הסביבה

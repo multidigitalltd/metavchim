@@ -11,6 +11,7 @@ import {
   type ContactPerson,
 } from "@metavchim/shared";
 import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
+import { ContactErasure } from "./contact-erasure";
 
 /**
  * מי עומד מאחורי הכרטיס — בעל ואישה שקונים יחד, מיופה כוח, בן שמטפל
@@ -47,10 +48,19 @@ function phoneLabel(label: string): string {
 export function ContactPeople({
   contactId,
   canEdit,
+  canErase = false,
 }: {
   contactId: string;
   /** סוכן ללא הרשאת עריכה רואה את האנשים ואינו יכול לשנות אותם. */
   canEdit: boolean;
+  /**
+   * `contacts.delete` — מחיקת הלקוח מהמערכת לבקשתו.
+   *
+   * הכפתור יושב כאן ולא במסך נפרד כדי שהוא יופיע בכל מקום שבו רואים
+   * את האדם: כרטיס קונה, כרטיס ליד וכרטיס בעל נכס. ברירת המחדל
+   * `false` — מסך ששכח להעביר את ההרשאה לא מציג פעולה הרסנית.
+   */
+  canErase?: boolean;
 }) {
   const [data, setData] = useState<PeopleResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -133,6 +143,9 @@ export function ContactPeople({
   if (data === null) return null;
 
   const extraPeople = data.people.filter((p) => p.role !== null);
+  /* הראשי הוא מי שאין לו תפקיד — הוא הלקוח, ושמו הוא מה שמקלידים
+     לאישור המחיקה */
+  const primary = data.people.find((p) => p.role === null);
 
   return (
     <section className="mv-list-card px-5 py-[17px]" aria-labelledby="people-heading">
@@ -399,6 +412,12 @@ export function ContactPeople({
         <p role="alert" className="m-0 mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
           {error}
         </p>
+      ) : null}
+
+      {/* אחרון בכרטיס, מופרד בקו: פעולה שאין ממנה חזרה אינה יושבת
+          בין "הוסף טלפון" ל"ערוך אימייל" */}
+      {canErase && primary !== undefined ? (
+        <ContactErasure contactId={contactId} name={primary.name} />
       ) : null}
     </section>
   );

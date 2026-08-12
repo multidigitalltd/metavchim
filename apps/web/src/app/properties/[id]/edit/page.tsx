@@ -10,6 +10,7 @@ import { shekelsToAgorot, PROPERTY_TYPE_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../../dictation-field";
 import { FeatureChips } from "../../feature-chips";
+import { EntryTimingField } from "../../entry-timing-field";
 
 /**
  * עריכת נכס קיים — סוגר את הלולאה של "השלם פרטים": הדשבורד שולח לכאן
@@ -39,7 +40,9 @@ interface PropertyDetail {
   hasSafeRoom?: boolean;
   hasStorage?: boolean;
   priceAgorot?: number;
+  entryType?: string;
   entryDate?: string;
+  entryNote?: string;
   marketingTitle?: string;
   marketingDescription?: string;
 }
@@ -87,6 +90,7 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
     };
     const priceShekels = num("price");
     const entry = String(f.get("entryDate") ?? "");
+    const entryType = String(f.get("entryType") ?? "");
 
     // רק שדות עם ערך נשלחים — PATCH חלקי, לא דריסה
     const patch: Record<string, unknown> = {
@@ -100,7 +104,9 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
       floor: num("floor"),
       totalFloors: num("totalFloors"),
       priceAgorot: priceShekels === undefined ? undefined : shekelsToAgorot(priceShekels),
+      entryType: entryType || undefined,
       entryDate: entry ? new Date(entry).toISOString() : undefined,
+      entryNote: str("entryNote"),
       hasElevator: triState(f, "hasElevator"),
       hasParking: triState(f, "hasParking"),
       hasBalcony: triState(f, "hasBalcony"),
@@ -224,17 +230,13 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
               label="מחיר (₪)"
               defaultValue={property.priceAgorot === undefined ? "" : Math.round(property.priceAgorot / 100)}
             />
-            <div>
-              <label htmlFor="entryDate" className="mb-1 block font-medium">תאריך כניסה</label>
-              <input
-                id="entryDate"
-                name="entryDate"
-                type="date"
-                defaultValue={property.entryDate ? property.entryDate.slice(0, 10) : ""}
-                className="w-full rounded-lg border px-3 py-2.5"
-                style={inputStyle}
-              />
-            </div>
+            <EntryTimingField
+              side="property"
+              defaultMode={property.entryType}
+              defaultDate={property.entryDate ? property.entryDate.slice(0, 10) : undefined}
+              defaultNote={property.entryNote}
+              inputStyle={inputStyle}
+            />
           </div>
         </fieldset>
 

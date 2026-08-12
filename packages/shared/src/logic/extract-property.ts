@@ -181,10 +181,20 @@ export function extractPropertyFromTranscript(transcript: string): ExtractionRes
     evidence.exclusive = "בלעדיות";
   }
 
-  // --- כניסה מיידית ---
-  if (/כניסה מיידית|פינוי מיידי/u.test(text)) {
-    fields.entryDate = new Date();
-    evidence.entryDate = "כניסה מיידית";
+  /*
+   * --- מועד כניסה/מסירה ---
+   *
+   * מה שנאמר בפה הוא כמעט תמיד מצב ולא תאריך: "כניסה מיידית",
+   * "גמיש", "בתיאום". קודם הוקלט תאריך של היום על "כניסה מיידית"
+   * וכל השאר ירד לאיבוד — כלומר הנכס נראה כאילו נמסר היום, וההתאמה
+   * עבדה על נתון שאיש לא אמר.
+   */
+  if (/כניסה מיידית|פינוי מיידי|מיידי/u.test(text)) {
+    fields.entryType = "immediate";
+    evidence.entryType = "כניסה מיידית";
+  } else if (/כניסה גמישה|מועד גמיש|גמיש בכניסה|בתיאום/u.test(text)) {
+    fields.entryType = "flexible";
+    evidence.entryType = "מועד גמיש";
   }
 
   return { fields, evidence };

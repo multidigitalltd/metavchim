@@ -6,6 +6,7 @@ import { OutboxDispatcherService } from "./outbox-dispatcher.service";
 import { LeadPricingService } from "./lead-pricing.service";
 import { PlanCatalogService } from "./plan-catalog.service";
 import { GeminiService } from "./gemini.service";
+import { GeocodingService } from "./geocoding.service";
 import { PlatformSettingsService } from "./platform-settings.service";
 import { OutboxService } from "./outbox.service";
 import { PrismaService } from "./prisma.service";
@@ -22,6 +23,7 @@ import { StorageService } from "./storage.service";
     OutboxService,
     OutboxDispatcherService,
     PlatformSettingsService,
+    GeocodingService,
     GeminiService,
     PlanCatalogService,
     LeadPricingService,

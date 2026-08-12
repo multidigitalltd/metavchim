@@ -108,6 +108,19 @@ export class AgreementsController {
    * `buyers.view_own` ולא `offers.send`: זו קריאה, ומי שרואה את
    * הלקוח רואה את מה שהלקוח חתם עליו. בדיקת הבעלות בשירות.
    */
+  /**
+   * ההסכמים החתומים ששרדו מחיקת לקוח — ארכיון המשרד.
+   *
+   * הרשימה היחידה שמגיעה אליהם: כל שאר המסלולים אל הסכם עוברים דרך
+   * כרטיס הלקוח, ולכרטיס כבר אין קיום. מוצבת **לפני** הנתיב עם
+   * הפרמטר כדי ש-"retained" לא ייקלט כמזהה.
+   */
+  @Get("agreements/retained")
+  @RequireCapability("settings.manage")
+  async retained(): Promise<Awaited<ReturnType<AgreementsService["listRetained"]>>> {
+    return this.prisma.withTenant((tx) => this.agreements.listRetained(tx));
+  }
+
   @Get("agreements/:id/document")
   @RequireCapability("buyers.view_own")
   async document(

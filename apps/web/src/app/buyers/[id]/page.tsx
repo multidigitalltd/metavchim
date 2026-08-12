@@ -3,15 +3,17 @@
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
-import { priceInWordsWithCurrency } from "@metavchim/shared";
+import { describeEntryNeed, priceInWordsWithCurrency } from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
-import { FINANCING_LABELS, formatBuyerSource, formatDate, formatPrice, MATURITY_LABELS, waMeUrl } from "@/lib/format";
+import { FINANCING_LABELS, formatBuyerSource, formatPrice, MATURITY_LABELS, waMeUrl } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { WithDictation } from "../../dictation-field";
 import { IconChat, IconEdit, IconPhone } from "../../icons";
 import { NetworkShareSection } from "./network-share-section";
+import { NetworkPropertyMatches } from "../network-property-matches";
 import { TimelineSection } from "./timeline-section";
 import { ContactPeople } from "../../contact-people";
+import { DeleteBuyer } from "../delete-buyer";
 import { RelatedEntities } from "../../related-entities";
 import { EntityTasks } from "../../entity-tasks";
 import { ClickToDial } from "../../click-to-dial";
@@ -28,11 +30,18 @@ interface BuyerDetail {
   contact: { id: string; name: string; phone: string };
   requirements: {
     cities: string[];
+    /*
+     * השדה הזה הגיע מהשרת מאז ומתמיד ולא הוצהר כאן — ולכן השכונות
+     * שהלקוח ביקש היו מגיעות לדפדפן ונזרקות בשקט. השרת מפענח דרך
+     * הסכימה בקריאה, כך שהמערך תמיד קיים גם לכרטיסים ישנים.
+     */
+    neighborhoods: string[];
     budgetMinAgorot?: number;
     budgetMaxAgorot: number;
     roomsMin?: number;
     roomsMax?: number;
     areaSqmMin?: number;
+    entryType?: string;
     entryBy?: string;
     flexibilityNotes?: string;
     features: Record<string, "must" | "nice">;
@@ -153,6 +162,14 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
   if (!buyer) return <p aria-live="polite">טוען…</p>;
 
   const musts = Object.entries(buyer.requirements.features).filter(([, l]) => l === "must");
+  const entryNeed = describeEntryNeed({
+    entryType: buyer.requirements.entryType as Parameters<
+      typeof describeEntryNeed
+    >[0]["entryType"],
+    ...(buyer.requirements.entryBy !== undefined
+      ? { entryBy: new Date(buyer.requirements.entryBy) }
+      : {}),
+  });
   const nices = Object.entries(buyer.requirements.features).filter(([, l]) => l === "nice");
   const pill = MATURITY_PILL[buyer.maturity] ?? MATURITY_PILL["not_ripe"]!;
   const sentOffers = Object.entries(offers);
@@ -239,7 +256,20 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
         ליצור קשר ולא כהחלטה עסקית על חלוקת עמלה.
       */}
 
-      <ContactPeople contactId={buyer.contact.id} canEdit={canEditPeople} />
+      <ContactPeople contactId={buyer.contact.id} canEdit={canEditPeople}
+        canErase={can(user, "contacts.delete")}
+      />
+
+      {/*
+        מחיקת הכרטיס נפרדת ממחיקת הלקוח, ובכוונה: הכרטיס הוא הביקוש,
+        והאדם נשאר עם הלידים וההיסטוריה שלו. שתיהן בתחתית המסך כי אף
+        אחת מהן אינה שגרה.
+      */}
+      {can(user, "buyers.delete") ? (
+        <div className="mt-4">
+          <DeleteBuyer buyerId={id} />
+        </div>
+      ) : null}
 
       <RelatedEntities contactId={buyer.contact.id} exclude={{ kind: "buyer", id: buyer.id }} />
 
@@ -272,7 +302,19 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
           </div>
 
           <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>אזורים</div>
-          <div className="mb-3.5 text-[14.5px] font-bold">{buyer.requirements.cities.join(", ") || "—"}</div>
+          <div className="mb-1 text-[14.5px] font-bold">{buyer.requirements.cities.join(", ") || "—"}</div>
+          {/*
+            השכונות היו נשמרות ומשפיעות על ניקוד ההתאמה — ולא מוצגות
+            בשום מקום. סוכן שראה רק "בני ברק" לא ידע שהלקוח ביקש
+            שכונה מסוימת, וזה בדיוק הפרט שקובע אם שווה להתקשר.
+          */}
+          {buyer.requirements.neighborhoods.length > 0 ? (
+            <div className="mb-3.5 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+              שכונות: {buyer.requirements.neighborhoods.join(" · ")}
+            </div>
+          ) : (
+            <div className="mb-3.5" />
+          )}
 
           {buyer.requirements.roomsMin !== undefined || buyer.requirements.roomsMax !== undefined ? (
             <>
@@ -288,10 +330,11 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
               <div className="mb-3.5 text-[14.5px] font-bold">{buyer.requirements.areaSqmMin} מ&quot;ר</div>
             </>
           ) : null}
-          {buyer.requirements.entryBy ? (
+          {/* "גמיש" ו"מיידי" הם אילוץ בדיוק כמו תאריך — ולכן מוצגים */}
+          {entryNeed !== undefined ? (
             <>
-              <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>כניסה עד</div>
-              <div className="mb-3.5 text-[14.5px] font-bold">{formatDate(buyer.requirements.entryBy)}</div>
+              <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>מועד כניסה</div>
+              <div className="mb-3.5 text-[14.5px] font-bold">{entryNeed}</div>
             </>
           ) : null}
 
@@ -333,7 +376,14 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
           ) : null}
         </section>
 
-        {/* ---- נכסים מתאימים + היסטוריית הצעות ---- */}
+        {/*
+          ---- שתי עמודות ההתאמה ----
+          שמאל: המאגר הפנימי. ימין: הרשת. אותה שאלה, שני מקורות —
+          וכל עוד הן היו במסכים נפרדים הסוכן ראה חצי תשובה וסגר את
+          הכרטיס. אותו מנוע ניקוד ואותו סף בשתיהן, אחרת אי אפשר
+          להשוות ביניהן.
+        */}
+        <div className="grid items-start gap-4 lg:grid-cols-2">
         <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="matches-heading">
           <h2 id="matches-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
             נכסים מתאימים
@@ -395,6 +445,13 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
             })
           )}
 
+        </section>
+
+        <NetworkPropertyMatches buyerId={id} />
+        </div>
+
+        {/* היסטוריית ההצעות נשארת רוחב מלא — היא לא עמודה, היא ציר זמן */}
+        <section className="mv-list-card px-[22px] py-[18px]">
           <h2 className="mb-2 mt-[18px]" style={{ fontSize: 15.5, fontWeight: 800 }}>
             היסטוריית הצעות
           </h2>

@@ -71,15 +71,57 @@ export class AccountDeletionService {
       if (!ok) throw new UnauthorizedException("הסיסמה שגויה");
     }
 
+    return this.purgeTenant(tenantId, userId, "tenant.delete_account");
+  }
+
+  /**
+   * מחיקת משרד ביוזמת בעל הפלטפורמה.
+   *
+   * אותה מחיקה בדיוק — אין "מחיקה חלקית" למי שמוחק מבחוץ. מה ששונה
+   * הוא **מי מאשר**: אין כאן סיסמה של בעל המשרד (הפלטפורמה אינה
+   * מחזיקה אותה ואינה אמורה), ולכן האישור היחיד הוא הקלדת שם המשרד
+   * במדויק. זו אותה הגנה מפני לחיצה על השורה הלא נכונה ברשימה.
+   *
+   * ביומן הביקורת נרשמת פעולה **אחרת** מזו של מחיקה עצמית, ובלי
+   * מזהה משתמש: המוחק אינו משתמש של המשרד הזה, ורישום שלו כאילו היה
+   * אחד מהם הופך את היומן — הראיה היחידה שנשארת — לשקר.
+   */
+  async deleteTenantFromPlatform(
+    tenantId: string,
+    confirmName: string,
+  ): Promise<{ ok: true }> {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) throw new NotFoundException("המשרד לא נמצא");
+    if (confirmName.trim() !== tenant.name.trim()) {
+      throw new BadRequestException("שם המשרד שהוקלד אינו תואם — המחיקה בוטלה");
+    }
+    return this.purgeTenant(tenantId, null, "tenant.delete_by_platform");
+  }
+
+  /**
+   * המחיקה עצמה. **בלי בדיקות הרשאה** — הן באחריות הקוראים, וכל אחד
+   * מהם מאשר אחרת (בעלים עם סיסמה, פלטפורמה עם שם המשרד).
+   *
+   * `actorUserId` הוא null כשהמוחק אינו משתמש של המשרד.
+   */
+  private async purgeTenant(
+    tenantId: string,
+    actorUserId: string | null,
+    action: string,
+  ): Promise<{ ok: true }> {
     /*
      * מפתחות ה-S3 נאספים לפני שהשורות שמכירות אותם נמחקות — אחרי
      * המחיקה אין שום רשומה שיודעת אילו קבצים היו של המשרד.
+     *
+     * withExplicitTenant ולא withTenant: המחיקה מהפלטפורמה רצה
+     * בהקשר של דייר אחר לגמרי, והטבלאות תחת FORCE RLS היו מחזירות
+     * אפס מפתחות בשקט — כלומר הקבצים היו נשארים ב-S3 לנצח.
      */
     const [media, calls] = await Promise.all([
-      this.prisma.withTenant((tx) =>
+      this.prisma.withExplicitTenant(tenantId, (tx) =>
         tx.propertyMedia.findMany({ where: { tenantId }, select: { s3Key: true } }),
       ),
-      this.prisma.withTenant((tx) =>
+      this.prisma.withExplicitTenant(tenantId, (tx) =>
         tx.call.findMany({
           where: { tenantId, recordingKey: { not: null } },
           select: { recordingKey: true },
@@ -92,13 +134,13 @@ export class AccountDeletionService {
     ];
 
     // הראיה האחרונה — נכתבת לפני המחיקה, כי audit_log נשאר במכוון
-    await this.prisma.withTenant((tx) =>
+    await this.prisma.withExplicitTenant(tenantId, (tx) =>
       tx.auditLog.create({
         data: {
           id: ulid(),
           tenantId,
-          userId,
-          action: "tenant.delete_account",
+          userId: actorUserId,
+          action,
           entityType: "tenant",
           entityId: tenantId,
           metadata: { s3Objects: s3Keys.length },
@@ -206,7 +248,9 @@ export class AccountDeletionService {
       this.prisma.tenant.delete({ where: { id: tenantId } }),
     ]);
 
-    this.logger.warn(`חשבון נמחק לצמיתות: tenant ${tenantId} (${s3Keys.length} קבצים בניקוי)`);
+    this.logger.warn(
+      `משרד נמחק לצמיתות (${action}): tenant ${tenantId} (${s3Keys.length} קבצים בניקוי)`,
+    );
     return { ok: true };
   }
 }

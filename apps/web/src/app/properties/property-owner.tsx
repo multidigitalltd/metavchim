@@ -31,6 +31,7 @@ export function PropertyOwner({
   owner,
   canEdit,
   canEditPeople,
+  canErase,
   onChanged,
   canSendUpdate,
   onSendUpdate,
@@ -49,6 +50,8 @@ export function PropertyOwner({
    * (ביקורת Codex).
    */
   canEditPeople: boolean;
+  /** `contacts.delete` — מחיקת המוכר/המשכיר לבקשתו, מתוך כרטיס הנכס. */
+  canErase: boolean;
   onChanged: () => void;
   /** האם וואטסאפ כלול במסלול — בלעדיו השליחה נחסמת בשרת ממילא. */
   canSendUpdate: boolean;
@@ -130,7 +133,7 @@ export function PropertyOwner({
             אותו רכיב של כרטיס הקונה — מספרים נוספים ואנשי קשר
             (בן/בת זוג, בעלים שותף, בן שמטפל בהורים).
           */}
-          <ContactPeople contactId={owner.id} canEdit={canEditPeople} />
+          <ContactPeople contactId={owner.id} canEdit={canEditPeople} canErase={canErase} />
         </>
       ) : adding ? (
         <form onSubmit={(e) => void save(e)} className="max-w-sm">

@@ -25,9 +25,14 @@ export function rowToFields(row: PropertyRow): PropertyFields {
     condition: (row.condition as PropertyFields["condition"]) ?? undefined,
     priceAgorot: row.priceAgorot === null ? undefined : Number(row.priceAgorot),
     priceFlexible: row.priceFlexible ?? undefined,
+    entryType: (row.entryType as PropertyFields["entryType"]) ?? undefined,
     entryDate: row.entryDate ?? undefined,
+    entryNote: row.entryNote ?? undefined,
     exclusive: row.exclusive ?? undefined,
     exclusiveUntil: row.exclusiveUntil ?? undefined,
+    latitude: row.latitude ?? undefined,
+    longitude: row.longitude ?? undefined,
+    locationSource: (row.locationSource as "pin" | "geocode" | null) ?? undefined,
   };
 }
 
@@ -42,6 +47,15 @@ export interface PropertyDto extends PropertyFields {
   /** בעל הנכס (המוכר) — מוצג בעמוד הנכס ומזין את התיק המאוחד */
   /** בעל הנכס — הוא המוכר או המשכיר, ולכן כרטיס מלא כמו של קונה */
   ownerContact?: { id: string; name: string; phone: string; email?: string };
+  /**
+   * הנכס בארכיון.
+   *
+   * דגל ולא תאריך: המסך צריך לדעת שהנכס בארכיון כדי להציג מחיקה
+   * לצמיתות, ולא צריך לדעת מתי. סטטוס `archived` לבדו אינו מספיק —
+   * אפשר להגיע אליו גם בלי מחיקה רכה, והמסך היה מציע מחיקה שהשרת
+   * דוחה.
+   */
+  archived: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -67,8 +81,22 @@ export function fieldsToColumns(fields: Partial<PropertyFields>): Prisma.Propert
   if ("priceAgorot" in fields)
     out.priceAgorot = fields.priceAgorot === undefined ? null : BigInt(fields.priceAgorot);
   if ("priceFlexible" in fields) out.priceFlexible = fields.priceFlexible ?? null;
+  if ("entryType" in fields) out.entryType = fields.entryType ?? null;
   if ("entryDate" in fields) out.entryDate = fields.entryDate ?? null;
+  if ("entryNote" in fields) out.entryNote = fields.entryNote ?? null;
   if ("exclusive" in fields) out.exclusive = fields.exclusive ?? null;
   if ("exclusiveUntil" in fields) out.exclusiveUntil = fields.exclusiveUntil ?? null;
+  /*
+   * המיקום נכתב כיחידה אחת: קו רוחב בלי אורך אינו נקודה, ושמירת חצי
+   * ממנו הייתה יוצרת נכס ש"יש לו מיקום" ואי אפשר להציג אותו.
+   */
+  if ("latitude" in fields || "longitude" in fields) {
+    const lat = fields.latitude ?? null;
+    const lon = fields.longitude ?? null;
+    const both = lat !== null && lon !== null;
+    out.latitude = both ? lat : null;
+    out.longitude = both ? lon : null;
+    out.locationSource = both ? (fields.locationSource ?? "pin") : null;
+  }
   return out;
 }

@@ -1,4 +1,10 @@
-import { BadRequestException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  GoneException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import {
@@ -38,7 +44,8 @@ export interface AgreementSummary {
   kind: AgreementKind;
   kindLabel: string;
   status: string;
-  contactId: string;
+  /** null = הלקוח נמחק וההסכם החתום נשמר בארכיון המשרד. */
+  contactId: string | null;
   propertyId?: string;
   signedAt?: Date;
   sentAt?: Date;
@@ -294,6 +301,13 @@ export class AgreementsService {
      * התשובה כוללת את הקישור נושא־הטוקן, בדיוק כמו ב-`listForContact`
      * — ומי שמחזיק בו יכול לחתום בשם הלקוח.
      */
+    /*
+     * הסכם מנותק הוא תמיד הסכם חתום ששרד מחיקת לקוח — אין למי
+     * לשלוח אותו, ואין כרטיס לבדוק עליו הרשאה.
+     */
+    if (row.contactId === null) {
+      throw new BadRequestException("ההסכם אינו משויך ללקוח — הלקוח נמחק מהמערכת");
+    }
     await assertContactAccess(tx, tenantId, row.contactId);
     if (row.status === "signed") throw new BadRequestException("ההסכם כבר נחתם");
     if (row.status === "declined") throw new BadRequestException("הלקוח דחה את ההסכם");
@@ -594,7 +608,18 @@ export class AgreementsService {
     const tenantId = TenantContext.current().tenantId;
     const row = await tx.agreement.findFirst({ where: { id, tenantId } });
     if (!row) throw new NotFoundException("ההסכם לא נמצא");
-    await assertContactAccess(tx, tenantId, row.contactId);
+    /*
+     * הסכם שנשמר אחרי מחיקת הלקוח — אין כרטיס לבדוק עליו בעלות,
+     * ולכן הוא נפתח בהרשאת ניהול בלבד. זה גם הנתיב שחייב לעבוד:
+     * מסמך משפטי שנשמר ואי אפשר לפתוח אותו הוא מסמך שאבד.
+     */
+    if (row.contactId === null) {
+      if (!TenantContext.current().capabilities.has("settings.manage")) {
+        throw new ForbiddenException("ההסכם שמור בארכיון המשרד — נדרשת הרשאת ניהול");
+      }
+    } else {
+      await assertContactAccess(tx, tenantId, row.contactId);
+    }
 
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
@@ -616,6 +641,44 @@ export class AgreementsService {
       presentedHash: row.presentedHash ?? undefined,
       createdAt: row.createdAt,
     };
+  }
+
+  /**
+   * ההסכמים החתומים ששרדו מחיקת לקוח.
+   *
+   * בלי הרשימה הזו הם היו בלתי נגישים: כל שאר המסלולים אל הסכם
+   * עוברים דרך כרטיס הלקוח, ולכרטיס הזה כבר אין קיום. מסמך שנשמר
+   * מטעמים משפטיים ואי אפשר להגיע אליו הוא מסמך שנאבד — רק בלי
+   * שאיש יודע.
+   *
+   * שם החותם מגיע מהמסמך עצמו ולא מכרטיס: זה השם שנחתם, וזה גם
+   * היחיד שנשאר.
+   */
+  async listRetained(tx: TenantTx): Promise<
+    {
+      id: string;
+      kind: AgreementKind;
+      kindLabel: string;
+      signerName: string | null;
+      signedAt: Date | null;
+      url: string;
+    }[]
+  > {
+    const tenantId = TenantContext.current().tenantId;
+    const rows = await tx.agreement.findMany({
+      where: { tenantId, contactId: null, status: "signed" },
+      orderBy: { signedAt: "desc" },
+      select: { id: true, kind: true, signerName: true, signedAt: true },
+      take: 500,
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      kind: row.kind as AgreementKind,
+      kindLabel: AGREEMENT_KIND_LABELS[row.kind as AgreementKind] ?? row.kind,
+      signerName: row.signerName,
+      signedAt: row.signedAt,
+      url: `/agreements/${row.id}/document`,
+    }));
   }
 
   async listForContact(tx: TenantTx, contactId: string): Promise<AgreementSummary[]> {

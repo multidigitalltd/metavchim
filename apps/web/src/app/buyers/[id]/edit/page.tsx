@@ -8,6 +8,7 @@ import { apiGet, apiPatch, ApiError } from "@/lib/api";
 import { PriceField } from "../../../price-field";
 import { FINANCING_LABELS, shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { EntryTimingField } from "../../../properties/entry-timing-field";
 
 /**
  * עריכת דרישות קונה — התקציב גדל? נוספה עיר? הדרישות הן הדלק של מנוע
@@ -36,6 +37,7 @@ interface BuyerRequirements {
   roomsMax?: number;
   areaSqmMin?: number;
   features: Record<string, "must" | "nice">;
+  entryType?: string;
   entryBy?: string;
   flexibilityNotes?: string;
 }
@@ -100,6 +102,14 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
           roomsMin: num("roomsMin"),
           roomsMax: num("roomsMax"),
           areaSqmMin: num("areaSqmMin"),
+          /*
+             ריק = "לא נבחר", ונשלח כ-undefined כדי שהשדה יוסר מהדרישות
+             במקום להישמר כמחרוזת ריקה שאף בדיקה לא מזהה.
+          */
+          entryType: String(f.get("entryType") ?? "") || undefined,
+          entryBy: String(f.get("entryBy") ?? "")
+            ? new Date(String(f.get("entryBy"))).toISOString()
+            : undefined,
           features,
         },
       });
@@ -211,6 +221,17 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
                 <input id="roomsMax" name="roomsMax" type="number" step="0.5" min="1" inputMode="decimal" defaultValue={req.roomsMax ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
               </div>
             </div>
+            {/*
+              אילוץ הכניסה של הקונה — לא היה בטופס כלל עד כה, ולכן
+              קריטריון המסירה במנוע ההתאמות כמעט אף פעם לא נבחן: לצד
+              אחד היה תאריך ולשני לא. "גמיש" הוא תשובה, ולא היעדר.
+            */}
+            <EntryTimingField
+              side="buyer"
+              defaultMode={req.entryType}
+              defaultDate={req.entryBy ? req.entryBy.slice(0, 10) : undefined}
+              inputStyle={inputStyle}
+            />
           </div>
 
           <fieldset className="mt-4">

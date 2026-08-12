@@ -22,6 +22,7 @@ import { GmailSection } from "./gmail-section";
 import { GoogleCalendarSection } from "./google-calendar-section";
 import { MatchWeightsSection } from "./match-weights-section";
 import { AgreementTemplatesSection } from "./agreement-templates-section";
+import { RetainedAgreementsSection } from "./retained-agreements-section";
 import { SystemUpdateSection } from "./system-update";
 import { UserPermissions } from "./user-permissions";
 
@@ -89,6 +90,12 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   "lead.create": "יצירת ליד",
   "lead.status": "עדכון סטטוס ליד",
   "lead.delete": "מחיקת ליד",
+  // הרישום הזה הוא הראיה שבקשת המחיקה של לקוח בוצעה — ולכן הוא
+  // חייב להיקרא בעברית ביומן, ולא כקוד
+  "contact.erase": "מחיקת לקוח מהמערכת",
+  // החלטות פלטפורמה נרשמות ביומן של המשרד עצמו: בלעדיהן מודול שנעלם
+  // נראה כמו תקלה, ואין למנהל שום דרך לדעת שזו הייתה החלטה
+  "platform.blocked_modules": "שינוי חסימת מודולים בידי הפלטפורמה",
   "lead.convert": "המרת ליד לקונה",
   "lead.repeat_inquiry": "פנייה חוזרת של ליד",
   "offer.create": "יצירת הצעה",
@@ -627,7 +634,11 @@ export default function SettingsPage() {
 
           {tab === "documents" ? (
             canAgreements ? (
-              <AgreementTemplatesSection />
+              <>
+                <AgreementTemplatesSection />
+                {/* מסמכים חתומים ששרדו מחיקת לקוח — מוצג רק כשיש */}
+                <RetainedAgreementsSection />
+              </>
             ) : (
               <LockedFeature
                 code="agreements"

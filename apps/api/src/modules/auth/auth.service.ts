@@ -2,7 +2,12 @@ import { BadRequestException, Injectable, UnauthorizedException } from "@nestjs/
 import * as argon2 from "argon2";
 import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
-import { isTrialExpired, resolveCapabilities, type Capability } from "@metavchim/shared";
+import {
+  applyBlockedModules,
+  isTrialExpired,
+  resolveCapabilities,
+  type Capability,
+} from "@metavchim/shared";
 import { PrismaService } from "../../core/prisma.service";
 import type { RequestContext } from "../../common/tenant-context";
 
@@ -397,6 +402,9 @@ export class AuthService {
                 trialEndsAt: true,
                 paidUntil: true,
                 supportAccessUntil: true,
+                // חסימות הפלטפורמה — נקראות יחד עם שורת המשרד שממילא
+                // נטענת כאן, בלי שאילתה נוספת לכל בקשה
+                blockedModules: true,
               },
             },
           },
@@ -456,14 +464,23 @@ export class AuthService {
         select: { capability: true, effect: true, expiresAt: true },
       }),
     );
-    const capabilities = resolveCapabilities(
-      session.user.role,
-      overrides.map((o) => ({
-        capability: o.capability as Capability,
-        effect: o.effect === "grant" ? "grant" : "deny",
-        expiresAt: o.expiresAt,
-      })),
-      new Date(),
+    /*
+     * חסימת מודול של הפלטפורמה מוחלת **אחרי** חריגי המנהל, ולא
+     * כחריג נוסף: חריג deny ברמת המשתמש נמחק בלחיצה של מנהל המשרד,
+     * וחסימה שהנחסם יכול להסיר אינה חסימה. הכיוון חד־צדדי — היא
+     * מורידה יכולות ולעולם לא מוסיפה.
+     */
+    const capabilities = applyBlockedModules(
+      resolveCapabilities(
+        session.user.role,
+        overrides.map((o) => ({
+          capability: o.capability as Capability,
+          effect: o.effect === "grant" ? "grant" : "deny",
+          expiresAt: o.expiresAt,
+        })),
+        new Date(),
+      ),
+      session.user.tenant.blockedModules,
     );
     return {
       context: {

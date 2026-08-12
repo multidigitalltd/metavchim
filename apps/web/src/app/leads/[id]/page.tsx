@@ -137,7 +137,16 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
 
   const priceNumber = Number(price);
   const priceValid = Number.isInteger(priceNumber) && priceNumber >= MIN_REFERRAL_PRICE;
-  const preview = priceValid ? referralPayout(priceNumber) : null;
+  /*
+   * לפי האחוז שהשרת דיווח, לא לפי ברירת המחדל שבקוד.
+   *
+   * האחוז נקבע במסך הפלטפורמה, ומהרגע שהוא ניתן לשינוי תצוגה
+   * שמחשבת לפי הקבוע הייתה מבטיחה למפנה סכום אחד ומזכה אותו באחר —
+   * וזה בדיוק מה שהורס אמון בלוח ההפניות. עד שהתנאים נטענים אין
+   * תצוגה מקדימה: מוטב שקט מאשר מספר שאולי שגוי.
+   */
+  const preview =
+    priceValid && terms !== null ? referralPayout(priceNumber, terms.platformFeePercent) : null;
 
   async function publish() {
     const reasonProblem = referralReasonRejectionReason(reason, reasonDetail);
@@ -733,7 +742,9 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
 
       <EntityTasks entityType="lead" entityId={id} />
 
-      <ContactPeople contactId={lead.contact.id} canEdit={canEditPeople} />
+      <ContactPeople contactId={lead.contact.id} canEdit={canEditPeople}
+        canErase={can(user, "contacts.delete")}
+      />
 
       {merged ? (
         <p role="status" className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>

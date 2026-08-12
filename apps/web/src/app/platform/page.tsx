@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useState, type FormEvent } from "react";
+import { CAPABILITY_MODULES } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
-import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { IconPlus } from "../icons";
@@ -34,6 +35,8 @@ interface AgencyRow {
   periodEnded: boolean;
   /** חלון גישת תמיכה פתוח — null כשאין הסכמה בתוקף. */
   supportAccessUntil: string | null;
+  /** מודולים שהפלטפורמה חסמה למשרד — מפתחות מקטלוג המודולים. */
+  blockedModules: string[];
 }
 
 /**
@@ -45,6 +48,73 @@ interface AgencyRow {
 interface PlanOption {
   code: string;
   name: string;
+}
+
+/**
+ * עורך חסימות המודולים למשרד.
+ *
+ * הרשימה היא **אותו קטלוג** שמנהל המשרד רואה במסך ההרשאות שלו, ולא
+ * העתק שלה: מודול שנוסף למערכת מופיע בשני המקומות בלי לזכור לעדכן
+ * מסך שני. ההבדל הוא מי מחליט — כאן זו הפלטפורמה, והמשרד אינו יכול
+ * לבטל.
+ *
+ * המצב מוחזק מקומית ונשמר בלחיצה אחת: סימון שנשלח לשרת בכל תיבה היה
+ * משאיר את המשרד עם חצי חסימה כשמישהו סוגר את הדפדפן באמצע.
+ */
+function ModuleBlocks({
+  agency,
+  onSave,
+  onCancel,
+}: {
+  agency: AgencyRow;
+  onSave: (blockedModules: string[]) => void;
+  onCancel: () => void;
+}) {
+  const [blocked, setBlocked] = useState<string[]>(agency.blockedModules);
+
+  function toggle(key: string): void {
+    setBlocked((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  }
+
+  return (
+    <div>
+      <p className="m-0 mb-2 text-[13px]">
+        <b>חסימת מודולים ל{agency.name}</b>{" "}
+        <span style={{ color: "var(--color-text-muted)" }}>
+          — מודול מסומן נחסם לכל משתמשי המשרד, כולל הבעלים, ומנהל המשרד אינו יכול
+          להחזיר אותו ממסך ההרשאות שלו.
+        </span>
+      </p>
+      <ul className="m-0 grid list-none gap-1.5 p-0 md:grid-cols-3">
+        {CAPABILITY_MODULES.map((module) => (
+          <li key={module.key}>
+            <label className="flex items-start gap-2 text-[12.5px]">
+              <input
+                type="checkbox"
+                checked={blocked.includes(module.key)}
+                onChange={() => toggle(module.key)}
+                className="mt-0.5"
+              />
+              <span>
+                <b>{module.label}</b>
+                <span className="block" style={{ color: "var(--color-text-muted)" }}>
+                  {module.description}
+                </span>
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-2.5 flex flex-wrap gap-2">
+        <Button variant="secondary" onClick={() => onSave(blocked)}>
+          שמור חסימות
+        </Button>
+        <Button variant="ghost" onClick={onCancel}>
+          ביטול
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -79,6 +149,8 @@ const JUMP_LINKS: readonly (readonly [string, string])[] = [
 export default function PlatformPage() {
   const { loading: authLoading } = useRequireAuth();
   const [agencies, setAgencies] = useState<AgencyRow[] | null>(null);
+  /** המשרד שעורכים לו כרגע את חסימות המודולים; null = אף אחד. */
+  const [modulesFor, setModulesFor] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ ownerEmail: string; tempPassword: string } | null>(null);
@@ -171,6 +243,42 @@ export default function PlatformPage() {
     }
     await apiPatch(`/platform/agencies/${agency.id}`, { paidUntil: null });
     load();
+  }
+
+  /**
+   * חסימת מודולים למשרד. הרשימה נשלחת במלואה — המסך מחזיק את המצב
+   * המבוקש, והשרת מחליף בו את הקיים.
+   */
+  async function saveModules(agency: AgencyRow, blockedModules: string[]) {
+    setError(null);
+    try {
+      await apiPatch(`/platform/agencies/${agency.id}/modules`, { blockedModules });
+      setModulesFor(null);
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "שמירת החסימות נכשלה");
+    }
+  }
+
+  /**
+   * מחיקת משרד לצמיתות.
+   *
+   * הקלדת השם ולא confirm: זו הפעולה היחידה במסך שאי אפשר לחזור
+   * ממנה, והיא יושבת בשורה אחת מתוך רשימה של משרדים שנראים אותו
+   * דבר. אישור בלחיצה אחת כאן הוא תאונה שמחכה לקרות.
+   */
+  async function deleteAgency(agency: AgencyRow) {
+    const typed = window.prompt(
+      `מחיקה לצמיתות של "${agency.name}" — כל הלקוחות, הנכסים, השיחות, ההסכמים והמשתמשים נמחקים ואי אפשר לשחזר.\n\nלאישור הקלידו את שם המשרד במדויק:`,
+    );
+    if (typed === null) return;
+    setError(null);
+    try {
+      await apiDelete(`/platform/agencies/${agency.id}`, { confirmName: typed });
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "המחיקה נכשלה");
+    }
   }
 
   async function onCreate(event: FormEvent<HTMLFormElement>) {
@@ -307,6 +415,7 @@ export default function PlatformPage() {
                   <th scope="col" className="p-3 text-start">מסלול</th>
                   <th scope="col" className="p-3 text-start">סטטוס</th>
                   <th scope="col" className="p-3 text-start">משתמשים</th>
+                  <th scope="col" className="p-3 text-start">מודולים</th>
                   <th scope="col" className="p-3 text-start">הוקם</th>
                   <th scope="col" className="p-3 text-start">
                     <span className="mv-visually-hidden">פעולות</span>
@@ -315,7 +424,8 @@ export default function PlatformPage() {
               </thead>
               <tbody>
                 {agencies.map((a) => (
-                  <tr key={a.id} className="border-t" style={{ borderColor: "var(--color-border)" }}>
+                  <Fragment key={a.id}>
+                  <tr className="border-t" style={{ borderColor: "var(--color-border)" }}>
                     <td className="p-3 font-medium">{a.name}</td>
                     <td className="p-3">
                       <label>
@@ -356,6 +466,23 @@ export default function PlatformPage() {
                       ) : null}
                     </td>
                     <td className="p-3">{a.userCount}</td>
+                    {/*
+                      החסימה היא של הפלטפורמה מעל מנהל המשרד: הוא
+                      אינו יכול להחזיר לעצמו מודול שנחסם כאן, גם לא
+                      דרך מסך ההרשאות שלו.
+                    */}
+                    <td className="p-3">
+                      <button
+                        type="button"
+                        className="mv-btn-plain"
+                        aria-expanded={modulesFor === a.id}
+                        onClick={() => setModulesFor(modulesFor === a.id ? null : a.id)}
+                      >
+                        {a.blockedModules.length === 0
+                          ? "הכול פתוח"
+                          : `${a.blockedModules.length} חסומים`}
+                      </button>
+                    </td>
                     <td className="p-3">{formatDate(a.createdAt)}</td>
                     <td className="p-3">
                       <Button
@@ -379,8 +506,23 @@ export default function PlatformPage() {
                           פתח ללא תפוגה
                         </Button>
                       ) : null}
+                      <Button variant="ghost" onClick={() => void deleteAgency(a)}>
+                        <span style={{ color: "var(--color-danger)" }}>מחק משרד</span>
+                      </Button>
                     </td>
                   </tr>
+                  {modulesFor === a.id ? (
+                    <tr style={{ background: "var(--color-bg)" }}>
+                      <td colSpan={7} className="p-3">
+                        <ModuleBlocks
+                          agency={a}
+                          onCancel={() => setModulesFor(null)}
+                          onSave={(blocked) => void saveModules(a, blocked)}
+                        />
+                      </td>
+                    </tr>
+                  ) : null}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

@@ -43,6 +43,12 @@ model Tenant {
   couponPercentOff Int? @map("coupon_percent_off")
   /// המסלול שהקופון הוגבל אליו ברגע המימוש — ההנחה חלה רק עליו.
   couponPlanCode String? @map("coupon_plan_code") @db.VarChar(20)
+  /// מודולים שהפלטפורמה חסמה למשרד הזה (מפתחות מ-CAPABILITY_MODULES).
+  ///
+  /// שכבה שלישית מעל התפקיד ומעל חריגי המשתמש, ובכיוון אחד: חוסמת
+  /// ולעולם לא מעניקה. מוחלת בפענוח ה-Session **אחרי** חריגי המנהל,
+  /// כדי שבעל המשרד לא יוכל להסיר אותה ממסך ההרשאות שלו.
+  blockedModules String[] @default([]) @map("blocked_modules")
   /// עד מתי פתוח חלון גישת התמיכה שהמשרד העניק. null = סגור.
   /// נפתח רק בלחיצת בעל המשרד, לעולם לא מהפלטפורמה.
   supportAccessUntil DateTime? @map("support_access_until")
@@ -269,10 +275,29 @@ model Property {
   condition            String?   @db.VarChar(20)
   priceAgorot          BigInt?   @map("price_agorot")
   priceFlexible        Boolean?  @map("price_flexible")
+  /// מועד כניסה/מסירה — **המצב הוא השדה, התאריך נלווה אליו**.
+  ///
+  /// immediate | on_date | from_date | flexible. רוב הנכסים בשוק
+  /// נמסרים "מיידי" או "בתיאום", ותאריך מלוח לבדו אילץ את הסוכן
+  /// להמציא יום — שההתאמה אחר כך התייחסה אליו כאילו הוא אמיתי.
+  entryType            String?   @map("entry_type") @db.VarChar(20)
   entryDate            DateTime? @map("entry_date") @db.Date
+  /// הניואנס שאין לו שדה: "לאחר פינוי השוכר", "בכפוף לאישור משכנתה".
+  entryNote            String?   @map("entry_note") @db.VarChar(160)
   exclusive            Boolean?
   exclusiveUntil       DateTime? @map("exclusive_until") @db.Date
   ownerContactId       String?   @map("owner_contact_id") @db.Char(26)
+  /// מיקום הנכס — **תמיד WGS84**, גם כשהמקור עבד ברשת ישראל.
+  ///
+  /// פורמט אחד בכל המערכת, המרה בקצה: החלפת ספק פענוח אינה אמורה
+  /// לגרור המרת מסד. `null` = הנכס עוד לא מוקם, וההתאמה נופלת
+  /// להשוואת עיר כמו קודם.
+  latitude             Float?
+  longitude            Float?
+  /// pin = הסוכן סימן ידנית · geocode = נגזר מהכתובת.
+  /// ההבחנה חשובה ליום שבו נרצה לרענן מיקומים אוטומטיים בלי לדרוס
+  /// סימון שאדם עשה במתכוון.
+  locationSource       String?   @map("location_source") @db.VarChar(10)
   marketingTitle       String?   @map("marketing_title") @db.VarChar(160)
   marketingDescription String?   @map("marketing_description")
   internalNotes        String?   @map("internal_notes")
@@ -885,6 +910,11 @@ model Plan {
   trialDays          Int      @default(14) @map("trial_days")
   isPublic           Boolean  @default(true) @map("is_public")
   sortOrder          Int      @default(0) @map("sort_order")
+  /// מסלול שנמחק. **דגל ולא מחיקת שורה**: קטלוג המסלולים ממזג
+  /// ברירות מחדל מובנות עם השורות שנשמרו, ולכן מחיקת שורה של מסלול
+  /// מובנה הייתה מחזירה אותו לחיים בהגדרות המקוריות שלו. שורה
+  /// פרושה מוסתרת מהקטלוג; יצירה מחדש של אותו קוד מחזירה אותה.
+  retiredAt          DateTime? @map("retired_at")
   updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
   updatedBy          String?  @map("updated_by") @db.Char(26)
 
@@ -1026,7 +1056,13 @@ model Agreement {
   tenantId        String    @map("tenant_id") @db.Char(26)
   /// brokerage | exclusivity
   kind            String    @db.VarChar(20)
-  contactId       String    @map("contact_id") @db.Char(26)
+  /// null = הלקוח נמחק מהמערכת וההסכם **החתום** נשמר.
+  ///
+  /// מסמך חתום אינו נמחק בשום מקרה — הוא ראיה משפטית ובסיס הזכאות
+  /// לדמי התיווך. לכן מחיקת לקוח מנתקת את ההסכם מהכרטיס במקום למחוק
+  /// אותו; זהות החותם נשארת במסמך עצמו (signerName/signerIdNumber
+  /// והנוסח החתום), כי בלעדיה המסמך חסר ערך.
+  contactId       String?   @map("contact_id") @db.Char(26)
   propertyId      String?   @map("property_id") @db.Char(26)
   /// pending | viewed | signed | declined | expired
   /// expired נקבע כשקישור שפג מפנה את מקומו להסכם חדש — האינדקס

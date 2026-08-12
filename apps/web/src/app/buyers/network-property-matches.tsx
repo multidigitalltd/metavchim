@@ -1,0 +1,192 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { ApiError, apiGet, apiPatch } from "@/lib/api";
+import { formatPrice } from "@/lib/format";
+
+/**
+ * העמודה השנייה בכרטיס הקונה: **נכסים מהרשת**.
+ *
+ * העמודה הפנימית עונה "מה יש לי במאגר בשביל הקונה הזה". זו עונה על
+ * אותה שאלה מהצד השני של הרשת — נכסים שמשרדים אחרים הציעו על הביקוש
+ * הזה. עד כה ההצעות נחתו רק במסך השת"פ הכללי, כלומר הסוכן שפתח את
+ * כרטיס הקונה לא ראה שמחכה לו שם נכס, ושילם על זה בזמן תגובה.
+ *
+ * מה שמוצג הוא החשיפה המדורגת שהמשרד המציע שלח: עיר, שכונה, חדרים,
+ * שטח ומחיר. בלי רחוב ובלי בעלים — אלה נחשפים רק אחרי "מעוניין".
+ */
+
+interface NetworkPropertyOffer {
+  id: string;
+  presentation: {
+    city?: string;
+    neighborhood?: string;
+    rooms?: number;
+    areaSqm?: number;
+    floor?: number;
+    priceAgorot?: number;
+    title?: string;
+  };
+  commissionSplit: number;
+  status: string;
+  createdAt: string;
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  pending: "ממתין לתגובה",
+  interested: "סומן כמעניין",
+  declined: "נדחה",
+};
+
+/** שורת התיאור של הנכס — רק מה שנחשף, בלי שדות ריקים באמצע. */
+function describe(p: NetworkPropertyOffer["presentation"]): string {
+  return (
+    [
+      p.rooms !== undefined ? `${p.rooms} חדרים` : null,
+      p.areaSqm !== undefined ? `${p.areaSqm} מ"ר` : null,
+      p.floor !== undefined ? `קומה ${p.floor}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ") || "אין פרטים נוספים"
+  );
+}
+
+export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
+  const [data, setData] = useState<{ shared: boolean; offers: NetworkPropertyOffer[] } | null>(null);
+  /** null = אין הרשאת שת"פ; העמודה נעלמת ולא מציגה שגיאה */
+  const [allowed, setAllowed] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiGet<{ shared: boolean; offers: NetworkPropertyOffer[] }>(
+      `/collaboration/network-matches/buyer/${buyerId}`,
+    )
+      .then(setData)
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 403) setAllowed(false);
+        else setData({ shared: false, offers: [] });
+      });
+  }, [buyerId]);
+
+  async function respond(id: string, response: "interested" | "declined"): Promise<void> {
+    setBusy(id);
+    setError(null);
+    try {
+      await apiPatch(`/collaboration/offers/${id}/respond`, { response });
+      setData((prev) =>
+        prev === null
+          ? null
+          : {
+              ...prev,
+              offers: prev.offers.map((o) => (o.id === id ? { ...o, status: response } : o)),
+            },
+      );
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "העדכון נכשל");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (!allowed) return null;
+
+  return (
+    <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="network-offers-heading">
+      <h2 id="network-offers-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+        נכסים מהרשת
+      </h2>
+      <p className="m-0 mb-2.5 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+        נכסים שמשרדים אחרים הציעו על הביקוש הזה
+      </p>
+
+      {error !== null ? (
+        <p role="alert" className="m-0 mb-2 text-sm" style={{ color: "var(--color-danger)" }}>
+          {error}
+        </p>
+      ) : null}
+
+      {data === null ? (
+        <p aria-live="polite">בודק ברשת…</p>
+      ) : !data.shared ? (
+        <p className="m-0 py-2" style={{ color: "var(--color-text-muted)" }}>
+          הקונה אינו משותף ברשת — שיתוף פותח את הביקוש למשרדים אחרים, והנכסים שלהם
+          יופיעו כאן.
+        </p>
+      ) : data.offers.length === 0 ? (
+        <p className="m-0 py-2" style={{ color: "var(--color-text-muted)" }}>
+          הביקוש פורסם; טרם התקבלו הצעות.
+        </p>
+      ) : (
+        data.offers.map((offer) => (
+          <div
+            key={offer.id}
+            className="flex flex-wrap items-center gap-[15px] py-[13px]"
+            style={{ borderBottom: "1px solid var(--color-row-border)" }}
+          >
+            <div className="min-w-0 flex-1" style={{ lineHeight: 1.4 }}>
+              <div className="text-[14.5px] font-bold">
+                {offer.presentation.title ??
+                  [offer.presentation.neighborhood, offer.presentation.city]
+                    .filter(Boolean)
+                    .join(", ") ??
+                  "נכס ברשת"}
+                {offer.presentation.priceAgorot !== undefined ? (
+                  <span className="ms-1.5 text-[12.5px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                    · {formatPrice(offer.presentation.priceAgorot)}
+                  </span>
+                ) : null}
+              </div>
+              <div className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+                {describe(offer.presentation)}
+              </div>
+              <div className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                העמלה שלי: {100 - offer.commissionSplit}%
+              </div>
+            </div>
+            <div className="ms-auto flex flex-none gap-2">
+              {offer.status === "pending" ? (
+                <>
+                  <button
+                    type="button"
+                    className="mv-btn-action"
+                    style={{ padding: "7px 15px", fontSize: 13 }}
+                    disabled={busy !== null}
+                    onClick={() => void respond(offer.id, "interested")}
+                  >
+                    מעוניין
+                  </button>
+                  <button
+                    type="button"
+                    className="mv-btn-plain"
+                    style={{ fontSize: 13 }}
+                    disabled={busy !== null}
+                    onClick={() => void respond(offer.id, "declined")}
+                  >
+                    לא מתאים
+                  </button>
+                </>
+              ) : (
+                <span
+                  className="mv-pill"
+                  style={{
+                    background:
+                      offer.status === "interested"
+                        ? "var(--color-primary-soft)"
+                        : "var(--color-progress-track)",
+                    color:
+                      offer.status === "interested"
+                        ? "var(--color-primary)"
+                        : "var(--color-text-muted)",
+                  }}
+                >
+                  {STATUS_LABELS[offer.status] ?? offer.status}
+                </span>
+              )}
+            </div>
+          </div>
+        ))
+      )}
+    </section>
+  );
+}

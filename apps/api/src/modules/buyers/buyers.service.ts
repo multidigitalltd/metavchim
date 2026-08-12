@@ -1,4 +1,9 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   BuyerRequirementsSchema,
@@ -6,13 +11,13 @@ import {
   type BuyerRequirements,
   type Page,
 } from "@metavchim/shared";
-import { ownershipFilter } from "../../common/ownership";
+import { assertBuyerAccess, ownershipFilter } from "../../common/ownership";
 import { freeTextTerms, normalizeRange, priceRangeAgorot } from "@metavchim/shared";
 import type { Prisma } from "@prisma/client";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { MatchingService } from "../matching/matching.service";
 
@@ -632,5 +637,195 @@ export class BuyersService {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
+  }  /**
+   * בדיקת הרשאה שרואה גם כרטיס בארכיון.
+   *
+   * `assertBuyerAccess` המשותפת מסננת `deletedAt: null` — נכון לכל
+   * פעולה על כרטיס פעיל, ושגוי בדיוק כאן: אחרי הארכיון הכרטיס היה
+   * נעלם מבדיקת ההרשאה, והמחיקה לצמיתות הייתה מחזירה "קונה לא נמצא"
+   * לנצח. כלומר המסלול הדו-שלבי לא היה מגיע לשלב השני.
+   *
+   * פילטר הבעלות נשמר — סוכן לא נוגע בכרטיס של סוכן אחר, בארכיון או
+   * מחוצה לו.
+   */
+  private async assertAccessIncludingArchived(tx: TenantTx, id: string): Promise<void> {
+    const buyer = await tx.buyer.findFirst({
+      where: {
+        id,
+        tenantId: TenantContext.current().tenantId,
+        ...ownershipFilter("buyers.view_all", "ownerUserId"),
+      },
+      select: { id: true },
+    });
+    if (!buyer) throw new NotFoundException("קונה לא נמצא");
   }
+
+  /**
+   * מה תגרור מחיקת הכרטיס — לפני שמוחקים.
+   *
+   * אותו עיקרון כמו במחיקת לקוח: מנהל שמוחק כרטיס עם שלוש הצעות
+   * פתוחות זכאי לדעת את זה לפני הלחיצה ולא אחריה.
+   */
+  async deletionPreview(id: string): Promise<{
+    matches: number;
+    offers: number;
+    interactions: number;
+    appointments: number;
+    sharedDemands: number;
+    archived: boolean;
+  }> {
+    const { tenantId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      await this.assertAccessIncludingArchived(tx, id);
+      const buyer = await tx.buyer.findFirst({
+        where: { id, tenantId },
+        select: { deletedAt: true },
+      });
+      if (!buyer) throw new NotFoundException("קונה לא נמצא");
+      const matchRows = await tx.match.findMany({
+        where: { tenantId, buyerId: id },
+        select: { id: true },
+      });
+      const matchIds = matchRows.map((m) => m.id);
+      const [offers, interactions, appointments, sharedDemands] = await Promise.all([
+        tx.offer.count({ where: { tenantId, matchId: { in: matchIds } } }),
+        tx.interaction.count({ where: { tenantId, buyerId: id } }),
+        tx.appointment.count({ where: { tenantId, buyerId: id } }),
+        tx.sharedDemand.count({ where: { tenantId, originBuyerId: id } }),
+      ]);
+      return {
+        matches: matchIds.length,
+        offers,
+        interactions,
+        appointments,
+        sharedDemands,
+        archived: buyer.deletedAt !== null,
+      };
+    });
+  }
+
+  /**
+   * ארכיון — הכרטיס יורד מהרשימות וההיסטוריה נשמרת.
+   *
+   * זו פעולת ברירת המחדל, ובכוונה: "הלקוח כבר לא מחפש" אינו "הלקוח
+   * מעולם לא היה". הביקוש יורד מהרשת ומההתאמות כי הוא אינו רלוונטי
+   * יותר — אחרת סוכנים ממשיכים לקבל הצעות על קונה שסגר.
+   */
+  async archive(id: string): Promise<void> {
+    const ctx = TenantContext.current();
+    await this.prisma.withTenant(async (tx) => {
+      await assertBuyerAccess(tx, ctx.tenantId, id);
+      const buyer = await tx.buyer.findFirst({
+        where: { id, tenantId: ctx.tenantId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!buyer) throw new NotFoundException("קונה לא נמצא");
+
+      await tx.buyer.update({ where: { id }, data: { deletedAt: new Date() } });
+      await this.retireBuyerMatches(tx, id);
+      await this.withdrawDemands(tx, ctx.tenantId, id);
+      await this.audit.record(tx, {
+        action: "buyer.archive",
+        entityType: "buyer",
+        entityId: id,
+      });
+    });
+  }
+
+  /**
+   * מחיקה לצמיתות — רק מכרטיס שכבר בארכיון.
+   *
+   * שני שלבים ולא אחד: כרטיס פעיל שנמחק בלחיצה אחת הוא היסטוריה
+   * שנעלמת בטעות. מי שמוחק כרטיס בארכיון כבר החליט פעם אחת.
+   *
+   * הפגישות והשיחות **מנותקות ולא נמחקות** — פגישה שהתקיימה היא
+   * אירוע ביומן של הסוכן, ולא נכס של הכרטיס. אותו כלל בדיוק כמו
+   * במחיקת ליד.
+   */
+  async purge(id: string): Promise<void> {
+    const ctx = TenantContext.current();
+    await this.prisma.withTenant(async (tx) => {
+      await this.assertAccessIncludingArchived(tx, id);
+      const buyer = await tx.buyer.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+        select: { deletedAt: true },
+      });
+      if (!buyer) throw new NotFoundException("קונה לא נמצא");
+      if (buyer.deletedAt === null) {
+        throw new BadRequestException("יש להעביר את הכרטיס לארכיון לפני מחיקה לצמיתות");
+      }
+
+      const matchRows = await tx.match.findMany({
+        where: { tenantId: ctx.tenantId, buyerId: id },
+        select: { id: true },
+      });
+      const matchIds = matchRows.map((m) => m.id);
+      // ההצעה תלויה בהתאמה, ולכן לפניה
+      await tx.offer.deleteMany({ where: { tenantId: ctx.tenantId, matchId: { in: matchIds } } });
+      await tx.match.deleteMany({ where: { tenantId: ctx.tenantId, buyerId: id } });
+      await this.withdrawDemands(tx, ctx.tenantId, id);
+      await tx.interaction.deleteMany({ where: { tenantId: ctx.tenantId, buyerId: id } });
+      await tx.appointment.updateMany({
+        where: { tenantId: ctx.tenantId, buyerId: id },
+        data: { buyerId: null },
+      });
+      await tx.notification.deleteMany({
+        where: { tenantId: ctx.tenantId, entityType: "buyer", entityId: id },
+      });
+      await tx.task.deleteMany({
+        where: { tenantId: ctx.tenantId, entityType: "buyer", entityId: id },
+      });
+      await tx.buyer.delete({ where: { id } });
+
+      // מזהים ומונים בלבד — ביומן לא נשמר מה שנמחק
+      await this.audit.record(tx, {
+        action: "buyer.delete",
+        entityType: "buyer",
+        entityId: id,
+        metadata: { matches: matchIds.length },
+      });
+    });
+  }
+
+  /** התאמות של כרטיס שיצא ממחזור — כמו ביציאת נכס משיווק. */
+  private async retireBuyerMatches(tx: TenantTx, buyerId: string): Promise<void> {
+    /*
+     * ההצעות של ההתאמות הנמחקות יורדות איתן. בפועל התאמה במצב
+     * `suggested` היא התאמה שלא הוצעה — שליחת הצעה מעבירה אותה
+     * ל-`offered` — ולכן אין כאן מה למחוק. אבל אין FK בין `offers`
+     * ל-`matches`, כלומר האינווריאנט הזה נשמר בקוד בלבד, ורגע שבו
+     * הוא נשבר משאיר הצעה שמצביעה על התאמה שאיננה ואיש כבר לא
+     * יגיע אליה. שאילתה אחת מונעת זליגה שאין דרך לנקות אחריה.
+     */
+    const doomed = await tx.match.findMany({
+      where: { buyerId, status: "suggested" },
+      select: { id: true },
+    });
+    if (doomed.length > 0) {
+      await tx.offer.deleteMany({ where: { matchId: { in: doomed.map((m) => m.id) } } });
+    }
+    await tx.match.deleteMany({ where: { buyerId, status: "suggested" } });
+    await tx.match.updateMany({
+      where: { buyerId, status: { not: "dismissed" } },
+      data: { status: "dismissed" },
+    });
+  }
+
+  /**
+   * הסרת הביקוש מהרשת.
+   *
+   * הצעות שת"פ שהתקבלו עליו יורדות איתו: הצעה על ביקוש שאינו קיים
+   * היא פנייה שאיש לא יטפל בה, והמשרד השני ממתין לשווא.
+   */
+  private async withdrawDemands(tx: TenantTx, tenantId: string, buyerId: string): Promise<void> {
+    const demands = await tx.sharedDemand.findMany({
+      where: { tenantId, originBuyerId: buyerId },
+      select: { id: true },
+    });
+    if (demands.length === 0) return;
+    await tx.coopOffer.deleteMany({ where: { demandId: { in: demands.map((d) => d.id) } } });
+    await tx.sharedDemand.deleteMany({ where: { tenantId, originBuyerId: buyerId } });
+  }
+
+
 }

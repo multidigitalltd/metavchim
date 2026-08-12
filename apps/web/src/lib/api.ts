@@ -68,4 +68,16 @@ export const apiPatch = <T>(path: string, data: unknown) =>
   api<T>(path, { method: "PATCH", body: JSON.stringify(data) });
 export const apiPut = <T>(path: string, data: unknown) =>
   api<T>(path, { method: "PUT", body: JSON.stringify(data) });
-export const apiDelete = (path: string) => api<void>(path, { method: "DELETE" });
+/**
+ * מחיקה, עם גוף בקשה כשצריך לאשר אותה.
+ *
+ * הגוף אופציונלי כי רוב המחיקות מזוהות בנתיב לבדו. המחיקות ההרסניות
+ * — משרד שלם, מסלול על כל המשרדים שבו — דורשות אישור מפורש (שם
+ * שהוקלד, מסלול יעד), והוא נשלח בגוף ולא ב-query כדי שלא ייכנס
+ * ליומני שרת ולהיסטוריית דפדפן.
+ */
+export const apiDelete = (path: string, data?: unknown) =>
+  api<void>(path, {
+    method: "DELETE",
+    ...(data === undefined ? {} : { body: JSON.stringify(data) }),
+  });

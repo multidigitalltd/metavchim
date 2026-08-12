@@ -83,6 +83,8 @@ interface NavSummary {
   matches: number;
   /** משימות שלי באיחור או להיום — התג הכתום. */
   urgentTasks: number;
+  /** מודולים שהפלטפורמה חסמה למשרד — פריט חסום יורד מהסרגל. */
+  blockedModules?: string[];
   /** הפיצ'רים שכלולים במסלול המשרד — פריט שלא כלול לא מוצג. */
   features?: string[];
 }
@@ -224,6 +226,32 @@ const ROLE_LABELS: Record<string, string> = {
 
 /** מי רואה את מסכי הניהול — "דוחות" ו"ניהול משרד" בעיצוב מוצגים למנהל בלבד. */
 const MANAGER_ROLES = new Set(["owner", "admin"]);
+
+/**
+ * לאיזה מודול שייך כל פריט בסרגל.
+ *
+ * **לפי היכולות שהמסך באמת דורש ולא לפי שם הנתיב.** "שיחות" נשען על
+ * יכולות הלידים, "משימות" על יכולת היומן, ו"ניהול משרד" ו"הקמה" על
+ * מודול הניהול — חסימה של אחד מהם משאירה אותם מצביעים ל-403
+ * (ביקורת Codex). המפה נבדקת בתוך `navLink`, ולכן פריט חדש שנוסף
+ * לסרגל מקבל את ההתנהגות אוטומטית.
+ *
+ * נתיב שאינו כאן (דשבורד, הדרכות, פרופיל) אינו שייך לאף מודול.
+ */
+const NAV_MODULE: Record<string, string> = {
+  "/properties": "properties",
+  "/buyers": "buyers",
+  "/leads": "leads",
+  "/calls": "leads",
+  "/matches": "matches",
+  "/offers": "offers",
+  "/calendar": "calendar",
+  "/tasks": "calendar",
+  "/collaboration": "collaboration",
+  "/reports": "reports",
+  "/settings": "admin",
+  "/setup": "admin",
+};
 
 interface Me {
   name: string;
@@ -403,6 +431,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     icon: ReactNode,
     end?: ReactNode,
   ): ReactNode => {
+    // מודול חסום — הפריט יורד מהסרגל, ולא מוצג ומוביל ל-403
+    const module = NAV_MODULE[href];
+    if (module !== undefined && (counts?.blockedModules ?? []).includes(module)) return null;
     const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
     return (
       <Link

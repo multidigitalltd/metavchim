@@ -39,6 +39,13 @@ export interface NavSummary {
    * תצוגה בלבד — האכיפה היא ב-FeatureGuard.
    */
   features: string[];
+  /**
+   * מודולים שהפלטפורמה חסמה למשרד.
+   *
+   * הסרגל צריך אותם כדי לא להציג פריט שמוביל למסך שיחזיר 403 — קישור
+   * שנשבר בלחיצה נראה כמו תקלה, לא כמו החלטה.
+   */
+  blockedModules: string[];
 }
 
 @Controller("nav")
@@ -53,6 +60,11 @@ export class NavController {
   async summary(): Promise<NavSummary> {
     const { tenantId } = TenantContext.current();
     const plan = await this.plans.forTenant(tenantId);
+    // מחוץ ל-RLS (רישום הדיירים), ולכן שאילתה ישירה ולא withTenant
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { blockedModules: true },
+    });
     return this.prisma.withTenant(async (tx) => {
       const now = new Date();
       const [properties, buyers, newLeads, matches, ledger, taskRows] = await Promise.all([
@@ -120,6 +132,7 @@ export class NavController {
         credits: ledger._count === 0 ? null : (ledger._sum.amount ?? 0),
         urgentTasks: taskRows.filter((row) => isTaskUrgent(row, now)).length,
         features: plan?.features ?? [],
+        blockedModules: tenant?.blockedModules ?? [],
       };
     });
   }

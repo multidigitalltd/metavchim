@@ -100,5 +100,6 @@ export const FIELD_LABELS: Record<string, string> = {
   hasElevator: "מעלית",
   hasParking: "חניה",
   priceAgorot: "מחיר",
+  entryType: "מועד כניסה/מסירה",
   entryDate: "תאריך כניסה",
 };

@@ -49,6 +49,32 @@ export const MAX_REFERRAL_PRICE = 500;
  */
 export const PLATFORM_REFERRAL_FEE_PERCENT = 15;
 
+/** תקרת שפיות לעמלה — מעבר לזה ההפניה מפסיקה להיות כדאית למפנה. */
+export const MAX_PLATFORM_FEE_PERCENT = 50;
+
+/**
+ * האחוז שנקבע במסך הפלטפורמה, עם נפילה לברירת המחדל.
+ *
+ * מקור אמת אחד לשרת ולמסך: השרת גובה לפי זה, והמסך מציג לפי זה.
+ * ערך פסול — טקסט, שלילי, מעל התקרה — נופל לברירת המחדל במקום
+ * לייצר עמלה חסרת משמעות: הגדרה שבורה לא אמורה לגרום למשרד לשלם
+ * 300% על הפניה, ולא לפלטפורמה לגבות אפס בלי שאיש ישים לב.
+ */
+export function resolveReferralFeePercent(stored: unknown): number {
+  /*
+   * ריק אינו אפס. `Number("")` הוא 0, ולכן הגדרה שנמחקה הייתה
+   * נקראת כ"אפס אחוז" והפלטפורמה הייתה מפסיקה לגבות בשקט. אפס הוא
+   * החלטה שמקלידים במפורש; ריק הוא "לא הוגדר".
+   */
+  if (stored === null || stored === undefined) return PLATFORM_REFERRAL_FEE_PERCENT;
+  if (typeof stored === "string" && stored.trim() === "") return PLATFORM_REFERRAL_FEE_PERCENT;
+  const value = typeof stored === "string" ? Number(stored.trim()) : Number(stored);
+  if (!Number.isFinite(value)) return PLATFORM_REFERRAL_FEE_PERCENT;
+  const rounded = Math.round(value);
+  if (rounded < 0 || rounded > MAX_PLATFORM_FEE_PERCENT) return PLATFORM_REFERRAL_FEE_PERCENT;
+  return rounded;
+}
+
 /**
  * עמלת הפלטפורמה בקרדיטים.
  *

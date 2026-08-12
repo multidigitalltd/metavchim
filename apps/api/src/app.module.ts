@@ -15,6 +15,7 @@ import { CalendarModule } from "./modules/calendar/calendar.module";
 import { GmailModule } from "./modules/gmail/gmail.module";
 import { CoachModule } from "./modules/coach/coach.module";
 import { CollaborationModule } from "./modules/collaboration/collaboration.module";
+import { MapsModule } from "./modules/maps/maps.module";
 import { ContactsModule } from "./modules/contacts/contacts.module";
 import { ExportModule } from "./modules/export/export.module";
 import { HealthModule } from "./modules/health/health.module";
@@ -66,6 +67,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     CalendarModule,
     GmailModule,
     CollaborationModule,
+    MapsModule,
     SettingsModule,
     SignupModule,
     BillingModule,

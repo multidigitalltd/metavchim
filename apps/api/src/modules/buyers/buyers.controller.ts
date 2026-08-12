@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
 import { z } from "zod";
 import {
   BuyerMaturitySchema,
@@ -117,6 +117,35 @@ export class BuyersController {
     @Body(new ZodValidationPipe(UpdateBuyerSchema)) body: z.infer<typeof UpdateBuyerSchema>,
   ): Promise<BuyerDto> {
     return this.buyers.update(id, body);
+  }
+
+  /** מה תגרור המחיקה — לפני האישור, לא אחריו. */
+  @Get(":id/deletion-preview")
+  @RequireCapability("buyers.delete")
+  async deletionPreview(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<Awaited<ReturnType<BuyersService["deletionPreview"]>>> {
+    return this.buyers.deletionPreview(id);
+  }
+
+  /**
+   * ארכיון — הכרטיס יורד מהרשימות וההיסטוריה נשמרת.
+   *
+   * זו פעולת ברירת המחדל: "הלקוח כבר לא מחפש" אינו "הלקוח מעולם לא
+   * היה". מחיקה לצמיתות היא נתיב נפרד, ורק מכרטיס שכבר בארכיון.
+   */
+  @Delete(":id")
+  @RequireCapability("buyers.delete")
+  @HttpCode(204)
+  async archive(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<void> {
+    await this.buyers.archive(id);
+  }
+
+  @Delete(":id/permanent")
+  @RequireCapability("buyers.delete")
+  @HttpCode(204)
+  async purge(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<void> {
+    await this.buyers.purge(id);
   }
 
   /** "נכסים מתאימים לקונה" — הצד השני של מסך ההתאמות הדו-צדי (אפיון §15). */
