@@ -29,6 +29,7 @@ export * from "./logic/parse-search-query.js";
 export * from "./logic/price-words.js";
 export * from "./logic/duplicate-contacts.js";
 export * from "./logic/diarize.js";
+export * from "./logic/geo.js";
 export * from "./logic/capability-overrides.js";
 export * from "./logic/coupon.js";
 export * from "./logic/xlsx-import.js";

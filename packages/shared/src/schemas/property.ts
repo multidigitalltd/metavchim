@@ -51,6 +51,14 @@ export const PropertyFieldsSchema = z.object({
   entryDate: z.coerce.date().optional(),
   exclusive: z.boolean().optional(),
   exclusiveUntil: z.coerce.date().optional(),
+  /*
+   * מיקום — WGS84 תמיד. שני השדות הולכים יחד: קו רוחב בלי אורך אינו
+   * נקודה, והשרת דוחה חצי מיקום במקום לשמור אותו ולהיראות תקין.
+   */
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
+  /** pin = סומן ידנית · geocode = נגזר מהכתובת. */
+  locationSource: z.enum(["pin", "geocode"]).optional(),
 });
 export type PropertyFields = z.infer<typeof PropertyFieldsSchema>;
 

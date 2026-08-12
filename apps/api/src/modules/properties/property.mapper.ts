@@ -28,6 +28,9 @@ export function rowToFields(row: PropertyRow): PropertyFields {
     entryDate: row.entryDate ?? undefined,
     exclusive: row.exclusive ?? undefined,
     exclusiveUntil: row.exclusiveUntil ?? undefined,
+    latitude: row.latitude ?? undefined,
+    longitude: row.longitude ?? undefined,
+    locationSource: (row.locationSource as "pin" | "geocode" | null) ?? undefined,
   };
 }
 
@@ -70,5 +73,17 @@ export function fieldsToColumns(fields: Partial<PropertyFields>): Prisma.Propert
   if ("entryDate" in fields) out.entryDate = fields.entryDate ?? null;
   if ("exclusive" in fields) out.exclusive = fields.exclusive ?? null;
   if ("exclusiveUntil" in fields) out.exclusiveUntil = fields.exclusiveUntil ?? null;
+  /*
+   * המיקום נכתב כיחידה אחת: קו רוחב בלי אורך אינו נקודה, ושמירת חצי
+   * ממנו הייתה יוצרת נכס ש"יש לו מיקום" ואי אפשר להציג אותו.
+   */
+  if ("latitude" in fields || "longitude" in fields) {
+    const lat = fields.latitude ?? null;
+    const lon = fields.longitude ?? null;
+    const both = lat !== null && lon !== null;
+    out.latitude = both ? lat : null;
+    out.longitude = both ? lon : null;
+    out.locationSource = both ? (fields.locationSource ?? "pin") : null;
+  }
   return out;
 }

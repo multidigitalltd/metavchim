@@ -18,6 +18,7 @@ import { MediaSection } from "./media-section";
 import { AgreementsPanel } from "../../agreements-panel";
 import { EntityTasks } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
+import { LocationPicker } from "../location-picker";
 import { RelatedEntities } from "../../related-entities";
 import { IconThumbUp } from "../../icons";
 
@@ -32,6 +33,9 @@ interface PropertyDetail {
   city?: string;
   neighborhood?: string;
   street?: string;
+  latitude?: number;
+  longitude?: number;
+  locationSource?: "pin" | "geocode";
   propertyType?: string;
   dealType?: string;
   rooms?: number;
@@ -385,6 +389,28 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
               ))}
             </dl>
 
+          </section>
+
+          {/*
+            מיקום הנכס — טקסט ומפה בשני הכיוונים. יושב ליד פרטי הנכס
+            ולא במסך נפרד: זה חלק מהפרטים, וסוכן שצריך לנווט למסך אחר
+            כדי למקם נכס פשוט לא ימקם אותו.
+          */}
+          <section className="mv-list-card mb-[18px] p-5">
+            <h2 className="m-0 mb-2 text-[15px] font-bold">מיקום על המפה</h2>
+            <LocationPicker
+              value={{
+                latitude: property.latitude,
+                longitude: property.longitude,
+                locationSource: property.locationSource,
+              }}
+              addressText={address}
+              disabled={!canEditOwner}
+              onChange={(next) => {
+                setProperty({ ...property, ...next });
+                void apiPatch(`/properties/${id}`, next).catch(() => undefined);
+              }}
+            />
           </section>
 
           <PropertyOwner

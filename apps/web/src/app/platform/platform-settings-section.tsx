@@ -34,6 +34,7 @@ interface PlatformSettings {
   /** אחוז עמלת ההפניות — ערך ולא סטטוס; שרת ישן לא מחזיר אותו. */
   referralFeePercent?: number;
   maps?: { configured: boolean };
+  geocoding?: { provider: string; forward: boolean; reverse: boolean };
 }
 
 function StatusBadge({ configured, source }: { configured: boolean; source: string }) {
@@ -183,6 +184,20 @@ export function PlatformSettingsSection() {
       load();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** בחירת ספק פענוח הכתובות. */
+  async function saveProvider(provider: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await apiPatch("/platform/settings", { geocodingProvider: provider });
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "שמירת הספק נכשלה");
     } finally {
       setBusy(false);
     }
@@ -634,6 +649,39 @@ export function PlatformSettingsSection() {
           </label>
           <Button type="submit" disabled={busy}>שמור</Button>
         </form>
+
+        {/* פענוח כתובות — החלטה נפרדת מהאריחים, ובכוונה */}
+        <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
+          <h4 className="mb-1 text-sm font-semibold">פענוח כתובות</h4>
+          <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            הופך כתובת שהוקלדה לנקודה על המפה, ובכיוון ההפוך — סיכה שנגררה לכתובת.
+            <b> זה הכיוון שבו כתובות של לקוחות נשלחות לשירות חיצוני</b>, ולכן זו החלטה
+            נפרדת מהאריחים. &quot;ללא&quot; = לא פונים לאיש, והסוכן מסמן ידנית.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={settings.geocoding?.provider ?? "none"}
+              onChange={(e) => void saveProvider(e.target.value)}
+              disabled={busy}
+              className="rounded-lg border px-2.5 py-2"
+              style={inputStyle}
+            >
+              <option value="none">ללא — סימון ידני בלבד</option>
+              <option value="govmap">מפ&quot;י / GovMap — כתובת ← מפה</option>
+              <option value="mapbox">Mapbox — שני הכיוונים (דורש טוקן)</option>
+            </select>
+            {settings.geocoding && settings.geocoding.provider !== "none" ? (
+              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+                {settings.geocoding.forward ? "כתובת ← מפה ✓" : ""}
+                {settings.geocoding.reverse
+                  ? " · מפה ← כתובת ✓"
+                  : settings.geocoding.forward
+                    ? " · מפה ← כתובת אינו נתמך אצל ספק זה"
+                    : ""}
+              </span>
+            ) : null}
+          </div>
+        </div>
       </div>
 
       {/* ---------- עמלת הפניות ---------- */}

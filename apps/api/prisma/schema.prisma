@@ -279,6 +279,17 @@ model Property {
   exclusive            Boolean?
   exclusiveUntil       DateTime? @map("exclusive_until") @db.Date
   ownerContactId       String?   @map("owner_contact_id") @db.Char(26)
+  /// מיקום הנכס — **תמיד WGS84**, גם כשהמקור עבד ברשת ישראל.
+  ///
+  /// פורמט אחד בכל המערכת, המרה בקצה: החלפת ספק פענוח אינה אמורה
+  /// לגרור המרת מסד. `null` = הנכס עוד לא מוקם, וההתאמה נופלת
+  /// להשוואת עיר כמו קודם.
+  latitude             Float?
+  longitude            Float?
+  /// pin = הסוכן סימן ידנית · geocode = נגזר מהכתובת.
+  /// ההבחנה חשובה ליום שבו נרצה לרענן מיקומים אוטומטיים בלי לדרוס
+  /// סימון שאדם עשה במתכוון.
+  locationSource       String?   @map("location_source") @db.VarChar(10)
   marketingTitle       String?   @map("marketing_title") @db.VarChar(160)
   marketingDescription String?   @map("marketing_description")
   internalNotes        String?   @map("internal_notes")

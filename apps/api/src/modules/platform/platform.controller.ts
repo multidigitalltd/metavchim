@@ -51,6 +51,7 @@ import {
   type PlatformSettingKey,
 } from "../../core/platform-settings.service";
 import { CardcomService } from "../../core/cardcom.service";
+import { GeocodingService } from "../../core/geocoding.service";
 import { AccountDeletionService } from "../settings/account-deletion.service";
 import { LeadPricingService } from "../../core/lead-pricing.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
@@ -183,6 +184,8 @@ const UpdateSettingsSchema = z
       .optional(),
     /** טוקן ציבורי לאריחי מפה — ‎pk.*‎ אצל Mapbox, ריק = מפה כבויה. */
     mapboxToken: z.union([z.string().trim().min(20).max(200), z.literal("")]).optional(),
+    /** ספק פענוח הכתובות. ‎none‎ = לא פונים לאיש. */
+    geocodingProvider: z.enum(["none", "govmap", "mapbox"]).optional(),
   })
   .strict();
 
@@ -302,6 +305,7 @@ export class PlatformController {
     private readonly leadPricing: LeadPricingService,
     private readonly cardcom: CardcomService,
     private readonly accountDeletion: AccountDeletionService,
+    private readonly geocoding: GeocodingService,
   ) {}
 
   /**
@@ -806,6 +810,8 @@ export class PlatformController {
     referralFeePercent: number;
     /** אריחי המפה — סטטוס בלבד; הטוקן עצמו נמסר לאפליקציה בנתיב שלה. */
     maps: { configured: boolean };
+    /** פענוח כתובות: מי הספק ומה הוא יודע לעשות. */
+    geocoding: { provider: string; forward: boolean; reverse: boolean };
   }> {
     const env = loadEnv();
     const dbKeys = await this.platformSettings.configuredKeys();
@@ -836,6 +842,10 @@ export class PlatformController {
     return {
       referralFeePercent,
       maps: { configured: has("mapboxToken") },
+      geocoding: {
+        provider: await this.geocoding.provider(),
+        ...(await this.geocoding.capabilities()),
+      },
       postmark: {
         configured: postmarkDb || postmarkEnv,
         source: postmarkDb ? "db" : postmarkEnv ? "env" : "none",
