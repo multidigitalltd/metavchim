@@ -176,6 +176,53 @@ export function CollaborationGuide() {
 }
 
 /**
+ * מעטפת אחידה לפאנלי ההסבר.
+ *
+ * שלושת הפאנלים היו שלושה עותקים של אותו `details` בריפוד מלא ובגופן
+ * מלא, ולכן במצב סגור — שהוא רוב הזמן — כל אחד מהם תפס כרטיס גדול
+ * וכמעט ריק מעל התוכן שבאמת באו לראות. שורה סגורה היא **כותרת ולא
+ * כרטיס**: ריפוד הדוק וגופן קטן, והריווח נפתח רק יחד עם התוכן.
+ *
+ * מקור אחד לשלושתם — אחרת הם נפרדים ביום שמישהו משנה אחד מהם.
+ */
+function GuidePanel({
+  icon,
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <details
+      className="mb-2.5 rounded-lg border"
+      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+      open={defaultOpen}
+    >
+      <summary className="cursor-pointer px-3 py-2 text-[13px] font-semibold">
+        {/*
+          עטיפת inline-flex ולא אייקון חשוף: ה-preflight של Tailwind
+          מגדיר `svg { display: block }`, ולכן האייקון בתוך summary ירד
+          לשורה משלו והשורה ה"סגורה" תפסה שלוש שורות. flex על ה-summary
+          עצמו היה פותר את זה ומוחק את משולש הפתיחה — הוא זקוק
+          ל-list-item — ולכן הפנימיות הן שהופכות לשורה אחת.
+        */}
+        <span className="inline-flex items-center gap-1.5 align-middle">
+          {icon} {title}
+        </span>
+      </summary>
+      {/* קו מפריד ולא רווח: הוא מסמן איפה ההסבר מתחיל בלי לגזול גובה */}
+      <div className="border-t px-3 py-2.5" style={{ borderColor: "var(--color-border)" }}>
+        {children}
+      </div>
+    </details>
+  );
+}
+
+/**
  * מה נחשף ומה לא.
  *
  * החשש הזה הוא מה שעוצר מתווכים מלשתף: "הם ייקחו לי את הלקוח".
@@ -184,15 +231,8 @@ export function CollaborationGuide() {
  */
 export function PrivacyPanel() {
   return (
-    <details
-      className="mb-5 rounded-xl border p-4"
-      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-    >
-      <summary className="cursor-pointer font-semibold">
-        <IconLock s={15} /> מה המשרד השני רואה על הלקוח שלי?
-      </summary>
-
-      <div className="mt-3 grid gap-4 md:grid-cols-2">
+    <GuidePanel icon={<IconLock s={14} />} title="מה המשרד השני רואה על הלקוח שלי?">
+      <div className="grid gap-4 md:grid-cols-2">
         <div>
           <p className="m-0 mb-1.5 text-[13px] font-bold" style={{ color: "var(--color-primary)" }}>
             ✓ נחשף
@@ -223,7 +263,7 @@ export function PrivacyPanel() {
         גם אחרי שמשרד מציע נכס — הוא עדיין לא מקבל את פרטי הלקוח. אתם מחליטים
         אם ההצעה מעניינת, ורק אז נפתח קשר בין המשרדים. <b>הלקוח נשאר שלכם.</b>
       </p>
-    </details>
+    </GuidePanel>
   );
 }
 
@@ -236,16 +276,8 @@ export function PrivacyPanel() {
  */
 export function ReferralRulesPanel() {
   return (
-    <details
-      className="mb-5 rounded-xl border p-4"
-      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-      open
-    >
-      <summary className="cursor-pointer font-semibold">
-        <IconHandshake s={15} /> איך עובדת הפניית לקוח?
-      </summary>
-
-      <p className="m-0 mt-3 mb-2 text-[13px]">
+    <GuidePanel icon={<IconHandshake s={14} />} title="איך עובדת הפניית לקוח?" defaultOpen>
+      <p className="m-0 mb-2 text-[13px]">
         משרד שמקבל פנייה שאינה מתאימה לו — לא באזור שלו, לא בתחום שלו או שאין לו
         פנאי — מפנה את הלקוח למשרד שכן יכול לשרת אותו, ומקבל תמורה על ההפניה.
         <b> זו אינה מכירת ליד</b>: הלקוח מקבל מענה אמיתי, והמשרד שמפנה חייב לומר
@@ -273,7 +305,7 @@ export function ReferralRulesPanel() {
         שם וטלפון של הלקוח נחשפים למשרד הקולט רק אחרי הקליטה. עד אז מוצגים
         הכוונה, המקור, העיר, הסיבה והתיאור בלבד.
       </p>
-    </details>
+    </GuidePanel>
   );
 }
 
@@ -285,15 +317,8 @@ export function ReferralRulesPanel() {
  */
 export function CommissionPanel() {
   return (
-    <details
-      className="mb-5 rounded-xl border p-4"
-      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-    >
-      <summary className="cursor-pointer font-semibold">
-        <IconCoins s={15} /> איך נחלקת העמלה?
-      </summary>
-
-      <p className="m-0 mt-3 mb-2 text-[13px]">
+    <GuidePanel icon={<IconCoins s={14} />} title="איך נחלקת העמלה?">
+      <p className="m-0 mb-2 text-[13px]">
         האחוז שנקבע הוא <b>חלקכם בעמלה של העסקה</b> — לא סכום שמשולם למערכת.
       </p>
       <ul className="m-0 mb-3 ps-4 text-[12.5px]" style={{ color: "var(--color-text-soft)" }}>
@@ -312,6 +337,6 @@ export function CommissionPanel() {
         אחרי שהלקוח כבר התעניין. שם בדיוק נשברים שיתופי פעולה.
         המערכת מציגה את החלוקה לשני הצדדים לפני כל החלטה.
       </p>
-    </details>
+    </GuidePanel>
   );
 }

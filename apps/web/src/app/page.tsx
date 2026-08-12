@@ -4,13 +4,24 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { apiGet } from "@/lib/api";
 import { FIELD_LABELS, MATURITY_LABELS } from "@/lib/format";
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { DuplicateContacts } from "./duplicate-contacts";
 import { SetupBanner } from "./setup-banner";
 import { NowStamp } from "./now-stamp";
 import { BarChart, DonutChart, type Slice } from "./charts";
-import { IconBell, IconFilter, IconFlame, IconHome, IconSend, IconStar, IconUsers, IconWarning } from "./icons";
+import {
+  IconBell,
+  IconCheck,
+  IconFilter,
+  IconFlame,
+  IconHandshake,
+  IconHome,
+  IconSend,
+  IconStar,
+  IconUsers,
+  IconWarning,
+} from "./icons";
 
 /**
  * דשבורד לפי קובץ העיצוב: ברכה עם תאריך, ארבעה כרטיסי מונים,
@@ -68,6 +79,30 @@ interface OfferRow {
   openCount: number;
 }
 
+/** משימה פתוחה שלי — הדשבורד מציג את הדחופות, המסך המלא את השאר. */
+interface TaskRowDto {
+  id: string;
+  title: string;
+  dueAt?: string;
+  priority: string;
+  entityLabel?: string;
+}
+
+/** הצעת שת"פ שקיבלתי על ביקוש שפרסמתי. */
+interface CoopOfferRow {
+  id: string;
+  direction: "incoming" | "outgoing";
+  status: string;
+}
+
+/** הפניית לקוח בלוח — כאן נספרות רק הפתוחות של משרדים אחרים. */
+interface SharedLeadRow {
+  id: string;
+  status: string;
+  role: "referrer" | "receiver" | "viewer";
+  priceCredits: number;
+}
+
 const APPOINTMENT_KIND_LABELS: Record<string, string> = {
   viewing: "סיור בנכס",
   meeting: "פגישה",
@@ -75,6 +110,23 @@ const APPOINTMENT_KIND_LABELS: Record<string, string> = {
 };
 
 const timeFmt = new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit" });
+const dayFmt = new Intl.DateTimeFormat("he-IL", { day: "2-digit", month: "2-digit" });
+
+/**
+ * מתי המשימה. "באיחור" ו"היום" ולא תאריך: אלה שתי המילים שקובעות אם
+ * נוגעים בה עכשיו, ותאריך מספרי דורש מהקורא לחשב אותן בעצמו.
+ */
+function dueLabel(dueAt: string | undefined): { text: string; urgent: boolean } {
+  if (dueAt === undefined) return { text: "ללא יעד", urgent: false };
+  const due = new Date(dueAt);
+  const endOfToday = new Date();
+  endOfToday.setHours(23, 59, 59, 999);
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  if (due < startOfToday) return { text: "באיחור", urgent: true };
+  if (due <= endOfToday) return { text: `היום ${timeFmt.format(due)}`, urgent: true };
+  return { text: dayFmt.format(due), urgent: false };
+}
 
 interface Recommendation {
   priority: number;
@@ -144,6 +196,10 @@ export default function DashboardPage() {
   const [offers, setOffers] = useState<OfferRow[] | null>(null);
   const [buyerBreakdown, setBuyerBreakdown] = useState<Breakdown<"byMaturity"> | null>(null);
   const [leadBreakdown, setLeadBreakdown] = useState<Breakdown<"byStatus"> | null>(null);
+  const [myTasks, setMyTasks] = useState<TaskRowDto[] | null>(null);
+  const [coopOffers, setCoopOffers] = useState<CoopOfferRow[] | null>(null);
+  const [sharedLeads, setSharedLeads] = useState<SharedLeadRow[] | null>(null);
+  const [credits, setCredits] = useState<number | null>(null);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -174,6 +230,28 @@ export default function DashboardPage() {
     apiGet<{ items: OfferRow[] }>("/offers")
       .then((r) => setOffers(r.items))
       .catch(() => setOffers([]));
+    /*
+     * שני האזורים האחרונים נטענים רק למי שרשאי לראות אותם. בלי
+     * הבדיקה המוקדמת הדשבורד היה יורה שתי בקשות שחוזרות 403 בכל
+     * טעינה אצל סוכן בלי היכולות — ומצייר אזור ריק שאין לו סיבה
+     * להתמלא.
+     */
+    if (can(user, "calendar.manage")) {
+      apiGet<TaskRowDto[]>("/tasks?status=open&assignee=me")
+        .then(setMyTasks)
+        .catch(() => setMyTasks([]));
+    }
+    if (can(user, "collaboration.offer")) {
+      apiGet<CoopOfferRow[]>("/collaboration/offers")
+        .then(setCoopOffers)
+        .catch(() => setCoopOffers([]));
+      apiGet<SharedLeadRow[]>("/collaboration/leads")
+        .then(setSharedLeads)
+        .catch(() => setSharedLeads([]));
+      apiGet<{ balance: number }>("/collaboration/credits")
+        .then((r) => setCredits(r.balance))
+        .catch(() => setCredits(null));
+    }
   }, [authLoading, user]);
 
   if (authLoading || !user) return <p aria-live="polite">טוען…</p>;
@@ -260,6 +338,31 @@ export default function DashboardPage() {
     .filter((a) => a.status === "scheduled")
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
     .slice(0, 4);
+
+  /*
+   * המשימות שלי: קודם מה שיש לו תאריך יעד ולפי הסדר, ורק אחריו
+   * משימות בלי יעד. משימה ללא תאריך אינה דחופה יותר ממשימה שעברה
+   * את שלה, ומיון לקסיקוגרפי גולמי היה שם אותה ראשונה.
+   */
+  const sortedTasks = [...(myTasks ?? [])].sort((a, b) => {
+    if (a.dueAt === undefined) return b.dueAt === undefined ? 0 : 1;
+    if (b.dueAt === undefined) return -1;
+    return a.dueAt.localeCompare(b.dueAt);
+  });
+  const shownMyTasks = sortedTasks.slice(0, 4);
+  const endOfToday = new Date();
+  endOfToday.setHours(23, 59, 59, 999);
+  const dueNow = sortedTasks.filter(
+    (t) => t.dueAt !== undefined && new Date(t.dueAt) <= endOfToday,
+  ).length;
+
+  /* מה מחכה לי ברשת: הצעה שקיבלתי, והפניות פתוחות של משרדים אחרים */
+  const incomingCoop = (coopOffers ?? []).filter(
+    (o) => o.direction === "incoming" && o.status === "sent",
+  );
+  const openReferrals = (sharedLeads ?? []).filter(
+    (l) => l.role === "viewer" && l.status === "active",
+  );
 
   /*
    * כל מונה נושא אייקון משלו. זה לא קישוט: בסריקה מהירה של ארבעה
@@ -524,6 +627,138 @@ export default function DashboardPage() {
               ))
             )}
           </section>
+
+          {/*
+            המשימות שלי — האזור היחיד בדשבורד שמראה מה **אני** רשמתי
+            לעצמי. "מה חשוב לעשות היום" נגזר ממצב המאגר ומההמלצות,
+            והוא לא מכיר משימה שסוכן פתח ביד; עד עכשיו היא הייתה
+            קיימת רק במסך המשימות, כלומר במסך שצריך לזכור להיכנס
+            אליו. הדחופות כאן, השאר שם.
+          */}
+          {can(user, "calendar.manage") ? (
+            <section
+              aria-labelledby="my-tasks-heading"
+              className="rounded-xl border px-5 py-4"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+            >
+              <div className="mb-1 flex items-center gap-2">
+                <h2 id="my-tasks-heading" className="m-0" style={{ fontSize: 15.5, fontWeight: 800 }}>
+                  המשימות שלי
+                </h2>
+                {dueNow > 0 ? (
+                  <span
+                    className="rounded-full px-2 py-0.5 text-[11.5px] font-bold"
+                    style={{ background: "#f7e6e0", color: "var(--color-danger)" }}
+                  >
+                    {dueNow} להיום
+                  </span>
+                ) : null}
+                <Link
+                  href="/tasks"
+                  className="ms-auto text-[12.5px] font-bold no-underline"
+                  style={{ color: "var(--color-primary)" }}
+                >
+                  לכל המשימות
+                </Link>
+              </div>
+              {myTasks === null ? (
+                <p className="m-0 py-2 text-[13px]" aria-live="polite" style={{ color: "var(--color-text-muted)" }}>
+                  טוען…
+                </p>
+              ) : shownMyTasks.length === 0 ? (
+                <p className="m-0 py-2 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+                  <IconCheck s={14} /> אין משימות פתוחות על שמכם.
+                </p>
+              ) : (
+                shownMyTasks.map((t) => {
+                  const due = dueLabel(t.dueAt);
+                  return (
+                    <div
+                      key={t.id}
+                      className="flex items-baseline gap-3 py-2"
+                      style={{ borderBottom: "1px solid var(--color-row-border)" }}
+                    >
+                      <span
+                        className="flex-none text-[12px] font-extrabold"
+                        style={{
+                          width: 58,
+                          color: due.urgent ? "var(--color-danger)" : "var(--color-text-muted)",
+                        }}
+                      >
+                        {due.text}
+                      </span>
+                      <span style={{ lineHeight: 1.3 }}>
+                        <span className="block text-[13.5px] font-bold">{t.title}</span>
+                        {t.entityLabel ? (
+                          <span className="block text-xs" style={{ color: "var(--color-text-muted)" }}>
+                            {t.entityLabel}
+                          </span>
+                        ) : null}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+            </section>
+          ) : null}
+
+          {/*
+            הרשת בדשבורד. הצעה שקיבלתי על ביקוש והפניה פתוחה הן
+            הזדמנויות שפגות: ביקוש נסגר, והפניה נקלטת במשרד אחר. עד
+            עכשיו הן חיכו במסך שנכנסים אליו ביוזמה, כלומר בדרך כלל
+            אחרי שהיה מאוחר.
+          */}
+          {can(user, "collaboration.offer") ? (
+            <section
+              aria-labelledby="coop-heading"
+              className="rounded-xl border px-5 py-4"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+            >
+              <div className="mb-2 flex items-center gap-2">
+                <h2 id="coop-heading" className="m-0 flex items-center gap-2" style={{ fontSize: 15.5, fontWeight: 800 }}>
+                  <IconHandshake s={16} /> שת&quot;פים
+                </h2>
+                <Link
+                  href="/collaboration"
+                  className="ms-auto text-[12.5px] font-bold no-underline"
+                  style={{ color: "var(--color-primary)" }}
+                >
+                  לרשת
+                </Link>
+              </div>
+              {/*
+                יחיד ורבים ולא "1 הצעות". מספר צמוד לשם עצם בעברית
+                מחייב התאמה, וברשימה קצרה כזו הפער בולט מיד.
+              */}
+              <ul className="m-0 list-none p-0 text-[13px]">
+                <li className="flex items-baseline gap-2 py-1.5" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
+                  <b style={{ color: incomingCoop.length > 0 ? "var(--color-primary)" : undefined }}>
+                    {coopOffers === null ? "…" : incomingCoop.length}
+                  </b>
+                  <span>
+                    {incomingCoop.length === 1
+                      ? "הצעה שהתקבלה על הביקושים שלכם"
+                      : "הצעות שהתקבלו על הביקושים שלכם"}
+                  </span>
+                </li>
+                <li className="flex items-baseline gap-2 py-1.5">
+                  <b style={{ color: openReferrals.length > 0 ? "var(--color-primary)" : undefined }}>
+                    {sharedLeads === null ? "…" : openReferrals.length}
+                  </b>
+                  <span>
+                    {openReferrals.length === 1
+                      ? "הפניית לקוח פתוחה ברשת"
+                      : "הפניות לקוחות פתוחות ברשת"}
+                  </span>
+                </li>
+              </ul>
+              <p className="m-0 mt-1.5 text-[12px]" style={{ color: "var(--color-text-muted)" }}>
+                {credits === null
+                  ? "שיתוף פעולה על ביקושים אינו עולה קרדיטים."
+                  : `יתרה: ${credits} קרדיטים · שיתוף פעולה על ביקושים אינו עולה קרדיטים.`}
+              </p>
+            </section>
+          ) : null}
 
           {/* קידום שמוביל לפיצ'ר שאינו במסלול נחסם בשרת — אין טעם
               להזמין אליו */}
