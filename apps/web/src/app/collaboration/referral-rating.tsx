@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type KeyboardEvent } from "react";
 import {
   MAX_REFERRAL_RATING,
   MAX_REFERRAL_RATING_COMMENT,
@@ -54,6 +54,30 @@ export function ReferralRating({
   const [error, setError] = useState<string | null>(null);
   const fieldId = `referralComment_${sharedLeadId}`;
 
+  /**
+   * ניווט בחצים בתוך קבוצת הכוכבים.
+   *
+   * המסך בעברית ולכן החצים הפוכים ויזואלית: „ימינה” מקטין ו„שמאלה”
+   * מגדיל. למעלה/למטה נשארים מוחלטים — הם אינם תלויי כיוון כתיבה.
+   */
+  function moveWithArrows(event: KeyboardEvent<HTMLDivElement>): void {
+    const step =
+      event.key === "ArrowLeft" || event.key === "ArrowUp"
+        ? 1
+        : event.key === "ArrowRight" || event.key === "ArrowDown"
+          ? -1
+          : 0;
+    if (step === 0) return;
+    event.preventDefault();
+    const current = score === 0 ? MIN_REFERRAL_RATING : score;
+    const next = Math.min(MAX_REFERRAL_RATING, Math.max(MIN_REFERRAL_RATING, current + step));
+    setScore(next);
+    // הבחירה והמיקוד נעים יחד — אחרת קורא המסך מכריז על כוכב אחר
+    event.currentTarget
+      .querySelector<HTMLButtonElement>(`[data-star="${next}"]`)
+      ?.focus();
+  }
+
   async function submit(): Promise<void> {
     if (score === 0) return;
     setBusy(true);
@@ -83,15 +107,19 @@ export function ReferralRating({
 
       {/*
         קבוצת רדיו ולא ערימת כפתורים: קורא מסך צריך לשמוע "3 מתוך 5",
-        ומקלדת צריכה לעבור על החמישה בחצים ולא ב-Tab חמש פעמים.
+        ומקלדת עוברת על החמישה בחצים — לא ב-Tab חמש פעמים. לכן
+        tabindex נודד: רק הכוכב הנבחר (או הראשון, כשעוד לא נבחר)
+        נמצא בסדר ה-Tab, והחצים מזיזים את הבחירה בתוך הקבוצה.
       */}
       <div
         role="radiogroup"
         aria-label={role === "received" ? "דירוג ההפניה שקלטתם" : "דירוג הלקוח שהפניתם"}
         className="flex flex-wrap items-center gap-1"
+        onKeyDown={moveWithArrows}
       >
         {STARS.map((value) => {
           const active = value <= score;
+          const focusable = score === 0 ? value === STARS[0] : value === score;
           return (
             <button
               key={value}
@@ -101,6 +129,8 @@ export function ReferralRating({
               aria-label={`${value} — ${REFERRAL_RATING_LABELS[value]}`}
               title={REFERRAL_RATING_LABELS[value]}
               disabled={busy}
+              tabIndex={focusable ? 0 : -1}
+              data-star={value}
               onClick={() => setScore(value)}
               /*
                * כוכב ריק נשאר קו מתאר; המסומנים מתמלאים. המילוי דרך

@@ -26,27 +26,6 @@ export const MAX_REFERRAL_NOTE = 300;
 /** אורך שם העיר (ללידים אין עמודת עיר — זה קלט חופשי). */
 export const MAX_REFERRAL_CITY = 120;
 
-/**
- * המילון המחייב. כל מחרוזת שמוצגת למשתמש על המנגנון הזה נשענת עליו,
- * כדי שלא ייווצר מסך אחד שמדבר על "מכירה" ומסך שני על "הפניה".
- */
-export const REFERRAL_TERMS = {
-  /** שם המנגנון */
-  mechanism: "הפניית לקוח",
-  /** ריבוי — שם הלשונית והלוח */
-  mechanismPlural: "הפניות לקוחות",
-  /** הצד שמפנה */
-  referrer: "המשרד המפנה",
-  /** הצד שקולט */
-  receiver: "המשרד הקולט",
-  /** פעולת הפרסום */
-  publish: "פרסום הפניה",
-  /** פעולת הקליטה */
-  accept: "קליטת הפניה",
-  /** התמורה */
-  payment: "תמורת ההפניה",
-} as const;
-
 /* ============================================================
    תמורה ועמלת פלטפורמה
    ============================================================ */
@@ -267,11 +246,11 @@ export function referralRatingAverage(sum: number, count: number): number | null
 /**
  * הניסוח שמוצג ליד שם המשרד המפנה.
  *
- * משרד בלי דירוגים אינו "0 מתוך 5" — הוא משרד חדש בלוח, וזו אמירה
- * אחרת לגמרי.
+ * מקבל **ממוצע** ולא סכום: המסך מקבל מהשרת ממוצע מוכן, והחישוב עצמו
+ * (`referralRatingAverage`) שייך לצד שקורא את המונים. משרד בלי
+ * דירוגים אינו "0 מתוך 5" — הוא משרד חדש בלוח, וזו אמירה אחרת לגמרי.
  */
-export function describeReferralRating(sum: number, count: number): string {
-  const average = referralRatingAverage(sum, count);
-  if (average === null) return "טרם דורג";
+export function describeReferralRating(average: number | null, count: number): string {
+  if (average === null || count <= 0) return "טרם דורג";
   return `${average} מתוך ${MAX_REFERRAL_RATING} (${count} דירוגים)`;
 }

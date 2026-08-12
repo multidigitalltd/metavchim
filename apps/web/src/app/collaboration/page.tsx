@@ -5,6 +5,7 @@ import {
   COMMISSION_SPLIT_OPTIONS,
   DEFAULT_COMMISSION_SPLIT,
   describeCommissionSplit,
+  describeReferralRating,
   referralReasonLabel,
 } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
@@ -507,9 +508,10 @@ export default function CollaborationPage() {
                     title="ממוצע הדירוגים שנתנו משרדים שקלטו הפניות מהמשרד הזה"
                   >
                     <IconStar s={13} />{" "}
-                    {lead.referrerRating
-                      ? `${lead.referrerRating.average} (${lead.referrerRating.count})`
-                      : "משרד שטרם דורג"}
+                    {describeReferralRating(
+                      lead.referrerRating?.average ?? null,
+                      lead.referrerRating?.count ?? 0,
+                    )}
                   </span>
                 </div>
                 <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>

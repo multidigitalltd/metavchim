@@ -151,7 +151,11 @@ describe("דירוג", () => {
 
   it("משרד בלי דירוגים אינו „0 מתוך 5”", () => {
     expect(referralRatingAverage(0, 0)).toBeNull();
-    expect(describeReferralRating(0, 0)).toBe("טרם דורג");
-    expect(describeReferralRating(9, 2)).toBe("4.5 מתוך 5 (2 דירוגים)");
+    expect(describeReferralRating(null, 0)).toBe("טרם דורג");
+    // מונה 0 עם ממוצע כלשהו הוא נתון סותר — עדיין "טרם דורג"
+    expect(describeReferralRating(4, 0)).toBe("טרם דורג");
+    expect(describeReferralRating(referralRatingAverage(9, 2), 2)).toBe(
+      "4.5 מתוך 5 (2 דירוגים)",
+    );
   });
 });
