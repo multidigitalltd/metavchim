@@ -166,6 +166,17 @@ export class CollaborationController {
     return this.collaboration.credits();
   }
 
+  /**
+   * סיכום לדשבורד: כמה מחכה לי ברשת ומה היתרה, בבקשה אחת.
+   *
+   * לא רשימות מקוצצות — הדשבורד מציג מספרים, והמספרים נספרים במסד.
+   */
+  @Get("summary")
+  @RequireCapability("collaboration.offer")
+  async summary(): Promise<{ incomingOffers: number; openReferrals: number; credits: number }> {
+    return this.collaboration.networkSummary();
+  }
+
   /* ============================================================
      לוח ההפניות: הפניית לקוח בין משרדים תמורת קרדיטים.
      פרסום = אותה יכולת כמו שיתוף ביקוש; קליטה = אותה יכולת כמו

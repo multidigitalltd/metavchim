@@ -1209,6 +1209,36 @@ export class CollaborationService {
     };
   }
 
+  /**
+   * סיכום הרשת לדשבורד — **ספירות במסד ולא סינון של רשימה.**
+   *
+   * הדשבורד הציג מספרים שנגזרו מ-`listCoopOffers` ו-`listSharedLeads`,
+   * ושתיהן חתוכות ל-100 השורות האחרונות: משרד עם מאה הצעות יוצאות
+   * חדשות היה רואה "0 הצעות שהתקבלו" בזמן שממתינה לו הצעה, ומספר
+   * ההפניות הפתוחות היה נמוך מהאמת (ביקורת Codex). `count` אינו
+   * מוגבל, והוא גם חוסך הורדה של מאתיים שורות שאיש לא מציג.
+   */
+  async networkSummary(): Promise<{
+    incomingOffers: number;
+    openReferrals: number;
+    credits: number;
+  }> {
+    const tenantId = TenantContext.current().tenantId;
+    const incomingOffers = await this.prisma.withTenant((tx) =>
+      tx.coopOffer.count({ where: { toTenantId: tenantId, status: "sent" } }),
+    );
+    /*
+     * ההפניות של המשרד עצמו אינן "פתוחות ברשת" עבורו — הוא פרסם
+     * אותן. אותו סינון בדיוק כמו בלוח, כדי שהמספר בדשבורד יהיה
+     * מספר השורות שייראו בלחיצה.
+     */
+    const openReferrals = await this.prisma.withNetworkRead((tx) =>
+      tx.sharedLead.count({ where: { status: "active", NOT: { tenantId } } }),
+    );
+    const { balance } = await this.credits();
+    return { incomingOffers, openReferrals, credits: balance };
+  }
+
   async credits(): Promise<{ balance: number }> {
     const tenantId = TenantContext.current().tenantId;
     const balance = await this.prisma.withTenant(async (tx) => {

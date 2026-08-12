@@ -1,16 +1,29 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { groupTasksByBucket, isTaskUrgent, taskBucket } from "@metavchim/shared";
 import { apiGet } from "@/lib/api";
 import { FIELD_LABELS, MATURITY_LABELS } from "@/lib/format";
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { DuplicateContacts } from "./duplicate-contacts";
+import { LoadError } from "./load-error";
 import { SetupBanner } from "./setup-banner";
 import { NowStamp } from "./now-stamp";
 import { BarChart, DonutChart, type Slice } from "./charts";
-import { IconBell, IconFilter, IconFlame, IconHome, IconSend, IconStar, IconUsers, IconWarning } from "./icons";
+import {
+  IconBell,
+  IconCheck,
+  IconFilter,
+  IconFlame,
+  IconHandshake,
+  IconHome,
+  IconSend,
+  IconStar,
+  IconUsers,
+  IconWarning,
+} from "./icons";
 
 /**
  * דשבורד לפי קובץ העיצוב: ברכה עם תאריך, ארבעה כרטיסי מונים,
@@ -68,6 +81,27 @@ interface OfferRow {
   openCount: number;
 }
 
+/** משימה פתוחה שלי — הדשבורד מציג את הדחופות, המסך המלא את השאר. */
+interface TaskRowDto {
+  id: string;
+  title: string;
+  dueAt?: string;
+  status: string;
+  priority: string;
+  createdAt?: string;
+  entityLabel?: string;
+}
+
+/**
+ * סיכום הרשת. **מספרים מהשרת ולא סינון של רשימות** — הרשימות חתוכות
+ * ל-100 שורות, ומספר שנגזר מהן משקר בדיוק במשרד העמוס שבו הוא חשוב.
+ */
+interface NetworkSummary {
+  incomingOffers: number;
+  openReferrals: number;
+  credits: number;
+}
+
 const APPOINTMENT_KIND_LABELS: Record<string, string> = {
   viewing: "סיור בנכס",
   meeting: "פגישה",
@@ -75,6 +109,25 @@ const APPOINTMENT_KIND_LABELS: Record<string, string> = {
 };
 
 const timeFmt = new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit" });
+const dayFmt = new Intl.DateTimeFormat("he-IL", { day: "2-digit", month: "2-digit" });
+
+/**
+ * מתי המשימה. "באיחור" ו"היום" ולא תאריך: אלה שתי המילים שקובעות אם
+ * נוגעים בה עכשיו, ותאריך מספרי דורש מהקורא לחשב אותן בעצמו.
+ *
+ * החלוקה עצמה מגיעה מ-`taskBucket` המשותף ולא מחישוב מקומי (ביקורת
+ * Codex): שם "באיחור" הוא **רגע שחלף** ולא יום שחלף — משימה ל-09:00
+ * היא באיחור ב-11:00 ולא "היום" — והגבולות נמדדים בלוח ירושלמי, כך
+ * שדפדפן באזור זמן אחר מקבל את אותה תשובה.
+ */
+function dueLabel(dueAt: string | undefined, now: Date): { text: string; urgent: boolean } {
+  const bucket = taskBucket(dueAt ?? null, now);
+  if (bucket === "someday") return { text: "ללא יעד", urgent: false };
+  if (bucket === "overdue") return { text: "באיחור", urgent: true };
+  const due = new Date(dueAt as string);
+  if (bucket === "today") return { text: `היום ${timeFmt.format(due)}`, urgent: true };
+  return { text: dayFmt.format(due), urgent: false };
+}
 
 interface Recommendation {
   priority: number;
@@ -144,6 +197,15 @@ export default function DashboardPage() {
   const [offers, setOffers] = useState<OfferRow[] | null>(null);
   const [buyerBreakdown, setBuyerBreakdown] = useState<Breakdown<"byMaturity"> | null>(null);
   const [leadBreakdown, setLeadBreakdown] = useState<Breakdown<"byStatus"> | null>(null);
+  const [myTasks, setMyTasks] = useState<TaskRowDto[] | null>(null);
+  const [network, setNetwork] = useState<NetworkSummary | null>(null);
+  /*
+   * כישלון טעינה נשמר בנפרד ואינו מכווץ ל-[] או ל-0 — אותו כלל כמו
+   * במסך השת"פ. "אין לכם משימות פתוחות" על בסיס בקשה שנכשלה הוא
+   * שקר שמסתיר עבודה באיחור (ביקורת Codex).
+   */
+  const [tasksFailed, setTasksFailed] = useState(false);
+  const [networkFailed, setNetworkFailed] = useState(false);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -175,6 +237,35 @@ export default function DashboardPage() {
       .then((r) => setOffers(r.items))
       .catch(() => setOffers([]));
   }, [authLoading, user]);
+
+  /*
+   * שני האזורים האחרונים נטענים רק למי שרשאי לראות אותם. בלי הבדיקה
+   * המוקדמת הדשבורד היה יורה בקשות שחוזרות 403 בכל טעינה אצל סוכן
+   * בלי היכולות — ומצייר אזור ריק שאין לו סיבה להתמלא.
+   *
+   * שתי הטעינות נפרדות מהשאר כדי שיהיה אפשר לנסות שוב רק אותן.
+   */
+  const loadTasks = useCallback(() => {
+    if (!user || !can(user, "calendar.manage")) return;
+    setTasksFailed(false);
+    apiGet<TaskRowDto[]>("/tasks?status=open&assignee=me")
+      .then(setMyTasks)
+      .catch(() => setTasksFailed(true));
+  }, [user]);
+
+  const loadNetwork = useCallback(() => {
+    if (!user || !can(user, "collaboration.offer")) return;
+    setNetworkFailed(false);
+    apiGet<NetworkSummary>("/collaboration/summary")
+      .then(setNetwork)
+      .catch(() => setNetworkFailed(true));
+  }, [user]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    loadTasks();
+    loadNetwork();
+  }, [authLoading, loadTasks, loadNetwork]);
 
   if (authLoading || !user) return <p aria-live="polite">טוען…</p>;
 
@@ -260,6 +351,18 @@ export default function DashboardPage() {
     .filter((a) => a.status === "scheduled")
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
     .slice(0, 4);
+
+  /*
+   * הסדר מגיע מ-`groupTasksByBucket` המשותף — אותה חלוקה ואותו מיון
+   * כמו במסך המשימות: באיחור, היום, השבוע, בהמשך, בלי מועד; ובתוך
+   * כל דלי לפי עדיפות ואז מועד. מיון מקומי היה מציג כאן סדר אחר
+   * מזה שרואים בלחיצה על "לכל המשימות".
+   */
+  const now = new Date();
+  const shownMyTasks = groupTasksByBucket(myTasks ?? [], now)
+    .flatMap((group) => group.tasks)
+    .slice(0, 4);
+  const dueNow = (myTasks ?? []).filter((t) => isTaskUrgent(t, now)).length;
 
   /*
    * כל מונה נושא אייקון משלו. זה לא קישוט: בסריקה מהירה של ארבעה
@@ -524,6 +627,146 @@ export default function DashboardPage() {
               ))
             )}
           </section>
+
+          {/*
+            המשימות שלי — האזור היחיד בדשבורד שמראה מה **אני** רשמתי
+            לעצמי. "מה חשוב לעשות היום" נגזר ממצב המאגר ומההמלצות,
+            והוא לא מכיר משימה שסוכן פתח ביד; עד עכשיו היא הייתה
+            קיימת רק במסך המשימות, כלומר במסך שצריך לזכור להיכנס
+            אליו. הדחופות כאן, השאר שם.
+          */}
+          {can(user, "calendar.manage") ? (
+            <section
+              aria-labelledby="my-tasks-heading"
+              className="rounded-xl border px-5 py-4"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+            >
+              <div className="mb-1 flex items-center gap-2">
+                <h2 id="my-tasks-heading" className="m-0" style={{ fontSize: 15.5, fontWeight: 800 }}>
+                  המשימות שלי
+                </h2>
+                {dueNow > 0 ? (
+                  <span
+                    className="rounded-full px-2 py-0.5 text-[11.5px] font-bold"
+                    style={{ background: "#f7e6e0", color: "var(--color-danger)" }}
+                  >
+                    {dueNow} להיום
+                  </span>
+                ) : null}
+                <Link
+                  href="/tasks"
+                  className="ms-auto text-[12.5px] font-bold no-underline"
+                  style={{ color: "var(--color-primary)" }}
+                >
+                  לכל המשימות
+                </Link>
+              </div>
+              {tasksFailed ? (
+                <LoadError message="לא הצלחנו לטעון את המשימות" onRetry={loadTasks} />
+              ) : myTasks === null ? (
+                <p className="m-0 py-2 text-[13px]" aria-live="polite" style={{ color: "var(--color-text-muted)" }}>
+                  טוען…
+                </p>
+              ) : shownMyTasks.length === 0 ? (
+                <p className="m-0 py-2 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+                  <IconCheck s={14} /> אין משימות פתוחות על שמכם.
+                </p>
+              ) : (
+                shownMyTasks.map((t) => {
+                  const due = dueLabel(t.dueAt, now);
+                  return (
+                    <div
+                      key={t.id}
+                      className="flex items-baseline gap-3 py-2"
+                      style={{ borderBottom: "1px solid var(--color-row-border)" }}
+                    >
+                      <span
+                        className="flex-none text-[12px] font-extrabold"
+                        style={{
+                          width: 58,
+                          color: due.urgent ? "var(--color-danger)" : "var(--color-text-muted)",
+                        }}
+                      >
+                        {due.text}
+                      </span>
+                      <span style={{ lineHeight: 1.3 }}>
+                        <span className="block text-[13.5px] font-bold">{t.title}</span>
+                        {t.entityLabel ? (
+                          <span className="block text-xs" style={{ color: "var(--color-text-muted)" }}>
+                            {t.entityLabel}
+                          </span>
+                        ) : null}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+            </section>
+          ) : null}
+
+          {/*
+            הרשת בדשבורד. הצעה שקיבלתי על ביקוש והפניה פתוחה הן
+            הזדמנויות שפגות: ביקוש נסגר, והפניה נקלטת במשרד אחר. עד
+            עכשיו הן חיכו במסך שנכנסים אליו ביוזמה, כלומר בדרך כלל
+            אחרי שהיה מאוחר.
+          */}
+          {can(user, "collaboration.offer") ? (
+            <section
+              aria-labelledby="coop-heading"
+              className="rounded-xl border px-5 py-4"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+            >
+              <div className="mb-2 flex items-center gap-2">
+                <h2 id="coop-heading" className="m-0 flex items-center gap-2" style={{ fontSize: 15.5, fontWeight: 800 }}>
+                  <IconHandshake s={16} /> שת&quot;פים
+                </h2>
+                <Link
+                  href="/collaboration"
+                  className="ms-auto text-[12.5px] font-bold no-underline"
+                  style={{ color: "var(--color-primary)" }}
+                >
+                  לרשת
+                </Link>
+              </div>
+              {networkFailed ? (
+                <LoadError message="לא הצלחנו לטעון את מצב הרשת" onRetry={loadNetwork} />
+              ) : (
+                <>
+                  {/*
+                    יחיד ורבים ולא "1 הצעות". מספר צמוד לשם עצם בעברית
+                    מחייב התאמה, וברשימה קצרה כזו הפער בולט מיד.
+                  */}
+                  <ul className="m-0 list-none p-0 text-[13px]">
+                    <li className="flex items-baseline gap-2 py-1.5" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
+                      <b style={{ color: (network?.incomingOffers ?? 0) > 0 ? "var(--color-primary)" : undefined }}>
+                        {network === null ? "…" : network.incomingOffers}
+                      </b>
+                      <span>
+                        {network?.incomingOffers === 1
+                          ? "הצעה שהתקבלה על הביקושים שלכם"
+                          : "הצעות שהתקבלו על הביקושים שלכם"}
+                      </span>
+                    </li>
+                    <li className="flex items-baseline gap-2 py-1.5">
+                      <b style={{ color: (network?.openReferrals ?? 0) > 0 ? "var(--color-primary)" : undefined }}>
+                        {network === null ? "…" : network.openReferrals}
+                      </b>
+                      <span>
+                        {network?.openReferrals === 1
+                          ? "הפניית לקוח פתוחה ברשת"
+                          : "הפניות לקוחות פתוחות ברשת"}
+                      </span>
+                    </li>
+                  </ul>
+                  <p className="m-0 mt-1.5 text-[12px]" style={{ color: "var(--color-text-muted)" }}>
+                    {network === null
+                      ? "שיתוף פעולה על ביקושים אינו עולה קרדיטים."
+                      : `יתרה: ${network.credits} קרדיטים · שיתוף פעולה על ביקושים אינו עולה קרדיטים.`}
+                  </p>
+                </>
+              )}
+            </section>
+          ) : null}
 
           {/* קידום שמוביל לפיצ'ר שאינו במסלול נחסם בשרת — אין טעם
               להזמין אליו */}

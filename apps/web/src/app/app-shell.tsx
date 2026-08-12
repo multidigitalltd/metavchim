@@ -59,7 +59,7 @@ const SCREEN_TITLES: [prefix: string, title: string][] = [
   ["/offers", "הצעות"],
   ["/calendar", "יומן"],
   ["/reports", "דוחות"],
-  ["/collaboration", 'שת"פ בין משרדים'],
+  ["/collaboration", 'שת"פים'],
   ["/settings", "ניהול משרד"],
   ["/setup", "הקמה"],
   ["/platform", "פלטפורמה"],
@@ -483,7 +483,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           נוגעים אך ורק לקליטת הפניית לקוח. היתרה עברה ללשונית
           "הפניות לקוחות", שם היא באמת רלוונטית.
         */}
-        {navLink("/collaboration", 'שת"פ בין משרדים', ICONS.coop)}
+        {navLink("/collaboration", 'שת"פים', ICONS.coop)}
         {isManager && hasFeature("analytics")
           ? navLink("/reports", "דוחות", ICONS.reports)
           : null}
