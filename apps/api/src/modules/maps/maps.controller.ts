@@ -54,10 +54,16 @@ export class MapsController {
   @AnyAuthenticated()
   @Get("config")
   async config(): Promise<{ configured: boolean; token?: string; styleUrl?: string }> {
-    const configured = await this.platformSettings.get("mapStyleUrl");
+    /*
+     * `get()` מחזיר `undefined` כשההגדרה מעולם לא נשמרה — לא `null`.
+     * בדיקה שדוחה `null` בלבד הייתה מחזירה `styleUrl` ריק בהתקנה
+     * טרייה, כלומר בדיוק במקרה שברירת המחדל נועדה לו, והמפה הייתה
+     * נשארת ריקה למרות התיקון.
+     */
+    const custom = await this.platformSettings.get("mapStyleUrl");
     return {
       configured: true,
-      styleUrl: configured !== null && configured !== "" ? configured : DEFAULT_MAP_STYLE,
+      styleUrl: custom !== undefined && custom !== "" ? custom : DEFAULT_MAP_STYLE,
     };
   }
 

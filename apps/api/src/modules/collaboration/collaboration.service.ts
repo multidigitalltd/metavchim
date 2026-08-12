@@ -17,7 +17,7 @@ import {
   type LeadSourcePrice,
 } from "@metavchim/shared";
 import { lockContact } from "../../common/locks";
-import { assertLeadAccess } from "../../common/ownership";
+import { assertLeadAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -601,7 +601,18 @@ export class CollaborationService {
      */
     const buyers = await this.prisma.withTenant((tx) =>
       tx.buyer.findMany({
-        where: { tenantId, id: { in: demands.map((d) => d.originBuyerId as string) } },
+        where: {
+          tenantId,
+          id: { in: demands.map((d) => d.originBuyerId as string) },
+          /*
+           * גבול הבעלות נשמר גם כאן. `collaboration.offer` ניתנת
+           * להענקה בנפרד מ-`buyers.view_all`, ובלי הסינון סוכן שקיבל
+           * רק אותה היה רואה שמות של קונים שאינם שלו — כלומר נתיב
+           * צדדי לעקיפת ההפרדה הפנימית במשרד. שאר קריאות הקונים
+           * מסננות כך, וגם זו.
+           */
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
         select: { id: true, contactId: true },
       }),
     );

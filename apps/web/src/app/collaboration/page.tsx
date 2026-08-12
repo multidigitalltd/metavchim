@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import {
   COMMISSION_SPLIT_OPTIONS,
   DEFAULT_COMMISSION_SPLIT,
@@ -14,6 +14,7 @@ import { formatPrice } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { LoadError } from "../load-error";
 import { IconDiamond, IconHandshake, IconStar } from "../icons";
 import { CollaborationGuide, CommissionPanel, PrivacyPanel, ReferralRulesPanel } from "./guide";
@@ -32,6 +33,24 @@ const COOP_TABS: [key: string, label: string][] = [
   ["market", "הפניות לקוחות"],
 ];
 
+
+/**
+ * סנכרון הלשונית מהכתובת.
+ *
+ * רכיב נפרד ובתוך `Suspense` — `useSearchParams` מחייב זאת בדף
+ * שעובר prerender. קריאה חד-פעמית מ-`window.location` לא הספיקה:
+ * משתמש שכבר נמצא במסך ולוחץ על ההתראה מקבל ניווט צד-לקוח, הרכיב
+ * נשמר, האפקט אינו רץ שוב — והוא נשאר בלשונית הקודמת. כלומר בדיוק
+ * התקלה שהשינוי הזה בא לתקן.
+ */
+function TabFromQuery({ onTab }: { onTab: (tab: string) => void }) {
+  const params = useSearchParams();
+  const requested = params.get("tab");
+  useEffect(() => {
+    if (requested !== null && COOP_TABS.some(([key]) => key === requested)) onTab(requested);
+  }, [requested, onTab]);
+  return null;
+}
 
 interface DemandMatch {
   propertyId: string;
@@ -121,17 +140,6 @@ export default function CollaborationPage() {
    * וההצעה נראתה כאילו איננה. הכתובת קובעת.
    */
   const [coopTab, setCoopTab] = useState<string>("demands");
-  /*
-   * הקריאה ל-window ב-useEffect ולא באתחול ה-state: הדף עובר
-   * prerender בבנייה, ושם אין window כלל — קריאה ישירה מפילה את
-   * הבנייה כולה.
-   */
-  useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get("tab");
-    if (requested !== null && COOP_TABS.some(([key]) => key === requested)) {
-      setCoopTab(requested);
-    }
-  }, []);
   const [demands, setDemands] = useState<DemandRow[] | null>(null);
   const [sharedLeads, setSharedLeads] = useState<SharedLeadRow[]>([]);
   const [buyingLead, setBuyingLead] = useState<string | null>(null);
@@ -284,6 +292,10 @@ export default function CollaborationPage() {
         בתמורה — ומי שנחת על המסך לא ידע מה שייך למה. ההפרדה היא
         גם הפתרון לבלבול בקרדיטים: הם מופיעים בלשונית אחת בלבד.
       */}
+      <Suspense fallback={null}>
+        <TabFromQuery onTab={setCoopTab} />
+      </Suspense>
+
       <div className="mv-seg mb-[18px]" role="tablist" aria-label="אזורי הרשת">
         {COOP_TABS.map(([key, label]) => (
           <button
