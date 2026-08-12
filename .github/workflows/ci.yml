@@ -43,6 +43,23 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # עליית ה-API על הפלט המהודר. חייב לרוץ אחרי הבנייה ולא כבדיקת
+      # יחידה: רק `tsc` פולט את מטא-דאטת הבנאי ש-Nest צריך כדי לפתור
+      # תלויות, ולכן חיווט שבור נראה רק כאן. תקלת ייצור אחת עברה את
+      # כל השערים שמעל ובכל זאת הפילה את המערכת כולה.
+      - name: API boots (dependency graph)
+        # ערכים מזויפים ובכוונה: הבדיקה מוודאת חיווט, לא תצורה. היא
+        # אינה מתחברת לשום דבר — `compile()` אינו מריץ `onModuleInit`,
+        # ושם יושבים החיבורים בפועל.
+        env:
+          WEB_ORIGIN: https://ci.invalid
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+          DIRECT_DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+          REDIS_URL: redis://localhost:6379
+          DATA_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          PHONE_HASH_KEY: ci-phone-hash-key-not-a-real-secret-000000
+        run: pnpm --filter @metavchim/api verify:boot
+
       - name: Audit dependencies (fail on high)
         run: pnpm audit --audit-level high
 
