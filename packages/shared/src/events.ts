@@ -43,11 +43,28 @@ export const DomainEvents = {
     tenantId: IdSchema,
     changedFields: z.array(z.string()),
   }),
+  /**
+   * סבב חישוב התאמות הסתיים.
+   *
+   * שלושת המונים אינם כפילות: `matchCount` הוא כמה התאמות תקפות יש
+   * עכשיו, `newMatchCount` הוא כמה מתוכן **נולדו בסבב הזה**, ו-
+   * `strongMatchCount` כמה מהחדשות עברו את סף "מומלץ". ההתראה נשענת
+   * על החדשות בלבד — בלי זה כל עריכה קטנה בנכס הייתה מודיעה שוב על
+   * אותם קונים, וההתראה שמגיעה כשלא קרה כלום היא התראה שמפסיקים
+   * להסתכל עליה.
+   *
+   * `ownerUserId` — הסוכן שהכרטיס שלו. קיים בצד הקונה; נכס שייך
+   * למשרד כולו ולכן שם הוא חסר, וההתראה משרדית.
+   */
   "matches.computed": z.object({
     tenantId: IdSchema,
     propertyId: IdSchema.optional(),
     buyerId: IdSchema.optional(),
     matchCount: z.number().int(),
+    /** ברירת מחדל 0 — אירועים שנכתבו לפני השדה לא מייצרים התראה */
+    newMatchCount: z.number().int().default(0),
+    strongMatchCount: z.number().int().default(0),
+    ownerUserId: IdSchema.optional(),
   }),
   "offer.sent": z.object({ offerId: IdSchema, tenantId: IdSchema }),
   "offer.opened": z.object({ offerId: IdSchema, tenantId: IdSchema, openCount: z.number().int() }),

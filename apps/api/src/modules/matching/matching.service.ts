@@ -196,10 +196,22 @@ export class MatchingService {
       // פעם אחת לכל הסבב — ראו weightsFor
       const weights = await this.weightsFor(tx);
       let kept = 0;
+      let created = 0;
+      let strong = 0;
       for (const candidate of candidates) {
         const parsed = BuyerRequirementsSchema.safeParse(candidate.requirements);
         if (!parsed.success) continue;
-        kept += await this.upsertMatch(tx, propertyId, candidate.id, fields, parsed.data, weights);
+        const outcome = await this.upsertMatch(
+          tx,
+          propertyId,
+          candidate.id,
+          fields,
+          parsed.data,
+          weights,
+        );
+        if (outcome.kept) kept += 1;
+        if (outcome.created) created += 1;
+        if (outcome.strong) strong += 1;
       }
 
       // נכס שהשתנה (עיר אחרת, מחיר עלה): קונים שיצאו מהסינון הגס לא
@@ -213,7 +225,13 @@ export class MatchingService {
         },
       });
 
-      await this.outbox.emit(tx, "matches.computed", { tenantId, propertyId, matchCount: kept });
+      await this.outbox.emit(tx, "matches.computed", {
+        tenantId,
+        propertyId,
+        matchCount: kept,
+        newMatchCount: created,
+        strongMatchCount: strong,
+      });
       return kept;
     });
   }
@@ -240,8 +258,20 @@ export class MatchingService {
 
       const weights = await this.weightsFor(tx);
       let kept = 0;
+      let created = 0;
+      let strong = 0;
       for (const property of candidates) {
-        kept += await this.upsertMatch(tx, property.id, buyerId, rowToFields(property), requirements, weights);
+        const outcome = await this.upsertMatch(
+          tx,
+          property.id,
+          buyerId,
+          rowToFields(property),
+          requirements,
+          weights,
+        );
+        if (outcome.kept) kept += 1;
+        if (outcome.created) created += 1;
+        if (outcome.strong) strong += 1;
       }
       // דרישות שצומצמו (עיר הוסרה, תקציב ירד): נכסים שיצאו מהסינון הגס
       // לא נבדקים ב-upsertMatch — ההתאמות הישנות שלהם נמחקות כאן.
@@ -254,7 +284,19 @@ export class MatchingService {
           propertyId: { notIn: candidates.map((p) => p.id) },
         },
       });
-      await this.outbox.emit(tx, "matches.computed", { tenantId, buyerId, matchCount: kept });
+      /*
+       * הצד הזה לא הודיע לאיש עד היום: מיפוי ההתראות דרש `propertyId`,
+       * ולכן ביקוש שנרשם עכשיו ומצא נכסים עבר בשקט. ההתראה הולכת
+       * לסוכן שהכרטיס שלו — זו השיחה שהוא צריך לעשות היום.
+       */
+      await this.outbox.emit(tx, "matches.computed", {
+        tenantId,
+        buyerId,
+        matchCount: kept,
+        newMatchCount: created,
+        strongMatchCount: strong,
+        ...(buyer.ownerUserId ? { ownerUserId: buyer.ownerUserId } : {}),
+      });
       return kept;
     });
   }
@@ -275,6 +317,13 @@ export class MatchingService {
     return resolveMatchWeights(settings["matchWeights"]);
   }
 
+  /**
+   * מחזיר **מה קרה** ולא רק "נשמר".
+   *
+   * ההבחנה בין התאמה שנולדה עכשיו לאחת שרק חושבה מחדש היא מה שמאפשר
+   * להתריע רק על חדשות. בלעדיה כל עריכה קטנה בנכס הייתה מודיעה שוב
+   * על אותם קונים, וההתראה הייתה הופכת לרעש.
+   */
   private async upsertMatch(
     tx: TenantTx,
     propertyId: string,
@@ -282,7 +331,7 @@ export class MatchingService {
     fields: ReturnType<typeof rowToFields>,
     requirements: BuyerRequirements,
     weights: MatchWeights,
-  ): Promise<number> {
+  ): Promise<{ kept: boolean; created: boolean; strong: boolean }> {
     const tenantId = TenantContext.current().tenantId;
     const result = scoreMatch(fields, requirements, weights);
     const existing = await tx.match.findUnique({
@@ -295,7 +344,7 @@ export class MatchingService {
       if (existing && existing.status === "suggested") {
         await tx.match.delete({ where: { id: existing.id } });
       }
-      return 0;
+      return { kept: false, created: false, strong: false };
     }
 
     if (existing) {
@@ -323,7 +372,12 @@ export class MatchingService {
         },
       });
     }
-    return 1;
+    return {
+      kept: true,
+      created: existing === null,
+      // "חזק" נספר רק על חדשה — ההתראה מדברת על מה שהתחדש
+      strong: existing === null && result.score >= MATCH_THRESHOLDS.recommended,
+    };
   }
 
   async listForProperty(

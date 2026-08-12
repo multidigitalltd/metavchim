@@ -3,6 +3,7 @@ import { notificationFromEvent } from "./notifications.js";
 
 const TENANT = "01KYJH6YN3B48PJS8WK2HFQ98Y";
 const ID = "01KYJHBB71E85DWX3NDPJ5BYZY";
+const OWNER = "01KYJHBB71E85DWX3NDPJ5BZZZ";
 
 describe("notificationFromEvent", () => {
   it("קונה מעוניין ⇒ התראה דחופה", () => {
@@ -25,10 +26,71 @@ describe("notificationFromEvent", () => {
     ).toBe("lead_requires_human");
   });
 
-  it("התאמות: רק כשיש תוצאות ולנכס ספציפי", () => {
-    expect(notificationFromEvent("matches.computed", { tenantId: TENANT, propertyId: ID, matchCount: 0 })).toBeNull();
-    const n = notificationFromEvent("matches.computed", { tenantId: TENANT, propertyId: ID, matchCount: 17 });
-    expect(n?.title).toContain("17");
+  it("התאמות: מתריעים על חדשות בלבד", () => {
+    /*
+     * הלב של השינוי. חישוב ההתאמות רץ בכל עריכה, ורובן מסתיימות
+     * באותן התאמות שכבר היו — התראה עליהן מלמדת את הסוכן להתעלם.
+     */
+    expect(
+      notificationFromEvent("matches.computed", {
+        tenantId: TENANT,
+        propertyId: ID,
+        matchCount: 17,
+        newMatchCount: 0,
+        strongMatchCount: 0,
+      }),
+    ).toBeNull();
+
+    const n = notificationFromEvent("matches.computed", {
+      tenantId: TENANT,
+      propertyId: ID,
+      matchCount: 17,
+      newMatchCount: 3,
+      strongMatchCount: 0,
+    });
+    expect(n?.title).toContain("3"); // החדשות, לא ה-17
+    expect(n?.title).not.toContain("17");
+    expect(n?.entityType).toBe("property");
+    expect(n?.recipientUserId).toBeUndefined(); // נכס = כל המשרד
+  });
+
+  it("התאמות: צד הקונה מתריע לסוכן שהכרטיס שלו", () => {
+    // הכיוון הזה שתק לגמרי — המיפוי דרש propertyId
+    const n = notificationFromEvent("matches.computed", {
+      tenantId: TENANT,
+      buyerId: ID,
+      ownerUserId: OWNER,
+      matchCount: 4,
+      newMatchCount: 2,
+      strongMatchCount: 1,
+    });
+    expect(n?.entityType).toBe("buyer");
+    expect(n?.recipientUserId).toBe(OWNER);
+    expect(n?.title).toContain("2");
+    expect(n?.body).toContain("גבוהה"); // ההתאמה החזקה מוזכרת
+  });
+
+  it("התאמות: ביקוש בלי בעלים ⇒ התראה משרדית", () => {
+    const n = notificationFromEvent("matches.computed", {
+      tenantId: TENANT,
+      buyerId: ID,
+      matchCount: 1,
+      newMatchCount: 1,
+      strongMatchCount: 0,
+    });
+    expect(n?.recipientUserId).toBeUndefined();
+    expect(n?.title).toContain("נכס חדש"); // לשון יחיד
+  });
+
+  it("התאמות: אירוע בלי נכס ובלי קונה אינו מתריע", () => {
+    expect(
+      notificationFromEvent("matches.computed", {
+        tenantId: TENANT,
+        matchCount: 5,
+        newMatchCount: 5,
+        strongMatchCount: 5,
+      }),
+    ).toBeNull();
   });
 
   it("ליד נמכר בשוק ⇒ התראה למוכר עם הסכום", () => {

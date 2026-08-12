@@ -64,17 +64,52 @@ export function notificationFromEvent<E extends DomainEventName>(
         entityId: p.leadId,
       };
     }
+    /*
+     * התאמות חדשות — **רק חדשות.**
+     *
+     * חישוב ההתאמות רץ בכל עריכה של נכס או ביקוש, ורובן מסתיימות
+     * באותן התאמות שכבר היו. התראה על מה שלא השתנה היא התראה שמלמדת
+     * את הסוכן להתעלם, ואז גם האמיתית נבלעת. לכן הסף הוא
+     * `newMatchCount` ולא `matchCount`.
+     *
+     * שני הכיוונים מטופלים: נכס חדש שמצא קונים, וקונה חדש שנמצאו לו
+     * נכסים. הצד השני היה שותק לגמרי — משמע ביקוש שנרשם עכשיו לא
+     * הודיע לאיש, וזו בדיוק השיחה שהסוכן היה צריך לעשות היום.
+     */
     case "matches.computed": {
       const p = payload as DomainEventPayload<"matches.computed">;
-      if (!p.propertyId || p.matchCount < 1) return null;
-      return {
-        tenantId: p.tenantId,
-        type: "matches_found",
-        title: `נמצאו ${p.matchCount} קונים מתאימים לנכס`,
-        body: "פתח את כרטיס הנכס ושלח הצעות בלחיצה.",
-        entityType: "property",
-        entityId: p.propertyId,
-      };
+      if (p.newMatchCount < 1) return null;
+      const strong =
+        p.strongMatchCount > 0 ? ` ${p.strongMatchCount} מהן ברמת התאמה גבוהה.` : "";
+      if (p.propertyId) {
+        return {
+          tenantId: p.tenantId,
+          type: "matches_found",
+          title:
+            p.newMatchCount === 1
+              ? "נמצא קונה חדש שמתאים לנכס"
+              : `נמצאו ${p.newMatchCount} קונים חדשים שמתאימים לנכס`,
+          body: `פתחו את כרטיס הנכס ושלחו הצעה בלחיצה.${strong}`,
+          entityType: "property",
+          entityId: p.propertyId,
+        };
+      }
+      if (p.buyerId) {
+        return {
+          tenantId: p.tenantId,
+          // ההתראה לסוכן שהכרטיס שלו; בלי בעלים היא משרדית
+          ...(p.ownerUserId ? { recipientUserId: p.ownerUserId } : {}),
+          type: "matches_found",
+          title:
+            p.newMatchCount === 1
+              ? "נמצא נכס חדש שמתאים לקונה"
+              : `נמצאו ${p.newMatchCount} נכסים חדשים שמתאימים לקונה`,
+          body: `פתחו את כרטיס הקונה וראו את ההתאמות.${strong}`,
+          entityType: "buyer",
+          entityId: p.buyerId,
+        };
+      }
+      return null;
     }
     case "coop_offer.sent": {
       const p = payload as DomainEventPayload<"coop_offer.sent">;

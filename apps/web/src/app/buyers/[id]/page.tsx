@@ -28,6 +28,12 @@ interface BuyerDetail {
   contact: { id: string; name: string; phone: string };
   requirements: {
     cities: string[];
+    /*
+     * השדה הזה הגיע מהשרת מאז ומתמיד ולא הוצהר כאן — ולכן השכונות
+     * שהלקוח ביקש היו מגיעות לדפדפן ונזרקות בשקט. השרת מפענח דרך
+     * הסכימה בקריאה, כך שהמערך תמיד קיים גם לכרטיסים ישנים.
+     */
+    neighborhoods: string[];
     budgetMinAgorot?: number;
     budgetMaxAgorot: number;
     roomsMin?: number;
@@ -274,7 +280,19 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
           </div>
 
           <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>אזורים</div>
-          <div className="mb-3.5 text-[14.5px] font-bold">{buyer.requirements.cities.join(", ") || "—"}</div>
+          <div className="mb-1 text-[14.5px] font-bold">{buyer.requirements.cities.join(", ") || "—"}</div>
+          {/*
+            השכונות היו נשמרות ומשפיעות על ניקוד ההתאמה — ולא מוצגות
+            בשום מקום. סוכן שראה רק "בני ברק" לא ידע שהלקוח ביקש
+            שכונה מסוימת, וזה בדיוק הפרט שקובע אם שווה להתקשר.
+          */}
+          {buyer.requirements.neighborhoods.length > 0 ? (
+            <div className="mb-3.5 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+              שכונות: {buyer.requirements.neighborhoods.join(" · ")}
+            </div>
+          ) : (
+            <div className="mb-3.5" />
+          )}
 
           {buyer.requirements.roomsMin !== undefined || buyer.requirements.roomsMax !== undefined ? (
             <>
