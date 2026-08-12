@@ -83,6 +83,8 @@ interface NavSummary {
   matches: number;
   /** משימות שלי באיחור או להיום — התג הכתום. */
   urgentTasks: number;
+  /** מודולים שהפלטפורמה חסמה למשרד — פריט חסום יורד מהסרגל. */
+  blockedModules?: string[];
   /** הפיצ'רים שכלולים במסלול המשרד — פריט שלא כלול לא מוצג. */
   features?: string[];
 }
@@ -428,6 +430,15 @@ export function AppShell({ children }: { children: ReactNode }) {
    * ל-403 גרוע מקישור שלא קיים. כל עוד המונים לא נטענו — מציגים,
    * כדי שהתפריט לא "יקפוץ" ולא ייעלם על רשת איטית.
    */
+  /**
+   * מודול פתוח למשרד — כלומר הפלטפורמה לא חסמה אותו.
+   *
+   * הפריט **יורד מהסרגל** ולא מוצג מושבת: קישור שמוביל למסך שיחזיר
+   * 403 נראה כמו תקלה, ומודול שהמשרד אינו רוכש אינו אמור לפתות
+   * אותו בכל טעינה. הסרגל שואל, ולא מחליט — האכיפה בשרת.
+   */
+  const moduleOpen = (key: string): boolean => !(counts?.blockedModules ?? []).includes(key);
+
   const hasFeature = (code: string): boolean =>
     counts?.features === undefined || counts.features.includes(code);
   // אותה רשימה מחולקת למסכים עצמם — הניווט לא יכול להיות המקום
@@ -448,21 +459,25 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <nav aria-label="ניווט ראשי" className="mv-sidebar-nav">
         {navLink("/", "דשבורד", ICONS.dashboard)}
-        {navLink("/properties", "נכסים", ICONS.properties, count(counts?.properties))}
-        {navLink("/buyers", "קונים · שוכרים", ICONS.buyers, count(counts?.buyers))}
-        {navLink(
+        {moduleOpen("properties")
+          ? navLink("/properties", "נכסים", ICONS.properties, count(counts?.properties))
+          : null}
+        {moduleOpen("buyers")
+          ? navLink("/buyers", "קונים · שוכרים", ICONS.buyers, count(counts?.buyers))
+          : null}
+        {moduleOpen("leads") ? navLink(
           "/leads",
           "לידים",
           ICONS.leads,
           counts !== null && counts.newLeads > 0 ? (
             <span className="mv-nav-badge">{counts.newLeads}</span>
           ) : null,
-        )}
+        ) : null}
         {navLink("/calls", "שיחות", ICONS.calls)}
-        {navLink("/matches", "התאמות", ICONS.matches, count(counts?.matches))}
-        {navLink("/offers", "הצעות", ICONS.offers)}
-        {navLink("/calendar", "יומן", ICONS.calendar)}
-        {navLink(
+        {moduleOpen("matches") ? navLink("/matches", "התאמות", ICONS.matches, count(counts?.matches)) : null}
+        {moduleOpen("offers") ? navLink("/offers", "הצעות", ICONS.offers) : null}
+        {moduleOpen("calendar") ? navLink("/calendar", "יומן", ICONS.calendar) : null}
+        {moduleOpen("calendar") ? navLink(
           "/tasks",
           "משימות",
           ICONS.tasks,
@@ -470,7 +485,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           counts !== null && counts.urgentTasks > 0 ? (
             <span className="mv-nav-badge">{counts.urgentTasks}</span>
           ) : null,
-        )}
+        ) : null}
         {/*
           השת"פ לפני הדוחות: הוא עבודה יומיומית של הסוכן, והדוחות הם
           מסך שמנהל פותח פעם בשבוע. בלי שער מסלול — השת"פ הבסיסי פתוח
@@ -483,8 +498,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           נוגעים אך ורק לקליטת הפניית לקוח. היתרה עברה ללשונית
           "הפניות לקוחות", שם היא באמת רלוונטית.
         */}
-        {navLink("/collaboration", 'שת"פים', ICONS.coop)}
-        {isManager && hasFeature("analytics")
+        {moduleOpen("collaboration") ? navLink("/collaboration", 'שת"פים', ICONS.coop) : null}
+        {isManager && hasFeature("analytics") && moduleOpen("reports")
           ? navLink("/reports", "דוחות", ICONS.reports)
           : null}
         {navLink("/guides", "הדרכות", ICONS.guides)}

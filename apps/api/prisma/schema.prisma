@@ -43,6 +43,12 @@ model Tenant {
   couponPercentOff Int? @map("coupon_percent_off")
   /// המסלול שהקופון הוגבל אליו ברגע המימוש — ההנחה חלה רק עליו.
   couponPlanCode String? @map("coupon_plan_code") @db.VarChar(20)
+  /// מודולים שהפלטפורמה חסמה למשרד הזה (מפתחות מ-CAPABILITY_MODULES).
+  ///
+  /// שכבה שלישית מעל התפקיד ומעל חריגי המשתמש, ובכיוון אחד: חוסמת
+  /// ולעולם לא מעניקה. מוחלת בפענוח ה-Session **אחרי** חריגי המנהל,
+  /// כדי שבעל המשרד לא יוכל להסיר אותה ממסך ההרשאות שלו.
+  blockedModules String[] @default([]) @map("blocked_modules")
   /// עד מתי פתוח חלון גישת התמיכה שהמשרד העניק. null = סגור.
   /// נפתח רק בלחיצת בעל המשרד, לעולם לא מהפלטפורמה.
   supportAccessUntil DateTime? @map("support_access_until")

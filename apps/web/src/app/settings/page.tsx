@@ -89,6 +89,9 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   "lead.create": "יצירת ליד",
   "lead.status": "עדכון סטטוס ליד",
   "lead.delete": "מחיקת ליד",
+  // החלטות פלטפורמה נרשמות ביומן של המשרד עצמו: בלעדיהן מודול שנעלם
+  // נראה כמו תקלה, ואין למנהל שום דרך לדעת שזו הייתה החלטה
+  "platform.blocked_modules": "שינוי חסימת מודולים בידי הפלטפורמה",
   "lead.convert": "המרת ליד לקונה",
   "lead.repeat_inquiry": "פנייה חוזרת של ליד",
   "offer.create": "יצירת הצעה",

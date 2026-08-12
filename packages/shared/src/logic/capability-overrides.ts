@@ -161,6 +161,60 @@ export function capabilitiesWithoutModule(): Capability[] {
   return CAPABILITIES.filter((c) => !covered.has(c));
 }
 
+/* ============================================================
+   חסימת מודול ברמת המשרד — החלטה של הפלטפורמה
+   ============================================================
+   שכבה שלישית מעל התפקיד ומעל חריגי המשתמש, ובכיוון אחד בלבד:
+   **חוסמת ולעולם לא מעניקה.** בעל הפלטפורמה מחליט שמשרד מסוים אינו
+   עושה שימוש במודול — למשל בהפניות לקוחות — ובעל המשרד אינו יכול
+   לבטל את זה מתוך מסך ההרשאות שלו.
+
+   לכן היא מוחלת **אחרי** `resolveCapabilities` ולא כחריג נוסף:
+   חריג deny ברמת המשתמש היה נמחק בלחיצה של מנהל המשרד, וחסימה
+   שהנחסם יכול להסיר אינה חסימה.
+   ============================================================ */
+
+/** מפתחות המודולים החוקיים לחסימה — נגזרים מהקטלוג, לא רשימה שנייה. */
+export const BLOCKABLE_MODULE_KEYS: readonly string[] = CAPABILITY_MODULES.map((m) => m.key);
+
+/** תווית המודול לתצוגה; המפתח עצמו כשאינו מוכר. */
+export function moduleLabel(key: string): string {
+  return CAPABILITY_MODULES.find((m) => m.key === key)?.label ?? key;
+}
+
+/**
+ * תקינות רשימת המודולים לחסימה — הודעה בעברית או `null`.
+ *
+ * מפתח שאינו בקטלוג נדחה ולא מתעלמים ממנו: חסימה שנשמרת ואינה
+ * חוסמת דבר היא בדיוק ההבטחה השבורה שהמסך הזה קיים כדי למנוע.
+ */
+export function blockedModulesRejectionReason(keys: readonly string[]): string | null {
+  const unknown = keys.filter((key) => !BLOCKABLE_MODULE_KEYS.includes(key));
+  if (unknown.length > 0) return `מודול לא מוכר: ${unknown.join(", ")}`;
+  return null;
+}
+
+/**
+ * היכולות בפועל אחרי חסימת המודולים של המשרד.
+ *
+ * מקבלת את התוצאה של `resolveCapabilities` ומחסרת ממנה; מפתח לא
+ * מוכר פשוט אינו מחסיר דבר, כי כאן כבר מאוחר מדי לזרוק שגיאה —
+ * הבדיקה נעשית בשמירה.
+ */
+export function applyBlockedModules(
+  capabilities: ReadonlySet<Capability>,
+  blockedModules: readonly string[],
+): Set<Capability> {
+  if (blockedModules.length === 0) return new Set(capabilities);
+  const result = new Set(capabilities);
+  for (const key of blockedModules) {
+    for (const capability of CAPABILITY_MODULES.find((m) => m.key === key)?.capabilities ?? []) {
+      result.delete(capability);
+    }
+  }
+  return result;
+}
+
 /* ==================== מי רשאי לשנות למי ==================== */
 
 export type OverrideRequest = {

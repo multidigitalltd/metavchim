@@ -21,8 +21,10 @@ import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import { z } from "zod";
 import {
+  BLOCKABLE_MODULE_KEYS,
   IdSchema,
   PLAN_FEATURES,
+  blockedModulesRejectionReason,
   couponDefinitionRejection,
   describeCoupon,
   normalizeCouponCode,
@@ -47,6 +49,7 @@ import {
   type PlatformSettingKey,
 } from "../../core/platform-settings.service";
 import { CardcomService } from "../../core/cardcom.service";
+import { AccountDeletionService } from "../settings/account-deletion.service";
 import { LeadPricingService } from "../../core/lead-pricing.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
@@ -87,6 +90,24 @@ const CreateAgencySchema = z
     plan: PlanCodeSchema.default("pro"),
   })
   .strict();
+
+/** חסימת מודולים: הרשימה המבוקשת במלואה, לא תוספת. */
+const BlockedModulesSchema = z
+  .object({
+    blockedModules: z.array(z.string().min(1).max(40)).max(BLOCKABLE_MODULE_KEYS.length),
+  })
+  .strict();
+
+/** מחיקת משרד: שם המשרד במדויק — ההגנה מפני השורה הלא נכונה. */
+const DeleteAgencySchema = z.object({ confirmName: z.string().min(1).max(120) }).strict();
+
+/**
+ * מחיקת מסלול: חובה לנקוב במסלול היעד.
+ *
+ * לא אופציונלי בכוונה. מסלול שנמחק בלי יעד משאיר משרדים עם קוד
+ * שאינו בקטלוג — ומשרד כזה מאבד את כל הפיצ'רים והמכסות בשקט.
+ */
+const DeletePlanSchema = z.object({ moveTo: PlanCodeSchema }).strict();
 
 const UpdateAgencySchema = z
   .object({
@@ -207,6 +228,8 @@ export interface AgencyRow {
   createdAt: Date;
   /** חלון גישת תמיכה פתוח — null כשאין הסכמה בתוקף. */
   supportAccessUntil: Date | null;
+  /** מודולים שהפלטפורמה חסמה למשרד — מפתחות מקטלוג המודולים. */
+  blockedModules: string[];
   /**
    * התפוגות, ומה שנגזר מהן.
    *
@@ -265,6 +288,7 @@ export class PlatformController {
     private readonly plans: PlanCatalogService,
     private readonly leadPricing: LeadPricingService,
     private readonly cardcom: CardcomService,
+    private readonly accountDeletion: AccountDeletionService,
   ) {}
 
   /**
@@ -310,6 +334,57 @@ export class PlatformController {
 
     await this.plans.upsert(plan, TenantContext.current().userId);
     return { ok: true };
+  }
+
+  /**
+   * מחיקת מסלול — **עם העברת המשרדים שבו למסלול אחר.**
+   *
+   * ההעברה אינה תוספת נוחות אלא תנאי: קוד מסלול שאינו בקטלוג משאיר
+   * את המשרד בלי פיצ'רים ובלי מכסות, בלי שום שגיאה שמישהו יראה.
+   * לכן שתי הפעולות באותה טרנזקציה — אין רגע שבו המסלול נעלם
+   * והמשרדים עוד מצביעים עליו.
+   *
+   * גם הקופונים שהוגבלו למסלול הנמחק עוברים איתו: קופון שמצביע על
+   * מסלול שאיננו הוא הנחה שלא תמומש לעולם.
+   */
+  @Delete("plans/:code")
+  @HttpCode(200)
+  async deletePlan(
+    @Param("code", new ZodValidationPipe(PlanCodeSchema)) code: string,
+    @Body(new ZodValidationPipe(DeletePlanSchema)) body: z.infer<typeof DeletePlanSchema>,
+  ): Promise<{ ok: true; movedTenants: number }> {
+    if (body.moveTo === code) throw new BadRequestException("יש לבחור מסלול יעד אחר");
+    const all = await this.plans.all();
+    if (!all.some((p) => p.code === code)) throw new BadRequestException("המסלול לא נמצא");
+    if (!all.some((p) => p.code === body.moveTo)) {
+      throw new BadRequestException("מסלול היעד לא מוכר");
+    }
+    /*
+     * המסלול האחרון אינו נמחק. מערכת בלי אף מסלול אינה מצב תקין —
+     * הרשמה חדשה נופלת, ואין לאן להעביר את מי שכבר קיים.
+     */
+    if (all.length <= 1) throw new BadRequestException("זהו המסלול היחיד — אי אפשר למחוק אותו");
+
+    const movedTenants = await this.prisma.$transaction(async (tx) => {
+      const moved = await tx.tenant.updateMany({
+        where: { plan: code },
+        data: { plan: body.moveTo },
+      });
+      await tx.coupon.updateMany({ where: { planCode: code }, data: { planCode: body.moveTo } });
+      /*
+       * ההנחה שכבר הובטחה למשרד בהרשמה מוצמדת לקוד המסלול שהיה.
+       * בלי העברה היא הייתה מפסיקה לחול — כלומר הבטחה שנשברה בגלל
+       * שינוי קטלוג שאין לה שום קשר אליו.
+       */
+      await tx.tenant.updateMany({
+        where: { couponPlanCode: code },
+        data: { couponPlanCode: body.moveTo },
+      });
+      await tx.plan.delete({ where: { code } });
+      return moved.count;
+    });
+    this.plans.invalidate();
+    return { ok: true, movedTenants };
   }
 
   /**
@@ -446,6 +521,7 @@ export class PlatformController {
         trialEndsAt: true,
         paidUntil: true,
         supportAccessUntil: true,
+        blockedModules: true,
         createdAt: true,
         _count: { select: { users: true } },
       },
@@ -456,6 +532,7 @@ export class PlatformController {
       plan: t.plan,
       status: t.status,
       userCount: t._count.users,
+      blockedModules: t.blockedModules,
       createdAt: t.createdAt,
       trialEndsAt: t.trialEndsAt,
       paidUntil: t.paidUntil,
@@ -593,6 +670,68 @@ export class PlatformController {
       });
     }
     return { ok: true };
+  }
+
+  /**
+   * חסימת מודולים למשרד — החלטת פלטפורמה שמנהל המשרד אינו יכול לבטל.
+   *
+   * הרשימה **מוחלפת** ולא מתווספת: מסך שמסמן תיבות שולח את המצב
+   * המבוקש, ופעולה מצטברת הייתה מחייבת אותו לזכור מה כבר חסום כדי
+   * לבטל. אין תפוגה — זו החלטה עסקית ולא ענישה זמנית; להסיר, שולחים
+   * רשימה בלי המודול.
+   *
+   * אין כאן מחיקת Sessions: היכולות נפתרות בכל בקשה מחדש, ולכן
+   * החסימה תופסת בקליק הבא בלי לנתק אף אחד באמצע עבודה.
+   */
+  @Patch("agencies/:id/modules")
+  async setBlockedModules(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(BlockedModulesSchema)) body: z.infer<typeof BlockedModulesSchema>,
+  ): Promise<{ ok: true; blockedModules: string[] }> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: { id: true, blockedModules: true },
+    });
+    if (!tenant) throw new BadRequestException("משרד לא נמצא");
+    const reason = blockedModulesRejectionReason(body.blockedModules);
+    if (reason) throw new BadRequestException(reason);
+
+    // כפילויות אינן שגיאה אבל גם אינן נשמרות פעמיים
+    const blockedModules = [...new Set(body.blockedModules)];
+    await this.prisma.tenant.update({ where: { id }, data: { blockedModules } });
+    /*
+     * ביומן של המשרד עצמו ולא רק בלוג השרת: בעל המשרד יראה למה
+     * מודול נעלם לו, ובלי הרישום הזה ההיעלמות נראית כמו תקלה.
+     */
+    await this.prisma.withExplicitTenant(id, (tx) =>
+      tx.auditLog.create({
+        data: {
+          id: ulid(),
+          tenantId: id,
+          userId: null,
+          action: "platform.blocked_modules",
+          entityType: "tenant",
+          entityId: id,
+          metadata: { before: tenant.blockedModules, after: blockedModules },
+        },
+      }),
+    );
+    return { ok: true, blockedModules };
+  }
+
+  /**
+   * מחיקת משרד לצמיתות — כל התכנים, כמו מחיקה עצמית של בעל המשרד.
+   *
+   * האישור הוא הקלדת שם המשרד: אין לפלטפורמה סיסמה של הבעלים, ומה
+   * שצריך למנוע כאן הוא לחיצה על השורה הלא נכונה ברשימה.
+   */
+  @Delete("agencies/:id")
+  @HttpCode(200)
+  async deleteAgency(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(DeleteAgencySchema)) body: z.infer<typeof DeleteAgencySchema>,
+  ): Promise<{ ok: true }> {
+    return this.accountDeletion.deleteTenantFromPlatform(id, body.confirmName);
   }
 
   /**

@@ -8,7 +8,7 @@ import {
   yearlySavingPercent,
   type PlanDefinition,
 } from "@metavchim/shared";
-import { apiGet, apiPatch, ApiError } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, ApiError } from "@/lib/api";
 import { IconCard, IconWarning } from "../icons";
 
 /**
@@ -321,6 +321,39 @@ export function PlansSection({
     }
   }
 
+  /**
+   * מחיקת מסלול — עם בחירת מסלול היעד למשרדים שיושבים עליו.
+   *
+   * היעד נבחר גם כשאין כרגע אף משרד: מסלול ריק היום יכול לקבל משרד
+   * בין הלחיצה לאישור, והשרת דורש יעד ממילא. עדיף שאלה אחת מאשר
+   * מחיקה שנכשלת אחרי שכבר החליטו.
+   */
+  async function removePlan(code: string, tenants: number) {
+    const others = (data?.plans ?? []).filter((plan) => plan.code !== code);
+    if (others.length === 0) return;
+    const options = others.map((plan) => `${plan.code} (${plan.name})`).join("، ");
+    const moveTo = window.prompt(
+      `מחיקת המסלול "${code}".\n\n${
+        tenants > 0
+          ? `${tenants} משרדים יושבים עליו ויועברו למסלול שתבחרו.`
+          : "אין כרגע משרדים על המסלול, אבל יש לבחור יעד להעברה."
+      }\n\nהקלידו את קוד מסלול היעד:\n${options}`,
+      others[0]?.code ?? "",
+    );
+    if (moveTo === null) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await apiDelete(`/platform/plans/${code}`, { moveTo: moveTo.trim() });
+      load();
+      onCatalogChange?.();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "מחיקת המסלול נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section
       aria-labelledby="plans-heading"
@@ -469,9 +502,21 @@ export function PlansSection({
                         לרכישה ממסך המנוי של משרד קיים.
                       </p>
                     ) : null}
-                    <Button variant="ghost" onClick={() => startEdit(plan)}>
-                      ערוך
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="ghost" onClick={() => startEdit(plan)}>
+                        ערוך
+                      </Button>
+                      {/*
+                        המחיקה מוצגת רק כשיש לאן להעביר. מסלול אחרון
+                        אינו נמחק — מערכת בלי אף מסלול אינה מצב תקין,
+                        וגם השרת דוחה את זה.
+                      */}
+                      {data.plans.length > 1 ? (
+                        <Button variant="ghost" onClick={() => void removePlan(plan.code, tenants)}>
+                          <span style={{ color: "var(--color-danger)" }}>מחק</span>
+                        </Button>
+                      ) : null}
+                    </div>
                   </>
                 ) : (
                   <div className="grid gap-2.5">
