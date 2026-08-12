@@ -20,7 +20,9 @@ export function notificationHref(entityType?: string, entityId?: string): string
     case "offer":
       return null; // הצעה נצפית דרך כרטיס הנכס
     case "coop_offer":
-      return "/collaboration";
+      // הלשונית מפורשת: בלעדיה ההתראה נחתה על "ביקושים ברשת", וההצעה
+      // שההתראה דיברה עליה נראתה כאילו איננה
+      return "/collaboration?tab=incoming";
     case "shared_lead":
       return "/collaboration"; // "נקלטה" מוצג בלשונית ההפניות
     default:

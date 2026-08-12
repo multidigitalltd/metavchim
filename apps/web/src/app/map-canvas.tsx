@@ -61,17 +61,16 @@ export function MapCanvas({
 
   useEffect(() => {
     if (config?.configured !== true || container.current === null || map.current !== null) return;
-    const { token, styleUrl } = config;
-    if (token === undefined || styleUrl === undefined) return;
+    const { styleUrl } = config;
+    if (styleUrl === undefined) return;
 
     /*
-     * הכתובת נבנית כאן ולא בשרת: הטוקן הוא פרמטר שאילתה של הספק,
-     * והרכבה בשרת הייתה קובעת את פורמט הכתובת של ספק מסוים בקוד
-     * שאינו קשור למפות.
+     * הכתובת נלקחת כפי שהיא. קודם הורכבה כאן כתובת של Mapbox מהטוקן,
+     * ו-MapLibre אינה יודעת לפענח את הפרוטוקול `mapbox://` שהסגנון
+     * מפנה אליו פנימית — הסגנון נטען והמפה נשארה ריקה. הסגנון הוא
+     * הגדרה, והתנאי היחיד הוא שיהיה תקן MapLibre.
      */
-    const style = styleUrl.startsWith("mapbox://styles/")
-      ? `https://api.mapbox.com/styles/v1/${styleUrl.slice("mapbox://styles/".length)}?access_token=${token}`
-      : styleUrl;
+    const style = styleUrl;
 
     try {
       const instance = new MapLibreMap({

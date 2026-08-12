@@ -17,9 +17,10 @@ import {
   type LeadSourcePrice,
 } from "@metavchim/shared";
 import { lockContact } from "../../common/locks";
-import { assertLeadAccess } from "../../common/ownership";
+import { assertLeadAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
+import { CryptoService } from "../../core/crypto.service";
 import { OutboxService } from "../../core/outbox.service";
 import { LeadPricingService } from "../../core/lead-pricing.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
@@ -110,6 +111,16 @@ export interface SharedDemandDto {
 export interface CoopOfferDto {
   id: string;
   demandId: string;
+  /**
+   * הקונה שההצעה נענית לו — **רק בהצעות נכנסות**.
+   *
+   * בלי זה ההצעה הייתה "נכס יפה בבני ברק" בלי לומר על מי היא: משרד
+   * ששיתף חמישה ביקושים קיבל חמש הצעות שנראות זהות, ולא ידע לאיזה
+   * לקוח להתקשר. בהצעה יוצאת השדה נשאר ריק — זהות הקונה של המשרד
+   * השני אינה שלנו לדעת ולא שלנו להציג.
+   */
+  buyerId?: string;
+  buyerName?: string;
   direction: "incoming" | "outgoing";
   presentation: Record<string, unknown>;
   status: string;
@@ -183,6 +194,7 @@ export class CollaborationService {
     private readonly plans: PlanCatalogService,
     private readonly pricing: LeadPricingService,
     private readonly platformSettings: PlatformSettingsService,
+    private readonly crypto: CryptoService,
   ) {}
 
   /**
@@ -561,6 +573,75 @@ export class CollaborationService {
     };
   }
 
+  /**
+   * מזהה ושם הקונה שמאחורי כל ביקוש שלי.
+   *
+   * נקרא בהקשר הדייר בלבד — הביקושים שמגיעים לכאן הם שלי, ולכן אין
+   * כאן חשיפה חוצה־דיירים. `originBuyerId` של ביקוש זר לעולם אינו
+   * מגיע לפונקציה הזו.
+   */
+  private async buyerNamesForDemands(
+    demandIds: string[],
+  ): Promise<Map<string, { buyerId: string; buyerName: string }>> {
+    const out = new Map<string, { buyerId: string; buyerName: string }>();
+    if (demandIds.length === 0) return out;
+    const tenantId = TenantContext.current().tenantId;
+
+    const demands = await this.prisma.withTenant((tx) =>
+      tx.sharedDemand.findMany({
+        where: { tenantId, id: { in: demandIds }, originBuyerId: { not: null } },
+        select: { id: true, originBuyerId: true },
+      }),
+    );
+    if (demands.length === 0) return out;
+
+    /*
+     * הקונה ואיש הקשר בשתי שאילתות ולא ב-include: אין ביניהם יחס
+     * מוצהר ב-Prisma, וזה הדפוס בכל שאר השירותים.
+     */
+    const buyers = await this.prisma.withTenant((tx) =>
+      tx.buyer.findMany({
+        where: {
+          tenantId,
+          id: { in: demands.map((d) => d.originBuyerId as string) },
+          /*
+           * גבול הבעלות נשמר גם כאן. `collaboration.offer` ניתנת
+           * להענקה בנפרד מ-`buyers.view_all`, ובלי הסינון סוכן שקיבל
+           * רק אותה היה רואה שמות של קונים שאינם שלו — כלומר נתיב
+           * צדדי לעקיפת ההפרדה הפנימית במשרד. שאר קריאות הקונים
+           * מסננות כך, וגם זו.
+           */
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
+        select: { id: true, contactId: true },
+      }),
+    );
+    if (buyers.length === 0) return out;
+    const contacts = await this.prisma.withTenant((tx) =>
+      tx.contact.findMany({
+        where: { tenantId, id: { in: buyers.map((b) => b.contactId) } },
+        select: { id: true, nameEncrypted: true },
+      }),
+    );
+    const nameByContact = new Map(
+      contacts.map((c) => [c.id, this.crypto.decrypt(c.nameEncrypted)]),
+    );
+    const nameById = new Map(
+      buyers.flatMap((b) => {
+        const name = nameByContact.get(b.contactId);
+        return name === undefined ? [] : [[b.id, name] as const];
+      }),
+    );
+
+    for (const demand of demands) {
+      const buyerId = demand.originBuyerId as string;
+      const buyerName = nameById.get(buyerId);
+      // כרטיס שנמחק אחרי שהביקוש פורסם — ההצעה נשארת, בלי שם
+      if (buyerName !== undefined) out.set(demand.id, { buyerId, buyerName });
+    }
+    return out;
+  }
+
   private async getDemand(id: string): Promise<SharedDemandDto> {
     const tenantId = TenantContext.current().tenantId;
     const prices = await this.pricing.all();
@@ -692,9 +773,19 @@ export class CollaborationService {
         take: 100,
       }),
     );
+    /*
+     * שם הקונה להצעות הנכנסות — שתי שאילתות לכל הרשימה ולא אחת לכל
+     * הצעה. הביקושים והקונים נטענים פעם אחת ומחוברים בזיכרון.
+     */
+    const incomingDemandIds = rows
+      .filter((row) => row.toTenantId === tenantId)
+      .map((row) => row.demandId);
+    const buyerByDemand = await this.buyerNamesForDemands(incomingDemandIds);
+
     return rows.map((row) => ({
       id: row.id,
       demandId: row.demandId,
+      ...(row.toTenantId === tenantId ? (buyerByDemand.get(row.demandId) ?? {}) : {}),
       direction: row.toTenantId === tenantId ? "incoming" : "outgoing",
       commissionSplit: row.commissionSplit,
       presentation: row.presentation as Record<string, unknown>,

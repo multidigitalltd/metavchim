@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import {
   COMMISSION_SPLIT_OPTIONS,
   DEFAULT_COMMISSION_SPLIT,
@@ -14,6 +14,7 @@ import { formatPrice } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { LoadError } from "../load-error";
 import { IconDiamond, IconHandshake, IconStar } from "../icons";
 import { CollaborationGuide, CommissionPanel, PrivacyPanel, ReferralRulesPanel } from "./guide";
@@ -32,6 +33,24 @@ const COOP_TABS: [key: string, label: string][] = [
   ["market", "הפניות לקוחות"],
 ];
 
+
+/**
+ * סנכרון הלשונית מהכתובת.
+ *
+ * רכיב נפרד ובתוך `Suspense` — `useSearchParams` מחייב זאת בדף
+ * שעובר prerender. קריאה חד-פעמית מ-`window.location` לא הספיקה:
+ * משתמש שכבר נמצא במסך ולוחץ על ההתראה מקבל ניווט צד-לקוח, הרכיב
+ * נשמר, האפקט אינו רץ שוב — והוא נשאר בלשונית הקודמת. כלומר בדיוק
+ * התקלה שהשינוי הזה בא לתקן.
+ */
+function TabFromQuery({ onTab }: { onTab: (tab: string) => void }) {
+  const params = useSearchParams();
+  const requested = params.get("tab");
+  useEffect(() => {
+    if (requested !== null && COOP_TABS.some(([key]) => key === requested)) onTab(requested);
+  }, [requested, onTab]);
+  return null;
+}
 
 interface DemandMatch {
   propertyId: string;
@@ -62,6 +81,10 @@ interface DemandRow {
 interface CoopOfferRow {
   id: string;
   direction: "incoming" | "outgoing";
+  /** אחוז העמלה שהמשרד המציע לוקח — מוצג לפני ההסכמה */
+  commissionSplit: number;
+  buyerId?: string;
+  buyerName?: string;
   presentation: {
     city?: string;
     neighborhood?: string;
@@ -111,6 +134,11 @@ const FEATURE_LABELS: Record<string, string> = {
 
 export default function CollaborationPage() {
   const { loading: authLoading } = useRequireAuth();
+  /*
+   * ההתראה על הצעה חדשה הובילה ל-/collaboration והמסך נפתח תמיד על
+   * "ביקושים ברשת" — כלומר על לשונית שאינה זו שההתראה דיברה עליה,
+   * וההצעה נראתה כאילו איננה. הכתובת קובעת.
+   */
   const [coopTab, setCoopTab] = useState<string>("demands");
   const [demands, setDemands] = useState<DemandRow[] | null>(null);
   const [sharedLeads, setSharedLeads] = useState<SharedLeadRow[]>([]);
@@ -264,6 +292,10 @@ export default function CollaborationPage() {
         בתמורה — ומי שנחת על המסך לא ידע מה שייך למה. ההפרדה היא
         גם הפתרון לבלבול בקרדיטים: הם מופיעים בלשונית אחת בלבד.
       */}
+      <Suspense fallback={null}>
+        <TabFromQuery onTab={setCoopTab} />
+      </Suspense>
+
       <div className="mv-seg mb-[18px]" role="tablist" aria-label="אזורי הרשת">
         {COOP_TABS.map(([key, label]) => (
           <button
@@ -316,11 +348,29 @@ export default function CollaborationPage() {
           <ul className="flex flex-col gap-3">
             {incoming.map((offer) => (
               <li key={offer.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-primary)", background: "var(--color-surface)" }}>
+                {/*
+                  לאיזה קונה ההצעה — השורה הראשונה, לא פרט שולי.
+                  משרד ששיתף חמישה ביקושים קיבל חמש הצעות שנראו זהות,
+                  ולא ידע לאיזה לקוח להתקשר.
+                */}
+                {offer.buyerId !== undefined ? (
+                  <p className="m-0 mb-1 text-[13px] font-semibold" style={{ color: "var(--color-primary)" }}>
+                    עבור{" "}
+                    <Link href={`/buyers/${offer.buyerId}`} className="underline">
+                      {offer.buyerName}
+                    </Link>
+                  </p>
+                ) : null}
                 <p className="mb-2 font-medium">
                   {offer.presentation.title ??
                     `${offer.presentation.rooms ?? "?"} חדרים ב${offer.presentation.neighborhood ?? offer.presentation.city ?? "?"}`}
                   {" · "}
                   {formatPrice(offer.presentation.priceAgorot)}
+                </p>
+                {/* חלוקת העמלה לפני ההסכמה ולא אחריה */}
+                <p className="m-0 mb-1 text-[13px]">
+                  העמלה שלי: <b>{100 - offer.commissionSplit}%</b> · למשרד המציע{" "}
+                  {offer.commissionSplit}%
                 </p>
                 <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
                   כתובת מלאה ופרטי הסוכנות ייחשפו אחרי אישור החיבור (חשיפה מדורגת).
