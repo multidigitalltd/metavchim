@@ -275,7 +275,15 @@ model Property {
   condition            String?   @db.VarChar(20)
   priceAgorot          BigInt?   @map("price_agorot")
   priceFlexible        Boolean?  @map("price_flexible")
+  /// מועד כניסה/מסירה — **המצב הוא השדה, התאריך נלווה אליו**.
+  ///
+  /// immediate | on_date | from_date | flexible. רוב הנכסים בשוק
+  /// נמסרים "מיידי" או "בתיאום", ותאריך מלוח לבדו אילץ את הסוכן
+  /// להמציא יום — שההתאמה אחר כך התייחסה אליו כאילו הוא אמיתי.
+  entryType            String?   @map("entry_type") @db.VarChar(20)
   entryDate            DateTime? @map("entry_date") @db.Date
+  /// הניואנס שאין לו שדה: "לאחר פינוי השוכר", "בכפוף לאישור משכנתה".
+  entryNote            String?   @map("entry_note") @db.VarChar(160)
   exclusive            Boolean?
   exclusiveUntil       DateTime? @map("exclusive_until") @db.Date
   ownerContactId       String?   @map("owner_contact_id") @db.Char(26)

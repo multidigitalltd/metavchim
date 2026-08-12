@@ -1,6 +1,7 @@
 import type { PropertyFields } from "../schemas/property.js";
 import type { BuyerRequirements } from "../schemas/buyer.js";
 import type { ScoreComponent } from "../schemas/match.js";
+import { scoreEntryFit } from "./entry-timing.js";
 
 export interface MatchResult {
   /** 0–100 */
@@ -82,7 +83,7 @@ export const MATCH_CRITERION_LABELS: Record<MatchCriterion, string> = {
   features_must: "דרישות חובה",
   features_nice: "נחמד שיהיה",
   area: "שטח",
-  entry_date: "מועד כניסה",
+  entry_date: "מועד כניסה/מסירה",
 };
 
 /**
@@ -97,6 +98,12 @@ export function scoreMatch(
   property: PropertyFields,
   buyer: BuyerRequirements,
   weights: MatchWeights = DEFAULT_MATCH_WEIGHTS,
+  /*
+   * "עכשיו" נכנס כפרמטר ולא נקרא מהשעון בתוך הפונקציה: המנוע חייב
+   * להישאר טהור ודטרמיניסטי — אותו נכס מול אותו קונה חייב לקבל אותו
+   * ציון, אחרת אי אפשר לבדוק אותו ואי אפשר להסביר אותו.
+   */
+  now: Date = new Date(),
 ): MatchResult {
   const parts: ScoreComponent[] = [];
   let excluded = false;
@@ -242,14 +249,14 @@ export function scoreMatch(
     });
   }
 
-  // --- תאריך כניסה (0.05) ---
-  if (property.entryDate !== undefined && buyer.entryBy !== undefined) {
-    const ok = property.entryDate <= buyer.entryBy;
+  // --- מועד כניסה/מסירה (0.05) --- לא רק תאריך; ראו entry-timing.ts
+  const entryFit = scoreEntryFit(property, buyer, now);
+  if (entryFit !== null) {
     parts.push({
       criterion: "entry_date",
       weight: weights.entry_date,
-      score: ok ? 1 : 0.3,
-      note: ok ? undefined : "תאריך הכניסה מאוחר מהמבוקש",
+      score: entryFit.score,
+      ...(entryFit.note !== undefined ? { note: entryFit.note } : {}),
     });
   }
 

@@ -25,7 +25,9 @@ export function rowToFields(row: PropertyRow): PropertyFields {
     condition: (row.condition as PropertyFields["condition"]) ?? undefined,
     priceAgorot: row.priceAgorot === null ? undefined : Number(row.priceAgorot),
     priceFlexible: row.priceFlexible ?? undefined,
+    entryType: (row.entryType as PropertyFields["entryType"]) ?? undefined,
     entryDate: row.entryDate ?? undefined,
+    entryNote: row.entryNote ?? undefined,
     exclusive: row.exclusive ?? undefined,
     exclusiveUntil: row.exclusiveUntil ?? undefined,
     latitude: row.latitude ?? undefined,
@@ -79,7 +81,9 @@ export function fieldsToColumns(fields: Partial<PropertyFields>): Prisma.Propert
   if ("priceAgorot" in fields)
     out.priceAgorot = fields.priceAgorot === undefined ? null : BigInt(fields.priceAgorot);
   if ("priceFlexible" in fields) out.priceFlexible = fields.priceFlexible ?? null;
+  if ("entryType" in fields) out.entryType = fields.entryType ?? null;
   if ("entryDate" in fields) out.entryDate = fields.entryDate ?? null;
+  if ("entryNote" in fields) out.entryNote = fields.entryNote ?? null;
   if ("exclusive" in fields) out.exclusive = fields.exclusive ?? null;
   if ("exclusiveUntil" in fields) out.exclusiveUntil = fields.exclusiveUntil ?? null;
   /*

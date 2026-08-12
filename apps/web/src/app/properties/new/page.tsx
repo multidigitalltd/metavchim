@@ -9,6 +9,7 @@ import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../dictation-field";
 import { PriceField } from "../../price-field";
 import { FeatureChips } from "../feature-chips";
+import { EntryTimingField } from "../entry-timing-field";
 
 const inputStyle = {
   borderColor: "var(--color-border)",
@@ -45,6 +46,7 @@ export default function NewPropertyPage() {
     };
     const priceShekels = num("price");
     const entry = String(f.get("entryDate") ?? "");
+    const entryType = String(f.get("entryType") ?? "");
 
     try {
       const created = await apiPost<{ id: string }>("/properties", {
@@ -58,7 +60,9 @@ export default function NewPropertyPage() {
         floor: num("floor"),
         totalFloors: num("totalFloors"),
         priceAgorot: priceShekels === undefined ? undefined : shekelsToAgorot(priceShekels),
+        entryType: entryType || undefined,
         entryDate: entry ? new Date(entry).toISOString() : undefined,
+        entryNote: String(f.get("entryNote") ?? "").trim() || undefined,
         // תלת-מצבי: "" = לא ידוע (נשאר חוסר), yes/no = עובדה מפורשת.
         // "אין מעלית" הוא מידע קריטי להתאמות — לא היעדר מידע (ביקורת Codex, PR #1).
         hasElevator: triState(f, "hasElevator"),
@@ -164,10 +168,7 @@ export default function NewPropertyPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             {/* המחיר גם במילים — ספרה עודפת במיליונים קופצת לעין */}
             <PriceField id="price" name="price" label="מחיר (₪)" />
-            <div>
-              <label htmlFor="entryDate" className="mb-1 block font-medium">תאריך כניסה</label>
-              <input id="entryDate" name="entryDate" type="date" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
-            </div>
+            <EntryTimingField side="property" inputStyle={inputStyle} />
           </div>
         </fieldset>
 

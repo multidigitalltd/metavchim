@@ -19,6 +19,8 @@ import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
   CollaborationService,
   type CoopOfferDto,
+  type NetworkDemandMatchDto,
+  type NetworkPropertyOfferDto,
   type ReferralTermsDto,
   type SharedDemandDto,
   type SharedLeadDto,
@@ -132,6 +134,35 @@ export class CollaborationController {
   @RequireCapability("collaboration.offer")
   async demands(): Promise<SharedDemandDto[]> {
     return this.collaboration.listDemands();
+  }
+
+  /**
+   * העמודה השנייה בכרטיס הנכס — ביקושים ברשת שהנכס עונה עליהם.
+   *
+   * מאחורי `collaboration.offer` ולא `properties.view`: מי שאינו רשאי
+   * להציע ברשת אינו אמור לראות את הביקושים שלה, ובוודאי לא לקבל
+   * עמודה שלמה של פעולות שכל אחת מהן תיחסם.
+   */
+  @Get("network-matches/property/:propertyId")
+  @RequireCapability("collaboration.offer")
+  async networkMatchesForProperty(
+    @Param("propertyId", new ZodValidationPipe(IdSchema)) propertyId: string,
+  ): Promise<NetworkDemandMatchDto[]> {
+    return this.collaboration.networkMatchesForProperty(propertyId);
+  }
+
+  /**
+   * העמודה השנייה בכרטיס הקונה — נכסים שמשרדים אחרים הציעו עליו.
+   *
+   * `collaboration.share` ולא `.offer`: זו התוצאה של פרסום הקונה
+   * שלי, וזו היכולת שמאפשרת לפרסם אותו מלכתחילה.
+   */
+  @Get("network-matches/buyer/:buyerId")
+  @RequireCapability("collaboration.share")
+  async networkMatchesForBuyer(
+    @Param("buyerId", new ZodValidationPipe(IdSchema)) buyerId: string,
+  ): Promise<{ shared: boolean; offers: NetworkPropertyOfferDto[] }> {
+    return this.collaboration.networkMatchesForBuyer(buyerId);
   }
 
   @Post("demands/:id/offer")

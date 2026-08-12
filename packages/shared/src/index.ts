@@ -8,6 +8,7 @@ export * from "./schemas/match.js";
 export * from "./schemas/offer.js";
 export * from "./logic/readiness.js";
 export * from "./logic/matching.js";
+export * from "./logic/entry-timing.js";
 export * from "./logic/extract-property.js";
 export * from "./logic/extract-person.js";
 export * from "./logic/voice-command.js";

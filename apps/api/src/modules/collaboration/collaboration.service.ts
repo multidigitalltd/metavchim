@@ -34,6 +34,40 @@ const INITIAL_CREDITS = 20;
 /** עיגול תקציב כלפי מעלה ל-100 אלף ₪ — אנונימיזציה (docs/04 §7) */
 const BUDGET_ROUND_AGOROT = 10_000_000;
 
+/**
+ * הסף שמעליו התאמה ברשת שווה הצגה.
+ *
+ * זהה לסף בפיד הביקושים בכוונה: "התאמה ברשת" חייבת להיות אותו דבר
+ * בכל מסך, אחרת אותו נכס נראה מתאים בכרטיס ולא מתאים ברשימה.
+ */
+const NETWORK_MATCH_MIN_SCORE = 70;
+
+/** ביקוש ברשת שהנכס הנוכחי עונה עליו — העמודה השנייה בכרטיס הנכס. */
+export interface NetworkDemandMatchDto {
+  demandId: string;
+  score: number;
+  explanation: string;
+  cities: string[];
+  neighborhoods: string[];
+  notes?: string;
+  budgetMaxAgorot: number;
+  commissionSplit: number;
+  /** מה תעלה ההצעה; 0 = חינם. מוחזר מהשרת ולא מנוחש במסך. */
+  creditsCost: number;
+  source: string;
+  /** כבר הצעתי את הנכס הזה על הביקוש הזה — אין להציע ולחייב פעמיים. */
+  alreadyOffered: boolean;
+}
+
+/** נכס שמשרד אחר הציע על הקונה הזה — העמודה השנייה בכרטיס הקונה. */
+export interface NetworkPropertyOfferDto {
+  id: string;
+  presentation: Record<string, unknown>;
+  commissionSplit: number;
+  status: string;
+  createdAt: Date;
+}
+
 /** נכס שלי שמתאים לביקוש ברשת — כדי שלא צריך לנחש מתוך רשימה. */
 export interface DemandMatchDto {
   propertyId: string;
@@ -361,18 +395,9 @@ export class CollaborationService {
       mustFeatures: string[];
     },
   ): DemandMatchDto[] {
-    const requirements = {
-      cities: demand.cities,
-      // השכונות משפיעות על הניקוד כמו בהתאמות הפנימיות — נכס באותה
-      // עיר מחוץ לשכונות המבוקשות לא מקבל את מלוא נקודות המיקום
-      neighborhoods: demand.neighborhoods,
-      dealType: demand.dealType,
-      propertyTypes: [],
-      budgetMaxAgorot: Number(demand.budgetMaxAgorot),
-      ...(demand.roomsMin !== null ? { roomsMin: Number(demand.roomsMin) } : {}),
-      ...(demand.roomsMax !== null ? { roomsMax: Number(demand.roomsMax) } : {}),
-      features: Object.fromEntries(demand.mustFeatures.map((f) => [f, "must"])),
-    } as unknown as BuyerRequirements;
+    // השכונות משפיעות על הניקוד כמו בהתאמות הפנימיות — נכס באותה
+    // עיר מחוץ לשכונות המבוקשות לא מקבל את מלוא נקודות המיקום
+    const requirements = this.demandToRequirements(demand);
 
     return properties
       .map((property) => {
@@ -386,7 +411,7 @@ export class CollaborationService {
         const result = scoreMatch(rowToFields(property), requirements);
         return { property, result };
       })
-      .filter(({ result }) => !result.excluded && result.score >= 70)
+      .filter(({ result }) => !result.excluded && result.score >= NETWORK_MATCH_MIN_SCORE)
       .sort((a, b) => b.result.score - a.result.score)
       .slice(0, 3)
       .map(({ property, result }) => ({
@@ -397,6 +422,143 @@ export class CollaborationService {
         score: result.score,
         explanation: result.explanation,
       }));
+  }
+
+  /**
+   * דרישות הקונה כפי שהן משתקפות מביקוש ברשת.
+   *
+   * הביקוש הוא צל אנונימי של הקונה — עיר, תקציב, חדרים, חובות — ולכן
+   * אפשר להזין אותו לאותו מנוע ניקוד בדיוק. אין כאן מנוע שני: ציון
+   * "82%" על ביקוש ברשת נבנה מאותם קריטריונים כמו "82%" פנימי,
+   * אחרת שתי העמודות בכרטיס היו מודדות בשני סרגלים שונים.
+   */
+  private demandToRequirements(demand: {
+    cities: string[];
+    neighborhoods: string[];
+    dealType: string;
+    budgetMaxAgorot: bigint;
+    roomsMin: Prisma.Decimal | null;
+    roomsMax: Prisma.Decimal | null;
+    mustFeatures: string[];
+  }): BuyerRequirements {
+    return {
+      cities: demand.cities,
+      neighborhoods: demand.neighborhoods,
+      dealType: demand.dealType,
+      propertyTypes: [],
+      budgetMaxAgorot: Number(demand.budgetMaxAgorot),
+      ...(demand.roomsMin !== null ? { roomsMin: Number(demand.roomsMin) } : {}),
+      ...(demand.roomsMax !== null ? { roomsMax: Number(demand.roomsMax) } : {}),
+      features: Object.fromEntries(demand.mustFeatures.map((f) => [f, "must"])),
+    } as unknown as BuyerRequirements;
+  }
+
+  /**
+   * ביקושים ברשת שמתאימים לנכס אחד — העמודה השנייה בכרטיס הנכס.
+   *
+   * עד כה כרטיס הנכס הראה רק קונים מהמאגר הפנימי, והביקושים ברשת
+   * חיו במסך נפרד שצריך לזכור להיכנס אליו. הסוכן ראה "3 קונים
+   * מתאימים" וסגר את הכרטיס, בלי לדעת שיש עוד ארבעה ביקושים ברשת
+   * שהנכס הזה עונה עליהם בדיוק.
+   *
+   * הביקושים שלי מסוננים: הם כבר מכוסים בעמודה הפנימית, ולראות
+   * אותם פעמיים זו ספירה כפולה של אותו קונה.
+   */
+  async networkMatchesForProperty(propertyId: string): Promise<NetworkDemandMatchDto[]> {
+    const tenantId = TenantContext.current().tenantId;
+    const property = await this.prisma.withTenant((tx) =>
+      tx.property.findFirst({ where: { id: propertyId, tenantId, deletedAt: null } }),
+    );
+    if (!property) throw new NotFoundException("נכס לא נמצא");
+
+    const demands = await this.prisma.withNetworkRead((tx) =>
+      tx.sharedDemand.findMany({
+        where: { status: "active", tenantId: { not: tenantId } },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      }),
+    );
+    if (demands.length === 0) return [];
+
+    /*
+     * מה כבר הצעתי — שאילתה אחת לכל הרשימה ולא אחת לכל ביקוש. בלי
+     * זה המסך היה מציע להציע שוב נכס שכבר הוצע, והשרת היה גובה
+     * קרדיט על כפילות.
+     */
+    const offered = await this.prisma.withTenant((tx) =>
+      tx.coopOffer.findMany({
+        where: { fromTenantId: tenantId, propertyId, demandId: { in: demands.map((d) => d.id) } },
+        select: { demandId: true },
+      }),
+    );
+    const alreadyOffered = new Set(offered.map((o) => o.demandId));
+
+    const prices = await this.pricing.all();
+    const fields = rowToFields(property);
+    return demands
+      .map((demand) => ({
+        demand,
+        // בלי משקלי המשרד, כמו בכל ניקוד שמוצג מעבר לגבול הדייר
+        result: scoreMatch(fields, this.demandToRequirements(demand)),
+      }))
+      .filter(({ result }) => !result.excluded && result.score >= NETWORK_MATCH_MIN_SCORE)
+      .sort((a, b) => b.result.score - a.result.score)
+      .slice(0, 10)
+      .map(({ demand, result }) => ({
+        demandId: demand.id,
+        score: result.score,
+        explanation: result.explanation,
+        cities: demand.cities,
+        neighborhoods: demand.neighborhoods,
+        ...(demand.notes ? { notes: demand.notes } : {}),
+        budgetMaxAgorot: Number(demand.budgetMaxAgorot),
+        commissionSplit: demand.commissionSplit,
+        creditsCost: coopOfferCost(demand.source, prices),
+        source: demand.source,
+        alreadyOffered: alreadyOffered.has(demand.id),
+      }));
+  }
+
+  /**
+   * נכסים שמשרדים אחרים הציעו על הקונה הזה — העמודה השנייה בכרטיס
+   * הקונה.
+   *
+   * הצעות שת"פ נחתו עד כה רק במסך השת"פ הכללי, כלומר הסוכן שפתח את
+   * כרטיס הקונה לא ראה שמחכה לו שם נכס. הן שייכות לכרטיס: זו בדיוק
+   * אותה שאלה — "מה יש בשביל הקונה הזה" — רק שהמקור אחר.
+   *
+   * `shared: false` אינו שגיאה אלא מצב: הקונה פשוט לא פורסם לרשת,
+   * והמסך מזמין לפרסם במקום להציג עמודה ריקה בלי הסבר.
+   */
+  async networkMatchesForBuyer(
+    buyerId: string,
+  ): Promise<{ shared: boolean; offers: NetworkPropertyOfferDto[] }> {
+    const tenantId = TenantContext.current().tenantId;
+    const demand = await this.prisma.withTenant((tx) =>
+      tx.sharedDemand.findFirst({
+        where: { tenantId, originBuyerId: buyerId, status: "active" },
+        select: { id: true },
+      }),
+    );
+    if (!demand) return { shared: false, offers: [] };
+
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.coopOffer.findMany({
+        where: { demandId: demand.id, toTenantId: tenantId },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }),
+    );
+    return {
+      shared: true,
+      offers: rows.map((row) => ({
+        id: row.id,
+        presentation: row.presentation as Record<string, unknown>,
+        commissionSplit: row.commissionSplit,
+        status: row.status,
+        createdAt: row.createdAt,
+      })),
+    };
   }
 
   private async getDemand(id: string): Promise<SharedDemandDto> {

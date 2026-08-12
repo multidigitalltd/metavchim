@@ -12,6 +12,7 @@ const fullFields: PropertyFields = {
   floor: 2,
   hasElevator: false,
   hasParking: false,
+  entryType: "on_date" as const,
   entryDate: new Date("2026-12-01"),
 };
 
@@ -30,10 +31,10 @@ describe("computeReadiness — ציון מוכנות נכס", () => {
   it("שדות חסרים מוחזרים בשמם — לתצוגת 'חסרים X פרטים'", () => {
     const partial = { ...fullFields };
     delete partial.priceAgorot;
-    delete partial.entryDate;
+    delete partial.entryType;
     const result = computeReadiness(partial, { hasTitle: false, hasDescription: false });
     expect(result.missingFields).toContain("priceAgorot");
-    expect(result.missingFields).toContain("entryDate");
+    expect(result.missingFields).toContain("entryType");
     expect(result.score).toBeLessThan(80);
   });
 

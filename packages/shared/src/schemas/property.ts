@@ -48,7 +48,23 @@ export const PropertyFieldsSchema = z.object({
   condition: z.enum(["new", "renovated", "good", "needs_renovation"]).optional(),
   priceAgorot: MoneyAgorotSchema.optional(),
   priceFlexible: z.boolean().optional(),
+  /**
+   * מועד כניסה/מסירה — **צורת התשובה, לא רק התאריך.**
+   *
+   * תאריך מלוח לבדו לא מתאר את השוק: רוב הנכסים נמסרים "מיידי",
+   * "גמיש", "בתיאום עם השוכר" או "החל מ-" — ומי שנאלץ לבחור יום
+   * מדויק בחר יום שקרי, והמערכת התאימה לפיו. לכן המצב הוא השדה,
+   * והתאריך נלווה אליו רק כשהוא באמת קיים.
+   *
+   * `on_date` = מסירה בתאריך נקוב · `from_date` = פנוי החל מ-,
+   * ומאוחר יותר גם כן · `immediate` = אפשר להיכנס עכשיו ·
+   * `flexible` = ייקבע בתיאום, בלי מחויבות לתאריך.
+   */
+  entryType: z.enum(["immediate", "on_date", "from_date", "flexible"]).optional(),
+  /** רלוונטי ל-`on_date` ו-`from_date` בלבד. */
   entryDate: z.coerce.date().optional(),
+  /** הניואנס שאין לו שדה: "לאחר פינוי השוכר במאי", "בכפוף למשכנתה". */
+  entryNote: z.string().max(160).optional(),
   exclusive: z.boolean().optional(),
   exclusiveUntil: z.coerce.date().optional(),
   /*
@@ -89,5 +105,11 @@ export const PROPERTY_REQUIRED_FOR_MARKETING = [
   "floor",
   "hasElevator",
   "hasParking",
-  "entryDate",
+  /*
+   * המצב ולא התאריך: "מיידי" ו"גמיש" הן תשובות מלאות לשאלת המסירה,
+   * ונכס שנענה בהן מוכן לשיווק בדיוק כמו נכס עם תאריך נקוב. הדרישה
+   * הקודמת ל-`entryDate` הורידה להם את ציון המוכנות על שדה שאין לו
+   * ערך אמיתי במקרה שלהם.
+   */
+  "entryType",
 ] as const satisfies readonly (keyof PropertyFields)[];

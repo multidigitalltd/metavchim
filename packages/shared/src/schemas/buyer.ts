@@ -47,6 +47,15 @@ export const BuyerRequirementsSchema = z.object({
       RequirementLevelSchema,
     )
     .default({}),
+  /**
+   * מתי הקונה צריך להיכנס — כמו בנכס, המצב ולא רק התאריך.
+   *
+   * `immediate` = צריך עכשיו · `by_date` = לא יאוחר מ-`entryBy` ·
+   * `flexible` = אין אילוץ, וזה משנה את ההתאמה: קונה גמיש לא ייפסל
+   * על נכס שמתפנה בעוד חצי שנה.
+   */
+  entryType: z.enum(["immediate", "by_date", "flexible"]).optional(),
+  /** רלוונטי ל-`by_date` בלבד. */
   entryBy: z.coerce.date().optional(),
   flexibilityNotes: z.string().max(1000).optional(),
 });

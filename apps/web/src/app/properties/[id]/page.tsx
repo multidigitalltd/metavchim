@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useState, use, type ReactNode } from "react";
 import Link from "next/link";
+import { describeEntry } from "@metavchim/shared";
 import { useRouter } from "next/navigation";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import {
   FIELD_LABELS,
-  formatDate,
   formatPrice,
   MATURITY_LABELS,
   PROPERTY_TYPE_LABELS,
@@ -15,6 +15,7 @@ import {
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { MediaSection } from "./media-section";
+import { NetworkDemandMatches } from "../network-demand-matches";
 import { AgreementsPanel } from "../../agreements-panel";
 import { EntityTasks } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
@@ -49,7 +50,9 @@ interface PropertyDetail {
   hasBalcony?: boolean;
   hasSafeRoom?: boolean;
   priceAgorot?: number;
+  entryType?: string;
   entryDate?: string;
+  entryNote?: string;
   status: string;
   marketingTitle?: string;
   readinessScore: number;
@@ -309,7 +312,16 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
     ["חדרים", property.rooms !== undefined ? String(property.rooms) : "—"],
     ["שטח", property.areaSqm ? `${property.areaSqm} מ"ר` : "—"],
     ["קומה", property.floor !== undefined ? `${property.floor}${property.totalFloors ? ` מתוך ${property.totalFloors}` : ""}` : "—"],
-    ["כניסה", formatDate(property.entryDate) || "—"],
+    [
+      "כניסה / מסירה",
+      // מצב + תאריך + ההערה החופשית בשורה אחת; "מיידי" ו"גמיש" הם
+      // תשובות ולא חוסר, ולכן אינם מוצגים כמקף
+      describeEntry({
+        entryType: property.entryType as Parameters<typeof describeEntry>[0]["entryType"],
+        ...(property.entryDate !== undefined ? { entryDate: new Date(property.entryDate) } : {}),
+        ...(property.entryNote !== undefined ? { entryNote: property.entryNote } : {}),
+      }) ?? "—",
+    ],
     ["מאפיינים", features.length > 0 ? features.join(", ") : "—"],
   ];
 
@@ -474,6 +486,13 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
 
           <EntityTasks entityType="property" entityId={property.id} />
 
+          {/*
+            ---- שתי עמודות ההתאמה ----
+            שמאל: המאגר הפנימי. ימין: הרשת. אותה שאלה ("מי מתאים
+            לנכס הזה") משני מקורות, ובאותו סרגל ניקוד — כל עוד הן
+            היו במסכים נפרדים הסוכן ראה חצי תשובה וסגר את הכרטיס.
+          */}
+          <div className="grid items-start gap-4 lg:grid-cols-2">
           <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="matches-heading">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <h2 id="matches-heading" className="m-0" style={{ fontSize: 15.5, fontWeight: 800 }}>
@@ -582,6 +601,9 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
               קונים שדרישת חובה שלהם נשברת (למשל: חובה מעלית ואין) — לא מוצגים כאן בכלל.
             </p>
           </section>
+
+          <NetworkDemandMatches propertyId={id} />
+          </div>
         </div>
 
         {/* ---- הטור הצדדי ---- */}
