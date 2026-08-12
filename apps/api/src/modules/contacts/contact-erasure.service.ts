@@ -17,10 +17,16 @@ import { PrismaService, type TenantTx } from "../../core/prisma.service";
  * **מה נמחק:** כרטיס איש הקשר עצמו (שם, טלפונים, אימייל — כולם
  * מוצפנים), כרטיסי הקונה שלו והביקושים שבהם, הלידים שלו, ציר הזמן,
  * הפגישות והמשימות שנוגעות אליו, השיחות **וההקלטות** שלהן, ההודעות,
- * ההסכמים כולל חתימה ומספר זהות, והרישומים שפורסמו לרשת עם צילום
- * מוצפן של פרטיו.
+ * הסכמים שטרם נחתמו, והרישומים שפורסמו לרשת עם צילום מוצפן של
+ * פרטיו.
  *
  * **מה נשאר, ולמה:**
+ * - **הסכם חתום — לעולם לא נמחק.** זו ראיה משפטית ובסיס הזכאות של
+ *   המשרד לדמי התיווך, ואינה שלו למחוק. המחיקה מנתקת אותו מהכרטיס
+ *   (`contactId = null`) והוא עובר לארכיון המשרד. זהות החותם נשארת
+ *   בתוך המסמך — שם, מספר זהות והנוסח שנחתם — כי מסמך חתום בלי
+ *   החותם אינו מסמך. זה הגבול של המחיקה, והוא נאמר במפורש למי
+ *   שמוחק ובמדיניות הפרטיות.
  * - **הנכס** שהוא היה בעליו — נשאר, בלי הקישור אליו. הנכס הוא נכס
  *   של המשרד ולא פרט אישי; מה שמזהה את האדם יושב על כרטיס איש הקשר
  *   שנמחק. מחיקת הנכס הייתה מוחקת גם התאמות והצעות של קונים אחרים
@@ -60,7 +66,9 @@ export class ContactErasureService {
     calls: number;
     recordings: number;
     messages: number;
+    /** הסכמים שטרם נחתמו — אלה שיימחקו. */
     agreements: number;
+    /** הסכמים חתומים — **נשמרים** ועוברים לארכיון המשרד. */
     signedAgreements: number;
     appointments: number;
     properties: number;
@@ -97,7 +105,7 @@ export class ContactErasureService {
         tx.call.count({ where: { tenantId, contactId } }),
         tx.call.count({ where: { tenantId, contactId, recordingKey: { not: null } } }),
         tx.message.count({ where: { tenantId, contactId } }),
-        tx.agreement.count({ where: { tenantId, contactId } }),
+        tx.agreement.count({ where: { tenantId, contactId, status: { not: "signed" } } }),
         tx.agreement.count({ where: { tenantId, contactId, status: "signed" } }),
         tx.appointment.count({
           where: {
@@ -161,9 +169,10 @@ export class ContactErasureService {
         throw new BadRequestException("השם שהוקלד אינו תואם — המחיקה בוטלה");
       }
 
-      const [buyerRows, leadRows] = await Promise.all([
+      const [buyerRows, leadRows, retainedAgreements] = await Promise.all([
         tx.buyer.findMany({ where: { tenantId, contactId }, select: { id: true } }),
         tx.lead.findMany({ where: { tenantId, contactId }, select: { id: true } }),
+        tx.agreement.count({ where: { tenantId, contactId, status: "signed" } }),
       ]);
       const buyers = buyerRows.map((b) => b.id);
       const leads = leadRows.map((l) => l.id);
@@ -209,6 +218,8 @@ export class ContactErasureService {
           buyers: buyers.length,
           leads: leads.length,
           recordings: keys.length,
+          // כמה מסמכים חתומים נשמרו — חלק מהראיה שהמחיקה בוצעה כדין
+          retainedAgreements,
         },
       });
       return keys;
@@ -300,7 +311,20 @@ export class ContactErasureService {
     // תקשורת: שיחות (עם התמלול שעליהן) והודעות
     await tx.call.deleteMany({ where: { tenantId, contactId } });
     await tx.message.deleteMany({ where: { tenantId, contactId } });
-    // הסכמים — כולל חתומים, עם החתימה ומספר הזהות שבתוכם
+    /*
+     * הסכם חתום **אינו נמחק בשום מקרה** — הוא ראיה משפטית ובסיס
+     * הזכאות לדמי התיווך, ואינו של הלקוח למחוק. הוא מנותק מהכרטיס
+     * ועובר לארכיון המשרד; הזהות שבתוכו נשארת, כי מסמך חתום בלי
+     * החותם אינו מסמך.
+     *
+     * הניתוק לפני המחיקה, לא אחריה: מחיקת הכרטיס לפני שההסכם נותק
+     * הייתה משאירה אותו מצביע על כרטיס שאיננו.
+     */
+    await tx.agreement.updateMany({
+      where: { tenantId, contactId, status: "signed" },
+      data: { contactId: null },
+    });
+    // מה שלא נחתם הוא טיוטה או קישור שפג — נמחק עם השאר
     await tx.agreement.deleteMany({ where: { tenantId, contactId } });
 
     await tx.buyer.deleteMany({ where: { tenantId, contactId } });

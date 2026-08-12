@@ -22,6 +22,7 @@ import { GmailSection } from "./gmail-section";
 import { GoogleCalendarSection } from "./google-calendar-section";
 import { MatchWeightsSection } from "./match-weights-section";
 import { AgreementTemplatesSection } from "./agreement-templates-section";
+import { RetainedAgreementsSection } from "./retained-agreements-section";
 import { SystemUpdateSection } from "./system-update";
 import { UserPermissions } from "./user-permissions";
 
@@ -633,7 +634,11 @@ export default function SettingsPage() {
 
           {tab === "documents" ? (
             canAgreements ? (
-              <AgreementTemplatesSection />
+              <>
+                <AgreementTemplatesSection />
+                {/* מסמכים חתומים ששרדו מחיקת לקוח — מוצג רק כשיש */}
+                <RetainedAgreementsSection />
+              </>
             ) : (
               <LockedFeature
                 code="agreements"

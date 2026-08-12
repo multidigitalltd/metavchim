@@ -1037,7 +1037,13 @@ model Agreement {
   tenantId        String    @map("tenant_id") @db.Char(26)
   /// brokerage | exclusivity
   kind            String    @db.VarChar(20)
-  contactId       String    @map("contact_id") @db.Char(26)
+  /// null = הלקוח נמחק מהמערכת וההסכם **החתום** נשמר.
+  ///
+  /// מסמך חתום אינו נמחק בשום מקרה — הוא ראיה משפטית ובסיס הזכאות
+  /// לדמי התיווך. לכן מחיקת לקוח מנתקת את ההסכם מהכרטיס במקום למחוק
+  /// אותו; זהות החותם נשארת במסמך עצמו (signerName/signerIdNumber
+  /// והנוסח החתום), כי בלעדיה המסמך חסר ערך.
+  contactId       String?   @map("contact_id") @db.Char(26)
   propertyId      String?   @map("property_id") @db.Char(26)
   /// pending | viewed | signed | declined | expired
   /// expired נקבע כשקישור שפג מפנה את מקומו להסכם חדש — האינדקס
