@@ -354,21 +354,44 @@ export class PlatformController {
     @Body(new ZodValidationPipe(DeletePlanSchema)) body: z.infer<typeof DeletePlanSchema>,
   ): Promise<{ ok: true; movedTenants: number }> {
     if (body.moveTo === code) throw new BadRequestException("יש לבחור מסלול יעד אחר");
-    const all = await this.plans.all();
-    if (!all.some((p) => p.code === code)) throw new BadRequestException("המסלול לא נמצא");
-    if (!all.some((p) => p.code === body.moveTo)) {
-      throw new BadRequestException("מסלול היעד לא מוכר");
-    }
-    /*
-     * המסלול האחרון אינו נמחק. מערכת בלי אף מסלול אינה מצב תקין —
-     * הרשמה חדשה נופלת, ואין לאן להעביר את מי שכבר קיים.
-     */
-    if (all.length <= 1) throw new BadRequestException("זהו המסלול היחיד — אי אפשר למחוק אותו");
+    const actor = TenantContext.current().userId;
 
     const movedTenants = await this.prisma.$transaction(async (tx) => {
+      /*
+       * נעילת הקטלוג לכל אורך הטרנזקציה, ואימות **בתוכה**.
+       *
+       * שני מנהלים שמוחקים בו-זמנית את A ואת B ובוחרים זה את מסלולו
+       * של זה כיעד היו עוברים שניהם אימות מול אותה תמונה ישנה,
+       * ומשאירים משרדים על שני קודים שאינם קיימים (ביקורת Codex).
+       * מחיקת מסלול היא פעולה נדירה של בעל הפלטפורמה — נעילה גלובלית
+       * כאן אינה עולה דבר.
+       */
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('plans:catalog', 0))`;
+      const all = await this.plans.freshAll(tx);
+      const plan = all.find((p) => p.code === code);
+      if (!plan) throw new BadRequestException("המסלול לא נמצא");
+      if (!all.some((p) => p.code === body.moveTo)) {
+        throw new BadRequestException("מסלול היעד לא מוכר");
+      }
+      /*
+       * המסלול האחרון אינו נמחק. מערכת בלי אף מסלול אינה מצב תקין —
+       * הרשמה חדשה נופלת, ואין לאן להעביר את מי שכבר קיים.
+       */
+      if (all.length <= 1) throw new BadRequestException("זהו המסלול היחיד — אי אפשר למחוק אותו");
+
       const moved = await tx.tenant.updateMany({
         where: { plan: code },
         data: { plan: body.moveTo },
+      });
+      /*
+       * המנוי ולא רק המשרד. `subscriptions.plan_code` הוא מה
+       * ש-RenewalService מתמחר לפיו, והוא מדלג על מסלול שאינו מוכר —
+       * כלומר לקוח משלם היה מפסיק להתחדש בשקט בזמן שהמשרד שלו נראה
+       * תקין לגמרי (ביקורת Codex).
+       */
+      await tx.subscription.updateMany({
+        where: { planCode: code },
+        data: { planCode: body.moveTo },
       });
       await tx.coupon.updateMany({ where: { planCode: code }, data: { planCode: body.moveTo } });
       /*
@@ -380,7 +403,7 @@ export class PlatformController {
         where: { couponPlanCode: code },
         data: { couponPlanCode: body.moveTo },
       });
-      await tx.plan.delete({ where: { code } });
+      await this.plans.retire(tx, plan, actor);
       return moved.count;
     });
     this.plans.invalidate();

@@ -891,6 +891,11 @@ model Plan {
   trialDays          Int      @default(14) @map("trial_days")
   isPublic           Boolean  @default(true) @map("is_public")
   sortOrder          Int      @default(0) @map("sort_order")
+  /// מסלול שנמחק. **דגל ולא מחיקת שורה**: קטלוג המסלולים ממזג
+  /// ברירות מחדל מובנות עם השורות שנשמרו, ולכן מחיקת שורה של מסלול
+  /// מובנה הייתה מחזירה אותו לחיים בהגדרות המקוריות שלו. שורה
+  /// פרושה מוסתרת מהקטלוג; יצירה מחדש של אותו קוד מחזירה אותה.
+  retiredAt          DateTime? @map("retired_at")
   updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
   updatedBy          String?  @map("updated_by") @db.Char(26)
 

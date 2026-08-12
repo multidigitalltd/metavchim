@@ -57,20 +57,45 @@ export class PlanCatalogService {
    * התיקון הקודם העביר רק את שאילתת הדייר ולא את זו של הקטלוג).
    */
   async all(tx?: TenantTx): Promise<PlanDefinition[]> {
+    return this.load(tx, true);
+  }
+
+  /**
+   * קריאה טרייה שעוקפת את המטמון ואינה ממלאת אותו.
+   *
+   * נחוצה בדיוק במקום אחד: אימות מחדש **בתוך** טרנזקציית מחיקת
+   * מסלול, אחרי שננעל הקטלוג. אימות שנשען על מטמון הוא אימות של
+   * העבר, וזו בדיוק הנקודה שבו הוא צריך להיות של ההווה.
+   */
+  async freshAll(tx: TenantTx): Promise<PlanDefinition[]> {
+    return this.load(tx, false);
+  }
+
+  private async load(tx: TenantTx | undefined, useCache: boolean): Promise<PlanDefinition[]> {
     const now = Date.now();
-    if (this.cache && this.cache.until > now) return this.cache.plans;
+    if (useCache && this.cache && this.cache.until > now) return this.cache.plans;
 
     const client = tx ?? this.prisma;
     const startedAt = this.generation;
     const rows = await client.plan.findMany({ orderBy: { sortOrder: "asc" } });
-    const stored = new Map(rows.map((row) => [row.code, this.fromRow(row)]));
+    /*
+     * שורה פרושה אינה "מסלול מוסתר" אלא מסלול שנמחק — והיא גם מה
+     * שמוחק מסלול **מובנה**: בלעדיה המיזוג שלמטה היה מחזיר אותו
+     * לחיים בהגדרות המקוריות שלו (ביקורת Codex).
+     */
+    const retired = new Set(rows.filter((row) => row.retiredAt !== null).map((row) => row.code));
+    const stored = new Map(
+      rows.filter((row) => row.retiredAt === null).map((row) => [row.code, this.fromRow(row)]),
+    );
 
     /*
      * מיזוג ולא החלפה: ברירת מחדל שלא נערכה נשארת זמינה, ושורה
      * שנשמרה גוברת עליה. בלי זה, שמירה של מסלול אחד הייתה מעלימה את
      * השלושה האחרים מהמסך.
      */
-    const merged = [...DEFAULT_PLANS.map((p) => stored.get(p.code) ?? p)];
+    const merged = DEFAULT_PLANS.filter((p) => !retired.has(p.code)).map(
+      (p) => stored.get(p.code) ?? p,
+    );
     for (const [code, plan] of stored) {
       if (!merged.some((p) => p.code === code)) merged.push(plan);
     }
@@ -81,7 +106,7 @@ export class PlanCatalogService {
      * קורא שקיבל תמונה בת רגע אחד הוא בסדר; מטמון ששומר אותה
      * לשלושים שניות אחרי שינוי הוא לא.
      */
-    if (this.generation === startedAt) {
+    if (useCache && this.generation === startedAt) {
       this.cache = { plans: merged, until: now + PlanCatalogService.TTL_MS };
     }
     return merged;
@@ -144,6 +169,12 @@ export class PlanCatalogService {
       isPublic: plan.isPublic,
       sortOrder: plan.sortOrder,
       updatedBy,
+      /*
+       * שמירה מחזירה מסלול פרוש לחיים. זו הדרך היחידה לבטל מחיקה —
+       * ובלי האיפוס כאן, יצירה מחדש של אותו קוד הייתה מצליחה בשקט
+       * ולא מופיעה בשום מקום.
+       */
+      retiredAt: null,
     };
     await this.prisma.plan.upsert({
       where: { code: plan.code },
@@ -151,6 +182,40 @@ export class PlanCatalogService {
       update: data,
     });
     this.invalidate();
+  }
+
+  /**
+   * פרישת מסלול — "מחיקה" מנקודת מבט המשתמש.
+   *
+   * `upsert` ולא `delete`: מסלול מובנה שמעולם לא נערך אין לו שורה
+   * למחוק, ומחיקת שורה של מסלול מובנה שכן נערך הייתה מחזירה אותו
+   * לחיים בהגדרות המקוריות (ביקורת Codex). השורה הפרושה היא מה
+   * שמסתיר אותו.
+   *
+   * `tx` חובה: הפרישה חייבת לקרות באותה טרנזקציה שמעבירה את
+   * המשרדים והמנויים, אחרת יש רגע שבו הם מצביעים על מסלול שאיננו.
+   */
+  async retire(tx: TenantTx, plan: PlanDefinition, retiredBy: string): Promise<void> {
+    const now = new Date();
+    await tx.plan.upsert({
+      where: { code: plan.code },
+      create: {
+        code: plan.code,
+        name: plan.name,
+        description: plan.description,
+        monthlyPriceAgorot: plan.monthlyPriceAgorot,
+        yearlyPriceAgorot: plan.yearlyPriceAgorot,
+        maxUsers: plan.maxUsers,
+        maxProperties: plan.maxProperties,
+        features: sanitizeFeatures(plan.features),
+        trialDays: plan.trialDays,
+        isPublic: plan.isPublic,
+        sortOrder: plan.sortOrder,
+        updatedBy: retiredBy,
+        retiredAt: now,
+      },
+      update: { retiredAt: now, updatedBy: retiredBy },
+    });
   }
 
   private fromRow(row: {
