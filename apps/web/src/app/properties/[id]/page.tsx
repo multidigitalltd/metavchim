@@ -35,6 +35,8 @@ interface PropertyDetail {
   street?: string;
   latitude?: number;
   longitude?: number;
+  /** בארכיון — רק אז מוצגת מחיקה לצמיתות. */
+  archived?: boolean;
   locationSource?: "pin" | "geocode";
   propertyType?: string;
   dealType?: string;
@@ -108,6 +110,8 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   const router = useRouter();
   const [property, setProperty] = useState<PropertyDetail | null>(null);
   const [archiveConfirm, setArchiveConfirm] = useState(false);
+  const [purgeConfirm, setPurgeConfirm] = useState(false);
+  const [purgeError, setPurgeError] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
@@ -216,6 +220,27 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
     }
     await apiDelete(`/properties/${id}`);
     router.replace("/properties");
+  }
+
+  /**
+   * מחיקה לצמיתות — רק מנכס שכבר בארכיון, ובשני שלבים גם כאן.
+   *
+   * הארכיון הוא ברירת המחדל כי נכס שנמכר הוא היסטוריה עסקית; זה
+   * הנתיב לנכס שנקלט בטעות או לכפילות. התמונות נמחקות איתו מהאחסון.
+   */
+  async function purge() {
+    if (!purgeConfirm) {
+      setPurgeConfirm(true);
+      return;
+    }
+    setPurgeError(null);
+    try {
+      await apiDelete(`/properties/${id}/permanent`);
+      router.replace("/properties");
+    } catch (err: unknown) {
+      setPurgeError(err instanceof ApiError ? err.message : "המחיקה נכשלה");
+      setPurgeConfirm(false);
+    }
   }
 
   /** שליחה מרובה בשני שלבים — אישור מפורש לפני יצירת הצעות (אפיון §10). */
@@ -611,6 +636,35 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
             <button type="button" className="mv-btn-plain self-start" onClick={() => setArchiveConfirm(false)}>
               ביטול
             </button>
+          ) : null}
+
+          {/*
+            מחיקה לצמיתות מוצגת רק לנכס שכבר בארכיון: שני שלבים
+            נפרדים, כדי שנכס פעיל לא ייעלם בלחיצה אחת.
+          */}
+          {property.archived ? (
+            <>
+              <button
+                type="button"
+                className="mv-btn-plain self-start"
+                style={{ color: "var(--color-danger)" }}
+                onClick={() => void purge()}
+              >
+                {purgeConfirm
+                  ? "לאשר מחיקה לצמיתות? התמונות יימחקו גם מהאחסון"
+                  : "מחק לצמיתות"}
+              </button>
+              {purgeConfirm ? (
+                <button type="button" className="mv-btn-plain self-start" onClick={() => setPurgeConfirm(false)}>
+                  ביטול
+                </button>
+              ) : null}
+              {purgeError !== null ? (
+                <p role="alert" className="m-0 text-sm" style={{ color: "var(--color-danger)" }}>
+                  {purgeError}
+                </p>
+              ) : null}
+            </>
           ) : null}
         </div>
       </div>

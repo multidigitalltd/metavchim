@@ -67,6 +67,7 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   "buyers.view_all": "צפייה בכל הקונים במשרד",
   "buyers.view_own": "צפייה בקונים שלו",
   "buyers.edit": "עריכת קונים",
+  "buyers.delete": "מחיקת כרטיס קונה",
   "leads.view_all": "צפייה בכל הלידים במשרד",
   "leads.view_own": "צפייה בלידים שלו",
   "leads.edit": "עריכת לידים",
@@ -99,7 +100,7 @@ export const CAPABILITY_MODULES: readonly CapabilityModule[] = [
     key: "buyers",
     label: "קונים",
     description: "כרטיסי הקונים והביקושים שלהם",
-    capabilities: ["buyers.view_all", "buyers.view_own", "buyers.edit"],
+    capabilities: ["buyers.view_all", "buyers.view_own", "buyers.edit", "buyers.delete"],
   },
   {
     key: "leads",

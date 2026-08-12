@@ -148,6 +148,19 @@ export class PropertiesController {
     await this.properties.softDelete(id);
   }
 
+  /**
+   * מחיקה לצמיתות — רק מנכס שכבר בארכיון.
+   *
+   * הארכיון הוא ברירת המחדל כי נכס שנמכר הוא היסטוריה עסקית; זה
+   * הנתיב לנכס שנקלט בטעות או לכפילות, ואי אפשר לחזור ממנו.
+   */
+  @Delete(":id/permanent")
+  @RequireCapability("properties.delete")
+  @HttpCode(204)
+  async purge(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<void> {
+    await this.properties.purge(id);
+  }
+
   /** "מצא לי קונים" (אפיון §7) — ההתאמות כבר מחושבות; כאן רק קוראים אותן. */
   @Get(":id/matches")
   @RequireCapability("matches.view")

@@ -10,6 +10,13 @@ export const CAPABILITIES = [
   "buyers.view_all",
   "buyers.view_own",
   "buyers.edit",
+  /**
+   * מחיקת כרטיס קונה — יכולת נפרדת מ-`buyers.edit`, כמו בליד ובנכס.
+   *
+   * הכרטיס נושא את כל ההיסטוריה: ביקושים, התאמות, הצעות שנשלחו
+   * וציר הזמן. מחיקה היא החלטה ניהולית ולא חלק משגרת הטיפול.
+   */
+  "buyers.delete",
   "leads.view_all",
   "leads.view_own",
   "leads.edit",

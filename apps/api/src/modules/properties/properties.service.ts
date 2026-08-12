@@ -394,6 +394,7 @@ export class PropertiesService {
               },
             }
           : {}),
+        archived: row.deletedAt !== null,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };
@@ -521,6 +522,7 @@ export class PropertiesService {
           missingFields: readiness.missingFields,
           thumbnailUrl: primaryId ? mediaRawPath(row.id, primaryId) : undefined,
           suggestedMatchCount: matchCountByProperty.get(row.id) ?? 0,
+          archived: row.deletedAt !== null,
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,
         } satisfies PropertyDto & { thumbnailUrl?: string; suggestedMatchCount: number };
@@ -598,10 +600,112 @@ export class PropertiesService {
    * נשמרת.
    */
   private async retireMatches(tx: TenantTx, propertyId: string): Promise<void> {
+    /*
+     * ההצעות של ההתאמות הנמחקות יורדות איתן. התאמה במצב `suggested`
+     * היא התאמה שלא הוצעה, ולכן בפועל אין כאן מה למחוק — אבל אין FK
+     * בין `offers` ל-`matches`, כלומר האינווריאנט נשמר בקוד בלבד,
+     * ורגע שבו הוא נשבר משאיר הצעה שמצביעה על התאמה שאיננה.
+     */
+    const doomed = await tx.match.findMany({
+      where: { propertyId, status: "suggested" },
+      select: { id: true },
+    });
+    if (doomed.length > 0) {
+      await tx.offer.deleteMany({ where: { matchId: { in: doomed.map((m) => m.id) } } });
+    }
     await tx.match.deleteMany({ where: { propertyId, status: "suggested" } });
     await tx.match.updateMany({
       where: { propertyId, status: { not: "dismissed" } },
       data: { status: "dismissed" },
+    });
+  }
+
+  /**
+   * מחיקה לצמיתות — רק מנכס שכבר בארכיון.
+   *
+   * שני שלבים ולא אחד: נכס פעיל שנמחק בלחיצה אחת הוא היסטוריית
+   * שיווק שנעלמת בטעות. מי שמוחק נכס מהארכיון כבר החליט פעם אחת.
+   *
+   * **ההסכמים מנותקים ולא נמחקים.** הסכם חתום הוא ראיה משפטית ובסיס
+   * הזכאות לדמי התיווך — הוא אינו נכס של הנכס. אותו כלל בדיוק כמו
+   * במחיקת לקוח.
+   *
+   * **הפגישות מנותקות ולא נמחקות** — סיור שהתקיים הוא אירוע ביומן
+   * של הסוכן.
+   *
+   * התמונות ב-S3 נמחקות דרך אירועי `storage.cleanup_object`, והמפתחות
+   * נאספים לפני מחיקת השורות שמכירות אותם.
+   */
+  async purge(id: string): Promise<void> {
+    const ctx = TenantContext.current();
+    await this.prisma.withTenant(async (tx) => {
+      const existing = await tx.property.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+        select: { deletedAt: true },
+      });
+      if (!existing) throw new NotFoundException("נכס לא נמצא");
+      if (existing.deletedAt === null) {
+        throw new BadRequestException("יש להעביר את הנכס לארכיון לפני מחיקה לצמיתות");
+      }
+
+      // לפני מחיקת השורות — אחריה אין מי שיודע אילו קבצים היו שלו
+      const media = await tx.propertyMedia.findMany({
+        where: { tenantId: ctx.tenantId, propertyId: id },
+        select: { s3Key: true },
+      });
+
+      const matchRows = await tx.match.findMany({
+        where: { tenantId: ctx.tenantId, propertyId: id },
+        select: { id: true },
+      });
+      const matchIds = matchRows.map((m) => m.id);
+      await tx.offer.deleteMany({ where: { tenantId: ctx.tenantId, matchId: { in: matchIds } } });
+      await tx.match.deleteMany({ where: { tenantId: ctx.tenantId, propertyId: id } });
+
+      // הצעות שת"פ שהוצעו על הנכס — הצעה על נכס שאיננו היא פנייה
+      // שאיש לא יטפל בה
+      await tx.coopOffer.deleteMany({ where: { propertyId: id } });
+
+      await tx.agreement.updateMany({
+        where: { tenantId: ctx.tenantId, propertyId: id },
+        data: { propertyId: null },
+      });
+      await tx.appointment.updateMany({
+        where: { tenantId: ctx.tenantId, propertyId: id },
+        data: { propertyId: null },
+      });
+      await tx.voiceIntake.updateMany({
+        where: { tenantId: ctx.tenantId, propertyId: id },
+        data: { propertyId: null },
+      });
+      await tx.notification.deleteMany({
+        where: { tenantId: ctx.tenantId, entityType: "property", entityId: id },
+      });
+      await tx.task.deleteMany({
+        where: { tenantId: ctx.tenantId, entityType: "property", entityId: id },
+      });
+
+      // property_media לפני properties — מפתח זר RESTRICT
+      await tx.propertyMedia.deleteMany({ where: { tenantId: ctx.tenantId, propertyId: id } });
+      await tx.property.delete({ where: { id } });
+
+      if (media.length > 0) {
+        await tx.outboxEvent.createMany({
+          data: media.map((m) => ({
+            id: ulid(),
+            tenantId: ctx.tenantId,
+            name: "storage.cleanup_object",
+            payload: { tenantId: ctx.tenantId, s3Key: m.s3Key },
+          })),
+        });
+      }
+
+      await this.audit.record(tx, {
+        action: "property.purge",
+        entityType: "property",
+        entityId: id,
+        metadata: { media: media.length, matches: matchIds.length },
+      });
     });
   }
 

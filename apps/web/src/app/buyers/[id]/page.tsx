@@ -12,6 +12,7 @@ import { IconChat, IconEdit, IconPhone } from "../../icons";
 import { NetworkShareSection } from "./network-share-section";
 import { TimelineSection } from "./timeline-section";
 import { ContactPeople } from "../../contact-people";
+import { DeleteBuyer } from "../delete-buyer";
 import { RelatedEntities } from "../../related-entities";
 import { EntityTasks } from "../../entity-tasks";
 import { ClickToDial } from "../../click-to-dial";
@@ -248,6 +249,17 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
       <ContactPeople contactId={buyer.contact.id} canEdit={canEditPeople}
         canErase={can(user, "contacts.delete")}
       />
+
+      {/*
+        מחיקת הכרטיס נפרדת ממחיקת הלקוח, ובכוונה: הכרטיס הוא הביקוש,
+        והאדם נשאר עם הלידים וההיסטוריה שלו. שתיהן בתחתית המסך כי אף
+        אחת מהן אינה שגרה.
+      */}
+      {can(user, "buyers.delete") ? (
+        <div className="mt-4">
+          <DeleteBuyer buyerId={id} />
+        </div>
+      ) : null}
 
       <RelatedEntities contactId={buyer.contact.id} exclude={{ kind: "buyer", id: buyer.id }} />
 

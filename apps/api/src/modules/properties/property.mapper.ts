@@ -45,6 +45,15 @@ export interface PropertyDto extends PropertyFields {
   /** בעל הנכס (המוכר) — מוצג בעמוד הנכס ומזין את התיק המאוחד */
   /** בעל הנכס — הוא המוכר או המשכיר, ולכן כרטיס מלא כמו של קונה */
   ownerContact?: { id: string; name: string; phone: string; email?: string };
+  /**
+   * הנכס בארכיון.
+   *
+   * דגל ולא תאריך: המסך צריך לדעת שהנכס בארכיון כדי להציג מחיקה
+   * לצמיתות, ולא צריך לדעת מתי. סטטוס `archived` לבדו אינו מספיק —
+   * אפשר להגיע אליו גם בלי מחיקה רכה, והמסך היה מציע מחיקה שהשרת
+   * דוחה.
+   */
+  archived: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
