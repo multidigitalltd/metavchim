@@ -3,7 +3,12 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
-import { IconCard, IconChat, IconKey, IconLock, IconMail } from "../icons";
+import {
+  MAX_PLATFORM_FEE_PERCENT,
+  PLATFORM_REFERRAL_FEE_PERCENT,
+  referralPayout,
+} from "@metavchim/shared";
+import { IconCard, IconChat, IconCoins, IconKey, IconLock, IconMail, IconPin } from "../icons";
 
 /**
  * הגדרות הפלטפורמה — מפתחות הספקים (Postmark, WhatsApp) והפעלת אימות
@@ -26,6 +31,9 @@ interface PlatformSettings {
   gemini?: { configured: boolean; source: "db" | "env" | "none"; model: string };
   cardcom: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
   loginOtpEnabled: boolean;
+  /** אחוז עמלת ההפניות — ערך ולא סטטוס; שרת ישן לא מחזיר אותו. */
+  referralFeePercent?: number;
+  maps?: { configured: boolean };
 }
 
 function StatusBadge({ configured, source }: { configured: boolean; source: string }) {
@@ -175,6 +183,42 @@ export function PlatformSettingsSection() {
       load();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** שמירת הגדרת טקסט בודדת; ריק מוחק ומחזיר לברירת המחדל. */
+  async function saveSetting(key: string, raw: FormDataEntryValue | null) {
+    setBusy(true);
+    setError(null);
+    try {
+      await apiPatch("/platform/settings", { [key]: String(raw ?? "").trim() });
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * שמירת אחוז העמלה.
+   *
+   * ריק נשלח כריק ולא כאפס: אפס הוא "לא גובים", וריק הוא "חזרה
+   * לברירת המחדל". השרת מבחין ביניהם, והמסך לא אמור להחליט במקומו.
+   */
+  async function saveReferralFee(raw: FormDataEntryValue | null) {
+    const text = String(raw ?? "").trim();
+    setBusy(true);
+    setError(null);
+    try {
+      await apiPatch("/platform/settings", {
+        referralFeePercent: text === "" ? "" : Number(text),
+      });
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "שמירת העמלה נכשלה");
     } finally {
       setBusy(false);
     }
@@ -551,6 +595,81 @@ export function PlatformSettingsSection() {
             />
           </div>
           <Button type="submit" disabled={busy}>שמור</Button>
+        </form>
+      </div>
+
+      {/* ---------- מפות ---------- */}
+      <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-semibold"><IconPin s={16} /> מפות</h3>
+          <StatusBadge
+            configured={settings.maps?.configured ?? false}
+            source={settings.maps?.configured ? "db" : "none"}
+          />
+        </div>
+        <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          טוקן ציבורי לאריחי מפה. כל עוד הוא ריק, המפות במערכת מוצגות ככבויות ושום
+          דבר אחר לא מושפע. <b>אריחים בלבד</b> — המערכת אינה שולחת לספק כתובות של
+          לקוחות ואינה שומרת נתונים שלו, ולכן אפשר להפעיל את זה בלי המתנה להכרעה על
+          פענוח כתובות.
+        </p>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void saveSetting("mapboxToken", new FormData(e.currentTarget).get("mapboxToken"));
+          }}
+          className="flex flex-wrap items-end gap-2"
+        >
+          <label className="grow">
+            <span className="mb-1 block text-xs font-semibold">
+              טוקן ציבורי (ריק = מפות כבויות)
+            </span>
+            <input
+              name="mapboxToken"
+              dir="ltr"
+              placeholder="pk...."
+              className="w-full rounded-lg border px-2.5 py-2"
+              style={inputStyle}
+            />
+          </label>
+          <Button type="submit" disabled={busy}>שמור</Button>
+        </form>
+      </div>
+
+      {/* ---------- עמלת הפניות ---------- */}
+      <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+        <h3 className="mb-1 font-semibold"><IconCoins s={16} /> עמלת הפלטפורמה על הפניית לקוח</h3>
+        <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          כשמשרד מפנה לקוח למשרד אחר, זהו האחוז שיורד מהתמורה לטובת הפלטפורמה.
+          השאר נכנס ליתרת הקרדיטים של המשרד המפנה. האחוז מוצג לשני הצדדים לפני כל
+          החלטה, ומשפיע על הפניות שיפורסמו מכאן ואילך — לא על מה שכבר פורסם.
+        </p>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void saveReferralFee(new FormData(e.currentTarget).get("referralFeePercent"));
+          }}
+          className="flex flex-wrap items-end gap-2"
+        >
+          <label>
+            <span className="mb-1 block text-xs font-semibold">אחוז מהתמורה</span>
+            <input
+              name="referralFeePercent"
+              type="number"
+              min={0}
+              max={MAX_PLATFORM_FEE_PERCENT}
+              step={1}
+              defaultValue={settings.referralFeePercent ?? PLATFORM_REFERRAL_FEE_PERCENT}
+              className="w-28 rounded-lg border px-2.5 py-2"
+              style={inputStyle}
+            />
+          </label>
+          <Button type="submit" disabled={busy}>שמור</Button>
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+            {/* דוגמה מספרית — מסך שמראה רק אחוז מחייב את הקורא לחשב בראש */}
+            לדוגמה: תמורה של 20 קרדיטים ⇐ {referralPayout(20, settings.referralFeePercent ?? PLATFORM_REFERRAL_FEE_PERCENT).platformFeeCredits} לפלטפורמה,{" "}
+            {referralPayout(20, settings.referralFeePercent ?? PLATFORM_REFERRAL_FEE_PERCENT).payoutCredits} למשרד המפנה
+          </span>
         </form>
       </div>
 

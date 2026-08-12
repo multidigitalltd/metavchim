@@ -23,6 +23,8 @@ import { z } from "zod";
 import {
   BLOCKABLE_MODULE_KEYS,
   IdSchema,
+  MAX_PLATFORM_FEE_PERCENT,
+  resolveReferralFeePercent,
   PLAN_FEATURES,
   blockedModulesRejectionReason,
   couponDefinitionRejection,
@@ -170,6 +172,17 @@ const UpdateSettingsSchema = z
     cardcomTerminalNumber: z.union([z.string().trim().regex(/^\d{1,12}$/u), z.literal("")]).optional(),
     cardcomApiName: z.union([z.string().trim().min(3).max(100), z.literal("")]).optional(),
     cardcomApiPassword: z.union([z.string().trim().min(6).max(200), z.literal("")]).optional(),
+    /*
+     * עמלת ההפניות באחוזים. ריק = חזרה לברירת המחדל של המערכת;
+     * אפס = החלטה מפורשת לא לגבות. התקרה היא הגנת שפיות — עמלה
+     * שמעליה הופכת את ההפניה ללא כדאית למי שמפנה, כלומר סוגרת את
+     * הלוח.
+     */
+    referralFeePercent: z
+      .union([z.number().int().min(0).max(MAX_PLATFORM_FEE_PERCENT), z.literal("")])
+      .optional(),
+    /** טוקן ציבורי לאריחי מפה — ‎pk.*‎ אצל Mapbox, ריק = מפה כבויה. */
+    mapboxToken: z.union([z.string().trim().min(20).max(200), z.literal("")]).optional(),
   })
   .strict();
 
@@ -783,6 +796,16 @@ export class PlatformController {
     /** webhookUrl היא הכתובת שנרשמת אצל קארדקום — מוצגת כדי שלא ינחשו אותה. */
     cardcom: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
     loginOtpEnabled: boolean;
+    /**
+     * אחוז העמלה ממכירת הפניה — **הערך עצמו ולא רק "מוגדר".**
+     *
+     * זה מספר עסקי ולא סוד ספק: הוא מוצג לשני צדדי העסקה ממילא, ומי
+     * שעורך אותו חייב לראות מה הוא משנה. תיבה ריקה שמתיימרת לייצג
+     * מספר שגובים בפועל היא בדיוק איך משנים אותו בטעות.
+     */
+    referralFeePercent: number;
+    /** אריחי המפה — סטטוס בלבד; הטוקן עצמו נמסר לאפליקציה בנתיב שלה. */
+    maps: { configured: boolean };
   }> {
     const env = loadEnv();
     const dbKeys = await this.platformSettings.configuredKeys();
@@ -805,8 +828,14 @@ export class PlatformController {
       env.CARDCOM_API_NAME !== undefined &&
       env.CARDCOM_API_PASSWORD !== undefined;
     const otpDb = await this.platformSettings.get("loginOtpEnabled");
+    // אותה פונקציה שהשרת גובה לפיה — לא העתק שלה
+    const referralFeePercent = resolveReferralFeePercent(
+      await this.platformSettings.get("referralFeePercent"),
+    );
 
     return {
+      referralFeePercent,
+      maps: { configured: has("mapboxToken") },
       postmark: {
         configured: postmarkDb || postmarkEnv,
         source: postmarkDb ? "db" : postmarkEnv ? "env" : "none",
@@ -856,8 +885,13 @@ export class PlatformController {
     @Body(new ZodValidationPipe(UpdateSettingsSchema)) body: z.infer<typeof UpdateSettingsSchema>,
   ): Promise<{ ok: true }> {
     const userId = TenantContext.current().userId;
-    for (const [key, value] of Object.entries(body) as [PlatformSettingKey, string | boolean][]) {
-      if (typeof value === "boolean") {
+    for (const [key, value] of Object.entries(body) as [
+      PlatformSettingKey,
+      string | boolean | number,
+    ][]) {
+      // מספר (אחוז העמלה) נשמר כמחרוזת, כמו כל שאר הערכים; אפס הוא
+      // ערך תקין ולכן ההשוואה היא לטיפוס ולא לאמיתות
+      if (typeof value === "boolean" || typeof value === "number") {
         await this.platformSettings.set(key, String(value), userId);
       } else if (value === "") {
         await this.platformSettings.remove(key); // ריק ⇒ חזרה למשתנה הסביבה

@@ -5,6 +5,7 @@ import {
   describeReferralRating,
   platformReferralFee,
   referralPayout,
+  resolveReferralFeePercent,
   referralPriceRejectionReason,
   referralRatingAverage,
   referralRatingRejectionReason,
@@ -157,5 +158,33 @@ describe("דירוג", () => {
     expect(describeReferralRating(referralRatingAverage(9, 2), 2)).toBe(
       "4.5 מתוך 5 (2 דירוגים)",
     );
+  });
+});
+
+describe("אחוז עמלת הפלטפורמה מהגדרות", () => {
+  it("ערך תקין מתקבל, כולל אפס", () => {
+    expect(resolveReferralFeePercent(20)).toBe(20);
+    expect(resolveReferralFeePercent("25")).toBe(25);
+    expect(resolveReferralFeePercent(" 8 ")).toBe(8);
+    // אפס הוא החלטה לגיטימית — פלטפורמה שלא גובה על הפניות
+    expect(resolveReferralFeePercent(0)).toBe(0);
+  });
+
+  it("ערך פסול נופל לברירת המחדל ולא לעמלה חסרת משמעות", () => {
+    for (const bad of ["", "abc", null, undefined, -5, 300, NaN]) {
+      expect(resolveReferralFeePercent(bad)).toBe(PLATFORM_REFERRAL_FEE_PERCENT);
+    }
+  });
+
+  it("האחוז שנקבע הוא זה שנגבה בפועל", () => {
+    const payout = referralPayout(100, resolveReferralFeePercent("30"));
+    expect(payout.platformFeeCredits).toBe(30);
+    expect(payout.payoutCredits).toBe(70);
+  });
+
+  it("גם באפס אחוז המפנה מקבל הכול", () => {
+    const payout = referralPayout(10, resolveReferralFeePercent(0));
+    expect(payout.platformFeeCredits).toBe(0);
+    expect(payout.payoutCredits).toBe(10);
   });
 });

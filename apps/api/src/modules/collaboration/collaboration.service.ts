@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
   BuyerRequirementsSchema,
-  PLATFORM_REFERRAL_FEE_PERCENT,
+  resolveReferralFeePercent,
   commissionSplitRejectionReason,
   coopOfferCost,
   referralPayout,
@@ -22,6 +22,7 @@ import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { LeadPricingService } from "../../core/lead-pricing.service";
+import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { rowToFields } from "../properties/property.mapper";
@@ -147,7 +148,18 @@ export class CollaborationService {
     private readonly outbox: OutboxService,
     private readonly plans: PlanCatalogService,
     private readonly pricing: LeadPricingService,
+    private readonly platformSettings: PlatformSettingsService,
   ) {}
+
+  /**
+   * אחוז עמלת הפלטפורמה כפי שנקבע במסך הפלטפורמה.
+   *
+   * נקרא בכל חישוב ולא נצרב: בעל הפלטפורמה ששינה את האחוז מצפה
+   * שהעסקה הבאה תיגבה לפיו, לא שההפעלה הבאה של השרת תיגבה.
+   */
+  private async feePercent(): Promise<number> {
+    return resolveReferralFeePercent(await this.platformSettings.get("referralFeePercent"));
+  }
 
   /**
    * שיתוף קונה כביקוש אנונימי: בלי שם, בלי טלפון, תקציב מעוגל.
@@ -576,7 +588,7 @@ export class CollaborationService {
     });
     return {
       suggestedPriceCredits: suggestedReferralPrice(source, prices),
-      platformFeePercent: PLATFORM_REFERRAL_FEE_PERCENT,
+      platformFeePercent: await this.feePercent(),
     };
   }
 
@@ -606,7 +618,8 @@ export class CollaborationService {
     if (priceProblem) throw new BadRequestException(priceProblem);
     const reasonProblem = referralReasonRejectionReason(input.reason, input.reasonDetail);
     if (reasonProblem) throw new BadRequestException(reasonProblem);
-    const payout = referralPayout(input.priceCredits);
+    // האחוז שנקבע בפלטפורמה, לא ברירת המחדל שבקוד
+    const payout = referralPayout(input.priceCredits, await this.feePercent());
 
     const row = await this.prisma.withTenant(async (tx) => {
       // סוכן עם view_own לא מפנה את הליד של סוכן אחר

@@ -137,7 +137,16 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
 
   const priceNumber = Number(price);
   const priceValid = Number.isInteger(priceNumber) && priceNumber >= MIN_REFERRAL_PRICE;
-  const preview = priceValid ? referralPayout(priceNumber) : null;
+  /*
+   * לפי האחוז שהשרת דיווח, לא לפי ברירת המחדל שבקוד.
+   *
+   * האחוז נקבע במסך הפלטפורמה, ומהרגע שהוא ניתן לשינוי תצוגה
+   * שמחשבת לפי הקבוע הייתה מבטיחה למפנה סכום אחד ומזכה אותו באחר —
+   * וזה בדיוק מה שהורס אמון בלוח ההפניות. עד שהתנאים נטענים אין
+   * תצוגה מקדימה: מוטב שקט מאשר מספר שאולי שגוי.
+   */
+  const preview =
+    priceValid && terms !== null ? referralPayout(priceNumber, terms.platformFeePercent) : null;
 
   async function publish() {
     const reasonProblem = referralReasonRejectionReason(reason, reasonDetail);
