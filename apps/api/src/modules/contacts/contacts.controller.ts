@@ -26,6 +26,7 @@ import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { PrismaService } from "../../core/prisma.service";
 import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorators";
 import { ContactsService } from "./contacts.service";
+import { ContactErasureService } from "./contact-erasure.service";
 import { DuplicatesService } from "./duplicates.service";
 
 /** אותו נרמול של קליטת הלידים — שני כתיבים של מספר חייבים להתלכד. */
@@ -48,6 +49,29 @@ const UpdateEmailSchema = z
 const AddPhoneSchema = z
   .object({ phone: PhoneField, label: z.enum(PHONE_LABELS).default("mobile") })
   .strict();
+
+/** אישור מחיקת לקוח: שמו המדויק — הפעולה אינה הפיכה. */
+const EraseContactSchema = z.object({ confirmName: z.string().min(1).max(120) }).strict();
+
+/**
+ * מה תמחק המחיקה. מונים בלבד — המסך מציג "3 שיחות, 1 הסכם חתום",
+ * ולא רשימה של מה שעומד להימחק.
+ */
+export interface ErasurePreviewDto {
+  buyers: number;
+  leads: number;
+  calls: number;
+  recordings: number;
+  messages: number;
+  agreements: number;
+  /** מתוך ההסכמים — כמה כבר נחתמו. זה המספר שמנהל צריך לראות. */
+  signedAgreements: number;
+  appointments: number;
+  /** נכסים שהוא בעליהם — נשארים, בלי הקישור אליו. */
+  properties: number;
+  sharedListings: number;
+  linkedPeople: number;
+}
 
 const AddPersonSchema = z
   .object({
@@ -86,7 +110,43 @@ export class ContactsController {
     private readonly prisma: PrismaService,
     private readonly contacts: ContactsService,
     private readonly duplicates: DuplicatesService,
+    private readonly erasure: ContactErasureService,
   ) {}
+
+  /* ---------- זכות המחיקה של הלקוח ---------- */
+
+  /**
+   * מה יימחק אם הלקוח יימחק — לפני האישור, לא אחריו.
+   *
+   * מנהל שמוחק לקוח לפי בקשתו זכאי לדעת שהוא מוחק גם הסכם חתום —
+   * המסמך שמזכה את המשרד בדמי התיווך. אותה גישה בדיוק כמו באזהרת
+   * הורדת המסלול: מציגים לפני שמאשרים.
+   */
+  @RequireCapability("contacts.delete")
+  @Get(":id/erasure-preview")
+  async erasurePreview(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<ErasurePreviewDto> {
+    return this.erasure.preview(id);
+  }
+
+  /**
+   * מחיקת לקוח מהמערכת — כל מה שקשור לאדם, לצמיתות.
+   *
+   * זו זכות המחיקה של הלקוח: אדם שמבקש שהמשרד לא יחזיק עליו מידע
+   * זכאי לכך, ולמשרד חייבת להיות דרך לבצע זאת בעצמו. ההקלדה של השם
+   * היא האישור — הפעולה אינה הפיכה, והשורה שנלחצת היא אחת מרבות
+   * ברשימה שנראות דומה.
+   */
+  @RequireCapability("contacts.delete")
+  @Delete(":id")
+  @HttpCode(200)
+  async erase(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(EraseContactSchema)) body: z.infer<typeof EraseContactSchema>,
+  ): Promise<{ ok: true }> {
+    return this.erasure.erase(id, body.confirmName);
+  }
 
   /* ---------- כרטיסים כפולים ---------- */
 

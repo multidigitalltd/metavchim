@@ -239,7 +239,9 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
         ליצור קשר ולא כהחלטה עסקית על חלוקת עמלה.
       */}
 
-      <ContactPeople contactId={buyer.contact.id} canEdit={canEditPeople} />
+      <ContactPeople contactId={buyer.contact.id} canEdit={canEditPeople}
+        canErase={can(user, "contacts.delete")}
+      />
 
       <RelatedEntities contactId={buyer.contact.id} exclude={{ kind: "buyer", id: buyer.id }} />
 

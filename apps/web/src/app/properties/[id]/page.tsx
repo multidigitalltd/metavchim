@@ -388,6 +388,7 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
           </section>
 
           <PropertyOwner
+            canErase={can(user, "contacts.delete")}
             propertyId={id}
             owner={property.ownerContact}
             canEdit={canEditOwner}

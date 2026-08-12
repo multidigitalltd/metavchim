@@ -71,6 +71,7 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   "leads.view_own": "צפייה בלידים שלו",
   "leads.edit": "עריכת לידים",
   "leads.delete": "מחיקת ליד",
+  "contacts.delete": "מחיקת לקוח מהמערכת",
   "offers.send": "שליחת הצעות",
   "matches.view": "צפייה בהתאמות",
   "matches.manage": "ניהול התאמות",
@@ -150,8 +151,19 @@ export const CAPABILITY_MODULES: readonly CapabilityModule[] = [
   {
     key: "admin",
     label: "ניהול המשרד",
-    description: "משתמשים, הגדרות, יומן פעולות וחיוב",
-    capabilities: ["users.manage", "settings.manage", "audit.view", "billing.manage"],
+    description: "משתמשים, הגדרות, יומן פעולות, חיוב ומחיקת לקוח",
+    /*
+     * מחיקת לקוח יושבת כאן ולא במודול הקונים: היא אינה חלק מהטיפול
+     * בלקוח אלא מימוש זכות המחיקה שלו — פעולה ניהולית שאי אפשר
+     * לחזור ממנה, ושמוחקת גם הסכמים חתומים.
+     */
+    capabilities: [
+      "users.manage",
+      "settings.manage",
+      "audit.view",
+      "billing.manage",
+      "contacts.delete",
+    ],
   },
 ];
 

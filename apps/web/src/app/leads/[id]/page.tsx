@@ -733,7 +733,9 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
 
       <EntityTasks entityType="lead" entityId={id} />
 
-      <ContactPeople contactId={lead.contact.id} canEdit={canEditPeople} />
+      <ContactPeople contactId={lead.contact.id} canEdit={canEditPeople}
+        canErase={can(user, "contacts.delete")}
+      />
 
       {merged ? (
         <p role="status" className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
