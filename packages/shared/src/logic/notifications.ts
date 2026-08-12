@@ -92,8 +92,8 @@ export function notificationFromEvent<E extends DomainEventName>(
       return {
         tenantId: p.tenantId,
         type: "shared_lead_sold",
-        title: "💰 הליד ששיתפת נמכר",
-        body: `משרד אחר רכש את הליד — ${p.priceCredits} קרדיטים נוספו ליתרה שלכם.`,
+        title: "💰 ההפניה שפרסמתם נקלטה",
+        body: `משרד אחר קלט את הלקוח שהפניתם — ${p.payoutCredits ?? p.priceCredits} קרדיטים נוספו ליתרה שלכם.`,
         entityType: "shared_lead",
         entityId: p.sharedLeadId,
       };

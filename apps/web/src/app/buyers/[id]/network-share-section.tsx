@@ -177,7 +177,7 @@ export function NetworkShareSection({ buyerId }: { buyerId: string }) {
           {/*
             "כמה זה עולה לי" היא השאלה הראשונה שמתווך שואל לפני שהוא
             משתף, ובלי תשובה הוא פשוט לא לוחץ. שיתוף פעולה חינם;
-            קרדיטים נוגעים אך ורק לקניית ליד בשוק הלידים.
+            קרדיטים נוגעים אך ורק לקליטת הפניית לקוח.
           */}
           <p className="m-0 mb-3 text-[13px]">
             <strong style={{ color: "var(--color-primary)" }}>השיתוף חינם</strong>{" "}

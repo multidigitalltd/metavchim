@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet, apiPost, ApiError } from "@/lib/api";
 import { AuthShell } from "../auth-shell";
-import { IconKey, IconMail } from "../icons";
+import { IconMail, LogoGoogle } from "../icons";
 
 /**
  * התחברות בשני שלבים אפשריים: אימייל+סיסמה, ואם השרת דורש (LOGIN_OTP_ENABLED)
@@ -171,7 +171,10 @@ function LoginForm() {
                 href={`${API_BASE}/auth/google/start`}
                 className="mv-button mv-button--secondary w-full"
               >
-                <IconKey s={15} /> התחברות עם Google
+                {/* הסימן של Google עצמו ולא אייקון מפתח כללי: כפתור
+                    התחברות של ספק זהות מזוהה לפי הלוגו שלו, וזה גם
+                    מה שתנאי השימוש של Google דורשים */}
+                <LogoGoogle s={17} /> התחברות עם Google
               </a>
               <div className="my-4 flex items-center gap-3" aria-hidden="true">
                 <span className="h-px flex-1" style={{ background: "var(--color-border)" }} />

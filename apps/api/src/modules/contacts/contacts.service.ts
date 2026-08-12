@@ -7,6 +7,7 @@ import {
   type ContactPerson,
   type ContactRole,
 } from "@metavchim/shared";
+import { lockContact } from "../../common/locks";
 import { TenantContext } from "../../common/tenant-context";
 import { CryptoService } from "../../core/crypto.service";
 import type { TenantTx } from "../../core/prisma.service";
@@ -62,6 +63,13 @@ export class ContactsService {
     // דרך findByAnyPhone ולא מול הטלפון הראשי בלבד: מספר משני מוכר
     // חייב להחזיר את האדם הקיים, אחרת ייווצר לו כרטיס שני
     const found = await this.findByAnyPhone(tx, input.phone);
+    /*
+     * נעילה לפני הקריאה החוזרת: מחיקת ליד מוחקת גם כרטיס שנשאר בלי
+     * שום קשר, והיא נועלת את אותו מפתח. בלי זה, הליד הנכנס הזה היה
+     * יכול להצביע על כרטיס שנמחק שבריר שנייה אחריו (ביקורת Codex).
+     * `findFirst` שמחזיר null אחרי הנעילה מפיל אותנו ליצירת כרטיס חדש.
+     */
+    if (found) await lockContact(tx, found.id);
     const existing = found
       ? await tx.contact.findFirst({
           where: { id: found.id, tenantId },

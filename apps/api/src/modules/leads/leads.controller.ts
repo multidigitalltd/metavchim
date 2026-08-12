@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
 import { z } from "zod";
 import {
   BuyerMaturitySchema,
@@ -114,6 +114,21 @@ export class LeadsController {
     @Body(new ZodValidationPipe(ConvertSchema)) body: z.infer<typeof ConvertSchema>,
   ): Promise<BuyerDto> {
     return this.buyers.convertFromLead(id, body);
+  }
+
+  /**
+   * מחיקת ליד לא רלוונטי. יכולת נפרדת מ-`leads.edit`, כמו במחיקת נכס.
+   *
+   * מחזיר גוף ולא 204 כדי שהמסך יוכל לומר אם גם כרטיס איש הקשר ירד —
+   * זה מה שהמשתמש הכי רוצה לדעת מיד אחרי שלחץ.
+   */
+  @Delete(":id")
+  @RequireCapability("leads.delete")
+  @HttpCode(200)
+  async remove(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ contactDeleted: boolean }> {
+    return this.leads.remove(id);
   }
 
   @Post(":id/notes")

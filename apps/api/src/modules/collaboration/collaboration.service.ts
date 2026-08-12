@@ -3,13 +3,20 @@ import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
   BuyerRequirementsSchema,
+  PLATFORM_REFERRAL_FEE_PERCENT,
   commissionSplitRejectionReason,
   coopOfferCost,
+  referralPayout,
+  referralPriceRejectionReason,
+  referralRatingAverage,
+  referralRatingRejectionReason,
+  referralReasonRejectionReason,
   scoreMatch,
-  sharedLeadPrice,
+  suggestedReferralPrice,
   type BuyerRequirements,
   type LeadSourcePrice,
 } from "@metavchim/shared";
+import { lockContact } from "../../common/locks";
 import { assertLeadAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
@@ -81,19 +88,55 @@ export interface CoopOfferDto {
   createdAt: Date;
 }
 
-/** ליד בשוק — בפיד רק מה שאנונימי; פרטי הקשר לעולם לא כאן. */
+/** דירוג שכבר ניתן על הפניה — מוחזר לשני הצדדים בלבד. */
+export interface ReferralRatingDto {
+  score: number;
+  comment?: string;
+  createdAt: Date;
+}
+
+/** תפקיד הצופה מול ההפניה — קובע מה מוצג ומה מותר. */
+export type ReferralRole = "referrer" | "receiver" | "viewer";
+
+/** הפניה בלוח — רק מה שאנונימי; פרטי הקשר לעולם לא כאן. */
 export interface SharedLeadDto {
   id: string;
   intent: string;
   source: string;
   city?: string;
   note?: string;
+  /** למה הלקוח מופנה — המידע שהמשרד הקולט הכי צריך לפני שהוא משלם */
+  reason: string;
+  reasonDetail?: string;
+  /** מה שהמשרד הקולט משלם */
   priceCredits: number;
+  /** כמה מתוך התמורה הולך לפלטפורמה — גלוי לשני הצדדים */
+  platformFeeCredits: number;
+  /** מה שנכנס ליתרת המשרד המפנה */
+  payoutCredits: number;
   status: string;
+  /** true אם ההפניה שלי — נשמר לצד `role` כי כרטיס הליד נשען עליו */
   mine: boolean;
-  /** קישור לליד המקורי — רק למשרד המוכר */
+  role: ReferralRole;
+  /** קישור לליד המקורי — רק למשרד המפנה */
   originLeadId?: string;
+  /**
+   * מוניטין המשרד המפנה: ממוצע הדירוגים שנתנו לו משרדים שקלטו ממנו.
+   * מוחזר עם כל שורה בלוח — התמורה משולמת גם כשלא נסגר דבר, ולכן זה
+   * המידע שקובע אם כדאי לשלם אותה.
+   */
+  referrerRating?: { average: number; count: number };
+  /** הדירוג שאני נתתי, אם נתתי */
+  myRating?: ReferralRatingDto;
+  /** הדירוג של הצד השני — נראה רק למי שהוא צד בהפניה */
+  counterpartRating?: ReferralRatingDto;
   createdAt: Date;
+}
+
+/** תנאי ההפניה שהטופס נפתח בהם — הצעת מחיר ושיעור העמלה. */
+export interface ReferralTermsDto {
+  suggestedPriceCredits: number;
+  platformFeePercent: number;
 }
 
 @Injectable()
@@ -504,45 +547,89 @@ export class CollaborationService {
   }
 
   /* ============================================================
-     שוק הלידים: משרד מוכר ליד שהוא לא יטפל בו, משרד אחר קונה
-     בקרדיטים. הקרדיטים עוברים מהקונה למוכר.
+     לוח ההפניות: משרד מפנה לקוח שאינו מתאים לו, משרד אחר קולט
+     ומשלם תמורה בקרדיטים. חלק מהתמורה הוא עמלת פלטפורמה, והשאר
+     נכנס ליתרת המשרד המפנה.
+
+     **לא "מכירת ליד".** הפניית לקוח היא פעולה מקצועית מוכרת בין
+     משרדי תיווך; המילים בקוד ובמסכים נשמרות זהות כדי שלא ייווצר
+     פער בין מה שהמערכת עושה למה שהיא אומרת.
      ============================================================ */
 
   /**
-   * הצעת ליד למכירה. בפיד יופיע רק מידע אנונימי; פרטי הקשר נשמרים
-   * כצילום מוצפן על השורה ומועתקים לקונה רק אחרי רכישה.
+   * תנאי ההפניה לליד מסוים — הצעת מחיר פתיחה ושיעור עמלת הפלטפורמה.
    *
-   * המחיר נקבע כאן, ברגע השיתוף — לפי מקור הליד ומטבלת התמחור של
-   * הפלטפורמה — ונשמר על השורה. הקונה משלם את מה שראה בפיד, גם אם
-   * התמחור השתנה בינתיים.
+   * הטופס לא ממציא את ההצעה בצד הלקוח: התמחור לפי מקור הוא נתון של
+   * הפלטפורמה, ומסך שמנחש אותו יציג מספר אחר ממה שהשרת מכיר.
    */
-  async shareLead(leadId: string, note?: string, city?: string): Promise<SharedLeadDto> {
+  async referralTerms(leadId: string): Promise<ReferralTermsDto> {
     const ctx = TenantContext.current();
-    const id = ulid();
     const prices = await this.pricing.all();
-
-    const row = await this.prisma.withTenant(async (tx) => {
-      // סוכן עם view_own לא מוכר את הליד של סוכן אחר
+    const source = await this.prisma.withTenant(async (tx) => {
       await assertLeadAccess(tx, ctx.tenantId, leadId);
       const lead = await tx.lead.findFirst({
         where: { id: leadId, tenantId: ctx.tenantId },
+        select: { source: true },
+      });
+      if (!lead) throw new NotFoundException("ליד לא נמצא");
+      return lead.source;
+    });
+    return {
+      suggestedPriceCredits: suggestedReferralPrice(source, prices),
+      platformFeePercent: PLATFORM_REFERRAL_FEE_PERCENT,
+    };
+  }
+
+  /**
+   * פרסום הפניה בלוח. בלוח יופיע רק מידע אנונימי; פרטי הקשר נשמרים
+   * כצילום מוצפן על השורה ומועתקים למשרד הקולט רק אחרי הקליטה.
+   *
+   * **התמורה נקבעת בידי המשרד המפנה** — הוא זה שיודע מה שווה הלקוח
+   * שהוא מוותר עליו. גם היא וגם עמלת הפלטפורמה מצולמות כאן, ברגע
+   * הפרסום: המשרד הקולט משלם את מה שראה בלוח, גם אם שיעור העמלה
+   * השתנה בינתיים.
+   *
+   * **הסיבה חובה.** בלעדיה אי אפשר להבחין בין הפניה מקצועית לבין
+   * היפטרות מלקוח, וזה בדיוק מה שהמשרד הקולט משלם עליו.
+   */
+  async shareLead(input: {
+    leadId: string;
+    priceCredits: number;
+    reason: string;
+    reasonDetail?: string;
+    note?: string;
+    city?: string;
+  }): Promise<SharedLeadDto> {
+    const ctx = TenantContext.current();
+    const id = ulid();
+    const priceProblem = referralPriceRejectionReason(input.priceCredits);
+    if (priceProblem) throw new BadRequestException(priceProblem);
+    const reasonProblem = referralReasonRejectionReason(input.reason, input.reasonDetail);
+    if (reasonProblem) throw new BadRequestException(reasonProblem);
+    const payout = referralPayout(input.priceCredits);
+
+    const row = await this.prisma.withTenant(async (tx) => {
+      // סוכן עם view_own לא מפנה את הליד של סוכן אחר
+      await assertLeadAccess(tx, ctx.tenantId, input.leadId);
+      const lead = await tx.lead.findFirst({
+        where: { id: input.leadId, tenantId: ctx.tenantId },
         select: { source: true, intent: true, status: true, contactId: true },
       });
       if (!lead) throw new NotFoundException("ליד לא נמצא");
       if (lead.status === "converted") {
-        throw new BadRequestException("ליד שהומר כבר טופל — אין מה למכור בו");
+        throw new BadRequestException("ליד שהומר כבר טופל — אין מה להפנות");
       }
       /*
-       * ליד שכבר נמכר לא חוזר לשוק לעולם: האינדקס החלקי מכסה רק
-       * active, ובלי הבדיקה הזו מוכר היה מפרסם ומוכר את אותו איש קשר
-       * שוב ושוב (ביקורת Codex). הסרה מרצון (withdrawn) כן מאפשרת
-       * פרסום מחדש.
+       * לקוח שכבר הופנה ונקלט אינו חוזר ללוח לעולם: האינדקס החלקי
+       * מכסה רק active, ובלי הבדיקה הזו משרד היה מפרסם ומקבל תמורה
+       * על אותו איש קשר שוב ושוב (ביקורת Codex). הסרה מרצון
+       * (withdrawn) כן מאפשרת פרסום מחדש.
        */
       const sold = await tx.sharedLead.findFirst({
-        where: { tenantId: ctx.tenantId, originLeadId: leadId, status: "sold" },
+        where: { tenantId: ctx.tenantId, originLeadId: input.leadId, status: "sold" },
         select: { id: true },
       });
-      if (sold) throw new BadRequestException("הליד הזה כבר נמכר ברשת — אין למכור אותו שוב");
+      if (sold) throw new BadRequestException("הלקוח הזה כבר הופנה ונקלט — אין להפנות אותו שוב");
       const contact = await tx.contact.findFirst({
         where: { id: lead.contactId, tenantId: ctx.tenantId },
         select: { nameEncrypted: true, phoneEncrypted: true, phoneHash: true },
@@ -554,22 +641,25 @@ export class CollaborationService {
           data: {
             id,
             tenantId: ctx.tenantId,
-            originLeadId: leadId,
+            originLeadId: input.leadId,
             source: lead.source,
             intent: lead.intent,
-            city: city?.trim() || null,
-            note: note?.trim() || null,
+            city: input.city?.trim() || null,
+            note: input.note?.trim() || null,
+            reason: input.reason,
+            reasonDetail: input.reasonDetail?.trim() || null,
             contactNameEncrypted: contact.nameEncrypted,
             contactPhoneEncrypted: contact.phoneEncrypted,
             contactPhoneHash: contact.phoneHash,
-            priceCredits: sharedLeadPrice(lead.source, prices),
+            priceCredits: payout.priceCredits,
+            platformFeeCredits: payout.platformFeeCredits,
           },
         })
         .catch((error: unknown) => {
           // האינדקס החלקי (tenant, origin_lead) WHERE active — שתי
-          // לחיצות שיתוף במקביל לא יפרסמו את אותו ליד פעמיים
+          // לחיצות פרסום במקביל לא יפרסמו את אותו לקוח פעמיים
           if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-            throw new BadRequestException("הליד כבר מוצע ברשת");
+            throw new BadRequestException("הלקוח הזה כבר מופנה בלוח");
           }
           throw error;
         });
@@ -577,7 +667,12 @@ export class CollaborationService {
         action: "collaboration.lead_share",
         entityType: "shared_lead",
         entityId: id,
-        metadata: { leadId },
+        metadata: {
+          leadId: input.leadId,
+          reason: input.reason,
+          priceCredits: payout.priceCredits,
+          platformFeeCredits: payout.platformFeeCredits,
+        },
       });
       return created;
     });
@@ -585,7 +680,7 @@ export class CollaborationService {
     return this.toSharedLeadDto(row, ctx.tenantId);
   }
 
-  /** הסרת ליד מהשוק — רק כל עוד לא נמכר. */
+  /** הסרת הפניה מהלוח — רק כל עוד לא נקלטה. */
   async withdrawLead(sharedLeadId: string): Promise<void> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {
@@ -593,7 +688,7 @@ export class CollaborationService {
         where: { id: sharedLeadId, tenantId, status: "active" },
         data: { status: "withdrawn" },
       });
-      if (result.count === 0) throw new NotFoundException("הליד לא נמצא בשוק או כבר נמכר");
+      if (result.count === 0) throw new NotFoundException("ההפניה לא נמצאה בלוח או שכבר נקלטה");
       await this.audit.record(tx, {
         action: "collaboration.lead_withdraw",
         entityType: "shared_lead",
@@ -602,7 +697,7 @@ export class CollaborationService {
     });
   }
 
-  /** הלידים ששיתפתי, בכל סטטוס — נגיש עם יכולת השיתוף בלבד. */
+  /** ההפניות שפרסמתי, בכל סטטוס — נגיש עם יכולת השיתוף בלבד. */
   async listMySharedLeads(): Promise<SharedLeadDto[]> {
     const tenantId = TenantContext.current().tenantId;
     const mine = await this.prisma.withTenant((tx) =>
@@ -612,12 +707,14 @@ export class CollaborationService {
         take: 50,
       }),
     );
-    return mine.map((row) => this.toSharedLeadDto(row, tenantId));
+    const ratings = await this.ratingsFor(mine.map((row) => row.id));
+    return mine.map((row) => this.toSharedLeadDto(row, tenantId, { ratings }));
   }
 
   /**
-   * פיד השוק: הלידים הפעילים ברשת, ובנוסף הלידים ששיתפתי בכל סטטוס —
-   * המוכר צריך לראות "נמכר" בלי לחפש ביומן הקרדיטים.
+   * הלוח: ההפניות הפעילות ברשת, ובנוסף מה שאני צד בו — מה שפרסמתי
+   * (בכל סטטוס) ומה שקלטתי. משרד מפנה צריך לראות "נקלטה" בלי לחפש
+   * ביומן הקרדיטים, ומשרד קולט צריך להגיע להפניה שלו כדי לדרג.
    */
   async listSharedLeads(): Promise<SharedLeadDto[]> {
     const tenantId = TenantContext.current().tenantId;
@@ -628,27 +725,111 @@ export class CollaborationService {
         take: 100,
       }),
     );
-    const mine = await this.listMySharedLeads();
+    /*
+     * שאילתה אחת לשני התפקידים. מדיניות ה-RLS מגבילה אותה ממילא
+     * לשורות שלי ולשורות שקלטתי, ולכן ה-OR כאן אינו הרשאה אלא
+     * ביטוי של אותה כוונה בשכבת השאילתה.
+     */
+    const mine = await this.prisma.withTenant((tx) =>
+      tx.sharedLead.findMany({
+        where: { OR: [{ tenantId }, { buyerTenantId: tenantId }] },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      }),
+    );
+
     const seen = new Set<string>();
-    const merged = [...mine, ...network.map((row) => this.toSharedLeadDto(row, tenantId))].filter(
-      (dto) => {
-        if (seen.has(dto.id)) return false;
-        seen.add(dto.id);
-        return true;
-      },
+    const rows = [...mine, ...network].filter((row) => {
+      if (seen.has(row.id)) return false;
+      seen.add(row.id);
+      return true;
+    });
+
+    /*
+     * המוניטין נשלף גם למשרד עצמו ולא רק לאחרים: מי שמפנה צריך
+     * לראות באיזה ציון הוא נמצא, וזה בדיוק המקום שבו הוא מסתכל.
+     */
+    const [ratings, reputations] = await Promise.all([
+      this.ratingsFor(rows.map((row) => row.id)),
+      this.reputationFor(rows.map((row) => row.tenantId)),
+    ]);
+
+    const merged = rows.map((row) =>
+      this.toSharedLeadDto(row, tenantId, {
+        ratings,
+        reputation: reputations.get(row.tenantId),
+      }),
     );
     merged.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     return merged;
   }
 
   /**
-   * קניית ליד מהשוק — **טרנזקציה אחת לשני הצדדים.**
+   * הדירוגים על ההפניות שאני צד בהן. ה-RLS מחזיר רק שורות של הפניות
+   * שאני צד בהן, ולכן אין כאן סינון ידני שאפשר לשכוח.
+   */
+  private async ratingsFor(
+    sharedLeadIds: readonly string[],
+  ): Promise<Map<string, { raterTenantId: string; score: number; comment: string | null; createdAt: Date }[]>> {
+    const byLead = new Map<
+      string,
+      { raterTenantId: string; score: number; comment: string | null; createdAt: Date }[]
+    >();
+    if (sharedLeadIds.length === 0) return byLead;
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.leadReferralRating.findMany({
+        where: { sharedLeadId: { in: [...sharedLeadIds] } },
+        select: {
+          sharedLeadId: true,
+          raterTenantId: true,
+          score: true,
+          comment: true,
+          createdAt: true,
+        },
+      }),
+    );
+    for (const row of rows) {
+      const list = byLead.get(row.sharedLeadId) ?? [];
+      list.push(row);
+      byLead.set(row.sharedLeadId, list);
+    }
+    return byLead;
+  }
+
+  /**
+   * מוניטין המשרדים המפנים שמופיעים בלוח — שאילתה אחת לכולם.
+   *
+   * הטבלה מכילה מספרים בלבד, ולכן היא נקראת בקריאת רשת; ההערות
+   * החופשיות שמשרד כתב על משרד יושבות בטבלה אחרת שאין לה קריאת רשת.
+   */
+  private async reputationFor(
+    tenantIds: readonly string[],
+  ): Promise<Map<string, { average: number; count: number }>> {
+    const byTenant = new Map<string, { average: number; count: number }>();
+    const unique = [...new Set(tenantIds)];
+    if (unique.length === 0) return byTenant;
+    const rows = await this.prisma.withNetworkRead((tx) =>
+      tx.referralReputation.findMany({ where: { tenantId: { in: unique } } }),
+    );
+    for (const row of rows) {
+      const average = referralRatingAverage(row.ratingSum, row.ratingCount);
+      if (average !== null) byTenant.set(row.tenantId, { average, count: row.ratingCount });
+    }
+    return byTenant;
+  }
+
+  /**
+   * קליטת הפניה מהלוח — **טרנזקציה אחת לשני הצדדים.**
    *
    * `set_config(..., is_local=true)` תקף פר-משפט, ולכן אפשר לעבור
-   * מהקשר המוכר להקשר הקונה בתוך אותה טרנזקציה. קריסה, פריסה או
-   * ניתוק בכל נקודה מחזירים את הכול — אין רגע שבו הליד sold, המוכר
-   * זוכה והקונה לא חויב (ביקורת Codex). זה גם מייתר רשומות קיזוז:
-   * מה שלא הושלם פשוט לא קרה.
+   * מהקשר המשרד המפנה להקשר המשרד הקולט בתוך אותה טרנזקציה. קריסה,
+   * פריסה או ניתוק בכל נקודה מחזירים את הכול — אין רגע שבו ההפניה
+   * sold, המפנה זוכה והקולט לא חויב (ביקורת Codex). זה גם מייתר
+   * רשומות קיזוז: מה שלא הושלם פשוט לא קרה.
+   *
+   * **התשלום אינו מותנה בתוצאה.** המשרד הקולט משלם על ההפניה ברגע
+   * הזה, ולא על עסקה שתיסגר; אין החזר אם לא ייסגר דבר. המסך אומר
+   * זאת במפורש לפני הלחיצה, וזו גם הסיבה שהדירוג ההדדי קיים.
    */
   async buyLead(sharedLeadId: string): Promise<{ leadId: string }> {
     const ctx = TenantContext.current();
@@ -656,16 +837,24 @@ export class CollaborationService {
     const row = await this.prisma.withNetworkRead((tx) =>
       tx.sharedLead.findFirst({ where: { id: sharedLeadId, status: "active" } }),
     );
-    if (!row) throw new NotFoundException("הליד לא נמצא בשוק או כבר נמכר");
+    if (!row) throw new NotFoundException("ההפניה לא נמצאה בלוח או שכבר נקלטה");
     if (row.tenantId === ctx.tenantId) {
-      throw new BadRequestException("זה ליד שלך — אפשר להסיר אותו מהשוק, לא לקנות");
+      throw new BadRequestException("זו הפניה שלכם — אפשר להסיר אותה מהלוח, לא לקלוט");
     }
     const cost = row.priceCredits;
+    /*
+     * העמלה מצולמת על השורה ברגע הפרסום. החישוב כאן נגזר ממנה ולא
+     * מהשיעור הנוכחי — שינוי מדיניות לא יגרע מהפניה שכבר פורסמה.
+     * הצמצום ל-[0, cost-1] הוא הגנה על שורה פגומה: זיכוי שלילי
+     * למפנה הוא באג שקט שמופיע כחוב.
+     */
+    const platformFee = Math.max(0, Math.min(row.platformFeeCredits, cost - 1));
+    const referrerPayout = cost - platformFee;
 
     /*
-     * המוכר המיר את הליד אחרי הפרסום? הרישום יורד מהשוק במקום שקונה
-     * ישלם על ליד שכבר טופל (ביקורת Codex). מחוץ לטרנזקציית הקנייה —
-     * ההסרה צריכה להישאר גם כשהקנייה נכשלת.
+     * המשרד המפנה המיר את הליד אחרי הפרסום? הרישום יורד מהלוח במקום
+     * שמשרד אחר ישלם על לקוח שכבר טופל (ביקורת Codex). מחוץ
+     * לטרנזקציית הקליטה — ההסרה צריכה להישאר גם כשהקליטה נכשלת.
      */
     const origin = await this.prisma.withExplicitTenant(row.tenantId, (tx) =>
       tx.lead.findFirst({
@@ -680,23 +869,28 @@ export class CollaborationService {
           data: { status: "withdrawn" },
         }),
       );
-      throw new BadRequestException("הליד כבר טופל אצל המשרד המוכר — הוסר מהשוק");
+      throw new BadRequestException("הלקוח כבר טופל אצל המשרד המפנה — ההפניה הוסרה מהלוח");
     }
 
     const leadId = await this.prisma.$transaction(async (tx) => {
-      // צד המוכר: תפיסה מותנית + זיכוי
+      // צד המשרד המפנה: תפיסה מותנית + זיכוי בניכוי עמלת הפלטפורמה
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${row.tenantId}, true)`;
       const claimed = await tx.sharedLead.updateMany({
         where: { id: sharedLeadId, status: "active" },
         data: { status: "sold", buyerTenantId: ctx.tenantId, soldAt: new Date() },
       });
-      if (claimed.count === 0) throw new BadRequestException("הליד נמכר הרגע למשרד אחר");
+      if (claimed.count === 0) throw new BadRequestException("ההפניה נקלטה הרגע במשרד אחר");
+      /*
+       * הזיכוי הוא הנטו. עמלת הפלטפורמה אינה עוברת ליומן של אף
+       * משרד — היא ההפרש בין מה שהקולט חויב למה שהמפנה זוכה, והיא
+       * שמורה על שורת ההפניה וביומן הביקורת לצורך דיווח.
+       */
       await tx.creditLedger.create({
         data: {
           id: ulid(),
           tenantId: row.tenantId,
           kind: "lead_sale",
-          amount: cost,
+          amount: referrerPayout,
           refId: sharedLeadId,
         },
       });
@@ -705,14 +899,19 @@ export class CollaborationService {
           id: ulid(),
           tenantId: row.tenantId,
           name: "shared_lead.sold",
-          payload: { sharedLeadId, tenantId: row.tenantId, priceCredits: cost },
+          payload: {
+            sharedLeadId,
+            tenantId: row.tenantId,
+            priceCredits: cost,
+            payoutCredits: referrerPayout,
+          },
         },
       });
 
-      // צד הקונה — אותה טרנזקציה, הקשר דייר חדש
+      // צד המשרד הקולט — אותה טרנזקציה, הקשר דייר חדש
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${ctx.tenantId}, true)`;
       /*
-       * נעילת הוצאות פר-משרד: שתי קניות מקבילות של אותו משרד היו
+       * נעילת הוצאות פר-משרד: שתי קליטות מקבילות של אותו משרד היו
        * קוראות שתיהן את אותה יתרה לפני ששתיהן חייבו, ועוברות יחד גם
        * כשהסכום המשותף גדול מהיתרה (ביקורת Codex). הנעילה משחררת
        * בסוף הטרנזקציה.
@@ -723,7 +922,7 @@ export class CollaborationService {
       }
       /*
        * ההצפנה במפתח אפליקטיבי אחיד, לכן הצילום מועתק כמות שהוא —
-       * בלי פענוח ביניים. אם הטלפון כבר מוכר למשרד הקונה (לפי
+       * בלי פענוח ביניים. אם הטלפון כבר מוכר למשרד הקולט (לפי
        * ה-HMAC) לא נוצר כרטיס כפול.
        */
       let contact = await tx.contact.findUnique({
@@ -732,6 +931,20 @@ export class CollaborationService {
         },
         select: { id: true },
       });
+      /*
+       * מיחזור כרטיס קיים נועל אותו וקורא שוב — אותו כלל כמו
+       * ב-`ContactsService.findOrCreateByPhone`: כרטיס בלי שום קשר
+       * עלול להימחק בדיוק כאן, ולידים שיצביעו עליו לא ייפתחו.
+       */
+      if (contact) {
+        await lockContact(tx, contact.id);
+        contact = await tx.contact.findUnique({
+          where: {
+            tenantId_phoneHash: { tenantId: ctx.tenantId, phoneHash: row.contactPhoneHash },
+          },
+          select: { id: true },
+        });
+      }
       contact ??= await tx.contact.create({
         data: {
           id: ulid(),
@@ -755,9 +968,9 @@ export class CollaborationService {
           source: "network",
           intent: row.intent,
           status: "new",
-          // הקונה עצמו — סוכן עם view_own חייב לראות את מה שקנה
+          // מי שקלט — סוכן עם view_own חייב לראות את ההפניה שקלט
           assignedToUserId: ctx.userId,
-          summary: (summary || "ליד שנרכש ברשת השת\"פ").slice(0, 500),
+          summary: (summary || "לקוח שהופנה מרשת שיתופי הפעולה").slice(0, 500),
         },
       });
       await tx.interaction.create({
@@ -766,7 +979,7 @@ export class CollaborationService {
           tenantId: ctx.tenantId,
           leadId: newLeadId,
           kind: "note",
-          content: `נרכש ברשת השת"פ תמורת ${cost} קרדיטים`,
+          content: `הפניית לקוח שנקלטה מרשת שיתופי הפעולה תמורת ${cost} קרדיטים`,
           createdBy: ctx.userId,
         },
       });
@@ -783,7 +996,12 @@ export class CollaborationService {
         action: "collaboration.lead_buy",
         entityType: "shared_lead",
         entityId: sharedLeadId,
-        metadata: { leadId: newLeadId, priceCredits: cost },
+        metadata: {
+          leadId: newLeadId,
+          priceCredits: cost,
+          platformFeeCredits: platformFee,
+          payoutCredits: referrerPayout,
+        },
       });
       // ליד רגיל לכל דבר — SLA והתראות מטפלים בו כמו בכל ליד חדש
       await tx.outboxEvent.create({
@@ -814,6 +1032,108 @@ export class CollaborationService {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`credits:${tenantId}`}, 0))`;
   }
 
+  /**
+   * דירוג הפניה שנקלטה — כל צד מדרג פעם אחת, וניתן לעדכן.
+   *
+   * `role` מגיע מהנתיב (שני נתיבים, שתי יכולות שונות) ונבדק מול
+   * המציאות שבשורה: משרד שקרא לנתיב הלא נכון מקבל 404 ולא מדרג
+   * בשם הצד השני.
+   *
+   * **רק דירוג המשרד הקולט נספר למוניטין.** משרד שמדרג את ההפניה
+   * של עצמו היה מנפח לעצמו את הציון שמוצג לרשת; הדירוג שלו נשמר
+   * ומוצג לצד השני, ולא נכנס לממוצע.
+   */
+  async rateReferral(
+    sharedLeadId: string,
+    role: Exclude<ReferralRole, "viewer">,
+    score: number,
+    comment?: string,
+  ): Promise<void> {
+    const ctx = TenantContext.current();
+    const problem = referralRatingRejectionReason(score, comment);
+    if (problem) throw new BadRequestException(problem);
+
+    // ה-RLS מחזיר כאן רק הפניה שאני צד בה — כמפנה או כקולט
+    const row = await this.prisma.withTenant((tx) =>
+      tx.sharedLead.findFirst({
+        where: { id: sharedLeadId },
+        select: { id: true, tenantId: true, buyerTenantId: true, status: true },
+      }),
+    );
+    if (!row) throw new NotFoundException("ההפניה לא נמצאה");
+    if (row.status !== "sold" || !row.buyerTenantId) {
+      throw new BadRequestException("אפשר לדרג רק הפניה שנקלטה");
+    }
+    const actualRole: ReferralRole =
+      row.tenantId === ctx.tenantId
+        ? "referrer"
+        : row.buyerTenantId === ctx.tenantId
+          ? "receiver"
+          : "viewer";
+    if (actualRole !== role) throw new NotFoundException("ההפניה לא נמצאה");
+
+    const buyerTenantId = row.buyerTenantId;
+    const trimmed = comment?.trim() || null;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${ctx.tenantId}, true)`;
+      /*
+       * נעילת הדירוג הזה עד סוף הטרנזקציה. הפרש הציון למוניטין
+       * מחושב מקריאה של הדירוג הקודם, ושתי שליחות במקביל מאותו
+       * משרד היו קוראות שתיהן את אותו ערך ומחילות את ההפרש פעמיים.
+       */
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`referral_rating:${sharedLeadId}:${ctx.tenantId}`}, 0))`;
+      const existing = await tx.leadReferralRating.findUnique({
+        where: {
+          sharedLeadId_raterTenantId: { sharedLeadId, raterTenantId: ctx.tenantId },
+        },
+        select: { id: true, score: true },
+      });
+      if (existing) {
+        await tx.leadReferralRating.update({
+          where: { id: existing.id },
+          data: { score, comment: trimmed },
+        });
+      } else {
+        await tx.leadReferralRating.create({
+          data: {
+            id: ulid(),
+            sharedLeadId,
+            sellerTenantId: row.tenantId,
+            buyerTenantId,
+            raterTenantId: ctx.tenantId,
+            raterRole: role,
+            score,
+            comment: trimmed,
+          },
+        });
+      }
+      await this.audit.record(tx, {
+        action: "collaboration.referral_rate",
+        entityType: "shared_lead",
+        entityId: sharedLeadId,
+        metadata: { role, score },
+      });
+
+      if (role !== "receiver") return;
+      /*
+       * המוניטין מתעדכן בהקשר של המשרד המדורג — הוא הבעלים של
+       * השורה. עדכון בדלתא ולא כתיבת ערך מחושב: שני דירוגים על
+       * שתי הפניות שונות של אותו משרד יכולים להתרחש בו-זמנית.
+       */
+      const scoreDelta = score - (existing?.score ?? 0);
+      const countDelta = existing ? 0 : 1;
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${row.tenantId}, true)`;
+      await tx.$executeRaw`
+        INSERT INTO referral_reputation (tenant_id, rating_count, rating_sum, updated_at)
+        VALUES (${row.tenantId}, ${countDelta}, ${scoreDelta}, now())
+        ON CONFLICT (tenant_id) DO UPDATE SET
+          rating_count = referral_reputation.rating_count + ${countDelta},
+          rating_sum = referral_reputation.rating_sum + ${scoreDelta},
+          updated_at = now()`;
+    });
+  }
+
   private toSharedLeadDto(
     row: {
       id: string;
@@ -823,24 +1143,68 @@ export class CollaborationService {
       intent: string;
       city: string | null;
       note: string | null;
+      reason: string;
+      reasonDetail: string | null;
       priceCredits: number;
+      platformFeeCredits: number;
       status: string;
+      buyerTenantId: string | null;
       createdAt: Date;
     },
     viewerTenantId: string,
+    extras: {
+      ratings?: Map<
+        string,
+        { raterTenantId: string; score: number; comment: string | null; createdAt: Date }[]
+      >;
+      reputation?: { average: number; count: number };
+    } = {},
   ): SharedLeadDto {
     const mine = row.tenantId === viewerTenantId;
+    const role: ReferralRole = mine
+      ? "referrer"
+      : row.buyerTenantId === viewerTenantId
+        ? "receiver"
+        : "viewer";
+    const given = extras.ratings?.get(row.id) ?? [];
+    const mineRating = given.find((r) => r.raterTenantId === viewerTenantId);
+    const other = role === "viewer" ? undefined : given.find((r) => r.raterTenantId !== viewerTenantId);
+    const platformFeeCredits = Math.max(0, Math.min(row.platformFeeCredits, row.priceCredits - 1));
     return {
       id: row.id,
       intent: row.intent,
       source: row.source,
       city: row.city ?? undefined,
       note: row.note ?? undefined,
+      reason: row.reason,
+      reasonDetail: row.reasonDetail ?? undefined,
       priceCredits: row.priceCredits,
+      platformFeeCredits,
+      payoutCredits: row.priceCredits - platformFeeCredits,
       status: row.status,
       mine,
-      // הקישור לליד המקורי נחשף רק למוכר — לעולם לא לרשת
+      role,
+      // הקישור לליד המקורי נחשף רק למשרד המפנה — לעולם לא לרשת
       originLeadId: mine ? row.originLeadId : undefined,
+      ...(extras.reputation ? { referrerRating: extras.reputation } : {}),
+      ...(mineRating
+        ? {
+            myRating: {
+              score: mineRating.score,
+              comment: mineRating.comment ?? undefined,
+              createdAt: mineRating.createdAt,
+            },
+          }
+        : {}),
+      ...(other
+        ? {
+            counterpartRating: {
+              score: other.score,
+              comment: other.comment ?? undefined,
+              createdAt: other.createdAt,
+            },
+          }
+        : {}),
       createdAt: row.createdAt,
     };
   }

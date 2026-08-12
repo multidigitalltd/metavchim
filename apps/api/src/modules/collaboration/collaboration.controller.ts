@@ -4,15 +4,22 @@ import {
   DEFAULT_COMMISSION_SPLIT,
   IdSchema,
   MAX_COMMISSION_SHARE,
-  MAX_SHARED_LEAD_CITY,
-  MAX_SHARED_LEAD_NOTE,
+  MAX_REFERRAL_CITY,
+  MAX_REFERRAL_NOTE,
+  MAX_REFERRAL_PRICE,
+  MAX_REFERRAL_RATING,
+  MAX_REFERRAL_RATING_COMMENT,
+  MAX_REFERRAL_REASON_DETAIL,
   MIN_COMMISSION_SHARE,
+  MIN_REFERRAL_PRICE,
+  MIN_REFERRAL_RATING,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
   CollaborationService,
   type CoopOfferDto,
+  type ReferralTermsDto,
   type SharedDemandDto,
   type SharedLeadDto,
 } from "./collaboration.service";
@@ -47,11 +54,26 @@ const OfferSchema = z
   .object({ propertyId: IdSchema, commissionSplit: CommissionSplitSchema })
   .strict();
 const RespondSchema = z.object({ response: z.enum(["interested", "declined"]) }).strict();
+/*
+ * פרסום הפניה. הגבולות והסיבות מגיעים מהכלל המשותף — הטופס והשרת
+ * חייבים לדחות בדיוק את אותם ערכים, אחרת המסך מציג אפשרות שהשרת
+ * ידחה. תוקף הסיבה עצמה נבדק בשירות (`referralReasonRejectionReason`),
+ * כי הכלל "אחר מחייב פירוט" חוצה שני שדות.
+ */
 const ShareLeadSchema = z
   .object({
     leadId: IdSchema,
-    note: z.string().trim().max(MAX_SHARED_LEAD_NOTE).optional(),
-    city: z.string().trim().max(MAX_SHARED_LEAD_CITY).optional(),
+    priceCredits: z.number().int().min(MIN_REFERRAL_PRICE).max(MAX_REFERRAL_PRICE),
+    reason: z.string().trim().min(1).max(30),
+    reasonDetail: z.string().trim().max(MAX_REFERRAL_REASON_DETAIL).optional(),
+    note: z.string().trim().max(MAX_REFERRAL_NOTE).optional(),
+    city: z.string().trim().max(MAX_REFERRAL_CITY).optional(),
+  })
+  .strict();
+const RateReferralSchema = z
+  .object({
+    score: z.number().int().min(MIN_REFERRAL_RATING).max(MAX_REFERRAL_RATING),
+    comment: z.string().trim().max(MAX_REFERRAL_RATING_COMMENT).optional(),
   })
   .strict();
 
@@ -145,17 +167,30 @@ export class CollaborationController {
   }
 
   /* ============================================================
-     שוק הלידים: מכירת ליד בקרדיטים בין משרדים.
-     שיתוף = אותה יכולת כמו שיתוף ביקוש; קנייה = אותה יכולת כמו
+     לוח ההפניות: הפניית לקוח בין משרדים תמורת קרדיטים.
+     פרסום = אותה יכולת כמו שיתוף ביקוש; קליטה = אותה יכולת כמו
      הצעה על ביקוש — אין תפקיד חדש לנהל.
      ============================================================ */
+
+  /**
+   * תנאי ההפניה לליד מסוים — הצעת מחיר פתיחה ושיעור עמלת הפלטפורמה.
+   * מגיע מהשרת ולא מחושב במסך: טופס שמנחש את ההצעה יציג מספר אחר
+   * ממה שהשרת מכיר.
+   */
+  @Get("leads/terms/:leadId")
+  @RequireCapability("collaboration.share")
+  async referralTerms(
+    @Param("leadId", new ZodValidationPipe(IdSchema)) leadId: string,
+  ): Promise<ReferralTermsDto> {
+    return this.collaboration.referralTerms(leadId);
+  }
 
   @Post("leads")
   @RequireCapability("collaboration.share")
   async shareLead(
     @Body(new ZodValidationPipe(ShareLeadSchema)) body: z.infer<typeof ShareLeadSchema>,
   ): Promise<SharedLeadDto> {
-    return this.collaboration.shareLead(body.leadId, body.note, body.city);
+    return this.collaboration.shareLead(body);
   }
 
   @Delete("leads/:id")
@@ -166,9 +201,9 @@ export class CollaborationController {
   }
 
   /**
-   * הרישומים שלי בלבד — תחת יכולת ה**שיתוף**: מי שמותר לו למכור חייב
-   * לראות ולהסיר את מה שפרסם גם בלי יכולת הקנייה, אחרת כרטיס הליד
-   * מציג "לא משותף" על ליד שכן משותף (ביקורת Codex).
+   * הרישומים שלי בלבד — תחת יכולת ה**שיתוף**: מי שמותר לו להפנות
+   * חייב לראות ולהסיר את מה שפרסם גם בלי יכולת הקליטה, אחרת כרטיס
+   * הליד מציג "לא משותף" על ליד שכן משותף (ביקורת Codex).
    */
   @Get("leads/mine")
   @RequireCapability("collaboration.share")
@@ -188,5 +223,36 @@ export class CollaborationController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
   ): Promise<{ leadId: string }> {
     return this.collaboration.buyLead(id);
+  }
+
+  /* ------------------------------------------------------------
+     דירוג הדדי. **שני נתיבים ולא אחד** — לא כפילות אלא הפרדת
+     היכולות: המשרד המפנה מחזיק ב-share, המשרד הקולט ב-offer, ומשרד
+     שמחזיק רק באחת מהן חייב לדרג. התפקיד מגיע מהנתיב ונבדק בשירות
+     מול השורה עצמה.
+     ------------------------------------------------------------ */
+
+  /** דירוג הלקוח שהפניתי — נשמר ומוצג לצד השני, ואינו נספר למוניטין. */
+  @Post("leads/:id/rating/given")
+  @RequireCapability("collaboration.share")
+  @HttpCode(200)
+  async rateReferralGiven(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(RateReferralSchema)) body: z.infer<typeof RateReferralSchema>,
+  ): Promise<{ ok: true }> {
+    await this.collaboration.rateReferral(id, "referrer", body.score, body.comment);
+    return { ok: true };
+  }
+
+  /** דירוג ההפניה שקלטתי — זה מה שבונה את המוניטין של המשרד המפנה. */
+  @Post("leads/:id/rating/received")
+  @RequireCapability("collaboration.offer")
+  @HttpCode(200)
+  async rateReferralReceived(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(RateReferralSchema)) body: z.infer<typeof RateReferralSchema>,
+  ): Promise<{ ok: true }> {
+    await this.collaboration.rateReferral(id, "receiver", body.score, body.comment);
+    return { ok: true };
   }
 }

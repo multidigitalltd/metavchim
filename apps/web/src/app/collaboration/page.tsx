@@ -5,6 +5,8 @@ import {
   COMMISSION_SPLIT_OPTIONS,
   DEFAULT_COMMISSION_SPLIT,
   describeCommissionSplit,
+  describeReferralRating,
+  referralReasonLabel,
 } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
@@ -13,20 +15,21 @@ import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
 import Link from "next/link";
 import { LoadError } from "../load-error";
-import { IconCart, IconDiamond, IconHandshake } from "../icons";
-import { CollaborationGuide, CommissionPanel, PrivacyPanel } from "./guide";
+import { IconDiamond, IconHandshake, IconStar } from "../icons";
+import { CollaborationGuide, CommissionPanel, PrivacyPanel, ReferralRulesPanel } from "./guide";
+import { ReferralRating, type ReferralRatingValue } from "./referral-rating";
 
 /**
  * רשת שיתופי הפעולה (אפיון §11-12).
  *
- * שלוש לשוניות ולא מסך אחד: שיתוף פעולה בין משרדים (חינם) ושוק
- * הלידים (בקרדיטים) הם שני מנגנונים שונים לגמרי, וההצגה שלהם יחד
+ * שלוש לשוניות ולא מסך אחד: שיתוף פעולה על ביקושים (חינם) והפניות
+ * לקוחות (בקרדיטים) הם שני מנגנונים שונים לגמרי, וההצגה שלהם יחד
  * היא מה שגרם למתווכים לחשוב ששת"פ עולה כסף.
  */
 const COOP_TABS: [key: string, label: string][] = [
   ["demands", "ביקושים ברשת"],
   ["incoming", "הצעות שקיבלתי"],
-  ["market", "שוק לידים"],
+  ["market", "הפניות לקוחות"],
 ];
 
 
@@ -75,10 +78,20 @@ interface SharedLeadRow {
   source: string;
   city?: string;
   note?: string;
+  reason: string;
+  reasonDetail?: string;
   priceCredits: number;
+  platformFeeCredits: number;
+  payoutCredits: number;
   status: string;
   mine: boolean;
+  /** התפקיד שלי מול ההפניה — קובע מה מוצג ומה אפשר לעשות */
+  role: "referrer" | "receiver" | "viewer";
   originLeadId?: string;
+  /** המוניטין של המשרד המפנה — הדבר החשוב ביותר לפני תשלום */
+  referrerRating?: { average: number; count: number };
+  myRating?: ReferralRatingValue;
+  counterpartRating?: ReferralRatingValue;
 }
 
 interface PropertyOption {
@@ -191,17 +204,26 @@ export default function CollaborationPage() {
 
   async function buyLead(id: string, price: number) {
     /*
-     * אישור מפורש לפני חיוב — קנייה בלחיצה אחת בלי שאלה היא בדיוק
-     * איך מבזבזים קרדיטים בטעות.
+     * אישור מפורש לפני חיוב, ובו **שתי** העובדות שאי אפשר לגלות
+     * אחרי התשלום: שהוא נגבה עכשיו, ושאינו מותנה בסגירת עסקה.
+     * קליטה בלחיצה אחת בלי שאלה היא בדיוק איך מבזבזים קרדיטים בטעות.
      */
-    if (!window.confirm(`לקנות את הליד תמורת ${price} קרדיטים? פרטי הקשר ייחשפו מיד.`)) return;
+    if (
+      !window.confirm(
+        `לקלוט את ההפניה תמורת ${price} קרדיטים?\n\n` +
+          "פרטי הקשר ייחשפו מיד. התשלום הוא על ההפניה עצמה — הוא נגבה עכשיו, " +
+          "ואינו מוחזר גם אם לא תיסגר עסקה. אחרי הקליטה תוכלו לדרג את ההפניה.",
+      )
+    ) {
+      return;
+    }
     setBuyingLead(id);
     try {
       const { leadId } = await apiPost<{ leadId: string }>(`/collaboration/leads/${id}/buy`, {});
-      setMessage("✓ הליד נרכש — פרטי הקשר המלאים מחכים לכם בכרטיס הליד.", leadId);
+      setMessage("✓ ההפניה נקלטה — פרטי הקשר המלאים מחכים לכם בכרטיס הליד.", leadId);
       load();
     } catch (err: unknown) {
-      setMessage(err instanceof ApiError ? err.message : "הקנייה נכשלה");
+      setMessage(err instanceof ApiError ? err.message : "קליטת ההפניה נכשלה");
     } finally {
       setBuyingLead(null);
     }
@@ -217,8 +239,10 @@ export default function CollaborationPage() {
   }
 
   const incoming = coopOffers.filter((o) => o.direction === "incoming");
-  const leadsForSale = sharedLeads.filter((l) => !l.mine && l.status === "active");
-  const myListedLeads = sharedLeads.filter((l) => l.mine);
+  const openReferrals = sharedLeads.filter((l) => l.role === "viewer" && l.status === "active");
+  const myReferrals = sharedLeads.filter((l) => l.role === "referrer");
+  /* מה שקלטתי — כאן הוא מדורג, וכאן רואים מה הצד השני אמר */
+  const receivedReferrals = sharedLeads.filter((l) => l.role === "receiver");
 
   return (
     <>
@@ -236,8 +260,8 @@ export default function CollaborationPage() {
 
       {/*
         שלוש לשוניות ולא מסך אחד ארוך.
-        שני מנגנונים שונים חיו כאן יחד — שת"פ חינם ושוק לידים
-        בתשלום — ומי שנחת על המסך לא ידע מה שייך למה. ההפרדה היא
+        שני מנגנונים שונים חיו כאן יחד — שת"פ חינם והפניות לקוחות
+        בתמורה — ומי שנחת על המסך לא ידע מה שייך למה. ההפרדה היא
         גם הפתרון לבלבול בקרדיטים: הם מופיעים בלשונית אחת בלבד.
       */}
       <div className="mv-seg mb-[18px]" role="tablist" aria-label="אזורי הרשת">
@@ -330,11 +354,18 @@ export default function CollaborationPage() {
           aria-labelledby="coop-tab-market"
           className="mb-8"
         >
-          <h2 id="lead-market-heading" className="mb-1 text-lg font-semibold"><IconCart s={16} /> שוק הלידים</h2>
+          <h2 id="lead-market-heading" className="mb-1 text-lg font-semibold">
+            <IconHandshake s={16} /> הפניות לקוחות
+          </h2>
           <p className="mb-3" style={{ color: "var(--color-text-muted)" }}>
-            לידים שמשרדים אחרים מוכרים בקרדיטים. שם וטלפון נחשפים רק אחרי הקנייה;
-            מכירת ליד נעשית מכרטיס הליד עצמו.
+            לקוחות שמשרדים אחרים לא יכולים לשרת ומפנים אליכם — כל אחד עם הסיבה
+            שבגללה הוא מופנה ועם התמורה שהמשרד המפנה מבקש. שם וטלפון נחשפים רק
+            אחרי הקליטה. <b>התשלום הוא על ההפניה ואינו מותנה בסגירת עסקה</b>, ולכן
+            שני הצדדים מדרגים אותה אחר כך. הפניה משלכם מפרסמים מכרטיס הליד עצמו.
           </p>
+
+          {/* ארבעת הכללים יושבים כאן — במקום שבו מחליטים אם לשלם */}
+          <ReferralRulesPanel />
           {/*
             היתרה יושבת כאן ולא בראש המסך. כשהיא הופיעה בכותרת הכללית
             היא נראתה כמו "מה נשאר לי לשיתופי פעולה" — וזה בדיוק מה
@@ -352,46 +383,108 @@ export default function CollaborationPage() {
               היתרה שלכם: {balance === null ? "…" : `${balance} קרדיטים`}
             </b>
             <span className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
-              · קרדיטים יורדים על לידים ממקור חיצוני בלבד — קנייה כאן, או הצעה על
-              ביקוש שמסומן במקור חיצוני. שיתוף פעולה עם משרד תיווך אינו עולה
-              קרדיטים.
+              · קרדיטים יורדים על הפניית לקוח ועל הצעה לביקוש שמסומן במקור חיצוני
+              בלבד. שיתוף פעולה עם משרד תיווך אינו עולה קרדיטים.
             </span>
           </div>
           {leadsFailed ? (
-            <LoadError message="לא הצלחנו לטעון את שוק הלידים" onRetry={load} />
+            <LoadError message="לא הצלחנו לטעון את לוח ההפניות" onRetry={load} />
+          ) : null}
+
+          {/*
+            שלוש קבוצות ולא רשימה אחת: מה שאני מפנה, מה שקלטתי (ושם
+            אני מדרג), ומה שפתוח לקליטה. בלי ההפרדה, ההפניה שקלטתי
+            נראית כמו עוד שורה בלוח — ואף אחד לא מדרג שורה בלוח.
+          */}
+          {myReferrals.length > 0 ? (
+            <>
+              <h3 className="mb-2 mt-4 text-[15px] font-semibold">ההפניות שפרסמתי</h3>
+              <ul className="mb-5 flex flex-col gap-3">
+                {myReferrals.map((lead) => (
+                  <li key={lead.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold">
+                        {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent}
+                        {lead.city ? ` · ${lead.city}` : ""}
+                      </span>
+                      <span className="rounded-full px-2 py-0.5 text-sm" style={{ background: "var(--color-border)" }}>
+                        ההפניה שלך
+                      </span>
+                      {lead.status === "sold" ? (
+                        <span className="font-medium" style={{ color: "var(--color-success)" }}>
+                          ✓ נקלטה — {lead.payoutCredits} קרדיטים נוספו ליתרה
+                        </span>
+                      ) : lead.status === "withdrawn" ? (
+                        <span style={{ color: "var(--color-text-muted)" }}>הוסרה מהלוח</span>
+                      ) : (
+                        <>
+                          <span className="rounded-full px-2 py-0.5 text-sm" style={{ background: "#f7efdd", color: "#7a5c1f" }}>
+                            {lead.priceCredits} קרדיטים · אליכם {lead.payoutCredits}
+                          </span>
+                          <Button variant="ghost" onClick={() => void withdrawLead(lead.id)}>
+                            הסר מהלוח
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                    <p className="mb-0 mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                      סיבת ההפניה: {referralReasonLabel(lead.reason)}
+                      {lead.reasonDetail ? ` — ${lead.reasonDetail}` : ""}
+                      {lead.note ? ` · ${lead.note}` : ""}
+                    </p>
+                    {lead.status === "sold" ? (
+                      <ReferralRating
+                        sharedLeadId={lead.id}
+                        role="given"
+                        mine={lead.myRating}
+                        counterpart={lead.counterpartRating}
+                        onSaved={() => load()}
+                      />
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+
+          {receivedReferrals.length > 0 ? (
+            <>
+              <h3 className="mb-2 text-[15px] font-semibold">הפניות שקלטתי</h3>
+              <ul className="mb-5 flex flex-col gap-3">
+                {receivedReferrals.map((lead) => (
+                  <li key={lead.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold">
+                        {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent}
+                        {lead.city ? ` · ${lead.city}` : ""}
+                      </span>
+                      <span className="rounded-full px-2 py-0.5 text-sm" style={{ background: "var(--color-border)" }}>
+                        שילמתם {lead.priceCredits} קרדיטים
+                      </span>
+                    </div>
+                    <p className="mb-0 mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                      סיבת ההפניה: {referralReasonLabel(lead.reason)}
+                      {lead.reasonDetail ? ` — ${lead.reasonDetail}` : ""}
+                    </p>
+                    {/* הדירוג כאן הוא מה שבונה את המוניטין שהלוח מציג */}
+                    <ReferralRating
+                      sharedLeadId={lead.id}
+                      role="received"
+                      mine={lead.myRating}
+                      counterpart={lead.counterpartRating}
+                      onSaved={() => load()}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+
+          {myReferrals.length > 0 || receivedReferrals.length > 0 ? (
+            <h3 className="mb-2 text-[15px] font-semibold">הפניות פתוחות ברשת</h3>
           ) : null}
           <ul className="flex flex-col gap-3">
-            {myListedLeads.map((lead) => (
-              <li key={lead.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-semibold">
-                    {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent}
-                    {lead.city ? ` · ${lead.city}` : ""}
-                  </span>
-                  <span className="rounded-full px-2 py-0.5 text-sm" style={{ background: "var(--color-border)" }}>הליד שלך</span>
-                  {lead.status === "sold" ? (
-                    <span className="font-medium" style={{ color: "var(--color-success)" }}>
-                      ✓ נמכר — {lead.priceCredits} קרדיטים נוספו ליתרה
-                    </span>
-                  ) : lead.status === "withdrawn" ? (
-                    <span style={{ color: "var(--color-text-muted)" }}>הוסר מהשוק</span>
-                  ) : (
-                    <>
-                      <span className="rounded-full px-2 py-0.5 text-sm" style={{ background: "#f7efdd", color: "#7a5c1f" }}>
-                        {lead.priceCredits} קרדיטים
-                      </span>
-                      <Button variant="ghost" onClick={() => void withdrawLead(lead.id)}>
-                        הסר מהשוק
-                      </Button>
-                    </>
-                  )}
-                </div>
-                {lead.note ? (
-                  <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>{lead.note}</p>
-                ) : null}
-              </li>
-            ))}
-            {leadsForSale.map((lead) => (
+            {openReferrals.map((lead) => (
               <li key={lead.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
                 <div className="mb-1 flex flex-wrap items-center gap-2">
                   <span className="font-semibold">
@@ -404,7 +497,27 @@ export default function CollaborationPage() {
                   <span className="rounded-full px-2 py-0.5 text-sm" style={{ background: "#f7efdd", color: "#7a5c1f" }}>
                     {lead.priceCredits} קרדיטים
                   </span>
+                  {/*
+                    המוניטין של המשרד המפנה, ליד המחיר ולא בעמוד אחר:
+                    התמורה נגבית גם אם לא ייסגר דבר, וזה המידע שקובע
+                    אם כדאי לשלם אותה.
+                  */}
+                  <span
+                    className="rounded-full border px-2 py-0.5 text-sm"
+                    style={{ borderColor: "var(--color-border)" }}
+                    title="ממוצע הדירוגים שנתנו משרדים שקלטו הפניות מהמשרד הזה"
+                  >
+                    <IconStar s={13} />{" "}
+                    {describeReferralRating(
+                      lead.referrerRating?.average ?? null,
+                      lead.referrerRating?.count ?? 0,
+                    )}
+                  </span>
                 </div>
+                <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                  סיבת ההפניה: <b>{referralReasonLabel(lead.reason)}</b>
+                  {lead.reasonDetail ? ` — ${lead.reasonDetail}` : ""}
+                </p>
                 {lead.note ? (
                   <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>{lead.note}</p>
                 ) : null}
@@ -414,15 +527,18 @@ export default function CollaborationPage() {
                   onClick={() => void buyLead(lead.id, lead.priceCredits)}
                 >
                   {buyingLead === lead.id
-                    ? "קונה…"
-                    : `קנה ליד (${lead.priceCredits} קרדיטים)`}
+                    ? "קולט…"
+                    : `קלוט את ההפניה (${lead.priceCredits} קרדיטים)`}
                 </Button>
               </li>
             ))}
           </ul>
-          {leadsForSale.length === 0 && myListedLeads.length === 0 && !leadsFailed ? (
+          {openReferrals.length === 0 &&
+          myReferrals.length === 0 &&
+          receivedReferrals.length === 0 &&
+          !leadsFailed ? (
             <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
-              אין כרגע לידים למכירה בשוק. שימו לב שזו לשונית נפרדת — ביקוש של
+              אין כרגע הפניות פתוחות ברשת. שימו לב שזו לשונית נפרדת — ביקוש של
               משרד תיווך אחר אינו עולה קרדיטים.
             </p>
           ) : null}
