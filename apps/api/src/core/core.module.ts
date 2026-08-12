@@ -36,6 +36,12 @@ import { StorageService } from "./storage.service";
     AuditService,
     OutboxService,
     PlatformSettingsService,
+    /*
+     * חייב להיות מיוצא ולא רק מסופק: `@Global()` חושף את מה שהמודול
+     * **מייצא**, ולא את מה שהוא מחזיק. בלי השורה הזו כל מודול שתלוי
+     * בשירות הזה מפיל את עליית ה-API כולו — לא את המסך שלו בלבד.
+     */
+    GeocodingService,
     GeminiService,
     PlanCatalogService,
     LeadPricingService,

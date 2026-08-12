@@ -43,6 +43,13 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # עליית ה-API על הפלט המהודר. חייב לרוץ אחרי הבנייה ולא כבדיקת
+      # יחידה: רק `tsc` פולט את מטא-דאטת הבנאי ש-Nest צריך כדי לפתור
+      # תלויות, ולכן חיווט שבור נראה רק כאן. תקלת ייצור אחת עברה את
+      # כל השערים שמעל ובכל זאת הפילה את המערכת כולה.
+      - name: API boots (dependency graph)
+        run: pnpm --filter @metavchim/api verify:boot
+
       - name: Audit dependencies (fail on high)
         run: pnpm audit --audit-level high
 
