@@ -42,7 +42,7 @@ export * from "./logic/trial.js";
 export * from "./logic/billing.js";
 export * from "./logic/email-template.js";
 export * from "./logic/collaboration-cost.js";
-export * from "./logic/lead-marketplace.js";
+export * from "./logic/lead-referral.js";
 export * from "./logic/lead-deletion.js";
 export * from "./announcements.js";
 export * from "./events.js";

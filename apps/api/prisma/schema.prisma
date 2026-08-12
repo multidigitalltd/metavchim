@@ -539,26 +539,37 @@ model CoopOffer {
   @@map("coop_offers")
 }
 
-// ליד למכירה בשוק השת"פ: בפיד רק מידע אנונימי (כוונה, מקור, עיר,
-// הערה); פרטי הקשר הם צילום מוצפן שמועתק לקונה רק אחרי רכישה.
-// אותו דגם RLS כמו shared_demands — בעלות מלאה למוכר + קריאת רשת.
+// הפניית לקוח בין משרדים: בלוח רק מידע אנונימי (כוונה, מקור, עיר,
+// סיבה, הערה); פרטי הקשר הם צילום מוצפן שמועתק למשרד הקולט רק אחרי
+// הקליטה. אותו דגם RLS כמו shared_demands — בעלות מלאה למשרד המפנה,
+// קריאת רשת להפניות פעילות, וקריאה למשרד שקלט את ההפניה.
 model SharedLead {
   id           String  @id @db.Char(26)
   tenantId     String  @map("tenant_id") @db.Char(26)
   originLeadId String  @map("origin_lead_id") @db.Char(26)
   source       String  @db.VarChar(20)
   intent       String  @db.VarChar(20)
-  /// ללידים אין עמודת עיר — המוכר מזין ידנית כדי שהפיד יהיה שמיש
+  /// ללידים אין עמודת עיר — המשרד המפנה מזין ידנית כדי שהלוח יהיה שמיש
   city         String? @db.VarChar(120)
   note         String? @db.VarChar(300)
+  /// למה הלקוח מופנה. חובה בפרסום; הפניות שקדמו לשדה נושאות
+  /// unspecified ומוצגות ככאלה, ולא כאילו נבחרה סיבה.
+  reason       String  @default("unspecified") @db.VarChar(30)
+  /// פירוט חופשי לצד הסיבה — חובה כשהסיבה היא "אחר"
+  reasonDetail String? @map("reason_detail") @db.VarChar(200)
   /// צילום איש הקשר במפתח ההצפנה האפליקטיבי (אחיד לכל הדיירים) —
-  /// לכן הקונה מקבל עותק בלי פענוח ביניים. לעולם לא מוחזר בפיד.
+  /// לכן המשרד הקולט מקבל עותק בלי פענוח ביניים. לעולם לא מוחזר בלוח.
   contactNameEncrypted  String @map("contact_name_encrypted") @db.Text
   contactPhoneEncrypted String @map("contact_phone_encrypted") @db.Text
   contactPhoneHash      String @map("contact_phone_hash") @db.Char(64)
-  /// המחיר נקבע ברגע השיתוף ולא בזמן הקנייה — שינוי תמחור מאוחר
-  /// לא משנה ליד שכבר פורסם (packages/shared/logic/lead-marketplace.ts)
+  /// התמורה שהמשרד המפנה ביקש. נקבעת ברגע הפרסום ולא ברגע הקליטה —
+  /// המשרד הקולט משלם את מה שראה בלוח.
   priceCredits  Int       @map("price_credits")
+  /// עמלת הפלטפורמה בקרדיטים, מצולמת אף היא ברגע הפרסום: שינוי
+  /// שיעור העמלה לא משנה הפניה שכבר פורסמה. הזיכוי למפנה הוא
+  /// priceCredits פחות העמודה הזו (packages/shared/logic/lead-referral.ts).
+  /// 0 בהפניות שקדמו לעמלה — היסטורית זה נכון.
+  platformFeeCredits Int  @default(0) @map("platform_fee_credits")
   status        String    @default("active") @db.VarChar(20) // active | sold | withdrawn
   buyerTenantId String?   @map("buyer_tenant_id") @db.Char(26)
   soldAt        DateTime? @map("sold_at")
@@ -567,7 +578,45 @@ model SharedLead {
 
   @@index([status, createdAt])
   @@index([tenantId, status])
+  @@index([buyerTenantId, soldAt])
   @@map("shared_leads")
+}
+
+// דירוג הדדי על הפניה שנקלטה. התמורה משולמת על ההפניה ולא על
+// התוצאה, ואין החזרים — הדירוג הוא המנגנון שמייקר הפניית זבל.
+// שורה אחת לכל צד: המשרד הקולט מדרג את מה שקיבל, והמשרד המפנה
+// מדרג את הלקוח שהעביר. רק דירוגי הקולטים נספרים למוניטין.
+model LeadReferralRating {
+  id             String   @id @db.Char(26)
+  sharedLeadId   String   @map("shared_lead_id") @db.Char(26)
+  /// שני הצדדים נשמרים על השורה — הם המפתח של ה-RLS: דירוג נראה
+  /// לשני הצדדים להפניה בלבד, לעולם לא לרשת.
+  sellerTenantId String   @map("seller_tenant_id") @db.Char(26)
+  buyerTenantId  String   @map("buyer_tenant_id") @db.Char(26)
+  raterTenantId  String   @map("rater_tenant_id") @db.Char(26)
+  raterRole      String   @map("rater_role") @db.VarChar(10) // referrer | receiver
+  score          Int      @db.SmallInt
+  comment        String?  @db.VarChar(300)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([sharedLeadId, raterTenantId])
+  @@index([sellerTenantId, createdAt])
+  @@map("lead_referral_ratings")
+}
+
+// מוניטין ההפניות של משרד — סכום ומונה בלבד.
+// טבלה נפרדת ולא צבירה מעל lead_referral_ratings: הלוח מציג את
+// הדירוג של כל משרד מפנה לכל הרשת, וטבלת הדירוגים מכילה הערות
+// חופשיות שמשרד כתב על משרד. מספרים אפשר לחשוף לרשת; טקסט לא.
+model ReferralReputation {
+  tenantId    String   @id @map("tenant_id") @db.Char(26)
+  /// כמה משרדים קולטים דירגו הפניות של המשרד הזה
+  ratingCount Int      @default(0) @map("rating_count")
+  ratingSum   Int      @default(0) @map("rating_sum")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("referral_reputation")
 }
 
 // ספר קרדיטים Append-Only (docs/03 §3): היתרה נגזרת, לא מאוחסנת.

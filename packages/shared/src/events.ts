@@ -66,12 +66,20 @@ export const DomainEvents = {
     tenantId: IdSchema,
     fromTenantId: IdSchema,
   }),
-  /** ליד ששותף בשוק נקנה — ההתראה מנותבת למשרד המוכר. */
+  /** הפניה שפורסמה נקלטה במשרד אחר — ההתראה מנותבת למשרד המפנה. */
   "shared_lead.sold": z.object({
     sharedLeadId: IdSchema,
-    /** המשרד המוכר — אליו מנותבת ההתראה והזיכוי */
+    /** המשרד המפנה — אליו מנותבת ההתראה והזיכוי */
     tenantId: IdSchema,
+    /** מה שהמשרד הקולט שילם */
     priceCredits: z.number().int().positive(),
+    /**
+     * הזיכוי בפועל, בניכוי עמלת הפלטפורמה.
+     *
+     * אופציונלי בכוונה: אירועים שכבר ממתינים ב-outbox מלפני העמלה
+     * אינם נושאים אותו, ואימות נוקשה היה מפיל אותם בעיבוד.
+     */
+    payoutCredits: z.number().int().positive().optional(),
   }),
   /** אובייקט אחסון שמחיקתו נכשלה — ניסיון חוזר עמיד דרך תור low. */
   "storage.cleanup_object": z.object({

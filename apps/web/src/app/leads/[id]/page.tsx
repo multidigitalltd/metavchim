@@ -4,7 +4,18 @@ import { useEffect, useState, use, type FormEvent, type ReactNode } from "react"
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
-import { MATURITY_LABELS as SHARED_MATURITY } from "@metavchim/shared";
+import {
+  MATURITY_LABELS as SHARED_MATURITY,
+  MAX_REFERRAL_CITY,
+  MAX_REFERRAL_NOTE,
+  MAX_REFERRAL_PRICE,
+  MAX_REFERRAL_REASON_DETAIL,
+  MIN_REFERRAL_PRICE,
+  REFERRAL_REASONS,
+  referralPayout,
+  referralPriceRejectionReason,
+  referralReasonRejectionReason,
+} from "@metavchim/shared";
 import { apiDelete, apiGet, apiPost, apiPatch, ApiError } from "@/lib/api";
 import { formatDate, shekelsToAgorot, waMeUrl } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
@@ -14,11 +25,12 @@ import { DictateFor } from "../../dictation-field";
 import { RelatedEntities } from "../../related-entities";
 import { EntityTasks } from "../../entity-tasks";
 import { ReplyEmail } from "./reply-email";
+import { ReferralRating } from "../../collaboration/referral-rating";
 import {
   IconCalendar,
-  IconCart,
   IconChat,
   IconCoins,
+  IconHandshake,
   IconDoc,
   IconGear,
   IconHome,
@@ -70,17 +82,32 @@ interface MySharedLead {
   id: string;
   status: string;
   priceCredits: number;
+  platformFeeCredits: number;
+  payoutCredits: number;
   mine: boolean;
   originLeadId?: string;
+  myRating?: { score: number; comment?: string };
+  counterpartRating?: { score: number; comment?: string };
+}
+
+interface ReferralTerms {
+  suggestedPriceCredits: number;
+  platformFeePercent: number;
 }
 
 /**
- * מכירת הליד בשוק השת"פ — הדרך השלישית לצד המרה לקונה או לנכס:
- * ליד שהמשרד לא יטפל בו נמכר בקרדיטים למשרד אחר במקום להירקב.
- * בפיד מופיע רק מידע אנונימי; פרטי הקשר נחשפים לקונה רק אחרי רכישה.
+ * הפניית הלקוח למשרד אחר — הדרך השלישית לצד המרה לקונה או לנכס.
+ *
+ * **לא "מכירת ליד".** לקוח שאינו מתאים למשרד הזה מופנה למשרד שכן
+ * יכול לשרת אותו, והמשרד המפנה מקבל תמורה על ההפניה. בלוח מופיע רק
+ * מידע אנונימי; שם וטלפון נחשפים למשרד הקולט רק אחרי הקליטה.
  */
-function SellLeadSection({ leadId }: { leadId: string }) {
+function ReferLeadSection({ leadId }: { leadId: string }) {
   const [shared, setShared] = useState<MySharedLead | null | undefined>(undefined);
+  const [terms, setTerms] = useState<ReferralTerms | null>(null);
+  const [price, setPrice] = useState<string>("");
+  const [reason, setReason] = useState<string>("");
+  const [reasonDetail, setReasonDetail] = useState("");
   const [note, setNote] = useState("");
   const [city, setCity] = useState("");
   const [busy, setBusy] = useState(false);
@@ -95,20 +122,48 @@ function SellLeadSection({ leadId }: { leadId: string }) {
         ),
       )
       .catch(() => setShared(null));
+    /*
+     * הצעת המחיר מגיעה מהשרת ולא מחושבת כאן: התמחור לפי מקור הליד
+     * הוא נתון של הפלטפורמה, ומסך שמנחש אותו יציג מספר אחר ממה
+     * שהשרת מכיר.
+     */
+    apiGet<ReferralTerms>(`/collaboration/leads/terms/${leadId}`)
+      .then((row) => {
+        setTerms(row);
+        setPrice((current) => current || String(row.suggestedPriceCredits));
+      })
+      .catch(() => undefined);
   }, [leadId]);
 
-  async function share() {
+  const priceNumber = Number(price);
+  const priceValid = Number.isInteger(priceNumber) && priceNumber >= MIN_REFERRAL_PRICE;
+  const preview = priceValid ? referralPayout(priceNumber) : null;
+
+  async function publish() {
+    const reasonProblem = referralReasonRejectionReason(reason, reasonDetail);
+    if (reasonProblem) {
+      setError(reasonProblem);
+      return;
+    }
+    const priceProblem = referralPriceRejectionReason(priceNumber);
+    if (priceProblem) {
+      setError(priceProblem);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       const row = await apiPost<MySharedLead>("/collaboration/leads", {
         leadId,
+        priceCredits: priceNumber,
+        reason,
+        ...(reasonDetail.trim() ? { reasonDetail: reasonDetail.trim() } : {}),
         ...(note.trim() ? { note: note.trim() } : {}),
         ...(city.trim() ? { city: city.trim() } : {}),
       });
       setShared(row);
     } catch (err: unknown) {
-      setError(err instanceof ApiError ? err.message : "השיתוף נכשל");
+      setError(err instanceof ApiError ? err.message : "פרסום ההפניה נכשל");
     } finally {
       setBusy(false);
     }
@@ -132,9 +187,26 @@ function SellLeadSection({ leadId }: { leadId: string }) {
 
   if (shared?.status === "sold") {
     return (
-      <p className="mb-4 rounded-xl border p-4 font-medium" style={{ borderColor: "var(--color-success)", color: "var(--color-success)" }}>
-        <IconCoins s={15} /> הליד נמכר ברשת — {shared.priceCredits} קרדיטים נוספו ליתרת המשרד.
-      </p>
+      <div
+        className="mb-4 rounded-xl border p-4"
+        style={{ borderColor: "var(--color-success)" }}
+      >
+        <p className="m-0 font-medium" style={{ color: "var(--color-success)" }}>
+          <IconCoins s={15} /> ההפניה נקלטה במשרד אחר — {shared.payoutCredits} קרדיטים נוספו
+          ליתרת המשרד
+          {shared.platformFeeCredits > 0
+            ? ` (${shared.priceCredits} בניכוי ${shared.platformFeeCredits} עמלת פלטפורמה)`
+            : ""}
+          .
+        </p>
+        {/* המשרד שקלט מדרג את ההפניה, ואתם מדרגים את הלקוח שהעברתם */}
+        <ReferralRating
+          sharedLeadId={shared.id}
+          role="given"
+          mine={shared.myRating}
+          counterpart={shared.counterpartRating}
+        />
+      </div>
     );
   }
 
@@ -142,11 +214,15 @@ function SellLeadSection({ leadId }: { leadId: string }) {
     return (
       <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
         <p className="mb-2 font-medium">
-          <IconCart s={15} /> הליד מוצע למכירה ברשת השת"פ ב-{shared.priceCredits} קרדיטים.
+          <IconHandshake s={15} /> הלקוח מופנה בלוח ההפניות תמורת {shared.priceCredits} קרדיטים
+          {shared.platformFeeCredits > 0
+            ? ` — מתוכם ${shared.platformFeeCredits} עמלת פלטפורמה, ${shared.payoutCredits} אליכם`
+            : ""}
+          .
         </p>
         {error ? <p role="alert" className="mb-2" style={{ color: "var(--color-danger)" }}>{error}</p> : null}
         <Button variant="ghost" disabled={busy} onClick={() => void withdraw()}>
-          הסר מהשוק
+          הסר מהלוח
         </Button>
       </div>
     );
@@ -154,41 +230,120 @@ function SellLeadSection({ leadId }: { leadId: string }) {
 
   return (
     <details className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-      <summary className="cursor-pointer font-medium"><IconCoins s={15} /> מכור ליד ברשת השת"פ</summary>
+      <summary className="cursor-pointer font-medium">
+        <IconHandshake s={15} /> הפנה את הלקוח למשרד אחר
+      </summary>
       <p className="mt-2 mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
-        ליד שלא תטפלו בו יכול להימכר בקרדיטים למשרד אחר. בפיד יופיעו רק
-        הכוונה, המקור והתיאור שתכתבו — שם וטלפון נחשפים לקונה רק אחרי הרכישה.
+        לקוח שאינו מתאים לכם — לא באזור שלכם, לא בתחום שלכם או שאין לכם פנאי —
+        יכול לקבל מענה במשרד אחר, ואתם מקבלים תמורה על ההפניה. בלוח יופיעו רק
+        הכוונה, המקור, הסיבה והתיאור שתכתבו; שם וטלפון נחשפים למשרד הקולט רק
+        אחרי הקליטה.
       </p>
+
       <div className="mb-3 flex flex-col gap-2">
+        {/*
+          הסיבה ראשונה ולא אחרונה: היא ההבדל בין הפניה מקצועית לבין
+          היפטרות מלקוח, והיא גם מה שהמשרד הקולט קורא ראשון.
+        */}
+        <label htmlFor="referReason" className="flex flex-col gap-1 text-sm">
+          <span>למה אתם מפנים את הלקוח? (חובה)</span>
+          <select
+            id="referReason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            className="rounded-lg border px-3 py-2"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+          >
+            <option value="">בחרו סיבה…</option>
+            {REFERRAL_REASONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          {reason ? (
+            <span className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+              {REFERRAL_REASONS.find((option) => option.value === reason)?.hint}
+            </span>
+          ) : null}
+        </label>
+        {reason === "other" ? (
+          <label htmlFor="referReasonDetail" className="flex flex-col gap-1 text-sm">
+            <span>פרטו את הסיבה</span>
+            <div className="flex items-start gap-2">
+              <input
+                id="referReasonDetail"
+                value={reasonDetail}
+                onChange={(e) => setReasonDetail(e.target.value)}
+                maxLength={MAX_REFERRAL_REASON_DETAIL}
+                className="flex-1 rounded-lg border px-3 py-2"
+                style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+              />
+              <DictateFor targetId="referReasonDetail" />
+            </div>
+          </label>
+        ) : null}
+
+        <label htmlFor="referPrice" className="flex flex-col gap-1 text-sm">
+          <span>תמורה שאתם מבקשים (בקרדיטים)</span>
+          <input
+            id="referPrice"
+            type="number"
+            inputMode="numeric"
+            min={MIN_REFERRAL_PRICE}
+            max={MAX_REFERRAL_PRICE}
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            className="rounded-lg border px-3 py-2"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+          />
+          {/*
+            הפירוק מוצג לפני הפרסום ולא אחרי הקליטה. עמלה שמתגלה
+            בדיעבד היא בדיוק מה שהורס אמון בלוח.
+          */}
+          {preview ? (
+            <span className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+              המשרד הקולט משלם {preview.priceCredits} · עמלת פלטפורמה{" "}
+              {terms ? `${terms.platformFeePercent}% = ` : ""}
+              {preview.platformFeeCredits} · <b>אליכם {preview.payoutCredits} קרדיטים</b>
+            </span>
+          ) : null}
+        </label>
+
         <label className="flex flex-col gap-1 text-sm">
-          <span>עיר (לתצוגה בפיד)</span>
+          <span>עיר (לתצוגה בלוח)</span>
           <input
             value={city}
             onChange={(e) => setCity(e.target.value)}
-            maxLength={120}
+            maxLength={MAX_REFERRAL_CITY}
             className="rounded-lg border px-3 py-2"
             style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
           />
         </label>
-        <label htmlFor="sellNote" className="flex flex-col gap-1 text-sm">
-          <span>תיאור קצר לקונים (בלי שם ובלי טלפון)</span>
+        <label htmlFor="referNote" className="flex flex-col gap-1 text-sm">
+          <span>תיאור קצר למשרדים (בלי שם ובלי טלפון)</span>
           <div className="flex items-start gap-2">
             <textarea
-              id="sellNote"
+              id="referNote"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              maxLength={300}
+              maxLength={MAX_REFERRAL_NOTE}
               rows={2}
               className="flex-1 rounded-lg border px-3 py-2"
               style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
             />
-            <DictateFor targetId="sellNote" />
+            <DictateFor targetId="referNote" />
           </div>
         </label>
       </div>
+
+      <p className="mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+        המשרד הקולט משלם על ההפניה ברגע הקליטה, ולא על עסקה שתיסגר. שני הצדדים
+        מדרגים את ההפניה אחר כך, והדירוג מוצג לצד ההפניות הבאות שלכם.
+      </p>
       {error ? <p role="alert" className="mb-2" style={{ color: "var(--color-danger)" }}>{error}</p> : null}
-      <Button disabled={busy} onClick={() => void share()}>
-        {busy ? "משתף…" : "הצע למכירה"}
+      <Button disabled={busy || !reason || !priceValid} onClick={() => void publish()}>
+        {busy ? "מפרסם…" : "פרסם הפניה"}
       </Button>
     </details>
   );
@@ -607,9 +762,9 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         <ConvertToPropertySection leadId={lead.id} />
       ) : null}
 
-      {/* הדרך השלישית: ליד שלא מטפלים בו נמכר בקרדיטים למשרד אחר */}
+      {/* הדרך השלישית: לקוח שלא מטפלים בו מופנה למשרד שכן ישרת אותו */}
       {lead.status !== "converted" && can(user, "collaboration.share") ? (
-        <SellLeadSection leadId={lead.id} />
+        <ReferLeadSection leadId={lead.id} />
       ) : null}
 
       <div className="mb-8">
