@@ -21,6 +21,7 @@ import { assertLeadAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
+import { CreditEconomyService } from "../../core/credit-economy.service";
 import { OutboxService } from "../../core/outbox.service";
 import { LeadPricingService } from "../../core/lead-pricing.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
@@ -31,7 +32,6 @@ import { rowToFields } from "../properties/property.mapper";
 /** שורת נכס כפי ש-Prisma מחזירה — הטיפוס נגזר ולא מועתק ידנית. */
 type PropertyRow = Parameters<typeof rowToFields>[0];
 
-const INITIAL_CREDITS = 20;
 /** עיגול תקציב כלפי מעלה ל-100 אלף ₪ — אנונימיזציה (docs/04 §7) */
 const BUDGET_ROUND_AGOROT = 10_000_000;
 
@@ -195,6 +195,7 @@ export class CollaborationService {
     private readonly pricing: LeadPricingService,
     private readonly platformSettings: PlatformSettingsService,
     private readonly crypto: CryptoService,
+    private readonly creditEconomy: CreditEconomyService,
   ) {}
 
   /**
@@ -1513,10 +1514,17 @@ export class CollaborationService {
         select: { id: true },
       });
       if (!hasAny) {
-        // מענק פתיחה חד-פעמי — נרשם כתנועה, לא כיתרה קסומה
-        await tx.creditLedger.create({
-          data: { id: ulid(), tenantId, kind: "initial_grant", amount: INITIAL_CREDITS },
-        });
+        /*
+         * מענק פתיחה חד-פעמי — נרשם כתנועה, לא כיתרה קסומה.
+         * הסכום מגיע מהגדרות הפלטפורמה: גם הוא מספר מסחרי שמשתנה,
+         * ואין סיבה שיהיה קבוע בקוד.
+         */
+        const { initialGrantCredits } = await this.creditEconomy.current();
+        if (initialGrantCredits > 0) {
+          await tx.creditLedger.create({
+            data: { id: ulid(), tenantId, kind: "initial_grant", amount: initialGrantCredits },
+          });
+        }
       }
       return this.balanceInTx(tx, tenantId);
     });
