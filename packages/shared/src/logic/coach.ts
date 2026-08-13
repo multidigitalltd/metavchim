@@ -5,6 +5,8 @@
  * המלצות נוסף לצד הכללים, לא במקומם.
  */
 
+import { formatJerusalemTime } from "./israel-time.js";
+
 export interface CoachSignals {
   /** קונים חמים/חמים-מאוד שלא קיבלו הצעה כלל */
   hotBuyersWithoutOffer: number;
@@ -55,11 +57,6 @@ function describeWait(hours: number): string {
   return days === 1 ? "מאתמול" : `${days} ימים`;
 }
 
-/** שעה בלבד — התאריך כבר ידוע מההקשר ("היום"). */
-function formatTime(at: Date): string {
-  return at.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
-}
-
 export function buildRecommendations(signals: CoachSignals): CoachRecommendation[] {
   const recs: CoachRecommendation[] = [];
 
@@ -84,7 +81,7 @@ export function buildRecommendations(signals: CoachSignals): CoachRecommendation
     recs.push({
       priority: 105,
       type: "today_appointment",
-      title: `היום ${formatTime(appointment.startsAt)} — ${appointment.title}`,
+      title: `היום ${formatJerusalemTime(appointment.startsAt)} — ${appointment.title}`,
       body: "כדאי לוודא מול הלקוח שהפגישה בתוקף, ולהגיע עם הנכסים המתאימים בהישג יד.",
       entityType: "appointment",
       entityId: appointment.appointmentId,

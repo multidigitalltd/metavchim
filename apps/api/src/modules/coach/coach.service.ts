@@ -3,6 +3,7 @@ import {
   buildRecommendations,
   computeReadiness,
   type CoachRecommendation,
+  jerusalemDayRange,
   type CoachSignals,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
@@ -160,7 +161,7 @@ export class CoachService {
        */
       const slaHours = loadEnv().LEAD_SLA_HOURS;
       const slaCutoff = new Date(now.getTime() - slaHours * 3_600_000);
-      const stale = await tx.lead.findMany({
+      const candidates = await tx.lead.findMany({
         where: {
           tenantId,
           status: { in: ["new", "in_progress"] },
@@ -168,23 +169,63 @@ export class CoachService {
           ...leadScope,
         },
         orderBy: { updatedAt: "asc" },
-        take: 5,
+        take: 30,
         select: { id: true, updatedAt: true },
       });
-      const staleLeads: CoachSignals["staleLeads"] = stale.map((l) => ({
-        leadId: l.id,
-        // כמו בלידים הדחופים: ה-UI מקשר לליד, ואין צורך לפענח PII כאן
-        contactName: "ליד",
-        hoursWaiting: (now.getTime() - l.updatedAt.getTime()) / 3_600_000,
-      }));
+
+      /*
+       * **הנגיעה האחרונה אינה `updatedAt` של השורה.**
+       *
+       * רישום שיחה, הערה או מייל יוצא יוצרים `Interaction` ואינם
+       * נוגעים בשורת הליד — כלומר ליד שטופל לפני חמש דקות היה מוצג
+       * כ"ממתין חמש שעות", בראש הרשימה. התראת שווא במקום הכי דחוף
+       * במסך היא מה שגורם לסוכנים להפסיק להאמין למסך.
+       *
+       * הסינון הגס נשאר על `updatedAt` (זול, מצמצם ל-30), והשיחות
+       * נבדקות רק עליהם — בשאילתה אחת ולא אחת לכל ליד.
+       */
+      const lastTouch = new Map<string, Date>();
+      if (candidates.length > 0) {
+        const touches = await tx.interaction.groupBy({
+          by: ["leadId"],
+          where: { tenantId, leadId: { in: candidates.map((l) => l.id) } },
+          _max: { createdAt: true },
+        });
+        for (const touch of touches) {
+          if (touch.leadId !== null && touch._max.createdAt !== null) {
+            lastTouch.set(touch.leadId, touch._max.createdAt);
+          }
+        }
+      }
+
+      const staleLeads: CoachSignals["staleLeads"] = candidates
+        .map((l) => {
+          const interaction = lastTouch.get(l.id);
+          const touched =
+            interaction !== undefined && interaction > l.updatedAt ? interaction : l.updatedAt;
+          return { lead: l, touched };
+        })
+        .filter(({ touched }) => touched < slaCutoff)
+        .sort((a, b) => a.touched.getTime() - b.touched.getTime())
+        .slice(0, 5)
+        .map(({ lead, touched }) => ({
+          leadId: lead.id,
+          // כמו בלידים הדחופים: ה-UI מקשר לליד, ואין צורך לפענח PII כאן
+          contactName: "ליד",
+          hoursWaiting: (now.getTime() - touched.getTime()) / 3_600_000,
+        }));
 
       /* פגישות היום שטרם התקיימו — רק למי שרשאי ליומן, כמו הסיורים. */
       let todayAppointments: CoachSignals["todayAppointments"] = [];
       if (canSeeCalendar) {
-        const endOfDay = new Date(now);
-        endOfDay.setHours(23, 59, 59, 999);
+        /*
+         * גבול היום בשעון ישראל ולא בשעון התהליך: ה-API רץ ב-UTC,
+         * ו-`setHours(23,59,59)` היה גורף פגישות של מחר לפנות בוקר,
+         * ובין חצות המקומית לחצות ה-UTC מפספס כמעט את כל היום החדש.
+         */
+        const { end: endOfDay } = jerusalemDayRange(now);
         const upcoming = await tx.appointment.findMany({
-          where: { tenantId, status: "scheduled", startsAt: { gte: now, lte: endOfDay } },
+          where: { tenantId, status: "scheduled", startsAt: { gte: now, lt: endOfDay } },
           orderBy: { startsAt: "asc" },
           take: 5,
           select: { id: true, title: true, startsAt: true, kind: true },

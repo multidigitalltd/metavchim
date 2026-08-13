@@ -12,6 +12,8 @@
 
 export type RecurrenceFrequency = "daily" | "weekly" | "monthly";
 
+import { JERUSALEM_TZ, jerusalemOffsetMs } from "./israel-time.js";
+
 export interface RecurrenceRule {
   frequency: RecurrenceFrequency;
   /**
@@ -158,13 +160,10 @@ export function describeRecurrence(rule: RecurrenceRule): string {
    בזמן שהסורק מריץ אחרת.
    ============================================================ */
 
-const JERUSALEM_TZ = "Asia/Jerusalem";
-
-/** ההיסט של שעון ישראל מ-UTC ברגע נתון (מ״ש) — תלוי-רגע, לא קבוע. */
-function jerusalemOffsetMs(at: Date): number {
-  const wallAsUtc = new Date(at.toLocaleString("en-US", { timeZone: JERUSALEM_TZ }));
-  return wallAsUtc.getTime() - at.getTime();
-}
+/*
+ * אזור הזמן וחישוב ההיסט מגיעים מ-`israel-time` ואינם מוגדרים כאן
+ * שוב: שני עותקים של אותו חישוב DST נפרדים ביום שמתקנים אחד מהם.
+ */
 
 /**
  * שעת הקיר הירושלמית של רגע נתון, כ-Date שהשדות **המקומיים** שלו הם
