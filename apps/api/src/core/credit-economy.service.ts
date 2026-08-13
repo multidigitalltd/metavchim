@@ -38,7 +38,12 @@ export class CreditEconomyService {
         this.platformSettings.get("creditUnitPriceAgorot"),
         this.platformSettings.get("creditPackages"),
         this.platformSettings.get("creditBonusPercent"),
-        this.platformSettings.get("creditFeeCreditsPercent"),
+        /*
+         * עמלת מסלול הקרדיטים היא **עמלת ההפניות הקיימת** ולא הגדרה
+         * שנייה לאותה גבייה. שני מספרים שחולשים על אותו דבר נפרדים
+         * ביום שמישהו משנה אחד מהם — וזה באג שמתגלה בכסף.
+         */
+        this.platformSettings.get("referralFeePercent"),
         this.platformSettings.get("creditFeeCashPercent"),
         this.platformSettings.get("creditPayoutMinimumAgorot"),
         this.platformSettings.get("creditExpiryMonths"),

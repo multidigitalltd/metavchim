@@ -6,7 +6,7 @@ import {
   resolveReferralFeePercent,
   commissionSplitRejectionReason,
   coopOfferCost,
-  referralPayout,
+  settleReferral,
   referralPriceRejectionReason,
   referralRatingAverage,
   referralRatingRejectionReason,
@@ -872,8 +872,20 @@ export class CollaborationService {
     if (priceProblem) throw new BadRequestException(priceProblem);
     const reasonProblem = referralReasonRejectionReason(input.reason, input.reasonDetail);
     if (reasonProblem) throw new BadRequestException(reasonProblem);
-    // האחוז שנקבע בפלטפורמה, לא ברירת המחדל שבקוד
-    const payout = referralPayout(input.priceCredits, await this.feePercent());
+    /*
+     * החלוקה לפי הכלכלה שהוגדרה בפלטפורמה, כולל הבונוס. קודם נקרא
+     * כאן `referralPayout` עם אחוז העמלה בלבד, ולכן הבונוס שהוגדר
+     * במסך לא השפיע על אף עסקה — הגדרה מסחרית שנראית פעילה ואינה.
+     *
+     * המסלול הוא `credits` תמיד בשלב הזה: מסלול הכסף דורש יתרה
+     * כספית ומשיכה, ואלה עדיין לא קיימים. בחירה שאין מאחוריה תשלום
+     * גרועה מהיעדר בחירה.
+     */
+    const payout = settleReferral(
+      input.priceCredits,
+      "credits",
+      await this.creditEconomy.current(),
+    );
 
     const row = await this.prisma.withTenant(async (tx) => {
       // סוכן עם view_own לא מפנה את הליד של סוכן אחר
@@ -1519,12 +1531,16 @@ export class CollaborationService {
          * הסכום מגיע מהגדרות הפלטפורמה: גם הוא מספר מסחרי שמשתנה,
          * ואין סיבה שיהיה קבוע בקוד.
          */
+        /*
+         * השורה נכתבת **גם כשהמענק אפס**. בלי זה משרד שנפתח בתקופת
+         * "בלי מענק" נשאר בלי שום תנועה, כלומר "לא אותחל" לנצח —
+         * וברגע שהמענק יעלה, כל המשרדים הוותיקים האלה היו מקבלים
+         * אותו רטרואקטיבית. סכום אפס הוא סימון, לא מתנה.
+         */
         const { initialGrantCredits } = await this.creditEconomy.current();
-        if (initialGrantCredits > 0) {
-          await tx.creditLedger.create({
-            data: { id: ulid(), tenantId, kind: "initial_grant", amount: initialGrantCredits },
-          });
-        }
+        await tx.creditLedger.create({
+          data: { id: ulid(), tenantId, kind: "initial_grant", amount: initialGrantCredits },
+        });
       }
       return this.balanceInTx(tx, tenantId);
     });

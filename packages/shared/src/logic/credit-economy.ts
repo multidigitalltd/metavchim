@@ -42,7 +42,13 @@ export interface CreditEconomy {
   packages: CreditPackage[];
   /** תוספת למי שבוחר לקבל את התמורה בקרדיטים ולא בכסף. */
   creditBonusPercent: number;
-  /** עמלת הפלטפורמה כשהמוכר בחר קרדיטים. */
+  /**
+   * עמלת הפלטפורמה כשהמוכר בחר קרדיטים.
+   *
+   * זו **אותה** עמלת הפניות שכבר קיימת (`referralFeePercent`) ולא
+   * הגדרה שנייה לאותו דבר: שני מספרים שחולשים על אותה גבייה נפרדים
+   * ביום שמישהו משנה אחד מהם, וזה בדיוק סוג הבאג שמתגלה בכסף.
+   */
   feeCreditsPercent: number;
   /** עמלת הפלטפורמה כשהמוכר בחר כסף — גבוהה יותר, זה מחיר הנזילות. */
   feeCashPercent: number;
@@ -162,7 +168,12 @@ export function settleReferral(
   const netCredits = Math.max(0, priceCredits - platformFeeCredits);
 
   if (mode === "credits") {
-    const bonus = Math.floor((netCredits * economy.creditBonusPercent) / 100);
+    /*
+     * `ceil` ולא `floor`: הכלל הוא שהשבר הולך למשרד המפנה, וכאן הוא
+     * היה הולך לאיבוד. 14 נטו עם בונוס 20% נותנים 2.8 — כלומר 3,
+     * לא 2. עיגול כלפי מטה בכל עסקה עם שארית הוא תשלום חסר שיטתי.
+     */
+    const bonus = Math.ceil((netCredits * economy.creditBonusPercent) / 100);
     return {
       priceCredits,
       platformFeeCredits,

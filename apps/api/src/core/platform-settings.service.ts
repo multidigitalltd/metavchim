@@ -51,8 +51,6 @@ export type PlatformSettingKey =
   | "creditPackages"
   /** תוספת למי שבוחר תמורה בקרדיטים במקום בכסף. */
   | "creditBonusPercent"
-  /** עמלת הפלטפורמה כשהמוכר בחר קרדיטים. */
-  | "creditFeeCreditsPercent"
   /** עמלת הפלטפורמה כשהמוכר בחר כסף — מחיר הנזילות. */
   | "creditFeeCashPercent"
   /** סף משיכה מינימלי באגורות. */

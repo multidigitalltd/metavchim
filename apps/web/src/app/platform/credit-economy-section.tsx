@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import {
+  DEFAULT_CREDIT_ECONOMY,
   packageDiscountPercent,
   packageUnitPriceAgorot,
   settleReferral,
@@ -90,7 +91,6 @@ export function CreditEconomySection() {
         setForm({
           unitPrice: toShekels(creditEconomy.unitPriceAgorot),
           bonus: String(creditEconomy.creditBonusPercent),
-          feeCredits: String(creditEconomy.feeCreditsPercent),
           feeCash: String(creditEconomy.feeCashPercent),
           payoutMin: toShekels(creditEconomy.payoutMinimumAgorot),
           expiry: String(creditEconomy.expiryMonths),
@@ -117,7 +117,6 @@ export function CreditEconomySection() {
       await apiPatch("/platform/settings", {
         creditUnitPriceAgorot: money(form.unitPrice),
         creditBonusPercent: numeric(form.bonus),
-        creditFeeCreditsPercent: numeric(form.feeCredits),
         creditFeeCashPercent: numeric(form.feeCash),
         creditPayoutMinimumAgorot: money(form.payoutMin),
         creditExpiryMonths: numeric(form.expiry),
@@ -144,13 +143,22 @@ export function CreditEconomySection() {
     );
   }
 
-  /* תרחיש חי — עם המספרים שבטופס, לא עם מה ששמור. */
+  /*
+   * תרחיש חי — עם המספרים שבטופס.
+   *
+   * שדה ריק נופל ל**ברירת המחדל** ולא לערך השמור: ריק פירושו מחיקת
+   * ההגדרה, והשרת יחזור לברירת המחדל. תצוגה שמראה את הערך הישן דווקא
+   * ברגע האיפוס מטעה בדיוק כשצריך לראות מה עומד לקרות.
+   */
+  const fromForm = (raw: string | undefined, fallback: number, isMoney = false): number => {
+    if (raw === undefined || raw.trim() === "") return fallback;
+    return isMoney ? toAgorot(raw) : Number(raw);
+  };
   const preview = {
     ...economy,
-    unitPriceAgorot: money(form.unitPrice) === "" ? economy.unitPriceAgorot : Number(money(form.unitPrice)),
-    creditBonusPercent: numeric(form.bonus) === "" ? economy.creditBonusPercent : Number(form.bonus),
-    feeCreditsPercent: numeric(form.feeCredits) === "" ? economy.feeCreditsPercent : Number(form.feeCredits),
-    feeCashPercent: numeric(form.feeCash) === "" ? economy.feeCashPercent : Number(form.feeCash),
+    unitPriceAgorot: fromForm(form.unitPrice, DEFAULT_CREDIT_ECONOMY.unitPriceAgorot, true),
+    creditBonusPercent: fromForm(form.bonus, DEFAULT_CREDIT_ECONOMY.creditBonusPercent),
+    feeCashPercent: fromForm(form.feeCash, DEFAULT_CREDIT_ECONOMY.feeCashPercent),
   };
   const asCredits = settleReferral(100, "credits", preview);
   const asCash = settleReferral(100, "cash", preview);
@@ -271,9 +279,12 @@ export function CreditEconomySection() {
       {/* ---------- התמורה על הפניה ---------- */}
       <h3 className="mb-1 mt-5 text-sm font-semibold">התמורה על הפניית לקוח</h3>
       <p className="mb-2 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
-        המשרד המפנה בוחר במה לקבל. הקונה משלם אותו דבר בשני המסלולים — מה שמשתנה
-        הוא כמה נשאר אצלכם. <b>קרדיטים נשארים במערכת ולכן זולים לכם; כסף יוצא
-        מהקופה ולכן העמלה עליו גבוהה יותר.</b>
+        <b>מסלול הקרדיטים פעיל.</b> העמלה עליו נערכת למעלה כ&quot;עמלת הפלטפורמה
+        על הפניית לקוח&quot; — הגדרה אחת ולא שתיים לאותה גבייה. הבונוס נכנס לתוקף
+        בכל הפניה שתפורסם מעכשיו.
+        <br />
+        <b>מסלול הכסף עדיין לא פעיל</b> — הוא דורש יתרה כספית ומשיכה, ואלה טרם
+        נבנו. השדות שמורים כדי שהמספרים יהיו מוכנים, ואינם משפיעים על עסקאות.
       </p>
       <div className="mb-3 grid gap-3 sm:grid-cols-3">
         <NumberField
@@ -283,16 +294,11 @@ export function CreditEconomySection() {
           onChange={(v) => setForm({ ...form, bonus: v })}
         />
         <NumberField
-          label="עמלת פלטפורמה — מסלול קרדיטים"
-          suffix="%"
-          value={form.feeCredits ?? ""}
-          onChange={(v) => setForm({ ...form, feeCredits: v })}
-        />
-        <NumberField
           label="עמלת פלטפורמה — מסלול כסף"
           suffix="%"
           value={form.feeCash ?? ""}
           onChange={(v) => setForm({ ...form, feeCash: v })}
+          hint="עדיין לא פעיל — נשמר לקראת מסלול הכסף"
         />
       </div>
       <NumberField
@@ -301,7 +307,7 @@ export function CreditEconomySection() {
         step="0.01"
         value={form.payoutMin ?? ""}
         onChange={(v) => setForm({ ...form, payoutMin: v })}
-        hint="מתחת לסכום הזה לא ניתן למשוך — העברה בין עוסקים היא אירוע חשבונאי"
+        hint="עדיין לא פעיל — נשמר לקראת מסלול הכסף. העברה בין עוסקים היא אירוע חשבונאי"
       />
 
       {/* תרחיש חי: תמחור דו-מסלולי קשה לדמיין, וטעות כאן היא כסף אמיתי */}

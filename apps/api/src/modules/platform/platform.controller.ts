@@ -228,9 +228,6 @@ const UpdateSettingsSchema = z
     creditBonusPercent: z
       .union([z.number().int().min(0).max(MAX_CREDIT_BONUS_PERCENT), z.literal("")])
       .optional(),
-    creditFeeCreditsPercent: z
-      .union([z.number().int().min(0).max(MAX_ECONOMY_FEE_PERCENT), z.literal("")])
-      .optional(),
     creditFeeCashPercent: z
       .union([z.number().int().min(0).max(MAX_ECONOMY_FEE_PERCENT), z.literal("")])
       .optional(),

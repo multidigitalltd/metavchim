@@ -94,6 +94,12 @@ describe("settleReferral", () => {
     expect(s.payoutCredits).toBe(14);
   });
 
+  it("שבר בבונוס הולך למשרד ולא לאיבוד", () => {
+    // 14 נטו עם בונוס 20% = 2.8 → 3, לא 2
+    const s = settleReferral(14, "credits", { ...economy, feeCreditsPercent: 0 });
+    expect(s.payoutCredits).toBe(17);
+  });
+
   it("עמלה של 100% לא מייצרת תמורה שלילית", () => {
     const s = settleReferral(10, "cash", { ...economy, feeCashPercent: 100 });
     expect(s.payoutAgorot).toBe(0);
