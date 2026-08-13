@@ -198,7 +198,7 @@ export function CreditEconomySection() {
           suffix="חודשים"
           value={form.expiry ?? ""}
           onChange={(v) => setForm({ ...form, expiry: v })}
-          hint="0 = ללא תפוגה"
+          hint="עדיין לא נאכף — נשמר לקראת מנגנון התפוגה"
         />
       </div>
 
