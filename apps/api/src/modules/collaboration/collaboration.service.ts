@@ -696,7 +696,7 @@ export class CollaborationService {
         await this.lockCreditSpend(tx, ctx.tenantId);
         const balance = await this.balanceInTx(tx, ctx.tenantId);
         if (balance < cost) {
-          throw new BadRequestException("אין מספיק קרדיטים — ניתן לרכוש בהגדרות");
+          throw new BadRequestException("אין מספיק קרדיטים — אפשר לרכוש במסך שיתופי הפעולה");
         }
       }
 
@@ -1197,7 +1197,7 @@ export class CollaborationService {
        */
       await this.lockCreditSpend(tx, ctx.tenantId);
       if ((await this.balanceInTx(tx, ctx.tenantId)) < cost) {
-        throw new BadRequestException("אין מספיק קרדיטים — ניתן לרכוש בהגדרות");
+        throw new BadRequestException("אין מספיק קרדיטים — אפשר לרכוש במסך שיתופי הפעולה");
       }
       /*
        * ההצפנה במפתח אפליקטיבי אחיד, לכן הצילום מועתק כמות שהוא —
@@ -1514,11 +1514,27 @@ export class CollaborationService {
     const openReferrals = await this.prisma.withNetworkRead((tx) =>
       tx.sharedLead.count({ where: { status: "active", NOT: { tenantId } } }),
     );
-    const { balance } = await this.credits();
+    const { balance } = await this.balance();
     return { incomingOffers, openReferrals, credits: balance };
   }
 
-  async credits(): Promise<{ balance: number }> {
+  /**
+   * היתרה **ומה אפשר לקנות** — בקריאה אחת.
+   *
+   * המסך שמראה יתרה אפסית בלי לומר איך ממלאים אותה הוא מבוי סתום,
+   * וזה בדיוק המצב שהיה: הודעת השגיאה הפנתה ל"הגדרות" שאין בהן כלום.
+   */
+  async credits(): Promise<{
+    balance: number;
+    unitPriceAgorot: number;
+    packages: { credits: number; priceAgorot: number }[];
+  }> {
+    const economy = await this.creditEconomy.current();
+    const { balance } = await this.balance();
+    return { balance, unitPriceAgorot: economy.unitPriceAgorot, packages: economy.packages };
+  }
+
+  private async balance(): Promise<{ balance: number }> {
     const tenantId = TenantContext.current().tenantId;
     const balance = await this.prisma.withTenant(async (tx) => {
       const hasAny = await tx.creditLedger.findFirst({

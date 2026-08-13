@@ -974,8 +974,17 @@ model Subscription {
 model Payment {
   id            String    @id @db.Char(26)
   tenantId      String    @map("tenant_id") @db.Char(26)
-  planCode      String    @map("plan_code") @db.VarChar(20)
-  billingCycle  String    @map("billing_cycle") @db.VarChar(10)
+  /// subscription | credits — **מה נקנה כאן.**
+  ///
+  /// טבלת תשלומים אחת ולא שתיים: זה המקום היחיד לראות את כל הכסף
+  /// שנכנס, וגם מסלול הזיכוי והחשבוניות משותף. ההבחנה היא בשדה,
+  /// והשדות שאינם רלוונטיים לסוג מסוים ריקים ולא מלאים בערך מדומה.
+  purpose       String    @default("subscription") @db.VarChar(20)
+  /// ריקים ברכישת קרדיטים — שם אין מסלול ואין מחזור חיוב.
+  planCode      String?   @map("plan_code") @db.VarChar(20)
+  billingCycle  String?   @map("billing_cycle") @db.VarChar(10)
+  /// כמה קרדיטים נרכשו. ריק בתשלום מנוי.
+  creditsPurchased Int?   @map("credits_purchased")
   amountAgorot  Int       @map("amount_agorot")
   /// pending | paid | failed
   status        String    @default("pending") @db.VarChar(20)

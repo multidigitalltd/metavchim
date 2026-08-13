@@ -193,7 +193,11 @@ export class CollaborationController {
 
   @Get("credits")
   @RequireCapability("collaboration.offer")
-  async credits(): Promise<{ balance: number }> {
+  async credits(): Promise<{
+    balance: number;
+    unitPriceAgorot: number;
+    packages: { credits: number; priceAgorot: number }[];
+  }> {
     return this.collaboration.credits();
   }
 

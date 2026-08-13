@@ -276,8 +276,12 @@ export interface PaymentRow {
   id: string;
   tenantId: string;
   tenantName: string;
-  planCode: string;
-  billingCycle: string;
+  /** subscription | credits — מה נקנה בתשלום הזה. */
+  purpose: string;
+  /** ריקים ברכישת קרדיטים; ערך מדומה היה מציג אותה כמנוי בדוח. */
+  planCode: string | null;
+  billingCycle: string | null;
+  creditsPurchased: number | null;
   amountAgorot: number;
   status: string;
   transactionId: string | null;
@@ -527,8 +531,10 @@ export class PlatformController {
       id: row.id,
       tenantId: row.tenantId,
       tenantName: names.get(row.tenantId) ?? row.tenantId,
+      purpose: row.purpose,
       planCode: row.planCode,
       billingCycle: row.billingCycle,
+      creditsPurchased: row.creditsPurchased,
       amountAgorot: row.amountAgorot,
       status: row.status,
       transactionId: row.transactionId,
