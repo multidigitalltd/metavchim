@@ -7,6 +7,7 @@ import { LeadPricingService } from "./lead-pricing.service";
 import { PlanCatalogService } from "./plan-catalog.service";
 import { GeminiService } from "./gemini.service";
 import { GeocodingService } from "./geocoding.service";
+import { CreditEconomyService } from "./credit-economy.service";
 import { PlatformSettingsService } from "./platform-settings.service";
 import { OutboxService } from "./outbox.service";
 import { PrismaService } from "./prisma.service";
@@ -24,6 +25,7 @@ import { StorageService } from "./storage.service";
     OutboxDispatcherService,
     PlatformSettingsService,
     GeocodingService,
+    CreditEconomyService,
     GeminiService,
     PlanCatalogService,
     LeadPricingService,
@@ -42,6 +44,7 @@ import { StorageService } from "./storage.service";
      * בשירות הזה מפיל את עליית ה-API כולו — לא את המסך שלו בלבד.
      */
     GeocodingService,
+    CreditEconomyService,
     GeminiService,
     PlanCatalogService,
     LeadPricingService,

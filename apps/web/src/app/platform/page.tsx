@@ -13,6 +13,7 @@ import { PaymentsSection } from "./payments-section";
 import { PlansSection } from "./plans-section";
 import { CouponsSection } from "./coupons-section";
 import { PlatformSettingsSection } from "./platform-settings-section";
+import { CreditEconomySection } from "./credit-economy-section";
 import { SystemUpdateSection } from "./system-update-section";
 
 /**
@@ -366,6 +367,7 @@ export default function PlatformPage() {
       <PlansSection onCatalogChange={loadPlanOptions} />
       <CouponsSection />
       <LeadPricesSection />
+      <CreditEconomySection />
       <PaymentsSection />
 
       <PlatformSettingsSection />

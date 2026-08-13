@@ -6,7 +6,7 @@ import {
   resolveReferralFeePercent,
   commissionSplitRejectionReason,
   coopOfferCost,
-  referralPayout,
+  settleReferral,
   referralPriceRejectionReason,
   referralRatingAverage,
   referralRatingRejectionReason,
@@ -21,6 +21,7 @@ import { assertLeadAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
+import { CreditEconomyService } from "../../core/credit-economy.service";
 import { OutboxService } from "../../core/outbox.service";
 import { LeadPricingService } from "../../core/lead-pricing.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
@@ -31,7 +32,6 @@ import { rowToFields } from "../properties/property.mapper";
 /** שורת נכס כפי ש-Prisma מחזירה — הטיפוס נגזר ולא מועתק ידנית. */
 type PropertyRow = Parameters<typeof rowToFields>[0];
 
-const INITIAL_CREDITS = 20;
 /** עיגול תקציב כלפי מעלה ל-100 אלף ₪ — אנונימיזציה (docs/04 §7) */
 const BUDGET_ROUND_AGOROT = 10_000_000;
 
@@ -195,6 +195,7 @@ export class CollaborationService {
     private readonly pricing: LeadPricingService,
     private readonly platformSettings: PlatformSettingsService,
     private readonly crypto: CryptoService,
+    private readonly creditEconomy: CreditEconomyService,
   ) {}
 
   /**
@@ -695,7 +696,7 @@ export class CollaborationService {
         await this.lockCreditSpend(tx, ctx.tenantId);
         const balance = await this.balanceInTx(tx, ctx.tenantId);
         if (balance < cost) {
-          throw new BadRequestException("אין מספיק קרדיטים — ניתן לרכוש בהגדרות");
+          throw new BadRequestException("אין מספיק קרדיטים — אפשר לרכוש במסך שיתופי הפעולה");
         }
       }
 
@@ -871,8 +872,20 @@ export class CollaborationService {
     if (priceProblem) throw new BadRequestException(priceProblem);
     const reasonProblem = referralReasonRejectionReason(input.reason, input.reasonDetail);
     if (reasonProblem) throw new BadRequestException(reasonProblem);
-    // האחוז שנקבע בפלטפורמה, לא ברירת המחדל שבקוד
-    const payout = referralPayout(input.priceCredits, await this.feePercent());
+    /*
+     * החלוקה לפי הכלכלה שהוגדרה בפלטפורמה, כולל הבונוס. קודם נקרא
+     * כאן `referralPayout` עם אחוז העמלה בלבד, ולכן הבונוס שהוגדר
+     * במסך לא השפיע על אף עסקה — הגדרה מסחרית שנראית פעילה ואינה.
+     *
+     * המסלול הוא `credits` תמיד בשלב הזה: מסלול הכסף דורש יתרה
+     * כספית ומשיכה, ואלה עדיין לא קיימים. בחירה שאין מאחוריה תשלום
+     * גרועה מהיעדר בחירה.
+     */
+    const payout = settleReferral(
+      input.priceCredits,
+      "credits",
+      await this.creditEconomy.current(),
+    );
 
     const row = await this.prisma.withTenant(async (tx) => {
       // סוכן עם view_own לא מפנה את הליד של סוכן אחר
@@ -1184,7 +1197,7 @@ export class CollaborationService {
        */
       await this.lockCreditSpend(tx, ctx.tenantId);
       if ((await this.balanceInTx(tx, ctx.tenantId)) < cost) {
-        throw new BadRequestException("אין מספיק קרדיטים — ניתן לרכוש בהגדרות");
+        throw new BadRequestException("אין מספיק קרדיטים — אפשר לרכוש במסך שיתופי הפעולה");
       }
       /*
        * ההצפנה במפתח אפליקטיבי אחיד, לכן הצילום מועתק כמות שהוא —
@@ -1501,11 +1514,27 @@ export class CollaborationService {
     const openReferrals = await this.prisma.withNetworkRead((tx) =>
       tx.sharedLead.count({ where: { status: "active", NOT: { tenantId } } }),
     );
-    const { balance } = await this.credits();
+    const { balance } = await this.balance();
     return { incomingOffers, openReferrals, credits: balance };
   }
 
-  async credits(): Promise<{ balance: number }> {
+  /**
+   * היתרה **ומה אפשר לקנות** — בקריאה אחת.
+   *
+   * המסך שמראה יתרה אפסית בלי לומר איך ממלאים אותה הוא מבוי סתום,
+   * וזה בדיוק המצב שהיה: הודעת השגיאה הפנתה ל"הגדרות" שאין בהן כלום.
+   */
+  async credits(): Promise<{
+    balance: number;
+    unitPriceAgorot: number;
+    packages: { credits: number; priceAgorot: number }[];
+  }> {
+    const economy = await this.creditEconomy.current();
+    const { balance } = await this.balance();
+    return { balance, unitPriceAgorot: economy.unitPriceAgorot, packages: economy.packages };
+  }
+
+  private async balance(): Promise<{ balance: number }> {
     const tenantId = TenantContext.current().tenantId;
     const balance = await this.prisma.withTenant(async (tx) => {
       const hasAny = await tx.creditLedger.findFirst({
@@ -1513,9 +1542,20 @@ export class CollaborationService {
         select: { id: true },
       });
       if (!hasAny) {
-        // מענק פתיחה חד-פעמי — נרשם כתנועה, לא כיתרה קסומה
+        /*
+         * מענק פתיחה חד-פעמי — נרשם כתנועה, לא כיתרה קסומה.
+         * הסכום מגיע מהגדרות הפלטפורמה: גם הוא מספר מסחרי שמשתנה,
+         * ואין סיבה שיהיה קבוע בקוד.
+         */
+        /*
+         * השורה נכתבת **גם כשהמענק אפס**. בלי זה משרד שנפתח בתקופת
+         * "בלי מענק" נשאר בלי שום תנועה, כלומר "לא אותחל" לנצח —
+         * וברגע שהמענק יעלה, כל המשרדים הוותיקים האלה היו מקבלים
+         * אותו רטרואקטיבית. סכום אפס הוא סימון, לא מתנה.
+         */
+        const { initialGrantCredits } = await this.creditEconomy.current();
         await tx.creditLedger.create({
-          data: { id: ulid(), tenantId, kind: "initial_grant", amount: INITIAL_CREDITS },
+          data: { id: ulid(), tenantId, kind: "initial_grant", amount: initialGrantCredits },
         });
       }
       return this.balanceInTx(tx, tenantId);

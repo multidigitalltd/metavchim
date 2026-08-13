@@ -15,6 +15,7 @@ import {
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
+import { CreditEconomyService } from "../../core/credit-economy.service";
 import { CardcomService, type Payer } from "../../core/cardcom.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
@@ -47,6 +48,7 @@ export class BillingService {
     private readonly cardcom: CardcomService,
     private readonly crypto: CryptoService,
     private readonly audit: AuditService,
+    private readonly creditEconomy: CreditEconomyService,
   ) {}
 
   /** מצב המנוי של הדייר הנוכחי, כולל יצירה עצלה לדיירים ותיקים. */
@@ -292,6 +294,80 @@ export class BillingService {
   }
 
   /**
+   * רכישת קרדיטים — אותו מסלול סליקה בדיוק כמו המנוי.
+   *
+   * **המחיר נקבע בשרת ולעולם לא מגיע מהדפדפן.** הלקוח שולח כמה
+   * קרדיטים הוא רוצה; הסכום נגזר מהכלכלה שהוגדרה בפלטפורמה — חבילה
+   * תואמת אם יש, אחרת מחיר היחידה כפול הכמות. סכום שמגיע מהלקוח
+   * הוא הזמנה לשלם כמה שרוצים.
+   *
+   * שורה באותה טבלת תשלומים ולא בטבלה נפרדת: האידמפוטנטיות מול
+   * קארדקום, הזיכוי והדוחות כבר יושבים שם, ופיצול היה מכפיל את
+   * שלושתם.
+   */
+  async startCreditCheckout(input: {
+    tenantId: string;
+    userId: string;
+    credits: number;
+  }): Promise<{ url: string; paymentId: string }> {
+    const economy = await this.creditEconomy.current();
+    if (!Number.isInteger(input.credits) || input.credits < 1) {
+      throw new BadRequestException("כמות הקרדיטים חייבת להיות מספר שלם חיובי");
+    }
+
+    /*
+     * חבילה בדיוק בכמות הזו מתומחרת לפי מחירה; אחרת מחיר היחידה.
+     * ההתאמה מדויקת ולא "הכי קרוב" — הנחה שנופלת על כמות שהלקוח לא
+     * ביקש היא הפתעה, לשני הכיוונים.
+     */
+    const pkg = economy.packages.find((p) => p.credits === input.credits);
+    const amountAgorot = pkg ? pkg.priceAgorot : economy.unitPriceAgorot * input.credits;
+    if (amountAgorot < 1) {
+      throw new BadRequestException("מחיר הקרדיטים אינו מוגדר — יש לפנות למנהל הפלטפורמה");
+    }
+
+    const paymentId = ulid();
+    await this.prisma.payment.create({
+      data: {
+        id: paymentId,
+        tenantId: input.tenantId,
+        purpose: "credits",
+        creditsPurchased: input.credits,
+        amountAgorot,
+        status: "pending",
+        lowProfileId: paymentId,
+        createdBy: input.userId,
+      },
+    });
+
+    const origin = loadEnv().WEB_ORIGIN;
+    try {
+      const page = await this.cardcom.createPaymentPage({
+        reference: paymentId,
+        amountAgorot,
+        productName: `${input.credits} קרדיטים לרשת השיתופים`,
+        successUrl: `${origin}/collaboration?payment=${paymentId}`,
+        failureUrl: `${origin}/collaboration?payment=${paymentId}&failed=1`,
+        webhookUrl: `${origin}/api/v1/webhooks/cardcom`,
+        // בלי טוקן: רכישת קרדיטים היא חד-פעמית ואינה מתחדשת
+        createToken: false,
+        payer: await this.payer(input.tenantId, input.userId),
+      });
+      await this.prisma.payment.update({
+        where: { id: paymentId },
+        data: { lowProfileId: page.lowProfileId },
+      });
+      return { url: page.url, paymentId };
+    } catch (error) {
+      await this.prisma.payment.update({
+        where: { id: paymentId },
+        data: { status: "failed", failureReason: "פתיחת דף התשלום נכשלה" },
+      });
+      throw error;
+    }
+  }
+
+  /**
    * אימות תשלום והפעלת המנוי — **הפונקציה היחידה שמפעילה מנוי**.
    *
    * נקראת גם מהוובהוק וגם מדף החזרה, ולכן היא אידמפוטנטית: המעבר
@@ -356,12 +432,17 @@ export class BillingService {
     }
 
     const now = new Date();
-    const cycle: BillingCycle = isBillingCycle(payment.billingCycle)
-      ? payment.billingCycle
+    const cycle: BillingCycle = isBillingCycle(payment.billingCycle ?? "")
+      ? (payment.billingCycle as BillingCycle)
       : "monthly";
-    // מחוץ לטרנזקציה כי הוא עשוי ליצור שורה; מה שנקרא ממנו נקרא שוב
-    // בפנים, ושם זה קובע
-    await this.ensureSubscription(payment.tenantId);
+    /*
+     * מחוץ לטרנזקציה כי הוא עשוי ליצור שורה; מה שנקרא ממנו נקרא שוב
+     * בפנים, ושם זה קובע.
+     *
+     * **רק למנוי.** רכישת קרדיטים אינה נוגעת במנוי כלל, ויצירת שורת
+     * מנוי בעקבותיה הייתה ממציאה מנוי למי שרק קנה קרדיטים.
+     */
+    if (payment.purpose !== "credits") await this.ensureSubscription(payment.tenantId);
     const token = verified.token ? this.crypto.encrypt(verified.token) : null;
 
     /*
@@ -389,9 +470,35 @@ export class BillingService {
       });
       if (claimed.count === 0) return null; // מישהו הקדים — אין מה לעשות
 
+      /*
+       * רכישת קרדיטים — הזיכוי **באותה טרנזקציה** שתפסה את השורה.
+       *
+       * זה מה שהופך אותו לאידמפוטנטי: קארדקום שולח את ההודעה יותר
+       * מפעם אחת, ורק מי שהצליח להעביר את השורה `pending ⟵ paid`
+       * מזכה. זיכוי מחוץ לטרנזקציה היה יכול לרוץ פעמיים על אותו
+       * תשלום, או להיעלם בנפילה בין השניים ולהשאיר לקוח מחויב בלי
+       * קרדיטים.
+       */
+      if (payment.purpose === "credits") {
+        await tx.creditLedger.create({
+          data: {
+            id: ulid(),
+            tenantId: payment.tenantId,
+            kind: "purchase",
+            amount: payment.creditsPurchased ?? 0,
+            refId: payment.id,
+          },
+        });
+        return now;
+      }
+
+      // מכאן והלאה — מנוי. בלי מסלול אין מה להפעיל.
+      const planCode = payment.planCode;
+      if (planCode === null) return null;
+
       const periodEnd = await this.activateWithin(tx, {
         tenantId: payment.tenantId,
-        planCode: payment.planCode,
+        planCode,
         cycle,
         now,
         card: token
@@ -412,7 +519,9 @@ export class BillingService {
     if (outcome === null) return { applied: false, status: "paid" };
 
     this.logger.log(
-      `מנוי הופעל: משרד ${payment.tenantId}, מסלול ${payment.planCode}, עד ${outcome.toISOString()}`,
+      payment.purpose === "credits"
+        ? `קרדיטים נרכשו: משרד ${payment.tenantId}, ${payment.creditsPurchased ?? 0} קרדיטים`
+        : `מנוי הופעל: משרד ${payment.tenantId}, מסלול ${payment.planCode}, עד ${outcome.toISOString()}`,
     );
     return { applied: true, status: "paid" };
   }
@@ -515,9 +624,25 @@ export class BillingService {
     return { status: payment.status, failureReason: payment.failureReason };
   }
 
-  /** רשימת התשלומים של המשרד — לקבלות ולבירורים. */
+  /**
+   * רשימת התשלומים של המשרד — לקבלות ולבירורים.
+   *
+   * `planCode` ריק ברכישת קרדיטים, ו-`purpose` הוא מה שמבדיל. שדה
+   * ריק אומר את האמת; ערך מדומה היה גורם לרכישת קרדיטים להיראות
+   * כמו מנוי בכל דוח.
+   */
   async history(tenantId: string): Promise<
-    { id: string; planCode: string; billingCycle: string; amountAgorot: number; status: string; paidAt: Date | null; createdAt: Date }[]
+    {
+      id: string;
+      purpose: string;
+      planCode: string | null;
+      billingCycle: string | null;
+      creditsPurchased: number | null;
+      amountAgorot: number;
+      status: string;
+      paidAt: Date | null;
+      createdAt: Date;
+    }[]
   > {
     return this.prisma.payment.findMany({
       where: { tenantId },
@@ -525,8 +650,10 @@ export class BillingService {
       take: 50,
       select: {
         id: true,
+        purpose: true,
         planCode: true,
         billingCycle: true,
+        creditsPurchased: true,
         amountAgorot: true,
         status: true,
         paidAt: true,

@@ -16,6 +16,12 @@ const CheckoutSchema = z
   .strict();
 
 /**
+ * רכישת קרדיטים. התקרה היא הגנת שפיות מפני טעות הקלדה — רכישה
+ * גדולה מזה נעשית מול הפלטפורמה ולא בלחיצה.
+ */
+const BuyCreditsSchema = z.object({ credits: z.number().int().min(1).max(100_000) }).strict();
+
+/**
  * מסך החיוב של המשרד.
  *
  * ההפרדה בין היכולות מכוונת: **לראות** את מצב המנוי מותר לכל מי
@@ -56,6 +62,25 @@ export class BillingController {
   @RequireCapability("billing.manage")
   async history(): Promise<Awaited<ReturnType<BillingService["history"]>>> {
     return this.billing.history(TenantContext.current().tenantId);
+  }
+
+  /**
+   * רכישת קרדיטים לרשת השיתופים.
+   *
+   * `billing.manage` כמו כל תשלום אחר: זו הוצאה כספית של המשרד,
+   * ולא כל מי שמשתמש ברשת מוסמך לחייב את הכרטיס.
+   *
+   * הכמות בלבד מגיעה מהלקוח — **המחיר נקבע בשרת** מהכלכלה שהוגדרה
+   * בפלטפורמה.
+   */
+  @Post("credits/checkout")
+  @HttpCode(200)
+  @RequireCapability("billing.manage")
+  async buyCredits(
+    @Body(new ZodValidationPipe(BuyCreditsSchema)) body: z.infer<typeof BuyCreditsSchema>,
+  ): Promise<{ url: string; paymentId: string }> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.billing.startCreditCheckout({ tenantId, userId, credits: body.credits });
   }
 
   /** פתיחת דף תשלום. מחזיר כתובת שאליה הדפדפן מופנה. */

@@ -19,6 +19,7 @@ import { LoadError } from "../load-error";
 import { IconDiamond, IconHandshake, IconStar } from "../icons";
 import { CollaborationGuide, CommissionPanel, PrivacyPanel, ReferralRulesPanel } from "./guide";
 import { ReferralRating, type ReferralRatingValue } from "./referral-rating";
+import { BuyCredits } from "./buy-credits";
 
 /**
  * רשת שיתופי הפעולה (אפיון §11-12).
@@ -147,6 +148,11 @@ export default function CollaborationPage() {
   const [coopOffers, setCoopOffers] = useState<CoopOfferRow[]>([]);
   const [properties, setProperties] = useState<PropertyOption[]>([]);
   const [balance, setBalance] = useState<number | null>(null);
+  /** תמחור הקרדיטים כפי שהוגדר בפלטפורמה — לרכישה מכאן. */
+  const [pricing, setPricing] = useState<{
+    unitPriceAgorot: number;
+    packages: { credits: number; priceAgorot: number }[];
+  } | null>(null);
   const [selectedProperty, setSelectedProperty] = useState<Record<string, string>>({});
   /*
    * החלוקה לכל ביקוש בנפרד. ברירת המחדל היא מה שהמשרד המשתף ביקש,
@@ -187,8 +193,15 @@ export default function CollaborationPage() {
     apiGet<SharedLeadRow[]>("/collaboration/leads")
       .then(setSharedLeads)
       .catch(() => setLeadsFailed(true));
-    apiGet<{ balance: number }>("/collaboration/credits")
-      .then((r) => setBalance(r.balance))
+    apiGet<{
+      balance: number;
+      unitPriceAgorot: number;
+      packages: { credits: number; priceAgorot: number }[];
+    }>("/collaboration/credits")
+      .then((r) => {
+        setBalance(r.balance);
+        setPricing({ unitPriceAgorot: r.unitPriceAgorot, packages: r.packages });
+      })
       .catch(() => undefined);
     apiGet<{ items: PropertyOption[] }>("/properties?limit=50")
       .then((r) => setProperties(r.items))
@@ -437,6 +450,16 @@ export default function CollaborationPage() {
               בלבד. שיתוף פעולה עם משרד תיווך אינו עולה קרדיטים.
             </span>
           </div>
+          {/*
+            הרכישה יושבת מתחת ליתרה ולא במסך אחר: הרגע שבו מגלים שאין
+            מספיק הוא הרגע שבו רוצים לקנות.
+          */}
+          {pricing !== null ? (
+            <BuyCredits
+              unitPriceAgorot={pricing.unitPriceAgorot}
+              packages={pricing.packages}
+            />
+          ) : null}
           {leadsFailed ? (
             <LoadError message="לא הצלחנו לטעון את לוח ההפניות" onRetry={load} />
           ) : null}

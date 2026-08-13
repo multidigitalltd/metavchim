@@ -23,6 +23,15 @@ import { z } from "zod";
 import {
   BLOCKABLE_MODULE_KEYS,
   IdSchema,
+  MAX_CREDIT_BONUS_PERCENT,
+  MAX_CREDIT_EXPIRY_MONTHS,
+  MAX_CREDIT_PACKAGES,
+  MAX_CREDIT_UNIT_PRICE_AGOROT,
+  MAX_CREDITS_PER_PACKAGE,
+  MAX_ECONOMY_FEE_PERCENT,
+  MAX_INITIAL_GRANT_CREDITS,
+  MAX_PAYOUT_MINIMUM_AGOROT,
+  type CreditEconomy,
   MAX_PLATFORM_FEE_PERCENT,
   resolveReferralFeePercent,
   PLAN_FEATURES,
@@ -52,6 +61,7 @@ import {
 } from "../../core/platform-settings.service";
 import { CardcomService } from "../../core/cardcom.service";
 import { GeocodingService } from "../../core/geocoding.service";
+import { CreditEconomyService } from "../../core/credit-economy.service";
 import { AccountDeletionService } from "../settings/account-deletion.service";
 import { LeadPricingService } from "../../core/lead-pricing.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
@@ -195,6 +205,41 @@ const UpdateSettingsSchema = z
       .optional(),
     /** ספק פענוח הכתובות. ‎none‎ = לא פונים לאיש. */
     geocodingProvider: z.enum(["none", "govmap", "mapbox"]).optional(),
+
+    /*
+     * כלכלת הקרדיטים. **ריק בכל שדה = חזרה לברירת המחדל**, ולא אפס:
+     * `Number("")` הוא 0, ושדה שנוקה בטעות היה מאפס מחיר בשקט.
+     * התקרות הן הגנת שפיות מפני טעות הקלדה, לא מדיניות מחירים.
+     */
+    creditUnitPriceAgorot: z
+      .union([z.number().int().min(1).max(MAX_CREDIT_UNIT_PRICE_AGOROT), z.literal("")])
+      .optional(),
+    creditPackages: z
+      .array(
+        z
+          .object({
+            credits: z.number().int().min(1).max(MAX_CREDITS_PER_PACKAGE),
+            priceAgorot: z.number().int().min(1),
+          })
+          .strict(),
+      )
+      .max(MAX_CREDIT_PACKAGES)
+      .optional(),
+    creditBonusPercent: z
+      .union([z.number().int().min(0).max(MAX_CREDIT_BONUS_PERCENT), z.literal("")])
+      .optional(),
+    creditFeeCashPercent: z
+      .union([z.number().int().min(0).max(MAX_ECONOMY_FEE_PERCENT), z.literal("")])
+      .optional(),
+    creditPayoutMinimumAgorot: z
+      .union([z.number().int().min(0).max(MAX_PAYOUT_MINIMUM_AGOROT), z.literal("")])
+      .optional(),
+    creditExpiryMonths: z
+      .union([z.number().int().min(0).max(MAX_CREDIT_EXPIRY_MONTHS), z.literal("")])
+      .optional(),
+    creditInitialGrant: z
+      .union([z.number().int().min(0).max(MAX_INITIAL_GRANT_CREDITS), z.literal("")])
+      .optional(),
   })
   .strict();
 
@@ -231,8 +276,12 @@ export interface PaymentRow {
   id: string;
   tenantId: string;
   tenantName: string;
-  planCode: string;
-  billingCycle: string;
+  /** subscription | credits — מה נקנה בתשלום הזה. */
+  purpose: string;
+  /** ריקים ברכישת קרדיטים; ערך מדומה היה מציג אותה כמנוי בדוח. */
+  planCode: string | null;
+  billingCycle: string | null;
+  creditsPurchased: number | null;
   amountAgorot: number;
   status: string;
   transactionId: string | null;
@@ -315,6 +364,7 @@ export class PlatformController {
     private readonly cardcom: CardcomService,
     private readonly accountDeletion: AccountDeletionService,
     private readonly geocoding: GeocodingService,
+    private readonly creditEconomy: CreditEconomyService,
   ) {}
 
   /**
@@ -481,8 +531,10 @@ export class PlatformController {
       id: row.id,
       tenantId: row.tenantId,
       tenantName: names.get(row.tenantId) ?? row.tenantId,
+      purpose: row.purpose,
       planCode: row.planCode,
       billingCycle: row.billingCycle,
+      creditsPurchased: row.creditsPurchased,
       amountAgorot: row.amountAgorot,
       status: row.status,
       transactionId: row.transactionId,
@@ -817,6 +869,8 @@ export class PlatformController {
      * מספר שגובים בפועל היא בדיוק איך משנים אותו בטעות.
      */
     referralFeePercent: number;
+    /** כלכלת הקרדיטים כפי שהיא בפועל — כולל ברירות מחדל שלא נשמרו */
+    creditEconomy: CreditEconomy;
     /** אריחי המפה — סטטוס בלבד; הטוקן עצמו נמסר לאפליקציה בנתיב שלה. */
     maps: { configured: boolean; customStyle: boolean };
     /** פענוח כתובות: מי הספק ומה הוא יודע לעשות. */
@@ -850,6 +904,7 @@ export class PlatformController {
 
     return {
       referralFeePercent,
+      creditEconomy: await this.creditEconomy.current(),
       // המפה עובדת תמיד — ברירת המחדל היא סגנון פתוח בלי מפתח
       maps: { configured: true, customStyle: has("mapStyleUrl") },
       geocoding: {
@@ -907,8 +962,18 @@ export class PlatformController {
     const userId = TenantContext.current().userId;
     for (const [key, value] of Object.entries(body) as [
       PlatformSettingKey,
-      string | boolean | number,
+      string | boolean | number | unknown[],
     ][]) {
+      /*
+       * החבילות הן רשימה ונשמרות כ-JSON. בלי הענף הזה `String()`
+       * הגנרי היה כותב "[object Object]" — הגדרה שנראית שמורה
+       * ואינה נקראת.
+       */
+      if (Array.isArray(value)) {
+        if (value.length === 0) await this.platformSettings.remove(key);
+        else await this.platformSettings.set(key, JSON.stringify(value), userId);
+        continue;
+      }
       // מספר (אחוז העמלה) נשמר כמחרוזת, כמו כל שאר הערכים; אפס הוא
       // ערך תקין ולכן ההשוואה היא לטיפוס ולא לאמיתות
       if (typeof value === "boolean" || typeof value === "number") {
