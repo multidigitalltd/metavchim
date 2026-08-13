@@ -18,6 +18,22 @@ export interface CoachSignals {
   incompleteProperties: { propertyId: string; title: string; missingCount: number }[];
   /** פגישות סיור שהסתיימו בלי סיכום תוצאה */
   pastViewingsWithoutOutcome: { appointmentId: string; title: string }[];
+
+  /*
+   * ------- מה שקורה **היום** -------
+   *
+   * הכללים שמעל עונים על "מה כדאי לעשות"; אלה עונים על "מה בוער
+   * עכשיו". ההבחנה חשובה כי סוכן פותח את המסך בבוקר ורוצה לדעת במה
+   * להתחיל, לא לקבל רשימת שיפורים.
+   */
+  /** לידים שלא נגעו בהם מעל ה-SLA של המשרד — השעות בפועל, לכל ליד */
+  staleLeads: { leadId: string; contactName: string; hoursWaiting: number }[];
+  /** פגישות של היום שטרם התקיימו */
+  todayAppointments: { appointmentId: string; title: string; startsAt: Date }[];
+  /** משימות פתוחות שתאריך היעד שלהן עבר */
+  overdueTasks: { taskId: string; title: string; daysLate: number }[];
+  /** הצעות שת"פ שהתקבלו וממתינות לתגובה — משרד אחר ממתין לי */
+  pendingCoopOffers: number;
 }
 
 export interface CoachRecommendation {
@@ -31,8 +47,70 @@ export interface CoachRecommendation {
   entityId?: string;
 }
 
+/** "מעל שעתיים" / "מאתמול" — זמן שאפשר להרגיש, לא מספר גולמי. */
+function describeWait(hours: number): string {
+  if (hours < 1) return "פחות משעה";
+  if (hours < 24) return `מעל ${Math.floor(hours)} שעות`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "מאתמול" : `${days} ימים`;
+}
+
+/** שעה בלבד — התאריך כבר ידוע מההקשר ("היום"). */
+function formatTime(at: Date): string {
+  return at.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
+}
+
 export function buildRecommendations(signals: CoachSignals): CoachRecommendation[] {
   const recs: CoachRecommendation[] = [];
+
+  /*
+   * ליד שממתין הוא הדבר הדחוף ביותר שיש, ולכן מעל הכול — כולל מעל
+   * "דורש טיפול אנושי". ליד מתקרר בשעות, וכל שאר ההמלצות ימתינו.
+   * הזמן שהוא כבר ממתין נאמר במפורש: "מעל שעתיים" מזיז אחרת מ"ליד
+   * ממתין".
+   */
+  for (const lead of signals.staleLeads) {
+    recs.push({
+      priority: 110,
+      type: "stale_lead",
+      title: `${lead.contactName} ממתין ${describeWait(lead.hoursWaiting)}`,
+      body: "ליד שלא נענה מתקרר מהר, ובדרך כלל פונה למשרד הבא. זו השיחה הראשונה להיום.",
+      entityType: "lead",
+      entityId: lead.leadId,
+    });
+  }
+
+  for (const appointment of signals.todayAppointments) {
+    recs.push({
+      priority: 105,
+      type: "today_appointment",
+      title: `היום ${formatTime(appointment.startsAt)} — ${appointment.title}`,
+      body: "כדאי לוודא מול הלקוח שהפגישה בתוקף, ולהגיע עם הנכסים המתאימים בהישג יד.",
+      entityType: "appointment",
+      entityId: appointment.appointmentId,
+    });
+  }
+
+  if (signals.pendingCoopOffers > 0) {
+    recs.push({
+      priority: 95,
+      type: "pending_coop_offers",
+      title:
+        signals.pendingCoopOffers === 1
+          ? "הצעת שיתוף פעולה ממתינה לתגובה"
+          : `${signals.pendingCoopOffers} הצעות שיתוף פעולה ממתינות לתגובה`,
+      body: "משרד אחר הציע נכס על אחד הביקושים שלכם ומחכה לתשובה.",
+    });
+  }
+
+  for (const task of signals.overdueTasks) {
+    recs.push({
+      priority: 85,
+      type: "overdue_task",
+      title: `${task.title} — באיחור של ${task.daysLate === 1 ? "יום" : `${task.daysLate} ימים`}`,
+      body: "משימה שעבר זמנה. אם היא כבר לא רלוונטית — עדיף לסגור אותה מלהשאיר אותה פתוחה.",
+    });
+  }
 
   for (const lead of signals.urgentLeads) {
     recs.push({

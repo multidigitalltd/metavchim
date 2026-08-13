@@ -8,6 +8,10 @@ const empty: CoachSignals = {
   urgentLeads: [],
   incompleteProperties: [],
   pastViewingsWithoutOutcome: [],
+  staleLeads: [],
+  todayAppointments: [],
+  overdueTasks: [],
+  pendingCoopOffers: 0,
 };
 
 const ID = "01KYJHBB71E85DWX3NDPJ5BYZY";
@@ -15,6 +19,48 @@ const ID = "01KYJHBB71E85DWX3NDPJ5BYZY";
 describe("buildRecommendations — עוזר המכירות החכם", () => {
   it("אין אותות ⇒ אין המלצות", () => {
     expect(buildRecommendations(empty)).toEqual([]);
+  });
+
+  it("ליד שממתין מעל ה-SLA עוקף אפילו ליד שסומן דחוף", () => {
+    // ליד מתקרר בשעות; כל שאר ההמלצות יכולות להמתין
+    const recs = buildRecommendations({
+      ...empty,
+      urgentLeads: [{ leadId: ID, contactName: "יעקב כהן" }],
+      staleLeads: [{ leadId: ID, contactName: "משה לוי", hoursWaiting: 5 }],
+    });
+    expect(recs[0]?.type).toBe("stale_lead");
+    expect(recs[0]?.title).toContain("מעל 5 שעות");
+  });
+
+  it("זמן ההמתנה מנוסח כזמן ולא כמספר גולמי", () => {
+    const wait = (hoursWaiting: number): string =>
+      buildRecommendations({ ...empty, staleLeads: [{ leadId: ID, contactName: "לקוח", hoursWaiting }] })[0]!
+        .title;
+    expect(wait(0.5)).toContain("פחות משעה");
+    expect(wait(30)).toContain("מאתמול");
+    expect(wait(80)).toContain("3 ימים");
+  });
+
+  it("פגישות היום והצעות שת\"פ ממתינות מופיעות בראש הרשימה", () => {
+    const recs = buildRecommendations({
+      ...empty,
+      todayAppointments: [
+        { appointmentId: ID, title: "סיור בדירה", startsAt: new Date("2026-08-13T14:30:00") },
+      ],
+      pendingCoopOffers: 2,
+      incompleteProperties: [{ propertyId: ID, title: "דירה", missingCount: 2 }],
+    });
+    expect(recs[0]?.type).toBe("today_appointment");
+    expect(recs[1]?.type).toBe("pending_coop_offers");
+    expect(recs[1]?.title).toContain("2 הצעות");
+  });
+
+  it("משימה באיחור אומרת בכמה", () => {
+    const recs = buildRecommendations({
+      ...empty,
+      overdueTasks: [{ taskId: ID, title: "להתקשר למוכר", daysLate: 1 }],
+    });
+    expect(recs[0]?.title).toContain("באיחור של יום");
   });
 
   it("ליד דחוף מקבל את העדיפות הגבוהה ביותר", () => {
