@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
 import { PriceField } from "../../price-field";
+import { EntryTimingField } from "../../properties/entry-timing-field";
 import { shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 
@@ -66,6 +67,11 @@ export default function NewBuyerPage() {
           budgetMaxAgorot: budgetShekels === undefined ? 0 : shekelsToAgorot(budgetShekels),
           roomsMin: num("roomsMin"),
           roomsMax: num("roomsMax"),
+          /* ריק = "לא נבחר" — מוסר מהדרישות ולא נשמר כמחרוזת ריקה */
+          entryType: String(f.get("entryType") ?? "") || undefined,
+          entryBy: String(f.get("entryBy") ?? "")
+            ? new Date(String(f.get("entryBy"))).toISOString()
+            : undefined,
           features,
         },
       });
@@ -127,6 +133,13 @@ export default function NewBuyerPage() {
                 <input id="roomsMax" name="roomsMax" type="number" step="0.5" min="1" inputMode="decimal" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
               </div>
             </div>
+            {/*
+              מועד הכניסה כבר ברגע הקליטה. הוא היה קיים רק במסך העריכה,
+              כלומר נשאל אחרי שהשיחה עם הלקוח נגמרה — ובפועל כמעט אף
+              פעם לא מולא. זהו אחד מקריטריוני ההתאמה, ובלעדיו הציון של
+              כל קונה חדש נבנה על נתון חסר.
+            */}
+            <EntryTimingField side="buyer" inputStyle={inputStyle} />
           </div>
 
           <fieldset className="mt-4">

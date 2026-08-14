@@ -14,6 +14,7 @@ import { BuyersModule } from "./modules/buyers/buyers.module";
 import { CalendarModule } from "./modules/calendar/calendar.module";
 import { GmailModule } from "./modules/gmail/gmail.module";
 import { CoachModule } from "./modules/coach/coach.module";
+import { SupportModule } from "./modules/support/support.module";
 import { CollaborationModule } from "./modules/collaboration/collaboration.module";
 import { MapsModule } from "./modules/maps/maps.module";
 import { ContactsModule } from "./modules/contacts/contacts.module";
@@ -74,6 +75,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     TelephonyModule,
     AnalyticsModule,
     CoachModule,
+    SupportModule,
     ImportModule,
     SearchModule,
     TasksModule,

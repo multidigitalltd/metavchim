@@ -653,6 +653,38 @@ export function PlatformSettingsSection() {
           <Button type="submit" disabled={busy}>שמור</Button>
         </form>
 
+        {/*
+          כתובת התמיכה. יושבת כאן ולא ליד תור הפניות: זו הגדרת ספק
+          כמו כל השאר, ותור הפניות הוא מסך עבודה.
+        */}
+        <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
+          <h4 className="mb-1 text-sm font-semibold">כתובת התמיכה</h4>
+          <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            לשם נשלחת התראה על כל פנייה חדשה. <b>ריק = בלי התראה, לא בלי תמיכה</b> —
+            הפניות נשמרות ומופיעות בתור שבמסך הזה בכל מקרה.
+          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void saveSetting("supportEmail", new FormData(e.currentTarget).get("supportEmail"));
+            }}
+            className="flex flex-wrap items-end gap-2"
+          >
+            <label className="grow">
+              <span className="mb-1 block text-xs font-semibold">כתובת דוא&quot;ל לקבלת פניות</span>
+              <input
+                name="supportEmail"
+                type="email"
+                dir="ltr"
+                placeholder="service@example.co.il"
+                className="w-full rounded-lg border px-2.5 py-2"
+                style={inputStyle}
+              />
+            </label>
+            <Button type="submit" disabled={busy}>שמור</Button>
+          </form>
+        </div>
+
         {/* פענוח כתובות — החלטה נפרדת מהאריחים, ובכוונה */}
         <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
           <h4 className="mb-1 text-sm font-semibold">פענוח כתובות</h4>

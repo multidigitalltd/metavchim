@@ -67,6 +67,25 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   /**
+   * שולחן התמיכה — קריאה וכתיבה חוצות-דיירים על `support_tickets`
+   * **בלבד**.
+   *
+   * פנייה לתמיכה שאי אפשר לקרוא היא פנייה חסרת טעם, ולכן זו החריגה
+   * היחידה שנפתחה על טבלה שיש בה תוכן של משרדים. הגבול נשמר בשלוש
+   * שכבות: הפוליסה קיימת רק על הטבלה הזו, הדגל נדלק רק כאן, וכל
+   * קורא של הפונקציה הזו חסום מאחורי PlatformAdminGuard.
+   *
+   * אין לגזור מכאן מזהה דייר ולהמשיך איתו לטבלאות אחרות — הדרך
+   * הנכונה לכך היא `withExplicitTenant`, שממשיכה להיאכף ב-RLS.
+   */
+  async withSupportDesk<T>(fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.support_desk', 'on', true)`;
+      return fn(tx);
+    });
+  }
+
+  /**
    * גישה ציבורית לפי טוקן הצעה (דף ההצעה ללקוח קצה): פוליסת RLS ייעודית
    * חושפת אך ורק את שורת ההצעה שהטוקן שלה הוצג — בלי הקשר דייר,
    * בלי גישה לשום טבלה אחרת.

@@ -6,7 +6,7 @@ import { ROLE_CAPABILITIES } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { IconKey, IconLock } from "../icons";
 import { BillingSection } from "./billing-section";
@@ -18,6 +18,7 @@ import { WhatsAppStatusSection } from "./whatsapp-status-section";
 import { LockedFeature } from "./locked-feature";
 import { TelephonySection } from "./telephony-section";
 import { SupportAccessSection } from "./support-access-section";
+import { SupportTicketsSection } from "./support-tickets-section";
 import { GmailSection } from "./gmail-section";
 import { GoogleCalendarSection } from "./google-calendar-section";
 import { MatchWeightsSection } from "./match-weights-section";
@@ -154,6 +155,7 @@ const HASH_TABS: Record<string, string> = {
   gmail: "integrations",
   "lead-webhook": "integrations",
   data: "data",
+  "support-access": "support",
 };
 
 /** לשוניות ניהול המשרד — הסדר הוא סדר השימוש בפועל. */
@@ -165,6 +167,13 @@ const TABS: [key: string, label: string][] = [
   ["integrations", "חיבורים ומודולים"],
   ["documents", "מסמכים והסכמים"],
   ["data", "נתונים ואבטחה"],
+  /*
+    לשונית משלה ולא פינה בתוך "נתונים ואבטחה": גישת התמיכה ישבה עד
+    כה בין החיבורים, כלומר במקום שנפתח כדי לחבר מרכזייה — ומי שחיפש
+    איך לדבר עם מישהו לא הגיע לשם. עכשיו זה יעד: לשלוח פנייה, לראות
+    מה קרה איתה, ולפתוח גישה אם ביקשו.
+  */
+  ["support", "פניות לתמיכה"],
 ];
 
 export default function SettingsPage() {
@@ -604,9 +613,6 @@ export default function SettingsPage() {
               <WhatsAppStatusSection />
             </div>
           ) : null}
-          {/* גישת תמיכה אינה תלוית-מסלול — כל משרד יכול לבקש עזרה */}
-          <SupportAccessSection />
-
           <div id="telephony">
             {canTelephony ? (
               <TelephonySection />
@@ -648,6 +654,19 @@ export default function SettingsPage() {
           ) : null}
 
           {tab === "matching" ? <MatchWeightsSection /> : null}
+
+          {tab === "support" ? (
+            <>
+              <SupportTicketsSection />
+              {/*
+                גישת תמיכה אינה תלוית-מסלול — כל משרד יכול לבקש עזרה —
+                אבל היא כן תלוית-הרשאה: פתיחת דלת לחשבון היא החלטה של
+                מי שמנהל את המשרד. לסוכן רגיל הקטע כלל אינו מוצג, כי
+                כפתור שמחזיר 403 גרוע מכפתור שאינו קיים.
+              */}
+              {can(user, "settings.manage") ? <SupportAccessSection /> : null}
+            </>
+          ) : null}
 
           {/* ---- יומן פעילות ---- */}
           {tab === "data" ? (

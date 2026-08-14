@@ -15,6 +15,7 @@ import { CouponsSection } from "./coupons-section";
 import { PlatformSettingsSection } from "./platform-settings-section";
 import { CreditEconomySection } from "./credit-economy-section";
 import { SystemUpdateSection } from "./system-update-section";
+import { SupportDeskSection } from "./support-desk-section";
 
 /**
  * ניהול הפלטפורמה — הקמת משרדי תיווך חדשים בלי SSH. נגיש רק למנהלי
@@ -359,6 +360,12 @@ export default function PlatformPage() {
           </Button>
         </div>
       ) : null}
+
+      {/*
+        תור התמיכה ראשון: זו הרשימה היחידה במסך הזה שמישהו ממתין
+        בקצה השני שלה.
+      */}
+      <SupportDeskSection />
 
       <SystemUpdateSection />
 

@@ -382,7 +382,15 @@ export class PropertiesService {
         marketingTitle: row.marketingTitle ?? undefined,
         marketingDescription: row.marketingDescription ?? undefined,
         internalNotes: row.internalNotes ?? undefined,
-        readinessScore: row.readinessScore,
+        /*
+         * הציון המחושב ולא העמודה השמורה. השתיים נפרדות: השדות
+         * החסרים מחושבים כאן בכל קריאה, והעמודה נכתבת רק בשמירה —
+         * ולכן כל שינוי ברשימת שדות החובה (למשל המעבר מ-`entryDate`
+         * ל-`entryType`) הותיר נכסים ותיקים עם "0%" מעל השורה
+         * "✓ הנכס מוכן לשיווק". סתירה כזו על המסך שוברת את האמון
+         * בכל מד אחר במערכת. העמודה נשארת לשאילתות בלבד.
+         */
+        readinessScore: readiness.score,
         missingFields: readiness.missingFields,
         ...(ownerContact
           ? {
@@ -518,7 +526,8 @@ export class PropertiesService {
           id: row.id,
           status: row.status,
           marketingTitle: row.marketingTitle ?? undefined,
-          readinessScore: row.readinessScore,
+          // מחושב ולא שמור — ראו ההסבר ב-getById
+          readinessScore: readiness.score,
           missingFields: readiness.missingFields,
           thumbnailUrl: primaryId ? mediaRawPath(row.id, primaryId) : undefined,
           suggestedMatchCount: matchCountByProperty.get(row.id) ?? 0,
