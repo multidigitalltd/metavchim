@@ -19,7 +19,7 @@ import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
-import { MatchingService } from "../matching/matching.service";
+import { MatchingService, type MatchTrigger } from "../matching/matching.service";
 
 export interface BuyerDto {
   id: string;
@@ -258,6 +258,8 @@ export class BuyersService {
     },
   ): Promise<BuyerDto> {
     const tenantId = TenantContext.current().tenantId;
+    /** ראו ההסבר ליד ההשמה, בתוך הטרנזקציה. */
+    let trigger: MatchTrigger | undefined;
     await this.prisma.withTenant(async (tx) => {
       // נעילת השורה: עדכונים מקבילים מסתדרים בתור, כך שהערך הישן שנקרא
       // לרשומת ה-status_change הוא המעבר שבאמת קרה (ביקורת Codex)
@@ -274,6 +276,19 @@ export class BuyersService {
         },
       });
       if (!existing) throw new NotFoundException("קונה לא נמצא");
+      /*
+       * העלאת תקציב — התאום של ירידת מחיר בנכס.
+       *
+       * לקוח שהעלה תקציב אמר בכך שהוא רציני, ובאותו רגע נפתחים לו
+       * נכסים שהיו מעליו. ההתראה אומרת בדיוק את זה במקום "נמצאו
+       * נכסים חדשים", שנקרא כמו עדכון מערכת. ירידת תקציב סוגרת
+       * נכסים, ואין בה מה לבשר.
+       */
+      const budgetBefore = Number(existing.budgetMaxAgorot);
+      const budgetAfter = patch.requirements?.budgetMaxAgorot;
+      if (budgetAfter !== undefined && budgetAfter > budgetBefore) {
+        trigger = { kind: "budget_raise", fromAgorot: budgetBefore, toAgorot: budgetAfter };
+      }
 
       await tx.buyer.update({
         where: { id },
@@ -326,7 +341,7 @@ export class BuyersService {
     });
 
     if (patch.requirements) {
-      await this.matching.recomputeForBuyer(id);
+      await this.matching.recomputeForBuyer(id, trigger);
     }
     return this.getById(id);
   }

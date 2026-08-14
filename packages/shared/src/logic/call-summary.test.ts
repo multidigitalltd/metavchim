@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarizeCall } from "./call-summary.js";
+import { followUpFromCall, summarizeCall } from "./call-summary.js";
 
 describe("summarizeCall — חילוץ פרטים", () => {
   it("תקציב במיליונים", () => {
@@ -94,5 +94,51 @@ describe("summarizeCall — שורת הסיכום", () => {
     const result = summarizeCall(long);
     expect(result.summary.length).toBeLessThanOrEqual(121);
     expect(result.summary.endsWith("…")).toBe(true);
+  });
+});
+
+/*
+ * משימת ההמשך. `now` מוזרק מפורשות בכל בדיקה — התוצאה היא תאריך,
+ * וקריאה לשעון הייתה הופכת את הבדיקות לתלויות ביום ההרצה.
+ */
+describe("followUpFromCall", () => {
+  // רביעי, 12/08/2026 בשעה 11:00 בישראל (08:00 UTC בקיץ)
+  const now = new Date("2026-08-12T08:00:00Z");
+
+  it("מועד חזרה שנאמר הופך למשימה במועד הזה", () => {
+    const s = summarizeCall("דיברנו על 4 חדרים, נחזור מחר");
+    const f = followUpFromCall(s, now);
+    expect(f).not.toBeNull();
+    expect(f!.dueAt.toISOString()).toBe("2026-08-13T07:00:00.000Z"); // 10:00 בישראל
+    expect(f!.priority).toBe("high");
+    expect(f!.reason).toContain("מחר");
+  });
+
+  it('"בשבוע הבא" — שבוע קדימה, גם שהמנתח הכללי אינו מכיר את הביטוי', () => {
+    const s = summarizeCall("אחשוב על זה, נדבר בשבוע הבא");
+    const f = followUpFromCall(s, now);
+    expect(f!.dueAt.toISOString()).toBe("2026-08-19T07:00:00.000Z");
+  });
+
+  it("לקוח שאמר שלא מתאים לו — אין משימה בשום מצב", () => {
+    const s = summarizeCall("תודה אבל לא, מצאנו כבר משהו אחר");
+    expect(followUpFromCall(s, now)).toBeNull();
+  });
+
+  it("עניין בלי מועד — מחר בבוקר, כי עניין מתקרר", () => {
+    const s = summarizeCall("נשמע טוב, קבעו לי סיור");
+    const f = followUpFromCall(s, now);
+    expect(f!.dueAt.toISOString()).toBe("2026-08-13T07:00:00.000Z");
+    expect(f!.priority).toBe("high");
+  });
+
+  it("שיחה בלי שום איתות אינה מייצרת משימה", () => {
+    const s = summarizeCall("שלום, רק רציתי לברר מה שעות הפעילות");
+    expect(followUpFromCall(s, now)).toBeNull();
+  });
+
+  it("הכותרת אינה נושאת שם לקוח — הוא נקרא מהכרטיס המקושר", () => {
+    const s = summarizeCall("נחזור מחר");
+    expect(followUpFromCall(s, now)!.title).toBe("לחזור ללקוח כפי שסוכם בשיחה");
   });
 });

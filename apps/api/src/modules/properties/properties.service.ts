@@ -24,7 +24,7 @@ import { OutboxService } from "../../core/outbox.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
-import { MatchingService } from "../matching/matching.service";
+import { MatchingService, type MatchTrigger } from "../matching/matching.service";
 import { MessagingService } from "../messaging/messaging.service";
 import { mediaRawPath } from "./media.service";
 import { fieldsToColumns, rowToFields, type PropertyDto } from "./property.mapper";
@@ -304,11 +304,26 @@ export class PropertiesService {
     const { status, marketingTitle, marketingDescription, internalNotes, owner, ...fieldPatch } =
       patch;
 
+    /*
+     * ירידת מחיר — הזדמנות, לא עוד עריכה.
+     *
+     * נלכדת כאן ונוסעת עד ההתראה, כדי שהיא תגיד "הורדת המחיר פתחה 3
+     * קונים" ולא "נמצאו 3 קונים חדשים". הסוכן שהוריד מחיר לפני
+     * שנייה הוא היחיד שיפעל לפי ההודעה הזו — למחרת היא כבר עדכון.
+     */
+    let trigger: MatchTrigger | undefined;
+
     await this.prisma.withTenant(async (tx) => {
       const existing = await tx.property.findFirst({
         where: { id, tenantId: TenantContext.current().tenantId, deletedAt: null },
       });
       if (!existing) throw new NotFoundException("נכס לא נמצא");
+      const priceBefore = existing.priceAgorot === null ? null : Number(existing.priceAgorot);
+      const priceAfter = fieldPatch.priceAgorot;
+      // רק ירידה. העלאת מחיר סוגרת קונים, ואין בה מה לחגוג.
+      if (priceBefore !== null && priceAfter !== undefined && priceAfter < priceBefore) {
+        trigger = { kind: "price_drop", fromAgorot: priceBefore, toAgorot: priceAfter };
+      }
 
       const ownerContact = owner ? await this.contacts.findOrCreateByPhone(tx, owner) : null;
       const mergedFields = { ...rowToFields(existing), ...fieldPatch };
@@ -357,7 +372,7 @@ export class PropertiesService {
       });
     });
 
-    await this.matching.recomputeForProperty(id);
+    await this.matching.recomputeForProperty(id, trigger);
     return this.getById(id);
   }
 

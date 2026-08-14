@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiGet, ApiError } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
+import { useFeature, useFeaturesReady } from "@/lib/use-features";
 
 /** דוחות ביצועים למשרד (אפיון §16, מסלול Agency). */
 
@@ -60,9 +61,26 @@ export default function ReportsPage() {
   const [agents, setAgents] = useState<AgentPerfRow[] | null>(null);
   const [upsell, setUpsell] = useState(false);
   const [days, setDays] = useState("30");
+  const canReports = useFeature("analytics");
+  const featuresReady = useFeaturesReady();
 
   useEffect(() => {
     if (authLoading) return;
+    // עד שהמסלול ידוע לא יוצאים לרשת — ראו useFeaturesReady
+    if (!featuresReady) return;
+    /*
+     * מסלול בלי דוחות — לא שולחים בכלל.
+     *
+     * השרת ממילא עונה 403, והמסך כבר ידע להציג את הודעת השדרוג; מה
+     * שלא היה בסדר הוא שכל כניסה למסך ייצרה שתי שגיאות אדומות
+     * בקונסול. מפתח שפותח את הקונסול כדי לחפש תקלה אמיתית מוצא רעש
+     * שהוא התנהגות תקינה. הבדיקה כאן היא תצוגה בלבד — האכיפה
+     * נשארת בשרת.
+     */
+    if (!canReports) {
+      setUpsell(true);
+      return;
+    }
     apiGet<OfficeStats>(`/analytics/office?days=${days}`)
       .then(setStats)
       .catch((err: unknown) => {
@@ -75,7 +93,7 @@ export default function ReportsPage() {
         // סוכן רגיל ללא users.manage — פשוט לא רואה את טבלת הצוות
         if (err instanceof ApiError && err.status === 403) setAgents([]);
       });
-  }, [authLoading, days]);
+  }, [authLoading, canReports, featuresReady, days]);
 
   if (authLoading) return <p aria-live="polite">טוען דוחות…</p>;
   if (upsell) {
