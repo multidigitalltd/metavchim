@@ -35,6 +35,8 @@ interface PlatformSettings {
   referralFeePercent?: number;
   maps?: { configured: boolean };
   geocoding?: { provider: string; forward: boolean; reverse: boolean };
+  /** כתובת התמיכה — הערך עצמו. אופציונלי לשמרנות מול שרת שטרם עודכן. */
+  supportEmail?: string;
 }
 
 function StatusBadge({ configured, source }: { configured: boolean; source: string }) {
@@ -340,6 +342,59 @@ export function PlatformSettingsSection() {
               שלח מייל בדיקה
             </Button>
           ) : null}
+        </form>
+      </div>
+
+      {/* ---------- כתובת התמיכה ---------- */}
+      {/*
+        כרטיס משלה, ומיד אחרי Postmark.
+        קודם היא ישבה בתוך כרטיס "מפות", בין סגנון האריחים לפענוח
+        הכתובות — הנימוק היה "זו הגדרת ספק", והוא הצדיק את המסך הזה
+        ולא את המקום הזה. אף אחד לא מחפש כתובת מייל מתחת למפה, ובפועל
+        היא לא נמצאה. שדה שאי אפשר למצוא שווה לשדה שלא קיים.
+      */}
+      <div
+        id="support-email"
+        className="mb-4 rounded-xl border p-4"
+        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+      >
+        <h3 className="mb-1 font-semibold">
+          <IconMail s={16} /> כתובת התמיכה
+        </h3>
+        <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          לשם נשלחת התראה על כל פנייה חדשה מכפתור „תמיכה” שבצד כל מסך.{" "}
+          <b>ריק = בלי התראה, לא בלי תמיכה</b> — הפניות נשמרות ומופיעות בתור „פניות
+          לתמיכה” שבראש המסך הזה בכל מקרה. ההתראה רק מקצרת את זמן התגובה, ודורשת
+          שגם Postmark יהיה מחובר למעלה.
+        </p>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void saveSetting("supportEmail", new FormData(e.currentTarget).get("supportEmail"));
+          }}
+          className="flex flex-wrap items-end gap-2"
+        >
+          <label className="grow">
+            <span className="mb-1 block text-xs font-semibold">
+              כתובת דוא&quot;ל לקבלת פניות
+            </span>
+            <input
+              name="supportEmail"
+              type="email"
+              dir="ltr"
+              /*
+                הערך השמור מוצג. בלי זה השדה חזר ריק אחרי כל שמירה,
+                והמסך נראה כאילו הכפתור אינו עובד — בעוד שהשורה
+                נכתבה במסד בהצלחה.
+              */
+              defaultValue={settings.supportEmail ?? ""}
+              key={settings.supportEmail ?? ""}
+              placeholder="service@example.co.il"
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </label>
+          <Button type="submit" disabled={busy}>שמור</Button>
         </form>
       </div>
 
@@ -652,38 +707,6 @@ export function PlatformSettingsSection() {
           </label>
           <Button type="submit" disabled={busy}>שמור</Button>
         </form>
-
-        {/*
-          כתובת התמיכה. יושבת כאן ולא ליד תור הפניות: זו הגדרת ספק
-          כמו כל השאר, ותור הפניות הוא מסך עבודה.
-        */}
-        <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
-          <h4 className="mb-1 text-sm font-semibold">כתובת התמיכה</h4>
-          <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-            לשם נשלחת התראה על כל פנייה חדשה. <b>ריק = בלי התראה, לא בלי תמיכה</b> —
-            הפניות נשמרות ומופיעות בתור שבמסך הזה בכל מקרה.
-          </p>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void saveSetting("supportEmail", new FormData(e.currentTarget).get("supportEmail"));
-            }}
-            className="flex flex-wrap items-end gap-2"
-          >
-            <label className="grow">
-              <span className="mb-1 block text-xs font-semibold">כתובת דוא&quot;ל לקבלת פניות</span>
-              <input
-                name="supportEmail"
-                type="email"
-                dir="ltr"
-                placeholder="service@example.co.il"
-                className="w-full rounded-lg border px-2.5 py-2"
-                style={inputStyle}
-              />
-            </label>
-            <Button type="submit" disabled={busy}>שמור</Button>
-          </form>
-        </div>
 
         {/* פענוח כתובות — החלטה נפרדת מהאריחים, ובכוונה */}
         <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
