@@ -23,24 +23,40 @@ function sources(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) out.push(...sources(full));
-    else if (/\.(tsx?|mjs)$/u.test(entry.name)) out.push(full);
+    /*
+     * גם `.css`. בלעדיו השער החמיץ בדיוק את המקום שבו יושבים
+     * הגופנים: `globals.css` מפנה לארבעה קבצי `woff`, והסרת אחד מהם
+     * הותירה את הבדיקה מדווחת "הכול תקין" — בעוד שכל הטיפוגרפיה
+     * של המערכת נשברת. שער שמדלג על סוג קובץ שלם גרוע משער שאינו
+     * קיים, כי הוא מייצר ביטחון (ביקורת Codex).
+     */
+    else if (/\.(tsx?|mjs|css)$/u.test(entry.name)) out.push(full);
   }
   return out;
 }
 
-/*
- * נתיבים מוחלטים לקבצים סטטיים בתוך מחרוזת: "/guides/x.png".
- * הסיומות מוגבלות לנכסים שמוגשים מ-public — לא כל מחרוזת שמתחילה
- * בלוכסן, שאחרת כל נתיב ניווט היה נבדק כקובץ.
+/**
+ * הסיומות של נכסים שמוגשים מ-public. מוגבלות בכוונה — לא כל מחרוזת
+ * שמתחילה בלוכסן, שאחרת כל נתיב ניווט היה נבדק כקובץ.
  */
-const ASSET = /["'`](\/[^"'`\s?#]+\.(?:png|jpe?g|svg|webp|gif|ico|webmanifest|woff2?))["'`]/gu;
+const EXT = "png|jpe?g|svg|webp|gif|ico|webmanifest|woff2?";
+
+/** ‎"/guides/x.png"‎ — התחביר של TSX. */
+const QUOTED = new RegExp(`["'\`](/[^"'\`\\s?#]+\\.(?:${EXT}))["'\`]`, "gu");
+
+/**
+ * ‎url(/fonts/x.woff)‎ — התחביר של CSS, עם מרכאות או בלעדיהן.
+ *
+ * `data:` מסונן: הקובץ מכיל SVG משובץ, ואין שם קובץ לבדוק.
+ */
+const CSS_URL = new RegExp(`url\\(\\s*["'\`]?(/[^)"'\`\\s]+\\.(?:${EXT}))`, "gu");
 
 const missing = [];
 const seen = new Set();
 
 for (const file of sources(srcDir)) {
   const text = readFileSync(file, "utf8");
-  for (const match of text.matchAll(ASSET)) {
+  for (const match of [...text.matchAll(QUOTED), ...text.matchAll(CSS_URL)]) {
     const asset = match[1];
     if (seen.has(asset)) continue;
     seen.add(asset);
