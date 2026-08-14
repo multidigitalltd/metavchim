@@ -1,0 +1,62 @@
+/**
+ * כל קובץ סטטי שהקוד מפנה אליו — קיים בפועל.
+ *
+ * למה שער ולא בדיקה ידנית: תמונה חסרה אינה מפילה בנייה ואינה מפילה
+ * טיפוסים. היא מגיעה למשתמש כתמונה שבורה, ומתגלה רק כשמישהו פותח
+ * את המסך — במקרה שלנו, מסך ההדרכות הפנה ל-`/guides/agreements.png`
+ * שמעולם לא נוצר, וזה עבר `lint`, `typecheck`, `build` וכל 855
+ * הבדיקות.
+ *
+ * הסריקה היא על מחרוזות בקוד ולא על רשימה ידנית: רשימה שצריך לזכור
+ * לעדכן היא בדיוק מה שנשכח כאן.
+ */
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
+
+const root = resolve(import.meta.dirname, "..");
+const publicDir = join(root, "public");
+const srcDir = join(root, "src");
+
+/** כל קבצי המקור, רקורסיבית. */
+function sources(dir) {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...sources(full));
+    else if (/\.(tsx?|mjs)$/u.test(entry.name)) out.push(full);
+  }
+  return out;
+}
+
+/*
+ * נתיבים מוחלטים לקבצים סטטיים בתוך מחרוזת: "/guides/x.png".
+ * הסיומות מוגבלות לנכסים שמוגשים מ-public — לא כל מחרוזת שמתחילה
+ * בלוכסן, שאחרת כל נתיב ניווט היה נבדק כקובץ.
+ */
+const ASSET = /["'`](\/[^"'`\s?#]+\.(?:png|jpe?g|svg|webp|gif|ico|webmanifest|woff2?))["'`]/gu;
+
+const missing = [];
+const seen = new Set();
+
+for (const file of sources(srcDir)) {
+  const text = readFileSync(file, "utf8");
+  for (const match of text.matchAll(ASSET)) {
+    const asset = match[1];
+    if (seen.has(asset)) continue;
+    seen.add(asset);
+    try {
+      statSync(join(publicDir, asset));
+    } catch {
+      missing.push(`${asset}  ←  ${file.replace(`${root}/`, "")}`);
+    }
+  }
+}
+
+if (missing.length > 0) {
+  console.error("✗ קבצים סטטיים שהקוד מפנה אליהם ואינם קיימים ב-public:\n");
+  for (const m of missing) console.error(`  ${m}`);
+  console.error("");
+  process.exit(1);
+}
+
+console.log(`✓ ${seen.size} קבצים סטטיים נבדקו — כולם קיימים`);
