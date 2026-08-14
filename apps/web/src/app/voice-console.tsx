@@ -165,6 +165,23 @@ export function VoiceConsole({
     setError(null);
   }
 
+  /**
+   * שינוי הטקסט מבטל תוצאה שממתינה.
+   *
+   * בלי זה: המשתמש אומר "תזכיר לי להתקשר לדנה מחר", רואה את
+   * האישור, מתקן את המשפט ל"...ליוסי ביום ראשון" — והכפתור שנשאר
+   * על המסך עדיין יוצר את **התזכורת הישנה**, בזמן שהתיבה מציגה
+   * משפט אחר. אישור שמתייחס לטקסט שכבר לא כתוב שם הוא בדיוק
+   * הסיכון שכפתור האישור בא למנוע (ביקורת Codex).
+   *
+   * התנאי אינו קישוט: `onChange` רץ על כל תו, ואיפוס ללא תנאי היה
+   * מפעיל ארבעה `setState` על כל הקלדה.
+   */
+  function changeText(value: string): void {
+    setText(value);
+    if (result !== null || unclear || error !== null) reset();
+  }
+
   /** ניתוב הפקודה. ניווט למסך שבו מאשרים, או מענה כאן — אף פעם לא ביצוע שקט. */
   async function run(command: string): Promise<void> {
     const trimmed = command.trim();
@@ -230,6 +247,15 @@ export function VoiceConsole({
               await apiPost<BuyerAnswer>("/voice/query-buyers", { transcript: trimmed }),
             );
           } catch (err: unknown) {
+            /*
+             * הפאנל נסגר, ולא נשאר על "בודק במאגר…".
+             *
+             * `answer === null` פירושו "עדיין טוען" בתצוגה, ולכן
+             * שגיאה שהשאירה את הפאנל פתוח הציגה טעינה אינסופית גם
+             * אחרי ש-`busy` כובה — מסך שנראה תקוע במקום לומר מה
+             * קרה (ביקורת Codex). שורת השגיאה שמתחת אומרת את השאר.
+             */
+            setResult(null);
             setError(err instanceof ApiError ? err.message : "השאילתה נכשלה");
           }
           setBusy(false);
@@ -288,7 +314,7 @@ export function VoiceConsole({
       <div className="flex flex-wrap items-center gap-2">
         <input
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => changeText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
@@ -304,7 +330,7 @@ export function VoiceConsole({
         {/* המיקרופון של המערכת — אותו רכיב שבכל שדה טקסט */}
         <DictationControls
           disabled={busy}
-          onAppend={(spoken) => setText(`${base}${base ? " " : ""}${spoken}`)}
+          onAppend={(spoken) => changeText(`${base}${base ? " " : ""}${spoken}`)}
           onIdle={() => setBase(text)}
         />
         <button
@@ -356,7 +382,7 @@ export function VoiceConsole({
                 className="text-start underline"
                 style={{ color: "var(--color-text-muted)" }}
                 onClick={() => {
-                  setText(example);
+                  changeText(example);
                   setBase(example);
                   setShowAll(false);
                 }}

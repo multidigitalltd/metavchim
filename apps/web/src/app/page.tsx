@@ -451,7 +451,15 @@ export default function DashboardPage() {
       {canVoice ? (
         <VoiceConsole
           canCreateTask={can(user, "calendar.manage")}
-          canQueryBuyers={can(user, "buyers.view_own") || can(user, "buyers.view_all")}
+          /*
+             `buyers.view_own` בדיוק, ולא "או view_all": השער בשרת הוא
+             `ctx.capabilities.has(...)` בהתאמה מדויקת, ו-`view_all`
+             אינו מכיל אותו. הוא רק מרחיב את הסינון (`ownershipFilter`),
+             וגם רשימת הקונים עצמה חסומה מאחורי `view_own`. חריגה
+             בהרשאות אישיות הייתה מציגה כאן יכולת שהשרת עונה עליה 403
+             (ביקורת Codex).
+          */
+          canQueryBuyers={can(user, "buyers.view_own")}
         />
       ) : null}
 
