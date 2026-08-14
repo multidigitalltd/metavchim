@@ -448,7 +448,12 @@ export default function DashboardPage() {
         והמונים הם הרקע שמאחוריה. מאחורי אותו שער מסלול כמו הקידום
         שהיה כאן — אין טעם להזמין לפיצ'ר שהשרת יחסום.
       */}
-      {canVoice ? <VoiceConsole /> : null}
+      {canVoice ? (
+        <VoiceConsole
+          canCreateTask={can(user, "calendar.manage")}
+          canQueryBuyers={can(user, "buyers.view_own") || can(user, "buyers.view_all")}
+        />
+      ) : null}
 
       <section aria-labelledby="counts-heading" className="mb-7">
         <h2 id="counts-heading" className="mv-visually-hidden">מונים</h2>
