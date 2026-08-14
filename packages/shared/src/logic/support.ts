@@ -135,6 +135,14 @@ export interface SupportTriage {
   hints: string[];
 }
 
+/**
+ * הקידומת שהלקוח מוסיף לשגיאה שמקורה מחוץ למערכת.
+ *
+ * מוגדרת כאן ולא בצד הלקוח כדי ששני הצדדים — מי שמסמן ומי שמסיק —
+ * יקראו את אותה מחרוזת.
+ */
+export const EXTERNAL_ERROR_PREFIX = "[חיצוני";
+
 /** קוד המצב מתוך "500 POST /properties" — 0 כשאין. */
 function statusOf(entry: string): number {
   const match = /^(\d{3})\b/u.exec(entry.trim());
@@ -163,11 +171,25 @@ export function triageTicket(kind: SupportKind, context: SupportContext): Suppor
   if (denied.length > 0) {
     hints.push("היו בקשות שנדחו בהרשאה — ייתכן שחסרה יכולת למשתמש או שהמודול חסום במסלול");
   }
-  if (errors.length > 0) {
-    hints.push(`שגיאת דפדפן: ${errors[0] ?? ""}`);
+  /*
+   * שגיאה שסומנה כחיצונית אינה ראיה נגדנו.
+   *
+   * דיווח אמיתי הגיע עם שמונה עותקים של שגיאה מתוסף דפדפן, והמיון
+   * הקודם הסיק ממנה "חוסם עבודה" — כלומר קפיצה לראש התור על סמך
+   * קוד שאינו שלנו. הן עדיין נשמרות ומוצגות (לפעמים תוסף באמת מה
+   * ששובר את המסך), אבל לא הן שקובעות את החומרה.
+   */
+  const ourErrors = errors.filter((e) => !e.startsWith(EXTERNAL_ERROR_PREFIX));
+  if (ourErrors.length > 0) {
+    hints.push(`שגיאת דפדפן: ${ourErrors[0] ?? ""}`);
   }
-  if (serverErrors.length === 0 && denied.length === 0 && errors.length === 0) {
-    hints.push("לא נרשמו שגיאות בדפדפן בזמן הפנייה — ככל הנראה התנהגות ולא קריסה");
+  if (ourErrors.length < errors.length) {
+    hints.push(
+      `${errors.length - ourErrors.length} שגיאות הגיעו מתוסף דפדפן או מסקריפט חיצוני — לא מהמערכת`,
+    );
+  }
+  if (serverErrors.length === 0 && denied.length === 0 && ourErrors.length === 0) {
+    hints.push("לא נרשמו שגיאות של המערכת בזמן הפנייה — ככל הנראה התנהגות ולא קריסה");
   }
 
   /*
@@ -176,7 +198,11 @@ export function triageTicket(kind: SupportKind, context: SupportContext): Suppor
    * הייתה קופצת לראש התור ודוחקת תקלות אמיתיות.
    */
   const severity: SupportSeverity =
-    kind !== "bug" ? "normal" : serverErrors.length > 0 || errors.length > 0 ? "blocking" : "error";
+    kind !== "bug"
+      ? "normal"
+      : serverErrors.length > 0 || ourErrors.length > 0
+        ? "blocking"
+        : "error";
 
   return { area, severity, hints };
 }
@@ -207,4 +233,36 @@ export function sanitizeSupportContext(raw: SupportContext): SupportContext {
   const crumbs = trimEvidence(raw.breadcrumbs).map(redactUrl);
   if (crumbs.length > 0) out.breadcrumbs = crumbs;
   return out;
+}
+
+/* ==================== מקור השגיאה ==================== */
+
+/** סכימות של תוספי דפדפן — הן לעולם אינן הקוד של המערכת. */
+const EXTENSION_SCHEMES = /^(chrome|moz|safari-web|webkit|ms-browser)-extension:\/\//u;
+
+/** ה-URL הראשון שמופיע בטקסט — הפריים שבו השגיאה נזרקה בפועל. */
+function firstUrl(source: string): string | undefined {
+  return /[a-z-]+:\/\/[^\s)'"]+/iu.exec(source)?.[0];
+}
+
+/**
+ * האם השגיאה הגיעה **מחוץ** למערכת.
+ *
+ * ההבחנה הזו נולדה מדיווח אמיתי: פנייה נשאה שמונה עותקים של
+ * `Cannot read properties of undefined (reading 'M_ID')`, והמחרוזת
+ * הזו לא קיימת באף חבילה שנשלחת לדפדפן. תוסף דפדפן שנכשל מגיע
+ * לאותו `unhandledrejection` כמו באג אמיתי — ובלי סימון, התמיכה
+ * חוקרת קוד שאינו שלה בזמן שהתקלה האמיתית ממתינה.
+ *
+ * **ברירת המחדל היא "שלנו".** מקור לא ידוע אינו עילה להסיר אחריות;
+ * שגיאה מסומנת כחיצונית רק כשידוע בוודאות שכך היא.
+ *
+ * `origin` הוא המקור של הדף עצמו (`https://app.example.co.il`).
+ */
+export function isExternalError(source: string | undefined, origin: string): boolean {
+  if (source === undefined || source.trim() === "") return false;
+  const url = firstUrl(source);
+  if (url === undefined) return false; // בלי כתובת אין על מה לבסס
+  if (EXTENSION_SCHEMES.test(url)) return true;
+  return !url.startsWith(origin);
 }

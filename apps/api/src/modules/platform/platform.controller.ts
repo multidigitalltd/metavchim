@@ -882,6 +882,16 @@ export class PlatformController {
     maps: { configured: boolean; customStyle: boolean };
     /** פענוח כתובות: מי הספק ומה הוא יודע לעשות. */
     geocoding: { provider: string; forward: boolean; reverse: boolean };
+    /**
+     * כתובת התמיכה — **הערך עצמו ולא רק "מוגדר".**
+     *
+     * אותו נימוק כמו ב-`referralFeePercent`: זו אינה סוד ספק אלא
+     * כתובת תפעולית, ומי שעורך אותה חייב לראות מה כתוב שם. בלי זה
+     * השדה חזר ריק אחרי כל שמירה — השמירה הצליחה, השורה נכתבה,
+     * והמסך נראה כאילו לא קרה כלום. משתמש שלא רואה את מה שהזין
+     * מסיק, בצדק, שהכפתור אינו עובד.
+     */
+    supportEmail: string;
   }> {
     const env = loadEnv();
     const dbKeys = await this.platformSettings.configuredKeys();
@@ -918,6 +928,8 @@ export class PlatformController {
         provider: await this.geocoding.provider(),
         ...(await this.geocoding.capabilities()),
       },
+      // הערך ולא רק "מוגדר" — ראו ההסבר בטיפוס המוחזר
+      supportEmail: (await this.platformSettings.get("supportEmail")) ?? "",
       postmark: {
         configured: postmarkDb || postmarkEnv,
         source: postmarkDb ? "db" : postmarkEnv ? "env" : "none",

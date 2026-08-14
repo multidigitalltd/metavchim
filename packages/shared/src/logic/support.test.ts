@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  EXTERNAL_ERROR_PREFIX,
+  isExternalError,
   redactUrl,
   sanitizeSupportContext,
   supportAreaFromPath,
@@ -92,5 +94,64 @@ describe("sanitizeSupportContext", () => {
 
   it("שדות ריקים אינם נשמרים כמערכים ריקים", () => {
     expect(sanitizeSupportContext({ path: "/" })).toEqual({ path: "/" });
+  });
+});
+
+describe("isExternalError", () => {
+  const origin = "https://app.metavchim.co.il";
+
+  it("תוסף דפדפן — חיצוני", () => {
+    expect(
+      isExternalError("at f (chrome-extension://abcdef/content.js:1:99)", origin),
+    ).toBe(true);
+  });
+
+  it("קובץ מהמקור שלנו — שלנו", () => {
+    expect(
+      isExternalError(`at x (${origin}/_next/static/chunks/main.js:2:10)`, origin),
+    ).toBe(false);
+  });
+
+  it("סקריפט מדומיין אחר — חיצוני", () => {
+    expect(isExternalError("at g (https://cdn.other.com/a.js:1:1)", origin)).toBe(true);
+  });
+
+  it("מקור לא ידוע נחשב שלנו — לא מסירים אחריות בגלל חוסר מידע", () => {
+    expect(isExternalError(undefined, origin)).toBe(false);
+    expect(isExternalError("", origin)).toBe(false);
+    expect(isExternalError("Error: משהו נשבר\n    at <anonymous>", origin)).toBe(false);
+  });
+
+  it("נקבע לפי הפריים הראשון, גם כשהערימה עוברת דרך הקוד שלנו", () => {
+    const stack = [
+      "TypeError: nope",
+      "    at h (chrome-extension://abcdef/inject.js:5:1)",
+      `    at k (${origin}/_next/static/chunks/page.js:9:2)`,
+    ].join("\n");
+    expect(isExternalError(stack, origin)).toBe(true);
+  });
+});
+
+describe("שגיאה חיצונית אינה מכתיבה חומרה", () => {
+  const external = `${EXTERNAL_ERROR_PREFIX} — תוסף דפדפן] Cannot read properties of undefined (reading 'M_ID') (×8)`;
+
+  it("שמונה שגיאות של תוסף לא הופכות פנייה לחוסמת", () => {
+    const t = triageTicket("bug", { path: "/", errors: [external] });
+    expect(t.severity).toBe("error");
+    expect(t.hints.some((h) => h.includes("מתוסף דפדפן"))).toBe(true);
+  });
+
+  it("ונאמר במפורש שלא נרשמו שגיאות של המערכת", () => {
+    const t = triageTicket("bug", { path: "/", errors: [external] });
+    expect(t.hints.some((h) => h.includes("לא נרשמו שגיאות של המערכת"))).toBe(true);
+  });
+
+  it("שגיאה שלנו כן חוסמת, גם לצד חיצונית", () => {
+    const t = triageTicket("bug", {
+      path: "/properties",
+      errors: [external, "TypeError: x is not a function"],
+    });
+    expect(t.severity).toBe("blocking");
+    expect(t.hints.some((h) => h.includes("TypeError"))).toBe(true);
   });
 });
