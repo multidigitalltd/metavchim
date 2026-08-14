@@ -65,6 +65,25 @@ export const DomainEvents = {
     newMatchCount: z.number().int().default(0),
     strongMatchCount: z.number().int().default(0),
     ownerUserId: IdSchema.optional(),
+    /**
+     * מה הזיז את החישוב — כשזו הייתה **פעולה של הסוכן שפתחה דלת**.
+     *
+     * "נמצאו 3 קונים חדשים" ו"הורדת המחיר פתחה 3 קונים שהיו מחוץ
+     * לתקציב" הן שתי הודעות שונות לגמרי: הראשונה היא עדכון, השנייה
+     * היא תוצאה של החלטה שהסוכן קיבל לפני דקה — והוא עדיין באותו
+     * הקשר, כלומר זה הרגע היחיד שבו הוא באמת יפעל.
+     *
+     * חסר = חישוב שגרתי (כרטיס חדש, עריכה שאינה מסחרית), וההודעה
+     * נשארת הרגילה.
+     */
+    trigger: z
+      .object({
+        kind: z.enum(["price_drop", "budget_raise"]),
+        /** באגורות, לפני ואחרי — ההודעה אומרת את המספר ולא רק "השתנה" */
+        fromAgorot: z.number().int(),
+        toAgorot: z.number().int(),
+      })
+      .optional(),
   }),
   "offer.sent": z.object({ offerId: IdSchema, tenantId: IdSchema }),
   "offer.opened": z.object({ offerId: IdSchema, tenantId: IdSchema, openCount: z.number().int() }),

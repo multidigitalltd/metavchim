@@ -3,12 +3,14 @@ import {
   buildRecommendations,
   computeReadiness,
   type CoachRecommendation,
+  jerusalemDayRange,
   type CoachSignals,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { ownershipFilter } from "../../common/ownership";
 import { PrismaService } from "../../core/prisma.service";
 import { rowToFields } from "../properties/property.mapper";
+import { loadEnv } from "../../config/env";
 
 /**
  * אוסף את האותות מהדאטה של הדייר (מכבד בעלות — סוכן רואה המלצות על
@@ -145,6 +147,125 @@ export class CoachService {
         }));
       }
 
+      /*
+       * ------- מה שבוער היום -------
+       */
+      const now = new Date();
+
+      /*
+       * ליד שלא נגעו בו מעל ה-SLA של המשרד. הסף מגיע מהסביבה ולא
+       * קבוע כאן — משרד עמוס מגדיר אחרת ממשרד קטן.
+       *
+       * `updatedAt` ולא `createdAt`: המדד הוא "מתי נגעו בו לאחרונה",
+       * וליד שנפתח לפני יומיים אבל טופל לפני שעה אינו ממתין.
+       */
+      const slaHours = loadEnv().LEAD_SLA_HOURS;
+      const slaCutoff = new Date(now.getTime() - slaHours * 3_600_000);
+      const candidates = await tx.lead.findMany({
+        where: {
+          tenantId,
+          status: { in: ["new", "in_progress"] },
+          updatedAt: { lt: slaCutoff },
+          ...leadScope,
+        },
+        orderBy: { updatedAt: "asc" },
+        take: 30,
+        select: { id: true, updatedAt: true },
+      });
+
+      /*
+       * **הנגיעה האחרונה אינה `updatedAt` של השורה.**
+       *
+       * רישום שיחה, הערה או מייל יוצא יוצרים `Interaction` ואינם
+       * נוגעים בשורת הליד — כלומר ליד שטופל לפני חמש דקות היה מוצג
+       * כ"ממתין חמש שעות", בראש הרשימה. התראת שווא במקום הכי דחוף
+       * במסך היא מה שגורם לסוכנים להפסיק להאמין למסך.
+       *
+       * הסינון הגס נשאר על `updatedAt` (זול, מצמצם ל-30), והשיחות
+       * נבדקות רק עליהם — בשאילתה אחת ולא אחת לכל ליד.
+       */
+      const lastTouch = new Map<string, Date>();
+      if (candidates.length > 0) {
+        const touches = await tx.interaction.groupBy({
+          by: ["leadId"],
+          where: { tenantId, leadId: { in: candidates.map((l) => l.id) } },
+          _max: { createdAt: true },
+        });
+        for (const touch of touches) {
+          if (touch.leadId !== null && touch._max.createdAt !== null) {
+            lastTouch.set(touch.leadId, touch._max.createdAt);
+          }
+        }
+      }
+
+      const staleLeads: CoachSignals["staleLeads"] = candidates
+        .map((l) => {
+          const interaction = lastTouch.get(l.id);
+          const touched =
+            interaction !== undefined && interaction > l.updatedAt ? interaction : l.updatedAt;
+          return { lead: l, touched };
+        })
+        .filter(({ touched }) => touched < slaCutoff)
+        .sort((a, b) => a.touched.getTime() - b.touched.getTime())
+        .slice(0, 5)
+        .map(({ lead, touched }) => ({
+          leadId: lead.id,
+          // כמו בלידים הדחופים: ה-UI מקשר לליד, ואין צורך לפענח PII כאן
+          contactName: "ליד",
+          hoursWaiting: (now.getTime() - touched.getTime()) / 3_600_000,
+        }));
+
+      /* פגישות היום שטרם התקיימו — רק למי שרשאי ליומן, כמו הסיורים. */
+      let todayAppointments: CoachSignals["todayAppointments"] = [];
+      if (canSeeCalendar) {
+        /*
+         * גבול היום בשעון ישראל ולא בשעון התהליך: ה-API רץ ב-UTC,
+         * ו-`setHours(23,59,59)` היה גורף פגישות של מחר לפנות בוקר,
+         * ובין חצות המקומית לחצות ה-UTC מפספס כמעט את כל היום החדש.
+         */
+        const { end: endOfDay } = jerusalemDayRange(now);
+        const upcoming = await tx.appointment.findMany({
+          where: { tenantId, status: "scheduled", startsAt: { gte: now, lt: endOfDay } },
+          orderBy: { startsAt: "asc" },
+          take: 5,
+          select: { id: true, title: true, startsAt: true, kind: true },
+        });
+        todayAppointments = upcoming.map((a) => ({
+          appointmentId: a.id,
+          title: a.title ?? (a.kind === "viewing" ? "סיור" : "פגישה"),
+          startsAt: a.startsAt,
+        }));
+      }
+
+      /* משימות באיחור — של המשתמש עצמו, לא של המשרד כולו. */
+      const overdue = await tx.task.findMany({
+        where: {
+          tenantId,
+          status: "open",
+          assignedToUserId: ctx.userId,
+          dueAt: { lt: now },
+        },
+        orderBy: { dueAt: "asc" },
+        take: 5,
+        select: { id: true, title: true, dueAt: true },
+      });
+      const overdueTasks: CoachSignals["overdueTasks"] = overdue.map((t) => ({
+        taskId: t.id,
+        title: t.title,
+        daysLate: Math.max(
+          1,
+          Math.floor((now.getTime() - (t.dueAt?.getTime() ?? now.getTime())) / 86_400_000),
+        ),
+      }));
+
+      /*
+       * הצעות שת"פ שממתינות לי. ספירה ולא רשימה: הפעולה היא להיכנס
+       * למסך השת"פ, והפרטים שם.
+       */
+      const pendingCoopOffers = await tx.coopOffer.count({
+        where: { toTenantId: tenantId, status: "sent" },
+      });
+
       return {
         hotBuyersWithoutOffer,
         propertiesWithUnsentMatches,
@@ -152,6 +273,10 @@ export class CoachService {
         urgentLeads,
         incompleteProperties,
         pastViewingsWithoutOutcome,
+        staleLeads,
+        todayAppointments,
+        overdueTasks,
+        pendingCoopOffers,
       };
     });
 

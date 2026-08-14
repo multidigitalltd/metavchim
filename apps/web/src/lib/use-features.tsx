@@ -40,3 +40,15 @@ export function useFeature(code: string): boolean {
   const features = useContext(FeaturesContext);
   return features === null || features.includes(code);
 }
+
+/**
+ * האם רשימת הפיצ'רים כבר נטענה.
+ *
+ * `useFeature` מחזיר "כן" כל עוד היא חסרה — נכון לכפתור שלא כדאי
+ * שיקפוץ, ושגוי לבקשת רשת: מסך שנטען לפני שהרשימה הגיעה שלח את
+ * הבקשה, קיבל 403, והשגיאה כבר נרשמה בקונסול גם אחרי שהרשימה
+ * הגיעה ואמרה שאין פיצ'ר. פעולה שיוצאת החוצה צריכה להמתין.
+ */
+export function useFeaturesReady(): boolean {
+  return useContext(FeaturesContext) !== null;
+}

@@ -13,6 +13,8 @@
  * אותה משפחה של extract-property ו-extract-person, ובאותה תבנית:
  * לוגיקה טהורה ובדוקה, שהעובד קורא לה ולא ממציא לעצמו כללים.
  */
+import { parseHebrewDateTime } from "./parse-hebrew-datetime.js";
+import { jerusalemWallToUtc, toJerusalemWall } from "./recurrence.js";
 
 export interface CallHighlights {
   /** תקציב שנאמר, בשקלים. */
@@ -140,4 +142,93 @@ export function summarizeCall(transcript: string): CallSummary {
     highlights,
     suggestedOutcome,
   };
+}
+
+/* ==================== משימת המשך מהשיחה ==================== */
+
+/**
+ * ההמשך שהשיחה מחייבת.
+ *
+ * זה החלק שהיה חסר: התמלול כבר נכתב לציר הזמן, אבל **שום דבר במערכת
+ * לא זכר שהובטח לחזור ביום ראשון.** ההבטחה נאמרה בשיחה, נשמרה כטקסט,
+ * ומתה שם — והלקוח הוא זה שגילה.
+ *
+ * שלושה כללים קובעים מתי נוצרת משימה:
+ *
+ * 1. **נאמר מועד חזרה** — זו המשימה, במועד שנאמר.
+ * 2. **הובע עניין בלי מועד** — מחר בבוקר, כי עניין מתקרר.
+ * 3. **"לא מתאים"** — *אין* משימה. משימה שרודפת אחרי מי שאמר לא
+ *    מלמדת את הסוכן לסגור משימות בלי לקרוא אותן, ואז גם האמיתיות
+ *    נסגרות ככה.
+ *
+ * הכותרת לעולם אינה נושאת שם לקוח: המשימה מקושרת לכרטיס, והשם נקרא
+ * משם. אותו כלל שחל על ההתראות ועל העוזר.
+ */
+export interface CallFollowUp {
+  title: string;
+  dueAt: Date;
+  priority: "high" | "normal";
+  /** מה בשיחה הצדיק את המשימה — מוצג לסוכן, כדי שלא תיראה שרירותית. */
+  reason: string;
+}
+
+/** ניסוחי מועד שהמנתח הכללי אינו מכיר, כמספר ימים קדימה. */
+const RELATIVE_DAYS: [pattern: RegExp, days: number][] = [
+  [/בשבוע הבא/u, 7],
+  [/בעוד שבוע/u, 7],
+  [/בעוד יומיים/u, 2],
+];
+
+/** 10:00 בשעון ישראל ביום שמספר הימים קדימה — כמו ברירת המחדל של המנתח. */
+function atTenOnDayOffset(now: Date, days: number): Date {
+  const wall = toJerusalemWall(now);
+  wall.setDate(wall.getDate() + days);
+  wall.setHours(10, 0, 0, 0);
+  return jerusalemWallToUtc(wall);
+}
+
+export function followUpFromCall(summary: CallSummary, now: Date): CallFollowUp | null {
+  if (summary.suggestedOutcome === "not_fit") return null;
+
+  const callback = summary.highlights.callback;
+  if (callback !== undefined) {
+    const relative = RELATIVE_DAYS.find(([pattern]) => pattern.test(callback));
+    const dueAt = relative
+      ? atTenOnDayOffset(now, relative[1])
+      : parseHebrewDateTime(callback, now).date;
+    if (dueAt !== undefined) {
+      return {
+        title: "לחזור ללקוח כפי שסוכם בשיחה",
+        dueAt,
+        // הבטחה ללקוח היא התחייבות, ולא "אם יהיה זמן"
+        priority: "high",
+        reason: `בשיחה נאמר: לחזור ${callback}`,
+      };
+    }
+  }
+
+  if (summary.suggestedOutcome === "interested") {
+    return {
+      title: "הלקוח הביע עניין — להמשיך טיפול",
+      dueAt: atTenOnDayOffset(now, 1),
+      priority: "high",
+      reason: "בשיחה זוהה עניין ולא נקבע מועד חזרה",
+    };
+  }
+
+  /*
+   * "אחזור אליך" בלי מועד ובלי עניין מפורש — משימה רכה למחר. זה
+   * המקרה השכיח ביותר בשיחה אמיתית, ובלי משימה הוא נשכח בדיוק כמו
+   * השאר.
+   */
+  if (summary.suggestedOutcome === "callback") {
+    return {
+      title: "לחזור ללקוח אחרי השיחה",
+      dueAt: atTenOnDayOffset(now, 1),
+      priority: "normal",
+      reason: "בשיחה סוכם לחזור, בלי מועד מדויק",
+    };
+  }
+
+  return null;
 }

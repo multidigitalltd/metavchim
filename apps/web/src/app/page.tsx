@@ -7,6 +7,7 @@ import { apiGet } from "@/lib/api";
 import { FIELD_LABELS, MATURITY_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
+import { VoiceConsole } from "./voice-console";
 import { DuplicateContacts } from "./duplicate-contacts";
 import { LoadError } from "./load-error";
 import { SetupBanner } from "./setup-banner";
@@ -441,6 +442,13 @@ export default function DashboardPage() {
       </div>
 
       <DuplicateContacts />
+
+      {/*
+        הסוכן הקולי בראש המסך ולא בתחתיתו: הוא נקודת הכניסה לפעולה,
+        והמונים הם הרקע שמאחוריה. מאחורי אותו שער מסלול כמו הקידום
+        שהיה כאן — אין טעם להזמין לפיצ'ר שהשרת יחסום.
+      */}
+      {canVoice ? <VoiceConsole /> : null}
 
       <section aria-labelledby="counts-heading" className="mb-7">
         <h2 id="counts-heading" className="mv-visually-hidden">מונים</h2>

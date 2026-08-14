@@ -38,6 +38,13 @@ export interface EnrichedMatchDto extends MatchDto {
  */
 const LIVE_HEADROOM = 20;
 
+/** מה שהזיז את החישוב, כשזו פעולה מסחרית של הסוכן. ראו events.ts. */
+export interface MatchTrigger {
+  kind: "price_drop" | "budget_raise";
+  fromAgorot: number;
+  toAgorot: number;
+}
+
 /**
  * מנוע ההתאמות (docs/07 §5) — צנרת שני שלבים:
  * 1. סינון גס ב-SQL (עיר, תקציב, סוג עסקה) — מצמצם למועמדים רלוונטיים.
@@ -164,7 +171,14 @@ export class MatchingService {
     });
   }
 
-  async recomputeForProperty(propertyId: string): Promise<number> {
+  /**
+   * `trigger` — כשהחישוב נובע משינוי מסחרי שהסוכן עשה זה עתה.
+   *
+   * הוא נוסע עד ההתראה ומשנה את ניסוחה: "הורדת המחיר פתחה 3
+   * התאמות" במקום "נמצאו 3 קונים חדשים". אותו אירוע, אבל הראשון
+   * מגיע לסוכן שעדיין באותו הקשר ולכן הוא זה שיפעל לפיו.
+   */
+  async recomputeForProperty(propertyId: string, trigger?: MatchTrigger): Promise<number> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
       const property = await tx.property.findFirst({
@@ -231,12 +245,13 @@ export class MatchingService {
         matchCount: kept,
         newMatchCount: created,
         strongMatchCount: strong,
+        ...(trigger ? { trigger } : {}),
       });
       return kept;
     });
   }
 
-  async recomputeForBuyer(buyerId: string): Promise<number> {
+  async recomputeForBuyer(buyerId: string, trigger?: MatchTrigger): Promise<number> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
       const buyer = await tx.buyer.findFirst({ where: { id: buyerId, tenantId, deletedAt: null } });
@@ -296,6 +311,7 @@ export class MatchingService {
         newMatchCount: created,
         strongMatchCount: strong,
         ...(buyer.ownerUserId ? { ownerUserId: buyer.ownerUserId } : {}),
+        ...(trigger ? { trigger } : {}),
       });
       return kept;
     });

@@ -10,6 +10,7 @@ import { TopbarSearch } from "./topbar-search";
 import { WhatsNewBanner } from "./whats-new-banner";
 import { TrialBanner } from "./trial-banner";
 import { SoftphoneProvider } from "./softphone-bar";
+import { SupportButton } from "./support-button";
 import { IconMenu, LogoMark } from "./icons";
 
 /**
@@ -419,6 +420,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
         </header>
         <main id="main-content">{children}</main>
+        {/*
+          גם כאן. משרד שתקופתו נגמרה חסום מכל מסך עבודה, וזה בדיוק
+          המצב שבו הוא הכי צריך לדבר עם מישהו — תמיכה שנסגרת יחד עם
+          המנוי משאירה בעיית תשלום בלי דרך לפתור אותה.
+        */}
+        <SupportButton />
       </div>
     );
   }
@@ -643,6 +650,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             <SoftphoneProvider>{children}</SoftphoneProvider>
           </FeaturesProvider>
         </main>
+        {/*
+          כפתור התמיכה מחוץ ל-main ולכן בכל מסך פנימי, בלי תלות
+          במסלול או ביכולת: מי שנתקל בתקלה הוא זה שמדווח עליה.
+        */}
+        <SupportButton />
       </div>
     </div>
   );

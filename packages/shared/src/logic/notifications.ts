@@ -3,6 +3,14 @@ import { IdSchema } from "../schemas/common.js";
 import type { DomainEventName, DomainEventPayload } from "../events.js";
 
 /**
+ * אגורות לשקלים מנוקדים. בהתראה מציגים מספר שאפשר לקרוא בלי לספור
+ * אפסים — "1,900,000" ולא "190000000".
+ */
+function shekels(agorot: number): string {
+  return Math.round(agorot / 100).toLocaleString("he-IL");
+}
+
+/**
  * תרגום אירועי דומיין → התראות למתווך.
  * ה-Dispatcher (ב-API) בונה את התוכן; ה-Worker רק כותב את השורה —
  * כך הניסוחים חיים במקום אחד, טהור ובדוק.
@@ -79,8 +87,46 @@ export function notificationFromEvent<E extends DomainEventName>(
     case "matches.computed": {
       const p = payload as DomainEventPayload<"matches.computed">;
       if (p.newMatchCount < 1) return null;
+      /*
+       * "1 מהן ברמת התאמה גבוהה" על התאמה בודדת קורא כמו טקסט שנבנה
+       * ממחרוזות ולא כמו משפט — וזה בדיוק מה שקרה. יחיד ורבים
+       * מנוסחים בנפרד.
+       */
       const strong =
-        p.strongMatchCount > 0 ? ` ${p.strongMatchCount} מהן ברמת התאמה גבוהה.` : "";
+        p.strongMatchCount === 0
+          ? ""
+          : p.newMatchCount === 1
+            ? " ההתאמה ברמה גבוהה."
+            : ` ${p.strongMatchCount} מהן ברמת התאמה גבוהה.`;
+      /*
+       * הזדמנות שנפתחה עכשיו — ניסוח נפרד, ובכוונה.
+       *
+       * סוכן שהוריד מחיר לפני דקה עדיין באותו הקשר; "הורדת המחיר
+       * פתחה 3 קונים שהיו מחוץ לתקציב" הוא משפט שהוא פועל לפיו,
+       * בעוד "נמצאו 3 קונים חדשים" נקרא כמו עדכון מערכת. אותו
+       * אירוע בדיוק, ההבדל הוא רק במה שאומרים עליו.
+       */
+      if (p.trigger) {
+        const opened = p.newMatchCount === 1 ? "התאמה אחת" : `${p.newMatchCount} התאמות`;
+        return p.trigger.kind === "price_drop"
+          ? {
+              tenantId: p.tenantId,
+              type: "opportunity_opened",
+              title: `הורדת המחיר פתחה ${opened}`,
+              body: `המחיר ירד ל-${shekels(p.trigger.toAgorot)} ₪, וקונים שהיו מחוץ לתקציב נכנסו לטווח. זה הרגע לפנות אליהם.${strong}`,
+              entityType: "property",
+              ...(p.propertyId ? { entityId: p.propertyId } : {}),
+            }
+          : {
+              tenantId: p.tenantId,
+              ...(p.ownerUserId ? { recipientUserId: p.ownerUserId } : {}),
+              type: "opportunity_opened",
+              title: `העלאת התקציב פתחה ${opened}`,
+              body: `התקציב עלה ל-${shekels(p.trigger.toAgorot)} ₪, ונכסים שהיו מעליו נכנסו לטווח.${strong}`,
+              entityType: "buyer",
+              ...(p.buyerId ? { entityId: p.buyerId } : {}),
+            };
+      }
       if (p.propertyId) {
         return {
           tenantId: p.tenantId,

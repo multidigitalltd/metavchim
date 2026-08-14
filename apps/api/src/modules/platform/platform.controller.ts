@@ -205,6 +205,13 @@ const UpdateSettingsSchema = z
       .optional(),
     /** ספק פענוח הכתובות. ‎none‎ = לא פונים לאיש. */
     geocodingProvider: z.enum(["none", "govmap", "mapbox"]).optional(),
+    /**
+     * כתובת שאליה נשלחת התראה על פנייה חדשה לתמיכה.
+     *
+     * ריק = בלי התראה, לא "בלי תמיכה": הפנייה נשמרת ומופיעה בתור
+     * שבמסך הזה בכל מקרה. הכתובת רק מקצרת את זמן התגובה.
+     */
+    supportEmail: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
 
     /*
      * כלכלת הקרדיטים. **ריק בכל שדה = חזרה לברירת המחדל**, ולא אפס:

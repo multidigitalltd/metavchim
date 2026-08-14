@@ -53,6 +53,20 @@ function TabFromQuery({ onTab }: { onTab: (tab: string) => void }) {
   return null;
 }
 
+/**
+ * טווח החדרים בכותרת הביקוש. הגרסה הקודמת הדפיסה `?–?` כשלא הוזן
+ * טווח — סימן שאלה גולמי שנקרא כתקלה, בעוד המשמעות היא שהקונה פשוט
+ * לא הגביל את עצמו. ביקוש בלי הגבלת חדרים מתאים ליותר נכסים, לא
+ * לפחות, ולכן הניסוח צריך להזמין הצעה ולא להרתיע.
+ */
+function roomsLabel(min?: number, max?: number): string {
+  if (min === undefined && max === undefined) return "נכס";
+  if (min !== undefined && max !== undefined) {
+    return min === max ? `${min} חדרים` : `${min}–${max} חדרים`;
+  }
+  return min !== undefined ? `${min} חדרים ומעלה` : `עד ${String(max)} חדרים`;
+}
+
 interface DemandMatch {
   propertyId: string;
   title: string;
@@ -651,7 +665,7 @@ export default function CollaborationPage() {
               <li key={demand.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
                 <div className="mb-1 flex flex-wrap items-center gap-2">
                   <span className="font-semibold">
-                    קונה מחפש {demand.roomsMin ?? "?"}–{demand.roomsMax ?? "?"} חדרים ב
+                    קונה מחפש {roomsLabel(demand.roomsMin, demand.roomsMax)} ב
                     {demand.cities.join(" / ")} עד {formatPrice(demand.budgetMaxAgorot)}
                   </span>
                   {demand.source === "kanko" ? (

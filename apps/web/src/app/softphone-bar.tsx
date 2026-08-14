@@ -19,6 +19,8 @@ import { IconMic, IconMicOff, IconPhone } from "./icons";
  */
 
 const REMEMBER_KEY = "mv.softphone.on";
+/** תשובת "האם יש מרכזייה במסלול" — נשמרת לסשן, ראו האפקט שקורא לה. */
+const AVAILABILITY_KEY = "mv.softphone.available";
 
 interface SoftphoneApi {
   state: SoftphoneState;
@@ -117,13 +119,33 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }): 
 
   useEffect(() => {
     if (!enabled) return;
+    /*
+     * התשובה היא תכונה של מסלול המשרד, ולכן קבועה לאורך הסשן. בלי
+     * הזיכרון הזה נשאלה השאלה בכל ניווט — ואצל משרד שהמסלול שלו בלי
+     * מרכזייה השרת ענה 403, כלומר שגיאה אדומה בקונסול של **כל מסך**.
+     * מפתח שפותח את הקונסול כדי לחפש תקלה אמיתית מוצא רעש קבוע.
+     *
+     * `sessionStorage` ולא `localStorage`: משרד שמשדרג מסלול או מחבר
+     * מרכזייה מקבל את הכפתור בפתיחת לשונית חדשה, ולא רק אחרי ניקוי
+     * ידני של הדפדפן.
+     */
+    const cached = window.sessionStorage.getItem(AVAILABILITY_KEY);
+    if (cached !== null) {
+      setAvailable(cached === "1");
+      return;
+    }
     let cancelled = false;
     apiGet<{ available: boolean }>("/settings/telephony/softphone/availability")
       .then((res) => {
+        window.sessionStorage.setItem(AVAILABILITY_KEY, res.available ? "1" : "0");
         if (!cancelled) setAvailable(res.available);
       })
       .catch(() => {
-        // אין תשובה — אין כפתור; מי שכבר מחובר לא תלוי בבדיקה הזו
+        /*
+         * גם כישלון נזכר: 403 "אין מרכזייה במסלול" הוא תשובה סופית
+         * ולא תקלה זמנית, וניסיון חוזר בכל מסך רק מייצר את אותו רעש.
+         */
+        window.sessionStorage.setItem(AVAILABILITY_KEY, "0");
       });
     return () => {
       cancelled = true;

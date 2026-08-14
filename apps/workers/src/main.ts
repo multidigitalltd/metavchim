@@ -23,6 +23,7 @@ import {
   pushPayload,
   shouldPush,
   shouldRetireAfterFailure,
+  followUpFromCall,
   summarizeCall,
   type SpeakerTurn,
   type TranscriptSegment,
@@ -1140,7 +1141,14 @@ async function transcribeOneCall(): Promise<void> {
       const row = await tx.call.findFirst({
         where: { tenantId: tenant.id, transcriptionStatus: "pending" },
         orderBy: { occurredAt: "asc" },
-        select: { id: true, recordingKey: true, leadId: true, contactId: true },
+        select: {
+          id: true,
+          recordingKey: true,
+          leadId: true,
+          contactId: true,
+          // מי תיעד את השיחה — עליו תיפול משימת ההמשך
+          createdBy: true,
+        },
       });
       if (!row?.recordingKey) return null;
       // תפיסה אטומית: שני סבבים חופפים לא ייקחו את אותה שיחה
@@ -1181,7 +1189,9 @@ async function transcribeOneCall(): Promise<void> {
       const transcript = (diarized.text || body.text || "").trim();
       // הסיכום מחולץ מהטקסט הנקי, בלי תוויות הדובר וחותמות הזמן —
       // ביטויי המפתח שהוא מחפש היו נשברים על "[01:15] דובר 2:"
-      const { summary } = summarizeCall((body.text ?? "").trim() || transcript);
+      const parsedCall = summarizeCall((body.text ?? "").trim() || transcript);
+      const { summary } = parsedCall;
+      const followUp = followUpFromCall(parsedCall, new Date());
 
       await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
@@ -1207,6 +1217,20 @@ async function transcribeOneCall(): Promise<void> {
         const timelineText = summary
           ? `סיכום שיחה: ${summary}${transcript ? `\n\n${transcript}` : ""}`
           : transcript;
+        /*
+         * הכרטיס שהשיחה שייכת אליו. שיחה שאינה קשורה לליד אך כן
+         * לאיש קשר מוצגת בכרטיס הקונה שלו, ושם ציר הזמן לפי buyerId.
+         * החיפוש נעשה פעם אחת ומשמש גם את ציר הזמן וגם את משימת
+         * ההמשך — קודם הוא ישב בתוך בלוק ציר הזמן, ומשימה לא הייתה
+         * יכולה להיתלות על אותו כרטיס.
+         */
+        const buyerForCall =
+          !pending.leadId && pending.contactId
+            ? await tx.buyer.findFirst({
+                where: { tenantId: tenant.id, contactId: pending.contactId, deletedAt: null },
+                select: { id: true },
+              })
+            : null;
         if (timelineText) {
           const content = timelineText.slice(0, INTERACTION_CONTENT_LIMIT);
           if (pending.leadId) {
@@ -1221,25 +1245,84 @@ async function transcribeOneCall(): Promise<void> {
               },
             });
           }
-          // שיחה שאינה קשורה לליד אך כן לאיש קשר — הכרטיס שלו הוא
-          // כרטיס הקונה, ושם ציר הזמן מוצג לפי buyerId
-          if (!pending.leadId && pending.contactId) {
-            const buyer = await tx.buyer.findFirst({
-              where: { tenantId: tenant.id, contactId: pending.contactId, deletedAt: null },
-              select: { id: true },
+          if (buyerForCall) {
+            await tx.interaction.create({
+              data: {
+                id: ulid(),
+                tenantId: tenant.id,
+                buyerId: buyerForCall.id,
+                kind: "system",
+                content,
+                createdBy: null,
+              },
             });
-            if (buyer) {
-              await tx.interaction.create({
-                data: {
-                  id: ulid(),
-                  tenantId: tenant.id,
-                  buyerId: buyer.id,
-                  kind: "system",
-                  content,
-                  createdBy: null,
-                },
-              });
-            }
+          }
+        }
+
+        /*
+         * משימת ההמשך שהשיחה מחייבת.
+         *
+         * עד כה התמלול נכתב לציר הזמן ונגמר שם — ההבטחה "אחזור אליך
+         * ביום ראשון" נשמרה כטקסט ואיש לא הזכיר אותה ביום ראשון.
+         * הכללים (מתי כן ומתי בשום אופן לא) יושבים ב-`followUpFromCall`
+         * ומכוסים בבדיקות; כאן רק הכתיבה.
+         *
+         * בתוך אותה טרנזקציה של הסיכום: משימה בלי הסיכום שהצדיק
+         * אותה, או סיכום בלי המשימה שהובטחה בו, הם שני מצבים גרועים
+         * יותר מלנסות שוב.
+         */
+        /*
+         * המשימה נתלית על כרטיס שאפשר לפתוח — ליד או קונה. שיחה עם
+         * איש קשר שאין לו כרטיס קונה אינה מייצרת משימה: משימה שאי
+         * אפשר ללחוץ עליה כדי להגיע ללקוח היא תזכורת בלי כתובת.
+         */
+        const followUpEntity = pending.leadId
+          ? ({ entityType: "lead", entityId: pending.leadId } as const)
+          : buyerForCall
+            ? ({ entityType: "buyer", entityId: buyerForCall.id } as const)
+            : null;
+        if (followUp && pending.createdBy && followUpEntity) {
+          const entity = followUpEntity;
+          /*
+           * מפתח לפי השיחה ולא לפי הכרטיס: תמלול רץ פעם אחת לשיחה,
+           * ולקוח שדיבר פעמיים ראוי לשתי משימות. הבדיקה מגנה מפני
+           * ריצה חוזרת של אותה שיחה.
+           */
+          const sourceKey = `call-followup:${pending.id}`;
+          const already = await tx.task.findFirst({
+            where: { tenantId: tenant.id, sourceKey },
+            select: { id: true },
+          });
+          const assigneeActive =
+            (await tx.user.findFirst({
+              where: { id: pending.createdBy, tenantId: tenant.id, isActive: true },
+              select: { id: true },
+            })) !== null;
+          if (!already && assigneeActive) {
+            await tx.task.create({
+              data: {
+                id: ulid(),
+                tenantId: tenant.id,
+                assignedToUserId: pending.createdBy,
+                title: followUp.title,
+                notes: followUp.reason,
+                priority: followUp.priority,
+                dueAt: followUp.dueAt,
+                ...entity,
+                sourceKey,
+              },
+            });
+            await tx.notification.create({
+              data: {
+                id: ulid(),
+                tenantId: tenant.id,
+                userId: pending.createdBy,
+                type: "call_follow_up",
+                title: "נוצרה משימת המשך מהשיחה",
+                body: followUp.reason,
+                ...entity,
+              },
+            });
           }
         }
       });

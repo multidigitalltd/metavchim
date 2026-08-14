@@ -3,6 +3,8 @@
  * שגיאות טיפוסיות, ואפס הפתעות.
  */
 
+import { recordFailedRequest } from "./client-diagnostics";
+
 /** בסיס ה-API — משמש גם להרכבת URL-ים של תמונות שמוזרמות דרך השרת */
 export const API_BASE = (process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:3001") + "/api/v1";
 const BASE = API_BASE;
@@ -47,6 +49,12 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     }
   }
   if (!res.ok) {
+    /*
+     * הכישלון נרשם בטבעת המקומית לפני שהוא נזרק. פנייה לתמיכה שנשלחת
+     * דקה אחר כך נושאת אותו איתה — וזה ההבדל בין "לא עובד לי" לבין
+     * "500 בשמירת נכס". הרישום מקומי בלבד; ראו client-diagnostics.
+     */
+    recordFailedRequest(res.status, init?.method ?? "GET", path);
     const record = (body ?? {}) as { message?: string | string[]; issues?: ApiIssue[] };
     const message = Array.isArray(record.message)
       ? record.message.join(", ")

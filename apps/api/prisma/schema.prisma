@@ -1180,3 +1180,43 @@ model GoogleCalendarLink {
   @@index([tenantId])
   @@map("google_calendar_links")
 }
+
+/**
+ * פנייה לתמיכה — מהכפתור שבכל מסך או מהלשונית בניהול המשרד.
+ *
+ * נשמרת ולא נשלחת במייל בלבד: משרד שפנה רוצה לראות מה עלה בגורל
+ * הפנייה, והתמיכה רוצה היסטוריה לפי משרד. המייל הוא התראה על שורה
+ * שכבר קיימת, לא הערוץ עצמו.
+ *
+ * צילום המסך יושב ב-S3 ולא בטבלה: הוא נשלף רק כשפותחים פנייה
+ * מסוימת, ובלעדיו כל רשימת פניות הייתה גוררת מגה-בייטים.
+ */
+model SupportTicket {
+  id            String    @id @db.Char(26)
+  tenantId      String    @map("tenant_id") @db.Char(26)
+  /** מי פנה. נשמר גם אחרי שהמשתמש הוסר — התמיכה צריכה לדעת עם מי דיברה. */
+  userId        String    @map("user_id") @db.Char(26)
+  userName      String    @map("user_name") @db.VarChar(120)
+  userEmail     String    @map("user_email") @db.VarChar(254)
+  /// bug | idea | question | billing
+  kind          String    @db.VarChar(20)
+  message       String    @db.VarChar(2000)
+  /// open | in_progress | resolved
+  status        String    @default("open") @db.VarChar(20)
+  /** מיון אוטומטי — נגזר מההקשר ברגע הפתיחה, ראו logic/support.ts */
+  area          String    @db.VarChar(40)
+  /// blocking | error | normal
+  severity      String    @db.VarChar(10)
+  /** ההקשר הטכני המנוקה: מסך, שגיאות, בקשות שנכשלו, מסלול הניווט. */
+  context       Json      @default("{}")
+  screenshotKey String?   @map("screenshot_key") @db.VarChar(300)
+  /** תשובת התמיכה — גלויה למשרד, זו הסיבה שהפנייה נשמרת ולא רק נשלחת. */
+  reply         String?   @db.VarChar(2000)
+  repliedAt     DateTime? @map("replied_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("support_tickets")
+}
