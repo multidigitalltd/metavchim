@@ -344,8 +344,17 @@ export default function SettingsPage() {
         aria-labelledby={`tab-${tab}`}
         className="grid items-start gap-[18px] lg:[grid-template-columns:1fr_360px]"
       >
-        {/* ================= הטור הראשי ================= */}
-        <div className="flex flex-col gap-[18px]">
+        {/*
+          ================= הטור הראשי =================
+
+          `min-w-0` אינו קישוט: פריט grid מקבל `min-width: auto`, ולכן
+          הוא מסרב לרדת מתחת לרוחב התוכן שלו. טבלת הצוות מציבה
+          `minWidth: 640` בכוונה — כדי שהעטיפה שמעליה תגלול אותה
+          לרוחב — ובלי `min-w-0` הרצפה הזו טיפסה עד ה-grid ומתחה את
+          **כל העמוד** ל-658px במסך של 390. התוצאה: גלילה אופקית של
+          המסך כולו במובייל, במקום גלילה של הטבלה בלבד.
+        */}
+        <div className="flex min-w-0 flex-col gap-[18px]">
           {/* ---- המסלול: מה כלול ואיפה המשרד עומד מול המכסות ---- */}
           {tab === "billing" ? (
             <>
@@ -712,7 +721,7 @@ export default function SettingsPage() {
         </div>
 
         {/* ================= הטור הצדדי ================= */}
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
           {/* ---- אבטחה ופרטיות — הרשימה מקובץ העיצוב ---- */}
           {tab === "data" ? (
           <section className="mv-list-card px-5 py-[17px]" aria-labelledby="security-heading">
