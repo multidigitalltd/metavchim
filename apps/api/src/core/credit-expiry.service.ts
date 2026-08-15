@@ -28,9 +28,15 @@ const FIRST_SWEEP_DELAY_MS = 60 * 1000;
  * בתהליך שמעולם לא נזקק למפתח ההצפנה היא מחיר גבוה מהרווח של גבול
  * תהליך. הסריקה עצמה זולה: שאילתה אחת למשרד, פעם בשעה.
  *
- * **ריצה במקביל בטוחה.** ההפקעה נכתבת עם `ref_id` של המנה, ואינדקס
- * ייחודי חלקי במסד מונע שתי הפקעות לאותה מנה. שני עותקי API שירוצו
- * יחד — אחד ייכשל על ייחודיות והשני יכתוב. זו ההגנה, ולא התזמון.
+ * **ריצה במקביל בטוחה — בשתי הגנות שונות, לשני מרוצים שונים:**
+ *
+ * מול סריקה מקבילה: ההפקעה נכתבת עם `ref_id` של המנה, ואינדקס ייחודי
+ * חלקי במסד מונע שתי הפקעות לאותה מנה.
+ *
+ * מול **הוצאה** מקבילה: מנעול הייעוץ הפר-משרד שההוצאה כבר לוקחת.
+ * האינדקס אינו עוזר כאן — שתי התנועות נוגעות במנות שונות אך באותה
+ * יתרה, ובלי המנעול המשרד נשאר במינוס. אומת בפועל: בלי המנעול
+ * היתרה יורדת ל-‎-20‎ בכל ריצה, ואיתו ל-0 (ביקורת Codex).
  */
 @Injectable()
 export class CreditExpiryService implements OnModuleInit, OnModuleDestroy {
@@ -109,6 +115,19 @@ export class CreditExpiryService implements OnModuleInit, OnModuleDestroy {
     now: Date,
   ): Promise<{ expired: number; warned: number }> {
     return this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      /*
+       * **אותו מנעול שההוצאה לוקחת**, ולא רק האינדקס הייחודי.
+       *
+       * האינדקס מונע *הפקעה כפולה* של אותה מנה, אבל לא את המרוץ מול
+       * חיוב: הסריקה קוראת יתרה 20 ומתכננת להפקיע אותה, קניית ליד
+       * מקבילה קוראת את אותם 20 ומוציאה אותם, ושתיהן כותבות ‎-20‎ —
+       * המשרד נשאר במינוס אחרי קנייה שהמערכת אישרה. הקריאה והכתיבה
+       * חייבות להיות באותו סריאליזציה כמו ההוצאה (ביקורת Codex).
+       *
+       * המפתח זהה מילה במילה ל-`lockCreditSpend` שב-collaboration —
+       * מנעול על מחרוזת אחרת אינו מנעול.
+       */
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`credits:${tenantId}`}, 0))`;
       const rows = await tx.creditLedger.findMany({
         where: { tenantId },
         select: { id: true, kind: true, amount: true, refId: true, createdAt: true },

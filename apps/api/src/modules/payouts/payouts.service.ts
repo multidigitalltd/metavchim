@@ -367,7 +367,7 @@ export class PayoutsService {
    * אינה קיימת. המנעול משוחרר בסוף הטרנזקציה בכל מסלול, כולל קריסה.
    */
   private async lockPayouts(tx: TenantTx, tenantId: string): Promise<void> {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`payout:${tenantId}`}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`payout:${tenantId}`}, 0))`;
   }
 
   private toDto(row: {
