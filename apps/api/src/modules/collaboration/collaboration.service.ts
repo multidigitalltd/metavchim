@@ -6,6 +6,7 @@ import {
   resolveReferralFeePercent,
   commissionSplitRejectionReason,
   coopOfferCost,
+  planCreditExpiry,
   settleReferral,
   referralPriceRejectionReason,
   referralRatingAverage,
@@ -28,6 +29,20 @@ import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { rowToFields } from "../properties/property.mapper";
+
+/**
+ * תפוגת הקרדיטים כפי שהמשרד רואה אותה.
+ *
+ * `months: 0` = התפוגה כבויה בפלטפורמה, ואין מה להציג. שדות המנה
+ * הקרובה חסרים כשאין מנה חיה שפגה — משרד שכל יתרתו נרכשה בכסף
+ * לעולם לא יראה תאריך, וזה נכון.
+ */
+export interface CreditExpiryInfo {
+  months: number;
+  nextAmount?: number;
+  /** ISO. התצוגה בעברית נעשית במסך, כמו בכל תאריך במערכת. */
+  nextAt?: string;
+}
 
 /** שורת נכס כפי ש-Prisma מחזירה — הטיפוס נגזר ולא מועתק ידנית. */
 type PropertyRow = Parameters<typeof rowToFields>[0];
@@ -1528,10 +1543,54 @@ export class CollaborationService {
     balance: number;
     unitPriceAgorot: number;
     packages: { credits: number; priceAgorot: number }[];
+    expiry: CreditExpiryInfo;
   }> {
     const economy = await this.creditEconomy.current();
     const { balance } = await this.balance();
-    return { balance, unitPriceAgorot: economy.unitPriceAgorot, packages: economy.packages };
+    return {
+      balance,
+      unitPriceAgorot: economy.unitPriceAgorot,
+      packages: economy.packages,
+      expiry: await this.expiryInfo(economy.expiryMonths),
+    };
+  }
+
+  /**
+   * מה עומד לפוג ומתי — למסך הקרדיטים של המשרד.
+   *
+   * המשרד רואה יתרה אחת, אבל היא מורכבת ממנות עם תאריכים שונים.
+   * בלי החלון הזה, "היו לי 40 קרדיטים ועכשיו 25" הוא הפתעה שמגיעה
+   * אחרי מעשה. החישוב זהה לזה שהסריקה מריצה — אותה פונקציה, לא
+   * העתק שלה.
+   */
+  private async expiryInfo(expiryMonths: number): Promise<CreditExpiryInfo> {
+    if (expiryMonths <= 0) return { months: 0 };
+    const tenantId = TenantContext.current().tenantId;
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.creditLedger.findMany({
+        where: { tenantId },
+        select: { id: true, kind: true, amount: true, refId: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
+      }),
+    );
+    const plan = planCreditExpiry(rows, expiryMonths, new Date());
+    /*
+     * המנה הקרובה ביותר לפוג ועדיין חיה. לא סכום כל מה שיפוג אי פעם:
+     * "כל הקרדיטים שלך יפוגו בסופו של דבר" נכון וחסר תועלת. מה
+     * שמניע פעולה הוא התאריך הקרוב ומה שקשור אליו.
+     */
+    const live = plan.batches
+      .filter((b) => b.expiresAt !== null && b.remaining > 0)
+      .sort((a, b) => a.expiresAt!.getTime() - b.expiresAt!.getTime());
+    const next = live[0];
+    if (!next) return { months: expiryMonths };
+    return {
+      months: expiryMonths,
+      nextAmount: live
+        .filter((b) => b.expiresAt!.getTime() === next.expiresAt!.getTime())
+        .reduce((sum, b) => sum + b.remaining, 0),
+      nextAt: next.expiresAt!.toISOString(),
+    };
   }
 
   private async balance(): Promise<{ balance: number }> {

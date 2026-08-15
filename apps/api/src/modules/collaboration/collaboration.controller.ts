@@ -19,6 +19,7 @@ import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
   CollaborationService,
   type CoopOfferDto,
+  type CreditExpiryInfo,
   type NetworkDemandMatchDto,
   type NetworkPropertyOfferDto,
   type ReferralTermsDto,
@@ -197,6 +198,7 @@ export class CollaborationController {
     balance: number;
     unitPriceAgorot: number;
     packages: { credits: number; priceAgorot: number }[];
+    expiry: CreditExpiryInfo;
   }> {
     return this.collaboration.credits();
   }

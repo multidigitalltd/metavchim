@@ -139,6 +139,18 @@ interface PropertyOption {
   marketingTitle?: string;
 }
 
+/**
+ * תפוגת הקרדיטים כפי שהשרת מדווח אותה.
+ *
+ * `months: 0` = התפוגה כבויה בפלטפורמה. `nextAt` חסר גם כשהתפוגה
+ * פעילה אבל אין מנה חיה שפגה — למשל משרד שכל יתרתו נרכשה בכסף.
+ */
+interface CreditExpiry {
+  months: number;
+  nextAmount?: number;
+  nextAt?: string;
+}
+
 const FEATURE_LABELS: Record<string, string> = {
   hasElevator: "מעלית",
   hasParking: "חניה",
@@ -167,6 +179,8 @@ export default function CollaborationPage() {
     unitPriceAgorot: number;
     packages: { credits: number; priceAgorot: number }[];
   } | null>(null);
+  /** מה עומד לפוג מהיתרה ומתי. חסר = אין תפוגה, או שאין מנה שפגה. */
+  const [expiry, setExpiry] = useState<CreditExpiry | null>(null);
   const [selectedProperty, setSelectedProperty] = useState<Record<string, string>>({});
   /*
    * החלוקה לכל ביקוש בנפרד. ברירת המחדל היא מה שהמשרד המשתף ביקש,
@@ -211,10 +225,12 @@ export default function CollaborationPage() {
       balance: number;
       unitPriceAgorot: number;
       packages: { credits: number; priceAgorot: number }[];
+      expiry?: CreditExpiry;
     }>("/collaboration/credits")
       .then((r) => {
         setBalance(r.balance);
         setPricing({ unitPriceAgorot: r.unitPriceAgorot, packages: r.packages });
+        setExpiry(r.expiry ?? null);
       })
       .catch(() => undefined);
     apiGet<{ items: PropertyOption[] }>("/properties?limit=50")
@@ -464,6 +480,17 @@ export default function CollaborationPage() {
               בלבד. שיתוף פעולה עם משרד תיווך אינו עולה קרדיטים.
             </span>
           </div>
+          {/*
+            התפוגה נאמרת ליד היתרה ולא במסך הגדרות. "היו לי 40 ועכשיו
+            25" הוא בדיוק סוג ההפתעה שמייצרת פנייה לתמיכה, והמקום
+            היחיד שבו היא נמנעת הוא המקום שבו מסתכלים על המספר.
+          */}
+          {expiry !== null && expiry.nextAt !== undefined ? (
+            <p className="m-0 mt-1.5 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+              {expiry.nextAmount} מהם פגים ב-{new Date(expiry.nextAt).toLocaleDateString("he-IL")}.
+              קרדיטים שנרכשו בכסף אינם פגים.
+            </p>
+          ) : null}
           {/*
             הרכישה יושבת מתחת ליתרה ולא במסך אחר: הרגע שבו מגלים שאין
             מספיק הוא הרגע שבו רוצים לקנות.

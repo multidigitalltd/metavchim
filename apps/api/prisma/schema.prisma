@@ -645,10 +645,18 @@ model ReferralReputation {
 }
 
 // ספר קרדיטים Append-Only (docs/03 §3): היתרה נגזרת, לא מאוחסנת.
+//
+// תפוגה נכתבת כתנועה רגילה: kind='expiry', amount שלילי, ו-ref_id
+// שמצביע על התנועה החיובית (המנה) שפגה. המנות עצמן משוחזרות מהספר
+// בזמן ריצה — ראו packages/shared/logic/credit-expiry.ts.
+//
+// למיגרציה 20260815100000 יש אינדקס ייחודי **חלקי** על ref_id עבור
+// kind='expiry', שאינו ניתן לביטוי בסכמה של Prisma. הוא מונע הפקעה
+// כפולה של אותה מנה בשני עותקי API במקביל, ואסור למחוק אותו.
 model CreditLedger {
   id        String   @id @db.Char(26)
   tenantId  String   @map("tenant_id") @db.Char(26)
-  kind      String   @db.VarChar(30) // initial_grant | coop_offer | purchase | refund | lead_purchase | lead_sale
+  kind      String   @db.VarChar(30) // initial_grant | coop_offer | purchase | refund | lead_purchase | lead_sale | expiry
   amount    Int // חיובי = זיכוי, שלילי = חיוב
   refId     String?  @map("ref_id") @db.Char(26)
   createdAt DateTime @default(now()) @map("created_at")

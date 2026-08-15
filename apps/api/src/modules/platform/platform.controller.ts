@@ -48,6 +48,7 @@ import {
   planRejectionReason,
   sanitizeFeatures,
   type PlanDefinition,
+  type ServiceVersion,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { PlatformAdmin } from "../../common/auth.decorators";
@@ -75,6 +76,7 @@ import {
   type RestoreStatus,
 } from "./backups.service";
 import { callUpdaterAgent, updaterFailure } from "./updater-agent";
+import { ServiceVersionsService } from "./service-versions.service";
 
 /**
  * ניהול הפלטפורמה — הקמת משרדי תיווך חדשים מהממשק, בלי SSH.
@@ -372,6 +374,7 @@ export class PlatformController {
     private readonly accountDeletion: AccountDeletionService,
     private readonly geocoding: GeocodingService,
     private readonly creditEconomy: CreditEconomyService,
+    private readonly serviceVersions: ServiceVersionsService,
   ) {}
 
   /**
@@ -1022,7 +1025,6 @@ export class PlatformController {
     return { sentTo: user.email };
   }
 
-  /** גרסה מותקנת + זמינות סוכן העדכון — למסך הפלטפורמה. */
   /**
    * בדיקת חיבור לקארדקום.
    *
@@ -1038,12 +1040,28 @@ export class PlatformController {
     return this.cardcom.testConnection();
   }
 
+  /**
+   * גרסה מותקנת + זמינות סוכן העדכון — למסך הפלטפורמה.
+   *
+   * `services` הוא התיקון למה שקרה בפועל: המסך הציג `version` יחיד,
+   * של ה-API, בזמן ששלושה קונטיינרים רצים. עדכון שהצליח בשניים
+   * מתוכם נראה כמו הצלחה מלאה — "גרסה מותקנת bfd8d0a" מול משתמש
+   * שלא רואה שום שינוי. `version` נשאר כפי שהיה, לתאימות.
+   *
+   * ה-web חסר כאן במתכוון: את הגרסה שלו שואל הדפדפן ישירות
+   * מהקונטיינר ששירת אותו (`/version`), וזו המדידה הכנה מבין השתיים.
+   */
   @Get("system")
-  async systemInfo(): Promise<{ version: string; updateAvailable: boolean }> {
+  async systemInfo(): Promise<{
+    version: string;
+    updateAvailable: boolean;
+    services: ServiceVersion[];
+  }> {
     const env = loadEnv();
     return {
       version: env.APP_VERSION,
       updateAvailable: env.UPDATER_URL !== undefined && env.UPDATE_SECRET !== undefined,
+      services: await this.serviceVersions.collect(),
     };
   }
 

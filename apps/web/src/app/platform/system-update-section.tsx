@@ -2,11 +2,42 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
+import {
+  SERVICE_LABEL,
+  shortVersion,
+  versionAlignment,
+  type ServiceKey,
+  type ServiceVersion,
+} from "@metavchim/shared";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 
 interface SystemInfo {
   version: string;
   updateAvailable: boolean;
+  /** אופציונלי: שרת ותיק שטרם עודכן אינו מחזיר את השדה. */
+  services?: ServiceVersion[];
+}
+
+/**
+ * גרסת קונטיינר ה-web, מהקונטיינר עצמו.
+ *
+ * `fetch` רגיל ולא `apiGet`: הכתובת חייבת להיות **המקור של הדף**
+ * ולא כתובת ה-API. זו כל הנקודה — אנחנו שואלים את השרת ששלח את
+ * הדף הזה איזו גרסה הוא.
+ */
+async function webVersion(): Promise<string | null> {
+  try {
+    const res = await fetch("/version", { cache: "no-store" });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    if (typeof body === "object" && body !== null && "version" in body) {
+      const value = (body as { version: unknown }).version;
+      return typeof value === "string" ? value : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -18,6 +49,7 @@ interface SystemInfo {
  */
 export function SystemUpdateSection() {
   const [info, setInfo] = useState<SystemInfo | null>(null);
+  const [web, setWeb] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [agentBusy, setAgentBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -27,9 +59,28 @@ export function SystemUpdateSection() {
     apiGet<SystemInfo>("/platform/system")
       .then(setInfo)
       .catch(() => undefined);
+    void webVersion().then(setWeb);
   }, []);
 
   if (!info) return null;
+
+  /*
+   * ה-web תמיד ברשימה, גם כשלא ענה — שירות שנעלם מהטבלה נראה כאילו
+   * אינו קיים, וזה בדיוק ההפך מהמידע שצריך למסור.
+   */
+  const ORDER: ServiceKey[] = ["api", "web", "workers"];
+  const services: ServiceVersion[] = [
+    ...(info.services ?? [{ key: "api", version: info.version }]),
+    { key: "web", version: web },
+  ];
+  services.sort((a, b) => ORDER.indexOf(a.key) - ORDER.indexOf(b.key));
+  const alignment = versionAlignment(services);
+  const stateColor =
+    alignment.state === "mismatch"
+      ? "var(--color-danger)"
+      : alignment.state === "aligned"
+        ? "var(--color-success)"
+        : "var(--color-text-muted)";
 
   function update(): void {
     if (
@@ -100,8 +151,32 @@ export function SystemUpdateSection() {
         className="rounded-xl border p-4"
         style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
       >
-        <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-          גרסה מותקנת: <code dir="ltr">{info.version.slice(0, 12)}</code>
+        {/*
+          שלוש שורות ולא מספר אחד. שירות שאינו מדווח מקבל שורה משלו
+          עם "אינו מדווח" — היעדר מידע נאמר, ולא מוסתר מאחורי הגרסה
+          של שירות אחר.
+        */}
+        <table className="w-full text-sm">
+          <caption className="mv-visually-hidden">גרסה מותקנת בכל שירות</caption>
+          <tbody>
+            {services.map((s) => (
+              <tr key={s.key}>
+                <th scope="row" className="py-0.5 pe-3 text-start font-normal" style={{ color: "var(--color-text-muted)" }}>
+                  {SERVICE_LABEL[s.key]}
+                </th>
+                <td className="py-0.5">
+                  {s.version === null ? (
+                    <span style={{ color: "var(--color-text-muted)" }}>אינו מדווח</span>
+                  ) : (
+                    <code dir="ltr">{shortVersion(s.version)}</code>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="mt-2 text-sm" style={{ color: stateColor }} aria-live="polite">
+          {alignment.message}
         </p>
         {info.updateAvailable ? (
           <div className="mt-3 flex flex-wrap gap-2">

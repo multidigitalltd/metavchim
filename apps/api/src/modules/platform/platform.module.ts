@@ -4,6 +4,7 @@ import { AuthModule } from "../auth/auth.module";
 import { AccountDeletionService } from "../settings/account-deletion.service";
 import { BackupsService } from "./backups.service";
 import { PlatformController } from "./platform.controller";
+import { ServiceVersionsService } from "./service-versions.service";
 
 /*
  * מחיקת משרד מהפלטפורמה מריצה את אותו שירות שמריצה מחיקה עצמית של
@@ -13,6 +14,6 @@ import { PlatformController } from "./platform.controller";
 @Module({
   imports: [AuthModule],
   controllers: [PlatformController],
-  providers: [BackupsService, CardcomService, AccountDeletionService],
+  providers: [BackupsService, CardcomService, AccountDeletionService, ServiceVersionsService],
 })
 export class PlatformModule {}
