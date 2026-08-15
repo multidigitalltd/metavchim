@@ -595,6 +595,16 @@ model SharedLead {
   /// priceCredits פחות העמודה הזו (packages/shared/logic/lead-referral.ts).
   /// 0 בהפניות שקדמו לעמלה — היסטורית זה נכון.
   platformFeeCredits Int  @default(0) @map("platform_fee_credits")
+  /// credits | cash — מה המשרד המפנה בחר לקבל, ברגע הפרסום.
+  /// הקונה משלם אותו דבר בשני המסלולים; ההפרש הוא בין מה שהמוכר
+  /// מקבל לבין מה שהפלטפורמה שומרת (packages/shared — credit-economy).
+  payoutMode    String    @default("credits") @map("payout_mode") @db.VarChar(10)
+  /// **התמורה עצמה**, מצולמת ברגע הפרסום — ולא נגזרת מחדש בקליטה.
+  /// עד כה הקליטה חישבה priceCredits פחות העמלה, ולכן הבונוס על
+  /// בחירת קרדיטים חושב בפרסום ומעולם לא שולם. 0 במסלול הכסף.
+  payoutCredits Int       @default(0) @map("payout_credits")
+  /// אותו דבר במסלול הכסף, באגורות. 0 במסלול הקרדיטים.
+  payoutAgorot  Int       @default(0) @map("payout_agorot")
   status        String    @default("active") @db.VarChar(20) // active | sold | withdrawn
   buyerTenantId String?   @map("buyer_tenant_id") @db.Char(26)
   soldAt        DateTime? @map("sold_at")
@@ -663,6 +673,58 @@ model CreditLedger {
 
   @@index([tenantId, createdAt])
   @@map("credit_ledger")
+}
+
+/// הספר הכספי — Append-Only, אגורות. היתרה נגזרת מהסכום.
+///
+/// ספר נפרד מ-credit_ledger: קרדיט הוא אמצעי תשלום פנימי, ושקל הוא
+/// התחייבות של הפלטפורמה כלפי המשרד. ערבובם באותו מספר היה הופך כל
+/// בונוס בקרדיטים לחוב כספי.
+model PayoutLedger {
+  id           String   @id @db.Char(26)
+  tenantId     String   @map("tenant_id") @db.Char(26)
+  /// lead_sale | withdrawal | withdrawal_reversed
+  kind         String   @db.VarChar(30)
+  /// חיובי = זיכוי למשרד, שלילי = משיכה
+  amountAgorot Int      @map("amount_agorot")
+  refId        String?  @map("ref_id") @db.Char(26)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@map("payout_ledger")
+}
+
+/// בקשת משיכה של יתרה כספית.
+///
+/// פרטי הבנק מוצפנים באותו מפתח אפליקטיבי כמו PII של לקוחות, ויושבים
+/// על **הבקשה** ולא על המשרד: חשבון שמשתנה בין בקשות הוא מידע
+/// היסטורי שחייב להישמר — אחרי העברה שיצאה לחשבון הלא נכון, השאלה
+/// היחידה שחשובה היא לאן בדיוק שלחנו אז.
+model PayoutRequest {
+  id                     String    @id @db.Char(26)
+  tenantId               String    @map("tenant_id") @db.Char(26)
+  amountAgorot           Int       @map("amount_agorot")
+  /// pending | approved | paid | rejected
+  status                 String    @default("pending") @db.VarChar(20)
+  holderNameEncrypted    String    @map("holder_name_encrypted")
+  bankCodeEncrypted      String    @map("bank_code_encrypted")
+  branchEncrypted        String    @map("branch_encrypted")
+  accountNumberEncrypted String    @map("account_number_encrypted")
+  businessIdEncrypted    String    @map("business_id_encrypted")
+  note                   String?   @db.VarChar(300)
+  requestedBy            String    @map("requested_by") @db.Char(26)
+  decidedAt              DateTime? @map("decided_at")
+  decidedBy              String?   @map("decided_by") @db.Char(26)
+  decisionNote           String?   @map("decision_note") @db.VarChar(300)
+  /// אסמכתת ההעברה בבנק. בלעדיה "שולם" הוא אמירה בלי גיבוי.
+  reference              String?   @db.VarChar(120)
+  paidAt                 DateTime? @map("paid_at")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, createdAt])
+  @@index([status, createdAt])
+  @@map("payout_requests")
 }
 
 // כל הודעה יוצאת/נכנסת בכל ערוץ — הבסיס ל-Messaging Hub (docs/03 §3).

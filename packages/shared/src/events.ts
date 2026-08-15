@@ -110,12 +110,16 @@ export const DomainEvents = {
     /** מה שהמשרד הקולט שילם */
     priceCredits: z.number().int().positive(),
     /**
-     * הזיכוי בפועל, בניכוי עמלת הפלטפורמה.
+     * הזיכוי בפועל בקרדיטים, כפי שצולם ברגע הפרסום. 0 במסלול הכסף.
      *
      * אופציונלי בכוונה: אירועים שכבר ממתינים ב-outbox מלפני העמלה
-     * אינם נושאים אותו, ואימות נוקשה היה מפיל אותם בעיבוד.
+     * אינם נושאים אותו, ואימות נוקשה היה מפיל אותם בעיבוד. וגם
+     * `nonnegative` ולא `positive` — 0 הוא ערך חוקי כאן, וזה בדיוק
+     * מה שאירוע של מסלול הכסף נושא.
      */
-    payoutCredits: z.number().int().positive().optional(),
+    payoutCredits: z.number().int().nonnegative().optional(),
+    /** התמורה באגורות במסלול הכסף. חסר או 0 במסלול הקרדיטים. */
+    payoutAgorot: z.number().int().nonnegative().optional(),
   }),
   /** אובייקט אחסון שמחיקתו נכשלה — ניסיון חוזר עמיד דרך תור low. */
   "storage.cleanup_object": z.object({

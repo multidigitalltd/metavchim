@@ -11,10 +11,16 @@ import {
   MAX_REFERRAL_PRICE,
   MAX_REFERRAL_REASON_DETAIL,
   MIN_REFERRAL_PRICE,
+  PAYOUT_MODE_LABEL,
   REFERRAL_REASONS,
+  DEFAULT_CREDIT_ECONOMY,
   referralPayout,
   referralPriceRejectionReason,
   referralReasonRejectionReason,
+  settleReferral,
+  shekels,
+  type CreditEconomy,
+  type PayoutMode,
 } from "@metavchim/shared";
 import { apiDelete, apiGet, apiPost, apiPatch, ApiError } from "@/lib/api";
 import { formatDate, shekelsToAgorot, waMeUrl } from "@/lib/format";
@@ -83,7 +89,9 @@ interface MySharedLead {
   status: string;
   priceCredits: number;
   platformFeeCredits: number;
+  payoutMode?: PayoutMode;
   payoutCredits: number;
+  payoutAgorot?: number;
   mine: boolean;
   originLeadId?: string;
   myRating?: { score: number; comment?: string };
@@ -93,6 +101,13 @@ interface MySharedLead {
 interface ReferralTerms {
   suggestedPriceCredits: number;
   platformFeePercent: number;
+  /** הכלכלה מהשרת — לתצוגה מקדימה של שני המסלולים. */
+  economy?: {
+    creditBonusPercent: number;
+    feeCreditsPercent: number;
+    feeCashPercent: number;
+    unitPriceAgorot: number;
+  };
 }
 
 /**
@@ -106,6 +121,11 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
   const [shared, setShared] = useState<MySharedLead | null | undefined>(undefined);
   const [terms, setTerms] = useState<ReferralTerms | null>(null);
   const [price, setPrice] = useState<string>("");
+  /*
+   * ברירת המחדל היא קרדיטים, ולא כי היא "הראשונה": היא המסלול שבו
+   * הערך נשאר במערכת ולכן גם מזכה בבונוס. מי שרוצה כסף בוחר במפורש.
+   */
+  const [payoutMode, setPayoutMode] = useState<PayoutMode>("credits");
   const [reason, setReason] = useState<string>("");
   const [reasonDetail, setReasonDetail] = useState("");
   const [note, setNote] = useState("");
@@ -145,6 +165,26 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
    * וזה בדיוק מה שהורס אמון בלוח ההפניות. עד שהתנאים נטענים אין
    * תצוגה מקדימה: מוטב שקט מאשר מספר שאולי שגוי.
    */
+  /*
+   * שני המסלולים מחושבים יחד ומוצגים זה לצד זה. הבחירה כאן היא
+   * כספית וסופית — היא נצרבת על ההפניה ברגע הפרסום — ואי אפשר
+   * לבחור נכון בלי לראות את שתי התוצאות באותו רגע.
+   *
+   * `settleReferral` היא אותה פונקציה שהשרת מריץ, עם המספרים
+   * שהשרת שלח. כשהתנאים טרם נטענו אין תצוגה מקדימה: מוטב שקט
+   * מאשר מספר שאולי שגוי.
+   */
+  const economy: CreditEconomy | null =
+    terms?.economy === undefined
+      ? null
+      : { ...DEFAULT_CREDIT_ECONOMY, ...terms.economy, feeCreditsPercent: terms.economy.feeCreditsPercent };
+  const settlement =
+    priceValid && economy !== null
+      ? {
+          credits: settleReferral(priceNumber, "credits", economy),
+          cash: settleReferral(priceNumber, "cash", economy),
+        }
+      : null;
   const preview =
     priceValid && terms !== null ? referralPayout(priceNumber, terms.platformFeePercent) : null;
 
@@ -169,6 +209,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
         ...(reasonDetail.trim() ? { reasonDetail: reasonDetail.trim() } : {}),
         ...(note.trim() ? { note: note.trim() } : {}),
         ...(city.trim() ? { city: city.trim() } : {}),
+        payoutMode,
       });
       setShared(row);
     } catch (err: unknown) {
@@ -200,12 +241,25 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
         className="mb-4 rounded-xl border p-4"
         style={{ borderColor: "var(--color-success)" }}
       >
+        {/*
+          הניסוח לפי המסלול שנבחר בפרסום. הודעה על "קרדיטים שנוספו"
+          למי שבחר כסף שולחת אותו לחפש אותם במקום הלא נכון.
+        */}
         <p className="m-0 font-medium" style={{ color: "var(--color-success)" }}>
-          <IconCoins s={15} /> ההפניה נקלטה במשרד אחר — {shared.payoutCredits} קרדיטים נוספו
-          ליתרת המשרד
-          {shared.platformFeeCredits > 0
-            ? ` (${shared.priceCredits} בניכוי ${shared.platformFeeCredits} עמלת פלטפורמה)`
-            : ""}
+          <IconCoins s={15} /> ההפניה נקלטה במשרד אחר —{" "}
+          {shared.payoutMode === "cash" ? (
+            <>
+              {shekels(shared.payoutAgorot ?? 0)} ₪ נוספו ליתרה הכספית של המשרד, וניתן
+              למשוך אותם ממסך שיתופי הפעולה
+            </>
+          ) : (
+            <>
+              {shared.payoutCredits} קרדיטים נוספו ליתרת המשרד
+              {shared.platformFeeCredits > 0
+                ? ` (${shared.priceCredits} בניכוי ${shared.platformFeeCredits} עמלת פלטפורמה)`
+                : ""}
+            </>
+          )}
           .
         </p>
         {/* המשרד שקלט מדרג את ההפניה, ואתם מדרגים את הלקוח שהעברתם */}
@@ -225,7 +279,11 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
         <p className="mb-2 font-medium">
           <IconHandshake s={15} /> הלקוח מופנה בלוח ההפניות תמורת {shared.priceCredits} קרדיטים
           {shared.platformFeeCredits > 0
-            ? ` — מתוכם ${shared.platformFeeCredits} עמלת פלטפורמה, ${shared.payoutCredits} אליכם`
+            ? ` — מתוכם ${shared.platformFeeCredits} עמלת פלטפורמה, ו${
+                shared.payoutMode === "cash"
+                  ? `-${shekels(shared.payoutAgorot ?? 0)} ₪ אליכם`
+                  : `-${shared.payoutCredits} קרדיטים אליכם`
+              }`
             : ""}
           .
         </p>
@@ -310,7 +368,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
             הפירוק מוצג לפני הפרסום ולא אחרי הקליטה. עמלה שמתגלה
             בדיעבד היא בדיוק מה שהורס אמון בלוח.
           */}
-          {preview ? (
+          {settlement === null && preview ? (
             <span className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
               המשרד הקולט משלם {preview.priceCredits} · עמלת פלטפורמה{" "}
               {terms ? `${terms.platformFeePercent}% = ` : ""}
@@ -318,6 +376,59 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
             </span>
           ) : null}
         </label>
+
+        {/*
+          בחירת התמורה. המשרד הקולט משלם אותו דבר בשני המסלולים —
+          ההפרש הוא בין מה שנשאר אצל הפלטפורמה למה שמגיע אליכם,
+          ובאיזה מטבע. הבחירה נצרבת ואינה ניתנת לשינוי אחרי הפרסום.
+        */}
+        {settlement !== null ? (
+          <fieldset className="m-0 border-0 p-0">
+            <legend className="mb-1 text-sm">התמורה שתקבלו</legend>
+            <div className="flex flex-col gap-1.5 sm:flex-row">
+              {(["credits", "cash"] as PayoutMode[]).map((mode) => (
+                <label
+                  key={mode}
+                  className="flex flex-1 cursor-pointer items-start gap-2 rounded-lg border p-2.5"
+                  style={{
+                    borderColor:
+                      payoutMode === mode ? "var(--color-primary)" : "var(--color-border)",
+                    background: "var(--color-bg)",
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="payoutMode"
+                    checked={payoutMode === mode}
+                    onChange={() => setPayoutMode(mode)}
+                    className="mt-0.5"
+                  />
+                  <span className="text-[12.5px]">
+                    <b>{PAYOUT_MODE_LABEL[mode]}</b>
+                    <br />
+                    {mode === "credits" ? (
+                      <>
+                        <b>{settlement.credits.payoutCredits} קרדיטים</b> ליתרה שלכם
+                        {economy !== null && economy.creditBonusPercent > 0 ? (
+                          <> — כולל בונוס {economy.creditBonusPercent}%</>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        <b>{shekels(settlement.cash.payoutAgorot)} ₪</b> ליתרה הכספית, למשיכה
+                        לחשבון הבנק
+                      </>
+                    )}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <p className="m-0 mt-1 text-[11.5px]" style={{ color: "var(--color-text-muted)" }}>
+              המשרד הקולט משלם {priceNumber} קרדיטים בשני המסלולים. הבחירה נקבעת עכשיו
+              ואי אפשר לשנותה אחרי הפרסום.
+            </p>
+          </fieldset>
+        ) : null}
 
         <label className="flex flex-col gap-1 text-sm">
           <span>עיר (לתצוגה בלוח)</span>

@@ -86,6 +86,25 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   /**
+   * שולחן המשיכות — קריאה וכתיבה חוצות-דיירים על `payout_ledger`
+   * ו-`payout_requests` **בלבד**.
+   *
+   * אותו דפוס כמו `withSupportDesk` ומאותה סיבה: בקשת משיכה שאי אפשר
+   * לאשר אינה בקשה. הגבול נשמר בשלוש שכבות — הפוליסה קיימת רק על שתי
+   * הטבלאות האלה, הדגל נדלק רק כאן, וכל קורא חסום מאחורי
+   * PlatformAdminGuard.
+   *
+   * כאן יושבים פרטי חשבון בנק, ולכן ההקפדה חריפה במיוחד: אין לגזור
+   * מזהה דייר מהשורות האלה ולהמשיך איתו לטבלאות אחרות.
+   */
+  async withPayoutDesk<T>(fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.payout_desk', 'on', true)`;
+      return fn(tx);
+    });
+  }
+
+  /**
    * גישה ציבורית לפי טוקן הצעה (דף ההצעה ללקוח קצה): פוליסת RLS ייעודית
    * חושפת אך ורק את שורת ההצעה שהטוקן שלה הוצג — בלי הקשר דייר,
    * בלי גישה לשום טבלה אחרת.

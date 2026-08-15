@@ -7,6 +7,8 @@ import {
   describeCommissionSplit,
   describeReferralRating,
   referralReasonLabel,
+  shekels,
+  type PayoutMode,
 } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
@@ -20,6 +22,7 @@ import { IconDiamond, IconHandshake, IconStar } from "../icons";
 import { CollaborationGuide, CommissionPanel, PrivacyPanel, ReferralRulesPanel } from "./guide";
 import { ReferralRating, type ReferralRatingValue } from "./referral-rating";
 import { BuyCredits } from "./buy-credits";
+import { PayoutPanel } from "./payout-panel";
 
 /**
  * רשת שיתופי הפעולה (אפיון §11-12).
@@ -120,7 +123,9 @@ interface SharedLeadRow {
   reasonDetail?: string;
   priceCredits: number;
   platformFeeCredits: number;
+  payoutMode?: PayoutMode;
   payoutCredits: number;
+  payoutAgorot?: number;
   status: string;
   mine: boolean;
   /** התפקיד שלי מול ההפניה — קובע מה מוצג ומה אפשר לעשות */
@@ -149,6 +154,21 @@ interface CreditExpiry {
   months: number;
   nextAmount?: number;
   nextAt?: string;
+}
+
+/**
+ * מה המשרד המפנה מקבל, בניסוח של המסלול שנבחר.
+ *
+ * שורות שפורסמו לפני מסלול הכסף אינן נושאות `payoutMode` — הן
+ * קרדיטים, וזה מה שהיו אז.
+ */
+function referralPayoutLabel(lead: {
+  payoutMode?: PayoutMode;
+  payoutCredits: number;
+  payoutAgorot?: number;
+}): string {
+  if (lead.payoutMode === "cash") return `${shekels(lead.payoutAgorot ?? 0)} ₪`;
+  return `${lead.payoutCredits} קרדיטים`;
 }
 
 const FEATURE_LABELS: Record<string, string> = {
@@ -501,6 +521,12 @@ export default function CollaborationPage() {
               packages={pricing.packages}
             />
           ) : null}
+          {/*
+            היתרה הכספית לצד יתרת הקרדיטים, ולא במסך אחר: אלה שתי
+            תוצאות של אותה פעולה — הפניה שנמכרה — ומי שמחפש את
+            הכסף שלו מחפש אותו כאן.
+          */}
+          <PayoutPanel />
           {leadsFailed ? (
             <LoadError message="לא הצלחנו לטעון את לוח ההפניות" onRetry={load} />
           ) : null}
@@ -526,14 +552,19 @@ export default function CollaborationPage() {
                       </span>
                       {lead.status === "sold" ? (
                         <span className="font-medium" style={{ color: "var(--color-success)" }}>
-                          ✓ נקלטה — {lead.payoutCredits} קרדיטים נוספו ליתרה
+                          {/*
+                            הניסוח לפי המסלול שנבחר. "0 קרדיטים נוספו
+                            ליתרה" על הפניה שנמכרה בכסף הוא בדיוק
+                            ההפך ממה שקרה.
+                          */}
+                          ✓ נקלטה — {referralPayoutLabel(lead)} נוספו ליתרה
                         </span>
                       ) : lead.status === "withdrawn" ? (
                         <span style={{ color: "var(--color-text-muted)" }}>הוסרה מהלוח</span>
                       ) : (
                         <>
                           <span className="rounded-full px-2 py-0.5 text-sm" style={{ background: "#f7efdd", color: "#7a5c1f" }}>
-                            {lead.priceCredits} קרדיטים · אליכם {lead.payoutCredits}
+                            {lead.priceCredits} קרדיטים · אליכם {referralPayoutLabel(lead)}
                           </span>
                           <Button variant="ghost" onClick={() => void withdrawLead(lead.id)}>
                             הסר מהלוח
