@@ -44,6 +44,15 @@ function LoginForm() {
       .catch(() => setGoogleEnabled(false));
   }, []);
 
+  /*
+   * הטופס נושא `method="post"` אף שהוא נשלח כאן ב-fetch.
+   *
+   * זו הגנה על החלון שבין ציור הדף לבין ההידרציה: לחיצה על
+   * "התחברות" לפני ש-React התחבר לטופס מפעילה שליחה **מקורית** של
+   * הדפדפן, וברירת המחדל שלה היא GET — כלומר הסיסמה נכתבת בשורת
+   * הכתובת, נשמרת בהיסטוריה וגם ביומן השרת. עם POST אותה לחיצה
+   * אינה מדליפה דבר. אותו טיפול בכל טופס שיש בו שדה סיסמה.
+   */
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -109,7 +118,7 @@ function LoginForm() {
       ) : null}
 
       {otpToken ? (
-        <form onSubmit={onVerify} noValidate aria-describedby={error ? "login-error" : undefined}>
+        <form method="post" onSubmit={onVerify} noValidate aria-describedby={error ? "login-error" : undefined}>
           <p role="status" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
             <IconMail s={15} /> שלחנו קוד בן 6 ספרות לאימייל שלך — הקלד אותו כאן. הקוד תקף ל-10 דקות.
           </p>
@@ -163,7 +172,7 @@ function LoginForm() {
           </Button>
         </form>
       ) : (
-        <form onSubmit={onSubmit} noValidate aria-describedby={error ? "login-error" : undefined}>
+        <form method="post" onSubmit={onSubmit} noValidate aria-describedby={error ? "login-error" : undefined}>
           {googleEnabled ? (
             <>
               {/* ניווט מלא ולא fetch: זרימת OAuth דורשת הפניה של הדפדפן */}

@@ -347,6 +347,11 @@ model Buyer {
   roomsMin           Decimal?  @map("rooms_min") @db.Decimal(4, 1)
   roomsMax           Decimal?  @map("rooms_max") @db.Decimal(4, 1)
   requirements       Json      @default("{}")
+  /// האם הקונה סימן אזורי חיפוש על המפה. **נגזר מ-`requirements`**
+  /// ונכתב יחד איתו — עמודה ולא שאילתת JSON, כדי שהסינון הגס
+  /// יוכל לצרף אותו למועמדים בלי לפתוח את ה-JSON בכל שורה.
+  /// אינדקס חלקי במיגרציה 20260815200000.
+  hasSearchAreas     Boolean   @default(false) @map("has_search_areas")
   financing          String    @default("unknown") @db.VarChar(20)
   maturity           String    @default("interested") @db.VarChar(20)
   maturityOverridden Boolean   @default(false) @map("maturity_overridden")
@@ -479,6 +484,12 @@ model Match {
   breakdown   Json
   explanation String   @db.VarChar(1000)
   status      String   @default("suggested") @db.VarChar(20)
+  /// למה הסוכן דחה — רשימה סגורה (packages/shared — match-feedback.ts).
+  /// ריק בהתאמות שלא נדחו, ובדחיות שקדמו לשדה.
+  dismissReason String? @map("dismiss_reason") @db.VarChar(20)
+  dismissNote   String? @map("dismiss_note") @db.VarChar(200)
+  dismissedAt   DateTime? @map("dismissed_at")
+  dismissedBy   String? @map("dismissed_by") @db.Char(26)
   computedAt  DateTime @map("computed_at")
 
   @@unique([tenantId, propertyId, buyerId])

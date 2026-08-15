@@ -217,7 +217,7 @@ export default function ProfilePage() {
             ) : null}
 
             {profile ? (
-              <form onSubmit={(e) => void saveDetails(e)}>
+              <form method="post" onSubmit={(e) => void saveDetails(e)}>
                 <div className="mb-3">
                   <label htmlFor="pf-name" className="mb-1 block text-sm font-semibold">שם מלא</label>
                   <input id="pf-name" name="name" defaultValue={profile.name} required minLength={2} maxLength={120} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
@@ -270,7 +270,7 @@ export default function ProfilePage() {
             <h2 id="password-heading" className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>
               החלפת סיסמה
             </h2>
-            <form onSubmit={(e) => void changePassword(e)} className="flex max-w-sm flex-col gap-3">
+            <form method="post" onSubmit={(e) => void changePassword(e)} className="flex max-w-sm flex-col gap-3">
               <label>
                 <span className="mb-1 block text-sm font-semibold">הסיסמה הנוכחית</span>
                 <input name="currentPassword" type="password" required autoComplete="current-password" className="mv-field" />

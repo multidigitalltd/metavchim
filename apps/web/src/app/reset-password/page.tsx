@@ -48,7 +48,7 @@ function ResetForm() {
   }
 
   return (
-    <form onSubmit={onSubmit} noValidate>
+    <form method="post" onSubmit={onSubmit} noValidate>
       {error ? (
         <p
           role="alert"
