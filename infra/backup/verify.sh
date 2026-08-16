@@ -55,7 +55,43 @@ EOF
   mv "${STATE}.tmp" "$STATE"
 }
 
+# הודעת שגיאה של pg_restore עשויה להכיל גרשיים ולוכסנים; בלי בריחה
+# הם שוברים את ה-JSON, והמסך היה מציג "מעולם לא רץ" על תרגיל שנכשל.
+json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr -d '\n\r\t'; }
+
 cleanup() { psql_admin "DROP DATABASE IF EXISTS \"${SCRATCH}\"" > /dev/null 2>&1; }
+
+# ------------------------------------------------------------
+# נעילה בין התרגיל המתוזמן לתרגיל לפי דרישה.
+#
+# המתוזמן רץ בתוך קונטיינר הגיבוי, והידני מגיע מסוכן העדכון —
+# שני תהליכים שונים שאינם רואים זה את זה, ושחולקים **מסד בדיקה
+# בשם קבוע וקובץ מצב אחד**. בלי נעילה, אחד מוחק את המסד שהשני
+# משחזר אליו, ושתי כתיבות המצב מתחרות: התוצאה היא כשל מדומה —
+# או גרוע ממנו, ✓ שנכתב על ריצה שנקטעה (ביקורת Codex).
+#
+# `mkdir` ולא קובץ: הוא אטומי בכל מערכת קבצים POSIX, ואינו דורש
+# `flock` שאינו מובטח בתמונת alpine.
+# ------------------------------------------------------------
+LOCK="${BACKUP_DIR}/.verify.lock"
+LOCK_STALE_MINUTES="${VERIFY_LOCK_STALE_MINUTES:-45}"
+
+acquire_lock() {
+  if mkdir "$LOCK" 2>/dev/null; then
+    return 0
+  fi
+  # נעילה שנשארה מתהליך שנהרג (קונטיינר שהופעל מחדש באמצע תרגיל)
+  # אינה חוסמת לנצח — אבל הסף ארוך מזמן ריצה סביר, כדי שלא נשחרר
+  # נעילה של תרגיל שרק לוקח זמן על מסד גדול.
+  if [ -n "$(find "$LOCK" -maxdepth 0 -mmin "+${LOCK_STALE_MINUTES}" 2>/dev/null)" ]; then
+    echo "[verify] נעילה ישנה מ-${LOCK_STALE_MINUTES} דקות — משוחררת" >&2
+    rmdir "$LOCK" 2>/dev/null
+    mkdir "$LOCK" 2>/dev/null && return 0
+  fi
+  return 1
+}
+
+release_lock() { rmdir "$LOCK" 2>/dev/null; }
 
 verify_once() {
   start=$(date +%s)
@@ -93,7 +129,9 @@ verify_once() {
   restore_code=$?
 
   tables=$(psql_scratch "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")
+  tables_code=$?
   tenants=$(psql_scratch "SELECT count(*) FROM tenants")
+  tenants_code=$?
   cleanup
 
   elapsed=$((($(date +%s) - start) * 1000))
@@ -101,18 +139,44 @@ verify_once() {
   tenants="${tenants:-0}"
 
   # ------------------------------------------------------------
-  # מה נחשב הצלחה.
+  # מה נחשב הצלחה — **שלושה תנאים, וכולם חייבים להתקיים.**
   #
-  # קוד היציאה של pg_restore לבדו אינו מספיק: הוא מחזיר שגיאה גם על
-  # אזהרות שוליות, ומחזיר 0 על שחזור שיצר סכמה ריקה. לכן הקריטריון
-  # הוא **מה שנמצא במסד אחרי השחזור** — טבלאות קיימות, וטבלת
-  # המשרדים נקראת. מסד ששוחזר ריק הוא כשל, גם אם כל הפקודות עברו.
+  # 1. `pg_restore` הסתיים בלי שגיאה.
+  # 2. הסכמה מלאה — לא מסד ריק.
+  # 3. שאילתת המשרדים באמת רצה, ולא רק החזירה מחרוזת ריקה.
+  #
+  # הגרסה הראשונה בדקה רק את (2), מתוך מחשבה שקוד היציאה "רועש
+  # מדי". זו הייתה טעות שיוצרת בדיוק את הכשל שהתרגיל נועד למנוע:
+  # ארכיון שתוכן העניינים שלו קריא אך רשומת נתונים בתוכו פגומה
+  # משאיר סכמה מלאה **ומחזיר קוד שגיאה** — כלומר דיווח ✓ ירוק על
+  # גיבוי ששוחזר חלקית (ביקורת Codex).
+  #
+  # התיקון גם הפוך בכיוונו: תרגיל אדום שגוי עולה בירור, ותרגיל
+  # ירוק שגוי עולה את הנתונים. כשיש ספק — נכשלים.
+  #
+  # `tenants_code` נבדק בנפרד מהערך: `psql` שנכשל מחזיר מחרוזת
+  # ריקה, שהופכת ל-0 ועוברת כאילו פשוט אין משרדים.
   # ------------------------------------------------------------
+  if [ "$restore_code" -ne 0 ]; then
+    detail=$(echo "$restore_log" | grep -i "error" | head -1 | cut -c1-160)
+    msg="pg_restore סיים עם שגיאה — ${detail:-ראו את הלוג של שירות הגיבוי}"
+    write_state "failed" "\"$name\"" "$tables" "$tenants" "$elapsed" "$(json_escape "$msg")"
+    echo "[verify] ✗ ${name}: ${msg}" >&2
+    echo "$restore_log" | tail -5 >&2
+    return 1
+  fi
+
   if [ "$tables" -lt 10 ]; then
     msg="השחזור הסתיים עם ${tables} טבלאות בלבד — הגיבוי אינו שלם"
-    write_state "failed" "\"$name\"" "$tables" "$tenants" "$elapsed" "$msg"
+    write_state "failed" "\"$name\"" "$tables" "$tenants" "$elapsed" "$(json_escape "$msg")"
     echo "[verify] ✗ ${name}: ${msg}" >&2
-    [ "$restore_code" -ne 0 ] && echo "$restore_log" | tail -5 >&2
+    return 1
+  fi
+
+  if [ "$tables_code" -ne 0 ] || [ "$tenants_code" -ne 0 ]; then
+    msg="המסד המשוחזר אינו נשאל — הסכמה קיימת אך השאילתה נכשלה"
+    write_state "failed" "\"$name\"" "$tables" "$tenants" "$elapsed" "$(json_escape "$msg")"
+    echo "[verify] ✗ ${name}: ${msg}" >&2
     return 1
   fi
 
@@ -121,9 +185,23 @@ verify_once() {
   return 0
 }
 
-trap cleanup EXIT
-
 if [ "${1:-}" = "once" ] || [ -z "${1:-}" ]; then
+  # תרגיל שכבר רץ אינו שגיאה: הבקרה מתקיימת, פשוט לא פעמיים. יציאה
+  # ב-0 כדי שלולאת הגיבוי לא תדווח על כשל שלא היה.
+  if ! acquire_lock; then
+    echo "[verify] תרגיל שחזור כבר רץ — מדלג"
+    exit 0
+  fi
+
+  # ------------------------------------------------------------
+  # ה-trap נרשם **רק אחרי** שהנעילה הושגה, וזה לא פרט טכני.
+  #
+  # כשהוא נרשם למעלה, התהליך שהפסיד בנעילה יוצא — ו-`cleanup` שלו
+  # מוחק את מסד הבדיקה של המנצח, ו-`release_lock` משחרר נעילה שאינה
+  # שלו. שתי הריצות נכשלות במקום אחת שמצליחה. התגלה בבדיקת
+  # מקביליות אחרי הוספת הנעילה עצמה.
+  # ------------------------------------------------------------
+  trap 'cleanup; release_lock' EXIT
   verify_once
   exit $?
 fi
