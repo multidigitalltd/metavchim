@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { ConfirmDialog } from "./confirm-dialog";
 import { IconDoc, IconEdit, IconWarning } from "./icons";
 
 /**
@@ -68,6 +69,15 @@ export function AgreementsPanel({
   const [link, setLink] = useState<string | null>(null);
   /** ההסכם שנמצא כרגע בשליחה — כדי לא לנטרל את כל השורות בבת אחת */
   const [sending, setSending] = useState<string | null>(null);
+  /*
+   * שלושת החלונות שמקיפים כל שליחה: מה נשלח (תצוגה מקדימה), האם
+   * לשלוח (אישור), ומה קרה (ביצוע). שליחת הסכם היא הפעולה היחידה
+   * במערכת שיוצאת אל לקוח אמיתי בשם המשרד, ועד כה היא קרתה
+   * בלחיצה אחת בלי אף אחד מהשלושה.
+   */
+  const [preview, setPreview] = useState<{ id: string; title: string; body: string } | null>(null);
+  const [askSend, setAskSend] = useState<{ id: string; channel: "whatsapp" | "email" } | null>(null);
+  const [done, setDone] = useState<string | null>(null);
   const [sentNote, setSentNote] = useState<string | null>(null);
   const [unfilled, setUnfilled] = useState<string[]>([]);
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -150,6 +160,24 @@ export function AgreementsPanel({
   }
 
   /**
+   * תצוגה מקדימה — **מה שהלקוח יראה**, לפני שהוא יראה אותו.
+   *
+   * הנתיב `document` הוא אותו מקור שממנו נבנה המסך של החותם, ולכן
+   * מה שמוצג כאן אינו "בערך המסמך" אלא הטקסט עצמו. קישור החתימה
+   * קיים גם הוא, אבל פתיחתו היא כניסה למסך שבו אפשר לחתום —
+   * והמתווך אינו אמור לחתום בשם הלקוח.
+   */
+  async function openPreview(id: string, title: string): Promise<void> {
+    setError(null);
+    try {
+      const doc = await apiGet<{ body: string }>(`/agreements/${id}/document`);
+      setPreview({ id, title, body: doc.body });
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "טעינת המסמך נכשלה");
+    }
+  }
+
+  /**
    * שליחה בפועל.
    *
    * וואטסאפ נפתח בלשונית חדשה עם ההודעה מוכנה — הדפדפן חייב לפתוח
@@ -170,9 +198,16 @@ export function AgreementsPanel({
       if (channel === "whatsapp" && res.waUrl) {
         if (tab) tab.location.href = res.waUrl;
         else window.open(res.waUrl, "_blank", "noopener");
-        setSentNote("וואטסאפ נפתח עם ההודעה — נותר ללחוץ שלח");
+        /*
+         * וואטסאפ אינו "נשלח" אלא "נפתח" — ההודעה מחכה בלשונית
+         * ודורשת לחיצה אחרונה. ניסוח שאומר "נשלח" היה משקר, ומתווך
+         * שסומך עליו לא היה חוזר ללשונית.
+         */
+        setDone("וואטסאפ נפתח עם ההודעה מוכנה. נותרה לחיצה אחת על ״שלח״ בלשונית שנפתחה.");
       } else if (res.sentTo) {
-        setSentNote(`ההסכם נשלח לכתובת ${res.sentTo}`);
+        setDone(`ההסכם נשלח לכתובת ${res.sentTo}. הלקוח יקבל קישור לחתימה.`);
+      } else {
+        setDone("הפעולה בוצעה.");
       }
       load();
     } catch (err: unknown) {
@@ -235,11 +270,22 @@ export function AgreementsPanel({
 
               {row.status !== "signed" && row.status !== "declined" ? (
                 <div className="flex flex-wrap items-center gap-2">
+                  {/*
+                    התצוגה המקדימה ראשונה, ובכוונה. מי שרואה קודם את
+                    המסמך שולח בביטחון; מי שרואה קודם שני כפתורי
+                    שליחה שולח ומקווה.
+                  */}
                   <Button
                     type="button"
                     variant="secondary"
+                    onClick={() => void openPreview(row.id, title)}
+                  >
+                    <IconDoc s={15} /> תצוגה מקדימה
+                  </Button>
+                  <Button
+                    type="button"
                     disabled={sending === row.id}
-                    onClick={() => void deliver(row.id, "whatsapp")}
+                    onClick={() => setAskSend({ id: row.id, channel: "whatsapp" })}
                   >
                     שלח בוואטסאפ
                   </Button>
@@ -249,7 +295,7 @@ export function AgreementsPanel({
                       type="button"
                       variant="ghost"
                       disabled={sending === row.id}
-                      onClick={() => void deliver(row.id, "email")}
+                      onClick={() => setAskSend({ id: row.id, channel: "email" })}
                     >
                       שלח במייל
                     </Button>
@@ -400,6 +446,57 @@ export function AgreementsPanel({
           <IconEdit s={15} /> שלח הסכם לחתימה
         </Button>
       )}
+
+      {/* ---- תצוגה מקדימה: מה שהלקוח יראה ---- */}
+      <ConfirmDialog
+        open={preview !== null}
+        title={preview ? `תצוגה מקדימה — ${preview.title}` : ""}
+        confirmLabel="סגור"
+        onClose={() => setPreview(null)}
+      >
+        <p className="m-0 mb-3">
+          זה הנוסח המלא שהלקוח יראה במסך החתימה. עדיין לא נשלח דבר.
+        </p>
+        <div className="mv-doc-preview" tabIndex={0}>
+          {preview?.body}
+        </div>
+      </ConfirmDialog>
+
+      {/* ---- אישור לפני שליחה ---- */}
+      <ConfirmDialog
+        open={askSend !== null}
+        title="לשלוח את ההסכם ללקוח?"
+        confirmLabel={askSend?.channel === "email" ? "שלח במייל" : "פתח וואטסאפ"}
+        busy={sending !== null}
+        onConfirm={() => {
+          const target = askSend;
+          if (!target) return;
+          setAskSend(null);
+          void deliver(target.id, target.channel);
+        }}
+        onClose={() => setAskSend(null)}
+      >
+        <p className="m-0 mb-3">
+          {askSend?.channel === "email"
+            ? "המסמך יישלח בדוא״ל אל הלקוח, עם קישור לחתימה."
+            : "וואטסאפ ייפתח עם ההודעה מוכנה — נותרה לחיצה אחת על ״שלח״."}
+        </p>
+        <p className="m-0">
+          <strong>זהו מסמך משפטי.</strong> אם עוד לא ראיתם אותו, סגרו כאן ופתחו
+          קודם תצוגה מקדימה.
+        </p>
+      </ConfirmDialog>
+
+      {/* ---- אישור ביצוע ---- */}
+      <ConfirmDialog
+        open={done !== null}
+        title="✓ בוצע"
+        tone="success"
+        confirmLabel="סגור"
+        onClose={() => setDone(null)}
+      >
+        <p className="m-0">{done}</p>
+      </ConfirmDialog>
     </section>
   );
 }
