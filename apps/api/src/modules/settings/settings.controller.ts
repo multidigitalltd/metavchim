@@ -43,6 +43,7 @@ import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { AuthService } from "../auth/auth.service";
 import { LoginThrottleService } from "../auth/login-throttle.service";
+import { MatchRefreshService } from "../matching/match-refresh.service";
 import { AccountDeletionService } from "./account-deletion.service";
 
 const TenantSettingsSchema = z
@@ -169,6 +170,7 @@ export class SettingsController {
     private readonly loginThrottle: LoginThrottleService,
     private readonly plans: PlanCatalogService,
     private readonly accountDeletion: AccountDeletionService,
+    private readonly matchRefresh: MatchRefreshService,
   ) {}
 
   /**
@@ -207,6 +209,14 @@ export class SettingsController {
     };
   }
 
+  /**
+   * שמירת המשקלים — **ומיד אחריה סבב חישוב מחדש.**
+   *
+   * זה היה הפער המטעה ביותר במערכת: המסך אישר "נשמר", והציונים
+   * נשארו של המשקלים הישנים עד שמישהו יערוך כל נכס בנפרד. מנהל
+   * ששינה משקל עשה זאת **כדי** לראות תוצאה אחרת, וראה בדיוק את מה
+   * שראה קודם — ומכאן המסקנה הסבירה שהמנוע לא באמת מושפע מההגדרה.
+   */
   @Patch("match-weights")
   @RequireCapability("settings.manage")
   @HttpCode(200)
@@ -227,6 +237,27 @@ export class SettingsController {
       SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{matchWeights}', ${JSON.stringify(body)}::jsonb, true)
       WHERE id = ${tenantId}
     `;
+    /*
+     * החותמת נכתבת **בנפרד ולפני** ההרצה, וזו לא קוסמטיקה: אם השרת
+     * ייפול באמצע הסבב, החותמת נשארת מאוחרת מתוצאת הסבב האחרון
+     * והסורק היומי יריץ אותו שוב. בלעדיה שינוי משקלים היה יכול
+     * להיעלם בלי שאיש ידע.
+     */
+    await this.prisma.$executeRaw`
+      UPDATE tenants
+      SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{matchWeightsChangedAt}', ${JSON.stringify(new Date().toISOString())}::jsonb, true)
+      WHERE id = ${tenantId}
+    `;
+
+    /*
+     * הסבב רץ **ברקע**, והתשובה חוזרת מיד. סבב על מאגר גדול נמשך
+     * דקות, ובקשת שמירה שתלויה כל אותו זמן נראית תקועה — המשתמש
+     * ילחץ שוב, ואז ירוצו שני סבבים. המסך עוקב אחרי ההתקדמות דרך
+     * `GET /matches/refresh`.
+     */
+    void this.matchRefresh.refreshTenant(tenantId, "weights").catch(() => {
+      // נרשם בשירות עצמו; הסורק היומי יתפוס את מה שלא הושלם
+    });
     return { weights: resolveMatchWeights(body) };
   }
 

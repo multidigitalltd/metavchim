@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Query } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
 import { z } from "zod";
 import {
   DISMISS_REASONS,
@@ -8,7 +8,9 @@ import {
   type DismissReport,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
+import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { MatchRefreshService } from "./match-refresh.service";
 import { MatchingService, type EnrichedMatchDto } from "./matching.service";
 
 /*
@@ -46,7 +48,10 @@ const ListQuerySchema = z
 
 @Controller("matches")
 export class MatchingController {
-  constructor(private readonly matching: MatchingService) {}
+  constructor(
+    private readonly matching: MatchingService,
+    private readonly refresh: MatchRefreshService,
+  ) {}
 
   @Get()
   @RequireCapability("matches.view")
@@ -71,6 +76,35 @@ export class MatchingController {
         : { reason: body.reason, ...(body.note === undefined ? {} : { note: body.note }) },
     );
     return { ok: true };
+  }
+
+  /**
+   * מצב סבב הרענון — מתי רצה לאחרונה ומה הוא עשה.
+   *
+   * `settings.manage` ולא `matches.view`: הכרטיס יושב ליד משקלי
+   * ההתאמה, והפעולה שהוא מזמין היא הפעלת סבב — כלומר מי שרשאי לשנות
+   * הוא מי שצריך לראות.
+   */
+  @Get("refresh")
+  @RequireCapability("settings.manage")
+  async refreshStatus(): Promise<Awaited<ReturnType<MatchRefreshService["statusFor"]>>> {
+    return this.refresh.statusFor(TenantContext.current().tenantId, new Date());
+  }
+
+  /**
+   * "חשב התאמות מחדש" — הסבב בלחיצה, בלי לחכות לסבב היומי.
+   *
+   * הבקשה **ממתינה** לסיום ואינה משחררת מיד: מנהל שלחץ רוצה לראות
+   * את המספר החדש, ותשובת "התחלנו" הייתה מחזירה אותו לרענן את המסך
+   * ולנחש מתי נגמר. הסבב חסום בתקרת נכסים, ולכן זמנו חסום.
+   */
+  @Post("refresh")
+  @RequireCapability("settings.manage")
+  @HttpCode(200)
+  async refreshNow(): Promise<Awaited<ReturnType<MatchRefreshService["statusFor"]>>> {
+    const tenantId = TenantContext.current().tenantId;
+    await this.refresh.refreshTenant(tenantId, "manual");
+    return this.refresh.statusFor(tenantId, new Date());
   }
 
   /**
