@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
+import { FormSection } from "../../form-section";
 import { PriceField } from "../../price-field";
 import { EntryTimingField } from "../../properties/entry-timing-field";
 import { shekelsToAgorot } from "@/lib/format";
@@ -84,7 +85,11 @@ export default function NewBuyerPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <h1 className="mb-6 text-2xl font-bold">קונה חדש</h1>
+      <h1 className="mb-1 text-2xl font-bold">קונה חדש</h1>
+      <p className="mb-5 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
+        שם וטלפון מספיקים כדי לשמור. כל שדה נוסף מדייק את ההתאמות —
+        ואפשר להשלים אותו אחר כך מהכרטיס.
+      </p>
 
       <form onSubmit={onSubmit} noValidate>
         {error ? (
@@ -93,8 +98,7 @@ export default function NewBuyerPage() {
           </p>
         ) : null}
 
-        <fieldset className="mb-6 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
-          <legend className="px-2 font-semibold">פרטי קשר</legend>
+        <FormSection step={1} title="פרטי קשר" hint="השם והטלפון הם היחידים שחובה למלא.">
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label htmlFor="contactName" className="mb-1 block font-medium">שם מלא *</label>
@@ -105,10 +109,13 @@ export default function NewBuyerPage() {
               <input id="contactPhone" name="contactPhone" type="tel" required dir="ltr" placeholder="050-1234567" autoComplete="tel" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
             </div>
           </div>
-        </fieldset>
+        </FormSection>
 
-        <fieldset className="mb-6 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
-          <legend className="px-2 font-semibold">מה הוא מחפש</legend>
+        <FormSection
+          step={2}
+          title="מה הוא מחפש"
+          hint="זה מה שמנוע ההתאמות עובד לפיו. ככל שיהיה כאן יותר, כך יוצגו פחות נכסים לא רלוונטיים."
+        >
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label htmlFor="cities" className="mb-1 block font-medium">ערים * <span className="font-normal">(מופרדות בפסיק)</span></label>
@@ -157,10 +164,9 @@ export default function NewBuyerPage() {
               ))}
             </div>
           </fieldset>
-        </fieldset>
+        </FormSection>
 
-        <fieldset className="mb-6 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
-          <legend className="px-2 font-semibold">סטטוס</legend>
+        <FormSection step={3} title="סטטוס" hint="הבשלות קובעת את סדר העבודה במסך הקונים.">
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label htmlFor="maturity" className="mb-1 block font-medium">רמת בשלות</label>
@@ -182,9 +188,9 @@ export default function NewBuyerPage() {
               </select>
             </div>
           </div>
-        </fieldset>
+        </FormSection>
 
-        <div className="flex gap-3">
+        <div className="mv-form-actions">
           <Button type="submit" disabled={submitting}>
             {submitting ? "שומר…" : "שמור קונה"}
           </Button>

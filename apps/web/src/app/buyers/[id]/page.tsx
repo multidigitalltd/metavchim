@@ -3,7 +3,8 @@
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
-import { describeEntryNeed, priceInWordsWithCurrency } from "@metavchim/shared";
+import { buyerProfileCompleteness, describeEntryNeed, priceInWordsWithCurrency } from "@metavchim/shared";
+import type { BuyerRequirements } from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { FINANCING_LABELS, formatBuyerSource, formatPrice, MATURITY_LABELS, waMeUrl } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -18,11 +19,18 @@ import { RelatedEntities } from "../../related-entities";
 import { EntityTasks } from "../../entity-tasks";
 import { ClickToDial } from "../../click-to-dial";
 import { AgreementsPanel } from "../../agreements-panel";
+import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 
 /**
- * כרטיס הקונה לפי קובץ העיצוב: כרטיס כותרת עם אווטאר וגלולת בשלות,
- * "מה הוא מחפש" בטור צדדי (תקציב גדול, דרישות חובה כגלולות כהות),
- * ולצידו נכסים מתאימים עם טבעות ניקוד והיסטוריית הצעות.
+ * כרטיס הקונה.
+ *
+ * עד כה הכרטיס היה גלילה אחת ארוכה של אחת-עשרה קופסאות: מי הלקוח,
+ * מה הוא מחפש, אנשי הקשר, ההסכם, השת"פ, המשימות, ההתאמות, ההצעות,
+ * ההערות וציר הזמן. כולן נחוצות — ואף אחת מהן אינה נחוצה **תמיד**,
+ * וזה ההבדל בין מסך עמוס למסך מסודר.
+ *
+ * עכשיו: כותרת קומפקטית שעונה "מי זה ומה עושים איתו עכשיו", ומתחתיה
+ * לשוניות. הסקירה נפתחת ראשונה כי היא מה שסוכן קורא לפני שיחה.
  */
 
 interface BuyerDetail {
@@ -36,6 +44,8 @@ interface BuyerDetail {
      * הסכימה בקריאה, כך שהמערך תמיד קיים גם לכרטיסים ישנים.
      */
     neighborhoods: string[];
+    propertyTypes: string[];
+    searchAreas?: { lat: number; lon: number; radiusKm: number; label?: string }[];
     budgetMinAgorot?: number;
     budgetMaxAgorot: number;
     roomsMin?: number;
@@ -109,6 +119,27 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
   const [notesDraft, setNotesDraft] = useState<string | null>(null);
   const [notesSaved, setNotesSaved] = useState(false);
   const [sending, setSending] = useState<string | null>(null);
+  /*
+   * מונה המשימות הפתוחות. הוא נטען כאן ולא רק בתוך `EntityTasks`,
+   * כי המשימות ירדו ללשונית — ומשימה פתוחה שהסוכן צריך ללחוץ כדי
+   * לגלות היא משימה שתישכח. המספר על הלשונית מחזיר את הנראות בלי
+   * להחזיר את הגלילה.
+   */
+  const [openTasks, setOpenTasks] = useState<number | undefined>(undefined);
+  /*
+   * הלשונית נקראת לפני הטעינה ולא אחריה: hook שרץ אחרי `return`
+   * מוקדם הוא שגיאת React, והכרטיס מציג "טוען…" לפני שיש קונה.
+   */
+  useEffect(() => {
+    apiGet<{ status: string }[]>(`/tasks/for/buyer/${id}`)
+      .then((rows) => setOpenTasks(rows.filter((t) => t.status === "open").length))
+      .catch(() => setOpenTasks(undefined));
+  }, [id]);
+
+  const [tab, selectTab] = useEntityTab(
+    ["overview", "matches", "tasks", "timeline", "agreements", "network"],
+    "overview",
+  );
 
   /** עדכון בשלות במקום — הקונה "התחמם"? בחירה אחת והמערכת מסונכרנת. */
   async function changeMaturity(maturity: string) {
@@ -176,6 +207,10 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
   const isHotNoOffers =
     (buyer.maturity === "very_hot" || buyer.maturity === "hot") && sentOffers.length === 0;
 
+  const profile = buyerProfileCompleteness(
+    buyer.requirements as unknown as BuyerRequirements,
+  );
+
   return (
     <>
       <Link
@@ -186,18 +221,22 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
         → חזרה לרשימת הקונים
       </Link>
 
-      {/* ---- כרטיס הכותרת ---- */}
-      <div className="mv-list-card mb-[18px] flex flex-wrap items-center gap-4 p-6" style={{ overflow: "visible" }}>
+      {/*
+        ---- כותרת ----
+        עונה על שתי שאלות בלבד: מי זה, ומה עושים איתו עכשיו. כל השאר
+        ירד ללשוניות — כותרת שמנסה לספר הכול היא כותרת שלא קוראים.
+      */}
+      <div className="mv-list-card mb-3 flex flex-wrap items-center gap-4 px-6 py-5" style={{ overflow: "visible" }}>
         <span
           aria-hidden="true"
           className="grid flex-none place-items-center rounded-full"
-          style={{ width: 52, height: 52, background: "var(--color-primary-soft)", color: "var(--color-primary)", fontWeight: 800, fontSize: 19 }}
+          style={{ width: 48, height: 48, background: "var(--color-primary-soft)", color: "var(--color-primary)", fontWeight: 800, fontSize: 18 }}
         >
           {initials(buyer.contact.name)}
         </span>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="m-0" style={{ fontSize: 22, fontWeight: 800 }}>{buyer.contact.name}</h1>
+            <h1 className="m-0" style={{ fontSize: 21, fontWeight: 800 }}>{buyer.contact.name}</h1>
             <label>
               <span className="mv-visually-hidden">עדכון בשלות</span>
               <select
@@ -212,320 +251,390 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
               </select>
             </label>
           </div>
-          <p className="m-0 mt-1 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
-            <span dir="ltr">{buyer.contact.phone}</span> · מקור: {formatBuyerSource(buyer.source)} ·
+          <p className="m-0 mt-1 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+            <span dir="ltr">{buyer.contact.phone}</span> · {formatBuyerSource(buyer.source)} ·
             מימון: {FINANCING_LABELS[buyer.financing] ?? buyer.financing}
           </p>
         </div>
-        {/* שורת פעולות אחידה: אותו גובה לכל כפתור, אייקון לכל פעולה */}
         <div className="ms-auto flex flex-wrap items-center gap-2">
           <a
             href={waMeUrl(buyer.contact.phone)}
             target="_blank"
             rel="noreferrer"
             className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 14, fontSize: 13 }}
+            style={{ minHeight: 36, paddingInline: 13, fontSize: 13 }}
           >
             <IconChat s={14} /> וואטסאפ
           </a>
-          {/* מהמכשיר — תמיד זמין, ולא נרשם במערכת */}
           <a
             href={`tel:${buyer.contact.phone}`}
             className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 14, fontSize: 13 }}
+            style={{ minHeight: 36, paddingInline: 13, fontSize: 13 }}
           >
-            <IconPhone s={14} /> חייג מהנייד
+            <IconPhone s={14} /> חייג
           </a>
-          {/* דרך המרכזייה — נרשם בכרטיס מעצמו, עם משך והקלטה */}
-          <ClickToDial contactId={buyer.contact.id} phone={buyer.contact.phone} label="חייג מהמרכזייה" />
+          <ClickToDial contactId={buyer.contact.id} phone={buyer.contact.phone} label="מהמרכזייה" />
           <Link
             href={`/buyers/${id}/edit`}
             className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 14, fontSize: 13 }}
+            style={{ minHeight: 36, paddingInline: 13, fontSize: 13 }}
           >
             <IconEdit s={14} /> ערוך דרישות
           </Link>
         </div>
       </div>
 
-      {/*
-        סדר האזורים הוא סדר העבודה של המתווך על הכרטיס: קודם מי
-        הלקוח ומה הוא מחפש, אחר כך מה עושים איתו (הסכם, שת"פ), ולבסוף
-        המעקב (משימות, הערות). עד כה השת"פ היה כפתור בשורת הפעולות
-        של הכותרת — בין "וואטסאפ" ל"חייג" — ולכן נראה כמו עוד דרך
-        ליצור קשר ולא כהחלטה עסקית על חלוקת עמלה.
-      */}
-
-      <ContactPeople contactId={buyer.contact.id} canEdit={canEditPeople}
-        canErase={can(user, "contacts.delete")}
-      />
-
-      {/*
-        מחיקת הכרטיס נפרדת ממחיקת הלקוח, ובכוונה: הכרטיס הוא הביקוש,
-        והאדם נשאר עם הלידים וההיסטוריה שלו. שתיהן בתחתית המסך כי אף
-        אחת מהן אינה שגרה.
-      */}
-      {can(user, "buyers.delete") ? (
-        <div className="mt-4">
-          <DeleteBuyer buyerId={id} />
-        </div>
-      ) : null}
-
-      <RelatedEntities contactId={buyer.contact.id} exclude={{ kind: "buyer", id: buyer.id }} />
-
-      <AgreementsPanel
-        contactId={buyer.contact.id}
-        kind="brokerage"
-        title="הזמנה בכתב (הסכם תיווך)"
-      />
-
-      <NetworkShareSection buyerId={id} />
-
-      <EntityTasks entityType="buyer" entityId={id} />
-
-      <div className="grid items-start gap-[18px] lg:[grid-template-columns:340px_1fr]">
-        {/* ---- מה הוא מחפש ---- */}
-        <section className="mv-list-card px-5 py-[18px]" aria-labelledby="req-heading">
-          <h2 id="req-heading" className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>
-            מה הוא מחפש
-          </h2>
-
-          <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>תקציב</div>
-          <div className="mb-[13px]" style={{ fontSize: 19, fontWeight: 800 }}>
-            {buyer.requirements.budgetMinAgorot !== undefined
-              ? `${formatPrice(buyer.requirements.budgetMinAgorot)}–${formatPrice(buyer.requirements.budgetMaxAgorot)}`
-              : `עד ${formatPrice(buyer.requirements.budgetMaxAgorot)}`}
-          </div>
-          {/* גם במילים — אימות מהיר שהסכום שנשמר הוא הסכום שהתכוונו לו */}
-          <div className="mb-[13px] -mt-2 text-[12px]" style={{ color: "var(--color-text-muted)" }}>
-            {priceInWordsWithCurrency(Math.round(buyer.requirements.budgetMaxAgorot / 100))}
-          </div>
-
-          <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>אזורים</div>
-          <div className="mb-1 text-[14.5px] font-bold">{buyer.requirements.cities.join(", ") || "—"}</div>
-          {/*
-            השכונות היו נשמרות ומשפיעות על ניקוד ההתאמה — ולא מוצגות
-            בשום מקום. סוכן שראה רק "בני ברק" לא ידע שהלקוח ביקש
-            שכונה מסוימת, וזה בדיוק הפרט שקובע אם שווה להתקשר.
-          */}
-          {buyer.requirements.neighborhoods.length > 0 ? (
-            <div className="mb-3.5 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
-              שכונות: {buyer.requirements.neighborhoods.join(" · ")}
-            </div>
-          ) : (
-            <div className="mb-3.5" />
-          )}
-
-          {buyer.requirements.roomsMin !== undefined || buyer.requirements.roomsMax !== undefined ? (
-            <>
-              <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>חדרים</div>
-              <div className="mb-3.5 text-[14.5px] font-bold">
-                {buyer.requirements.roomsMin ?? "—"}–{buyer.requirements.roomsMax ?? "—"}
-              </div>
-            </>
-          ) : null}
-          {buyer.requirements.areaSqmMin !== undefined ? (
-            <>
-              <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>שטח מינימלי</div>
-              <div className="mb-3.5 text-[14.5px] font-bold">{buyer.requirements.areaSqmMin} מ&quot;ר</div>
-            </>
-          ) : null}
-          {/* "גמיש" ו"מיידי" הם אילוץ בדיוק כמו תאריך — ולכן מוצגים */}
-          {entryNeed !== undefined ? (
-            <>
-              <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>מועד כניסה</div>
-              <div className="mb-3.5 text-[14.5px] font-bold">{entryNeed}</div>
-            </>
-          ) : null}
-
-          <div className="mb-[7px] text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
-            דרישות חובה — שוברות התאמה
-          </div>
-          <div className="mb-3.5 flex flex-wrap gap-[7px]">
-            {musts.length === 0 ? (
-              <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>אין</span>
-            ) : (
-              musts.map(([k]) => (
-                <span key={k} className="mv-pill" style={{ background: "#111513", color: "#fff", fontSize: 12.5, padding: "4px 12px" }}>
-                  {FEATURE_LABELS[k] ?? k}
-                </span>
-              ))
-            )}
-          </div>
-
-          <div className="mb-[7px] text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
-            עדיפויות — משפיעות על הניקוד בלבד
-          </div>
-          <div className="flex flex-wrap gap-[7px]">
-            {nices.length === 0 ? (
-              <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>אין</span>
-            ) : (
-              nices.map(([k]) => (
-                <span key={k} className="mv-pill" style={{ background: "#eef1ec", color: "#4a534c", fontSize: 12.5, padding: "4px 12px" }}>
-                  {FEATURE_LABELS[k] ?? k}
-                </span>
-              ))
-            )}
-          </div>
-
-          {buyer.requirements.flexibilityNotes ? (
-            <>
-              <div className="mb-1.5 mt-3.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>גמישות</div>
-              <div className="text-sm">{buyer.requirements.flexibilityNotes}</div>
-            </>
-          ) : null}
-        </section>
-
-        {/*
-          ---- שתי עמודות ההתאמה ----
-          שמאל: המאגר הפנימי. ימין: הרשת. אותה שאלה, שני מקורות —
-          וכל עוד הן היו במסכים נפרדים הסוכן ראה חצי תשובה וסגר את
-          הכרטיס. אותו מנוע ניקוד ואותו סף בשתיהן, אחרת אי אפשר
-          להשוות ביניהן.
-        */}
-        <div className="grid items-start gap-4 lg:grid-cols-2">
-        <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="matches-heading">
-          <h2 id="matches-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
-            נכסים מתאימים
-          </h2>
-          <p className="m-0 mb-2.5 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
-            נכסים ששוברים דרישת חובה אינם מופיעים
-          </p>
-
-          {matches === null ? (
-            <p aria-live="polite">מחשב התאמות…</p>
-          ) : matches.length === 0 ? (
-            <p className="m-0 py-2" style={{ color: "var(--color-text-muted)" }}>
-              אין עדיין נכסים מתאימים במאגר.
-            </p>
-          ) : (
-            matches.map((m) => {
-              const offer = offers[m.id];
-              return (
-                <div key={m.id} className="flex flex-wrap items-center gap-[15px] py-[13px]" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
-                  <span
-                    className="mv-score-ring"
-                    style={{ width: 46, height: 46, background: `conic-gradient(#2ECC66 ${Math.round(m.score * 3.6)}deg, var(--color-progress-track) 0deg)` }}
-                    aria-hidden="true"
-                  >
-                    <span style={{ width: 35, height: 35, fontSize: 12 }}>{m.score}%</span>
-                  </span>
-                  <div className="min-w-0 flex-1" style={{ lineHeight: 1.4 }}>
-                    <div className="text-[14.5px] font-bold">
-                      <Link href={`/properties/${m.propertyId}`} className="no-underline hover:underline" style={{ color: "inherit" }}>
-                        {m.property.title ?? m.property.address}
-                      </Link>
-                      {m.property.priceAgorot !== undefined ? (
-                        <span className="ms-1.5 text-[12.5px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
-                          · {formatPrice(m.property.priceAgorot)}
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>{m.explanation}</div>
-                  </div>
-                  <div className="ms-auto flex-none">
-                    {offer ? (
-                      <a href={offer.url} target="_blank" rel="noreferrer" className="mv-pill no-underline" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}>
-                        הצעה נשלחה ✓
-                      </a>
-                    ) : (
-                      <button
-                        type="button"
-                        className="mv-btn-action"
-                        style={{ padding: "7px 15px", fontSize: 13 }}
-                        disabled={sending !== null}
-                        onClick={() => void sendOffer(m)}
-                      >
-                        {sending === m.id ? "שולח…" : "שלח הצעה"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })
-          )}
-
-        </section>
-
-        <NetworkPropertyMatches buyerId={id} />
-        </div>
-
-        {/* היסטוריית ההצעות נשארת רוחב מלא — היא לא עמודה, היא ציר זמן */}
-        <section className="mv-list-card px-[22px] py-[18px]">
-          <h2 className="mb-2 mt-[18px]" style={{ fontSize: 15.5, fontWeight: 800 }}>
-            היסטוריית הצעות
-          </h2>
-          {sentOffers.length === 0 ? (
-            isHotNoOffers ? (
-              <p className="m-0 rounded-[9px] px-[13px] py-2.5 text-[13.5px] font-bold" style={{ color: "#b0512c", background: "#faf1ec" }}>
-                קונה חם שעדיין לא קיבל אף הצעה — שווה לטפל היום.
-              </p>
-            ) : (
-              <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
-                עוד לא נשלחו הצעות לקונה הזה.
-              </p>
-            )
-          ) : (
-            sentOffers.map(([matchId, offer]) => {
-              const match = (matches ?? []).find((m) => m.id === matchId);
-              const chip = offerChip(offer);
-              return (
-                <div key={offer.id} className="flex flex-wrap items-center gap-2.5 py-[9px] text-[13.5px]" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
-                  <span className="font-bold">{match?.property.title ?? match?.property.address ?? "נכס"}</span>
-                  <span style={{ color: "var(--color-text-muted)" }}>
-                    {offer.openCount === 0 ? "טרם נפתחה" : `נפתחה ${offer.openCount} פעמים`}
-                  </span>
-                  <span className="mv-pill ms-auto" style={{ color: chip.fg, background: chip.bg, fontSize: 12.5 }}>
-                    {chip.label}
-                  </span>
-                </div>
-              );
-            })
-          )}
-        </section>
+      {/* ---- לשוניות ---- */}
+      <div className="mv-list-card mb-[18px] px-4" style={{ overflow: "visible" }}>
+        <EntityTabs
+          label="לשוניות כרטיס הקונה"
+          active={tab}
+          onSelect={selectTab}
+          tabs={[
+            { key: "overview", label: "סקירה" },
+            { key: "matches", label: "התאמות", count: matches?.length },
+            { key: "tasks", label: "משימות", count: openTasks },
+            { key: "timeline", label: "ציר זמן" },
+            { key: "agreements", label: "הסכמים" },
+            { key: "network", label: "שיתופי פעולה" },
+          ]}
+        />
       </div>
 
-      {/* ---- הערות הסוכן + ציר הזמן ---- */}
-      <section
-        aria-labelledby="notes-heading"
-        className="mv-list-card mb-[18px] mt-[18px] px-[22px] py-[18px]"
-      >
-        <h2 id="notes-heading" className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>הערות הסוכן</h2>
-        {notesDraft === null ? (
-          <>
-            <p className="mb-3 mt-0 whitespace-pre-wrap">
-              {buyer.agentNotes?.trim() ? buyer.agentNotes : <span style={{ color: "var(--color-text-muted)" }}>אין הערות עדיין.</span>}
-            </p>
-            <div className="flex items-center gap-3">
-              <button type="button" className="mv-btn-plain" onClick={() => { setNotesSaved(false); setNotesDraft(buyer.agentNotes ?? ""); }}>
-                {buyer.agentNotes?.trim() ? "ערוך הערות" : "הוסף הערות"}
-              </button>
-              {notesSaved ? <span role="status" style={{ color: "var(--color-primary)" }}>✓ נשמר</span> : null}
-            </div>
-          </>
-        ) : (
-          <>
-            <label htmlFor="agentNotes" className="mv-visually-hidden">הערות הסוכן</label>
-            <WithDictation value={notesDraft} onChange={setNotesDraft}>
-              <textarea
-                id="agentNotes"
-                rows={4}
-                maxLength={4000}
-                value={notesDraft}
-                onChange={(e) => setNotesDraft(e.target.value)}
-                className="mb-2 w-full rounded-lg border px-3 py-2.5"
-                style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)", color: "var(--color-text)" }}
-              />
-            </WithDictation>
-            <div className="mt-3 flex gap-3">
-              <Button onClick={() => void saveNotes()}>שמור הערות</Button>
-              <Button variant="ghost" onClick={() => setNotesDraft(null)}>ביטול</Button>
-            </div>
-          </>
-        )}
-      </section>
+      {/* ============================================================
+          סקירה — מה שסוכן קורא לפני שיחה
+          ============================================================ */}
+      <TabPanel tab="overview" active={tab}>
+        <div className="grid items-start gap-[18px] lg:[grid-template-columns:340px_1fr]">
+          <div className="grid gap-[18px]">
+            {/*
+              ---- שלמות פרופיל החיפוש ----
+              כרטיס חצי-מלא נראה בדיוק כמו כרטיס מלא, ולכן סוכן מריץ
+              התאמות על תקציב ועיר בלבד ומסיק שהמנוע לא מדויק. כאן
+              רואים מה עוד לא נשאל, וכל חוסר הוא קישור להשלמה.
+            */}
+            <section className="mv-list-card px-5 py-[18px]" aria-labelledby="profile-heading">
+              <div className="mb-2 flex items-baseline gap-2">
+                <h2 id="profile-heading" className="m-0" style={{ fontSize: 15.5, fontWeight: 800 }}>
+                  פרטי חיפוש
+                </h2>
+                <span className="ms-auto text-[12.5px] font-bold" style={{ color: "var(--color-text-muted)" }}>
+                  {profile.filled} מתוך {profile.total}
+                </span>
+              </div>
+              <div
+                className="mb-3 overflow-hidden rounded-full"
+                style={{ height: 6, background: "var(--color-progress-track)" }}
+              >
+                <div
+                  style={{
+                    width: `${Math.round((profile.filled / profile.total) * 100)}%`,
+                    height: "100%",
+                    background: "var(--color-primary)",
+                  }}
+                />
+              </div>
+              {profile.missing.length === 0 ? (
+                <p className="m-0 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+                  הפרופיל מלא — ההתאמות רצות על כל מה שהלקוח אמר.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {profile.missing.map((f) => (
+                    <Link
+                      key={f.key}
+                      href={`/buyers/${id}/edit`}
+                      className="mv-chip no-underline"
+                      style={{ color: "var(--color-text-soft)" }}
+                    >
+                      + {f.label}
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </section>
 
-      <TimelineSection buyerId={id} />
+            {/* ---- מה הוא מחפש ---- */}
+            <section className="mv-list-card px-5 py-[18px]" aria-labelledby="req-heading">
+              <h2 id="req-heading" className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>
+                מה הוא מחפש
+              </h2>
+
+              <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>תקציב</div>
+              <div className="mb-[13px]" style={{ fontSize: 19, fontWeight: 800 }}>
+                {buyer.requirements.budgetMinAgorot !== undefined
+                  ? `${formatPrice(buyer.requirements.budgetMinAgorot)}–${formatPrice(buyer.requirements.budgetMaxAgorot)}`
+                  : `עד ${formatPrice(buyer.requirements.budgetMaxAgorot)}`}
+              </div>
+              {/* גם במילים — אימות מהיר שהסכום שנשמר הוא הסכום שהתכוונו לו */}
+              <div className="mb-[13px] -mt-2 text-[12px]" style={{ color: "var(--color-text-muted)" }}>
+                {priceInWordsWithCurrency(Math.round(buyer.requirements.budgetMaxAgorot / 100))}
+              </div>
+
+              <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>אזורים</div>
+              <div className="mb-1 text-[14.5px] font-bold">{buyer.requirements.cities.join(", ") || "—"}</div>
+              {/*
+                השכונות היו נשמרות ומשפיעות על ניקוד ההתאמה — ולא מוצגות
+                בשום מקום. סוכן שראה רק "בני ברק" לא ידע שהלקוח ביקש
+                שכונה מסוימת, וזה בדיוק הפרט שקובע אם שווה להתקשר.
+              */}
+              {buyer.requirements.neighborhoods.length > 0 ? (
+                <div className="mb-3.5 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+                  שכונות: {buyer.requirements.neighborhoods.join(" · ")}
+                </div>
+              ) : (
+                <div className="mb-3.5" />
+              )}
+
+              {buyer.requirements.roomsMin !== undefined || buyer.requirements.roomsMax !== undefined ? (
+                <>
+                  <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>חדרים</div>
+                  <div className="mb-3.5 text-[14.5px] font-bold">
+                    {buyer.requirements.roomsMin ?? "—"}–{buyer.requirements.roomsMax ?? "—"}
+                  </div>
+                </>
+              ) : null}
+              {buyer.requirements.areaSqmMin !== undefined ? (
+                <>
+                  <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>שטח מינימלי</div>
+                  <div className="mb-3.5 text-[14.5px] font-bold">{buyer.requirements.areaSqmMin} מ&quot;ר</div>
+                </>
+              ) : null}
+              {/* "גמיש" ו"מיידי" הם אילוץ בדיוק כמו תאריך — ולכן מוצגים */}
+              {entryNeed !== undefined ? (
+                <>
+                  <div className="mb-1.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>מועד כניסה</div>
+                  <div className="mb-3.5 text-[14.5px] font-bold">{entryNeed}</div>
+                </>
+              ) : null}
+
+              <div className="mb-[7px] text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                דרישות חובה — שוברות התאמה
+              </div>
+              <div className="mb-3.5 flex flex-wrap gap-[7px]">
+                {musts.length === 0 ? (
+                  <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>אין</span>
+                ) : (
+                  musts.map(([k]) => (
+                    <span key={k} className="mv-pill" style={{ background: "#111513", color: "#fff", fontSize: 12.5, padding: "4px 12px" }}>
+                      {FEATURE_LABELS[k] ?? k}
+                    </span>
+                  ))
+                )}
+              </div>
+
+              <div className="mb-[7px] text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                עדיפויות — משפיעות על הניקוד בלבד
+              </div>
+              <div className="flex flex-wrap gap-[7px]">
+                {nices.length === 0 ? (
+                  <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>אין</span>
+                ) : (
+                  nices.map(([k]) => (
+                    <span key={k} className="mv-pill" style={{ background: "#eef1ec", color: "#4a534c", fontSize: 12.5, padding: "4px 12px" }}>
+                      {FEATURE_LABELS[k] ?? k}
+                    </span>
+                  ))
+                )}
+              </div>
+
+              {buyer.requirements.flexibilityNotes ? (
+                <>
+                  <div className="mb-1.5 mt-3.5 text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>גמישות</div>
+                  <div className="text-sm">{buyer.requirements.flexibilityNotes}</div>
+                </>
+              ) : null}
+            </section>
+          </div>
+
+          <div className="grid gap-[18px]">
+            {/* ---- הערות הסוכן ---- */}
+            <section aria-labelledby="notes-heading" className="mv-list-card px-[22px] py-[18px]">
+              <h2 id="notes-heading" className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>הערות הסוכן</h2>
+              {notesDraft === null ? (
+                <>
+                  <p className="mb-3 mt-0 whitespace-pre-wrap">
+                    {buyer.agentNotes?.trim() ? buyer.agentNotes : <span style={{ color: "var(--color-text-muted)" }}>אין הערות עדיין.</span>}
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <button type="button" className="mv-btn-plain" onClick={() => { setNotesSaved(false); setNotesDraft(buyer.agentNotes ?? ""); }}>
+                      {buyer.agentNotes?.trim() ? "ערוך הערות" : "הוסף הערות"}
+                    </button>
+                    {notesSaved ? <span role="status" style={{ color: "var(--color-primary)" }}>✓ נשמר</span> : null}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <label htmlFor="agentNotes" className="mv-visually-hidden">הערות הסוכן</label>
+                  <WithDictation value={notesDraft} onChange={setNotesDraft}>
+                    <textarea
+                      id="agentNotes"
+                      rows={4}
+                      maxLength={4000}
+                      value={notesDraft}
+                      onChange={(e) => setNotesDraft(e.target.value)}
+                      className="mb-2 w-full rounded-lg border px-3 py-2.5"
+                      style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)", color: "var(--color-text)" }}
+                    />
+                  </WithDictation>
+                  <div className="mt-3 flex gap-3">
+                    <Button onClick={() => void saveNotes()}>שמור הערות</Button>
+                    <Button variant="ghost" onClick={() => setNotesDraft(null)}>ביטול</Button>
+                  </div>
+                </>
+              )}
+            </section>
+
+            <ContactPeople
+              contactId={buyer.contact.id}
+              canEdit={canEditPeople}
+              canErase={can(user, "contacts.delete")}
+            />
+
+            <RelatedEntities contactId={buyer.contact.id} exclude={{ kind: "buyer", id: buyer.id }} />
+
+            {/*
+              מחיקת הכרטיס נפרדת ממחיקת הלקוח, ובכוונה: הכרטיס הוא
+              הביקוש, והאדם נשאר עם הלידים וההיסטוריה שלו. בתחתית
+              הסקירה כי היא אינה שגרה.
+            */}
+            {can(user, "buyers.delete") ? <DeleteBuyer buyerId={id} /> : null}
+          </div>
+        </div>
+      </TabPanel>
+
+      {/* ============================================================
+          התאמות — אותה שאלה משני מקורות, ומה כבר נשלח
+          ============================================================ */}
+      <TabPanel tab="matches" active={tab}>
+        <div className="grid items-start gap-[18px]">
+          {/*
+            שמאל: המאגר הפנימי. ימין: הרשת. אותה שאלה, שני מקורות —
+            וכל עוד הן היו במסכים נפרדים הסוכן ראה חצי תשובה וסגר את
+            הכרטיס. אותו מנוע ניקוד ואותו סף בשתיהן, אחרת אי אפשר
+            להשוות ביניהן.
+          */}
+          <div className="grid items-start gap-4 lg:grid-cols-2">
+            <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="matches-heading">
+              <h2 id="matches-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+                נכסים מתאימים
+              </h2>
+              <p className="m-0 mb-2.5 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                נכסים ששוברים דרישת חובה אינם מופיעים
+              </p>
+
+              {matches === null ? (
+                <p aria-live="polite">מחשב התאמות…</p>
+              ) : matches.length === 0 ? (
+                <p className="m-0 py-2" style={{ color: "var(--color-text-muted)" }}>
+                  אין עדיין נכסים מתאימים במאגר.
+                </p>
+              ) : (
+                matches.map((m) => {
+                  const offer = offers[m.id];
+                  return (
+                    <div key={m.id} className="flex flex-wrap items-center gap-[15px] py-[13px]" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
+                      <span
+                        className="mv-score-ring"
+                        style={{ width: 46, height: 46, background: `conic-gradient(#2ECC66 ${Math.round(m.score * 3.6)}deg, var(--color-progress-track) 0deg)` }}
+                        aria-hidden="true"
+                      >
+                        <span style={{ width: 35, height: 35, fontSize: 12 }}>{m.score}%</span>
+                      </span>
+                      <div className="min-w-0 flex-1" style={{ lineHeight: 1.4 }}>
+                        <div className="text-[14.5px] font-bold">
+                          <Link href={`/properties/${m.propertyId}`} className="no-underline hover:underline" style={{ color: "inherit" }}>
+                            {m.property.title ?? m.property.address}
+                          </Link>
+                          {m.property.priceAgorot !== undefined ? (
+                            <span className="ms-1.5 text-[12.5px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                              · {formatPrice(m.property.priceAgorot)}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>{m.explanation}</div>
+                      </div>
+                      <div className="ms-auto flex-none">
+                        {offer ? (
+                          <a href={offer.url} target="_blank" rel="noreferrer" className="mv-pill no-underline" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}>
+                            הצעה נשלחה ✓
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            className="mv-btn-action"
+                            style={{ padding: "7px 15px", fontSize: 13 }}
+                            disabled={sending !== null}
+                            onClick={() => void sendOffer(m)}
+                          >
+                            {sending === m.id ? "שולח…" : "שלח הצעה"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </section>
+
+            <NetworkPropertyMatches buyerId={id} />
+          </div>
+
+          {/* היסטוריית ההצעות נשארת רוחב מלא — היא לא עמודה, היא ציר זמן */}
+          <section className="mv-list-card px-[22px] py-[18px]">
+            <h2 className="m-0 mb-2" style={{ fontSize: 15.5, fontWeight: 800 }}>
+              היסטוריית הצעות
+            </h2>
+            {sentOffers.length === 0 ? (
+              isHotNoOffers ? (
+                <p className="m-0 rounded-[9px] px-[13px] py-2.5 text-[13.5px] font-bold" style={{ color: "#b0512c", background: "#faf1ec" }}>
+                  קונה חם שעדיין לא קיבל אף הצעה — שווה לטפל היום.
+                </p>
+              ) : (
+                <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                  עוד לא נשלחו הצעות לקונה הזה.
+                </p>
+              )
+            ) : (
+              sentOffers.map(([matchId, offer]) => {
+                const match = (matches ?? []).find((m) => m.id === matchId);
+                const chip = offerChip(offer);
+                return (
+                  <div key={offer.id} className="flex flex-wrap items-center gap-2.5 py-[9px] text-[13.5px]" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
+                    <span className="font-bold">{match?.property.title ?? match?.property.address ?? "נכס"}</span>
+                    <span style={{ color: "var(--color-text-muted)" }}>
+                      {offer.openCount === 0 ? "טרם נפתחה" : `נפתחה ${offer.openCount} פעמים`}
+                    </span>
+                    <span className="mv-pill ms-auto" style={{ color: chip.fg, background: chip.bg, fontSize: 12.5 }}>
+                      {chip.label}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </section>
+        </div>
+      </TabPanel>
+
+      <TabPanel tab="tasks" active={tab}>
+        <EntityTasks entityType="buyer" entityId={id} />
+      </TabPanel>
+
+      <TabPanel tab="timeline" active={tab}>
+        <TimelineSection buyerId={id} />
+      </TabPanel>
+
+      <TabPanel tab="agreements" active={tab}>
+        <AgreementsPanel
+          contactId={buyer.contact.id}
+          kind="brokerage"
+          title="הזמנה בכתב (הסכם תיווך)"
+        />
+      </TabPanel>
+
+      <TabPanel tab="network" active={tab}>
+        <NetworkShareSection buyerId={id} />
+      </TabPanel>
     </>
   );
 }

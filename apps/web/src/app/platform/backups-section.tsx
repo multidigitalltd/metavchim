@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@metavchim/ui";
-import type { BackupFile, BackupHealth } from "@metavchim/shared";
+import {
+  summarizeRestoreDrill,
+  type BackupFile,
+  type BackupHealth,
+  type RestoreDrill,
+} from "@metavchim/shared";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 
@@ -30,6 +35,7 @@ interface Overview {
   files: BackupFile[];
   health: BackupHealth;
   offsite: OffsiteStatus;
+  drill: RestoreDrill;
   protectedName: string | null;
   restoreAvailable: boolean;
 }
@@ -152,6 +158,25 @@ export function BackupsSection() {
     }
   }
 
+  /*
+   * תרגיל לפי דרישה. חולק את מחוון `backupRun` עם הגיבוי הידני כי
+   * סוכן העדכון מסרב להריץ את שניהם יחד — מחוון נפרד היה מציג "פנוי"
+   * בזמן שהשרת מחזיר 409.
+   */
+  async function onVerifyNow() {
+    setBusy("verify-now");
+    setError(null);
+    setNotice(null);
+    try {
+      await apiPost("/platform/backups/verify", {});
+      setBackupRun({ running: true, ok: null, message: "בודק שחזור…" });
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "הפעלת התרגיל נכשלה");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function onDelete(name: string) {
     if (!window.confirm(`למחוק את הגיבוי ${name}?\n\nהפעולה אינה הפיכה בשרת המקומי.`)) return;
     setBusy(name);
@@ -200,7 +225,8 @@ export function BackupsSection() {
     }
   }
 
-  const { health, offsite } = data;
+  const { health, offsite, drill } = data;
+  const drillState = summarizeRestoreDrill(drill, new Date());
 
   return (
     <section aria-labelledby="platform-backups-heading" className="mb-8">
@@ -295,6 +321,40 @@ export function BackupsSection() {
                   <code dir="ltr">offsite</code> ל-<code dir="ltr">COMPOSE_PROFILES</code>.
                 </p>
               )}
+            </div>
+            {/*
+              תרגיל השחזור. הכרטיס הזה קיים כי רשימת קבצים מוכיחה
+              שנכתב משהו — לא שאפשר לשחזר ממנו. ✓ ירוק ישן נקרא כמו
+              ביטחון, ולכן החיווי יורד לפי הוותק ולא רק לפי התוצאה.
+            */}
+            <div
+              className="rounded-xl border p-4 sm:col-span-2"
+              style={{ borderColor: LEVEL_COLOR[drillState.level], background: "var(--color-surface)" }}
+            >
+              <div className="flex flex-wrap items-center gap-3">
+                <p className="font-semibold" style={{ color: LEVEL_COLOR[drillState.level] }}>
+                  {LEVEL_ICON[drillState.level]} תרגיל שחזור
+                </p>
+                <button
+                  type="button"
+                  className="mv-btn-plain ms-auto"
+                  disabled={busy !== null || backupRun?.running === true || restore?.running === true}
+                  onClick={() => void onVerifyNow()}
+                >
+                  {backupRun?.running ? "רץ…" : "בדוק שחזור עכשיו"}
+                </button>
+              </div>
+              <p className="mt-1 text-sm">{drillState.headline}</p>
+              {drill.file ? (
+                <p className="mt-1 text-sm" dir="ltr" style={{ color: "var(--color-text-muted)" }}>
+                  {drill.file}
+                  {drill.durationMs !== null ? ` · ${Math.round(drill.durationMs / 1000)}s` : ""}
+                </p>
+              ) : null}
+              <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                הגיבוי האחרון משוחזר למסד בדיקה זמני ונמחק אחריו — זו הראיה
+                שהגיבוי בר-שחזור, ולא רק שנכתב.
+              </p>
             </div>
           </div>
 

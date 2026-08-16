@@ -195,6 +195,33 @@ async function runSelfUpdate() {
  *
  * `--no-deps` כדי שלא יגרור הרמה של שירותים; ה-DB כבר רץ.
  */
+/**
+ * תרגיל שחזור לפי דרישה — משחזר את הגיבוי האחרון למסד זמני ומוחק
+ * אותו. אותו `verify.sh` שרץ שבועית מתוך שירות הגיבוי, כדי שראיה
+ * ידנית וראיה מתוזמנת יהיו אותה בדיקה בדיוק.
+ *
+ * חולק את מונה ה-`backup` בכוונה: שתי הפעולות נוגעות באותה תיקייה
+ * ובאותו מסד, ואין תרחיש שבו כדאי שירוצו יחד.
+ */
+async function runVerify() {
+  backup = { running: true, startedAt: new Date().toISOString(), finishedAt: null, ok: null, message: "בודק שחזור…" };
+  try {
+    await compose(["run", "--rm", "--no-deps", "backup", "verify"], 30 * 60 * 1000);
+    backup.ok = true;
+    backup.message = "תרגיל השחזור הצליח";
+    console.log("[updater] restore drill finished");
+  } catch (error) {
+    // הסקריפט כותב את הסיבה ל-verify.json, והמסך קורא משם — כאן רק
+    // מסמנים שהריצה הסתיימה בכשל.
+    backup.ok = false;
+    backup.message = "תרגיל השחזור נכשל — ראו את פירוט הבדיקה במסך";
+    console.error(`[updater] restore drill failed: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    backup.running = false;
+    backup.finishedAt = new Date().toISOString();
+  }
+}
+
 async function runBackup() {
   backup = { running: true, startedAt: new Date().toISOString(), finishedAt: null, ok: null, message: "מגבה…" };
   try {
@@ -284,6 +311,16 @@ const server = createServer((req, res) => {
 
   if (req.method === "GET" && req.url === "/backup/status") {
     json(res, 200, backup);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/verify") {
+    if (backup.running || restore.running) {
+      json(res, 409, { error: "operation already running" });
+      return;
+    }
+    json(res, 202, { status: "started" });
+    void runVerify();
     return;
   }
 

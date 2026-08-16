@@ -1429,6 +1429,116 @@ button.mv-list-row:hover {
   box-shadow: 0 1px 2px rgba(30, 40, 32, 0.15);
 }
 
+/* ------------------------------------------------------------
+   טפסי קליטה — קונה חדש, נכס חדש.
+   `fieldset` עם `legend` הוא הנכון סמנטית, ונראה כמו טופס משרדי:
+   מסגרת דקה, כותרת תלויה על הקו, ושדות צפופים. הקליטה היא הרגע
+   הראשון שמתווך פוגש במערכת, ולכן היא נראית עכשיו כמו שאר המסכים —
+   כרטיסים נושמים עם מספר שלב, ולא כמו טופס שממלאים בעמידה.
+   ------------------------------------------------------------ */
+.mv-form-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  margin-bottom: 14px;
+}
+/* מספר השלב — נותן לטופס ארוך תחושה של התקדמות ולא של קיר */
+.mv-step-badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-size: 13px;
+  font-weight: 800;
+}
+.mv-form-hint {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------
+   שורת הפעולות — נדבקת לתחתית המסך.
+   טופס קליטה ארוך מ-מסך אחד, ו"שמור" שיושב בסופו דורש גלילה חזרה
+   בכל פעם שרוצים לסיים. הדבקה למטה משאירה את הפעולה בהישג יד בלי
+   לקצר את הטופס.
+   ------------------------------------------------------------ */
+.mv-form-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 6px;
+  padding: 14px 2px;
+  background: linear-gradient(to top, var(--color-bg) 72%, transparent);
+}
+
+/* ------------------------------------------------------------
+   לשוניות של כרטיס ישות (קונה, נכס) — פס תחתון ולא מקטע-בורר.
+   `mv-tabs` הוא בורר של שניים-שלושה מצבים; כרטיס ישות מחזיק שמונה
+   ומעלה, ואז הרקע האפור הופך לגוש רועש והפריטים נדחסים. פס תחתון
+   נושם, נגלל אופקית בטלפון, ומשאיר את הדגש על התוכן.
+   ------------------------------------------------------------ */
+.mv-entity-tabs {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--color-border);
+}
+.mv-entity-tabs::-webkit-scrollbar {
+  display: none;
+}
+.mv-entity-tabs > button {
+  position: relative;
+  border: none;
+  background: transparent;
+  padding: 12px 14px 11px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* הקו יושב על הגבול של המכל ולא מתחתיו */
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+}
+.mv-entity-tabs > button:hover {
+  color: var(--color-text);
+}
+.mv-entity-tabs > button[aria-selected="true"] {
+  color: var(--color-text);
+  border-bottom-color: var(--color-primary);
+}
+/* מונה בתוך הלשונית — כמה יש שם, בלי להיכנס */
+.mv-tab-count {
+  min-width: 19px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--color-seg-track);
+  color: var(--color-text-soft);
+  font-size: 11.5px;
+  font-weight: 800;
+  line-height: 19px;
+  text-align: center;
+}
+.mv-entity-tabs > button[aria-selected="true"] .mv-tab-count {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
 /* כרטיס מונה בדשבורד — לפי קובץ העיצוב: מספר גדול ומסגרת שמתחדדת בריחוף */
 .mv-stat-card {
   display: block;

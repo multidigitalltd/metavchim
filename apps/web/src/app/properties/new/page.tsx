@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
+import { FormSection } from "../../form-section";
 import { apiPost, ApiError } from "@/lib/api";
 import { shekelsToAgorot, PROPERTY_TYPE_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
@@ -123,8 +124,11 @@ export default function NewPropertyPage() {
           </p>
         ) : null}
 
-        <fieldset className="mb-6 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
-          <legend className="px-2 font-semibold">מיקום</legend>
+        <FormSection
+          step={1}
+          title="מיקום"
+          hint="הכתובת מתורגמת לנקודה על המפה מעצמה, וזה מה שמאפשר התאמה לפי מרחק אמיתי ולא לפי שם עיר."
+        >
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <label htmlFor="city" className="mb-1 block font-medium">עיר *</label>
@@ -188,10 +192,9 @@ export default function NewPropertyPage() {
               </div>
             ) : null}
           </details>
-        </fieldset>
+        </FormSection>
 
-        <fieldset className="mb-6 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
-          <legend className="px-2 font-semibold">פרטי הנכס</legend>
+        <FormSection step={2} title="פרטי הנכס" hint="חדרים, שטח וקומה הם שלושת השדות שקונים מסננים לפיהם.">
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <label htmlFor="propertyType" className="mb-1 block font-medium">סוג נכס *</label>
@@ -234,16 +237,19 @@ export default function NewPropertyPage() {
               ["hasSafeRoom", 'ממ"ד'],
             ]}
           />
-        </fieldset>
+        </FormSection>
 
-        <fieldset className="mb-6 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
-          <legend className="px-2 font-semibold">מחיר וכניסה</legend>
+        <FormSection
+          step={3}
+          title="מחיר וכניסה"
+          hint="מועד הכניסה הוא קריטריון התאמה — 'גמיש' ו'מיידי' אינם אותו דבר."
+        >
           <div className="grid gap-4 sm:grid-cols-2">
             {/* המחיר גם במילים — ספרה עודפת במיליונים קופצת לעין */}
             <PriceField id="price" name="price" label="מחיר (₪)" />
             <EntryTimingField side="property" inputStyle={inputStyle} />
           </div>
-        </fieldset>
+        </FormSection>
 
         <div className="mb-6">
           <label htmlFor="marketingTitle" className="mb-1 block font-medium">כותרת שיווקית</label>
@@ -251,8 +257,11 @@ export default function NewPropertyPage() {
           <DictateFor targetId="marketingTitle" />
         </div>
 
-        <fieldset className="mb-6">
-          <legend className="mb-2 font-medium">בעל הנכס (אופציונלי)</legend>
+        <FormSection
+          step={4}
+          title="בעל הנכס"
+          hint="לא חובה עכשיו — אבל בלעדיו אי אפשר לשלוח עדכון שיווק ולא להחתים על בלעדיות."
+        >
           <div className="flex flex-wrap gap-3">
             <div className="flex-1" style={{ minWidth: "180px" }}>
               <label htmlFor="ownerName" className="mb-1 block text-sm">שם</label>
@@ -266,9 +275,9 @@ export default function NewPropertyPage() {
           <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
             נקשר לאיש הקשר לפי הטלפון — יופיע בתיק הלקוח המאוחד.
           </p>
-        </fieldset>
+        </FormSection>
 
-        <div className="flex gap-3">
+        <div className="mv-form-actions">
           <Button type="submit" disabled={submitting}>
             {submitting ? "שומר…" : "שמור נכס"}
           </Button>
