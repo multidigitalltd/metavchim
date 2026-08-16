@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from "@nestjs/common";
 import { z } from "zod";
 import {
   BuyerMaturitySchema,
@@ -11,6 +21,7 @@ import {
 import { RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { MatchingService, type MatchDto } from "../matching/matching.service";
+import { FeatureCatalogueService } from "../properties/feature-catalogue.service";
 import { BuyersService, type BuyerDto } from "./buyers.service";
 
 const CreateBuyerSchema = z
@@ -69,12 +80,14 @@ export class BuyersController {
   constructor(
     private readonly buyers: BuyersService,
     private readonly matching: MatchingService,
+    private readonly catalogue: FeatureCatalogueService,
   ) {}
 
   @Post()
   @RequireCapability("buyers.edit")
   async create(
-    @Body(new ZodValidationPipe(CreateBuyerSchema)) body: z.infer<typeof CreateBuyerSchema>,
+    @Body(new ZodValidationPipe(CreateBuyerSchema))
+    body: z.infer<typeof CreateBuyerSchema>,
   ): Promise<BuyerDto> {
     return this.buyers.create(body);
   }
@@ -82,7 +95,8 @@ export class BuyersController {
   @Get()
   @RequireCapability("buyers.view_own")
   async list(
-    @Query(new ZodValidationPipe(ListQuerySchema)) query: z.infer<typeof ListQuerySchema>,
+    @Query(new ZodValidationPipe(ListQuerySchema))
+    query: z.infer<typeof ListQuerySchema>,
   ): Promise<Page<BuyerDto>> {
     return this.buyers.list(query);
   }
@@ -100,13 +114,46 @@ export class BuyersController {
    */
   @Get("breakdown")
   @RequireCapability("buyers.view_own")
-  async breakdown(): Promise<{ total: number; byMaturity: Record<string, number> }> {
+  async breakdown(): Promise<{
+    total: number;
+    byMaturity: Record<string, number>;
+  }> {
     return this.buyers.breakdown();
+  }
+
+  /**
+   * קטלוג המאפיינים של המשרד — **לטופס הקונה, תחת הרשאת הקונה.**
+   *
+   * אותו קטלוג יושב גם תחת `/properties`, ושם הוא מגודר ב-
+   * `properties.view`. אבל היכולות ניתנות לשליטה נפרדת לכל משתמש
+   * (ניהול המשרד יכול לחסום מודול), ולכן קיים סוכן שיש לו
+   * `buyers.edit` בלי `properties.view`: טופס הקונה נפתח לפניו,
+   * הקריאה נדחית ב-403, והרשימה מתרוקנת בשקט. התוצאה היא מסך
+   * שמבטיח יכולת שאינה קיימת — הוא פשוט לא יכול לדרוש שום מאפיין
+   * של המשרד, בעוד ה-API היה מקבל את הדרישה (ביקורת Codex).
+   *
+   * שני נתיבים ולא היתר כפול על אחד: השער כאן הוא התאמה מדויקת ליכולת
+   * אחת, וזו ההבחנה ש-`auth-coverage.test.ts` אוכפת.
+   *
+   * הקטלוג הוא אוצר מילים ולא נתונים: תוויות שהמשרד כבר משתמש בהן,
+   * בלי שום פרט על נכס מסוים.
+   *
+   * **מוכרח לשבת לפני `:id`** — נתיב סטטי אחרי פרמטרי נבלע ונקרא
+   * כמזהה קונה.
+   */
+  @Get("feature-catalogue")
+  @RequireCapability("buyers.edit")
+  async featureCatalogue(): Promise<
+    { key: string; label: string; count: number }[]
+  > {
+    return this.catalogue.list();
   }
 
   @Get(":id")
   @RequireCapability("buyers.view_own")
-  async get(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<BuyerDto> {
+  async get(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<BuyerDto> {
     return this.buyers.getById(id);
   }
 
@@ -114,7 +161,8 @@ export class BuyersController {
   @RequireCapability("buyers.edit")
   async update(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Body(new ZodValidationPipe(UpdateBuyerSchema)) body: z.infer<typeof UpdateBuyerSchema>,
+    @Body(new ZodValidationPipe(UpdateBuyerSchema))
+    body: z.infer<typeof UpdateBuyerSchema>,
   ): Promise<BuyerDto> {
     return this.buyers.update(id, body);
   }
@@ -137,21 +185,27 @@ export class BuyersController {
   @Delete(":id")
   @RequireCapability("buyers.delete")
   @HttpCode(204)
-  async archive(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<void> {
+  async archive(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<void> {
     await this.buyers.archive(id);
   }
 
   @Delete(":id/permanent")
   @RequireCapability("buyers.delete")
   @HttpCode(204)
-  async purge(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<void> {
+  async purge(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<void> {
     await this.buyers.purge(id);
   }
 
   /** "נכסים מתאימים לקונה" — הצד השני של מסך ההתאמות הדו-צדי (אפיון §15). */
   @Get(":id/matches")
   @RequireCapability("matches.view")
-  async matchesFor(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<MatchDto[]> {
+  async matchesFor(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<MatchDto[]> {
     return this.matching.listForBuyer(id);
   }
 
@@ -170,7 +224,8 @@ export class BuyersController {
   @RequireCapability("buyers.edit")
   async addInteraction(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Body(new ZodValidationPipe(AddInteractionSchema)) body: z.infer<typeof AddInteractionSchema>,
+    @Body(new ZodValidationPipe(AddInteractionSchema))
+    body: z.infer<typeof AddInteractionSchema>,
   ): Promise<{ ok: true }> {
     await this.buyers.addInteraction(id, body);
     return { ok: true };

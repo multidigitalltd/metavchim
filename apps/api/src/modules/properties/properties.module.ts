@@ -3,6 +3,7 @@ import { ContactsModule } from "../contacts/contacts.module";
 import { LeadsModule } from "../leads/leads.module";
 import { MatchingModule } from "../matching/matching.module";
 import { MessagingModule } from "../messaging/messaging.module";
+import { FeatureCatalogueModule } from "./feature-catalogue.module";
 import { LandingController } from "./landing.controller";
 import { LandingService } from "./landing.service";
 import { MediaController } from "./media.controller";
@@ -11,7 +12,13 @@ import { PropertiesController } from "./properties.controller";
 import { PropertiesService } from "./properties.service";
 
 @Module({
-  imports: [ContactsModule, MatchingModule, MessagingModule, LeadsModule],
+  imports: [
+    ContactsModule,
+    MatchingModule,
+    MessagingModule,
+    LeadsModule,
+    FeatureCatalogueModule,
+  ],
   controllers: [PropertiesController, MediaController, LandingController],
   providers: [PropertiesService, MediaService, LandingService],
   exports: [PropertiesService],

@@ -15,7 +15,10 @@ import { apiGet } from "@/lib/api";
  * מסמן על נכסים.
  */
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
+const inputStyle = {
+  borderColor: "var(--color-border)",
+  background: "var(--color-field)",
+} as const;
 
 export function FeatureRequirements({
   builtin,
@@ -26,10 +29,12 @@ export function FeatureRequirements({
   /** דרישות קיימות (בעריכה): מפתח → must/nice. */
   initial?: Record<string, string> | undefined;
 }) {
-  const [catalogue, setCatalogue] = useState<{ key: string; label: string }[]>([]);
+  const [catalogue, setCatalogue] = useState<{ key: string; label: string }[]>(
+    [],
+  );
 
   useEffect(() => {
-    apiGet<{ key: string; label: string }[]>("/properties/feature-catalogue")
+    apiGet<{ key: string; label: string }[]>("/buyers/feature-catalogue")
       .then(setCatalogue)
       .catch(() => setCatalogue([]));
   }, []);
@@ -51,7 +56,12 @@ export function FeatureRequirements({
         <legend className="mb-2 font-medium">מאפיינים — חובה או עדיפות?</legend>
         <div className="grid gap-2 sm:grid-cols-2">
           {builtin.map(([key, label]) => (
-            <Row key={key} featureKey={key} label={label} initial={initial?.[key]} />
+            <Row
+              key={key}
+              featureKey={key}
+              label={label}
+              initial={initial?.[key]}
+            />
           ))}
         </div>
       </fieldset>

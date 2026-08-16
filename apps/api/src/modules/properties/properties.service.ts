@@ -1,8 +1,12 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   computeReadiness,
-  featureCatalogue,
   limitState,
   type Page,
   type PropertyFields,
@@ -31,10 +35,17 @@ import { OutboxService } from "../../core/outbox.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
-import { MatchingService, type MatchTrigger } from "../matching/matching.service";
+import {
+  MatchingService,
+  type MatchTrigger,
+} from "../matching/matching.service";
 import { MessagingService } from "../messaging/messaging.service";
 import { mediaRawPath } from "./media.service";
-import { fieldsToColumns, readCustomFeatures, rowToFields, type PropertyDto } from "./property.mapper";
+import {
+  fieldsToColumns,
+  rowToFields,
+  type PropertyDto,
+} from "./property.mapper";
 
 @Injectable()
 export class PropertiesService {
@@ -74,7 +85,10 @@ export class PropertiesService {
    * `app.tenant_id` היא מחזירה אפס שורות **בלי שגיאה** — כלומר מכסה
    * שלעולם אינה נחצית, ובדיקה שנראית עובדת.
    */
-  private async assertCanAddProperty(tx: TenantTx, tenantId: string): Promise<void> {
+  private async assertCanAddProperty(
+    tx: TenantTx,
+    tenantId: string,
+  ): Promise<void> {
     const plan = await this.plans.forTenant(tenantId, tx);
     /*
      * מסלול שאי אפשר לפתור — חוסם, לא פותח.
@@ -91,14 +105,16 @@ export class PropertiesService {
     if (limit === null) return;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`property-quota:${tenantId}`}))`;
     /*
-      * נכסים בארכיון אינם נספרים.
-      *
-      * `softDelete` רק מסמן `deletedAt`, וכל קריאה רגילה מסננת אותם.
-      * ספירה שכוללת אותם הייתה חוסמת משרד **לצמיתות**: הוא מוחק נכס
-      * כדי לפנות מקום, המונה לא יורד, ובסוף אין לו אף נכס גלוי והוא
-      * עדיין חסום (ביקורת Codex).
-      */
-     const used = await tx.property.count({ where: { tenantId, deletedAt: null } });
+     * נכסים בארכיון אינם נספרים.
+     *
+     * `softDelete` רק מסמן `deletedAt`, וכל קריאה רגילה מסננת אותם.
+     * ספירה שכוללת אותם הייתה חוסמת משרד **לצמיתות**: הוא מוחק נכס
+     * כדי לפנות מקום, המונה לא יורד, ובסוף אין לו אף נכס גלוי והוא
+     * עדיין חסום (ביקורת Codex).
+     */
+    const used = await tx.property.count({
+      where: { tenantId, deletedAt: null },
+    });
     if (limitState(used, limit).blocked) {
       throw new BadRequestException(
         `מסלול "${plan.name}" כולל ${limit} נכסים. לתוספת נכסים יש לשדרג מסלול.`,
@@ -145,7 +161,10 @@ export class PropertiesService {
    *   סטטוס גנרי. כישלון המרה (למשל מכסת נכסים) אינו אמור לשנות
    *   לצמיתות את מצב הטיפול בליד.
    */
-  async convertFromLead(leadId: string, fields: PropertyFields): Promise<PropertyDto> {
+  async convertFromLead(
+    leadId: string,
+    fields: PropertyFields,
+  ): Promise<PropertyDto> {
     const ctx = TenantContext.current();
 
     const claim = await this.prisma.withTenant(async (tx) => {
@@ -159,22 +178,35 @@ export class PropertiesService {
       if (!lead) throw new NotFoundException("ליד לא נמצא");
 
       const claimed = await tx.lead.updateMany({
-        where: { id: leadId, tenantId: ctx.tenantId, status: { not: "converted" } },
+        where: {
+          id: leadId,
+          tenantId: ctx.tenantId,
+          status: { not: "converted" },
+        },
         data: {
           status: "converted",
           requiresHuman: false,
-          ...(lead.firstResponseAt === null ? { firstResponseAt: new Date() } : {}),
+          ...(lead.firstResponseAt === null
+            ? { firstResponseAt: new Date() }
+            : {}),
         },
       });
       if (claimed.count === 0) throw new ConflictException("הליד כבר הומר");
 
       // מזהי משימות ה-SLA שנסגרות — כדי שהרולבק יפתח בדיוק אותן
       const slaTasks = await tx.task.findMany({
-        where: { tenantId: ctx.tenantId, sourceKey: `lead-sla:${leadId}`, status: "open" },
+        where: {
+          tenantId: ctx.tenantId,
+          sourceKey: `lead-sla:${leadId}`,
+          status: "open",
+        },
         select: { id: true },
       });
       await tx.task.updateMany({
-        where: { id: { in: slaTasks.map((t) => t.id) }, tenantId: ctx.tenantId },
+        where: {
+          id: { in: slaTasks.map((t) => t.id) },
+          tenantId: ctx.tenantId,
+        },
         data: { status: "done" },
       });
 
@@ -255,37 +287,26 @@ export class PropertiesService {
    * לא תידרס בידי פענוח אוטומטי, וזו בדיוק ההבחנה שהעמודה
    * `location_source` נועדה לה.
    */
-  /**
-   * המאפיינים המותאמים שכבר בשימוש במשרד, לפי שכיחות.
-   *
-   * נקרא מ-`attributes` של הנכסים החיים ולא מטבלה נפרדת: הקטלוג
-   * **נגזר** ממה שקיים ואינו רשימה שצריך לתחזק, ולכן מאפיין שהפסיק
-   * להיות בשימוש נושר מעצמו במקום להישאר ברשימה לנצח.
-   */
-  async featureCatalogue(): Promise<{ key: string; label: string; count: number }[]> {
-    const tenantId = TenantContext.current().tenantId;
-    return this.prisma.withTenant(async (tx) => {
-      const rows = await tx.property.findMany({
-        where: { tenantId, deletedAt: null },
-        select: { attributes: true },
-        take: 2000,
-      });
-      return featureCatalogue(
-        rows.map((row) => ({ customFeatures: readCustomFeatures(row.attributes) })),
-      );
-    });
-  }
-
-  private async withGeocodedLocation(fields: PropertyFields): Promise<PropertyFields> {
-    if (fields.latitude !== undefined && fields.longitude !== undefined) return fields;
+  private async withGeocodedLocation(
+    fields: PropertyFields,
+  ): Promise<PropertyFields> {
+    if (fields.latitude !== undefined && fields.longitude !== undefined)
+      return fields;
     const address = [fields.street, fields.neighborhood, fields.city]
-      .filter((part): part is string => part !== undefined && part.trim() !== "")
+      .filter(
+        (part): part is string => part !== undefined && part.trim() !== "",
+      )
       .join(", ");
     // עיר לבדה מפוענחת למרכז העיר, וזה עדיין שימושי יותר מכלום
     if (address === "") return fields;
     const [hit] = await this.geocoding.search(address);
     if (!hit) return fields;
-    return { ...fields, latitude: hit.lat, longitude: hit.lon, locationSource: "geocode" };
+    return {
+      ...fields,
+      latitude: hit.lat,
+      longitude: hit.lon,
+      locationSource: "geocode",
+    };
   }
 
   private async persist(input: {
@@ -337,7 +358,11 @@ export class PropertiesService {
           ...(fieldsToColumns(fields) as object),
         },
       });
-      await this.audit.record(tx, { action: "property.create", entityType: "property", entityId: id });
+      await this.audit.record(tx, {
+        action: "property.create",
+        entityType: "property",
+        entityId: id,
+      });
       await this.outbox.emit(tx, "property.updated", {
         propertyId: id,
         tenantId,
@@ -355,16 +380,25 @@ export class PropertiesService {
     return id;
   }
 
-  async update(id: string, patch: Partial<PropertyFields> & {
-    status?: string;
-    marketingTitle?: string;
-    marketingDescription?: string;
-    internalNotes?: string;
-    owner?: { name: string; phone: string };
-  }): Promise<PropertyDto> {
+  async update(
+    id: string,
+    patch: Partial<PropertyFields> & {
+      status?: string;
+      marketingTitle?: string;
+      marketingDescription?: string;
+      internalNotes?: string;
+      owner?: { name: string; phone: string };
+    },
+  ): Promise<PropertyDto> {
     const tenantId = TenantContext.current().tenantId;
-    const { status, marketingTitle, marketingDescription, internalNotes, owner, ...fieldPatch } =
-      patch;
+    const {
+      status,
+      marketingTitle,
+      marketingDescription,
+      internalNotes,
+      owner,
+      ...fieldPatch
+    } = patch;
 
     /*
      * ירידת מחיר — הזדמנות, לא עוד עריכה.
@@ -377,21 +411,38 @@ export class PropertiesService {
 
     await this.prisma.withTenant(async (tx) => {
       const existing = await tx.property.findFirst({
-        where: { id, tenantId: TenantContext.current().tenantId, deletedAt: null },
+        where: {
+          id,
+          tenantId: TenantContext.current().tenantId,
+          deletedAt: null,
+        },
       });
       if (!existing) throw new NotFoundException("נכס לא נמצא");
-      const priceBefore = existing.priceAgorot === null ? null : Number(existing.priceAgorot);
+      const priceBefore =
+        existing.priceAgorot === null ? null : Number(existing.priceAgorot);
       const priceAfter = fieldPatch.priceAgorot;
       // רק ירידה. העלאת מחיר סוגרת קונים, ואין בה מה לחגוג.
-      if (priceBefore !== null && priceAfter !== undefined && priceAfter < priceBefore) {
-        trigger = { kind: "price_drop", fromAgorot: priceBefore, toAgorot: priceAfter };
+      if (
+        priceBefore !== null &&
+        priceAfter !== undefined &&
+        priceAfter < priceBefore
+      ) {
+        trigger = {
+          kind: "price_drop",
+          fromAgorot: priceBefore,
+          toAgorot: priceAfter,
+        };
       }
 
-      const ownerContact = owner ? await this.contacts.findOrCreateByPhone(tx, owner) : null;
+      const ownerContact = owner
+        ? await this.contacts.findOrCreateByPhone(tx, owner)
+        : null;
       const mergedFields = { ...rowToFields(existing), ...fieldPatch };
       const readiness = computeReadiness(mergedFields, {
         hasTitle: Boolean(marketingTitle ?? existing.marketingTitle),
-        hasDescription: Boolean(marketingDescription ?? existing.marketingDescription),
+        hasDescription: Boolean(
+          marketingDescription ?? existing.marketingDescription,
+        ),
       });
 
       await tx.property.update({
@@ -400,7 +451,9 @@ export class PropertiesService {
           ...(fieldsToColumns(fieldPatch) as object),
           ...(status !== undefined ? { status } : {}),
           ...(marketingTitle !== undefined ? { marketingTitle } : {}),
-          ...(marketingDescription !== undefined ? { marketingDescription } : {}),
+          ...(marketingDescription !== undefined
+            ? { marketingDescription }
+            : {}),
           ...(internalNotes !== undefined ? { internalNotes } : {}),
           ...(ownerContact ? { ownerContactId: ownerContact.id } : {}),
           readinessScore: readiness.score,
@@ -441,7 +494,11 @@ export class PropertiesService {
   async getById(id: string): Promise<PropertyDto> {
     return this.prisma.withTenant(async (tx) => {
       const row = await tx.property.findFirst({
-        where: { id, tenantId: TenantContext.current().tenantId, deletedAt: null },
+        where: {
+          id,
+          tenantId: TenantContext.current().tenantId,
+          deletedAt: null,
+        },
       });
       if (!row) throw new NotFoundException("נכס לא נמצא");
       const fields = rowToFields(row);
@@ -546,12 +603,34 @@ export class PropertiesService {
                     ...(propertyTypesFor(term).length > 0
                       ? [{ propertyType: { in: propertyTypesFor(term) } }]
                       : []),
-                    { street: { contains: term, mode: "insensitive" as const } },
-                    { neighborhood: { contains: term, mode: "insensitive" as const } },
+                    {
+                      street: { contains: term, mode: "insensitive" as const },
+                    },
+                    {
+                      neighborhood: {
+                        contains: term,
+                        mode: "insensitive" as const,
+                      },
+                    },
                     { city: { contains: term, mode: "insensitive" as const } },
-                    { marketingTitle: { contains: term, mode: "insensitive" as const } },
-                    { marketingDescription: { contains: term, mode: "insensitive" as const } },
-                    { internalNotes: { contains: term, mode: "insensitive" as const } },
+                    {
+                      marketingTitle: {
+                        contains: term,
+                        mode: "insensitive" as const,
+                      },
+                    },
+                    {
+                      marketingDescription: {
+                        contains: term,
+                        mode: "insensitive" as const,
+                      },
+                    },
+                    {
+                      internalNotes: {
+                        contains: term,
+                        mode: "insensitive" as const,
+                      },
+                    },
                   ],
                 })),
               }
@@ -566,13 +645,17 @@ export class PropertiesService {
 
       // תמונה ראשית לכל נכס בעמוד — שאילתת מדיה אחת; הנתיב מוזרם דרך ה-API
       const media = await tx.propertyMedia.findMany({
-        where: { tenantId: TenantContext.current().tenantId, propertyId: { in: pageRows.map((r) => r.id) } },
+        where: {
+          tenantId: TenantContext.current().tenantId,
+          propertyId: { in: pageRows.map((r) => r.id) },
+        },
         orderBy: { sortOrder: "asc" },
         select: { propertyId: true, id: true },
       });
       const primaryIdByProperty = new Map<string, string>();
       for (const m of media) {
-        if (!primaryIdByProperty.has(m.propertyId)) primaryIdByProperty.set(m.propertyId, m.id);
+        if (!primaryIdByProperty.has(m.propertyId))
+          primaryIdByProperty.set(m.propertyId, m.id);
       }
 
       // מספר הקונים הממתינים לכל נכס — זו הפעולה הבאה שהמתווך מחפש
@@ -611,7 +694,10 @@ export class PropertiesService {
           archived: row.deletedAt !== null,
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,
-        } satisfies PropertyDto & { thumbnailUrl?: string; suggestedMatchCount: number };
+        } satisfies PropertyDto & {
+          thumbnailUrl?: string;
+          suggestedMatchCount: number;
+        };
       });
       return { items, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null };
     });
@@ -622,7 +708,9 @@ export class PropertiesService {
    * בהודעה אחת — כמה קונים הותאמו, כמה קיבלו הצעה, כמה פתחו וכמה סימנו
    * עניין. המתווך רק לוחץ שלח; ההודעה מתועדת ב-Messages Hub.
    */
-  async prepareOwnerUpdate(id: string): Promise<{ waUrl: string; message: string }> {
+  async prepareOwnerUpdate(
+    id: string,
+  ): Promise<{ waUrl: string; message: string }> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
       const property = await tx.property.findFirst({
@@ -630,7 +718,9 @@ export class PropertiesService {
       });
       if (!property) throw new NotFoundException("נכס לא נמצא");
       if (!property.ownerContactId) {
-        throw new NotFoundException("לנכס לא הוגדר בעל נכס — הוסיפו שם וטלפון בעריכת הנכס");
+        throw new NotFoundException(
+          "לנכס לא הוגדר בעל נכס — הוסיפו שם וטלפון בעריכת הנכס",
+        );
       }
       const owner = await this.contacts.getById(tx, property.ownerContactId);
       if (!owner) throw new NotFoundException("איש הקשר של בעל הנכס לא נמצא");
@@ -649,7 +739,8 @@ export class PropertiesService {
       const interested = offers.filter((o) => o.status === "interested").length;
 
       const title =
-        property.marketingTitle ?? [property.city ?? "", "הנכס"].filter(Boolean).join(" — ");
+        property.marketingTitle ??
+        [property.city ?? "", "הנכס"].filter(Boolean).join(" — ");
       const message = [
         `שלום ${owner.name}, עדכון שיווק על "${title}":`,
         `• ${matches.length} קונים מתאימים אותרו במערכת`,
@@ -697,7 +788,9 @@ export class PropertiesService {
       select: { id: true },
     });
     if (doomed.length > 0) {
-      await tx.offer.deleteMany({ where: { matchId: { in: doomed.map((m) => m.id) } } });
+      await tx.offer.deleteMany({
+        where: { matchId: { in: doomed.map((m) => m.id) } },
+      });
     }
     await tx.match.deleteMany({ where: { propertyId, status: "suggested" } });
     await tx.match.updateMany({
@@ -731,7 +824,9 @@ export class PropertiesService {
       });
       if (!existing) throw new NotFoundException("נכס לא נמצא");
       if (existing.deletedAt === null) {
-        throw new BadRequestException("יש להעביר את הנכס לארכיון לפני מחיקה לצמיתות");
+        throw new BadRequestException(
+          "יש להעביר את הנכס לארכיון לפני מחיקה לצמיתות",
+        );
       }
 
       // לפני מחיקת השורות — אחריה אין מי שיודע אילו קבצים היו שלו
@@ -745,8 +840,12 @@ export class PropertiesService {
         select: { id: true },
       });
       const matchIds = matchRows.map((m) => m.id);
-      await tx.offer.deleteMany({ where: { tenantId: ctx.tenantId, matchId: { in: matchIds } } });
-      await tx.match.deleteMany({ where: { tenantId: ctx.tenantId, propertyId: id } });
+      await tx.offer.deleteMany({
+        where: { tenantId: ctx.tenantId, matchId: { in: matchIds } },
+      });
+      await tx.match.deleteMany({
+        where: { tenantId: ctx.tenantId, propertyId: id },
+      });
 
       // הצעות שת"פ שהוצעו על הנכס — הצעה על נכס שאיננו היא פנייה
       // שאיש לא יטפל בה
@@ -776,13 +875,17 @@ export class PropertiesService {
        * עליהן. בלי זה נשארת בלעדיות "פתוחה" על נכס שאיננו, והיא
        * ממשיכה להופיע בסריקה וברשימה לנצח (ביקורת Codex).
        */
-      await tx.marketingAction.deleteMany({ where: { tenantId: ctx.tenantId, propertyId: id } });
+      await tx.marketingAction.deleteMany({
+        where: { tenantId: ctx.tenantId, propertyId: id },
+      });
       await tx.propertyExclusivity.deleteMany({
         where: { tenantId: ctx.tenantId, propertyId: id },
       });
 
       // property_media לפני properties — מפתח זר RESTRICT
-      await tx.propertyMedia.deleteMany({ where: { tenantId: ctx.tenantId, propertyId: id } });
+      await tx.propertyMedia.deleteMany({
+        where: { tenantId: ctx.tenantId, propertyId: id },
+      });
       await tx.property.delete({ where: { id } });
 
       if (media.length > 0) {
@@ -808,10 +911,17 @@ export class PropertiesService {
   async softDelete(id: string): Promise<void> {
     await this.prisma.withTenant(async (tx) => {
       const existing = await tx.property.findFirst({
-        where: { id, tenantId: TenantContext.current().tenantId, deletedAt: null },
+        where: {
+          id,
+          tenantId: TenantContext.current().tenantId,
+          deletedAt: null,
+        },
       });
       if (!existing) throw new NotFoundException("נכס לא נמצא");
-      await tx.property.update({ where: { id }, data: { deletedAt: new Date(), status: "archived" } });
+      await tx.property.update({
+        where: { id },
+        data: { deletedAt: new Date(), status: "archived" },
+      });
       /*
        * אותו טיפול בדיוק כמו ביציאה משיווק, ולא רק מחיקת ה-`suggested`.
        *
@@ -829,7 +939,11 @@ export class PropertiesService {
           newStatus: "archived",
         });
       }
-      await this.audit.record(tx, { action: "property.delete", entityType: "property", entityId: id });
+      await this.audit.record(tx, {
+        action: "property.delete",
+        entityType: "property",
+        entityId: id,
+      });
     });
   }
 }

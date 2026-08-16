@@ -618,6 +618,7 @@ export class CollaborationService {
     dealType: string;
     propertyTypes: string[];
     areaSqmMin: number | null;
+    budgetMinAgorot: bigint | null;
     budgetMaxAgorot: bigint;
     roomsMin: Prisma.Decimal | null;
     roomsMax: Prisma.Decimal | null;
@@ -639,6 +640,15 @@ export class CollaborationService {
        */
       propertyTypes: demand.propertyTypes,
       ...(demand.areaSqmMin !== null ? { areaSqmMin: demand.areaSqmMin } : {}),
+      /*
+       * גם רף התקציב התחתון, ולא רק התקרה. הוא נשמר ומוצג — ובלעדיו
+       * כאן, נכס מתחת לרף שהקונה הגדיר היה מקבל ניקוד תקציב מלא ברשת
+       * בעוד אותו קונה מוריד עליו ניקוד פנימית. כלומר נכס לא מתאים
+       * שנדחף מעל סף התצוגה, ודווקא בצד שאין בו למי לשאול.
+       */
+      ...(demand.budgetMinAgorot !== null
+        ? { budgetMinAgorot: Number(demand.budgetMinAgorot) }
+        : {}),
       budgetMaxAgorot: Number(demand.budgetMaxAgorot),
       ...(demand.roomsMin !== null
         ? { roomsMin: Number(demand.roomsMin) }
@@ -1368,9 +1378,7 @@ export class CollaborationService {
    * הדירוגים על ההפניות שאני צד בהן. ה-RLS מחזיר רק שורות של הפניות
    * שאני צד בהן, ולכן אין כאן סינון ידני שאפשר לשכוח.
    */
-  private async ratingsFor(
-    sharedLeadIds: readonly string[],
-  ): Promise<
+  private async ratingsFor(sharedLeadIds: readonly string[]): Promise<
     Map<
       string,
       {

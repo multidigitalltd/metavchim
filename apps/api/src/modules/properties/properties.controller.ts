@@ -21,6 +21,7 @@ import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { MatchingService, type MatchDto } from "../matching/matching.service";
+import { FeatureCatalogueService } from "./feature-catalogue.service";
 import { PropertiesService } from "./properties.service";
 import type { PropertyDto } from "./property.mapper";
 
@@ -58,8 +59,8 @@ export class PropertiesController {
   constructor(
     private readonly properties: PropertiesService,
     private readonly matching: MatchingService,
+    private readonly catalogue: FeatureCatalogueService,
   ) {}
-
 
   /**
    * המרת ליד לנכס: "יש לי דירה למכור" הוא בעל נכס, לא קונה. הנתיב
@@ -75,7 +76,8 @@ export class PropertiesController {
   @RequireCapability("properties.create")
   async convertFromLead(
     @Param("leadId", new ZodValidationPipe(IdSchema)) leadId: string,
-    @Body(new ZodValidationPipe(PropertyFieldsSchema)) body: z.infer<typeof PropertyFieldsSchema>,
+    @Body(new ZodValidationPipe(PropertyFieldsSchema))
+    body: z.infer<typeof PropertyFieldsSchema>,
   ): Promise<{ id: string }> {
     const property = await this.properties.convertFromLead(leadId, body);
     return { id: property.id };
@@ -87,8 +89,14 @@ export class PropertiesController {
     @Body(new ZodValidationPipe(CreatePropertySchema))
     body: z.infer<typeof CreatePropertySchema>,
   ): Promise<PropertyDto> {
-    const { marketingTitle, marketingDescription, internalNotes, ownerName, ownerPhone, ...fields } =
-      body;
+    const {
+      marketingTitle,
+      marketingDescription,
+      internalNotes,
+      ownerName,
+      ownerPhone,
+      ...fields
+    } = body;
     return this.properties.create({
       fields,
       marketingTitle,
@@ -103,7 +111,8 @@ export class PropertiesController {
   @Get()
   @RequireCapability("properties.view")
   async list(
-    @Query(new ZodValidationPipe(ListQuerySchema)) query: z.infer<typeof ListQuerySchema>,
+    @Query(new ZodValidationPipe(ListQuerySchema))
+    query: z.infer<typeof ListQuerySchema>,
   ): Promise<Page<PropertyDto>> {
     return this.properties.list(query);
   }
@@ -121,13 +130,17 @@ export class PropertiesController {
    */
   @Get("feature-catalogue")
   @RequireCapability("properties.view")
-  async featureCatalogue(): Promise<{ key: string; label: string; count: number }[]> {
-    return this.properties.featureCatalogue();
+  async featureCatalogue(): Promise<
+    { key: string; label: string; count: number }[]
+  > {
+    return this.catalogue.list();
   }
 
   @Get(":id")
   @RequireCapability("properties.view")
-  async get(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<PropertyDto> {
+  async get(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<PropertyDto> {
     return this.properties.getById(id);
   }
 
@@ -161,7 +174,9 @@ export class PropertiesController {
   @Delete(":id")
   @RequireCapability("properties.delete")
   @HttpCode(204)
-  async remove(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<void> {
+  async remove(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<void> {
     await this.properties.softDelete(id);
   }
 
@@ -174,14 +189,18 @@ export class PropertiesController {
   @Delete(":id/permanent")
   @RequireCapability("properties.delete")
   @HttpCode(204)
-  async purge(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<void> {
+  async purge(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<void> {
     await this.properties.purge(id);
   }
 
   /** "מצא לי קונים" (אפיון §7) — ההתאמות כבר מחושבות; כאן רק קוראים אותן. */
   @Get(":id/matches")
   @RequireCapability("matches.view")
-  async matchesFor(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<MatchDto[]> {
+  async matchesFor(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<MatchDto[]> {
     return this.matching.listForProperty(id);
   }
 }
