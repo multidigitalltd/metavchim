@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { IconCoins, IconHandshake, IconInfo } from "../icons";
+import { IconCoins, IconGift, IconHandshake, IconInfo } from "../icons";
 
 /**
  * ההסבר על רשת שיתופי הפעולה.
@@ -135,9 +135,9 @@ export function CollaborationGuide() {
         className="m-0 mb-3 text-[13px]"
         style={{ color: "var(--color-text-soft)" }}
       >
-        🎁 שיתוף פעולה עם משרד תיווך — <b>חינם בכל המסלולים</b>. 🪙 קרדיטים
-        יורדים רק על הפניית לקוח ועל ביקוש שמסומן במקור חיצוני, וכל אחד מהם נושא
-        תווית מחיר לפני הלחיצה.
+        <IconGift s={14} /> שיתוף פעולה עם משרד תיווך — <b>חינם בכל המסלולים</b>
+        . <IconCoins s={14} /> קרדיטים יורדים רק על הפניית לקוח ועל ביקוש שמסומן
+        במקור חיצוני, וכל אחד מהם נושא תווית מחיר לפני הלחיצה.
       </p>
 
       <div className="flex flex-wrap gap-2">

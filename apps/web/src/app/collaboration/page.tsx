@@ -19,7 +19,28 @@ import { useRequireAuth } from "@/lib/use-auth";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { LoadError } from "../load-error";
-import { IconDiamond } from "../icons";
+import {
+  IconCheck,
+  IconDiamond,
+  IconDownload,
+  IconGift,
+  IconGlobe,
+  IconHandshake,
+  IconHome,
+  IconInbox,
+  IconLock,
+  IconMail,
+  IconPlus,
+  IconSearch,
+  IconSend,
+  IconStar,
+  IconTarget,
+  IconUpload,
+  IconUser,
+  IconUsers,
+  IconCoins,
+  IconX,
+} from "../icons";
 import {
   CollaborationGuide,
   CommissionPanel,
@@ -38,10 +59,14 @@ import { PayoutPanel } from "./payout-panel";
  * לקוחות (בקרדיטים) הם שני מנגנונים שונים לגמרי, וההצגה שלהם יחד
  * היא מה שגרם למתווכים לחשוב ששת"פ עולה כסף.
  */
-const COOP_TABS: [key: string, label: string, icon: string][] = [
-  ["demands", "ביקושים ברשת", "🔎"],
-  ["incoming", "הצעות שקיבלתי", "📬"],
-  ["market", "הפניות לקוחות", "🤝"],
+const COOP_TABS: [
+  key: string,
+  label: string,
+  Icon: (p: { s?: number }) => React.ReactElement,
+][] = [
+  ["demands", "ביקושים ברשת", IconSearch],
+  ["incoming", "הצעות שקיבלתי", IconMail],
+  ["market", "הפניות לקוחות", IconHandshake],
 ];
 
 /**
@@ -373,7 +398,9 @@ export default function CollaborationPage() {
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="m-0 text-2xl font-bold">🤝 שיתופי פעולה</h1>
+        <h1 className="m-0 flex items-center gap-2 text-2xl font-bold">
+          <IconHandshake s={22} /> שיתופי פעולה
+        </h1>
         {/* הפרסום עצמו נעשה מכרטיס הקונה — הביקוש נגזר מדרישות
             אמיתיות ולא מטופס ריק. אבל מי שנוחת כאן צריך לדעת שזה
             קיים ואיפה, אחרת המסך נראה כמו רשימה לצפייה בלבד. */}
@@ -407,7 +434,7 @@ export default function CollaborationPage() {
       </Suspense>
 
       <div className="mv-seg mb-[18px]" role="tablist" aria-label="אזורי הרשת">
-        {COOP_TABS.map(([key, label, icon]) => (
+        {COOP_TABS.map(([key, label, Icon]) => (
           <button
             key={key}
             type="button"
@@ -418,7 +445,7 @@ export default function CollaborationPage() {
             aria-pressed={coopTab === key}
             onClick={() => setCoopTab(key)}
           >
-            <span aria-hidden="true">{icon}</span> {label}
+            <Icon s={15} /> {label}
             {key === "incoming" && incoming.length > 0 ? (
               <span
                 className="mv-chip ms-1.5"
@@ -460,7 +487,8 @@ export default function CollaborationPage() {
           className="mb-8"
         >
           <h2 id="incoming-heading" className="mb-3 text-lg font-semibold">
-            📬 הצעות שהתקבלו על הביקושים שלך ({incoming.length})
+            <IconMail s={17} /> הצעות שהתקבלו על הביקושים שלך ({incoming.length}
+            )
           </h2>
           {offersFailed ? (
             <LoadError
@@ -472,8 +500,8 @@ export default function CollaborationPage() {
             {incoming.map((offer) => (
               <li key={offer.id} className="mv-net-card">
                 <div className="mv-net-head">
-                  <span className="mv-net-avatar" aria-hidden="true">
-                    🏡
+                  <span className="mv-net-avatar">
+                    <IconHome s={20} />
                   </span>
                   <h3 className="mv-net-title">
                     {offer.presentation.title ?? "נכס שהוצע לכם"}
@@ -489,7 +517,7 @@ export default function CollaborationPage() {
                       className="mv-net-chip mv-net-chip--primary"
                       style={{ textDecoration: "none" }}
                     >
-                      <span aria-hidden="true">👤</span> עבור {offer.buyerName}
+                      <IconUser s={14} /> עבור {offer.buyerName}
                     </Link>
                   ) : null}
                 </div>
@@ -500,20 +528,18 @@ export default function CollaborationPage() {
                 <div className="mv-net-foot">
                   {/* חלוקת העמלה לפני ההסכמה ולא אחריה */}
                   <span className="mv-net-chip mv-net-chip--money">
-                    <span aria-hidden="true">🪙</span> העמלה שלי{" "}
-                    {100 - offer.commissionSplit}% · למציע{" "}
-                    {offer.commissionSplit}%
+                    <IconCoins s={14} /> העמלה שלי {100 - offer.commissionSplit}
+                    % · למציע {offer.commissionSplit}%
                   </span>
                   <span className="mv-net-chip" title="חשיפה מדורגת">
-                    <span aria-hidden="true">🔒</span> כתובת מדויקת ושם הסוכנות
-                    — רק אחרי אישור
+                    <IconLock s={14} /> כתובת מדויקת ושם הסוכנות — רק אחרי אישור
                   </span>
                   {offer.status === "sent" ? (
                     <span className="flex gap-2">
                       <Button
                         onClick={() => void respond(offer.id, "interested")}
                       >
-                        ✓ מעניין — פתח חיבור
+                        מעניין — פתח חיבור
                       </Button>
                       <Button
                         variant="ghost"
@@ -522,14 +548,18 @@ export default function CollaborationPage() {
                         לא מתאים
                       </Button>
                     </span>
-                  ) : (
+                  ) : offer.status === "interested" ? (
+                    /* אושר ונדחה אינם אותו דבר בצבע ירוק — הצבע הוא
+                       חצי מהמסר, והאייקון הוא החצי שנקרא ראשון */
                     <span
-                      className="font-medium"
-                      style={{ color: "var(--color-success)" }}
+                      className="mv-net-chip mv-net-chip--good"
+                      style={{ fontWeight: 700 }}
                     >
-                      {offer.status === "interested"
-                        ? "✅ אושר — הסוכנויות מחוברות"
-                        : "✕ נדחה"}
+                      <IconCheck s={14} /> אושר — הסוכנויות מחוברות
+                    </span>
+                  ) : (
+                    <span className="mv-net-chip">
+                      <IconX s={14} /> נדחה
                     </span>
                   )}
                 </div>
@@ -538,8 +568,8 @@ export default function CollaborationPage() {
           </ul>
           {incoming.length === 0 && !offersFailed ? (
             <div className="mv-net-empty">
-              <span className="mv-net-empty-icon" aria-hidden="true">
-                📭
+              <span className="mv-net-empty-icon">
+                <IconInbox s={30} />
               </span>
               <p className="m-0 font-semibold">עדיין לא התקבלו הצעות</p>
               <p
@@ -561,7 +591,7 @@ export default function CollaborationPage() {
           className="mb-8"
         >
           <h2 id="lead-market-heading" className="mb-1 text-lg font-semibold">
-            🤝 הפניות לקוחות
+            <IconHandshake s={17} /> הפניות לקוחות
           </h2>
           <p
             className="mb-3 text-[14.5px]"
@@ -646,21 +676,21 @@ export default function CollaborationPage() {
           {myReferrals.length > 0 ? (
             <>
               <h3 className="mb-2 mt-4 text-[15px] font-semibold">
-                📤 ההפניות שפרסמתי
+                <IconUpload s={15} /> ההפניות שפרסמתי
               </h3>
               <ul className="mb-5 flex list-none flex-col gap-3 p-0">
                 {myReferrals.map((lead) => (
                   <li key={lead.id} className="mv-net-card mv-net-card--mine">
                     <div className="mv-net-head">
-                      <span className="mv-net-avatar" aria-hidden="true">
-                        📤
+                      <span className="mv-net-avatar">
+                        <IconUpload s={20} />
                       </span>
                       <h4 className="mv-net-title">
                         {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent}
                         {lead.city ? ` · ${lead.city}` : ""}
                       </h4>
                       <span className="mv-net-chip">
-                        <span aria-hidden="true">⭐</span> ההפניה שלך
+                        <IconStar s={14} /> ההפניה שלך
                       </span>
                       {lead.status === "sold" ? (
                         <span
@@ -672,7 +702,8 @@ export default function CollaborationPage() {
                             ליתרה" על הפניה שנמכרה בכסף הוא בדיוק
                             ההפך ממה שקרה.
                           */}
-                          ✓ נקלטה — {referralPayoutLabel(lead)} נוספו ליתרה
+                          <IconCheck s={14} /> נקלטה —{" "}
+                          {referralPayoutLabel(lead)} נוספו ליתרה
                         </span>
                       ) : lead.status === "withdrawn" ? (
                         <span style={{ color: "var(--color-text-muted)" }}>
@@ -681,9 +712,8 @@ export default function CollaborationPage() {
                       ) : (
                         <>
                           <span className="mv-net-chip mv-net-chip--money">
-                            <span aria-hidden="true">🪙</span>{" "}
-                            {lead.priceCredits} קרדיטים · אליכם{" "}
-                            {referralPayoutLabel(lead)}
+                            <IconCoins s={14} /> {lead.priceCredits} קרדיטים ·
+                            אליכם {referralPayoutLabel(lead)}
                           </span>
                           <Button
                             variant="ghost"
@@ -720,22 +750,21 @@ export default function CollaborationPage() {
           {receivedReferrals.length > 0 ? (
             <>
               <h3 className="mb-2 text-[15px] font-semibold">
-                📥 הפניות שקלטתי
+                <IconDownload s={15} /> הפניות שקלטתי
               </h3>
               <ul className="mb-5 flex list-none flex-col gap-3 p-0">
                 {receivedReferrals.map((lead) => (
                   <li key={lead.id} className="mv-net-card">
                     <div className="mv-net-head">
-                      <span className="mv-net-avatar" aria-hidden="true">
-                        📥
+                      <span className="mv-net-avatar">
+                        <IconDownload s={20} />
                       </span>
                       <h4 className="mv-net-title">
                         {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent}
                         {lead.city ? ` · ${lead.city}` : ""}
                       </h4>
                       <span className="mv-net-chip mv-net-chip--money">
-                        <span aria-hidden="true">🪙</span> שילמתם{" "}
-                        {lead.priceCredits} קרדיטים
+                        <IconCoins s={14} /> שילמתם {lead.priceCredits} קרדיטים
                       </span>
                     </div>
                     <p
@@ -761,27 +790,26 @@ export default function CollaborationPage() {
 
           {myReferrals.length > 0 || receivedReferrals.length > 0 ? (
             <h3 className="mb-2 text-[15px] font-semibold">
-              🌐 הפניות פתוחות ברשת
+              <IconGlobe s={15} /> הפניות פתוחות ברשת
             </h3>
           ) : null}
           <ul className="flex list-none flex-col gap-3 p-0">
             {openReferrals.map((lead) => (
               <li key={lead.id} className="mv-net-card">
                 <div className="mv-net-head">
-                  <span className="mv-net-avatar" aria-hidden="true">
-                    🧑
+                  <span className="mv-net-avatar">
+                    <IconUsers s={20} />
                   </span>
                   <h4 className="mv-net-title">
                     {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent}
                     {lead.city ? ` · ${lead.city}` : ""}
                   </h4>
                   <span className="mv-net-chip">
-                    <span aria-hidden="true">📡</span>{" "}
+                    <IconSend s={14} />{" "}
                     {LEAD_SOURCE_LABELS[lead.source] ?? lead.source}
                   </span>
                   <span className="mv-net-chip mv-net-chip--money">
-                    <span aria-hidden="true">🪙</span> {lead.priceCredits}{" "}
-                    קרדיטים
+                    <IconCoins s={14} /> {lead.priceCredits} קרדיטים
                   </span>
                   {/*
                     המוניטין של המשרד המפנה, ליד המחיר ולא בעמוד אחר:
@@ -792,7 +820,7 @@ export default function CollaborationPage() {
                     className="mv-net-chip"
                     title="ממוצע הדירוגים שנתנו משרדים שקלטו הפניות מהמשרד הזה"
                   >
-                    <span aria-hidden="true">⭐</span>{" "}
+                    <IconStar s={14} />{" "}
                     {describeReferralRating(
                       lead.referrerRating?.average ?? null,
                       lead.referrerRating?.count ?? 0,
@@ -831,8 +859,8 @@ export default function CollaborationPage() {
           receivedReferrals.length === 0 &&
           !leadsFailed ? (
             <div className="mv-net-empty">
-              <span className="mv-net-empty-icon" aria-hidden="true">
-                🤝
+              <span className="mv-net-empty-icon">
+                <IconHandshake s={30} />
               </span>
               <p className="m-0 font-semibold">אין כרגע הפניות פתוחות ברשת</p>
               <p
@@ -853,7 +881,7 @@ export default function CollaborationPage() {
           aria-labelledby="coop-tab-demands"
         >
           <h2 id="demands-heading" className="mb-1 text-lg font-semibold">
-            🔎 ביקושים ברשת
+            <IconSearch s={17} /> ביקושים ברשת
           </h2>
           {/*
           שורה אחת במקום פסקה. הכלל המלא (ומה שקורה עם מקור חיצוני)
@@ -876,11 +904,11 @@ export default function CollaborationPage() {
               onRetry={load}
             />
           ) : demands === null ? (
-            <p aria-live="polite">⏳ טוען…</p>
+            <p aria-live="polite">טוען…</p>
           ) : demands.length === 0 ? (
             <div className="mv-net-empty">
-              <span className="mv-net-empty-icon" aria-hidden="true">
-                🔍
+              <span className="mv-net-empty-icon">
+                <IconSearch s={30} />
               </span>
               <p className="m-0 font-semibold">אין כרגע ביקושים פעילים ברשת</p>
               <p
@@ -898,8 +926,8 @@ export default function CollaborationPage() {
                   className={`mv-net-card${demand.mine ? " mv-net-card--mine" : ""}`}
                 >
                   <div className="mv-net-head">
-                    <span className="mv-net-avatar" aria-hidden="true">
-                      👤
+                    <span className="mv-net-avatar">
+                      <IconUser s={20} />
                     </span>
                     {/*
                     הכותרת אומרת מה מחפשים ואיפה — כל השאר עבר
@@ -912,7 +940,7 @@ export default function CollaborationPage() {
                     </h3>
                     {demand.mine ? (
                       <span className="mv-net-chip">
-                        <span aria-hidden="true">⭐</span> הביקוש שלך
+                        <IconStar s={14} /> הביקוש שלך
                       </span>
                     ) : (
                       <>
@@ -925,7 +953,11 @@ export default function CollaborationPage() {
                           className={`mv-net-chip ${demand.creditsCost > 0 ? "mv-net-chip--money" : "mv-net-chip--good"}`}
                         >
                           <span aria-hidden="true">
-                            {demand.creditsCost > 0 ? "🪙" : "🎁"}
+                            {demand.creditsCost > 0 ? (
+                              <IconCoins s={14} />
+                            ) : (
+                              <IconGift s={14} />
+                            )}
                           </span>{" "}
                           {demand.creditsCost > 0
                             ? `${demand.creditsCost} קרדיטים`
@@ -935,7 +967,7 @@ export default function CollaborationPage() {
                           className="mv-net-chip"
                           title="חלוקת העמלה שהמשרד המשתף ביקש"
                         >
-                          <span aria-hidden="true">🤝</span>{" "}
+                          <IconHandshake s={14} />{" "}
                           {describeCommissionSplit(demand.commissionSplit)}
                         </span>
                       </>
@@ -945,7 +977,7 @@ export default function CollaborationPage() {
                         className="mv-net-chip"
                         title="ביקוש שהגיע ממקור חיצוני בתשלום"
                       >
-                        <span aria-hidden="true">🌐</span> Kanko
+                        <IconGlobe s={14} /> Kanko
                       </span>
                     ) : null}
                   </div>
@@ -971,7 +1003,8 @@ export default function CollaborationPage() {
                             className="m-0 mb-2 text-[14.5px] font-bold"
                             style={{ color: "var(--color-primary)" }}
                           >
-                            🎯 {demand.myMatches.length} מהנכסים שלכם מתאימים
+                            <IconTarget s={16} /> {demand.myMatches.length}{" "}
+                            מהנכסים שלכם מתאימים
                           </p>
                           <ul className="flex list-none flex-col gap-2 p-0">
                             {demand.myMatches.map((match) => (
@@ -1016,7 +1049,7 @@ export default function CollaborationPage() {
                           className="mb-3 text-sm"
                           style={{ color: "var(--color-text-muted)" }}
                         >
-                          📭 אין לכם כרגע נכס פעיל שמתאים לביקוש הזה.
+                          אין לכם כרגע נכס פעיל שמתאים לביקוש הזה.
                         </p>
                       )}
 
@@ -1025,7 +1058,12 @@ export default function CollaborationPage() {
                           className="cursor-pointer text-sm font-medium"
                           style={{ color: "var(--color-primary)" }}
                         >
-                          ➕ להציע נכס אחר / לשנות חלוקת עמלה
+                          {/* עטיפת inline-flex ולא אייקון חשוף — summary
+                              זקוק ל-list-item בשביל משולש הפתיחה, ולכן
+                              הפנימיות הן שהופכות לשורה אחת */}
+                          <span className="inline-flex items-center gap-1.5 align-middle">
+                            <IconPlus s={14} /> להציע נכס אחר / לשנות חלוקת עמלה
+                          </span>
                         </summary>
                         <div className="mt-3 flex flex-wrap items-center gap-2">
                           {/*

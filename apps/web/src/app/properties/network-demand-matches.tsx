@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { demandChips } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { NetChips } from "../collaboration/net-chips";
+import { IconGlobe, IconHandshake } from "../icons";
 
 /**
  * העמודה השנייה בכרטיס הנכס: **ביקושים ברשת**.
@@ -99,7 +100,7 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
         className="m-0 mb-1"
         style={{ fontSize: 15.5, fontWeight: 800 }}
       >
-        🌐 ביקושים ברשת
+        <IconGlobe s={16} /> ביקושים ברשת
       </h2>
       <p
         className="m-0 mb-2.5 text-[12.5px]"
@@ -157,7 +158,7 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
                 className="text-[12.5px]"
                 style={{ color: "var(--color-text-muted)" }}
               >
-                🤝 העמלה שלי {100 - row.commissionSplit}%
+                <IconHandshake s={13} /> העמלה שלי {100 - row.commissionSplit}%
                 {row.creditsCost > 0
                   ? ` · ההצעה תעלה ${row.creditsCost} קרדיטים`
                   : " · ללא עלות"}

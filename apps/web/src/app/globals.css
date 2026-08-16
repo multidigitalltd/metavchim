@@ -1407,6 +1407,14 @@ button.mv-list-row:hover {
   cursor: pointer;
   background: transparent;
   color: var(--color-text-soft);
+  /*
+   * flex ולא inline: ה-preflight של Tailwind מגדיר `svg { display:
+   * block }`, ולכן אייקון בתוך הלשונית היה יורד לשורה משלו והפס היה
+   * מכפיל את גובהו.
+   */
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .mv-seg > button[aria-pressed="true"] {
   background: var(--color-surface);
@@ -2255,8 +2263,10 @@ a.mv-bar-row:focus-visible {
   border-radius: 14px;
   background: var(--color-surface);
   border: 1px solid var(--color-primary-accent);
-  font-size: 22px;
-  line-height: 1;
+  color: var(--color-primary);
+}
+.mv-privacy-badge > svg {
+  vertical-align: 0 !important;
 }
 .mv-privacy-head > div {
   flex: 1 1 260px;
@@ -2285,7 +2295,10 @@ a.mv-bar-row:focus-visible {
   border-top: 1px solid var(--color-primary-accent);
 }
 .mv-privacy-title {
-  margin: 0 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
   font-size: 14px;
   font-weight: 800;
 }
@@ -2295,9 +2308,39 @@ a.mv-bar-row:focus-visible {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 7px;
   font-size: 14px;
   color: var(--color-text-soft);
+}
+.mv-privacy-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* האייקונים ברשימה נקראים כטור — צבע אחיד ועדין, בלי להתחרות בטקסט */
+.mv-privacy-list svg {
+  flex: none;
+  opacity: 0.6;
+  vertical-align: 0 !important;
+}
+/*
+ * "לא נחשף" אינו עוד רשימה — הוא ההפך.
+ *
+ * שתי העמודות נראו זהות מלבד הכותרת, ולכן מי שסרק אותן במבט אחד
+ * ראה עשרה פריטים דומים ולא הבחין מה בצד של מי. הקו החוצה אומר
+ * "זה לא עובר" בלי מילה נוספת, וזה כל תפקידה של העמודה.
+ */
+.mv-privacy-col--hidden .mv-privacy-list {
+  color: var(--color-text-muted);
+}
+.mv-privacy-col--hidden .mv-privacy-list li {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+  text-decoration-thickness: 1px;
+}
+.mv-privacy-col--hidden .mv-privacy-list svg {
+  color: var(--color-danger);
+  opacity: 0.5;
 }
 
 /* כרטיס ברשת — קונה או נכס, אותה שפה */
@@ -2327,12 +2370,16 @@ a.mv-bar-row:focus-visible {
   flex: none;
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   border-radius: 12px;
   background: var(--color-primary-soft);
-  font-size: 21px;
-  line-height: 1;
+  color: var(--color-primary);
+  /* טבעת פנימית עדינה במקום גבול — נותנת עומק בלי קו נוסף במסך */
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary-accent) 28%, transparent);
+}
+.mv-net-avatar > svg {
+  vertical-align: 0 !important;
 }
 .mv-net-title {
   margin: 0;
@@ -2358,15 +2405,35 @@ a.mv-bar-row:focus-visible {
 .mv-net-chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   border: 1px solid var(--color-border);
   background: var(--color-bg);
   color: var(--color-text-soft);
   border-radius: 99px;
   font-size: 13.5px;
   font-weight: 600;
-  padding: 5px 12px;
+  /*
+   * ריפוד לא סימטרי: האייקון בתחילת התגית כבר נושא רווח פנימי משלו
+   * בתוך ה-viewBox, ולכן ריפוד שווה משני הצדדים נראה כבד בצד שלו.
+   */
+  padding: 5px 12px 5px 10px;
   white-space: nowrap;
+}
+/*
+ * האייקון קל מהטקסט — הוא מסמן על מה מסתכלים, לא מה כתוב.
+ * `verticalAlign` שבערכת האייקונים מיושר לשורת טקסט זורמת; בתוך
+ * flex הוא מיותר ומזיז את האייקון כלפי מטה, ולכן מאופס כאן.
+ */
+.mv-net-chip > svg {
+  flex: none;
+  opacity: 0.68;
+  vertical-align: 0 !important;
+}
+.mv-net-chip--primary > svg,
+.mv-net-chip--money > svg,
+.mv-net-chip--hot > svg,
+.mv-net-chip--good > svg {
+  opacity: 1;
 }
 .mv-net-chip--primary {
   background: var(--color-primary-soft);
@@ -2399,13 +2466,25 @@ a.mv-bar-row:focus-visible {
 }
 
 /* התיאור החופשי של המשרד המשתף — ציטוט, לא עוד שורת נתונים */
+/*
+ * התיאור החופשי — ציטוט, לא עוד שורת נתונים.
+ *
+ * הגרסה הקודמת עטפה אותו בקופסה מלאה עם ריפוד נדיב, וטקסט של חמש
+ * מילים קיבל פס אפור רחב וכמעט ריק לרוחב הכרטיס. ציטוט אינו נזקק
+ * לקופסה: קו אנכי בצד ההתחלה מספיק כדי לומר "אלה מילים של מישהו",
+ * והרקע פנוי לתגיות שנושאות את הנתונים.
+ */
 .mv-net-quote {
-  margin: 0 0 12px;
-  border-inline-start: 3px solid var(--color-primary-accent);
-  background: var(--color-bg);
-  border-radius: 10px;
-  padding: 10px 14px;
+  margin: 0 0 14px;
+  border-inline-start: 2px solid var(--color-primary-accent);
+  padding-inline-start: 12px;
   font-size: 14.5px;
+  /*
+   * בלי `italic`: לעברית אין נטוי אמיתי, והדפדפן מטה את האותיות
+   * מלאכותית — מה שמעוות את צורתן ומקשה על הקריאה. הקו האנכי הוא
+   * מה שמסמן ציטוט, לא הטיה.
+   */
+  line-height: 1.55;
   color: var(--color-text-soft);
 }
 
@@ -2456,8 +2535,47 @@ a.mv-bar-row:focus-visible {
   text-align: center;
 }
 .mv-net-empty-icon {
-  font-size: 34px;
-  line-height: 1;
-  display: block;
-  margin-bottom: 10px;
+  display: inline-grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  margin-bottom: 12px;
+  border-radius: 16px;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+}
+.mv-net-empty-icon > svg {
+  vertical-align: 0 !important;
+}
+
+/*
+ * כותרת סעיף עם אייקון. ה-preflight של Tailwind מגדיר
+ * `svg { display: block }`, ולכן אייקון בתוך כותרת יורד לשורה משלו —
+ * בדיוק אותה תקלה שכבר תוקנה בפאנלי ההסבר. flex פותר אותה במקום
+ * אחד לכל הכותרות באזור.
+ */
+#coop-panel-demands h2,
+#coop-panel-incoming h2,
+#coop-panel-market h2,
+#coop-panel-market h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#coop-panel-demands h2 > svg,
+#coop-panel-incoming h2 > svg,
+#coop-panel-market h2 > svg,
+#coop-panel-market h3 > svg {
+  flex: none;
+  color: var(--color-primary);
+  vertical-align: 0 !important;
+}
+
+/* הלשוניות — אייקון ותווית בשורה אחת, בלי קפיצה בין מצבים */
+.mv-seg button > svg {
+  vertical-align: 0 !important;
+  opacity: 0.7;
+}
+.mv-seg button[aria-selected="true"] > svg {
+  opacity: 1;
 }

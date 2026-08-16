@@ -27,38 +27,67 @@ import { PROPERTY_TYPE_LABELS_HE } from "./csv-export.js";
 import { propertyFeatureLabel } from "./matching.js";
 
 /**
- * פריט אחד בכרטיס: אימוג'י, טקסט, וטון.
+ * שם האייקון — **לא האייקון עצמו.**
  *
- * האימוג'י אינו קישוט — הוא מה שמאפשר לסרוק כרטיס במבט אחד במקום
+ * המודול הזה טהור ואינו יכול להחזיק JSX, אבל הבעיה האמיתית אינה
+ * טכנית: גרסה קודמת החזירה כאן אימוג'ים, והם נראו זרים לצד ערכת
+ * הקווים של שאר המערכת — שתי שפות חזותיות באותו מסך. שם סמלי משאיר
+ * את ההחלטה "איך זה נראה" במקום אחד, `app/icons.tsx`, ואת ההחלטה
+ * "מה מוצג" כאן.
+ *
+ * איחוד סגור ולא מחרוזת חופשית: שם שאין לו אייקון נתפס בהידור ולא
+ * מתגלה כריבוע ריק על מסך של מתווך.
+ */
+export type NetworkChipIcon =
+  | "tag"
+  | "key"
+  | "home"
+  | "door"
+  | "ruler"
+  | "map"
+  | "pin"
+  | "coins"
+  | "bolt"
+  | "calendar"
+  | "bank"
+  | "banknote"
+  | "flame"
+  | "clock"
+  | "check"
+  | "star"
+  | "stairs"
+  | "sparkle";
+
+/**
+ * פריט אחד בכרטיס: אייקון, טקסט, וטון.
+ *
+ * האייקון אינו קישוט — הוא מה שמאפשר לסרוק כרטיס במבט אחד במקום
  * לקרוא שורת טקסט. `tone` קובע צבע, ו-`title` הוא ההסבר שמופיע
  * בריחוף למי שרוצה לוודא.
  */
 export interface NetworkChip {
-  icon: string;
+  icon: NetworkChipIcon;
   text: string;
   tone?: "plain" | "primary" | "money" | "hot" | "good";
   title?: string;
 }
 
 /** תוויות למצב המימון של הקונה — משוכפל בכוונה מטבלת הייצוא כדי לא לתלות מסך בקובץ CSV. */
-const FINANCING_CHIP: Record<
-  string,
-  { icon: string; text: string; tone?: NetworkChip["tone"] }
-> = {
-  cash: { icon: "💵", text: "משלם במזומן", tone: "good" },
-  pre_approved: { icon: "🏦", text: "אישור עקרוני ביד", tone: "good" },
-  in_process: { icon: "🏦", text: "משכנתה בתהליך" },
-  not_started: { icon: "🏦", text: "מימון טרם התחיל" },
+const FINANCING_CHIP: Record<string, NetworkChip> = {
+  cash: { icon: "banknote", text: "משלם במזומן", tone: "good" },
+  pre_approved: { icon: "bank", text: "אישור עקרוני ביד", tone: "good" },
+  in_process: { icon: "bank", text: "משכנתה בתהליך" },
+  not_started: { icon: "bank", text: "מימון טרם התחיל" },
 };
 
 /** בשלות — רק כשהיא אומרת משהו. "מתעניין" הוא ברירת המחדל ואינו מידע. */
 const MATURITY_CHIP: Record<
   string,
-  { icon: string; tone: NetworkChip["tone"] }
+  { icon: NetworkChipIcon; tone: NetworkChip["tone"] }
 > = {
-  very_hot: { icon: "🔥", tone: "hot" },
-  hot: { icon: "🔥", tone: "hot" },
-  not_ripe: { icon: "🕓", tone: "plain" },
+  very_hot: { icon: "flame", tone: "hot" },
+  hot: { icon: "flame", tone: "hot" },
+  not_ripe: { icon: "clock", tone: "plain" },
 };
 
 /**
@@ -79,18 +108,18 @@ export function entryChip(
       : null;
   switch (type) {
     case "immediate":
-      return { icon: "⚡", text: "כניסה מיידית", tone: "good" };
+      return { icon: "bolt", text: "כניסה מיידית", tone: "good" };
     case "flexible":
-      return { icon: "🗓️", text: "מועד כניסה גמיש" };
+      return { icon: "calendar", text: "מועד כניסה גמיש" };
     case "by_date":
       return {
-        icon: "🗓️",
+        icon: "calendar",
         text: dateText === null ? "מועד כניסה מוגדר" : `עד ${dateText}`,
       };
     case "on_date":
     case "from_date":
       return {
-        icon: "🗓️",
+        icon: "calendar",
         text: dateText === null ? "מועד כניסה מוגדר" : `מ-${dateText}`,
       };
     default:
@@ -152,8 +181,8 @@ export function demandChips(demand: NetworkDemandFields): NetworkChip[] {
 
   chips.push(
     demand.dealType === "rent"
-      ? { icon: "🔑", text: "להשכרה", tone: "primary" }
-      : { icon: "🏷️", text: "לקנייה", tone: "primary" },
+      ? { icon: "key", text: "להשכרה", tone: "primary" }
+      : { icon: "tag", text: "לקנייה", tone: "primary" },
   );
 
   const types = (demand.propertyTypes ?? [])
@@ -162,20 +191,20 @@ export function demandChips(demand: NetworkDemandFields): NetworkChip[] {
         PROPERTY_TYPE_LABELS_HE[t as keyof typeof PROPERTY_TYPE_LABELS_HE] ?? t,
     )
     .filter((t) => t !== "");
-  if (types.length > 0) chips.push({ icon: "🏠", text: types.join(" · ") });
+  if (types.length > 0) chips.push({ icon: "home", text: types.join(" · ") });
 
   const rooms = roomsText(demand.roomsMin, demand.roomsMax);
-  if (rooms !== null) chips.push({ icon: "🚪", text: rooms });
+  if (rooms !== null) chips.push({ icon: "door", text: rooms });
 
   if (demand.areaSqmMin !== undefined && demand.areaSqmMin > 0) {
-    chips.push({ icon: "📐", text: `מ-${demand.areaSqmMin} מ״ר` });
+    chips.push({ icon: "ruler", text: `מ-${demand.areaSqmMin} מ״ר` });
   }
 
   if (demand.cities.length > 0)
-    chips.push({ icon: "🗺️", text: demand.cities.join(" · ") });
+    chips.push({ icon: "map", text: demand.cities.join(" · ") });
   const neighborhoods = demand.neighborhoods ?? [];
   if (neighborhoods.length > 0) {
-    chips.push({ icon: "📍", text: neighborhoods.join(" · ") });
+    chips.push({ icon: "pin", text: neighborhoods.join(" · ") });
   }
 
   /*
@@ -184,7 +213,7 @@ export function demandChips(demand: NetworkDemandFields): NetworkChip[] {
    * שהטבלה שמרה.
    */
   chips.push({
-    icon: "💰",
+    icon: "coins",
     text:
       demand.budgetMinAgorot !== undefined && demand.budgetMinAgorot > 0
         ? `${money(demand.budgetMinAgorot)}–${money(demand.budgetMaxAgorot)}`
@@ -213,17 +242,23 @@ export function demandChips(demand: NetworkDemandFields): NetworkChip[] {
     });
   }
 
+  /*
+   * הדרישות נשארות בטון הנייטרלי, והאייקון הוא שמבדיל בין חובה
+   * לעדיפות. **צבע אחד = משמעות אחת**: כשגם המימון וגם כל מאפיין
+   * חובה נצבעו בירוק, כרטיס עם ארבע דרישות היה קיר ירוק שבו "אישור
+   * עקרוני ביד" — העובדה שקובעת אם שווה להשקיע נכס — נבלע בין
+   * "מעלית" ל"ממ״ד". הירוק שמור לאות על רצינות הקונה.
+   */
   for (const feature of demand.mustFeatures) {
     chips.push({
-      icon: "✅",
+      icon: "check",
       text: propertyFeatureLabel(feature),
-      tone: "good",
       title: "דרישת חובה",
     });
   }
   for (const feature of demand.niceFeatures ?? []) {
     chips.push({
-      icon: "⭐",
+      icon: "star",
       text: propertyFeatureLabel(feature),
       title: "עדיפות — לא חובה",
     });
@@ -272,13 +307,13 @@ export function presentationChips(p: NetworkPresentationFields): NetworkChip[] {
   if (p.dealType !== undefined) {
     chips.push(
       p.dealType === "rent"
-        ? { icon: "🔑", text: "להשכרה", tone: "primary" }
-        : { icon: "🏷️", text: "למכירה", tone: "primary" },
+        ? { icon: "key", text: "להשכרה", tone: "primary" }
+        : { icon: "tag", text: "למכירה", tone: "primary" },
     );
   }
   if (p.propertyType !== undefined) {
     chips.push({
-      icon: "🏠",
+      icon: "home",
       text:
         PROPERTY_TYPE_LABELS_HE[
           p.propertyType as keyof typeof PROPERTY_TYPE_LABELS_HE
@@ -286,12 +321,12 @@ export function presentationChips(p: NetworkPresentationFields): NetworkChip[] {
     });
   }
   if (p.rooms !== undefined)
-    chips.push({ icon: "🚪", text: `${p.rooms} חדרים` });
+    chips.push({ icon: "door", text: `${p.rooms} חדרים` });
   if (p.areaSqm !== undefined)
-    chips.push({ icon: "📐", text: `${p.areaSqm} מ״ר` });
+    chips.push({ icon: "ruler", text: `${p.areaSqm} מ״ר` });
   if (p.floor !== undefined) {
     chips.push({
-      icon: "🪜",
+      icon: "stairs",
       text:
         p.totalFloors !== undefined
           ? `קומה ${p.floor} מתוך ${p.totalFloors}`
@@ -301,24 +336,20 @@ export function presentationChips(p: NetworkPresentationFields): NetworkChip[] {
   const where = [p.neighborhood, p.city].filter(
     (v) => v !== undefined && v !== "",
   );
-  if (where.length > 0) chips.push({ icon: "🗺️", text: where.join(", ") });
+  if (where.length > 0) chips.push({ icon: "map", text: where.join(", ") });
   if (p.condition !== undefined) {
     chips.push({
-      icon: "✨",
+      icon: "sparkle",
       text: CONDITION_LABELS[p.condition] ?? p.condition,
     });
   }
   if (p.priceAgorot !== undefined) {
-    chips.push({ icon: "💰", text: money(p.priceAgorot), tone: "money" });
+    chips.push({ icon: "coins", text: money(p.priceAgorot), tone: "money" });
   }
   const entry = entryChip(p.entryType, p.entryDate);
   if (entry !== null) chips.push(entry);
   for (const feature of p.features ?? []) {
-    chips.push({
-      icon: "✅",
-      text: propertyFeatureLabel(feature),
-      tone: "good",
-    });
+    chips.push({ icon: "check", text: propertyFeatureLabel(feature) });
   }
   return chips;
 }

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { presentationChips } from "@metavchim/shared";
 import { ApiError, apiGet, apiPatch } from "@/lib/api";
 import { NetChips } from "../collaboration/net-chips";
+import { IconHandshake, IconHome } from "../icons";
 
 /**
  * העמודה השנייה בכרטיס הקונה: **נכסים מהרשת**.
@@ -109,7 +110,7 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
         className="m-0 mb-1"
         style={{ fontSize: 15.5, fontWeight: 800 }}
       >
-        🏡 נכסים מהרשת
+        <IconHome s={16} /> נכסים מהרשת
       </h2>
       <p
         className="m-0 mb-2.5 text-[12.5px]"
@@ -148,7 +149,7 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
           >
             <div className="min-w-0 flex-1" style={{ lineHeight: 1.4 }}>
               <div className="mb-1.5 text-[14.5px] font-bold">
-                {offer.presentation.title ?? "🏡 נכס ברשת"}
+                {offer.presentation.title ?? "נכס ברשת"}
               </div>
               {/* כל מה שאינו מזהה — לפני אישור החיבור, לא אחריו */}
               <NetChips chips={presentationChips(offer.presentation)} />
@@ -156,7 +157,8 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
                 className="text-[12.5px]"
                 style={{ color: "var(--color-text-muted)" }}
               >
-                🤝 העמלה שלי {100 - offer.commissionSplit}%
+                <IconHandshake s={13} /> העמלה שלי {100 - offer.commissionSplit}
+                %
               </div>
             </div>
             <div className="ms-auto flex flex-none gap-2">
