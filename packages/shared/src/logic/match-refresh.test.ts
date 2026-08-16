@@ -13,6 +13,7 @@ const NOW = new Date("2026-08-16T09:00:00.000Z");
 function state(over: Partial<MatchRefreshState> = {}): MatchRefreshState {
   return {
     at: "2026-08-16T08:00:00.000Z",
+    startedAt: "2026-08-16T07:58:00.000Z",
     reason: "schedule",
     engineVersion: MATCH_ENGINE_VERSION,
     properties: 40,
@@ -53,6 +54,20 @@ describe("matchRefreshDue", () => {
       weightsChangedAt: "2026-08-16T07:00:00.000Z",
     });
     expect(due).toBeNull();
+  });
+
+  /*
+   * ביקורת Codex. שמירה שנחתה **בזמן** הסבב (07:59, בין ההתחלה
+   * ב-07:58 לסיום ב-08:00) חייבת להפעיל סבב נוסף: הנכסים שנסרקו
+   * לפניה קיבלו את המשקלים הישנים. השוואה לזמן הסיום הייתה מסיקה
+   * שהשינוי טופל ומשאירה חצי מהמאגר בניקוד ישן.
+   */
+  it("משקלים שהשתנו באמצע הסבב — עדיין דורשים סבב", () => {
+    const due = matchRefreshDue(state(), NOW, {
+      ...FRESH,
+      weightsChangedAt: "2026-08-16T07:59:00.000Z",
+    });
+    expect(due).toBe("weights");
   });
 
   /*

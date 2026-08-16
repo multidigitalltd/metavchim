@@ -35,6 +35,9 @@ const MAX_PROPERTIES_PER_SWEEP = 2000;
 /** כמה נכסים בכל שליפה מהמסד. */
 const PAGE = 200;
 
+/** תקרת סבבים רצופים שנגררים מבקשות שהצטברו — ראו `refreshTenant`. */
+const MAX_CHAINED_RERUNS = 3;
+
 interface RefreshOutcome extends MatchRefreshState {
   /** מספר המשרד — לשורת הלוג בלבד. */
   tenantId: string;
@@ -77,6 +80,13 @@ export class MatchRefreshService implements OnModuleInit, OnModuleDestroy {
    * הוא מכפיל עומס ומייצר שתי כתיבות מצב מתחרות שאחת מהן משקרת.
    */
   private readonly running = new Set<string>();
+  /**
+   * בקשות שהגיעו בזמן שסבב כבר רץ — יבוצעו מיד בסיומו.
+   *
+   * הסיבה נשמרת ולא רק "כן": ההתראה והמסך מציגים אותה, ובקשה
+   * שהתחילה כ"שינוי משקלים" לא צריכה להופיע כ"סבב יומי".
+   */
+  private readonly pending = new Map<string, MatchRefreshReason>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -139,18 +149,60 @@ export class MatchRefreshService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * רענון המשרד — כולל חזרה על הסבב אם משהו השתנה בזמן שהוא רץ.
+   *
+   * **למה זה לא סתם "כבר רץ, נחזור אחר כך":** מנהל שגורר מחוונים
+   * שומר לרוב יותר מפעם אחת, והשמירה השנייה נופלת בדיוק בזמן הסבב
+   * של הראשונה. בקשה שנזרקת שם משאירה את הנכסים שכבר נסרקו עם
+   * המשקלים הקודמים, והמסך מציג ✓ — כלומר בדיוק הכשל שה-PR הזה בא
+   * לסגור, רק צר יותר (ביקורת Codex).
+   *
+   * שתי ההגנות משלימות זו את זו: הבקשה נרשמת ומתבצעת מיד בסיום,
+   * ואם התהליך נפל בין השתיים — `matchRefreshDue` משווה מול זמן
+   * ההתחלה ולכן הסורק יתפוס אותה בכל מקרה.
+   *
+   * `null` = הבקשה נרשמה להרצה מיד בתום הסבב שרץ עכשיו.
+   */
+  async refreshTenant(tenantId: string, reason: MatchRefreshReason): Promise<RefreshOutcome | null> {
+    if (this.running.has(tenantId)) {
+      this.pending.set(tenantId, reason);
+      return null;
+    }
+    this.running.add(tenantId);
+    try {
+      let outcome = await this.sweepOnce(tenantId, reason);
+      /*
+       * חסום במפורש. כל סיבוב דורש שמירה **חדשה** שנחתה בזמן הקודם,
+       * ולכן בפועל זה מתכנס — אבל לולאה בלי גבול בשירות שרץ ברקע
+       * היא בדיוק סוג התקלה שמתגלה בפרודקשן. מה שנשאר מעבר לתקרה
+       * נתפס בסורק, כי החותמת מאוחרת מזמן ההתחלה.
+       */
+      for (let round = 0; round < MAX_CHAINED_RERUNS; round += 1) {
+        const next = this.pending.get(tenantId);
+        if (next === undefined) return outcome;
+        this.pending.delete(tenantId);
+        outcome = await this.sweepOnce(tenantId, next);
+      }
+      if (this.pending.has(tenantId)) {
+        this.logger.warn(
+          `match refresh for tenant ${tenantId} still had pending work after ${MAX_CHAINED_RERUNS} reruns`,
+        );
+      }
+      return outcome;
+    } finally {
+      this.running.delete(tenantId);
+    }
+  }
+
+  /**
    * סבב אחד למשרד אחד.
    *
    * **עובר על הנכסים בלבד, לא על שני הצדדים.** `recomputeForProperty`
    * סורק כל נכס מול *כל* הקונים במשרד, ולכן מעבר על הנכסים מכסה כל
    * צמד (נכס, קונה) פעם אחת. הוספת מעבר על הקונים הייתה מכפילה את
    * זמן הסבב ומחשבת שוב בדיוק את אותם צמדים.
-   *
-   * `null` = סבב כבר רץ למשרד הזה ברגע זה.
    */
-  async refreshTenant(tenantId: string, reason: MatchRefreshReason): Promise<RefreshOutcome | null> {
-    if (this.running.has(tenantId)) return null;
-    this.running.add(tenantId);
+  private async sweepOnce(tenantId: string, reason: MatchRefreshReason): Promise<RefreshOutcome> {
     const startedAt = Date.now();
 
     let properties = 0;
@@ -220,12 +272,11 @@ export class MatchRefreshService implements OnModuleInit, OnModuleDestroy {
        */
       ok = false;
       this.logger.error(`match refresh for tenant ${tenantId} aborted: ${String(error)}`);
-    } finally {
-      this.running.delete(tenantId);
     }
 
     const state: MatchRefreshState = {
       at: new Date().toISOString(),
+      startedAt: new Date(startedAt).toISOString(),
       reason,
       engineVersion: MATCH_ENGINE_VERSION,
       properties,
@@ -351,8 +402,18 @@ function readState(settings: Record<string, unknown>): MatchRefreshState | null 
   const value = raw as Partial<MatchRefreshState>;
   if (typeof value.at !== "string" || typeof value.engineVersion !== "string") return null;
   if (Number.isNaN(new Date(value.at).getTime())) return null;
+  /*
+   * מצב שנכתב לפני שהשדה נוסף נופל חזרה לזמן הסיום. זו ההתנהגות
+   * הישנה, והיא נכונה **פעם אחת בלבד**: הסבב הבא כותב זמן התחלה
+   * אמיתי, ומשם והלאה ההשוואה מדויקת.
+   */
+  const startedAt =
+    typeof value.startedAt === "string" && !Number.isNaN(new Date(value.startedAt).getTime())
+      ? value.startedAt
+      : value.at;
   return {
     at: value.at,
+    startedAt,
     reason: value.reason ?? "schedule",
     engineVersion: value.engineVersion,
     properties: value.properties ?? 0,

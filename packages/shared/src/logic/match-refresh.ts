@@ -64,6 +64,16 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24;
 export interface MatchRefreshState {
   /** מתי הסתיים (ISO). */
   at: string;
+  /**
+   * מתי הסבב **התחיל** (ISO) — וזה השדה שהחלטות נשענות עליו.
+   *
+   * שינוי משקלים שנשמר בזמן שסבב כבר רץ נופל בין הכיסאות אם משווים
+   * לזמן הסיום: הסבב מסתיים אחרי השמירה, החותמת שלו מאוחרת ממנה,
+   * ו-`matchRefreshDue` מסיק שהשינוי טופל — בעוד שהנכסים שנסרקו
+   * לפניו קיבלו את המשקלים הישנים. מול זמן ההתחלה זה נתפס תמיד
+   * (ביקורת Codex).
+   */
+  startedAt: string;
   reason: MatchRefreshReason;
   /** גרסת המנוע שרצה בפועל — זה מה שמאפשר לזהות שדרוג. */
   engineVersion: string;
@@ -107,9 +117,11 @@ export function matchRefreshDue(
   if (!state.ok) return "schedule";
 
   /*
-   * שינוי משקלים מפעיל סבב מיידי בשעת השמירה, וזו רק רשת הביטחון:
-   * אם אותו סבב נפל או שהשרת ירד באמצע, החותמת נשארת מאוחרת מהסבב
-   * האחרון והסורק היומי יתפוס את זה.
+   * שינוי משקלים מפעיל סבב מיידי בשעת השמירה, וזו רשת הביטחון: אם
+   * אותו סבב נפל או שהשרת ירד באמצע, החותמת נשארת מאוחרת מזמן
+   * ההתחלה של הסבב האחרון והסורק יתפוס את זה.
+   *
+   * **מול `startedAt` ולא מול `at`** — ראו ההסבר על השדה עצמו.
    *
    * השוואת זמנים ולא השוואת מחרוזות: שתי החותמות אמנם נכתבות
    * ב-`toISOString`, אבל ערך שנערך ידנית ב-JSON בפורמט אחר היה נופל
@@ -122,7 +134,9 @@ export function matchRefreshDue(
    */
   const changedAt =
     input.weightsChangedAt === null ? NaN : new Date(input.weightsChangedAt).getTime();
-  if (!Number.isNaN(changedAt) && changedAt > new Date(state.at).getTime()) return "weights";
+  if (!Number.isNaN(changedAt) && changedAt > new Date(state.startedAt).getTime()) {
+    return "weights";
+  }
 
   const ageDays = (now.getTime() - new Date(state.at).getTime()) / MS_PER_DAY;
   if (ageDays >= MATCH_REFRESH_INTERVAL_DAYS) return "schedule";
