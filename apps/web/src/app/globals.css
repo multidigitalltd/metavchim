@@ -1430,6 +1430,59 @@ button.mv-list-row:hover {
 }
 
 /* ------------------------------------------------------------
+   טפסי קליטה — קונה חדש, נכס חדש.
+   `fieldset` עם `legend` הוא הנכון סמנטית, ונראה כמו טופס משרדי:
+   מסגרת דקה, כותרת תלויה על הקו, ושדות צפופים. הקליטה היא הרגע
+   הראשון שמתווך פוגש במערכת, ולכן היא נראית עכשיו כמו שאר המסכים —
+   כרטיסים נושמים עם מספר שלב, ולא כמו טופס שממלאים בעמידה.
+   ------------------------------------------------------------ */
+.mv-form-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  margin-bottom: 14px;
+}
+/* מספר השלב — נותן לטופס ארוך תחושה של התקדמות ולא של קיר */
+.mv-step-badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-size: 13px;
+  font-weight: 800;
+}
+.mv-form-hint {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------
+   שורת הפעולות — נדבקת לתחתית המסך.
+   טופס קליטה ארוך מ-מסך אחד, ו"שמור" שיושב בסופו דורש גלילה חזרה
+   בכל פעם שרוצים לסיים. הדבקה למטה משאירה את הפעולה בהישג יד בלי
+   לקצר את הטופס.
+   ------------------------------------------------------------ */
+.mv-form-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 6px;
+  padding: 14px 2px;
+  background: linear-gradient(to top, var(--color-bg) 72%, transparent);
+}
+
+/* ------------------------------------------------------------
    לשוניות של כרטיס ישות (קונה, נכס) — פס תחתון ולא מקטע-בורר.
    `mv-tabs` הוא בורר של שניים-שלושה מצבים; כרטיס ישות מחזיק שמונה
    ומעלה, ואז הרקע האפור הופך לגוש רועש והפריטים נדחסים. פס תחתון
