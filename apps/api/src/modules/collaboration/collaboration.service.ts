@@ -29,6 +29,7 @@ import { LeadPricingService } from "../../core/lead-pricing.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
+import { ExclusivityService } from "../exclusivity/exclusivity.service";
 import { rowToFields } from "../properties/property.mapper";
 
 /**
@@ -230,6 +231,8 @@ export class CollaborationService {
     private readonly platformSettings: PlatformSettingsService,
     private readonly crypto: CryptoService,
     private readonly creditEconomy: CreditEconomyService,
+    // הצעת נכס למשרד אחר נספרת לעבר פריט (6) בפעולות השיווק
+    private readonly exclusivity: ExclusivityService,
   ) {}
 
   /**
@@ -775,6 +778,17 @@ export class CollaborationService {
         entityType: "coop_offer",
         entityId: id,
         metadata: { demandId, propertyId },
+      });
+      /*
+       * הצעת הנכס למשרד אחר היא צעד לעבר פריט (6) בפעולות השיווק —
+       * "הזמנתם של חמישה מתווכים אחרים לפחות". כל הצעה יוצאת למשרד
+       * אחד, ולכן היא נספרת כאחד; הסף נבדק על הסכום המצטבר.
+       */
+      await this.exclusivity.recordAuto(tx, propertyId, "network_offer", {
+        sourceKey: `coop:${id}`,
+        performedAt: new Date(),
+        detail: "הנכס הוצע למשרד תיווך נוסף ברשת",
+        brokerCount: 1,
       });
       // ההתראה מנותבת לסוכנות המקבלת — tenantId של האירוע הוא היעד
       await tx.outboxEvent.create({

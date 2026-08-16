@@ -13,6 +13,7 @@ export * from "./logic/credit-economy.js";
 export * from "./logic/service-versions.js";
 export * from "./logic/credit-expiry.js";
 export * from "./logic/payout.js";
+export * from "./logic/exclusivity.js";
 export * from "./logic/extract-property.js";
 export * from "./logic/extract-person.js";
 export * from "./logic/voice-command.js";

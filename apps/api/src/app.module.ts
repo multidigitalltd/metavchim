@@ -28,6 +28,7 @@ import { MessagingModule } from "./modules/messaging/messaging.module";
 import { NavModule } from "./modules/nav/nav.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { AgreementsModule } from "./modules/agreements/agreements.module";
+import { ExclusivityModule } from "./modules/exclusivity/exclusivity.module";
 import { CallsModule } from "./modules/calls/calls.module";
 import { OffersModule } from "./modules/offers/offers.module";
 import { PlatformModule } from "./modules/platform/platform.module";
@@ -57,6 +58,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     BuyersModule,
     MatchingModule,
     AgreementsModule,
+    ExclusivityModule,
     CallsModule,
     OffersModule,
     PlatformModule,

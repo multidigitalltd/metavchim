@@ -5,6 +5,7 @@ import { OfferPresentationSchema, whatsappLink, type OfferPresentation } from "@
 import { assertMatchAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AgreementsService } from "../agreements/agreements.service";
+import { ExclusivityService } from "../exclusivity/exclusivity.service";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -55,6 +56,8 @@ export class OffersService {
     private readonly messaging: MessagingService,
     private readonly storage: StorageService,
     private readonly agreements: AgreementsService,
+    // הצעה לקונה מהמאגר נרשמת כפעולת שיווק בתיק הבלעדיות
+    private readonly exclusivity: ExclusivityService,
   ) {}
 
   /**
@@ -242,6 +245,17 @@ export class OffersService {
         },
       });
       await this.audit.record(tx, { action: "offer.create", entityType: "offer", entityId: id });
+      /*
+       * הצעה לקונה מהמאגר היא "פרסום בקרב קהל לקוחות מסוים של
+       * המתווך באמצעים אלקטרוניים" — פריט (2) ברשימת פעולות
+       * השיווק. זו הפעולה שהמשרד ממילא עושה הכי הרבה, וגם זו
+       * שלעולם לא הייתה נרשמת ידנית.
+       */
+      await this.exclusivity.recordAuto(tx, property.id, "offer_sent", {
+        sourceKey: `offer:${id}`,
+        performedAt: new Date(),
+        detail: `הצעה נשלחה לקונה מהמאגר: ${presentation.title}`,
+      });
       await this.outbox.emit(tx, "offer.sent", { offerId: id, tenantId });
     });
 

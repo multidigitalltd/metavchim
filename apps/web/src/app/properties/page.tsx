@@ -9,6 +9,7 @@ import { formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { IconHome, IconMic, IconPlus, IconSheet } from "../icons";
+import { ExclusivityWatch } from "./exclusivity-watch";
 import { CapNote, FilterBar, FilterChips, FilterSelect, SortSelect } from "../list-controls";
 import {
   EMPTY_FILTERS,
@@ -157,6 +158,10 @@ export default function PropertiesPage() {
 
   return (
     <>
+      {/* לפני הסינון והרשימה: בלעדיות שנגמרת היא נכס שעובר למתחרה,
+          וזו הידיעה היחידה במסך הזה שיש לה תאריך תפוגה */}
+      <ExclusivityWatch />
+
       <ListFilters
         values={filters}
         onApply={setFilters}
