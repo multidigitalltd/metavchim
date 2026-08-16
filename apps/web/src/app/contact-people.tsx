@@ -68,7 +68,9 @@ export function ContactPeople({
   const [addingPhone, setAddingPhone] = useState(false);
   const [editingEmail, setEditingEmail] = useState(false);
   /** מזהה האדם המקושר שהאימייל שלו נערך כרגע — אחד בכל רגע. */
-  const [editingPersonEmail, setEditingPersonEmail] = useState<string | null>(null);
+  const [editingPersonEmail, setEditingPersonEmail] = useState<string | null>(
+    null,
+  );
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => {
@@ -119,7 +121,10 @@ export function ContactPeople({
     );
   }
 
-  function submitPersonEmail(event: FormEvent<HTMLFormElement>, personId: string): void {
+  function submitPersonEmail(
+    event: FormEvent<HTMLFormElement>,
+    personId: string,
+  ): void {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     void run(() =>
@@ -148,9 +153,16 @@ export function ContactPeople({
   const primary = data.people.find((p) => p.role === null);
 
   return (
-    <section className="mv-list-card px-5 py-[17px]" aria-labelledby="people-heading">
+    <section
+      className="mv-list-card px-5 py-[17px]"
+      aria-labelledby="people-heading"
+    >
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h2 id="people-heading" className="m-0" style={{ fontSize: 15.5, fontWeight: 800 }}>
+        <h2
+          id="people-heading"
+          className="m-0"
+          style={{ fontSize: 15.5, fontWeight: 800 }}
+        >
           אנשי קשר וטלפונים
         </h2>
         {canEdit ? (
@@ -184,15 +196,28 @@ export function ContactPeople({
       {/* ---- הטלפונים של האדם הראשי ---- */}
       <ul className="m-0 mb-3 list-none p-0">
         {data.phones.map((row) => (
-          <li key={row.id ?? "primary"} className="flex items-center gap-2 py-1">
-            <span className="mv-chip" style={{ minWidth: 52, justifyContent: "center" }}>
+          <li
+            key={row.id ?? "primary"}
+            className="flex items-center gap-2 py-1"
+          >
+            <span
+              className="mv-chip"
+              style={{ minWidth: 52, justifyContent: "center" }}
+            >
               {phoneLabel(row.label)}
             </span>
-            <a href={`tel:${row.phone}`} dir="ltr" className="text-sm underline">
+            <a
+              href={`tel:${row.phone}`}
+              dir="ltr"
+              className="text-sm underline"
+            >
               {row.phone}
             </a>
             {row.primary ? (
-              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+              <span
+                className="text-xs"
+                style={{ color: "var(--color-text-muted)" }}
+              >
                 ראשי
               </span>
             ) : canEdit ? (
@@ -201,7 +226,11 @@ export function ContactPeople({
                 className="mv-btn-plain ms-auto"
                 style={{ padding: "3px 9px", fontSize: 12 }}
                 disabled={busy}
-                onClick={() => void run(() => apiDelete(`/contacts/${contactId}/phones/${row.id}`))}
+                onClick={() =>
+                  void run(() =>
+                    apiDelete(`/contacts/${contactId}/phones/${row.id}`),
+                  )
+                }
               >
                 הסר
               </button>
@@ -212,9 +241,14 @@ export function ContactPeople({
 
       {/* ---- אימייל הכרטיס ---- */}
       {editingEmail ? (
-        <form onSubmit={submitEmail} className="mb-3 flex flex-wrap items-end gap-2">
+        <form
+          onSubmit={submitEmail}
+          className="mb-3 flex flex-wrap items-end gap-2"
+        >
           <label className="grow">
-            <span className="mb-1 block text-xs font-semibold">אימייל (ריק = מחיקה)</span>
+            <span className="mb-1 block text-xs font-semibold">
+              אימייל (ריק = מחיקה)
+            </span>
             <input
               name="email"
               type="email"
@@ -227,21 +261,35 @@ export function ContactPeople({
           <button type="submit" className="mv-btn-action" disabled={busy}>
             שמור
           </button>
-          <button type="button" className="mv-btn-plain" onClick={() => setEditingEmail(false)}>
+          <button
+            type="button"
+            className="mv-btn-plain"
+            onClick={() => setEditingEmail(false)}
+          >
             ביטול
           </button>
         </form>
       ) : (
         <div className="mb-3 flex items-center gap-2 py-1">
-          <span className="mv-chip" style={{ minWidth: 52, justifyContent: "center" }}>
+          <span
+            className="mv-chip"
+            style={{ minWidth: 52, justifyContent: "center" }}
+          >
             אימייל
           </span>
           {data.email ? (
-            <a href={`mailto:${data.email}`} dir="ltr" className="text-sm underline">
+            <a
+              href={`mailto:${data.email}`}
+              dir="ltr"
+              className="text-sm underline"
+            >
               {data.email}
             </a>
           ) : (
-            <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+            <span
+              className="text-sm"
+              style={{ color: "var(--color-text-muted)" }}
+            >
               לא הוזן
             </span>
           )}
@@ -259,10 +307,19 @@ export function ContactPeople({
       )}
 
       {addingPhone ? (
-        <form onSubmit={submitPhone} className="mb-3 flex flex-wrap items-end gap-2">
+        <form
+          onSubmit={submitPhone}
+          className="mb-3 flex flex-wrap items-end gap-2"
+        >
           <label className="grow">
             <span className="mb-1 block text-xs font-semibold">מספר נוסף</span>
-            <input name="phone" dir="ltr" required placeholder="050-1234567" className="mv-field" />
+            <input
+              name="phone"
+              dir="ltr"
+              required
+              placeholder="050-1234567"
+              className="mv-field"
+            />
           </label>
           <label>
             <span className="mb-1 block text-xs font-semibold">סוג</span>
@@ -282,21 +339,38 @@ export function ContactPeople({
 
       {/* ---- אנשים נוספים על אותו כרטיס ---- */}
       {extraPeople.length > 0 ? (
-        <ul className="m-0 list-none border-t p-0 pt-2" style={{ borderColor: "var(--color-input-border)" }}>
+        <ul
+          className="m-0 list-none border-t p-0 pt-2"
+          style={{ borderColor: "var(--color-input-border)" }}
+        >
           {extraPeople.map((person) => (
-            <li key={person.contactId} className="flex flex-wrap items-center gap-2 py-1.5">
+            <li
+              key={person.contactId}
+              className="flex flex-wrap items-center gap-2 py-1.5"
+            >
               <span className="mv-chip">{roleLabel(person.role)}</span>
               <strong className="text-sm">{person.name}</strong>
-              <a href={`tel:${person.phone}`} dir="ltr" className="text-sm underline">
+              <a
+                href={`tel:${person.phone}`}
+                dir="ltr"
+                className="text-sm underline"
+              >
                 {person.phone}
               </a>
               {/* האימייל של האדם הזה, לא של הכרטיס — לבן/בת זוג תיבה משלהם */}
               {person.email ? (
-                <a href={`mailto:${person.email}`} dir="ltr" className="text-sm underline">
+                <a
+                  href={`mailto:${person.email}`}
+                  dir="ltr"
+                  className="text-sm underline"
+                >
                   {person.email}
                 </a>
               ) : (
-                <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+                <span
+                  className="text-xs"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
                   בלי אימייל
                 </span>
               )}
@@ -320,7 +394,11 @@ export function ContactPeople({
                     style={{ padding: "3px 9px", fontSize: 12 }}
                     disabled={busy}
                     onClick={() =>
-                      void run(() => apiDelete(`/contacts/${contactId}/people/${person.contactId}`))
+                      void run(() =>
+                        apiDelete(
+                          `/contacts/${contactId}/people/${person.contactId}`,
+                        ),
+                      )
                     }
                   >
                     נתק
@@ -330,7 +408,9 @@ export function ContactPeople({
 
               {editingPersonEmail === person.contactId ? (
                 <form
-                  onSubmit={(event) => submitPersonEmail(event, person.contactId)}
+                  onSubmit={(event) =>
+                    submitPersonEmail(event, person.contactId)
+                  }
                   className="flex w-full flex-wrap items-end gap-2 ps-2"
                 >
                   <label className="grow">
@@ -346,7 +426,11 @@ export function ContactPeople({
                       className="mv-field"
                     />
                   </label>
-                  <button type="submit" className="mv-btn-action" disabled={busy}>
+                  <button
+                    type="submit"
+                    className="mv-btn-action"
+                    disabled={busy}
+                  >
                     שמור
                   </button>
                   <button
@@ -364,17 +448,28 @@ export function ContactPeople({
       ) : null}
 
       {addingPerson ? (
-        <form onSubmit={submitPerson} className="mt-2 flex flex-wrap items-end gap-2">
+        <form
+          onSubmit={submitPerson}
+          className="mt-2 flex flex-wrap items-end gap-2"
+        >
           <label className="grow">
             <span className="mb-1 block text-xs font-semibold">שם</span>
             <input name="name" required minLength={2} className="mv-field" />
           </label>
           <label className="grow">
             <span className="mb-1 block text-xs font-semibold">טלפון</span>
-            <input name="phone" dir="ltr" required placeholder="050-1234567" className="mv-field" />
+            <input
+              name="phone"
+              dir="ltr"
+              required
+              placeholder="050-1234567"
+              className="mv-field"
+            />
           </label>
           <label className="grow">
-            <span className="mb-1 block text-xs font-semibold">אימייל (לא חובה)</span>
+            <span className="mb-1 block text-xs font-semibold">
+              אימייל (לא חובה)
+            </span>
             <input
               name="email"
               type="email"
@@ -402,14 +497,21 @@ export function ContactPeople({
       {/* הסבר קצר שמופיע רק כשאין עדיין אף אחד — כדי שהמתווך יבין
           שזה קיים בלי לקרוא תיעוד, ולא ייראה כרעש למי שכבר משתמש */}
       {extraPeople.length === 0 && !addingPerson ? (
-        <p className="m-0 mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
-          אפשר להוסיף בן/בת זוג או מיופה כוח — הודעה מהמספר שלהם תיכנס לכרטיס הזה
-          ולא תפתח ליד חדש.
+        <p
+          className="m-0 mt-1 text-xs"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          אפשר להוסיף בן/בת זוג או מיופה כוח — הודעה מהמספר שלהם תיכנס לכרטיס
+          הזה ולא תפתח ליד חדש.
         </p>
       ) : null}
 
       {error ? (
-        <p role="alert" className="m-0 mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
+        <p
+          role="alert"
+          className="m-0 mt-2 text-sm"
+          style={{ color: "var(--color-danger)" }}
+        >
           {error}
         </p>
       ) : null}
@@ -417,7 +519,12 @@ export function ContactPeople({
       {/* אחרון בכרטיס, מופרד בקו: פעולה שאין ממנה חזרה אינה יושבת
           בין "הוסף טלפון" ל"ערוך אימייל" */}
       {canErase && primary !== undefined ? (
-        <ContactErasure contactId={contactId} name={primary.name} />
+        <div
+          className="mt-3 border-t pt-3"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <ContactErasure contactId={contactId} name={primary.name} />
+        </div>
       ) : null}
     </section>
   );

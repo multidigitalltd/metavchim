@@ -22,8 +22,26 @@ function svgProps(s?: number) {
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
     "aria-hidden": true,
-    // בתוך שורת טקסט האייקון מתיישר לעין בלי עטיפת flex סביבו
-    style: { verticalAlign: "-0.18em" as const },
+    /*
+     * `inline-block` מפורש — **התיקון בשורש ולא בכל מסך.**
+     *
+     * ה-preflight של Tailwind מגדיר `svg { display: block }`, ולכן
+     * אייקון בתוך פסקה או כותרת יורד לשורה משלו ושובר את המשפט
+     * לשלוש שורות. עד כה כל מקום שנתקל בזה תיקן את עצמו בנפרד —
+     * עטיפת `inline-flex` בפאנלי ההסבר, `display:flex` על הכותרת —
+     * וכל שימוש חדש חזר ונפל באותה בור (ביקורת Codex).
+     *
+     * `verticalAlign` לבדו לא הספיק: הוא רלוונטי רק לזרימה inline,
+     * כלומר בדיוק למצב שה-preflight ביטל. שתי השורות האלה יחד הן
+     * ההתנהגות שהאייקון תוכנן לה מלכתחילה, והן חלות על כל שימוש.
+     *
+     * בתוך מכל flex או grid הדפדפן ממילא מתעלם משניהם, ולכן זה אינו
+     * משנה דבר בעשרות המקומות שכבר עוטפים את האייקון.
+     */
+    style: {
+      display: "inline-block" as const,
+      verticalAlign: "-0.18em" as const,
+    },
   };
 }
 

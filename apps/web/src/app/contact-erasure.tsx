@@ -68,9 +68,13 @@ export function ContactErasure({
     setError(null);
     setBusy(true);
     try {
-      setPreview(await apiGet<ErasurePreview>(`/contacts/${contactId}/erasure-preview`));
+      setPreview(
+        await apiGet<ErasurePreview>(`/contacts/${contactId}/erasure-preview`),
+      );
     } catch (err: unknown) {
-      setError(err instanceof ApiError ? err.message : "טעינת פרטי המחיקה נכשלה");
+      setError(
+        err instanceof ApiError ? err.message : "טעינת פרטי המחיקה נכשלה",
+      );
     } finally {
       setBusy(false);
     }
@@ -94,15 +98,34 @@ export function ContactErasure({
 
   if (preview === null) {
     return (
-      <div className="mt-3 border-t pt-2" style={{ borderColor: "var(--color-border)" }}>
-        <button type="button" className="mv-btn-plain" disabled={busy} onClick={() => void open()}>
-          <span style={{ color: "var(--color-danger)" }}>מחיקת הלקוח מהמערכת</span>
+      /*
+       * בלי מסגרת משלו: הקו המפריד שייך למארח ולא לפעולה. כשהוא היה
+       * כאן, הרכיב גרר אותו גם לאזור המחיקות המשותף — שם כבר יש
+       * הפרדה — ויצר שני קווים זה מעל זה.
+       */
+      <div>
+        <button
+          type="button"
+          className="mv-btn-plain"
+          disabled={busy}
+          onClick={() => void open()}
+        >
+          <span style={{ color: "var(--color-danger)" }}>
+            מחיקת הלקוח מהמערכת
+          </span>
         </button>
-        <p className="m-0 mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
+        <p
+          className="m-0 mt-1 text-xs"
+          style={{ color: "var(--color-text-muted)" }}
+        >
           לבקשת הלקוח — מוחק את כל המידע שהמשרד מחזיק עליו, לצמיתות.
         </p>
         {error ? (
-          <p role="alert" className="m-0 mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
+          <p
+            role="alert"
+            className="m-0 mt-2 text-sm"
+            style={{ color: "var(--color-danger)" }}
+          >
             {error}
           </p>
         ) : null}
@@ -113,8 +136,11 @@ export function ContactErasure({
   const items = lines(preview);
   return (
     <div
-      className="mt-3 rounded-xl border p-3"
-      style={{ borderColor: "var(--color-danger)", background: "var(--color-bg)" }}
+      className="rounded-xl border p-3"
+      style={{
+        borderColor: "var(--color-danger)",
+        background: "var(--color-bg)",
+      }}
     >
       <p className="m-0 mb-2 text-sm font-semibold">
         <IconWarning s={16} /> מחיקת {name} מהמערכת — אי אפשר לשחזר
@@ -122,7 +148,9 @@ export function ContactErasure({
       {items.length > 0 ? (
         <p className="m-0 mb-2 text-[13px]">יימחקו: {items.join(" · ")}.</p>
       ) : (
-        <p className="m-0 mb-2 text-[13px]">לכרטיס הזה אין עדיין תוכן מקושר — יימחק הכרטיס עצמו.</p>
+        <p className="m-0 mb-2 text-[13px]">
+          לכרטיס הזה אין עדיין תוכן מקושר — יימחק הכרטיס עצמו.
+        </p>
       )}
       {/*
         גבול המחיקה, ולא הערת שוליים: מסמך חתום אינו נמחק, והזהות
@@ -137,19 +165,26 @@ export function ContactErasure({
               : `${preview.signedAgreements} הסכמים חתומים יישמרו`}
           </b>{" "}
           — מסמך חתום הוא ראיה משפטית ובסיס הזכאות לדמי התיווך, והוא אינו נמחק.
-          הוא יעבור לארכיון המשרד (ניהול משרד ← מסמכים והסכמים), והשם ומספר הזהות
-          שבתוכו יישארו — מסמך חתום בלי החותם אינו מסמך.
+          הוא יעבור לארכיון המשרד (ניהול משרד ← מסמכים והסכמים), והשם ומספר
+          הזהות שבתוכו יישארו — מסמך חתום בלי החותם אינו מסמך.
         </p>
       ) : null}
       {preview.properties > 0 ? (
-        <p className="m-0 mb-2 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
-          {preview.properties === 1 ? "הנכס שבבעלותו יישאר" : "הנכסים שבבעלותו יישארו"} במאגר
-          המשרד, בלי הקישור אליו ובלי פרטיו.
+        <p
+          className="m-0 mb-2 text-[13px]"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          {preview.properties === 1
+            ? "הנכס שבבעלותו יישאר"
+            : "הנכסים שבבעלותו יישארו"}{" "}
+          במאגר המשרד, בלי הקישור אליו ובלי פרטיו.
         </p>
       ) : null}
 
       <label className="block">
-        <span className="mb-1 block text-xs font-semibold">לאישור, הקלידו את שם הלקוח:</span>
+        <span className="mb-1 block text-xs font-semibold">
+          לאישור, הקלידו את שם הלקוח:
+        </span>
         <input
           value={typed}
           onChange={(e) => setTyped(e.target.value)}
@@ -160,7 +195,11 @@ export function ContactErasure({
       </label>
 
       {error ? (
-        <p role="alert" className="m-0 mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
+        <p
+          role="alert"
+          className="m-0 mt-2 text-sm"
+          style={{ color: "var(--color-danger)" }}
+        >
           {error}
         </p>
       ) : null}
