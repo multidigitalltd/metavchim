@@ -12,6 +12,10 @@ backups/
 *.log
 .DS_Store
 
+# תמונת מצב של Redis — נכתבת לתיקייה שממנה הורץ redis-server בפיתוח.
+# נתוני ריצה מקומיים, לא מקור.
+dump.rdb
+
 # פסולת של מפרש פייתון (שירותי infra/stt ו-infra/diarize)
 __pycache__/
 *.pyc
