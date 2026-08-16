@@ -4,6 +4,7 @@ import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { AuthGuard } from "./common/auth.guard";
 import { FeatureGuard } from "./common/feature.guard";
 import { FloodMiddleware } from "./common/flood.middleware";
+import { OriginGuard } from "./common/origin.guard";
 import { SessionMiddleware } from "./common/session.middleware";
 import { CoreModule } from "./core/core.module";
 import { AuthModule } from "./modules/auth/auth.module";
@@ -87,6 +88,12 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    /*
+     * בדיקת המקור לפני האימות: בקשה משנה-מצב ממקור זר נדחית עוד
+     * לפני שנגענו ב-Session או במסד. שכבה שנייה מול CSRF, לצד
+     * `SameSite=Lax` על העוגייה.
+     */
+    { provide: APP_GUARD, useClass: OriginGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
     /*
      * שער הפיצ'רים אחרי שער האימות ולא לפניו: שאלה על המסלול של
