@@ -1,4 +1,5 @@
 import { Controller, Get, Query } from "@nestjs/common";
+import { DEFAULT_MAP_STYLE_URL } from "@metavchim/shared";
 import { z } from "zod";
 import { AnyAuthenticated } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
@@ -15,11 +16,12 @@ const PointSchema = z
 
 const SearchSchema = z.object({ q: z.string().trim().min(2).max(120) }).strict();
 
-/**
- * סגנון פתוח, בלי מפתח ובלי חשבון — כדי שמפה תעבוד מהרגע הראשון.
- * תקן MapLibre: כל הכתובות בתוכו HTTPS רגיל.
+/*
+ * ברירת המחדל חיה ב-packages/shared: גם מדיניות אבטחת התוכן של
+ * האתר צריכה להתיר את אותו מארח, ושני עותקים שנפרדים זה מזה
+ * מסתיימים במפה שנחסמת בשקט.
  */
-const DEFAULT_MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+const DEFAULT_MAP_STYLE = DEFAULT_MAP_STYLE_URL;
 
 /**
  * הגדרת המפה לאפליקציה.

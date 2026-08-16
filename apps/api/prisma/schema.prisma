@@ -1191,6 +1191,67 @@ model Agreement {
   @@map("agreements")
 }
 
+/// תקופת בלעדיות על נכס — **מה שההסכם הבטיח, כמצב שאפשר לבדוק.**
+///
+/// עד כה התקופה חיה כטקסט חופשי בתוך גוף ההסכם החתום, ו-
+/// `properties.exclusive_until` נכתב ולא נקרא. כאן היא ישות: יש לה
+/// התחלה, סוף, מועד שליש (סעיף 9(ב2) לחוק המתווכים), ופעולות שיווק
+/// שנתלות בה. ההיגיון עצמו — packages/shared — exclusivity.ts.
+///
+/// טבלה ולא עמודות: לנכס יש היסטוריה של בלעדיויות, ופעולת שיווק
+/// משנה שעברה אינה מקיימת את הדרישה של התקופה הנוכחית.
+model PropertyExclusivity {
+  id                 String    @id @db.Char(26)
+  tenantId           String    @map("tenant_id") @db.Char(26)
+  propertyId         String    @map("property_id") @db.Char(26)
+  /// ההסכם החתום שממנו נולדה. NULL = בלעדיות שנחתמה על נייר.
+  agreementId        String?   @map("agreement_id") @db.Char(26)
+  /// apartment | other — שתי המדרגות של סעיף 9, ולא סוג הנכס שלנו
+  subject            String    @db.VarChar(10)
+  startsAt           DateTime  @map("starts_at") @db.Date
+  endsAt             DateTime  @map("ends_at") @db.Date
+  /// האם סוכם על "פעולת שיווק אחרת" (פריט 7 בתקנות פעולות שיווק).
+  agreedCustomAction Boolean   @default(false) @map("agreed_custom_action")
+  /// מתי חדלה להיות התקופה הנוכחית. NULL = הפתוחה, ויש רק אחת כזו
+  /// לכל נכס — אינדקס ייחודי חלקי אוכף זאת.
+  endedAt            DateTime? @map("ended_at")
+  /// expired | cancelled | sold | replaced
+  endReason          String?   @map("end_reason") @db.VarChar(20)
+  createdBy          String?   @map("created_by") @db.Char(26)
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, endsAt])
+  @@map("property_exclusivities")
+}
+
+/// פעולת שיווק שבוצעה בתקופת בלעדיות.
+///
+/// `sourceKey` הוא מפתח האירוע שיצר אותה בזיהוי אוטומטי — האינדקס
+/// הייחודי החלקי עליו מונע כפילות כשאותו אירוע מעובד פעמיים. רישום
+/// ידני אינו נושא מפתח: מתווך שתלה שני שלטים רשאי לרשום שניים.
+model MarketingAction {
+  id            String   @id @db.Char(26)
+  tenantId      String   @map("tenant_id") @db.Char(26)
+  exclusivityId String   @map("exclusivity_id") @db.Char(26)
+  propertyId    String   @map("property_id") @db.Char(26)
+  kind          String   @db.VarChar(30)
+  /// auto | manual
+  source        String   @db.VarChar(10)
+  sourceKey     String?  @map("source_key") @db.VarChar(120)
+  detail        String?  @db.VarChar(300)
+  /// אסמכתה — צילום השלט, קישור למודעה. ראיה, לא קישוט.
+  evidenceUrl   String?  @map("evidence_url") @db.VarChar(500)
+  /// לשיתוף מתווכים בלבד. פחות מחמישה אינו נספר.
+  brokerCount   Int?     @map("broker_count")
+  performedAt   DateTime @map("performed_at")
+  createdBy     String?  @map("created_by") @db.Char(26)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([exclusivityId, performedAt])
+  @@map("marketing_actions")
+}
+
 /// יומן שיחות. כרגע מתועד ידנית; שיחות מספק טלפוניה ייכנסו לאותה
 /// טבלה עם source="provider" כשייכנס חיבור כזה.
 model Call {

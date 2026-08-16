@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { SkipLink } from "@metavchim/ui";
 import { AccessibilityRuntime } from "./a11y-toolbar";
 import { AppShell } from "./app-shell";
@@ -25,13 +26,18 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  /*
+   * ה-Nonce שנוצר ב-Middleware. בלעדיו סקריפט ערכת הנושא ייחסם
+   * ע"י CSP, והמסך יהבהב בלבן בכל טעינה אצל מי שבחר מצב כהה.
+   */
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html lang="he" dir="rtl">
       <head>
         {/* יישום ערכת הנושא לפני הצביעה הראשונה — בלי זה מסך כהה
             שנבחר ידנית היה מהבהב בלבן בכל טעינת דף */}
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body>
         <SkipLink targetId="main-content" />

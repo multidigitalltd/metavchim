@@ -20,6 +20,7 @@ import { AgreementsPanel } from "../../agreements-panel";
 import { EntityTasks } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
 import { LocationPicker } from "../location-picker";
+import { ExclusivityPanel } from "../exclusivity-panel";
 import { RelatedEntities } from "../../related-entities";
 import { IconThumbUp } from "../../icons";
 
@@ -483,6 +484,18 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
               title="הסכם בלעדיות מול בעל הנכס"
             />
           ) : null}
+
+          {/*
+            תיק הבלעדיות — מיד אחרי הסכם הבלעדיות, כי זה בדיוק מה
+            שקורה אחריו: ההסכם נחתם, והשאלה הבאה היא מתי הוא נגמר
+            ומה תועד בתוכו.
+          */}
+          <ExclusivityPanel
+            propertyId={property.id}
+            propertyTitle={property.marketingTitle ?? (address || "נכס")}
+            officeName={user?.tenantName ?? "משרד התיווך"}
+            canEdit={can(user, "properties.edit")}
+          />
 
           <EntityTasks entityType="property" entityId={property.id} />
 

@@ -5,6 +5,7 @@ import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService } from "../../core/prisma.service";
 import { CallsService } from "../calls/calls.service";
+import { ExclusivityService } from "../exclusivity/exclusivity.service";
 
 export interface AppointmentDto {
   id: string;
@@ -35,6 +36,8 @@ export class CalendarService {
     private readonly outbox: OutboxService,
     // ההקלטה של פגישה נשמרת כשורת `calls` — אותו צינור תמלול בדיוק
     private readonly calls: CallsService,
+    // תיעוד סיור כפעולת שיווק בתיק הבלעדיות — פריט (5) בתקנות
+    private readonly exclusivity: ExclusivityService,
   ) {}
 
   async create(input: {
@@ -114,6 +117,25 @@ export class CalendarService {
         entityType: "appointment",
         entityId: id,
       });
+      /*
+       * סיור בנכס הוא "הזמנת רוכשים פוטנציאליים לבקר בנכס" — פריט (5)
+       * ברשימת פעולות השיווק. הוא נרשם בתיק הבלעדיות מעצמו, כי סוכן
+       * שקבע סיור לא יזכור לתעד אותו פעם שנייה כפעולת שיווק.
+       *
+       * **הפעולה מתוארכת לרגע התיאום ולא למועד הסיור.** הפעולה שהתקנה
+       * מונה היא ההזמנה, והיא בוצעה עכשיו; מועד הביקור הוא "במועד
+       * שיוסכם עליו". תיארוך למועד הסיור היה מפיל בלעדיות שסוכן שיווק
+       * בזמן — סיור שתואם ביום 5 ונקבע ליום 40 היה נספר אחרי מועד
+       * השליש, כלומר לא נספר כלל (ביקורת Codex). מועד הביקור נשמר
+       * בפירוט, כי הוא מה שמעניין את מי שקורא את התיק.
+       */
+      if (input.propertyId && input.kind === "viewing") {
+        await this.exclusivity.recordAuto(tx, input.propertyId, "viewing_scheduled", {
+          sourceKey: `viewing:${id}`,
+          performedAt: new Date(),
+          detail: `סיור בנכס תואם ליום ${input.startsAt.toLocaleDateString("he-IL")}`,
+        });
+      }
       await this.outbox.emit(tx, "appointment.scheduled", {
         appointmentId: id,
         tenantId: ctx.tenantId,
