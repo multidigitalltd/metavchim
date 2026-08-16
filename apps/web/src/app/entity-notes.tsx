@@ -30,12 +30,24 @@ export function EntityNotes({
   fieldId = "entity-notes",
   title = "הערות",
   empty = "אין הערות עדיין.",
+  canEdit = true,
 }: {
   value: string | undefined;
   onSave: (next: string) => Promise<void>;
   fieldId?: string;
   title?: string;
   empty?: string;
+  /**
+   * `false` = צפייה בלבד: ההערות נקראות, ואין כפתור עריכה.
+   *
+   * לא קישוט. ה-`PATCH` דורש הרשאת עריכה, ולכן משתמש בצפייה בלבד
+   * שראה "הוסף הערות" היה מקליד פסקה שלמה ומקבל 403 — כלומר הטקסט
+   * שלו הולך לאיבוד בדיוק ברכיב שנועד לשמור אותו. עדיף שהכפתור לא
+   * יהיה שם מלכתחילה (ביקורת Codex).
+   *
+   * ההגנה עצמה בשרת; זה מונע את המבוי הסתום במסך.
+   */
+  canEdit?: boolean;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -65,8 +77,15 @@ export function EntityNotes({
   const headingId = `${fieldId}-heading`;
 
   return (
-    <section aria-labelledby={headingId} className="mv-list-card px-[22px] py-[18px]">
-      <h2 id={headingId} className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>
+    <section
+      aria-labelledby={headingId}
+      className="mv-list-card px-[22px] py-[18px]"
+    >
+      <h2
+        id={headingId}
+        className="m-0 mb-3"
+        style={{ fontSize: 15.5, fontWeight: 800 }}
+      >
         {title}
       </h2>
 
@@ -76,26 +95,30 @@ export function EntityNotes({
             {value?.trim() ? (
               value
             ) : (
-              <span style={{ color: "var(--color-text-muted)" }}>{empty}</span>
+              <span style={{ color: "var(--color-text-muted)" }}>
+                {canEdit ? empty : "אין הערות."}
+              </span>
             )}
           </p>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              className="mv-btn-plain"
-              onClick={() => {
-                setSaved(false);
-                setDraft(value ?? "");
-              }}
-            >
-              {value?.trim() ? "ערוך הערות" : "הוסף הערות"}
-            </button>
-            {saved ? (
-              <span role="status" style={{ color: "var(--color-primary)" }}>
-                ✓ נשמר
-              </span>
-            ) : null}
-          </div>
+          {!canEdit ? null : (
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                className="mv-btn-plain"
+                onClick={() => {
+                  setSaved(false);
+                  setDraft(value ?? "");
+                }}
+              >
+                {value?.trim() ? "ערוך הערות" : "הוסף הערות"}
+              </button>
+              {saved ? (
+                <span role="status" style={{ color: "var(--color-primary)" }}>
+                  ✓ נשמר
+                </span>
+              ) : null}
+            </div>
+          )}
         </>
       ) : (
         <>
@@ -118,7 +141,11 @@ export function EntityNotes({
             />
           </WithDictation>
           {error ? (
-            <p role="alert" className="m-0 mb-2 text-sm" style={{ color: "var(--color-danger)" }}>
+            <p
+              role="alert"
+              className="m-0 mb-2 text-sm"
+              style={{ color: "var(--color-danger)" }}
+            >
               {error}
             </p>
           ) : null}
@@ -126,7 +153,11 @@ export function EntityNotes({
             <Button disabled={busy} onClick={() => void save()}>
               {busy ? "שומר…" : "שמור הערות"}
             </Button>
-            <Button variant="ghost" disabled={busy} onClick={() => setDraft(null)}>
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={() => setDraft(null)}
+            >
               ביטול
             </Button>
           </div>

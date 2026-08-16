@@ -447,6 +447,7 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
               value={buyer.agentNotes}
               fieldId="agentNotes"
               title="הערות הסוכן"
+              canEdit={canEditPeople}
               onSave={saveNotes}
             />
 

@@ -504,6 +504,7 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
               fieldId="internalNotes"
               title="הערות פנימיות"
               empty="אין הערות עדיין — מה שנאמר בשיחה עם בעל הנכס נכתב כאן."
+              canEdit={canEditOwner}
               onSave={saveNotes}
             />
           </div>
