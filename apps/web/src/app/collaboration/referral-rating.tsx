@@ -70,7 +70,10 @@ export function ReferralRating({
     if (step === 0) return;
     event.preventDefault();
     const current = score === 0 ? MIN_REFERRAL_RATING : score;
-    const next = Math.min(MAX_REFERRAL_RATING, Math.max(MIN_REFERRAL_RATING, current + step));
+    const next = Math.min(
+      MAX_REFERRAL_RATING,
+      Math.max(MIN_REFERRAL_RATING, current + step),
+    );
     setScore(next);
     // הבחירה והמיקוד נעים יחד — אחרת קורא המסך מכריז על כוכב אחר
     event.currentTarget
@@ -88,7 +91,10 @@ export function ReferralRating({
         ...(comment.trim() ? { comment: comment.trim() } : {}),
       });
       setSaved(true);
-      onSaved?.({ score, ...(comment.trim() ? { comment: comment.trim() } : {}) });
+      onSaved?.({
+        score,
+        ...(comment.trim() ? { comment: comment.trim() } : {}),
+      });
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "שמירת הדירוג נכשלה");
     } finally {
@@ -99,7 +105,10 @@ export function ReferralRating({
   return (
     <div
       className="mt-3 rounded-lg border p-3"
-      style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+      style={{
+        borderColor: "var(--color-border)",
+        background: "var(--color-bg)",
+      }}
     >
       <p className="m-0 mb-2 text-[13px] font-semibold">
         {role === "received" ? "איך הייתה ההפניה?" : "איך היה הלקוח שהפניתם?"}
@@ -113,7 +122,9 @@ export function ReferralRating({
       */}
       <div
         role="radiogroup"
-        aria-label={role === "received" ? "דירוג ההפניה שקלטתם" : "דירוג הלקוח שהפניתם"}
+        aria-label={
+          role === "received" ? "דירוג ההפניה שקלטתם" : "דירוג הלקוח שהפניתם"
+        }
         className="flex flex-wrap items-center gap-1"
         onKeyDown={moveWithArrows}
       >
@@ -138,20 +149,30 @@ export function ReferralRating({
                * תכונת תצוגה, וכלל CSS גובר עליה בלי לפצל את הרכיב.
                */
               className={`mv-btn-plain px-1 py-0.5${active ? " [&>svg]:fill-current" : ""}`}
-              style={{ color: active ? "var(--color-primary)" : "var(--color-text-muted)" }}
+              style={{
+                color: active
+                  ? "var(--color-primary)"
+                  : "var(--color-text-muted)",
+              }}
             >
               <IconStar s={18} />
             </button>
           );
         })}
         {score > 0 ? (
-          <span className="ms-1 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+          <span
+            className="ms-1 text-[12.5px]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
             {REFERRAL_RATING_LABELS[score]}
           </span>
         ) : null}
       </div>
 
-      <label htmlFor={fieldId} className="mt-2 flex flex-col gap-1 text-[12.5px]">
+      <label
+        htmlFor={fieldId}
+        className="mt-2 flex flex-col gap-1 text-[12.5px]"
+      >
         <span style={{ color: "var(--color-text-muted)" }}>
           הערה לצד השני (רשות) — נראית רק לשני המשרדים שבהפניה
         </span>
@@ -163,33 +184,50 @@ export function ReferralRating({
             maxLength={MAX_REFERRAL_RATING_COMMENT}
             rows={2}
             className="flex-1 rounded-lg border px-3 py-2"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+            style={{
+              borderColor: "var(--color-border)",
+              background: "var(--color-surface)",
+            }}
           />
           <DictateFor targetId={fieldId} />
         </span>
       </label>
 
       {error ? (
-        <p role="alert" className="mt-2 mb-0 text-[12.5px]" style={{ color: "var(--color-danger)" }}>
+        <p
+          role="alert"
+          className="mt-2 mb-0 text-[12.5px]"
+          style={{ color: "var(--color-danger)" }}
+        >
           {error}
         </p>
       ) : null}
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Button variant="secondary" disabled={busy || score === 0} onClick={() => void submit()}>
+        <Button
+          variant="secondary"
+          disabled={busy || score === 0}
+          onClick={() => void submit()}
+        >
           {busy ? "שומר…" : saved ? "עדכון הדירוג" : "שליחת הדירוג"}
         </Button>
         {saved && !busy ? (
-          <span className="text-[12.5px]" style={{ color: "var(--color-success)" }}>
+          <span
+            className="text-[12.5px]"
+            style={{ color: "var(--color-success)" }}
+          >
             ✓ הדירוג נשמר
           </span>
         ) : null}
       </div>
 
       {counterpart ? (
-        <p className="mt-2 mb-0 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
-          <b>{role === "received" ? "המשרד המפנה" : "המשרד הקולט"} דירג:</b> {counterpart.score}/
-          {MAX_REFERRAL_RATING}
+        <p
+          className="mt-2 mb-0 text-[12.5px]"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          <b>{role === "received" ? "המשרד המפנה" : "המשרד הקולט"} דירג:</b>{" "}
+          {counterpart.score}/{MAX_REFERRAL_RATING}
           {counterpart.comment ? ` — „${counterpart.comment}”` : ""}
         </p>
       ) : null}

@@ -4,6 +4,7 @@ import type { ScoreComponent } from "../schemas/match.js";
 import { scoreEntryFit } from "./entry-timing.js";
 import { bestLocationMatch } from "./location-text.js";
 import { bestAreaMatch, describeDistance } from "./proximity.js";
+import { CUSTOM_FEATURE_PREFIX, customFeatureMap, isCustomFeature } from "./custom-features.js";
 
 export interface MatchResult {
   /** 0–100 */
@@ -13,6 +14,15 @@ export interface MatchResult {
   explanation: string;
   /** דרישת חובה מופרת במפורש — לא מציגים בכלל */
   excluded: boolean;
+}
+
+/**
+ * תווית לתצוגה בהסבר ההתאמה. מאפיין מותאם מוצג בשמו בלי הקידומת —
+ * "custom:סורגים" בהסבר לסוכן הוא דליפה של מבנה פנימי אל המסך.
+ */
+export function propertyFeatureLabel(key: string): string {
+  if (isCustomFeature(key)) return key.slice(CUSTOM_FEATURE_PREFIX.length);
+  return FEATURE_LABELS[key] ?? key;
 }
 
 const FEATURE_LABELS: Record<string, string> = {
@@ -223,20 +233,30 @@ export function scoreMatch(
   }
 
   // --- מאפייני חובה/עדיפות (0.15) ---
-  const featureEntries = Object.entries(buyer.features) as [
-    keyof typeof FEATURE_LABELS & keyof PropertyFields,
-    "must" | "nice",
-  ][];
+  const featureEntries = Object.entries(buyer.features) as [string, "must" | "nice"][];
   if (featureEntries.length > 0) {
+    /*
+     * שני מקורות לאותה שאלה, ובכוונה. מאפיין קבוע הוא שדה על הנכס
+     * (`property.hasElevator`), ומאפיין שהמשרד הוסיף חי ברשימה —
+     * כי הקטלוג נבנה מלמטה ואי אפשר לייצר לו שדה מראש. הקידומת
+     * `custom:` היא מה שאומר מאיפה לקרוא.
+     *
+     * מה שאינו קיים בשני המקורות נשאר `undefined`, כלומר **לא
+     * ידוע** — ההבחנה שכבר קיימת כאן: "אין מעלית" פוסל, "לא ידוע"
+     * רק מוריד ניקוד. מאפיין מותאם שלא סומן בנכס אינו שקר עליו.
+     */
+    const custom = customFeatureMap(property.customFeatures ?? []);
     const mustMissingExplicit: string[] = [];
     const mustUnknown: string[] = [];
     let niceTotal = 0;
     let niceHit = 0;
     for (const [feature, level] of featureEntries) {
-      const value = property[feature] as boolean | undefined;
+      const value = isCustomFeature(feature)
+        ? custom[feature]
+        : (property[feature as keyof PropertyFields] as boolean | undefined);
       if (level === "must") {
-        if (value === false) mustMissingExplicit.push(FEATURE_LABELS[feature] ?? feature);
-        else if (value === undefined) mustUnknown.push(FEATURE_LABELS[feature] ?? feature);
+        if (value === false) mustMissingExplicit.push(propertyFeatureLabel(feature));
+        else if (value === undefined) mustUnknown.push(propertyFeatureLabel(feature));
       } else {
         niceTotal += 1;
         if (value === true) niceHit += 1;
@@ -271,9 +291,15 @@ export function scoreMatch(
       });
     }
     if (niceTotal > 0) {
+      /* אותה קריאה דו-מקורית כמו למעלה — מותאם מהרשימה, קבוע מהשדה */
       const missedNice = featureEntries
-        .filter(([f, l]) => l === "nice" && property[f] !== true)
-        .map(([f]) => FEATURE_LABELS[f] ?? f);
+        .filter(([f, l]) => {
+          const value = isCustomFeature(f)
+            ? custom[f]
+            : (property[f as keyof PropertyFields] as boolean | undefined);
+          return l === "nice" && value !== true;
+        })
+        .map(([f]) => propertyFeatureLabel(f));
       parts.push({
         criterion: "features_nice",
         weight: weights.features_nice,

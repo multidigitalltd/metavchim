@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { IconCart, IconCoins, IconHandshake, IconInfo, IconLock } from "../icons";
+import { IconCoins, IconHandshake, IconInfo } from "../icons";
 
 /**
  * ההסבר על רשת שיתופי הפעולה.
@@ -80,13 +80,23 @@ export function CollaborationGuide() {
   return (
     <section
       className="mb-5 rounded-xl border p-4"
-      style={{ borderColor: "var(--color-primary)", background: "var(--color-primary-soft)" }}
+      style={{
+        borderColor: "var(--color-primary)",
+        background: "var(--color-primary-soft)",
+      }}
       aria-labelledby="coop-guide-heading"
     >
-      <h2 id="coop-guide-heading" className="m-0 mb-1" style={{ fontSize: 16, fontWeight: 800 }}>
+      <h2
+        id="coop-guide-heading"
+        className="m-0 mb-1"
+        style={{ fontSize: 16, fontWeight: 800 }}
+      >
         איך עובדת רשת שיתופי הפעולה
       </h2>
-      <p className="m-0 mb-4 text-[13px]" style={{ color: "var(--color-text-soft)" }}>
+      <p
+        className="m-0 mb-4 text-[13px]"
+        style={{ color: "var(--color-text-soft)" }}
+      >
         קונה שאין לו נכס, ונכס שאין לו קונה — יושבים בשני משרדים שונים. הרשת
         מחברת ביניהם בלי שאף צד יאבד את הלקוח שלו.
       </p>
@@ -104,7 +114,10 @@ export function CollaborationGuide() {
                 {index + 1}. {step.title}
               </b>
             </div>
-            <p className="m-0 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+            <p
+              className="m-0 text-[12.5px]"
+              style={{ color: "var(--color-text-muted)" }}
+            >
               {step.body}
             </p>
           </li>
@@ -112,62 +125,30 @@ export function CollaborationGuide() {
       </ol>
 
       {/*
-        ההבחנה שהכי בלבלה: שני מנגנונים נפרדים באותו מסך. היא מוצגת
-        כטבלה ולא כפסקה, כי זו בדיוק ההשוואה שהמשתמש עושה בראש.
+        ההבחנה שהכי בלבלה — שני מנגנונים נפרדים באותו מסך — הייתה כאן
+        טבלה בת שתי שורות ושמונה משפטים. היא ירדה מפני שהמסך עצמו כבר
+        אומר אותה טוב יותר: כל ביקוש נושא תווית חינם או N קרדיטים ליד
+        הכפתור שלו, וההפניות יושבות בלשונית משלהן. הסבר שחוזר על מה
+        שהמסך מראה הוא בדיוק הטקסט המיותר שהפך את האזור לעמוס.
       */}
-      <div
-        className="mb-3 overflow-x-auto rounded-lg"
-        style={{ background: "var(--color-surface)" }}
+      <p
+        className="m-0 mb-3 text-[13px]"
+        style={{ color: "var(--color-text-soft)" }}
       >
-        <table className="w-full border-collapse text-[12.5px]">
-          <caption className="p-2.5 pb-1 text-start font-bold">
-            שני דברים נפרדים — וזה מה שמבלבל:
-          </caption>
-          <tbody>
-            <tr>
-              <td className="p-2.5" style={{ borderBottom: "1px solid var(--color-row-border)", width: "42%" }}>
-                <b>
-                  <IconHandshake s={14} /> שיתוף פעולה עם משרד תיווך
-                </b>
-                <div style={{ color: "var(--color-text-muted)" }}>
-                  פרסום ביקוש · הצעת נכס לביקוש של משרד אחר
-                </div>
-              </td>
-              <td className="p-2.5" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
-                <b style={{ color: "var(--color-primary)" }}>חינם לגמרי</b>
-                <div style={{ color: "var(--color-text-muted)" }}>
-                  בכל המסלולים. אתם מתחלקים בעמלה עם המשרד השני — לא משלמים לנו.
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <td className="p-2.5">
-                <b>
-                  <IconCart s={14} /> הפניית לקוח
-                </b>
-                <div style={{ color: "var(--color-text-muted)" }}>
-                  קליטת לקוח שמשרד אחר הפנה · הצעה על ביקוש שמסומן במקור חיצוני
-                  (למשל „Kanko”)
-                </div>
-              </td>
-              <td className="p-2.5">
-                <b>עולה קרדיטים</b>
-                <div style={{ color: "var(--color-text-muted)" }}>
-                  מאחורי הפניה עומד לקוח אמיתי שמשרד אחר מוותר עליו, ולכן יש לה
-                  תמורה. אלה שני המקומות היחידים שבהם קרדיטים יורדים, וכל אחד מהם
-                  נושא תווית מחיר לפני הלחיצה — קרדיט לא יורד בהפתעה.
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+        🎁 שיתוף פעולה עם משרד תיווך — <b>חינם בכל המסלולים</b>. 🪙 קרדיטים
+        יורדים רק על הפניית לקוח ועל ביקוש שמסומן במקור חיצוני, וכל אחד מהם נושא
+        תווית מחיר לפני הלחיצה.
+      </p>
 
       <div className="flex flex-wrap gap-2">
         <button type="button" className="mv-btn-action" onClick={dismiss}>
           הבנתי
         </button>
-        <Link href="/buyers" className="mv-btn-plain" style={{ textDecoration: "none" }}>
+        <Link
+          href="/buyers"
+          className="mv-btn-plain"
+          style={{ textDecoration: "none" }}
+        >
           פרסם ביקוש מכרטיס קונה
         </Link>
       </div>
@@ -199,7 +180,10 @@ function GuidePanel({
   return (
     <details
       className="mb-2.5 rounded-lg border"
-      style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+      style={{
+        borderColor: "var(--color-border)",
+        background: "var(--color-surface)",
+      }}
       open={defaultOpen}
     >
       <summary className="cursor-pointer px-3 py-2 text-[13px] font-semibold">
@@ -215,55 +199,13 @@ function GuidePanel({
         </span>
       </summary>
       {/* קו מפריד ולא רווח: הוא מסמן איפה ההסבר מתחיל בלי לגזול גובה */}
-      <div className="border-t px-3 py-2.5" style={{ borderColor: "var(--color-border)" }}>
+      <div
+        className="border-t px-3 py-2.5"
+        style={{ borderColor: "var(--color-border)" }}
+      >
         {children}
       </div>
     </details>
-  );
-}
-
-/**
- * מה נחשף ומה לא.
- *
- * החשש הזה הוא מה שעוצר מתווכים מלשתף: "הם ייקחו לי את הלקוח".
- * רשימה מפורשת של מה שהצד השני רואה — ובעיקר של מה שהוא **לא**
- * רואה — עונה עליו בלי שיצטרכו לשאול.
- */
-export function PrivacyPanel() {
-  return (
-    <GuidePanel icon={<IconLock s={14} />} title="מה המשרד השני רואה על הלקוח שלי?">
-      <div className="grid gap-4 md:grid-cols-2">
-        <div>
-          <p className="m-0 mb-1.5 text-[13px] font-bold" style={{ color: "var(--color-primary)" }}>
-            ✓ נחשף
-          </p>
-          <ul className="m-0 ps-4 text-[12.5px]" style={{ color: "var(--color-text-soft)" }}>
-            <li>הערים והשכונות שהוא מחפש</li>
-            <li>טווח חדרים וסוג העסקה</li>
-            <li>תקציב — <b>מעוגל כלפי מעלה</b> ל-100 אלף ₪</li>
-            <li>דרישות החובה (מעלית, חניה וכו&apos;)</li>
-            <li>התיאור החופשי שאתם כותבים</li>
-          </ul>
-        </div>
-        <div>
-          <p className="m-0 mb-1.5 text-[13px] font-bold" style={{ color: "var(--color-danger)" }}>
-            ✕ לא נחשף
-          </p>
-          <ul className="m-0 ps-4 text-[12.5px]" style={{ color: "var(--color-text-soft)" }}>
-            <li>שם הלקוח</li>
-            <li>מספר טלפון</li>
-            <li>כתובת אימייל</li>
-            <li>התקציב המדויק</li>
-            <li>ההערות הפנימיות שלכם</li>
-          </ul>
-        </div>
-      </div>
-
-      <p className="m-0 mt-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
-        גם אחרי שמשרד מציע נכס — הוא עדיין לא מקבל את פרטי הלקוח. אתם מחליטים
-        אם ההצעה מעניינת, ורק אז נפתח קשר בין המשרדים. <b>הלקוח נשאר שלכם.</b>
-      </p>
-    </GuidePanel>
   );
 }
 
@@ -276,14 +218,21 @@ export function PrivacyPanel() {
  */
 export function ReferralRulesPanel() {
   return (
-    <GuidePanel icon={<IconHandshake s={14} />} title="איך עובדת הפניית לקוח?" defaultOpen>
+    <GuidePanel
+      icon={<IconHandshake s={14} />}
+      title="איך עובדת הפניית לקוח?"
+      defaultOpen
+    >
       <p className="m-0 mb-2 text-[13px]">
         משרד שמקבל פנייה שאינה מתאימה לו — לא באזור שלו, לא בתחום שלו או שאין לו
         פנאי — מפנה את הלקוח למשרד שכן יכול לשרת אותו, ומקבל תמורה על ההפניה.
         <b> זו אינה מכירת ליד</b>: הלקוח מקבל מענה אמיתי, והמשרד שמפנה חייב לומר
         למה הוא מפנה.
       </p>
-      <ul className="m-0 mb-3 ps-4 text-[12.5px]" style={{ color: "var(--color-text-soft)" }}>
+      <ul
+        className="m-0 mb-3 ps-4 text-[12.5px]"
+        style={{ color: "var(--color-text-soft)" }}
+      >
         <li>
           <b>המשרד המפנה קובע את התמורה</b> — הוא זה שיודע מה שווה הלקוח שהוא
           מוותר עליו. מתוכה יורדת עמלת פלטפורמה, והפירוק מוצג לו לפני הפרסום.
@@ -301,7 +250,10 @@ export function ReferralRulesPanel() {
           עתידית של המשרד המפנה. זה מה שמייקר הפניית זבל.
         </li>
       </ul>
-      <p className="m-0 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+      <p
+        className="m-0 text-[12.5px]"
+        style={{ color: "var(--color-text-muted)" }}
+      >
         שם וטלפון של הלקוח נחשפים למשרד הקולט רק אחרי הקליטה. עד אז מוצגים
         הכוונה, המקור, העיר, הסיבה והתיאור בלבד.
       </p>
@@ -321,7 +273,10 @@ export function CommissionPanel() {
       <p className="m-0 mb-2 text-[13px]">
         האחוז שנקבע הוא <b>חלקכם בעמלה של העסקה</b> — לא סכום שמשולם למערכת.
       </p>
-      <ul className="m-0 mb-3 ps-4 text-[12.5px]" style={{ color: "var(--color-text-soft)" }}>
+      <ul
+        className="m-0 mb-3 ps-4 text-[12.5px]"
+        style={{ color: "var(--color-text-soft)" }}
+      >
         <li>
           <b>50% / 50%</b> — החלוקה המקובלת: כל צד מקבל חצי מדמי התיווך.
         </li>
@@ -332,10 +287,13 @@ export function CommissionPanel() {
           כל צד גובה מהלקוח <b>שלו</b>, לפי ההסכם שחתם איתו.
         </li>
       </ul>
-      <p className="m-0 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
-        האחוז נקבע <b>מראש</b> — ברגע פרסום הביקוש או הגשת ההצעה — ולא במו&quot;מ
-        אחרי שהלקוח כבר התעניין. שם בדיוק נשברים שיתופי פעולה.
-        המערכת מציגה את החלוקה לשני הצדדים לפני כל החלטה.
+      <p
+        className="m-0 text-[12.5px]"
+        style={{ color: "var(--color-text-muted)" }}
+      >
+        האחוז נקבע <b>מראש</b> — ברגע פרסום הביקוש או הגשת ההצעה — ולא
+        במו&quot;מ אחרי שהלקוח כבר התעניין. שם בדיוק נשברים שיתופי פעולה. המערכת
+        מציגה את החלוקה לשני הצדדים לפני כל החלטה.
       </p>
     </GuidePanel>
   );

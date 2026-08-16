@@ -50,7 +50,7 @@ export const MATCH_REFRESH_REASON_LABELS: Record<MatchRefreshReason, string> = {
  * הפורמט הוא תאריך ותיאור קצר, כדי ששורת ה-JSON השמורה תהיה קריאה
  * גם בלי הקוד שלידה.
  */
-export const MATCH_ENGINE_VERSION = "2026-08-15-geo";
+export const MATCH_ENGINE_VERSION = "2026-08-16-custom-features";
 
 /** כל כמה זמן סבב גם כשדבר לא השתנה — בגלל התלות ב-`now`. */
 export const MATCH_REFRESH_INTERVAL_DAYS = 1;

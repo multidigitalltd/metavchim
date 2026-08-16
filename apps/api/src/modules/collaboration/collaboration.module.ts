@@ -8,5 +8,6 @@ import { KankoWebhookController } from "./kanko-webhook.controller";
   imports: [ExclusivityModule],
   controllers: [CollaborationController, KankoWebhookController],
   providers: [CollaborationService],
+  exports: [CollaborationService],
 })
 export class CollaborationModule {}

@@ -4,22 +4,29 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import {
   COMMISSION_SPLIT_OPTIONS,
   DEFAULT_COMMISSION_SPLIT,
+  demandChips,
   describeCommissionSplit,
   describeReferralRating,
+  presentationChips,
   referralReasonLabel,
   shekels,
   type PayoutMode,
 } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
-import { formatPrice } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { LoadError } from "../load-error";
-import { IconDiamond, IconHandshake, IconStar } from "../icons";
-import { CollaborationGuide, CommissionPanel, PrivacyPanel, ReferralRulesPanel } from "./guide";
+import { IconDiamond } from "../icons";
+import {
+  CollaborationGuide,
+  CommissionPanel,
+  ReferralRulesPanel,
+} from "./guide";
+import { PrivacyBanner } from "./privacy-banner";
+import { NetChips } from "./net-chips";
 import { ReferralRating, type ReferralRatingValue } from "./referral-rating";
 import { BuyCredits } from "./buy-credits";
 import { PayoutPanel } from "./payout-panel";
@@ -31,12 +38,11 @@ import { PayoutPanel } from "./payout-panel";
  * לקוחות (בקרדיטים) הם שני מנגנונים שונים לגמרי, וההצגה שלהם יחד
  * היא מה שגרם למתווכים לחשוב ששת"פ עולה כסף.
  */
-const COOP_TABS: [key: string, label: string][] = [
-  ["demands", "ביקושים ברשת"],
-  ["incoming", "הצעות שקיבלתי"],
-  ["market", "הפניות לקוחות"],
+const COOP_TABS: [key: string, label: string, icon: string][] = [
+  ["demands", "ביקושים ברשת", "🔎"],
+  ["incoming", "הצעות שקיבלתי", "📬"],
+  ["market", "הפניות לקוחות", "🤝"],
 ];
-
 
 /**
  * סנכרון הלשונית מהכתובת.
@@ -51,7 +57,8 @@ function TabFromQuery({ onTab }: { onTab: (tab: string) => void }) {
   const params = useSearchParams();
   const requested = params.get("tab");
   useEffect(() => {
-    if (requested !== null && COOP_TABS.some(([key]) => key === requested)) onTab(requested);
+    if (requested !== null && COOP_TABS.some(([key]) => key === requested))
+      onTab(requested);
   }, [requested, onTab]);
   return null;
 }
@@ -83,10 +90,19 @@ interface DemandRow {
   neighborhoods?: string[];
   notes?: string;
   dealType: string;
+  /* הפרופיל המלא של הביקוש — כל מה שאינו מזהה אדם */
+  propertyTypes: string[];
+  areaSqmMin?: number;
+  budgetMinAgorot?: number;
   budgetMaxAgorot: number;
   roomsMin?: number;
   roomsMax?: number;
+  entryType?: string;
+  entryBy?: string;
+  financing?: string;
+  maturity?: string;
   mustFeatures: string[];
+  niceFeatures: string[];
   source: string;
   /** כמה קרדיטים תעלה הצעה. 0 = חינם (ביקוש של משרד אחר). */
   creditsCost: number;
@@ -103,11 +119,25 @@ interface CoopOfferRow {
   commissionSplit: number;
   buyerId?: string;
   buyerName?: string;
+  /*
+   * הצילום המדורג של הנכס. הורחב לכל מה שאינו מזהה — אישור חיבור
+   * הוא צעד שקשה לחזור ממנו, ולכן קומה, שטח, מצב ומועד כניסה צריכים
+   * להיות ידועים לפניו ולא אחריו.
+   */
   presentation: {
     city?: string;
     neighborhood?: string;
+    propertyType?: string;
+    dealType?: string;
     rooms?: number;
+    areaSqm?: number;
+    floor?: number;
+    totalFloors?: number;
+    condition?: string;
     priceAgorot?: number;
+    entryType?: string;
+    entryDate?: string;
+    features?: string[];
     title?: string;
   };
   status: string;
@@ -171,14 +201,6 @@ function referralPayoutLabel(lead: {
   return `${lead.payoutCredits} קרדיטים`;
 }
 
-const FEATURE_LABELS: Record<string, string> = {
-  hasElevator: "מעלית",
-  hasParking: "חניה",
-  hasBalcony: "מרפסת",
-  hasSafeRoom: 'ממ"ד',
-  hasStorage: "מחסן",
-};
-
 export default function CollaborationPage() {
   const { loading: authLoading } = useRequireAuth();
   /*
@@ -201,7 +223,9 @@ export default function CollaborationPage() {
   } | null>(null);
   /** מה עומד לפוג מהיתרה ומתי. חסר = אין תפוגה, או שאין מנה שפגה. */
   const [expiry, setExpiry] = useState<CreditExpiry | null>(null);
-  const [selectedProperty, setSelectedProperty] = useState<Record<string, string>>({});
+  const [selectedProperty, setSelectedProperty] = useState<
+    Record<string, string>
+  >({});
   /*
    * החלוקה לכל ביקוש בנפרד. ברירת המחדל היא מה שהמשרד המשתף ביקש,
    * ואפשר להציע אחרת — זו הצעה עד שהצד השני מסמן "מעוניין".
@@ -249,7 +273,10 @@ export default function CollaborationPage() {
     }>("/collaboration/credits")
       .then((r) => {
         setBalance(r.balance);
-        setPricing({ unitPriceAgorot: r.unitPriceAgorot, packages: r.packages });
+        setPricing({
+          unitPriceAgorot: r.unitPriceAgorot,
+          packages: r.packages,
+        });
         setExpiry(r.expiry ?? null);
       })
       .catch(() => undefined);
@@ -310,8 +337,14 @@ export default function CollaborationPage() {
     }
     setBuyingLead(id);
     try {
-      const { leadId } = await apiPost<{ leadId: string }>(`/collaboration/leads/${id}/buy`, {});
-      setMessage("✓ ההפניה נקלטה — פרטי הקשר המלאים מחכים לכם בכרטיס הליד.", leadId);
+      const { leadId } = await apiPost<{ leadId: string }>(
+        `/collaboration/leads/${id}/buy`,
+        {},
+      );
+      setMessage(
+        "✓ ההפניה נקלטה — פרטי הקשר המלאים מחכים לכם בכרטיס הליד.",
+        leadId,
+      );
       load();
     } catch (err: unknown) {
       setMessage(err instanceof ApiError ? err.message : "קליטת ההפניה נכשלה");
@@ -330,7 +363,9 @@ export default function CollaborationPage() {
   }
 
   const incoming = coopOffers.filter((o) => o.direction === "incoming");
-  const openReferrals = sharedLeads.filter((l) => l.role === "viewer" && l.status === "active");
+  const openReferrals = sharedLeads.filter(
+    (l) => l.role === "viewer" && l.status === "active",
+  );
   const myReferrals = sharedLeads.filter((l) => l.role === "referrer");
   /* מה שקלטתי — כאן הוא מדורג, וכאן רואים מה הצד השני אמר */
   const receivedReferrals = sharedLeads.filter((l) => l.role === "receiver");
@@ -338,14 +373,26 @@ export default function CollaborationPage() {
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="m-0 text-2xl font-bold">שיתופי פעולה</h1>
+        <h1 className="m-0 text-2xl font-bold">🤝 שיתופי פעולה</h1>
         {/* הפרסום עצמו נעשה מכרטיס הקונה — הביקוש נגזר מדרישות
             אמיתיות ולא מטופס ריק. אבל מי שנוחת כאן צריך לדעת שזה
             קיים ואיפה, אחרת המסך נראה כמו רשימה לצפייה בלבד. */}
-        <Link href="/buyers" className="mv-btn-action" style={{ textDecoration: "none" }}>
+        <Link
+          href="/buyers"
+          className="mv-btn-action"
+          style={{ textDecoration: "none" }}
+        >
           + פרסם ביקוש
         </Link>
       </div>
+
+      {/*
+        החיסיון הוא השורה הראשונה של האזור, ולא פאנל מתקפל בתוך
+        לשונית אחת. "הם ייקחו לי את הלקוח" הוא החשש שעוצר מתווכים
+        מלשתף, והתשובה לו הייתה מוסתרת מאחורי לחיצה — כלומר מי שהיסס
+        פשוט לא לחץ. הבאנר יושב מעל הלשוניות כי הכלל חל על שלושתן.
+      */}
+      <PrivacyBanner />
 
       <CollaborationGuide />
 
@@ -360,7 +407,7 @@ export default function CollaborationPage() {
       </Suspense>
 
       <div className="mv-seg mb-[18px]" role="tablist" aria-label="אזורי הרשת">
-        {COOP_TABS.map(([key, label]) => (
+        {COOP_TABS.map(([key, label, icon]) => (
           <button
             key={key}
             type="button"
@@ -371,9 +418,12 @@ export default function CollaborationPage() {
             aria-pressed={coopTab === key}
             onClick={() => setCoopTab(key)}
           >
-            {label}
+            <span aria-hidden="true">{icon}</span> {label}
             {key === "incoming" && incoming.length > 0 ? (
-              <span className="mv-chip ms-1.5" style={{ padding: "1px 7px", fontSize: 11.5 }}>
+              <span
+                className="mv-chip ms-1.5"
+                style={{ padding: "1px 7px", fontSize: 11.5 }}
+              >
                 {incoming.length}
               </span>
             ) : null}
@@ -382,12 +432,19 @@ export default function CollaborationPage() {
       </div>
 
       {message ? (
-        <p role="status" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-primary)" }}>
+        <p
+          role="status"
+          className="mb-4 rounded-lg border p-3"
+          style={{ borderColor: "var(--color-primary)" }}
+        >
           {message}
           {boughtLeadId ? (
             <>
               {" "}
-              <Link href={`/leads/${boughtLeadId}`} className="font-medium underline">
+              <Link
+                href={`/leads/${boughtLeadId}`}
+                className="font-medium underline"
+              >
                 פתח את הליד ←
               </Link>
             </>
@@ -403,59 +460,95 @@ export default function CollaborationPage() {
           className="mb-8"
         >
           <h2 id="incoming-heading" className="mb-3 text-lg font-semibold">
-            <IconHandshake s={16} /> הצעות שהתקבלו על הביקושים שלך ({incoming.length})
+            📬 הצעות שהתקבלו על הביקושים שלך ({incoming.length})
           </h2>
           {offersFailed ? (
-            <LoadError message="לא הצלחנו לטעון את ההצעות שהתקבלו" onRetry={load} />
+            <LoadError
+              message="לא הצלחנו לטעון את ההצעות שהתקבלו"
+              onRetry={load}
+            />
           ) : null}
-          <ul className="flex flex-col gap-3">
+          <ul className="flex list-none flex-col gap-3 p-0">
             {incoming.map((offer) => (
-              <li key={offer.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-primary)", background: "var(--color-surface)" }}>
-                {/*
-                  לאיזה קונה ההצעה — השורה הראשונה, לא פרט שולי.
-                  משרד ששיתף חמישה ביקושים קיבל חמש הצעות שנראו זהות,
-                  ולא ידע לאיזה לקוח להתקשר.
-                */}
-                {offer.buyerId !== undefined ? (
-                  <p className="m-0 mb-1 text-[13px] font-semibold" style={{ color: "var(--color-primary)" }}>
-                    עבור{" "}
-                    <Link href={`/buyers/${offer.buyerId}`} className="underline">
-                      {offer.buyerName}
-                    </Link>
-                  </p>
-                ) : null}
-                <p className="mb-2 font-medium">
-                  {offer.presentation.title ??
-                    `${offer.presentation.rooms ?? "?"} חדרים ב${offer.presentation.neighborhood ?? offer.presentation.city ?? "?"}`}
-                  {" · "}
-                  {formatPrice(offer.presentation.priceAgorot)}
-                </p>
-                {/* חלוקת העמלה לפני ההסכמה ולא אחריה */}
-                <p className="m-0 mb-1 text-[13px]">
-                  העמלה שלי: <b>{100 - offer.commissionSplit}%</b> · למשרד המציע{" "}
-                  {offer.commissionSplit}%
-                </p>
-                <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
-                  כתובת מלאה ופרטי הסוכנות ייחשפו אחרי אישור החיבור (חשיפה מדורגת).
-                </p>
-                {offer.status === "sent" ? (
-                  <div className="flex gap-2">
-                    <Button onClick={() => void respond(offer.id, "interested")}>מעניין — פתח חיבור</Button>
-                    <Button variant="ghost" onClick={() => void respond(offer.id, "declined")}>לא מתאים</Button>
-                  </div>
-                ) : (
-                  <span className="font-medium" style={{ color: "var(--color-success)" }}>
-                    {offer.status === "interested" ? "✓ אושר — הסוכנויות מחוברות" : "נדחה"}
+              <li key={offer.id} className="mv-net-card">
+                <div className="mv-net-head">
+                  <span className="mv-net-avatar" aria-hidden="true">
+                    🏡
                   </span>
-                )}
+                  <h3 className="mv-net-title">
+                    {offer.presentation.title ?? "נכס שהוצע לכם"}
+                  </h3>
+                  {/*
+                    לאיזה קונה ההצעה — לא פרט שולי. משרד ששיתף חמישה
+                    ביקושים קיבל חמש הצעות שנראו זהות, ולא ידע לאיזה
+                    לקוח להתקשר.
+                  */}
+                  {offer.buyerId !== undefined ? (
+                    <Link
+                      href={`/buyers/${offer.buyerId}`}
+                      className="mv-net-chip mv-net-chip--primary"
+                      style={{ textDecoration: "none" }}
+                    >
+                      <span aria-hidden="true">👤</span> עבור {offer.buyerName}
+                    </Link>
+                  ) : null}
+                </div>
+
+                {/* כל מה שאינו מזהה — לפני אישור החיבור, לא אחריו */}
+                <NetChips chips={presentationChips(offer.presentation)} />
+
+                <div className="mv-net-foot">
+                  {/* חלוקת העמלה לפני ההסכמה ולא אחריה */}
+                  <span className="mv-net-chip mv-net-chip--money">
+                    <span aria-hidden="true">🪙</span> העמלה שלי{" "}
+                    {100 - offer.commissionSplit}% · למציע{" "}
+                    {offer.commissionSplit}%
+                  </span>
+                  <span className="mv-net-chip" title="חשיפה מדורגת">
+                    <span aria-hidden="true">🔒</span> כתובת מדויקת ושם הסוכנות
+                    — רק אחרי אישור
+                  </span>
+                  {offer.status === "sent" ? (
+                    <span className="flex gap-2">
+                      <Button
+                        onClick={() => void respond(offer.id, "interested")}
+                      >
+                        ✓ מעניין — פתח חיבור
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => void respond(offer.id, "declined")}
+                      >
+                        לא מתאים
+                      </Button>
+                    </span>
+                  ) : (
+                    <span
+                      className="font-medium"
+                      style={{ color: "var(--color-success)" }}
+                    >
+                      {offer.status === "interested"
+                        ? "✅ אושר — הסוכנויות מחוברות"
+                        : "✕ נדחה"}
+                    </span>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
           {incoming.length === 0 && !offersFailed ? (
-            <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
-              עדיין לא התקבלו הצעות. פרסמו ביקוש מכרטיס קונה, ומשרדים שיש להם נכס
-              מתאים יציעו אותו כאן.
-            </p>
+            <div className="mv-net-empty">
+              <span className="mv-net-empty-icon" aria-hidden="true">
+                📭
+              </span>
+              <p className="m-0 font-semibold">עדיין לא התקבלו הצעות</p>
+              <p
+                className="m-0 mt-1 text-sm"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                פרסמו ביקוש מכרטיס קונה — ומשרדים עם נכס מתאים יציעו אותו כאן.
+              </p>
+            </div>
           ) : null}
         </section>
       ) : null}
@@ -468,13 +561,14 @@ export default function CollaborationPage() {
           className="mb-8"
         >
           <h2 id="lead-market-heading" className="mb-1 text-lg font-semibold">
-            <IconHandshake s={16} /> הפניות לקוחות
+            🤝 הפניות לקוחות
           </h2>
-          <p className="mb-3" style={{ color: "var(--color-text-muted)" }}>
-            לקוחות שמשרדים אחרים לא יכולים לשרת ומפנים אליכם — כל אחד עם הסיבה
-            שבגללה הוא מופנה ועם התמורה שהמשרד המפנה מבקש. שם וטלפון נחשפים רק
-            אחרי הקליטה. <b>התשלום הוא על ההפניה ואינו מותנה בסגירת עסקה</b>, ולכן
-            שני הצדדים מדרגים אותה אחר כך. הפניה משלכם מפרסמים מכרטיס הליד עצמו.
+          <p
+            className="mb-3 text-[14.5px]"
+            style={{ color: "var(--color-text-soft)" }}
+          >
+            לקוחות שמשרדים אחרים לא יכולים לשרת. שם וטלפון נחשפים רק אחרי
+            הקליטה, ו<b>התשלום הוא על ההפניה — לא על סגירת עסקה</b>.
           </p>
 
           {/* ארבעת הכללים יושבים כאן — במקום שבו מחליטים אם לשלם */}
@@ -487,7 +581,10 @@ export default function CollaborationPage() {
           */}
           <div
             className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border p-3"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+            style={{
+              borderColor: "var(--color-border)",
+              background: "var(--color-surface)",
+            }}
           >
             <span style={{ color: "var(--color-primary)" }}>
               <IconDiamond s={16} />
@@ -495,9 +592,12 @@ export default function CollaborationPage() {
             <b className="text-[13.5px]">
               היתרה שלכם: {balance === null ? "…" : `${balance} קרדיטים`}
             </b>
-            <span className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
-              · קרדיטים יורדים על הפניית לקוח ועל הצעה לביקוש שמסומן במקור חיצוני
-              בלבד. שיתוף פעולה עם משרד תיווך אינו עולה קרדיטים.
+            <span
+              className="text-[12.5px]"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              · קרדיטים יורדים על הפניית לקוח ועל הצעה לביקוש שמסומן במקור
+              חיצוני בלבד. שיתוף פעולה עם משרד תיווך אינו עולה קרדיטים.
             </span>
           </div>
           {/*
@@ -506,9 +606,13 @@ export default function CollaborationPage() {
             היחיד שבו היא נמנעת הוא המקום שבו מסתכלים על המספר.
           */}
           {expiry !== null && expiry.nextAt !== undefined ? (
-            <p className="m-0 mt-1.5 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
-              {expiry.nextAmount} מהם פגים ב-{new Date(expiry.nextAt).toLocaleDateString("he-IL")}.
-              קרדיטים שנרכשו בכסף אינם פגים.
+            <p
+              className="m-0 mt-1.5 text-[12.5px]"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              {expiry.nextAmount} מהם פגים ב-
+              {new Date(expiry.nextAt).toLocaleDateString("he-IL")}. קרדיטים
+              שנרכשו בכסף אינם פגים.
             </p>
           ) : null}
           {/*
@@ -528,7 +632,10 @@ export default function CollaborationPage() {
           */}
           <PayoutPanel />
           {leadsFailed ? (
-            <LoadError message="לא הצלחנו לטעון את לוח ההפניות" onRetry={load} />
+            <LoadError
+              message="לא הצלחנו לטעון את לוח ההפניות"
+              onRetry={load}
+            />
           ) : null}
 
           {/*
@@ -538,20 +645,28 @@ export default function CollaborationPage() {
           */}
           {myReferrals.length > 0 ? (
             <>
-              <h3 className="mb-2 mt-4 text-[15px] font-semibold">ההפניות שפרסמתי</h3>
-              <ul className="mb-5 flex flex-col gap-3">
+              <h3 className="mb-2 mt-4 text-[15px] font-semibold">
+                📤 ההפניות שפרסמתי
+              </h3>
+              <ul className="mb-5 flex list-none flex-col gap-3 p-0">
                 {myReferrals.map((lead) => (
-                  <li key={lead.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-semibold">
+                  <li key={lead.id} className="mv-net-card mv-net-card--mine">
+                    <div className="mv-net-head">
+                      <span className="mv-net-avatar" aria-hidden="true">
+                        📤
+                      </span>
+                      <h4 className="mv-net-title">
                         {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent}
                         {lead.city ? ` · ${lead.city}` : ""}
-                      </span>
-                      <span className="rounded-full px-2 py-0.5 text-sm" style={{ background: "var(--color-border)" }}>
-                        ההפניה שלך
+                      </h4>
+                      <span className="mv-net-chip">
+                        <span aria-hidden="true">⭐</span> ההפניה שלך
                       </span>
                       {lead.status === "sold" ? (
-                        <span className="font-medium" style={{ color: "var(--color-success)" }}>
+                        <span
+                          className="font-medium"
+                          style={{ color: "var(--color-success)" }}
+                        >
                           {/*
                             הניסוח לפי המסלול שנבחר. "0 קרדיטים נוספו
                             ליתרה" על הפניה שנמכרה בכסף הוא בדיוק
@@ -560,19 +675,29 @@ export default function CollaborationPage() {
                           ✓ נקלטה — {referralPayoutLabel(lead)} נוספו ליתרה
                         </span>
                       ) : lead.status === "withdrawn" ? (
-                        <span style={{ color: "var(--color-text-muted)" }}>הוסרה מהלוח</span>
+                        <span style={{ color: "var(--color-text-muted)" }}>
+                          הוסרה מהלוח
+                        </span>
                       ) : (
                         <>
-                          <span className="rounded-full px-2 py-0.5 text-sm" style={{ background: "#f7efdd", color: "#7a5c1f" }}>
-                            {lead.priceCredits} קרדיטים · אליכם {referralPayoutLabel(lead)}
+                          <span className="mv-net-chip mv-net-chip--money">
+                            <span aria-hidden="true">🪙</span>{" "}
+                            {lead.priceCredits} קרדיטים · אליכם{" "}
+                            {referralPayoutLabel(lead)}
                           </span>
-                          <Button variant="ghost" onClick={() => void withdrawLead(lead.id)}>
+                          <Button
+                            variant="ghost"
+                            onClick={() => void withdrawLead(lead.id)}
+                          >
                             הסר מהלוח
                           </Button>
                         </>
                       )}
                     </div>
-                    <p className="mb-0 mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                    <p
+                      className="mb-0 mt-1 text-sm"
+                      style={{ color: "var(--color-text-muted)" }}
+                    >
                       סיבת ההפניה: {referralReasonLabel(lead.reason)}
                       {lead.reasonDetail ? ` — ${lead.reasonDetail}` : ""}
                       {lead.note ? ` · ${lead.note}` : ""}
@@ -594,20 +719,29 @@ export default function CollaborationPage() {
 
           {receivedReferrals.length > 0 ? (
             <>
-              <h3 className="mb-2 text-[15px] font-semibold">הפניות שקלטתי</h3>
-              <ul className="mb-5 flex flex-col gap-3">
+              <h3 className="mb-2 text-[15px] font-semibold">
+                📥 הפניות שקלטתי
+              </h3>
+              <ul className="mb-5 flex list-none flex-col gap-3 p-0">
                 {receivedReferrals.map((lead) => (
-                  <li key={lead.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-semibold">
+                  <li key={lead.id} className="mv-net-card">
+                    <div className="mv-net-head">
+                      <span className="mv-net-avatar" aria-hidden="true">
+                        📥
+                      </span>
+                      <h4 className="mv-net-title">
                         {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent}
                         {lead.city ? ` · ${lead.city}` : ""}
-                      </span>
-                      <span className="rounded-full px-2 py-0.5 text-sm" style={{ background: "var(--color-border)" }}>
-                        שילמתם {lead.priceCredits} קרדיטים
+                      </h4>
+                      <span className="mv-net-chip mv-net-chip--money">
+                        <span aria-hidden="true">🪙</span> שילמתם{" "}
+                        {lead.priceCredits} קרדיטים
                       </span>
                     </div>
-                    <p className="mb-0 mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                    <p
+                      className="mb-0 mt-1 text-sm"
+                      style={{ color: "var(--color-text-muted)" }}
+                    >
                       סיבת ההפניה: {referralReasonLabel(lead.reason)}
                       {lead.reasonDetail ? ` — ${lead.reasonDetail}` : ""}
                     </p>
@@ -626,21 +760,28 @@ export default function CollaborationPage() {
           ) : null}
 
           {myReferrals.length > 0 || receivedReferrals.length > 0 ? (
-            <h3 className="mb-2 text-[15px] font-semibold">הפניות פתוחות ברשת</h3>
+            <h3 className="mb-2 text-[15px] font-semibold">
+              🌐 הפניות פתוחות ברשת
+            </h3>
           ) : null}
-          <ul className="flex flex-col gap-3">
+          <ul className="flex list-none flex-col gap-3 p-0">
             {openReferrals.map((lead) => (
-              <li key={lead.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-                <div className="mb-1 flex flex-wrap items-center gap-2">
-                  <span className="font-semibold">
+              <li key={lead.id} className="mv-net-card">
+                <div className="mv-net-head">
+                  <span className="mv-net-avatar" aria-hidden="true">
+                    🧑
+                  </span>
+                  <h4 className="mv-net-title">
                     {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent}
                     {lead.city ? ` · ${lead.city}` : ""}
+                  </h4>
+                  <span className="mv-net-chip">
+                    <span aria-hidden="true">📡</span>{" "}
+                    {LEAD_SOURCE_LABELS[lead.source] ?? lead.source}
                   </span>
-                  <span className="rounded-full border px-2 py-0.5 text-sm" style={{ borderColor: "var(--color-border)" }}>
-                    מקור: {LEAD_SOURCE_LABELS[lead.source] ?? lead.source}
-                  </span>
-                  <span className="rounded-full px-2 py-0.5 text-sm" style={{ background: "#f7efdd", color: "#7a5c1f" }}>
-                    {lead.priceCredits} קרדיטים
+                  <span className="mv-net-chip mv-net-chip--money">
+                    <span aria-hidden="true">🪙</span> {lead.priceCredits}{" "}
+                    קרדיטים
                   </span>
                   {/*
                     המוניטין של המשרד המפנה, ליד המחיר ולא בעמוד אחר:
@@ -648,23 +789,30 @@ export default function CollaborationPage() {
                     אם כדאי לשלם אותה.
                   */}
                   <span
-                    className="rounded-full border px-2 py-0.5 text-sm"
-                    style={{ borderColor: "var(--color-border)" }}
+                    className="mv-net-chip"
                     title="ממוצע הדירוגים שנתנו משרדים שקלטו הפניות מהמשרד הזה"
                   >
-                    <IconStar s={13} />{" "}
+                    <span aria-hidden="true">⭐</span>{" "}
                     {describeReferralRating(
                       lead.referrerRating?.average ?? null,
                       lead.referrerRating?.count ?? 0,
                     )}
                   </span>
                 </div>
-                <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                <p
+                  className="mb-2 text-sm"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
                   סיבת ההפניה: <b>{referralReasonLabel(lead.reason)}</b>
                   {lead.reasonDetail ? ` — ${lead.reasonDetail}` : ""}
                 </p>
                 {lead.note ? (
-                  <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>{lead.note}</p>
+                  <p
+                    className="mb-2 text-sm"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    {lead.note}
+                  </p>
                 ) : null}
                 <Button
                   variant="secondary"
@@ -682,207 +830,277 @@ export default function CollaborationPage() {
           myReferrals.length === 0 &&
           receivedReferrals.length === 0 &&
           !leadsFailed ? (
-            <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
-              אין כרגע הפניות פתוחות ברשת. שימו לב שזו לשונית נפרדת — ביקוש של
-              משרד תיווך אחר אינו עולה קרדיטים.
-            </p>
+            <div className="mv-net-empty">
+              <span className="mv-net-empty-icon" aria-hidden="true">
+                🤝
+              </span>
+              <p className="m-0 font-semibold">אין כרגע הפניות פתוחות ברשת</p>
+              <p
+                className="m-0 mt-1 text-sm"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                זו לשונית נפרדת — ביקוש של משרד תיווך אחר אינו עולה קרדיטים.
+              </p>
+            </div>
           ) : null}
         </section>
       ) : null}
 
       {coopTab === "demands" ? (
-      <section id="coop-panel-demands" role="tabpanel" aria-labelledby="coop-tab-demands">
-        <h2 id="demands-heading" className="mb-1 text-lg font-semibold">
-          <IconHandshake s={16} /> ביקושים ברשת
-        </h2>
-        <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
-          קונים של משרדי תיווך אחרים, בלי שם ובלי טלפון. יש לכם נכס שמתאים לאחד
-          מהם? הציעו אותו — <b>ההצעה חינם</b>, ואם העסקה תיסגר תתחלקו בעמלה עם
-          המשרד השני. היוצא מן הכלל היחיד הוא ביקוש שמסומן „Kanko”: הוא הגיע
-          ממקור חיצוני בתשלום, וכל שורה כזו נושאת תווית מחיר משלה.
-        </p>
-
-        {/*
-          שני ההסברים שנשאלים הכי הרבה יושבים כאן ולא בעמוד עזרה:
-          זה המקום שבו מחליטים אם לשתף, וזה הרגע שבו החשש עולה.
+        <section
+          id="coop-panel-demands"
+          role="tabpanel"
+          aria-labelledby="coop-tab-demands"
+        >
+          <h2 id="demands-heading" className="mb-1 text-lg font-semibold">
+            🔎 ביקושים ברשת
+          </h2>
+          {/*
+          שורה אחת במקום פסקה. הכלל המלא (ומה שקורה עם מקור חיצוני)
+          חי בפאנל העמלות ובכרטיס הפתיחה — כאן צריך רק את מה שמשנה
+          את ההחלטה בשנייה הראשונה.
         */}
-        <PrivacyPanel />
-        <CommissionPanel />
-
-        {loadFailed ? (
-          <LoadError message="לא הצלחנו לטעון את הביקושים ברשת" onRetry={load} />
-        ) : demands === null ? (
-          <p aria-live="polite">טוען…</p>
-        ) : demands.length === 0 ? (
-          <p style={{ color: "var(--color-text-muted)" }}>
-            אין ביקושים פעילים ברשת. שתפו קונה מפרופיל הקונה — וסוכנויות אחרות יוכלו להציע לו נכסים.
+          <p
+            className="mb-3.5 text-[14.5px]"
+            style={{ color: "var(--color-text-soft)" }}
+          >
+            קונים של משרדים אחרים — <b>בלי שם ובלי טלפון</b>. יש לכם נכס מתאים?
+            ההצעה חינם, והעמלה מתחלקת רק אם העסקה תיסגר.
           </p>
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {demands.map((demand) => (
-              <li key={demand.id} className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-                <div className="mb-1 flex flex-wrap items-center gap-2">
-                  <span className="font-semibold">
-                    קונה מחפש {roomsLabel(demand.roomsMin, demand.roomsMax)} ב
-                    {demand.cities.join(" / ")} עד {formatPrice(demand.budgetMaxAgorot)}
-                  </span>
-                  {demand.source === "kanko" ? (
-                    <span className="rounded-full border px-2 py-0.5 text-sm" style={{ borderColor: "var(--color-border)" }}>Kanko</span>
-                  ) : null}
-                  {/*
-                    העלות ליד כל ביקוש ולא רק בכותרת: הכותרת מסבירה את
-                    הכלל, והתווית הזו אומרת מה קורה בלחיצה הזו.
-                  */}
-                  {!demand.mine ? (
-                    <span
-                      className="rounded-full px-2 py-0.5 text-sm"
-                      style={
-                        demand.creditsCost > 0
-                          ? { background: "#f7efdd", color: "#7a5c1f" }
-                          : { background: "var(--color-primary-soft)", color: "var(--color-primary)" }
-                      }
-                    >
-                      {demand.creditsCost > 0 ? `${demand.creditsCost} קרדיטים` : "חינם"}
+
+          <CommissionPanel />
+
+          {loadFailed ? (
+            <LoadError
+              message="לא הצלחנו לטעון את הביקושים ברשת"
+              onRetry={load}
+            />
+          ) : demands === null ? (
+            <p aria-live="polite">⏳ טוען…</p>
+          ) : demands.length === 0 ? (
+            <div className="mv-net-empty">
+              <span className="mv-net-empty-icon" aria-hidden="true">
+                🔍
+              </span>
+              <p className="m-0 font-semibold">אין כרגע ביקושים פעילים ברשת</p>
+              <p
+                className="m-0 mt-1 text-sm"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                שתפו קונה מכרטיס הקונה — וסוכנויות אחרות יוכלו להציע לו נכסים.
+              </p>
+            </div>
+          ) : (
+            <ul className="flex list-none flex-col gap-3.5 p-0">
+              {demands.map((demand) => (
+                <li
+                  key={demand.id}
+                  className={`mv-net-card${demand.mine ? " mv-net-card--mine" : ""}`}
+                >
+                  <div className="mv-net-head">
+                    <span className="mv-net-avatar" aria-hidden="true">
+                      👤
                     </span>
-                  ) : null}
-                  {!demand.mine ? (
-                    <span
-                      className="rounded-full border px-2 py-0.5 text-sm"
-                      style={{ borderColor: "var(--color-border)" }}
-                      title="חלוקת העמלה שהמשרד המשתף ביקש"
-                    >
-                      עמלה {describeCommissionSplit(demand.commissionSplit)}
-                    </span>
-                  ) : null}
-                  {demand.mine ? (
-                    <span className="rounded-full px-2 py-0.5 text-sm" style={{ background: "var(--color-border)" }}>הביקוש שלך</span>
-                  ) : null}
-                </div>
-                {demand.neighborhoods && demand.neighborhoods.length > 0 ? (
-                  <p className="mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
-                    שכונות: {demand.neighborhoods.join(", ")}
-                  </p>
-                ) : null}
-                {demand.mustFeatures.length > 0 ? (
-                  <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
-                    חובה: {demand.mustFeatures.map((f) => FEATURE_LABELS[f] ?? f).join(", ")}
-                  </p>
-                ) : null}
-                {demand.notes ? (
-                  // התיאור החופשי של המשרד המשתף — "מה הקונה מחפש" במילים
-                  <p className="mb-2 rounded-lg border p-2.5 text-sm" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
-                    „{demand.notes}”
-                  </p>
-                ) : null}
-                {!demand.mine ? (
-                  <>
                     {/*
-                      החלוקה נבחרת לפני השליחה. ברירת המחדל היא מה
-                      שהמשרד המשתף ביקש — הצעה שמשנה אותה בשקט הייתה
-                      הפתעה לצד השני.
-                    */}
-                    <label className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-                      <span>חלוקת עמלה בהצעה</span>
-                      <select
-                        value={offerSplit[demand.id] ?? demand.commissionSplit}
-                        onChange={(e) =>
-                          setOfferSplit((prev) => ({
-                            ...prev,
-                            [demand.id]: Number(e.target.value),
-                          }))
-                        }
-                        className="rounded-lg border px-2 py-1.5"
-                        style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                    הכותרת אומרת מה מחפשים ואיפה — כל השאר עבר
+                    לתגיות. קודם היא נשאה גם חדרים, גם ערים וגם תקציב
+                    בתוך משפט אחד, ובמובייל היא נשברה לשלוש שורות.
+                  */}
+                    <h3 className="mv-net-title">
+                      קונה מחפש {roomsLabel(demand.roomsMin, demand.roomsMax)} ב
+                      {demand.cities.join(" / ")}
+                    </h3>
+                    {demand.mine ? (
+                      <span className="mv-net-chip">
+                        <span aria-hidden="true">⭐</span> הביקוש שלך
+                      </span>
+                    ) : (
+                      <>
+                        {/*
+                        העלות ליד כל ביקוש ולא רק בכותרת: הכותרת
+                        מסבירה את הכלל, והתווית הזו אומרת מה קורה
+                        בלחיצה הזו.
+                      */}
+                        <span
+                          className={`mv-net-chip ${demand.creditsCost > 0 ? "mv-net-chip--money" : "mv-net-chip--good"}`}
+                        >
+                          <span aria-hidden="true">
+                            {demand.creditsCost > 0 ? "🪙" : "🎁"}
+                          </span>{" "}
+                          {demand.creditsCost > 0
+                            ? `${demand.creditsCost} קרדיטים`
+                            : "חינם"}
+                        </span>
+                        <span
+                          className="mv-net-chip"
+                          title="חלוקת העמלה שהמשרד המשתף ביקש"
+                        >
+                          <span aria-hidden="true">🤝</span>{" "}
+                          {describeCommissionSplit(demand.commissionSplit)}
+                        </span>
+                      </>
+                    )}
+                    {demand.source === "kanko" ? (
+                      <span
+                        className="mv-net-chip"
+                        title="ביקוש שהגיע ממקור חיצוני בתשלום"
                       >
-                        {COMMISSION_SPLIT_OPTIONS.map((share) => (
-                          <option key={share} value={share}>
-                            {describeCommissionSplit(share)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    {/* המערכת מחשבת אילו מהנכסים שלי מתאימים — במקום
+                        <span aria-hidden="true">🌐</span> Kanko
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {/*
+                  כל מה שידוע על הביקוש, למעט מה שמזהה אדם. הרשימה
+                  נבנית ב-`packages/shared/logic/network-card.ts` —
+                  מקום אחד שאפשר לבדוק, ולא JSX שמתפצל בין מסכים.
+                */}
+                  <NetChips chips={demandChips(demand)} />
+
+                  {demand.notes ? (
+                    <p className="mv-net-quote">„{demand.notes}”</p>
+                  ) : null}
+
+                  {!demand.mine ? (
+                    <>
+                      {/* המערכת מחשבת אילו מהנכסים שלי מתאימים — במקום
                         לבחור מרשימה של עשרות ולבזבז קרדיט על ניחוש */}
-                    {demand.myMatches && demand.myMatches.length > 0 ? (
-                      <div className="mb-3">
-                        <p className="mb-2 font-medium" style={{ color: "var(--color-success)" }}>
-                          ✓ {demand.myMatches.length} מהנכסים שלכם מתאימים
-                        </p>
-                        <ul className="flex flex-col gap-2">
-                          {demand.myMatches.map((match) => (
-                            <li
-                              key={match.propertyId}
-                              className="rounded-lg border p-3"
-                              style={{ borderColor: "var(--color-border)" }}
-                            >
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <span className="font-medium">
-                                  {match.score}% · {match.title}
+                      {demand.myMatches && demand.myMatches.length > 0 ? (
+                        <div className="mb-3">
+                          <p
+                            className="m-0 mb-2 text-[14.5px] font-bold"
+                            style={{ color: "var(--color-primary)" }}
+                          >
+                            🎯 {demand.myMatches.length} מהנכסים שלכם מתאימים
+                          </p>
+                          <ul className="flex list-none flex-col gap-2 p-0">
+                            {demand.myMatches.map((match) => (
+                              <li
+                                key={match.propertyId}
+                                className="mv-net-match"
+                              >
+                                <span
+                                  className="mv-net-score"
+                                  aria-hidden="true"
+                                >
+                                  {match.score}%
+                                </span>
+                                <span className="flex-1 min-w-[160px]">
+                                  <b className="block">{match.title}</b>
+                                  <span
+                                    className="text-[13px]"
+                                    style={{ color: "var(--color-text-soft)" }}
+                                  >
+                                    {match.explanation}
+                                  </span>
                                 </span>
                                 <Button
                                   variant="secondary"
-                                  onClick={() => void sendOfferFor(demand.id, match.propertyId)}
+                                  onClick={() =>
+                                    void sendOfferFor(
+                                      demand.id,
+                                      match.propertyId,
+                                    )
+                                  }
                                 >
                                   {demand.creditsCost > 0
                                     ? `הצע נכס זה (${demand.creditsCost} קרדיטים)`
                                     : "הצע נכס זה"}
                                 </Button>
-                              </div>
-                              <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
-                                {match.explanation}
-                              </p>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : (
-                      <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
-                        אין לכם כרגע נכס פעיל שמתאים לביקוש הזה.
-                      </p>
-                    )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : (
+                        <p
+                          className="mb-3 text-sm"
+                          style={{ color: "var(--color-text-muted)" }}
+                        >
+                          📭 אין לכם כרגע נכס פעיל שמתאים לביקוש הזה.
+                        </p>
+                      )}
 
-                    <details>
-                      <summary className="cursor-pointer text-sm" style={{ color: "var(--color-text-muted)" }}>
-                        להציע נכס אחר
-                      </summary>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <label htmlFor={`prop_${demand.id}`} className="mv-visually-hidden">
-                          בחר נכס להצעה
-                        </label>
-                        <select
-                          id={`prop_${demand.id}`}
-                          value={selectedProperty[demand.id] ?? ""}
-                          onChange={(event) =>
-                            setSelectedProperty((prev) => ({ ...prev, [demand.id]: event.target.value }))
-                          }
-                          className="rounded-lg border px-3 py-2"
-                          style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                      <details className="mv-net-foot">
+                        <summary
+                          className="cursor-pointer text-sm font-medium"
+                          style={{ color: "var(--color-primary)" }}
                         >
-                          <option value="">בחר נכס להצעה…</option>
-                          {properties.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.marketingTitle ?? [p.street, p.city].filter(Boolean).join(", ")}
-                            </option>
-                          ))}
-                        </select>
-                        <Button
-                          variant="secondary"
-                          disabled={!selectedProperty[demand.id]}
-                          onClick={() => void sendOffer(demand.id)}
-                        >
-                          {demand.creditsCost > 0
-                            ? `הצע נכס (${demand.creditsCost} קרדיטים)`
-                            : "הצע נכס"}
-                        </Button>
-                      </div>
-                    </details>
-                  </>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                          ➕ להציע נכס אחר / לשנות חלוקת עמלה
+                        </summary>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          {/*
+                          החלוקה נבחרת לפני השליחה. ברירת המחדל היא מה
+                          שהמשרד המשתף ביקש — הצעה שמשנה אותה בשקט
+                          הייתה הפתעה לצד השני.
+                        */}
+                          <label
+                            className="flex items-center gap-2 text-sm"
+                            htmlFor={`split_${demand.id}`}
+                          >
+                            חלוקת עמלה
+                          </label>
+                          <select
+                            id={`split_${demand.id}`}
+                            value={
+                              offerSplit[demand.id] ?? demand.commissionSplit
+                            }
+                            onChange={(e) =>
+                              setOfferSplit((prev) => ({
+                                ...prev,
+                                [demand.id]: Number(e.target.value),
+                              }))
+                            }
+                            className="mv-control"
+                          >
+                            {COMMISSION_SPLIT_OPTIONS.map((share) => (
+                              <option key={share} value={share}>
+                                {describeCommissionSplit(share)}
+                              </option>
+                            ))}
+                          </select>
+                          <label
+                            htmlFor={`prop_${demand.id}`}
+                            className="mv-visually-hidden"
+                          >
+                            בחר נכס להצעה
+                          </label>
+                          <select
+                            id={`prop_${demand.id}`}
+                            value={selectedProperty[demand.id] ?? ""}
+                            onChange={(event) =>
+                              setSelectedProperty((prev) => ({
+                                ...prev,
+                                [demand.id]: event.target.value,
+                              }))
+                            }
+                            className="mv-control"
+                          >
+                            <option value="">בחר נכס להצעה…</option>
+                            {properties.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.marketingTitle ??
+                                  [p.street, p.city].filter(Boolean).join(", ")}
+                              </option>
+                            ))}
+                          </select>
+                          <Button
+                            variant="secondary"
+                            disabled={!selectedProperty[demand.id]}
+                            onClick={() => void sendOffer(demand.id)}
+                          >
+                            {demand.creditsCost > 0
+                              ? `הצע נכס (${demand.creditsCost} קרדיטים)`
+                              : "הצע נכס"}
+                          </Button>
+                        </div>
+                      </details>
+                    </>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       ) : null}
     </>
   );

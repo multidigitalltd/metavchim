@@ -77,10 +77,16 @@ function BankField({
         inputMode={inputMode}
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded-lg border px-2.5 py-2"
-        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+        style={{
+          borderColor: "var(--color-border)",
+          background: "var(--color-surface)",
+        }}
       />
       {hint !== undefined ? (
-        <span className="mt-0.5 block text-[11px]" style={{ color: "var(--color-text-muted)" }}>
+        <span
+          className="mt-0.5 block text-[11px]"
+          style={{ color: "var(--color-text-muted)" }}
+        >
           {hint}
         </span>
       ) : null}
@@ -123,8 +129,11 @@ export function PayoutPanel() {
   const amountValid = amount.trim() !== "" && Number.isFinite(amountAgorot);
   const localProblem = !amountValid
     ? null
-    : (payoutRequestRejectionReason(amountAgorot, balance.balanceAgorot, balance.minimumAgorot) ??
-      bankDetailsRejectionReason(bank));
+    : (payoutRequestRejectionReason(
+        amountAgorot,
+        balance.balanceAgorot,
+        balance.minimumAgorot,
+      ) ?? bankDetailsRejectionReason(bank));
 
   async function submit(): Promise<void> {
     setBusy(true);
@@ -151,7 +160,10 @@ export function PayoutPanel() {
   return (
     <div
       className="mt-3 rounded-xl border p-3"
-      style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+      style={{
+        borderColor: "var(--color-border)",
+        background: "var(--color-bg)",
+      }}
     >
       <h3 className="m-0 mb-1 text-sm font-semibold">יתרה כספית</h3>
       <p className="m-0 mb-2 text-[13px]">
@@ -165,7 +177,10 @@ export function PayoutPanel() {
           </>
         ) : null}
       </p>
-      <p className="m-0 mb-2 text-[12px]" style={{ color: "var(--color-text-muted)" }}>
+      <p
+        className="m-0 mb-2 text-[12px]"
+        style={{ color: "var(--color-text-muted)" }}
+      >
         היתרה נצברת מהפניות שפרסמתם ובחרתם לקבל עליהן תמורה בכסף. הסכום המינימלי
         למשיכה הוא {shekels(balance.minimumAgorot)} ₪, וההעברה היא בין עוסקים —
         כנגדה יש להוציא חשבונית.
@@ -185,7 +200,13 @@ export function PayoutPanel() {
             : "בקשת משיכה"}
         </Button>
       ) : (
-        <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+        <div
+          className="rounded-lg border p-3"
+          style={{
+            borderColor: "var(--color-border)",
+            background: "var(--color-surface)",
+          }}
+        >
           <div className="mb-2 grid gap-2 sm:grid-cols-2">
             <BankField
               label="סכום למשיכה (₪)"
@@ -232,15 +253,25 @@ export function PayoutPanel() {
             placeholder="למשל: מספר חשבונית"
           />
           {localProblem !== null ? (
-            <p className="m-0 mt-2 text-[12.5px]" style={{ color: "var(--color-danger)" }}>
+            <p
+              className="m-0 mt-2 text-[12.5px]"
+              style={{ color: "var(--color-danger)" }}
+            >
               {localProblem}
             </p>
           ) : null}
           <div className="mt-2 flex flex-wrap gap-2">
-            <Button onClick={() => void submit()} disabled={busy || !amountValid || localProblem !== null}>
+            <Button
+              onClick={() => void submit()}
+              disabled={busy || !amountValid || localProblem !== null}
+            >
               {busy ? "שולח…" : "שלחו בקשה"}
             </Button>
-            <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
+            <Button
+              variant="ghost"
+              onClick={() => setOpen(false)}
+              disabled={busy}
+            >
               ביטול
             </Button>
           </div>
@@ -248,12 +279,20 @@ export function PayoutPanel() {
       )}
 
       {error !== null ? (
-        <p role="alert" className="m-0 mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
+        <p
+          role="alert"
+          className="m-0 mt-2 text-sm"
+          style={{ color: "var(--color-danger)" }}
+        >
           {error}
         </p>
       ) : null}
       {done !== null ? (
-        <p role="status" className="m-0 mt-2 text-sm font-bold" style={{ color: "var(--color-primary)" }}>
+        <p
+          role="status"
+          className="m-0 mt-2 text-sm font-bold"
+          style={{ color: "var(--color-primary)" }}
+        >
           ✓ {done}
         </p>
       ) : null}
@@ -263,15 +302,30 @@ export function PayoutPanel() {
           <h4 className="m-0 mb-1 text-xs font-semibold">בקשות קודמות</h4>
           <ul className="m-0 list-none p-0 text-[12.5px]">
             {rows.map((row) => (
-              <li key={row.id} className="border-t py-1.5" style={{ borderColor: "var(--color-border)" }}>
-                <b>{shekels(row.amountAgorot)} ₪</b> · {new Date(row.createdAt).toLocaleDateString("he-IL")} ·{" "}
-                <span style={{ color: STATUS_COLOR[row.status] }}>{PAYOUT_STATUS_LABEL[row.status]}</span>
-                <span style={{ color: "var(--color-text-muted)" }}> · חשבון {row.accountMasked}</span>
+              <li
+                key={row.id}
+                className="border-t py-1.5"
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                <b>{shekels(row.amountAgorot)} ₪</b> ·{" "}
+                {new Date(row.createdAt).toLocaleDateString("he-IL")} ·{" "}
+                <span style={{ color: STATUS_COLOR[row.status] }}>
+                  {PAYOUT_STATUS_LABEL[row.status]}
+                </span>
+                <span style={{ color: "var(--color-text-muted)" }}>
+                  {" "}
+                  · חשבון {row.accountMasked}
+                </span>
                 {row.reference !== undefined ? (
-                  <span style={{ color: "var(--color-text-muted)" }}> · אסמכתה {row.reference}</span>
+                  <span style={{ color: "var(--color-text-muted)" }}>
+                    {" "}
+                    · אסמכתה {row.reference}
+                  </span>
                 ) : null}
                 {row.decisionNote !== undefined ? (
-                  <div style={{ color: "var(--color-text-muted)" }}>{row.decisionNote}</div>
+                  <div style={{ color: "var(--color-text-muted)" }}>
+                    {row.decisionNote}
+                  </div>
                 ) : null}
               </li>
             ))}

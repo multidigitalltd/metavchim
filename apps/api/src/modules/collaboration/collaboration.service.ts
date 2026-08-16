@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
@@ -30,7 +34,7 @@ import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
-import { rowToFields } from "../properties/property.mapper";
+import { readCustomFeatures, rowToFields } from "../properties/property.mapper";
 
 /**
  * תפוגת הקרדיטים כפי שהמשרד רואה אותה.
@@ -68,7 +72,24 @@ export interface NetworkDemandMatchDto {
   cities: string[];
   neighborhoods: string[];
   notes?: string;
+  /*
+   * אותו פרופיל מלא כמו בפיד הרשת. העמודה הזו הציגה עיר, שכונות
+   * ותקציב בלבד — כלומר הסוכן שראה "82%" בכרטיס הנכס לא ידע על מה
+   * הציון נבנה, ולא יכול היה להחליט אם להציע בלי לעבור למסך אחר.
+   */
+  dealType: string;
+  propertyTypes: string[];
+  areaSqmMin?: number;
+  budgetMinAgorot?: number;
   budgetMaxAgorot: number;
+  roomsMin?: number;
+  roomsMax?: number;
+  entryType?: string;
+  entryBy?: Date;
+  financing?: string;
+  maturity?: string;
+  mustFeatures: string[];
+  niceFeatures: string[];
   commissionSplit: number;
   /** מה תעלה ההצעה; 0 = חינם. מוחזר מהשרת ולא מנוחש במסך. */
   creditsCost: number;
@@ -102,10 +123,26 @@ export interface SharedDemandDto {
   /** תיאור חופשי שהמשרד המשתף כתב — "מה הקונה מחפש" במילים */
   notes?: string;
   dealType: string;
+  /**
+   * כל מה שאינו מזהה אדם.
+   *
+   * הפיד הציג עד כה ערים, חדרים, תקציב ומאפייני חובה בלבד — מספיק
+   * כדי לדעת שהביקוש קיים, לא מספיק כדי להחליט אם להציע. השדות
+   * האלה הם מה שכבר היה מותר לשתף ופשוט לא נשמר.
+   */
+  propertyTypes: string[];
+  areaSqmMin?: number;
+  /** מעוגל כלפי מטה ל-100 אלף ₪ — טווח, לא סכום מדויק. */
+  budgetMinAgorot?: number;
   budgetMaxAgorot: number;
   roomsMin?: number;
   roomsMax?: number;
+  entryType?: string;
+  entryBy?: Date;
+  financing?: string;
+  maturity?: string;
   mustFeatures: string[];
+  niceFeatures: string[];
   source: string;
   /**
    * כמה קרדיטים תעלה הצעה על הביקוש הזה. 0 = חינם.
@@ -242,7 +279,9 @@ export class CollaborationService {
    * שהעסקה הבאה תיגבה לפיו, לא שההפעלה הבאה של השרת תיגבה.
    */
   private async feePercent(): Promise<number> {
-    return resolveReferralFeePercent(await this.platformSettings.get("referralFeePercent"));
+    return resolveReferralFeePercent(
+      await this.platformSettings.get("referralFeePercent"),
+    );
   }
 
   /**
@@ -274,28 +313,15 @@ export class CollaborationService {
       });
       if (existing) throw new BadRequestException("הקונה כבר משותף ברשת");
 
-      const requirements = BuyerRequirementsSchema.parse(buyer.requirements);
-      const roundedBudget =
-        Math.ceil(Number(buyer.budgetMaxAgorot) / BUDGET_ROUND_AGOROT) * BUDGET_ROUND_AGOROT;
-
       await tx.sharedDemand.create({
         data: {
           id,
           commissionSplit,
           tenantId,
           originBuyerId: buyerId,
-          cities: requirements.cities,
-          // שכונות מדרישות הקונה — מדויק יותר מעיר, עדיין בלי PII
-          neighborhoods: requirements.neighborhoods ?? [],
           // התיאור החופשי של המשתף: "מה הקונה מחפש" במילים שלו
           notes: note?.trim() || null,
-          dealType: buyer.dealType,
-          budgetMaxAgorot: BigInt(roundedBudget),
-          roomsMin: buyer.roomsMin,
-          roomsMax: buyer.roomsMax,
-          mustFeatures: Object.entries(requirements.features)
-            .filter(([, level]) => level === "must")
-            .map(([feature]) => feature),
+          ...this.demandSnapshot(buyer),
         },
       });
       await this.audit.record(tx, {
@@ -307,6 +333,114 @@ export class CollaborationService {
     });
 
     return this.getDemand(id);
+  }
+
+  /**
+   * הקונה → הצילום שהרשת רואה. **הגבול נמצא כאן.**
+   *
+   * מקום אחד לשיתוף ולרענון כאחד: שתי גרסאות של אותה המרה היו
+   * נפרדות ביום שמישהו מוסיף שדה, וזו בדיוק הטעות שדולפת מידע.
+   * שם, טלפון, אימייל, כתובת והערות פנימיות אינם ברשימה ולכן אינם
+   * נשמרים — לא "מוסתרים במסך" אלא לא קיימים בטבלה.
+   *
+   * העיגול פועל לשני הכיוונים: המקסימום כלפי מעלה והמינימום כלפי
+   * מטה. כך האנונימיזציה תמיד **מרחיבה** את הטווח — עיגול שמצמצם
+   * היה פוסל הצעה תקינה מסיבה טכנית, כלומר עסקה שאבדה.
+   */
+  private demandSnapshot(buyer: {
+    dealType: string;
+    budgetMinAgorot: bigint | null;
+    budgetMaxAgorot: bigint;
+    roomsMin: Prisma.Decimal | null;
+    roomsMax: Prisma.Decimal | null;
+    financing: string;
+    maturity: string;
+    requirements: unknown;
+    /*
+     * טיפוס היצירה ולא טיפוס העדכון: שדות סקלריים מתקבלים בשניהם,
+     * בעוד `UpdateInput` מתיר גם `{ set: ... }` ולכן אינו מתאים
+     * ל-`create`. כך אותה פונקציה משרתת את שני המסלולים.
+     */
+  }): Omit<
+    Prisma.SharedDemandUncheckedCreateInput,
+    | "id"
+    | "tenantId"
+    | "originBuyerId"
+    | "commissionSplit"
+    | "notes"
+    | "source"
+    | "externalId"
+  > {
+    const requirements = BuyerRequirementsSchema.parse(buyer.requirements);
+    const featureLevels = Object.entries(requirements.features);
+    return {
+      cities: requirements.cities,
+      // שכונות מדרישות הקונה — מדויק יותר מעיר, עדיין בלי PII
+      neighborhoods: requirements.neighborhoods,
+      dealType: buyer.dealType,
+      /*
+       * מצב המימון והבשלות הם מה שאומר לצד השני אם שווה להשקיע נכס
+       * ולחכות לתשובה — בלעדיהם ההצעות נשלחות באוויר משני הכיוונים.
+       */
+      propertyTypes: requirements.propertyTypes,
+      areaSqmMin: requirements.areaSqmMin ?? null,
+      budgetMinAgorot:
+        buyer.budgetMinAgorot === null
+          ? null
+          : BigInt(
+              Math.floor(Number(buyer.budgetMinAgorot) / BUDGET_ROUND_AGOROT) *
+                BUDGET_ROUND_AGOROT,
+            ),
+      budgetMaxAgorot: BigInt(
+        Math.ceil(Number(buyer.budgetMaxAgorot) / BUDGET_ROUND_AGOROT) *
+          BUDGET_ROUND_AGOROT,
+      ),
+      roomsMin: buyer.roomsMin,
+      roomsMax: buyer.roomsMax,
+      entryType: requirements.entryType ?? null,
+      entryBy: requirements.entryBy ?? null,
+      financing: buyer.financing,
+      maturity: buyer.maturity,
+      mustFeatures: featureLevels
+        .filter(([, l]) => l === "must")
+        .map(([f]) => f),
+      niceFeatures: featureLevels
+        .filter(([, l]) => l === "nice")
+        .map(([f]) => f),
+    };
+  }
+
+  /**
+   * רענון הצילום אחרי עריכת הקונה.
+   *
+   * הביקוש ברשת הוא **צילום** של הקונה ברגע השיתוף, ולא הפניה חיה
+   * אליו — כך הוא נשאר אנונימי גם אחרי שהקונה נמחק. אבל צילום שאינו
+   * מתרענן מזדקן: קונה שהעלה תקציב, שקיבל אישור עקרוני או שהתקרר
+   * מ"חם מאוד" ל"לא בשל" נשאר מוצג לרשת כפי שהיה. משרד אחר משקיע
+   * נכס על מידע שכבר אינו נכון — וזו בדיוק ההצעה שנשלחת באוויר.
+   *
+   * שקט כשאין ביקוש פעיל: רוב הקונים אינם משותפים, ועריכה שלהם אינה
+   * אמורה להיכשל בגלל מודול שאין לו מה לעשות.
+   */
+  async resyncDemandForBuyer(buyerId: string): Promise<void> {
+    const tenantId = TenantContext.current().tenantId;
+    await this.prisma.withTenant(async (tx) => {
+      const demand = await tx.sharedDemand.findFirst({
+        where: { tenantId, originBuyerId: buyerId, status: "active" },
+        select: { id: true },
+      });
+      if (!demand) return;
+      const buyer = await tx.buyer.findFirst({
+        where: { id: buyerId, tenantId, deletedAt: null },
+      });
+      if (!buyer) return;
+      await tx.sharedDemand.update({
+        where: { id: demand.id },
+        // התיאור החופשי וחלוקת העמלה **אינם** נדרסים: הם נכתבו
+        // בשיתוף עצמו ואינם נגזרים מהקונה.
+        data: this.demandSnapshot(buyer),
+      });
+    });
   }
 
   /**
@@ -400,12 +534,12 @@ export class CollaborationService {
      * ולכל אחד מהם מוחזרת העלות שלו.
      */
     const visible = await this.prisma.withNetworkRead((tx) =>
-            tx.sharedDemand.findMany({
-              where: { status: "active" },
-              orderBy: { createdAt: "desc" },
-              take: 100,
-            }),
-          );
+      tx.sharedDemand.findMany({
+        where: { status: "active" },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      }),
+    );
 
     /*
      * לכל ביקוש מחושבות ההתאמות מתוך הנכסים *שלי* — בדיוק אותו מנוע
@@ -435,15 +569,7 @@ export class CollaborationService {
   /** שלוש ההתאמות הטובות ביותר מבין הנכסים שלי, מעל סף שווה-הצגה. */
   private matchOwnProperties(
     properties: PropertyRow[],
-    demand: {
-      cities: string[];
-      neighborhoods: string[];
-      dealType: string;
-      budgetMaxAgorot: bigint;
-      roomsMin: Prisma.Decimal | null;
-      roomsMax: Prisma.Decimal | null;
-      mustFeatures: string[];
-    },
+    demand: Parameters<CollaborationService["demandToRequirements"]>[0],
   ): DemandMatchDto[] {
     // השכונות משפיעות על הניקוד כמו בהתאמות הפנימיות — נכס באותה
     // עיר מחוץ לשכונות המבוקשות לא מקבל את מלוא נקודות המיקום
@@ -461,14 +587,18 @@ export class CollaborationService {
         const result = scoreMatch(rowToFields(property), requirements);
         return { property, result };
       })
-      .filter(({ result }) => !result.excluded && result.score >= NETWORK_MATCH_MIN_SCORE)
+      .filter(
+        ({ result }) =>
+          !result.excluded && result.score >= NETWORK_MATCH_MIN_SCORE,
+      )
       .sort((a, b) => b.result.score - a.result.score)
       .slice(0, 3)
       .map(({ property, result }) => ({
         propertyId: property.id,
         title:
           property.marketingTitle ??
-          ([property.street, property.city].filter(Boolean).join(", ") || "נכס"),
+          ([property.street, property.city].filter(Boolean).join(", ") ||
+            "נכס"),
         score: result.score,
         explanation: result.explanation,
       }));
@@ -486,20 +616,53 @@ export class CollaborationService {
     cities: string[];
     neighborhoods: string[];
     dealType: string;
+    propertyTypes: string[];
+    areaSqmMin: number | null;
+    budgetMinAgorot: bigint | null;
     budgetMaxAgorot: bigint;
     roomsMin: Prisma.Decimal | null;
     roomsMax: Prisma.Decimal | null;
+    entryType: string | null;
+    entryBy: Date | null;
     mustFeatures: string[];
+    niceFeatures: string[];
   }): BuyerRequirements {
     return {
       cities: demand.cities,
       neighborhoods: demand.neighborhoods,
       dealType: demand.dealType,
-      propertyTypes: [],
+      /*
+       * הפרופיל שנשמר, ולא שלד. כשסוג הנכס, השטח, מועד הכניסה
+       * ומאפייני העדיפות לא נשמרו, הניקוד שהרשת הציגה נבנה על
+       * ארבעה קריטריונים בלבד — ולכן בית פרטי קיבל 90% על ביקוש
+       * שמחפש דירה. עכשיו אותו מנוע רואה את אותם שדות משני צדי
+       * הגבול.
+       */
+      propertyTypes: demand.propertyTypes,
+      ...(demand.areaSqmMin !== null ? { areaSqmMin: demand.areaSqmMin } : {}),
+      /*
+       * גם רף התקציב התחתון, ולא רק התקרה. הוא נשמר ומוצג — ובלעדיו
+       * כאן, נכס מתחת לרף שהקונה הגדיר היה מקבל ניקוד תקציב מלא ברשת
+       * בעוד אותו קונה מוריד עליו ניקוד פנימית. כלומר נכס לא מתאים
+       * שנדחף מעל סף התצוגה, ודווקא בצד שאין בו למי לשאול.
+       */
+      ...(demand.budgetMinAgorot !== null
+        ? { budgetMinAgorot: Number(demand.budgetMinAgorot) }
+        : {}),
       budgetMaxAgorot: Number(demand.budgetMaxAgorot),
-      ...(demand.roomsMin !== null ? { roomsMin: Number(demand.roomsMin) } : {}),
-      ...(demand.roomsMax !== null ? { roomsMax: Number(demand.roomsMax) } : {}),
-      features: Object.fromEntries(demand.mustFeatures.map((f) => [f, "must"])),
+      ...(demand.roomsMin !== null
+        ? { roomsMin: Number(demand.roomsMin) }
+        : {}),
+      ...(demand.roomsMax !== null
+        ? { roomsMax: Number(demand.roomsMax) }
+        : {}),
+      ...(demand.entryType !== null ? { entryType: demand.entryType } : {}),
+      ...(demand.entryBy !== null ? { entryBy: demand.entryBy } : {}),
+      features: {
+        ...Object.fromEntries(demand.niceFeatures.map((f) => [f, "nice"])),
+        // חובה גוברת על עדיפות אם מאפיין הופיע בשתי הרשימות
+        ...Object.fromEntries(demand.mustFeatures.map((f) => [f, "must"])),
+      },
     } as unknown as BuyerRequirements;
   }
 
@@ -514,10 +677,14 @@ export class CollaborationService {
    * הביקושים שלי מסוננים: הם כבר מכוסים בעמודה הפנימית, ולראות
    * אותם פעמיים זו ספירה כפולה של אותו קונה.
    */
-  async networkMatchesForProperty(propertyId: string): Promise<NetworkDemandMatchDto[]> {
+  async networkMatchesForProperty(
+    propertyId: string,
+  ): Promise<NetworkDemandMatchDto[]> {
     const tenantId = TenantContext.current().tenantId;
     const property = await this.prisma.withTenant((tx) =>
-      tx.property.findFirst({ where: { id: propertyId, tenantId, deletedAt: null } }),
+      tx.property.findFirst({
+        where: { id: propertyId, tenantId, deletedAt: null },
+      }),
     );
     if (!property) throw new NotFoundException("נכס לא נמצא");
 
@@ -537,7 +704,11 @@ export class CollaborationService {
      */
     const offered = await this.prisma.withTenant((tx) =>
       tx.coopOffer.findMany({
-        where: { fromTenantId: tenantId, propertyId, demandId: { in: demands.map((d) => d.id) } },
+        where: {
+          fromTenantId: tenantId,
+          propertyId,
+          demandId: { in: demands.map((d) => d.id) },
+        },
         select: { demandId: true },
       }),
     );
@@ -551,7 +722,10 @@ export class CollaborationService {
         // בלי משקלי המשרד, כמו בכל ניקוד שמוצג מעבר לגבול הדייר
         result: scoreMatch(fields, this.demandToRequirements(demand)),
       }))
-      .filter(({ result }) => !result.excluded && result.score >= NETWORK_MATCH_MIN_SCORE)
+      .filter(
+        ({ result }) =>
+          !result.excluded && result.score >= NETWORK_MATCH_MIN_SCORE,
+      )
       .sort((a, b) => b.result.score - a.result.score)
       .slice(0, 10)
       .map(({ demand, result }) => ({
@@ -561,7 +735,27 @@ export class CollaborationService {
         cities: demand.cities,
         neighborhoods: demand.neighborhoods,
         ...(demand.notes ? { notes: demand.notes } : {}),
+        dealType: demand.dealType,
+        propertyTypes: demand.propertyTypes,
+        ...(demand.areaSqmMin === null
+          ? {}
+          : { areaSqmMin: demand.areaSqmMin }),
+        ...(demand.budgetMinAgorot === null
+          ? {}
+          : { budgetMinAgorot: Number(demand.budgetMinAgorot) }),
         budgetMaxAgorot: Number(demand.budgetMaxAgorot),
+        ...(demand.roomsMin === null
+          ? {}
+          : { roomsMin: Number(demand.roomsMin) }),
+        ...(demand.roomsMax === null
+          ? {}
+          : { roomsMax: Number(demand.roomsMax) }),
+        ...(demand.entryType === null ? {} : { entryType: demand.entryType }),
+        ...(demand.entryBy === null ? {} : { entryBy: demand.entryBy }),
+        ...(demand.financing === null ? {} : { financing: demand.financing }),
+        ...(demand.maturity === null ? {} : { maturity: demand.maturity }),
+        mustFeatures: demand.mustFeatures,
+        niceFeatures: demand.niceFeatures,
         commissionSplit: demand.commissionSplit,
         creditsCost: coopOfferCost(demand.source, prices),
         source: demand.source,
@@ -627,7 +821,11 @@ export class CollaborationService {
 
     const demands = await this.prisma.withTenant((tx) =>
       tx.sharedDemand.findMany({
-        where: { tenantId, id: { in: demandIds }, originBuyerId: { not: null } },
+        where: {
+          tenantId,
+          id: { in: demandIds },
+          originBuyerId: { not: null },
+        },
         select: { id: true, originBuyerId: true },
       }),
     );
@@ -705,7 +903,9 @@ export class CollaborationService {
     );
     if (!demand) throw new NotFoundException("הביקוש לא נמצא או נסגר");
     if (demand.tenantId === ctx.tenantId) {
-      throw new BadRequestException("זה ביקוש שלך — ההתאמות הפנימיות כבר כיסו אותו");
+      throw new BadRequestException(
+        "זה ביקוש שלך — ההתאמות הפנימיות כבר כיסו אותו",
+      );
     }
 
     const splitRejection = commissionSplitRejectionReason(commissionSplit);
@@ -733,18 +933,55 @@ export class CollaborationService {
         await this.lockCreditSpend(tx, ctx.tenantId);
         const balance = await this.balanceInTx(tx, ctx.tenantId);
         if (balance < cost) {
-          throw new BadRequestException("אין מספיק קרדיטים — אפשר לרכוש במסך שיתופי הפעולה");
+          throw new BadRequestException(
+            "אין מספיק קרדיטים — אפשר לרכוש במסך שיתופי הפעולה",
+          );
         }
       }
 
-      // חשיפה מדורגת: שכונה+מאפיינים; בלי רחוב, בלי בעלים (docs/04 §7)
+      /*
+       * חשיפה מדורגת: שכונה ומאפיינים; בלי רחוב, בלי מספר בית, בלי
+       * בעלים (docs/04 §7).
+       *
+       * הצילום הורחב לכל מה שאינו מזהה. הצד המקבל ראה עד כה שורה
+       * אחת — "4 חדרים בגבעתיים · 2,300,000 ₪" — והיה צריך לאשר
+       * חיבור רק כדי לגלות קומה שביעית בלי מעלית. אישור חיבור הוא
+       * צעד שקשה לחזור ממנו, ולכן כל מה שאינו מזהה צריך להיות ידוע
+       * לפניו.
+       */
+      const features = [
+        ...(
+          [
+            "hasElevator",
+            "hasParking",
+            "hasBalcony",
+            "hasSafeRoom",
+            "hasStorage",
+          ] as const
+        )
+          .filter((key) => property[key] === true)
+          .map((key) => String(key)),
+        ...readCustomFeatures(property.attributes)
+          .filter((f) => f.value)
+          .map((f) => f.key),
+      ];
       const presentation = {
         city: property.city ?? undefined,
         neighborhood: property.neighborhood ?? undefined,
+        propertyType: property.propertyType ?? undefined,
+        dealType: property.dealType ?? undefined,
         rooms: property.rooms === null ? undefined : Number(property.rooms),
         areaSqm: property.areaSqm ?? undefined,
         floor: property.floor ?? undefined,
-        priceAgorot: property.priceAgorot === null ? undefined : Number(property.priceAgorot),
+        totalFloors: property.totalFloors ?? undefined,
+        condition: property.condition ?? undefined,
+        priceAgorot:
+          property.priceAgorot === null
+            ? undefined
+            : Number(property.priceAgorot),
+        entryType: property.entryType ?? undefined,
+        entryDate: property.entryDate ?? undefined,
+        features,
         title: property.marketingTitle ?? undefined,
       };
 
@@ -802,7 +1039,11 @@ export class CollaborationService {
           id: ulid(),
           tenantId: demand.tenantId,
           name: "coop_offer.sent",
-          payload: { coopOfferId: id, tenantId: demand.tenantId, fromTenantId: ctx.tenantId },
+          payload: {
+            coopOfferId: id,
+            tenantId: demand.tenantId,
+            fromTenantId: ctx.tenantId,
+          },
         },
       });
     });
@@ -840,7 +1081,9 @@ export class CollaborationService {
     return rows.map((row) => ({
       id: row.id,
       demandId: row.demandId,
-      ...(row.toTenantId === tenantId ? (buyerByDemand.get(row.demandId) ?? {}) : {}),
+      ...(row.toTenantId === tenantId
+        ? (buyerByDemand.get(row.demandId) ?? {})
+        : {}),
       direction: row.toTenantId === tenantId ? "incoming" : "outgoing",
       commissionSplit: row.commissionSplit,
       presentation: row.presentation as Record<string, unknown>,
@@ -850,14 +1093,18 @@ export class CollaborationService {
   }
 
   /** תגובת הסוכנות המקבלת להצעת שיתוף — מעוניין/דחייה. */
-  async respondToCoopOffer(id: string, response: "interested" | "declined"): Promise<void> {
+  async respondToCoopOffer(
+    id: string,
+    response: "interested" | "declined",
+  ): Promise<void> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {
       const result = await tx.coopOffer.updateMany({
         where: { id, toTenantId: tenantId, status: "sent" },
         data: { status: response },
       });
-      if (result.count === 0) throw new NotFoundException("הצעת שיתוף לא נמצאה");
+      if (result.count === 0)
+        throw new NotFoundException("הצעת שיתוף לא נמצאה");
       await this.audit.record(tx, {
         action: `collaboration.${response}`,
         entityType: "coop_offer",
@@ -932,7 +1179,10 @@ export class CollaborationService {
     const id = ulid();
     const priceProblem = referralPriceRejectionReason(input.priceCredits);
     if (priceProblem) throw new BadRequestException(priceProblem);
-    const reasonProblem = referralReasonRejectionReason(input.reason, input.reasonDetail);
+    const reasonProblem = referralReasonRejectionReason(
+      input.reason,
+      input.reasonDetail,
+    );
     if (reasonProblem) throw new BadRequestException(reasonProblem);
     /*
      * החלוקה לפי הכלכלה שהוגדרה בפלטפורמה, כולל הבונוס, ולפי המסלול
@@ -969,10 +1219,17 @@ export class CollaborationService {
        * (withdrawn) כן מאפשרת פרסום מחדש.
        */
       const sold = await tx.sharedLead.findFirst({
-        where: { tenantId: ctx.tenantId, originLeadId: input.leadId, status: "sold" },
+        where: {
+          tenantId: ctx.tenantId,
+          originLeadId: input.leadId,
+          status: "sold",
+        },
         select: { id: true },
       });
-      if (sold) throw new BadRequestException("הלקוח הזה כבר הופנה ונקלט — אין להפנות אותו שוב");
+      if (sold)
+        throw new BadRequestException(
+          "הלקוח הזה כבר הופנה ונקלט — אין להפנות אותו שוב",
+        );
       const contact = await tx.contact.findFirst({
         where: { id: lead.contactId, tenantId: ctx.tenantId },
         select: { nameEncrypted: true, phoneEncrypted: true, phoneHash: true },
@@ -1004,7 +1261,10 @@ export class CollaborationService {
         .catch((error: unknown) => {
           // האינדקס החלקי (tenant, origin_lead) WHERE active — שתי
           // לחיצות פרסום במקביל לא יפרסמו את אותו לקוח פעמיים
-          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === "P2002"
+          ) {
             throw new BadRequestException("הלקוח הזה כבר מופנה בלוח");
           }
           throw error;
@@ -1037,7 +1297,8 @@ export class CollaborationService {
         where: { id: sharedLeadId, tenantId, status: "active" },
         data: { status: "withdrawn" },
       });
-      if (result.count === 0) throw new NotFoundException("ההפניה לא נמצאה בלוח או שכבר נקלטה");
+      if (result.count === 0)
+        throw new NotFoundException("ההפניה לא נמצאה בלוח או שכבר נקלטה");
       await this.audit.record(tx, {
         action: "collaboration.lead_withdraw",
         entityType: "shared_lead",
@@ -1117,12 +1378,25 @@ export class CollaborationService {
    * הדירוגים על ההפניות שאני צד בהן. ה-RLS מחזיר רק שורות של הפניות
    * שאני צד בהן, ולכן אין כאן סינון ידני שאפשר לשכוח.
    */
-  private async ratingsFor(
-    sharedLeadIds: readonly string[],
-  ): Promise<Map<string, { raterTenantId: string; score: number; comment: string | null; createdAt: Date }[]>> {
+  private async ratingsFor(sharedLeadIds: readonly string[]): Promise<
+    Map<
+      string,
+      {
+        raterTenantId: string;
+        score: number;
+        comment: string | null;
+        createdAt: Date;
+      }[]
+    >
+  > {
     const byLead = new Map<
       string,
-      { raterTenantId: string; score: number; comment: string | null; createdAt: Date }[]
+      {
+        raterTenantId: string;
+        score: number;
+        comment: string | null;
+        createdAt: Date;
+      }[]
     >();
     if (sharedLeadIds.length === 0) return byLead;
     const rows = await this.prisma.withTenant((tx) =>
@@ -1162,7 +1436,8 @@ export class CollaborationService {
     );
     for (const row of rows) {
       const average = referralRatingAverage(row.ratingSum, row.ratingCount);
-      if (average !== null) byTenant.set(row.tenantId, { average, count: row.ratingCount });
+      if (average !== null)
+        byTenant.set(row.tenantId, { average, count: row.ratingCount });
     }
     return byTenant;
   }
@@ -1184,11 +1459,15 @@ export class CollaborationService {
     const ctx = TenantContext.current();
 
     const row = await this.prisma.withNetworkRead((tx) =>
-      tx.sharedLead.findFirst({ where: { id: sharedLeadId, status: "active" } }),
+      tx.sharedLead.findFirst({
+        where: { id: sharedLeadId, status: "active" },
+      }),
     );
     if (!row) throw new NotFoundException("ההפניה לא נמצאה בלוח או שכבר נקלטה");
     if (row.tenantId === ctx.tenantId) {
-      throw new BadRequestException("זו הפניה שלכם — אפשר להסיר אותה מהלוח, לא לקלוט");
+      throw new BadRequestException(
+        "זו הפניה שלכם — אפשר להסיר אותה מהלוח, לא לקלוט",
+      );
     }
     const cost = row.priceCredits;
     /*
@@ -1207,7 +1486,8 @@ export class CollaborationService {
      * מקבלות אז. אין כאן שינוי תנאים בדיעבד לעסקה שכבר בלוח.
      */
     const isCash = row.payoutMode === "cash";
-    const referrerPayout = row.payoutCredits > 0 ? row.payoutCredits : cost - platformFee;
+    const referrerPayout =
+      row.payoutCredits > 0 ? row.payoutCredits : cost - platformFee;
 
     /*
      * המשרד המפנה המיר את הליד אחרי הפרסום? הרישום יורד מהלוח במקום
@@ -1227,7 +1507,9 @@ export class CollaborationService {
           data: { status: "withdrawn" },
         }),
       );
-      throw new BadRequestException("הלקוח כבר טופל אצל המשרד המפנה — ההפניה הוסרה מהלוח");
+      throw new BadRequestException(
+        "הלקוח כבר טופל אצל המשרד המפנה — ההפניה הוסרה מהלוח",
+      );
     }
 
     const leadId = await this.prisma.$transaction(async (tx) => {
@@ -1235,9 +1517,14 @@ export class CollaborationService {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${row.tenantId}, true)`;
       const claimed = await tx.sharedLead.updateMany({
         where: { id: sharedLeadId, status: "active" },
-        data: { status: "sold", buyerTenantId: ctx.tenantId, soldAt: new Date() },
+        data: {
+          status: "sold",
+          buyerTenantId: ctx.tenantId,
+          soldAt: new Date(),
+        },
       });
-      if (claimed.count === 0) throw new BadRequestException("ההפניה נקלטה הרגע במשרד אחר");
+      if (claimed.count === 0)
+        throw new BadRequestException("ההפניה נקלטה הרגע במשרד אחר");
       /*
        * הזיכוי הוא הנטו. עמלת הפלטפורמה אינה עוברת ליומן של אף
        * משרד — היא ההפרש בין מה שהקולט חויב למה שהמפנה זוכה, והיא
@@ -1294,7 +1581,9 @@ export class CollaborationService {
        */
       await this.lockCreditSpend(tx, ctx.tenantId);
       if ((await this.balanceInTx(tx, ctx.tenantId)) < cost) {
-        throw new BadRequestException("אין מספיק קרדיטים — אפשר לרכוש במסך שיתופי הפעולה");
+        throw new BadRequestException(
+          "אין מספיק קרדיטים — אפשר לרכוש במסך שיתופי הפעולה",
+        );
       }
       /*
        * ההצפנה במפתח אפליקטיבי אחיד, לכן הצילום מועתק כמות שהוא —
@@ -1303,7 +1592,10 @@ export class CollaborationService {
        */
       let contact = await tx.contact.findUnique({
         where: {
-          tenantId_phoneHash: { tenantId: ctx.tenantId, phoneHash: row.contactPhoneHash },
+          tenantId_phoneHash: {
+            tenantId: ctx.tenantId,
+            phoneHash: row.contactPhoneHash,
+          },
         },
         select: { id: true },
       });
@@ -1316,7 +1608,10 @@ export class CollaborationService {
         await lockContact(tx, contact.id);
         contact = await tx.contact.findUnique({
           where: {
-            tenantId_phoneHash: { tenantId: ctx.tenantId, phoneHash: row.contactPhoneHash },
+            tenantId_phoneHash: {
+              tenantId: ctx.tenantId,
+              phoneHash: row.contactPhoneHash,
+            },
           },
           select: { id: true },
         });
@@ -1461,7 +1756,10 @@ export class CollaborationService {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`referral_rating:${sharedLeadId}:${ctx.tenantId}`}, 0))`;
       const existing = await tx.leadReferralRating.findUnique({
         where: {
-          sharedLeadId_raterTenantId: { sharedLeadId, raterTenantId: ctx.tenantId },
+          sharedLeadId_raterTenantId: {
+            sharedLeadId,
+            raterTenantId: ctx.tenantId,
+          },
         },
         select: { id: true, score: true },
       });
@@ -1534,7 +1832,12 @@ export class CollaborationService {
     extras: {
       ratings?: Map<
         string,
-        { raterTenantId: string; score: number; comment: string | null; createdAt: Date }[]
+        {
+          raterTenantId: string;
+          score: number;
+          comment: string | null;
+          createdAt: Date;
+        }[]
       >;
       reputation?: { average: number; count: number };
     } = {},
@@ -1547,8 +1850,14 @@ export class CollaborationService {
         : "viewer";
     const given = extras.ratings?.get(row.id) ?? [];
     const mineRating = given.find((r) => r.raterTenantId === viewerTenantId);
-    const other = role === "viewer" ? undefined : given.find((r) => r.raterTenantId !== viewerTenantId);
-    const platformFeeCredits = Math.max(0, Math.min(row.platformFeeCredits, row.priceCredits - 1));
+    const other =
+      role === "viewer"
+        ? undefined
+        : given.find((r) => r.raterTenantId !== viewerTenantId);
+    const platformFeeCredits = Math.max(
+      0,
+      Math.min(row.platformFeeCredits, row.priceCredits - 1),
+    );
     return {
       id: row.id,
       intent: row.intent,
@@ -1669,7 +1978,13 @@ export class CollaborationService {
     const rows = await this.prisma.withTenant((tx) =>
       tx.creditLedger.findMany({
         where: { tenantId },
-        select: { id: true, kind: true, amount: true, refId: true, createdAt: true },
+        select: {
+          id: true,
+          kind: true,
+          amount: true,
+          refId: true,
+          createdAt: true,
+        },
         orderBy: { createdAt: "asc" },
       }),
     );
@@ -1714,7 +2029,12 @@ export class CollaborationService {
          */
         const { initialGrantCredits } = await this.creditEconomy.current();
         await tx.creditLedger.create({
-          data: { id: ulid(), tenantId, kind: "initial_grant", amount: initialGrantCredits },
+          data: {
+            id: ulid(),
+            tenantId,
+            kind: "initial_grant",
+            amount: initialGrantCredits,
+          },
         });
       }
       return this.balanceInTx(tx, tenantId);
@@ -1739,10 +2059,18 @@ export class CollaborationService {
       neighborhoods: string[];
       notes: string | null;
       dealType: string;
+      propertyTypes: string[];
+      areaSqmMin: number | null;
+      budgetMinAgorot: bigint | null;
       budgetMaxAgorot: bigint;
       roomsMin: unknown;
       roomsMax: unknown;
+      entryType: string | null;
+      entryBy: Date | null;
+      financing: string | null;
+      maturity: string | null;
       mustFeatures: string[];
+      niceFeatures: string[];
       source: string;
       status: string;
       commissionSplit: number;
@@ -1758,10 +2086,20 @@ export class CollaborationService {
       neighborhoods: row.neighborhoods,
       ...(row.notes ? { notes: row.notes } : {}),
       dealType: row.dealType,
+      propertyTypes: row.propertyTypes,
+      ...(row.areaSqmMin === null ? {} : { areaSqmMin: row.areaSqmMin }),
+      ...(row.budgetMinAgorot === null
+        ? {}
+        : { budgetMinAgorot: Number(row.budgetMinAgorot) }),
       budgetMaxAgorot: Number(row.budgetMaxAgorot),
       roomsMin: row.roomsMin === null ? undefined : Number(row.roomsMin),
       roomsMax: row.roomsMax === null ? undefined : Number(row.roomsMax),
+      ...(row.entryType === null ? {} : { entryType: row.entryType }),
+      ...(row.entryBy === null ? {} : { entryBy: row.entryBy }),
+      ...(row.financing === null ? {} : { financing: row.financing }),
+      ...(row.maturity === null ? {} : { maturity: row.maturity }),
       mustFeatures: row.mustFeatures,
+      niceFeatures: row.niceFeatures,
       source: row.source,
       creditsCost: coopOfferCost(row.source, prices),
       commissionSplit: row.commissionSplit,

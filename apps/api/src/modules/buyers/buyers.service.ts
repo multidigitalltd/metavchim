@@ -12,14 +12,22 @@ import {
   type Page,
 } from "@metavchim/shared";
 import { assertBuyerAccess, ownershipFilter } from "../../common/ownership";
-import { freeTextTerms, normalizeRange, priceRangeAgorot } from "@metavchim/shared";
+import {
+  freeTextTerms,
+  normalizeRange,
+  priceRangeAgorot,
+} from "@metavchim/shared";
 import type { Prisma } from "@prisma/client";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
-import { MatchingService, type MatchTrigger } from "../matching/matching.service";
+import {
+  MatchingService,
+  type MatchTrigger,
+} from "../matching/matching.service";
+import { CollaborationService } from "../collaboration/collaboration.service";
 
 export interface BuyerDto {
   id: string;
@@ -41,6 +49,7 @@ export class BuyersService {
     private readonly audit: AuditService,
     private readonly outbox: OutboxService,
     private readonly matching: MatchingService,
+    private readonly collaboration: CollaborationService,
   ) {}
 
   async create(input: {
@@ -65,7 +74,11 @@ export class BuyersService {
    */
   async convertFromLead(
     leadId: string,
-    input: { requirements: BuyerRequirements; financing?: string; maturity?: string },
+    input: {
+      requirements: BuyerRequirements;
+      financing?: string;
+      maturity?: string;
+    },
   ): Promise<BuyerDto> {
     const ctx = TenantContext.current();
     const id = ulid();
@@ -86,23 +99,39 @@ export class BuyersService {
       // כי אין unique על (tenant, contact) בקונים (ביקורת Codex)
       await tx.$queryRaw`SELECT id FROM contacts WHERE id = ${lead.contactId} AND tenant_id = ${ctx.tenantId} FOR UPDATE`;
       const existingBuyer = await tx.buyer.findFirst({
-        where: { tenantId: ctx.tenantId, contactId: lead.contactId, deletedAt: null },
+        where: {
+          tenantId: ctx.tenantId,
+          contactId: lead.contactId,
+          deletedAt: null,
+        },
         select: { id: true },
       });
-      if (existingBuyer) throw new ConflictException("כבר קיים קונה פעיל לאיש קשר זה");
+      if (existingBuyer)
+        throw new ConflictException("כבר קיים קונה פעיל לאיש קשר זה");
 
       const claimed = await tx.lead.updateMany({
-        where: { id: leadId, tenantId: ctx.tenantId, status: { not: "converted" } },
+        where: {
+          id: leadId,
+          tenantId: ctx.tenantId,
+          status: { not: "converted" },
+        },
         data: {
           status: "converted",
           requiresHuman: false,
-          ...(lead.firstResponseAt === null ? { firstResponseAt: new Date() } : {}),
+          ...(lead.firstResponseAt === null
+            ? { firstResponseAt: new Date() }
+            : {}),
         },
       });
-      if (claimed.count === 0) throw new ConflictException("הליד כבר הומר לקונה");
+      if (claimed.count === 0)
+        throw new ConflictException("הליד כבר הומר לקונה");
       // המרה = הליד טופל — משימת אסקלציית SLA פתוחה נסגרת
       await tx.task.updateMany({
-        where: { tenantId: ctx.tenantId, sourceKey: `lead-sla:${leadId}`, status: "open" },
+        where: {
+          tenantId: ctx.tenantId,
+          sourceKey: `lead-sla:${leadId}`,
+          status: "open",
+        },
         data: { status: "done" },
       });
 
@@ -239,7 +268,11 @@ export class BuyersService {
           agentNotes: input.agentNotes ?? null,
         },
       });
-      await this.audit.record(tx, { action: "buyer.create", entityType: "buyer", entityId: id });
+      await this.audit.record(tx, {
+        action: "buyer.create",
+        entityType: "buyer",
+        entityId: id,
+      });
       await this.outbox.emit(tx, "buyer.updated", {
         buyerId: id,
         tenantId,
@@ -289,7 +322,11 @@ export class BuyersService {
       const budgetBefore = Number(existing.budgetMaxAgorot);
       const budgetAfter = patch.requirements?.budgetMaxAgorot;
       if (budgetAfter !== undefined && budgetAfter > budgetBefore) {
-        trigger = { kind: "budget_raise", fromAgorot: budgetBefore, toAgorot: budgetAfter };
+        trigger = {
+          kind: "budget_raise",
+          fromAgorot: budgetBefore,
+          toAgorot: budgetAfter,
+        };
       }
 
       await tx.buyer.update({
@@ -310,15 +347,22 @@ export class BuyersService {
                 requirements: patch.requirements as object,
               }
             : {}),
-          ...(patch.financing !== undefined ? { financing: patch.financing } : {}),
+          ...(patch.financing !== undefined
+            ? { financing: patch.financing }
+            : {}),
           ...(patch.maturity !== undefined
             ? { maturity: patch.maturity, maturityOverridden: true }
             : {}),
-          ...(patch.agentNotes !== undefined ? { agentNotes: patch.agentNotes } : {}),
+          ...(patch.agentNotes !== undefined
+            ? { agentNotes: patch.agentNotes }
+            : {}),
         },
       });
       // שינוי בשלות אמיתי נרשם בציר — קביעה חוזרת של אותו ערך רק מקבעת override
-      if (patch.maturity !== undefined && patch.maturity !== existing.maturity) {
+      if (
+        patch.maturity !== undefined &&
+        patch.maturity !== existing.maturity
+      ) {
         await tx.interaction.create({
           data: {
             id: ulid(),
@@ -345,6 +389,18 @@ export class BuyersService {
 
     if (patch.requirements) {
       await this.matching.recomputeForBuyer(id, { trigger });
+    }
+    /*
+     * הביקוש ברשת הוא צילום של הקונה, ולכן הוא מזדקן בכל עריכה:
+     * תקציב שעלה, אישור עקרוני שהתקבל, בשלות שהתקררה. משרד אחר
+     * שמשקיע נכס על מידע שכבר אינו נכון שולח הצעה באוויר — ומאשים
+     * בכך את הרשת. הרענון הוא best-effort: העריכה כבר נשמרה, וכשל
+     * זמני בסנכרון אינו הופך אותה ל"נכשלה".
+     */
+    try {
+      await this.collaboration.resyncDemandForBuyer(id);
+    } catch {
+      // הצילום יתרענן בעריכה הבאה — כמו בחישוב ההתאמות
     }
     return this.getById(id);
   }
@@ -375,7 +431,13 @@ export class BuyersService {
     buyerId: string,
     query: { cursor?: string; limit: number },
   ): Promise<
-    Page<{ id: string; kind: string; direction?: string; content: string; createdAt: Date }>
+    Page<{
+      id: string;
+      kind: string;
+      direction?: string;
+      content: string;
+      createdAt: Date;
+    }>
   > {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
@@ -458,7 +520,10 @@ export class BuyersService {
    * אינה מוצפנת. פילטר הבעלות זהה לזה של הרשימה, אחרת המונה היה
    * מדווח על קונים שאינם גלויים למשתמש.
    */
-  async breakdown(): Promise<{ total: number; byMaturity: Record<string, number> }> {
+  async breakdown(): Promise<{
+    total: number;
+    byMaturity: Record<string, number>;
+  }> {
     const tenantId = TenantContext.current().tenantId;
     const where = {
       tenantId,
@@ -513,14 +578,24 @@ export class BuyersService {
      * מגדירה ובודקת (ביקורת Codex).
      */
     if (budget.max !== undefined) {
-      conditions.push({ OR: [{ budgetMinAgorot: { lte: budget.max } }, { budgetMinAgorot: null }] });
+      conditions.push({
+        OR: [
+          { budgetMinAgorot: { lte: budget.max } },
+          { budgetMinAgorot: null },
+        ],
+      });
     }
-    if (budget.min !== undefined) conditions.push({ budgetMaxAgorot: { gte: budget.min } });
+    if (budget.min !== undefined)
+      conditions.push({ budgetMaxAgorot: { gte: budget.min } });
     if (rooms.max !== undefined) {
-      conditions.push({ OR: [{ roomsMin: { lte: rooms.max } }, { roomsMin: null }] });
+      conditions.push({
+        OR: [{ roomsMin: { lte: rooms.max } }, { roomsMin: null }],
+      });
     }
     if (rooms.min !== undefined) {
-      conditions.push({ OR: [{ roomsMax: { gte: rooms.min } }, { roomsMax: null }] });
+      conditions.push({
+        OR: [{ roomsMax: { gte: rooms.min } }, { roomsMax: null }],
+      });
     }
 
     /*
@@ -550,7 +625,9 @@ export class BuyersService {
           {
             AND: terms.map((term) => ({
               OR: [
-                { agentNotes: { contains: term, mode: "insensitive" as const } },
+                {
+                  agentNotes: { contains: term, mode: "insensitive" as const },
+                },
                 { aiNotes: { contains: term, mode: "insensitive" as const } },
                 { source: { contains: term, mode: "insensitive" as const } },
               ],
@@ -598,7 +675,10 @@ export class BuyersService {
       for (const o of offers) {
         const buyerId = buyerByMatch.get(o.matchId);
         if (buyerId !== undefined) {
-          offerCountByBuyer.set(buyerId, (offerCountByBuyer.get(buyerId) ?? 0) + 1);
+          offerCountByBuyer.set(
+            buyerId,
+            (offerCountByBuyer.get(buyerId) ?? 0) + 1,
+          );
         }
       }
       const lastInteractions = await tx.interaction.groupBy({
@@ -615,7 +695,10 @@ export class BuyersService {
         tx,
         page.map((row) => row.contactId),
       );
-      const items: (BuyerDto & { offersReceived: number; lastActivityAt: Date })[] = [];
+      const items: (BuyerDto & {
+        offersReceived: number;
+        lastActivityAt: Date;
+      })[] = [];
       for (const row of page) {
         const contact = contactsById.get(row.contactId);
         if (contact) {
@@ -655,7 +738,7 @@ export class BuyersService {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
-  }  /**
+  } /**
    * בדיקת הרשאה שרואה גם כרטיס בארכיון.
    *
    * `assertBuyerAccess` המשותפת מסננת `deletedAt: null` — נכון לכל
@@ -666,7 +749,10 @@ export class BuyersService {
    * פילטר הבעלות נשמר — סוכן לא נוגע בכרטיס של סוכן אחר, בארכיון או
    * מחוצה לו.
    */
-  private async assertAccessIncludingArchived(tx: TenantTx, id: string): Promise<void> {
+  private async assertAccessIncludingArchived(
+    tx: TenantTx,
+    id: string,
+  ): Promise<void> {
     const buyer = await tx.buyer.findFirst({
       where: {
         id,
@@ -705,12 +791,13 @@ export class BuyersService {
         select: { id: true },
       });
       const matchIds = matchRows.map((m) => m.id);
-      const [offers, interactions, appointments, sharedDemands] = await Promise.all([
-        tx.offer.count({ where: { tenantId, matchId: { in: matchIds } } }),
-        tx.interaction.count({ where: { tenantId, buyerId: id } }),
-        tx.appointment.count({ where: { tenantId, buyerId: id } }),
-        tx.sharedDemand.count({ where: { tenantId, originBuyerId: id } }),
-      ]);
+      const [offers, interactions, appointments, sharedDemands] =
+        await Promise.all([
+          tx.offer.count({ where: { tenantId, matchId: { in: matchIds } } }),
+          tx.interaction.count({ where: { tenantId, buyerId: id } }),
+          tx.appointment.count({ where: { tenantId, buyerId: id } }),
+          tx.sharedDemand.count({ where: { tenantId, originBuyerId: id } }),
+        ]);
       return {
         matches: matchIds.length,
         offers,
@@ -770,7 +857,9 @@ export class BuyersService {
       });
       if (!buyer) throw new NotFoundException("קונה לא נמצא");
       if (buyer.deletedAt === null) {
-        throw new BadRequestException("יש להעביר את הכרטיס לארכיון לפני מחיקה לצמיתות");
+        throw new BadRequestException(
+          "יש להעביר את הכרטיס לארכיון לפני מחיקה לצמיתות",
+        );
       }
 
       const matchRows = await tx.match.findMany({
@@ -779,10 +868,16 @@ export class BuyersService {
       });
       const matchIds = matchRows.map((m) => m.id);
       // ההצעה תלויה בהתאמה, ולכן לפניה
-      await tx.offer.deleteMany({ where: { tenantId: ctx.tenantId, matchId: { in: matchIds } } });
-      await tx.match.deleteMany({ where: { tenantId: ctx.tenantId, buyerId: id } });
+      await tx.offer.deleteMany({
+        where: { tenantId: ctx.tenantId, matchId: { in: matchIds } },
+      });
+      await tx.match.deleteMany({
+        where: { tenantId: ctx.tenantId, buyerId: id },
+      });
       await this.withdrawDemands(tx, ctx.tenantId, id);
-      await tx.interaction.deleteMany({ where: { tenantId: ctx.tenantId, buyerId: id } });
+      await tx.interaction.deleteMany({
+        where: { tenantId: ctx.tenantId, buyerId: id },
+      });
       await tx.appointment.updateMany({
         where: { tenantId: ctx.tenantId, buyerId: id },
         data: { buyerId: null },
@@ -806,7 +901,10 @@ export class BuyersService {
   }
 
   /** התאמות של כרטיס שיצא ממחזור — כמו ביציאת נכס משיווק. */
-  private async retireBuyerMatches(tx: TenantTx, buyerId: string): Promise<void> {
+  private async retireBuyerMatches(
+    tx: TenantTx,
+    buyerId: string,
+  ): Promise<void> {
     /*
      * ההצעות של ההתאמות הנמחקות יורדות איתן. בפועל התאמה במצב
      * `suggested` היא התאמה שלא הוצעה — שליחת הצעה מעבירה אותה
@@ -820,7 +918,9 @@ export class BuyersService {
       select: { id: true },
     });
     if (doomed.length > 0) {
-      await tx.offer.deleteMany({ where: { matchId: { in: doomed.map((m) => m.id) } } });
+      await tx.offer.deleteMany({
+        where: { matchId: { in: doomed.map((m) => m.id) } },
+      });
     }
     await tx.match.deleteMany({ where: { buyerId, status: "suggested" } });
     await tx.match.updateMany({
@@ -835,15 +935,21 @@ export class BuyersService {
    * הצעות שת"פ שהתקבלו עליו יורדות איתו: הצעה על ביקוש שאינו קיים
    * היא פנייה שאיש לא יטפל בה, והמשרד השני ממתין לשווא.
    */
-  private async withdrawDemands(tx: TenantTx, tenantId: string, buyerId: string): Promise<void> {
+  private async withdrawDemands(
+    tx: TenantTx,
+    tenantId: string,
+    buyerId: string,
+  ): Promise<void> {
     const demands = await tx.sharedDemand.findMany({
       where: { tenantId, originBuyerId: buyerId },
       select: { id: true },
     });
     if (demands.length === 0) return;
-    await tx.coopOffer.deleteMany({ where: { demandId: { in: demands.map((d) => d.id) } } });
-    await tx.sharedDemand.deleteMany({ where: { tenantId, originBuyerId: buyerId } });
+    await tx.coopOffer.deleteMany({
+      where: { demandId: { in: demands.map((d) => d.id) } },
+    });
+    await tx.sharedDemand.deleteMany({
+      where: { tenantId, originBuyerId: buyerId },
+    });
   }
-
-
 }

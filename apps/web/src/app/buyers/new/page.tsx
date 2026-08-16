@@ -6,6 +6,7 @@ import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
 import { DictateFor } from "../../dictation-field";
 import { FormSection } from "../../form-section";
+import { FeatureRequirements } from "../feature-requirements";
 import { PriceField } from "../../price-field";
 import { EntryTimingField } from "../../properties/entry-timing-field";
 import { shekelsToAgorot } from "@/lib/format";
@@ -45,10 +46,16 @@ export default function NewBuyerPage() {
       return v === "" ? undefined : Number(v);
     };
 
+    /*
+     * סריקה על כל שדה `feature_*` ולא על חמשת הקבועים בלבד — מאז
+     * שהמשרד יכול להוסיף מאפיינים, רשימה קשיחה כאן הייתה בולעת
+     * בשקט כל דרישה למאפיין מותאם.
+     */
     const features: Record<string, "must" | "nice"> = {};
-    for (const [name] of FEATURES) {
-      const level = String(f.get(`feature_${name}`) ?? "");
-      if (level === "must" || level === "nice") features[name] = level;
+    for (const [field, value] of f.entries()) {
+      if (!field.startsWith("feature_")) continue;
+      const level = String(value);
+      if (level === "must" || level === "nice") features[field.slice("feature_".length)] = level;
     }
 
     const budgetShekels = num("budgetMax");
@@ -152,21 +159,7 @@ export default function NewBuyerPage() {
             <EntryTimingField side="buyer" inputStyle={inputStyle} />
           </div>
 
-          <fieldset className="mt-4">
-            <legend className="mb-2 font-medium">מאפיינים — חובה או עדיפות?</legend>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {FEATURES.map(([name, label]) => (
-                <div key={name} className="flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3" style={{ borderColor: "var(--color-border)" }}>
-                  <label htmlFor={`feature_${name}`} className="font-medium">{label}</label>
-                  <select id={`feature_${name}`} name={`feature_${name}`} defaultValue="" className="rounded-md border px-2 py-1.5" style={inputStyle}>
-                    <option value="">לא רלוונטי</option>
-                    <option value="nice">עדיפות</option>
-                    <option value="must">חובה</option>
-                  </select>
-                </div>
-              ))}
-            </div>
-          </fieldset>
+          <FeatureRequirements builtin={FEATURES} />
         </FormSection>
 
         <FormSection step={3} title="סטטוס" hint="הבשלות קובעת את סדר העבודה במסך הקונים.">

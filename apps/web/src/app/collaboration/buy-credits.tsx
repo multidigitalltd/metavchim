@@ -40,7 +40,10 @@ export function BuyCredits({
     setBusy(true);
     setError(null);
     try {
-      const { url } = await apiPost<{ url: string }>("/billing/credits/checkout", { credits });
+      const { url } = await apiPost<{ url: string }>(
+        "/billing/credits/checkout",
+        { credits },
+      );
       // מעבר לדף התשלום המתארח של הסולק — פרטי הכרטיס לעולם לא אצלנו
       window.location.href = url;
     } catch (err: unknown) {
@@ -61,7 +64,10 @@ export function BuyCredits({
   return (
     <div
       className="mt-3 rounded-xl border p-3"
-      style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+      style={{
+        borderColor: "var(--color-border)",
+        background: "var(--color-bg)",
+      }}
     >
       <h3 className="m-0 mb-2 text-sm font-semibold">רכישת קרדיטים</h3>
 
@@ -76,13 +82,23 @@ export function BuyCredits({
                 disabled={busy}
                 onClick={() => void buy(pkg.credits)}
                 className="rounded-lg border px-3 py-2 text-start"
-                style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+                style={{
+                  borderColor: "var(--color-border)",
+                  background: "var(--color-surface)",
+                }}
               >
-                <span className="block text-[14.5px] font-bold">{pkg.credits} קרדיטים</span>
-                <span className="block text-[13px]">{shekels(pkg.priceAgorot)} ₪</span>
+                <span className="block text-[14.5px] font-bold">
+                  {pkg.credits} קרדיטים
+                </span>
+                <span className="block text-[13px]">
+                  {shekels(pkg.priceAgorot)} ₪
+                </span>
                 {/* הנחה שלילית לא מוצגת כ"הנחה" — היא טעות תמחור, לא מבצע */}
                 {discount > 0 ? (
-                  <span className="block text-[12px] font-bold" style={{ color: "var(--color-success)" }}>
+                  <span
+                    className="block text-[12px] font-bold"
+                    style={{ color: "var(--color-success)" }}
+                  >
                     {discount}% הנחה
                   </span>
                 ) : null}
@@ -104,10 +120,16 @@ export function BuyCredits({
             onChange={(e) => setCustom(e.target.value)}
             placeholder="למשל 25"
             className="w-full rounded-lg border px-2.5 py-2"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+            style={{
+              borderColor: "var(--color-border)",
+              background: "var(--color-surface)",
+            }}
           />
         </label>
-        <Button disabled={busy || !customValid} onClick={() => void buy(customCredits)}>
+        <Button
+          disabled={busy || !customValid}
+          onClick={() => void buy(customCredits)}
+        >
           {busy
             ? "מעביר לתשלום…"
             : customValid
@@ -117,14 +139,21 @@ export function BuyCredits({
       </div>
 
       {error !== null ? (
-        <p role="alert" className="m-0 mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
+        <p
+          role="alert"
+          className="m-0 mt-2 text-sm"
+          style={{ color: "var(--color-danger)" }}
+        >
           {error}
         </p>
       ) : null}
 
-      <p className="m-0 mt-2 text-[12px]" style={{ color: "var(--color-text-muted)" }}>
-        התשלום מתבצע בדף המאובטח של חברת הסליקה; פרטי האשראי אינם עוברים דרך המערכת.
-        הקרדיטים נכנסים ליתרה מיד עם אישור התשלום.
+      <p
+        className="m-0 mt-2 text-[12px]"
+        style={{ color: "var(--color-text-muted)" }}
+      >
+        התשלום מתבצע בדף המאובטח של חברת הסליקה; פרטי האשראי אינם עוברים דרך
+        המערכת. הקרדיטים נכנסים ליתרה מיד עם אישור התשלום.
       </p>
     </div>
   );

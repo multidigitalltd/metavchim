@@ -3,6 +3,7 @@
 import { useEffect, useState, use, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { CustomFeature } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, ApiError } from "@/lib/api";
 import { PriceField } from "../../../price-field";
@@ -38,6 +39,7 @@ interface PropertyDetail {
   hasParking?: boolean;
   hasBalcony?: boolean;
   hasSafeRoom?: boolean;
+  customFeatures?: CustomFeature[];
   hasStorage?: boolean;
   priceAgorot?: number;
   entryType?: string;
@@ -59,6 +61,31 @@ const FEATURES: [keyof PropertyDetail & string, string][] = [
   ["hasSafeRoom", 'ממ"ד'],
   ["hasStorage", "מחסן"],
 ];
+
+/**
+ * קריאת המאפיינים המותאמים מהשדה החבוי.
+ *
+ * מתגוננת בכוונה: JSON פגום (הרחבת דפדפן, מילוי אוטומטי) יחזיר
+ * רשימה ריקה במקום להפיל את השמירה של כל הנכס. הנרמול האמיתי קורה
+ * בשרת ממילא.
+ */
+function parseCustomFeatures(raw: FormDataEntryValue | null): CustomFeature[] {
+  if (typeof raw !== "string" || raw.trim() === "") return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is CustomFeature =>
+        typeof item === "object" &&
+        item !== null &&
+        typeof (item as CustomFeature).key === "string" &&
+        typeof (item as CustomFeature).label === "string" &&
+        typeof (item as CustomFeature).value === "boolean",
+    );
+  } catch {
+    return [];
+  }
+}
 
 export default function EditPropertyPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -112,6 +139,12 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
       hasBalcony: triState(f, "hasBalcony"),
       hasSafeRoom: triState(f, "hasSafeRoom"),
       hasStorage: triState(f, "hasStorage"),
+      /*
+       * JSON משדה חבוי אחד — הרשימה גדלה ומשתנה, ולכן אין לה שם
+       * שדה קבוע כמו לחמשת הקבועים. השרת מנרמל אותה שוב בשער
+       * הכתיבה, ולכן קלט פגום כאן אינו יכול להיכנס למסד.
+       */
+      customFeatures: parseCustomFeatures(f.get("customFeatures")),
       marketingTitle: str("marketingTitle"),
       marketingDescription: str("marketingDescription"),
     };
@@ -218,6 +251,7 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
             initial={Object.fromEntries(
               FEATURES.map(([name]) => [name, property[name] as boolean | undefined]),
             )}
+            initialCustom={property.customFeatures ?? []}
           />
         </fieldset>
 

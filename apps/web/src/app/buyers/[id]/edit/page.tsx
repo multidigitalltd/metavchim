@@ -11,6 +11,7 @@ import { PriceField } from "../../../price-field";
 import { FINANCING_LABELS, shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { EntryTimingField } from "../../../properties/entry-timing-field";
+import { FeatureRequirements } from "../../feature-requirements";
 import { SearchAreas } from "../../search-areas";
 import type { SearchArea } from "@metavchim/shared";
 
@@ -98,10 +99,16 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
       return v === "" ? undefined : Number(v);
     };
 
+    /*
+     * סריקה על כל שדה `feature_*` ולא על חמשת הקבועים בלבד — מאז
+     * שהמשרד יכול להוסיף מאפיינים, רשימה קשיחה כאן הייתה בולעת
+     * בשקט כל דרישה למאפיין מותאם.
+     */
     const features: Record<string, "must" | "nice"> = {};
-    for (const [name] of FEATURES) {
-      const level = String(f.get(`feature_${name}`) ?? "");
-      if (level === "must" || level === "nice") features[name] = level;
+    for (const [field, value] of f.entries()) {
+      if (!field.startsWith("feature_")) continue;
+      const level = String(value);
+      if (level === "must" || level === "nice") features[field.slice("feature_".length)] = level;
     }
 
     const budgetShekels = num("budgetMax");
@@ -278,24 +285,7 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
           title="מאפיינים"
           hint="&#8222;חובה&#8221; פוסל נכס שאין בו את המאפיין; &#8222;עדיפות&#8221; רק מוריד לו בציון. ההבדל הזה הוא מה שמונע רשימה ארוכה של נכסים שלא מתאימים."
         >
-          <div className="grid gap-2 sm:grid-cols-2">
-            {FEATURES.map(([name, label]) => (
-              <div key={name} className="flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3" style={{ borderColor: "var(--color-border)" }}>
-                <label htmlFor={`feature_${name}`} className="font-medium">{label}</label>
-                <select
-                  id={`feature_${name}`}
-                  name={`feature_${name}`}
-                  defaultValue={req.features[name] ?? ""}
-                  className="rounded-md border px-2 py-1.5"
-                  style={inputStyle}
-                >
-                  <option value="">לא רלוונטי</option>
-                  <option value="nice">עדיפות</option>
-                  <option value="must">חובה</option>
-                </select>
-              </div>
-            ))}
-          </div>
+          <FeatureRequirements builtin={FEATURES} initial={req.features} />
         </FormSection>
 
         <FormSection
