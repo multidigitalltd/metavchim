@@ -31,7 +31,7 @@ interface Recurrence {
 }
 
 const WEEKDAYS = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
+const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 const nextFmt = new Intl.DateTimeFormat("he-IL", { dateStyle: "short", timeStyle: "short" });
 
 const EMPTY = {

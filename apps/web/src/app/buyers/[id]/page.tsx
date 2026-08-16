@@ -18,6 +18,7 @@ import { EntityTasks } from "../../entity-tasks";
 import { ClickToDial } from "../../click-to-dial";
 import { AgreementsPanel } from "../../agreements-panel";
 import { EntityNotes } from "../../entity-notes";
+import { SelectMenu } from "../../select-menu";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 
 /**
@@ -231,19 +232,19 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="m-0" style={{ fontSize: 21, fontWeight: 800 }}>{buyer.contact.name}</h1>
-            <label>
-              <span className="mv-visually-hidden">עדכון בשלות</span>
-              <select
-                value={buyer.maturity}
-                onChange={(e) => void changeMaturity(e.target.value)}
-                className="mv-pill border-0"
-                style={{ color: pill.fg, background: pill.bg, cursor: "pointer", fontSize: 12.5 }}
-              >
-                {Object.entries(MATURITY_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
-            </label>
+            {/*
+              רשימה מעוצבת ולא `select` נייטיב: הגלולה נראתה נכון
+              סגורה, ובפתיחה נפתחה רשימת מערכת עם הדגשה כחולה שאינה
+              שייכת לשום מקום במערכת.
+            */}
+            <SelectMenu
+              value={buyer.maturity}
+              onChange={(next) => void changeMaturity(next)}
+              options={Object.entries(MATURITY_LABELS).map(([value, label]) => ({ value, label }))}
+              label="עדכון בשלות"
+              minWidth={128}
+              tone={{ fg: pill.fg, bg: pill.bg }}
+            />
           </div>
           <p className="m-0 mt-1 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
             <span dir="ltr">{buyer.contact.phone}</span> · {formatBuyerSource(buyer.source)} ·

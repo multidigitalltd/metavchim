@@ -14,7 +14,7 @@ import { VoiceRecorder } from "../../voice-recorder";
  * והוא מאשר/משלים לפני היצירה. אף רשומה לא נוצרת מדיבור בלבד.
  */
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
+const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 
 interface ExtractedPerson {
   name?: string;

@@ -74,6 +74,21 @@ const MATURITY_ICONS: Record<string, ReactNode> = {
 
 const dateTimeFmt = new Intl.DateTimeFormat("he-IL", { dateStyle: "full", timeStyle: "short" });
 
+/**
+ * מה אפשר לומר — **משפטים שלמים כפי שמדברים**, לא מילות מפתח.
+ *
+ * "פתחו במילה מפורשת" שולח את המתווך לנסח כמו מכונה, וזה בדיוק מה
+ * שגורם לו להפסיק לדבר. חמש הדוגמאות מכסות את חמש המשפחות שהמנוע
+ * מזהה, כך שמי שקורא אותן יודע מה טווח היכולות בלי רשימת יכולות.
+ */
+const EXAMPLES = [
+  "תוסיף קונה משה כהן, 4 חדרים בבני ברק עד 2.3 מיליון",
+  "קבע פגישה מחר בעשר",
+  "תזכיר לי מחר להתקשר לדוד",
+  "מי מחפש 4 חדרים בגבעתיים?",
+  "חפש את שרה לוי",
+] as const;
+
 export default function VoiceCommandPage() {
   const { loading: authLoading } = useRequireAuth();
   const router = useRouter();
@@ -173,14 +188,52 @@ export default function VoiceCommandPage() {
   if (authLoading) return <p aria-live="polite">טוען…</p>;
 
   return (
-    <div className="mx-auto max-w-xl">
-      <h1 className="mb-2 text-2xl font-bold"><IconMic s={16} /> פקודה קולית</h1>
-      <p className="mb-6" style={{ color: "var(--color-text-muted)" }}>
-        אמרו מה לעשות — המערכת תזהה ותכין את המסך המתאים לאישורכם.
-        למשל: &quot;תוסיף קונה משה כהן, 4 חדרים בבני ברק עד 2.3 מיליון&quot;,
-        &quot;קבע פגישה מחר בעשר&quot;, &quot;תזכיר לי מחר להתקשר לדוד&quot;,
-        &quot;מי מחפש 4 חדרים בגבעתיים?&quot;, &quot;חפש את שרה לוי&quot;.
-      </p>
+    <div className="mx-auto max-w-2xl">
+      {/*
+        כותרת גדולה עם אייקון בעיגול, ולא שורת טקסט עם מיקרופון קטן
+        לידה. זה המסך היחיד במערכת שמבקש מהמשתמש **לדבר**, וזו פעולה
+        שאנשים מהססים לפניה — מסך קטן ומרוסן נקרא כמו טופס, ומסך
+        שמזמין נקרא כמו הזמנה.
+      */}
+      <header className="mv-hero mb-5">
+        <span className="mv-hero-icon" aria-hidden="true">
+          <IconMic s={24} />
+        </span>
+        <div>
+          <h1 className="m-0 text-[26px] font-extrabold leading-tight">הסוכן הקולי</h1>
+          <p className="m-0 mt-1 text-[15px]" style={{ color: "var(--color-text-muted)" }}>
+            דברו רגיל. אני אזהה מה צריך לעשות ואכין את המסך — כלום לא נשמר בלי שתאשרו.
+          </p>
+        </div>
+      </header>
+
+      {/*
+        הדוגמאות כצ׳יפים לחיצים ולא כפסקה. פסקה עם חמישה ציטוטים
+        במרכאות נקראת כהוראות הפעלה שצריך ללמוד; חמישה משפטים לחוצים
+        נקראים כ"אפשר גם ככה" — וזה ההבדל בין מי שמנסה למי שסוגר את
+        המסך. לחיצה ממלאת את השדה, כדי שאפשר יהיה לראות מה קורה בלי
+        לדבר בכלל.
+      */}
+      <section className="mv-example-box mb-5" aria-labelledby="voice-examples-heading">
+        <h2 id="voice-examples-heading" className="m-0 mb-2.5 text-[13.5px] font-bold">
+          למשל, אפשר להגיד:
+        </h2>
+        <div className="flex flex-wrap gap-2">
+          {EXAMPLES.map((example) => (
+            <button
+              key={example}
+              type="button"
+              className="mv-example-chip"
+              onClick={() => {
+                setTranscript(example);
+                setRoute(null);
+              }}
+            >
+              {example}
+            </button>
+          ))}
+        </div>
+      </section>
 
       {error ? (
         <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>

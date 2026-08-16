@@ -31,12 +31,21 @@ export function SelectMenu({
   label,
   /** רוחב מינימלי — כדי ששורת הסינון לא "תקפוץ" בהחלפת ערך. */
   minWidth = 150,
+  tone,
 }: {
   value: string;
   onChange: (value: string) => void;
   options: readonly SelectOption[];
   label: string;
   minWidth?: number;
+  /**
+   * צבע הטריגר, כשהערך עצמו הוא מידע — בשלות קונה, סטטוס נכס.
+   *
+   * הרשימה עצמה נשארת בשפה העיצובית: `select` נייטיב במקום הזה
+   * נראה כמו גלולה צבועה עד שפותחים אותו, ואז נפתחת רשימת מערכת עם
+   * הדגשה כחולה שאין לה שום קשר למערכת (ביקורת המשתמש).
+   */
+  tone?: { fg: string; bg: string };
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -139,7 +148,8 @@ export function SelectMenu({
       <button
         ref={buttonRef}
         type="button"
-        className="mv-select-button"
+        className={tone ? "mv-select-button mv-select-button--tone" : "mv-select-button"}
+        style={tone ? { color: tone.fg, background: tone.bg, borderColor: "transparent" } : undefined}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={label}

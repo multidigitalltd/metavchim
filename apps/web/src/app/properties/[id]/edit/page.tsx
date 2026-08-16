@@ -20,7 +20,7 @@ import { EntryTimingField } from "../../entry-timing-field";
 
 const inputStyle = {
   borderColor: "var(--color-border)",
-  background: "var(--color-bg)",
+  background: "var(--color-field)",
 } as const;
 
 interface PropertyDetail {

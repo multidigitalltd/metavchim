@@ -16,7 +16,7 @@ import { IconCheck, IconMic, IconSheet, IconUsers } from "../icons";
  * והנכס הראשון נקלט בקול במסלול הקיים.
  */
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
+const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 
 const STEPS = [
   { n: 1, t: "פרטי המשרד", s: "איך תיראו ללקוחות" },

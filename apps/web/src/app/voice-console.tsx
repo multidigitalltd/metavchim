@@ -9,6 +9,7 @@ import {
   IconCalendar,
   IconClock,
   IconHome,
+  IconMic,
   IconPhone,
   IconSearch,
   IconSend,
@@ -307,11 +308,28 @@ export function VoiceConsole({
       className="mb-6 rounded-2xl border p-4"
       style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
     >
-      <h2 id="voice-console-heading" className="mv-visually-hidden">
-        הסוכן הקולי
-      </h2>
+      {/*
+        הכותרת גלויה, לא `mv-visually-hidden`.
+        
+        קופסה עם שדה טקסט ושורת צ׳יפים, בלי שם, נקראת כמו עוד חיפוש
+        בדשבורד — והתוצאה היא שהיכולת החזקה ביותר במערכת נראית כמו
+        פס כלים. שם הופך אותה למשהו שפונים אליו.
+      */}
+      <header className="mv-hero mb-3.5">
+        <span className="mv-hero-icon" aria-hidden="true">
+          <IconMic s={22} />
+        </span>
+        <div>
+          <h2 id="voice-console-heading" className="m-0 text-[19px] font-extrabold leading-tight">
+            הסוכן הקולי שלך
+          </h2>
+          <p className="m-0 mt-0.5 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
+            אמרו או כתבו מה צריך — אני אכין, ואתם תאשרו.
+          </p>
+        </div>
+      </header>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="mv-voice-row">
         <input
           value={text}
           onChange={(e) => changeText(e.target.value)}
@@ -333,13 +351,18 @@ export function VoiceConsole({
           onAppend={(spoken) => changeText(`${base}${base ? " " : ""}${spoken}`)}
           onIdle={() => setBase(text)}
         />
+        {/*
+          אותה משפחה ויזואלית כמו כפתורי ההכתבה שלידו: אותו גובה,
+          אותה פינה עגולה. קודם ישבו כאן שני עיגולים קטנים ומלבן
+          ירוק, ושלושתם עושים את אותו דבר — לשלוח מה שנאמר.
+        */}
         <button
           type="button"
-          className="mv-btn-action"
+          className="mv-voice-go"
           disabled={busy || text.trim().length < 2}
           onClick={() => void run(text)}
         >
-          {busy ? "מנתח…" : "דברי איתי"}
+          {busy ? "מנתח…" : "שלח לסוכן"}
         </button>
       </div>
 

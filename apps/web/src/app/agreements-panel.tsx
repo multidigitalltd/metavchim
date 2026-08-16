@@ -33,7 +33,7 @@ const STATUS_LABELS: Record<string, string> = {
   declined: "הלקוח דחה",
 };
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
+const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 
 /** נכס לבחירה כשההסכם נשלח ממסך שאינו מזהה נכס בעצמו (כרטיס הקונה). */
 interface PropertyOption {

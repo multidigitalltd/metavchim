@@ -65,8 +65,29 @@
   /* גבולות עדינים יותר מהעיצוב: שדות קלט והתחדדות בריחוף */
   --color-input-border: #dfe4dd;
   --color-border-hover: #b9cfc1;
-  --color-field: #f6f8f5;
+  /*
+   * שדה קלט לבן, ולא אפור בהיר.
+   *
+   * האפור (#f6f8f5) היה כמעט זהה לרקע העמוד (#f4f6f3), ולכן שדה
+   * נראה כמו שטח ריק ולא כמו מקום שכותבים בו — ההבחנה נשענה כולה
+   * על מסגרת של פיקסל אחד. לבן על רקע אפרפר מפריד את השדה מהעמוד
+   * בלי מסגרת, וגם מעלה את הניגודיות של הטקסט שנכתב בו.
+   *
+   * במצב כהה ההיגיון הפוך ונשאר כשהיה: שם השדה כהה מהכרטיס.
+   */
+  --color-field: #ffffff;
   --color-hover-soft: #f1f5f0;
+  /*
+   * גובה אחיד לכל פקד בשורה — שדה, רשימה, כפתור, בורר תאריך.
+   *
+   * זה היה הפער שנראה בכל צילום מסך: `select` נייטיב, `input`
+   * מסוג `datetime-local` וכפתור ירוק מקבלים כל אחד גובה משלו
+   * מהדפדפן, גם כשה-padding זהה — כי לכל אחד יש תוכן פנימי אחר
+   * (חץ, אייקון לוח שנה, טקסט). שורה שבה ארבעה פקדים בארבעה גבהים
+   * נראית מרושלת בלי שאיש יידע להצביע על הסיבה.
+   */
+  --control-h: 42px;
+  --control-radius: 10px;
   --color-row-border: #f2f4f0;
   --color-card-head-border: #eef1ec;
   --color-table-head: #f8faf7;
@@ -1167,10 +1188,10 @@ button.mv-list-row:hover {
   border: 1px solid var(--color-input-border);
   background: var(--color-surface);
   color: var(--color-text);
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 700;
-  border-radius: 10px;
-  min-height: 38px;
+  border-radius: var(--control-radius);
+  min-height: var(--control-h);
   padding: 0 14px;
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease;
@@ -1257,8 +1278,9 @@ button.mv-list-row:hover {
   color: var(--color-on-action);
   font-size: 13.5px;
   font-weight: 700;
-  border-radius: 9px;
-  padding: 8px 16px;
+  border-radius: var(--control-radius);
+  padding: 0 18px;
+  min-height: var(--control-h);
   cursor: pointer;
   /* inline-flex ולא inline-block: אייקון וטקסט באותה שורה, ממורכזים
      אנכית — בלי זה כפתור צר שבר את האייקון לשורה נפרדת והתנפח */
@@ -1639,6 +1661,7 @@ a.mv-bar-row:focus-visible {
    דוחקים את הטקסט, ובעברית גם מתנגשים עם כיוון הכתיבה.
    ============================================================ */
 .mv-field {
+  min-height: var(--control-h);
   width: 100%;
   border: 1px solid var(--color-input-border);
   border-radius: 10px;
@@ -1935,4 +1958,174 @@ a.mv-bar-row:focus-visible {
   border-radius: 16px;
   background: var(--color-surface);
   box-shadow: 0 18px 48px rgb(0 0 0 / 22%);
+}
+
+/* ============================================================
+   כותרת מזמינה + דוגמאות לחיצות
+   ------------------------------------------------------------
+   שלושה מסכים ביקשו את אותו דבר: "גדול יותר, נעים, מזמין" — מסך
+   הסוכן הקולי, הכרטיס בדשבורד, ואזור שיתופי הפעולה בכרטיס הקונה.
+   כולם היו טקסט 12–13px צפוף בתוך מלבן.
+
+   הכיתוב הקטן לא היה מקרי אלא ברירת מחדל שהצטברה: כשהכול קטן, שום
+   דבר אינו חשוב יותר מדבר אחר, והמסך נקרא כמו הערת שוליים ארוכה.
+   ============================================================ */
+
+/* כותרת עם אייקון בעיגול — מה שהופך כותרת לפתיחה של שיחה */
+.mv-hero {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.mv-hero-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+/*
+ * תיבת דוגמאות. רקע רך ולא מסגרת: מסגרת נוספת ליד כרטיס יוצרת שני
+ * מלבנים מתחרים, ורקע מפריד בלי להוסיף קו.
+ */
+.mv-example-box {
+  border-radius: 14px;
+  background: var(--color-primary-soft);
+  padding: 16px 18px;
+}
+.mv-example-chip {
+  border: 1px solid transparent;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  border-radius: 99px;
+  padding: 8px 15px;
+  cursor: pointer;
+  text-align: start;
+}
+.mv-example-chip::before {
+  content: "„";
+  color: var(--color-text-muted);
+}
+.mv-example-chip::after {
+  content: "”";
+  color: var(--color-text-muted);
+}
+.mv-example-chip:hover {
+  border-color: var(--color-primary-accent);
+}
+
+/*
+ * גוף הסבר קריא. 15px ו-1.65 שורה במקום 12.5px צפוף — זה ההבדל בין
+ * פסקה שקוראים לפסקה שמדלגים עליה, ובמסכים האלה הפסקה **היא** מה
+ * שמסביר למה ללחוץ על הכפתור שמתחתיה.
+ */
+.mv-explain {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--color-text-soft);
+}
+.mv-explain + .mv-explain {
+  margin-top: 10px;
+}
+
+/* ============================================================
+   שורת הסוכן הקולי — שדה, מיקרופונים וכפתור שליחה
+   ------------------------------------------------------------
+   שלושת הפקדים עושים את אותו דבר: להעביר לסוכן מה שנאמר. קודם הם
+   נראו כשלוש משפחות שונות — שני עיגולים דקים ומלבן ירוק — ולכן
+   נקראו כשלוש אפשרויות שצריך לבחור ביניהן.
+   ============================================================ */
+.mv-voice-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+/* המיקרופונים בתוך השורה, לא מתחתיה */
+.mv-voice-row .mv-dictate {
+  margin-top: 0;
+}
+.mv-voice-row .mv-dictate-btn {
+  font-size: 13px;
+  padding: 9px 14px;
+}
+.mv-voice-go {
+  border: none;
+  background: var(--color-action);
+  color: var(--color-on-action);
+  font-size: 13.5px;
+  font-weight: 800;
+  border-radius: 99px;
+  padding: 10px 20px;
+  cursor: pointer;
+}
+.mv-voice-go:hover:not(:disabled) {
+  background: var(--color-action-hover);
+}
+.mv-voice-go:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* טריגר צבוע — כשהערך הנבחר הוא מידע (בשלות, סטטוס) ולא רק בחירה */
+.mv-select-button--tone {
+  font-size: 12.5px;
+  font-weight: 700;
+  border-radius: 99px;
+  padding: 5px 12px;
+  min-height: 0;
+}
+
+/* ============================================================
+   פקד בשורה — גובה אחיד לכל מה שיושב בשורת טופס
+   ------------------------------------------------------------
+   `select` נייטיב מוסיף חץ, `datetime-local` מוסיף אייקון לוח
+   שנה, וכפתור מוסיף גופן מודגש — כל אחד מנפח את הגובה אחרת. גובה
+   מפורש הוא הדבר היחיד שמיישר אותם, כי padding זהה אינו מספיק.
+   ============================================================ */
+.mv-control {
+  box-sizing: border-box;
+  min-height: var(--control-h);
+  height: var(--control-h);
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--control-radius);
+  background: var(--color-field);
+  color: var(--color-text);
+  font-size: 14px;
+  font-family: inherit;
+  padding: 0 12px;
+  width: 100%;
+}
+.mv-control:focus-visible {
+  outline: 2px solid var(--color-primary-accent);
+  outline-offset: 1px;
+}
+/* כפתור ראשי בשורה — אותו גובה, בלי תווית מעליו שתזיז אותו */
+.mv-control-go {
+  box-sizing: border-box;
+  min-height: var(--control-h);
+  height: var(--control-h);
+  border: none;
+  border-radius: var(--control-radius);
+  background: var(--color-action);
+  color: var(--color-on-action);
+  font-size: 13.5px;
+  font-weight: 800;
+  padding: 0 22px;
+  cursor: pointer;
+}
+.mv-control-go:hover:not(:disabled) {
+  background: var(--color-action-hover);
+}
+.mv-control-go:disabled {
+  opacity: 0.55;
+  cursor: default;
 }

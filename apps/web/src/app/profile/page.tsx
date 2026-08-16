@@ -46,7 +46,7 @@ const ROLE_LABELS: Record<string, string> = {
   viewer: "צפייה בלבד",
 };
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
+const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 
 export default function ProfilePage() {
   const { user, loading } = useRequireAuth();

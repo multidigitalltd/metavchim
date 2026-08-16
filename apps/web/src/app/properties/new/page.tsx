@@ -15,7 +15,7 @@ import { LocationPicker, type LocationValue } from "../location-picker";
 
 const inputStyle = {
   borderColor: "var(--color-border)",
-  background: "var(--color-bg)",
+  background: "var(--color-field)",
 } as const;
 
 /** נרמול טלפון ישראלי ל-E.164 — ‎050-1234567 → ‎+972501234567 */
