@@ -407,7 +407,7 @@ export class PropertiesService {
       });
     });
 
-    await this.matching.recomputeForProperty(id, trigger);
+    await this.matching.recomputeForProperty(id, { trigger });
     return this.getById(id);
   }
 

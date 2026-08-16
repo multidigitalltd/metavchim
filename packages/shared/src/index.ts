@@ -33,6 +33,7 @@ export * from "./logic/onboarding.js";
 export * from "./logic/backup-file.js";
 export * from "./logic/restore-drill.js";
 export * from "./logic/buyer-profile.js";
+export * from "./logic/match-refresh.js";
 export * from "./logic/note-visibility.js";
 export * from "./logic/web-push.js";
 export * from "./logic/contact-people.js";

@@ -52,6 +52,43 @@ export interface MatchTrigger {
 }
 
 /**
+ * נכס נסרק מול קונים רק בסטטוסים האלה.
+ *
+ * **הצד השני כבר סינן כך** (`recomputeForBuyer`), והאי-סימטריה הייתה
+ * באג של ממש: עריכה של נכס שנמכר ייצרה לו התאמות מחדש, והסבב הבא
+ * מצד הקונה מחק אותן. הסוכן ראה קונים מוצעים לנכס שאינו למכירה,
+ * ואז ראה אותם נעלמים בלי סיבה נראית לעין.
+ */
+export const MATCHABLE_PROPERTY_STATUSES = ["draft", "active"] as const;
+
+/** אפשרויות חישוב מחדש — ראו `silent` בסבב הרענון. */
+export interface RecomputeOptions {
+  trigger?: MatchTrigger;
+  /**
+   * לא לפרסם אירוע בתום החישוב.
+   *
+   * קיים בשביל סבב הרענון בלבד: הוא נוגע בכל המאגר, ואירוע לכל נכס
+   * היה נהפך לעשרות התראות "נמצאו קונים חדשים" בלילה אחד. הסבב
+   * מסכם את עצמו בהתראה **אחת** — ראו `MatchRefreshService`.
+   */
+  silent?: boolean;
+}
+
+/**
+ * תוצאת חישוב מחדש.
+ *
+ * `opened` — כמה **נולדו** בסבב, ולא כמה קיימות. זו ההבחנה שעליה
+ * נשענת כל ההתראה: סבב שרק עדכן ציונים של אותן התאמות אינו חדשה,
+ * וסבב שפתח שלוש התאמות הוא שיחת טלפון שצריך לעשות היום.
+ */
+export interface RecomputeResult {
+  matches: number;
+  opened: number;
+}
+
+const NO_MATCHES: RecomputeResult = { matches: 0, opened: 0 };
+
+/**
  * מנוע ההתאמות (docs/07 §5) — צנרת שני שלבים:
  * 1. סינון גס ב-SQL (עיר, תקציב, סוג עסקה) — מצמצם למועמדים רלוונטיים.
  * 2. ניקוד מפורט בפונקציה הטהורה scoreMatch — עם הסבר בעברית.
@@ -184,7 +221,11 @@ export class MatchingService {
    * התאמות" במקום "נמצאו 3 קונים חדשים". אותו אירוע, אבל הראשון
    * מגיע לסוכן שעדיין באותו הקשר ולכן הוא זה שיפעל לפיו.
    */
-  async recomputeForProperty(propertyId: string, trigger?: MatchTrigger): Promise<number> {
+  async recomputeForProperty(
+    propertyId: string,
+    options: RecomputeOptions = {},
+  ): Promise<RecomputeResult> {
+    const { trigger, silent } = options;
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
       const property = await tx.property.findFirst({
@@ -196,7 +237,18 @@ export class MatchingService {
         property.priceAgorot === null ||
         property.dealType === null
       ) {
-        return 0; // בלי עיר, מחיר וסוג עסקה אין סינון אמין — יחושב כשיושלם
+        return NO_MATCHES; // בלי עיר, מחיר וסוג עסקה אין סינון אמין — יחושב כשיושלם
+      }
+
+      /*
+       * נכס שיצא משיווק — נמכר, הושכר, הוקפא או הועבר לארכיון —
+       * מנקה את ההצעות שנותרו לו ואינו מייצר חדשות. בלי זה, כל
+       * עריכה קטנה בנכס שנמכר הייתה מציפה את המסך בקונים "מתאימים"
+       * לנכס שאינו קיים בשוק.
+       */
+      if (!(MATCHABLE_PROPERTY_STATUSES as readonly string[]).includes(property.status)) {
+        await tx.match.deleteMany({ where: { tenantId, propertyId, status: "suggested" } });
+        return NO_MATCHES;
       }
       const fields = rowToFields(property);
 
@@ -261,25 +313,28 @@ export class MatchingService {
         },
       });
 
-      await this.outbox.emit(tx, "matches.computed", {
-        tenantId,
-        propertyId,
-        matchCount: kept,
-        newMatchCount: created,
-        strongMatchCount: strong,
-        ...(trigger ? { trigger } : {}),
-      });
-      return kept;
+      if (!silent) {
+        await this.outbox.emit(tx, "matches.computed", {
+          tenantId,
+          propertyId,
+          matchCount: kept,
+          newMatchCount: created,
+          strongMatchCount: strong,
+          ...(trigger ? { trigger } : {}),
+        });
+      }
+      return { matches: kept, opened: created };
     });
   }
 
-  async recomputeForBuyer(buyerId: string, trigger?: MatchTrigger): Promise<number> {
+  async recomputeForBuyer(buyerId: string, options: RecomputeOptions = {}): Promise<RecomputeResult> {
+    const { trigger, silent } = options;
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
       const buyer = await tx.buyer.findFirst({ where: { id: buyerId, tenantId, deletedAt: null } });
-      if (!buyer) return 0;
+      if (!buyer) return NO_MATCHES;
       const parsed = BuyerRequirementsSchema.safeParse(buyer.requirements);
-      if (!parsed.success) return 0;
+      if (!parsed.success) return NO_MATCHES;
       const requirements = parsed.data;
 
       /*
@@ -313,7 +368,7 @@ export class MatchingService {
         where: {
           tenantId,
           deletedAt: null,
-          status: { in: ["draft", "active"] },
+          status: { in: [...MATCHABLE_PROPERTY_STATUSES] },
           ...locationFilter,
           ...(requirements.dealType ? { dealType: requirements.dealType } : {}),
           priceAgorot: { lte: BigInt(Math.floor(Number(requirements.budgetMaxAgorot) * 1.07)) },
@@ -353,16 +408,18 @@ export class MatchingService {
        * ולכן ביקוש שנרשם עכשיו ומצא נכסים עבר בשקט. ההתראה הולכת
        * לסוכן שהכרטיס שלו — זו השיחה שהוא צריך לעשות היום.
        */
-      await this.outbox.emit(tx, "matches.computed", {
-        tenantId,
-        buyerId,
-        matchCount: kept,
-        newMatchCount: created,
-        strongMatchCount: strong,
-        ...(buyer.ownerUserId ? { ownerUserId: buyer.ownerUserId } : {}),
-        ...(trigger ? { trigger } : {}),
-      });
-      return kept;
+      if (!silent) {
+        await this.outbox.emit(tx, "matches.computed", {
+          tenantId,
+          buyerId,
+          matchCount: kept,
+          newMatchCount: created,
+          strongMatchCount: strong,
+          ...(buyer.ownerUserId ? { ownerUserId: buyer.ownerUserId } : {}),
+          ...(trigger ? { trigger } : {}),
+        });
+      }
+      return { matches: kept, opened: created };
     });
   }
 

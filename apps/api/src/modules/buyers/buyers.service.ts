@@ -344,7 +344,7 @@ export class BuyersService {
     });
 
     if (patch.requirements) {
-      await this.matching.recomputeForBuyer(id, trigger);
+      await this.matching.recomputeForBuyer(id, { trigger });
     }
     return this.getById(id);
   }
