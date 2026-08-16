@@ -2,13 +2,11 @@
 
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
-import { Button } from "@metavchim/ui";
 import { buyerProfileCompleteness, describeEntryNeed, priceInWordsWithCurrency } from "@metavchim/shared";
 import type { BuyerRequirements } from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { FINANCING_LABELS, formatBuyerSource, formatPrice, MATURITY_LABELS, waMeUrl } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
-import { WithDictation } from "../../dictation-field";
 import { IconChat, IconEdit, IconPhone } from "../../icons";
 import { NetworkShareSection } from "./network-share-section";
 import { NetworkPropertyMatches } from "../network-property-matches";
@@ -19,6 +17,7 @@ import { RelatedEntities } from "../../related-entities";
 import { EntityTasks } from "../../entity-tasks";
 import { ClickToDial } from "../../click-to-dial";
 import { AgreementsPanel } from "../../agreements-panel";
+import { EntityNotes } from "../../entity-notes";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 
 /**
@@ -116,8 +115,6 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
   const [error, setError] = useState<string | null>(null);
-  const [notesDraft, setNotesDraft] = useState<string | null>(null);
-  const [notesSaved, setNotesSaved] = useState(false);
   const [sending, setSending] = useState<string | null>(null);
   /*
    * מונה המשימות הפתוחות. הוא נטען כאן ולא רק בתוך `EntityTasks`,
@@ -147,12 +144,9 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
     setBuyer((prev) => (prev ? { ...prev, maturity } : prev));
   }
 
-  async function saveNotes() {
-    if (notesDraft === null) return;
-    await apiPatch(`/buyers/${id}`, { agentNotes: notesDraft });
-    setBuyer((prev) => (prev ? { ...prev, agentNotes: notesDraft } : prev));
-    setNotesDraft(null);
-    setNotesSaved(true);
+  async function saveNotes(next: string): Promise<void> {
+    await apiPatch(`/buyers/${id}`, { agentNotes: next });
+    setBuyer((prev) => (prev ? { ...prev, agentNotes: next } : prev));
   }
 
   async function sendOffer(m: MatchRow) {
@@ -449,41 +443,12 @@ export default function BuyerDetailPage({ params }: { params: Promise<{ id: stri
 
           <div className="grid gap-[18px]">
             {/* ---- הערות הסוכן ---- */}
-            <section aria-labelledby="notes-heading" className="mv-list-card px-[22px] py-[18px]">
-              <h2 id="notes-heading" className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>הערות הסוכן</h2>
-              {notesDraft === null ? (
-                <>
-                  <p className="mb-3 mt-0 whitespace-pre-wrap">
-                    {buyer.agentNotes?.trim() ? buyer.agentNotes : <span style={{ color: "var(--color-text-muted)" }}>אין הערות עדיין.</span>}
-                  </p>
-                  <div className="flex items-center gap-3">
-                    <button type="button" className="mv-btn-plain" onClick={() => { setNotesSaved(false); setNotesDraft(buyer.agentNotes ?? ""); }}>
-                      {buyer.agentNotes?.trim() ? "ערוך הערות" : "הוסף הערות"}
-                    </button>
-                    {notesSaved ? <span role="status" style={{ color: "var(--color-primary)" }}>✓ נשמר</span> : null}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <label htmlFor="agentNotes" className="mv-visually-hidden">הערות הסוכן</label>
-                  <WithDictation value={notesDraft} onChange={setNotesDraft}>
-                    <textarea
-                      id="agentNotes"
-                      rows={4}
-                      maxLength={4000}
-                      value={notesDraft}
-                      onChange={(e) => setNotesDraft(e.target.value)}
-                      className="mb-2 w-full rounded-lg border px-3 py-2.5"
-                      style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)", color: "var(--color-text)" }}
-                    />
-                  </WithDictation>
-                  <div className="mt-3 flex gap-3">
-                    <Button onClick={() => void saveNotes()}>שמור הערות</Button>
-                    <Button variant="ghost" onClick={() => setNotesDraft(null)}>ביטול</Button>
-                  </div>
-                </>
-              )}
-            </section>
+            <EntityNotes
+              value={buyer.agentNotes}
+              fieldId="agentNotes"
+              title="הערות הסוכן"
+              onSave={saveNotes}
+            />
 
             <ContactPeople
               contactId={buyer.contact.id}

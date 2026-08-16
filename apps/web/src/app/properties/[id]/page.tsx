@@ -21,6 +21,7 @@ import { EntityTasks } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
 import { LocationPicker } from "../location-picker";
 import { ExclusivityPanel } from "../exclusivity-panel";
+import { EntityNotes } from "../../entity-notes";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { RelatedEntities } from "../../related-entities";
 import { IconThumbUp } from "../../icons";
@@ -55,6 +56,7 @@ interface PropertyDetail {
   entryType?: string;
   entryDate?: string;
   entryNote?: string;
+  internalNotes?: string;
   status: string;
   marketingTitle?: string;
   readinessScore: number;
@@ -306,6 +308,11 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
     }
   }
 
+  async function saveNotes(next: string): Promise<void> {
+    await apiPatch(`/properties/${id}`, { internalNotes: next });
+    setProperty((prev) => (prev ? { ...prev, internalNotes: next } : prev));
+  }
+
   if (error) {
     return (
       <p role="alert" style={{ color: "var(--color-danger)" }}>
@@ -483,6 +490,22 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                 }}
               />
             </section>
+
+            {/*
+              הערות פנימיות — מה שנאמר בשיחה עם בעל הנכס ואינו נכנס
+              לאף שדה: "הדוד לא מסכים לפחות מ-2.1", "אפשר להיכנס רק
+              אחרי החגים", "השכנים מלמעלה בשיפוץ". בכרטיס הקונה זה
+              קיים מהיום הראשון; בנכס הטקסט נשמר במסד
+              (`internal_notes`) וה-API קיבל אותו — ושום מסך לא הציג
+              אותו, כלומר שדה שהיה קיים ולא היה בנמצא.
+            */}
+            <EntityNotes
+              value={property.internalNotes}
+              fieldId="internalNotes"
+              title="הערות פנימיות"
+              empty="אין הערות עדיין — מה שנאמר בשיחה עם בעל הנכס נכתב כאן."
+              onSave={saveNotes}
+            />
           </div>
           <div className="flex flex-col gap-[18px]">
             <section className="mv-list-card px-5 py-[18px]" aria-labelledby="readiness-heading">
