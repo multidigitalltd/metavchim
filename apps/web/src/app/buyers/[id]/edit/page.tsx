@@ -9,6 +9,8 @@ import { PriceField } from "../../../price-field";
 import { FINANCING_LABELS, shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { EntryTimingField } from "../../../properties/entry-timing-field";
+import { SearchAreas } from "../../search-areas";
+import type { SearchArea } from "@metavchim/shared";
 
 /**
  * עריכת דרישות קונה — התקציב גדל? נוספה עיר? הדרישות הן הדלק של מנוע
@@ -37,6 +39,7 @@ interface BuyerRequirements {
   roomsMax?: number;
   areaSqmMin?: number;
   features: Record<string, "must" | "nice">;
+  searchAreas?: SearchArea[];
   entryType?: string;
   entryBy?: string;
   flexibilityNotes?: string;
@@ -56,11 +59,21 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
   const [buyer, setBuyer] = useState<BuyerDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  /*
+   * האזורים אינם שדה של `FormData` — הם רשימה עם מפה — ולכן מצב
+   * נפרד שמאותחל מהשרת ונשלח בשמירה.
+   */
+  const [areas, setAreas] = useState<SearchArea[]>([]);
+  /** המפה נטענת רק כשפותחים — ראו ההסבר בטופס קליטת הנכס. */
+  const [areasOpen, setAreasOpen] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
     apiGet<BuyerDetail>(`/buyers/${id}`)
-      .then(setBuyer)
+      .then((row) => {
+        setBuyer(row);
+        setAreas(row.requirements.searchAreas ?? []);
+      })
       .catch(() => setError("הקונה לא נמצא"));
   }, [authLoading, id]);
 
@@ -111,6 +124,7 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
             ? new Date(String(f.get("entryBy"))).toISOString()
             : undefined,
           features,
+          searchAreas: areas,
         },
       });
       router.replace(`/buyers/${id}`);
@@ -155,9 +169,33 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
         <fieldset className="mb-6 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
           <legend className="px-2 font-semibold">מה הוא מחפש</legend>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div>
+            <div className="sm:col-span-2">
               <label htmlFor="cities" className="mb-1 block font-medium">ערים * <span className="font-normal">(מופרדות בפסיק)</span></label>
               <input id="cities" name="cities" required defaultValue={req.cities.join(", ")} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+              {/*
+                האזורים יושבים מתחת לערים ולא במסך נפרד: הם התשובה
+                המדויקת לאותה שאלה, ומי שממלא "ערים" הוא מי שצריך
+                לדעת שיש דרך טובה יותר.
+              */}
+              <details className="mt-3" onToggle={(e) => setAreasOpen(e.currentTarget.open)}>
+                <summary className="cursor-pointer text-sm font-medium">
+                  אזורי חיפוש על המפה
+                  {areas.length > 0 ? (
+                    <span className="ms-1.5" style={{ color: "var(--color-success)" }}>
+                      ✓ {areas.length}
+                    </span>
+                  ) : (
+                    <span className="ms-1.5 font-normal" style={{ color: "var(--color-text-muted)" }}>
+                      · מדויק יותר משם עיר
+                    </span>
+                  )}
+                </summary>
+                {areasOpen ? (
+                  <div className="mt-3">
+                    <SearchAreas value={areas} onChange={setAreas} disabled={submitting} />
+                  </div>
+                ) : null}
+              </details>
             </div>
             <div>
               <label htmlFor="dealType" className="mb-1 block font-medium">סוג עסקה *</label>

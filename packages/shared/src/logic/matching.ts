@@ -2,6 +2,8 @@ import type { PropertyFields } from "../schemas/property.js";
 import type { BuyerRequirements } from "../schemas/buyer.js";
 import type { ScoreComponent } from "../schemas/match.js";
 import { scoreEntryFit } from "./entry-timing.js";
+import { bestLocationMatch } from "./location-text.js";
+import { bestAreaMatch, describeDistance } from "./proximity.js";
 
 export interface MatchResult {
   /** 0–100 */
@@ -108,21 +110,67 @@ export function scoreMatch(
   const parts: ScoreComponent[] = [];
   let excluded = false;
 
-  // --- מיקום (0.25) --- קונה בלי ערים = בלי מגבלת אזור, הקריטריון מדולג
-  if (property.city !== undefined && buyer.cities.length > 0) {
-    const cityOk = buyer.cities.some((c) => c.trim() === property.city?.trim());
-    const neighborhoodBonus =
-      cityOk &&
-      buyer.neighborhoods.length > 0 &&
-      property.neighborhood !== undefined &&
-      buyer.neighborhoods.includes(property.neighborhood);
+  /*
+   * --- מיקום (0.25) ---
+   *
+   * **שני מסלולים, ומרחק גובר על טקסט.** כשהקונה סימן אזורי חיפוש
+   * על מפה והנכס ממוקם, השאלה "באיזו עיר זה" מפסיקה להיות רלוונטית:
+   * נכס 300 מטר מעבר לגבול מוניציפלי הוא בדיוק מה שהקונה מחפש, ושם
+   * העיר שלו אינו אמור להסתיר אותו.
+   *
+   * כשאין קואורדינטות משני הצדדים נופלים להשוואת שמות — עכשיו
+   * סלחנית, כך ש"רמת גן" מול "רמת-גן" מתאימים.
+   *
+   * קונה בלי ערים ובלי אזורים = בלי מגבלת אזור, והקריטריון מדולג.
+   */
+  const areas = buyer.searchAreas ?? [];
+  const propertyPoint =
+    property.latitude !== undefined && property.longitude !== undefined
+      ? { lat: property.latitude, lon: property.longitude }
+      : null;
+
+  if (areas.length > 0 && propertyPoint !== null) {
+    const hit = bestAreaMatch(propertyPoint, areas)!;
+    const where = hit.area.label ?? "האזור המבוקש";
     parts.push({
       criterion: "location",
       weight: weights.location,
-      score: cityOk ? (buyer.neighborhoods.length === 0 || neighborhoodBonus ? 1 : 0.75) : 0,
-      note: cityOk ? `באזור המבוקש (${property.city})` : `מחוץ לאזורים המבוקשים`,
+      score: hit.score,
+      note:
+        hit.score > 0
+          ? `${describeDistance(hit.distanceKm)} מ${where}`
+          : `רחוק מכל אזורי החיפוש (${describeDistance(hit.distanceKm)})`,
     });
-    if (!cityOk) excluded = true; // עיר לא מבוקשת — לא רלוונטי להציע
+    // מעבר לפי שניים מהרדיוס — מחוץ לכל סבירות, כמו עיר שאינה ברשימה
+    if (hit.score === 0) excluded = true;
+  } else if (property.city !== undefined && buyer.cities.length > 0) {
+    const city = bestLocationMatch(property.city, buyer.cities);
+    /*
+     * השכונה נבדקת באותה סלחנות כמו העיר. שכונה שנכתבה אחרת אינה
+     * "שכונה אחרת", והבונוס נועד לתגמל דיוק ולא לתגמל כתיב.
+     */
+    const neighborhood =
+      city.score > 0 && buyer.neighborhoods.length > 0 && property.neighborhood !== undefined
+        ? bestLocationMatch(property.neighborhood, buyer.neighborhoods).score
+        : 0;
+    const score =
+      city.score === 0
+        ? 0
+        : buyer.neighborhoods.length === 0
+          ? city.score
+          : /*
+             * שכונה תואמת מחזירה את מלוא ניקוד העיר; שכונה שאינה
+             * ברשימה גורעת רבע. הקונה ביקש שכונות מסוימות, אבל הוא
+             * ביקש גם את העיר — ולכן זו גריעה ולא פסילה.
+             */
+            city.score * (neighborhood > 0 ? 1 : 0.75);
+    parts.push({
+      criterion: "location",
+      weight: weights.location,
+      score,
+      note: city.score > 0 ? `באזור המבוקש (${property.city})` : `מחוץ לאזורים המבוקשים`,
+    });
+    if (city.score === 0) excluded = true; // עיר לא מבוקשת — לא רלוונטי להציע
   }
 
   // --- תקציב (0.25) ---

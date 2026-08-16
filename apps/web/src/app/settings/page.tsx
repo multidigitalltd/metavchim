@@ -22,6 +22,7 @@ import { SupportTicketsSection } from "./support-tickets-section";
 import { GmailSection } from "./gmail-section";
 import { GoogleCalendarSection } from "./google-calendar-section";
 import { MatchWeightsSection } from "./match-weights-section";
+import { DismissReportSection } from "./dismiss-report";
 import { AgreementTemplatesSection } from "./agreement-templates-section";
 import { RetainedAgreementsSection } from "./retained-agreements-section";
 import { SystemUpdateSection } from "./system-update";
@@ -662,7 +663,18 @@ export default function SettingsPage() {
             )
           ) : null}
 
-          {tab === "matching" ? <MatchWeightsSection /> : null}
+          {/*
+            הדוח יושב ליד המשקלים ולא במסך הדוחות: המסקנה שלו היא
+            "העלו את המשקל של X", והמקום לעשות את זה הוא כאן. במסך
+            הדוחות הוא גם היה חסום מאחורי שער המסלול — ובאיכות
+            ההתאמות אין סיבה לגבות תשלום.
+          */}
+          {tab === "matching" ? (
+            <>
+              <MatchWeightsSection />
+              <DismissReportSection />
+            </>
+          ) : null}
 
           {tab === "support" ? (
             <>

@@ -25,6 +25,9 @@ import {
   shouldRetireAfterFailure,
   followUpFromCall,
   summarizeCall,
+  WORKERS_VERSION_KEY,
+  WORKERS_VERSION_TTL_SECONDS,
+  WORKERS_VERSION_INTERVAL_MS,
   type SpeakerTurn,
   type TranscriptSegment,
 } from "@metavchim/shared";
@@ -1547,6 +1550,35 @@ void lowQueue
     console.error(`weekly-summary scheduler registration failed: ${String(error)}`);
   });
 
+/**
+ * דיווח הגרסה של תהליך ה-Workers.
+ *
+ * **לא Job בתור.** תור הוא מנגנון חלוקת עבודה: עותק אחד היה מדווח
+ * בשם כולם, ובדיוק מה שרוצים לגלות — עותק שנשאר על תמונה ישנה —
+ * היה נעלם. כל תהליך מדווח על עצמו, מהזיכרון שלו.
+ *
+ * המפתח פג מעצמו. תהליך שנפל מפסיק להופיע במסך במקום להנציח שם
+ * גרסה של שירות שאינו רץ.
+ */
+async function reportWorkersVersion(): Promise<void> {
+  try {
+    await connection.set(
+      WORKERS_VERSION_KEY,
+      JSON.stringify({
+        version: process.env["APP_VERSION"] ?? "dev",
+        at: new Date().toISOString(),
+      }),
+      "EX",
+      WORKERS_VERSION_TTL_SECONDS,
+    );
+  } catch (error: unknown) {
+    // דיווח גרסה אינו סיבה להפיל תהליך עיבוד. שתיקה נראית במסך.
+    console.error(`workers version report failed: ${String(error)}`);
+  }
+}
+void reportWorkersVersion();
+const versionTimer = setInterval(() => void reportWorkersVersion(), WORKERS_VERSION_INTERVAL_MS);
+
 const workers = [
   new Worker(QUEUES.notifications, processNotification, { connection, concurrency: 10 }),
   new Worker(QUEUES.low, processLow, { connection, concurrency: 2 }),
@@ -1562,6 +1594,7 @@ for (const worker of workers) {
 console.warn(`Workers up: ${workers.map((w) => w.name).join(", ")}`);
 
 async function shutdown(): Promise<void> {
+  clearInterval(versionTimer);
   await Promise.allSettled(workers.map((w) => w.close()));
   await prisma.$disconnect();
   await connection.quit();

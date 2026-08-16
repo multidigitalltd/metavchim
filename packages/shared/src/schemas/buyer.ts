@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { IdSchema, MoneyAgorotSchema } from "./common.js";
 import { PropertyTypeSchema, DealTypeSchema } from "./property.js";
+import {
+  MAX_SEARCH_AREAS,
+  MAX_SEARCH_RADIUS_KM,
+  MIN_SEARCH_RADIUS_KM,
+} from "../logic/proximity.js";
 
 export const BuyerMaturitySchema = z.enum(["very_hot", "hot", "interested", "not_ripe"]);
 export type BuyerMaturity = z.infer<typeof BuyerMaturitySchema>;
@@ -33,6 +38,28 @@ export const BuyerRequirementsSchema = z.object({
    */
   cities: z.array(z.string().min(1)).default([]),
   neighborhoods: z.array(z.string()).default([]),
+  /**
+   * אזורי חיפוש על המפה — נקודה, רדיוס ושם.
+   *
+   * **גוברים על רשימת הערים** כשהנכס ממוקם: מי שסימן על המפה אמר
+   * משהו מדויק יותר משם עיר, ונכס מעבר לגבול מוניציפלי אינו אמור
+   * להיעלם בגללו. רשימת הערים נשארת כגיבוי — לקונה שלא סימן, ולנכס
+   * שאין לו קואורדינטה.
+   *
+   * כמה אזורים ולא אחד: קונה מחפש ליד ההורים **וגם** ליד העבודה,
+   * ולכל אחד מהם טווח סבירות משלו.
+   */
+  searchAreas: z
+    .array(
+      z.object({
+        lat: z.number().min(-90).max(90),
+        lon: z.number().min(-180).max(180),
+        radiusKm: z.number().min(MIN_SEARCH_RADIUS_KM).max(MAX_SEARCH_RADIUS_KM),
+        label: z.string().max(60).optional(),
+      }),
+    )
+    .max(MAX_SEARCH_AREAS)
+    .default([]),
   dealType: DealTypeSchema,
   propertyTypes: z.array(PropertyTypeSchema).default([]),
   budgetMinAgorot: MoneyAgorotSchema.optional(),

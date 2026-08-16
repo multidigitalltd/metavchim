@@ -40,7 +40,7 @@ export default function ChangePasswordPage() {
       subtitle="לפני שממשיכים — החליפו את הסיסמה הזמנית בסיסמה קבועה משלכם."
       points={["הסיסמה הזמנית תפוג ברגע שתשמרו", "בחרו סיסמה שרק אתם מכירים", "אפשר לשנות אותה שוב מהפרופיל"]}
     >
-      <form onSubmit={(e) => void onSubmit(e)} noValidate>
+      <form method="post" onSubmit={(e) => void onSubmit(e)} noValidate>
         {error ? (
           <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
             {error}

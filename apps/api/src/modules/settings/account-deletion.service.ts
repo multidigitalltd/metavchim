@@ -37,6 +37,11 @@ import { PrismaService } from "../../core/prisma.service";
  * - `credit_ledger`: מאזן הקרדיטים של שוק השת"פ — Append-Only עם
  *   אותו REVOKE, כי תנועת קרדיטים שנמחקת היא כסף שנעלם מהמאזן.
  *   מזהים, סוג תנועה וסכום בלבד.
+ * - `payout_ledger`: אותו דבר בשקלים — הספר של הכסף שהפלטפורמה
+ *   שילמה למשרד. מוגן באותו REVOKE ומאותו טעם, ואין בו פרט מזהה.
+ *   **`payout_requests` כן נמחקת** — שם יושבים פרטי חשבון הבנק,
+ *   וזכות המחיקה גוברת על נוחות התיעוד. הראיה שהכסף יצא נשארת
+ *   בספר.
  *
  * גיבויים: קבצי הגיבוי היומיים מתגלגלים החוצה לפי מדיניות השמירה
  * שלהם — הנתונים נעלמים גם משם בתוך חלון השמירה.
@@ -210,6 +215,13 @@ export class AccountDeletionService {
          * את כל המחיקה (ביקורת Codex). אין בשורות שום פרט אישי —
          * מזהים, סוג תנועה וסכום בלבד.
          */
+        /*
+         * בקשות המשיכה נמחקות בגלל פרטי הבנק שבהן; `payout_ledger`
+         * לא — הוא Append-Only עם REVOKE, בדיוק כמו credit_ledger,
+         * וניסיון מחיקה שלו היה נופל על permission denied ומפיל את
+         * כל המחיקה.
+         */
+        await tx.payoutRequest.deleteMany({ where: { tenantId } });
         await tx.duplicateDismissal.deleteMany({ where: { tenantId } });
         await tx.googleCalendarLink.deleteMany({ where: { tenantId } });
         await tx.gmailLink.deleteMany({ where: { tenantId } });

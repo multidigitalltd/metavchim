@@ -163,6 +163,7 @@ export class ImportController {
           requirements: {
             cities: row.cities,
             neighborhoods: [],
+            searchAreas: [],
             dealType: row.dealType,
             propertyTypes: [],
             budgetMinAgorot: row.budgetMinAgorot,

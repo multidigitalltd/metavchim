@@ -346,7 +346,7 @@ export function TelephonySection() {
         </div>
       ) : null}
 
-      <form onSubmit={(e) => void connect(e)} className="max-w-md">
+      <form method="post" onSubmit={(e) => void connect(e)} className="max-w-md">
         <div className="mb-3">
           <label htmlFor="tel-provider" className="mb-1 block text-sm font-semibold">
             ספק

@@ -304,7 +304,7 @@ export function PlatformSettingsSection() {
           נדרש לאיפוס סיסמה ולאימות כניסה. הטוקן: Postmark ⟵ Servers ⟵ API Tokens.
           כתובת השולח חייבת להיות מאומתת ב-Postmark (Sender Signature או דומיין).
         </p>
-        <form autoComplete="off" onSubmit={(e) => void saveEmail(e)} className="flex flex-wrap items-end gap-3">
+        <form method="post" autoComplete="off" onSubmit={(e) => void saveEmail(e)} className="flex flex-wrap items-end gap-3">
           <div className="flex-1" style={{ minWidth: "220px" }}>
             <label htmlFor="postmarkServerToken" className="mb-1 block font-medium">
               Server Token {settings.postmark.configured ? <span className="font-normal">(ריק = ללא שינוי)</span> : null}
@@ -447,7 +447,7 @@ export function PlatformSettingsSection() {
           invalid_client על כל ההתחברות. ‎new-password‎ עוצר את הדפדפן,
           ו-data-1p-ignore/data-lpignore את מנהלי הסיסמאות החיצוניים.
         */}
-        <form autoComplete="off" onSubmit={(e) => void saveGoogle(e)} className="flex flex-wrap items-end gap-3">
+        <form method="post" autoComplete="off" onSubmit={(e) => void saveGoogle(e)} className="flex flex-wrap items-end gap-3">
           <div className="flex-1" style={{ minWidth: "220px" }}>
             <label htmlFor="googleClientId" className="mb-1 block font-medium">
               Client ID {settings.google.configured ? <span className="font-normal">(ריק = ללא שינוי)</span> : null}
@@ -544,7 +544,7 @@ export function PlatformSettingsSection() {
             {settings.cardcom.webhookUrl}
           </p>
         </div>
-        <form autoComplete="off" onSubmit={(e) => void saveCardcom(e)} className="flex flex-wrap items-end gap-3">
+        <form method="post" autoComplete="off" onSubmit={(e) => void saveCardcom(e)} className="flex flex-wrap items-end gap-3">
           <div style={{ minWidth: "140px" }}>
             <label htmlFor="cardcomTerminalNumber" className="mb-1 block font-medium">
               מספר מסוף {settings.cardcom.configured ? <span className="font-normal">(ריק = ללא שינוי)</span> : null}
@@ -629,7 +629,7 @@ export function PlatformSettingsSection() {
             {settings.whatsapp.webhookUrl}
           </p>
         </div>
-        <form autoComplete="off" onSubmit={(e) => void saveWhatsApp(e)} className="flex flex-wrap items-end gap-3">
+        <form method="post" autoComplete="off" onSubmit={(e) => void saveWhatsApp(e)} className="flex flex-wrap items-end gap-3">
           <div className="flex-1" style={{ minWidth: "220px" }}>
             <label htmlFor="whatsappAppSecret" className="mb-1 block font-medium">
               App Secret {settings.whatsapp.configured ? <span className="font-normal">(ריק = ללא שינוי)</span> : null}

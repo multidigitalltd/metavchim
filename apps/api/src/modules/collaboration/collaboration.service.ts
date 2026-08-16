@@ -6,7 +6,9 @@ import {
   resolveReferralFeePercent,
   commissionSplitRejectionReason,
   coopOfferCost,
+  planCreditExpiry,
   settleReferral,
+  type PayoutMode,
   referralPriceRejectionReason,
   referralRatingAverage,
   referralRatingRejectionReason,
@@ -28,6 +30,20 @@ import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { rowToFields } from "../properties/property.mapper";
+
+/**
+ * תפוגת הקרדיטים כפי שהמשרד רואה אותה.
+ *
+ * `months: 0` = התפוגה כבויה בפלטפורמה, ואין מה להציג. שדות המנה
+ * הקרובה חסרים כשאין מנה חיה שפגה — משרד שכל יתרתו נרכשה בכסף
+ * לעולם לא יראה תאריך, וזה נכון.
+ */
+export interface CreditExpiryInfo {
+  months: number;
+  nextAmount?: number;
+  /** ISO. התצוגה בעברית נעשית במסך, כמו בכל תאריך במערכת. */
+  nextAt?: string;
+}
 
 /** שורת נכס כפי ש-Prisma מחזירה — הטיפוס נגזר ולא מועתק ידנית. */
 type PropertyRow = Parameters<typeof rowToFields>[0];
@@ -158,8 +174,12 @@ export interface SharedLeadDto {
   priceCredits: number;
   /** כמה מתוך התמורה הולך לפלטפורמה — גלוי לשני הצדדים */
   platformFeeCredits: number;
-  /** מה שנכנס ליתרת המשרד המפנה */
+  /** credits | cash — מה המשרד המפנה בחר לקבל */
+  payoutMode: PayoutMode;
+  /** מה שנכנס ליתרת הקרדיטים של המשרד המפנה, כולל הבונוס */
   payoutCredits: number;
+  /** מה שנכנס ליתרה הכספית שלו, באגורות. 0 במסלול הקרדיטים. */
+  payoutAgorot: number;
   status: string;
   /** true אם ההפניה שלי — נשמר לצד `role` כי כרטיס הליד נשען עליו */
   mine: boolean;
@@ -183,6 +203,20 @@ export interface SharedLeadDto {
 export interface ReferralTermsDto {
   suggestedPriceCredits: number;
   platformFeePercent: number;
+  /**
+   * הכלכלה עצמה, כדי שהמסך יוכל להציג תצוגה מקדימה של **שני**
+   * המסלולים בזמן אמת.
+   *
+   * המספרים נשלחים מהשרת ולא נצרבים במסך: הם משתנים בלי פריסה, ומסך
+   * שמחשב לפי ברירת המחדל שבקוד היה מבטיח למפנה סכום אחד ומזכה
+   * אותו באחר.
+   */
+  economy: {
+    creditBonusPercent: number;
+    feeCreditsPercent: number;
+    feeCashPercent: number;
+    unitPriceAgorot: number;
+  };
 }
 
 @Injectable()
@@ -840,9 +874,16 @@ export class CollaborationService {
       if (!lead) throw new NotFoundException("ליד לא נמצא");
       return lead.source;
     });
+    const economy = await this.creditEconomy.current();
     return {
       suggestedPriceCredits: suggestedReferralPrice(source, prices),
       platformFeePercent: await this.feePercent(),
+      economy: {
+        creditBonusPercent: economy.creditBonusPercent,
+        feeCreditsPercent: economy.feeCreditsPercent,
+        feeCashPercent: economy.feeCashPercent,
+        unitPriceAgorot: economy.unitPriceAgorot,
+      },
     };
   }
 
@@ -865,6 +906,7 @@ export class CollaborationService {
     reasonDetail?: string;
     note?: string;
     city?: string;
+    payoutMode?: PayoutMode;
   }): Promise<SharedLeadDto> {
     const ctx = TenantContext.current();
     const id = ulid();
@@ -873,17 +915,19 @@ export class CollaborationService {
     const reasonProblem = referralReasonRejectionReason(input.reason, input.reasonDetail);
     if (reasonProblem) throw new BadRequestException(reasonProblem);
     /*
-     * החלוקה לפי הכלכלה שהוגדרה בפלטפורמה, כולל הבונוס. קודם נקרא
-     * כאן `referralPayout` עם אחוז העמלה בלבד, ולכן הבונוס שהוגדר
-     * במסך לא השפיע על אף עסקה — הגדרה מסחרית שנראית פעילה ואינה.
+     * החלוקה לפי הכלכלה שהוגדרה בפלטפורמה, כולל הבונוס, ולפי המסלול
+     * שהמשרד המפנה בחר. שני המסלולים פעילים: מי שבוחר קרדיטים מקבל
+     * בונוס כי הערך נשאר במערכת, ומי שבוחר כסף מקבל פחות כי
+     * הפלטפורמה משלמת בפועל.
      *
-     * המסלול הוא `credits` תמיד בשלב הזה: מסלול הכסף דורש יתרה
-     * כספית ומשיכה, ואלה עדיין לא קיימים. בחירה שאין מאחוריה תשלום
-     * גרועה מהיעדר בחירה.
+     * **התמורה מצולמת על השורה** ולא נגזרת מחדש בקליטה. עד כה
+     * הקליטה חישבה `priceCredits - platformFee`, ולכן הבונוס חושב
+     * כאן ומעולם לא שולם — הגדרה מסחרית שנראית פעילה ואינה.
      */
+    const mode: PayoutMode = input.payoutMode ?? "credits";
     const payout = settleReferral(
       input.priceCredits,
-      "credits",
+      mode,
       await this.creditEconomy.current(),
     );
 
@@ -932,6 +976,9 @@ export class CollaborationService {
             contactPhoneHash: contact.phoneHash,
             priceCredits: payout.priceCredits,
             platformFeeCredits: payout.platformFeeCredits,
+            payoutMode: mode,
+            payoutCredits: payout.payoutCredits,
+            payoutAgorot: payout.payoutAgorot,
           },
         })
         .catch((error: unknown) => {
@@ -951,6 +998,9 @@ export class CollaborationService {
           reason: input.reason,
           priceCredits: payout.priceCredits,
           platformFeeCredits: payout.platformFeeCredits,
+          payoutMode: mode,
+          payoutCredits: payout.payoutCredits,
+          payoutAgorot: payout.payoutAgorot,
         },
       });
       return created;
@@ -1128,7 +1178,16 @@ export class CollaborationService {
      * למפנה הוא באג שקט שמופיע כחוב.
      */
     const platformFee = Math.max(0, Math.min(row.platformFeeCredits, cost - 1));
-    const referrerPayout = cost - platformFee;
+    /*
+     * התמורה **מצולמת על השורה** ברגע הפרסום, ומשולמת כמות שהיא.
+     * החישוב מחדש כאן היה `cost - platformFee`, שהתעלם מהבונוס על
+     * בחירת קרדיטים — הוא חושב בפרסום ולא הגיע לאף משרד.
+     *
+     * שורות שפורסמו לפני הצילום נושאות 0 ומקבלות בדיוק את מה שהיו
+     * מקבלות אז. אין כאן שינוי תנאים בדיעבד לעסקה שכבר בלוח.
+     */
+    const isCash = row.payoutMode === "cash";
+    const referrerPayout = row.payoutCredits > 0 ? row.payoutCredits : cost - platformFee;
 
     /*
      * המשרד המפנה המיר את הליד אחרי הפרסום? הרישום יורד מהלוח במקום
@@ -1164,15 +1223,32 @@ export class CollaborationService {
        * משרד — היא ההפרש בין מה שהקולט חויב למה שהמפנה זוכה, והיא
        * שמורה על שורת ההפניה וביומן הביקורת לצורך דיווח.
        */
-      await tx.creditLedger.create({
-        data: {
-          id: ulid(),
-          tenantId: row.tenantId,
-          kind: "lead_sale",
-          amount: referrerPayout,
-          refId: sharedLeadId,
-        },
-      });
+      /*
+       * שני ספרים, ולכל מסלול שלו. קרדיט הוא אמצעי תשלום פנימי,
+       * ושקל הוא התחייבות של הפלטפורמה — ערבובם באותו מספר היה
+       * הופך כל בונוס בקרדיטים לחוב כספי.
+       */
+      if (isCash) {
+        await tx.payoutLedger.create({
+          data: {
+            id: ulid(),
+            tenantId: row.tenantId,
+            kind: "lead_sale",
+            amountAgorot: row.payoutAgorot,
+            refId: sharedLeadId,
+          },
+        });
+      } else {
+        await tx.creditLedger.create({
+          data: {
+            id: ulid(),
+            tenantId: row.tenantId,
+            kind: "lead_sale",
+            amount: referrerPayout,
+            refId: sharedLeadId,
+          },
+        });
+      }
       await tx.outboxEvent.create({
         data: {
           id: ulid(),
@@ -1182,7 +1258,8 @@ export class CollaborationService {
             sharedLeadId,
             tenantId: row.tenantId,
             priceCredits: cost,
-            payoutCredits: referrerPayout,
+            payoutCredits: isCash ? 0 : referrerPayout,
+            payoutAgorot: isCash ? row.payoutAgorot : 0,
           },
         },
       });
@@ -1426,6 +1503,9 @@ export class CollaborationService {
       reasonDetail: string | null;
       priceCredits: number;
       platformFeeCredits: number;
+      payoutMode: string;
+      payoutCredits: number;
+      payoutAgorot: number;
       status: string;
       buyerTenantId: string | null;
       createdAt: Date;
@@ -1459,7 +1539,22 @@ export class CollaborationService {
       reasonDetail: row.reasonDetail ?? undefined,
       priceCredits: row.priceCredits,
       platformFeeCredits,
-      payoutCredits: row.priceCredits - platformFeeCredits,
+      payoutMode: row.payoutMode as PayoutMode,
+      /*
+       * התמורה כפי שצולמה בפרסום. שורות שקדמו לצילום נושאות 0,
+       * ולהן מוצג מה שהיה מוצג להן אז — price פחות העמלה, בלי בונוס.
+       *
+       * הנפילה-לאחור חלה **רק במסלול הקרדיטים**. בלי התנאי הזה
+       * הפניה שנמכרה בכסף הציגה גם "75 קרדיטים" לצד הסכום בשקלים,
+       * כלומר הבטיחה תמורה כפולה (התגלה בבדיקה מול API אמיתי).
+       */
+      payoutCredits:
+        row.payoutMode === "cash"
+          ? 0
+          : row.payoutCredits > 0
+            ? row.payoutCredits
+            : row.priceCredits - platformFeeCredits,
+      payoutAgorot: row.payoutAgorot,
       status: row.status,
       mine,
       role,
@@ -1528,10 +1623,54 @@ export class CollaborationService {
     balance: number;
     unitPriceAgorot: number;
     packages: { credits: number; priceAgorot: number }[];
+    expiry: CreditExpiryInfo;
   }> {
     const economy = await this.creditEconomy.current();
     const { balance } = await this.balance();
-    return { balance, unitPriceAgorot: economy.unitPriceAgorot, packages: economy.packages };
+    return {
+      balance,
+      unitPriceAgorot: economy.unitPriceAgorot,
+      packages: economy.packages,
+      expiry: await this.expiryInfo(economy.expiryMonths),
+    };
+  }
+
+  /**
+   * מה עומד לפוג ומתי — למסך הקרדיטים של המשרד.
+   *
+   * המשרד רואה יתרה אחת, אבל היא מורכבת ממנות עם תאריכים שונים.
+   * בלי החלון הזה, "היו לי 40 קרדיטים ועכשיו 25" הוא הפתעה שמגיעה
+   * אחרי מעשה. החישוב זהה לזה שהסריקה מריצה — אותה פונקציה, לא
+   * העתק שלה.
+   */
+  private async expiryInfo(expiryMonths: number): Promise<CreditExpiryInfo> {
+    if (expiryMonths <= 0) return { months: 0 };
+    const tenantId = TenantContext.current().tenantId;
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.creditLedger.findMany({
+        where: { tenantId },
+        select: { id: true, kind: true, amount: true, refId: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
+      }),
+    );
+    const plan = planCreditExpiry(rows, expiryMonths, new Date());
+    /*
+     * המנה הקרובה ביותר לפוג ועדיין חיה. לא סכום כל מה שיפוג אי פעם:
+     * "כל הקרדיטים שלך יפוגו בסופו של דבר" נכון וחסר תועלת. מה
+     * שמניע פעולה הוא התאריך הקרוב ומה שקשור אליו.
+     */
+    const live = plan.batches
+      .filter((b) => b.expiresAt !== null && b.remaining > 0)
+      .sort((a, b) => a.expiresAt!.getTime() - b.expiresAt!.getTime());
+    const next = live[0];
+    if (!next) return { months: expiryMonths };
+    return {
+      months: expiryMonths,
+      nextAmount: live
+        .filter((b) => b.expiresAt!.getTime() === next.expiresAt!.getTime())
+        .reduce((sum, b) => sum + b.remaining, 0),
+      nextAt: next.expiresAt!.toISOString(),
+    };
   }
 
   private async balance(): Promise<{ balance: number }> {

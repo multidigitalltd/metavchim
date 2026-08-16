@@ -2,6 +2,12 @@ import { Injectable } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   BuyerRequirementsSchema,
+  boundingBox,
+  locationNameVariants,
+  summarizeDismissals,
+  DISMISS_REASONS,
+  type DismissReason,
+  type DismissReport,
   resolveMatchWeights,
   scoreMatch,
   MATCH_THRESHOLDS,
@@ -194,14 +200,30 @@ export class MatchingService {
       }
       const fields = rowToFields(property);
 
-      // שלב 1 — סינון גס: עיר, סוג עסקה, ותקציב עם מרווח הגמישות (7%)
+      /*
+       * שלב 1 — סינון גס: עיר, סוג עסקה, ותקציב עם מרווח הגמישות (7%).
+       *
+       * **הסינון חייב להיות רחב לפחות כמו המנוע.** קונה שכתב
+       * "בני-ברק" מול נכס ב"בני ברק" נופל בהשוואת מחרוזות ולא מגיע
+       * בכלל לניקוד — הסינון הגס היה מבטל את כל הסלחנות שנוספה
+       * למנוע. `locationNameVariants` מרחיב לכל הכתיבים המקובלים.
+       *
+       * קונה שסימן אזורים על המפה נכנס תמיד: הרדיוס שלו עשוי לכלול
+       * את הנכס גם כשהעיר שונה לחלוטין, וזו בדיוק הנקודה. הסינון
+       * המדויק לפי מרחק קורה במנוע.
+       */
+      const cityVariants = locationNameVariants(property.city);
       const candidates = await tx.buyer.findMany({
         where: {
           tenantId,
           deletedAt: null,
           dealType: property.dealType,
-          // רשימת ערים ריקה = בלי מגבלת אזור — הקונה נשאר מועמד
-          OR: [{ cities: { has: property.city } }, { cities: { isEmpty: true } }],
+          OR: [
+            { cities: { hasSome: cityVariants } },
+            // רשימת ערים ריקה = בלי מגבלת אזור — הקונה נשאר מועמד
+            { cities: { isEmpty: true } },
+            { hasSearchAreas: true },
+          ],
           budgetMaxAgorot: { gte: BigInt(Math.floor(Number(property.priceAgorot) / 1.07)) },
         },
         select: { id: true, requirements: true },
@@ -260,12 +282,39 @@ export class MatchingService {
       if (!parsed.success) return 0;
       const requirements = parsed.data;
 
+      /*
+       * הכיוון ההפוך, ואותו עיקרון: הסינון רחב לפחות כמו המנוע.
+       *
+       * כשיש אזורי חיפוש, התיבה התוחמת סביבם מחליפה את סינון העיר
+       * — היא אינדקסבילית, וכוללת את טווח החסד כך שנכס שמנוקד לא
+       * ייפול כאן. נכס בלי קואורדינטה נכנס דרך שם העיר, כי עליו
+       * המנוע ממילא ייפול חזרה לטקסט.
+       */
+      const areas = requirements.searchAreas ?? [];
+      const box = boundingBox(areas);
+      const cityNames = requirements.cities.flatMap((c) => locationNameVariants(c));
+      const locationFilter =
+        box !== null
+          ? {
+              OR: [
+                {
+                  latitude: { gte: box.minLat, lte: box.maxLat },
+                  longitude: { gte: box.minLon, lte: box.maxLon },
+                },
+                ...(cityNames.length > 0 ? [{ city: { in: cityNames } }] : []),
+                { latitude: null },
+              ],
+            }
+          : cityNames.length > 0
+            ? { city: { in: cityNames } }
+            : {};
+
       const candidates = await tx.property.findMany({
         where: {
           tenantId,
           deletedAt: null,
           status: { in: ["draft", "active"] },
-          ...(requirements.cities.length > 0 ? { city: { in: requirements.cities } } : {}),
+          ...locationFilter,
           ...(requirements.dealType ? { dealType: requirements.dealType } : {}),
           priceAgorot: { lte: BigInt(Math.floor(Number(requirements.budgetMaxAgorot) * 1.07)) },
         },
@@ -511,15 +560,57 @@ export class MatchingService {
    * כפופה לבעלות על אותו קונה. ישבה עד כה בבקר עם גישה ישירה ל-Prisma,
    * ושם קל היה לפספס שמדובר בכתיבה על נתון של מישהו אחר.
    */
-  async dismiss(matchId: string): Promise<void> {
-    const tenantId = TenantContext.current().tenantId;
+  /**
+   * "סמן לא רלוונטי" — **עם סיבה.**
+   *
+   * הסיבה אינה קישוט: היא היחידה שמאפשרת לדעת אילו קריטריונים
+   * מייצרים התאמות שאיש לא רוצה, ולכייל את המשקלים לפי מציאות ולא
+   * לפי תחושה. היא אופציונלית בחוזה כדי שלקוח ישן של ה-API לא
+   * יישבר, והמסך מבקש אותה תמיד.
+   */
+  async dismiss(
+    matchId: string,
+    feedback?: { reason: DismissReason; note?: string },
+  ): Promise<void> {
+    const ctx = TenantContext.current();
     await this.prisma.withTenant(async (tx) => {
-      await assertMatchAccess(tx, tenantId, matchId);
+      await assertMatchAccess(tx, ctx.tenantId, matchId);
       await tx.match.updateMany({
-        where: { id: matchId, tenantId, status: "suggested" },
-        data: { status: "dismissed" },
+        where: { id: matchId, tenantId: ctx.tenantId, status: "suggested" },
+        data: {
+          status: "dismissed",
+          dismissedAt: new Date(),
+          dismissedBy: ctx.userId,
+          ...(feedback
+            ? { dismissReason: feedback.reason, dismissNote: feedback.note?.trim() || null }
+            : {}),
+        },
       });
     });
+  }
+
+  /**
+   * דוח "למה התאמות נדחות".
+   *
+   * חלון זמן ולא "מאז ומעולם": מנוע שכויל לפני חצי שנה ומאז השתנו
+   * המשקלים אינו מעניין, ודוח שמערבב את שתי התקופות מסתיר בדיוק את
+   * מה שהשתנה.
+   */
+  async dismissReport(days: number): Promise<DismissReport> {
+    const tenantId = TenantContext.current().tenantId;
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.match.findMany({
+        where: { tenantId, dismissReason: { not: null }, dismissedAt: { gte: since } },
+        select: { dismissReason: true },
+        take: 5000,
+      }),
+    );
+    return summarizeDismissals(
+      rows
+        .map((r) => r.dismissReason)
+        .filter((r): r is DismissReason => r !== null && DISMISS_REASONS.includes(r as DismissReason)),
+    );
   }
 }
 

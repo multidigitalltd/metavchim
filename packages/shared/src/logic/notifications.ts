@@ -174,7 +174,15 @@ export function notificationFromEvent<E extends DomainEventName>(
         tenantId: p.tenantId,
         type: "shared_lead_sold",
         title: "💰 ההפניה שפרסמתם נקלטה",
-        body: `משרד אחר קלט את הלקוח שהפניתם — ${p.payoutCredits ?? p.priceCredits} קרדיטים נוספו ליתרה שלכם.`,
+        /*
+         * המסלול שנבחר בפרסום קובע את הניסוח. "קרדיטים נוספו ליתרה"
+         * על הפניה שנמכרה בכסף היה שולח את המשרד לחפש אותם במקום
+         * הלא נכון.
+         */
+        body:
+          p.payoutAgorot !== undefined && p.payoutAgorot > 0
+            ? `משרד אחר קלט את הלקוח שהפניתם — ${shekels(p.payoutAgorot)} ₪ נוספו ליתרה הכספית שלכם, וניתן למשוך אותם.`
+            : `משרד אחר קלט את הלקוח שהפניתם — ${p.payoutCredits ?? p.priceCredits} קרדיטים נוספו ליתרה שלכם.`,
         entityType: "shared_lead",
         entityId: p.sharedLeadId,
       };

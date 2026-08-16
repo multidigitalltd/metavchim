@@ -221,6 +221,7 @@ export class PersonIntakeService {
       requirements: {
         cities: input.cities,
         neighborhoods: [],
+        searchAreas: [],
         dealType: input.dealType,
         propertyTypes: [],
         budgetMaxAgorot: input.budgetMaxAgorot,

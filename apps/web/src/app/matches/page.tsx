@@ -3,6 +3,11 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import {
+  DISMISS_REASONS,
+  DISMISS_REASON_LABEL,
+  type DismissReason,
+} from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
@@ -95,6 +100,8 @@ function MatchesView() {
   const [notice, setNotice] = useState<string | null>(null);
   const [signUrl, setSignUrl] = useState<string | null>(null);
   const [sending, setSending] = useState<string | null>(null);
+  /** ההתאמה שפתחה את בחירת סיבת הדחייה. */
+  const [dismissing, setDismissing] = useState<string | null>(null);
   const requestSeq = useRef(0);
 
   const load = useCallback(
@@ -123,8 +130,17 @@ function MatchesView() {
     [items, direction],
   );
 
-  async function dismiss(id: string) {
-    await apiPatch(`/matches/${id}/dismiss`, {});
+  /**
+   * דחייה **עם סיבה**.
+   *
+   * הסיבה אינה שאלה מיותרת: היא הדבר היחיד שהופך שמונה דחיות ביום
+   * למידע שאפשר לכייל לפיו את משקלי ההתאמה. הבחירה היא לחיצה אחת
+   * מרשימה קצרה — לא טופס — כי סוכן שדוחה התאמה רוצה שהיא תיעלם,
+   * לא למלא שאלון.
+   */
+  async function dismiss(id: string, reason: DismissReason) {
+    setDismissing(null);
+    await apiPatch(`/matches/${id}/dismiss`, { reason });
     setItems((prev) => (prev ? prev.filter((m) => m.id !== id) : prev));
   }
 
@@ -290,7 +306,8 @@ function MatchesView() {
                       <button
                         type="button"
                         className="mv-btn-plain"
-                        onClick={() => void dismiss(m.id)}
+                        aria-expanded={dismissing === m.id}
+                        onClick={() => setDismissing(dismissing === m.id ? null : m.id)}
                       >
                         לא רלוונטי
                       </button>
@@ -306,6 +323,29 @@ function MatchesView() {
                     </>
                   )}
                 </div>
+                {/*
+                  הרשימה נפתחת מתחת לשורה ולא כדיאלוג: היא קצרה,
+                  והלחיצה השנייה היא הפעולה עצמה — שני קליקים בסך
+                  הכול, כמו קודם ועם המידע.
+                */}
+                {dismissing === m.id ? (
+                  <div className="mt-2 flex w-full flex-wrap items-center gap-1.5 border-t pt-2" style={{ borderColor: "var(--color-border)" }}>
+                    <span className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                      למה לא מתאים?
+                    </span>
+                    {DISMISS_REASONS.map((reason) => (
+                      <button
+                        key={reason}
+                        type="button"
+                        className="mv-chip"
+                        style={{ cursor: "pointer" }}
+                        onClick={() => void dismiss(m.id, reason)}
+                      >
+                        {DISMISS_REASON_LABEL[reason]}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ))}
           </section>

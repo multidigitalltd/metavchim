@@ -13,12 +13,14 @@ import {
   MIN_COMMISSION_SHARE,
   MIN_REFERRAL_PRICE,
   MIN_REFERRAL_RATING,
+  type PayoutMode,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
   CollaborationService,
   type CoopOfferDto,
+  type CreditExpiryInfo,
   type NetworkDemandMatchDto,
   type NetworkPropertyOfferDto,
   type ReferralTermsDto,
@@ -62,6 +64,12 @@ const RespondSchema = z.object({ response: z.enum(["interested", "declined"]) })
  * ידחה. תוקף הסיבה עצמה נבדק בשירות (`referralReasonRejectionReason`),
  * כי הכלל "אחר מחייב פירוט" חוצה שני שדות.
  */
+/*
+ * `satisfies` ולא רשימה חופשית: אם `PayoutMode` יקבל מסלול שלישי,
+ * השורה הזו תיכשל בקומפילציה במקום לקבל ערך שהשרת לא יודע לטפל בו.
+ */
+const PayoutModeSchema = z.enum(["credits", "cash"]) satisfies z.ZodType<PayoutMode>;
+
 const ShareLeadSchema = z
   .object({
     leadId: IdSchema,
@@ -70,6 +78,11 @@ const ShareLeadSchema = z
     reasonDetail: z.string().trim().max(MAX_REFERRAL_REASON_DETAIL).optional(),
     note: z.string().trim().max(MAX_REFERRAL_NOTE).optional(),
     city: z.string().trim().max(MAX_REFERRAL_CITY).optional(),
+    /*
+     * המסלול נקבע כאן פעם אחת ולתמיד — הוא נצרב על ההפניה. חסר =
+     * קרדיטים, כדי שלקוחות ישנים של ה-API ימשיכו לעבוד כמו קודם.
+     */
+    payoutMode: PayoutModeSchema.optional(),
   })
   .strict();
 const RateReferralSchema = z
@@ -197,6 +210,7 @@ export class CollaborationController {
     balance: number;
     unitPriceAgorot: number;
     packages: { credits: number; priceAgorot: number }[];
+    expiry: CreditExpiryInfo;
   }> {
     return this.collaboration.credits();
   }

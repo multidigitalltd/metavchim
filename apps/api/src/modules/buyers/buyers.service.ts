@@ -115,6 +115,7 @@ export class BuyersService {
           // מסוכן שרואה רק view_own (ביקורת Codex, P1)
           ownerUserId: lead.assignedToUserId ?? ctx.userId,
           cities: input.requirements.cities,
+          hasSearchAreas: input.requirements.searchAreas.length > 0,
           dealType: input.requirements.dealType,
           budgetMinAgorot:
             input.requirements.budgetMinAgorot === undefined
@@ -222,6 +223,7 @@ export class BuyersService {
           contactId: contact.id,
           ownerUserId: TenantContext.current().userId,
           cities: input.requirements.cities,
+          hasSearchAreas: input.requirements.searchAreas.length > 0,
           dealType: input.requirements.dealType,
           budgetMinAgorot:
             input.requirements.budgetMinAgorot === undefined
@@ -296,6 +298,7 @@ export class BuyersService {
           ...(patch.requirements
             ? {
                 cities: patch.requirements.cities,
+                hasSearchAreas: patch.requirements.searchAreas.length > 0,
                 dealType: patch.requirements.dealType,
                 budgetMinAgorot:
                   patch.requirements.budgetMinAgorot === undefined

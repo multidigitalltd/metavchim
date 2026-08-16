@@ -69,7 +69,7 @@ export function DeleteAccountSection({ tenantName }: { tenantName: string }) {
           מחק את החשבון…
         </button>
       ) : (
-        <form onSubmit={(e) => void onSubmit(e)} className="flex max-w-sm flex-col gap-3">
+        <form method="post" onSubmit={(e) => void onSubmit(e)} className="flex max-w-sm flex-col gap-3">
           {error ? (
             <p role="alert" className="m-0 text-sm" style={{ color: "var(--color-danger)" }}>
               {error}

@@ -7,6 +7,8 @@ import {
   describeCommissionSplit,
   describeReferralRating,
   referralReasonLabel,
+  shekels,
+  type PayoutMode,
 } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
@@ -20,6 +22,7 @@ import { IconDiamond, IconHandshake, IconStar } from "../icons";
 import { CollaborationGuide, CommissionPanel, PrivacyPanel, ReferralRulesPanel } from "./guide";
 import { ReferralRating, type ReferralRatingValue } from "./referral-rating";
 import { BuyCredits } from "./buy-credits";
+import { PayoutPanel } from "./payout-panel";
 
 /**
  * רשת שיתופי הפעולה (אפיון §11-12).
@@ -120,7 +123,9 @@ interface SharedLeadRow {
   reasonDetail?: string;
   priceCredits: number;
   platformFeeCredits: number;
+  payoutMode?: PayoutMode;
   payoutCredits: number;
+  payoutAgorot?: number;
   status: string;
   mine: boolean;
   /** התפקיד שלי מול ההפניה — קובע מה מוצג ומה אפשר לעשות */
@@ -137,6 +142,33 @@ interface PropertyOption {
   city?: string;
   street?: string;
   marketingTitle?: string;
+}
+
+/**
+ * תפוגת הקרדיטים כפי שהשרת מדווח אותה.
+ *
+ * `months: 0` = התפוגה כבויה בפלטפורמה. `nextAt` חסר גם כשהתפוגה
+ * פעילה אבל אין מנה חיה שפגה — למשל משרד שכל יתרתו נרכשה בכסף.
+ */
+interface CreditExpiry {
+  months: number;
+  nextAmount?: number;
+  nextAt?: string;
+}
+
+/**
+ * מה המשרד המפנה מקבל, בניסוח של המסלול שנבחר.
+ *
+ * שורות שפורסמו לפני מסלול הכסף אינן נושאות `payoutMode` — הן
+ * קרדיטים, וזה מה שהיו אז.
+ */
+function referralPayoutLabel(lead: {
+  payoutMode?: PayoutMode;
+  payoutCredits: number;
+  payoutAgorot?: number;
+}): string {
+  if (lead.payoutMode === "cash") return `${shekels(lead.payoutAgorot ?? 0)} ₪`;
+  return `${lead.payoutCredits} קרדיטים`;
 }
 
 const FEATURE_LABELS: Record<string, string> = {
@@ -167,6 +199,8 @@ export default function CollaborationPage() {
     unitPriceAgorot: number;
     packages: { credits: number; priceAgorot: number }[];
   } | null>(null);
+  /** מה עומד לפוג מהיתרה ומתי. חסר = אין תפוגה, או שאין מנה שפגה. */
+  const [expiry, setExpiry] = useState<CreditExpiry | null>(null);
   const [selectedProperty, setSelectedProperty] = useState<Record<string, string>>({});
   /*
    * החלוקה לכל ביקוש בנפרד. ברירת המחדל היא מה שהמשרד המשתף ביקש,
@@ -211,10 +245,12 @@ export default function CollaborationPage() {
       balance: number;
       unitPriceAgorot: number;
       packages: { credits: number; priceAgorot: number }[];
+      expiry?: CreditExpiry;
     }>("/collaboration/credits")
       .then((r) => {
         setBalance(r.balance);
         setPricing({ unitPriceAgorot: r.unitPriceAgorot, packages: r.packages });
+        setExpiry(r.expiry ?? null);
       })
       .catch(() => undefined);
     apiGet<{ items: PropertyOption[] }>("/properties?limit=50")
@@ -465,6 +501,17 @@ export default function CollaborationPage() {
             </span>
           </div>
           {/*
+            התפוגה נאמרת ליד היתרה ולא במסך הגדרות. "היו לי 40 ועכשיו
+            25" הוא בדיוק סוג ההפתעה שמייצרת פנייה לתמיכה, והמקום
+            היחיד שבו היא נמנעת הוא המקום שבו מסתכלים על המספר.
+          */}
+          {expiry !== null && expiry.nextAt !== undefined ? (
+            <p className="m-0 mt-1.5 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+              {expiry.nextAmount} מהם פגים ב-{new Date(expiry.nextAt).toLocaleDateString("he-IL")}.
+              קרדיטים שנרכשו בכסף אינם פגים.
+            </p>
+          ) : null}
+          {/*
             הרכישה יושבת מתחת ליתרה ולא במסך אחר: הרגע שבו מגלים שאין
             מספיק הוא הרגע שבו רוצים לקנות.
           */}
@@ -474,6 +521,12 @@ export default function CollaborationPage() {
               packages={pricing.packages}
             />
           ) : null}
+          {/*
+            היתרה הכספית לצד יתרת הקרדיטים, ולא במסך אחר: אלה שתי
+            תוצאות של אותה פעולה — הפניה שנמכרה — ומי שמחפש את
+            הכסף שלו מחפש אותו כאן.
+          */}
+          <PayoutPanel />
           {leadsFailed ? (
             <LoadError message="לא הצלחנו לטעון את לוח ההפניות" onRetry={load} />
           ) : null}
@@ -499,14 +552,19 @@ export default function CollaborationPage() {
                       </span>
                       {lead.status === "sold" ? (
                         <span className="font-medium" style={{ color: "var(--color-success)" }}>
-                          ✓ נקלטה — {lead.payoutCredits} קרדיטים נוספו ליתרה
+                          {/*
+                            הניסוח לפי המסלול שנבחר. "0 קרדיטים נוספו
+                            ליתרה" על הפניה שנמכרה בכסף הוא בדיוק
+                            ההפך ממה שקרה.
+                          */}
+                          ✓ נקלטה — {referralPayoutLabel(lead)} נוספו ליתרה
                         </span>
                       ) : lead.status === "withdrawn" ? (
                         <span style={{ color: "var(--color-text-muted)" }}>הוסרה מהלוח</span>
                       ) : (
                         <>
                           <span className="rounded-full px-2 py-0.5 text-sm" style={{ background: "#f7efdd", color: "#7a5c1f" }}>
-                            {lead.priceCredits} קרדיטים · אליכם {lead.payoutCredits}
+                            {lead.priceCredits} קרדיטים · אליכם {referralPayoutLabel(lead)}
                           </span>
                           <Button variant="ghost" onClick={() => void withdrawLead(lead.id)}>
                             הסר מהלוח

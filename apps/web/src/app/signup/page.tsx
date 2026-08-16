@@ -177,7 +177,7 @@ export default function SignupPage(): React.JSX.Element {
           </Link>
         </p>
       ) : (
-        <form onSubmit={(e) => void submit(e)} noValidate aria-describedby={error ? "signup-error" : undefined}>
+        <form method="post" onSubmit={(e) => void submit(e)} noValidate aria-describedby={error ? "signup-error" : undefined}>
           <fieldset className="m-0 mb-5 border-0 p-0">
             <legend className="mb-2 text-[13.5px] font-bold">בחרו מסלול</legend>
             <div className="grid gap-2">

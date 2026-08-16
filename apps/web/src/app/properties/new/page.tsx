@@ -10,6 +10,7 @@ import { DictateFor } from "../../dictation-field";
 import { PriceField } from "../../price-field";
 import { FeatureChips } from "../feature-chips";
 import { EntryTimingField } from "../entry-timing-field";
+import { LocationPicker, type LocationValue } from "../location-picker";
 
 const inputStyle = {
   borderColor: "var(--color-border)",
@@ -34,6 +35,25 @@ export default function NewPropertyPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  /*
+   * המיקום בטופס הקליטה ולא רק בכרטיס.
+   *
+   * עד כה הוא הופיע רק אחרי שהנכס נוצר, ולכן רוב הנכסים נשארו בלי
+   * קואורדינטה — וכל התאמה לפי מרחק נפלה חזרה לשם העיר. השרת מפענח
+   * את הכתובת בעצמו ביצירה, וזה כאן למי שרוצה לדייק: "הבניין מול
+   * בית הכנסת" אינו כתובת שאפשר לפענח, אבל אפשר להצביע עליו.
+   */
+  const [location, setLocation] = useState<LocationValue>({});
+  /*
+   * המפה נטענת רק כשפותחים אותה.
+   *
+   * `<details>` סגור עדיין מרנדר את תוכנו, ולכן MapLibre היה עולה
+   * ומושך אריחים בכל כניסה לטופס קליטה — גם למי שלא נגע במפה.
+   * זו תעבורה על חשבון המכסה של הספק, ועיכוב בטעינת מסך שהמפה
+   * אינה חלק ממנו.
+   */
+  const [mapOpen, setMapOpen] = useState(false);
+  const [address, setAddress] = useState({ city: "", neighborhood: "", street: "" });
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -70,6 +90,10 @@ export default function NewPropertyPage() {
         hasBalcony: triState(f, "hasBalcony"),
         hasSafeRoom: triState(f, "hasSafeRoom"),
         marketingTitle: String(f.get("marketingTitle") ?? "").trim() || undefined,
+        // הסוכן סימן ידנית ⇒ השרת לא ידרוס בפענוח אוטומטי
+        latitude: location.latitude,
+        longitude: location.longitude,
+        locationSource: location.locationSource,
         ...(String(f.get("ownerName") ?? "").trim() !== "" &&
         String(f.get("ownerPhone") ?? "").trim() !== ""
           ? {
@@ -104,17 +128,66 @@ export default function NewPropertyPage() {
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <label htmlFor="city" className="mb-1 block font-medium">עיר *</label>
-              <input id="city" name="city" required className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+              <input
+                id="city"
+                name="city"
+                required
+                onChange={(e) => setAddress((a) => ({ ...a, city: e.target.value }))}
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
             </div>
             <div>
               <label htmlFor="neighborhood" className="mb-1 block font-medium">שכונה</label>
-              <input id="neighborhood" name="neighborhood" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+              <input
+                id="neighborhood"
+                name="neighborhood"
+                onChange={(e) => setAddress((a) => ({ ...a, neighborhood: e.target.value }))}
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
             </div>
             <div>
               <label htmlFor="street" className="mb-1 block font-medium">רחוב</label>
-              <input id="street" name="street" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+              <input
+                id="street"
+                name="street"
+                onChange={(e) => setAddress((a) => ({ ...a, street: e.target.value }))}
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
             </div>
           </div>
+
+          {/*
+            המפה נפתחת בלחיצה ואינה תופסת את המסך מלכתחילה: השרת
+            מפענח את הכתובת בעצמו, ורוב הנכסים לא יזדקקו לה. מי
+            שכן — מקבל אותה במקום שבו הוא כבר עומד, ולא בכרטיס
+            שייפתח אחר כך.
+          */}
+          <details className="mt-4" onToggle={(e) => setMapOpen(e.currentTarget.open)}>
+            <summary className="cursor-pointer text-sm font-medium">
+              סימון מדויק על המפה
+              {location.latitude !== undefined ? (
+                <span className="ms-1.5" style={{ color: "var(--color-success)" }}>✓ סומן</span>
+              ) : (
+                <span className="ms-1.5 font-normal" style={{ color: "var(--color-text-muted)" }}>
+                  · לא חובה — הכתובת תפוענח אוטומטית
+                </span>
+              )}
+            </summary>
+            {mapOpen ? (
+              <div className="mt-3">
+                <LocationPicker
+                  value={location}
+                  addressText={[address.street, address.neighborhood, address.city]
+                    .filter((part) => part.trim() !== "")
+                    .join(", ")}
+                  onChange={setLocation}
+                />
+              </div>
+            ) : null}
+          </details>
         </fieldset>
 
         <fieldset className="mb-6 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>

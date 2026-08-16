@@ -16,6 +16,7 @@ import { PlatformSettingsSection } from "./platform-settings-section";
 import { CreditEconomySection } from "./credit-economy-section";
 import { SystemUpdateSection } from "./system-update-section";
 import { SupportDeskSection } from "./support-desk-section";
+import { PayoutDeskSection } from "./payout-desk-section";
 
 /**
  * ניהול הפלטפורמה — הקמת משרדי תיווך חדשים בלי SSH. נגיש רק למנהלי
@@ -366,6 +367,13 @@ export default function PlatformPage() {
         בקצה השני שלה.
       */}
       <SupportDeskSection />
+
+      {/*
+        מיד אחרי התמיכה: גם כאן מישהו ממתין בקצה השני, וכאן הוא ממתין
+        לכסף. תור משיכות ששוכב שבוע הוא הדרך המהירה ביותר לאבד את
+        אמון המשרדים ברשת ההפניות.
+      */}
+      <PayoutDeskSection />
 
       <SystemUpdateSection />
 

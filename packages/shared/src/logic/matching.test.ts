@@ -92,3 +92,103 @@ describe("scoreMatch — מנוע ההתאמות", () => {
     expect(criteria).toContain("rooms");
   });
 });
+
+/**
+ * המיקום — שני המסלולים.
+ *
+ * עד כה הקריטריון היה `a.trim() === b.trim()` על שם העיר, והוא
+ * קריטריון **פוסל**: כתיב שונה לא הוריד ניקוד אלא מחק את ההתאמה.
+ */
+describe("scoreMatch — מיקום", () => {
+  const areaBuyer: BuyerRequirements = {
+    ...baseBuyer,
+    cities: [],
+    searchAreas: [{ lat: 32.0853, lon: 34.7818, radiusKm: 2, label: "ליד העבודה" }],
+  };
+  const located = (lat: number, lon: number): PropertyFields => ({
+    ...baseProperty,
+    city: "תל אביב יפו",
+    latitude: lat,
+    longitude: lon,
+  });
+
+  it("כתיב שונה של אותה עיר אינו מוחק את ההתאמה", () => {
+    const result = scoreMatch(
+      { ...baseProperty, city: "בני-ברק" },
+      { ...baseBuyer, cities: ["בני ברק"] },
+    );
+    expect(result.excluded).toBe(false);
+    expect(result.score).toBeGreaterThanOrEqual(90);
+  });
+
+  it("שם חלופי מוכר — ת״א מול תל אביב יפו", () => {
+    const result = scoreMatch(
+      { ...baseProperty, city: "תל אביב-יפו" },
+      { ...baseBuyer, cities: ["ת״א"] },
+    );
+    expect(result.excluded).toBe(false);
+  });
+
+  it("שכונה בכתיב אחר אינה גורעת מהניקוד", () => {
+    const strict = scoreMatch(baseProperty, { ...baseBuyer, neighborhoods: ["פרדס כץ"] });
+    const loose = scoreMatch({ ...baseProperty, neighborhood: "פרדס-כץ" }, {
+      ...baseBuyer,
+      neighborhoods: ["פרדס כץ"],
+    });
+    expect(loose.score).toBe(strict.score);
+  });
+
+  it("אזור על המפה: נכס במרכז מקבל ניקוד מלא על המיקום", () => {
+    const result = scoreMatch(located(32.0853, 34.7818), areaBuyer);
+    const location = result.breakdown.find((p) => p.criterion === "location")!;
+    expect(location.score).toBe(1);
+    expect(location.note).toContain("ליד העבודה");
+  });
+
+  it("נכס מעט מחוץ לרדיוס עדיין מוצג — זה ההבדל מכל שער קשיח", () => {
+    // ~2.3 ק״מ מהמרכז, ברדיוס של 2
+    const result = scoreMatch(located(32.1053, 34.7918), areaBuyer);
+    expect(result.excluded).toBe(false);
+    const location = result.breakdown.find((p) => p.criterion === "location")!;
+    expect(location.score).toBeGreaterThan(0.5);
+  });
+
+  it("נכס רחוק מכל האזורים מוחרג", () => {
+    const result = scoreMatch(located(32.794, 34.9896), areaBuyer); // חיפה
+    expect(result.excluded).toBe(true);
+  });
+
+  it("המפה גוברת על שם העיר — נכס בעיר אחרת בתוך הרדיוס מתאים", () => {
+    /*
+     * רמת גן, כשהקונה ביקש "תל אביב" ברשימת הערים. לפני השינוי
+     * ההתאמה הייתה נמחקת; עכשיו הרדיוס הוא מה שקובע.
+     */
+    const buyer: BuyerRequirements = {
+      ...baseBuyer,
+      cities: ["תל אביב יפו"],
+      searchAreas: [{ lat: 32.07, lon: 34.82, radiusKm: 3 }],
+    };
+    const result = scoreMatch(
+      { ...baseProperty, city: "רמת גן", latitude: 32.0684, longitude: 34.8248 },
+      buyer,
+    );
+    expect(result.excluded).toBe(false);
+  });
+
+  it("אזורים מוגדרים אבל לנכס אין קואורדינטה — נופלים לשם העיר", () => {
+    const buyer: BuyerRequirements = {
+      ...baseBuyer,
+      cities: ["בני ברק"],
+      searchAreas: [{ lat: 32.0853, lon: 34.7818, radiusKm: 1 }],
+    };
+    // הנכס בבני ברק בלי מיקום: לפי הרדיוס הוא היה נפסל, לפי העיר הוא מתאים
+    const result = scoreMatch(baseProperty, buyer);
+    expect(result.excluded).toBe(false);
+  });
+
+  it("בלי ערים ובלי אזורים — הקריטריון מדולג ואינו גורע", () => {
+    const result = scoreMatch(baseProperty, { ...baseBuyer, cities: [] });
+    expect(result.breakdown.some((p) => p.criterion === "location")).toBe(false);
+    expect(result.excluded).toBe(false);
+  });
+});

@@ -20,6 +20,7 @@ import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
+import { GeocodingService } from "../../core/geocoding.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
@@ -40,6 +41,7 @@ export class PropertiesService {
     private readonly messaging: MessagingService,
     private readonly plans: PlanCatalogService,
     private readonly crypto: CryptoService,
+    private readonly geocoding: GeocodingService,
   ) {}
 
   /**
@@ -240,6 +242,25 @@ export class PropertiesService {
   }
 
   /** יוצר את רשומת הנכס בטרנזקציה יחידה ומחזיר את המזהה — גבול ההצלחה. */
+  /**
+   * השלמת קואורדינטה מהכתובת, כשהיא חסרה.
+   *
+   * **רק כשהיא חסרה**: סיכה שאדם גרר במתכוון (`locationSource: "pin"`)
+   * לא תידרס בידי פענוח אוטומטי, וזו בדיוק ההבחנה שהעמודה
+   * `location_source` נועדה לה.
+   */
+  private async withGeocodedLocation(fields: PropertyFields): Promise<PropertyFields> {
+    if (fields.latitude !== undefined && fields.longitude !== undefined) return fields;
+    const address = [fields.street, fields.neighborhood, fields.city]
+      .filter((part): part is string => part !== undefined && part.trim() !== "")
+      .join(", ");
+    // עיר לבדה מפוענחת למרכז העיר, וזה עדיין שימושי יותר מכלום
+    if (address === "") return fields;
+    const [hit] = await this.geocoding.search(address);
+    if (!hit) return fields;
+    return { ...fields, latitude: hit.lat, longitude: hit.lon, locationSource: "geocode" };
+  }
+
   private async persist(input: {
     fields: PropertyFields;
     marketingTitle?: string;
@@ -250,7 +271,21 @@ export class PropertiesService {
   }): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
     const id = ulid();
-    const readiness = computeReadiness(input.fields, {
+    /*
+     * מיקום הנכס נגזר מהכתובת כאן, בשרת, ולא נשאר ריק עד שסוכן
+     * ייכנס לכרטיס ויגרור סיכה.
+     *
+     * זה היה החור הגדול בהתאמה הגיאוגרפית: העמודות `latitude`
+     * ו-`longitude` קיימות במסד, קיים בורר מיקום על המפה בכרטיס —
+     * ואף אחד לא קרא לפענוח בעת היצירה. בפועל רוב הנכסים נשארו בלי
+     * קואורדינטה, וכל התאמה לפי מרחק הייתה נופלת חזרה לשם העיר.
+     *
+     * `await` **לפני** הטרנזקציה: קריאת רשת לספק חיצוני לא נכנסת
+     * לתוך טרנזקציית מסד. וכשל שלה אינו מפיל קליטת נכס — הסוכן
+     * יסמן ידנית, בדיוק כמו קודם.
+     */
+    const fields = await this.withGeocodedLocation(input.fields);
+    const readiness = computeReadiness(fields, {
       hasTitle: Boolean(input.marketingTitle),
       hasDescription: Boolean(input.marketingDescription),
     });
@@ -272,14 +307,14 @@ export class PropertiesService {
           marketingDescription: input.marketingDescription ?? null,
           internalNotes: input.internalNotes ?? null,
           readinessScore: readiness.score,
-          ...(fieldsToColumns(input.fields) as object),
+          ...(fieldsToColumns(fields) as object),
         },
       });
       await this.audit.record(tx, { action: "property.create", entityType: "property", entityId: id });
       await this.outbox.emit(tx, "property.updated", {
         propertyId: id,
         tenantId,
-        changedFields: Object.keys(input.fields),
+        changedFields: Object.keys(fields),
       });
       if (readiness.score >= 80) {
         await this.outbox.emit(tx, "property.ready", {
