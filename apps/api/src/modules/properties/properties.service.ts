@@ -744,6 +744,16 @@ export class PropertiesService {
         where: { tenantId: ctx.tenantId, entityType: "property", entityId: id },
       });
 
+      /*
+       * תיק הבלעדיות של הנכס. הפעולות לפני התקופות — הן מצביעות
+       * עליהן. בלי זה נשארת בלעדיות "פתוחה" על נכס שאיננו, והיא
+       * ממשיכה להופיע בסריקה וברשימה לנצח (ביקורת Codex).
+       */
+      await tx.marketingAction.deleteMany({ where: { tenantId: ctx.tenantId, propertyId: id } });
+      await tx.propertyExclusivity.deleteMany({
+        where: { tenantId: ctx.tenantId, propertyId: id },
+      });
+
       // property_media לפני properties — מפתח זר RESTRICT
       await tx.propertyMedia.deleteMany({ where: { tenantId: ctx.tenantId, propertyId: id } });
       await tx.property.delete({ where: { id } });

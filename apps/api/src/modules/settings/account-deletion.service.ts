@@ -226,6 +226,9 @@ export class AccountDeletionService {
         await tx.googleCalendarLink.deleteMany({ where: { tenantId } });
         await tx.gmailLink.deleteMany({ where: { tenantId } });
         await tx.userCapability.deleteMany({ where: { tenantId } });
+        // תיק הבלעדיות — פעולות לפני תקופות, ושתיהן לפני הנכסים
+        await tx.marketingAction.deleteMany({ where: { tenantId } });
+        await tx.propertyExclusivity.deleteMany({ where: { tenantId } });
         await tx.propertyMedia.deleteMany({ where: { tenantId } });
         await tx.property.deleteMany({ where: { tenantId } });
         await tx.buyer.deleteMany({ where: { tenantId } });

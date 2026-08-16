@@ -322,11 +322,31 @@ export class ExclusivityService {
    * אם התאריך בחוזה שלה רחוק יותר.
    */
   async list(): Promise<ExclusivityListItem[]> {
+    const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
+      /*
+       * הדחיפות מחושבת **לפני** החיתוך ולא אחריו.
+       *
+       * מיון לפי `ends_at` וחיתוך ל-200 היה משאיר בחוץ בלעדיות ארוכה
+       * שמועד השליש שלה כבר מחר, לטובת בלעדיויות קצרות ורגועות ממנה
+       * — והיא לא הייתה מופיעה במסך כלל (ביקורת Codex). לכן המיון
+       * ב-SQL הוא לפי הסיום האפקטיבי: המוקדם מבין הסיום שבהסכם ומועד
+       * השליש.
+       *
+       * החישוב כאן הוא לצורך **הסדר** בלבד; הערך המדויק נגזר אחר כך
+       * מ-`exclusivityState`, שהוא המקום היחיד שבו הכלל חי.
+       */
+      const ordered = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id
+          FROM property_exclusivities
+         WHERE tenant_id = ${tenantId}
+           AND ended_at IS NULL
+         ORDER BY LEAST(ends_at, starts_at + ((ends_at - starts_at) / 3)) ASC
+         LIMIT 200
+      `;
+      if (ordered.length === 0) return [];
       const rows = await tx.propertyExclusivity.findMany({
-        where: { endedAt: null },
-        orderBy: { endsAt: "asc" },
-        take: 200,
+        where: { id: { in: ordered.map((r) => r.id) } },
       });
       if (rows.length === 0) return [];
 
