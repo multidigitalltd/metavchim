@@ -11,10 +11,12 @@ import { join } from "node:path";
 import {
   backupKind,
   isSafeBackupName,
+  NEVER_RAN,
   protectedBackupName,
   summarizeBackups,
   type BackupFile,
   type BackupHealth,
+  type RestoreDrill,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { callUpdaterAgent, updaterFailure } from "./updater-agent";
@@ -37,6 +39,14 @@ export interface BackupsOverview {
   files: BackupFile[];
   health: BackupHealth;
   offsite: OffsiteStatus;
+  /**
+   * תרגיל השחזור האחרון — **הראיה שהגיבוי בר-שחזור.**
+   *
+   * רשימת קבצים מוכיחה שנכתב משהו, לא שאפשר לשחזר ממנו. הערך כאן
+   * מגיע מ-`verify.json` שסקריפט הגיבוי כותב אחרי שהוא משחזר את
+   * הדאמפ האחרון למסד זמני וסופר בו טבלאות.
+   */
+  drill: RestoreDrill;
   /** הדאמפ האחרון של המסד — מוגן ממחיקה מהממשק. */
   protectedName: string | null;
   /** האם סוכן העדכון מוגדר; בלעדיו אין שחזור מהמסך. */
@@ -86,6 +96,7 @@ export class BackupsService {
       files: files ?? [],
       health: summarizeBackups(files ?? [], new Date()),
       offsite: await this.offsiteStatus(),
+      drill: await this.restoreDrill(),
       protectedName: protectedBackupName(files ?? []),
       restoreAvailable,
     };
@@ -176,6 +187,33 @@ export class BackupsService {
    * דרך סוכן העדכון, כך שהקובץ שנוצר זהה בפורמט ובשם, ומופיע ברשימה
    * ובשחזור בדיוק כמו גיבוי אוטומטי.
    */
+  /**
+   * תוצאת תרגיל השחזור. קובץ חסר אינו כשל — הוא "מעולם לא רץ",
+   * וההבחנה חשובה: כשל דורש טיפול, והיעדר דורש הפעלה.
+   */
+  private async restoreDrill(): Promise<RestoreDrill> {
+    try {
+      const raw = await readFile(join(this.dir, "verify.json"), "utf8");
+      return JSON.parse(raw) as RestoreDrill;
+    } catch {
+      return NEVER_RAN;
+    }
+  }
+
+  /**
+   * הפעלת תרגיל שחזור מיידית.
+   *
+   * התרגיל רץ מעצמו פעם בשבוע, אבל מבקר שמבקש ראיה לבקרה A.8.13
+   * אמור לקבל אותה עכשיו ולא ביום שני. אותו סקריפט בדיוק — כדי
+   * שהראיה הידנית והמתוזמנת יהיו אותה בדיקה.
+   */
+  async startVerify(): Promise<void> {
+    const res = await this.callAgent("/verify", { method: "POST" });
+    if (res.status === 409) throw new ConflictException("פעולה אחרת כבר רצה — המתינו לסיומה");
+    if (!res.ok) throw updaterFailure(res);
+    this.logger.log("תרגיל שחזור הופעל ממסך הפלטפורמה");
+  }
+
   async startBackup(): Promise<void> {
     const res = await this.callAgent("/backup", { method: "POST" });
     if (res.status === 409) throw new ConflictException("פעולה אחרת כבר רצה — המתינו לסיומה");

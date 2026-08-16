@@ -1152,6 +1152,17 @@ export class PlatformController {
     return { status: "started" };
   }
 
+  /*
+   * תרגיל שחזור לפי דרישה. אותו סקריפט שרץ שבועית — הראיה הידנית
+   * והמתוזמנת חייבות להיות אותה בדיקה, אחרת "בדקנו" לא אומר כלום.
+   */
+  @Post("backups/verify")
+  @HttpCode(202)
+  async runVerify(): Promise<{ started: true }> {
+    await this.backups.startVerify();
+    return { started: true };
+  }
+
   @Get("backups/run/status")
   async backupRunStatus(): Promise<BackupRunStatus> {
     return this.backups.backupStatus();

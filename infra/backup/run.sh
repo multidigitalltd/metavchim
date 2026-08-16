@@ -47,6 +47,15 @@ backup_once() {
     fi
   fi
 
+  # --- תרגיל שחזור — פעם בשבוע, ביום שני ---
+  #
+  # יום אחרי ארכיון המדיה ולא באותו יום: שני התהליכים כבדים, והרצתם
+  # יחד הופכת לילה אחד בשבוע ללילה שבו המסד עמוס פי שניים. התרגיל
+  # משחזר את הגיבוי האחרון למסד זמני ומוחק אותו — ראו verify.sh.
+  if [ "$(date +%u)" = "1" ] && [ -x /backup/verify.sh ]; then
+    /backup/verify.sh once || echo "[backup] ✗ תרגיל השחזור נכשל — ראו את verify.json" >&2
+  fi
+
   # --- ניקוי ישנים ---
   find /backups -name 'db_*.dump' -mtime "+${KEEP_DAYS}" -delete 2>/dev/null
   find /backups -name 'media_*.tar.gz' -mtime "+${MEDIA_KEEP_DAYS}" -delete 2>/dev/null
@@ -65,7 +74,14 @@ if [ "${1:-}" = "once" ]; then
   exit 0
 fi
 
-echo "[backup] שירות הגיבוי עלה — גיבוי DB כל 24 שעות, מדיה בימי ראשון, שמירה ${KEEP_DAYS} ימים"
+# `run.sh verify` — תרגיל שחזור לבד, בלי לגבות. זה מה שמפעיל כפתור
+# "בדוק שחזור" במסך הפלטפורמה: מבקר שמבקש ראיה לבקרה A.8.13 אמור
+# לקבל אותה בלחיצה, ולא להמתין ליום שני.
+if [ "${1:-}" = "verify" ]; then
+  exec /backup/verify.sh once
+fi
+
+echo "[backup] שירות הגיבוי עלה — גיבוי DB כל 24 שעות, מדיה בימי ראשון, תרגיל שחזור בימי שני, שמירה ${KEEP_DAYS} ימים"
 while true; do
   backup_once
   sleep 86400
