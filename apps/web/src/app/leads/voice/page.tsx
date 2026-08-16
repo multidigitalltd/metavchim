@@ -14,7 +14,7 @@ import { VoiceRecorder } from "../../voice-recorder";
  * טלפון וכוונה, והוא מאשר. התמלול המלא נשמר כסיכום הליד.
  */
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
+const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 
 interface ExtractedPerson {
   name?: string;

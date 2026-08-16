@@ -599,7 +599,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {/* קליטה קולית נחסמת בשרת בלי הפיצ'ר — קישור ל-403 גרוע
               מקישור שלא קיים */}
           {hasFeature("voice_intake") ? (
-              <Link href="/voice" className="mv-voice-button" aria-label="פקודה קולית">
+              <Link href="/voice" className="mv-voice-button" aria-label="הסוכן הקולי">
                 <svg
                   width="16"
                   height="16"
@@ -615,7 +615,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
                   <line x1="12" y1="17.5" x2="12" y2="21" />
                 </svg>
-                <span className="mv-topbar-label">פקודה קולית</span>
+                <span className="mv-topbar-label">הסוכן הקולי</span>
               </Link>
           ) : null}
 

@@ -66,7 +66,7 @@ const BUCKET_COLOR: Record<TaskBucket, string> = {
   someday: "var(--color-text-muted)",
 };
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
+const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 
 /** ISO → ערך לשדה datetime-local (בזמן המקומי של הדפדפן). */
 function toLocalInput(iso?: string): string {
@@ -391,8 +391,7 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
             onChange={(e) => setTitle(e.target.value)}
             maxLength={200}
             placeholder="למשל: להתקשר לבעל הנכס ברבי עקיבא"
-            className="w-full rounded-lg border px-3 py-2.5"
-            style={inputStyle}
+            className="mv-control"
           />
         </div>
         <div>
@@ -404,8 +403,7 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
             type="datetime-local"
             value={dueAt}
             onChange={(e) => setDueAt(e.target.value)}
-            className="rounded-lg border px-3 py-2.5"
-            style={inputStyle}
+            className="mv-control"
           />
         </div>
         <div>
@@ -416,8 +414,7 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
             id="task-priority"
             value={priority}
             onChange={(e) => setPriority(e.target.value)}
-            className="rounded-lg border px-3 py-2.5"
-            style={inputStyle}
+            className="mv-control"
           >
             {TASK_PRIORITIES.map((p) => (
               <option key={p} value={p}>
@@ -435,8 +432,7 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
               id="task-assignee"
               value={assignee}
               onChange={(e) => setAssignee(e.target.value)}
-              className="rounded-lg border px-3 py-2.5"
-              style={inputStyle}
+              className="mv-control"
             >
               <option value="">אני</option>
               {members
@@ -449,9 +445,14 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
             </select>
           </div>
         ) : null}
-        <Button type="submit" disabled={busy || title.trim() === ""}>
-          הוסף
-        </Button>
+        {/*
+          `mv-control-go` ולא `Button`: הכפתור יושב בשורה עם ארבעה
+          פקדים, וכפתור המערכת הכללי בנוי לגובה משלו. בשורה, הגובה
+          האחיד גובר על "אותו רכיב בכל מקום".
+        */}
+        <button type="submit" className="mv-control-go" disabled={busy || title.trim() === ""}>
+          הוסף משימה
+        </button>
       </form>
 
       {error ? (

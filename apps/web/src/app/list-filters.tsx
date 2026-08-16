@@ -56,7 +56,7 @@ export function hasActiveFilters(values: ListFilterValues): boolean {
   return Object.values(values).some((value) => value.trim() !== "");
 }
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
+const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 
 export function ListFilters({
   values,

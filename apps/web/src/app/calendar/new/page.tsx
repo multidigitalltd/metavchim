@@ -9,7 +9,7 @@ import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../dictation-field";
 import { IconChat } from "../../icons";
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
+const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 
 const KIND_LABELS: Record<string, string> = {
   viewing: "סיור בנכס",

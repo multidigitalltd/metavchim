@@ -23,7 +23,7 @@ import { PayoutDeskSection } from "./payout-desk-section";
  * הפלטפורמה (PLATFORM_ADMIN_EMAILS); לכל שאר המשתמשים מוצג "אין הרשאה".
  */
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
+const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 
 interface AgencyRow {
   id: string;

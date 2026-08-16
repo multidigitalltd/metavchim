@@ -4,13 +4,14 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
+import { DictateFor } from "../../dictation-field";
 import { FormSection } from "../../form-section";
 import { PriceField } from "../../price-field";
 import { EntryTimingField } from "../../properties/entry-timing-field";
 import { shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
+const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 
 const FEATURES = [
   ["hasElevator", "מעלית"],
@@ -75,6 +76,8 @@ export default function NewBuyerPage() {
             : undefined,
           features,
         },
+        /* ריק לא נשלח: הערה ריקה בכרטיס נראית כמו הערה שנמחקה. */
+        agentNotes: String(f.get("agentNotes") ?? "").trim() || undefined,
       });
       router.replace(`/buyers/${created.id}`);
     } catch (err: unknown) {
@@ -188,6 +191,35 @@ export default function NewBuyerPage() {
               </select>
             </div>
           </div>
+        </FormSection>
+
+        {/*
+          הערה חופשית — **מה שהשדות למעלה לא יכולים להכיל.**
+
+          הטופס שואל את מה שמנוע ההתאמות עובד לפיו. מה שנאמר בשיחה
+          ואינו נכנס לאף שדה — "האישה מחליטה", "חייב לצאת מהשכירות
+          עד מרץ", "רוצה ליד ההורים ברחוב הזה" — הוא לרוב מה שיסגור
+          את העסקה, וקודם הוא נשאר בראש של הסוכן. השדה בסוף ולא
+          באמצע: הוא נכתב אחרי שכבר יודעים מה מילאו.
+        */}
+        <FormSection
+          step={4}
+          title="הערות"
+          hint="מה שנאמר בשיחה ואין לו שדה. לא משתתף בניקוד ההתאמות — זה הקשר, לא קריטריון."
+        >
+          <label htmlFor="agentNotes" className="mv-visually-hidden">
+            הערות
+          </label>
+          <textarea
+            id="agentNotes"
+            name="agentNotes"
+            rows={4}
+            maxLength={4000}
+            placeholder="מה הוא סיפר? מי מחליט? מה חשוב לו שלא נכנס לשדות?"
+            className="w-full rounded-lg border px-3 py-2.5"
+            style={inputStyle}
+          />
+          <DictateFor targetId="agentNotes" />
         </FormSection>
 
         <div className="mv-form-actions">

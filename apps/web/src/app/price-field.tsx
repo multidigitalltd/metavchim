@@ -50,7 +50,7 @@ export function PriceField({
         value={value}
         onChange={(event) => setValue(event.target.value)}
         className="w-full rounded-lg border px-3 py-2.5"
-        style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+        style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
       />
       {/*
         aria-live: מי שמקליד בעיוורון או משתמש בקורא מסך שומע את

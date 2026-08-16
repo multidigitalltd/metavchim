@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, ApiError } from "@/lib/api";
+import { DictateFor } from "../../../dictation-field";
+import { FormSection } from "../../../form-section";
 import { PriceField } from "../../../price-field";
 import { FINANCING_LABELS, shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
@@ -14,11 +16,18 @@ import type { SearchArea } from "@metavchim/shared";
 
 /**
  * עריכת דרישות קונה — התקציב גדל? נוספה עיר? הדרישות הן הדלק של מנוע
- * ההתאמות, ולכן חייבות להישאר עדכניות. שדות שאינם בטופס (שכונות,
- * הערות גמישות…) נשמרים כמו שהם — נשלח אובייקט מלא עם הערכים הקיימים.
+ * ההתאמות, ולכן חייבות להישאר עדכניות.
+ *
+ * **אותו עיצוב כמו טופס הקליטה, ובכוונה.** המסך הזה נשאר מאחור
+ * כשהקליטה עברה לכרטיסי שלב: אותן שאלות בדיוק, פעם אחת בכרטיסים
+ * ממוספרים עם הסבר ופעם אחת ב-`fieldset` עם מסגרת דקה. מי שממלא
+ * את שניהם באותו יום לומד שתי שפות לאותו תוכן.
+ *
+ * שדות שאינם בטופס (שכונות, סוגי נכס) נשמרים כמו שהם — נשלח
+ * אובייקט מלא עם הערכים הקיימים.
  */
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
+const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 
 const FEATURES = [
   ["hasElevator", "מעלית"],
@@ -50,6 +59,7 @@ interface BuyerDetail {
   contact: { name: string };
   requirements: BuyerRequirements;
   financing: string;
+  agentNotes?: string;
 }
 
 export default function EditBuyerPage({ params }: { params: Promise<{ id: string }> }) {
@@ -99,6 +109,11 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
     try {
       await apiPatch(`/buyers/${id}`, {
         financing: String(f.get("financing")),
+        /*
+         * ריק נשלח כמחרוזת ריקה ולא מדולג: כאן זו **מחיקה מכוונת**
+         * של הערה קיימת, בניגוד לטופס הקליטה שבו אין מה למחוק.
+         */
+        agentNotes: String(f.get("agentNotes") ?? "").trim(),
         requirements: {
           ...buyer.requirements,
           cities: String(f.get("cities"))
@@ -166,8 +181,11 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
           </p>
         ) : null}
 
-        <fieldset className="mb-6 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
-          <legend className="px-2 font-semibold">מה הוא מחפש</legend>
+        <FormSection
+          step={1}
+          title="מה הוא מחפש"
+          hint="זה מה שמנוע ההתאמות עובד לפיו. ככל שיהיה כאן יותר, כך יוצגו פחות נכסים לא רלוונטיים."
+        >
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label htmlFor="cities" className="mb-1 block font-medium">ערים * <span className="font-normal">(מופרדות בפסיק)</span></label>
@@ -221,36 +239,6 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label htmlFor="areaSqmMin" className="mb-1 block font-medium">שטח מינימלי (מ&quot;ר)</label>
-                <input
-                  id="areaSqmMin"
-                  name="areaSqmMin"
-                  type="number"
-                  min="10"
-                  max="2000"
-                  inputMode="numeric"
-                  defaultValue={req.areaSqmMin ?? ""}
-                  className="w-full rounded-lg border px-3 py-2.5"
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label htmlFor="financing" className="mb-1 block font-medium">מימון</label>
-                <select
-                  id="financing"
-                  name="financing"
-                  defaultValue={buyer.financing}
-                  className="w-full rounded-lg border px-3 py-2.5"
-                  style={inputStyle}
-                >
-                  {Object.entries(FINANCING_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
                 <label htmlFor="roomsMin" className="mb-1 block font-medium">חדרים מ-</label>
                 <input id="roomsMin" name="roomsMin" type="number" step="0.5" min="1" inputMode="decimal" defaultValue={req.roomsMin ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
               </div>
@@ -259,10 +247,22 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
                 <input id="roomsMax" name="roomsMax" type="number" step="0.5" min="1" inputMode="decimal" defaultValue={req.roomsMax ?? ""} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
               </div>
             </div>
+            <div>
+              <label htmlFor="areaSqmMin" className="mb-1 block font-medium">שטח מינימלי (מ&quot;ר)</label>
+              <input
+                id="areaSqmMin"
+                name="areaSqmMin"
+                type="number"
+                min="10"
+                max="2000"
+                inputMode="numeric"
+                defaultValue={req.areaSqmMin ?? ""}
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+            </div>
             {/*
-              אילוץ הכניסה של הקונה — לא היה בטופס כלל עד כה, ולכן
-              קריטריון המסירה במנוע ההתאמות כמעט אף פעם לא נבחן: לצד
-              אחד היה תאריך ולשני לא. "גמיש" הוא תשובה, ולא היעדר.
+              אילוץ הכניסה של הקונה — "גמיש" הוא תשובה, ולא היעדר.
             */}
             <EntryTimingField
               side="buyer"
@@ -271,31 +271,83 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
               inputStyle={inputStyle}
             />
           </div>
+        </FormSection>
 
-          <fieldset className="mt-4">
-            <legend className="mb-2 font-medium">מאפיינים — חובה או עדיפות?</legend>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {FEATURES.map(([name, label]) => (
-                <div key={name} className="flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3" style={{ borderColor: "var(--color-border)" }}>
-                  <label htmlFor={`feature_${name}`} className="font-medium">{label}</label>
-                  <select
-                    id={`feature_${name}`}
-                    name={`feature_${name}`}
-                    defaultValue={req.features[name] ?? ""}
-                    className="rounded-md border px-2 py-1.5"
-                    style={inputStyle}
-                  >
-                    <option value="">לא רלוונטי</option>
-                    <option value="nice">עדיפות</option>
-                    <option value="must">חובה</option>
-                  </select>
-                </div>
+        <FormSection
+          step={2}
+          title="מאפיינים"
+          hint="&#8222;חובה&#8221; פוסל נכס שאין בו את המאפיין; &#8222;עדיפות&#8221; רק מוריד לו בציון. ההבדל הזה הוא מה שמונע רשימה ארוכה של נכסים שלא מתאימים."
+        >
+          <div className="grid gap-2 sm:grid-cols-2">
+            {FEATURES.map(([name, label]) => (
+              <div key={name} className="flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3" style={{ borderColor: "var(--color-border)" }}>
+                <label htmlFor={`feature_${name}`} className="font-medium">{label}</label>
+                <select
+                  id={`feature_${name}`}
+                  name={`feature_${name}`}
+                  defaultValue={req.features[name] ?? ""}
+                  className="rounded-md border px-2 py-1.5"
+                  style={inputStyle}
+                >
+                  <option value="">לא רלוונטי</option>
+                  <option value="nice">עדיפות</option>
+                  <option value="must">חובה</option>
+                </select>
+              </div>
+            ))}
+          </div>
+        </FormSection>
+
+        <FormSection
+          step={3}
+          title="מימון"
+          hint="קונה עם משכנתה מאושרת וקונה שטרם התחיל אינם באותו מקום בתור, גם כשהתקציב זהה."
+        >
+          <div className="sm:max-w-xs">
+            <label htmlFor="financing" className="mb-1 block font-medium">מצב המימון</label>
+            <select
+              id="financing"
+              name="financing"
+              defaultValue={buyer.financing}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            >
+              {Object.entries(FINANCING_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
               ))}
-            </div>
-          </fieldset>
-        </fieldset>
+            </select>
+          </div>
+        </FormSection>
 
-        <div className="flex gap-3">
+        {/*
+          תיאור חופשי — **מה שהשדות למעלה לא יכולים להכיל.**
+
+          הוא היה קיים רק בכרטיס, כלומר במסך אחר מזה שבו הסוכן מעדכן
+          את הדרישות. מי שיושב ומעדכן תקציב אחרי שיחה הוא בדיוק מי
+          שיש לו עכשיו מה לכתוב.
+        */}
+        <FormSection
+          step={4}
+          title="תיאור חופשי"
+          hint="מה שנאמר בשיחה ואין לו שדה. לא משתתף בניקוד ההתאמות — זה הקשר, לא קריטריון."
+        >
+          <label htmlFor="agentNotes" className="mv-visually-hidden">
+            תיאור חופשי
+          </label>
+          <textarea
+            id="agentNotes"
+            name="agentNotes"
+            rows={4}
+            maxLength={4000}
+            defaultValue={buyer.agentNotes ?? ""}
+            placeholder="מי מחליט? מה גמיש ומה לא? מה חשוב לו שלא נכנס לשדות?"
+            className="w-full rounded-lg border px-3 py-2.5"
+            style={inputStyle}
+          />
+          <DictateFor targetId="agentNotes" />
+        </FormSection>
+
+        <div className="mv-form-actions">
           <Button type="submit" disabled={submitting}>
             {submitting ? "שומר…" : "שמור שינויים"}
           </Button>

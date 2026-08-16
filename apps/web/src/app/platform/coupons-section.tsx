@@ -28,7 +28,7 @@ interface Coupon {
   note: string;
 }
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
+const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 
 export function CouponsSection(): React.JSX.Element {
   const [coupons, setCoupons] = useState<Coupon[] | null>(null);

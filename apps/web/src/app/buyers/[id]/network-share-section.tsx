@@ -111,13 +111,31 @@ export function NetworkShareSection({ buyerId }: { buyerId: string }) {
       className="mv-list-card mb-[18px] px-[22px] py-[18px]"
       aria-labelledby="network-share-heading"
     >
-      <h2
-        id="network-share-heading"
-        className="m-0 mb-1 flex items-center gap-2"
-        style={{ fontSize: 15.5, fontWeight: 800 }}
-      >
-        <IconHandshake s={16} /> שיתוף פעולה עם משרדים אחרים
-      </h2>
+      {/*
+        כותרת עם אייקון בעיגול וגוף קריא, ולא שורה מודגשת מעל שתי
+        פסקאות ב-13px.
+
+        זה האזור היחיד בכרטיס שמציע למתווך לעשות משהו **חדש** — לפתוח
+        לקוח למשרדים אחרים — וכל השכנוע נמצא בפסקאות. כשהן בגודל של
+        הערת שוליים, מי שמהסס פשוט לא קורא אותן, ואז הכפתור למטה
+        חסר הקשר.
+      */}
+      <header className="mv-hero mb-3">
+        <span className="mv-hero-icon" aria-hidden="true">
+          <IconHandshake s={22} />
+        </span>
+        <div>
+          <h2
+            id="network-share-heading"
+            className="m-0 text-[18px] font-extrabold leading-tight"
+          >
+            שיתוף פעולה עם משרדים אחרים
+          </h2>
+          <p className="m-0 mt-0.5 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
+            עוד עיניים על הביקוש הזה — בלי לחשוף את הלקוח.
+          </p>
+        </div>
+      </header>
 
       {stage === "loading" ? (
         <p className="m-0 mt-2 text-[13px]" aria-live="polite" style={{ color: "var(--color-text-muted)" }}>
@@ -169,7 +187,7 @@ export function NetworkShareSection({ buyerId }: { buyerId: string }) {
         </div>
       ) : stage === "invite" ? (
         <>
-          <p className="m-0 mb-3 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="mv-explain m-0 mb-2.5">
             רוצים למצוא לו נכס מהר יותר? אפשר לפתוח את הקונה הזה למשרדים אחרים
             ברשת. פרטיו האישיים <strong>לא נחשפים</strong> — מתפרסם ביקוש
             אנונימי בלבד, ואתם בוחרים את חלוקת העמלה.
@@ -179,12 +197,10 @@ export function NetworkShareSection({ buyerId }: { buyerId: string }) {
             משתף, ובלי תשובה הוא פשוט לא לוחץ. שיתוף פעולה חינם;
             קרדיטים נוגעים אך ורק לקליטת הפניית לקוח.
           */}
-          <p className="m-0 mb-3 text-[13px]">
+          <p className="mv-explain m-0 mb-4">
             <strong style={{ color: "var(--color-primary)" }}>השיתוף חינם</strong>{" "}
-            <span style={{ color: "var(--color-text-muted)" }}>
-              — בכל המסלולים ובלי קרדיטים. התשלום היחיד הוא חלוקת העמלה עם המשרד
-              שיסגור איתכם את העסקה.
-            </span>
+            — בכל המסלולים ובלי קרדיטים. התשלום היחיד הוא חלוקת העמלה עם המשרד
+            שיסגור איתכם את העסקה.
           </p>
           <button
             type="button"
@@ -196,7 +212,7 @@ export function NetworkShareSection({ buyerId }: { buyerId: string }) {
         </>
       ) : (
         <>
-          <p className="m-0 mb-3 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="mv-explain m-0 mb-4">
             שני פרטים ואפשר לשלוח. השכונות המבוקשות מהדרישות יצורפו לביקוש
             אוטומטית.
           </p>

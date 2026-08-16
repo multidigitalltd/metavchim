@@ -15,7 +15,7 @@ import { LocationPicker, type LocationValue } from "../location-picker";
 
 const inputStyle = {
   borderColor: "var(--color-border)",
-  background: "var(--color-bg)",
+  background: "var(--color-field)",
 } as const;
 
 /** נרמול טלפון ישראלי ל-E.164 — ‎050-1234567 → ‎+972501234567 */
@@ -91,6 +91,8 @@ export default function NewPropertyPage() {
         hasBalcony: triState(f, "hasBalcony"),
         hasSafeRoom: triState(f, "hasSafeRoom"),
         marketingTitle: String(f.get("marketingTitle") ?? "").trim() || undefined,
+        /* ריק לא נשלח: הערה ריקה בכרטיס נראית כמו הערה שנמחקה. */
+        internalNotes: String(f.get("internalNotes") ?? "").trim() || undefined,
         // הסוכן סימן ידנית ⇒ השרת לא ידרוס בפענוח אוטומטי
         latitude: location.latitude,
         longitude: location.longitude,
@@ -275,6 +277,37 @@ export default function NewPropertyPage() {
           <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
             נקשר לאיש הקשר לפי הטלפון — יופיע בתיק הלקוח המאוחד.
           </p>
+        </FormSection>
+
+        {/*
+          הערה חופשית — **מה שהשדות למעלה לא יכולים להכיל.**
+
+          הטופס שואל את מה שמנוע ההתאמות עובד לפיו. מה שנאמר בשיחה
+          עם בעל הנכס ואינו נכנס לאף שדה — "הדוד לא מסכים לפחות
+          מ-2.1", "אפשר להיכנס רק אחרי החגים", "השכנים מלמעלה
+          בשיפוץ" — הוא לרוב מה שיסגור או יפיל את העסקה.
+
+          **פנימי ולא שיווקי**, ולכן נפרד מהכותרת השיווקית שמעליו:
+          הכותרת נשלחת ללקוחות, וזה לא.
+        */}
+        <FormSection
+          step={5}
+          title="הערות פנימיות"
+          hint="מה שנאמר בשיחה ואין לו שדה. פנימי בלבד — לא מופיע בדף הנחיתה ולא בהצעות ללקוחות."
+        >
+          <label htmlFor="internalNotes" className="mv-visually-hidden">
+            הערות פנימיות
+          </label>
+          <textarea
+            id="internalNotes"
+            name="internalNotes"
+            rows={4}
+            maxLength={4000}
+            placeholder="מי מחליט אצל המוכר? מה גמיש ומה לא? מה כדאי לדעת לפני הביקור?"
+            className="w-full rounded-lg border px-3 py-2.5"
+            style={inputStyle}
+          />
+          <DictateFor targetId="internalNotes" />
         </FormSection>
 
         <div className="mv-form-actions">

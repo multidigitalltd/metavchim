@@ -28,7 +28,7 @@ import { RetainedAgreementsSection } from "./retained-agreements-section";
 import { SystemUpdateSection } from "./system-update";
 import { UserPermissions } from "./user-permissions";
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
+const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 
 interface TeamUser {
   id: string;

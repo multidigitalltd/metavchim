@@ -35,7 +35,7 @@ interface PlansPayload {
   usage: Record<string, number>;
 }
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-bg)" } as const;
+const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 
 /** אגורות → שקלים לתצוגה בשדה, ובחזרה בשמירה. */
 function toShekels(agorot: number | null): string {
