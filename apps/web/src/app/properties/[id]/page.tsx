@@ -21,6 +21,7 @@ import { EntityTasks } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
 import { LocationPicker } from "../location-picker";
 import { ExclusivityPanel } from "../exclusivity-panel";
+import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { RelatedEntities } from "../../related-entities";
 import { IconThumbUp } from "../../icons";
 
@@ -106,6 +107,20 @@ function readinessTextColor(score: number): string {
 export default function PropertyDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { user, loading: authLoading } = useRequireAuth();
+  /*
+   * הלשונית ומונה המשימות נקראים לפני כל `return` מוקדם — hook
+   * שרץ אחריו הוא שגיאת React, והכרטיס מציג "טוען…" לפני שיש נכס.
+   */
+  const [tab, selectTab] = useEntityTab(
+    ["overview", "matches", "owner", "exclusivity", "agreements", "tasks"],
+    "overview",
+  );
+  const [openTasks, setOpenTasks] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    apiGet<{ status: string }[]>(`/tasks/for/property/${id}`)
+      .then((rows) => setOpenTasks(rows.filter((t) => t.status === "open").length))
+      .catch(() => setOpenTasks(undefined));
+  }, [id]);
   const canEditOwner = can(user, "properties.edit");
   // אנשי הקשר של הבעלים נאכפים ב-ContactsController תחת buyers.edit
   const canEditOwnerPeople = can(user, "buyers.edit");
@@ -411,94 +426,150 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
         ) : null}
       </div>
 
-      <div className="grid items-start gap-[18px] lg:[grid-template-columns:1fr_340px]">
-        {/* ---- הטור הראשי ---- */}
-        <div className="flex flex-col gap-[18px]">
-          <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="details-heading">
-            <h2 id="details-heading" className="m-0 mb-3.5" style={{ fontSize: 15.5, fontWeight: 800 }}>
-              פרטי הנכס
-            </h2>
-            <dl className="m-0 grid gap-x-[18px] gap-y-3.5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}>
-              {detailFields.map(([label, value]) => (
-                <div key={label}>
-                  <dt className="text-xs font-semibold" style={{ color: "var(--color-text-muted)" }}>{label}</dt>
-                  <dd className="m-0 mt-0.5 text-[14.5px] font-bold">{value}</dd>
-                </div>
-              ))}
-            </dl>
+      {/* ---- לשוניות ---- */}
+      <div className="mv-list-card mb-[18px] px-4" style={{ overflow: "visible" }}>
+        <EntityTabs
+          label="לשוניות כרטיס הנכס"
+          active={tab}
+          onSelect={selectTab}
+          tabs={[
+            { key: "overview", label: "סקירה" },
+            { key: "matches", label: "התאמות", count: matches?.length },
+            { key: "owner", label: "בעל הנכס" },
+            { key: "exclusivity", label: "בלעדיות" },
+            { key: "agreements", label: "הסכמים" },
+            { key: "tasks", label: "משימות", count: openTasks },
+          ]}
+        />
+      </div>
 
-          </section>
+      {/* סקירה — הנכס עצמו, ומה שמעכב את שיווקו */}
+      <TabPanel tab="overview" active={tab}>
+        <div className="grid items-start gap-[18px] lg:[grid-template-columns:1fr_340px]">
+          <div className="flex flex-col gap-[18px]">
+            <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="details-heading">
+              <h2 id="details-heading" className="m-0 mb-3.5" style={{ fontSize: 15.5, fontWeight: 800 }}>
+                פרטי הנכס
+              </h2>
+              <dl className="m-0 grid gap-x-[18px] gap-y-3.5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}>
+                {detailFields.map(([label, value]) => (
+                  <div key={label}>
+                    <dt className="text-xs font-semibold" style={{ color: "var(--color-text-muted)" }}>{label}</dt>
+                    <dd className="m-0 mt-0.5 text-[14.5px] font-bold">{value}</dd>
+                  </div>
+                ))}
+              </dl>
 
-          {/*
-            מיקום הנכס — טקסט ומפה בשני הכיוונים. יושב ליד פרטי הנכס
-            ולא במסך נפרד: זה חלק מהפרטים, וסוכן שצריך לנווט למסך אחר
-            כדי למקם נכס פשוט לא ימקם אותו.
-          */}
-          <section className="mv-list-card mb-[18px] p-5">
-            <h2 className="m-0 mb-2 text-[15px] font-bold">מיקום על המפה</h2>
-            <LocationPicker
-              value={{
-                latitude: property.latitude,
-                longitude: property.longitude,
-                locationSource: property.locationSource,
-              }}
-              addressText={address}
-              disabled={!canEditOwner}
-              onChange={(next) => {
-                setProperty({ ...property, ...next });
-                void apiPatch(`/properties/${id}`, next).catch(() => undefined);
-              }}
-            />
-          </section>
+            </section>
 
-          <PropertyOwner
-            canErase={can(user, "contacts.delete")}
-            propertyId={id}
-            owner={property.ownerContact}
-            canEdit={canEditOwner}
-            canEditPeople={canEditOwnerPeople}
-            onChanged={loadProperty}
-            canSendUpdate={canWhatsApp}
-            onSendUpdate={() => void sendOwnerUpdate()}
-          />
+            {/*
+              מיקום הנכס — טקסט ומפה בשני הכיוונים. יושב ליד פרטי הנכס
+              ולא במסך נפרד: זה חלק מהפרטים, וסוכן שצריך לנווט למסך אחר
+              כדי למקם נכס פשוט לא ימקם אותו.
+            */}
+            <section className="mv-list-card mb-[18px] p-5">
+              <h2 className="m-0 mb-2 text-[15px] font-bold">מיקום על המפה</h2>
+              <LocationPicker
+                value={{
+                  latitude: property.latitude,
+                  longitude: property.longitude,
+                  locationSource: property.locationSource,
+                }}
+                addressText={address}
+                disabled={!canEditOwner}
+                onChange={(next) => {
+                  setProperty({ ...property, ...next });
+                  void apiPatch(`/properties/${id}`, next).catch(() => undefined);
+                }}
+              />
+            </section>
+          </div>
+          <div className="flex flex-col gap-[18px]">
+            <section className="mv-list-card px-5 py-[18px]" aria-labelledby="readiness-heading">
+              <div className="flex items-baseline">
+                <h2 id="readiness-heading" className="m-0" style={{ fontSize: 15.5, fontWeight: 800 }}>
+                  מוכנות לשיווק
+                </h2>
+                <span className="ms-auto" style={{ fontSize: 21, fontWeight: 800, color: readinessTextColor(property.readinessScore) }}>
+                  {property.readinessScore}%
+                </span>
+              </div>
+              <div className="my-[11px] mb-[13px] overflow-hidden rounded-full" style={{ height: 7, background: "var(--color-progress-track)" }}>
+                <div style={{ height: "100%", width: `${property.readinessScore}%`, background: readinessColor(property.readinessScore), borderRadius: 99 }} />
+              </div>
+              {property.missingFields.length === 0 ? (
+                <p className="m-0 text-[13px] font-bold" style={{ color: "var(--color-primary)" }}>
+                  ✓ הנכס מוכן לשיווק
+                </p>
+              ) : (
+                property.missingFields.map((field) => (
+                  <div key={field} className="flex items-center gap-2 py-[5px] text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+                    <span aria-hidden="true" className="h-1.5 w-1.5 flex-none rounded-full" style={{ background: "#c98a2e" }} />
+                    {FIELD_LABELS[field] ?? field}
+                  </div>
+                ))
+              )}
+              {property.missingFields.length > 0 ? (
+                <Link href={`/properties/${id}/edit`} className="mv-btn-soft mt-2 inline-block">
+                  השלם פרטים
+                </Link>
+              ) : null}
+            </section>
 
-          {/*
-            הכובעים האחרים של בעל הנכס — מוכר שהוא גם קונה פעיל (או
-            ליד) מוצג כאן כצ'יפ, בדיוק כמו שכרטיס הקונה מציג את
-            הנכסים שבבעלותו. אותו endpoint, אותם פילטרי הרשאה.
-          */}
-          {property.ownerContact ? (
-            <RelatedEntities
-              contactId={property.ownerContact.id}
-              exclude={{ kind: "property", id: property.id }}
-            />
-          ) : null}
+            <section className="mv-list-card px-5 py-[18px]" aria-labelledby="media-heading">
+              <h2 id="media-heading" className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>
+                תמונות
+              </h2>
+              <MediaSection propertyId={id} address={address} />
+            </section>
 
-          {/* בלעדיות נחתמת מול בעל הנכס — ולכן מיד אחרי הסעיף שלו,
-              ולא בכרטיס הקונה */}
-          {property.ownerContact ? (
-            <AgreementsPanel
-              contactId={property.ownerContact.id}
-              kind="exclusivity"
-              propertyId={property.id}
-              title="הסכם בלעדיות מול בעל הנכס"
-            />
-          ) : null}
+            <button
+              type="button"
+              className="mv-btn-plain self-start"
+              style={{ color: archiveConfirm ? "var(--color-danger)" : "var(--color-text-muted)" }}
+              onClick={() => void archive()}
+            >
+              {archiveConfirm ? "לאשר העברה לארכיון?" : "העבר לארכיון"}
+            </button>
+            {archiveConfirm ? (
+              <button type="button" className="mv-btn-plain self-start" onClick={() => setArchiveConfirm(false)}>
+                ביטול
+              </button>
+            ) : null}
 
-          {/*
-            תיק הבלעדיות — מיד אחרי הסכם הבלעדיות, כי זה בדיוק מה
-            שקורה אחריו: ההסכם נחתם, והשאלה הבאה היא מתי הוא נגמר
-            ומה תועד בתוכו.
-          */}
-          <ExclusivityPanel
-            propertyId={property.id}
-            propertyTitle={property.marketingTitle ?? (address || "נכס")}
-            officeName={user?.tenantName ?? "משרד התיווך"}
-            canEdit={can(user, "properties.edit")}
-          />
+            {/*
+              מחיקה לצמיתות מוצגת רק לנכס שכבר בארכיון: שני שלבים
+              נפרדים, כדי שנכס פעיל לא ייעלם בלחיצה אחת.
+            */}
+            {property.archived ? (
+              <>
+                <button
+                  type="button"
+                  className="mv-btn-plain self-start"
+                  style={{ color: "var(--color-danger)" }}
+                  onClick={() => void purge()}
+                >
+                  {purgeConfirm
+                    ? "לאשר מחיקה לצמיתות? התמונות יימחקו גם מהאחסון"
+                    : "מחק לצמיתות"}
+                </button>
+                {purgeConfirm ? (
+                  <button type="button" className="mv-btn-plain self-start" onClick={() => setPurgeConfirm(false)}>
+                    ביטול
+                  </button>
+                ) : null}
+                {purgeError !== null ? (
+                  <p role="alert" className="m-0 text-sm" style={{ color: "var(--color-danger)" }}>
+                    {purgeError}
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        </div>
+      </TabPanel>
 
-          <EntityTasks entityType="property" entityId={property.id} />
-
+      <TabPanel tab="matches" active={tab}>
           {/*
             ---- שתי עמודות ההתאמה ----
             שמאל: המאגר הפנימי. ימין: הרשת. אותה שאלה ("מי מתאים
@@ -617,92 +688,67 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
 
           <NetworkDemandMatches propertyId={id} />
           </div>
-        </div>
+      </TabPanel>
 
-        {/* ---- הטור הצדדי ---- */}
+      <TabPanel tab="owner" active={tab}>
         <div className="flex flex-col gap-[18px]">
-          <section className="mv-list-card px-5 py-[18px]" aria-labelledby="readiness-heading">
-            <div className="flex items-baseline">
-              <h2 id="readiness-heading" className="m-0" style={{ fontSize: 15.5, fontWeight: 800 }}>
-                מוכנות לשיווק
-              </h2>
-              <span className="ms-auto" style={{ fontSize: 21, fontWeight: 800, color: readinessTextColor(property.readinessScore) }}>
-                {property.readinessScore}%
-              </span>
-            </div>
-            <div className="my-[11px] mb-[13px] overflow-hidden rounded-full" style={{ height: 7, background: "var(--color-progress-track)" }}>
-              <div style={{ height: "100%", width: `${property.readinessScore}%`, background: readinessColor(property.readinessScore), borderRadius: 99 }} />
-            </div>
-            {property.missingFields.length === 0 ? (
-              <p className="m-0 text-[13px] font-bold" style={{ color: "var(--color-primary)" }}>
-                ✓ הנכס מוכן לשיווק
-              </p>
-            ) : (
-              property.missingFields.map((field) => (
-                <div key={field} className="flex items-center gap-2 py-[5px] text-[13px]" style={{ color: "var(--color-text-muted)" }}>
-                  <span aria-hidden="true" className="h-1.5 w-1.5 flex-none rounded-full" style={{ background: "#c98a2e" }} />
-                  {FIELD_LABELS[field] ?? field}
-                </div>
-              ))
-            )}
-            {property.missingFields.length > 0 ? (
-              <Link href={`/properties/${id}/edit`} className="mv-btn-soft mt-2 inline-block">
-                השלם פרטים
-              </Link>
-            ) : null}
-          </section>
+          <PropertyOwner
+            canErase={can(user, "contacts.delete")}
+            propertyId={id}
+            owner={property.ownerContact}
+            canEdit={canEditOwner}
+            canEditPeople={canEditOwnerPeople}
+            onChanged={loadProperty}
+            canSendUpdate={canWhatsApp}
+            onSendUpdate={() => void sendOwnerUpdate()}
+          />
 
-          <section className="mv-list-card px-5 py-[18px]" aria-labelledby="media-heading">
-            <h2 id="media-heading" className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>
-              תמונות
-            </h2>
-            <MediaSection propertyId={id} address={address} />
-          </section>
+          {/*
+            הכובעים האחרים של בעל הנכס — מוכר שהוא גם קונה פעיל (או
+            ליד) מוצג כאן כצ'יפ, בדיוק כמו שכרטיס הקונה מציג את
+            הנכסים שבבעלותו. אותו endpoint, אותם פילטרי הרשאה.
+          */}
+          {property.ownerContact ? (
+            <RelatedEntities
+              contactId={property.ownerContact.id}
+              exclude={{ kind: "property", id: property.id }}
+            />
+          ) : null}
+        </div>
+      </TabPanel>
 
-          <button
-            type="button"
-            className="mv-btn-plain self-start"
-            style={{ color: archiveConfirm ? "var(--color-danger)" : "var(--color-text-muted)" }}
-            onClick={() => void archive()}
-          >
-            {archiveConfirm ? "לאשר העברה לארכיון?" : "העבר לארכיון"}
-          </button>
-          {archiveConfirm ? (
-            <button type="button" className="mv-btn-plain self-start" onClick={() => setArchiveConfirm(false)}>
-              ביטול
-            </button>
+      <TabPanel tab="exclusivity" active={tab}>
+          <ExclusivityPanel
+            propertyId={property.id}
+            propertyTitle={property.marketingTitle ?? (address || "נכס")}
+            officeName={user?.tenantName ?? "משרד התיווך"}
+            canEdit={can(user, "properties.edit")}
+          />
+
+      </TabPanel>
+
+      <TabPanel tab="agreements" active={tab}>
+          {/* בלעדיות נחתמת מול בעל הנכס — ולכן מיד אחרי הסעיף שלו,
+              ולא בכרטיס הקונה */}
+          {property.ownerContact ? (
+            <AgreementsPanel
+              contactId={property.ownerContact.id}
+              kind="exclusivity"
+              propertyId={property.id}
+              title="הסכם בלעדיות מול בעל הנכס"
+            />
           ) : null}
 
           {/*
-            מחיקה לצמיתות מוצגת רק לנכס שכבר בארכיון: שני שלבים
-            נפרדים, כדי שנכס פעיל לא ייעלם בלחיצה אחת.
+            תיק הבלעדיות — מיד אחרי הסכם הבלעדיות, כי זה בדיוק מה
+            שקורה אחריו: ההסכם נחתם, והשאלה הבאה היא מתי הוא נגמר
+            ומה תועד בתוכו.
           */}
-          {property.archived ? (
-            <>
-              <button
-                type="button"
-                className="mv-btn-plain self-start"
-                style={{ color: "var(--color-danger)" }}
-                onClick={() => void purge()}
-              >
-                {purgeConfirm
-                  ? "לאשר מחיקה לצמיתות? התמונות יימחקו גם מהאחסון"
-                  : "מחק לצמיתות"}
-              </button>
-              {purgeConfirm ? (
-                <button type="button" className="mv-btn-plain self-start" onClick={() => setPurgeConfirm(false)}>
-                  ביטול
-                </button>
-              ) : null}
-              {purgeError !== null ? (
-                <p role="alert" className="m-0 text-sm" style={{ color: "var(--color-danger)" }}>
-                  {purgeError}
-                </p>
-              ) : null}
-            </>
-          ) : null}
-        </div>
-      </div>
+      </TabPanel>
+
+      <TabPanel tab="tasks" active={tab}>
+          <EntityTasks entityType="property" entityId={property.id} />
+      </TabPanel>
     </>
   );
 }
