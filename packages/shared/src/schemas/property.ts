@@ -45,6 +45,23 @@ export const PropertyFieldsSchema = z.object({
   hasBalcony: z.boolean().optional(),
   hasSafeRoom: z.boolean().optional(),
   hasStorage: z.boolean().optional(),
+  /**
+   * מאפיינים שהמשרד הוסיף בעצמו — ראו `logic/custom-features.ts`.
+   *
+   * חמשת הקבועים נכונים לרוב הדירות ולא מספיקים לאף שוק אמיתי.
+   * הם נשמרים כרשימה ולא כשדות, כי הקטלוג נבנה מלמטה ואינו ידוע
+   * מראש — והמנוע קורא אותם דרך המפתח עם הקידומת.
+   */
+  customFeatures: z
+    .array(
+      z.object({
+        key: z.string().min(1).max(64),
+        label: z.string().min(1).max(24),
+        value: z.boolean(),
+      }),
+    )
+    .max(12)
+    .optional(),
   condition: z.enum(["new", "renovated", "good", "needs_renovation"]).optional(),
   priceAgorot: MoneyAgorotSchema.optional(),
   priceFlexible: z.boolean().optional(),

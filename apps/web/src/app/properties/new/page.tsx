@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import type { CustomFeature } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { FormSection } from "../../form-section";
 import { apiPost, ApiError } from "@/lib/api";
@@ -29,6 +30,31 @@ function normalizeOwnerPhone(raw: string): string {
 function triState(form: FormData, name: string): boolean | undefined {
   const value = String(form.get(name) ?? "");
   return value === "yes" ? true : value === "no" ? false : undefined;
+}
+
+/**
+ * קריאת המאפיינים המותאמים מהשדה החבוי.
+ *
+ * מתגוננת בכוונה: JSON פגום (הרחבת דפדפן, מילוי אוטומטי) יחזיר
+ * רשימה ריקה במקום להפיל את השמירה של כל הנכס. הנרמול האמיתי קורה
+ * בשרת ממילא.
+ */
+function parseCustomFeatures(raw: FormDataEntryValue | null): CustomFeature[] {
+  if (typeof raw !== "string" || raw.trim() === "") return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is CustomFeature =>
+        typeof item === "object" &&
+        item !== null &&
+        typeof (item as CustomFeature).key === "string" &&
+        typeof (item as CustomFeature).label === "string" &&
+        typeof (item as CustomFeature).value === "boolean",
+    );
+  } catch {
+    return [];
+  }
 }
 
 export default function NewPropertyPage() {
@@ -90,6 +116,12 @@ export default function NewPropertyPage() {
         hasParking: triState(f, "hasParking"),
         hasBalcony: triState(f, "hasBalcony"),
         hasSafeRoom: triState(f, "hasSafeRoom"),
+        /*
+         * JSON משדה חבוי אחד — הרשימה גדלה ומשתנה, ולכן אין לה שם
+         * שדה קבוע כמו לחמשת הקבועים. השרת מנרמל אותה שוב בשער
+         * הכתיבה, ולכן קלט פגום כאן אינו יכול להיכנס למסד.
+         */
+        customFeatures: parseCustomFeatures(f.get("customFeatures")),
         marketingTitle: String(f.get("marketingTitle") ?? "").trim() || undefined,
         /* ריק לא נשלח: הערה ריקה בכרטיס נראית כמו הערה שנמחקה. */
         internalNotes: String(f.get("internalNotes") ?? "").trim() || undefined,

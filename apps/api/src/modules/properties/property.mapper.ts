@@ -1,5 +1,5 @@
 import type { Prisma, Property as PropertyRow } from "@prisma/client";
-import type { PropertyFields } from "@metavchim/shared";
+import { normalizeCustomFeatures, type CustomFeature, type PropertyFields } from "@metavchim/shared";
 
 /**
  * המרה מפורשת שורת DB ⇄ DTO — אין החזרת שורות גולמיות ללקוח
@@ -33,7 +33,29 @@ export function rowToFields(row: PropertyRow): PropertyFields {
     latitude: row.latitude ?? undefined,
     longitude: row.longitude ?? undefined,
     locationSource: (row.locationSource as "pin" | "geocode" | null) ?? undefined,
+    /*
+     * המאפיינים שהמשרד הוסיף יושבים ב-`attributes` ולא בעמודות
+     * ייעודיות — הקטלוג נבנה מלמטה ואינו ידוע בזמן המיגרציה. הקריאה
+     * מתגוננת: JSON שנכתב ביד או נשאר מגרסה קודמת לא יפיל את
+     * החישוב, הוא רק ייקרא כ"אין מאפיינים מותאמים".
+     */
+    customFeatures: readCustomFeatures(row.attributes),
   };
+}
+
+/** קריאה מתגוננת מעמודת ה-JSON. ראו ההסבר למעלה. */
+export function readCustomFeatures(attributes: unknown): CustomFeature[] {
+  if (attributes === null || typeof attributes !== "object") return [];
+  const raw = (attributes as Record<string, unknown>)["customFeatures"];
+  if (!Array.isArray(raw)) return [];
+  const usable = raw.filter(
+    (item): item is { label: string; value: boolean } =>
+      typeof item === "object" &&
+      item !== null &&
+      typeof (item as { label?: unknown }).label === "string" &&
+      typeof (item as { value?: unknown }).value === "boolean",
+  );
+  return normalizeCustomFeatures(usable);
 }
 
 export interface PropertyDto extends PropertyFields {
@@ -97,6 +119,17 @@ export function fieldsToColumns(fields: Partial<PropertyFields>): Prisma.Propert
     out.latitude = both ? lat : null;
     out.longitude = both ? lon : null;
     out.locationSource = both ? (fields.locationSource ?? "pin") : null;
+  }
+  /*
+   * המאפיינים המותאמים נכתבים לתוך `attributes` דרך הנרמול, ולא
+   * כפי שהגיעו: כפילות כתיב שנשמרת ("מיזוג" לצד "מיזוג-מרכזי")
+   * מייצרת שני מפתחות שקונה אחד ידרוש ואחר לא ימצא. הנרמול הוא
+   * מה שהופך את התכונה לאמינה, ולכן הוא בשער הכתיבה ולא במסך.
+   */
+  if ("customFeatures" in fields) {
+    out.attributes = {
+      customFeatures: normalizeCustomFeatures(fields.customFeatures ?? []),
+    } as unknown as Prisma.InputJsonValue;
   }
   return out;
 }

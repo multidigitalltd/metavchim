@@ -2185,3 +2185,40 @@ a.mv-bar-row:focus-visible {
   border-radius: 12px;
   padding: 18px 20px;
 }
+
+/* מאפיין שהמשרד הוסיף — תגית עם מתג וכפתור הסרה */
+.mv-custom-feature {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--color-input-border);
+  border-radius: 99px;
+  overflow: hidden;
+  background: var(--color-surface);
+}
+.mv-custom-feature-toggle {
+  border: none;
+  background: transparent;
+  color: var(--color-text-soft);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+.mv-custom-feature-toggle[aria-pressed="true"] {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+.mv-custom-feature-remove {
+  border: none;
+  border-inline-start: 1px solid var(--color-input-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 10px;
+  cursor: pointer;
+}
+.mv-custom-feature-remove:hover {
+  background: var(--color-hover-soft);
+  color: var(--color-danger);
+}

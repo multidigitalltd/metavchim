@@ -192,3 +192,72 @@ describe("scoreMatch — מיקום", () => {
     expect(result.excluded).toBe(false);
   });
 });
+
+/*
+ * מאפיינים שהמשרד הוסיף בעצמו — הבדיקה שהם **באמת** משתתפים בניקוד
+ * ואינם תווית על הכרטיס. זו הייתה נקודת ההכרעה בעיצוב: אפשר היה
+ * לשמור אותם כתיאור בלבד, ואז קונה שדורש מיזוג היה מקבל נכסים בלי
+ * מיזוג ומסיק שהמנוע לא עובד.
+ */
+describe("scoreMatch — מאפיינים מותאמים", () => {
+  const withAircon: PropertyFields = {
+    ...baseProperty,
+    customFeatures: [{ key: "custom:מיזוג מרכזי", label: "מיזוג מרכזי", value: true }],
+  };
+  const withoutAircon: PropertyFields = {
+    ...baseProperty,
+    customFeatures: [{ key: "custom:מיזוג מרכזי", label: "מיזוג מרכזי", value: false }],
+  };
+
+  it("דרישת חובה שמתקיימת אינה פוסלת", () => {
+    const result = scoreMatch(withAircon, {
+      ...baseBuyer,
+      features: { "custom:מיזוג מרכזי": "must" },
+    });
+    expect(result.excluded).toBe(false);
+  });
+
+  it("דרישת חובה שמופרת במפורש פוסלת את הנכס", () => {
+    const result = scoreMatch(withoutAircon, {
+      ...baseBuyer,
+      features: { "custom:מיזוג מרכזי": "must" },
+    });
+    expect(result.excluded).toBe(true);
+  });
+
+  /*
+   * ההבחנה שהמנוע כבר עושה על הקבועים, ושחייבת לחול גם כאן: נכס
+   * שלא סומן אינו נכס בלי מיזוג. פסילה על היעדר סימון הייתה מוחקת
+   * מהרשימה כל נכס ותיק שנקלט לפני שהמאפיין הומצא.
+   */
+  it("מאפיין שלא סומן בנכס הוא „לא ידוע” ולא „אין”", () => {
+    const result = scoreMatch(baseProperty, {
+      ...baseBuyer,
+      features: { "custom:מיזוג מרכזי": "must" },
+    });
+    expect(result.excluded).toBe(false);
+    expect(result.explanation).toContain("לא ידוע");
+  });
+
+  it("ההסבר מציג את שם המאפיין בלי הקידומת הפנימית", () => {
+    const result = scoreMatch(withoutAircon, {
+      ...baseBuyer,
+      features: { "custom:מיזוג מרכזי": "must" },
+    });
+    expect(result.explanation).toContain("מיזוג מרכזי");
+    expect(result.explanation).not.toContain("custom:");
+  });
+
+  it("עדיפות שאינה מתקיימת מורידה ניקוד ואינה פוסלת", () => {
+    const hit = scoreMatch(withAircon, {
+      ...baseBuyer,
+      features: { "custom:מיזוג מרכזי": "nice" },
+    });
+    const miss = scoreMatch(withoutAircon, {
+      ...baseBuyer,
+      features: { "custom:מיזוג מרכזי": "nice" },
+    });
+    expect(miss.excluded).toBe(false);
+    expect(miss.score).toBeLessThan(hit.score);
+  });
+});

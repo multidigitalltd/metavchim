@@ -108,6 +108,23 @@ export class PropertiesController {
     return this.properties.list(query);
   }
 
+  /**
+   * קטלוג המאפיינים המותאמים של המשרד.
+   *
+   * **מוכרח לשבת לפני `:id`** — נתיב סטטי אחרי פרמטרי הוא נתיב
+   * שנבלע: `feature-catalogue` היה נקרא כמזהה נכס ונדחה בוולידציה.
+   *
+   * הוא מה שהופך את "כל סוכן מוסיף בעצמו" לשמיש: הטופס מציע קודם
+   * את מה שכבר בשימוש במשרד, ולכן השני שנתקל במיזוג בוחר את התווית
+   * של הראשון במקום להמציא אותה. בלי זה, החופש להוסיף היה מייצר
+   * בדיוק את פיצול המפתחות שהנרמול נלחם בו.
+   */
+  @Get("feature-catalogue")
+  @RequireCapability("properties.view")
+  async featureCatalogue(): Promise<{ key: string; label: string; count: number }[]> {
+    return this.properties.featureCatalogue();
+  }
+
   @Get(":id")
   @RequireCapability("properties.view")
   async get(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<PropertyDto> {

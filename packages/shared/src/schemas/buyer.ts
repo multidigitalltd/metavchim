@@ -68,12 +68,13 @@ export const BuyerRequirementsSchema = z.object({
   roomsMax: z.number().multipleOf(0.5).optional(),
   areaSqmMin: z.number().int().optional(),
   /** מאפיין → רמת דרישה. למשל: { hasElevator: "must", hasSafeRoom: "nice" } */
-  features: z
-    .record(
-      z.enum(["hasElevator", "hasParking", "hasBalcony", "hasSafeRoom", "hasStorage"]),
-      RequirementLevelSchema,
-    )
-    .default({}),
+  /*
+   * מפתח חופשי ולא `enum` סגור: מאז שהמשרד יכול להוסיף מאפיינים
+   * משלו, רשימה סגורה הייתה דוחה דרישה למאפיין שהנכס כן נושא.
+   * המפתחות המותאמים נושאים קידומת `custom:` ולכן אינם יכולים
+   * להתנגש בחמשת הקבועים — ראו `logic/custom-features.ts`.
+   */
+  features: z.record(z.string().min(1).max(64), RequirementLevelSchema).default({}),
   /**
    * מתי הקונה צריך להיכנס — כמו בנכס, המצב ולא רק התאריך.
    *

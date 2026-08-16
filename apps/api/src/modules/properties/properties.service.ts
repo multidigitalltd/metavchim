@@ -1,6 +1,12 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
-import { computeReadiness, limitState, type Page, type PropertyFields } from "@metavchim/shared";
+import {
+  computeReadiness,
+  featureCatalogue,
+  limitState,
+  type Page,
+  type PropertyFields,
+} from "@metavchim/shared";
 import {
   PROPERTY_TYPE_LABELS_HE,
   freeTextTerms,
@@ -28,7 +34,7 @@ import { ContactsService } from "../contacts/contacts.service";
 import { MatchingService, type MatchTrigger } from "../matching/matching.service";
 import { MessagingService } from "../messaging/messaging.service";
 import { mediaRawPath } from "./media.service";
-import { fieldsToColumns, rowToFields, type PropertyDto } from "./property.mapper";
+import { fieldsToColumns, readCustomFeatures, rowToFields, type PropertyDto } from "./property.mapper";
 
 @Injectable()
 export class PropertiesService {
@@ -249,6 +255,27 @@ export class PropertiesService {
    * לא תידרס בידי פענוח אוטומטי, וזו בדיוק ההבחנה שהעמודה
    * `location_source` נועדה לה.
    */
+  /**
+   * המאפיינים המותאמים שכבר בשימוש במשרד, לפי שכיחות.
+   *
+   * נקרא מ-`attributes` של הנכסים החיים ולא מטבלה נפרדת: הקטלוג
+   * **נגזר** ממה שקיים ואינו רשימה שצריך לתחזק, ולכן מאפיין שהפסיק
+   * להיות בשימוש נושר מעצמו במקום להישאר ברשימה לנצח.
+   */
+  async featureCatalogue(): Promise<{ key: string; label: string; count: number }[]> {
+    const tenantId = TenantContext.current().tenantId;
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.property.findMany({
+        where: { tenantId, deletedAt: null },
+        select: { attributes: true },
+        take: 2000,
+      });
+      return featureCatalogue(
+        rows.map((row) => ({ customFeatures: readCustomFeatures(row.attributes) })),
+      );
+    });
+  }
+
   private async withGeocodedLocation(fields: PropertyFields): Promise<PropertyFields> {
     if (fields.latitude !== undefined && fields.longitude !== undefined) return fields;
     const address = [fields.street, fields.neighborhood, fields.city]
