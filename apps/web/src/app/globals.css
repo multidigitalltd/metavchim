@@ -2222,3 +2222,242 @@ a.mv-bar-row:focus-visible {
   background: var(--color-hover-soft);
   color: var(--color-danger);
 }
+
+/* ============================================================
+   אזור הרשת — חיסיון בולט, כרטיסים סרוקים במבט אחד.
+
+   האזור הזה היה קיר טקסט: שתי פסקאות הסבר, שני פאנלים מתקפלים,
+   וכרטיסים שכל פרט בהם היה משפט. מתווך שנחת בו לא ידע מה מוצע לו
+   ובעיקר לא ידע אם הלקוח שלו נחשף — והחשש הזה, שאיש לא ענה עליו
+   בשורה הראשונה, הוא מה שמנע שיתוף.
+   ============================================================ */
+
+/* הבאנר שעונה על החשש לפני שהוא נשאל */
+.mv-privacy {
+  border: 1px solid var(--color-primary-accent);
+  background: linear-gradient(135deg, var(--color-primary-soft), var(--color-surface) 70%);
+  border-radius: 16px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+}
+.mv-privacy-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mv-privacy-badge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-primary-accent);
+  font-size: 22px;
+  line-height: 1;
+}
+.mv-privacy-head > div {
+  flex: 1 1 260px;
+}
+.mv-privacy-more {
+  flex: none;
+  align-self: center;
+  border: 1px solid var(--color-primary-accent);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  border-radius: 99px;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.mv-privacy-more:hover {
+  background: var(--color-primary-soft);
+}
+.mv-privacy-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-primary-accent);
+}
+.mv-privacy-title {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 800;
+}
+.mv-privacy-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 14px;
+  color: var(--color-text-soft);
+}
+
+/* כרטיס ברשת — קונה או נכס, אותה שפה */
+.mv-net-card {
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+  padding: 16px 18px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.mv-net-card:hover {
+  border-color: var(--color-border-hover);
+  box-shadow: 0 6px 18px rgb(12 110 52 / 8%);
+}
+/* הביקוש שלי — נבדל בעין, כי אין עליו מה לעשות */
+.mv-net-card--mine {
+  background: linear-gradient(135deg, var(--color-hover-soft), var(--color-surface) 60%);
+}
+.mv-net-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.mv-net-avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--color-primary-soft);
+  font-size: 21px;
+  line-height: 1;
+}
+.mv-net-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.3;
+  flex: 1 1 200px;
+}
+
+/*
+ * שורת התגיות — הלב של הכרטיס.
+ * אימוג'י ואז ערך, בלי תווית: "🚪 4 חדרים" נקרא במבט אחד, בעוד
+ * "חדרים: 4" מחייב לקרוא מילה כדי להגיע למספר.
+ */
+.mv-net-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+.mv-net-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-soft);
+  border-radius: 99px;
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 5px 12px;
+  white-space: nowrap;
+}
+.mv-net-chip--primary {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary-accent);
+  color: var(--color-primary);
+  font-weight: 800;
+}
+/*
+ * שני הטונים היחידים שאינם נגזרים מהטוקנים — כסף וחום — כתובים
+ * ב-`light-dark()` ולא בערך קבוע. הגרסאות הקודמות של הגלולות
+ * הכתומות במסך הזה נצבעו בקוד ישירות, ובמצב כהה הן נשארו בהירות
+ * על רקע כהה: טקסט חום על צהוב זוהר.
+ */
+.mv-net-chip--money {
+  background: light-dark(#fff6e2, #33280f);
+  border-color: light-dark(#e8cf9d, #6b5a2c);
+  color: light-dark(#7a5c1f, #f0d79b);
+  font-weight: 800;
+}
+.mv-net-chip--hot {
+  background: light-dark(#ffeee7, #3a2117);
+  border-color: light-dark(#e9bda9, #7a4b34);
+  color: light-dark(#9b4a24, #f2b799);
+  font-weight: 800;
+}
+.mv-net-chip--good {
+  background: var(--color-success-soft);
+  border-color: var(--color-primary-accent);
+  color: var(--color-success);
+}
+
+/* התיאור החופשי של המשרד המשתף — ציטוט, לא עוד שורת נתונים */
+.mv-net-quote {
+  margin: 0 0 12px;
+  border-inline-start: 3px solid var(--color-primary-accent);
+  background: var(--color-bg);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 14.5px;
+  color: var(--color-text-soft);
+}
+
+/* פס תחתון: מה זה עולה, איך מתחלקת העמלה, ומה עושים */
+.mv-net-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--color-row-border);
+  padding-top: 12px;
+}
+.mv-net-foot--spread {
+  justify-content: space-between;
+}
+
+/* התאמה מהנכסים שלי — מה שהופך פיד לרשימת פעולות */
+.mv-net-match {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  border: 1px solid var(--color-primary-accent);
+  background: var(--color-primary-soft);
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+.mv-net-score {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  border: 2px solid var(--color-primary-accent);
+  color: var(--color-primary);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+/* מצב ריק — הזמנה לפעולה ולא הודעת שגיאה */
+.mv-net-empty {
+  border: 1px dashed var(--color-border-hover);
+  border-radius: 16px;
+  background: var(--color-surface);
+  padding: 28px 20px;
+  text-align: center;
+}
+.mv-net-empty-icon {
+  font-size: 34px;
+  line-height: 1;
+  display: block;
+  margin-bottom: 10px;
+}

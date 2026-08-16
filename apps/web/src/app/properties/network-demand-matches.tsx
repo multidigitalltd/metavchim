@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { demandChips } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
-import { formatPrice } from "@/lib/format";
+import { NetChips } from "../collaboration/net-chips";
 
 /**
  * העמודה השנייה בכרטיס הנכס: **ביקושים ברשת**.
@@ -15,8 +16,9 @@ import { formatPrice } from "@/lib/format";
  * שתי העמודות מודדות באותו סרגל: אותו מנוע ניקוד, אותו סף. "82%"
  * פירושו אותו דבר בשתיהן, אחרת אי אפשר להשוות ביניהן.
  *
- * מה שנחשף על הביקוש הוא מה שהרשת חושפת: עיר, שכונות, תקציב ותיאור
- * חופשי. שם הקונה והמשרד לעולם לא כאן.
+ * מה שנחשף על הביקוש הוא בדיוק מה שהרשת חושפת — הרשימה נבנית
+ * ב-`packages/shared/logic/network-card.ts`, אותו מקור שמזין את פיד
+ * הרשת. שם הקונה, הטלפון והמשרד לעולם לא כאן.
  */
 
 interface NetworkDemandMatch {
@@ -26,7 +28,19 @@ interface NetworkDemandMatch {
   cities: string[];
   neighborhoods: string[];
   notes?: string;
+  dealType: string;
+  propertyTypes: string[];
+  areaSqmMin?: number;
+  budgetMinAgorot?: number;
   budgetMaxAgorot: number;
+  roomsMin?: number;
+  roomsMax?: number;
+  entryType?: string;
+  entryBy?: string;
+  financing?: string;
+  maturity?: string;
+  mustFeatures: string[];
+  niceFeatures: string[];
   commissionSplit: number;
   creditsCost: number;
   source: string;
@@ -41,7 +55,9 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    apiGet<NetworkDemandMatch[]>(`/collaboration/network-matches/property/${propertyId}`)
+    apiGet<NetworkDemandMatch[]>(
+      `/collaboration/network-matches/property/${propertyId}`,
+    )
       .then(setRows)
       .catch((err: unknown) => {
         // 403 = המשרד או המשתמש בלי שת"פ. זה לא כשל שצריך לצעוק עליו
@@ -60,8 +76,9 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
       });
       setRows(
         (prev) =>
-          prev?.map((r) => (r.demandId === row.demandId ? { ...r, alreadyOffered: true } : r)) ??
-          null,
+          prev?.map((r) =>
+            r.demandId === row.demandId ? { ...r, alreadyOffered: true } : r,
+          ) ?? null,
       );
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "שליחת ההצעה נכשלה");
@@ -73,16 +90,30 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
   if (!allowed) return null;
 
   return (
-    <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="network-matches-heading">
-      <h2 id="network-matches-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
-        ביקושים ברשת
+    <section
+      className="mv-list-card px-[22px] py-[18px]"
+      aria-labelledby="network-matches-heading"
+    >
+      <h2
+        id="network-matches-heading"
+        className="m-0 mb-1"
+        style={{ fontSize: 15.5, fontWeight: 800 }}
+      >
+        🌐 ביקושים ברשת
       </h2>
-      <p className="m-0 mb-2.5 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+      <p
+        className="m-0 mb-2.5 text-[12.5px]"
+        style={{ color: "var(--color-text-muted)" }}
+      >
         קונים של משרדים אחרים שהנכס מתאים להם
       </p>
 
       {error !== null ? (
-        <p role="alert" className="m-0 mb-2 text-sm" style={{ color: "var(--color-danger)" }}>
+        <p
+          role="alert"
+          className="m-0 mb-2 text-sm"
+          style={{ color: "var(--color-danger)" }}
+        >
           {error}
         </p>
       ) : null}
@@ -109,33 +140,37 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
               }}
               aria-hidden="true"
             >
-              <span style={{ width: 35, height: 35, fontSize: 12 }}>{row.score}%</span>
+              <span style={{ width: 35, height: 35, fontSize: 12 }}>
+                {row.score}%
+              </span>
             </span>
             <div className="min-w-0 flex-1" style={{ lineHeight: 1.4 }}>
-              <div className="text-[14.5px] font-bold">
-                {row.cities.join(", ") || "כל האזורים"}
-                {row.neighborhoods.length > 0 ? (
-                  <span className="ms-1.5 text-[12.5px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
-                    · {row.neighborhoods.join(", ")}
-                  </span>
-                ) : null}
-                <span className="ms-1.5 text-[12.5px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
-                  · עד {formatPrice(row.budgetMaxAgorot)}
-                </span>
-              </div>
-              <div className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+              {/* כל מה שידוע על הביקוש, למעט מה שמזהה אדם */}
+              <NetChips chips={demandChips(row)} />
+              <div
+                className="text-[13px]"
+                style={{ color: "var(--color-text-muted)" }}
+              >
                 {row.notes ?? row.explanation}
               </div>
-              <div className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
-                העמלה שלי: {100 - row.commissionSplit}%
-                {row.creditsCost > 0 ? ` · ההצעה תעלה ${row.creditsCost} קרדיטים` : " · ללא עלות"}
+              <div
+                className="text-[12.5px]"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                🤝 העמלה שלי {100 - row.commissionSplit}%
+                {row.creditsCost > 0
+                  ? ` · ההצעה תעלה ${row.creditsCost} קרדיטים`
+                  : " · ללא עלות"}
               </div>
             </div>
             <div className="ms-auto flex-none">
               {row.alreadyOffered ? (
                 <span
                   className="mv-pill"
-                  style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}
+                  style={{
+                    background: "var(--color-primary-soft)",
+                    color: "var(--color-primary)",
+                  }}
                 >
                   הוצע ✓
                 </span>

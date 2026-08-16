@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { presentationChips } from "@metavchim/shared";
 import { ApiError, apiGet, apiPatch } from "@/lib/api";
-import { formatPrice } from "@/lib/format";
+import { NetChips } from "../collaboration/net-chips";
 
 /**
  * העמודה השנייה בכרטיס הקונה: **נכסים מהרשת**.
@@ -12,8 +13,10 @@ import { formatPrice } from "@/lib/format";
  * הזה. עד כה ההצעות נחתו רק במסך השת"פ הכללי, כלומר הסוכן שפתח את
  * כרטיס הקונה לא ראה שמחכה לו שם נכס, ושילם על זה בזמן תגובה.
  *
- * מה שמוצג הוא החשיפה המדורגת שהמשרד המציע שלח: עיר, שכונה, חדרים,
- * שטח ומחיר. בלי רחוב ובלי בעלים — אלה נחשפים רק אחרי "מעוניין".
+ * מה שמוצג הוא החשיפה המדורגת שהמשרד המציע שלח — כל מה שאינו מזהה:
+ * אזור, סוג, חדרים, שטח, קומה, מצב, מחיר ומועד כניסה. בלי רחוב ובלי
+ * בעלים; אלה נחשפים רק אחרי "מעוניין", וזה צעד שקשה לחזור ממנו —
+ * ולכן כל השאר צריך להיות ידוע לפניו.
  */
 
 interface NetworkPropertyOffer {
@@ -21,10 +24,17 @@ interface NetworkPropertyOffer {
   presentation: {
     city?: string;
     neighborhood?: string;
+    propertyType?: string;
+    dealType?: string;
     rooms?: number;
     areaSqm?: number;
     floor?: number;
+    totalFloors?: number;
+    condition?: string;
     priceAgorot?: number;
+    entryType?: string;
+    entryDate?: string;
+    features?: string[];
     title?: string;
   };
   commissionSplit: number;
@@ -41,21 +51,11 @@ const STATUS_LABELS: Record<string, string> = {
   declined: "נדחה",
 };
 
-/** שורת התיאור של הנכס — רק מה שנחשף, בלי שדות ריקים באמצע. */
-function describe(p: NetworkPropertyOffer["presentation"]): string {
-  return (
-    [
-      p.rooms !== undefined ? `${p.rooms} חדרים` : null,
-      p.areaSqm !== undefined ? `${p.areaSqm} מ"ר` : null,
-      p.floor !== undefined ? `קומה ${p.floor}` : null,
-    ]
-      .filter(Boolean)
-      .join(" · ") || "אין פרטים נוספים"
-  );
-}
-
 export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
-  const [data, setData] = useState<{ shared: boolean; offers: NetworkPropertyOffer[] } | null>(null);
+  const [data, setData] = useState<{
+    shared: boolean;
+    offers: NetworkPropertyOffer[];
+  } | null>(null);
   /** null = אין הרשאת שת"פ; העמודה נעלמת ולא מציגה שגיאה */
   const [allowed, setAllowed] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -72,7 +72,10 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
       });
   }, [buyerId]);
 
-  async function respond(id: string, response: "interested" | "declined"): Promise<void> {
+  async function respond(
+    id: string,
+    response: "interested" | "declined",
+  ): Promise<void> {
     setBusy(id);
     setError(null);
     try {
@@ -82,7 +85,9 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
           ? null
           : {
               ...prev,
-              offers: prev.offers.map((o) => (o.id === id ? { ...o, status: response } : o)),
+              offers: prev.offers.map((o) =>
+                o.id === id ? { ...o, status: response } : o,
+              ),
             },
       );
     } catch (err: unknown) {
@@ -95,16 +100,30 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
   if (!allowed) return null;
 
   return (
-    <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="network-offers-heading">
-      <h2 id="network-offers-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
-        נכסים מהרשת
+    <section
+      className="mv-list-card px-[22px] py-[18px]"
+      aria-labelledby="network-offers-heading"
+    >
+      <h2
+        id="network-offers-heading"
+        className="m-0 mb-1"
+        style={{ fontSize: 15.5, fontWeight: 800 }}
+      >
+        🏡 נכסים מהרשת
       </h2>
-      <p className="m-0 mb-2.5 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+      <p
+        className="m-0 mb-2.5 text-[12.5px]"
+        style={{ color: "var(--color-text-muted)" }}
+      >
         נכסים שמשרדים אחרים הציעו על הביקוש הזה
       </p>
 
       {error !== null ? (
-        <p role="alert" className="m-0 mb-2 text-sm" style={{ color: "var(--color-danger)" }}>
+        <p
+          role="alert"
+          className="m-0 mb-2 text-sm"
+          style={{ color: "var(--color-danger)" }}
+        >
           {error}
         </p>
       ) : null}
@@ -113,8 +132,8 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
         <p aria-live="polite">בודק ברשת…</p>
       ) : !data.shared ? (
         <p className="m-0 py-2" style={{ color: "var(--color-text-muted)" }}>
-          הקונה אינו משותף ברשת — שיתוף פותח את הביקוש למשרדים אחרים, והנכסים שלהם
-          יופיעו כאן.
+          הקונה אינו משותף ברשת — שיתוף פותח את הביקוש למשרדים אחרים, והנכסים
+          שלהם יופיעו כאן.
         </p>
       ) : data.offers.length === 0 ? (
         <p className="m-0 py-2" style={{ color: "var(--color-text-muted)" }}>
@@ -128,23 +147,16 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
             style={{ borderBottom: "1px solid var(--color-row-border)" }}
           >
             <div className="min-w-0 flex-1" style={{ lineHeight: 1.4 }}>
-              <div className="text-[14.5px] font-bold">
-                {offer.presentation.title ??
-                  [offer.presentation.neighborhood, offer.presentation.city]
-                    .filter(Boolean)
-                    .join(", ") ??
-                  "נכס ברשת"}
-                {offer.presentation.priceAgorot !== undefined ? (
-                  <span className="ms-1.5 text-[12.5px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
-                    · {formatPrice(offer.presentation.priceAgorot)}
-                  </span>
-                ) : null}
+              <div className="mb-1.5 text-[14.5px] font-bold">
+                {offer.presentation.title ?? "🏡 נכס ברשת"}
               </div>
-              <div className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>
-                {describe(offer.presentation)}
-              </div>
-              <div className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
-                העמלה שלי: {100 - offer.commissionSplit}%
+              {/* כל מה שאינו מזהה — לפני אישור החיבור, לא אחריו */}
+              <NetChips chips={presentationChips(offer.presentation)} />
+              <div
+                className="text-[12.5px]"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                🤝 העמלה שלי {100 - offer.commissionSplit}%
               </div>
             </div>
             <div className="ms-auto flex flex-none gap-2">

@@ -20,7 +20,7 @@ export interface MatchResult {
  * תווית לתצוגה בהסבר ההתאמה. מאפיין מותאם מוצג בשמו בלי הקידומת —
  * "custom:סורגים" בהסבר לסוכן הוא דליפה של מבנה פנימי אל המסך.
  */
-function featureLabel(key: string): string {
+export function propertyFeatureLabel(key: string): string {
   if (isCustomFeature(key)) return key.slice(CUSTOM_FEATURE_PREFIX.length);
   return FEATURE_LABELS[key] ?? key;
 }
@@ -255,8 +255,8 @@ export function scoreMatch(
         ? custom[feature]
         : (property[feature as keyof PropertyFields] as boolean | undefined);
       if (level === "must") {
-        if (value === false) mustMissingExplicit.push(featureLabel(feature));
-        else if (value === undefined) mustUnknown.push(featureLabel(feature));
+        if (value === false) mustMissingExplicit.push(propertyFeatureLabel(feature));
+        else if (value === undefined) mustUnknown.push(propertyFeatureLabel(feature));
       } else {
         niceTotal += 1;
         if (value === true) niceHit += 1;
@@ -299,7 +299,7 @@ export function scoreMatch(
             : (property[f as keyof PropertyFields] as boolean | undefined);
           return l === "nice" && value !== true;
         })
-        .map(([f]) => featureLabel(f));
+        .map(([f]) => propertyFeatureLabel(f));
       parts.push({
         criterion: "features_nice",
         weight: weights.features_nice,

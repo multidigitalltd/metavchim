@@ -533,11 +533,27 @@ model SharedDemand {
   /// שכונות מבוקשות — מועתקות מדרישות הקונה בשיתוף; אנונימיות כמו ערים
   neighborhoods   String[] @default([])
   dealType        String   @map("deal_type") @db.VarChar(10)
-  // טווח מעוגל כלפי מעלה ל-100 אלף ₪ — אנונימיזציה אמיתית, לא הסתרה
+  /// סוגי הנכס שהקונה מוכן לשקול. ריק = לא הגביל.
+  propertyTypes   String[] @default([]) @map("property_types")
+  /// שטח מינימלי במ״ר. אינו מזהה איש, ופוסל חצי מההצעות עוד לפניהן.
+  areaSqmMin      Int?     @map("area_sqm_min")
+  // טווח מעוגל ל-100 אלף ₪ — אנונימיזציה אמיתית, לא הסתרה.
+  // המקסימום כלפי מעלה והמינימום כלפי מטה, כדי שהעיגול תמיד ירחיב
+  // את הטווח ולא יצמצם אותו: הצעה שנפסלת בגלל עיגול היא עסקה שאבדה.
+  budgetMinAgorot BigInt?  @map("budget_min_agorot")
   budgetMaxAgorot BigInt   @map("budget_max_agorot")
   roomsMin        Decimal? @map("rooms_min") @db.Decimal(4, 1)
   roomsMax        Decimal? @map("rooms_max") @db.Decimal(4, 1)
+  /// מתי הקונה צריך להיכנס — `immediate | by_date | flexible`.
+  entryType       String?  @map("entry_type") @db.VarChar(20)
+  entryBy         DateTime? @map("entry_by") @db.Date
+  /// מצב המימון והבשלות. לא מזהים איש, ומספרים לצד השני אם שווה
+  /// להשקיע נכס ולחכות לתשובה — בדיוק מה שחסר בהצעות באוויר.
+  financing       String?  @db.VarChar(20)
+  maturity        String?  @db.VarChar(20)
   mustFeatures    String[] @map("must_features")
+  /// מאפייני עדיפות — לא פוסלים, אבל מבדילים בין שתי הצעות דומות.
+  niceFeatures    String[] @default([]) @map("nice_features")
   notes           String?  @db.VarChar(300)
   status          String   @default("active") @db.VarChar(20) // active | closed
   /// אחוז העמלה שהמשרד **המשתף** לוקח; לצד השני נשאר המשלים.
