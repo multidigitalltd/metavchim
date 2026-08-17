@@ -1,6 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import { ulid } from "ulid";
-import { extractPropertyFromTranscript, type PropertyFields } from "@metavchim/shared";
+import {
+  extractPropertyFromTranscript,
+  type PropertyFields,
+} from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -31,12 +34,19 @@ export class VoiceIntakeService {
 
   async intake(transcript: string): Promise<IntakeResult> {
     const ctx = TenantContext.current();
-    const { fields, evidence } = extractPropertyFromTranscript(transcript);
+    const { fields, evidence, marketingDescription } =
+      extractPropertyFromTranscript(transcript);
 
     // יצירת הנכס דרך אותו מסלול כמו טופס ידני — ניקוד מוכנות, אירועים והתאמות כלולים.
+    /*
+     * התיאור נמסר בנפרד מ-`fields`: `create` מקבל אותו כפרמטר משלו,
+     * ושדה שנשאר רק בתוך `fields` לא היה נשמר בכלל — כלומר מה
+     * שהמתווך אמר על הנכס היה נעלם בשקט.
+     */
     const property = await this.properties.create({
       fields: fields as PropertyFields,
       marketingTitle: buildTitle(fields),
+      ...(marketingDescription === undefined ? {} : { marketingDescription }),
     });
 
     const intakeId = ulid();
