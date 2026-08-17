@@ -49,11 +49,7 @@ import {
   IconCoins,
   IconX,
 } from "../icons";
-import {
-  CollaborationGuide,
-  CommissionPanel,
-  ReferralRulesPanel,
-} from "./guide";
+import { CollaborationGuide, ReferralRulesPanel } from "./guide";
 import { PrivacyBanner } from "./privacy-banner";
 import { ReachBanner } from "./reach-banner";
 import { NetChips } from "./net-chips";
@@ -1291,8 +1287,7 @@ export default function CollaborationPage() {
                 מתאים? ההצעה חינם, והעמלה מתחלקת רק אם העסקה תיסגר.
               </p>
 
-              <CommissionPanel />
-
+    
               {loadFailed ? (
                 <LoadError
                   message="לא הצלחנו לטעון את הביקושים ברשת"
@@ -1616,8 +1611,7 @@ export default function CollaborationPage() {
                 לכם קונה מתאים? הפנייה חינם, והעמלה מתחלקת רק אם העסקה תיסגר.
               </p>
 
-              <CommissionPanel />
-
+    
               {listingsFailed ? (
                 <LoadError
                   message="לא הצלחנו לטעון את הנכסים ברשת"

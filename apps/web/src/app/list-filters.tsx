@@ -70,6 +70,114 @@ export function hasActiveFilters(values: ListFilterValues): boolean {
   return Object.values(values).some((value) => value.trim() !== "");
 }
 
+/**
+ * עצירות המחיר לציר.
+ *
+ * **לא סקאלה לינארית, ובכוונה.** הציר משרת גם מכירה (מיליונים) וגם
+ * שכירות (אלפים בודדים); ציר לינארי עד 10 מיליון היה דוחס את כל
+ * טווח השכירות לפיקסל אחד, וציר עד 20 אלף היה חסר משמעות למכירה.
+ * העצירות צפופות היכן שיש נכסים ומתפזרות למעלה, וכך שתי הקבוצות
+ * שמישות על אותו ציר.
+ *
+ * השדה המספרי נשאר לצדו: הציר הוא לבחירה מהירה, והמספר הוא לדיוק
+ * ולכל ערך שאינו על עצירה.
+ */
+const PRICE_STOPS = [
+  0, 1_000, 2_000, 3_000, 4_000, 5_000, 7_500, 10_000, 15_000, 20_000, 50_000,
+  100_000, 250_000, 500_000, 750_000, 1_000_000, 1_250_000, 1_500_000,
+  1_750_000, 2_000_000, 2_250_000, 2_500_000, 3_000_000, 3_500_000, 4_000_000,
+  5_000_000, 7_500_000, 10_000_000,
+];
+
+/** חדרים — טווח אמיתי של דירות, בחצאים. */
+const ROOM_STOPS = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 7, 8, 10];
+
+/** האינדקס בעצירות הקרוב ביותר לערך; `null` לשדה ריק. */
+function stopIndex(stops: readonly number[], raw: string): number | null {
+  const value = filterNumber(raw);
+  if (value === undefined) return null;
+  let best = 0;
+  for (let i = 1; i < stops.length; i += 1) {
+    if (Math.abs(stops[i]! - value) < Math.abs(stops[best]! - value)) best = i;
+  }
+  return best;
+}
+
+const money = (value: number): string => value.toLocaleString("he-IL");
+
+/**
+ * ציר טווח — שני גוררים על אותה סקאלה.
+ *
+ * שני `input[type=range]` ולא רכיב חיצוני: זה נגיש במקלדת בחינם,
+ * עובד במגע, ואינו מוסיף תלות. הגורר התחתון לעולם אינו עובר את
+ * העליון — במקום לפסול את הפעולה, הוא דוחף אותו, כי משתמש שגורר
+ * מעבר לגבול מתכוון להזיז את הטווח ולא לבטל את הגרירה.
+ */
+function RangeSlider({
+  label,
+  stops,
+  minRaw,
+  maxRaw,
+  format,
+  onChange,
+}: {
+  label: string;
+  stops: readonly number[];
+  minRaw: string;
+  maxRaw: string;
+  format: (value: number) => string;
+  onChange: (next: { min?: string; max?: string }) => void;
+}): React.JSX.Element {
+  const last = stops.length - 1;
+  const lo = stopIndex(stops, minRaw) ?? 0;
+  const hi = stopIndex(stops, maxRaw) ?? last;
+
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline justify-between text-xs">
+        <span className="font-semibold">{label}</span>
+        <span style={{ color: "var(--color-text-soft)" }}>
+          {minRaw.trim() === "" && maxRaw.trim() === ""
+            ? "הכול"
+            : `${format(stops[lo]!)} – ${hi === last ? "ומעלה" : format(stops[hi]!)}`}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="range"
+          aria-label={`${label} — מ־`}
+          min={0}
+          max={last}
+          value={lo}
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            onChange({
+              min: String(stops[next]),
+              ...(next > hi ? { max: String(stops[next]) } : {}),
+            });
+          }}
+          className="w-full"
+        />
+        <input
+          type="range"
+          aria-label={`${label} — עד`}
+          min={0}
+          max={last}
+          value={hi}
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            onChange({
+              max: String(stops[next]),
+              ...(next < lo ? { min: String(stops[next]) } : {}),
+            });
+          }}
+          className="w-full"
+        />
+      </div>
+    </div>
+  );
+}
+
 const inputStyle = {
   borderColor: "var(--color-border)",
   background: "var(--color-field)",
@@ -198,6 +306,48 @@ export function ListFilters({
           {field("maxPrice", `${priceLabel} — עד`, "2,500,000")}
           {field("minRooms", "חדרים — מ־", "3")}
           {field("maxRooms", "חדרים — עד", "5")}
+        </div>
+      ) : null}
+
+      {/*
+        הצירים מתחת לשדות ולא במקומם: גרירה מהירה למי שרוצה טווח,
+        והקלדה מדויקת למי שיודע את המספר. שניהם כותבים לאותו state,
+        ולכן אין מצב שבו המסך מראה שני טווחים שונים.
+      */}
+      {open ? (
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <RangeSlider
+            label={priceLabel}
+            stops={PRICE_STOPS}
+            minRaw={draft.minPrice}
+            maxRaw={draft.maxPrice}
+            format={money}
+            onChange={(next) => {
+              const merged = {
+                ...draft,
+                ...(next.min === undefined ? {} : { minPrice: next.min }),
+                ...(next.max === undefined ? {} : { maxPrice: next.max }),
+              };
+              setDraft(merged);
+              onApply(merged);
+            }}
+          />
+          <RangeSlider
+            label="חדרים"
+            stops={ROOM_STOPS}
+            minRaw={draft.minRooms}
+            maxRaw={draft.maxRooms}
+            format={(value) => String(value)}
+            onChange={(next) => {
+              const merged = {
+                ...draft,
+                ...(next.min === undefined ? {} : { minRooms: next.min }),
+                ...(next.max === undefined ? {} : { maxRooms: next.max }),
+              };
+              setDraft(merged);
+              onApply(merged);
+            }}
+          />
         </div>
       ) : null}
     </form>
