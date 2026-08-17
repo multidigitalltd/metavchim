@@ -11,7 +11,10 @@ import {
   searchAreaRejectionReason,
   type SearchArea,
 } from "@metavchim/shared";
-import { LocationPicker, type LocationValue } from "../properties/location-picker";
+import {
+  LocationPicker,
+  type LocationValue,
+} from "../properties/location-picker";
 
 /**
  * אזורי החיפוש של הקונה — **מה שהוא באמת מחפש, במקום שם עיר.**
@@ -27,6 +30,14 @@ import { LocationPicker, type LocationValue } from "../properties/location-picke
  *
  * רשימת הערים נשארת ואינה מוחלפת: היא הגיבוי לנכס שאין לו
  * קואורדינטה, והיא מה שעובד למי שלא רוצה לגעת במפה בכלל.
+ *
+ * ## למה המפה פתוחה מלכתחילה ולא מאחורי כפתור
+ *
+ * קודם היה כאן כפתור "+ הוספת אזור חיפוש", והמפה נפתחה רק בלחיצה
+ * עליו. שדה שצריך לגלות אותו הוא שדה שלא ממלאים: הסוכן הקליד עיר,
+ * המשיך, ואזורי החיפוש נשארו ריקים — כלומר הקריטריון המדויק ביותר
+ * שיש לקונה פשוט לא נאסף. עכשיו המפה היא שדה קבוע בפרטי הקונה,
+ * לצד העיר, והיא נראית ברגע שנפתח הטופס.
  */
 
 export function SearchAreas({
@@ -38,7 +49,11 @@ export function SearchAreas({
   onChange: (next: SearchArea[]) => void;
   disabled?: boolean;
 }) {
-  const [draft, setDraft] = useState<LocationValue | null>(null);
+  /*
+   * `{}` ולא `null` — המפה מוצגת מיד. הערך נשאר "טיוטה" כי סיכה
+   * שסומנה ועדיין לא נוספה אינה אזור חיפוש.
+   */
+  const [draft, setDraft] = useState<LocationValue>({});
   const [radius, setRadius] = useState(String(DEFAULT_SEARCH_RADIUS_KM));
   const [label, setLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +61,7 @@ export function SearchAreas({
   const full = value.length >= MAX_SEARCH_AREAS;
 
   function add(): void {
-    if (draft?.latitude === undefined || draft.longitude === undefined) {
+    if (draft.latitude === undefined || draft.longitude === undefined) {
       setError("סמנו נקודה על המפה");
       return;
     }
@@ -62,17 +77,21 @@ export function SearchAreas({
       return;
     }
     onChange([...value, area]);
-    setDraft(null);
+    // המפה נשארת פתוחה לאזור הבא, בלי הסיכה שכבר נוספה
+    setDraft({});
     setLabel("");
     setError(null);
   }
 
   return (
     <div>
-      <p className="m-0 mb-2 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+      <p
+        className="m-0 mb-2 text-[12.5px]"
+        style={{ color: "var(--color-text-muted)" }}
+      >
         סימון על המפה גובר על רשימת הערים: נכס בתוך הרדיוס יתאים גם אם הוא בעיר
-        שכנה, ונכס מחוץ לו יקבל ניקוד נמוך יותר במקום להיעלם. בלי סימון —
-        ההתאמה עובדת לפי הערים, כרגיל.
+        שכנה, ונכס מחוץ לו יקבל ניקוד נמוך יותר במקום להיעלם. בלי סימון — ההתאמה
+        עובדת לפי הערים, כרגיל.
       </p>
 
       {value.length > 0 ? (
@@ -102,23 +121,28 @@ export function SearchAreas({
         </ul>
       ) : null}
 
-      {draft === null ? (
-        <Button
-          variant="ghost"
-          disabled={disabled || full}
-          onClick={() => {
-            setDraft({});
-            setError(null);
-          }}
+      {full ? (
+        /* הגבלה אמיתית, ולכן היא נאמרת במקום שבו היה השדה */
+        <p
+          className="m-0 text-[12.5px]"
+          style={{ color: "var(--color-text-muted)" }}
         >
-          {full ? `הגעתם ל-${MAX_SEARCH_AREAS} אזורים` : "+ הוספת אזור חיפוש"}
-        </Button>
+          הגעתם ל-{MAX_SEARCH_AREAS} אזורי חיפוש — אפשר להסיר אזור כדי להוסיף
+          אחר.
+        </p>
       ) : (
         <div
           className="rounded-lg border p-3"
-          style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+          style={{
+            borderColor: "var(--color-border)",
+            background: "var(--color-bg)",
+          }}
         >
-          <LocationPicker value={draft} onChange={setDraft} disabled={disabled} />
+          <LocationPicker
+            value={draft}
+            onChange={setDraft}
+            disabled={disabled}
+          />
           <div className="mt-2 flex flex-wrap items-end gap-2">
             <label className="text-[12px]">
               <span className="mb-0.5 block font-semibold">רדיוס (ק״מ)</span>
@@ -130,29 +154,50 @@ export function SearchAreas({
                 value={radius}
                 onChange={(e) => setRadius(e.target.value)}
                 className="w-24 rounded-lg border px-2.5 py-1.5"
-                style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+                style={{
+                  borderColor: "var(--color-border)",
+                  background: "var(--color-surface)",
+                }}
               />
             </label>
             <label className="grow text-[12px]">
-              <span className="mb-0.5 block font-semibold">שם האזור (לא חובה)</span>
+              <span className="mb-0.5 block font-semibold">
+                שם האזור (לא חובה)
+              </span>
               <input
                 value={label}
                 maxLength={60}
                 placeholder="למשל: ליד ההורים"
                 onChange={(e) => setLabel(e.target.value)}
                 className="w-full rounded-lg border px-2.5 py-1.5"
-                style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+                style={{
+                  borderColor: "var(--color-border)",
+                  background: "var(--color-surface)",
+                }}
               />
             </label>
             <Button onClick={add} disabled={disabled}>
               הוסף
             </Button>
-            <Button variant="ghost" onClick={() => setDraft(null)} disabled={disabled}>
-              ביטול
+            {/* אין מה "לבטל" בשדה קבוע — הכפתור מנקה את הסיכה */}
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setDraft({});
+                setLabel("");
+                setError(null);
+              }}
+              disabled={disabled}
+            >
+              נקה סימון
             </Button>
           </div>
           {error !== null ? (
-            <p role="alert" className="m-0 mt-2 text-[12.5px]" style={{ color: "var(--color-danger)" }}>
+            <p
+              role="alert"
+              className="m-0 mt-2 text-[12.5px]"
+              style={{ color: "var(--color-danger)" }}
+            >
               {error}
             </p>
           ) : null}
