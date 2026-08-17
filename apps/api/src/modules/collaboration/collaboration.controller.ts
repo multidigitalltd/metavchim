@@ -27,6 +27,7 @@ import {
   type SharedDemandDto,
   type SharedLeadDto,
 } from "./collaboration.service";
+import { ListingsService, type SharedListingDto } from "./listings.service";
 
 /**
  * חלוקת העמלה. הגבולות מגיעים מהכלל המשותף ולא נכתבים כאן שוב —
@@ -54,6 +55,22 @@ const UpdateShareSchema = z
     note: z.string().trim().max(300).optional(),
   })
   .strict();
+const PublishListingSchema = z
+  .object({
+    propertyId: IdSchema,
+    commissionSplit: CommissionSplitSchema,
+    /** "מה מיוחד בנכס" במילים; באחריות המפרסם בלי כתובת ובלי בעלים */
+    note: z.string().trim().max(300).optional(),
+  })
+  .strict();
+
+const InterestSchema = z
+  .object({
+    buyerId: IdSchema,
+    commissionSplit: CommissionSplitSchema,
+  })
+  .strict();
+
 const OfferSchema = z
   .object({ propertyId: IdSchema, commissionSplit: CommissionSplitSchema })
   .strict();
@@ -102,7 +119,112 @@ const RateReferralSchema = z
  */
 @Controller("collaboration")
 export class CollaborationController {
-  constructor(private readonly collaboration: CollaborationService) {}
+  constructor(
+    private readonly collaboration: CollaborationService,
+    private readonly listings: ListingsService,
+  ) {}
+
+  /* ============================================================
+     הכיוון השני של הרשת: נכס שמתפרסם, וקונה שמביע בו עניין.
+     אותם שערי הרשאה כמו בכיוון הקיים — `collaboration.share`
+     לפרסום מה ששלי, `collaboration.offer` לפנייה למה שאחרים
+     פרסמו. הרשאה חדשה הייתה אומרת שמשרד שכבר מורשה לשתף צריך
+     הגדרה נוספת כדי לשתף בכיוון השני, וזו הפתעה ולא הגנה.
+     ============================================================ */
+
+  @Post("listings")
+  @RequireCapability("collaboration.share")
+  async publishListing(
+    @Body(new ZodValidationPipe(PublishListingSchema))
+    body: z.infer<typeof PublishListingSchema>,
+  ): Promise<SharedListingDto> {
+    return this.listings.publish(body.propertyId, body.commissionSplit, body.note);
+  }
+
+  /**
+   * מצב הפרסום של נכס — null כשאינו מפורסם.
+   *
+   * כרטיס הנכס קורא את זה בטעינה, מאותה סיבה שכרטיס הקונה עושה זאת:
+   * מסך שמציע לפרסם נכס שכבר מפורסם מקבל שגיאה על פעולה שהוא עצמו
+   * הציע.
+   */
+  @Get("listings/property/:propertyId")
+  @RequireCapability("collaboration.share")
+  async propertyListing(
+    @Param("propertyId", new ZodValidationPipe(IdSchema)) propertyId: string,
+  ): Promise<SharedListingDto | null> {
+    return this.listings.activeForProperty(propertyId);
+  }
+
+  @Patch("listings/property/:propertyId")
+  @RequireCapability("collaboration.share")
+  async updateListing(
+    @Param("propertyId", new ZodValidationPipe(IdSchema)) propertyId: string,
+    @Body(new ZodValidationPipe(UpdateShareSchema)) body: z.infer<typeof UpdateShareSchema>,
+  ): Promise<SharedListingDto> {
+    return this.listings.updatePublication(propertyId, body.commissionSplit, body.note);
+  }
+
+  @Delete("listings/property/:propertyId")
+  @RequireCapability("collaboration.share")
+  @HttpCode(204)
+  async unpublishListing(
+    @Param("propertyId", new ZodValidationPipe(IdSchema)) propertyId: string,
+  ): Promise<void> {
+    await this.listings.unpublish(propertyId);
+  }
+
+  /**
+   * פיד הנכסים ברשת.
+   *
+   * **מוכרח לשבת לפני `listings/:id`** אילו היה נתיב כזה — ואין,
+   * בדיוק כדי שלא ייווצר. פרסום נקרא לפי הנכס שממנו נגזר, כי זה
+   * המזהה שהמסך מחזיק.
+   */
+  @Get("listings")
+  @RequireCapability("collaboration.offer")
+  async networkListings(): Promise<SharedListingDto[]> {
+    return this.listings.list();
+  }
+
+  @Post("listings/:id/interest")
+  @RequireCapability("collaboration.offer")
+  @HttpCode(204)
+  async expressInterest(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(InterestSchema)) body: z.infer<typeof InterestSchema>,
+  ): Promise<void> {
+    await this.listings.expressInterest(id, body.buyerId, body.commissionSplit);
+  }
+
+  /** קונים שמשרדים אחרים מציעים על הנכסים שפרסמתי. */
+  @Get("interests")
+  @RequireCapability("collaboration.share")
+  async interests(): Promise<Awaited<ReturnType<ListingsService["listInterests"]>>> {
+    return this.listings.listInterests();
+  }
+
+  @Patch("interests/:id/respond")
+  @RequireCapability("collaboration.share")
+  @HttpCode(204)
+  async respondToInterest(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(RespondSchema)) body: z.infer<typeof RespondSchema>,
+  ): Promise<void> {
+    await this.listings.respondToInterest(id, body.response);
+  }
+
+  /**
+   * מה מהמאגר שלי מתאים למשהו שכבר ברשת ואינו מפורסם בה.
+   *
+   * `collaboration.offer` ולא `share`: זו קריאה על הרשת, וסוכן
+   * שרואה את הפיד אמור לדעת גם מה הוא מפספס בו.
+   */
+  @Get("reach")
+  @RequireCapability("collaboration.offer")
+  async reach(): Promise<Awaited<ReturnType<ListingsService["reach"]>>> {
+    return this.listings.reach();
+  }
 
   @Post("share")
   @RequireCapability("collaboration.share")

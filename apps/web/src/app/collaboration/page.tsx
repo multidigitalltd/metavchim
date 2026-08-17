@@ -34,6 +34,7 @@ import {
   IconSearch,
   IconSend,
   IconStar,
+  IconTag,
   IconTarget,
   IconUpload,
   IconUser,
@@ -47,6 +48,7 @@ import {
   ReferralRulesPanel,
 } from "./guide";
 import { PrivacyBanner } from "./privacy-banner";
+import { ReachBanner } from "./reach-banner";
 import { NetChips } from "./net-chips";
 import { ReferralRating, type ReferralRatingValue } from "./referral-rating";
 import { BuyCredits } from "./buy-credits";
@@ -55,9 +57,16 @@ import { PayoutPanel } from "./payout-panel";
 /**
  * רשת שיתופי הפעולה (אפיון §11-12).
  *
- * שלוש לשוניות ולא מסך אחד: שיתוף פעולה על ביקושים (חינם) והפניות
- * לקוחות (בקרדיטים) הם שני מנגנונים שונים לגמרי, וההצגה שלהם יחד
- * היא מה שגרם למתווכים לחשוב ששת"פ עולה כסף.
+ * לשוניות ולא מסך אחד: שיתוף פעולה על ביקושים ועל נכסים (חינם)
+ * והפניות לקוחות (בקרדיטים) הם מנגנונים שונים לגמרי, וההצגה שלהם
+ * יחד היא מה שגרם למתווכים לחשוב ששת"פ עולה כסף.
+ *
+ * ## למה "נכסים ברשת" היא לשונית ולא סינון
+ *
+ * הרשת הייתה חד-כיוונית: רק ביקושים התפרסמו. משרד יכול היה לומר
+ * "יש לי קונה, למי יש נכס" ולא את ההפך, ולכן משרד עם נכס תקוע
+ * ומשרד עם קונה מתאים לא נפגשו אלא במקרה. שתי הלשוניות עומדות זו
+ * לצד זו כי אלו שתי שאלות שונות: **מה אני מחפש** מול **מה יש לי**.
  */
 const COOP_TABS: [
   key: string,
@@ -65,6 +74,7 @@ const COOP_TABS: [
   Icon: (p: { s?: number }) => React.ReactElement,
 ][] = [
   ["demands", "ביקושים ברשת", IconSearch],
+  ["listings", "נכסים ברשת", IconTag],
   ["incoming", "הצעות שקיבלתי", IconMail],
   ["market", "הפניות לקוחות", IconHandshake],
 ];
@@ -137,6 +147,70 @@ interface DemandRow {
   myMatches?: DemandMatch[];
 }
 
+/**
+ * הצילום של הנכס כפי שהרשת רואה אותו.
+ *
+ * אין כאן רחוב, מספר בית או בעלים — לא "מוסתרים במסך" אלא לא
+ * קיימים בטבלה שהשרת קורא ממנה (`SharedListing`).
+ */
+interface ListingRow {
+  id: string;
+  city?: string;
+  neighborhood?: string;
+  propertyType?: string;
+  dealType?: string;
+  rooms?: number;
+  areaSqm?: number;
+  floor?: number;
+  totalFloors?: number;
+  condition?: string;
+  priceAgorot?: number;
+  entryType?: string;
+  entryDate?: string;
+  features: string[];
+  title?: string;
+  notes?: string;
+  commissionSplit: number;
+  status: string;
+  mine: boolean;
+  originPropertyId?: string;
+  /** הקונים שלי שמתאימים לנכס — אותו מנוע ואותו סף כמו בכיוון השני. */
+  myMatches?: {
+    buyerId: string;
+    name: string;
+    score: number;
+    explanation: string;
+  }[];
+  /** כבר פניתי על הנכס הזה — אין להציע פעמיים. */
+  interestSent?: boolean;
+}
+
+/** "יש לי קונה לנכס שלך" — הפנייה שהתקבלה על נכס שפרסמתי. */
+interface InterestRow {
+  id: string;
+  listingId: string;
+  propertyId?: string;
+  propertyTitle?: string;
+  /* צילום הקונה — בלי שם, טלפון או אימייל, בדיוק כמו ביקוש שמתפרסם */
+  presentation: {
+    dealType: string;
+    cities: string[];
+    neighborhoods?: string[];
+    propertyTypes?: string[];
+    budgetMaxAgorot: number;
+    roomsMin?: number;
+    roomsMax?: number;
+    areaSqmMin?: number;
+    entryType?: string;
+    financing?: string;
+    maturity?: string;
+    mustFeatures: string[];
+    niceFeatures?: string[];
+  };
+  commissionSplit: number;
+  status: string;
+}
+
 interface CoopOfferRow {
   id: string;
   direction: "incoming" | "outgoing";
@@ -199,6 +273,12 @@ interface PropertyOption {
   marketingTitle?: string;
 }
 
+/** קונה לבחירה ידנית כשההתאמה האוטומטית לא קלעה. */
+interface BuyerOption {
+  id: string;
+  contact: { name: string };
+}
+
 /**
  * תפוגת הקרדיטים כפי שהשרת מדווח אותה.
  *
@@ -239,7 +319,11 @@ export default function CollaborationPage() {
   const [buyingLead, setBuyingLead] = useState<string | null>(null);
   const [boughtLeadId, setBoughtLeadId] = useState<string | null>(null);
   const [coopOffers, setCoopOffers] = useState<CoopOfferRow[]>([]);
+  /* הכיוון השני של הרשת: נכסים שמשרדים אחרים פרסמו, ומי פנה על שלי */
+  const [listings, setListings] = useState<ListingRow[] | null>(null);
+  const [interests, setInterests] = useState<InterestRow[]>([]);
   const [properties, setProperties] = useState<PropertyOption[]>([]);
+  const [buyers, setBuyers] = useState<BuyerOption[]>([]);
   const [balance, setBalance] = useState<number | null>(null);
   /** תמחור הקרדיטים כפי שהוגדר בפלטפורמה — לרכישה מכאן. */
   const [pricing, setPricing] = useState<{
@@ -256,6 +340,13 @@ export default function CollaborationPage() {
    * ואפשר להציע אחרת — זו הצעה עד שהצד השני מסמן "מעוניין".
    */
   const [offerSplit, setOfferSplit] = useState<Record<string, number>>({});
+  /* אותו דפוס בדיוק בכיוון ההפוך: איזה קונה מציעים, ובאיזו חלוקה */
+  const [selectedBuyer, setSelectedBuyer] = useState<Record<string, string>>(
+    {},
+  );
+  const [interestSplit, setInterestSplit] = useState<Record<string, number>>(
+    {},
+  );
   const [message, setMessageState] = useState<string | null>(null);
   /*
    * כישלון טעינה נשמר בנפרד לכל רשימה, ולא מכווץ ל-[].
@@ -265,6 +356,7 @@ export default function CollaborationPage() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [offersFailed, setOffersFailed] = useState(false);
   const [leadsFailed, setLeadsFailed] = useState(false);
+  const [listingsFailed, setListingsFailed] = useState(false);
 
   /** כל הודעה חדשה מוחקת את קישור "פתח את הליד" של הקנייה הקודמת. */
   function setMessage(text: string | null, leadId: string | null = null) {
@@ -276,6 +368,7 @@ export default function CollaborationPage() {
     setLoadFailed(false);
     setOffersFailed(false);
     setLeadsFailed(false);
+    setListingsFailed(false);
     /*
      * כישלון בטעינת הביקושים אינו "אין ביקושים ברשת".
      * קודם הוא הפך ל-[] והמסך הציג את מצב הריק — כלומר תקלת רשת
@@ -286,6 +379,17 @@ export default function CollaborationPage() {
       .catch(() => setLoadFailed(true));
     apiGet<CoopOfferRow[]>("/collaboration/offers")
       .then(setCoopOffers)
+      .catch(() => setOffersFailed(true));
+    apiGet<ListingRow[]>("/collaboration/listings")
+      .then(setListings)
+      .catch(() => setListingsFailed(true));
+    /*
+     * הפניות על הנכסים שלי יושבות באותה לשונית של ההצעות על
+     * הביקושים שלי — שתיהן "מה הרשת שלחה אליי", וכישלון של אחת
+     * מהן מסומן באותו דגל.
+     */
+    apiGet<InterestRow[]>("/collaboration/interests")
+      .then(setInterests)
       .catch(() => setOffersFailed(true));
     apiGet<SharedLeadRow[]>("/collaboration/leads")
       .then(setSharedLeads)
@@ -307,6 +411,9 @@ export default function CollaborationPage() {
       .catch(() => undefined);
     apiGet<{ items: PropertyOption[] }>("/properties?limit=50")
       .then((r) => setProperties(r.items))
+      .catch(() => undefined);
+    apiGet<{ items: BuyerOption[] }>("/buyers?limit=50")
+      .then((r) => setBuyers(r.items))
       .catch(() => undefined);
   }, []);
 
@@ -343,6 +450,41 @@ export default function CollaborationPage() {
   async function respond(offerId: string, response: "interested" | "declined") {
     await apiPatch(`/collaboration/offers/${offerId}/respond`, { response });
     load();
+  }
+
+  /**
+   * "יש לי קונה לנכס הזה" — התמונה המשלימה להצעת נכס על ביקוש.
+   *
+   * הקונה נשלח בלי שם, טלפון או אימייל, בדיוק כמו ביקוש שמתפרסם:
+   * הצד השני מחליט על סמך **מה** הקונה מחפש ומה מצב המימון שלו, לא
+   * על סמך מי הוא.
+   */
+  async function sendInterest(listingId: string, buyerId: string) {
+    try {
+      await apiPost(`/collaboration/listings/${listingId}/interest`, {
+        buyerId,
+        commissionSplit:
+          interestSplit[listingId] ??
+          listings?.find((l) => l.id === listingId)?.commissionSplit ??
+          DEFAULT_COMMISSION_SPLIT,
+      });
+      setMessage("✓ הפנייה נשלחה. אם המשרד השני יתעניין — תקבלו התראה.");
+      load();
+    } catch (err: unknown) {
+      setMessage(err instanceof ApiError ? err.message : "שליחת הפנייה נכשלה");
+    }
+  }
+
+  async function respondToInterest(
+    id: string,
+    response: "interested" | "declined",
+  ) {
+    try {
+      await apiPatch(`/collaboration/interests/${id}/respond`, { response });
+      load();
+    } catch (err: unknown) {
+      setMessage(err instanceof ApiError ? err.message : "העדכון נכשל");
+    }
   }
 
   async function buyLead(id: string, price: number) {
@@ -388,6 +530,8 @@ export default function CollaborationPage() {
   }
 
   const incoming = coopOffers.filter((o) => o.direction === "incoming");
+  /* פניות שטרם נענו — הן שקובעות את המונה על הלשונית */
+  const openInterests = interests.filter((i) => i.status === "sent");
   const openReferrals = sharedLeads.filter(
     (l) => l.role === "viewer" && l.status === "active",
   );
@@ -421,6 +565,16 @@ export default function CollaborationPage() {
       */}
       <PrivacyBanner />
 
+      {/*
+        ומיד אחריו — מה **שלכם** אינו נמצא שם.
+
+        לראות את הרשת אינו דורש שיתוף; להיראות בה כן. סוכן שפותח את
+        הפיד רואה נכסים וביקושים של אחרים, ואינו יודע שהנכס שלו —
+        שמתאים לשלושה מהם — אינו מפורסם, ולכן אף אחד מהם לא יפנה
+        אליו. הרכיב מציג את עצמו רק כשיש התאמה אמיתית מעל הסף.
+      */}
+      <ReachBanner />
+
       <CollaborationGuide />
 
       {/*
@@ -446,12 +600,15 @@ export default function CollaborationPage() {
             onClick={() => setCoopTab(key)}
           >
             <Icon s={15} /> {label}
-            {key === "incoming" && incoming.length > 0 ? (
+            {/* המונה סופר את שני הכיוונים — הצעות על הביקושים שלי
+                ופניות על הנכסים שלי יושבות באותה לשונית */}
+            {key === "incoming" &&
+            incoming.length + openInterests.length > 0 ? (
               <span
                 className="mv-chip ms-1.5"
                 style={{ padding: "1px 7px", fontSize: 11.5 }}
               >
-                {incoming.length}
+                {incoming.length + openInterests.length}
               </span>
             ) : null}
           </button>
@@ -486,17 +643,27 @@ export default function CollaborationPage() {
           aria-labelledby="coop-tab-incoming"
           className="mb-8"
         >
-          <h2 id="incoming-heading" className="mb-3 text-lg font-semibold">
-            <IconMail s={17} /> הצעות שהתקבלו על הביקושים שלך ({incoming.length}
-            )
-          </h2>
+          {/*
+            כותרת שמכריזה על אפס היא רעש: "הצעות שהתקבלו (0)" מעל
+            רשימה ריקה נראית כמו טעינה שנתקעה. הכותרת מופיעה רק
+            כשיש מה למנות, ומצב הריק המשותף למטה מטפל בשאר.
+          */}
+          {incoming.length > 0 ? (
+            <h2 id="incoming-heading" className="mb-3 text-lg font-semibold">
+              <IconMail s={17} /> הצעות שהתקבלו על הביקושים שלך (
+              {incoming.length})
+            </h2>
+          ) : null}
           {offersFailed ? (
             <LoadError
               message="לא הצלחנו לטעון את ההצעות שהתקבלו"
               onRetry={load}
             />
           ) : null}
-          <ul className="flex list-none flex-col gap-3 p-0">
+          <ul
+            className="flex list-none flex-col gap-3 p-0"
+            aria-label="הצעות שהתקבלו על הביקושים שלך"
+          >
             {incoming.map((offer) => (
               <li key={offer.id} className="mv-net-card">
                 <div className="mv-net-head">
@@ -566,7 +733,101 @@ export default function CollaborationPage() {
               </li>
             ))}
           </ul>
-          {incoming.length === 0 && !offersFailed ? (
+          {/*
+            הכיוון השני של אותה לשונית: מי פנה על **הנכסים** שפרסמתי.
+            שתי הרשימות יושבות יחד כי שתיהן עונות לאותה שאלה — "מה
+            הרשת שלחה אליי, ועל מה אני צריך להשיב".
+          */}
+          {interests.length > 0 ? (
+            <>
+              <h2
+                id="interests-heading"
+                className={`mb-3 text-lg font-semibold${incoming.length > 0 ? " mt-6" : ""}`}
+              >
+                <IconUser s={17} /> קונים שהוצעו לנכסים שפרסמתם (
+                {interests.length})
+              </h2>
+              <ul
+                className="flex list-none flex-col gap-3 p-0"
+                aria-labelledby="interests-heading"
+              >
+                {interests.map((interest) => (
+                  <li key={interest.id} className="mv-net-card">
+                    <div className="mv-net-head">
+                      <span className="mv-net-avatar">
+                        <IconUser s={20} />
+                      </span>
+                      {/*
+                        הכותרת אומרת **על איזה נכס** ולא מה הקונה
+                        מחפש — זה כבר בשורת התגיות מתחתיה, ואילו
+                        הנכס הוא מה שמאפשר לזהות את הפנייה בשנייה.
+                      */}
+                      <h3 className="mv-net-title">
+                        קונה עבור „{interest.propertyTitle ?? "נכס שפרסמתם"}”
+                      </h3>
+                      {/* לאיזה נכס — משרד שפרסם חמישה נכסים קיבל חמש
+                          פניות שנראו זהות, ולא ידע על מה מדובר */}
+                      {interest.propertyId !== undefined ? (
+                        <Link
+                          href={`/properties/${interest.propertyId}`}
+                          className="mv-net-chip mv-net-chip--primary"
+                          style={{ textDecoration: "none" }}
+                        >
+                          <IconHome s={14} /> פתח את הנכס
+                        </Link>
+                      ) : null}
+                    </div>
+
+                    {/* כל מה שידוע על הקונה למעט מה שמזהה אותו */}
+                    <NetChips chips={demandChips(interest.presentation)} />
+
+                    <div className="mv-net-foot">
+                      <span className="mv-net-chip mv-net-chip--money">
+                        <IconCoins s={14} /> העמלה שלי{" "}
+                        {100 - interest.commissionSplit}% · למציע{" "}
+                        {interest.commissionSplit}%
+                      </span>
+                      <span className="mv-net-chip" title="חשיפה מדורגת">
+                        <IconLock s={14} /> שם הקונה ופרטי הקשר — רק אחרי אישור
+                      </span>
+                      {interest.status === "sent" ? (
+                        <span className="flex gap-2">
+                          <Button
+                            onClick={() =>
+                              void respondToInterest(interest.id, "interested")
+                            }
+                          >
+                            מעניין — פתח חיבור
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            onClick={() =>
+                              void respondToInterest(interest.id, "declined")
+                            }
+                          >
+                            לא מתאים
+                          </Button>
+                        </span>
+                      ) : interest.status === "interested" ? (
+                        <span
+                          className="mv-net-chip mv-net-chip--good"
+                          style={{ fontWeight: 700 }}
+                        >
+                          <IconCheck s={14} /> אושר — הסוכנויות מחוברות
+                        </span>
+                      ) : (
+                        <span className="mv-net-chip">
+                          <IconX s={14} /> נדחה
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+
+          {incoming.length === 0 && interests.length === 0 && !offersFailed ? (
             <div className="mv-net-empty">
               <span className="mv-net-empty-icon">
                 <IconInbox s={30} />
@@ -576,7 +837,8 @@ export default function CollaborationPage() {
                 className="m-0 mt-1 text-sm"
                 style={{ color: "var(--color-text-muted)" }}
               >
-                פרסמו ביקוש מכרטיס קונה — ומשרדים עם נכס מתאים יציעו אותו כאן.
+                פרסמו ביקוש מכרטיס קונה או נכס מכרטיס הנכס — ומשרדים עם צד שני
+                מתאים יפנו אליכם כאן.
               </p>
             </div>
           ) : null}
@@ -1132,6 +1394,260 @@ export default function CollaborationPage() {
                           </Button>
                         </div>
                       </details>
+                    </>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
+
+      {/*
+        הכיוון השני של הרשת.
+
+        עד עכשיו משרד יכול היה לומר "יש לי קונה, למי יש נכס" ולא את
+        ההפך — ולכן משרד עם נכס תקוע ומשרד עם קונה מתאים נפגשו רק
+        במקרה. הלשונית הזו היא בדיוק אותו מנגנון בהיפוך: פיד של
+        נכסים, ההתאמות מהקונים **שלי** מחושבות מראש, ובלחיצה אחת
+        נשלחת פנייה בלי לחשוף מי הקונה.
+      */}
+      {coopTab === "listings" ? (
+        <section
+          id="coop-panel-listings"
+          role="tabpanel"
+          aria-labelledby="coop-tab-listings"
+        >
+          <h2 id="listings-heading" className="mb-1 text-lg font-semibold">
+            <IconTag s={17} /> נכסים ברשת
+          </h2>
+          <p
+            className="mb-3.5 text-[14.5px]"
+            style={{ color: "var(--color-text-soft)" }}
+          >
+            נכסים של משרדים אחרים — <b>בלי כתובת מדויקת ובלי בעלים</b>. יש לכם
+            קונה מתאים? הפנייה חינם, והעמלה מתחלקת רק אם העסקה תיסגר.
+          </p>
+
+          <CommissionPanel />
+
+          {listingsFailed ? (
+            <LoadError
+              message="לא הצלחנו לטעון את הנכסים ברשת"
+              onRetry={load}
+            />
+          ) : listings === null ? (
+            <p aria-live="polite">טוען…</p>
+          ) : listings.length === 0 ? (
+            <div className="mv-net-empty">
+              <span className="mv-net-empty-icon">
+                <IconTag s={30} />
+              </span>
+              <p className="m-0 font-semibold">אין כרגע נכסים מפורסמים ברשת</p>
+              <p
+                className="m-0 mt-1 text-sm"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                פרסמו נכס מכרטיס הנכס — ומשרדים עם קונה מתאים יפנו אליכם.
+              </p>
+            </div>
+          ) : (
+            <ul className="flex list-none flex-col gap-3.5 p-0">
+              {listings.map((listing) => (
+                <li
+                  key={listing.id}
+                  className={`mv-net-card${listing.mine ? " mv-net-card--mine" : ""}`}
+                >
+                  <div className="mv-net-head">
+                    <span className="mv-net-avatar">
+                      <IconHome s={20} />
+                    </span>
+                    <h3 className="mv-net-title">
+                      {listing.title ??
+                        `נכס ב${listing.city ?? "רשת"}${
+                          listing.neighborhood
+                            ? ` · ${listing.neighborhood}`
+                            : ""
+                        }`}
+                    </h3>
+                    {listing.mine ? (
+                      <>
+                        <span className="mv-net-chip">
+                          <IconStar s={14} /> הנכס שלך
+                        </span>
+                        {/* הקישור לנכס נחשף רק לסוכנות המקור */}
+                        {listing.originPropertyId !== undefined ? (
+                          <Link
+                            href={`/properties/${listing.originPropertyId}`}
+                            className="mv-net-chip mv-net-chip--primary"
+                            style={{ textDecoration: "none" }}
+                          >
+                            <IconHome s={14} /> פתח את הכרטיס
+                          </Link>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        {/* פנייה על נכס אינה עולה קרדיטים — בשום מסלול */}
+                        <span className="mv-net-chip mv-net-chip--good">
+                          <IconGift s={14} /> חינם
+                        </span>
+                        <span
+                          className="mv-net-chip"
+                          title="חלוקת העמלה שהמשרד המפרסם ביקש"
+                        >
+                          <IconHandshake s={14} />{" "}
+                          {describeCommissionSplit(listing.commissionSplit)}
+                        </span>
+                      </>
+                    )}
+                  </div>
+
+                  {/*
+                    כל מה שידוע על הנכס למעט רחוב, מספר בית ובעלים —
+                    אותה רשימה בדיוק שההצעות משתמשות בה, מ-
+                    `packages/shared/logic/network-card.ts`.
+                  */}
+                  <NetChips chips={presentationChips(listing)} />
+
+                  {listing.notes ? (
+                    <p className="mv-net-quote">„{listing.notes}”</p>
+                  ) : null}
+
+                  {!listing.mine ? (
+                    <>
+                      {listing.interestSent ? (
+                        <p
+                          className="mb-3 flex items-center gap-1.5 text-sm font-semibold"
+                          style={{ color: "var(--color-primary)" }}
+                        >
+                          <IconCheck s={15} /> כבר פניתם על הנכס הזה — התשובה
+                          תגיע ללשונית „הצעות שקיבלתי”.
+                        </p>
+                      ) : listing.myMatches && listing.myMatches.length > 0 ? (
+                        <div className="mb-3">
+                          <p
+                            className="m-0 mb-2 text-[14.5px] font-bold"
+                            style={{ color: "var(--color-primary)" }}
+                          >
+                            <IconTarget s={16} /> {listing.myMatches.length}{" "}
+                            מהקונים שלכם מתאימים
+                          </p>
+                          <ul className="flex list-none flex-col gap-2 p-0">
+                            {listing.myMatches.map((match) => (
+                              <li key={match.buyerId} className="mv-net-match">
+                                <span
+                                  className="mv-net-score"
+                                  aria-hidden="true"
+                                >
+                                  {match.score}%
+                                </span>
+                                <span className="flex-1 min-w-[160px]">
+                                  <b className="block">{match.name}</b>
+                                  <span
+                                    className="text-[13px]"
+                                    style={{ color: "var(--color-text-soft)" }}
+                                  >
+                                    {match.explanation}
+                                  </span>
+                                </span>
+                                <Button
+                                  variant="secondary"
+                                  onClick={() =>
+                                    void sendInterest(listing.id, match.buyerId)
+                                  }
+                                >
+                                  יש לי קונה — פנה
+                                </Button>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : (
+                        <p
+                          className="mb-3 text-sm"
+                          style={{ color: "var(--color-text-muted)" }}
+                        >
+                          אין לכם כרגע קונה שמתאים לנכס הזה.
+                        </p>
+                      )}
+
+                      {!listing.interestSent ? (
+                        <details className="mv-net-foot">
+                          <summary
+                            className="cursor-pointer text-sm font-medium"
+                            style={{ color: "var(--color-primary)" }}
+                          >
+                            <span className="inline-flex items-center gap-1.5 align-middle">
+                              <IconPlus s={14} /> להציע קונה אחר / לשנות חלוקת
+                              עמלה
+                            </span>
+                          </summary>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <label
+                              className="flex items-center gap-2 text-sm"
+                              htmlFor={`isplit_${listing.id}`}
+                            >
+                              חלוקת עמלה
+                            </label>
+                            <select
+                              id={`isplit_${listing.id}`}
+                              value={
+                                interestSplit[listing.id] ??
+                                listing.commissionSplit
+                              }
+                              onChange={(e) =>
+                                setInterestSplit((prev) => ({
+                                  ...prev,
+                                  [listing.id]: Number(e.target.value),
+                                }))
+                              }
+                              className="mv-control"
+                            >
+                              {COMMISSION_SPLIT_OPTIONS.map((share) => (
+                                <option key={share} value={share}>
+                                  {describeCommissionSplit(share)}
+                                </option>
+                              ))}
+                            </select>
+                            <label
+                              htmlFor={`buyer_${listing.id}`}
+                              className="mv-visually-hidden"
+                            >
+                              בחר קונה לפנייה
+                            </label>
+                            <select
+                              id={`buyer_${listing.id}`}
+                              value={selectedBuyer[listing.id] ?? ""}
+                              onChange={(event) =>
+                                setSelectedBuyer((prev) => ({
+                                  ...prev,
+                                  [listing.id]: event.target.value,
+                                }))
+                              }
+                              className="mv-control"
+                            >
+                              <option value="">בחר קונה לפנייה…</option>
+                              {buyers.map((b) => (
+                                <option key={b.id} value={b.id}>
+                                  {b.contact.name}
+                                </option>
+                              ))}
+                            </select>
+                            <Button
+                              variant="secondary"
+                              disabled={!selectedBuyer[listing.id]}
+                              onClick={() => {
+                                const buyerId = selectedBuyer[listing.id];
+                                if (buyerId)
+                                  void sendInterest(listing.id, buyerId);
+                              }}
+                            >
+                              שלח פנייה
+                            </Button>
+                          </div>
+                        </details>
+                      ) : null}
                     </>
                   ) : null}
                 </li>

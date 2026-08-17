@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { CollaborationModule } from "../collaboration/collaboration.module";
 import { ContactsModule } from "../contacts/contacts.module";
 import { LeadsModule } from "../leads/leads.module";
 import { MatchingModule } from "../matching/matching.module";
@@ -18,6 +19,13 @@ import { PropertiesService } from "./properties.service";
     MessagingModule,
     LeadsModule,
     FeatureCatalogueModule,
+    /*
+     * הפרסום ברשת הוא **צילום** של הנכס, וצילום שאינו מתרענן
+     * מזדקן: נכס שירד מ-2.3 ל-2.1 מיליון היה נשאר מוצג לרשת ב-2.3.
+     * עריכת נכס מרעננת אותו, ולכן `PropertiesService` תלוי
+     * ב-`ListingsService`.
+     */
+    CollaborationModule,
   ],
   controllers: [PropertiesController, MediaController, LandingController],
   providers: [PropertiesService, MediaService, LandingService],

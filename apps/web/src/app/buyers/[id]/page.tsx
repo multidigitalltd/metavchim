@@ -18,7 +18,7 @@ import {
 } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { IconChat, IconEdit, IconPhone } from "../../icons";
-import { NetworkShareSection } from "./network-share-section";
+import { NetworkShareSection } from "../../network-share-section";
 import { NetworkPropertyMatches } from "../network-property-matches";
 import { TimelineSection } from "./timeline-section";
 import { ContactPeople } from "../../contact-people";
@@ -858,7 +858,7 @@ export default function BuyerDetailPage({
       </TabPanel>
 
       <TabPanel tab="network" active={tab}>
-        <NetworkShareSection buyerId={id} />
+        <NetworkShareSection kind="buyer" entityId={id} />
       </TabPanel>
     </>
   );
