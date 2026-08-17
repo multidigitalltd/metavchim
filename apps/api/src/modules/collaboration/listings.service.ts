@@ -18,6 +18,7 @@ import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { officeNames } from "./office-names";
 import { readCustomFeatures, rowToFields } from "../properties/property.mapper";
 
 /**
@@ -79,6 +80,8 @@ export interface SharedListingDto {
   status: string;
   /** true אם הפרסום שלי — רק אז יש קישור לנכס. */
   mine: boolean;
+  /** המשרד שפרסם את הנכס לרשת. */
+  officeName?: string;
   originPropertyId?: string;
   createdAt: Date;
   /** הקונים שלי שמתאימים — מחושב במנוע ההתאמות, לא ניחוש. */
@@ -341,6 +344,7 @@ export class ListingsService {
   private toDto(
     row: Prisma.SharedListingGetPayload<object>,
     viewerTenantId: string,
+    officeName?: string,
   ): SharedListingDto {
     const mine = row.tenantId === viewerTenantId;
     return {
@@ -365,6 +369,7 @@ export class ListingsService {
       commissionSplit: row.commissionSplit,
       status: row.status,
       mine,
+      ...(officeName === undefined ? {} : { officeName }),
       // הקישור לנכס נחשף רק לסוכנות המקור — לעולם לא לרשת
       ...(mine ? { originPropertyId: row.originPropertyId } : {}),
       createdAt: row.createdAt,
@@ -479,8 +484,13 @@ export class ListingsService {
       },
     );
 
+    const offices = await officeNames(
+      this.prisma,
+      visible.map((row) => row.tenantId),
+    );
+
     return visible.map((row) => {
-      const dto = this.toDto(row, tenantId);
+      const dto = this.toDto(row, tenantId, offices.get(row.tenantId));
       if (dto.mine) return dto;
       const matches = this.matchOwnBuyers(buyers, names, row);
       return {

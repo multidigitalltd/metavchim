@@ -41,6 +41,20 @@ function numericValue(raw: string): string {
   return raw.replace(/[,\s₪]/gu, "");
 }
 
+/**
+ * ערך מספרי של שדה סינון — `undefined` לשדה ריק או לא־מספרי.
+ *
+ * מיוצא כדי שסינון שרץ בצד הלקוח (אזור הרשת) יקרא את השדות בדיוק
+ * כמו שהשרת קורא אותם: אותה הסרה של מפרידי אלפים ואותה משמעות
+ * ל"ריק". שני פירושים לאותו שדה הם באג שמתגלה רק אצל המשתמש.
+ */
+export function filterNumber(raw: string): number | undefined {
+  const clean = numericValue(raw);
+  if (clean === "") return undefined;
+  const value = Number(clean);
+  return Number.isFinite(value) ? value : undefined;
+}
+
 /** מחרוזת ה-query — רק שדות שמולאו בפועל. */
 export function filtersToQuery(values: ListFilterValues): string {
   const params = new URLSearchParams();
@@ -56,7 +70,10 @@ export function hasActiveFilters(values: ListFilterValues): boolean {
   return Object.values(values).some((value) => value.trim() !== "");
 }
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
+const inputStyle = {
+  borderColor: "var(--color-border)",
+  background: "var(--color-field)",
+} as const;
 
 export function ListFilters({
   values,
@@ -103,7 +120,10 @@ export function ListFilters({
   ): React.JSX.Element {
     return (
       <div>
-        <label htmlFor={`flt-${key}`} className="mb-1 block text-xs font-semibold">
+        <label
+          htmlFor={`flt-${key}`}
+          className="mb-1 block text-xs font-semibold"
+        >
           {label}
         </label>
         <input
@@ -111,7 +131,9 @@ export function ListFilters({
           value={draft[key]}
           inputMode="numeric"
           placeholder={placeholder}
-          onChange={(event) => setDraft({ ...draft, [key]: event.target.value })}
+          onChange={(event) =>
+            setDraft({ ...draft, [key]: event.target.value })
+          }
           className="w-full rounded-lg border px-2.5 py-2 text-sm"
           style={inputStyle}
         />
@@ -137,7 +159,11 @@ export function ListFilters({
             style={{ ...inputStyle, minHeight: 38 }}
           />
         </div>
-        <button type="submit" className="mv-btn-action" style={{ minHeight: 38 }}>
+        <button
+          type="submit"
+          className="mv-btn-action"
+          style={{ minHeight: 38 }}
+        >
           <IconSearch s={15} /> חפש
         </button>
         <button
@@ -164,7 +190,9 @@ export function ListFilters({
       {open ? (
         <div
           className="mt-2 grid gap-2"
-          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))" }}
+          style={{
+            gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+          }}
         >
           {field("minPrice", `${priceLabel} — מ־`, "1,000,000")}
           {field("maxPrice", `${priceLabel} — עד`, "2,500,000")}

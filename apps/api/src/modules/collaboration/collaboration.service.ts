@@ -39,6 +39,7 @@ import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
+import { officeNames } from "./office-names";
 import { readCustomFeatures, rowToFields } from "../properties/property.mapper";
 
 /**
@@ -169,6 +170,13 @@ export interface SharedDemandDto {
   status: string;
   /** true אם הביקוש שלי — רק אז יש קישור לקונה */
   mine: boolean;
+  /**
+   * המשרד שפרסם את הביקוש.
+   *
+   * חסר לביקוש ממקור חיצוני (Kanko) — הוא אינו משרד תיווך, והמסך
+   * מסמן אותו בתג המקור שלו במקום בשם משרד.
+   */
+  officeName?: string;
   originBuyerId?: string;
   createdAt: Date;
   /** הנכסים שלי שמתאימים — מחושב במנוע ההתאמות, לא ניחוש */
@@ -589,9 +597,20 @@ export class CollaborationService {
       return new Set(rows.map((row) => `${row.demandId}:${row.propertyId}`));
     });
 
-    const prices = await this.pricing.all();
+    const [prices, offices] = await Promise.all([
+      this.pricing.all(),
+      officeNames(
+        this.prisma,
+        visible.map((row) => row.tenantId),
+      ),
+    ]);
     return visible.map((row) => {
-      const dto = this.toDemandDto(row, tenantId, prices);
+      const dto = this.toDemandDto(
+        row,
+        tenantId,
+        prices,
+        offices.get(row.tenantId),
+      );
       if (dto.mine) return dto;
       const matches = this.matchOwnProperties(myProperties, row).map((match) =>
         offered.has(`${row.id}:${match.propertyId}`)
@@ -921,7 +940,9 @@ export class CollaborationService {
       tx.sharedDemand.findFirst({ where: { id, tenantId } }),
     );
     if (!row) throw new NotFoundException("ביקוש לא נמצא");
-    return this.toDemandDto(row, tenantId, prices);
+    // תמיד הביקוש שלי (השאילתה מסוננת לפי הדייר) — ולכן המשרד שלי
+    const offices = await officeNames(this.prisma, [row.tenantId]);
+    return this.toDemandDto(row, tenantId, prices, offices.get(row.tenantId));
   }
 
   /** הצעת נכס לביקוש רשת — עולה קרדיט; חשיפה מדורגת בלי כתובת מדויקת. */
@@ -1198,7 +1219,11 @@ export class CollaborationService {
             select: { name: true, email: true },
           }),
       this.prisma.user.findFirst({
-        where: { tenantId: input.demandTenantId, role: "owner", isActive: true },
+        where: {
+          tenantId: input.demandTenantId,
+          role: "owner",
+          isActive: true,
+        },
         select: { name: true, email: true },
         orderBy: { createdAt: "asc" },
       }),
@@ -2256,6 +2281,7 @@ export class CollaborationService {
     },
     viewerTenantId: string,
     prices: readonly LeadSourcePrice[],
+    officeName?: string,
   ): SharedDemandDto {
     const mine = row.tenantId === viewerTenantId;
     return {
@@ -2283,6 +2309,7 @@ export class CollaborationService {
       commissionSplit: row.commissionSplit,
       status: row.status,
       mine,
+      ...(officeName === undefined ? {} : { officeName }),
       // הקישור לקונה נחשף רק לסוכנות המקור — לעולם לא לרשת (docs/04 §7)
       originBuyerId: mine ? (row.originBuyerId ?? undefined) : undefined,
       createdAt: row.createdAt,
