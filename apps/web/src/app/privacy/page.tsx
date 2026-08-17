@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { LEGAL, SUBPROCESSORS } from "../../lib/legal";
-import { LegalDemoNotice } from "../legal-demo-notice";
+import { fetchLegal, SUBPROCESSORS, type LegalDetails } from "../../lib/legal";
+import { LegalText } from "../legal-text";
 
 export const metadata: Metadata = { title: "מדיניות פרטיות" };
 
@@ -12,9 +12,9 @@ export const metadata: Metadata = { title: "מדיניות פרטיות" };
  * קצה למימוש זכות עיון מופנית למשרד שאיתו הוא בקשר, לא אלינו — ואנחנו
  * מסייעים למשרד לענות.
  *
- * טיוטה. התוכן מתאר נכונה את מה שהמערכת עושה בפועל (ראו
- * lib/legal.ts — רשימת ספקי המשנה נגזרת מהתשתית האמיתית), אבל הוא
- * טעון בדיקה של עורך/ת דין לפני העלייה לאוויר.
+ * התוכן מתאר את מה שהמערכת עושה בפועל — רשימת ספקי המשנה
+ * ב-lib/legal.ts נגזרת מהתשתית האמיתית ומתעדכנת איתה. אם נשמר נוסח
+ * ב-/platform הוא מוצג במקום זה שכאן.
  */
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -26,19 +26,14 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-export default function PrivacyPolicyPage() {
+
+/** נוסח ברירת המחדל — מוצג כל עוד לא נשמר נוסח ב-/platform. */
+function PrivacyDefaultBody({ legal }: { legal: LegalDetails }) {
   return (
-    <article className="mx-auto max-w-2xl pb-12">
-      <h1 className="mb-1 text-2xl font-bold">מדיניות פרטיות</h1>
-      <p className="mb-6 text-sm text-[var(--color-text-muted)]">
-        עודכן לאחרונה: {LEGAL.updatedAt}
-      </p>
-
-      <LegalDemoNotice />
-
+    <>
       <p className="mb-4">
-        מדיניות זו מסבירה איזה מידע נאסף בשירות {LEGAL.productName} (להלן
-        &quot;השירות&quot;), המופעל על ידי {LEGAL.operator} (ח.פ. {LEGAL.companyId})
+        מדיניות זו מסבירה איזה מידע נאסף בשירות {legal.productName} (להלן
+        &quot;השירות&quot;), המופעל על ידי {legal.operator} (ח.פ. {legal.companyId})
         (להלן &quot;אנחנו&quot;), כיצד הוא נשמר ומי יכול לגשת אליו.
       </p>
 
@@ -212,8 +207,8 @@ export default function PrivacyPolicyPage() {
         </p>
         <p>
           משתמשי המערכת ומשרדים — פנו אלינו בכתובת{" "}
-          <a href={`mailto:${LEGAL.privacyEmail}`} className="underline">
-            {LEGAL.privacyEmail}
+          <a href={`mailto:${legal.privacyEmail}`} className="underline">
+            {legal.privacyEmail}
           </a>
           . לקוחות של משרד תיווך — פנו למשרד שאיתו אתם בקשר, שהוא בעל
           המאגר.
@@ -258,8 +253,8 @@ export default function PrivacyPolicyPage() {
           כדי לממש את הזכות פנו למשרד התיווך שאיתו אתם בקשר — הוא בעל
           המאגר ומי שמחזיק את המידע. אם פניתם ולא נענֵיתם, כתבו לנו
           בכתובת{" "}
-          <a href={`mailto:${LEGAL.privacyEmail}`} className="underline">
-            {LEGAL.privacyEmail}
+          <a href={`mailto:${legal.privacyEmail}`} className="underline">
+            {legal.privacyEmail}
           </a>
           . אנו מפעילים את המערכת עבור המשרד ואיננו בעלי המאגר, ולכן
           איננו מוחקים מידע של לקוח ביוזמתנו — אך נוודא מול המשרד שהבקשה
@@ -276,14 +271,34 @@ export default function PrivacyPolicyPage() {
 
       <Section title="יצירת קשר">
         <p>
-          {LEGAL.operator}, {LEGAL.address}
+          {legal.operator}
+          {legal.address !== "" && `, ${legal.address}`}
           <br />
           דוא&quot;ל:{" "}
-          <a href={`mailto:${LEGAL.privacyEmail}`} className="underline">
-            {LEGAL.privacyEmail}
+          <a href={`mailto:${legal.privacyEmail}`} className="underline">
+            {legal.privacyEmail}
           </a>
         </p>
       </Section>
+    </>
+  );
+}
+
+export default async function PrivacyPolicyPage() {
+  const { legal, overrides } = await fetchLegal();
+
+  return (
+    <article className="mx-auto max-w-2xl pb-12">
+      <h1 className="mb-1 text-2xl font-bold">מדיניות פרטיות</h1>
+      <p className="mb-6 text-sm text-[var(--color-text-muted)]">
+        עודכן לאחרונה: {legal.updatedAt}
+      </p>
+
+      {overrides.privacyText ? (
+        <LegalText text={overrides.privacyText} />
+      ) : (
+        <PrivacyDefaultBody legal={legal} />
+      )}
     </article>
   );
 }

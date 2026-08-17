@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
-import { LEGAL } from "../../lib/legal";
-import { LegalDemoNotice } from "../legal-demo-notice";
+import { fetchLegal, type LegalDetails } from "../../lib/legal";
+import { LegalText } from "../legal-text";
 
 export const metadata: Metadata = { title: "תנאי שימוש" };
 
 /**
  * תנאי שימוש.
  *
- * ⚠️ טיוטה. הסעיפים המסחריים (תשלום, ביטול, הגבלת אחריות) הם נקודת
- * פתיחה שמשקפת את המודל בפועל, לא נוסח סופי — הם חייבים בדיקה של
- * עורך/ת דין לפני שמחתימים עליהם משרד ראשון.
+ * הנוסח שכאן הוא ברירת המחדל. אם נשמר נוסח ב-/platform — הוא שמוצג
+ * במקומו במלואו, כדי שנוסח שחזר מעורך/ת דין ייכנס לאוויר בהדבקה
+ * ולא בגרסה חדשה של הקוד.
  */
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -21,25 +21,20 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-export default function TermsOfServicePage() {
+
+/** נוסח ברירת המחדל — מוצג כל עוד לא נשמר נוסח ב-/platform. */
+function TermsDefaultBody({ legal }: { legal: LegalDetails }) {
   return (
-    <article className="mx-auto max-w-2xl pb-12">
-      <h1 className="mb-1 text-2xl font-bold">תנאי שימוש</h1>
-      <p className="mb-6 text-sm text-[var(--color-text-muted)]">
-        עודכן לאחרונה: {LEGAL.updatedAt}
-      </p>
-
-      <LegalDemoNotice />
-
+    <>
       <p className="mb-4">
-        תנאים אלה חלים על השימוש בשירות {LEGAL.productName}, המופעל על ידי{" "}
-        {LEGAL.operator} (ח.פ. {LEGAL.companyId}). שימוש בשירות מהווה הסכמה
+        תנאים אלה חלים על השימוש בשירות {legal.productName}, המופעל על ידי{" "}
+        {legal.operator} (ח.פ. {legal.companyId}). שימוש בשירות מהווה הסכמה
         לתנאים.
       </p>
 
       <Section title="השירות">
         <p>
-          {LEGAL.productName} היא מערכת לניהול פעילות של משרד תיווך: ניהול
+          {legal.productName} היא מערכת לניהול פעילות של משרד תיווך: ניהול
           נכסים וקונים, התאמה ביניהם, שליחת הצעות, תיעוד שיחות וניהול
           משימות ויומן. השירות ניתן כתוכנה כשירות (SaaS) ולפי המסלול שנבחר.
         </p>
@@ -154,14 +149,35 @@ export default function TermsOfServicePage() {
 
       <Section title="יצירת קשר">
         <p>
-          {LEGAL.operator}, {LEGAL.address}
+          {legal.operator}
+          {legal.address !== "" && `, ${legal.address}`}
           <br />
           דוא&quot;ל:{" "}
-          <a href={`mailto:${LEGAL.supportEmail}`} className="underline">
-            {LEGAL.supportEmail}
+          <a href={`mailto:${legal.supportEmail}`} className="underline">
+            {legal.supportEmail}
           </a>
         </p>
       </Section>
+
+    </>
+  );
+}
+
+export default async function TermsOfServicePage() {
+  const { legal, overrides } = await fetchLegal();
+
+  return (
+    <article className="mx-auto max-w-2xl pb-12">
+      <h1 className="mb-1 text-2xl font-bold">תנאי שימוש</h1>
+      <p className="mb-6 text-sm text-[var(--color-text-muted)]">
+        עודכן לאחרונה: {legal.updatedAt}
+      </p>
+
+      {overrides.termsText ? (
+        <LegalText text={overrides.termsText} />
+      ) : (
+        <TermsDefaultBody legal={legal} />
+      )}
 
       <p className="mt-8 text-sm text-[var(--color-text-muted)]">
         ראו גם:{" "}
