@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Map as MapLibreMap,
   NavigationControl,
+  setRTLTextPlugin,
   setWorkerUrl,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -63,6 +64,28 @@ export interface MapCanvasProps {
  * כשהיא יוצרת את מאגר ה-Workers, וזה קורה כבר במפה הראשונה.
  */
 setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
+
+/**
+ * טקסט דו-כיווני — בלעדיו העברית על המפה יוצאת הפוכה.
+ *
+ * MapLibre מציירת תוויות לפי סדר האותיות במחרוזת. עברית נשמרת בסדר
+ * לוגי, ולכן בלי סידור דו-כיווני "מנחם בגין" מצויר מהכיוון הלא נכון
+ * ונראה על המסך כמו כתב מראה. הכיתוב הלטיני באותה מפה נראה תקין,
+ * וזה בדיוק הרמז שזו אינה בעיית עיצוב אלא היעדר התוסף.
+ *
+ * `lazy: false` — נטען מראש ולא בפעם הראשונה שמופיעה עברית. במפה של
+ * מערכת בעברית *כל* מפה תכיל עברית, וטעינה עצלה רק הייתה מבטיחה
+ * שהתוויות יצוירו פעם אחת שגוי ויתוקנו אחריה.
+ *
+ * מוגש מ-`public` כמו ה-Worker: ה-CSP אינו מתיר CDN, והתוסף נטען
+ * בתוך ה-Worker ולכן חל עליו `script-src 'self'`.
+ *
+ * הקריאה עטופה כי היא נדחית אם התוסף כבר נטען — מה שקורה ב-Fast
+ * Refresh בפיתוח, ואינו מצב שגיאה.
+ */
+void setRTLTextPlugin("/maplibre/mapbox-gl-rtl-text.js", false).catch(
+  () => undefined,
+);
 
 /** מרכז הארץ — נקודת פתיחה סבירה כשאין מה למרכז עליו. */
 const DEFAULT_CENTER: [number, number] = [34.85, 31.95];

@@ -47,7 +47,7 @@ function sources(dir) {
  * פקדים, בלי שום שגיאה שאפשר להבין. זה בדיוק סוג הכשל שהשער הזה
  * קיים בשבילו, והוא החמיץ אותו בפעם הראשונה.
  */
-const EXT = "png|jpe?g|svg|webp|gif|ico|webmanifest|woff2?|mjs";
+const EXT = "png|jpe?g|svg|webp|gif|ico|webmanifest|woff2?|mjs|js";
 
 /** ‎"/guides/x.png"‎ — התחביר של TSX. */
 const QUOTED = new RegExp(`["'\`](/[^"'\`\\s?#]+\\.(?:${EXT}))["'\`]`, "gu");
