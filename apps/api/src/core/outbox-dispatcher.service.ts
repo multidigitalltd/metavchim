@@ -123,7 +123,7 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
    */
   private async automationWindowMs(
     tenantId: string,
-    key: "offer_followup" | "viewing_followup",
+    key: "lead_sla" | "offer_followup" | "viewing_followup",
     fallbackMs: number,
   ): Promise<number> {
     try {
@@ -141,6 +141,14 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
     } catch {
       return fallbackMs;
     }
+  }
+
+  private async leadSlaWindowMs(tenantId: string): Promise<number> {
+    return this.automationWindowMs(
+      tenantId,
+      "lead_sla",
+      loadEnv().LEAD_SLA_HOURS * 60 * 60 * 1000,
+    );
   }
 
   private async followupWindowMs(tenantId: string): Promise<number> {
@@ -267,7 +275,7 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
           jobId: `lead-sla-${event.id}`,
           delay: Math.max(
             0,
-            loadEnv().LEAD_SLA_HOURS * 60 * 60 * 1000 - elapsedMs,
+            (await this.leadSlaWindowMs(p.tenantId)) - elapsedMs,
           ),
           removeOnComplete: 1000,
           removeOnFail: 5000,

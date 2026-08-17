@@ -276,39 +276,43 @@ export class SettingsController {
       if (problem !== null) throw new BadRequestException(problem);
     }
 
-    const tenant = await this.prisma.tenant.findUnique({
+    /*
+     * כתיבה אטומית **לכל מפתח בנפרד**, ולא מיזוג בזיכרון.
+     *
+     * הגרסה הראשונה קראה את כל האובייקט, מיזגה ב-JS וכתבה אותו
+     * בשלמותו — כלומר שתי בקשות שנגעו במפתחות שונים קראו את אותו
+     * מצב ישן, והאחרונה שסיימה החזירה בשקט את המפתח של השנייה לערכו
+     * הקודם. זה בדיוק הכשל ש-`jsonb_set` נועד למנוע, והוא חזר כאן
+     * ברמת האובייקט (ביקורת Codex).
+     *
+     * ה-`||` ממזג רק את השדות שנשלחו לתוך הרשומה הקיימת, ולכן בקשה
+     * ששולחת `enabled` בלבד אינה מוחקת את הסף. הקינון הפנימי מבטיח
+     * שהמפתח `automations` קיים: `jsonb_set` על נתיב דו-שלבי אינו
+     * יוצר את האב החסר, ובלעדיו השמירה הראשונה של כל משרד הייתה
+     * נבלעת בשקט.
+     */
+    for (const [key, setting] of Object.entries(body)) {
+      await this.prisma.$executeRaw`
+        UPDATE tenants
+        SET settings = jsonb_set(
+          jsonb_set(
+            COALESCE(settings, '{}'::jsonb),
+            '{automations}',
+            COALESCE(settings -> 'automations', '{}'::jsonb),
+            true
+          ),
+          ARRAY['automations', ${key}],
+          COALESCE(settings -> 'automations' -> ${key}, '{}'::jsonb) || ${JSON.stringify(setting)}::jsonb,
+          true
+        )
+        WHERE id = ${tenantId}
+      `;
+    }
+
+    const saved = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       select: { settings: true },
     });
-    const current = resolveAutomationSettings(
-      ((tenant?.settings ?? {}) as Record<string, unknown>)["automations"],
-    );
-    const merged: Record<string, { enabled: boolean; value?: number }> = {
-      ...current,
-    };
-    for (const [key, setting] of Object.entries(body)) {
-      const before = merged[key];
-      if (before === undefined) continue;
-      merged[key] = {
-        enabled: setting.enabled ?? before.enabled,
-        ...(setting.value === undefined
-          ? before.value === undefined
-            ? {}
-            : { value: before.value }
-          : { value: setting.value }),
-      };
-    }
-
-    /*
-     * `jsonb_set` על מפתח אחד, כמו במשקלי ההתאמה: שמירה מקבילה של
-     * פרטי המשרד קוראת את אותו JSON ישן, וכתיבה של העמודה כולה
-     * הייתה מוחקת בשקט את השינוי של השנייה.
-     */
-    await this.prisma.$executeRaw`
-      UPDATE tenants
-      SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{automations}', ${JSON.stringify(merged)}::jsonb, true)
-      WHERE id = ${tenantId}
-    `;
 
     await this.prisma.withTenant((tx) =>
       this.audit.record(tx, {
@@ -319,7 +323,11 @@ export class SettingsController {
       }),
     );
 
-    return { settings: resolveAutomationSettings(merged) };
+    return {
+      settings: resolveAutomationSettings(
+        ((saved?.settings ?? {}) as Record<string, unknown>)["automations"],
+      ),
+    };
   }
 
   @Get("match-weights")

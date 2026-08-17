@@ -543,6 +543,15 @@ async function escalateLeadSla(
 
 async function processLeadSla(job: Job): Promise<void> {
   const { tenantId, leadId } = LeadSlaJobSchema.parse(job.data);
+  /*
+   * הכיבוי נבדק גם כאן ולא רק בסוויפ.
+   *
+   * ההסלמה רצה בשני מסלולים: Job מושהה שנוצר מ-`lead.created`,
+   * וסריקת רשת-ביטחון. כיסוי הסוויף בלבד הותיר את המסלול **הראשי**
+   * פתוח — משרד שכיבה את האוטומציה היה ממשיך לקבל בדיוק את המשימות
+   * שביקש לא לקבל, כי ה-Job כבר ישב בתור (ביקורת Codex).
+   */
+  if (!(await automationOn(tenantId, "lead_sla"))) return;
   await escalateLeadSla(tenantId, leadId);
 }
 
