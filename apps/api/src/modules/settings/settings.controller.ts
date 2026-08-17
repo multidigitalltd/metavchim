@@ -48,6 +48,7 @@ import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
+import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { AuthService } from "../auth/auth.service";
 import { LoginThrottleService } from "../auth/login-throttle.service";
@@ -203,6 +204,7 @@ export class SettingsController {
     private readonly plans: PlanCatalogService,
     private readonly accountDeletion: AccountDeletionService,
     private readonly matchRefresh: MatchRefreshService,
+    private readonly platformSettings: PlatformSettingsService,
   ) {}
 
   /**
@@ -1200,10 +1202,27 @@ export class SettingsController {
       }),
     );
 
+    /*
+     * שני המקורות, ובאותו סדר שבו ה-Webhook עצמו קורא אותם.
+     *
+     * הבדיקה כאן הסתכלה על משתני הסביבה בלבד — אבל הדרך המומלצת
+     * להגדיר את המפתחות היא מסך /platform, שכותב אותם למסד. כלומר
+     * בעל הפלטפורמה מגדיר הכול כהלכה, הודעות נכנסות זורמות, וכל
+     * משרד ממשיך לראות "חיבור השרת ל-Meta ✗" לנצח — עם הנחיה לפנות
+     * לתמיכה על תקלה שאינה קיימת.
+     *
+     * `configuredKeys` ולא קריאת הערכים עצמם: למנהל משרד אין עסק
+     * עם סוד של הפלטפורמה, והשאלה כאן היא "האם הוגדר" בלבד.
+     */
+    const dbKeys = await this.platformSettings.configuredKeys();
+    const serverConfigured =
+      (dbKeys.includes("whatsappAppSecret") &&
+        dbKeys.includes("whatsappVerifyToken")) ||
+      (env.WHATSAPP_APP_SECRET !== undefined &&
+        env.WHATSAPP_VERIFY_TOKEN !== undefined);
+
     return {
-      serverConfigured:
-        env.WHATSAPP_APP_SECRET !== undefined &&
-        env.WHATSAPP_VERIFY_TOKEN !== undefined,
+      serverConfigured,
       numberConfigured,
       /*
        * כתובת ה-Webhook **אינה** מוחזרת כאן.
