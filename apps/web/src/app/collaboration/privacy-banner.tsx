@@ -1,6 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import {
+  IconCheck,
+  IconCoins,
+  IconEdit,
+  IconHome,
+  IconLock,
+  IconMail,
+  IconMap,
+  IconPhone,
+  IconUser,
+  IconX,
+} from "../icons";
 
 /**
  * חיסיון הלקוח — **הדבר הראשון שרואים באזור הרשת.**
@@ -18,14 +30,38 @@ import { useState } from "react";
  * שתי עמודות ולא פסקה: "מה כן" ו"מה לא" זו השוואה, וטבלה נקראת
  * במבט אחד במקום שצריך לדלות אותה מתוך משפטים.
  */
+
+/** מה שהצד השני רואה, ומה שלעולם לא. הרשימות הן נתונים ולא JSX — כך שתיהן נראות אותו דבר. */
+const EXPOSED: [
+  Icon: (p: { s?: number }) => React.ReactElement,
+  text: string,
+][] = [
+  [IconMap, "ערים ושכונות"],
+  [IconHome, "סוג נכס, חדרים וסוג עסקה"],
+  [IconCoins, "תקציב — מעוגל ל-100 אלף ₪"],
+  [IconCheck, "דרישות החובה"],
+  [IconEdit, "התיאור החופשי שאתם כותבים"],
+];
+
+const HIDDEN: [
+  Icon: (p: { s?: number }) => React.ReactElement,
+  text: string,
+][] = [
+  [IconUser, "שם הלקוח"],
+  [IconPhone, "טלפון"],
+  [IconMail, "אימייל"],
+  [IconCoins, "התקציב המדויק"],
+  [IconEdit, "ההערות הפנימיות שלכם"],
+];
+
 export function PrivacyBanner() {
   const [open, setOpen] = useState(false);
 
   return (
     <section className="mv-privacy" aria-labelledby="privacy-banner-heading">
       <div className="mv-privacy-head">
-        <span className="mv-privacy-badge" aria-hidden="true">
-          🔒
+        <span className="mv-privacy-badge">
+          <IconLock s={21} />
         </span>
         <div className="min-w-0">
           <h2
@@ -60,29 +96,29 @@ export function PrivacyBanner() {
               className="mv-privacy-title"
               style={{ color: "var(--color-primary)" }}
             >
-              ✓ נחשף
+              <IconCheck s={15} /> נחשף
             </p>
             <ul className="mv-privacy-list">
-              <li>🗺️ ערים ושכונות</li>
-              <li>🏠 סוג נכס, חדרים וסוג עסקה</li>
-              <li>💰 תקציב — מעוגל כלפי מעלה ל-100 אלף ₪</li>
-              <li>✅ דרישות החובה</li>
-              <li>📝 התיאור החופשי שאתם כותבים</li>
+              {EXPOSED.map(([Icon, text]) => (
+                <li key={text}>
+                  <Icon s={15} /> {text}
+                </li>
+              ))}
             </ul>
           </div>
-          <div>
+          <div className="mv-privacy-col--hidden">
             <p
               className="mv-privacy-title"
               style={{ color: "var(--color-danger)" }}
             >
-              ✕ לא נחשף
+              <IconX s={15} /> לא נחשף
             </p>
             <ul className="mv-privacy-list">
-              <li>שם הלקוח</li>
-              <li>טלפון</li>
-              <li>אימייל</li>
-              <li>התקציב המדויק</li>
-              <li>ההערות הפנימיות שלכם</li>
+              {HIDDEN.map(([Icon, text]) => (
+                <li key={text}>
+                  <Icon s={15} /> {text}
+                </li>
+              ))}
             </ul>
           </div>
         </div>

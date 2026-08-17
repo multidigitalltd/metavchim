@@ -141,8 +141,53 @@ describe("presentationChips", () => {
 
   it("קומה בלי סך קומות אינה ממציאה מספר", () => {
     const [chip] = presentationChips({ floor: 3 }).filter(
-      (c) => c.icon === "🪜",
+      (c) => c.icon === "stairs",
     );
     expect(chip?.text).toBe("קומה 3");
+  });
+});
+
+/*
+ * הרגרסיה שבגללה השמות קיימים: גרסה קודמת החזירה אימוג'ים, והם נראו
+ * זרים לצד ערכת הקווים של שאר המערכת. אם מישהו יחזיר אימוג'י לשדה
+ * הזה, השורה הזו תיפול לפני שהוא יגיע למסך.
+ */
+describe("שם האייקון ולא אימוג'י", () => {
+  const EMOJI = /\p{Extended_Pictographic}/u;
+
+  it("שום תגית אינה נושאת אימוג'י", () => {
+    const chips = [
+      ...demandChips({
+        ...base,
+        propertyTypes: ["apartment"],
+        roomsMin: 3,
+        areaSqmMin: 80,
+        neighborhoods: ["מרכז"],
+        budgetMinAgorot: 180_000_000,
+        entryType: "immediate",
+        financing: "cash",
+        maturity: "hot",
+        mustFeatures: ["hasElevator"],
+        niceFeatures: ["hasParking"],
+      }),
+      ...presentationChips({
+        city: "חולון",
+        propertyType: "penthouse",
+        dealType: "rent",
+        rooms: 5,
+        areaSqm: 120,
+        floor: 2,
+        condition: "new",
+        priceAgorot: 800_000,
+        entryType: "on_date",
+        entryDate: "2026-10-01",
+        features: ["hasStorage"],
+      }),
+    ];
+    expect(chips.length).toBeGreaterThan(10);
+    for (const chip of chips) {
+      expect(EMOJI.test(chip.icon), chip.icon).toBe(false);
+      expect(chip.icon).toMatch(/^[a-z]+$/);
+    }
   });
 });

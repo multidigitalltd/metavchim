@@ -22,8 +22,26 @@ function svgProps(s?: number) {
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
     "aria-hidden": true,
-    // בתוך שורת טקסט האייקון מתיישר לעין בלי עטיפת flex סביבו
-    style: { verticalAlign: "-0.18em" as const },
+    /*
+     * `inline-block` מפורש — **התיקון בשורש ולא בכל מסך.**
+     *
+     * ה-preflight של Tailwind מגדיר `svg { display: block }`, ולכן
+     * אייקון בתוך פסקה או כותרת יורד לשורה משלו ושובר את המשפט
+     * לשלוש שורות. עד כה כל מקום שנתקל בזה תיקן את עצמו בנפרד —
+     * עטיפת `inline-flex` בפאנלי ההסבר, `display:flex` על הכותרת —
+     * וכל שימוש חדש חזר ונפל באותה בור (ביקורת Codex).
+     *
+     * `verticalAlign` לבדו לא הספיק: הוא רלוונטי רק לזרימה inline,
+     * כלומר בדיוק למצב שה-preflight ביטל. שתי השורות האלה יחד הן
+     * ההתנהגות שהאייקון תוכנן לה מלכתחילה, והן חלות על כל שימוש.
+     *
+     * בתוך מכל flex או grid הדפדפן ממילא מתעלם משניהם, ולכן זה אינו
+     * משנה דבר בעשרות המקומות שכבר עוטפים את האייקון.
+     */
+    style: {
+      display: "inline-block" as const,
+      verticalAlign: "-0.18em" as const,
+    },
   };
 }
 
@@ -57,7 +75,14 @@ export const LogoMark = ({ s = 30 }: IconProps) => (
       strokeWidth="5"
       strokeLinecap="round"
     />
-    <rect x="19.4" y="19.4" width="9.2" height="9.2" rx="2.4" fill="var(--color-action)" />
+    <rect
+      x="19.4"
+      y="19.4"
+      width="9.2"
+      height="9.2"
+      rx="2.4"
+      fill="var(--color-action)"
+    />
   </svg>
 );
 
@@ -71,7 +96,13 @@ export const LogoMark = ({ s = 30 }: IconProps) => (
  * הצבעים קבועים ולא טוקנים בכוונה, והם קריאים על רקע בהיר וכהה כאחד.
  */
 export const LogoGoogle = ({ s = 18 }: IconProps) => (
-  <svg viewBox="0 0 48 48" width={s} height={s} aria-hidden="true" className="flex-none">
+  <svg
+    viewBox="0 0 48 48"
+    width={s}
+    height={s}
+    aria-hidden="true"
+    className="flex-none"
+  >
     <path
       fill="#4285F4"
       d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17Z"
@@ -451,5 +482,119 @@ export const IconDownload = ({ s }: IconProps) => (
     <path d="M12 4v11" />
     <path d="m7.5 11 4.5 4.5L16.5 11" />
     <path d="M4.5 16v2a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-2" />
+  </svg>
+);
+
+/* ---------- אזור הרשת ----------
+   האייקונים שאזור השיתופים נזקק להם. הם נכתבים כאן ולא במסך עצמו
+   כדי שהערכה תישאר מקור אמת אחד — בדיוק הסיבה שבגללה אין כאן
+   אימוג'ים. כולם באותה שפה: קו 1.9, currentColor, viewBox 24. */
+
+/** עסקת מכירה — תווית מחיר. משלים את IconKey שמסמן השכרה. */
+export const IconTag = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M20 12.6 12.6 20a2 2 0 0 1-2.8 0l-5.8-5.8a2 2 0 0 1-.6-1.6l.5-5.6a2 2 0 0 1 1.8-1.8l5.6-.5a2 2 0 0 1 1.6.6L20 9.8a2 2 0 0 1 0 2.8Z" />
+    <circle cx="8.6" cy="8.6" r="1.3" />
+  </svg>
+);
+
+/** מספר חדרים. דלת היא הסימן שהעין קוראת כ"חדר" בלי מילה. */
+export const IconDoor = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M6 20V5a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v15" />
+    <path d="M4 20h16" />
+    <circle cx="14.6" cy="12.4" r="1" />
+  </svg>
+);
+
+/** שטח במ״ר — סרגל משולש, לא סרט מידה: הוא נקרא בגודל 14 פיקסל. */
+export const IconRuler = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="m4 16.5 12.5-12.5 3.5 3.5L7.5 20H4Z" />
+    <path d="m10 10.5 2 2M13 7.5l2 2" />
+  </svg>
+);
+
+/** ערים — מפה מקופלת. IconPin נשאר לשכונה, שהיא נקודה ולא אזור. */
+export const IconMap = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="m3.5 6.5 5.5-2 6 2 5.5-2v13l-5.5 2-6-2-5.5 2Z" />
+    <path d="M9 4.5v13M15 6.5v13" />
+  </svg>
+);
+
+/** כניסה מיידית. */
+export const IconBolt = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M13.5 3 5.5 13.5h5l-.9 7.5 8-10.5h-5Z" />
+  </svg>
+);
+
+/** מימון בנקאי — משכנתה או אישור עקרוני. */
+export const IconBank = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="m3.5 9.5 8.5-5 8.5 5" />
+    <path d="M5.5 9.5v8M10 9.5v8M14 9.5v8M18.5 9.5v8" />
+    <path d="M3.5 20.5h17" />
+  </svg>
+);
+
+/** תשלום במזומן. */
+export const IconBanknote = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <rect x="3" y="6.5" width="18" height="11" rx="2" />
+    <circle cx="12" cy="12" r="2.4" />
+    <path d="M6.5 12h.01M17.5 12h.01" />
+  </svg>
+);
+
+/** קומה בבניין. */
+export const IconStairs = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M3.5 20h4v-4h4v-4h4V8h4.5" />
+    <path d="M3.5 20v-.01" />
+  </svg>
+);
+
+/** מצב הנכס — חדש, משופץ, שמור. */
+export const IconSparkle = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M11 3.5 12.6 8 17 9.6 12.6 11.2 11 15.6 9.4 11.2 5 9.6 9.4 8Z" />
+    <path d="M17.5 15.5 18.2 17.4 20 18.1 18.2 18.8 17.5 20.7 16.8 18.8 15 18.1 16.8 17.4Z" />
+  </svg>
+);
+
+/** פעולה ללא עלות. */
+export const IconGift = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <rect x="3.5" y="9.5" width="17" height="11" rx="1.6" />
+    <path d="M3.5 13.5h17M12 9.5v11" />
+    <path d="M12 9.5c-3.5 0-5-.9-5-2.6C7 5.6 7.9 5 9 5c1.8 0 3 1.6 3 4.5Zm0 0c3.5 0 5-.9 5-2.6C17 5.6 16.1 5 15 5c-1.8 0-3 1.6-3 4.5Z" />
+  </svg>
+);
+
+/** הרשת — מה שמגיע ממשרדים אחרים. */
+export const IconGlobe = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M3.5 12h17" />
+    <path d="M12 3.5c2.2 2.4 3.3 5.3 3.3 8.5s-1.1 6.1-3.3 8.5c-2.2-2.4-3.3-5.3-3.3-8.5S9.8 5.9 12 3.5Z" />
+  </svg>
+);
+
+/** מצב ריק — אין מה להציג, ואין תקלה. */
+export const IconInbox = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <path d="M3.5 13.5h4l1.4 2.5h6.2l1.4-2.5h4" />
+    <path d="M6 4.5h12l2.5 9v5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-5Z" />
+  </svg>
+);
+
+/** התאמה שהמנוע מצא — מה שהופך פיד לרשימת פעולות. */
+export const IconTarget = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <circle cx="12" cy="12" r="8.5" />
+    <circle cx="12" cy="12" r="4.5" />
+    <circle cx="12" cy="12" r="1" />
   </svg>
 );
