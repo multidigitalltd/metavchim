@@ -53,6 +53,7 @@ export * from "./logic/coupon.js";
 export * from "./logic/xlsx-import.js";
 export * from "./logic/telephony.js";
 export * from "./logic/list-filters.js";
+export * from "./logic/automations.js";
 export * from "./logic/call-summary.js";
 export * from "./logic/hebrew-date.js";
 export * from "./logic/plans.js";

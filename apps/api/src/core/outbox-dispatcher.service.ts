@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from "@nestjs/common";
 import { Queue } from "bullmq";
 import IORedis from "ioredis";
 import {
@@ -8,6 +13,8 @@ import {
   notificationFromEvent,
   QUEUES,
   type DomainEventName,
+  automationThresholdMs,
+  resolveAutomationSettings,
 } from "@metavchim/shared";
 import { loadEnv } from "../config/env";
 import { PrismaService } from "./prisma.service";
@@ -42,8 +49,13 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit(): void {
     const env = loadEnv();
-    this.connection = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null, lazyConnect: false });
-    this.notificationsQueue = new Queue(QUEUES.notifications, { connection: this.connection });
+    this.connection = new IORedis(env.REDIS_URL, {
+      maxRetriesPerRequest: null,
+      lazyConnect: false,
+    });
+    this.notificationsQueue = new Queue(QUEUES.notifications, {
+      connection: this.connection,
+    });
     this.lowQueue = new Queue(QUEUES.low, { connection: this.connection });
     this.timer = setInterval(() => void this.tick(), POLL_MS);
   }
@@ -85,7 +97,9 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
           await this.route(event);
           done.push(event.id);
         } catch (error) {
-          this.logger.warn(`Event ${event.name} (${event.id}) routing failed: ${String(error)}`);
+          this.logger.warn(
+            `Event ${event.name} (${event.id}) routing failed: ${String(error)}`,
+          );
           failed.push(event.id);
         }
       }
@@ -96,6 +110,53 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
         await tx.$executeRaw`UPDATE outbox_events SET attempts = attempts + 1 WHERE id = ANY(${failed})`;
       }
     });
+  }
+
+  /**
+   * חלון הפולו-אפ של המשרד, במילישניות.
+   *
+   * ההשהיה נקבעת כאן ולא ב-Worker, כי היא נכנסת ל-Job עצמו. בלי
+   * הקריאה הזו הסף שהמשרד מגדיר במסך האוטומציות לא היה עושה כלום —
+   * מתג שמראה "24 שעות" ומשהה 48 גרוע ממסך בלי מתג.
+   *
+   * כשל בקריאה נופל לברירת המחדל של הקטלוג, ולא מבטל את הפולו-אפ.
+   */
+  private async automationWindowMs(
+    tenantId: string,
+    key: "offer_followup" | "viewing_followup",
+    fallbackMs: number,
+  ): Promise<number> {
+    try {
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { settings: true },
+      });
+      const raw = (tenant?.settings ?? {}) as Record<string, unknown>;
+      return (
+        automationThresholdMs(
+          key,
+          resolveAutomationSettings(raw["automations"]),
+        ) ?? fallbackMs
+      );
+    } catch {
+      return fallbackMs;
+    }
+  }
+
+  private async followupWindowMs(tenantId: string): Promise<number> {
+    return this.automationWindowMs(
+      tenantId,
+      "offer_followup",
+      loadEnv().OFFER_FOLLOWUP_HOURS * 60 * 60 * 1000,
+    );
+  }
+
+  private async viewingWindowMs(tenantId: string): Promise<number> {
+    return this.automationWindowMs(
+      tenantId,
+      "viewing_followup",
+      60 * 60 * 1000,
+    );
   }
 
   private async route(event: ClaimedEvent): Promise<void> {
@@ -150,7 +211,11 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
     // אירועי פתיחה חוזרים לא מכפילים. ה-Worker בודק את הסטטוס בזמן
     // הירי: קונה שכבר הגיב — אין משימה.
     if (name === "offer.opened" && this.lowQueue) {
-      const p = payload as { offerId: string; tenantId: string; openCount: number };
+      const p = payload as {
+        offerId: string;
+        tenantId: string;
+        openCount: number;
+      };
       if (p.openCount === 1) {
         // החלון נמדד מרגע הפתיחה (occurred_at), לא מרגע ההפצה — מפיץ
         // שהיה בפיגור לא דוחה את הפולו-אפ (ביקורת Codex)
@@ -160,7 +225,10 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
           { offerId: p.offerId, tenantId: p.tenantId },
           {
             jobId: `followup-${p.offerId}`,
-            delay: Math.max(0, loadEnv().OFFER_FOLLOWUP_HOURS * 60 * 60 * 1000 - elapsedMs),
+            delay: Math.max(
+              0,
+              (await this.followupWindowMs(p.tenantId)) - elapsedMs,
+            ),
             removeOnComplete: 1000,
             removeOnFail: 5000,
             attempts: 5,
@@ -197,7 +265,10 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
         { leadId: p.leadId, tenantId: p.tenantId },
         {
           jobId: `lead-sla-${event.id}`,
-          delay: Math.max(0, loadEnv().LEAD_SLA_HOURS * 60 * 60 * 1000 - elapsedMs),
+          delay: Math.max(
+            0,
+            loadEnv().LEAD_SLA_HOURS * 60 * 60 * 1000 - elapsedMs,
+          ),
           removeOnComplete: 1000,
           removeOnFail: 5000,
           attempts: 5,
@@ -218,13 +289,18 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
       };
       if (p.kind === "viewing") {
         const startMs = new Date(p.startsAt).getTime();
-        const endMs = p.endsAt ? new Date(p.endsAt).getTime() : startMs + 60 * 60 * 1000;
+        const endMs = p.endsAt
+          ? new Date(p.endsAt).getTime()
+          : startMs + 60 * 60 * 1000;
         await this.lowQueue.add(
           "viewing-followup",
           { appointmentId: p.appointmentId, tenantId: p.tenantId },
           {
             jobId: `viewing-fu-${event.id}`,
-            delay: Math.max(0, endMs + 60 * 60 * 1000 - Date.now()),
+            delay: Math.max(
+              0,
+              endMs + (await this.viewingWindowMs(p.tenantId)) - Date.now(),
+            ),
             removeOnComplete: 1000,
             removeOnFail: 5000,
             attempts: 5,
@@ -235,17 +311,25 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
     }
     // תזכורת שעה לפני פגישה — Job מושהה; BullMQ מחזיק את התזמון (docs/01 §13).
     if (name === "appointment.scheduled" && this.notificationsQueue) {
-      const p = payload as { appointmentId: string; tenantId: string; startsAt: Date };
+      const p = payload as {
+        appointmentId: string;
+        tenantId: string;
+        startsAt: Date;
+      };
       const delayMs = p.startsAt.getTime() - Date.now() - 60 * 60 * 1000;
       if (delayMs > 0) {
-        await this.notificationsQueue.add("notify", buildAppointmentReminder(p), {
-          jobId: `remind-${event.id}`,
-          delay: delayMs,
-          removeOnComplete: 1000,
-          removeOnFail: 5000,
-          attempts: 5,
-          backoff: { type: "exponential", delay: 2000 },
-        });
+        await this.notificationsQueue.add(
+          "notify",
+          buildAppointmentReminder(p),
+          {
+            jobId: `remind-${event.id}`,
+            delay: delayMs,
+            removeOnComplete: 1000,
+            removeOnFail: 5000,
+            attempts: 5,
+            backoff: { type: "exponential", delay: 2000 },
+          },
+        );
       }
     }
     // צרכנים נוספים (וואטסאפ יוצא, סנכרון יומן, Kanko) יירשמו כאן — לכל

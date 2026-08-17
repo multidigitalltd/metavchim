@@ -4,7 +4,11 @@ import { Queue, Worker, type Job } from "bullmq";
 import IORedis from "ioredis";
 import { PrismaClient } from "@prisma/client";
 import { ulid } from "ulid";
-import { DeleteObjectCommand, GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { z } from "zod";
 import webpush from "web-push";
 import {
@@ -37,9 +41,16 @@ import {
   type MarketingActionKind,
   type SpeakerTurn,
   type TranscriptSegment,
+  resolveAutomationSettings,
+  automationThresholdMs,
+  type AutomationKey,
+  type AutomationSettings,
 } from "@metavchim/shared";
 
-for (const candidate of [resolve(process.cwd(), "../../.env"), resolve(process.cwd(), ".env")]) {
+for (const candidate of [
+  resolve(process.cwd(), "../../.env"),
+  resolve(process.cwd(), ".env"),
+]) {
   if (existsSync(candidate)) {
     try {
       process.loadEnvFile(candidate);
@@ -57,9 +68,12 @@ for (const candidate of [resolve(process.cwd(), "../../.env"), resolve(process.c
  * tenant שמגיע מ-payload שנוצר בשרת (לא מקלט משתמש).
  */
 
-const connection = new IORedis(process.env["REDIS_URL"] ?? "redis://localhost:6379", {
-  maxRetriesPerRequest: null,
-});
+const connection = new IORedis(
+  process.env["REDIS_URL"] ?? "redis://localhost:6379",
+  {
+    maxRetriesPerRequest: null,
+  },
+);
 const prisma = new PrismaClient();
 
 /** כתיבת התראה תחת הקשר הדייר — פוליסות ה-RLS חלות גם על ה-Worker. */
@@ -89,7 +103,9 @@ async function processNotification(job: Job): Promise<void> {
         select: { status: true, dueAt: true, assignedToUserId: true },
       });
       if (!task || task.status !== "open") return;
-      const scheduledFor = data.scheduledFor ? new Date(data.scheduledFor).getTime() : null;
+      const scheduledFor = data.scheduledFor
+        ? new Date(data.scheduledFor).getTime()
+        : null;
       if (scheduledFor === null || task.dueAt === null) return;
       if (task.dueAt.getTime() !== scheduledFor) return;
       /*
@@ -103,7 +119,11 @@ async function processNotification(job: Job): Promise<void> {
        * הבדיקה כאן ולא בשליחה: `task.created` נשלח גם ביצירה וגם
        * בהעברה, וה-Job הישן כבר יושב בתור ואי אפשר לבטלו.
        */
-      if (data.recipientUserId && task.assignedToUserId !== data.recipientUserId) return;
+      if (
+        data.recipientUserId &&
+        task.assignedToUserId !== data.recipientUserId
+      )
+        return;
     }
 
     await tx.notification.create({
@@ -130,12 +150,18 @@ const s3 = new S3Client({
     secretAccessKey: process.env["S3_SECRET_KEY"] ?? "",
   },
 });
-const CleanupJobSchema = z.object({ tenantId: z.string(), s3Key: z.string().max(512) });
+const CleanupJobSchema = z.object({
+  tenantId: z.string(),
+  s3Key: z.string().max(512),
+});
 
 /** קריאת אובייקט מהאחסון אל הזיכרון — להזנת שירות התמלול. */
 async function storageGet(key: string): Promise<Buffer> {
   const res = await s3.send(
-    new GetObjectCommand({ Bucket: process.env["S3_BUCKET"] ?? "metavchim", Key: key }),
+    new GetObjectCommand({
+      Bucket: process.env["S3_BUCKET"] ?? "metavchim",
+      Key: key,
+    }),
   );
   const bytes = await res.Body?.transformToByteArray();
   if (!bytes) throw new Error(`empty object: ${key}`);
@@ -150,11 +176,17 @@ async function storageGet(key: string): Promise<Buffer> {
 async function processCleanup(job: Job): Promise<void> {
   const { s3Key } = CleanupJobSchema.parse(job.data);
   await s3.send(
-    new DeleteObjectCommand({ Bucket: process.env["S3_BUCKET"] ?? "metavchim", Key: s3Key }),
+    new DeleteObjectCommand({
+      Bucket: process.env["S3_BUCKET"] ?? "metavchim",
+      Key: s3Key,
+    }),
   );
 }
 
-const FollowupJobSchema = z.object({ tenantId: z.string(), offerId: z.string() });
+const FollowupJobSchema = z.object({
+  tenantId: z.string(),
+  offerId: z.string(),
+});
 const FOLLOWUP_TITLE = "פולו-אפ: הקונה פתח את ההצעה ולא הגיב";
 
 /**
@@ -163,12 +195,22 @@ const FOLLOWUP_TITLE = "פולו-אפ: הקונה פתח את ההצעה ולא 
  * + התראה. אידמפוטנטי: משימת פולו-אפ פתוחה קיימת לאותו קונה — לא
  * נוצרת שנייה (ניסיון חוזר אחרי כשל חלקי בטוח).
  */
+/*
+ * הבדיקה גם בזמן הירייה ולא רק בתזמון.
+ *
+ * ה-Job מתוזמן עם השהיה של שעות; משרד שכיבה את האוטומציה בינתיים לא
+ * ביקש לקבל את המשימה שנקבעה לפני יומיים, וביטול Job שכבר יושב בתור
+ * אינו אפשרי. אותו דפוס בדיוק כמו תזכורת משימה שנבדקת מחדש בירייה.
+ */
 async function processOfferFollowup(job: Job): Promise<void> {
   const { tenantId, offerId } = FollowupJobSchema.parse(job.data);
+  if (!(await automationOn(tenantId, "offer_followup"))) return;
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
 
-    const offer = await tx.offer.findFirst({ where: { id: offerId, tenantId } });
+    const offer = await tx.offer.findFirst({
+      where: { id: offerId, tenantId },
+    });
     if (!offer) return;
     // הקונה כבר הגיב (מעוניין/לא רלוונטי) — אין מה לרדוף
     if (offer.status === "interested" || offer.status === "declined") return;
@@ -188,7 +230,13 @@ async function processOfferFollowup(job: Job): Promise<void> {
     // מסתדרים בתור — בדיקת הכפילות אטומית (ביקורת Codex)
     await tx.$executeRaw`SELECT id FROM buyers WHERE id = ${buyer.id} AND tenant_id = ${tenantId} FOR UPDATE`;
     const existing = await tx.task.findFirst({
-      where: { tenantId, entityType: "buyer", entityId: buyer.id, title: FOLLOWUP_TITLE, status: "open" },
+      where: {
+        tenantId,
+        entityType: "buyer",
+        entityId: buyer.id,
+        title: FOLLOWUP_TITLE,
+        status: "open",
+      },
       select: { id: true },
     });
     if (existing) return;
@@ -222,7 +270,10 @@ async function processOfferFollowup(job: Job): Promise<void> {
   });
 }
 
-const DelistedJobSchema = z.object({ tenantId: z.string(), propertyId: z.string() });
+const DelistedJobSchema = z.object({
+  tenantId: z.string(),
+  propertyId: z.string(),
+});
 const ALTERNATIVE_TITLE = "הנכס ירד מהשיווק — הציעו חלופה לקונה המעוניין";
 
 /**
@@ -233,6 +284,7 @@ const ALTERNATIVE_TITLE = "הנכס ירד מהשיווק — הציעו חלו�
  */
 async function processPropertyDelisted(job: Job): Promise<void> {
   const { tenantId, propertyId } = DelistedJobSchema.parse(job.data);
+  if (!(await automationOn(tenantId, "property_delisted"))) return;
 
   const interested = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
@@ -242,7 +294,11 @@ async function processPropertyDelisted(job: Job): Promise<void> {
     });
     if (matches.length === 0) return [];
     const offers = await tx.offer.findMany({
-      where: { tenantId, matchId: { in: matches.map((m) => m.id) }, status: "interested" },
+      where: {
+        tenantId,
+        matchId: { in: matches.map((m) => m.id) },
+        status: "interested",
+      },
       select: { matchId: true, presentation: true },
     });
     const byMatch = new Map(matches.map((m) => [m.id, m.buyerId]));
@@ -268,7 +324,13 @@ async function processPropertyDelisted(job: Job): Promise<void> {
       // שתי משימות; רק ניסיון חוזר על אותו נכס נבלם (ביקורת Codex)
       const sourceKey = `delisted:${propertyId}`;
       const existing = await tx.task.findFirst({
-        where: { tenantId, entityType: "buyer", entityId: buyer.id, sourceKey, status: "open" },
+        where: {
+          tenantId,
+          entityType: "buyer",
+          entityId: buyer.id,
+          sourceKey,
+          status: "open",
+        },
         select: { id: true },
       });
       if (existing) return;
@@ -312,7 +374,10 @@ async function processPropertyDelisted(job: Job): Promise<void> {
   }
 }
 
-const ViewingFollowupJobSchema = z.object({ tenantId: z.string(), appointmentId: z.string() });
+const ViewingFollowupJobSchema = z.object({
+  tenantId: z.string(),
+  appointmentId: z.string(),
+});
 const VIEWING_FOLLOWUP_TITLE = "פולו-אפ אחרי סיור — איך היה?";
 
 /**
@@ -321,8 +386,10 @@ const VIEWING_FOLLOWUP_TITLE = "פולו-אפ אחרי סיור — איך הי�
  * לקונה מיד אחרי סיור הוא ההבדל בין עסקה מתקדמת לליד שמתקרר.
  * אידמפוטנטי: sourceKey לפי הפגישה, ונעילת שורת הישות כמו בשאר.
  */
+/* גם כאן — הכיבוי חייב לתפוס Job שכבר ממתין בתור */
 async function processViewingFollowup(job: Job): Promise<void> {
   const { tenantId, appointmentId } = ViewingFollowupJobSchema.parse(job.data);
+  if (!(await automationOn(tenantId, "viewing_followup"))) return;
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
 
@@ -330,7 +397,9 @@ async function processViewingFollowup(job: Job): Promise<void> {
     // או שה-Worker רואה את המצב החדש ומדלג, או שסגירת המשימות של ה-PATCH
     // רצה אחרי שהמשימה כבר קיימת וסוגרת אותה (ביקורת Codex)
     await tx.$executeRaw`SELECT id FROM appointments WHERE id = ${appointmentId} AND tenant_id = ${tenantId} FOR UPDATE`;
-    const appt = await tx.appointment.findFirst({ where: { id: appointmentId, tenantId } });
+    const appt = await tx.appointment.findFirst({
+      where: { id: appointmentId, tenantId },
+    });
     if (!appt || appt.kind !== "viewing") return;
     // בוטל / לא הגיע — אין סיכום סיור; תוצאה כבר נרשמה — אין מה לדחוף
     if (appt.status === "cancelled" || appt.status === "no_show") return;
@@ -394,7 +463,10 @@ const LEAD_SLA_TITLE = "ליד ממתין למענה — חלון ה-SLA חלף"
  * (וואטסאפ נכנס) — המשימה לבעלים הוותיק וההתראה לכל הבעלים הפעילים.
  * נעילת שורת הליד + sourceKey: מרוץ מול טיפול בליד לא מייצר רעש.
  */
-async function escalateLeadSla(tenantId: string, leadId: string): Promise<void> {
+async function escalateLeadSla(
+  tenantId: string,
+  leadId: string,
+): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
 
@@ -413,10 +485,10 @@ async function escalateLeadSla(tenantId: string, leadId: string): Promise<void> 
 
     // סוכן משויך שהושבת בינתיים לא רואה משימות — נופלים לבעלים (ביקורת Codex)
     const assignedActive = lead.assignedToUserId
-      ? ((await tx.user.findFirst({
+      ? (await tx.user.findFirst({
           where: { id: lead.assignedToUserId, tenantId, isActive: true },
           select: { id: true },
-        })) !== null)
+        })) !== null
       : false;
     const owners = await tx.user.findMany({
       where: { tenantId, role: "owner", isActive: true },
@@ -433,7 +505,8 @@ async function escalateLeadSla(tenantId: string, leadId: string): Promise<void> 
         tenantId,
         assignedToUserId: assignee,
         title: LEAD_SLA_TITLE,
-        notes: "הליד עדיין בסטטוס \"חדש\" ללא מענה ראשון — לקוח שמחכה עובר למתווך הבא. חזרו אליו עכשיו.",
+        notes:
+          'הליד עדיין בסטטוס "חדש" ללא מענה ראשון — לקוח שמחכה עובר למתווך הבא. חזרו אליו עכשיו.',
         dueAt: new Date(),
         entityType: "lead",
         entityId: leadId,
@@ -460,7 +533,8 @@ async function escalateLeadSla(tenantId: string, leadId: string): Promise<void> 
         tenantId,
         leadId,
         kind: "system",
-        content: "חלון ה-SLA חלף — הליד עדיין ללא מענה ראשון; נוצרה משימת אסקלציה",
+        content:
+          "חלון ה-SLA חלף — הליד עדיין ללא מענה ראשון; נוצרה משימת אסקלציה",
         createdBy: null,
       },
     });
@@ -507,17 +581,28 @@ async function processSubscriptionExpiry(): Promise<void> {
   let expired = 0;
   for (const row of candidates) {
     // אותו כלל שהמסך מציג, ולא העתק שלו
-    if (subscriptionGrantsAccess(row.status as SubscriptionStatus, row.currentPeriodEnd, now)) {
+    if (
+      subscriptionGrantsAccess(
+        row.status as SubscriptionStatus,
+        row.currentPeriodEnd,
+        now,
+      )
+    ) {
       continue;
     }
     // מותנה בסטטוס שנקרא: תשלום שנכנס בין הקריאה לכתיבה לא נדרס
     const changed = await prisma.subscription.updateMany({
-      where: { tenantId: row.tenantId, status: row.status, currentPeriodEnd: row.currentPeriodEnd },
+      where: {
+        tenantId: row.tenantId,
+        status: row.status,
+        currentPeriodEnd: row.currentPeriodEnd,
+      },
       data: { status: "past_due" },
     });
     expired += changed.count;
   }
-  if (expired > 0) console.warn(`[subscription-expiry] ${expired} מנויים סומנו כהסתיימו`);
+  if (expired > 0)
+    console.warn(`[subscription-expiry] ${expired} מנויים סומנו כהסתיימו`);
 }
 
 /**
@@ -562,7 +647,9 @@ async function processExclusivitySweep(): Promise<void> {
     }
   }
   if (closed > 0 || notified > 0) {
-    console.warn(`[exclusivity-sweep] ${closed} תקופות נסגרו, ${notified} התראות נשלחו`);
+    console.warn(
+      `[exclusivity-sweep] ${closed} תקופות נסגרו, ${notified} התראות נשלחו`,
+    );
   }
 }
 
@@ -604,9 +691,18 @@ async function sweepOneExclusivity(
     });
 
     /** התראה אחת לכל אבן דרך, אי פעם. */
-    const notifyOnce = async (type: string, title: string, body: string): Promise<number> => {
+    const notifyOnce = async (
+      type: string,
+      title: string,
+      body: string,
+    ): Promise<number> => {
       const already = await tx.notification.findFirst({
-        where: { tenantId, type, entityType: "exclusivity", entityId: exclusivityId },
+        where: {
+          tenantId,
+          type,
+          entityType: "exclusivity",
+          entityId: exclusivityId,
+        },
         select: { id: true },
       });
       if (already || owners.length === 0) return 0;
@@ -655,7 +751,9 @@ async function sweepOneExclusivity(
        * סריקה שרצה לראשונה כשנותרו חמישה ימים אמורה לשלוח הודעה
        * אחת ("נותר שבוע"), ולא גם את זו של שלושים היום שחלפו.
        */
-      const threshold = EXCLUSIVITY_WARNING_DAYS.filter((d) => state.daysLeft <= d).pop();
+      const threshold = EXCLUSIVITY_WARNING_DAYS.filter(
+        (d) => state.daysLeft <= d,
+      ).pop();
       // סף שגדול מהתקופה כולה אינו רלוונטי: בלעדיות של 30 יום לא
       // מתחילה בהודעה "נותרו 30 יום" ביום שנחתמה
       const spanDays = Math.round(
@@ -699,9 +797,22 @@ async function sweepOneExclusivity(
 }
 
 async function processLeadSlaSweep(): Promise<void> {
-  const cutoff = new Date(Date.now() - LEAD_SLA_HOURS * 60 * 60 * 1000);
   const tenants = await prisma.tenant.findMany({ select: { id: true } });
   for (const tenant of tenants) {
+    /*
+     * הסף הוא של המשרד ולא של המערכת.
+     *
+     * קודם הוא היה משתנה סביבה אחד לכל המשרדים: משרד שמעדיף שעה
+     * ומשרד שמעדיף יום קיבלו את אותה התנהגות, ואף אחד מהם לא ידע
+     * שיש כאן הגדרה בכלל (`AUTOMATIONS.lead_sla`).
+     */
+    const settings = await automationSettings(tenant.id);
+    if (!settings.lead_sla.enabled) continue;
+    const cutoff = new Date(
+      Date.now() -
+        (automationThresholdMs("lead_sla", settings) ??
+          LEAD_SLA_HOURS * 60 * 60 * 1000),
+    );
     // עימוד cursor: הטיפול לא משנה את שורת הליד, כך ש-take בודד היה
     // מחזיר את אותם 200 לנצח ומרעיב את השאר (ביקורת Codex)
     let cursor: string | undefined;
@@ -709,7 +820,12 @@ async function processLeadSlaSweep(): Promise<void> {
       const batch = await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
         return tx.lead.findMany({
-          where: { tenantId: tenant.id, status: "new", firstResponseAt: null, createdAt: { lte: cutoff } },
+          where: {
+            tenantId: tenant.id,
+            status: "new",
+            firstResponseAt: null,
+            createdAt: { lte: cutoff },
+          },
           select: { id: true },
           orderBy: { id: "asc" },
           take: 200,
@@ -732,7 +848,11 @@ const OPEN_IN_PROGRESS_STATUSES = ["in_progress", "waiting_customer"];
  * הפעילות האחרונה בליד. כך סוכן שסגר משימה בלי לתעד פעילות לא
  * מקבל נדנוד יומי, אבל ליד שטופל ושוב התקרר — כן יקבל משימה חדשה.
  */
-async function warmStaleLead(tenantId: string, leadId: string, cutoff: Date): Promise<void> {
+async function warmStaleLead(
+  tenantId: string,
+  leadId: string,
+  cutoff: Date,
+): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
     await tx.$executeRaw`SELECT id FROM leads WHERE id = ${leadId} AND tenant_id = ${tenantId} FOR UPDATE`;
@@ -745,7 +865,10 @@ async function warmStaleLead(tenantId: string, leadId: string, cutoff: Date): Pr
       select: { createdAt: true },
     });
     const lastActivity = new Date(
-      Math.max(lead.updatedAt.getTime(), lastInteraction?.createdAt.getTime() ?? 0),
+      Math.max(
+        lead.updatedAt.getTime(),
+        lastInteraction?.createdAt.getTime() ?? 0,
+      ),
     );
     if (lastActivity > cutoff) return;
 
@@ -762,10 +885,10 @@ async function warmStaleLead(tenantId: string, leadId: string, cutoff: Date): Pr
 
     // סוכן משויך שהושבת בינתיים לא רואה משימות — נופלים לבעלים
     const assignedActive = lead.assignedToUserId
-      ? ((await tx.user.findFirst({
+      ? (await tx.user.findFirst({
           where: { id: lead.assignedToUserId, tenantId, isActive: true },
           select: { id: true },
-        })) !== null)
+        })) !== null
       : false;
     const owners = await tx.user.findMany({
       where: { tenantId, role: "owner", isActive: true },
@@ -776,7 +899,9 @@ async function warmStaleLead(tenantId: string, leadId: string, cutoff: Date): Pr
     if (!assignee) return;
     const notifyUserIds = assignedActive ? [assignee] : owners.map((o) => o.id);
 
-    const staleDays = Math.floor((Date.now() - lastActivity.getTime()) / (24 * 60 * 60 * 1000));
+    const staleDays = Math.floor(
+      (Date.now() - lastActivity.getTime()) / (24 * 60 * 60 * 1000),
+    );
     await tx.task.create({
       data: {
         id: ulid(),
@@ -825,9 +950,15 @@ async function warmStaleLead(tenantId: string, leadId: string, cutoff: Date): Pr
  * מדויק מול האינטראקציה האחרונה בתוך הטרנזקציה.
  */
 async function processStaleLeadSweep(): Promise<void> {
-  const cutoff = new Date(Date.now() - STALE_LEAD_DAYS * 24 * 60 * 60 * 1000);
   const tenants = await prisma.tenant.findMany({ select: { id: true } });
   for (const tenant of tenants) {
+    const settings = await automationSettings(tenant.id);
+    if (!settings.stale_lead.enabled) continue;
+    const cutoff = new Date(
+      Date.now() -
+        (automationThresholdMs("stale_lead", settings) ??
+          STALE_LEAD_DAYS * 24 * 60 * 60 * 1000),
+    );
     // עימוד cursor: החימום לא משנה את שורת הליד, כך ש-take בודד היה
     // מחזיר את אותם 200 לנצח ומרעיב את השאר (ביקורת Codex)
     let cursor: string | undefined;
@@ -857,7 +988,9 @@ const JERUSALEM_TZ = "Asia/Jerusalem";
 
 /** ההיסט של שעון ישראל מ-UTC ברגע נתון (מ"ש) — תלוי-רגע, לא קבוע. */
 function jerusalemOffsetMs(at: Date): number {
-  const wallAsUtc = new Date(at.toLocaleString("en-US", { timeZone: JERUSALEM_TZ }));
+  const wallAsUtc = new Date(
+    at.toLocaleString("en-US", { timeZone: JERUSALEM_TZ }),
+  );
   return wallAsUtc.getTime() - at.getTime();
 }
 
@@ -869,22 +1002,26 @@ function jerusalemOffsetMs(at: Date): number {
 function jerusalemWallToUtc(wallIso: string): Date {
   const wallMs = new Date(`${wallIso}Z`).getTime();
   let guess = new Date(wallMs);
-  for (let i = 0; i < 2; i++) guess = new Date(wallMs - jerusalemOffsetMs(guess));
+  for (let i = 0; i < 2; i++)
+    guess = new Date(wallMs - jerusalemOffsetMs(guess));
   return guess;
 }
 
 /** גבולות היום הנוכחי בשעון ישראל, כערכי UTC לשאילתות — כל גבול בהיסט שלו. */
 function jerusalemDayRange(): { start: Date; end: Date } {
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: JERUSALEM_TZ }).format(new Date());
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: JERUSALEM_TZ,
+  }).format(new Date());
   const start = jerusalemWallToUtc(`${today}T00:00:00.000`);
   // 30 שעות אחרי תחילת היום נופלות תמיד בתוך היום המקומי הבא (גם ביום של 25 שעות)
-  const nextDay = new Intl.DateTimeFormat("en-CA", { timeZone: JERUSALEM_TZ }).format(
-    new Date(start.getTime() + 30 * 60 * 60 * 1000),
+  const nextDay = new Intl.DateTimeFormat("en-CA", {
+    timeZone: JERUSALEM_TZ,
+  }).format(new Date(start.getTime() + 30 * 60 * 60 * 1000));
+  const end = new Date(
+    jerusalemWallToUtc(`${nextDay}T00:00:00.000`).getTime() - 1,
   );
-  const end = new Date(jerusalemWallToUtc(`${nextDay}T00:00:00.000`).getTime() - 1);
   return { start, end };
 }
-
 
 /**
  * משימות אוטומטיות קבועות — יצירת המופע שהגיע זמנו.
@@ -1078,6 +1215,7 @@ async function processDailyBrief(): Promise<void> {
   const { start, end } = jerusalemDayRange();
   const tenants = await prisma.tenant.findMany({ select: { id: true } });
   for (const tenant of tenants) {
+    if (!(await automationOn(tenant.id, "daily_brief"))) continue;
     // מספר שאילתות קבוע פר דייר (groupBy + createMany), לא פר סוכן —
     // כדי שהטרנזקציה תישאר הרחק מתחת ל-timeout של Prisma (ביקורת Codex)
     await prisma.$transaction(async (tx) => {
@@ -1090,12 +1228,20 @@ async function processDailyBrief(): Promise<void> {
 
       const [sentToday, meetingRows, taskRows, leadRows] = await Promise.all([
         tx.notification.findMany({
-          where: { tenantId: tenant.id, type: "daily_brief", createdAt: { gte: start } },
+          where: {
+            tenantId: tenant.id,
+            type: "daily_brief",
+            createdAt: { gte: start },
+          },
           select: { userId: true },
         }),
         tx.appointment.groupBy({
           by: ["createdBy"],
-          where: { tenantId: tenant.id, status: "scheduled", startsAt: { gte: start, lte: end } },
+          where: {
+            tenantId: tenant.id,
+            status: "scheduled",
+            startsAt: { gte: start, lte: end },
+          },
           _count: { _all: true },
         }),
         tx.task.groupBy({
@@ -1110,9 +1256,15 @@ async function processDailyBrief(): Promise<void> {
         }),
       ]);
       const alreadySent = new Set(sentToday.map((n) => n.userId));
-      const meetingsBy = new Map(meetingRows.map((r) => [r.createdBy, r._count._all]));
-      const tasksBy = new Map(taskRows.map((r) => [r.assignedToUserId, r._count._all]));
-      const leadsBy = new Map(leadRows.map((r) => [r.assignedToUserId, r._count._all]));
+      const meetingsBy = new Map(
+        meetingRows.map((r) => [r.createdBy, r._count._all]),
+      );
+      const tasksBy = new Map(
+        taskRows.map((r) => [r.assignedToUserId, r._count._all]),
+      );
+      const leadsBy = new Map(
+        leadRows.map((r) => [r.assignedToUserId, r._count._all]),
+      );
       const orphanLeads = leadsBy.get(null) ?? 0;
 
       const rows: {
@@ -1128,21 +1280,31 @@ async function processDailyBrief(): Promise<void> {
         const meetings = meetingsBy.get(user.id) ?? 0;
         const tasks = tasksBy.get(user.id) ?? 0;
         // לידים יתומים מוצגים לבעלים — הם האחראים כשאין משויך
-        const waitingLeads = (leadsBy.get(user.id) ?? 0) + (user.role === "owner" ? orphanLeads : 0);
+        const waitingLeads =
+          (leadsBy.get(user.id) ?? 0) +
+          (user.role === "owner" ? orphanLeads : 0);
         if (meetings === 0 && tasks === 0 && waitingLeads === 0) continue;
 
         const parts: string[] = [];
-        if (meetings > 0) parts.push(meetings === 1 ? "פגישה אחת היום" : `${meetings} פגישות היום`);
-        if (tasks > 0) parts.push(tasks === 1 ? "משימה אחת להיום" : `${tasks} משימות להיום`);
+        if (meetings > 0)
+          parts.push(
+            meetings === 1 ? "פגישה אחת היום" : `${meetings} פגישות היום`,
+          );
+        if (tasks > 0)
+          parts.push(tasks === 1 ? "משימה אחת להיום" : `${tasks} משימות להיום`);
         if (waitingLeads > 0)
-          parts.push(waitingLeads === 1 ? "ליד אחד ממתין למענה" : `${waitingLeads} לידים ממתינים למענה`);
+          parts.push(
+            waitingLeads === 1
+              ? "ליד אחד ממתין למענה"
+              : `${waitingLeads} לידים ממתינים למענה`,
+          );
 
         rows.push({
           id: ulid(),
           tenantId: tenant.id,
           userId: user.id,
           type: "daily_brief",
-          title: "☀️ דו\"ח בוקר",
+          title: '☀️ דו"ח בוקר',
           body: `${parts.join(" · ")} — הדשבורד מחכה לכם.`,
         });
       }
@@ -1167,48 +1329,95 @@ async function processWeeklySummary(): Promise<void> {
   weekAnchor.setUTCDate(weekAnchor.getUTCDate() - weekAnchor.getUTCDay());
   const tenants = await prisma.tenant.findMany({ select: { id: true } });
   for (const tenant of tenants) {
+    if (!(await automationOn(tenant.id, "weekly_summary"))) continue;
     await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
       // נעילת advisory פר-דייר: התור רץ ב-concurrency: 2, ושני Jobs
       // כפולים היו עוברים שניהם את בדיקת הקיום לפני שאחד כותב (ביקורת Codex)
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`weekly-summary:${tenant.id}`}))`;
       const managers = await tx.user.findMany({
-        where: { tenantId: tenant.id, isActive: true, role: { in: ["owner", "admin"] } },
+        where: {
+          tenantId: tenant.id,
+          isActive: true,
+          role: { in: ["owner", "admin"] },
+        },
         select: { id: true },
       });
       if (managers.length === 0) return;
       // כבר נשלח סיכום עבור השבוע הקלנדרי הנוכחי
       const already = await tx.notification.findFirst({
-        where: { tenantId: tenant.id, type: "weekly_summary", createdAt: { gte: weekAnchor } },
+        where: {
+          tenantId: tenant.id,
+          type: "weekly_summary",
+          createdAt: { gte: weekAnchor },
+        },
         select: { id: true },
       });
       if (already) return;
 
-      const [newLeads, answered, converted, offersSent, offersOpened, offersInterested, viewingsHeld] =
-        await Promise.all([
-          tx.lead.count({ where: { tenantId: tenant.id, createdAt: { gte: weekAgo } } }),
-          tx.lead.count({
-            where: { tenantId: tenant.id, createdAt: { gte: weekAgo }, firstResponseAt: { not: null } },
-          }),
-          tx.lead.count({ where: { tenantId: tenant.id, status: "converted", updatedAt: { gte: weekAgo } } }),
-          tx.offer.count({ where: { tenantId: tenant.id, sentAt: { gte: weekAgo } } }),
-          tx.offer.count({ where: { tenantId: tenant.id, firstOpenedAt: { gte: weekAgo } } }),
-          // ל-Offer אין updatedAt — "מעוניינים" נספרים מתוך הצעות שנשלחו השבוע
-          tx.offer.count({
-            where: { tenantId: tenant.id, status: "interested", sentAt: { gte: weekAgo } },
-          }),
-          tx.appointment.count({
-            where: { tenantId: tenant.id, kind: "viewing", status: "completed", startsAt: { gte: weekAgo, lte: now } },
-          }),
-        ]);
+      const [
+        newLeads,
+        answered,
+        converted,
+        offersSent,
+        offersOpened,
+        offersInterested,
+        viewingsHeld,
+      ] = await Promise.all([
+        tx.lead.count({
+          where: { tenantId: tenant.id, createdAt: { gte: weekAgo } },
+        }),
+        tx.lead.count({
+          where: {
+            tenantId: tenant.id,
+            createdAt: { gte: weekAgo },
+            firstResponseAt: { not: null },
+          },
+        }),
+        tx.lead.count({
+          where: {
+            tenantId: tenant.id,
+            status: "converted",
+            updatedAt: { gte: weekAgo },
+          },
+        }),
+        tx.offer.count({
+          where: { tenantId: tenant.id, sentAt: { gte: weekAgo } },
+        }),
+        tx.offer.count({
+          where: { tenantId: tenant.id, firstOpenedAt: { gte: weekAgo } },
+        }),
+        // ל-Offer אין updatedAt — "מעוניינים" נספרים מתוך הצעות שנשלחו השבוע
+        tx.offer.count({
+          where: {
+            tenantId: tenant.id,
+            status: "interested",
+            sentAt: { gte: weekAgo },
+          },
+        }),
+        tx.appointment.count({
+          where: {
+            tenantId: tenant.id,
+            kind: "viewing",
+            status: "completed",
+            startsAt: { gte: weekAgo, lte: now },
+          },
+        }),
+      ]);
       // משרד שקט לגמרי — אין מה לסכם, אין רעש
-      if (newLeads + offersSent + offersOpened + viewingsHeld + converted === 0) return;
+      if (newLeads + offersSent + offersOpened + viewingsHeld + converted === 0)
+        return;
 
       const parts: string[] = [];
-      const answeredPct = newLeads > 0 ? Math.round((answered / newLeads) * 100) : null;
-      parts.push(`${newLeads} לידים חדשים${answeredPct === null ? "" : ` (${answeredPct}% נענו)`}`);
+      const answeredPct =
+        newLeads > 0 ? Math.round((answered / newLeads) * 100) : null;
+      parts.push(
+        `${newLeads} לידים חדשים${answeredPct === null ? "" : ` (${answeredPct}% נענו)`}`,
+      );
       if (offersSent + offersOpened + offersInterested > 0)
-        parts.push(`הצעות: ${offersSent} נשלחו · ${offersOpened} נפתחו · ${offersInterested} מעוניינים`);
+        parts.push(
+          `הצעות: ${offersSent} נשלחו · ${offersOpened} נפתחו · ${offersInterested} מעוניינים`,
+        );
       if (viewingsHeld > 0) parts.push(`${viewingsHeld} סיורים התקיימו`);
       if (converted > 0) parts.push(`${converted} לידים הפכו ללקוחות 🎉`);
 
@@ -1226,7 +1435,6 @@ async function processWeeklySummary(): Promise<void> {
   }
 }
 
-
 /* ==================== תמלול וסיכום שיחות ==================== */
 
 /**
@@ -1243,7 +1451,9 @@ async function processWeeklySummary(): Promise<void> {
 /** תקרת שדה התוכן של ציר הזמן; הטקסט המלא נשאר על כרטיס השיחה. */
 const INTERACTION_CONTENT_LIMIT = 4000;
 
-const CALL_TRANSCRIBE_TIMEOUT_MS = Number(process.env["STT_TIMEOUT_MS"] ?? 180_000);
+const CALL_TRANSCRIBE_TIMEOUT_MS = Number(
+  process.env["STT_TIMEOUT_MS"] ?? 180_000,
+);
 
 /**
  * מבקש את תורי הדיבור מהשירות האופציונלי של זיהוי הדוברים.
@@ -1256,7 +1466,10 @@ const CALL_TRANSCRIBE_TIMEOUT_MS = Number(process.env["STT_TIMEOUT_MS"] ?? 180_0
  * תוויות דובר עדיפה בהרבה על שיחה שנופלת ל-failed בגלל שירות
  * שהוא ממילא תוספת. הכשל נרשם ללוג ולא מגיע למתווך.
  */
-async function fetchSpeakerTurns(audio: Uint8Array, audioSeconds: number): Promise<SpeakerTurn[]> {
+async function fetchSpeakerTurns(
+  audio: Uint8Array,
+  audioSeconds: number,
+): Promise<SpeakerTurn[]> {
   const diarizeUrl = process.env["DIARIZE_URL"];
   const sttSecret = process.env["STT_SECRET"];
   if (!diarizeUrl || !sttSecret) return [];
@@ -1279,7 +1492,6 @@ async function fetchSpeakerTurns(audio: Uint8Array, audioSeconds: number): Promi
   }
 }
 
-
 /**
  * זכאות המסלול — בתוך ה-Worker.
  *
@@ -1291,22 +1503,73 @@ async function fetchSpeakerTurns(audio: Uint8Array, audioSeconds: number): Promi
  * לברירות המחדל שבקוד, בדיוק כמו PlanCatalogService בשרת. מטמון קצר
  * כדי לא לשאול בכל סריקה.
  */
+/**
+ * הגדרת האוטומציות של משרד.
+ *
+ * נקראת בכל סוויפ ובכל Job, ולכן היא במטמון קצר: הסוויפים עוברים על
+ * כל המשרדים בלופ, וקריאה לכל משרד בכל סבב הייתה שאילתה מיותרת על
+ * נתון שמשתנה פעם בשבוע. חצי דקה קצרה מכדי שמישהו ישים לב, וארוכה
+ * מספיק כדי לחסוך את הלופ.
+ *
+ * חוסר או שגיאה נופלים לברירת המחדל דרך `resolveAutomationSettings` —
+ * אוטומציה שנכבית בגלל תקלת קריאה היא בדיוק התקלה שאי אפשר לאבחן.
+ */
+const AUTOMATION_CACHE_TTL_MS = 30_000;
+const automationCache = new Map<
+  string,
+  { settings: AutomationSettings; until: number }
+>();
+
+async function automationSettings(
+  tenantId: string,
+): Promise<AutomationSettings> {
+  const now = Date.now();
+  const hit = automationCache.get(tenantId);
+  if (hit && hit.until > now) return hit.settings;
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { settings: true },
+  });
+  const raw = (tenant?.settings ?? {}) as Record<string, unknown>;
+  const settings = resolveAutomationSettings(raw["automations"]);
+  automationCache.set(tenantId, {
+    settings,
+    until: now + AUTOMATION_CACHE_TTL_MS,
+  });
+  return settings;
+}
+
+/** האם האוטומציה פועלת אצל המשרד. */
+async function automationOn(
+  tenantId: string,
+  key: AutomationKey,
+): Promise<boolean> {
+  return (await automationSettings(tenantId))[key].enabled;
+}
+
 const PLAN_CACHE_TTL_MS = 30_000;
-let planCache: { features: Map<string, PlanFeature[]>; until: number } | null = null;
+let planCache: { features: Map<string, PlanFeature[]>; until: number } | null =
+  null;
 
 async function planFeatures(): Promise<Map<string, PlanFeature[]>> {
   const now = Date.now();
   if (planCache && planCache.until > now) return planCache.features;
-  const rows = await prisma.plan.findMany({ select: { code: true, features: true } });
+  const rows = await prisma.plan.findMany({
+    select: { code: true, features: true },
+  });
   const features = new Map<string, PlanFeature[]>();
   for (const plan of DEFAULT_PLANS) features.set(plan.code, [...plan.features]);
-  for (const row of rows) features.set(row.code, sanitizeFeatures(row.features));
+  for (const row of rows)
+    features.set(row.code, sanitizeFeatures(row.features));
   planCache = { features, until: now + PLAN_CACHE_TTL_MS };
   return features;
 }
 
 /** מסלול שאינו נפתר אינו מזכה בכלום — אותו כיוון בטוח כמו בשרת. */
-async function tenantHasFeature(tenantId: string, feature: PlanFeature): Promise<boolean> {
+async function tenantHasFeature(
+  tenantId: string,
+  feature: PlanFeature,
+): Promise<boolean> {
   const tenant = await prisma.tenant.findUnique({
     where: { id: tenantId },
     select: { plan: true },
@@ -1341,7 +1604,11 @@ async function transcribeOneCall(): Promise<void> {
       if (!row?.recordingKey) return null;
       // תפיסה אטומית: שני סבבים חופפים לא ייקחו את אותה שיחה
       const claimed = await tx.call.updateMany({
-        where: { id: row.id, tenantId: tenant.id, transcriptionStatus: "pending" },
+        where: {
+          id: row.id,
+          tenantId: tenant.id,
+          transcriptionStatus: "pending",
+        },
         data: { transcriptionStatus: "running" },
       });
       return claimed.count === 1 ? row : null;
@@ -1370,8 +1637,10 @@ async function transcribeOneCall(): Promise<void> {
        */
       const segments = body.segments ?? [];
       // אורך ההקלטה מגיע מהתמלול עצמו; כשהוא חסר נגזר מהמקטע האחרון
-      const audioSeconds = body.durationSeconds ?? segments[segments.length - 1]?.end ?? 0;
-      const turns = segments.length > 0 ? await fetchSpeakerTurns(audio, audioSeconds) : [];
+      const audioSeconds =
+        body.durationSeconds ?? segments[segments.length - 1]?.end ?? 0;
+      const turns =
+        segments.length > 0 ? await fetchSpeakerTurns(audio, audioSeconds) : [];
       const diarized = formatDiarizedTranscript(segments, turns);
       // נפילה חזרה ל-text כשהשירות הישן עדיין לא מחזיר segments
       const transcript = (diarized.text || body.text || "").trim();
@@ -1415,7 +1684,11 @@ async function transcribeOneCall(): Promise<void> {
         const buyerForCall =
           !pending.leadId && pending.contactId
             ? await tx.buyer.findFirst({
-                where: { tenantId: tenant.id, contactId: pending.contactId, deletedAt: null },
+                where: {
+                  tenantId: tenant.id,
+                  contactId: pending.contactId,
+                  deletedAt: null,
+                },
                 select: { id: true },
               })
             : null;
@@ -1483,7 +1756,11 @@ async function transcribeOneCall(): Promise<void> {
           });
           const assigneeActive =
             (await tx.user.findFirst({
-              where: { id: pending.createdBy, tenantId: tenant.id, isActive: true },
+              where: {
+                id: pending.createdBy,
+                tenantId: tenant.id,
+                isActive: true,
+              },
               select: { id: true },
             })) !== null;
           if (!already && assigneeActive) {
@@ -1556,7 +1833,11 @@ function configurePush(): boolean {
   const subject = process.env["VAPID_SUBJECT"];
   pushConfigured = Boolean(publicKey && privateKey && subject);
   if (pushConfigured) {
-    webpush.setVapidDetails(subject as string, publicKey as string, privateKey as string);
+    webpush.setVapidDetails(
+      subject as string,
+      publicKey as string,
+      privateKey as string,
+    );
   }
   return pushConfigured;
 }
@@ -1573,7 +1854,11 @@ async function processPushSweep(): Promise<void> {
     const pending = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
       return tx.notification.findMany({
-        where: { tenantId: tenant.id, pushedAt: null, createdAt: { gte: since } },
+        where: {
+          tenantId: tenant.id,
+          pushedAt: null,
+          createdAt: { gte: since },
+        },
         orderBy: { createdAt: "asc" },
         take: PUSH_BATCH,
         select: {
@@ -1616,7 +1901,10 @@ async function processPushSweep(): Promise<void> {
       for (const sub of targets) {
         try {
           await webpush.sendNotification(
-            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+            {
+              endpoint: sub.endpoint,
+              keys: { p256dh: sub.p256dh, auth: sub.auth },
+            },
             payload,
           );
           succeeded.push(sub.id);
@@ -1626,7 +1914,10 @@ async function processPushSweep(): Promise<void> {
               ? Number((error as { statusCode: unknown }).statusCode)
               : 0;
           const outcome = pushOutcome(status);
-          if (outcome === "retire" || shouldRetireAfterFailure(sub.failureCount + 1)) {
+          if (
+            outcome === "retire" ||
+            shouldRetireAfterFailure(sub.failureCount + 1)
+          ) {
             retire.push(sub.id);
           } else if (outcome !== "delivered") {
             bumpFailure.push(sub.id);
@@ -1685,20 +1976,36 @@ async function processLow(job: Job): Promise<void> {
 // שמכסה לידים שנוצרו לפני שהפיצ'ר נפרס
 const lowQueue = new Queue(QUEUES.low, { connection });
 void lowQueue
-  .upsertJobScheduler("lead-sla-sweep", { every: 15 * 60 * 1000 }, { name: "lead-sla-sweep" })
+  .upsertJobScheduler(
+    "lead-sla-sweep",
+    { every: 15 * 60 * 1000 },
+    { name: "lead-sla-sweep" },
+  )
   .catch((error: unknown) => {
-    console.error(`lead-sla-sweep scheduler registration failed: ${String(error)}`);
+    console.error(
+      `lead-sla-sweep scheduler registration failed: ${String(error)}`,
+    );
   });
 // סורק תמלול השיחות — כל דקה, שיחה אחת בכל פעם
 void lowQueue
-  .upsertJobScheduler("call-transcribe", { every: 60 * 1000 }, { name: "call-transcribe" })
+  .upsertJobScheduler(
+    "call-transcribe",
+    { every: 60 * 1000 },
+    { name: "call-transcribe" },
+  )
   .catch((error: unknown) => {
-    console.error(`call-transcribe scheduler registration failed: ${String(error)}`);
+    console.error(
+      `call-transcribe scheduler registration failed: ${String(error)}`,
+    );
   });
 // סורק הפוש — כל 30 שניות. השהיה של חצי דקה בהתראה מקובלת; סריקה
 // תכופה יותר הייתה מייצרת עומס קבוע על כל דייר בלי רווח מורגש.
 void lowQueue
-  .upsertJobScheduler("push-sweep", { every: 30 * 1000 }, { name: "push-sweep" })
+  .upsertJobScheduler(
+    "push-sweep",
+    { every: 30 * 1000 },
+    { name: "push-sweep" },
+  )
   .catch((error: unknown) => {
     console.error(`push-sweep scheduler registration failed: ${String(error)}`);
   });
@@ -1706,42 +2013,78 @@ void lowQueue
 // אבל איחור של עד עשר דקות במשימה יומית אינו מורגש, וסריקה תכופה
 // יותר הייתה מייצרת עומס קבוע בלי רווח.
 void lowQueue
-  .upsertJobScheduler("recurring-tasks", { every: 10 * 60 * 1000 }, { name: "recurring-tasks" })
+  .upsertJobScheduler(
+    "recurring-tasks",
+    { every: 10 * 60 * 1000 },
+    { name: "recurring-tasks" },
+  )
   .catch((error: unknown) => {
-    console.error(`recurring-tasks scheduler registration failed: ${String(error)}`);
+    console.error(
+      `recurring-tasks scheduler registration failed: ${String(error)}`,
+    );
   });
 // סריקת הבלעדיויות — פעם בשעה. הרזולוציה של הכלל היא יום, ושעה
 // מספיקה כדי שהתראה על מועד השליש תגיע ביום שנקבע לה. תדירות גבוהה
 // יותר רק הייתה סורקת את אותן שורות בלי שדבר השתנה בהן.
 void lowQueue
-  .upsertJobScheduler("exclusivity-sweep", { every: 60 * 60 * 1000 }, { name: "exclusivity-sweep" })
+  .upsertJobScheduler(
+    "exclusivity-sweep",
+    { every: 60 * 60 * 1000 },
+    { name: "exclusivity-sweep" },
+  )
   .catch((error: unknown) => {
-    console.error(`exclusivity-sweep scheduler registration failed: ${String(error)}`);
+    console.error(
+      `exclusivity-sweep scheduler registration failed: ${String(error)}`,
+    );
   });
 // תפוגת מנויים — פעם בשעה. הרזולוציה מספיקה: שער הגישה עצמו נבדק
 // בכל אימות Session לפי tenants.paid_until, וזה כאן רק יישור התצוגה.
 void lowQueue
-  .upsertJobScheduler("subscription-expiry", { every: 60 * 60 * 1000 }, { name: "subscription-expiry" })
+  .upsertJobScheduler(
+    "subscription-expiry",
+    { every: 60 * 60 * 1000 },
+    { name: "subscription-expiry" },
+  )
   .catch((error: unknown) => {
-    console.error(`subscription-expiry scheduler registration failed: ${String(error)}`);
+    console.error(
+      `subscription-expiry scheduler registration failed: ${String(error)}`,
+    );
   });
 // דו"ח בוקר — 07:00 שעון ישראל, כל יום
 void lowQueue
-  .upsertJobScheduler("daily-brief", { pattern: "0 7 * * *", tz: "Asia/Jerusalem" }, { name: "daily-brief" })
+  .upsertJobScheduler(
+    "daily-brief",
+    { pattern: "0 7 * * *", tz: "Asia/Jerusalem" },
+    { name: "daily-brief" },
+  )
   .catch((error: unknown) => {
-    console.error(`daily-brief scheduler registration failed: ${String(error)}`);
+    console.error(
+      `daily-brief scheduler registration failed: ${String(error)}`,
+    );
   });
 // סריקת "ליד מתקרר" — 09:00 שעון ישראל, כל יום (אחרי דו"ח הבוקר)
 void lowQueue
-  .upsertJobScheduler("stale-lead-sweep", { pattern: "0 9 * * *", tz: "Asia/Jerusalem" }, { name: "stale-lead-sweep" })
+  .upsertJobScheduler(
+    "stale-lead-sweep",
+    { pattern: "0 9 * * *", tz: "Asia/Jerusalem" },
+    { name: "stale-lead-sweep" },
+  )
   .catch((error: unknown) => {
-    console.error(`stale-lead-sweep scheduler registration failed: ${String(error)}`);
+    console.error(
+      `stale-lead-sweep scheduler registration failed: ${String(error)}`,
+    );
   });
 // סיכום שבועי לבעל המשרד — ראשון 08:00 שעון ישראל
 void lowQueue
-  .upsertJobScheduler("weekly-summary", { pattern: "0 8 * * 0", tz: "Asia/Jerusalem" }, { name: "weekly-summary" })
+  .upsertJobScheduler(
+    "weekly-summary",
+    { pattern: "0 8 * * 0", tz: "Asia/Jerusalem" },
+    { name: "weekly-summary" },
+  )
   .catch((error: unknown) => {
-    console.error(`weekly-summary scheduler registration failed: ${String(error)}`);
+    console.error(
+      `weekly-summary scheduler registration failed: ${String(error)}`,
+    );
   });
 
 /**
@@ -1771,17 +2114,25 @@ async function reportWorkersVersion(): Promise<void> {
   }
 }
 void reportWorkersVersion();
-const versionTimer = setInterval(() => void reportWorkersVersion(), WORKERS_VERSION_INTERVAL_MS);
+const versionTimer = setInterval(
+  () => void reportWorkersVersion(),
+  WORKERS_VERSION_INTERVAL_MS,
+);
 
 const workers = [
-  new Worker(QUEUES.notifications, processNotification, { connection, concurrency: 10 }),
+  new Worker(QUEUES.notifications, processNotification, {
+    connection,
+    concurrency: 10,
+  }),
   new Worker(QUEUES.low, processLow, { connection, concurrency: 2 }),
   // מעבדים נוספים (ai, matching, sync) יירשמו כאן מודול-מודול.
 ];
 
 for (const worker of workers) {
   worker.on("failed", (job, error) => {
-    console.error(`[${worker.name}] job ${job?.id ?? "?"} failed: ${error.message}`);
+    console.error(
+      `[${worker.name}] job ${job?.id ?? "?"} failed: ${error.message}`,
+    );
   });
 }
 
