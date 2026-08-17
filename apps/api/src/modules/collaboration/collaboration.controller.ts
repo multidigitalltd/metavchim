@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from "@nestjs/common";
 import { z } from "zod";
 import {
   DEFAULT_COMMISSION_SPLIT,
@@ -28,6 +38,7 @@ import {
   type SharedLeadDto,
 } from "./collaboration.service";
 import { ListingsService, type SharedListingDto } from "./listings.service";
+import { NetworkFilterSchema } from "./network-filter";
 
 /**
  * חלוקת העמלה. הגבולות מגיעים מהכלל המשותף ולא נכתבים כאן שוב —
@@ -74,7 +85,9 @@ const InterestSchema = z
 const OfferSchema = z
   .object({ propertyId: IdSchema, commissionSplit: CommissionSplitSchema })
   .strict();
-const RespondSchema = z.object({ response: z.enum(["interested", "declined"]) }).strict();
+const RespondSchema = z
+  .object({ response: z.enum(["interested", "declined"]) })
+  .strict();
 /*
  * פרסום הפניה. הגבולות והסיבות מגיעים מהכלל המשותף — הטופס והשרת
  * חייבים לדחות בדיוק את אותם ערכים, אחרת המסך מציג אפשרות שהשרת
@@ -85,12 +98,19 @@ const RespondSchema = z.object({ response: z.enum(["interested", "declined"]) })
  * `satisfies` ולא רשימה חופשית: אם `PayoutMode` יקבל מסלול שלישי,
  * השורה הזו תיכשל בקומפילציה במקום לקבל ערך שהשרת לא יודע לטפל בו.
  */
-const PayoutModeSchema = z.enum(["credits", "cash"]) satisfies z.ZodType<PayoutMode>;
+const PayoutModeSchema = z.enum([
+  "credits",
+  "cash",
+]) satisfies z.ZodType<PayoutMode>;
 
 const ShareLeadSchema = z
   .object({
     leadId: IdSchema,
-    priceCredits: z.number().int().min(MIN_REFERRAL_PRICE).max(MAX_REFERRAL_PRICE),
+    priceCredits: z
+      .number()
+      .int()
+      .min(MIN_REFERRAL_PRICE)
+      .max(MAX_REFERRAL_PRICE),
     reason: z.string().trim().min(1).max(30),
     reasonDetail: z.string().trim().max(MAX_REFERRAL_REASON_DETAIL).optional(),
     note: z.string().trim().max(MAX_REFERRAL_NOTE).optional(),
@@ -138,7 +158,11 @@ export class CollaborationController {
     @Body(new ZodValidationPipe(PublishListingSchema))
     body: z.infer<typeof PublishListingSchema>,
   ): Promise<SharedListingDto> {
-    return this.listings.publish(body.propertyId, body.commissionSplit, body.note);
+    return this.listings.publish(
+      body.propertyId,
+      body.commissionSplit,
+      body.note,
+    );
   }
 
   /**
@@ -160,9 +184,14 @@ export class CollaborationController {
   @RequireCapability("collaboration.share")
   async updateListing(
     @Param("propertyId", new ZodValidationPipe(IdSchema)) propertyId: string,
-    @Body(new ZodValidationPipe(UpdateShareSchema)) body: z.infer<typeof UpdateShareSchema>,
+    @Body(new ZodValidationPipe(UpdateShareSchema))
+    body: z.infer<typeof UpdateShareSchema>,
   ): Promise<SharedListingDto> {
-    return this.listings.updatePublication(propertyId, body.commissionSplit, body.note);
+    return this.listings.updatePublication(
+      propertyId,
+      body.commissionSplit,
+      body.note,
+    );
   }
 
   @Delete("listings/property/:propertyId")
@@ -183,8 +212,11 @@ export class CollaborationController {
    */
   @Get("listings")
   @RequireCapability("collaboration.offer")
-  async networkListings(): Promise<SharedListingDto[]> {
-    return this.listings.list();
+  async networkListings(
+    @Query(new ZodValidationPipe(NetworkFilterSchema))
+    query: z.infer<typeof NetworkFilterSchema>,
+  ): Promise<SharedListingDto[]> {
+    return this.listings.list(query);
   }
 
   @Post("listings/:id/interest")
@@ -192,7 +224,8 @@ export class CollaborationController {
   @HttpCode(204)
   async expressInterest(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Body(new ZodValidationPipe(InterestSchema)) body: z.infer<typeof InterestSchema>,
+    @Body(new ZodValidationPipe(InterestSchema))
+    body: z.infer<typeof InterestSchema>,
   ): Promise<void> {
     await this.listings.expressInterest(id, body.buyerId, body.commissionSplit);
   }
@@ -200,7 +233,9 @@ export class CollaborationController {
   /** קונים שמשרדים אחרים מציעים על הנכסים שפרסמתי. */
   @Get("interests")
   @RequireCapability("collaboration.share")
-  async interests(): Promise<Awaited<ReturnType<ListingsService["listInterests"]>>> {
+  async interests(): Promise<
+    Awaited<ReturnType<ListingsService["listInterests"]>>
+  > {
     return this.listings.listInterests();
   }
 
@@ -209,7 +244,8 @@ export class CollaborationController {
   @HttpCode(204)
   async respondToInterest(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Body(new ZodValidationPipe(RespondSchema)) body: z.infer<typeof RespondSchema>,
+    @Body(new ZodValidationPipe(RespondSchema))
+    body: z.infer<typeof RespondSchema>,
   ): Promise<void> {
     await this.listings.respondToInterest(id, body.response);
   }
@@ -231,7 +267,11 @@ export class CollaborationController {
   async share(
     @Body(new ZodValidationPipe(ShareSchema)) body: z.infer<typeof ShareSchema>,
   ): Promise<SharedDemandDto> {
-    return this.collaboration.shareBuyer(body.buyerId, body.commissionSplit, body.note);
+    return this.collaboration.shareBuyer(
+      body.buyerId,
+      body.commissionSplit,
+      body.note,
+    );
   }
 
   /**
@@ -253,22 +293,32 @@ export class CollaborationController {
   @RequireCapability("collaboration.share")
   async updateShare(
     @Param("buyerId", new ZodValidationPipe(IdSchema)) buyerId: string,
-    @Body(new ZodValidationPipe(UpdateShareSchema)) body: z.infer<typeof UpdateShareSchema>,
+    @Body(new ZodValidationPipe(UpdateShareSchema))
+    body: z.infer<typeof UpdateShareSchema>,
   ): Promise<SharedDemandDto> {
-    return this.collaboration.updateSharedDemand(buyerId, body.commissionSplit, body.note);
+    return this.collaboration.updateSharedDemand(
+      buyerId,
+      body.commissionSplit,
+      body.note,
+    );
   }
 
   @Delete("demands/:id")
   @RequireCapability("collaboration.share")
   @HttpCode(204)
-  async unshare(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<void> {
+  async unshare(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<void> {
     await this.collaboration.unshare(id);
   }
 
   @Get("demands")
   @RequireCapability("collaboration.offer")
-  async demands(): Promise<SharedDemandDto[]> {
-    return this.collaboration.listDemands();
+  async demands(
+    @Query(new ZodValidationPipe(NetworkFilterSchema))
+    query: z.infer<typeof NetworkFilterSchema>,
+  ): Promise<SharedDemandDto[]> {
+    return this.collaboration.listDemands(query);
   }
 
   /**
@@ -306,7 +356,11 @@ export class CollaborationController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Body(new ZodValidationPipe(OfferSchema)) body: z.infer<typeof OfferSchema>,
   ): Promise<CoopOfferDto> {
-    return this.collaboration.offerProperty(id, body.propertyId, body.commissionSplit);
+    return this.collaboration.offerProperty(
+      id,
+      body.propertyId,
+      body.commissionSplit,
+    );
   }
 
   @Get("offers")
@@ -320,7 +374,8 @@ export class CollaborationController {
   @HttpCode(200)
   async respond(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Body(new ZodValidationPipe(RespondSchema)) body: z.infer<typeof RespondSchema>,
+    @Body(new ZodValidationPipe(RespondSchema))
+    body: z.infer<typeof RespondSchema>,
   ): Promise<{ ok: true }> {
     await this.collaboration.respondToCoopOffer(id, body.response);
     return { ok: true };
@@ -344,7 +399,11 @@ export class CollaborationController {
    */
   @Get("summary")
   @RequireCapability("collaboration.offer")
-  async summary(): Promise<{ incomingOffers: number; openReferrals: number; credits: number }> {
+  async summary(): Promise<{
+    incomingOffers: number;
+    openReferrals: number;
+    credits: number;
+  }> {
     return this.collaboration.networkSummary();
   }
 
@@ -370,7 +429,8 @@ export class CollaborationController {
   @Post("leads")
   @RequireCapability("collaboration.share")
   async shareLead(
-    @Body(new ZodValidationPipe(ShareLeadSchema)) body: z.infer<typeof ShareLeadSchema>,
+    @Body(new ZodValidationPipe(ShareLeadSchema))
+    body: z.infer<typeof ShareLeadSchema>,
   ): Promise<SharedLeadDto> {
     return this.collaboration.shareLead(body);
   }
@@ -378,7 +438,9 @@ export class CollaborationController {
   @Delete("leads/:id")
   @RequireCapability("collaboration.share")
   @HttpCode(204)
-  async withdrawLead(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<void> {
+  async withdrawLead(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<void> {
     await this.collaboration.withdrawLead(id);
   }
 
@@ -420,9 +482,15 @@ export class CollaborationController {
   @HttpCode(200)
   async rateReferralGiven(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Body(new ZodValidationPipe(RateReferralSchema)) body: z.infer<typeof RateReferralSchema>,
+    @Body(new ZodValidationPipe(RateReferralSchema))
+    body: z.infer<typeof RateReferralSchema>,
   ): Promise<{ ok: true }> {
-    await this.collaboration.rateReferral(id, "referrer", body.score, body.comment);
+    await this.collaboration.rateReferral(
+      id,
+      "referrer",
+      body.score,
+      body.comment,
+    );
     return { ok: true };
   }
 
@@ -432,9 +500,15 @@ export class CollaborationController {
   @HttpCode(200)
   async rateReferralReceived(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Body(new ZodValidationPipe(RateReferralSchema)) body: z.infer<typeof RateReferralSchema>,
+    @Body(new ZodValidationPipe(RateReferralSchema))
+    body: z.infer<typeof RateReferralSchema>,
   ): Promise<{ ok: true }> {
-    await this.collaboration.rateReferral(id, "receiver", body.score, body.comment);
+    await this.collaboration.rateReferral(
+      id,
+      "receiver",
+      body.score,
+      body.comment,
+    );
     return { ok: true };
   }
 }

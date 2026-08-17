@@ -1,18 +1,13 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import {
   COMMISSION_SPLIT_OPTIONS,
   DEFAULT_COMMISSION_SPLIT,
   demandChips,
   describeCommissionSplit,
   describeReferralRating,
-  freeTextTerms,
-  matchesFreeText,
-  normalizeRange,
   presentationChips,
-  priceRangeAgorot,
-  rangesOverlap,
   referralReasonLabel,
   shekels,
   type PayoutMode,
@@ -26,7 +21,8 @@ import { useSearchParams } from "next/navigation";
 import { LoadError } from "../load-error";
 import {
   EMPTY_FILTERS,
-  filterNumber,
+  filtersToQuery,
+  hasActiveFilters,
   ListFilters,
   type ListFilterValues,
 } from "../list-filters";
@@ -409,105 +405,24 @@ export default function CollaborationPage() {
   const [leadsFailed, setLeadsFailed] = useState(false);
   const [listingsFailed, setListingsFailed] = useState(false);
 
-  /*
-   * הסינון רץ בזיכרון ולא בשרת.
-   *
-   * הפיד מוגבל ל-100 מודעות בכל כיוון וכבר נטען במלואו, ולכן סינון
-   * מקומי הוא מיידי ובלי סבב רשת לכל לחיצה. הכלים עצמם משותפים עם
-   * השרת (`@metavchim/shared`), כך ש"עד 2 מיליון" פירושו אותו דבר
-   * כאן ובמסכי הרשימה.
-   */
-  const netTerms = useMemo(() => freeTextTerms(netFilters.q), [netFilters.q]);
-  const netPrice = useMemo(
-    () =>
-      priceRangeAgorot(
-        filterNumber(netFilters.minPrice),
-        filterNumber(netFilters.maxPrice),
-      ),
-    [netFilters.minPrice, netFilters.maxPrice],
-  );
-  const netRooms = useMemo(
-    () =>
-      normalizeRange(
-        filterNumber(netFilters.minRooms),
-        filterNumber(netFilters.maxRooms),
-      ),
-    [netFilters.minRooms, netFilters.maxRooms],
-  );
-  /*
-   * לקונה יש **טווח** תקציב וטווח חדרים, ולכן הבדיקה היא חיתוך
-   * טווחים ולא הכלה: מי שמסנן 1–2 מיליון מחפש גם קונה שתקציבו
-   * 1.5–2.5, והוא בדיוק הקונה שבגבול.
-   */
-  const visibleDemands = useMemo(
-    () =>
-      (demands ?? []).filter(
-        (demand) =>
-          matchesFreeText(
-            [
-              ...demand.cities,
-              ...(demand.neighborhoods ?? []),
-              demand.notes,
-              demand.officeName,
-            ],
-            netTerms,
-          ) &&
-          rangesOverlap(netPrice, {
-            ...(demand.budgetMinAgorot === undefined
-              ? {}
-              : { min: demand.budgetMinAgorot }),
-            max: demand.budgetMaxAgorot,
-          }) &&
-          rangesOverlap(netRooms, {
-            ...(demand.roomsMin === undefined ? {} : { min: demand.roomsMin }),
-            ...(demand.roomsMax === undefined ? {} : { max: demand.roomsMax }),
-          }),
-      ),
-    [demands, netTerms, netPrice, netRooms],
-  );
-
-  /*
-   * לנכס יש מחיר אחד ומספר חדרים אחד — נקודה ולא טווח.
-   *
-   * נכס בלי מחיר או בלי מספר חדרים נשאר גלוי גם כשהסינון פעיל:
-   * שדה ריק פירושו "לא ידוע", ולהסתיר מודעה בגלל מה שלא מולא היה
-   * מסתיר בדיוק את הנכסים שכדאי לשאול עליהם.
-   */
-  const visibleListings = useMemo(
-    () =>
-      (listings ?? []).filter(
-        (listing) =>
-          matchesFreeText(
-            [
-              listing.city,
-              listing.neighborhood,
-              listing.title,
-              listing.notes,
-              listing.officeName,
-            ],
-            netTerms,
-          ) &&
-          rangesOverlap(
-            netPrice,
-            listing.priceAgorot === undefined
-              ? {}
-              : { min: listing.priceAgorot, max: listing.priceAgorot },
-          ) &&
-          rangesOverlap(
-            netRooms,
-            listing.rooms === undefined
-              ? {}
-              : { min: listing.rooms, max: listing.rooms },
-          ),
-      ),
-    [listings, netTerms, netPrice, netRooms],
-  );
-
   /** כל הודעה חדשה מוחקת את קישור "פתח את הליד" של הקנייה הקודמת. */
   function setMessage(text: string | null, leadId: string | null = null) {
     setMessageState(text);
     setBoughtLeadId(leadId);
   }
+
+  /*
+   * הסינון נוסע לשרת ולא מסונן במסך.
+   *
+   * הפיד חתוך ל-100 מודעות, ולכן סינון מקומי היה מחפש רק בתוך החלון
+   * הזה — ומכריז "אין תוצאות" על מודעה שקיימת ברשת אך יושבת מחוצה
+   * לו. תשובה שגויה כזו גרועה מאין סינון בכלל, כי המתווך מפסיק
+   * לחפש (ביקורת Codex).
+   *
+   * `filtersToQuery` מחזיר מחרוזת שמתחילה ב-"&" כדי להיצמד לפרמטר
+   * קיים; לנתיבים האלה אין פרמטר אחר, ולכן ה-"&" הופך ל-"?".
+   */
+  const netQuery = filtersToQuery(netFilters).replace(/^&/u, "?");
 
   const load = useCallback(() => {
     setLoadFailed(false);
@@ -519,13 +434,13 @@ export default function CollaborationPage() {
      * קודם הוא הפך ל-[] והמסך הציג את מצב הריק — כלומר תקלת רשת
      * נראתה כמו מסקנה עסקית ("אין מה לעשות כאן"), והמתווך היה עוזב.
      */
-    apiGet<DemandRow[]>("/collaboration/demands")
+    apiGet<DemandRow[]>(`/collaboration/demands${netQuery}`)
       .then(setDemands)
       .catch(() => setLoadFailed(true));
     apiGet<CoopOfferRow[]>("/collaboration/offers")
       .then(setCoopOffers)
       .catch(() => setOffersFailed(true));
-    apiGet<ListingRow[]>("/collaboration/listings")
+    apiGet<ListingRow[]>(`/collaboration/listings${netQuery}`)
       .then(setListings)
       .catch(() => setListingsFailed(true));
     /*
@@ -560,7 +475,8 @@ export default function CollaborationPage() {
     apiGet<{ items: BuyerOption[] }>("/buyers?limit=50")
       .then((r) => setBuyers(r.items))
       .catch(() => undefined);
-  }, []);
+    // שינוי הסינון טוען מחדש — הפיד מסונן בשרת ולא במסך
+  }, [netQuery]);
 
   useEffect(() => {
     if (!authLoading) load();
@@ -1384,6 +1300,30 @@ export default function CollaborationPage() {
                 />
               ) : demands === null ? (
                 <p aria-live="polite">טוען…</p>
+              ) : demands.length === 0 && hasActiveFilters(netFilters) ? (
+                /*
+                  רשימה ריקה בגלל הסינון היא הודעה אחרת מ"אין ביקושים
+                  ברשת" — והיא מדויקת, כי השרת חיפש בכל הרשת ולא רק
+                  ב-100 האחרונים.
+                */
+                <div className="mv-net-empty">
+                  <span className="mv-net-empty-icon">
+                    <IconSearch s={30} />
+                  </span>
+                  <p className="m-0 font-semibold">אין תוצאות לסינון הזה</p>
+                  <p
+                    className="m-0 mt-1 text-sm"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    אף ביקוש ברשת לא עונה על הסינון הנוכחי.
+                  </p>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setNetFilters(EMPTY_FILTERS)}
+                  >
+                    נקה סינון
+                  </Button>
+                </div>
               ) : demands.length === 0 ? (
                 <div className="mv-net-empty">
                   <span className="mv-net-empty-icon">
@@ -1400,29 +1340,9 @@ export default function CollaborationPage() {
                     נכסים.
                   </p>
                 </div>
-              ) : visibleDemands.length === 0 ? (
-                /* יש ביקושים ברשת — הסינון הוא ששלל אותם, וזו הודעה אחרת */
-                <div className="mv-net-empty">
-                  <span className="mv-net-empty-icon">
-                    <IconSearch s={30} />
-                  </span>
-                  <p className="m-0 font-semibold">אין תוצאות לסינון הזה</p>
-                  <p
-                    className="m-0 mt-1 text-sm"
-                    style={{ color: "var(--color-text-muted)" }}
-                  >
-                    יש מודעות ברשת, אבל אף אחת מהן לא עונה על הסינון הנוכחי.
-                  </p>
-                  <Button
-                    variant="secondary"
-                    onClick={() => setNetFilters(EMPTY_FILTERS)}
-                  >
-                    נקה סינון
-                  </Button>
-                </div>
               ) : (
                 <ul className="flex list-none flex-col gap-3.5 p-0">
-                  {visibleDemands.map((demand) => (
+                  {demands.map((demand) => (
                     <li
                       key={demand.id}
                       className={`mv-net-card${demand.mine ? " mv-net-card--mine" : ""}`}
@@ -1705,6 +1625,25 @@ export default function CollaborationPage() {
                 />
               ) : listings === null ? (
                 <p aria-live="polite">טוען…</p>
+              ) : listings.length === 0 && hasActiveFilters(netFilters) ? (
+                <div className="mv-net-empty">
+                  <span className="mv-net-empty-icon">
+                    <IconSearch s={30} />
+                  </span>
+                  <p className="m-0 font-semibold">אין תוצאות לסינון הזה</p>
+                  <p
+                    className="m-0 mt-1 text-sm"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    אף נכס ברשת לא עונה על הסינון הנוכחי.
+                  </p>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setNetFilters(EMPTY_FILTERS)}
+                  >
+                    נקה סינון
+                  </Button>
+                </div>
               ) : listings.length === 0 ? (
                 <div className="mv-net-empty">
                   <span className="mv-net-empty-icon">
@@ -1720,28 +1659,9 @@ export default function CollaborationPage() {
                     פרסמו נכס מכרטיס הנכס — ומשרדים עם קונה מתאים יפנו אליכם.
                   </p>
                 </div>
-              ) : visibleListings.length === 0 ? (
-                <div className="mv-net-empty">
-                  <span className="mv-net-empty-icon">
-                    <IconSearch s={30} />
-                  </span>
-                  <p className="m-0 font-semibold">אין תוצאות לסינון הזה</p>
-                  <p
-                    className="m-0 mt-1 text-sm"
-                    style={{ color: "var(--color-text-muted)" }}
-                  >
-                    יש מודעות ברשת, אבל אף אחת מהן לא עונה על הסינון הנוכחי.
-                  </p>
-                  <Button
-                    variant="secondary"
-                    onClick={() => setNetFilters(EMPTY_FILTERS)}
-                  >
-                    נקה סינון
-                  </Button>
-                </div>
               ) : (
                 <ul className="flex list-none flex-col gap-3.5 p-0">
-                  {visibleListings.map((listing) => (
+                  {listings.map((listing) => (
                     <li
                       key={listing.id}
                       className={`mv-net-card${listing.mine ? " mv-net-card--mine" : ""}`}

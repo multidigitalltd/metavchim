@@ -19,6 +19,13 @@ import { AuditService } from "../../core/audit.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { officeNames } from "./office-names";
+import {
+  networkPrice,
+  networkRooms,
+  networkTerms,
+  officeIdsMatching,
+  type NetworkFilter,
+} from "./network-filter";
 import { readCustomFeatures, rowToFields } from "../properties/property.mapper";
 
 /**
@@ -438,17 +445,84 @@ export class ListingsService {
   }
 
   /**
+   * תנאי הסינון של פיד הנכסים.
+   *
+   * רץ בשרת ולפני חיתוך ה-100, כדי ש"אין תוצאות" יהיה תשובה על הרשת
+   * כולה ולא על החלון האחרון שלה.
+   *
+   * כאן, בשונה מהביקושים, העיר והשכונה הן עמודות טקסט רגילות ולא
+   * מערכים — ולכן ILIKE על כל מונח בנפרד עובד, ואין צורך בהתאמה
+   * לאיבר שלם.
+   *
+   * לנכס יש מחיר אחד ומספר חדרים אחד. שדה ריק פירושו "לא ידוע"
+   * והמודעה נשארת גלויה: להסתיר מודעה בגלל מה שלא מולא היה מסתיר
+   * בדיוק את הנכסים שכדאי לשאול עליהם.
+   */
+  private async filterWhere(
+    filter: NetworkFilter,
+  ): Promise<Prisma.SharedListingWhereInput> {
+    const conditions: Prisma.SharedListingWhereInput[] = [];
+    const terms = networkTerms(filter);
+    const price = networkPrice(filter);
+    const rooms = networkRooms(filter);
+
+    if (price.min !== undefined) {
+      conditions.push({
+        OR: [{ priceAgorot: { gte: price.min } }, { priceAgorot: null }],
+      });
+    }
+    if (price.max !== undefined) {
+      conditions.push({
+        OR: [{ priceAgorot: { lte: price.max } }, { priceAgorot: null }],
+      });
+    }
+    if (rooms.min !== undefined) {
+      conditions.push({ OR: [{ rooms: { gte: rooms.min } }, { rooms: null }] });
+    }
+    if (rooms.max !== undefined) {
+      conditions.push({ OR: [{ rooms: { lte: rooms.max } }, { rooms: null }] });
+    }
+
+    if (terms.length > 0) {
+      const offices = await officeIdsMatching(this.prisma, filter);
+      conditions.push({
+        OR: [
+          {
+            AND: terms.map((term) => ({
+              OR: [
+                { city: { contains: term, mode: "insensitive" as const } },
+                {
+                  neighborhood: {
+                    contains: term,
+                    mode: "insensitive" as const,
+                  },
+                },
+                { title: { contains: term, mode: "insensitive" as const } },
+                { notes: { contains: term, mode: "insensitive" as const } },
+              ],
+            })),
+          },
+          ...(offices.length > 0 ? [{ tenantId: { in: offices } }] : []),
+        ],
+      });
+    }
+
+    return conditions.length > 0 ? { AND: conditions } : {};
+  }
+
+  /**
    * פיד הנכסים ברשת — הרשת כולה, כולל שלי (מסומנים).
    *
    * לכל נכס מחושבים הקונים **שלי** שמתאימים לו, באותו מנוע ובאותו
    * סף כמו בכיוון השני. בלי זה המתווך היה עובר על עשרות נכסים
    * ומנחש למי מהקונים שלו להראות אותם.
    */
-  async list(): Promise<SharedListingDto[]> {
+  async list(filter: NetworkFilter = {}): Promise<SharedListingDto[]> {
     const tenantId = TenantContext.current().tenantId;
+    const where = await this.filterWhere(filter);
     const visible = await this.prisma.withNetworkRead((tx) =>
       tx.sharedListing.findMany({
-        where: { status: "active" },
+        where: { status: "active", ...where },
         orderBy: { createdAt: "desc" },
         take: 100,
       }),

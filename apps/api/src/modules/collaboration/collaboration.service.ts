@@ -40,6 +40,13 @@ import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
 import { officeNames } from "./office-names";
+import {
+  networkPrice,
+  networkRooms,
+  networkTerms,
+  officeIdsMatching,
+  type NetworkFilter,
+} from "./network-filter";
 import { readCustomFeatures, rowToFields } from "../properties/property.mapper";
 
 /**
@@ -543,8 +550,78 @@ export class CollaborationService {
     });
   }
 
+  /**
+   * תנאי הסינון של פיד הביקושים.
+   *
+   * רץ בשרת ולפני חיתוך ה-100, ולכן "אין תוצאות" הוא תשובה על הרשת
+   * כולה ולא על החלון האחרון שלה.
+   *
+   * הטקסט מתאים בשתי דרכים, ומספיקה אחת:
+   *   1. כל המונחים נמצאים בתיאור החופשי (AND בין מונחים).
+   *   2. שורת החיפוש **כולה** היא עיר או שכונה מבוקשת, או שם המשרד
+   *      המפרסם.
+   *
+   * הפיצול אינו קוסמטי: `has` על מערך דורש התאמה לאיבר שלם, ו"רמת
+   * גן" מתפרק ל"רמת" ו"גן" — שאף אחד מהם אינו שווה לאיבר "רמת גן".
+   * זה בדיוק הכשל שתוקן פעם אחת בסינון הקונים, ואותו פתרון חוזר כאן.
+   */
+  private async demandFilterWhere(
+    filter: NetworkFilter,
+  ): Promise<Prisma.SharedDemandWhereInput> {
+    const conditions: Prisma.SharedDemandWhereInput[] = [];
+    const terms = networkTerms(filter);
+    const price = networkPrice(filter);
+    const rooms = networkRooms(filter);
+
+    /*
+     * לקונה יש **טווח** תקציב, ולכן הבדיקה היא חיתוך טווחים: מי
+     * שמסנן 1–2 מיליון מחפש גם קונה שתקציבו 1.5–2.5, והוא בדיוק
+     * הקונה שבגבול. מינימום חסר נחשב אינסופי כלפי מטה.
+     */
+    if (price.min !== undefined) {
+      conditions.push({ budgetMaxAgorot: { gte: price.min } });
+    }
+    if (price.max !== undefined) {
+      conditions.push({
+        OR: [
+          { budgetMinAgorot: { lte: price.max } },
+          { budgetMinAgorot: null },
+        ],
+      });
+    }
+    if (rooms.min !== undefined) {
+      conditions.push({
+        OR: [{ roomsMax: { gte: rooms.min } }, { roomsMax: null }],
+      });
+    }
+    if (rooms.max !== undefined) {
+      conditions.push({
+        OR: [{ roomsMin: { lte: rooms.max } }, { roomsMin: null }],
+      });
+    }
+
+    if (terms.length > 0) {
+      const whole = filter.q?.trim() ?? "";
+      const offices = await officeIdsMatching(this.prisma, filter);
+      conditions.push({
+        OR: [
+          {
+            AND: terms.map((term) => ({
+              notes: { contains: term, mode: "insensitive" as const },
+            })),
+          },
+          { cities: { has: whole } },
+          { neighborhoods: { has: whole } },
+          ...(offices.length > 0 ? [{ tenantId: { in: offices } }] : []),
+        ],
+      });
+    }
+
+    return conditions.length > 0 ? { AND: conditions } : {};
+  }
+
   /** פיד הביקושים: הרשת כולה (כולל שלי, מסומנים). קריאת הרשת רצה כ-withNetwork. */
-  async listDemands(): Promise<SharedDemandDto[]> {
+  async listDemands(filter: NetworkFilter = {}): Promise<SharedDemandDto[]> {
     const tenantId = TenantContext.current().tenantId;
     /*
      * אין עוד סינון זכאות.
@@ -557,9 +634,10 @@ export class CollaborationService {
      * מה שהחליף אותו הוא תמחור לפי מקור: הביקושים מוצגים לכולם,
      * ולכל אחד מהם מוחזרת העלות שלו.
      */
+    const where = await this.demandFilterWhere(filter);
     const visible = await this.prisma.withNetworkRead((tx) =>
       tx.sharedDemand.findMany({
-        where: { status: "active" },
+        where: { status: "active", ...where },
         orderBy: { createdAt: "desc" },
         take: 100,
       }),
