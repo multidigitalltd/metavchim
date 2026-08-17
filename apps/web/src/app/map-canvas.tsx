@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Map as MapLibreMap, NavigationControl } from "maplibre-gl";
+import {
+  Map as MapLibreMap,
+  NavigationControl,
+  setWorkerUrl,
+} from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { apiGet } from "@/lib/api";
 
@@ -38,6 +42,28 @@ export interface MapCanvasProps {
   onReady?: (map: MapLibreMap) => void;
 }
 
+/**
+ * ה-Worker מוגש מהאתר עצמו, ולא מהכתובת שהספרייה מנחשת.
+ *
+ * מגרסה 6 MapLibre טוענת את ה-Worker מקובץ נפרד, ומחשבת את כתובתו
+ * בזמן ריצה מתוך `import.meta.url`. webpack אינו יכול לנתח את זה
+ * סטטית ולכן **אינו פולט את הקובץ** — הדפדפן מבקש כתובת ריקה,
+ * ה-Worker לא עולה, ואף אריח אינו מפוענח.
+ *
+ * כך נראתה התקלה: ריבוע לבן *עם* פקדי זום ועם קרדיט הספק. סגנון
+ * המפה נטען (הוא נקרא בתהליך הראשי) והציור פשוט לא קרה — כלומר לא
+ * הייתה שום שגיאה שהמשתמש יכול היה להבין, והמפה "לא עובדת".
+ *
+ * הקובץ מועתק ל-`public/maplibre` בכל בנייה ובכל הרצת פיתוח
+ * (`scripts/copy-maplibre-worker.mjs`), ולכן הוא תמיד תואם לגרסה
+ * המותקנת ומוגש מאותו מקור — מה שגם מסתדר עם `worker-src 'self'`
+ * שב-CSP, בלי להתיר blob חוצה-מקורות.
+ *
+ * הקריאה בזמן טעינת המודול ולא בתוך האפקט: הספרייה קוראת את הערך
+ * כשהיא יוצרת את מאגר ה-Workers, וזה קורה כבר במפה הראשונה.
+ */
+setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
+
 /** מרכז הארץ — נקודת פתיחה סבירה כשאין מה למרכז עליו. */
 const DEFAULT_CENTER: [number, number] = [34.85, 31.95];
 
@@ -60,7 +86,12 @@ export function MapCanvas({
   }, []);
 
   useEffect(() => {
-    if (config?.configured !== true || container.current === null || map.current !== null) return;
+    if (
+      config?.configured !== true ||
+      container.current === null ||
+      map.current !== null
+    )
+      return;
     const { styleUrl } = config;
     if (styleUrl === undefined) return;
 
@@ -81,7 +112,10 @@ export function MapCanvas({
         // תוויות בעברית כשהסגנון תומך; אחרת נשאר כפי שהוא
         attributionControl: { compact: true },
       });
-      instance.addControl(new NavigationControl({ showCompass: false }), "top-left");
+      instance.addControl(
+        new NavigationControl({ showCompass: false }),
+        "top-left",
+      );
       instance.on("error", () => setFailed(true));
       instance.on("load", () => onReady?.(instance));
       map.current = instance;
@@ -104,7 +138,12 @@ export function MapCanvas({
     return (
       <div
         className={className}
-        style={{ height, display: "grid", placeItems: "center", color: "var(--color-text-muted)" }}
+        style={{
+          height,
+          display: "grid",
+          placeItems: "center",
+          color: "var(--color-text-muted)",
+        }}
       >
         טוען מפה…
       </div>
@@ -127,7 +166,10 @@ export function MapCanvas({
       >
         <div>
           <p className="m-0 text-sm font-semibold">המפה אינה מוגדרת</p>
-          <p className="m-0 mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
+          <p
+            className="m-0 mt-1 text-xs"
+            style={{ color: "var(--color-text-muted)" }}
+          >
             {failed
               ? "טעינת המפה נכשלה — ייתכן שהטוקן אינו תקף."
               : "בעל הפלטפורמה מגדיר טוקן אריחים במסך הפלטפורמה, וכל המפות במערכת נדלקות."}
@@ -137,5 +179,11 @@ export function MapCanvas({
     );
   }
 
-  return <div ref={container} className={className} style={{ height, borderRadius: 12 }} />;
+  return (
+    <div
+      ref={container}
+      className={className}
+      style={{ height, borderRadius: 12 }}
+    />
+  );
 }

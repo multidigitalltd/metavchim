@@ -19,3 +19,8 @@ dump.rdb
 # פסולת של מפרש פייתון (שירותי infra/stt ו-infra/diarize)
 __pycache__/
 *.pyc
+
+# ה-Worker של MapLibre, שמועתק ל-public בכל בנייה ובכל הרצת פיתוח
+# (apps/web/scripts/copy-maplibre-worker.mjs). נוצר מ-node_modules ולכן
+# אינו מקור: עותק שנשמר ב-git היה נפרד בשקט מהגרסה המותקנת.
+apps/web/public/maplibre/

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
@@ -17,16 +18,20 @@ import {
   referralRatingAverage,
   referralRatingRejectionReason,
   referralReasonRejectionReason,
+  presentationChips,
+  type NetworkPresentationFields,
   scoreMatch,
   suggestedReferralPrice,
   type BuyerRequirements,
   type LeadSourcePrice,
 } from "@metavchim/shared";
+import { loadEnv } from "../../config/env";
 import { lockContact } from "../../common/locks";
 import { assertLeadAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
+import { EmailService } from "../../core/email.service";
 import { CreditEconomyService } from "../../core/credit-economy.service";
 import { OutboxService } from "../../core/outbox.service";
 import { LeadPricingService } from "../../core/lead-pricing.service";
@@ -34,6 +39,14 @@ import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
+import { officeNames } from "./office-names";
+import {
+  networkPrice,
+  networkRooms,
+  networkTerms,
+  officeIdsMatching,
+  type NetworkFilter,
+} from "./network-filter";
 import { readCustomFeatures, rowToFields } from "../properties/property.mapper";
 
 /**
@@ -113,6 +126,14 @@ export interface DemandMatchDto {
   title: string;
   score: number;
   explanation: string;
+  /**
+   * הנכס הזה כבר הוצע לביקוש הזה.
+   *
+   * בלי הסימון הזה ההתאמה נשארת בפיד עם כפתור פעיל אחרי השליחה,
+   * הלחיצה השנייה מפרה את `@@unique([demandId, propertyId])`, והמתווך
+   * מקבל 500 על פעולה שפשוט כבר בוצעה.
+   */
+  offered?: boolean;
 }
 
 export interface SharedDemandDto {
@@ -156,6 +177,13 @@ export interface SharedDemandDto {
   status: string;
   /** true אם הביקוש שלי — רק אז יש קישור לקונה */
   mine: boolean;
+  /**
+   * המשרד שפרסם את הביקוש.
+   *
+   * חסר לביקוש ממקור חיצוני (Kanko) — הוא אינו משרד תיווך, והמסך
+   * מסמן אותו בתג המקור שלו במקום בשם משרד.
+   */
+  officeName?: string;
   originBuyerId?: string;
   createdAt: Date;
   /** הנכסים שלי שמתאימים — מחושב במנוע ההתאמות, לא ניחוש */
@@ -270,7 +298,10 @@ export class CollaborationService {
     private readonly creditEconomy: CreditEconomyService,
     // הצעת נכס למשרד אחר נספרת לעבר פריט (6) בפעולות השיווק
     private readonly exclusivity: ExclusivityService,
+    private readonly email: EmailService,
   ) {}
+
+  private readonly logger = new Logger(CollaborationService.name);
 
   /**
    * אחוז עמלת הפלטפורמה כפי שנקבע במסך הפלטפורמה.
@@ -519,8 +550,78 @@ export class CollaborationService {
     });
   }
 
+  /**
+   * תנאי הסינון של פיד הביקושים.
+   *
+   * רץ בשרת ולפני חיתוך ה-100, ולכן "אין תוצאות" הוא תשובה על הרשת
+   * כולה ולא על החלון האחרון שלה.
+   *
+   * הטקסט מתאים בשתי דרכים, ומספיקה אחת:
+   *   1. כל המונחים נמצאים בתיאור החופשי (AND בין מונחים).
+   *   2. שורת החיפוש **כולה** היא עיר או שכונה מבוקשת, או שם המשרד
+   *      המפרסם.
+   *
+   * הפיצול אינו קוסמטי: `has` על מערך דורש התאמה לאיבר שלם, ו"רמת
+   * גן" מתפרק ל"רמת" ו"גן" — שאף אחד מהם אינו שווה לאיבר "רמת גן".
+   * זה בדיוק הכשל שתוקן פעם אחת בסינון הקונים, ואותו פתרון חוזר כאן.
+   */
+  private async demandFilterWhere(
+    filter: NetworkFilter,
+  ): Promise<Prisma.SharedDemandWhereInput> {
+    const conditions: Prisma.SharedDemandWhereInput[] = [];
+    const terms = networkTerms(filter);
+    const price = networkPrice(filter);
+    const rooms = networkRooms(filter);
+
+    /*
+     * לקונה יש **טווח** תקציב, ולכן הבדיקה היא חיתוך טווחים: מי
+     * שמסנן 1–2 מיליון מחפש גם קונה שתקציבו 1.5–2.5, והוא בדיוק
+     * הקונה שבגבול. מינימום חסר נחשב אינסופי כלפי מטה.
+     */
+    if (price.min !== undefined) {
+      conditions.push({ budgetMaxAgorot: { gte: price.min } });
+    }
+    if (price.max !== undefined) {
+      conditions.push({
+        OR: [
+          { budgetMinAgorot: { lte: price.max } },
+          { budgetMinAgorot: null },
+        ],
+      });
+    }
+    if (rooms.min !== undefined) {
+      conditions.push({
+        OR: [{ roomsMax: { gte: rooms.min } }, { roomsMax: null }],
+      });
+    }
+    if (rooms.max !== undefined) {
+      conditions.push({
+        OR: [{ roomsMin: { lte: rooms.max } }, { roomsMin: null }],
+      });
+    }
+
+    if (terms.length > 0) {
+      const whole = filter.q?.trim() ?? "";
+      const offices = await officeIdsMatching(this.prisma, filter);
+      conditions.push({
+        OR: [
+          {
+            AND: terms.map((term) => ({
+              notes: { contains: term, mode: "insensitive" as const },
+            })),
+          },
+          { cities: { has: whole } },
+          { neighborhoods: { has: whole } },
+          ...(offices.length > 0 ? [{ tenantId: { in: offices } }] : []),
+        ],
+      });
+    }
+
+    return conditions.length > 0 ? { AND: conditions } : {};
+  }
+
   /** פיד הביקושים: הרשת כולה (כולל שלי, מסומנים). קריאת הרשת רצה כ-withNetwork. */
-  async listDemands(): Promise<SharedDemandDto[]> {
+  async listDemands(filter: NetworkFilter = {}): Promise<SharedDemandDto[]> {
     const tenantId = TenantContext.current().tenantId;
     /*
      * אין עוד סינון זכאות.
@@ -533,9 +634,10 @@ export class CollaborationService {
      * מה שהחליף אותו הוא תמחור לפי מקור: הביקושים מוצגים לכולם,
      * ולכל אחד מהם מוחזרת העלות שלו.
      */
+    const where = await this.demandFilterWhere(filter);
     const visible = await this.prisma.withNetworkRead((tx) =>
       tx.sharedDemand.findMany({
-        where: { status: "active" },
+        where: { status: "active", ...where },
         orderBy: { createdAt: "desc" },
         take: 100,
       }),
@@ -557,11 +659,42 @@ export class CollaborationService {
       }),
     );
 
-    const prices = await this.pricing.all();
+    /*
+     * מה כבר הצעתי — שאילתה אחת לכל הפיד, כמו `alreadySent` בצד
+     * הנכסים. המפתח הוא הצמד (ביקוש, נכס) ולא הביקוש לבדו: מותר
+     * להציע לאותו ביקוש נכס שני, ואסור להציע פעמיים את אותו נכס.
+     */
+    const offered = await this.prisma.withTenant(async (tx) => {
+      const rows = await tx.coopOffer.findMany({
+        where: {
+          fromTenantId: tenantId,
+          demandId: { in: visible.map((row) => row.id) },
+        },
+        select: { demandId: true, propertyId: true },
+      });
+      return new Set(rows.map((row) => `${row.demandId}:${row.propertyId}`));
+    });
+
+    const [prices, offices] = await Promise.all([
+      this.pricing.all(),
+      officeNames(
+        this.prisma,
+        visible.map((row) => row.tenantId),
+      ),
+    ]);
     return visible.map((row) => {
-      const dto = this.toDemandDto(row, tenantId, prices);
+      const dto = this.toDemandDto(
+        row,
+        tenantId,
+        prices,
+        offices.get(row.tenantId),
+      );
       if (dto.mine) return dto;
-      const matches = this.matchOwnProperties(myProperties, row);
+      const matches = this.matchOwnProperties(myProperties, row).map((match) =>
+        offered.has(`${row.id}:${match.propertyId}`)
+          ? { ...match, offered: true }
+          : match,
+      );
       return matches.length > 0 ? { ...dto, myMatches: matches } : dto;
     });
   }
@@ -885,7 +1018,9 @@ export class CollaborationService {
       tx.sharedDemand.findFirst({ where: { id, tenantId } }),
     );
     if (!row) throw new NotFoundException("ביקוש לא נמצא");
-    return this.toDemandDto(row, tenantId, prices);
+    // תמיד הביקוש שלי (השאילתה מסוננת לפי הדייר) — ולכן המשרד שלי
+    const offices = await officeNames(this.prisma, [row.tenantId]);
+    return this.toDemandDto(row, tenantId, prices, offices.get(row.tenantId));
   }
 
   /** הצעת נכס לביקוש רשת — עולה קרדיט; חשיפה מדורגת בלי כתובת מדויקת. */
@@ -911,7 +1046,7 @@ export class CollaborationService {
     const splitRejection = commissionSplitRejectionReason(commissionSplit);
     if (splitRejection !== null) throw new BadRequestException(splitRejection);
     const prices = await this.pricing.all();
-    await this.prisma.withTenant(async (tx) => {
+    const sent = await this.prisma.withTenant(async (tx) => {
       const property = await tx.property.findFirst({
         where: {
           id: propertyId,
@@ -921,6 +1056,23 @@ export class CollaborationService {
         },
       });
       if (!property) throw new NotFoundException("נכס לא נמצא או אינו משווק");
+
+      /*
+       * הצעה כפולה נחסמת כאן ולא רק במפתח הייחודי שבמסד — בדיוק כמו
+       * `coopInterest` בצד הנכסים.
+       *
+       * הפיד מסמן התאמה שכבר הוצעה, אבל כפתור שנלחץ פעמיים ולשונית
+       * שנשארה פתוחה מדקה קודם עדיין מגיעים לכאן, ואז הפרת
+       * `@@unique([demandId, propertyId])` צפה כ-500 "Internal server
+       * error". המתווך רואה תקלה במערכת ופונה לתמיכה על פעולה
+       * שהצליחה בפעם הראשונה.
+       */
+      const already = await tx.coopOffer.findFirst({
+        where: { demandId, propertyId },
+        select: { id: true },
+      });
+      if (already)
+        throw new BadRequestException("כבר הצעתם את הנכס הזה לביקוש הזה");
 
       /*
        * העלות נגזרת ממקור הביקוש ולא מהמסלול: הצעה למשרד תיווך אחר
@@ -985,18 +1137,30 @@ export class CollaborationService {
         title: property.marketingTitle ?? undefined,
       };
 
-      await tx.coopOffer.create({
-        data: {
-          id,
-          demandId,
-          fromTenantId: ctx.tenantId,
-          toTenantId: demand.tenantId,
-          propertyId,
-          presentation,
-          creditsCost: cost,
-          commissionSplit,
-        },
-      });
+      await tx.coopOffer
+        .create({
+          data: {
+            id,
+            demandId,
+            fromTenantId: ctx.tenantId,
+            toTenantId: demand.tenantId,
+            propertyId,
+            presentation,
+            creditsCost: cost,
+            commissionSplit,
+          },
+        })
+        .catch((error: unknown) => {
+          // שתי לחיצות במקביל עוברות שתיהן את הבדיקה שמעל — המפתח
+          // הייחודי הוא שעוצר, וגם הוא צריך להיראות כהודעה ולא כ-500
+          if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === "P2002"
+          ) {
+            throw new BadRequestException("כבר הצעתם את הנכס הזה לביקוש הזה");
+          }
+          throw error;
+        });
       // תנועה נרשמת רק כשיש חיוב: שורה בסכום אפס היא רעש ביומן
       // הקרדיטים, ומקשה על קריאה של מה באמת נגבה
       if (cost > 0) {
@@ -1046,7 +1210,24 @@ export class CollaborationService {
           },
         },
       });
+      return { presentation };
     });
+
+    /*
+     * המייל נשלח אחרי ה-Commit ולא בתוכו: שליחה איטית הייתה מחזיקה
+     * טרנזקציה פתוחה, וכשל שלה היה מגלגל לאחור הצעה תקפה.
+     */
+    try {
+      await this.emailDemandOwner({
+        demandTenantId: demand.tenantId,
+        demandBuyerId: demand.originBuyerId,
+        fromTenantId: ctx.tenantId,
+        presentation: sent.presentation,
+        commissionSplit,
+      });
+    } catch (error: unknown) {
+      this.logger.warn(`מייל על הצעת נכס (${id}) לא נשלח: ${String(error)}`);
+    }
 
     return {
       id,
@@ -1057,6 +1238,106 @@ export class CollaborationService {
       commissionSplit,
       createdAt: new Date(),
     };
+  }
+
+  /**
+   * מייל למשרד שפרסם את הביקוש, בנוסף להתראה שבמערכת.
+   *
+   * ההתראה במערכת מגיעה למי שכבר נמצא במסך. הצעה שממתינה שלושה ימים
+   * כי אף אחד לא נכנס לאזור הרשת היא שיתוף פעולה שלא קרה — והמייל
+   * הוא מה שמחזיר את המתווך לכאן.
+   *
+   * **מה נכנס להודעה:** בדיוק אותו צילום מדורג שהצד המקבל רשאי לראות
+   * בפיד (`presentation`), ושם המשרד המציע. לא הכתובת המדויקת, לא
+   * המוכר ולא פרטי קשר — מייל נשמר בתיבה של מישהו אחר, וכל מה
+   * שנכנס אליו יצא מהמערכת ומהבקרות שלה.
+   *
+   * הכל Best-effort: ההצעה כבר נרשמה ואושרה, ולכן כשל בשליחה נרשם
+   * ביומן ואינו מבטל אותה.
+   */
+  private async emailDemandOwner(input: {
+    demandTenantId: string;
+    demandBuyerId: string | null;
+    fromTenantId: string;
+    presentation: NetworkPresentationFields;
+    commissionSplit: number;
+  }): Promise<void> {
+    if (!(await this.email.isConfigured())) return;
+
+    /*
+     * הנמען הוא הסוכן שהכרטיס שלו, ולא "המשרד" בהפשטה: הוא זה
+     * שמכיר את הקונה ויכול להחליט אם ההצעה מתאימה. בעל המשרד הוא
+     * הגיבוי — כרטיס בלי סוכן אחראי עדיין צריך שמישהו יראה אותו.
+     *
+     * הקונה נקרא תחת הדייר המקבל: `buyers` נמצאת תחת FORCE RLS,
+     * ולכן קריאה ישירה כאן הייתה מחזירה אפס שורות בשקט.
+     */
+    const ownerUserId =
+      input.demandBuyerId === null
+        ? null
+        : await this.prisma.withExplicitTenant(
+            input.demandTenantId,
+            async (tx) => {
+              const buyer = await tx.buyer.findFirst({
+                where: {
+                  id: input.demandBuyerId as string,
+                  tenantId: input.demandTenantId,
+                },
+                select: { ownerUserId: true },
+              });
+              return buyer?.ownerUserId ?? null;
+            },
+          );
+
+    const [recipient, fallback, fromTenant] = await Promise.all([
+      ownerUserId === null
+        ? null
+        : this.prisma.user.findFirst({
+            where: { id: ownerUserId, isActive: true },
+            select: { name: true, email: true },
+          }),
+      this.prisma.user.findFirst({
+        where: {
+          tenantId: input.demandTenantId,
+          role: "owner",
+          isActive: true,
+        },
+        select: { name: true, email: true },
+        orderBy: { createdAt: "asc" },
+      }),
+      this.prisma.tenant.findUnique({
+        where: { id: input.fromTenantId },
+        select: { name: true },
+      }),
+    ]);
+
+    const to = recipient ?? fallback;
+    if (!to?.email) return;
+
+    /*
+     * תיאור הנכס נבנה מאותה פונקציה שבונה את הצ'יפים במסך — כדי
+     * שהמייל והפיד לא יתחילו לספר שני סיפורים על אותה הצעה.
+     */
+    const summary = presentationChips(input.presentation)
+      .map((chip) => chip.text)
+      .join(" · ");
+
+    await this.email.send(to.email, "הצעת נכס חדשה לביקוש שפרסמתם ברשת", {
+      heading: "מחכה לכם הצעת נכס",
+      greeting: `שלום ${to.name},`,
+      paragraphs: [
+        `${fromTenant?.name ?? "משרד תיווך אחר"} הציע נכס לאחד הביקושים שפרסמתם ברשת שיתופי הפעולה.`,
+        summary === "" ? "פרטי הנכס מחכים במסך." : `הנכס: ${summary}.`,
+        `חלוקת העמלה המוצעת: ${input.commissionSplit}% למשרד המציע, ${100 - input.commissionSplit}% לכם.`,
+        "אם זה מתאים לקונה — אישור החיבור במסך פותח את הקשר בין שני המשרדים.",
+      ],
+      button: {
+        label: "להצעה במסך",
+        url: `${loadEnv().WEB_ORIGIN}/collaboration?tab=incoming`,
+      },
+      footnote:
+        "ההודעה נשלחה כי פרסמתם ביקוש ברשת שיתופי הפעולה. אפשר לסגור את הפרסום במסך בכל רגע.",
+    });
   }
 
   /** הצעות שיתוף — נכנסות (על הביקושים שלי) ויוצאות (ששלחתי). */
@@ -2078,6 +2359,7 @@ export class CollaborationService {
     },
     viewerTenantId: string,
     prices: readonly LeadSourcePrice[],
+    officeName?: string,
   ): SharedDemandDto {
     const mine = row.tenantId === viewerTenantId;
     return {
@@ -2105,6 +2387,7 @@ export class CollaborationService {
       commissionSplit: row.commissionSplit,
       status: row.status,
       mine,
+      ...(officeName === undefined ? {} : { officeName }),
       // הקישור לקונה נחשף רק לסוכנות המקור — לעולם לא לרשת (docs/04 §7)
       originBuyerId: mine ? (row.originBuyerId ?? undefined) : undefined,
       createdAt: row.createdAt,

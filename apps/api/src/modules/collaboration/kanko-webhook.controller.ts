@@ -48,11 +48,13 @@ export class KankoWebhookController {
 
     const raw = (req as Request & { rawBody?: Buffer }).rawBody;
     const signature = req.headers["x-kanko-signature"];
-    if (!raw || typeof signature !== "string") throw new UnauthorizedException();
+    if (!raw || typeof signature !== "string")
+      throw new UnauthorizedException();
     const expected = createHmac("sha256", secret).update(raw).digest("hex");
     const a = Buffer.from(expected);
     const b = Buffer.from(signature);
-    if (a.length !== b.length || !timingSafeEqual(a, b)) throw new UnauthorizedException();
+    if (a.length !== b.length || !timingSafeEqual(a, b))
+      throw new UnauthorizedException();
 
     const parsed = KankoDemandSchema.safeParse(req.body);
     if (!parsed.success) return { ok: true }; // פורמט לא צפוי — נזרק בשקט ללוג

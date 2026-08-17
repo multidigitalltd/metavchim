@@ -20,6 +20,13 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { LoadError } from "../load-error";
 import {
+  EMPTY_FILTERS,
+  filtersToQuery,
+  hasActiveFilters,
+  ListFilters,
+  type ListFilterValues,
+} from "../list-filters";
+import {
   IconCheck,
   IconDiamond,
   IconDownload,
@@ -61,22 +68,55 @@ import { PayoutPanel } from "./payout-panel";
  * והפניות לקוחות (בקרדיטים) הם מנגנונים שונים לגמרי, וההצגה שלהם
  * יחד היא מה שגרם למתווכים לחשוב ששת"פ עולה כסף.
  *
- * ## למה "נכסים ברשת" היא לשונית ולא סינון
+ * ## למה הרשת היא אזור אחד עם שתי תת-לשוניות
  *
  * הרשת הייתה חד-כיוונית: רק ביקושים התפרסמו. משרד יכול היה לומר
  * "יש לי קונה, למי יש נכס" ולא את ההפך, ולכן משרד עם נכס תקוע
- * ומשרד עם קונה מתאים לא נפגשו אלא במקרה. שתי הלשוניות עומדות זו
- * לצד זו כי אלו שתי שאלות שונות: **מה אני מחפש** מול **מה יש לי**.
+ * ומשרד עם קונה מתאים לא נפגשו אלא במקרה.
+ *
+ * שני הכיוונים הם שתי שאלות שונות — **מה אני מחפש** מול **מה יש
+ * לי** — ולכן הם נשארו שתי רשימות נפרדות. אבל כשהם היו שתי לשוניות
+ * אחיות בשורה אחת עם "הצעות שקיבלתי" ו"הפניות לקוחות", אי אפשר היה
+ * לראות מהמסך שהן שני חצאים של אותה רשת: "ביקושים ברשת" גם לא נקרא
+ * כ"קונים". עכשיו יש אזור רשת אחד, ובתוכו הבחירה בין קונים לנכסים.
  */
-const COOP_TABS: [
-  key: string,
+type CoopTabKey = string;
+
+/** תת-הלשוניות של אזור הרשת — שני הכיוונים של אותה רשת. */
+const NETWORK_SUBTABS: [
+  key: CoopTabKey,
   label: string,
   Icon: (p: { s?: number }) => React.ReactElement,
 ][] = [
-  ["demands", "ביקושים ברשת", IconSearch],
+  ["demands", "קונים ברשת", IconUser],
   ["listings", "נכסים ברשת", IconTag],
+];
+
+const COOP_TABS: [
+  key: CoopTabKey,
+  label: string,
+  Icon: (p: { s?: number }) => React.ReactElement,
+][] = [
+  ["network", "הרשת", IconGlobe],
   ["incoming", "הצעות שקיבלתי", IconMail],
   ["market", "הפניות לקוחות", IconHandshake],
+];
+
+/**
+ * הלשונית הפעילה שייכת לאזור הרשת.
+ *
+ * ה-state ממשיך להחזיק "demands"/"listings" ולא "network": הקישורים
+ * מההתראות ומהמסכים האחרים מפנים לתת-לשונית מסוימת, וסטייט שמאבד
+ * אותה היה שולח כל התראה על נכס לרשימת הקונים.
+ */
+function isNetworkTab(tab: CoopTabKey): boolean {
+  return tab === "demands" || tab === "listings";
+}
+
+/** מפתחות תקפים בכתובת — כולל שתי תת-הלשוניות. */
+const COOP_TAB_KEYS: readonly CoopTabKey[] = [
+  ...NETWORK_SUBTABS.map(([key]) => key),
+  ...COOP_TABS.map(([key]) => key).filter((key) => key !== "network"),
 ];
 
 /**
@@ -92,7 +132,7 @@ function TabFromQuery({ onTab }: { onTab: (tab: string) => void }) {
   const params = useSearchParams();
   const requested = params.get("tab");
   useEffect(() => {
-    if (requested !== null && COOP_TABS.some(([key]) => key === requested))
+    if (requested !== null && COOP_TAB_KEYS.includes(requested))
       onTab(requested);
   }, [requested, onTab]);
   return null;
@@ -117,6 +157,8 @@ interface DemandMatch {
   title: string;
   score: number;
   explanation: string;
+  /** הנכס כבר הוצע לביקוש הזה — מסומן במקום כפתור */
+  offered?: boolean;
 }
 
 interface DemandRow {
@@ -144,6 +186,8 @@ interface DemandRow {
   /** אחוז העמלה שהמשרד המשתף מבקש; לצד השני נשאר המשלים. */
   commissionSplit: number;
   mine: boolean;
+  /** המשרד שפרסם. חסר לביקוש ממקור חיצוני, שאינו משרד תיווך. */
+  officeName?: string;
   myMatches?: DemandMatch[];
 }
 
@@ -173,6 +217,8 @@ interface ListingRow {
   commissionSplit: number;
   status: string;
   mine: boolean;
+  /** המשרד שפרסם את הנכס לרשת. */
+  officeName?: string;
   originPropertyId?: string;
   /** הקונים שלי שמתאימים לנכס — אותו מנוע ואותו סף כמו בכיוון השני. */
   myMatches?: {
@@ -314,6 +360,7 @@ export default function CollaborationPage() {
    * וההצעה נראתה כאילו איננה. הכתובת קובעת.
    */
   const [coopTab, setCoopTab] = useState<string>("demands");
+  const [netFilters, setNetFilters] = useState<ListFilterValues>(EMPTY_FILTERS);
   const [demands, setDemands] = useState<DemandRow[] | null>(null);
   const [sharedLeads, setSharedLeads] = useState<SharedLeadRow[]>([]);
   const [buyingLead, setBuyingLead] = useState<string | null>(null);
@@ -364,6 +411,19 @@ export default function CollaborationPage() {
     setBoughtLeadId(leadId);
   }
 
+  /*
+   * הסינון נוסע לשרת ולא מסונן במסך.
+   *
+   * הפיד חתוך ל-100 מודעות, ולכן סינון מקומי היה מחפש רק בתוך החלון
+   * הזה — ומכריז "אין תוצאות" על מודעה שקיימת ברשת אך יושבת מחוצה
+   * לו. תשובה שגויה כזו גרועה מאין סינון בכלל, כי המתווך מפסיק
+   * לחפש (ביקורת Codex).
+   *
+   * `filtersToQuery` מחזיר מחרוזת שמתחילה ב-"&" כדי להיצמד לפרמטר
+   * קיים; לנתיבים האלה אין פרמטר אחר, ולכן ה-"&" הופך ל-"?".
+   */
+  const netQuery = filtersToQuery(netFilters).replace(/^&/u, "?");
+
   const load = useCallback(() => {
     setLoadFailed(false);
     setOffersFailed(false);
@@ -374,13 +434,13 @@ export default function CollaborationPage() {
      * קודם הוא הפך ל-[] והמסך הציג את מצב הריק — כלומר תקלת רשת
      * נראתה כמו מסקנה עסקית ("אין מה לעשות כאן"), והמתווך היה עוזב.
      */
-    apiGet<DemandRow[]>("/collaboration/demands")
+    apiGet<DemandRow[]>(`/collaboration/demands${netQuery}`)
       .then(setDemands)
       .catch(() => setLoadFailed(true));
     apiGet<CoopOfferRow[]>("/collaboration/offers")
       .then(setCoopOffers)
       .catch(() => setOffersFailed(true));
-    apiGet<ListingRow[]>("/collaboration/listings")
+    apiGet<ListingRow[]>(`/collaboration/listings${netQuery}`)
       .then(setListings)
       .catch(() => setListingsFailed(true));
     /*
@@ -415,7 +475,8 @@ export default function CollaborationPage() {
     apiGet<{ items: BuyerOption[] }>("/buyers?limit=50")
       .then((r) => setBuyers(r.items))
       .catch(() => undefined);
-  }, []);
+    // שינוי הסינון טוען מחדש — הפיד מסונן בשרת ולא במסך
+  }, [netQuery]);
 
   useEffect(() => {
     if (!authLoading) load();
@@ -588,31 +649,50 @@ export default function CollaborationPage() {
       </Suspense>
 
       <div className="mv-seg mb-[18px]" role="tablist" aria-label="אזורי הרשת">
-        {COOP_TABS.map(([key, label, Icon]) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            id={`coop-tab-${key}`}
-            aria-selected={coopTab === key}
-            aria-controls={`coop-panel-${key}`}
-            aria-pressed={coopTab === key}
-            onClick={() => setCoopTab(key)}
-          >
-            <Icon s={15} /> {label}
-            {/* המונה סופר את שני הכיוונים — הצעות על הביקושים שלי
+        {COOP_TABS.map(([key, label, Icon]) => {
+          /*
+           * כפתור "הרשת" פעיל בשתי תת-הלשוניות, ולחיצה עליו כשהוא
+           * כבר פעיל אינה מאפסת את הבחירה — מי שנמצא ברשימת הנכסים
+           * ולוחץ על "הרשת" לא ביקש לחזור לקונים.
+           */
+          const active =
+            key === "network" ? isNetworkTab(coopTab) : coopTab === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              id={`coop-tab-${key}`}
+              aria-selected={active}
+              aria-controls={
+                key === "network" ? "coop-panel-network" : `coop-panel-${key}`
+              }
+              aria-pressed={active}
+              onClick={() =>
+                setCoopTab(
+                  key === "network"
+                    ? isNetworkTab(coopTab)
+                      ? coopTab
+                      : "demands"
+                    : key,
+                )
+              }
+            >
+              <Icon s={15} /> {label}
+              {/* המונה סופר את שני הכיוונים — הצעות על הביקושים שלי
                 ופניות על הנכסים שלי יושבות באותה לשונית */}
-            {key === "incoming" &&
-            incoming.length + openInterests.length > 0 ? (
-              <span
-                className="mv-chip ms-1.5"
-                style={{ padding: "1px 7px", fontSize: 11.5 }}
-              >
-                {incoming.length + openInterests.length}
-              </span>
-            ) : null}
-          </button>
-        ))}
+              {key === "incoming" &&
+              incoming.length + openInterests.length > 0 ? (
+                <span
+                  className="mv-chip ms-1.5"
+                  style={{ padding: "1px 7px", fontSize: 11.5 }}
+                >
+                  {incoming.length + openInterests.length}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
       </div>
 
       {message ? (
@@ -1136,274 +1216,381 @@ export default function CollaborationPage() {
         </section>
       ) : null}
 
-      {coopTab === "demands" ? (
-        <section
-          id="coop-panel-demands"
+      {/*
+        אזור הרשת — מסגרת אחת לשני הכיוונים.
+
+        תת-הלשוניות והסינון יושבים כאן, מעל שתי הרשימות, כדי שהם
+        יהיו אותו סרגל בשני הכיוונים ולא שני סרגלים שמתחילים להיפרד
+        בשינוי הראשון.
+      */}
+      {isNetworkTab(coopTab) ? (
+        <div
+          id="coop-panel-network"
           role="tabpanel"
-          aria-labelledby="coop-tab-demands"
+          aria-labelledby="coop-tab-network"
         >
-          <h2 id="demands-heading" className="mb-1 text-lg font-semibold">
-            <IconSearch s={17} /> ביקושים ברשת
-          </h2>
+          <div
+            className="mv-seg mb-3.5"
+            role="tablist"
+            aria-label="כיווני הרשת"
+          >
+            {NETWORK_SUBTABS.map(([key, label, Icon]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                id={`coop-tab-${key}`}
+                aria-selected={coopTab === key}
+                aria-controls={`coop-panel-${key}`}
+                aria-pressed={coopTab === key}
+                onClick={() => setCoopTab(key)}
+              >
+                <Icon s={15} /> {label}
+              </button>
+            ))}
+          </div>
+
           {/*
+            אותו סרגל סינון של מסכי הרשימה, ובכוונה אותו רכיב: מתווך
+            שלמד לסנן נכסים לא צריך ללמוד מסנן שני. הניסוח מתחלף לפי
+            הכיוון — לקונה יש **תקציב** ולנכס יש **מחיר**.
+          */}
+          <ListFilters
+            values={netFilters}
+            onApply={setNetFilters}
+            searchLabel={
+              coopTab === "demands" ? "חיפוש בקונים ברשת" : "חיפוש בנכסים ברשת"
+            }
+            searchHint={
+              coopTab === "demands"
+                ? "עיר, שכונה, משרד מפרסם…"
+                : "עיר, שכונה, כותרת, משרד מפרסם…"
+            }
+            priceLabel={coopTab === "demands" ? "תקציב" : "מחיר"}
+          />
+
+          {coopTab === "demands" ? (
+            <section
+              id="coop-panel-demands"
+              role="tabpanel"
+              aria-labelledby="coop-tab-demands"
+            >
+              <h2 id="demands-heading" className="mb-1 text-lg font-semibold">
+                <IconUser s={17} /> קונים ברשת
+              </h2>
+              {/*
           שורה אחת במקום פסקה. הכלל המלא (ומה שקורה עם מקור חיצוני)
           חי בפאנל העמלות ובכרטיס הפתיחה — כאן צריך רק את מה שמשנה
           את ההחלטה בשנייה הראשונה.
         */}
-          <p
-            className="mb-3.5 text-[14.5px]"
-            style={{ color: "var(--color-text-soft)" }}
-          >
-            קונים של משרדים אחרים — <b>בלי שם ובלי טלפון</b>. יש לכם נכס מתאים?
-            ההצעה חינם, והעמלה מתחלקת רק אם העסקה תיסגר.
-          </p>
-
-          <CommissionPanel />
-
-          {loadFailed ? (
-            <LoadError
-              message="לא הצלחנו לטעון את הביקושים ברשת"
-              onRetry={load}
-            />
-          ) : demands === null ? (
-            <p aria-live="polite">טוען…</p>
-          ) : demands.length === 0 ? (
-            <div className="mv-net-empty">
-              <span className="mv-net-empty-icon">
-                <IconSearch s={30} />
-              </span>
-              <p className="m-0 font-semibold">אין כרגע ביקושים פעילים ברשת</p>
               <p
-                className="m-0 mt-1 text-sm"
-                style={{ color: "var(--color-text-muted)" }}
+                className="mb-3.5 text-[14.5px]"
+                style={{ color: "var(--color-text-soft)" }}
               >
-                שתפו קונה מכרטיס הקונה — וסוכנויות אחרות יוכלו להציע לו נכסים.
+                קונים של משרדים אחרים — <b>בלי שם ובלי טלפון</b>. יש לכם נכס
+                מתאים? ההצעה חינם, והעמלה מתחלקת רק אם העסקה תיסגר.
               </p>
-            </div>
-          ) : (
-            <ul className="flex list-none flex-col gap-3.5 p-0">
-              {demands.map((demand) => (
-                <li
-                  key={demand.id}
-                  className={`mv-net-card${demand.mine ? " mv-net-card--mine" : ""}`}
-                >
-                  <div className="mv-net-head">
-                    <span className="mv-net-avatar">
-                      <IconUser s={20} />
-                    </span>
-                    {/*
+
+              <CommissionPanel />
+
+              {loadFailed ? (
+                <LoadError
+                  message="לא הצלחנו לטעון את הביקושים ברשת"
+                  onRetry={load}
+                />
+              ) : demands === null ? (
+                <p aria-live="polite">טוען…</p>
+              ) : demands.length === 0 && hasActiveFilters(netFilters) ? (
+                /*
+                  רשימה ריקה בגלל הסינון היא הודעה אחרת מ"אין ביקושים
+                  ברשת" — והיא מדויקת, כי השרת חיפש בכל הרשת ולא רק
+                  ב-100 האחרונים.
+                */
+                <div className="mv-net-empty">
+                  <span className="mv-net-empty-icon">
+                    <IconSearch s={30} />
+                  </span>
+                  <p className="m-0 font-semibold">אין תוצאות לסינון הזה</p>
+                  <p
+                    className="m-0 mt-1 text-sm"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    אף ביקוש ברשת לא עונה על הסינון הנוכחי.
+                  </p>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setNetFilters(EMPTY_FILTERS)}
+                  >
+                    נקה סינון
+                  </Button>
+                </div>
+              ) : demands.length === 0 ? (
+                <div className="mv-net-empty">
+                  <span className="mv-net-empty-icon">
+                    <IconSearch s={30} />
+                  </span>
+                  <p className="m-0 font-semibold">
+                    אין כרגע ביקושים פעילים ברשת
+                  </p>
+                  <p
+                    className="m-0 mt-1 text-sm"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    שתפו קונה מכרטיס הקונה — וסוכנויות אחרות יוכלו להציע לו
+                    נכסים.
+                  </p>
+                </div>
+              ) : (
+                <ul className="flex list-none flex-col gap-3.5 p-0">
+                  {demands.map((demand) => (
+                    <li
+                      key={demand.id}
+                      className={`mv-net-card${demand.mine ? " mv-net-card--mine" : ""}`}
+                    >
+                      <div className="mv-net-head">
+                        <span className="mv-net-avatar">
+                          <IconUser s={20} />
+                        </span>
+                        {/*
                     הכותרת אומרת מה מחפשים ואיפה — כל השאר עבר
                     לתגיות. קודם היא נשאה גם חדרים, גם ערים וגם תקציב
                     בתוך משפט אחד, ובמובייל היא נשברה לשלוש שורות.
                   */}
-                    <h3 className="mv-net-title">
-                      קונה מחפש {roomsLabel(demand.roomsMin, demand.roomsMax)} ב
-                      {demand.cities.join(" / ")}
-                    </h3>
-                    {demand.mine ? (
-                      <span className="mv-net-chip">
-                        <IconStar s={14} /> הביקוש שלך
-                      </span>
-                    ) : (
-                      <>
-                        {/*
+                        <h3 className="mv-net-title">
+                          קונה מחפש{" "}
+                          {roomsLabel(demand.roomsMin, demand.roomsMax)} ב
+                          {demand.cities.join(" / ")}
+                        </h3>
+                        {demand.mine ? (
+                          <span className="mv-net-chip">
+                            <IconStar s={14} /> הביקוש שלך
+                          </span>
+                        ) : (
+                          <>
+                            {/*
                         העלות ליד כל ביקוש ולא רק בכותרת: הכותרת
                         מסבירה את הכלל, והתווית הזו אומרת מה קורה
                         בלחיצה הזו.
                       */}
-                        <span
-                          className={`mv-net-chip ${demand.creditsCost > 0 ? "mv-net-chip--money" : "mv-net-chip--good"}`}
-                        >
-                          <span aria-hidden="true">
-                            {demand.creditsCost > 0 ? (
-                              <IconCoins s={14} />
-                            ) : (
-                              <IconGift s={14} />
-                            )}
-                          </span>{" "}
-                          {demand.creditsCost > 0
-                            ? `${demand.creditsCost} קרדיטים`
-                            : "חינם"}
-                        </span>
-                        <span
-                          className="mv-net-chip"
-                          title="חלוקת העמלה שהמשרד המשתף ביקש"
-                        >
-                          <IconHandshake s={14} />{" "}
-                          {describeCommissionSplit(demand.commissionSplit)}
-                        </span>
-                      </>
-                    )}
-                    {demand.source === "kanko" ? (
-                      <span
-                        className="mv-net-chip"
-                        title="ביקוש שהגיע ממקור חיצוני בתשלום"
-                      >
-                        <IconGlobe s={14} /> Kanko
-                      </span>
-                    ) : null}
-                  </div>
+                            <span
+                              className={`mv-net-chip ${demand.creditsCost > 0 ? "mv-net-chip--money" : "mv-net-chip--good"}`}
+                            >
+                              <span aria-hidden="true">
+                                {demand.creditsCost > 0 ? (
+                                  <IconCoins s={14} />
+                                ) : (
+                                  <IconGift s={14} />
+                                )}
+                              </span>{" "}
+                              {demand.creditsCost > 0
+                                ? `${demand.creditsCost} קרדיטים`
+                                : "חינם"}
+                            </span>
+                            <span
+                              className="mv-net-chip"
+                              title="חלוקת העמלה שהמשרד המשתף ביקש"
+                            >
+                              <IconHandshake s={14} />{" "}
+                              {describeCommissionSplit(demand.commissionSplit)}
+                            </span>
+                          </>
+                        )}
+                        {demand.officeName ? (
+                          /*
+                           * מי פרסם. שם המשרד ולא שם הלקוח: מי שעומד
+                           * להציע רוצה לדעת עם מי ישתף פעולה, ופרטי
+                           * הלקוח נשארים חסויים עד אישור החיבור.
+                           */
+                          <span
+                            className="mv-net-chip"
+                            title="המשרד שפרסם את המודעה"
+                          >
+                            <IconUsers s={14} /> {demand.officeName}
+                          </span>
+                        ) : null}
+                        {demand.source === "kanko" ? (
+                          <span
+                            className="mv-net-chip"
+                            title="ביקוש שהגיע ממקור חיצוני בתשלום"
+                          >
+                            <IconGlobe s={14} /> Kanko
+                          </span>
+                        ) : null}
+                      </div>
 
-                  {/*
+                      {/*
                   כל מה שידוע על הביקוש, למעט מה שמזהה אדם. הרשימה
                   נבנית ב-`packages/shared/logic/network-card.ts` —
                   מקום אחד שאפשר לבדוק, ולא JSX שמתפצל בין מסכים.
                 */}
-                  <NetChips chips={demandChips(demand)} />
+                      <NetChips chips={demandChips(demand)} />
 
-                  {demand.notes ? (
-                    <p className="mv-net-quote">„{demand.notes}”</p>
-                  ) : null}
+                      {demand.notes ? (
+                        <p className="mv-net-quote">„{demand.notes}”</p>
+                      ) : null}
 
-                  {!demand.mine ? (
-                    <>
-                      {/* המערכת מחשבת אילו מהנכסים שלי מתאימים — במקום
+                      {!demand.mine ? (
+                        <>
+                          {/* המערכת מחשבת אילו מהנכסים שלי מתאימים — במקום
                         לבחור מרשימה של עשרות ולבזבז קרדיט על ניחוש */}
-                      {demand.myMatches && demand.myMatches.length > 0 ? (
-                        <div className="mb-3">
-                          <p
-                            className="m-0 mb-2 text-[14.5px] font-bold"
-                            style={{ color: "var(--color-primary)" }}
-                          >
-                            <IconTarget s={16} /> {demand.myMatches.length}{" "}
-                            מהנכסים שלכם מתאימים
-                          </p>
-                          <ul className="flex list-none flex-col gap-2 p-0">
-                            {demand.myMatches.map((match) => (
-                              <li
-                                key={match.propertyId}
-                                className="mv-net-match"
+                          {demand.myMatches && demand.myMatches.length > 0 ? (
+                            <div className="mb-3">
+                              <p
+                                className="m-0 mb-2 text-[14.5px] font-bold"
+                                style={{ color: "var(--color-primary)" }}
                               >
-                                <span
-                                  className="mv-net-score"
-                                  aria-hidden="true"
-                                >
-                                  {match.score}%
-                                </span>
-                                <span className="flex-1 min-w-[160px]">
-                                  <b className="block">{match.title}</b>
-                                  <span
-                                    className="text-[13px]"
-                                    style={{ color: "var(--color-text-soft)" }}
+                                <IconTarget s={16} /> {demand.myMatches.length}{" "}
+                                מהנכסים שלכם מתאימים
+                              </p>
+                              <ul className="flex list-none flex-col gap-2 p-0">
+                                {demand.myMatches.map((match) => (
+                                  <li
+                                    key={match.propertyId}
+                                    className="mv-net-match"
                                   >
-                                    {match.explanation}
-                                  </span>
-                                </span>
-                                <Button
-                                  variant="secondary"
-                                  onClick={() =>
-                                    void sendOfferFor(
-                                      demand.id,
-                                      match.propertyId,
-                                    )
-                                  }
-                                >
-                                  {demand.creditsCost > 0
-                                    ? `הצע נכס זה (${demand.creditsCost} קרדיטים)`
-                                    : "הצע נכס זה"}
-                                </Button>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : (
-                        <p
-                          className="mb-3 text-sm"
-                          style={{ color: "var(--color-text-muted)" }}
-                        >
-                          אין לכם כרגע נכס פעיל שמתאים לביקוש הזה.
-                        </p>
-                      )}
+                                    <span
+                                      className="mv-net-score"
+                                      aria-hidden="true"
+                                    >
+                                      {match.score}%
+                                    </span>
+                                    <span className="flex-1 min-w-[160px]">
+                                      <b className="block">{match.title}</b>
+                                      <span
+                                        className="text-[13px]"
+                                        style={{
+                                          color: "var(--color-text-soft)",
+                                        }}
+                                      >
+                                        {match.explanation}
+                                      </span>
+                                    </span>
+                                    {/* נכס שכבר הוצע — סימון ולא כפתור. הצעה
+                                    שנייה של אותו נכס לאותו ביקוש נדחית
+                                    בשרת, ואין טעם להזמין אליה לחיצה */}
+                                    {match.offered ? (
+                                      <span className="mv-chip">כבר הוצע</span>
+                                    ) : (
+                                      <Button
+                                        variant="secondary"
+                                        onClick={() =>
+                                          void sendOfferFor(
+                                            demand.id,
+                                            match.propertyId,
+                                          )
+                                        }
+                                      >
+                                        {demand.creditsCost > 0
+                                          ? `הצע נכס זה (${demand.creditsCost} קרדיטים)`
+                                          : "הצע נכס זה"}
+                                      </Button>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : (
+                            <p
+                              className="mb-3 text-sm"
+                              style={{ color: "var(--color-text-muted)" }}
+                            >
+                              אין לכם כרגע נכס פעיל שמתאים לביקוש הזה.
+                            </p>
+                          )}
 
-                      <details className="mv-net-foot">
-                        <summary
-                          className="cursor-pointer text-sm font-medium"
-                          style={{ color: "var(--color-primary)" }}
-                        >
-                          {/* עטיפת inline-flex ולא אייקון חשוף — summary
+                          <details className="mv-net-foot">
+                            <summary
+                              className="cursor-pointer text-sm font-medium"
+                              style={{ color: "var(--color-primary)" }}
+                            >
+                              {/* עטיפת inline-flex ולא אייקון חשוף — summary
                               זקוק ל-list-item בשביל משולש הפתיחה, ולכן
                               הפנימיות הן שהופכות לשורה אחת */}
-                          <span className="inline-flex items-center gap-1.5 align-middle">
-                            <IconPlus s={14} /> להציע נכס אחר / לשנות חלוקת עמלה
-                          </span>
-                        </summary>
-                        <div className="mt-3 flex flex-wrap items-center gap-2">
-                          {/*
+                              <span className="inline-flex items-center gap-1.5 align-middle">
+                                <IconPlus s={14} /> להציע נכס אחר / לשנות חלוקת
+                                עמלה
+                              </span>
+                            </summary>
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                              {/*
                           החלוקה נבחרת לפני השליחה. ברירת המחדל היא מה
                           שהמשרד המשתף ביקש — הצעה שמשנה אותה בשקט
                           הייתה הפתעה לצד השני.
                         */}
-                          <label
-                            className="flex items-center gap-2 text-sm"
-                            htmlFor={`split_${demand.id}`}
-                          >
-                            חלוקת עמלה
-                          </label>
-                          <select
-                            id={`split_${demand.id}`}
-                            value={
-                              offerSplit[demand.id] ?? demand.commissionSplit
-                            }
-                            onChange={(e) =>
-                              setOfferSplit((prev) => ({
-                                ...prev,
-                                [demand.id]: Number(e.target.value),
-                              }))
-                            }
-                            className="mv-control"
-                          >
-                            {COMMISSION_SPLIT_OPTIONS.map((share) => (
-                              <option key={share} value={share}>
-                                {describeCommissionSplit(share)}
-                              </option>
-                            ))}
-                          </select>
-                          <label
-                            htmlFor={`prop_${demand.id}`}
-                            className="mv-visually-hidden"
-                          >
-                            בחר נכס להצעה
-                          </label>
-                          <select
-                            id={`prop_${demand.id}`}
-                            value={selectedProperty[demand.id] ?? ""}
-                            onChange={(event) =>
-                              setSelectedProperty((prev) => ({
-                                ...prev,
-                                [demand.id]: event.target.value,
-                              }))
-                            }
-                            className="mv-control"
-                          >
-                            <option value="">בחר נכס להצעה…</option>
-                            {properties.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.marketingTitle ??
-                                  [p.street, p.city].filter(Boolean).join(", ")}
-                              </option>
-                            ))}
-                          </select>
-                          <Button
-                            variant="secondary"
-                            disabled={!selectedProperty[demand.id]}
-                            onClick={() => void sendOffer(demand.id)}
-                          >
-                            {demand.creditsCost > 0
-                              ? `הצע נכס (${demand.creditsCost} קרדיטים)`
-                              : "הצע נכס"}
-                          </Button>
-                        </div>
-                      </details>
-                    </>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      ) : null}
+                              <label
+                                className="flex items-center gap-2 text-sm"
+                                htmlFor={`split_${demand.id}`}
+                              >
+                                חלוקת עמלה
+                              </label>
+                              <select
+                                id={`split_${demand.id}`}
+                                value={
+                                  offerSplit[demand.id] ??
+                                  demand.commissionSplit
+                                }
+                                onChange={(e) =>
+                                  setOfferSplit((prev) => ({
+                                    ...prev,
+                                    [demand.id]: Number(e.target.value),
+                                  }))
+                                }
+                                className="mv-control"
+                              >
+                                {COMMISSION_SPLIT_OPTIONS.map((share) => (
+                                  <option key={share} value={share}>
+                                    {describeCommissionSplit(share)}
+                                  </option>
+                                ))}
+                              </select>
+                              <label
+                                htmlFor={`prop_${demand.id}`}
+                                className="mv-visually-hidden"
+                              >
+                                בחר נכס להצעה
+                              </label>
+                              <select
+                                id={`prop_${demand.id}`}
+                                value={selectedProperty[demand.id] ?? ""}
+                                onChange={(event) =>
+                                  setSelectedProperty((prev) => ({
+                                    ...prev,
+                                    [demand.id]: event.target.value,
+                                  }))
+                                }
+                                className="mv-control"
+                              >
+                                <option value="">בחר נכס להצעה…</option>
+                                {properties.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.marketingTitle ??
+                                      [p.street, p.city]
+                                        .filter(Boolean)
+                                        .join(", ")}
+                                  </option>
+                                ))}
+                              </select>
+                              <Button
+                                variant="secondary"
+                                disabled={!selectedProperty[demand.id]}
+                                onClick={() => void sendOffer(demand.id)}
+                              >
+                                {demand.creditsCost > 0
+                                  ? `הצע נכס (${demand.creditsCost} קרדיטים)`
+                                  : "הצע נכס"}
+                              </Button>
+                            </div>
+                          </details>
+                        </>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ) : null}
 
-      {/*
+          {/*
         הכיוון השני של הרשת.
 
         עד עכשיו משרד יכול היה לומר "יש לי קונה, למי יש נכס" ולא את
@@ -1412,249 +1599,290 @@ export default function CollaborationPage() {
         נכסים, ההתאמות מהקונים **שלי** מחושבות מראש, ובלחיצה אחת
         נשלחת פנייה בלי לחשוף מי הקונה.
       */}
-      {coopTab === "listings" ? (
-        <section
-          id="coop-panel-listings"
-          role="tabpanel"
-          aria-labelledby="coop-tab-listings"
-        >
-          <h2 id="listings-heading" className="mb-1 text-lg font-semibold">
-            <IconTag s={17} /> נכסים ברשת
-          </h2>
-          <p
-            className="mb-3.5 text-[14.5px]"
-            style={{ color: "var(--color-text-soft)" }}
-          >
-            נכסים של משרדים אחרים — <b>בלי כתובת מדויקת ובלי בעלים</b>. יש לכם
-            קונה מתאים? הפנייה חינם, והעמלה מתחלקת רק אם העסקה תיסגר.
-          </p>
-
-          <CommissionPanel />
-
-          {listingsFailed ? (
-            <LoadError
-              message="לא הצלחנו לטעון את הנכסים ברשת"
-              onRetry={load}
-            />
-          ) : listings === null ? (
-            <p aria-live="polite">טוען…</p>
-          ) : listings.length === 0 ? (
-            <div className="mv-net-empty">
-              <span className="mv-net-empty-icon">
-                <IconTag s={30} />
-              </span>
-              <p className="m-0 font-semibold">אין כרגע נכסים מפורסמים ברשת</p>
+          {coopTab === "listings" ? (
+            <section
+              id="coop-panel-listings"
+              role="tabpanel"
+              aria-labelledby="coop-tab-listings"
+            >
+              <h2 id="listings-heading" className="mb-1 text-lg font-semibold">
+                <IconTag s={17} /> נכסים ברשת
+              </h2>
               <p
-                className="m-0 mt-1 text-sm"
-                style={{ color: "var(--color-text-muted)" }}
+                className="mb-3.5 text-[14.5px]"
+                style={{ color: "var(--color-text-soft)" }}
               >
-                פרסמו נכס מכרטיס הנכס — ומשרדים עם קונה מתאים יפנו אליכם.
+                נכסים של משרדים אחרים — <b>בלי כתובת מדויקת ובלי בעלים</b>. יש
+                לכם קונה מתאים? הפנייה חינם, והעמלה מתחלקת רק אם העסקה תיסגר.
               </p>
-            </div>
-          ) : (
-            <ul className="flex list-none flex-col gap-3.5 p-0">
-              {listings.map((listing) => (
-                <li
-                  key={listing.id}
-                  className={`mv-net-card${listing.mine ? " mv-net-card--mine" : ""}`}
-                >
-                  <div className="mv-net-head">
-                    <span className="mv-net-avatar">
-                      <IconHome s={20} />
-                    </span>
-                    <h3 className="mv-net-title">
-                      {listing.title ??
-                        `נכס ב${listing.city ?? "רשת"}${
-                          listing.neighborhood
-                            ? ` · ${listing.neighborhood}`
-                            : ""
-                        }`}
-                    </h3>
-                    {listing.mine ? (
-                      <>
-                        <span className="mv-net-chip">
-                          <IconStar s={14} /> הנכס שלך
-                        </span>
-                        {/* הקישור לנכס נחשף רק לסוכנות המקור */}
-                        {listing.originPropertyId !== undefined ? (
-                          <Link
-                            href={`/properties/${listing.originPropertyId}`}
-                            className="mv-net-chip mv-net-chip--primary"
-                            style={{ textDecoration: "none" }}
-                          >
-                            <IconHome s={14} /> פתח את הכרטיס
-                          </Link>
-                        ) : null}
-                      </>
-                    ) : (
-                      <>
-                        {/* פנייה על נכס אינה עולה קרדיטים — בשום מסלול */}
-                        <span className="mv-net-chip mv-net-chip--good">
-                          <IconGift s={14} /> חינם
-                        </span>
-                        <span
-                          className="mv-net-chip"
-                          title="חלוקת העמלה שהמשרד המפרסם ביקש"
-                        >
-                          <IconHandshake s={14} />{" "}
-                          {describeCommissionSplit(listing.commissionSplit)}
-                        </span>
-                      </>
-                    )}
-                  </div>
 
-                  {/*
+              <CommissionPanel />
+
+              {listingsFailed ? (
+                <LoadError
+                  message="לא הצלחנו לטעון את הנכסים ברשת"
+                  onRetry={load}
+                />
+              ) : listings === null ? (
+                <p aria-live="polite">טוען…</p>
+              ) : listings.length === 0 && hasActiveFilters(netFilters) ? (
+                <div className="mv-net-empty">
+                  <span className="mv-net-empty-icon">
+                    <IconSearch s={30} />
+                  </span>
+                  <p className="m-0 font-semibold">אין תוצאות לסינון הזה</p>
+                  <p
+                    className="m-0 mt-1 text-sm"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    אף נכס ברשת לא עונה על הסינון הנוכחי.
+                  </p>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setNetFilters(EMPTY_FILTERS)}
+                  >
+                    נקה סינון
+                  </Button>
+                </div>
+              ) : listings.length === 0 ? (
+                <div className="mv-net-empty">
+                  <span className="mv-net-empty-icon">
+                    <IconTag s={30} />
+                  </span>
+                  <p className="m-0 font-semibold">
+                    אין כרגע נכסים מפורסמים ברשת
+                  </p>
+                  <p
+                    className="m-0 mt-1 text-sm"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    פרסמו נכס מכרטיס הנכס — ומשרדים עם קונה מתאים יפנו אליכם.
+                  </p>
+                </div>
+              ) : (
+                <ul className="flex list-none flex-col gap-3.5 p-0">
+                  {listings.map((listing) => (
+                    <li
+                      key={listing.id}
+                      className={`mv-net-card${listing.mine ? " mv-net-card--mine" : ""}`}
+                    >
+                      <div className="mv-net-head">
+                        <span className="mv-net-avatar">
+                          <IconHome s={20} />
+                        </span>
+                        <h3 className="mv-net-title">
+                          {listing.title ??
+                            `נכס ב${listing.city ?? "רשת"}${
+                              listing.neighborhood
+                                ? ` · ${listing.neighborhood}`
+                                : ""
+                            }`}
+                        </h3>
+                        {listing.mine ? (
+                          <>
+                            <span className="mv-net-chip">
+                              <IconStar s={14} /> הנכס שלך
+                            </span>
+                            {/* הקישור לנכס נחשף רק לסוכנות המקור */}
+                            {listing.originPropertyId !== undefined ? (
+                              <Link
+                                href={`/properties/${listing.originPropertyId}`}
+                                className="mv-net-chip mv-net-chip--primary"
+                                style={{ textDecoration: "none" }}
+                              >
+                                <IconHome s={14} /> פתח את הכרטיס
+                              </Link>
+                            ) : null}
+                          </>
+                        ) : (
+                          <>
+                            {/* פנייה על נכס אינה עולה קרדיטים — בשום מסלול */}
+                            <span className="mv-net-chip mv-net-chip--good">
+                              <IconGift s={14} /> חינם
+                            </span>
+                            <span
+                              className="mv-net-chip"
+                              title="חלוקת העמלה שהמשרד המפרסם ביקש"
+                            >
+                              <IconHandshake s={14} />{" "}
+                              {describeCommissionSplit(listing.commissionSplit)}
+                            </span>
+                          </>
+                        )}
+                        {/* מי פרסם — שם המשרד; הבעלים נשאר חסוי כמו קודם */}
+                        {listing.officeName ? (
+                          <span
+                            className="mv-net-chip"
+                            title="המשרד שפרסם את המודעה"
+                          >
+                            <IconUsers s={14} /> {listing.officeName}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {/*
                     כל מה שידוע על הנכס למעט רחוב, מספר בית ובעלים —
                     אותה רשימה בדיוק שההצעות משתמשות בה, מ-
                     `packages/shared/logic/network-card.ts`.
                   */}
-                  <NetChips chips={presentationChips(listing)} />
+                      <NetChips chips={presentationChips(listing)} />
 
-                  {listing.notes ? (
-                    <p className="mv-net-quote">„{listing.notes}”</p>
-                  ) : null}
+                      {listing.notes ? (
+                        <p className="mv-net-quote">„{listing.notes}”</p>
+                      ) : null}
 
-                  {!listing.mine ? (
-                    <>
-                      {listing.interestSent ? (
-                        <p
-                          className="mb-3 flex items-center gap-1.5 text-sm font-semibold"
-                          style={{ color: "var(--color-primary)" }}
-                        >
-                          <IconCheck s={15} /> כבר פניתם על הנכס הזה — התשובה
-                          תגיע ללשונית „הצעות שקיבלתי”.
-                        </p>
-                      ) : listing.myMatches && listing.myMatches.length > 0 ? (
-                        <div className="mb-3">
-                          <p
-                            className="m-0 mb-2 text-[14.5px] font-bold"
-                            style={{ color: "var(--color-primary)" }}
-                          >
-                            <IconTarget s={16} /> {listing.myMatches.length}{" "}
-                            מהקונים שלכם מתאימים
-                          </p>
-                          <ul className="flex list-none flex-col gap-2 p-0">
-                            {listing.myMatches.map((match) => (
-                              <li key={match.buyerId} className="mv-net-match">
-                                <span
-                                  className="mv-net-score"
-                                  aria-hidden="true"
-                                >
-                                  {match.score}%
-                                </span>
-                                <span className="flex-1 min-w-[160px]">
-                                  <b className="block">{match.name}</b>
-                                  <span
-                                    className="text-[13px]"
-                                    style={{ color: "var(--color-text-soft)" }}
+                      {!listing.mine ? (
+                        <>
+                          {listing.interestSent ? (
+                            <p
+                              className="mb-3 flex items-center gap-1.5 text-sm font-semibold"
+                              style={{ color: "var(--color-primary)" }}
+                            >
+                              <IconCheck s={15} /> כבר פניתם על הנכס הזה —
+                              התשובה תגיע ללשונית „הצעות שקיבלתי”.
+                            </p>
+                          ) : listing.myMatches &&
+                            listing.myMatches.length > 0 ? (
+                            <div className="mb-3">
+                              <p
+                                className="m-0 mb-2 text-[14.5px] font-bold"
+                                style={{ color: "var(--color-primary)" }}
+                              >
+                                <IconTarget s={16} /> {listing.myMatches.length}{" "}
+                                מהקונים שלכם מתאימים
+                              </p>
+                              <ul className="flex list-none flex-col gap-2 p-0">
+                                {listing.myMatches.map((match) => (
+                                  <li
+                                    key={match.buyerId}
+                                    className="mv-net-match"
                                   >
-                                    {match.explanation}
-                                  </span>
+                                    <span
+                                      className="mv-net-score"
+                                      aria-hidden="true"
+                                    >
+                                      {match.score}%
+                                    </span>
+                                    <span className="flex-1 min-w-[160px]">
+                                      <b className="block">{match.name}</b>
+                                      <span
+                                        className="text-[13px]"
+                                        style={{
+                                          color: "var(--color-text-soft)",
+                                        }}
+                                      >
+                                        {match.explanation}
+                                      </span>
+                                    </span>
+                                    <Button
+                                      variant="secondary"
+                                      onClick={() =>
+                                        void sendInterest(
+                                          listing.id,
+                                          match.buyerId,
+                                        )
+                                      }
+                                    >
+                                      יש לי קונה — פנה
+                                    </Button>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : (
+                            <p
+                              className="mb-3 text-sm"
+                              style={{ color: "var(--color-text-muted)" }}
+                            >
+                              אין לכם כרגע קונה שמתאים לנכס הזה.
+                            </p>
+                          )}
+
+                          {!listing.interestSent ? (
+                            <details className="mv-net-foot">
+                              <summary
+                                className="cursor-pointer text-sm font-medium"
+                                style={{ color: "var(--color-primary)" }}
+                              >
+                                <span className="inline-flex items-center gap-1.5 align-middle">
+                                  <IconPlus s={14} /> להציע קונה אחר / לשנות
+                                  חלוקת עמלה
                                 </span>
+                              </summary>
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <label
+                                  className="flex items-center gap-2 text-sm"
+                                  htmlFor={`isplit_${listing.id}`}
+                                >
+                                  חלוקת עמלה
+                                </label>
+                                <select
+                                  id={`isplit_${listing.id}`}
+                                  value={
+                                    interestSplit[listing.id] ??
+                                    listing.commissionSplit
+                                  }
+                                  onChange={(e) =>
+                                    setInterestSplit((prev) => ({
+                                      ...prev,
+                                      [listing.id]: Number(e.target.value),
+                                    }))
+                                  }
+                                  className="mv-control"
+                                >
+                                  {COMMISSION_SPLIT_OPTIONS.map((share) => (
+                                    <option key={share} value={share}>
+                                      {describeCommissionSplit(share)}
+                                    </option>
+                                  ))}
+                                </select>
+                                <label
+                                  htmlFor={`buyer_${listing.id}`}
+                                  className="mv-visually-hidden"
+                                >
+                                  בחר קונה לפנייה
+                                </label>
+                                <select
+                                  id={`buyer_${listing.id}`}
+                                  value={selectedBuyer[listing.id] ?? ""}
+                                  onChange={(event) =>
+                                    setSelectedBuyer((prev) => ({
+                                      ...prev,
+                                      [listing.id]: event.target.value,
+                                    }))
+                                  }
+                                  className="mv-control"
+                                >
+                                  <option value="">בחר קונה לפנייה…</option>
+                                  {buyers.map((b) => (
+                                    <option key={b.id} value={b.id}>
+                                      {b.contact.name}
+                                    </option>
+                                  ))}
+                                </select>
                                 <Button
                                   variant="secondary"
-                                  onClick={() =>
-                                    void sendInterest(listing.id, match.buyerId)
-                                  }
+                                  disabled={!selectedBuyer[listing.id]}
+                                  onClick={() => {
+                                    const buyerId = selectedBuyer[listing.id];
+                                    if (buyerId)
+                                      void sendInterest(listing.id, buyerId);
+                                  }}
                                 >
-                                  יש לי קונה — פנה
+                                  שלח פנייה
                                 </Button>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : (
-                        <p
-                          className="mb-3 text-sm"
-                          style={{ color: "var(--color-text-muted)" }}
-                        >
-                          אין לכם כרגע קונה שמתאים לנכס הזה.
-                        </p>
-                      )}
-
-                      {!listing.interestSent ? (
-                        <details className="mv-net-foot">
-                          <summary
-                            className="cursor-pointer text-sm font-medium"
-                            style={{ color: "var(--color-primary)" }}
-                          >
-                            <span className="inline-flex items-center gap-1.5 align-middle">
-                              <IconPlus s={14} /> להציע קונה אחר / לשנות חלוקת
-                              עמלה
-                            </span>
-                          </summary>
-                          <div className="mt-3 flex flex-wrap items-center gap-2">
-                            <label
-                              className="flex items-center gap-2 text-sm"
-                              htmlFor={`isplit_${listing.id}`}
-                            >
-                              חלוקת עמלה
-                            </label>
-                            <select
-                              id={`isplit_${listing.id}`}
-                              value={
-                                interestSplit[listing.id] ??
-                                listing.commissionSplit
-                              }
-                              onChange={(e) =>
-                                setInterestSplit((prev) => ({
-                                  ...prev,
-                                  [listing.id]: Number(e.target.value),
-                                }))
-                              }
-                              className="mv-control"
-                            >
-                              {COMMISSION_SPLIT_OPTIONS.map((share) => (
-                                <option key={share} value={share}>
-                                  {describeCommissionSplit(share)}
-                                </option>
-                              ))}
-                            </select>
-                            <label
-                              htmlFor={`buyer_${listing.id}`}
-                              className="mv-visually-hidden"
-                            >
-                              בחר קונה לפנייה
-                            </label>
-                            <select
-                              id={`buyer_${listing.id}`}
-                              value={selectedBuyer[listing.id] ?? ""}
-                              onChange={(event) =>
-                                setSelectedBuyer((prev) => ({
-                                  ...prev,
-                                  [listing.id]: event.target.value,
-                                }))
-                              }
-                              className="mv-control"
-                            >
-                              <option value="">בחר קונה לפנייה…</option>
-                              {buyers.map((b) => (
-                                <option key={b.id} value={b.id}>
-                                  {b.contact.name}
-                                </option>
-                              ))}
-                            </select>
-                            <Button
-                              variant="secondary"
-                              disabled={!selectedBuyer[listing.id]}
-                              onClick={() => {
-                                const buyerId = selectedBuyer[listing.id];
-                                if (buyerId)
-                                  void sendInterest(listing.id, buyerId);
-                              }}
-                            >
-                              שלח פנייה
-                            </Button>
-                          </div>
-                        </details>
+                              </div>
+                            </details>
+                          ) : null}
+                        </>
                       ) : null}
-                    </>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ) : null}
+        </div>
       ) : null}
     </>
   );

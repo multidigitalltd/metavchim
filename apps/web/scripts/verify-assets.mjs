@@ -39,7 +39,15 @@ function sources(dir) {
  * הסיומות של נכסים שמוגשים מ-public. מוגבלות בכוונה — לא כל מחרוזת
  * שמתחילה בלוכסן, שאחרת כל נתיב ניווט היה נבדק כקובץ.
  */
-const EXT = "png|jpe?g|svg|webp|gif|ico|webmanifest|woff2?";
+/*
+ * `mjs` נכנס בגלל ה-Worker של MapLibre.
+ *
+ * הוא נטען בזמן ריצה מ-`public/maplibre`, ולכן נתיב שגוי בו אינו
+ * מפיל בנייה ואינו מפיל טיפוסים — הוא מגיע למשתמש כמפה לבנה עם
+ * פקדים, בלי שום שגיאה שאפשר להבין. זה בדיוק סוג הכשל שהשער הזה
+ * קיים בשבילו, והוא החמיץ אותו בפעם הראשונה.
+ */
+const EXT = "png|jpe?g|svg|webp|gif|ico|webmanifest|woff2?|mjs";
 
 /** ‎"/guides/x.png"‎ — התחביר של TSX. */
 const QUOTED = new RegExp(`["'\`](/[^"'\`\\s?#]+\\.(?:${EXT}))["'\`]`, "gu");
@@ -49,7 +57,10 @@ const QUOTED = new RegExp(`["'\`](/[^"'\`\\s?#]+\\.(?:${EXT}))["'\`]`, "gu");
  *
  * `data:` מסונן: הקובץ מכיל SVG משובץ, ואין שם קובץ לבדוק.
  */
-const CSS_URL = new RegExp(`url\\(\\s*["'\`]?(/[^)"'\`\\s]+\\.(?:${EXT}))`, "gu");
+const CSS_URL = new RegExp(
+  `url\\(\\s*["'\`]?(/[^)"'\`\\s]+\\.(?:${EXT}))`,
+  "gu",
+);
 
 const missing = [];
 const seen = new Set();
