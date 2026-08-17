@@ -39,6 +39,7 @@ import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
+import { assertNetworkQuota } from "./network-quota";
 import { officeNames } from "./office-names";
 import {
   networkPrice,
@@ -343,6 +344,17 @@ export class CollaborationService {
         select: { id: true },
       });
       if (existing) throw new BadRequestException("הקונה כבר משותף ברשת");
+
+      /*
+       * אחרי בדיקת הכפילות ולא לפניה — שיתוף חוזר של קונה שכבר
+       * משותף אינו צורך מקום ברשת, ומגיעה לו ההודעה המדויקת.
+       */
+      await assertNetworkQuota(
+        tx,
+        tenantId,
+        await this.plans.forTenant(tenantId, tx),
+        "demand",
+      );
 
       await tx.sharedDemand.create({
         data: {

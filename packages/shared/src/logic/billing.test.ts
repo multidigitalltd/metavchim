@@ -25,6 +25,8 @@ const plan = (over: Partial<PlanDefinition> = {}): PlanDefinition => ({
   yearlyPriceAgorot: 199_000,
   maxUsers: 5,
   maxProperties: null,
+  maxNetworkListings: null,
+  maxNetworkDemands: null,
   features: [],
   trialDays: 14,
   isPublic: true,

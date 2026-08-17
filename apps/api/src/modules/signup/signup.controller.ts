@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   couponRejectionMessage,
   formatPlanPrice,
+  planPriceLabel,
   yearlySavingPercent,
   type PlanFeature,
 } from "@metavchim/shared";
@@ -58,6 +59,9 @@ export interface OfferedPlan {
   yearlySavingPercent: number | null;
   maxUsers: number | null;
   maxProperties: number | null;
+  /** מכסות הפרסום ברשת — `null` = ללא הגבלה. */
+  maxNetworkListings: number | null;
+  maxNetworkDemands: number | null;
   features: PlanFeature[];
   trialDays: number;
 }
@@ -80,12 +84,19 @@ export class SignupController {
         code: plan.code,
         name: plan.name,
         description: plan.description,
-        monthlyPrice: formatPlanPrice(plan.monthlyPriceAgorot),
+        /*
+         * `planPriceLabel` ולא `formatPlanPrice`: מסלול ב-0 שמופיע
+         * בדף ההרשמה הוא חינם, לא "לפי הצעה". ראו את הנימוק בקובץ
+         * המסלולים.
+         */
+        monthlyPrice: planPriceLabel(plan),
         yearlyPrice:
           plan.yearlyPriceAgorot === null ? null : formatPlanPrice(plan.yearlyPriceAgorot),
         yearlySavingPercent: yearlySavingPercent(plan),
         maxUsers: plan.maxUsers,
         maxProperties: plan.maxProperties,
+        maxNetworkListings: plan.maxNetworkListings,
+        maxNetworkDemands: plan.maxNetworkDemands,
         features: plan.features,
         trialDays: plan.trialDays,
       })),

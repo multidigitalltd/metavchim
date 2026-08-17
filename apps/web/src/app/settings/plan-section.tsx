@@ -32,6 +32,13 @@ interface PlanInfo {
   limits: {
     users: { used: number; limit: number | null; state: LimitState };
     properties: { used: number; limit: number | null; state: LimitState };
+    /*
+     * מכסות הרשת — אופציונליות בטיפוס כי מסך שנטען מול API ישן
+     * (בזמן פריסה מתגלגלת) לא יקבל אותן, ושורה שקוראת `undefined.used`
+     * מפילה את כל הפאנל.
+     */
+    networkListings?: { used: number; limit: number | null; state: LimitState };
+    networkDemands?: { used: number; limit: number | null; state: LimitState };
   };
 }
 
@@ -41,11 +48,14 @@ function LimitRow({
   limit,
   state,
   resolved,
+  blockedNote = "הגעתם למכסה — הוספה נוספת תיחסם עד שדרוג מסלול.",
 }: {
   label: string;
   used: number;
   limit: number | null;
   state: LimitState;
+  /** מה שכתוב כשהמכסה מלאה — לא כל מכסה חוסמת "הוספה". */
+  blockedNote?: string;
   /**
    * false = קוד המסלול אינו נפתר, ואין מכסה שאפשר להציג.
    *
@@ -84,7 +94,7 @@ function LimitRow({
       ) : null}
       {resolved && state.blocked ? (
         <p className="m-0 mt-1 text-xs" style={{ color: "var(--color-danger)" }}>
-          הגעתם למכסה — הוספה נוספת תיחסם עד שדרוג מסלול.
+          {blockedNote}
         </p>
       ) : null}
     </div>
@@ -148,6 +158,33 @@ export function PlanSection(): React.JSX.Element | null {
             state={plan.limits.properties.state}
             resolved={plan.resolved !== false}
           />
+          {/*
+            שתי השורות האלה מוצגות רק כשיש מכסה בפועל. למסלול בתשלום
+            הן "ללא הגבלה" — כלומר שתי שורות שאינן אומרות דבר, ומסך
+            עמוס בלי סיבה. במסלול החינמי הן בדיוק המידע שחסר.
+          */}
+          {plan.limits.networkListings !== undefined &&
+          plan.limits.networkListings.limit !== null ? (
+            <LimitRow
+              label="נכסים מפורסמים ברשת השיתופים"
+              used={plan.limits.networkListings.used}
+              limit={plan.limits.networkListings.limit}
+              state={plan.limits.networkListings.state}
+              resolved={plan.resolved !== false}
+              blockedNote="הגעתם למכסה — אפשר להסיר פרסום קיים כדי לפנות מקום, או לשדרג מסלול." 
+            />
+          ) : null}
+          {plan.limits.networkDemands !== undefined &&
+          plan.limits.networkDemands.limit !== null ? (
+            <LimitRow
+              label="קונים מפורסמים ברשת השיתופים"
+              used={plan.limits.networkDemands.used}
+              limit={plan.limits.networkDemands.limit}
+              state={plan.limits.networkDemands.state}
+              resolved={plan.resolved !== false}
+              blockedNote="הגעתם למכסה — אפשר להסיר פרסום קיים כדי לפנות מקום, או לשדרג מסלול." 
+            />
+          ) : null}
 
           <h3 className="mb-1 mt-4 text-sm font-bold">מה כלול</h3>
           <ul className="m-0 grid list-none gap-x-4 p-0 text-sm" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>

@@ -155,6 +155,14 @@ const UpsertPlanSchema = z
     yearlyPriceAgorot: z.number().int().min(0).max(1_000_000_000).nullable(),
     maxUsers: LimitSchema,
     maxProperties: LimitSchema,
+    /*
+     * ‎.default(null)‎ ולא חובה: המסך הישן, וכל סקריפט שנכתב מול
+     * הגרסה הקודמת, שולחים גוף בלי השדות האלה — ו-‎.strict()‎ היה
+     * הופך אותם לשגיאה. `null` הוא גם המשמעות הנכונה של "לא נאמר":
+     * ללא הגבלה, כלומר בדיוק ההתנהגות שהייתה לפני התוספת.
+     */
+    maxNetworkListings: LimitSchema.default(null),
+    maxNetworkDemands: LimitSchema.default(null),
     features: z.array(z.string().max(40)).max(50),
     trialDays: z.number().int().min(0).max(90),
     isPublic: z.boolean(),

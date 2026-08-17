@@ -481,6 +481,8 @@ export class SettingsController {
     limits: {
       users: { used: number; limit: number | null; state: LimitState };
       properties: { used: number; limit: number | null; state: LimitState };
+      networkListings: { used: number; limit: number | null; state: LimitState };
+      networkDemands: { used: number; limit: number | null; state: LimitState };
     };
   }> {
     const tenantId = TenantContext.current().tenantId;
@@ -495,7 +497,7 @@ export class SettingsController {
      * הסינונים זהים לאלה של האכיפה: משתמש פעיל בלבד, ונכס שאינו
      * בארכיון.
      */
-    const [plan, tenant, users, properties] = await Promise.all([
+    const [plan, tenant, users, properties, network] = await Promise.all([
       this.plans.forTenant(tenantId),
       this.prisma.tenant.findUnique({
         where: { id: tenantId },
@@ -505,6 +507,19 @@ export class SettingsController {
       this.prisma.withTenant((tx) =>
         tx.property.count({ where: { tenantId, deletedAt: null } }),
       ),
+      /*
+       * מכסות הרשת נספרות באותה שאילתה זוגית, ובאותם תנאים בדיוק
+       * שבהם האכיפה סופרת (`status: "active"` בלבד). מסך שסופר
+       * אחרת מהאכיפה הוא מסך שמשקר — המשרד רואה "2 מתוך 3" ונחסם.
+       */
+      this.prisma.withTenant(async (tx) => ({
+        listings: await tx.sharedListing.count({
+          where: { tenantId, status: "active" },
+        }),
+        demands: await tx.sharedDemand.count({
+          where: { tenantId, status: "active" },
+        }),
+      })),
     ]);
     /*
      * מסלול שלא נפתר מוצג כחסום ולא כ"ללא הגבלה".
@@ -543,6 +558,16 @@ export class SettingsController {
           used: properties,
           limit: plan?.maxProperties ?? null,
           state: limitFor(properties, plan?.maxProperties ?? null),
+        },
+        networkListings: {
+          used: network.listings,
+          limit: plan?.maxNetworkListings ?? null,
+          state: limitFor(network.listings, plan?.maxNetworkListings ?? null),
+        },
+        networkDemands: {
+          used: network.demands,
+          limit: plan?.maxNetworkDemands ?? null,
+          state: limitFor(network.demands, plan?.maxNetworkDemands ?? null),
         },
       },
     };
