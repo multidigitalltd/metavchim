@@ -32,10 +32,18 @@ import {
   MIN_HARD_WEIGHT,
   resolveMatchWeights,
   type MatchWeights,
+  AUTOMATIONS,
+  automationRejectionReason,
+  resolveAutomationSettings,
+  type AutomationSettings,
+  type AutomationSpec,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { onboardingSteps, type OnboardingProgress } from "@metavchim/shared";
-import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorators";
+import {
+  AnyAuthenticated,
+  RequireCapability,
+} from "../../common/auth.decorators";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
@@ -46,11 +54,34 @@ import { LoginThrottleService } from "../auth/login-throttle.service";
 import { MatchRefreshService } from "../matching/match-refresh.service";
 import { AccountDeletionService } from "./account-deletion.service";
 
+/**
+ * הגדרת האוטומציות שמגיעה מהמסך.
+ *
+ * מפה פתוחה ולא שדות מפורשים: הקטלוג חי ב-`@metavchim/shared`, והוא
+ * שקובע אילו מפתחות תקפים ומה התחום של כל סף. סכימה שמונה את
+ * המפתחות בעצמה הייתה מקור שני שנפרד ביום שמוסיפים אוטומציה.
+ */
+const AutomationsSchema = z
+  .record(
+    z.string().max(40),
+    z
+      .object({
+        enabled: z.boolean().optional(),
+        value: z.number().optional(),
+      })
+      .strict(),
+  )
+  .refine((body) => Object.keys(body).length > 0, {
+    message: "לא נשלחה שום הגדרה",
+  });
+
 const TenantSettingsSchema = z
   .object({
     name: z.string().min(2).max(120).optional(),
     /** המספר העסקי לוואטסאפ — ספרות בלבד; "" מנתק את השיוך */
-    whatsappNumber: z.union([z.string().regex(/^\d{9,15}$/u), z.literal("")]).optional(),
+    whatsappNumber: z
+      .union([z.string().regex(/^\d{9,15}$/u), z.literal("")])
+      .optional(),
     /* פרטי המשרד שנכנסים לנוסחי ההסכמים. מספר רישיון התיווך הוא
        פרט חובה בהזמנה בכתב לפי חוק המתווכים במקרקעין. */
     licenseNumber: z.union([z.string().max(40), z.literal("")]).optional(),
@@ -60,7 +91,9 @@ const TenantSettingsSchema = z
        חובה בתקנות, ושער ההחתמה יוצר הסכם בלי שאיש הזין אותם — בלי
        ברירת מחדל ברמת המשרד הוא לא יכול לייצר מסמך תקף כלל. */
     defaultCommission: z.union([z.string().max(80), z.literal("")]).optional(),
-    defaultPaymentTerms: z.union([z.string().max(120), z.literal("")]).optional(),
+    defaultPaymentTerms: z
+      .union([z.string().max(120), z.literal("")])
+      .optional(),
   })
   .strict();
 
@@ -139,10 +172,9 @@ const MatchWeightsSchema = z
     entry_date: z.number().min(0).max(1),
   })
   .strict()
-  .refine(
-    (w) => Object.values(w).reduce((sum, v) => sum + v, 0) > 0,
-    { message: "לפחות קריטריון אחד חייב משקל גדול מאפס" },
-  );
+  .refine((w) => Object.values(w).reduce((sum, v) => sum + v, 0) > 0, {
+    message: "לפחות קריטריון אחד חייב משקל גדול מאפס",
+  });
 
 const DeleteAccountSchema = z
   .object({
@@ -182,7 +214,8 @@ export class SettingsController {
   @RequireCapability("settings.manage")
   @HttpCode(200)
   async deleteAccount(
-    @Body(new ZodValidationPipe(DeleteAccountSchema)) body: z.infer<typeof DeleteAccountSchema>,
+    @Body(new ZodValidationPipe(DeleteAccountSchema))
+    body: z.infer<typeof DeleteAccountSchema>,
   ): Promise<{ ok: true }> {
     return this.accountDeletion.deleteAccount(body);
   }
@@ -194,9 +227,115 @@ export class SettingsController {
    * בברירת המחדל, אחרת משרד היה משנה את הציון שמשרד אחר רואה על
    * הביקוש שלו — ו"80% התאמה" היה מאבד כל משמעות משותפת.
    */
+  /**
+   * האוטומציות הפנימיות — מה המערכת עושה מעצמה.
+   *
+   * הקטלוג חוזר יחד עם ההגדרה, כדי שהמסך לא יחזיק רשימה משלו: תיאור
+   * שמתיישן במסך הוא הבטחה לא נכונה על מה שקורה בפועל.
+   */
+  @Get("automations")
+  @RequireCapability("settings.manage")
+  async automations(): Promise<{
+    settings: AutomationSettings;
+    catalogue: readonly AutomationSpec[];
+  }> {
+    const tenantId = TenantContext.current().tenantId;
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
+    return {
+      settings: resolveAutomationSettings(settings["automations"]),
+      catalogue: AUTOMATIONS,
+    };
+  }
+
+  /**
+   * שמירת ההגדרה.
+   *
+   * מיזוג עם הקיים ולא דריסה: המסך יכול לשלוח אוטומציה אחת שהשתנתה,
+   * ואין סיבה שלחיצה על מתג אחד תשלח את כל הטבלה ותסתכן בדריסת שינוי
+   * שנעשה במקביל בכרטיסייה אחרת.
+   *
+   * הערך נשמר **אחרי** שעבר את הבדיקה של הקטלוג, ולכן מה שיושב ב-DB
+   * תמיד בתחום. `resolveAutomationSettings` חותך בקריאה בכל מקרה,
+   * כהגנה על ערכים שנשמרו לפני שהתחום הזה היה קיים.
+   */
+  @Patch("automations")
+  @RequireCapability("settings.manage")
+  @HttpCode(200)
+  async saveAutomations(
+    @Body(new ZodValidationPipe(AutomationsSchema))
+    body: z.infer<typeof AutomationsSchema>,
+  ): Promise<{ settings: AutomationSettings }> {
+    const tenantId = TenantContext.current().tenantId;
+
+    for (const [key, setting] of Object.entries(body)) {
+      const problem = automationRejectionReason(key, setting);
+      if (problem !== null) throw new BadRequestException(problem);
+    }
+
+    /*
+     * כתיבה אטומית **לכל מפתח בנפרד**, ולא מיזוג בזיכרון.
+     *
+     * הגרסה הראשונה קראה את כל האובייקט, מיזגה ב-JS וכתבה אותו
+     * בשלמותו — כלומר שתי בקשות שנגעו במפתחות שונים קראו את אותו
+     * מצב ישן, והאחרונה שסיימה החזירה בשקט את המפתח של השנייה לערכו
+     * הקודם. זה בדיוק הכשל ש-`jsonb_set` נועד למנוע, והוא חזר כאן
+     * ברמת האובייקט (ביקורת Codex).
+     *
+     * ה-`||` ממזג רק את השדות שנשלחו לתוך הרשומה הקיימת, ולכן בקשה
+     * ששולחת `enabled` בלבד אינה מוחקת את הסף. הקינון הפנימי מבטיח
+     * שהמפתח `automations` קיים: `jsonb_set` על נתיב דו-שלבי אינו
+     * יוצר את האב החסר, ובלעדיו השמירה הראשונה של כל משרד הייתה
+     * נבלעת בשקט.
+     */
+    for (const [key, setting] of Object.entries(body)) {
+      await this.prisma.$executeRaw`
+        UPDATE tenants
+        SET settings = jsonb_set(
+          jsonb_set(
+            COALESCE(settings, '{}'::jsonb),
+            '{automations}',
+            COALESCE(settings -> 'automations', '{}'::jsonb),
+            true
+          ),
+          ARRAY['automations', ${key}],
+          COALESCE(settings -> 'automations' -> ${key}, '{}'::jsonb) || ${JSON.stringify(setting)}::jsonb,
+          true
+        )
+        WHERE id = ${tenantId}
+      `;
+    }
+
+    const saved = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+
+    await this.prisma.withTenant((tx) =>
+      this.audit.record(tx, {
+        action: "settings.automations",
+        entityType: "tenant",
+        entityId: tenantId,
+        metadata: { changed: Object.keys(body) },
+      }),
+    );
+
+    return {
+      settings: resolveAutomationSettings(
+        ((saved?.settings ?? {}) as Record<string, unknown>)["automations"],
+      ),
+    };
+  }
+
   @Get("match-weights")
   @RequireCapability("settings.manage")
-  async matchWeights(): Promise<{ weights: MatchWeights; defaults: MatchWeights }> {
+  async matchWeights(): Promise<{
+    weights: MatchWeights;
+    defaults: MatchWeights;
+  }> {
     const tenantId = TenantContext.current().tenantId;
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
@@ -221,7 +360,8 @@ export class SettingsController {
   @RequireCapability("settings.manage")
   @HttpCode(200)
   async saveMatchWeights(
-    @Body(new ZodValidationPipe(MatchWeightsSchema)) body: z.infer<typeof MatchWeightsSchema>,
+    @Body(new ZodValidationPipe(MatchWeightsSchema))
+    body: z.infer<typeof MatchWeightsSchema>,
   ): Promise<{ weights: MatchWeights }> {
     const tenantId = TenantContext.current().tenantId;
     /*
@@ -282,14 +422,22 @@ export class SettingsController {
     return {
       name: tenant?.name ?? "",
       whatsappNumber:
-        typeof settings["whatsappNumber"] === "string" ? settings["whatsappNumber"] : undefined,
+        typeof settings["whatsappNumber"] === "string"
+          ? settings["whatsappNumber"]
+          : undefined,
       plan: tenant?.plan ?? "basic",
       licenseNumber:
-        typeof settings["licenseNumber"] === "string" ? settings["licenseNumber"] : undefined,
+        typeof settings["licenseNumber"] === "string"
+          ? settings["licenseNumber"]
+          : undefined,
       officeAddress:
-        typeof settings["officeAddress"] === "string" ? settings["officeAddress"] : undefined,
+        typeof settings["officeAddress"] === "string"
+          ? settings["officeAddress"]
+          : undefined,
       officePhone:
-        typeof settings["officePhone"] === "string" ? settings["officePhone"] : undefined,
+        typeof settings["officePhone"] === "string"
+          ? settings["officePhone"]
+          : undefined,
       defaultCommission:
         typeof settings["defaultCommission"] === "string"
           ? settings["defaultCommission"]
@@ -324,7 +472,12 @@ export class SettingsController {
      * (ביקורת Codex).
      */
     resolved: boolean;
-    features: { code: string; label: string; description: string; included: boolean }[];
+    features: {
+      code: string;
+      label: string;
+      description: string;
+      included: boolean;
+    }[];
     limits: {
       users: { used: number; limit: number | null; state: LimitState };
       properties: { used: number; limit: number | null; state: LimitState };
@@ -344,7 +497,10 @@ export class SettingsController {
      */
     const [plan, tenant, users, properties] = await Promise.all([
       this.plans.forTenant(tenantId),
-      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { plan: true } }),
+      this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { plan: true },
+      }),
       this.prisma.user.count({ where: { tenantId, isActive: true } }),
       this.prisma.withTenant((tx) =>
         tx.property.count({ where: { tenantId, deletedAt: null } }),
@@ -357,12 +513,17 @@ export class SettingsController {
      * מהמציאות: האכיפה דוחה כל הוספה. `blocked: true` עם `limit: 0`
      * הוא הייצוג הכן של המצב.
      */
-    const unresolved: LimitState = { blocked: true, remaining: 0, percent: 100, warn: true };
+    const unresolved: LimitState = {
+      blocked: true,
+      remaining: 0,
+      percent: 100,
+      warn: true,
+    };
     const limitFor = (used: number, limit: number | null): LimitState =>
       plan === undefined ? unresolved : limitState(used, limit);
 
     return {
-      code: plan?.code ?? (tenant?.plan ?? ""),
+      code: plan?.code ?? tenant?.plan ?? "",
       // מסלול לא מוכר לא נופל אלא מוצג ככזה: הוא מצב תקלה שדורש
       // טיפול של בעל הפלטפורמה, ומסך ריק לא היה מסגיר אותו
       name: plan?.name ?? "מסלול לא מוגדר",
@@ -410,7 +571,8 @@ export class SettingsController {
   @RequireCapability("settings.manage")
   @HttpCode(200)
   async createLeadWebhook(
-    @Body(new ZodValidationPipe(LeadWebhookSchema)) body: z.infer<typeof LeadWebhookSchema>,
+    @Body(new ZodValidationPipe(LeadWebhookSchema))
+    body: z.infer<typeof LeadWebhookSchema>,
   ): Promise<{ id: string; key: string; sourceLabel: string }> {
     const tenantId = TenantContext.current().tenantId;
     // גבול שפוי, לא מכסה: מונע יצירה בלולאה ממסך תקוע
@@ -442,10 +604,14 @@ export class SettingsController {
   @Delete("lead-webhooks/:id")
   @RequireCapability("settings.manage")
   @HttpCode(204)
-  async deleteLeadWebhook(@Param("id", new ZodValidationPipe(IdSchema)) id: string): Promise<void> {
+  async deleteLeadWebhook(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<void> {
     const tenantId = TenantContext.current().tenantId;
     // deleteMany עם tenantId — מזהה של משרד אחר פשוט לא מוחק כלום
-    const result = await this.prisma.leadWebhook.deleteMany({ where: { id, tenantId } });
+    const result = await this.prisma.leadWebhook.deleteMany({
+      where: { id, tenantId },
+    });
     if (result.count === 0) throw new NotFoundException("מקור הקליטה לא נמצא");
     await this.prisma.withTenant((tx) =>
       this.audit.record(tx, {
@@ -459,7 +625,8 @@ export class SettingsController {
   @Patch("tenant")
   @RequireCapability("settings.manage")
   async updateTenant(
-    @Body(new ZodValidationPipe(TenantSettingsSchema)) body: z.infer<typeof TenantSettingsSchema>,
+    @Body(new ZodValidationPipe(TenantSettingsSchema))
+    body: z.infer<typeof TenantSettingsSchema>,
   ): Promise<{ ok: true }> {
     const tenantId = TenantContext.current().tenantId;
 
@@ -480,7 +647,9 @@ export class SettingsController {
       where: { id: tenantId },
       select: { settings: true },
     });
-    const settings = { ...((current?.settings ?? {}) as Record<string, unknown>) };
+    const settings = {
+      ...((current?.settings ?? {}) as Record<string, unknown>),
+    };
 
     /*
      * כל השדות שיושבים ב-settings עוברים באותה לולאה.
@@ -540,7 +709,14 @@ export class SettingsController {
     const rows = await this.prisma.user.findMany({
       where: { tenantId },
       orderBy: { createdAt: "asc" },
-      select: { id: true, name: true, email: true, role: true, isActive: true, lastLoginAt: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        lastLoginAt: true,
+      },
     });
     return Promise.all(
       rows.map(async (u) => ({
@@ -604,7 +780,12 @@ export class SettingsController {
     const rows = await this.prisma.withTenant((tx) =>
       tx.userCapability.findMany({
         where: { userId: id, tenantId },
-        select: { capability: true, effect: true, expiresAt: true, reason: true },
+        select: {
+          capability: true,
+          effect: true,
+          expiresAt: true,
+          reason: true,
+        },
         orderBy: { capability: "asc" },
       }),
     );
@@ -620,7 +801,8 @@ export class SettingsController {
       name: target.name,
       role: target.role,
       // בעל המשרד מוגן בשרת; המסך מקבל את הדגל כדי להסביר למה
-      protected: target.role === "owner" || target.id === TenantContext.current().userId,
+      protected:
+        target.role === "owner" || target.id === TenantContext.current().userId,
       effective: [...resolveCapabilities(target.role, overrides, now)],
       overrides: rows.map((row, index) => ({
         capability: row.capability,
@@ -648,7 +830,8 @@ export class SettingsController {
   @RequireCapability("users.manage")
   async setUserCapabilities(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Body(new ZodValidationPipe(SetCapabilitiesSchema)) body: z.infer<typeof SetCapabilitiesSchema>,
+    @Body(new ZodValidationPipe(SetCapabilitiesSchema))
+    body: z.infer<typeof SetCapabilitiesSchema>,
   ): Promise<{ ok: true }> {
     const ctx = TenantContext.current();
     const target = await this.prisma.user.findFirst({
@@ -667,18 +850,29 @@ export class SettingsController {
      */
     const current = await this.prisma.withTenant((tx) =>
       tx.userCapability.findMany({
-        where: { userId: id, tenantId: ctx.tenantId, capability: { in: body.capabilities } },
+        where: {
+          userId: id,
+          tenantId: ctx.tenantId,
+          capability: { in: body.capabilities },
+        },
         select: { capability: true, effect: true },
       }),
     );
     const currentEffect = new Map(
-      current.map((row) => [row.capability, row.effect === "grant" ? "grant" : "deny"] as const),
+      current.map(
+        (row) =>
+          [row.capability, row.effect === "grant" ? "grant" : "deny"] as const,
+      ),
     );
 
     for (const capability of body.capabilities) {
       const effect =
         body.effect === "clear"
-          ? clearEffect(target.role, capability, currentEffect.get(capability) ?? null)
+          ? clearEffect(
+              target.role,
+              capability,
+              currentEffect.get(capability) ?? null,
+            )
           : body.effect;
       const reason = overrideRejectionReason({
         actorUserId: ctx.userId,
@@ -756,7 +950,10 @@ export class SettingsController {
    * הטבלה users מחוץ ל-RLS (ראו הערה ב-schema.prisma), ולכן הספירה
    * הישירה כאן תקפה — התנאי `tenantId` הוא זה שמבודד.
    */
-  private async assertSeatAvailable(tx: TenantTx, tenantId: string): Promise<void> {
+  private async assertSeatAvailable(
+    tx: TenantTx,
+    tenantId: string,
+  ): Promise<void> {
     const plan = await this.plans.forTenant(tenantId, tx);
     // מסלול שאי אפשר לפתור חוסם ולא פותח — ראו properties.service
     if (plan === undefined) {
@@ -781,7 +978,8 @@ export class SettingsController {
   @Post("users")
   @RequireCapability("users.manage")
   async createUser(
-    @Body(new ZodValidationPipe(CreateUserSchema)) body: z.infer<typeof CreateUserSchema>,
+    @Body(new ZodValidationPipe(CreateUserSchema))
+    body: z.infer<typeof CreateUserSchema>,
   ): Promise<{ user: TeamUserDto; tempPassword: string }> {
     const tenantId = TenantContext.current().tenantId;
     const email = body.email.toLowerCase();
@@ -814,7 +1012,14 @@ export class SettingsController {
       });
     });
     return {
-      user: { id, name: body.name, email, role: body.role, isActive: true, locked: false },
+      user: {
+        id,
+        name: body.name,
+        email,
+        role: body.role,
+        isActive: true,
+        locked: false,
+      },
       tempPassword,
     };
   }
@@ -823,7 +1028,8 @@ export class SettingsController {
   @RequireCapability("users.manage")
   async updateUser(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Body(new ZodValidationPipe(UpdateUserSchema)) body: z.infer<typeof UpdateUserSchema>,
+    @Body(new ZodValidationPipe(UpdateUserSchema))
+    body: z.infer<typeof UpdateUserSchema>,
   ): Promise<{ ok: true }> {
     const ctx = TenantContext.current();
     if (id === ctx.userId) {
@@ -881,7 +1087,8 @@ export class SettingsController {
   @Get("audit")
   @RequireCapability("audit.view")
   async auditLog(
-    @Query(new ZodValidationPipe(AuditQuerySchema)) query: z.infer<typeof AuditQuerySchema>,
+    @Query(new ZodValidationPipe(AuditQuerySchema))
+    query: z.infer<typeof AuditQuerySchema>,
   ): Promise<{
     items: {
       action: string;
@@ -898,10 +1105,20 @@ export class SettingsController {
         where: { tenantId },
         orderBy: { createdAt: "desc" },
         take: query.limit,
-        select: { action: true, entityType: true, userId: true, createdAt: true, metadata: true },
+        select: {
+          action: true,
+          entityType: true,
+          userId: true,
+          createdAt: true,
+          metadata: true,
+        },
       }),
     );
-    const userIds = [...new Set(rows.map((r) => r.userId).filter((u): u is string => u !== null))];
+    const userIds = [
+      ...new Set(
+        rows.map((r) => r.userId).filter((u): u is string => u !== null),
+      ),
+    ];
     const users = await this.prisma.user.findMany({
       where: { id: { in: userIds }, tenantId },
       select: { id: true, name: true },
@@ -910,7 +1127,9 @@ export class SettingsController {
     return {
       items: rows.map((r) => {
         const supportAdmin =
-          typeof r.metadata === "object" && r.metadata !== null && "supportAdmin" in r.metadata
+          typeof r.metadata === "object" &&
+          r.metadata !== null &&
+          "supportAdmin" in r.metadata
             ? String((r.metadata as Record<string, unknown>)["supportAdmin"])
             : undefined;
         return {
@@ -958,7 +1177,8 @@ export class SettingsController {
 
     return {
       serverConfigured:
-        env.WHATSAPP_APP_SECRET !== undefined && env.WHATSAPP_VERIFY_TOKEN !== undefined,
+        env.WHATSAPP_APP_SECRET !== undefined &&
+        env.WHATSAPP_VERIFY_TOKEN !== undefined,
       numberConfigured,
       /*
        * כתובת ה-Webhook **אינה** מוחזרת כאן.
@@ -1002,25 +1222,33 @@ export class SettingsController {
     });
     const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
     const filled = (key: string): boolean =>
-      typeof settings[key] === "string" && (settings[key] as string).trim() !== "";
+      typeof settings[key] === "string" &&
+      (settings[key] as string).trim() !== "";
 
     const [activeUsers, properties, buyers, leadWebhooks] = await Promise.all([
       this.prisma.user.count({ where: { tenantId, isActive: true } }),
-      this.prisma.withTenant((tx) => tx.property.count({ where: { tenantId, deletedAt: null } })),
-      this.prisma.withTenant((tx) => tx.buyer.count({ where: { tenantId, deletedAt: null } })),
+      this.prisma.withTenant((tx) =>
+        tx.property.count({ where: { tenantId, deletedAt: null } }),
+      ),
+      this.prisma.withTenant((tx) =>
+        tx.buyer.count({ where: { tenantId, deletedAt: null } }),
+      ),
       this.prisma.leadWebhook.count({ where: { tenantId } }),
     ]);
 
     return onboardingSteps({
       // מספר הרישיון הוא פרט חובה בהזמנה בכתב — בלעדיו ההסכמים פגומים
       officeProfileComplete:
-        (tenant?.name ?? "").trim() !== "" && filled("licenseNumber") && filled("officePhone"),
+        (tenant?.name ?? "").trim() !== "" &&
+        filled("licenseNumber") &&
+        filled("officePhone"),
       activeUsers,
       properties,
       buyers,
       leadWebhookConfigured: leadWebhooks > 0,
       whatsappConfigured: filled("whatsappNumber"),
-      transcriptionAvailable: env.STT_URL !== undefined && env.STT_SECRET !== undefined,
+      transcriptionAvailable:
+        env.STT_URL !== undefined && env.STT_SECRET !== undefined,
     });
   }
 
@@ -1044,7 +1272,10 @@ export class SettingsController {
     });
     const until = tenant?.supportAccessUntil ?? null;
     return {
-      activeUntil: until !== null && until.getTime() > Date.now() ? until.toISOString() : null,
+      activeUntil:
+        until !== null && until.getTime() > Date.now()
+          ? until.toISOString()
+          : null,
     };
   }
 
