@@ -16,6 +16,7 @@ import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { MediaSection } from "./media-section";
 import { NetworkDemandMatches } from "../network-demand-matches";
+import { NetworkShareSection } from "../../network-share-section";
 import { AgreementsPanel } from "../../agreements-panel";
 import { EntityTasks } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
@@ -709,6 +710,15 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
               קונים שדרישת חובה שלהם נשברת (למשל: חובה מעלית ואין) — לא מוצגים כאן בכלל.
             </p>
           </section>
+
+          {/*
+            הפרסום יושב מעל עמודת הביקושים ולא מתחתיה: מי שרואה
+            שארבעה ביקושים ברשת מתאימים לנכס שלו צריך לדעת מיד שהוא
+            יכול גם לפרסם אותו ולתת למשרדים האלה לפנות אליו.
+          */}
+          {can(user, "collaboration.share") ? (
+            <NetworkShareSection kind="property" entityId={id} />
+          ) : null}
 
           <NetworkDemandMatches propertyId={id} />
           </div>

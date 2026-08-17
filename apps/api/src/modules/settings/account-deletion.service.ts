@@ -52,7 +52,10 @@ export class AccountDeletionService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async deleteAccount(input: { confirmName: string; currentPassword?: string }): Promise<{
+  async deleteAccount(input: {
+    confirmName: string;
+    currentPassword?: string;
+  }): Promise<{
     ok: true;
   }> {
     const { tenantId, userId } = TenantContext.current();
@@ -70,9 +73,13 @@ export class AccountDeletionService {
     }
     if (user.passwordHash !== null) {
       if (!input.currentPassword) {
-        throw new BadRequestException("למחיקת החשבון יש להזין את הסיסמה הנוכחית");
+        throw new BadRequestException(
+          "למחיקת החשבון יש להזין את הסיסמה הנוכחית",
+        );
       }
-      const ok = await argon2.verify(user.passwordHash, input.currentPassword).catch(() => false);
+      const ok = await argon2
+        .verify(user.passwordHash, input.currentPassword)
+        .catch(() => false);
       if (!ok) throw new UnauthorizedException("הסיסמה שגויה");
     }
 
@@ -95,7 +102,9 @@ export class AccountDeletionService {
     tenantId: string,
     confirmName: string,
   ): Promise<{ ok: true }> {
-    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+    });
     if (!tenant) throw new NotFoundException("המשרד לא נמצא");
     if (confirmName.trim() !== tenant.name.trim()) {
       throw new BadRequestException("שם המשרד שהוקלד אינו תואם — המחיקה בוטלה");
@@ -124,7 +133,10 @@ export class AccountDeletionService {
      */
     const [media, calls] = await Promise.all([
       this.prisma.withExplicitTenant(tenantId, (tx) =>
-        tx.propertyMedia.findMany({ where: { tenantId }, select: { s3Key: true } }),
+        tx.propertyMedia.findMany({
+          where: { tenantId },
+          select: { s3Key: true },
+        }),
       ),
       this.prisma.withExplicitTenant(tenantId, (tx) =>
         tx.call.findMany({
@@ -135,7 +147,9 @@ export class AccountDeletionService {
     ]);
     const s3Keys = [
       ...media.map((m) => m.s3Key),
-      ...calls.map((c) => c.recordingKey).filter((k): k is string => k !== null),
+      ...calls
+        .map((c) => c.recordingKey)
+        .filter((k): k is string => k !== null),
     ];
 
     // הראיה האחרונה — נכתבת לפני המחיקה, כי audit_log נשאר במכוון
@@ -188,7 +202,9 @@ export class AccountDeletionService {
          * עליו, ולכן היא הולכת איתו.
          */
         await tx.leadReferralRating.deleteMany({
-          where: { OR: [{ sellerTenantId: tenantId }, { buyerTenantId: tenantId }] },
+          where: {
+            OR: [{ sellerTenantId: tenantId }, { buyerTenantId: tenantId }],
+          },
         });
         /*
          * המונים של משרדים אחרים אינם מתוקנים כאן, **במכוון**: דירוג
@@ -206,6 +222,21 @@ export class AccountDeletionService {
         await tx.coopOffer.deleteMany({
           where: { OR: [{ fromTenantId: tenantId }, { toTenantId: tenantId }] },
         });
+        /*
+         * הכיוון השני של הרשת — פרסומי נכסים והפניות עליהם.
+         *
+         * לטבלאות האלה אין מפתח זר ל-`tenants` ואין מחיקה מדורגת,
+         * ולכן משרד יכול היה למחוק את חשבונו בהצלחה בעוד הנכס שפרסם
+         * ממשיך להופיע בפיד של כל משרד אחר — לצמיתות (ביקורת Codex).
+         * מחיקה שאינה שלמה אינה מחיקה.
+         *
+         * הפרסומים לפני הפניות: פנייה מצביעה על פרסום, ומחיקה
+         * בסדר ההפוך הייתה משאירה רגע שבו היא מצביעה על מה שאיננו.
+         */
+        await tx.coopInterest.deleteMany({
+          where: { OR: [{ fromTenantId: tenantId }, { toTenantId: tenantId }] },
+        });
+        await tx.sharedListing.deleteMany({ where: { tenantId } });
         /*
          * credit_ledger **לא** נמחק — חריג שלישי, מאותו טעם כמו
          * audit_log: הטבלה Append-Only עם REVOKE UPDATE, DELETE

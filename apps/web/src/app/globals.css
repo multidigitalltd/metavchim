@@ -45,22 +45,22 @@
 :root {
   --color-bg: #f4f6f3;
   --color-surface: #ffffff;
-  --color-text: #212722;        /* על הרקע: ~14:1 */
-  --color-text-muted: #68716a;  /* על הרקע: ~4.7:1 */
+  --color-text: #212722; /* על הרקע: ~14:1 */
+  --color-text-muted: #68716a; /* על הרקע: ~4.7:1 */
   /* ירוק המותג #0F8A43 נותן 4.4:1 על לבן — מתחת לסף AA לטקסט רגיל.
      לטקסט ולקישורים משמש הגוון הכהה מהעיצוב (6.4:1); הבהיר נשמר
      לאלמנטים גרפיים, שם הסף הוא 3:1 (docs/06 §4). */
-  --color-primary: #0C6E34;
+  --color-primary: #0c6e34;
   --color-primary-hover: #095427;
-  --color-primary-accent: #0F8A43; /* אייקונים, מסגרות, פסי התקדמות */
-  --color-primary-soft: #E5FCEA;
+  --color-primary-accent: #0f8a43; /* אייקונים, מסגרות, פסי התקדמות */
+  --color-primary-soft: #e5fcea;
   /* כפתור הפעולה מהעיצוב: ירוק בהיר עם טקסט כהה — 11.8:1 */
-  --color-action: #70EE91;
-  --color-action-hover: #5FE083;
-  --color-on-action: #0B1F12;
-  --color-danger: #b0512c;      /* לבן עליו: ~5.2:1 */
-  --color-success: #0C6E34;
-  --color-success-soft: #E5FCEA;
+  --color-action: #70ee91;
+  --color-action-hover: #5fe083;
+  --color-on-action: #0b1f12;
+  --color-danger: #b0512c; /* לבן עליו: ~5.2:1 */
+  --color-success: #0c6e34;
+  --color-success-soft: #e5fcea;
   --color-border: #e2e6e0;
   /* גבולות עדינים יותר מהעיצוב: שדות קלט והתחדדות בריחוף */
   --color-input-border: #dfe4dd;
@@ -95,9 +95,10 @@
   --color-text-soft: #4a534c;
   --color-progress-track: #e8ece6;
   --color-seg-track: #e8ece6;
-  --color-focus: #0C6E34;
+  --color-focus: #0c6e34;
   --radius: 13px;
-  --shadow-card: 0 1px 2px rgba(30, 40, 32, 0.06), 0 1px 3px rgba(30, 40, 32, 0.08);
+  --shadow-card:
+    0 1px 2px rgba(30, 40, 32, 0.06), 0 1px 3px rgba(30, 40, 32, 0.08);
   --shadow-pop: 0 16px 38px rgba(30, 40, 32, 0.16);
   --header-bg: rgba(255, 255, 255, 0.85);
 }
@@ -111,16 +112,16 @@
 :root {
   --dk-bg: #0d130f;
   --dk-surface: #151d17;
-  --dk-text: #e8f0ea;       /* על הרקע: ~16:1 */
+  --dk-text: #e8f0ea; /* על הרקע: ~16:1 */
   --dk-text-muted: #a3b0a6; /* על הרקע: ~8.3:1 */
-  --dk-primary: #5FE083;    /* ירוק בהיר — על כהה: ~11.2:1 */
-  --dk-primary-hover: #70EE91;
-  --dk-primary-accent: #70EE91;
+  --dk-primary: #5fe083; /* ירוק בהיר — על כהה: ~11.2:1 */
+  --dk-primary-hover: #70ee91;
+  --dk-primary-accent: #70ee91;
   --dk-primary-soft: #17301f;
-  --dk-action: #5FE083;
-  --dk-action-hover: #70EE91;
-  --dk-danger: #f0a58a;     /* על הרקע: ~9.4:1 */
-  --dk-success: #5FE083;
+  --dk-action: #5fe083;
+  --dk-action-hover: #70ee91;
+  --dk-danger: #f0a58a; /* על הרקע: ~9.4:1 */
+  --dk-success: #5fe083;
   --dk-success-soft: #17301f;
   --dk-border: #26332a;
   --dk-input-border: #2c392f;
@@ -192,17 +193,17 @@
   --color-success: var(--dk-success);
   --color-success-soft: var(--dk-success-soft);
   --color-border: var(--dk-border);
-    --color-input-border: var(--dk-input-border);
-    --color-border-hover: var(--dk-border-hover);
-    --color-field: var(--dk-field);
-    --color-hover-soft: var(--dk-hover-soft);
-    --color-row-border: var(--dk-row-border);
-    --color-card-head-border: var(--dk-card-head-border);
-    --color-table-head: var(--dk-table-head);
-    --color-row-hover: var(--dk-row-hover);
-    --color-text-soft: var(--dk-text-soft);
-    --color-progress-track: var(--dk-progress-track);
-    --color-seg-track: var(--dk-seg-track);
+  --color-input-border: var(--dk-input-border);
+  --color-border-hover: var(--dk-border-hover);
+  --color-field: var(--dk-field);
+  --color-hover-soft: var(--dk-hover-soft);
+  --color-row-border: var(--dk-row-border);
+  --color-card-head-border: var(--dk-card-head-border);
+  --color-table-head: var(--dk-table-head);
+  --color-row-hover: var(--dk-row-hover);
+  --color-text-soft: var(--dk-text-soft);
+  --color-progress-track: var(--dk-progress-track);
+  --color-seg-track: var(--dk-seg-track);
   --color-focus: var(--dk-primary);
   --shadow-card: var(--dk-shadow-card);
   --shadow-pop: var(--dk-shadow-pop);
@@ -224,7 +225,9 @@
 .mv-nav-link {
   color: var(--color-text);
   text-decoration: none;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 .mv-nav-link:hover {
   background: var(--color-primary-soft);
@@ -250,7 +253,14 @@ html {
 body {
   background: var(--color-bg);
   color: var(--color-text);
-  font-family: Almoni, Assistant, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  font-family:
+    Almoni,
+    Assistant,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Arial,
+    sans-serif;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }
@@ -384,7 +394,10 @@ code {
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    transform 0.1s ease,
+    box-shadow 0.15s ease;
 }
 .mv-button:active {
   transform: translateY(1px);
@@ -669,7 +682,9 @@ code {
   font-weight: 600;
   color: #c3ccc4; /* הגוון מקובץ העיצוב — על #0E100F:‏ ~10:1 */
   text-decoration: none;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 .mv-sidebar-link:hover {
   background: rgba(255, 255, 255, 0.06);
@@ -1194,7 +1209,9 @@ button.mv-list-row:hover {
   min-height: var(--control-h);
   padding: 0 14px;
   cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 .mv-select-button:hover {
   background: var(--color-hover-soft);
@@ -1577,7 +1594,10 @@ button.mv-list-row:hover {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   padding: 16px 18px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
 }
 /*
  * הכרטיס כולו הוא קישור, אבל בלי משוב ריחוף הוא נראה כטקסט סטטי
@@ -1616,7 +1636,9 @@ button.mv-list-row:hover {
   color: var(--color-primary);
   opacity: 0;
   transform: translateX(4px);
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 .mv-stat-card:hover .mv-stat-go,
 .mv-stat-card:focus-visible .mv-stat-go {
@@ -1751,8 +1773,13 @@ a.mv-bar-row:focus-visible {
   animation: mvSoftPulse 1.1s infinite;
 }
 @keyframes mvSoftPulse {
-  0%, 100% { opacity: 0.45; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 .mv-dictate-error {
   flex-basis: 100%;
@@ -2243,7 +2270,11 @@ a.mv-bar-row:focus-visible {
 /* הבאנר שעונה על החשש לפני שהוא נשאל */
 .mv-privacy {
   border: 1px solid var(--color-primary-accent);
-  background: linear-gradient(135deg, var(--color-primary-soft), var(--color-surface) 70%);
+  background: linear-gradient(
+    135deg,
+    var(--color-primary-soft),
+    var(--color-surface) 70%
+  );
   border-radius: 16px;
   padding: 16px 18px;
   margin-bottom: 18px;
@@ -2331,7 +2362,11 @@ a.mv-bar-row:focus-visible {
 }
 .mv-privacy-col--hidden .mv-privacy-list li {
   text-decoration: line-through;
-  text-decoration-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+  text-decoration-color: color-mix(
+    in srgb,
+    var(--color-danger) 45%,
+    transparent
+  );
   text-decoration-thickness: 1px;
 }
 .mv-privacy-col--hidden .mv-privacy-list svg {
@@ -2345,7 +2380,9 @@ a.mv-bar-row:focus-visible {
   border-radius: 16px;
   background: var(--color-surface);
   padding: 16px 18px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 .mv-net-card:hover {
   border-color: var(--color-border-hover);
@@ -2353,7 +2390,11 @@ a.mv-bar-row:focus-visible {
 }
 /* הביקוש שלי — נבדל בעין, כי אין עליו מה לעשות */
 .mv-net-card--mine {
-  background: linear-gradient(135deg, var(--color-hover-soft), var(--color-surface) 60%);
+  background: linear-gradient(
+    135deg,
+    var(--color-hover-soft),
+    var(--color-surface) 60%
+  );
 }
 .mv-net-head {
   display: flex;
@@ -2372,7 +2413,8 @@ a.mv-bar-row:focus-visible {
   background: var(--color-primary-soft);
   color: var(--color-primary);
   /* טבעת פנימית עדינה במקום גבול — נותנת עומק בלי קו נוסף במסך */
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary-accent) 28%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--color-primary-accent) 28%, transparent);
 }
 .mv-net-title {
   margin: 0;
@@ -2534,6 +2576,105 @@ a.mv-bar-row:focus-visible {
 }
 
 /*
+ * מה מחכה ברשת ואינו מפורסם.
+ *
+ * ירוק הפעולה (`--color-action`) ולא ירוק המותג: באנר החיסיון מעליו
+ * כבר לובש את הירוק הכהה, ושני כרטיסים באותו גוון בראש אותו מסך
+ * נקראים כרצף אחד — כלומר ההצעה נבלעת בהסבר. הירוק הבהיר הוא
+ * הגוון שהמערכת כבר משתמשת בו לכפתור הפעולה, וזה בדיוק תפקידו כאן.
+ */
+.mv-reach {
+  border: 1px solid var(--color-action);
+  border-radius: 16px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-action) 16%, var(--color-surface)),
+    var(--color-surface) 68%
+  );
+  padding: 15px 18px;
+  margin-bottom: 18px;
+}
+.mv-reach-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+}
+.mv-reach-badge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  background: var(--color-action);
+  color: var(--color-on-action);
+}
+/*
+ * שני טורים כשיש גם נכסים וגם קונים, טור אחד כשיש רק אחד מהם.
+ * `auto-fit` ולא שניים קבועים — טור בודד שנמתח על חצי מסך מותיר
+ * חלל ריק שנקרא כתקלה.
+ */
+.mv-reach-lists {
+  display: grid;
+  gap: 8px 18px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  margin-top: 12px;
+}
+.mv-reach-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/*
+ * כל שורה היא קישור לכרטיס — שם פותחים לשיתוף.
+ * הודעה שאומרת "יש לכם 3" ואינה מובילה לאף אחד מהם מחייבת את
+ * המשתמש לחפש אותם בעצמו, וזה בדיוק מה שהוא לא יעשה.
+ */
+.mv-reach-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  padding: 7px 11px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  color: inherit;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+.mv-reach-item:hover {
+  border-color: var(--color-action);
+  background: var(--color-hover-soft);
+}
+.mv-reach-item svg {
+  flex: none;
+  color: var(--color-primary-accent);
+}
+.mv-reach-count {
+  margin-inline-start: auto;
+  flex: none;
+  border-radius: 99px;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  padding: 2px 9px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.mv-reach-rest {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  padding-inline-start: 11px;
+}
+
+/*
  * כותרת סעיף עם אייקון.
  *
  * השבירה לשורה נפרדת כבר נפתרה בשורש — `svgProps` מחזיר
@@ -2542,6 +2683,7 @@ a.mv-bar-row:focus-visible {
  * שמשתנה עם גודל הגופן.
  */
 #coop-panel-demands h2,
+#coop-panel-listings h2,
 #coop-panel-incoming h2,
 #coop-panel-market h2,
 #coop-panel-market h3 {
@@ -2550,6 +2692,7 @@ a.mv-bar-row:focus-visible {
   gap: 8px;
 }
 #coop-panel-demands h2 > svg,
+#coop-panel-listings h2 > svg,
 #coop-panel-incoming h2 > svg,
 #coop-panel-market h2 > svg,
 #coop-panel-market h3 > svg {

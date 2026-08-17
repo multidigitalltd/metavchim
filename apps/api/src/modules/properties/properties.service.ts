@@ -35,6 +35,7 @@ import { OutboxService } from "../../core/outbox.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { ListingsService } from "../collaboration/listings.service";
 import {
   MatchingService,
   type MatchTrigger,
@@ -59,6 +60,7 @@ export class PropertiesService {
     private readonly plans: PlanCatalogService,
     private readonly crypto: CryptoService,
     private readonly geocoding: GeocodingService,
+    private readonly listings: ListingsService,
   ) {}
 
   /**
@@ -488,6 +490,18 @@ export class PropertiesService {
     });
 
     await this.matching.recomputeForProperty(id, { trigger });
+    /*
+     * הפרסום ברשת הוא צילום של הנכס, ולכן הוא מזדקן בכל עריכה: מחיר
+     * שירד, מועד כניסה שהשתנה, מאפיין שנוסף. משרד אחר שמחליט על סמך
+     * צילום ישן מגלה את הפער רק אחרי שהשקיע קונה — וזו בדיוק התקלה
+     * שכבר תוקנה בצד הקונה. best-effort: העריכה כבר נשמרה, וכשל
+     * זמני בסנכרון אינו הופך אותה ל"נכשלה".
+     */
+    try {
+      await this.listings.resyncForProperty(id);
+    } catch {
+      // הצילום יתרענן בעריכה הבאה — כמו בחישוב ההתאמות
+    }
     return this.getById(id);
   }
 
@@ -939,6 +953,18 @@ export class PropertiesService {
           newStatus: "archived",
         });
       }
+      /*
+       * הפרסום ברשת נסגר גם כאן, ולא רק בעריכה.
+       *
+       * הארכיון קורא ל-`softDelete` ישירות ואינו עובר ב-`update`,
+       * ולכן נכס שהמשרד הוריד משיווק נשאר מוצג לרשת: משרדים אחרים
+       * ראו אותו, פנו עליו, וקיבלו שקט. **הצילום נסגר בכל מסלול שבו
+       * הנכס יורד**, ולא באחד מהם (ביקורת Codex).
+       *
+       * בתוך הטרנזקציה ולא אחריה: כאן, בניגוד לעריכה, כישלון בלוע
+       * משאיר נכס שנמחק גלוי לכל הרשת.
+       */
+      await this.listings.closeForProperty(tx, id);
       await this.audit.record(tx, {
         action: "property.delete",
         entityType: "property",
