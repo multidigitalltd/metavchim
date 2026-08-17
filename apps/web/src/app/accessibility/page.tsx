@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import { LEGAL } from "../../lib/legal";
-import { LegalDemoNotice } from "../legal-demo-notice";
+import { fetchLegal } from "../../lib/legal";
 
 export const metadata: Metadata = { title: "הצהרת נגישות" };
 
@@ -13,12 +12,12 @@ export const metadata: Metadata = { title: "הצהרת נגישות" };
  * משפטי שמתאר תכונה שאינה קיימת גרוע יותר מהיעדר תכונה — לכן כל שינוי
  * בהגדרות הנגישות מחייב מעבר על העמוד הזה.
  */
-export default function AccessibilityStatementPage() {
+export default async function AccessibilityStatementPage() {
+  const { legal } = await fetchLegal();
+
   return (
     <article className="mx-auto max-w-2xl">
       <h1 className="mb-4 text-2xl font-bold">הצהרת נגישות</h1>
-
-      <LegalDemoNotice />
 
       <p className="mb-4">
         אנו רואים חשיבות רבה במתן שירות שוויוני לכלל הלקוחות ובשיפור השירות
@@ -58,14 +57,14 @@ export default function AccessibilityStatementPage() {
       <h2 className="mb-2 mt-6 text-lg font-semibold">פנייה בנושא נגישות</h2>
       <p className="mb-4">
         נתקלתם בבעיית נגישות? נשמח לתקן. פנו לרכז/ת הנגישות בכתובת{" "}
-        <a href={`mailto:${LEGAL.accessibilityEmail}`} className="underline">
-          {LEGAL.accessibilityEmail}
+        <a href={`mailto:${legal.accessibilityEmail}`} className="underline">
+          {legal.accessibilityEmail}
         </a>{" "}
         ונטפל בפנייה בהקדם.
       </p>
 
       <p className="text-sm text-[var(--color-text-muted)]">
-        עודכן לאחרונה: {LEGAL.updatedAt}
+        עודכן לאחרונה: {legal.updatedAt}
         <br />
         ראו גם:{" "}
         <a href="/privacy" className="underline">

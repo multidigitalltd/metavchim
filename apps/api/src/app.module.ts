@@ -35,6 +35,7 @@ import { OffersModule } from "./modules/offers/offers.module";
 import { PlatformModule } from "./modules/platform/platform.module";
 import { PropertiesModule } from "./modules/properties/properties.module";
 import { SearchModule } from "./modules/search/search.module";
+import { LegalModule } from "./modules/legal/legal.module";
 import { SettingsModule } from "./modules/settings/settings.module";
 import { SignupModule } from "./modules/signup/signup.module";
 import { TelephonyModule } from "./modules/telephony/telephony.module";
@@ -74,6 +75,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     CollaborationModule,
     MapsModule,
     SettingsModule,
+    LegalModule,
     SignupModule,
     BillingModule,
     TelephonyModule,

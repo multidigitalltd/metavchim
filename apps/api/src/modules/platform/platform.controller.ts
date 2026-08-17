@@ -224,6 +224,26 @@ const UpdateSettingsSchema = z
     supportEmail: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
 
     /*
+     * המסמכים המשפטיים. **ריק בכל שדה = הנוסח שבקוד**, ולא מסמך ריק:
+     * עמוד תנאי שימוש שנמחק בטעות והוצג ריק הוא גרוע יותר מנוסח
+     * ברירת מחדל, ובמדינה שדורשת מסמכים כאלה הוא גם חשיפה.
+     *
+     * התקרה על הנוסחים נדיבה בכוונה — מסמך משפטי אמיתי מעורך/ת דין
+     * הוא ארוך, וגבול הדוק היה חותך אותו באמצע בלי שאיש ישים לב.
+     */
+    legalOperator: z.union([z.string().trim().min(2).max(200), z.literal("")]).optional(),
+    // ח.פ. ישראלי הוא תשע ספרות; מקפים ורווחים נפוצים בהקלדה ולכן מותרים
+    legalCompanyId: z.union([z.string().trim().min(2).max(40), z.literal("")]).optional(),
+    legalAddress: z.union([z.string().trim().min(5).max(300), z.literal("")]).optional(),
+    legalPrivacyEmail: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+    legalAccessibilityEmail: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+    // מוצג כמות שהוא ("9 באוגוסט 2026") — טקסט ולא תאריך, כי נוסח
+    // עברי קריא עדיף כאן על פורמט מכונה
+    legalUpdatedAt: z.union([z.string().trim().min(3).max(60), z.literal("")]).optional(),
+    legalTermsText: z.union([z.string().trim().min(50).max(80_000), z.literal("")]).optional(),
+    legalPrivacyText: z.union([z.string().trim().min(50).max(80_000), z.literal("")]).optional(),
+
+    /*
      * כלכלת הקרדיטים. **ריק בכל שדה = חזרה לברירת המחדל**, ולא אפס:
      * `Number("")` הוא 0, ושדה שנוקה בטעות היה מאפס מחיר בשקט.
      * התקרות הן הגנת שפיות מפני טעות הקלדה, לא מדיניות מחירים.
@@ -903,6 +923,23 @@ export class PlatformController {
      * מסיק, בצדק, שהכפתור אינו עובד.
      */
     supportEmail: string;
+    /**
+     * המסמכים המשפטיים — **ערכים ולא "מוגדר"**, כמו `supportEmail`
+     * ומאותו טעם: זה מסך העריכה שלהם, ועורך שאינו רואה את הנוסח
+     * הקיים אינו יכול לתקן בו מילה — רק לכתוב אותו מחדש.
+     *
+     * מחרוזת ריקה = לא נערך, והעמוד מציג את הנוסח שבקוד.
+     */
+    legal: {
+      operator: string;
+      companyId: string;
+      address: string;
+      privacyEmail: string;
+      accessibilityEmail: string;
+      updatedAt: string;
+      termsText: string;
+      privacyText: string;
+    };
   }> {
     const env = loadEnv();
     const dbKeys = await this.platformSettings.configuredKeys();
@@ -941,6 +978,16 @@ export class PlatformController {
       },
       // הערך ולא רק "מוגדר" — ראו ההסבר בטיפוס המוחזר
       supportEmail: (await this.platformSettings.get("supportEmail")) ?? "",
+      legal: {
+        operator: (await this.platformSettings.get("legalOperator")) ?? "",
+        companyId: (await this.platformSettings.get("legalCompanyId")) ?? "",
+        address: (await this.platformSettings.get("legalAddress")) ?? "",
+        privacyEmail: (await this.platformSettings.get("legalPrivacyEmail")) ?? "",
+        accessibilityEmail: (await this.platformSettings.get("legalAccessibilityEmail")) ?? "",
+        updatedAt: (await this.platformSettings.get("legalUpdatedAt")) ?? "",
+        termsText: (await this.platformSettings.get("legalTermsText")) ?? "",
+        privacyText: (await this.platformSettings.get("legalPrivacyText")) ?? "",
+      },
       postmark: {
         configured: postmarkDb || postmarkEnv,
         source: postmarkDb ? "db" : postmarkEnv ? "env" : "none",

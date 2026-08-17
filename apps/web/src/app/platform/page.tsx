@@ -13,6 +13,7 @@ import { PaymentsSection } from "./payments-section";
 import { PlansSection } from "./plans-section";
 import { CouponsSection } from "./coupons-section";
 import { PlatformSettingsSection } from "./platform-settings-section";
+import { LegalDocsSection } from "./legal-docs-section";
 import { CreditEconomySection } from "./credit-economy-section";
 import { SystemUpdateSection } from "./system-update-section";
 import { SupportDeskSection } from "./support-desk-section";
@@ -142,6 +143,7 @@ const JUMP_LINKS: readonly (readonly [string, string])[] = [
   ["lead-prices-heading", "תמחור לידים"],
   ["payments-heading", "תשלומים"],
   ["platform-settings-heading", "חיבורי המערכת"],
+  ["legal-heading", "מסמכים משפטיים"],
   // ישירות אל כרטיס Google ולא אל כותרת הסעיף: זה הקיצור שבאמת
   // מחפשים, והוא חייב לנחות על השדות עצמם
   ["google-connections", "חיבורי Google"],
@@ -386,6 +388,8 @@ export default function PlatformPage() {
       <PaymentsSection />
 
       <PlatformSettingsSection />
+
+      <LegalDocsSection />
 
       <section aria-labelledby="new-agency" className="mb-8 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
         <h2 id="new-agency" className="mb-3 text-lg font-semibold"><IconPlus s={16} /> משרד חדש</h2>
