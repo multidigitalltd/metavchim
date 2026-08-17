@@ -90,11 +90,26 @@ export function LegalDocsSection() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   function load() {
+    setLoadFailed(false);
     apiGet<SettingsResponse>("/platform/settings")
+      /*
+       * שרת ישן שאינו מחזיר `legal` הוא תשובה תקינה — פשוט אין עדיין
+       * ערכים. זה שונה מכשל טעינה, ולכן רק כאן נופלים ל-EMPTY.
+       */
       .then((s) => setLegal(s.legal ?? EMPTY))
-      .catch(() => setLegal(EMPTY));
+      .catch(() => {
+        /*
+         * **כשל טעינה אינו טופס ריק.** אילו הצגנו כאן EMPTY, מנהל
+         * שהיה מתקן שדה אחד ושומר היה שולח מחרוזת ריקה בכל שאר
+         * השדות — והשרת מפרש ריק כמחיקה. תקלת רשת רגעית הייתה
+         * מוחקת את כל פרטי החברה ואת שני הנוסחים בבת אחת.
+         */
+        setLegal(null);
+        setLoadFailed(true);
+      });
   }
 
   useEffect(load, []);
@@ -141,7 +156,20 @@ export function LegalDocsSection() {
         <IconDoc s={18} /> מסמכים משפטיים
       </h2>
 
-      {legal === null ? (
+      {loadFailed ? (
+        <div
+          className="rounded-xl border p-4"
+          style={{ borderColor: "var(--color-danger)", background: "var(--color-surface)" }}
+        >
+          <p className="mb-3" style={{ color: "var(--color-danger)" }}>
+            טעינת המסמכים נכשלה. העריכה חסומה עד שהערכים הקיימים ייטענו —
+            שמירה על סמך טופס ריק הייתה מוחקת אותם.
+          </p>
+          <Button type="button" onClick={load}>
+            ניסיון חוזר
+          </Button>
+        </div>
+      ) : legal === null ? (
         <p style={{ color: "var(--color-text-muted)" }}>טוען…</p>
       ) : (
         <form onSubmit={(e) => void save(e)}>

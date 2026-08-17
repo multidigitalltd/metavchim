@@ -55,8 +55,27 @@ export interface LegalOverrides {
   privacyText: string | null;
 }
 
-const API_BASE =
-  (process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:3001") + "/api/v1";
+/**
+ * כתובת ה-API עבור **קריאה מהשרת**, ולכן מוחלטת תמיד.
+ *
+ * `NEXT_PUBLIC_API_URL` אינו מתאים כאן: בפרודקשן הוא נבנה **ריק
+ * בכוונה**, כדי שהדפדפן יפנה same-origin דרך ה-Proxy (ראו
+ * infra/docker/Dockerfile). ריק אינו `undefined`, ולכן `??` לא היה
+ * מחליף אותו — התוצאה הייתה `"/api/v1"`, כתובת יחסית ש-Node דוחה,
+ * ה-catch היה בולע את השגיאה, וכל עריכה שנשמרה ב-/platform הייתה
+ * מוצגת כברירת המחדל בלי שאיש ידע למה. **הבדיקה היא על ערך אמיתי
+ * ולא על `undefined`.**
+ *
+ * `INTERNAL_API_URL` הוא הכתובת ברשת הפנימית של Docker (`http://api:3001`),
+ * ומוגדר ב-docker-compose.prod.yml. בפיתוח אין אותו, ואז localhost.
+ */
+const API_BASE = (() => {
+  const internal = process.env["INTERNAL_API_URL"];
+  if (internal !== undefined && internal !== "") return internal + "/api/v1";
+  const publicUrl = process.env["NEXT_PUBLIC_API_URL"];
+  if (publicUrl !== undefined && publicUrl !== "") return publicUrl + "/api/v1";
+  return "http://localhost:3001/api/v1";
+})();
 
 /**
  * הפרטים והנוסחים כפי שהם כרגע.
@@ -102,7 +121,13 @@ export async function fetchLegal(): Promise<{
         privacyText: typeof body["privacyText"] === "string" ? body["privacyText"] : null,
       },
     };
-  } catch {
+  } catch (error) {
+    /*
+     * נרשם ולא נבלע בשקט. העמוד ממשיך לעבוד עם נוסח ברירת המחדל,
+     * אבל תקלת הגדרה שמתבטאת ב"המסמכים לא מתעדכנים" היא בדיוק מה
+     * שאי אפשר לאבחן בלי שורה ביומן.
+     */
+    console.warn("[legal] קריאת המסמכים מה-API נכשלה, מוצג נוסח ברירת המחדל:", error);
     return fallback;
   }
 }
