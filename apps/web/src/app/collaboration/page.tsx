@@ -117,6 +117,8 @@ interface DemandMatch {
   title: string;
   score: number;
   explanation: string;
+  /** הנכס כבר הוצע לביקוש הזה — מסומן במקום כפתור */
+  offered?: boolean;
 }
 
 interface DemandRow {
@@ -1289,19 +1291,26 @@ export default function CollaborationPage() {
                                     {match.explanation}
                                   </span>
                                 </span>
-                                <Button
-                                  variant="secondary"
-                                  onClick={() =>
-                                    void sendOfferFor(
-                                      demand.id,
-                                      match.propertyId,
-                                    )
-                                  }
-                                >
-                                  {demand.creditsCost > 0
-                                    ? `הצע נכס זה (${demand.creditsCost} קרדיטים)`
-                                    : "הצע נכס זה"}
-                                </Button>
+                                {/* נכס שכבר הוצע — סימון ולא כפתור. הצעה
+                                    שנייה של אותו נכס לאותו ביקוש נדחית
+                                    בשרת, ואין טעם להזמין אליה לחיצה */}
+                                {match.offered ? (
+                                  <span className="mv-chip">כבר הוצע</span>
+                                ) : (
+                                  <Button
+                                    variant="secondary"
+                                    onClick={() =>
+                                      void sendOfferFor(
+                                        demand.id,
+                                        match.propertyId,
+                                      )
+                                    }
+                                  >
+                                    {demand.creditsCost > 0
+                                      ? `הצע נכס זה (${demand.creditsCost} קרדיטים)`
+                                      : "הצע נכס זה"}
+                                  </Button>
+                                )}
                               </li>
                             ))}
                           </ul>
