@@ -85,7 +85,11 @@ interface OfferInfo {
 const OFFER_STATUS_LABELS: Record<string, ReactNode> = {
   sent: "הצעה נשלחה",
   opened: "הקונה פתח את ההצעה",
-  interested: <><IconThumbUp s={15} /> הקונה מעוניין!</>,
+  interested: (
+    <>
+      <IconThumbUp s={15} /> הקונה מעוניין!
+    </>
+  ),
   declined: "הקונה דחה",
 };
 
@@ -107,7 +111,11 @@ function readinessTextColor(score: number): string {
   return "#b0512c";
 }
 
-export default function PropertyDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default function PropertyDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const { id } = use(params);
   const { user, loading: authLoading } = useRequireAuth();
   /*
@@ -115,13 +123,23 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
    * שרץ אחריו הוא שגיאת React, והכרטיס מציג "טוען…" לפני שיש נכס.
    */
   const [tab, selectTab] = useEntityTab(
-    ["overview", "matches", "owner", "exclusivity", "agreements", "tasks"],
+    [
+      "overview",
+      "matches",
+      "network",
+      "owner",
+      "exclusivity",
+      "agreements",
+      "tasks",
+    ],
     "overview",
   );
   const [openTasks, setOpenTasks] = useState<number | undefined>(undefined);
   useEffect(() => {
     apiGet<{ status: string }[]>(`/tasks/for/property/${id}`)
-      .then((rows) => setOpenTasks(rows.filter((t) => t.status === "open").length))
+      .then((rows) =>
+        setOpenTasks(rows.filter((t) => t.status === "open").length),
+      )
       .catch(() => setOpenTasks(undefined));
   }, [id]);
   const canEditOwner = can(user, "properties.edit");
@@ -141,7 +159,9 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   const [bulkConfirm, setBulkConfirm] = useState(false);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
   /** matchId ⟵ קישור חתימה, להתאמות שנחסמו בשער ההחתמה */
-  const [awaitingSignature, setAwaitingSignature] = useState<Record<string, string>>({});
+  const [awaitingSignature, setAwaitingSignature] = useState<
+    Record<string, string>
+  >({});
   const [landingUrl, setLandingUrl] = useState<string | null>(null);
   const [landingBusy, setLandingBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -166,7 +186,9 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
         setMatches(rows);
         if (rows.length > 0) {
           const ids = rows.map((m) => m.id).join(",");
-          apiGet<Record<string, OfferInfo>>(`/offers/for-matches?matchIds=${ids}`)
+          apiGet<Record<string, OfferInfo>>(
+            `/offers/for-matches?matchIds=${ids}`,
+          )
             .then(setOffers)
             .catch(() => undefined);
         }
@@ -176,7 +198,9 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
 
   async function createOffer(matchId: string) {
     try {
-      const offer = await apiPost<OfferInfo & { matchId: string }>("/offers", { matchId });
+      const offer = await apiPost<OfferInfo & { matchId: string }>("/offers", {
+        matchId,
+      });
       setOffers((prev) => ({ ...prev, [matchId]: offer }));
       await navigator.clipboard.writeText(offer.url).catch(() => undefined);
       setCopiedFor(matchId);
@@ -201,13 +225,19 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
 
   /** פותח וואטסאפ עם ההודעה והקישור מוכנים — המתווך רק לוחץ שלח (אפיון §10). */
   async function sendWhatsApp(offerId: string) {
-    const { waUrl } = await apiPost<{ waUrl: string }>(`/offers/${offerId}/whatsapp`, {});
+    const { waUrl } = await apiPost<{ waUrl: string }>(
+      `/offers/${offerId}/whatsapp`,
+      {},
+    );
     window.open(waUrl, "_blank", "noopener");
   }
 
   /** עדכון שיווק לבעל הנכס — משפך הנכס בהודעת וואטסאפ מוכנה לשליחה. */
   async function sendOwnerUpdate() {
-    const { waUrl } = await apiPost<{ waUrl: string }>(`/properties/${id}/owner-update`, {});
+    const { waUrl } = await apiPost<{ waUrl: string }>(
+      `/properties/${id}/owner-update`,
+      {},
+    );
     window.open(waUrl, "_blank", "noopener");
   }
 
@@ -215,7 +245,10 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   async function createLanding() {
     setLandingBusy(true);
     try {
-      const { url } = await apiPost<{ url: string }>(`/properties/${id}/landing`, {});
+      const { url } = await apiPost<{ url: string }>(
+        `/properties/${id}/landing`,
+        {},
+      );
       setLandingUrl(url);
       await navigator.clipboard.writeText(url).catch(() => undefined);
     } finally {
@@ -296,7 +329,10 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
     );
     setAwaitingSignature(
       Object.fromEntries(
-        (result.awaitingSignature ?? []).map((row) => [row.matchId, row.signUrl]),
+        (result.awaitingSignature ?? []).map((row) => [
+          row.matchId,
+          row.signUrl,
+        ]),
       ),
     );
     const rows = await apiGet<MatchRow[]>(`/properties/${id}/matches`);
@@ -317,13 +353,18 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   if (error) {
     return (
       <p role="alert" style={{ color: "var(--color-danger)" }}>
-        {error} — <Link href="/properties" className="underline">חזרה לרשימה</Link>
+        {error} —{" "}
+        <Link href="/properties" className="underline">
+          חזרה לרשימה
+        </Link>
       </p>
     );
   }
   if (!property) return <p aria-live="polite">טוען…</p>;
 
-  const address = [property.street, property.neighborhood, property.city].filter(Boolean).join(", ");
+  const address = [property.street, property.neighborhood, property.city]
+    .filter(Boolean)
+    .join(", ");
   const features = [
     property.hasElevator && "מעלית",
     property.hasParking && "חניה",
@@ -332,24 +373,42 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
   ].filter(Boolean) as string[];
 
   const detailFields: [string, string][] = [
-    ["סוג", property.propertyType ? (PROPERTY_TYPE_LABELS[property.propertyType] ?? property.propertyType) : "—"],
+    [
+      "סוג",
+      property.propertyType
+        ? (PROPERTY_TYPE_LABELS[property.propertyType] ?? property.propertyType)
+        : "—",
+    ],
     ["חדרים", property.rooms !== undefined ? String(property.rooms) : "—"],
     ["שטח", property.areaSqm ? `${property.areaSqm} מ"ר` : "—"],
-    ["קומה", property.floor !== undefined ? `${property.floor}${property.totalFloors ? ` מתוך ${property.totalFloors}` : ""}` : "—"],
+    [
+      "קומה",
+      property.floor !== undefined
+        ? `${property.floor}${property.totalFloors ? ` מתוך ${property.totalFloors}` : ""}`
+        : "—",
+    ],
     [
       "כניסה / מסירה",
       // מצב + תאריך + ההערה החופשית בשורה אחת; "מיידי" ו"גמיש" הם
       // תשובות ולא חוסר, ולכן אינם מוצגים כמקף
       describeEntry({
-        entryType: property.entryType as Parameters<typeof describeEntry>[0]["entryType"],
-        ...(property.entryDate !== undefined ? { entryDate: new Date(property.entryDate) } : {}),
-        ...(property.entryNote !== undefined ? { entryNote: property.entryNote } : {}),
+        entryType: property.entryType as Parameters<
+          typeof describeEntry
+        >[0]["entryType"],
+        ...(property.entryDate !== undefined
+          ? { entryDate: new Date(property.entryDate) }
+          : {}),
+        ...(property.entryNote !== undefined
+          ? { entryNote: property.entryNote }
+          : {}),
       }) ?? "—",
     ],
     ["מאפיינים", features.length > 0 ? features.join(", ") : "—"],
   ];
 
-  const bulkEligible = (matches ?? []).filter((m) => m.score >= 85 && !offers[m.id]).length;
+  const bulkEligible = (matches ?? []).filter(
+    (m) => m.score >= 85 && !offers[m.id],
+  ).length;
 
   return (
     <>
@@ -362,7 +421,10 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
       </Link>
 
       {/* ---- כרטיס הכותרת ---- */}
-      <div className="mv-list-card mb-[18px] p-6" style={{ overflow: "visible" }}>
+      <div
+        className="mv-list-card mb-[18px] p-6"
+        style={{ overflow: "visible" }}
+      >
         <div className="flex flex-wrap items-start gap-4">
           <div>
             <div className="flex flex-wrap items-center gap-2.5">
@@ -376,17 +438,26 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                   disabled={statusSaving}
                   onChange={(e) => void changeStatus(e.target.value)}
                   className="mv-pill border-0"
-                  style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)", cursor: "pointer" }}
+                  style={{
+                    background: "var(--color-primary-soft)",
+                    color: "var(--color-primary)",
+                    cursor: "pointer",
+                  }}
                 >
                   {Object.entries(STATUS_LABELS)
                     .filter(([value]) => value !== "archived")
                     .map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
                     ))}
                 </select>
               </label>
             </div>
-            <p className="m-0 mt-[5px] text-sm" style={{ color: "var(--color-text-muted)" }}>
+            <p
+              className="m-0 mt-[5px] text-sm"
+              style={{ color: "var(--color-text-muted)" }}
+            >
               {/*
                 בעל הנכס היה כאן כשורה בכותרת המשנה. הוא עבר לסעיף
                 משלו בטור הראשי — הוא צד לעסקה, לא הערת שוליים לכתובת.
@@ -395,14 +466,65 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
             </p>
           </div>
           <div className="ms-auto text-start">
-            <div style={{ fontSize: 25, fontWeight: 800 }}>{formatPrice(property.priceAgorot)}</div>
+            <div style={{ fontSize: 25, fontWeight: 800 }}>
+              {formatPrice(property.priceAgorot)}
+            </div>
             <div className="mt-[9px] flex flex-wrap gap-2">
-              <Link href={`/properties/${id}/edit`} className="mv-btn-plain" style={{ padding: "7px 13px", fontSize: 13 }}>
+              <Link
+                href={`/properties/${id}/edit`}
+                className="mv-btn-plain"
+                style={{ padding: "7px 13px", fontSize: 13 }}
+              >
                 עריכה
               </Link>
-              <Link href={`/calendar/new?propertyId=${id}`} className="mv-btn-plain" style={{ padding: "7px 13px", fontSize: 13 }}>
+              <Link
+                href={`/calendar/new?propertyId=${id}`}
+                className="mv-btn-plain"
+                style={{ padding: "7px 13px", fontSize: 13 }}
+              >
                 קבע סיור
               </Link>
+              {/*
+                מחיקה ליד עריכה — שם מחפשים אותה. היא נשארת בשני
+                שלבים: לחיצה ראשונה שואלת, שנייה מבצעת. נכס פעיל
+                עובר לארכיון וניתן לשחזור, ורק נכס שכבר בארכיון
+                נמחק לצמיתות — ולכן גם הניסוח משתנה, ואינו מבטיח
+                "מחיקה" למשהו שהוא שחזיר.
+              */}
+              <button
+                type="button"
+                className="mv-btn-plain"
+                style={{
+                  padding: "7px 13px",
+                  fontSize: 13,
+                  color:
+                    archiveConfirm || purgeConfirm
+                      ? "var(--color-danger)"
+                      : "var(--color-text-muted)",
+                }}
+                onClick={() => void (property.archived ? purge() : archive())}
+              >
+                {property.archived
+                  ? purgeConfirm
+                    ? "למחוק לצמיתות?"
+                    : "מחיקה לצמיתות"
+                  : archiveConfirm
+                    ? "להעביר לארכיון?"
+                    : "מחיקה"}
+              </button>
+              {archiveConfirm || purgeConfirm ? (
+                <button
+                  type="button"
+                  className="mv-btn-plain"
+                  style={{ padding: "7px 13px", fontSize: 13 }}
+                  onClick={() => {
+                    setArchiveConfirm(false);
+                    setPurgeConfirm(false);
+                  }}
+                >
+                  ביטול
+                </button>
+              ) : null}
               {canLanding ? (
                 <button
                   type="button"
@@ -414,17 +536,51 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                   {landingBusy ? "יוצר…" : "צור דף נחיתה"}
                 </button>
               ) : null}
-              <a href="#matches-heading" className="mv-btn-action" style={{ padding: "7px 15px", fontSize: 13 }}>
+              {/*
+                כפתור ולא עוגן: מאז שההתאמות עברו ללשונית, הפאנל שלהן
+                אינו קיים ב-DOM כל עוד לשונית אחרת פתוחה — ועוגן אל
+                מזהה שאינו קיים אינו עושה דבר. הלחיצה קודם בוחרת את
+                הלשונית, ורק אחרי שהיא הורכבה גוללת אליה (ביקורת Codex).
+              */}
+              <button
+                type="button"
+                className="mv-btn-action"
+                style={{ padding: "7px 15px", fontSize: 13 }}
+                onClick={() => {
+                  selectTab("matches");
+                  requestAnimationFrame(() => {
+                    document
+                      .getElementById("matches-heading")
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  });
+                }}
+              >
                 מצא לי קונים
-              </a>
+              </button>
             </div>
           </div>
         </div>
 
         {landingUrl ? (
-          <p role="status" className="m-0 mt-3 flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-sm" style={{ background: "#F1FEF4", border: "1px solid #BDF4CB" }}>
-            <span className="font-bold" style={{ color: "var(--color-primary)" }}>✓ דף הנחיתה מוכן והקישור הועתק:</span>
-            <a href={landingUrl} target="_blank" rel="noopener noreferrer" dir="ltr" className="underline" style={{ color: "var(--color-primary)" }}>
+          <p
+            role="status"
+            className="m-0 mt-3 flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-sm"
+            style={{ background: "#F1FEF4", border: "1px solid #BDF4CB" }}
+          >
+            <span
+              className="font-bold"
+              style={{ color: "var(--color-primary)" }}
+            >
+              ✓ דף הנחיתה מוכן והקישור הועתק:
+            </span>
+            <a
+              href={landingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              dir="ltr"
+              className="underline"
+              style={{ color: "var(--color-primary)" }}
+            >
               {landingUrl}
             </a>
             <span style={{ color: "var(--color-text-muted)" }}>
@@ -435,7 +591,10 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
       </div>
 
       {/* ---- לשוניות ---- */}
-      <div className="mv-list-card mb-[18px] px-4" style={{ overflow: "visible" }}>
+      <div
+        className="mv-list-card mb-[18px] px-4"
+        style={{ overflow: "visible" }}
+      >
         <EntityTabs
           label="לשוניות כרטיס הנכס"
           active={tab}
@@ -443,6 +602,12 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
           tabs={[
             { key: "overview", label: "סקירה" },
             { key: "matches", label: "התאמות", count: matches?.length },
+            /*
+              לשונית משלה, כמו בכרטיס הקונה. הפרסום לרשת ישב עד כה
+              בתחתית לשונית ההתאמות — כלומר מי שרצה לפרסם נכס היה
+              צריך לדעת לגלול לשם, ורוב הנכסים פשוט לא פורסמו.
+            */
+            { key: "network", label: "שיתופי פעולה" },
             { key: "owner", label: "בעל הנכס" },
             { key: "exclusivity", label: "בלעדיות" },
             { key: "agreements", label: "הסכמים" },
@@ -455,19 +620,37 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
       <TabPanel tab="overview" active={tab}>
         <div className="grid items-start gap-[18px] lg:[grid-template-columns:1fr_340px]">
           <div className="flex flex-col gap-[18px]">
-            <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="details-heading">
-              <h2 id="details-heading" className="m-0 mb-3.5" style={{ fontSize: 15.5, fontWeight: 800 }}>
+            <section
+              className="mv-list-card px-[22px] py-[18px]"
+              aria-labelledby="details-heading"
+            >
+              <h2
+                id="details-heading"
+                className="m-0 mb-3.5"
+                style={{ fontSize: 15.5, fontWeight: 800 }}
+              >
                 פרטי הנכס
               </h2>
-              <dl className="m-0 grid gap-x-[18px] gap-y-3.5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}>
+              <dl
+                className="m-0 grid gap-x-[18px] gap-y-3.5"
+                style={{
+                  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+                }}
+              >
                 {detailFields.map(([label, value]) => (
                   <div key={label}>
-                    <dt className="text-xs font-semibold" style={{ color: "var(--color-text-muted)" }}>{label}</dt>
-                    <dd className="m-0 mt-0.5 text-[14.5px] font-bold">{value}</dd>
+                    <dt
+                      className="text-xs font-semibold"
+                      style={{ color: "var(--color-text-muted)" }}
+                    >
+                      {label}
+                    </dt>
+                    <dd className="m-0 mt-0.5 text-[14.5px] font-bold">
+                      {value}
+                    </dd>
                   </div>
                 ))}
               </dl>
-
             </section>
 
             {/*
@@ -487,7 +670,9 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                 disabled={!canEditOwner}
                 onChange={(next) => {
                   setProperty({ ...property, ...next });
-                  void apiPatch(`/properties/${id}`, next).catch(() => undefined);
+                  void apiPatch(`/properties/${id}`, next).catch(
+                    () => undefined,
+                  );
                 }}
               />
             </section>
@@ -510,39 +695,84 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
             />
           </div>
           <div className="flex flex-col gap-[18px]">
-            <section className="mv-list-card px-5 py-[18px]" aria-labelledby="readiness-heading">
+            <section
+              className="mv-list-card px-5 py-[18px]"
+              aria-labelledby="readiness-heading"
+            >
               <div className="flex items-baseline">
-                <h2 id="readiness-heading" className="m-0" style={{ fontSize: 15.5, fontWeight: 800 }}>
+                <h2
+                  id="readiness-heading"
+                  className="m-0"
+                  style={{ fontSize: 15.5, fontWeight: 800 }}
+                >
                   מוכנות לשיווק
                 </h2>
-                <span className="ms-auto" style={{ fontSize: 21, fontWeight: 800, color: readinessTextColor(property.readinessScore) }}>
+                <span
+                  className="ms-auto"
+                  style={{
+                    fontSize: 21,
+                    fontWeight: 800,
+                    color: readinessTextColor(property.readinessScore),
+                  }}
+                >
                   {property.readinessScore}%
                 </span>
               </div>
-              <div className="my-[11px] mb-[13px] overflow-hidden rounded-full" style={{ height: 7, background: "var(--color-progress-track)" }}>
-                <div style={{ height: "100%", width: `${property.readinessScore}%`, background: readinessColor(property.readinessScore), borderRadius: 99 }} />
+              <div
+                className="my-[11px] mb-[13px] overflow-hidden rounded-full"
+                style={{ height: 7, background: "var(--color-progress-track)" }}
+              >
+                <div
+                  style={{
+                    height: "100%",
+                    width: `${property.readinessScore}%`,
+                    background: readinessColor(property.readinessScore),
+                    borderRadius: 99,
+                  }}
+                />
               </div>
               {property.missingFields.length === 0 ? (
-                <p className="m-0 text-[13px] font-bold" style={{ color: "var(--color-primary)" }}>
+                <p
+                  className="m-0 text-[13px] font-bold"
+                  style={{ color: "var(--color-primary)" }}
+                >
                   ✓ הנכס מוכן לשיווק
                 </p>
               ) : (
                 property.missingFields.map((field) => (
-                  <div key={field} className="flex items-center gap-2 py-[5px] text-[13px]" style={{ color: "var(--color-text-muted)" }}>
-                    <span aria-hidden="true" className="h-1.5 w-1.5 flex-none rounded-full" style={{ background: "#c98a2e" }} />
+                  <div
+                    key={field}
+                    className="flex items-center gap-2 py-[5px] text-[13px]"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="h-1.5 w-1.5 flex-none rounded-full"
+                      style={{ background: "#c98a2e" }}
+                    />
                     {FIELD_LABELS[field] ?? field}
                   </div>
                 ))
               )}
               {property.missingFields.length > 0 ? (
-                <Link href={`/properties/${id}/edit`} className="mv-btn-soft mt-2 inline-block">
+                <Link
+                  href={`/properties/${id}/edit`}
+                  className="mv-btn-soft mt-2 inline-block"
+                >
                   השלם פרטים
                 </Link>
               ) : null}
             </section>
 
-            <section className="mv-list-card px-5 py-[18px]" aria-labelledby="media-heading">
-              <h2 id="media-heading" className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>
+            <section
+              className="mv-list-card px-5 py-[18px]"
+              aria-labelledby="media-heading"
+            >
+              <h2
+                id="media-heading"
+                className="m-0 mb-3"
+                style={{ fontSize: 15.5, fontWeight: 800 }}
+              >
                 תמונות
               </h2>
               <MediaSection propertyId={id} address={address} />
@@ -551,13 +781,21 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
             <button
               type="button"
               className="mv-btn-plain self-start"
-              style={{ color: archiveConfirm ? "var(--color-danger)" : "var(--color-text-muted)" }}
+              style={{
+                color: archiveConfirm
+                  ? "var(--color-danger)"
+                  : "var(--color-text-muted)",
+              }}
               onClick={() => void archive()}
             >
               {archiveConfirm ? "לאשר העברה לארכיון?" : "העבר לארכיון"}
             </button>
             {archiveConfirm ? (
-              <button type="button" className="mv-btn-plain self-start" onClick={() => setArchiveConfirm(false)}>
+              <button
+                type="button"
+                className="mv-btn-plain self-start"
+                onClick={() => setArchiveConfirm(false)}
+              >
                 ביטול
               </button>
             ) : null}
@@ -579,12 +817,20 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                     : "מחק לצמיתות"}
                 </button>
                 {purgeConfirm ? (
-                  <button type="button" className="mv-btn-plain self-start" onClick={() => setPurgeConfirm(false)}>
+                  <button
+                    type="button"
+                    className="mv-btn-plain self-start"
+                    onClick={() => setPurgeConfirm(false)}
+                  >
                     ביטול
                   </button>
                 ) : null}
                 {purgeError !== null ? (
-                  <p role="alert" className="m-0 text-sm" style={{ color: "var(--color-danger)" }}>
+                  <p
+                    role="alert"
+                    className="m-0 text-sm"
+                    style={{ color: "var(--color-danger)" }}
+                  >
                     {purgeError}
                   </p>
                 ) : null}
@@ -595,34 +841,58 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
       </TabPanel>
 
       <TabPanel tab="matches" active={tab}>
-          {/*
+        {/*
             ---- שתי עמודות ההתאמה ----
             שמאל: המאגר הפנימי. ימין: הרשת. אותה שאלה ("מי מתאים
             לנכס הזה") משני מקורות, ובאותו סרגל ניקוד — כל עוד הן
             היו במסכים נפרדים הסוכן ראה חצי תשובה וסגר את הכרטיס.
           */}
-          <div className="grid items-start gap-4 lg:grid-cols-2">
-          <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="matches-heading">
+        <div className="grid items-start gap-4 lg:grid-cols-2">
+          <section
+            className="mv-list-card px-[22px] py-[18px]"
+            aria-labelledby="matches-heading"
+          >
             <div className="mb-3 flex flex-wrap items-center gap-2">
-              <h2 id="matches-heading" className="m-0" style={{ fontSize: 15.5, fontWeight: 800 }}>
+              <h2
+                id="matches-heading"
+                className="m-0"
+                style={{ fontSize: 15.5, fontWeight: 800 }}
+              >
                 קונים מתאימים מהמאגר
               </h2>
-              <span className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+              <span
+                className="text-[12.5px]"
+                style={{ color: "var(--color-text-muted)" }}
+              >
                 כל התאמה מוסברת — בלי קופסה שחורה
               </span>
               {bulkEligible >= 2 ? (
                 <button
                   type="button"
-                  className={bulkConfirm ? "mv-btn-plain ms-auto" : "mv-btn-action ms-auto"}
-                  style={bulkConfirm ? { color: "var(--color-danger)" } : { padding: "7px 15px", fontSize: 13 }}
+                  className={
+                    bulkConfirm
+                      ? "mv-btn-plain ms-auto"
+                      : "mv-btn-action ms-auto"
+                  }
+                  style={
+                    bulkConfirm
+                      ? { color: "var(--color-danger)" }
+                      : { padding: "7px 15px", fontSize: 13 }
+                  }
                   onClick={() => void bulkSend()}
                 >
-                  {bulkConfirm ? `לאשר יצירת ${bulkEligible} הצעות?` : "צור הצעות לכל המתאימים (85%+)"}
+                  {bulkConfirm
+                    ? `לאשר יצירת ${bulkEligible} הצעות?`
+                    : "צור הצעות לכל המתאימים (85%+)"}
                 </button>
               ) : null}
             </div>
             {bulkResult ? (
-              <p role="status" className="mb-3 text-sm font-bold" style={{ color: "var(--color-primary)" }}>
+              <p
+                role="status"
+                className="mb-3 text-sm font-bold"
+                style={{ color: "var(--color-primary)" }}
+              >
                 ✓ {bulkResult}
               </p>
             ) : null}
@@ -631,37 +901,76 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
               <p aria-live="polite">מחשב התאמות…</p>
             ) : matches.length === 0 ? (
               <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
-                אין עדיין קונים מתאימים. <Link href="/buyers/new" className="underline">הוסיפו קונה</Link> — וההתאמות יחושבו אוטומטית.
+                אין עדיין קונים מתאימים.{" "}
+                <Link href="/buyers/new" className="underline">
+                  הוסיפו קונה
+                </Link>{" "}
+                — וההתאמות יחושבו אוטומטית.
               </p>
             ) : (
               matches.map((m) => {
                 const offer = offers[m.id];
-                const tag = m.buyerMaturity ? MATURITY_TAG[m.buyerMaturity] : undefined;
+                const tag = m.buyerMaturity
+                  ? MATURITY_TAG[m.buyerMaturity]
+                  : undefined;
                 return (
-                  <div key={m.id} className="flex flex-wrap items-center gap-[15px] py-[13px]" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
+                  <div
+                    key={m.id}
+                    className="flex flex-wrap items-center gap-[15px] py-[13px]"
+                    style={{
+                      borderBottom: "1px solid var(--color-row-border)",
+                    }}
+                  >
                     <span
                       className="mv-score-ring"
-                      style={{ width: 46, height: 46, background: `conic-gradient(#2ECC66 ${Math.round(m.score * 3.6)}deg, var(--color-progress-track) 0deg)` }}
+                      style={{
+                        width: 46,
+                        height: 46,
+                        background: `conic-gradient(#2ECC66 ${Math.round(m.score * 3.6)}deg, var(--color-progress-track) 0deg)`,
+                      }}
                       aria-hidden="true"
                     >
-                      <span style={{ width: 35, height: 35, fontSize: 12 }}>{m.score}%</span>
+                      <span style={{ width: 35, height: 35, fontSize: 12 }}>
+                        {m.score}%
+                      </span>
                     </span>
                     <div className="min-w-0 flex-1" style={{ lineHeight: 1.4 }}>
                       <div className="text-[14.5px] font-bold">
                         {m.buyerName ? (
-                          <Link href={`/buyers/${m.buyerId}`} className="no-underline hover:underline" style={{ color: "inherit" }}>
+                          <Link
+                            href={`/buyers/${m.buyerId}`}
+                            className="no-underline hover:underline"
+                            style={{ color: "inherit" }}
+                          >
                             {m.buyerName}
                           </Link>
                         ) : (
-                          <span style={{ color: "var(--color-text-muted)" }}>קונה של סוכן אחר</span>
+                          <span style={{ color: "var(--color-text-muted)" }}>
+                            קונה של סוכן אחר
+                          </span>
                         )}
                         {tag && m.buyerMaturity ? (
-                          <span className="mv-tag ms-1.5" style={{ color: tag.fg, background: tag.bg, fontWeight: 600, fontSize: 12.5, padding: "1px 8px" }}>
-                            {MATURITY_LABELS[m.buyerMaturity] ?? m.buyerMaturity}
+                          <span
+                            className="mv-tag ms-1.5"
+                            style={{
+                              color: tag.fg,
+                              background: tag.bg,
+                              fontWeight: 600,
+                              fontSize: 12.5,
+                              padding: "1px 8px",
+                            }}
+                          >
+                            {MATURITY_LABELS[m.buyerMaturity] ??
+                              m.buyerMaturity}
                           </span>
                         ) : null}
                       </div>
-                      <div className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>{m.explanation}</div>
+                      <div
+                        className="text-[13px]"
+                        style={{ color: "var(--color-text-muted)" }}
+                      >
+                        {m.explanation}
+                      </div>
                       {awaitingSignature[m.id] ? (
                         <div className="mt-1.5 text-[13px]">
                           <span style={{ color: "var(--color-danger)" }}>
@@ -680,24 +989,56 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                       ) : null}
                       {offer ? (
                         <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-[13px]">
-                          <span className="font-bold" style={{ color: offer.status === "interested" ? "var(--color-primary)" : "var(--color-text-soft)" }}>
+                          <span
+                            className="font-bold"
+                            style={{
+                              color:
+                                offer.status === "interested"
+                                  ? "var(--color-primary)"
+                                  : "var(--color-text-soft)",
+                            }}
+                          >
                             {OFFER_STATUS_LABELS[offer.status] ?? offer.status}
-                            {offer.openCount > 0 ? ` (${offer.openCount} צפיות)` : ""}
+                            {offer.openCount > 0
+                              ? ` (${offer.openCount} צפיות)`
+                              : ""}
                           </span>
-                          <a href={offer.url} target="_blank" rel="noreferrer" className="underline">דף ההצעה</a>
+                          <a
+                            href={offer.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline"
+                          >
+                            דף ההצעה
+                          </a>
                           {copiedFor === m.id ? (
-                            <span role="status" style={{ color: "var(--color-primary)" }}>✓ הקישור הועתק</span>
+                            <span
+                              role="status"
+                              style={{ color: "var(--color-primary)" }}
+                            >
+                              ✓ הקישור הועתק
+                            </span>
                           ) : null}
                         </div>
                       ) : null}
                     </div>
                     <div className="ms-auto flex flex-none gap-2">
                       {offer && canWhatsApp ? (
-                        <button type="button" className="mv-btn-action" style={{ padding: "7px 15px", fontSize: 13 }} onClick={() => void sendWhatsApp(offer.id)}>
+                        <button
+                          type="button"
+                          className="mv-btn-action"
+                          style={{ padding: "7px 15px", fontSize: 13 }}
+                          onClick={() => void sendWhatsApp(offer.id)}
+                        >
                           שלח בוואטסאפ
                         </button>
                       ) : offer ? null : (
-                        <button type="button" className="mv-btn-action" style={{ padding: "7px 15px", fontSize: 13 }} onClick={() => void createOffer(m.id)}>
+                        <button
+                          type="button"
+                          className="mv-btn-action"
+                          style={{ padding: "7px 15px", fontSize: 13 }}
+                          onClick={() => void createOffer(m.id)}
+                        >
                           שלח הצעה
                         </button>
                       )}
@@ -706,22 +1047,34 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
                 );
               })
             )}
-            <p className="m-0 mt-3 rounded-[9px] px-[13px] py-[9px] text-[12.5px]" style={{ color: "var(--color-text-muted)", background: "var(--color-table-head)" }}>
-              קונים שדרישת חובה שלהם נשברת (למשל: חובה מעלית ואין) — לא מוצגים כאן בכלל.
+            <p
+              className="m-0 mt-3 rounded-[9px] px-[13px] py-[9px] text-[12.5px]"
+              style={{
+                color: "var(--color-text-muted)",
+                background: "var(--color-table-head)",
+              }}
+            >
+              קונים שדרישת חובה שלהם נשברת (למשל: חובה מעלית ואין) — לא מוצגים
+              כאן בכלל.
             </p>
           </section>
+        </div>
+      </TabPanel>
 
+      {/* שיתופי פעולה — פרסום הנכס לרשת, והביקושים שהוא עונה עליהם */}
+      <TabPanel tab="network" active={tab}>
+        <div className="flex flex-col gap-[18px]">
           {/*
-            הפרסום יושב מעל עמודת הביקושים ולא מתחתיה: מי שרואה
-            שארבעה ביקושים ברשת מתאימים לנכס שלו צריך לדעת מיד שהוא
-            יכול גם לפרסם אותו ולתת למשרדים האלה לפנות אליו.
+            הפרסום מעל עמודת הביקושים ולא מתחתיה: מי שרואה שארבעה
+            ביקושים ברשת מתאימים לנכס שלו צריך לדעת מיד שהוא יכול גם
+            לפרסם אותו ולתת למשרדים האלה לפנות אליו.
           */}
           {can(user, "collaboration.share") ? (
             <NetworkShareSection kind="property" entityId={id} />
           ) : null}
 
           <NetworkDemandMatches propertyId={id} />
-          </div>
+        </div>
       </TabPanel>
 
       <TabPanel tab="owner" active={tab}>
@@ -752,28 +1105,27 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
       </TabPanel>
 
       <TabPanel tab="exclusivity" active={tab}>
-          <ExclusivityPanel
-            propertyId={property.id}
-            propertyTitle={property.marketingTitle ?? (address || "נכס")}
-            officeName={user?.tenantName ?? "משרד התיווך"}
-            canEdit={can(user, "properties.edit")}
-          />
-
+        <ExclusivityPanel
+          propertyId={property.id}
+          propertyTitle={property.marketingTitle ?? (address || "נכס")}
+          officeName={user?.tenantName ?? "משרד התיווך"}
+          canEdit={can(user, "properties.edit")}
+        />
       </TabPanel>
 
       <TabPanel tab="agreements" active={tab}>
-          {/* בלעדיות נחתמת מול בעל הנכס — ולכן מיד אחרי הסעיף שלו,
+        {/* בלעדיות נחתמת מול בעל הנכס — ולכן מיד אחרי הסעיף שלו,
               ולא בכרטיס הקונה */}
-          {property.ownerContact ? (
-            <AgreementsPanel
-              contactId={property.ownerContact.id}
-              kind="exclusivity"
-              propertyId={property.id}
-              title="הסכם בלעדיות מול בעל הנכס"
-            />
-          ) : null}
+        {property.ownerContact ? (
+          <AgreementsPanel
+            contactId={property.ownerContact.id}
+            kind="exclusivity"
+            propertyId={property.id}
+            title="הסכם בלעדיות מול בעל הנכס"
+          />
+        ) : null}
 
-          {/*
+        {/*
             תיק הבלעדיות — מיד אחרי הסכם הבלעדיות, כי זה בדיוק מה
             שקורה אחריו: ההסכם נחתם, והשאלה הבאה היא מתי הוא נגמר
             ומה תועד בתוכו.
@@ -781,7 +1133,7 @@ export default function PropertyDetailPage({ params }: { params: Promise<{ id: s
       </TabPanel>
 
       <TabPanel tab="tasks" active={tab}>
-          <EntityTasks entityType="property" entityId={property.id} />
+        <EntityTasks entityType="property" entityId={property.id} />
       </TabPanel>
     </>
   );

@@ -79,8 +79,12 @@ export default function NewPropertyPage() {
    * זו תעבורה על חשבון המכסה של הספק, ועיכוב בטעינת מסך שהמפה
    * אינה חלק ממנו.
    */
-  const [mapOpen, setMapOpen] = useState(false);
-  const [address, setAddress] = useState({ city: "", neighborhood: "", street: "" });
+  const [address, setAddress] = useState({
+    city: "",
+    neighborhood: "",
+    street: "",
+    houseNumber: "",
+  });
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -100,13 +104,17 @@ export default function NewPropertyPage() {
         city: String(f.get("city")).trim(),
         neighborhood: String(f.get("neighborhood") ?? "").trim() || undefined,
         street: String(f.get("street") ?? "").trim() || undefined,
+        houseNumber: String(f.get("houseNumber") ?? "").trim() || undefined,
         propertyType: String(f.get("propertyType")),
         dealType: String(f.get("dealType")),
         rooms: num("rooms"),
         areaSqm: num("areaSqm"),
         floor: num("floor"),
         totalFloors: num("totalFloors"),
-        priceAgorot: priceShekels === undefined ? undefined : shekelsToAgorot(priceShekels),
+        priceAgorot:
+          priceShekels === undefined
+            ? undefined
+            : shekelsToAgorot(priceShekels),
         entryType: entryType || undefined,
         entryDate: entry ? new Date(entry).toISOString() : undefined,
         entryNote: String(f.get("entryNote") ?? "").trim() || undefined,
@@ -122,7 +130,8 @@ export default function NewPropertyPage() {
          * הכתיבה, ולכן קלט פגום כאן אינו יכול להיכנס למסד.
          */
         customFeatures: parseCustomFeatures(f.get("customFeatures")),
-        marketingTitle: String(f.get("marketingTitle") ?? "").trim() || undefined,
+        marketingTitle:
+          String(f.get("marketingTitle") ?? "").trim() || undefined,
         /* ריק לא נשלח: הערה ריקה בכרטיס נראית כמו הערה שנמחקה. */
         internalNotes: String(f.get("internalNotes") ?? "").trim() || undefined,
         // הסוכן סימן ידנית ⇒ השרת לא ידרוס בפענוח אוטומטי
@@ -153,7 +162,14 @@ export default function NewPropertyPage() {
 
       <form onSubmit={onSubmit} noValidate>
         {error ? (
-          <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
+          <p
+            role="alert"
+            className="mb-4 rounded-lg border p-3"
+            style={{
+              borderColor: "var(--color-danger)",
+              color: "var(--color-danger)",
+            }}
+          >
             {error}
           </p>
         ) : null}
@@ -165,32 +181,67 @@ export default function NewPropertyPage() {
         >
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
-              <label htmlFor="city" className="mb-1 block font-medium">עיר *</label>
+              <label htmlFor="city" className="mb-1 block font-medium">
+                עיר *
+              </label>
               <input
                 id="city"
                 name="city"
                 required
-                onChange={(e) => setAddress((a) => ({ ...a, city: e.target.value }))}
+                onChange={(e) =>
+                  setAddress((a) => ({ ...a, city: e.target.value }))
+                }
                 className="w-full rounded-lg border px-3 py-2.5"
                 style={inputStyle}
               />
             </div>
             <div>
-              <label htmlFor="neighborhood" className="mb-1 block font-medium">שכונה</label>
+              <label htmlFor="neighborhood" className="mb-1 block font-medium">
+                שכונה
+              </label>
               <input
                 id="neighborhood"
                 name="neighborhood"
-                onChange={(e) => setAddress((a) => ({ ...a, neighborhood: e.target.value }))}
+                onChange={(e) =>
+                  setAddress((a) => ({ ...a, neighborhood: e.target.value }))
+                }
                 className="w-full rounded-lg border px-3 py-2.5"
                 style={inputStyle}
               />
             </div>
             <div>
-              <label htmlFor="street" className="mb-1 block font-medium">רחוב</label>
+              <label htmlFor="street" className="mb-1 block font-medium">
+                רחוב
+              </label>
               <input
                 id="street"
                 name="street"
-                onChange={(e) => setAddress((a) => ({ ...a, street: e.target.value }))}
+                onChange={(e) =>
+                  setAddress((a) => ({ ...a, street: e.target.value }))
+                }
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+            </div>
+            {/*
+              מספר הבית הוא מה שהופך "רחוב הרצל" לכתובת: בלעדיו
+              הפענוח למפה נופל על מרכז הרחוב, וההתאמה לפי מרחק אמיתי
+              עובדת על נקודה שאינה הנכס. הוא נשאר לא-חובה, כי לא לכל
+              נכס יש מספר בשלב הראשון.
+            */}
+            <div>
+              <label htmlFor="houseNumber" className="mb-1 block font-medium">
+                מספר בית
+              </label>
+              <input
+                id="houseNumber"
+                name="houseNumber"
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="למשל: 42א"
+                onChange={(e) =>
+                  setAddress((a) => ({ ...a, houseNumber: e.target.value }))
+                }
                 className="w-full rounded-lg border px-3 py-2.5"
                 style={inputStyle}
               />
@@ -198,68 +249,148 @@ export default function NewPropertyPage() {
           </div>
 
           {/*
-            המפה נפתחת בלחיצה ואינה תופסת את המסך מלכתחילה: השרת
-            מפענח את הכתובת בעצמו, ורוב הנכסים לא יזדקקו לה. מי
-            שכן — מקבל אותה במקום שבו הוא כבר עומד, ולא בכרטיס
-            שייפתח אחר כך.
+            המפה גלויה ואינה מאחורי מקטע שצריך לפתוח.
+
+            שדה שצריך לגלות הוא שדה שלא ממלאים: הסוכן הקליד עיר,
+            המשיך, ואף נכס לא קיבל סימון ידני. הפענוח האוטומטי עדיין
+            עושה את רוב העבודה — ולכן הכיתוב אומר במפורש שזה לא חובה
+            — אבל "הבניין מול בית הכנסת" אינו כתובת שאפשר לפענח,
+            ובדיוק שם צריך שהמפה כבר תהיה על המסך.
           */}
-          <details className="mt-4" onToggle={(e) => setMapOpen(e.currentTarget.open)}>
-            <summary className="cursor-pointer text-sm font-medium">
-              סימון מדויק על המפה
+          <div className="mt-4">
+            <p className="mb-1 font-medium">
+              סימון על המפה
               {location.latitude !== undefined ? (
-                <span className="ms-1.5" style={{ color: "var(--color-success)" }}>✓ סומן</span>
+                <span
+                  className="ms-1.5"
+                  style={{ color: "var(--color-success)" }}
+                >
+                  ✓ סומן
+                </span>
               ) : (
-                <span className="ms-1.5 font-normal" style={{ color: "var(--color-text-muted)" }}>
+                <span
+                  className="ms-1.5 text-sm font-normal"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
                   · לא חובה — הכתובת תפוענח אוטומטית
                 </span>
               )}
-            </summary>
-            {mapOpen ? (
-              <div className="mt-3">
-                <LocationPicker
-                  value={location}
-                  addressText={[address.street, address.neighborhood, address.city]
-                    .filter((part) => part.trim() !== "")
-                    .join(", ")}
-                  onChange={setLocation}
-                />
-              </div>
-            ) : null}
-          </details>
+            </p>
+            <LocationPicker
+              value={location}
+              addressText={[
+                [address.street, address.houseNumber]
+                  .filter((part) => part.trim() !== "")
+                  .join(" "),
+                address.neighborhood,
+                address.city,
+              ]
+                .filter((part) => part.trim() !== "")
+                .join(", ")}
+              onChange={setLocation}
+            />
+          </div>
         </FormSection>
 
-        <FormSection step={2} title="פרטי הנכס" hint="חדרים, שטח וקומה הם שלושת השדות שקונים מסננים לפיהם.">
+        <FormSection
+          step={2}
+          title="פרטי הנכס"
+          hint="חדרים, שטח וקומה הם שלושת השדות שקונים מסננים לפיהם."
+        >
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
-              <label htmlFor="propertyType" className="mb-1 block font-medium">סוג נכס *</label>
-              <select id="propertyType" name="propertyType" required className="w-full rounded-lg border px-3 py-2.5" style={inputStyle}>
+              <label htmlFor="propertyType" className="mb-1 block font-medium">
+                סוג נכס *
+              </label>
+              <select
+                id="propertyType"
+                name="propertyType"
+                required
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              >
                 {Object.entries(PROPERTY_TYPE_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
                 ))}
               </select>
             </div>
             <div>
-              <label htmlFor="dealType" className="mb-1 block font-medium">סוג עסקה *</label>
-              <select id="dealType" name="dealType" required className="w-full rounded-lg border px-3 py-2.5" style={inputStyle}>
+              <label htmlFor="dealType" className="mb-1 block font-medium">
+                סוג עסקה *
+              </label>
+              <select
+                id="dealType"
+                name="dealType"
+                required
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              >
                 <option value="sale">מכירה</option>
                 <option value="rent">השכרה</option>
               </select>
             </div>
             <div>
-              <label htmlFor="rooms" className="mb-1 block font-medium">חדרים</label>
-              <input id="rooms" name="rooms" type="number" step="0.5" min="1" max="20" inputMode="decimal" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+              <label htmlFor="rooms" className="mb-1 block font-medium">
+                חדרים
+              </label>
+              <input
+                id="rooms"
+                name="rooms"
+                type="number"
+                step="0.5"
+                min="1"
+                max="20"
+                inputMode="decimal"
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
             </div>
             <div>
-              <label htmlFor="areaSqm" className="mb-1 block font-medium">שטח (מ&quot;ר)</label>
-              <input id="areaSqm" name="areaSqm" type="number" min="10" max="2000" inputMode="numeric" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+              <label htmlFor="areaSqm" className="mb-1 block font-medium">
+                שטח (מ&quot;ר)
+              </label>
+              <input
+                id="areaSqm"
+                name="areaSqm"
+                type="number"
+                min="10"
+                max="2000"
+                inputMode="numeric"
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
             </div>
             <div>
-              <label htmlFor="floor" className="mb-1 block font-medium">קומה</label>
-              <input id="floor" name="floor" type="number" min="-2" max="60" inputMode="numeric" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+              <label htmlFor="floor" className="mb-1 block font-medium">
+                קומה
+              </label>
+              <input
+                id="floor"
+                name="floor"
+                type="number"
+                min="-2"
+                max="60"
+                inputMode="numeric"
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
             </div>
             <div>
-              <label htmlFor="totalFloors" className="mb-1 block font-medium">קומות בבניין</label>
-              <input id="totalFloors" name="totalFloors" type="number" min="1" max="60" inputMode="numeric" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+              <label htmlFor="totalFloors" className="mb-1 block font-medium">
+                קומות בבניין
+              </label>
+              <input
+                id="totalFloors"
+                name="totalFloors"
+                type="number"
+                min="1"
+                max="60"
+                inputMode="numeric"
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
             </div>
           </div>
 
@@ -286,8 +417,16 @@ export default function NewPropertyPage() {
         </FormSection>
 
         <div className="mb-6">
-          <label htmlFor="marketingTitle" className="mb-1 block font-medium">כותרת שיווקית</label>
-          <input id="marketingTitle" name="marketingTitle" maxLength={160} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+          <label htmlFor="marketingTitle" className="mb-1 block font-medium">
+            כותרת שיווקית
+          </label>
+          <input
+            id="marketingTitle"
+            name="marketingTitle"
+            maxLength={160}
+            className="w-full rounded-lg border px-3 py-2.5"
+            style={inputStyle}
+          />
           <DictateFor targetId="marketingTitle" />
         </div>
 
@@ -298,15 +437,35 @@ export default function NewPropertyPage() {
         >
           <div className="flex flex-wrap gap-3">
             <div className="flex-1" style={{ minWidth: "180px" }}>
-              <label htmlFor="ownerName" className="mb-1 block text-sm">שם</label>
-              <input id="ownerName" name="ownerName" maxLength={120} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+              <label htmlFor="ownerName" className="mb-1 block text-sm">
+                שם
+              </label>
+              <input
+                id="ownerName"
+                name="ownerName"
+                maxLength={120}
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
             </div>
             <div className="flex-1" style={{ minWidth: "180px" }}>
-              <label htmlFor="ownerPhone" className="mb-1 block text-sm">טלפון</label>
-              <input id="ownerPhone" name="ownerPhone" type="tel" dir="ltr" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+              <label htmlFor="ownerPhone" className="mb-1 block text-sm">
+                טלפון
+              </label>
+              <input
+                id="ownerPhone"
+                name="ownerPhone"
+                type="tel"
+                dir="ltr"
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
             </div>
           </div>
-          <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          <p
+            className="mt-1 text-sm"
+            style={{ color: "var(--color-text-muted)" }}
+          >
             נקשר לאיש הקשר לפי הטלפון — יופיע בתיק הלקוח המאוחד.
           </p>
         </FormSection>

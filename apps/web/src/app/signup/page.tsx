@@ -31,6 +31,8 @@ interface OfferedPlan {
   yearlySavingPercent: number | null;
   maxUsers: number | null;
   maxProperties: number | null;
+  maxNetworkListings: number | null;
+  maxNetworkDemands: number | null;
   features: string[];
   trialDays: number;
 }
@@ -205,10 +207,16 @@ export default function SignupPage(): React.JSX.Element {
                         <strong style={{ fontSize: 15 }}>{plan.name}</strong>
                         <span style={{ fontSize: 14, fontWeight: 800 }}>
                           {plan.monthlyPrice}
-                          <span style={{ fontWeight: 400, color: "var(--color-text-muted)" }}>
-                            {" "}
-                            / חודש
-                          </span>
+                          {/*
+                            "חינם / חודש" קורא כמו מבצע לחודש הראשון.
+                            מסלול בלי מחיר מוצג בלי יחידת זמן.
+                          */}
+                          {plan.monthlyPrice === "חינם" ? null : (
+                            <span style={{ fontWeight: 400, color: "var(--color-text-muted)" }}>
+                              {" "}
+                              / חודש
+                            </span>
+                          )}
                         </span>
                       </span>
                       <span
@@ -223,6 +231,13 @@ export default function SignupPage(): React.JSX.Element {
                         {plan.maxProperties === null
                           ? "נכסים ללא הגבלה"
                           : `עד ${plan.maxProperties} נכסים`}
+                        {plan.maxNetworkListings !== null ||
+                        plan.maxNetworkDemands !== null ? (
+                          <>
+                            {" · "}
+                            {`ברשת השיתופים: עד ${plan.maxNetworkListings ?? "∞"} נכסים ו-${plan.maxNetworkDemands ?? "∞"} קונים`}
+                          </>
+                        ) : null}
                       </span>
                       {active ? (
                         <span className="mt-1.5 block text-[12.5px]">

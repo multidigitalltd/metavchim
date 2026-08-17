@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import {
   formatPlanPrice,
+  planPriceLabel,
   planRejectionReason,
   yearlySavingPercent,
   type PlanDefinition,
@@ -135,6 +136,42 @@ function planEditor(
             style={inputStyle}
           />
         </label>
+        {/*
+          מכסות הרשת נפרדות ממכסת הנכסים במכוון: שמירה במאגר ופרסום
+          ברשת הן שתי החלטות עסקיות שונות. ראו את הנימוק ב-plans.ts.
+        */}
+        <label className="text-xs font-semibold">
+          מקסימום נכסים ברשת (ריק = ללא הגבלה)
+          <input
+            value={
+              draft.maxNetworkListings === null
+                ? ""
+                : String(draft.maxNetworkListings)
+            }
+            inputMode="numeric"
+            onChange={(e) =>
+              setDraft({ ...draft, maxNetworkListings: toLimit(e.target.value) })
+            }
+            className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
+            style={inputStyle}
+          />
+        </label>
+        <label className="text-xs font-semibold">
+          מקסימום קונים ברשת (ריק = ללא הגבלה)
+          <input
+            value={
+              draft.maxNetworkDemands === null
+                ? ""
+                : String(draft.maxNetworkDemands)
+            }
+            inputMode="numeric"
+            onChange={(e) =>
+              setDraft({ ...draft, maxNetworkDemands: toLimit(e.target.value) })
+            }
+            className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
+            style={inputStyle}
+          />
+        </label>
         <label className="text-xs font-semibold">
           ימי ניסיון
           <input
@@ -261,6 +298,8 @@ export function PlansSection({
       yearlyPriceAgorot: null,
       maxUsers: 5,
       maxProperties: 100,
+      maxNetworkListings: null,
+      maxNetworkDemands: null,
       features: [],
       trialDays: 14,
       isPublic: false,
@@ -455,7 +494,9 @@ export function PlansSection({
                       {plan.description || "—"}
                     </p>
                     <p className="m-0 mb-2 text-sm">
-                      <strong>{formatPlanPrice(plan.monthlyPriceAgorot)}</strong> לחודש
+                      {/* מסלול ציבורי ב-0 הוא חינם ולא "לפי הצעה" */}
+                      <strong>{planPriceLabel(plan)}</strong>
+                      {plan.monthlyPriceAgorot > 0 ? " לחודש" : ""}
                       {plan.yearlyPriceAgorot !== null ? (
                         <>
                           {" · "}
@@ -470,6 +511,11 @@ export function PlansSection({
                       {plan.maxProperties === null
                         ? "נכסים ללא הגבלה"
                         : `עד ${plan.maxProperties} נכסים`}
+                      {" · "}
+                      {plan.maxNetworkListings === null &&
+                      plan.maxNetworkDemands === null
+                        ? "פרסום ברשת ללא הגבלה"
+                        : `ברשת ${plan.maxNetworkListings ?? "∞"} נכסים ו-${plan.maxNetworkDemands ?? "∞"} קונים`}
                     </p>
                     <ul className="m-0 mb-2 list-none p-0 text-sm">
                       {data.features.map((feature) => {

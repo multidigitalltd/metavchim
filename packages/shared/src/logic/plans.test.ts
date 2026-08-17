@@ -9,6 +9,7 @@ import {
   isPlanFeature,
   limitState,
   planAllows,
+  planPriceLabel,
   planRejectionReason,
   sanitizeFeatures,
   yearlySavingPercent,
@@ -23,6 +24,8 @@ const basePlan = (over: Partial<PlanDefinition> = {}): PlanDefinition => ({
   yearlyPriceAgorot: 100_000,
   maxUsers: 5,
   maxProperties: 100,
+  maxNetworkListings: null,
+  maxNetworkDemands: null,
   features: ["whatsapp"],
   trialDays: 14,
   isPublic: true,
@@ -266,5 +269,83 @@ describe("downgradeWarnings", () => {
     const warnings = downgradeWarnings(undefined, to, { users: 5, properties: 1 });
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain("5");
+  });
+});
+
+describe("מסלול השת\"פ החינמי", () => {
+  const coop = defaultPlan("coop")!;
+
+  it("קיים, ציבורי, וללא מחיר", () => {
+    expect(coop).toBeDefined();
+    expect(coop.monthlyPriceAgorot).toBe(0);
+    expect(coop.isPublic).toBe(true);
+  });
+
+  /*
+   * הפרמטרים שהוגדרו למסלול, כלשונם. שינוי כאן הוא שינוי מוצר —
+   * ולכן הוא צריך להיות מכוון, ולא תוצאת לוואי של עריכה בקובץ.
+   */
+  it("המכסות יושבות על הפרסום ולא על השמירה", () => {
+    expect(coop.maxProperties).toBeNull();
+    expect(coop.maxNetworkListings).toBe(3);
+    expect(coop.maxNetworkDemands).toBe(10);
+    expect(coop.maxUsers).toBe(1);
+  });
+
+  it("מסלולים בתשלום אינם מוגבלים בפרסום ברשת", () => {
+    for (const plan of DEFAULT_PLANS) {
+      if (plan.code === "coop") continue;
+      expect(plan.maxNetworkListings).toBeNull();
+      expect(plan.maxNetworkDemands).toBeNull();
+    }
+  });
+});
+
+describe("planPriceLabel", () => {
+  it("מסלול ציבורי ב-0 הוא חינם", () => {
+    expect(planPriceLabel(basePlan({ monthlyPriceAgorot: 0, isPublic: true }))).toBe("חינם");
+  });
+
+  it("מסלול מוסתר ב-0 נסגר בשיחה", () => {
+    expect(planPriceLabel(basePlan({ monthlyPriceAgorot: 0, isPublic: false }))).toBe("לפי הצעה");
+  });
+
+  it("מסלול בתשלום מוצג במחירו", () => {
+    expect(planPriceLabel(basePlan({ monthlyPriceAgorot: 29_900 }))).toBe("299 ₪");
+  });
+});
+
+describe("מכסות הרשת באימות ובאזהרות", () => {
+  it("מכסה של 0 נדחית — היא הייתה נקראת כללא הגבלה", () => {
+    // ראו את ההערה ב-planRejectionReason ואת הבדיקה ב-limitState
+    expect(planRejectionReason(basePlan({ maxNetworkListings: 0 }))).toContain("לפחות 1");
+    expect(planRejectionReason(basePlan({ maxNetworkDemands: 0 }))).toContain("לפחות 1");
+  });
+
+  it("מכסה ריקה או חיובית תקינה", () => {
+    expect(planRejectionReason(basePlan({ maxNetworkListings: null }))).toBeNull();
+    expect(planRejectionReason(basePlan({ maxNetworkDemands: 10 }))).toBeNull();
+  });
+
+  it("ירידת מסלול מזהירה על מודעות שמעבר למכסה, ומבהירה שהן נשארות", () => {
+    const warnings = downgradeWarnings(
+      basePlan({ features: [] }),
+      basePlan({ features: [], maxNetworkListings: 3, maxNetworkDemands: 10 }),
+      { users: 1, properties: 5, networkListings: 8, networkDemands: 2 },
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("8");
+    expect(warnings[0]).toContain("יישארו");
+  });
+
+  it("קורא שאינו מוסר את ספירת הרשת אינו מקבל אזהרה שגויה", () => {
+    // השדות אופציונליים; היעדרם אינו "0 מפורסמים" שחורג ממכסה
+    expect(
+      downgradeWarnings(
+        basePlan({ features: [] }),
+        basePlan({ features: [], maxNetworkListings: 3 }),
+        { users: 1, properties: 5 },
+      ),
+    ).toEqual([]);
   });
 });

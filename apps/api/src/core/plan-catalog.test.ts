@@ -30,6 +30,8 @@ function row(code: string, overrides: Record<string, unknown> = {}): PlanRow {
     yearlyPriceAgorot: null,
     maxUsers: null,
     maxProperties: null,
+    maxNetworkListings: null,
+    maxNetworkDemands: null,
     features: [],
     trialDays: 14,
     isPublic: true,

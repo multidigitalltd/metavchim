@@ -164,6 +164,8 @@ export class PlanCatalogService {
       yearlyPriceAgorot: plan.yearlyPriceAgorot,
       maxUsers: plan.maxUsers,
       maxProperties: plan.maxProperties,
+      maxNetworkListings: plan.maxNetworkListings,
+      maxNetworkDemands: plan.maxNetworkDemands,
       features,
       trialDays: plan.trialDays,
       isPublic: plan.isPublic,
@@ -207,6 +209,8 @@ export class PlanCatalogService {
         yearlyPriceAgorot: plan.yearlyPriceAgorot,
         maxUsers: plan.maxUsers,
         maxProperties: plan.maxProperties,
+        maxNetworkListings: plan.maxNetworkListings,
+        maxNetworkDemands: plan.maxNetworkDemands,
         features: sanitizeFeatures(plan.features),
         trialDays: plan.trialDays,
         isPublic: plan.isPublic,
@@ -226,6 +230,8 @@ export class PlanCatalogService {
     yearlyPriceAgorot: number | null;
     maxUsers: number | null;
     maxProperties: number | null;
+    maxNetworkListings: number | null;
+    maxNetworkDemands: number | null;
     features: string[];
     trialDays: number;
     isPublic: boolean;
@@ -239,6 +245,8 @@ export class PlanCatalogService {
       yearlyPriceAgorot: row.yearlyPriceAgorot,
       maxUsers: row.maxUsers,
       maxProperties: row.maxProperties,
+      maxNetworkListings: row.maxNetworkListings,
+      maxNetworkDemands: row.maxNetworkDemands,
       // ניקוי גם בקריאה: שורה שנשמרה לפני שקוד פיצ'ר הוסר מהקטלוג
       // לא אמורה להמשיך להזכות בו
       features: sanitizeFeatures(row.features),

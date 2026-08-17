@@ -123,6 +123,20 @@ export interface PlanDefinition {
   yearlyPriceAgorot: number | null;
   maxUsers: PlanLimit;
   maxProperties: PlanLimit;
+  /**
+   * כמה נכסים המשרד רשאי לפרסם **ברשת השיתופים** בו־זמנית.
+   *
+   * מכסה נפרדת מ-`maxProperties` במכוון, ולא החמרה שלה. שמירה
+   * במאגר היא מה שהמשרד עושה עם הנתונים שלו; פרסום ברשת הוא מה
+   * שהוא לוקח ממנה — חשיפה לכל שאר המשרדים. מסלול חינמי יכול
+   * להיות נדיב לחלוטין בראשון ומוגבל בשני, וזה בדיוק מה שמאפשר
+   * לתת מסלול חינם בלי שהרשת תתמלא במודעות של מי שאינו משלם.
+   *
+   * `null` = ללא הגבלה, וזה המצב של כל המסלולים בתשלום.
+   */
+  maxNetworkListings: PlanLimit;
+  /** אותו היגיון לביקושים (קונים) שמתפרסמים ברשת. */
+  maxNetworkDemands: PlanLimit;
   features: PlanFeature[];
   trialDays: number;
   /** האם המסלול מוצג בדף ההרשמה הציבורי. */
@@ -139,6 +153,54 @@ export interface PlanDefinition {
  */
 export const DEFAULT_PLANS: readonly PlanDefinition[] = [
   {
+    /**
+     * מסלול השת"פ — חינם, ומכוון לרשת.
+     *
+     * ## למה מסלול חינם בכלל
+     *
+     * הערך של רשת השיתופים גדל עם מספר המשרדים שבתוכה, לא עם מספר
+     * המשלמים: מתווך שמחפש נכס לקונה שלו רוצה למצוא אותו, ולא אכפת
+     * לו אם המשרד שמעבר לצד משלם. מסלול שבו אפשר להיכנס, להעלות את
+     * המאגר ולפרסם ברשת בלי כרטיס אשראי הוא מה שממלא את הרשת.
+     *
+     * ## למה המכסה על הפרסום ולא על השמירה
+     *
+     * `maxProperties: null` — במאגר אפשר לשמור בלי הגבלה. זה המאגר
+     * של המתווך, ולהגביל אותו זה להפוך את המערכת לחסרת שימוש בדיוק
+     * במקום שבו היא אמורה להוכיח את עצמה.
+     *
+     * המכסה יושבת על מה שעולה **לרשת**: 3 נכסים ו-10 קונים בו-זמנית.
+     * זו הנקודה שבה המשרד לוקח מהרשת חשיפה, וזו גם הסיבה הישירה
+     * לשדרג — מי שהרשת עובדת בשבילו ירצה לפרסם יותר.
+     *
+     * משתמש אחד: מסלול חינם למתווך עצמאי. משרד עם צוות משלם.
+     */
+    code: "coop",
+    name: "שת״פ",
+    description:
+      "חינם למתווך עצמאי: מאגר נכסים וקונים ללא הגבלה, ופרסום ברשת השיתופים — עד 3 נכסים ו-10 קונים.",
+    monthlyPriceAgorot: 0,
+    yearlyPriceAgorot: null,
+    maxUsers: 1,
+    maxProperties: null,
+    maxNetworkListings: 3,
+    maxNetworkDemands: 10,
+    /*
+     * בלי פיצ'רים נוספים. המסלול נותן בדיוק את מה שהוגדר לו: מאגר
+     * ורשת. הרשת אינה פיצ'ר בקטלוג אלא ליבת המערכת, ולכן היא פתוחה
+     * בלי דגל — המכסה היא מה שמגביל אותה כאן.
+     */
+    features: [],
+    /*
+     * אין ניסיון: תקופת ניסיון היא הבטחה שמשהו ייסגר בסופה, וכאן
+     * לא ייסגר כלום. מסלול חינם עם 14 ימי ניסיון היה מבלבל ומייצר
+     * פנייה לתמיכה ביום ה-15.
+     */
+    trialDays: 0,
+    isPublic: true,
+    sortOrder: 5,
+  },
+  {
     code: "basic",
     name: "בסיסי",
     description: "למתווך עצמאי שרוצה סדר בנכסים ובקונים.",
@@ -146,6 +208,8 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     yearlyPriceAgorot: 149_000,
     maxUsers: 2,
     maxProperties: 60,
+    maxNetworkListings: null,
+    maxNetworkDemands: null,
     features: ["whatsapp", "landing_pages", "voice_intake"],
     trialDays: 14,
     isPublic: true,
@@ -159,6 +223,8 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     yearlyPriceAgorot: 299_000,
     maxUsers: 6,
     maxProperties: 300,
+    maxNetworkListings: null,
+    maxNetworkDemands: null,
     features: [
       "whatsapp",
       "landing_pages",
@@ -179,6 +245,8 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     yearlyPriceAgorot: 599_000,
     maxUsers: 20,
     maxProperties: null,
+    maxNetworkListings: null,
+    maxNetworkDemands: null,
     features: [
       "whatsapp",
       "landing_pages",
@@ -202,6 +270,8 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     yearlyPriceAgorot: null,
     maxUsers: null,
     maxProperties: null,
+    maxNetworkListings: null,
+    maxNetworkDemands: null,
     features: PLAN_FEATURES.map((f) => f.code),
     trialDays: 30,
     /**
@@ -260,6 +330,22 @@ export function limitState(used: number, limit: PlanLimit): LimitState {
   return { blocked: used >= limit, remaining, percent, warn: percent >= WARN_AT_PERCENT };
 }
 
+/**
+ * מחיר המסלול לתצוגה — כולל מה ש-0 אומר.
+ *
+ * `formatPlanPrice(0)` מחזיר "לפי הצעה", וזה היה נכון כל עוד המסלול
+ * היחיד ב-0 היה "רשת" — מסלול שנסגר בשיחה. מרגע שיש מסלול חינם,
+ * אותו מספר אומר שני דברים הפוכים: "התקשרו אלינו" מול "לחצו והתחילו".
+ *
+ * ההבחנה היא `isPublic`, וזו בדיוק משמעותו: מסלול שמופיע בדף
+ * ההרשמה הוא מסלול שאפשר לקחת לבד. מסלול מוסתר ב-0 הוא כזה שהמחיר
+ * שלו נקבע במשא ומתן. שדה נוסף היה מתאר את אותה עובדה פעמיים.
+ */
+export function planPriceLabel(plan: PlanDefinition): string {
+  if (plan.monthlyPriceAgorot <= 0) return plan.isPublic ? "חינם" : "לפי הצעה";
+  return formatPlanPrice(plan.monthlyPriceAgorot);
+}
+
 /** מחיר לתצוגה — אגורות לשקלים, בלי אגורות מיותרות. */
 export function formatPlanPrice(agorot: number): string {
   if (agorot <= 0) return "לפי הצעה";
@@ -298,6 +384,19 @@ export function planRejectionReason(plan: PlanDefinition): string | null {
   if (plan.maxProperties !== null && plan.maxProperties < 1) {
     return "מסלול חייב לאפשר לפחות נכס אחד";
   }
+  /*
+   * גם כאן המינימום הוא 1 ולא 0, ולא רק לשם אחידות: `limitState`
+   * קורא 0 כשדה ריק ומחזיר "ללא הגבלה" (ראו הבדיקה שם). מסלול
+   * ששמור בו 0 היה מקבל בדיוק את ההפך ממה שנראה במסך — פרסום בלי
+   * גבול. מי שרוצה לסגור את הרשת למסלול מסוים יעשה זאת בשער פיצ'ר,
+   * לא במכסה של אפס.
+   */
+  if (plan.maxNetworkListings !== null && plan.maxNetworkListings < 1) {
+    return "מכסת נכסים ברשת חייבת להיות לפחות 1, או ריקה לציון ללא הגבלה";
+  }
+  if (plan.maxNetworkDemands !== null && plan.maxNetworkDemands < 1) {
+    return "מכסת קונים ברשת חייבת להיות לפחות 1, או ריקה לציון ללא הגבלה";
+  }
   if (plan.trialDays < 0 || plan.trialDays > 90) {
     return "תקופת ניסיון חייבת להיות בין 0 ל-90 ימים";
   }
@@ -321,7 +420,13 @@ export function planRejectionReason(plan: PlanDefinition): string | null {
 export function downgradeWarnings(
   from: PlanDefinition | undefined,
   to: PlanDefinition,
-  usage: { users: number; properties: number },
+  usage: {
+    users: number;
+    properties: number;
+    /** כמה מפורסמים ברשת עכשיו — אופציונלי לקוראים ישנים. */
+    networkListings?: number;
+    networkDemands?: number;
+  },
 ): string[] {
   const warnings: string[] = [];
   const lost = (from?.features ?? []).filter((f) => !to.features.includes(f));
@@ -333,6 +438,28 @@ export function downgradeWarnings(
   }
   if (to.maxProperties !== null && usage.properties > to.maxProperties) {
     warnings.push(`במשרד ${usage.properties} נכסים והמסלול מאפשר ${to.maxProperties}`);
+  }
+  /*
+   * המכסות של הרשת מוזכרות בנפרד, כי הן מתנהגות אחרת בירידת מסלול:
+   * נכס שכבר מפורסם אינו יורד מהרשת מעצמו — הוא נשאר, ורק פרסום
+   * חדש נחסם. עדיף לומר את זה מראש מאשר להשאיר את המנהל בהנחה
+   * שמודעות ייעלמו, או בהנחה ההפוכה שאפשר להמשיך לפרסם.
+   */
+  if (
+    to.maxNetworkListings !== null &&
+    (usage.networkListings ?? 0) > to.maxNetworkListings
+  ) {
+    warnings.push(
+      `${usage.networkListings} נכסים מפורסמים ברשת והמסלול מאפשר ${to.maxNetworkListings} — הקיימים יישארו, פרסום נוסף ייחסם`,
+    );
+  }
+  if (
+    to.maxNetworkDemands !== null &&
+    (usage.networkDemands ?? 0) > to.maxNetworkDemands
+  ) {
+    warnings.push(
+      `${usage.networkDemands} קונים מפורסמים ברשת והמסלול מאפשר ${to.maxNetworkDemands} — הקיימים יישארו, פרסום נוסף ייחסם`,
+    );
   }
   return warnings;
 }

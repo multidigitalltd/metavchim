@@ -16,8 +16,10 @@ import {
 import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { assertNetworkQuota } from "./network-quota";
 import { officeNames } from "./office-names";
 import {
   networkPrice,
@@ -110,6 +112,7 @@ export class ListingsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly contacts: ContactsService,
+    private readonly plans: PlanCatalogService,
   ) {}
 
   /**
@@ -192,6 +195,18 @@ export class ListingsService {
         select: { id: true },
       });
       if (existing) throw new BadRequestException("הנכס כבר מפורסם ברשת");
+
+      /*
+       * המכסה נבדקת **אחרי** בדיקת הכפילות ולא לפניה: פרסום חוזר של
+       * נכס שכבר מפורסם אינו צורך מקום, ולכן הוא צריך לקבל את ההודעה
+       * המדויקת ("כבר מפורסם") ולא הודעת מכסה מבלבלת.
+       */
+      await assertNetworkQuota(
+        tx,
+        tenantId,
+        await this.plans.forTenant(tenantId, tx),
+        "listing",
+      );
 
       await tx.sharedListing.create({
         data: {

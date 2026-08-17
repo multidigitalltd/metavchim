@@ -1097,6 +1097,11 @@ model Plan {
   /// null = ללא הגבלה — ערך תקין ומכוון, לא "לא הוגדר"
   maxUsers           Int?      @map("max_users")
   maxProperties      Int?      @map("max_properties")
+  /// מכסות פרסום ברשת השיתופים — נפרדות ממכסת השמירה במאגר.
+  /// null = ללא הגבלה, וזה מה שכל המסלולים בתשלום מקבלים; המסלול
+  /// החינמי מוגבל כאן ולא ב-`maxProperties`.
+  maxNetworkListings Int?      @map("max_network_listings")
+  maxNetworkDemands  Int?      @map("max_network_demands")
   features           String[]  @default([])
   trialDays          Int       @default(14) @map("trial_days")
   isPublic           Boolean   @default(true) @map("is_public")
