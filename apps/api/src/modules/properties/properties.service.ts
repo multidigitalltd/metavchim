@@ -953,6 +953,18 @@ export class PropertiesService {
           newStatus: "archived",
         });
       }
+      /*
+       * הפרסום ברשת נסגר גם כאן, ולא רק בעריכה.
+       *
+       * הארכיון קורא ל-`softDelete` ישירות ואינו עובר ב-`update`,
+       * ולכן נכס שהמשרד הוריד משיווק נשאר מוצג לרשת: משרדים אחרים
+       * ראו אותו, פנו עליו, וקיבלו שקט. **הצילום נסגר בכל מסלול שבו
+       * הנכס יורד**, ולא באחד מהם (ביקורת Codex).
+       *
+       * בתוך הטרנזקציה ולא אחריה: כאן, בניגוד לעריכה, כישלון בלוע
+       * משאיר נכס שנמחק גלוי לכל הרשת.
+       */
+      await this.listings.closeForProperty(tx, id);
       await this.audit.record(tx, {
         action: "property.delete",
         entityType: "property",

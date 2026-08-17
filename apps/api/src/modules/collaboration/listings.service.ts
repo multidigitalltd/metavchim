@@ -13,9 +13,10 @@ import {
   type PropertyFields,
   type ReachSummary,
 } from "@metavchim/shared";
+import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { readCustomFeatures, rowToFields } from "../properties/property.mapper";
 
@@ -295,6 +296,26 @@ export class ListingsService {
     });
   }
 
+  /**
+   * סגירת הפרסום **בתוך** הטרנזקציה שמורידה את הנכס.
+   *
+   * `resyncForProperty` מספיק לעריכה — שם הכישלון הגרוע ביותר הוא
+   * צילום ישן, והוא מתוקן בעריכה הבאה. כאן הכישלון הגרוע ביותר הוא
+   * נכס שהמשרד הוריד משיווק וממשיך להיות מוצג לכל הרשת, ולכן
+   * הסגירה חייבת להיות אטומית עם המחיקה ולא ניסיון "כמיטב היכולת"
+   * שאפשר לבלוע (ביקורת Codex).
+   */
+  async closeForProperty(tx: TenantTx, propertyId: string): Promise<void> {
+    await tx.sharedListing.updateMany({
+      where: {
+        tenantId: TenantContext.current().tenantId,
+        originPropertyId: propertyId,
+        status: "active",
+      },
+      data: { status: "closed" },
+    });
+  }
+
   /** מצב הפרסום של נכס מסוים — null כשאינו מפורסם. */
   async activeForProperty(
     propertyId: string,
@@ -392,6 +413,26 @@ export class ListingsService {
   }
 
   /**
+   * הקונים ש**המשתמש הזה** רשאי לראות — לא כל קוני המשרד.
+   *
+   * סוכן עם `buyers.view_own` בלבד אינו רואה את הקונים של עמיתיו
+   * בשום מסך אחר, ואין סיבה שהרשת תהיה החריג: פיד שמציג לו "הקונה
+   * של דנה מתאים לנכס הזה" חושף בפניו לקוח שאינו שלו, ולחיצה על
+   * הכפתור שולחת את הדרישות, המימון והבשלות של אותו לקוח למשרד
+   * אחר (ביקורת Codex).
+   *
+   * אותו `ownershipFilter` בדיוק שכל שאר נתיבי הקונים משתמשים בו —
+   * ולא כלל שני שאפשר לשכוח לעדכן.
+   */
+  private ownBuyersWhere(tenantId: string): Prisma.BuyerWhereInput {
+    return {
+      tenantId,
+      deletedAt: null,
+      ...ownershipFilter("buyers.view_all", "ownerUserId"),
+    };
+  }
+
+  /**
    * פיד הנכסים ברשת — הרשת כולה, כולל שלי (מסומנים).
    *
    * לכל נכס מחושבים הקונים **שלי** שמתאימים לו, באותו מנוע ובאותו
@@ -412,7 +453,7 @@ export class ListingsService {
     const { buyers, names, alreadySent } = await this.prisma.withTenant(
       async (tx) => {
         const rows = await tx.buyer.findMany({
-          where: { tenantId, deletedAt: null },
+          where: this.ownBuyersWhere(tenantId),
           take: 200,
         });
         const sent = await tx.coopInterest.findMany({
@@ -512,8 +553,14 @@ export class ListingsService {
     }
 
     await this.prisma.withTenant(async (tx) => {
+      /*
+       * הבעלות נבדקת גם כאן ולא רק בפיד. ידיעת מזהה אינה הרשאה:
+       * הפיד מסונן, אבל הנתיב הזה מקבל `buyerId` מהלקוח, וסוכן עם
+       * `view_own` יכול לשלוח מזהה של קונה שאינו שלו — ולשגר את
+       * הדרישות, המימון והבשלות שלו למשרד אחר.
+       */
       const buyer = await tx.buyer.findFirst({
-        where: { id: buyerId, tenantId: ctx.tenantId, deletedAt: null },
+        where: { id: buyerId, ...this.ownBuyersWhere(ctx.tenantId) },
       });
       if (!buyer) throw new NotFoundException("קונה לא נמצא");
 
@@ -705,7 +752,7 @@ export class ListingsService {
           take: 200,
         }),
         await tx.buyer.findMany({
-          where: { tenantId, deletedAt: null },
+          where: this.ownBuyersWhere(tenantId),
           take: 200,
         }),
         await tx.sharedListing.findMany({

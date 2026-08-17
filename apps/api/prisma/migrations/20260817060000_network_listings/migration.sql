@@ -86,9 +86,35 @@ CREATE INDEX coop_interests_outbox ON coop_interests (from_tenant_id, created_at
 
 ALTER TABLE coop_interests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE coop_interests FORCE ROW LEVEL SECURITY;
-CREATE POLICY coop_two_sided ON coop_interests
+
+-- הפוליסות מפוצלות לפי פעולה, ולא אחת ל-ALL.
+--
+-- אותה תקלה בדיוק כבר התגלתה ב-coop_offers ותוקנה במיגרציה
+-- 20260728105500: פוליסה אחת עם WITH CHECK על הצד המציע חסמה את
+-- הסוכנות **המקבלת** מלעדכן סטטוס, כי היא אינה from_tenant_id.
+-- כלומר "מעניין" ו"לא מתאים" נכשלו ב-RLS ולא שינו דבר.
+
+-- קריאה: שני הצדדים בלבד
+CREATE POLICY coop_interest_select ON coop_interests FOR SELECT
   USING (
     from_tenant_id = current_setting('app.tenant_id', true)
     OR to_tenant_id = current_setting('app.tenant_id', true)
-  )
+  );
+
+-- יצירה: רק הסוכנות שיש לה הקונה
+CREATE POLICY coop_interest_insert ON coop_interests FOR INSERT
   WITH CHECK (from_tenant_id = current_setting('app.tenant_id', true));
+
+-- עדכון (תגובה לפנייה): רק הסוכנות שפרסמה את הנכס
+CREATE POLICY coop_interest_update ON coop_interests FOR UPDATE
+  USING (to_tenant_id = current_setting('app.tenant_id', true))
+  WITH CHECK (to_tenant_id = current_setting('app.tenant_id', true));
+
+-- מחיקה: כל צד שהוא שותף לפנייה. נדרש למחיקת חשבון מלאה — תחת
+-- FORCE RLS, בלי פוליסה = אסור, וה-deleteMany היה מוחק אפס שורות
+-- בשקט ומשאיר את הפנייה חיה אצל הצד השני.
+CREATE POLICY coop_interest_delete ON coop_interests FOR DELETE
+  USING (
+    from_tenant_id = current_setting('app.tenant_id', true)
+    OR to_tenant_id = current_setting('app.tenant_id', true)
+  );
