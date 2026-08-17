@@ -132,6 +132,24 @@ function RangeSlider({
   const lo = stopIndex(stops, minRaw) ?? 0;
   const hi = stopIndex(stops, maxRaw) ?? last;
 
+  /**
+   * הערך שנשלח עבור עצירה — קצה פתוח נשלח כשדה ריק.
+   *
+   * העצירה האחרונה מוצגת כ"ומעלה", ולכן היא חייבת **לבטל** את
+   * הגבול העליון ולא לשלוח 10,000,000. אחרת נכס ב-12 מיליון היה
+   * נעלם מרשימה שהמסך מבטיח שהיא כוללת אותו — סינון שמסתיר תוצאות
+   * בלי שהמשתמש ביקש הוא הרעה, לא סינון (ביקורת Codex).
+   *
+   * אותו היגיון בקצה התחתון כשהעצירה הראשונה היא 0: "מ־0" אינו
+   * סינון, והשארתו בשדה מדליקה את "נקה" ואת מחוון הסינון הפעיל
+   * בלי סיבה.
+   */
+  function raw(index: number, edge: "min" | "max"): string {
+    if (edge === "max" && index === last) return "";
+    if (edge === "min" && index === 0 && stops[0] === 0) return "";
+    return String(stops[index]);
+  }
+
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between text-xs">
@@ -152,8 +170,8 @@ function RangeSlider({
           onChange={(event) => {
             const next = Number(event.target.value);
             onChange({
-              min: String(stops[next]),
-              ...(next > hi ? { max: String(stops[next]) } : {}),
+              min: raw(next, "min"),
+              ...(next > hi ? { max: raw(next, "max") } : {}),
             });
           }}
           className="w-full"
@@ -167,8 +185,8 @@ function RangeSlider({
           onChange={(event) => {
             const next = Number(event.target.value);
             onChange({
-              max: String(stops[next]),
-              ...(next < lo ? { min: String(stops[next]) } : {}),
+              max: raw(next, "max"),
+              ...(next < lo ? { min: raw(next, "min") } : {}),
             });
           }}
           className="w-full"

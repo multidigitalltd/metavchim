@@ -132,3 +132,27 @@ describe("קליטה קולית — מה שנאמר מגיע לשדה הנכון
     expect(marketingDescription).toContain("נוף לים");
   });
 });
+
+/* ביקורת Codex: מספר טלפון ותאריך אינם מחיר */
+describe("סכום חשוף — מה שאסור להיקרא כמחיר", () => {
+  it("מספר טלפון אינו מחיר", () => {
+    const { fields } = extractPropertyFromTranscript(
+      "דירת 4 חדרים בבני ברק, לפרטים בטלפון ב-0501234567",
+    );
+    expect(fields.priceAgorot).toBeUndefined();
+  });
+
+  it("תאריך דחוס אינו מחיר", () => {
+    const { fields } = extractPropertyFromTranscript(
+      "דירה בחיפה, כניסה ב-15/03/2026",
+    );
+    expect(fields.priceAgorot).toBeUndefined();
+  });
+
+  it("מספר ארוך אינו נחתך לתשע ספרות", () => {
+    const { fields } = extractPropertyFromTranscript(
+      "דירה בחיפה מחיר 12345678901",
+    );
+    expect(fields.priceAgorot).toBeUndefined();
+  });
+});

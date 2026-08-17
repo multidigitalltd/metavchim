@@ -536,13 +536,27 @@ export default function PropertyDetailPage({
                   {landingBusy ? "יוצר…" : "צור דף נחיתה"}
                 </button>
               ) : null}
-              <a
-                href="#matches-heading"
+              {/*
+                כפתור ולא עוגן: מאז שההתאמות עברו ללשונית, הפאנל שלהן
+                אינו קיים ב-DOM כל עוד לשונית אחרת פתוחה — ועוגן אל
+                מזהה שאינו קיים אינו עושה דבר. הלחיצה קודם בוחרת את
+                הלשונית, ורק אחרי שהיא הורכבה גוללת אליה (ביקורת Codex).
+              */}
+              <button
+                type="button"
                 className="mv-btn-action"
                 style={{ padding: "7px 15px", fontSize: 13 }}
+                onClick={() => {
+                  selectTab("matches");
+                  requestAnimationFrame(() => {
+                    document
+                      .getElementById("matches-heading")
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  });
+                }}
               >
                 מצא לי קונים
-              </a>
+              </button>
             </div>
           </div>
         </div>

@@ -300,8 +300,19 @@ const MIN_BARE_PRICE = 50_000;
 function bareAmountAgorot(
   text: string,
 ): { agorot: number; evidence: string } | undefined {
+  /*
+   * שתי הגנות שנלמדו מביקורת: **אין `ב-` גנרי**, ואין קבלה של תחילית
+   * מספר ארוך יותר.
+   *
+   * "לפרטים בטלפון ב-0501234567" התפרש כמחיר של 50,123,456 ₪ — ומכיוון
+   * שמחיר בסדר גודל כזה גם קובע "למכירה", מספר טלפון היה מזהם את סוג
+   * העסקה, את ציון המוכנות ואת ההתאמות. אותו דבר לתאריך דחוס.
+   *
+   * לכן: רק מילה שמצהירה על מחיר, ספרה ראשונה שאינה 0 (טלפון ישראלי
+   * מתחיל ב-0), וגבול ימני שמונע לקיחת תשע ספרות מתוך מספר ארוך יותר.
+   */
   const re =
-    /(?:מחיר|במחיר|מבקשים|מבקש|עולה|ב-)\s*(?<n>\d{1,3}(?:,\d{3})+|\d{5,9})/gu;
+    /(?:מחיר|במחיר|מבקשים|מבקש|עולה)\s*(?:של\s*)?(?<n>\d{1,3}(?:,\d{3})+|[1-9]\d{4,8})(?![\d,./-])/gu;
   for (const match of text.matchAll(re)) {
     const raw = match.groups?.["n"];
     if (raw === undefined) continue;
@@ -314,7 +325,7 @@ function bareAmountAgorot(
    * "דירת 4 חדרים בבני ברק, 2,300,000". אין שדה אחר בנכס שנכתב כך,
    * ולכן אין כאן התנגשות.
    */
-  const grouped = /(?<n>\d{1,3}(?:,\d{3}){1,3})/u.exec(text);
+  const grouped = /(?<![\d,])(?<n>\d{1,3}(?:,\d{3}){1,3})(?![\d,])/u.exec(text);
   if (grouped?.groups?.["n"] !== undefined) {
     const value = Number(grouped.groups["n"].replace(/,/gu, ""));
     if (Number.isFinite(value) && value >= MIN_BARE_PRICE) {

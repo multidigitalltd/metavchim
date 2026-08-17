@@ -49,6 +49,23 @@ export function LocationPicker({
   disabled?: boolean;
 }) {
   const [query, setQuery] = useState(addressText ?? "");
+  /*
+   * הכתובת שבטופס ממשיכה לזלוג לשדה החיפוש גם אחרי ההרכבה.
+   *
+   * קודם הערך נקרא פעם אחת בלבד. כל עוד המפה נפתחה בלחיצה זה עבד
+   * במקרה — היא הורכבה אחרי שהכתובת כבר הוקלדה — אבל מרגע שהיא שדה
+   * קבוע היא מורכבת ריקה, וכל מה שהוקלד אחריה לא הגיע לשדה החיפוש.
+   * המתווך היה צריך להקליד את הכתובת פעם שנייה (ביקורת Codex).
+   *
+   * הסנכרון נעצר ברגע שהמשתמש נגע בשדה: `touched` מבדיל בין "השדה
+   * עוקב אחרי הטופס" לבין "המשתמש כתב כאן משהו משלו", ודריסה של
+   * הקלדה ידנית הייתה גרועה מהבאג המקורי.
+   */
+  const [touched, setTouched] = useState(false);
+  useEffect(() => {
+    if (touched) return;
+    setQuery(addressText ?? "");
+  }, [addressText, touched]);
   const [results, setResults] = useState<GeocodeResult[] | null>(null);
   const [caps, setCaps] = useState<{ forward: boolean; reverse: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -130,7 +147,10 @@ export function LocationPicker({
             <span className="mb-1 block text-xs font-semibold">כתובת לחיפוש</span>
             <input
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setTouched(true);
+                setQuery(e.target.value);
+              }}
               onKeyDown={(e) => {
                 // Enter מחפש ואינו שולח את הטופס כולו
                 if (e.key === "Enter") {
