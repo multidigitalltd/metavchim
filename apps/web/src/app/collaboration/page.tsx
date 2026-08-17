@@ -19,6 +19,7 @@ import { useRequireAuth } from "@/lib/use-auth";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { LoadError } from "../load-error";
+import { ActionToast, type ToastState } from "../action-toast";
 import {
   EMPTY_FILTERS,
   filtersToQuery,
@@ -357,6 +358,7 @@ export default function CollaborationPage() {
    */
   const [coopTab, setCoopTab] = useState<string>("demands");
   const [netFilters, setNetFilters] = useState<ListFilterValues>(EMPTY_FILTERS);
+  const [toast, setToast] = useState<ToastState | null>(null);
   const [demands, setDemands] = useState<DemandRow[] | null>(null);
   const [sharedLeads, setSharedLeads] = useState<SharedLeadRow[]>([]);
   const [buyingLead, setBuyingLead] = useState<string | null>(null);
@@ -390,7 +392,11 @@ export default function CollaborationPage() {
   const [interestSplit, setInterestSplit] = useState<Record<string, number>>(
     {},
   );
-  const [message, setMessageState] = useState<string | null>(null);
+  /*
+   * הטקסט עצמו כבר אינו מוצג בשורה — החלונית הצפה מציגה אותו —
+   * אבל ה-setter נשאר כנקודת כניסה אחת לכל ההודעות במסך.
+   */
+  const [, setMessageState] = useState<string | null>(null);
   /*
    * כישלון טעינה נשמר בנפרד לכל רשימה, ולא מכווץ ל-[].
    * מצב ריק אומר למתווך "אין כאן כלום, אין מה לעשות" — והוא עוזב.
@@ -401,10 +407,24 @@ export default function CollaborationPage() {
   const [leadsFailed, setLeadsFailed] = useState(false);
   const [listingsFailed, setListingsFailed] = useState(false);
 
-  /** כל הודעה חדשה מוחקת את קישור "פתח את הליד" של הקנייה הקודמת. */
+  /**
+   * כל הודעה חדשה מוחקת את קישור "פתח את הליד" של הקנייה הקודמת.
+   *
+   * ההודעה מוצגת כחלונית צפה ולא כפסקה בראש המסך: אחרי שליחה
+   * הרשימה נטענת מחדש והמסך זז, וההודעה הישנה נשארה מחוץ לשדה
+   * הראייה — כלומר המתווך לא ידע אם ההצעה יצאה, ולחץ שוב.
+   *
+   * הטון נגזר מהטקסט ולא נמסר בכל קריאה: הצלחות במסך הזה מסומנות
+   * ב-"✓", וכך אין סיכון שקריאה חדשה תישכח ותקבל את הטון הלא נכון.
+   */
   function setMessage(text: string | null, leadId: string | null = null) {
     setMessageState(text);
     setBoughtLeadId(leadId);
+    setToast(
+      text === null
+        ? null
+        : { text, tone: text.startsWith("✓") ? "success" : "error" },
+    );
   }
 
   /*
@@ -691,26 +711,29 @@ export default function CollaborationPage() {
         })}
       </div>
 
-      {message ? (
-        <p
-          role="status"
-          className="mb-4 rounded-lg border p-3"
-          style={{ borderColor: "var(--color-primary)" }}
-        >
-          {message}
-          {boughtLeadId ? (
-            <>
-              {" "}
-              <Link
-                href={`/leads/${boughtLeadId}`}
-                className="font-medium underline"
-              >
-                פתח את הליד ←
-              </Link>
-            </>
-          ) : null}
-        </p>
-      ) : null}
+      <ActionToast
+        state={
+          toast === null
+            ? null
+            : {
+                ...toast,
+                /* קליטת הפניה יוצרת ליד — הקישור אליו הוא הצעד הבא */
+                ...(boughtLeadId === null
+                  ? {}
+                  : {
+                      extra: (
+                        <Link
+                          href={`/leads/${boughtLeadId}`}
+                          className="font-medium underline"
+                        >
+                          פתח את הליד ←
+                        </Link>
+                      ),
+                    }),
+              }
+        }
+        onClose={() => setToast(null)}
+      />
 
       {coopTab === "incoming" ? (
         <section
@@ -1287,7 +1310,6 @@ export default function CollaborationPage() {
                 מתאים? ההצעה חינם, והעמלה מתחלקת רק אם העסקה תיסגר.
               </p>
 
-    
               {loadFailed ? (
                 <LoadError
                   message="לא הצלחנו לטעון את הביקושים ברשת"
@@ -1611,7 +1633,6 @@ export default function CollaborationPage() {
                 לכם קונה מתאים? הפנייה חינם, והעמלה מתחלקת רק אם העסקה תיסגר.
               </p>
 
-    
               {listingsFailed ? (
                 <LoadError
                   message="לא הצלחנו לטעון את הנכסים ברשת"
