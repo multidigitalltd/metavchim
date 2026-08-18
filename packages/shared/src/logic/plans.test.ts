@@ -272,29 +272,15 @@ describe("downgradeWarnings", () => {
   });
 });
 
-describe("מסלול השת\"פ החינמי", () => {
-  const coop = defaultPlan("coop")!;
-
-  it("קיים, ציבורי, וללא מחיר", () => {
-    expect(coop).toBeDefined();
-    expect(coop.monthlyPriceAgorot).toBe(0);
-    expect(coop.isPublic).toBe(true);
-  });
-
+describe("מכסות רשת בקטלוג המובנה", () => {
   /*
-   * הפרמטרים שהוגדרו למסלול, כלשונם. שינוי כאן הוא שינוי מוצר —
-   * ולכן הוא צריך להיות מכוון, ולא תוצאת לוואי של עריכה בקובץ.
+   * מסלול השת"פ החינמי הוסר מהקטלוג המובנה — המסלולים נקבעים
+   * ידנית ב-/platform. מה שנשאר לנעול כאן הוא שהמכסות אינן מופיעות
+   * בשקט על מסלול בתשלום: מכסת פרסום שנשתלה בטעות במסלול משלם
+   * מגבילה לקוח ששילם, וזו בדיוק תקלה שאיש לא מדווח עליה.
    */
-  it("המכסות יושבות על הפרסום ולא על השמירה", () => {
-    expect(coop.maxProperties).toBeNull();
-    expect(coop.maxNetworkListings).toBe(3);
-    expect(coop.maxNetworkDemands).toBe(10);
-    expect(coop.maxUsers).toBe(1);
-  });
-
-  it("מסלולים בתשלום אינם מוגבלים בפרסום ברשת", () => {
+  it("אף מסלול מובנה אינו מוגבל בפרסום ברשת", () => {
     for (const plan of DEFAULT_PLANS) {
-      if (plan.code === "coop") continue;
       expect(plan.maxNetworkListings).toBeNull();
       expect(plan.maxNetworkDemands).toBeNull();
     }
