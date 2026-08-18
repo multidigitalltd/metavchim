@@ -13,6 +13,7 @@ import {
 } from "@metavchim/shared";
 import { assertBuyerAccess, ownershipFilter } from "../../common/ownership";
 import {
+  cleanVocabulary,
   freeTextTerms,
   normalizeRange,
   priceRangeAgorot,
@@ -542,6 +543,37 @@ export class BuyersService {
     return { total, byMaturity };
   }
 
+  /**
+   * כל שמות המקומות שמופיעים בכרטיסי הקונים של המשרד.
+   *
+   * **זה מה שהחליף את רשימת הערים הקשיחה.** קודם זיהוי העיר בשאלה
+   * קולית עבד מול תשע-עשרה ערים כתובות בקוד, וכל שם אחר — גבעתיים,
+   * חולון, הרצליה — פשוט לא זוהה. התוצאה לא הייתה "לא הבנתי" אלא
+   * חמישים קונים מכל הארץ, כי תנאי העיר מעולם לא נוסף לשאילתה.
+   *
+   * אוצר המילים של המשרד עצמו טוב מכל רשימה: עיר שאין בה אף קונה
+   * לעולם אינה תשובה נכונה לשאלה "מי מחפש שם", והוא מתעדכן לבדו.
+   *
+   * `DISTINCT unnest` ולא שליפת כל הקונים: המשרד יכול להחזיק אלפי
+   * כרטיסים, והמאגר יודע להחזיר את הערכים הייחודיים בלבד.
+   *
+   * ללא פילטר בעלות במכוון — זו רשימת **שמות מקומות**, לא נתוני
+   * לקוחות. סוכן עם `view_own` שהשאלה שלו הוגבלה לאוצר המילים שלו
+   * בלבד היה מקבל "לא מצאתי מקום כזה" על עיר שקיימת במשרד, והסינון
+   * על הקונים עצמם ממילא נשאר מוגבל לו.
+   */
+  async placeVocabulary(): Promise<string[]> {
+    const tenantId = TenantContext.current().tenantId;
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.$queryRaw<{ city: string }[]>`
+        SELECT DISTINCT unnest(cities) AS city
+        FROM buyers
+        WHERE tenant_id = ${tenantId}::char(26) AND deleted_at IS NULL
+      `,
+    );
+    return cleanVocabulary(rows.map((row) => row.city));
+  }
+
   async list(query: {
     maturity?: string;
     q?: string;
@@ -551,6 +583,17 @@ export class BuyersService {
     maxPrice?: number;
     minRooms?: number;
     maxRooms?: number;
+    /**
+     * רק קונים שהצהירו על מספר חדרים.
+     *
+     * בסינון רגיל קצה ריק נחשב "פתוח", וקונה שלא מילא חדרים עובר כל
+     * טווח — התנהגות נכונה למסך שמצמצם רשימה. ב**שאלה ישירה** ("מי
+     * מחפש 4 חדרים") היא הפוכה: אנחנו לא יודעים כמה חדרים הוא רוצה,
+     * ולכן התשובה "הוא מחפש 4" אינה נכונה. ההפרדה כאן ולא בקורא, כי
+     * הסינון חייב לרוץ במסד — סינון אחרי השליפה היה שובר את מגבלת
+     * החמישים.
+     */
+    roomsDeclaredOnly?: boolean;
     cursor?: string;
     limit: number;
   }): Promise<Page<BuyerDto>> {
@@ -605,6 +648,15 @@ export class BuyersService {
      */
     if (query.cities !== undefined && query.cities.length > 0) {
       conditions.push({ cities: { hasSome: query.cities } });
+    }
+
+    /*
+     * שאלה ישירה על חדרים — רק מי שהצהיר. ראו `roomsDeclaredOnly`.
+     * שני הקצוות נבדקים כי קונה יכול להצהיר על מינימום בלבד, ודי
+     * באחד מהם כדי שנדע משהו על מה שהוא מחפש.
+     */
+    if (query.roomsDeclaredOnly === true) {
+      conditions.push({ OR: [{ roomsMin: { not: null } }, { roomsMax: { not: null } }] });
     }
 
     /*

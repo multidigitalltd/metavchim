@@ -17,7 +17,18 @@ const ConnectSchema = z
   })
   .strict();
 
-const KeySchema = z.string().regex(/^[A-Za-z0-9_-]{20,64}$/u);
+/*
+ * המפתח מגיע לשירות **בלי ולידציה מוקדמת**, בכוונה.
+ *
+ * `ZodValidationPipe` היה דוחה מפתח קטוע או משובש ב-400 עוד לפני
+ * שהשירות רץ — כלומר בדיוק המקרה של ספק שהוגדרה אצלו כתובת שגויה
+ * לא היה מותיר שום עקבה, וזה המקרה שהיומן נבנה בשבילו. הבדיקה
+ * עברה ל-`TelephonyService.ingest`, שרושם ואז דוחה.
+ *
+ * האורך מוגבל כאן כדי שלא ייכנס לשירות ערך ענק; זה גבול טכני,
+ * לא ולידציה של תוכן.
+ */
+const RawKeySchema = z.string().max(200);
 
 /**
  * חיוג — **מזהה איש קשר, לא מספר**.
@@ -175,10 +186,10 @@ export class TelephonyWebhookController {
   @Post(":key")
   @HttpCode(200)
   async ingest(
-    @Param("key", new ZodValidationPipe(KeySchema)) key: string,
+    @Param("key", new ZodValidationPipe(RawKeySchema)) key: string,
     @Body() body: unknown,
   ): Promise<{ ok: true }> {
-    await this.telephony.ingest(key, asRecord(body));
+    await this.telephony.ingest(key, asRecord(body), "POST");
     return { ok: true };
   }
 
@@ -191,10 +202,10 @@ export class TelephonyWebhookController {
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get(":key")
   async ingestViaQuery(
-    @Param("key", new ZodValidationPipe(KeySchema)) key: string,
+    @Param("key", new ZodValidationPipe(RawKeySchema)) key: string,
     @Query() query: Record<string, unknown>,
   ): Promise<{ ok: true }> {
-    await this.telephony.ingest(key, query);
+    await this.telephony.ingest(key, query, "GET");
     return { ok: true };
   }
 }

@@ -77,6 +77,7 @@ import {
 } from "./backups.service";
 import { callUpdaterAgent, updaterFailure } from "./updater-agent";
 import { ServiceVersionsService } from "./service-versions.service";
+import { TelephonyWebhookLogService } from "../telephony/webhook-log.service";
 
 /**
  * ניהול הפלטפורמה — הקמת משרדי תיווך חדשים מהממשק, בלי SSH.
@@ -447,7 +448,55 @@ export class PlatformController {
     private readonly geocoding: GeocodingService,
     private readonly creditEconomy: CreditEconomyService,
     private readonly serviceVersions: ServiceVersionsService,
+    private readonly telephonyWebhookLog: TelephonyWebhookLogService,
   ) {}
+
+  /**
+   * יומן הפניות לנתיב הוובהוק של המרכזיות — **כולל אלה שנדחו**.
+   *
+   * בפלטפורמה ולא בהגדרות המשרד, כי הפנייה המעניינת ביותר היא זו
+   * שלא הצלחנו לשייך לאף משרד: מפתח שאינו מוכר. מסך המשרד יכול
+   * להראות רק את מה שכבר זוהה כשלו, וזו בדיוק ההצגה שהחמיצה את
+   * התקלה — "לא התקבל אף אירוע" נראה זהה בין מרכזייה שלא פנתה
+   * לבין מרכזייה שפנתה ונדחתה.
+   *
+   * המפתח מוחזר בקידומת בת שישה תווים בלבד; ראו `webhook-log.service`.
+   */
+  @Get("telephony-webhooks")
+  async telephonyWebhooks(): Promise<{
+    hits: {
+      id: string;
+      receivedAt: Date;
+      outcome: string;
+      tenantId: string | null;
+      tenantName: string | null;
+      keyPrefix: string;
+      method: string;
+      fieldKeys: string | null;
+    }[];
+  }> {
+    const hits = await this.telephonyWebhookLog.recent(50);
+    /*
+     * שם המשרד ולא רק המזהה: בעל הפלטפורמה מסתכל על היומן כדי לענות
+     * למישהו ששאל למה השיחות לא מגיעות, ומזהה ULID אינו תשובה.
+     * שאילתה אחת לכל המשרדים ולא אחת לשורה.
+     */
+    const tenantIds = [...new Set(hits.map((h) => h.tenantId).filter((id) => id !== null))];
+    const tenants =
+      tenantIds.length > 0
+        ? await this.prisma.tenant.findMany({
+            where: { id: { in: tenantIds } },
+            select: { id: true, name: true },
+          })
+        : [];
+    const nameById = new Map(tenants.map((t) => [t.id, t.name]));
+    return {
+      hits: hits.map((hit) => ({
+        ...hit,
+        tenantName: hit.tenantId === null ? null : (nameById.get(hit.tenantId) ?? null),
+      })),
+    };
+  }
 
   /**
    * קטלוג המסלולים לעריכה — כולל קטלוג הפיצ'רים עצמו.

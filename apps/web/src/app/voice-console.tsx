@@ -45,6 +45,8 @@ interface RouteResult {
 
 interface BuyerAnswer {
   hasMore: boolean;
+  /** מקומות שנאמרו ואין להם אף קונה — מוצגים במפורש, ראו למטה */
+  unmatchedPlaces: string[];
   buyers: {
     id: string;
     name: string;
@@ -481,12 +483,34 @@ export function VoiceConsole({
               <p className="m-0 text-[13px]" aria-live="polite">
                 בודק במאגר…
               </p>
-            ) : answer.buyers.length === 0 ? (
-              <p className="m-0 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
-                לא נמצאו קונים שמתאימים לקריטריונים האלה.
-              </p>
             ) : (
               <>
+                {/*
+                  מקום שנאמר ואין לו אף קונה נאמר בשמו — **ללא תלות
+                  בשאלה אם נמצאו קונים אחרים**.
+
+                  "מי מחפש בגבעתיים או בחדרה" מחזיר קונים מגבעתיים
+                  ומשמיט את חדרה, ורשימה מלאה על המסך היא בדיוק אותה
+                  הטעיה שהתיקון הזה בא לסגור: התשובה נראית שלמה ואין
+                  בה סימן שחצי מהשאלה נשמט (ביקורת Codex).
+                */}
+                {answer.unmatchedPlaces.length > 0 && (
+                  <p
+                    className="m-0 mb-1.5 text-[13px] font-medium"
+                    style={{ color: "var(--color-danger)" }}
+                  >
+                    אין במאגר אף קונה ב{answer.unmatchedPlaces.join(" / ")}.
+                  </p>
+                )}
+                {answer.buyers.length === 0 ? (
+                  // הודעה כללית רק כשאין הסבר ספציפי — אחרת כפילות
+                  answer.unmatchedPlaces.length === 0 && (
+                    <p className="m-0 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+                      לא נמצאו קונים שמתאימים לקריטריונים האלה.
+                    </p>
+                  )
+                ) : (
+                  <>
                 <p className="m-0 mb-1.5 text-[13px] font-medium">
                   {answer.hasMore
                     ? `נמצאו יותר מ-${answer.buyers.length} — מוצגים הראשונים:`
@@ -517,6 +541,8 @@ export function VoiceConsole({
                     </li>
                   ))}
                 </ul>
+                  </>
+                )}
               </>
             )
           ) : null}

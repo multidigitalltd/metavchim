@@ -33,6 +33,7 @@ import { CryptoService } from "../../core/crypto.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { TelephonyWebhookLogService } from "./webhook-log.service";
 import { loadEnv } from "../../config/env";
 
 /**
@@ -56,7 +57,17 @@ export class TelephonyService {
     private readonly audit: AuditService,
     private readonly plans: PlanCatalogService,
     private readonly contacts: ContactsService,
+    private readonly webhookLog: TelephonyWebhookLogService,
   ) {}
+
+  /**
+   * צורת המפתח שאנחנו מייצרים: `randomBytes(24).toString("base64url")`.
+   *
+   * הבדיקה חוסכת שאילתה על כל זבל שמגיע לנתיב הציבורי, אבל אינה
+   * שער אבטחה — היא רצה **אחרי** רישום ביומן, כי מפתח משובש הוא
+   * בדיוק הממצא שמחפשים כשמרכזייה "לא שולחת כלום".
+   */
+  private static readonly WEBHOOK_KEY_SHAPE = /^[A-Za-z0-9_-]{20,64}$/u;
 
   private webhookUrl(key: string): string {
     return `${loadEnv().WEB_ORIGIN}/api/v1/public/telephony/${key}`;
@@ -556,7 +567,28 @@ export class TelephonyService {
    * פעולה: מרכזייה שמקבלת שגיאה מנסה שוב ושוב, ואירוע שאנחנו
    * בכוונה מתעלמים ממנו (צלצול חוזר, אירוע שכבר נרשם) אינו כשל.
    */
-  async ingest(key: string, payload: Record<string, unknown>): Promise<void> {
+  async ingest(
+    key: string,
+    payload: Record<string, unknown>,
+    method: "GET" | "POST" = "POST",
+  ): Promise<void> {
+    /*
+     * צורת המפתח נבדקת כאן ולא בשער הנתיב, כדי שגם מפתח קטוע או
+     * משובש יירשם ביומן לפני הדחייה. ספק שהוגדרה אצלו כתובת שגויה
+     * הוא בדיוק המקרה שהיומן קיים בשבילו, ובדיקה מוקדמת יותר הייתה
+     * מחזירה 400 ומשאירה אותו בלתי נראה.
+     */
+    if (!TelephonyService.WEBHOOK_KEY_SHAPE.test(key)) {
+      await this.webhookLog.record({
+        outcome: "unknown_key",
+        tenantId: null,
+        key,
+        method,
+        payload,
+      });
+      throw new NotFoundException("לא נמצא");
+    }
+
     /*
      * דרך הפוליסה הציבורית ולא בשאילתה ישירה.
      *
@@ -570,9 +602,25 @@ export class TelephonyService {
         select: { tenantId: true, id: true, status: true },
       }),
     );
-    // מפתח לא מוכר — אותה שגיאה גנרית כמו בקליטת הלידים; לא מאשרים
-    // קיום או אי-קיום של מפתחות
-    if (!integration || integration.status !== "active") throw new NotFoundException("לא נמצא");
+    /*
+     * מפתח לא מוכר — אותה שגיאה גנרית כמו בקליטת הלידים; לא מאשרים
+     * קיום או אי-קיום של מפתחות.
+     *
+     * **אבל נרשם ביומן לפני הזריקה.** קודם הפנייה נעלמה כאן בלי
+     * שום עקבה, ומסך האבחון הראה "לא התקבל אף אירוע" בדיוק כמו
+     * מרכזייה שמעולם לא פנתה — כלומר שני מצבים שדורשים פעולה הפוכה
+     * נראים זהים. התשובה החוצה נשארת גנרית; מה שנרשם הוא פנימי.
+     */
+    if (!integration || integration.status !== "active") {
+      await this.webhookLog.record({
+        outcome: integration ? "disabled" : "unknown_key",
+        tenantId: integration?.tenantId ?? null,
+        key,
+        method,
+        payload,
+      });
+      throw new NotFoundException("לא נמצא");
+    }
 
     /*
      * זכאות המסלול — כאן ולא בשער.
@@ -586,8 +634,28 @@ export class TelephonyService {
      * מהתשובה דבר על מצב המנוי של הלקוח.
      */
     if (!(await this.plans.tenantHasFeature(integration.tenantId, "telephony"))) {
+      /*
+       * הסיבה השקטה ביותר מכולן: המפתח תקין, החיבור פעיל, והמסלול
+       * פשוט אינו כולל מרכזייה. מבחוץ זה נראה בדיוק כמו כתובת
+       * שגויה, ובלי השורה הזו אין שום דרך להבדיל.
+       */
+      await this.webhookLog.record({
+        outcome: "no_feature",
+        tenantId: integration.tenantId,
+        key,
+        method,
+        payload,
+      });
       throw new NotFoundException("לא נמצא");
     }
+
+    await this.webhookLog.record({
+      outcome: "accepted",
+      tenantId: integration.tenantId,
+      key,
+      method,
+      payload,
+    });
 
     const event = parseTelephonyEvent(payload);
     const tenantId = integration.tenantId;
