@@ -43,6 +43,36 @@ export function cyclePriceAgorot(plan: PlanDefinition, cycle: BillingCycle): num
   return plan.monthlyPriceAgorot > 0 ? plan.monthlyPriceAgorot : null;
 }
 
+/** מחיר מוסכם למשרד יחיד. `null` בשדה = אין חריגה, כלומר מחיר המסלול. */
+export interface TenantPriceOverride {
+  monthlyAgorot: number | null;
+  yearlyAgorot: number | null;
+}
+
+/**
+ * המחיר שהמשרד הזה משלם בפועל.
+ *
+ * **חייבת להיקרא בכל מקום שגובה כסף** — פתיחת תשלום *וגם* חידוש
+ * אוטומטי. מחיר מוסכם שחל רק באחד מהם הוא הבטחה שנשברת בחודש
+ * השני, וזו תקלת חיוב שמגיעה ללקוח ולא אלינו.
+ *
+ * `null` בחריגה = אין חריגה ⇒ מחיר המסלול. הבדיקה היא על `null`
+ * מפורש ולא על „falsy”, כי אחרת כל סכום היה נבלע.
+ *
+ * **מחיר מוסכם פותח גם מחזור שהמסלול אינו נמכר בו.** משרד שסוכם
+ * איתו על מחיר שנתי במסלול שנמכר חודשית הוא בדיוק המקרה שהחריגה
+ * נועדה לו, ובלי זה הוא היה נדחה בשער למרות שהמחיר קיים.
+ */
+export function effectiveCyclePriceAgorot(
+  plan: PlanDefinition,
+  cycle: BillingCycle,
+  override?: TenantPriceOverride,
+): number | null {
+  const agreed = cycle === "yearly" ? override?.yearlyAgorot : override?.monthlyAgorot;
+  if (agreed !== undefined && agreed !== null) return agreed;
+  return cyclePriceAgorot(plan, cycle);
+}
+
 /** מספר הימים בחודש — לטיפול ב-31 בחודש קצר. */
 function daysInMonth(year: number, monthIndex: number): number {
   return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
@@ -218,11 +248,21 @@ export function describeCyclePrice(plan: PlanDefinition, cycle: BillingCycle): s
 export function checkoutRejectionReason(
   plan: PlanDefinition | undefined,
   cycle: string,
+  /*
+   * המחיר המוסכם נכנס **גם לשער ולא רק לחישוב**. משרד שסוכם איתו
+   * מחיר במחזור שהמסלול אינו נמכר בו, או במסלול שאינו ציבורי, הוא
+   * בדיוק המקרה שהחריגה נועדה לו — ובלי זה הוא היה נדחה כאן למרות
+   * שהמחיר קיים ומוסכם.
+   */
+  override?: TenantPriceOverride,
 ): string | null {
   if (!plan) return "המסלול אינו קיים";
   if (!isBillingCycle(cycle)) return "מחזור חיוב לא מוכר";
-  if (!plan.isPublic) return "המסלול אינו נמכר באופן עצמאי — פנו אלינו";
-  const agorot = cyclePriceAgorot(plan, cycle);
+  const agorot = effectiveCyclePriceAgorot(plan, cycle, override);
+  const agreed = cycle === "yearly" ? override?.yearlyAgorot : override?.monthlyAgorot;
+  if (!plan.isPublic && (agreed === undefined || agreed === null)) {
+    return "המסלול אינו נמכר באופן עצמאי — פנו אלינו";
+  }
   if (agorot === null) {
     return cycle === "yearly"
       ? "המסלול נמכר בחיוב חודשי בלבד"

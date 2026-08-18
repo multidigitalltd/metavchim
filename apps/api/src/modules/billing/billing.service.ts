@@ -4,7 +4,7 @@ import {
   accessUntil,
   billingAnchorDay,
   checkoutRejectionReason,
-  cyclePriceAgorot,
+  effectiveCyclePriceAgorot,
   describeCycle,
   discountedAgorot,
   isBillingCycle,
@@ -158,12 +158,18 @@ export class BillingService {
     cycle: string;
   }): Promise<{ url: string; paymentId: string }> {
     const plan = await this.plans.byCode(input.planCode);
-    const rejection = checkoutRejectionReason(plan, input.cycle);
+    /*
+     * המחיר המוסכם למשרד — נקרא כאן ומועבר גם לשער וגם לחישוב.
+     * אותה חריגה בדיוק נקראת בחידוש האוטומטי; מחיר שחל רק באחד
+     * מהשניים הוא הבטחה שנשברת בחודש השני.
+     */
+    const priceOverride = await this.plans.tenantPriceOverride(input.tenantId);
+    const rejection = checkoutRejectionReason(plan, input.cycle, priceOverride);
     if (rejection !== null) throw new BadRequestException(rejection);
 
     // אחרי הבדיקה שני אלה ודאיים; ההצהרה כאן היא כדי ש-TypeScript ידע
     const cycle = input.cycle as BillingCycle;
-    const fullAgorot = cyclePriceAgorot(plan!, cycle)!;
+    const fullAgorot = effectiveCyclePriceAgorot(plan!, cycle, priceOverride)!;
 
     /*
      * הנחת הקופון — **מחושבת כאן ולא מתקבלת מהדפדפן**.

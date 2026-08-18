@@ -6,6 +6,7 @@ import {
   billingAnchorDay,
   checkoutRejectionReason,
   cyclePriceAgorot,
+  effectiveCyclePriceAgorot,
   describeCycle,
   describeCyclePrice,
   describeSubscription,
@@ -323,5 +324,47 @@ describe("accessUntil", () => {
      */
     expect(BILLING_GRACE_DAYS).toBeGreaterThan(0);
     expect(accessUntil(end).getTime()).toBeGreaterThan(end.getTime());
+  });
+});
+
+describe("effectiveCyclePriceAgorot — מחיר מוסכם למשרד", () => {
+  const paid = plan({ monthlyPriceAgorot: 29_900, yearlyPriceAgorot: 299_000 });
+
+  it("בלי חריגה — מחיר המסלול", () => {
+    expect(effectiveCyclePriceAgorot(paid, "monthly")).toBe(29_900);
+    expect(effectiveCyclePriceAgorot(paid, "yearly")).toBe(299_000);
+  });
+
+  it("מחיר מוסכם גובר על מחיר המסלול", () => {
+    const override = { monthlyAgorot: 19_900, yearlyAgorot: null };
+    expect(effectiveCyclePriceAgorot(paid, "monthly", override)).toBe(19_900);
+  });
+
+  it("החריגה חלה על המחזור שלה בלבד", () => {
+    const override = { monthlyAgorot: 19_900, yearlyAgorot: null };
+    expect(effectiveCyclePriceAgorot(paid, "yearly", override)).toBe(299_000);
+  });
+
+  /*
+   * המקרה שהחריגה נועדה לו: משרד שסוכם איתו מחיר שנתי במסלול
+   * שנמכר חודשית בלבד. בלי זה הוא היה נדחה בשער למרות שהמחיר קיים.
+   */
+  it("מחיר מוסכם פותח מחזור שהמסלול אינו נמכר בו", () => {
+    const monthlyOnly = plan({ monthlyPriceAgorot: 29_900, yearlyPriceAgorot: null });
+    expect(effectiveCyclePriceAgorot(monthlyOnly, "yearly")).toBeNull();
+    expect(
+      effectiveCyclePriceAgorot(monthlyOnly, "yearly", { monthlyAgorot: null, yearlyAgorot: 250_000 }),
+    ).toBe(250_000);
+    expect(
+      checkoutRejectionReason(monthlyOnly, "yearly", { monthlyAgorot: null, yearlyAgorot: 250_000 }),
+    ).toBeNull();
+  });
+
+  it("מסלול לא ציבורי נפתח למי שסוכם איתו מחיר", () => {
+    const priv = plan({ monthlyPriceAgorot: 0, yearlyPriceAgorot: null, isPublic: false });
+    expect(checkoutRejectionReason(priv, "monthly")).toBe("המסלול אינו נמכר באופן עצמאי — פנו אלינו");
+    expect(
+      checkoutRejectionReason(priv, "monthly", { monthlyAgorot: 49_900, yearlyAgorot: null }),
+    ).toBeNull();
   });
 });

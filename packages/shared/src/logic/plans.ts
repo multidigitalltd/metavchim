@@ -111,6 +111,39 @@ export function sanitizeFeatures(input: readonly string[]): PlanFeature[] {
   return PLAN_FEATURES.filter((f) => wanted.has(f.code)).map((f) => f.code);
 }
 
+/** חריגי הפלטפורמה על משרד יחיד — מעל המסלול, בשני הכיוונים. */
+export interface TenantFeatureOverrides {
+  /** תכונות שנפתחו למשרד הזה למרות שאינן במסלול. */
+  grants: readonly string[];
+  /** תכונות שנסגרו למשרד הזה למרות שהן במסלול. */
+  denials: readonly string[];
+}
+
+/**
+ * התכונות שפתוחות למשרד בפועל: `(מסלול ∪ הענקות) \ דחיות`.
+ *
+ * **דחייה גוברת על הענקה**, ולא בגלל סדר מקרי. סגירה חייבת להיות
+ * ודאית: מי שסוגר תכונה למשרד — בגלל חוב, שימוש לרעה או תקלה —
+ * צריך שהסגירה תחזיק גם אם אותה תכונה הוענקה קודם למישהו ונשכחה.
+ * הכיוון ההפוך היה הופך כל סגירה לתלויה בהיסטוריה שאיש לא זוכר.
+ *
+ * זהו אותו כלל שנוהג ב-`blockedModules`: שכבת פלטפורמה חוסמת
+ * ולעולם לא נעקפת מלמטה.
+ *
+ * הפלט עובר `sanitizeFeatures`, ולכן קוד שאינו בקטלוג — שריד
+ * מגרסה קודמת או טעות הקלדה — נושר במקום להבטיח תכונה שאף שורת
+ * קוד אינה אוכפת.
+ */
+export function effectiveFeatures(
+  planFeatures: readonly string[],
+  overrides?: TenantFeatureOverrides,
+): PlanFeature[] {
+  const open = new Set(planFeatures);
+  for (const code of overrides?.grants ?? []) open.add(code);
+  for (const code of overrides?.denials ?? []) open.delete(code);
+  return sanitizeFeatures([...open]);
+}
+
 /** מגבלת כמות. `null` = ללא הגבלה, וזה ערך תקין ומכוון. */
 export type PlanLimit = number | null;
 

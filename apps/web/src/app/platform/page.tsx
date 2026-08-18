@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState, type FormEvent } from "react";
-import { CAPABILITY_MODULES } from "@metavchim/shared";
+import { CAPABILITY_MODULES, PLAN_FEATURES } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDate } from "@/lib/format";
@@ -41,6 +41,12 @@ interface AgencyRow {
   supportAccessUntil: string | null;
   /** מודולים שהפלטפורמה חסמה למשרד — מפתחות מקטלוג המודולים. */
   blockedModules: string[];
+  /** תכונות שנפתחו למשרד מעבר למסלול, ותכונות שנסגרו בתוכו. */
+  featureGrants: string[];
+  featureDenials: string[];
+  /** מחיר מוסכם באגורות; null = מחיר המסלול. */
+  priceOverrideMonthlyAgorot: number | null;
+  priceOverrideYearlyAgorot: number | null;
 }
 
 /**
@@ -52,6 +58,8 @@ interface AgencyRow {
 interface PlanOption {
   code: string;
   name: string;
+  /** התכונות שבמסלול — כדי שמסך החריגים יראה מה חריג ומה לא. */
+  features?: string[];
 }
 
 /**
@@ -121,6 +129,210 @@ function ModuleBlocks({
   );
 }
 
+/** `YYYY-MM-DD` לשדה תאריך; ריק כשאין תאריך. */
+function dateInputValue(iso: string | null): string {
+  return iso ? (iso.slice(0, 10) ?? "") : "";
+}
+
+/** אגורות → שקלים לתצוגה; ריק כשאין חריגה. */
+function shekelInputValue(agorot: number | null): string {
+  return agorot === null ? "" : String(agorot / 100);
+}
+
+/**
+ * חריגי הפלטפורמה על משרד יחיד — תכונות, חלון החינם ומחיר מוסכם.
+ *
+ * שלושתם במסך אחד משום שהם אותה שיחה מסחרית: מה המשרד הזה מקבל,
+ * עד מתי בחינם, וכמה הוא משלם. פיצול שלהם היה מאלץ לזכור את השניים
+ * האחרים בכל פעם שנוגעים באחד.
+ *
+ * לכל תכונה שלושה מצבים ולא תיבת סימון אחת: „לפי המסלול” הוא מצב
+ * בפני עצמו, ולא „לא מסומן”. בלעדיו אי אפשר לבטל חריג ולחזור
+ * להתנהגות הרגילה — רק להחליף אותו בחריג הפוך, שממשיך לחול גם
+ * אחרי שהמסלול משתנה.
+ */
+function TenantOverrides({
+  agency,
+  planFeatures,
+  onSaveFeatures,
+  onSaveBilling,
+  onCancel,
+}: {
+  agency: AgencyRow;
+  /** התכונות שבמסלול של המשרד — כדי להראות מה חריג ומה לא. */
+  planFeatures: string[];
+  onSaveFeatures: (grants: string[], denials: string[]) => void;
+  onSaveBilling: (patch: Record<string, string | number | null>) => void;
+  onCancel: () => void;
+}) {
+  const [grants, setGrants] = useState<string[]>(agency.featureGrants);
+  const [denials, setDenials] = useState<string[]>(agency.featureDenials);
+  const [trialEndsAt, setTrialEndsAt] = useState(dateInputValue(agency.trialEndsAt));
+  const [paidUntil, setPaidUntil] = useState(dateInputValue(agency.paidUntil));
+  const [monthly, setMonthly] = useState(shekelInputValue(agency.priceOverrideMonthlyAgorot));
+  const [yearly, setYearly] = useState(shekelInputValue(agency.priceOverrideYearlyAgorot));
+
+  /** „לפי המסלול” | „פתוח” | „סגור” — שלושת המצבים של תכונה. */
+  function stateOf(code: string): "plan" | "open" | "closed" {
+    if (denials.includes(code)) return "closed";
+    if (grants.includes(code)) return "open";
+    return "plan";
+  }
+
+  function setState(code: string, next: "plan" | "open" | "closed"): void {
+    setGrants((prev) => (next === "open" ? [...new Set([...prev, code])] : prev.filter((c) => c !== code)));
+    setDenials((prev) =>
+      next === "closed" ? [...new Set([...prev, code])] : prev.filter((c) => c !== code),
+    );
+  }
+
+  /*
+   * שדה ריק = ביטול החריגה (`null`), ולא אפס. זו ההבחנה שמאפשרת
+   * להחזיר משרד להתנהגות הרגילה בלי להקים אותו מחדש.
+   */
+  function shekelToAgorot(value: string): number | null {
+    const trimmed = value.trim();
+    if (trimmed === "") return null;
+    const shekels = Number(trimmed);
+    return Number.isFinite(shekels) && shekels > 0 ? Math.round(shekels * 100) : null;
+  }
+
+  return (
+    <div>
+      <p className="m-0 mb-2 text-[13px]">
+        <b>חריגים ל{agency.name}</b>{" "}
+        <span style={{ color: "var(--color-text-muted)" }}>
+          — מה שמוגדר כאן גובר על המסלול. „סגור” גובר על „פתוח” תמיד, כדי
+          שסגירה תחזיק גם אם התכונה נפתחה קודם ונשכחה.
+        </span>
+      </p>
+
+      <ul className="m-0 mb-3 grid list-none gap-1.5 p-0 md:grid-cols-2">
+        {PLAN_FEATURES.map((feature) => {
+          const inPlan = planFeatures.includes(feature.code);
+          const state = stateOf(feature.code);
+          return (
+            <li key={feature.code} className="text-[12.5px]">
+              <b>{feature.label}</b>{" "}
+              <span style={{ color: "var(--color-text-muted)" }}>
+                ({inPlan ? "במסלול" : "לא במסלול"})
+              </span>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {(
+                  [
+                    ["plan", "לפי המסלול"],
+                    ["open", "פתוח"],
+                    ["closed", "סגור"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={state === value}
+                    onClick={() => setState(feature.code, value)}
+                    className="rounded-lg border px-2 py-0.5 text-[12px]"
+                    style={
+                      state === value
+                        ? {
+                            borderColor: "var(--color-primary)",
+                            background: "var(--color-primary-soft)",
+                            color: "var(--color-primary)",
+                          }
+                        : { borderColor: "var(--color-border)" }
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <Button variant="secondary" onClick={() => onSaveFeatures(grants, denials)}>
+        שמור תכונות
+      </Button>
+
+      <hr className="my-3" style={{ borderColor: "var(--color-border)" }} />
+
+      <p className="m-0 mb-2 text-[13px]">
+        <b>חלון החינם והמחיר</b>{" "}
+        <span style={{ color: "var(--color-text-muted)" }}>
+          — שדה ריק מבטל את החריגה ומחזיר להתנהגות הרגילה. „חינם למשרד הזה”
+          נעשה בהארכת החלון ולא במחיר אפס.
+        </span>
+      </p>
+      <div className="mb-2 flex flex-wrap gap-3">
+        <label className="text-[12.5px]">
+          <span className="mb-1 block font-medium">סוף תקופת הניסיון</span>
+          <input
+            type="date"
+            value={trialEndsAt}
+            onChange={(e) => setTrialEndsAt(e.target.value)}
+            className="rounded-lg border px-2 py-1"
+            style={inputStyle}
+          />
+        </label>
+        <label className="text-[12.5px]">
+          <span className="mb-1 block font-medium">שולם עד</span>
+          <input
+            type="date"
+            value={paidUntil}
+            onChange={(e) => setPaidUntil(e.target.value)}
+            className="rounded-lg border px-2 py-1"
+            style={inputStyle}
+          />
+        </label>
+        <label className="text-[12.5px]">
+          <span className="mb-1 block font-medium">מחיר חודשי מוסכם (₪)</span>
+          <input
+            type="number"
+            min={1}
+            value={monthly}
+            onChange={(e) => setMonthly(e.target.value)}
+            className="w-32 rounded-lg border px-2 py-1"
+            style={inputStyle}
+          />
+        </label>
+        <label className="text-[12.5px]">
+          <span className="mb-1 block font-medium">מחיר שנתי מוסכם (₪)</span>
+          <input
+            type="number"
+            min={1}
+            value={yearly}
+            onChange={(e) => setYearly(e.target.value)}
+            className="w-32 rounded-lg border px-2 py-1"
+            style={inputStyle}
+          />
+        </label>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="secondary"
+          onClick={() =>
+            onSaveBilling({
+              /*
+               * סוף היום ולא תחילתו: „עד ה-31” פירושו שה-31 עוד
+               * פתוח. חצות היה סוגר את המשרד יום שלם מוקדם מדי.
+               */
+              trialEndsAt: trialEndsAt === "" ? null : new Date(`${trialEndsAt}T23:59:59Z`).toISOString(),
+              paidUntil: paidUntil === "" ? null : new Date(`${paidUntil}T23:59:59Z`).toISOString(),
+              priceOverrideMonthlyAgorot: shekelToAgorot(monthly),
+              priceOverrideYearlyAgorot: shekelToAgorot(yearly),
+            })
+          }
+        >
+          שמור חיוב
+        </Button>
+        <Button variant="ghost" onClick={onCancel}>
+          סגור
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 const STATUS_LABELS: Record<string, string> = {
   active: "פעיל",
   trial: "ניסיון",
@@ -156,6 +368,7 @@ export default function PlatformPage() {
   const [agencies, setAgencies] = useState<AgencyRow[] | null>(null);
   /** המשרד שעורכים לו כרגע את חסימות המודולים; null = אף אחד. */
   const [modulesFor, setModulesFor] = useState<string | null>(null);
+  const [overridesFor, setOverridesFor] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ ownerEmail: string; tempPassword: string } | null>(null);
@@ -254,6 +467,31 @@ export default function PlatformPage() {
    * חסימת מודולים למשרד. הרשימה נשלחת במלואה — המסך מחזיק את המצב
    * המבוקש, והשרת מחליף בו את הקיים.
    */
+  async function saveFeatures(agency: AgencyRow, grants: string[], denials: string[]) {
+    setError(null);
+    try {
+      await apiPatch(`/platform/agencies/${agency.id}/features`, { grants, denials });
+      setOverridesFor(null);
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
+    }
+  }
+
+  async function saveBillingOverride(
+    agency: AgencyRow,
+    patch: Record<string, string | number | null>,
+  ) {
+    setError(null);
+    try {
+      await apiPatch(`/platform/agencies/${agency.id}/billing-override`, patch);
+      setOverridesFor(null);
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
+    }
+  }
+
   async function saveModules(agency: AgencyRow, blockedModules: string[]) {
     setError(null);
     try {
@@ -503,6 +741,23 @@ export default function PlatformPage() {
                           ? "הכול פתוח"
                           : `${a.blockedModules.length} חסומים`}
                       </button>
+                      {/*
+                        החריגים ליד החסימות ולא בעמודה משלהם: שתיהן
+                        אותה שאלה — מה המשרד הזה מקבל — ועמודה נוספת
+                        הייתה מצרה את הטבלה בלי להוסיף מידע.
+                      */}
+                      <button
+                        type="button"
+                        className="mv-btn-plain block"
+                        aria-expanded={overridesFor === a.id}
+                        onClick={() => setOverridesFor(overridesFor === a.id ? null : a.id)}
+                      >
+                        {a.featureGrants.length + a.featureDenials.length === 0 &&
+                        a.priceOverrideMonthlyAgorot === null &&
+                        a.priceOverrideYearlyAgorot === null
+                          ? "ללא חריגים"
+                          : "חריגים ✓"}
+                      </button>
                     </td>
                     <td className="p-3">{formatDate(a.createdAt)}</td>
                     <td className="p-3">
@@ -532,6 +787,23 @@ export default function PlatformPage() {
                       </Button>
                     </td>
                   </tr>
+                  {overridesFor === a.id ? (
+                    <tr style={{ background: "var(--color-bg)" }}>
+                      <td colSpan={7} className="p-3">
+                        <TenantOverrides
+                          agency={a}
+                          planFeatures={
+                            planOptions.find((p) => p.code === a.plan)?.features ?? []
+                          }
+                          onCancel={() => setOverridesFor(null)}
+                          onSaveFeatures={(grants, denials) =>
+                            void saveFeatures(a, grants, denials)
+                          }
+                          onSaveBilling={(patch) => void saveBillingOverride(a, patch)}
+                        />
+                      </td>
+                    </tr>
+                  ) : null}
                   {modulesFor === a.id ? (
                     <tr style={{ background: "var(--color-bg)" }}>
                       <td colSpan={7} className="p-3">

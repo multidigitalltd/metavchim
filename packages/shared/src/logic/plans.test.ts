@@ -3,6 +3,7 @@ import {
   DEFAULT_PLANS,
   PLAN_FEATURES,
   defaultPlan,
+  effectiveFeatures,
   downgradeWarnings,
   featureLabel,
   formatPlanPrice,
@@ -284,6 +285,45 @@ describe("מכסות רשת בקטלוג המובנה", () => {
       expect(plan.maxNetworkListings).toBeNull();
       expect(plan.maxNetworkDemands).toBeNull();
     }
+  });
+});
+
+describe("effectiveFeatures — חריגי הפלטפורמה", () => {
+  it("בלי חריגים מחזיר את המסלול כמות שהוא", () => {
+    expect(effectiveFeatures(["whatsapp", "analytics"])).toEqual(["analytics", "whatsapp"]);
+  });
+
+  it("הענקה פותחת תכונה שאינה במסלול", () => {
+    const open = effectiveFeatures(["whatsapp"], { grants: ["telephony"], denials: [] });
+    expect(open).toContain("telephony");
+    expect(open).toContain("whatsapp");
+  });
+
+  it("דחייה סוגרת תכונה שכן במסלול", () => {
+    expect(effectiveFeatures(["whatsapp", "analytics"], { grants: [], denials: ["analytics"] })).toEqual(
+      ["whatsapp"],
+    );
+  });
+
+  /*
+   * הכלל שקובע את כל השאר. סגירה חייבת להיות ודאית: מי שסוגר תכונה
+   * בגלל חוב או שימוש לרעה צריך שהסגירה תחזיק גם אם אותה תכונה
+   * הוענקה קודם ונשכחה.
+   */
+  it("דחייה גוברת על הענקה של אותה תכונה", () => {
+    expect(
+      effectiveFeatures([], { grants: ["telephony"], denials: ["telephony"] }),
+    ).not.toContain("telephony");
+  });
+
+  it("דחייה של תכונה שאינה במסלול אינה משנה דבר", () => {
+    expect(effectiveFeatures(["whatsapp"], { grants: [], denials: ["telephony"] })).toEqual([
+      "whatsapp",
+    ]);
+  });
+
+  it("קוד שאינו בקטלוג נושר במקום להבטיח תכונה שאינה נאכפת", () => {
+    expect(effectiveFeatures(["whatsapp"], { grants: ["nope"], denials: [] })).toEqual(["whatsapp"]);
   });
 });
 

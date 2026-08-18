@@ -59,7 +59,9 @@ export class NavController {
   @Get("summary")
   async summary(): Promise<NavSummary> {
     const { tenantId } = TenantContext.current();
-    const plan = await this.plans.forTenant(tenantId);
+    // מה שפתוח בפועל ולא מה שבמסלול: מסך שמסתיר תכונה שהפלטפורמה
+    // פתחה למשרד הזה הוא בדיוק החריג שלא נראה לאיש
+    const features = await this.plans.tenantFeatures(tenantId);
     // מחוץ ל-RLS (רישום הדיירים), ולכן שאילתה ישירה ולא withTenant
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
@@ -131,7 +133,7 @@ export class NavController {
         matches,
         credits: ledger._count === 0 ? null : (ledger._sum.amount ?? 0),
         urgentTasks: taskRows.filter((row) => isTaskUrgent(row, now)).length,
-        features: plan?.features ?? [],
+        features,
         blockedModules: tenant?.blockedModules ?? [],
       };
     });
