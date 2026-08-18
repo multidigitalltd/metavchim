@@ -8,9 +8,11 @@ import {
   type AutomationRuleInput,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
+import { RequireFeature } from "../../common/feature.guard";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
+import { AutomationQuotaService } from "../../core/automation-quota.service";
 import { PrismaService } from "../../core/prisma.service";
 
 /**
@@ -24,11 +26,20 @@ import { PrismaService } from "../../core/prisma.service";
 
 const IdSchema = z.string().length(26);
 
+/*
+ * שער המסלול על **היצירה בלבד**, ולא על הסעיף כולו.
+ *
+ * משרד שירד מסלול עדיין מחזיק כללים שנוצרו קודם. שער גורף היה
+ * חוסם ממנו גם לראות אותם, גם לכבות וגם למחוק — כלומר להשאיר אותו
+ * עם אוטומציות שאין לו שום דרך לנהל (ביקורת Codex). ההרצה עצמה
+ * נעצרת ב-Worker, שבודק את הזכאות לפני כל אירוע.
+ */
 @Controller("settings/automation-rules")
 export class AutomationRulesController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly quota: AutomationQuotaService,
   ) {}
 
   /**
@@ -53,6 +64,8 @@ export class AutomationRulesController {
     }[];
     /** הסוכנים שאפשר להטיל עליהם — פעילים בלבד. */
     users: { id: string; name: string }[];
+    /** המכסה של המסלול והשימוש בפועל — כולל המשימות הקבועות. */
+    quota: { used: number; limit: number | null };
   }> {
     const tenantId = TenantContext.current().tenantId;
     const [rules, users] = await Promise.all([
@@ -79,11 +92,17 @@ export class AutomationRulesController {
         }),
       ),
     ]);
-    return { triggers: AUTOMATION_TRIGGERS, rules, users };
+    return {
+      triggers: AUTOMATION_TRIGGERS,
+      rules,
+      users,
+      quota: await this.quota.status(tenantId),
+    };
   }
 
   @Post()
   @RequireCapability("settings.manage")
+  @RequireFeature("automations")
   @HttpCode(201)
   async create(
     @Body(new ZodValidationPipe(AutomationRuleInputSchema)) body: AutomationRuleInput,
@@ -93,6 +112,9 @@ export class AutomationRulesController {
     const id = ulid();
 
     await this.prisma.withTenant(async (tx) => {
+      // הבדיקה **בתוך** הטרנזקציה שיוצרת: ספירה שרצה לפניה רואה את
+      // אותו מצב כמו בקשה מקבילה, ושתיהן עוברות
+      await this.quota.assertCanAddWithin(tx, tenantId);
       await tx.automationRule.create({
         data: {
           id,

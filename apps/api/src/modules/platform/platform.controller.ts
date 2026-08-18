@@ -194,6 +194,11 @@ const UpsertPlanSchema = z
      * הופך אותם לשגיאה. `null` הוא גם המשמעות הנכונה של "לא נאמר":
      * ללא הגבלה, כלומר בדיוק ההתנהגות שהייתה לפני התוספת.
      */
+    /*
+     * מכסת האוטומציות. `default(null)` כמו שאר המגבלות: מסך ישן
+     * ששולח גוף בלי השדה מקבל "ללא הגבלה", ולא שגיאה.
+     */
+    maxAutomations: LimitSchema.default(null),
     maxNetworkListings: LimitSchema.default(null),
     maxNetworkDemands: LimitSchema.default(null),
     features: z.array(z.string().max(40)).max(50),

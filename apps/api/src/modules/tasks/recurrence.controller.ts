@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from "@ne
 import { z } from "zod";
 import { IdSchema } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
+import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { RecurrenceService, type RecurrenceDto } from "./recurrence.service";
 
@@ -38,6 +39,11 @@ const RecurrenceSchema = z
   })
   .strict();
 
+/*
+ * שער המסלול על **היצירה בלבד**, מאותו טעם כמו בכללים שהמשרד בונה:
+ * משרד שירד מסלול חייב להיות מסוגל לראות, לכבות ולמחוק את מה שכבר
+ * הגדיר. ההרצה נעצרת ב-Worker.
+ */
 @Controller("task-recurrences")
 export class RecurrenceController {
   constructor(private readonly recurrences: RecurrenceService) {}
@@ -50,7 +56,8 @@ export class RecurrenceController {
 
   @Post()
   @RequireCapability("settings.manage")
-  create(
+  @RequireFeature("automations")
+  async create(
     @Body(new ZodValidationPipe(RecurrenceSchema)) body: z.infer<typeof RecurrenceSchema>,
   ): Promise<RecurrenceDto> {
     return this.recurrences.create(body);

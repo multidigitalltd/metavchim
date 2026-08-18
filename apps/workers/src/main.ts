@@ -1088,6 +1088,14 @@ async function processRecurringTasks(): Promise<void> {
   }[] = [];
   for (const tenant of tenants) {
     /*
+     * זכאות המסלול נבדקת **בסריקה** ולא רק בשמירה. משרד שירד מסלול
+     * נשאר עם הכללים שהגדיר, ובלי הבדיקה הזו הוא היה ממשיך לקבל
+     * משימות אוטומטיות בחינם לנצח. הכללים נשארים גלויים וניתנים
+     * לכיבוי ומחיקה — רק ההרצה נעצרת (ביקורת Codex).
+     */
+    if (!(await tenantHasFeature(tenant.id, "automations"))) continue;
+
+    /*
      * עימוד cursor ולא take בודד.
      *
      * הכללים לא משנים סדר בין הסריקות, ולכן `take: 50` היה מחזיר
@@ -2006,6 +2014,15 @@ async function processCustomAutomations(job: Job): Promise<void> {
   const data = CustomAutomationJobSchema.parse(job.data);
   const trigger = automationTrigger(data.event);
   if (!trigger) return;
+
+  /*
+   * זכאות המסלול נבדקת **בהרצה** ולא רק בשמירה.
+   *
+   * משרד שירד מסלול נשאר עם הכללים שהגדיר, ובלי הבדיקה הזו הוא היה
+   * ממשיך לקבל את התכונה בחינם לנצח. הכללים עצמם נשארים גלויים
+   * וניתנים לכיבוי ומחיקה — רק ההרצה נעצרת (ביקורת Codex).
+   */
+  if (!(await tenantHasFeature(data.tenantId, "automations"))) return;
 
   // שלב הקריאה — טרנזקציה אחת קצרה, בלי כתיבה
   const { rules, activeUsers } = await prisma.$transaction(async (tx) => {

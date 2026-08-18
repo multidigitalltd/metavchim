@@ -8,9 +8,9 @@ import { NowStamp } from "../now-stamp";
 import { AppointmentFollowUp } from "./appointment-followup";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { useFeature } from "@/lib/use-features";
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
+import { RecurrenceSection } from "../settings/recurrence-section";
 import { TasksBoard } from "../tasks/tasks-board";
-import { RecurrenceSection } from "./recurrence-section";
 import { IconEdit } from "../icons";
 
 /**
@@ -189,7 +189,9 @@ function EditAppointment({
 }
 
 export default function CalendarPage() {
-  const { loading: authLoading } = useRequireAuth();
+  const { user, loading: authLoading } = useRequireAuth();
+  // מנהל רואה את המשימות הקבועות בלשונית האוטומציות; לסוכן זה המקום היחיד
+  const canManageSettings = can(user, "settings.manage");
   const [tab, setTab] = useState<Tab>("calendar");
   const [items, setItems] = useState<AppointmentRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -284,7 +286,16 @@ export default function CalendarPage() {
         <div id="panel-tasks" role="tabpanel" aria-labelledby="tab-tasks">
           {/* אותו לוח בדיוק כמו במסך /tasks — לא עותק שיתחיל להיפרד */}
           <TasksBoard heading="המשימות שלי" />
-          <RecurrenceSection />
+          {/*
+            המשימות הקבועות עברו ללשונית האוטומציות, שדורשת
+            `settings.manage`. סוכן ועוזר מחזיקים `calendar.manage`
+            בלבד — ובלי השורה הזו הם היו מאבדים לגמרי את היכולת לראות
+            איזה כלל פתח להם את המשימה (ביקורת Codex).
+
+            מוצג להם בלבד: הרכיב עצמו מסתיר את פקדי העריכה למי שאינו
+            רשאי, ולמנהל אין סיבה לפגוש אותו בשני מקומות.
+          */}
+          {!canManageSettings ? <RecurrenceSection /> : null}
         </div>
       ) : (
       <div id="panel-calendar" role="tabpanel" aria-labelledby="tab-calendar">
