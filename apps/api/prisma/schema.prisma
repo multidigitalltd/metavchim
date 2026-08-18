@@ -1252,6 +1252,39 @@ model LeadSourcePrice {
   @@map("lead_source_prices")
 }
 
+/// כל פנייה שהגיעה לנתיב הוובהוק של המרכזייה — **כולל שנדחתה**.
+///
+/// בלי הטבלה הזו בקשה עם מפתח שאינו מוכר, מפתח מנוטרל או מסלול בלי
+/// מרכזייה מקבלת 404 ואינה מותירה שום עקבה: מסך האבחון של המשרד
+/// מציג "לא התקבל אף אירוע" בדיוק כמו מרכזייה שמעולם לא פנתה. שני
+/// המצבים דורשים פעולה הפוכה — כתובת שגויה אצל הספק מול מפתח ישן
+/// או מסלול חסר אצלנו — ובלי ההבחנה אין מאיפה להתחיל.
+///
+/// **בלי `tenantId` ובלי RLS במכוון.** פנייה שנדחתה היא בדיוק זו
+/// שלא הצלחנו לשייך למשרד, וטבלה תחת RLS הייתה מסתירה בדיוק את
+/// השורות שבגללן היא נבנתה. הצפייה שמורה לבעל הפלטפורמה.
+model TelephonyWebhookHit {
+  id         String   @id @db.Char(26)
+  receivedAt DateTime @default(now()) @map("received_at")
+  /// accepted | unknown_key | disabled | no_feature
+  outcome    String   @db.VarChar(20)
+  /// המשרד — רק כשהמפתח נפתר. `null` בדיוק במקרים המעניינים.
+  tenantId   String?  @map("tenant_id") @db.Char(26)
+  /// שש התווים הראשונים של המפתח בלבד.
+  ///
+  /// מספיק כדי להשוות למפתח שבמסך ההגדרות ולראות אם הספק מחזיק
+  /// מפתח ישן — וקצר מכדי לשמש למישהו שקורא את הטבלה כדי לזייף
+  /// אירועים. מפתח מלא ביומן הוא סוד שנשמר בטקסט גלוי.
+  keyPrefix  String   @map("key_prefix") @db.VarChar(12)
+  /// GET או POST — ספק ששולח בשיטה שלא ציפינו לה נראה מיד
+  method     String   @db.VarChar(6)
+  /// שמות השדות שהגיעו, **בלי הערכים** (safeDiagnosticKeys)
+  fieldKeys  String?  @map("field_keys") @db.VarChar(400)
+
+  @@index([receivedAt])
+  @@map("telephony_webhook_hits")
+}
+
 model PlatformSetting {
   key            String   @id @db.VarChar(60)
   valueEncrypted String   @map("value_encrypted")

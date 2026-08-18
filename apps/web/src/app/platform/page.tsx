@@ -14,6 +14,7 @@ import { PlansSection } from "./plans-section";
 import { CouponsSection } from "./coupons-section";
 import { PlatformSettingsSection } from "./platform-settings-section";
 import { LegalDocsSection } from "./legal-docs-section";
+import { TelephonyWebhooksSection } from "./telephony-webhooks-section";
 import { CreditEconomySection } from "./credit-economy-section";
 import { SystemUpdateSection } from "./system-update-section";
 import { SupportDeskSection } from "./support-desk-section";
@@ -626,6 +627,12 @@ export default function PlatformPage() {
       <PaymentsSection />
 
       <PlatformSettingsSection />
+
+      {/*
+        צמוד להגדרות הספקים: שתיהן עונות על "חיברתי ספק ולא קורה
+        כלום", וזו הרשימה שאומרת אם הוא בכלל פונה אלינו.
+      */}
+      <TelephonyWebhooksSection />
 
       <LegalDocsSection />
 
