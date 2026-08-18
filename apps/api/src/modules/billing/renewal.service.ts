@@ -5,7 +5,7 @@ import {
   RENEWAL_WARN_WITHIN_DAYS,
   accessUntil,
   billingAnchorDay,
-  cyclePriceAgorot,
+  effectiveCyclePriceAgorot,
   describeCycle,
   isBillingCycle,
   nextPeriodEnd,
@@ -195,7 +195,10 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
 
     const cycle: BillingCycle = isBillingCycle(row.billingCycle) ? row.billingCycle : "monthly";
     const plan = await this.plans.byCode(row.planCode);
-    const amountAgorot = plan ? cyclePriceAgorot(plan, cycle) : null;
+    // התזכורת נוקבת בסכום, ולכן חייבת לדעת על המחיר המוסכם — אחרת
+    // הלקוח מקבל מייל עם מחיר אחד ומחויב באחר
+    const priceOverride = await this.plans.tenantPriceOverride(tenantId);
+    const amountAgorot = plan ? effectiveCyclePriceAgorot(plan, cycle, priceOverride) : null;
     const days = periodDaysLeft(row.currentPeriodEnd, now) ?? 0;
     const when = row.currentPeriodEnd?.toLocaleDateString("he-IL") ?? "";
     const amount =
@@ -227,7 +230,8 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
       ? subscription.billingCycle
       : "monthly";
     const plan = await this.plans.byCode(subscription.planCode);
-    const amountAgorot = plan ? cyclePriceAgorot(plan, cycle) : null;
+    const priceOverride = await this.plans.tenantPriceOverride(tenantId);
+    const amountAgorot = plan ? effectiveCyclePriceAgorot(plan, cycle, priceOverride) : null;
     if (plan === undefined || amountAgorot === null || amountAgorot <= 0) {
       this.logger.warn(`מסלול ${subscription.planCode} אינו ניתן לחיוב — חידוש מדולג`);
       return false;

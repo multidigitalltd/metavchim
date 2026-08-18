@@ -113,6 +113,39 @@ const BlockedModulesSchema = z
   })
   .strict();
 
+/**
+ * חריגי הפלטפורמה על משרד יחיד.
+ *
+ * שתי רשימות ולא אחת עם סימנים: „מה נפתח” ו„מה נסגר” הן שתי שאלות
+ * שונות שנשאלות בזמנים שונים, וערבוב שלהן היה הופך כל שינוי לקריאה
+ * של כל הרשימה. הקודים מאומתים מול הקטלוג — קוד שאינו קיים הוא
+ * הבטחה שאף שורת קוד אינה אוכפת.
+ */
+const TenantFeaturesSchema = z
+  .object({
+    grants: z.array(z.string().min(1).max(40)).max(PLAN_FEATURES.length),
+    denials: z.array(z.string().min(1).max(40)).max(PLAN_FEATURES.length),
+  })
+  .strict();
+
+/**
+ * חלון החינם ומחיר מוסכם.
+ *
+ * `null` בכל שדה = ביטול החריגה, לא „אפס”. זו ההבחנה שמאפשרת
+ * להחזיר משרד להתנהגות הרגילה בלי למחוק אותו ולהקים מחדש.
+ *
+ * המחיר **חיובי בלבד**: „חינם למשרד הזה” הוא הארכת החלון ולא סכום
+ * אפס, שהיה נשלח לסולק כחיוב על אפס ונדחה.
+ */
+const TenantBillingOverrideSchema = z
+  .object({
+    trialEndsAt: z.union([z.string().datetime(), z.null()]).optional(),
+    paidUntil: z.union([z.string().datetime(), z.null()]).optional(),
+    priceOverrideMonthlyAgorot: z.union([z.number().int().min(1).max(10_000_000), z.null()]).optional(),
+    priceOverrideYearlyAgorot: z.union([z.number().int().min(1).max(100_000_000), z.null()]).optional(),
+  })
+  .strict();
+
 /** מחיקת משרד: שם המשרד במדויק — ההגנה מפני השורה הלא נכונה. */
 const DeleteAgencySchema = z.object({ confirmName: z.string().min(1).max(120) }).strict();
 
@@ -341,6 +374,12 @@ export interface AgencyRow {
   supportAccessUntil: Date | null;
   /** מודולים שהפלטפורמה חסמה למשרד — מפתחות מקטלוג המודולים. */
   blockedModules: string[];
+  /** חריגי התכונות של המשרד — מה נפתח מעבר למסלול ומה נסגר בתוכו. */
+  featureGrants: string[];
+  featureDenials: string[];
+  /** מחיר מוסכם באגורות; null = מחיר המסלול. */
+  priceOverrideMonthlyAgorot: number | null;
+  priceOverrideYearlyAgorot: number | null;
   /**
    * התפוגות, ומה שנגזר מהן.
    *
@@ -661,6 +700,10 @@ export class PlatformController {
         paidUntil: true,
         supportAccessUntil: true,
         blockedModules: true,
+        featureGrants: true,
+        featureDenials: true,
+        priceOverrideMonthlyAgorot: true,
+        priceOverrideYearlyAgorot: true,
         createdAt: true,
         _count: { select: { users: true } },
       },
@@ -672,6 +715,10 @@ export class PlatformController {
       status: t.status,
       userCount: t._count.users,
       blockedModules: t.blockedModules,
+      featureGrants: t.featureGrants,
+      featureDenials: t.featureDenials,
+      priceOverrideMonthlyAgorot: t.priceOverrideMonthlyAgorot,
+      priceOverrideYearlyAgorot: t.priceOverrideYearlyAgorot,
       createdAt: t.createdAt,
       trialEndsAt: t.trialEndsAt,
       paidUntil: t.paidUntil,
@@ -856,6 +903,133 @@ export class PlatformController {
       }),
     );
     return { ok: true, blockedModules };
+  }
+
+  /**
+   * חריגי תכונות למשרד יחיד — פתיחה מעבר למסלול, וסגירה בתוכו.
+   *
+   * המסלול הוא ברירת מחדל מסחרית ולא גזירה. עסקה מיוחדת, פיילוט על
+   * תכונה אחת, או סגירה זמנית בגלל חוב — כולם חיים כאן ולא בקטלוג,
+   * שאחרת היה הופך לרשימת לקוחות במקום לרשימת מסלולים.
+   *
+   * גם כאן אין מחיקת Sessions: התכונות נפתרות בכל בקשה מחדש, ולכן
+   * השינוי תופס בקליק הבא בלי לנתק איש באמצע עבודה.
+   */
+  @Patch("agencies/:id/features")
+  async setTenantFeatures(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(TenantFeaturesSchema)) body: z.infer<typeof TenantFeaturesSchema>,
+  ): Promise<{ ok: true; grants: string[]; denials: string[] }> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: { id: true, featureGrants: true, featureDenials: true },
+    });
+    if (!tenant) throw new BadRequestException("משרד לא נמצא");
+
+    /*
+     * `sanitizeFeatures` ולא שמירה כמות שהיא: קוד שאינו בקטלוג הוא
+     * טעות הקלדה, ושמירה שלו הייתה יוצרת חריג שנראה שמור ואינו
+     * נאכף בשום מקום — אותו כלל שנוהג בשמירת מסלול.
+     */
+    const grants = sanitizeFeatures(body.grants);
+    const denials = sanitizeFeatures(body.denials);
+
+    await this.prisma.tenant.update({
+      where: { id },
+      data: { featureGrants: grants, featureDenials: denials },
+    });
+    this.plans.invalidate();
+
+    // ביומן של המשרד עצמו: בעל המשרד יראה למה תכונה הופיעה או נעלמה
+    await this.prisma.withExplicitTenant(id, (tx) =>
+      tx.auditLog.create({
+        data: {
+          id: ulid(),
+          tenantId: id,
+          userId: null,
+          action: "platform.tenant_features",
+          entityType: "tenant",
+          entityId: id,
+          metadata: {
+            before: { grants: tenant.featureGrants, denials: tenant.featureDenials },
+            after: { grants, denials },
+          },
+        },
+      }),
+    );
+    return { ok: true, grants, denials };
+  }
+
+  /**
+   * חלון החינם והמחיר המוסכם של משרד יחיד.
+   *
+   * שתי היכולות יושבות יחד משום שהן אותה שאלה מסחרית: כמה המשרד
+   * הזה משלם, ומתי הוא מתחיל לשלם. הפרדה שלהן לשני מסכים הייתה
+   * מאלצת לזכור את השני בכל פעם שנוגעים בראשון.
+   *
+   * `null` = ביטול החריגה וחזרה להתנהגות הרגילה; שדה שלא נשלח כלל
+   * נשאר כפי שהוא. ההבחנה הזו היא מה שמאפשר לשנות מחיר בלי לגעת
+   * בתאריכים ולהפך.
+   */
+  @Patch("agencies/:id/billing-override")
+  async setBillingOverride(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(TenantBillingOverrideSchema))
+    body: z.infer<typeof TenantBillingOverrideSchema>,
+  ): Promise<{ ok: true }> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        trialEndsAt: true,
+        paidUntil: true,
+        priceOverrideMonthlyAgorot: true,
+        priceOverrideYearlyAgorot: true,
+      },
+    });
+    if (!tenant) throw new BadRequestException("משרד לא נמצא");
+
+    const data: {
+      trialEndsAt?: Date | null;
+      paidUntil?: Date | null;
+      priceOverrideMonthlyAgorot?: number | null;
+      priceOverrideYearlyAgorot?: number | null;
+    } = {};
+    // `in` ולא בדיקת ערך: `null` הוא הוראה מפורשת לבטל, ושדה חסר
+    // הוא "אל תיגע" — שני מצבים שונים שאסור לאחד
+    if ("trialEndsAt" in body) data.trialEndsAt = body.trialEndsAt ? new Date(body.trialEndsAt) : null;
+    if ("paidUntil" in body) data.paidUntil = body.paidUntil ? new Date(body.paidUntil) : null;
+    if ("priceOverrideMonthlyAgorot" in body) {
+      data.priceOverrideMonthlyAgorot = body.priceOverrideMonthlyAgorot ?? null;
+    }
+    if ("priceOverrideYearlyAgorot" in body) {
+      data.priceOverrideYearlyAgorot = body.priceOverrideYearlyAgorot ?? null;
+    }
+    if (Object.keys(data).length === 0) return { ok: true };
+
+    await this.prisma.tenant.update({ where: { id }, data });
+    await this.prisma.withExplicitTenant(id, (tx) =>
+      tx.auditLog.create({
+        data: {
+          id: ulid(),
+          tenantId: id,
+          userId: null,
+          action: "platform.billing_override",
+          entityType: "tenant",
+          entityId: id,
+          metadata: {
+            before: {
+              trialEndsAt: tenant.trialEndsAt,
+              paidUntil: tenant.paidUntil,
+              monthly: tenant.priceOverrideMonthlyAgorot,
+              yearly: tenant.priceOverrideYearlyAgorot,
+            },
+            after: data,
+          },
+        },
+      }),
+    );
+    return { ok: true };
   }
 
   /**

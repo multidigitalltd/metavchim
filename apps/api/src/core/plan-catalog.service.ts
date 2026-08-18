@@ -1,9 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import {
   DEFAULT_PLANS,
+  effectiveFeatures,
   sanitizeFeatures,
   type PlanDefinition,
   type PlanFeature,
+  type TenantPriceOverride,
 } from "@metavchim/shared";
 import { PrismaService, type TenantTx } from "./prisma.service";
 
@@ -139,13 +141,57 @@ export class PlanCatalogService {
     return tenant ? this.byCode(tenant.plan, tx) : undefined;
   }
 
+  /**
+   * התכונות שפתוחות למשרד בפועל — המסלול **בתוספת חריגי הפלטפורמה**.
+   *
+   * המסלול הוא ברירת מחדל מסחרית ולא גזירה: עסקה מיוחדת, פיילוט על
+   * תכונה אחת, או סגירה זמנית בגלל חוב — כולם חיים כאן ולא בקטלוג,
+   * שאחרת היה הופך לרשימת לקוחות.
+   *
+   * **מסלול שאינו נפתר אינו מזכה בכלום, גם אם יש הענקות.** הענקה
+   * היא תוספת למסלול ולא תחליף לו; משרד בלי מסלול תקין הוא תקלה
+   * שצריכה להיראות, לא חשבון שממשיך לעבוד חלקית.
+   */
+  async tenantFeatures(tenantId: string, tx?: TenantTx): Promise<PlanFeature[]> {
+    const client = tx ?? this.prisma;
+    const tenant = await client.tenant.findUnique({
+      where: { id: tenantId },
+      select: { plan: true, featureGrants: true, featureDenials: true },
+    });
+    if (!tenant) return [];
+    const plan = await this.byCode(tenant.plan, tx);
+    if (!plan) return [];
+    return effectiveFeatures(plan.features, {
+      grants: tenant.featureGrants,
+      denials: tenant.featureDenials,
+    });
+  }
+
   async tenantHasFeature(
     tenantId: string,
     feature: PlanFeature,
     tx?: TenantTx,
   ): Promise<boolean> {
-    const plan = await this.forTenant(tenantId, tx);
-    return plan?.features.includes(feature) ?? false;
+    return (await this.tenantFeatures(tenantId, tx)).includes(feature);
+  }
+
+  /**
+   * המחיר המוסכם למשרד הזה, אם סוכם כזה.
+   *
+   * **חייב להיקרא בכל מקום שגובה כסף** — פתיחת תשלום *וגם* חידוש
+   * אוטומטי. מחיר מוסכם שחל רק באחד מהם הוא הבטחה שנשברת בחודש
+   * השני, וזו תקלת חיוב שמגיעה ללקוח לפני שהיא מגיעה אלינו.
+   */
+  async tenantPriceOverride(tenantId: string, tx?: TenantTx): Promise<TenantPriceOverride> {
+    const client = tx ?? this.prisma;
+    const tenant = await client.tenant.findUnique({
+      where: { id: tenantId },
+      select: { priceOverrideMonthlyAgorot: true, priceOverrideYearlyAgorot: true },
+    });
+    return {
+      monthlyAgorot: tenant?.priceOverrideMonthlyAgorot ?? null,
+      yearlyAgorot: tenant?.priceOverrideYearlyAgorot ?? null,
+    };
   }
 
   /**

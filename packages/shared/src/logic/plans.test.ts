@@ -3,6 +3,7 @@ import {
   DEFAULT_PLANS,
   PLAN_FEATURES,
   defaultPlan,
+  effectiveFeatures,
   downgradeWarnings,
   featureLabel,
   formatPlanPrice,
@@ -272,32 +273,57 @@ describe("downgradeWarnings", () => {
   });
 });
 
-describe("מסלול השת\"פ החינמי", () => {
-  const coop = defaultPlan("coop")!;
-
-  it("קיים, ציבורי, וללא מחיר", () => {
-    expect(coop).toBeDefined();
-    expect(coop.monthlyPriceAgorot).toBe(0);
-    expect(coop.isPublic).toBe(true);
-  });
-
+describe("מכסות רשת בקטלוג המובנה", () => {
   /*
-   * הפרמטרים שהוגדרו למסלול, כלשונם. שינוי כאן הוא שינוי מוצר —
-   * ולכן הוא צריך להיות מכוון, ולא תוצאת לוואי של עריכה בקובץ.
+   * מסלול השת"פ החינמי הוסר מהקטלוג המובנה — המסלולים נקבעים
+   * ידנית ב-/platform. מה שנשאר לנעול כאן הוא שהמכסות אינן מופיעות
+   * בשקט על מסלול בתשלום: מכסת פרסום שנשתלה בטעות במסלול משלם
+   * מגבילה לקוח ששילם, וזו בדיוק תקלה שאיש לא מדווח עליה.
    */
-  it("המכסות יושבות על הפרסום ולא על השמירה", () => {
-    expect(coop.maxProperties).toBeNull();
-    expect(coop.maxNetworkListings).toBe(3);
-    expect(coop.maxNetworkDemands).toBe(10);
-    expect(coop.maxUsers).toBe(1);
-  });
-
-  it("מסלולים בתשלום אינם מוגבלים בפרסום ברשת", () => {
+  it("אף מסלול מובנה אינו מוגבל בפרסום ברשת", () => {
     for (const plan of DEFAULT_PLANS) {
-      if (plan.code === "coop") continue;
       expect(plan.maxNetworkListings).toBeNull();
       expect(plan.maxNetworkDemands).toBeNull();
     }
+  });
+});
+
+describe("effectiveFeatures — חריגי הפלטפורמה", () => {
+  it("בלי חריגים מחזיר את המסלול כמות שהוא", () => {
+    expect(effectiveFeatures(["whatsapp", "analytics"])).toEqual(["analytics", "whatsapp"]);
+  });
+
+  it("הענקה פותחת תכונה שאינה במסלול", () => {
+    const open = effectiveFeatures(["whatsapp"], { grants: ["telephony"], denials: [] });
+    expect(open).toContain("telephony");
+    expect(open).toContain("whatsapp");
+  });
+
+  it("דחייה סוגרת תכונה שכן במסלול", () => {
+    expect(effectiveFeatures(["whatsapp", "analytics"], { grants: [], denials: ["analytics"] })).toEqual(
+      ["whatsapp"],
+    );
+  });
+
+  /*
+   * הכלל שקובע את כל השאר. סגירה חייבת להיות ודאית: מי שסוגר תכונה
+   * בגלל חוב או שימוש לרעה צריך שהסגירה תחזיק גם אם אותה תכונה
+   * הוענקה קודם ונשכחה.
+   */
+  it("דחייה גוברת על הענקה של אותה תכונה", () => {
+    expect(
+      effectiveFeatures([], { grants: ["telephony"], denials: ["telephony"] }),
+    ).not.toContain("telephony");
+  });
+
+  it("דחייה של תכונה שאינה במסלול אינה משנה דבר", () => {
+    expect(effectiveFeatures(["whatsapp"], { grants: [], denials: ["telephony"] })).toEqual([
+      "whatsapp",
+    ]);
+  });
+
+  it("קוד שאינו בקטלוג נושר במקום להבטיח תכונה שאינה נאכפת", () => {
+    expect(effectiveFeatures(["whatsapp"], { grants: ["nope"], denials: [] })).toEqual(["whatsapp"]);
   });
 });
 

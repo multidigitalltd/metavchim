@@ -499,8 +499,9 @@ export class SettingsController {
      * הסינונים זהים לאלה של האכיפה: משתמש פעיל בלבד, ונכס שאינו
      * בארכיון.
      */
-    const [plan, tenant, users, properties, network] = await Promise.all([
+    const [plan, openFeatures, tenant, users, properties, network] = await Promise.all([
       this.plans.forTenant(tenantId),
+      this.plans.tenantFeatures(tenantId),
       this.prisma.tenant.findUnique({
         where: { id: tenantId },
         select: { plan: true },
@@ -546,9 +547,14 @@ export class SettingsController {
       name: plan?.name ?? "מסלול לא מוגדר",
       description: plan?.description ?? "",
       resolved: plan !== undefined,
+      /*
+       * מה שפתוח בפועל, כולל חריגי הפלטפורמה. משרד שקיבל תכונה
+       * מעבר למסלול צריך לראות אותה מסומנת — אחרת המסך סותר את מה
+       * שהוא חווה, והוא פונה לתמיכה על "כתוב שאין לי אבל עובד".
+       */
       features: PLAN_FEATURES.map((feature) => ({
         ...feature,
-        included: plan?.features.includes(feature.code) ?? false,
+        included: openFeatures.includes(feature.code),
       })),
       limits: {
         users: {

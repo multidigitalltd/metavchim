@@ -15,6 +15,7 @@ import {
   NotificationJobSchema,
   QUEUES,
   DEFAULT_PLANS,
+  effectiveFeatures,
   diarizeTimeoutMs,
   formatDiarizedTranscript,
   nextOccurrenceUtc,
@@ -1574,17 +1575,29 @@ async function planFeatures(): Promise<Map<string, PlanFeature[]>> {
   return features;
 }
 
-/** מסלול שאינו נפתר אינו מזכה בכלום — אותו כיוון בטוח כמו בשרת. */
+/**
+ * מסלול שאינו נפתר אינו מזכה בכלום — אותו כיוון בטוח כמו בשרת.
+ *
+ * חריגי הפלטפורמה נקראים **גם כאן** ולא רק ב-API. תמלול שנפתח
+ * למשרד מעבר למסלול היה נראה פתוח במסך ולא רץ בפועל, ותכונה
+ * שנסגרה הייתה ממשיכה לרוץ ברקע — שתי תקלות שאיש אינו מדווח עליהן
+ * כי שום מסך אינו סותר אותן.
+ */
 async function tenantHasFeature(
   tenantId: string,
   feature: PlanFeature,
 ): Promise<boolean> {
   const tenant = await prisma.tenant.findUnique({
     where: { id: tenantId },
-    select: { plan: true },
+    select: { plan: true, featureGrants: true, featureDenials: true },
   });
   if (!tenant) return false;
-  return (await planFeatures()).get(tenant.plan)?.includes(feature) ?? false;
+  const planCodes = (await planFeatures()).get(tenant.plan);
+  if (!planCodes) return false;
+  return effectiveFeatures(planCodes, {
+    grants: tenant.featureGrants,
+    denials: tenant.featureDenials,
+  }).includes(feature);
 }
 
 async function transcribeOneCall(): Promise<void> {
