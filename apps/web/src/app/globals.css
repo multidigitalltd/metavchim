@@ -713,15 +713,6 @@ code {
   border-radius: 99px;
   padding: 1px 8px;
 }
-/* יתרת הקרדיטים על פריט השת"פ */
-/* כותרת קבוצה בניווט ("רשת") */
-.mv-nav-group {
-  margin: 12px 4px 6px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: #7d8a80;
-}
 .mv-sidebar-link:focus-visible {
   outline: 3px solid var(--dk-primary);
   outline-offset: -2px;
