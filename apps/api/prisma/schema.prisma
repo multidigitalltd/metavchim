@@ -1527,8 +1527,28 @@ model AutomationRule {
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  runs   AutomationRun[]
 
   @@index([tenantId, trigger])
   @@map("automation_rules")
+}
+
+/// ספר הריצות של האוטומציות המותאמות — מונע ריצה כפולה.
+///
+/// `jobId` ב-BullMQ מונע הכנסה כפולה לתור אך לא עיבוד כפול: Job
+/// שנתקע נמסר שוב. השורה נכתבת לפני הפעולה ובאותה טרנזקציה, וכך
+/// התנגשות על המפתח הראשי היא "כבר רץ" והריצה מדולגת.
+model AutomationRun {
+  ruleId    String   @map("rule_id") @db.Char(26)
+  /// מזהה האירוע ב-outbox. אינו FK — אירועים ישנים נמחקים בתחזוקה.
+  eventId   String   @map("event_id") @db.Char(26)
+  tenantId  String   @map("tenant_id") @db.Char(26)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  rule AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@id([ruleId, eventId])
+  @@index([createdAt])
+  @@map("automation_runs")
 }

@@ -157,7 +157,9 @@ export const AUTOMATION_TRIGGERS: readonly AutomationTrigger[] = [
         key: "kind",
         label: "סוג הפגישה",
         type: "text",
-        suggestions: ["viewing", "meeting", "signing"],
+        // בדיוק מה שהיומן פולט (calendar.controller — z.enum).
+        // „signing” לא קיים, וכלל שנבנה עליו לא היה מתקיים לעולם.
+        suggestions: ["viewing", "meeting", "call"],
       },
     ],
   },

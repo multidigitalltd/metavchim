@@ -199,7 +199,13 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
     if (this.lowQueue && automationTrigger(name) !== undefined) {
       await this.lowQueue.add(
         "custom-automations",
-        { tenantId: event.tenant_id, event: name, payload, occurredAt: event.occurred_at },
+        {
+          tenantId: event.tenant_id,
+          eventId: event.id,
+          event: name,
+          payload,
+          occurredAt: event.occurred_at,
+        },
         {
           // מזהה האירוע ולא הכלל: אירוע מופץ פעם אחת, וריצה כפולה
           // הייתה פותחת שתי משימות זהות
