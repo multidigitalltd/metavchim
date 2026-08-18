@@ -27,12 +27,13 @@ import { PrismaService } from "../../core/prisma.service";
 const IdSchema = z.string().length(26);
 
 /*
- * שער המסלול על כל הסעיף. בעל הפלטפורמה מחליט אילו מסלולים כוללים
- * בניית אוטומציות, ומשרד שאין לו את התכונה אינו רואה את המסך ואינו
- * מגיע לנתיבים — כולל קריאה, כדי שלא יראה כללים שהוא אינו יכול
- * לנהל.
+ * שער המסלול על **היצירה בלבד**, ולא על הסעיף כולו.
+ *
+ * משרד שירד מסלול עדיין מחזיק כללים שנוצרו קודם. שער גורף היה
+ * חוסם ממנו גם לראות אותם, גם לכבות וגם למחוק — כלומר להשאיר אותו
+ * עם אוטומציות שאין לו שום דרך לנהל (ביקורת Codex). ההרצה עצמה
+ * נעצרת ב-Worker, שבודק את הזכאות לפני כל אירוע.
  */
-@RequireFeature("automations")
 @Controller("settings/automation-rules")
 export class AutomationRulesController {
   constructor(
@@ -101,18 +102,19 @@ export class AutomationRulesController {
 
   @Post()
   @RequireCapability("settings.manage")
+  @RequireFeature("automations")
   @HttpCode(201)
   async create(
     @Body(new ZodValidationPipe(AutomationRuleInputSchema)) body: AutomationRuleInput,
   ): Promise<{ id: string }> {
     await this.assertValid(body);
-    // המכסה לפני האימות היקר? לא — האימות זול, והודעת "המסלול מלא"
-    // צריכה להגיע רק אחרי שברור שהכלל עצמו תקין
-    await this.quota.assertCanAdd();
     const { tenantId, userId } = TenantContext.current();
     const id = ulid();
 
     await this.prisma.withTenant(async (tx) => {
+      // הבדיקה **בתוך** הטרנזקציה שיוצרת: ספירה שרצה לפניה רואה את
+      // אותו מצב כמו בקשה מקבילה, ושתיהן עוברות
+      await this.quota.assertCanAddWithin(tx, tenantId);
       await tx.automationRule.create({
         data: {
           id,

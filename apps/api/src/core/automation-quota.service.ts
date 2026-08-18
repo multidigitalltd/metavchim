@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { automationQuotaRejection } from "@metavchim/shared";
 import { TenantContext } from "../common/tenant-context";
 import { PlanCatalogService } from "./plan-catalog.service";
-import { PrismaService } from "./prisma.service";
+import { PrismaService, type TenantTx } from "./prisma.service";
 
 /**
  * מכסת האוטומציות של המשרד — **מונה אחד לשני הסוגים**.
@@ -45,17 +45,42 @@ export class AutomationQuotaService {
   }
 
   /**
-   * נזרק לפני **יצירה** בלבד.
+   * נזרק לפני **יצירה** בלבד, ו**בתוך הטרנזקציה שיוצרת**.
    *
-   * עריכה וכיבוי נשארים פתוחים גם מעל המכסה, ובכוונה: משרד שירד
-   * מסלול ונשארו לו שש אוטומציות במסלול של חמש צריך להיות מסוגל
-   * לכבות ולמחוק — כלומר להתכנס למכסה. חסימה גורפת הייתה נועלת
-   * אותו במצב שאי אפשר לצאת ממנו אלא בשדרוג.
+   * ## למה בתוך הטרנזקציה
+   *
+   * ספירה שרצה בטרנזקציה נפרדת רואה את המצב שלפני ההוספה, וגם
+   * הבקשה המקבילה רואה אותו: במכסה של 5 עם 4 קיימות, שתי בקשות
+   * שמגיעות יחד עוברות שתיהן ומשאירות 6. הנעילה, הספירה וההכנסה
+   * חייבות להיות אטומיות (ביקורת Codex).
+   *
+   * ## למה נעילה משותפת
+   *
+   * המפתח נגזר מהמשרד בלבד ולא מסוג האוטומציה, ולכן כלל שנבנה
+   * ומשימה קבועה שנוצרים בו-זמנית מסתדרים בתור — כפי שמתחייב
+   * ממונה אחד לשניהם. מפתח לכל סוג היה מאפשר לשניהם לעבור.
+   *
+   * ## למה רק ביצירה
+   *
+   * עריכה, כיבוי ומחיקה נשארים פתוחים גם מעל המכסה: משרד שירד
+   * מסלול ונשארו לו שש במסלול של חמש חייב להיות מסוגל להתכנס.
+   * חסימה גורפת הייתה נועלת אותו במצב שאי אפשר לצאת ממנו אלא
+   * בשדרוג.
    */
+  async assertCanAddWithin(tx: TenantTx, tenantId: string): Promise<void> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`automations:${tenantId}`}, 0))`;
+    const [rules, recurrences] = await Promise.all([
+      tx.automationRule.count({ where: { tenantId } }),
+      tx.taskRecurrence.count({ where: { tenantId } }),
+    ]);
+    const plan = await this.plans.forTenant(tenantId, tx);
+    const reason = automationQuotaRejection(rules + recurrences, plan?.maxAutomations ?? null);
+    if (reason !== null) throw new BadRequestException(reason);
+  }
+
+  /** גרסת נוחות למי שכבר בהקשר הדייר ואין לו טרנזקציה פתוחה. */
   async assertCanAdd(): Promise<void> {
     const tenantId = TenantContext.current().tenantId;
-    const { used, limit } = await this.status(tenantId);
-    const reason = automationQuotaRejection(used, limit);
-    if (reason !== null) throw new BadRequestException(reason);
+    await this.prisma.withTenant((tx) => this.assertCanAddWithin(tx, tenantId));
   }
 }

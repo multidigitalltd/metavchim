@@ -10,6 +10,7 @@ import {
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
+import { AutomationQuotaService } from "../../core/automation-quota.service";
 import { PrismaService } from "../../core/prisma.service";
 
 /**
@@ -116,6 +117,7 @@ export class RecurrenceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly quota: AutomationQuotaService,
   ) {}
 
   async list(): Promise<RecurrenceDto[]> {
@@ -131,6 +133,13 @@ export class RecurrenceService {
     this.assertValid(input);
     const id = ulid();
     const row = await this.prisma.withTenant(async (tx) => {
+      /*
+       * אותה מכסה בדיוק של הכללים שהמשרד בונה — מונה אחד לשני
+       * הסוגים — ובתוך הטרנזקציה שיוצרת, עם נעילה לפי המשרד. כך
+       * כלל ומשימה קבועה שנוצרים בו-זמנית מסתדרים בתור במקום
+       * לעבור שניהם.
+       */
+      await this.quota.assertCanAddWithin(tx, tenantId);
       await this.assertAssigneeInTenant(tenantId, input.assignedToUserId);
       const created = await tx.taskRecurrence.create({
         data: {

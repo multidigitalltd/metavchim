@@ -3,7 +3,6 @@ import { z } from "zod";
 import { IdSchema } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
-import { AutomationQuotaService } from "../../core/automation-quota.service";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { RecurrenceService, type RecurrenceDto } from "./recurrence.service";
 
@@ -41,17 +40,13 @@ const RecurrenceSchema = z
   .strict();
 
 /*
- * אותו שער מסלול כמו הכללים שהמשרד בונה: משימה קבועה היא אוטומציה
- * לכל דבר — המערכת עושה משהו מעצמה — ולכן היא נמכרת יחד איתן
- * ונספרת באותה מכסה.
+ * שער המסלול על **היצירה בלבד**, מאותו טעם כמו בכללים שהמשרד בונה:
+ * משרד שירד מסלול חייב להיות מסוגל לראות, לכבות ולמחוק את מה שכבר
+ * הגדיר. ההרצה נעצרת ב-Worker.
  */
-@RequireFeature("automations")
 @Controller("task-recurrences")
 export class RecurrenceController {
-  constructor(
-    private readonly recurrences: RecurrenceService,
-    private readonly quota: AutomationQuotaService,
-  ) {}
+  constructor(private readonly recurrences: RecurrenceService) {}
 
   @Get()
   @RequireCapability("calendar.manage")
@@ -61,11 +56,10 @@ export class RecurrenceController {
 
   @Post()
   @RequireCapability("settings.manage")
+  @RequireFeature("automations")
   async create(
     @Body(new ZodValidationPipe(RecurrenceSchema)) body: z.infer<typeof RecurrenceSchema>,
   ): Promise<RecurrenceDto> {
-    // אותה מכסה של הכללים שהמשרד בונה — מונה אחד לשני הסוגים
-    await this.quota.assertCanAdd();
     return this.recurrences.create(body);
   }
 
