@@ -23,6 +23,7 @@ import { GmailSection } from "./gmail-section";
 import { GoogleCalendarSection } from "./google-calendar-section";
 import { MatchWeightsSection } from "./match-weights-section";
 import { AutomationsSection } from "./automations-section";
+import { CustomAutomationsSection } from "./custom-automations-section";
 import { DismissReportSection } from "./dismiss-report";
 import { AgreementTemplatesSection } from "./agreement-templates-section";
 import { RetainedAgreementsSection } from "./retained-agreements-section";
@@ -950,7 +951,12 @@ export default function SettingsPage() {
             </>
           ) : null}
 
-          {tab === "automations" ? <AutomationsSection /> : null}
+          {tab === "automations" ? (
+            <>
+              <AutomationsSection />
+              <CustomAutomationsSection />
+            </>
+          ) : null}
 
           {tab === "support" ? (
             <>

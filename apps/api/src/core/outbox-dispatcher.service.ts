@@ -15,6 +15,7 @@ import {
   type DomainEventName,
   automationThresholdMs,
   resolveAutomationSettings,
+  automationTrigger,
 } from "@metavchim/shared";
 import { loadEnv } from "../config/env";
 import { PrismaService } from "./prisma.service";
@@ -183,6 +184,40 @@ export class OutboxDispatcherService implements OnModuleInit, OnModuleDestroy {
         backoff: { type: "exponential", delay: 2000 },
       });
     }
+    /*
+     * אוטומציות שהמשרד בנה בעצמו.
+     *
+     * **הכללים אינם נקראים כאן אלא ב-Worker.** הטבלה תחת FORCE RLS,
+     * והמפיץ רץ בלי הקשר דייר — שאילתה ישירה הייתה מחזירה אפס שורות
+     * *בלי שגיאה*, כלומר כל האוטומציות המותאמות היו שקטות ואיש לא
+     * היה יודע למה (אותה מלכודת שנתפסה בקליטת המרכזייה).
+     *
+     * לכן נשלח Job אחד לכל אירוע שיש לו טריגר בקטלוג, וה-Worker —
+     * שכן יודע להעמיד הקשר דייר — טוען, מסנן ומבצע. עלות ה-Job הריק
+     * למשרד בלי כללים זניחה מול הסיכון שבקריאה שקטה שנכשלת.
+     */
+    if (this.lowQueue && automationTrigger(name) !== undefined) {
+      await this.lowQueue.add(
+        "custom-automations",
+        {
+          tenantId: event.tenant_id,
+          eventId: event.id,
+          event: name,
+          payload,
+          occurredAt: event.occurred_at,
+        },
+        {
+          // מזהה האירוע ולא הכלל: אירוע מופץ פעם אחת, וריצה כפולה
+          // הייתה פותחת שתי משימות זהות
+          jobId: `custom-automations-${event.id}`,
+          removeOnComplete: 1000,
+          removeOnFail: 5000,
+          attempts: 3,
+          backoff: { type: "exponential", delay: 2000 },
+        },
+      );
+    }
+
     // מחיקת אובייקט אחסון שנכשלה — ניסיון חוזר עמיד בתור low (עד 10 ניסיונות).
     if (name === "storage.cleanup_object" && this.lowQueue) {
       await this.lowQueue.add("delete-object", payload, {
