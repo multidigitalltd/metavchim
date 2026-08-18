@@ -48,6 +48,7 @@ model Tenant {
   /// שכבה שלישית מעל התפקיד ומעל חריגי המשתמש, ובכיוון אחד: חוסמת
   /// ולעולם לא מעניקה. מוחלת בפענוח ה-Session **אחרי** חריגי המנהל,
   /// כדי שבעל המשרד לא יוכל להסיר אותה ממסך ההרשאות שלו.
+  automationRules        AutomationRule[]
   blockedModules         String[]  @default([]) @map("blocked_modules")
   /// פיצ'רים שהפלטפורמה פתחה למשרד הזה מעבר למסלול שלו.
   ///
@@ -1505,4 +1506,29 @@ model SupportTicket {
   @@index([tenantId, createdAt(sort: Desc)])
   @@index([status, createdAt(sort: Desc)])
   @@map("support_tickets")
+}
+
+/// אוטומציה שהמשרד בנה בעצמו: טריגר, תנאים, פעולה.
+///
+/// שמונה האוטומציות המובנות הן קוד ייעודי וההגדרה שלהן ב-`settings`.
+/// המודל הזה עונה על השאלה השנייה — מה **המשרד הזה** צריך, שאיש לא
+/// כתב עבורו קוד. `conditions` ו-`action` הם JSON משום שהמבנה שלהם
+/// משתנה לפי הטריגר ולפי סוג הפעולה; האימות ב-Zod לפני הכתיבה.
+model AutomationRule {
+  id         String   @id @db.Char(26)
+  tenantId   String   @map("tenant_id") @db.Char(26)
+  name       String   @db.VarChar(120)
+  enabled    Boolean  @default(true)
+  /// שם האירוע ב-outbox. אינו FK — האירועים חיים בקוד ולא בטבלה.
+  trigger    String   @db.VarChar(60)
+  conditions Json     @default("[]")
+  action     Json
+  createdBy  String?  @map("created_by") @db.Char(26)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, trigger])
+  @@map("automation_rules")
 }

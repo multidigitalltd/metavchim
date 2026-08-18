@@ -14,6 +14,10 @@ import webpush from "web-push";
 import {
   NotificationJobSchema,
   QUEUES,
+  AutomationActionSchema,
+  AutomationConditionSchema,
+  automationTrigger,
+  conditionsMatch,
   DEFAULT_PLANS,
   effectiveFeatures,
   diarizeTimeoutMs,
@@ -1977,6 +1981,111 @@ async function processPushSweep(): Promise<void> {
 }
 
 /** תור low משותף — כל סוג Job ממוין לפי שמו. */
+const CustomAutomationJobSchema = z.object({
+  tenantId: z.string(),
+  event: z.string(),
+  payload: z.record(z.string(), z.unknown()),
+  occurredAt: z.union([z.string(), z.date()]).optional(),
+});
+
+/**
+ * הרצת האוטומציות שהמשרד בנה בעצמו.
+ *
+ * המפיץ שולח Job אחד לכל אירוע שיש לו טריגר בקטלוג, **בלי לקרוא את
+ * הכללים** — הטבלה תחת FORCE RLS והמפיץ רץ בלי הקשר דייר, כך
+ * ששאילתה משם הייתה מחזירה אפס שורות בשקט. כאן יש הקשר, ולכן כאן
+ * הכללים נטענים, מסוננים ומבוצעים.
+ *
+ * **כלל שנכשל אינו מפיל את השאר.** משרד עם חמישה כללים שאחד מהם
+ * מפנה לסוכן שהושבת אינו אמור לאבד את ארבעת האחרים, ובוודאי לא
+ * שהאירוע כולו יסומן ככישלון וינסה שוב בלולאה.
+ */
+async function processCustomAutomations(job: Job): Promise<void> {
+  const data = CustomAutomationJobSchema.parse(job.data);
+  const trigger = automationTrigger(data.event);
+  if (!trigger) return;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.tenant_id', ${data.tenantId}, true)`;
+
+    const rules = await tx.automationRule.findMany({
+      where: { tenantId: data.tenantId, trigger: data.event, enabled: true },
+      select: { id: true, name: true, conditions: true, action: true },
+    });
+    if (rules.length === 0) return;
+
+    for (const rule of rules) {
+      try {
+        const conditions = z
+          .array(AutomationConditionSchema)
+          .safeParse(rule.conditions);
+        if (!conditions.success) continue;
+        if (!conditionsMatch(trigger, conditions.data, data.payload)) continue;
+
+        const action = AutomationActionSchema.safeParse(rule.action);
+        if (!action.success) continue;
+
+        /*
+         * מזהה הישות שהאירוע נוגע בה — כדי שהמשימה וההתראה יובילו
+         * לכרטיס ולא ל"איפשהו". האירועים נושאים מזהה אחד מובהק, ואם
+         * אין — המשימה עדיין נוצרת, פשוט בלי קישור.
+         */
+        const link = entityFromPayload(data.payload);
+
+        if (action.data.kind === "task") {
+          const dueAt = new Date();
+          dueAt.setUTCDate(dueAt.getUTCDate() + action.data.dueInDays);
+          await tx.task.create({
+            data: {
+              id: ulid(),
+              tenantId: data.tenantId,
+              assignedToUserId: action.data.assignedToUserId,
+              title: action.data.title,
+              notes: `נוצר אוטומטית על ידי "${rule.name}".`,
+              dueAt,
+              ...(link ?? {}),
+            },
+          });
+        } else {
+          await tx.notification.create({
+            data: {
+              id: ulid(),
+              tenantId: data.tenantId,
+              userId: action.data.userId,
+              type: "custom_automation",
+              title: action.data.title,
+              body: action.data.body,
+              ...(link ?? {}),
+            },
+          });
+        }
+      } catch (error) {
+        console.warn(
+          `[custom-automations] כלל ${rule.id} נכשל: ${String(error)}`,
+        );
+      }
+    }
+  });
+}
+
+/** הישות שהאירוע נוגע בה, אם אפשר לזהות אותה חד-משמעית. */
+function entityFromPayload(
+  payload: Record<string, unknown>,
+): { entityType: string; entityId: string } | null {
+  const map: [string, string][] = [
+    ["leadId", "lead"],
+    ["propertyId", "property"],
+    ["buyerId", "buyer"],
+    ["offerId", "offer"],
+    ["appointmentId", "appointment"],
+  ];
+  for (const [key, entityType] of map) {
+    const value = payload[key];
+    if (typeof value === "string" && value !== "") return { entityType, entityId: value };
+  }
+  return null;
+}
+
 async function processLow(job: Job): Promise<void> {
   if (job.name === "push-sweep") return processPushSweep();
   if (job.name === "call-transcribe") return transcribeOneCall();
@@ -1992,6 +2101,7 @@ async function processLow(job: Job): Promise<void> {
   if (job.name === "recurring-tasks") return processRecurringTasks();
   if (job.name === "subscription-expiry") return processSubscriptionExpiry();
   if (job.name === "exclusivity-sweep") return processExclusivitySweep();
+  if (job.name === "custom-automations") return processCustomAutomations(job);
 }
 
 // רישום סריקת ה-SLA החוזרת (רבע שעה) — כולל ריצה מיידית בעלייה,
