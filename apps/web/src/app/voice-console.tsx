@@ -45,6 +45,8 @@ interface RouteResult {
 
 interface BuyerAnswer {
   hasMore: boolean;
+  /** מקומות שנאמרו ואין להם אף קונה — מוצגים במפורש, ראו למטה */
+  unmatchedPlaces: string[];
   buyers: {
     id: string;
     name: string;
@@ -482,8 +484,15 @@ export function VoiceConsole({
                 בודק במאגר…
               </p>
             ) : answer.buyers.length === 0 ? (
+              /*
+                מקום שנאמר ואין לו אף קונה נאמר בשמו. קודם הוא נשמט
+                מהשאילתה בשקט, והמתווך קיבל את כל הקונים בארץ בתור
+                התשובה — בלי סימן שהמקום ששאל עליו לא נלקח בחשבון.
+              */
               <p className="m-0 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
-                לא נמצאו קונים שמתאימים לקריטריונים האלה.
+                {answer.unmatchedPlaces.length > 0
+                  ? `אין במאגר אף קונה ב${answer.unmatchedPlaces.join(" / ")}.`
+                  : "לא נמצאו קונים שמתאימים לקריטריונים האלה."}
               </p>
             ) : (
               <>

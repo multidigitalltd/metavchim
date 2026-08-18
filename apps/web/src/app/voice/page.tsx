@@ -53,6 +53,8 @@ interface RouteResult {
 
 interface BuyerAnswer {
   hasMore: boolean;
+  /** מקומות שנאמרו ואין להם אף קונה — מוצגים במפורש, ראו למטה */
+  unmatchedPlaces: string[];
   criteria: { cities: string[]; roomsMin?: number; roomsMax?: number; budgetMaxShekels?: number };
   buyers: {
     id: string;
@@ -331,10 +333,23 @@ export default function VoiceCommandPage() {
               ) : route.action === "query_buyers" ? (
                 answer ? (
                   <div>
-                    {answer.buyers.length === 0 ? (
-                      <p style={{ color: "var(--color-text-muted)" }}>
-                        לא נמצאו קונים שמתאימים לקריטריונים האלה.
+                    {/*
+                      מקום שנאמר ואין לו אף קונה — נאמר בפירוש ובראש.
+                      קודם הוא פשוט נשמט מהשאילתה, והמתווך קיבל את כל
+                      הקונים בארץ בתור "התשובה" בלי שום סימן שהמקום
+                      ששאל עליו לא נלקח בחשבון.
+                    */}
+                    {answer.unmatchedPlaces.length > 0 && (
+                      <p className="mb-2 font-medium" style={{ color: "var(--color-danger)" }}>
+                        אין במאגר אף קונה ב{answer.unmatchedPlaces.join(" / ")}.
                       </p>
+                    )}
+                    {answer.buyers.length === 0 ? (
+                      answer.unmatchedPlaces.length === 0 && (
+                        <p style={{ color: "var(--color-text-muted)" }}>
+                          לא נמצאו קונים שמתאימים לקריטריונים האלה.
+                        </p>
+                      )
                     ) : (
                       <>
                         <p className="mb-2 font-medium" style={{ color: "var(--color-success)" }}>
