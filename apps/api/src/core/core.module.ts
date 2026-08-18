@@ -1,5 +1,6 @@
 import { Global, Module } from "@nestjs/common";
 import { AuditService } from "./audit.service";
+import { AutomationQuotaService } from "./automation-quota.service";
 import { CryptoService } from "./crypto.service";
 import { EmailService } from "./email.service";
 import { OutboxDispatcherService } from "./outbox-dispatcher.service";
@@ -30,6 +31,7 @@ import { StorageService } from "./storage.service";
     CreditExpiryService,
     GeminiService,
     PlanCatalogService,
+    AutomationQuotaService,
     LeadPricingService,
     StorageService,
   ],
@@ -49,6 +51,7 @@ import { StorageService } from "./storage.service";
     CreditEconomyService,
     GeminiService,
     PlanCatalogService,
+    AutomationQuotaService,
     LeadPricingService,
     StorageService,
   ],

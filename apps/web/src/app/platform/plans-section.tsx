@@ -140,6 +140,22 @@ function planEditor(
           מכסות הרשת נפרדות ממכסת הנכסים במכוון: שמירה במאגר ופרסום
           ברשת הן שתי החלטות עסקיות שונות. ראו את הנימוק ב-plans.ts.
         */}
+        {/*
+          מכסת האוטומציות היא **מונה אחד** לכללים שהמשרד בונה
+          ולמשימות הקבועות: מבחינת הלקוח שתיהן "המערכת עושה משהו
+          מעצמה", ושתי מכסות היו מייצרות את השאלה למה נגמרה אחת
+          בזמן שהשנייה פנויה.
+        */}
+        <label className="text-xs font-semibold">
+          מקסימום אוטומציות (ריק = ללא הגבלה)
+          <input
+            value={draft.maxAutomations === null ? "" : String(draft.maxAutomations)}
+            inputMode="numeric"
+            onChange={(e) => setDraft({ ...draft, maxAutomations: toLimit(e.target.value) })}
+            className="mt-1 w-full rounded-lg border px-2.5 py-2 text-sm font-normal"
+            style={inputStyle}
+          />
+        </label>
         <label className="text-xs font-semibold">
           מקסימום נכסים ברשת (ריק = ללא הגבלה)
           <input
@@ -298,6 +314,7 @@ export function PlansSection({
       yearlyPriceAgorot: null,
       maxUsers: 5,
       maxProperties: 100,
+      maxAutomations: null,
       maxNetworkListings: null,
       maxNetworkDemands: null,
       features: [],

@@ -39,6 +39,8 @@ interface Payload {
   triggers: AutomationTrigger[];
   rules: RuleRow[];
   users: { id: string; name: string }[];
+  /** המכסה של המסלול והשימוש בפועל — כולל המשימות הקבועות. */
+  quota?: { used: number; limit: number | null };
 }
 
 const BLANK: AutomationRuleInput = {
@@ -65,6 +67,12 @@ export function CustomAutomationsSection() {
   useEffect(load, []);
 
   const trigger = data?.triggers.find((t) => t.event === draft?.trigger) ?? null;
+  const quota = data?.quota ?? null;
+  /*
+   * שרת ישן אינו מחזיר `quota`, ואז אין חסימה — עדיף מסך שמאפשר
+   * ומקבל שגיאה מהשרת מאשר מסך שחוסם בלי סיבה.
+   */
+  const full = quota !== null && quota.limit !== null && quota.used >= quota.limit;
 
   function startNew() {
     setEditingId(null);
@@ -157,6 +165,18 @@ export function CustomAutomationsSection() {
         מה מתוך זה, ומה לעשות.
       </p>
 
+      {/*
+        המכסה מוצגת תמיד ולא רק כשהיא נגמרה: משרד שרואה 3/5 יודע
+        שיש לו מקום, ומשרד שרואה 5/5 מבין למה הכפתור חסום — במקום
+        לגלות את זה רק בשגיאה אחרי שבנה כלל שלם.
+      */}
+      {quota !== null && quota.limit !== null ? (
+        <p className="mb-3 text-[13px]" style={{ color: full ? "var(--color-danger)" : "var(--color-text-muted)" }}>
+          {quota.used} מתוך {quota.limit} אוטומציות בשימוש — כולל המשימות
+          האוטומטיות הקבועות.
+        </p>
+      ) : null}
+
       {error !== null ? (
         <p role="alert" className="mb-3 text-sm" style={{ color: "var(--color-danger)" }}>
           {error}
@@ -211,7 +231,7 @@ export function CustomAutomationsSection() {
       </ul>
 
       {draft === null ? (
-        <Button onClick={startNew}>
+        <Button onClick={startNew} disabled={full}>
           <IconPlus s={15} /> אוטומציה חדשה
         </Button>
       ) : (

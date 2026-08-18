@@ -24,6 +24,7 @@ import { GoogleCalendarSection } from "./google-calendar-section";
 import { MatchWeightsSection } from "./match-weights-section";
 import { AutomationsSection } from "./automations-section";
 import { CustomAutomationsSection } from "./custom-automations-section";
+import { RecurrenceSection } from "./recurrence-section";
 import { DismissReportSection } from "./dismiss-report";
 import { AgreementTemplatesSection } from "./agreement-templates-section";
 import { RetainedAgreementsSection } from "./retained-agreements-section";
@@ -229,6 +230,7 @@ export default function SettingsPage() {
   const canTelephony = useFeature("telephony");
   const canAgreements = useFeature("agreements");
   const canDataIo = useFeature("data_io");
+  const canAutomations = useFeature("automations");
   const [tenant, setTenant] = useState<TenantSettings | null>(null);
   const [team, setTeam] = useState<TeamUser[]>([]);
   const [audit, setAudit] = useState<AuditRow[]>([]);
@@ -951,10 +953,32 @@ export default function SettingsPage() {
             </>
           ) : null}
 
+          {/*
+            שלושת הסוגים באותה לשונית, ובסדר הזה: מה שהמערכת עושה
+            מעצמה, מה שהמשרד בנה, ומה שרץ בזמנים קבועים. המשימות
+            הקבועות ישבו קודם ביומן — כלומר מי שחיפש "למה נפתחה לי
+            המשימה הזאת" לא מצא אותן, ומי שנכנס ליומן פגש הגדרה
+            משרדית באמצע לוח אישי.
+          */}
           {tab === "automations" ? (
             <>
+              {/*
+                האוטומציות המובנות פתוחות תמיד: הן רצות ממילא, והמסך
+                הזה הוא הדרך היחידה לכבות אותן. נעילה שלהן הייתה
+                משאירה משרד עם אוטומציות פועלות שאין לו שליטה עליהן.
+              */}
               <AutomationsSection />
-              <CustomAutomationsSection />
+              {canAutomations ? (
+                <>
+                  <CustomAutomationsSection />
+                  <RecurrenceSection />
+                </>
+              ) : (
+                <LockedFeature
+                  code="automations"
+                  description="בניית כללים משלכם: מתי זה קורה, על מה מתוך זה, ומה לעשות — וגם משימות אוטומטיות שחוזרות בזמנים קבועים."
+                />
+              )}
             </>
           ) : null}
 

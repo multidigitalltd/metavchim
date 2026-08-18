@@ -8,9 +8,11 @@ import {
   type AutomationRuleInput,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
+import { RequireFeature } from "../../common/feature.guard";
 import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AuditService } from "../../core/audit.service";
+import { AutomationQuotaService } from "../../core/automation-quota.service";
 import { PrismaService } from "../../core/prisma.service";
 
 /**
@@ -24,11 +26,19 @@ import { PrismaService } from "../../core/prisma.service";
 
 const IdSchema = z.string().length(26);
 
+/*
+ * שער המסלול על כל הסעיף. בעל הפלטפורמה מחליט אילו מסלולים כוללים
+ * בניית אוטומציות, ומשרד שאין לו את התכונה אינו רואה את המסך ואינו
+ * מגיע לנתיבים — כולל קריאה, כדי שלא יראה כללים שהוא אינו יכול
+ * לנהל.
+ */
+@RequireFeature("automations")
 @Controller("settings/automation-rules")
 export class AutomationRulesController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly quota: AutomationQuotaService,
   ) {}
 
   /**
@@ -53,6 +63,8 @@ export class AutomationRulesController {
     }[];
     /** הסוכנים שאפשר להטיל עליהם — פעילים בלבד. */
     users: { id: string; name: string }[];
+    /** המכסה של המסלול והשימוש בפועל — כולל המשימות הקבועות. */
+    quota: { used: number; limit: number | null };
   }> {
     const tenantId = TenantContext.current().tenantId;
     const [rules, users] = await Promise.all([
@@ -79,7 +91,12 @@ export class AutomationRulesController {
         }),
       ),
     ]);
-    return { triggers: AUTOMATION_TRIGGERS, rules, users };
+    return {
+      triggers: AUTOMATION_TRIGGERS,
+      rules,
+      users,
+      quota: await this.quota.status(tenantId),
+    };
   }
 
   @Post()
@@ -89,6 +106,9 @@ export class AutomationRulesController {
     @Body(new ZodValidationPipe(AutomationRuleInputSchema)) body: AutomationRuleInput,
   ): Promise<{ id: string }> {
     await this.assertValid(body);
+    // המכסה לפני האימות היקר? לא — האימות זול, והודעת "המסלול מלא"
+    // צריכה להגיע רק אחרי שברור שהכלל עצמו תקין
+    await this.quota.assertCanAdd();
     const { tenantId, userId } = TenantContext.current();
     const id = ulid();
 

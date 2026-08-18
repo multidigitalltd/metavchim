@@ -1121,6 +1121,8 @@ model Plan {
   /// מכסות פרסום ברשת השיתופים — נפרדות ממכסת השמירה במאגר.
   /// null = ללא הגבלה, וזה מה שכל המסלולים בתשלום מקבלים; המסלול
   /// החינמי מוגבל כאן ולא ב-`maxProperties`.
+  /// מכסת האוטומציות — כללים שנבנו + משימות קבועות. null = ללא הגבלה.
+  maxAutomations     Int?      @map("max_automations")
   maxNetworkListings Int?      @map("max_network_listings")
   maxNetworkDemands  Int?      @map("max_network_demands")
   features           String[]  @default([])

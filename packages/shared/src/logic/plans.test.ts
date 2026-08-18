@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PLANS,
   PLAN_FEATURES,
+  automationQuotaRejection,
   defaultPlan,
   effectiveFeatures,
   downgradeWarnings,
@@ -324,6 +325,40 @@ describe("effectiveFeatures — חריגי הפלטפורמה", () => {
 
   it("קוד שאינו בקטלוג נושר במקום להבטיח תכונה שאינה נאכפת", () => {
     expect(effectiveFeatures(["whatsapp"], { grants: ["nope"], denials: [] })).toEqual(["whatsapp"]);
+  });
+});
+
+describe("automationQuotaRejection", () => {
+  it("ללא הגבלה — תמיד אפשר", () => {
+    expect(automationQuotaRejection(999, null)).toBeNull();
+  });
+
+  it("מתחת למכסה — אפשר", () => {
+    expect(automationQuotaRejection(4, 5)).toBeNull();
+  });
+
+  /*
+   * שווה למכסה הוא "מלא" ולא "עוד אחד": המונה סופר את מה שקיים,
+   * והבדיקה נשאלת לפני ההוספה.
+   */
+  it("בדיוק על המכסה — חסום", () => {
+    expect(automationQuotaRejection(5, 5)).not.toBeNull();
+  });
+
+  it("ההודעה נוקבת במספר", () => {
+    expect(automationQuotaRejection(5, 5)).toContain("5");
+  });
+
+  /*
+   * משרד שירד מסלול יכול להיות מעל המכסה. הוא חסום מהוספה — אבל
+   * מחיקה וכיבוי נשארים פתוחים, אחרת אי אפשר להתכנס.
+   */
+  it("מעל המכסה — חסום, לא קורס", () => {
+    expect(automationQuotaRejection(9, 5)).not.toBeNull();
+  });
+
+  it("מכסת אפס חוסמת הכול", () => {
+    expect(automationQuotaRejection(0, 0)).not.toBeNull();
   });
 });
 

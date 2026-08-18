@@ -19,6 +19,7 @@
 export type PlanFeature =
   | "analytics"
   | "telephony"
+  | "automations"
   | "transcription"
   | "agreements"
   | "landing_pages"
@@ -46,6 +47,12 @@ export const PLAN_FEATURES: readonly PlanFeatureInfo[] = [
     code: "analytics",
     label: "דוחות וביצועי סוכנים",
     description: "תמונת המשרד: לידים, המרות, הצעות שנשלחו וביצועי כל סוכן.",
+  },
+  {
+    code: "automations",
+    label: "אוטומציות שהמשרד בונה",
+    description:
+      "בניית כללים משלכם — מתי זה קורה, על מה, ומה לעשות. כולל המשימות האוטומטיות הקבועות.",
   },
   {
     code: "telephony",
@@ -144,6 +151,24 @@ export function effectiveFeatures(
   return sanitizeFeatures([...open]);
 }
 
+/**
+ * למה אי אפשר להוסיף עוד אוטומציה — או `null` כשאפשר.
+ *
+ * המונה כולל **את שני הסוגים**: כללים שהמשרד בנה ומשימות אוטומטיות
+ * קבועות. מבחינת הלקוח שתיהן אותו דבר — "המערכת עושה משהו בשבילי
+ * מעצמה" — ומכסות נפרדות היו מייצרות את השאלה למה נגמרה אחת בזמן
+ * שהשנייה פנויה.
+ *
+ * ההודעה נוקבת במספר ולא אומרת "הגעתם למכסה": משרד שרואה 5/5 יודע
+ * מה לעשות (לכבות אחת או לשדרג), ומשרד שרואה הודעה כללית פונה
+ * לתמיכה.
+ */
+export function automationQuotaRejection(used: number, limit: PlanLimit): string | null {
+  if (limit === null) return null;
+  if (used < limit) return null;
+  return `המסלול שלכם כולל ${limit} אוטומציות, וכולן בשימוש. אפשר למחוק אחת קיימת או לשדרג מסלול.`;
+}
+
 /** מגבלת כמות. `null` = ללא הגבלה, וזה ערך תקין ומכוון. */
 export type PlanLimit = number | null;
 
@@ -168,6 +193,16 @@ export interface PlanDefinition {
    * `null` = ללא הגבלה, וזה המצב של כל המסלולים בתשלום.
    */
   maxNetworkListings: PlanLimit;
+  /**
+   * כמה אוטומציות המשרד רשאי להגדיר. `null` = ללא הגבלה.
+   *
+   * **מונה אחד לשני הסוגים** — כללים שנבנו וגם משימות אוטומטיות
+   * קבועות. שתי מכסות נפרדות היו מכריחות את בעל הפלטפורמה לנחש את
+   * התמהיל של כל משרד, ואת המשרד להבין למה נגמרה לו מכסה אחת בזמן
+   * שהשנייה פנויה. מבחינת הלקוח שתיהן אותו דבר: "המערכת עושה משהו
+   * בשבילי מעצמה".
+   */
+  maxAutomations: PlanLimit;
   /** אותו היגיון לביקושים (קונים) שמתפרסמים ברשת. */
   maxNetworkDemands: PlanLimit;
   features: PlanFeature[];
@@ -193,6 +228,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     yearlyPriceAgorot: 149_000,
     maxUsers: 2,
     maxProperties: 60,
+    maxAutomations: null,
     maxNetworkListings: null,
     maxNetworkDemands: null,
     features: ["whatsapp", "landing_pages", "voice_intake"],
@@ -208,6 +244,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     yearlyPriceAgorot: 299_000,
     maxUsers: 6,
     maxProperties: 300,
+    maxAutomations: null,
     maxNetworkListings: null,
     maxNetworkDemands: null,
     features: [
@@ -230,6 +267,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     yearlyPriceAgorot: 599_000,
     maxUsers: 20,
     maxProperties: null,
+    maxAutomations: null,
     maxNetworkListings: null,
     maxNetworkDemands: null,
     features: [
@@ -255,6 +293,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     yearlyPriceAgorot: null,
     maxUsers: null,
     maxProperties: null,
+    maxAutomations: null,
     maxNetworkListings: null,
     maxNetworkDemands: null,
     features: PLAN_FEATURES.map((f) => f.code),

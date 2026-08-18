@@ -10,7 +10,6 @@ import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { useFeature } from "@/lib/use-features";
 import { useRequireAuth } from "@/lib/use-auth";
 import { TasksBoard } from "../tasks/tasks-board";
-import { RecurrenceSection } from "./recurrence-section";
 import { IconEdit } from "../icons";
 
 /**
@@ -284,7 +283,6 @@ export default function CalendarPage() {
         <div id="panel-tasks" role="tabpanel" aria-labelledby="tab-tasks">
           {/* אותו לוח בדיוק כמו במסך /tasks — לא עותק שיתחיל להיפרד */}
           <TasksBoard heading="המשימות שלי" />
-          <RecurrenceSection />
         </div>
       ) : (
       <div id="panel-calendar" role="tabpanel" aria-labelledby="tab-calendar">
