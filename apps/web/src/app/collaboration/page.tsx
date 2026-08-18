@@ -31,7 +31,6 @@ import {
   IconCheck,
   IconDiamond,
   IconDownload,
-  IconGift,
   IconGlobe,
   IconHandshake,
   IconHome,
@@ -1385,24 +1384,17 @@ export default function CollaborationPage() {
                         ) : (
                           <>
                             {/*
-                        העלות ליד כל ביקוש ולא רק בכותרת: הכותרת
-                        מסבירה את הכלל, והתווית הזו אומרת מה קורה
-                        בלחיצה הזו.
+                        תווית רק כשיש מה לומר — כלומר כשזה עולה.
+                        „חינם” על רוב הכרטיסים אינו מידע אלא רעש: הוא
+                        חוזר על עצמו בכל שורה ומייקר את מציאת השורות
+                        שכן עולות. הכלל עצמו נאמר פעם אחת בכותרת
+                        הלשונית, ושם מקומו.
                       */}
-                            <span
-                              className={`mv-net-chip ${demand.creditsCost > 0 ? "mv-net-chip--money" : "mv-net-chip--good"}`}
-                            >
-                              <span aria-hidden="true">
-                                {demand.creditsCost > 0 ? (
-                                  <IconCoins s={14} />
-                                ) : (
-                                  <IconGift s={14} />
-                                )}
-                              </span>{" "}
-                              {demand.creditsCost > 0
-                                ? `${demand.creditsCost} קרדיטים`
-                                : "חינם"}
-                            </span>
+                            {demand.creditsCost > 0 ? (
+                              <span className="mv-net-chip mv-net-chip--money">
+                                <IconCoins s={14} /> {demand.creditsCost} קרדיטים
+                              </span>
+                            ) : null}
                             <span
                               className="mv-net-chip"
                               title="חלוקת העמלה שהמשרד המשתף ביקש"
@@ -1711,10 +1703,12 @@ export default function CollaborationPage() {
                           </>
                         ) : (
                           <>
-                            {/* פנייה על נכס אינה עולה קרדיטים — בשום מסלול */}
-                            <span className="mv-net-chip mv-net-chip--good">
-                              <IconGift s={14} /> חינם
-                            </span>
+                            {/*
+                              פנייה על נכס אינה עולה קרדיטים בשום מסלול,
+                              ולכן תווית „חינם” כאן הייתה קבועה בכל
+                              כרטיס — כלומר לא הבחינה בין שום דבר. הכלל
+                              נאמר בכותרת הלשונית.
+                            */}
                             <span
                               className="mv-net-chip"
                               title="חלוקת העמלה שהמשרד המפרסם ביקש"
