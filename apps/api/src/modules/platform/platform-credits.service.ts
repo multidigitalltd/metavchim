@@ -2,10 +2,12 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import {
   MAX_BURN_CREDITS,
   platformCreditsNet,
-  referralBonusCredits,
   summarizePlatformCredits,
   type PlatformCreditSummary,
 } from "@metavchim/shared";
+
+/** התקרה של `INTEGER` ב-Postgres — הטיפוס של כל סכום כסף במערכת. */
+const MAX_PG_INT = 2_147_483_647;
 import { ulid } from "ulid";
 import { PrismaService } from "../../core/prisma.service";
 import { CreditEconomyService } from "../../core/credit-economy.service";
@@ -60,34 +62,32 @@ export class PlatformCreditsService {
      * הספר נקרא ישירות מ-`prisma` ולא דרך `withTenant`: הטבלה אינה
      * תחת RLS. הבדיקה המבנית ב-`rls-access.test.ts` גוזרת את רשימת
      * הטבלאות מהמיגרציות, ולכן היא יודעת זאת בלי רשימה ידנית.
+     *
+     * **הכול נקרא מכאן ולא מ-`shared_leads`.** הגרסה הראשונה קראה
+     * את ההפניות שנמכרו דרך `withNetworkRead`, אבל הפוליסה שם
+     * מתירה קריאת רשת רק ל-`status = 'active'` — כלומר השאילתה
+     * הייתה מחזירה אפס שורות בייצור, בשקט, והדוח כולו היה מוצג
+     * כאפסים ונראה תקין לגמרי (ביקורת Codex). הצילום על שורת הספר
+     * פותר זאת בלי לפתוח פוליסת קריאה חוצת-דיירים נוספת.
      */
     const entries = await this.prisma.platformCreditLedger.findMany({
-      select: { kind: true, amount: true, recognizedAgorot: true },
+      select: {
+        kind: true,
+        amount: true,
+        recognizedAgorot: true,
+        bonusCredits: true,
+        cashPaidAgorot: true,
+      },
     });
     const summary = summarizePlatformCredits(entries, economy.unitPriceAgorot);
 
-    /*
-     * הבונוס אינו נשמר בעמודה משלו — הוא נגזר מהשורה, וזו הצורה
-     * הנכונה: עמודה נוספת הייתה יכולה לסתור את שלושת המספרים שהיא
-     * נגזרת מהם.
-     */
-    const sold = await this.prisma.withNetworkRead((tx) =>
-      tx.sharedLead.findMany({
-        where: { status: "sold" },
-        select: {
-          priceCredits: true,
-          platformFeeCredits: true,
-          payoutCredits: true,
-          payoutAgorot: true,
-        },
-      }),
-    );
-
     let bonusCreditsIssued = 0;
     let cashPaidAgorot = 0;
-    for (const row of sold) {
-      bonusCreditsIssued += referralBonusCredits(row);
-      cashPaidAgorot += row.payoutAgorot;
+    let settledReferrals = 0;
+    for (const row of entries) {
+      bonusCreditsIssued += row.bonusCredits;
+      cashPaidAgorot += row.cashPaidAgorot;
+      if (row.kind === "referral_fee") settledReferrals += 1;
     }
 
     return {
@@ -95,7 +95,7 @@ export class PlatformCreditsService {
       unitPriceAgorot: economy.unitPriceAgorot,
       bonusCreditsIssued,
       cashPaidAgorot,
-      settledReferrals: sold.length,
+      settledReferrals,
       netAgorot: platformCreditsNet({
         recognizedAgorot: summary.recognizedAgorot,
         bonusCreditsIssued,
@@ -152,6 +152,18 @@ export class PlatformCreditsService {
     }
     const economy = await this.economy.current();
     const unitPriceAgorot = economy.unitPriceAgorot;
+    /*
+     * `recognized_agorot` הוא INTEGER, ומכפלת הגבולות המותרים חורגת
+     * ממנו: מיליון קרדיטים במחיר המקסימלי הם 10^11. בלי הבדיקה הזו
+     * המחיקה הייתה נופלת בשגיאת מסד גולמית במקום להסביר (ביקורת
+     * Codex). הסכום נבדק ולא הסכום מקוצץ — מחיקה שנרשמת חלקית היא
+     * גרועה בהרבה ממחיקה שנדחתה.
+     */
+    if (credits * unitPriceAgorot > MAX_PG_INT) {
+      throw new BadRequestException(
+        `הכמות גדולה מדי: ${credits} קרדיטים במחיר ${unitPriceAgorot} אגורות חורגים מהמותר לרישום`,
+      );
+    }
 
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`LOCK TABLE platform_credit_ledger IN SHARE ROW EXCLUSIVE MODE`;

@@ -2870,3 +2870,192 @@ a.mv-bar-row:focus-visible {
 .mv-stat-tile:hover {
   border-color: var(--color-border-hover);
 }
+
+/* ============================================================
+   כרטיס הרשת — שפה חזותית אחת לביקוש ולנכס
+   ------------------------------------------------------------
+   הכרטיס הקודם היה רשימת תגיות: כל פרט קיבל את אותו משקל, ולכן
+   שום פרט לא בלט. מי שסורק לוח מחפש שלושה דברים לפני הכול — מה,
+   איפה, וכמה — והם קיבלו כאן מקום משלהם.
+   ============================================================ */
+.mv-net-card {
+  padding: 18px;
+  border-radius: 20px;
+}
+.mv-net-card:hover {
+  box-shadow: 0 10px 28px rgb(12 110 52 / 10%);
+}
+
+/* פס עליון: תגית מצב בצד אחד, מחיר/עלות בשני */
+.mv-net-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.mv-net-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 99px;
+  background: var(--color-action);
+  color: var(--color-on-action);
+  font-size: 14px;
+  font-weight: 800;
+}
+.mv-net-badge--quiet {
+  background: var(--color-hover-soft);
+  color: var(--color-text-soft);
+}
+
+/* גיבור: אווטאר + מה מחפשים + סוג העסקה */
+.mv-net-hero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.mv-net-hero-text {
+  flex: 1;
+  min-width: 0;
+}
+.mv-net-hero .mv-net-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  /*
+   * עיגול מלא ולא מרובע: זה סימן של „מי”, ובכרטיס שכולו מלבנים
+   * העיגול הוא מה שמבדיל בין נושא הכרטיס לבין הפרטים שלו.
+   */
+  background: linear-gradient(140deg, var(--color-primary-accent), var(--color-primary));
+  color: #fff;
+  box-shadow: none;
+}
+.mv-net-hero-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+.mv-net-hero-sub {
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+/* שורת המיקום — שדה ולא תגית, כי היא התשובה לשאלה „איפה” */
+.mv-net-place {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  font-size: 15px;
+  font-weight: 600;
+}
+.mv-net-place > svg {
+  flex: none;
+  color: var(--color-primary-accent);
+}
+
+/* תיבת הכסף — המספר היחיד שמותר לו להיות הכי גדול בכרטיס */
+.mv-net-money {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--color-primary-accent) 40%, transparent);
+  border-radius: 14px;
+  background: var(--color-primary-soft);
+}
+.mv-net-money-label {
+  font-size: 14px;
+  color: var(--color-primary);
+}
+.mv-net-money-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--color-primary);
+}
+
+/* שלושת המספרים — אייקון למעלה, ערך, ואז מה זה */
+.mv-net-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.mv-net-fact {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  text-align: center;
+}
+.mv-net-fact > svg {
+  color: var(--color-text-muted);
+}
+.mv-net-fact-value {
+  font-size: 15px;
+  font-weight: 800;
+}
+.mv-net-fact-label {
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+/* ההערה של המפרסם — תיבה ולא קו, כי זה הדבר האנושי היחיד בכרטיס */
+.mv-net-say {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-inline-start: 3px solid var(--color-primary-accent);
+  border-radius: 0 12px 12px 0;
+  background: var(--color-hover-soft);
+}
+.mv-net-say-label {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.mv-net-say-text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--color-text-soft);
+}
+
+/* שורת המטא — מזהה וזמן, הדברים שמסתכלים עליהם אחרונים */
+.mv-net-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+.mv-net-meta-id {
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: var(--color-hover-soft);
+  font-weight: 700;
+  color: var(--color-text-soft);
+}
+.mv-net-meta-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

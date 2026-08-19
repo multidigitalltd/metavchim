@@ -13,6 +13,7 @@ import {
   coopOfferCost,
   leadSourceLabel,
   planCreditExpiry,
+  referralBonusCredits,
   settleReferral,
   type PayoutMode,
   referralPriceRejectionReason,
@@ -2068,20 +2069,28 @@ export class CollaborationService {
        * הטבלה אינה תחת RLS ולכן היא נכתבת כאן בלי קשר להקשר הדייר
        * שנקבע ל-`row.tenantId` בשורה שמעל.
        *
-       * `platformFee === 0` אינו נרשם: שורה על אפס אינה מידע, והיא
-       * הייתה תופסת את המפתח הייחודי על ההפניה.
+       * השורה נכתבת **גם כשהעמלה אפס**: הצד היקר של העסקה — הבונוס
+       * שהונפק והמזומן ששולם — מצולם עליה, והוא קיים גם בהפניה בלי
+       * עמלה. הוא נשמר כאן ולא נקרא מ-`shared_leads`, כי זו טבלה
+       * תחת RLS שאין לפלטפורמה דרך חוקית לקרוא ממנה חוצה-דיירים:
+       * ניסיון כזה מחזיר אפס שורות בשקט, כלומר דוח שכולו אפסים
+       * ונראה תקין (ביקורת Codex).
        */
-      if (platformFee > 0) {
-        await tx.platformCreditLedger.create({
-          data: {
-            id: ulid(),
-            kind: "referral_fee",
-            amount: platformFee,
-            sourceTenantId: ctx.tenantId,
-            refId: sharedLeadId,
-          },
-        });
-      }
+      await tx.platformCreditLedger.create({
+        data: {
+          id: ulid(),
+          kind: "referral_fee",
+          amount: platformFee,
+          bonusCredits: referralBonusCredits({
+            priceCredits: cost,
+            platformFeeCredits: platformFee,
+            payoutCredits: isCash ? 0 : referrerPayout,
+          }),
+          cashPaidAgorot: isCash ? row.payoutAgorot : 0,
+          sourceTenantId: ctx.tenantId,
+          refId: sharedLeadId,
+        },
+      });
       await tx.outboxEvent.create({
         data: {
           id: ulid(),
