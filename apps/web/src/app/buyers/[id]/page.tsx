@@ -64,7 +64,7 @@ interface BuyerDetail {
       label?: string;
     }[];
     budgetMinAgorot?: number;
-    budgetMaxAgorot: number;
+    budgetMaxAgorot?: number;
     roomsMin?: number;
     roomsMax?: number;
     areaSqmMin?: number;
@@ -446,18 +446,22 @@ export default function BuyerDetailPage({
                 className="mb-[13px]"
                 style={{ fontSize: 19, fontWeight: 800 }}
               >
-                {buyer.requirements.budgetMinAgorot !== undefined
-                  ? `${formatPrice(buyer.requirements.budgetMinAgorot)}–${formatPrice(buyer.requirements.budgetMaxAgorot)}`
-                  : `עד ${formatPrice(buyer.requirements.budgetMaxAgorot)}`}
+                {buyer.requirements.budgetMaxAgorot === undefined
+                  ? "תקציב לא צוין"
+                  : buyer.requirements.budgetMinAgorot !== undefined
+                    ? `${formatPrice(buyer.requirements.budgetMinAgorot)}–${formatPrice(buyer.requirements.budgetMaxAgorot)}`
+                    : `עד ${formatPrice(buyer.requirements.budgetMaxAgorot)}`}
               </div>
               {/* גם במילים — אימות מהיר שהסכום שנשמר הוא הסכום שהתכוונו לו */}
               <div
                 className="mb-[13px] -mt-2 text-[12px]"
                 style={{ color: "var(--color-text-muted)" }}
               >
-                {priceInWordsWithCurrency(
-                  Math.round(buyer.requirements.budgetMaxAgorot / 100),
-                )}
+                {buyer.requirements.budgetMaxAgorot === undefined
+                  ? "בלי תקציב ההתאמות מדויקות פחות — שווה להשלים בשיחה הבאה"
+                  : priceInWordsWithCurrency(
+                      Math.round(buyer.requirements.budgetMaxAgorot / 100),
+                    )}
               </div>
 
               <div

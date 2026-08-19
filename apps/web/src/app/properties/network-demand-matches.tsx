@@ -33,7 +33,8 @@ interface NetworkDemandMatch {
   propertyTypes: string[];
   areaSqmMin?: number;
   budgetMinAgorot?: number;
-  budgetMaxAgorot: number;
+  /** חסר = הקונה טרם מסר תקציב. */
+  budgetMaxAgorot?: number;
   roomsMin?: number;
   roomsMax?: number;
   entryType?: string;

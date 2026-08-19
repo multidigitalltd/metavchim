@@ -32,7 +32,7 @@ interface BuyerRow {
     dealType?: string;
     cities: string[];
     budgetMinAgorot?: number;
-    budgetMaxAgorot: number;
+    budgetMaxAgorot?: number;
     roomsMin?: number;
     roomsMax?: number;
   };
@@ -53,6 +53,8 @@ const MATURITY_PILL: Record<string, { fg: string; bg: string }> = {
 };
 
 function budgetText(b: BuyerRow): string {
+  // תקציב הוא נתון שמתברר; "לא צוין" הוא מידע, "0 ₪" הוא שקר
+  if (b.requirements.budgetMaxAgorot === undefined) return "תקציב לא צוין";
   return b.requirements.budgetMinAgorot !== undefined
     ? `${formatPrice(b.requirements.budgetMinAgorot)}–${formatPrice(b.requirements.budgetMaxAgorot)}`
     : `עד ${formatPrice(b.requirements.budgetMaxAgorot)}`;

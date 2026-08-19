@@ -57,7 +57,16 @@ const ImportBuyerRowSchema = z
     budgetMinAgorot: MoneyAgorotSchema.optional(),
     // תקציב הוא חובה שלישית מלבד שם וטלפון — עוגן מנוע ההתאמות
     // ועמודה שאינה ריקה בבסיס הנתונים. הודעת החוסר מתורגמת למטה.
-    budgetMaxAgorot: MoneyAgorotSchema.refine((n) => n > 0, "תקציב חייב להיות חיובי"),
+    /*
+     * **רשות.** לקוח בלי תקציב הוא מצב נורמלי — שיחה נכנסת שנרשמו
+     * בה שם וטלפון היא לקוח לכל דבר. דחיית השורה כולה בגלל עמודה
+     * ריקה הפכה קובץ שלם ללא ניתן לייבוא בגלל נתון שממילא מתברר
+     * מאוחר יותר. במקומה — אזהרה, וראו `rowWarnings`.
+     */
+    budgetMaxAgorot: MoneyAgorotSchema.refine(
+      (n) => n > 0,
+      "תקציב חייב להיות חיובי",
+    ).optional(),
     roomsMin: z.number().multipleOf(0.5).min(1).max(20).optional(),
     roomsMax: z.number().multipleOf(0.5).min(1).max(20).optional(),
     financing: FinancingStatusSchema.optional(),
@@ -99,6 +108,28 @@ function describeRowIssues(error: z.ZodError): string {
 export interface ImportResult {
   created: number;
   failed: { row: number; error: string }[];
+  /**
+   * שורות שנקלטו — ויש עליהן מה לומר.
+   *
+   * שונה מ-`failed` בכל מה שחשוב: השורה **נכנסה**. אזהרה שמוצגת
+   * כשגיאה גורמת למתווך לחשוב שהייבוא נכשל ולנסות שוב, ושגיאה
+   * שמוצגת כאזהרה גורמת לו להתעלם ממנה. לכן שני שדות ולא דגל.
+   */
+  warnings: { row: number; warning: string }[];
+}
+
+/**
+ * מה שראוי לומר על שורה שנקלטה בכל זאת.
+ *
+ * כרגע רק התקציב. השדה אינו חובה — לקוח בלי תקציב הוא מצב נורמלי —
+ * אבל בלעדיו קריטריון התקציב אינו נספר בהתאמה, וזה בדיוק מה
+ * שהמתווך צריך לדעת כדי להחליט אם להשלים.
+ */
+function rowWarnings(row: { budgetMaxAgorot?: number }): string[] {
+  if (row.budgetMaxAgorot !== undefined) return [];
+  return [
+    "אין תקציב — הכרטיס נקלט, אך ההתאמות האוטומטיות יהיו פחות מדויקות עד שיתווסף",
+  ];
 }
 
 @RequireFeature("data_io")
@@ -138,7 +169,7 @@ export class ImportController {
       }
     }
 
-    return { created, failed };
+    return { created, failed, warnings: [] };
   }
 
   @Post("buyers")
@@ -147,6 +178,7 @@ export class ImportController {
     @Body(new ZodValidationPipe(ImportEnvelopeSchema)) body: z.infer<typeof ImportEnvelopeSchema>,
   ): Promise<ImportResult> {
     const failed: ImportResult["failed"] = [];
+    const warnings: ImportResult["warnings"] = [];
     let created = 0;
 
     for (const [index, rawRow] of body.rows.entries()) {
@@ -179,6 +211,9 @@ export class ImportController {
           agentNotes: row.agentNotes,
         });
         created += 1;
+        for (const warning of rowWarnings(row)) {
+          warnings.push({ row: index + 1, warning });
+        }
       } catch (error) {
         failed.push({
           row: index + 1,
@@ -187,6 +222,6 @@ export class ImportController {
       }
     }
 
-    return { created, failed };
+    return { created, failed, warnings };
   }
 }

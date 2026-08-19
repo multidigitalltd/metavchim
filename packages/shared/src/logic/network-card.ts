@@ -156,7 +156,8 @@ export interface NetworkDemandFields {
   neighborhoods?: string[] | undefined;
   propertyTypes?: string[] | undefined;
   budgetMinAgorot?: number | undefined;
-  budgetMaxAgorot: number;
+  /** חסר = הקונה טרם מסר תקציב; הצ'יפ אומר זאת במפורש. */
+  budgetMaxAgorot?: number | undefined;
   roomsMin?: number | undefined;
   roomsMax?: number | undefined;
   areaSqmMin?: number | undefined;
@@ -212,15 +213,31 @@ export function demandChips(demand: NetworkDemandFields): NetworkChip[] {
    * מנוסחים, כדי שהמסך לא יוכל בטעות להציג משהו מדויק יותר ממה
    * שהטבלה שמרה.
    */
-  chips.push({
-    icon: "coins",
-    text:
-      demand.budgetMinAgorot !== undefined && demand.budgetMinAgorot > 0
-        ? `${money(demand.budgetMinAgorot)}–${money(demand.budgetMaxAgorot)}`
-        : `עד ${money(demand.budgetMaxAgorot)}`,
-    tone: "money",
-    title: "התקציב מעוגל ל-100 אלף ₪ — טווח ולא סכום מדויק",
-  });
+  /*
+   * ביקוש בלי תקציב אומר זאת במפורש.
+   *
+   * `money(undefined)` היה מציג "0 ₪", כלומר מודעה שנראית כאילו
+   * הקונה אינו יכול לשלם דבר — במקום מודעה שאומרת שהתקציב טרם
+   * נמסר. השנייה עדיין שווה הצעה; הראשונה נראית כמו טעות.
+   */
+  chips.push(
+    demand.budgetMaxAgorot === undefined
+      ? {
+          icon: "coins",
+          text: "תקציב לא צוין",
+          tone: "money",
+          title: "הקונה טרם מסר תקציב — שווה לבדוק מול המשרד המפרסם",
+        }
+      : {
+          icon: "coins",
+          text:
+            demand.budgetMinAgorot !== undefined && demand.budgetMinAgorot > 0
+              ? `${money(demand.budgetMinAgorot)}–${money(demand.budgetMaxAgorot)}`
+              : `עד ${money(demand.budgetMaxAgorot)}`,
+          tone: "money",
+          title: "התקציב מעוגל ל-100 אלף ₪ — טווח ולא סכום מדויק",
+        },
+  );
 
   const entry = entryChip(demand.entryType, demand.entryBy);
   if (entry !== null) chips.push(entry);

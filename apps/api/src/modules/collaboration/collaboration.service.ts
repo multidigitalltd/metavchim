@@ -117,7 +117,8 @@ export interface NetworkDemandMatchDto {
   propertyTypes: string[];
   areaSqmMin?: number;
   budgetMinAgorot?: number;
-  budgetMaxAgorot: number;
+  /** חסר = הקונה טרם מסר תקציב. הלוח מציג "תקציב לא צוין". */
+  budgetMaxAgorot?: number;
   roomsMin?: number;
   roomsMax?: number;
   entryType?: string;
@@ -178,7 +179,8 @@ export interface SharedDemandDto {
   areaSqmMin?: number;
   /** מעוגל כלפי מטה ל-100 אלף ₪ — טווח, לא סכום מדויק. */
   budgetMinAgorot?: number;
-  budgetMaxAgorot: number;
+  /** חסר = הקונה טרם מסר תקציב. הלוח מציג "תקציב לא צוין". */
+  budgetMaxAgorot?: number;
   roomsMin?: number;
   roomsMax?: number;
   entryType?: string;
@@ -437,7 +439,7 @@ export class CollaborationService {
   private demandSnapshot(buyer: {
     dealType: string;
     budgetMinAgorot: bigint | null;
-    budgetMaxAgorot: bigint;
+    budgetMaxAgorot: bigint | null;
     roomsMin: Prisma.Decimal | null;
     roomsMax: Prisma.Decimal | null;
     financing: string;
@@ -478,10 +480,21 @@ export class CollaborationService {
               Math.floor(Number(buyer.budgetMinAgorot) / BUDGET_ROUND_AGOROT) *
                 BUDGET_ROUND_AGOROT,
             ),
-      budgetMaxAgorot: BigInt(
-        Math.ceil(Number(buyer.budgetMaxAgorot) / BUDGET_ROUND_AGOROT) *
-          BUDGET_ROUND_AGOROT,
-      ),
+      /*
+       * קונה בלי תקציב מתפרסם בלי תקציב, ולא כ-0.
+       *
+       * `Number(null)` הוא 0, ולכן העיגול היה מייצר מודעה שאומרת
+       * "עד 0 ₪" — כלומר קונה שאינו יכול לשלם דבר. זו לא הצהרה
+       * חסרה אלא הצהרה שגויה, והיא הגרועה מבין השתיים: מודעה
+       * בלי תקציב עדיין שווה הצעה, ומודעה על אפס נראית כמו טעות.
+       */
+      budgetMaxAgorot:
+        buyer.budgetMaxAgorot === null
+          ? null
+          : BigInt(
+              Math.ceil(Number(buyer.budgetMaxAgorot) / BUDGET_ROUND_AGOROT) *
+                BUDGET_ROUND_AGOROT,
+            ),
       roomsMin: buyer.roomsMin,
       roomsMax: buyer.roomsMax,
       entryType: requirements.entryType ?? null,
@@ -635,7 +648,10 @@ export class CollaborationService {
      * הקונה שבגבול. מינימום חסר נחשב אינסופי כלפי מטה.
      */
     if (price.min !== undefined) {
-      conditions.push({ budgetMaxAgorot: { gte: price.min } });
+      // ביקוש בלי תקציב אינו "אפס" — ראו את אותו הנימוק בקונים
+      conditions.push({
+        OR: [{ budgetMaxAgorot: { gte: price.min } }, { budgetMaxAgorot: null }],
+      });
     }
     if (price.max !== undefined) {
       conditions.push({
@@ -808,7 +824,7 @@ export class CollaborationService {
     propertyTypes: string[];
     areaSqmMin: number | null;
     budgetMinAgorot: bigint | null;
-    budgetMaxAgorot: bigint;
+    budgetMaxAgorot: bigint | null;
     roomsMin: Prisma.Decimal | null;
     roomsMax: Prisma.Decimal | null;
     entryType: string | null;
@@ -838,7 +854,9 @@ export class CollaborationService {
       ...(demand.budgetMinAgorot !== null
         ? { budgetMinAgorot: Number(demand.budgetMinAgorot) }
         : {}),
-      budgetMaxAgorot: Number(demand.budgetMaxAgorot),
+      ...(demand.budgetMaxAgorot === null
+        ? {}
+        : { budgetMaxAgorot: Number(demand.budgetMaxAgorot) }),
       ...(demand.roomsMin !== null
         ? { roomsMin: Number(demand.roomsMin) }
         : {}),
@@ -932,7 +950,9 @@ export class CollaborationService {
         ...(demand.budgetMinAgorot === null
           ? {}
           : { budgetMinAgorot: Number(demand.budgetMinAgorot) }),
-        budgetMaxAgorot: Number(demand.budgetMaxAgorot),
+        ...(demand.budgetMaxAgorot === null
+        ? {}
+        : { budgetMaxAgorot: Number(demand.budgetMaxAgorot) }),
         ...(demand.roomsMin === null
           ? {}
           : { roomsMin: Number(demand.roomsMin) }),
@@ -2433,7 +2453,7 @@ export class CollaborationService {
       propertyTypes: string[];
       areaSqmMin: number | null;
       budgetMinAgorot: bigint | null;
-      budgetMaxAgorot: bigint;
+      budgetMaxAgorot: bigint | null;
       roomsMin: unknown;
       roomsMax: unknown;
       entryType: string | null;
@@ -2463,7 +2483,9 @@ export class CollaborationService {
       ...(row.budgetMinAgorot === null
         ? {}
         : { budgetMinAgorot: Number(row.budgetMinAgorot) }),
-      budgetMaxAgorot: Number(row.budgetMaxAgorot),
+      ...(row.budgetMaxAgorot === null
+        ? {}
+        : { budgetMaxAgorot: Number(row.budgetMaxAgorot) }),
       roomsMin: row.roomsMin === null ? undefined : Number(row.roomsMin),
       roomsMax: row.roomsMax === null ? undefined : Number(row.roomsMax),
       ...(row.entryType === null ? {} : { entryType: row.entryType }),

@@ -73,7 +73,12 @@ export default function NewBuyerPage() {
           neighborhoods: [],
           dealType: String(f.get("dealType")),
           propertyTypes: [],
-          budgetMaxAgorot: budgetShekels === undefined ? 0 : shekelsToAgorot(budgetShekels),
+          /*
+           * ריק = לא נמסר, ולא 0. אפס נקרא במנוע ההתאמות כ"לא יכול
+           * להרשות לעצמו שום נכס", כלומר גרוע מלא לשלוח כלום.
+           */
+          budgetMaxAgorot:
+            budgetShekels === undefined ? undefined : shekelsToAgorot(budgetShekels),
           roomsMin: num("roomsMin"),
           roomsMax: num("roomsMax"),
           /* ריק = "לא נבחר" — מוסר מהדרישות ולא נשמר כמחרוזת ריקה */
@@ -139,7 +144,10 @@ export default function NewBuyerPage() {
               </select>
             </div>
             {/* התקציב גם במילים — טעות ספרה במיליונים משנה קונה לגמרי */}
-            <PriceField id="budgetMax" name="budgetMax" label="תקציב מקסימלי (₪) *" required />
+            <PriceField id="budgetMax" name="budgetMax" label="תקציב מקסימלי (₪)" />
+            <p className="-mt-2 text-[12px]" style={{ color: "var(--color-text-muted)" }}>
+              בלי תקציב הכרטיס נשמר, וקריטריון התקציב לא נספר בהתאמות.
+            </p>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label htmlFor="roomsMin" className="mb-1 block font-medium">חדרים מ-</label>

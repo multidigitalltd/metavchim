@@ -89,7 +89,12 @@ export class PersonIntakeService {
     if (!person.phone) missing.push("טלפון");
     if (target === "buyer") {
       if (person.cities.length === 0) missing.push("עיר");
-      if (person.budgetMaxAgorot === undefined) missing.push("תקציב");
+      /*
+       * התקציב **אינו** חוסם יצירת כרטיס — הוא נתון שמתברר. הוא
+       * נשאר ברשימת החוסרים כי המסך מציג אותה כהשלמות מומלצות,
+       * וזו בדיוק ההזדמנות לשאול את הלקוח בשיחה הבאה.
+       */
+      if (person.budgetMaxAgorot === undefined) missing.push("תקציב (מומלץ)");
     }
     return { person, evidence: evidence as Record<string, string>, missing };
   }
@@ -280,7 +285,7 @@ export class PersonIntakeService {
     phone: string;
     cities: string[];
     dealType: "sale" | "rent";
-    budgetMaxAgorot: number;
+    budgetMaxAgorot?: number;
     budgetMinAgorot?: number;
     roomsMin?: number;
     roomsMax?: number;
@@ -310,7 +315,9 @@ export class PersonIntakeService {
         searchAreas: [],
         dealType: input.dealType,
         propertyTypes: [],
-        budgetMaxAgorot: input.budgetMaxAgorot,
+        ...(input.budgetMaxAgorot !== undefined
+          ? { budgetMaxAgorot: input.budgetMaxAgorot }
+          : {}),
         ...(input.budgetMinAgorot !== undefined ? { budgetMinAgorot: input.budgetMinAgorot } : {}),
         ...(input.roomsMin !== undefined ? { roomsMin: input.roomsMin } : {}),
         ...(input.roomsMax !== undefined ? { roomsMax: input.roomsMax } : {}),

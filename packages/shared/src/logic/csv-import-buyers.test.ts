@@ -169,3 +169,19 @@ describe("עדיפות שם — לא תלוית סדר עמודות (ביקור�
     expect(rows[0]?.name).toBeUndefined();
   });
 });
+
+/*
+ * עמודת תקציב ריקה אינה פוסלת שורה.
+ *
+ * גיליון אמיתי של משרד מכיל לקוחות שטרם מסרו תקציב, ודחיית השורה
+ * בגללם הפכה קובץ שלם ללא ניתן לייבוא.
+ */
+describe("ייבוא בלי תקציב", () => {
+  it("שורה בלי תקציב נקלטת, והשדה נשאר ריק", () => {
+    const csv = "שם,טלפון,עיר,תקציב\nדנה לוי,0501234567,חיפה,\n";
+    const { rows } = parseBuyersCsv(csv);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.name).toBe("דנה לוי");
+    expect(rows[0]?.budgetMaxAgorot).toBeUndefined();
+  });
+});

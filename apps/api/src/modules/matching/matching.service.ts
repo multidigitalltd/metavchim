@@ -270,13 +270,40 @@ export class MatchingService {
           tenantId,
           deletedAt: null,
           dealType: property.dealType,
-          OR: [
-            { cities: { hasSome: cityVariants } },
-            // רשימת ערים ריקה = בלי מגבלת אזור — הקונה נשאר מועמד
-            { cities: { isEmpty: true } },
-            { hasSearchAreas: true },
+          /*
+           * שני תנאי-או נפרדים, ולכן `AND` מפורש: מפתח `OR` יחיד
+           * באובייקט אחד היה דורס את קודמו, ושני התנאים חייבים
+           * להתקיים יחד.
+           */
+          AND: [
+            {
+              OR: [
+                { cities: { hasSome: cityVariants } },
+                // רשימת ערים ריקה = בלי מגבלת אזור — הקונה נשאר מועמד
+                { cities: { isEmpty: true } },
+                { hasSearchAreas: true },
+              ],
+            },
+            {
+              /*
+               * קונה בלי תקציב נשאר מועמד.
+               *
+               * הסינון הגס חייב להיות רחב לפחות כמו המנוע, והמנוע
+               * מדלג על קריטריון התקציב כשאין תקציב. `>=` ב-SQL אינו
+               * מתאים ל-NULL, ולכן בלי הענף הזה קונה בלי תקציב לא
+               * היה מקבל ולו התאמה אחת — והסיבה לא הייתה נראית
+               * בשום מסך.
+               */
+              OR: [
+                { budgetMaxAgorot: null },
+                {
+                  budgetMaxAgorot: {
+                    gte: BigInt(Math.floor(Number(property.priceAgorot) / 1.07)),
+                  },
+                },
+              ],
+            },
           ],
-          budgetMaxAgorot: { gte: BigInt(Math.floor(Number(property.priceAgorot) / 1.07)) },
         },
         select: { id: true, requirements: true },
       });
@@ -371,7 +398,20 @@ export class MatchingService {
           status: { in: [...MATCHABLE_PROPERTY_STATUSES] },
           ...locationFilter,
           ...(requirements.dealType ? { dealType: requirements.dealType } : {}),
-          priceAgorot: { lte: BigInt(Math.floor(Number(requirements.budgetMaxAgorot) * 1.07)) },
+          /*
+           * בלי תקציב אין תקרת מחיר, ולכן אין תנאי.
+           *
+           * `Number(undefined)` הוא NaN ו-`BigInt(NaN)` זורק — כלומר
+           * בלי התנאי הזה רענון ההתאמות של קונה בלי תקציב היה נופל
+           * בשגיאה, ולא רק מחזיר פחות.
+           */
+          ...(requirements.budgetMaxAgorot === undefined
+            ? {}
+            : {
+                priceAgorot: {
+                  lte: BigInt(Math.floor(requirements.budgetMaxAgorot * 1.07)),
+                },
+              }),
         },
       });
 

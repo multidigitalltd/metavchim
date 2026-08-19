@@ -151,7 +151,11 @@ export class BuyersService {
             input.requirements.budgetMinAgorot === undefined
               ? null
               : BigInt(input.requirements.budgetMinAgorot),
-          budgetMaxAgorot: BigInt(input.requirements.budgetMaxAgorot),
+          // חסר = הלקוח לא מסר תקציב, ולא "תקציב אפס"
+          budgetMaxAgorot:
+            input.requirements.budgetMaxAgorot === undefined
+              ? null
+              : BigInt(input.requirements.budgetMaxAgorot),
           roomsMin: input.requirements.roomsMin ?? null,
           roomsMax: input.requirements.roomsMax ?? null,
           requirements: input.requirements as object,
@@ -259,7 +263,11 @@ export class BuyersService {
             input.requirements.budgetMinAgorot === undefined
               ? null
               : BigInt(input.requirements.budgetMinAgorot),
-          budgetMaxAgorot: BigInt(input.requirements.budgetMaxAgorot),
+          // חסר = הלקוח לא מסר תקציב, ולא "תקציב אפס"
+          budgetMaxAgorot:
+            input.requirements.budgetMaxAgorot === undefined
+              ? null
+              : BigInt(input.requirements.budgetMaxAgorot),
           roomsMin: input.requirements.roomsMin ?? null,
           roomsMax: input.requirements.roomsMax ?? null,
           requirements: input.requirements as object,
@@ -320,9 +328,17 @@ export class BuyersService {
        * נכסים חדשים", שנקרא כמו עדכון מערכת. ירידת תקציב סוגרת
        * נכסים, ואין בה מה לבשר.
        */
-      const budgetBefore = Number(existing.budgetMaxAgorot);
+      /*
+       * `null` הוא "לא נמסר", ולא אפס.
+       *
+       * `Number(null)` הוא 0, ולכן לקוח שמסר תקציב בפעם הראשונה
+       * היה מייצר "העלאת התקציב פתחה N התאמות" — מ-0 ₪. הודעה
+       * שמתארת שיפור שלא קרה, על סמך נתון שלא היה קיים.
+       */
+      const budgetBefore =
+        existing.budgetMaxAgorot === null ? null : Number(existing.budgetMaxAgorot);
       const budgetAfter = patch.requirements?.budgetMaxAgorot;
-      if (budgetAfter !== undefined && budgetAfter > budgetBefore) {
+      if (budgetBefore !== null && budgetAfter !== undefined && budgetAfter > budgetBefore) {
         trigger = {
           kind: "budget_raise",
           fromAgorot: budgetBefore,
@@ -342,7 +358,10 @@ export class BuyersService {
                   patch.requirements.budgetMinAgorot === undefined
                     ? null
                     : BigInt(patch.requirements.budgetMinAgorot),
-                budgetMaxAgorot: BigInt(patch.requirements.budgetMaxAgorot),
+                budgetMaxAgorot:
+                  patch.requirements.budgetMaxAgorot === undefined
+                    ? null
+                    : BigInt(patch.requirements.budgetMaxAgorot),
                 roomsMin: patch.requirements.roomsMin ?? null,
                 roomsMax: patch.requirements.roomsMax ?? null,
                 requirements: patch.requirements as object,
@@ -628,8 +647,20 @@ export class BuyersService {
         ],
       });
     }
-    if (budget.min !== undefined)
-      conditions.push({ budgetMaxAgorot: { gte: budget.min } });
+    /*
+     * אותה סמנטיקה בדיוק כמו למעלה, בכיוון הנגדי: קונה בלי תקציב
+     * מוצהר אינו "תקציב אפס" ולכן אינו נופל מסינון "מעל X". הוא
+     * פשוט לא הצהיר, וההסתרה שלו הייתה מסתירה בדיוק את הלקוחות
+     * שהמתווך צריך להתקשר אליהם כדי לברר.
+     */
+    if (budget.min !== undefined) {
+      conditions.push({
+        OR: [
+          { budgetMaxAgorot: { gte: budget.min } },
+          { budgetMaxAgorot: null },
+        ],
+      });
+    }
     if (rooms.max !== undefined) {
       conditions.push({
         OR: [{ roomsMin: { lte: rooms.max } }, { roomsMin: null }],

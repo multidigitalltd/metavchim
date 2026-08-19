@@ -687,7 +687,10 @@ export class ListingsService {
         neighborhoods: requirements.neighborhoods,
         dealType: buyer.dealType,
         propertyTypes: requirements.propertyTypes,
-        budgetMaxAgorot: Number(buyer.budgetMaxAgorot),
+        // `Number(null)` הוא 0 — "עד 0 ₪" בכרטיס ההצעה
+        ...(buyer.budgetMaxAgorot === null
+          ? {}
+          : { budgetMaxAgorot: Number(buyer.budgetMaxAgorot) }),
         ...(buyer.roomsMin === null
           ? {}
           : { roomsMin: Number(buyer.roomsMin) }),
@@ -936,7 +939,10 @@ function demandToRequirements(
     ...(demand.budgetMinAgorot === null
       ? {}
       : { budgetMinAgorot: Number(demand.budgetMinAgorot) }),
-    budgetMaxAgorot: Number(demand.budgetMaxAgorot),
+    // חסר ⇒ `scoreMatch` מדלג על קריטריון התקציב, ולא משווה מול 0
+    ...(demand.budgetMaxAgorot === null
+      ? {}
+      : { budgetMaxAgorot: Number(demand.budgetMaxAgorot) }),
     ...(demand.roomsMin === null ? {} : { roomsMin: Number(demand.roomsMin) }),
     ...(demand.roomsMax === null ? {} : { roomsMax: Number(demand.roomsMax) }),
     ...(demand.entryType === null ? {} : { entryType: demand.entryType }),
