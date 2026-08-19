@@ -53,7 +53,11 @@ import { CollaborationGuide, ReferralRulesPanel } from "./guide";
 import { PrivacyBanner } from "./privacy-banner";
 import { ReachBanner } from "./reach-banner";
 import { NetChips } from "./net-chips";
-import { ReferralRating, type ReferralRatingValue } from "./referral-rating";
+import {
+  ClientScoresView,
+  ReferralConfirmation,
+  type ReferralConfirmationValue,
+} from "./client-rating";
 import { BuyCredits } from "./buy-credits";
 import { PayoutPanel } from "./payout-panel";
 
@@ -306,8 +310,9 @@ interface SharedLeadRow {
   originLeadId?: string;
   /** המוניטין של המשרד המפנה — הדבר החשוב ביותר לפני תשלום */
   referrerRating?: { average: number; count: number };
-  myRating?: ReferralRatingValue;
-  counterpartRating?: ReferralRatingValue;
+  /** הצהרת המפנה על איכות הלקוח — מוצגת לפני התשלום. */
+  clientScores: Record<string, number>;
+  confirmation?: ReferralConfirmationValue;
 }
 
 interface PropertyOption {
@@ -1096,14 +1101,20 @@ export default function CollaborationPage() {
                       {lead.note ? ` · ${lead.note}` : ""}
                     </p>
                     {lead.status === "sold" ? (
-                      <ReferralRating
+                      <ReferralConfirmation
                         sharedLeadId={lead.id}
-                        role="given"
-                        mine={lead.myRating}
-                        counterpart={lead.counterpartRating}
-                        onSaved={() => load()}
+                        role="referrer"
+                        declared={lead.clientScores}
+                        confirmation={lead.confirmation}
                       />
-                    ) : null}
+                    ) : (
+                      <div className="mt-2">
+                        <ClientScoresView
+                          title="ההצהרה שלכם על הלקוח"
+                          scores={lead.clientScores}
+                        />
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -1137,12 +1148,12 @@ export default function CollaborationPage() {
                       סיבת ההפניה: {referralReasonLabel(lead.reason)}
                       {lead.reasonDetail ? ` — ${lead.reasonDetail}` : ""}
                     </p>
-                    {/* הדירוג כאן הוא מה שבונה את המוניטין שהלוח מציג */}
-                    <ReferralRating
+                    {/* האישור כאן הוא מה שבונה את המוניטין שהלוח מציג */}
+                    <ReferralConfirmation
                       sharedLeadId={lead.id}
-                      role="received"
-                      mine={lead.myRating}
-                      counterpart={lead.counterpartRating}
+                      role="receiver"
+                      declared={lead.clientScores}
+                      confirmation={lead.confirmation}
                       onSaved={() => load()}
                     />
                   </li>
@@ -1181,7 +1192,7 @@ export default function CollaborationPage() {
                   */}
                   <span
                     className="mv-net-chip"
-                    title="ממוצע הדירוגים שנתנו משרדים שקלטו הפניות מהמשרד הזה"
+                    title="כמה ההצהרות של המשרד הזה התאמתו אצל מי שקלט ממנו — לא כמה הלקוחות שלו טובים"
                   >
                     <IconStar s={14} />{" "}
                     {describeReferralRating(
@@ -1205,6 +1216,17 @@ export default function CollaborationPage() {
                     {lead.note}
                   </p>
                 ) : null}
+                {/*
+                  ההצהרה **מעל כפתור הקליטה**, לא מתחתיו ולא בעמוד
+                  אחר. העמלה נגבית ברגע הלחיצה ואין החזרים, ולכן זה
+                  המידע היחיד שאסור שיידרש בשבילו עוד קליק.
+                */}
+                <div className="mb-2">
+                  <ClientScoresView
+                    title="המשרד המפנה מצהיר על הלקוח"
+                    scores={lead.clientScores}
+                  />
+                </div>
                 <Button
                   variant="secondary"
                   disabled={buyingLead !== null}

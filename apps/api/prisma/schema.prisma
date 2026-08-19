@@ -712,6 +712,18 @@ model SharedLead {
   reason                String    @default("unspecified") @db.VarChar(30)
   /// פירוט חופשי לצד הסיבה — חובה כשהסיבה היא "אחר"
   reasonDetail          String?   @map("reason_detail") @db.VarChar(200)
+  /// **הצהרת המשרד המפנה על איכות הלקוח**, ברגע הפרסום:
+  /// `{ "seriousness": 4, "budget": 5, ... }` לפי
+  /// `CLIENT_RATING_DIMENSIONS`.
+  ///
+  /// יושבת על ההפניה ולא בטבלת הדירוגים משום שהיא **חלק מהמודעה**:
+  /// היא מוצגת בלוח לפני התשלום, וזה כל תפקידה. אחרי הקליטה המשרד
+  /// הקולט מאשר את אותם ממדים, והפער בין השניים הוא המוניטין
+  /// (packages/shared/logic/lead-referral.ts — declarationAccuracy).
+  ///
+  /// הפניות שקדמו לשדה נושאות `{}` ומוצגות כ"ללא הצהרה" — ולא
+  /// כהצהרה שכל ממדיה אפס.
+  clientScores          Json      @default("{}") @map("client_scores")
   /// צילום איש הקשר במפתח ההצפנה האפליקטיבי (אחיד לכל הדיירים) —
   /// לכן המשרד הקולט מקבל עותק בלי פענוח ביניים. לעולם לא מוחזר בלוח.
   contactNameEncrypted  String    @map("contact_name_encrypted") @db.Text
@@ -747,31 +759,32 @@ model SharedLead {
   @@map("shared_leads")
 }
 
-// דירוג הדדי על הפניה שנקלטה. התמורה משולמת על ההפניה ולא על
-// התוצאה, ואין החזרים — הדירוג הוא המנגנון שמייקר הפניית זבל.
-// שורה אחת לכל צד: המשרד הקולט מדרג את מה שקיבל, והמשרד המפנה
-// מדרג את הלקוח שהעביר. רק דירוגי הקולטים נספרים למוניטין.
+// **אישור המשרד הקולט** על הצהרת המפנה.
+//
+// שורה אחת בלבד לכל הפניה, ושייכת תמיד לקולט: המפנה כבר אמר את
+// שלו ב-`shared_leads.client_scores` ברגע הפרסום, וזה חלק מהמודעה
+// ולא דירוג. כאן נשמר מה שהתברר בפועל, ומהפער בין השניים נגזר
+// המוניטין (packages/shared/logic/lead-referral.ts).
+//
+// עד לגרסה הזו הטבלה החזיקה גם דירוג של המפנה על הקולט. הוא לא
+// נמדד מול דבר ולא הוצג לאיש מחוץ לשני הצדדים — כלומר עמודה
+// שנכתבה ולא נקראה.
 model LeadReferralRating {
   id             String   @id @db.Char(26)
   sharedLeadId   String   @map("shared_lead_id") @db.Char(26)
-  /// שני הצדדים נשמרים על השורה — הם המפתח של ה-RLS: דירוג נראה
+  /// שני הצדדים נשמרים על השורה — הם המפתח של ה-RLS: אישור נראה
   /// לשני הצדדים להפניה בלבד, לעולם לא לרשת.
   sellerTenantId String   @map("seller_tenant_id") @db.Char(26)
   buyerTenantId  String   @map("buyer_tenant_id") @db.Char(26)
   raterTenantId  String   @map("rater_tenant_id") @db.Char(26)
-  raterRole      String   @map("rater_role") @db.VarChar(10) // referrer | receiver
-  /// הציון בכל ממד בנפרד: `{ "accuracy": 5, "responsiveness": 4 }`.
-  ///
-  /// ציון יחיד לא אמר לקולט **מה** היה חלש ולא למפנה **מה לתקן**,
-  /// והוא ערבב דברים שאין ביניהם קשר: הפניה יכולה להיות מדויקת
-  /// להפליא ופשוט לא להסתדר.
+  /// מה שהקולט מצא בפועל, באותם ממדים שהמפנה הצהיר עליהם:
+  /// `{ "seriousness": 3, "budget": 4 }`.
   scores         Json     @default("{}")
-  /// הציון הכולל **בעשיריות** (45 = 4.5).
+  /// **דיוק ההצהרה** בעשיריות (45 = 4.5) — לא איכות הלקוח.
   ///
-  /// שלם ולא עשרוני: הוא נצבר ב-`referral_reputation.rating_sum`
-  /// בדלתאות, וצבירה של מספרים עשרוניים אינה מדויקת. עיגול לשלם
-  /// היה מאבד חצי כוכב בכל דירוג — על מוניטין שקובע אם משרד מקבל
-  /// עבודה, זה יותר מדי.
+  /// נגזר בשרת מהפער בין ההצהרה לאישור ואינו מתקבל מהמסך. שלם ולא
+  /// עשרוני כי הוא נצבר ב-`referral_reputation.rating_sum` בדלתאות,
+  /// וצבירה של מספרים עשרוניים אינה מדויקת.
   scoreTenths    Int      @map("score_tenths") @db.SmallInt
   comment        String?  @db.VarChar(300)
   createdAt      DateTime @default(now()) @map("created_at")
@@ -784,13 +797,13 @@ model LeadReferralRating {
 
 // מוניטין ההפניות של משרד — סכום ומונה בלבד.
 // טבלה נפרדת ולא צבירה מעל lead_referral_ratings: הלוח מציג את
-// הדירוג של כל משרד מפנה לכל הרשת, וטבלת הדירוגים מכילה הערות
+// המוניטין של כל משרד מפנה לכל הרשת, וטבלת האישורים מכילה הערות
 // חופשיות שמשרד כתב על משרד. מספרים אפשר לחשוף לרשת; טקסט לא.
 model ReferralReputation {
   tenantId    String   @id @map("tenant_id") @db.Char(26)
-  /// כמה משרדים קולטים דירגו הפניות של המשרד הזה
+  /// כמה משרדים קולטים אישרו הפניות של המשרד הזה
   ratingCount Int      @default(0) @map("rating_count")
-  /// סכום הציונים **בעשיריות** — ראו `LeadReferralRating.scoreTenths`
+  /// סכום **ציוני הדיוק** בעשיריות — ראו `LeadReferralRating.scoreTenths`
   ratingSum   Int      @default(0) @map("rating_sum")
   updatedAt   DateTime @updatedAt @map("updated_at")
 

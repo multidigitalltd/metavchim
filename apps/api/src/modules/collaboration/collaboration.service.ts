@@ -19,7 +19,7 @@ import {
   referralRatingAverage,
   referralCommentRejectionReason,
   dimensionRatingRejectionReason,
-  overallRatingScore,
+  declarationAccuracy,
   referralReasonRejectionReason,
   presentationChips,
   type NetworkPresentationFields,
@@ -72,6 +72,25 @@ type PropertyRow = Parameters<typeof rowToFields>[0];
 
 /** עיגול תקציב כלפי מעלה ל-100 אלף ₪ — אנונימיזציה (docs/04 §7) */
 const BUDGET_ROUND_AGOROT = 10_000_000;
+
+/**
+ * ‎JSONB → ‎`Record<string, number>`‎ בלי לסמוך על מה שבמסד.
+ *
+ * הצורה נאכפת בכתיבה (`dimensionRatingRejectionReason`), וכאן די
+ * בהגנה מפני שורה ישנה או פגומה: נפילה לאובייקט ריק ולא קריסה של
+ * כל הלוח בגלל הצהרה אחת. גם הערכים מסוננים — מפתח עם מחרוזת היה
+ * מגיע לחישוב הדיוק כ-NaN ומרעיל ממוצע שלם.
+ */
+function narrowScores(value: unknown): Record<string, number> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {};
+  }
+  const out: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (typeof raw === "number" && Number.isFinite(raw)) out[key] = raw;
+  }
+  return out;
+}
 
 /**
  * הסף שמעליו התאמה ברשת שווה הצגה.
@@ -228,11 +247,16 @@ export interface CoopOfferDto {
   createdAt: Date;
 }
 
-/** דירוג שכבר ניתן על הפניה — מוחזר לשני הצדדים בלבד. */
-export interface ReferralRatingDto {
-  /** הציון הכולל בכוכבים (4.5), נגזר מהממדים. */
-  score: number;
-  /** הציון בכל ממד — מה שאומר **מה** היה חלש ולא רק כמה. */
+/**
+ * אישור המשרד הקולט על הצהרת המפנה — מוחזר לשני הצדדים בלבד.
+ *
+ * ‎`accuracy`‎ הוא **דיוק ההצהרה** ולא איכות הלקוח: הפער בין מה
+ * שהמפנה הצהיר למה שהקולט מצא. `null` כשההפניה פורסמה בלי הצהרה
+ * ואין ממה לגזור פער — וזה אינו אפס.
+ */
+export interface ReferralConfirmationDto {
+  accuracy: number | null;
+  /** מה שהקולט מצא בכל ממד — לצד ההצהרה, ממד מול ממד. */
   scores: Record<string, number>;
   comment?: string;
   createdAt: Date;
@@ -267,16 +291,22 @@ export interface SharedLeadDto {
   role: ReferralRole;
   /** קישור לליד המקורי — רק למשרד המפנה */
   originLeadId?: string;
+  /** הצהרת המפנה על איכות הלקוח — **מוצגת לפני התשלום.** */
+  clientScores: Record<string, number>;
   /**
-   * מוניטין המשרד המפנה: ממוצע הדירוגים שנתנו לו משרדים שקלטו ממנו.
+   * מוניטין המשרד המפנה: ממוצע דיוק ההצהרות שאישרו משרדים שקלטו ממנו.
    * מוחזר עם כל שורה בלוח — התמורה משולמת גם כשלא נסגר דבר, ולכן זה
    * המידע שקובע אם כדאי לשלם אותה.
    */
   referrerRating?: { average: number; count: number };
-  /** הדירוג שאני נתתי, אם נתתי */
-  myRating?: ReferralRatingDto;
-  /** הדירוג של הצד השני — נראה רק למי שהוא צד בהפניה */
-  counterpartRating?: ReferralRatingDto;
+  /**
+   * האישור של המשרד הקולט — נראה לשני הצדדים בלבד.
+   *
+   * שדה אחד ולא "שלי" ו"של הצד השני": יש אישור אחד לכל הפניה, והוא
+   * תמיד של הקולט. שני השדות הקודמים תיארו דירוג הדדי שכבר אינו
+   * קיים, ולאחד מהם לא היה כותב לעולם.
+   */
+  confirmation?: ReferralConfirmationDto;
   createdAt: Date;
 }
 
@@ -1481,6 +1511,8 @@ export class CollaborationService {
     note?: string;
     city?: string;
     payoutMode?: PayoutMode;
+    /** הצהרת המפנה על איכות הלקוח — מוצגת בלוח לפני התשלום. */
+    clientScores: Record<string, number>;
   }): Promise<SharedLeadDto> {
     const ctx = TenantContext.current();
     const id = ulid();
@@ -1491,6 +1523,15 @@ export class CollaborationService {
       input.reasonDetail,
     );
     if (reasonProblem) throw new BadRequestException(reasonProblem);
+    /*
+     * ההצהרה **חובה בפרסום**, ולא שדה שאפשר לדלג עליו.
+     *
+     * זו כל הסיבה שהמשרד הקולט יכול להחליט לפני שהוא משלם. הפניה
+     * בלי הצהרה הייתה חוזרת בדיוק למצב שממנו באנו — שורה בלוח שאין
+     * עליה מה לדעת, ומחיר שמשלמים על סמך אמון בלבד.
+     */
+    const scoresProblem = dimensionRatingRejectionReason(input.clientScores);
+    if (scoresProblem) throw new BadRequestException(scoresProblem);
     /*
      * החלוקה לפי הכלכלה שהוגדרה בפלטפורמה, כולל הבונוס, ולפי המסלול
      * שהמשרד המפנה בחר. שני המסלולים פעילים: מי שבוחר קרדיטים מקבל
@@ -1555,6 +1596,7 @@ export class CollaborationService {
             note: input.note?.trim() || null,
             reason: input.reason,
             reasonDetail: input.reasonDetail?.trim() || null,
+            clientScores: input.clientScores,
             contactNameEncrypted: contact.nameEncrypted,
             contactPhoneEncrypted: contact.phoneEncrypted,
             contactPhoneHash: contact.phoneHash,
@@ -1583,6 +1625,7 @@ export class CollaborationService {
         metadata: {
           leadId: input.leadId,
           reason: input.reason,
+          clientScores: input.clientScores,
           priceCredits: payout.priceCredits,
           platformFeeCredits: payout.platformFeeCredits,
           payoutMode: mode,
@@ -1682,30 +1725,30 @@ export class CollaborationService {
   }
 
   /**
-   * הדירוגים על ההפניות שאני צד בהן. ה-RLS מחזיר רק שורות של הפניות
+   * האישורים על ההפניות שאני צד בהן. ה-RLS מחזיר רק שורות של הפניות
    * שאני צד בהן, ולכן אין כאן סינון ידני שאפשר לשכוח.
+   *
+   * מפה של שורה אחת לכל הפניה ולא רשימה: יש אישור אחד, של הקולט.
    */
   private async ratingsFor(sharedLeadIds: readonly string[]): Promise<
     Map<
       string,
       {
-        raterTenantId: string;
         scoreTenths: number;
         scores: Record<string, number>;
         comment: string | null;
         createdAt: Date;
-      }[]
+      }
     >
   > {
     const byLead = new Map<
       string,
       {
-        raterTenantId: string;
         scoreTenths: number;
         scores: Record<string, number>;
         comment: string | null;
         createdAt: Date;
-      }[]
+      }
     >();
     if (sharedLeadIds.length === 0) return byLead;
     const rows = await this.prisma.withTenant((tx) =>
@@ -1713,7 +1756,6 @@ export class CollaborationService {
         where: { sharedLeadId: { in: [...sharedLeadIds] } },
         select: {
           sharedLeadId: true,
-          raterTenantId: true,
           scoreTenths: true,
           scores: true,
           comment: true,
@@ -1722,19 +1764,7 @@ export class CollaborationService {
       }),
     );
     for (const row of rows) {
-      const list = byLead.get(row.sharedLeadId) ?? [];
-      /*
-       * ‎`scores` הוא JSONB, כלומר `unknown` מבחינת הטיפוסים. הצורה
-       * נאכפת בכתיבה (`dimensionRatingRejectionReason`), וכאן די
-       * בהגנה מפני שורה ישנה או פגומה — נפילה לאובייקט ריק ולא
-       * קריסה של כל הלוח בגלל דירוג אחד.
-       */
-      const scores =
-        typeof row.scores === "object" && row.scores !== null && !Array.isArray(row.scores)
-          ? (row.scores as Record<string, number>)
-          : {};
-      list.push({ ...row, scores });
-      byLead.set(row.sharedLeadId, list);
+      byLead.set(row.sharedLeadId, { ...row, scores: narrowScores(row.scores) });
     }
     return byLead;
   }
@@ -2024,63 +2054,65 @@ export class CollaborationService {
   }
 
   /**
-   * דירוג הפניה שנקלטה — כל צד מדרג פעם אחת, וניתן לעדכן.
+   * אישור המשרד הקולט על הצהרת המפנה — פעם אחת, וניתן לעדכן.
    *
-   * `role` מגיע מהנתיב (שני נתיבים, שתי יכולות שונות) ונבדק מול
-   * המציאות שבשורה: משרד שקרא לנתיב הלא נכון מקבל 404 ולא מדרג
-   * בשם הצד השני.
+   * **רק הקולט מאשר.** המפנה כבר אמר את שלו ברגע הפרסום, וההצהרה
+   * שלו היא חלק מהמודעה ולא דירוג. לכן אין כאן `role` מהנתיב: יש
+   * צד אחד שיכול לאשר, והוא נבדק מול השורה.
    *
-   * **רק דירוג המשרד הקולט נספר למוניטין.** משרד שמדרג את ההפניה
-   * של עצמו היה מנפח לעצמו את הציון שמוצג לרשת; הדירוג שלו נשמר
-   * ומוצג לצד השני, ולא נכנס לממוצע.
+   * הציון שנשמר הוא **דיוק ההצהרה** ולא איכות הלקוח — הפער בין מה
+   * שהוצהר למה שהתברר. הוא נגזר בשרת משני הצדדים ואינו מתקבל
+   * מהמסך: ערך שהלקוח שולח היה נתון שאפשר לזייף, והוא ממילא חישוב.
    *
-   * הדירוג **רב-ממדי**: הממדים שונים בין הצדדים (ראו
-   * `ratingDimensionsFor`), ולכן האימות תלוי בתפקיד. הציון הכולל
-   * נגזר מהם ואינו מתקבל מהלקוח — ערך שהמסך שולח היה נתון שאפשר
-   * לזייף, והוא ממילא חישוב.
+   * הצהרה ריקה (הפניה שקדמה לשדה) אינה ניתנת למדידה, ולכן האישור
+   * נשמר ומוצג אבל אינו נכנס למוניטין. אפס במקום היעדר-מדידה היה
+   * מעניש משרד על שדה שלא היה קיים כשפרסם.
    */
-  async rateReferral(
+  async confirmReferral(
     sharedLeadId: string,
-    role: Exclude<ReferralRole, "viewer">,
     scores: Record<string, number>,
     comment?: string,
   ): Promise<void> {
     const ctx = TenantContext.current();
     const problem =
-      dimensionRatingRejectionReason(role, scores) ?? referralCommentRejectionReason(comment);
+      dimensionRatingRejectionReason(scores) ??
+      referralCommentRejectionReason(comment);
     if (problem) throw new BadRequestException(problem);
-    const overall = overallRatingScore(scores);
-    if (overall === null) throw new BadRequestException("יש לדרג לפחות ממד אחד");
-    // עשיריות לאורך כל הצבירה — ראו `LeadReferralRating.scoreTenths`
-    const scoreTenths = Math.round(overall * 10);
 
     // ה-RLS מחזיר כאן רק הפניה שאני צד בה — כמפנה או כקולט
     const row = await this.prisma.withTenant((tx) =>
       tx.sharedLead.findFirst({
         where: { id: sharedLeadId },
-        select: { id: true, tenantId: true, buyerTenantId: true, status: true },
+        select: {
+          id: true,
+          tenantId: true,
+          buyerTenantId: true,
+          status: true,
+          clientScores: true,
+        },
       }),
     );
     if (!row) throw new NotFoundException("ההפניה לא נמצאה");
     if (row.status !== "sold" || !row.buyerTenantId) {
-      throw new BadRequestException("אפשר לדרג רק הפניה שנקלטה");
+      throw new BadRequestException("אפשר לאשר רק הפניה שנקלטה");
     }
-    const actualRole: ReferralRole =
-      row.tenantId === ctx.tenantId
-        ? "referrer"
-        : row.buyerTenantId === ctx.tenantId
-          ? "receiver"
-          : "viewer";
-    if (actualRole !== role) throw new NotFoundException("ההפניה לא נמצאה");
+    // מי שאינו הקולט אינו מאשר — כולל המפנה עצמו
+    if (row.buyerTenantId !== ctx.tenantId) {
+      throw new NotFoundException("ההפניה לא נמצאה");
+    }
 
+    const declared = narrowScores(row.clientScores);
+    const accuracy = declarationAccuracy(declared, scores);
+    // עשיריות לאורך כל הצבירה — ראו `LeadReferralRating.scoreTenths`
+    const scoreTenths = accuracy === null ? 0 : Math.round(accuracy * 10);
     const buyerTenantId = row.buyerTenantId;
     const trimmed = comment?.trim() || null;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${ctx.tenantId}, true)`;
       /*
-       * נעילת הדירוג הזה עד סוף הטרנזקציה. הפרש הציון למוניטין
-       * מחושב מקריאה של הדירוג הקודם, ושתי שליחות במקביל מאותו
+       * נעילת האישור הזה עד סוף הטרנזקציה. הפרש הציון למוניטין
+       * מחושב מקריאה של האישור הקודם, ושתי שליחות במקביל מאותו
        * משרד היו קוראות שתיהן את אותו ערך ומחילות את ההפרש פעמיים.
        */
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`referral_rating:${sharedLeadId}:${ctx.tenantId}`}, 0))`;
@@ -2106,7 +2138,6 @@ export class CollaborationService {
             sellerTenantId: row.tenantId,
             buyerTenantId,
             raterTenantId: ctx.tenantId,
-            raterRole: role,
             scoreTenths,
             scores,
             comment: trimmed,
@@ -2114,16 +2145,21 @@ export class CollaborationService {
         });
       }
       await this.audit.record(tx, {
-        action: "collaboration.referral_rate",
+        action: "collaboration.referral_confirm",
         entityType: "shared_lead",
         entityId: sharedLeadId,
-        metadata: { role, overall },
+        metadata: { accuracy },
       });
 
-      if (role !== "receiver") return;
       /*
-       * המוניטין מתעדכן בהקשר של המשרד המדורג — הוא הבעלים של
-       * השורה. עדכון בדלתא ולא כתיבת ערך מחושב: שני דירוגים על
+       * בלי הצהרה אין דיוק למדוד, והאישור נשמר בלי להשפיע על
+       * המוניטין. `scoreTenths` הוא 0 בשורות האלה, ולכן צבירה
+       * שלהן הייתה מושכת את הממוצע לאפס על סמך לא-כלום.
+       */
+      if (accuracy === null) return;
+      /*
+       * המוניטין מתעדכן בהקשר של המשרד המפנה — הוא הבעלים של
+       * השורה. עדכון בדלתא ולא כתיבת ערך מחושב: שני אישורים על
        * שתי הפניות שונות של אותו משרד יכולים להתרחש בו-זמנית.
        */
       const scoreDelta = scoreTenths - (existing?.scoreTenths ?? 0);
@@ -2150,6 +2186,7 @@ export class CollaborationService {
       note: string | null;
       reason: string;
       reasonDetail: string | null;
+      clientScores: unknown;
       priceCredits: number;
       platformFeeCredits: number;
       payoutMode: string;
@@ -2164,13 +2201,12 @@ export class CollaborationService {
       ratings?: Map<
         string,
         {
-          raterTenantId: string;
           /** עשיריות — כפי שנשמר. ההמרה לכוכבים נעשית כאן ובמקום אחד בלבד. */
           scoreTenths: number;
           scores: Record<string, number>;
           comment: string | null;
           createdAt: Date;
-        }[]
+        }
       >;
       reputation?: { average: number; count: number };
     } = {},
@@ -2181,12 +2217,13 @@ export class CollaborationService {
       : row.buyerTenantId === viewerTenantId
         ? "receiver"
         : "viewer";
-    const given = extras.ratings?.get(row.id) ?? [];
-    const mineRating = given.find((r) => r.raterTenantId === viewerTenantId);
-    const other =
-      role === "viewer"
-        ? undefined
-        : given.find((r) => r.raterTenantId !== viewerTenantId);
+    /*
+     * האישור נראה לשני הצדדים להפניה בלבד. צופה ברשת רואה את
+     * המוניטין המצטבר של המפנה ואת ההצהרה על הלקוח — לא את מה
+     * שמשרד אחר כתב על משרד אחר.
+     */
+    const confirmed = role === "viewer" ? undefined : extras.ratings?.get(row.id);
+    const declared = narrowScores(row.clientScores);
     const platformFeeCredits = Math.max(
       0,
       Math.min(row.platformFeeCredits, row.priceCredits - 1),
@@ -2222,24 +2259,23 @@ export class CollaborationService {
       role,
       // הקישור לליד המקורי נחשף רק למשרד המפנה — לעולם לא לרשת
       originLeadId: mine ? row.originLeadId : undefined,
+      clientScores: declared,
       ...(extras.reputation ? { referrerRating: extras.reputation } : {}),
-      ...(mineRating
+      ...(confirmed
         ? {
-            myRating: {
-              score: mineRating.scoreTenths / 10,
-              scores: mineRating.scores,
-              comment: mineRating.comment ?? undefined,
-              createdAt: mineRating.createdAt,
-            },
-          }
-        : {}),
-      ...(other
-        ? {
-            counterpartRating: {
-              score: other.scoreTenths / 10,
-              scores: other.scores,
-              comment: other.comment ?? undefined,
-              createdAt: other.createdAt,
+            confirmation: {
+              /*
+               * הצהרה ריקה נשמרה כ-0 כדי שהעמודה תישאר שלמה, אבל
+               * "אין ממה למדוד" אינו "דיוק אפס" — וזה ההבדל בין
+               * משרד גרוע להפניה שפורסמה לפני שהשדה היה קיים.
+               */
+              accuracy:
+                Object.keys(declared).length === 0
+                  ? null
+                  : confirmed.scoreTenths / 10,
+              scores: confirmed.scores,
+              comment: confirmed.comment ?? undefined,
+              createdAt: confirmed.createdAt,
             },
           }
         : {}),

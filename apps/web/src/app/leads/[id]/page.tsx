@@ -15,6 +15,7 @@ import {
   REFERRAL_REASONS,
   DEFAULT_CREDIT_ECONOMY,
   referralPayout,
+  dimensionRatingRejectionReason,
   referralPriceRejectionReason,
   referralReasonRejectionReason,
   settleReferral,
@@ -33,9 +34,10 @@ import { EntityTasks } from "../../entity-tasks";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { ReplyEmail } from "./reply-email";
 import {
-  ReferralRating,
-  type ReferralRatingValue,
-} from "../../collaboration/referral-rating";
+  ClientScoresField,
+  ReferralConfirmation,
+  type ReferralConfirmationValue,
+} from "../../collaboration/client-rating";
 import {
   IconCalendar,
   IconChat,
@@ -110,8 +112,9 @@ interface MySharedLead {
   payoutAgorot?: number;
   mine: boolean;
   originLeadId?: string;
-  myRating?: ReferralRatingValue;
-  counterpartRating?: ReferralRatingValue;
+  /** ההצהרה שלנו על איכות הלקוח, כפי שפורסמה. */
+  clientScores: Record<string, number>;
+  confirmation?: ReferralConfirmationValue;
 }
 
 interface ReferralTerms {
@@ -149,6 +152,8 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
   const [payoutMode, setPayoutMode] = useState<PayoutMode>("credits");
   const [reason, setReason] = useState<string>("");
   const [reasonDetail, setReasonDetail] = useState("");
+  /** ההצהרה על איכות הלקוח — חובה בפרסום. */
+  const [scores, setScores] = useState<Record<string, number>>({});
   const [note, setNote] = useState("");
   const [city, setCity] = useState("");
   const [busy, setBusy] = useState(false);
@@ -220,6 +225,15 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
       setError(priceProblem);
       return;
     }
+    /*
+     * ההצהרה חובה, והבדיקה כאן זהה לזו שבשרת — אחרת המסך מאפשר
+     * ללחוץ ומקבל 400 על משהו שהוא עצמו הציג כתקין.
+     */
+    const scoresProblem = dimensionRatingRejectionReason(scores);
+    if (scoresProblem) {
+      setError(scoresProblem);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -231,6 +245,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
         ...(note.trim() ? { note: note.trim() } : {}),
         ...(city.trim() ? { city: city.trim() } : {}),
         payoutMode,
+        scores,
       });
       setShared(row);
     } catch (err: unknown) {
@@ -283,12 +298,12 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
           )}
           .
         </p>
-        {/* המשרד שקלט מדרג את ההפניה, ואתם מדרגים את הלקוח שהעברתם */}
-        <ReferralRating
+        {/* מה שהצהרנו, מה שהמשרד הקולט מצא, והפער שנכנס למוניטין */}
+        <ReferralConfirmation
           sharedLeadId={shared.id}
-          role="given"
-          mine={shared.myRating}
-          counterpart={shared.counterpartRating}
+          role="referrer"
+          declared={shared.clientScores}
+          confirmation={shared.confirmation}
         />
       </div>
     );
@@ -461,6 +476,17 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
             style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
           />
         </label>
+        {/*
+          ההצהרה על איכות הלקוח — חובה, וזה מה שהמשרד הקולט רואה
+          לפני שהוא משלם. היא מופיעה אחרי התמורה ולפני התיאור
+          החופשי: אחרי שכבר ברור מה מבקשים, ולפני מלל שאפשר לדלג
+          עליו.
+        */}
+        <fieldset className="m-0 border-0 p-0">
+          <legend className="mb-1 text-sm">מה אתם יודעים על הלקוח? (חובה)</legend>
+          <ClientScoresField mode="declare" scores={scores} onChange={setScores} />
+        </fieldset>
+
         <label htmlFor="referNote" className="flex flex-col gap-1 text-sm">
           <span>תיאור קצר למשרדים (בלי שם ובלי טלפון)</span>
           <div className="flex items-start gap-2">
@@ -479,8 +505,9 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
       </div>
 
       <p className="mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
-        המשרד הקולט משלם על ההפניה ברגע הקליטה, ולא על עסקה שתיסגר. שני הצדדים
-        מדרגים את ההפניה אחר כך, והדירוג מוצג לצד ההפניות הבאות שלכם.
+        המשרד הקולט משלם על ההפניה ברגע הקליטה, ולא על עסקה שתיסגר. אחרי הקליטה
+        הוא מאשר את ההצהרה שלכם, והפער בין השניים הוא המוניטין שמוצג לצד ההפניות
+        הבאות שלכם — כלומר <b>הצהרה מדויקת שווה יותר מהצהרה גבוהה</b>.
       </p>
       {error ? <p role="alert" className="mb-2" style={{ color: "var(--color-danger)" }}>{error}</p> : null}
       <Button disabled={busy || !reason || !priceValid} onClick={() => void publish()}>

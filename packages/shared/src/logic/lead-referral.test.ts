@@ -14,9 +14,10 @@ import {
   suggestedReferralPrice,
   REFERRAL_TERMS,
   forbiddenReferralWord,
-  ratingDimensionsFor,
+  CLIENT_RATING_DIMENSIONS,
   overallRatingScore,
   dimensionRatingRejectionReason,
+  declarationAccuracy,
 } from "./lead-referral.js";
 import { DEFAULT_LEAD_SOURCES } from "./collaboration-cost.js";
 
@@ -138,7 +139,7 @@ describe("referralReasonLabel", () => {
   });
 });
 
-describe("דירוג", () => {
+describe("מוניטין", () => {
   it("הערה ארוכה מדי נדחית", () => {
     expect(referralCommentRejectionReason("א".repeat(301))).not.toBeNull();
     expect(referralCommentRejectionReason("קצר")).toBeNull();
@@ -147,20 +148,28 @@ describe("דירוג", () => {
 
   /*
    * הסכום מגיע ב**עשיריות** — ראו `LeadReferralRating.scoreTenths`.
-   * 130 עשיריות על שלושה דירוגים הם 4.33 כוכבים, כלומר 4.3.
+   * 130 עשיריות על שלושה אישורים הם 4.33 כוכבים, כלומר 4.3.
    */
   it("ממוצע מעוגל לספרה אחת", () => {
     expect(referralRatingAverage(130, 3)).toBe(4.3);
     expect(referralRatingAverage(100, 2)).toBe(5);
   });
 
-  it("משרד בלי דירוגים אינו „0 מתוך 5”", () => {
+  it("משרד בלי אישורים אינו „0 מתוך 5”", () => {
     expect(referralRatingAverage(0, 0)).toBeNull();
-    expect(describeReferralRating(null, 0)).toBe("טרם דורג");
-    // מונה 0 עם ממוצע כלשהו הוא נתון סותר — עדיין "טרם דורג"
-    expect(describeReferralRating(4, 0)).toBe("טרם דורג");
+    expect(describeReferralRating(null, 0)).toBe("טרם אושרו הצהרות");
+    // מונה 0 עם ממוצע כלשהו הוא נתון סותר — עדיין "טרם אושרו"
+    expect(describeReferralRating(4, 0)).toBe("טרם אושרו הצהרות");
+  });
+
+  /*
+   * הניסוח אומר **דיוק הצהרות** ולא "דירוג": המספר אינו אומר כמה
+   * הלקוחות טובים אלא כמה מה שנאמר עליהם התברר כנכון, וניסוח כללי
+   * מוביל בדיוק למסקנה ההפוכה על משרד שמצהיר ביושר.
+   */
+  it("הניסוח אומר דיוק ולא איכות", () => {
     expect(describeReferralRating(referralRatingAverage(90, 2), 2)).toBe(
-      "4.5 מתוך 5 (2 דירוגים)",
+      "דיוק ההצהרות 4.5 מתוך 5 (2 אישורים)",
     );
   });
 });
@@ -223,36 +232,79 @@ describe("שפת ההפניות", () => {
   });
 });
 
-describe("דירוג רב-ממדי", () => {
+describe("הצהרה ואישור", () => {
   /*
-   * ציון יחיד אינו אומר לקולט מה היה חלש ולא אומר למפנה מה לתקן,
-   * והוא מערבב דברים שאין ביניהם קשר.
+   * קטלוג אחד לשני הצדדים הוא מה שמאפשר להשוות הצהרה לאישור.
+   * שני קטלוגים היו שני דירוגים שאין ביניהם יחס מספרי.
    */
-  it("לכל צד ממדים משלו", () => {
-    expect(ratingDimensionsFor("receiver").map((d) => d.key)).toContain("accuracy");
-    expect(ratingDimensionsFor("referrer").map((d) => d.key)).toContain("speed");
+  it("הממדים הם איכות הלקוח, לא התנהגות המשרדים", () => {
+    const keys = CLIENT_RATING_DIMENSIONS.map((d) => d.key);
+    expect(keys).toContain("seriousness");
+    expect(keys).toContain("budget");
+  });
+
+  it("לכל ממד נוסח נפרד למצהיר ולמאשר", () => {
+    for (const dimension of CLIENT_RATING_DIMENSIONS) {
+      expect(dimension.declareHint).not.toBe(dimension.confirmHint);
+    }
   });
 
   it("הציון הכולל הוא ממוצע הממדים שדורגו", () => {
-    expect(overallRatingScore({ accuracy: 5, responsiveness: 4 })).toBe(4.5);
+    expect(overallRatingScore({ seriousness: 5, budget: 4 })).toBe(4.5);
   });
 
-  /*
-   * ממוצע ולא סכום: מספר הממדים שונה בין הצדדים, וסכום היה הופך
-   * דירוג של הקולט לגבוה מהותית בלי שאיש התכוון.
-   */
   it("ממד שלא דורג אינו נספר", () => {
-    expect(overallRatingScore({ accuracy: 5 })).toBe(5);
+    expect(overallRatingScore({ seriousness: 5 })).toBe(5);
     expect(overallRatingScore({})).toBeNull();
   });
 
-  it("ממד שאינו בקטלוג של התפקיד נדחה", () => {
-    expect(dimensionRatingRejectionReason("receiver", { speed: 5 })).toContain("לא מוכר");
-    expect(dimensionRatingRejectionReason("receiver", { accuracy: 5 })).toBeNull();
+  it("ממד שאינו בקטלוג נדחה", () => {
+    expect(dimensionRatingRejectionReason({ nope: 5 })).toContain("לא מוכר");
+    expect(dimensionRatingRejectionReason({ seriousness: 5 })).toBeNull();
   });
 
   it("ציון מחוץ לטווח נדחה", () => {
-    expect(dimensionRatingRejectionReason("receiver", { accuracy: 9 })).toContain("בין");
-    expect(dimensionRatingRejectionReason("receiver", {})).toContain("לפחות ממד אחד");
+    expect(dimensionRatingRejectionReason({ seriousness: 9 })).toContain("בין");
+    expect(dimensionRatingRejectionReason({})).toContain("לפחות ממד אחד");
+  });
+});
+
+describe("declarationAccuracy", () => {
+  /*
+   * הלב של המנגנון: המוניטין מודד **דיוק** ולא איכות. משרד שמצהיר
+   * "בינוני" ומקבל אישור "בינוני" מקבל חמישה כוכבים, בדיוק כמו מי
+   * שהצהיר "מצוין" וצדק.
+   */
+  it("הצהרה שהתאמה במדויק — חמישה כוכבים, גם על לקוח בינוני", () => {
+    expect(declarationAccuracy({ seriousness: 3 }, { seriousness: 3 })).toBe(5);
+    expect(declarationAccuracy({ seriousness: 5 }, { seriousness: 5 })).toBe(5);
+  });
+
+  it("ניפוח יורד לפי גודל הפער", () => {
+    expect(declarationAccuracy({ seriousness: 5 }, { seriousness: 2 })).toBe(2);
+  });
+
+  it("הפער המרבי נותן את הציון הנמוך ביותר בסקאלה", () => {
+    expect(declarationAccuracy({ seriousness: 5 }, { seriousness: 1 })).toBe(1);
+  });
+
+  /*
+   * ממד שרק צד אחד נגע בו אינו נספר: אין ממה לגזור פער, וספירה
+   * שלו כאילו הפער אפס הייתה מתגמלת הצהרה חלקית.
+   */
+  it("ממד שרק צד אחד דירג אינו נספר", () => {
+    expect(declarationAccuracy({ seriousness: 5, budget: 5 }, { seriousness: 5 })).toBe(5);
+  });
+
+  it("בלי ממד משותף אין מדידה — ולא ציון אפס", () => {
+    expect(declarationAccuracy({}, { seriousness: 4 })).toBeNull();
+    expect(declarationAccuracy({ budget: 4 }, { seriousness: 4 })).toBeNull();
+  });
+
+  it("ממוצע הפערים ולא הפער הגרוע ביותר", () => {
+    // פערים 0 ו-2 → ממוצע 1 → ‎5-1
+    expect(
+      declarationAccuracy({ seriousness: 4, budget: 5 }, { seriousness: 4, budget: 3 }),
+    ).toBe(4);
   });
 });
