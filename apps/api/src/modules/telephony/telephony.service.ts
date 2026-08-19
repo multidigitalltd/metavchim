@@ -801,6 +801,11 @@ export class TelephonyService {
           phoneHash,
           // הצד שלנו — הבסיס לדוח "כמה שיחות מכל מספר"; ראו הסכימה
           dialedNumber: event.dialedNumber ?? null,
+          /*
+           * השם נשמר כצילום ולא כהפניה: ההגדרה יכולה להימחק, וזה
+           * לא אמור לשנות את מה שכתוב על שיחה שכבר קרתה.
+           */
+          dialedLabel: virtualNumber?.label ?? null,
           occurredAt: new Date(),
           // שיחה שלא נענתה נשארת בלי משך. עיגול כלפי מעלה היה מציג
           // "דקה אחת" על שיחה שהסיכום שלה אומר שלא נענתה כלל.

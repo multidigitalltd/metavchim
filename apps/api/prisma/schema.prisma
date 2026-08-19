@@ -1450,6 +1450,13 @@ model Call {
   /// חייב להישאר קריא כדי שאפשר יהיה לקבץ לפיו ולמדוד קמפיינים.
   /// הצפנתו הייתה הופכת את דוח "כמה שיחות מכל מספר" לבלתי אפשרי.
   dialedNumber        String?   @map("dialed_number") @db.VarChar(20)
+  /// שם המספר הווירטואלי **כפי שהיה ברגע השיחה** — צילום, לא הפניה.
+  ///
+  /// ההגדרה יכולה להימחק או להשתנות, וההיסטוריה לא אמורה להשתנות
+  /// איתה: "התקשר אל קמפיין פייסבוק ינואר" הוא מה שקרה, גם אם
+  /// הקמפיין נמחק מאז. הפניה חיה הייתה הופכת שיחות ישנות ל"מספר
+  /// לא מוגדר" ומאבדת בדיוק את המידע שבשבילו התכונה קיימת.
+  dialedLabel         String?   @map("dialed_label") @db.VarChar(60)
   occurredAt          DateTime  @map("occurred_at")
   durationMinutes     Int?      @map("duration_minutes")
   /// answered | missed | no_answer | voicemail

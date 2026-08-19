@@ -438,15 +438,25 @@ export class LeadsService {
     const call = await tx.call.findFirst({
       where: { tenantId, leadId, dialedNumber: { not: null } },
       orderBy: { occurredAt: "asc" },
-      select: { dialedNumber: true },
+      select: { dialedNumber: true, dialedLabel: true },
     });
     const phone = call?.dialedNumber;
     if (phone === undefined || phone === null) return {};
-    const virtual = await tx.virtualNumber.findFirst({
-      where: { tenantId, phone },
-      select: { label: true },
-    });
-    return { dialedNumber: { phone, ...(virtual ? { label: virtual.label } : {}) } };
+    /*
+     * השם מהצילום שעל השיחה, ולא מההגדרה החיה.
+     *
+     * ההגדרה יכולה להימחק או לשנות שם, וזה לא אמור לשנות את מה
+     * שכתוב על ליד שכבר נפתח: "הגיע מקמפיין פייסבוק ינואר" הוא
+     * עובדה היסטורית. שאילתה על הטבלה החיה הייתה הופכת לידים
+     * ישנים ל"מספר לא מוגדר" ברגע שמנקים קמפיין שהסתיים.
+     */
+    const label = call?.dialedLabel;
+    return {
+      dialedNumber: {
+        phone,
+        ...(label !== null && label !== undefined && label !== "" ? { label } : {}),
+      },
+    };
   }
 
   /** פילוח לפי סטטוס מכל המאגר — לגרף המשפך בדשבורד. */
