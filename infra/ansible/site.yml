@@ -1,0 +1,232 @@
+---
+# הקמת השרת של מתווכים — **מה שהיה עד כה עבודת ידיים לפי מסמך.**
+#
+# ## למה זה קיים
+#
+# `docs/10-deployment.md` תיאר את ההקמה כרצף פקודות שאדם מקליד.
+# שני דברים חסרו שם, ושניהם מתגלים ביום הגרוע: כמה זמן לוקח לשחזר
+# שרת שנמחק, ומה בדיוק שונה בשרת מאז שהוקם. Playbook עונה על שניהם
+# — הוא מריץ את אותו רצף בפקודה אחת, והוא עצמו הרישום של מה שנעשה.
+#
+# ## למה Ansible ולא Terraform
+#
+# Terraform מקצה משאבים אצל ספק ענן. כאן יש מכונה אחת, והשאלה אינה
+# "כמה מכונות" אלא "מה מותקן על המכונה" — וזה בדיוק מה ש-Ansible
+# עושה. הקצאת המכונה עצמה נשארת פעולה ידנית חד-פעמית אצל הספק,
+# ומתועדת ב-README שליד.
+#
+# ## הרצה
+#
+#   ansible-playbook -i inventory.ini site.yml --ask-vault-pass
+#
+# הרצה חוזרת בטוחה: כל משימה אידמפוטנטית, ומערכת שכבר רצה תישאר
+# רצה. זה גם איך פורסים גרסה — לא רק איך מקימים מאפס.
+- name: מתווכים — הקמה ופריסה
+  hosts: metavchim
+  become: true
+  vars:
+    compose_file: "{{ app_dir }}/docker-compose.prod.yml"
+    env_file: "{{ app_dir }}/.env.production"
+    compose_cmd: >-
+      docker compose -f {{ compose_file }} --env-file {{ env_file }}
+
+  tasks:
+    # ------------------------------------------------------------
+    # 0. בדיקות מקדימות — נופלים לפני שנוגעים בשרת
+    # ------------------------------------------------------------
+    # סוד חסר שמתגלה באמצע הריצה משאיר שרת חצי-מוקם, וזה המצב הכי
+    # קשה לאבחון: חלק מהשירותים עלו, אחד נפל, והלוג מדבר על משתנה.
+    - name: כל הסודות סופקו
+      ansible.builtin.assert:
+        that:
+          - db_owner_password | default('') | length >= 16
+          - app_db_password | default('') | length >= 16
+          - data_encryption_key | default('') | length >= 32
+          - phone_hash_key | default('') | length >= 32
+          - update_secret | default('') | length >= 16
+          - s3_secret_key | default('') | length >= 16
+        fail_msg: >-
+          חסר סוד ב-vault.yml, או שאחד מהם קצר מדי.
+          ראו infra/ansible/README.md.
+        quiet: true
+
+    # פרופיל שהודלק בלי המשתנים שלו הוא שירות שנופל בלולאה בזמן
+    # שהפריסה מדווחת הצלחה — בדיקת העומק מכסה את הליבה בלבד
+    # (ביקורת Codex). לכן כל פרופיל נבדק כאן, לפני שנוגעים בשרת.
+    - name: לכל פרופיל דלוק יש את המשתנים שלו
+      ansible.builtin.assert:
+        that:
+          - "'stt' not in compose_profiles or stt_secret | default('') | length >= 16"
+          - "'diarize' not in compose_profiles or hf_token | default('') | length > 0"
+          - >-
+            'offsite' not in compose_profiles or (
+              offsite_s3_endpoint | default('') | length > 0 and
+              offsite_s3_bucket | default('') | length > 0 and
+              offsite_s3_access_key | default('') | length > 0 and
+              offsite_s3_secret_key | default('') | length > 0)
+        fail_msg: >-
+          פרופיל ב-compose_profiles דלוק בלי המשתנים שלו.
+          ראו infra/ansible/README.md.
+        quiet: true
+
+    - name: מערכת ההפעלה נתמכת
+      ansible.builtin.assert:
+        that: ansible_facts['os_family'] == 'Debian'
+        fail_msg: ה-Playbook נכתב ונבדק על Ubuntu/Debian בלבד
+        quiet: true
+
+    # ------------------------------------------------------------
+    # 1. חבילות בסיס ועדכוני אבטחה
+    # ------------------------------------------------------------
+    - name: חבילות בסיס
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - git
+          - gnupg
+          - postgresql-client
+          - ufw
+          - unattended-upgrades
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    # עדכוני אבטחה אוטומטיים — סעיף ניהול פגיעויות בתקן, ובפועל
+    # ההבדל בין שרת מעודכן לשרת שאיש לא נגע בו חצי שנה
+    - name: עדכוני אבטחה אוטומטיים
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        mode: "0644"
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+
+    # ------------------------------------------------------------
+    # 2. Docker מהמאגר הרשמי
+    # ------------------------------------------------------------
+    # ולא מ-apt של אובונטו: הגרסה שם מפגרת, ו-compose v2 אינו שם
+    # כתוסף כלל — וכל הפריסה נשענת עליו.
+    - name: מפתח המאגר של Docker
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+
+    - name: מאגר Docker
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/ubuntu
+          {{ ansible_facts['distribution_release'] }} stable
+        filename: docker
+        state: present
+
+    - name: Docker Engine ו-Compose
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Docker רץ ועולה באתחול
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    # ------------------------------------------------------------
+    # 3. חומת אש
+    # ------------------------------------------------------------
+    # שלושה פורטים ותו לא. Postgres, Redis ו-MinIO מאזינים ברשת
+    # הפנימית של compose, וה-Web וה-API על loopback — כלומר גם בלי
+    # החומה הם אינם חשופים. החומה היא השכבה השנייה, לא היחידה.
+    #
+    # `command` ולא `community.general.ufw`: המודול הזה יושב באוסף
+    # חיצוני, ואוסף שצריך להתקין לפני כל הרצה הוא תלות שמפילה את
+    # הפריסה ביום שבו הגלריה אינה זמינה. `ufw` עצמו אידמפוטנטי
+    # ומדווח על כך בפלט, וזה מה ש-`changed_when` קורא.
+    - name: פורטים פתוחים
+      ansible.builtin.command: "ufw allow {{ item }}/tcp"
+      register: ufw_allow
+      changed_when: "'Skipping' not in ufw_allow.stdout"
+      loop: ["22", "80", "443"]
+
+    - name: ברירת מחדל — חסימת כל נכנס
+      ansible.builtin.command: ufw default deny incoming
+      register: ufw_default
+      changed_when: "'existing' not in ufw_default.stdout"
+
+    - name: חומת אש פעילה
+      ansible.builtin.command: ufw --force enable
+      register: ufw_enable
+      changed_when: "'already active' not in ufw_enable.stdout"
+
+    # ------------------------------------------------------------
+    # 4. הקוד על השרת
+    # ------------------------------------------------------------
+    # הריפו נדרש בשביל compose, ה-Caddyfile וסקריפטי הגיבוי. התמונות
+    # עצמן נמשכות מ-GHCR ואינן נבנות כאן.
+    - name: הריפו
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: "{{ repo_version }}"
+        # שינוי מקומי בשרת אינו מקור אמת. מה שאינו בגיט נדרס.
+        force: true
+      notify: פריסה מחדש
+
+    # ------------------------------------------------------------
+    # 5. קובץ הסביבה
+    # ------------------------------------------------------------
+    - name: .env.production
+      ansible.builtin.template:
+        src: env.production.j2
+        dest: "{{ env_file }}"
+        # קריאה לבעלים בלבד: הקובץ מכיל את מפתח ההצפנה של נתוני
+        # הלקוחות ואת סיסמת המסד
+        mode: "0600"
+        owner: root
+        group: root
+      notify: פריסה מחדש
+
+    # ------------------------------------------------------------
+    # 6. הרמה
+    # ------------------------------------------------------------
+    - name: משיכת התמונות
+      ansible.builtin.command: "{{ compose_cmd }} pull"
+      register: pull_result
+      changed_when: "'Pulled' in pull_result.stderr"
+
+    - name: הרמת השירותים
+      ansible.builtin.command: "{{ compose_cmd }} up -d --remove-orphans"
+      register: up_result
+      changed_when: "'Started' in up_result.stderr or 'Created' in up_result.stderr"
+
+    # ------------------------------------------------------------
+    # 7. אימות — פריסה שלא נבדקה אינה פריסה
+    # ------------------------------------------------------------
+    # בדיקת העומק ולא רק "השרת עונה": היא בודקת גם את המסד וגם את
+    # Redis, כלומר בדיוק את מה שנשבר כשסוד חסר או שגוי.
+    # `status_code` מקבל גם 503 בכוונה: זו התשובה של בדיקת העומק
+    # כשמרכיב עדיין עולה, והיא בדיוק המצב שבשבילו יש `until`. בלי
+    # זה המשימה נכשלת בניסיון הראשון ולא מגיעה לניסיון השני.
+    - name: המערכת עונה ובריאה
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ api_local_port | default(8091) }}/api/v1/health/deep"
+        status_code: [200, 503]
+      register: health
+      until: health.status == 200
+      retries: 30
+      delay: 5
+
+  handlers:
+    # שם שונה מהמשימה שמעל בכוונה: משימה ומטפל באותו שם קריאים
+    # כשגיאה, גם אם Ansible פותר אותם נכון.
+    - name: פריסה מחדש
+      ansible.builtin.command: "{{ compose_cmd }} up -d"
+      changed_when: true

@@ -6,6 +6,7 @@ import {
   couponRejectionMessage,
   formatPlanPrice,
   planPriceLabel,
+  PRICE_TERMS_NOTE,
   yearlySavingPercent,
   type PlanFeature,
 } from "@metavchim/shared";
@@ -55,6 +56,13 @@ export interface OfferedPlan {
   name: string;
   description: string;
   monthlyPrice: string;
+  /**
+   * true = `monthlyPrice` הוא „בהתאמה” ולא סכום.
+   *
+   * דגל ולא השוואת מחרוזת במסך: מסך שבודק `monthlyPrice === "בהתאמה"`
+   * נשבר בשקט ביום שהנוסח משתנה, ומציג „בהתאמה / חודש”.
+   */
+  priceOnRequest: boolean;
   yearlyPrice: string | null;
   yearlySavingPercent: number | null;
   maxUsers: number | null;
@@ -77,15 +85,24 @@ export class SignupController {
   /** המסלולים שאפשר להירשם אליהם — לדף התמחור הציבורי. */
   @Public()
   @Get("plans")
-  async plans(): Promise<{ plans: OfferedPlan[] }> {
+  async plans(): Promise<{ plans: OfferedPlan[]; priceNote: string }> {
     const plans = await this.signup.offeredPlans();
     return {
+      /*
+       * הסייג נשלח עם המחירון ולא נכתב במסך.
+       *
+       * הוא הבטחה מסחרית — „למצטרפים חדשים ולשנה הראשונה” — ולכן
+       * מקורו אחד עם המחירים עצמם. נוסח שיושב במסך מתיישן ביום
+       * שהתנאים משתנים, וממשיך להיקרא כאילו הוא בתוקף.
+       */
+      priceNote: PRICE_TERMS_NOTE,
       plans: plans.map((plan) => ({
         code: plan.code,
         name: plan.name,
         description: plan.description,
-        // מסלול בלי מחיר קבוע מוצג כ"בהתאמה" — ראו `planPriceLabel`
+        // „חינם”, „בהתאמה” או סכום — ראו `planPriceLabel`
         monthlyPrice: planPriceLabel(plan),
+        priceOnRequest: plan.priceOnRequest,
         yearlyPrice:
           plan.yearlyPriceAgorot === null ? null : formatPlanPrice(plan.yearlyPriceAgorot),
         yearlySavingPercent: yearlySavingPercent(plan),

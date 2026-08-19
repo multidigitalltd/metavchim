@@ -30,6 +30,7 @@ const basePlan = (over: Partial<PlanDefinition> = {}): PlanDefinition => ({
   maxNetworkDemands: null,
   features: ["whatsapp"],
   trialDays: 14,
+  priceOnRequest: false,
   isPublic: true,
   sortOrder: 10,
   ...over,
@@ -170,8 +171,12 @@ describe("formatPlanPrice", () => {
     expect(formatPlanPrice(29_900)).toBe("299 ₪");
   });
 
-  it("אפס = בהתאמה", () => {
-    expect(formatPlanPrice(0)).toBe("בהתאמה");
+  /*
+   * אפס הוא מחיר, לא היעדר מחיר. „בהתאמה” נגזר מדגל מפורש
+   * (`priceOnRequest`) ולא מהמספר — ראו `planPriceLabel`.
+   */
+  it("אפס = חינם", () => {
+    expect(formatPlanPrice(0)).toBe("חינם");
   });
 
   it("אגורות נשמרות ולא נקטעות", () => {
@@ -195,8 +200,20 @@ describe("yearlySavingPercent", () => {
     ).toBeNull();
   });
 
-  it("מסלול לפי הצעה", () => {
+  it("מסלול חינמי — אין ממה לחסוך", () => {
     expect(yearlySavingPercent(basePlan({ monthlyPriceAgorot: 0 }))).toBeNull();
+  });
+
+  /*
+   * מסלול שנסגר בשיחה יכול לשאת מספרים ישנים בשדות. „חסוך 17%”
+   * לצד „בהתאמה” הוא הבטחה על מחיר שאיש לא ראה.
+   */
+  it("מסלול בהתאמה — אין אחוז חיסכון להציג", () => {
+    expect(
+      yearlySavingPercent(
+        basePlan({ monthlyPriceAgorot: 10_000, yearlyPriceAgorot: 100_000, priceOnRequest: true }),
+      ),
+    ).toBeNull();
   });
 });
 
@@ -287,6 +304,27 @@ describe("מכסות רשת בקטלוג המובנה", () => {
       expect(plan.maxNetworkDemands).toBeNull();
     }
   });
+
+  /*
+   * מסלול שמוצג „בהתאמה” אינו נמכר בכרטיס אשראי, ולכן מסלול
+   * שסומן בדגל **וגם** ציבורי הוא כפתור רכישה שמוביל לדף תשלום
+   * על סכום שלא נקבע. הצירוף הזה הוא תקלה, לא בחירה.
+   */
+  it("מסלול בהתאמה אינו מוצע לרכישה עצמית", () => {
+    for (const plan of DEFAULT_PLANS) {
+      if (plan.priceOnRequest) expect(plan.isPublic).toBe(false);
+    }
+  });
+
+  /*
+   * ההפך אינו סימטרי בכוונה: מסלול חינמי **כן** ציבורי. מה שנבדק
+   * כאן הוא שמחיר שהוזן אינו נעלם מאחורי הדגל בלי שאיש שם לב.
+   */
+  it("מסלול מתומחר אינו מסומן „בהתאמה”", () => {
+    for (const plan of DEFAULT_PLANS) {
+      if (plan.monthlyPriceAgorot > 0) expect(plan.priceOnRequest).toBe(false);
+    }
+  });
 });
 
 describe("effectiveFeatures — חריגי הפלטפורמה", () => {
@@ -364,17 +402,37 @@ describe("automationQuotaRejection", () => {
 
 describe("planPriceLabel", () => {
   /*
-   * `isPublic` קובע אם המסלול נמכר ברכישה עצמית — לא כמה הוא עולה.
-   * כשההבחנה נגזרה ממנו, סימון מסלול הרשת כציבורי הפך אותו ל"חינם":
-   * הבטחה מסחרית שגויה שנוצרה משינוי הגדרה שאינו קשור למחיר.
+   * זה הלב של ההפרדה. „חינם” ו„בהתאמה” הן שתי הבטחות מסחריות
+   * הפוכות — האחת אומרת „אין מה לשלם”, השנייה „דבר איתנו על
+   * המחיר” — ושתיהן נגזרו פעם מאותו מספר: אפס. התוצאה הייתה
+   * שמסלול השת"פים החינמי הוצג ללקוח כ„בהתאמה”.
+   *
+   * מכאן ההבחנה היא דגל מפורש, ולא היסק ממחיר או מ-`isPublic`
+   * (שקובע אם המסלול נרכש מקוון, לא כמה הוא עולה).
    */
-  it("מסלול ב-0 הוא „בהתאמה” — בלי קשר לחשיפה בדף ההרשמה", () => {
-    expect(planPriceLabel(basePlan({ monthlyPriceAgorot: 0, isPublic: true }))).toBe("בהתאמה");
-    expect(planPriceLabel(basePlan({ monthlyPriceAgorot: 0, isPublic: false }))).toBe("בהתאמה");
+  it("אפס בלי הדגל הוא „חינם” — בלי קשר לחשיפה בדף ההרשמה", () => {
+    expect(planPriceLabel(basePlan({ monthlyPriceAgorot: 0, isPublic: true }))).toBe("חינם");
+    expect(planPriceLabel(basePlan({ monthlyPriceAgorot: 0, isPublic: false }))).toBe("חינם");
+  });
+
+  it("הדגל הוא שקובע „בהתאמה”", () => {
+    expect(
+      planPriceLabel(basePlan({ monthlyPriceAgorot: 0, priceOnRequest: true })),
+    ).toBe("בהתאמה");
   });
 
   it("מסלול בתשלום מוצג במחירו", () => {
     expect(planPriceLabel(basePlan({ monthlyPriceAgorot: 29_900 }))).toBe("299 ₪");
+  });
+
+  /*
+   * מספר **וגם** דגל: הדגל גובר. מי שסימן „נסגר בשיחה” התכוון
+   * שלא יוצג מספר, גם אם נשאר מחיר ישן בשדה.
+   */
+  it("דגל דלוק גובר על מחיר שנשאר בשדה", () => {
+    expect(
+      planPriceLabel(basePlan({ monthlyPriceAgorot: 29_900, priceOnRequest: true })),
+    ).toBe("בהתאמה");
   });
 });
 

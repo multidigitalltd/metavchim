@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ROLE_CAPABILITIES } from "@metavchim/shared";
+import { ASSIGNABLE_ROLES, ROLE_CAPABILITIES, ROLE_LABELS, roleLabel } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
@@ -30,6 +30,7 @@ import { DismissReportSection } from "./dismiss-report";
 import { AgreementTemplatesSection } from "./agreement-templates-section";
 import { RetainedAgreementsSection } from "./retained-agreements-section";
 import { SystemUpdateSection } from "./system-update";
+import { SessionsList } from "../sessions-list";
 import { UserPermissions } from "./user-permissions";
 
 const inputStyle = {
@@ -55,14 +56,6 @@ interface AuditRow {
   supportAdmin?: string;
   createdAt: string;
 }
-
-const ROLE_LABELS: Record<string, string> = {
-  owner: "בעלים",
-  admin: "מנהל",
-  agent: "סוכן",
-  assistant: "עוזר",
-  viewer: "צפייה בלבד",
-};
 
 const TEAM_GRID = "1.4fr 1fr 1.1fr 0.8fr 1fr";
 
@@ -126,6 +119,9 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   "users.create": "הוספת איש צוות",
   "users.update": "עדכון איש צוות",
   "users.unlock": "שחרור נעילת התחברות",
+  // ניתוק כפוי של עובד מכל מכשיריו — פעולה ניהולית שמישהו נותן
+  // עליה דין וחשבון, ולכן היא נקראת בעברית ולא כקוד
+  "users.sessions_revoke": "ניתוק כל החיבורים של איש צוות",
   "voice_intake.create": "קליטת נכס בקול",
   "contact.merge": "מיזוג כרטיסים כפולים",
   "contact.duplicate_dismiss": "דחיית הצעת מיזוג",
@@ -241,6 +237,8 @@ export default function SettingsPage() {
   const [adding, setAdding] = useState(false);
   /** מזהה המשתמש שפאנל ההרשאות שלו פתוח — אחד בכל רגע */
   const [permissionsFor, setPermissionsFor] = useState<string | null>(null);
+  /* מזהה איש הצוות שרשימת החיבורים שלו פתוחה; null = אף אחת */
+  const [sessionsFor, setSessionsFor] = useState<string | null>(null);
 
   const load = useCallback(() => {
     apiGet<TenantSettings>("/settings/tenant")
@@ -508,10 +506,16 @@ export default function SettingsPage() {
                       className="rounded-lg border px-3 py-2"
                       style={inputStyle}
                     >
-                      <option value="admin">מנהל</option>
-                      <option value="agent">סוכן</option>
-                      <option value="assistant">עוזר</option>
-                      <option value="viewer">צפייה בלבד</option>
+                      {/*
+                        הרשימה נגזרת מ-`ASSIGNABLE_ROLES` ולא כתובה
+                        כאן: היא הופיעה בשני מקומות במסך הזה ובעוד
+                        שניים אחרים, וכל עותק היה רשימה חלקית אחרת.
+                      */}
+                      {ASSIGNABLE_ROLES.map((value) => (
+                        <option key={value} value={value}>
+                          {ROLE_LABELS[value]}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <button type="submit" className="mv-btn-action">
@@ -599,14 +603,15 @@ export default function SettingsPage() {
                                   className="rounded-lg border px-2 py-1"
                                   style={inputStyle}
                                 >
-                                  <option value="admin">מנהל</option>
-                                  <option value="agent">סוכן</option>
-                                  <option value="assistant">עוזר</option>
-                                  <option value="viewer">צפייה בלבד</option>
+                                  {ASSIGNABLE_ROLES.map((value) => (
+                                    <option key={value} value={value}>
+                                      {ROLE_LABELS[value]}
+                                    </option>
+                                  ))}
                                 </select>
                               </>
                             ) : (
-                              (ROLE_LABELS[member.role] ?? member.role)
+                              roleLabel(member.role)
                             )}
                           </span>
                           <span
@@ -653,6 +658,25 @@ export default function SettingsPage() {
                                 <IconKey s={15} /> הרשאות
                               </button>
                             ) : null}
+                            {/*
+                              „חיבורים” גם למי שאינו ניתן לעריכה
+                              (בעל המשרד, ואני עצמי): לראות מאיפה
+                              מישהו מחובר אינו שינוי, וזו בדיוק
+                              השורה שרוצים לבדוק כשחושדים שחשבון
+                              בכיר נפרץ.
+                            */}
+                            <button
+                              type="button"
+                              className="mv-btn-plain"
+                              aria-expanded={sessionsFor === member.id}
+                              onClick={() =>
+                                setSessionsFor(
+                                  sessionsFor === member.id ? null : member.id,
+                                )
+                              }
+                            >
+                              חיבורים
+                            </button>
                             {editable ? (
                               <button
                                 type="button"
@@ -669,6 +693,25 @@ export default function SettingsPage() {
                             userId={member.id}
                             onClose={() => setPermissionsFor(null)}
                           />
+                        ) : null}
+                        {sessionsFor === member.id ? (
+                          <div
+                            className="mt-2 rounded-lg border p-3"
+                            style={{ borderColor: "var(--color-border)" }}
+                          >
+                            {/*
+                              המפתח הוא מזהה המשתמש: בלעדיו React היה
+                              משתמש באותו מופע לשורה אחרת, והרשימה
+                              שנטענה קודם הייתה מוצגת רגע תחת שם
+                              אחר — כלומר החיבורים של אדם אחד מוצמדים
+                              לשמו של אחר.
+                            */}
+                            <SessionsList
+                              key={member.id}
+                              userId={member.id}
+                              userName={member.name}
+                            />
+                          </div>
                         ) : null}
                       </div>
                     );

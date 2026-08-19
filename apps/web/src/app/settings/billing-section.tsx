@@ -3,9 +3,12 @@
 import { useEffect, useState } from "react";
 import {
   describeCycle,
+  CUSTOM_PRICE_LABEL,
   describeCyclePrice,
   describeSubscription,
   featureLabel,
+  FREE_PRICE_LABEL,
+  PRICE_TERMS_NOTE,
   yearlySavingPercent,
   type BillingCycle,
   type PlanDefinition,
@@ -231,6 +234,22 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
               <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
                 {(data?.plans ?? []).map((plan) => {
                   const price = describeCyclePrice(plan, cycle);
+                  /*
+                   * שלושה מצבים שנראו פעם כמצב אחד — „אין מחיר במחזור
+                   * הזה” — והוצגו כולם כ„לפי הצעה”:
+                   *
+                   * 1. מסלול שנסגר בשיחה. „לפי הצעה” נכון לו.
+                   * 2. מסלול **חינמי**. „לפי הצעה” הזמין את הלקוח לשיחה
+                   *    על מחיר שאינו קיים.
+                   * 3. מסלול שנמכר במחזור השני בלבד.
+                   *
+                   * `describeCyclePrice` מחזיר `null` בשלושתם — וזה נכון
+                   * מצדו, כי אין מה לגבות. ההבחנה היא של המסך.
+                   */
+                  const free =
+                    !plan.priceOnRequest &&
+                    plan.monthlyPriceAgorot === 0 &&
+                    (plan.yearlyPriceAgorot ?? 0) === 0;
                   const saving = cycle === "yearly" ? yearlySavingPercent(plan) : null;
                   const isCurrent = plan.code === sub.planCode && sub.status === "active";
                   return (
@@ -249,7 +268,9 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
                       <p className="m-0 mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
                         {plan.description}
                       </p>
-                      <p className="m-0 mb-1 text-lg font-bold">{price ?? "לפי הצעה"}</p>
+                      <p className="m-0 mb-1 text-lg font-bold">
+                        {price ?? (free ? FREE_PRICE_LABEL : CUSTOM_PRICE_LABEL)}
+                      </p>
                       {saving !== null ? (
                         <p className="m-0 mb-2 text-xs" style={{ color: "var(--color-primary)" }}>
                           חיסכון של {saving}% מול חיוב חודשי
@@ -262,11 +283,18 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
                       </ul>
                       {/*
                         מסלול בלי מחיר במחזור הנבחר לא מקבל כפתור: לחיצה
-                        עליו הייתה מוחזרת מהשרת בשגיאה ממילא
+                        עליו הייתה מוחזרת מהשרת בשגיאה ממילא. מה שכן
+                        משתנה הוא ההסבר — „נמכר בחיוב שנתי בלבד” על
+                        מסלול חינמי או על מסלול שנסגר בשיחה הוא הסבר
+                        שגוי, ולא רק חסר.
                       */}
                       {price === null ? (
                         <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
-                          נמכר בחיוב {describeCycle(cycle === "yearly" ? "monthly" : "yearly")} בלבד
+                          {plan.priceOnRequest
+                            ? "המחיר נסגר בשיחה — פנו אלינו"
+                            : free
+                              ? "מסלול ללא תשלום — פנו אלינו למעבר אליו"
+                              : `נמכר בחיוב ${describeCycle(cycle === "yearly" ? "monthly" : "yearly")} בלבד`}
                         </p>
                       ) : (
                         <button
@@ -286,6 +314,14 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
                   );
                 })}
               </div>
+              {/*
+                הסייג מתחת לכרטיסי המסלולים ולא בתוך כל אחד מהם: הוא
+                חל על כולם, וחזרה שלו בכל כרטיס הייתה רעש שמפסיקים
+                לקרוא בדיוק בגלל שהוא חוזר.
+              */}
+              <p className="mt-3 mb-0 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                {PRICE_TERMS_NOTE}
+              </p>
             </>
           )}
 

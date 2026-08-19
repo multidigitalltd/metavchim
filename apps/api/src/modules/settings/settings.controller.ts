@@ -19,7 +19,7 @@ import {
   CAPABILITIES,
   IdSchema,
   PLAN_FEATURES,
-  UserRoleSchema,
+  AssignableRoleSchema,
   clearEffect,
   describeOverride,
   isOverrideActive,
@@ -50,7 +50,7 @@ import { AuditService } from "../../core/audit.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
-import { AuthService } from "../auth/auth.service";
+import { AuthService, type SessionInfo } from "../auth/auth.service";
 import { LoginThrottleService } from "../auth/login-throttle.service";
 import { MatchRefreshService } from "../matching/match-refresh.service";
 import { AccountDeletionService } from "./account-deletion.service";
@@ -98,8 +98,9 @@ const TenantSettingsSchema = z
   })
   .strict();
 
-// owner אינו ניתן להקצאה דרך ה-API — מוקם בהקמת הסוכנות בלבד
-const AssignableRoleSchema = UserRoleSchema.exclude(["owner"]);
+// owner אינו ניתן להקצאה דרך ה-API — מוקם בהקמת הסוכנות בלבד.
+// הסכימה מיובאת ואינה מוגדרת כאן שוב: המסכים בונים את התפריט
+// מאותה רשימה בדיוק, ושני עותקים היו מתפצלים בתפקיד הבא שנוסף.
 
 /**
  * שינוי הרשאות: רשימת יכולות ולא יכולת בודדת, כדי שחסימת מודול שלם
@@ -201,6 +202,7 @@ export class SettingsController {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly loginThrottle: LoginThrottleService,
+    private readonly auth: AuthService,
     private readonly plans: PlanCatalogService,
     private readonly accountDeletion: AccountDeletionService,
     private readonly matchRefresh: MatchRefreshService,
@@ -789,6 +791,75 @@ export class SettingsController {
       }),
     );
     return { ok: true };
+  }
+
+  /**
+   * החיבורים הפתוחים של איש צוות — מאיפה הוא מחובר עכשיו.
+   *
+   * זו יכולת פיקוח אמיתית: מכשיר שאבד, סוכן שעזב ונשאר מחובר,
+   * או חיבור ממקום שאין לו שום הסבר. בלי המסך הזה התשובה היחידה
+   * הייתה „תחליף סיסמה”, שגם היא לא תמיד מגיעה בזמן.
+   *
+   * `findFirst({ id, tenantId })` ולא `findUnique({ id })`: מזהה
+   * משתמש של משרד אחר חייב לא להימצא, ולא להימצא ואז להיבדק.
+   */
+  @Get("users/:id/sessions")
+  @RequireCapability("users.manage")
+  async userSessions(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ sessions: SessionInfo[] }> {
+    const tenantId = TenantContext.current().tenantId;
+    const target = await this.prisma.user.findFirst({
+      where: { id, tenantId },
+      select: { id: true },
+    });
+    if (!target) throw new BadRequestException("משתמש לא נמצא");
+    /*
+     * בלי טוקן נוכחי: „המכשיר הזה” הוא של המנהל, ואף אחד מהחיבורים
+     * ברשימה אינו שלו. סימון אחד מהם כ„נוכחי” היה שקר.
+     */
+    return { sessions: await this.auth.listSessions(id) };
+  }
+
+  /**
+   * ניתוק **כל** החיבורים של איש צוות.
+   *
+   * גורף בכוונה, כולל החיבור שממנו הוא עובד ברגע זה: מנהל שמנתק
+   * מכשיר שאבד ומשאיר חיבור פתוח אחד לא עשה כלום.
+   *
+   * המנהל אינו יכול לנתק את **עצמו** דרך הנתיב הזה — לא כדי להגן
+   * עליו, אלא כי לזה יש כפתור משלו בפרופיל שיודע להשאיר את המכשיר
+   * הנוכחי חי. נתיב אחד שעושה את שניהם היה מוציא מנהל מהמערכת
+   * בלחיצה שנועדה לנקות מכשירים ישנים.
+   *
+   * נרשם ביומן הביקורת: ניתוק כפוי של עובד הוא פעולה ניהולית
+   * שמישהו צריך לתת עליה דין וחשבון.
+   */
+  @Post("users/:id/sessions/revoke")
+  @RequireCapability("users.manage")
+  @HttpCode(200)
+  async revokeUserSessions(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ revoked: number }> {
+    const ctx = TenantContext.current();
+    if (id === ctx.userId) {
+      throw new BadRequestException("לניתוק החיבורים שלך — במסך הפרופיל");
+    }
+    const target = await this.prisma.user.findFirst({
+      where: { id, tenantId: ctx.tenantId },
+      select: { id: true },
+    });
+    if (!target) throw new BadRequestException("משתמש לא נמצא");
+
+    const revoked = await this.auth.revokeAllSessions(id);
+    await this.prisma.withTenant((tx) =>
+      this.audit.record(tx, {
+        action: "users.sessions_revoke",
+        entityType: "user",
+        entityId: id,
+      }),
+    );
+    return { revoked };
   }
 
   /**

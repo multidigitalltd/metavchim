@@ -1190,6 +1190,12 @@ model Plan {
   maxNetworkDemands  Int?      @map("max_network_demands")
   features           String[]  @default([])
   trialDays          Int       @default(14) @map("trial_days")
+  /// המחיר נסגר בשיחה ואינו מוצג כמספר.
+  ///
+  /// זה מה שמבדיל בין "חינם" ל"בהתאמה" — שני המצבים נראים זהה
+  /// ב-`monthly_price_agorot = 0`, ובלי הדגל מסלול חינמי הוצג
+  /// כ"בהתאמה", כלומר הבטיח ללקוח את ההפך ממה שהוא.
+  priceOnRequest     Boolean   @default(false) @map("price_on_request")
   isPublic           Boolean   @default(true) @map("is_public")
   sortOrder          Int       @default(0) @map("sort_order")
   /// מסלול שנמחק. **דגל ולא מחיקת שורה**: קטלוג המסלולים ממזג

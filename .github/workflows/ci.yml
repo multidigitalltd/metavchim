@@ -73,14 +73,103 @@ jobs:
           PHONE_HASH_KEY: ci-phone-hash-key-not-a-real-secret-000000
         run: pnpm --filter @metavchim/api verify:boot
 
+      # תבנית הסביבה של Ansible מול .env.production.example. מפתח
+      # שנשכח בתבנית אינו מפיל בנייה ואינו מפיל טיפוסים — הוא מגיע
+      # לשרת כשירות שעולה בלי המשתנה, ונכשל בשקט.
+      - name: IaC template matches env example
+        run: pnpm verify:iac
+
       - name: Audit dependencies (fail on high)
         run: pnpm audit --audit-level high
+
+  # ה-Playbook שמקים את השרת — נטען ומתפרש.
+  #
+  # משימה נפרדת כי היא היחידה שצריכה Python. היא אינה מריצה דבר מול
+  # שרת: אין לנו מכונה חד-פעמית ב-CI, ולכן מה שנבדק כאן הוא שהקובץ
+  # תקין ולא שההרצה מצליחה. את ההרצה בודקים ב-`--check` מול הייצור
+  # לפני מיזוג, וזה כתוב ב-README שליד.
+  iac:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet ansible-core
+      - name: Playbook syntax
+        working-directory: infra/ansible
+        run: ansible-playbook -i inventory.example.ini --syntax-check site.yml
+
+  # בידוד הדיירים מול Postgres אמיתי.
+  #
+  # משימה נפרדת ולא צעד ב-verify: היא דורשת מסד, ותקלת תשתית בה
+  # אינה סיבה להסתיר אם ה-lint או הטיפוסים נשברו. היא כן חוסמת
+  # מיזוג — זו ההוכחה שמדיניות ה-RLS באמת חוסמת, ולא רק שהקוד
+  # כתוב נכון.
+  cross-tenant:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: metavchim
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: metavchim
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U metavchim"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DIRECT_DATABASE_URL: postgresql://metavchim:ci@localhost:5432/metavchim?schema=public
+      DATABASE_URL: postgresql://metavchim:ci@localhost:5432/metavchim?schema=public
+      APP_DATABASE_URL: postgresql://metavchim_app:ci_app_password_16ch@localhost:5432/metavchim?schema=public
+      # `?schema=public` הוא פרמטר של Prisma ולא של libpq, ו-psql
+      # דוחה אותו ב-"invalid URI query parameter". שתי כתובות ולא
+      # אחת — לכל כלי הצורה שהוא מבין.
+      PSQL_URL: postgresql://metavchim:ci@localhost:5432/metavchim
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # יצירת התפקיד **לפני** המיגרציות: חלקן מפנות אליו
+      # ב-GRANT/REVOKE ונופלות אם אינו קיים. זהו בדיוק מה שעושה
+      # `infra/postgres/init-app-role.sh` בעליית המסד בייצור —
+      # יצירה בלבד, בלי הרשאות פר-טבלה, כי אין עדיין טבלאות.
+      - name: App role
+        run: |
+          psql "$PSQL_URL" -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE metavchim_app LOGIN PASSWORD 'ci_app_password_16ch'" \
+            -c "GRANT USAGE ON SCHEMA public TO metavchim_app"
+
+      - name: Migrate
+        run: pnpm --filter @metavchim/api exec prisma migrate deploy
+
+      # לקוח Prisma אינו בגיט — הוא נוצר מהסכמה. משימת `verify`
+      # מייצרת אותו לעצמה, והמשימה הזו רצה במקביל ובמכונה אחרת.
+      - name: Prisma client
+        run: pnpm --filter @metavchim/api exec prisma generate
+
+      # וההרשאות **אחרי**. `create_app_role.sql` מסתיים ב-
+      # `REVOKE ... ON audit_log`, וטבלה שאינה קיימת מפילה את
+      # הסקריפט תחת ON_ERROR_STOP (ביקורת Codex). בייצור זה נפתר
+      # מעצמו: ההרשאות לטבלאות חדשות מגיעות מ-ALTER DEFAULT
+      # PRIVILEGES, וכאן ההרצה המפורשת זולה וברורה יותר.
+      - name: Grants
+        run: psql "$PSQL_URL" -v ON_ERROR_STOP=1 -f apps/api/prisma/sql/create_app_role.sql
+
+      - name: Cross-tenant isolation
+        run: pnpm --filter @metavchim/api test:rls
 
   # בניית תמונות הפרודקשן ודחיפה ל-GHCR — רק על מיזוג ל-main.
   # כפתור "עדכן גרסה" במסך ההגדרות מושך את :latest מכאן (docs/10).
   docker:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: verify
+    needs: [verify, cross-tenant, iac]
     runs-on: ubuntu-latest
     permissions:
       contents: read

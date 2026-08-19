@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { featureLabel } from "@metavchim/shared";
+import { featureLabel, FREE_PRICE_LABEL } from "@metavchim/shared";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { AuthShell } from "../auth-shell";
 
@@ -27,6 +27,8 @@ interface OfferedPlan {
   name: string;
   description: string;
   monthlyPrice: string;
+  /** true = `monthlyPrice` הוא „בהתאמה” ולא סכום. */
+  priceOnRequest: boolean;
   yearlyPrice: string | null;
   yearlySavingPercent: number | null;
   maxUsers: number | null;
@@ -40,6 +42,12 @@ interface OfferedPlan {
 export default function SignupPage(): React.JSX.Element {
   const router = useRouter();
   const [plans, setPlans] = useState<OfferedPlan[] | null>(null);
+  /*
+   * הסייג מגיע מהשרת ואינו נצרב כאן — הוא נוסח מסחרי שמשתנה, וכל
+   * מקום שמחזיק עותק משלו מציג ביום השינוי תנאי שכבר אינו נכון.
+   * מחרוזת ריקה עד שהמחירון נטען, כדי לא להבטיח סייג בלי מחירים.
+   */
+  const [priceNote, setPriceNote] = useState("");
   const [chosen, setChosen] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,9 +73,10 @@ export default function SignupPage(): React.JSX.Element {
   >({ status: "idle" });
 
   useEffect(() => {
-    apiGet<{ plans: OfferedPlan[] }>("/signup/plans")
+    apiGet<{ plans: OfferedPlan[]; priceNote: string }>("/signup/plans")
       .then((res) => {
         setPlans(res.plans);
+        setPriceNote(res.priceNote);
         // ברירת מחדל: המסלול האמצעי, לא הזול ביותר — הוא זה שמתאים
         // לרוב המשרדים, ומי שרוצה אחר בוחר בלחיצה
         setChosen(res.plans[Math.min(1, res.plans.length - 1)]?.code ?? null);
@@ -208,10 +217,16 @@ export default function SignupPage(): React.JSX.Element {
                         <span style={{ fontSize: 14, fontWeight: 800 }}>
                           {plan.monthlyPrice}
                           {/*
-                            "חינם / חודש" קורא כמו מבצע לחודש הראשון.
-                            מסלול בלי מחיר מוצג בלי יחידת זמן.
+                            „חינם / חודש” קורא כמו מבצע לחודש הראשון,
+                            ו„בהתאמה / חודש” אינו קורא כמו כלום. יחידת
+                            הזמן שייכת לסכום בלבד.
+
+                            ההשוואה היא מול הקבוע המשותף ולא מול מחרוזת
+                            שנכתבה כאן: הנוסח נקבע בשרת, ועותק מקומי שלו
+                            היה מפסיק להתאים בשקט ביום שהוא משתנה —
+                            והמסך היה מציג „חינם / חודש”.
                           */}
-                          {plan.monthlyPrice === "חינם" ? null : (
+                          {plan.priceOnRequest || plan.monthlyPrice === FREE_PRICE_LABEL ? null : (
                             <span style={{ fontWeight: 400, color: "var(--color-text-muted)" }}>
                               {" "}
                               / חודש
@@ -249,6 +264,19 @@ export default function SignupPage(): React.JSX.Element {
                 );
               })}
             </div>
+            {/*
+              הסייג מתחת לרשימה ובתוך ה-fieldset של בחירת המסלול: הוא
+              חל על כל המחירים שמעליו, וזה המקום שבו הוא נקרא לפני
+              ההחלטה ולא אחריה.
+            */}
+            {priceNote === "" ? null : (
+              <p
+                className="mt-2 mb-0 text-[12.5px]"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                {priceNote}
+              </p>
+            )}
           </fieldset>
 
           <div className="mv-auth-field">

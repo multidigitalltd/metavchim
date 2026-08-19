@@ -13,6 +13,19 @@ import type { RequestContext } from "../../common/tenant-context";
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12 שעות; Refresh בפעילות
 
+/** חיבור פתוח כפי שהוא מוצג — בלי הטוקן ובלי ה-hash שלו. */
+export interface SessionInfo {
+  id: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: Date;
+  expiresAt: Date;
+  /** המכשיר שממנו נשלחה הבקשה הזו */
+  current: boolean;
+  /** לא null = חיבור של התמיכה בהסכמת המשרד, ולא של המשתמש */
+  supportAdminEmail: string | null;
+}
+
 export interface AuthenticatedUser {
   id: string;
   tenantId: string;
@@ -384,6 +397,74 @@ export class AuthService {
 
   async logout(token: string): Promise<void> {
     await this.prisma.session.deleteMany({ where: { tokenHash: AuthService.hashToken(token) } });
+  }
+
+  /**
+   * החיבורים הפתוחים של משתמש — מה שמאפשר לו לראות שמישהו אחר
+   * מחובר בשמו.
+   *
+   * **בלי `tokenHash`, לעולם.** הוא לא הסיסמה אבל הוא המפתח: מי
+   * שיודע אותו אינו יכול לזייף עוגייה, אבל התשובה הזו נשלחת לדפדפן
+   * ונשמרת בכל מקום שדפדפן שומר בו תשובות. אין שום סיבה שהיא תכיל
+   * אותו.
+   *
+   * פגי תוקף אינם מוצגים: הם אינם חיבור פתוח, והצגתם הופכת רשימה
+   * שנועדה לענות על „מי מחובר עכשיו” לארכיון שאי אפשר לקרוא.
+   */
+  async listSessions(userId: string, currentToken?: string): Promise<SessionInfo[]> {
+    const currentHash = currentToken ? AuthService.hashToken(currentToken) : null;
+    const rows = await this.prisma.session.findMany({
+      where: { userId, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: "desc" },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      ipAddress: row.ipAddress,
+      userAgent: row.userAgent,
+      createdAt: row.createdAt,
+      expiresAt: row.expiresAt,
+      /*
+       * „זה המכשיר שאתה עליו עכשיו”. בלעדיו המשתמש רואה שתי שורות
+       * דומות ואינו יודע איזו מהן לנתק — ומנתק את עצמו.
+       */
+      current: currentHash !== null && row.tokenHash === currentHash,
+      /* חיבור של התמיכה, לא של המשתמש — מסומן במפורש */
+      supportAdminEmail: row.supportAdminEmail,
+    }));
+  }
+
+  /**
+   * ניתוק חיבור בודד לפי מזהה.
+   *
+   * `userId` הוא חלק מהתנאי ולא נבדק אחרי השליפה: מזהה חיבור של
+   * משתמש אחר פשוט אינו מוצא שורה, ולכן אי אפשר לנתק מישהו זר גם
+   * במזהה מנוחש. מחזירה `false` כשלא נמחק דבר, כדי שהנתיב יחזיר
+   * 404 ולא „בוצע” על פעולה שלא קרתה.
+   */
+  async revokeSession(userId: string, sessionId: string): Promise<boolean> {
+    const { count } = await this.prisma.session.deleteMany({
+      where: { id: sessionId, userId },
+    });
+    return count > 0;
+  }
+
+  /**
+   * ניתוק כל החיבורים של משתמש — כולל הנוכחי שלו.
+   *
+   * זו הפעולה של מנהל המשרד על עובד, ולכן היא גורפת בכוונה: מנהל
+   * שמנתק מכשיר שאבד ומשאיר חיבור אחד פתוח לא עשה כלום.
+   *
+   * `exceptToken` קיים בשביל המקרה ההפוך — משתמש שמנתק את **כל
+   * השאר** מהמכשיר שלו ואינו רוצה למצוא את עצמו בחוץ.
+   */
+  async revokeAllSessions(userId: string, exceptToken?: string): Promise<number> {
+    const { count } = await this.prisma.session.deleteMany({
+      where: {
+        userId,
+        ...(exceptToken ? { tokenHash: { not: AuthService.hashToken(exceptToken) } } : {}),
+      },
+    });
+    return count;
   }
 
   /** פענוח עוגיית Session → הקשר בקשה מלא, או null אם לא מאומת. */

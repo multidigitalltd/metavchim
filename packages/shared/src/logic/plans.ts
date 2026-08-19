@@ -207,6 +207,18 @@ export interface PlanDefinition {
   maxNetworkDemands: PlanLimit;
   features: PlanFeature[];
   trialDays: number;
+  /**
+   * המחיר נסגר בשיחה ואינו מוצג כמספר.
+   *
+   * **הדגל הזה הוא מה שמבדיל בין „חינם” ל„בהתאמה”**, ואי אפשר
+   * להסיק את ההבדל מ-`monthlyPriceAgorot: 0` — שני המצבים נראים
+   * שם זהה. קודם כל מסלול באפס הוצג „בהתאמה”, ולכן מסלול השת"פים
+   * החינמי הבטיח ללקוח בדיוק את ההפך ממה שהוא.
+   *
+   * הדגל אינו `isPublic`: זו שאלה אחרת — האם אפשר לקנות אותו
+   * בכרטיס אשראי — ומסלול יכול להיות מתומחר וגם להיסגר בשיחה.
+   */
+  priceOnRequest: boolean;
   /** האם המסלול מוצג בדף ההרשמה הציבורי. */
   isPublic: boolean;
   sortOrder: number;
@@ -233,6 +245,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     maxNetworkDemands: null,
     features: ["whatsapp", "landing_pages", "voice_intake"],
     trialDays: 14,
+    priceOnRequest: false,
     isPublic: true,
     sortOrder: 10,
   },
@@ -256,6 +269,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
       "ai_coach",
     ],
     trialDays: 14,
+    priceOnRequest: false,
     isPublic: true,
     sortOrder: 20,
   },
@@ -282,6 +296,7 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
       "transcription",
     ],
     trialDays: 14,
+    priceOnRequest: false,
     isPublic: true,
     sortOrder: 30,
   },
@@ -298,6 +313,8 @@ export const DEFAULT_PLANS: readonly PlanDefinition[] = [
     maxNetworkDemands: null,
     features: PLAN_FEATURES.map((f) => f.code),
     trialDays: 30,
+    /* מסלול רשת נסגר בשיחה — אין לו מחיר קבוע להציג */
+    priceOnRequest: true,
     /**
      * לא מוצג בדף ההרשמה: מסלול רשת נסגר בשיחה ולא בכרטיס אשראי.
      * ההסתרה כאן היא החלטה עסקית, לא הרשאה — הוא עדיין מסלול תקין
@@ -356,27 +373,39 @@ export function limitState(used: number, limit: PlanLimit): LimitState {
 
 /** מה שמוצג במקום מחיר כשאין מחיר קבוע. */
 export const CUSTOM_PRICE_LABEL = "בהתאמה";
+export const FREE_PRICE_LABEL = "חינם";
+
+/**
+ * הסייג שמלווה כל מחיר מוצג.
+ *
+ * המחירון תקף למצטרפים חדשים ולשנה הראשונה. מחיר שמוצג בלי הסייג
+ * הזה נקרא כהתחייבות לתמיד, וזה בדיוק מה שמייצר ויכוח בחידוש.
+ */
+export const PRICE_TERMS_NOTE =
+  "המחירים למצטרפים חדשים ולשנה הראשונה בלבד.";
 
 /**
  * המחיר החודשי לתצוגה.
  *
- * **מסלול ב-0 הוא „בהתאמה”, ולא „חינם”.** קודם ההבחנה נגזרה מ-
- * `isPublic`, וזו הייתה שאלה אחרת לגמרי: `isPublic` קובע אם המסלול
- * מוצע לרכישה עצמית בדף ההרשמה, לא כמה הוא עולה. ברגע שמסלול הרשת
- * סומן כציבורי הוא הוצג כ„חינם” — כלומר הבטחה מסחרית שגויה שנוצרה
- * משינוי הגדרה שאינו קשור למחיר.
+ * **שלושה מצבים, לא שניים.** מסלול מתומחר מציג מספר; מסלול שסומן
+ * `priceOnRequest` מציג „בהתאמה”; ומסלול באפס בלי הדגל הוא **חינם**
+ * ומציג „חינם”.
  *
- * אם יידרש אי־פעם מסלול חינמי אמיתי, הוא יסומן בשדה מפורש ולא
- * יוסק מאפס. אפס פירושו „לא נקבע מחיר קבוע”, וזה בדיוק „בהתאמה”.
+ * ההבחנה הזו לא הייתה קיימת, וכל מסלול באפס הוצג „בהתאמה”. התוצאה
+ * הייתה שמסלול השת"פים החינמי — שכל הרעיון שלו הוא שאין בו מה
+ * לשלם — הבטיח ללקוח בדיוק את ההפך: „דבר איתנו על המחיר”.
+ *
+ * וזו גם הסיבה שאסור להסיק מאפס: אפס יכול להיות „לא נקבע מחיר”
+ * ויכול להיות „אין מחיר”, ואלה שתי הבטחות מסחריות מנוגדות.
  */
 export function planPriceLabel(plan: PlanDefinition): string {
-  if (plan.monthlyPriceAgorot <= 0) return CUSTOM_PRICE_LABEL;
+  if (plan.priceOnRequest) return CUSTOM_PRICE_LABEL;
   return formatPlanPrice(plan.monthlyPriceAgorot);
 }
 
 /** מחיר לתצוגה — אגורות לשקלים, בלי אגורות מיותרות. */
 export function formatPlanPrice(agorot: number): string {
-  if (agorot <= 0) return CUSTOM_PRICE_LABEL;
+  if (agorot <= 0) return FREE_PRICE_LABEL;
   const shekels = agorot / 100;
   const rounded = Number.isInteger(shekels) ? shekels : Number(shekels.toFixed(2));
   return `${rounded.toLocaleString("he-IL")} ₪`;
@@ -388,6 +417,7 @@ export function formatPlanPrice(agorot: number): string {
  * מוצג רק כשהוא אמיתי: "חסוך 0%" גרוע מלא להציג כלום.
  */
 export function yearlySavingPercent(plan: PlanDefinition): number | null {
+  if (plan.priceOnRequest) return null;
   if (plan.yearlyPriceAgorot === null || plan.monthlyPriceAgorot <= 0) return null;
   const fullYear = plan.monthlyPriceAgorot * 12;
   if (plan.yearlyPriceAgorot >= fullYear) return null;

@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { roleLabel } from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
+import { SessionsList } from "../sessions-list";
 
 /** הפרופיל כפי שהשרת מחזיר אותו (‎GET /auth/profile). */
 interface ProfileDto {
@@ -37,14 +39,6 @@ import { PlanSection } from "../settings/plan-section";
  * ההעדפות נשמרות במכשיר (localStorage) ולא בשרת: הן תלויות מסך ועכבר,
  * וסוכן שעובד גם מהנייד וגם מהמשרד ירצה הגדרות שונות בכל אחד.
  */
-
-const ROLE_LABELS: Record<string, string> = {
-  owner: "בעלים",
-  admin: "מנהל",
-  agent: "סוכן",
-  assistant: "עוזר",
-  viewer: "צפייה בלבד",
-};
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 
@@ -185,7 +179,7 @@ export default function ProfilePage() {
         <div className="min-w-0">
           <h1 className="m-0" style={{ fontSize: 22, fontWeight: 800 }}>{user.name}</h1>
           <p className="m-0 mt-1 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
-            <span dir="ltr">{user.email}</span> · {ROLE_LABELS[user.role] ?? user.role}
+            <span dir="ltr">{user.email}</span> · {roleLabel(user.role)}
             {user.tenantName ? ` · ${user.tenantName}` : ""}
           </p>
         </div>
@@ -301,6 +295,18 @@ export default function ProfilePage() {
             </form>
           </section>
         </div>
+
+        {/* ---- חיבורים פתוחים ---- */}
+        <section className="mv-list-card px-5 py-[17px]" aria-labelledby="sessions-heading">
+          <h2 id="sessions-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+            חיבורים פתוחים
+          </h2>
+          <p className="m-0 mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+            כל מכשיר שמחובר לחשבון שלך עכשיו. חיבור שאינך מזהה — נתק אותו
+            והחלף סיסמה.
+          </p>
+          <SessionsList />
+        </section>
 
         {/* ---- נגישות ---- */}
         <section className="mv-list-card px-5 py-[17px]" aria-labelledby="a11y-heading">

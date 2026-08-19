@@ -11,6 +11,7 @@ import { WhatsNewBanner } from "./whats-new-banner";
 import { TrialBanner } from "./trial-banner";
 import { SoftphoneProvider } from "./softphone-bar";
 import { SupportButton } from "./support-button";
+import { roleLabel } from "@metavchim/shared";
 import { IconMenu, LogoMark } from "./icons";
 
 /**
@@ -220,16 +221,19 @@ const ICONS = {
   ),
 };
 
-const ROLE_LABELS: Record<string, string> = {
-  owner: "בעלים",
-  admin: "מנהל",
-  agent: "סוכן",
-  assistant: "עוזר",
-  viewer: "צפייה",
-};
-
-/** מי רואה את מסכי הניהול — "דוחות" ו"ניהול משרד" בעיצוב מוצגים למנהל בלבד. */
-const MANAGER_ROLES = new Set(["owner", "admin"]);
+/*
+ * „מנהל” היה כאן רשימת תפקידים אחת — `["owner","admin"]` — ששלטה
+ * בשלושה פריטים שונים בסרגל: „דוחות”, „ניהול משרד” ו„הקמה”.
+ *
+ * הצירוף הזה נכון רק כל עוד כל מי שרואה דוחות גם מגדיר את המשרד.
+ * מנהל סניף שובר אותו: יש לו `analytics.view` ואין לו
+ * `settings.manage`, ורשימה אחת הייתה נותנת לו את שניהם או שוללת
+ * את שניהם.
+ *
+ * לכן כל פריט נבדק מול היכולת שהמסך שמאחוריו באמת דורש — וזו גם
+ * היכולת שהשרת אוכף עליו, כך שהסרגל אינו יכול להבטיח מסך שיחזיר
+ * 403.
+ */
 
 /**
  * לאיזה מודול שייך כל פריט בסרגל.
@@ -260,6 +264,13 @@ const NAV_MODULE: Record<string, string> = {
 interface Me {
   name: string;
   role: string;
+  /**
+   * היכולות בפועל, אחרי חריגי ההרשאות — לא ברירת המחדל של התפקיד.
+   *
+   * הסרגל נגזר מהן ולא מ-`role`: מסך שנפתח לפי תפקיד ונחסם בשרת
+   * לפי יכולת מבטיח קישור שמחזיר 403.
+   */
+  capabilities?: string[];
   tenantName?: string;
   isPlatformAdmin?: boolean;
   /** סוף תקופת הניסיון; null = אין תפוגה. */
@@ -324,7 +335,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     // משרד שתקופתו נגמרה — כל נתיב שאינו מסך המנוי מוחזר 402; אין
     // טעם לשאול ולקבל שגיאה
-    if (isPublic || me === null || me.billingOnly === true || !MANAGER_ROLES.has(me.role)) return;
+    if (
+      isPublic ||
+      me === null ||
+      me.billingOnly === true ||
+      me.capabilities?.includes("settings.manage") !== true
+    ) {
+      return;
+    }
     apiGet<{ ready: boolean }>("/settings/onboarding")
       .then((p) => setSetupDone(p.ready))
       .catch(() => undefined);
@@ -433,7 +451,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const isManager = me !== null && MANAGER_ROLES.has(me.role);
+  const hasCapability = (capability: string): boolean =>
+    me?.capabilities?.includes(capability) ?? false;
+  /* „ניהול משרד” ו„הקמה” — מי שמגדיר את המשרד */
+  const managesOffice = hasCapability("settings.manage");
+  /* „דוחות” — מי שמורשה לקרוא את התמונה העסקית */
+  const seesReports = hasCapability("analytics.view");
 
   const navLink = (
     href: string,
@@ -528,12 +551,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           בלי שער מסלול — השת"פ הבסיסי פתוח בכל המסלולים.
         */}
         {navLink("/collaboration", 'שת"פים', ICONS.coop)}
-        {isManager && hasFeature("analytics")
+        {seesReports && hasFeature("analytics")
           ? navLink("/reports", "דוחות", ICONS.reports)
           : null}
         {navLink("/guides", "הדרכות", ICONS.guides)}
-        {isManager ? navLink("/settings", "ניהול משרד", ICONS.office) : null}
-        {isManager && !setupDone ? navLink("/setup", "הקמה", ICONS.setup) : null}
+        {managesOffice ? navLink("/settings", "ניהול משרד", ICONS.office) : null}
+        {managesOffice && !setupDone ? navLink("/setup", "הקמה", ICONS.setup) : null}
         {me?.isPlatformAdmin ? navLink("/platform", "פלטפורמה", ICONS.platform) : null}
       </nav>
 
@@ -544,7 +567,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </span>
           <span className="min-w-0">
             <span className="mv-sidebar-user-name">{me.name}</span>
-            <span className="mv-sidebar-user-role">{ROLE_LABELS[me.role] ?? me.role}</span>
+            <span className="mv-sidebar-user-role">{roleLabel(me.role)}</span>
           </span>
         </Link>
       ) : null}

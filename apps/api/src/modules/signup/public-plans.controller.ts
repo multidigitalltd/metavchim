@@ -2,6 +2,7 @@ import { Controller, Get, Header } from "@nestjs/common";
 import {
   formatPlanPrice,
   planPriceLabel,
+  PRICE_TERMS_NOTE,
   yearlySavingPercent,
   type PlanFeature,
 } from "@metavchim/shared";
@@ -46,9 +47,15 @@ export class PublicPlansController {
    * אלף פעם ביום אינו צריך לשאול את המסד בכל טעינה.
    */
   @Header("cache-control", "public, max-age=3600")
-  async list(): Promise<{ plans: MarketingPlan[] }> {
+  async list(): Promise<{ plans: MarketingPlan[]; priceNote: string }> {
     const all = await this.plans.all();
     return {
+      /*
+       * הסייג נשלח עם המחירון ולא נכתב באתר בנפרד. אתר שמנסח
+       * אותו לבד מתיישן ביום שהתנאים משתנים, וזה בדיוק הנוסח
+       * שאסור שיהיה לא מדויק.
+       */
+      priceNote: PRICE_TERMS_NOTE,
       /*
        * **כל** המסלולים, ולא רק הציבוריים. אין בקטלוג מסלול פנימי
        * או מסלול בדיקה — כל שורה בו היא מסלול שנמכר, ולכן החשיפה
@@ -74,6 +81,8 @@ export class PublicPlansController {
            * הזו היא שגרמה למסלול הרשת להופיע פעם כ„חינם”.
            */
           selfServe: plan.isPublic,
+          /* true = „בהתאמה”. שונה מ-`monthlyPrice: "חינם"` */
+          priceOnRequest: plan.priceOnRequest,
           trialDays: plan.trialDays,
           maxUsers: plan.maxUsers,
           maxProperties: plan.maxProperties,
@@ -94,6 +103,8 @@ export interface MarketingPlan {
   yearlySavingPercent: number | null;
   /** true = אפשר לרכוש מקוון; false = נסגר בשיחה. */
   selfServe: boolean;
+  /** true = המחיר נסגר בשיחה, ו-`monthlyPrice` הוא „בהתאמה”. */
+  priceOnRequest: boolean;
   trialDays: number;
   /** `null` = ללא הגבלה. */
   maxUsers: number | null;

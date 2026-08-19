@@ -28,6 +28,7 @@ const plan = (over: Partial<PlanDefinition> = {}): PlanDefinition => ({
   maxNetworkDemands: null,
   features: [],
   trialDays: 14,
+  priceOnRequest: false,
   isPublic: true,
   sortOrder: 1,
   ...over,
