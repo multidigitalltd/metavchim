@@ -236,6 +236,20 @@ function planEditor(
         ))}
       </fieldset>
 
+      {/*
+        שתי השאלות נפרדות בכוונה, כי הן באמת נפרדות: אחת אומרת
+        אם אפשר לקנות את המסלול לבד, והשנייה אם יש לו מחיר להציג.
+        מסלול יכול להיות מתומחר ועדיין להיסגר בשיחה.
+      */}
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={draft.priceOnRequest}
+          onChange={(e) => setDraft({ ...draft, priceOnRequest: e.target.checked })}
+        />
+        המחיר נסגר בשיחה — מוצג „בהתאמה” ולא כמספר
+      </label>
+
       <label className="flex items-center gap-2 text-sm">
         <input
           type="checkbox"
@@ -311,6 +325,7 @@ export function PlansSection({
       name: "",
       description: "",
       monthlyPriceAgorot: 0,
+      priceOnRequest: false,
       yearlyPriceAgorot: null,
       maxUsers: 5,
       maxProperties: 100,
@@ -513,7 +528,9 @@ export function PlansSection({
                     <p className="m-0 mb-2 text-sm">
                       {/* מסלול ציבורי ב-0 הוא חינם ולא "לפי הצעה" */}
                       <strong>{planPriceLabel(plan)}</strong>
-                      {plan.monthlyPriceAgorot > 0 ? " לחודש" : ""}
+                      {plan.priceOnRequest || plan.monthlyPriceAgorot <= 0
+                        ? ""
+                        : " לחודש"}
                       {plan.yearlyPriceAgorot !== null ? (
                         <>
                           {" · "}

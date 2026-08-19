@@ -205,6 +205,14 @@ const UpsertPlanSchema = z
     features: z.array(z.string().max(40)).max(50),
     trialDays: z.number().int().min(0).max(90),
     isPublic: z.boolean(),
+    /*
+     * ‎.default(false)‎ ולא חובה, מאותה סיבה כמו המגבלות: מסך שנכתב
+     * לפני שהדגל קיים שולח גוף בלי השדה, ו-‎.strict()‎ לבדו לא היה
+     * מצילו — היעדר ברירת מחדל היה הופך כל שמירה ישנה לשגיאה.
+     * `false` הוא גם המשמעות הנכונה של "לא נאמר": מחיר שמוצג כמספר,
+     * כפי שהיה לפני התוספת.
+     */
+    priceOnRequest: z.boolean().default(false),
     sortOrder: z.number().int().min(0).max(9999),
   })
   .strict();

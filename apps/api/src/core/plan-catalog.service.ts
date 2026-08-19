@@ -215,6 +215,7 @@ export class PlanCatalogService {
       maxNetworkDemands: plan.maxNetworkDemands,
       features,
       trialDays: plan.trialDays,
+      priceOnRequest: plan.priceOnRequest,
       isPublic: plan.isPublic,
       sortOrder: plan.sortOrder,
       updatedBy,
@@ -261,6 +262,7 @@ export class PlanCatalogService {
         maxNetworkDemands: plan.maxNetworkDemands,
         features: sanitizeFeatures(plan.features),
         trialDays: plan.trialDays,
+        priceOnRequest: plan.priceOnRequest,
         isPublic: plan.isPublic,
         sortOrder: plan.sortOrder,
         updatedBy: retiredBy,
@@ -283,6 +285,7 @@ export class PlanCatalogService {
     maxNetworkDemands: number | null;
     features: string[];
     trialDays: number;
+    priceOnRequest: boolean;
     isPublic: boolean;
     sortOrder: number;
   }): PlanDefinition {
@@ -301,6 +304,7 @@ export class PlanCatalogService {
       // לא אמורה להמשיך להזכות בו
       features: sanitizeFeatures(row.features),
       trialDays: row.trialDays,
+      priceOnRequest: row.priceOnRequest,
       isPublic: row.isPublic,
       sortOrder: row.sortOrder,
     };

@@ -35,6 +35,7 @@ function row(code: string, overrides: Record<string, unknown> = {}): PlanRow {
     features: [],
     trialDays: 14,
     isPublic: true,
+    priceOnRequest: false,
     sortOrder: 1,
     retiredAt: null,
     ...overrides,
