@@ -331,6 +331,14 @@ export const IconDoc = ({ s }: IconProps) => (
   </svg>
 );
 
+/** העתקה ללוח — שני מלבנים חופפים, המוסכמה המוכרת. */
+export const IconCopy = ({ s }: IconProps) => (
+  <svg {...svgProps(s)}>
+    <rect x="9" y="3.5" width="11.5" height="14" rx="2" />
+    <path d="M15 17.5v1a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h1" />
+  </svg>
+);
+
 export const IconRefresh = ({ s }: IconProps) => (
   <svg {...svgProps(s)}>
     <path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" />

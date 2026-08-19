@@ -1158,6 +1158,33 @@ button.mv-list-row:hover {
   scroll-margin-top: 88px;
 }
 
+/*
+ * עוגן הסעיף בתיעוד הציבורי.
+ *
+ * שקוף עד ריחוף — כדי שקריאה רצופה לא תיראה מנוקדת בסולמיות —
+ * ומופיע במלואו בפוקוס מקלדת. בלי הכלל השני היה כאן פוקוס על
+ * אלמנט בלתי נראה, כלומר משתמש מקלדת שאינו יודע איפה הוא נמצא.
+ *
+ * `opacity` ולא `display: none`: אלמנט מוסתר אינו ניתן למיקוד
+ * כלל, וזה בדיוק מה שצריך לעבוד כאן.
+ */
+.mv-anchor-link {
+  color: var(--color-text-muted);
+  font-weight: 400;
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.mv-doc-section:hover .mv-anchor-link,
+.mv-anchor-link:focus-visible {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mv-anchor-link {
+    transition: none;
+  }
+}
+
 /* צ'יפ סינון (ערים בנכסים, סוגי שיחות) */
 .mv-chip {
   border: 1px solid var(--color-input-border);

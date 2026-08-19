@@ -10,6 +10,45 @@
  * ריק, וזה בדיוק הקהל שהעמודים האלה נכתבו בשבילו.
  */
 
+import type { DocPassage } from "@/lib/guide-content";
+import { LogoMark } from "../icons";
+
+/**
+ * פסקאות סעיף המסגרת, מתוך `guide-content`.
+ *
+ * העמוד מצייר ומהקובץ נגזר ה-Markdown — **מאותו מקור**. כשהטקסט
+ * ישב ב-JSX, „התיעוד המלא” שהעמוד הציע להעתיק לא הכיל אותו כלל.
+ *
+ * מה שנשאר בעמוד הם רק הדברים שאינם טקסט קבוע: בלוק הכתובת,
+ * ופרטי המפעילה שנערכים בזמן ריצה ב-/platform. הם מוזרמים
+ * כ-`children` ומופיעים בסוף הסעיף.
+ */
+export function DocPassages({ passages }: { passages: DocPassage[] }) {
+  return (
+    <>
+      {passages.map((passage, index) =>
+        passage.kind === "link" ? (
+          <p key={passage.href} className="mb-3">
+            <a href={passage.href} className="mv-chip no-underline">
+              {passage.label}
+            </a>
+          </p>
+        ) : (
+          <p
+            // הפסקאות קבועות בקובץ ואינן נערכות, ולכן המיקום הוא מזהה יציב
+            key={index}
+            className="mb-2"
+            style={passage.muted === true ? { color: "var(--color-text-muted)" } : undefined}
+          >
+            {passage.lead === undefined ? null : <b>{passage.lead}</b>}
+            {passage.lead === undefined ? passage.body : ` ${passage.body}`}
+          </p>
+        ),
+      )}
+    </>
+  );
+}
+
 export const inlineCode = {
   background: "var(--color-hover-soft)",
   padding: "2px 6px",
@@ -17,11 +56,19 @@ export const inlineCode = {
   fontSize: "0.9em",
 } as const;
 
-/** בלוק קוד או כתובת — תמיד LTR, גם בתוך עמוד עברי. */
+/**
+ * בלוק קוד או כתובת — תמיד LTR, גם בתוך עמוד עברי.
+ *
+ * `lang="en"` ולא רק `dir`: הדף מוצהר `lang="he"`, וקורא מסך
+ * שמקבל `https://app.metavchim.co.il` בהגייה עברית מקריא רצף
+ * אותיות חסר פשר. ההצהרה מחליפה את קול ההקראה לאנגלית בדיוק על
+ * הקטע הזה.
+ */
 export function Code({ children }: { children: string }) {
   return (
     <pre
       dir="ltr"
+      lang="en"
       className="my-3 overflow-x-auto rounded-lg p-3 text-xs leading-relaxed"
       style={{
         background: "var(--color-hover-soft)",
@@ -39,6 +86,16 @@ export function Code({ children }: { children: string }) {
  * ה-`id` אינו קישוט: הוא מה שמאפשר לשלוח למישהו קישור לסעיף
  * מסוים במקום "תגלול עד שתמצא", וזה גם מה שמודל שפה מצטט כשהוא
  * עונה על שאלה מתוך התיעוד.
+ *
+ * ## למה הכותרת עצמה אינה הקישור
+ *
+ * היא הייתה. קישור שעוטף כותרת שלמה ונראה בדיוק כמו טקסט רגיל
+ * הוא קישור שאיש אינו יודע שקיים — ובקורא מסך הוא ההפך: כל
+ * כותרת בעמוד מוכרזת כ„קישור”, בלי שיש לזה משמעות.
+ *
+ * במקומה יש עוגן קטן ומפורש אחרי הכותרת, עם שם נגיש שאומר לאן
+ * הוא מוביל. הוא מתגלה בריחוף ובפוקוס מקלדת — כלומר קיים לשתי
+ * דרכי השימוש, ואינו מרעיש בקריאה רגילה.
  */
 export function DocSection({
   id,
@@ -52,17 +109,18 @@ export function DocSection({
   return (
     <section
       aria-labelledby={id}
-      className="mb-10"
+      className="mv-doc-section mb-10"
       // הכותרת לא נחתכת מתחת לראש העמוד בקפיצה לעוגן
       style={{ scrollMarginTop: 80 }}
     >
-      <h2 id={id} className="mb-3 text-xl font-bold">
+      <h2 id={id} className="mb-3 flex items-baseline gap-2 text-xl font-bold">
+        {title}
         <a
           href={`#${id}`}
-          className="no-underline"
-          style={{ color: "inherit" }}
+          className="mv-anchor-link"
+          aria-label={`קישור ישיר לסעיף ${title}`}
         >
-          {title}
+          #
         </a>
       </h2>
       {children}
@@ -90,11 +148,47 @@ export function DocNav({
 }
 
 /**
+ * הסימן של המערכת מעל התיעוד.
+ *
+ * `/docs` נפתח לא פעם מקישור ישיר — מתוצאת חיפוש, מהודעה, או
+ * מתשובה של מודל שפה — ואז זה העמוד הראשון והיחיד שהקורא רואה.
+ * בלי הסימן הוא מסמך בלי שם: ברור מה כתוב בו, לא ברור של מי.
+ *
+ * הסימן עצמו `aria-hidden`: הוא ציור של אותן מילים שכתובות
+ * לצידו, וקורא מסך שמקריא את שתיהן חוזר על עצמו. השם הנגיש הוא
+ * הטקסט — „מתווכים · תיעוד”.
+ */
+function DocBrand() {
+  return (
+    <p className="m-0 mb-5 flex items-center gap-2.5">
+      <LogoMark s={28} />
+      <span className="text-lg font-extrabold">
+        מתווכים
+        {/* הנקודה היא סימן ולא מילה — קורא מסך לא אמור להגות אותה */}
+        <span aria-hidden="true" style={{ color: "var(--color-action)" }}>
+          .
+        </span>
+      </span>
+      <span aria-hidden="true" style={{ color: "var(--color-border)" }}>
+        |
+      </span>
+      <span className="text-lg" style={{ color: "var(--color-text-muted)" }}>
+        תיעוד
+      </span>
+    </p>
+  );
+}
+
+/**
  * ראש העמוד + מעבר בין שני מסמכי התיעוד.
  *
  * הקישור ההדדי כאן ולא רק בסוף העמוד: מי שהגיע לתיעוד המשתמש
  * בחיפוש על "איך מחברים לידים" צריך למצוא את תיעוד ה-API בלי
  * לקרוא עשרה סעיפים קודם, ולהפך.
+ *
+ * המסמך הנוכחי מסומן גם ב-`aria-current` וגם **בהדגשה** ולא רק
+ * בצבע. הבחנה שכל כולה גוון אחר אובדת אצל מי שאינו מבחין בו —
+ * וזו בדיוק הסיבה שהתקן אוסר להסתמך עליה לבדה.
  */
 export function DocHeader({
   title,
@@ -105,31 +199,22 @@ export function DocHeader({
   lead: string;
   current: "product" | "api";
 }) {
+  const chip = (isCurrent: boolean) => ({
+    className: `mv-chip no-underline${isCurrent ? " font-extrabold" : ""}`,
+    "aria-current": isCurrent ? ("page" as const) : undefined,
+    style: isCurrent
+      ? { borderColor: "var(--color-primary)", color: "var(--color-primary)" }
+      : undefined,
+  });
+
   return (
     <header className="mb-8">
+      <DocBrand />
       <nav aria-label="מסמכי התיעוד" className="mb-4 flex flex-wrap gap-2">
-        <a
-          href="/docs"
-          className="mv-chip no-underline"
-          aria-current={current === "product" ? "page" : undefined}
-          style={
-            current === "product"
-              ? { borderColor: "var(--color-primary)", color: "var(--color-primary)" }
-              : undefined
-          }
-        >
+        <a href="/docs" {...chip(current === "product")}>
           המדריך למערכת
         </a>
-        <a
-          href="/docs/api"
-          className="mv-chip no-underline"
-          aria-current={current === "api" ? "page" : undefined}
-          style={
-            current === "api"
-              ? { borderColor: "var(--color-primary)", color: "var(--color-primary)" }
-              : undefined
-          }
-        >
+        <a href="/docs/api" {...chip(current === "api")}>
           קליטת לידים (API)
         </a>
       </nav>
