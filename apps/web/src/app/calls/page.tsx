@@ -160,9 +160,9 @@ export default function CallsPage() {
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          תיעוד שיחה לוקח 20 שניות ושומר את ההקשר לפעם הבאה שתדברו עם הלקוח.
-        </p>
+        <h1 className="m-0" style={{ fontSize: 22, fontWeight: 800 }}>
+          שיחות
+        </h1>
         <button type="button" className="mv-btn-action ms-auto" onClick={() => setAdding((v) => !v)}>
           {adding ? "ביטול" : "+ תעד שיחה"}
         </button>
