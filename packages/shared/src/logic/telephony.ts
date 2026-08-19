@@ -274,7 +274,12 @@ export function phoneFromSipUri(uri: string): string {
  * אותה תבנית של PhoneSchema — מספר ישראלי תקין אחרי נרמול.
  * מוגדרת כאן ולא מיובאת כדי שהקובץ יישאר בלי תלות ב-zod.
  */
-const ISRAELI_PHONE = /^\+972[2-9]\d{7,8}$/u;
+/*
+ * מיוצא כדי שהמספרים הווירטואליים ישתמשו **באותה** בדיקה בדיוק.
+ * עותק שני היה יכול לסטות, ואז מספר שנשמר כתקין לא היה מותאם
+ * כשמתקשרים אליו — בלי שום שגיאה שמישהו יראה.
+ */
+export const ISRAELI_PHONE = /^\+972[2-9]\d{7,8}$/u;
 
 export type CallEventType = "ringing" | "answered" | "ended" | "missed";
 export type CallDirection = "inbound" | "outbound";
@@ -289,6 +294,18 @@ export interface TelephonyEvent {
   providerCallId: string;
   /** שלוחה/משתמש במרכזייה, לשיוך לסוכן. */
   extension?: string;
+  /**
+   * המספר שאליו הלקוח התקשר — **הצד שלנו בשיחה**.
+   *
+   * עד כה הוא נזרק: `readCore` חילץ את שני הצדדים ושמר רק את הלקוח.
+   * הוא הבסיס למספרים וירטואליים — מספר נפרד לכל קמפיין, לכל סוכן
+   * או לכל נכס — ובלעדיו אי אפשר לדעת *מאיפה* הגיעה השיחה, רק *ממי*.
+   *
+   * `undefined` כשהמספר אינו מספר טלפון ישראלי תקין: שלוחה פנימית
+   * בת שלוש ספרות אינה מספר שמפרסמים, ושמירתה הייתה מייצרת "מספר
+   * וירטואלי" שלעולם לא יותאם לשום הגדרה.
+   */
+  dialedNumber?: string;
   durationSeconds?: number;
 }
 
@@ -391,6 +408,8 @@ function readCore(raw: Record<string, unknown>): {
   providerCallId: string;
   direction: CallDirection;
   peerRaw: string;
+  /** הצד שלנו — המספר שאליו התקשרו. ראו `dialedNumber`. */
+  ownRaw: string;
 } {
   const pick = pickFrom(raw);
   const providerCallId = pick(...CALL_ID_KEYS);
@@ -406,10 +425,16 @@ function readCore(raw: Record<string, unknown>): {
    */
   const source = pick(...SOURCE_KEYS);
   const destination = pick(...DESTINATION_KEYS);
+  /*
+   * הצד שלנו הוא ההפך המדויק של הצד השני, ולכן נגזר מאותם שני
+   * ערכים ובאותו כיוון — ולא מרשימת שדות שלישית שהייתה יכולה
+   * לסטות מהם.
+   */
   return {
     providerCallId,
     direction,
     peerRaw: direction === "outbound" ? destination || source : source || destination,
+    ownRaw: direction === "outbound" ? source : destination,
   };
 }
 
@@ -439,6 +464,65 @@ function pickFrom(raw: Record<string, unknown>): (...keys: string[]) => string {
 const SAFE_KEY = /^[A-Za-z][A-Za-z0-9_.-]{0,39}$/u;
 const MAX_DIAGNOSTIC_KEYS = 25;
 
+/**
+ * שדות שמותר לשמור **עם הערך** ביומן האבחון.
+ *
+ * רשימת היתר ולא רשימת חסימה, ובכוונה: הגוף מגיע מגורם חיצוני, וכל
+ * שדה שלא חשבנו עליו הוא שדה שעלול להכיל מספר טלפון או שם של לקוח.
+ * רשימת חסימה הייתה מדליפה בדיוק את מה שלא צפינו.
+ *
+ * מה שבפנים הוא טכני בלבד — נתיב הקלטה, סטטוס, כיוון, מזהים
+ * וזמנים. מה שבחוץ הוא כל מה שמזהה אדם: `callerid_external`,
+ * `snumber`, `cnumber`, `callername`.
+ *
+ * הצורך אמיתי: כשמרכזייה מתחילה לשלוח שדה חדש, לדעת ש"הוא הגיע"
+ * אינו מספיק — צריך לראות את **הצורה** של הערך כדי לבנות מולו.
+ */
+const VALUE_SAFE_KEYS = new Set([
+  "recording",
+  "status",
+  "direction",
+  "callid",
+  "uniqueid",
+  "start",
+  "answered",
+  "end",
+  "talktime",
+  "totaltime",
+  "extension",
+  "server",
+  "stype",
+  "ctype",
+  "dtype",
+]);
+
+/** אורך מרבי לערך בודד ביומן — נתיב הקלטה ארוך אינו מציף את השורה. */
+const MAX_VALUE_LENGTH = 120;
+
+/**
+ * שמות השדות, ולשדות הטכניים גם הערך.
+ *
+ * `key=value` למה שבטוח, `key` בלבד לכל השאר — כך שורה אחת ביומן
+ * עונה גם על "מה הגיע" וגם על "איך זה נראה", בלי להכניס פרטי לקוח
+ * לעמודה שנקראת בעיניים.
+ */
+export function diagnosticFields(raw: Record<string, unknown>): string {
+  const parts: string[] = [];
+  for (const key of Object.keys(raw).slice(0, MAX_DIAGNOSTIC_KEYS)) {
+    if (!SAFE_KEY.test(key)) {
+      parts.push("‹שדה לא תקני›");
+      continue;
+    }
+    const value = raw[key];
+    const printable =
+      VALUE_SAFE_KEYS.has(key) && (typeof value === "string" || typeof value === "number")
+        ? String(value).slice(0, MAX_VALUE_LENGTH)
+        : null;
+    parts.push(printable !== null && printable !== "" ? `${key}=${printable}` : key);
+  }
+  return [...new Set(parts)].join(", ").slice(0, 1000);
+}
+
 export function safeDiagnosticKeys(keys: readonly string[]): string {
   const seen = new Set<string>();
   for (const key of keys.slice(0, MAX_DIAGNOSTIC_KEYS)) {
@@ -450,7 +534,7 @@ export function safeDiagnosticKeys(keys: readonly string[]): string {
 export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEvent | null {
   // אותם שמות שדות בדיוק כמו באבחון — readCore הוא המקור היחיד
   const pick = pickFrom(raw);
-  const { providerCallId, direction, peerRaw } = readCore(raw);
+  const { providerCallId, direction, peerRaw, ownRaw } = readCore(raw);
   if (providerCallId === "") return null;
   if (peerRaw === "") return null;
 
@@ -473,8 +557,23 @@ export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEven
     providerCallId,
     // השלוחה היא של המשרד; ביעד כבר השתמשנו לבחירת הצד השני
     extension: pick(...EXTENSION_KEYS) || undefined,
+    /*
+     * המספר שאליו התקשרו — רק אם הוא מספר ישראלי תקין.
+     *
+     * שלוחה פנימית ("203") ותווית מרכזייה אינן מספרים שמפרסמים,
+     * ושמירתן הייתה מייצרת "מספר וירטואלי" שלעולם לא יותאם לשום
+     * הגדרה — ורעש בדוח הקמפיינים.
+     */
+    dialedNumber: dialedNumberOf(ownRaw),
     durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : undefined,
   };
+}
+
+/** המספר שלנו בצורתו המנורמלת, או `undefined` כשאינו מספר טלפון. */
+function dialedNumberOf(raw: string): string | undefined {
+  if (raw === "") return undefined;
+  const normalized = normalizePhone(raw);
+  return ISRAELI_PHONE.test(normalized) ? normalized : undefined;
 }
 
 /**
@@ -550,16 +649,30 @@ export interface CallAction {
  * המתווך רוצה לדעת *מי מתקשר* לפני שהוא עונה. לכן ההתראה בצלצול.
  *
  * **פתיחת ליד על כל מספר לא מוכר** הייתה מייצרת לידים מטעויות חיוג,
- * ממוקדנים וממספרים חסויים. לכן ליד נפתח רק כששיחה נכנסת ממספר לא
- * מוכר גם *נענתה* — מישהו באמת דיבר איתו.
+ * ממוקדנים וממספרים חסויים. לכן ליד נפתח רק כשהשיחה גם *נענתה* —
+ * מישהו באמת דיבר איתו.
+ *
+ * ## למה גם שיחה יוצאת פותחת ליד
+ *
+ * עד כה `createLead` היה מוגבל לשיחות נכנסות, ולכן סוכן שהתקשר
+ * ללקוח חדש יצר **שורת שיחה יתומה**: בלי `contactId` ובלי `leadId`,
+ * כלומר שורה שאינה מופיעה בשום כרטיס ואי אפשר להגיע אליה מאף מסך.
+ * מבחינת המתווך "לא נרשם כלום".
+ *
+ * זה הפוך מהמציאות של תיווך: מתווך שמחייג ללקוח פוטנציאלי, מציע לו
+ * נכס ומדבר איתו — ביצע בדיוק את הפעולה שהמערכת אמורה לתעד. שיחה
+ * יוצאת שנענתה היא **ראיה חזקה יותר** לעניין מאשר שיחה נכנסת: היא
+ * דורשת שהסוכן טרח לחייג.
+ *
+ * ההגנה מפני זבל נשארת אותה הגנה — רק שיחה שנענתה, ורק למספר שאינו
+ * מוכר. חיוג שגוי שנותק בצלצול אינו פותח דבר.
  */
 export function callAction(event: TelephonyEvent, knownContact: boolean): CallAction {
   const finished = event.type === "ended" || event.type === "missed";
   return {
     logCall: finished,
     notify: event.type === "ringing" && event.direction === "inbound",
-    createLead:
-      event.type === "ended" && event.direction === "inbound" && !knownContact,
+    createLead: event.type === "ended" && !knownContact,
   };
 }
 
@@ -625,6 +738,15 @@ export function build015DialUrl(input: {
     // "phone" = קו טלפון ולא מספר חיצוני; זו הצורה של שלוחת הסוכן
     ["stype", "phone"],
     ["snumber", input.agentLine],
+    /*
+     * ‎`ctype` ריק = **מספר חיצוני**, ולא קו במרכזייה.
+     *
+     * התיעוד מסמן אותו כ"מומלץ" ואנחנו השמטנו אותו לגמרי. ברירת
+     * המחדל של הספק אינה מובטחת, ואם היא תיפול ל"קו" — היעד היה
+     * מתפרש כשלוחה פנימית, כלומר חיוג ללקוח שמצלצל לשום מקום.
+     * שליחה מפורשת עולה כלום ומסירה את ההימור (מול התיעוד).
+     */
+    ["ctype", ""],
     ["cnumber", input.destination],
     ["wait", String(input.waitSeconds ?? 5)],
     // מזהה המתקשר על הרגל **השנייה** — זה מה שהלקוח רואה

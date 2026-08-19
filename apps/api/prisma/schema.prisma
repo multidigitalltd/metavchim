@@ -1278,8 +1278,9 @@ model TelephonyWebhookHit {
   keyPrefix  String   @map("key_prefix") @db.VarChar(12)
   /// GET או POST — ספק ששולח בשיטה שלא ציפינו לה נראה מיד
   method     String   @db.VarChar(6)
-  /// שמות השדות שהגיעו, **בלי הערכים** (safeDiagnosticKeys)
-  fieldKeys  String?  @map("field_keys") @db.VarChar(400)
+  /// השדות שהגיעו — שמות תמיד, וערכים לשדות הטכניים בלבד
+  /// (`diagnosticFields`). מספרי טלפון ושמות לקוחות לעולם לא.
+  fieldKeys  String?  @map("field_keys") @db.VarChar(1000)
 
   @@index([receivedAt])
   @@map("telephony_webhook_hits")
@@ -1444,6 +1445,19 @@ model Call {
   appointmentId       String?   @map("appointment_id") @db.Char(26)
   phoneEncrypted      String?   @map("phone_encrypted")
   phoneHash           String?   @map("phone_hash") @db.Char(64)
+  /// המספר שאליו הלקוח התקשר — **הצד שלנו**, ולכן אינו מוצפן.
+  ///
+  /// זה מספר המשרד ולא של הלקוח: אין בו פרט מזהה של אדם, והוא
+  /// חייב להישאר קריא כדי שאפשר יהיה לקבץ לפיו ולמדוד קמפיינים.
+  /// הצפנתו הייתה הופכת את דוח "כמה שיחות מכל מספר" לבלתי אפשרי.
+  dialedNumber        String?   @map("dialed_number") @db.VarChar(20)
+  /// שם המספר הווירטואלי **כפי שהיה ברגע השיחה** — צילום, לא הפניה.
+  ///
+  /// ההגדרה יכולה להימחק או להשתנות, וההיסטוריה לא אמורה להשתנות
+  /// איתה: "התקשר אל קמפיין פייסבוק ינואר" הוא מה שקרה, גם אם
+  /// הקמפיין נמחק מאז. הפניה חיה הייתה הופכת שיחות ישנות ל"מספר
+  /// לא מוגדר" ומאבדת בדיוק את המידע שבשבילו התכונה קיימת.
+  dialedLabel         String?   @map("dialed_label") @db.VarChar(60)
   occurredAt          DateTime  @map("occurred_at")
   durationMinutes     Int?      @map("duration_minutes")
   /// answered | missed | no_answer | voicemail
@@ -1467,7 +1481,43 @@ model Call {
   @@index([tenantId, contactId])
   @@index([tenantId, leadId])
   @@index([tenantId, appointmentId])
+  /// דוח "כמה שיחות מכל מספר וירטואלי" רץ על הצירוף הזה
+  @@index([tenantId, dialedNumber])
   @@map("calls")
+}
+
+/// מספר וירטואלי — מספר נפרד לכל פרסום, סוכן או נכס.
+///
+/// שיחה נכנסת אומרת **מי** התקשר; היא אינה אומרת **מה גרם לו**.
+/// משרד שמפרסם בארבעה ערוצים אינו יודע איזה מהם עובד ומשלם על
+/// כולם. המספר שאליו התקשרו הוא בעצמו הנתון.
+///
+/// שלושה שימושים ומנגנון אחד: מדידת קמפיין, ניתוב לסוכן, וזיהוי
+/// הנכס שהמספר מפרסם. שלושתם "מספר, ומה לעשות כשמתקשרים אליו",
+/// ולכן טבלה אחת — משרד שרוצה גם וגם ממלא שני שדות באותה שורה.
+model VirtualNumber {
+  id               String   @id @db.Char(26)
+  tenantId         String   @map("tenant_id") @db.Char(26)
+  /// מנורמל בכתיבה (‎+9723…‎) כדי שההשוואה מול המרכזייה תמיד תתפוס
+  phone            String   @db.VarChar(20)
+  /// שם לאדם: "קמפיין פייסבוק ינואר", "שלט ברבי עקיבא 12"
+  label            String   @db.VarChar(60)
+  /// מקור הליד שייכתב על כל ליד מהמספר. ריק ⇒ התווית משמשת כמקור.
+  leadSource       String   @default("") @map("lead_source") @db.VarChar(20)
+  /// הסוכן שיקבל את הליד. null ⇒ לערימה המשותפת.
+  assignedToUserId String?  @map("assigned_to_user_id") @db.Char(26)
+  /// הנכס שהמספר מפרסם. null ⇒ לא ידוע.
+  propertyId       String?  @map("property_id") @db.Char(26)
+  /// כיבוי ולא מחיקה: קמפיין שהסתיים מפסיק לנתב, וההיסטוריה
+  /// שלפיה מודדים אותו בדיעבד נשארת.
+  isActive         Boolean  @default(true) @map("is_active")
+  createdBy        String?  @map("created_by") @db.Char(26)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  /// אותו מספר פעמיים באותו משרד הוא ניתוב דו-משמעי
+  @@unique([tenantId, phone])
+  @@map("virtual_numbers")
 }
 
 /**

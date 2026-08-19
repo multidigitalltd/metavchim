@@ -57,6 +57,18 @@ interface LeadDetail {
   summary?: string;
 }
 
+/**
+ * המספר שאליו הלקוח התקשר.
+ *
+ * `label` קיים רק כשהמספר מוגדר כמספר וירטואלי בהגדרות. בלעדיו
+ * מוצג המספר עצמו — וגם זה שימושי: מספר לא מוכר שחוזר בלידים הוא
+ * סימן שכדאי להגדיר אותו ולהתחיל למדוד.
+ */
+interface DialedNumber {
+  phone: string;
+  label?: string;
+}
+
 interface TimelineItem {
   id: string;
   kind: string;
@@ -742,14 +754,18 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
   const merged = useSearchParams().get("merged") === "1";
   const [lead, setLead] = useState<LeadDetail | null>(null);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
+  const [dialed, setDialed] = useState<DialedNumber | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
-    apiGet<{ lead: LeadDetail; timeline: TimelineItem[] }>(`/leads/${id}`)
+    apiGet<{ lead: LeadDetail; timeline: TimelineItem[]; dialedNumber?: DialedNumber }>(
+      `/leads/${id}`,
+    )
       .then((res) => {
         setLead(res.lead);
         setTimeline(res.timeline);
+        setDialed(res.dialedNumber ?? null);
       })
       .catch(() => setError("הליד לא נמצא"));
   }, [authLoading, id]);
@@ -813,6 +829,20 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
       </div>
       <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
         {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent} · מקור: {LEAD_SOURCE_LABELS[lead.source] ?? lead.source}
+        {/*
+          המספר שאליו הלקוח התקשר — ברזולוציה שהמקור לבדו אינו נותן.
+          משרד שמריץ שלוש מודעות באותו ערוץ רואה שלוש שורות עם אותו
+          מקור; המספר הוא מה שמפריד ביניהן.
+        */}
+        {dialed !== null ? (
+          <>
+            {" · התקשר אל: "}
+            <span style={{ color: "var(--color-text)" }}>
+              {dialed.label ?? "מספר לא מוגדר"}
+            </span>{" "}
+            <span dir="ltr">({dialed.phone})</span>
+          </>
+        ) : null}
       </p>
 
       {/*

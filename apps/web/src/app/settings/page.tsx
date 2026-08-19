@@ -17,6 +17,7 @@ import { PlanSection } from "./plan-section";
 import { WhatsAppStatusSection } from "./whatsapp-status-section";
 import { LockedFeature } from "./locked-feature";
 import { TelephonySection } from "./telephony-section";
+import { VirtualNumbersSection } from "./virtual-numbers-section";
 import { SupportAccessSection } from "./support-access-section";
 import { SupportTicketsSection } from "./support-tickets-section";
 import { GmailSection } from "./gmail-section";
@@ -902,7 +903,15 @@ export default function SettingsPage() {
               ) : null}
               <div id="telephony">
                 {canTelephony ? (
-                  <TelephonySection />
+                  <>
+                    <TelephonySection />
+                    {/*
+                      צמוד למרכזייה ולא בסעיף משלו: מספר וירטואלי הוא
+                      חסר משמעות בלי חיבור שמביא את השיחות, וסעיף נפרד
+                      היה מזמין להגדיר ניתוב לשיחות שלא יגיעו.
+                    */}
+                    <VirtualNumbersSection />
+                  </>
                 ) : (
                   <LockedFeature
                     code="telephony"
