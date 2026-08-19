@@ -1,18 +1,26 @@
 # 10 — פריסה לפרודקשן (VPS + Docker)
 
-המערכת נפרסת כשבעה קונטיינרים על שרת יחיד: Postgres, Redis, MinIO,
+**המסמך הזה הוא רנבוק תפעולי של ההתקנה שלנו, לא מדריך התקנה
+ללקוח.** מתווכים היא מערכת ענן בהתקנה אחת — `app.metavchim.co.il` —
+ואין התקנות בשרת של משרד. כל משרד מקבל סביבה מבודדת בתוך אותה
+מערכת, והבידוד נאכף במסד הנתונים (RLS) ולא בהפרדת שרתים. מכאן
+שהקורא היחיד של המסמך הוא מי שמתפעל את השרת הזה.
+
+המערכת רצה כשבעה קונטיינרים על שרת יחיד: Postgres, Redis, MinIO,
 ‏API, Workers, Web, ‏Caddy (שער HTTPS) — ועוד **updater**, סוכן עדכון
-זעיר שמאחורי כפתור "עדכן גרסה" במסך ההגדרות.
+זעיר שמאחורי כפתור העדכון במסך הפלטפורמה.
 
 **זרימת גרסה:** מיזוג ל-`main` ⟵ CI בונה ארבע תמונות ודוחף ל-GHCR ⟵
-בעל המשרד לוחץ "משוך ועדכן לגרסה האחרונה" ⟵ הסוכן מושך `:latest`
-ומרים את api/web/workers מחדש (דקה, ללא מגע SSH).
+מפעיל הפלטפורמה לוחץ "משוך ועדכן לגרסה האחרונה" ב-`/platform` ⟵
+הסוכן מושך `:latest` ומרים את api/web/workers מחדש (דקה, ללא מגע
+SSH). העדכון מרים את השירות לכל המשרדים יחד, ולכן הוא אינו פעולה
+של מנהל משרד.
 
 ## דרישות
 
 - שרת Linux (‏2GB RAM ומעלה; Hetzner/DigitalOcean וכו') עם Docker Engine + Compose v2.
-- דומיין שמצביע (רשומת A) על ה-IP של השרת — Caddy ינפיק תעודת TLS אוטומטית.
-- פורטים 80 ו-443 פתוחים.
+- רשומת A ל-`app.metavchim.co.il` שמצביעה על ה-IP של השרת — Caddy ינפיק תעודת TLS אוטומטית.
+- פורטים 80 ו-443 פתוחים, ו-Caddy הוא היחיד שמאזין עליהם.
 
 ## הקמה ראשונית (פעם אחת)
 
@@ -39,58 +47,13 @@ docker compose -f docker-compose.prod.yml --env-file .env.production exec api \
 
 נכנסים ל-`https://<הדומיין>`, מתחברים עם הסיסמה הזמנית ומחליפים אותה.
 
-## שרת עם אתר קיים (nginx כבר תופס 80/443)
-
-אין צורך בשרת נפרד: משאירים את ה-nginx הקיים כשער היחיד ומחברים את
-מטווחים דרכו. ה-Web וה-API חשופים תמיד על loopback בלבד
-(‏127.0.0.1:8090 ו-8091 — לא נגישים מהאינטרנט), כך שהאתר הקיים לא
-מושפע כלל.
-
-1. ב-`.env.production` משנים את `COMPOSE_PROFILES=standalone` ל-
-   `COMPOSE_PROFILES=` (ריק) — Caddy לא יעלה ולא יתחרה על הפורטים.
-2. מריצים `up -d` כרגיל (צעד 4 למעלה).
-3. מוסיפים site ל-nginx — `/etc/nginx/sites-available/metavchim`:
-
-```nginx
-server {
-    listen 80;
-    server_name crm.example.co.il;   # הדומיין מ-.env.production
-
-    client_max_body_size 25m;
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:8091;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location / {
-        proxy_pass http://127.0.0.1:8090;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-```bash
-ln -s /etc/nginx/sites-available/metavchim /etc/nginx/sites-enabled/
-nginx -t && systemctl reload nginx
-# תעודת HTTPS (certbot מוסיף את ה-443 לבד ומחדש אוטומטית)
-certbot --nginx -d crm.example.co.il
-```
-
-‏`TRUST_PROXY_HOPS=1` נשאר כמו שהוא — nginx הוא שכבת ה-Proxy היחידה.
-כפתור העדכון עובד זהה בשני המצבים (הסוכן לא נוגע בשער הכניסה).
-
 ## עדכון גרסה
 
-**הדרך הרגילה — מתוך המערכת:** הגדרות ⟵ "מערכת" ⟵
-"משוך ועדכן לגרסה האחרונה" (מוצג לבעלי הרשאת ניהול הגדרות). הפעולה
-נרשמת ביומן הביקורת. אם עדכון כבר רץ מתקבלת שגיאת "עדכון כבר רץ".
+**הדרך הרגילה — מתוך המערכת:** `/platform` ⟵ "מערכת" ⟵
+"משוך ועדכן לגרסה האחרונה". המסך הזה הוא של מפעיל הפלטפורמה בלבד:
+העדכון מרים מחדש את השירות לכל המשרדים, ולכן אינו בידי מנהל משרד —
+במסך ההגדרות של המשרד מוצגת הגרסה המותקנת בלבד. הפעולה נרשמת ביומן
+הביקורת. אם עדכון כבר רץ מתקבלת שגיאת "עדכון כבר רץ".
 
 **מה קורה מאחורי הקלעים:** ה-API קורא לסוכן עם הסוד המשותף; הסוכן
 מריץ `docker compose pull api web workers` ואז `up -d --no-deps`.
@@ -160,8 +123,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-
    [Backblaze B2](https://www.backblaze.com/cloud-storage) (10GB חינם,
    ואז ~$6/TB לחודש) או Cloudflare R2. צרו Bucket **פרטי** ומפתח גישה.
 2. ב-`.env.production`: הוסיפו `offsite` ל-`COMPOSE_PROFILES`
-   (למשל `COMPOSE_PROFILES=offsite`, או `standalone,offsite` בשרת
-   ייעודי) ומלאו את `OFFSITE_S3_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY`.
+   ומלאו את `OFFSITE_S3_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY`.
 3. `docker compose -f docker-compose.prod.yml --env-file .env.production up -d`
    ואימות בלוג: `docker compose ... logs offsite` — אמור להופיע
    `✓ סונכרן`.
@@ -504,7 +466,7 @@ VAPID_SUBJECT=mailto:support@metavchim.co.il
 2. **Credentials ⟵ Create credentials ⟵ OAuth client ID**, סוג
    **Web application**.
 3. תחת **Authorized redirect URIs** מוסיפים בדיוק:
-   `https://<הדומיין שלכם>/api/v1/auth/google/callback`
+   `https://app.metavchim.co.il/api/v1/auth/google/callback`
    (הכתובת המדויקת מוצגת גם במסך /platform — אפשר להעתיק משם).
 4. מעתיקים Client ID ו-Client Secret אל /platform ⟵ חיבורי המערכת ⟵
    התחברות עם Google, ושומרים.
