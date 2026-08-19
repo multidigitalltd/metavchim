@@ -16,6 +16,8 @@ import {
   telephonyParseIssue,
   mergeIntegrationSecrets,
   telephonySecretKeys,
+  TELEPHONY_PROVIDERS,
+  telephonyProvider,
   mergeLegacySecretsIntoConfig,
   sipUriFor,
   phoneFromSipUri,
@@ -415,7 +417,7 @@ describe("mergeIntegrationSecrets", () => {
   });
 
   it("החלפת ספק מנקה — סוד של ספק קודם לא נגרר", () => {
-    const out = mergeIntegrationSecrets({ apiSecret: "של-Zadarma" }, { authPassword: "של-015" }, KEYS, {
+    const out = mergeIntegrationSecrets({ apiSecret: "של ספק קודם" }, { authPassword: "של-015" }, KEYS, {
       providerChanged: true,
     });
     expect(out).toEqual({ authPassword: "של-015" });
@@ -799,5 +801,35 @@ describe("unmappedFields", () => {
   it("שם שדה לא תקני מסומן ואינו נכתב", () => {
     const out = unmappedFields({ "0501234567": "x" });
     expect(out).toEqual(["‹שדה לא תקני›"]);
+  });
+});
+
+describe("TELEPHONY_PROVIDERS", () => {
+  /*
+   * הקטלוג הוא הבטחה למשרד: כל שורה בו היא ספק שאפשר לבחור, וכל
+   * שדה בשורה הוא פרט שהמשרד יתבקש למסור. ספק שאין לו קוד גובה
+   * מהמשרד אישורי גישה למרכזייה שלו ולא נותן דבר בתמורה — וזה
+   * בדיוק מה שקרה עם Zadarma ו-Voicenter.
+   */
+  it("כל ספק בקטלוג ממומש — אין שם בלי קוד", () => {
+    expect(TELEPHONY_PROVIDERS.map((p) => p.id)).toEqual(["generic", "015"]);
+  });
+
+  it("ספק שאינו בקטלוג אינו נפתר", () => {
+    expect(telephonyProvider("zadarma")).toBeUndefined();
+    expect(telephonyProvider("voicenter")).toBeUndefined();
+  });
+
+  /*
+   * חיוג יוצא ממומש מול 015 בלבד. הדגל היה `true` על ספקים שאין
+   * להם שורת קוד שמחייגת, והמסך הבטיח כפתור שמחזיר שגיאה.
+   */
+  it("חיוג יוצא מסומן רק אצל מי שיש לו מימוש", () => {
+    expect(TELEPHONY_PROVIDERS.filter((p) => p.clickToDial).map((p) => p.id)).toEqual(["015"]);
+  });
+
+  it("ספק שדורש שדות הוא ספק שקורא אותם", () => {
+    // הגנרי אינו מבקש דבר — קליטת השיחות אינה תלוית ספק
+    expect(telephonyProvider("generic")?.fields).toEqual([]);
   });
 });
