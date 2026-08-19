@@ -783,6 +783,7 @@ export class TelephonyService {
           event.peerPhone,
           phoneHash,
           virtualNumber,
+          event.direction,
         );
         contactId = opened.contactId;
         leadId = opened.leadId;
@@ -867,6 +868,7 @@ export class TelephonyService {
     phone: string,
     phoneHash: string,
     virtualNumber: VirtualNumberRule | null,
+    direction: "inbound" | "outbound",
   ): Promise<{ contactId: string; leadId: string }> {
     const contact = await tx.contact.create({
       data: {
@@ -879,7 +881,13 @@ export class TelephonyService {
       select: { id: true },
     });
     const leadId = ulid();
-    const source = virtualNumber === null ? "phone" : leadSourceFor(virtualNumber);
+    /*
+     * שיחה יוצאת אינה מגיעה ממספר וירטואלי — הסוכן הוא שיזם אותה,
+     * וייחוסה לקמפיין היה מזהם את המדידה. המקור שלה הוא הפעולה
+     * עצמה: הסוכן חייג.
+     */
+    const source =
+      direction === "outbound" ? "outbound_call" : virtualNumber === null ? "phone" : leadSourceFor(virtualNumber);
     /*
      * הסוכן מאומת **בזמן הכתיבה** ולא רק בזמן ההגדרה.
      *
@@ -890,7 +898,9 @@ export class TelephonyService {
      * המשותפת, ולכן הנפילה היא ל-null (ביקורת Codex).
      */
     const assignedToUserId =
-      virtualNumber?.assignedToUserId === undefined || virtualNumber?.assignedToUserId === null
+      direction === "outbound" ||
+      virtualNumber?.assignedToUserId === undefined ||
+      virtualNumber?.assignedToUserId === null
         ? null
         : ((
             await tx.user.findFirst({
@@ -907,11 +917,13 @@ export class TelephonyService {
         status: "new",
         // הסוכן אומת למעלה; הנכס מוגן במפתח זר עם ON DELETE SET NULL
         assignedToUserId,
-        propertyId: virtualNumber?.propertyId ?? null,
+        propertyId: direction === "outbound" ? null : (virtualNumber?.propertyId ?? null),
         summary:
-          virtualNumber === null
-            ? "נפתח אוטומטית משיחה נכנסת ממספר שאינו מוכר"
-            : `נפתח אוטומטית משיחה נכנסת אל ${virtualNumber.label}`,
+          direction === "outbound"
+            ? "נפתח אוטומטית משיחה יוצאת למספר שאינו מוכר"
+            : virtualNumber === null
+              ? "נפתח אוטומטית משיחה נכנסת ממספר שאינו מוכר"
+              : `נפתח אוטומטית משיחה נכנסת אל ${virtualNumber.label}`,
       },
     });
     /*

@@ -464,6 +464,65 @@ function pickFrom(raw: Record<string, unknown>): (...keys: string[]) => string {
 const SAFE_KEY = /^[A-Za-z][A-Za-z0-9_.-]{0,39}$/u;
 const MAX_DIAGNOSTIC_KEYS = 25;
 
+/**
+ * שדות שמותר לשמור **עם הערך** ביומן האבחון.
+ *
+ * רשימת היתר ולא רשימת חסימה, ובכוונה: הגוף מגיע מגורם חיצוני, וכל
+ * שדה שלא חשבנו עליו הוא שדה שעלול להכיל מספר טלפון או שם של לקוח.
+ * רשימת חסימה הייתה מדליפה בדיוק את מה שלא צפינו.
+ *
+ * מה שבפנים הוא טכני בלבד — נתיב הקלטה, סטטוס, כיוון, מזהים
+ * וזמנים. מה שבחוץ הוא כל מה שמזהה אדם: `callerid_external`,
+ * `snumber`, `cnumber`, `callername`.
+ *
+ * הצורך אמיתי: כשמרכזייה מתחילה לשלוח שדה חדש, לדעת ש"הוא הגיע"
+ * אינו מספיק — צריך לראות את **הצורה** של הערך כדי לבנות מולו.
+ */
+const VALUE_SAFE_KEYS = new Set([
+  "recording",
+  "status",
+  "direction",
+  "callid",
+  "uniqueid",
+  "start",
+  "answered",
+  "end",
+  "talktime",
+  "totaltime",
+  "extension",
+  "server",
+  "stype",
+  "ctype",
+  "dtype",
+]);
+
+/** אורך מרבי לערך בודד ביומן — נתיב הקלטה ארוך אינו מציף את השורה. */
+const MAX_VALUE_LENGTH = 120;
+
+/**
+ * שמות השדות, ולשדות הטכניים גם הערך.
+ *
+ * `key=value` למה שבטוח, `key` בלבד לכל השאר — כך שורה אחת ביומן
+ * עונה גם על "מה הגיע" וגם על "איך זה נראה", בלי להכניס פרטי לקוח
+ * לעמודה שנקראת בעיניים.
+ */
+export function diagnosticFields(raw: Record<string, unknown>): string {
+  const parts: string[] = [];
+  for (const key of Object.keys(raw).slice(0, MAX_DIAGNOSTIC_KEYS)) {
+    if (!SAFE_KEY.test(key)) {
+      parts.push("‹שדה לא תקני›");
+      continue;
+    }
+    const value = raw[key];
+    const printable =
+      VALUE_SAFE_KEYS.has(key) && (typeof value === "string" || typeof value === "number")
+        ? String(value).slice(0, MAX_VALUE_LENGTH)
+        : null;
+    parts.push(printable !== null && printable !== "" ? `${key}=${printable}` : key);
+  }
+  return [...new Set(parts)].join(", ").slice(0, 1000);
+}
+
 export function safeDiagnosticKeys(keys: readonly string[]): string {
   const seen = new Set<string>();
   for (const key of keys.slice(0, MAX_DIAGNOSTIC_KEYS)) {
@@ -590,16 +649,30 @@ export interface CallAction {
  * המתווך רוצה לדעת *מי מתקשר* לפני שהוא עונה. לכן ההתראה בצלצול.
  *
  * **פתיחת ליד על כל מספר לא מוכר** הייתה מייצרת לידים מטעויות חיוג,
- * ממוקדנים וממספרים חסויים. לכן ליד נפתח רק כששיחה נכנסת ממספר לא
- * מוכר גם *נענתה* — מישהו באמת דיבר איתו.
+ * ממוקדנים וממספרים חסויים. לכן ליד נפתח רק כשהשיחה גם *נענתה* —
+ * מישהו באמת דיבר איתו.
+ *
+ * ## למה גם שיחה יוצאת פותחת ליד
+ *
+ * עד כה `createLead` היה מוגבל לשיחות נכנסות, ולכן סוכן שהתקשר
+ * ללקוח חדש יצר **שורת שיחה יתומה**: בלי `contactId` ובלי `leadId`,
+ * כלומר שורה שאינה מופיעה בשום כרטיס ואי אפשר להגיע אליה מאף מסך.
+ * מבחינת המתווך "לא נרשם כלום".
+ *
+ * זה הפוך מהמציאות של תיווך: מתווך שמחייג ללקוח פוטנציאלי, מציע לו
+ * נכס ומדבר איתו — ביצע בדיוק את הפעולה שהמערכת אמורה לתעד. שיחה
+ * יוצאת שנענתה היא **ראיה חזקה יותר** לעניין מאשר שיחה נכנסת: היא
+ * דורשת שהסוכן טרח לחייג.
+ *
+ * ההגנה מפני זבל נשארת אותה הגנה — רק שיחה שנענתה, ורק למספר שאינו
+ * מוכר. חיוג שגוי שנותק בצלצול אינו פותח דבר.
  */
 export function callAction(event: TelephonyEvent, knownContact: boolean): CallAction {
   const finished = event.type === "ended" || event.type === "missed";
   return {
     logCall: finished,
     notify: event.type === "ringing" && event.direction === "inbound",
-    createLead:
-      event.type === "ended" && event.direction === "inbound" && !knownContact,
+    createLead: event.type === "ended" && !knownContact,
   };
 }
 

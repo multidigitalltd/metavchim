@@ -1278,8 +1278,9 @@ model TelephonyWebhookHit {
   keyPrefix  String   @map("key_prefix") @db.VarChar(12)
   /// GET או POST — ספק ששולח בשיטה שלא ציפינו לה נראה מיד
   method     String   @db.VarChar(6)
-  /// שמות השדות שהגיעו, **בלי הערכים** (safeDiagnosticKeys)
-  fieldKeys  String?  @map("field_keys") @db.VarChar(400)
+  /// השדות שהגיעו — שמות תמיד, וערכים לשדות הטכניים בלבד
+  /// (`diagnosticFields`). מספרי טלפון ושמות לקוחות לעולם לא.
+  fieldKeys  String?  @map("field_keys") @db.VarChar(1000)
 
   @@index([receivedAt])
   @@map("telephony_webhook_hits")

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
-import { safeDiagnosticKeys } from "@metavchim/shared";
+import { diagnosticFields } from "@metavchim/shared";
 import { PrismaService } from "../../core/prisma.service";
 
 /**
@@ -85,7 +85,7 @@ export class TelephonyWebhookLogService {
            */
           keyPrefix: keyPrefix(input.key),
           method: input.method,
-          fieldKeys: safeDiagnosticKeys(Object.keys(input.payload)),
+          fieldKeys: diagnosticFields(input.payload),
         },
       });
       /*

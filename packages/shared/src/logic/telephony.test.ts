@@ -11,6 +11,7 @@ import {
   parse015DialResponse,
   PBX015_MAKE_URL,
   safeDiagnosticKeys,
+  diagnosticFields,
   telephonyParseIssue,
   mergeIntegrationSecrets,
   telephonySecretKeys,
@@ -114,8 +115,30 @@ describe("callAction", () => {
     expect(callAction(event({ type: "missed" }), false).createLead).toBe(false);
   });
 
-  it("שיחה יוצאת לא פותחת ליד גם למספר לא מוכר", () => {
-    expect(callAction(event({ type: "ended", direction: "outbound" }), false).createLead).toBe(false);
+  /*
+   * המצב שהתגלה בשטח: סוכן התקשר ללקוח חדש, ובמערכת "לא נרשם
+   * כלום". שורת השיחה כן נכתבה — בלי `contactId` ובלי `leadId`,
+   * כלומר יתומה ובלתי נראית בכל מסך.
+   *
+   * שיחה יוצאת שנענתה היא ראיה חזקה יותר לעניין מאשר נכנסת: היא
+   * דורשת שהסוכן טרח לחייג.
+   */
+  it("שיחה יוצאת שנענתה פותחת ליד — הסוכן הציע נכס למישהו", () => {
+    expect(callAction(event({ type: "ended", direction: "outbound" }), false).createLead).toBe(
+      true,
+    );
+  });
+
+  it("חיוג יוצא שנותק בצלצול אינו פותח ליד — טעות חיוג", () => {
+    expect(callAction(event({ type: "missed", direction: "outbound" }), false).createLead).toBe(
+      false,
+    );
+  });
+
+  it("שיחה יוצאת ללקוח מוכר אינה פותחת כרטיס שני", () => {
+    expect(callAction(event({ type: "ended", direction: "outbound" }), true).createLead).toBe(
+      false,
+    );
   });
 
   it("צלצול יוצא לא מתריע למתווך על עצמו", () => {
@@ -691,5 +714,50 @@ describe("sipUriFor — ניקוי לפני הכול", () => {
 
   it("רווחים ונקודות אינם שורדים", () => {
     expect(sipUriFor("+972 50 123 4567", "pbx")).toBe("sip:0501234567@pbx");
+  });
+});
+
+describe("diagnosticFields", () => {
+  /*
+   * הצורך שבגללו הפונקציה קיימת: כשמרכזייה מתחילה לשלוח שדה חדש,
+   * "הוא הגיע" אינו מספיק — צריך לראות את הצורה של הערך כדי לבנות
+   * מולו. נתיב הקלטה הוא המקרה שהוליד את זה.
+   */
+  it("שדה טכני נשמר עם הערך", () => {
+    const out = diagnosticFields({ recording: "/rec/2026/08/19/abc.wav", status: "hangup" });
+    expect(out).toContain("recording=/rec/2026/08/19/abc.wav");
+    expect(out).toContain("status=hangup");
+  });
+
+  /*
+   * רשימת היתר ולא רשימת חסימה: הגוף מגיע מגורם חיצוני, וכל שדה
+   * שלא חשבנו עליו עלול להכיל מספר טלפון או שם.
+   */
+  it("שדה שמזהה אדם נשמר בשמו בלבד", () => {
+    const out = diagnosticFields({
+      callerid_external: "0501234567",
+      callername: "דנה לוי",
+      snumber: "0509999999",
+    });
+    expect(out).toContain("callerid_external");
+    expect(out).not.toContain("0501234567");
+    expect(out).not.toContain("דנה לוי");
+    expect(out).not.toContain("0509999999");
+  });
+
+  it("שדה שאינו ברשימת ההיתר נשמר בשמו בלבד", () => {
+    const out = diagnosticFields({ mystery: "סוד" });
+    expect(out).toContain("mystery");
+    expect(out).not.toContain("סוד");
+  });
+
+  it("שם שדה לא תקני מסומן ואינו נכתב", () => {
+    expect(diagnosticFields({ "0501234567": "x" })).toContain("‹שדה לא תקני›");
+    expect(diagnosticFields({ "0501234567": "x" })).not.toContain("0501234567");
+  });
+
+  it("ערך ארוך נחתך ואינו מציף את השורה", () => {
+    const out = diagnosticFields({ recording: "a".repeat(500) });
+    expect(out.length).toBeLessThan(200);
   });
 });
