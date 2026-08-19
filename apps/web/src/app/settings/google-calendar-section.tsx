@@ -199,7 +199,7 @@ export function GoogleCalendarSection(): React.JSX.Element | null {
               נתק יומן
             </Button>
           </div>
-          <p className="m-0 mt-2 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 mt-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
             נדחפות הפגישות והמשימות <b>שלכם</b> בלבד — לכל סוכן יומן משלו. משימה עם
             מועד יעד מופיעה ב-Google כאירוע של חצי שעה עם הקידומת „משימה".
           </p>

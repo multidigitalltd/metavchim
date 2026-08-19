@@ -67,7 +67,7 @@ export function ExclusivityWatch() {
       <h2
         id="exclusivity-watch-heading"
         className="m-0 mb-1.5"
-        style={{ fontSize: 14, fontWeight: 800 }}
+        style={{ fontSize: 15, fontWeight: 800 }}
       >
         בלעדיויות שדורשות טיפול
       </h2>
@@ -75,7 +75,7 @@ export function ExclusivityWatch() {
         {items.slice(0, 8).map((item) => (
           <li
             key={item.id}
-            className="flex flex-wrap items-baseline gap-2 border-b py-1.5 text-[13px] last:border-b-0"
+            className="flex flex-wrap items-baseline gap-2 border-b py-1.5 text-[14.5px] last:border-b-0"
             style={{ borderColor: "var(--color-border)" }}
           >
             <Link href={`/properties/${item.propertyId}`} className="font-semibold">

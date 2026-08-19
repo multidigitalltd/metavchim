@@ -160,7 +160,7 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
 
   if (rows === null) {
     return (
-      <p className="m-0 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
         טוען חיבורים…
       </p>
     );
@@ -172,7 +172,7 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
   return (
     <div>
       {rows.length === 0 ? (
-        <p className="m-0 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+        <p className="m-0 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
           אין כרגע חיבורים פתוחים.
         </p>
       ) : (
@@ -184,11 +184,11 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
               style={{ borderColor: "var(--color-border)" }}
             >
               <span className="min-w-0">
-                <span className="block text-[13.5px] font-semibold">
+                <span className="block text-[15px] font-semibold">
                   {describeDevice(row.userAgent)}
                   {row.current ? (
                     <span
-                      className="mv-pill mr-2 text-[11.5px]"
+                      className="mv-pill mr-2 text-[13px]"
                       style={{
                         background: "var(--color-primary-soft)",
                         color: "var(--color-primary)",
@@ -204,14 +204,14 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
                   */}
                   {row.supportAdminEmail !== null ? (
                     <span
-                      className="mv-pill mr-2 text-[11.5px]"
+                      className="mv-pill mr-2 text-[13px]"
                       style={{ color: "var(--color-danger)", fontWeight: 700 }}
                     >
                       תמיכה · {row.supportAdminEmail}
                     </span>
                   ) : null}
                 </span>
-                <span className="block text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                <span className="block text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                   {/* הכתובת ב-LTR: ספרות ונקודות בכיוון עברי נקראות הפוך */}
                   התחברות: {formatDateTime(row.createdAt)}
                   {row.ipAddress !== null ? (
@@ -228,7 +228,7 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
               {managing ? null : (
                 <button
                   type="button"
-                  className="mv-btn-plain text-[13px]"
+                  className="mv-btn-plain text-[14.5px]"
                   onClick={() => void revokeOne(row)}
                   disabled={busy}
                 >
@@ -243,7 +243,7 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
       {(managing ? rows.length > 0 : others > 0) ? (
         <button
           type="button"
-          className="mv-btn-plain mt-3 text-[13px]"
+          className="mv-btn-plain mt-3 text-[14.5px]"
           onClick={() => void revokeAll()}
           disabled={busy}
         >
@@ -255,11 +255,11 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
         role="status" ולא טקסט רגיל: קורא מסך אינו רואה שהרשימה
         התקצרה, ובלי ההכרזה הפעולה חוזרת אליו כשקט מוחלט.
       */}
-      <p role="status" className="m-0 mt-2 text-[12.5px]" style={{ color: "var(--color-success)" }}>
+      <p role="status" className="m-0 mt-2 text-[14px]" style={{ color: "var(--color-success)" }}>
         {msg ?? ""}
       </p>
       {error !== null ? (
-        <p role="alert" className="m-0 mt-1 text-[12.5px]" style={{ color: "var(--color-danger)" }}>
+        <p role="alert" className="m-0 mt-1 text-[14px]" style={{ color: "var(--color-danger)" }}>
           {error}
         </p>
       ) : null}

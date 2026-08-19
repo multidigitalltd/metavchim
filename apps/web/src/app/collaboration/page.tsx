@@ -719,7 +719,7 @@ export default function CollaborationPage() {
               incoming.length + openInterests.length > 0 ? (
                 <span
                   className="mv-chip ms-1.5"
-                  style={{ padding: "1px 7px", fontSize: 11.5 }}
+                  style={{ padding: "1px 7px", fontSize: 13 }}
                 >
                   {incoming.length + openInterests.length}
                 </span>
@@ -973,7 +973,7 @@ export default function CollaborationPage() {
             <IconHandshake s={17} /> הפניות לקוחות
           </h2>
           <p
-            className="mb-3 text-[14.5px]"
+            className="mb-3 text-[15.5px]"
             style={{ color: "var(--color-text-soft)" }}
           >
             לקוחות שמשרדים אחרים לא יכולים לשרת. שם וטלפון נחשפים רק אחרי
@@ -998,11 +998,11 @@ export default function CollaborationPage() {
             <span style={{ color: "var(--color-primary)" }}>
               <IconDiamond s={16} />
             </span>
-            <b className="text-[13.5px]">
+            <b className="text-[15px]">
               היתרה שלכם: {balance === null ? "…" : `${balance} קרדיטים`}
             </b>
             <span
-              className="text-[12.5px]"
+              className="text-[14px]"
               style={{ color: "var(--color-text-muted)" }}
             >
               · קרדיטים יורדים על הפניית לקוח ועל הצעה לביקוש שמסומן במקור
@@ -1016,7 +1016,7 @@ export default function CollaborationPage() {
           */}
           {expiry !== null && expiry.nextAt !== undefined ? (
             <p
-              className="m-0 mt-1.5 text-[12.5px]"
+              className="m-0 mt-1.5 text-[14px]"
               style={{ color: "var(--color-text-muted)" }}
             >
               {expiry.nextAmount} מהם פגים ב-
@@ -1054,7 +1054,7 @@ export default function CollaborationPage() {
           */}
           {myReferrals.length > 0 ? (
             <>
-              <h3 className="mb-2 mt-4 text-[15px] font-semibold">
+              <h3 className="mb-2 mt-4 text-[16px] font-semibold">
                 <IconUpload s={15} /> ההפניות שפרסמתי
               </h3>
               <ul className="mb-5 flex list-none flex-col gap-3 p-0">
@@ -1134,7 +1134,7 @@ export default function CollaborationPage() {
 
           {receivedReferrals.length > 0 ? (
             <>
-              <h3 className="mb-2 text-[15px] font-semibold">
+              <h3 className="mb-2 text-[16px] font-semibold">
                 <IconDownload s={15} /> הפניות שקלטתי
               </h3>
               <ul className="mb-5 flex list-none flex-col gap-3 p-0">
@@ -1174,7 +1174,7 @@ export default function CollaborationPage() {
           ) : null}
 
           {myReferrals.length > 0 || receivedReferrals.length > 0 ? (
-            <h3 className="mb-2 text-[15px] font-semibold">
+            <h3 className="mb-2 text-[16px] font-semibold">
               <IconGlobe s={15} /> הפניות פתוחות ברשת
             </h3>
           ) : null}
@@ -1346,7 +1346,7 @@ export default function CollaborationPage() {
           את ההחלטה בשנייה הראשונה.
         */}
               <p
-                className="mb-3.5 text-[14.5px]"
+                className="mb-3.5 text-[15.5px]"
                 style={{ color: "var(--color-text-soft)" }}
               >
                 קונים של משרדים אחרים — <b>בלי שם ובלי טלפון</b>. יש לכם נכס
@@ -1496,7 +1496,7 @@ export default function CollaborationPage() {
                           {demand.myMatches && demand.myMatches.length > 0 ? (
                             <div className="mb-3">
                               <p
-                                className="m-0 mb-2 text-[14.5px] font-bold"
+                                className="m-0 mb-2 text-[15.5px] font-bold"
                                 style={{ color: "var(--color-primary)" }}
                               >
                                 <IconTarget s={16} /> {demand.myMatches.length}{" "}
@@ -1517,7 +1517,7 @@ export default function CollaborationPage() {
                                     <span className="flex-1 min-w-[160px]">
                                       <b className="block">{match.title}</b>
                                       <span
-                                        className="text-[13px]"
+                                        className="text-[14.5px]"
                                         style={{
                                           color: "var(--color-text-soft)",
                                         }}
@@ -1669,7 +1669,7 @@ export default function CollaborationPage() {
                 <IconTag s={17} /> נכסים ברשת
               </h2>
               <p
-                className="mb-3.5 text-[14.5px]"
+                className="mb-3.5 text-[15.5px]"
                 style={{ color: "var(--color-text-soft)" }}
               >
                 נכסים של משרדים אחרים — <b>בלי כתובת מדויקת ובלי בעלים</b>. יש
@@ -1805,7 +1805,7 @@ export default function CollaborationPage() {
                             listing.myMatches.length > 0 ? (
                             <div className="mb-3">
                               <p
-                                className="m-0 mb-2 text-[14.5px] font-bold"
+                                className="m-0 mb-2 text-[15.5px] font-bold"
                                 style={{ color: "var(--color-primary)" }}
                               >
                                 <IconTarget s={16} /> {listing.myMatches.length}{" "}
@@ -1826,7 +1826,7 @@ export default function CollaborationPage() {
                                     <span className="flex-1 min-w-[160px]">
                                       <b className="block">{match.name}</b>
                                       <span
-                                        className="text-[13px]"
+                                        className="text-[14.5px]"
                                         style={{
                                           color: "var(--color-text-soft)",
                                         }}

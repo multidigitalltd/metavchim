@@ -190,7 +190,7 @@ export default function SignupPage(): React.JSX.Element {
       ) : (
         <form method="post" onSubmit={(e) => void submit(e)} noValidate aria-describedby={error ? "signup-error" : undefined}>
           <fieldset className="m-0 mb-5 border-0 p-0">
-            <legend className="mb-2 text-[13.5px] font-bold">בחרו מסלול</legend>
+            <legend className="mb-2 text-[15px] font-bold">בחרו מסלול</legend>
             <div className="grid gap-2">
               {plans.map((plan) => {
                 const active = plan.code === chosen;
@@ -213,8 +213,8 @@ export default function SignupPage(): React.JSX.Element {
                     />
                     <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-baseline justify-between gap-2">
-                        <strong style={{ fontSize: 15 }}>{plan.name}</strong>
-                        <span style={{ fontSize: 14, fontWeight: 800 }}>
+                        <strong style={{ fontSize: 16 }}>{plan.name}</strong>
+                        <span style={{ fontSize: 15, fontWeight: 800 }}>
                           {plan.monthlyPrice}
                           {/*
                             „חינם / חודש” קורא כמו מבצע לחודש הראשון,
@@ -235,12 +235,12 @@ export default function SignupPage(): React.JSX.Element {
                         </span>
                       </span>
                       <span
-                        className="mt-0.5 block text-[13px]"
+                        className="mt-0.5 block text-[14.5px]"
                         style={{ color: "var(--color-text-muted)" }}
                       >
                         {plan.description}
                       </span>
-                      <span className="mt-1 block text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                      <span className="mt-1 block text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                         {plan.maxUsers === null ? "משתמשים ללא הגבלה" : `עד ${plan.maxUsers} משתמשים`}
                         {" · "}
                         {plan.maxProperties === null
@@ -255,7 +255,7 @@ export default function SignupPage(): React.JSX.Element {
                         ) : null}
                       </span>
                       {active ? (
-                        <span className="mt-1.5 block text-[12.5px]">
+                        <span className="mt-1.5 block text-[14px]">
                           {plan.features.map(featureLabel).join(" · ")}
                         </span>
                       ) : null}
@@ -271,7 +271,7 @@ export default function SignupPage(): React.JSX.Element {
             */}
             {priceNote === "" ? null : (
               <p
-                className="mt-2 mb-0 text-[12.5px]"
+                className="mt-2 mb-0 text-[14px]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 {priceNote}
@@ -398,7 +398,7 @@ export default function SignupPage(): React.JSX.Element {
             השרת דורש `acceptTerms: true` ולא מקבל הרשמה בלעדיו, ולכן
             תיבה שלא סומנה עוצרת כאן ולא בשגיאת שרת סתומה.
           */}
-          <label className="mb-4 flex items-start gap-2 text-[13.5px]">
+          <label className="mb-4 flex items-start gap-2 text-[15px]">
             <input
               type="checkbox"
               checked={accepted}

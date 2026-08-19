@@ -203,7 +203,7 @@ export default function VoiceCommandPage() {
         </span>
         <div>
           <h1 className="m-0 text-[26px] font-extrabold leading-tight">הסוכן הקולי</h1>
-          <p className="m-0 mt-1 text-[15px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 mt-1 text-[16px]" style={{ color: "var(--color-text-muted)" }}>
             דברו רגיל. אני אזהה מה צריך לעשות ואכין את המסך — כלום לא נשמר בלי שתאשרו.
           </p>
         </div>
@@ -217,7 +217,7 @@ export default function VoiceCommandPage() {
         לדבר בכלל.
       */}
       <section className="mv-example-box mb-5" aria-labelledby="voice-examples-heading">
-        <h2 id="voice-examples-heading" className="m-0 mb-2.5 text-[13.5px] font-bold">
+        <h2 id="voice-examples-heading" className="m-0 mb-2.5 text-[15px] font-bold">
           למשל, אפשר להגיד:
         </h2>
         <div className="flex flex-wrap gap-2">

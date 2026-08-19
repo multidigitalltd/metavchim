@@ -57,14 +57,14 @@ export function SupportTicketsSection(): React.JSX.Element {
   return (
     <section className="mv-list-card px-5 py-[17px]" aria-labelledby="support-tickets-heading">
       <div className="mb-1 flex flex-wrap items-center gap-2">
-        <h2 id="support-tickets-heading" className="m-0 grow" style={{ fontSize: 15.5, fontWeight: 800 }}>
+        <h2 id="support-tickets-heading" className="m-0 grow" style={{ fontSize: 16.5, fontWeight: 800 }}>
           הפניות שלכם
         </h2>
         <button type="button" className="mv-btn-plain" onClick={load}>
           רענון
         </button>
       </div>
-      <p className="m-0 mb-3 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mb-3 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
         פנייה חדשה נשלחת מכפתור <b>„תמיכה”</b> שבצד כל מסך — משם היא נושאת איתה
         את המסך שבו הייתם ואת השגיאות שקרו בו, וזה מקצר את הטיפול.
       </p>
@@ -85,7 +85,7 @@ export function SupportTicketsSection(): React.JSX.Element {
               className="rounded-xl border p-3"
               style={{ borderColor: "var(--color-border)" }}
             >
-              <div className="mb-1 flex flex-wrap items-center gap-2 text-[13px]">
+              <div className="mb-1 flex flex-wrap items-center gap-2 text-[14.5px]">
                 <span className="font-bold">{SUPPORT_KIND_LABEL[t.kind]}</span>
                 <span style={{ color: "var(--color-text-muted)" }}>· {t.area}</span>
                 {t.severity === "blocking" ? (
@@ -97,8 +97,8 @@ export function SupportTicketsSection(): React.JSX.Element {
                   {SUPPORT_STATUS_LABEL[t.status]}
                 </span>
               </div>
-              <p className="m-0 whitespace-pre-wrap text-[14px]">{t.message}</p>
-              <p className="m-0 mt-1 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+              <p className="m-0 whitespace-pre-wrap text-[15px]">{t.message}</p>
+              <p className="m-0 mt-1 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                 {t.userName} · {new Date(t.createdAt).toLocaleString("he-IL")}
                 {t.hasScreenshot ? (
                   <>
@@ -123,8 +123,8 @@ export function SupportTicketsSection(): React.JSX.Element {
                   className="mt-2 rounded-lg border p-2.5"
                   style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
                 >
-                  <p className="m-0 text-[12.5px] font-bold">תשובת התמיכה</p>
-                  <p className="m-0 mt-0.5 whitespace-pre-wrap text-[13.5px]">{t.reply}</p>
+                  <p className="m-0 text-[14px] font-bold">תשובת התמיכה</p>
+                  <p className="m-0 mt-0.5 whitespace-pre-wrap text-[15px]">{t.reply}</p>
                 </div>
               ) : null}
             </li>

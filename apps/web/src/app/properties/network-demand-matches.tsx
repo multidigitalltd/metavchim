@@ -99,12 +99,12 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
       <h2
         id="network-matches-heading"
         className="m-0 mb-1"
-        style={{ fontSize: 15.5, fontWeight: 800 }}
+        style={{ fontSize: 16.5, fontWeight: 800 }}
       >
         <IconGlobe s={16} /> ביקושים ברשת
       </h2>
       <p
-        className="m-0 mb-2.5 text-[12.5px]"
+        className="m-0 mb-2.5 text-[14px]"
         style={{ color: "var(--color-text-muted)" }}
       >
         קונים של משרדים אחרים שהנכס מתאים להם
@@ -142,7 +142,7 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
               }}
               aria-hidden="true"
             >
-              <span style={{ width: 35, height: 35, fontSize: 12 }}>
+              <span style={{ width: 35, height: 35, fontSize: 13.5 }}>
                 {row.score}%
               </span>
             </span>
@@ -150,13 +150,13 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
               {/* כל מה שידוע על הביקוש, למעט מה שמזהה אדם */}
               <NetChips chips={demandChips(row)} />
               <div
-                className="text-[13px]"
+                className="text-[14.5px]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 {row.notes ?? row.explanation}
               </div>
               <div
-                className="text-[12.5px]"
+                className="text-[14px]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 <IconHandshake s={13} /> העמלה שלי {100 - row.commissionSplit}%
@@ -180,7 +180,7 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
                 <button
                   type="button"
                   className="mv-btn-action"
-                  style={{ padding: "7px 15px", fontSize: 13 }}
+                  style={{ padding: "7px 15px", fontSize: 14.5 }}
                   disabled={busy !== null}
                   onClick={() => void offer(row)}
                 >

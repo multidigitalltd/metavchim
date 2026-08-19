@@ -200,12 +200,12 @@ export function NetworkShareSection({
         <div>
           <h2
             id="network-share-heading"
-            className="m-0 text-[18px] font-extrabold leading-tight"
+            className="m-0 text-[19px] font-extrabold leading-tight"
           >
             {copy.title}
           </h2>
           <p
-            className="m-0 mt-0.5 text-[13.5px]"
+            className="m-0 mt-0.5 text-[15px]"
             style={{ color: "var(--color-text-muted)" }}
           >
             {copy.subtitle}
@@ -215,7 +215,7 @@ export function NetworkShareSection({
 
       {stage === "loading" ? (
         <p
-          className="m-0 mt-2 text-[13px]"
+          className="m-0 mt-2 text-[14.5px]"
           aria-live="polite"
           style={{ color: "var(--color-text-muted)" }}
         >
@@ -230,11 +230,11 @@ export function NetworkShareSection({
             background: "var(--color-primary-soft)",
           }}
         >
-          <p className="m-0 mb-1 font-bold" style={{ fontSize: 14.5 }}>
+          <p className="m-0 mb-1 font-bold" style={{ fontSize: 15.5 }}>
             ✓ {copy.sent}
           </p>
           <p
-            className="m-0 text-[13px]"
+            className="m-0 text-[14.5px]"
             style={{ color: "var(--color-text-muted)" }}
           >
             {copy.sentBody}, וחלוקת העמלה שסוכמה היא{" "}
@@ -248,7 +248,7 @@ export function NetworkShareSection({
             <button
               type="button"
               className="mv-btn-plain"
-              style={{ padding: "5px 12px", fontSize: 12.5 }}
+              style={{ padding: "5px 12px", fontSize: 14 }}
               disabled={busy}
               onClick={() => setStage("form")}
             >
@@ -257,7 +257,7 @@ export function NetworkShareSection({
             <button
               type="button"
               className="mv-btn-plain"
-              style={{ padding: "5px 12px", fontSize: 12.5 }}
+              style={{ padding: "5px 12px", fontSize: 14 }}
               disabled={busy}
               onClick={() => void stopSharing()}
             >

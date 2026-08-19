@@ -99,7 +99,7 @@ export function AutomationsSection() {
         <IconBolt s={17} /> אוטומציות פנימיות
       </h2>
       <p
-        className="mb-3 text-[14.5px]"
+        className="mb-3 text-[15.5px]"
         style={{ color: "var(--color-text-soft)" }}
       >
         מה המערכת עושה מעצמה. כל אחת מהן פותחת משימה או שולחת התראה — כאן רואים
@@ -132,15 +132,15 @@ export function AutomationsSection() {
             >
               <div className="flex flex-wrap items-start gap-2">
                 <div className="min-w-[200px] flex-1">
-                  <b className="block text-[15px]">{spec.title}</b>
+                  <b className="block text-[16px]">{spec.title}</b>
                   <span
-                    className="block text-[13px]"
+                    className="block text-[14.5px]"
                     style={{ color: "var(--color-text-soft)" }}
                   >
                     {spec.what}
                   </span>
                   <span
-                    className="block text-[12.5px]"
+                    className="block text-[14px]"
                     style={{ color: "var(--color-text-muted)" }}
                   >
                     {spec.when}
@@ -155,7 +155,7 @@ export function AutomationsSection() {
                     <IconInfo s={13} /> תמיד פועל
                   </span>
                 ) : (
-                  <label className="flex items-center gap-1.5 text-[13px] font-semibold">
+                  <label className="flex items-center gap-1.5 text-[14.5px] font-semibold">
                     <input
                       type="checkbox"
                       checked={setting.enabled}
@@ -171,7 +171,7 @@ export function AutomationsSection() {
 
               {spec.unit !== null ? (
                 <div className="mt-2 flex flex-wrap items-end gap-2">
-                  <label className="text-[12px]">
+                  <label className="text-[13.5px]">
                     <span className="mb-0.5 block font-semibold">
                       סף ({unit}) — בין {spec.min} ל-{spec.max}
                     </span>
@@ -211,7 +211,7 @@ export function AutomationsSection() {
                   </label>
                   {saved === spec.key ? (
                     <span
-                      className="text-[12.5px]"
+                      className="text-[14px]"
                       style={{ color: "var(--color-primary)" }}
                     >
                       נשמר
@@ -220,7 +220,7 @@ export function AutomationsSection() {
                 </div>
               ) : saved === spec.key ? (
                 <span
-                  className="text-[12.5px]"
+                  className="text-[14px]"
                   style={{ color: "var(--color-primary)" }}
                 >
                   נשמר
@@ -232,7 +232,7 @@ export function AutomationsSection() {
       </ul>
 
       <p
-        className="m-0 mt-3 text-[12.5px]"
+        className="m-0 mt-3 text-[14px]"
         style={{ color: "var(--color-text-muted)" }}
       >
         שינוי נכנס לתוקף תוך דקה. פולו-אפ שכבר נקבע לפני הכיבוי לא יישלח.

@@ -89,12 +89,12 @@ export function CollaborationGuide() {
       <h2
         id="coop-guide-heading"
         className="m-0 mb-1"
-        style={{ fontSize: 16, fontWeight: 800 }}
+        style={{ fontSize: 17, fontWeight: 800 }}
       >
         איך עובדת רשת שיתופי הפעולה
       </h2>
       <p
-        className="m-0 mb-4 text-[13px]"
+        className="m-0 mb-4 text-[14.5px]"
         style={{ color: "var(--color-text-soft)" }}
       >
         קונה שאין לו נכס, ונכס שאין לו קונה — יושבים בשני משרדים שונים. הרשת
@@ -110,12 +110,12 @@ export function CollaborationGuide() {
           >
             <div className="mb-1.5 flex items-center gap-2">
               <span style={{ color: "var(--color-primary)" }}>{step.icon}</span>
-              <b className="text-[13.5px]">
+              <b className="text-[15px]">
                 {index + 1}. {step.title}
               </b>
             </div>
             <p
-              className="m-0 text-[12.5px]"
+              className="m-0 text-[14px]"
               style={{ color: "var(--color-text-muted)" }}
             >
               {step.body}
@@ -132,7 +132,7 @@ export function CollaborationGuide() {
         שהמסך מראה הוא בדיוק הטקסט המיותר שהפך את האזור לעמוס.
       */}
       <p
-        className="m-0 mb-3 text-[13px]"
+        className="m-0 mb-3 text-[14.5px]"
         style={{ color: "var(--color-text-soft)" }}
       >
         <IconGift s={14} /> שיתוף פעולה עם משרד תיווך — <b>חינם בכל המסלולים</b>
@@ -187,7 +187,7 @@ function GuidePanel({
       }}
       open={defaultOpen}
     >
-      <summary className="cursor-pointer px-3 py-2 text-[13px] font-semibold">
+      <summary className="cursor-pointer px-3 py-2 text-[14.5px] font-semibold">
         {/*
           עטיפת inline-flex ולא אייקון חשוף: ה-preflight של Tailwind
           מגדיר `svg { display: block }`, ולכן האייקון בתוך summary ירד
@@ -224,13 +224,13 @@ export function ReferralRulesPanel() {
       title="איך עובדת הפניית לקוח?"
       defaultOpen
     >
-      <p className="m-0 mb-2 text-[13px]">
+      <p className="m-0 mb-2 text-[14.5px]">
         משרד שמקבל פנייה שאינה מתאימה לו — לא באזור שלו, לא בתחום שלו או שאין לו
         פנאי — מפנה את הלקוח למשרד שכן יכול לשרת אותו, ומקבל <b>עמלת הפניה</b>.
         הלקוח מקבל מענה אמיתי, והמשרד המפנה חייב לומר למה הוא מפנה.
       </p>
       <ul
-        className="m-0 mb-3 ps-4 text-[12.5px]"
+        className="m-0 mb-3 ps-4 text-[14px]"
         style={{ color: "var(--color-text-soft)" }}
       >
         <li>
@@ -257,7 +257,7 @@ export function ReferralRulesPanel() {
         </li>
       </ul>
       <p
-        className="m-0 text-[12.5px]"
+        className="m-0 text-[14px]"
         style={{ color: "var(--color-text-muted)" }}
       >
         שם וטלפון של הלקוח נחשפים למשרד הקולט רק אחרי הקליטה. עד אז מוצגים

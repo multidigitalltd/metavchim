@@ -50,7 +50,7 @@ function ModeButton({
       onClick={onSelect}
       aria-pressed={active}
       title={hint}
-      className="rounded-lg border px-3 py-1.5 text-[13px] font-semibold"
+      className="rounded-lg border px-3 py-1.5 text-[14.5px] font-semibold"
       style={{
         borderColor: active ? "var(--color-primary)" : "var(--color-border)",
         background: active ? "var(--color-primary-soft)" : "transparent",

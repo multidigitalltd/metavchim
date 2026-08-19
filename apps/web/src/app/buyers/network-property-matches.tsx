@@ -108,12 +108,12 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
       <h2
         id="network-offers-heading"
         className="m-0 mb-1"
-        style={{ fontSize: 15.5, fontWeight: 800 }}
+        style={{ fontSize: 16.5, fontWeight: 800 }}
       >
         <IconHome s={16} /> נכסים מהרשת
       </h2>
       <p
-        className="m-0 mb-2.5 text-[12.5px]"
+        className="m-0 mb-2.5 text-[14px]"
         style={{ color: "var(--color-text-muted)" }}
       >
         נכסים שמשרדים אחרים הציעו על הביקוש הזה
@@ -148,13 +148,13 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
             style={{ borderBottom: "1px solid var(--color-row-border)" }}
           >
             <div className="min-w-0 flex-1" style={{ lineHeight: 1.4 }}>
-              <div className="mb-1.5 text-[14.5px] font-bold">
+              <div className="mb-1.5 text-[15.5px] font-bold">
                 {offer.presentation.title ?? "נכס ברשת"}
               </div>
               {/* כל מה שאינו מזהה — לפני אישור החיבור, לא אחריו */}
               <NetChips chips={presentationChips(offer.presentation)} />
               <div
-                className="text-[12.5px]"
+                className="text-[14px]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 <IconHandshake s={13} /> העמלה שלי {100 - offer.commissionSplit}
@@ -167,7 +167,7 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
                   <button
                     type="button"
                     className="mv-btn-action"
-                    style={{ padding: "7px 15px", fontSize: 13 }}
+                    style={{ padding: "7px 15px", fontSize: 14.5 }}
                     disabled={busy !== null}
                     onClick={() => void respond(offer.id, "interested")}
                   >
@@ -176,7 +176,7 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
                   <button
                     type="button"
                     className="mv-btn-plain"
-                    style={{ fontSize: 13 }}
+                    style={{ fontSize: 14.5 }}
                     disabled={busy !== null}
                     onClick={() => void respond(offer.id, "declined")}
                   >

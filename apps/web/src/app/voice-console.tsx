@@ -322,10 +322,10 @@ export function VoiceConsole({
           <IconMic s={22} />
         </span>
         <div>
-          <h2 id="voice-console-heading" className="m-0 text-[19px] font-extrabold leading-tight">
+          <h2 id="voice-console-heading" className="m-0 text-[20px] font-extrabold leading-tight">
             הסוכן הקולי שלך
           </h2>
-          <p className="m-0 mt-0.5 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 mt-0.5 text-[15px]" style={{ color: "var(--color-text-muted)" }}>
             אמרו או כתבו מה צריך — אני אכין, ואתם תאשרו.
           </p>
         </div>
@@ -390,7 +390,7 @@ export function VoiceConsole({
         ))}
         <button
           type="button"
-          className="mv-btn-plain text-[13px]"
+          className="mv-btn-plain text-[14.5px]"
           aria-expanded={showAll}
           onClick={() => setShowAll((v) => !v)}
         >
@@ -399,7 +399,7 @@ export function VoiceConsole({
       </div>
 
       {showAll ? (
-        <ul className="mt-2 flex list-none flex-col gap-1 p-0 text-[13px]">
+        <ul className="mt-2 flex list-none flex-col gap-1 p-0 text-[14.5px]">
           {CAPABILITIES.map(([label, example]) => (
             <li key={label}>
               <button
@@ -425,7 +425,7 @@ export function VoiceConsole({
           className="mt-3 rounded-xl border p-3"
           style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
         >
-          <p className="m-0 mb-2 text-[13px] font-bold">
+          <p className="m-0 mb-2 text-[14.5px] font-bold">
             הבנתי: {ACTION_LABELS[result.action] ?? result.action}
             {result.confidence === "low" ? (
               <span className="font-normal" style={{ color: "var(--color-text-muted)" }}>
@@ -437,7 +437,7 @@ export function VoiceConsole({
 
           {result.action === "add_task" && result.task ? (
             taskDone ? (
-              <p className="m-0 text-[13.5px] font-medium" style={{ color: "var(--color-success)" }}>
+              <p className="m-0 text-[15px] font-medium" style={{ color: "var(--color-success)" }}>
                 ✓ התזכורת נוצרה{result.task.dueAt ? " — תקבלו התראה במועד" : ""}.{" "}
                 <a href="/tasks" className="underline">
                   לכל המשימות ←
@@ -445,9 +445,9 @@ export function VoiceConsole({
               </p>
             ) : (
               <>
-                <p className="m-0 mb-1 text-[14px] font-medium">{result.task.title}</p>
+                <p className="m-0 mb-1 text-[15px] font-medium">{result.task.title}</p>
                 {result.task.dueAt ? (
-                  <p className="m-0 mb-2 text-[13px]">
+                  <p className="m-0 mb-2 text-[14.5px]">
                     {dateFmt.format(new Date(result.task.dueAt))}
                     {result.task.timeExplicit === false ? (
                       <span style={{ color: "var(--color-text-muted)" }}>
@@ -457,7 +457,7 @@ export function VoiceConsole({
                     ) : null}
                   </p>
                 ) : (
-                  <p className="m-0 mb-2 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+                  <p className="m-0 mb-2 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
                     בלי מועד — תופיע ברשימה, בלי התראה מתוזמנת.
                   </p>
                 )}
@@ -480,7 +480,7 @@ export function VoiceConsole({
 
           {result.action === "query_buyers" ? (
             answer === null ? (
-              <p className="m-0 text-[13px]" aria-live="polite">
+              <p className="m-0 text-[14.5px]" aria-live="polite">
                 בודק במאגר…
               </p>
             ) : (
@@ -496,7 +496,7 @@ export function VoiceConsole({
                 */}
                 {answer.unmatchedPlaces.length > 0 && (
                   <p
-                    className="m-0 mb-1.5 text-[13px] font-medium"
+                    className="m-0 mb-1.5 text-[14.5px] font-medium"
                     style={{ color: "var(--color-danger)" }}
                   >
                     אין במאגר אף קונה ב{answer.unmatchedPlaces.join(" / ")}.
@@ -505,20 +505,20 @@ export function VoiceConsole({
                 {answer.buyers.length === 0 ? (
                   // הודעה כללית רק כשאין הסבר ספציפי — אחרת כפילות
                   answer.unmatchedPlaces.length === 0 && (
-                    <p className="m-0 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+                    <p className="m-0 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
                       לא נמצאו קונים שמתאימים לקריטריונים האלה.
                     </p>
                   )
                 ) : (
                   <>
-                <p className="m-0 mb-1.5 text-[13px] font-medium">
+                <p className="m-0 mb-1.5 text-[14.5px] font-medium">
                   {answer.hasMore
                     ? `נמצאו יותר מ-${answer.buyers.length} — מוצגים הראשונים:`
                     : `נמצאו ${answer.buyers.length} קונים:`}
                 </p>
                 <ul className="flex list-none flex-col gap-1 p-0">
                   {answer.buyers.map((b) => (
-                    <li key={b.id} className="text-[13.5px]">
+                    <li key={b.id} className="text-[15px]">
                       <a href={`/buyers/${b.id}`} className="font-medium underline">
                         {b.name}
                       </a>
@@ -550,13 +550,13 @@ export function VoiceConsole({
       ) : null}
 
       {unclear ? (
-        <p className="m-0 mt-2 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+        <p className="m-0 mt-2 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
           לא הצלחתי להבין מה לעשות. נסו לנסח כמו באחת הדוגמאות שב&quot;מה עוד אפשר
           לומר?&quot; למעלה.
         </p>
       ) : null}
       {error !== null ? (
-        <p role="alert" className="m-0 mt-2 text-[13px]" style={{ color: "var(--color-danger)" }}>
+        <p role="alert" className="m-0 mt-2 text-[14.5px]" style={{ color: "var(--color-danger)" }}>
           {error}
         </p>
       ) : null}

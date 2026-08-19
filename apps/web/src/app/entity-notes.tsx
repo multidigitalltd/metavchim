@@ -84,7 +84,7 @@ export function EntityNotes({
       <h2
         id={headingId}
         className="m-0 mb-3"
-        style={{ fontSize: 15.5, fontWeight: 800 }}
+        style={{ fontSize: 16.5, fontWeight: 800 }}
       >
         {title}
       </h2>

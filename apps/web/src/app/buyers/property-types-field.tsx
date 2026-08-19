@@ -117,7 +117,7 @@ export function PropertyTypesField({
         </ul>
       ) : null}
 
-      <p className="mt-1 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="mt-1 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
         {chosen.length === 0
           ? "בלי בחירה — כל סוגי הנכסים מתאימים."
           : "נכס שסוגו אינו ברשימה לא יוצג כהתאמה."}

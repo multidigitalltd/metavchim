@@ -261,7 +261,7 @@ export default function LeadsPage() {
                   const pill = STATUS_PILL[lead.status] ?? STATUS_PILL["closed"]!;
                   return (
                     <div key={lead.id} className="mv-list-row" style={{ gridTemplateColumns: GRID }}>
-                      <span className="flex items-center gap-2 truncate text-[14.5px] font-bold">
+                      <span className="flex items-center gap-2 truncate text-[15.5px] font-bold">
                         <Link href={`/leads/${lead.id}`} className="truncate no-underline hover:underline" style={{ color: "inherit" }}>
                           {lead.contact.name}
                         </Link>
@@ -269,17 +269,17 @@ export default function LeadsPage() {
                           <span className="mv-tag" style={{ background: "#faf1ec", color: "#b0512c" }}>דחוף</span>
                         ) : null}
                       </span>
-                      <span className="truncate text-[13px]" style={{ color: "var(--color-text-soft)" }}>
+                      <span className="truncate text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
                         {LEAD_SOURCE_LABELS[lead.source] ?? lead.source}
                       </span>
-                      <span className="truncate text-[13px]" style={{ color: "var(--color-text-soft)" }}>
+                      <span className="truncate text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
                         {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent}
                       </span>
-                      <span className="text-[13px] font-extrabold" style={{ color: waiting ? WAITING_COLOR[waiting.level] : "var(--color-text-muted)" }}>
+                      <span className="text-[14.5px] font-extrabold" style={{ color: waiting ? WAITING_COLOR[waiting.level] : "var(--color-text-muted)" }}>
                         {waiting?.label ?? "—"}
                       </span>
                       <span>
-                        <span className="mv-pill" style={{ color: pill.fg, background: pill.bg, fontSize: 12 }}>
+                        <span className="mv-pill" style={{ color: pill.fg, background: pill.bg, fontSize: 13.5 }}>
                           {LEAD_STATUS_LABELS[lead.status] ?? lead.status}
                         </span>
                       </span>
@@ -317,7 +317,7 @@ export default function LeadsPage() {
             className="mt-3.5 flex flex-wrap items-center gap-3 rounded-xl border border-dashed px-[18px] py-3.5"
             style={{ borderColor: "#cfd6ce", background: "var(--color-surface)" }}
           >
-            <span className="text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
+            <span className="text-[15px]" style={{ color: "var(--color-text-muted)" }}>
               מפרסמים באתר, בפייסבוק או בקמפיין? צרו כתובת קליטה לכל ערוץ — וכל פנייה
               תיכנס כליד עם המקור שלה.
             </span>

@@ -87,7 +87,7 @@ export function LeadWebhookSection() {
 
   return (
     <section aria-labelledby="webhook-heading" className="mv-list-card px-5 py-[17px]">
-      <h2 id="webhook-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>מקורות לידים</h2>
+      <h2 id="webhook-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>מקורות לידים</h2>
       <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
         כל מקור מקבל כתובת קליטה משלו, והשם שלו מופיע על הליד — כך רואים אם
         הפנייה הגיעה מהאתר, מפייסבוק או מכל ערוץ אחר. שולחים לכתובת POST עם

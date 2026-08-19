@@ -29,7 +29,7 @@ export function SystemUpdateSection() {
       style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
       aria-labelledby="system-update-title"
     >
-      <h2 id="system-update-title" className="m-0 mb-2" style={{ fontSize: 15.5, fontWeight: 800 }}>
+      <h2 id="system-update-title" className="m-0 mb-2" style={{ fontSize: 16.5, fontWeight: 800 }}>
         מערכת
       </h2>
       <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>

@@ -415,14 +415,14 @@ export default function SettingsPage() {
                 <h2
                   id="team-heading"
                   className="m-0"
-                  style={{ fontSize: 15.5, fontWeight: 800 }}
+                  style={{ fontSize: 16.5, fontWeight: 800 }}
                 >
                   סוכני המשרד
                 </h2>
                 <button
                   type="button"
                   className="mv-btn-action ms-auto"
-                  style={{ padding: "6px 13px", fontSize: 12.5 }}
+                  style={{ padding: "6px 13px", fontSize: 14 }}
                   onClick={() => setAdding((v) => !v)}
                 >
                   {adding ? "ביטול" : "+ הוסף סוכן"}
@@ -562,7 +562,7 @@ export default function SettingsPage() {
                                 height: 30,
                                 background: "var(--color-primary-soft)",
                                 color: "var(--color-primary)",
-                                fontSize: 12.5,
+                                fontSize: 14,
                                 fontWeight: 800,
                               }}
                             >
@@ -583,7 +583,7 @@ export default function SettingsPage() {
                             </span>
                           </span>
                           <span
-                            className="text-[13px]"
+                            className="text-[14.5px]"
                             style={{ color: "var(--color-text-soft)" }}
                           >
                             {editable ? (
@@ -615,7 +615,7 @@ export default function SettingsPage() {
                             )}
                           </span>
                           <span
-                            className="text-[13px]"
+                            className="text-[14.5px]"
                             style={{ color: "var(--color-text-soft)" }}
                           >
                             {seesAll ? "את כל הקונים" : "רק את הקונים שלו"}
@@ -624,7 +624,7 @@ export default function SettingsPage() {
                             <span
                               className="mv-pill"
                               style={{
-                                fontSize: 12,
+                                fontSize: 13.5,
                                 color: canExport ? "#0C6E34" : "#68716a",
                                 background: canExport ? "#E5FCEA" : "#eef1ec",
                               }}
@@ -719,7 +719,7 @@ export default function SettingsPage() {
                 </div>
               </div>
               <p
-                className="m-0 px-5 py-[13px] text-[12.5px]"
+                className="m-0 px-5 py-[13px] text-[14px]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 הרשאות לפי תפקיד — הגנה מפני סוכן שעוזב עם המאגר. כל פעולה
@@ -737,7 +737,7 @@ export default function SettingsPage() {
               <h2
                 id="office-heading"
                 className="m-0 mb-3"
-                style={{ fontSize: 15.5, fontWeight: 800 }}
+                style={{ fontSize: 16.5, fontWeight: 800 }}
               >
                 פרטי המשרד
               </h2>
@@ -915,7 +915,7 @@ export default function SettingsPage() {
                 <h2
                   id="modules-heading"
                   className="m-0 mb-1"
-                  style={{ fontSize: 15.5, fontWeight: 800 }}
+                  style={{ fontSize: 16.5, fontWeight: 800 }}
                 >
                   מודולים וחיבורים
                 </h2>
@@ -1059,12 +1059,12 @@ export default function SettingsPage() {
                 <h2
                   id="audit-heading"
                   className="m-0"
-                  style={{ fontSize: 15.5, fontWeight: 800 }}
+                  style={{ fontSize: 16.5, fontWeight: 800 }}
                 >
                   יומן פעילות
                 </h2>
                 <p
-                  className="m-0 mt-0.5 text-[12.5px]"
+                  className="m-0 mt-0.5 text-[14px]"
                   style={{ color: "var(--color-text-muted)" }}
                 >
                   מי עשה מה ומתי — כל פעולה במערכת מתועדת ואינה ניתנת למחיקה.
@@ -1082,7 +1082,7 @@ export default function SettingsPage() {
                   {audit.map((row, index) => (
                     <li
                       key={index}
-                      className="flex flex-wrap gap-1.5 px-5 py-2.5 text-[13.5px]"
+                      className="flex flex-wrap gap-1.5 px-5 py-2.5 text-[15px]"
                       style={{
                         borderBottom: "1px solid var(--color-row-border)",
                       }}
@@ -1097,7 +1097,7 @@ export default function SettingsPage() {
                         {row.supportAdmin ? (
                           <span style={{ color: "var(--color-warning)" }}>
                             תמיכה{" "}
-                            <span className="font-normal text-[12px]" dir="ltr">
+                            <span className="font-normal text-[13.5px]" dir="ltr">
                               ({row.supportAdmin})
                             </span>
                           </span>
@@ -1133,14 +1133,14 @@ export default function SettingsPage() {
               <h2
                 id="security-heading"
                 className="m-0 mb-[11px]"
-                style={{ fontSize: 15.5, fontWeight: 800 }}
+                style={{ fontSize: 16.5, fontWeight: 800 }}
               >
                 אבטחה ופרטיות
               </h2>
               {SECURITY_ROWS.map((row) => (
                 <div
                   key={row}
-                  className="flex items-center gap-[9px] py-1.5 text-[13.5px]"
+                  className="flex items-center gap-[9px] py-1.5 text-[15px]"
                   style={{ color: "var(--color-text-soft)" }}
                 >
                   <span
@@ -1166,7 +1166,7 @@ export default function SettingsPage() {
               <h2
                 id="data-heading"
                 className="m-0 mb-[11px]"
-                style={{ fontSize: 15.5, fontWeight: 800 }}
+                style={{ fontSize: 16.5, fontWeight: 800 }}
               >
                 נתונים
               </h2>
@@ -1174,7 +1174,7 @@ export default function SettingsPage() {
                 <Link
                   href="/import"
                   className="mv-btn-plain flex-1 text-center"
-                  style={{ padding: "8px 0", fontSize: 13 }}
+                  style={{ padding: "8px 0", fontSize: 14.5 }}
                 >
                   ייבוא מאקסל
                 </Link>
@@ -1205,19 +1205,19 @@ export default function SettingsPage() {
                 <h2
                   id="roadmap-heading"
                   className="m-0"
-                  style={{ fontSize: 14.5, fontWeight: 800 }}
+                  style={{ fontSize: 15.5, fontWeight: 800 }}
                 >
                   בפיתוח עכשיו
                 </h2>
               </div>
               <p
-                className="m-0 text-[13px]"
+                className="m-0 text-[14.5px]"
                 style={{ color: "var(--color-text-soft)", lineHeight: 1.6 }}
               >
                 שליחה אוטומטית בוואטסאפ
               </p>
               <p
-                className="m-0 mt-2 text-[12.5px]"
+                className="m-0 mt-2 text-[14px]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 כשפיצ׳ר עולה — באנר "מה חדש" מופיע לכולם בכניסה הבאה.

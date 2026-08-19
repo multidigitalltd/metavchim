@@ -60,10 +60,10 @@ export function SupportAccessSection(): React.JSX.Element {
 
   return (
     <section className="mv-list-card px-5 py-[17px]" aria-labelledby="support-access-heading">
-      <h2 id="support-access-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+      <h2 id="support-access-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
         גישת תמיכה
       </h2>
-      <p className="m-0 mb-3 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mb-3 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
         אם התמיכה תבקש לראות את המסך שלכם, אפשר לפתוח לה כאן גישה זמנית לחשבון —
         לשעה אחת בלבד, ורק בלחיצה שלכם. אפשר לסגור את הגישה בכל רגע, וכל כניסה
         של התמיכה נרשמת ביומן הפעילות של המשרד. פנייה רגילה אינה דורשת את זה:

@@ -123,10 +123,10 @@ export function AgreementTemplatesSection() {
 
   return (
     <section className="mv-list-card px-5 py-[17px]" aria-labelledby="agreements-heading">
-      <h2 id="agreements-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+      <h2 id="agreements-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
         נוסחי הסכמים לחתימה
       </h2>
-      <p className="m-0 mb-3 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mb-3 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
         הנוסח שהלקוח יראה ויחתום עליו. אפשר להשאיר את ברירת המחדל, או לערוך —
         לחיצה על שם שדה מוסיפה אותו בתוך הטקסט, ואין צורך להקליד קודים.
       </p>
@@ -212,7 +212,7 @@ export function AgreementTemplatesSection() {
                 >
                   {preview.text}
                 </div>
-                <p className="m-0 mt-2 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                <p className="m-0 mt-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                   הפרטים כאן בדויים להמחשה. בשליחה אמיתית הם מוחלפים בפרטי המשרד,
                   הלקוח והנכס.
                 </p>
@@ -241,7 +241,7 @@ export function AgreementTemplatesSection() {
                   }}
                 />
 
-                <p className="m-0 mb-1 mt-3 text-[13px] font-bold">
+                <p className="m-0 mb-1 mt-3 text-[14.5px] font-bold">
                   הוספת פרט למסמך — לחצו במקום הרצוי בטקסט ואז על השדה
                 </p>
                 {PLACEHOLDER_GROUPS.map((group) => (

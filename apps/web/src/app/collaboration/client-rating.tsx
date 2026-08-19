@@ -89,7 +89,7 @@ function StarRow({
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-1">
-      <span className="text-[12.5px]">
+      <span className="text-[14px]">
         <b>{label}</b>{" "}
         <span style={{ color: "var(--color-text-muted)" }}>{hint}</span>
       </span>
@@ -191,7 +191,7 @@ export function ClientScoresView({
   if (given.length === 0) return null;
   const overall = overallRatingScore(scores);
   return (
-    <div className="text-[12.5px]">
+    <div className="text-[14px]">
       <b>{title}</b>
       {overall === null ? null : (
         <span style={{ color: "var(--color-text-muted)" }}>
@@ -239,7 +239,7 @@ export function ReferrerAccuracyBreakdown({
   if (dimensions.length === 0) return null;
   return (
     <ul
-      className="m-0 mt-1 mb-2 flex list-none flex-wrap gap-x-3 gap-y-0.5 p-0 text-[12px]"
+      className="m-0 mt-1 mb-2 flex list-none flex-wrap gap-x-3 gap-y-0.5 p-0 text-[13.5px]"
       style={{ color: "var(--color-text-muted)" }}
       aria-label="דיוק ההצהרות לפי ממד"
     >
@@ -352,7 +352,7 @@ export function ReferralConfirmation({
               comment={confirmation.comment}
             />
             <p
-              className="m-0 mt-1 text-[12.5px]"
+              className="m-0 mt-1 text-[14px]"
               style={{ color: "var(--color-text-muted)" }}
             >
               {confirmation.accuracy === null
@@ -362,7 +362,7 @@ export function ReferralConfirmation({
           </div>
         ) : (
           <p
-            className="m-0 mt-2 text-[12.5px]"
+            className="m-0 mt-2 text-[14px]"
             style={{ color: "var(--color-text-muted)" }}
           >
             המשרד הקולט טרם אישר. כשיאשר, הפער בין ההצהרה לאישור ייכנס למוניטין
@@ -381,11 +381,11 @@ export function ReferralConfirmation({
         background: "var(--color-bg)",
       }}
     >
-      <p className="m-0 mb-1 text-[13px] font-semibold">
+      <p className="m-0 mb-1 text-[14.5px] font-semibold">
         מה התברר בפועל?
       </p>
       <p
-        className="m-0 mb-2 text-[12px]"
+        className="m-0 mb-2 text-[13.5px]"
         style={{ color: "var(--color-text-muted)" }}
       >
         האישור שלכם נמדד מול מה שהמשרד המפנה הצהיר, והפער הוא המוניטין שלו.
@@ -407,7 +407,7 @@ export function ReferralConfirmation({
 
       <label
         htmlFor={fieldId}
-        className="mt-2 flex flex-col gap-1 text-[12.5px]"
+        className="mt-2 flex flex-col gap-1 text-[14px]"
       >
         <span style={{ color: "var(--color-text-muted)" }}>
           הערה למשרד המפנה (רשות) — נראית רק לשני המשרדים שבהפניה
@@ -432,7 +432,7 @@ export function ReferralConfirmation({
       {error ? (
         <p
           role="alert"
-          className="mt-2 mb-0 text-[12.5px]"
+          className="mt-2 mb-0 text-[14px]"
           style={{ color: "var(--color-danger)" }}
         >
           {error}
@@ -449,7 +449,7 @@ export function ReferralConfirmation({
         </Button>
         {saved && !busy ? (
           <span
-            className="text-[12.5px]"
+            className="text-[14px]"
             style={{ color: "var(--color-success)" }}
           >
             ✓ האישור נשמר
@@ -487,7 +487,7 @@ function GapHint({
   if (gaps.length === 0) return null;
   return (
     <p
-      className="m-0 mt-2 text-[12px]"
+      className="m-0 mt-2 text-[13.5px]"
       style={{ color: "var(--color-text-muted)" }}
     >
       פערים מול ההצהרה:{" "}

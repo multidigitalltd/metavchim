@@ -102,7 +102,7 @@ export default function NewBuyerPage() {
   return (
     <div className="mx-auto max-w-2xl">
       <h1 className="mb-1 text-2xl font-bold">קונה חדש</h1>
-      <p className="mb-5 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="mb-5 text-[15px]" style={{ color: "var(--color-text-muted)" }}>
         שם וטלפון מספיקים כדי לשמור. כל שדה נוסף מדייק את ההתאמות —
         ואפשר להשלים אותו אחר כך מהכרטיס.
       </p>
@@ -148,7 +148,7 @@ export default function NewBuyerPage() {
             <PropertyTypesField disabled={submitting} />
             {/* התקציב גם במילים — טעות ספרה במיליונים משנה קונה לגמרי */}
             <PriceField id="budgetMax" name="budgetMax" label="תקציב מקסימלי (₪)" />
-            <p className="-mt-2 text-[12px]" style={{ color: "var(--color-text-muted)" }}>
+            <p className="-mt-2 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
               בלי תקציב הכרטיס נשמר, וקריטריון התקציב לא נספר בהתאמות.
             </p>
             <div className="grid grid-cols-2 gap-3">

@@ -177,7 +177,7 @@ function BuyerVoiceForm() {
                 className="w-full rounded-lg border px-3 py-2.5"
                 style={inputStyle}
               />
-              <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-muted)" }}>
+              <p className="mt-1 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
                 בלי תקציב הכרטיס נשמר, וקריטריון התקציב לא נספר בהתאמות.
               </p>
             </div>
