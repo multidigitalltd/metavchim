@@ -182,7 +182,7 @@ export function DictationInput({
         {label}
       </label>
       {hint ? (
-        <p className="m-0 mb-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
+        <p className="m-0 mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
           {hint}
         </p>
       ) : null}
@@ -221,7 +221,7 @@ export function DictationTextarea({
         {label}
       </label>
       {hint ? (
-        <p className="m-0 mb-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
+        <p className="m-0 mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
           {hint}
         </p>
       ) : null}

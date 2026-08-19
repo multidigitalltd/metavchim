@@ -400,7 +400,7 @@ function NoExclusivity({
       style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
     >
       <div className="flex flex-wrap items-end gap-2">
-        <label className="text-[13.5px]">
+        <label className="text-[14px]">
           <span className="mb-0.5 block font-semibold">סוג הנכס לעניין החוק</span>
           <SelectMenu
             value={subject}
@@ -414,7 +414,7 @@ function NoExclusivity({
             }}
           />
         </label>
-        <label className="text-[13.5px]">
+        <label className="text-[14px]">
           <span className="mb-0.5 block font-semibold">תחילת התקופה</span>
           <input
             type="date"
@@ -424,7 +424,7 @@ function NoExclusivity({
             style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
           />
         </label>
-        <label className="text-[13.5px]">
+        <label className="text-[14px]">
           <span className="mb-0.5 block font-semibold">סיום התקופה</span>
           <input
             type="date"
@@ -446,7 +446,7 @@ function NoExclusivity({
         סוכמה עם הלקוח פעולת שיווק מותאמת (פריט 7 בתקנות)
       </label>
 
-      <p className="m-0 mt-2 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mt-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
         התקרה בחוק: {MAX_EXCLUSIVITY_MONTHS[subject]} חודשים מיום ההזמנה (סעיף 9(ב)).
         התראה על פעולות חסרות נשלחת {EXCLUSIVITY_THIRD_WARNING_DAYS} ימים לפני מועד השליש.
       </p>
@@ -508,7 +508,7 @@ function LogAction({
       style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
     >
       <div className="flex flex-wrap items-end gap-2">
-        <label className="grow text-[13.5px]">
+        <label className="grow text-[14px]">
           <span className="mb-0.5 block font-semibold">סוג הפעולה</span>
           <SelectMenu
             value={kind}
@@ -520,7 +520,7 @@ function LogAction({
             onChange={(v) => setKind(v as MarketingActionKind)}
           />
         </label>
-        <label className="text-[13.5px]">
+        <label className="text-[14px]">
           <span className="mb-0.5 block font-semibold">מתי בוצעה</span>
           <input
             type="date"
@@ -532,7 +532,7 @@ function LogAction({
           />
         </label>
         {kind === "broker_network" ? (
-          <label className="text-[13.5px]">
+          <label className="text-[14px]">
             <span className="mb-0.5 block font-semibold">כמה מתווכים</span>
             <input
               type="number"
@@ -547,7 +547,7 @@ function LogAction({
         ) : null}
       </div>
 
-      <label className="mt-2 block text-[13.5px]">
+      <label className="mt-2 block text-[14px]">
         <span className="mb-0.5 block font-semibold">פירוט (לא חובה)</span>
         <input
           value={detail}
@@ -560,7 +560,7 @@ function LogAction({
       </label>
 
       {kind === "broker_network" ? (
-        <p className="m-0 mt-1 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
+        <p className="m-0 mt-1 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
           נספר כפעולה מ-{MIN_BROKERS_FOR_NETWORK_ACTION} מתווכים ומעלה, במצטבר לאורך התקופה.
         </p>
       ) : null}
@@ -611,7 +611,7 @@ function OwnerReport({
       className="mt-2 rounded-lg border p-3"
       style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
     >
-      <p className="m-0 mb-1 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mb-1 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
         זה מה שבעל הנכס מקבל — פעולות ותאריכים בלבד, בלי מצב הבלעדיות הפנימי.
       </p>
       <pre className="m-0 whitespace-pre-wrap text-[14px]" style={{ fontFamily: "inherit" }}>

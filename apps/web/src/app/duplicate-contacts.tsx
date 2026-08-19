@@ -96,7 +96,7 @@ export function DuplicateContacts() {
           >
             <div className="mb-1 flex flex-wrap items-baseline gap-2">
               <strong className="text-sm">{group.survivor.name}</strong>
-              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+              <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
                 נשמר: <span dir="ltr">{group.survivor.phone}</span>
                 {group.survivor.activity > 0 ? ` · ${group.survivor.activity} רשומות` : " · ללא פעילות"}
               </span>
@@ -104,7 +104,7 @@ export function DuplicateContacts() {
               <button
                 type="button"
                 className="mv-btn-plain ms-auto"
-                style={{ padding: "4px 10px", fontSize: 13.5 }}
+                style={{ padding: "4px 10px", fontSize: 14 }}
                 disabled={busyId !== null}
                 onClick={() => void dismiss(group.key)}
               >

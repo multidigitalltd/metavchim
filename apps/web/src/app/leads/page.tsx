@@ -107,7 +107,7 @@ export default function LeadsPage() {
         </p>
         <div className="ms-auto flex flex-wrap gap-2.5">
           {canVoice ? (
-            <Link href="/leads/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "13.5px" }}>
+            <Link href="/leads/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "14px" }}>
               <IconMic s={15} /> ליד בקול
             </Link>
           ) : null}
@@ -279,7 +279,7 @@ export default function LeadsPage() {
                         {waiting?.label ?? "—"}
                       </span>
                       <span>
-                        <span className="mv-pill" style={{ color: pill.fg, background: pill.bg, fontSize: 13.5 }}>
+                        <span className="mv-pill" style={{ color: pill.fg, background: pill.bg, fontSize: 14 }}>
                           {LEAD_STATUS_LABELS[lead.status] ?? lead.status}
                         </span>
                       </span>

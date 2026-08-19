@@ -49,7 +49,7 @@ export function RetainedAgreementsSection() {
         <h3 id="retained-agreements-heading" className="m-0 text-[16px] font-bold">
           מסמכים חתומים של לקוחות שנמחקו
         </h3>
-        <p className="m-0 mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
+        <p className="m-0 mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
           הלקוח ביקש מחיקה וכל המידע עליו נמחק — חוץ מהמסמך החתום, שהוא ראיה משפטית
           ובסיס הזכאות לדמי התיווך. השם כאן הוא שם החותם כפי שנחתם במסמך.
         </p>
@@ -66,7 +66,7 @@ export function RetainedAgreementsSection() {
               <span style={{ color: "var(--color-text-muted)" }}> · {row.kindLabel}</span>
             </span>
             <span className="flex items-center gap-3">
-              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+              <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
                 {row.signedAt !== null ? `נחתם ${formatDate(row.signedAt)}` : "—"}
               </span>
               <Link href={row.url} className="mv-btn-plain">

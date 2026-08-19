@@ -155,7 +155,7 @@ export function TelephonyWebhooksSection() {
                       טלפון ושמות לקוחות נשמרים כשם השדה בלבד ולא
                       נכנסים לטבלה שנקראת בעיניים.
                     */}
-                    <td dir="ltr" className="text-xs">
+                    <td dir="ltr" className="text-sm">
                       {hit.fieldKeys ?? "—"}
                     </td>
                     {/*
@@ -164,7 +164,7 @@ export function TelephonyWebhooksSection() {
                       הוא איפה יושב מידע שאנחנו מפספסים. שמות בלבד:
                       ערך של שדה שלא זיהינו יכול להיות כל דבר.
                     */}
-                    <td dir="ltr" className="text-xs">
+                    <td dir="ltr" className="text-sm">
                       {hit.unmapped === null || hit.unmapped === "" ? (
                         <span style={{ color: "var(--color-text-muted)" }}>—</span>
                       ) : (

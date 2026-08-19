@@ -144,7 +144,7 @@ export function LocationPicker({
       {caps?.forward === true ? (
         <div className="mb-2 flex flex-wrap items-end gap-2">
           <label className="grow">
-            <span className="mb-1 block text-xs font-semibold">כתובת לחיפוש</span>
+            <span className="mb-1 block text-sm font-semibold">כתובת לחיפוש</span>
             <input
               value={query}
               onChange={(e) => {
@@ -211,7 +211,7 @@ export function LocationPicker({
         }}
       />
 
-      <p className="m-0 mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
         {hasPoint
           ? `מיקום נשמר: ${value.latitude!.toFixed(5)}, ${value.longitude!.toFixed(5)}${
               value.locationSource === "geocode" ? " (מהכתובת)" : " (סומן ידנית)"
@@ -222,7 +222,7 @@ export function LocationPicker({
           : ""}
       </p>
       {note !== null ? (
-        <p className="m-0 mt-1 text-xs" style={{ color: "var(--color-danger)" }}>
+        <p className="m-0 mt-1 text-sm" style={{ color: "var(--color-danger)" }}>
           {note}
         </p>
       ) : null}

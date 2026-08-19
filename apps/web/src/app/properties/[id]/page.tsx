@@ -640,7 +640,7 @@ export default function PropertyDetailPage({
                 {detailFields.map(([label, value]) => (
                   <div key={label}>
                     <dt
-                      className="text-xs font-semibold"
+                      className="text-sm font-semibold"
                       style={{ color: "var(--color-text-muted)" }}
                     >
                       {label}
@@ -930,7 +930,7 @@ export default function PropertyDetailPage({
                       }}
                       aria-hidden="true"
                     >
-                      <span style={{ width: 35, height: 35, fontSize: 13.5 }}>
+                      <span style={{ width: 35, height: 35, fontSize: 14 }}>
                         {m.score}%
                       </span>
                     </span>

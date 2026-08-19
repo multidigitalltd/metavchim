@@ -177,7 +177,7 @@ export function RecurrenceSection(): React.JSX.Element {
 
       {!canManage ? null : adding ? (
         <div className="mt-3 grid gap-2.5" style={{ maxWidth: 460 }}>
-          <label className="text-xs font-semibold">
+          <label className="text-sm font-semibold">
             מה לעשות
             <input
               value={draft.title}
@@ -189,7 +189,7 @@ export function RecurrenceSection(): React.JSX.Element {
             />
           </label>
 
-          <label className="text-xs font-semibold">
+          <label className="text-sm font-semibold">
             כל כמה זמן
             <select
               value={draft.frequency}
@@ -207,7 +207,7 @@ export function RecurrenceSection(): React.JSX.Element {
 
           {draft.frequency === "weekly" ? (
             <fieldset className="m-0 border-0 p-0">
-              <legend className="mb-1 text-xs font-semibold">באילו ימים</legend>
+              <legend className="mb-1 text-sm font-semibold">באילו ימים</legend>
               <div className="flex flex-wrap gap-1.5">
                 {WEEKDAYS.map((name, day) => (
                   <label key={name} className="flex items-center gap-1 text-[14px]">
@@ -224,7 +224,7 @@ export function RecurrenceSection(): React.JSX.Element {
           ) : null}
 
           {draft.frequency === "monthly" ? (
-            <label className="text-xs font-semibold">
+            <label className="text-sm font-semibold">
               באיזה יום בחודש
               <input
                 type="number"
@@ -238,7 +238,7 @@ export function RecurrenceSection(): React.JSX.Element {
               />
               <span
                 id="day-of-month-hint"
-                className="mt-1 block text-[13px] font-normal"
+                className="mt-1 block text-[14px] font-normal"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 31 יופיע ביום האחרון של חודש קצר, ולא ידלג עליו.
@@ -246,7 +246,7 @@ export function RecurrenceSection(): React.JSX.Element {
             </label>
           ) : null}
 
-          <label className="text-xs font-semibold">
+          <label className="text-sm font-semibold">
             באיזו שעה
             <input
               type="time"

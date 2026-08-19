@@ -136,7 +136,7 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
           <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))" }}>
             {specs.map(([label, value]) => (
               <div key={label}>
-                <div className="text-xs font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                <div className="text-sm font-semibold" style={{ color: "var(--color-text-muted)" }}>
                   {label}
                 </div>
                 <div className="mt-0.5 text-[16px] font-bold">{value}</div>
@@ -232,7 +232,7 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
 
       {/* לקוח קצה שמשאיר פרטים בטופס הזה זכאי לדעת מה נעשה בהם — הקישור
           למדיניות הפרטיות הוא חלק מהאיסוף, לא קישוט בתחתית העמוד */}
-      <p className="mt-6 text-center text-xs" style={{ color: "var(--color-text-muted)" }}>
+      <p className="mt-6 text-center text-sm" style={{ color: "var(--color-text-muted)" }}>
         <span className="mb-1 flex items-center justify-center gap-1.5">
           <LogoMark s={16} />
           הדף מופעל על ידי {view.officeName} · מערכת מתווכים

@@ -171,7 +171,7 @@ export function AutomationsSection() {
 
               {spec.unit !== null ? (
                 <div className="mt-2 flex flex-wrap items-end gap-2">
-                  <label className="text-[13.5px]">
+                  <label className="text-[14px]">
                     <span className="mb-0.5 block font-semibold">
                       סף ({unit}) — בין {spec.min} ל-{spec.max}
                     </span>

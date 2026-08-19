@@ -148,7 +148,7 @@ export default function NewBuyerPage() {
             <PropertyTypesField disabled={submitting} />
             {/* התקציב גם במילים — טעות ספרה במיליונים משנה קונה לגמרי */}
             <PriceField id="budgetMax" name="budgetMax" label="תקציב מקסימלי (₪)" />
-            <p className="-mt-2 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
+            <p className="-mt-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
               בלי תקציב הכרטיס נשמר, וקריטריון התקציב לא נספר בהתאמות.
             </p>
             <div className="grid grid-cols-2 gap-3">

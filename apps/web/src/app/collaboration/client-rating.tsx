@@ -239,7 +239,7 @@ export function ReferrerAccuracyBreakdown({
   if (dimensions.length === 0) return null;
   return (
     <ul
-      className="m-0 mt-1 mb-2 flex list-none flex-wrap gap-x-3 gap-y-0.5 p-0 text-[13.5px]"
+      className="m-0 mt-1 mb-2 flex list-none flex-wrap gap-x-3 gap-y-0.5 p-0 text-[14px]"
       style={{ color: "var(--color-text-muted)" }}
       aria-label="דיוק ההצהרות לפי ממד"
     >
@@ -385,7 +385,7 @@ export function ReferralConfirmation({
         מה התברר בפועל?
       </p>
       <p
-        className="m-0 mb-2 text-[13.5px]"
+        className="m-0 mb-2 text-[14px]"
         style={{ color: "var(--color-text-muted)" }}
       >
         האישור שלכם נמדד מול מה שהמשרד המפנה הצהיר, והפער הוא המוניטין שלו.
@@ -487,7 +487,7 @@ function GapHint({
   if (gaps.length === 0) return null;
   return (
     <p
-      className="m-0 mt-2 text-[13.5px]"
+      className="m-0 mt-2 text-[14px]"
       style={{ color: "var(--color-text-muted)" }}
     >
       פערים מול ההצהרה:{" "}

@@ -228,13 +228,13 @@ export default function ProfilePage() {
                       <label htmlFor="pf-email-password" className="mb-1 mt-2 block text-sm font-semibold">
                         סיסמה נוכחית <span className="font-normal">(רק אם שיניתם את האימייל)</span>
                       </label>
-                      <p className="m-0 mb-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                      <p className="m-0 mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
                         האימייל הוא כתובת ההתחברות, ולכן שינוי שלו דורש אימות ומנתק חיבורים פתוחים אחרים.
                       </p>
                       <input id="pf-email-password" name="emailPassword" type="password" autoComplete="current-password" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
                     </>
                   ) : (
-                    <p className="m-0 mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                    <p className="m-0 mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
                       החשבון מחובר דרך Google — כתובת האימייל מנוהלת שם.
                     </p>
                   )}
@@ -355,7 +355,7 @@ export default function ProfilePage() {
                 >
                   <span className="text-start">
                     <span className="block font-bold">{toggle.label}</span>
-                    <span className="block text-xs" style={{ opacity: 0.85 }}>{toggle.hint}</span>
+                    <span className="block text-sm" style={{ opacity: 0.85 }}>{toggle.hint}</span>
                   </span>
                   <span aria-hidden="true">{prefs[toggle.key] ? "✓" : ""}</span>
                 </button>
@@ -453,7 +453,7 @@ function PushSection() {
               <span className="block font-bold">
                 {state.subscribed ? "התראות פעילות בדפדפן הזה" : "הפעל התראות בדפדפן הזה"}
               </span>
-              <span className="block text-xs" style={{ opacity: 0.85 }}>
+              <span className="block text-sm" style={{ opacity: 0.85 }}>
                 {state.subscribed
                   ? "לחיצה תכבה אותן במכשיר הזה"
                   : "הדפדפן יבקש אישור פעם אחת"}

@@ -346,7 +346,7 @@ export default function CallsPage() {
                       <span
                         className="mv-pill block"
                         style={{
-                          fontSize: 13.5,
+                          fontSize: 14,
                           padding: "2px 10px",
                           color: call.outcome === "answered" ? "#0C6E34" : "#b0512c",
                           background: call.outcome === "answered" ? "#E5FCEA" : "#faf1ec",
@@ -355,7 +355,7 @@ export default function CallsPage() {
                         {OUTCOME_LABELS[call.outcome] ?? call.outcome}
                       </span>
                       {call.durationMinutes !== undefined ? (
-                        <span className="mt-[3px] block text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+                        <span className="mt-[3px] block text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                           {call.durationMinutes} דק׳
                         </span>
                       ) : null}

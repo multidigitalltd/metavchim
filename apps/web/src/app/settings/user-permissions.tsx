@@ -174,11 +174,11 @@ export function UserPermissions({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
                   <span className="text-sm font-bold">{module.label}</span>
-                  <span className="mv-pill mr-2" style={{ fontSize: 13, ...tone }}>
+                  <span className="mv-pill mr-2" style={{ fontSize: 14, ...tone }}>
                     {state}
                   </span>
                   <span
-                    className="block text-xs"
+                    className="block text-sm"
                     style={{ color: "var(--color-text-muted)" }}
                   >
                     {timed ? timed.description : module.description}
@@ -263,7 +263,7 @@ export function UserPermissions({
                           {CAPABILITY_LABELS[capability]}
                           {override ? (
                             <span
-                              className="mr-2 text-xs"
+                              className="mr-2 text-sm"
                               style={{ color: "var(--color-text-muted)" }}
                             >
                               {override.description}

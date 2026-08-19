@@ -231,7 +231,7 @@ function TenantOverrides({
                     type="button"
                     aria-pressed={state === value}
                     onClick={() => setState(feature.code, value)}
-                    className="rounded-lg border px-2 py-0.5 text-[13.5px]"
+                    className="rounded-lg border px-2 py-0.5 text-[14px]"
                     style={
                       state === value
                         ? {
@@ -718,15 +718,15 @@ export default function PlatformPage() {
                         למה הוא מתלונן.
                       */}
                       {a.periodEnded ? (
-                        <span className="block text-xs" style={{ color: "var(--color-danger)" }}>
+                        <span className="block text-sm" style={{ color: "var(--color-danger)" }}>
                           התקופה הסתיימה — מוגבל למסך המנוי
                         </span>
                       ) : a.paidUntil !== null ? (
-                        <span className="block text-xs" style={{ color: "var(--color-text-muted)" }}>
+                        <span className="block text-sm" style={{ color: "var(--color-text-muted)" }}>
                           שולם עד {formatDate(a.paidUntil)}
                         </span>
                       ) : a.trialEndsAt !== null ? (
-                        <span className="block text-xs" style={{ color: "var(--color-text-muted)" }}>
+                        <span className="block text-sm" style={{ color: "var(--color-text-muted)" }}>
                           ניסיון עד {formatDate(a.trialEndsAt)}
                         </span>
                       ) : null}

@@ -143,7 +143,7 @@ export function renderEmailHtml(content: EmailContent, productName = "מתווכ
         `font-size:16px;font-weight:700;color:${BRAND.onAction};text-decoration:none;">` +
         `${escapeHtml(content.button.label)}</a></td></tr></table>` +
         // הכתובת גם כטקסט: לקוחות שחוסמים כפתורים, ומי שרוצה להעתיק
-        `<p style="margin:0 0 12px;font-size:12px;line-height:1.6;color:${BRAND.muted};word-break:break-all;">` +
+        `<p style="margin:0 0 12px;font-size:14px;line-height:1.6;color:${BRAND.muted};word-break:break-all;">` +
         `<span dir="ltr">${url}</span></p>`,
     );
   }
@@ -151,7 +151,7 @@ export function renderEmailHtml(content: EmailContent, productName = "מתווכ
   if (content.footnote) {
     parts.push(
       `<p style="margin:22px 0 0;padding-top:14px;border-top:1px solid ${BRAND.border};` +
-        `font-size:13px;line-height:1.6;color:${BRAND.muted};">${escapeHtml(content.footnote)}</p>`,
+        `font-size:14px;line-height:1.6;color:${BRAND.muted};">${escapeHtml(content.footnote)}</p>`,
     );
   }
 
@@ -174,7 +174,7 @@ export function renderEmailHtml(content: EmailContent, productName = "מתווכ
 </td></tr>
 <tr><td dir="rtl" style="padding:16px 26px 26px;text-align:right;">${body}</td></tr>
 </table>
-<p style="margin:14px 0 0;font-size:12px;color:${BRAND.muted};text-align:center;">${name}</p>
+<p style="margin:14px 0 0;font-size:14px;color:${BRAND.muted};text-align:center;">${name}</p>
 </td></tr>
 </table>
 </body>

@@ -536,7 +536,7 @@ export default function DashboardPage() {
             </span>
             {shownTasks.length > 0 ? (
               <span
-                className="ms-auto rounded-full px-2.5 py-0.5 text-xs font-bold"
+                className="ms-auto rounded-full px-2.5 py-0.5 text-sm font-bold"
                 style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}
               >
                 {shownTasks.length} פעולות
@@ -639,7 +639,7 @@ export default function DashboardPage() {
                     <span className="block text-[15px] font-bold">
                       {a.title ?? APPOINTMENT_KIND_LABELS[a.kind] ?? a.kind}
                     </span>
-                    <span className="block text-xs" style={{ color: "var(--color-text-muted)" }}>
+                    <span className="block text-sm" style={{ color: "var(--color-text-muted)" }}>
                       {APPOINTMENT_KIND_LABELS[a.kind] ?? a.kind}
                       {a.propertyId ? " · נכס" : a.leadId ? " · ליד" : ""}
                     </span>
@@ -668,7 +668,7 @@ export default function DashboardPage() {
                 </h2>
                 {dueNow > 0 ? (
                   <span
-                    className="rounded-full px-2 py-0.5 text-[13px] font-bold"
+                    className="rounded-full px-2 py-0.5 text-[14px] font-bold"
                     style={{ background: "#f7e6e0", color: "var(--color-danger)" }}
                   >
                     {dueNow} להיום
@@ -702,7 +702,7 @@ export default function DashboardPage() {
                       style={{ borderBottom: "1px solid var(--color-row-border)" }}
                     >
                       <span
-                        className="flex-none text-[13.5px] font-extrabold"
+                        className="flex-none text-[14px] font-extrabold"
                         style={{
                           width: 58,
                           color: due.urgent ? "var(--color-danger)" : "var(--color-text-muted)",
@@ -713,7 +713,7 @@ export default function DashboardPage() {
                       <span style={{ lineHeight: 1.3 }}>
                         <span className="block text-[15px] font-bold">{t.title}</span>
                         {t.entityLabel ? (
-                          <span className="block text-xs" style={{ color: "var(--color-text-muted)" }}>
+                          <span className="block text-sm" style={{ color: "var(--color-text-muted)" }}>
                             {t.entityLabel}
                           </span>
                         ) : null}
@@ -779,7 +779,7 @@ export default function DashboardPage() {
                       </span>
                     </li>
                   </ul>
-                  <p className="m-0 mt-1.5 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
+                  <p className="m-0 mt-1.5 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                     {network === null
                       ? "שיתוף פעולה על ביקושים אינו עולה קרדיטים."
                       : `יתרה: ${network.credits} קרדיטים · שיתוף פעולה על ביקושים אינו עולה קרדיטים.`}

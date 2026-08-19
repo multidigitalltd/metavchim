@@ -484,7 +484,7 @@ export default function BuyerDetailPage({
               </div>
               {/* גם במילים — אימות מהיר שהסכום שנשמר הוא הסכום שהתכוונו לו */}
               <div
-                className="mb-[13px] -mt-2 text-[13.5px]"
+                className="mb-[13px] -mt-2 text-[14px]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 {buyer.requirements.budgetMaxAgorot === undefined
@@ -766,7 +766,7 @@ export default function BuyerDetailPage({
                         }}
                         aria-hidden="true"
                       >
-                        <span style={{ width: 35, height: 35, fontSize: 13.5 }}>
+                        <span style={{ width: 35, height: 35, fontSize: 14 }}>
                           {m.score}%
                         </span>
                       </span>

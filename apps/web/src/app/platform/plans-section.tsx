@@ -70,7 +70,7 @@ function planEditor(
 ): React.JSX.Element {
   return (
     <div className="grid gap-2.5">
-      <label className="text-xs font-semibold">
+      <label className="text-sm font-semibold">
         שם המסלול
         <input
           value={draft.name}
@@ -79,7 +79,7 @@ function planEditor(
           style={inputStyle}
         />
       </label>
-      <label className="text-xs font-semibold">
+      <label className="text-sm font-semibold">
         תיאור — מה המשרד מקבל
         <textarea
           value={draft.description}
@@ -90,7 +90,7 @@ function planEditor(
         />
       </label>
       <div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        <label className="text-xs font-semibold">
+        <label className="text-sm font-semibold">
           ₪ לחודש
           <input
             value={toShekels(draft.monthlyPriceAgorot)}
@@ -102,7 +102,7 @@ function planEditor(
             style={inputStyle}
           />
         </label>
-        <label className="text-xs font-semibold">
+        <label className="text-sm font-semibold">
           ₪ לשנה (ריק = חודשי בלבד)
           <input
             value={toShekels(draft.yearlyPriceAgorot)}
@@ -114,7 +114,7 @@ function planEditor(
             style={inputStyle}
           />
         </label>
-        <label className="text-xs font-semibold">
+        <label className="text-sm font-semibold">
           מקסימום משתמשים (ריק = ללא הגבלה)
           <input
             value={draft.maxUsers === null ? "" : String(draft.maxUsers)}
@@ -124,7 +124,7 @@ function planEditor(
             style={inputStyle}
           />
         </label>
-        <label className="text-xs font-semibold">
+        <label className="text-sm font-semibold">
           מקסימום נכסים (ריק = ללא הגבלה)
           <input
             value={draft.maxProperties === null ? "" : String(draft.maxProperties)}
@@ -146,7 +146,7 @@ function planEditor(
           מעצמה", ושתי מכסות היו מייצרות את השאלה למה נגמרה אחת
           בזמן שהשנייה פנויה.
         */}
-        <label className="text-xs font-semibold">
+        <label className="text-sm font-semibold">
           מקסימום אוטומציות (ריק = ללא הגבלה)
           <input
             value={draft.maxAutomations === null ? "" : String(draft.maxAutomations)}
@@ -156,7 +156,7 @@ function planEditor(
             style={inputStyle}
           />
         </label>
-        <label className="text-xs font-semibold">
+        <label className="text-sm font-semibold">
           מקסימום נכסים ברשת (ריק = ללא הגבלה)
           <input
             value={
@@ -172,7 +172,7 @@ function planEditor(
             style={inputStyle}
           />
         </label>
-        <label className="text-xs font-semibold">
+        <label className="text-sm font-semibold">
           מקסימום קונים ברשת (ריק = ללא הגבלה)
           <input
             value={
@@ -188,7 +188,7 @@ function planEditor(
             style={inputStyle}
           />
         </label>
-        <label className="text-xs font-semibold">
+        <label className="text-sm font-semibold">
           ימי ניסיון
           <input
             value={String(draft.trialDays)}
@@ -200,7 +200,7 @@ function planEditor(
             style={inputStyle}
           />
         </label>
-        <label className="text-xs font-semibold">
+        <label className="text-sm font-semibold">
           סדר תצוגה
           <input
             value={String(draft.sortOrder)}
@@ -215,7 +215,7 @@ function planEditor(
       </div>
 
       <fieldset className="m-0 border-0 p-0">
-        <legend className="mb-1 text-xs font-semibold">מה כלול</legend>
+        <legend className="mb-1 text-sm font-semibold">מה כלול</legend>
         {features.map((feature) => (
           <label key={feature.code} className="mb-1 flex items-start gap-2 text-sm">
             <input
@@ -228,7 +228,7 @@ function planEditor(
             />
             <span>
               {feature.label}
-              <span className="block text-xs" style={{ color: "var(--color-text-muted)" }}>
+              <span className="block text-sm" style={{ color: "var(--color-text-muted)" }}>
                 {feature.description}
               </span>
             </span>
@@ -464,7 +464,7 @@ export function PlansSection({
           <h3 className="m-0 mb-2" style={{ fontSize: 16, fontWeight: 800 }}>
             מסלול חדש
           </h3>
-          <label className="mb-2.5 block text-xs font-semibold">
+          <label className="mb-2.5 block text-sm font-semibold">
             קוד מסלול (לטינית, קבוע — לא ניתן לשינוי אחר כך)
             <input
               value={draft.code}
@@ -511,11 +511,11 @@ export function PlansSection({
                 <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
                   <h3 className="m-0" style={{ fontSize: 16, fontWeight: 800 }}>
                     {isEditing ? draft.name : plan.name}{" "}
-                    <span dir="ltr" className="font-mono text-xs" style={{ color: "var(--color-text-muted)" }}>
+                    <span dir="ltr" className="font-mono text-sm" style={{ color: "var(--color-text-muted)" }}>
                       {plan.code}
                     </span>
                   </h3>
-                  <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+                  <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
                     {tenants === 0 ? "אין משרדים" : `${tenants} משרדים`}
                   </span>
                 </div>
@@ -566,7 +566,7 @@ export function PlansSection({
                         );
                       })}
                     </ul>
-                    <p className="m-0 mb-2 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                    <p className="m-0 mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
                       {plan.trialDays > 0 ? `${plan.trialDays} ימי ניסיון` : "בלי תקופת ניסיון"}
                       {" · "}
                       {plan.isPublic ? "מוצג בדף ההרשמה" : "לא מוצג בדף ההרשמה"}
@@ -577,7 +577,7 @@ export function PlansSection({
                       שמגביל אותו. בלי ימים לא היה תאריך תפוגה כלל.
                     */}
                     {plan.isPublic && plan.trialDays === 0 ? (
-                      <p className="m-0 mb-2 text-xs" style={{ color: "#8a6414" }}>
+                      <p className="m-0 mb-2 text-sm" style={{ color: "#8a6414" }}>
                         <IconWarning s={15} /> בלי ימי ניסיון המסלול לא יופיע בדף ההרשמה. הוא עדיין ניתן
                         לרכישה ממסך המנוי של משרד קיים.
                       </p>
@@ -602,7 +602,7 @@ export function PlansSection({
                   <div className="grid gap-2.5">
                     {planEditor(draft, setDraft, data.features, toggleFeature)}
                     {tenants > 0 ? (
-                      <p className="m-0 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                      <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
                         <IconWarning s={15} /> {tenants} משרדים יושבים על המסלול — צמצום פיצ׳רים או מגבלות ישפיע
                         עליהם מיד.
                       </p>

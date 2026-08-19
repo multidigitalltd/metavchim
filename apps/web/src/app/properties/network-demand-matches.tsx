@@ -142,7 +142,7 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
               }}
               aria-hidden="true"
             >
-              <span style={{ width: 35, height: 35, fontSize: 13.5 }}>
+              <span style={{ width: 35, height: 35, fontSize: 14 }}>
                 {row.score}%
               </span>
             </span>

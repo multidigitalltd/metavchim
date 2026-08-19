@@ -183,7 +183,7 @@ export function VirtualNumbersSection() {
                       <td>
                         {number.label}
                         {!number.isActive && (
-                          <span className="mv-pill ms-2" style={{ fontSize: 12.5 }}>
+                          <span className="mv-pill ms-2" style={{ fontSize: 14 }}>
                             מושבת
                           </span>
                         )}

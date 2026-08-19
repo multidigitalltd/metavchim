@@ -156,12 +156,12 @@ export default function BuyersPage() {
           {/* כפתור שמוביל לפיצ'ר שאינו במסלול נחסם בשרת ממילא —
               עדיף לא להציג אותו מאשר להסביר 403 אחרי בחירת קובץ */}
           {canImport ? (
-            <Link href="/import" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "13.5px" }}>
+            <Link href="/import" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "14px" }}>
               <IconSheet s={15} /> ייבוא מאקסל
             </Link>
           ) : null}
           {canVoice ? (
-            <Link href="/buyers/voice" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "13.5px" }}>
+            <Link href="/buyers/voice" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "14px" }}>
               <IconMic s={15} /> קונה בקול
             </Link>
           ) : null}

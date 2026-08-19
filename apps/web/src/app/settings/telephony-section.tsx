@@ -260,7 +260,7 @@ export function TelephonySection() {
                     {why.showKeys && status.lastEventKeys ? (
                       <>
                         <p
-                          className="m-0 mt-1 text-[13.5px]"
+                          className="m-0 mt-1 text-[14px]"
                           dir="ltr"
                           style={{ color: "var(--color-text-muted)" }}
                         >
@@ -313,7 +313,7 @@ export function TelephonySection() {
               </ol>
               <pre
                 dir="ltr"
-                className="mt-1 overflow-x-auto rounded p-2 text-[13px]"
+                className="mt-1 overflow-x-auto rounded p-2 text-[14px]"
                 style={{ background: "var(--color-bg)" }}
               >
                 {PBX015_TEMPLATE}
@@ -365,7 +365,7 @@ export function TelephonySection() {
             ))}
           </select>
           {provider && provider.fields.length === 0 ? (
-            <p className="m-0 mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
+            <p className="m-0 mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
               לא נדרשים פרטים — מקבלים כתובת ומדביקים אותה במרכזייה.
             </p>
           ) : null}
@@ -403,7 +403,7 @@ export function TelephonySection() {
               */}
               {field.secret && status.connected ? (
                 <p
-                  className="m-0 mt-1 text-xs"
+                  className="m-0 mt-1 text-sm"
                   style={{ color: stored ? "var(--color-success)" : "var(--color-danger)" }}
                 >
                   {stored ? (
@@ -509,7 +509,7 @@ function TeamSipLines() {
               >
                 <span className="w-36 truncate pb-2 text-sm font-semibold">{line.name}</span>
                 <div>
-                  <label htmlFor={`line-u-${line.userId}`} className="mb-1 block text-xs font-semibold">
+                  <label htmlFor={`line-u-${line.userId}`} className="mb-1 block text-sm font-semibold">
                     קו / שלוחה
                   </label>
                   <input
@@ -524,7 +524,7 @@ function TeamSipLines() {
                   />
                 </div>
                 <div>
-                  <label htmlFor={`line-p-${line.userId}`} className="mb-1 block text-xs font-semibold">
+                  <label htmlFor={`line-p-${line.userId}`} className="mb-1 block text-sm font-semibold">
                     סיסמת הקו
                   </label>
                   <input

@@ -144,7 +144,7 @@ export function SearchAreas({
             disabled={disabled}
           />
           <div className="mt-2 flex flex-wrap items-end gap-2">
-            <label className="text-[13.5px]">
+            <label className="text-[14px]">
               <span className="mb-0.5 block font-semibold">רדיוס (ק״מ)</span>
               <input
                 type="number"
@@ -160,7 +160,7 @@ export function SearchAreas({
                 }}
               />
             </label>
-            <label className="grow text-[13.5px]">
+            <label className="grow text-[14px]">
               <span className="mb-0.5 block font-semibold">
                 שם האזור (לא חובה)
               </span>

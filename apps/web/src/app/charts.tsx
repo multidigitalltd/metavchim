@@ -109,7 +109,7 @@ export function DonutChart({
           x="70"
           y="86"
           textAnchor="middle"
-          style={{ fontSize: 12.5, fontWeight: 600, fill: "var(--color-text-muted)" }}
+          style={{ fontSize: 14, fontWeight: 600, fill: "var(--color-text-muted)" }}
         >
           {centerLabel}
         </text>

@@ -269,7 +269,7 @@ function MatchesView() {
                   {g.sub}
                 </span>
               ) : null}
-              <span className="mv-pill ms-auto" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)", fontSize: 13.5 }}>
+              <span className="mv-pill ms-auto" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)", fontSize: 14 }}>
                 {g.items.length} התאמות
               </span>
             </div>
