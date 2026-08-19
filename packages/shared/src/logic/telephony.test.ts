@@ -251,6 +251,17 @@ describe("build015DialUrl", () => {
     expect(url.searchParams.get("cnumber")).toBe("0529876543");
   });
 
+  /*
+   * ‎`ctype` ריק = מספר חיצוני. התיעוד מסמן אותו כ"מומלץ", והשמטתו
+   * הותירה את הפירוש לברירת המחדל של הספק — שאם תיפול ל"קו", היעד
+   * היה מתפרש כשלוחה פנימית והשיחה ללקוח לא הייתה יוצאת.
+   */
+  it("ctype נשלח ריק — היעד הוא מספר חיצוני ולא שלוחה", () => {
+    const url = new URL(build015DialUrl(base));
+    expect(url.searchParams.has("ctype")).toBe(true);
+    expect(url.searchParams.get("ctype")).toBe("");
+  });
+
   it("הסוכן ראשון והלקוח שני — ולא הפוך", () => {
     // היפוך היה מצלצל אצל הלקוח וממתין שהוא יענה כדי לחייג לסוכן
     const url = new URL(build015DialUrl(base));
