@@ -188,7 +188,7 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
                   {describeDevice(row.userAgent)}
                   {row.current ? (
                     <span
-                      className="mv-pill mr-2 text-[13px]"
+                      className="mv-pill mr-2 text-[14px]"
                       style={{
                         background: "var(--color-primary-soft)",
                         color: "var(--color-primary)",
@@ -204,7 +204,7 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
                   */}
                   {row.supportAdminEmail !== null ? (
                     <span
-                      className="mv-pill mr-2 text-[13px]"
+                      className="mv-pill mr-2 text-[14px]"
                       style={{ color: "var(--color-danger)", fontWeight: 700 }}
                     >
                       תמיכה · {row.supportAdminEmail}

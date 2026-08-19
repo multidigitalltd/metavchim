@@ -106,7 +106,7 @@ export function PayoutDeskSection(): React.JSX.Element {
       <h2 id="payout-desk-heading" className="mb-1 text-lg font-semibold">
         <IconCoins s={16} /> בקשות משיכה
         {pending.length > 0 ? (
-          <span className="mv-chip ms-2" style={{ fontSize: 13.5 }}>
+          <span className="mv-chip ms-2" style={{ fontSize: 14 }}>
             {pending.length} ממתינות
           </span>
         ) : null}
@@ -142,7 +142,7 @@ export function PayoutDeskSection(): React.JSX.Element {
                 <span style={{ color: STATUS_COLOR[row.status], fontWeight: 700, fontSize: 14 }}>
                   {PAYOUT_STATUS_LABEL[row.status]}
                 </span>
-                <span className="text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
+                <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                   {new Date(row.createdAt).toLocaleDateString("he-IL")} · חשבון {row.accountMasked}
                 </span>
               </div>
@@ -184,7 +184,7 @@ export function PayoutDeskSection(): React.JSX.Element {
                   ) : null}
 
                   <div className="mt-2 flex flex-wrap items-end gap-2">
-                    <label className="grow text-[13.5px]">
+                    <label className="grow text-[14px]">
                       <span className="mb-0.5 block font-semibold">
                         {row.status === "approved" ? "אסמכתת ההעברה" : "הערה להחלטה"}
                       </span>

@@ -70,7 +70,7 @@ export function DismissReportSection() {
                   <span>
                     {tally.label}
                     {tally.criterion !== null ? (
-                      <span className="ms-1.5 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
+                      <span className="ms-1.5 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                         · קריטריון {MATCH_CRITERION_LABELS[tally.criterion]}
                       </span>
                     ) : null}

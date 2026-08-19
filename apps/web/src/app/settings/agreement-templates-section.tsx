@@ -246,7 +246,7 @@ export function AgreementTemplatesSection() {
                 </p>
                 {PLACEHOLDER_GROUPS.map((group) => (
                   <div key={group.label} className="mt-2">
-                    <p className="m-0 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                    <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
                       <strong>{group.label}</strong> · {group.source}
                     </p>
                     <div className="mt-1 flex flex-wrap gap-1.5">

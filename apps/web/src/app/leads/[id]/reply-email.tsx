@@ -99,7 +99,7 @@ export function ReplyEmail({
           <p className="m-0 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
             אל: <b dir="ltr">{contactEmail}</b>
           </p>
-          <label className="text-xs font-semibold">
+          <label className="text-sm font-semibold">
             נושא
             <input
               name="subject"
@@ -110,7 +110,7 @@ export function ReplyEmail({
               style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
             />
           </label>
-          <label htmlFor="reply-body" className="text-xs font-semibold">
+          <label htmlFor="reply-body" className="text-sm font-semibold">
             תוכן ההודעה
             {/* כפתור הכתבה כמו בכל שדות הטקסט — מתווך בשטח מכתיב */}
             <div className="mt-1 flex items-start gap-2">

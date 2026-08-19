@@ -233,7 +233,7 @@ export default function OffersPage() {
                     {offer.openCount === 0 ? "טרם נפתחה" : `נפתחה ${offer.openCount} פעמים`}
                   </span>
                   <span>
-                    <span className="mv-pill" style={{ color: chip.fg, background: chip.bg, fontSize: "12.5px" }}>
+                    <span className="mv-pill" style={{ color: chip.fg, background: chip.bg, fontSize: "14px" }}>
                       {chip.label}
                     </span>
                   </span>

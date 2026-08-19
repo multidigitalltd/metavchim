@@ -115,7 +115,7 @@ export function ContactErasure({
           </span>
         </button>
         <p
-          className="m-0 mt-1 text-xs"
+          className="m-0 mt-1 text-sm"
           style={{ color: "var(--color-text-muted)" }}
         >
           לבקשת הלקוח — מוחק את כל המידע שהמשרד מחזיק עליו, לצמיתות.
@@ -182,7 +182,7 @@ export function ContactErasure({
       ) : null}
 
       <label className="block">
-        <span className="mb-1 block text-xs font-semibold">
+        <span className="mb-1 block text-sm font-semibold">
           לאישור, הקלידו את שם הלקוח:
         </span>
         <input

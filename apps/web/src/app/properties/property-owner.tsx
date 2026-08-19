@@ -174,7 +174,7 @@ export function PropertyOwner({
               ביטול
             </button>
           </div>
-          <p className="m-0 mt-2 text-xs" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
             אם המספר כבר קיים במערכת, הנכס יקושר לאותו אדם ולא ייווצר כרטיס כפול.
           </p>
         </form>

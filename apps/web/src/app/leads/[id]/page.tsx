@@ -459,7 +459,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
                 </label>
               ))}
             </div>
-            <p className="m-0 mt-1 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+            <p className="m-0 mt-1 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
               המשרד הקולט משלם {priceNumber} קרדיטים בשני המסלולים. הבחירה נקבעת עכשיו
               ואי אפשר לשנותה אחרי הפרסום.
             </p>

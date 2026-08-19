@@ -51,7 +51,7 @@ function NumberField({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-semibold">{label}</span>
+      <span className="mb-1 block text-sm font-semibold">{label}</span>
       <span className="flex items-center gap-1.5">
         <input
           type="number"
@@ -63,11 +63,11 @@ function NumberField({
           style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
         />
         {suffix !== undefined ? (
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>{suffix}</span>
+          <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>{suffix}</span>
         ) : null}
       </span>
       {hint !== undefined ? (
-        <span className="mt-0.5 block text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+        <span className="mt-0.5 block text-[14px]" style={{ color: "var(--color-text-muted)" }}>
           {hint}
         </span>
       ) : null}
@@ -213,7 +213,7 @@ export function CreditEconomySection() {
           return (
             <div key={i} className="flex flex-wrap items-end gap-2">
               <label className="grow">
-                <span className="mb-1 block text-xs font-semibold">כמות</span>
+                <span className="mb-1 block text-sm font-semibold">כמות</span>
                 <input
                   type="number"
                   min="1"
@@ -230,7 +230,7 @@ export function CreditEconomySection() {
                 />
               </label>
               <label className="grow">
-                <span className="mb-1 block text-xs font-semibold">מחיר (₪)</span>
+                <span className="mb-1 block text-sm font-semibold">מחיר (₪)</span>
                 <input
                   type="number"
                   min="0"

@@ -215,7 +215,7 @@ export function ContactPeople({
             </a>
             {row.primary ? (
               <span
-                className="text-xs"
+                className="text-sm"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 ראשי
@@ -224,7 +224,7 @@ export function ContactPeople({
               <button
                 type="button"
                 className="mv-btn-plain ms-auto"
-                style={{ padding: "3px 9px", fontSize: 13.5 }}
+                style={{ padding: "3px 9px", fontSize: 14 }}
                 disabled={busy}
                 onClick={() =>
                   void run(() =>
@@ -246,7 +246,7 @@ export function ContactPeople({
           className="mb-3 flex flex-wrap items-end gap-2"
         >
           <label className="grow">
-            <span className="mb-1 block text-xs font-semibold">
+            <span className="mb-1 block text-sm font-semibold">
               אימייל (ריק = מחיקה)
             </span>
             <input
@@ -297,7 +297,7 @@ export function ContactPeople({
             <button
               type="button"
               className="mv-btn-plain ms-auto"
-              style={{ padding: "3px 9px", fontSize: 13.5 }}
+              style={{ padding: "3px 9px", fontSize: 14 }}
               onClick={() => setEditingEmail(true)}
             >
               {data.email ? "ערוך" : "הוסף אימייל"}
@@ -312,7 +312,7 @@ export function ContactPeople({
           className="mb-3 flex flex-wrap items-end gap-2"
         >
           <label className="grow">
-            <span className="mb-1 block text-xs font-semibold">מספר נוסף</span>
+            <span className="mb-1 block text-sm font-semibold">מספר נוסף</span>
             <input
               name="phone"
               dir="ltr"
@@ -322,7 +322,7 @@ export function ContactPeople({
             />
           </label>
           <label>
-            <span className="mb-1 block text-xs font-semibold">סוג</span>
+            <span className="mb-1 block text-sm font-semibold">סוג</span>
             <select name="label" className="mv-field" defaultValue="mobile">
               {PHONE_LABELS.map((label) => (
                 <option key={label} value={label}>
@@ -368,7 +368,7 @@ export function ContactPeople({
                 </a>
               ) : (
                 <span
-                  className="text-xs"
+                  className="text-sm"
                   style={{ color: "var(--color-text-muted)" }}
                 >
                   בלי אימייל
@@ -379,7 +379,7 @@ export function ContactPeople({
                   <button
                     type="button"
                     className="mv-btn-plain"
-                    style={{ padding: "3px 9px", fontSize: 13.5 }}
+                    style={{ padding: "3px 9px", fontSize: 14 }}
                     onClick={() =>
                       setEditingPersonEmail((current) =>
                         current === person.contactId ? null : person.contactId,
@@ -391,7 +391,7 @@ export function ContactPeople({
                   <button
                     type="button"
                     className="mv-btn-plain"
-                    style={{ padding: "3px 9px", fontSize: 13.5 }}
+                    style={{ padding: "3px 9px", fontSize: 14 }}
                     disabled={busy}
                     onClick={() =>
                       void run(() =>
@@ -414,7 +414,7 @@ export function ContactPeople({
                   className="flex w-full flex-wrap items-end gap-2 ps-2"
                 >
                   <label className="grow">
-                    <span className="mb-1 block text-xs font-semibold">
+                    <span className="mb-1 block text-sm font-semibold">
                       אימייל של {person.name} (ריק = מחיקה)
                     </span>
                     <input
@@ -453,11 +453,11 @@ export function ContactPeople({
           className="mt-2 flex flex-wrap items-end gap-2"
         >
           <label className="grow">
-            <span className="mb-1 block text-xs font-semibold">שם</span>
+            <span className="mb-1 block text-sm font-semibold">שם</span>
             <input name="name" required minLength={2} className="mv-field" />
           </label>
           <label className="grow">
-            <span className="mb-1 block text-xs font-semibold">טלפון</span>
+            <span className="mb-1 block text-sm font-semibold">טלפון</span>
             <input
               name="phone"
               dir="ltr"
@@ -467,7 +467,7 @@ export function ContactPeople({
             />
           </label>
           <label className="grow">
-            <span className="mb-1 block text-xs font-semibold">
+            <span className="mb-1 block text-sm font-semibold">
               אימייל (לא חובה)
             </span>
             <input
@@ -479,7 +479,7 @@ export function ContactPeople({
             />
           </label>
           <label>
-            <span className="mb-1 block text-xs font-semibold">תפקיד</span>
+            <span className="mb-1 block text-sm font-semibold">תפקיד</span>
             <select name="role" className="mv-field" defaultValue="spouse">
               {CONTACT_ROLES.map((role) => (
                 <option key={role} value={role}>
@@ -498,7 +498,7 @@ export function ContactPeople({
           שזה קיים בלי לקרוא תיעוד, ולא ייראה כרעש למי שכבר משתמש */}
       {extraPeople.length === 0 && !addingPerson ? (
         <p
-          className="m-0 mt-1 text-xs"
+          className="m-0 mt-1 text-sm"
           style={{ color: "var(--color-text-muted)" }}
         >
           אפשר להוסיף בן/בת זוג או מיופה כוח — הודעה מהמספר שלהם תיכנס לכרטיס

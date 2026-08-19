@@ -216,7 +216,7 @@ export function MapCanvas({
         <div>
           <p className="m-0 text-sm font-semibold">המפה אינה מוגדרת</p>
           <p
-            className="m-0 mt-1 text-xs"
+            className="m-0 mt-1 text-sm"
             style={{ color: "var(--color-text-muted)" }}
           >
             {failed

@@ -294,7 +294,7 @@ export default function SetupPage() {
             >
               <span className="mb-1 flex items-center gap-2">
                 <span
-                  className="grid h-[22px] w-[22px] flex-none place-items-center rounded-full text-xs font-extrabold"
+                  className="grid h-[22px] w-[22px] flex-none place-items-center rounded-full text-sm font-extrabold"
                   style={{
                     background:
                       state === "done"
@@ -311,7 +311,7 @@ export default function SetupPage() {
                   {s.t}
                 </span>
               </span>
-              <span className="block ps-8 text-xs" style={{ color: "var(--color-text-muted)" }}>{s.s}</span>
+              <span className="block ps-8 text-sm" style={{ color: "var(--color-text-muted)" }}>{s.s}</span>
             </button>
           );
         })}
@@ -388,7 +388,7 @@ export default function SetupPage() {
                 </p>
               </div>
               <div className="min-w-[240px] flex-1 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
-                <p className="mb-2 text-xs font-bold" style={{ color: "var(--color-text-muted)" }}>
+                <p className="mb-2 text-sm font-bold" style={{ color: "var(--color-text-muted)" }}>
                   לדוגמה, אפשר להגיד:
                 </p>
                 <p className="m-0 leading-relaxed">

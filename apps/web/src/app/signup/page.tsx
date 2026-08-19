@@ -345,7 +345,7 @@ export default function SignupPage(): React.JSX.Element {
               className="mv-auth-input"
               aria-describedby="password-hint"
             />
-            <p id="password-hint" className="m-0 mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
+            <p id="password-hint" className="m-0 mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
               לפחות 10 תווים. זו הסיסמה שמגינה על נתוני הלקוחות של המשרד.
             </p>
           </div>
@@ -382,7 +382,7 @@ export default function SignupPage(): React.JSX.Element {
             {couponState.status === "ok" || couponState.status === "bad" ? (
               <p
                 aria-live="polite"
-                className="m-0 mt-1 text-xs"
+                className="m-0 mt-1 text-sm"
                 style={{
                   color:
                     couponState.status === "ok" ? "var(--color-success)" : "var(--color-danger)",

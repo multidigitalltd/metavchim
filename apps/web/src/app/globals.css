@@ -664,7 +664,7 @@ code {
   letter-spacing: -0.01em;
 }
 .mv-sidebar-sub {
-  font-size: 12px;
+  font-size: 14px;
   color: #9aa89e;
   margin-top: 5px;
   min-height: 1em;
@@ -705,7 +705,7 @@ code {
 /* מונה ליד פריט ניווט (נכסים, קונים, התאמות) */
 .mv-nav-count {
   margin-inline-start: auto;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: #9aa89e;
 }
@@ -714,10 +714,10 @@ code {
   margin-inline-start: auto;
   background: #b0512c;
   color: #fff;
-  font-size: 11.5px;
+  font-size: 14px;
   font-weight: 700;
   border-radius: 99px;
-  padding: 1px 8px;
+  padding: 2px 9px;
 }
 .mv-sidebar-link:focus-visible {
   outline: 3px solid var(--dk-primary);
@@ -753,13 +753,13 @@ code {
 }
 .mv-sidebar-user-name {
   display: block;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 700;
   color: #fff;
 }
 .mv-sidebar-user-role {
   display: block;
-  font-size: 11.5px;
+  font-size: 14px;
   color: #9aa89e;
 }
 
@@ -894,7 +894,7 @@ code {
   background: var(--color-hover-soft);
 }
 .mv-search-kind {
-  font-size: 10.5px;
+  font-size: 14px;
   font-weight: 700;
   border-radius: 6px;
   padding: 2px 7px;
@@ -909,13 +909,13 @@ code {
 }
 .mv-search-sub {
   margin-inline-start: auto;
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--color-text-muted);
   flex: none;
 }
 .mv-search-empty {
   padding: 12px;
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--color-text-muted);
   text-align: center;
 }
@@ -974,7 +974,7 @@ code {
   border: none;
   background: none;
   color: var(--color-primary);
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -994,27 +994,27 @@ code {
 }
 .mv-notif-text {
   display: block;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--color-text);
   line-height: 1.4;
 }
 .mv-notif-time {
   display: block;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--color-text-muted);
 }
 .mv-notif-empty {
   margin: 0;
   padding: 16px;
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--color-text-muted);
   text-align: center;
 }
 .mv-notif-all {
   display: block;
   padding: 11px 16px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--color-primary);
   text-align: center;
@@ -1102,7 +1102,7 @@ code {
   padding: 11px 20px;
   background: var(--color-table-head);
   border-bottom: 1px solid var(--color-card-head-border);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--color-text-muted);
 }
@@ -1139,19 +1139,19 @@ button.mv-list-row:hover {
 /* גלולה (סטטוס, בשלות) — radius מלא */
 .mv-pill {
   display: inline-block;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   border-radius: 99px;
-  padding: 3px 10px;
+  padding: 4px 11px;
   white-space: nowrap;
 }
 /* תג קטן ("חדש", "דחוף") — פינות 6px */
 .mv-tag {
   display: inline-block;
-  font-size: 10.5px;
+  font-size: 14px;
   font-weight: 800;
   border-radius: 6px;
-  padding: 1px 7px;
+  padding: 2px 8px;
   white-space: nowrap;
 }
 
@@ -1196,7 +1196,7 @@ button.mv-list-row:hover {
   border: 1px solid var(--color-input-border);
   background: var(--color-surface);
   color: var(--color-text-soft);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   border-radius: 99px;
   padding: 6px 14px;
@@ -1227,7 +1227,7 @@ button.mv-list-row:hover {
   border: 1px solid var(--color-input-border);
   background: var(--color-surface);
   color: var(--color-text);
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 700;
   border-radius: var(--control-radius);
   min-height: var(--control-h);
@@ -1269,7 +1269,7 @@ button.mv-list-row:hover {
   gap: 10px;
   padding: 8px 11px;
   border-radius: 8px;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--color-text);
   cursor: pointer;
@@ -1292,7 +1292,7 @@ button.mv-list-row:hover {
   border: 1px solid var(--color-input-border);
   background-color: var(--color-surface);
   color: var(--color-text);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   border-radius: 10px;
   min-height: 38px;
@@ -1317,7 +1317,7 @@ button.mv-list-row:hover {
   border: none;
   background: var(--color-action);
   color: var(--color-on-action);
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 700;
   border-radius: var(--control-radius);
   padding: 0 18px;
@@ -1340,7 +1340,7 @@ button.mv-list-row:hover {
   border: 1px solid #bdf4cb;
   background: #f1fef4;
   color: var(--color-primary);
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   border-radius: 8px;
   padding: 6px 11px;
@@ -1360,7 +1360,7 @@ button.mv-list-row:hover {
   border: 1px solid var(--color-input-border);
   background: var(--color-surface);
   color: var(--color-text-soft);
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   border-radius: 8px;
   padding: 6px 11px;
@@ -1427,7 +1427,7 @@ button.mv-list-row:hover {
   background: var(--color-surface);
   display: grid;
   place-items: center;
-  font-size: 11.5px;
+  font-size: 14px;
   font-weight: 800;
   color: var(--color-primary);
 }
@@ -1443,7 +1443,7 @@ button.mv-list-row:hover {
   border: none;
   border-radius: 8px;
   padding: 7px 16px;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
   background: transparent;
@@ -1484,7 +1484,7 @@ button.mv-list-row:hover {
   border: none;
   border-radius: 9px;
   padding: 8px 15px;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
   background: transparent;
@@ -1524,12 +1524,12 @@ button.mv-list-row:hover {
   border-radius: 999px;
   background: var(--color-primary-soft);
   color: var(--color-primary);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 800;
 }
 .mv-form-hint {
   margin: 2px 0 0;
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--color-text-muted);
   line-height: 1.5;
 }
@@ -1574,7 +1574,7 @@ button.mv-list-row:hover {
   border: none;
   background: transparent;
   padding: 12px 14px 11px;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--color-text-soft);
   cursor: pointer;
@@ -1600,7 +1600,7 @@ button.mv-list-row:hover {
   border-radius: 999px;
   background: var(--color-seg-track);
   color: var(--color-text-soft);
-  font-size: 11.5px;
+  font-size: 14px;
   font-weight: 800;
   line-height: 19px;
   text-align: center;
@@ -1748,7 +1748,7 @@ a.mv-bar-row:focus-visible {
   border: 1px solid var(--color-input-border);
   background: var(--color-surface);
   color: var(--color-text-soft);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   border-radius: 99px;
   padding: 4px 11px;
@@ -1775,7 +1775,7 @@ a.mv-bar-row:focus-visible {
   border: none;
   background: var(--color-danger);
   color: #fff;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   border-radius: 99px;
   padding: 5px 13px;
@@ -1785,7 +1785,7 @@ a.mv-bar-row:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--color-text-muted);
 }
@@ -1807,7 +1807,7 @@ a.mv-bar-row:focus-visible {
 }
 .mv-dictate-error {
   flex-basis: 100%;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--color-danger);
 }
 
@@ -1920,7 +1920,7 @@ a.mv-bar-row:focus-visible {
 .mv-auth-field > label {
   display: block;
   margin-bottom: 5px;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 700;
 }
 .mv-auth-input {
@@ -1981,7 +1981,7 @@ a.mv-bar-row:focus-visible {
   border-radius: 0 12px 12px 0;
   background: var(--color-surface);
   color: var(--color-text);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
   cursor: pointer;
@@ -2061,7 +2061,7 @@ a.mv-bar-row:focus-visible {
   border: 1px solid transparent;
   background: var(--color-surface);
   color: var(--color-text);
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.45;
   border-radius: 99px;
@@ -2113,14 +2113,14 @@ a.mv-bar-row:focus-visible {
   margin-top: 0;
 }
 .mv-voice-row .mv-dictate-btn {
-  font-size: 13px;
+  font-size: 14px;
   padding: 9px 14px;
 }
 .mv-voice-go {
   border: none;
   background: var(--color-action);
   color: var(--color-on-action);
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 800;
   border-radius: 99px;
   padding: 10px 20px;
@@ -2136,7 +2136,7 @@ a.mv-bar-row:focus-visible {
 
 /* טריגר צבוע — כשהערך הנבחר הוא מידע (בשלות, סטטוס) ולא רק בחירה */
 .mv-select-button--tone {
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   border-radius: 99px;
   padding: 5px 12px;
@@ -2176,7 +2176,7 @@ a.mv-bar-row:focus-visible {
   border-radius: var(--control-radius);
   background: var(--color-action);
   color: var(--color-on-action);
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 800;
   padding: 0 22px;
   cursor: pointer;
@@ -2258,7 +2258,7 @@ a.mv-bar-row:focus-visible {
   border: none;
   background: transparent;
   color: var(--color-text-soft);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   padding: 6px 14px;
   cursor: pointer;
@@ -2330,7 +2330,7 @@ a.mv-bar-row:focus-visible {
   background: var(--color-surface);
   color: var(--color-primary);
   border-radius: 99px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   padding: 8px 16px;
   cursor: pointer;
@@ -2469,7 +2469,7 @@ a.mv-bar-row:focus-visible {
   background: var(--color-bg);
   color: var(--color-text-soft);
   border-radius: 99px;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   /*
    * ריפוד לא סימטרי: האייקון בתחילת התגית כבר נושא רווח פנימי משלו
@@ -2688,12 +2688,12 @@ a.mv-bar-row:focus-visible {
   background: var(--color-primary-soft);
   color: var(--color-primary);
   padding: 2px 9px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   white-space: nowrap;
 }
 .mv-reach-rest {
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--color-text-muted);
   padding-inline-start: 11px;
 }
@@ -2750,7 +2750,7 @@ a.mv-bar-row:focus-visible {
   gap: 7px;
   width: fit-content;
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--color-text-muted);
   padding: 4px 8px;

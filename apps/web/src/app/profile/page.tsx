@@ -16,8 +16,11 @@ interface ProfileDto {
 }
 import {
   A11Y_DEFAULTS,
+  A11Y_MAX_SCALE,
+  A11Y_MIN_SCALE,
   A11Y_TOGGLES,
   applyA11y,
+  clampFontScale,
   clearA11y,
   loadA11y,
   saveA11y,
@@ -64,7 +67,9 @@ export default function ProfilePage() {
       .then((res) => {
         setProfile(res);
         const fromServer = res.preferences?.a11y as Partial<A11yPrefs> | undefined;
-        setPrefs(fromServer ? { ...A11Y_DEFAULTS, ...fromServer } : A11Y_DEFAULTS);
+        const merged = fromServer ? { ...A11Y_DEFAULTS, ...fromServer } : A11Y_DEFAULTS;
+        // ערך שנשמר בשרת לפני שנקבעה הרצפה מגיע לכאן כמו שהוא
+        setPrefs({ ...merged, fontScale: clampFontScale(merged.fontScale) });
       })
       .catch(() => undefined);
   }, []);
@@ -228,13 +233,13 @@ export default function ProfilePage() {
                       <label htmlFor="pf-email-password" className="mb-1 mt-2 block text-sm font-semibold">
                         סיסמה נוכחית <span className="font-normal">(רק אם שיניתם את האימייל)</span>
                       </label>
-                      <p className="m-0 mb-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                      <p className="m-0 mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
                         האימייל הוא כתובת ההתחברות, ולכן שינוי שלו דורש אימות ומנתק חיבורים פתוחים אחרים.
                       </p>
                       <input id="pf-email-password" name="emailPassword" type="password" autoComplete="current-password" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
                     </>
                   ) : (
-                    <p className="m-0 mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                    <p className="m-0 mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
                       החשבון מחובר דרך Google — כתובת האימייל מנוהלת שם.
                     </p>
                   )}
@@ -325,7 +330,8 @@ export default function ProfilePage() {
               <button
                 type="button"
                 className="mv-btn-plain"
-                onClick={() => update({ fontScale: Math.max(90, prefs.fontScale - 10) })}
+                disabled={prefs.fontScale <= A11Y_MIN_SCALE}
+                onClick={() => update({ fontScale: clampFontScale(prefs.fontScale - 10) })}
               >
                 <span aria-hidden="true">A−</span>
                 <span className="mv-visually-hidden">הקטן טקסט</span>
@@ -336,7 +342,8 @@ export default function ProfilePage() {
               <button
                 type="button"
                 className="mv-btn-plain"
-                onClick={() => update({ fontScale: Math.min(200, prefs.fontScale + 10) })}
+                disabled={prefs.fontScale >= A11Y_MAX_SCALE}
+                onClick={() => update({ fontScale: clampFontScale(prefs.fontScale + 10) })}
               >
                 <span aria-hidden="true">A+</span>
                 <span className="mv-visually-hidden">הגדל טקסט</span>
@@ -355,7 +362,7 @@ export default function ProfilePage() {
                 >
                   <span className="text-start">
                     <span className="block font-bold">{toggle.label}</span>
-                    <span className="block text-xs" style={{ opacity: 0.85 }}>{toggle.hint}</span>
+                    <span className="block text-sm" style={{ opacity: 0.85 }}>{toggle.hint}</span>
                   </span>
                   <span aria-hidden="true">{prefs[toggle.key] ? "✓" : ""}</span>
                 </button>
@@ -453,7 +460,7 @@ function PushSection() {
               <span className="block font-bold">
                 {state.subscribed ? "התראות פעילות בדפדפן הזה" : "הפעל התראות בדפדפן הזה"}
               </span>
-              <span className="block text-xs" style={{ opacity: 0.85 }}>
+              <span className="block text-sm" style={{ opacity: 0.85 }}>
                 {state.subscribed
                   ? "לחיצה תכבה אותן במכשיר הזה"
                   : "הדפדפן יבקש אישור פעם אחת"}

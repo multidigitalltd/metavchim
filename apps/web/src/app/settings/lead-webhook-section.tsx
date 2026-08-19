@@ -150,7 +150,7 @@ export function LeadWebhookSection() {
                     ) : null}
                   </div>
                   <p
-                    className="m-0 overflow-x-auto rounded-lg border p-2 font-mono text-xs"
+                    className="m-0 overflow-x-auto rounded-lg border p-2 font-mono text-sm"
                     dir="ltr"
                     style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
                   >

@@ -180,7 +180,7 @@ export function MediaSection({ propertyId, address }: { propertyId: string; addr
                     style={{
                       cursor: "default",
                       padding: "2px 9px",
-                      fontSize: 13.5,
+                      fontSize: 14,
                       color: "var(--color-primary)",
                     }}
                   >
@@ -198,7 +198,7 @@ export function MediaSection({ propertyId, address }: { propertyId: string; addr
                     onClick={() => onMakePrimary(m.id)}
                     disabled={busy}
                     className="mv-btn-plain"
-                    style={{ minHeight: 32, padding: "5px 10px", fontSize: 13.5 }}
+                    style={{ minHeight: 32, padding: "5px 10px", fontSize: 14 }}
                   >
                     הפוך לראשית
                   </button>
@@ -208,7 +208,7 @@ export function MediaSection({ propertyId, address }: { propertyId: string; addr
                   onClick={() => onDelete(m.id)}
                   disabled={busy}
                   className="mv-btn-plain mv-btn-plain--danger"
-                  style={{ minHeight: 32, padding: "5px 10px", fontSize: 13.5 }}
+                  style={{ minHeight: 32, padding: "5px 10px", fontSize: 14 }}
                 >
                   מחק<span className="mv-visually-hidden"> את {m.altText ?? `תמונה ${index + 1}`}</span>
                 </button>

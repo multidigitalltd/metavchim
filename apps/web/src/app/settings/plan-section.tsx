@@ -93,7 +93,7 @@ function LimitRow({
         </div>
       ) : null}
       {resolved && state.blocked ? (
-        <p className="m-0 mt-1 text-xs" style={{ color: "var(--color-danger)" }}>
+        <p className="m-0 mt-1 text-sm" style={{ color: "var(--color-danger)" }}>
           {blockedNote}
         </p>
       ) : null}
@@ -206,7 +206,7 @@ export function PlanSection(): React.JSX.Element | null {
               מסלולים ותשלום
             </Link>
           </p>
-          <p className="m-0 mt-2 text-xs" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
             השינוי נכנס לתוקף מיד, בלי להתקין כלום.
           </p>
         </>

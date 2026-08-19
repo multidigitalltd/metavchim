@@ -345,12 +345,12 @@ export default function CalendarPage() {
                     <div className="text-[14.5px] font-extrabold" style={{ color: d.isToday ? "var(--color-primary)" : "var(--color-text)" }}>
                       {d.name}
                     </div>
-                    <div className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+                    <div className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                       {shortDateFmt.format(d.date)}
                     </div>
                     {/* התאריך העברי — תוספת, ולכן ריק כשההמרה לא זמינה */}
                     {hebrewDateShort(d.date) ? (
-                      <div className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                      <div className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                         {hebrewDateShort(d.date)}
                       </div>
                     ) : null}
@@ -380,7 +380,7 @@ export default function CalendarPage() {
                             className="rounded-lg px-[9px] py-[7px]"
                             style={{ background: colors.bg, lineHeight: 1.3 }}
                           >
-                            <div className="text-[13px] font-extrabold" style={{ color: colors.fg }}>
+                            <div className="text-[14px] font-extrabold" style={{ color: colors.fg }}>
                               {timeFmt.format(new Date(a.startsAt))} · {KIND_LABELS[a.kind] ?? a.kind}
                             </div>
                             <div className="text-[14px] font-bold" style={{ color: "#212722" }}>

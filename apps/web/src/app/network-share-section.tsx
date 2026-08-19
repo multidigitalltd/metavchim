@@ -341,7 +341,7 @@ export function NetworkShareSection({
               זו השאלה שחוזרת בכל שיחת תמיכה על שת"פ.
             */}
             <p
-              className="m-0 mt-1 text-xs"
+              className="m-0 mt-1 text-sm"
               style={{ color: "var(--color-text-muted)" }}
             >
               זהו חלקכם <b>בדמי התיווך של העסקה</b> — לא סכום שמשולם למערכת. כל
@@ -362,7 +362,7 @@ export function NetworkShareSection({
               נקרא כמו מכשול; המשפט הזה הופך אותו לשיקול.
             */}
             <p
-              className="m-0 mb-1 text-xs"
+              className="m-0 mb-1 text-sm"
               style={{ color: "var(--color-text-muted)" }}
             >
               שורה אחת במילים שלכם. זה מה שמבדיל מודעה שנענית ממודעה
@@ -382,7 +382,7 @@ export function NetworkShareSection({
               }}
             />
             <p
-              className="m-0 mt-1 text-xs"
+              className="m-0 mt-1 text-sm"
               style={{ color: "var(--color-text-muted)" }}
             >
               אל תכתבו כאן שם, טלפון או כתובת מדויקת — הטקסט מוצג למשרדים אחרים.

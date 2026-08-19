@@ -235,7 +235,7 @@ export function TimelineSection({ buyerId }: { buyerId: string }) {
           </WithDictation>
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
+            <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
               נשמר לצמיתות ומשויך אליכם.
             </span>
             <Button type="submit" disabled={busy || content.trim() === ""}>
@@ -281,7 +281,7 @@ export function TimelineSection({ buyerId }: { buyerId: string }) {
           {groups.map(([label, group]) => (
             <div key={label} className="mb-5">
               <h3
-                className="m-0 mb-2 text-[13.5px] font-bold"
+                className="m-0 mb-2 text-[14px] font-bold"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 {label}
@@ -329,7 +329,7 @@ export function TimelineSection({ buyerId }: { buyerId: string }) {
                         </span>
                         <time
                           dateTime={i.createdAt}
-                          className="text-[13.5px]"
+                          className="text-[14px]"
                           style={{ color: "var(--color-text-muted)" }}
                         >
                           {hourFmt.format(new Date(i.createdAt))}

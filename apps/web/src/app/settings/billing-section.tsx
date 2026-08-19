@@ -272,7 +272,7 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
                         {price ?? (free ? FREE_PRICE_LABEL : CUSTOM_PRICE_LABEL)}
                       </p>
                       {saving !== null ? (
-                        <p className="m-0 mb-2 text-xs" style={{ color: "var(--color-primary)" }}>
+                        <p className="m-0 mb-2 text-sm" style={{ color: "var(--color-primary)" }}>
                           חיסכון של {saving}% מול חיוב חודשי
                         </p>
                       ) : null}
@@ -319,7 +319,7 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
                 חל על כולם, וחזרה שלו בכל כרטיס הייתה רעש שמפסיקים
                 לקרוא בדיוק בגלל שהוא חוזר.
               */}
-              <p className="mt-3 mb-0 text-xs" style={{ color: "var(--color-text-muted)" }}>
+              <p className="mt-3 mb-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
                 {PRICE_TERMS_NOTE}
               </p>
             </>

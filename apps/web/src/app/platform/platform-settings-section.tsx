@@ -375,7 +375,7 @@ export function PlatformSettingsSection() {
           className="flex flex-wrap items-end gap-2"
         >
           <label className="grow">
-            <span className="mb-1 block text-xs font-semibold">
+            <span className="mb-1 block text-sm font-semibold">
               כתובת דוא&quot;ל לקבלת פניות
             </span>
             <input
@@ -694,7 +694,7 @@ export function PlatformSettingsSection() {
           className="flex flex-wrap items-end gap-2"
         >
           <label className="grow">
-            <span className="mb-1 block text-xs font-semibold">
+            <span className="mb-1 block text-sm font-semibold">
               כתובת סגנון אריחים (ריק = הסגנון הפתוח שברירת המחדל)
             </span>
             <input
@@ -724,7 +724,7 @@ export function PlatformSettingsSection() {
             className="mb-2 flex flex-wrap items-end gap-2"
           >
             <label className="grow">
-              <span className="mb-1 block text-xs font-semibold">
+              <span className="mb-1 block text-sm font-semibold">
                 טוקן Mapbox לפענוח כתובות (ריק = כבוי)
               </span>
               <input
@@ -750,7 +750,7 @@ export function PlatformSettingsSection() {
               <option value="mapbox">Mapbox — שני הכיוונים (דורש טוקן)</option>
             </select>
             {settings.geocoding && settings.geocoding.provider !== "none" ? (
-              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+              <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
                 {settings.geocoding.forward ? "כתובת ← מפה ✓" : ""}
                 {settings.geocoding.reverse
                   ? " · מפה ← כתובת ✓"
@@ -779,7 +779,7 @@ export function PlatformSettingsSection() {
           className="flex flex-wrap items-end gap-2"
         >
           <label>
-            <span className="mb-1 block text-xs font-semibold">אחוז מהתמורה</span>
+            <span className="mb-1 block text-sm font-semibold">אחוז מהתמורה</span>
             <input
               name="referralFeePercent"
               type="number"
@@ -792,7 +792,7 @@ export function PlatformSettingsSection() {
             />
           </label>
           <Button type="submit" disabled={busy}>שמור</Button>
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+          <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
             {/* דוגמה מספרית — מסך שמראה רק אחוז מחייב את הקורא לחשב בראש */}
             לדוגמה: תמורה של 20 קרדיטים ⇐ {referralPayout(20, settings.referralFeePercent ?? PLATFORM_REFERRAL_FEE_PERCENT).platformFeeCredits} לפלטפורמה,{" "}
             {referralPayout(20, settings.referralFeePercent ?? PLATFORM_REFERRAL_FEE_PERCENT).payoutCredits} למשרד המפנה

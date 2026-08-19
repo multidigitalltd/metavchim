@@ -53,7 +53,9 @@ export const inlineCode = {
   background: "var(--color-hover-soft)",
   padding: "2px 6px",
   borderRadius: 4,
-  fontSize: "0.9em",
+  // ‎1em‎ ולא ‎0.9em‎: הרצף בטקסט זורם הוא הטקסט הקטן ביותר בעמוד,
+  // וכל הקטנה יחסית עליו שוברת את רצפת ה-14px של המערכת.
+  fontSize: "1em",
 } as const;
 
 /**
@@ -69,7 +71,7 @@ export function Code({ children }: { children: string }) {
     <pre
       dir="ltr"
       lang="en"
-      className="my-3 overflow-x-auto rounded-lg p-3 text-xs leading-relaxed"
+      className="my-3 overflow-x-auto rounded-lg p-3 text-sm leading-relaxed"
       style={{
         background: "var(--color-hover-soft)",
         border: "1px solid var(--color-border)",

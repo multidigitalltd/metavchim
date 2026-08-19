@@ -182,12 +182,12 @@ export default function PropertiesPage() {
           {/* כפתור שמוביל לפיצ'ר שאינו במסלול נחסם בשרת ממילא —
               עדיף לא להציג אותו מאשר להסביר 403 אחרי בחירת קובץ */}
           {canImport ? (
-            <Link href="/import" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "13.5px" }}>
+            <Link href="/import" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "14px" }}>
               <IconSheet s={15} /> ייבוא מאקסל
             </Link>
           ) : null}
           {canVoice ? (
-            <Link href="/properties/voice" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "13.5px" }}>
+            <Link href="/properties/voice" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "14px" }}>
               <IconMic s={15} /> נכס בקול
             </Link>
           ) : null}
@@ -307,7 +307,7 @@ export default function PropertiesPage() {
                               }}
                             />
                           </span>
-                          <span className="font-bold" style={{ color: readinessColors(p.readinessScore).text, fontSize: "12.5px" }}>
+                          <span className="font-bold" style={{ color: readinessColors(p.readinessScore).text, fontSize: "14px" }}>
                             {p.readinessScore}%
                           </span>
                         </p>
@@ -366,7 +366,7 @@ export default function PropertiesPage() {
                         <span className="mv-progress">
                           <span style={{ width: `${p.readinessScore}%`, background: ready.bar }} />
                         </span>
-                        <span className="font-bold" style={{ color: ready.text, fontSize: "12.5px" }}>
+                        <span className="font-bold" style={{ color: ready.text, fontSize: "14px" }}>
                           {p.readinessScore}%
                         </span>
                         {p.missingFields.length > 0 ? (

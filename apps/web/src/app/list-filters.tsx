@@ -152,7 +152,7 @@ function RangeSlider({
 
   return (
     <div>
-      <div className="mb-1 flex items-baseline justify-between text-xs">
+      <div className="mb-1 flex items-baseline justify-between text-sm">
         <span className="font-semibold">{label}</span>
         <span style={{ color: "var(--color-text-soft)" }}>
           {minRaw.trim() === "" && maxRaw.trim() === ""
@@ -248,7 +248,7 @@ export function ListFilters({
       <div>
         <label
           htmlFor={`flt-${key}`}
-          className="mb-1 block text-xs font-semibold"
+          className="mb-1 block text-sm font-semibold"
         >
           {label}
         </label>
@@ -273,7 +273,7 @@ export function ListFilters({
           יפה במובייל בזכות flex-wrap */}
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-0 flex-1" style={{ minWidth: 200 }}>
-          <label htmlFor="flt-q" className="mb-1 block text-xs font-semibold">
+          <label htmlFor="flt-q" className="mb-1 block text-sm font-semibold">
             {searchLabel}
           </label>
           <input
@@ -295,7 +295,7 @@ export function ListFilters({
         <button
           type="button"
           className="mv-btn-plain"
-          style={{ minHeight: 38, fontSize: "13px", paddingInline: 14 }}
+          style={{ minHeight: 38, fontSize: "14px", paddingInline: 14 }}
           aria-expanded={open}
           onClick={() => setOpen(!open)}
         >
@@ -305,7 +305,7 @@ export function ListFilters({
           <button
             type="button"
             className="mv-btn-plain"
-            style={{ minHeight: 38, fontSize: "13px", paddingInline: 14 }}
+            style={{ minHeight: 38, fontSize: "14px", paddingInline: 14 }}
             onClick={clear}
           >
             <IconX s={14} /> נקה

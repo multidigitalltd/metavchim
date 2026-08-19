@@ -574,7 +574,7 @@ export default function SettingsPage() {
                                 {member.isActive ? "" : " (מושבת)"}
                               </span>
                               <span
-                                className="block truncate text-xs font-normal"
+                                className="block truncate text-sm font-normal"
                                 dir="ltr"
                                 style={{ color: "var(--color-text-muted)" }}
                               >
@@ -624,7 +624,7 @@ export default function SettingsPage() {
                             <span
                               className="mv-pill"
                               style={{
-                                fontSize: 13.5,
+                                fontSize: 14,
                                 color: canExport ? "#0C6E34" : "#68716a",
                                 background: canExport ? "#E5FCEA" : "#eef1ec",
                               }}
@@ -788,7 +788,7 @@ export default function SettingsPage() {
                       מספר רישיון תיווך
                     </label>
                     <p
-                      className="m-0 mb-1 text-xs"
+                      className="m-0 mb-1 text-sm"
                       style={{ color: "var(--color-text-muted)" }}
                     >
                       נכנס לנוסח ההזמנה בכתב — פרט חובה לפי חוק המתווכים
@@ -848,7 +848,7 @@ export default function SettingsPage() {
                       דמי תיווך — ברירת מחדל
                     </label>
                     <p
-                      className="m-0 mb-1 text-xs"
+                      className="m-0 mb-1 text-sm"
                       style={{ color: "var(--color-text-muted)" }}
                     >
                       פרט חובה בהזמנה בכתב. נכנס אוטומטית לכל הסכם שנשלח לחתימה,
@@ -1097,7 +1097,7 @@ export default function SettingsPage() {
                         {row.supportAdmin ? (
                           <span style={{ color: "var(--color-warning)" }}>
                             תמיכה{" "}
-                            <span className="font-normal text-[13.5px]" dir="ltr">
+                            <span className="font-normal text-[14px]" dir="ltr">
                               ({row.supportAdmin})
                             </span>
                           </span>

@@ -157,7 +157,7 @@ export function MatchWeightsSection() {
                     {MATCH_CRITERION_LABELS[criterion]}
                     {isHard ? (
                       <span
-                        className="ms-1.5 text-[13px]"
+                        className="ms-1.5 text-[14px]"
                         style={{ color: "var(--color-text-muted)" }}
                       >
                         (פוסל)
