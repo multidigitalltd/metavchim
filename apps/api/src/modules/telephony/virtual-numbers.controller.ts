@@ -103,7 +103,16 @@ export class VirtualNumbersController {
       this.prisma.withTenant((tx) =>
         tx.call.groupBy({
           by: ["dialedNumber"],
-          where: { tenantId, dialedNumber: { not: null } },
+          /*
+           * **נכנסות בלבד.** בשיחה יוצאת `dialedNumber` מחזיק את
+           * מספר המשרד שממנו חייגו — כלומר סוכן שמתקשר ללקוחות
+           * דרך מספר הקמפיין היה מנפח את המדד בעצמו, והמסך מציג
+           * את המספר הזה כ"שיחות שהגיעו אל המספר" (ביקורת Codex).
+           *
+           * זה בדיוק סוג הטעות שמדד קמפיין לא יכול להרשות לעצמו:
+           * הוא נראה סביר, והחלטת תקציב מתקבלת לפיו.
+           */
+          where: { tenantId, direction: "inbound", dialedNumber: { not: null } },
           _count: { _all: true },
         }),
       ),

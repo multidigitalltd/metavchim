@@ -875,6 +875,24 @@ export class TelephonyService {
     });
     const leadId = ulid();
     const source = virtualNumber === null ? "phone" : leadSourceFor(virtualNumber);
+    /*
+     * הסוכן מאומת **בזמן הכתיבה** ולא רק בזמן ההגדרה.
+     *
+     * סוכן שהושבת נשאר בטבלה עם `isActive = false`, ולכן מפתח הזר
+     * אינו מאפס את השיוך. בלי הבדיקה כאן כל שיחה למספר הזה הייתה
+     * פותחת ליד ששייך למשתמש לא פעיל — כלומר ליד שאף סוכן פעיל
+     * עם `leads.view_own` אינו רואה. ליד בלתי נראה גרוע מליד בערימה
+     * המשותפת, ולכן הנפילה היא ל-null (ביקורת Codex).
+     */
+    const assignedToUserId =
+      virtualNumber?.assignedToUserId === undefined || virtualNumber?.assignedToUserId === null
+        ? null
+        : ((
+            await tx.user.findFirst({
+              where: { id: virtualNumber.assignedToUserId, tenantId, isActive: true },
+              select: { id: true },
+            })
+          )?.id ?? null);
     await tx.lead.create({
       data: {
         id: leadId,
@@ -882,11 +900,8 @@ export class TelephonyService {
         contactId: contact.id,
         source,
         status: "new",
-        /*
-         * הסוכן והנכס מגיעים מההגדרה של המספר. `null` כשאין הגדרה
-         * או כשהשדה נשאר ריק — כלומר בדיוק ההתנהגות הקודמת.
-         */
-        assignedToUserId: virtualNumber?.assignedToUserId ?? null,
+        // הסוכן אומת למעלה; הנכס מוגן במפתח זר עם ON DELETE SET NULL
+        assignedToUserId,
         propertyId: virtualNumber?.propertyId ?? null,
         summary:
           virtualNumber === null
