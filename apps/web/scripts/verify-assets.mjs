@@ -86,4 +86,28 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
+/*
+ * תוסף ה-RTL של המפה חייב להיות `.mjs` — וזה אינו עניין של סגנון.
+ *
+ * ה-Worker של MapLibre בוחר איך לטעון **לפי הסיומת**: `.mjs` עובר
+ * ב-`await import(url)`, וכל שאר הסיומות ב-`globalThis.eval(source)`.
+ * ה-CSP שלנו אינו מתיר `unsafe-eval` בייצור, ולכן הגרסה עם `.js`
+ * נכשלה שם בשקט והמפה הציגה עברית הפוכה — בזמן שבפיתוח, שבו
+ * `unsafe-eval` מותר בשביל Fast Refresh, הכול נראה תקין.
+ *
+ * בדיקה קיימת ולא הערה בקוד: קובץ שקיים ונטען בהצלחה עובר את השער
+ * שמעליו בלי הערה, והכשל אינו מפיל טיפוסים ואינו מפיל בנייה.
+ */
+const badRtl = [...seen].filter(
+  (asset) => asset.includes("mapbox-gl-rtl-text") && !asset.endsWith(".mjs"),
+);
+if (badRtl.length > 0) {
+  console.error(
+    "✗ תוסף ה-RTL של המפה חייב להיטען כ-`.mjs`; סיומת אחרת עוברת דרך eval שה-CSP חוסם:\n",
+  );
+  for (const m of badRtl) console.error(`  ${m}`);
+  console.error("");
+  process.exit(1);
+}
+
 console.log(`✓ ${seen.size} קבצים סטטיים נבדקו — כולם קיימים`);

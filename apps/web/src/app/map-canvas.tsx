@@ -80,11 +80,29 @@ setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
  * מוגש מ-`public` כמו ה-Worker: ה-CSP אינו מתיר CDN, והתוסף נטען
  * בתוך ה-Worker ולכן חל עליו `script-src 'self'`.
  *
- * הקריאה עטופה כי היא נדחית אם התוסף כבר נטען — מה שקורה ב-Fast
- * Refresh בפיתוח, ואינו מצב שגיאה.
+ * ## הסיומת `.mjs` היא התיקון עצמו
+ *
+ * ה-Worker בוחר איך לטעון **לפי הסיומת**: `.mjs` עובר ב-`import()`,
+ * וכל השאר ב-`globalThis.eval`. ה-CSP בייצור אינו מתיר `unsafe-eval`
+ * ולכן הטעינה נכשלה שם בשקט — בזמן שבפיתוח, שבו `unsafe-eval` מותר
+ * בשביל Fast Refresh, הכול נראה תקין. ראו `scripts/copy-maplibre-worker.mjs`.
  */
-void setRTLTextPlugin("/maplibre/mapbox-gl-rtl-text.js", false).catch(
-  () => undefined,
+void setRTLTextPlugin("/maplibre/mapbox-gl-rtl-text.mjs", false).catch(
+  (error: unknown) => {
+    /*
+     * כישלון **נרשם** ולא נבלע.
+     *
+     * הקריאה הזו נדחית גם במצב תקין לגמרי — Fast Refresh מריץ את
+     * המודול שוב, והספרייה אוסרת קריאה שנייה. לכן היא הייתה עטופה
+     * ב-catch ריק, וזה בדיוק מה שהסתיר תקלת CSP אמיתית במשך גרסה
+     * שלמה: המפה הציגה עברית הפוכה בלי שורה אחת בקונסולה.
+     *
+     * ההודעה על קריאה כפולה מסוננת, וכל השאר מגיע לקונסולה.
+     */
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("multiple times")) return;
+    console.error("טעינת תוסף הטקסט הדו-כיווני נכשלה — המפה תציג עברית הפוך", error);
+  },
 );
 
 /** מרכז הארץ — נקודת פתיחה סבירה כשאין מה למרכז עליו. */
