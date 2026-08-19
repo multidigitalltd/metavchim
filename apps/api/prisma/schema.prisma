@@ -1281,6 +1281,12 @@ model TelephonyWebhookHit {
   /// השדות שהגיעו — שמות תמיד, וערכים לשדות הטכניים בלבד
   /// (`diagnosticFields`). מספרי טלפון ושמות לקוחות לעולם לא.
   fieldKeys  String?  @map("field_keys") @db.VarChar(1000)
+  /// השדות שהספק שלח **ואיננו צורכים** (`unmappedFields`).
+  ///
+  /// עמודה נפרדת ולא חלק מ-`fieldKeys`: זו השאלה המעניינת —
+  /// איפה יושב מידע שאנחנו מפספסים — והמסך מדגיש אותה. מיזוגה
+  /// לרשימה הכללית היה מטשטש בדיוק את מה שצריך לקפוץ לעין.
+  unmapped   String?  @map("unmapped_fields") @db.VarChar(500)
 
   @@index([receivedAt])
   @@map("telephony_webhook_hits")

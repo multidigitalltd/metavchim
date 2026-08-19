@@ -473,6 +473,8 @@ export class PlatformController {
       keyPrefix: string;
       method: string;
       fieldKeys: string | null;
+      /** מה שהספק שלח ואיננו צורכים — ראו `unmappedFields`. */
+      unmapped: string | null;
     }[];
   }> {
     const hits = await this.telephonyWebhookLog.recent(50);

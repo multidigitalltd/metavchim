@@ -30,6 +30,7 @@ import { ContactPeople } from "../../contact-people";
 import { DictateFor } from "../../dictation-field";
 import { RelatedEntities } from "../../related-entities";
 import { EntityTasks } from "../../entity-tasks";
+import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { ReplyEmail } from "./reply-email";
 import { ReferralRating } from "../../collaboration/referral-rating";
 import {
@@ -756,6 +757,12 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [dialed, setDialed] = useState<DialedNumber | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /*
+   * אותה תבנית בדיוק כמו בכרטיס הקונה ובכרטיס הנכס. כרטיס הליד
+   * נשאר האחרון שהיה גלילה אחת ארוכה — שבע-עשרה קופסאות בטור,
+   * שבהן הדבר הדחוף ביותר ("דורש טיפול אנושי") ישב מתחת לקיפול.
+   */
+  const [tab, selectTab] = useEntityTab(["overview", "next", "timeline"], "overview");
 
   useEffect(() => {
     if (authLoading) return;
@@ -827,6 +834,23 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           </a>
         ) : null}
       </div>
+      {/*
+        **הדחוף קודם.** ההתראה ישבה קודם במקום העשירי, מתחת לשש
+        קופסאות — כלומר הדבר היחיד במסך שדורש פעולה מיידית היה
+        הדבר שהכי קשה לראות.
+      */}
+      {lead.requiresHuman ? (
+        <p role="alert" className="mb-4 rounded-xl border p-4 font-medium" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
+          ● דורש טיפול אנושי{lead.requiresHumanReason ? `: ${lead.requiresHumanReason}` : ""}
+        </p>
+      ) : null}
+
+      {merged ? (
+        <p role="status" className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+          <IconInfo s={15} /> לאיש הקשר כבר יש ליד פתוח — הפנייה החדשה נוספה לציר הזמן שלו במקום לפתוח ליד כפול.
+        </p>
+      ) : null}
+
       <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
         {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent} · מקור: {LEAD_SOURCE_LABELS[lead.source] ?? lead.source}
         {/*
@@ -845,6 +869,43 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         ) : null}
       </p>
 
+      {/*
+        סרגל פעולה אחד במקום שדה סטטוס קבור.
+        הסטטוס ישב קודם בין סעיפי ההמרה לציר הזמן — כלומר הפעולה
+        השכיחה ביותר בכרטיס דרשה גלילה דרך שלוש קופסאות גדולות.
+      */}
+      <div className="mb-5 flex flex-wrap items-end gap-3">
+        <div>
+          <label htmlFor="status" className="mb-1 block text-sm font-medium">סטטוס</label>
+          <select
+            id="status"
+            value={lead.status}
+            onChange={(event) => void changeStatus(event.target.value)}
+            className="rounded-lg border px-3 py-2.5"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
+          >
+            {Object.entries(LEAD_STATUS_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </div>
+        <Link href={`/calendar/new?leadId=${lead.id}`}>
+          <Button variant="secondary"><IconCalendar s={15} /> קבע פגישה</Button>
+        </Link>
+      </div>
+
+      <EntityTabs
+        label="לשוניות כרטיס הליד"
+        active={tab}
+        onSelect={selectTab}
+        tabs={[
+          { key: "overview", label: "סקירה" },
+          { key: "next", label: "המשך טיפול" },
+          { key: "timeline", label: "ציר זמן", count: timeline.length },
+        ]}
+      />
+
+      <TabPanel tab="overview" active={tab}>
       {/*
         תוכן הפנייה בראש הכרטיס.
         הוא נשמר מאז ומתמיד בשדה summary, אבל הוצג רק כהערה בציר
@@ -886,24 +947,19 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
       <ContactPeople contactId={lead.contact.id} canEdit={canEditPeople}
         canErase={can(user, "contacts.delete")}
       />
+      </TabPanel>
 
-      {merged ? (
-        <p role="status" className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-          <IconInfo s={15} /> לאיש הקשר כבר יש ליד פתוח — הפנייה החדשה נוספה לציר הזמן שלו במקום לפתוח ליד כפול.
+      {/*
+        שלוש הדרכים שבהן ליד ממשיך: הופך לקונה, הופך לנכס, או מופנה
+        למשרד אחר. הן שלוש קופסאות גדולות ששימשו בפועל פעם אחת בחיי
+        הליד — ובגלילה אחת הן דחפו את ציר הזמן אל מחוץ למסך.
+      */}
+      <TabPanel tab="next" active={tab}>
+      {lead.status === "converted" ? (
+        <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
+          הליד כבר הומר — אין המשך טיפול נוסף.
         </p>
       ) : null}
-
-      {lead.requiresHuman ? (
-        <p role="alert" className="mb-4 rounded-xl border p-4 font-medium" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
-          ● דורש טיפול אנושי{lead.requiresHumanReason ? `: ${lead.requiresHumanReason}` : ""}
-        </p>
-      ) : null}
-
-      <div className="mb-4">
-        <Link href={`/calendar/new?leadId=${lead.id}`}>
-          <Button variant="secondary"><IconCalendar s={15} /> קבע פגישה</Button>
-        </Link>
-      </div>
 
       {lead.status !== "converted" && can(user, "buyers.edit") ? (
         <ConvertSection leadId={lead.id} />
@@ -919,23 +975,15 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         <ReferLeadSection leadId={lead.id} />
       ) : null}
 
-      <div className="mb-8">
-        <label htmlFor="status" className="mb-1 block font-medium">סטטוס</label>
-        <select
-          id="status"
-          value={lead.status}
-          onChange={(event) => void changeStatus(event.target.value)}
-          className="rounded-lg border px-3 py-2.5"
-          style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
-        >
-          {Object.entries(LEAD_STATUS_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>{label}</option>
-          ))}
-        </select>
-      </div>
+      {/* ליד שהומר כבר יצר כרטיס — מוחקים את הכרטיס, לא את המקור שלו */}
+      {lead.status !== "converted" && can(user, "leads.delete") ? (
+        <DeleteLeadSection leadId={lead.id} contactName={lead.contact.name} />
+      ) : null}
+      </TabPanel>
 
+      <TabPanel tab="timeline" active={tab}>
       <section aria-labelledby="timeline-heading">
-        <h2 id="timeline-heading" className="mb-3 text-lg font-semibold">ציר זמן</h2>
+        <h2 id="timeline-heading" className="mv-visually-hidden">ציר זמן</h2>
 
         <form onSubmit={(event) => void addNote(event)} className="mb-4 flex gap-2">
           <label htmlFor="note" className="mv-visually-hidden">הוספת הערה</label>
@@ -973,11 +1021,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           </ol>
         )}
       </section>
-
-      {/* ליד שהומר כבר יצר כרטיס — מוחקים את הכרטיס, לא את המקור שלו */}
-      {lead.status !== "converted" && can(user, "leads.delete") ? (
-        <DeleteLeadSection leadId={lead.id} contactName={lead.contact.name} />
-      ) : null}
+      </TabPanel>
     </>
   );
 }

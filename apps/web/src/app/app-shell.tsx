@@ -45,6 +45,9 @@ const PUBLIC_PREFIXES = [
   "/accessibility",
   "/privacy",
   "/terms",
+  // תיעוד הקליטה — נקרא בידי מי שמחבר מקור, ולעיתים קרובות בכלל
+  // לא בידי משתמש רשום: מפתח של המשרד, או מודל שפה שקורא את העמוד
+  "/docs",
   "/change-password",
   "/forgot-password",
   "/reset-password",

@@ -59,6 +59,8 @@ interface Hit {
   keyPrefix: string;
   method: string;
   fieldKeys: string | null;
+  /** מה שהספק שלח ואיננו צורכים — ראו התא בטבלה. */
+  unmapped: string | null;
 }
 
 export function TelephonyWebhooksSection() {
@@ -92,6 +94,9 @@ export function TelephonyWebhooksSection() {
       <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
         כל פנייה שהגיעה לכתובת הוובהוק, כולל פניות שנדחו. רשימה ריקה אחרי שהספק הוגדר
         פירושה שהמרכזייה אינה פונה כלל — כלומר הכתובת אצלה שגויה או שהאירוע לא הופעל.
+        <br />
+        עמודת <b>לא ממופה</b> מראה שדות שהספק שולח ואיננו קוראים. שדה שמופיע שם באדום
+        ונראה חשוב — שלחו לנו אותו, והוא ייקלט בגרסה הבאה.
       </p>
 
       {failed ? (
@@ -117,6 +122,7 @@ export function TelephonyWebhooksSection() {
                 <th className="text-start">מפתח</th>
                 <th className="text-start">שיטה</th>
                 <th className="text-start">שדות שהגיעו</th>
+                <th className="text-start">לא ממופה</th>
               </tr>
             </thead>
             <tbody>
@@ -145,12 +151,25 @@ export function TelephonyWebhooksSection() {
                     </td>
                     <td dir="ltr">{hit.method}</td>
                     {/*
-                      שמות השדות בלבד, בלי הערכים: מספיק כדי למפות ספק
-                      ששולח שמות אחרים, ובלי להכניס מספרי טלפון של
-                      לקוחות לטבלה שנקראת בעיניים.
+                      שמות השדות, וערכים לשדות הטכניים בלבד. מספרי
+                      טלפון ושמות לקוחות נשמרים כשם השדה בלבד ולא
+                      נכנסים לטבלה שנקראת בעיניים.
                     */}
                     <td dir="ltr" className="text-xs">
                       {hit.fieldKeys ?? "—"}
+                    </td>
+                    {/*
+                      **השאלה המעניינת**: מה הספק שולח ואנחנו מתעלמים
+                      ממנו. "אילו שדות הגיעו" עונה על חצי — החצי שחסר
+                      הוא איפה יושב מידע שאנחנו מפספסים. שמות בלבד:
+                      ערך של שדה שלא זיהינו יכול להיות כל דבר.
+                    */}
+                    <td dir="ltr" className="text-xs">
+                      {hit.unmapped === null || hit.unmapped === "" ? (
+                        <span style={{ color: "var(--color-text-muted)" }}>—</span>
+                      ) : (
+                        <span style={{ color: "var(--color-danger)" }}>{hit.unmapped}</span>
+                      )}
                     </td>
                   </tr>
                 );

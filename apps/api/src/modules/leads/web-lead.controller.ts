@@ -1,7 +1,7 @@
 import { Body, Controller, HttpCode, Param, Post } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
-import { PhoneSchema } from "@metavchim/shared";
+import { IdSchema, LeadIntentSchema, PhoneSchema } from "@metavchim/shared";
 import { Public } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { WebLeadService } from "./web-lead.service";
@@ -19,12 +19,29 @@ function normalizePhone(raw: string): string {
  * קליטת ליד מטופס באתר של המשרד — ציבורי, מזוהה במפתח ייעודי בלבד.
  * שדה honeypot (website): בוטים ממלאים אותו — הבקשה "מצליחה" בלי לקלוט.
  */
+/**
+ * גוף הפנייה הציבורית.
+ *
+ * ‎`.strict()`‎ בכוונה: שדה שלא הכרנו נדחה ולא נבלע. מי שמחבר דרך
+ * Make או n8n מגלה את הטעות בבנייה, לא שבועיים אחר כך כשמישהו שם
+ * לב שהאימייל לא נשמר.
+ *
+ * מה שנוסף כאן — אימייל, עניין ונכס — הוא מה שמפריד בין ליד מלא
+ * לליד חלקי. מודעת פייסבוק של נכס מסוימת יודעת את שלושתם, וקודם
+ * כולם נשמטו בדרך.
+ */
 const WebLeadSchema = z
   .object({
     name: z.string().trim().min(2).max(120),
     phone: z.string().trim().max(25).transform(normalizePhone).pipe(PhoneSchema),
     message: z.string().trim().max(2000).optional(),
     pageUrl: z.string().trim().max(300).optional(),
+    /** נשמר על הכרטיס ומאפשר זיהוי של פניות עתידיות מאותה כתובת. */
+    email: z.string().trim().email().max(200).optional(),
+    /** מה הלקוח רוצה. חסר ⇒ "לא ידוע", כמו קודם. */
+    intent: LeadIntentSchema.optional(),
+    /** הנכס שהמודעה פרסמה. מאומת מול המשרד לפני שנשמר. */
+    propertyId: IdSchema.optional(),
     website: z.string().max(200).optional(), // honeypot — אמור להישאר ריק
   })
   .strict();
@@ -54,6 +71,9 @@ export class WebLeadController {
       phone: body.phone,
       message: body.message,
       pageUrl: body.pageUrl,
+      email: body.email,
+      intent: body.intent,
+      propertyId: body.propertyId,
     });
     return { ok: true };
   }
