@@ -149,6 +149,11 @@ jobs:
       - name: Migrate
         run: pnpm --filter @metavchim/api exec prisma migrate deploy
 
+      # לקוח Prisma אינו בגיט — הוא נוצר מהסכמה. משימת `verify`
+      # מייצרת אותו לעצמה, והמשימה הזו רצה במקביל ובמכונה אחרת.
+      - name: Prisma client
+        run: pnpm --filter @metavchim/api exec prisma generate
+
       # וההרשאות **אחרי**. `create_app_role.sql` מסתיים ב-
       # `REVOKE ... ON audit_log`, וטבלה שאינה קיימת מפילה את
       # הסקריפט תחת ON_ERROR_STOP (ביקורת Codex). בייצור זה נפתר
