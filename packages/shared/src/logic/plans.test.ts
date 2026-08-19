@@ -170,8 +170,8 @@ describe("formatPlanPrice", () => {
     expect(formatPlanPrice(29_900)).toBe("299 ₪");
   });
 
-  it("אפס = לפי הצעה", () => {
-    expect(formatPlanPrice(0)).toBe("לפי הצעה");
+  it("אפס = בהתאמה", () => {
+    expect(formatPlanPrice(0)).toBe("בהתאמה");
   });
 
   it("אגורות נשמרות ולא נקטעות", () => {
@@ -363,12 +363,14 @@ describe("automationQuotaRejection", () => {
 });
 
 describe("planPriceLabel", () => {
-  it("מסלול ציבורי ב-0 הוא חינם", () => {
-    expect(planPriceLabel(basePlan({ monthlyPriceAgorot: 0, isPublic: true }))).toBe("חינם");
-  });
-
-  it("מסלול מוסתר ב-0 נסגר בשיחה", () => {
-    expect(planPriceLabel(basePlan({ monthlyPriceAgorot: 0, isPublic: false }))).toBe("לפי הצעה");
+  /*
+   * `isPublic` קובע אם המסלול נמכר ברכישה עצמית — לא כמה הוא עולה.
+   * כשההבחנה נגזרה ממנו, סימון מסלול הרשת כציבורי הפך אותו ל"חינם":
+   * הבטחה מסחרית שגויה שנוצרה משינוי הגדרה שאינו קשור למחיר.
+   */
+  it("מסלול ב-0 הוא „בהתאמה” — בלי קשר לחשיפה בדף ההרשמה", () => {
+    expect(planPriceLabel(basePlan({ monthlyPriceAgorot: 0, isPublic: true }))).toBe("בהתאמה");
+    expect(planPriceLabel(basePlan({ monthlyPriceAgorot: 0, isPublic: false }))).toBe("בהתאמה");
   });
 
   it("מסלול בתשלום מוצג במחירו", () => {

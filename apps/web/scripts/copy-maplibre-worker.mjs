@@ -50,21 +50,21 @@ const FILES = ["maplibre-gl-worker.mjs", "maplibre-gl-shared.mjs"];
  * והתוסף נטען בתוך ה-Worker — כלומר `script-src 'self'` הוא מה
  * שחל עליו.
  *
- * ## למה `.mjs` ולא `.js` — וזו הסיבה שהתיקון הקודם לא עבד
+ * ## למה `.mjs` ולא `.js`
  *
  * ה-Worker של MapLibre 6 בוחר איך לטעון את התוסף **לפי הסיומת**:
  * קובץ `.mjs` נטען ב-`await import(url)`, וכל שאר הסיומות עוברות
- * דרך `globalThis.eval(source)`. ה-CSP שלנו אינו מתיר `unsafe-eval`
- * בייצור, ולכן ה-eval נזרק, ההבטחה נדחתה — והתוויות המשיכו להיות
- * הפוכות בלי שום סימן.
- *
- * בפיתוח `unsafe-eval` כן מותר (Fast Refresh דורש אותו), ולכן
- * התקלה הופיעה **רק** בייצור. אותו קובץ, אותה גרסה, התנהגות הפוכה.
+ * דרך `globalThis.eval(source)` — שה-CSP חוסם.
  *
  * החבילה מפיצה UMD. כמודול ES שני הענפים הראשונים שלו (`exports`,
  * `define`) אינם קיימים, והוא נופל לענף הגלובלי שקורא
  * ל-`self.registerRTLTextPlugin` — בדיוק מה שה-Worker מציב.
  * לכן די בהעתקה תחת שם אחר; אין צורך לעטוף או לבנות מחדש.
+ *
+ * **הסיומת לבדה אינה מספיקה.** התוסף הוא WebAssembly, וההידור שלו
+ * חסום בלי `wasm-unsafe-eval` ב-`script-src`. שני התנאים יחד הם
+ * התיקון; אחד מהם לבדו משאיר את המפה בלי תוויות בעברית. ראו
+ * `src/middleware.ts`.
  */
 const RTL_SOURCE = "mapbox-gl-rtl-text.js";
 const RTL_PLUGIN = "mapbox-gl-rtl-text.mjs";

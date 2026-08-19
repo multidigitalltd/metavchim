@@ -354,25 +354,29 @@ export function limitState(used: number, limit: PlanLimit): LimitState {
   return { blocked: used >= limit, remaining, percent, warn: percent >= WARN_AT_PERCENT };
 }
 
+/** מה שמוצג במקום מחיר כשאין מחיר קבוע. */
+export const CUSTOM_PRICE_LABEL = "בהתאמה";
+
 /**
- * מחיר המסלול לתצוגה — כולל מה ש-0 אומר.
+ * המחיר החודשי לתצוגה.
  *
- * `formatPlanPrice(0)` מחזיר "לפי הצעה", וזה היה נכון כל עוד המסלול
- * היחיד ב-0 היה "רשת" — מסלול שנסגר בשיחה. מרגע שיש מסלול חינם,
- * אותו מספר אומר שני דברים הפוכים: "התקשרו אלינו" מול "לחצו והתחילו".
+ * **מסלול ב-0 הוא „בהתאמה”, ולא „חינם”.** קודם ההבחנה נגזרה מ-
+ * `isPublic`, וזו הייתה שאלה אחרת לגמרי: `isPublic` קובע אם המסלול
+ * מוצע לרכישה עצמית בדף ההרשמה, לא כמה הוא עולה. ברגע שמסלול הרשת
+ * סומן כציבורי הוא הוצג כ„חינם” — כלומר הבטחה מסחרית שגויה שנוצרה
+ * משינוי הגדרה שאינו קשור למחיר.
  *
- * ההבחנה היא `isPublic`, וזו בדיוק משמעותו: מסלול שמופיע בדף
- * ההרשמה הוא מסלול שאפשר לקחת לבד. מסלול מוסתר ב-0 הוא כזה שהמחיר
- * שלו נקבע במשא ומתן. שדה נוסף היה מתאר את אותה עובדה פעמיים.
+ * אם יידרש אי־פעם מסלול חינמי אמיתי, הוא יסומן בשדה מפורש ולא
+ * יוסק מאפס. אפס פירושו „לא נקבע מחיר קבוע”, וזה בדיוק „בהתאמה”.
  */
 export function planPriceLabel(plan: PlanDefinition): string {
-  if (plan.monthlyPriceAgorot <= 0) return plan.isPublic ? "חינם" : "לפי הצעה";
+  if (plan.monthlyPriceAgorot <= 0) return CUSTOM_PRICE_LABEL;
   return formatPlanPrice(plan.monthlyPriceAgorot);
 }
 
 /** מחיר לתצוגה — אגורות לשקלים, בלי אגורות מיותרות. */
 export function formatPlanPrice(agorot: number): string {
-  if (agorot <= 0) return "לפי הצעה";
+  if (agorot <= 0) return CUSTOM_PRICE_LABEL;
   const shekels = agorot / 100;
   const rounded = Number.isInteger(shekels) ? shekels : Number(shekels.toFixed(2));
   return `${rounded.toLocaleString("he-IL")} ₪`;

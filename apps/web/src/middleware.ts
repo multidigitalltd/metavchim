@@ -75,7 +75,29 @@ function buildCsp(nonce: string, dev: boolean): string {
     "object-src": ["'none'"],
     "frame-ancestors": ["'none'"],
     "form-action": ["'self'"],
-    "script-src": ["'self'", `'nonce-${nonce}'`, "'strict-dynamic'", ...scriptDev],
+    /*
+     * ‎`wasm-unsafe-eval`‎ — **בשביל התוויות בעברית על המפה.**
+     *
+     * תוסף הטקסט הדו-כיווני של MapLibre הוא מודול WebAssembly, ו-
+     * `WebAssembly.instantiate` נחסם תחת `script-src` שאין בו היתר
+     * מפורש. בלי ההיתר הזה התוסף נכשל, וכשהוא נכשל MapLibre
+     * **משמיטה את התוויות העבריות לגמרי** — לא מציגה אותן הפוך אלא
+     * לא מציגה כלל.
+     *
+     * ‎`wasm-unsafe-eval`‎ ולא `unsafe-eval`: הוא מתיר הידור של
+     * WebAssembly בלבד, ואינו מתיר `eval()` על מחרוזת. זו ההבחנה
+     * שקיימת בתקן כדי לא לשלם על WASM במטבע של הרצת קוד שרירותי.
+     *
+     * נבדק בדפדפן מול ה-CSP הזה: בלי ההיתר `getRTLTextPluginStatus()`
+     * מחזיר `error`, ואיתו `loaded`.
+     */
+    "script-src": [
+      "'self'",
+      `'nonce-${nonce}'`,
+      "'strict-dynamic'",
+      "'wasm-unsafe-eval'",
+      ...scriptDev,
+    ],
     /*
      * `unsafe-inline` בסגנונות בלבד, ובמודע: הרכיבים כותבים
      * `style={{...}}` בכל המערכת, וב-SSR זה הופך לתכונת `style`

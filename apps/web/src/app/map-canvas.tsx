@@ -80,12 +80,20 @@ setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
  * מוגש מ-`public` כמו ה-Worker: ה-CSP אינו מתיר CDN, והתוסף נטען
  * בתוך ה-Worker ולכן חל עליו `script-src 'self'`.
  *
- * ## הסיומת `.mjs` היא התיקון עצמו
+ * ## שני תנאים, ושניהם הכרחיים
  *
- * ה-Worker בוחר איך לטעון **לפי הסיומת**: `.mjs` עובר ב-`import()`,
- * וכל השאר ב-`globalThis.eval`. ה-CSP בייצור אינו מתיר `unsafe-eval`
- * ולכן הטעינה נכשלה שם בשקט — בזמן שבפיתוח, שבו `unsafe-eval` מותר
- * בשביל Fast Refresh, הכול נראה תקין. ראו `scripts/copy-maplibre-worker.mjs`.
+ * 1. **סיומת `.mjs`.** ה-Worker בוחר איך לטעון לפי הסיומת: `.mjs`
+ *    עובר ב-`import()`, וכל השאר ב-`globalThis.eval` — שה-CSP חוסם.
+ * 2. **`wasm-unsafe-eval` ב-`script-src`.** התוסף הוא WebAssembly,
+ *    ו-`WebAssembly.instantiate` נחסם בלי היתר מפורש. ראו
+ *    `middleware.ts`.
+ *
+ * גרסה קודמת תיקנה רק את הראשון, וזה **החמיר**: התוסף עבר מ-
+ * `unavailable` (תוויות מצוירות, הפוך) ל-`error` (תוויות נעלמות
+ * לגמרי), כי MapLibre מציירת טקסט רק בשני המצבים הקיצוניים. אין
+ * דרך לחזור מ-`error` — `clearRTLTextPlugin` אינו מיוצא.
+ *
+ * שני התנאים נבדקו בדפדפן מול ה-CSP של הייצור.
  */
 void setRTLTextPlugin("/maplibre/mapbox-gl-rtl-text.mjs", false).catch(
   (error: unknown) => {

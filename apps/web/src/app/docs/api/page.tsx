@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { APP_URL } from "@/lib/legal";
+import { Code, DocHeader, DocSection, inlineCode } from "../doc-ui";
 
 /**
  * תיעוד הקליטה — **מסמך אחד, ארבעה קהלים.**
@@ -32,45 +34,18 @@ export const metadata: Metadata = {
   title: "תיעוד קליטת לידים — מתווכים",
   description:
     "חיבור כל מקור לידים למערכת מתווכים: Make, n8n, טופס באתר או קוד. נתיב אחד, מפתח לכל ערוץ.",
+  alternates: { canonical: `${APP_URL}/docs/api` },
+  /*
+   * **התיעוד כן נאנדקס** — בניגוד לשאר המערכת.
+   *
+   * ה-layout הראשי מכריז `index: false` כי אפליקציה פנימית אינה
+   * אמורה להופיע בחיפוש. התיעוד הוא ההפך הגמור: הוא נכתב בשביל מי
+   * שעדיין לא בפנים, ומי שמחפש "איך מחברים לידים למערכת מתווכים"
+   * לא ימצא אותו אם המנוע מונחה לדלג. הצהרה קנונית אינה מבטלת
+   * `noindex` — צריך לדרוס אותו במפורש (ביקורת Codex).
+   */
+  robots: { index: true, follow: true },
 };
-
-const inlineCode = {
-  background: "var(--color-hover-soft)",
-  padding: "2px 6px",
-  borderRadius: 4,
-  fontSize: "0.9em",
-} as const;
-
-function Code({ children }: { children: string }) {
-  return (
-    <pre
-      dir="ltr"
-      className="my-3 overflow-x-auto rounded-lg p-3 text-xs leading-relaxed"
-      style={{ background: "var(--color-hover-soft)", border: "1px solid var(--color-border)" }}
-    >
-      <code>{children}</code>
-    </pre>
-  );
-}
-
-function Section({
-  id,
-  title,
-  children,
-}: {
-  id: string;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section aria-labelledby={id} className="mb-10">
-      <h2 id={id} className="mb-3 text-xl font-bold">
-        {title}
-      </h2>
-      {children}
-    </section>
-  );
-}
 
 /** שדות הקליטה — טבלה אחת, שהיא גם מקור האמת לדוגמאות שמתחתיה. */
 const FIELDS: { name: string; type: string; required: boolean; note: string }[] = [
@@ -116,14 +91,13 @@ const FIELDS: { name: string; type: string; required: boolean; note: string }[] 
 export default function ApiDocsPage() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-10">
-      <h1 className="mb-2 text-3xl font-bold">חיבור מקורות לידים</h1>
-      <p className="mb-8 text-lg" style={{ color: "var(--color-text-muted)" }}>
-        כל מקור שיודע לשלוח בקשת HTTP יכול להזרים לידים ישירות למערכת — אתר, מודעות
-        פייסבוק, יד2, קמפיין ממומן או כל כלי אוטומציה. נתיב אחד, ומפתח נפרד לכל ערוץ כדי
-        שתדעו מאיפה הגיע כל ליד.
-      </p>
+      <DocHeader
+        current="api"
+        title="חיבור מקורות לידים"
+        lead="כל מקור שיודע לשלוח בקשת HTTP יכול להזרים לידים ישירות למערכת — אתר, מודעות פייסבוק, יד2, קמפיין ממומן או כל כלי אוטומציה. נתיב אחד, ומפתח נפרד לכל ערוץ כדי שתדעו מאיפה הגיע כל ליד."
+      />
 
-      <Section id="key" title="1. השגת מפתח">
+      <DocSection id="key" title="1. השגת מפתח">
         <p className="mb-2">
           במערכת: <b>ניהול משרד ← אינטגרציות ← מקורות לידים</b>. יוצרים מקור, נותנים לו שם
           (&quot;פייסבוק&quot;, &quot;יד2&quot;, &quot;האתר&quot;) ומקבלים כתובת ייעודית.
@@ -137,10 +111,10 @@ export default function ApiDocsPage() {
           המפתח שווה ערך לסיסמה: מי שמחזיק בו יכול להזרים לידים למאגר שלכם. לא לפרסם
           בקוד של דף אינטרנט גלוי.
         </p>
-      </Section>
+      </DocSection>
 
-      <Section id="request" title="2. הבקשה">
-        <Code>{`POST https://<הדומיין-שלכם>/api/v1/public/leads/<המפתח>
+      <DocSection id="request" title="2. הבקשה">
+        <Code>{`POST ${APP_URL}/api/v1/public/leads/<המפתח>
 Content-Type: application/json
 
 {
@@ -154,9 +128,9 @@ Content-Type: application/json
           תשובה <code style={inlineCode}>200</code> עם{" "}
           <code style={inlineCode}>{`{"ok":true}`}</code> פירושה שהפנייה נקלטה.
         </p>
-      </Section>
+      </DocSection>
 
-      <Section id="fields" title="3. השדות">
+      <DocSection id="fields" title="3. השדות">
         <div className="overflow-x-auto">
           <table className="mv-table w-full text-sm">
             <thead>
@@ -189,9 +163,9 @@ Content-Type: application/json
           <b>שדה שאינו ברשימה יגרום לדחיית הבקשה.</b> זה מכוון: עדיף שתגלו טעות בשם שדה
           בזמן החיבור, מאשר שהאימייל פשוט לא יישמר ואיש לא ישים לב.
         </p>
-      </Section>
+      </DocSection>
 
-      <Section id="dedup" title="4. מה קורה בצד שלנו">
+      <DocSection id="dedup" title="4. מה קורה בצד שלנו">
         <ul className="list-disc space-y-1.5 ps-5">
           <li>
             הלקוח מזוהה לפי הטלפון. פנייה נוספת מאותו מספר <b>מצטרפת לליד הפתוח</b> במקום
@@ -205,9 +179,9 @@ Content-Type: application/json
             כל ליד מפעיל את שרשרת האוטומציות: התראה לסוכן, משימת מענה, והתאמות לנכסים.
           </li>
         </ul>
-      </Section>
+      </DocSection>
 
-      <Section id="make" title="5. חיבור דרך Make">
+      <DocSection id="make" title="5. חיבור דרך Make">
         <p className="mb-2">
           אין צורך באפליקציה ייעודית — המודול הגנרי עובד:
         </p>
@@ -231,9 +205,9 @@ Content-Type: application/json
   "message": "{{1.custom_answer}}",
   "intent": "buy"
 }`}</Code>
-      </Section>
+      </DocSection>
 
-      <Section id="n8n" title="6. חיבור דרך n8n">
+      <DocSection id="n8n" title="6. חיבור דרך n8n">
         <p className="mb-2">
           צומת <b>HTTP Request</b>: Method <code style={inlineCode}>POST</code>, Body Content
           Type <code style={inlineCode}>JSON</code>, ו-Specify Body ← Using Fields Below.
@@ -243,14 +217,14 @@ Content-Type: application/json
 phone   →  {{ $json.phone_number }}
 email   →  {{ $json.email }}
 message →  {{ $json.message }}`}</Code>
-      </Section>
+      </DocSection>
 
-      <Section id="llm" title="7. חיבור בעזרת LLM">
+      <DocSection id="llm" title="7. חיבור בעזרת LLM">
         <p className="mb-2">
           אפשר להעביר את העמוד הזה למודל שפה ולבקש ממנו לבנות את החיבור. נוסח שעובד:
         </p>
         <Code>{`קרא את התיעוד בכתובת:
-https://<הדומיין-שלכם>/docs/api
+${APP_URL}/docs/api
 
 בנה לי סצנריו ב-Make שלוקח לידים מ-Facebook Lead Ads
 ושולח אותם לכתובת הקליטה. המפתח שלי הוא: <המפתח>`}</Code>
@@ -261,9 +235,9 @@ https://<הדומיין-שלכם>/docs/api
           </code>
           .
         </p>
-      </Section>
+      </DocSection>
 
-      <Section id="errors" title="8. תשובות שגיאה">
+      <DocSection id="errors" title="8. תשובות שגיאה">
         <div className="overflow-x-auto">
           <table className="mv-table w-full text-sm">
             <thead>
@@ -292,15 +266,15 @@ https://<הדומיין-שלכם>/docs/api
             </tbody>
           </table>
         </div>
-      </Section>
+      </DocSection>
 
-      <Section id="telephony" title="9. מרכזיות טלפון">
+      <DocSection id="telephony" title="9. מרכזיות טלפון">
         <p>
           חיבור מרכזייה אינו עובר דרך הנתיב הזה — הוא מוגדר ב<b>ניהול משרד ← אינטגרציות ←
           מרכזייה</b>, ומקבל כתובת משלו. המערכת מזהה את שמות השדות המקובלים (015, Asterisk
           וכל מרכזייה ששולחת Webhook) ללא הגדרה נוספת.
         </p>
-      </Section>
+      </DocSection>
 
       <p className="mt-10 text-sm" style={{ color: "var(--color-text-muted)" }}>
         נתקעתם? יש שדה שהמקור שלכם שולח ואינו ברשימה? כתבו לנו — ההוספה לרוב מהירה.

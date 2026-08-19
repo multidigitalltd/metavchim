@@ -1683,6 +1683,13 @@ async function transcribeOneCall(): Promise<void> {
       const parsedCall = summarizeCall((body.text ?? "").trim() || transcript);
       const { summary } = parsedCall;
       const followUp = followUpFromCall(parsedCall, new Date());
+      /** המשימה שנוצרה, אם נוצרה — קובעת את נוסח ההתראה היחידה. */
+      let followUpNotice:
+        | {
+            reason: string;
+            entity: { entityType: "lead" | "buyer"; entityId: string };
+          }
+        | undefined;
 
       await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
@@ -1811,19 +1818,47 @@ async function transcribeOneCall(): Promise<void> {
                 sourceKey,
               },
             });
-            await tx.notification.create({
-              data: {
-                id: ulid(),
-                tenantId: tenant.id,
-                userId: pending.createdBy,
-                type: "call_follow_up",
-                title: "נוצרה משימת המשך מהשיחה",
-                body: followUp.reason,
-                ...entity,
-              },
-            });
+            followUpNotice = { reason: followUp.reason, entity };
           }
         }
+
+        /*
+         * **התראה אחת לכל תמלול**, ולא אחת לתמלול ואחת למשימה.
+         *
+         * עד כה התראה נשלחה **רק** כשהתמלול הניב משימת המשך, ורק
+         * כשהיו לה גם מתעד וגם כרטיס מקושר. כלומר רוב התמלולים
+         * הסתיימו בלי שאיש ידע — ומסך השיחות אינו מרענן את עצמו,
+         * אז הדרך היחידה לגלות הייתה לטעון אותו מחדש ולנחש.
+         *
+         * שתי התראות על אותה שיחה היו שני צלצולים על אירוע אחד;
+         * לכן ההודעה אחת, והיא מספרת גם על המשימה כשנוצרה.
+         */
+        await tx.notification.create({
+          data: {
+            id: ulid(),
+            tenantId: tenant.id,
+            /*
+             * ‎`createdBy`‎ ריק בשיחה שהגיעה מהמרכזייה ולא תועדה
+             * ביד. `null` פירושו התראה לכל המשרד — עדיף מהתראה
+             * שאיש אינו מקבל.
+             */
+            userId: pending.createdBy ?? null,
+            type: followUpNotice ? "call_follow_up" : "call_transcribed",
+            title: followUpNotice
+              ? "התמלול מוכן — ונוצרה משימת המשך"
+              : "התמלול מוכן",
+            // התקרה היא 500 בסכמה; חיתוך כאן ולא שגיאת כתיבה שם
+            body: (followUpNotice?.reason ?? summary ?? "").slice(0, 500) || undefined,
+            /*
+             * כשנוצרה משימה ההתראה מצביעה על הכרטיס — שם מטפלים
+             * בה. אחרת על השיחה עצמה, שהיא מה שההתראה מדברת עליו.
+             */
+            ...(followUpNotice?.entity ?? {
+              entityType: "call",
+              entityId: pending.id,
+            }),
+          },
+        });
       });
     } catch (error) {
       console.error(`[call-transcribe] ${pending.id} failed: ${String(error)}`);
@@ -1832,6 +1867,25 @@ async function transcribeOneCall(): Promise<void> {
         await tx.call.updateMany({
           where: { id: pending.id, tenantId: tenant.id },
           data: { transcriptionStatus: "failed" },
+        });
+        /*
+         * גם כישלון הוא סיום, וגם עליו מודיעים.
+         *
+         * תמלול שנכשל בשקט נראה בדיוק כמו תמלול שעוד רץ: הסטטוס
+         * במסך משתנה מ"מתמלל" ל"נכשל", ואיש אינו מסתכל. מי
+         * שהמתין להקלטה של שיחה ממתין לשווא.
+         */
+        await tx.notification.create({
+          data: {
+            id: ulid(),
+            tenantId: tenant.id,
+            userId: pending.createdBy ?? null,
+            type: "call_transcribe_failed",
+            title: "תמלול השיחה נכשל",
+            body: "אפשר לנסות שוב מכרטיס השיחה, או להאזין להקלטה.",
+            entityType: "call",
+            entityId: pending.id,
+          },
         });
       });
     }

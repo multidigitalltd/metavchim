@@ -43,16 +43,24 @@ export function shouldPush(notification: PushableNotification): boolean {
   return !NO_PUSH_TYPES.has(notification.type);
 }
 
-/** לאן מקשרת התראה — לפי הישות שאליה היא מצביעה. */
-const ENTITY_ROUTES: Record<string, string> = {
-  lead: "/leads",
-  buyer: "/buyers",
-  property: "/properties",
-  offer: "/offers",
-  appointment: "/calendar",
-  task: "/tasks",
-  match: "/matches",
-  coop_offer: "/collaboration",
+/**
+ * לאן מקשרת התראה — לפי הישות שאליה היא מצביעה.
+ *
+ * פונקציה לכל ישות ולא תבנית ‎`base/id`‎ אחידה: לא כל מסך מציג
+ * פריט בנתיב משלו. שיחה נבחרת בתוך רשימת השיחות ולכן היא פרמטר
+ * בכתובת, ותבנית אחידה הייתה מייצרת `/calls/<id>` — נתיב שאינו
+ * קיים, כלומר בדיוק הכתובת השבורה שהפונקציה למטה מבטיחה למנוע.
+ */
+const ENTITY_ROUTES: Record<string, (id?: string) => string> = {
+  lead: (id) => (id ? `/leads/${id}` : "/leads"),
+  buyer: (id) => (id ? `/buyers/${id}` : "/buyers"),
+  property: (id) => (id ? `/properties/${id}` : "/properties"),
+  offer: (id) => (id ? `/offers/${id}` : "/offers"),
+  appointment: () => "/calendar",
+  task: () => "/tasks",
+  match: (id) => (id ? `/matches/${id}` : "/matches"),
+  coop_offer: (id) => (id ? `/collaboration/${id}` : "/collaboration"),
+  call: (id) => (id ? `/calls?call=${id}` : "/calls"),
 };
 
 /**
@@ -61,9 +69,11 @@ const ENTITY_ROUTES: Record<string, string> = {
  * שנוחתת על 404 גרועה מהתראה שלא נשלחה.
  */
 export function notificationUrl(notification: PushableNotification): string {
-  const base = notification.entityType ? ENTITY_ROUTES[notification.entityType] : undefined;
-  if (!base) return "/";
-  return notification.entityId ? `${base}/${notification.entityId}` : base;
+  const route = notification.entityType
+    ? ENTITY_ROUTES[notification.entityType]
+    : undefined;
+  if (!route) return "/";
+  return route(notification.entityId ?? undefined);
 }
 
 export function pushPayload(notification: PushableNotification): PushPayload {

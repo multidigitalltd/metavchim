@@ -84,11 +84,7 @@ export class SignupController {
         code: plan.code,
         name: plan.name,
         description: plan.description,
-        /*
-         * `planPriceLabel` ולא `formatPlanPrice`: מסלול ב-0 שמופיע
-         * בדף ההרשמה הוא חינם, לא "לפי הצעה". ראו את הנימוק בקובץ
-         * המסלולים.
-         */
+        // מסלול בלי מחיר קבוע מוצג כ"בהתאמה" — ראו `planPriceLabel`
         monthlyPrice: planPriceLabel(plan),
         yearlyPrice:
           plan.yearlyPriceAgorot === null ? null : formatPlanPrice(plan.yearlyPriceAgorot),

@@ -26,7 +26,7 @@
  * ל-web אין מריץ בדיקות, והוספת אחד בשביל שער טקסט אחד היא תלות
  * חדשה בכל CI. `verify:assets` כבר רץ כאן באותה צורה בדיוק.
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 /*
@@ -69,19 +69,42 @@ const src = join(root, "src");
  * עבר בזמן שמסך ההדרכות הציג "הפניית לקוח — לא מכירת ליד". שער
  * שמדלג על הטקסט הכי גלוי במוצר גרוע משער שאינו קיים, כי הוא
  * מייצר ביטחון (ביקורת Codex).
+ *
+ * ‎`lib/guide-content.ts`‎ נכלל מאותה סיבה בדיוק: התוכן של מסך
+ * ההדרכות עבר לשם כדי שגם התיעוד הציבורי יקרא אותו, ובלי השורה
+ * הזו המעבר היה מוציא את הטקסט מהשער בשקט — כלומר הופך תיקון
+ * ארכיטקטוני לנסיגה באכיפה.
+ *
+ * ‎`app/docs`‎ הוא המקום היחיד שבו הטקסט נקרא בלי התחברות, ולכן
+ * דווקא שם ניסוח שגוי עולה הכי ביוקר.
  */
-const SCOPED = ["app/collaboration", "app/leads", "app/guides"];
+const SCOPED = [
+  "app/collaboration",
+  "app/leads",
+  "app/guides",
+  "app/docs",
+  "lib/guide-content.ts",
+];
 
-function files(dir) {
+/**
+ * הקבצים שתחת נתיב — תיקייה או קובץ בודד.
+ *
+ * הטיפול בקובץ בודד אינו נוחות: `readdirSync` על קובץ זורק, והגרסה
+ * הקודמת בלעה את החריגה והחזירה רשימה ריקה. כלומר רישום של קובץ
+ * ב-`SCOPED` היה נראה כמו הרחבת האכיפה ולא סורק דבר.
+ */
+function files(path) {
   const out = [];
   let entries;
   try {
-    entries = readdirSync(dir, { withFileTypes: true });
+    entries = readdirSync(path, { withFileTypes: true });
   } catch {
+    // לא תיקייה — קובץ קיים נסרק, ונתיב שאינו קיים נתפס בבדיקה שלמטה
+    if (existsSync(path) && /\.tsx?$/u.test(path)) out.push(path);
     return out;
   }
   for (const entry of entries) {
-    const full = join(dir, entry.name);
+    const full = join(path, entry.name);
     if (entry.isDirectory()) out.push(...files(full));
     else if (/\.tsx?$/u.test(entry.name)) out.push(full);
   }
@@ -91,7 +114,17 @@ function files(dir) {
 const offenders = [];
 let scanned = 0;
 for (const dir of SCOPED) {
-  for (const file of files(join(src, dir))) {
+  const found = files(join(src, dir));
+  /*
+   * נתיב ריק הוא כשל ולא "אין מה לסרוק". שינוי שם תיקייה היה משאיר
+   * את השורה ב-`SCOPED`, מוציא את הטקסט מהאכיפה, והשער היה ממשיך
+   * לדווח „תקין” — כלומר בדיוק הביטחון השקרי שהוא נועד למנוע.
+   */
+  if (found.length === 0) {
+    console.error(`✗ נתיב בשער השפה אינו קיים או ריק: src/${dir}\n`);
+    process.exit(1);
+  }
+  for (const file of found) {
     scanned += 1;
     /*
      * הערות קוד נסרקות גם הן. הן אינן מגיעות למשתמש, אבל הן מה
