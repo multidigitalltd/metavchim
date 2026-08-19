@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { GUIDES } from "@/lib/guide-content";
+import { guideMarkdown, GUIDES } from "@/lib/guide-content";
 import { useRequireAuth } from "@/lib/use-auth";
+import { CopyMarkdown } from "../copy-markdown";
 import { IconMail } from "../icons";
 
 /** כתובת התמיכה של המערכת — פנייה כללית, לא קשורה לגישת התמיכה לחשבון. */
@@ -137,6 +138,18 @@ export default function GuidesPage() {
                 <b>טיפ:</b> {guide.tip}
               </p>
             ) : null}
+
+            {/*
+              אותה אפשרות בדיוק כמו בתיעוד הציבורי, ומאותה סיבה:
+              מי שכבר בפנים שואל את ChatGPT „איך אני עושה X במערכת”
+              לא פחות ממי שעדיין בחוץ — ומקבל תשובה מומצאת אלא אם
+              נתן למודל את ההדרכה עצמה.
+            */}
+            <CopyMarkdown
+              markdown={guideMarkdown(guide)}
+              href={`/docs/md/${guide.id}`}
+              subject={guide.title}
+            />
           </section>
         ))}
       </div>

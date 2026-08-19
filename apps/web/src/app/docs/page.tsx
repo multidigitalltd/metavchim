@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
-import { GUIDES } from "@/lib/guide-content";
+import { docsMarkdown, guideMarkdown, GUIDES } from "@/lib/guide-content";
 import { APP_URL, LEGAL } from "@/lib/legal";
+import { CopyMarkdown } from "../copy-markdown";
 import { Code, DocHeader, DocNav, DocSection, inlineCode } from "./doc-ui";
 
 /**
@@ -53,7 +54,13 @@ export default function DocsPage() {
   ];
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
+    /*
+     * `div` ולא `main`. המעטפת הכללית כבר עוטפת כל מסך ציבורי
+     * ב-`<main id="main-content">`, ושני main מקוננים הם שני
+     * ציוני דרך ראשיים באותו עמוד — כלומר קישור דילוג שמוביל
+     * למקום לא ברור וקורא מסך שמדווח על מבנה שגוי.
+     */
+    <div className="mx-auto max-w-3xl px-4 py-10">
       <DocHeader
         current="product"
         title="תיעוד המערכת"
@@ -61,6 +68,17 @@ export default function DocsPage() {
       />
 
       <DocNav items={navItems} label="נושאי התיעוד" />
+
+      {/*
+        התיעוד כולו כטקסט — למי שמעדיף לתת למודל את כל התמונה
+        ולא נושא אחד. הכפתור הזהה שבסוף כל נושא מכסה את המקרה
+        ההפוך, ושניהם מגישים בדיוק את מה שכתוב בעמוד.
+      */}
+      <CopyMarkdown
+        markdown={docsMarkdown()}
+        href="/docs/md"
+        subject="תיעוד המערכת המלא"
+      />
 
       <DocSection id={INTRO_ID} title="מה זו המערכת">
         <p className="mb-2">
@@ -110,6 +128,11 @@ export default function DocsPage() {
               <b>שימו לב:</b> {guide.tip}
             </p>
           ) : null}
+          <CopyMarkdown
+            markdown={guideMarkdown(guide)}
+            href={`/docs/md/${guide.id}`}
+            subject={guide.title}
+          />
         </DocSection>
       ))}
 
@@ -166,6 +189,6 @@ export default function DocsPage() {
         </code>{" "}
         ונחזור אליכם.
       </p>
-    </main>
+    </div>
   );
 }

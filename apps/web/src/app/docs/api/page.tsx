@@ -90,7 +90,11 @@ const FIELDS: { name: string; type: string; required: boolean; note: string }[] 
 
 export default function ApiDocsPage() {
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
+    /*
+     * `div` ולא `main` — המעטפת הכללית כבר מספקת את ה-main של
+     * העמוד, ושניים מקוננים שוברים את קישור הדילוג.
+     */
+    <div className="mx-auto max-w-3xl px-4 py-10">
       <DocHeader
         current="api"
         title="חיבור מקורות לידים"
@@ -228,11 +232,20 @@ ${APP_URL}/docs/api
 
 בנה לי סצנריו ב-Make שלוקח לידים מ-Facebook Lead Ads
 ושולח אותם לכתובת הקליטה. המפתח שלי הוא: <המפתח>`}</Code>
+        {/*
+          קישור ולא רק כתובת מודפסת. מי שקורא את הסעיף הזה רוצה
+          לפתוח את המפרט או להעתיק את כתובתו לכלי — והדבקה ידנית
+          של מחרוזת שאפשר ללחוץ עליה היא חיכוך בלי סיבה.
+        */}
         <p style={{ color: "var(--color-text-muted)" }}>
-          מפרט OpenAPI לקריאת מכונה זמין בכתובת{" "}
-          <code style={inlineCode} dir="ltr">
+          מפרט OpenAPI לקריאת מכונה:{" "}
+          <a href="/docs/api.json" className="underline" style={inlineCode} dir="ltr" lang="en">
             /docs/api.json
-          </code>
+          </a>
+          . את המדריך למערכת אפשר למשוך כ-Markdown מ־{" "}
+          <a href="/docs/md" className="underline" style={inlineCode} dir="ltr" lang="en">
+            /docs/md
+          </a>
           .
         </p>
       </DocSection>
@@ -279,6 +292,6 @@ ${APP_URL}/docs/api
       <p className="mt-10 text-sm" style={{ color: "var(--color-text-muted)" }}>
         נתקעתם? יש שדה שהמקור שלכם שולח ואינו ברשימה? כתבו לנו — ההוספה לרוב מהירה.
       </p>
-    </main>
+    </div>
   );
 }
