@@ -187,10 +187,33 @@ export class WebLeadService {
         contactId,
         status: { in: ["new", "in_progress", "waiting_customer"] },
       },
-      select: { id: true },
+      select: { id: true, intent: true, propertyId: true },
     });
 
     if (openLead) {
+      /*
+       * הפנייה החוזרת **משלימה חוסרים ואינה דורסת**.
+       *
+       * זה מסלול הדה-דופליקציה הרגיל, וקודם הוא בלע את `intent`
+       * ואת `propertyId`: פנייה שנייה מפייסבוק, שדווקא כן ידעה מה
+       * הלקוח רוצה ועל איזה נכס, הוסיפה הערה לציר הזמן והשדות
+       * המובְנים נשארו ריקים (ביקורת Codex).
+       *
+       * השלמה בלבד ולא דריסה: אם הסוכן כבר קבע עניין או קישר נכס,
+       * הוא ראה משהו שהטופס אינו יודע — וטופס אוטומטי שמתקן אדם
+       * הוא בדיוק ההתנהגות שגורמת לאבד אמון במערכת.
+       */
+      const fill: { intent?: string; propertyId?: string } = {};
+      if (input.intent !== undefined && openLead.intent === "unknown") {
+        fill.intent = input.intent;
+      }
+      if (input.propertyId !== undefined && openLead.propertyId === null) {
+        fill.propertyId = input.propertyId;
+      }
+      if (Object.keys(fill).length > 0) {
+        await tx.lead.updateMany({ where: { id: openLead.id, tenantId }, data: fill });
+      }
+
       // ליד פתוח קיים — הפנייה מצטרפת לציר הזמן שלו
       await tx.interaction.create({
         data: {
