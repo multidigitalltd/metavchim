@@ -334,10 +334,10 @@ export default function CallsPage() {
                       style={{ background: call.outcome === "answered" ? "#12A150" : "#b0512c" }}
                     />
                     <span className="min-w-0" style={{ lineHeight: 1.35 }}>
-                      <span className="block truncate text-[14.5px] font-bold">
+                      <span className="block truncate text-[15.5px] font-bold">
                         {call.contactName ?? call.phone ?? "לא מזוהה"}
                       </span>
-                      <span className="block text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                      <span className="block text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                         {call.direction === "inbound" ? "נכנסת" : "יוצאת"} ·{" "}
                         {timeFmt.format(new Date(call.occurredAt))}
                       </span>
@@ -346,7 +346,7 @@ export default function CallsPage() {
                       <span
                         className="mv-pill block"
                         style={{
-                          fontSize: 12,
+                          fontSize: 13.5,
                           padding: "2px 10px",
                           color: call.outcome === "answered" ? "#0C6E34" : "#b0512c",
                           background: call.outcome === "answered" ? "#E5FCEA" : "#faf1ec",
@@ -355,7 +355,7 @@ export default function CallsPage() {
                         {OUTCOME_LABELS[call.outcome] ?? call.outcome}
                       </span>
                       {call.durationMinutes !== undefined ? (
-                        <span className="mt-[3px] block text-[11.5px]" style={{ color: "var(--color-text-muted)" }}>
+                        <span className="mt-[3px] block text-[13px]" style={{ color: "var(--color-text-muted)" }}>
                           {call.durationMinutes} דק׳
                         </span>
                       ) : null}
@@ -373,10 +373,10 @@ export default function CallsPage() {
                 style={{ borderBottom: "1px solid var(--color-card-head-border)" }}
               >
                 <div style={{ lineHeight: 1.35 }}>
-                  <h2 className="m-0" style={{ fontSize: 17, fontWeight: 800 }}>
+                  <h2 className="m-0" style={{ fontSize: 18, fontWeight: 800 }}>
                     {selected.contactName ?? selected.phone ?? "לא מזוהה"}
                   </h2>
-                  <p className="m-0 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+                  <p className="m-0 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
                     {selected.phone ? <span dir="ltr">{selected.phone} · </span> : null}
                     {selected.direction === "inbound" ? "שיחה נכנסת" : "שיחה יוצאת"} ·{" "}
                     {timeFmt.format(new Date(selected.occurredAt))}
@@ -390,11 +390,11 @@ export default function CallsPage() {
                       target="_blank"
                       rel="noopener noreferrer"
                       className="mv-btn-plain"
-                      style={{ padding: "7px 14px", fontSize: 13 }}
+                      style={{ padding: "7px 14px", fontSize: 14.5 }}
                     >
                       וואטסאפ
                     </a>
-                    <a href={`tel:${selected.phone}`} className="mv-btn-plain" style={{ padding: "7px 14px", fontSize: 13 }}>
+                    <a href={`tel:${selected.phone}`} className="mv-btn-plain" style={{ padding: "7px 14px", fontSize: 14.5 }}>
                       חייג
                     </a>
                   </div>
@@ -402,7 +402,7 @@ export default function CallsPage() {
               </div>
 
               <div className="px-[22px] py-5">
-                <p className="mb-2.5 mt-0 text-[13px] font-extrabold" style={{ color: "var(--color-text-muted)" }}>
+                <p className="mb-2.5 mt-0 text-[14.5px] font-extrabold" style={{ color: "var(--color-text-muted)" }}>
                   סיכום השיחה
                 </p>
                 <div
@@ -484,7 +484,7 @@ function CallRecording({ call, onChanged }: { call: CallRow; onChanged: () => vo
 
   return (
     <div className="mt-4">
-      <p className="mb-2 mt-0 text-[13px] font-extrabold" style={{ color: "var(--color-text-muted)" }}>
+      <p className="mb-2 mt-0 text-[14.5px] font-extrabold" style={{ color: "var(--color-text-muted)" }}>
         הקלטת השיחה
       </p>
 

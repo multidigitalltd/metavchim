@@ -309,12 +309,12 @@ export default function CalendarPage() {
         </div>
         {/* התאריך העברי של תחילת השבוע — הקשר ללוח שהמתווך חי בו */}
         {hebrewDateFull(start) ? (
-          <span className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+          <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
             {hebrewDateFull(start)}
           </span>
         ) : null}
         {/* ועכשיו — התאריך המלא והשעה, אותו רכיב כמו בדשבורד */}
-        <NowStamp className="text-[12.5px]" />
+        <NowStamp className="text-[14px]" />
         <Link href="/calendar/new" className="mv-btn-action ms-auto">
           + פגישה חדשה
         </Link>
@@ -342,15 +342,15 @@ export default function CalendarPage() {
                       background: d.isToday ? "var(--color-primary-soft)" : "var(--color-surface)",
                     }}
                   >
-                    <div className="text-[13px] font-extrabold" style={{ color: d.isToday ? "var(--color-primary)" : "var(--color-text)" }}>
+                    <div className="text-[14.5px] font-extrabold" style={{ color: d.isToday ? "var(--color-primary)" : "var(--color-text)" }}>
                       {d.name}
                     </div>
-                    <div className="text-[11.5px]" style={{ color: "var(--color-text-muted)" }}>
+                    <div className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>
                       {shortDateFmt.format(d.date)}
                     </div>
                     {/* התאריך העברי — תוספת, ולכן ריק כשההמרה לא זמינה */}
                     {hebrewDateShort(d.date) ? (
-                      <div className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>
+                      <div className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
                         {hebrewDateShort(d.date)}
                       </div>
                     ) : null}
@@ -380,10 +380,10 @@ export default function CalendarPage() {
                             className="rounded-lg px-[9px] py-[7px]"
                             style={{ background: colors.bg, lineHeight: 1.3 }}
                           >
-                            <div className="text-[11.5px] font-extrabold" style={{ color: colors.fg }}>
+                            <div className="text-[13px] font-extrabold" style={{ color: colors.fg }}>
                               {timeFmt.format(new Date(a.startsAt))} · {KIND_LABELS[a.kind] ?? a.kind}
                             </div>
-                            <div className="text-[12.5px] font-bold" style={{ color: "#212722" }}>
+                            <div className="text-[14px] font-bold" style={{ color: "#212722" }}>
                               {a.title ?? ""}
                               {a.outcome ? " ✓" : ""}
                             </div>
@@ -400,10 +400,10 @@ export default function CalendarPage() {
           {/* סיורים ופגישות שהתקיימו — וטרם תועדה תוצאה */}
           {pendingTours.length > 0 ? (
             <section className="mv-list-card mb-[18px] px-5 py-4" aria-labelledby="pending-tours-heading">
-              <h2 id="pending-tours-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+              <h2 id="pending-tours-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
                 סיורים שהתקיימו — וטרם תועדה תוצאה
               </h2>
-              <p className="m-0 mb-2.5 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+              <p className="m-0 mb-2.5 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                 תיעוד קצר עכשיו חוסך שכחה אחר כך. לחיצה אחת — והליד מתעדכן אוטומטית.
               </p>
               {pendingTours.map((a) => (
@@ -416,7 +416,7 @@ export default function CalendarPage() {
                     <div className="text-sm font-bold">
                       {a.title ?? KIND_LABELS[a.kind] ?? a.kind}
                     </div>
-                    <div className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                    <div className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                       {longFmt.format(new Date(a.startsAt))}
                     </div>
                   </div>
@@ -470,7 +470,7 @@ export default function CalendarPage() {
             if (upcoming.length === 0) return null;
             return (
               <section className="mv-list-card mb-[18px] px-5 py-4" aria-labelledby="upcoming-heading">
-                <h2 id="upcoming-heading" className="m-0 mb-2.5" style={{ fontSize: 15.5, fontWeight: 800 }}>
+                <h2 id="upcoming-heading" className="m-0 mb-2.5" style={{ fontSize: 16.5, fontWeight: 800 }}>
                   הפגישות הקרובות
                 </h2>
                 {upcoming.map((a) => (
@@ -479,7 +479,7 @@ export default function CalendarPage() {
                     className="flex flex-wrap items-center gap-3 py-[9px]"
                     style={{ borderBottom: "1px solid var(--color-row-border)" }}
                   >
-                    <span className="text-[13px] font-extrabold" style={{ color: "var(--color-primary)" }}>
+                    <span className="text-[14.5px] font-extrabold" style={{ color: "var(--color-primary)" }}>
                       {longFmt.format(new Date(a.startsAt))}
                     </span>
                     <span className="text-sm font-bold">

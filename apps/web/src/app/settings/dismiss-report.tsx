@@ -66,11 +66,11 @@ export function DismissReportSection() {
           <ul className="m-0 list-none p-0">
             {report.tallies.map((tally) => (
               <li key={tally.reason} className="mb-2">
-                <div className="mb-0.5 flex items-baseline justify-between gap-2 text-[13.5px]">
+                <div className="mb-0.5 flex items-baseline justify-between gap-2 text-[15px]">
                   <span>
                     {tally.label}
                     {tally.criterion !== null ? (
-                      <span className="ms-1.5 text-[12px]" style={{ color: "var(--color-text-muted)" }}>
+                      <span className="ms-1.5 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
                         · קריטריון {MATCH_CRITERION_LABELS[tally.criterion]}
                       </span>
                     ) : null}
@@ -99,13 +99,13 @@ export function DismissReportSection() {
 
           {report.insight !== null ? (
             <p
-              className="m-0 mt-3 rounded-lg border p-3 text-[13px]"
+              className="m-0 mt-3 rounded-lg border p-3 text-[14.5px]"
               style={{ borderColor: "var(--color-primary)", background: "var(--color-bg)" }}
             >
               {report.insight}
             </p>
           ) : (
-            <p className="m-0 mt-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+            <p className="m-0 mt-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
               עוד מעט דחיות ואפשר יהיה להסיק מהן מסקנה. מסקנה מתוך מדגם קטן גרועה
               מאין מסקנה.
             </p>

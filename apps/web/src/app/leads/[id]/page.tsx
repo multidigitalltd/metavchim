@@ -365,7 +365,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
             ))}
           </select>
           {reason ? (
-            <span className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+            <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
               {REFERRAL_REASONS.find((option) => option.value === reason)?.hint}
             </span>
           ) : null}
@@ -405,7 +405,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
             בדיעבד היא בדיוק מה שהורס אמון בלוח.
           */}
           {settlement === null && preview ? (
-            <span className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+            <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
               המשרד הקולט משלם {preview.priceCredits} · עמלת פלטפורמה{" "}
               {terms ? `${terms.platformFeePercent}% = ` : ""}
               {preview.platformFeeCredits} · <b>אליכם {preview.payoutCredits} קרדיטים</b>
@@ -439,7 +439,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
                     onChange={() => setPayoutMode(mode)}
                     className="mt-0.5"
                   />
-                  <span className="text-[12.5px]">
+                  <span className="text-[14px]">
                     <b>{PAYOUT_MODE_LABEL[mode]}</b>
                     <br />
                     {mode === "credits" ? (
@@ -459,7 +459,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
                 </label>
               ))}
             </div>
-            <p className="m-0 mt-1 text-[11.5px]" style={{ color: "var(--color-text-muted)" }}>
+            <p className="m-0 mt-1 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
               המשרד הקולט משלם {priceNumber} קרדיטים בשני המסלולים. הבחירה נקבעת עכשיו
               ואי אפשר לשנותה אחרי הפרסום.
             </p>
@@ -504,7 +504,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
         </label>
       </div>
 
-      <p className="mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
         המשרד הקולט משלם על ההפניה ברגע הקליטה, ולא על עסקה שתיסגר. אחרי הקליטה
         הוא מאשר את ההצהרה שלכם, והפער בין השניים הוא המוניטין שמוצג לצד ההפניות
         הבאות שלכם — כלומר <b>הצהרה מדויקת שווה יותר מהצהרה גבוהה</b>.
@@ -962,12 +962,12 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           <h2
             id="lead-summary-heading"
             className="m-0 mb-1.5"
-            style={{ fontSize: 13, fontWeight: 800, color: "var(--color-primary)" }}
+            style={{ fontSize: 14.5, fontWeight: 800, color: "var(--color-primary)" }}
           >
             תוכן הפנייה
           </h2>
           {/* whitespace-pre-line: שורות ההודעה נשמרות כפי שנשלחו */}
-          <p className="m-0 whitespace-pre-line" style={{ fontSize: 14.5, lineHeight: 1.5 }}>
+          <p className="m-0 whitespace-pre-line" style={{ fontSize: 15.5, lineHeight: 1.5 }}>
             {lead.summary}
           </p>
         </section>

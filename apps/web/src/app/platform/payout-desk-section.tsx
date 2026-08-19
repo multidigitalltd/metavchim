@@ -106,7 +106,7 @@ export function PayoutDeskSection(): React.JSX.Element {
       <h2 id="payout-desk-heading" className="mb-1 text-lg font-semibold">
         <IconCoins s={16} /> בקשות משיכה
         {pending.length > 0 ? (
-          <span className="mv-chip ms-2" style={{ fontSize: 12 }}>
+          <span className="mv-chip ms-2" style={{ fontSize: 13.5 }}>
             {pending.length} ממתינות
           </span>
         ) : null}
@@ -137,22 +137,22 @@ export function PayoutDeskSection(): React.JSX.Element {
               style={{ borderColor: "var(--color-border)" }}
             >
               <div className="flex flex-wrap items-baseline gap-2">
-                <b className="text-[15px]">{shekels(row.amountAgorot)} ₪</b>
+                <b className="text-[16px]">{shekels(row.amountAgorot)} ₪</b>
                 <span>{row.tenantName}</span>
-                <span style={{ color: STATUS_COLOR[row.status], fontWeight: 700, fontSize: 12.5 }}>
+                <span style={{ color: STATUS_COLOR[row.status], fontWeight: 700, fontSize: 14 }}>
                   {PAYOUT_STATUS_LABEL[row.status]}
                 </span>
-                <span className="text-[12px]" style={{ color: "var(--color-text-muted)" }}>
+                <span className="text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
                   {new Date(row.createdAt).toLocaleDateString("he-IL")} · חשבון {row.accountMasked}
                 </span>
               </div>
               {row.note !== undefined ? (
-                <p className="m-0 mt-1 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                <p className="m-0 mt-1 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                   הערת המשרד: {row.note}
                 </p>
               ) : null}
               {row.reference !== undefined ? (
-                <p className="m-0 mt-1 text-[12.5px]">
+                <p className="m-0 mt-1 text-[14px]">
                   אסמכתה: <code dir="ltr">{row.reference}</code>
                 </p>
               ) : null}
@@ -162,14 +162,14 @@ export function PayoutDeskSection(): React.JSX.Element {
                 <>
                   <button
                     type="button"
-                    className="mv-btn-plain mt-1 text-[12.5px]"
+                    className="mv-btn-plain mt-1 text-[14px]"
                     onClick={() => setOpenId(openId === row.id ? null : row.id)}
                   >
                     {openId === row.id ? "הסתר פרטי העברה" : "הצג פרטי העברה"}
                   </button>
                   {openId === row.id ? (
                     <dl
-                      className="mt-1 grid gap-x-3 text-[12.5px]"
+                      className="mt-1 grid gap-x-3 text-[14px]"
                       style={{ gridTemplateColumns: "auto 1fr" }}
                     >
                       <dt style={{ color: "var(--color-text-muted)" }}>בעל החשבון</dt>
@@ -184,7 +184,7 @@ export function PayoutDeskSection(): React.JSX.Element {
                   ) : null}
 
                   <div className="mt-2 flex flex-wrap items-end gap-2">
-                    <label className="grow text-[12px]">
+                    <label className="grow text-[13.5px]">
                       <span className="mb-0.5 block font-semibold">
                         {row.status === "approved" ? "אסמכתת ההעברה" : "הערה להחלטה"}
                       </span>
@@ -224,7 +224,7 @@ export function PayoutDeskSection(): React.JSX.Element {
                 </>
               ) : null}
               {row.decisionNote !== undefined ? (
-                <p className="m-0 mt-1 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                <p className="m-0 mt-1 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                   {row.decisionNote}
                 </p>
               ) : null}

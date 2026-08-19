@@ -70,13 +70,13 @@ export function DuplicateContacts() {
 
   return (
     <section className="mv-list-card mb-[18px] px-5 py-[17px]" aria-labelledby="dupes-heading">
-      <h2 id="dupes-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+      <h2 id="dupes-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
         כפילויות אפשריות
         {groups.length > 0 ? (
           <span className="mv-chip ms-2">{groups.length}</span>
         ) : null}
       </h2>
-      <p className="m-0 mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
         אותו שם מופיע ביותר מכרטיס אחד — בדרך כלל אותו אדם שנקלט פעמיים עם שני
         מספרים. מיזוג מעביר את כל ההיסטוריה לכרטיס אחד ושומר את שני המספרים.
       </p>
@@ -104,7 +104,7 @@ export function DuplicateContacts() {
               <button
                 type="button"
                 className="mv-btn-plain ms-auto"
-                style={{ padding: "4px 10px", fontSize: 12 }}
+                style={{ padding: "4px 10px", fontSize: 13.5 }}
                 disabled={busyId !== null}
                 onClick={() => void dismiss(group.key)}
               >
@@ -121,7 +121,7 @@ export function DuplicateContacts() {
                 <button
                   type="button"
                   className="mv-btn-action ms-auto"
-                  style={{ padding: "5px 12px", fontSize: 12.5 }}
+                  style={{ padding: "5px 12px", fontSize: 14 }}
                   disabled={busyId !== null}
                   onClick={() => void merge(group.survivor.contactId, dupe.contactId)}
                 >

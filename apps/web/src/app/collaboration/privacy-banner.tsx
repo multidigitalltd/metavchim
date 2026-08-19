@@ -66,12 +66,12 @@ export function PrivacyBanner() {
         <div className="min-w-0">
           <h2
             id="privacy-banner-heading"
-            className="m-0 text-[17px] font-extrabold leading-tight"
+            className="m-0 text-[18px] font-extrabold leading-tight"
           >
             פרטי הלקוחות חסויים — עד אישור הדדי
           </h2>
           <p
-            className="m-0 mt-1 text-[14px]"
+            className="m-0 mt-1 text-[15px]"
             style={{ color: "var(--color-text-soft)" }}
           >
             כל הקונים והנכסים כאן מוצגים <b>בלי שם, בלי טלפון ובלי אימייל</b>.

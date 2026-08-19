@@ -73,7 +73,7 @@ export function ConfirmDialog({
         if (!busy) onClose();
       }}
     >
-      <h2 className="m-0 mb-2 text-[19px] font-extrabold" style={{ color: TONE_COLOR[tone] }}>
+      <h2 className="m-0 mb-2 text-[20px] font-extrabold" style={{ color: TONE_COLOR[tone] }}>
         {title}
       </h2>
       <div className="mv-dialog-body">{children}</div>

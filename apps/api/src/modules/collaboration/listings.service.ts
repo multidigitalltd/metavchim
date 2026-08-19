@@ -17,6 +17,7 @@ import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
+import { StorageService } from "../../core/storage.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { assertNetworkQuota } from "./network-quota";
@@ -85,6 +86,14 @@ export interface SharedListingDto {
   features: string[];
   title?: string;
   notes?: string;
+  /**
+   * תמונות הנכס — כתובות חתומות קצרות-חיים.
+   *
+   * מתווך אינו מציע נכס ללקוח שלו על סמך טבלה, ובלי תמונה הפיד
+   * נקרא ולא מופעל. הכתובת המדויקת והבעלים ממשיכים לא להיחשף —
+   * התמונות מציגות את מה שכבר מותר, לא יותר.
+   */
+  photos: string[];
   commissionSplit: number;
   status: string;
   /** true אם הפרסום שלי — רק אז יש קישור לנכס. */
@@ -113,6 +122,7 @@ export class ListingsService {
     private readonly audit: AuditService,
     private readonly contacts: ContactsService,
     private readonly plans: PlanCatalogService,
+    private readonly storage: StorageService,
   ) {}
 
   /**
@@ -181,6 +191,22 @@ export class ListingsService {
         where: { id: propertyId, tenantId, deletedAt: null },
       });
       if (!property) throw new NotFoundException("נכס לא נמצא");
+
+      /*
+       * התמונות נשלפות כאן ולא ב-`snapshot`: הן חיות בטבלה נפרדת,
+       * וקריאה למסד בתוך פונקציה שאמורה להיות המרה טהורה הייתה
+       * מסתירה שאילתה במקום שאיש לא מחפש אותה.
+       *
+       * `image` בלבד — מסמכים ותוכניות אינם חלק ממה שהרשת רואה.
+       * חמש הראשונות לפי סדר התצוגה: מודעה אינה גלריה, וההגבלה
+       * שומרת גם על גודל התשובה בפיד.
+       */
+      const photos = await tx.propertyMedia.findMany({
+        where: { tenantId, propertyId, kind: "image" },
+        orderBy: { sortOrder: "asc" },
+        take: 5,
+        select: { s3Key: true },
+      });
       /*
        * נכס שנמכר או ירד משיווק אינו מתפרסם. בלי הבדיקה הזו הרשת
        * הייתה מציגה נכסים שאי אפשר לקנות, ומשרד שפונה עליהם לומד
@@ -215,6 +241,7 @@ export class ListingsService {
           originPropertyId: propertyId,
           commissionSplit,
           notes: note?.trim() || null,
+          photoKeys: photos.map((p) => p.s3Key),
           ...this.snapshot(property),
         },
       });
@@ -351,7 +378,7 @@ export class ListingsService {
         where: { tenantId, originPropertyId: propertyId, status: "active" },
       }),
     );
-    return row === null ? null : this.toDto(row, tenantId);
+    return row === null ? null : await this.toDto(row, tenantId);
   }
 
   private async getListing(id: string): Promise<SharedListingDto> {
@@ -360,15 +387,33 @@ export class ListingsService {
       tx.sharedListing.findFirst({ where: { id } }),
     );
     if (!row) throw new NotFoundException("פרסום לא נמצא");
-    return this.toDto(row, tenantId);
+    return await this.toDto(row, tenantId);
   }
 
-  private toDto(
+  /**
+   * `async` בגלל התמונות בלבד.
+   *
+   * הכתובות נחתמות בזמן הקריאה ולא נשמרות: כתובת חתומה בטבלה פגה
+   * אחרי שעה ומשאירה תמונה שבורה במודעה. החתימה היא קריאה
+   * מקומית לספרייה ולא פנייה לרשת, ולכן היא זולה גם בפיד שלם.
+   */
+  private async toDto(
     row: Prisma.SharedListingGetPayload<object>,
     viewerTenantId: string,
     officeName?: string,
-  ): SharedListingDto {
+  ): Promise<SharedListingDto> {
     const mine = row.tenantId === viewerTenantId;
+    /*
+     * תמונה שאין לה מפתח תקין אינה מפילה את המודעה כולה: היא
+     * פשוט אינה מוצגת. מודעה בלי תמונה שווה יותר משגיאת שרת.
+     */
+    const photos = (
+      await Promise.all(
+        row.photoKeys.map((key) =>
+          this.storage.signedGetUrl(key).catch(() => null),
+        ),
+      )
+    ).filter((url): url is string => url !== null);
     return {
       id: row.id,
       ...(row.city === null ? {} : { city: row.city }),
@@ -386,6 +431,7 @@ export class ListingsService {
       ...(row.entryType === null ? {} : { entryType: row.entryType }),
       ...(row.entryDate === null ? {} : { entryDate: row.entryDate }),
       features: row.features,
+      photos,
       ...(row.title === null ? {} : { title: row.title }),
       ...(row.notes === null ? {} : { notes: row.notes }),
       commissionSplit: row.commissionSplit,
@@ -578,16 +624,23 @@ export class ListingsService {
       visible.map((row) => row.tenantId),
     );
 
-    return visible.map((row) => {
-      const dto = this.toDto(row, tenantId, offices.get(row.tenantId));
-      if (dto.mine) return dto;
-      const matches = this.matchOwnBuyers(buyers, names, row);
-      return {
-        ...dto,
-        ...(matches.length > 0 ? { myMatches: matches } : {}),
-        interestSent: alreadySent.has(row.id),
-      };
-    });
+    /*
+     * `Promise.all` ולא לולאה סדרתית: חתימת התמונות היא החישוב
+     * היחיד שנוסף כאן, והיא מקומית — המתנה לכל מודעה בתורה הייתה
+     * מוסיפה השהיה לפיד בלי שום סיבה.
+     */
+    return await Promise.all(
+      visible.map(async (row) => {
+        const dto = await this.toDto(row, tenantId, offices.get(row.tenantId));
+        if (dto.mine) return dto;
+        const matches = this.matchOwnBuyers(buyers, names, row);
+        return {
+          ...dto,
+          ...(matches.length > 0 ? { myMatches: matches } : {}),
+          interestSent: alreadySent.has(row.id),
+        };
+      }),
+    );
   }
 
   /** שלוש ההתאמות הטובות ביותר מבין הקונים שלי, מעל סף שווה-הצגה. */

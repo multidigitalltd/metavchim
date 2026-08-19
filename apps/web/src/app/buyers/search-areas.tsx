@@ -86,7 +86,7 @@ export function SearchAreas({
   return (
     <div>
       <p
-        className="m-0 mb-2 text-[12.5px]"
+        className="m-0 mb-2 text-[14px]"
         style={{ color: "var(--color-text-muted)" }}
       >
         סימון על המפה גובר על רשימת הערים: נכס בתוך הרדיוס יתאים גם אם הוא בעיר
@@ -99,7 +99,7 @@ export function SearchAreas({
           {value.map((area, i) => (
             <li
               key={`${area.lat},${area.lon},${i}`}
-              className="flex flex-wrap items-center gap-2 border-b py-1.5 text-[13px]"
+              className="flex flex-wrap items-center gap-2 border-b py-1.5 text-[14.5px]"
               style={{ borderColor: "var(--color-border)" }}
             >
               <b>{area.label ?? `אזור ${i + 1}`}</b>
@@ -124,7 +124,7 @@ export function SearchAreas({
       {full ? (
         /* הגבלה אמיתית, ולכן היא נאמרת במקום שבו היה השדה */
         <p
-          className="m-0 text-[12.5px]"
+          className="m-0 text-[14px]"
           style={{ color: "var(--color-text-muted)" }}
         >
           הגעתם ל-{MAX_SEARCH_AREAS} אזורי חיפוש — אפשר להסיר אזור כדי להוסיף
@@ -144,7 +144,7 @@ export function SearchAreas({
             disabled={disabled}
           />
           <div className="mt-2 flex flex-wrap items-end gap-2">
-            <label className="text-[12px]">
+            <label className="text-[13.5px]">
               <span className="mb-0.5 block font-semibold">רדיוס (ק״מ)</span>
               <input
                 type="number"
@@ -160,7 +160,7 @@ export function SearchAreas({
                 }}
               />
             </label>
-            <label className="grow text-[12px]">
+            <label className="grow text-[13.5px]">
               <span className="mb-0.5 block font-semibold">
                 שם האזור (לא חובה)
               </span>
@@ -195,7 +195,7 @@ export function SearchAreas({
           {error !== null ? (
             <p
               role="alert"
-              className="m-0 mt-2 text-[12.5px]"
+              className="m-0 mt-2 text-[14px]"
               style={{ color: "var(--color-danger)" }}
             >
               {error}

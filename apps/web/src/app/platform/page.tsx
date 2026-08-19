@@ -91,7 +91,7 @@ function ModuleBlocks({
 
   return (
     <div>
-      <p className="m-0 mb-2 text-[13px]">
+      <p className="m-0 mb-2 text-[14.5px]">
         <b>חסימת מודולים ל{agency.name}</b>{" "}
         <span style={{ color: "var(--color-text-muted)" }}>
           — מודול מסומן נחסם לכל משתמשי המשרד, כולל הבעלים, ומנהל המשרד אינו יכול
@@ -101,7 +101,7 @@ function ModuleBlocks({
       <ul className="m-0 grid list-none gap-1.5 p-0 md:grid-cols-3">
         {CAPABILITY_MODULES.map((module) => (
           <li key={module.key}>
-            <label className="flex items-start gap-2 text-[12.5px]">
+            <label className="flex items-start gap-2 text-[14px]">
               <input
                 type="checkbox"
                 checked={blocked.includes(module.key)}
@@ -200,7 +200,7 @@ function TenantOverrides({
 
   return (
     <div>
-      <p className="m-0 mb-2 text-[13px]">
+      <p className="m-0 mb-2 text-[14.5px]">
         <b>חריגים ל{agency.name}</b>{" "}
         <span style={{ color: "var(--color-text-muted)" }}>
           — מה שמוגדר כאן גובר על המסלול. „סגור” גובר על „פתוח” תמיד, כדי
@@ -213,7 +213,7 @@ function TenantOverrides({
           const inPlan = planFeatures.includes(feature.code);
           const state = stateOf(feature.code);
           return (
-            <li key={feature.code} className="text-[12.5px]">
+            <li key={feature.code} className="text-[14px]">
               <b>{feature.label}</b>{" "}
               <span style={{ color: "var(--color-text-muted)" }}>
                 ({inPlan ? "במסלול" : "לא במסלול"})
@@ -231,7 +231,7 @@ function TenantOverrides({
                     type="button"
                     aria-pressed={state === value}
                     onClick={() => setState(feature.code, value)}
-                    className="rounded-lg border px-2 py-0.5 text-[12px]"
+                    className="rounded-lg border px-2 py-0.5 text-[13.5px]"
                     style={
                       state === value
                         ? {
@@ -256,7 +256,7 @@ function TenantOverrides({
 
       <hr className="my-3" style={{ borderColor: "var(--color-border)" }} />
 
-      <p className="m-0 mb-2 text-[13px]">
+      <p className="m-0 mb-2 text-[14.5px]">
         <b>חלון החינם והמחיר</b>{" "}
         <span style={{ color: "var(--color-text-muted)" }}>
           — שדה ריק מבטל את החריגה ומחזיר להתנהגות הרגילה. „חינם למשרד הזה”
@@ -264,7 +264,7 @@ function TenantOverrides({
         </span>
       </p>
       <div className="mb-2 flex flex-wrap gap-3">
-        <label className="text-[12.5px]">
+        <label className="text-[14px]">
           <span className="mb-1 block font-medium">סוף תקופת הניסיון</span>
           <input
             type="date"
@@ -274,7 +274,7 @@ function TenantOverrides({
             style={inputStyle}
           />
         </label>
-        <label className="text-[12.5px]">
+        <label className="text-[14px]">
           <span className="mb-1 block font-medium">שולם עד</span>
           <input
             type="date"
@@ -284,7 +284,7 @@ function TenantOverrides({
             style={inputStyle}
           />
         </label>
-        <label className="text-[12.5px]">
+        <label className="text-[14px]">
           <span className="mb-1 block font-medium">מחיר חודשי מוסכם (₪)</span>
           <input
             type="number"
@@ -295,7 +295,7 @@ function TenantOverrides({
             style={inputStyle}
           />
         </label>
-        <label className="text-[12.5px]">
+        <label className="text-[14px]">
           <span className="mb-1 block font-medium">מחיר שנתי מוסכם (₪)</span>
           <input
             type="number"

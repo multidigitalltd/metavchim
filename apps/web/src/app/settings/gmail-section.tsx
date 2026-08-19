@@ -125,11 +125,11 @@ export function GmailSection(): React.JSX.Element | null {
             ישן אינו נושא אותה — שליחה דרכו תיכשל. הכיתוב חוסך את
             הניסיון והכישלון.
           */}
-          <p className="m-0 mb-2 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 mb-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
             כדי לשלוח מיילים ללקוחות מתוך הכרטיס נדרשת גם הרשאת שליחה. אם חיברתם את
             התיבה לפני העדכון — נתקו וחברו מחדש, ואשרו את ההרשאה החדשה.
           </p>
-          <p className="m-0 mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
             {status.lastSyncAt
               ? `משיכה אחרונה: ${formatDateTime(status.lastSyncAt)} · נבדק אוטומטית כל רבע שעה`
               : "טרם נמשכו הודעות — המשיכה הראשונה תרוץ בדקות הקרובות"}
@@ -144,11 +144,11 @@ export function GmailSection(): React.JSX.Element | null {
           */}
           {status.skippedCount ? (
             <details className="mb-3">
-              <summary className="cursor-pointer text-[12.5px]" style={{ color: "var(--color-primary)" }}>
+              <summary className="cursor-pointer text-[14px]" style={{ color: "var(--color-primary)" }}>
                 למה אימיילים מדולגים?
               </summary>
               <div
-                className="mt-2 rounded-lg border p-3 text-[12.5px]"
+                className="mt-2 rounded-lg border p-3 text-[14px]"
                 style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
               >
                 <p className="m-0 mb-2">אימייל נקלט בשתי דרכים:</p>

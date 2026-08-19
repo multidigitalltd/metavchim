@@ -347,7 +347,7 @@ export default function PropertiesPage() {
                       style={{ gridTemplateColumns: GRID }}
                       onClick={() => router.push(`/properties/${p.id}`)}
                     >
-                      <span className="flex items-center gap-2 truncate text-[14.5px] font-bold">
+                      <span className="flex items-center gap-2 truncate text-[15.5px] font-bold">
                         {addressOf(p)}
                         {isNew(p) ? (
                           <span className="mv-tag" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}>
@@ -355,10 +355,10 @@ export default function PropertiesPage() {
                           </span>
                         ) : null}
                       </span>
-                      <span className="truncate text-[13.5px]" style={{ color: "var(--color-text-soft)" }}>
+                      <span className="truncate text-[15px]" style={{ color: "var(--color-text-soft)" }}>
                         {p.city ?? "—"}
                       </span>
-                      <span className="text-[13.5px]" style={{ color: "var(--color-text-soft)" }}>
+                      <span className="text-[15px]" style={{ color: "var(--color-text-soft)" }}>
                         {p.rooms ?? "—"}
                       </span>
                       <span className="text-sm font-bold">{formatPrice(p.priceAgorot)}</span>
@@ -373,10 +373,10 @@ export default function PropertiesPage() {
                           <span className="mv-visually-hidden">חסרים {p.missingFields.length} פרטים</span>
                         ) : null}
                       </span>
-                      <span className="text-[13px]" style={{ color: "var(--color-text-soft)" }}>
+                      <span className="text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
                         {STATUS_LABELS[p.status] ?? p.status}
                       </span>
-                      <span className="text-[13px] font-extrabold" style={{ color: "var(--color-primary)" }}>
+                      <span className="text-[14.5px] font-extrabold" style={{ color: "var(--color-primary)" }}>
                         {p.suggestedMatchCount || "—"}
                       </span>
                     </button>

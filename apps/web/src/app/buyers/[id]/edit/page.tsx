@@ -12,6 +12,7 @@ import { FINANCING_LABELS, shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { EntryTimingField } from "../../../properties/entry-timing-field";
 import { FeatureRequirements } from "../../feature-requirements";
+import { PropertyTypesField, readPropertyTypes } from "../../property-types-field";
 import { SearchAreas } from "../../search-areas";
 import type { SearchArea } from "@metavchim/shared";
 
@@ -24,8 +25,8 @@ import type { SearchArea } from "@metavchim/shared";
  * ממוספרים עם הסבר ופעם אחת ב-`fieldset` עם מסגרת דקה. מי שממלא
  * את שניהם באותו יום לומד שתי שפות לאותו תוכן.
  *
- * שדות שאינם בטופס (שכונות, סוגי נכס) נשמרים כמו שהם — נשלח
- * אובייקט מלא עם הערכים הקיימים.
+ * שדות שאינם בטופס (שכונות) נשמרים כמו שהם — נשלח אובייקט מלא עם
+ * הערכים הקיימים.
  */
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
@@ -128,6 +129,7 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
             .map((c) => c.trim())
             .filter(Boolean),
           dealType: String(f.get("dealType")),
+          propertyTypes: readPropertyTypes(f.get("propertyTypes")),
           budgetMinAgorot:
             budgetMinShekels === undefined ? undefined : shekelsToAgorot(budgetMinShekels),
           /*
@@ -235,6 +237,11 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
                 <option value="rent">שכירות</option>
               </select>
             </div>
+            {/*
+              צמוד לסוג העסקה: „מה הוא קונה” ו„איזה נכס” הן שתי
+              השאלות שנשאלות ברצף, ומנוע ההתאמות פוסל לפי שתיהן.
+            */}
+            <PropertyTypesField initial={req.propertyTypes} disabled={submitting} />
             <div className="grid grid-cols-2 gap-3">
               <PriceField
                 id="budgetMin"

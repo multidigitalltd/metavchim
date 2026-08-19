@@ -414,7 +414,7 @@ export default function PropertyDetailPage({
     <>
       <Link
         href="/properties"
-        className="mb-3.5 inline-block text-[13.5px] font-bold no-underline hover:underline"
+        className="mb-3.5 inline-block text-[15px] font-bold no-underline hover:underline"
         style={{ color: "var(--color-primary)" }}
       >
         → חזרה לרשימת הנכסים
@@ -473,14 +473,14 @@ export default function PropertyDetailPage({
               <Link
                 href={`/properties/${id}/edit`}
                 className="mv-btn-plain"
-                style={{ padding: "7px 13px", fontSize: 13 }}
+                style={{ padding: "7px 13px", fontSize: 14.5 }}
               >
                 עריכה
               </Link>
               <Link
                 href={`/calendar/new?propertyId=${id}`}
                 className="mv-btn-plain"
-                style={{ padding: "7px 13px", fontSize: 13 }}
+                style={{ padding: "7px 13px", fontSize: 14.5 }}
               >
                 קבע סיור
               </Link>
@@ -496,7 +496,7 @@ export default function PropertyDetailPage({
                 className="mv-btn-plain"
                 style={{
                   padding: "7px 13px",
-                  fontSize: 13,
+                  fontSize: 14.5,
                   color:
                     archiveConfirm || purgeConfirm
                       ? "var(--color-danger)"
@@ -516,7 +516,7 @@ export default function PropertyDetailPage({
                 <button
                   type="button"
                   className="mv-btn-plain"
-                  style={{ padding: "7px 13px", fontSize: 13 }}
+                  style={{ padding: "7px 13px", fontSize: 14.5 }}
                   onClick={() => {
                     setArchiveConfirm(false);
                     setPurgeConfirm(false);
@@ -529,7 +529,7 @@ export default function PropertyDetailPage({
                 <button
                   type="button"
                   className="mv-btn-soft"
-                  style={{ padding: "7px 13px", fontSize: 13 }}
+                  style={{ padding: "7px 13px", fontSize: 14.5 }}
                   disabled={landingBusy}
                   onClick={() => void createLanding()}
                 >
@@ -545,7 +545,7 @@ export default function PropertyDetailPage({
               <button
                 type="button"
                 className="mv-btn-action"
-                style={{ padding: "7px 15px", fontSize: 13 }}
+                style={{ padding: "7px 15px", fontSize: 14.5 }}
                 onClick={() => {
                   selectTab("matches");
                   requestAnimationFrame(() => {
@@ -627,7 +627,7 @@ export default function PropertyDetailPage({
               <h2
                 id="details-heading"
                 className="m-0 mb-3.5"
-                style={{ fontSize: 15.5, fontWeight: 800 }}
+                style={{ fontSize: 16.5, fontWeight: 800 }}
               >
                 פרטי הנכס
               </h2>
@@ -645,7 +645,7 @@ export default function PropertyDetailPage({
                     >
                       {label}
                     </dt>
-                    <dd className="m-0 mt-0.5 text-[14.5px] font-bold">
+                    <dd className="m-0 mt-0.5 text-[15.5px] font-bold">
                       {value}
                     </dd>
                   </div>
@@ -659,7 +659,7 @@ export default function PropertyDetailPage({
               כדי למקם נכס פשוט לא ימקם אותו.
             */}
             <section className="mv-list-card mb-[18px] p-5">
-              <h2 className="m-0 mb-2 text-[15px] font-bold">מיקום על המפה</h2>
+              <h2 className="m-0 mb-2 text-[16px] font-bold">מיקום על המפה</h2>
               <LocationPicker
                 value={{
                   latitude: property.latitude,
@@ -703,7 +703,7 @@ export default function PropertyDetailPage({
                 <h2
                   id="readiness-heading"
                   className="m-0"
-                  style={{ fontSize: 15.5, fontWeight: 800 }}
+                  style={{ fontSize: 16.5, fontWeight: 800 }}
                 >
                   מוכנות לשיווק
                 </h2>
@@ -733,7 +733,7 @@ export default function PropertyDetailPage({
               </div>
               {property.missingFields.length === 0 ? (
                 <p
-                  className="m-0 text-[13px] font-bold"
+                  className="m-0 text-[14.5px] font-bold"
                   style={{ color: "var(--color-primary)" }}
                 >
                   ✓ הנכס מוכן לשיווק
@@ -742,7 +742,7 @@ export default function PropertyDetailPage({
                 property.missingFields.map((field) => (
                   <div
                     key={field}
-                    className="flex items-center gap-2 py-[5px] text-[13px]"
+                    className="flex items-center gap-2 py-[5px] text-[14.5px]"
                     style={{ color: "var(--color-text-muted)" }}
                   >
                     <span
@@ -771,7 +771,7 @@ export default function PropertyDetailPage({
               <h2
                 id="media-heading"
                 className="m-0 mb-3"
-                style={{ fontSize: 15.5, fontWeight: 800 }}
+                style={{ fontSize: 16.5, fontWeight: 800 }}
               >
                 תמונות
               </h2>
@@ -856,12 +856,12 @@ export default function PropertyDetailPage({
               <h2
                 id="matches-heading"
                 className="m-0"
-                style={{ fontSize: 15.5, fontWeight: 800 }}
+                style={{ fontSize: 16.5, fontWeight: 800 }}
               >
                 קונים מתאימים מהמאגר
               </h2>
               <span
-                className="text-[12.5px]"
+                className="text-[14px]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 כל התאמה מוסברת — בלי קופסה שחורה
@@ -877,7 +877,7 @@ export default function PropertyDetailPage({
                   style={
                     bulkConfirm
                       ? { color: "var(--color-danger)" }
-                      : { padding: "7px 15px", fontSize: 13 }
+                      : { padding: "7px 15px", fontSize: 14.5 }
                   }
                   onClick={() => void bulkSend()}
                 >
@@ -930,12 +930,12 @@ export default function PropertyDetailPage({
                       }}
                       aria-hidden="true"
                     >
-                      <span style={{ width: 35, height: 35, fontSize: 12 }}>
+                      <span style={{ width: 35, height: 35, fontSize: 13.5 }}>
                         {m.score}%
                       </span>
                     </span>
                     <div className="min-w-0 flex-1" style={{ lineHeight: 1.4 }}>
-                      <div className="text-[14.5px] font-bold">
+                      <div className="text-[15.5px] font-bold">
                         {m.buyerName ? (
                           <Link
                             href={`/buyers/${m.buyerId}`}
@@ -956,7 +956,7 @@ export default function PropertyDetailPage({
                               color: tag.fg,
                               background: tag.bg,
                               fontWeight: 600,
-                              fontSize: 12.5,
+                              fontSize: 14,
                               padding: "1px 8px",
                             }}
                           >
@@ -966,13 +966,13 @@ export default function PropertyDetailPage({
                         ) : null}
                       </div>
                       <div
-                        className="text-[13px]"
+                        className="text-[14.5px]"
                         style={{ color: "var(--color-text-muted)" }}
                       >
                         {m.explanation}
                       </div>
                       {awaitingSignature[m.id] ? (
-                        <div className="mt-1.5 text-[13px]">
+                        <div className="mt-1.5 text-[14.5px]">
                           <span style={{ color: "var(--color-danger)" }}>
                             ממתין לחתימה על הזמנה בכתב
                           </span>
@@ -988,7 +988,7 @@ export default function PropertyDetailPage({
                         </div>
                       ) : null}
                       {offer ? (
-                        <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-[13px]">
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-[14.5px]">
                           <span
                             className="font-bold"
                             style={{
@@ -1027,7 +1027,7 @@ export default function PropertyDetailPage({
                         <button
                           type="button"
                           className="mv-btn-action"
-                          style={{ padding: "7px 15px", fontSize: 13 }}
+                          style={{ padding: "7px 15px", fontSize: 14.5 }}
                           onClick={() => void sendWhatsApp(offer.id)}
                         >
                           שלח בוואטסאפ
@@ -1036,7 +1036,7 @@ export default function PropertyDetailPage({
                         <button
                           type="button"
                           className="mv-btn-action"
-                          style={{ padding: "7px 15px", fontSize: 13 }}
+                          style={{ padding: "7px 15px", fontSize: 14.5 }}
                           onClick={() => void createOffer(m.id)}
                         >
                           שלח הצעה
@@ -1048,7 +1048,7 @@ export default function PropertyDetailPage({
               })
             )}
             <p
-              className="m-0 mt-3 rounded-[9px] px-[13px] py-[9px] text-[12.5px]"
+              className="m-0 mt-3 rounded-[9px] px-[13px] py-[9px] text-[14px]"
               style={{
                 color: "var(--color-text-muted)",
                 background: "var(--color-table-head)",

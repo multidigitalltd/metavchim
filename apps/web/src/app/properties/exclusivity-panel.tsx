@@ -125,7 +125,7 @@ export function ExclusivityPanel({
   return (
     <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="exclusivity-heading">
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h2 id="exclusivity-heading" className="m-0" style={{ fontSize: 15.5, fontWeight: 800 }}>
+        <h2 id="exclusivity-heading" className="m-0" style={{ fontSize: 16.5, fontWeight: 800 }}>
           בלעדיות
         </h2>
         {data ? (
@@ -148,7 +148,7 @@ export function ExclusivityPanel({
       </div>
 
       {error !== null ? (
-        <p role="alert" className="m-0 text-[13px]" style={{ color: "var(--color-danger)" }}>
+        <p role="alert" className="m-0 text-[14.5px]" style={{ color: "var(--color-danger)" }}>
           {error}
         </p>
       ) : null}
@@ -230,11 +230,11 @@ function ActiveExclusivity({
   const done = MIN_MARKETING_ACTIONS - data.missing;
   return (
     <>
-      <p className="m-0 mb-2 text-[13.5px]" style={{ color: PHASE_TONE[data.phase] }}>
+      <p className="m-0 mb-2 text-[15px]" style={{ color: PHASE_TONE[data.phase] }}>
         {data.summary}
       </p>
 
-      <dl className="m-0 grid gap-x-4 gap-y-1 text-[13px]" style={{ gridTemplateColumns: "auto 1fr" }}>
+      <dl className="m-0 grid gap-x-4 gap-y-1 text-[14.5px]" style={{ gridTemplateColumns: "auto 1fr" }}>
         <dt style={{ color: "var(--color-text-muted)" }}>תקופה בהסכם</dt>
         {/*
           "מ-X עד Y" ולא "X – Y": מקף בין שני תאריכים בתוך פסקה
@@ -259,7 +259,7 @@ function ActiveExclusivity({
         עכשיו, בעוד "1 מתוך 2" משאיר אותו לנחש.
       */}
       <div className="mt-2">
-        <p className="m-0 mb-1 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+        <p className="m-0 mb-1 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
           פעולות שיווק שנספרו — {done} מתוך {MIN_MARKETING_ACTIONS} הנדרשות בתקנות
         </p>
         <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
@@ -286,14 +286,14 @@ function ActiveExclusivity({
 
       {data.actions.length > 0 ? (
         <details className="mt-2">
-          <summary className="cursor-pointer text-[13px]">
+          <summary className="cursor-pointer text-[14.5px]">
             כל הפעולות שתועדו ({data.actions.length})
           </summary>
           <ul className="m-0 mt-1 list-none p-0">
             {data.actions.map((action) => (
               <li
                 key={action.id}
-                className="flex flex-wrap items-center gap-2 border-b py-1 text-[12.5px]"
+                className="flex flex-wrap items-center gap-2 border-b py-1 text-[14px]"
                 style={{ borderColor: "var(--color-border)" }}
               >
                 <span>{MARKETING_ACTION_LABEL[action.kind]}</span>
@@ -360,7 +360,7 @@ function NoExclusivity({
   if (!opening) {
     return (
       <div>
-        <p className="m-0 mb-2 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+        <p className="m-0 mb-2 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
           אין בלעדיות פעילה על הנכס. מעקב אחר התקופה כולל את מועד השליש — המועד
           שבו הבלעדיות מסתיימת אם לא תועדו {MIN_MARKETING_ACTIONS} פעולות שיווק.
         </p>
@@ -400,7 +400,7 @@ function NoExclusivity({
       style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
     >
       <div className="flex flex-wrap items-end gap-2">
-        <label className="text-[12px]">
+        <label className="text-[13.5px]">
           <span className="mb-0.5 block font-semibold">סוג הנכס לעניין החוק</span>
           <SelectMenu
             value={subject}
@@ -414,7 +414,7 @@ function NoExclusivity({
             }}
           />
         </label>
-        <label className="text-[12px]">
+        <label className="text-[13.5px]">
           <span className="mb-0.5 block font-semibold">תחילת התקופה</span>
           <input
             type="date"
@@ -424,7 +424,7 @@ function NoExclusivity({
             style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
           />
         </label>
-        <label className="text-[12px]">
+        <label className="text-[13.5px]">
           <span className="mb-0.5 block font-semibold">סיום התקופה</span>
           <input
             type="date"
@@ -437,7 +437,7 @@ function NoExclusivity({
         </label>
       </div>
 
-      <label className="mt-2 flex items-center gap-2 text-[12.5px]">
+      <label className="mt-2 flex items-center gap-2 text-[14px]">
         <input
           type="checkbox"
           checked={agreedCustomAction}
@@ -446,13 +446,13 @@ function NoExclusivity({
         סוכמה עם הלקוח פעולת שיווק מותאמת (פריט 7 בתקנות)
       </label>
 
-      <p className="m-0 mt-2 text-[12px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mt-2 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
         התקרה בחוק: {MAX_EXCLUSIVITY_MONTHS[subject]} חודשים מיום ההזמנה (סעיף 9(ב)).
         התראה על פעולות חסרות נשלחת {EXCLUSIVITY_THIRD_WARNING_DAYS} ימים לפני מועד השליש.
       </p>
 
       {problem !== null ? (
-        <p role="alert" className="m-0 mt-2 text-[12.5px]" style={{ color: "var(--color-danger)" }}>
+        <p role="alert" className="m-0 mt-2 text-[14px]" style={{ color: "var(--color-danger)" }}>
           {problem}
         </p>
       ) : null}
@@ -508,7 +508,7 @@ function LogAction({
       style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
     >
       <div className="flex flex-wrap items-end gap-2">
-        <label className="grow text-[12px]">
+        <label className="grow text-[13.5px]">
           <span className="mb-0.5 block font-semibold">סוג הפעולה</span>
           <SelectMenu
             value={kind}
@@ -520,7 +520,7 @@ function LogAction({
             onChange={(v) => setKind(v as MarketingActionKind)}
           />
         </label>
-        <label className="text-[12px]">
+        <label className="text-[13.5px]">
           <span className="mb-0.5 block font-semibold">מתי בוצעה</span>
           <input
             type="date"
@@ -532,7 +532,7 @@ function LogAction({
           />
         </label>
         {kind === "broker_network" ? (
-          <label className="text-[12px]">
+          <label className="text-[13.5px]">
             <span className="mb-0.5 block font-semibold">כמה מתווכים</span>
             <input
               type="number"
@@ -547,7 +547,7 @@ function LogAction({
         ) : null}
       </div>
 
-      <label className="mt-2 block text-[12px]">
+      <label className="mt-2 block text-[13.5px]">
         <span className="mb-0.5 block font-semibold">פירוט (לא חובה)</span>
         <input
           value={detail}
@@ -560,13 +560,13 @@ function LogAction({
       </label>
 
       {kind === "broker_network" ? (
-        <p className="m-0 mt-1 text-[12px]" style={{ color: "var(--color-text-muted)" }}>
+        <p className="m-0 mt-1 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
           נספר כפעולה מ-{MIN_BROKERS_FOR_NETWORK_ACTION} מתווכים ומעלה, במצטבר לאורך התקופה.
         </p>
       ) : null}
 
       {problem !== null ? (
-        <p role="alert" className="m-0 mt-2 text-[12.5px]" style={{ color: "var(--color-danger)" }}>
+        <p role="alert" className="m-0 mt-2 text-[14px]" style={{ color: "var(--color-danger)" }}>
           {problem}
         </p>
       ) : null}
@@ -611,10 +611,10 @@ function OwnerReport({
       className="mt-2 rounded-lg border p-3"
       style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
     >
-      <p className="m-0 mb-1 text-[12px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mb-1 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
         זה מה שבעל הנכס מקבל — פעולות ותאריכים בלבד, בלי מצב הבלעדיות הפנימי.
       </p>
-      <pre className="m-0 whitespace-pre-wrap text-[12.5px]" style={{ fontFamily: "inherit" }}>
+      <pre className="m-0 whitespace-pre-wrap text-[14px]" style={{ fontFamily: "inherit" }}>
         {text}
       </pre>
       <div className="mt-2 flex gap-2">

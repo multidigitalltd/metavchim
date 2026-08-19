@@ -172,13 +172,13 @@ export default function ProfilePage() {
         <span
           aria-hidden="true"
           className="grid flex-none place-items-center rounded-full"
-          style={{ width: 52, height: 52, background: "var(--color-primary-soft)", color: "var(--color-primary)", fontWeight: 800, fontSize: 19 }}
+          style={{ width: 52, height: 52, background: "var(--color-primary-soft)", color: "var(--color-primary)", fontWeight: 800, fontSize: 20 }}
         >
           {user.name.trim().slice(0, 1)}
         </span>
         <div className="min-w-0">
           <h1 className="m-0" style={{ fontSize: 22, fontWeight: 800 }}>{user.name}</h1>
-          <p className="m-0 mt-1 text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 mt-1 text-[15px]" style={{ color: "var(--color-text-muted)" }}>
             <span dir="ltr">{user.email}</span> · {roleLabel(user.role)}
             {user.tenantName ? ` · ${user.tenantName}` : ""}
           </p>
@@ -192,10 +192,10 @@ export default function ProfilePage() {
         <div className="flex flex-col gap-[18px]">
           {/* ---- הפרטים שלי ---- */}
           <section className="mv-list-card px-5 py-[17px]" aria-labelledby="details-heading">
-            <h2 id="details-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+            <h2 id="details-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
               הפרטים שלי
             </h2>
-            <p className="m-0 mb-3 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+            <p className="m-0 mb-3 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
               הטלפון ישמש להתראות בוואטסאפ כשהחיבור יופעל במשרד.
             </p>
 
@@ -248,10 +248,10 @@ export default function ProfilePage() {
 
           {/* ---- תצוגה ---- */}
           <section className="mv-list-card px-5 py-[17px]" aria-labelledby="display-heading">
-            <h2 id="display-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+            <h2 id="display-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
               תצוגה
             </h2>
-            <p className="m-0 mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+            <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
               ההגדרות נשמרות במכשיר הזה בלבד.
             </p>
             <ThemeToggle />
@@ -261,7 +261,7 @@ export default function ProfilePage() {
 
           {/* ---- סיסמה ---- */}
           <section className="mv-list-card px-5 py-[17px]" aria-labelledby="password-heading">
-            <h2 id="password-heading" className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>
+            <h2 id="password-heading" className="m-0 mb-3" style={{ fontSize: 16.5, fontWeight: 800 }}>
               החלפת סיסמה
             </h2>
             <form method="post" onSubmit={(e) => void changePassword(e)} className="flex max-w-sm flex-col gap-3">
@@ -298,10 +298,10 @@ export default function ProfilePage() {
 
         {/* ---- חיבורים פתוחים ---- */}
         <section className="mv-list-card px-5 py-[17px]" aria-labelledby="sessions-heading">
-          <h2 id="sessions-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+          <h2 id="sessions-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
             חיבורים פתוחים
           </h2>
-          <p className="m-0 mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
             כל מכשיר שמחובר לחשבון שלך עכשיו. חיבור שאינך מזהה — נתק אותו
             והחלף סיסמה.
           </p>
@@ -310,10 +310,10 @@ export default function ProfilePage() {
 
         {/* ---- נגישות ---- */}
         <section className="mv-list-card px-5 py-[17px]" aria-labelledby="a11y-heading">
-          <h2 id="a11y-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+          <h2 id="a11y-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
             נגישות
           </h2>
-          <p className="m-0 mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
             ההתאמות חלות מיד ונשמרות למכשיר הזה.
           </p>
 
@@ -421,10 +421,10 @@ function PushSection() {
 
   return (
     <section className="mv-list-card px-5 py-[17px]" aria-labelledby="push-heading">
-      <h2 id="push-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+      <h2 id="push-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
         התראות בדפדפן
       </h2>
-      <p className="m-0 mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
         ליד חדש, הצעה שנפתחה או תזכורת לפגישה — קופצים על המסך גם כשהמערכת
         סגורה. ההגדרה היא לדפדפן הזה בלבד; במכשיר אחר צריך להפעיל שוב.
       </p>

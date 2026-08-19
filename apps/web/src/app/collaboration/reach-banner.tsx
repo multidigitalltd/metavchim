@@ -57,12 +57,12 @@ export function ReachBanner() {
         <div className="min-w-0">
           <h2
             id="reach-heading"
-            className="m-0 text-[15.5px] font-extrabold leading-tight"
+            className="m-0 text-[16.5px] font-extrabold leading-tight"
           >
             {headline}
           </h2>
           <p
-            className="m-0 mt-0.5 text-[13px]"
+            className="m-0 mt-0.5 text-[14.5px]"
             style={{ color: "var(--color-text-soft)" }}
           >
             מי שאינו מפורסם אינו מוצג למשרדים האחרים — הם לא יכולים לפנות אליכם

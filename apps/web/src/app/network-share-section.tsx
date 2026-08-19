@@ -42,12 +42,12 @@ const COPY = {
     sent: "הקונה נשלח לרשת המתווכים",
     sentBody:
       "הביקוש פורסם כאנונימי — בלי שם, בלי טלפון ועם תקציב מעוגל. משרדים שיש להם נכס מתאים יוכלו לפנות אליכם",
-    noteLabel: "מה הקונה מחפש (לא חובה)",
+    noteLabel: "מה הקונה מחפש *",
     notePlaceholder:
       'לדוגמה: "מחפשים דירה משופצת לכניסה מהירה, גמישים על קומה אם יש מעלית"',
     stop: "להפסיק את שיתוף הקונה ברשת? הביקוש לא יוצג יותר למשרדים אחרים.",
     formHint:
-      "שני פרטים ואפשר לשלוח. השכונות המבוקשות מהדרישות יצורפו לביקוש אוטומטית.",
+      "השכונות ואזורי החיפוש מהדרישות יצורפו לביקוש אוטומטית. התיאור חובה — הוא מה שגורם למשרד אחר לעצור על המודעה.",
   },
   property: {
     title: "פרסום הנכס לרשת המתווכים",
@@ -60,14 +60,22 @@ const COPY = {
     sent: "הנכס פורסם ברשת המתווכים",
     sentBody:
       "הפרסום כולל אזור, סוג, חדרים, שטח, קומה, מצב ומחיר — בלי רחוב, בלי מספר בית ובלי בעלים. משרדים שיש להם קונה מתאים יוכלו לפנות אליכם",
-    noteLabel: "מה מיוחד בנכס (לא חובה)",
+    noteLabel: "מה מיוחד בנכס *",
     notePlaceholder:
       'לדוגמה: "משופץ מהיסוד, מרפסת דרומית, חניה בטאבו, פינוי גמיש"',
     stop: "להפסיק את פרסום הנכס ברשת? הוא לא יוצג יותר למשרדים אחרים.",
     formHint:
-      "שני פרטים ואפשר לפרסם. שאר הפרטים נלקחים מכרטיס הנכס אוטומטית ומתעדכנים איתו.",
+      "שאר הפרטים והתמונות נלקחים מכרטיס הנכס אוטומטית. התיאור חובה — הוא מה שגורם למשרד אחר לעצור על המודעה.",
   },
 } as const;
+
+/**
+ * אורך התיאור המזערי — זהה לשרת (`NetworkNoteSchema`).
+ *
+ * המספר חוזר כאן ולא מיובא כי הוא חוצה גבול רשת: המסך רק חוסך
+ * לסוכן נסיעה מיותרת, והאכיפה נשארת בשרת בכל מקרה.
+ */
+const MIN_NOTE = 10;
 
 /** שלב בזרימה. `loading` קיים כי מצב השיתוף נקרא מהשרת. */
 type Stage = "loading" | "invite" | "form" | "sent";
@@ -136,7 +144,11 @@ export function NetworkShareSection({
     try {
       const payload = {
         commissionSplit: split,
-        ...(note.trim() ? { note: note.trim() } : {}),
+        /*
+          התיאור נשלח תמיד ואינו מותנה: הוא חובה בסכימת השרת, ושליחה
+          מותנית הייתה מייצרת 400 עמום במקום את הודעת השדה.
+        */
+        note: note.trim(),
       };
       if (share) {
         await apiPatch(readPath, payload);
@@ -200,12 +212,12 @@ export function NetworkShareSection({
         <div>
           <h2
             id="network-share-heading"
-            className="m-0 text-[18px] font-extrabold leading-tight"
+            className="m-0 text-[19px] font-extrabold leading-tight"
           >
             {copy.title}
           </h2>
           <p
-            className="m-0 mt-0.5 text-[13.5px]"
+            className="m-0 mt-0.5 text-[15px]"
             style={{ color: "var(--color-text-muted)" }}
           >
             {copy.subtitle}
@@ -215,7 +227,7 @@ export function NetworkShareSection({
 
       {stage === "loading" ? (
         <p
-          className="m-0 mt-2 text-[13px]"
+          className="m-0 mt-2 text-[14.5px]"
           aria-live="polite"
           style={{ color: "var(--color-text-muted)" }}
         >
@@ -230,11 +242,11 @@ export function NetworkShareSection({
             background: "var(--color-primary-soft)",
           }}
         >
-          <p className="m-0 mb-1 font-bold" style={{ fontSize: 14.5 }}>
+          <p className="m-0 mb-1 font-bold" style={{ fontSize: 15.5 }}>
             ✓ {copy.sent}
           </p>
           <p
-            className="m-0 text-[13px]"
+            className="m-0 text-[14.5px]"
             style={{ color: "var(--color-text-muted)" }}
           >
             {copy.sentBody}, וחלוקת העמלה שסוכמה היא{" "}
@@ -248,7 +260,7 @@ export function NetworkShareSection({
             <button
               type="button"
               className="mv-btn-plain"
-              style={{ padding: "5px 12px", fontSize: 12.5 }}
+              style={{ padding: "5px 12px", fontSize: 14 }}
               disabled={busy}
               onClick={() => setStage("form")}
             >
@@ -257,7 +269,7 @@ export function NetworkShareSection({
             <button
               type="button"
               className="mv-btn-plain"
-              style={{ padding: "5px 12px", fontSize: 12.5 }}
+              style={{ padding: "5px 12px", fontSize: 14 }}
               disabled={busy}
               onClick={() => void stopSharing()}
             >
@@ -345,6 +357,17 @@ export function NetworkShareSection({
             >
               {copy.noteLabel}
             </label>
+            {/*
+              הסבר קצר מתחת לתווית, ולא רק כוכבית. „חובה” בלי „למה”
+              נקרא כמו מכשול; המשפט הזה הופך אותו לשיקול.
+            */}
+            <p
+              className="m-0 mb-1 text-xs"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              שורה אחת במילים שלכם. זה מה שמבדיל מודעה שנענית ממודעה
+              שנשארת בפיד.
+            </p>
             <textarea
               id="shareNote"
               value={note}
@@ -377,10 +400,15 @@ export function NetworkShareSection({
           ) : null}
 
           <div className="flex flex-wrap gap-2">
+            {/*
+              הכפתור נחסם עד שיש תיאור. השרת דוחה ממילא, אבל דחייה
+              אחרי לחיצה היא לימוד בדרך הקשה — וכאן זה שדה אחד
+              שאפשר לסמן מראש.
+            */}
             <button
               type="button"
               className="mv-btn-action"
-              disabled={busy}
+              disabled={busy || note.trim().length < MIN_NOTE}
               onClick={() => void publish()}
             >
               {busy ? "שולח…" : share ? "שמור עדכון" : copy.cta}

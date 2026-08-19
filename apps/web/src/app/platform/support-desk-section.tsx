@@ -82,7 +82,7 @@ export function SupportDeskSection(): React.JSX.Element {
       <h2 id="support-desk" className="mb-1 text-lg font-semibold">
         פניות לתמיכה
       </h2>
-      <p className="mb-3 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="mb-3 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
         כל פנייה נושאת איתה את המסך שממנו נשלחה ואת השגיאות שהיו בו. תשובה
         שנשמרת כאן מוצגת למשרד בתוך המערכת ונשלחת גם במייל לפונה.
       </p>
@@ -115,7 +115,7 @@ export function SupportDeskSection(): React.JSX.Element {
         <ul className="flex list-none flex-col gap-3 p-0">
           {tickets.map((t) => (
             <li key={t.id} className="rounded-xl border p-3" style={{ borderColor: "var(--color-border)" }}>
-              <div className="mb-1 flex flex-wrap items-center gap-2 text-[13px]">
+              <div className="mb-1 flex flex-wrap items-center gap-2 text-[14.5px]">
                 <b>{t.tenantName}</b>
                 <span style={{ color: "var(--color-text-muted)" }}>
                   {t.userName} · {t.userEmail}
@@ -130,13 +130,13 @@ export function SupportDeskSection(): React.JSX.Element {
                 </span>
               </div>
 
-              <p className="m-0 whitespace-pre-wrap text-[14px]">{t.message}</p>
+              <p className="m-0 whitespace-pre-wrap text-[15px]">{t.message}</p>
 
               {/*
                 ההקשר בפתיח מתקפל: הוא מה שמקצר את הטיפול, אבל אם הוא
                 פתוח תמיד הוא קובר את מה שהמשתמש כתב.
               */}
-              <details className="mt-2 text-[12.5px]">
+              <details className="mt-2 text-[14px]">
                 <summary style={{ cursor: "pointer", color: "var(--color-text-muted)" }}>
                   הקשר טכני
                 </summary>
@@ -157,7 +157,7 @@ export function SupportDeskSection(): React.JSX.Element {
               </details>
 
               {t.hasScreenshot ? (
-                <p className="m-0 mt-1 text-[12.5px]">
+                <p className="m-0 mt-1 text-[14px]">
                   <a
                     href={`${API_BASE}/platform/support/tickets/${t.id}/screenshot`}
                     target="_blank"
@@ -170,7 +170,7 @@ export function SupportDeskSection(): React.JSX.Element {
               ) : null}
 
               {t.reply !== undefined ? (
-                <p className="m-0 mt-2 text-[13px]">
+                <p className="m-0 mt-2 text-[14.5px]">
                   <b>נענה:</b> {t.reply}
                 </p>
               ) : null}

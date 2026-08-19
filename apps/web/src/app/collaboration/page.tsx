@@ -153,6 +153,24 @@ function roomsLabel(min?: number, max?: number): string {
   return min !== undefined ? `${min} חדרים ומעלה` : `עד ${String(max)} חדרים`;
 }
 
+
+/**
+ * איפה הקונה מחפש — ערים, ואם אין, האזורים שסומנו על המפה.
+ *
+ * המודעה חייבת לומר אזור: בלעדיו הצד השני אינו יודע אם יש לו נכס
+ * מתאים, וההתאמות שהמערכת מחשבת עליה חסרות משמעות. הפרסום נחסם
+ * בשרת כשאין אף אחד מהשניים, כך שהנפילה ל„אזור לא צוין” כאן היא
+ * רשת ביטחון למודעות שפורסמו לפני החסימה.
+ */
+function demandArea(demand: { cities: string[]; searchAreas?: { radiusKm: number; label?: string }[] }): string {
+  if (demand.cities.length > 0) return demand.cities.join(" / ");
+  const areas = demand.searchAreas ?? [];
+  if (areas.length === 0) return "אזור לא צוין";
+  return areas
+    .map((area) => area.label ?? `רדיוס ${area.radiusKm} ק"מ`)
+    .join(" / ");
+}
+
 interface DemandMatch {
   propertyId: string;
   title: string;
@@ -166,6 +184,8 @@ interface DemandRow {
   id: string;
   cities: string[];
   neighborhoods?: string[];
+  /** אזורי המפה שהקונה סימן — נקודה, רדיוס ותווית. */
+  searchAreas?: { lat: number; lon: number; radiusKm: number; label?: string }[];
   notes?: string;
   dealType: string;
   /* הפרופיל המלא של הביקוש — כל מה שאינו מזהה אדם */
@@ -719,7 +739,7 @@ export default function CollaborationPage() {
               incoming.length + openInterests.length > 0 ? (
                 <span
                   className="mv-chip ms-1.5"
-                  style={{ padding: "1px 7px", fontSize: 11.5 }}
+                  style={{ padding: "1px 7px", fontSize: 13 }}
                 >
                   {incoming.length + openInterests.length}
                 </span>
@@ -973,7 +993,7 @@ export default function CollaborationPage() {
             <IconHandshake s={17} /> הפניות לקוחות
           </h2>
           <p
-            className="mb-3 text-[14.5px]"
+            className="mb-3 text-[15.5px]"
             style={{ color: "var(--color-text-soft)" }}
           >
             לקוחות שמשרדים אחרים לא יכולים לשרת. שם וטלפון נחשפים רק אחרי
@@ -998,11 +1018,11 @@ export default function CollaborationPage() {
             <span style={{ color: "var(--color-primary)" }}>
               <IconDiamond s={16} />
             </span>
-            <b className="text-[13.5px]">
+            <b className="text-[15px]">
               היתרה שלכם: {balance === null ? "…" : `${balance} קרדיטים`}
             </b>
             <span
-              className="text-[12.5px]"
+              className="text-[14px]"
               style={{ color: "var(--color-text-muted)" }}
             >
               · קרדיטים יורדים על הפניית לקוח ועל הצעה לביקוש שמסומן במקור
@@ -1016,7 +1036,7 @@ export default function CollaborationPage() {
           */}
           {expiry !== null && expiry.nextAt !== undefined ? (
             <p
-              className="m-0 mt-1.5 text-[12.5px]"
+              className="m-0 mt-1.5 text-[14px]"
               style={{ color: "var(--color-text-muted)" }}
             >
               {expiry.nextAmount} מהם פגים ב-
@@ -1054,7 +1074,7 @@ export default function CollaborationPage() {
           */}
           {myReferrals.length > 0 ? (
             <>
-              <h3 className="mb-2 mt-4 text-[15px] font-semibold">
+              <h3 className="mb-2 mt-4 text-[16px] font-semibold">
                 <IconUpload s={15} /> ההפניות שפרסמתי
               </h3>
               <ul className="mb-5 flex list-none flex-col gap-3 p-0">
@@ -1134,7 +1154,7 @@ export default function CollaborationPage() {
 
           {receivedReferrals.length > 0 ? (
             <>
-              <h3 className="mb-2 text-[15px] font-semibold">
+              <h3 className="mb-2 text-[16px] font-semibold">
                 <IconDownload s={15} /> הפניות שקלטתי
               </h3>
               <ul className="mb-5 flex list-none flex-col gap-3 p-0">
@@ -1174,7 +1194,7 @@ export default function CollaborationPage() {
           ) : null}
 
           {myReferrals.length > 0 || receivedReferrals.length > 0 ? (
-            <h3 className="mb-2 text-[15px] font-semibold">
+            <h3 className="mb-2 text-[16px] font-semibold">
               <IconGlobe s={15} /> הפניות פתוחות ברשת
             </h3>
           ) : null}
@@ -1346,7 +1366,7 @@ export default function CollaborationPage() {
           את ההחלטה בשנייה הראשונה.
         */}
               <p
-                className="mb-3.5 text-[14.5px]"
+                className="mb-3.5 text-[15.5px]"
                 style={{ color: "var(--color-text-soft)" }}
               >
                 קונים של משרדים אחרים — <b>בלי שם ובלי טלפון</b>. יש לכם נכס
@@ -1416,10 +1436,17 @@ export default function CollaborationPage() {
                     לתגיות. קודם היא נשאה גם חדרים, גם ערים וגם תקציב
                     בתוך משפט אחד, ובמובייל היא נשברה לשלוש שורות.
                   */}
+                        {/*
+                          האזור בכותרת נופל לאזורי המפה כשאין ערים.
+
+                          קונה שסימן אזור ולא הקליד עיר הופיע כאן
+                          כ„קונה מחפש 4 חדרים ב” — משפט קטוע שאינו
+                          אומר לאן להציע.
+                        */}
                         <h3 className="mv-net-title">
                           קונה מחפש{" "}
                           {roomsLabel(demand.roomsMin, demand.roomsMax)} ב
-                          {demand.cities.join(" / ")}
+                          {demandArea(demand)}
                         </h3>
                         {demand.mine ? (
                           <span className="mv-net-chip">
@@ -1496,7 +1523,7 @@ export default function CollaborationPage() {
                           {demand.myMatches && demand.myMatches.length > 0 ? (
                             <div className="mb-3">
                               <p
-                                className="m-0 mb-2 text-[14.5px] font-bold"
+                                className="m-0 mb-2 text-[15.5px] font-bold"
                                 style={{ color: "var(--color-primary)" }}
                               >
                                 <IconTarget s={16} /> {demand.myMatches.length}{" "}
@@ -1517,7 +1544,7 @@ export default function CollaborationPage() {
                                     <span className="flex-1 min-w-[160px]">
                                       <b className="block">{match.title}</b>
                                       <span
-                                        className="text-[13px]"
+                                        className="text-[14.5px]"
                                         style={{
                                           color: "var(--color-text-soft)",
                                         }}
@@ -1669,7 +1696,7 @@ export default function CollaborationPage() {
                 <IconTag s={17} /> נכסים ברשת
               </h2>
               <p
-                className="mb-3.5 text-[14.5px]"
+                className="mb-3.5 text-[15.5px]"
                 style={{ color: "var(--color-text-soft)" }}
               >
                 נכסים של משרדים אחרים — <b>בלי כתובת מדויקת ובלי בעלים</b>. יש
@@ -1805,7 +1832,7 @@ export default function CollaborationPage() {
                             listing.myMatches.length > 0 ? (
                             <div className="mb-3">
                               <p
-                                className="m-0 mb-2 text-[14.5px] font-bold"
+                                className="m-0 mb-2 text-[15.5px] font-bold"
                                 style={{ color: "var(--color-primary)" }}
                               >
                                 <IconTarget s={16} /> {listing.myMatches.length}{" "}
@@ -1826,7 +1853,7 @@ export default function CollaborationPage() {
                                     <span className="flex-1 min-w-[160px]">
                                       <b className="block">{match.name}</b>
                                       <span
-                                        className="text-[13px]"
+                                        className="text-[14.5px]"
                                         style={{
                                           color: "var(--color-text-soft)",
                                         }}

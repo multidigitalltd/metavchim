@@ -115,10 +115,10 @@ export function RecurrenceSection(): React.JSX.Element {
 
   return (
     <section className="mv-list-card mt-[18px] px-5 py-4" aria-labelledby="recurrence-heading">
-      <h2 id="recurrence-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+      <h2 id="recurrence-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
         משימות אוטומטיות קבועות
       </h2>
-      <p className="m-0 mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
         כלל אחד — והמשימה נוצרת מעצמה בכל פעם. בלי סוכן מוגדר, כל סוכן פעיל מקבל עותק
         משלו.
       </p>
@@ -147,7 +147,7 @@ export function RecurrenceSection(): React.JSX.Element {
           >
             <div style={{ lineHeight: 1.35 }}>
               <div className="text-sm font-bold">{rule.title}</div>
-              <div className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+              <div className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                 {rule.description}
                 {rule.isActive && rule.nextRunAt
                   ? ` · הבא: ${nextFmt.format(new Date(rule.nextRunAt))}`
@@ -210,7 +210,7 @@ export function RecurrenceSection(): React.JSX.Element {
               <legend className="mb-1 text-xs font-semibold">באילו ימים</legend>
               <div className="flex flex-wrap gap-1.5">
                 {WEEKDAYS.map((name, day) => (
-                  <label key={name} className="flex items-center gap-1 text-[12.5px]">
+                  <label key={name} className="flex items-center gap-1 text-[14px]">
                     <input
                       type="checkbox"
                       checked={draft.weekdays.includes(day)}
@@ -238,7 +238,7 @@ export function RecurrenceSection(): React.JSX.Element {
               />
               <span
                 id="day-of-month-hint"
-                className="mt-1 block text-[11.5px] font-normal"
+                className="mt-1 block text-[13px] font-normal"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 31 יופיע ביום האחרון של חודש קצר, ולא ידלג עליו.
@@ -286,7 +286,7 @@ export function RecurrenceSection(): React.JSX.Element {
         הסיק שהיכולת לא קיימת, במקום להבין שהיא שמורה למנהל.
       */}
       {canManage ? null : (
-        <p className="m-0 mt-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+        <p className="m-0 mt-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
           יצירת כללים קבועים שמורה למנהל המשרד. המשימות שנוצרות מהכללים מגיעות
           אליכם ללוח המשימות כרגיל.
         </p>

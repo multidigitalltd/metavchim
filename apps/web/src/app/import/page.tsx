@@ -298,7 +298,7 @@ export default function ImportPage() {
           className="mb-4 rounded-xl border-2 p-4"
           style={{ borderColor: "var(--color-warning, #d97706)", background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-text)" }}
         >
-          <p className="m-0 mb-1 font-bold" style={{ fontSize: 15 }}>
+          <p className="m-0 mb-1 font-bold" style={{ fontSize: 16 }}>
             <IconWarning s={15} /> {parsed.unmappedHeaders.length} עמודות לא זוהו — הנתונים שבהן לא ייובאו
           </p>
           <p className="m-0 mb-2 text-sm" dir="ltr">

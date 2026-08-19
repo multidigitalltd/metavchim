@@ -49,7 +49,7 @@ export function DeleteAccountSection({ tenantName }: { tenantName: string }) {
       className="mt-8 rounded-xl border px-5 py-[17px]"
       style={{ borderColor: "var(--color-danger)" }}
     >
-      <h2 id="delete-account-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800, color: "var(--color-danger)" }}>
+      <h2 id="delete-account-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800, color: "var(--color-danger)" }}>
         מחיקת החשבון לצמיתות
       </h2>
       <p className="m-0 mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>

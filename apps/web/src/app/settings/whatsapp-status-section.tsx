@@ -54,7 +54,7 @@ export function WhatsAppStatusSection() {
   if (failed) {
     return (
       <section aria-labelledby="wa-status-heading" className="mv-list-card px-5 py-[17px]">
-        <h2 id="wa-status-heading" className="m-0 mb-3" style={{ fontSize: 15.5, fontWeight: 800 }}>
+        <h2 id="wa-status-heading" className="m-0 mb-3" style={{ fontSize: 16.5, fontWeight: 800 }}>
           חיבור וואטסאפ
         </h2>
         <LoadError message="לא הצלחנו לבדוק את מצב החיבור" onRetry={load} />
@@ -65,7 +65,7 @@ export function WhatsAppStatusSection() {
 
   return (
     <section aria-labelledby="wa-status-heading" className="mv-list-card px-5 py-[17px]">
-      <h2 id="wa-status-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>חיבור וואטסאפ</h2>
+      <h2 id="wa-status-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>חיבור וואטסאפ</h2>
       <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
         הודעות וואטסאפ למספר העסקי הופכות ללידים אוטומטית. שלושה שלבים לחיבור:
       </p>

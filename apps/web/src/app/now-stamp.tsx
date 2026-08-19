@@ -42,7 +42,7 @@ export function NowStamp({ className }: { className?: string }): React.JSX.Eleme
   const hebrew = hebrewDateFull(now);
 
   return (
-    <span className={className} style={{ fontSize: 14.5, color: "var(--color-text-muted)" }}>
+    <span className={className} style={{ fontSize: 15.5, color: "var(--color-text-muted)" }}>
       {dateFmt.format(now)}
       {hebrew ? ` · ${hebrew}` : ""}
       {" · "}

@@ -319,16 +319,16 @@ export default function BuyersPage() {
                       style={{ gridTemplateColumns: GRID }}
                       onClick={() => router.push(`/buyers/${b.id}`)}
                     >
-                      <span className="truncate text-[14.5px] font-bold">{b.contact.name}</span>
+                      <span className="truncate text-[15.5px] font-bold">{b.contact.name}</span>
                       <span>
                         <MaturityPill maturity={b.maturity} />
                       </span>
                       <span className="text-sm font-bold">{budgetText(b)}</span>
-                      <span className="truncate text-[13px]" style={{ color: "var(--color-text-soft)" }}>
+                      <span className="truncate text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
                         {wantsText(b)}
                       </span>
                       <span
-                        className="text-[13.5px] font-bold"
+                        className="text-[15px] font-bold"
                         style={{
                           // קונה חם מאוד בלי אף הצעה — הדגשה באדום, כמו בעיצוב
                           color:
@@ -339,7 +339,7 @@ export default function BuyersPage() {
                       >
                         {noOffers ? "אף אחת עדיין" : `${b.offersReceived} הצעות`}
                       </span>
-                      <span className="text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+                      <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                         {lastActivityText(b.lastActivityAt)}
                       </span>
                     </button>

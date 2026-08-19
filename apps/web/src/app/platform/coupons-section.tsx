@@ -89,10 +89,10 @@ export function CouponsSection(): React.JSX.Element {
 
   return (
     <section className="mv-list-card px-5 py-[17px]" aria-labelledby="coupons-heading">
-      <h2 id="coupons-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+      <h2 id="coupons-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
         קודי קופון
       </h2>
-      <p className="m-0 mb-3 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mb-3 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
         משרד שנרשם ומזין קוד מקבל הנחה על התשלום הראשון, או ימי ניסיון נוספים.
         הקוד אינו תלוי רישיות או מקפים.
       </p>
@@ -208,7 +208,7 @@ export function CouponsSection(): React.JSX.Element {
           {coupons.map((c) => (
             <li
               key={c.code}
-              className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border p-2.5 text-[13px]"
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border p-2.5 text-[14.5px]"
               style={{
                 borderColor: "var(--color-border)",
                 opacity: c.isActive ? 1 : 0.55,
