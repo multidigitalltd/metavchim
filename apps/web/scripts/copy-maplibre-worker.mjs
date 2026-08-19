@@ -49,8 +49,25 @@ const FILES = ["maplibre-gl-worker.mjs", "maplibre-gl-shared.mjs"];
  * גם הוא מוגש מ-`public` ולא מ-CDN: ה-CSP אינו מתיר מקור חיצוני,
  * והתוסף נטען בתוך ה-Worker — כלומר `script-src 'self'` הוא מה
  * שחל עליו.
+ *
+ * ## למה `.mjs` ולא `.js`
+ *
+ * ה-Worker של MapLibre 6 בוחר איך לטעון את התוסף **לפי הסיומת**:
+ * קובץ `.mjs` נטען ב-`await import(url)`, וכל שאר הסיומות עוברות
+ * דרך `globalThis.eval(source)` — שה-CSP חוסם.
+ *
+ * החבילה מפיצה UMD. כמודול ES שני הענפים הראשונים שלו (`exports`,
+ * `define`) אינם קיימים, והוא נופל לענף הגלובלי שקורא
+ * ל-`self.registerRTLTextPlugin` — בדיוק מה שה-Worker מציב.
+ * לכן די בהעתקה תחת שם אחר; אין צורך לעטוף או לבנות מחדש.
+ *
+ * **הסיומת לבדה אינה מספיקה.** התוסף הוא WebAssembly, וההידור שלו
+ * חסום בלי `wasm-unsafe-eval` ב-`script-src`. שני התנאים יחד הם
+ * התיקון; אחד מהם לבדו משאיר את המפה בלי תוויות בעברית. ראו
+ * `src/middleware.ts`.
  */
-const RTL_PLUGIN = "mapbox-gl-rtl-text.js";
+const RTL_SOURCE = "mapbox-gl-rtl-text.js";
+const RTL_PLUGIN = "mapbox-gl-rtl-text.mjs";
 
 const dist = dirname(require.resolve("maplibre-gl/dist/maplibre-gl.mjs"));
 /*
@@ -69,7 +86,7 @@ await mkdir(target, { recursive: true });
 for (const name of FILES) {
   await copyFile(join(dist, name), join(target, name));
 }
-await copyFile(join(rtlDist, RTL_PLUGIN), join(target, RTL_PLUGIN));
+await copyFile(join(rtlDist, RTL_SOURCE), join(target, RTL_PLUGIN));
 console.log(
   `maplibre worker + RTL → public/maplibre (${FILES.length + 1} files)`,
 );
