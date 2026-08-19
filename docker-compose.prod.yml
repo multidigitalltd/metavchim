@@ -55,7 +55,8 @@ services:
     image: ${IMAGE_PREFIX:-ghcr.io/multidigitalltd/metavchim}-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file: .env.production
-    # loopback בלבד — נגיש ל-Proxy מקומי (nginx קיים) ולדיבוג, לא לאינטרנט
+    # loopback בלבד — לדיבוג מהשרת עצמו, לא לאינטרנט. התנועה
+    # האמיתית נכנסת דרך Caddy.
     ports:
       - "127.0.0.1:${API_LOCAL_PORT:-8091}:3001"
     environment:
@@ -100,24 +101,22 @@ services:
     ports:
       - "127.0.0.1:${WEB_LOCAL_PORT:-8090}:3000"
 
-  # שער ה-HTTPS המובנה — פעיל רק בפרופיל standalone (שרת ייעודי).
-  # על שרת עם אתר קיים (nginx תופס 80/443) משאירים את הפרופיל כבוי
-  # ומחברים דרך ה-nginx הקיים — ראו docs/10-deployment.md.
+  # שער ה-HTTPS — תמיד פעיל, ותמיד היחיד.
+  #
+  # המערכת היא ענן בהתקנה אחת (app.metavchim.co.il); אין התקנות
+  # בשרת של לקוח, ולכן אין תרחיש שבו שרת Web אחר כבר תופס 80/443.
+  # הפרופיל שאיפשר לכבות את Caddy הוסר יחד עם התרחיש הזה.
   caddy:
-    profiles: ["standalone"]
     image: caddy:2-alpine
     restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
     environment:
-      # לא :? — compose מפרש את הקובץ *לפני* סינון הפרופילים, ולכן
-      # DOMAIN חסר היה מפיל **כל** פקודת compose בשרת שמריץ מאחורי
-      # nginx קיים (שם הפרופיל standalone כבוי ו-Caddy לא רץ בכלל).
-      # התסמין קשה לאבחון: גם `logs`, גם `ps` וגם `up -d` נופלים על
-      # שירות שאינו בשימוש — וגיבוי חיצוני שלא הורם נראה כמו תקלת
-      # גיבוי. Caddy עצמו נכשל בבירור אם הפרופיל דלוק והערך ריק.
-      DOMAIN: ${DOMAIN:-}
+      # `:?` — Caddy רץ תמיד, ולכן דומיין חסר הוא שגיאת הגדרה ולא
+      # מצב אפשרי. עדיף שכל פקודת compose תיפול מיד ובבירור מאשר
+      # ש-Caddy יעלה בלי דומיין וייכשל בהנפקת התעודה.
+      DOMAIN: ${DOMAIN:?}
     volumes:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddydata:/data

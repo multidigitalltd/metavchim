@@ -18,6 +18,7 @@ import {
   overallRatingScore,
   dimensionRatingRejectionReason,
   declarationAccuracy,
+  dimensionAccuracies,
 } from "./lead-referral.js";
 import { DEFAULT_LEAD_SOURCES } from "./collaboration-cost.js";
 
@@ -306,5 +307,79 @@ describe("declarationAccuracy", () => {
     expect(
       declarationAccuracy({ seriousness: 4, budget: 5 }, { seriousness: 4, budget: 3 }),
     ).toBe(4);
+  });
+});
+
+describe("dimensionAccuracies", () => {
+  /*
+   * הפירוט הוא מה שהופך את המוניטין לשמיש: ממוצע 3.5 יכול להיות
+   * משרד שמעריך גס בכל הממדים, ויכול להיות משרד שמדייק לחלוטין
+   * ומנפח בשיטתיות ממד אחד. השני הוא סיכון אחר לגמרי למי שמשלם.
+   */
+  it("מפריד בין סטייה מפוזרת לניפוח ממוקד — באותו ממוצע", () => {
+    const spread = dimensionAccuracies(
+      { seriousness: 4, budget: 4, urgency: 4, reachability: 4 },
+      { seriousness: 3, budget: 3, urgency: 3, reachability: 3 },
+    );
+    const focused = dimensionAccuracies(
+      { seriousness: 3, budget: 5, urgency: 3, reachability: 3 },
+      { seriousness: 3, budget: 1, urgency: 3, reachability: 3 },
+    );
+    expect(spread).toEqual({
+      seriousness: 4,
+      budget: 4,
+      urgency: 4,
+      reachability: 4,
+    });
+    expect(focused).toEqual({
+      seriousness: 5,
+      budget: 1,
+      urgency: 5,
+      reachability: 5,
+    });
+    // אותו ממוצע בדיוק — ולכן הממוצע לבדו לא היה מבדיל ביניהם
+    expect(declarationAccuracy(
+      { seriousness: 4, budget: 4, urgency: 4, reachability: 4 },
+      { seriousness: 3, budget: 3, urgency: 3, reachability: 3 },
+    )).toBe(4);
+    expect(declarationAccuracy(
+      { seriousness: 3, budget: 5, urgency: 3, reachability: 3 },
+      { seriousness: 3, budget: 1, urgency: 3, reachability: 3 },
+    )).toBe(4);
+  });
+
+  it("ממד שרק צד אחד דירג אינו מופיע כלל", () => {
+    expect(
+      dimensionAccuracies({ seriousness: 4, budget: 3 }, { seriousness: 4 }),
+    ).toEqual({ seriousness: 5 });
+  });
+
+  it("בלי ממד משותף — אובייקט ריק, וזה לא ציון אפס", () => {
+    expect(dimensionAccuracies({ budget: 3 }, { seriousness: 3 })).toEqual({});
+    expect(declarationAccuracy({ budget: 3 }, { seriousness: 3 })).toBeNull();
+  });
+
+  it("הממוצע של הפירוט הוא בדיוק הציון המצרפי", () => {
+    const declared = { seriousness: 5, budget: 2, urgency: 4 };
+    const confirmed = { seriousness: 3, budget: 2, urgency: 1 };
+    const values = Object.values(dimensionAccuracies(declared, confirmed));
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    expect(Math.round(mean * 10) / 10).toBe(
+      declarationAccuracy(declared, confirmed),
+    );
+  });
+
+  it("כל ערך שלם בין 1 ל-5 — ולכן נצבר בעשיריות בלי אובדן דיוק", () => {
+    for (let declaredValue = 1; declaredValue <= 5; declaredValue += 1) {
+      for (let confirmedValue = 1; confirmedValue <= 5; confirmedValue += 1) {
+        const value = dimensionAccuracies(
+          { seriousness: declaredValue },
+          { seriousness: confirmedValue },
+        )["seriousness"];
+        expect(Number.isInteger(value)).toBe(true);
+        expect(value).toBeGreaterThanOrEqual(1);
+        expect(value).toBeLessThanOrEqual(5);
+      }
+    }
   });
 });

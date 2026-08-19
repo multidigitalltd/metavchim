@@ -56,6 +56,7 @@ import { NetChips } from "./net-chips";
 import {
   ClientScoresView,
   ReferralConfirmation,
+  ReferrerAccuracyBreakdown,
   type ReferralConfirmationValue,
 } from "./client-rating";
 import { BuyCredits } from "./buy-credits";
@@ -311,7 +312,15 @@ interface SharedLeadRow {
   role: "referrer" | "receiver" | "viewer";
   originLeadId?: string;
   /** המוניטין של המשרד המפנה — הדבר החשוב ביותר לפני תשלום */
-  referrerRating?: { average: number; count: number };
+  referrerRating?: {
+    average: number;
+    count: number;
+    /**
+     * אותו דיוק, לכל ממד בנפרד. יכול להיות ריק גם כשיש ממוצע:
+     * הפירוט נצבר רק מאישורים חדשים ואין מילוי לאחור.
+     */
+    dimensions: { key: string; average: number; count: number }[];
+  };
   /** הצהרת המפנה על איכות הלקוח — מוצגת לפני התשלום. */
   clientScores: Record<string, number>;
   confirmation?: ReferralConfirmationValue;
@@ -1203,6 +1212,14 @@ export default function CollaborationPage() {
                     )}
                   </span>
                 </div>
+                {/*
+                  הפירוט מתחת לשורת הצ'יפים ולא בתוכה: הוא ארבעה
+                  ערכים, ובתוך שורה שכבר נושאת מחיר, עיר וכוונה הוא
+                  היה נבלע בדיוק במקום שבו הוא אמור להאט את הקריאה.
+                */}
+                <ReferrerAccuracyBreakdown
+                  dimensions={lead.referrerRating?.dimensions ?? []}
+                />
                 <p
                   className="mb-2 text-sm"
                   style={{ color: "var(--color-text-muted)" }}

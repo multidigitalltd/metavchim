@@ -126,7 +126,7 @@ export function DictationControls({
               className="mv-dictate-btn"
               disabled={disabled}
               onClick={() => begin("server")}
-              title="תמלול על השרת שלכם — מדויק יותר בעברית, מגיע בסוף ההקלטה"
+              title="תמלול בשרת של המערכת — מדויק יותר בעברית, מגיע בסוף ההקלטה"
             >
               <MicIcon /> מדויק
             </button>

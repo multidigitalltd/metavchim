@@ -432,7 +432,7 @@ function PushSection() {
         </p>
       ) : state.support === "not-configured" ? (
         <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          התראות הדפדפן טרם הופעלו בשרת של המשרד. פנו למנהל המערכת.
+          התראות הדפדפן טרם הופעלו במערכת. פנו לתמיכה — הכפתור בצד המסך.
         </p>
       ) : (
         <>

@@ -109,7 +109,7 @@ export function GmailSection(): React.JSX.Element | null {
 
       {!status.available ? (
         <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          חיבור Google טרם הוגדר בשרת (פרטי הלקוח של Google) — פנו למנהל המערכת.
+          חיבור Google טרם הוגדר במערכת — פנו לתמיכה.
         </p>
       ) : !status.connected ? (
         <a href={`${API_BASE}/gmail/start`} className="mv-btn-action inline-block" style={{ textDecoration: "none" }}>

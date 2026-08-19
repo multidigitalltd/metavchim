@@ -93,7 +93,7 @@ export function onboardingSteps(facts: OnboardingFacts): OnboardingProgress {
     {
       key: "voice",
       title: "קליטה בדיבור",
-      why: "מתארים נכס או קונה בקול והמערכת ממלאת את הכרטיס. התמלול רץ על השרת שלכם וההקלטה לא נשמרת.",
+      why: "מתארים נכס או קונה בקול והמערכת ממלאת את הכרטיס. התמלול רץ בשרת של המערכת, ההקלטה לא נשלחת לספק חיצוני ואינה נשמרת.",
       href: "/voice",
       done: facts.transcriptionAvailable,
       essential: false,
