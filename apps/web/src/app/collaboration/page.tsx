@@ -171,7 +171,8 @@ interface DemandRow {
   propertyTypes: string[];
   areaSqmMin?: number;
   budgetMinAgorot?: number;
-  budgetMaxAgorot: number;
+  /** חסר = הקונה טרם מסר תקציב. */
+  budgetMaxAgorot?: number;
   roomsMin?: number;
   roomsMax?: number;
   entryType?: string;
@@ -245,7 +246,8 @@ interface InterestRow {
     cities: string[];
     neighborhoods?: string[];
     propertyTypes?: string[];
-    budgetMaxAgorot: number;
+    /** חסר = הקונה טרם מסר תקציב. */
+  budgetMaxAgorot?: number;
     roomsMin?: number;
     roomsMax?: number;
     areaSqmMin?: number;

@@ -44,7 +44,7 @@ interface BuyerRequirements {
   dealType: string;
   propertyTypes: string[];
   budgetMinAgorot?: number;
-  budgetMaxAgorot: number;
+  budgetMaxAgorot?: number;
   roomsMin?: number;
   roomsMax?: number;
   areaSqmMin?: number;
@@ -130,10 +130,16 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
           dealType: String(f.get("dealType")),
           budgetMinAgorot:
             budgetMinShekels === undefined ? undefined : shekelsToAgorot(budgetMinShekels),
+          /*
+           * שדה שרוקן מוחק את התקציב, ולא משמר את הישן.
+           *
+           * עד כה ריקון השדה החזיר בשקט את הערך הקודם — כלומר
+           * מתווך שגילה שהתקציב שנרשם שגוי לא יכול היה להסיר אותו,
+           * רק להחליפו במספר אחר. עכשיו התנהגות זהה לזו של תקציב
+           * המינימום בשורה שמעל.
+           */
           budgetMaxAgorot:
-            budgetShekels === undefined
-              ? buyer.requirements.budgetMaxAgorot
-              : shekelsToAgorot(budgetShekels),
+            budgetShekels === undefined ? undefined : shekelsToAgorot(budgetShekels),
           roomsMin: num("roomsMin"),
           roomsMax: num("roomsMax"),
           areaSqmMin: num("areaSqmMin"),
@@ -239,9 +245,10 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
               <PriceField
                 id="budgetMax"
                 name="budgetMax"
-                label="עד (₪) *"
-                required
-                defaultValue={Math.round(req.budgetMaxAgorot / 100)}
+                label="עד (₪)"
+                {...(req.budgetMaxAgorot === undefined
+                  ? {}
+                  : { defaultValue: Math.round(req.budgetMaxAgorot / 100) })}
               />
             </div>
             <div className="grid grid-cols-2 gap-3">

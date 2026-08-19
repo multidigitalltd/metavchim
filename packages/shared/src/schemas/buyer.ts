@@ -63,7 +63,18 @@ export const BuyerRequirementsSchema = z.object({
   dealType: DealTypeSchema,
   propertyTypes: z.array(PropertyTypeSchema).default([]),
   budgetMinAgorot: MoneyAgorotSchema.optional(),
-  budgetMaxAgorot: MoneyAgorotSchema,
+  /**
+   * תקציב מקסימלי. **רשות** — לקוח בלי תקציב ידוע הוא מצב נורמלי.
+   *
+   * שיחה נכנסת שנרשמו בה שם וטלפון היא לקוח לכל דבר, והתקציב
+   * מתברר בשיחה הבאה. כשהשדה היה חובה המסכים שלחו 0 במקומו,
+   * ומנוע ההתאמות קרא את זה כ"לא יכול להרשות לעצמו כלום" —
+   * כלומר הכרטיס נשמר והתוצאה הייתה גרועה משמירה בלעדיו.
+   *
+   * בלי תקציב קריטריון התקציב פשוט אינו נספר בהתאמה, והציון
+   * מנורמל לפי מה שכן נבחן.
+   */
+  budgetMaxAgorot: MoneyAgorotSchema.optional(),
   roomsMin: z.number().multipleOf(0.5).optional(),
   roomsMax: z.number().multipleOf(0.5).optional(),
   areaSqmMin: z.number().int().optional(),

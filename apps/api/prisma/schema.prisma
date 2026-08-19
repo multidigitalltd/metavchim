@@ -374,7 +374,16 @@ model Buyer {
   cities             String[]
   dealType           String    @map("deal_type") @db.VarChar(10)
   budgetMinAgorot    BigInt?   @map("budget_min_agorot")
-  budgetMaxAgorot    BigInt    @map("budget_max_agorot")
+  /// `null` = הלקוח לא מסר תקציב.
+  ///
+  /// מצב נורמלי ולא חריג: שיחה נכנסת שבה נרשמו שם וטלפון היא לקוח
+  /// לכל דבר, והתקציב מתברר מאוחר יותר. עד כה העמודה הייתה חובה,
+  /// והמסכים הבריחו לתוכה 0 — כלומר "תקציב אפס", שמנוע ההתאמות
+  /// קורא כ"לא יכול להרשות לעצמו כלום".
+  ///
+  /// קריטריון התקציב פשוט אינו נספר כשאין תקציב: הציון מנורמל לפי
+  /// המשקלים שנבחנו בפועל (packages/shared/logic/matching.ts).
+  budgetMaxAgorot    BigInt?   @map("budget_max_agorot")
   roomsMin           Decimal?  @map("rooms_min") @db.Decimal(4, 1)
   roomsMax           Decimal?  @map("rooms_max") @db.Decimal(4, 1)
   requirements       Json      @default("{}")
@@ -572,7 +581,9 @@ model SharedDemand {
   // המקסימום כלפי מעלה והמינימום כלפי מטה, כדי שהעיגול תמיד ירחיב
   // את הטווח ולא יצמצם אותו: הצעה שנפסלת בגלל עיגול היא עסקה שאבדה.
   budgetMinAgorot BigInt?   @map("budget_min_agorot")
-  budgetMaxAgorot BigInt    @map("budget_max_agorot")
+  /// `null` = הביקוש פורסם בלי תקציב — ראו `Buyer.budgetMaxAgorot`.
+  /// הלוח מציג "תקציב לא צוין" ולא "עד 0 ₪".
+  budgetMaxAgorot BigInt?   @map("budget_max_agorot")
   roomsMin        Decimal?  @map("rooms_min") @db.Decimal(4, 1)
   roomsMax        Decimal?  @map("rooms_max") @db.Decimal(4, 1)
   /// מתי הקונה צריך להיכנס — `immediate | by_date | flexible`.

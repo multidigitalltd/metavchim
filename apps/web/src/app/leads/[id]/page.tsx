@@ -675,7 +675,9 @@ function ConvertSection({ leadId }: { leadId: string }) {
     setError(null);
     setBusy(true);
     const f = new FormData(event.currentTarget);
-    const budget = Number(String(f.get("budgetMax") ?? "").trim());
+    // ריק = לא נמסר; `Number("")` הוא 0, וזה בדיוק מה שאסור לשלוח
+    const budgetRaw = String(f.get("budgetMax") ?? "").trim();
+    const budget = budgetRaw === "" ? undefined : Number(budgetRaw);
     try {
       const buyer = await apiPost<{ id: string }>(`/leads/${leadId}/convert`, {
         maturity: String(f.get("maturity")),
@@ -685,7 +687,9 @@ function ConvertSection({ leadId }: { leadId: string }) {
             .map((c) => c.trim())
             .filter(Boolean),
           dealType: String(f.get("dealType")),
-          budgetMaxAgorot: shekelsToAgorot(budget),
+          ...(budget === undefined || !Number.isFinite(budget)
+            ? {}
+            : { budgetMaxAgorot: shekelsToAgorot(budget) }),
         },
       });
       router.push(`/buyers/${buyer.id}`);
@@ -742,13 +746,15 @@ function ConvertSection({ leadId }: { leadId: string }) {
         </div>
         <div>
           <label htmlFor="cv-budget" className="mb-1 block text-sm font-medium">
-            תקציב מקסימלי (₪)
+            תקציב מקסימלי (₪){" "}
+            <span className="font-normal" style={{ color: "var(--color-text-muted)" }}>
+              — בלי תקציב ההתאמות מדויקות פחות
+            </span>
           </label>
           <input
             id="cv-budget"
             name="budgetMax"
             type="number"
-            required
             min={1}
             className="rounded-lg border px-3 py-2"
             style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}

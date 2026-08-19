@@ -261,3 +261,31 @@ describe("scoreMatch — מאפיינים מותאמים", () => {
     expect(miss.score).toBeLessThan(hit.score);
   });
 });
+
+/*
+ * קונה בלי תקציב — המצב שהיה שובר הכול בשקט.
+ *
+ * `price <= undefined` הוא `false`, ולכן בלי השמירה במנוע **כל**
+ * נכס מתומחר היה מסומן `excluded` וקונה כזה לא היה מקבל ולו
+ * התאמה אחת. כאן נבדק גם שהציון מנורמל לפי מה שנבחן בפועל.
+ */
+describe("קונה בלי תקציב", () => {
+  const noBudget = { ...baseBuyer, budgetMaxAgorot: undefined };
+
+  it("אינו מוצא מההתאמה, וקריטריון התקציב אינו נספר", () => {
+    const result = scoreMatch({ ...baseProperty, priceAgorot: 900_000_000 }, noBudget);
+    expect(result.excluded).toBe(false);
+    expect(result.breakdown.map((p) => p.criterion)).not.toContain("budget");
+  });
+
+  it("אותו ציון בלי קשר למחיר הנכס — כי אין מול מה להשוות", () => {
+    const cheap = scoreMatch({ ...baseProperty, priceAgorot: 100_000_000 }, noBudget);
+    const dear = scoreMatch({ ...baseProperty, priceAgorot: 900_000_000 }, noBudget);
+    expect(cheap.score).toBe(dear.score);
+  });
+
+  it("קונה עם תקציב ממשיך להיבדק כרגיל", () => {
+    const over = scoreMatch({ ...baseProperty, priceAgorot: 900_000_000 }, baseBuyer);
+    expect(over.excluded).toBe(true);
+  });
+});

@@ -17,6 +17,15 @@ import { IconDoc, IconDownload, IconWarning } from "../icons";
 interface ImportResult {
   created: number;
   failed: { row: number; error: string }[];
+  /**
+   * שורות שנקלטו ויש עליהן מה לומר.
+   *
+   * מוצגות בנפרד מ-`failed` ובצבע אחר, כי המסקנה הפוכה: שורה
+   * שנכשלה דורשת תיקון ושליחה מחדש, ושורה עם אזהרה כבר בפנים
+   * ואין מה לעשות איתה עכשיו. אותה רשימה לשתיהן הייתה גורמת
+   * למתווך לייבא את הקובץ פעמיים.
+   */
+  warnings?: { row: number; warning: string }[];
 }
 
 /*
@@ -366,7 +375,14 @@ export default function ImportPage() {
                       <td className="p-2">{r.name ?? "—"}</td>
                       <td className="p-2" dir="ltr">{r.phone ?? "—"}</td>
                       <td className="p-2">{r.cities.join(", ") || "—"}</td>
-                      <td className="p-2">{formatPrice(r.budgetMaxAgorot)}</td>
+                      {/* "—" הוא חסר; כאן חסר הוא מצב תקין ולכן נאמר במפורש */}
+                      <td className="p-2">
+                        {r.budgetMaxAgorot === undefined ? (
+                          <span style={{ color: "var(--color-text-muted)" }}>לא צוין</span>
+                        ) : (
+                          formatPrice(r.budgetMaxAgorot)
+                        )}
+                      </td>
                       <td className="p-2">{r.maturity ? MATURITY_LABELS[r.maturity] : "—"}</td>
                     </tr>
                   ))}
@@ -410,6 +426,23 @@ export default function ImportPage() {
                 {result.failed.map((f) => (
                   <li key={f.row}>
                     שורה {f.row}: {f.error}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+          {result.warnings !== undefined && result.warnings.length > 0 ? (
+            <>
+              <p
+                className="mt-2 mb-1"
+                style={{ color: "var(--color-warning, #b45309)" }}
+              >
+                <IconWarning s={14} /> {result.warnings.length} שורות נקלטו עם הערה:
+              </p>
+              <ul className="list-inside list-disc text-sm">
+                {result.warnings.map((w) => (
+                  <li key={`${w.row}-${w.warning}`}>
+                    שורה {w.row}: {w.warning}
                   </li>
                 ))}
               </ul>

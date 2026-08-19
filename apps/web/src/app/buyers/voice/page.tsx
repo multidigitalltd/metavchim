@@ -91,7 +91,10 @@ function BuyerVoiceForm() {
           .map((c) => c.trim())
           .filter(Boolean),
         dealType: String(f.get("dealType")),
-        budgetMaxAgorot: budgetMax === undefined ? 0 : shekelsToAgorot(budgetMax),
+        // ריק = לא נמסר. 0 היה נקרא כ"לא יכול להרשות לעצמו כלום"
+        ...(budgetMax === undefined
+          ? {}
+          : { budgetMaxAgorot: shekelsToAgorot(budgetMax) }),
         ...(person.budgetMinAgorot !== undefined ? { budgetMinAgorot: person.budgetMinAgorot } : {}),
         ...(person.roomsMin !== undefined ? { roomsMin: person.roomsMin } : {}),
         ...(person.roomsMax !== undefined ? { roomsMax: person.roomsMax } : {}),
@@ -162,12 +165,11 @@ function BuyerVoiceForm() {
               <input id="cities" name="cities" required defaultValue={person.cities.join(", ")} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
             </div>
             <div>
-              <label htmlFor="budgetMax" className="mb-1 block font-medium">תקציב עד (₪) *</label>
+              <label htmlFor="budgetMax" className="mb-1 block font-medium">תקציב עד (₪)</label>
               <input
                 id="budgetMax"
                 name="budgetMax"
                 type="number"
-                required
                 min="1000"
                 step="10000"
                 inputMode="numeric"
@@ -175,6 +177,9 @@ function BuyerVoiceForm() {
                 className="w-full rounded-lg border px-3 py-2.5"
                 style={inputStyle}
               />
+              <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-muted)" }}>
+                בלי תקציב הכרטיס נשמר, וקריטריון התקציב לא נספר בהתאמות.
+              </p>
             </div>
             <div>
               <label htmlFor="dealType" className="mb-1 block font-medium">סוג עסקה</label>

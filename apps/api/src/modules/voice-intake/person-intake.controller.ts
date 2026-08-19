@@ -48,7 +48,8 @@ const CreateBuyerSchema = z
     phone: PhoneSchema,
     cities: z.array(z.string().min(1).max(80)).min(1),
     dealType: z.enum(["sale", "rent"]),
-    budgetMaxAgorot: z.number().int().positive(),
+    // רשות — לקוח בלי תקציב הוא מצב נורמלי (ראו BuyerRequirementsSchema)
+    budgetMaxAgorot: z.number().int().positive().optional(),
     budgetMinAgorot: z.number().int().nonnegative().optional(),
     roomsMin: z.number().multipleOf(0.5).min(1).max(20).optional(),
     roomsMax: z.number().multipleOf(0.5).min(1).max(20).optional(),

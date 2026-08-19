@@ -183,8 +183,18 @@ export function scoreMatch(
     if (city.score === 0) excluded = true; // עיר לא מבוקשת — לא רלוונטי להציע
   }
 
-  // --- תקציב (0.25) ---
-  if (property.priceAgorot !== undefined) {
+  /*
+   * --- תקציב (0.25) ---
+   *
+   * נדרשים **שני** הנתונים. בלי מחיר לנכס אין מה להשוות, ובלי
+   * תקציב לקונה אין למה — ובשני המקרים הקריטריון מדולג והציון
+   * מנורמל לפי מה שכן נבחן.
+   *
+   * ההשמטה של תנאי התקציב כאן אינה זהירות יתר: `price <= undefined`
+   * הוא `false`, ולכן בלי הבדיקה **כל** נכס מתומחר היה מסומן
+   * `excluded` וקונה בלי תקציב לא היה מקבל ולו התאמה אחת.
+   */
+  if (property.priceAgorot !== undefined && buyer.budgetMaxAgorot !== undefined) {
     const max = buyer.budgetMaxAgorot;
     const price = property.priceAgorot;
     let score: number;
