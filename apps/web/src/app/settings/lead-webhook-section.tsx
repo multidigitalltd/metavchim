@@ -87,12 +87,21 @@ export function LeadWebhookSection() {
 
   return (
     <section aria-labelledby="webhook-heading" className="mv-list-card px-5 py-[17px]">
-      <h2 id="webhook-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>לידים מהאתר שלך</h2>
+      <h2 id="webhook-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>מקורות לידים</h2>
       <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
         כל מקור מקבל כתובת קליטה משלו, והשם שלו מופיע על הליד — כך רואים אם
         הפנייה הגיעה מהאתר, מפייסבוק או מכל ערוץ אחר. שולחים לכתובת POST עם
-        השדות <code dir="ltr">name, phone, message</code> (כולל זיהוי פנייה חוזרת
-        ומניעת כפילויות).
+        השדות <code dir="ltr">name, phone, email, message, intent</code> (כולל זיהוי
+        פנייה חוזרת ומניעת כפילויות).
+        {/*
+          הקישור לתיעוד כאן ולא במסך נפרד: זו הנקודה שבה מישהו מחזיק
+          כתובת ולא יודע מה לעשות איתה. בלעדיו התיעוד קיים ואיש אינו
+          מגיע אליו.
+        */}
+        {" "}
+        <a href="/docs/api" target="_blank" rel="noopener" className="underline" style={{ color: "var(--color-primary)" }}>
+          תיעוד מלא, כולל חיבור דרך Make ו-n8n ←
+        </a>
       </p>
 
       {error ? (
