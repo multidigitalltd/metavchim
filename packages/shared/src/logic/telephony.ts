@@ -12,7 +12,18 @@
  */
 import { normalizePhone } from "./contact-people.js";
 
-export type TelephonyProviderId = "generic" | "zadarma" | "voicenter" | "015";
+/**
+ * שני ספקים, ושניהם ממומשים.
+ *
+ * הרשימה כללה גם Zadarma ו-Voicenter. שניהם היו **שם בלבד**: אף שורת
+ * קוד לא קראה את הטוקן או את מפתח ה-API שלהם, וקליטת השיחות ממילא
+ * אינה תלוית ספק — `parseTelephonyEvent` מחפש שמות שדות מקובלים ולא
+ * מתאימה את עצמה לספק. כלומר מי שבחר בהם קיבל בדיוק את „מרכזייה
+ * כללית”, אחרי שמסר לנו אישורי גישה שנשמרו מוצפנים ולא שימשו לדבר.
+ *
+ * ספק חוזר לרשימה כשיש לו קוד, לא כשיש לו שם.
+ */
+export type TelephonyProviderId = "generic" | "015";
 
 export interface TelephonyProvider {
   id: TelephonyProviderId;
@@ -51,7 +62,7 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
      * `auth_password`), וזה מה שהיה כתוב כאן קודם בטעות.
      *
      * **רק הסיסמה סודה.** שם המשתמש הוא שם, ולא מפתח שפותח משהו —
-     * בדיוק כמו `apiKey` מול `apiSecret` אצל Zadarma כאן למטה. סימונו
+     * סימונו
      * כסוד גרם לשלושה נזקים ממשיים: השדה רונדר כ-`password`, ולכן
      * הדפדפן מילא לתוכו סיסמה שמורה של המשתמש; הערך לא הוצג בחזרה,
      * ולכן אי אפשר היה לבדוק מה בעצם שמור; והוא נגרר לריקוד
@@ -62,7 +73,7 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
      * משרדי אחד לכולם היה מחבר את הלקוח למי שבמקרה הרים.
      */
     id: "015",
-    label: "015 / 012 מובייל",
+    label: "015",
     fields: [
       { key: "authUsername", label: "שם משתמש ב-015", secret: false },
       { key: "authPassword", label: "סיסמה ב-015", secret: true },
@@ -77,26 +88,6 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
       { key: "sipDomain", label: "דומיין SIP (למשל sip.015.net)", secret: false },
     ],
     clickToDial: true,
-  },
-  {
-    id: "zadarma",
-    label: "Zadarma",
-    fields: [
-      { key: "apiKey", label: "מפתח API", secret: false },
-      { key: "apiSecret", label: "סוד API", secret: true },
-      { key: "callerId", label: "שלוחה לחיוג יוצא", secret: false },
-    ],
-    // קליטת שיחות עובדת; חיוג יוצא טרם מומש מול ה-API שלהם
-    clickToDial: false,
-  },
-  {
-    id: "voicenter",
-    label: "Voicenter",
-    fields: [
-      { key: "token", label: "טוקן API", secret: true },
-      { key: "extension", label: "שלוחה לחיוג יוצא", secret: false },
-    ],
-    clickToDial: false,
   },
 ];
 
@@ -116,9 +107,9 @@ export function telephonyProvider(id: string): TelephonyProvider | undefined {
  * שלושה כללים, וכל אחד מהם מונע תקלה אחרת:
  *
  * - **מיזוג לפי מפתח** — סוד שלא נשלח נשמר כפי שהיה.
- * - **החלפת ספק מנקה** — הסוד של Zadarma לא נגרר לחיבור 015. הוא
- *   חסר משמעות שם, ובעיקר: אין סיבה שיישאר מוצפן בבסיס הנתונים אחרי
- *   שהמשרד עזב את הספק.
+ * - **החלפת ספק מנקה** — סוד של ספק אחד לא נגרר לחיבור של ספק אחר.
+ *   הוא חסר משמעות שם, ובעיקר: אין סיבה שיישאר מוצפן בבסיס הנתונים
+ *   אחרי שהמשרד עזב את הספק.
  * - **רק מפתחות שהספק מכיר, ורק ערכים לא ריקים** — כך שדה שהוסר
  *   מרשימת הסודות (או עבר להיות גלוי) מתנקה מעצמו בשמירה הבאה,
  *   ומחרוזת ריקה לא נשמרת כאילו היא ערך.
