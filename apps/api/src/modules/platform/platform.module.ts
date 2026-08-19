@@ -5,6 +5,7 @@ import { TelephonyModule } from "../telephony/telephony.module";
 import { AccountDeletionService } from "../settings/account-deletion.service";
 import { BackupsService } from "./backups.service";
 import { PlatformController } from "./platform.controller";
+import { PlatformCreditsService } from "./platform-credits.service";
 import { ServiceVersionsService } from "./service-versions.service";
 
 /*
@@ -17,6 +18,12 @@ import { ServiceVersionsService } from "./service-versions.service";
   // עם מפתח לא מוכר אינה שייכת לאף משרד, וזו בדיוק הפנייה שמחפשים
   imports: [AuthModule, TelephonyModule],
   controllers: [PlatformController],
-  providers: [BackupsService, CardcomService, AccountDeletionService, ServiceVersionsService],
+  providers: [
+    BackupsService,
+    CardcomService,
+    AccountDeletionService,
+    ServiceVersionsService,
+    PlatformCreditsService,
+  ],
 })
 export class PlatformModule {}

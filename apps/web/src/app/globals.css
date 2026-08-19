@@ -2785,3 +2785,88 @@ a.mv-bar-row:focus-visible {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* ============================================================
+   הודעות — כל הודעה במערכת ניתנת לסגירה (ראו notice.tsx)
+   ============================================================ */
+.mv-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-block: 12px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-hover-soft);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.mv-notice-text {
+  flex: 1;
+}
+.mv-notice[data-tone="success"] {
+  background: var(--color-success-soft);
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+.mv-notice[data-tone="danger"] {
+  background: #fdeee7;
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+.mv-notice[data-tone="warning"] {
+  background: #fdf6e3;
+  border-color: #a97116;
+  color: #7a5210;
+}
+/*
+ * כפתור הסגירה שקוף עד ריחוף: הוא נמצא על כל הודעה במערכת, ומסגרת
+ * קבועה סביבו הייתה מוסיפה רעש חזותי בכל מקום שבו יש טקסט.
+ * שטח הלחיצה נשאר 32px — הגבול המינימלי למגע.
+ */
+.mv-notice-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: -6px -8px -6px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.65;
+  cursor: pointer;
+}
+.mv-notice-close:hover {
+  opacity: 1;
+  background: rgb(0 0 0 / 6%);
+}
+.mv-notice-close:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  opacity: 1;
+}
+
+/* ============================================================
+   אריחי מספרים — דוחות ולוחות
+   ============================================================ */
+.mv-stat-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.mv-stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 14px;
+}
+.mv-stat-tile:hover {
+  border-color: var(--color-border-hover);
+}

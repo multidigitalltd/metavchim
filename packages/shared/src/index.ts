@@ -66,6 +66,7 @@ export * from "./logic/billing.js";
 export * from "./logic/email-template.js";
 export * from "./logic/collaboration-cost.js";
 export * from "./logic/lead-referral.js";
+export * from "./logic/platform-credits.js";
 export * from "./logic/lead-deletion.js";
 export * from "./announcements.js";
 export * from "./events.js";

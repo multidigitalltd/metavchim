@@ -19,6 +19,7 @@ import { CreditEconomySection } from "./credit-economy-section";
 import { SystemUpdateSection } from "./system-update-section";
 import { SupportDeskSection } from "./support-desk-section";
 import { PayoutDeskSection } from "./payout-desk-section";
+import { ReferralRevenueSection } from "./referral-revenue-section";
 
 /**
  * ניהול הפלטפורמה — הקמת משרדי תיווך חדשים בלי SSH. נגיש רק למנהלי
@@ -615,6 +616,12 @@ export default function PlatformPage() {
         אמון המשרדים ברשת ההפניות.
       */}
       <PayoutDeskSection />
+
+      {/*
+        צמוד לתור המשיכות: שם רואים מה יוצא מהפלטפורמה, וכאן מה נשאר
+        בה. עד עכשיו היה רק הצד הראשון על המסך.
+      */}
+      <ReferralRevenueSection />
 
       <SystemUpdateSection />
 
