@@ -5,6 +5,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet, ApiError } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
 import { IconPrinter } from "../../../icons";
+import { Notice } from "../../../notice";
 
 /**
  * המסמך החתום — מה שהיה חסר בכרטיס הלקוח.
@@ -56,9 +57,7 @@ export default function AgreementDocumentPage({ params }: { params: Promise<{ id
 
   if (error) {
     return (
-      <p role="alert" className="py-10 text-center" style={{ color: "var(--color-danger)" }}>
-        {error}
-      </p>
+      <Notice tone="danger">{error}</Notice>
     );
   }
   if (!doc) return <p aria-live="polite">טוען מסמך…</p>;

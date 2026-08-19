@@ -15,6 +15,7 @@ import {
   LocationPicker,
   type LocationValue,
 } from "../properties/location-picker";
+import { Notice } from "../notice";
 
 /**
  * אזורי החיפוש של הקונה — **מה שהוא באמת מחפש, במקום שם עיר.**
@@ -193,13 +194,7 @@ export function SearchAreas({
             </Button>
           </div>
           {error !== null ? (
-            <p
-              role="alert"
-              className="m-0 mt-2 text-[14px]"
-              style={{ color: "var(--color-danger)" }}
-            >
-              {error}
-            </p>
+            <Notice tone="danger">{error}</Notice>
           ) : null}
         </div>
       )}

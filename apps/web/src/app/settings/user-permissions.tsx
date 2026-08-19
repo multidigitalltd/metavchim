@@ -8,6 +8,7 @@ import {
   type Capability,
 } from "@metavchim/shared";
 import { apiGet, apiPut, ApiError } from "@/lib/api";
+import { Notice } from "../notice";
 
 interface OverrideRow {
   capability: string;
@@ -99,9 +100,7 @@ export function UserPermissions({
 
   if (error && !data) {
     return (
-      <p role="alert" className="m-0 px-5 py-3 text-sm" style={{ color: "var(--color-danger)" }}>
-        {error}
-      </p>
+      <Notice tone="danger">{error}</Notice>
     );
   }
   if (!data) return <p className="m-0 px-5 py-3 text-sm">טוען הרשאות…</p>;
@@ -130,9 +129,7 @@ export function UserPermissions({
       ) : null}
 
       {error ? (
-        <p role="alert" className="m-0 mb-3 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       <div className="flex flex-col gap-2">

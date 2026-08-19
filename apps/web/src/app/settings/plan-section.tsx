@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiGet } from "@/lib/api";
 import { IconCard } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * המסלול של המשרד — מה כלול בו ואיפה הוא עומד מול המגבלות.
@@ -134,14 +135,8 @@ export function PlanSection(): React.JSX.Element | null {
           </p>
 
           {plan.resolved === false ? (
-            <p
-              role="alert"
-              className="m-0 mb-3 rounded-lg border p-3 text-sm"
-              style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}
-            >
-              המסלול של המשרד אינו מוגדר במערכת. הוספת נכסים ומשתמשים חסומה עד שהעניין
-              יטופל — פנו אלינו.
-            </p>
+            <Notice tone="danger">המסלול של המשרד אינו מוגדר במערכת. הוספת נכסים ומשתמשים חסומה עד שהעניין
+              יטופל — פנו אלינו.</Notice>
           ) : null}
 
           <LimitRow

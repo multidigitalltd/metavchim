@@ -10,6 +10,7 @@ import {
   type ServiceVersion,
 } from "@metavchim/shared";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { Notice } from "../notice";
 
 interface SystemInfo {
   version: string;
@@ -197,14 +198,10 @@ export function SystemUpdateSection() {
           </p>
         )}
         {message ? (
-          <p className="mt-2 text-sm" role="status">
-            {message}
-          </p>
+          <Notice tone="success">{message}</Notice>
         ) : null}
         {error ? (
-          <p className="mt-2 text-sm" role="alert" style={{ color: "var(--color-danger)" }}>
-            {error}
-          </p>
+          <Notice tone="danger">{error}</Notice>
         ) : null}
       </div>
     </section>

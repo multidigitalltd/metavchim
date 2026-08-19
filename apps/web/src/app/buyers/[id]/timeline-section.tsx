@@ -6,6 +6,7 @@ import { apiGet, apiPost } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { WithDictation } from "../../dictation-field";
 import { IconChat, IconDoc, IconGear, IconPhone, IconRefresh } from "../../icons";
+import { Notice } from "../../notice";
 
 /**
  * ציר ההיסטוריה של הקונה (docs/01 §5): כל הערה ותיעוד שיחה במקום אחד —
@@ -246,9 +247,7 @@ export function TimelineSection({ buyerId }: { buyerId: string }) {
       ) : null}
 
       {error ? (
-        <p role="alert" className="mb-3" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {items === null ? (

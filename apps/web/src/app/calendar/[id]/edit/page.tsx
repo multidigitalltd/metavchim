@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
+import { Notice } from "../../../notice";
 
 /**
  * עריכת פגישה קיימת — המסך שנפתח בלחיצה על פגישה ביומן.
@@ -115,9 +116,7 @@ export default function EditAppointmentPage({ params }: { params: Promise<{ id: 
 
   if (error && !appointment) {
     return (
-      <p role="alert" style={{ color: "var(--color-danger)" }}>
-        {error} — <Link href="/calendar" className="underline">חזרה ליומן</Link>
-      </p>
+      <Notice tone="danger">{error} — <Link href="/calendar" className="underline">חזרה ליומן</Link></Notice>
     );
   }
   if (!appointment) return <p aria-live="polite">טוען…</p>;
@@ -152,9 +151,7 @@ export default function EditAppointmentPage({ params }: { params: Promise<{ id: 
 
       <form onSubmit={(e) => void onSubmit(e)} noValidate>
         {error ? (
-          <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
-            {error}
-          </p>
+          <Notice tone="danger">{error}</Notice>
         ) : null}
 
         <div className="mb-4">

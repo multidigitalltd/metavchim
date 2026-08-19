@@ -19,6 +19,7 @@ import {
   hasActiveFilters,
   type ListFilterValues,
 } from "../list-filters";
+import { Notice } from "../notice";
 
 /**
  * מסך הקונים לפי קובץ העיצוב: מקרא בשלות בכותרת, טבלת grid עם גלולת
@@ -172,7 +173,7 @@ export default function BuyersPage() {
       </div>
 
       {error ? (
-        <p role="alert" style={{ color: "var(--color-danger)" }}>{error}</p>
+        <Notice tone="danger">{error}</Notice>
       ) : items === null ? (
         <p aria-live="polite">טוען קונים…</p>
       ) : items.length === 0 && !hasActiveFilters(filters) ? (

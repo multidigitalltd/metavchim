@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { api, apiGet, apiPost, ApiError } from "@/lib/api";
 import { IconCheck, IconClock, IconUser } from "./icons";
+import { Notice } from "./notice";
 
 /**
  * המשימות של לקוח או נכס — בתוך הכרטיס שלו.
@@ -106,9 +107,7 @@ export function EntityTasks({
       </h2>
 
       {error ? (
-        <p role="alert" className="mb-2" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {tasks === null ? (

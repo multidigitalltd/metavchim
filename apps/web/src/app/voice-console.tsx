@@ -16,6 +16,7 @@ import {
   IconUser,
   IconUsers,
 } from "./icons";
+import { Notice } from "./notice";
 
 /**
  * הסוכן הקולי בדשבורד — שורה אחת שעונה על "מה עכשיו".
@@ -556,9 +557,7 @@ export function VoiceConsole({
         </p>
       ) : null}
       {error !== null ? (
-        <p role="alert" className="m-0 mt-2 text-[14.5px]" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
     </section>
   );

@@ -26,6 +26,7 @@ import { EntityNotes } from "../../entity-notes";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { RelatedEntities } from "../../related-entities";
 import { IconThumbUp } from "../../icons";
+import { Notice } from "../../notice";
 
 /**
  * כרטיס הנכס לפי קובץ העיצוב: כרטיס כותרת עם מחיר ופעולות (עריכה /
@@ -352,12 +353,10 @@ export default function PropertyDetailPage({
 
   if (error) {
     return (
-      <p role="alert" style={{ color: "var(--color-danger)" }}>
-        {error} —{" "}
+      <Notice tone="danger">{error} —{" "}
         <Link href="/properties" className="underline">
           חזרה לרשימה
-        </Link>
-      </p>
+        </Link></Notice>
     );
   }
   if (!property) return <p aria-live="polite">טוען…</p>;
@@ -826,13 +825,7 @@ export default function PropertyDetailPage({
                   </button>
                 ) : null}
                 {purgeError !== null ? (
-                  <p
-                    role="alert"
-                    className="m-0 text-sm"
-                    style={{ color: "var(--color-danger)" }}
-                  >
-                    {purgeError}
-                  </p>
+                  <Notice tone="danger">{purgeError}</Notice>
                 ) : null}
               </>
             ) : null}
@@ -888,13 +881,7 @@ export default function PropertyDetailPage({
               ) : null}
             </div>
             {bulkResult ? (
-              <p
-                role="status"
-                className="mb-3 text-sm font-bold"
-                style={{ color: "var(--color-primary)" }}
-              >
-                ✓ {bulkResult}
-              </p>
+              <Notice tone="success">✓ {bulkResult}</Notice>
             ) : null}
 
             {matches === null ? (

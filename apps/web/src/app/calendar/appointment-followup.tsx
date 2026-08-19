@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { API_BASE, apiPatch, apiPost, ApiError } from "@/lib/api";
+import { Notice } from "../notice";
 
 /**
  * מה קורה אחרי הפגישה.
@@ -135,9 +136,7 @@ export function AppointmentFollowUp({
       </p>
 
       {error ? (
-        <p role="alert" className="mb-2 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {mode === "reschedule" ? (

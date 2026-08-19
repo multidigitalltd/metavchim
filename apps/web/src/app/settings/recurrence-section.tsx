@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
+import { Notice } from "../notice";
 
 /**
  * משימות אוטומטיות קבועות — ברמת המשרד.
@@ -124,9 +125,7 @@ export function RecurrenceSection(): React.JSX.Element {
       </p>
 
       {error ? (
-        <p role="alert" className="m-0 mb-2 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {rules === null ? (

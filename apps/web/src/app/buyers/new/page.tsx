@@ -12,6 +12,7 @@ import { PriceField } from "../../price-field";
 import { EntryTimingField } from "../../properties/entry-timing-field";
 import { shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { Notice } from "../../notice";
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 
@@ -109,9 +110,7 @@ export default function NewBuyerPage() {
 
       <form onSubmit={onSubmit} noValidate>
         {error ? (
-          <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
-            {error}
-          </p>
+          <Notice tone="danger">{error}</Notice>
         ) : null}
 
         <FormSection step={1} title="פרטי קשר" hint="השם והטלפון הם היחידים שחובה למלא.">

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { featureLabel, FREE_PRICE_LABEL } from "@metavchim/shared";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { AuthShell } from "../auth-shell";
+import { Notice } from "../notice";
 
 /**
  * הרשמה עצמית של משרד תיווך.
@@ -168,14 +169,7 @@ export default function SignupPage(): React.JSX.Element {
       }
     >
       {error ? (
-        <p
-          id="signup-error"
-          role="alert"
-          className="mb-4 rounded-lg border p-3 text-sm"
-          style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}
-        >
-          {error}
-        </p>
+        <Notice tone="danger" id="signup-error">{error}</Notice>
       ) : null}
 
       {plans === null ? (

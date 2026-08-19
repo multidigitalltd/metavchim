@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { Notice } from "../notice";
 
 /**
  * אזור הסכנה — מחיקת חשבון מלאה. מוצג לבעל המשרד בלבד.
@@ -71,9 +72,7 @@ export function DeleteAccountSection({ tenantName }: { tenantName: string }) {
       ) : (
         <form method="post" onSubmit={(e) => void onSubmit(e)} className="flex max-w-sm flex-col gap-3">
           {error ? (
-            <p role="alert" className="m-0 text-sm" style={{ color: "var(--color-danger)" }}>
-              {error}
-            </p>
+            <Notice tone="danger">{error}</Notice>
           ) : null}
           <label>
             <span className="mb-1 block text-sm font-semibold">

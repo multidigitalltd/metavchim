@@ -34,17 +34,61 @@ import { useEffect, useRef, useState } from "react";
 
 export type NoticeTone = "success" | "danger" | "warning" | "info";
 
+/**
+ * „סגרתי את זה” — ונשאר סגור.
+ *
+ * לפאנלים שחוזרים בכל טעינת מסך (סיורים שטרם תועדו, משימות באיחור)
+ * סגירה שחיה ב-state בלבד היא לא סגירה: היא נפתחת שוב ברגע שעוברים
+ * מסך וחוזרים, וזה בדיוק מה שהופך תזכורת למטרד.
+ *
+ * המפתח כולל את **התאריך** במכוון. הסגירה שווה ליום אחד: מי שסגר
+ * את „סיורים שטרם תועדו” היום אמר „לא עכשיו”, לא „לעולם לא”. סגירה
+ * לצמיתות הייתה מסתירה עבודה אמיתית עד שמישהו ימחק localStorage.
+ */
+export function useDismissedToday(key: string): [boolean, () => void] {
+  const storageKey = `mv-dismiss:${key}:${new Date().toISOString().slice(0, 10)}`;
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    try {
+      setDismissed(window.localStorage.getItem(storageKey) === "1");
+    } catch {
+      /* localStorage חסום — הפאנל פשוט מוצג */
+    }
+  }, [storageKey]);
+
+  return [
+    dismissed,
+    () => {
+      setDismissed(true);
+      try {
+        window.localStorage.setItem(storageKey, "1");
+      } catch {
+        /* נסגר לפחות עד לרענון */
+      }
+    },
+  ];
+}
+
 export function Notice({
   tone = "info",
   onClose,
   children,
   className,
+  id,
 }: {
   tone?: NoticeTone;
   /** נקרא **אחרי** הסגירה. אופציונלי — הרכיב סוגר את עצמו בכל מקרה. */
   onClose?: () => void;
   children: React.ReactNode;
   className?: string;
+  /**
+   * מזהה, כשטופס מפנה להודעה ב-‎`aria-describedby`‎.
+   *
+   * אינו קישוט: בלעדיו ההפניה מצביעה על אלמנט שאינו קיים, וקורא מסך
+   * פשוט לא מקריא את השגיאה — כלומר מי שהכי זקוק לה לא מקבל אותה.
+   */
+  id?: string;
 }): React.JSX.Element | null {
   const [closed, setClosed] = useState(false);
   /*
@@ -64,6 +108,7 @@ export function Notice({
 
   return (
     <div
+      id={id}
       className={`mv-notice${className === undefined ? "" : ` ${className}`}`}
       data-tone={tone}
       role={tone === "danger" ? "alert" : "status"}

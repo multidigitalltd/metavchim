@@ -11,6 +11,7 @@ import {
 } from "@metavchim/shared";
 import { apiDelete, apiGet, apiPatch, ApiError } from "@/lib/api";
 import { IconCard, IconWarning } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * הגדרת המסלולים — מה כלול בכל מסלול, כמה הוא עולה ומה המגבלות.
@@ -440,14 +441,10 @@ export function PlansSection({
       </p>
 
       {error ? (
-        <p role="alert" className="mb-3 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
       {saved ? (
-        <p role="status" className="mb-3 text-sm font-bold" style={{ color: "var(--color-primary)" }}>
-          ✓ המסלול נשמר
-        </p>
+        <Notice tone="success">✓ המסלול נשמר</Notice>
       ) : null}
 
       {data !== null && !creating ? (

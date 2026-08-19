@@ -5,6 +5,7 @@ import { Button } from "@metavchim/ui";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { LoadError } from "../load-error";
 import { IconPhone } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * מספרים וירטואליים — **מאיפה הגיעה השיחה, לא רק ממי.**
@@ -346,9 +347,7 @@ export function VirtualNumbersSection() {
       )}
 
       {error !== null && (
-        <p role="alert" className="mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       )}
     </section>
   );

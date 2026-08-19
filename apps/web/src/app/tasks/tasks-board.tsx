@@ -13,6 +13,7 @@ import {
 import { api, apiGet, apiPost, ApiError } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { IconClock, IconUser } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * לוח המשימות — רכיב אחד, שני מקומות.
@@ -456,9 +457,7 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
       </form>
 
       {error ? (
-        <p role="alert" className="mb-3" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {tasks === null ? (

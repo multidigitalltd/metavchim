@@ -8,6 +8,7 @@ import { apiGet } from "@/lib/api";
 import { formatDateTime, MATURITY_LABELS, STATUS_LABELS } from "@/lib/format";
 import { LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
+import { Notice } from "../notice";
 
 interface SearchResults {
   contact: { id: string; name: string; phone: string } | null;
@@ -179,7 +180,7 @@ function SearchResultsView() {
           או „דירות עד 2 מיליון" — וגם טלפון, שם, כתובת, סיכום שיחה או הערה.
         </p>
       ) : error ? (
-        <p role="alert" style={{ color: "var(--color-danger)" }}>{error}</p>
+        <Notice tone="danger">{error}</Notice>
       ) : results === null ? (
         <p aria-live="polite">מחפש „{q}"…</p>
       ) : empty ? (

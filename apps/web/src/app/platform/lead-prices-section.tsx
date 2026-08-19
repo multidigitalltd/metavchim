@@ -5,6 +5,7 @@ import { Button } from "@metavchim/ui";
 import type { LeadSourcePrice } from "@metavchim/shared";
 import { apiGet, apiPatch, ApiError } from "@/lib/api";
 import { IconDiamond } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * מחיר ליד לפי מקור.
@@ -66,14 +67,10 @@ export function LeadPricesSection(): React.JSX.Element {
       </p>
 
       {message ? (
-        <p role="status" className="mb-2 text-sm" style={{ color: "var(--color-primary)" }}>
-          {message}
-        </p>
+        <Notice tone="success">{message}</Notice>
       ) : null}
       {error ? (
-        <p role="alert" className="mb-2 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {prices === null ? (

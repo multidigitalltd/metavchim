@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { DictateFor } from "../../dictation-field";
+import { Notice } from "../../notice";
 
 /**
  * תשובה במייל ללקוח, מתוך הכרטיס.
@@ -89,9 +90,7 @@ export function ReplyEmail({
       ) : null}
 
       {error ? (
-        <p role="alert" className="m-0 mb-2 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {open ? (

@@ -6,6 +6,7 @@ import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../dictation-field";
+import { Notice } from "../../notice";
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 
@@ -56,15 +57,11 @@ export default function NewLeadPage() {
       <h1 className="mb-6 text-2xl font-bold">ליד חדש</h1>
       <form onSubmit={onSubmit} noValidate>
         {mergedNotice ? (
-          <p role="status" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-            ℹ️ לאיש הקשר כבר יש ליד פתוח אצל סוכן אחר במשרד — הפנייה נוספה לציר הזמן של הליד שלו והוא קיבל
-            התראה. אין צורך לפתוח ליד חדש.
-          </p>
+          <Notice tone="success">ℹ️ לאיש הקשר כבר יש ליד פתוח אצל סוכן אחר במשרד — הפנייה נוספה לציר הזמן של הליד שלו והוא קיבל
+            התראה. אין צורך לפתוח ליד חדש.</Notice>
         ) : null}
         {error ? (
-          <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
-            {error}
-          </p>
+          <Notice tone="danger">{error}</Notice>
         ) : null}
 
         <div className="mb-4 grid gap-4 sm:grid-cols-2">

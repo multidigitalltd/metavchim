@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { Notice } from "./notice";
 
 /**
  * החיבורים הפתוחים — מי מחובר, מאיפה, ומתי התחבר.
@@ -255,13 +256,9 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
         role="status" ולא טקסט רגיל: קורא מסך אינו רואה שהרשימה
         התקצרה, ובלי ההכרזה הפעולה חוזרת אליו כשקט מוחלט.
       */}
-      <p role="status" className="m-0 mt-2 text-[14px]" style={{ color: "var(--color-success)" }}>
-        {msg ?? ""}
-      </p>
+      <Notice tone="success">{msg ?? ""}</Notice>
       {error !== null ? (
-        <p role="alert" className="m-0 mt-1 text-[14px]" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
     </div>
   );

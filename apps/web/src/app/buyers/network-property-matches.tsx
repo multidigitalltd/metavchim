@@ -5,6 +5,7 @@ import { presentationChips } from "@metavchim/shared";
 import { ApiError, apiGet, apiPatch } from "@/lib/api";
 import { NetChips } from "../collaboration/net-chips";
 import { IconHandshake, IconHome } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * העמודה השנייה בכרטיס הקונה: **נכסים מהרשת**.
@@ -120,13 +121,7 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
       </p>
 
       {error !== null ? (
-        <p
-          role="alert"
-          className="m-0 mb-2 text-sm"
-          style={{ color: "var(--color-danger)" }}
-        >
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {data === null ? (

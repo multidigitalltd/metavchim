@@ -20,6 +20,7 @@ import { SystemUpdateSection } from "./system-update-section";
 import { SupportDeskSection } from "./support-desk-section";
 import { PayoutDeskSection } from "./payout-desk-section";
 import { ReferralRevenueSection } from "./referral-revenue-section";
+import { Notice } from "../notice";
 
 /**
  * ניהול הפלטפורמה — הקמת משרדי תיווך חדשים בלי SSH. נגיש רק למנהלי
@@ -555,9 +556,7 @@ export default function PlatformPage() {
   if (authLoading) return <p aria-live="polite">טוען…</p>;
   if (forbidden) {
     return (
-      <p role="alert" style={{ color: "var(--color-text-muted)" }}>
-        המסך הזה זמין רק למנהלי הפלטפורמה.
-      </p>
+      <Notice tone="danger">המסך הזה זמין רק למנהלי הפלטפורמה.</Notice>
     );
   }
 
@@ -583,9 +582,7 @@ export default function PlatformPage() {
       </nav>
 
       {error ? (
-        <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {created ? (

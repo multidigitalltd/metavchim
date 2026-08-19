@@ -6,6 +6,7 @@ import { apiGet } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { FilterBar, SearchField, textMatches } from "../list-controls";
+import { Notice } from "../notice";
 
 /**
  * מסך ההצעות לפי קובץ העיצוב: טבלת grid — קונה / נכס / נשלחה /
@@ -147,9 +148,7 @@ export default function OffersPage() {
       ) : null}
 
       {error ? (
-        <p role="alert" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : items === null ? (
         <p aria-live="polite">טוען הצעות…</p>
       ) : items.length === 0 ? (

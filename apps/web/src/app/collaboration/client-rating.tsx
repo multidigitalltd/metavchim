@@ -14,6 +14,7 @@ import { Button } from "@metavchim/ui";
 import { ApiError, apiPost } from "@/lib/api";
 import { DictateFor } from "../dictation-field";
 import { IconStar } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * איכות הלקוח בהפניה — **הצהרה בפרסום, אישור בקליטה.**
@@ -430,13 +431,7 @@ export function ReferralConfirmation({
       </label>
 
       {error ? (
-        <p
-          role="alert"
-          className="mt-2 mb-0 text-[14px]"
-          style={{ color: "var(--color-danger)" }}
-        >
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       <div className="mt-2 flex flex-wrap items-center gap-2">

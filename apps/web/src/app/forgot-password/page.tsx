@@ -5,6 +5,7 @@ import Link from "next/link";
 import { apiPost, ApiError } from "@/lib/api";
 import { AuthShell } from "../auth-shell";
 import { IconMail } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * "שכחתי סיסמה" — התשובה זהה תמיד, בין אם הכתובת רשומה ובין אם לא
@@ -54,13 +55,7 @@ export default function ForgotPasswordPage() {
       ) : (
         <form onSubmit={onSubmit} noValidate>
           {error ? (
-            <p
-              role="alert"
-              className="mb-4 rounded-lg border p-3"
-              style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}
-            >
-              {error}
-            </p>
+            <Notice tone="danger">{error}</Notice>
           ) : null}
 
           <div className="mb-6">

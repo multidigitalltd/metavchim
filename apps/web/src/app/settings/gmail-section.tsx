@@ -5,6 +5,7 @@ import { Button } from "@metavchim/ui";
 import { API_BASE, apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { IconMail, IconWarning } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * חיבור Gmail — אימיילים נכנסים הופכים ללידים.
@@ -97,14 +98,10 @@ export function GmailSection(): React.JSX.Element | null {
       </p>
 
       {message ? (
-        <p role="status" className="m-0 mb-3 text-sm" style={{ color: "var(--color-primary)" }}>
-          {message}
-        </p>
+        <Notice tone="success">{message}</Notice>
       ) : null}
       {error ? (
-        <p role="alert" className="m-0 mb-3 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {!status.available ? (

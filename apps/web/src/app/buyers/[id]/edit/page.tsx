@@ -15,6 +15,7 @@ import { FeatureRequirements } from "../../feature-requirements";
 import { PropertyTypesField, readPropertyTypes } from "../../property-types-field";
 import { SearchAreas } from "../../search-areas";
 import type { SearchArea } from "@metavchim/shared";
+import { Notice } from "../../../notice";
 
 /**
  * עריכת דרישות קונה — התקציב גדל? נוספה עיר? הדרישות הן הדלק של מנוע
@@ -166,9 +167,7 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
 
   if (error && !buyer) {
     return (
-      <p role="alert" style={{ color: "var(--color-danger)" }}>
-        {error} — <Link href="/buyers" className="underline">חזרה לרשימה</Link>
-      </p>
+      <Notice tone="danger">{error} — <Link href="/buyers" className="underline">חזרה לרשימה</Link></Notice>
     );
   }
   if (!buyer) return <p aria-live="polite">טוען…</p>;
@@ -191,9 +190,7 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
 
       <form onSubmit={onSubmit} noValidate>
         {error ? (
-          <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
-            {error}
-          </p>
+          <Notice tone="danger">{error}</Notice>
         ) : null}
 
         <FormSection

@@ -10,6 +10,7 @@ import { useFeature } from "@/lib/use-features";
 import { FilterBar, SearchField, textMatches } from "../list-controls";
 import { DictateFor } from "../dictation-field";
 import { IconClock, IconDoc, IconMic } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * יומן שיחות — תיעוד ידני של שיחות שהמתווך קיים.
@@ -168,9 +169,7 @@ export default function CallsPage() {
       </div>
 
       {error ? (
-        <p role="alert" className="mb-3" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {adding ? (
@@ -536,9 +535,7 @@ function CallRecording({ call, onChanged }: { call: CallRow; onChanged: () => vo
       )}
 
       {error ? (
-        <p role="alert" className="m-0 mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
     </div>
   );

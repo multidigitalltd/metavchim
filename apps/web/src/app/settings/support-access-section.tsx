@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
+import { Notice } from "../notice";
 
 /**
  * גישת תמיכה בהסכמה.
@@ -75,9 +76,7 @@ export function SupportAccessSection(): React.JSX.Element {
       </p>
 
       {error ? (
-        <p role="alert" className="m-0 mb-3 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {active ? (

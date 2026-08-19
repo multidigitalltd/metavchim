@@ -9,6 +9,7 @@ import {
   referralPayout,
 } from "@metavchim/shared";
 import { IconCard, IconChat, IconCoins, IconKey, IconLock, IconMail, IconPin } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * הגדרות הפלטפורמה — מפתחות הספקים (Postmark, WhatsApp) והפעלת אימות
@@ -284,14 +285,10 @@ export function PlatformSettingsSection() {
       </p>
 
       {message ? (
-        <p role="status" className="mb-3 rounded-lg border p-3" style={{ borderColor: "var(--color-success)", background: "var(--color-surface)" }}>
-          {message}
-        </p>
+        <Notice tone="success">{message}</Notice>
       ) : null}
       {error ? (
-        <p role="alert" className="mb-3 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {/* ---------- אימייל ---------- */}

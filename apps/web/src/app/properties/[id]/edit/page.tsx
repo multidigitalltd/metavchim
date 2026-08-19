@@ -12,6 +12,7 @@ import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../../dictation-field";
 import { FeatureChips } from "../../feature-chips";
 import { EntryTimingField } from "../../entry-timing-field";
+import { Notice } from "../../../notice";
 
 /**
  * עריכת נכס קיים — סוגר את הלולאה של "השלם פרטים": הדשבורד שולח לכאן
@@ -163,9 +164,7 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
 
   if (error && !property) {
     return (
-      <p role="alert" style={{ color: "var(--color-danger)" }}>
-        {error} — <Link href="/properties" className="underline">חזרה לרשימה</Link>
-      </p>
+      <Notice tone="danger">{error} — <Link href="/properties" className="underline">חזרה לרשימה</Link></Notice>
     );
   }
   if (!property) return <p aria-live="polite">טוען…</p>;
@@ -185,9 +184,7 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
 
       <form onSubmit={onSubmit} noValidate>
         {error ? (
-          <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
-            {error}
-          </p>
+          <Notice tone="danger">{error}</Notice>
         ) : null}
 
         <fieldset className="mb-6 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>

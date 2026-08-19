@@ -9,6 +9,7 @@ import type {
 } from "@metavchim/shared";
 import { MATCH_REFRESH_REASON_LABELS } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
+import { Notice } from "../notice";
 
 /**
  * מצב חישוב ההתאמות מחדש.
@@ -161,13 +162,7 @@ export function MatchRefreshCard({ reloadKey }: { reloadKey: number }) {
       </div>
 
       {error ? (
-        <p
-          role="alert"
-          className="m-0 mb-2 text-sm"
-          style={{ color: "var(--color-danger)" }}
-        >
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       <Button

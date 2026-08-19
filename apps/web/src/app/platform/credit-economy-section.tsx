@@ -12,6 +12,7 @@ import {
 } from "@metavchim/shared";
 import { ApiError, apiGet, apiPatch } from "@/lib/api";
 import { IconCoins } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * כלכלת הרשת — **כל מספר מסחרי במקום אחד, וכולם עריכים.**
@@ -328,14 +329,10 @@ export function CreditEconomySection() {
       </div>
 
       {error !== null ? (
-        <p role="alert" className="mt-3 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
       {note !== null ? (
-        <p role="status" className="mt-3 text-sm font-bold" style={{ color: "var(--color-primary)" }}>
-          ✓ {note}
-        </p>
+        <Notice tone="success">✓ {note}</Notice>
       ) : null}
 
       <div className="mt-3">

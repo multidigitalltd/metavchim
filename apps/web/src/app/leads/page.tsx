@@ -14,6 +14,7 @@ import { IconMic } from "../icons";
 import { CapNote, FilterBar, FilterSelect, SearchField, textMatches,
   useFilterFromUrl,
 } from "../list-controls";
+import { Notice } from "../notice";
 
 /**
  * מסך הלידים לפי קובץ העיצוב: טבלת grid עם תג "דחוף", זמן המתנה
@@ -118,7 +119,7 @@ export default function LeadsPage() {
       </div>
 
       {error ? (
-        <p role="alert" style={{ color: "var(--color-danger)" }}>{error}</p>
+        <Notice tone="danger">{error}</Notice>
       ) : items === null ? (
         <p aria-live="polite">טוען לידים…</p>
       ) : items.length === 0 ? (

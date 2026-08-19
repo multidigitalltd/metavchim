@@ -10,6 +10,7 @@ import {
 } from "@metavchim/shared";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { Notice } from "../notice";
 
 /**
  * גיבויים — **בעל הפלטפורמה בלבד**.
@@ -385,14 +386,10 @@ export function BackupsSection() {
           ) : null}
 
           {error ? (
-            <p role="alert" className="mb-3 text-sm" style={{ color: "var(--color-danger)" }}>
-              {error}
-            </p>
+            <Notice tone="danger">{error}</Notice>
           ) : null}
           {notice ? (
-            <p role="status" className="mb-3 text-sm">
-              {notice}
-            </p>
+            <Notice tone="success">{notice}</Notice>
           ) : null}
 
           {/* ---- רשימה ---- */}

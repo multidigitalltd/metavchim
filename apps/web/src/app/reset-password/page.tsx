@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiPost, ApiError } from "@/lib/api";
 import { AuthShell } from "../auth-shell";
+import { Notice } from "../notice";
 
 /** קביעת סיסמה חדשה מקישור האיפוס שנשלח למייל (טוקן חד-פעמי). */
 
@@ -37,9 +38,7 @@ function ResetForm() {
   if (!token) {
     return (
       <>
-        <p role="alert" className="mb-4" style={{ color: "var(--color-danger)" }}>
-          הקישור אינו תקין. בקשו קישור איפוס חדש.
-        </p>
+        <Notice tone="danger">הקישור אינו תקין. בקשו קישור איפוס חדש.</Notice>
         <Link href="/forgot-password" className="underline">
           לבקשת קישור חדש
         </Link>
@@ -50,13 +49,7 @@ function ResetForm() {
   return (
     <form method="post" onSubmit={onSubmit} noValidate>
       {error ? (
-        <p
-          role="alert"
-          className="mb-4 rounded-lg border p-3"
-          style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}
-        >
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       <div className="mb-4">

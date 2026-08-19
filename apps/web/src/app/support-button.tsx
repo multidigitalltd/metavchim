@@ -13,6 +13,7 @@ import { collectDiagnostics, recordScreen, startDiagnostics } from "@/lib/client
 import { canCaptureScreen, captureScreen } from "@/lib/screen-capture";
 import { DictationControls } from "./dictation-field";
 import { IconChat, IconX } from "./icons";
+import { Notice } from "./notice";
 
 /**
  * כפתור התמיכה — בצד, בכל מסך.
@@ -282,9 +283,7 @@ export function SupportButton() {
               </label>
 
               {error !== null ? (
-                <p role="alert" className="m-0 mt-2 text-[14.5px]" style={{ color: "var(--color-danger)" }}>
-                  {error}
-                </p>
+                <Notice tone="danger">{error}</Notice>
               ) : null}
 
               <div className="mt-3 flex gap-2">

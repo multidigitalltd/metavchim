@@ -12,6 +12,7 @@ import {
 import { ApiError, apiGet, apiPatch } from "@/lib/api";
 import { IconInfo } from "../icons";
 import { MatchRefreshCard } from "./match-refresh-card";
+import { Notice } from "../notice";
 
 /**
  * משקלי ההתאמה של המשרד.
@@ -218,22 +219,10 @@ export function MatchWeightsSection() {
         </p>
 
         {error ? (
-          <p
-            role="alert"
-            className="m-0 mb-2 text-sm"
-            style={{ color: "var(--color-danger)" }}
-          >
-            {error}
-          </p>
+          <Notice tone="danger">{error}</Notice>
         ) : null}
         {saved ? (
-          <p
-            role="status"
-            className="m-0 mb-2 text-sm"
-            style={{ color: "var(--color-primary)" }}
-          >
-            ✓ נשמר. כל ההתאמות במשרד מחושבות מחדש עכשיו — ראו את הכרטיס למטה.
-          </p>
+          <Notice tone="success">✓ נשמר. כל ההתאמות במשרד מחושבות מחדש עכשיו — ראו את הכרטיס למטה.</Notice>
         ) : null}
 
         <div className="flex flex-wrap gap-2">

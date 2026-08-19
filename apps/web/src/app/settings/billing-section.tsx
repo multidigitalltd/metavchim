@@ -17,6 +17,7 @@ import {
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { formatDate } from "@/lib/format";
+import { Notice } from "../notice";
 
 /**
  * המנוי — רכיב משותף למסך /settings/billing וללשונית "מנוי ותשלום"
@@ -127,7 +128,7 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
     return (
       <div>
         <h2 className="m-0 mb-3 text-lg font-bold">מנוי ותשלומים</h2>
-        <p role="alert">טעינת פרטי המנוי נכשלה. רעננו את העמוד או פנו אלינו.</p>
+        <Notice tone="danger">טעינת פרטי המנוי נכשלה. רעננו את העמוד או פנו אלינו.</Notice>
       </div>
     );
   }
@@ -148,19 +149,11 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
         למה נזרק אליו.
       */}
       {expired ? (
-        <p
-          role="alert"
-          className="mb-5 rounded-xl border p-3 text-sm font-medium"
-          style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}
-        >
-          התקופה הסתיימה. שאר המסכים ייפתחו מיד עם חידוש המנוי.
-        </p>
+        <Notice tone="danger">התקופה הסתיימה. שאר המסכים ייפתחו מיד עם חידוש המנוי.</Notice>
       ) : null}
 
       {error ? (
-        <p role="alert" className="mb-4 rounded-lg border p-3 text-sm" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {sub === undefined ? (
@@ -207,9 +200,7 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
               רכישה ושינוי מסלול נעשים על ידי בעל/ת המשרד.
             </p>
           ) : data?.checkoutAvailable === false ? (
-            <p role="alert" className="mb-6 rounded-lg border p-3 text-sm" style={{ borderColor: "var(--color-border)" }}>
-              התשלום המקוון טרם הופעל במערכת. פנו אלינו כדי להסדיר את המנוי.
-            </p>
+            <Notice tone="danger">התשלום המקוון טרם הופעל במערכת. פנו אלינו כדי להסדיר את המנוי.</Notice>
           ) : (
             <>
               <div className="mb-4 flex items-center gap-2" role="group" aria-label="מחזור חיוב">
