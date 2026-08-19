@@ -13,6 +13,7 @@ import { SoftphoneProvider } from "./softphone-bar";
 import { SupportButton } from "./support-button";
 import { roleLabel } from "@metavchim/shared";
 import { IconMenu, LogoMark } from "./icons";
+import { OfficeLogoMark } from "./office-logo-mark";
 
 /**
  * מעטפת האפליקציה לפי קובץ העיצוב: סרגל צד כהה עם ניווט אנכי, מונים
@@ -507,6 +508,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             מתווכים<span style={{ color: "var(--color-action)" }}>.</span>
           </span>
         </div>
+        {/*
+          הלוגו של המשרד מתחת לזה של המערכת ולא במקומו: המערכת אחת
+          וכל משרד הוא דייר בה, והחלפת המותג הראשי הייתה מבלבלת
+          בדיוק את מי שעובר בין שני משרדים. נעלם בשקט למי שלא העלה.
+        */}
+        <OfficeLogoMark />
         <div className="mv-sidebar-sub">{me?.tenantName ?? " "}</div>
       </div>
 

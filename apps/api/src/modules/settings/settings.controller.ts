@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   NotFoundException,
   Param,
@@ -11,7 +12,11 @@ import {
   Post,
   Put,
   Query,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import { z } from "zod";
@@ -54,6 +59,7 @@ import { AuthService, type SessionInfo } from "../auth/auth.service";
 import { LoginThrottleService } from "../auth/login-throttle.service";
 import { MatchRefreshService } from "../matching/match-refresh.service";
 import { AccountDeletionService } from "./account-deletion.service";
+import { MAX_LOGO_BYTES, TenantLogoService } from "./tenant-logo.service";
 
 /**
  * הגדרת האוטומציות שמגיעה מהמסך.
@@ -203,6 +209,7 @@ export class SettingsController {
     private readonly audit: AuditService,
     private readonly loginThrottle: LoginThrottleService,
     private readonly auth: AuthService,
+    private readonly tenantLogo: TenantLogoService,
     private readonly plans: PlanCatalogService,
     private readonly accountDeletion: AccountDeletionService,
     private readonly matchRefresh: MatchRefreshService,
@@ -403,6 +410,38 @@ export class SettingsController {
       // נרשם בשירות עצמו; הסורק היומי יתפוס את מה שלא הושלם
     });
     return { weights: resolveMatchWeights(body) };
+  }
+
+  /**
+   * הלוגו של המשרד — העלאה, מחיקה, והקובץ עצמו.
+   *
+   * ההעלאה והמחיקה דורשות `settings.manage`, אבל **הקריאה פתוחה לכל
+   * מי שמחובר למשרד**: הלוגו מוצג בסרגל הצד של כל משתמש, וסוכן אינו
+   * מחזיק את היכולת הזו. `@AnyAuthenticated` הוא הצהרה מפורשת ולא
+   * שכחה — ראו `auth-coverage.test.ts`.
+   */
+  @Post("tenant/logo")
+  @RequireCapability("settings.manage")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_LOGO_BYTES, files: 1 } }))
+  uploadLogo(@UploadedFile() file: Express.Multer.File | undefined): Promise<{ ok: true }> {
+    return this.tenantLogo.upload(file?.buffer ?? Buffer.alloc(0));
+  }
+
+  @Delete("tenant/logo")
+  @RequireCapability("settings.manage")
+  removeLogo(): Promise<{ ok: true }> {
+    return this.tenantLogo.remove();
+  }
+
+  @Get("tenant/logo/raw")
+  @AnyAuthenticated()
+  @Header("Cache-Control", "private, max-age=300")
+  async logoRaw(): Promise<StreamableFile> {
+    const obj = await this.tenantLogo.raw();
+    return new StreamableFile(obj.body as never, {
+      type: obj.contentType,
+      ...(obj.contentLength !== undefined ? { length: obj.contentLength } : {}),
+    });
   }
 
   @Get("tenant")

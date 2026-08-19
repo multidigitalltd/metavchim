@@ -3059,3 +3059,79 @@ a.mv-bar-row:focus-visible {
   align-items: center;
   gap: 6px;
 }
+
+/*
+ * אריח שאפשר ללחוץ עליו — מסנן את הרשימה שמתחתיו.
+ * `text-align: start` כי `button` ממורכז כברירת מחדל, ומרכוז היה
+ * שובר את היישור מול האריחים שאינם כפתורים באותה שורה.
+ */
+.mv-stat-tile--pick {
+  text-align: start;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.mv-stat-tile--pick:hover {
+  border-color: var(--color-primary-accent);
+  background: var(--color-hover-soft);
+}
+.mv-stat-tile--pick[aria-pressed="true"] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+.mv-stat-tile--pick:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/*
+ * אות ראשונה בעיגול, ברשימות של אנשים.
+ *
+ * ברשימה של עשרות שורות זהות זה מה שמאפשר למצוא שוב שורה שכבר
+ * ראית, בלי לקרוא את כל השמות מחדש. אפור ולא צבעוני: זה עוגן
+ * לעין ולא סטטוס, וצבע כאן היה מתחרה בגלולת הסטטוס שלצדו.
+ */
+.mv-avatar-dot {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--color-hover-soft);
+  color: var(--color-text-soft);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+/*
+ * מסגרת הלוגו — משבצת בגודל קבוע שהתמונה מתאימה את עצמה לתוכה.
+ * `contain` ולא `cover`: לוגו חתוך אינו לוגו, וגובה משתנה לפי
+ * יחס הקובץ היה מזיז את כל הטופס בכל החלפה.
+ */
+.mv-logo-frame {
+  display: grid;
+  place-items: center;
+  width: 120px;
+  height: 72px;
+  padding: 8px;
+  border: 1px dashed var(--color-border-hover);
+  border-radius: 12px;
+  background: var(--color-surface);
+  font-size: 14px;
+  overflow: hidden;
+}
+
+/*
+ * הלוגו של המשרד בסרגל הצד — מתחת ללוגו המערכת.
+ * גובה קבוע ורוחב חופשי: לוגואים של משרדים באים בכל יחס, ורוחב
+ * קבוע היה מותח חלק מהם.
+ */
+.mv-sidebar-logo {
+  display: block;
+  max-height: 34px;
+  max-width: 140px;
+  margin-top: 10px;
+  object-fit: contain;
+}

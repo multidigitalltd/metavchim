@@ -33,6 +33,7 @@ import { SystemUpdateSection } from "./system-update";
 import { SessionsList } from "../sessions-list";
 import { UserPermissions } from "./user-permissions";
 import { Notice } from "../notice";
+import { OfficeLogo } from "./office-logo";
 
 const inputStyle = {
   borderColor: "var(--color-border)",
@@ -733,6 +734,8 @@ export default function SettingsPage() {
               </h2>
               {tenant ? (
                 <form onSubmit={(e) => void saveTenant(e)} className="max-w-md">
+                  {/* הלוגו ראשון: הוא הדבר היחיד בטופס שרואים אותו */}
+                  <OfficeLogo />
                   <div className="mb-3.5">
                     <label
                       htmlFor="name"

@@ -8,6 +8,7 @@ import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { IconCheck, IconMic, IconSheet, IconUsers } from "../icons";
 import { Notice } from "../notice";
+import { OfficeLogo } from "../settings/office-logo";
 
 /**
  * אשף הקמת המשרד — לפי קובץ העיצוב: ארבעה שלבים עם פס התקדמות,
@@ -113,6 +114,8 @@ function StepOffice({ allowed, onSaved }: { allowed: boolean; onSaved: () => voi
       {error ? (
         <Notice tone="danger">{error}</Notice>
       ) : null}
+      {/* הלוגו נשמר מיד בבחירה ואינו חלק בטופס — קובץ אינו שדה טקסט */}
+      <OfficeLogo />
       <div className="mb-4 grid gap-4 sm:grid-cols-2">
         <div>
           <label htmlFor="ob-name" className="mb-1 block font-medium">שם המשרד *</label>

@@ -4,11 +4,12 @@ import { AccountDeletionService } from "./account-deletion.service";
 import { AgreementTemplatesController } from "./agreement-templates.controller";
 import { AutomationRulesController } from "./automation-rules.controller";
 import { SettingsController } from "./settings.controller";
+import { TenantLogoService } from "./tenant-logo.service";
 
 @Module({
   // שמירת משקלי ההתאמה מפעילה סבב חישוב מחדש — ראו saveMatchWeights
   imports: [MatchingModule],
   controllers: [SettingsController, AgreementTemplatesController, AutomationRulesController],
-  providers: [AccountDeletionService],
+  providers: [AccountDeletionService, TenantLogoService],
 })
 export class SettingsModule {}
