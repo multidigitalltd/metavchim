@@ -10,7 +10,44 @@
  * ריק, וזה בדיוק הקהל שהעמודים האלה נכתבו בשבילו.
  */
 
+import type { DocPassage } from "@/lib/guide-content";
 import { LogoMark } from "../icons";
+
+/**
+ * פסקאות סעיף המסגרת, מתוך `guide-content`.
+ *
+ * העמוד מצייר ומהקובץ נגזר ה-Markdown — **מאותו מקור**. כשהטקסט
+ * ישב ב-JSX, „התיעוד המלא” שהעמוד הציע להעתיק לא הכיל אותו כלל.
+ *
+ * מה שנשאר בעמוד הם רק הדברים שאינם טקסט קבוע: בלוק הכתובת,
+ * ופרטי המפעילה שנערכים בזמן ריצה ב-/platform. הם מוזרמים
+ * כ-`children` ומופיעים בסוף הסעיף.
+ */
+export function DocPassages({ passages }: { passages: DocPassage[] }) {
+  return (
+    <>
+      {passages.map((passage, index) =>
+        passage.kind === "link" ? (
+          <p key={passage.href} className="mb-3">
+            <a href={passage.href} className="mv-chip no-underline">
+              {passage.label}
+            </a>
+          </p>
+        ) : (
+          <p
+            // הפסקאות קבועות בקובץ ואינן נערכות, ולכן המיקום הוא מזהה יציב
+            key={index}
+            className="mb-2"
+            style={passage.muted === true ? { color: "var(--color-text-muted)" } : undefined}
+          >
+            {passage.lead === undefined ? null : <b>{passage.lead}</b>}
+            {passage.lead === undefined ? passage.body : ` ${passage.body}`}
+          </p>
+        ),
+      )}
+    </>
+  );
+}
 
 export const inlineCode = {
   background: "var(--color-hover-soft)",

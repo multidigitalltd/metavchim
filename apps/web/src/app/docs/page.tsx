@@ -1,8 +1,21 @@
 import type { Metadata } from "next";
-import { docsMarkdown, guideMarkdown, GUIDES } from "@/lib/guide-content";
+import {
+  docsMarkdown,
+  DOC_TOPICS,
+  guideMarkdown,
+  GUIDES,
+  type DocTopic,
+} from "@/lib/guide-content";
 import { APP_URL, LEGAL } from "@/lib/legal";
 import { CopyMarkdown } from "../copy-markdown";
-import { Code, DocHeader, DocNav, DocSection, inlineCode } from "./doc-ui";
+import {
+  Code,
+  DocHeader,
+  DocNav,
+  DocPassages,
+  DocSection,
+  inlineCode,
+} from "./doc-ui";
 
 /**
  * התיעוד הציבורי של המערכת — **מה שאפשר לקרוא בלי להתחבר.**
@@ -40,17 +53,28 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
-/** סעיפים שאינם הדרכה — הם מסגרת, ולכן נכתבים כאן ולא בתוכן. */
-const INTRO_ID = "about";
-const INTEGRATIONS_ID = "integrations";
-const PRIVACY_ID = "privacy";
+/**
+ * סעיפי המסגרת — לפי מזהה, מתוך מקור התוכן המשותף.
+ *
+ * הם היו כתובים כאן כ-JSX, ולכן „התיעוד המלא” שהעמוד הציע להעתיק
+ * לא הכיל אותם. עכשיו העמוד וקובץ ה-Markdown נגזרים משניהם מאותה
+ * רשימה, והסדר כאן הוא הסדר שם.
+ */
+function topic(id: string): DocTopic {
+  const found = DOC_TOPICS.find((item) => item.id === id);
+  if (found === undefined) throw new Error(`סעיף תיעוד חסר: ${id}`);
+  return found;
+}
 
 export default function DocsPage() {
+  const about = topic("about");
+  const integrations = topic("integrations");
+  const privacy = topic("privacy");
   const navItems = [
-    { id: INTRO_ID, title: "מה זו המערכת" },
+    { id: about.id, title: about.title },
     ...GUIDES.map((guide) => ({ id: guide.id, title: guide.title })),
-    { id: INTEGRATIONS_ID, title: "חיבורים ואוטומציה" },
-    { id: PRIVACY_ID, title: "נתונים ופרטיות" },
+    { id: integrations.id, title: integrations.title },
+    { id: privacy.id, title: privacy.title },
   ];
 
   return (
@@ -80,22 +104,13 @@ export default function DocsPage() {
         subject="תיעוד המערכת המלא"
       />
 
-      <DocSection id={INTRO_ID} title="מה זו המערכת">
-        <p className="mb-2">
-          <b>מתווכים</b> היא מערכת ניהול למשרדי תיווך בישראל: הנכסים, הקונים
-          והשוכרים, הלידים מכל הערוצים, ההתאמות ביניהם, היומן, השיחות, ההסכמים —
-          ורשת שמאפשרת למשרדים לשתף פעולה זה עם זה.
-        </p>
-        <p className="mb-2" style={{ color: "var(--color-text-muted)" }}>
-          המערכת פועלת בענן בכתובת אחת. אין התקנה בשרת של המשרד ואין דומיין נפרד
-          לכל לקוח — כל משרד מקבל סביבה מבודדת בתוך אותה מערכת, והבידוד נאכף
-          במסד הנתונים עצמו ולא רק בקוד.
-        </p>
+      <DocSection id={about.id} title={about.title}>
+        <DocPassages passages={about.passages} />
         <Code>{`${APP_URL}`}</Code>
         <p style={{ color: "var(--color-text-muted)" }}>
           המפעילה: {LEGAL.operator}, ח.פ. {LEGAL.companyId}. שאלות בענייני פרטיות
           ומימוש זכות עיון —{" "}
-          <code style={inlineCode} dir="ltr">
+          <code style={inlineCode} dir="ltr" lang="en">
             {LEGAL.privacyEmail}
           </code>
           .
@@ -136,45 +151,12 @@ export default function DocsPage() {
         </DocSection>
       ))}
 
-      <DocSection id={INTEGRATIONS_ID} title="חיבורים ואוטומציה">
-        <p className="mb-2">
-          המערכת קולטת לידים מכל מקור דרך נתיב אחד, עם מפתח נפרד לכל ערוץ — כך
-          שרשימת הלידים מראה מאיזה ערוץ הגיע כל לקוח. הצורה המלאה, השדות,
-          דוגמאות ל-Make ול-n8n ומפרט OpenAPI לקריאת מכונה נמצאים במסמך נפרד:
-        </p>
-        <p className="mb-3">
-          <a href="/docs/api" className="mv-chip no-underline">
-            תיעוד קליטת לידים (API)
-          </a>
-        </p>
-        <p className="mb-2">
-          <b>מרכזיות טלפון.</b> חיבור מרכזייה אינו עובר דרך נתיב הלידים — הוא
-          מוגדר בניהול המשרד ומקבל כתובת משלו. המערכת מזהה את שמות השדות של
-          המרכזיות המקובלות (015, Asterisk וכל מרכזייה ששולחת Webhook) בלי הגדרה
-          נוספת, ומציגה שדות שהגיעו ואינם מוכרים לה כדי שלא ייבלעו בשקט.
-        </p>
-        <p style={{ color: "var(--color-text-muted)" }}>
-          חיבורים נוספים שמוגדרים מתוך המערכת: יומן Google (דו-כיווני), תיבת
-          Gmail שממנה נפתחים לידים, וואטסאפ, וסליקה לחיוב המנוי.
-        </p>
+      <DocSection id={integrations.id} title={integrations.title}>
+        <DocPassages passages={integrations.passages} />
       </DocSection>
 
-      <DocSection id={PRIVACY_ID} title="נתונים ופרטיות">
-        <p className="mb-2">
-          פרטי הלקוחות — שמות, טלפונים ואימיילים — נשמרים מוצפנים. הפרדת המשרדים
-          נאכפת ברמת מסד הנתונים: שאילתה בלי הקשר משרד מחזירה אפס שורות, ולא
-          נתונים של משרד אחר.
-        </p>
-        <p className="mb-2">
-          <b>ברשת שבין המשרדים נחשף רק מה שאנונימי</b> — הכוונה, האזור, התקציב
-          והתיאור. שם וטלפון של לקוח נחשפים למשרד אחר רק אחרי שההפניה נקלטה
-          בפועל.
-        </p>
-        <p className="mb-2">
-          בעל משרד יכול לייצא את כל נתוני המשרד, ולמחוק את החשבון מחיקה מלאה.
-          אחרי מחיקה נשארות רק רשומות תשלום ללא פרטים אישיים, שחוק מחייב לשמור,
-          ויומן פעולות של מזהים בלבד.
-        </p>
+      <DocSection id={privacy.id} title={privacy.title}>
+        <DocPassages passages={privacy.passages} />
         <p style={{ color: "var(--color-text-muted)" }}>
           הנוסח המחייב נמצא ב<a href="/privacy">מדיניות הפרטיות</a> וב
           <a href="/terms">תנאי השימוש</a>. הצהרת הנגישות זמינה ב
