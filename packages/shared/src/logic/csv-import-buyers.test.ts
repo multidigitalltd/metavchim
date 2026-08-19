@@ -15,6 +15,23 @@ describe("normalizeIsraeliPhone", () => {
     expect(normalizeIsraeliPhone("+14155551234")).toBeUndefined();
     expect(normalizeIsraeliPhone("01-1234567")).toBeUndefined(); // קידומת 1 לא קיימת
   });
+
+  /*
+   * אקסל מתייחס לתא שנראה כמו מספר כמספר, והאפס המוביל נעלם —
+   * בלי שהמשתמש עשה דבר, ובלי שהוא רואה את זה עד שכל הקובץ נדחה.
+   */
+  it("מספר שאקסל הסיר ממנו את האפס המוביל", () => {
+    expect(normalizeIsraeliPhone("583216016")).toBe("+972583216016");
+    expect(normalizeIsraeliPhone("501234567")).toBe("+972501234567");
+    // גם קווי: 03-6123456 בלי האפס
+    expect(normalizeIsraeliPhone("36123456")).toBe("+97236123456");
+  });
+
+  it("מספר זר בלי אפס מוביל אינו הופך לישראלי", () => {
+    // ההשלמה מותנית בתקינות ישראלית, ולכן אינה מרחיבה את מה שמתקבל
+    expect(normalizeIsraeliPhone("14155551234")).toBeUndefined();
+    expect(normalizeIsraeliPhone("1234567")).toBeUndefined();
+  });
 });
 
 describe("parseBuyersCsv", () => {
