@@ -5,6 +5,7 @@ import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet, apiPost, ApiError } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
 import { IconThumbUp } from "../../icons";
+import { Notice } from "../../notice";
 
 /**
  * דף ההצעה ללקוח קצה (docs/06 §6) — ציבורי, בלי התחברות, לפי טוקן בלבד.
@@ -65,7 +66,7 @@ export default function PublicOfferPage({ params }: { params: Promise<{ token: s
   if (error) {
     return (
       <div className="mx-auto max-w-lg py-16 text-center">
-        <p role="alert" className="text-lg">{error}</p>
+        <Notice tone="danger">{error}</Notice>
       </div>
     );
   }
@@ -145,23 +146,11 @@ export default function PublicOfferPage({ params }: { params: Promise<{ token: s
       {p.description ? <p className="mb-8 whitespace-pre-line">{p.description}</p> : null}
 
       {offer.status === "unavailable" ? (
-        <p
-          role="status"
-          className="rounded-xl border p-4 text-center font-medium"
-          style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}
-        >
-          הנכס כבר אינו זמין — פנו למתווך לקבלת הצעות דומות.
-        </p>
+        <Notice tone="success">הנכס כבר אינו זמין — פנו למתווך לקבלת הצעות דומות.</Notice>
       ) : responded ? (
-        <p
-          role="status"
-          className="rounded-xl border p-4 text-center font-medium"
-          style={{ borderColor: "var(--color-success)", color: "var(--color-success)" }}
-        >
-          {responded === "interested"
+        <Notice tone="success">{responded === "interested"
             ? "תודה! המתווך יחזור אליכם בהקדם לתיאום צפייה."
-            : "תודה על העדכון — לא נציע לכם את הנכס הזה שוב."}
-        </p>
+            : "תודה על העדכון — לא נציע לכם את הנכס הזה שוב."}</Notice>
       ) : (
         <div className="flex flex-col gap-3" role="group" aria-label="מה דעתכם על הנכס?">
           <Button disabled={submitting} onClick={() => void respond("interested")} className="w-full">

@@ -10,10 +10,12 @@ import { waMeUrl } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
-import { IconMic } from "../icons";
+import { IconChat, IconGlobe, IconLink, IconMic, IconPhone, IconUser } from "../icons";
 import { CapNote, FilterBar, FilterSelect, SearchField, textMatches,
   useFilterFromUrl,
 } from "../list-controls";
+import { Notice } from "../notice";
+import { LeadsPulse } from "./leads-pulse";
 
 /**
  * מסך הלידים לפי קובץ העיצוב: טבלת grid עם תג "דחוף", זמן המתנה
@@ -101,10 +103,15 @@ export default function LeadsPage() {
 
   return (
     <>
+      {/*
+        בלי שורת הסבר בראש המסך. „לידים מטופס האתר נכנסים לכאן
+        אוטומטית” הוא משפט הדרכה — הוא נקרא פעם אחת ואז נשאר לתפוס
+        מקום לנצח, מעל התוכן שבאמת מסתכלים עליו. מקומו במדריכים.
+      */}
       <div className="mb-[18px] flex flex-wrap items-center gap-3">
-        <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          לידים מטופס האתר נכנסים לכאן אוטומטית, בלי העתקה ידנית.
-        </p>
+        <h1 className="m-0" style={{ fontSize: 22, fontWeight: 800 }}>
+          לידים
+        </h1>
         <div className="ms-auto flex flex-wrap gap-2.5">
           {canVoice ? (
             <Link href="/leads/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "14px" }}>
@@ -118,7 +125,7 @@ export default function LeadsPage() {
       </div>
 
       {error ? (
-        <p role="alert" style={{ color: "var(--color-danger)" }}>{error}</p>
+        <Notice tone="danger">{error}</Notice>
       ) : items === null ? (
         <p aria-live="polite">טוען לידים…</p>
       ) : items.length === 0 ? (
@@ -134,6 +141,24 @@ export default function LeadsPage() {
         </div>
       ) : (
         <>
+          {/*
+            שלושה מספרים לפני הרשימה.
+            
+            מסך שנפתח ישר לתוך טבלה מחייב לספור בעיניים כדי לענות על
+            השאלה היחידה שמתווך שואל בבוקר: „מה בוער”. האריחים גם
+            מסננים בלחיצה — מספר שאי אפשר ללחוץ עליו הוא מספר שצריך
+            לפעול לפיו ידנית.
+          */}
+          <LeadsPulse
+            items={items}
+            now={now}
+            urgency={urgency}
+            onPick={(next) => {
+              setUrgency(next === urgency ? "" : next);
+              setStatus("");
+            }}
+          />
+
           <FilterBar
             shown={visible.length}
             total={items.length}
@@ -233,12 +258,14 @@ export default function LeadsPage() {
                         </p>
                       ) : null}
                       <div className="mt-2 flex flex-wrap gap-2">
-                        <a href={`tel:${lead.contact.phone}`} className="mv-btn-soft">חייג</a>
+                        <a href={`tel:${lead.contact.phone}`} className="mv-btn-soft">
+                          <IconPhone s={15} /> חייג
+                        </a>
                         <a href={waMeUrl(lead.contact.phone)} target="_blank" rel="noopener noreferrer" className="mv-btn-plain">
-                          וואטסאפ
+                          <IconChat s={15} /> וואטסאפ
                         </a>
                         <button type="button" className="mv-btn-plain" onClick={() => convert(lead)}>
-                          המר לקונה
+                          <IconUser s={15} /> המר לקונה
                         </button>
                       </div>
                     </li>
@@ -262,6 +289,14 @@ export default function LeadsPage() {
                   return (
                     <div key={lead.id} className="mv-list-row" style={{ gridTemplateColumns: GRID }}>
                       <span className="flex items-center gap-2 truncate text-[15.5px] font-bold">
+                        {/*
+                          אות ראשונה בעיגול. ברשימה של עשרות שורות
+                          זהות היא מה שמאפשר למצוא שוב שורה שכבר
+                          ראית, בלי לקרוא את כל השמות מחדש.
+                        */}
+                        <span className="mv-avatar-dot" aria-hidden="true">
+                          {lead.contact.name.trim().slice(0, 1)}
+                        </span>
                         <Link href={`/leads/${lead.id}`} className="truncate no-underline hover:underline" style={{ color: "inherit" }}>
                           {lead.contact.name}
                         </Link>
@@ -269,7 +304,8 @@ export default function LeadsPage() {
                           <span className="mv-tag" style={{ background: "#faf1ec", color: "#b0512c" }}>דחוף</span>
                         ) : null}
                       </span>
-                      <span className="truncate text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
+                      <span className="flex items-center gap-1.5 truncate text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
+                        <IconGlobe s={14} />
                         {LEAD_SOURCE_LABELS[lead.source] ?? lead.source}
                       </span>
                       <span className="truncate text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
@@ -284,12 +320,14 @@ export default function LeadsPage() {
                         </span>
                       </span>
                       <span className="flex gap-[7px]">
-                        <a href={`tel:${lead.contact.phone}`} className="mv-btn-soft">חייג</a>
+                        <a href={`tel:${lead.contact.phone}`} className="mv-btn-soft">
+                          <IconPhone s={15} /> חייג
+                        </a>
                         <a href={waMeUrl(lead.contact.phone)} target="_blank" rel="noopener noreferrer" className="mv-btn-plain">
-                          וואטסאפ
+                          <IconChat s={15} /> וואטסאפ
                         </a>
                         <button type="button" className="mv-btn-plain" onClick={() => convert(lead)}>
-                          המר לקונה
+                          <IconUser s={15} /> המר לקונה
                         </button>
                       </span>
                     </div>
@@ -317,9 +355,9 @@ export default function LeadsPage() {
             className="mt-3.5 flex flex-wrap items-center gap-3 rounded-xl border border-dashed px-[18px] py-3.5"
             style={{ borderColor: "#cfd6ce", background: "var(--color-surface)" }}
           >
-            <span className="text-[15px]" style={{ color: "var(--color-text-muted)" }}>
-              מפרסמים באתר, בפייסבוק או בקמפיין? צרו כתובת קליטה לכל ערוץ — וכל פנייה
-              תיכנס כליד עם המקור שלה.
+            <span className="flex items-center gap-2 text-[15px]" style={{ color: "var(--color-text-muted)" }}>
+              <IconLink s={16} />
+              כתובת קליטה לכל ערוץ פרסום
             </span>
             <Link href="/settings" className="mv-btn-plain ms-auto" style={{ color: "var(--color-primary)" }}>
               הגדרת מקורות לידים

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, apiGet } from "@/lib/api";
 import { IconCamera, IconStar } from "../../icons";
+import { Notice } from "../../notice";
 
 /**
  * גלריית תמונות הנכס: העלאה (עם טקסט חלופי — ת"י 5568), תמונה ראשית,
@@ -133,9 +134,7 @@ export function MediaSection({ propertyId, address }: { propertyId: string; addr
       </div>
 
       {error ? (
-        <p role="alert" className="mb-3" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {items === null ? (

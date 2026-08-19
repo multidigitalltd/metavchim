@@ -13,6 +13,7 @@ import { ApiError, apiPost } from "@/lib/api";
 import { formatPrice, MATURITY_LABELS, PROPERTY_TYPE_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { IconDoc, IconDownload, IconWarning } from "../icons";
+import { Notice } from "../notice";
 
 interface ImportResult {
   created: number;
@@ -313,9 +314,7 @@ export default function ImportPage() {
       ) : null}
 
       {tooMany ? (
-        <p role="alert" className="mb-4" style={{ color: "var(--color-danger)" }}>
-          נמצאו {rowCount} שורות — המקסימום בייבוא אחד הוא 10,000. חלקו את הקובץ.
-        </p>
+        <Notice tone="danger">נמצאו {rowCount} שורות — המקסימום בייבוא אחד הוא 10,000. חלקו את הקובץ.</Notice>
       ) : null}
 
       {rowCount > 0 ? (
@@ -403,9 +402,7 @@ export default function ImportPage() {
       </Button>
 
       {error ? (
-        <p role="alert" className="mt-4" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {result ? (

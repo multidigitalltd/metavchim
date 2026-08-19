@@ -10,6 +10,7 @@ import {
 } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { IconCoins } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * תור המשיכות — כסף שיוצא מהפלטפורמה למשרדים.
@@ -117,9 +118,7 @@ export function PayoutDeskSection(): React.JSX.Element {
       </p>
 
       {error !== null ? (
-        <p role="alert" className="mb-2 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {rows === null ? (

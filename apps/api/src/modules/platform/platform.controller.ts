@@ -33,6 +33,7 @@ import {
   MAX_PAYOUT_MINIMUM_AGOROT,
   type CreditEconomy,
   MAX_PLATFORM_FEE_PERCENT,
+  MAX_BURN_CREDITS,
   resolveReferralFeePercent,
   PLAN_FEATURES,
   blockedModulesRejectionReason,
@@ -63,6 +64,11 @@ import {
 import { CardcomService } from "../../core/cardcom.service";
 import { GeocodingService } from "../../core/geocoding.service";
 import { CreditEconomyService } from "../../core/credit-economy.service";
+import {
+  PlatformCreditsService,
+  type PlatformCreditRow,
+  type PlatformCreditsReport,
+} from "./platform-credits.service";
 import { AccountDeletionService } from "../settings/account-deletion.service";
 import { LeadPricingService } from "../../core/lead-pricing.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
@@ -408,6 +414,19 @@ export interface AgencyRow {
   periodEnded: boolean;
 }
 
+/**
+ * מחיקת קרדיטים מחשבון הפלטפורמה.
+ *
+ * ההערה אינה חובה אבל היא השדה היחיד שיסביר, בעוד שנה, למה נמחקו
+ * דווקא אז ודווקא הכמות הזו.
+ */
+const BurnCreditsSchema = z
+  .object({
+    credits: z.number().int().min(1).max(MAX_BURN_CREDITS),
+    note: z.string().max(200).optional(),
+  })
+  .strict();
+
 /** הגדרת קופון מהמסך. `redemptions` אינו כאן — הוא מונה ולא שדה. */
 const CouponSchema = z
   .object({
@@ -457,6 +476,7 @@ export class PlatformController {
     private readonly creditEconomy: CreditEconomyService,
     private readonly serviceVersions: ServiceVersionsService,
     private readonly telephonyWebhookLog: TelephonyWebhookLogService,
+    private readonly platformCredits: PlatformCreditsService,
   ) {}
 
   /**
@@ -1109,6 +1129,46 @@ export class PlatformController {
     @Body(new ZodValidationPipe(DeleteAgencySchema)) body: z.infer<typeof DeleteAgencySchema>,
   ): Promise<{ ok: true }> {
     return this.accountDeletion.deleteTenantFromPlatform(id, body.confirmName);
+  }
+
+  /**
+   * ההכנסה מהפניות — **המספר שלא היה לו מסך.**
+   *
+   * העמלה חושבה ונשמרה על שורת ההפניה, ומעולם לא נזקפה לספר. הדרך
+   * היחידה לדעת כמה הפלטפורמה הרוויחה הייתה לחבר ידנית הפרשים בין
+   * שני יומנים של משרדים אחרים, ולכן בפועל איש לא ידע.
+   */
+  @Get("credits")
+  async credits(): Promise<{
+    report: PlatformCreditsReport;
+    entries: PlatformCreditRow[];
+  }> {
+    return {
+      report: await this.platformCredits.report(),
+      entries: await this.platformCredits.entries(50),
+    };
+  }
+
+  /**
+   * מחיקת קרדיטים מחשבון הפלטפורמה — **הרגע שבו ההכנסה מוכרת.**
+   *
+   * הפלטפורמה היא המנפיק היחיד: קרדיט שהיא מוחקת הוא התחייבות שלה
+   * שנסגרת בלי שהיא שילמה דבר. אצל משרד מחיקה היא הפסד; כאן היא
+   * סגירת מעגל.
+   *
+   * הפעולה מפורשת ולא אוטומטית כדי שההכרה תיקשר לתאריך ולמחיר —
+   * ראו `platform-credits.ts`. שורת הספר עצמה היא רישום הביקורת:
+   * `audit_log` הוא טבלה של דייר, ולפעולה הזו אין דייר.
+   */
+  @Post("credits/burn")
+  async burnCredits(
+    @Body(new ZodValidationPipe(BurnCreditsSchema)) body: z.infer<typeof BurnCreditsSchema>,
+  ): Promise<{ ok: true; recognizedAgorot: number; report: PlatformCreditsReport }> {
+    const { recognizedAgorot } = await this.platformCredits.burn(
+      body.credits,
+      body.note?.trim() ? body.note.trim() : null,
+    );
+    return { ok: true, recognizedAgorot, report: await this.platformCredits.report() };
   }
 
   /**

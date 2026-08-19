@@ -2785,3 +2785,472 @@ a.mv-bar-row:focus-visible {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* ============================================================
+   הודעות — כל הודעה במערכת ניתנת לסגירה (ראו notice.tsx)
+   ============================================================ */
+.mv-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-block: 12px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-hover-soft);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.mv-notice-text {
+  flex: 1;
+}
+.mv-notice[data-tone="success"] {
+  background: var(--color-success-soft);
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+.mv-notice[data-tone="danger"] {
+  background: #fdeee7;
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+.mv-notice[data-tone="warning"] {
+  background: #fdf6e3;
+  border-color: #a97116;
+  color: #7a5210;
+}
+/*
+ * כפתור הסגירה שקוף עד ריחוף: הוא נמצא על כל הודעה במערכת, ומסגרת
+ * קבועה סביבו הייתה מוסיפה רעש חזותי בכל מקום שבו יש טקסט.
+ * שטח הלחיצה נשאר 32px — הגבול המינימלי למגע.
+ */
+.mv-notice-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: -6px -8px -6px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.65;
+  cursor: pointer;
+}
+.mv-notice-close:hover {
+  opacity: 1;
+  background: rgb(0 0 0 / 6%);
+}
+.mv-notice-close:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  opacity: 1;
+}
+
+/* ============================================================
+   אריחי מספרים — דוחות ולוחות
+   ============================================================ */
+.mv-stat-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.mv-stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 14px;
+}
+.mv-stat-tile:hover {
+  border-color: var(--color-border-hover);
+}
+
+/* ============================================================
+   כרטיס הרשת — שפה חזותית אחת לביקוש ולנכס
+   ------------------------------------------------------------
+   הכרטיס הקודם היה רשימת תגיות: כל פרט קיבל את אותו משקל, ולכן
+   שום פרט לא בלט. מי שסורק לוח מחפש שלושה דברים לפני הכול — מה,
+   איפה, וכמה — והם קיבלו כאן מקום משלהם.
+   ============================================================ */
+.mv-net-card {
+  padding: 18px;
+  border-radius: 20px;
+}
+.mv-net-card:hover {
+  box-shadow: 0 10px 28px rgb(12 110 52 / 10%);
+}
+
+/* פס עליון: תגית מצב בצד אחד, מחיר/עלות בשני */
+.mv-net-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.mv-net-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 99px;
+  background: var(--color-action);
+  color: var(--color-on-action);
+  font-size: 14px;
+  font-weight: 800;
+}
+.mv-net-badge--quiet {
+  background: var(--color-hover-soft);
+  color: var(--color-text-soft);
+}
+
+/* גיבור: אווטאר + מה מחפשים + סוג העסקה */
+.mv-net-hero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.mv-net-hero-text {
+  flex: 1;
+  min-width: 0;
+}
+.mv-net-hero .mv-net-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  /*
+   * עיגול מלא ולא מרובע: זה סימן של „מי”, ובכרטיס שכולו מלבנים
+   * העיגול הוא מה שמבדיל בין נושא הכרטיס לבין הפרטים שלו.
+   */
+  background: linear-gradient(140deg, var(--color-primary-accent), var(--color-primary));
+  color: #fff;
+  box-shadow: none;
+}
+.mv-net-hero-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+.mv-net-hero-sub {
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+/* שורת המיקום — שדה ולא תגית, כי היא התשובה לשאלה „איפה” */
+.mv-net-place {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  font-size: 15px;
+  font-weight: 600;
+}
+.mv-net-place > svg {
+  flex: none;
+  color: var(--color-primary-accent);
+}
+
+/* תיבת הכסף — המספר היחיד שמותר לו להיות הכי גדול בכרטיס */
+.mv-net-money {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--color-primary-accent) 40%, transparent);
+  border-radius: 14px;
+  background: var(--color-primary-soft);
+}
+.mv-net-money-label {
+  font-size: 14px;
+  color: var(--color-primary);
+}
+.mv-net-money-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--color-primary);
+}
+
+/* שלושת המספרים — אייקון למעלה, ערך, ואז מה זה */
+.mv-net-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.mv-net-fact {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  text-align: center;
+}
+.mv-net-fact > svg {
+  color: var(--color-text-muted);
+}
+.mv-net-fact-value {
+  font-size: 15px;
+  font-weight: 800;
+}
+.mv-net-fact-label {
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+/* ההערה של המפרסם — תיבה ולא קו, כי זה הדבר האנושי היחיד בכרטיס */
+.mv-net-say {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-inline-start: 3px solid var(--color-primary-accent);
+  border-radius: 0 12px 12px 0;
+  background: var(--color-hover-soft);
+}
+.mv-net-say-label {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.mv-net-say-text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--color-text-soft);
+}
+
+/* שורת המטא — מזהה וזמן, הדברים שמסתכלים עליהם אחרונים */
+.mv-net-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+.mv-net-meta-id {
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: var(--color-hover-soft);
+  font-weight: 700;
+  color: var(--color-text-soft);
+}
+.mv-net-meta-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/*
+ * אריח שאפשר ללחוץ עליו — מסנן את הרשימה שמתחתיו.
+ * `text-align: start` כי `button` ממורכז כברירת מחדל, ומרכוז היה
+ * שובר את היישור מול האריחים שאינם כפתורים באותה שורה.
+ */
+.mv-stat-tile--pick {
+  text-align: start;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.mv-stat-tile--pick:hover {
+  border-color: var(--color-primary-accent);
+  background: var(--color-hover-soft);
+}
+.mv-stat-tile--pick[aria-pressed="true"] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+.mv-stat-tile--pick:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/*
+ * אות ראשונה בעיגול, ברשימות של אנשים.
+ *
+ * ברשימה של עשרות שורות זהות זה מה שמאפשר למצוא שוב שורה שכבר
+ * ראית, בלי לקרוא את כל השמות מחדש. אפור ולא צבעוני: זה עוגן
+ * לעין ולא סטטוס, וצבע כאן היה מתחרה בגלולת הסטטוס שלצדו.
+ */
+.mv-avatar-dot {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--color-hover-soft);
+  color: var(--color-text-soft);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+/*
+ * מסגרת הלוגו — משבצת בגודל קבוע שהתמונה מתאימה את עצמה לתוכה.
+ * `contain` ולא `cover`: לוגו חתוך אינו לוגו, וגובה משתנה לפי
+ * יחס הקובץ היה מזיז את כל הטופס בכל החלפה.
+ */
+.mv-logo-frame {
+  display: grid;
+  place-items: center;
+  width: 120px;
+  height: 72px;
+  padding: 8px;
+  border: 1px dashed var(--color-border-hover);
+  border-radius: 12px;
+  background: var(--color-surface);
+  font-size: 14px;
+  overflow: hidden;
+}
+
+/*
+ * הלוגו של המשרד בסרגל הצד — מתחת ללוגו המערכת.
+ * גובה קבוע ורוחב חופשי: לוגואים של משרדים באים בכל יחס, ורוחב
+ * קבוע היה מותח חלק מהם.
+ */
+.mv-sidebar-logo {
+  display: block;
+  max-height: 34px;
+  max-width: 140px;
+  margin-top: 10px;
+  object-fit: contain;
+}
+
+/* ============================================================
+   שורת הסינון — אזור שליטה, לא המשך הכותרת
+   ------------------------------------------------------------
+   הפקדים ריחפו על הרקע בלי גבול, ולכן הם נקראו כחלק מהכותרת
+   שמעליהם, והמונה — שהוא התוצאה שלהם — נבלע ביניהם.
+   ============================================================ */
+.mv-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+}
+/* סינון פעיל — מסגרת ירוקה, כדי שרשימה מקוצצת לא תיראה כמו רשימה ריקה */
+.mv-filter-bar[data-active="on"] {
+  border-color: var(--color-primary-accent);
+  background: var(--color-hover-soft);
+}
+.mv-filter-bar-end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+.mv-filter-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 99px;
+  background: var(--color-surface);
+  color: var(--color-text-soft);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mv-filter-clear:hover {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+.mv-filter-clear:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* שדה חיפוש עם זכוכית מגדלת בתוכו */
+.mv-search-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 200px;
+  min-width: 190px;
+  max-width: 320px;
+  padding: 0 12px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 10px;
+  background: var(--color-field);
+}
+.mv-search-field > svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+.mv-search-field:focus-within {
+  border-color: var(--color-primary-accent);
+}
+.mv-search-field > input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 14px;
+  padding: 9px 0;
+  outline: none;
+}
+
+/* ============================================================
+   משימות — שורה שאפשר לסרוק, לא שורת טופס
+   ============================================================ */
+.mv-task-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.mv-task-row:hover {
+  border-color: var(--color-border-hover);
+  box-shadow: 0 4px 14px rgb(12 110 52 / 7%);
+}
+/*
+ * משימה שבוצעה נשארת קריאה ורק נסוגה: הסתרה מלאה מוחקת את ההקשר
+ * („מה כבר עשיתי היום”), וקו חוצה בלבד משאיר אותה באותה בליטה כמו
+ * מה שעוד פתוח.
+ */
+.mv-task-row[data-done="on"] {
+  background: var(--color-hover-soft);
+  border-style: dashed;
+}
+.mv-bucket-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}

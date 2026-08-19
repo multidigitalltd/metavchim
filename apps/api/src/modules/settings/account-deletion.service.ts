@@ -131,7 +131,7 @@ export class AccountDeletionService {
      * בהקשר של דייר אחר לגמרי, והטבלאות תחת FORCE RLS היו מחזירות
      * אפס מפתחות בשקט — כלומר הקבצים היו נשארים ב-S3 לנצח.
      */
-    const [media, calls] = await Promise.all([
+    const [media, calls, tenantRow] = await Promise.all([
       this.prisma.withExplicitTenant(tenantId, (tx) =>
         tx.propertyMedia.findMany({
           where: { tenantId },
@@ -144,12 +144,23 @@ export class AccountDeletionService {
           select: { recordingKey: true },
         }),
       ),
+      /*
+       * הלוגו — מפתח שיושב ב-`settings` ולא בטבלה משלו, ולכן הוא
+       * אינו נאסף בשתי השאילתות שמעל. בלי השורה הזו הוא היה נשאר
+       * ב-S3 אחרי מחיקת המשרד: קובץ של לקוח שביקש להימחק.
+       */
+      this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { settings: true },
+      }),
     ]);
+    const logoKey = (tenantRow?.settings as Record<string, unknown> | null)?.["logoKey"];
     const s3Keys = [
       ...media.map((m) => m.s3Key),
       ...calls
         .map((c) => c.recordingKey)
         .filter((k): k is string => k !== null),
+      ...(typeof logoKey === "string" ? [logoKey] : []),
     ];
 
     // הראיה האחרונה — נכתבת לפני המחיקה, כי audit_log נשאר במכוון

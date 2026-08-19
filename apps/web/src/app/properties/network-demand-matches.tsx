@@ -5,6 +5,7 @@ import { demandChips } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { NetChips } from "../collaboration/net-chips";
 import { IconGlobe, IconHandshake } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * העמודה השנייה בכרטיס הנכס: **ביקושים ברשת**.
@@ -111,13 +112,7 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
       </p>
 
       {error !== null ? (
-        <p
-          role="alert"
-          className="m-0 mb-2 text-sm"
-          style={{ color: "var(--color-danger)" }}
-        >
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {rows === null ? (

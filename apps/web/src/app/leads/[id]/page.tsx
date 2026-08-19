@@ -51,6 +51,7 @@ import {
   IconRefresh,
   IconUser,
 } from "../../icons";
+import { Notice } from "../../notice";
 
 interface LeadDetail {
   id: string;
@@ -323,7 +324,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
             : ""}
           .
         </p>
-        {error ? <p role="alert" className="mb-2" style={{ color: "var(--color-danger)" }}>{error}</p> : null}
+        {error ? <Notice tone="danger">{error}</Notice> : null}
         <Button variant="ghost" disabled={busy} onClick={() => void withdraw()}>
           הסר מהלוח
         </Button>
@@ -509,7 +510,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
         הוא מאשר את ההצהרה שלכם, והפער בין השניים הוא המוניטין שמוצג לצד ההפניות
         הבאות שלכם — כלומר <b>הצהרה מדויקת שווה יותר מהצהרה גבוהה</b>.
       </p>
-      {error ? <p role="alert" className="mb-2" style={{ color: "var(--color-danger)" }}>{error}</p> : null}
+      {error ? <Notice tone="danger">{error}</Notice> : null}
       <Button disabled={busy || !reason || !priceValid} onClick={() => void publish()}>
         {busy ? "מפרסם…" : "פרסם הפניה"}
       </Button>
@@ -560,7 +561,7 @@ function DeleteLeadSection({ leadId, contactName }: { leadId: string; contactNam
         פנייה שאינה רלוונטית בכלל — ספאם, טעות במספר או משהו שאינו נדל"ן.
         מחיקה מוציאה אותה מהמאגר; פגישות ושיחות מוקלטות שכבר נרשמו נשארות.
       </p>
-      {error ? <p role="alert" className="mb-2" style={{ color: "var(--color-danger)" }}>{error}</p> : null}
+      {error ? <Notice tone="danger">{error}</Notice> : null}
       <Button variant="ghost" disabled={busy} onClick={() => void remove()}>
         {busy ? "מוחק…" : "מחק ליד"}
       </Button>
@@ -617,9 +618,7 @@ function ConvertToPropertySection({ leadId }: { leadId: string }) {
     >
       <p className="m-0 mb-3 font-bold">המרה לנכס — איש הקשר יהפוך לבעל הנכס</p>
       {error ? (
-        <p role="alert" className="mb-2 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
       <div className="flex flex-wrap items-end gap-2">
         <div>
@@ -777,7 +776,7 @@ function ConvertSection({ leadId }: { leadId: string }) {
         </div>
       </div>
       {error ? (
-        <p role="alert" className="mb-3" style={{ color: "var(--color-danger)" }}>{error}</p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
       <div className="flex gap-2">
         <Button type="submit" disabled={busy}>{busy ? "ממיר…" : "המר לקונה"}</Button>
@@ -839,9 +838,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
 
   if (error) {
     return (
-      <p role="alert" style={{ color: "var(--color-danger)" }}>
-        {error} — <Link href="/leads" className="underline">חזרה לרשימה</Link>
-      </p>
+      <Notice tone="danger">{error} — <Link href="/leads" className="underline">חזרה לרשימה</Link></Notice>
     );
   }
   if (!lead) return <p aria-live="polite">טוען…</p>;
@@ -881,9 +878,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
         הדבר שהכי קשה לראות.
       */}
       {lead.requiresHuman ? (
-        <p role="alert" className="mb-4 rounded-xl border p-4 font-medium" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
-          ● דורש טיפול אנושי{lead.requiresHumanReason ? `: ${lead.requiresHumanReason}` : ""}
-        </p>
+        <Notice tone="danger">● דורש טיפול אנושי{lead.requiresHumanReason ? `: ${lead.requiresHumanReason}` : ""}</Notice>
       ) : null}
 
       {merged ? (

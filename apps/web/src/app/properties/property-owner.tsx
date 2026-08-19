@@ -5,6 +5,7 @@ import { apiPatch, ApiError } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { ContactPeople } from "../contact-people";
 import { IconChat } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * בעל הנכס — המוכר או המשכיר.
@@ -107,9 +108,7 @@ export function PropertyOwner({
       </div>
 
       {error ? (
-        <p role="alert" className="m-0 mb-2 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {owner ? (

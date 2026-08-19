@@ -34,6 +34,7 @@ import { AgreementsPanel } from "../../agreements-panel";
 import { EntityNotes } from "../../entity-notes";
 import { SelectMenu } from "../../select-menu";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
+import { Notice } from "../../notice";
 
 /**
  * כרטיס הקונה.
@@ -216,12 +217,10 @@ export default function BuyerDetailPage({
 
   if (error) {
     return (
-      <p role="alert" style={{ color: "var(--color-danger)" }}>
-        {error} —{" "}
+      <Notice tone="danger">{error} —{" "}
         <Link href="/buyers" className="underline">
           חזרה לרשימה
-        </Link>
-      </p>
+        </Link></Notice>
     );
   }
   if (!buyer) return <p aria-live="polite">טוען…</p>;

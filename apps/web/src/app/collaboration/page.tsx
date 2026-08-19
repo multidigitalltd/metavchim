@@ -54,6 +54,15 @@ import { PrivacyBanner } from "./privacy-banner";
 import { ReachBanner } from "./reach-banner";
 import { NetChips } from "./net-chips";
 import {
+  NetFacts,
+  NetHero,
+  NetMeta,
+  NetMoney,
+  NetPlace,
+  NetSay,
+  splitNetworkChips,
+} from "./net-card-parts";
+import {
   ClientScoresView,
   ReferralConfirmation,
   ReferrerAccuracyBreakdown,
@@ -1427,90 +1436,81 @@ export default function CollaborationPage() {
                       key={demand.id}
                       className={`mv-net-card${demand.mine ? " mv-net-card--mine" : ""}`}
                     >
-                      <div className="mv-net-head">
-                        <span className="mv-net-avatar">
-                          <IconUser s={20} />
-                        </span>
-                        {/*
-                    הכותרת אומרת מה מחפשים ואיפה — כל השאר עבר
-                    לתגיות. קודם היא נשאה גם חדרים, גם ערים וגם תקציב
-                    בתוך משפט אחד, ובמובייל היא נשברה לשלוש שורות.
-                  */}
-                        {/*
-                          האזור בכותרת נופל לאזורי המפה כשאין ערים.
-
-                          קונה שסימן אזור ולא הקליד עיר הופיע כאן
-                          כ„קונה מחפש 4 חדרים ב” — משפט קטוע שאינו
-                          אומר לאן להציע.
-                        */}
-                        <h3 className="mv-net-title">
-                          קונה מחפש{" "}
-                          {roomsLabel(demand.roomsMin, demand.roomsMax)} ב
-                          {demandArea(demand)}
-                        </h3>
-                        {demand.mine ? (
-                          <span className="mv-net-chip">
-                            <IconStar s={14} /> הביקוש שלך
-                          </span>
-                        ) : (
-                          <>
-                            {/*
-                        תווית רק כשיש מה לומר — כלומר כשזה עולה.
-                        „חינם” על רוב הכרטיסים אינו מידע אלא רעש: הוא
-                        חוזר על עצמו בכל שורה ומייקר את מציאת השורות
-                        שכן עולות. הכלל עצמו נאמר פעם אחת בכותרת
-                        הלשונית, ושם מקומו.
-                      */}
-                            {demand.creditsCost > 0 ? (
-                              <span className="mv-net-chip mv-net-chip--money">
-                                <IconCoins s={14} /> {demand.creditsCost} קרדיטים
-                              </span>
-                            ) : null}
-                            <span
-                              className="mv-net-chip"
-                              title="חלוקת העמלה שהמשרד המשתף ביקש"
-                            >
-                              <IconHandshake s={14} />{" "}
-                              {describeCommissionSplit(demand.commissionSplit)}
-                            </span>
-                          </>
-                        )}
-                        {demand.officeName ? (
-                          /*
-                           * מי פרסם. שם המשרד ולא שם הלקוח: מי שעומד
-                           * להציע רוצה לדעת עם מי ישתף פעולה, ופרטי
-                           * הלקוח נשארים חסויים עד אישור החיבור.
-                           */
-                          <span
-                            className="mv-net-chip"
-                            title="המשרד שפרסם את המודעה"
-                          >
-                            <IconUsers s={14} /> {demand.officeName}
-                          </span>
-                        ) : null}
-                        {/*
-                          מקור חיצוני בתשלום, לפי העלות שהשרת החזיר
-                          ולא לפי שם ספק שכתוב בקוד. השוואה מפורשת
-                          ל-"kanko" הסתירה כל מקור שהפלטפורמה תמחרה
-                          מאז — הביקוש נראה כאילו הגיע מהרשת בחינם,
-                          ורק החיוב סיפר אחרת.
-                        */}
-                        {demand.creditsCost > 0 ? (
-                          <span
-                            className="mv-net-chip"
-                            title="ביקוש שהגיע ממקור חיצוני בתשלום"
-                          >
-                            <IconGlobe s={14} /> {demand.sourceLabel}
-                          </span>
-                        ) : null}
-                      </div>
-
                       {/*
-                  כל מה שידוע על הביקוש, למעט מה שמזהה אדם. הרשימה
-                  נבנית ב-`packages/shared/logic/network-card.ts` —
-                  מקום אחד שאפשר לבדוק, ולא JSX שמתפצל בין מסכים.
-                */}
-                      <NetChips chips={demandChips(demand)} />
+                        הכרטיס נבנה מרשימת התגיות ולא מה-DTO: זהו
+                        אותו מקור אחד שמחליט מה מוצג ומה לעולם לא
+                        (`packages/shared/logic/network-card.ts`),
+                        ומסלול שני היה עוקף אותו — כלומר מוציא את
+                        החיסיון מהמקום שנבנה כדי לשמור עליו.
+                      */}
+                      {(() => {
+                        const split = splitNetworkChips(demandChips(demand));
+                        return (
+                          <>
+                            <div className="mv-net-top">
+                              {demand.mine ? (
+                                <span className="mv-net-badge mv-net-badge--quiet">
+                                  <IconStar s={14} /> הביקוש שלך
+                                </span>
+                              ) : demand.creditsCost > 0 ? (
+                                <span className="mv-net-badge">
+                                  <IconCoins s={14} /> {demand.creditsCost} קרדיטים
+                                </span>
+                              ) : (
+                                <span />
+                              )}
+                              <span className="flex flex-wrap items-center gap-2">
+                                {demand.mine ? null : (
+                                  <span
+                                    className="mv-net-chip"
+                                    title="חלוקת העמלה שהמשרד המשתף ביקש"
+                                  >
+                                    <IconHandshake s={14} />{" "}
+                                    {describeCommissionSplit(demand.commissionSplit)}
+                                  </span>
+                                )}
+                                {demand.officeName ? (
+                                  <span className="mv-net-chip" title="המשרד שפרסם את המודעה">
+                                    <IconUsers s={14} /> {demand.officeName}
+                                  </span>
+                                ) : null}
+                                {/*
+                                  מקור חיצוני בתשלום, לפי העלות שהשרת החזיר ולא
+                                  לפי שם ספק שכתוב בקוד. השוואה מפורשת ל-"kanko"
+                                  הסתירה כל מקור שהפלטפורמה תמחרה מאז.
+                                */}
+                                {demand.creditsCost > 0 ? (
+                                  <span
+                                    className="mv-net-chip"
+                                    title="ביקוש שהגיע ממקור חיצוני בתשלום"
+                                  >
+                                    <IconGlobe s={14} /> {demand.sourceLabel}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </div>
+
+                            <NetHero
+                              icon={<IconUser s={22} />}
+                              title={`קונה מחפש ${roomsLabel(demand.roomsMin, demand.roomsMax)}`}
+                              subtitle={split.subtitle}
+                            />
+                            {/*
+                              האזור נופל לאזורי המפה כשאין ערים: קונה שסימן
+                              אזור ולא הקליד עיר הופיע כ„קונה מחפש 4 חדרים ב”
+                              — משפט קטוע שאינו אומר לאן להציע.
+                            */}
+                            <NetPlace text={split.place === "" ? demandArea(demand) : split.place} />
+                            {split.money === undefined ? null : (
+                              <NetMoney label="תקציב" value={split.money.text} />
+                            )}
+                            <NetFacts facts={split.facts} />
+                            <NetSay label="הערות הקונה" text={demand.notes} />
+                            <NetChips chips={split.rest} />
+                            <NetMeta id={demand.id} />
+                          </>
+                        );
+                      })()}
 
                       {demand.notes ? (
                         <p className="mv-net-quote">„{demand.notes}”</p>
@@ -1751,68 +1751,74 @@ export default function CollaborationPage() {
                       key={listing.id}
                       className={`mv-net-card${listing.mine ? " mv-net-card--mine" : ""}`}
                     >
-                      <div className="mv-net-head">
-                        <span className="mv-net-avatar">
-                          <IconHome s={20} />
-                        </span>
-                        <h3 className="mv-net-title">
-                          {listing.title ??
-                            `נכס ב${listing.city ?? "רשת"}${
-                              listing.neighborhood
-                                ? ` · ${listing.neighborhood}`
-                                : ""
-                            }`}
-                        </h3>
-                        {listing.mine ? (
+                      {/* אותה בנייה בדיוק כמו בכרטיס הביקוש — מרשימת
+                          התגיות המשותפת, ולא מה-DTO */}
+                      {(() => {
+                        const split = splitNetworkChips(presentationChips(listing));
+                        return (
                           <>
-                            <span className="mv-net-chip">
-                              <IconStar s={14} /> הנכס שלך
-                            </span>
-                            {/* הקישור לנכס נחשף רק לסוכנות המקור */}
-                            {listing.originPropertyId !== undefined ? (
-                              <Link
-                                href={`/properties/${listing.originPropertyId}`}
-                                className="mv-net-chip mv-net-chip--primary"
-                                style={{ textDecoration: "none" }}
-                              >
-                                <IconHome s={14} /> פתח את הכרטיס
-                              </Link>
-                            ) : null}
-                          </>
-                        ) : (
-                          <>
-                            {/*
-                              פנייה על נכס אינה עולה קרדיטים בשום מסלול,
-                              ולכן תווית „חינם” כאן הייתה קבועה בכל
-                              כרטיס — כלומר לא הבחינה בין שום דבר. הכלל
-                              נאמר בכותרת הלשונית.
-                            */}
-                            <span
-                              className="mv-net-chip"
-                              title="חלוקת העמלה שהמשרד המפרסם ביקש"
-                            >
-                              <IconHandshake s={14} />{" "}
-                              {describeCommissionSplit(listing.commissionSplit)}
-                            </span>
-                          </>
-                        )}
-                        {/* מי פרסם — שם המשרד; הבעלים נשאר חסוי כמו קודם */}
-                        {listing.officeName ? (
-                          <span
-                            className="mv-net-chip"
-                            title="המשרד שפרסם את המודעה"
-                          >
-                            <IconUsers s={14} /> {listing.officeName}
-                          </span>
-                        ) : null}
-                      </div>
+                            <div className="mv-net-top">
+                              {listing.mine ? (
+                                <span className="mv-net-badge mv-net-badge--quiet">
+                                  <IconStar s={14} /> הנכס שלך
+                                </span>
+                              ) : (
+                                <span />
+                              )}
+                              <span className="flex flex-wrap items-center gap-2">
+                                {listing.mine ? (
+                                  /* הקישור לנכס נחשף רק לסוכנות המקור */
+                                  listing.originPropertyId === undefined ? null : (
+                                    <Link
+                                      href={`/properties/${listing.originPropertyId}`}
+                                      className="mv-net-chip mv-net-chip--primary"
+                                      style={{ textDecoration: "none" }}
+                                    >
+                                      <IconHome s={14} /> פתח את הכרטיס
+                                    </Link>
+                                  )
+                                ) : (
+                                  <span
+                                    className="mv-net-chip"
+                                    title="חלוקת העמלה שהמשרד המפרסם ביקש"
+                                  >
+                                    <IconHandshake s={14} />{" "}
+                                    {describeCommissionSplit(listing.commissionSplit)}
+                                  </span>
+                                )}
+                                {/* מי פרסם — שם המשרד; הבעלים נשאר חסוי */}
+                                {listing.officeName ? (
+                                  <span className="mv-net-chip" title="המשרד שפרסם את המודעה">
+                                    <IconUsers s={14} /> {listing.officeName}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </div>
 
-                      {/*
-                    כל מה שידוע על הנכס למעט רחוב, מספר בית ובעלים —
-                    אותה רשימה בדיוק שההצעות משתמשות בה, מ-
-                    `packages/shared/logic/network-card.ts`.
-                  */}
-                      <NetChips chips={presentationChips(listing)} />
+                            <NetHero
+                              icon={<IconHome s={22} />}
+                              title={listing.title ?? `נכס ב${listing.city ?? "רשת"}`}
+                              subtitle={split.subtitle}
+                            />
+                            <NetPlace
+                              text={
+                                split.place === ""
+                                  ? [listing.city, listing.neighborhood]
+                                      .filter(Boolean)
+                                      .join(" · ")
+                                  : split.place
+                              }
+                            />
+                            {split.money === undefined ? null : (
+                              <NetMoney label="מחיר" value={split.money.text} />
+                            )}
+                            <NetFacts facts={split.facts} />
+                            <NetSay label="מה מיוחד בנכס" text={listing.notes} />
+                            <NetChips chips={split.rest} />
+                            <NetMeta id={listing.id} />
+                          </>
+                        );
+                      })()}
 
                       {listing.notes ? (
                         <p className="mv-net-quote">„{listing.notes}”</p>

@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { IconInfo, IconWarning } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * חיבור מרכזיית הטלפון של המשרד.
@@ -186,14 +187,10 @@ export function TelephonySection() {
       </p>
 
       {message ? (
-        <p role="status" className="m-0 mb-3 text-sm" style={{ color: "var(--color-primary)" }}>
-          {message}
-        </p>
+        <Notice tone="success">{message}</Notice>
       ) : null}
       {error ? (
-        <p role="alert" className="m-0 mb-3 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {status.connected ? (
@@ -489,9 +486,7 @@ function TeamSipLines() {
       </p>
 
       {error ? (
-        <p role="alert" className="m-0 mb-2 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {lines === null ? (

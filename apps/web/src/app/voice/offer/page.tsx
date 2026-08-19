@@ -7,6 +7,7 @@ import { Button } from "@metavchim/ui";
 import { apiPost, ApiError } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
 import { IconHome, IconMic, IconSend, IconUser } from "../../icons";
+import { Notice } from "../../notice";
 
 /**
  * שליחת הצעה בקול — מסך האישור. הפקודה כבר פוענחה בשרת לישויות
@@ -84,9 +85,7 @@ function OfferVoiceContent() {
       </p>
 
       {error ? (
-        <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {sent ? (

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
+import { Notice } from "../notice";
 
 /**
  * קודי קופון להצטרפות.
@@ -98,14 +99,10 @@ export function CouponsSection(): React.JSX.Element {
       </p>
 
       {message ? (
-        <p role="status" className="m-0 mb-3 text-sm" style={{ color: "var(--color-success)" }}>
-          {message}
-        </p>
+        <Notice tone="success">{message}</Notice>
       ) : null}
       {error ? (
-        <p role="alert" className="m-0 mb-3 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       <form onSubmit={(e) => void save(e)} className="mb-4 flex flex-wrap items-end gap-2">

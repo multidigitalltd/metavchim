@@ -30,6 +30,7 @@ import { disablePush, enablePush, readPushState, type PushState } from "@/lib/pu
 import { useRequireAuth } from "@/lib/use-auth";
 import { ThemeToggle } from "../theme-toggle";
 import { PlanSection } from "../settings/plan-section";
+import { Notice } from "../notice";
 
 /**
  * הפרופיל האישי — כל מה ששייך למשתמש הזה ולא למשרד: ערכת נושא,
@@ -205,14 +206,10 @@ export default function ProfilePage() {
             </p>
 
             {detailsMsg ? (
-              <p role="status" className="m-0 mb-3 text-sm" style={{ color: "var(--color-primary)" }}>
-                {detailsMsg}
-              </p>
+              <Notice tone="success">{detailsMsg}</Notice>
             ) : null}
             {detailsErr ? (
-              <p role="alert" className="m-0 mb-3 text-sm" style={{ color: "var(--color-danger)" }}>
-                {detailsErr}
-              </p>
+              <Notice tone="danger">{detailsErr}</Notice>
             ) : null}
 
             {profile ? (
@@ -288,14 +285,10 @@ export default function ProfilePage() {
                 </button>
               </div>
               {passwordMsg ? (
-                <p role="status" className="m-0 text-sm font-bold" style={{ color: "var(--color-primary)" }}>
-                  {passwordMsg}
-                </p>
+                <Notice tone="success">{passwordMsg}</Notice>
               ) : null}
               {passwordErr ? (
-                <p role="alert" className="m-0 text-sm" style={{ color: "var(--color-danger)" }}>
-                  {passwordErr}
-                </p>
+                <Notice tone="danger">{passwordErr}</Notice>
               ) : null}
             </form>
           </section>
@@ -475,9 +468,7 @@ function PushSection() {
             </p>
           ) : null}
           {error ? (
-            <p role="alert" className="mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
-              {error}
-            </p>
+            <Notice tone="danger">{error}</Notice>
           ) : null}
         </>
       )}

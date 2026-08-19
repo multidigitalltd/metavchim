@@ -11,6 +11,7 @@ import {
 import { Button } from "@metavchim/ui";
 import { apiDelete, apiGet, apiPut, ApiError } from "@/lib/api";
 import { IconEdit, IconEye, IconWarning } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * עורך נוסחי ההסכמים של המשרד.
@@ -132,22 +133,10 @@ export function AgreementTemplatesSection() {
       </p>
 
       {message ? (
-        <p
-          role="status"
-          className="mb-3 rounded-lg border p-3"
-          style={{ borderColor: "var(--color-success)", background: "var(--color-surface)" }}
-        >
-          {message}
-        </p>
+        <Notice tone="success">{message}</Notice>
       ) : null}
       {error ? (
-        <p
-          role="alert"
-          className="mb-3 rounded-lg border p-3"
-          style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}
-        >
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {templates.map((template) => {

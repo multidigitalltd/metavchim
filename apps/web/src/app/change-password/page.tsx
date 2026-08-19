@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiPost, ApiError } from "@/lib/api";
 import { AuthShell } from "../auth-shell";
+import { Notice } from "../notice";
 
 
 /** החלפת סיסמה — חובה בכניסה ראשונה עם סיסמה זמנית (ביקורת Codex). */
@@ -42,9 +43,7 @@ export default function ChangePasswordPage() {
     >
       <form method="post" onSubmit={(e) => void onSubmit(e)} noValidate>
         {error ? (
-          <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
-            {error}
-          </p>
+          <Notice tone="danger">{error}</Notice>
         ) : null}
         <div className="mb-4">
           <label htmlFor="currentPassword" className="mb-1 block font-medium">הסיסמה הזמנית</label>

@@ -8,6 +8,7 @@ import { formatPrice, shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { IconMic } from "../../icons";
 import { VoiceRecorder } from "../../voice-recorder";
+import { Notice } from "../../notice";
 
 /**
  * "קונה בקול" — במקביל ל"נכס בקול": המתווך מדבר, המערכת מחלצת,
@@ -121,9 +122,7 @@ function BuyerVoiceForm() {
       </p>
 
       {error ? (
-        <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {!person ? (
@@ -142,13 +141,9 @@ function BuyerVoiceForm() {
       ) : (
         <form onSubmit={(e) => void submit(e)} noValidate>
           {missing.length > 0 ? (
-            <p role="status" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", background: "var(--color-surface)" }}>
-              יש להשלים: {missing.join(", ")}
-            </p>
+            <Notice tone="success">יש להשלים: {missing.join(", ")}</Notice>
           ) : (
-            <p role="status" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-success)", background: "var(--color-surface)" }}>
-              ✓ כל הפרטים זוהו — בדקו ואשרו
-            </p>
+            <Notice tone="success">✓ כל הפרטים זוהו — בדקו ואשרו</Notice>
           )}
 
           <div className="mb-4 grid gap-4 sm:grid-cols-2">

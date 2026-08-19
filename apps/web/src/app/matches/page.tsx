@@ -11,6 +11,7 @@ import {
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import { Notice } from "../notice";
 
 /**
  * מסך ההתאמות לפי קובץ העיצוב: מתג "לפי נכס ← קונים / לפי קונה ←
@@ -218,8 +219,7 @@ function MatchesView() {
       ) : null}
 
       {notice ? (
-        <p role="status" className="mb-4 rounded-xl border px-4 py-3 text-sm" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-          {notice}
+        <Notice tone="success">{notice}
           {signUrl ? (
             <>
               {" "}
@@ -227,12 +227,11 @@ function MatchesView() {
                 פתח את דף החתימה
               </a>
             </>
-          ) : null}
-        </p>
+          ) : null}</Notice>
       ) : null}
 
       {error ? (
-        <p role="alert" style={{ color: "var(--color-danger)" }}>{error}</p>
+        <Notice tone="danger">{error}</Notice>
       ) : items === null ? (
         <p aria-live="polite">טוען התאמות…</p>
       ) : items.length === 0 ? (

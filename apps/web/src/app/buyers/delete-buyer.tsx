@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ApiError, apiDelete, apiGet } from "@/lib/api";
+import { Notice } from "../notice";
 
 /**
  * מחיקת כרטיס קונה — ארכיון או לצמיתות.
@@ -77,9 +78,7 @@ export function DeleteBuyer({ buyerId }: { buyerId: string }) {
           <span style={{ color: "var(--color-danger)" }}>מחיקת הכרטיס</span>
         </button>
         {error !== null ? (
-          <p role="alert" className="m-0 mt-1 text-sm" style={{ color: "var(--color-danger)" }}>
-            {error}
-          </p>
+          <Notice tone="danger">{error}</Notice>
         ) : null}
       </div>
     );
@@ -113,9 +112,7 @@ export function DeleteBuyer({ buyerId }: { buyerId: string }) {
       )}
 
       {error !== null ? (
-        <p role="alert" className="m-0 mb-2 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       <div className="flex flex-wrap gap-2">

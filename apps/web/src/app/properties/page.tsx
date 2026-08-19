@@ -18,6 +18,7 @@ import {
   hasActiveFilters,
   type ListFilterValues,
 } from "../list-filters";
+import { Notice } from "../notice";
 
 /**
  * מסך הנכסים לפי קובץ העיצוב: צ'יפי ערים לסינון, טבלת grid עם תג
@@ -198,9 +199,7 @@ export default function PropertiesPage() {
       </div>
 
       {error ? (
-        <p role="alert" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : items === null ? (
         <p aria-live="polite">טוען נכסים…</p>
       ) : items.length === 0 && !hasActiveFilters(filters) ? (

@@ -9,6 +9,7 @@ import {
 } from "@metavchim/shared";
 import { ApiError, apiGet, apiPatch } from "@/lib/api";
 import { IconBolt, IconInfo } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * האוטומציות הפנימיות — מה המערכת עושה מעצמה.
@@ -79,9 +80,7 @@ export function AutomationsSection() {
   if (error !== null && data === null) {
     return (
       <section className="mv-card">
-        <p role="alert" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       </section>
     );
   }
@@ -107,13 +106,7 @@ export function AutomationsSection() {
       </p>
 
       {error !== null ? (
-        <p
-          role="alert"
-          className="mb-3 text-sm"
-          style={{ color: "var(--color-danger)" }}
-        >
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       <ul className="flex list-none flex-col gap-2.5 p-0">

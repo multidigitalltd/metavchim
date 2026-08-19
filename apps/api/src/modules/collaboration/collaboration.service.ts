@@ -13,6 +13,7 @@ import {
   coopOfferCost,
   leadSourceLabel,
   planCreditExpiry,
+  referralBonusCredits,
   settleReferral,
   type PayoutMode,
   referralPriceRejectionReason,
@@ -2027,9 +2028,11 @@ export class CollaborationService {
       if (claimed.count === 0)
         throw new BadRequestException("ההפניה נקלטה הרגע במשרד אחר");
       /*
-       * הזיכוי הוא הנטו. עמלת הפלטפורמה אינה עוברת ליומן של אף
-       * משרד — היא ההפרש בין מה שהקולט חויב למה שהמפנה זוכה, והיא
-       * שמורה על שורת ההפניה וביומן הביקורת לצורך דיווח.
+       * הזיכוי הוא הנטו, ועמלת הפלטפורמה אינה עוברת ליומן של אף
+       * משרד — אבל היא **כן** נזקפת לספר הפלטפורמה (למטה). קודם היא
+       * הייתה ההפרש בין מה שהקולט חויב למה שהמפנה זוכה, כלומר
+       * קרדיטים שיצאו מהמחזור בלי שאיש רשם אותם, ולא היה איפה לראות
+       * כמה הפלטפורמה הרוויחה מהפניות.
        */
       /*
        * שני ספרים, ולכל מסלול שלו. קרדיט הוא אמצעי תשלום פנימי,
@@ -2057,6 +2060,37 @@ export class CollaborationService {
           },
         });
       }
+      /*
+       * העמלה נזקפת לחשבון הפלטפורמה — באותה טרנזקציה שבה המפנה
+       * זוכה והקולט מחויב, כי שלושתם צד אחד של אותה עסקה. זקיפה
+       * מאוחרת יותר הייתה יוצרת חלון שבו הכסף כבר עבר והספר עוד לא
+       * יודע.
+       *
+       * הטבלה אינה תחת RLS ולכן היא נכתבת כאן בלי קשר להקשר הדייר
+       * שנקבע ל-`row.tenantId` בשורה שמעל.
+       *
+       * השורה נכתבת **גם כשהעמלה אפס**: הצד היקר של העסקה — הבונוס
+       * שהונפק והמזומן ששולם — מצולם עליה, והוא קיים גם בהפניה בלי
+       * עמלה. הוא נשמר כאן ולא נקרא מ-`shared_leads`, כי זו טבלה
+       * תחת RLS שאין לפלטפורמה דרך חוקית לקרוא ממנה חוצה-דיירים:
+       * ניסיון כזה מחזיר אפס שורות בשקט, כלומר דוח שכולו אפסים
+       * ונראה תקין (ביקורת Codex).
+       */
+      await tx.platformCreditLedger.create({
+        data: {
+          id: ulid(),
+          kind: "referral_fee",
+          amount: platformFee,
+          bonusCredits: referralBonusCredits({
+            priceCredits: cost,
+            platformFeeCredits: platformFee,
+            payoutCredits: isCash ? 0 : referrerPayout,
+          }),
+          cashPaidAgorot: isCash ? row.payoutAgorot : 0,
+          sourceTenantId: ctx.tenantId,
+          refId: sharedLeadId,
+        },
+      });
       await tx.outboxEvent.create({
         data: {
           id: ulid(),

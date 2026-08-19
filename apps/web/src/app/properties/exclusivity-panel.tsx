@@ -18,6 +18,7 @@ import {
 } from "@metavchim/shared";
 import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
 import { SelectMenu } from "../select-menu";
+import { Notice } from "../notice";
 
 /**
  * תיק הבלעדיות בכרטיס הנכס.
@@ -148,9 +149,7 @@ export function ExclusivityPanel({
       </div>
 
       {error !== null ? (
-        <p role="alert" className="m-0 text-[14.5px]" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {data === null ? (
@@ -452,9 +451,7 @@ function NoExclusivity({
       </p>
 
       {problem !== null ? (
-        <p role="alert" className="m-0 mt-2 text-[14px]" style={{ color: "var(--color-danger)" }}>
-          {problem}
-        </p>
+        <Notice tone="danger">{problem}</Notice>
       ) : null}
 
       <div className="mt-2 flex gap-2">
@@ -566,9 +563,7 @@ function LogAction({
       ) : null}
 
       {problem !== null ? (
-        <p role="alert" className="m-0 mt-2 text-[14px]" style={{ color: "var(--color-danger)" }}>
-          {problem}
-        </p>
+        <Notice tone="danger">{problem}</Notice>
       ) : null}
 
       <div className="mt-2 flex gap-2">

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@metavchim/ui";
 import { WithDictation } from "./dictation-field";
+import { Notice } from "./notice";
 
 /**
  * הערות חופשיות על כרטיס — **מה שהשדות המובנים לא יכולים להכיל.**
@@ -141,13 +142,7 @@ export function EntityNotes({
             />
           </WithDictation>
           {error ? (
-            <p
-              role="alert"
-              className="m-0 mb-2 text-sm"
-              style={{ color: "var(--color-danger)" }}
-            >
-              {error}
-            </p>
+            <Notice tone="danger">{error}</Notice>
           ) : null}
           <div className="mt-3 flex gap-3">
             <Button disabled={busy} onClick={() => void save()}>

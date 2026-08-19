@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Notice } from "../notice";
 
 /**
  * ייצוא נתונים (docs/08): הנתונים שייכים למשרד — הורדת CSV בכותרות
@@ -62,9 +63,7 @@ export function ExportSection() {
         קבצים בעברית שנפתחים באקסל וניתנים לייבוא חזרה. כל ייצוא מתועד ביומן הפעילות.
       </p>
       {error ? (
-        <p role="alert" className="mt-2" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
     </div>
   );

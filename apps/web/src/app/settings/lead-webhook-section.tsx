@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Button } from "@metavchim/ui";
 import { API_BASE, apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
 import { LoadError } from "../load-error";
+import { Notice } from "../notice";
 
 /**
  * "לידים מהאתר שלך" — כמה מקורות קליטה, מפתח לכל אחד.
@@ -105,7 +106,7 @@ export function LeadWebhookSection() {
       </p>
 
       {error ? (
-        <p role="alert" className="mb-3 text-sm" style={{ color: "var(--color-danger)" }}>{error}</p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {failed ? (

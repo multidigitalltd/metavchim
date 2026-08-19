@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ApiError, apiDelete, apiGet } from "@/lib/api";
 import { IconWarning } from "./icons";
+import { Notice } from "./notice";
 
 /**
  * מחיקת לקוח מהמערכת — זכות המחיקה שלו.
@@ -121,13 +122,7 @@ export function ContactErasure({
           לבקשת הלקוח — מוחק את כל המידע שהמשרד מחזיק עליו, לצמיתות.
         </p>
         {error ? (
-          <p
-            role="alert"
-            className="m-0 mt-2 text-sm"
-            style={{ color: "var(--color-danger)" }}
-          >
-            {error}
-          </p>
+          <Notice tone="danger">{error}</Notice>
         ) : null}
       </div>
     );
@@ -195,13 +190,7 @@ export function ContactErasure({
       </label>
 
       {error ? (
-        <p
-          role="alert"
-          className="m-0 mt-2 text-sm"
-          style={{ color: "var(--color-danger)" }}
-        >
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       <div className="mt-2 flex flex-wrap gap-2">

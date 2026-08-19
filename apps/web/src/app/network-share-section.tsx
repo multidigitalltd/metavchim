@@ -7,6 +7,7 @@ import {
 } from "@metavchim/shared";
 import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { IconHandshake } from "./icons";
+import { Notice } from "./notice";
 
 /**
  * פתיחת קונה **או נכס** לשיתוף פעולה עם משרדים אחרים.
@@ -277,13 +278,7 @@ export function NetworkShareSection({
             </button>
           </div>
           {error ? (
-            <p
-              role="alert"
-              className="m-0 mt-2 text-sm"
-              style={{ color: "var(--color-danger)" }}
-            >
-              {error}
-            </p>
+            <Notice tone="danger">{error}</Notice>
           ) : null}
         </div>
       ) : stage === "invite" ? (
@@ -390,13 +385,7 @@ export function NetworkShareSection({
           </div>
 
           {error ? (
-            <p
-              role="alert"
-              className="m-0 mb-2 text-sm"
-              style={{ color: "var(--color-danger)" }}
-            >
-              {error}
-            </p>
+            <Notice tone="danger">{error}</Notice>
           ) : null}
 
           <div className="flex flex-wrap gap-2">

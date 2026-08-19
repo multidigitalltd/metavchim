@@ -8,6 +8,7 @@ import { LEAD_INTENT_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
 import { IconMic } from "../../icons";
 import { VoiceRecorder } from "../../voice-recorder";
+import { Notice } from "../../notice";
 
 /**
  * "ליד בקול" — המתווך יורד מהשיחה ומספר מה קרה; המערכת מחלצת שם,
@@ -91,9 +92,7 @@ function LeadVoiceForm() {
       </p>
 
       {error ? (
-        <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {!person ? (
@@ -112,13 +111,9 @@ function LeadVoiceForm() {
       ) : (
         <form onSubmit={(e) => void submit(e)} noValidate>
           {missing.length > 0 ? (
-            <p role="status" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", background: "var(--color-surface)" }}>
-              יש להשלים: {missing.join(", ")}
-            </p>
+            <Notice tone="success">יש להשלים: {missing.join(", ")}</Notice>
           ) : (
-            <p role="status" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-success)", background: "var(--color-surface)" }}>
-              ✓ הפרטים זוהו — בדקו ואשרו
-            </p>
+            <Notice tone="success">✓ הפרטים זוהו — בדקו ואשרו</Notice>
           )}
 
           <div className="mb-4 grid gap-4 sm:grid-cols-2">

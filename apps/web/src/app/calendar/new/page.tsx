@@ -8,6 +8,7 @@ import { waMeUrl } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { DictateFor } from "../../dictation-field";
 import { IconChat } from "../../icons";
+import { Notice } from "../../notice";
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
 
@@ -123,9 +124,7 @@ function NewAppointmentForm() {
 
       <form onSubmit={onSubmit} noValidate>
         {error ? (
-          <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
-            {error}
-          </p>
+          <Notice tone="danger">{error}</Notice>
         ) : null}
 
         <div className="mb-4 grid gap-4 sm:grid-cols-2">

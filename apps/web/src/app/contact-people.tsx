@@ -12,6 +12,7 @@ import {
 } from "@metavchim/shared";
 import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { ContactErasure } from "./contact-erasure";
+import { Notice } from "./notice";
 
 /**
  * מי עומד מאחורי הכרטיס — בעל ואישה שקונים יחד, מיופה כוח, בן שמטפל
@@ -507,13 +508,7 @@ export function ContactPeople({
       ) : null}
 
       {error ? (
-        <p
-          role="alert"
-          className="m-0 mt-2 text-sm"
-          style={{ color: "var(--color-danger)" }}
-        >
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {/* אחרון בכרטיס, מופרד בקו: פעולה שאין ממנה חזרה אינה יושבת

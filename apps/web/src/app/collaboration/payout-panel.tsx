@@ -12,6 +12,7 @@ import {
 } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { DictationTextarea } from "../dictation-field";
+import { Notice } from "../notice";
 
 /**
  * היתרה הכספית ומשיכתה.
@@ -279,22 +280,10 @@ export function PayoutPanel() {
       )}
 
       {error !== null ? (
-        <p
-          role="alert"
-          className="m-0 mt-2 text-sm"
-          style={{ color: "var(--color-danger)" }}
-        >
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
       {done !== null ? (
-        <p
-          role="status"
-          className="m-0 mt-2 text-sm font-bold"
-          style={{ color: "var(--color-primary)" }}
-        >
-          ✓ {done}
-        </p>
+        <Notice tone="success">✓ {done}</Notice>
       ) : null}
 
       {rows.length > 0 ? (

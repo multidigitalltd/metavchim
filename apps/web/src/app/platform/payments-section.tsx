@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { IconCard } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * תשלומים וזיכויים.
@@ -108,14 +109,10 @@ export function PaymentsSection(): React.JSX.Element {
       </p>
 
       {error ? (
-        <p role="alert" className="mb-2" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
       {message ? (
-        <p aria-live="polite" className="mb-2" style={{ color: "var(--color-success)" }}>
-          {message}
-        </p>
+        <Notice tone="success">{message}</Notice>
       ) : null}
 
       {rows === null ? (

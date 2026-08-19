@@ -7,6 +7,7 @@ import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet, apiPost, ApiError } from "@/lib/api";
 import { AuthShell } from "../auth-shell";
 import { IconMail, LogoGoogle } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * התחברות בשני שלבים אפשריים: אימייל+סיסמה, ואם השרת דורש (LOGIN_OTP_ENABLED)
@@ -97,24 +98,11 @@ function LoginForm() {
   return (
     <>
       {justReset ? (
-        <p
-          role="status"
-          className="mb-4 rounded-lg border p-3"
-          style={{ borderColor: "var(--color-success)", background: "var(--color-surface)" }}
-        >
-          ✓ הסיסמה עודכנה — התחברו עם הסיסמה החדשה.
-        </p>
+        <Notice tone="success">✓ הסיסמה עודכנה — התחברו עם הסיסמה החדשה.</Notice>
       ) : null}
 
       {error ? (
-        <p
-          id="login-error"
-          role="alert"
-          className="mb-4 rounded-lg border p-3"
-          style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}
-        >
-          {error}
-        </p>
+        <Notice tone="danger" id="login-error">{error}</Notice>
       ) : null}
 
       {otpToken ? (

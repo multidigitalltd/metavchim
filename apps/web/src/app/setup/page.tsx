@@ -7,6 +7,8 @@ import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { IconCheck, IconMic, IconSheet, IconUsers } from "../icons";
+import { Notice } from "../notice";
+import { OfficeLogo } from "../settings/office-logo";
 
 /**
  * אשף הקמת המשרד — לפי קובץ העיצוב: ארבעה שלבים עם פס התקדמות,
@@ -96,9 +98,7 @@ function StepOffice({ allowed, onSaved }: { allowed: boolean; onSaved: () => voi
   if (loadFailed) {
     return (
       <div>
-        <p role="alert" className="mb-3" style={{ color: "var(--color-danger)" }}>
-          טעינת פרטי המשרד נכשלה — לא נציג טופס ריק כדי לא לדרוס נתונים קיימים.
-        </p>
+        <Notice tone="danger">טעינת פרטי המשרד נכשלה — לא נציג טופס ריק כדי לא לדרוס נתונים קיימים.</Notice>
         <Button variant="secondary" onClick={load}>נסו שוב</Button>
       </div>
     );
@@ -112,8 +112,10 @@ function StepOffice({ allowed, onSaved }: { allowed: boolean; onSaved: () => voi
         השם והפרטים מופיעים על כל דף הצעה שלקוח פותח, ועל המסמכים להחתמה.
       </p>
       {error ? (
-        <p role="alert" className="mb-4" style={{ color: "var(--color-danger)" }}>{error}</p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
+      {/* הלוגו נשמר מיד בבחירה ואינו חלק בטופס — קובץ אינו שדה טקסט */}
+      <OfficeLogo />
       <div className="mb-4 grid gap-4 sm:grid-cols-2">
         <div>
           <label htmlFor="ob-name" className="mb-1 block font-medium">שם המשרד *</label>
@@ -184,7 +186,7 @@ function StepAgents({ allowed }: { allowed: boolean }) {
       ) : (
         <>
           {error ? (
-            <p role="alert" className="mb-4" style={{ color: "var(--color-danger)" }}>{error}</p>
+            <Notice tone="danger">{error}</Notice>
           ) : null}
           <form onSubmit={(e) => void add(e)} className="mb-4 grid items-end gap-3 sm:grid-cols-[1.4fr_1.4fr_1fr_auto]" noValidate>
             <div>

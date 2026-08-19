@@ -12,6 +12,7 @@ import {
   type SupportStatus,
 } from "@metavchim/shared";
 import { API_BASE, ApiError, apiGet, apiPatch } from "@/lib/api";
+import { Notice } from "../notice";
 
 /**
  * שולחן התמיכה — תור אחד לכל המשרדים.
@@ -102,9 +103,7 @@ export function SupportDeskSection(): React.JSX.Element {
       </div>
 
       {error !== null ? (
-        <p role="alert" className="mb-2 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {tickets === null ? (

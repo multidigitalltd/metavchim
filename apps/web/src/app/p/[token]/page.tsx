@@ -4,6 +4,7 @@ import { useEffect, useState, use, type FormEvent } from "react";
 import { API_BASE, apiGet, apiPost, ApiError } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS } from "@/lib/format";
 import { LogoMark } from "../../icons";
+import { Notice } from "../../notice";
 
 /**
  * דף הנחיתה הציבורי של נכס — מה שהמתווך שולח ללקוחות ומטמיע במודעות.
@@ -67,9 +68,7 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
 
   if (error) {
     return (
-      <p role="alert" className="mx-auto max-w-lg py-16 text-center" style={{ color: "var(--color-text-muted)" }}>
-        {error}
-      </p>
+      <Notice tone="danger">{error}</Notice>
     );
   }
   if (view === null) return <p aria-live="polite" className="py-16 text-center">טוען…</p>;
@@ -216,9 +215,7 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
                 className="mv-visually-hidden"
               />
               {formError ? (
-                <p role="alert" className="m-0 text-sm sm:col-span-2" style={{ color: "var(--color-danger)" }}>
-                  {formError}
-                </p>
+                <Notice tone="danger">{formError}</Notice>
               ) : null}
               <div className="sm:col-span-2">
                 <button type="submit" disabled={sending} className="mv-btn-action w-full" style={{ padding: "12px 0", fontSize: 16 }}>

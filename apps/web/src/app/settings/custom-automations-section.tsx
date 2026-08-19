@@ -11,6 +11,7 @@ import {
 } from "@metavchim/shared";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { IconBolt, IconPlus, IconX } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * אוטומציות שהמשרד בונה בעצמו.
@@ -178,9 +179,7 @@ export function CustomAutomationsSection() {
       ) : null}
 
       {error !== null ? (
-        <p role="alert" className="mb-3 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {data.rules.length === 0 && draft === null ? (

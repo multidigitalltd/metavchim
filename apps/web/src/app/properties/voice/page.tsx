@@ -7,6 +7,7 @@ import { apiPost, ApiError } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
 import { IconMic } from "../../icons";
 import { VoiceRecorder } from "../../voice-recorder";
+import { Notice } from "../../notice";
 
 /**
  * "הוסף נכס בקול" (אפיון §6) — המקליט המשותף (VoiceRecorder) מזהה דיבור
@@ -49,9 +50,7 @@ function VoiceIntakeForm() {
       </p>
 
       {error ? (
-        <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       <VoiceRecorder

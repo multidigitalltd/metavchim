@@ -22,6 +22,7 @@ import {
   IconUsers,
 } from "../icons";
 import { VoiceRecorder } from "../voice-recorder";
+import { Notice } from "../notice";
 
 /**
  * מרכז הפקודות הקוליות — המתווך אומר משפט אחד, המערכת מזהה מה הוא
@@ -238,9 +239,7 @@ export default function VoiceCommandPage() {
       </section>
 
       {error ? (
-        <p role="alert" className="mb-4 rounded-lg border p-3" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       <VoiceRecorder

@@ -32,6 +32,8 @@ import { RetainedAgreementsSection } from "./retained-agreements-section";
 import { SystemUpdateSection } from "./system-update";
 import { SessionsList } from "../sessions-list";
 import { UserPermissions } from "./user-permissions";
+import { Notice } from "../notice";
+import { OfficeLogo } from "./office-logo";
 
 const inputStyle = {
   borderColor: "var(--color-border)",
@@ -323,25 +325,14 @@ export default function SettingsPage() {
   if (authLoading) return <p aria-live="polite">טוען…</p>;
   if (forbidden) {
     return (
-      <p role="alert" style={{ color: "var(--color-text-muted)" }}>
-        אין לך הרשאה להגדרות המשרד — פנו לבעל המשרד.
-      </p>
+      <Notice tone="danger">אין לך הרשאה להגדרות המשרד — פנו לבעל המשרד.</Notice>
     );
   }
 
   return (
     <>
       {message ? (
-        <p
-          role="status"
-          className="mb-4 rounded-xl border p-3"
-          style={{
-            borderColor: "var(--color-primary)",
-            background: "var(--color-surface)",
-          }}
-        >
-          {message}
-        </p>
+        <Notice tone="success">{message}</Notice>
       ) : null}
 
       {/*
@@ -743,6 +734,8 @@ export default function SettingsPage() {
               </h2>
               {tenant ? (
                 <form onSubmit={(e) => void saveTenant(e)} className="max-w-md">
+                  {/* הלוגו ראשון: הוא הדבר היחיד בטופס שרואים אותו */}
+                  <OfficeLogo />
                   <div className="mb-3.5">
                     <label
                       htmlFor="name"

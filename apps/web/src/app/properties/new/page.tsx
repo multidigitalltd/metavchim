@@ -13,6 +13,7 @@ import { PriceField } from "../../price-field";
 import { FeatureChips } from "../feature-chips";
 import { EntryTimingField } from "../entry-timing-field";
 import { LocationPicker, type LocationValue } from "../location-picker";
+import { Notice } from "../../notice";
 
 const inputStyle = {
   borderColor: "var(--color-border)",
@@ -162,16 +163,7 @@ export default function NewPropertyPage() {
 
       <form onSubmit={onSubmit} noValidate>
         {error ? (
-          <p
-            role="alert"
-            className="mb-4 rounded-lg border p-3"
-            style={{
-              borderColor: "var(--color-danger)",
-              color: "var(--color-danger)",
-            }}
-          >
-            {error}
-          </p>
+          <Notice tone="danger">{error}</Notice>
         ) : null}
 
         <FormSection

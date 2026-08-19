@@ -6,6 +6,7 @@ import { apiGet } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { FilterBar, SearchField, textMatches } from "../list-controls";
+import { Notice } from "../notice";
 
 /**
  * מסך ההצעות לפי קובץ העיצוב: טבלת grid — קונה / נכס / נשלחה /
@@ -91,11 +92,12 @@ export default function OffersPage() {
 
   return (
     <>
+      {/* כותרת ולא הרצאה: „כל הצעה נשלחת כקישור לדף נכס נקי…” הוא
+          טקסט שיווקי שנקרא פעם אחת ואז תופס מקום לנצח */}
       <div className="mb-[18px] flex flex-wrap items-center gap-3">
-        <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          כל הצעה נשלחת כקישור לדף נכס נקי. רואים מתי נפתחה, כמה פעמים, ומה הקונה ענה —
-          בלי אפליקציה ובלי הרשמה.
-        </p>
+        <h1 className="m-0" style={{ fontSize: 22, fontWeight: 800 }}>
+          הצעות
+        </h1>
         <div className="ms-auto flex flex-wrap gap-2">
           {FILTERS.map(([value, label]) => (
             <button
@@ -147,9 +149,7 @@ export default function OffersPage() {
       ) : null}
 
       {error ? (
-        <p role="alert" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : items === null ? (
         <p aria-live="polite">טוען הצעות…</p>
       ) : items.length === 0 ? (

@@ -5,6 +5,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { ConfirmDialog } from "./confirm-dialog";
 import { IconDoc, IconEdit, IconWarning } from "./icons";
+import { Notice } from "./notice";
 
 /**
  * שליחת הסכם לחתימה ומעקב אחריו — מוצג בכרטיס הקונה (הזמנה בכתב)
@@ -323,15 +324,11 @@ export function AgreementsPanel({
       )}
 
       {error ? (
-        <p role="alert" className="mb-2" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       {sentNote ? (
-        <p className="mb-2" aria-live="polite" style={{ color: "var(--color-success)" }}>
-          {sentNote}
-        </p>
+        <Notice tone="success">{sentNote}</Notice>
       ) : null}
 
       {link ? (

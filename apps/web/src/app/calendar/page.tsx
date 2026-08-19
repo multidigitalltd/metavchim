@@ -12,6 +12,7 @@ import { can, useRequireAuth } from "@/lib/use-auth";
 import { RecurrenceSection } from "../settings/recurrence-section";
 import { TasksBoard } from "../tasks/tasks-board";
 import { IconEdit } from "../icons";
+import { Notice, useDismissedToday } from "../notice";
 
 /**
  * היומן לפי קובץ העיצוב: רשת שבועית ראשון–שישי עם בלוקי אירועים
@@ -143,9 +144,7 @@ function EditAppointment({
   return (
     <div className="w-full rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
       {error ? (
-        <p role="alert" className="mb-2 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
       <div className="mb-2 flex flex-wrap items-end gap-2">
         <label className="flex flex-col gap-1 text-sm">
@@ -245,6 +244,11 @@ export default function CalendarPage() {
     return { name, date, isToday: date.getTime() === today.getTime(), events };
   });
 
+  /*
+   * סיורים שעברו וטרם תועדה תוצאה. ניתן לסגור להיום — ראו
+   * `useDismissedToday`.
+   */
+  const [toursDismissed, dismissTours] = useDismissedToday("pending-tours");
   /* סיורים שעברו וטרם תועדה תוצאה — הרשימה מהעיצוב */
   const pendingTours = (items ?? [])
     .filter(
@@ -321,7 +325,7 @@ export default function CalendarPage() {
       </div>
 
       {error ? (
-        <p role="alert" style={{ color: "var(--color-danger)" }}>{error}</p>
+        <Notice tone="danger">{error}</Notice>
       ) : items === null ? (
         <p aria-live="polite">טוען יומן…</p>
       ) : (
@@ -398,14 +402,28 @@ export default function CalendarPage() {
           </div>
 
           {/* סיורים ופגישות שהתקיימו — וטרם תועדה תוצאה */}
-          {pendingTours.length > 0 ? (
+          {pendingTours.length > 0 && !toursDismissed ? (
             <section className="mv-list-card mb-[18px] px-5 py-4" aria-labelledby="pending-tours-heading">
-              <h2 id="pending-tours-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
-                סיורים שהתקיימו — וטרם תועדה תוצאה
-              </h2>
-              <p className="m-0 mb-2.5 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
-                תיעוד קצר עכשיו חוסך שכחה אחר כך. לחיצה אחת — והליד מתעדכן אוטומטית.
-              </p>
+              {/*
+                ניתן לסגור, והסגירה שווה ליום אחד: מי שסוגר אומר „לא
+                עכשיו”, ופאנל שחוזר בכל טעינת מסך הופך תזכורת למטרד.
+                מחר היא חוזרת, כי העבודה עצמה עדיין פתוחה.
+              */}
+              <div className="flex items-start gap-2">
+                <h2 id="pending-tours-heading" className="m-0 mb-2.5 flex-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
+                  סיורים שהתקיימו — וטרם תועדה תוצאה
+                </h2>
+                <button
+                  type="button"
+                  className="mv-notice-close"
+                  aria-label="סגירה להיום"
+                  onClick={dismissTours}
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
               {pendingTours.map((a) => (
                 <div
                   key={a.id}

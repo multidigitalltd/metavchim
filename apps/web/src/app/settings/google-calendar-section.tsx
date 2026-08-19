@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { API_BASE, apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
 import { IconCalendar, IconWarning } from "../icons";
+import { Notice } from "../notice";
 
 /**
  * חיבור יומן Google.
@@ -150,14 +151,10 @@ export function GoogleCalendarSection(): React.JSX.Element | null {
       </p>
 
       {error ? (
-        <p role="alert" className="mb-2" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
       {message ? (
-        <p aria-live="polite" className="mb-2" style={{ color: "var(--color-success)" }}>
-          {message}
-        </p>
+        <Notice tone="success">{message}</Notice>
       ) : null}
 
       {!status.available ? (

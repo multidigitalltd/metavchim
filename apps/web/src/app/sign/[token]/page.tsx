@@ -4,6 +4,7 @@ import { use, useEffect, useState, type FormEvent } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { SignaturePad } from "./signature-pad";
+import { Notice } from "../../notice";
 
 /**
  * חתימה על הסכם — דף ציבורי ללקוח, בלי התחברות. הטוקן שבקישור הוא
@@ -105,9 +106,7 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
   if (loadError) {
     return (
       <div className="mx-auto max-w-2xl py-10">
-        <p role="alert" style={{ color: "var(--color-danger)" }}>
-          {loadError}
-        </p>
+        <Notice tone="danger">{loadError}</Notice>
       </div>
     );
   }
@@ -152,13 +151,7 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
           <h2 className="mb-3 text-lg font-semibold">חתימה</h2>
 
           {error ? (
-            <p
-              role="alert"
-              className="mb-3 rounded-lg border p-3"
-              style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}
-            >
-              {error}
-            </p>
+            <Notice tone="danger">{error}</Notice>
           ) : null}
 
           <div className="mb-4">

@@ -862,6 +862,44 @@ model ReferralReputationDimension {
 // למיגרציה 20260815100000 יש אינדקס ייחודי **חלקי** על ref_id עבור
 // kind='expiry', שאינו ניתן לביטוי בסכמה של Prisma. הוא מונע הפקעה
 // כפולה של אותה מנה בשני עותקי API במקביל, ואסור למחוק אותו.
+/// חשבון הקרדיטים של הפלטפורמה — Append-Only, כמו שני הספרים האחרים.
+///
+/// עמלת ההפניה חושבה ונשמרה על שורת ההפניה, אבל לא נזקפה לשום ספר —
+/// היא הייתה ההפרש בין מה שהקולט חויב למה שהמפנה זוכה. לא היה מקום
+/// להסתכל בו כדי לדעת כמה הפלטפורמה הרוויחה מהפניות.
+///
+/// **בלי tenant_id ובלי RLS** — כמו plans, coupons ו-platform_settings.
+/// לפלטפורמה אין דייר, ו-`source_tenant_id` הוא לדוח בלבד.
+model PlatformCreditLedger {
+  id     String @id @db.Char(26)
+  /// referral_fee | burn | adjustment
+  kind   String @db.VarChar(30)
+  /// חיובי = נזקף לפלטפורמה, שלילי = נמחק ממנה
+  amount Int
+  /// ההכנסה שהוכרה בשורה. אפס בכל שורה שאינה מחיקה.
+  recognizedAgorot Int @default(0) @map("recognized_agorot")
+  /// מחיר הקרדיט ברגע המחיקה, מצולם — המחיר משתנה מהמסך, ובלי צילום
+  /// כל שינוי תמחור היה משכתב את הדוח למפרע.
+  unitPriceAgorot  Int @default(0) @map("unit_price_agorot")
+  /// הצד היקר של אותה הפניה, מצולם על אותה שורה.
+  ///
+  /// הבונוס הוא קרדיטים חדשים שנוצרו יש מאין, והמזומן הוא כסף שיצא.
+  /// שניהם יושבים על `shared_leads` — טבלה תחת RLS שאין לפלטפורמה
+  /// דרך חוקית לקרוא ממנה חוצה-דיירים. ניסיון כזה מחזיר אפס שורות
+  /// **בשקט**, כלומר דוח שמראה 0 בכל שורה ונראה תקין לגמרי.
+  bonusCredits    Int @default(0) @map("bonus_credits")
+  cashPaidAgorot  Int @default(0) @map("cash_paid_agorot")
+  /// מאיזה משרד הגיעה העמלה — לדוח, לא לבידוד
+  sourceTenantId String?  @map("source_tenant_id") @db.Char(26)
+  refId          String?  @map("ref_id") @db.Char(26)
+  note           String?  @db.VarChar(200)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([kind, createdAt])
+  @@map("platform_credit_ledger")
+}
+
 model CreditLedger {
   id        String   @id @db.Char(26)
   tenantId  String   @map("tenant_id") @db.Char(26)

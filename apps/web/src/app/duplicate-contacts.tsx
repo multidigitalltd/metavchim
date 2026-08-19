@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DuplicateGroup } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
+import { Notice } from "./notice";
 
 /**
  * "כפילויות אפשריות" בדשבורד.
@@ -82,9 +83,7 @@ export function DuplicateContacts() {
       </p>
 
       {done ? (
-        <p role="status" className="m-0 mb-3 text-sm" style={{ color: "var(--color-primary)" }}>
-          ✓ {done}
-        </p>
+        <Notice tone="success">✓ {done}</Notice>
       ) : null}
 
       <ul className="m-0 list-none p-0">
@@ -134,9 +133,7 @@ export function DuplicateContacts() {
       </ul>
 
       {error ? (
-        <p role="alert" className="m-0 mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
     </section>
   );

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@metavchim/ui";
 import { packageDiscountPercent } from "@metavchim/shared";
 import { ApiError, apiPost } from "@/lib/api";
+import { Notice } from "../notice";
 
 /**
  * רכישת קרדיטים.
@@ -139,13 +140,7 @@ export function BuyCredits({
       </div>
 
       {error !== null ? (
-        <p
-          role="alert"
-          className="m-0 mt-2 text-sm"
-          style={{ color: "var(--color-danger)" }}
-        >
-          {error}
-        </p>
+        <Notice tone="danger">{error}</Notice>
       ) : null}
 
       <p
