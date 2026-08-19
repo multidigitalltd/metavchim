@@ -120,11 +120,54 @@ const ShareLeadSchema = z
      * קרדיטים, כדי שלקוחות ישנים של ה-API ימשיכו לעבוד כמו קודם.
      */
     payoutMode: PayoutModeSchema.optional(),
+    /*
+     * הצהרת המפנה על איכות הלקוח — **חובה**, ולא שדה רשות.
+     *
+     * זה מה שהמשרד הקולט רואה לפני שהוא משלם, וזה מה שהאישור שלו
+     * נמדד מולו אחר כך. הפניה בלי הצהרה הייתה שורה בלוח שאין עליה
+     * מה לדעת ומחיר שמשלמים על סמך אמון בלבד.
+     */
+    scores: z
+      .record(
+        z.string().max(30),
+        z.number().int().min(MIN_REFERRAL_RATING).max(MAX_REFERRAL_RATING),
+      )
+      /*
+       * חסם עליון על מספר הממדים. הקטלוג ארוך מארבעה, והשירות דוחה
+       * מפתח שאינו בו — אבל הבדיקה הזו עוברת על כל המפתחות שהתקבלו,
+       * ואובייקט עם עשרות אלפי מפתחות היה עבודה שנעשית לפני שהיא
+       * נדחית. הסינון כאן זול והוא לפני העבודה.
+       */
+      .refine((value) => {
+        const keys = Object.keys(value).length;
+        return keys > 0 && keys <= 10;
+      }, "יש לדרג לפחות ממד אחד"),
   })
   .strict();
+/**
+ * אישור רב-ממדי: מפתח לכל ממד, ציון לכל אחד.
+ *
+ * המפתחות עצמם מאומתים בשירות מול הקטלוג — כאן רק הצורה. ציון
+ * הדיוק **אינו** מתקבל מהלקוח: הוא נגזר מהפער מול ההצהרה, ושליחתו
+ * הייתה נתון שאפשר לזייף עבור חישוב שממילא שלנו.
+ */
 const RateReferralSchema = z
   .object({
-    score: z.number().int().min(MIN_REFERRAL_RATING).max(MAX_REFERRAL_RATING),
+    scores: z
+      .record(
+        z.string().max(30),
+        z.number().int().min(MIN_REFERRAL_RATING).max(MAX_REFERRAL_RATING),
+      )
+      /*
+       * חסם עליון על מספר הממדים. הקטלוג ארוך מכולם בארבעה, והשירות
+       * דוחה מפתח שאינו בו — אבל הבדיקה הזו עוברת על כל המפתחות
+       * שהתקבלו, ואובייקט עם עשרות אלפי מפתחות היה עבודה שנעשית לפני
+       * שהיא נדחית. הסינון כאן זול והוא לפני העבודה.
+       */
+      .refine((value) => {
+        const keys = Object.keys(value).length;
+        return keys > 0 && keys <= 10;
+      }, "יש לדרג לפחות ממד אחד"),
     comment: z.string().trim().max(MAX_REFERRAL_RATING_COMMENT).optional(),
   })
   .strict();
@@ -432,7 +475,7 @@ export class CollaborationController {
     @Body(new ZodValidationPipe(ShareLeadSchema))
     body: z.infer<typeof ShareLeadSchema>,
   ): Promise<SharedLeadDto> {
-    return this.collaboration.shareLead(body);
+    return this.collaboration.shareLead({ ...body, clientScores: body.scores });
   }
 
   @Delete("leads/:id")
@@ -469,46 +512,23 @@ export class CollaborationController {
     return this.collaboration.buyLead(id);
   }
 
-  /* ------------------------------------------------------------
-     דירוג הדדי. **שני נתיבים ולא אחד** — לא כפילות אלא הפרדת
-     היכולות: המשרד המפנה מחזיק ב-share, המשרד הקולט ב-offer, ומשרד
-     שמחזיק רק באחת מהן חייב לדרג. התפקיד מגיע מהנתיב ונבדק בשירות
-     מול השורה עצמה.
-     ------------------------------------------------------------ */
-
-  /** דירוג הלקוח שהפניתי — נשמר ומוצג לצד השני, ואינו נספר למוניטין. */
-  @Post("leads/:id/rating/given")
-  @RequireCapability("collaboration.share")
-  @HttpCode(200)
-  async rateReferralGiven(
-    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
-    @Body(new ZodValidationPipe(RateReferralSchema))
-    body: z.infer<typeof RateReferralSchema>,
-  ): Promise<{ ok: true }> {
-    await this.collaboration.rateReferral(
-      id,
-      "referrer",
-      body.score,
-      body.comment,
-    );
-    return { ok: true };
-  }
-
-  /** דירוג ההפניה שקלטתי — זה מה שבונה את המוניטין של המשרד המפנה. */
-  @Post("leads/:id/rating/received")
+  /**
+   * אישור המשרד הקולט על הצהרת המפנה.
+   *
+   * **נתיב אחד ולא שניים.** קודם היו שניים, אחד לכל צד, כי כל צד
+   * דירג את משנהו והיכולות שונות. במודל הזה יש הצהרה אחת שנכתבת
+   * בפרסום ואישור אחד שנכתב בקליטה — ולכן צד אחד שיכול לכתוב אותו,
+   * והוא זה שמחזיק ב-`collaboration.offer`.
+   */
+  @Post("leads/:id/confirmation")
   @RequireCapability("collaboration.offer")
   @HttpCode(200)
-  async rateReferralReceived(
+  async confirmReferral(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Body(new ZodValidationPipe(RateReferralSchema))
     body: z.infer<typeof RateReferralSchema>,
   ): Promise<{ ok: true }> {
-    await this.collaboration.rateReferral(
-      id,
-      "receiver",
-      body.score,
-      body.comment,
-    );
+    await this.collaboration.confirmReferral(id, body.scores, body.comment);
     return { ok: true };
   }
 }

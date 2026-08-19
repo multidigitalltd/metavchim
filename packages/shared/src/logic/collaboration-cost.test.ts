@@ -9,7 +9,6 @@ import {
   describeCommissionSplit,
   UNPRICED_SOURCE_COST,
   coopOfferCost,
-  demandCostsCredits,
   leadPriceRejectionReason,
   leadSourceLabel,
 } from "./collaboration-cost.js";
@@ -18,12 +17,10 @@ describe("coopOfferCost", () => {
   it("ביקוש של משרד אחר — חינם, בכל מסלול", () => {
     // רשת שרק המסלולים הגבוהים נמצאים בה אינה רשת
     expect(coopOfferCost("network")).toBe(0);
-    expect(demandCostsCredits("network")).toBe(false);
   });
 
   it("ליד חיצוני — עולה קרדיטים", () => {
     expect(coopOfferCost("kanko")).toBe(1);
-    expect(demandCostsCredits("kanko")).toBe(true);
   });
 
   it("מקור לא מתומחר נחשב בתשלום ולא חינם", () => {

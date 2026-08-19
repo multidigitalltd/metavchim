@@ -58,14 +58,6 @@ export function coopOfferCost(
     : 0;
 }
 
-/** האם הביקוש עולה קרדיטים — לתצוגה, מאותו כלל. */
-export function demandCostsCredits(
-  source: string,
-  prices: readonly LeadSourcePrice[] = DEFAULT_LEAD_SOURCES,
-): boolean {
-  return coopOfferCost(source, prices) > 0;
-}
-
 /** שם המקור לתצוגה; המזהה עצמו כשאין. */
 export function leadSourceLabel(
   source: string,

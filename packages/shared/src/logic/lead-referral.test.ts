@@ -8,10 +8,16 @@ import {
   resolveReferralFeePercent,
   referralPriceRejectionReason,
   referralRatingAverage,
-  referralRatingRejectionReason,
+  referralCommentRejectionReason,
   referralReasonLabel,
   referralReasonRejectionReason,
   suggestedReferralPrice,
+  REFERRAL_TERMS,
+  forbiddenReferralWord,
+  CLIENT_RATING_DIMENSIONS,
+  overallRatingScore,
+  dimensionRatingRejectionReason,
+  declarationAccuracy,
 } from "./lead-referral.js";
 import { DEFAULT_LEAD_SOURCES } from "./collaboration-cost.js";
 
@@ -133,30 +139,37 @@ describe("referralReasonLabel", () => {
   });
 });
 
-describe("דירוג", () => {
-  it("ציון מחוץ לסקאלה או לא שלם נדחה", () => {
-    expect(referralRatingRejectionReason(3)).toBeNull();
-    expect(referralRatingRejectionReason(0)).not.toBeNull();
-    expect(referralRatingRejectionReason(6)).not.toBeNull();
-    expect(referralRatingRejectionReason(4.5)).not.toBeNull();
-  });
-
+describe("מוניטין", () => {
   it("הערה ארוכה מדי נדחית", () => {
-    expect(referralRatingRejectionReason(5, "א".repeat(301))).not.toBeNull();
+    expect(referralCommentRejectionReason("א".repeat(301))).not.toBeNull();
+    expect(referralCommentRejectionReason("קצר")).toBeNull();
+    expect(referralCommentRejectionReason(undefined)).toBeNull();
   });
 
+  /*
+   * הסכום מגיע ב**עשיריות** — ראו `LeadReferralRating.scoreTenths`.
+   * 130 עשיריות על שלושה אישורים הם 4.33 כוכבים, כלומר 4.3.
+   */
   it("ממוצע מעוגל לספרה אחת", () => {
-    expect(referralRatingAverage(13, 3)).toBe(4.3);
-    expect(referralRatingAverage(10, 2)).toBe(5);
+    expect(referralRatingAverage(130, 3)).toBe(4.3);
+    expect(referralRatingAverage(100, 2)).toBe(5);
   });
 
-  it("משרד בלי דירוגים אינו „0 מתוך 5”", () => {
+  it("משרד בלי אישורים אינו „0 מתוך 5”", () => {
     expect(referralRatingAverage(0, 0)).toBeNull();
-    expect(describeReferralRating(null, 0)).toBe("טרם דורג");
-    // מונה 0 עם ממוצע כלשהו הוא נתון סותר — עדיין "טרם דורג"
-    expect(describeReferralRating(4, 0)).toBe("טרם דורג");
-    expect(describeReferralRating(referralRatingAverage(9, 2), 2)).toBe(
-      "4.5 מתוך 5 (2 דירוגים)",
+    expect(describeReferralRating(null, 0)).toBe("טרם אושרו הצהרות");
+    // מונה 0 עם ממוצע כלשהו הוא נתון סותר — עדיין "טרם אושרו"
+    expect(describeReferralRating(4, 0)).toBe("טרם אושרו הצהרות");
+  });
+
+  /*
+   * הניסוח אומר **דיוק הצהרות** ולא "דירוג": המספר אינו אומר כמה
+   * הלקוחות טובים אלא כמה מה שנאמר עליהם התברר כנכון, וניסוח כללי
+   * מוביל בדיוק למסקנה ההפוכה על משרד שמצהיר ביושר.
+   */
+  it("הניסוח אומר דיוק ולא איכות", () => {
+    expect(describeReferralRating(referralRatingAverage(90, 2), 2)).toBe(
+      "דיוק ההצהרות 4.5 מתוך 5 (2 אישורים)",
     );
   });
 });
@@ -186,5 +199,112 @@ describe("אחוז עמלת הפלטפורמה מהגדרות", () => {
     const payout = referralPayout(10, resolveReferralFeePercent(0));
     expect(payout.platformFeeCredits).toBe(0);
     expect(payout.payoutCredits).toBe(10);
+  });
+});
+
+describe("שפת ההפניות", () => {
+  /*
+   * `REFERRAL_TERMS` הובטח בתיעוד מהיום הראשון ומעולם לא נבנה. הכלל
+   * היה כתוב, לא היה לו מקום להיאכף בו, והשפה נסחפה חזרה למסחר.
+   */
+  it("המילון מגדיר עמלה ולא מחיר", () => {
+    expect(REFERRAL_TERMS.fee).toBe("עמלת הפניה");
+    expect(REFERRAL_TERMS.referrer).toBe("המשרד המפנה");
+    expect(REFERRAL_TERMS.receiver).toBe("המשרד הקולט");
+  });
+
+  it("מזהה ניסוח של מסחר בלקוחות ומדווח מה נמצא", () => {
+    expect(forbiddenReferralWord("כאן מתבצעת מכירת ליד")).toBe("מכירת ליד");
+    expect(forbiddenReferralWord("סחר בלידים בין משרדים")).toBe("סחר בלידים");
+  });
+
+  it("ניסוח תקין עובר — כסף אינו המילה האסורה", () => {
+    expect(forbiddenReferralWord("קליטת הפניה תמורת עמלת הפניה של 5 קרדיטים")).toBeNull();
+    expect(forbiddenReferralWord("התשלום על ההפניה נגבה ברגע הקליטה")).toBeNull();
+  });
+
+  /*
+   * בעברית "ליד" הוא גם מילת יחס. שער שמסמן "תווית מחיר ליד הכפתור"
+   * מלמד להתעלם ממנו — וזה הסוף של כל שער.
+   */
+  it("„ליד” כמילת יחס אינו נחשב הפרה", () => {
+    expect(forbiddenReferralWord("תווית מחיר ליד הכפתור")).toBeNull();
+  });
+});
+
+describe("הצהרה ואישור", () => {
+  /*
+   * קטלוג אחד לשני הצדדים הוא מה שמאפשר להשוות הצהרה לאישור.
+   * שני קטלוגים היו שני דירוגים שאין ביניהם יחס מספרי.
+   */
+  it("הממדים הם איכות הלקוח, לא התנהגות המשרדים", () => {
+    const keys = CLIENT_RATING_DIMENSIONS.map((d) => d.key);
+    expect(keys).toContain("seriousness");
+    expect(keys).toContain("budget");
+  });
+
+  it("לכל ממד נוסח נפרד למצהיר ולמאשר", () => {
+    for (const dimension of CLIENT_RATING_DIMENSIONS) {
+      expect(dimension.declareHint).not.toBe(dimension.confirmHint);
+    }
+  });
+
+  it("הציון הכולל הוא ממוצע הממדים שדורגו", () => {
+    expect(overallRatingScore({ seriousness: 5, budget: 4 })).toBe(4.5);
+  });
+
+  it("ממד שלא דורג אינו נספר", () => {
+    expect(overallRatingScore({ seriousness: 5 })).toBe(5);
+    expect(overallRatingScore({})).toBeNull();
+  });
+
+  it("ממד שאינו בקטלוג נדחה", () => {
+    expect(dimensionRatingRejectionReason({ nope: 5 })).toContain("לא מוכר");
+    expect(dimensionRatingRejectionReason({ seriousness: 5 })).toBeNull();
+  });
+
+  it("ציון מחוץ לטווח נדחה", () => {
+    expect(dimensionRatingRejectionReason({ seriousness: 9 })).toContain("בין");
+    expect(dimensionRatingRejectionReason({})).toContain("לפחות ממד אחד");
+  });
+});
+
+describe("declarationAccuracy", () => {
+  /*
+   * הלב של המנגנון: המוניטין מודד **דיוק** ולא איכות. משרד שמצהיר
+   * "בינוני" ומקבל אישור "בינוני" מקבל חמישה כוכבים, בדיוק כמו מי
+   * שהצהיר "מצוין" וצדק.
+   */
+  it("הצהרה שהתאמה במדויק — חמישה כוכבים, גם על לקוח בינוני", () => {
+    expect(declarationAccuracy({ seriousness: 3 }, { seriousness: 3 })).toBe(5);
+    expect(declarationAccuracy({ seriousness: 5 }, { seriousness: 5 })).toBe(5);
+  });
+
+  it("ניפוח יורד לפי גודל הפער", () => {
+    expect(declarationAccuracy({ seriousness: 5 }, { seriousness: 2 })).toBe(2);
+  });
+
+  it("הפער המרבי נותן את הציון הנמוך ביותר בסקאלה", () => {
+    expect(declarationAccuracy({ seriousness: 5 }, { seriousness: 1 })).toBe(1);
+  });
+
+  /*
+   * ממד שרק צד אחד נגע בו אינו נספר: אין ממה לגזור פער, וספירה
+   * שלו כאילו הפער אפס הייתה מתגמלת הצהרה חלקית.
+   */
+  it("ממד שרק צד אחד דירג אינו נספר", () => {
+    expect(declarationAccuracy({ seriousness: 5, budget: 5 }, { seriousness: 5 })).toBe(5);
+  });
+
+  it("בלי ממד משותף אין מדידה — ולא ציון אפס", () => {
+    expect(declarationAccuracy({}, { seriousness: 4 })).toBeNull();
+    expect(declarationAccuracy({ budget: 4 }, { seriousness: 4 })).toBeNull();
+  });
+
+  it("ממוצע הפערים ולא הפער הגרוע ביותר", () => {
+    // פערים 0 ו-2 → ממוצע 1 → ‎5-1
+    expect(
+      declarationAccuracy({ seriousness: 4, budget: 5 }, { seriousness: 4, budget: 3 }),
+    ).toBe(4);
   });
 });

@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
+import { normalizeEmail } from "@metavchim/shared";
 import { loadEnv } from "../config/env";
 
 /**
@@ -53,7 +54,22 @@ export class CryptoService {
    * המאגר. אותה תחילית-תחום כמו בשם: "email:" מבטיח שאימייל, שם
    * וטלפון לעולם לא יתנגשו זה עם זה.
    */
-  emailHash(normalizedEmail: string): string {
-    return createHmac("sha256", this.hashKey).update(`email:${normalizedEmail}`).digest("hex");
+  /**
+   * חתימת אימייל — **מנרמלת בעצמה**, ואינה סומכת על הקורא.
+   *
+   * החתימה קיבלה קודם "אימייל מנורמל" והניחה שהוא אכן כזה. בפועל
+   * הנרמול היה מפוזר על פני שישה מקומות ולא היה אחיד: חלק
+   * ‎`.trim().toLowerCase()`‎ וחלק ‎`.toLowerCase()`‎ בלבד. כלומר
+   * אותה כתובת עם רווח נגרר קיבלה חתימה אחרת לפי המסלול שיצר
+   * אותה, ואותו אדם נספר כשני לקוחות — בדיוק התקלה ש-
+   * `normalizeEmail` נכתב כדי למנוע, ושמעולם לא נקרא.
+   *
+   * הנרמול כאן ולא בקוראים: זה המקום היחיד שאי אפשר לעקוף אותו.
+   * `normalizeEmail` אידמפוטנטי, ולכן קורא שכבר נירמל אינו מושפע.
+   */
+  emailHash(email: string): string {
+    return createHmac("sha256", this.hashKey)
+      .update(`email:${normalizeEmail(email)}`)
+      .digest("hex");
   }
 }

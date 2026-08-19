@@ -20,6 +20,79 @@ import { coopOfferCost, type LeadSourcePrice } from "./collaboration-cost.js";
  *    הדירוג הוא המנגנון היחיד שמייקר הפניית זבל.
  */
 
+/* ============================================================
+   המילון המחייב
+   ============================================================ */
+
+/**
+ * המונחים של מנגנון ההפניות — **מקור אחד לכל טקסט במערכת.**
+ *
+ * התיעוד למעלה הבטיח את `REFERRAL_TERMS` מהיום הראשון, והוא מעולם
+ * לא נבנה: הכלל היה כתוב ולא היה לו מקום להיאכף בו, ולכן כל מסך
+ * ניסח מחדש והשפה נסחפה חזרה למסחר.
+ *
+ * ההבחנה אינה סמנטית. משרד תיווך שמוכר לקוחות ומשרד תיווך שמפנה
+ * לקוח לעמית הם שני דברים שונים — מקצועית ורגולטורית. התמורה כאן
+ * משולמת על **ההפניה**: על כך שמשרד טרח, זיהה שהלקוח אינו מתאים
+ * לו, ומסר אותו למי שכן יכול לשרת אותו. אין עמלה בסגירה, ואין
+ * החזר אם לא נסגר.
+ *
+ * לכן גם `FORBIDDEN_REFERRAL_WORDS` ובדיקה מבנית שסורקת את המסכים:
+ * מילון בלי אכיפה הוא בדיוק ההבטחה שלא קוימה כאן פעם אחת.
+ */
+export const REFERRAL_TERMS = Object.freeze({
+  /** הפעולה עצמה. */
+  referral: "הפניה",
+  referrals: "הפניות",
+  /** התמורה. **לא** "מחיר" ולא "עלות" — אלה מילים של מכירה. */
+  fee: "עמלת הפניה",
+  /** מי מפנה ומי קולט. לא "מוכר" ולא "קונה". */
+  referrer: "המשרד המפנה",
+  receiver: "המשרד הקולט",
+  /** הפעולה של הצד הקולט. לא "רכישה" ולא "קנייה". */
+  accept: "קליטת הפניה",
+  /** מה שהמפנה עושה. */
+  refer: "הפניית לקוח",
+} as const);
+
+/**
+ * מילים שאסור שיופיעו בטקסט שמתאר הפניות.
+ *
+ * הרשימה קצרה בכוונה ומכוונת ל**מסחר בלקוחות** בלבד. "תשלום",
+ * "קרדיטים" ו"תמורה" מותרים — כסף באמת עובר, ולהסתיר את זה היה
+ * גרוע יותר מלנסח אותו נכון.
+ *
+ * ‎"מחיר ליד"‎ נעדר מהרשימה בכוונה: בעברית ‎"ליד"‎ הוא גם מילת יחס,
+ * ו"תווית מחיר ליד הכפתור" הוא משפט תקין לחלוטין. שער שמסמן טקסט
+ * כשר מלמד להתעלם ממנו — וזה הסוף של כל שער. ‎"מחיר הליד"‎ ו‎"עלות
+ * הליד"‎ חד-משמעיים ונשארים.
+ */
+export const FORBIDDEN_REFERRAL_WORDS: readonly string[] = [
+  "מכירת ליד",
+  "מכירת לידים",
+  "קניית ליד",
+  "קניית לידים",
+  "רכישת ליד",
+  "רכישת לידים",
+  "מחיר הליד",
+  "עלות הליד",
+  "לקנות ליד",
+  "מוכר הליד",
+  "קונה הליד",
+  "סחר בלידים",
+  "מסחר בלידים",
+];
+
+/**
+ * המילה האסורה הראשונה בטקסט, או `null` כשהוא נקי.
+ *
+ * מחזיר את המילה ולא רק בוליאני: הבדיקה המבנית מדווחת **מה** נמצא
+ * ואיפה, ודיווח "יש בעיה" בלי לומר מה שולח לחפש בעיניים.
+ */
+export function forbiddenReferralWord(text: string): string | null {
+  return FORBIDDEN_REFERRAL_WORDS.find((word) => text.includes(word)) ?? null;
+}
+
 /** אורך ההערה שהמשרד המפנה מצרף — מוצגת בלוח, לכן קצרה ואנונימית. */
 export const MAX_REFERRAL_NOTE = 300;
 
@@ -229,11 +302,25 @@ export function referralReasonRejectionReason(
 }
 
 /* ============================================================
-   דירוג הדדי
+   הצהרת המפנה ואישור הקולט
    ============================================================
    התמורה משולמת על ההפניה ולא על התוצאה, ולכן אין בעסקה הזו מנגנון
-   החזר. מה שכן יש הוא מוניטין: משרד שמפנה זבל מדורג נמוך, והמחיר
-   שהוא יכול לבקש יורד. הדירוג מוצג לצד כל הפניה שלו — לפני התשלום.
+   החזר — ומה ששומר עליה הוא **הצהרה שנבדקת**.
+
+   1. **המשרד המפנה מצהיר על איכות הלקוח** ברגע הפרסום: כמה הוא
+      רציני, כמה התקציב שלו ריאלי, כמה זה דחוף וכמה הוא זמין.
+      ההצהרה מוצגת בלוח **לפני התשלום** — היא בדיוק מה שהמשרד
+      הקולט צריך כדי להחליט אם עמלת ההפניה שווה את זה.
+   2. **המשרד הקולט מאשר** אחרי שעבד עם הלקוח: הוא מדרג את **אותם
+      ממדים** מניסיון ישיר.
+   3. **המוניטין הוא דיוק ההצהרה** — כמה ההצהרה קרבה למה שהתברר
+      בפועל, ולא כמה הלקוח היה טוב.
+
+   הנקודה בסעיף 3 היא כל המנגנון. מוניטין שנבנה מ"כמה הלקוח היה
+   טוב" מעניש משרד שהצהיר ביושר על לקוח בינוני, ומתגמל את מי שהיה
+   לו מזל — כלומר לא מודד דבר שבשליטתו. דיוק ההצהרה כן: משרד שמנפח
+   מקבל ציון נמוך גם על לקוח מצוין שהצהיר עליו כמושלם, ומשרד שאומר
+   "בינוני" ומקבל אישור "בינוני" מקבל חמישה כוכבים.
    ============================================================ */
 
 export const MIN_REFERRAL_RATING = 1;
@@ -242,41 +329,189 @@ export const MAX_REFERRAL_RATING_COMMENT = 300;
 
 /** מה כל ציון אומר — כדי ששני משרדים ידרגו באותה סקאלה. */
 export const REFERRAL_RATING_LABELS: Readonly<Record<number, string>> = {
-  1: "לא היה מה לעבוד איתו",
+  1: "גרוע",
   2: "חלש",
   3: "סביר",
   4: "טוב",
-  5: "לקוח אמיתי, שווה כל קרדיט",
+  5: "מצוין",
 };
 
-/** תקינות דירוג — הודעה בעברית או `null`. */
-export function referralRatingRejectionReason(
-  score: number,
-  comment?: string,
+/* ------------------------------------------------------------
+   ממדי איכות הלקוח
+   ------------------------------------------------------------ */
+
+export interface ReferralRatingDimension {
+  key: string;
+  /** התווית בשני הטפסים. */
+  label: string;
+  /** מה נשאל את **המפנה**, בזמן הפרסום. */
+  declareHint: string;
+  /** מה נשאל את **הקולט**, אחרי שעבד עם הלקוח. */
+  confirmHint: string;
+}
+
+/**
+ * ממדי איכות הלקוח — **קטלוג אחד לשני הצדדים.**
+ *
+ * שני הצדדים מדרגים את אותם ממדים בדיוק, ולא כל אחד את משנהו: זו
+ * ההנחה שמאפשרת להשוות הצהרה לאישור ולגזור מהפער ציון דיוק. שני
+ * קטלוגים נפרדים היו שני דירוגים שאין ביניהם שום יחס מספרי, וכל
+ * "מוניטין" שהיה נבנה מהם היה ממוצע של דעות ולא מדידה.
+ *
+ * הממדים נבחרו לפי שני תנאים: המפנה **יודע** את התשובה בזמן
+ * הפרסום, והקולט **יכול לבדוק** אותה מניסיון ישיר תוך ימים.
+ * „האם נסגרה עסקה” נכשל בשניהם ואינו כאן — הוא תלוי בשוק, בלקוח
+ * ובקולט עצמו, והתמורה ממילא אינה מותנית בתוצאה.
+ */
+export const CLIENT_RATING_DIMENSIONS: readonly ReferralRatingDimension[] = [
+  {
+    key: "seriousness",
+    label: "רצינות",
+    declareHint: "מחפש בפועל, או בודק מחירים?",
+    confirmHint: "התברר כמחפש רציני?",
+  },
+  {
+    key: "budget",
+    label: "ריאליות התקציב",
+    declareHint: "התקציב שהוא נוקב מתאים למה שהוא מחפש?",
+    confirmHint: "התקציב שהוצהר החזיק מול השוק?",
+  },
+  {
+    key: "urgency",
+    label: "דחיפות",
+    declareHint: "צריך לעבור בקרוב, או מסתכל לטווח ארוך?",
+    confirmHint: "לוח הזמנים היה כפי שנמסר?",
+  },
+  {
+    key: "reachability",
+    label: "זמינות",
+    declareHint: "עונה לטלפון וקובע פגישות?",
+    confirmHint: "ענה לכם כשפניתם?",
+  },
+];
+
+/** הממד לפי מפתח; `undefined` כשאינו בקטלוג. */
+export function ratingDimension(key: string): ReferralRatingDimension | undefined {
+  return CLIENT_RATING_DIMENSIONS.find((d) => d.key === key);
+}
+
+/**
+ * הציון הכולל — ממוצע הממדים שדורגו.
+ *
+ * ממד שלא דורג פשוט אינו נספר: משרד שאינו יודע לשפוט את הדחיפות של
+ * לקוח לא אמור להיות מחויב להמציא ציון, וציון מומצא הוא בדיוק מה
+ * שהופך את כל המדידה לרעש.
+ */
+export function overallRatingScore(scores: Readonly<Record<string, number>>): number | null {
+  const values = Object.values(scores).filter(
+    (value) =>
+      Number.isInteger(value) && value >= MIN_REFERRAL_RATING && value <= MAX_REFERRAL_RATING,
+  );
+  if (values.length === 0) return null;
+  const sum = values.reduce((total, value) => total + value, 0);
+  return Math.round((sum / values.length) * 10) / 10;
+}
+
+/**
+ * תקינות דירוג רב-ממדי — הודעה בעברית או `null`.
+ *
+ * ממד שאינו בקטלוג נדחה ולא מתעלמים ממנו: ציון שנשמר תחת מפתח שאיש
+ * אינו קורא הוא ציון שנעלם, והמדרג בטוח שהוא נספר.
+ */
+export function dimensionRatingRejectionReason(
+  scores: Readonly<Record<string, number>>,
 ): string | null {
-  if (!Number.isInteger(score) || score < MIN_REFERRAL_RATING || score > MAX_REFERRAL_RATING) {
-    return `דירוג הוא מספר שלם בין ${MIN_REFERRAL_RATING} ל-${MAX_REFERRAL_RATING}`;
+  const entries = Object.entries(scores);
+  if (entries.length === 0) return "יש לדרג לפחות ממד אחד";
+  for (const [key, value] of entries) {
+    if (ratingDimension(key) === undefined) return `ממד לא מוכר: ${key}`;
+    if (
+      !Number.isInteger(value) ||
+      value < MIN_REFERRAL_RATING ||
+      value > MAX_REFERRAL_RATING
+    ) {
+      return `דירוג הוא מספר שלם בין ${MIN_REFERRAL_RATING} ל-${MAX_REFERRAL_RATING}`;
+    }
   }
+  return null;
+}
+
+/**
+ * דיוק ההצהרה — **הציון שנכנס למוניטין המשרד המפנה.**
+ *
+ * מחושב מהפער הממוצע בין מה שהמפנה הצהיר לבין מה שהקולט אישר, על
+ * הממדים ש**שני הצדדים** דירגו. ממד שרק צד אחד נגע בו אינו נספר:
+ * אין ממה לגזור פער, וספירה שלו כאילו הפער אפס הייתה מתגמלת
+ * הצהרה חלקית.
+ *
+ * הסקאלה 1..5, ולכן הפער המרבי הוא 4. הנוסחה `5 − פער ממוצע`
+ * ממפה פער 0 לחמישה כוכבים ופער מרבי לכוכב אחד, כלומר לאותה
+ * סקאלה שבה כל שאר הדירוגים במערכת — ואין צורך להסביר למשתמש
+ * יחידה שנייה.
+ *
+ * `null` כשאין ולו ממד אחד משותף: זה אינו "ציון אפס" אלא היעדר
+ * מדידה, והבחנה בין השניים היא ההבדל בין משרד גרוע למשרד חדש.
+ */
+export function declarationAccuracy(
+  declared: Readonly<Record<string, number>>,
+  confirmed: Readonly<Record<string, number>>,
+): number | null {
+  let gapSum = 0;
+  let count = 0;
+  for (const dimension of CLIENT_RATING_DIMENSIONS) {
+    const a = declared[dimension.key];
+    const b = confirmed[dimension.key];
+    if (typeof a !== "number" || typeof b !== "number") continue;
+    gapSum += Math.abs(a - b);
+    count += 1;
+  }
+  if (count === 0) return null;
+  const accuracy = MAX_REFERRAL_RATING - gapSum / count;
+  // הפער המרבי הוא 4 ולכן התוצאה לעולם אינה יורדת מ-1; ההידוק הוא
+  // הגנה על נתון פגום שנשמר לפני שהאימות היה קיים
+  return Math.round(Math.min(MAX_REFERRAL_RATING, Math.max(MIN_REFERRAL_RATING, accuracy)) * 10) / 10;
+}
+
+/**
+ * תקינות ההערה בלבד.
+ *
+ * הציונים עצמם מאומתים ב-`dimensionRatingRejectionReason`. פיצול
+ * ולא פונקציה אחת: ההערה נשלחת גם בלי ציונים חדשים.
+ */
+export function referralCommentRejectionReason(comment?: string): string | null {
   if ((comment?.trim().length ?? 0) > MAX_REFERRAL_RATING_COMMENT) {
     return `ההערה ארוכה מדי (עד ${MAX_REFERRAL_RATING_COMMENT} תווים)`;
   }
   return null;
 }
 
-/** ממוצע הדירוגים של משרד — `null` כשעדיין אין על מה לדבר. */
-export function referralRatingAverage(sum: number, count: number): number | null {
-  if (!Number.isFinite(sum) || !Number.isFinite(count) || count <= 0) return null;
-  return Math.round((sum / count) * 10) / 10;
+/**
+ * ממוצע דיוק ההצהרות של משרד — `null` כשעדיין אין על מה לדבר.
+ *
+ * הסכום מגיע **בעשיריות** (`referral_reputation.rating_sum`), ולכן
+ * החלוקה במאה: `sum/count` נותן עשיריות, ועוד עשר מחזיר לכוכבים.
+ * היחידה נשמרת שלמה לכל אורך הצבירה כדי שדלתאות לא יאבדו דיוק —
+ * ראו `LeadReferralRating.scoreTenths`.
+ */
+export function referralRatingAverage(sumTenths: number, count: number): number | null {
+  if (!Number.isFinite(sumTenths) || !Number.isFinite(count) || count <= 0) return null;
+  return Math.round(sumTenths / count) / 10;
 }
 
 /**
  * הניסוח שמוצג ליד שם המשרד המפנה.
  *
+ * **"דיוק ההצהרות" ולא "דירוג".** המספר אינו אומר כמה הלקוחות של
+ * המשרד הזה טובים — הוא אומר כמה מה שהוא מצהיר עליהם התברר כנכון,
+ * וזו השאלה היחידה שרלוונטית למי ששוקל לשלם עמלת הפניה על סמך
+ * ההצהרה. ניסוח כללי היה נקרא כדירוג איכות ומוביל בדיוק למסקנה
+ * ההפוכה על משרד שמצהיר ביושר על לקוח בינוני.
+ *
  * מקבל **ממוצע** ולא סכום: המסך מקבל מהשרת ממוצע מוכן, והחישוב עצמו
  * (`referralRatingAverage`) שייך לצד שקורא את המונים. משרד בלי
- * דירוגים אינו "0 מתוך 5" — הוא משרד חדש בלוח, וזו אמירה אחרת לגמרי.
+ * אישורים אינו "0 מתוך 5" — הוא משרד חדש בלוח, וזו אמירה אחרת לגמרי.
  */
 export function describeReferralRating(average: number | null, count: number): string {
-  if (average === null || count <= 0) return "טרם דורג";
-  return `${average} מתוך ${MAX_REFERRAL_RATING} (${count} דירוגים)`;
+  if (average === null || count <= 0) return "טרם אושרו הצהרות";
+  return `דיוק ההצהרות ${average} מתוך ${MAX_REFERRAL_RATING} (${count} אישורים)`;
 }

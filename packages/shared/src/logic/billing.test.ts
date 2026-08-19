@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   BILLING_GRACE_DAYS,
-  RENEWAL_WARN_WITHIN_DAYS,
   accessUntil,
   billingAnchorDay,
   checkoutRejectionReason,
@@ -13,7 +12,6 @@ import {
   isBillingCycle,
   nextPeriodEnd,
   periodDaysLeft,
-  shouldWarnAboutRenewal,
   subscriptionGrantsAccess,
 } from "./billing.js";
 import type { PlanDefinition } from "./plans.js";
@@ -206,26 +204,6 @@ describe("periodDaysLeft", () => {
   it("null כשאין תאריך או שהוא פגום", () => {
     expect(periodDaysLeft(null, NOW)).toBeNull();
     expect(periodDaysLeft("מחר", NOW)).toBeNull();
-  });
-});
-
-describe("shouldWarnAboutRenewal", () => {
-  const inDays = (d: number): Date => new Date(NOW.getTime() + d * 86_400_000);
-
-  it("בתוך החלון", () => {
-    expect(shouldWarnAboutRenewal("active", inDays(3), NOW)).toBe(true);
-  });
-
-  it("על הגבול מזהיר", () => {
-    expect(shouldWarnAboutRenewal("active", inDays(RENEWAL_WARN_WITHIN_DAYS), NOW)).toBe(true);
-  });
-
-  it("מחוץ לחלון שותק", () => {
-    expect(shouldWarnAboutRenewal("active", inDays(RENEWAL_WARN_WITHIN_DAYS + 1), NOW)).toBe(false);
-  });
-
-  it("בניסיון לא מזהיר על חידוש — יש לו באנר משלו", () => {
-    expect(shouldWarnAboutRenewal("trial", inDays(2), NOW)).toBe(false);
   });
 });
 

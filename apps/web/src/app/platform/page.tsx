@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState, type FormEvent } from "react";
-import { CAPABILITY_MODULES, PLAN_FEATURES } from "@metavchim/shared";
+import { CAPABILITY_MODULES, PLAN_FEATURES, moduleLabel } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDate } from "@/lib/format";
@@ -744,9 +744,16 @@ export default function PlatformPage() {
                         aria-expanded={modulesFor === a.id}
                         onClick={() => setModulesFor(modulesFor === a.id ? null : a.id)}
                       >
+                        {/*
+                          שמות ולא מונה. "2 חסומים" מחייב לפתוח את
+                          הפאנל כדי לדעת מה נחסם, ובעל הפלטפורמה
+                          סורק כאן טבלה של משרדים — הוא צריך לראות
+                          את ההבדל בין חסימת חיוב לחסימת הפניות בלי
+                          לפתוח שורה-שורה.
+                        */}
                         {a.blockedModules.length === 0
                           ? "הכול פתוח"
-                          : `${a.blockedModules.length} חסומים`}
+                          : a.blockedModules.map(moduleLabel).join(" · ")}
                       </button>
                       {/*
                         החריגים ליד החסימות ולא בעמודה משלהם: שתיהן

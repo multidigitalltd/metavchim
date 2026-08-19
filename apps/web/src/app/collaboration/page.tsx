@@ -53,7 +53,11 @@ import { CollaborationGuide, ReferralRulesPanel } from "./guide";
 import { PrivacyBanner } from "./privacy-banner";
 import { ReachBanner } from "./reach-banner";
 import { NetChips } from "./net-chips";
-import { ReferralRating, type ReferralRatingValue } from "./referral-rating";
+import {
+  ClientScoresView,
+  ReferralConfirmation,
+  type ReferralConfirmationValue,
+} from "./client-rating";
 import { BuyCredits } from "./buy-credits";
 import { PayoutPanel } from "./payout-panel";
 
@@ -177,6 +181,8 @@ interface DemandRow {
   mustFeatures: string[];
   niceFeatures: string[];
   source: string;
+  /** שם המקור לתצוגה, מקטלוג התמחור — לא שם ספק שכתוב במסך. */
+  sourceLabel: string;
   /** כמה קרדיטים תעלה הצעה. 0 = חינם (ביקוש של משרד אחר). */
   creditsCost: number;
   /** אחוז העמלה שהמשרד המשתף מבקש; לצד השני נשאר המשלים. */
@@ -304,8 +310,9 @@ interface SharedLeadRow {
   originLeadId?: string;
   /** המוניטין של המשרד המפנה — הדבר החשוב ביותר לפני תשלום */
   referrerRating?: { average: number; count: number };
-  myRating?: ReferralRatingValue;
-  counterpartRating?: ReferralRatingValue;
+  /** הצהרת המפנה על איכות הלקוח — מוצגת לפני התשלום. */
+  clientScores: Record<string, number>;
+  confirmation?: ReferralConfirmationValue;
 }
 
 interface PropertyOption {
@@ -571,9 +578,10 @@ export default function CollaborationPage() {
      */
     if (
       !window.confirm(
-        `לקלוט את ההפניה תמורת ${price} קרדיטים?\n\n` +
-          "פרטי הקשר ייחשפו מיד. התשלום הוא על ההפניה עצמה — הוא נגבה עכשיו, " +
-          "ואינו מוחזר גם אם לא תיסגר עסקה. אחרי הקליטה תוכלו לדרג את ההפניה.",
+        `לקלוט את ההפניה תמורת עמלת הפניה של ${price} קרדיטים?\n\n` +
+          "פרטי הקשר ייחשפו מיד. העמלה היא על ההפניה עצמה — היא נגבית עכשיו, " +
+          "אינה מוחזרת גם אם לא תיסגר עסקה, ואין עמלה נוספת בסגירה. " +
+          "אחרי הקליטה תוכלו לדרג את ההפניה.",
       )
     ) {
       return;
@@ -1093,14 +1101,20 @@ export default function CollaborationPage() {
                       {lead.note ? ` · ${lead.note}` : ""}
                     </p>
                     {lead.status === "sold" ? (
-                      <ReferralRating
+                      <ReferralConfirmation
                         sharedLeadId={lead.id}
-                        role="given"
-                        mine={lead.myRating}
-                        counterpart={lead.counterpartRating}
-                        onSaved={() => load()}
+                        role="referrer"
+                        declared={lead.clientScores}
+                        confirmation={lead.confirmation}
                       />
-                    ) : null}
+                    ) : (
+                      <div className="mt-2">
+                        <ClientScoresView
+                          title="ההצהרה שלכם על הלקוח"
+                          scores={lead.clientScores}
+                        />
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -1124,7 +1138,7 @@ export default function CollaborationPage() {
                         {lead.city ? ` · ${lead.city}` : ""}
                       </h4>
                       <span className="mv-net-chip mv-net-chip--money">
-                        <IconCoins s={14} /> שילמתם {lead.priceCredits} קרדיטים
+                        <IconCoins s={14} /> עמלת הפניה: {lead.priceCredits} קרדיטים
                       </span>
                     </div>
                     <p
@@ -1134,12 +1148,12 @@ export default function CollaborationPage() {
                       סיבת ההפניה: {referralReasonLabel(lead.reason)}
                       {lead.reasonDetail ? ` — ${lead.reasonDetail}` : ""}
                     </p>
-                    {/* הדירוג כאן הוא מה שבונה את המוניטין שהלוח מציג */}
-                    <ReferralRating
+                    {/* האישור כאן הוא מה שבונה את המוניטין שהלוח מציג */}
+                    <ReferralConfirmation
                       sharedLeadId={lead.id}
-                      role="received"
-                      mine={lead.myRating}
-                      counterpart={lead.counterpartRating}
+                      role="receiver"
+                      declared={lead.clientScores}
+                      confirmation={lead.confirmation}
                       onSaved={() => load()}
                     />
                   </li>
@@ -1169,7 +1183,7 @@ export default function CollaborationPage() {
                     {LEAD_SOURCE_LABELS[lead.source] ?? lead.source}
                   </span>
                   <span className="mv-net-chip mv-net-chip--money">
-                    <IconCoins s={14} /> {lead.priceCredits} קרדיטים
+                    <IconCoins s={14} /> עמלת הפניה: {lead.priceCredits} קרדיטים
                   </span>
                   {/*
                     המוניטין של המשרד המפנה, ליד המחיר ולא בעמוד אחר:
@@ -1178,7 +1192,7 @@ export default function CollaborationPage() {
                   */}
                   <span
                     className="mv-net-chip"
-                    title="ממוצע הדירוגים שנתנו משרדים שקלטו הפניות מהמשרד הזה"
+                    title="כמה ההצהרות של המשרד הזה התאמתו אצל מי שקלט ממנו — לא כמה הלקוחות שלו טובים"
                   >
                     <IconStar s={14} />{" "}
                     {describeReferralRating(
@@ -1202,6 +1216,17 @@ export default function CollaborationPage() {
                     {lead.note}
                   </p>
                 ) : null}
+                {/*
+                  ההצהרה **מעל כפתור הקליטה**, לא מתחתיו ולא בעמוד
+                  אחר. העמלה נגבית ברגע הלחיצה ואין החזרים, ולכן זה
+                  המידע היחיד שאסור שיידרש בשבילו עוד קליק.
+                */}
+                <div className="mb-2">
+                  <ClientScoresView
+                    title="המשרד המפנה מצהיר על הלקוח"
+                    scores={lead.clientScores}
+                  />
+                </div>
                 <Button
                   variant="secondary"
                   disabled={buyingLead !== null}
@@ -1209,7 +1234,7 @@ export default function CollaborationPage() {
                 >
                   {buyingLead === lead.id
                     ? "קולט…"
-                    : `קלוט את ההפניה (${lead.priceCredits} קרדיטים)`}
+                    : `קלוט את ההפניה (עמלה ${lead.priceCredits} קרדיטים)`}
                 </Button>
               </li>
             ))}
@@ -1417,12 +1442,19 @@ export default function CollaborationPage() {
                             <IconUsers s={14} /> {demand.officeName}
                           </span>
                         ) : null}
-                        {demand.source === "kanko" ? (
+                        {/*
+                          מקור חיצוני בתשלום, לפי העלות שהשרת החזיר
+                          ולא לפי שם ספק שכתוב בקוד. השוואה מפורשת
+                          ל-"kanko" הסתירה כל מקור שהפלטפורמה תמחרה
+                          מאז — הביקוש נראה כאילו הגיע מהרשת בחינם,
+                          ורק החיוב סיפר אחרת.
+                        */}
+                        {demand.creditsCost > 0 ? (
                           <span
                             className="mv-net-chip"
                             title="ביקוש שהגיע ממקור חיצוני בתשלום"
                           >
-                            <IconGlobe s={14} /> Kanko
+                            <IconGlobe s={14} /> {demand.sourceLabel}
                           </span>
                         ) : null}
                       </div>
