@@ -111,16 +111,3 @@ export function orderPeople(people: readonly ContactPerson[]): ContactPerson[] {
   return [...primary, ...rest];
 }
 
-/**
- * תיאור קצר לרשימות: "דוד כהן ורות כהן" / "דוד כהן +2".
- * שני שמות נכתבים במלואם; מעבר לכך מונים, כי שורה בטבלה צרה.
- */
-export function describePeople(people: readonly ContactPerson[]): string {
-  const ordered = orderPeople(people);
-  const first = ordered[0];
-  if (!first) return "";
-  if (ordered.length === 1) return first.name;
-  const second = ordered[1];
-  if (ordered.length === 2 && second) return `${first.name} ו${second.name}`;
-  return `${first.name} +${ordered.length - 1}`;
-}

@@ -177,6 +177,8 @@ interface DemandRow {
   mustFeatures: string[];
   niceFeatures: string[];
   source: string;
+  /** שם המקור לתצוגה, מקטלוג התמחור — לא שם ספק שכתוב במסך. */
+  sourceLabel: string;
   /** כמה קרדיטים תעלה הצעה. 0 = חינם (ביקוש של משרד אחר). */
   creditsCost: number;
   /** אחוז העמלה שהמשרד המשתף מבקש; לצד השני נשאר המשלים. */
@@ -1418,12 +1420,19 @@ export default function CollaborationPage() {
                             <IconUsers s={14} /> {demand.officeName}
                           </span>
                         ) : null}
-                        {demand.source === "kanko" ? (
+                        {/*
+                          מקור חיצוני בתשלום, לפי העלות שהשרת החזיר
+                          ולא לפי שם ספק שכתוב בקוד. השוואה מפורשת
+                          ל-"kanko" הסתירה כל מקור שהפלטפורמה תמחרה
+                          מאז — הביקוש נראה כאילו הגיע מהרשת בחינם,
+                          ורק החיוב סיפר אחרת.
+                        */}
+                        {demand.creditsCost > 0 ? (
                           <span
                             className="mv-net-chip"
                             title="ביקוש שהגיע ממקור חיצוני בתשלום"
                           >
-                            <IconGlobe s={14} /> Kanko
+                            <IconGlobe s={14} /> {demand.sourceLabel}
                           </span>
                         ) : null}
                       </div>

@@ -11,6 +11,7 @@ import {
   resolveReferralFeePercent,
   commissionSplitRejectionReason,
   coopOfferCost,
+  leadSourceLabel,
   planCreditExpiry,
   settleReferral,
   type PayoutMode,
@@ -168,6 +169,14 @@ export interface SharedDemandDto {
   mustFeatures: string[];
   niceFeatures: string[];
   source: string;
+  /**
+   * שם המקור לתצוגה, לפי קטלוג התמחור של המשרד.
+   *
+   * המסך הציג ‎"Kanko"‎ מתוך השוואה מפורשת ל-`source === "kanko"`,
+   * ולכן מקור חדש שהפלטפורמה תמחרה לא הופיע בכלל: הביקוש נראה
+   * כאילו הגיע מהרשת בחינם, ורק החיוב סיפר אחרת.
+   */
+  sourceLabel: string;
   /**
    * כמה קרדיטים תעלה הצעה על הביקוש הזה. 0 = חינם.
    *
@@ -2428,6 +2437,7 @@ export class CollaborationService {
       mustFeatures: row.mustFeatures,
       niceFeatures: row.niceFeatures,
       source: row.source,
+      sourceLabel: leadSourceLabel(row.source, prices),
       creditsCost: coopOfferCost(row.source, prices),
       commissionSplit: row.commissionSplit,
       status: row.status,

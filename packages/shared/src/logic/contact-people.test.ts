@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  describePeople,
   isContactRole,
   isPhoneLabel,
   normalizePhone,
@@ -64,30 +63,6 @@ describe("orderPeople", () => {
 
   it("רשימה ריקה", () => {
     expect(orderPeople([])).toEqual([]);
-  });
-});
-
-describe("describePeople", () => {
-  it("אדם אחד — שמו", () => {
-    expect(describePeople([person("דוד כהן", null)])).toBe("דוד כהן");
-  });
-
-  it("שניים — שני השמות", () => {
-    expect(describePeople([person("דוד", null), person("רות", "spouse")])).toBe("דוד ורות");
-  });
-
-  it("שלושה ומעלה — הראשי ומונה", () => {
-    expect(
-      describePeople([person("דוד", null), person("רות", "spouse"), person("יוסי", "attorney")]),
-    ).toBe("דוד +2");
-  });
-
-  it("הראשי מוצג ראשון גם כשאינו ראשון ברשימה", () => {
-    expect(describePeople([person("רות", "spouse"), person("דוד", null)])).toBe("דוד ורות");
-  });
-
-  it("ריק", () => {
-    expect(describePeople([])).toBe("");
   });
 });
 

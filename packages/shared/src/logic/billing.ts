@@ -207,18 +207,6 @@ export function periodDaysLeft(
   return Math.ceil((end.getTime() - now.getTime()) / DAY_MS);
 }
 
-/** האם להציג תזכורת חידוש — רק בחלון האחרון, אחרת זה רעש קבוע. */
-export function shouldWarnAboutRenewal(
-  status: SubscriptionStatus,
-  currentPeriodEnd: Date | string | null | undefined,
-  now: Date,
-  withinDays: number = RENEWAL_WARN_WITHIN_DAYS,
-): boolean {
-  if (status !== "active") return false;
-  const days = periodDaysLeft(currentPeriodEnd, now);
-  return days !== null && days <= withinDays;
-}
-
 /** תיאור המחזור בעברית — לכפתור ולחשבונית. */
 export function describeCycle(cycle: BillingCycle): string {
   return cycle === "yearly" ? "שנתי" : "חודשי";
