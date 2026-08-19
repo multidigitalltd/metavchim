@@ -19,6 +19,22 @@ UPDATE "buyers" SET "budget_max_agorot" = NULL WHERE "budget_max_agorot" = 0;
 UPDATE "shared_demands" SET "budget_max_agorot" = NULL WHERE "budget_max_agorot" = 0;
 
 /*
+ * ...ובאותה נשימה גם בתוך ה-JSON.
+ *
+ * `budget_max_agorot` היא עמודה חמה שנגזרת מ-`requirements`, ולא
+ * מחליפה אותו: `toDto` מפענח את ה-JSONB, וההתאמה המפורטת רצה על
+ * מה שהוא מחזיר. ניקוי העמודה בלבד היה משאיר את הקונים ההיסטוריים
+ * בדיוק במצב שהמיגרציה באה לתקן — מוצגים כ"עד 0 ₪" ונפסלים מכל
+ * נכס מתומחר — רק עם עמודה שאומרת אחרת (ביקורת Codex).
+ *
+ * מחיקת המפתח ולא השמת `null`: הסכמה מגדירה אותו `.optional()`,
+ * כלומר „חסר”, ו-`null` מפורש היה נכשל בפענוח.
+ */
+UPDATE "buyers"
+   SET "requirements" = "requirements" - 'budgetMaxAgorot'
+ WHERE "requirements" ->> 'budgetMaxAgorot' = '0';
+
+/*
  * אינדקס חלקי לקונים בלי תקציב.
  *
  * סינון המועמדים להתאמה הופך מ-`budget_max >= X` ל-
