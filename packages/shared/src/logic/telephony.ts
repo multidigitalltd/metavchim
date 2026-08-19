@@ -403,6 +403,62 @@ const STATUS_KEYS = ["status", "event", "state", "call_status"] as const;
 const DURATION_KEYS = ["duration", "billsec", "seconds", "talktime", "totaltime"] as const;
 const EXTENSION_KEYS = ["extension", "ext", "agent"] as const;
 
+/**
+ * כל שם שדה שהמערכת יודעת לצרוך — האיחוד של כל הרשימות.
+ *
+ * נגזר מהן ולא נכתב מחדש: רשימה שנייה הייתה מסתדרת מהראשונה ביום
+ * שמישהו מוסיף שם, ואז `unmappedFields` היה מדווח על שדה שדווקא
+ * כן נקלט — כלומר שולח לתקן משהו שעובד.
+ */
+const KNOWN_KEYS = new Set<string>([
+  ...CALL_ID_KEYS,
+  ...DIRECTION_KEYS,
+  ...SOURCE_KEYS,
+  ...DESTINATION_KEYS,
+  ...STATUS_KEYS,
+  ...DURATION_KEYS,
+  ...EXTENSION_KEYS,
+]);
+
+/**
+ * מה שהספק שלח **ואנחנו מתעלמים ממנו**.
+ *
+ * ## למה זו השאלה הנכונה
+ *
+ * יומן שמראה "אילו שדות הגיעו" עונה על חצי שאלה. החצי שחסר הוא
+ * מה מתוכם *נבלע* — כלומר איפה בדיוק יושב המידע שאנחנו לא
+ * מנצלים. בלי זה, הוספת שם חדש לרשימה היא ניחוש: מסתכלים על
+ * שלושה-עשר שמות ומנסים לזהות מי מהם עשוי להיות "מספר המתקשר".
+ *
+ * זו גם ההגנה מפני הכשל ההפוך: שדה שנראה חשוב, שמישהו מבזבז עליו
+ * זמן — בזמן שהוא כבר נקלט תחת שם אחר.
+ *
+ * ## למה זה עדיף על מסך מיפוי
+ *
+ * מסך מיפוי מבקש ממנהל המשרד לענות על שאלה שדורשת לקרוא payload
+ * גולמי, ומאפשר לו לשבור את הקליטה של עצמו. הרשימה הזו רק
+ * **מראה**, וההכרעה נשארת אצל מי שיודע — בעל הפלטפורמה או מי
+ * שכותב את הקוד.
+ *
+ * ‎`website` ו-honeypots דומים אינם מסוננים כאן במכוון: הם באמת
+ * שדות שאנחנו מתעלמים מהם, וזה בדיוק מה שהרשימה אומרת.
+ */
+export function unmappedFields(raw: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  for (const key of Object.keys(raw)) {
+    if (KNOWN_KEYS.has(key)) continue;
+    if (!SAFE_KEY.test(key)) {
+      out.push("‹שדה לא תקני›");
+      continue;
+    }
+    const value = raw[key];
+    // שדה ריק אינו מידע שהוחמץ — הספק שלח אותו ריק
+    if (value === null || value === undefined || String(value).trim() === "") continue;
+    out.push(key);
+  }
+  return [...new Set(out)];
+}
+
 /** מזהה, כיוון והמספר של הצד השני — הבסיס שגם הניתוח וגם האבחון צריכים. */
 function readCore(raw: Record<string, unknown>): {
   providerCallId: string;

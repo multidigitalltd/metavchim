@@ -21,7 +21,15 @@ export class WebLeadService {
 
   async ingest(
     key: string,
-    input: { name: string; phone: string; message?: string; pageUrl?: string },
+    input: {
+      name: string;
+      phone: string;
+      message?: string;
+      pageUrl?: string;
+      email?: string;
+      intent?: string;
+      propertyId?: string;
+    },
   ): Promise<void> {
     /*
      * המפתח מזהה גם את המשרד וגם את הערוץ: שם המקור שנבחר בהקמת
@@ -48,7 +56,17 @@ export class WebLeadService {
    */
   async ingestForTenant(
     tenantId: string,
-    input: { name: string; phone: string; message?: string; pageUrl?: string; email?: string },
+    input: {
+      name: string;
+      phone: string;
+      message?: string;
+      pageUrl?: string;
+      email?: string;
+      /** buy | sell | rent_in | rent_out | info — מאומת בשער. */
+      intent?: string;
+      /** הנכס שהמודעה פרסמה, כשהמקור יודע לומר. */
+      propertyId?: string;
+    },
     source: string,
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
@@ -92,10 +110,30 @@ export class WebLeadService {
         await tx.contact.updateMany({ where: { id: contact.id, tenantId }, data: emailFields });
       }
 
+      /*
+       * הנכס מאומת מול המשרד לפני שהוא נשמר.
+       *
+       * הנתיב ציבורי, והמזהה מגיע מגוף הבקשה — כלומר מגורם לא מזוהה.
+       * מזהה של נכס ממשרד אחר היה נשמר בשקט ויוצר בכרטיס הליד קישור
+       * לנכס שאינו קיים בשבילו. הנפילה היא לליד **בלי** נכס ולא
+       * לשגיאה: ליד אמיתי לא אמור ללכת לאיבוד בגלל שדה משני שגוי.
+       */
+      const propertyId =
+        input.propertyId === undefined
+          ? undefined
+          : ((
+              await tx.property.findFirst({
+                where: { id: input.propertyId, tenantId, deletedAt: null },
+                select: { id: true },
+              })
+            )?.id ?? undefined);
+
       await this.attachOrCreateLead(tx, tenantId, contact.id, {
         message: input.message,
         pageUrl: input.pageUrl,
         source,
+        ...(input.intent !== undefined ? { intent: input.intent } : {}),
+        ...(propertyId !== undefined ? { propertyId } : {}),
       });
     });
     this.logger.log(`ליד מהאתר נקלט (tenant ${tenantId})`);
@@ -127,7 +165,13 @@ export class WebLeadService {
     tx: Prisma.TransactionClient,
     tenantId: string,
     contactId: string,
-    input: { message?: string; pageUrl?: string; source: string },
+    input: {
+      message?: string;
+      pageUrl?: string;
+      source: string;
+      intent?: string;
+      propertyId?: string;
+    },
   ): Promise<void> {
     const { source } = input;
     // נעילה פר איש-קשר — שליחה כפולה מהטופס לא יוצרת שני לידים
@@ -172,7 +216,16 @@ export class WebLeadService {
         tenantId,
         contactId,
         source,
-        intent: "unknown",
+        /*
+         * העניין והנכס מגיעים מהמקור כשהוא יודע לומר אותם — מודעת
+         * פייסבוק של נכס מסוים, טופס "מעוניין למכור". בלעדיהם הליד
+         * נפתח כ"לא ידוע" בדיוק כמו קודם, והסוכן משלים.
+         *
+         * הנכס מאומת בשער מול המשרד: מזהה ממשרד אחר היה יוצר קישור
+         * שמוביל לכרטיס שאינו קיים.
+         */
+        intent: input.intent ?? "unknown",
+        ...(input.propertyId !== undefined ? { propertyId: input.propertyId } : {}),
         status: "new",
         summary: (summaryParts || (source === "landing" ? "פנייה מדף נחיתה" : `פנייה — ${source}`)).slice(0, 500),
         ...(previous ? { requiresHuman: true, requiresHumanReason: "ליד חוזר — פנה בעבר" } : {}),

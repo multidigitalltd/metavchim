@@ -12,6 +12,7 @@ import {
   PBX015_MAKE_URL,
   safeDiagnosticKeys,
   diagnosticFields,
+  unmappedFields,
   telephonyParseIssue,
   mergeIntegrationSecrets,
   telephonySecretKeys,
@@ -759,5 +760,44 @@ describe("diagnosticFields", () => {
   it("ערך ארוך נחתך ואינו מציף את השורה", () => {
     const out = diagnosticFields({ recording: "a".repeat(500) });
     expect(out.length).toBeLessThan(200);
+  });
+});
+
+describe("unmappedFields", () => {
+  /*
+   * השאלה שהיומן לא ידע לענות עליה: לא "מה הגיע" אלא "מה מתוכו
+   * נבלע". בלי זה, הוספת שם חדש לרשימה היא ניחוש מתוך שלושה-עשר
+   * שדות.
+   */
+  it("מחזיר רק את מה שאיננו צורכים", () => {
+    const out = unmappedFields({
+      callid: "x",
+      status: "hangup",
+      callerid_external: "0501234567",
+      A_PARTY: "0509999999",
+      queue_name: "מכירות",
+    });
+    expect(out).toEqual(["A_PARTY", "queue_name"]);
+  });
+
+  it("payload שכולו מוכר מחזיר רשימה ריקה", () => {
+    expect(unmappedFields({ callid: "x", status: "hangup", caller: "0501234567" })).toEqual([]);
+  });
+
+  /*
+   * ההגנה מפני הכשל ההפוך: שדה שכבר נקלט תחת שם אחר אינו אמור
+   * להופיע כ"מפוספס" ולשלוח לתקן משהו שעובד.
+   */
+  it("שם חלופי שכבר נתמך אינו מדווח כמפוספס", () => {
+    expect(unmappedFields({ uniqueid: "x", billsec: "10", dst: "03111111" })).toEqual([]);
+  });
+
+  it("שדה ריק אינו מידע שהוחמץ", () => {
+    expect(unmappedFields({ extra: "", blank: "   " })).toEqual([]);
+  });
+
+  it("שם שדה לא תקני מסומן ואינו נכתב", () => {
+    const out = unmappedFields({ "0501234567": "x" });
+    expect(out).toEqual(["‹שדה לא תקני›"]);
   });
 });

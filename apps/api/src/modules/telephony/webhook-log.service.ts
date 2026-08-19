@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
-import { diagnosticFields } from "@metavchim/shared";
+import { diagnosticFields, unmappedFields } from "@metavchim/shared";
 import { PrismaService } from "../../core/prisma.service";
 
 /**
@@ -86,6 +86,11 @@ export class TelephonyWebhookLogService {
           keyPrefix: keyPrefix(input.key),
           method: input.method,
           fieldKeys: diagnosticFields(input.payload),
+          /*
+           * מה שהספק שלח ואיננו צורכים. שמות בלבד — הערך של שדה
+           * שלא זיהינו יכול להיות כל דבר, כולל פרט מזהה של לקוח.
+           */
+          unmapped: unmappedFields(input.payload).join(", ").slice(0, 500) || null,
         },
       });
       /*
@@ -116,6 +121,7 @@ export class TelephonyWebhookLogService {
       keyPrefix: string;
       method: string;
       fieldKeys: string | null;
+      unmapped: string | null;
     }[]
   > {
     return this.prisma.telephonyWebhookHit.findMany({
