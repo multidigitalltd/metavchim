@@ -157,4 +157,27 @@ if (offenders.length > 0) {
   process.exit(1);
 }
 
-console.log(`✓ ${scanned} קבצים נסרקו — כל הטקסטים ≥ ${FLOOR_PX}px ובמשקל תקין`);
+/*
+ * הרצפה נשמרת גם **בזמן ריצה**, ולא רק בקוד.
+ *
+ * סקלת הנגישות פועלת על גודל הבסיס של השורש, ולכן היא מכפילה גם את
+ * מחלקות ה-rem: ‎`text-sm`‎ הוא ‎0.875rem‎, ובסקלה 90% הוא 12.6px.
+ * כלומר כפתור „הקטן טקסט” אחד היה מבטל את כל מה שנבדק למעלה, והשער
+ * היה ממשיך לדווח „תקין” — כי הוא קורא קוד ולא מודד ריצה (ביקורת
+ * Codex, PR #163). הבדיקה הזו היא מה שמחבר בין השניים.
+ */
+const prefsFile = join(root, "src/lib/a11y-prefs.ts");
+const prefsSource = readFileSync(prefsFile, "utf8");
+const minScale = /A11Y_MIN_SCALE = (\d+)/u.exec(prefsSource);
+if (minScale === null || Number(minScale[1]) < 100) {
+  console.error(
+    `✗ ${relative(repo, prefsFile)}: סקלת הנגישות יורדת מתחת ל-100%\n\n` +
+      `  הסקלה מכפילה את יחידות ה-rem, ולכן סקלה קטנה מ-100% מורידה\n` +
+      `  את text-sm מתחת ל-${FLOOR_PX}px ומבטלת את הרצפה בלחיצה אחת.\n`,
+  );
+  process.exit(1);
+}
+
+console.log(
+  `✓ ${scanned} קבצים נסרקו — כל הטקסטים ≥ ${FLOOR_PX}px, במשקל תקין, וסקלת הנגישות אינה יורדת מתחת ל-100%`,
+);

@@ -16,8 +16,11 @@ interface ProfileDto {
 }
 import {
   A11Y_DEFAULTS,
+  A11Y_MAX_SCALE,
+  A11Y_MIN_SCALE,
   A11Y_TOGGLES,
   applyA11y,
+  clampFontScale,
   clearA11y,
   loadA11y,
   saveA11y,
@@ -64,7 +67,9 @@ export default function ProfilePage() {
       .then((res) => {
         setProfile(res);
         const fromServer = res.preferences?.a11y as Partial<A11yPrefs> | undefined;
-        setPrefs(fromServer ? { ...A11Y_DEFAULTS, ...fromServer } : A11Y_DEFAULTS);
+        const merged = fromServer ? { ...A11Y_DEFAULTS, ...fromServer } : A11Y_DEFAULTS;
+        // ערך שנשמר בשרת לפני שנקבעה הרצפה מגיע לכאן כמו שהוא
+        setPrefs({ ...merged, fontScale: clampFontScale(merged.fontScale) });
       })
       .catch(() => undefined);
   }, []);
@@ -325,7 +330,8 @@ export default function ProfilePage() {
               <button
                 type="button"
                 className="mv-btn-plain"
-                onClick={() => update({ fontScale: Math.max(90, prefs.fontScale - 10) })}
+                disabled={prefs.fontScale <= A11Y_MIN_SCALE}
+                onClick={() => update({ fontScale: clampFontScale(prefs.fontScale - 10) })}
               >
                 <span aria-hidden="true">A−</span>
                 <span className="mv-visually-hidden">הקטן טקסט</span>
@@ -336,7 +342,8 @@ export default function ProfilePage() {
               <button
                 type="button"
                 className="mv-btn-plain"
-                onClick={() => update({ fontScale: Math.min(200, prefs.fontScale + 10) })}
+                disabled={prefs.fontScale >= A11Y_MAX_SCALE}
+                onClick={() => update({ fontScale: clampFontScale(prefs.fontScale + 10) })}
               >
                 <span aria-hidden="true">A+</span>
                 <span className="mv-visually-hidden">הגדל טקסט</span>
