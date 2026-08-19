@@ -50,6 +50,25 @@
           ראו infra/ansible/README.md.
         quiet: true
 
+    # פרופיל שהודלק בלי המשתנים שלו הוא שירות שנופל בלולאה בזמן
+    # שהפריסה מדווחת הצלחה — בדיקת העומק מכסה את הליבה בלבד
+    # (ביקורת Codex). לכן כל פרופיל נבדק כאן, לפני שנוגעים בשרת.
+    - name: לכל פרופיל דלוק יש את המשתנים שלו
+      ansible.builtin.assert:
+        that:
+          - "'stt' not in compose_profiles or stt_secret | default('') | length >= 16"
+          - "'diarize' not in compose_profiles or hf_token | default('') | length > 0"
+          - >-
+            'offsite' not in compose_profiles or (
+              offsite_s3_endpoint | default('') | length > 0 and
+              offsite_s3_bucket | default('') | length > 0 and
+              offsite_s3_access_key | default('') | length > 0 and
+              offsite_s3_secret_key | default('') | length > 0)
+        fail_msg: >-
+          פרופיל ב-compose_profiles דלוק בלי המשתנים שלו.
+          ראו infra/ansible/README.md.
+        quiet: true
+
     - name: מערכת ההפעלה נתמכת
       ansible.builtin.assert:
         that: ansible_facts['os_family'] == 'Debian'

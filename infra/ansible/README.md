@@ -51,11 +51,36 @@ s3_secret_key: <openssl rand -base64 32>
 data_encryption_key: <openssl rand -base64 32>
 phone_hash_key: <openssl rand -hex 24>
 update_secret: <openssl rand -hex 24>
+
+# רק אם הדלקתם את הפרופיל המתאים — ראו הטבלה למטה
+# stt_secret: <openssl rand -hex 24>
+# hf_token: <טוקן קריאה מ-huggingface.co/settings/tokens>
+# offsite_s3_endpoint: https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+# offsite_s3_bucket: metavchim-backups
+# offsite_s3_access_key: <מספק האחסון>
+# offsite_s3_secret_key: <מספק האחסון>
 ```
 
 `data_encryption_key` הוא המפתח שבו מוצפנים שמות, טלפונים ואימיילים
 של כל הלקוחות במערכת. **אובדן שלו פירושו אובדן הנתונים** — גיבוי של
 המסד בלי המפתח אינו שווה דבר. שמרו עותק מחוץ לשרת ומחוץ לריפו.
+
+סיסמאות המסד עוברות `urlencode` בתבנית, ולכן `openssl rand -base64`
+בטוח למרות ש-`/` ו-`+` שכיחים בפלט שלו. בלי הקידוד סיסמה עם `/`
+הייתה נקראת כתחילת נתיב בכתובת החיבור ו-Prisma היה דוחה אותה.
+
+### פרופילי רשות
+
+מי שמדליק פרופיל ב-`compose_profiles` חייב להוסיף גם את המשתנים
+שלו לכספת. ה-Playbook נופל בבדיקה מקדימה אם חסר משהו — פרופיל שעולה
+בלי המשתנים שלו הוא שירות שנופל בלולאה בזמן שהפריסה מדווחת הצלחה,
+כי בדיקת העומק מכסה את הליבה בלבד.
+
+| פרופיל | מה נדרש |
+| --- | --- |
+| `stt` | `stt_secret` |
+| `diarize` | `hf_token` (וגם `stt` דלוק) |
+| `offsite` | `offsite_s3_endpoint`, `offsite_s3_bucket`, `offsite_s3_access_key`, `offsite_s3_secret_key` |
 
 ## הרצה
 
@@ -88,7 +113,9 @@ ansible-playbook -i inventory.ini site.yml --ask-vault-pass --check --diff
 
 - `pnpm verify:iac` — כל מפתח ב-`.env.production.example` קיים גם
   בתבנית, ולהפך. מפתח שנשכח בתבנית פירושו שירות שעולה בלי המשתנה,
-  וזה נכשל בשקט ולא ברעש.
+  וזה נכשל בשקט ולא ברעש. מפתחות של פרופילי רשות נבדקים בנפרד:
+  בתבנית הם בתוך `{% raw %}{% if %}{% endraw %}` ובדוגמה כשורת
+  הערה, וגם עליהם נדרש שיהיו מתועדים.
 - `ansible-playbook --syntax-check` — ה-Playbook נטען ומתפרש.
 
 מה ש**אינו** נבדק בבנייה: ההרצה עצמה מול שרת. אין לנו שרת חד-פעמי

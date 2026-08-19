@@ -123,6 +123,10 @@ jobs:
       DIRECT_DATABASE_URL: postgresql://metavchim:ci@localhost:5432/metavchim?schema=public
       DATABASE_URL: postgresql://metavchim:ci@localhost:5432/metavchim?schema=public
       APP_DATABASE_URL: postgresql://metavchim_app:ci_app_password_16ch@localhost:5432/metavchim?schema=public
+      # `?schema=public` הוא פרמטר של Prisma ולא של libpq, ו-psql
+      # דוחה אותו ב-"invalid URI query parameter". שתי כתובות ולא
+      # אחת — לכל כלי הצורה שהוא מבין.
+      PSQL_URL: postgresql://metavchim:ci@localhost:5432/metavchim
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -132,27 +136,26 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
-      # תפקיד האפליקציה **לפני** המיגרציות — חלקן מפנות אליו
-      # ב-GRANT/REVOKE ונופלות אם אינו קיים. אותו סדר בדיוק כמו
-      # בייצור (infra/postgres/init-app-role.sh).
+      # יצירת התפקיד **לפני** המיגרציות: חלקן מפנות אליו
+      # ב-GRANT/REVOKE ונופלות אם אינו קיים. זהו בדיוק מה שעושה
+      # `infra/postgres/init-app-role.sh` בעליית המסד בייצור —
+      # יצירה בלבד, בלי הרשאות פר-טבלה, כי אין עדיין טבלאות.
       - name: App role
         run: |
-          psql "$DIRECT_DATABASE_URL" -v ON_ERROR_STOP=1 \
-            -c "SET app.provision_password = 'ci_app_password_16ch'" \
-            -f apps/api/prisma/sql/create_app_role.sql
+          psql "$PSQL_URL" -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE metavchim_app LOGIN PASSWORD 'ci_app_password_16ch'" \
+            -c "GRANT USAGE ON SCHEMA public TO metavchim_app"
 
       - name: Migrate
         run: pnpm --filter @metavchim/api exec prisma migrate deploy
 
-      # ההרשאות ניתנות שוב אחרי המיגרציות: `GRANT ON ALL TABLES`
-      # חל על מה שקיים באותו רגע, וברגע שהוא רץ אין עדיין טבלאות.
-      # בייצור זה נפתר מעצמו דרך ALTER DEFAULT PRIVILEGES, וכאן
-      # הרצה חוזרת זולה ומפורשת.
+      # וההרשאות **אחרי**. `create_app_role.sql` מסתיים ב-
+      # `REVOKE ... ON audit_log`, וטבלה שאינה קיימת מפילה את
+      # הסקריפט תחת ON_ERROR_STOP (ביקורת Codex). בייצור זה נפתר
+      # מעצמו: ההרשאות לטבלאות חדשות מגיעות מ-ALTER DEFAULT
+      # PRIVILEGES, וכאן ההרצה המפורשת זולה וברורה יותר.
       - name: Grants
-        run: |
-          psql "$DIRECT_DATABASE_URL" -v ON_ERROR_STOP=1 \
-            -c "SET app.provision_password = 'ci_app_password_16ch'" \
-            -f apps/api/prisma/sql/create_app_role.sql
+        run: psql "$PSQL_URL" -v ON_ERROR_STOP=1 -f apps/api/prisma/sql/create_app_role.sql
 
       - name: Cross-tenant isolation
         run: pnpm --filter @metavchim/api test:rls
