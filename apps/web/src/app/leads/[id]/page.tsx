@@ -32,7 +32,10 @@ import { RelatedEntities } from "../../related-entities";
 import { EntityTasks } from "../../entity-tasks";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { ReplyEmail } from "./reply-email";
-import { ReferralRating } from "../../collaboration/referral-rating";
+import {
+  ReferralRating,
+  type ReferralRatingValue,
+} from "../../collaboration/referral-rating";
 import {
   IconCalendar,
   IconChat,
@@ -107,8 +110,8 @@ interface MySharedLead {
   payoutAgorot?: number;
   mine: boolean;
   originLeadId?: string;
-  myRating?: { score: number; comment?: string };
-  counterpartRating?: { score: number; comment?: string };
+  myRating?: ReferralRatingValue;
+  counterpartRating?: ReferralRatingValue;
 }
 
 interface ReferralTerms {

@@ -445,24 +445,31 @@ export function dimensionRatingRejectionReason(
   return null;
 }
 
-/** תקינות דירוג — הודעה בעברית או `null`. */
-export function referralRatingRejectionReason(
-  score: number,
-  comment?: string,
-): string | null {
-  if (!Number.isInteger(score) || score < MIN_REFERRAL_RATING || score > MAX_REFERRAL_RATING) {
-    return `דירוג הוא מספר שלם בין ${MIN_REFERRAL_RATING} ל-${MAX_REFERRAL_RATING}`;
-  }
+/**
+ * תקינות ההערה בלבד.
+ *
+ * הציונים עצמם מאומתים ב-`dimensionRatingRejectionReason` לפי
+ * התפקיד. פיצול ולא פונקציה אחת: ההערה זהה לשני הצדדים, והממדים
+ * שונים ביניהם.
+ */
+export function referralCommentRejectionReason(comment?: string): string | null {
   if ((comment?.trim().length ?? 0) > MAX_REFERRAL_RATING_COMMENT) {
     return `ההערה ארוכה מדי (עד ${MAX_REFERRAL_RATING_COMMENT} תווים)`;
   }
   return null;
 }
 
-/** ממוצע הדירוגים של משרד — `null` כשעדיין אין על מה לדבר. */
-export function referralRatingAverage(sum: number, count: number): number | null {
-  if (!Number.isFinite(sum) || !Number.isFinite(count) || count <= 0) return null;
-  return Math.round((sum / count) * 10) / 10;
+/**
+ * ממוצע הדירוגים של משרד — `null` כשעדיין אין על מה לדבר.
+ *
+ * הסכום מגיע **בעשיריות** (`referral_reputation.rating_sum`), ולכן
+ * החלוקה במאה: `sum/count` נותן עשיריות, ועוד עשר מחזיר לכוכבים.
+ * היחידה נשמרת שלמה לכל אורך הצבירה כדי שדלתאות לא יאבדו דיוק —
+ * ראו `LeadReferralRating.scoreTenths`.
+ */
+export function referralRatingAverage(sumTenths: number, count: number): number | null {
+  if (!Number.isFinite(sumTenths) || !Number.isFinite(count) || count <= 0) return null;
+  return Math.round(sumTenths / count) / 10;
 }
 
 /**

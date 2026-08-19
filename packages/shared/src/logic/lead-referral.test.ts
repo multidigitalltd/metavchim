@@ -8,7 +8,7 @@ import {
   resolveReferralFeePercent,
   referralPriceRejectionReason,
   referralRatingAverage,
-  referralRatingRejectionReason,
+  referralCommentRejectionReason,
   referralReasonLabel,
   referralReasonRejectionReason,
   suggestedReferralPrice,
@@ -139,20 +139,19 @@ describe("referralReasonLabel", () => {
 });
 
 describe("דירוג", () => {
-  it("ציון מחוץ לסקאלה או לא שלם נדחה", () => {
-    expect(referralRatingRejectionReason(3)).toBeNull();
-    expect(referralRatingRejectionReason(0)).not.toBeNull();
-    expect(referralRatingRejectionReason(6)).not.toBeNull();
-    expect(referralRatingRejectionReason(4.5)).not.toBeNull();
-  });
-
   it("הערה ארוכה מדי נדחית", () => {
-    expect(referralRatingRejectionReason(5, "א".repeat(301))).not.toBeNull();
+    expect(referralCommentRejectionReason("א".repeat(301))).not.toBeNull();
+    expect(referralCommentRejectionReason("קצר")).toBeNull();
+    expect(referralCommentRejectionReason(undefined)).toBeNull();
   });
 
+  /*
+   * הסכום מגיע ב**עשיריות** — ראו `LeadReferralRating.scoreTenths`.
+   * 130 עשיריות על שלושה דירוגים הם 4.33 כוכבים, כלומר 4.3.
+   */
   it("ממוצע מעוגל לספרה אחת", () => {
-    expect(referralRatingAverage(13, 3)).toBe(4.3);
-    expect(referralRatingAverage(10, 2)).toBe(5);
+    expect(referralRatingAverage(130, 3)).toBe(4.3);
+    expect(referralRatingAverage(100, 2)).toBe(5);
   });
 
   it("משרד בלי דירוגים אינו „0 מתוך 5”", () => {
@@ -160,7 +159,7 @@ describe("דירוג", () => {
     expect(describeReferralRating(null, 0)).toBe("טרם דורג");
     // מונה 0 עם ממוצע כלשהו הוא נתון סותר — עדיין "טרם דורג"
     expect(describeReferralRating(4, 0)).toBe("טרם דורג");
-    expect(describeReferralRating(referralRatingAverage(9, 2), 2)).toBe(
+    expect(describeReferralRating(referralRatingAverage(90, 2), 2)).toBe(
       "4.5 מתוך 5 (2 דירוגים)",
     );
   });

@@ -16,7 +16,9 @@ import {
   type PayoutMode,
   referralPriceRejectionReason,
   referralRatingAverage,
-  referralRatingRejectionReason,
+  referralCommentRejectionReason,
+  dimensionRatingRejectionReason,
+  overallRatingScore,
   referralReasonRejectionReason,
   presentationChips,
   type NetworkPresentationFields,
@@ -219,7 +221,10 @@ export interface CoopOfferDto {
 
 /** דירוג שכבר ניתן על הפניה — מוחזר לשני הצדדים בלבד. */
 export interface ReferralRatingDto {
+  /** הציון הכולל בכוכבים (4.5), נגזר מהממדים. */
   score: number;
+  /** הציון בכל ממד — מה שאומר **מה** היה חלש ולא רק כמה. */
+  scores: Record<string, number>;
   comment?: string;
   createdAt: Date;
 }
@@ -1676,7 +1681,8 @@ export class CollaborationService {
       string,
       {
         raterTenantId: string;
-        score: number;
+        scoreTenths: number;
+        scores: Record<string, number>;
         comment: string | null;
         createdAt: Date;
       }[]
@@ -1686,7 +1692,8 @@ export class CollaborationService {
       string,
       {
         raterTenantId: string;
-        score: number;
+        scoreTenths: number;
+        scores: Record<string, number>;
         comment: string | null;
         createdAt: Date;
       }[]
@@ -1698,7 +1705,8 @@ export class CollaborationService {
         select: {
           sharedLeadId: true,
           raterTenantId: true,
-          score: true,
+          scoreTenths: true,
+          scores: true,
           comment: true,
           createdAt: true,
         },
@@ -1706,7 +1714,17 @@ export class CollaborationService {
     );
     for (const row of rows) {
       const list = byLead.get(row.sharedLeadId) ?? [];
-      list.push(row);
+      /*
+       * ‎`scores` הוא JSONB, כלומר `unknown` מבחינת הטיפוסים. הצורה
+       * נאכפת בכתיבה (`dimensionRatingRejectionReason`), וכאן די
+       * בהגנה מפני שורה ישנה או פגומה — נפילה לאובייקט ריק ולא
+       * קריסה של כל הלוח בגלל דירוג אחד.
+       */
+      const scores =
+        typeof row.scores === "object" && row.scores !== null && !Array.isArray(row.scores)
+          ? (row.scores as Record<string, number>)
+          : {};
+      list.push({ ...row, scores });
       byLead.set(row.sharedLeadId, list);
     }
     return byLead;
@@ -2006,16 +2024,26 @@ export class CollaborationService {
    * **רק דירוג המשרד הקולט נספר למוניטין.** משרד שמדרג את ההפניה
    * של עצמו היה מנפח לעצמו את הציון שמוצג לרשת; הדירוג שלו נשמר
    * ומוצג לצד השני, ולא נכנס לממוצע.
+   *
+   * הדירוג **רב-ממדי**: הממדים שונים בין הצדדים (ראו
+   * `ratingDimensionsFor`), ולכן האימות תלוי בתפקיד. הציון הכולל
+   * נגזר מהם ואינו מתקבל מהלקוח — ערך שהמסך שולח היה נתון שאפשר
+   * לזייף, והוא ממילא חישוב.
    */
   async rateReferral(
     sharedLeadId: string,
     role: Exclude<ReferralRole, "viewer">,
-    score: number,
+    scores: Record<string, number>,
     comment?: string,
   ): Promise<void> {
     const ctx = TenantContext.current();
-    const problem = referralRatingRejectionReason(score, comment);
+    const problem =
+      dimensionRatingRejectionReason(role, scores) ?? referralCommentRejectionReason(comment);
     if (problem) throw new BadRequestException(problem);
+    const overall = overallRatingScore(scores);
+    if (overall === null) throw new BadRequestException("יש לדרג לפחות ממד אחד");
+    // עשיריות לאורך כל הצבירה — ראו `LeadReferralRating.scoreTenths`
+    const scoreTenths = Math.round(overall * 10);
 
     // ה-RLS מחזיר כאן רק הפניה שאני צד בה — כמפנה או כקולט
     const row = await this.prisma.withTenant((tx) =>
@@ -2054,12 +2082,12 @@ export class CollaborationService {
             raterTenantId: ctx.tenantId,
           },
         },
-        select: { id: true, score: true },
+        select: { id: true, scoreTenths: true },
       });
       if (existing) {
         await tx.leadReferralRating.update({
           where: { id: existing.id },
-          data: { score, comment: trimmed },
+          data: { scoreTenths, scores, comment: trimmed },
         });
       } else {
         await tx.leadReferralRating.create({
@@ -2070,7 +2098,8 @@ export class CollaborationService {
             buyerTenantId,
             raterTenantId: ctx.tenantId,
             raterRole: role,
-            score,
+            scoreTenths,
+            scores,
             comment: trimmed,
           },
         });
@@ -2079,7 +2108,7 @@ export class CollaborationService {
         action: "collaboration.referral_rate",
         entityType: "shared_lead",
         entityId: sharedLeadId,
-        metadata: { role, score },
+        metadata: { role, overall },
       });
 
       if (role !== "receiver") return;
@@ -2088,7 +2117,7 @@ export class CollaborationService {
        * השורה. עדכון בדלתא ולא כתיבת ערך מחושב: שני דירוגים על
        * שתי הפניות שונות של אותו משרד יכולים להתרחש בו-זמנית.
        */
-      const scoreDelta = score - (existing?.score ?? 0);
+      const scoreDelta = scoreTenths - (existing?.scoreTenths ?? 0);
       const countDelta = existing ? 0 : 1;
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${row.tenantId}, true)`;
       await tx.$executeRaw`
@@ -2127,7 +2156,9 @@ export class CollaborationService {
         string,
         {
           raterTenantId: string;
-          score: number;
+          /** עשיריות — כפי שנשמר. ההמרה לכוכבים נעשית כאן ובמקום אחד בלבד. */
+          scoreTenths: number;
+          scores: Record<string, number>;
           comment: string | null;
           createdAt: Date;
         }[]
@@ -2186,7 +2217,8 @@ export class CollaborationService {
       ...(mineRating
         ? {
             myRating: {
-              score: mineRating.score,
+              score: mineRating.scoreTenths / 10,
+              scores: mineRating.scores,
               comment: mineRating.comment ?? undefined,
               createdAt: mineRating.createdAt,
             },
@@ -2195,7 +2227,8 @@ export class CollaborationService {
       ...(other
         ? {
             counterpartRating: {
-              score: other.score,
+              score: other.scoreTenths / 10,
+              scores: other.scores,
               comment: other.comment ?? undefined,
               createdAt: other.createdAt,
             },

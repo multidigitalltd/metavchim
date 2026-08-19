@@ -122,9 +122,30 @@ const ShareLeadSchema = z
     payoutMode: PayoutModeSchema.optional(),
   })
   .strict();
+/**
+ * דירוג רב-ממדי: מפתח לכל ממד, ציון לכל אחד.
+ *
+ * המפתחות עצמם מאומתים בשירות מול הקטלוג של התפקיד — כאן רק הצורה.
+ * הציון הכולל **אינו** מתקבל מהלקוח: הוא נגזר מהממדים, ושליחתו
+ * הייתה נתון שאפשר לזייף עבור חישוב שממילא שלנו.
+ */
 const RateReferralSchema = z
   .object({
-    score: z.number().int().min(MIN_REFERRAL_RATING).max(MAX_REFERRAL_RATING),
+    scores: z
+      .record(
+        z.string().max(30),
+        z.number().int().min(MIN_REFERRAL_RATING).max(MAX_REFERRAL_RATING),
+      )
+      /*
+       * חסם עליון על מספר הממדים. הקטלוג ארוך מכולם בארבעה, והשירות
+       * דוחה מפתח שאינו בו — אבל הבדיקה הזו עוברת על כל המפתחות
+       * שהתקבלו, ואובייקט עם עשרות אלפי מפתחות היה עבודה שנעשית לפני
+       * שהיא נדחית. הסינון כאן זול והוא לפני העבודה.
+       */
+      .refine((value) => {
+        const keys = Object.keys(value).length;
+        return keys > 0 && keys <= 10;
+      }, "יש לדרג לפחות ממד אחד"),
     comment: z.string().trim().max(MAX_REFERRAL_RATING_COMMENT).optional(),
   })
   .strict();
@@ -488,7 +509,7 @@ export class CollaborationController {
     await this.collaboration.rateReferral(
       id,
       "referrer",
-      body.score,
+      body.scores,
       body.comment,
     );
     return { ok: true };
@@ -506,7 +527,7 @@ export class CollaborationController {
     await this.collaboration.rateReferral(
       id,
       "receiver",
-      body.score,
+      body.scores,
       body.comment,
     );
     return { ok: true };

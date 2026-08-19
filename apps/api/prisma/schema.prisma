@@ -760,7 +760,19 @@ model LeadReferralRating {
   buyerTenantId  String   @map("buyer_tenant_id") @db.Char(26)
   raterTenantId  String   @map("rater_tenant_id") @db.Char(26)
   raterRole      String   @map("rater_role") @db.VarChar(10) // referrer | receiver
-  score          Int      @db.SmallInt
+  /// הציון בכל ממד בנפרד: `{ "accuracy": 5, "responsiveness": 4 }`.
+  ///
+  /// ציון יחיד לא אמר לקולט **מה** היה חלש ולא למפנה **מה לתקן**,
+  /// והוא ערבב דברים שאין ביניהם קשר: הפניה יכולה להיות מדויקת
+  /// להפליא ופשוט לא להסתדר.
+  scores         Json     @default("{}")
+  /// הציון הכולל **בעשיריות** (45 = 4.5).
+  ///
+  /// שלם ולא עשרוני: הוא נצבר ב-`referral_reputation.rating_sum`
+  /// בדלתאות, וצבירה של מספרים עשרוניים אינה מדויקת. עיגול לשלם
+  /// היה מאבד חצי כוכב בכל דירוג — על מוניטין שקובע אם משרד מקבל
+  /// עבודה, זה יותר מדי.
+  scoreTenths    Int      @map("score_tenths") @db.SmallInt
   comment        String?  @db.VarChar(300)
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
@@ -778,6 +790,7 @@ model ReferralReputation {
   tenantId    String   @id @map("tenant_id") @db.Char(26)
   /// כמה משרדים קולטים דירגו הפניות של המשרד הזה
   ratingCount Int      @default(0) @map("rating_count")
+  /// סכום הציונים **בעשיריות** — ראו `LeadReferralRating.scoreTenths`
   ratingSum   Int      @default(0) @map("rating_sum")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
