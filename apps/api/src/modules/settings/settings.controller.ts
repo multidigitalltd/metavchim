@@ -19,7 +19,7 @@ import {
   CAPABILITIES,
   IdSchema,
   PLAN_FEATURES,
-  UserRoleSchema,
+  AssignableRoleSchema,
   clearEffect,
   describeOverride,
   isOverrideActive,
@@ -98,8 +98,9 @@ const TenantSettingsSchema = z
   })
   .strict();
 
-// owner אינו ניתן להקצאה דרך ה-API — מוקם בהקמת הסוכנות בלבד
-const AssignableRoleSchema = UserRoleSchema.exclude(["owner"]);
+// owner אינו ניתן להקצאה דרך ה-API — מוקם בהקמת הסוכנות בלבד.
+// הסכימה מיובאת ואינה מוגדרת כאן שוב: המסכים בונים את התפריט
+// מאותה רשימה בדיוק, ושני עותקים היו מתפצלים בתפקיד הבא שנוסף.
 
 /**
  * שינוי הרשאות: רשימת יכולות ולא יכולת בודדת, כדי שחסימת מודול שלם

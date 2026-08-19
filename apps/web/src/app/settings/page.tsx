@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ROLE_CAPABILITIES } from "@metavchim/shared";
+import { ASSIGNABLE_ROLES, ROLE_CAPABILITIES, ROLE_LABELS, roleLabel } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
@@ -55,14 +55,6 @@ interface AuditRow {
   supportAdmin?: string;
   createdAt: string;
 }
-
-const ROLE_LABELS: Record<string, string> = {
-  owner: "בעלים",
-  admin: "מנהל",
-  agent: "סוכן",
-  assistant: "עוזר",
-  viewer: "צפייה בלבד",
-};
 
 const TEAM_GRID = "1.4fr 1fr 1.1fr 0.8fr 1fr";
 
@@ -508,10 +500,16 @@ export default function SettingsPage() {
                       className="rounded-lg border px-3 py-2"
                       style={inputStyle}
                     >
-                      <option value="admin">מנהל</option>
-                      <option value="agent">סוכן</option>
-                      <option value="assistant">עוזר</option>
-                      <option value="viewer">צפייה בלבד</option>
+                      {/*
+                        הרשימה נגזרת מ-`ASSIGNABLE_ROLES` ולא כתובה
+                        כאן: היא הופיעה בשני מקומות במסך הזה ובעוד
+                        שניים אחרים, וכל עותק היה רשימה חלקית אחרת.
+                      */}
+                      {ASSIGNABLE_ROLES.map((value) => (
+                        <option key={value} value={value}>
+                          {ROLE_LABELS[value]}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <button type="submit" className="mv-btn-action">
@@ -599,14 +597,15 @@ export default function SettingsPage() {
                                   className="rounded-lg border px-2 py-1"
                                   style={inputStyle}
                                 >
-                                  <option value="admin">מנהל</option>
-                                  <option value="agent">סוכן</option>
-                                  <option value="assistant">עוזר</option>
-                                  <option value="viewer">צפייה בלבד</option>
+                                  {ASSIGNABLE_ROLES.map((value) => (
+                                    <option key={value} value={value}>
+                                      {ROLE_LABELS[value]}
+                                    </option>
+                                  ))}
                                 </select>
                               </>
                             ) : (
-                              (ROLE_LABELS[member.role] ?? member.role)
+                              roleLabel(member.role)
                             )}
                           </span>
                           <span

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ulid } from "ulid";
 import { z } from "zod";
+import { rolesWithCapability } from "@metavchim/shared";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
 
@@ -168,11 +169,17 @@ export class WhatsAppInboundService {
               content: "🔁 ליד חוזר — לאיש הקשר ליד קודם שנסגר. ההיסטוריה המלאה בתיק הלקוח.",
             },
           });
-          // הליד עדיין לא משויך — רק בעלי view_all (owner/admin) רואים אותו,
-          // אז ההתראה הולכת אליהם ולא לכל המשרד (ביקורת Codex: קישור
-          // שמוביל סוכן רגיל ל-404)
+          // הליד עדיין לא משויך — רק בעלי view_all רואים אותו, אז
+          // ההתראה הולכת אליהם ולא לכל המשרד (ביקורת Codex: קישור
+          // שמוביל סוכן רגיל ל-404). הרשימה נגזרת מהיכולת ולא כתובה
+          // ביד: `["owner","admin"]` היה משאיר תפקיד חדש בעל אותה
+          // יכולת בדיוק בלי ההתראה, בשקט.
           const managers = await tx.user.findMany({
-            where: { tenantId, isActive: true, role: { in: ["owner", "admin"] } },
+            where: {
+              tenantId,
+              isActive: true,
+              role: { in: rolesWithCapability("leads.view_all") },
+            },
             select: { id: true },
           });
           await tx.notification.createMany({

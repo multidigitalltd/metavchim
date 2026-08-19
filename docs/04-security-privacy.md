@@ -27,7 +27,8 @@
 - **אימות**: סיסמאות (Argon2id) + 2FA TOTP (חובה לתפקידי Admin/Owner); כניסת Magic-Link כאופציה למתווכים; Session קצר + Refresh; ניתוק מרחוק של מכשירים.
 - **RBAC מבוסס Capabilities** (לא בדיקות Role גולמיות):
   - `properties.view|create|edit|delete`, `buyers.view_all|view_own`, `offers.send`, `collaboration.share`, `billing.manage`, `data.export`, `settings.manage`...
-  - תפקידים מובנים: Owner, Admin, Agent, Assistant (ללא ייצוא/מחיקה), Viewer.
+  - תפקידים מובנים: Owner, Admin, Branch Manager (מנהל סניף), Agent, Assistant (ללא ייצוא/מחיקה), Viewer.
+  - **מנהל סניף** רואה את כל הלידים והקונים של המשרד, מטיל משימות, קורא את דוח הביצועים ומוחק רשומות זבל — ואינו נוגע ב-`settings.manage`, `users.manage`, `billing.manage`, `data.export`, `audit.view` ו-`contacts.delete`. ההפרדה מכוונת: מנהל שיכול לשנות הרשאות יכול להעניק לעצמו כל יכולת אחרת, ומי שנתון לפיקוח אינו קורא את יומן הביקורת שמתעד אותו.
   - Agency יכולה להתאים תפקידים; Capabilities הן היחידה הנבדקת בקוד.
 - **API Keys** (Enterprise): Scoped, ניתנות לביטול, עם Rate Limit נפרד, לעולם לא בטקסט גלוי אחרי יצירה.
 

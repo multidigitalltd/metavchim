@@ -80,6 +80,43 @@ export type Capability = (typeof CAPABILITIES)[number];
 export const ROLE_CAPABILITIES: Record<string, readonly Capability[]> = {
   owner: CAPABILITIES,
   admin: CAPABILITIES.filter((c) => c !== "billing.manage"),
+  /**
+   * מנהל סניף — מנהל את העבודה, לא את המשרד.
+   *
+   * הוא רואה את כל הלידים והקונים של הסניף, מטיל משימות, קורא את
+   * דוח הביצועים ומנקה זבל. מה שאינו כאן חשוב לא פחות ממה שכן:
+   *
+   * - `settings.manage`, `billing.manage`, `users.manage` — אלה
+   *   מגדירים את המשרד עצמו. מנהל סניף שיכול לשנות הרשאות יכול
+   *   להעניק לעצמו כל יכולת אחרת, וההפרדה כולה מתאיינת.
+   * - `audit.view` — יומן הביקורת הוא כלי הפיקוח **עליו**.
+   * - `data.export` — ייצוא כל בסיס הלקוחות של המשרד לקובץ אחד.
+   *   זו לא פעולה יומית אלא הסיכון של מנהל שעוזב, ולכן היא נשארת
+   *   אצל מי שאחראי על המשרד.
+   * - `contacts.delete` — זכות המחיקה של הלקוח, שמוחקת אדם מכל
+   *   המערכת לצמיתות. מסומנת במפורש כיכולת של הנהלת המשרד.
+   */
+  branch_manager: [
+    "properties.view",
+    "properties.create",
+    "properties.edit",
+    "properties.delete",
+    "buyers.view_all",
+    "buyers.edit",
+    "buyers.delete",
+    "leads.view_all",
+    "leads.edit",
+    "leads.delete",
+    "offers.send",
+    "matches.view",
+    "matches.manage",
+    "calendar.manage",
+    "collaboration.share",
+    "collaboration.offer",
+    "analytics.view",
+    "tasks.assign",
+    "tasks.view_all",
+  ],
   agent: [
     "properties.view",
     "properties.create",
@@ -105,3 +142,22 @@ export const ROLE_CAPABILITIES: Record<string, readonly Capability[]> = {
   ],
   viewer: ["properties.view", "buyers.view_own", "leads.view_own", "matches.view"],
 };
+
+/**
+ * אילו תפקידים מחזיקים ביכולת הזו — לשאילתות ולתצוגה.
+ *
+ * הקוד בודק יכולת ולא תפקיד, אבל יש שני מקומות שבהם צריך את
+ * הכיוון ההפוך: „למי לשלוח את ההתראה” ו„למי להראות את הפריט
+ * בסרגל”. שניהם החזיקו רשימה כתובה ביד — `["owner", "admin"]` —
+ * ולכן תפקיד חדש עם אותה יכולת בדיוק לא היה מקבל את ההתראה ולא
+ * היה רואה את המסך, בלי שום שגיאה שמישהו יראה.
+ *
+ * **אינה תחליף לבדיקת יכולת.** היא מתעלמת מחריגי ההרשאות
+ * הפרטניים של המשתמש (`capability-overrides`), ולכן היא בסדר
+ * לניתוב ולניסוח התראה — ואסורה כשער גישה.
+ */
+export function rolesWithCapability(capability: Capability): string[] {
+  return Object.keys(ROLE_CAPABILITIES).filter((role) =>
+    (ROLE_CAPABILITIES[role] ?? []).includes(capability),
+  );
+}

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { ASSIGNABLE_ROLES, ROLE_LABELS, roleLabel } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -24,12 +25,6 @@ const STEPS = [
   { n: 3, t: "הסוכנים", s: "מי עובד איתכם" },
   { n: 4, t: "הנכס הראשון", s: "בדיבור, בפחות מדקה" },
 ] as const;
-
-const ROLE_LABELS: Record<string, string> = {
-  agent: "סוכן",
-  admin: "מנהל",
-  assistant: "עוזר",
-};
 
 interface OfficeSettings {
   name: string;
@@ -203,8 +198,8 @@ function StepAgents({ allowed }: { allowed: boolean }) {
             <div>
               <label htmlFor="ob-agent-role" className="mb-1 block text-sm font-medium">תפקיד</label>
               <select id="ob-agent-role" name="agentRole" defaultValue="agent" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle}>
-                {Object.entries(ROLE_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
+                {ASSIGNABLE_ROLES.map((value) => (
+                  <option key={value} value={value}>{ROLE_LABELS[value]}</option>
                 ))}
               </select>
             </div>
@@ -220,7 +215,7 @@ function StepAgents({ allowed }: { allowed: boolean }) {
                     <span style={{ color: "var(--color-success)" }}><IconCheck s={15} /></span>
                     <span className="font-medium">{a.name}</span>
                     <span style={{ color: "var(--color-text-muted)" }}>
-                      {ROLE_LABELS[a.role] ?? a.role} · {a.email}
+                      {roleLabel(a.role)} · {a.email}
                     </span>
                   </div>
                   {/*
