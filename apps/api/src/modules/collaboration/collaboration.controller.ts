@@ -51,19 +51,37 @@ const CommissionSplitSchema = z
   .max(MAX_COMMISSION_SHARE)
   .default(DEFAULT_COMMISSION_SPLIT);
 
+/**
+ * התיאור החופשי — **חובה**, ולא רשות.
+ *
+ * מודעה בלי מילה אחת של המשתף היא רשימת מספרים: תקציב, חדרים
+ * ועיר. הצד השני אינו יכול לדעת ממנה אם שווה לו להשקיע נכס
+ * ולחכות לתשובה, ובפועל הוא מדלג עליה. שורה אחת — „זוג צעיר,
+ * גמיש בקומה, חייב כניסה תוך חודשיים” — היא ההבדל בין מודעה
+ * שנענית למודעה שיושבת בפיד.
+ *
+ * 10 תווים כמינימום: קצר מזה הוא „דירה” או „דחוף”, שאינם אומרים
+ * דבר, ואילו כל דרישה גבוהה יותר הייתה מזמינה מילוי מהשפה.
+ */
+const NetworkNoteSchema = z
+  .string()
+  .trim()
+  .min(10, "תיאור קצר מדי — כתבו לפחות משפט אחד שיעזור לצד השני להחליט")
+  .max(300);
+
 const ShareSchema = z
   .object({
     buyerId: IdSchema,
     commissionSplit: CommissionSplitSchema,
     /** "מה הקונה מחפש" במילים — מוצג בפיד; באחריות המשתף בלי PII */
-    note: z.string().trim().max(300).optional(),
+    note: NetworkNoteSchema,
   })
   .strict();
 /** עדכון ביקוש קיים — הקונה מגיע מהנתיב, ולכן אינו חוזר בגוף הבקשה. */
 const UpdateShareSchema = z
   .object({
     commissionSplit: CommissionSplitSchema,
-    note: z.string().trim().max(300).optional(),
+    note: NetworkNoteSchema,
   })
   .strict();
 const PublishListingSchema = z
@@ -71,7 +89,7 @@ const PublishListingSchema = z
     propertyId: IdSchema,
     commissionSplit: CommissionSplitSchema,
     /** "מה מיוחד בנכס" במילים; באחריות המפרסם בלי כתובת ובלי בעלים */
-    note: z.string().trim().max(300).optional(),
+    note: NetworkNoteSchema,
   })
   .strict();
 

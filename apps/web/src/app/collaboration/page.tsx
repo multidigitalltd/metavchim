@@ -153,6 +153,24 @@ function roomsLabel(min?: number, max?: number): string {
   return min !== undefined ? `${min} חדרים ומעלה` : `עד ${String(max)} חדרים`;
 }
 
+
+/**
+ * איפה הקונה מחפש — ערים, ואם אין, האזורים שסומנו על המפה.
+ *
+ * המודעה חייבת לומר אזור: בלעדיו הצד השני אינו יודע אם יש לו נכס
+ * מתאים, וההתאמות שהמערכת מחשבת עליה חסרות משמעות. הפרסום נחסם
+ * בשרת כשאין אף אחד מהשניים, כך שהנפילה ל„אזור לא צוין” כאן היא
+ * רשת ביטחון למודעות שפורסמו לפני החסימה.
+ */
+function demandArea(demand: { cities: string[]; searchAreas?: { radiusKm: number; label?: string }[] }): string {
+  if (demand.cities.length > 0) return demand.cities.join(" / ");
+  const areas = demand.searchAreas ?? [];
+  if (areas.length === 0) return "אזור לא צוין";
+  return areas
+    .map((area) => area.label ?? `רדיוס ${area.radiusKm} ק"מ`)
+    .join(" / ");
+}
+
 interface DemandMatch {
   propertyId: string;
   title: string;
@@ -166,6 +184,8 @@ interface DemandRow {
   id: string;
   cities: string[];
   neighborhoods?: string[];
+  /** אזורי המפה שהקונה סימן — נקודה, רדיוס ותווית. */
+  searchAreas?: { lat: number; lon: number; radiusKm: number; label?: string }[];
   notes?: string;
   dealType: string;
   /* הפרופיל המלא של הביקוש — כל מה שאינו מזהה אדם */
@@ -1416,10 +1436,17 @@ export default function CollaborationPage() {
                     לתגיות. קודם היא נשאה גם חדרים, גם ערים וגם תקציב
                     בתוך משפט אחד, ובמובייל היא נשברה לשלוש שורות.
                   */}
+                        {/*
+                          האזור בכותרת נופל לאזורי המפה כשאין ערים.
+
+                          קונה שסימן אזור ולא הקליד עיר הופיע כאן
+                          כ„קונה מחפש 4 חדרים ב” — משפט קטוע שאינו
+                          אומר לאן להציע.
+                        */}
                         <h3 className="mv-net-title">
                           קונה מחפש{" "}
                           {roomsLabel(demand.roomsMin, demand.roomsMax)} ב
-                          {demand.cities.join(" / ")}
+                          {demandArea(demand)}
                         </h3>
                         {demand.mine ? (
                           <span className="mv-net-chip">

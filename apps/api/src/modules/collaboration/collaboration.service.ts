@@ -162,11 +162,52 @@ export interface DemandMatchDto {
   offered?: boolean;
 }
 
+
+/**
+ * קריאת אזורי החיפוש מעמודת ה-JSON.
+ *
+ * הגנתי בכוונה: העמודה היא `Json`, ומה שיושב בה נכתב בגרסה קודמת
+ * של הקוד או הגיע מייבוא. שורה פגומה אחת אינה מפילה את הפיד כולו
+ * — היא פשוט אינה מוצגת, וזו ההתנהגות הנכונה למודעה שממילא
+ * מתארת אזור ולא מתחייבת עליו.
+ */
+function readSearchAreas(
+  raw: unknown,
+): { lat: number; lon: number; radiusKm: number; label?: string }[] {
+  if (!Array.isArray(raw)) return [];
+  const out: { lat: number; lon: number; radiusKm: number; label?: string }[] = [];
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null) continue;
+    const area = item as Record<string, unknown>;
+    const { lat, lon, radiusKm, label } = area;
+    if (
+      typeof lat !== "number" ||
+      typeof lon !== "number" ||
+      typeof radiusKm !== "number" ||
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lon) ||
+      !Number.isFinite(radiusKm)
+    ) {
+      continue;
+    }
+    out.push({ lat, lon, radiusKm, ...(typeof label === "string" ? { label } : {}) });
+  }
+  return out;
+}
+
 export interface SharedDemandDto {
   id: string;
   cities: string[];
   /** שכונות מבוקשות — מדרישות הקונה; מדויק יותר מעיר, עדיין אנונימי */
   neighborhoods: string[];
+  /**
+   * אזורי החיפוש שסומנו על המפה — נקודה, רדיוס ותווית.
+   *
+   * מתאר איפה הלקוח מחפש לקנות, לא איפה הוא גר. בלעדיו קונה
+   * שסימן אזור ולא הקליד עיר התפרסם בלי שום אזור, והצד השני לא
+   * ידע לאן להציע.
+   */
+  searchAreas: { lat: number; lon: number; radiusKm: number; label?: string }[];
   /** תיאור חופשי שהמשרד המשתף כתב — "מה הקונה מחפש" במילים */
   notes?: string;
   dealType: string;
@@ -413,6 +454,24 @@ export class CollaborationService {
       });
       if (!buyer) throw new NotFoundException("קונה לא נמצא");
 
+      /*
+       * בלי אזור חיפוש אין מה לפרסם.
+       *
+       * האזור הוא הקריטריון הפוסל הראשון במנוע ההתאמות: ביקוש בלי
+       * אזור מתאים לכל נכס בארץ, ולכן הוא מציף את הפיד של כולם
+       * בהתאמות חסרות משמעות — ומייצר בדיוק את חוסר האמון שהורג
+       * רשת שיתופים.
+       *
+       * החסימה כאן ולא רק במסך: הנתיב פתוח גם לקריאות שאינן מגיעות
+       * מהטופס, ותנאי שקיים רק בדפדפן אינו תנאי.
+       */
+      const shareable = BuyerRequirementsSchema.parse(buyer.requirements);
+      if (shareable.cities.length === 0 && (shareable.searchAreas ?? []).length === 0) {
+        throw new BadRequestException(
+          "לא ניתן לפרסם קונה בלי אזור חיפוש — הוסיפו ערים או אזור על המפה בעריכת הדרישות, ואז פרסמו",
+        );
+      }
+
       const existing = await tx.sharedDemand.findFirst({
         where: { tenantId, originBuyerId: buyerId, status: "active" },
         select: { id: true },
@@ -494,6 +553,14 @@ export class CollaborationService {
       cities: requirements.cities,
       // שכונות מדרישות הקונה — מדויק יותר מעיר, עדיין בלי PII
       neighborhoods: requirements.neighborhoods,
+      /*
+       * אזורי המפה עוברים לרשת יחד עם הערים.
+       *
+       * בלעדיהם קונה שסימן אזור ולא הקליד עיר התפרסם בלי שום אזור,
+       * והצד השני לא ידע לאן להציע. הנקודה מתארת איפה הלקוח מחפש
+       * לקנות — לא איפה הוא גר — ולכן אינה מרחיבה את החשיפה.
+       */
+      searchAreas: (requirements.searchAreas ?? []) as unknown as Prisma.InputJsonValue,
       dealType: buyer.dealType,
       /*
        * מצב המימון והבשלות הם מה שאומר לצד השני אם שווה להשקיע נכס
@@ -859,10 +926,13 @@ export class CollaborationService {
     entryBy: Date | null;
     mustFeatures: string[];
     niceFeatures: string[];
+    /* עמודת JSON — נקראת דרך `readSearchAreas` ולא כטיפוס קשיח */
+    searchAreas: unknown;
   }): BuyerRequirements {
     return {
       cities: demand.cities,
       neighborhoods: demand.neighborhoods,
+      searchAreas: readSearchAreas(demand.searchAreas),
       dealType: demand.dealType,
       /*
        * הפרופיל שנשמר, ולא שלד. כשסוג הנכס, השטח, מועד הכניסה
@@ -969,6 +1039,7 @@ export class CollaborationService {
         explanation: result.explanation,
         cities: demand.cities,
         neighborhoods: demand.neighborhoods,
+        searchAreas: readSearchAreas(demand.searchAreas),
         ...(demand.notes ? { notes: demand.notes } : {}),
         dealType: demand.dealType,
         propertyTypes: demand.propertyTypes,
@@ -2567,6 +2638,7 @@ export class CollaborationService {
       maturity: string | null;
       mustFeatures: string[];
       niceFeatures: string[];
+      searchAreas: unknown;
       source: string;
       status: string;
       commissionSplit: number;
@@ -2581,6 +2653,7 @@ export class CollaborationService {
       id: row.id,
       cities: row.cities,
       neighborhoods: row.neighborhoods,
+      searchAreas: readSearchAreas(row.searchAreas),
       ...(row.notes ? { notes: row.notes } : {}),
       dealType: row.dealType,
       propertyTypes: row.propertyTypes,

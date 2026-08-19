@@ -593,6 +593,9 @@ model SharedDemand {
   /// להשקיע נכס ולחכות לתשובה — בדיוק מה שחסר בהצעות באוויר.
   financing       String?   @db.VarChar(20)
   maturity        String?   @db.VarChar(20)
+  /// אזורי החיפוש שסומנו על המפה — נקודה, רדיוס ותווית.
+  /// מתאר איפה הלקוח מחפש לקנות, לא איפה הוא גר.
+  searchAreas     Json      @default("[]") @map("search_areas")
   mustFeatures    String[]  @map("must_features")
   /// מאפייני עדיפות — לא פוסלים, אבל מבדילים בין שתי הצעות דומות.
   niceFeatures    String[]  @default([]) @map("nice_features")
@@ -642,6 +645,9 @@ model SharedListing {
   /// הכותרת השיווקית והתיאור החופשי שהמשרד המפרסם כותב.
   title            String?   @db.VarChar(160)
   notes            String?   @db.VarChar(300)
+  /// תמונות הנכס — מפתחות S3, נחתמים בזמן הצפייה.
+  /// אינן מרחיבות את מה שנחשף: הכתובת המדויקת והבעלים אינם כאן.
+  photoKeys        String[]  @default([]) @map("photo_keys")
   /// מיקום מקורב — לחישוב מרחק מול אזורי החיפוש של הקונה.
   /// מעוגל בשמירה, כדי שלא יהיה אפשר לגזור ממנו כתובת מדויקת.
   latitude         Float?
