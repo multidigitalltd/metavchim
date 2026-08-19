@@ -20,6 +20,8 @@ import {
   referralCommentRejectionReason,
   dimensionRatingRejectionReason,
   declarationAccuracy,
+  dimensionAccuracies,
+  CLIENT_RATING_DIMENSIONS,
   referralReasonRejectionReason,
   presentationChips,
   type NetworkPresentationFields,
@@ -267,6 +269,32 @@ export interface ReferralConfirmationDto {
 /** תפקיד הצופה מול ההפניה — קובע מה מוצג ומה מותר. */
 export type ReferralRole = "referrer" | "receiver" | "viewer";
 
+/** דיוק ההצהרות של משרד בממד אחד. */
+export interface ReferralDimensionScore {
+  /** מפתח מ-`CLIENT_RATING_DIMENSIONS`; התווית נגזרת ממנו במסך */
+  key: string;
+  average: number;
+  /** כמה אישורים נגעו דווקא בממד הזה — לא בהכרח כמו הסך הכולל */
+  count: number;
+}
+
+/**
+ * מוניטין המשרד המפנה, מצרפי ומפורק.
+ *
+ * הפירוט אינו קישוט: ממוצע 3.5 יכול להיות משרד שמעריך גס בכל
+ * הממדים, ויכול להיות משרד שמדייק לחלוטין ברצינות ובזמינות ומנפח
+ * בשיטתיות את התקציב. למי שעומד לשלם עמלת הפניה — התמורה משולמת
+ * גם אם לא ייסגר דבר — זו אינה אותה עסקה.
+ *
+ * `dimensions` יכול להיות ריק גם כשיש ממוצע: הפירוט נצבר רק
+ * מאישורים שנכתבו אחרי שהטבלה נוצרה, ואין מילוי לאחור.
+ */
+export interface ReferralReputationView {
+  average: number;
+  count: number;
+  dimensions: ReferralDimensionScore[];
+}
+
 /** הפניה בלוח — רק מה שאנונימי; פרטי הקשר לעולם לא כאן. */
 export interface SharedLeadDto {
   id: string;
@@ -296,11 +324,11 @@ export interface SharedLeadDto {
   /** הצהרת המפנה על איכות הלקוח — **מוצגת לפני התשלום.** */
   clientScores: Record<string, number>;
   /**
-   * מוניטין המשרד המפנה: ממוצע דיוק ההצהרות שאישרו משרדים שקלטו ממנו.
+   * מוניטין המשרד המפנה: דיוק ההצהרות שאישרו משרדים שקלטו ממנו.
    * מוחזר עם כל שורה בלוח — התמורה משולמת גם כשלא נסגר דבר, ולכן זה
    * המידע שקובע אם כדאי לשלם אותה.
    */
-  referrerRating?: { average: number; count: number };
+  referrerRating?: ReferralReputationView;
   /**
    * האישור של המשרד הקולט — נראה לשני הצדדים בלבד.
    *
@@ -1797,17 +1825,49 @@ export class CollaborationService {
    */
   private async reputationFor(
     tenantIds: readonly string[],
-  ): Promise<Map<string, { average: number; count: number }>> {
-    const byTenant = new Map<string, { average: number; count: number }>();
+  ): Promise<Map<string, ReferralReputationView>> {
+    const byTenant = new Map<string, ReferralReputationView>();
     const unique = [...new Set(tenantIds)];
     if (unique.length === 0) return byTenant;
-    const rows = await this.prisma.withNetworkRead((tx) =>
-      tx.referralReputation.findMany({ where: { tenantId: { in: unique } } }),
+    /*
+     * שתי השאילתות באותה קריאת רשת ובמקביל. הפירוט חסר משמעות
+     * בלי המצרפי — משרד שאין לו ממוצע לא יופיע בכלל — ולכן אין
+     * טעם לשלם על סבב שני.
+     */
+    const [rows, dimensionRows] = await this.prisma.withNetworkRead((tx) =>
+      Promise.all([
+        tx.referralReputation.findMany({ where: { tenantId: { in: unique } } }),
+        tx.referralReputationDimension.findMany({
+          where: { tenantId: { in: unique } },
+        }),
+      ]),
     );
+    const dimensionsByTenant = new Map<string, ReferralDimensionScore[]>();
+    for (const row of dimensionRows) {
+      const average = referralRatingAverage(row.ratingSum, row.ratingCount);
+      // ממד בלי אישורים אינו "אפס" אלא היעדר מדידה, ולא מוצג
+      if (average === null) continue;
+      const list = dimensionsByTenant.get(row.tenantId) ?? [];
+      list.push({ key: row.dimension, average, count: row.ratingCount });
+      dimensionsByTenant.set(row.tenantId, list);
+    }
     for (const row of rows) {
       const average = referralRatingAverage(row.ratingSum, row.ratingCount);
-      if (average !== null)
-        byTenant.set(row.tenantId, { average, count: row.ratingCount });
+      if (average === null) continue;
+      byTenant.set(row.tenantId, {
+        average,
+        count: row.ratingCount,
+        /*
+         * סדר הקטלוג ולא סדר המסד. הממדים מוצגים בכל מקום באותו
+         * סדר — בהצהרה, באישור וכאן — ורשימה שמתהפכת בין משרד
+         * למשרד מכריחה את הקורא לקרוא תוויות במקום להשוות עמודות.
+         */
+        dimensions: CLIENT_RATING_DIMENSIONS.map((dimension) =>
+          (dimensionsByTenant.get(row.tenantId) ?? []).find(
+            (item) => item.key === dimension.key,
+          ),
+        ).filter((item): item is ReferralDimensionScore => item !== undefined),
+      });
     }
     return byTenant;
   }
@@ -2143,7 +2203,10 @@ export class CollaborationService {
             raterTenantId: ctx.tenantId,
           },
         },
-        select: { id: true, scoreTenths: true },
+        // `scores` נדרש לחישוב דלתת הפירוט לפי ממד: אישור מתוקן
+        // משנה את הדיוק של כל ממד בנפרד, ובלי הערכים הקודמים אי
+        // אפשר לדעת מה להוריד מהצבירה
+        select: { id: true, scoreTenths: true, scores: true },
       });
       if (existing) {
         await tx.leadReferralRating.update({
@@ -2172,26 +2235,68 @@ export class CollaborationService {
       });
 
       /*
-       * בלי הצהרה אין דיוק למדוד, והאישור נשמר בלי להשפיע על
-       * המוניטין. `scoreTenths` הוא 0 בשורות האלה, ולכן צבירה
-       * שלהן הייתה מושכת את הממוצע לאפס על סמך לא-כלום.
-       */
-      if (accuracy === null) return;
-      /*
        * המוניטין מתעדכן בהקשר של המשרד המפנה — הוא הבעלים של
        * השורה. עדכון בדלתא ולא כתיבת ערך מחושב: שני אישורים על
        * שתי הפניות שונות של אותו משרד יכולים להתרחש בו-זמנית.
+       *
+       * **המונה נגזר ממה שתרם ולא ממה שקיים.** אישור נספר רק
+       * כשיש בו דיוק למדוד, כלומר כשיש ולו ממד אחד ששני הצדדים
+       * נגעו בו. בלעדיו `scoreTenths` הוא 0, וספירה שלו הייתה
+       * מושכת את הממוצע לאפס על סמך לא-כלום.
+       *
+       * הבדיקה הזו לא יכולה להיות `if (accuracy === null) return`,
+       * כפי שהייתה: הקולט רשאי לתקן את האישור, והתיקון יכול לחצות
+       * את הגבול לשני הכיוונים. אישור ראשון בלי חפיפה שתוקן לאישור
+       * עם חפיפה לא היה נספר כלל, ואישור עם חפיפה שתוקן לאישור
+       * בלעדיה היה נשאר בצבירה לנצח.
        */
+      /*
+       * שתי המפות הן מקור האמת לכל הדלתאות שלמטה — המצרפית וגם
+       * הפירוט. מפה ריקה פירושה "אין ולו ממד אחד ששני הצדדים נגעו
+       * בו", כלומר בדיוק המצב שבו אין דיוק למדוד.
+       */
+      const before = existing
+        ? dimensionAccuracies(declared, narrowScores(existing.scores))
+        : {};
+      const after = dimensionAccuracies(declared, scores);
+
       const scoreDelta = scoreTenths - (existing?.scoreTenths ?? 0);
-      const countDelta = existing ? 0 : 1;
+      const countDelta =
+        (Object.keys(after).length > 0 ? 1 : 0) -
+        (Object.keys(before).length > 0 ? 1 : 0);
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${row.tenantId}, true)`;
-      await tx.$executeRaw`
-        INSERT INTO referral_reputation (tenant_id, rating_count, rating_sum, updated_at)
-        VALUES (${row.tenantId}, ${countDelta}, ${scoreDelta}, now())
-        ON CONFLICT (tenant_id) DO UPDATE SET
-          rating_count = referral_reputation.rating_count + ${countDelta},
-          rating_sum = referral_reputation.rating_sum + ${scoreDelta},
-          updated_at = now()`;
+      if (scoreDelta !== 0 || countDelta !== 0) {
+        await tx.$executeRaw`
+          INSERT INTO referral_reputation (tenant_id, rating_count, rating_sum, updated_at)
+          VALUES (${row.tenantId}, ${countDelta}, ${scoreDelta}, now())
+          ON CONFLICT (tenant_id) DO UPDATE SET
+            rating_count = referral_reputation.rating_count + ${countDelta},
+            rating_sum = referral_reputation.rating_sum + ${scoreDelta},
+            updated_at = now()`;
+      }
+
+      /*
+       * ואותה צבירה בדיוק, לכל ממד בנפרד.
+       *
+       * אותו דפוס דלתא ומאותה סיבה — אישור מתוקן צריך להוריד את
+       * מה שתרם קודם. ההשוואה היא בין שתי מפות ולא בין שני
+       * מספרים: אישור מתוקן יכול להוסיף ממד שלא דורג קודם או
+       * להסיר ממד שדורג, וכל אחד מהם משנה גם את המונה.
+       */
+      for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+        const sumDelta = ((after[key] ?? 0) - (before[key] ?? 0)) * 10;
+        const dimensionCountDelta =
+          (after[key] === undefined ? 0 : 1) - (before[key] === undefined ? 0 : 1);
+        if (sumDelta === 0 && dimensionCountDelta === 0) continue;
+        await tx.$executeRaw`
+          INSERT INTO referral_reputation_dimensions
+            (tenant_id, dimension, rating_count, rating_sum, updated_at)
+          VALUES (${row.tenantId}, ${key}, ${dimensionCountDelta}, ${sumDelta}, now())
+          ON CONFLICT (tenant_id, dimension) DO UPDATE SET
+            rating_count = referral_reputation_dimensions.rating_count + ${dimensionCountDelta},
+            rating_sum = referral_reputation_dimensions.rating_sum + ${sumDelta},
+            updated_at = now()`;
+      }
     });
   }
 
@@ -2228,7 +2333,7 @@ export class CollaborationService {
           createdAt: Date;
         }
       >;
-      reputation?: { average: number; count: number };
+      reputation?: ReferralReputationView;
     } = {},
   ): SharedLeadDto {
     const mine = row.tenantId === viewerTenantId;

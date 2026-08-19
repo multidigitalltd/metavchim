@@ -212,6 +212,10 @@ export class AccountDeletionService {
          * שהמדרג סגר חשבון. אין בהם פרט מזהה — סכום ומונה בלבד.
          */
         await tx.referralReputation.deleteMany({ where: { tenantId } });
+        // אותו מוניטין, מפורק לממדים — אותה שורה של המשרד הנמחק
+        // ומאותו נימוק. שכחה שלה הייתה משאירה את הפירוט תלוי באוויר
+        // אחרי שהציון המצרפי כבר נעלם.
+        await tx.referralReputationDimension.deleteMany({ where: { tenantId } });
         /*
          * הפניות שפורסמו נמחקות גם הן: פרטי הקשר שבהן הם PII של
          * לקוחות המשרד הנמחק, וזכות המחיקה גוברת. משרד שקלט הפניה

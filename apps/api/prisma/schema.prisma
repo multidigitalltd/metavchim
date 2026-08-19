@@ -821,6 +821,32 @@ model ReferralReputation {
   @@map("referral_reputation")
 }
 
+/// אותו מוניטין, **מפורק לממדים** — רצינות, תקציב, דחיפות, זמינות.
+///
+/// ממוצע אחד מסתיר את ההבדל בין משרד שסוטה מעט בכל ממד לבין משרד
+/// שמדייק לחלוטין ברוב הממדים ומנפח בשיטתיות את התקציב. לקורא
+/// שעומד לשלם עמלת הפניה זו אינה אותה עסקה.
+///
+/// טבלה נפרדת ולא JSONB על `referral_reputation`: הצבירה היא
+/// בדלתאות (`+= delta`), וזה `INSERT ... ON CONFLICT DO UPDATE`
+/// פשוט על שורה, לעומת בנייה מחדש של אובייקט JSON בכל אישור.
+///
+/// שורה נוצרת רק לממד ש**שני הצדדים** דירגו — ראו
+/// `dimensionAccuracies`. ממד שאיש לא נגע בו פשוט אינו קיים כאן,
+/// ולכן היעדר שורה אינו "ציון אפס".
+model ReferralReputationDimension {
+  tenantId    String   @map("tenant_id") @db.Char(26)
+  /// מפתח מ-`CLIENT_RATING_DIMENSIONS` — seriousness, budget…
+  dimension   String   @db.VarChar(20)
+  ratingCount Int      @default(0) @map("rating_count")
+  /// סכום ציוני הדיוק בעשיריות, כמו ב-`referral_reputation`
+  ratingSum   Int      @default(0) @map("rating_sum")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@id([tenantId, dimension])
+  @@map("referral_reputation_dimensions")
+}
+
 // ספר קרדיטים Append-Only (docs/03 §3): היתרה נגזרת, לא מאוחסנת.
 //
 // תפוגה נכתבת כתנועה רגילה: kind='expiry', amount שלילי, ו-ref_id

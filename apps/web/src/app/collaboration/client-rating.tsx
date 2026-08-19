@@ -211,6 +211,59 @@ export function ClientScoresView({
   );
 }
 
+/**
+ * דיוק ההצהרות של המשרד המפנה, **מפורק לממדים.**
+ *
+ * ## למה לא מספיק הממוצע שליד השם
+ *
+ * ממוצע 3.5 יכול להיות משרד שמעריך גס בכל הממדים, ויכול להיות משרד
+ * שמדייק לחלוטין ברצינות ובזמינות ומנפח בשיטתיות את התקציב. למי
+ * שעומד לשלם עמלת הפניה — והתמורה נגבית גם אם לא ייסגר דבר — זו
+ * אינה אותה עסקה: על הראשון אפשר לתקן בראש, ועל השני אי אפשר
+ * לסמוך דווקא בשדה שקובע אם הליד שווה את המחיר.
+ *
+ * ## למה כל ממד נושא מונה משלו
+ *
+ * אישור מדרג רק את מה שהמאשר יודע לשפוט. משרד יכול לצבור עשרים
+ * אישורים על רצינות ושלושה על דחיפות, ו„4.8” שנשען על שלושה אינו
+ * אותו נתון כמו „4.8” שנשען על עשרים.
+ *
+ * הרכיב אינו מציג דבר כשאין פירוט — לא „טרם נמדד” ולא מקום ריק.
+ * הממוצע הכללי כבר מוצג ליד השם, וזה הנתון שקיים.
+ */
+export function ReferrerAccuracyBreakdown({
+  dimensions,
+}: {
+  dimensions: { key: string; average: number; count: number }[];
+}) {
+  if (dimensions.length === 0) return null;
+  return (
+    <ul
+      className="m-0 mt-1 mb-2 flex list-none flex-wrap gap-x-3 gap-y-0.5 p-0 text-[12px]"
+      style={{ color: "var(--color-text-muted)" }}
+      aria-label="דיוק ההצהרות לפי ממד"
+    >
+      {dimensions.map((entry) => {
+        const label = ratingDimension(entry.key)?.label ?? entry.key;
+        return (
+          <li
+            key={entry.key}
+            title={`${label}: דיוק ${entry.average} מתוך ${MAX_REFERRAL_RATING}, לפי ${entry.count} אישורים`}
+          >
+            {label} <b>{entry.average}</b>
+            {/*
+              מספר האישורים בסוגריים ולא רק ב-title: הוא ההבדל בין
+              ציון מבוסס לציון מקרי, ומי שגולל ברשימה בטלפון לא
+              יגלה אותו בריחוף.
+            */}
+            <span> ({entry.count})</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 /** מה שנשמר כאישור, כפי שהשרת מחזיר אותו. */
 export interface ReferralConfirmationValue {
   /** דיוק ההצהרה בכוכבים; `null` כשההפניה פורסמה בלי הצהרה. */

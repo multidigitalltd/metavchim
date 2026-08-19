@@ -456,20 +456,49 @@ export function declarationAccuracy(
   declared: Readonly<Record<string, number>>,
   confirmed: Readonly<Record<string, number>>,
 ): number | null {
-  let gapSum = 0;
-  let count = 0;
+  const perDimension = Object.values(dimensionAccuracies(declared, confirmed));
+  if (perDimension.length === 0) return null;
+  const sum = perDimension.reduce((total, value) => total + value, 0);
+  return Math.round((sum / perDimension.length) * 10) / 10;
+}
+
+/**
+ * דיוק ההצהרה **לכל ממד בנפרד** — הפירוט שמאחורי הציון האחד.
+ *
+ * ## למה זה נחוץ בנפרד מהממוצע
+ *
+ * ממוצע 3.5 יכול להיות משרד שסוטה מעט בכל ממד, ויכול להיות משרד
+ * שמדייק לחלוטין ברצינות ובזמינות ומנפח בשיטתיות את התקציב. לקורא
+ * זו אינה אותה עסקה: הראשון פשוט מעריך גס, והשני אומר משהו שאי
+ * אפשר לסמוך עליו דווקא בשדה שקובע אם הליד שווה את המחיר.
+ *
+ * ## הנוסחה
+ *
+ * `5 − |הצהרה − אישור|` לכל ממד. שני הערכים שלמים בסקאלה 1..5,
+ * ולכן התוצאה שלמה בין 1 ל-5 — אין כאן עיגול ואין אובדן דיוק,
+ * וזו הסיבה שהיא נצברת כמו שהיא.
+ *
+ * ממד שרק צד אחד דירג אינו מופיע בתוצאה כלל. אין ממה לגזור פער,
+ * וספירה שלו כאילו הפער אפס הייתה מתגמלת הצהרה חלקית.
+ */
+export function dimensionAccuracies(
+  declared: Readonly<Record<string, number>>,
+  confirmed: Readonly<Record<string, number>>,
+): Record<string, number> {
+  const out: Record<string, number> = {};
   for (const dimension of CLIENT_RATING_DIMENSIONS) {
     const a = declared[dimension.key];
     const b = confirmed[dimension.key];
     if (typeof a !== "number" || typeof b !== "number") continue;
-    gapSum += Math.abs(a - b);
-    count += 1;
+    const accuracy = MAX_REFERRAL_RATING - Math.abs(a - b);
+    // הפער המרבי הוא 4 ולכן התוצאה לעולם אינה יורדת מ-1; ההידוק הוא
+    // הגנה על נתון פגום שנשמר לפני שהאימות היה קיים
+    out[dimension.key] = Math.min(
+      MAX_REFERRAL_RATING,
+      Math.max(MIN_REFERRAL_RATING, accuracy),
+    );
   }
-  if (count === 0) return null;
-  const accuracy = MAX_REFERRAL_RATING - gapSum / count;
-  // הפער המרבי הוא 4 ולכן התוצאה לעולם אינה יורדת מ-1; ההידוק הוא
-  // הגנה על נתון פגום שנשמר לפני שהאימות היה קיים
-  return Math.round(Math.min(MAX_REFERRAL_RATING, Math.max(MIN_REFERRAL_RATING, accuracy)) * 10) / 10;
+  return out;
 }
 
 /**
