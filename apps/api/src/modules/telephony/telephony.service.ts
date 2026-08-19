@@ -23,8 +23,12 @@ import {
   softphoneGap,
   softphoneOfficeReady,
   normalizePhone,
+  canonicalVirtualNumber,
+  leadSourceFor,
+  matchVirtualNumber,
   type SoftphoneConfig,
   type SoftphoneGap,
+  type VirtualNumberRule,
 } from "@metavchim/shared";
 import { assertContactAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -761,10 +765,25 @@ export class TelephonyService {
        * לתמיד — כלומר הלקוח שנפתח מהשיחה לא היה מקושר לשיחה שיצרה
        * אותו, ומכרטיסו אי אפשר היה להגיע אליה (ביקורת Codex).
        */
+      /*
+       * ההגדרה של המספר שאליו התקשרו — מקור, סוכן ונכס.
+       *
+       * נקראת גם כשלא נפתח ליד: היא זולה, והשורה נכתבת בכל מקרה עם
+       * `dialedNumber` כדי שדוח הקמפיינים יספור גם שיחות מלקוחות
+       * מוכרים. קמפיין שמחזיר לקוח ותיק הוא קמפיין שעבד.
+       */
+      const virtualNumber = await this.matchVirtualNumber(tx, tenantId, event.dialedNumber);
+
       let contactId = contact?.id ?? null;
       let leadId: string | null = null;
       if (action.createLead) {
-        const opened = await this.openLeadForUnknownCaller(tx, tenantId, event.peerPhone, phoneHash);
+        const opened = await this.openLeadForUnknownCaller(
+          tx,
+          tenantId,
+          event.peerPhone,
+          phoneHash,
+          virtualNumber,
+        );
         contactId = opened.contactId;
         leadId = opened.leadId;
       }
@@ -780,6 +799,8 @@ export class TelephonyService {
           leadId,
           phoneEncrypted: this.crypto.encrypt(event.peerPhone),
           phoneHash,
+          // הצד שלנו — הבסיס לדוח "כמה שיחות מכל מספר"; ראו הסכימה
+          dialedNumber: event.dialedNumber ?? null,
           occurredAt: new Date(),
           // שיחה שלא נענתה נשארת בלי משך. עיגול כלפי מעלה היה מציג
           // "דקה אחת" על שיחה שהסיכום שלה אומר שלא נענתה כלל.
@@ -795,16 +816,52 @@ export class TelephonyService {
   }
 
   /**
+   * ההגדרה של המספר שאליו התקשרו, אם יש כזו.
+   *
+   * שאילתה על המספר עצמו ולא שליפת כל ההגדרות והשוואה בזיכרון:
+   * המספר נשמר מנורמל, ו-`canonicalVirtualNumber` מנרמל גם את מה
+   * שהמרכזייה שלחה — כך ששני הצדדים נפגשים על אותה צורה.
+   * ‎`matchVirtualNumber` נשאר מקור האמת ורץ על התוצאה, כדי
+   * ששינוי בכללי ההתאמה יחול כאן בלי לגעת בשאילתה.
+   */
+  private async matchVirtualNumber(
+    tx: Parameters<Parameters<PrismaService["withExplicitTenant"]>[1]>[0],
+    tenantId: string,
+    dialed: string | undefined,
+  ): Promise<VirtualNumberRule | null> {
+    const canonical = dialed === undefined ? "" : canonicalVirtualNumber(dialed);
+    if (canonical === "") return null;
+    const row = await tx.virtualNumber.findFirst({
+      where: { tenantId, phone: canonical },
+      select: {
+        id: true,
+        phone: true,
+        label: true,
+        leadSource: true,
+        assignedToUserId: true,
+        propertyId: true,
+        isActive: true,
+      },
+    });
+    return row === null ? null : matchVirtualNumber(dialed, [row]);
+  }
+
+  /**
    * מספר לא מוכר שדיברו איתו בפועל — ליד חדש.
    *
    * השם נשמר כמספר עצמו: אין לנו שם, והמצאת "לקוח מהטלפון" הייתה
    * מייצרת כרטיסים שאי אפשר לחפש. המתווך משלים את השם מהשיחה.
+   *
+   * כשהשיחה הגיעה למספר וירטואלי, הליד נפתח כבר **עם המקור, הסוכן
+   * והנכס** של אותו מספר. זה כל הרעיון: סוכן שפותח את הליד יודע
+   * מאיזו מודעה הוא הגיע ועל איזה נכס מדובר, בלי לשאול.
    */
   private async openLeadForUnknownCaller(
     tx: Parameters<Parameters<PrismaService["withExplicitTenant"]>[1]>[0],
     tenantId: string,
     phone: string,
     phoneHash: string,
+    virtualNumber: VirtualNumberRule | null,
   ): Promise<{ contactId: string; leadId: string }> {
     const contact = await tx.contact.create({
       data: {
@@ -817,14 +874,24 @@ export class TelephonyService {
       select: { id: true },
     });
     const leadId = ulid();
+    const source = virtualNumber === null ? "phone" : leadSourceFor(virtualNumber);
     await tx.lead.create({
       data: {
         id: leadId,
         tenantId,
         contactId: contact.id,
-        source: "phone",
+        source,
         status: "new",
-        summary: "נפתח אוטומטית משיחה נכנסת ממספר שאינו מוכר",
+        /*
+         * הסוכן והנכס מגיעים מההגדרה של המספר. `null` כשאין הגדרה
+         * או כשהשדה נשאר ריק — כלומר בדיוק ההתנהגות הקודמת.
+         */
+        assignedToUserId: virtualNumber?.assignedToUserId ?? null,
+        propertyId: virtualNumber?.propertyId ?? null,
+        summary:
+          virtualNumber === null
+            ? "נפתח אוטומטית משיחה נכנסת ממספר שאינו מוכר"
+            : `נפתח אוטומטית משיחה נכנסת אל ${virtualNumber.label}`,
       },
     });
     /*
@@ -839,7 +906,9 @@ export class TelephonyService {
         id: ulid(),
         tenantId,
         name: "lead.created",
-        payload: { leadId, tenantId, source: "phone" },
+        // המקור האמיתי ולא "phone" קבוע: אוטומציות שמתנות במקור
+        // הליד צריכות לראות את הקמפיין, לא את אמצעי ההגעה
+        payload: { leadId, tenantId, source },
       },
     });
     return { contactId: contact.id, leadId };

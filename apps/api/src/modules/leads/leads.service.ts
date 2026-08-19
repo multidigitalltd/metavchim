@@ -27,6 +27,18 @@ export interface LeadDto {
   updatedAt: Date;
 }
 
+/**
+ * המספר שאליו הלקוח התקשר.
+ *
+ * `label` קיים רק כשהמספר מוגדר כמספר וירטואלי; בלעדיו מוצג המספר
+ * עצמו, וזה עדיין שימושי — משרד שרואה מספר לא מוכר חוזר בלידים
+ * יודע שכדאי להגדיר אותו.
+ */
+export interface DialedNumberInfo {
+  phone: string;
+  label?: string;
+}
+
 export interface InteractionDto {
   id: string;
   kind: string;
@@ -374,7 +386,9 @@ export class LeadsService {
     return { id: noteId, kind: "note", content, createdAt: new Date() };
   }
 
-  async getById(id: string): Promise<{ lead: LeadDto; timeline: InteractionDto[] }> {
+  async getById(
+    id: string,
+  ): Promise<{ lead: LeadDto; timeline: InteractionDto[]; dialedNumber?: DialedNumberInfo }> {
     return this.prisma.withTenant(async (tx) => {
       const tenantId = TenantContext.current().tenantId;
       const row = await tx.lead.findFirst({
@@ -390,6 +404,7 @@ export class LeadsService {
       });
       return {
         lead: toLeadDto(row, contact),
+        ...(await this.dialedNumberFor(tx, tenantId, id)),
         timeline: interactions.map((i) => ({
           id: i.id,
           kind: i.kind,
@@ -399,6 +414,39 @@ export class LeadsService {
         })),
       };
     });
+  }
+
+  /**
+   * המספר שאליו הלקוח התקשר, ושם המספר הווירטואלי אם מוגדר.
+   *
+   * זו התשובה ל"מאיפה הגיע הליד הזה" ברזולוציה שהמקור לבדו אינו
+   * נותן: משרד שמריץ שלוש מודעות באותו ערוץ רואה שלוש שורות עם
+   * אותו מקור, והמספר הוא מה שמפריד ביניהן.
+   *
+   * השיחה **הראשונה** ולא האחרונה: הליד נפתח מהשיחה שיצרה אותו,
+   * ושיחות המשך יוצאות מהמשרד למספרים אחרים לגמרי — הצגתן הייתה
+   * מייחסת את הליד לקמפיין שגוי.
+   *
+   * שתי שאילתות קלות ורק במסך הפרטים; ברשימה הן היו מוכפלות בכל
+   * שורה בלי שאיש ביקש את הנתון.
+   */
+  private async dialedNumberFor(
+    tx: TenantTx,
+    tenantId: string,
+    leadId: string,
+  ): Promise<{ dialedNumber?: DialedNumberInfo }> {
+    const call = await tx.call.findFirst({
+      where: { tenantId, leadId, dialedNumber: { not: null } },
+      orderBy: { occurredAt: "asc" },
+      select: { dialedNumber: true },
+    });
+    const phone = call?.dialedNumber;
+    if (phone === undefined || phone === null) return {};
+    const virtual = await tx.virtualNumber.findFirst({
+      where: { tenantId, phone },
+      select: { label: true },
+    });
+    return { dialedNumber: { phone, ...(virtual ? { label: virtual.label } : {}) } };
   }
 
   /** פילוח לפי סטטוס מכל המאגר — לגרף המשפך בדשבורד. */

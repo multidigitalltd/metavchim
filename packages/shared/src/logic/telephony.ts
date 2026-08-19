@@ -274,7 +274,12 @@ export function phoneFromSipUri(uri: string): string {
  * אותה תבנית של PhoneSchema — מספר ישראלי תקין אחרי נרמול.
  * מוגדרת כאן ולא מיובאת כדי שהקובץ יישאר בלי תלות ב-zod.
  */
-const ISRAELI_PHONE = /^\+972[2-9]\d{7,8}$/u;
+/*
+ * מיוצא כדי שהמספרים הווירטואליים ישתמשו **באותה** בדיקה בדיוק.
+ * עותק שני היה יכול לסטות, ואז מספר שנשמר כתקין לא היה מותאם
+ * כשמתקשרים אליו — בלי שום שגיאה שמישהו יראה.
+ */
+export const ISRAELI_PHONE = /^\+972[2-9]\d{7,8}$/u;
 
 export type CallEventType = "ringing" | "answered" | "ended" | "missed";
 export type CallDirection = "inbound" | "outbound";
@@ -289,6 +294,18 @@ export interface TelephonyEvent {
   providerCallId: string;
   /** שלוחה/משתמש במרכזייה, לשיוך לסוכן. */
   extension?: string;
+  /**
+   * המספר שאליו הלקוח התקשר — **הצד שלנו בשיחה**.
+   *
+   * עד כה הוא נזרק: `readCore` חילץ את שני הצדדים ושמר רק את הלקוח.
+   * הוא הבסיס למספרים וירטואליים — מספר נפרד לכל קמפיין, לכל סוכן
+   * או לכל נכס — ובלעדיו אי אפשר לדעת *מאיפה* הגיעה השיחה, רק *ממי*.
+   *
+   * `undefined` כשהמספר אינו מספר טלפון ישראלי תקין: שלוחה פנימית
+   * בת שלוש ספרות אינה מספר שמפרסמים, ושמירתה הייתה מייצרת "מספר
+   * וירטואלי" שלעולם לא יותאם לשום הגדרה.
+   */
+  dialedNumber?: string;
   durationSeconds?: number;
 }
 
@@ -391,6 +408,8 @@ function readCore(raw: Record<string, unknown>): {
   providerCallId: string;
   direction: CallDirection;
   peerRaw: string;
+  /** הצד שלנו — המספר שאליו התקשרו. ראו `dialedNumber`. */
+  ownRaw: string;
 } {
   const pick = pickFrom(raw);
   const providerCallId = pick(...CALL_ID_KEYS);
@@ -406,10 +425,16 @@ function readCore(raw: Record<string, unknown>): {
    */
   const source = pick(...SOURCE_KEYS);
   const destination = pick(...DESTINATION_KEYS);
+  /*
+   * הצד שלנו הוא ההפך המדויק של הצד השני, ולכן נגזר מאותם שני
+   * ערכים ובאותו כיוון — ולא מרשימת שדות שלישית שהייתה יכולה
+   * לסטות מהם.
+   */
   return {
     providerCallId,
     direction,
     peerRaw: direction === "outbound" ? destination || source : source || destination,
+    ownRaw: direction === "outbound" ? source : destination,
   };
 }
 
@@ -450,7 +475,7 @@ export function safeDiagnosticKeys(keys: readonly string[]): string {
 export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEvent | null {
   // אותם שמות שדות בדיוק כמו באבחון — readCore הוא המקור היחיד
   const pick = pickFrom(raw);
-  const { providerCallId, direction, peerRaw } = readCore(raw);
+  const { providerCallId, direction, peerRaw, ownRaw } = readCore(raw);
   if (providerCallId === "") return null;
   if (peerRaw === "") return null;
 
@@ -473,8 +498,23 @@ export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEven
     providerCallId,
     // השלוחה היא של המשרד; ביעד כבר השתמשנו לבחירת הצד השני
     extension: pick(...EXTENSION_KEYS) || undefined,
+    /*
+     * המספר שאליו התקשרו — רק אם הוא מספר ישראלי תקין.
+     *
+     * שלוחה פנימית ("203") ותווית מרכזייה אינן מספרים שמפרסמים,
+     * ושמירתן הייתה מייצרת "מספר וירטואלי" שלעולם לא יותאם לשום
+     * הגדרה — ורעש בדוח הקמפיינים.
+     */
+    dialedNumber: dialedNumberOf(ownRaw),
     durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : undefined,
   };
+}
+
+/** המספר שלנו בצורתו המנורמלת, או `undefined` כשאינו מספר טלפון. */
+function dialedNumberOf(raw: string): string | undefined {
+  if (raw === "") return undefined;
+  const normalized = normalizePhone(raw);
+  return ISRAELI_PHONE.test(normalized) ? normalized : undefined;
 }
 
 /**

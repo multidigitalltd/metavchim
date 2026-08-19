@@ -53,6 +53,7 @@ export * from "./logic/capability-overrides.js";
 export * from "./logic/coupon.js";
 export * from "./logic/xlsx-import.js";
 export * from "./logic/telephony.js";
+export * from "./logic/virtual-numbers.js";
 export * from "./logic/list-filters.js";
 export * from "./logic/automations.js";
 export * from "./logic/custom-automations.js";
