@@ -30,6 +30,7 @@ import { DismissReportSection } from "./dismiss-report";
 import { AgreementTemplatesSection } from "./agreement-templates-section";
 import { RetainedAgreementsSection } from "./retained-agreements-section";
 import { SystemUpdateSection } from "./system-update";
+import { SessionsList } from "../sessions-list";
 import { UserPermissions } from "./user-permissions";
 
 const inputStyle = {
@@ -118,6 +119,9 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   "users.create": "הוספת איש צוות",
   "users.update": "עדכון איש צוות",
   "users.unlock": "שחרור נעילת התחברות",
+  // ניתוק כפוי של עובד מכל מכשיריו — פעולה ניהולית שמישהו נותן
+  // עליה דין וחשבון, ולכן היא נקראת בעברית ולא כקוד
+  "users.sessions_revoke": "ניתוק כל החיבורים של איש צוות",
   "voice_intake.create": "קליטת נכס בקול",
   "contact.merge": "מיזוג כרטיסים כפולים",
   "contact.duplicate_dismiss": "דחיית הצעת מיזוג",
@@ -233,6 +237,8 @@ export default function SettingsPage() {
   const [adding, setAdding] = useState(false);
   /** מזהה המשתמש שפאנל ההרשאות שלו פתוח — אחד בכל רגע */
   const [permissionsFor, setPermissionsFor] = useState<string | null>(null);
+  /* מזהה איש הצוות שרשימת החיבורים שלו פתוחה; null = אף אחת */
+  const [sessionsFor, setSessionsFor] = useState<string | null>(null);
 
   const load = useCallback(() => {
     apiGet<TenantSettings>("/settings/tenant")
@@ -652,6 +658,25 @@ export default function SettingsPage() {
                                 <IconKey s={15} /> הרשאות
                               </button>
                             ) : null}
+                            {/*
+                              „חיבורים” גם למי שאינו ניתן לעריכה
+                              (בעל המשרד, ואני עצמי): לראות מאיפה
+                              מישהו מחובר אינו שינוי, וזו בדיוק
+                              השורה שרוצים לבדוק כשחושדים שחשבון
+                              בכיר נפרץ.
+                            */}
+                            <button
+                              type="button"
+                              className="mv-btn-plain"
+                              aria-expanded={sessionsFor === member.id}
+                              onClick={() =>
+                                setSessionsFor(
+                                  sessionsFor === member.id ? null : member.id,
+                                )
+                              }
+                            >
+                              חיבורים
+                            </button>
                             {editable ? (
                               <button
                                 type="button"
@@ -668,6 +693,25 @@ export default function SettingsPage() {
                             userId={member.id}
                             onClose={() => setPermissionsFor(null)}
                           />
+                        ) : null}
+                        {sessionsFor === member.id ? (
+                          <div
+                            className="mt-2 rounded-lg border p-3"
+                            style={{ borderColor: "var(--color-border)" }}
+                          >
+                            {/*
+                              המפתח הוא מזהה המשתמש: בלעדיו React היה
+                              משתמש באותו מופע לשורה אחרת, והרשימה
+                              שנטענה קודם הייתה מוצגת רגע תחת שם
+                              אחר — כלומר החיבורים של אדם אחד מוצמדים
+                              לשמו של אחר.
+                            */}
+                            <SessionsList
+                              key={member.id}
+                              userId={member.id}
+                              userName={member.name}
+                            />
+                          </div>
                         ) : null}
                       </div>
                     );

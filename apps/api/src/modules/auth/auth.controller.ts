@@ -1,8 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
+  NotFoundException,
+  Param,
   Patch,
   Post,
   Req,
@@ -13,11 +16,17 @@ import {
 import { Throttle } from "@nestjs/throttler";
 import type { Request, Response } from "express";
 import { z } from "zod";
+import { IdSchema } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AnyAuthenticated, BillingAllowed, Public } from "../../common/auth.decorators";
 import { TenantContext } from "../../common/tenant-context";
-import { AuthService, type AuthenticatedUser, type ProfileDto } from "./auth.service";
+import {
+  AuthService,
+  type AuthenticatedUser,
+  type ProfileDto,
+  type SessionInfo,
+} from "./auth.service";
 import { GoogleAuthService } from "./google-auth.service";
 import { LoginOtpService } from "./login-otp.service";
 import { LoginThrottleService } from "./login-throttle.service";
@@ -362,5 +371,61 @@ export class AuthController {
     const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
     await this.auth.changePassword(user.id, body.currentPassword, body.newPassword, token);
     return { ok: true };
+  }
+
+  /**
+   * החיבורים הפתוחים שלי.
+   *
+   * זו התשובה לשאלה „האם מישהו אחר מחובר לחשבון שלי” — שאלה שעד
+   * כה לא הייתה לה שום דרך להישאל. סיסמה שדלפה נראית בדיוק כמו
+   * שגרה, ורק רשימת המכשירים חושפת אותה.
+   *
+   * `AnyAuthenticated` ולא יכולת: כל אחד רואה את **שלו**, והשיוך
+   * נלקח מהחיבור שמבצע את הבקשה ולא מפרמטר. נתיב שמקבל מזהה
+   * משתמש היה הופך את זה ל-IDOR שמחזיר את המכשירים של כל אחד.
+   */
+  @AnyAuthenticated()
+  @Get("sessions")
+  async sessions(@Req() req: Request): Promise<{ sessions: SessionInfo[] }> {
+    const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
+    if (!user) throw new UnauthorizedException();
+    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
+    return { sessions: await this.auth.listSessions(user.id, token) };
+  }
+
+  /**
+   * ניתוק חיבור אחד — „זה לא אני”.
+   *
+   * מותר גם על החיבור הנוכחי: זו התנתקות, וחסימה שלה הייתה מחייבת
+   * את המשתמש לזהות איזו שורה היא שלו כדי לא ללחוץ עליה.
+   */
+  @AnyAuthenticated()
+  @Delete("sessions/:id")
+  @HttpCode(200)
+  async revokeSession(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Req() req: Request,
+  ): Promise<{ ok: true }> {
+    const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
+    if (!user) throw new UnauthorizedException();
+    const removed = await this.auth.revokeSession(user.id, id);
+    if (!removed) throw new NotFoundException("החיבור אינו קיים או שכבר נותק");
+    return { ok: true };
+  }
+
+  /**
+   * ניתוק כל שאר החיבורים — הפעולה שעושים אחרי „זה לא אני”.
+   *
+   * החיבור הנוכחי נשאר: משתמש שמגלה פריצה וצריך להתחבר מחדש כדי
+   * להחליף סיסמה נמצא רגע ארוך מדי בלי שליטה בחשבון שלו.
+   */
+  @AnyAuthenticated()
+  @Post("sessions/revoke-others")
+  @HttpCode(200)
+  async revokeOtherSessions(@Req() req: Request): Promise<{ revoked: number }> {
+    const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
+    if (!user) throw new UnauthorizedException();
+    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
+    return { revoked: await this.auth.revokeAllSessions(user.id, token) };
   }
 }

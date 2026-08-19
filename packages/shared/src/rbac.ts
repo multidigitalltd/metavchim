@@ -101,9 +101,23 @@ export const ROLE_CAPABILITIES: Record<string, readonly Capability[]> = {
     "properties.create",
     "properties.edit",
     "properties.delete",
+    /*
+     * `view_own` **וגם** `view_all`, ולא רק השני.
+     *
+     * הן לא שתי דרגות של אותה הרשאה: `view_own` היא כרטיס הכניסה
+     * למודול והיא זו שנבדקת ב-`@RequireCapability` על נתיב
+     * הרשימה, ו-`view_all` רק מרחיבה בתוכו את הסינון
+     * (`ownershipFilter`). תפקיד שנושא רק את השנייה נחסם ב-403
+     * במסך עצמו — כלומר „רואה את כל המשרד” ולא רואה כלום.
+     *
+     * הצירוף אינו סתירה אצל אף תפקיד קיים: owner ו-admin מחזיקים
+     * בשתיהן ממילא, כי הם מקבלים את כל הקטלוג.
+     */
+    "buyers.view_own",
     "buyers.view_all",
     "buyers.edit",
     "buyers.delete",
+    "leads.view_own",
     "leads.view_all",
     "leads.edit",
     "leads.delete",

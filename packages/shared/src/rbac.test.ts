@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { CAPABILITIES, ROLE_CAPABILITIES, rolesWithCapability } from "./rbac.js";
+import {
+  CAPABILITIES,
+  ROLE_CAPABILITIES,
+  rolesWithCapability,
+  type Capability,
+} from "./rbac.js";
 import { ASSIGNABLE_ROLES, ROLE_LABELS, UserRoleSchema, roleLabel } from "./schemas/user.js";
 
 /**
@@ -36,13 +41,25 @@ describe("תפקיד מנהל הסניף", () => {
   });
 
   /*
-   * `view_all` ו-`view_own` יחד הם סתירה: הפילטר בשרת נגזר מהראשון,
-   * והשני נשאר כהבטחה שאיש אינו מממש. עדיף שלא יהיה שם בכלל.
+   * הבדיקה הזו נכתבה אחרי שהתפקיד נבדק מול שרת אמיתי ונכשל.
+   *
+   * ההנחה הייתה ש-`view_all` „מכילה” את `view_own`. היא לא:
+   * `view_own` היא מה שנבדק ב-`@RequireCapability` על נתיב הרשימה
+   * — כרטיס הכניסה למודול — ו-`view_all` רק מרחיבה בתוכו את
+   * `ownershipFilter`. מנהל סניף עם `view_all` בלבד קיבל 403 על
+   * ‎GET /leads‎ ועל ‎GET /buyers‎: „רואה את כל המשרד” ולא רואה כלום.
+   *
+   * הכלל אינו ייחודי למנהל סניף, ולכן נבדק על **כל** התפקידים:
+   * מי שנושא `view_all` חייב לשאת גם את `view_own` המתאימה.
    */
-  it("אינו נושא גם view_own וגם view_all", () => {
-    const caps = ROLE_CAPABILITIES.branch_manager ?? [];
-    expect(caps).not.toContain("leads.view_own");
-    expect(caps).not.toContain("buyers.view_own");
+  it.each(["leads", "buyers"])("מי שנושא %s.view_all נושא גם view_own", (module) => {
+    for (const [role, caps] of Object.entries(ROLE_CAPABILITIES)) {
+      if (caps.includes(`${module}.view_all` as Capability)) {
+        expect(caps, `${role} נושא ${module}.view_all בלי view_own`).toContain(
+          `${module}.view_own`,
+        );
+      }
+    }
   });
 });
 

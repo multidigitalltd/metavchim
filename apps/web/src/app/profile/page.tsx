@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { roleLabel } from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
+import { SessionsList } from "../sessions-list";
 
 /** הפרופיל כפי שהשרת מחזיר אותו (‎GET /auth/profile). */
 interface ProfileDto {
@@ -294,6 +295,18 @@ export default function ProfilePage() {
             </form>
           </section>
         </div>
+
+        {/* ---- חיבורים פתוחים ---- */}
+        <section className="mv-list-card px-5 py-[17px]" aria-labelledby="sessions-heading">
+          <h2 id="sessions-heading" className="m-0 mb-1" style={{ fontSize: 15.5, fontWeight: 800 }}>
+            חיבורים פתוחים
+          </h2>
+          <p className="m-0 mb-3 text-[12.5px]" style={{ color: "var(--color-text-muted)" }}>
+            כל מכשיר שמחובר לחשבון שלך עכשיו. חיבור שאינך מזהה — נתק אותו
+            והחלף סיסמה.
+          </p>
+          <SessionsList />
+        </section>
 
         {/* ---- נגישות ---- */}
         <section className="mv-list-card px-5 py-[17px]" aria-labelledby="a11y-heading">
