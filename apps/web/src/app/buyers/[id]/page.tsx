@@ -10,10 +10,12 @@ import {
 import type { BuyerRequirements } from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import {
+  DEAL_TYPE_LABELS,
   FINANCING_LABELS,
   formatBuyerSource,
   formatPrice,
   MATURITY_LABELS,
+  PROPERTY_TYPE_LABELS,
   waMeUrl,
 } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -56,6 +58,12 @@ interface BuyerDetail {
      * הסכימה בקריאה, כך שהמערך תמיד קיים גם לכרטיסים ישנים.
      */
     neighborhoods: string[];
+    /*
+     * בדיוק אותו כשל כמו בשכונות שמעל: השדה הגיע מהשרת מאז ומתמיד
+     * ולא הוצהר כאן, ולכן ההבחנה הבסיסית ביותר על הלקוח — קונה או
+     * שוכר — נזרקה בדרך לדפדפן ולא הופיעה בכרטיס.
+     */
+    dealType: string;
     propertyTypes: string[];
     searchAreas?: {
       lat: number;
@@ -281,6 +289,28 @@ export default function BuyerDetailPage({
               {buyer.contact.name}
             </h1>
             {/*
+              קונה או שוכר — צמוד לשם.
+
+              ההבדל קובע כמעט כל שיחה עם הלקוח (תקציב חודשי מול
+              סכום רכישה, מועד כניסה, סוג ההסכם), והוא היה קבור
+              בטופס העריכה בלבד. סוכן שפתח את הכרטיס ראה „לקוח פאר”
+              ותקציב, ולא ידע איזו שיחה הוא עומד לנהל.
+
+              גלולה סטטית ולא רשימה נפתחת: החלפת סוג העסקה משנה את
+              משמעות התקציב ומאפסת את ההתאמות, ולכן היא נעשית
+              במסך העריכה — לא בלחיצה אחת ליד השם.
+            */}
+            <span
+              className="mv-pill"
+              style={{
+                background: "var(--color-primary-soft)",
+                color: "var(--color-primary)",
+                fontWeight: 700,
+              }}
+            >
+              {DEAL_TYPE_LABELS[buyer.requirements.dealType] ?? buyer.requirements.dealType}
+            </span>
+            {/*
               רשימה מעוצבת ולא `select` נייטיב: הגלולה נראתה נכון
               סגורה, ובפתיחה נפתחה רשימת מערכת עם הדגשה כחולה שאינה
               שייכת לשום מקום במערכת.
@@ -488,6 +518,28 @@ export default function BuyerDetailPage({
               ) : (
                 <div className="mb-3.5" />
               )}
+
+              {/*
+                אותו כשל שהיה בשכונות: הסוגים פוסלים נכסים במנוע
+                ההתאמות, ולא הופיעו בשום מקום בכרטיס. סוכן שראה רשימת
+                התאמות קצרה מהצפוי לא יכול היה לדעת שהוא עצמו צמצם
+                אותה. „כל הסוגים” אינו נכתב — היעדר צמצום אינו מידע.
+              */}
+              {buyer.requirements.propertyTypes.length > 0 ? (
+                <>
+                  <div
+                    className="mb-1.5 text-[13px] font-semibold"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    סוג נכס
+                  </div>
+                  <div className="mb-3.5 text-[14.5px] font-bold">
+                    {buyer.requirements.propertyTypes
+                      .map((t) => PROPERTY_TYPE_LABELS[t] ?? t)
+                      .join(" · ")}
+                  </div>
+                </>
+              ) : null}
 
               {buyer.requirements.roomsMin !== undefined ||
               buyer.requirements.roomsMax !== undefined ? (

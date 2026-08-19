@@ -31,6 +31,17 @@ export function formatDateTime(value: string | Date | undefined): string {
 
 export { MATURITY_LABELS } from "@metavchim/shared";
 
+/**
+ * סוג העסקה **מצד הלקוח** — „קונה” ו„שוכר”, ולא „מכירה” ו„השכרה”.
+ *
+ * אותו ערך בדיוק נקרא הפוך בשני הצדדים: על נכס `sale` הוא „מכירה”,
+ * ועל אדם הוא „קונה”. תווית אחת לשניהם הייתה מתייגת לקוח כ„מכירה”.
+ */
+export const DEAL_TYPE_LABELS: Record<string, string> = {
+  sale: "קונה",
+  rent: "שוכר",
+};
+
 export const PROPERTY_TYPE_LABELS: Record<string, string> = {
   apartment: "דירה",
   garden_apartment: "דירת גן",

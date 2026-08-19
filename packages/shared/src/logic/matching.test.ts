@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { scoreMatch } from "./matching.js";
+import { MIN_MATCH_CRITERIA, scoreMatch } from "./matching.js";
 import type { PropertyFields } from "../schemas/property.js";
 import type { BuyerRequirements } from "../schemas/buyer.js";
 
@@ -287,5 +287,78 @@ describe("קונה בלי תקציב", () => {
   it("קונה עם תקציב ממשיך להיבדק כרגיל", () => {
     const over = scoreMatch({ ...baseProperty, priceAgorot: 900_000_000 }, baseBuyer);
     expect(over.excluded).toBe(true);
+  });
+});
+
+/**
+ * הכשל שדווח מהשטח: משרד ייבא רשימת קונים שיש בהם שם, טלפון
+ * ותקציב בלבד, וכל נכס במאגר הוצג להם כהתאמה של 100%.
+ *
+ * הסיבה אינה באג בחישוב אלא במשמעות שלו. הציון הוא ממוצע משוקלל
+ * של הקריטריונים שאפשר היה להשוות, כלומר „מתאים בכל מה שנבדק” —
+ * וכשנבדק דבר אחד, „100%” אומר „הנכס בתקציב” ונקרא „הנכס מושלם
+ * עבורו”.
+ */
+describe("סף המידע — כרטיס ריק אינו נכנס להתאמות", () => {
+  /** בדיוק המקרה שדווח: שם וטלפון אינם דרישות, ונשאר התקציב בלבד. */
+  const importedBuyer: BuyerRequirements = {
+    cities: [],
+    neighborhoods: [],
+    dealType: "sale",
+    propertyTypes: [],
+    budgetMaxAgorot: 350_000_000,
+    features: {},
+  };
+
+  it("קונה עם תקציב בלבד אינו מקבל התאמה — גם לא 100%", () => {
+    const result = scoreMatch(baseProperty, importedBuyer);
+    expect(result.breakdown).toHaveLength(1);
+    expect(result.insufficientData).toBe(true);
+    expect(result.excluded).toBe(true);
+    expect(result.score).toBe(0);
+  });
+
+  it("ההסבר אומר שחסרים פרטים, ולא שהנכס אינו מתאים", () => {
+    const result = scoreMatch(baseProperty, importedBuyer);
+    expect(result.explanation).toContain("אין מספיק פרטים");
+  });
+
+  /*
+   * הצד השני של אותו מטבע. הקונה מלא לגמרי, והנכס הוא זה שאין
+   * עליו כמעט דבר — וגם אז אין על מה לבסס „התאמה”.
+   */
+  it("נכס בלי פרטים אינו מקבל התאמה מול קונה מלא", () => {
+    const result = scoreMatch({ dealType: "sale", priceAgorot: 265_000_000 }, baseBuyer);
+    expect(result.insufficientData).toBe(true);
+    expect(result.score).toBe(0);
+  });
+
+  /*
+   * השער חייב לא לפגוע במי שהוא נועד לשרת. כרטיס סביר לגמרי —
+   * אזור, תקציב, חדרים וסוג — עובר, ומקבל את הציון המלא שלו.
+   */
+  it("כרטיס מלא עובר את השער ואינו נפגע", () => {
+    const result = scoreMatch(baseProperty, baseBuyer);
+    expect(result.insufficientData).toBe(false);
+    expect(result.breakdown.length).toBeGreaterThanOrEqual(MIN_MATCH_CRITERIA);
+    expect(result.score).toBeGreaterThanOrEqual(90);
+  });
+
+  /* בדיוק על הסף — שלושה קריטריונים עוברים, שניים לא. */
+  it("הסף עצמו: שלושה קריטריונים עוברים, שניים נחסמים", () => {
+    const twoCriteria: BuyerRequirements = {
+      cities: ["בני ברק"],
+      neighborhoods: [],
+      dealType: "sale",
+      propertyTypes: [],
+      budgetMaxAgorot: 350_000_000,
+      features: {},
+    };
+    expect(scoreMatch(baseProperty, twoCriteria).insufficientData).toBe(true);
+
+    const threeCriteria: BuyerRequirements = { ...twoCriteria, roomsMin: 3, roomsMax: 5 };
+    const passed = scoreMatch(baseProperty, threeCriteria);
+    expect(passed.insufficientData).toBe(false);
+    expect(passed.score).toBeGreaterThan(0);
   });
 });

@@ -7,6 +7,7 @@ import { apiPost, ApiError } from "@/lib/api";
 import { DictateFor } from "../../dictation-field";
 import { FormSection } from "../../form-section";
 import { FeatureRequirements } from "../feature-requirements";
+import { PropertyTypesField, readPropertyTypes } from "../property-types-field";
 import { PriceField } from "../../price-field";
 import { EntryTimingField } from "../../properties/entry-timing-field";
 import { shekelsToAgorot } from "@/lib/format";
@@ -72,7 +73,7 @@ export default function NewBuyerPage() {
             .filter(Boolean),
           neighborhoods: [],
           dealType: String(f.get("dealType")),
-          propertyTypes: [],
+          propertyTypes: readPropertyTypes(f.get("propertyTypes")),
           /*
            * ריק = לא נמסר, ולא 0. אפס נקרא במנוע ההתאמות כ"לא יכול
            * להרשות לעצמו שום נכס", כלומר גרוע מלא לשלוח כלום.
@@ -143,6 +144,8 @@ export default function NewBuyerPage() {
                 <option value="rent">שכירות</option>
               </select>
             </div>
+            {/* צמוד לסוג העסקה, כמו במסך העריכה */}
+            <PropertyTypesField disabled={submitting} />
             {/* התקציב גם במילים — טעות ספרה במיליונים משנה קונה לגמרי */}
             <PriceField id="budgetMax" name="budgetMax" label="תקציב מקסימלי (₪)" />
             <p className="-mt-2 text-[12px]" style={{ color: "var(--color-text-muted)" }}>
