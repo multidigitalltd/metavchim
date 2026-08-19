@@ -7,6 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "verify:iac": "node scripts/verify-iac.mjs",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",

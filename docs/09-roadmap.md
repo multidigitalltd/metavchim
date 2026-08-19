@@ -19,10 +19,11 @@
 - ✅ ריפו, CI, סביבות.
 - ✅ שלד Modular Monolith: מבנה מודולים, Outbox, TenantContext + RLS, RBAC, Audit Log.
 - ✅ Design System + PWA RTL נגישה.
-- ⬜ IaC. הפריסה היא compose על שרת יחיד (docs/10), בכתיבה ידנית.
-- 🟡 סוויטת Cross-Tenant. יש שער מבני שאוסר גישה ל-Prisma בלי הקשר
-  משרד (`rls-access.test.ts`), ואין סוויטת אינטגרציה שמריצה שאילתות
-  אמיתיות בין שני דיירים.
+- ✅ IaC — `infra/ansible`. הקצאת המכונה אצל הספק נשארת ידנית
+  ומתועדת; כל מה שמעליה הוא Playbook אידמפוטנטי.
+- ✅ סוויטת Cross-Tenant — `cross-tenant.int.test.ts` מרימה Postgres,
+  שותלת שני דיירים בכל טבלה מוגנת, ומנסה כתפקיד האפליקציה לקרוא,
+  לעדכן ולמחוק את השורות של השני. חוסמת מיזוג.
 
 ## שלב 1 — MVP ✅
 

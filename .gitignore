@@ -24,3 +24,8 @@ __pycache__/
 # (apps/web/scripts/copy-maplibre-worker.mjs). נוצר מ-node_modules ולכן
 # אינו מקור: עותק שנשמר ב-git היה נפרד בשקט מהגרסה המותקנת.
 apps/web/public/maplibre/
+
+# תצורת הפריסה שמולאה — כתובת שרת ייצור, וסודות מוצפנים או לא
+infra/ansible/inventory.ini
+infra/ansible/group_vars/all.yml
+infra/ansible/group_vars/vault.yml

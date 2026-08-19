@@ -1,0 +1,16 @@
+# משתני ההתקנה — הערכים שאינם סוד.
+#
+# הסודות **אינם כאן**. הם יושבים ב-vault.yml מוצפן ב-ansible-vault,
+# שגם הוא אינו נכנס לגיט. הפרדה ולא קובץ אחד: את הקובץ הזה נוח
+# לקרוא ולסקור בפול-ריקווסט, ואת השני אסור לפתוח בכלל.
+---
+domain: app.metavchim.co.il
+app_dir: /srv/metavchim
+repo_url: https://github.com/multidigitalltd/metavchim.git
+# מה נפרס. `main` נכון לפריסה שוטפת; תג או SHA כשרוצים לקבע גרסה
+repo_version: main
+image_prefix: ghcr.io/multidigitalltd/metavchim
+image_tag: latest
+# יכולות רשות: stt (תמלול מקומי), diarize (זיהוי דוברים),
+# offsite (גיבוי חיצוני). ריק = ליבה בלבד.
+compose_profiles: ""

@@ -14,6 +14,7 @@
     "db:deploy": "node --env-file=../../.env ./node_modules/prisma/build/index.js migrate deploy",
     "db:seed": "node --env-file=../../.env ./node_modules/tsx/dist/cli.mjs prisma/seed.ts",
     "test": "vitest run",
+    "test:rls": "vitest run --config vitest.int.config.ts",
     "verify:boot": "node scripts/verify-boot.mjs"
   },
   "prisma": {
