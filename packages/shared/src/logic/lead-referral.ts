@@ -20,6 +20,79 @@ import { coopOfferCost, type LeadSourcePrice } from "./collaboration-cost.js";
  *    הדירוג הוא המנגנון היחיד שמייקר הפניית זבל.
  */
 
+/* ============================================================
+   המילון המחייב
+   ============================================================ */
+
+/**
+ * המונחים של מנגנון ההפניות — **מקור אחד לכל טקסט במערכת.**
+ *
+ * התיעוד למעלה הבטיח את `REFERRAL_TERMS` מהיום הראשון, והוא מעולם
+ * לא נבנה: הכלל היה כתוב ולא היה לו מקום להיאכף בו, ולכן כל מסך
+ * ניסח מחדש והשפה נסחפה חזרה למסחר.
+ *
+ * ההבחנה אינה סמנטית. משרד תיווך שמוכר לקוחות ומשרד תיווך שמפנה
+ * לקוח לעמית הם שני דברים שונים — מקצועית ורגולטורית. התמורה כאן
+ * משולמת על **ההפניה**: על כך שמשרד טרח, זיהה שהלקוח אינו מתאים
+ * לו, ומסר אותו למי שכן יכול לשרת אותו. אין עמלה בסגירה, ואין
+ * החזר אם לא נסגר.
+ *
+ * לכן גם `FORBIDDEN_REFERRAL_WORDS` ובדיקה מבנית שסורקת את המסכים:
+ * מילון בלי אכיפה הוא בדיוק ההבטחה שלא קוימה כאן פעם אחת.
+ */
+export const REFERRAL_TERMS = Object.freeze({
+  /** הפעולה עצמה. */
+  referral: "הפניה",
+  referrals: "הפניות",
+  /** התמורה. **לא** "מחיר" ולא "עלות" — אלה מילים של מכירה. */
+  fee: "עמלת הפניה",
+  /** מי מפנה ומי קולט. לא "מוכר" ולא "קונה". */
+  referrer: "המשרד המפנה",
+  receiver: "המשרד הקולט",
+  /** הפעולה של הצד הקולט. לא "רכישה" ולא "קנייה". */
+  accept: "קליטת הפניה",
+  /** מה שהמפנה עושה. */
+  refer: "הפניית לקוח",
+} as const);
+
+/**
+ * מילים שאסור שיופיעו בטקסט שמתאר הפניות.
+ *
+ * הרשימה קצרה בכוונה ומכוונת ל**מסחר בלקוחות** בלבד. "תשלום",
+ * "קרדיטים" ו"תמורה" מותרים — כסף באמת עובר, ולהסתיר את זה היה
+ * גרוע יותר מלנסח אותו נכון.
+ *
+ * ‎"מחיר ליד"‎ נעדר מהרשימה בכוונה: בעברית ‎"ליד"‎ הוא גם מילת יחס,
+ * ו"תווית מחיר ליד הכפתור" הוא משפט תקין לחלוטין. שער שמסמן טקסט
+ * כשר מלמד להתעלם ממנו — וזה הסוף של כל שער. ‎"מחיר הליד"‎ ו‎"עלות
+ * הליד"‎ חד-משמעיים ונשארים.
+ */
+export const FORBIDDEN_REFERRAL_WORDS: readonly string[] = [
+  "מכירת ליד",
+  "מכירת לידים",
+  "קניית ליד",
+  "קניית לידים",
+  "רכישת ליד",
+  "רכישת לידים",
+  "מחיר הליד",
+  "עלות הליד",
+  "לקנות ליד",
+  "מוכר הליד",
+  "קונה הליד",
+  "סחר בלידים",
+  "מסחר בלידים",
+];
+
+/**
+ * המילה האסורה הראשונה בטקסט, או `null` כשהוא נקי.
+ *
+ * מחזיר את המילה ולא רק בוליאני: הבדיקה המבנית מדווחת **מה** נמצא
+ * ואיפה, ודיווח "יש בעיה" בלי לומר מה שולח לחפש בעיניים.
+ */
+export function forbiddenReferralWord(text: string): string | null {
+  return FORBIDDEN_REFERRAL_WORDS.find((word) => text.includes(word)) ?? null;
+}
+
 /** אורך ההערה שהמשרד המפנה מצרף — מוצגת בלוח, לכן קצרה ואנונימית. */
 export const MAX_REFERRAL_NOTE = 300;
 
@@ -242,12 +315,135 @@ export const MAX_REFERRAL_RATING_COMMENT = 300;
 
 /** מה כל ציון אומר — כדי ששני משרדים ידרגו באותה סקאלה. */
 export const REFERRAL_RATING_LABELS: Readonly<Record<number, string>> = {
-  1: "לא היה מה לעבוד איתו",
+  1: "גרוע",
   2: "חלש",
   3: "סביר",
   4: "טוב",
-  5: "לקוח אמיתי, שווה כל קרדיט",
+  5: "מצוין",
 };
+
+/* ------------------------------------------------------------
+   ממדי הדירוג
+   ------------------------------------------------------------ */
+
+/**
+ * הדירוג נשען על כמה ממדים ולא על ציון יחיד.
+ *
+ * ## למה ציון אחד לא הספיק
+ *
+ * "3 מתוך 5" אינו אומר למשרד הקולט **מה** היה חלש, ולא אומר למשרד
+ * המפנה **מה לתקן**. גרוע מכך, הוא מערבב שני דברים שאין ביניהם
+ * קשר: הפניה יכולה להיות מדויקת להפליא ופשוט לא להסתדר, ומשרד
+ * שמדרג נמוך בגלל שהלקוח בחר משרד אחר מעניש את המפנה על משהו
+ * שאינו בשליטתו.
+ *
+ * ## הממדים שנבחרו, ולמה דווקא הם
+ *
+ * כל אחד מהם הוא משהו ש**המפנה שולט בו** ושהקולט יכול לשפוט
+ * מניסיון ישיר. "האם נסגרה עסקה" אינו כאן במכוון — הוא תלוי בשוק,
+ * בלקוח ובקולט עצמו, והתמורה ממילא אינה מותנית בתוצאה.
+ */
+export interface ReferralRatingDimension {
+  key: string;
+  label: string;
+  /** מה נשאל בפועל — מוצג מתחת לתווית בטופס הדירוג. */
+  hint: string;
+}
+
+/** מה שהמשרד **הקולט** מדרג — על ההפניה שקיבל. */
+export const RECEIVER_RATING_DIMENSIONS: readonly ReferralRatingDimension[] = [
+  {
+    key: "accuracy",
+    label: "דיוק הפרטים",
+    hint: "הצורך, התקציב והאזור היו כפי שנמסרו?",
+  },
+  {
+    key: "responsiveness",
+    label: "היענות הלקוח",
+    hint: "הלקוח ידע שהופנה, וענה כשפניתם אליו?",
+  },
+  {
+    key: "relevance",
+    label: "התאמה למשרד",
+    hint: "זה באמת לקוח שאתם יכולים לשרת?",
+  },
+  {
+    key: "availability",
+    label: "זמינות המפנה",
+    hint: "היה זמין לשאלות אחרי ההפניה?",
+  },
+];
+
+/** מה שהמשרד **המפנה** מדרג — על הטיפול בלקוח שמסר. */
+export const REFERRER_RATING_DIMENSIONS: readonly ReferralRatingDimension[] = [
+  {
+    key: "speed",
+    label: "מהירות המענה",
+    hint: "פנו ללקוח תוך זמן סביר?",
+  },
+  {
+    key: "professionalism",
+    label: "מקצועיות",
+    hint: "הלקוח קיבל יחס שאתם שמחים שהפניתם אליו?",
+  },
+  {
+    key: "feedback",
+    label: "עדכון חזרה",
+    hint: "עדכנו אתכם מה קרה עם הלקוח?",
+  },
+];
+
+export function ratingDimensionsFor(
+  role: "referrer" | "receiver",
+): readonly ReferralRatingDimension[] {
+  return role === "receiver" ? RECEIVER_RATING_DIMENSIONS : REFERRER_RATING_DIMENSIONS;
+}
+
+/**
+ * הציון הכולל — ממוצע הממדים שדורגו.
+ *
+ * ממוצע ולא סכום: מספר הממדים שונה בין שני הצדדים, וסכום היה הופך
+ * דירוג של הקולט (ארבעה ממדים) לגבוה מהותית מדירוג של המפנה
+ * (שלושה) בלי שאיש התכוון לכך.
+ *
+ * ממד שלא דורג פשוט אינו נספר — משרד שאינו יודע לשפוט "עדכון
+ * חזרה" אחרי יומיים לא אמור להיות מחויב להמציא ציון.
+ */
+export function overallRatingScore(scores: Readonly<Record<string, number>>): number | null {
+  const values = Object.values(scores).filter(
+    (value) =>
+      Number.isInteger(value) && value >= MIN_REFERRAL_RATING && value <= MAX_REFERRAL_RATING,
+  );
+  if (values.length === 0) return null;
+  const sum = values.reduce((total, value) => total + value, 0);
+  return Math.round((sum / values.length) * 10) / 10;
+}
+
+/**
+ * תקינות דירוג רב-ממדי — הודעה בעברית או `null`.
+ *
+ * ממד שאינו בקטלוג של התפקיד נדחה: דירוג שנשמר תחת מפתח שאיש אינו
+ * קורא הוא ציון שנעלם, והמדרג בטוח שהוא נספר.
+ */
+export function dimensionRatingRejectionReason(
+  role: "referrer" | "receiver",
+  scores: Readonly<Record<string, number>>,
+): string | null {
+  const allowed = new Set(ratingDimensionsFor(role).map((d) => d.key));
+  const entries = Object.entries(scores);
+  if (entries.length === 0) return "יש לדרג לפחות ממד אחד";
+  for (const [key, value] of entries) {
+    if (!allowed.has(key)) return `ממד לא מוכר: ${key}`;
+    if (
+      !Number.isInteger(value) ||
+      value < MIN_REFERRAL_RATING ||
+      value > MAX_REFERRAL_RATING
+    ) {
+      return `דירוג הוא מספר שלם בין ${MIN_REFERRAL_RATING} ל-${MAX_REFERRAL_RATING}`;
+    }
+  }
+  return null;
+}
 
 /** תקינות דירוג — הודעה בעברית או `null`. */
 export function referralRatingRejectionReason(

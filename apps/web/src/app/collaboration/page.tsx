@@ -571,9 +571,10 @@ export default function CollaborationPage() {
      */
     if (
       !window.confirm(
-        `לקלוט את ההפניה תמורת ${price} קרדיטים?\n\n` +
-          "פרטי הקשר ייחשפו מיד. התשלום הוא על ההפניה עצמה — הוא נגבה עכשיו, " +
-          "ואינו מוחזר גם אם לא תיסגר עסקה. אחרי הקליטה תוכלו לדרג את ההפניה.",
+        `לקלוט את ההפניה תמורת עמלת הפניה של ${price} קרדיטים?\n\n` +
+          "פרטי הקשר ייחשפו מיד. העמלה היא על ההפניה עצמה — היא נגבית עכשיו, " +
+          "אינה מוחזרת גם אם לא תיסגר עסקה, ואין עמלה נוספת בסגירה. " +
+          "אחרי הקליטה תוכלו לדרג את ההפניה.",
       )
     ) {
       return;
@@ -1124,7 +1125,7 @@ export default function CollaborationPage() {
                         {lead.city ? ` · ${lead.city}` : ""}
                       </h4>
                       <span className="mv-net-chip mv-net-chip--money">
-                        <IconCoins s={14} /> שילמתם {lead.priceCredits} קרדיטים
+                        <IconCoins s={14} /> עמלת הפניה: {lead.priceCredits} קרדיטים
                       </span>
                     </div>
                     <p
@@ -1169,7 +1170,7 @@ export default function CollaborationPage() {
                     {LEAD_SOURCE_LABELS[lead.source] ?? lead.source}
                   </span>
                   <span className="mv-net-chip mv-net-chip--money">
-                    <IconCoins s={14} /> {lead.priceCredits} קרדיטים
+                    <IconCoins s={14} /> עמלת הפניה: {lead.priceCredits} קרדיטים
                   </span>
                   {/*
                     המוניטין של המשרד המפנה, ליד המחיר ולא בעמוד אחר:
@@ -1209,7 +1210,7 @@ export default function CollaborationPage() {
                 >
                   {buyingLead === lead.id
                     ? "קולט…"
-                    : `קלוט את ההפניה (${lead.priceCredits} קרדיטים)`}
+                    : `קלוט את ההפניה (עמלה ${lead.priceCredits} קרדיטים)`}
                 </Button>
               </li>
             ))}

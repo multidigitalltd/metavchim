@@ -12,6 +12,11 @@ import {
   referralReasonLabel,
   referralReasonRejectionReason,
   suggestedReferralPrice,
+  REFERRAL_TERMS,
+  forbiddenReferralWord,
+  ratingDimensionsFor,
+  overallRatingScore,
+  dimensionRatingRejectionReason,
 } from "./lead-referral.js";
 import { DEFAULT_LEAD_SOURCES } from "./collaboration-cost.js";
 
@@ -186,5 +191,69 @@ describe("אחוז עמלת הפלטפורמה מהגדרות", () => {
     const payout = referralPayout(10, resolveReferralFeePercent(0));
     expect(payout.platformFeeCredits).toBe(0);
     expect(payout.payoutCredits).toBe(10);
+  });
+});
+
+describe("שפת ההפניות", () => {
+  /*
+   * `REFERRAL_TERMS` הובטח בתיעוד מהיום הראשון ומעולם לא נבנה. הכלל
+   * היה כתוב, לא היה לו מקום להיאכף בו, והשפה נסחפה חזרה למסחר.
+   */
+  it("המילון מגדיר עמלה ולא מחיר", () => {
+    expect(REFERRAL_TERMS.fee).toBe("עמלת הפניה");
+    expect(REFERRAL_TERMS.referrer).toBe("המשרד המפנה");
+    expect(REFERRAL_TERMS.receiver).toBe("המשרד הקולט");
+  });
+
+  it("מזהה ניסוח של מסחר בלקוחות ומדווח מה נמצא", () => {
+    expect(forbiddenReferralWord("כאן מתבצעת מכירת ליד")).toBe("מכירת ליד");
+    expect(forbiddenReferralWord("סחר בלידים בין משרדים")).toBe("סחר בלידים");
+  });
+
+  it("ניסוח תקין עובר — כסף אינו המילה האסורה", () => {
+    expect(forbiddenReferralWord("קליטת הפניה תמורת עמלת הפניה של 5 קרדיטים")).toBeNull();
+    expect(forbiddenReferralWord("התשלום על ההפניה נגבה ברגע הקליטה")).toBeNull();
+  });
+
+  /*
+   * בעברית "ליד" הוא גם מילת יחס. שער שמסמן "תווית מחיר ליד הכפתור"
+   * מלמד להתעלם ממנו — וזה הסוף של כל שער.
+   */
+  it("„ליד” כמילת יחס אינו נחשב הפרה", () => {
+    expect(forbiddenReferralWord("תווית מחיר ליד הכפתור")).toBeNull();
+  });
+});
+
+describe("דירוג רב-ממדי", () => {
+  /*
+   * ציון יחיד אינו אומר לקולט מה היה חלש ולא אומר למפנה מה לתקן,
+   * והוא מערבב דברים שאין ביניהם קשר.
+   */
+  it("לכל צד ממדים משלו", () => {
+    expect(ratingDimensionsFor("receiver").map((d) => d.key)).toContain("accuracy");
+    expect(ratingDimensionsFor("referrer").map((d) => d.key)).toContain("speed");
+  });
+
+  it("הציון הכולל הוא ממוצע הממדים שדורגו", () => {
+    expect(overallRatingScore({ accuracy: 5, responsiveness: 4 })).toBe(4.5);
+  });
+
+  /*
+   * ממוצע ולא סכום: מספר הממדים שונה בין הצדדים, וסכום היה הופך
+   * דירוג של הקולט לגבוה מהותית בלי שאיש התכוון.
+   */
+  it("ממד שלא דורג אינו נספר", () => {
+    expect(overallRatingScore({ accuracy: 5 })).toBe(5);
+    expect(overallRatingScore({})).toBeNull();
+  });
+
+  it("ממד שאינו בקטלוג של התפקיד נדחה", () => {
+    expect(dimensionRatingRejectionReason("receiver", { speed: 5 })).toContain("לא מוכר");
+    expect(dimensionRatingRejectionReason("receiver", { accuracy: 5 })).toBeNull();
+  });
+
+  it("ציון מחוץ לטווח נדחה", () => {
+    expect(dimensionRatingRejectionReason("receiver", { accuracy: 9 })).toContain("בין");
+    expect(dimensionRatingRejectionReason("receiver", {})).toContain("לפחות ממד אחד");
   });
 });
