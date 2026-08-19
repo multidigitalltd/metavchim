@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { API_BASE, ApiError, apiDelete, apiGet, apiPost } from "@/lib/api";
@@ -76,12 +76,37 @@ export default function CallsPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /*
+   * השיחה שהכתובת מבקשת — `?call=<id>`.
+   *
+   * ההתראה על סיום תמלול מצביעה על שיחה מסוימת, ובלי הפרמטר הזה
+   * היא הייתה נוחתת על הרשימה עם השיחה האחרונה מסומנת: הודעה
+   * שמובילה למקום הנכון בערך, וזה גרוע מלא להוביל.
+   *
+   * נקרא פעם אחת בטעינה ולא בכל רינדור: מרגע שהמשתמש בחר שיחה
+   * אחרת, הכתובת אינה אמורה למשוך אותו בחזרה.
+   */
+  const requestedIdRef = useRef<string | null>(
+    typeof window === "undefined"
+      ? null
+      : new URLSearchParams(window.location.search).get("call"),
+  );
+
   function load(current = outcome): void {
     const query = current ? `?outcome=${current}` : "";
     apiGet<CallRow[]>(`/calls${query}`)
       .then((rows) => {
         setItems(rows);
-        setSelected((prev) => rows.find((r) => r.id === prev?.id) ?? rows[0] ?? null);
+        setSelected((prev) => {
+          const requested = requestedIdRef.current;
+          if (requested !== null) {
+            const match = rows.find((r) => r.id === requested);
+            // נצרך פעם אחת; אחרי זה הבחירה של המשתמש היא הקובעת
+            requestedIdRef.current = null;
+            if (match) return match;
+          }
+          return rows.find((r) => r.id === prev?.id) ?? rows[0] ?? null;
+        });
       })
       .catch(() => setError("טעינת השיחות נכשלה"));
   }

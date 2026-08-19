@@ -25,6 +25,13 @@ export function notificationHref(entityType?: string, entityId?: string): string
       return "/collaboration?tab=incoming";
     case "shared_lead":
       return "/collaboration"; // "נקלטה" מוצג בלשונית ההפניות
+    /*
+     * שיחה נבחרת בתוך הרשימה ואין לה נתיב משלה, ולכן פרמטר ולא
+     * קטע נתיב. בלי זה ההתראה על סיום תמלול הייתה נוחתת על רשימת
+     * השיחות בלי לבחור את השיחה שהיא מדברת עליה.
+     */
+    case "call":
+      return `/calls?call=${entityId}`;
     default:
       return null;
   }
