@@ -3135,3 +3135,122 @@ a.mv-bar-row:focus-visible {
   margin-top: 10px;
   object-fit: contain;
 }
+
+/* ============================================================
+   שורת הסינון — אזור שליטה, לא המשך הכותרת
+   ------------------------------------------------------------
+   הפקדים ריחפו על הרקע בלי גבול, ולכן הם נקראו כחלק מהכותרת
+   שמעליהם, והמונה — שהוא התוצאה שלהם — נבלע ביניהם.
+   ============================================================ */
+.mv-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+}
+/* סינון פעיל — מסגרת ירוקה, כדי שרשימה מקוצצת לא תיראה כמו רשימה ריקה */
+.mv-filter-bar[data-active="on"] {
+  border-color: var(--color-primary-accent);
+  background: var(--color-hover-soft);
+}
+.mv-filter-bar-end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+.mv-filter-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 99px;
+  background: var(--color-surface);
+  color: var(--color-text-soft);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mv-filter-clear:hover {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+.mv-filter-clear:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* שדה חיפוש עם זכוכית מגדלת בתוכו */
+.mv-search-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 200px;
+  min-width: 190px;
+  max-width: 320px;
+  padding: 0 12px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 10px;
+  background: var(--color-field);
+}
+.mv-search-field > svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+.mv-search-field:focus-within {
+  border-color: var(--color-primary-accent);
+}
+.mv-search-field > input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 14px;
+  padding: 9px 0;
+  outline: none;
+}
+
+/* ============================================================
+   משימות — שורה שאפשר לסרוק, לא שורת טופס
+   ============================================================ */
+.mv-task-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.mv-task-row:hover {
+  border-color: var(--color-border-hover);
+  box-shadow: 0 4px 14px rgb(12 110 52 / 7%);
+}
+/*
+ * משימה שבוצעה נשארת קריאה ורק נסוגה: הסתרה מלאה מוחקת את ההקשר
+ * („מה כבר עשיתי היום”), וקו חוצה בלבד משאיר אותה באותה בליטה כמו
+ * מה שעוד פתוח.
+ */
+.mv-task-row[data-done="on"] {
+  background: var(--color-hover-soft);
+  border-style: dashed;
+}
+.mv-bucket-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}

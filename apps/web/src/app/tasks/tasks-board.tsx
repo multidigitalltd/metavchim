@@ -175,14 +175,26 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
   const done = (tasks ?? []).filter((t) => t.status === "done");
   const groups = groupTasksByBucket(open, new Date());
 
-  function row(task: Task): React.JSX.Element {
+  /**
+   * שורת משימה.
+   *
+   * `bucket` נכנס פנימה כדי לצבוע את הפס בהתחלה: דחיפות שנקראת רק
+   * מהכותרת שמעל מחייבת לגלול חזרה כדי לדעת מה זה, ופס צבע בקצה
+   * השורה עונה על זה במבט.
+   */
+  function row(task: Task, bucket?: TaskBucket): React.JSX.Element {
     const href =
       task.entityType && task.entityId ? taskEntityHref(task.entityType, task.entityId) : null;
     return (
       <li
         key={task.id}
-        className="flex flex-wrap items-start justify-between gap-2 rounded-xl border p-3"
-        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+        className="mv-task-row"
+        data-done={task.status === "done" ? "on" : undefined}
+        style={
+          bucket === "overdue" || bucket === "today"
+            ? { borderInlineStartColor: BUCKET_COLOR[bucket], borderInlineStartWidth: 3 }
+            : undefined
+        }
       >
         <div className="flex flex-1 items-start gap-3" style={{ minWidth: "240px" }}>
           <input
@@ -472,13 +484,22 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
             <section key={group.bucket} className="mb-5" aria-labelledby={`b-${group.bucket}`}>
               <h2
                 id={`b-${group.bucket}`}
-                className="mb-2 flex items-center gap-2 text-sm font-bold"
-                style={{ color: BUCKET_COLOR[group.bucket] }}
+                className="mb-2 flex items-center gap-2"
+                style={{ fontSize: 16, fontWeight: 800, color: BUCKET_COLOR[group.bucket] }}
               >
+                {/* נקודת צבע ולא כותרת צבועה בלבד — היא מה שמאתר את
+                    הקבוצה הנכונה בגלילה, לפני שקוראים את המילים */}
+                <span
+                  aria-hidden="true"
+                  className="mv-bucket-dot"
+                  style={{ background: BUCKET_COLOR[group.bucket] }}
+                />
                 {group.label}
                 <span className="mv-chip">{group.tasks.length}</span>
               </h2>
-              <ul className="flex flex-col gap-2">{group.tasks.map(row)}</ul>
+              <ul className="flex flex-col gap-2">
+                {group.tasks.map((task) => row(task, group.bucket))}
+              </ul>
             </section>
           ))
       )}
@@ -493,7 +514,7 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
           >
             {showDone ? "הסתר" : "הצג"} {done.length} משימות שבוצעו
           </button>
-          {showDone ? <ul className="mt-2 flex flex-col gap-2">{done.map(row)}</ul> : null}
+          {showDone ? <ul className="mt-2 flex flex-col gap-2">{done.map((task) => row(task))}</ul> : null}
         </div>
       ) : null}
     </div>
