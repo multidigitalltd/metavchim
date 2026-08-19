@@ -305,7 +305,14 @@ export default function LeadsPage() {
             style={{ borderColor: "#cfd6ce", background: "var(--color-surface)" }}
           >
             <span className="text-[13.5px]" style={{ color: "var(--color-text-muted)" }}>
-              יש לכם אתר משרד? הדביקו את קוד הטופס — וכל פנייה תיכנס לכאן כליד.
+              {/*
+                "אתר משרד" צמצם את ההצעה למי שיש לו אתר — כלומר למיעוט
+                מהמשרדים. רובם משווקים בדף פייסבוק, באינסטגרם או
+                בקמפיין ממומן, וכולם יכולים להטמיע את הטופס. הניסוח
+                קובע מי בכלל קורא את המשפט הזה.
+              */}
+              יש לכם פרסום דיגיטלי (אתר, דף פייסבוק וכדו&apos;)? קבלו קוד הטמעה וכל פנייה
+              תיכנס כליד.
             </span>
             <Link href="/settings" className="mv-btn-plain ms-auto" style={{ color: "var(--color-primary)" }}>
               העתק קוד הטמעה
