@@ -1,6 +1,7 @@
 "use client";
 
-import { IconClock, IconPin } from "../icons";
+import type { NetworkChip } from "@metavchim/shared";
+import { IconClock, IconDoor, IconPin, IconRuler, IconStairs } from "../icons";
 
 /**
  * חלקי כרטיס הרשת — **שפה חזותית אחת לביקוש ולנכס.**
@@ -19,6 +20,63 @@ import { IconClock, IconPin } from "../icons";
  * הם החלקים האלה — כדי ששני סוגי הכרטיסים לא ייפרדו ביום שמישהו
  * יערוך אחד מהם.
  */
+
+/**
+ * פירוק רשימת התגיות לאזורי הכרטיס.
+ *
+ * **מקור נתונים אחד, לא שניים.** הפיתוי היה לקרוא את השדות ישירות
+ * מה-DTO ולבנות את הכותרת, המיקום והכסף מהם — אבל אז היו שני
+ * מסלולים שמחליטים מה מוצג, ו-`network-card.ts` הוא בדיוק המקום
+ * שנבנה כדי שיהיה אחד. פרט שאינו נכנס לרשימה שם עדיין אינו מגיע
+ * למסך, וזה מה שמגן על החיסיון.
+ *
+ * מה שאינו מזוהה כאן נשאר תגית. זה מכוון: אייקון חדש שיתווסף
+ * ב-shared יופיע ככיתוב ולא ייעלם.
+ */
+export interface SplitChips {
+  /** תקציב או מחיר — התיבה הצבועה. */
+  money?: NetworkChip;
+  /** ערים ושכונות, מחוברות. */
+  place: string;
+  /** סוג עסקה וסוג נכס — לתת-הכותרת. */
+  subtitle: string;
+  /** חדרים, שטח וקומה — האריחים. */
+  facts: NetFact[];
+  /** כל השאר. */
+  rest: NetworkChip[];
+}
+
+const FACT_ICONS: Partial<Record<NetworkChip["icon"], { node: React.ReactNode; label: string }>> = {
+  door: { node: <IconDoor s={18} />, label: "חדרים" },
+  ruler: { node: <IconRuler s={18} />, label: 'שטח במ"ר' },
+  stairs: { node: <IconStairs s={18} />, label: "קומה" },
+};
+
+export function splitNetworkChips(chips: readonly NetworkChip[]): SplitChips {
+  const place: string[] = [];
+  const subtitle: string[] = [];
+  const facts: NetFact[] = [];
+  const rest: NetworkChip[] = [];
+  let money: NetworkChip | undefined;
+
+  for (const chip of chips) {
+    const fact = FACT_ICONS[chip.icon];
+    if (chip.icon === "coins") money ??= chip;
+    else if (chip.icon === "map" || chip.icon === "pin") place.push(chip.text);
+    else if (chip.icon === "tag" || chip.icon === "key" || chip.icon === "home")
+      subtitle.push(chip.text);
+    else if (fact !== undefined) facts.push({ icon: fact.node, value: chip.text, label: fact.label });
+    else rest.push(chip);
+  }
+
+  return {
+    money,
+    place: place.join(" · "),
+    subtitle: subtitle.join(" · "),
+    facts,
+    rest,
+  };
+}
 
 /** שורת הגיבור: מי/מה, ותת-כותרת שאומרת איזו עסקה. */
 export function NetHero({
