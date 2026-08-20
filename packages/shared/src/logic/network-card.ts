@@ -168,6 +168,12 @@ export interface NetworkDemandFields {
   maturity?: string | undefined;
   mustFeatures: string[];
   niceFeatures?: string[] | undefined;
+  /**
+   * אזורי המפה שהקונה סימן — רדיוס ותווית בלבד. הקואורדינטות אינן
+   * נכנסות לצ'יפים: "אבן גבירול, בני ברק · רדיוס 1 ק"מ" אומר לצד
+   * השני כל מה שהוא צריך כדי להחליט אם יש לו נכס שם.
+   */
+  searchAreas?: { radiusKm: number; label?: string }[] | undefined;
 }
 
 /**
@@ -207,6 +213,21 @@ export function demandChips(demand: NetworkDemandFields): NetworkChip[] {
   const neighborhoods = demand.neighborhoods ?? [];
   if (neighborhoods.length > 0) {
     chips.push({ icon: "pin", text: neighborhoods.join(" · ") });
+  }
+  /*
+   * האזור שסומן על המפה — על הכרטיס עצמו ולא רק בפופאפ (בקשת
+   * המשתמש): מתווך שסורק את הפיד מחליט לפי "איפה בדיוק", והאזור
+   * המסומן מדויק יותר מרשימת הערים.
+   */
+  for (const area of demand.searchAreas ?? []) {
+    chips.push({
+      icon: "pin",
+      text:
+        area.label !== undefined && area.label !== ""
+          ? `${area.label} — רדיוס ${describeDistance(area.radiusKm)}`
+          : `אזור מסומן במפה — רדיוס ${describeDistance(area.radiusKm)}`,
+      title: "אזור החיפוש שהקונה סימן על המפה",
+    });
   }
 
   /*
@@ -307,11 +328,7 @@ export interface NetworkDetailRow {
  * כשהוא ריק.
  */
 export function demandDetailRows(
-  demand: NetworkDemandFields & {
-    cities: string[];
-    /** אזורי המפה שהקונה סימן — רדיוס ותווית, בלי קואורדינטות. */
-    searchAreas?: { radiusKm: number; label?: string }[] | undefined;
-  },
+  demand: NetworkDemandFields & { cities: string[] },
 ): NetworkDetailRow[] {
   const joined = (values: readonly string[] | undefined): string | undefined =>
     values !== undefined && values.length > 0 ? values.join(" · ") : undefined;

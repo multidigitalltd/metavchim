@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { compareLeadsByUrgency, leadWaiting, type LeadWaitingLevel } from "@metavchim/shared";
 import { apiGet } from "@/lib/api";
@@ -10,7 +9,7 @@ import { waMeUrl } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
-import { IconChat, IconGlobe, IconLink, IconMic, IconPhone, IconUser } from "../icons";
+import { IconChat, IconGlobe, IconLink, IconMic, IconPhone } from "../icons";
 import { CapNote, FilterBar, FilterSelect, SearchField, textMatches,
   useFilterFromUrl,
 } from "../list-controls";
@@ -53,7 +52,6 @@ const GRID = "1.4fr 1fr 1.6fr 1fr 0.9fr 1.3fr";
 export default function LeadsPage() {
   const { loading: authLoading } = useRequireAuth();
   const canVoice = useFeature("voice_intake");
-  const router = useRouter();
   const [items, setItems] = useState<LeadRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -92,14 +90,6 @@ export default function LeadsPage() {
       ),
     [items, query, status, intent, urgency, now],
   );
-
-  /*
-   * "המר לקונה" מהשורה מוביל לטופס ההמרה בכרטיס הליד: ההמרה דורשת
-   * דרישות חיפוש (תקציב, ערים) שאין ברשימה — פעולה עיוורת הייתה נכשלת.
-   */
-  function convert(lead: LeadRow): void {
-    router.push(`/leads/${lead.id}#convert`);
-  }
 
   return (
     <>
@@ -264,9 +254,6 @@ export default function LeadsPage() {
                         <a href={waMeUrl(lead.contact.phone)} target="_blank" rel="noopener noreferrer" className="mv-btn-plain">
                           <IconChat s={15} /> וואטסאפ
                         </a>
-                        <button type="button" className="mv-btn-plain" onClick={() => convert(lead)}>
-                          <IconUser s={15} /> המר לקונה
-                        </button>
                       </div>
                     </li>
                   );
@@ -326,9 +313,6 @@ export default function LeadsPage() {
                         <a href={waMeUrl(lead.contact.phone)} target="_blank" rel="noopener noreferrer" className="mv-btn-plain">
                           <IconChat s={15} /> וואטסאפ
                         </a>
-                        <button type="button" className="mv-btn-plain" onClick={() => convert(lead)}>
-                          <IconUser s={15} /> המר לקונה
-                        </button>
                       </span>
                     </div>
                   );

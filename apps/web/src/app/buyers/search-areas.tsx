@@ -86,15 +86,6 @@ export function SearchAreas({
 
   return (
     <div>
-      <p
-        className="m-0 mb-2 text-[14px]"
-        style={{ color: "var(--color-text-muted)" }}
-      >
-        סימון על המפה גובר על רשימת הערים: נכס בתוך הרדיוס יתאים גם אם הוא בעיר
-        שכנה, ונכס מחוץ לו יקבל ניקוד נמוך יותר במקום להיעלם. בלי סימון — ההתאמה
-        עובדת לפי הערים, כרגיל.
-      </p>
-
       {value.length > 0 ? (
         <ul className="m-0 mb-2 list-none p-0">
           {value.map((area, i) => (

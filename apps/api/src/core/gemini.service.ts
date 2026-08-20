@@ -22,8 +22,12 @@ import { PlatformSettingsService } from "./platform-settings.service";
  * עובדים”. עד עכשיו הוא היה מוקלד בשני המקומות, וזה בדיוק הדפוס
  * שגרם לעמלת ההפניה להיות מוצגת 15% ונגבית 10%: הגדרה אחת עם שתי
  * ברירות מחדל היא מסך שמשקר בשקט ברגע שאחת מהן מתעדכנת.
+ *
+ * עודכן מ-gemini-2.5-flash אחרי ש-Google הוציאה אותו משימוש
+ * (HTTP 404: "no longer available to new users… use
+ * models/gemini-3.6-flash") — האבחון מכפתור „בדיקת מנוע ההבנה”.
  */
-export const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+export const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
 
 @Injectable()
 export class GeminiService {
@@ -150,6 +154,16 @@ export class GeminiService {
    * "Invalid JSON payload" — וזה ההבדל בין אבחון של עשר שניות לבין
    * "זה פשוט לא עובד" (דיווח המשתמש: זיהוי בסיסי בכל פקודה).
    */
+  /**
+   * מודל שהוגדר ו-404, והמודל שעבד במקומו — כדי שהוצאת מודל משימוש
+   * בידי Google לא תשבית את המנוע עד שמישהו יעדכן הגדרה: הקריאה
+   * הבאה מנסה את ברירת המחדל העדכנית אוטומטית, ומהצלחה ראשונה
+   * ממשיכה איתה בלי לשלם את ה-404 בכל פקודה. שינוי המודל בהגדרות
+   * מאפס את המעקף — הידני תמיד גובר.
+   */
+  private modelFallbackFor: string | null = null;
+  private modelOverride: string | null = null;
+
   private async callDetailed(
     prompt: string,
     options: {
@@ -160,7 +174,46 @@ export class GeminiService {
   ): Promise<{ value: unknown | null; error?: string }> {
     const key = await this.apiKey();
     if (key === "") return { value: null, error: "לא מוגדר מפתח Gemini" };
-    const model = await this.activeModel();
+    const configured = await this.activeModel();
+    const model =
+      this.modelFallbackFor === configured && this.modelOverride !== null
+        ? this.modelOverride
+        : configured;
+    const first = await this.attempt(model, key, prompt, options);
+    /*
+     * המודל אינו קיים (404) וברירת המחדל שונה ממנו — ניסיון אחד
+     * נוסף איתה. זה בדיוק התרחיש שהשבית את הסוכן: מודל שהוגדר
+     * בעבר הוצא משימוש, וכל פקודה נפלה לזיהוי הבסיסי עד שמישהו
+     * נכנס להגדרות.
+     */
+    if (
+      first.modelNotFound === true &&
+      model !== DEFAULT_GEMINI_MODEL
+    ) {
+      const retry = await this.attempt(DEFAULT_GEMINI_MODEL, key, prompt, options);
+      if (retry.value !== null) {
+        this.modelFallbackFor = configured;
+        this.modelOverride = DEFAULT_GEMINI_MODEL;
+        this.logger.warn(
+          `המודל ${model} אינו זמין — עוברים אוטומטית ל-${DEFAULT_GEMINI_MODEL}. כדאי לעדכן את ההגדרה במסך הפלטפורמה.`,
+        );
+      }
+      return { value: retry.value, ...(retry.error === undefined ? {} : { error: retry.error }) };
+    }
+    return { value: first.value, ...(first.error === undefined ? {} : { error: first.error }) };
+  }
+
+  /** קריאה אחת למודל אחד — הכשל חוזר עם סימון האם המודל אינו קיים. */
+  private async attempt(
+    model: string,
+    key: string,
+    prompt: string,
+    options: {
+      responseSchema?: Record<string, unknown>;
+      maxOutputTokens?: number;
+      timeoutMs?: number;
+    },
+  ): Promise<{ value: unknown | null; error?: string; modelNotFound?: boolean }> {
     try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
@@ -184,7 +237,12 @@ export class GeminiService {
       );
       if (!res.ok) {
         const detail = `HTTP ${res.status} (מודל ${model}): ${await googleErrorMessage(res)}`;
-        return { value: null, error: this.recordFailure(detail) };
+        return {
+          value: null,
+          error: this.recordFailure(detail),
+          // 404 על נתיב המודל = המודל אינו קיים/הוצא משימוש
+          modelNotFound: res.status === 404,
+        };
       }
       const body = (await res.json()) as {
         candidates?: {
