@@ -9,6 +9,7 @@ import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
   BuyerRequirementsSchema,
+  DEFAULT_COMMISSION_SPLIT,
   commissionSplitRejectionReason,
   scoreMatch,
   summarizeReach,
@@ -278,6 +279,43 @@ export class ListingsService {
     });
 
     return this.getListing(id);
+  }
+
+  /**
+   * פרסום מרוכז — בחרו כמה נכסים ברשימה ולחצו פעם אחת.
+   *
+   * התאום של `CollaborationService.shareBuyersBulk`, ובאותם כללים:
+   * כל נכס עובר את מסלול הפרסום הבודד במלואו (סטטוס, כפילות, מכסה),
+   * חלוקת העמלה היא ברירת המחדל, והתיאור נשאב מתיאור השיווק של
+   * הנכס. כשל אחד אינו עוצר את השאר.
+   */
+  async publishBulk(
+    propertyIds: string[],
+  ): Promise<{ id: string; ok: boolean; error?: string }[]> {
+    const tenantId = TenantContext.current().tenantId;
+    const results: { id: string; ok: boolean; error?: string }[] = [];
+    for (const propertyId of propertyIds) {
+      try {
+        const property = await this.prisma.withTenant((tx) =>
+          tx.property.findFirst({
+            where: { id: propertyId, tenantId, deletedAt: null },
+            select: { marketingDescription: true },
+          }),
+        );
+        if (!property) throw new NotFoundException("נכס לא נמצא");
+        const note =
+          property.marketingDescription?.trim().slice(0, 300) || undefined;
+        await this.publish(propertyId, DEFAULT_COMMISSION_SPLIT, note);
+        results.push({ id: propertyId, ok: true });
+      } catch (error) {
+        results.push({
+          id: propertyId,
+          ok: false,
+          error: error instanceof Error ? error.message : "הפרסום נכשל",
+        });
+      }
+    }
+    return results;
   }
 
   /**

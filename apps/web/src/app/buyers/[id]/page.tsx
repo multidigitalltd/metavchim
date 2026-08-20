@@ -913,7 +913,11 @@ export default function BuyerDetailPage({
       </TabPanel>
 
       <TabPanel tab="network" active={tab}>
-        <NetworkShareSection kind="buyer" entityId={id} />
+        <NetworkShareSection
+          kind="buyer"
+          entityId={id}
+          {...(buyer.agentNotes ? { defaultNote: buyer.agentNotes } : {})}
+        />
       </TabPanel>
     </>
   );

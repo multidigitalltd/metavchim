@@ -1,15 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { NetworkChip } from "@metavchim/shared";
 import {
   IconClock,
   IconDoor,
   IconCamera,
+  IconEye,
   IconPin,
   IconRuler,
   IconStairs,
   IconUsers,
+  IconX,
 } from "../icons";
 
 /**
@@ -233,6 +235,143 @@ export function relativeTime(iso: string): string {
   if (days < 30) return `פורסם לפני ${weeks} שבועות`;
   const months = Math.floor(days / 30);
   return months === 1 ? "פורסם לפני חודש" : `פורסם לפני ${months} חודשים`;
+}
+
+/**
+ * "כל הפרטים" — פופאפ עם המידע המלא של המודעה.
+ *
+ * הכרטיס בלוח הוא **תקציר**: מי שסורק עשרים מודעות צריך מה/איפה/כמה
+ * ולא עשרים שורות פירוט. כל השאר — כל התגיות, ההערות המלאות,
+ * התמונות — מחכה כאן, בלחיצה אחת, במסך אחד נקי (בקשת המשתמש:
+ * "תקציר בחוץ ומידע מלא בלחיצה… שהכל יהיה הכי מובן ונח לשימוש").
+ *
+ * `<dialog>` נייטיב: Escape סוגר, הפוקוס נלכד, והרקע מוחשך — בלי
+ * ספרייה ובלי ניהול פוקוס ידני.
+ */
+export function NetDetailsButton({
+  title,
+  subtitle,
+  place,
+  money,
+  moneyLabel,
+  facts,
+  chips,
+  notes,
+  notesLabel,
+  photos,
+  id,
+  publishedAt,
+  officeName,
+}: {
+  title: string;
+  subtitle?: string;
+  place: string;
+  money?: string;
+  moneyLabel: string;
+  facts: NetFact[];
+  chips: NetworkChip[];
+  notes?: string;
+  notesLabel: string;
+  photos?: string[];
+  id: string;
+  publishedAt?: string;
+  officeName?: string;
+}): React.JSX.Element {
+  const ref = useRef<HTMLDialogElement>(null);
+  return (
+    <>
+      <button
+        type="button"
+        className="mv-net-details-btn"
+        onClick={() => ref.current?.showModal()}
+      >
+        <IconEye s={15} /> כל הפרטים
+      </button>
+      <dialog
+        ref={ref}
+        className="mv-net-dialog"
+        aria-label={`כל הפרטים: ${title}`}
+        onClick={(e) => {
+          // לחיצה על הרקע המוחשך סוגרת — הדיאלוג עצמו הוא התוכן
+          if (e.target === ref.current) ref.current?.close();
+        }}
+      >
+        <div className="mv-net-dialog-body">
+          <div className="mv-net-dialog-head">
+            <div className="min-w-0">
+              <h3 className="m-0 text-[18px] font-extrabold">{title}</h3>
+              {subtitle ? (
+                <p className="m-0 mt-0.5 text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
+                  {subtitle}
+                </p>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className="mv-net-dialog-close"
+              onClick={() => ref.current?.close()}
+              aria-label="סגירה"
+            >
+              <IconX s={16} />
+            </button>
+          </div>
+          {photos !== undefined && photos.length > 0 ? (
+            <NetPhotos photos={photos} alt={title} />
+          ) : null}
+          <NetPlace text={place} />
+          {money === undefined ? null : <NetMoney label={moneyLabel} value={money} />}
+          <NetFacts facts={facts} />
+          {chips.length > 0 ? (
+            <div className="mv-net-chips mt-2">
+              {chips.map((chip) => (
+                <span key={chip.text} className="mv-net-chip">
+                  {chip.text}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          <NetSay label={notesLabel} text={notes} />
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <NetMeta id={id} {...(publishedAt === undefined ? {} : { publishedAt })} />
+            {officeName ? (
+              <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                פורסם על ידי {officeName}
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </dialog>
+    </>
+  );
+}
+
+/**
+ * ההודעה כשאין התאמה מהצד שלנו — **בולטת, לא שורת לוואי.**
+ *
+ * הנוסח הקודם היה טקסט אפור קטן שנבלע בכרטיס; המשתמש ביקש שההודעה
+ * תהיה "ברורה ומובנת ויותר מודגשת". תיבה עם אייקון, כותרת מודגשת
+ * והמשך פעולה — מה בכל זאת אפשר לעשות.
+ */
+export function NetNoMatch({
+  what,
+  hint,
+}: {
+  what: string;
+  hint: string;
+}): React.JSX.Element {
+  return (
+    <div className="mv-net-nomatch" role="note">
+      <span className="mv-net-nomatch-icon" aria-hidden="true">
+        <IconUsers s={17} />
+      </span>
+      <span className="min-w-0">
+        <b className="block text-[14.5px]">{what}</b>
+        <span className="text-[14px]" style={{ color: "var(--color-text-soft)" }}>
+          {hint}
+        </span>
+      </span>
+    </div>
+  );
 }
 
 /** מודעה שפורסמה בשבוע האחרון — הסימן היחיד שמצדיק צבע מלא בכרטיס. */

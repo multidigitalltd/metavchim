@@ -101,6 +101,13 @@ const TenantSettingsSchema = z
     defaultPaymentTerms: z
       .union([z.string().max(120), z.literal("")])
       .optional(),
+    /*
+     * מדיניות הרשת של המשרד: כל נכס/קונה חדש מתפרסם לרשת השיתופים
+     * אוטומטית. ההחלטה של מי שמחזיק settings.manage — הסוכן שקולט
+     * את הנכס מבצע מדיניות משרד, לא בחירה אישית.
+     */
+    autoShareProperties: z.boolean().optional(),
+    autoShareBuyers: z.boolean().optional(),
   })
   .strict();
 
@@ -455,6 +462,8 @@ export class SettingsController {
     officePhone?: string;
     defaultCommission?: string;
     defaultPaymentTerms?: string;
+    autoShareProperties: boolean;
+    autoShareBuyers: boolean;
   }> {
     const tenantId = TenantContext.current().tenantId;
     const tenant = await this.prisma.tenant.findUnique({
@@ -489,6 +498,9 @@ export class SettingsController {
         typeof settings["defaultPaymentTerms"] === "string"
           ? settings["defaultPaymentTerms"]
           : undefined,
+      // חסר = כבוי: מדיניות שמפרסמת נתונים החוצה חייבת הפעלה מפורשת
+      autoShareProperties: settings["autoShareProperties"] === true,
+      autoShareBuyers: settings["autoShareBuyers"] === true,
     };
   }
 
@@ -751,6 +763,20 @@ export class SettingsController {
       settingsTouched = true;
       if (value === "") delete settings[field];
       else settings[field] = value;
+    }
+
+    /*
+     * הדגלים הבוליאניים: false מוחק את המפתח ולא שומר false —
+     * מאותה סיבה ש-"" מוחק למעלה. חסר = ברירת המחדל (כבוי), ואין
+     * טעם לשמור במסד הצהרה על ברירת המחדל.
+     */
+    const BOOLEAN_FIELDS = ["autoShareProperties", "autoShareBuyers"] as const;
+    for (const field of BOOLEAN_FIELDS) {
+      const value = body[field];
+      if (value === undefined) continue;
+      settingsTouched = true;
+      if (value === false) delete settings[field];
+      else settings[field] = true;
     }
 
     try {

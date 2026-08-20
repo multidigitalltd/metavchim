@@ -77,6 +77,8 @@ const COPY = {
  * לסוכן נסיעה מיותרת, והאכיפה נשארת בשרת בכל מקרה.
  */
 const MIN_NOTE = 10;
+/** אורך התיאור המרבי — זהה לשרת, מאותו נימוק בדיוק כמו המינימום. */
+const MAX_NOTE = 300;
 
 /** שלב בזרימה. `loading` קיים כי מצב השיתוף נקרא מהשרת. */
 type Stage = "loading" | "invite" | "form" | "sent";
@@ -99,10 +101,19 @@ interface ActiveShare {
 export function NetworkShareSection({
   kind,
   entityId,
+  defaultNote,
 }: {
   kind: "buyer" | "property";
   /** מזהה הקונה או הנכס — לפי `kind`. */
   entityId: string;
+  /**
+   * מילוי מראש לתיאור בפרסום **חדש** — למשל הערות הקונה מהכרטיס.
+   *
+   * המתווך כבר כתב מה הלקוח מחפש; להקליד את זה שוב בטופס השיתוף
+   * זה בדיוק החיכוך שגורם לא לפרסם. פרסום קיים תמיד מציג את מה
+   * שפורסם בפועל, לא את ההצעה.
+   */
+  defaultNote?: string;
 }) {
   const copy = COPY[kind];
   /*
@@ -136,13 +147,27 @@ export function NetworkShareSection({
           setStage("sent");
         } else {
           setShare(null);
+          /*
+           * פרסום חדש נפתח עם הערות הכרטיס כתיאור — המתווך כבר כתב
+           * מה הלקוח מחפש ואין סיבה להקליד שוב. רק לתוך שדה ריק:
+           * טיוטה שהתחילו להקליד אינה נדרסת כשעריכת ההערות בכרטיס
+           * מריצה את הטעינה מחדש.
+           *
+           * נחתך ל-`MAX_NOTE`: הערות הכרטיס מגיעות עד 4,000 תווים,
+           * ו-`maxLength` על textarea אינו חותך ערך שהוקצה מקוד —
+           * בלי החיתוך השרת היה דוחה את הפרסום על תיאור שהמסך עצמו
+           * מילא (ביקורת Codex).
+           */
+          setNote((current) =>
+            current === "" ? (defaultNote ?? "").slice(0, MAX_NOTE) : current,
+          );
           setStage("invite");
         }
       })
       // כשל בקריאה לא נועל את האזור: המסך נופל למצב ההזמנה,
       // והשרת עדיין יאכוף שיתוף כפול אם ינסו
       .catch(() => setStage("invite"));
-  }, [readPath]);
+  }, [readPath, defaultNote]);
 
   useEffect(load, [load]);
 
@@ -390,7 +415,7 @@ export function NetworkShareSection({
               id="shareNote"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              maxLength={300}
+              maxLength={MAX_NOTE}
               rows={2}
               placeholder={copy.notePlaceholder}
               className="w-full rounded-lg border px-3 py-2"

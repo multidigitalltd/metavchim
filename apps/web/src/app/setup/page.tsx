@@ -33,6 +33,9 @@ interface OfficeSettings {
   officePhone?: string;
   officeAddress?: string;
   licenseNumber?: string;
+  /** מדיניות הרשת: כל נכס/קונה חדש מתפרסם לרשת השיתופים אוטומטית */
+  autoShareProperties: boolean;
+  autoShareBuyers: boolean;
 }
 
 interface CreatedAgent {
@@ -75,6 +78,9 @@ function StepOffice({ allowed, onSaved }: { allowed: boolean; onSaved: () => voi
         officePhone: String(f.get("officePhone") ?? "").trim(),
         officeAddress: String(f.get("officeAddress") ?? "").trim(),
         licenseNumber: String(f.get("licenseNumber") ?? "").trim(),
+        // checkbox לא מסומן אינו נשלח ב-FormData — היעדרות פירושה כבוי
+        autoShareProperties: f.get("autoShareProperties") === "on",
+        autoShareBuyers: f.get("autoShareBuyers") === "on",
       });
       onSaved();
     } catch (err: unknown) {
@@ -137,6 +143,32 @@ function StepOffice({ allowed, onSaved }: { allowed: boolean; onSaved: () => voi
           </p>
         </div>
       </div>
+      {/*
+        מדיניות הרשת נקבעת כבר בהקמה: משרד שמצטרף בשביל שיתופי
+        הפעולה לא צריך לגלות את ההגדרה הזו חודש אחרי, כשהמאגר כולו
+        כבר נקלט בלי פרסום. אותם שני דגלים בדיוק כמו בניהול המשרד.
+      */}
+      <fieldset className="mb-4 rounded-lg border p-3.5" style={{ borderColor: "var(--color-border)" }}>
+        <legend className="px-1 font-medium">רשת שיתופי הפעולה — ברירת מחדל</legend>
+        <label className="mb-2 flex items-start gap-2 text-sm" htmlFor="ob-share-props">
+          <input type="checkbox" id="ob-share-props" name="autoShareProperties" defaultChecked={values.autoShareProperties} className="mt-0.5" />
+          <span>
+            <b className="block">כל נכס חדש מתפרסם לרשת אוטומטית</b>
+            <span style={{ color: "var(--color-text-muted)" }}>
+              בלי כתובת מדויקת ובלי פרטי הבעלים — משרדים אחרים עם קונה מתאים יפנו אליכם.
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-sm" htmlFor="ob-share-buyers">
+          <input type="checkbox" id="ob-share-buyers" name="autoShareBuyers" defaultChecked={values.autoShareBuyers} className="mt-0.5" />
+          <span>
+            <b className="block">כל קונה חדש מתפרסם כביקוש ברשת אוטומטית</b>
+            <span style={{ color: "var(--color-text-muted)" }}>
+              בלי שם ובלי טלפון — משרדים אחרים עם נכס מתאים יציעו אותו.
+            </span>
+          </span>
+        </label>
+      </fieldset>
       <Button type="submit" disabled={busy}>{busy ? "שומר…" : "שמור והמשך"}</Button>
     </form>
   );

@@ -170,6 +170,9 @@ export default function BuyersPage() {
    * והשרת היה עונה 403 על פעולה שהמסך עצמו הזמין (ביקורת Codex).
    */
   const mayDelete = can(user, "buyers.delete");
+  /* העלאה מרוכזת לרשת — יכולת נפרדת; תיבות הסימון מוצגות לשתיהן */
+  const mayShare = can(user, "collaboration.share");
+  const maySelect = mayDelete || mayShare;
 
   /* בחירה שיצאה מהסינון אינה נמחקת — היא פשוט אינה מוצגת ואינה נספרת */
   const selectedVisible = visible.filter((b) => selected.has(b.id));
@@ -219,6 +222,42 @@ export default function BuyersPage() {
       );
     } catch {
       setError("המחיקה נכשלה — נסו שוב");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  /**
+   * העלאה מרוכזת לרשת השיתופים.
+   *
+   * השרת מפרסם כל קונה במסלול הבודד המלא — ברירת המחדל של חלוקת
+   * העמלה, והתיאור מהערות הקונה. כשל של אחד אינו עוצר את השאר,
+   * והסיכום אומר בדיוק מי לא עלה ולמה (בלי אזור חיפוש, כבר משותף,
+   * מכסה).
+   */
+  async function shareSelected(): Promise<void> {
+    const ids = selectedVisible.map((b) => b.id);
+    if (ids.length === 0) return;
+    if (!window.confirm(`לפרסם ${ids.length} קונים לרשת השיתופים? יפורסמו בלי שם ובלי טלפון, בחלוקת עמלה 50/50.`)) return;
+
+    setBulkBusy(true);
+    setBulkNote(null);
+    setError(null);
+    try {
+      const res = await apiPost<{ results: { id: string; ok: boolean; error?: string }[] }>(
+        "/collaboration/share/bulk",
+        { buyerIds: ids },
+      );
+      const failed = res.results.filter((r) => !r.ok);
+      const reasons = [...new Set(failed.map((r) => r.error ?? "השיתוף נכשל"))];
+      setBulkNote(
+        failed.length === 0
+          ? `${res.results.length} קונים פורסמו לרשת`
+          : `${res.results.length - failed.length} פורסמו, ${failed.length} לא — ${reasons.join(" · ")}`,
+      );
+      setSelected(new Set());
+    } catch {
+      setError("הפרסום לרשת נכשל — נסו שוב");
     } finally {
       setBulkBusy(false);
     }
@@ -350,7 +389,7 @@ export default function BuyersPage() {
                 סרגל הבחירה מופיע רק כשיש מה לעשות איתו. סרגל קבוע
                 עם "0 נבחרו" הוא רעש בכל מסך שבו לא בוחרים כלום.
               */}
-              {mayDelete && selected.size > 0 ? (
+              {maySelect && selected.size > 0 ? (
                 <div
                   className="mv-list-card mb-3 flex flex-wrap items-center gap-2 px-4 py-3"
                   role="status"
@@ -364,23 +403,38 @@ export default function BuyersPage() {
                   >
                     בטל בחירה
                   </button>
-                  <button
-                    type="button"
-                    className="mv-btn-plain ms-auto"
-                    disabled={bulkBusy}
-                    onClick={() => void removeSelected(false)}
-                  >
-                    {bulkBusy ? "מוחק…" : "העבר לארכיון"}
-                  </button>
-                  <button
-                    type="button"
-                    className="mv-btn-plain"
-                    disabled={bulkBusy}
-                    onClick={() => void removeSelected(true)}
-                    style={{ color: "var(--color-danger)" }}
-                  >
-                    מחק לצמיתות
-                  </button>
+                  {mayShare ? (
+                    <button
+                      type="button"
+                      className="mv-btn-plain ms-auto"
+                      disabled={bulkBusy}
+                      onClick={() => void shareSelected()}
+                      style={{ color: "var(--color-primary)" }}
+                    >
+                      {bulkBusy ? "מפרסם…" : "העלה לרשת השיתופים"}
+                    </button>
+                  ) : null}
+                  {mayDelete ? (
+                    <>
+                      <button
+                        type="button"
+                        className={mayShare ? "mv-btn-plain" : "mv-btn-plain ms-auto"}
+                        disabled={bulkBusy}
+                        onClick={() => void removeSelected(false)}
+                      >
+                        העבר לארכיון
+                      </button>
+                      <button
+                        type="button"
+                        className="mv-btn-plain"
+                        disabled={bulkBusy}
+                        onClick={() => void removeSelected(true)}
+                        style={{ color: "var(--color-danger)" }}
+                      >
+                        מחק לצמיתות
+                      </button>
+                    </>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -396,7 +450,7 @@ export default function BuyersPage() {
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <label className="flex items-center gap-2">
-                        {mayDelete ? (
+                        {maySelect ? (
                           <input
                             type="checkbox"
                             checked={selected.has(b.id)}
@@ -435,7 +489,7 @@ export default function BuyersPage() {
               <div className="mv-list-card hidden sm:block">
                 <div className="mv-list-head" style={{ gridTemplateColumns: GRID }}>
                   <span className="flex items-center gap-2">
-                    {mayDelete ? (
+                    {maySelect ? (
                       <input
                         type="checkbox"
                         checked={allVisibleSelected}
@@ -462,7 +516,7 @@ export default function BuyersPage() {
                       הייתה מנווטת לכרטיס במקום לסמן.
                     */
                     <div key={b.id} className="mv-list-select-row">
-                      {mayDelete ? (
+                      {maySelect ? (
                         <input
                           type="checkbox"
                           checked={selected.has(b.id)}

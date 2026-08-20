@@ -8,7 +8,31 @@ import {
   type ReachSummary,
 } from "@metavchim/shared";
 import { apiGet } from "@/lib/api";
-import { IconHome, IconTarget, IconUser } from "../icons";
+import { IconHome, IconTarget, IconUser, IconX } from "../icons";
+
+const HIDDEN_KEY = "mv-reach-hidden";
+
+/**
+ * חתימת התוכן הנוכחי — ההסתרה תקפה כל עוד ההצעה לא השתנתה.
+ *
+ * כמו בהודעת הכפילויות בדשבורד: "סגור" על ההצעה של היום אינו "לעולם
+ * אל תציע" — נכס חדש שמתאים למשהו ברשת מחזיר את הבאנר, כי זו הצעה
+ * חדשה ולא זו שנסגרה.
+ */
+function signatureOf(summary: ReachSummary): string {
+  return [...summary.properties, ...summary.buyers]
+    .map((item) => `${item.id}:${item.matches}`)
+    .sort()
+    .join("|");
+}
+
+function readHidden(): string | null {
+  try {
+    return window.localStorage.getItem(HIDDEN_KEY);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * מה מחכה ברשת ואינו מפורסם — **ההצעה שנולדה מהפער.**
@@ -34,6 +58,7 @@ import { IconHome, IconTarget, IconUser } from "../icons";
  */
 export function ReachBanner() {
   const [summary, setSummary] = useState<ReachSummary | null>(null);
+  const [hiddenSignature, setHiddenSignature] = useState<string | null>(null);
 
   useEffect(() => {
     /*
@@ -43,10 +68,25 @@ export function ReachBanner() {
     apiGet<ReachSummary>("/collaboration/reach")
       .then(setSummary)
       .catch(() => setSummary(null));
+    setHiddenSignature(readHidden() ?? "");
   }, []);
 
   const headline = summary === null ? null : describeReach(summary);
   if (summary === null || headline === null) return null;
+  // עדיין לא ידוע אם הוסתר — לא מציגים כדי לא להבהב
+  if (hiddenSignature === null) return null;
+  if (hiddenSignature === signatureOf(summary)) return null;
+
+  function hide(): void {
+    if (summary === null) return;
+    const signature = signatureOf(summary);
+    try {
+      window.localStorage.setItem(HIDDEN_KEY, signature);
+    } catch {
+      // בלי אחסון ההסתרה תקפה עד לרענון — עדיין עדיף מכלום
+    }
+    setHiddenSignature(signature);
+  }
 
   return (
     <section className="mv-reach" aria-labelledby="reach-heading">
@@ -69,6 +109,16 @@ export function ReachBanner() {
             עליו.
           </p>
         </div>
+        <button
+          type="button"
+          className="ms-auto self-start"
+          onClick={hide}
+          aria-label="הסתר את ההצעה"
+          title="הסתר — תחזור כשתהיה התאמה חדשה"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          <IconX s={15} />
+        </button>
       </div>
 
       <div className="mv-reach-lists">

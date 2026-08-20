@@ -2576,28 +2576,6 @@ a.mv-bar-row:focus-visible {
   color: var(--color-success);
 }
 
-/* התיאור החופשי של המשרד המשתף — ציטוט, לא עוד שורת נתונים */
-/*
- * התיאור החופשי — ציטוט, לא עוד שורת נתונים.
- *
- * הגרסה הקודמת עטפה אותו בקופסה מלאה עם ריפוד נדיב, וטקסט של חמש
- * מילים קיבל פס אפור רחב וכמעט ריק לרוחב הכרטיס. ציטוט אינו נזקק
- * לקופסה: קו אנכי בצד ההתחלה מספיק כדי לומר "אלה מילים של מישהו",
- * והרקע פנוי לתגיות שנושאות את הנתונים.
- */
-.mv-net-quote {
-  margin: 0 0 14px;
-  border-inline-start: 2px solid var(--color-primary-accent);
-  padding-inline-start: 12px;
-  font-size: 14.5px;
-  /*
-   * בלי `italic`: לעברית אין נטוי אמיתי, והדפדפן מטה את האותיות
-   * מלאכותית — מה שמעוות את צורתן ומקשה על הקריאה. הקו האנכי הוא
-   * מה שמסמן ציטוט, לא הטיה.
-   */
-  line-height: 1.55;
-  color: var(--color-text-soft);
-}
 
 /* פס תחתון: מה זה עולה, איך מתחלקת העמלה, ומה עושים */
 .mv-net-foot {
@@ -2635,6 +2613,21 @@ a.mv-bar-row:focus-visible {
   color: var(--color-primary);
   font-size: 14px;
   font-weight: 800;
+}
+/* שם הקונה/הנכס בהתאמה — קישור לכרטיס המלא. הקו והעין אומרים
+   "אפשר לבדוק לפני שמחליטים", וזה בדיוק מה שההצעה מבקשת */
+.mv-net-match-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-primary);
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+.mv-net-match-name:hover {
+  text-decoration-thickness: 2px;
 }
 
 /* מצב ריק — הזמנה לפעולה ולא הודעת שגיאה */
@@ -3447,4 +3440,214 @@ a.mv-bar-row:focus-visible {
   .mv-net-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ============================================================
+   כרטיסי הרשת — תקציר אחיד, פופאפ מלא, ותצוגת שורות
+   (בקשת המשתמש: כרטיסים ברורים, גובה אחיד, שורות למי שנוח)
+   ============================================================ */
+
+/*
+ * הכרטיס עמודת flex: תחתית הכרטיס (מזהה + "כל הפרטים" + פעולות)
+ * נדחפת למטה, וכך כל הכרטיסים באותה שורה מיושרים לגובה אחיד —
+ * גם כשלאחד יש הערות ולשני אין.
+ */
+.mv-net-card {
+  display: flex;
+  flex-direction: column;
+}
+.mv-net-cardfoot {
+  margin-top: auto;
+  padding-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/*
+ * ההערות בכרטיס — שתי שורות לכל היותר. הטקסט המלא בפופאפ; הערה
+ * ארוכה שנפרשה כולה היא מה ששבר את אחידות הגבהים.
+ */
+.mv-net-grid .mv-net-say-text,
+.mv-net-rows .mv-net-say-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.mv-net-dialog .mv-net-say-text {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+/* כפתור "כל הפרטים" — הזמנה שקטה, לא כפתור פעולה */
+.mv-net-details-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  padding: 5px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-primary);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.mv-net-details-btn:hover {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+}
+
+/* הפופאפ עצמו */
+.mv-net-dialog {
+  border: none;
+  border-radius: 18px;
+  padding: 0;
+  width: min(560px, calc(100vw - 28px));
+  max-height: min(84vh, 760px);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: 0 24px 70px rgb(10 40 20 / 25%);
+}
+.mv-net-dialog::backdrop {
+  background: rgb(10 25 15 / 45%);
+  backdrop-filter: blur(2px);
+}
+.mv-net-dialog-body {
+  padding: 18px 20px 20px;
+  overflow-y: auto;
+  max-height: inherit;
+  direction: rtl;
+}
+.mv-net-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.mv-net-dialog-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.mv-net-dialog-close:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-hover);
+}
+
+/*
+ * "אין התאמה" — תיבה ולא שורת לוואי. רקע עדין, אייקון וכותרת
+ * מודגשת: מי שסורק את הכרטיס רואה מיד מה המצב ומה אפשר לעשות.
+ */
+.mv-net-nomatch {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px dashed var(--color-border-hover);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-warning, #d97706) 7%, var(--color-surface));
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.mv-net-nomatch-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-warning, #d97706) 16%, var(--color-surface));
+  color: var(--color-warning, #b45309);
+}
+
+/*
+ * תצוגת שורות: עמודה אחת ברוחב מלא, כרטיס מהודק. ההערות, התמונות
+ * והציטוטים מוסתרים — שורה היא סריקה מהירה; הפירוט בפופאפ.
+ */
+.mv-net-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mv-net-rows .mv-net-card {
+  padding: 12px 16px;
+}
+.mv-net-rows .mv-net-say,
+.mv-net-rows .mv-net-photos {
+  display: none;
+}
+.mv-net-rows .mv-net-facts {
+  margin-top: 6px;
+}
+.mv-net-rows .mv-net-money {
+  margin-top: 6px;
+}
+
+/* ============================================================
+   הפניות ברשת — ארבעה צעדים במקום קיר טקסט
+   ============================================================ */
+.mv-ref-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.mv-ref-step {
+  position: relative;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  padding: 12px 14px 12px;
+}
+.mv-ref-step-num {
+  position: absolute;
+  top: 10px;
+  inset-inline-end: 12px;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+  color: color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+.mv-ref-step-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  color: var(--color-primary);
+  margin-bottom: 8px;
+}
+.mv-ref-step-title {
+  display: block;
+  font-size: 14.5px;
+  margin-bottom: 3px;
+}
+.mv-ref-step-body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--color-text-soft);
+}
+.mv-ref-steps-privacy {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  text-align: center;
 }

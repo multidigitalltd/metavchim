@@ -9,6 +9,7 @@ import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
   BuyerRequirementsSchema,
+  DEFAULT_COMMISSION_SPLIT,
   commissionSplitRejectionReason,
   coopOfferCost,
   leadSourceLabel,
@@ -512,6 +513,42 @@ export class CollaborationService {
     });
 
     return this.getDemand(id);
+  }
+
+  /**
+   * שיתוף מרוכז — בחרו כמה קונים ברשימה ולחצו פעם אחת.
+   *
+   * כל קונה עובר את **אותו** מסלול של השיתוף הבודד (`shareBuyer`),
+   * כולל בדיקת אזור החיפוש והמכסה — אין כאן דלת צדדית. חלוקת העמלה
+   * היא ברירת המחדל של הרשת.
+   *
+   * **בלי תיאור, בכוונה.** `agentNotes` הוא שדה פנימי — "האישה
+   * מחליטה", טלפון של גיס — ובטופס הבודד הוא רק *הצעה* שהמתווך
+   * רואה ועורך לפני הפרסום. במסלול המרוכז אין עין אנושית בין
+   * ההערה לרשת, ולכן שום טקסט חופשי לא יוצא ממנו החוצה; הצילום
+   * המובנה של `demandSnapshot` נושא את כל הקריטריונים (ביקורת
+   * Codex). תיאור אפשר להוסיף אחר כך בעריכת הפרסום.
+   *
+   * כשל של קונה אחד אינו עוצר את השאר: מי שבחר עשרים קונים ואחד מהם
+   * בלי אזור חיפוש רוצה תשע-עשרה מודעות והסבר אחד, לא אפס מודעות.
+   */
+  async shareBuyersBulk(
+    buyerIds: string[],
+  ): Promise<{ id: string; ok: boolean; error?: string }[]> {
+    const results: { id: string; ok: boolean; error?: string }[] = [];
+    for (const buyerId of buyerIds) {
+      try {
+        await this.shareBuyer(buyerId, DEFAULT_COMMISSION_SPLIT);
+        results.push({ id: buyerId, ok: true });
+      } catch (error) {
+        results.push({
+          id: buyerId,
+          ok: false,
+          error: error instanceof Error ? error.message : "השיתוף נכשל",
+        });
+      }
+    }
+    return results;
   }
 
   /**
