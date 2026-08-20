@@ -1,5 +1,5 @@
 import type { Readable } from "node:stream";
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import { assertContactAccess, visibleContactIds } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -259,6 +259,50 @@ export class CallsService {
     });
 
     return { status: available ? "pending" : "unavailable" };
+  }
+
+  /**
+   * הפעלת תמלול מחדש — להקלטה שהתמלול שלה נכשל.
+   *
+   * הכשל השכיח הוא זמני (שירות התמלול היה עמוס או לא זמין), וההקלטה
+   * עצמה שמורה — אבל עד עכשיו לא הייתה שום דרך לבקש ניסיון נוסף
+   * חוץ מהעלאת הקובץ מחדש (בקשת המשתמש). האיפוס ל-pending מחזיר את
+   * השיחה לתור של עובד התמלול, בדיוק כמו אחרי העלאה.
+   *
+   * מותר רק מ-failed: תמלול שהצליח אינו נדרס בלחיצה, ו-pending או
+   * running כבר בתור. אותו שער בעלות כמו בצירוף הקלטה.
+   */
+  async retryTranscription(id: string): Promise<{ status: string }> {
+    const tenantId = TenantContext.current().tenantId;
+    const available = (await this.transcription.status()).available;
+    if (!available) {
+      throw new BadRequestException(
+        "שירות התמלול אינו מופעל בשרת — ראו docs/10",
+      );
+    }
+    await this.prisma.withTenant(async (tx) => {
+      await this.assertCallAccess(tx, id);
+      const updated = await tx.call.updateMany({
+        where: {
+          id,
+          tenantId,
+          transcriptionStatus: "failed",
+          recordingKey: { not: null },
+        },
+        data: { transcriptionStatus: "pending", transcript: null, transcribedAt: null },
+      });
+      if (updated.count === 0) {
+        throw new BadRequestException(
+          "אין כאן תמלול שנכשל — אולי הוא כבר רץ או הצליח",
+        );
+      }
+      await this.audit.record(tx, {
+        action: "call.transcription_retried",
+        entityType: "call",
+        entityId: id,
+      });
+    });
+    return { status: "pending" };
   }
 
   /**

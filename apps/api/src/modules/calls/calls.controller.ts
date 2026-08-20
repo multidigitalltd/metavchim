@@ -89,6 +89,20 @@ export class CallsController {
   }
 
   /**
+   * ניסיון תמלול נוסף — להקלטה שהתמלול שלה נכשל.
+   * ראו CallsService.retryTranscription.
+   */
+  @Post(":id/transcription/retry")
+  @RequireCapability("leads.edit")
+  @RequireFeature("transcription")
+  @HttpCode(200)
+  async retryTranscription(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ status: string }> {
+    return this.calls.retryTranscription(id);
+  }
+
+  /**
    * השמעת ההקלטה בכרטיס הלקוח.
    *
    * `leads.view_own` ולא `leads.edit`: האזנה היא צפייה, ומי שרואה

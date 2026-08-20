@@ -63,11 +63,30 @@ export default function AgentPage(): React.JSX.Element {
    * בלי הרשאת שליחה אינו רואה „שלח את הדירה למשה” — דוגמה שהייתה
    * מסתיימת אצלו בשגיאה. רשימה מוקלדת במסך הייתה מתיישנת ברגע
    * שנוספת פעולה.
+   *
+   * מוצגות שש נבחרות ולא כל הקטלוג (בקשת המשתמש): עשרים ומשהו
+   * צ'יפים הם קיר טקסט שאיש אינו קורא. שש שמכסות את הסוגים —
+   * חיפוש, שאילתה, קליטה, נכס, תזכורת ורשת — מלמדות את הרוחב,
+   * והשאר מתגלה מהשימוש עצמו.
    */
   useEffect(() => {
     if (authLoading) return;
+    const FEATURED = [
+      "search",
+      "find_buyers",
+      "create_buyer",
+      "create_property",
+      "create_task",
+      "share_property",
+    ];
     apiGet<AgentCapability[]>("/agent/capabilities")
-      .then((caps) => setExamples(caps.map((cap) => cap.examples[0]).filter(Boolean) as string[]))
+      .then((caps) => {
+        const featured = caps.filter((cap) => FEATURED.includes(cap.id));
+        // הרשאות קיצצו את הנבחרות? משלימים מהשאר עד שש
+        const rest = caps.filter((cap) => !FEATURED.includes(cap.id));
+        const picked = [...featured, ...rest].slice(0, 6);
+        setExamples(picked.map((cap) => cap.examples[0]).filter(Boolean) as string[]);
+      })
       .catch(() => setExamples([]));
   }, [authLoading]);
 
