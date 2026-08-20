@@ -1,10 +1,15 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
+  DISMISS_REASONS,
+  MATCH_CRITERION_LABELS,
   MATCH_ENGINE_VERSION,
+  calibrateMatchWeights,
   matchRefreshDue,
   matchRefreshNotice,
+  resolveMatchWeights,
   summarizeMatchRefresh,
+  type DismissReason,
   type MatchRefreshReason,
   type MatchRefreshState,
   type MatchRefreshSummary,
@@ -37,6 +42,20 @@ const PAGE = 200;
 
 /** תקרת סבבים רצופים שנגררים מבקשות שהצטברו — ראו `refreshTenant`. */
 const MAX_CHAINED_RERUNS = 3;
+
+/**
+ * מרווח מזערי בין כיולים אוטומטיים — שבוע.
+ *
+ * כיול הוא סחיפה איטית: צעד קטן, ואז שבוע שבו רואים אם הדחיות
+ * באמת ירדו. כיול יומי היה מטפס לתקרה בחודש בלי שאיש הבין למה.
+ */
+const CALIBRATION_MIN_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** חלון הדחיות לכיול הראשון — לפני שיש חותמת להתחיל ממנה. */
+const CALIBRATION_FIRST_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** תקרת שורות לשליפת הדחיות — מדגם מספיק, לא סריקה של שנים. */
+const CALIBRATION_SAMPLE = 500;
 
 interface RefreshOutcome extends MatchRefreshState {
   /** מספר המשרד — לשורת הלוג בלבד. */
@@ -131,10 +150,25 @@ export class MatchRefreshService implements OnModuleInit, OnModuleDestroy {
 
     for (const tenant of tenants) {
       const settings = (tenant.settings ?? {}) as Record<string, unknown>;
-      const reason = matchRefreshDue(readState(settings), now, {
-        engineVersion: MATCH_ENGINE_VERSION,
-        weightsChangedAt: readWeightsChangedAt(settings),
-      });
+
+      /*
+       * הכיול רץ לפני בדיקת התור: אם הוא שינה משקלים, הסבב שמיד
+       * אחריו כבר מחשב לפיהם — כיול שממתין לסבב הבא היה משאיר את
+       * המסך שבוע שלם עם ניקוד שההגדרות כבר לא מסכימות איתו.
+       */
+      let calibrated = false;
+      try {
+        calibrated = await this.maybeCalibrate(tenant.id, settings, now);
+      } catch (error: unknown) {
+        this.logger.warn(`weight calibration failed for tenant ${tenant.id}: ${String(error)}`);
+      }
+
+      const reason = calibrated
+        ? "weights"
+        : matchRefreshDue(readState(settings), now, {
+            engineVersion: MATCH_ENGINE_VERSION,
+            weightsChangedAt: readWeightsChangedAt(settings),
+          });
       if (reason === null) continue;
 
       try {
@@ -146,6 +180,118 @@ export class MatchRefreshService implements OnModuleInit, OnModuleDestroy {
       }
     }
     return done;
+  }
+
+  /**
+   * כיול משקלים מסיבות הדחייה — הלולאה שסוגרת את דוח הדחיות.
+   *
+   * הלוגיקה עצמה טהורה ובדוקה (`calibrateMatchWeights` ב-shared);
+   * כאן רק החיבור למציאות: מתי מותר לרוץ, אילו דחיות נספרות, ואיך
+   * נכתבת התוצאה כך שהסבב הבא יחשב לפיה.
+   *
+   * **שקוף ולא שקט**: התוצאה נשמרת ב-`matchWeightsCalibration`,
+   * מוצגת במסך המשקלים, ונשלחת כהתראה לבעלים — משקל שזז בלי שאיש
+   * יודע היה הופך את מסך ההגדרות לשקרן. המנהל יכול לגרור חזרה או
+   * לכבות (`autoTuneMatchWeights: false`) — הידני תמיד גובר, כי
+   * הכיול קורא את המשקלים הנוכחיים ורק מוסיף עליהם.
+   */
+  private async maybeCalibrate(
+    tenantId: string,
+    settings: Record<string, unknown>,
+    now: Date,
+  ): Promise<boolean> {
+    if (settings["autoTuneMatchWeights"] === false) return false;
+
+    const lastRaw = settings["matchWeightsCalibratedAt"];
+    const last =
+      typeof lastRaw === "string" && !Number.isNaN(new Date(lastRaw).getTime())
+        ? new Date(lastRaw).getTime()
+        : null;
+    if (last !== null && now.getTime() - last < CALIBRATION_MIN_INTERVAL_MS) return false;
+
+    /*
+     * הדחיות מאז הכיול הקודם — כל דחייה נספרת פעם אחת בלבד. בכיול
+     * הראשון החלון מוגבל לחודש: דחיות בנות שנה מעידות על מנוע ישן
+     * יותר, לא על ההגדרות של היום.
+     */
+    const since = new Date(last ?? now.getTime() - CALIBRATION_FIRST_WINDOW_MS);
+    const rows = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+      tx.match.findMany({
+        where: { tenantId, dismissReason: { not: null }, dismissedAt: { gte: since } },
+        select: { dismissReason: true },
+        take: CALIBRATION_SAMPLE,
+      }),
+    );
+    const reasons = rows
+      .map((row) => row.dismissReason)
+      .filter(
+        (value): value is DismissReason =>
+          value !== null && DISMISS_REASONS.includes(value as DismissReason),
+      );
+
+    const current = resolveMatchWeights(settings["matchWeights"]);
+    const result = calibrateMatchWeights(current, reasons);
+    if (result === null) return false;
+
+    const stamp = now.toISOString();
+    const calibrationState = { at: stamp, adjusted: result.adjusted };
+    /*
+     * ‎jsonb_set‎ מקונן ולא קריאה-שינוי-כתיבה — אותו נימוק כמו בשמירת
+     * המשקלים הידנית: שמירה מקבילה של הגדרה אחרת לא נדרסת.
+     * `matchWeightsChangedAt` הוא מה שגורם לסבב לרוץ מיד אחרי.
+     *
+     * הכתיבה מותנית (ביקורת Codex): בין קריאת התמונה בתחילת הסבב
+     * לכתיבה כאן מנהל יכול לשמור משקלים ידנית או לכבות את הכיול —
+     * וכתיבה עיוורת הייתה דורסת בדיוק את הבחירה הידנית שתמיד אמורה
+     * לגבור. ההשוואה על `matchWeightsChangedAt` (שמתעדכן בכל שמירה)
+     * ועל המתג בזמן הכתיבה; אפס שורות = מישהו הקדים אותנו — מוותרים
+     * בשקט והשבוע הבא יכייל מול המצב העדכני.
+     */
+    const snapshotStamp =
+      typeof settings["matchWeightsChangedAt"] === "string"
+        ? settings["matchWeightsChangedAt"]
+        : "";
+    const written = await this.prisma.$executeRaw`
+      UPDATE tenants
+      SET settings = jsonb_set(jsonb_set(jsonb_set(jsonb_set(
+        COALESCE(settings, '{}'::jsonb),
+        '{matchWeights}', ${JSON.stringify(result.weights)}::jsonb, true),
+        '{matchWeightsChangedAt}', ${JSON.stringify(stamp)}::jsonb, true),
+        '{matchWeightsCalibratedAt}', ${JSON.stringify(stamp)}::jsonb, true),
+        '{matchWeightsCalibration}', ${JSON.stringify(calibrationState)}::jsonb, true)
+      WHERE id = ${tenantId}
+        AND COALESCE(settings->>'matchWeightsChangedAt', '') = ${snapshotStamp}
+        AND COALESCE(settings->'autoTuneMatchWeights', 'true'::jsonb) <> 'false'::jsonb
+    `;
+    if (written === 0) return false;
+
+    const changes = result.adjusted
+      .map(
+        (change) =>
+          `${MATCH_CRITERION_LABELS[change.criterion]}: ${change.from} ← ${change.to}`,
+      )
+      .join(" · ");
+    await this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      const owners = await tx.user.findMany({
+        where: { tenantId, role: "owner", isActive: true },
+        select: { id: true },
+      });
+      for (const owner of owners) {
+        await tx.notification.create({
+          data: {
+            id: ulid(),
+            tenantId,
+            userId: owner.id,
+            type: "match_weights_calibrated",
+            title: "משקלי ההתאמה כוילו לפי הדחיות שלכם",
+            body: `${changes}. אפשר לשנות או לכבות את הכיול האוטומטי בהגדרות ההתאמות.`,
+          },
+        });
+      }
+    });
+
+    this.logger.log(`כיול משקלים אוטומטי למשרד ${tenantId}: ${changes}`);
+    return true;
   }
 
   /**

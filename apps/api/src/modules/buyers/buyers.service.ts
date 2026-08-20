@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { ulid } from "ulid";
@@ -46,6 +47,8 @@ export interface BuyerDto {
 
 @Injectable()
 export class BuyersService {
+  private readonly logger = new Logger(BuyersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly contacts: ContactsService,
@@ -65,7 +68,14 @@ export class BuyersService {
     agentNotes?: string;
   }): Promise<BuyerDto> {
     const id = await this.persist(input);
-    await this.matching.recomputeForBuyer(id);
+    /*
+     * ההתאמות ברקע — היצירה חוזרת מיד. אותם כללים כמו בצד הנכסים:
+     * הקונה כבר נשמר, ההתאמות מופיעות בכרטיס שניות אחר כך, והרענון
+     * התקופתי הוא רשת הביטחון לכשל.
+     */
+    void this.matching.recomputeForBuyer(id).catch((error: unknown) => {
+      this.logger.warn(`background match recompute failed for buyer ${id}: ${String(error)}`);
+    });
     await this.autoShareToNetwork(id);
     return this.getById(id);
   }
@@ -230,12 +240,10 @@ export class BuyersService {
       });
     });
 
-    try {
-      await this.matching.recomputeForBuyer(id);
-    } catch {
-      // ההמרה כבר נשמרה — כישלון זמני בהתאמות לא הופך אותה ל"נכשלה"
-      // (ניסיון חוזר היה מקבל 409); יחושב מחדש בעריכה הבאה, כמו בייבוא.
-    }
+    // ברקע — כמו ביצירה; ההמרה כבר נשמרה והרענון התקופתי מגבה
+    void this.matching.recomputeForBuyer(id).catch((error: unknown) => {
+      this.logger.warn(`background match recompute failed for buyer ${id}: ${String(error)}`);
+    });
     // ליד שהומר הוא קונה חדש לכל דבר — אותה מדיניות רשת כמו בקליטה
     await this.autoShareToNetwork(id);
     return this.getById(id);
