@@ -156,6 +156,10 @@ export function VoiceConsole(): React.JSX.Element | null {
       {proposal === null ? null : proposal.actionId === "unknown" ? (
         <p className="mt-3 text-[15px]" style={{ color: "var(--color-text-muted)" }}>
           {proposal.clarify ?? "לא הצלחתי לזהות מה לעשות. אפשר לנסח אחרת."}
+          {/* אותה הבחנה כמו במסך המלא: למה זה נכשל, לא רק שזה נכשל */}
+          {proposal.fallback
+            ? " שירות ההבנה החכמה אינו זמין כרגע, ולכן זוהו רק ניסוחים מוכרים."
+            : ""}
         </p>
       ) : (
         <div className="mt-3">

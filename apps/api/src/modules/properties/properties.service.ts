@@ -561,6 +561,9 @@ export class PropertiesService {
   async list(query: {
     status?: string;
     city?: string;
+    /** כמה ערים בבת אחת — השאלה הקולית "מה יש לי ברמת גן ובגבעתיים" */
+    cities?: string[];
+    dealType?: string;
     q?: string;
     minPrice?: number;
     maxPrice?: number;
@@ -580,6 +583,10 @@ export class PropertiesService {
           deletedAt: null,
           ...(query.status ? { status: query.status } : {}),
           ...(query.city ? { city: query.city } : {}),
+          ...(query.cities && query.cities.length > 0
+            ? { city: { in: query.cities } }
+            : {}),
+          ...(query.dealType ? { dealType: query.dealType } : {}),
           ...(price.min !== undefined || price.max !== undefined
             ? {
                 priceAgorot: {
