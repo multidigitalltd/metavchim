@@ -5,6 +5,7 @@ import { Button } from "@metavchim/ui";
 import {
   HARD_MATCH_CRITERIA,
   MATCH_CRITERION_LABELS,
+  MAX_MATCH_WEIGHT,
   MIN_HARD_WEIGHT,
   type MatchCriterion,
   type MatchWeights,
@@ -245,7 +246,7 @@ export function MatchWeightsSection() {
                   id={`w-${criterion}`}
                   type="range"
                   min={minPercent}
-                  max={50}
+                  max={toPercent(MAX_MATCH_WEIGHT)}
                   step={5}
                   value={percent}
                   onChange={(event) =>

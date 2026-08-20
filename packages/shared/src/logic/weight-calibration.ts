@@ -28,7 +28,7 @@ import {
   MIN_DISMISSALS_FOR_INSIGHT,
   type DismissReason,
 } from "./match-feedback.js";
-import type { MatchCriterion, MatchWeights } from "./matching.js";
+import { MAX_MATCH_WEIGHT, type MatchCriterion, type MatchWeights } from "./matching.js";
 
 /** בכמה עולה משקל בקריאה אחת. */
 export const CALIBRATION_STEP = 0.05;
@@ -36,8 +36,6 @@ export const CALIBRATION_STEP = 0.05;
 export const CALIBRATION_MIN_SHARE = 0.25;
 /** כמה קריטריונים מכוילים בקריאה אחת — סחיפה איטית, לא שכתוב. */
 export const CALIBRATION_MAX_ADJUSTED = 2;
-/** תקרת משקל — מעבר לה ההעלאה אינה אומרת דבר. */
-const MAX_WEIGHT = 1;
 
 export interface CalibrationAdjustment {
   criterion: MatchCriterion;
@@ -83,7 +81,8 @@ export function calibrateMatchWeights(
     .slice(0, CALIBRATION_MAX_ADJUSTED)
     .flatMap((entry) => {
       const from = current[entry.criterion];
-      const to = round2(Math.min(MAX_WEIGHT, from + CALIBRATION_STEP));
+      // אותה תקרה כמו מחוון ההגדרות — ראו MAX_MATCH_WEIGHT
+      const to = round2(Math.min(MAX_MATCH_WEIGHT, from + CALIBRATION_STEP));
       // כבר בתקרה — אין שינוי, ולכן אין מה לדווח
       if (to <= from) return [];
       return [{ criterion: entry.criterion, from, to, share: round2(entry.share) }];

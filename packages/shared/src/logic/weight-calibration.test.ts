@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_MATCH_WEIGHTS, type MatchWeights } from "./matching.js";
+import { DEFAULT_MATCH_WEIGHTS, MAX_MATCH_WEIGHT, type MatchWeights } from "./matching.js";
 import type { DismissReason } from "./match-feedback.js";
 import {
   CALIBRATION_STEP,
@@ -56,8 +56,14 @@ describe("calibrateMatchWeights", () => {
   });
 
   it("קריטריון שכבר בתקרה אינו משתנה — ובלי שינוי אין תוצאה", () => {
-    const weights = { ...base(), budget: 1 };
+    const weights = { ...base(), budget: MAX_MATCH_WEIGHT };
     expect(calibrateMatchWeights(weights, times("price", 12))).toBeNull();
+  });
+
+  it("צעד שחוצה את התקרה נחתך אליה — התקרה של המחוון במסך", () => {
+    const weights = { ...base(), budget: MAX_MATCH_WEIGHT - 0.02 };
+    const result = calibrateMatchWeights(weights, times("price", 12));
+    expect(result!.weights.budget).toBe(MAX_MATCH_WEIGHT);
   });
 
   it("התוצאה מעוגלת לשתי ספרות", () => {

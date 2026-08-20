@@ -106,6 +106,12 @@ export const HARD_MATCH_CRITERIA: readonly MatchCriterion[] = [
 
 /** המשקל המזערי לקריטריון פוסל. */
 export const MIN_HARD_WEIGHT = 0.05;
+/**
+ * תקרת משקל לקריטריון בודד — גם במחוון וגם בכיול האוטומטי.
+ * ערך אחד לשניהם: כיול שהיה חורג מטווח המחוון היה מציג במסך ערך
+ * שהמחוון לא יודע לייצג, ונגיעה בו הייתה "מקפיצה" את המשקל חזרה.
+ */
+export const MAX_MATCH_WEIGHT = 0.5;
 export type MatchWeights = Record<MatchCriterion, number>;
 
 /** תוויות בעברית — למסך ההגדרות ולהסברים. */

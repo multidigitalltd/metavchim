@@ -239,8 +239,19 @@ export class MatchRefreshService implements OnModuleInit, OnModuleDestroy {
      * ‎jsonb_set‎ מקונן ולא קריאה-שינוי-כתיבה — אותו נימוק כמו בשמירת
      * המשקלים הידנית: שמירה מקבילה של הגדרה אחרת לא נדרסת.
      * `matchWeightsChangedAt` הוא מה שגורם לסבב לרוץ מיד אחרי.
+     *
+     * הכתיבה מותנית (ביקורת Codex): בין קריאת התמונה בתחילת הסבב
+     * לכתיבה כאן מנהל יכול לשמור משקלים ידנית או לכבות את הכיול —
+     * וכתיבה עיוורת הייתה דורסת בדיוק את הבחירה הידנית שתמיד אמורה
+     * לגבור. ההשוואה על `matchWeightsChangedAt` (שמתעדכן בכל שמירה)
+     * ועל המתג בזמן הכתיבה; אפס שורות = מישהו הקדים אותנו — מוותרים
+     * בשקט והשבוע הבא יכייל מול המצב העדכני.
      */
-    await this.prisma.$executeRaw`
+    const snapshotStamp =
+      typeof settings["matchWeightsChangedAt"] === "string"
+        ? settings["matchWeightsChangedAt"]
+        : "";
+    const written = await this.prisma.$executeRaw`
       UPDATE tenants
       SET settings = jsonb_set(jsonb_set(jsonb_set(jsonb_set(
         COALESCE(settings, '{}'::jsonb),
@@ -249,7 +260,10 @@ export class MatchRefreshService implements OnModuleInit, OnModuleDestroy {
         '{matchWeightsCalibratedAt}', ${JSON.stringify(stamp)}::jsonb, true),
         '{matchWeightsCalibration}', ${JSON.stringify(calibrationState)}::jsonb, true)
       WHERE id = ${tenantId}
+        AND COALESCE(settings->>'matchWeightsChangedAt', '') = ${snapshotStamp}
+        AND COALESCE(settings->'autoTuneMatchWeights', 'true'::jsonb) <> 'false'::jsonb
     `;
+    if (written === 0) return false;
 
     const changes = result.adjusted
       .map(
