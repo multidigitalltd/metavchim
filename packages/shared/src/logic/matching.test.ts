@@ -41,16 +41,88 @@ describe("scoreMatch — מנוע ההתאמות", () => {
     expect(result.score).toBe(0);
   });
 
-  it("מעל התקציב ביותר מ-7% ⇒ מוחרג", () => {
+  it("מעל התקציב ביותר מרצועת 400 אלף ₪ ⇒ מוחרג", () => {
+    // תקציב 2.8M, מחיר 3.5M — סטייה של 700 אלף ₪ מעל הרצועה
     const result = scoreMatch({ ...baseProperty, priceAgorot: 350_000_000 }, baseBuyer);
     expect(result.excluded).toBe(true);
   });
 
-  it("עד 7% מעל התקציב ⇒ נשאר עם ניקוד חלקי (גמישות שוק)", () => {
+  it("מעל התקציב בתוך הרצועה ⇒ נשאר עם ניקוד חלקי (גמישות שוק)", () => {
+    // תקציב 2.8M, מחיר 2.95M — סטייה של 150 אלף ₪, בתוך הרצועה
     const result = scoreMatch({ ...baseProperty, priceAgorot: 295_000_000 }, baseBuyer);
     expect(result.excluded).toBe(false);
     expect(result.score).toBeLessThan(95);
     expect(result.score).toBeGreaterThan(50);
+  });
+
+  it("נמוך מהתקציב המסומן ביותר מהרצועה ⇒ מוחרג — סגמנט אחר", () => {
+    // תקציב 2.8M בלי מינימום מוצהר, מחיר 2.2M — 600 אלף ₪ מתחת
+    const result = scoreMatch({ ...baseProperty, priceAgorot: 220_000_000 }, baseBuyer);
+    expect(result.excluded).toBe(true);
+  });
+
+  it("מי שאמר רק „עד” — מחיר בתוך הרצועה מתחת הוא בתקציב מלא", () => {
+    // תקציב 2.8M בלי מינימום, מחיר 2.5M — בתוך הרצועה: לא עונשים
+    const result = scoreMatch({ ...baseProperty, priceAgorot: 250_000_000 }, baseBuyer);
+    expect(result.excluded).toBe(false);
+    const budget = result.breakdown.find((p) => p.criterion === "budget");
+    expect(budget?.score).toBe(1);
+  });
+
+  it("מינימום מוצהר — מתחתיו בתוך הרצועה ⇒ ניקוד חלקי, לא פסילה", () => {
+    const buyer: BuyerRequirements = { ...baseBuyer, budgetMinAgorot: 260_000_000 };
+    const result = scoreMatch({ ...baseProperty, priceAgorot: 250_000_000 }, buyer);
+    expect(result.excluded).toBe(false);
+    const budget = result.breakdown.find((p) => p.criterion === "budget");
+    expect(budget?.score).toBe(0.5);
+  });
+
+  it("מינימום מוצהר מזיז את הרצפה — הרצועה נמדדת ממנו", () => {
+    const buyer: BuyerRequirements = { ...baseBuyer, budgetMinAgorot: 200_000_000 };
+    // 1.7M — בתוך הרצועה מתחת למינימום של 2M
+    expect(
+      scoreMatch({ ...baseProperty, priceAgorot: 170_000_000 }, buyer).excluded,
+    ).toBe(false);
+    // 1.5M — מעבר לרצועה מתחת למינימום
+    expect(
+      scoreMatch({ ...baseProperty, priceAgorot: 150_000_000 }, buyer).excluded,
+    ).toBe(true);
+  });
+
+  it("בשכירות הרצועה יחסית (15%) ולא 400 אלף ₪", () => {
+    const buyer: BuyerRequirements = {
+      ...baseBuyer,
+      dealType: "rent",
+      budgetMaxAgorot: 700_000, // 7,000 ₪
+    };
+    const rental = { ...baseProperty, dealType: "rent" };
+    // 8,500 ₪ — יותר מ-15% מעל: מוחרג (רצועת המכירה הייתה בולעת הכל)
+    expect(
+      scoreMatch({ ...rental, priceAgorot: 850_000 }, buyer).excluded,
+    ).toBe(true);
+    // 7,800 ₪ — בתוך 15%: ניקוד חלקי
+    expect(
+      scoreMatch({ ...rental, priceAgorot: 780_000 }, buyer).excluded,
+    ).toBe(false);
+  });
+
+  it("בשכירות עם טווח — רצועת הרצפה נמדדת מהמינימום, לא מהתקרה", () => {
+    // טווח 5,000–10,000 ₪: הרצפה 5,000 − 15% = 4,250
+    const buyer: BuyerRequirements = {
+      ...baseBuyer,
+      dealType: "rent",
+      budgetMinAgorot: 500_000,
+      budgetMaxAgorot: 1_000_000,
+    };
+    const rental = { ...baseProperty, dealType: "rent" };
+    // 4,000 ₪ — מתחת לרצפה: מוחרג (רצועה מהתקרה הייתה מקבלת אותו)
+    expect(
+      scoreMatch({ ...rental, priceAgorot: 400_000 }, buyer).excluded,
+    ).toBe(true);
+    // 4,300 ₪ — בתוך רצועת הרצפה: ניקוד חלקי, לא פסילה
+    const near = scoreMatch({ ...rental, priceAgorot: 430_000 }, buyer);
+    expect(near.excluded).toBe(false);
+    expect(near.breakdown.find((p) => p.criterion === "budget")?.score).toBe(0.5);
   });
 
   it("דרישת חובה שמופרת במפורש ⇒ מוחרג עם הסבר", () => {
@@ -82,6 +154,19 @@ describe("scoreMatch — מנוע ההתאמות", () => {
     expect(result.excluded).toBe(false);
     const roomsPart = result.breakdown.find((p) => p.criterion === "rooms");
     expect(roomsPart?.score).toBe(0.5);
+  });
+
+  it("חדרים מחוץ לטווח ביותר מחצי חדר ⇒ מוחרג — קריטריון פוסל", () => {
+    // הטווח 3.5–4.5; נכס 6 חדרים אינו מה שהקונה ביקש
+    const result = scoreMatch({ ...baseProperty, rooms: 6 }, baseBuyer);
+    expect(result.excluded).toBe(true);
+  });
+
+  it("נכס בלי מספר חדרים אינו נפסל — לא ידוע אינו מחוץ לטווח", () => {
+    const noRooms = { ...baseProperty };
+    delete noRooms.rooms;
+    const result = scoreMatch(noRooms, baseBuyer);
+    expect(result.excluded).toBe(false);
   });
 
   it("הפירוט (breakdown) מסביר כל קריטריון שנבחן", () => {
@@ -351,7 +436,8 @@ describe("סף המידע — כרטיס ריק אינו נכנס להתאמות
       neighborhoods: [],
       dealType: "sale",
       propertyTypes: [],
-      budgetMaxAgorot: 350_000_000,
+      // בתוך רצועת התקציב של הנכס (2.65M) — הבדיקה על סף המידע, לא על הרצועה
+      budgetMaxAgorot: 280_000_000,
       features: {},
     };
     expect(scoreMatch(baseProperty, twoCriteria).insufficientData).toBe(true);

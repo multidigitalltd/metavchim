@@ -38,7 +38,7 @@ describe("resolveMatchWeights", () => {
   });
 
   it("קריטריון פוסל אינו יורד מתחת לרצפה", () => {
-    const out = resolveMatchWeights({ location: 0, budget: 0, features_must: 0 });
+    const out = resolveMatchWeights({ location: 0, budget: 0, rooms: 0, features_must: 0 });
     for (const key of HARD_MATCH_CRITERIA) {
       expect(out[key]).toBe(MIN_HARD_WEIGHT);
     }

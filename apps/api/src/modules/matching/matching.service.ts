@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
+  BUDGET_BAND_AGOROT,
+  budgetBandAgorot,
   BuyerRequirementsSchema,
   boundingBox,
   locationNameVariants,
@@ -297,8 +299,21 @@ export class MatchingService {
               OR: [
                 { budgetMaxAgorot: null },
                 {
+                  /*
+                   * רחב לפחות כמו רצועת התקציב של המנוע: קונה נשאר
+                   * מועמד אם תקרת התקציב שלו בתוך הרצועה מתחת למחיר.
+                   * רצועת המכירה (400 אלף ₪) רחבה מרצועת השכירות
+                   * היחסית בכל מחיר ריאלי — ולכן בטוחה לשני הסוגים;
+                   * המנוע עצמו מדייק לפי סוג העסקה.
+                   */
                   budgetMaxAgorot: {
-                    gte: BigInt(Math.floor(Number(property.priceAgorot) / 1.07)),
+                    gte: BigInt(
+                      Math.max(
+                        0,
+                        Math.floor(Number(property.priceAgorot)) -
+                          BUDGET_BAND_AGOROT,
+                      ),
+                    ),
                   },
                 },
               ],
@@ -408,8 +423,34 @@ export class MatchingService {
           ...(requirements.budgetMaxAgorot === undefined
             ? {}
             : {
+                /*
+                 * רצועת התקציב של המנוע, בשני הכיוונים: התקרה היא
+                 * התקציב + הרצועה, והרצפה — המינימום המוצהר (או
+                 * התקציב עצמו כשאין) פחות רצועה שנמדדת **מהרצפה
+                 * עצמה** (ביקורת Codex) — אותו חישוב כמו במנוע, כדי
+                 * ש-SQL והניקוד יישארו מיושרים. קונה של 3.5 מיליון
+                 * לא מקבל מועמדים של 2.5 מיליון כבר בסינון הגס.
+                 */
                 priceAgorot: {
-                  lte: BigInt(Math.floor(requirements.budgetMaxAgorot * 1.07)),
+                  lte: BigInt(
+                    requirements.budgetMaxAgorot +
+                      budgetBandAgorot(
+                        requirements.budgetMaxAgorot,
+                        requirements.dealType,
+                      ),
+                  ),
+                  gte: BigInt(
+                    Math.max(
+                      0,
+                      (requirements.budgetMinAgorot ??
+                        requirements.budgetMaxAgorot) -
+                        budgetBandAgorot(
+                          requirements.budgetMinAgorot ??
+                            requirements.budgetMaxAgorot,
+                          requirements.dealType,
+                        ),
+                    ),
+                  ),
                 },
               }),
         },
