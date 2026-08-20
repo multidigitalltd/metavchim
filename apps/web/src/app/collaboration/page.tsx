@@ -80,7 +80,6 @@ import {
   type ReferralConfirmationValue,
 } from "./client-rating";
 import { BuyCredits } from "./buy-credits";
-import { PayoutPanel } from "./payout-panel";
 
 /**
  * רשת שיתופי הפעולה (אפיון §11-12).
@@ -2111,12 +2110,6 @@ export default function CollaborationPage() {
               packages={pricing.packages}
             />
           ) : null}
-          {/*
-            היתרה הכספית לצד יתרת הקרדיטים, ולא במסך אחר: אלה שתי
-            תוצאות של אותה פעולה — הפניה שנמכרה — ומי שמחפש את
-            הכסף שלו מחפש אותו כאן.
-          */}
-          <PayoutPanel />
           {leadsFailed ? (
             <LoadError
               message="לא הצלחנו לטעון את לוח ההפניות"

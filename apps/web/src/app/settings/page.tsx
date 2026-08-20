@@ -10,6 +10,7 @@ import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { IconKey, IconLock } from "../icons";
 import { BillingSection } from "./billing-section";
+import { PayoutPanel } from "./payout-panel";
 import { DeleteAccountSection } from "./delete-account-section";
 import { ExportSection } from "./export-section";
 import { LeadWebhookSection } from "./lead-webhook-section";
@@ -397,6 +398,14 @@ export default function SettingsPage() {
                 </span>
                 <BillingSection />
               </section>
+              {/*
+                היתרה הכספית ליד המנוי והתשלומים ולא במסך השיתופים
+                (בקשת המשתמש): משיכת כסף היא עניין של ניהול המשרד —
+                מי שמושך הוא בעל המשרד, לא הסוכן שגלש בפיד הרשת.
+                הכרטיס עוטף את עצמו כי כשאין יתרה ואין היסטוריה הוא
+                אינו מוצג כלל — עטיפה כאן הייתה נשארת כקופסה ריקה.
+              */}
+              <PayoutPanel />
             </>
           ) : null}
 
