@@ -49,6 +49,7 @@ import { ExclusivityService } from "../exclusivity/exclusivity.service";
 import { collabRecipient, sendCollabMail } from "./collab-mail";
 import { DealRoomService } from "./deal-room.service";
 import { assertNetworkQuota } from "./network-quota";
+import { notifyProposerDeclined } from "./decline-notify";
 import { officeBadges, type OfficeBadge } from "./office-names";
 import {
   networkPrice,
@@ -1638,9 +1639,12 @@ export class CollaborationService {
   /**
    * עדכון למשרד שהציע נכס — ההצעה נדחתה.
    *
-   * Best-effort: התגובה כבר נרשמה, וכשל בשליחה נרשם ביומן בלבד.
+   * **התראה במערכת + מייל.** ההתראה היא הערוץ המובטח: מייל הוא
+   * Best-effort, וכשהוא כבוי או נכשל הסיבה שנכתבה למציע לא הייתה
+   * מגיעה אליו בשום מקום (ביקורת Codex). התגובה עצמה כבר נרשמה,
+   * ולכן כשל בשליחה נרשם ביומן בלבד.
    */
-  private async mailOfferDeclined(
+  private async informOfferDeclined(
     offerId: string,
     note: string | null,
   ): Promise<void> {
@@ -1657,6 +1661,13 @@ export class CollaborationService {
         collabRecipient(this.prisma, offer.fromTenantId, offer.createdBy),
         officeBadges(this.prisma, this.storage, [tenantId]),
       ]);
+      await notifyProposerDeclined(this.prisma, {
+        proposerTenantId: offer.fromTenantId,
+        proposerUserId: offer.createdBy,
+        decliningOffice: badges.get(tenantId)?.name ?? "המשרד השני",
+        what: "הנכס שהצעתם ברשת",
+        note,
+      });
       await sendCollabMail(this.email, to, {
         subject: "עדכון על הנכס שהצעתם ברשת",
         heading: "ההצעה נסגרה",
@@ -1821,6 +1832,13 @@ export class CollaborationService {
       response === "declined" && note !== undefined && note !== ""
         ? note
         : null;
+    /*
+     * האם הקריאה הזו היא שביצעה את המעבר — או ניסיון חוזר על הצעה
+     * שכבר נענתה. ההבחנה קובעת אם מודיעים למציע (ביקורת Codex):
+     * בקריאה חוזרת ההודעה כבר נשלחה עם הסיבה שנשמרה, ושליחה נוספת
+     * עם סיבה מקומית שלא נשמרה הייתה מודיעה פעמיים — ובנוסחים שונים.
+     */
+    let transitioned = false;
     await this.prisma.withTenant(async (tx) => {
       const result = await tx.coopOffer.updateMany({
         where: { id, toTenantId: tenantId, status: "sent" },
@@ -1850,6 +1868,7 @@ export class CollaborationService {
         if (!already) throw new NotFoundException("הצעת שיתוף לא נמצאה");
         return;
       }
+      transitioned = true;
       await this.audit.record(tx, {
         action: `collaboration.${response}`,
         entityType: "coop_offer",
@@ -1867,7 +1886,7 @@ export class CollaborationService {
      * חלק מהשירות (בקשת המשתמש).
      */
     if (response === "declined") {
-      await this.mailOfferDeclined(id, declineNote);
+      if (transitioned) await this.informOfferDeclined(id, declineNote);
       return { dealId: null };
     }
     return { dealId: await this.dealRoom.openFromOffer(id) };

@@ -28,6 +28,7 @@ import { ContactsService } from "../contacts/contacts.service";
 import { collabRecipient, sendCollabMail } from "./collab-mail";
 import { DealRoomService } from "./deal-room.service";
 import { assertNetworkQuota } from "./network-quota";
+import { notifyProposerDeclined } from "./decline-notify";
 import { officeBadges, type OfficeBadge } from "./office-names";
 import {
   networkPrice,
@@ -919,6 +920,8 @@ export class ListingsService {
       response === "declined" && note !== undefined && note !== ""
         ? note
         : null;
+    // האם הקריאה הזו ביצעה את המעבר — ראו `respondToCoopOffer`
+    let transitioned = false;
     await this.prisma.withTenant(async (tx) => {
       const result = await tx.coopInterest.updateMany({
         where: { id, toTenantId: tenantId, status: "sent" },
@@ -941,6 +944,7 @@ export class ListingsService {
         if (!already) throw new NotFoundException("פנייה לא נמצאה");
         return;
       }
+      transitioned = true;
       await this.audit.record(tx, {
         action: `collaboration.interest_${response}`,
         entityType: "coop_interest",
@@ -948,17 +952,56 @@ export class ListingsService {
       });
     });
     /*
-     * הצד שהציע מקבל עדכון בשני המקרים.
+     * הצד שהציע מקבל עדכון בשני המקרים — אבל **רק כשהמעבר קרה
+     * בפועל**: קריאה חוזרת על פנייה שכבר נענתה אינה מודיעה שוב,
+     * ולא שולחת סיבה מקומית שלא נשמרה (ביקורת Codex).
      *
      * דחייה בלי הודעה משאירה מתווך שממתין לתשובה שלא תגיע, וכשזה
      * חוזר פעמיים הוא מפסיק להציע. „לא מתאים” שנאמר מהר הוא חלק
      * מהשירות, לא היעדרו (בקשת המשתמש).
      */
-    await this.mailInterestResponse(id, response, declineNote);
+    if (transitioned) {
+      if (response === "declined") await this.notifyInterestDeclined(id, declineNote);
+      await this.mailInterestResponse(id, response, declineNote);
+    }
 
     // אחרי ה-Commit: פתיחת החדר נוגעת בשני דיירים ושולחת מייל
     if (response !== "interested") return { dealId: null };
     return { dealId: await this.dealRoom.openFromInterest(id) };
+  }
+
+  /**
+   * התראה במערכת למשרד שהציע את הקונה — הפנייה נדחתה, ולמה.
+   *
+   * הערוץ המובטח לסיבת הדחייה: המייל למטה הוא Best-effort, וכשהוא
+   * כבוי הסיבה לא הייתה מגיעה למציע בשום מקום (ביקורת Codex).
+   */
+  private async notifyInterestDeclined(
+    interestId: string,
+    note: string | null,
+  ): Promise<void> {
+    try {
+      const tenantId = TenantContext.current().tenantId;
+      const interest = await this.prisma.withTenant((tx) =>
+        tx.coopInterest.findFirst({
+          where: { id: interestId, toTenantId: tenantId },
+          select: { fromTenantId: true, createdBy: true },
+        }),
+      );
+      if (!interest) return;
+      const badges = await officeBadges(this.prisma, this.storage, [tenantId]);
+      await notifyProposerDeclined(this.prisma, {
+        proposerTenantId: interest.fromTenantId,
+        proposerUserId: interest.createdBy,
+        decliningOffice: badges.get(tenantId)?.name ?? "המשרד השני",
+        what: "הקונה שהצעתם ברשת",
+        note,
+      });
+    } catch (error: unknown) {
+      this.logger.warn(
+        `התראה על דחיית פנייה (${interestId}) לא נכתבה: ${String(error)}`,
+      );
+    }
   }
 
   /**
