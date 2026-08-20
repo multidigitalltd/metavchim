@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { featureLabel, FREE_PRICE_LABEL } from "@metavchim/shared";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { clearSessionCache } from "@/lib/session-cache";
 import { AuthShell } from "../auth-shell";
 import { Notice } from "../notice";
 
@@ -137,6 +138,7 @@ export default function SignupPage(): React.JSX.Element {
        * `replace` ולא `push`: חזרה אחורה אל טופס ההרשמה אחרי שהמשרד
        * כבר נפתח הייתה מובילה לניסיון הרשמה שני עם אותו אימייל.
        */
+      clearSessionCache();
       router.replace("/setup");
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "ההרשמה נכשלה — נסו שוב");

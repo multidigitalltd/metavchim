@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Capability } from "@metavchim/shared";
-import { apiGet, ApiError } from "./api";
+import { ApiError } from "./api";
+import { cachedUser, clearSessionCache, fetchMe } from "./session-cache";
 
 export interface AuthUser {
   id: string;
@@ -21,6 +22,10 @@ export interface AuthUser {
    * בחוסר בשמרנות (ברירת מחדל: אין הרשאה).
    */
   capabilities?: string[];
+  /** סוף תקופת הניסיון; null = אין תפוגה. */
+  trialEndsAt?: string | null;
+  /** התקופה נגמרה — רק מסך המנוי פתוח. */
+  billingOnly?: boolean;
 }
 
 /**
@@ -38,28 +43,42 @@ export function can(user: AuthUser | null, capability: Capability): boolean {
   return user?.capabilities?.includes(capability) ?? false;
 }
 
-/** שומר עמוד מוגן: בלי Session תקף — הפניה ל-/login. */
+/**
+ * שומר עמוד מוגן: בלי Session תקף — הפניה ל-/login.
+ *
+ * ## למה `loading` מתחיל ב-false כשהזהות במטמון
+ *
+ * המסכים כתובים כ-‎`if (authLoading) return;`‎ לפני שהם מושכים את
+ * הנתונים שלהם, ולכן `loading` שמתחיל תמיד ב-true מכריח סבב רינדור
+ * נוסף לפני שהבקשה האמיתית יוצאת — גם כשהתשובה כבר ידועה. בניווט
+ * בין מסכים זו ההמתנה המיותרת היחידה שנשארה אחרי המטמון.
+ *
+ * ראו `session-cache.ts` לגבי התפוגה והניקוי.
+ */
 export function useRequireAuth(): { user: AuthUser | null; loading: boolean } {
   const router = useRouter();
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<AuthUser | null>(() => cachedUser());
+  const [loading, setLoading] = useState(() => cachedUser() === null);
 
   useEffect(() => {
     let cancelled = false;
-    apiGet<{ user: AuthUser }>("/auth/me")
-      .then((res) => {
+    fetchMe()
+      .then((me) => {
         if (cancelled) return;
         // סיסמה זמנית — חובה להחליף לפני כל פעולה אחרת (ביקורת Codex)
-        if (res.user.mustChangePassword && window.location.pathname !== "/change-password") {
+        if (me.mustChangePassword && window.location.pathname !== "/change-password") {
           router.replace("/change-password");
           return;
         }
-        setUser(res.user);
+        setUser(me);
         setLoading(false);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
         if (err instanceof ApiError && err.status === 401) {
+          // Session שפג — המטמון חייב להתרוקן, אחרת המשתמש הבא
+          // באותה לשונית יקבל זהות ישנה מדקה שעברה
+          clearSessionCache();
           router.replace("/login");
         }
         setLoading(false);

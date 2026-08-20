@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet, apiPost, ApiError } from "@/lib/api";
+import { clearSessionCache } from "@/lib/session-cache";
 import { AuthShell } from "../auth-shell";
 import { IconMail, LogoGoogle } from "../icons";
 import { Notice } from "../notice";
@@ -71,6 +72,8 @@ function LoginForm() {
         setSubmitting(false);
         return;
       }
+      /* הזהות במטמון היא של מי שהיה מחובר קודם — ראו session-cache */
+      clearSessionCache();
       router.replace(result.user.mustChangePassword ? "/change-password" : "/");
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "שגיאה בהתחברות — נסו שוב");
@@ -88,6 +91,7 @@ function LoginForm() {
         "/auth/login/verify",
         { otpToken, code },
       );
+      clearSessionCache();
       router.replace(user.mustChangePassword ? "/change-password" : "/");
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "האימות נכשל — נסו שוב");

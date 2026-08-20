@@ -807,7 +807,7 @@ export default function CollaborationPage() {
             />
           ) : null}
           <ul
-            className="flex list-none flex-col gap-3 p-0"
+            className="mv-net-grid"
             aria-label="הצעות שהתקבלו על הביקושים שלך"
           >
             {incoming.map((offer) => (
@@ -894,7 +894,7 @@ export default function CollaborationPage() {
                 {interests.length})
               </h2>
               <ul
-                className="flex list-none flex-col gap-3 p-0"
+                className="mv-net-grid"
                 aria-labelledby="interests-heading"
               >
                 {interests.map((interest) => (
@@ -1086,7 +1086,7 @@ export default function CollaborationPage() {
               <h3 className="mb-2 mt-4 text-[16px] font-semibold">
                 <IconUpload s={15} /> ההפניות שפרסמתי
               </h3>
-              <ul className="mb-5 flex list-none flex-col gap-3 p-0">
+              <ul className="mv-net-grid mb-5">
                 {myReferrals.map((lead) => (
                   <li key={lead.id} className="mv-net-card mv-net-card--mine">
                     <div className="mv-net-head">
@@ -1166,7 +1166,7 @@ export default function CollaborationPage() {
               <h3 className="mb-2 text-[16px] font-semibold">
                 <IconDownload s={15} /> הפניות שקלטתי
               </h3>
-              <ul className="mb-5 flex list-none flex-col gap-3 p-0">
+              <ul className="mv-net-grid mb-5">
                 {receivedReferrals.map((lead) => (
                   <li key={lead.id} className="mv-net-card">
                     <div className="mv-net-head">
@@ -1207,7 +1207,7 @@ export default function CollaborationPage() {
               <IconGlobe s={15} /> הפניות פתוחות ברשת
             </h3>
           ) : null}
-          <ul className="flex list-none flex-col gap-3 p-0">
+          <ul className="mv-net-grid">
             {openReferrals.map((lead) => (
               <li key={lead.id} className="mv-net-card">
                 <div className="mv-net-head">
@@ -1430,7 +1430,7 @@ export default function CollaborationPage() {
                   </p>
                 </div>
               ) : (
-                <ul className="flex list-none flex-col gap-3.5 p-0">
+                <ul className="mv-net-grid">
                   {demands.map((demand) => (
                     <li
                       key={demand.id}
@@ -1745,7 +1745,7 @@ export default function CollaborationPage() {
                   </p>
                 </div>
               ) : (
-                <ul className="flex list-none flex-col gap-3.5 p-0">
+                <ul className="mv-net-grid">
                   {listings.map((listing) => (
                     <li
                       key={listing.id}

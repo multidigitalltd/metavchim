@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiPost, ApiError } from "@/lib/api";
+import { clearSessionCache } from "@/lib/session-cache";
 import { AuthShell } from "../auth-shell";
 import { Notice } from "../notice";
 
@@ -28,6 +29,12 @@ export default function ChangePasswordPage() {
         currentPassword: String(f.get("currentPassword")),
         newPassword,
       });
+      /*
+       * בלי הניקוי הזה נוצרת לולאה: המטמון עדיין נושא
+       * `mustChangePassword: true`, ולכן המסך הבא מפנה חזרה לכאן —
+       * עד שהתפוגה חולפת. ראו session-cache.
+       */
+      clearSessionCache();
       router.replace("/");
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "החלפת הסיסמה נכשלה");

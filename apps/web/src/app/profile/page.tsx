@@ -28,6 +28,7 @@ import {
 } from "@/lib/a11y-prefs";
 import { disablePush, enablePush, readPushState, type PushState } from "@/lib/push";
 import { useRequireAuth } from "@/lib/use-auth";
+import { clearSessionCache } from "@/lib/session-cache";
 import { ThemeToggle } from "../theme-toggle";
 import { PlanSection } from "../settings/plan-section";
 import { Notice } from "../notice";
@@ -162,6 +163,9 @@ export default function ProfilePage() {
   }
 
   async function logout(): Promise<void> {
+    // המטמון קודם: המעטפת נשארת טעונה בין משתמשים, ובלי הניקוי
+    // המשתמש הבא באותה לשונית יקבל את הזהות של הקודם עד לתפוגה
+    clearSessionCache();
     try {
       await apiPost("/auth/logout", {});
     } finally {
