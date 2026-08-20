@@ -79,7 +79,16 @@ function NumberField({
   );
 }
 
-export function CreditEconomySection() {
+/**
+ * `refreshToken` — כשעמלת ההפניה נשמרת **בסקציה אחרת.**
+ *
+ * `feeCreditsPercent` נערך ב-`PlatformSettingsSection` ולא כאן, ולכן
+ * שמירה שם רועננה רק את אותה סקציה: שורת „נשאר לפלטפורמה” והאזהרה
+ * המשיכו להציג את המצב הישן עד רענון הדף — כלומר הסתירו את ההפסד
+ * בדיוק ברגע שבו הוא נוצר, וזה הרגע היחיד שהאזהרה נועדה לו
+ * (ביקורת Codex).
+ */
+export function CreditEconomySection({ refreshToken = 0 }: { refreshToken?: number }) {
   const [economy, setEconomy] = useState<CreditEconomy | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [packages, setPackages] = useState<CreditPackage[]>([]);
@@ -102,7 +111,7 @@ export function CreditEconomySection() {
         });
       })
       .catch(() => setError("טעינת ההגדרות נכשלה"));
-  }, []);
+  }, [refreshToken]);
 
   /*
    * ריק נשלח כמחרוזת ריקה ולא כאפס — השרת מבין אותה כ"חזרה לברירת

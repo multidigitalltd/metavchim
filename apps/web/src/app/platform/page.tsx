@@ -377,6 +377,12 @@ export default function PlatformPage() {
   const [created, setCreated] = useState<{ ownerEmail: string; tempPassword: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [planOptions, setPlanOptions] = useState<PlanOption[]>([]);
+  /*
+   * אחוז העמלה נשמר במסך אחד ומוצג בשני. בלי המונה הזה החישוב
+   * והאזהרה במסך כלכלת הקרדיטים היו ממשיכים להראות את האחוז הישן עד
+   * לרענון — כלומר מסתירים את ההפסד בדיוק ברגע שנוצר.
+   */
+  const [referralFeeVersion, setReferralFeeVersion] = useState(0);
 
   function load() {
     apiGet<AgencyRow[]>("/platform/agencies")
@@ -627,10 +633,10 @@ export default function PlatformPage() {
       <PlansSection onCatalogChange={loadPlanOptions} />
       <CouponsSection />
       <LeadPricesSection />
-      <CreditEconomySection />
+      <CreditEconomySection refreshToken={referralFeeVersion} />
       <PaymentsSection />
 
-      <PlatformSettingsSection />
+      <PlatformSettingsSection onReferralFeeChange={() => setReferralFeeVersion((v) => v + 1)} />
 
       {/*
         צמוד להגדרות הספקים: שתיהן עונות על "חיברתי ספק ולא קורה

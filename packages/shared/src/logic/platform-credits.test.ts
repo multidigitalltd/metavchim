@@ -144,28 +144,52 @@ describe("platformCreditsNet", () => {
 });
 
 describe("creditPricingWarning", () => {
+  const economy = (fee: number, bonus = 20) => ({
+    ...DEFAULT_CREDIT_ECONOMY,
+    feeCreditsPercent: fee,
+    creditBonusPercent: bonus,
+  });
+
   it("ברירות המחדל אינן מייצרות אזהרה", () => {
     expect(creditPricingWarning(DEFAULT_CREDIT_ECONOMY)).toBeNull();
   });
 
-  /*
-   * זו הבדיקה שמגדירה את הכלל: העמלה חייבת לעבור את
-   * ‎bonus / (1 + bonus)‎, שהוא 16.67% מול בונוס של 20% — כלומר 17%
-   * באחוזים שלמים.
-   */
-  it("16% מול בונוס 20% מזהיר, 17% כבר לא", () => {
-    const at16 = creditPricingWarning({ feeCreditsPercent: 16, creditBonusPercent: 20 });
-    expect(at16).not.toBeNull();
-    expect(at16).toContain("17%");
-    expect(creditPricingWarning({ feeCreditsPercent: 17, creditBonusPercent: 20 })).toBeNull();
+  it("הצירוף הישן — 10% מול 20% — מזהיר", () => {
+    expect(creditPricingWarning(economy(10))).not.toBeNull();
   });
 
-  it("הצירוף הישן — 10% מול 20% — מזהיר", () => {
-    expect(creditPricingWarning({ feeCreditsPercent: 10, creditBonusPercent: 20 })).not.toBeNull();
+  /*
+   * הבדיקה שהגרסה הרציפה נכשלה בה.
+   *
+   * ‎b / (1 + b)‎ אומר ש-17% „מספיק”, אבל העיגול של `settleReferral`
+   * מפיל 124 מתוך 500 התמורות החוקיות להפסד, והממוצע יוצא 0.008
+   * קרדיט להפניה. בדיקה שמודדת את הגבייה האמיתית רואה את זה; בדיקה
+   * שמחשבת אחוזים לא (ביקורת Codex).
+   */
+  it("17% מול בונוס 20% — עובר את הנוסחה הרציפה ובכל זאת מזהיר", () => {
+    const warning = creditPricingWarning(economy(17));
+    expect(warning).not.toBeNull();
+    expect(warning).toContain("רעש עיגול");
+  });
+
+  it("20% ומעלה מול בונוס 20% — תקין", () => {
+    expect(creditPricingWarning(economy(20))).toBeNull();
+    expect(creditPricingWarning(economy(25))).toBeNull();
+  });
+
+  /*
+   * העיגול לטובת המפנה מוותר על קרדיט בתמורות הקטנות ביותר — גם
+   * בעמלה של 40%. תנאי של „אף תמורה לא מפסידה” היה מזהיר תמיד,
+   * ואזהרה שדולקת תמיד היא אזהרה שמפסיקים לקרוא.
+   */
+  it("עמלה גבוהה אינה מזהירה למרות שתמורות זעירות עדיין מפסידות", () => {
+    expect(creditPricingWarning(economy(40))).toBeNull();
+    const tiny = settleReferral(1, "credits", economy(40));
+    expect(tiny.platformFeeCredits - referralBonusCredits(tiny)).toBeLessThan(0);
   });
 
   /* בלי בונוס אין מה לאזן — כל עמלה חיובית מרוויחה */
   it("בונוס אפס אינו מזהיר גם בעמלה נמוכה", () => {
-    expect(creditPricingWarning({ feeCreditsPercent: 1, creditBonusPercent: 0 })).toBeNull();
+    expect(creditPricingWarning(economy(1, 0))).toBeNull();
   });
 });

@@ -33,6 +33,9 @@
  * שהונפק — ראו `platformCreditsNet`.
  */
 
+import { MAX_REFERRAL_PRICE, MIN_REFERRAL_PRICE } from "./lead-referral.js";
+import { settleReferral, type CreditEconomy } from "./credit-economy.js";
+
 /** סוגי התנועה בספר הפלטפורמה. */
 export type PlatformCreditKind = "referral_fee" | "burn" | "adjustment";
 
@@ -167,35 +170,46 @@ export function platformCreditsNet(input: {
 /**
  * האם התמחור של מסלול הקרדיטים מפסיד — ואם כן, למה.
  *
- * ## נקודת האיזון
+ * ## למה זה מודד ולא מחשב
  *
- * הפלטפורמה גובה ‎fee‎ מהמחיר ומנפיקה ‎bonus‎ **על הנטו**, ולכן היא
- * מרוויחה רק כאשר ‎p·f ≥ (p − p·f)·b‎, כלומר
- * **‎f ≥ b / (1 + b)‎**. מול בונוס של 20% זה ~16.7%.
+ * הגרסה הראשונה השוותה אחוזים רציפים: ‎f ≥ b / (1 + b)‎. הנוסחה
+ * נכונה בגבול, אבל `settleReferral` **מעגל** — רצפה על העמלה ותקרה
+ * על הבונוס — ולכן היא הכריזה „תקין” על תמחור שמפסיד בפועל. בעמלה
+ * 17% מול בונוס 20% ההפסד הוא ב-124 מתוך 500 התמורות החוקיות, והבדיקה
+ * הרציפה לא ראתה אותו (ביקורת Codex).
  *
- * ## למה זה חייב להיות על המסך
+ * כאן נקראת **אותה פונקציה שגובה**, על כל טווח התמורות החוקי. אין
+ * דרך שהבדיקה תסכים עם עצמה ותחלוק על הגבייה.
  *
- * שני האחוזים נערכים בשני שדות סמוכים, ואף אחד מהם אינו נראה שגוי
- * לבדו: 10% עמלה זה סביר, 20% בונוס זה סביר, והצירוף שלהם מפסיד
- * בכל הפניה. זו הייתה ברירת המחדל של המערכת עד עכשיו, ואיש לא ראה
- * זאת כי לא היה מספר שמראה את המכפלה.
+ * ## למה ממוצע ולא „אף תמורה לא מפסידה”
  *
- * מוחזר `null` כשהתמחור תקין — כדי שהמסך יציג אזהרה רק כשיש מה
- * לומר.
+ * העיגול לטובת המפנה מוותר על שבר קרדיט בתמורות הקטנות ביותר, וזה
+ * מכוון ומתועד. גם בעמלה של 40% ארבע התמורות הראשונות מפסידות קרדיט
+ * אחד — תנאי של „אף אחת” היה מזהיר תמיד, ואזהרה שדולקת תמיד היא
+ * אזהרה שמפסיקים לקרוא.
+ *
+ * הסף הוא **קרדיט שלם בממוצע**: תמחור שמניב פחות מזה אינו עמלה אלא
+ * רעש עיגול.
  */
-export function creditPricingWarning(economy: {
-  feeCreditsPercent: number;
-  creditBonusPercent: number;
-}): string | null {
-  const { feeCreditsPercent: fee, creditBonusPercent: bonus } = economy;
-  if (bonus <= 0) return null;
-  // ‎b / (1 + b)‎ באחוזים שלמים, מעוגל כלפי מעלה — עמלה חייבת לעבור אותה
-  const breakEven = Math.ceil(bonus / (1 + bonus / 100));
-  if (fee * (100 + bonus) >= bonus * 100) return null;
+export function creditPricingWarning(economy: CreditEconomy): string | null {
+  if (economy.creditBonusPercent <= 0) return null;
+
+  let total = 0;
+  let prices = 0;
+  for (let price = MIN_REFERRAL_PRICE; price <= MAX_REFERRAL_PRICE; price += 1) {
+    const settlement = settleReferral(price, "credits", economy);
+    total += settlement.platformFeeCredits - referralBonusCredits(settlement);
+    prices += 1;
+  }
+  const mean = total / prices;
+  if (mean >= 1) return null;
+
   return (
-    `במסלול הקרדיטים העמלה (${fee}%) נמוכה מנקודת האיזון מול הבונוס ` +
-    `(${bonus}%): כל הפניה מנפיקה יותר קרדיטים משהיא גובה, ומגדילה את ` +
-    `ההתחייבות של הפלטפורמה. נדרשת עמלה של ${breakEven}% לפחות.`
+    `במסלול הקרדיטים העמלה (${economy.feeCreditsPercent}%) נמוכה מדי מול ` +
+    `הבונוס (${economy.creditBonusPercent}%): בממוצע על כל התמורות ` +
+    `החוקיות נשארים לפלטפורמה ${mean.toFixed(1)} קרדיט להפניה. ` +
+    `${mean < 0 ? "כל הפניה מגדילה את ההתחייבות שלה." : "זה רעש עיגול ולא עמלה."} ` +
+    `העלו את העמלה או הורידו את הבונוס.`
   );
 }
 

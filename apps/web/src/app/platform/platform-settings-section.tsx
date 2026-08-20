@@ -54,7 +54,17 @@ function StatusBadge({ configured, source }: { configured: boolean; source: stri
   );
 }
 
-export function PlatformSettingsSection() {
+/**
+ * `onReferralFeeChange` — עמלת ההפניה נערכת כאן אבל מוצגת גם
+ * ב-`CreditEconomySection` (היא `feeCreditsPercent` שלה). שמירה כאן
+ * חייבת לרענן גם שם, אחרת האזהרה על תמחור מפסיד מציגה את המצב
+ * הקודם בדיוק ברגע שנוצר ההפסד.
+ */
+export function PlatformSettingsSection({
+  onReferralFeeChange,
+}: {
+  onReferralFeeChange?: () => void;
+} = {}) {
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -235,6 +245,12 @@ export function PlatformSettingsSection() {
         referralFeePercent: text === "" ? "" : Number(text),
       });
       await load();
+      /*
+       * העמלה הזו היא `feeCreditsPercent` של כלכלת הרשת, שמוצגת
+       * בסקציה אחרת. בלי ההודעה הזו האזהרה שם נשארת על המצב הישן
+       * עד רענון הדף.
+       */
+      onReferralFeeChange?.();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "שמירת העמלה נכשלה");
     } finally {
