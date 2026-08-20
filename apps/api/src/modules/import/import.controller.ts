@@ -174,6 +174,7 @@ export class ImportController {
     @Body(new ZodValidationPipe(ImportEnvelopeSchema)) body: z.infer<typeof ImportEnvelopeSchema>,
   ): Promise<ImportResult> {
     const failed: ImportResult["failed"] = [];
+    const warnings: ImportResult["warnings"] = [];
     let created = 0;
 
     for (const [index, rawRow] of body.rows.entries()) {
@@ -195,18 +196,28 @@ export class ImportController {
           status,
           ...fields
         } = parsed.data;
+        /*
+         * בעל הנכס נקשר רק כששני הפרטים בקובץ **והטלפון תקין**:
+         * `findOrCreateByPhone` מזהה אדם לפי גיבוב הטלפון, וערך לא
+         * מנורמל היה יוצר איש קשר כפול לבעלים קיים (ביקורת Codex).
+         * טלפון פסול אינו מפיל את הנכס — הוא נקלט בלי הקישור,
+         * והאזהרה אומרת למתווך בדיוק מה להשלים.
+         */
+        const ownerPhoneValid =
+          ownerPhone !== undefined && PhoneSchema.safeParse(ownerPhone).success;
+        if (ownerName !== undefined && ownerPhone !== undefined && !ownerPhoneValid) {
+          warnings.push({
+            row: index + 1,
+            warning: "טלפון בעל הנכס אינו מספר ישראלי תקין — הנכס נקלט בלי קישור לבעלים",
+          });
+        }
         await this.properties.createForImport({
           fields,
           marketingTitle,
           marketingDescription,
           internalNotes,
           status,
-          /*
-           * בעל הנכס נקשר רק כששני הפרטים בקובץ: `findOrCreateByPhone`
-           * מזהה אדם לפי הטלפון, ושם בלי טלפון היה יוצר איש קשר חדש
-           * בכל שורה — כפילויות במקום קישור.
-           */
-          ...(ownerName !== undefined && ownerPhone !== undefined
+          ...(ownerName !== undefined && ownerPhoneValid
             ? { owner: { name: ownerName, phone: ownerPhone } }
             : {}),
         });
@@ -219,7 +230,7 @@ export class ImportController {
       }
     }
 
-    return { created, failed, warnings: [] };
+    return { created, failed, warnings };
   }
 
   @Post("buyers")

@@ -1,5 +1,9 @@
-import { normalizeHeader, parseCsvRecords, unsanitizeFormulaCell } from "./csv-import.js";
-import { normalizeIsraeliPhone } from "./csv-import-buyers.js";
+import {
+  normalizeHeader,
+  normalizeIsraeliPhone,
+  parseCsvRecords,
+  unsanitizeFormulaCell,
+} from "./csv-import.js";
 
 /**
  * מיפוי CSV לרשומות **לידים** — הסוג השלישי שאפשר לייבא.
@@ -89,6 +93,9 @@ const HEADER_MAP: Record<string, LeadColumn> = {
   contactorigin: "source",
 };
 
+/** עמודות שם שהן נפילה-לאחור בלבד — שם פרטי, לא שם מלא. */
+const FALLBACK_NAME_HEADERS = new Set(["callerfirstname"]);
+
 /** תוויות השדות שאפשר למפות אליהם ידנית במסך הייבוא. */
 export const LEAD_TARGET_LABELS: Record<string, string> = {
   name: "שם",
@@ -138,10 +145,11 @@ export function parseLeadsCsv(
   if (records.length < 2) return { rows: [], unmappedHeaders: [] };
 
   const headers = records[0] ?? [];
-  const mapped = headers.map((h) => {
+  const normalized = headers.map((h) => normalizeHeader(h));
+  const mapped = headers.map((h, i) => {
     const override = overrides[h.trim()];
     if (override !== undefined && override !== "") return override as LeadColumn;
-    return HEADER_MAP[normalizeHeader(h)];
+    return HEADER_MAP[normalized[i]!];
   });
   const unmappedHeaders = headers.filter((_h, i) => mapped[i] === undefined);
 
@@ -149,13 +157,25 @@ export function parseLeadsCsv(
   for (let i = 1; i < records.length; i += 1) {
     const cells = records[i] ?? [];
     const row: ParsedLeadRow = {};
+    /** שם שהגיע מעמודה ראשית — נפילה-לאחור לא דורסת אותו */
+    let namePrimary = false;
 
     headers.forEach((_header, col) => {
       const target = mapped[col];
       const raw = unsanitizeFormulaCell((cells[col] ?? "").trim());
       if (!target || raw === "") return;
 
-      if (target === "phone") {
+      if (target === "name") {
+        /*
+         * אותו כלל עדיפות כמו אצל הקונים: `contactFullName` הוא השם
+         * המלא ו-`callerFirstName` רק פרטי, וההכרעה לפי זהות העמודה
+         * ולא לפי סדרה בקובץ — סדר הוא מזל, לא כלל (ביקורת Codex).
+         */
+        const fallback = FALLBACK_NAME_HEADERS.has(normalized[col] ?? "");
+        if (fallback && namePrimary) return;
+        if (!fallback) namePrimary = true;
+        if (!fallback || row.name === undefined) row.name = raw;
+      } else if (target === "phone") {
         row.phone = normalizeIsraeliPhone(raw) ?? raw;
       } else if (target === "email") {
         row.email = raw.toLowerCase();
@@ -171,7 +191,7 @@ export function parseLeadsCsv(
       } else if (target === "summary") {
         row.summary = row.summary ? `${row.summary} | ${raw}` : raw;
       } else {
-        // name / source
+        // source
         row[target] = raw;
       }
     });

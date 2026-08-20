@@ -3,13 +3,14 @@ import type { PropertyType } from "../schemas/property.js";
 import {
   DEAL_TYPE_MAP,
   normalizeHeader,
+  normalizeIsraeliPhone,
   parseCsvRecords,
   parseShekelsToAgorot,
   PROPERTY_TYPE_MAP,
   unsanitizeFormulaCell,
 } from "./csv-import.js";
 
-export { DEAL_TYPE_MAP };
+export { DEAL_TYPE_MAP, normalizeIsraeliPhone };
 
 /**
  * מיפוי CSV לרשומות קונים (docs/08 §6 — Onboarding): משרד חדש מעלה גם את
@@ -226,34 +227,6 @@ export const BUYER_TARGET_LABELS: Record<string, string> = {
   agentNotes: "הערות",
 };
 
-/**
- * נורמליזציה של טלפון ישראלי ל-E.164 (‎+972…). מקבל 050-1234567,
- * 03 1234567, 972501234567 וכד'. מחזיר undefined אם לא ניתן לנרמל —
- * ההחלטה הסופית (דחיית השורה) נעשית בוולידציה בצד השרת.
- *
- * ## האפס שאקסל בולע
- *
- * תא שנראה כמו מספר מקבל באקסל טיפול של מספר, והאפס המוביל נעלם:
- * ‎"0583216016"‎ נשמר בקובץ כ-‎583216016‎. זה קורה בלי שהמשתמש עשה
- * דבר — מספיק שהעמודה לא הוגדרה כטקסט — והוא רואה את זה רק כשכל
- * הקובץ נדחה.
- *
- * לכן מספר לאומי **בלי** אפס מוביל מתקבל: הבדיקה `[2-9]\d{7,8}`
- * היא אותה בדיקה שחלה על שאר הצורות, ולכן ההשלמה אינה מרחיבה את
- * מה שנחשב תקין — היא רק מזהה את אותו מספר בכתיב שאקסל השאיר.
- * מספר שאינו ישראלי אינו עובר אותה וממשיך להידחות.
- */
-export function normalizeIsraeliPhone(raw: string): string | undefined {
-  const digits = raw.replace(/[^\d+]/gu, "");
-  let national: string;
-  if (digits.startsWith("+972")) national = digits.slice(4);
-  else if (digits.startsWith("972")) national = digits.slice(3);
-  else if (digits.startsWith("0")) national = digits.slice(1);
-  // בלי אפס מוביל — אקסל הסיר אותו; התקינות נבדקת מיד למטה
-  else national = digits;
-  if (!/^[2-9]\d{7,8}$/u.test(national)) return undefined;
-  return `+972${national}`;
-}
 
 /** "תל אביב; רמת גן / גבעתיים" → ["תל אביב","רמת גן","גבעתיים"] */
 function splitCities(raw: string): string[] {

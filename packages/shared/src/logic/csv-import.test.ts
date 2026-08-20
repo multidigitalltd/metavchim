@@ -103,7 +103,7 @@ describe("parsePropertiesCsv — הכותרות המורחבות", () => {
     const { rows } = parsePropertiesCsv(csv);
     expect(rows[0]).toMatchObject({
       ownerName: "ישראל ישראלי",
-      ownerPhone: "050-1234567",
+      ownerPhone: "+972501234567",
       marketingDescription: "נוף פתוח",
       internalNotes: "המפתח אצל השכן",
     });
@@ -131,5 +131,19 @@ describe("parsePropertiesCsv — הכותרות המורחבות", () => {
     });
     expect(unmappedHeaders).toEqual([]);
     expect(rows[0]?.fields).toMatchObject({ city: "נתניה", priceAgorot: 200_000_000 });
+  });
+});
+
+describe("parsePropertiesCsv — טלפון בעל הנכס", () => {
+  it("מנורמל ל-E.164 כמו כל טלפון מיובא", () => {
+    const csv = ["עיר,בעל הנכס,טלפון בעלים", "חולון,ישראל,050-1234567"].join("\n");
+    const { rows } = parsePropertiesCsv(csv);
+    expect(rows[0]?.ownerPhone).toBe("+972501234567");
+  });
+
+  it("ערך שאינו טלפון מועבר גולמי — ההכרעה בשרת", () => {
+    const csv = ["עיר,טלפון בעלים", "חולון,אין"].join("\n");
+    const { rows } = parsePropertiesCsv(csv);
+    expect(rows[0]?.ownerPhone).toBe("אין");
   });
 });

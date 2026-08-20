@@ -66,3 +66,23 @@ describe("parseLeadsCsv", () => {
     });
   });
 });
+
+describe("parseLeadsCsv — עדיפות שם מלא", () => {
+  it("callerFirstName אינו דורס contactFullName גם כשהוא מאוחר יותר", () => {
+    const csv = [
+      "contactFullName,callerFirstName,callerPhoneNumber",
+      "משה כהן,משה,0501234567",
+    ].join("\n");
+    const { rows } = parseLeadsCsv(csv);
+    expect(rows[0]?.name).toBe("משה כהן");
+  });
+
+  it("ובסדר הפוך — השם המלא עדיין מנצח", () => {
+    const csv = [
+      "callerFirstName,contactFullName,callerPhoneNumber",
+      "משה,משה כהן,0501234567",
+    ].join("\n");
+    const { rows } = parseLeadsCsv(csv);
+    expect(rows[0]?.name).toBe("משה כהן");
+  });
+});
