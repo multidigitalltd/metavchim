@@ -691,6 +691,8 @@ model CoopInterest {
   /// הסוכן שהציע — מי לדבר איתו בחדר העסקה שייפתח.
   /// `null` = פנייה שקדמה לעמודה; החדר נופל לבעל המשרד.
   createdBy       String?  @map("created_by") @db.Char(26)
+  /// מה שהמשרד הדוחה כתב למציע — מדוע הקונה אינו מתאים.
+  declineNote     String?  @map("decline_note") @db.VarChar(300)
   createdAt       DateTime @default(now()) @map("created_at")
 
   @@unique([listingId, buyerId])
@@ -717,6 +719,8 @@ model CoopOffer {
   /// הסוכן שהציע — מי לדבר איתו בחדר העסקה שייפתח.
   /// `null` = הצעה שקדמה לעמודה; החדר נופל לבעל המשרד.
   createdBy       String?  @map("created_by") @db.Char(26)
+  /// מה שהמשרד הדוחה כתב למציע — מדוע הנכס אינו מתאים לקונה.
+  declineNote     String?  @map("decline_note") @db.VarChar(300)
   createdAt       DateTime @default(now()) @map("created_at")
 
   @@unique([demandId, propertyId])

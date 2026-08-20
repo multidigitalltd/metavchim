@@ -19,10 +19,12 @@ import { formatDateTime, formatPrice } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import {
   IconChat,
+  IconCheck,
   IconHandshake,
   IconHome,
   IconMail,
   IconPhone,
+  IconTarget,
   IconUser,
   IconUsers,
 } from "../../../icons";
@@ -188,24 +190,44 @@ export default function DealRoomPage() {
         ← לכל העסקאות המשותפות
       </Link>
 
-      <header className="mv-list-card mb-4 p-5">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="m-0 text-xl font-bold">
-            <IconHandshake s={19} /> {deal.property.address}
-          </h1>
-          <span className="mv-chip">
+      {/*
+        כותרת חיה ולא שורה אפורה: החדר הוא רגע ההצלחה של הרשת —
+        שני משרדים שהתחברו — והעמוד צריך להיראות כמו הרגע הזה
+        (בקשת המשתמש: "מעוצב חי ומושך בסגנון של כל המערכת").
+      */}
+      <header className="mv-deal-hero">
+        <div className="mv-deal-hero-head">
+          <span className="mv-deal-badge">
+            <IconHandshake s={24} />
+          </span>
+          <div className="min-w-0">
+            <h1 className="m-0 text-xl font-extrabold">
+              {deal.property.address}
+            </h1>
+            <p
+              className="m-0 mt-0.5 text-[15px]"
+              style={{ color: "var(--color-text-soft)" }}
+            >
+              עסקה משותפת מול {deal.counterpartOffice} · נפתחה{" "}
+              {formatDateTime(deal.createdAt)}
+            </p>
+          </div>
+        </div>
+        <div className="mv-deal-hero-meta">
+          <span className="mv-net-chip mv-net-chip--money">
             {coopDealSplitLabel(deal.commissionSplit, deal.mySide)}
           </span>
+          <span className="mv-net-chip">
+            <IconUsers s={14} /> {deal.counterpartOffice}
+          </span>
+          {closed ? (
+            <span className="mv-net-chip">
+              העסקה נסגרה — {COOP_DEAL_STAGE_LABELS[deal.stage]}
+            </span>
+          ) : null}
         </div>
-        <p
-          className="m-0 text-[15.5px]"
-          style={{ color: "var(--color-text-muted)" }}
-        >
-          שיתוף פעולה מול {deal.counterpartOffice} · נפתח{" "}
-          {formatDateTime(deal.createdAt)}
-        </p>
         {deal.closedNote === undefined ? null : (
-          <p className="mt-2 mb-0 text-[15.5px]">
+          <p className="mt-3 mb-0 text-[15.5px]">
             <strong>סיבת הסגירה:</strong> {deal.closedNote}
           </p>
         )}
@@ -223,14 +245,14 @@ export default function DealRoomPage() {
           <Thread entries={deal.entries} endRef={threadEnd} />
           {closed ? (
             <p
-              className="mv-list-card p-4 text-center"
+              className="mv-deal-card m-0 text-center"
               style={{ color: "var(--color-text-muted)" }}
             >
               העסקה נסגרה. השרשור נשמר לשני המשרדים כפי שהוא.
             </p>
           ) : (
             <form
-              className="mv-list-card p-3"
+              className="mv-deal-card"
               onSubmit={(event) => {
                 event.preventDefault();
                 void send();
@@ -263,9 +285,12 @@ export default function DealRoomPage() {
           />
           <SideCard title="הצד שלכם" side={deal.me} />
 
-          <section className="mv-list-card p-4">
-            <h2 className="mt-0 mb-2 text-base font-semibold">
-              <IconHome s={16} /> הנכס
+          <section className="mv-deal-card">
+            <h2 className="mv-deal-card-title">
+              <span className="mv-deal-card-icon">
+                <IconHome s={16} />
+              </span>
+              הנכס
             </h2>
             <p className="m-0 mb-1">{deal.property.address}</p>
             <p
@@ -296,9 +321,12 @@ export default function DealRoomPage() {
             ) : null}
           </section>
 
-          <section className="mv-list-card p-4">
-            <h2 className="mt-0 mb-2 text-base font-semibold">
-              <IconUser s={16} /> הקונה
+          <section className="mv-deal-card">
+            <h2 className="mv-deal-card-title">
+              <span className="mv-deal-card-icon">
+                <IconUser s={16} />
+              </span>
+              הקונה
             </h2>
             <p
               className="m-0 text-[15px]"
@@ -363,30 +391,45 @@ function StageRail({
   const [note, setNote] = useState("");
   const [closing, setClosing] = useState<CoopDealStage | null>(null);
 
+  const currentIdx = COOP_DEAL_STAGES.indexOf(stage);
   return (
-    <section className="mv-list-card mb-4 p-4">
-      <h2 className="mt-0 mb-3 text-base font-semibold">שלב העסקה</h2>
-      <div className="flex flex-wrap gap-2">
-        {COOP_DEAL_STAGES.map((option) => {
+    <section className="mv-deal-card mb-4">
+      <h2 className="mv-deal-card-title">
+        <span className="mv-deal-card-icon">
+          <IconTarget s={16} />
+        </span>
+        שלב העסקה
+      </h2>
+      {/*
+        גלולות שמתמלאות עם ההתקדמות: מה שכבר נעשה בצבע רך, השלב
+        הנוכחי מלא, ומה שעוד לא — ריק. הציר נקרא כמסלול, לא כרשימת
+        כפתורים אפורים.
+      */}
+      <div className="mv-deal-steps">
+        {COOP_DEAL_STAGES.map((option, idx) => {
           const current = option === stage;
           const allowed = canMoveCoopDeal(stage, option);
+          const done = idx < currentIdx && !isFinalCoopDealStage(option);
           return (
-            <button
-              key={option}
-              type="button"
-              className={current ? "mv-seg-on" : "mv-btn-plain"}
-              aria-current={current ? "step" : undefined}
-              disabled={busy || (!current && !allowed)}
-              title={COOP_DEAL_STAGE_HINTS[option]}
-              onClick={() => {
-                if (!allowed) return;
-                // סגירה מבקשת סיבה; התקדמות רגילה לא צריכה טופס
-                if (isFinalCoopDealStage(option)) setClosing(option);
-                else void onMove(option);
-              }}
-            >
-              {COOP_DEAL_STAGE_LABELS[option]}
-            </button>
+            <span key={option} className="inline-flex items-center gap-1">
+              {idx > 0 ? <span className="mv-deal-step-connector" /> : null}
+              <button
+                type="button"
+                className={`mv-deal-step${current ? " mv-deal-step--current" : done ? " mv-deal-step--done" : ""}`}
+                aria-current={current ? "step" : undefined}
+                disabled={busy || (!current && !allowed)}
+                title={COOP_DEAL_STAGE_HINTS[option]}
+                onClick={() => {
+                  if (!allowed) return;
+                  // סגירה מבקשת סיבה; התקדמות רגילה לא צריכה טופס
+                  if (isFinalCoopDealStage(option)) setClosing(option);
+                  else void onMove(option);
+                }}
+              >
+                {done ? <IconCheck s={14} /> : null}
+                {COOP_DEAL_STAGE_LABELS[option]}
+              </button>
+            </span>
           );
         })}
       </div>
@@ -453,11 +496,7 @@ function Thread({
   endRef: React.RefObject<HTMLDivElement | null>;
 }) {
   return (
-    <section
-      className="mv-list-card mb-4 p-4"
-      style={{ maxHeight: 460, overflowY: "auto" }}
-      aria-label="שרשור העסקה"
-    >
+    <section className="mv-deal-thread mb-4" aria-label="שרשור העסקה">
       {entries.length === 0 ? (
         <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
           עוד לא נכתב כאן דבר.
@@ -470,33 +509,25 @@ function Thread({
              * אירוע נראה אחרת מהודעה בכוונה: הוא לא נאמר בידי אף
              * אחד אל אף אחד, והוא הדבר שמאפשר לקרוא את החדר כסיפור.
              */
-            <li
-              key={entry.id}
-              className="my-2 text-center text-[14.5px]"
-              style={{ color: "var(--color-text-muted)" }}
-            >
-              {entry.body} · {formatDateTime(entry.createdAt)}
+            <li key={entry.id} className="my-2 text-center">
+              <span className="mv-deal-event">
+                {entry.body} · {formatDateTime(entry.createdAt)}
+              </span>
             </li>
           ) : (
+            /*
+             * בועות צ'אט: שלנו בצבע המערכת ומיושרות לצד אחד, של
+             * המשרד השותף על משטח ומהצד השני — שיחה, לא טבלה.
+             */
             <li
               key={entry.id}
               className="mb-3 flex"
               style={{ justifyContent: entry.mine ? "flex-start" : "flex-end" }}
             >
               <div
-                className="rounded-xl px-3 py-2"
-                style={{
-                  maxWidth: "80%",
-                  background: entry.mine
-                    ? "var(--color-surface-alt)"
-                    : "var(--color-primary-soft, var(--color-surface-alt))",
-                  border: "1px solid var(--color-border)",
-                }}
+                className={`mv-deal-bubble ${entry.mine ? "mv-deal-bubble--mine" : "mv-deal-bubble--theirs"}`}
               >
-                <p
-                  className="m-0 mb-1 text-[14.5px] font-semibold"
-                  style={{ color: "var(--color-text-muted)" }}
-                >
+                <p className="mv-deal-bubble-meta">
                   {entry.authorName ?? (entry.mine ? "המשרד שלנו" : "המשרד השותף")}
                   {" · "}
                   {formatDateTime(entry.createdAt)}
@@ -530,16 +561,16 @@ function SideCard({
 }) {
   return (
     <section
-      className="mv-list-card p-4"
-      style={
-        highlight ? { borderColor: "var(--color-primary)" } : undefined
-      }
+      className={`mv-deal-card${highlight ? " mv-deal-card--accent" : ""}`}
     >
-      <h2 className="mt-0 mb-2 text-base font-semibold">{title}</h2>
-      <p className="m-0 mb-1 flex items-center gap-1.5 font-bold">
-        {side.officeLogoUrl === undefined ? (
+      <h2 className="mv-deal-card-title">
+        <span className="mv-deal-card-icon">
           <IconUsers s={16} />
-        ) : (
+        </span>
+        {title}
+      </h2>
+      <p className="m-0 mb-1 flex items-center gap-1.5 font-bold">
+        {side.officeLogoUrl === undefined ? null : (
           <img
             src={side.officeLogoUrl}
             alt=""
