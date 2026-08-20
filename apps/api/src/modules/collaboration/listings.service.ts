@@ -866,7 +866,20 @@ export class ListingsService {
         where: { id, toTenantId: tenantId, status: "sent" },
         data: { status: response },
       });
-      if (result.count === 0) throw new NotFoundException("פנייה לא נמצאה");
+      if (result.count === 0) {
+        /*
+         * אישור חוזר ממשיך לפתיחת החדר במקום 404 — אותו נימוק
+         * בדיוק כמו ב-`respondToCoopOffer`, וזהו החלון שבו כשל
+         * בפתיחת החדר היה משאיר פנייה מאושרת בלי חדר ובלי דרך
+         * לתקן. פנייה של משרד אחר או כזו שנדחתה נשארות 404.
+         */
+        const already = await tx.coopInterest.findFirst({
+          where: { id, toTenantId: tenantId, status: response },
+          select: { id: true },
+        });
+        if (!already) throw new NotFoundException("פנייה לא נמצאה");
+        return;
+      }
       await this.audit.record(tx, {
         action: `collaboration.interest_${response}`,
         entityType: "coop_interest",

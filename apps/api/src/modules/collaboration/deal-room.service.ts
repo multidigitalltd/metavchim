@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -54,6 +55,14 @@ import { officeBadges } from "./office-names";
  * כבר נושא ארבעה מנגנונים, והחדר הוא מנגנון חמישי עם מחזור חיים
  * משלו. הגבול נקי — כאן חיים פתיחת החדר, השרשור והשלבים.
  */
+
+/**
+ * כמה שורות מהשרשור נטענות בכל פתיחה.
+ *
+ * תקרה ולא הכול: חדר ותיק יכול לצבור מאות שורות, ותשובה בלי גבול
+ * הופכת את פתיחת החדר לאיטית בדיוק ככל שהעסקה פעילה יותר.
+ */
+const THREAD_LIMIT = 500;
 
 /** צד אחד של החדר, כפי שהוא מוצג לצד השני. */
 export interface DealSideDto {
@@ -306,10 +315,20 @@ export class DealRoomService {
     });
 
     if (created.fresh) {
-      await this.notifyBothSides(created.id, {
-        title: "נפתח חדר עסקה משותף",
-        body: "החיבור אושר — אפשר לתאם סיור ולנהל את העסקה במקום אחד",
-      });
+      /*
+       * ההתראות והמייל שניהם best-effort: החדר כבר נוצר, וכשל
+       * בהודעה עליו אינו סיבה להחזיר שגיאה על פעולה שהצליחה.
+       */
+      try {
+        await this.notifyBothSides(created.id, {
+          title: "נפתח חדר עסקה משותף",
+          body: "החיבור אושר — אפשר לתאם סיור ולנהל את העסקה במקום אחד",
+        });
+      } catch (error: unknown) {
+        this.logger.warn(
+          `התראה על פתיחת חדר עסקה (${created.id}) לא נכתבה: ${String(error)}`,
+        );
+      }
       /*
        * המייל מחוץ לטרנזקציה ו-best-effort, כמו בכל שאר הרשת: חדר
        * שנפתח בהצלחה לא יתגלגל לאחור בגלל תיבת דואר שלא ענתה.
@@ -625,18 +644,28 @@ export class DealRoomService {
     };
   }
 
-  /** השרשור. שמות הכותבים בשאילתה אחת, לא אחת לשורה. */
+  /**
+   * השרשור. שמות הכותבים בשאילתה אחת, לא אחת לשורה.
+   *
+   * **החדשות ביותר, לא הישנות ביותר.** התקרה נשלפת בסדר יורד
+   * ומתהפכת לתצוגה: שליפה בסדר עולה עם `take` הייתה מחזירה לנצח
+   * את 500 השורות הראשונות, וכל הודעה חדשה — ואפילו מעבר שלב —
+   * הייתה נכתבת בהצלחה ופשוט לא מופיעה. חדר שממשיך לקבל הודעות
+   * ומציג שיחה מלפני חודשיים גרוע מחדר שאומר שהוא קטוע (ביקורת
+   * Codex).
+   */
   private async entries(
     dealId: string,
     tenantId: string,
   ): Promise<DealEntryDto[]> {
-    const rows = await this.prisma.withTenant((tx) =>
+    const newest = await this.prisma.withTenant((tx) =>
       tx.coopDealMessage.findMany({
         where: { dealId },
-        orderBy: { createdAt: "asc" },
-        take: 500,
+        orderBy: { createdAt: "desc" },
+        take: THREAD_LIMIT,
       }),
     );
+    const rows = newest.reverse();
     const userIds = [
       ...new Set(
         rows
@@ -702,7 +731,7 @@ export class DealRoomService {
       });
     });
 
-    await this.notifyOtherSide(id, {
+    await this.notifyQuietly(id, {
       title: "הודעה חדשה בחדר עסקה",
       body: body.trim().slice(0, 200),
     });
@@ -731,8 +760,22 @@ export class DealRoomService {
       if (problem !== null) throw new BadRequestException(problem);
 
       const closing = isFinalCoopDealStage(stage);
-      await tx.coopDeal.update({
-        where: { id },
+      /*
+       * **השוואה-והחלפה על השלב שנקרא, ולא עדכון עיוור.**
+       *
+       * חדר הוא הדבר היחיד במערכת ששני משרדים כותבים אליו במקביל,
+       * ולכן זה המקום היחיד שבו הכלל „עסקה סגורה אינה נפתחת מחדש”
+       * יכול להישבר בלי שאיש עשה משהו אסור: שתי בקשות קוראות את
+       * אותו `contact`, שתיהן עוברות את הבדיקה, ואז „בוטלה” ו„סיור”
+       * נכתבים בזו אחר זו — והעסקה שנסגרה חוזרת לחיים, עם שתי שורות
+       * סותרות בשרשור (ביקורת Codex).
+       *
+       * `updateMany` עם השלב הישן בתנאי הופך את הבדיקה והכתיבה
+       * לפעולה אחת: מי שהגיע שני מקבל אפס שורות ונדחה. אין צורך
+       * בנעילה — התנאי עצמו הוא הסריאליזציה.
+       */
+      const moved = await tx.coopDeal.updateMany({
+        where: { id, stage: deal.stage },
         data: {
           stage,
           ...(closing
@@ -740,6 +783,10 @@ export class DealRoomService {
             : {}),
         },
       });
+      if (moved.count === 0)
+        throw new ConflictException(
+          "המשרד השותף עדכן את שלב העסקה באותו רגע — רעננו את המסך",
+        );
       await tx.coopDealMessage.create({
         data: {
           id: ulid(),
@@ -758,7 +805,7 @@ export class DealRoomService {
       });
     });
 
-    await this.notifyOtherSide(id, {
+    await this.notifyQuietly(id, {
       title: "התקדמות בחדר עסקה",
       body: coopDealStageEventBody(stage, actor?.name ?? "המשרד השותף"),
     });
@@ -798,6 +845,29 @@ export class DealRoomService {
    * בהקשר שלי הייתה נכתבת לתיבה שלי — כלומר התראה על מה שאני
    * עצמי עשיתי, והצד שצריך לדעת לא היה שומע דבר.
    */
+  /**
+   * התראה שלא מפילה את הפעולה שכבר הצליחה.
+   *
+   * ההודעה או מעבר השלב כבר בוצעו ו-Commit נסגר. כשל בכתיבת ההתראה
+   * — דייר שנמחק, תקלת מסד רגעית — היה מוחזר כשגיאה, המסך היה אומר
+   * „ההודעה לא נשלחה” ומשאיר את הטיוטה, והמשתמש היה שולח שוב:
+   * הודעה כפולה בשרשור, בגלל שלב שאינו ההודעה עצמה (ביקורת Codex).
+   *
+   * אותו דפוס בדיוק כמו המיילים בשאר מודול הרשת, ומאותו טעם.
+   */
+  private async notifyQuietly(
+    dealId: string,
+    message: { title: string; body: string },
+  ): Promise<void> {
+    try {
+      await this.notifyOtherSide(dealId, message);
+    } catch (error: unknown) {
+      this.logger.warn(
+        `התראה על חדר עסקה (${dealId}) לא נכתבה: ${String(error)}`,
+      );
+    }
+  }
+
   private async notifyOtherSide(
     dealId: string,
     message: { title: string; body: string },

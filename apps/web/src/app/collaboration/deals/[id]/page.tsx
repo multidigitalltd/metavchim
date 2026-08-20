@@ -14,7 +14,7 @@ import {
   MAX_COOP_DEAL_MESSAGE,
   type CoopDealStage,
 } from "@metavchim/shared";
-import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiGet, ApiError, apiPatch, apiPost } from "@/lib/api";
 import { formatDateTime, formatPrice } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import {
@@ -155,8 +155,18 @@ export default function DealRoomPage() {
         ...(note === undefined ? {} : { note }),
       });
       load();
-    } catch {
-      setError("לא הצלחנו לעדכן את שלב העסקה");
+    } catch (err: unknown) {
+      /*
+       * הודעת השרת ולא נוסח כללי. שני משרדים עובדים כאן במקביל,
+       * והשגיאה השכיחה היא „הצד השני עדכן באותו רגע” — הודעה
+       * שאומרת מה קרה ומה לעשות, בעוד „לא הצלחנו לעדכן” משאירה
+       * את הסוכן בלי מושג אם ללחוץ שוב.
+       */
+      setError(
+        err instanceof ApiError ? err.message : "לא הצלחנו לעדכן את שלב העסקה",
+      );
+      // רענון גם בכישלון: הסיבה השכיחה היא שהמצב במסך כבר אינו עדכני
+      load();
     } finally {
       setBusy(false);
     }

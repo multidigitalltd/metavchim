@@ -1633,8 +1633,27 @@ export class CollaborationService {
         where: { id, toTenantId: tenantId, status: "sent" },
         data: { status: response },
       });
-      if (result.count === 0)
-        throw new NotFoundException("הצעת שיתוף לא נמצאה");
+      if (result.count === 0) {
+        /*
+         * **אישור חוזר אינו שגיאה — הוא ניסיון תיקון.**
+         *
+         * פתיחת החדר קורית אחרי ה-Commit של הסטטוס, ולכן היה חלון
+         * שבו כשל בפתיחה (תקלת מסד, דייר שנמחק) השאיר הצעה
+         * `interested` בלי חדר — ומצב שאי אפשר לצאת ממנו: כל ניסיון
+         * חוזר נענה ב-404, כי הסינון דרש `sent` (ביקורת Codex).
+         *
+         * לחיצה חוזרת על „מעניין” על הצעה שכבר אושרה ממשיכה עכשיו
+         * לפתיחת החדר, שהיא ממילא אידמפוטנטית (`originId` ייחודי
+         * ומוחזר קיים). כל שאר המצבים — הצעה של משרד אחר, הצעה
+         * שנדחתה, או ניסיון להפוך „נדחה” ל„מעניין” — נשארים 404.
+         */
+        const already = await tx.coopOffer.findFirst({
+          where: { id, toTenantId: tenantId, status: response },
+          select: { id: true },
+        });
+        if (!already) throw new NotFoundException("הצעת שיתוף לא נמצאה");
+        return;
+      }
       await this.audit.record(tx, {
         action: `collaboration.${response}`,
         entityType: "coop_offer",

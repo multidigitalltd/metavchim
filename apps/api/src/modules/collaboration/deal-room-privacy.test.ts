@@ -44,11 +44,17 @@ describe("חדר העסקה אינו חושף לקוחות", () => {
     expect(SERVICE).not.toMatch(/tx\.contactPhone\b/u);
   });
 
+  /*
+   * הגבול נלקח משמות המתודות ולא מטקסט של הערה: הניסוח הקודם נשען
+   * על מחרוזת מתוך תיעוד, ועריכה של אותו תיעוד הפילה את הבדיקה
+   * במקום להעיד על שינוי אמיתי בהתנהגות.
+   */
   it("אינו שולף שם או טלפון בשליפת הקונה", () => {
     const buyerCard = SERVICE.slice(
       SERVICE.indexOf("private async buyerCard"),
-      SERVICE.indexOf("/** השרשור."),
+      SERVICE.indexOf("private async entries"),
     );
+    expect(buyerCard).not.toBe("");
     expect(buyerCard).not.toContain("contact");
     expect(buyerCard).not.toContain("phone");
     expect(buyerCard).not.toContain("name");
@@ -152,5 +158,65 @@ describe("שני כיווני הרשת פותחים חדר", () => {
     for (const source of [collaboration, listings]) {
       expect(source).toContain('if (response !== "interested")');
     }
+  });
+
+  /*
+   * פתיחת החדר קורית **אחרי** ה-Commit של הסטטוס, ולכן כשל בה
+   * השאיר הצעה מאושרת בלי חדר — ומצב שאי אפשר לצאת ממנו, כי
+   * הסינון דרש `status: "sent"` וכל ניסיון חוזר נענה ב-404
+   * (ביקורת Codex). אישור חוזר ממשיך עכשיו לפתיחה, שהיא ממילא
+   * אידמפוטנטית בזכות `originId` הייחודי.
+   */
+  it("אישור חוזר ממשיך לפתיחת החדר במקום 404", () => {
+    for (const source of [collaboration, listings]) {
+      expect(source).toContain("status: response");
+      expect(source).toContain("if (!already) throw new NotFoundException");
+    }
+  });
+});
+
+describe("עמידות החדר", () => {
+  /*
+   * חדר הוא הדבר היחיד במערכת ששני משרדים כותבים אליו במקביל, ולכן
+   * זה המקום היחיד שבו „עסקה סגורה אינה נפתחת מחדש” יכול להישבר
+   * בלי שאיש עשה משהו אסור — שתי בקשות שקוראות את אותו שלב.
+   */
+  it("מעבר שלב מותנה בשלב שנקרא, ולא עדכון עיוור", () => {
+    const move = SERVICE.slice(SERVICE.indexOf("async move("));
+    expect(move).toContain("where: { id, stage: deal.stage }");
+    expect(move).toContain("ConflictException");
+    /*
+     * הבדיקה על גוף `move` בלבד ולא על הקובץ: `post` מעדכן את
+     * `updatedAt` בעדכון לא-מותנה, וזה תקין — הוא אינו נוגע בשלב.
+     */
+    expect(move).not.toContain("tx.coopDeal.update(");
+  });
+
+  /*
+   * ההודעה כבר ב-Commit. כשל בהתראה שהוחזר כשגיאה גרם למסך לומר
+   * „לא נשלח”, לשמור את הטיוטה, ולמשתמש לשלוח שוב — הודעה כפולה
+   * בגלל שלב שאינו ההודעה עצמה.
+   */
+  it("כשל בהתראה אינו מפיל פעולה שכבר הצליחה", () => {
+    expect(SERVICE).toContain("notifyQuietly");
+    const post = SERVICE.slice(
+      SERVICE.indexOf("async post("),
+      SERVICE.indexOf("async move("),
+    );
+    expect(post).toContain("this.notifyQuietly(");
+    expect(post).not.toContain("this.notifyOtherSide(");
+  });
+
+  /*
+   * שליפה בסדר עולה עם תקרה הייתה מחזירה לנצח את השורות הראשונות,
+   * וכל הודעה חדשה — ואפילו מעבר שלב — נכתבת בהצלחה ולא מופיעה.
+   */
+  it("השרשור מציג את החדשות ולא את הישנות", () => {
+    const entries = SERVICE.slice(
+      SERVICE.indexOf("private async entries"),
+      SERVICE.indexOf("async post("),
+    );
+    expect(entries).toContain('orderBy: { createdAt: "desc" }');
+    expect(entries).toContain(".reverse()");
   });
 });
