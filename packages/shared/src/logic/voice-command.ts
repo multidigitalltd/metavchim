@@ -22,6 +22,7 @@ export type VoiceAction =
   | "schedule_appointment"
   | "add_task"
   | "query_buyers"
+  | "query_properties"
   | "send_offer"
   | "search"
   | "unknown";
@@ -90,6 +91,30 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
   { action: "query_buyers", pattern: /(?:חפש|תחפש|מצא|תמצא|הצג|תציג|תביא|תראה)\s+(?:לי\s+)?(?:את\s+)?ה?קונים/u, confidence: "high" },
   { action: "query_buyers", pattern: /קונים\s+(?:שמחפשים|מתאימים|עם|עד\s|ל[א-ת0-9]|ב[א-ת])/u, confidence: "low" },
   { action: "query_buyers", pattern: /יש\s+(?:לי\s+|לנו\s+)?קונ(?:ה|ים)\s+ל/u, confidence: "low" },
+  /*
+   * "מה יש לי" עם המילה קונים — לפני הכלל המקביל על הנכסים, שהוא
+   * הקריאה הטבעית של אותו ניסוח בלי המילה הזו.
+   */
+  { action: "query_buyers", pattern: /(?:מה|כמה)\s+(?:יש|נשארו|נשאר)\s+(?:לי|לנו)\b[^?]*\bקונים\b/u, confidence: "high" },
+
+  /*
+   * --- שאלה על מאגר הנכסים ---
+   *
+   * **הכלל הזה פשוט לא היה קיים**, ולכן "מה יש לי ברמת גן עד שני
+   * מיליון" — המשפט שמופיע כדוגמה בקטלוג הפעולות עצמו — נדחה
+   * כ"לא זוהתה פקודה" בכל התקנה שבה מנוע ההבנה אינו זמין. מנוע
+   * החוקים הכיר שאלות על קונים בלבד, כלומר חצי מהשאלה הבסיסית
+   * ביותר שמתווך שואל את המאגר שלו (דיווח המשתמש).
+   */
+  { action: "query_properties", pattern: /(?:איזה|אילו|כמה)\s+(?:נכסים|דירות|בתים)/u, confidence: "high" },
+  { action: "query_properties", pattern: /(?:חפש|תחפש|מצא|תמצא|הצג|תציג|תביא|תראה)\s+(?:לי\s+)?(?:את\s+)?ה?(?:נכסים|דירות)/u, confidence: "high" },
+  /*
+   * "מה יש לי ב..." — הניסוח הנפוץ ביותר לשאלת מלאי, ובלי פועל
+   * אחד. הדרישה ל-`ב`/`עד`/מספר אחריו מפרידה אותו מ"מה יש לי
+   * היום ביומן", שהיא שאלה אחרת לגמרי.
+   */
+  { action: "query_properties", pattern: /(?:מה|כמה)\s+(?:יש|נשאר|נשארו)\s+(?:לי|לנו)\s+(?:ב[א-ת]|עד\s|מ-?\d|\d)/u, confidence: "high" },
+  { action: "query_properties", pattern: /(?:נכסים|דירות)\s+(?:ב[א-ת]|עד\s|מ-?\d|להשכרה|למכירה)/u, confidence: "low" },
 
   // --- חיפוש ---
   { action: "search", pattern: /(?:חפש|תחפש|מצא|תמצא|איפה)\s+/u, confidence: "high" },

@@ -237,6 +237,25 @@ export class AgentInterpretService {
         summary: person.summary,
       };
     }
+    /*
+     * שאלה על מאגר הנכסים מדברת ב-`price*` ולא ב-`budget*`.
+     *
+     * אותו חילוץ אדם מספק את הערים, החדרים והסכום — "עד שני מיליון"
+     * הוא אותו מספר בשתי השאלות — אבל שמות השדות שונים, ושדה שאינו
+     * בסכימה נזרק ב-`narrowParams` בשקט. כלומר בלי המיפוי הזה
+     * השאלה הייתה מזוהה נכון וחוזרת בלי אף קריטריון.
+     */
+    if (actionId === "find_properties") {
+      return {
+        cities: base["cities"],
+        dealType: base["dealType"],
+        roomsMin: base["roomsMin"],
+        roomsMax: base["roomsMax"],
+        priceMinShekels: base["budgetMinShekels"],
+        priceMaxShekels: base["budgetMaxShekels"],
+        mustFeatures: base["mustFeatures"],
+      };
+    }
     return base;
   }
 }
@@ -249,6 +268,7 @@ const RULE_ACTION_MAP: Record<string, string | undefined> = {
   schedule_appointment: "schedule_appointment",
   add_task: "create_task",
   query_buyers: "find_buyers",
+  query_properties: "find_properties",
   send_offer: "send_offer",
   search: "search",
   unknown: undefined,
