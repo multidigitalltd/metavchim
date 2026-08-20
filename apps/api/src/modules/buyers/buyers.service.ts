@@ -218,6 +218,7 @@ export class BuyersService {
   async createForImport(input: {
     contactName: string;
     contactPhone: string;
+    contactEmail?: string;
     requirements: BuyerRequirements;
     financing?: string;
     maturity?: string;
@@ -237,6 +238,7 @@ export class BuyersService {
   private async persist(input: {
     contactName: string;
     contactPhone: string;
+    contactEmail?: string;
     requirements: BuyerRequirements;
     financing?: string;
     maturity?: string;
@@ -251,6 +253,13 @@ export class BuyersService {
         name: input.contactName,
         phone: input.contactPhone,
       });
+      // השלמה, לא דריסה: כתובת קיימת על הכרטיס גוברת על הקובץ
+      if (input.contactEmail) {
+        const existingEmail = await this.contacts.emailFor(tx, contact.id);
+        if (existingEmail === undefined) {
+          await this.contacts.setEmail(tx, contact.id, input.contactEmail);
+        }
+      }
       await tx.buyer.create({
         data: {
           id,

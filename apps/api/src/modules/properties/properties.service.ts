@@ -268,6 +268,10 @@ export class PropertiesService {
   async createForImport(input: {
     fields: PropertyFields;
     marketingTitle?: string;
+    marketingDescription?: string;
+    internalNotes?: string;
+    /** בעל הנכס נקשר רק כששני הפרטים בקובץ — שם בלי טלפון יוצר כפילויות */
+    owner?: { name: string; phone: string };
     /** שימור סטטוס בייבוא-חזרה של קובץ מיוצא (Round-trip); ברירת מחדל: טיוטה. */
     status?: string;
   }): Promise<string> {

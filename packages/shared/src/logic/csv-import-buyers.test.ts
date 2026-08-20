@@ -185,3 +185,37 @@ describe("ייבוא בלי תקציב", () => {
     expect(rows[0]?.budgetMaxAgorot).toBeUndefined();
   });
 });
+
+describe("parseBuyersCsv — השדות החדשים", () => {
+  it("אימייל, שכונות, סוג נכס ושטח מינימלי", () => {
+    const csv = [
+      "שם,טלפון,אימייל,עיר,שכונות,סוג נכס,שטח מינימלי",
+      'משה כהן,050-1234567,Moshe@Example.com,"בני ברק","פרדס כץ; קריית הרצוג","דירה; דירת גן",70',
+    ].join("\n");
+    const { rows, unmappedHeaders } = parseBuyersCsv(csv);
+    expect(unmappedHeaders).toEqual([]);
+    expect(rows[0]).toMatchObject({
+      email: "moshe@example.com",
+      neighborhoods: ["פרדס כץ", "קריית הרצוג"],
+      propertyTypes: ["apartment", "garden_apartment"],
+      areaSqmMin: 70,
+    });
+  });
+
+  it("סוג נכס לא מזוהה נשמר בהערות ואינו מפיל את השורה", () => {
+    const csv = ["שם,טלפון,סוג נכס", "דנה,0501111111,צימר"].join("\n");
+    const { rows } = parseBuyersCsv(csv);
+    expect(rows[0]?.propertyTypes).toBeUndefined();
+    expect(rows[0]?.agentNotes).toContain("צימר");
+  });
+
+  it("מיפוי ידני גובר על הזיהוי האוטומטי", () => {
+    const csv = ["איש קשר,פלאפון", "רות,0529999999"].join("\n");
+    const { rows, unmappedHeaders } = parseBuyersCsv(csv, {
+      "איש קשר": "name",
+      פלאפון: "phone",
+    });
+    expect(unmappedHeaders).toEqual([]);
+    expect(rows[0]).toMatchObject({ name: "רות", phone: "+972529999999" });
+  });
+});

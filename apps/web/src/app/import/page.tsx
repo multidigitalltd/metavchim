@@ -4,9 +4,14 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import {
+  BUYER_TARGET_LABELS,
+  LEAD_TARGET_LABELS,
   parseBuyersCsv,
+  parseLeadsCsv,
   parsePropertiesCsv,
+  PROPERTY_TARGET_LABELS,
   type ParsedBuyerRow,
+  type ParsedLeadRow,
   type ParsedRow,
 } from "@metavchim/shared";
 import { ApiError, apiPost } from "@/lib/api";
@@ -36,7 +41,7 @@ interface ImportResult {
  */
 const MAX_ROWS = 250;
 
-type Mode = "properties" | "buyers";
+type Mode = "properties" | "buyers" | "leads";
 
 const SAMPLES: Record<Mode, string> = {
   properties: [
@@ -49,10 +54,39 @@ const SAMPLES: Record<Mode, string> = {
     '"ישראל ישראלי",050-1234567,"תל אביב; רמת גן",קנייה,2500000,3.5,חם,אישור עקרוני',
     '"דנה כהן",052-7654321,חיפה,השכרה,6000,2,מתעניין,מזומן',
   ].join("\n"),
+  leads: [
+    "שם,טלפון,אימייל,עניין,מקור,הודעה",
+    '"יוסי לוי",050-1234567,yossi@example.com,קנייה,פייסבוק,"מתעניין בדירות 4 חדרים בבני ברק"',
+    '"רות כהן",052-7654321,,מכירה,אתר,"רוצה להעריך את הדירה שלה ברמת גן"',
+  ].join("\n"),
 };
 
-const MODE_LABELS: Record<Mode, string> = { properties: "נכסים", buyers: "קונים" };
+const MODE_LABELS: Record<Mode, string> = {
+  properties: "נכסים",
+  buyers: "קונים",
+  leads: "לידים",
+};
 
+const LEAD_INTENT_LABELS: Record<string, string> = {
+  buy: "לקנות",
+  sell: "למכור",
+  rent_in: "לשכור",
+  rent_out: "להשכיר",
+  info: "מידע",
+};
+
+const MODE_BACK: Record<Mode, string> = {
+  properties: "/properties",
+  buyers: "/buyers",
+  leads: "/leads",
+};
+
+/** שדות היעד למיפוי ידני — לכל מסלול הרשימה שלו. */
+const TARGET_LABELS: Record<Mode, Record<string, string>> = {
+  properties: PROPERTY_TARGET_LABELS,
+  buyers: BUYER_TARGET_LABELS,
+  leads: LEAD_TARGET_LABELS,
+};
 
 /**
  * קובצי התבנית להורדה — **כל** הכותרות שהמערכת מזהה, עם שורת דוגמה.
@@ -60,14 +94,18 @@ const MODE_LABELS: Record<Mode, string> = { properties: "נכסים", buyers: "�
  */
 const TEMPLATE_CSV: Record<Mode, string> = {
   properties: [
-    "עיר,שכונה,רחוב,חדרים,שטח,קומה,מחיר,סוג,סטטוס,כותרת",
-    'בני ברק,פרדס כץ,רבי עקיבא 10,3.5,80,2,1750000,דירה,פעיל,"דירה משופצת ומוארת"',
+    "עיר,שכונה,רחוב,מספר בית,חדרים,שטח,קומה,מתוך קומות,מחיר,סוג עסקה,סוג,מצב,מעלית,חניה,מרפסת,ממד,מחסן,בעל הנכס,טלפון בעלים,סטטוס,כותרת,תיאור,הערות",
+    'בני ברק,פרדס כץ,רבי עקיבא,10,3.5,80,2,6,1750000,מכירה,דירה,משופץ,כן,כן,לא,כן,לא,ישראל ישראלי,050-1234567,פעיל,"דירה משופצת ומוארת","קרובה לכל דבר","המפתח אצל השכן"',
   ].join("\n"),
   buyers: [
-        // "סטטוס" אינו בתבנית בכוונה: הוא כינוי נרדף ל"בשלות" במפרק,
+    // "סטטוס" אינו בתבנית בכוונה: הוא כינוי נרדף ל"בשלות" במפרק,
     // ושתי עמודות שנראות שונות ונכתבות לאותו שדה הן מלכודת שקטה
-    "שם,טלפון,עיר,סוג עסקה,תקציב,תקציב מינימלי,חדרים מינימום,חדרים מקסימום,מימון,בשלות,מקור,הערות",
-    'משה כהן,050-1234567,"בני ברק, רמת גן",קנייה,1750000,1500000,3,4,אישור עקרוני,חם,פייסבוק,"מחפש דירה משופצת, גמיש בקומה"',
+    "שם,טלפון,אימייל,עיר,שכונות,סוג נכס,סוג עסקה,תקציב,תקציב מינימלי,חדרים מינימום,חדרים מקסימום,שטח מינימלי,מימון,בשלות,מקור,הערות",
+    'משה כהן,050-1234567,moshe@example.com,"בני ברק, רמת גן",פרדס כץ,דירה,קנייה,1750000,1500000,3,4,70,אישור עקרוני,חם,פייסבוק,"מחפש דירה משופצת, גמיש בקומה"',
+  ].join("\n"),
+  leads: [
+    "שם,טלפון,אימייל,עניין,מקור,הודעה",
+    'יוסי לוי,050-1234567,yossi@example.com,קנייה,פייסבוק,"מתעניין בדירות 4 חדרים בבני ברק"',
   ].join("\n"),
 };
 
@@ -75,27 +113,65 @@ export default function ImportPage() {
   const { loading: authLoading } = useRequireAuth();
   const [mode, setMode] = useState<Mode>("properties");
   const [csv, setCsv] = useState("");
+  /** מיפוי ידני: כותרת מהקובץ ⟵ שדה יעד. גובר על הזיהוי האוטומטי. */
+  const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const parsed = useMemo(() => {
-    if (csv.trim() === "") {
-      return { propertyRows: [] as ParsedRow[], buyerRows: [] as ParsedBuyerRow[], unmappedHeaders: [] as string[] };
-    }
+    const empty = {
+      propertyRows: [] as ParsedRow[],
+      buyerRows: [] as ParsedBuyerRow[],
+      leadRows: [] as ParsedLeadRow[],
+      unmappedHeaders: [] as string[],
+    };
+    if (csv.trim() === "") return empty;
     try {
       if (mode === "properties") {
-        const { rows, unmappedHeaders } = parsePropertiesCsv(csv);
-        return { propertyRows: rows, buyerRows: [], unmappedHeaders };
+        const { rows, unmappedHeaders } = parsePropertiesCsv(csv, overrides);
+        return { ...empty, propertyRows: rows, unmappedHeaders };
       }
-      const { rows, unmappedHeaders } = parseBuyersCsv(csv);
-      return { propertyRows: [], buyerRows: rows, unmappedHeaders };
+      if (mode === "buyers") {
+        const { rows, unmappedHeaders } = parseBuyersCsv(csv, overrides);
+        return { ...empty, buyerRows: rows, unmappedHeaders };
+      }
+      const { rows, unmappedHeaders } = parseLeadsCsv(csv, overrides);
+      return { ...empty, leadRows: rows, unmappedHeaders };
     } catch {
-      return { propertyRows: [], buyerRows: [], unmappedHeaders: [] };
+      return empty;
     }
-  }, [csv, mode]);
+  }, [csv, mode, overrides]);
 
-  const rowCount = mode === "properties" ? parsed.propertyRows.length : parsed.buyerRows.length;
+  const rowCount =
+    mode === "properties"
+      ? parsed.propertyRows.length
+      : mode === "buyers"
+        ? parsed.buyerRows.length
+        : parsed.leadRows.length;
+
+  /**
+   * העמודות שמוצגות באזור המיפוי הידני: מה שלא זוהה + מה שכבר מופה
+   * ידנית. עמודה שמופתה נעלמת מרשימת ה"לא זוהו" של המפרק, ובלי
+   * האיחוד הזה לא הייתה דרך לתקן בחירה שגויה.
+   */
+  const mappableHeaders = useMemo(() => {
+    const seen = new Set<string>();
+    const list: string[] = [];
+    for (const header of parsed.unmappedHeaders) {
+      if (!seen.has(header.trim())) {
+        seen.add(header.trim());
+        list.push(header);
+      }
+    }
+    for (const [header, target] of Object.entries(overrides)) {
+      if (target !== "" && !seen.has(header)) {
+        seen.add(header);
+        list.push(header);
+      }
+    }
+    return list;
+  }, [parsed.unmappedHeaders, overrides]);
   // קבצים גדולים נשלחים באצוות של 500 — התקרה כאן היא רק רשת ביטחון בדפדפן
   const tooMany = rowCount > 10_000;
 
@@ -108,6 +184,7 @@ export default function ImportPage() {
     const file = event.target.files?.[0];
     if (!file) return;
     reset();
+    setOverrides({});
     /*
      * xlsx נקרא כקובץ בינארי ומומר ל-CSV; קריאתו כטקסט — מה שקרה
      * קודם — נותנת ג'יבריש ואפס שורות, בלי שום הסבר. רוב המשרדים
@@ -136,9 +213,17 @@ export default function ImportPage() {
           ? parsed.propertyRows.map((r) => ({
               ...r.fields,
               ...(r.marketingTitle === undefined ? {} : { marketingTitle: r.marketingTitle }),
+              ...(r.marketingDescription === undefined
+                ? {}
+                : { marketingDescription: r.marketingDescription }),
+              ...(r.internalNotes === undefined ? {} : { internalNotes: r.internalNotes }),
+              ...(r.ownerName === undefined ? {} : { ownerName: r.ownerName }),
+              ...(r.ownerPhone === undefined ? {} : { ownerPhone: r.ownerPhone }),
               ...(r.status === undefined ? {} : { status: r.status }),
             }))
-          : parsed.buyerRows;
+          : mode === "buyers"
+            ? parsed.buyerRows
+            : parsed.leadRows;
 
       /*
        * האצוות נחתכות לפי **בייטים**, לא לפי מספר שורות.
@@ -191,7 +276,7 @@ export default function ImportPage() {
     <>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">ייבוא נתונים מקובץ</h1>
-        <Link href={mode === "properties" ? "/properties" : "/buyers"} className="underline">
+        <Link href={MODE_BACK[mode]} className="underline">
           ← חזרה ל{MODE_LABELS[mode]}
         </Link>
       </div>
@@ -207,6 +292,7 @@ export default function ImportPage() {
             onClick={() => {
               setMode(m);
               setCsv("");
+              setOverrides({});
               reset();
             }}
             className="rounded-md border px-4 py-2 font-medium disabled:opacity-60"
@@ -223,8 +309,10 @@ export default function ImportPage() {
 
       <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
         {mode === "properties"
-          ? "העלו קובץ CSV כדי לייבא נכסים קיימים בבת אחת. כותרות בעברית ממופות אוטומטית — עיר, שכונה, רחוב, חדרים, שטח, קומה, מחיר, סוג, כותרת."
-          : "העלו קובץ CSV של לקוחות מחפשים. כותרות: שם, טלפון, ערים (מופרדות ב-;), סוג עסקה, תקציב, חדרים, בשלות, מימון, הערות. טלפונים מנורמלים אוטומטית."}{" "}
+          ? "העלו קובץ אקסל או CSV כדי לייבא נכסים קיימים בבת אחת. כותרות בעברית ובאנגלית ממופות אוטומטית — כתובת, חדרים, מחיר, סוג עסקה, מאפיינים, בעל הנכס ועוד. עמודה שלא זוהתה אפשר למפות ידנית."
+          : mode === "buyers"
+            ? "העלו קובץ אקסל או CSV של לקוחות מחפשים. כותרות: שם, טלפון, אימייל, ערים, שכונות, סוג נכס, סוג עסקה, תקציב, חדרים, בשלות, מימון, הערות. טלפונים מנורמלים אוטומטית."
+            : "העלו קובץ אקסל או CSV של פניות — מדף פייסבוק, מדוח קמפיין או מהמערכת הקודמת. לקוח שכבר קיים במערכת לא ייפתח פעמיים: הפנייה תצורף לליד הפתוח שלו."}{" "}
         קבצים גדולים נשלחים אוטומטית באצוות של {MAX_ROWS}.
       </p>
 
@@ -288,11 +376,11 @@ export default function ImportPage() {
         שורה ראשונה היא כותרות העמודות, כל שורה נוספת היא רשומה. מפרידים בפסיקים.
       </p>
 
-      {parsed.unmappedHeaders.length > 0 ? (
+      {mappableHeaders.length > 0 ? (
         /*
           alert ולא status, ובולט: עמודה שנזרקת בשקט היא נתונים
           שהמתווך בטוח שנכנסו — והוא מגלה את החוסר חודש אחרי, מול
-          לקוח. ליד האזהרה כתוב גם **מה עושים**, לא רק מה קרה.
+          לקוח. ליד האזהרה יש גם **פתרון בלחיצה**, לא רק דיווח.
         */
         <div
           role="alert"
@@ -300,15 +388,44 @@ export default function ImportPage() {
           style={{ borderColor: "var(--color-warning, #d97706)", background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-text)" }}
         >
           <p className="m-0 mb-1 font-bold" style={{ fontSize: 16 }}>
-            <IconWarning s={15} /> {parsed.unmappedHeaders.length} עמודות לא זוהו — הנתונים שבהן לא ייובאו
+            <IconWarning s={15} />{" "}
+            {parsed.unmappedHeaders.length > 0
+              ? `${parsed.unmappedHeaders.length} עמודות לא זוהו — הנתונים שבהן לא ייובאו`
+              : "כל העמודות מופו — אפשר לשנות את המיפוי הידני"}
           </p>
-          <p className="m-0 mb-2 text-sm" dir="ltr">
-            {parsed.unmappedHeaders.join(" · ")}
-          </p>
+          {/*
+            מיפוי ידני במקום "לכו תתקנו את הקובץ": המתווך בוחר ליד כל
+            עמודה לא מזוהה לאיזה שדה היא שייכת, והתצוגה המקדימה
+            מתעדכנת מיד. אין צורך לפתוח את אקסל ולשנות כותרות.
+          */}
+          <ul className="m-0 mb-2 flex list-none flex-col gap-2 p-0">
+            {mappableHeaders.map((header) => (
+              <li key={header} className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-sm" dir="ltr">{header}</span>
+                <span aria-hidden>←</span>
+                <select
+                  aria-label={`לאיזה שדה שייכת העמודה ${header}`}
+                  className="rounded-md border px-2 py-1 text-sm"
+                  style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+                  value={overrides[header.trim()] ?? ""}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setOverrides((prev) => ({ ...prev, [header.trim()]: value }));
+                    reset();
+                  }}
+                >
+                  <option value="">לא לייבא את העמודה</option>
+                  {Object.entries(TARGET_LABELS[mode]).map(([key, label]) => (
+                    <option key={key} value={key}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </li>
+            ))}
+          </ul>
           <p className="m-0 text-sm">
-            <b>איך מתקנים:</b> הורידו את קובץ הדוגמה (הכפתור למעלה) וראו את שמות
-            העמודות שהמערכת מכירה. שינוי שם עמודה בקובץ שלכם לשם מוכר — והיא תיובא.
-            עמודות שאינן רלוונטיות אפשר להשאיר; הן פשוט ידולגו.
+            בחרו שדה יעד לכל עמודה שחשובה לכם — או השאירו "לא לייבא" והיא תדולג.
           </p>
         </div>
       ) : null}
@@ -350,6 +467,32 @@ export default function ImportPage() {
                       </td>
                       <td className="p-2">{r.fields.rooms ?? "—"}</td>
                       <td className="p-2">{formatPrice(r.fields.priceAgorot)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : mode === "leads" ? (
+              <table className="w-full text-start">
+                <caption className="mv-visually-hidden">תצוגה מקדימה של הלידים שיובאו</caption>
+                <thead style={{ background: "var(--color-surface)" }}>
+                  <tr>
+                    <th scope="col" className="p-2 text-start">#</th>
+                    <th scope="col" className="p-2 text-start">שם</th>
+                    <th scope="col" className="p-2 text-start">טלפון</th>
+                    <th scope="col" className="p-2 text-start">אימייל</th>
+                    <th scope="col" className="p-2 text-start">עניין</th>
+                    <th scope="col" className="p-2 text-start">מקור</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parsed.leadRows.slice(0, 20).map((r, i) => (
+                    <tr key={i} className="border-t" style={{ borderColor: "var(--color-border)" }}>
+                      <td className="p-2">{i + 1}</td>
+                      <td className="p-2">{r.name ?? "—"}</td>
+                      <td className="p-2" dir="ltr">{r.phone ?? "—"}</td>
+                      <td className="p-2" dir="ltr">{r.email ?? "—"}</td>
+                      <td className="p-2">{LEAD_INTENT_LABELS[r.intent ?? ""] ?? "—"}</td>
+                      <td className="p-2">{r.source ?? "—"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -446,7 +589,7 @@ export default function ImportPage() {
             </>
           ) : null}
           <div className="mt-3">
-            <Link href={mode === "properties" ? "/properties" : "/buyers"}>
+            <Link href={MODE_BACK[mode]}>
               <Button variant="secondary">צפו ב{MODE_LABELS[mode]} שיובאו</Button>
             </Link>
           </div>

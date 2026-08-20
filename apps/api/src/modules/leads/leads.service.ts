@@ -59,6 +59,8 @@ export class LeadsService {
   async create(input: {
     contactName: string;
     contactPhone: string;
+    /** נשמר על כרטיס איש הקשר — פנייה מיובאת מביאה איתה את הכתובת */
+    contactEmail?: string;
     source: string;
     intent: string;
     summary?: string;
@@ -78,6 +80,16 @@ export class LeadsService {
         name: input.contactName,
         phone: input.contactPhone,
       });
+      /*
+       * השלמה, לא דריסה: כתובת שכבר על הכרטיס הוקלדה או נקלטה
+       * ממקור חי, וקובץ ישן שמיובא אחריה לא אמור למחוק אותה.
+       */
+      if (input.contactEmail) {
+        const existing = await this.contacts.emailFor(tx, contact.id);
+        if (existing === undefined) {
+          await this.contacts.setEmail(tx, contact.id, input.contactEmail);
+        }
+      }
       // נעילה פר איש-קשר: שתי קליטות מקבילות לא יעברו שתיהן את בדיקת
       // "אין ליד פתוח" וייצרו כפילות — אין אילוץ ייחודיות בסכימה (ביקורת Codex)
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`lead-intake:${ctx.tenantId}:${contact.id}`}, 0))`;
