@@ -378,7 +378,7 @@ export default function SetupPage() {
               <div className="flex-none text-center">
                 <button
                   type="button"
-                  onClick={() => router.push("/properties/voice")}
+                  onClick={() => router.push("/voice")}
                   aria-label="קליטת נכס בקול"
                   className="grid h-[104px] w-[104px] place-items-center rounded-full border-0"
                   style={{ background: "var(--color-primary)", color: "var(--color-bg)", cursor: "pointer" }}

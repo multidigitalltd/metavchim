@@ -62,6 +62,7 @@ import {
   type PlatformSettingKey,
 } from "../../core/platform-settings.service";
 import { CardcomService } from "../../core/cardcom.service";
+import { GeminiService } from "../../core/gemini.service";
 import { GeocodingService } from "../../core/geocoding.service";
 import { CreditEconomyService } from "../../core/credit-economy.service";
 import {
@@ -477,6 +478,7 @@ export class PlatformController {
     private readonly serviceVersions: ServiceVersionsService,
     private readonly telephonyWebhookLog: TelephonyWebhookLogService,
     private readonly platformCredits: PlatformCreditsService,
+    private readonly gemini: GeminiService,
   ) {}
 
   /**
@@ -1316,10 +1318,8 @@ export class PlatformController {
       gemini: {
         configured: geminiDb || geminiEnv,
         source: geminiDb ? "db" : geminiEnv ? "env" : "none",
-        model:
-          (await this.platformSettings.get("geminiModel")) ??
-          env.GEMINI_MODEL ??
-          "gemini-2.5-flash-lite",
+        // אותו מקום שקורא בפועל — לא העתק של ההיגיון (ראו DEFAULT_GEMINI_MODEL)
+        model: await this.gemini.activeModel(),
       },
       cardcom: {
         configured: cardcomDb || cardcomEnv,

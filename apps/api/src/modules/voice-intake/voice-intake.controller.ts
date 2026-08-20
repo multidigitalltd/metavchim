@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  Body,
   Controller,
   Get,
   HttpCode,
@@ -9,18 +8,18 @@ import {
   UseInterceptors,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
-import { z } from "zod";
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
-import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { TranscriptionService, type TranscriptionStatus } from "./transcription.service";
-import { VoiceIntakeService, type IntakeResult } from "./voice-intake.service";
 
-const IntakeSchema = z
-  .object({
-    transcript: z.string().min(5).max(4000),
-  })
-  .strict();
+/**
+ * תמלול בלבד.
+ *
+ * קליטת הנכס מהתמלול עברה ל-`AgentModule`, שבו החילוץ נעשה במודל
+ * ולא בחוקים והתוצאה מוצגת לאישור לפני שנשמרת. הנתיב שהיה כאן
+ * המשיך ליצור נכסים במסלול הישן — כלומר שתי דרכים לקלוט נכס בקול,
+ * עם שתי רמות דיוק.
+ */
 
 /** גבול גודל להעלאת אודיו — דקות ספורות של הקלטה דחוסה. */
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
@@ -28,10 +27,7 @@ const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 @RequireFeature("voice_intake")
 @Controller("voice-intakes")
 export class VoiceIntakeController {
-  constructor(
-    private readonly service: VoiceIntakeService,
-    private readonly transcription: TranscriptionService,
-  ) {}
+  constructor(private readonly transcription: TranscriptionService) {}
 
   /** האם תמלול בשרת מוכן, ובאיזה קצב — הממשק מתאים את עצמו. */
   @Get("transcription-status")
@@ -55,11 +51,4 @@ export class VoiceIntakeController {
     return this.transcription.transcribe(file.buffer, file.originalname || "audio.webm");
   }
 
-  @Post()
-  @RequireCapability("properties.create")
-  async intake(
-    @Body(new ZodValidationPipe(IntakeSchema)) body: z.infer<typeof IntakeSchema>,
-  ): Promise<IntakeResult> {
-    return this.service.intake(body.transcript);
-  }
 }

@@ -1,10 +1,18 @@
 /**
- * ניתוב פקודות קוליות (docs/06) — המתווך אומר משפט אחד, והמערכת מזהה
- * *מה הוא רוצה לעשות* לפני שהיא מחלצת פרטים. מנוע חוקים דטרמיניסטי,
- * במקביל ל-extract-property/extract-person; ספק LLM יורחב מעליו.
+ * ניתוב פקודות קוליות — **הרצפה, לא המסלול הראשי.**
  *
- * עיקרון בטיחות: הפקודה אף פעם לא מבוצעת ישירות — היא מתורגמת לטיוטה
- * שהמתווך מאשר. במיוחד בפעולות שיוצאות ללקוח (שליחת הצעה).
+ * ההבנה עברה ל-`agent/` : Gemini בוחר את הפעולה **וממלא את השדות
+ * שלה**, במקום לזהות כוונה ולמסור את המשפט למנוע חוקים. המנוע כאן
+ * נשאר כי הוא עובד בלי רשת ובלי מפתח — כשאין Gemini, או כשהקריאה
+ * נכשלת, עדיף זיהוי חלקי על „לא הבנתי”.
+ *
+ * המגבלה שלו מתועדת ולא מוסתרת: `extract-property` מזהה ערים מול
+ * **רשימה קשיחה של תשעה-עשר שמות בקוד**, ולכן כל יישוב מחוצה לה
+ * אינו מזוהה. זה בדיוק מה שהמסלול החדש בא לפתור — ומה שהופך את
+ * הקוד הזה לגיבוי ולא לברירת מחדל.
+ *
+ * עיקרון הבטיחות לא השתנה: הפקודה לעולם אינה מבוצעת ישירות אלא
+ * מתורגמת להצעה שהמתווך מאשר.
  */
 
 export type VoiceAction =
@@ -26,8 +34,6 @@ export interface VoiceCommand {
   matched?: string;
   /** לחיפוש: מה לחפש */
   query?: string;
-  /** לשליחת הצעה: מה לזהות במאגר לפני האישור */
-  offer?: { propertyPhrase?: string; buyerPhrase?: string };
 }
 
 const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" }[] = [
@@ -131,38 +137,11 @@ export function routeVoiceCommand(transcript: string): VoiceCommand {
       };
       if (rule.action === "search") {
         command.query = text.replace(rule.pattern, "").trim();
-      } else if (rule.action === "send_offer") {
-        command.offer = parseOfferTargets(text);
       }
       return command;
     }
   }
   return { action: "unknown", confidence: "low" };
-}
-
-/**
- * "שלח את הנכס בהרב שך למשה כהן" ⟵ מה לזהות במאגר:
- * הנכס = "הרב שך", הקונה = "משה כהן". שני הביטויים נפתרים בשרת מול
- * הנתונים של המשרד; אם יש יותר מהתאמה אחת — המתווך בוחר.
- */
-export function parseOfferTargets(text: string): { propertyPhrase?: string; buyerPhrase?: string } {
-  const result: { propertyPhrase?: string; buyerPhrase?: string } = {};
-
-  // הנמען: "…ל<שם>" בסוף המשפט (עד שתי מילים)
-  const toMatch = /\sל(?<buyer>[א-ת]+(?:\s+[א-ת]+)?)\s*$/u.exec(text);
-  if (toMatch?.groups?.["buyer"]) {
-    result.buyerPhrase = toMatch.groups["buyer"].trim();
-  }
-
-  // הנכס: מה שבין מילת הפקודה לנמען
-  const body = toMatch ? text.slice(0, toMatch.index) : text;
-  const propMatch =
-    /(?:שלח|תשלח|שלחי)\s+(?:את\s+)?(?:ה?נכס|ה?דירה|ה?הצעה|הצעה)\s*(?:ב|של|ה)?\s*(?<prop>.+)/u.exec(body);
-  const phrase = propMatch?.groups?.["prop"]?.trim();
-  if (phrase !== undefined && phrase.length > 1) {
-    result.propertyPhrase = phrase;
-  }
-  return result;
 }
 
 /** התוכן ללא מילות הפקודה — מוזן למנועי החילוץ. */
@@ -185,15 +164,3 @@ export function taskTitleFromTranscript(transcript: string): string {
     .trim();
   return stripped === "" ? text : stripped;
 }
-
-export const VOICE_ACTION_LABELS: Record<VoiceAction, string> = {
-  add_property: "הוספת נכס",
-  add_buyer: "הוספת קונה",
-  add_lead: "הוספת ליד",
-  schedule_appointment: "קביעת פגישה",
-  add_task: "תזכורת / משימה",
-  query_buyers: "שאלה על המאגר — מי מחפש",
-  send_offer: "שליחת הצעה ללקוח",
-  search: "חיפוש",
-  unknown: "לא זוהתה פקודה",
-};

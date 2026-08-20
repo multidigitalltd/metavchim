@@ -41,6 +41,7 @@ import { SignupModule } from "./modules/signup/signup.module";
 import { TelephonyModule } from "./modules/telephony/telephony.module";
 import { TasksModule } from "./modules/tasks/tasks.module";
 import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
+import { AgentModule } from "./modules/agent/agent.module";
 
 /**
  * מודול-העל. כל Endpoint מוגן כברירת מחדל (AuthGuard גלובלי);
@@ -66,6 +67,7 @@ import { VoiceIntakeModule } from "./modules/voice-intake/voice-intake.module";
     PlatformModule,
     LeadsModule,
     VoiceIntakeModule,
+    AgentModule,
     NavModule,
     NotificationsModule,
     AnnouncementsModule,
