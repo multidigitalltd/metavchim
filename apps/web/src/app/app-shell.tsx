@@ -13,6 +13,7 @@ import { WhatsNewBanner } from "./whats-new-banner";
 import { TrialBanner } from "./trial-banner";
 import { SoftphoneProvider } from "./softphone-bar";
 import { SupportButton } from "./support-button";
+import { SingleSessionGuard } from "./single-session-guard";
 import { roleLabel } from "@metavchim/shared";
 import { IconMenu, LogoMark } from "./icons";
 import { OfficeLogoMark } from "./office-logo-mark";
@@ -680,6 +681,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
 
         <main id="main-content" className="mv-content">
+          {/* חיבור אחד לחשבון — הדיאלוג חוסם עד בחירה; ראו ההסבר ברכיב */}
+          <SingleSessionGuard />
           <TrialBanner trialEndsAt={me?.trialEndsAt} />
           <WhatsNewBanner />
           {/*
