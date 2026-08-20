@@ -42,10 +42,24 @@ export default function KankoComingSoonPage() {
           <IconUsers s={28} />
         </span>
         <h1 id="kanko-heading" className="m-0 text-2xl font-extrabold">
-          קונים - Kanko
+          <span className="mv-visually-hidden">קונים - Kanko</span>
+          {/*
+            קובץ הלוגו הרשמי שמסר המשתמש — לא שחזור. `alt` ריק
+            ו-aria-hidden: השם הנגיש מגיע מה-span המוסתר, ותמונה עם
+            שם משלה הייתה מקריאה "Kanko" פעמיים (ביקורת Codex).
+          */}
+          <img
+            src="/kanko-logo.png"
+            alt=""
+            aria-hidden="true"
+            // marginInline auto — ה-reset הופך img ל-block, ובלי זה
+            // הלוגו נצמד לימין במקום להתמרכז בכרטיס
+            style={{ height: 44, width: "auto", maxWidth: "100%", marginInline: "auto" }}
+          />
         </h1>
         <p className="m-0 mt-3 text-[16px]" style={{ color: "var(--color-text-soft)" }}>
-          פה תוכלו להציע נכסים לקונים מפולחים שמחכים להצעות.
+          פה תוכלו להציע נכסים לקונים מפולחים שמחכים להצעות — בלחיצת
+          כפתור ובלי צורך בשיחה.
         </p>
         <p
           className="mx-auto mt-5 inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[15px] font-bold"
