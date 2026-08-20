@@ -911,12 +911,21 @@ export class ListingsService {
   async respondToInterest(
     id: string,
     response: "interested" | "declined",
+    note?: string,
   ): Promise<{ dealId: string | null }> {
     const tenantId = TenantContext.current().tenantId;
+    // הסיבה נשמרת רק בדחייה — ראו אותו כלל ב-`respondToCoopOffer`
+    const declineNote =
+      response === "declined" && note !== undefined && note !== ""
+        ? note
+        : null;
     await this.prisma.withTenant(async (tx) => {
       const result = await tx.coopInterest.updateMany({
         where: { id, toTenantId: tenantId, status: "sent" },
-        data: { status: response },
+        data: {
+          status: response,
+          ...(declineNote === null ? {} : { declineNote }),
+        },
       });
       if (result.count === 0) {
         /*
@@ -945,7 +954,7 @@ export class ListingsService {
      * חוזר פעמיים הוא מפסיק להציע. „לא מתאים” שנאמר מהר הוא חלק
      * מהשירות, לא היעדרו (בקשת המשתמש).
      */
-    await this.mailInterestResponse(id, response);
+    await this.mailInterestResponse(id, response, declineNote);
 
     // אחרי ה-Commit: פתיחת החדר נוגעת בשני דיירים ושולחת מייל
     if (response !== "interested") return { dealId: null };
@@ -960,6 +969,7 @@ export class ListingsService {
   private async mailInterestResponse(
     interestId: string,
     response: "interested" | "declined",
+    note: string | null = null,
   ): Promise<void> {
     try {
       const tenantId = TenantContext.current().tenantId;
@@ -989,6 +999,8 @@ export class ListingsService {
             ]
           : [
               `${office} בדק את הקונה שהצעתם והשיב שהוא אינו מתאים לנכס.`,
+              // הסיבה שכתבו — פידבק שמלמד מה כן להציע בפעם הבאה
+              ...(note === null ? [] : [`הסיבה שמסרו: „${note}”`]),
               "אין צורך להמתין לתשובה נוספת. אפשר להציע את אותו קונה על נכסים אחרים בפיד.",
             ],
         button: {
@@ -1067,53 +1079,80 @@ export class ListingsService {
       presentation: Record<string, unknown>;
       commissionSplit: number;
       status: string;
+      officeName?: string;
+      officeLogoUrl?: string;
+      declineNote?: string;
       createdAt: Date;
     }[]
   > {
     const tenantId = TenantContext.current().tenantId;
-    return this.prisma.withTenant(async (tx) => {
+    const { rows, byId } = await this.prisma.withTenant(async (tx) => {
       const rows = await tx.coopInterest.findMany({
         where: { toTenantId: tenantId },
         orderBy: { createdAt: "desc" },
         take: 100,
       });
-      if (rows.length === 0) return [];
       /*
        * שאילתה אחת לכל הרשימה ולא אחת לשורה: בלי זה מסך עם עשרים
        * פניות היה מייצר עשרים שאילתות, וזה בדיוק ה-N+1 שכבר תוקן
        * בשאר המודול.
        */
-      const listings = await tx.sharedListing.findMany({
-        where: { id: { in: rows.map((r) => r.listingId) }, tenantId },
-        select: { id: true, originPropertyId: true, title: true, city: true },
-      });
-      const byId = new Map(listings.map((l) => [l.id, l]));
-      return rows.map((row) => {
-        const listing = byId.get(row.listingId);
-        /*
-         * "על איזה נכס" הוא הפרט שקובע מה עושים עם הפנייה. משרד
-         * שפרסם חמישה נכסים קיבל חמש פניות שנראו זהות ולא ידע על
-         * מה מדובר. כותרת שיווקית עדיפה, העיר היא הנפילה — ואם גם
-         * היא חסרה עדיף בלי כותרת מאשר "נכס בundefined".
-         */
-        const title =
-          listing?.title ??
-          (listing?.city === null || listing?.city === undefined
-            ? null
-            : `נכס ב${listing.city}`);
-        return {
-          id: row.id,
-          listingId: row.listingId,
-          ...(listing === undefined
-            ? {}
-            : { propertyId: listing.originPropertyId }),
-          ...(title === null ? {} : { propertyTitle: title }),
-          presentation: row.presentation as Record<string, unknown>,
-          commissionSplit: row.commissionSplit,
-          status: row.status,
-          createdAt: row.createdAt,
-        };
-      });
+      const listings =
+        rows.length === 0
+          ? []
+          : await tx.sharedListing.findMany({
+              where: { id: { in: rows.map((r) => r.listingId) }, tenantId },
+              select: {
+                id: true,
+                originPropertyId: true,
+                title: true,
+                city: true,
+              },
+            });
+      return { rows, byId: new Map(listings.map((l) => [l.id, l])) };
+    });
+    if (rows.length === 0) return [];
+    /*
+     * המשרד שמציע את הקונה — אותו כלל כמו בפיד (ראו `officeBadges`):
+     * מידע על משרד ולא על הלקוח, ומה שמאפשר לבחון את הפנייה לפני
+     * אישור. מחוץ לטרנזקציה כי `tenants` אינה תחת RLS.
+     */
+    const offices = await officeBadges(
+      this.prisma,
+      this.storage,
+      rows.map((row) => row.fromTenantId),
+    );
+    return rows.map((row) => {
+      const listing = byId.get(row.listingId);
+      /*
+       * "על איזה נכס" הוא הפרט שקובע מה עושים עם הפנייה. משרד
+       * שפרסם חמישה נכסים קיבל חמש פניות שנראו זהות ולא ידע על
+       * מה מדובר. כותרת שיווקית עדיפה, העיר היא הנפילה — ואם גם
+       * היא חסרה עדיף בלי כותרת מאשר "נכס בundefined".
+       */
+      const title =
+        listing?.title ??
+        (listing?.city === null || listing?.city === undefined
+          ? null
+          : `נכס ב${listing.city}`);
+      const office = offices.get(row.fromTenantId);
+      return {
+        id: row.id,
+        listingId: row.listingId,
+        ...(listing === undefined
+          ? {}
+          : { propertyId: listing.originPropertyId }),
+        ...(title === null ? {} : { propertyTitle: title }),
+        presentation: row.presentation as Record<string, unknown>,
+        commissionSplit: row.commissionSplit,
+        status: row.status,
+        ...(office === undefined ? {} : { officeName: office.name }),
+        ...(office?.logoUrl === undefined
+          ? {}
+          : { officeLogoUrl: office.logoUrl }),
+        ...(row.declineNote === null ? {} : { declineNote: row.declineNote }),
+        createdAt: row.createdAt,
+      };
     });
   }
 

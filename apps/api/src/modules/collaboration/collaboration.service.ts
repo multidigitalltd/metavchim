@@ -302,6 +302,20 @@ export interface CoopOfferDto {
    * מסמן "מעוניין", ולא אחרי.
    */
   commissionSplit: number;
+  /**
+   * המשרד שבצד השני — למקבל שם המציע, למציע שם המקבל. מידע על
+   * משרד ולא על לקוח (אותו כלל כמו בפיד — ראו `officeBadges`).
+   */
+  officeName?: string;
+  officeLogoUrl?: string;
+  /**
+   * תמונות הנכס המוצע — **רק בהצעות נכנסות**, כתובות חתומות
+   * קצרות-חיים. חלק מהחשיפה המדורגת: בוחנים את הנכס לפני אישור
+   * חיבור, בלי כתובת מדויקת ובלי פרטי בעלים.
+   */
+  photos?: string[];
+  /** מה שהמשרד הדוחה כתב — מדוע ההצעה אינה מתאימה. */
+  declineNote?: string;
   createdAt: Date;
 }
 
@@ -1626,7 +1640,10 @@ export class CollaborationService {
    *
    * Best-effort: התגובה כבר נרשמה, וכשל בשליחה נרשם ביומן בלבד.
    */
-  private async mailOfferDeclined(offerId: string): Promise<void> {
+  private async mailOfferDeclined(
+    offerId: string,
+    note: string | null,
+  ): Promise<void> {
     try {
       const tenantId = TenantContext.current().tenantId;
       const offer = await this.prisma.withTenant((tx) =>
@@ -1645,6 +1662,8 @@ export class CollaborationService {
         heading: "ההצעה נסגרה",
         paragraphs: [
           `${badges.get(tenantId)?.name ?? "המשרד שפרסם את הביקוש"} בדק את הנכס שהצעתם והשיב שהוא אינו מתאים לקונה.`,
+          // הסיבה שכתבו — פידבק שמלמד מה כן להציע בפעם הבאה
+          ...(note === null ? [] : [`הסיבה שמסרו: „${note}”`]),
           "אין צורך להמתין לתשובה נוספת. אפשר להציע את אותו נכס על ביקושים אחרים בפיד.",
         ],
         button: {
@@ -1676,20 +1695,109 @@ export class CollaborationService {
     const incomingDemandIds = rows
       .filter((row) => row.toTenantId === tenantId)
       .map((row) => row.demandId);
-    const buyerByDemand = await this.buyerNamesForDemands(incomingDemandIds);
+    /*
+     * המשרד שמאחורי הצד השני — אותו כלל כמו בפיד (ראו `officeBadges`):
+     * מי ששוקל הצעה רוצה לדעת עם איזה משרד הוא עומד לעבוד, וזה מידע
+     * על משרד, לא על הלקוח. פרטי הלקוח נשארים חסויים בדיוק כמו קודם.
+     */
+    const [buyerByDemand, offices, photosByProperty] = await Promise.all([
+      this.buyerNamesForDemands(incomingDemandIds),
+      officeBadges(
+        this.prisma,
+        this.storage,
+        rows.map((row) =>
+          row.toTenantId === tenantId ? row.fromTenantId : row.toTenantId,
+        ),
+      ),
+      this.offerPhotos(
+        rows.filter((row) => row.toTenantId === tenantId),
+      ),
+    ]);
 
-    return rows.map((row) => ({
-      id: row.id,
-      demandId: row.demandId,
-      ...(row.toTenantId === tenantId
-        ? (buyerByDemand.get(row.demandId) ?? {})
-        : {}),
-      direction: row.toTenantId === tenantId ? "incoming" : "outgoing",
-      commissionSplit: row.commissionSplit,
-      presentation: row.presentation as Record<string, unknown>,
-      status: row.status,
-      createdAt: row.createdAt,
-    }));
+    return rows.map((row) => {
+      const office = offices.get(
+        row.toTenantId === tenantId ? row.fromTenantId : row.toTenantId,
+      );
+      const photos =
+        row.toTenantId === tenantId
+          ? photosByProperty.get(row.propertyId)
+          : undefined;
+      return {
+        id: row.id,
+        demandId: row.demandId,
+        ...(row.toTenantId === tenantId
+          ? (buyerByDemand.get(row.demandId) ?? {})
+          : {}),
+        direction: row.toTenantId === tenantId ? "incoming" : "outgoing",
+        commissionSplit: row.commissionSplit,
+        presentation: row.presentation as Record<string, unknown>,
+        status: row.status,
+        ...(office === undefined ? {} : { officeName: office.name }),
+        ...(office?.logoUrl === undefined
+          ? {}
+          : { officeLogoUrl: office.logoUrl }),
+        ...(photos === undefined || photos.length === 0 ? {} : { photos }),
+        ...(row.declineNote === null ? {} : { declineNote: row.declineNote }),
+        createdAt: row.createdAt,
+      };
+    });
+  }
+
+  /**
+   * תמונות הנכסים שהוצעו לנו — לבחינת ההצעה **לפני** אישור החיבור.
+   *
+   * התמונות הן חלק מהחשיפה המדורגת, בדיוק כמו בפיד המודעות: הן
+   * מראות את הנכס בלי לזהות את בעליו ובלי כתובת מדויקת. הקריאה
+   * חוצה-דייר במתכוון וסלקטיבית — רק הנכסים שהוצעו לנו במפורש,
+   * דרך `withExplicitTenant` של המשרד המציע, ורק מדיה מסוג תמונה.
+   *
+   * Best-effort: תמונה שנכשלת בחתימה פשוט אינה מוצגת — הצעה בלי
+   * תמונות שווה יותר משגיאת שרת על כל הרשימה.
+   */
+  private async offerPhotos(
+    incoming: readonly { fromTenantId: string; propertyId: string }[],
+  ): Promise<Map<string, string[]>> {
+    const byFromTenant = new Map<string, string[]>();
+    for (const row of incoming) {
+      const list = byFromTenant.get(row.fromTenantId) ?? [];
+      list.push(row.propertyId);
+      byFromTenant.set(row.fromTenantId, list);
+    }
+
+    const photos = new Map<string, string[]>();
+    for (const [fromTenantId, propertyIds] of byFromTenant) {
+      try {
+        const media = await this.prisma.withExplicitTenant(
+          fromTenantId,
+          (tx) =>
+            tx.propertyMedia.findMany({
+              where: {
+                tenantId: fromTenantId,
+                propertyId: { in: propertyIds },
+                kind: "image",
+              },
+              orderBy: { sortOrder: "asc" },
+              select: { propertyId: true, s3Key: true },
+            }),
+        );
+        for (const item of media) {
+          const list = photos.get(item.propertyId) ?? [];
+          // אותה תקרה כמו בגלריית המודעה — אין טעם לחתום מעבר לה
+          if (list.length >= 12) continue;
+          const url = await this.storage
+            .signedGetUrl(item.s3Key)
+            .catch(() => null);
+          if (url === null) continue;
+          list.push(url);
+          photos.set(item.propertyId, list);
+        }
+      } catch (error: unknown) {
+        this.logger.warn(
+          `תמונות להצעות ממשרד ${fromTenantId} לא נטענו: ${String(error)}`,
+        );
+      }
+    }
+    return photos;
   }
 
   /**
@@ -1702,12 +1810,24 @@ export class CollaborationService {
   async respondToCoopOffer(
     id: string,
     response: "interested" | "declined",
+    note?: string,
   ): Promise<{ dealId: string | null }> {
     const tenantId = TenantContext.current().tenantId;
+    /*
+     * הסיבה נשמרת רק בדחייה — ב"מעוניין" השיחה עוברת לחדר העסקה,
+     * ושדה חופשי שנשמר בלי שמוצג בשום מקום הוא התחייבות בלי תועלת.
+     */
+    const declineNote =
+      response === "declined" && note !== undefined && note !== ""
+        ? note
+        : null;
     await this.prisma.withTenant(async (tx) => {
       const result = await tx.coopOffer.updateMany({
         where: { id, toTenantId: tenantId, status: "sent" },
-        data: { status: response },
+        data: {
+          status: response,
+          ...(declineNote === null ? {} : { declineNote }),
+        },
       });
       if (result.count === 0) {
         /*
@@ -1747,7 +1867,7 @@ export class CollaborationService {
      * חלק מהשירות (בקשת המשתמש).
      */
     if (response === "declined") {
-      await this.mailOfferDeclined(id);
+      await this.mailOfferDeclined(id, declineNote);
       return { dealId: null };
     }
     return { dealId: await this.dealRoom.openFromOffer(id) };

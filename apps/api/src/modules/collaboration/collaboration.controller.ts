@@ -126,7 +126,11 @@ const OfferSchema = z
   .object({ propertyId: IdSchema, commissionSplit: CommissionSplitSchema })
   .strict();
 const RespondSchema = z
-  .object({ response: z.enum(["interested", "declined"]) })
+  .object({
+    response: z.enum(["interested", "declined"]),
+    /** סיבת „לא מתאים” — נשלחת למשרד שהציע. רלוונטית רק בדחייה. */
+    note: z.string().trim().max(300).optional(),
+  })
   .strict();
 
 /*
@@ -365,7 +369,7 @@ export class CollaborationController {
     @Body(new ZodValidationPipe(RespondSchema))
     body: z.infer<typeof RespondSchema>,
   ): Promise<{ dealId: string | null }> {
-    return this.listings.respondToInterest(id, body.response);
+    return this.listings.respondToInterest(id, body.response, body.note);
   }
 
   /**
@@ -509,6 +513,7 @@ export class CollaborationController {
     const { dealId } = await this.collaboration.respondToCoopOffer(
       id,
       body.response,
+      body.note,
     );
     return { ok: true, dealId };
   }

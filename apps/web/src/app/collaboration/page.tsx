@@ -30,6 +30,7 @@ import {
   type ListFilterValues,
 } from "../list-filters";
 import {
+  IconBank,
   IconCheck,
   IconDiamond,
   IconDownload,
@@ -323,6 +324,10 @@ interface InterestRow {
   };
   commissionSplit: number;
   status: string;
+  /** המשרד שמציע את הקונה — מידע על משרד, לא על הלקוח */
+  officeName?: string;
+  /** הסיבה שנכתבה בדחייה — מוצגת על הכרטיס שנדחה */
+  declineNote?: string;
 }
 
 interface CoopOfferRow {
@@ -354,6 +359,12 @@ interface CoopOfferRow {
     title?: string;
   };
   status: string;
+  /** המשרד המציע (בנכנסות) או המקבל (ביוצאות) — מידע על משרד בלבד */
+  officeName?: string;
+  /** תמונות הנכס המוצע — חלק מהחשיפה המדורגת, רק בהצעות נכנסות */
+  photos?: string[];
+  /** הסיבה שנכתבה בדחייה */
+  declineNote?: string;
 }
 
 interface SharedLeadRow {
@@ -466,6 +477,16 @@ export default function CollaborationPage() {
   const [buyingLead, setBuyingLead] = useState<string | null>(null);
   const [boughtLeadId, setBoughtLeadId] = useState<string | null>(null);
   const [coopOffers, setCoopOffers] = useState<CoopOfferRow[]>([]);
+  /*
+   * טופס „לא מתאים” פתוח — על הצעה או פנייה אחת בכל רגע. הדחייה
+   * אינה נשלחת בלחיצה הראשונה: קודם נפתח שדה שבו כותבים למשרד
+   * שהציע למה זה לא מתאים (בקשת המשתמש) — פידבק שמלמד אותו מה
+   * כן להציע, במקום שתיקה שמורידה משרדים מהרשת.
+   */
+  const [declining, setDeclining] = useState<
+    { kind: "offer" | "interest"; id: string } | null
+  >(null);
+  const [declineText, setDeclineText] = useState("");
   /* הכיוון השני של הרשת: נכסים שמשרדים אחרים פרסמו, ומי פנה על שלי */
   const [listings, setListings] = useState<ListingRow[] | null>(null);
   const [interests, setInterests] = useState<InterestRow[]>([]);
@@ -631,12 +652,17 @@ export default function CollaborationPage() {
    * אליו מיד: זו כל הנקודה של האישור, וסוכן שנשאר על אותה רשימה
    * לא ידע שנפתח לו משהו — וזה בדיוק המקום שבו ההמשך עבר לוואטסאפ.
    */
-  async function respond(offerId: string, response: "interested" | "declined") {
+  async function respond(
+    offerId: string,
+    response: "interested" | "declined",
+    note?: string,
+  ) {
     try {
       const { dealId } = await apiPatch<{ ok: true; dealId: string | null }>(
         `/collaboration/offers/${offerId}/respond`,
-        { response },
+        { response, ...(note === undefined || note === "" ? {} : { note }) },
       );
+      setDeclining(null);
       if (dealId !== null) {
         router.push(`/collaboration/deals/${dealId}`);
         return;
@@ -673,12 +699,14 @@ export default function CollaborationPage() {
   async function respondToInterest(
     id: string,
     response: "interested" | "declined",
+    note?: string,
   ) {
     try {
       const { dealId } = await apiPatch<{ dealId: string | null }>(
         `/collaboration/interests/${id}/respond`,
-        { response },
+        { response, ...(note === undefined || note === "" ? {} : { note }) },
       );
+      setDeclining(null);
       if (dealId !== null) {
         router.push(`/collaboration/deals/${dealId}`);
         return;
@@ -914,32 +942,128 @@ export default function CollaborationPage() {
                   ) : null}
                 </div>
 
-                {/* כל מה שאינו מזהה — לפני אישור החיבור, לא אחריו */}
-                <NetChips chips={presentationChips(offer.presentation)} />
-
-                <div className="mv-net-foot">
+                {/*
+                  שני מקטעים עם כותרות (בקשת המשתמש): קודם תנאי
+                  ההצעה — מי מציע ואיך נחלקת העמלה — ואז הנכס עצמו.
+                  בלי ההפרדה הכרטיס נקרא כערימת תגיות אחת.
+                */}
+                <h4 className="mv-net-sec">פרטי ההצעה</h4>
+                <ul className="mv-net-chips">
+                  <li className="mv-net-chip mv-net-chip--primary">
+                    <IconBank s={14} /> {offer.officeName ?? "משרד תיווך"}
+                  </li>
                   {/* חלוקת העמלה לפני ההסכמה ולא אחריה */}
-                  <span className="mv-net-chip mv-net-chip--money">
+                  <li className="mv-net-chip mv-net-chip--money">
                     <IconCoins s={14} /> העמלה שלי {100 - offer.commissionSplit}
                     % · למציע {offer.commissionSplit}%
-                  </span>
-                  <span className="mv-net-chip" title="חשיפה מדורגת">
-                    <IconLock s={14} /> כתובת מדויקת ושם הסוכנות — רק אחרי אישור
-                  </span>
+                  </li>
+                  <li className="mv-net-chip" title="חשיפה מדורגת">
+                    <IconLock s={14} /> כתובת מדויקת ופרטי קשר — רק אחרי אישור
+                  </li>
+                </ul>
+
+                <h4 className="mv-net-sec">הנכס המוצע</h4>
+                {offer.photos !== undefined && offer.photos.length > 0 ? (
+                  <NetPhotos
+                    photos={offer.photos}
+                    alt={offer.presentation.title ?? "הנכס המוצע"}
+                  />
+                ) : null}
+                {/* כל מה שאינו מזהה — לפני אישור החיבור, לא אחריו */}
+                <NetChips chips={presentationChips(offer.presentation)} />
+                <div className="mb-1">
+                  <NetDetailsButton
+                    title={offer.presentation.title ?? "נכס שהוצע לכם"}
+                    {...(offer.presentation.priceAgorot === undefined
+                      ? {}
+                      : {
+                          money: `${shekels(offer.presentation.priceAgorot)} ₪`,
+                        })}
+                    moneyLabel={
+                      offer.presentation.dealType === "rent"
+                        ? "שכר דירה"
+                        : "מחיר"
+                    }
+                    details={[
+                      ...presentationDetailRows(offer.presentation),
+                      {
+                        label: "חלוקת עמלה",
+                        value: describeCommissionSplit(offer.commissionSplit),
+                      },
+                    ]}
+                    notesLabel="הערות חשובות"
+                    {...(offer.photos === undefined
+                      ? {}
+                      : { photos: offer.photos })}
+                    id={offer.id}
+                    {...(offer.officeName === undefined
+                      ? {}
+                      : { officeName: offer.officeName })}
+                  />
+                </div>
+
+                <div className="mv-net-foot">
                   {offer.status === "sent" ? (
-                    <span className="flex gap-2">
-                      <Button
-                        onClick={() => void respond(offer.id, "interested")}
-                      >
-                        מעניין — פתח חיבור
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => void respond(offer.id, "declined")}
-                      >
-                        לא מתאים
-                      </Button>
-                    </span>
+                    declining?.kind === "offer" &&
+                    declining.id === offer.id ? (
+                      <div className="w-full">
+                        <label
+                          htmlFor={`decline-offer-${offer.id}`}
+                          className="mb-1 block text-[14px] font-medium"
+                        >
+                          למה ההצעה לא מתאימה? הסיבה תישלח למשרד שהציע
+                        </label>
+                        <textarea
+                          id={`decline-offer-${offer.id}`}
+                          rows={2}
+                          maxLength={300}
+                          className="w-full rounded-lg border p-2 text-[14px]"
+                          style={{
+                            borderColor: "var(--color-border)",
+                            background: "var(--color-bg)",
+                          }}
+                          value={declineText}
+                          onChange={(e) => setDeclineText(e.target.value)}
+                          placeholder="למשל: המחיר גבוה מהתקציב של הקונה, או שהקומה לא מתאימה"
+                        />
+                        <div className="mt-2 flex gap-2">
+                          <Button
+                            onClick={() =>
+                              void respond(
+                                offer.id,
+                                "declined",
+                                declineText.trim(),
+                              )
+                            }
+                          >
+                            שליחה ודחייה
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            onClick={() => setDeclining(null)}
+                          >
+                            ביטול
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="flex gap-2">
+                        <Button
+                          onClick={() => void respond(offer.id, "interested")}
+                        >
+                          מעניין — פתח חיבור
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            setDeclineText("");
+                            setDeclining({ kind: "offer", id: offer.id });
+                          }}
+                        >
+                          לא מתאים
+                        </Button>
+                      </span>
+                    )
                   ) : offer.status === "interested" ? (
                     /* אושר ונדחה אינם אותו דבר בצבע ירוק — הצבע הוא
                        חצי מהמסר, והאייקון הוא החצי שנקרא ראשון */
@@ -952,6 +1076,9 @@ export default function CollaborationPage() {
                   ) : (
                     <span className="mv-net-chip">
                       <IconX s={14} /> נדחה
+                      {offer.declineNote === undefined
+                        ? ""
+                        : ` — „${offer.declineNote}”`}
                     </span>
                   )}
                 </div>
@@ -1003,36 +1130,116 @@ export default function CollaborationPage() {
                       ) : null}
                     </div>
 
-                    {/* כל מה שידוע על הקונה למעט מה שמזהה אותו */}
-                    <NetChips chips={demandChips(interest.presentation)} />
-
-                    <div className="mv-net-foot">
-                      <span className="mv-net-chip mv-net-chip--money">
+                    {/* אותו מבנה כמו בהצעות הנכסים — קודם תנאי ההצעה, ואז הקונה */}
+                    <h4 className="mv-net-sec">פרטי ההצעה</h4>
+                    <ul className="mv-net-chips">
+                      <li className="mv-net-chip mv-net-chip--primary">
+                        <IconBank s={14} /> {interest.officeName ?? "משרד תיווך"}
+                      </li>
+                      <li className="mv-net-chip mv-net-chip--money">
                         <IconCoins s={14} /> העמלה שלי{" "}
                         {100 - interest.commissionSplit}% · למציע{" "}
                         {interest.commissionSplit}%
-                      </span>
-                      <span className="mv-net-chip" title="חשיפה מדורגת">
+                      </li>
+                      <li className="mv-net-chip" title="חשיפה מדורגת">
                         <IconLock s={14} /> שם הקונה ופרטי הקשר — רק אחרי אישור
-                      </span>
+                      </li>
+                    </ul>
+
+                    <h4 className="mv-net-sec">הקונה המוצע</h4>
+                    {/* כל מה שידוע על הקונה למעט מה שמזהה אותו */}
+                    <NetChips chips={demandChips(interest.presentation)} />
+                    <div className="mb-1">
+                      <NetDetailsButton
+                        title={`קונה עבור „${interest.propertyTitle ?? "נכס שפרסמתם"}”`}
+                        moneyLabel="תקציב"
+                        details={[
+                          ...demandDetailRows(interest.presentation),
+                          {
+                            label: "חלוקת עמלה",
+                            value: describeCommissionSplit(
+                              interest.commissionSplit,
+                            ),
+                          },
+                        ]}
+                        notesLabel="הערות חשובות"
+                        id={interest.id}
+                        {...(interest.officeName === undefined
+                          ? {}
+                          : { officeName: interest.officeName })}
+                      />
+                    </div>
+
+                    <div className="mv-net-foot">
                       {interest.status === "sent" ? (
-                        <span className="flex gap-2">
-                          <Button
-                            onClick={() =>
-                              void respondToInterest(interest.id, "interested")
-                            }
-                          >
-                            מעניין — פתח חיבור
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={() =>
-                              void respondToInterest(interest.id, "declined")
-                            }
-                          >
-                            לא מתאים
-                          </Button>
-                        </span>
+                        declining?.kind === "interest" &&
+                        declining.id === interest.id ? (
+                          <div className="w-full">
+                            <label
+                              htmlFor={`decline-interest-${interest.id}`}
+                              className="mb-1 block text-[14px] font-medium"
+                            >
+                              למה הקונה לא מתאים? הסיבה תישלח למשרד שהציע
+                            </label>
+                            <textarea
+                              id={`decline-interest-${interest.id}`}
+                              rows={2}
+                              maxLength={300}
+                              className="w-full rounded-lg border p-2 text-[14px]"
+                              style={{
+                                borderColor: "var(--color-border)",
+                                background: "var(--color-bg)",
+                              }}
+                              value={declineText}
+                              onChange={(e) => setDeclineText(e.target.value)}
+                              placeholder="למשל: הנכס כבר בהליך מתקדם עם קונה אחר"
+                            />
+                            <div className="mt-2 flex gap-2">
+                              <Button
+                                onClick={() =>
+                                  void respondToInterest(
+                                    interest.id,
+                                    "declined",
+                                    declineText.trim(),
+                                  )
+                                }
+                              >
+                                שליחה ודחייה
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                onClick={() => setDeclining(null)}
+                              >
+                                ביטול
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="flex gap-2">
+                            <Button
+                              onClick={() =>
+                                void respondToInterest(
+                                  interest.id,
+                                  "interested",
+                                )
+                              }
+                            >
+                              מעניין — פתח חיבור
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              onClick={() => {
+                                setDeclineText("");
+                                setDeclining({
+                                  kind: "interest",
+                                  id: interest.id,
+                                });
+                              }}
+                            >
+                              לא מתאים
+                            </Button>
+                          </span>
+                        )
                       ) : interest.status === "interested" ? (
                         <span
                           className="mv-net-chip mv-net-chip--good"
@@ -1043,6 +1250,9 @@ export default function CollaborationPage() {
                       ) : (
                         <span className="mv-net-chip">
                           <IconX s={14} /> נדחה
+                          {interest.declineNote === undefined
+                            ? ""
+                            : ` — „${interest.declineNote}”`}
                         </span>
                       )}
                     </div>
