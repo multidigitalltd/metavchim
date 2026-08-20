@@ -16,7 +16,8 @@ export default function KankoComingSoonPage() {
   if (loading) return null;
 
   return (
-    <main className="mv-page">
+    // div ולא main — העטיפה של AppShell היא ה-main landmark היחיד
+    <div className="mv-page">
       <section
         className="mx-auto mt-10 max-w-xl rounded-2xl border p-8 text-center"
         style={{
@@ -56,6 +57,6 @@ export default function KankoComingSoonPage() {
           <IconSparkle s={16} /> ההשקה בקרוב
         </p>
       </section>
-    </main>
+    </div>
   );
 }
