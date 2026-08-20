@@ -30,9 +30,47 @@ function eligible(node: EventTarget | null): node is TextField {
   return node.type === "text" || node.type === "search";
 }
 
-/** לשדה יש כבר פקדי הכתבה משלו (DictateFor וכו') — לא מכפילים. */
+/** עד כמה לטפס בחיפוש פקדים קיימים — ראו `hasOwnControls`. */
+const OWN_CONTROLS_DEPTH = 4;
+
+/**
+ * לשדה יש כבר פקדי הכתבה משלו (DictateFor וכו') — לא מכפילים.
+ *
+ * ## למה טיפוס ולא `parentElement` בלבד
+ *
+ * הבדיקה הקודמת הסתכלה על ההורה הישיר בלבד, וזה תפס רק את הצורה
+ * ‎`<div><input/><DictateFor/></div>`‎. בטפסים שבהם השדה עטוף
+ * בתווית — ‎`<label><textarea/></label>`‎ והפקדים אחריה — היא
+ * החזירה `false`, והמיקרופון הגלובלי נפתח **בנוסף** לפקדים
+ * הקיימים.
+ *
+ * שני זוגות כפתורי מיקרופון זהים זה ליד זה על אותו שדה הם לא רק
+ * בלבול חזותי: שני מנועי זיהוי נפרדים, ומי שמפעיל את שניהם מקבל
+ * את מה שאמר **פעמיים** בשדה.
+ *
+ * הטיפוס נעצר ברגע שנתקל בשדה טקסט אחר: פקדים שנמצאים אחרי שדה
+ * שכן, שייכים לו ולא לנו.
+ */
 function hasOwnControls(el: TextField): boolean {
-  return Boolean(el.parentElement?.querySelector(".mv-dictate"));
+  let node: HTMLElement | null = el.parentElement;
+  for (let depth = 0; node !== null && depth < OWN_CONTROLS_DEPTH; depth += 1) {
+    /*
+     * שני התנאים נבדקים **יחד**, וזה מה שהופך את הכלל למדויק:
+     * פקדים בתת-עץ שיש בו רק את השדה שלנו הם שלנו. פקדים בתת-עץ
+     * שיש בו שדה נוסף שייכים אולי לשדה ההוא — ואז אין לנו מה
+     * לטעון עליהם.
+     *
+     * בדיקת הפקדים לבדה, לפני גבול השדות, הייתה מוצאת בטופס
+     * הנכס את הפקדים של „כותרת שיווקית” בעת מיקוד ב„שם הבעלים”,
+     * ומכבה את המיקרופון הגלובלי דווקא בשדה שאין לו פקדים משלו
+     * (ביקורת Codex).
+     */
+    const others = [...node.querySelectorAll("input, textarea")].filter((other) => other !== el);
+    if (others.length > 0) return false;
+    if (node.querySelector(".mv-dictate")) return true;
+    node = node.parentElement;
+  }
+  return false;
 }
 
 /** כתיבה שגם React רואה — דרך ה-setter של הדפדפן + אירוע input. */

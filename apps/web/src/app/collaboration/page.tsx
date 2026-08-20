@@ -58,6 +58,8 @@ import {
   NetHero,
   NetMeta,
   NetMoney,
+  NetOffice,
+  NetPhotos,
   NetPlace,
   NetSay,
   splitNetworkChips,
@@ -221,6 +223,15 @@ interface DemandRow {
   mine: boolean;
   /** המשרד שפרסם. חסר לביקוש ממקור חיצוני, שאינו משרד תיווך. */
   officeName?: string;
+  /** לוגו המשרד המפרסם, כשהעלה כזה. */
+  officeLogoUrl?: string;
+  /**
+   * הקונה שממנו נגזר הביקוש — **מגיע רק על הביקושים שלנו.**
+   *
+   * השרת שולח אותו בתנאי `mine`, בדיוק כמו `originPropertyId` בצד
+   * הנכס. אצל משרד אחר הוא לא קיים בתשובה כלל, ולא "מוסתר במסך".
+   */
+  originBuyerId?: string;
   myMatches?: DemandMatch[];
 }
 
@@ -247,11 +258,15 @@ interface ListingRow {
   features: string[];
   title?: string;
   notes?: string;
+  /** תמונות הנכס — כתובות חתומות קצרות-חיים מהשרת. */
+  photos?: string[];
   commissionSplit: number;
   status: string;
   mine: boolean;
   /** המשרד שפרסם את הנכס לרשת. */
   officeName?: string;
+  /** לוגו המשרד המפרסם, כשהעלה כזה. */
+  officeLogoUrl?: string;
   originPropertyId?: string;
   /** הקונים שלי שמתאימים לנכס — אותו מנוע ואותו סף כמו בכיוון השני. */
   myMatches?: {
@@ -1460,7 +1475,23 @@ export default function CollaborationPage() {
                                 <span />
                               )}
                               <span className="flex flex-wrap items-center gap-2">
-                                {demand.mine ? null : (
+                                {demand.mine ? (
+                                  /*
+                                    הביקוש שלנו ⟵ הכרטיס שממנו הוא נגזר.
+                                    מי שרואה מודעה שלו ורוצה לתקן דרישה
+                                    צריך להגיע לכרטיס, לא לחפש אותו
+                                    ברשימת הקונים לפי הזיכרון.
+                                  */
+                                  demand.originBuyerId === undefined ? null : (
+                                    <Link
+                                      href={`/buyers/${demand.originBuyerId}`}
+                                      className="mv-net-chip mv-net-chip--primary"
+                                      style={{ textDecoration: "none" }}
+                                    >
+                                      <IconUsers s={14} /> פתח את הכרטיס
+                                    </Link>
+                                  )
+                                ) : (
                                   <span
                                     className="mv-net-chip"
                                     title="חלוקת העמלה שהמשרד המשתף ביקש"
@@ -1470,9 +1501,12 @@ export default function CollaborationPage() {
                                   </span>
                                 )}
                                 {demand.officeName ? (
-                                  <span className="mv-net-chip" title="המשרד שפרסם את המודעה">
-                                    <IconUsers s={14} /> {demand.officeName}
-                                  </span>
+                                  <NetOffice
+                                    name={demand.officeName}
+                                    {...(demand.officeLogoUrl === undefined
+                                      ? {}
+                                      : { logoUrl: demand.officeLogoUrl })}
+                                  />
                                 ) : null}
                                 {/*
                                   מקור חיצוני בתשלום, לפי העלות שהשרת החזיר ולא
@@ -1786,11 +1820,14 @@ export default function CollaborationPage() {
                                     {describeCommissionSplit(listing.commissionSplit)}
                                   </span>
                                 )}
-                                {/* מי פרסם — שם המשרד; הבעלים נשאר חסוי */}
+                                {/* מי פרסם — שם המשרד ולוגו; הבעלים נשאר חסוי */}
                                 {listing.officeName ? (
-                                  <span className="mv-net-chip" title="המשרד שפרסם את המודעה">
-                                    <IconUsers s={14} /> {listing.officeName}
-                                  </span>
+                                  <NetOffice
+                                    name={listing.officeName}
+                                    {...(listing.officeLogoUrl === undefined
+                                      ? {}
+                                      : { logoUrl: listing.officeLogoUrl })}
+                                  />
                                 ) : null}
                               </span>
                             </div>
@@ -1799,6 +1836,10 @@ export default function CollaborationPage() {
                               icon={<IconHome s={22} />}
                               title={listing.title ?? `נכס ב${listing.city ?? "רשת"}`}
                               subtitle={split.subtitle}
+                            />
+                            <NetPhotos
+                              photos={listing.photos ?? []}
+                              alt={listing.title ?? "תמונת הנכס"}
                             />
                             <NetPlace
                               text={

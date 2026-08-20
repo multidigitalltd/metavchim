@@ -3,7 +3,52 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DuplicateGroup } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
+import { IconX } from "./icons";
 import { Notice } from "./notice";
+
+/**
+ * הסתרת הפאנל כולו — **לדפדפן הזה, ורק לרשימה הזו.**
+ *
+ * ייבוא של מאגר שלם מייצר עשרות הצעות מיזוג בבת אחת, והדשבורד
+ * הופך לרשימה ארוכה שחוסמת את מה שבאמת צריך לראות בבוקר. „לא
+ * עכשיו” הוא צורך אמיתי.
+ *
+ * מה שנשמר הוא **חתימת הרשימה** ולא דגל „הוסתר”: הצעה חדשה שתיווצר
+ * מחר משנה את החתימה והפאנל חוזר. דגל פשוט היה מסתיר לנצח גם
+ * כפילויות אמיתיות שייווצרו אחר כך — כלומר פותר הצקה ויוצר נזק.
+ *
+ * ההעדפה מקומית ולא בשרת: זו בחירת תצוגה של אדם, לא החלטה של
+ * המשרד. סוכן אחר שרואה את אותם כרטיסים צריך לראות את ההצעות.
+ */
+const HIDDEN_KEY = "mv.duplicates.hidden";
+
+/**
+ * החתימה כוללת את **חברי** הקבוצה ולא רק את מפתחה.
+ *
+ * המפתח הוא חתימת השם, והוא אינו משתנה כשלקוח נוסף מצטרף לאותו
+ * שם. השרת דווקא מחזיר קבוצה שנדחתה ברגע שנוסף לה חבר — וחתימה
+ * שמסתמכת על המפתח בלבד הייתה מבטלת בדיוק את ההתנהגות הזו,
+ * ומשאירה מוסתרת כפילות חדשה לגמרי (ביקורת Codex).
+ */
+function signatureOf(groups: DuplicateGroup[]): string {
+  return groups
+    .map((group) =>
+      [group.key, group.survivor.contactId, ...group.duplicates.map((d) => d.contactId)]
+        .sort()
+        .join(","),
+    )
+    .sort()
+    .join("|");
+}
+
+function readHidden(): string | null {
+  try {
+    return window.localStorage.getItem(HIDDEN_KEY);
+  } catch {
+    // דפדפן שחוסם אחסון מקומי — הפאנל פשוט לא ייזכר, וזה בסדר
+    return null;
+  }
+}
 
 /**
  * "כפילויות אפשריות" בדשבורד.
@@ -20,6 +65,16 @@ export function DuplicateContacts() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  /*
+   * `null` = טרם נקרא מהאחסון. חשוב להבדיל מ"לא הוסתר": קריאה
+   * מ-localStorage אסורה ברינדור השרת, ואתחול ל-"" היה מציג
+   * הבזק של הפאנל לפני ההסתרה.
+   */
+  const [hiddenSignature, setHiddenSignature] = useState<string | null>(null);
+
+  useEffect(() => {
+    setHiddenSignature(readHidden() ?? "");
+  }, []);
 
   const load = useCallback(() => {
     // 403 לסוכן ללא ראות רוחבית — לא שגיאה, פשוט לא בשבילו
@@ -68,15 +123,39 @@ export function DuplicateContacts() {
   }
 
   if (groups.length === 0 && done === null) return null;
+  // עדיין לא ידוע אם הוסתר — לא מציגים כדי לא להבהב
+  if (hiddenSignature === null) return null;
+  if (done === null && hiddenSignature === signatureOf(groups)) return null;
+
+  function hide(): void {
+    const signature = signatureOf(groups);
+    try {
+      window.localStorage.setItem(HIDDEN_KEY, signature);
+    } catch {
+      // בלי אחסון ההסתרה תקפה עד לרענון — עדיין עדיף מכלום
+    }
+    setHiddenSignature(signature);
+    setDone(null);
+  }
 
   return (
     <section className="mv-list-card mb-[18px] px-5 py-[17px]" aria-labelledby="dupes-heading">
-      <h2 id="dupes-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
-        כפילויות אפשריות
-        {groups.length > 0 ? (
-          <span className="mv-chip ms-2">{groups.length}</span>
-        ) : null}
-      </h2>
+      <div className="mb-1 flex items-baseline gap-2">
+        <h2 id="dupes-heading" className="m-0" style={{ fontSize: 16.5, fontWeight: 800 }}>
+          כפילויות אפשריות
+          {groups.length > 0 ? <span className="mv-chip ms-2">{groups.length}</span> : null}
+        </h2>
+        <button
+          type="button"
+          className="ms-auto"
+          onClick={hide}
+          aria-label="הסתר את רשימת הכפילויות"
+          title="הסתר — תחזור אם תתגלה כפילות חדשה"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          <IconX s={15} />
+        </button>
+      </div>
       <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
         אותו שם מופיע ביותר מכרטיס אחד — בדרך כלל אותו אדם שנקלט פעמיים עם שני
         מספרים. מיזוג מעביר את כל ההיסטוריה לכרטיס אחד ושומר את שני המספרים.

@@ -120,6 +120,15 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
   appendRef.current = onAppend;
 
   useEffect(() => {
+    /*
+     * מתאפס בעלייה ולא רק נדלק בירידה.
+     *
+     * הדגל נכתב ב-cleanup ולא נוקה לעולם, ולכן רכיב שנטען מחדש —
+     * StrictMode בפיתוח, או מסך שמורכב שוב — נשאר עם `disposed`
+     * דלוק: `setServerReady` לא נורה ו-`transcribe` יצא מיד.
+     * כלומר ההכתבה מתה בשקט, בלי שום שגיאה.
+     */
+    disposedRef.current = false;
     setBrowserReady(getSpeechRecognition() !== null);
     void checkServerAvailability().then((ok) => {
       if (!disposedRef.current) setServerReady(ok && canRecordAudio());
@@ -206,12 +215,26 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
     };
     recorderRef.current = recorder;
     recorder.start();
+    /*
+     * `transcribing` נדלק **כאן** ולא רק כשהבקשה יוצאת.
+     *
+     * `recorder.onstop` הוא אסינכרוני, ולכן בין `stop()` לבין תחילת
+     * התמלול היה רגע שבו גם `recording` וגם `transcribing` כבויים —
+     * ומי שמאזין ל"סבב הסתיים" (`onIdle`) נורה באמצע הסבב ואיפס את
+     * טקסט הבסיס בטרם עת. הדלקה מראש סוגרת את החלון: הסבב נחשב פעיל
+     * מרגע ההקלטה ועד שהטקסט חזר.
+     */
+    setTranscribing(true);
     setRecording("server");
   }, []);
 
   async function transcribe(blob: Blob): Promise<void> {
-    if (blob.size === 0 || disposedRef.current) return;
-    setTranscribing(true);
+    // ההקלטה כבר סימנה `transcribing`; הקלטה ריקה חייבת לכבות אותו
+    // בעצמה, אחרת הסבב נשאר "פעיל" לנצח והכפתורים אינם חוזרים
+    if (blob.size === 0 || disposedRef.current) {
+      setTranscribing(false);
+      return;
+    }
     const controller = new AbortController();
     abortRef.current = controller;
     try {

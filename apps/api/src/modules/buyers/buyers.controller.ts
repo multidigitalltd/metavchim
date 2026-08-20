@@ -75,6 +75,25 @@ const InteractionsQuerySchema = z
   })
   .strict();
 
+/**
+ * מחיקה מרוכזת.
+ *
+ * `permanent: false` (ברירת המחדל) = ארכיון, בדיוק כמו מחיקה
+ * בודדת: "הלקוח כבר לא מחפש" אינו "הלקוח מעולם לא היה".
+ * `permanent: true` נשמר למקרה שבשבילו הפעולה נבנתה — ייבוא שגוי
+ * שצריך להיעלם — והמסך מבקש עליו אישור נפרד שמציין את המספר.
+ *
+ * תקרה של 500 בבקשה: הלולאה עוברת כרטיס-כרטיס דרך אותם שערים,
+ * ובקשה בלי גבול הייתה יכולה לרוץ דקות ולהיתקל בפסק זמן — כלומר
+ * מחיקה שנראית כאילו נכשלה אחרי שכבר מחקה חצי.
+ */
+const BulkDeleteSchema = z
+  .object({
+    ids: z.array(IdSchema).min(1).max(500),
+    permanent: z.boolean().default(false),
+  })
+  .strict();
+
 @Controller("buyers")
 export class BuyersController {
   constructor(
@@ -174,6 +193,24 @@ export class BuyersController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
   ): Promise<Awaited<ReturnType<BuyersService["deletionPreview"]>>> {
     return this.buyers.deletionPreview(id);
+  }
+
+  /**
+   * מחיקה מרוכזת של כרטיסים שנבחרו ברשימה.
+   *
+   * `POST` ולא `DELETE`: רשימת מזהים היא גוף בקשה, ו-`DELETE` עם
+   * גוף אינו נתמך באופן אחיד בשרתי ביניים ובלקוחות.
+   *
+   * `permanent` מפורש ולא ברירת מחדל — ראו `BulkDeleteSchema`.
+   */
+  @Post("bulk-delete")
+  @RequireCapability("buyers.delete")
+  @HttpCode(200)
+  async bulkDelete(
+    @Body(new ZodValidationPipe(BulkDeleteSchema))
+    body: z.infer<typeof BulkDeleteSchema>,
+  ): Promise<{ removed: number; skipped: number }> {
+    return this.buyers.removeMany(body.ids, body.permanent);
   }
 
   /**
