@@ -69,6 +69,7 @@ const SCREEN_TITLES: [prefix: string, title: string][] = [
   ["/calendar", "יומן"],
   ["/reports", "דוחות"],
   ["/collaboration", 'שת"פים'],
+  ["/kanko", "קונים - kanko"],
   ["/settings", "ניהול משרד"],
   ["/setup", "הקמה"],
   ["/platform", "פלטפורמה"],
@@ -564,6 +565,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           בלי שער מסלול — השת"פ הבסיסי פתוח בכל המסלולים.
         */}
         {navLink("/collaboration", 'שת"פים', ICONS.coop)}
+        {/* קונים מפולחים מ-Kanko — עמוד "בקרוב" עד ההשקה (בקשת המשתמש) */}
+        {navLink(
+          "/kanko",
+          "קונים - kanko",
+          ICONS.buyers,
+          <span className="mv-nav-soon">בקרוב</span>,
+        )}
         {seesReports && hasFeature("analytics")
           ? navLink("/reports", "דוחות", ICONS.reports)
           : null}
