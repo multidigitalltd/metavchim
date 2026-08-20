@@ -162,7 +162,7 @@ export default function BuyersPage() {
             </Link>
           ) : null}
           {canVoice ? (
-            <Link href="/buyers/voice" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "14px" }}>
+            <Link href="/voice" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "14px" }}>
               <IconMic s={15} /> קונה בקול
             </Link>
           ) : null}

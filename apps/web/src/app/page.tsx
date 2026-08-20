@@ -448,20 +448,7 @@ export default function DashboardPage() {
         והמונים הם הרקע שמאחוריה. מאחורי אותו שער מסלול כמו הקידום
         שהיה כאן — אין טעם להזמין לפיצ'ר שהשרת יחסום.
       */}
-      {canVoice ? (
-        <VoiceConsole
-          canCreateTask={can(user, "calendar.manage")}
-          /*
-             `buyers.view_own` בדיוק, ולא "או view_all": השער בשרת הוא
-             `ctx.capabilities.has(...)` בהתאמה מדויקת, ו-`view_all`
-             אינו מכיל אותו. הוא רק מרחיב את הסינון (`ownershipFilter`),
-             וגם רשימת הקונים עצמה חסומה מאחורי `view_own`. חריגה
-             בהרשאות אישיות הייתה מציגה כאן יכולת שהשרת עונה עליה 403
-             (ביקורת Codex).
-          */
-          canQueryBuyers={can(user, "buyers.view_own")}
-        />
-      ) : null}
+      {canVoice ? <VoiceConsole /> : null}
 
       <section aria-labelledby="counts-heading" className="mb-7">
         <h2 id="counts-heading" className="mv-visually-hidden">מונים</h2>

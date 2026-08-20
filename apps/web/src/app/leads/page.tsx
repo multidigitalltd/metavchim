@@ -114,7 +114,7 @@ export default function LeadsPage() {
         </h1>
         <div className="ms-auto flex flex-wrap gap-2.5">
           {canVoice ? (
-            <Link href="/leads/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "14px" }}>
+            <Link href="/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "14px" }}>
               <IconMic s={15} /> ליד בקול
             </Link>
           ) : null}

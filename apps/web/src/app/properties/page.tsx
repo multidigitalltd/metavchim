@@ -188,7 +188,7 @@ export default function PropertiesPage() {
             </Link>
           ) : null}
           {canVoice ? (
-            <Link href="/properties/voice" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "14px" }}>
+            <Link href="/voice" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "14px" }}>
               <IconMic s={15} /> נכס בקול
             </Link>
           ) : null}

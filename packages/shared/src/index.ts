@@ -75,3 +75,8 @@ export * from "./queues.js";
 export * from "./logic/whatsapp-link.js";
 export * from "./logic/signature-image.js";
 export * from "./logic/tasks.js";
+export * from "./agent/field-spec.js";
+export * from "./agent/actions.js";
+export * from "./agent/schema.js";
+export * from "./agent/prompt.js";
+export * from "./agent/proposal.js";

@@ -3254,3 +3254,106 @@ a.mv-bar-row:focus-visible {
   height: 9px;
   border-radius: 50%;
 }
+
+/* ---------------------------------------------------------------------------
+   כרטיס ההצעה של הסוכן
+
+   הוא מציג פעולה שעומדת לקרות, ולכן הוא בולט יותר מכרטיס מידע: מסגרת
+   בצבע הראשי ורקע מוגבה. שורות השדות הן grid של תווית⟵ערך שנופל
+   לעמודה אחת במסך צר — טבלה שנשארת דו-עמודתית בנייד דוחסת ערכים
+   לחצי מסך והופכת קריאה לניחוש.
+--------------------------------------------------------------------------- */
+.mv-proposal {
+  border: 1.5px solid var(--color-primary);
+  border-radius: 14px;
+  background: var(--color-surface);
+  padding: 18px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 6%);
+}
+
+.mv-proposal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.mv-proposal-grid {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.mv-proposal-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 190px) 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.mv-proposal-row:last-child {
+  border-bottom: none;
+}
+
+.mv-proposal-label {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.mv-proposal-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+}
+
+.mv-proposal-value .mv-field {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+/*
+  הראיה — המילים שמהן השדה הובן. משני ולא מודגש, כי הוא נועד לסריקה
+  מהירה של „מאיפה זה הגיע” ולא לקריאה שורה-שורה.
+*/
+.mv-proposal-evidence {
+  font-size: 14px;
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
+.mv-proposal-choice {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg);
+}
+
+.mv-proposal-choice legend {
+  padding-inline: 6px;
+}
+
+.mv-result-row {
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  font-size: 15px;
+}
+
+@media (max-width: 560px) {
+  .mv-proposal-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
