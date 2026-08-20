@@ -11,5 +11,7 @@ import { VoiceIntakeController } from "./voice-intake.controller";
 @Module({
   controllers: [VoiceIntakeController],
   providers: [TranscriptionService],
+  // משיכת הקלטות מהמרכזייה מזינה את אותו צינור תמלול
+  exports: [TranscriptionService],
 })
 export class VoiceIntakeModule {}

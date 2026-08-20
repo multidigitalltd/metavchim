@@ -104,7 +104,27 @@ function isRootPrisma(node: ts.Expression): boolean {
   return false;
 }
 
-function violationsIn(file: string, guarded: Set<string>): Violation[] {
+/**
+ * SQL גולמי שנכתב על ה-Prisma הגלובלי — `$queryRaw` וחבריו.
+ *
+ * **הפרצה שהבדיקה הזו פספסה פעם אחת.** הסריקה למעלה מחפשת שם של
+ * מודל אחרי `this.prisma`, ולכן `this.prisma.$queryRaw\`SELECT … FROM
+ * calls\`` עוברת אותה בשלום — אין בה `prisma.call`, יש בה מחרוזת.
+ * התוצאה זהה לחלוטין לצורה שכן נתפסת: אפס שורות בשקט, לנצח.
+ *
+ * שאילתה גולמית על טבלה שאינה תחת RLS (`tenants`) לגיטימית ואינה
+ * מסומנת — `jsonb_set` על עמודת ההגדרות הוא בדיוק המקום שבו היא
+ * נחוצה.
+ */
+function rawTablesIn(callText: string, tables: Set<string>): string[] {
+  return [...tables].filter((table) => new RegExp(`\\b${table}\\b`, "u").test(callText));
+}
+
+function isRawCall(name: string): boolean {
+  return name.startsWith("$") && name.includes("Raw");
+}
+
+function violationsIn(file: string, guarded: Set<string>, tables: Set<string>): Violation[] {
   const text = readFileSync(file, "utf8");
   // דילוג מהיר על קבצים שאין בהם prisma בכלל
   if (!text.includes("prisma")) return [];
@@ -115,9 +135,13 @@ function violationsIn(file: string, guarded: Set<string>): Violation[] {
   const visit = (node: ts.Node): void => {
     if (ts.isPropertyAccessExpression(node) && isRootPrisma(node.expression)) {
       const accessor = node.name.text;
+      const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
       if (guarded.has(accessor)) {
-        const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
         found.push({ file, line: line + 1, accessor });
+      } else if (isRawCall(accessor) && node.parent) {
+        for (const table of rawTablesIn(node.parent.getText(source), tables)) {
+          found.push({ file, line: line + 1, accessor: `${accessor} → ${table}` });
+        }
       }
     }
     ts.forEachChild(node, visit);
@@ -162,7 +186,7 @@ describe("רשימת הטבלאות שתחת RLS", () => {
 
 describe("אין גישה ישירה מ-prisma לטבלה שתחת RLS", () => {
   it("ב-API", () => {
-    const found = sourceFiles(API_SRC).flatMap((file) => violationsIn(file, GUARDED));
+    const found = sourceFiles(API_SRC).flatMap((file) => violationsIn(file, GUARDED, TABLES));
     const report = found
       .map((v) => `${v.file.replace(API_SRC, "src")}:${v.line} — prisma.${v.accessor}`)
       .join("\n");
@@ -177,7 +201,7 @@ describe("אין גישה ישירה מ-prisma לטבלה שתחת RLS", () => {
     // אותו כלל בדיוק. ה-Workers רץ בלי בקשה ולכן בלי הקשר דייר
     // אוטומטי — הוא מגדיר אותו במפורש בכל טרנזקציה, וגישה ישירה שם
     // הייתה נשברת בשקט בדיוק כמו ב-API.
-    const found = sourceFiles(WORKERS_SRC).flatMap((file) => violationsIn(file, GUARDED));
+    const found = sourceFiles(WORKERS_SRC).flatMap((file) => violationsIn(file, GUARDED, TABLES));
     const report = found
       .map((v) => `${v.file.replace(WORKERS_SRC, "src")}:${v.line} — prisma.${v.accessor}`)
       .join("\n");
@@ -202,6 +226,34 @@ describe("הבדיקה עצמה תופסת הפרה", () => {
     ts.forEachChild(source, visit);
     expect(found).toContain("property");
     expect(GUARDED.has("property")).toBe(true);
+  });
+
+  /*
+   * הצורה שהבדיקה הזו לא תפסה עד עכשיו, ושבגללה נוספה `rawTablesIn`.
+   * בלי הבדיקה הזו ההרחבה עצמה יכולה להישבר בלי שאיש ישים לב.
+   */
+  it("מזהה SQL גולמי על טבלה שתחת RLS", () => {
+    const fake = `class S { run() { return this.prisma.$queryRaw\`SELECT id FROM calls\`; } }`;
+    const source = ts.createSourceFile("raw.ts", fake, ts.ScriptTarget.ES2023, true);
+    const hits: string[] = [];
+    const visit = (node: ts.Node): void => {
+      if (
+        ts.isPropertyAccessExpression(node) &&
+        isRootPrisma(node.expression) &&
+        isRawCall(node.name.text) &&
+        node.parent
+      ) {
+        hits.push(...rawTablesIn(node.parent.getText(source), TABLES));
+      }
+      ts.forEachChild(node, visit);
+    };
+    ts.forEachChild(source, visit);
+    expect(hits).toContain("calls");
+  });
+
+  it("אינה מזהה SQL גולמי על טבלה שמחוץ ל-RLS", () => {
+    // `tenants` היא היעד הלגיטימי של כל השאילתות הגולמיות היום
+    expect(rawTablesIn("UPDATE tenants SET settings = …", TABLES)).toEqual([]);
   });
 
   it("אינה מזהה tx — זו הצורה התקינה", () => {

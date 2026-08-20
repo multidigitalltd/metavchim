@@ -784,6 +784,7 @@ export class TelephonyService {
           phoneHash,
           virtualNumber,
           event.direction,
+          event.callerName,
         );
         contactId = opened.contactId;
         leadId = opened.leadId;
@@ -807,7 +808,16 @@ export class TelephonyService {
            * לא אמור לשנות את מה שכתוב על שיחה שכבר קרתה.
            */
           dialedLabel: virtualNumber?.label ?? null,
-          occurredAt: new Date(),
+          /*
+           * שעת השיחה כפי שהמרכזייה דיווחה, ורק בהיעדרה שעת הקליטה.
+           *
+           * 015 שולח שלושה אירועים לשיחה אחת (`Calling` ⟵ `Answer`
+           * ⟵ `Hangup`) שמתפרסים על עשרות שניות, ושולח שוב בניסיון
+           * חוזר. `new Date()` רשם את מועד ההודעה האחרונה שהתקבלה
+           * ולא את מועד השיחה — שיחה שקרתה ב-8:46:16 נרשמה ב-8:46:59,
+           * ובניסיון חוזר שעה אחר כך בשעה אחרת לגמרי.
+           */
+          occurredAt: event.startedAt ?? new Date(),
           // שיחה שלא נענתה נשארת בלי משך. עיגול כלפי מעלה היה מציג
           // "דקה אחת" על שיחה שהסיכום שלה אומר שלא נענתה כלל.
           durationMinutes:
@@ -816,6 +826,9 @@ export class TelephonyService {
               : Math.max(1, Math.round(event.durationSeconds / 60)),
           outcome: event.type === "missed" ? "missed" : "answered",
           summary: describeCall(event),
+          // מצביע בלבד בשלב הזה; העובד מושך את האודיו וממיר אותו
+          // ל-`recordingKey` שלנו. ראו `RecordingFetchService`.
+          providerRecordingPath: event.providerRecordingPath ?? null,
         },
       });
     });
@@ -869,12 +882,20 @@ export class TelephonyService {
     phoneHash: string,
     virtualNumber: VirtualNumberRule | null,
     direction: "inbound" | "outbound",
+    callerName: string | undefined,
   ): Promise<{ contactId: string; leadId: string }> {
     const contact = await tx.contact.create({
       data: {
         id: ulid(),
         tenantId,
-        nameEncrypted: this.crypto.encrypt(phone),
+        /*
+         * שם מהמרכזייה כשיש, והמספר כשאין.
+         *
+         * 015 שולח `callername`, וזה מה שמפריד בין כרטיס שאפשר
+         * לחפש לפי שם לבין כרטיס שנקרא "0501234567". השדה נבלע עד
+         * עכשיו. הוא מוצפן כמו כל שם — הוא פרט מזהה של אדם.
+         */
+        nameEncrypted: this.crypto.encrypt(callerName ?? phone),
         phoneEncrypted: this.crypto.encrypt(phone),
         phoneHash,
       },
