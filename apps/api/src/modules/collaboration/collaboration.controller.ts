@@ -85,6 +85,20 @@ const ShareSchema = z
     note: NetworkNoteSchema,
   })
   .strict();
+
+/**
+ * שיתוף/פרסום מרוכז מהרשימות — מזהים בלבד.
+ *
+ * בלי חלוקת עמלה ובלי תיאור: הפעולה המרוכזת מפרסמת בברירת המחדל,
+ * והתיאור נשאב מהכרטיס עצמו. מי שרוצה תנאים אחרים עורך את הפרסום
+ * הבודד. 50 — גבול שפוי לבקשה אחת, לא מכסה.
+ */
+const BulkShareSchema = z
+  .object({ buyerIds: z.array(IdSchema).min(1).max(50) })
+  .strict();
+const BulkPublishSchema = z
+  .object({ propertyIds: z.array(IdSchema).min(1).max(50) })
+  .strict();
 /** עדכון ביקוש קיים — הקונה מגיע מהנתיב, ולכן אינו חוזר בגוף הבקשה. */
 const UpdateShareSchema = z
   .object({
@@ -240,6 +254,17 @@ export class CollaborationController {
      הגדרה נוספת כדי לשתף בכיוון השני, וזו הפתעה ולא הגנה.
      ============================================================ */
 
+  /** פרסום מרוכז מרשימת הנכסים. לפני `listings` — נתיב מדויק קודם. */
+  @Post("listings/bulk")
+  @RequireCapability("collaboration.share")
+  @HttpCode(200)
+  async publishListingsBulk(
+    @Body(new ZodValidationPipe(BulkPublishSchema))
+    body: z.infer<typeof BulkPublishSchema>,
+  ): Promise<{ results: { id: string; ok: boolean; error?: string }[] }> {
+    return { results: await this.listings.publishBulk(body.propertyIds) };
+  }
+
   @Post("listings")
   @RequireCapability("collaboration.share")
   async publishListing(
@@ -365,6 +390,17 @@ export class CollaborationController {
       body.commissionSplit,
       body.note,
     );
+  }
+
+  /** שיתוף מרוכז מרשימת הקונים — ראו BulkShareSchema. */
+  @Post("share/bulk")
+  @RequireCapability("collaboration.share")
+  @HttpCode(200)
+  async shareBulk(
+    @Body(new ZodValidationPipe(BulkShareSchema))
+    body: z.infer<typeof BulkShareSchema>,
+  ): Promise<{ results: { id: string; ok: boolean; error?: string }[] }> {
+    return { results: await this.collaboration.shareBuyersBulk(body.buyerIds) };
   }
 
   /**

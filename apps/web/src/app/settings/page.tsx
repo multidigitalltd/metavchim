@@ -145,6 +145,9 @@ interface TenantSettings {
   officePhone?: string;
   defaultCommission?: string;
   defaultPaymentTerms?: string;
+  /** מדיניות הרשת: כל נכס/קונה חדש מתפרסם לרשת השיתופים אוטומטית */
+  autoShareProperties: boolean;
+  autoShareBuyers: boolean;
 }
 
 /**
@@ -275,6 +278,9 @@ export default function SettingsPage() {
         officePhone: String(f.get("officePhone") ?? "").trim(),
         defaultCommission: String(f.get("defaultCommission") ?? "").trim(),
         defaultPaymentTerms: String(f.get("defaultPaymentTerms") ?? "").trim(),
+        // checkbox לא מסומן אינו נשלח ב-FormData — היעדרות פירושה כבוי
+        autoShareProperties: f.get("autoShareProperties") === "on",
+        autoShareBuyers: f.get("autoShareBuyers") === "on",
       });
       setMessage("✓ ההגדרות נשמרו");
       load();
@@ -874,6 +880,49 @@ export default function SettingsPage() {
                       style={inputStyle}
                     />
                   </div>
+                  {/*
+                    מדיניות הרשת — בחירה של המשרד, לא של כל סוכן בנפרד:
+                    משרד שחי משיתופי פעולה לא רוצה לזכור לפרסם כל כרטיס.
+                    מה שמתפרסם הוא תמיד הצילום האנונימי — ההסבר בשורת
+                    המשנה כדי שההפעלה תהיה החלטה מודעת ולא הימור.
+                  */}
+                  <fieldset className="mb-3.5 rounded-lg border p-3.5" style={{ borderColor: "var(--color-border)" }}>
+                    <legend className="px-1 text-sm font-bold">
+                      רשת שיתופי הפעולה — ברירת מחדל
+                    </legend>
+                    <label className="mb-2 flex items-start gap-2 text-sm" htmlFor="autoShareProperties">
+                      <input
+                        type="checkbox"
+                        id="autoShareProperties"
+                        name="autoShareProperties"
+                        defaultChecked={tenant.autoShareProperties}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <b className="block">כל נכס חדש מתפרסם לרשת אוטומטית</b>
+                        <span style={{ color: "var(--color-text-muted)" }}>
+                          בלי כתובת מדויקת ובלי פרטי הבעלים. חלוקת עמלה
+                          50/50 — ניתנת לשינוי בכרטיס הנכס.
+                        </span>
+                      </span>
+                    </label>
+                    <label className="flex items-start gap-2 text-sm" htmlFor="autoShareBuyers">
+                      <input
+                        type="checkbox"
+                        id="autoShareBuyers"
+                        name="autoShareBuyers"
+                        defaultChecked={tenant.autoShareBuyers}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <b className="block">כל קונה חדש מתפרסם כביקוש ברשת אוטומטית</b>
+                        <span style={{ color: "var(--color-text-muted)" }}>
+                          בלי שם ובלי טלפון, בתקציב מעוגל. קונה בלי אזור
+                          חיפוש לא מתפרסם עד שיוגדר לו אזור.
+                        </span>
+                      </span>
+                    </label>
+                  </fieldset>
                   <p
                     className="mb-3.5 text-sm"
                     style={{ color: "var(--color-text-muted)" }}

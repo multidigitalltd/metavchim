@@ -43,7 +43,12 @@ export interface SearchArea {
   label?: string;
 }
 
-export const DEFAULT_SEARCH_RADIUS_KM = 3;
+/*
+ * 1 ק״מ ולא 3: קונה שמסמן נקודה מתכוון בדרך כלל לשכונה — מרחק
+ * הליכה — ורדיוס רחב כברירת מחדל הציף את ההתאמות בנכסים "ליד".
+ * מי שבאמת גמיש מרחיב את הרדיוס בשדה שליד המפה.
+ */
+export const DEFAULT_SEARCH_RADIUS_KM = 1;
 export const MIN_SEARCH_RADIUS_KM = 0.2;
 export const MAX_SEARCH_RADIUS_KM = 50;
 /** יותר מזה אינו "כמה אזורים" אלא רשימת משאלות. */

@@ -7,11 +7,13 @@ import { apiPost, ApiError } from "@/lib/api";
 import { DictateFor } from "../../dictation-field";
 import { FormSection } from "../../form-section";
 import { FeatureRequirements } from "../feature-requirements";
+import { SearchAreas } from "../search-areas";
 import { PropertyTypesField, readPropertyTypes } from "../property-types-field";
 import { PriceField } from "../../price-field";
 import { EntryTimingField } from "../../properties/entry-timing-field";
 import { shekelsToAgorot } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
+import type { SearchArea } from "@metavchim/shared";
 import { Notice } from "../../notice";
 
 const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
@@ -37,6 +39,12 @@ export default function NewBuyerPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  /*
+   * אזורי החיפוש על המפה — כבר בקליטה ולא רק בעריכה. הקריטריון
+   * המדויק ביותר של הקונה נאסף בשיחה הראשונה, ומסך שמבקש לחזור
+   * לכרטיס אחר כך פשוט לא זוכה לזה.
+   */
+  const [areas, setAreas] = useState<SearchArea[]>([]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -89,6 +97,7 @@ export default function NewBuyerPage() {
             ? new Date(String(f.get("entryBy"))).toISOString()
             : undefined,
           features,
+          searchAreas: areas,
         },
         /* ריק לא נשלח: הערה ריקה בכרטיס נראית כמו הערה שנמחקה. */
         agentNotes: String(f.get("agentNotes") ?? "").trim() || undefined,
@@ -167,6 +176,12 @@ export default function NewBuyerPage() {
               כל קונה חדש נבנה על נתון חסר.
             */}
             <EntryTimingField side="buyer" inputStyle={inputStyle} />
+          </div>
+
+          {/* המפה פתוחה מיד, כמו במסך העריכה — שדה שמתגלים אליו לא ממלאים */}
+          <div className="mt-4">
+            <p className="m-0 mb-1 font-medium">אזור חיפוש על המפה</p>
+            <SearchAreas value={areas} onChange={setAreas} disabled={submitting} />
           </div>
 
           <FeatureRequirements builtin={FEATURES} />

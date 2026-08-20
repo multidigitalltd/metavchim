@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
+  DEFAULT_COMMISSION_SPLIT,
   computeReadiness,
   limitState,
   type Page,
@@ -136,7 +137,40 @@ export class PropertiesService {
     const id = await this.persist(input);
     // חישוב התאמות — סינכרוני בשלב זה; יעבור לתור BullMQ עם עליית ה-Workers (docs/07 §5).
     await this.matching.recomputeForProperty(id);
+    await this.autoPublishToNetwork(id);
     return this.getById(id);
+  }
+
+  /**
+   * פרסום אוטומטי לרשת השיתופים — כשהמשרד בחר בכך בהגדרות.
+   *
+   * המדיניות היא של המשרד ולא של הסוכן: מי שמחזיק `settings.manage`
+   * הפעיל את `autoShareProperties`, והסוכן שקולט נכס מבצע אותה — לכן
+   * אין כאן בדיקת יכולת על המבצע. מה שמתפרסם הוא אותו צילום מוגבל
+   * של `ListingsService.snapshot` — בלי רחוב, מספר בית או פרטי בעלים.
+   *
+   * best-effort במוצהר: מכסת רשת שהתמלאה, מסלול בלי רשת או נכס
+   * שכבר מפורסם אינם "יצירת הנכס נכשלה". הנכס נשמר; הפרסום אפשרי
+   * ידנית מכרטיס הנכס בכל רגע. חלוקת העמלה היא ברירת המחדל של
+   * הרשת — הבעלים משנה אותה בכרטיס אם רצה אחרת.
+   *
+   * לא נקרא מ-`createForImport`: ייבוא קובץ שלם שמציף את הרשת במאות
+   * מודעות במחי קליק הוא הפתעה, לא מדיניות — מייבאים, בודקים,
+   * ומפרסמים בכוונה.
+   */
+  private async autoPublishToNetwork(propertyId: string): Promise<void> {
+    const tenantId = TenantContext.current().tenantId;
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
+    if (settings["autoShareProperties"] !== true) return;
+    try {
+      await this.listings.publish(propertyId, DEFAULT_COMMISSION_SPLIT);
+    } catch {
+      // הנכס נשמר; פרסום ידני זמין מכרטיס הנכס
+    }
   }
 
   /**
@@ -262,6 +296,8 @@ export class PropertiesService {
     } catch {
       // הנכס כבר קיים; ההתאמות יחושבו בעריכה הבאה
     }
+    // ליד שהומר הוא נכס חדש לכל דבר — אותה מדיניות רשת כמו בקליטה
+    await this.autoPublishToNetwork(propertyId);
     return this.getById(propertyId);
   }
 

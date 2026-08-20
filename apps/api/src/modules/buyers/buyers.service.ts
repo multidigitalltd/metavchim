@@ -7,6 +7,7 @@ import {
 import { ulid } from "ulid";
 import {
   BuyerRequirementsSchema,
+  DEFAULT_COMMISSION_SPLIT,
   MATURITY_LABELS,
   type BuyerRequirements,
   type Page,
@@ -65,7 +66,35 @@ export class BuyersService {
   }): Promise<BuyerDto> {
     const id = await this.persist(input);
     await this.matching.recomputeForBuyer(id);
+    await this.autoShareToNetwork(id);
     return this.getById(id);
+  }
+
+  /**
+   * שיתוף אוטומטי כביקוש ברשת — כשהמשרד בחר בכך בהגדרות.
+   *
+   * התאום של `PropertiesService.autoPublishToNetwork`, ואותם שלושה
+   * כללים: המדיניות של מי שמחזיק `settings.manage` ולא של הסוכן
+   * הקולט; מה שמתפרסם הוא צילום `demandSnapshot` האנונימי — בלי שם,
+   * טלפון או הערות פנימיות; ו-best-effort — קונה בלי אזור חיפוש,
+   * מכסת רשת מלאה או מסלול בלי רשת אינם "יצירת הקונה נכשלה".
+   * השיתוף הידני מכרטיס הקונה זמין תמיד.
+   *
+   * לא נקרא מ-`createForImport` — ראו הנימוק בצד הנכסים.
+   */
+  private async autoShareToNetwork(buyerId: string): Promise<void> {
+    const tenantId = TenantContext.current().tenantId;
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
+    if (settings["autoShareBuyers"] !== true) return;
+    try {
+      await this.collaboration.shareBuyer(buyerId, DEFAULT_COMMISSION_SPLIT);
+    } catch {
+      // הקונה נשמר; שיתוף ידני זמין מכרטיס הקונה
+    }
   }
 
   /**
@@ -207,6 +236,8 @@ export class BuyersService {
       // ההמרה כבר נשמרה — כישלון זמני בהתאמות לא הופך אותה ל"נכשלה"
       // (ניסיון חוזר היה מקבל 409); יחושב מחדש בעריכה הבאה, כמו בייבוא.
     }
+    // ליד שהומר הוא קונה חדש לכל דבר — אותה מדיניות רשת כמו בקליטה
+    await this.autoShareToNetwork(id);
     return this.getById(id);
   }
 

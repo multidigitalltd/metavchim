@@ -9,6 +9,7 @@ import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
   BuyerRequirementsSchema,
+  DEFAULT_COMMISSION_SPLIT,
   commissionSplitRejectionReason,
   coopOfferCost,
   leadSourceLabel,
@@ -512,6 +513,46 @@ export class CollaborationService {
     });
 
     return this.getDemand(id);
+  }
+
+  /**
+   * שיתוף מרוכז — בחרו כמה קונים ברשימה ולחצו פעם אחת.
+   *
+   * כל קונה עובר את **אותו** מסלול של השיתוף הבודד (`shareBuyer`),
+   * כולל בדיקת אזור החיפוש והמכסה — אין כאן דלת צדדית. חלוקת העמלה
+   * היא ברירת המחדל של הרשת, והתיאור נשאב מהערות הקונה — בדיוק כמו
+   * המילוי המוקדם בטופס הבודד.
+   *
+   * כשל של קונה אחד אינו עוצר את השאר: מי שבחר עשרים קונים ואחד מהם
+   * בלי אזור חיפוש רוצה תשע-עשרה מודעות והסבר אחד, לא אפס מודעות.
+   */
+  async shareBuyersBulk(
+    buyerIds: string[],
+  ): Promise<{ id: string; ok: boolean; error?: string }[]> {
+    const tenantId = TenantContext.current().tenantId;
+    const results: { id: string; ok: boolean; error?: string }[] = [];
+    for (const buyerId of buyerIds) {
+      try {
+        const buyer = await this.prisma.withTenant((tx) =>
+          tx.buyer.findFirst({
+            where: { id: buyerId, tenantId, deletedAt: null },
+            select: { agentNotes: true },
+          }),
+        );
+        if (!buyer) throw new NotFoundException("קונה לא נמצא");
+        // חתוך לאורך שהסכימה מקבלת; ריק = בלי תיאור, כמו בקליטה בקול
+        const note = buyer.agentNotes?.trim().slice(0, 300) || undefined;
+        await this.shareBuyer(buyerId, DEFAULT_COMMISSION_SPLIT, note);
+        results.push({ id: buyerId, ok: true });
+      } catch (error) {
+        results.push({
+          id: buyerId,
+          ok: false,
+          error: error instanceof Error ? error.message : "השיתוף נכשל",
+        });
+      }
+    }
+    return results;
   }
 
   /**

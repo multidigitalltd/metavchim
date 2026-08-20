@@ -99,10 +99,19 @@ interface ActiveShare {
 export function NetworkShareSection({
   kind,
   entityId,
+  defaultNote,
 }: {
   kind: "buyer" | "property";
   /** מזהה הקונה או הנכס — לפי `kind`. */
   entityId: string;
+  /**
+   * מילוי מראש לתיאור בפרסום **חדש** — למשל הערות הקונה מהכרטיס.
+   *
+   * המתווך כבר כתב מה הלקוח מחפש; להקליד את זה שוב בטופס השיתוף
+   * זה בדיוק החיכוך שגורם לא לפרסם. פרסום קיים תמיד מציג את מה
+   * שפורסם בפועל, לא את ההצעה.
+   */
+  defaultNote?: string;
 }) {
   const copy = COPY[kind];
   /*
@@ -136,13 +145,20 @@ export function NetworkShareSection({
           setStage("sent");
         } else {
           setShare(null);
+          /*
+           * פרסום חדש נפתח עם הערות הכרטיס כתיאור — המתווך כבר כתב
+           * מה הלקוח מחפש ואין סיבה להקליד שוב. רק לתוך שדה ריק:
+           * טיוטה שהתחילו להקליד אינה נדרסת כשעריכת ההערות בכרטיס
+           * מריצה את הטעינה מחדש.
+           */
+          setNote((current) => (current === "" ? (defaultNote ?? "") : current));
           setStage("invite");
         }
       })
       // כשל בקריאה לא נועל את האזור: המסך נופל למצב ההזמנה,
       // והשרת עדיין יאכוף שיתוף כפול אם ינסו
       .catch(() => setStage("invite"));
-  }, [readPath]);
+  }, [readPath, defaultNote]);
 
   useEffect(load, [load]);
 

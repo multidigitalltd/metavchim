@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
-import { API_BASE, apiGet } from "@/lib/api";
+import { API_BASE, apiGet, apiPost } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { IconHome, IconMic, IconPlus, IconSheet } from "../icons";
 import { ExclusivityWatch } from "./exclusivity-watch";
@@ -101,7 +101,7 @@ function Thumb({ url }: { url?: string }) {
 }
 
 export default function PropertiesPage() {
-  const { loading: authLoading } = useRequireAuth();
+  const { user, loading: authLoading } = useRequireAuth();
   const canImport = useFeature("data_io");
   const canVoice = useFeature("voice_intake");
   const router = useRouter();
@@ -112,6 +112,13 @@ export default function PropertiesPage() {
   const [type, setType] = useState("");
   const [sort, setSort] = useState("newest");
   const [filters, setFilters] = useState<ListFilterValues>(EMPTY_FILTERS);
+  /*
+   * הנכסים שסומנו להעלאה מרוכזת לרשת — Set של מזהים, מאותה סיבה
+   * שברשימת הקונים: הסינון משנה את הרשימה תוך כדי בחירה.
+   */
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkNote, setBulkNote] = useState<string | null>(null);
 
   /*
    * הסינון רץ בשרת ולא בדפדפן.
@@ -149,6 +156,57 @@ export default function PropertiesPage() {
     );
     return sortRows(filtered, sort);
   }, [items, city, status, type, sort]);
+
+  /* הבחירה מוצגת רק למי שרשאי לפרסם לרשת — כמו הגישה במסך הקונים */
+  const mayShare = can(user, "collaboration.share");
+  const selectedVisible = visible.filter((p) => selected.has(p.id));
+  const allVisibleSelected = visible.length > 0 && selectedVisible.length === visible.length;
+
+  function toggle(id: string): void {
+    setSelected((was) => {
+      const next = new Set(was);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll(): void {
+    setSelected(allVisibleSelected ? new Set() : new Set(visible.map((p) => p.id)));
+  }
+
+  /**
+   * העלאה מרוכזת לרשת — התאום של shareSelected במסך הקונים.
+   * השרת מפרסם כל נכס במסלול הבודד (סטטוס, כפילות, מכסה), בברירת
+   * המחדל של חלוקת העמלה ועם תיאור השיווק של הנכס.
+   */
+  async function shareSelected(): Promise<void> {
+    const ids = selectedVisible.map((p) => p.id);
+    if (ids.length === 0) return;
+    if (!window.confirm(`לפרסם ${ids.length} נכסים לרשת השיתופים? יפורסמו בלי כתובת מדויקת ובלי פרטי בעלים, בחלוקת עמלה 50/50.`)) return;
+
+    setBulkBusy(true);
+    setBulkNote(null);
+    setError(null);
+    try {
+      const res = await apiPost<{ results: { id: string; ok: boolean; error?: string }[] }>(
+        "/collaboration/listings/bulk",
+        { propertyIds: ids },
+      );
+      const failed = res.results.filter((r) => !r.ok);
+      const reasons = [...new Set(failed.map((r) => r.error ?? "הפרסום נכשל"))];
+      setBulkNote(
+        failed.length === 0
+          ? `${res.results.length} נכסים פורסמו לרשת`
+          : `${res.results.length - failed.length} פורסמו, ${failed.length} לא — ${reasons.join(" · ")}`,
+      );
+      setSelected(new Set());
+    } catch {
+      setError("הפרסום לרשת נכשל — נסו שוב");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   const filtering =
     hasActiveFilters(filters) ||
@@ -267,6 +325,35 @@ export default function PropertiesPage() {
             </div>
           ) : (
             <>
+              {/* סרגל הבחירה מופיע רק כשיש בחירה — כמו במסך הקונים */}
+              {mayShare && selected.size > 0 ? (
+                <div
+                  className="mv-list-card mb-3 flex flex-wrap items-center gap-2 px-4 py-3"
+                  role="status"
+                >
+                  <strong className="text-[15px]">{selectedVisible.length} נבחרו</strong>
+                  <button
+                    type="button"
+                    className="mv-btn-plain"
+                    disabled={bulkBusy}
+                    onClick={() => setSelected(new Set())}
+                  >
+                    בטל בחירה
+                  </button>
+                  <button
+                    type="button"
+                    className="mv-btn-plain ms-auto"
+                    disabled={bulkBusy}
+                    onClick={() => void shareSelected()}
+                    style={{ color: "var(--color-primary)" }}
+                  >
+                    {bulkBusy ? "מפרסם…" : "העלה לרשת השיתופים"}
+                  </button>
+                </div>
+              ) : null}
+
+              {bulkNote ? <Notice tone="success">{bulkNote}</Notice> : null}
+
               {/* מובייל: כרטיסים. טבלת grid במסך 375px דורשת גלילה לצדדים —
                   והמתווך עומד בשטח עם יד אחת פנויה (docs/06 §1.5) */}
               <ul className="flex flex-col gap-3 sm:hidden">
@@ -279,6 +366,15 @@ export default function PropertiesPage() {
                     <div className="flex gap-3">
                       <Thumb url={p.thumbnailUrl} />
                       <div className="min-w-0 flex-1">
+                        {mayShare ? (
+                          <input
+                            type="checkbox"
+                            className="me-2 align-middle"
+                            checked={selected.has(p.id)}
+                            onChange={() => toggle(p.id)}
+                            aria-label={`בחר את ${addressOf(p)}`}
+                          />
+                        ) : null}
                         <Link href={`/properties/${p.id}`} className="font-bold underline">
                           {addressOf(p)}
                         </Link>
@@ -328,7 +424,18 @@ export default function PropertiesPage() {
               {/* שולחני: טבלת ה-grid מהעיצוב */}
               <div className="mv-list-card hidden sm:block">
                 <div className="mv-list-head" style={{ gridTemplateColumns: GRID }}>
-                  <span>כתובת</span>
+                  <span className="flex items-center gap-2">
+                    {mayShare ? (
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={toggleAll}
+                        aria-label="בחר את כל הנכסים המוצגים"
+                        title="בחר הכל"
+                      />
+                    ) : null}
+                    כתובת
+                  </span>
                   <span>עיר</span>
                   <span>חדרים</span>
                   <span>מחיר</span>
@@ -339,10 +446,20 @@ export default function PropertiesPage() {
                 {visible.map((p) => {
                   const ready = readinessColors(p.readinessScore);
                   return (
+                    /* התיבה לצד השורה ולא בתוכה — השורה כולה כפתור
+                       ניווט, ותיבת סימון בתוך כפתור אינה נגישה */
+                    <div key={p.id} className="mv-list-select-row">
+                      {mayShare ? (
+                        <input
+                          type="checkbox"
+                          checked={selected.has(p.id)}
+                          onChange={() => toggle(p.id)}
+                          aria-label={`בחר את ${addressOf(p)}`}
+                        />
+                      ) : null}
                     <button
-                      key={p.id}
                       type="button"
-                      className={`mv-list-row${isNew(p) ? " mv-list-row--new" : ""}`}
+                      className={`mv-list-row grow${isNew(p) ? " mv-list-row--new" : ""}`}
                       style={{ gridTemplateColumns: GRID }}
                       onClick={() => router.push(`/properties/${p.id}`)}
                     >
@@ -379,6 +496,7 @@ export default function PropertiesPage() {
                         {p.suggestedMatchCount || "—"}
                       </span>
                     </button>
+                    </div>
                   );
                 })}
               </div>
