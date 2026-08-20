@@ -9,7 +9,7 @@ import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { FilterBar, SearchField, textMatches } from "../list-controls";
 import { DictateFor } from "../dictation-field";
-import { IconClock, IconDoc, IconMic } from "../icons";
+import { IconClock, IconDoc, IconMic, IconRefresh } from "../icons";
 import { Notice } from "../notice";
 
 /**
@@ -475,6 +475,23 @@ function CallRecording({ call, onChanged }: { call: CallRow; onChanged: () => vo
     }
   }
 
+  /*
+   * ניסיון תמלול נוסף — השרת מאפס ל-pending והעובד אוסף מחדש.
+   * ‎onChanged()‎ מרענן את הרשימה, והמסך עובר ל"ממתין לתמלול".
+   */
+  async function retryTranscription(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      await apiPost(`/calls/${call.id}/transcription/retry`, {});
+      onChanged();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "הפעלת התמלול מחדש נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const status = call.transcriptionStatus;
 
   /*
@@ -536,9 +553,20 @@ function CallRecording({ call, onChanged }: { call: CallRow; onChanged: () => vo
           <IconClock s={15} /> ההקלטה נשמרה וממתינה לתמלול. זה לוקח כמה דקות — אפשר לעזוב את המסך.
         </p>
       ) : status === "failed" ? (
-        <p className="m-0 text-sm" style={{ color: "var(--color-danger)" }}>
-          התמלול נכשל. ההקלטה עצמה נשמרה ולא אבדה.
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="m-0 text-sm" style={{ color: "var(--color-danger)" }}>
+            התמלול נכשל. ההקלטה עצמה נשמרה ולא אבדה.
+          </p>
+          {/* כשל תמלול הוא לרוב זמני — ניסיון נוסף במקום העלאה מחדש */}
+          <button
+            type="button"
+            className="mv-btn-plain"
+            disabled={busy}
+            onClick={() => void retryTranscription()}
+          >
+            {busy ? "שולח…" : <><IconRefresh s={15} /> נסו תמלול שוב</>}
+          </button>
+        </div>
       ) : (
         <>
           <button

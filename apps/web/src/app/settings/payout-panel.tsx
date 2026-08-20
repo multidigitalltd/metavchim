@@ -15,7 +15,11 @@ import { DictationTextarea } from "../dictation-field";
 import { Notice } from "../notice";
 
 /**
- * היתרה הכספית ומשיכתה.
+ * היתרה הכספית ומשיכתה — בלשונית "מנוי ותשלום" בניהול המשרד.
+ *
+ * ישב במסך השיתופים ליד הקרדיטים והועבר לכאן (בקשת המשתמש):
+ * משיכת כסף היא פעולה של בעל המשרד מול הבנק, לא חלק מהגלישה בפיד
+ * הרשת — ומקומה ליד שאר ענייני הכסף של המשרד.
  *
  * מוצג **רק כשיש יתרה או בקשה קודמת.** משרד שמעולם לא בחר תמורה
  * בכסף אינו צריך לראות טופס בנק על המסך שלו — הוא יופיע ברגע
@@ -159,14 +163,17 @@ export function PayoutPanel() {
   }
 
   return (
-    <div
-      className="mt-3 rounded-xl border p-3"
-      style={{
-        borderColor: "var(--color-border)",
-        background: "var(--color-bg)",
-      }}
+    <section
+      className="mv-list-card px-5 py-[17px]"
+      aria-labelledby="payout-heading"
     >
-      <h3 className="m-0 mb-1 text-sm font-semibold">יתרה כספית</h3>
+      <h3
+        id="payout-heading"
+        className="m-0 mb-1"
+        style={{ fontSize: 16.5, fontWeight: 800 }}
+      >
+        יתרה כספית
+      </h3>
       <p className="m-0 mb-2 text-[14.5px]">
         <b>{shekels(balance.balanceAgorot)} ₪</b> זמינים למשיכה.
         {balance.pendingAgorot > 0 ? (
@@ -321,6 +328,6 @@ export function PayoutPanel() {
           </ul>
         </div>
       ) : null}
-    </div>
+    </section>
   );
 }
