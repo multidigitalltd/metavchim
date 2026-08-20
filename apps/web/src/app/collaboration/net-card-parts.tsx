@@ -1,7 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import type { NetworkChip } from "@metavchim/shared";
-import { IconClock, IconDoor, IconPin, IconRuler, IconStairs } from "../icons";
+import {
+  IconClock,
+  IconDoor,
+  IconCamera,
+  IconPin,
+  IconRuler,
+  IconStairs,
+  IconUsers,
+} from "../icons";
 
 /**
  * חלקי כרטיס הרשת — **שפה חזותית אחת לביקוש ולנכס.**
@@ -232,4 +241,89 @@ export function isFresh(iso?: string): boolean {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return false;
   return Date.now() - then < 7 * 86_400_000;
+}
+
+/**
+ * תמונת הנכס במודעה — **ראשית גדולה, והשאר מאחורי כפתור.**
+ *
+ * מתווך אינו מציע נכס ללקוח שלו על סמך טבלת נתונים. בלי תמונה
+ * המודעה נקראת ולא מופעלת, וזה ההבדל בין פיד שמייצר שיחות לפיד
+ * שגוללים מעליו.
+ *
+ * גלריה פתוחה תמיד הייתה הופכת כל כרטיס לגובה מסך: הראשית מוצגת,
+ * והשאר נפתח בלחיצה של מי שכבר התעניין.
+ *
+ * ‎`loading="lazy"`‎ — פיד של עשרות מודעות לא ימשוך עשרות תמונות
+ * בטעינה. הכתובות חתומות וקצרות-חיים, ולכן תמונה שנכשלת נעלמת
+ * בשקט במקום להשאיר סמל שבור על המודעה.
+ */
+export function NetPhotos({ photos, alt }: { photos: string[]; alt: string }): React.JSX.Element | null {
+  const [open, setOpen] = useState(false);
+  const [broken, setBroken] = useState<string[]>([]);
+  const usable = photos.filter((url) => !broken.includes(url));
+  if (usable.length === 0) return null;
+
+  const [main, ...rest] = usable;
+  return (
+    <div className="mv-net-photos">
+      <img
+        src={main}
+        alt={alt}
+        loading="lazy"
+        className="mv-net-photo-main"
+        onError={() => setBroken((was) => [...was, main!])}
+      />
+      {rest.length === 0 ? null : open ? (
+        <div className="mv-net-photo-strip">
+          {rest.map((url) => (
+            <img
+              key={url}
+              src={url}
+              alt={alt}
+              loading="lazy"
+              className="mv-net-photo-thumb"
+              onError={() => setBroken((was) => [...was, url])}
+            />
+          ))}
+        </div>
+      ) : (
+        <button type="button" className="mv-net-chip" onClick={() => setOpen(true)}>
+          <IconCamera s={14} /> כל התמונות ({usable.length})
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * לוגו המשרד המפרסם, לצד שמו.
+ *
+ * משרד מזוהה נבחר לפני משרד אנונימי — זה כל התפקיד. הלוגו אינו
+ * מחליף את השם אלא מתלווה אליו: לוגו שנכשל בטעינה משאיר מודעה עם
+ * שם משרד, ולא מודעה בלי מפרסם.
+ */
+export function NetOffice({
+  name,
+  logoUrl,
+}: {
+  name: string;
+  logoUrl?: string;
+}): React.JSX.Element {
+  const [broken, setBroken] = useState(false);
+  return (
+    <span className="mv-net-chip" title="המשרד שפרסם את המודעה">
+      {logoUrl !== undefined && !broken ? (
+        <img
+          src={logoUrl}
+          alt=""
+          loading="lazy"
+          className="mv-net-office-logo"
+          onError={() => setBroken(true)}
+        />
+      ) : (
+        <IconUsers s={14} />
+      )}
+      {name}
+    </span>
+  );
 }

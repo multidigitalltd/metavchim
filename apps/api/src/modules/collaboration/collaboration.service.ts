@@ -43,9 +43,10 @@ import { OutboxService } from "../../core/outbox.service";
 import { LeadPricingService } from "../../core/lead-pricing.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
+import { StorageService } from "../../core/storage.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
 import { assertNetworkQuota } from "./network-quota";
-import { officeNames } from "./office-names";
+import { officeBadges, type OfficeBadge } from "./office-names";
 import {
   networkPrice,
   networkRooms,
@@ -267,6 +268,8 @@ export interface SharedDemandDto {
    * מסמן אותו בתג המקור שלו במקום בשם משרד.
    */
   officeName?: string;
+  /** לוגו המשרד המפרסם — כתובת חתומה קצרת-חיים, כשיש. */
+  officeLogoUrl?: string;
   originBuyerId?: string;
   createdAt: Date;
   /** הנכסים שלי שמתאימים — מחושב במנוע ההתאמות, לא ניחוש */
@@ -421,6 +424,8 @@ export class CollaborationService {
     // הצעת נכס למשרד אחר נספרת לעבר פריט (6) בפעולות השיווק
     private readonly exclusivity: ExclusivityService,
     private readonly email: EmailService,
+    // חתימת לוגו המשרד המפרסם לפיד הרשת — ראו `officeBadges`
+    private readonly storage: StorageService,
   ) {}
 
   private readonly logger = new Logger(CollaborationService.name);
@@ -901,8 +906,9 @@ export class CollaborationService {
 
     const [prices, offices] = await Promise.all([
       this.pricing.all(),
-      officeNames(
+      officeBadges(
         this.prisma,
+        this.storage,
         visible.map((row) => row.tenantId),
       ),
     ]);
@@ -1251,7 +1257,7 @@ export class CollaborationService {
     );
     if (!row) throw new NotFoundException("ביקוש לא נמצא");
     // תמיד הביקוש שלי (השאילתה מסוננת לפי הדייר) — ולכן המשרד שלי
-    const offices = await officeNames(this.prisma, [row.tenantId]);
+    const offices = await officeBadges(this.prisma, this.storage, [row.tenantId]);
     return this.toDemandDto(row, tenantId, prices, offices.get(row.tenantId));
   }
 
@@ -2744,7 +2750,7 @@ export class CollaborationService {
     },
     viewerTenantId: string,
     prices: readonly LeadSourcePrice[],
-    officeName?: string,
+    office?: OfficeBadge,
   ): SharedDemandDto {
     const mine = row.tenantId === viewerTenantId;
     return {
@@ -2776,7 +2782,8 @@ export class CollaborationService {
       commissionSplit: row.commissionSplit,
       status: row.status,
       mine,
-      ...(officeName === undefined ? {} : { officeName }),
+      ...(office === undefined ? {} : { officeName: office.name }),
+      ...(office?.logoUrl === undefined ? {} : { officeLogoUrl: office.logoUrl }),
       // הקישור לקונה נחשף רק לסוכנות המקור — לעולם לא לרשת (docs/04 §7)
       originBuyerId: mine ? (row.originBuyerId ?? undefined) : undefined,
       createdAt: row.createdAt,

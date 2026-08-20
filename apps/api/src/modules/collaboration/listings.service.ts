@@ -22,7 +22,7 @@ import { StorageService } from "../../core/storage.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { assertNetworkQuota } from "./network-quota";
-import { officeNames } from "./office-names";
+import { officeBadges, type OfficeBadge } from "./office-names";
 import {
   networkPrice,
   networkRooms,
@@ -109,6 +109,8 @@ export interface SharedListingDto {
   canManage: boolean;
   /** המשרד שפרסם את הנכס לרשת. */
   officeName?: string;
+  /** לוגו המשרד המפרסם — כתובת חתומה קצרת-חיים, כשיש. */
+  officeLogoUrl?: string;
   originPropertyId?: string;
   createdAt: Date;
   /** הקונים שלי שמתאימים — מחושב במנוע ההתאמות, לא ניחוש. */
@@ -454,7 +456,7 @@ export class ListingsService {
   private async toDto(
     row: Prisma.SharedListingGetPayload<object>,
     viewerTenantId: string,
-    officeName?: string,
+    office?: OfficeBadge,
   ): Promise<SharedListingDto> {
     const mine = row.tenantId === viewerTenantId;
     /*
@@ -493,7 +495,8 @@ export class ListingsService {
       mine,
       // רק על הפרסומים שלנו — למודעה של משרד אחר אין משמעות לשאלה
       canManage: mine && this.mayManageListing(row),
-      ...(officeName === undefined ? {} : { officeName }),
+      ...(office === undefined ? {} : { officeName: office.name }),
+      ...(office?.logoUrl === undefined ? {} : { officeLogoUrl: office.logoUrl }),
       // הקישור לנכס נחשף רק לסוכנות המקור — לעולם לא לרשת
       ...(mine ? { originPropertyId: row.originPropertyId } : {}),
       createdAt: row.createdAt,
@@ -675,8 +678,9 @@ export class ListingsService {
       },
     );
 
-    const offices = await officeNames(
+    const offices = await officeBadges(
       this.prisma,
+      this.storage,
       visible.map((row) => row.tenantId),
     );
 

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import { formatPrice, MATURITY_LABELS } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
@@ -102,6 +102,16 @@ export default function BuyersPage() {
   const [offersFilter, setOffersFilter] = useState("");
   /** קונה (sale) או שוכר (rent) — הלשונית היא "קונים · שוכרים" */
   const [dealType, setDealType] = useState("");
+  /**
+   * הכרטיסים שסומנו לפעולה מרוכזת.
+   *
+   * `Set` של מזהים ולא דגל על השורה: הסינון והמיון משנים את
+   * הרשימה תוך כדי, ובחירה ששמורה על האובייקטים הייתה נעלמת
+   * ברגע שהמשתמש מקליד בחיפוש.
+   */
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkNote, setBulkNote] = useState<string | null>(null);
 
   // קישורי הפילוח מהדשבורד: /buyers?maturity=hot וכדומה
   useFilterFromUrl({ maturity: setMaturity, dealType: setDealType });
@@ -128,6 +138,15 @@ export default function BuyersPage() {
       .catch(() => setError("טעינת הקונים נכשלה"));
   }, [authLoading, filters]);
 
+  function toggle(id: string): void {
+    setSelected((was) => {
+      const next = new Set(was);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   const visible = useMemo(
     () =>
       (items ?? []).filter(
@@ -142,6 +161,59 @@ export default function BuyersPage() {
       ),
     [items, filters.q, maturity, offersFilter, dealType],
   );
+
+  /* בחירה שיצאה מהסינון אינה נמחקת — היא פשוט אינה מוצגת ואינה נספרת */
+  const selectedVisible = visible.filter((b) => selected.has(b.id));
+  const allVisibleSelected = visible.length > 0 && selectedVisible.length === visible.length;
+
+  function toggleAll(): void {
+    setSelected(allVisibleSelected ? new Set() : new Set(visible.map((b) => b.id)));
+  }
+
+  /**
+   * מחיקה מרוכזת — ארכיון, או לצמיתות באישור נפרד.
+   *
+   * ברירת המחדל היא ארכיון בדיוק כמו במחיקה בודדת. הכפתור השני
+   * קיים בשביל המקרה שבשבילו הפעולה נבנתה — ייבוא שגוי שצריך
+   * להיעלם — ולכן האישור שלו מציין את המספר ואת אי-ההפיכות.
+   */
+  async function removeSelected(permanent: boolean): Promise<void> {
+    const ids = selectedVisible.map((b) => b.id);
+    if (ids.length === 0) return;
+    const question = permanent
+      ? `למחוק לצמיתות ${ids.length} כרטיסים? הפעולה אינה הפיכה, וכל ההיסטוריה שלהם תימחק.`
+      : `להעביר ${ids.length} כרטיסים לארכיון? הם יורדו מהרשימות וההיסטוריה תישמר.`;
+    if (!window.confirm(question)) return;
+
+    setBulkBusy(true);
+    setBulkNote(null);
+    setError(null);
+    try {
+      const res = await apiPost<{ removed: number; skipped: number }>("/buyers/bulk-delete", {
+        ids,
+        permanent,
+      });
+      setBulkNote(
+        res.skipped === 0
+          ? `${res.removed} כרטיסים ${permanent ? "נמחקו" : "הועברו לארכיון"}`
+          : `${res.removed} ${permanent ? "נמחקו" : "הועברו לארכיון"}, ${res.skipped} דולגו — כרטיס של סוכן אחר, או כזה שכבר נמחק`,
+      );
+      setSelected(new Set());
+      setItems(null);
+      const fresh = await apiGet<{ items: BuyerRow[] }>(
+        `/buyers?limit=100${filtersToQuery({ ...filters, q: "" })}`,
+      );
+      setItems(
+        [...fresh.items].sort(
+          (a, b) => MATURITY_ORDER.indexOf(a.maturity) - MATURITY_ORDER.indexOf(b.maturity),
+        ),
+      );
+    } catch {
+      setError("המחיקה נכשלה — נסו שוב");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   return (
     <>
@@ -265,6 +337,46 @@ export default function BuyersPage() {
             </div>
           ) : (
             <>
+              {/*
+                סרגל הבחירה מופיע רק כשיש מה לעשות איתו. סרגל קבוע
+                עם "0 נבחרו" הוא רעש בכל מסך שבו לא בוחרים כלום.
+              */}
+              {selected.size > 0 ? (
+                <div
+                  className="mv-list-card mb-3 flex flex-wrap items-center gap-2 px-4 py-3"
+                  role="status"
+                >
+                  <strong className="text-[15px]">{selectedVisible.length} נבחרו</strong>
+                  <button
+                    type="button"
+                    className="mv-btn-plain"
+                    disabled={bulkBusy}
+                    onClick={() => setSelected(new Set())}
+                  >
+                    בטל בחירה
+                  </button>
+                  <button
+                    type="button"
+                    className="mv-btn-plain ms-auto"
+                    disabled={bulkBusy}
+                    onClick={() => void removeSelected(false)}
+                  >
+                    {bulkBusy ? "מוחק…" : "העבר לארכיון"}
+                  </button>
+                  <button
+                    type="button"
+                    className="mv-btn-plain"
+                    disabled={bulkBusy}
+                    onClick={() => void removeSelected(true)}
+                    style={{ color: "var(--color-danger)" }}
+                  >
+                    מחק לצמיתות
+                  </button>
+                </div>
+              ) : null}
+
+              {bulkNote ? <Notice tone="success">{bulkNote}</Notice> : null}
+
               {/* מובייל: כרטיסים במקום טבלה בת 6 עמודות (docs/06 §1.5) */}
               <ul className="flex flex-col gap-3 sm:hidden">
                 {visible.map((b) => (
@@ -274,9 +386,17 @@ export default function BuyersPage() {
                     style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <Link href={`/buyers/${b.id}`} className="font-bold underline">
-                        {b.contact.name}
-                      </Link>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(b.id)}
+                          onChange={() => toggle(b.id)}
+                          aria-label={`בחר את ${b.contact.name}`}
+                        />
+                        <Link href={`/buyers/${b.id}`} className="font-bold underline">
+                          {b.contact.name}
+                        </Link>
+                      </label>
                       <MaturityPill maturity={b.maturity} />
                     </div>
                     <a
@@ -303,7 +423,16 @@ export default function BuyersPage() {
               {/* שולחני: טבלת ה-grid מהעיצוב */}
               <div className="mv-list-card hidden sm:block">
                 <div className="mv-list-head" style={{ gridTemplateColumns: GRID }}>
-                  <span>שם</span>
+                  <span className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleAll}
+                      aria-label="בחר את כל הקונים המוצגים"
+                      title="בחר הכל"
+                    />
+                    שם
+                  </span>
                   <span>בשלות</span>
                   <span>תקציב</span>
                   <span>מחפש</span>
@@ -313,13 +442,25 @@ export default function BuyersPage() {
                 {visible.map((b) => {
                   const noOffers = (b.offersReceived ?? 0) === 0;
                   return (
-                    <button
-                      key={b.id}
-                      type="button"
-                      className="mv-list-row"
-                      style={{ gridTemplateColumns: GRID }}
-                      onClick={() => router.push(`/buyers/${b.id}`)}
-                    >
+                    /*
+                      תיבת הסימון יושבת **לצד** השורה ולא בתוכה:
+                      השורה כולה היא כפתור ניווט, ותיבת סימון בתוך
+                      כפתור אינה תקינה ואינה נגישה — לחיצה עליה
+                      הייתה מנווטת לכרטיס במקום לסמן.
+                    */
+                    <div key={b.id} className="mv-list-select-row">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(b.id)}
+                        onChange={() => toggle(b.id)}
+                        aria-label={`בחר את ${b.contact.name}`}
+                      />
+                      <button
+                        type="button"
+                        className="mv-list-row grow"
+                        style={{ gridTemplateColumns: GRID }}
+                        onClick={() => router.push(`/buyers/${b.id}`)}
+                      >
                       <span className="truncate text-[15.5px] font-bold">{b.contact.name}</span>
                       <span>
                         <MaturityPill maturity={b.maturity} />
@@ -343,7 +484,8 @@ export default function BuyersPage() {
                       <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                         {lastActivityText(b.lastActivityAt)}
                       </span>
-                    </button>
+                      </button>
+                    </div>
                   );
                 })}
               </div>

@@ -2399,6 +2399,63 @@ a.mv-bar-row:focus-visible {
 }
 
 /* כרטיס ברשת — קונה או נכס, אותה שפה */
+/*
+  שורת רשימה עם תיבת סימון.
+
+  התיבה יושבת מחוץ לכפתור השורה ולא בתוכו: השורה כולה היא כפתור
+  ניווט, ותיבת סימון בתוך כפתור אינה תקינה — לחיצה עליה הייתה
+  מנווטת לכרטיס במקום לסמן.
+*/
+.mv-list-select-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-inline-start: 12px;
+}
+
+/*
+  תמונות הנכס במודעת הרשת.
+
+  יחס קבוע ולא גובה חופשי: פיד שבו כל מודעה בגובה אחר לפי התמונה
+  שהועלתה נראה שבור, וגלילה בו קופצנית. `object-fit: cover` חותך
+  ולא מעוות — נכס מרוח הוא נכס שנראה גרוע.
+*/
+.mv-net-photos {
+  margin: 10px 0 4px;
+}
+
+.mv-net-photo-main {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border-radius: 12px;
+  background: var(--color-bg);
+}
+
+.mv-net-photo-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.mv-net-photo-thumb {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--color-bg);
+}
+
+/* לוגו המשרד יושב בתוך הצ'יפ, בגודל של אייקון ולא של תמונה */
+.mv-net-office-logo {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  border-radius: 3px;
+}
+
 .mv-net-card {
   border: 1px solid var(--color-border);
   border-radius: 16px;
