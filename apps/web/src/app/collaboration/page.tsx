@@ -17,7 +17,7 @@ import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS } from "@/lib/lead-labels";
 import { useRequireAuth } from "@/lib/use-auth";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { LoadError } from "../load-error";
 import { ActionToast, type ToastState } from "../action-toast";
 import {
@@ -52,6 +52,7 @@ import {
 import { CollaborationGuide, ReferralRulesPanel } from "./guide";
 import { PrivacyBanner } from "./privacy-banner";
 import { ReachBanner } from "./reach-banner";
+import { DealsList } from "./deals-list";
 import { NetChips } from "./net-chips";
 import {
   NetFacts,
@@ -111,7 +112,13 @@ const COOP_TABS: [
 ][] = [
   ["network", "הרשת", IconGlobe],
   ["incoming", "הצעות שקיבלתי", IconMail],
-  ["market", "הפניות לקוחות", IconHandshake],
+  /*
+   * הלשונית שסוגרת את הרשת: חיבור שאושר ממשיך כאן ולא בוואטסאפ.
+   * היא יושבת אחרי "הצעות שקיבלתי" כי זה הסדר שבו הדברים קורים —
+   * מציעים, מאשרים, עובדים.
+   */
+  ["deals", "עסקאות משותפות", IconHandshake],
+  ["market", "הפניות לקוחות", IconUsers],
 ];
 
 /**
@@ -412,6 +419,8 @@ function referralPayoutLabel(lead: {
 
 export default function CollaborationPage() {
   const { loading: authLoading } = useRequireAuth();
+  // אישור חיבור פותח חדר עסקה, והמסך נכנס אליו מיד
+  const router = useRouter();
   /*
    * ההתראה על הצעה חדשה הובילה ל-/collaboration והמסך נפתח תמיד על
    * "ביקושים ברשת" — כלומר על לשונית שאינה זו שההתראה דיברה עליה,
@@ -585,9 +594,25 @@ export default function CollaborationPage() {
     }
   }
 
+  /**
+   * תגובה להצעת נכס. „מעוניין” פותח חדר עסקה משותף, והמסך מנווט
+   * אליו מיד: זו כל הנקודה של האישור, וסוכן שנשאר על אותה רשימה
+   * לא ידע שנפתח לו משהו — וזה בדיוק המקום שבו ההמשך עבר לוואטסאפ.
+   */
   async function respond(offerId: string, response: "interested" | "declined") {
-    await apiPatch(`/collaboration/offers/${offerId}/respond`, { response });
-    load();
+    try {
+      const { dealId } = await apiPatch<{ ok: true; dealId: string | null }>(
+        `/collaboration/offers/${offerId}/respond`,
+        { response },
+      );
+      if (dealId !== null) {
+        router.push(`/collaboration/deals/${dealId}`);
+        return;
+      }
+      load();
+    } catch (err: unknown) {
+      setMessage(err instanceof ApiError ? err.message : "העדכון נכשל");
+    }
   }
 
   /**
@@ -618,7 +643,14 @@ export default function CollaborationPage() {
     response: "interested" | "declined",
   ) {
     try {
-      await apiPatch(`/collaboration/interests/${id}/respond`, { response });
+      const { dealId } = await apiPatch<{ dealId: string | null }>(
+        `/collaboration/interests/${id}/respond`,
+        { response },
+      );
+      if (dealId !== null) {
+        router.push(`/collaboration/deals/${dealId}`);
+        return;
+      }
       load();
     } catch (err: unknown) {
       setMessage(err instanceof ApiError ? err.message : "העדכון נכשל");
@@ -1005,6 +1037,8 @@ export default function CollaborationPage() {
           ) : null}
         </section>
       ) : null}
+
+      {coopTab === "deals" ? <DealsList /> : null}
 
       {coopTab === "market" ? (
         <section

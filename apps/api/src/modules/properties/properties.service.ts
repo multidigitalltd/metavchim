@@ -28,6 +28,7 @@ function propertyTypesFor(term: string): string[] {
 }
 import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
+import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
 import { GeocodingService } from "../../core/geocoding.service";
@@ -863,6 +864,10 @@ export class PropertiesService {
 
       // הצעות שת"פ שהוצעו על הנכס — הצעה על נכס שאיננו היא פנייה
       // שאיש לא יטפל בה
+      await deleteCoopDeals(tx, {
+        propertyId: id,
+        listingTenantId: ctx.tenantId,
+      });
       await tx.coopOffer.deleteMany({ where: { propertyId: id } });
 
       await tx.agreement.updateMany({

@@ -59,11 +59,18 @@ export class AuthGuard implements CanActivate {
       }
     }
 
-    const capability = this.reflector.getAllAndOverride<Capability | undefined>(CAPABILITY_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
-    if (capability && !ctx.capabilities.has(capability)) {
+    /*
+     * ההצהרה היא **רשימה, ומספיקה אחת** — ראו @RequireCapability.
+     * רשימה ריקה אינה אפשרית: הטיפוס דורש איבר אחד לפחות, ולכן
+     * "הוצהר בלי כלום" אינו מצב שצריך להתגונן מפניו בזמן ריצה.
+     */
+    const capabilities = this.reflector.getAllAndOverride<
+      readonly Capability[] | undefined
+    >(CAPABILITY_KEY, [context.getHandler(), context.getClass()]);
+    if (
+      capabilities &&
+      !capabilities.some((capability) => ctx.capabilities.has(capability))
+    ) {
       throw new ForbiddenException("אין לך הרשאה לפעולה זו");
     }
     return true;

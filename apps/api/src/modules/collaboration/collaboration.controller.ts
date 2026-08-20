@@ -11,8 +11,10 @@ import {
 } from "@nestjs/common";
 import { z } from "zod";
 import {
+  COOP_DEAL_STAGES,
   DEFAULT_COMMISSION_SPLIT,
   IdSchema,
+  MAX_COOP_DEAL_MESSAGE,
   MAX_COMMISSION_SHARE,
   MAX_REFERRAL_CITY,
   MAX_REFERRAL_NOTE,
@@ -23,6 +25,7 @@ import {
   MIN_COMMISSION_SHARE,
   MIN_REFERRAL_PRICE,
   MIN_REFERRAL_RATING,
+  type CoopDealStage,
   type PayoutMode,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
@@ -37,6 +40,11 @@ import {
   type SharedDemandDto,
   type SharedLeadDto,
 } from "./collaboration.service";
+import {
+  DealRoomService,
+  type DealDto,
+  type DealSummaryDto,
+} from "./deal-room.service";
 import { ListingsService, type SharedListingDto } from "./listings.service";
 import { NetworkFilterSchema } from "./network-filter";
 
@@ -105,6 +113,24 @@ const OfferSchema = z
   .strict();
 const RespondSchema = z
   .object({ response: z.enum(["interested", "declined"]) })
+  .strict();
+
+/*
+ * חדר העסקה. השלבים מגיעים מהכלל המשותף ולא נכתבים כאן שוב — רשימה
+ * שנייה הייתה מקבלת שלב שהשרת אינו יודע לטפל בו ביום שמישהו מוסיף
+ * אחד. `as [string, ...string[]]` כי `z.enum` דורש טאפל לא-ריק,
+ * ו-`COOP_DEAL_STAGES` היא `readonly` בקבוע.
+ */
+const DealStageSchema = z
+  .object({
+    stage: z.enum(COOP_DEAL_STAGES as unknown as [string, ...string[]]),
+    /** סיבת הסגירה — נשמרת רק כשעוברים לשלב סופי. */
+    note: z.string().trim().max(200).optional(),
+  })
+  .strict();
+
+const DealMessageSchema = z
+  .object({ body: z.string().trim().min(1).max(MAX_COOP_DEAL_MESSAGE) })
   .strict();
 /*
  * פרסום הפניה. הגבולות והסיבות מגיעים מהכלל המשותף — הטופס והשרת
@@ -203,6 +229,7 @@ export class CollaborationController {
   constructor(
     private readonly collaboration: CollaborationService,
     private readonly listings: ListingsService,
+    private readonly dealRooms: DealRoomService,
   ) {}
 
   /* ============================================================
@@ -300,15 +327,20 @@ export class CollaborationController {
     return this.listings.listInterests();
   }
 
+  /**
+   * תגובה לפניית קונה. „מעוניין” מחזיר את מזהה חדר העסקה שנפתח,
+   * והמסך מנווט אליו מיד — התשובה 204 הקודמת השאירה את הסוכן על
+   * אותו מסך בלי שום סימן שמשהו קרה.
+   */
   @Patch("interests/:id/respond")
   @RequireCapability("collaboration.share")
-  @HttpCode(204)
+  @HttpCode(200)
   async respondToInterest(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Body(new ZodValidationPipe(RespondSchema))
     body: z.infer<typeof RespondSchema>,
-  ): Promise<void> {
-    await this.listings.respondToInterest(id, body.response);
+  ): Promise<{ dealId: string | null }> {
+    return this.listings.respondToInterest(id, body.response);
   }
 
   /**
@@ -437,9 +469,57 @@ export class CollaborationController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Body(new ZodValidationPipe(RespondSchema))
     body: z.infer<typeof RespondSchema>,
-  ): Promise<{ ok: true }> {
-    await this.collaboration.respondToCoopOffer(id, body.response);
-    return { ok: true };
+  ): Promise<{ ok: true; dealId: string | null }> {
+    const { dealId } = await this.collaboration.respondToCoopOffer(
+      id,
+      body.response,
+    );
+    return { ok: true, dealId };
+  }
+
+  /* ============================================================
+     חדר העסקה — סביבת העבודה המשותפת של שני המשרדים.
+
+     שתי היכולות ולא אחת: לחדר מגיעים משני הכיוונים — מי שפרסם נכס
+     וקיבל פנייה (`share`) ומי שהציע על ביקוש (`offer`) — והן ניתנות
+     בנפרד במסך ההרשאות. שער אחד היה נועל מחצית מהשותפים מחוץ לחדר
+     שהם עצמם צד בו.
+     ============================================================ */
+
+  @Get("deals")
+  @RequireCapability("collaboration.share", "collaboration.offer")
+  async deals(): Promise<DealSummaryDto[]> {
+    return this.dealRooms.list();
+  }
+
+  @Get("deals/:id")
+  @RequireCapability("collaboration.share", "collaboration.offer")
+  async deal(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<DealDto> {
+    return this.dealRooms.get(id);
+  }
+
+  @Post("deals/:id/messages")
+  @RequireCapability("collaboration.share", "collaboration.offer")
+  @HttpCode(204)
+  async postDealMessage(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(DealMessageSchema))
+    body: z.infer<typeof DealMessageSchema>,
+  ): Promise<void> {
+    await this.dealRooms.post(id, body.body);
+  }
+
+  @Patch("deals/:id/stage")
+  @RequireCapability("collaboration.share", "collaboration.offer")
+  @HttpCode(204)
+  async moveDeal(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Body(new ZodValidationPipe(DealStageSchema))
+    body: z.infer<typeof DealStageSchema>,
+  ): Promise<void> {
+    await this.dealRooms.move(id, body.stage as CoopDealStage, body.note);
   }
 
   @Get("credits")

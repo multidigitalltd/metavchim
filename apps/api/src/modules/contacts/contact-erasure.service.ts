@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from "@nes
 import { ulid } from "ulid";
 import { lockContact } from "../../common/locks";
 import { TenantContext } from "../../common/tenant-context";
+import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
 import { normalizeNameForMatch } from "@metavchim/shared";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -268,6 +269,12 @@ export class ContactErasureService {
      * (`demandId`), ולכן היא נמחקת לפניו. הצעות שהמשרד שלח על ביקוש
      * של משרד אחר אינן נוגעות לאדם הזה ואינן נמחקות.
      */
+    // חדרי העסקה שנפתחו על הכרטיסים של האדם הזה — לפני הביקושים
+    await deleteCoopDeals(tx, {
+      buyerId: { in: buyers },
+      buyerTenantId: tenantId,
+    });
+
     const sharedDemands = await tx.sharedDemand.findMany({
       where: { tenantId, originBuyerId: { in: buyers } },
       select: { id: true },

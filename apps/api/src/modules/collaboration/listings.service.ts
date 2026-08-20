@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
@@ -16,11 +17,15 @@ import {
 } from "@metavchim/shared";
 import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
+import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
+import { EmailService } from "../../core/email.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { StorageService } from "../../core/storage.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { collabRecipient, sendCollabMail } from "./collab-mail";
+import { DealRoomService } from "./deal-room.service";
 import { assertNetworkQuota } from "./network-quota";
 import { officeBadges, type OfficeBadge } from "./office-names";
 import {
@@ -128,12 +133,18 @@ type PropertyRow = Prisma.PropertyGetPayload<object>;
 
 @Injectable()
 export class ListingsService {
+  private readonly logger = new Logger(ListingsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly contacts: ContactsService,
     private readonly plans: PlanCatalogService,
     private readonly storage: StorageService,
+    // אישור פנייה פותח חדר עסקה משותף — ראו `DealRoomService`
+    private readonly dealRoom: DealRoomService,
+    // עדכון לצד השני בכל מפנה בחיי החיבור — ראו `collab-mail`
+    private readonly email: EmailService,
   ) {}
 
   /**
@@ -835,6 +846,8 @@ export class ListingsService {
           buyerId,
           presentation,
           commissionSplit,
+          // מי הציע — כדי שחדר העסקה יידע למי להרים טלפון
+          createdBy: ctx.userId ?? null,
         },
       });
       await this.audit.record(tx, {
@@ -844,25 +857,166 @@ export class ListingsService {
         metadata: { listingId, buyerId },
       });
     });
+
+    /*
+     * המייל אחרי ה-Commit ולא בתוכו: שליחה איטית הייתה מחזיקה
+     * טרנזקציה פתוחה, וכשל שלה היה מגלגל לאחור פנייה תקפה.
+     */
+    await this.mailInterestReceived(id);
   }
 
+  /**
+   * תגובה לפניית קונה. „מעוניין” פותח חדר עסקה משותף ומחזיר את
+   * מזההו — התמונה המשלימה ל-`respondToCoopOffer`, ומאותה סיבה:
+   * חיבור בלי מקום לעבוד בו הוא חיבור שממשיך בוואטסאפ.
+   */
   async respondToInterest(
     id: string,
     response: "interested" | "declined",
-  ): Promise<void> {
+  ): Promise<{ dealId: string | null }> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {
       const result = await tx.coopInterest.updateMany({
         where: { id, toTenantId: tenantId, status: "sent" },
         data: { status: response },
       });
-      if (result.count === 0) throw new NotFoundException("פנייה לא נמצאה");
+      if (result.count === 0) {
+        /*
+         * אישור חוזר ממשיך לפתיחת החדר במקום 404 — אותו נימוק
+         * בדיוק כמו ב-`respondToCoopOffer`, וזהו החלון שבו כשל
+         * בפתיחת החדר היה משאיר פנייה מאושרת בלי חדר ובלי דרך
+         * לתקן. פנייה של משרד אחר או כזו שנדחתה נשארות 404.
+         */
+        const already = await tx.coopInterest.findFirst({
+          where: { id, toTenantId: tenantId, status: response },
+          select: { id: true },
+        });
+        if (!already) throw new NotFoundException("פנייה לא נמצאה");
+        return;
+      }
       await this.audit.record(tx, {
         action: `collaboration.interest_${response}`,
         entityType: "coop_interest",
         entityId: id,
       });
     });
+    /*
+     * הצד שהציע מקבל עדכון בשני המקרים.
+     *
+     * דחייה בלי הודעה משאירה מתווך שממתין לתשובה שלא תגיע, וכשזה
+     * חוזר פעמיים הוא מפסיק להציע. „לא מתאים” שנאמר מהר הוא חלק
+     * מהשירות, לא היעדרו (בקשת המשתמש).
+     */
+    await this.mailInterestResponse(id, response);
+
+    // אחרי ה-Commit: פתיחת החדר נוגעת בשני דיירים ושולחת מייל
+    if (response !== "interested") return { dealId: null };
+    return { dealId: await this.dealRoom.openFromInterest(id) };
+  }
+
+  /**
+   * עדכון למשרד שהציע את הקונה — אושר או נדחה.
+   *
+   * Best-effort: התגובה כבר נרשמה, וכשל בשליחה נרשם ביומן בלבד.
+   */
+  private async mailInterestResponse(
+    interestId: string,
+    response: "interested" | "declined",
+  ): Promise<void> {
+    try {
+      const tenantId = TenantContext.current().tenantId;
+      const interest = await this.prisma.withTenant((tx) =>
+        tx.coopInterest.findFirst({
+          where: { id: interestId, toTenantId: tenantId },
+          select: { fromTenantId: true, createdBy: true, commissionSplit: true },
+        }),
+      );
+      if (!interest) return;
+      const [to, badges] = await Promise.all([
+        collabRecipient(this.prisma, interest.fromTenantId, interest.createdBy),
+        officeBadges(this.prisma, this.storage, [tenantId]),
+      ]);
+      const office = badges.get(tenantId)?.name ?? "משרד תיווך";
+      const accepted = response === "interested";
+      await sendCollabMail(this.email, to, {
+        subject: accepted
+          ? "הקונה שהצעתם אושר — נפתח חדר עסקה"
+          : "עדכון על הקונה שהצעתם ברשת",
+        heading: accepted ? "החיבור אושר" : "הפנייה נסגרה",
+        paragraphs: accepted
+          ? [
+              `${office} אישר את הקונה שהצעתם על הנכס שפרסם.`,
+              `נפתח חדר עסקה משותף ובו פרטי הסוכן שמולכם, כתובת הנכס ושרשור לתיאום. חלוקת העמלה: ${interest.commissionSplit}% למשרד שפרסם את הנכס, ${100 - interest.commissionSplit}% לכם.`,
+              "פרטי הלקוחות נשארים אצל המשרד שהביא אותם — גם עכשיו.",
+            ]
+          : [
+              `${office} בדק את הקונה שהצעתם והשיב שהוא אינו מתאים לנכס.`,
+              "אין צורך להמתין לתשובה נוספת. אפשר להציע את אותו קונה על נכסים אחרים בפיד.",
+            ],
+        button: {
+          label: accepted ? "לחדר העסקה" : "לרשת שיתופי הפעולה",
+          url: `${loadEnv().WEB_ORIGIN}/collaboration?tab=${accepted ? "deals" : "listings"}`,
+        },
+      });
+    } catch (error: unknown) {
+      this.logger.warn(
+        `מייל על תגובה לפנייה (${interestId}) לא נשלח: ${String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * עדכון למשרד שפרסם את הנכס — הגיעה פנייה עם קונה.
+   *
+   * הצד השני של המייל שכבר קיים בכיוון ההפוך (`emailDemandOwner`),
+   * ומאותו נימוק: פנייה שיושבת בפיד כי איש לא נכנס אליו היא שיתוף
+   * פעולה שלא קרה.
+   */
+  private async mailInterestReceived(interestId: string): Promise<void> {
+    try {
+      const ctx = TenantContext.current();
+      const interest = await this.prisma.withTenant((tx) =>
+        tx.coopInterest.findFirst({
+          where: { id: interestId, fromTenantId: ctx.tenantId },
+          select: { listingId: true, toTenantId: true, commissionSplit: true },
+        }),
+      );
+      if (!interest) return;
+      /*
+       * הנמען הוא מי שקבע את תנאי הפרסום — `SharedListing.createdBy`,
+       * אותה עמודה שממנה נגזרת גם הבעלות על שינוי התנאים.
+       */
+      const listing = await this.prisma.withExplicitTenant(
+        interest.toTenantId,
+        (tx) =>
+          tx.sharedListing.findFirst({
+            where: { id: interest.listingId, tenantId: interest.toTenantId },
+            select: { createdBy: true, title: true, city: true },
+          }),
+      );
+      const [to, badges] = await Promise.all([
+        collabRecipient(this.prisma, interest.toTenantId, listing?.createdBy ?? null),
+        officeBadges(this.prisma, this.storage, [ctx.tenantId]),
+      ]);
+      const which = listing?.title ?? listing?.city ?? "אחד הנכסים שפרסמתם";
+      await sendCollabMail(this.email, to, {
+        subject: "מחכה לכם קונה על נכס שפרסמתם ברשת",
+        heading: "הגיעה פנייה עם קונה",
+        paragraphs: [
+          `${badges.get(ctx.tenantId)?.name ?? "משרד תיווך אחר"} מציע קונה על ${which}.`,
+          `חלוקת העמלה המוצעת: ${interest.commissionSplit}% לכם, ${100 - interest.commissionSplit}% למשרד שמביא את הקונה.`,
+          "אישור החיבור במסך פותח חדר עסקה משותף לשני המשרדים. פרטי הקונה נשארים אצל המשרד שהביא אותו.",
+        ],
+        button: {
+          label: "לפנייה במסך",
+          url: `${loadEnv().WEB_ORIGIN}/collaboration?tab=incoming`,
+        },
+      });
+    } catch (error: unknown) {
+      this.logger.warn(
+        `מייל על פנייה חדשה (${interestId}) לא נשלח: ${String(error)}`,
+      );
+    }
   }
 
   /** מה שהתקבל עליי — קונים שמשרדים אחרים מציעים על הנכסים שפרסמתי. */

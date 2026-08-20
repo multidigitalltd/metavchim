@@ -20,6 +20,7 @@ import {
 } from "@metavchim/shared";
 import type { Prisma } from "@prisma/client";
 import { TenantContext } from "../../common/tenant-context";
+import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
@@ -1081,6 +1082,10 @@ export class BuyersService {
     tenantId: string,
     buyerId: string,
   ): Promise<void> {
+    // חדרי העסקה שהקונה הזה עומד בבסיסם — לפני הביקושים וההצעות,
+    // כי הם מצביעים על הכרטיס שעומד להימחק
+    await deleteCoopDeals(tx, { buyerId, buyerTenantId: tenantId });
+
     const demands = await tx.sharedDemand.findMany({
       where: { tenantId, originBuyerId: buyerId },
       select: { id: true },

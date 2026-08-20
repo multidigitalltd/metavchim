@@ -45,6 +45,8 @@ import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
+import { collabRecipient, sendCollabMail } from "./collab-mail";
+import { DealRoomService } from "./deal-room.service";
 import { assertNetworkQuota } from "./network-quota";
 import { officeBadges, type OfficeBadge } from "./office-names";
 import {
@@ -426,6 +428,8 @@ export class CollaborationService {
     private readonly email: EmailService,
     // חתימת לוגו המשרד המפרסם לפיד הרשת — ראו `officeBadges`
     private readonly storage: StorageService,
+    // אישור חיבור פותח חדר עסקה משותף — ראו `DealRoomService`
+    private readonly dealRoom: DealRoomService,
   ) {}
 
   private readonly logger = new Logger(CollaborationService.name);
@@ -1386,6 +1390,8 @@ export class CollaborationService {
             presentation,
             creditsCost: cost,
             commissionSplit,
+            // מי הציע — כדי שחדר העסקה יידע למי להרים טלפון
+            createdBy: ctx.userId ?? null,
           },
         })
         .catch((error: unknown) => {
@@ -1578,6 +1584,44 @@ export class CollaborationService {
     });
   }
 
+  /**
+   * עדכון למשרד שהציע נכס — ההצעה נדחתה.
+   *
+   * Best-effort: התגובה כבר נרשמה, וכשל בשליחה נרשם ביומן בלבד.
+   */
+  private async mailOfferDeclined(offerId: string): Promise<void> {
+    try {
+      const tenantId = TenantContext.current().tenantId;
+      const offer = await this.prisma.withTenant((tx) =>
+        tx.coopOffer.findFirst({
+          where: { id: offerId, toTenantId: tenantId },
+          select: { fromTenantId: true, createdBy: true },
+        }),
+      );
+      if (!offer) return;
+      const [to, badges] = await Promise.all([
+        collabRecipient(this.prisma, offer.fromTenantId, offer.createdBy),
+        officeBadges(this.prisma, this.storage, [tenantId]),
+      ]);
+      await sendCollabMail(this.email, to, {
+        subject: "עדכון על הנכס שהצעתם ברשת",
+        heading: "ההצעה נסגרה",
+        paragraphs: [
+          `${badges.get(tenantId)?.name ?? "המשרד שפרסם את הביקוש"} בדק את הנכס שהצעתם והשיב שהוא אינו מתאים לקונה.`,
+          "אין צורך להמתין לתשובה נוספת. אפשר להציע את אותו נכס על ביקושים אחרים בפיד.",
+        ],
+        button: {
+          label: "לרשת שיתופי הפעולה",
+          url: `${loadEnv().WEB_ORIGIN}/collaboration?tab=demands`,
+        },
+      });
+    } catch (error: unknown) {
+      this.logger.warn(
+        `מייל על דחיית הצעה (${offerId}) לא נשלח: ${String(error)}`,
+      );
+    }
+  }
+
   /** הצעות שיתוף — נכנסות (על הביקושים שלי) ויוצאות (ששלחתי). */
   async listCoopOffers(): Promise<CoopOfferDto[]> {
     const tenantId = TenantContext.current().tenantId;
@@ -1611,25 +1655,65 @@ export class CollaborationService {
     }));
   }
 
-  /** תגובת הסוכנות המקבלת להצעת שיתוף — מעוניין/דחייה. */
+  /**
+   * תגובת הסוכנות המקבלת להצעת שיתוף — מעוניין/דחייה.
+   *
+   * „מעוניין” פותח **חדר עסקה משותף** ומחזיר את מזההו. עד כאן הוא
+   * רק שינה סטטוס, ושני המשרדים נשארו מחוברים על הנייר ובלי שום
+   * מקום לעבוד בו — בדיוק מה שהמייל על ההצעה כבר הבטיח שיקרה.
+   */
   async respondToCoopOffer(
     id: string,
     response: "interested" | "declined",
-  ): Promise<void> {
+  ): Promise<{ dealId: string | null }> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {
       const result = await tx.coopOffer.updateMany({
         where: { id, toTenantId: tenantId, status: "sent" },
         data: { status: response },
       });
-      if (result.count === 0)
-        throw new NotFoundException("הצעת שיתוף לא נמצאה");
+      if (result.count === 0) {
+        /*
+         * **אישור חוזר אינו שגיאה — הוא ניסיון תיקון.**
+         *
+         * פתיחת החדר קורית אחרי ה-Commit של הסטטוס, ולכן היה חלון
+         * שבו כשל בפתיחה (תקלת מסד, דייר שנמחק) השאיר הצעה
+         * `interested` בלי חדר — ומצב שאי אפשר לצאת ממנו: כל ניסיון
+         * חוזר נענה ב-404, כי הסינון דרש `sent` (ביקורת Codex).
+         *
+         * לחיצה חוזרת על „מעניין” על הצעה שכבר אושרה ממשיכה עכשיו
+         * לפתיחת החדר, שהיא ממילא אידמפוטנטית (`originId` ייחודי
+         * ומוחזר קיים). כל שאר המצבים — הצעה של משרד אחר, הצעה
+         * שנדחתה, או ניסיון להפוך „נדחה” ל„מעניין” — נשארים 404.
+         */
+        const already = await tx.coopOffer.findFirst({
+          where: { id, toTenantId: tenantId, status: response },
+          select: { id: true },
+        });
+        if (!already) throw new NotFoundException("הצעת שיתוף לא נמצאה");
+        return;
+      }
       await this.audit.record(tx, {
         action: `collaboration.${response}`,
         entityType: "coop_offer",
         entityId: id,
       });
     });
+    /*
+     * פתיחת החדר אחרי ה-Commit ולא בתוכו: היא נוגעת בשני דיירים
+     * (התראה לצד השני) ושולחת מייל, ושתי אלה אינן צריכות להחזיק
+     * פתוחה טרנזקציה שכבר סיימה את עבודתה.
+     */
+    /*
+     * הצד שהציע מקבל עדכון גם בדחייה. מתווך שממתין לתשובה שלא
+     * תגיע מפסיק להציע אחרי פעמיים — „לא מתאים” שנאמר מהר הוא
+     * חלק מהשירות (בקשת המשתמש).
+     */
+    if (response === "declined") {
+      await this.mailOfferDeclined(id);
+      return { dealId: null };
+    }
+    return { dealId: await this.dealRoom.openFromOffer(id) };
   }
 
   /* ============================================================

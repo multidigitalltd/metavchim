@@ -688,6 +688,9 @@ model CoopInterest {
   /// אחוז העמלה שהמשרד **המפרסם** לוקח. נגזר מהפרסום כברירת מחדל,
   /// וניתן להצעה נגדית — כמו בכיוון השני.
   commissionSplit Int      @default(50) @map("commission_split") @db.SmallInt
+  /// הסוכן שהציע — מי לדבר איתו בחדר העסקה שייפתח.
+  /// `null` = פנייה שקדמה לעמודה; החדר נופל לבעל המשרד.
+  createdBy       String?  @map("created_by") @db.Char(26)
   createdAt       DateTime @default(now()) @map("created_at")
 
   @@unique([listingId, buyerId])
@@ -711,12 +714,93 @@ model CoopOffer {
   /// אחוז העמלה שהמשרד **המציע** לוקח. נגזר מהביקוש כברירת מחדל,
   /// וניתן להצעה נגדית — החלוקה היא הצעה עד שהצד השני מסכים.
   commissionSplit Int      @default(50) @map("commission_split") @db.SmallInt
+  /// הסוכן שהציע — מי לדבר איתו בחדר העסקה שייפתח.
+  /// `null` = הצעה שקדמה לעמודה; החדר נופל לבעל המשרד.
+  createdBy       String?  @map("created_by") @db.Char(26)
   createdAt       DateTime @default(now()) @map("created_at")
 
   @@unique([demandId, propertyId])
   @@index([toTenantId, status, createdAt])
   @@index([fromTenantId, createdAt])
   @@map("coop_offers")
+}
+
+// חדר העסקה — סביבת העבודה המשותפת שנפתחת כששני המשרדים הסכימו.
+//
+// עד כאן החיבור נגמר בסטטוס `interested` ושני המשרדים נשארו בלי דרך
+// לעבוד יחד: לא ידעו מי הסוכן שמולם, לא היה איפה לתאם סיור, ומי
+// שהמשיך עשה זאת בוואטסאפ — מחוץ למערכת ובלי שהמשרד יודע מה קרה עם
+// הנכס שלו. החדר הוא מה שהמייל על הצעת נכס כבר הבטיח במפורש
+// ("אישור החיבור במסך פותח את הקשר בין שני המשרדים").
+//
+// **מה נחשף כאן ומה לא:** הסוכנים משני הצדדים — שם, טלפון ואימייל —
+// והכתובת המדויקת של הנכס לצד שמביא את הקונה. פרטי הלקוחות נשארים
+// אצל המשרד שהביא אותם, גם אחרי החיבור: זה בדיוק מה ששיתוף פעולה
+// בין מתווכים הוא, ומשרד שמקבל את הקונה של עמיתו כבר אינו שותף אלא
+// מחליף.
+//
+// RLS דו-צדדי כמו coop_offers/coop_interests, ומאותה סיבה.
+model CoopDeal {
+  id              String   @id @db.Char(26)
+  /// מאיזה חיבור נולד החדר — `offer` (הצעת נכס לביקוש) או
+  /// `interest` (הצעת קונה לנכס). המזהה ייחודי: לחיצה שנייה על
+  /// "מעניין" מחזירה את החדר הקיים ולא פותחת שני חדרים לאותה עסקה.
+  originType      String   @map("origin_type") @db.VarChar(10)
+  originId        String   @unique @map("origin_id") @db.Char(26)
+  /// המשרד שהנכס שלו. `propertyId` חי אצלו ולא אצל הצד השני.
+  listingTenantId String   @map("listing_tenant_id") @db.Char(26)
+  /// המשרד שהקונה שלו. `buyerId` חי אצלו.
+  buyerTenantId   String   @map("buyer_tenant_id") @db.Char(26)
+  propertyId      String   @map("property_id") @db.Char(26)
+  buyerId         String   @map("buyer_id") @db.Char(26)
+  /// הסוכנים בפועל — מי לדבר איתו. `null` כשהכרטיס בצד ההוא אינו
+  /// משויך לסוכן; אז המסך נופל לבעל המשרד, כמו במיילים של הרשת.
+  listingUserId   String?  @map("listing_user_id") @db.Char(26)
+  buyerUserId     String?  @map("buyer_user_id") @db.Char(26)
+  /// אחוז העמלה של **צד הנכס**, מצולם ברגע ההסכמה. אותו כיוון כמו
+  /// בפרסום ובהצעה, ולא נגזר מחדש: תנאים שהשתנו בפרסום אחרי
+  /// שהעסקה כבר רצה אינם משנים עסקה שרצה.
+  commissionSplit Int      @map("commission_split") @db.SmallInt
+  /// שלב העסקה — ראו COOP_DEAL_STAGES ב-packages/shared.
+  stage           String   @default("contact") @db.VarChar(20)
+  /// למה נסגרה, כשנסגרה. חופשי, ונכתב בידי הצד שסגר.
+  closedNote      String?  @map("closed_note") @db.VarChar(200)
+  closedAt        DateTime? @map("closed_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([listingTenantId, stage, updatedAt])
+  @@index([buyerTenantId, stage, updatedAt])
+  @@map("coop_deals")
+}
+
+// שרשור החדר: מה שנכתב ומה שקרה, ברצף אחד.
+//
+// טבלה אחת לשני הסוגים ולא שתיים — הסיפור של העסקה כרונולוגי, ושתי
+// רשימות שצריך למזג בעין הן בדיוק מה שמייצר את השאלה "מתי עברנו
+// למו"מ?". Append-only: אין פוליסת UPDATE, ומשרד אינו יכול לשכתב
+// למפרע מה נאמר בחדר שהצד השני קרא.
+model CoopDealMessage {
+  id        String   @id @db.Char(26)
+  dealId    String   @map("deal_id") @db.Char(26)
+  /// **המשרד שכתב — לא מפתח בידוד.**
+  ///
+  /// העמודה נקראת `author_tenant_id` ולא `tenant_id` בכוונה: בכל
+  /// שאר המערכת `tenant_id` פירושו "השורה שייכת לדייר הזה בלבד",
+  /// וכאן ההפך הוא הנכון — שני המשרדים אמורים לראות את מה שהשני
+  /// כתב. השם הישן היה גורר את הטבלה לסוויטת ה-Cross-Tenant
+  /// כטבלה מבודדת, ושם היא הייתה נראית כדליפה בעודה מתפקדת נכון.
+  ///
+  /// הבידוד עצמו נגזר מהחדר (`EXISTS` על `coop_deals`), ולא מכאן.
+  authorTenantId String @map("author_tenant_id") @db.Char(26)
+  userId    String?  @map("user_id") @db.Char(26)
+  /// `message` = מישהו כתב; `event` = משהו קרה (מעבר שלב, פתיחה).
+  kind      String   @default("message") @db.VarChar(20)
+  body      String   @db.VarChar(2000)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([dealId, createdAt])
+  @@map("coop_deal_messages")
 }
 
 // הפניית לקוח בין משרדים: בלוח רק מידע אנונימי (כוונה, מקור, עיר,
