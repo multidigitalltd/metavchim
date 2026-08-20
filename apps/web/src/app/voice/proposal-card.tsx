@@ -327,12 +327,23 @@ function coerce(field: ProposalField, raw: string): unknown {
 const LIST_KEYS = new Set(["cities", "neighborhoods", "mustFeatures"]);
 
 /**
+ * מפתחות מספריים — **לפי שם המפתח, לא לפי צורת הקלט.**
+ *
+ * המרה לפי צורה הפכה טלפון שהוקלד ("0501234567") למספר: האפס
+ * המוביל נפל, והשרת — שקורא טלפון כמחרוזת — דחה את הערך ודיווח
+ * שהטלפון עדיין חסר (ביקורת Codex). רק מפתח שידוע כמספרי מומר;
+ * טלפון, שם ועיר נשארים מחרוזת גם כשהם ספרות בלבד.
+ */
+const NUMERIC_KEY =
+  /Shekels$|^rooms(?:Min|Max)?$|^areaSqm(?:Min)?$|^floor$|^totalFloors$|^commissionSplit$/u;
+
+/**
  * השלמה ידנית של שדה חסר ⟵ הטיפוס שהשרת מצפה לו.
  *
  * אין כאן `field.value` ללמוד ממנו את הטיפוס — השדה לא זוהה בכלל.
- * ההיסק לפי הצורה: מספר נקי הוא number ("2,300,000" כולל פסיקי
- * אלפים), מפתח רשימה מתפרק בפסיקים, וכל השאר מחרוזת. ריק אינו
- * נשלח — שדה שלא הושלם נשאר חסר, בדיוק כמו קודם.
+ * ההכרעה לפי שם המפתח: מפתח רשימה מתפרק בפסיקים, מפתח מספרי מומר
+ * ל-number ("2,300,000" כולל פסיקי אלפים), וכל השאר מחרוזת. ריק
+ * אינו נשלח — שדה שלא הושלם נשאר חסר, בדיוק כמו קודם.
  */
 function looseValue(key: string, raw: string): unknown {
   const trimmed = raw.trim();
@@ -341,9 +352,9 @@ function looseValue(key: string, raw: string): unknown {
     const items = trimmed.split(",").map((item) => item.trim()).filter((item) => item !== "");
     return items.length > 0 ? items : undefined;
   }
-  if (/^[\d.,]+$/u.test(trimmed)) {
-    const parsed = Number(trimmed.replace(/,/gu, ""));
-    if (Number.isFinite(parsed)) return parsed;
+  if (NUMERIC_KEY.test(key)) {
+    const parsed = Number(trimmed.replace(/[^\d.-]/gu, ""));
+    return Number.isFinite(parsed) ? parsed : undefined;
   }
   return trimmed;
 }

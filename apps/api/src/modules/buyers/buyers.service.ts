@@ -709,8 +709,24 @@ export class BuyersService {
       if (budget.max !== undefined) {
         conditions.push({ budgetMaxAgorot: { lte: budget.max } });
       }
+      /*
+       * "מעל X" מתקיים גם אצל קונה שהצהיר רק על מינימום: מינימום
+       * מוצהר של 3.5 מיליון מוכיח שהתקציב מגיע מעל 3 — אין צורך
+       * בתקרה כדי לדעת זאת (ביקורת Codex). התקרה נבדקת כשהיא
+       * קיימת; בהיעדרה המינימום המוצהר מכריע.
+       */
       if (budget.min !== undefined) {
-        conditions.push({ budgetMaxAgorot: { gte: budget.min } });
+        conditions.push({
+          OR: [
+            { budgetMaxAgorot: { gte: budget.min } },
+            {
+              AND: [
+                { budgetMaxAgorot: null },
+                { budgetMinAgorot: { gte: budget.min } },
+              ],
+            },
+          ],
+        });
       }
     } else {
       if (budget.max !== undefined) {
