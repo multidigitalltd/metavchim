@@ -140,11 +140,21 @@ export default function NewBuyerPage() {
           title="מה הוא מחפש"
           hint="זה מה שמנוע ההתאמות עובד לפיו. ככל שיהיה כאן יותר, כך יוצגו פחות נכסים לא רלוונטיים."
         >
+          <div className="mb-4">
+            <label htmlFor="cities" className="mb-1 block font-medium">ערים * <span className="font-normal">(מופרדות בפסיק)</span></label>
+            <input id="cities" name="cities" required placeholder="בני ברק, פתח תקווה" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+          </div>
+
+          {/*
+            המפה מיד אחרי העיר (בקשת המשתמש): "איפה" הוא שאלה אחת —
+            עיר ואזור מדויק נענים ברצף, לא בשני קצוות של הטופס.
+          */}
+          <div className="mb-4">
+            <p className="m-0 mb-1 font-medium">אזור חיפוש על המפה</p>
+            <SearchAreas value={areas} onChange={setAreas} disabled={submitting} />
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label htmlFor="cities" className="mb-1 block font-medium">ערים * <span className="font-normal">(מופרדות בפסיק)</span></label>
-              <input id="cities" name="cities" required placeholder="בני ברק, פתח תקווה" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
-            </div>
             <div>
               <label htmlFor="dealType" className="mb-1 block font-medium">סוג עסקה *</label>
               <select id="dealType" name="dealType" required className="w-full rounded-lg border px-3 py-2.5" style={inputStyle}>
@@ -176,12 +186,6 @@ export default function NewBuyerPage() {
               כל קונה חדש נבנה על נתון חסר.
             */}
             <EntryTimingField side="buyer" inputStyle={inputStyle} />
-          </div>
-
-          {/* המפה פתוחה מיד, כמו במסך העריכה — שדה שמתגלים אליו לא ממלאים */}
-          <div className="mt-4">
-            <p className="m-0 mb-1 font-medium">אזור חיפוש על המפה</p>
-            <SearchAreas value={areas} onChange={setAreas} disabled={submitting} />
           </div>
 
           <FeatureRequirements builtin={FEATURES} />
