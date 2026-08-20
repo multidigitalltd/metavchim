@@ -298,6 +298,39 @@ export interface TelephonyEvent {
    */
   dialedNumber?: string;
   durationSeconds?: number;
+  /**
+   * שם המתקשר כפי שהמרכזייה מציגה אותו.
+   *
+   * 015 שולח `callername` בכל אירוע. עד כה הוא נבלע, ולכן ליד
+   * שנפתח משיחה ממספר לא מוכר קיבל את **מספר הטלפון כשם** — כרטיס
+   * שאי אפשר לחפש לפיו. כשיש שם אמיתי הוא עדיף.
+   *
+   * זהו פרט מזהה של אדם ולכן הוא מוצפן בשמירה, כמו כל שם.
+   */
+  callerName?: string;
+  /**
+   * מועד תחילת השיחה כפי שהמרכזייה מדווחת — **לא** מועד הוובהוק.
+   *
+   * 015 שולח שלושה אירועים לכל שיחה (`Calling` ⟵ `Answer` ⟵
+   * `Hangup`) שמתפרסים על פני עשרות שניות, ובנוסף שולח שוב בניסיון
+   * חוזר. `new Date()` היה רושם את מועד ה**הודעה האחרונה שהתקבלה**,
+   * כלומר שיחה שקרתה ב-8:46:16 נרשמה ב-8:46:59 — ובניסיון חוזר
+   * שעה אחר כך, בשעה אחרת לגמרי.
+   */
+  startedAt?: Date;
+  /**
+   * נתיב ההקלטה **אצל הספק** — לא מפתח באחסון שלנו.
+   *
+   * הערך מ-015 נראה כך:
+   * `54936/12048/2026/08/20/record_17872047751258756_23747`
+   *
+   * הוא **אינו** נשמר ב-`recordingKey`, שהוא מפתח S3 שלנו. ההפרדה
+   * אינה סגנונית: מסלולי מחיקת המידע סורקים את `recordingKey`
+   * ומוחקים את האובייקטים המתאימים מה-S3. נתיב של ספק חיצוני שם
+   * היה גורם למחיקה „להצליח” על אובייקט שאינו קיים — כלומר המערכת
+   * הייתה מדווחת שההקלטה נמחקה בזמן שהאודיו עדיין יושב אצל 015.
+   */
+  providerRecordingPath?: string;
 }
 
 /**
@@ -393,6 +426,10 @@ const STATUS_KEYS = ["status", "event", "state", "call_status"] as const;
  */
 const DURATION_KEYS = ["duration", "billsec", "seconds", "talktime", "totaltime"] as const;
 const EXTENSION_KEYS = ["extension", "ext", "agent"] as const;
+const CALLER_NAME_KEYS = ["callername", "caller_name", "callerName", "name"] as const;
+/** ‎`start` של 015 הוא epoch בשניות; השאר הם שמות מקובלים אחרים. */
+const START_KEYS = ["start", "start_time", "starttime", "timestamp"] as const;
+const RECORDING_KEYS = ["recording", "record", "recording_url", "recordingfile"] as const;
 
 /**
  * כל שם שדה שהמערכת יודעת לצרוך — האיחוד של כל הרשימות.
@@ -409,6 +446,9 @@ const KNOWN_KEYS = new Set<string>([
   ...STATUS_KEYS,
   ...DURATION_KEYS,
   ...EXTENSION_KEYS,
+  ...CALLER_NAME_KEYS,
+  ...START_KEYS,
+  ...RECORDING_KEYS,
 ]);
 
 /**
@@ -613,7 +653,50 @@ export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEven
      */
     dialedNumber: dialedNumberOf(ownRaw),
     durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : undefined,
+    callerName: callerNameOf(pick(...CALLER_NAME_KEYS)),
+    startedAt: startedAtOf(pick(...START_KEYS)),
+    providerRecordingPath: recordingPathOf(pick(...RECORDING_KEYS)),
   };
+}
+
+/**
+ * שם המתקשר, או `undefined` כשאין בו מידע.
+ *
+ * מרכזיות שולחות את **המספר** בשדה השם כשאין להן שם, וגם מחרוזות
+ * שמסמנות חוסר. שמירתן הייתה מייצרת בדיוק את הכרטיס שאי אפשר
+ * לחפש שהשדה הזה בא לפתור.
+ */
+function callerNameOf(raw: string): string | undefined {
+  const name = raw.trim();
+  if (name === "") return undefined;
+  if (/^[+\d\s()-]+$/u.test(name)) return undefined; // מספר, לא שם
+  if (/^(unknown|anonymous|private|restricted|לא ידוע|חסוי)$/iu.test(name)) return undefined;
+  return name.slice(0, 120);
+}
+
+/**
+ * ‎epoch בשניות ⟵ תאריך. `undefined` על כל ערך שאינו מועד סביר.
+ *
+ * הסבירות נבדקת ולא רק הפריקות: ‎`Number("0")`‎ הוא מספר תקין
+ * לחלוטין שמתורגם ל-1970, ושמירתו הייתה מציגה שיחה שקרתה לפני
+ * חמישים שנה במקום ליפול חזרה לשעת הקליטה. מיליסקנדות מזוהות
+ * לפי סדר הגודל — יש מרכזיות ששולחות כך.
+ */
+function startedAtOf(raw: string): Date | undefined {
+  if (raw === "") return undefined;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return undefined;
+  const ms = value > 1e11 ? value : value * 1000;
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) return undefined;
+  const year = date.getUTCFullYear();
+  return year >= 2020 && year <= 2100 ? date : undefined;
+}
+
+/** נתיב ההקלטה אצל הספק, מקוצץ לאורך שהעמודה מחזיקה. */
+function recordingPathOf(raw: string): string | undefined {
+  const path = raw.trim();
+  return path === "" ? undefined : path.slice(0, 300);
 }
 
 /** המספר שלנו בצורתו המנורמלת, או `undefined` כשאינו מספר טלפון. */
@@ -842,3 +925,117 @@ const DIAL_ERRORS: Record<string, string> = {
   "402": "למשתמש ב-015 אין הרשאה לחייג",
   "403": "חבילת ה-015 אינה מאפשרת את החיוג הזה",
 };
+
+/* ==================== משיכת הקלטות — 015 ==================== */
+
+/**
+ * ‎`recording/recordings/get` של 015 — משיכת קובץ ההקלטה.
+ *
+ * ## למה בכלל מושכים ולא רק שומרים מצביע
+ *
+ * שתי סיבות, ושתיהן אינן נוחות. **תמלול** — צינור התמלול שלנו קורא
+ * קובץ מהאחסון שלנו, ובלי האודיו אין מה לתמלל. **ראיה** — הקלטה
+ * שיושבת אצל הספק תלויה בשימור שלו, במנוי פעיל ובמדיניות מחיקה
+ * שאיננו שולטים בה; מתווך שצריך להוכיח מה נאמר בשיחה לא יכול לגלות
+ * בדיעבד שהיא נמחקה.
+ *
+ * ## פענוח הנתיב מהוובהוק
+ *
+ * ה-Webhook שולח `recording` כנתיב:
+ * `54936/12048/2026/08/20/record_17872047751258756_23747`
+ *
+ * ה-API מבקש שלושה פרמטרים נפרדים, ושניים מהם יושבים בנתיב:
+ * הקטע הראשון הוא `recordgroup`, והמספר שאחרי הקו התחתון האחרון
+ * הוא `recordid`.
+ *
+ * **`uniqueid` נלקח מהשדה שלו ולא מהנתיב.** בשם הקובץ הוא מופיע
+ * כ-`17872047751258756` — הספרות של `1787204775.1258756` בלי הנקודה
+ * — ואי אפשר לדעת לאן הנקודה חוזרת. הוובהוק שולח את `uniqueid`
+ * במפורש, וזו התשובה ולא ניחוש.
+ */
+export const PBX015_RECORDING_URL =
+  "https://www.015pbx.net/api/json/recording/recordings/get/";
+
+/** שני המזהים שיושבים בנתיב ההקלטה, או null כשהצורה אינה מוכרת. */
+export function split015RecordingPath(
+  path: string,
+): { recordGroup: string; recordId: string } | null {
+  const segments = path.split("/").filter((part) => part !== "");
+  if (segments.length < 2) return null;
+  const recordGroup = segments[0]!;
+  const file = segments[segments.length - 1]!;
+  const recordId = file.slice(file.lastIndexOf("_") + 1);
+  if (!/^\d+$/u.test(recordGroup) || recordId === "" || !/^\d+$/u.test(recordId)) return null;
+  return { recordGroup, recordId };
+}
+
+export function build015RecordingUrl(input: {
+  authUsername: string;
+  authPassword: string;
+  recordGroup: string;
+  /** מזהה השיחה **כפי שהוובהוק שלח** — לא כפי שהוא מופיע בשם הקובץ. */
+  uniqueId: string;
+  recordId: string;
+}): string {
+  /*
+   * ‎`&`‎ ולא ‎`;`‎ שבתיעוד: אותו API מקבל את `calls/make` שלנו עם
+   * ‎`&`‎ ועובד בפרודקשן. עקביות עם מה שנבדק עדיפה על נאמנות לדוגמה
+   * בתיעוד.
+   */
+  const query = ([
+    ["auth_username", input.authUsername],
+    ["auth_password", input.authPassword],
+    ["recordgroup", input.recordGroup],
+    ["uniqueid", input.uniqueId],
+    ["recordid", input.recordId],
+  ] as [string, string][])
+    .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+    .join("&");
+  return `${PBX015_RECORDING_URL}?${query}`;
+}
+
+/** גבול גודל לקובץ הקלטה — הגנה מפני תשובה חריגה, לא מדיניות. */
+export const MAX_RECORDING_BYTES = 40 * 1024 * 1024;
+
+/**
+ * התשובה של 015 ⟵ בתים.
+ *
+ * הקובץ מגיע base64 **בתוך ה-JSON**, ולכן אין כאן הורדה בזרימה: כל
+ * הקובץ נמצא בזיכרון ממילא. `MAX_RECORDING_BYTES` הוא הגבול שמונע
+ * מתשובה חריגה להפיל את התהליך.
+ *
+ * שם השדה אינו מובטח בתיעוד, ולכן נבדקים כמה שמות מקובלים — עם
+ * אותו היגיון של `parseTelephonyEvent`: לחפש בשמות המקובלים במקום
+ * לקבע אחד ולהישבר בשקט.
+ */
+export function parse015RecordingResponse(
+  body: unknown,
+): { base64: string; contentType: string } | null {
+  const root = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  const data =
+    typeof root["data"] === "object" && root["data"] !== null
+      ? (root["data"] as Record<string, unknown>)
+      : root;
+  for (const key of ["sound", "soundfile", "sound_file", "file", "recording", "data"]) {
+    const value = data[key];
+    if (typeof value === "string" && value.length > 0) {
+      return { base64: value, contentType: contentTypeOf(data) };
+    }
+  }
+  return null;
+}
+
+/**
+ * סוג הקובץ לפי מה שהספק אמר, וברירת מחדל ל-WAV.
+ *
+ * מרכזיות מקליטות ב-WAV כברירת מחדל, ו-`audio/wav` הוא הניחוש
+ * הבטוח: דפדפן שמקבל סוג שגוי פשוט לא מנגן, בלי שגיאה שאפשר לפעול
+ * לפיה.
+ */
+function contentTypeOf(data: Record<string, unknown>): string {
+  const format = String(data["format"] ?? data["filetype"] ?? "").toLowerCase();
+  if (format.includes("mp3")) return "audio/mpeg";
+  if (format.includes("ogg")) return "audio/ogg";
+  if (format.includes("gsm")) return "audio/gsm";
+  return "audio/wav";
+}

@@ -1,5 +1,7 @@
+import type { Readable } from "node:stream";
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
+import { assertContactAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -31,6 +33,16 @@ export interface CallDto {
   /** pending | running | done | failed | unavailable — null = לא הועלתה הקלטה. */
   transcriptionStatus?: string;
   transcript?: string;
+  /**
+   * יש קובץ להשמעה.
+   *
+   * שדה נפרד מ-`transcriptionStatus` ולא נגזר ממנו: שירות תמלול
+   * כבוי משאיר את הסטטוס `unavailable` על הקלטה שקיימת לגמרי,
+   * והשמעה אינה תלויה בתמלול. גזירה מהסטטוס הייתה מסתירה את הנגן
+   * בדיוק מהמשרדים שאין להם תמלול — כלומר מי שההקלטה היא כל מה
+   * שיש לו.
+   */
+  hasRecording: boolean;
   createdAt: Date;
 }
 
@@ -181,6 +193,69 @@ export class CallsService {
     return { status: available ? "pending" : "unavailable" };
   }
 
+  /**
+   * ההקלטה להשמעה — הזרמה דרך ה-API ולא קישור לאחסון.
+   *
+   * MinIO יושב ברשת פנימית בלי כתובת ציבורית, וכתובת חתומה הייתה
+   * הופכת הקלטה של לקוח לקישור שאפשר להעביר הלאה. כאן כל בקשה
+   * עוברת את אותו שער של שאר המערכת.
+   *
+   * ## למה RLS לבדו אינו מספיק כאן
+   *
+   * ‎`FORCE ROW LEVEL SECURITY`‎ מבודד **משרד ממשרד**, לא סוכן
+   * מסוכן. שליפה לפי `{ id, tenantId }` בלבד הייתה מאפשרת לסוכן עם
+   * `leads.view_own` להשמיע את שיחת הלקוח של סוכן אחר — ידיעת מזהה
+   * אינה הרשאה, וזה בדיוק ה-IDOR הפנימי ש-`ownership.ts` נבנה נגדו
+   * (ביקורת Codex).
+   *
+   * הבעלות נגזרת מאיש הקשר, כמו בכל שאר הישויות שאין להן בעלים
+   * משלהן: `assertContactAccess` בודק אם הלקוח מופיע ככרטיס קונה,
+   * כליד או כבעל נכס שהמשתמש רשאי לראות. שיחה שנרשמה ידנית בלי
+   * איש קשר שייכת למי שרשם אותה.
+   *
+   * ## למה 404 ולמה בסדר הזה
+   *
+   * בדיקת הבעלות קודמת לבדיקת קיום ההקלטה, ושתיהן מחזירות 404
+   * זהה. אחרת ההבדל בין „אין הקלטה” לבין „לא שלך” היה מסגיר לסוכן
+   * אילו משיחות העמיתים שלו מוקלטות.
+   */
+  async recording(
+    id: string,
+  ): Promise<{ body: Readable; contentType: string; contentLength?: number }> {
+    const key = await this.prisma.withTenant(async (tx) => {
+      const { tenantId, userId, capabilities } = TenantContext.current();
+      const row = await tx.call.findFirst({
+        where: { id, tenantId },
+        select: { recordingKey: true, contactId: true, createdBy: true },
+      });
+      if (!row) throw new NotFoundException("שיחה לא נמצאה");
+
+      if (row.contactId !== null) {
+        // ההודעה מאוחדת: „איש קשר לא נמצא” על בקשת הקלטה היה מסגיר
+        // שהשיחה קיימת ורק הלקוח שבה אינו שלי
+        await assertContactAccess(tx, tenantId, row.contactId).catch(() => {
+          throw new NotFoundException("שיחה לא נמצאה");
+        });
+      } else if (!capabilities.has("leads.view_all") && row.createdBy !== userId) {
+        throw new NotFoundException("שיחה לא נמצאה");
+      }
+
+      /*
+       * שיחה בלי הקלטה אינה שגיאת שרת אלא מצב רגיל — רוב השיחות
+       * אינן מוקלטות, והמסך צריך לדעת להבדיל בין "אין" ל"נכשל".
+       */
+      if (!row.recordingKey) throw new NotFoundException("לשיחה אין הקלטה");
+      return row.recordingKey;
+    });
+
+    const object = await this.storage.getObject(key);
+    return {
+      body: object.body as Readable,
+      contentType: object.contentType ?? "audio/wav",
+      ...(object.contentLength === undefined ? {} : { contentLength: object.contentLength }),
+    };
+  }
+
   private async toDto(
     tx: TenantTx,
     row: {
@@ -196,6 +271,7 @@ export class CallsService {
       summary: string | null;
       transcriptionStatus?: string | null;
       transcript?: string | null;
+      recordingKey?: string | null;
       createdAt: Date;
     },
     /**
@@ -222,6 +298,7 @@ export class CallsService {
           ? { phone: this.crypto.decrypt(row.phoneEncrypted) }
           : {}),
       occurredAt: row.occurredAt,
+      hasRecording: (row.recordingKey ?? null) !== null,
       ...(row.durationMinutes !== null ? { durationMinutes: row.durationMinutes } : {}),
       outcome: row.outcome,
       ...(row.summary ? { summary: row.summary } : {}),

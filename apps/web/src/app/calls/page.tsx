@@ -34,6 +34,8 @@ interface CallRow {
   /** pending | running | done | failed | unavailable — חסר = לא הועלתה הקלטה. */
   transcriptionStatus?: string;
   transcript?: string;
+  /** יש קובץ להשמעה — לא נגזר מסטטוס התמלול, ראו ה-DTO בשרת. */
+  hasRecording?: boolean;
 }
 
 const OUTCOME_LABELS: Record<string, string> = {
@@ -476,16 +478,40 @@ function CallRecording({ call, onChanged }: { call: CallRow; onChanged: () => vo
   const status = call.transcriptionStatus;
 
   /*
-   * בלי הפיצ'ר אין טעם בסעיף כולו: ההעלאה נחסמת בשרת, והתמלול —
-   * שהוא כל מטרת ההקלטה — לא ירוץ ממילא.
+   * בלי הפיצ'ר **ובלי הקלטה** אין טעם בסעיף. הקלטה שכבר נמשכה
+   * מהמרכזייה נשמעת גם כשהתמלול כבוי — היא הראיה למה שנאמר, וזה
+   * ערך בפני עצמו שאינו תלוי בתמלול.
    */
-  if (!canTranscribe && status === undefined) return null;
+  if (!canTranscribe && status === undefined && call.hasRecording !== true) return null;
 
   return (
     <div className="mt-4">
       <p className="mb-2 mt-0 text-[14.5px] font-extrabold" style={{ color: "var(--color-text-muted)" }}>
         הקלטת השיחה
       </p>
+
+      {/*
+        הנגן ראשון, לפני מצב התמלול: מי שפותח את הסעיף רוצה בדרך
+        כלל לשמוע, לא לקרוא סטטוס.
+
+        ‎`preload="none"`‎ — רשימה של עשרים שיחות לא תמשוך עשרים
+        קבצי אודיו בטעינת המסך; המשיכה מתחילה בלחיצה על נגן.
+
+        בלי `crossOrigin`, בדיוק כמו הלוגו של המשרד: ה-API יושב
+        בתת-דומיין של אותו אתר, ולכן העוגייה נשלחת תחת `SameSite=Lax`.
+        ‎`use-credentials`‎ היה מוסיף דרישת CORS מלאה על בקשת מדיה
+        שכבר עובדת.
+      */}
+      {call.hasRecording === true ? (
+        <audio
+          controls
+          preload="none"
+          className="mb-2 w-full"
+          src={`${API_BASE}/calls/${call.id}/recording`}
+        >
+          הדפדפן שלכם אינו תומך בהשמעת אודיו.
+        </audio>
+      ) : null}
 
       {status === undefined ? (
         <label className="mv-btn-plain inline-block cursor-pointer">

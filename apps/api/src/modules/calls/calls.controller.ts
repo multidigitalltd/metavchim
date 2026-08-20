@@ -8,9 +8,12 @@ import {
   Param,
   Post,
   Query,
+  Res,
+  StreamableFile,
   UploadedFile,
   UseInterceptors,
 } from "@nestjs/common";
+import type { Response } from "express";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { z } from "zod";
 import { IdSchema } from "@metavchim/shared";
@@ -83,6 +86,33 @@ export class CallsController {
   ): Promise<{ status: string }> {
     if (!file) throw new BadRequestException("לא צורף קובץ");
     return this.calls.attachRecording(id, { buffer: file.buffer, mimetype: file.mimetype });
+  }
+
+  /**
+   * השמעת ההקלטה בכרטיס הלקוח.
+   *
+   * `leads.view_own` ולא `leads.edit`: האזנה היא צפייה, ומי שרואה
+   * את השיחה אמור לשמוע אותה. הסינון לפי בעלות נאכף ב-RLS כמו בכל
+   * שאר הנתיבים.
+   *
+   * ‎`private, no-store`‎ — הקלטה של לקוח אינה נשמרת ב-cache של
+   * הדפדפן ואינה עוברת דרך proxy משותף.
+   */
+  @Get(":id/recording")
+  @RequireCapability("leads.view_own")
+  async recording(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const audio = await this.calls.recording(id);
+    res.set({
+      "Content-Type": audio.contentType,
+      "Cache-Control": "private, no-store",
+      ...(audio.contentLength === undefined
+        ? {}
+        : { "Content-Length": String(audio.contentLength) }),
+    });
+    return new StreamableFile(audio.body);
   }
 
   @Delete(":id")
