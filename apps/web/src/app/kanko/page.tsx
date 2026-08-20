@@ -1,7 +1,7 @@
 "use client";
 
 import { useRequireAuth } from "@/lib/use-auth";
-import { IconSparkle, IconUsers } from "../icons";
+import { IconSparkle } from "../icons";
 
 /**
  * קונים - Kanko — עמוד "בקרוב" עד ההשקה.
@@ -29,19 +29,8 @@ export default function KankoComingSoonPage() {
         }}
         aria-labelledby="kanko-heading"
       >
-        <span
-          className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl"
-          style={{
-            background: "var(--color-primary)",
-            color: "#fff",
-            boxShadow:
-              "0 6px 16px color-mix(in srgb, var(--color-primary) 35%, transparent)",
-          }}
-          aria-hidden="true"
-        >
-          <IconUsers s={28} />
-        </span>
-        <h1 id="kanko-heading" className="m-0 text-2xl font-extrabold">
+        {/* בלי אייקון מעל הלוגו (בקשת המשתמש) — הלוגו הוא המותג */}
+        <h1 id="kanko-heading" className="m-0 mt-2 text-2xl font-extrabold">
           <span className="mv-visually-hidden">קונים - Kanko</span>
           {/*
             קובץ הלוגו הרשמי שמסר המשתמש — לא שחזור. `alt` ריק
@@ -54,10 +43,11 @@ export default function KankoComingSoonPage() {
             aria-hidden="true"
             // marginInline auto — ה-reset הופך img ל-block, ובלי זה
             // הלוגו נצמד לימין במקום להתמרכז בכרטיס
-            style={{ height: 44, width: "auto", maxWidth: "100%", marginInline: "auto" }}
+            style={{ height: 56, width: "auto", maxWidth: "100%", marginInline: "auto" }}
           />
         </h1>
-        <p className="m-0 mt-3 text-[16px]" style={{ color: "var(--color-text-soft)" }}>
+        {/* גדול ומודגש, בצבע הטקסט המלא — זה המסר של העמוד, לא הערת שוליים */}
+        <p className="m-0 mt-4 text-[19px] font-bold leading-relaxed">
           פה תוכלו להציע נכסים לקונים מפולחים שמחכים להצעות — בלחיצת
           כפתור ובלי צורך בשיחה.
         </p>
