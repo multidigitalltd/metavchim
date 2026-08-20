@@ -6,9 +6,22 @@ export const IS_PUBLIC_KEY = "isPublic";
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 
 export const CAPABILITY_KEY = "requiredCapability";
-/** הצהרת היכולת הנדרשת — נאכפת ב-CapabilityGuard על כל Handler לא-ציבורי. */
-export const RequireCapability = (capability: Capability) =>
-  SetMetadata(CAPABILITY_KEY, capability);
+/**
+ * הצהרת היכולת הנדרשת — נאכפת ב-AuthGuard על כל Handler לא-ציבורי.
+ *
+ * אפשר להצהיר על **כמה יכולות, ואז מספיקה אחת מהן**. זה נדרש למסך
+ * אחד שנכנסים אליו משני כיוונים: חדר העסקה נפתח גם למי שפרסם נכס
+ * (`collaboration.share`) וגם למי שהציע עליו (`collaboration.offer`),
+ * ושתי היכולות ניתנות בנפרד. יכולת שלישית ייעודית הייתה כבויה
+ * בברירת המחדל אצל כל משרד קיים — כלומר החדר היה נסגר בפני כולם
+ * ביום שהוא נולד.
+ *
+ * זו הקלה בהיקף ולא בעיקרון: כל נתיב עדיין מצהיר במפורש מי רשאי
+ * להגיע אליו, ובדיקת auth-coverage ממשיכה לאכוף שההצהרה קיימת.
+ */
+export const RequireCapability = (
+  ...capabilities: readonly [Capability, ...Capability[]]
+) => SetMetadata(CAPABILITY_KEY, capabilities);
 
 export const ANY_AUTHENTICATED_KEY = "anyAuthenticated";
 /**

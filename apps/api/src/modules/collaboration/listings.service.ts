@@ -21,6 +21,7 @@ import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { StorageService } from "../../core/storage.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { DealRoomService } from "./deal-room.service";
 import { assertNetworkQuota } from "./network-quota";
 import { officeBadges, type OfficeBadge } from "./office-names";
 import {
@@ -134,6 +135,8 @@ export class ListingsService {
     private readonly contacts: ContactsService,
     private readonly plans: PlanCatalogService,
     private readonly storage: StorageService,
+    // אישור פנייה פותח חדר עסקה משותף — ראו `DealRoomService`
+    private readonly dealRoom: DealRoomService,
   ) {}
 
   /**
@@ -835,6 +838,8 @@ export class ListingsService {
           buyerId,
           presentation,
           commissionSplit,
+          // מי הציע — כדי שחדר העסקה יידע למי להרים טלפון
+          createdBy: ctx.userId ?? null,
         },
       });
       await this.audit.record(tx, {
@@ -846,10 +851,15 @@ export class ListingsService {
     });
   }
 
+  /**
+   * תגובה לפניית קונה. „מעוניין” פותח חדר עסקה משותף ומחזיר את
+   * מזההו — התמונה המשלימה ל-`respondToCoopOffer`, ומאותה סיבה:
+   * חיבור בלי מקום לעבוד בו הוא חיבור שממשיך בוואטסאפ.
+   */
   async respondToInterest(
     id: string,
     response: "interested" | "declined",
-  ): Promise<void> {
+  ): Promise<{ dealId: string | null }> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {
       const result = await tx.coopInterest.updateMany({
@@ -863,6 +873,9 @@ export class ListingsService {
         entityId: id,
       });
     });
+    // אחרי ה-Commit: פתיחת החדר נוגעת בשני דיירים ושולחת מייל
+    if (response !== "interested") return { dealId: null };
+    return { dealId: await this.dealRoom.openFromInterest(id) };
   }
 
   /** מה שהתקבל עליי — קונים שמשרדים אחרים מציעים על הנכסים שפרסמתי. */

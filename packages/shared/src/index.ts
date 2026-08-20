@@ -46,6 +46,7 @@ export * from "./logic/duplicate-contacts.js";
 export * from "./logic/diarize.js";
 export * from "./logic/geo.js";
 export * from "./logic/location-text.js";
+export * from "./logic/coop-deal.js";
 export * from "./logic/place-vocabulary.js";
 export * from "./logic/proximity.js";
 export * from "./logic/match-feedback.js";

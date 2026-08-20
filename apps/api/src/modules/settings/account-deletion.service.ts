@@ -9,6 +9,7 @@ import {
 import * as argon2 from "argon2";
 import { ulid } from "ulid";
 import { TenantContext } from "../../common/tenant-context";
+import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
 import { PrismaService } from "../../core/prisma.service";
 
 /**
@@ -233,6 +234,21 @@ export class AccountDeletionService {
          * כבר קיבל את הפרטים לכרטיס משלו בעת הקליטה.
          */
         await tx.sharedLead.deleteMany({ where: { tenantId } });
+        /*
+         * חדרי העסקה — השרשור לפני החדר, כי הוא מצביע עליו.
+         *
+         * החדר נמחק **משני הצדדים** ולא רק אצל הנמחק: אותו נימוק
+         * בדיוק כמו בהצעות ובפרסומים. שרשור שנשאר חי אצל המשרד
+         * השני הוא התכתבות עם משרד שכבר אינו קיים, ובתוכה שמות
+         * הסוכנים שנמחקו.
+         *
+         * `coop_deal_messages` נמחקת דרך פוליסת ה-DELETE שנגזרת
+         * מהחדר, ולכן היא חייבת להיות לפניו — אחרי שהחדר נמחק אין
+         * שורה שממנה הפוליסה תאשר.
+         */
+        await deleteCoopDeals(tx, {
+          OR: [{ listingTenantId: tenantId }, { buyerTenantId: tenantId }],
+        });
         // הצעות שת"פ — משני הצדדים; פוליסת coop_delete מתירה בדיוק את זה
         await tx.coopOffer.deleteMany({
           where: { OR: [{ fromTenantId: tenantId }, { toTenantId: tenantId }] },

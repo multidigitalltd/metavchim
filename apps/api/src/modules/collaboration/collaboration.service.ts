@@ -45,6 +45,7 @@ import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
+import { DealRoomService } from "./deal-room.service";
 import { assertNetworkQuota } from "./network-quota";
 import { officeBadges, type OfficeBadge } from "./office-names";
 import {
@@ -426,6 +427,8 @@ export class CollaborationService {
     private readonly email: EmailService,
     // חתימת לוגו המשרד המפרסם לפיד הרשת — ראו `officeBadges`
     private readonly storage: StorageService,
+    // אישור חיבור פותח חדר עסקה משותף — ראו `DealRoomService`
+    private readonly dealRoom: DealRoomService,
   ) {}
 
   private readonly logger = new Logger(CollaborationService.name);
@@ -1386,6 +1389,8 @@ export class CollaborationService {
             presentation,
             creditsCost: cost,
             commissionSplit,
+            // מי הציע — כדי שחדר העסקה יידע למי להרים טלפון
+            createdBy: ctx.userId ?? null,
           },
         })
         .catch((error: unknown) => {
@@ -1611,11 +1616,17 @@ export class CollaborationService {
     }));
   }
 
-  /** תגובת הסוכנות המקבלת להצעת שיתוף — מעוניין/דחייה. */
+  /**
+   * תגובת הסוכנות המקבלת להצעת שיתוף — מעוניין/דחייה.
+   *
+   * „מעוניין” פותח **חדר עסקה משותף** ומחזיר את מזההו. עד כאן הוא
+   * רק שינה סטטוס, ושני המשרדים נשארו מחוברים על הנייר ובלי שום
+   * מקום לעבוד בו — בדיוק מה שהמייל על ההצעה כבר הבטיח שיקרה.
+   */
   async respondToCoopOffer(
     id: string,
     response: "interested" | "declined",
-  ): Promise<void> {
+  ): Promise<{ dealId: string | null }> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {
       const result = await tx.coopOffer.updateMany({
@@ -1630,6 +1641,13 @@ export class CollaborationService {
         entityId: id,
       });
     });
+    /*
+     * פתיחת החדר אחרי ה-Commit ולא בתוכו: היא נוגעת בשני דיירים
+     * (התראה לצד השני) ושולחת מייל, ושתי אלה אינן צריכות להחזיק
+     * פתוחה טרנזקציה שכבר סיימה את עבודתה.
+     */
+    if (response !== "interested") return { dealId: null };
+    return { dealId: await this.dealRoom.openFromOffer(id) };
   }
 
   /* ============================================================

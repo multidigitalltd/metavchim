@@ -433,14 +433,34 @@ describe("בידוד דיירים מול מסד אמיתי", () => {
 
     expect(written, "טבלאות שבהן דייר שינה שורה של אחר").toEqual([]);
     /*
-     * השגיאות נבדקות ולא מדולגות. `audit_log` הוא Append-Only
-     * בהרשאות עצמן — הניסיון נענה ב-"permission denied", וזו שכבת
-     * הגנה נוספת ולא כשל. כל שגיאה אחרת פירושה שהבדיקה לא רצה
+     * השגיאות נבדקות ולא מדולגות. שלוש הטבלאות האלה הן Append-Only
+     * **בהרשאות עצמן** — הניסיון נענה ב-"permission denied", וזו
+     * שכבת הגנה נוספת ולא כשל. כל שגיאה אחרת פירושה שהבדיקה לא רצה
      * בפועל על אותה טבלה, ואסור שזה ייראה כמו הצלחה.
+     *
+     * עד כה הרשימה כללה רק את `audit_log`, ולא מפני שכך תוכנן:
+     * `create_app_role.sql` רץ **אחרי** המיגרציות ומחזיר GRANT על
+     * כל הטבלאות, ולכן ה-REVOKE של שני ספרי הכסף — שנעשה במיגרציות
+     * שיצרו אותם — בוטל בשקט בכל הקצאה. הם היו פתוחים לעדכון
+     * ולמחיקה בעוד שלושה מקומות בקוד מצהירים שאינם. הרשימה כאן
+     * היא מה שיגלה את זה אם יחזור.
      */
-    const unexpected = errors.filter((line) => !line.startsWith("audit_log:"));
+    const APPEND_ONLY = ["audit_log", "credit_ledger", "payout_ledger"];
+    const unexpected = errors.filter(
+      (line) => !APPEND_ONLY.some((table) => line.startsWith(`${table}:`)),
+    );
     expect(unexpected, "טבלאות שבהן בדיקת הכתיבה לא רצה בכלל").toEqual([]);
-    expect(errors.length, "audit_log חייב לדחות מחיקה").toBeGreaterThan(0);
+    /*
+     * כל אחת מהן חייבת לדחות — לא "לפחות אחת". ספר כסף שההרשאה
+     * עליו חזרה בשקט הוא בדיוק הכשל שהתגלה כאן, וספירה מצרפית
+     * הייתה ממשיכה לעבור כל עוד `audit_log` לבדו מוגן.
+     */
+    const rejecting = APPEND_ONLY.filter(
+      (table) =>
+        !seeded.includes(table) ||
+        errors.some((line) => line.startsWith(`${table}:`)),
+    );
+    expect(rejecting, "טבלה Append-Only שלא דחתה כתיבה").toEqual(APPEND_ONLY);
   });
 
   it("שורות הדייר השני שרדו — ההוכחה שהחסימה עצרה כתיבה אמיתית", async () => {
