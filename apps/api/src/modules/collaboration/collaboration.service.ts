@@ -520,8 +520,14 @@ export class CollaborationService {
    *
    * כל קונה עובר את **אותו** מסלול של השיתוף הבודד (`shareBuyer`),
    * כולל בדיקת אזור החיפוש והמכסה — אין כאן דלת צדדית. חלוקת העמלה
-   * היא ברירת המחדל של הרשת, והתיאור נשאב מהערות הקונה — בדיוק כמו
-   * המילוי המוקדם בטופס הבודד.
+   * היא ברירת המחדל של הרשת.
+   *
+   * **בלי תיאור, בכוונה.** `agentNotes` הוא שדה פנימי — "האישה
+   * מחליטה", טלפון של גיס — ובטופס הבודד הוא רק *הצעה* שהמתווך
+   * רואה ועורך לפני הפרסום. במסלול המרוכז אין עין אנושית בין
+   * ההערה לרשת, ולכן שום טקסט חופשי לא יוצא ממנו החוצה; הצילום
+   * המובנה של `demandSnapshot` נושא את כל הקריטריונים (ביקורת
+   * Codex). תיאור אפשר להוסיף אחר כך בעריכת הפרסום.
    *
    * כשל של קונה אחד אינו עוצר את השאר: מי שבחר עשרים קונים ואחד מהם
    * בלי אזור חיפוש רוצה תשע-עשרה מודעות והסבר אחד, לא אפס מודעות.
@@ -529,20 +535,10 @@ export class CollaborationService {
   async shareBuyersBulk(
     buyerIds: string[],
   ): Promise<{ id: string; ok: boolean; error?: string }[]> {
-    const tenantId = TenantContext.current().tenantId;
     const results: { id: string; ok: boolean; error?: string }[] = [];
     for (const buyerId of buyerIds) {
       try {
-        const buyer = await this.prisma.withTenant((tx) =>
-          tx.buyer.findFirst({
-            where: { id: buyerId, tenantId, deletedAt: null },
-            select: { agentNotes: true },
-          }),
-        );
-        if (!buyer) throw new NotFoundException("קונה לא נמצא");
-        // חתוך לאורך שהסכימה מקבלת; ריק = בלי תיאור, כמו בקליטה בקול
-        const note = buyer.agentNotes?.trim().slice(0, 300) || undefined;
-        await this.shareBuyer(buyerId, DEFAULT_COMMISSION_SPLIT, note);
+        await this.shareBuyer(buyerId, DEFAULT_COMMISSION_SPLIT);
         results.push({ id: buyerId, ok: true });
       } catch (error) {
         results.push({

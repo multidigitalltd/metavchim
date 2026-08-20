@@ -77,6 +77,8 @@ const COPY = {
  * לסוכן נסיעה מיותרת, והאכיפה נשארת בשרת בכל מקרה.
  */
 const MIN_NOTE = 10;
+/** אורך התיאור המרבי — זהה לשרת, מאותו נימוק בדיוק כמו המינימום. */
+const MAX_NOTE = 300;
 
 /** שלב בזרימה. `loading` קיים כי מצב השיתוף נקרא מהשרת. */
 type Stage = "loading" | "invite" | "form" | "sent";
@@ -150,8 +152,15 @@ export function NetworkShareSection({
            * מה הלקוח מחפש ואין סיבה להקליד שוב. רק לתוך שדה ריק:
            * טיוטה שהתחילו להקליד אינה נדרסת כשעריכת ההערות בכרטיס
            * מריצה את הטעינה מחדש.
+           *
+           * נחתך ל-`MAX_NOTE`: הערות הכרטיס מגיעות עד 4,000 תווים,
+           * ו-`maxLength` על textarea אינו חותך ערך שהוקצה מקוד —
+           * בלי החיתוך השרת היה דוחה את הפרסום על תיאור שהמסך עצמו
+           * מילא (ביקורת Codex).
            */
-          setNote((current) => (current === "" ? (defaultNote ?? "") : current));
+          setNote((current) =>
+            current === "" ? (defaultNote ?? "").slice(0, MAX_NOTE) : current,
+          );
           setStage("invite");
         }
       })
@@ -406,7 +415,7 @@ export function NetworkShareSection({
               id="shareNote"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              maxLength={300}
+              maxLength={MAX_NOTE}
               rows={2}
               placeholder={copy.notePlaceholder}
               className="w-full rounded-lg border px-3 py-2"
