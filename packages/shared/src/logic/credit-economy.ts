@@ -23,6 +23,8 @@
  * שומרת.
  */
 
+import { PLATFORM_REFERRAL_FEE_PERCENT } from "./lead-referral.js";
+
 /** חבילת קרדיטים למכירה. המחיר באגורות, כמו כל כסף במערכת. */
 export interface CreditPackage {
   credits: number;
@@ -48,6 +50,11 @@ export interface CreditEconomy {
    * זו **אותה** עמלת הפניות שכבר קיימת (`referralFeePercent`) ולא
    * הגדרה שנייה לאותו דבר: שני מספרים שחולשים על אותה גבייה נפרדים
    * ביום שמישהו משנה אחד מהם, וזה בדיוק סוג הבאג שמתגלה בכסף.
+   *
+   * וזה בדיוק מה שקרה: ברירת המחדל כאן הייתה 10 בזמן שברירת המחדל
+   * של אותה הגדרה עצמה ב-`PLATFORM_REFERRAL_FEE_PERCENT` הייתה 15.
+   * במשרד שלא נגע במסך, המפנה **ראה 15% וחויב 10%** — אותו שדה
+   * מוגדר, שתי תשובות. הערך נגזר עכשיו מהקבוע האחד.
    */
   feeCreditsPercent: number;
   /** עמלת הפלטפורמה כשהמוכר בחר כסף — גבוהה יותר, זה מחיר הנזילות. */
@@ -72,7 +79,8 @@ export const DEFAULT_CREDIT_ECONOMY: CreditEconomy = {
   unitPriceAgorot: 500,
   packages: [],
   creditBonusPercent: 20,
-  feeCreditsPercent: 10,
+  // אותו קבוע, לא העתק — ראו ההערה על `feeCreditsPercent` שלמעלה
+  feeCreditsPercent: PLATFORM_REFERRAL_FEE_PERCENT,
   feeCashPercent: 25,
   payoutMinimumAgorot: 50_000,
   expiryMonths: 12,

@@ -21,6 +21,7 @@ import {
   dimensionAccuracies,
 } from "./lead-referral.js";
 import { DEFAULT_LEAD_SOURCES } from "./collaboration-cost.js";
+import { DEFAULT_CREDIT_ECONOMY, settleReferral } from "./credit-economy.js";
 
 describe("suggestedReferralPrice", () => {
   it("מקור מתומחר — ההצעה מהטבלה", () => {
@@ -49,17 +50,31 @@ describe("suggestedReferralPrice", () => {
 
 describe("platformReferralFee", () => {
   it("אחוז מהתמורה, מעוגל", () => {
-    expect(platformReferralFee(100)).toBe(15);
-    expect(platformReferralFee(20)).toBe(3);
+    expect(platformReferralFee(100)).toBe(25);
+    expect(platformReferralFee(20)).toBe(5);
   });
 
-  it("שבר שנופל מתחת לחצי קרדיט — הפלטפורמה מוותרת ולא מעגלת כלפי מעלה", () => {
-    // 15% מ-1 ומ-2 הם 0.15 ו-0.3 — עיגול כלפי מעלה היה גובה כאן
-    // 100% ו-50% מהתמורה
+  it("שבר שאינו קרדיט שלם — הפלטפורמה מוותרת ולא מעגלת כלפי מעלה", () => {
+    // 25% מ-1 עד 3 הם 0.25–0.75 — עיגול כלפי מעלה היה גובה כאן
+    // בין 33% ל-100% מהתמורה
     expect(platformReferralFee(1)).toBe(0);
     expect(platformReferralFee(2)).toBe(0);
     expect(platformReferralFee(3)).toBe(0);
     expect(platformReferralFee(4)).toBe(1);
+  });
+
+  /*
+   * מה שהמסך מציג הוא מה שהשרת גובה. הפונקציה הזו עיגלה עם
+   * `Math.round` בעוד `settleReferral` משתמש ב-`Math.floor`, ולכן
+   * בתמורה של 10 המסך הראה 3 והשרת גבה 2.
+   */
+  it("זהה ל-settleReferral בכל תמורה", () => {
+    for (let price = 1; price <= 200; price += 1) {
+      const shown = platformReferralFee(price, DEFAULT_CREDIT_ECONOMY.feeCreditsPercent);
+      const charged = settleReferral(price, "credits", DEFAULT_CREDIT_ECONOMY)
+        .platformFeeCredits;
+      expect(shown, `תמורה ${price}`).toBe(charged);
+    }
   });
 
   it("המפנה לעולם לא נשאר עם אפס, גם באחוז מנופח", () => {
@@ -87,10 +102,15 @@ describe("referralPayout", () => {
   it("הפירוק שהמסך מציג הוא זה שהשרת רושם", () => {
     expect(referralPayout(40)).toEqual({
       priceCredits: 40,
-      platformFeeCredits: 6,
-      payoutCredits: 34,
+      platformFeeCredits: 10,
+      payoutCredits: 30,
     });
-    expect(PLATFORM_REFERRAL_FEE_PERCENT).toBe(15);
+    /*
+     * 25 ולא 15: העמלה חייבת לעבור את נקודת האיזון מול בונוס
+     * הקרדיטים, אחרת כל הפניה מנפיקה יותר ממה שהיא גובה. ראו
+     * `creditPricingWarning` ב-`platform-credits.ts`.
+     */
+    expect(PLATFORM_REFERRAL_FEE_PERCENT).toBe(25);
   });
 });
 

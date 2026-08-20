@@ -33,6 +33,9 @@
  * שהונפק — ראו `platformCreditsNet`.
  */
 
+import { MAX_REFERRAL_PRICE, MIN_REFERRAL_PRICE } from "./lead-referral.js";
+import { settleReferral, type CreditEconomy } from "./credit-economy.js";
+
 /** סוגי התנועה בספר הפלטפורמה. */
 export type PlatformCreditKind = "referral_fee" | "burn" | "adjustment";
 
@@ -150,10 +153,11 @@ export function referralBonusCredits(row: {
  *
  * ## המספר הזה יכול לצאת שלילי, וזה לא באג
  *
- * כשאחוז הבונוס גבוה מאחוז העמלה — וזו ברירת המחדל (20% מול 10%) —
- * מסלול הקרדיטים מנפיק יותר ממה שהוא גובה, תמיד. זה מכוון כשרוצים
- * להזרים נזילות לרשת הצעירה, וזו טעות כשלא שמים לב. לכן המספר מוצג
- * במסך ולא נשאר בקוד.
+ * כשאחוז הבונוס גבוה מנקודת האיזון מול העמלה, מסלול הקרדיטים מנפיק
+ * יותר ממה שהוא גובה — תמיד. זו הייתה ברירת המחדל של המערכת (10%
+ * עמלה מול 20% בונוס), ואיש לא ראה זאת כי לא היה מספר שמראה את
+ * המכפלה. ברירת המחדל עברה ל-25%, ו-`creditPricingWarning` חוסם
+ * חזרה שקטה לצירוף מפסיד.
  */
 export function platformCreditsNet(input: {
   recognizedAgorot: number;
@@ -161,6 +165,52 @@ export function platformCreditsNet(input: {
   unitPriceAgorot: number;
 }): number {
   return input.recognizedAgorot - input.bonusCreditsIssued * input.unitPriceAgorot;
+}
+
+/**
+ * האם התמחור של מסלול הקרדיטים מפסיד — ואם כן, למה.
+ *
+ * ## למה זה מודד ולא מחשב
+ *
+ * הגרסה הראשונה השוותה אחוזים רציפים: ‎f ≥ b / (1 + b)‎. הנוסחה
+ * נכונה בגבול, אבל `settleReferral` **מעגל** — רצפה על העמלה ותקרה
+ * על הבונוס — ולכן היא הכריזה „תקין” על תמחור שמפסיד בפועל. בעמלה
+ * 17% מול בונוס 20% ההפסד הוא ב-124 מתוך 500 התמורות החוקיות, והבדיקה
+ * הרציפה לא ראתה אותו (ביקורת Codex).
+ *
+ * כאן נקראת **אותה פונקציה שגובה**, על כל טווח התמורות החוקי. אין
+ * דרך שהבדיקה תסכים עם עצמה ותחלוק על הגבייה.
+ *
+ * ## למה ממוצע ולא „אף תמורה לא מפסידה”
+ *
+ * העיגול לטובת המפנה מוותר על שבר קרדיט בתמורות הקטנות ביותר, וזה
+ * מכוון ומתועד. גם בעמלה של 40% ארבע התמורות הראשונות מפסידות קרדיט
+ * אחד — תנאי של „אף אחת” היה מזהיר תמיד, ואזהרה שדולקת תמיד היא
+ * אזהרה שמפסיקים לקרוא.
+ *
+ * הסף הוא **קרדיט שלם בממוצע**: תמחור שמניב פחות מזה אינו עמלה אלא
+ * רעש עיגול.
+ */
+export function creditPricingWarning(economy: CreditEconomy): string | null {
+  if (economy.creditBonusPercent <= 0) return null;
+
+  let total = 0;
+  let prices = 0;
+  for (let price = MIN_REFERRAL_PRICE; price <= MAX_REFERRAL_PRICE; price += 1) {
+    const settlement = settleReferral(price, "credits", economy);
+    total += settlement.platformFeeCredits - referralBonusCredits(settlement);
+    prices += 1;
+  }
+  const mean = total / prices;
+  if (mean >= 1) return null;
+
+  return (
+    `במסלול הקרדיטים העמלה (${economy.feeCreditsPercent}%) נמוכה מדי מול ` +
+    `הבונוס (${economy.creditBonusPercent}%): בממוצע על כל התמורות ` +
+    `החוקיות נשארים לפלטפורמה ${mean.toFixed(1)} קרדיט להפניה. ` +
+    `${mean < 0 ? "כל הפניה מגדילה את ההתחייבות שלה." : "זה רעש עיגול ולא עמלה."} ` +
+    `העלו את העמלה או הורידו את הבונוס.`
+  );
 }
 
 /** הגבול העליון למחיקה בפעולה אחת — הגנה מפני טעות הקלדה, לא מדיניות. */

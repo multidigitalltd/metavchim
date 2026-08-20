@@ -8,7 +8,6 @@ import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
   BuyerRequirementsSchema,
-  resolveReferralFeePercent,
   commissionSplitRejectionReason,
   coopOfferCost,
   leadSourceLabel,
@@ -41,7 +40,6 @@ import { EmailService } from "../../core/email.service";
 import { CreditEconomyService } from "../../core/credit-economy.service";
 import { OutboxService } from "../../core/outbox.service";
 import { LeadPricingService } from "../../core/lead-pricing.service";
-import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
@@ -410,7 +408,6 @@ export class CollaborationService {
     private readonly outbox: OutboxService,
     private readonly plans: PlanCatalogService,
     private readonly pricing: LeadPricingService,
-    private readonly platformSettings: PlatformSettingsService,
     private readonly crypto: CryptoService,
     private readonly creditEconomy: CreditEconomyService,
     // הצעת נכס למשרד אחר נספרת לעבר פריט (6) בפעולות השיווק
@@ -419,18 +416,6 @@ export class CollaborationService {
   ) {}
 
   private readonly logger = new Logger(CollaborationService.name);
-
-  /**
-   * אחוז עמלת הפלטפורמה כפי שנקבע במסך הפלטפורמה.
-   *
-   * נקרא בכל חישוב ולא נצרב: בעל הפלטפורמה ששינה את האחוז מצפה
-   * שהעסקה הבאה תיגבה לפיו, לא שההפעלה הבאה של השרת תיגבה.
-   */
-  private async feePercent(): Promise<number> {
-    return resolveReferralFeePercent(
-      await this.platformSettings.get("referralFeePercent"),
-    );
-  }
 
   /**
    * שיתוף קונה כביקוש אנונימי: בלי שם, בלי טלפון, תקציב מעוגל.
@@ -1601,7 +1586,15 @@ export class CollaborationService {
     const economy = await this.creditEconomy.current();
     return {
       suggestedPriceCredits: suggestedReferralPrice(source, prices),
-      platformFeePercent: await this.feePercent(),
+      /*
+       * מהכלכלה ולא מ-`feePercent()`.
+       *
+       * שניהם קוראים את **אותה** הגדרה, אבל נופלים לשתי ברירות מחדל
+       * שונות — ולכן במשרד שלא נגע במסך המפנה ראה כאן אחוז אחד וחויב
+       * באחר. `settleReferral` גובה לפי `feeCreditsPercent`, ולכן זה
+       * מה שצריך להיות מוצג.
+       */
+      platformFeePercent: economy.feeCreditsPercent,
       economy: {
         creditBonusPercent: economy.creditBonusPercent,
         feeCreditsPercent: economy.feeCreditsPercent,

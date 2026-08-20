@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  creditPricingWarning,
   platformCreditsNet,
   referralBonusCredits,
   summarizePlatformCredits,
@@ -71,24 +72,38 @@ describe("referralBonusCredits", () => {
 
   it("נגזר נכון מהחישוב האמיתי של המערכת", () => {
     const settlement = settleReferral(20, "credits", DEFAULT_CREDIT_ECONOMY);
-    expect(referralBonusCredits(settlement)).toBe(4); // ceil(18 × 20%)
+    expect(referralBonusCredits(settlement)).toBe(3); // ceil(15 × 20%)
   });
 });
 
 describe("platformCreditsNet", () => {
   /*
-   * הבדיקה המרכזית: ברירות המחדל של המערכת (עמלה 10%, בונוס 20%)
-   * הופכות את מסלול הקרדיטים למפסיד — 10 ₪ שיוכרו מול 20 ₪
-   * התחייבות חדשה. זה מכוון להזרמת נזילות, וזו טעות כשלא שמים לב.
+   * הבדיקה המרכזית: ברירות המחדל של המערכת חייבות להיות **רווחיות**.
+   *
+   * עד עכשיו הן לא היו — עמלה 10% מול בונוס 20% הפיקו 10 ₪ מול 20 ₪
+   * התחייבות חדשה, כלומר הפסד בכל הפניה. הבדיקה הזו היא מה שימנע
+   * חזרה לשם בטעות.
    */
-  it("מסלול קרדיטים בברירות המחדל — שלילי", () => {
+  it("מסלול קרדיטים בברירות המחדל — חיובי", () => {
     const settlement = settleReferral(20, "credits", DEFAULT_CREDIT_ECONOMY);
     const net = platformCreditsNet({
       recognizedAgorot: settlement.platformFeeCredits * DEFAULT_CREDIT_ECONOMY.unitPriceAgorot,
       bonusCreditsIssued: referralBonusCredits(settlement),
       unitPriceAgorot: DEFAULT_CREDIT_ECONOMY.unitPriceAgorot,
     });
-    expect(net).toBe(-1_000); // 1,000 אגורות = 10 ₪
+    // עמלה 5 קרדיט (25 ₪) מול בונוס 3 קרדיט (15 ₪)
+    expect(net).toBe(1_000);
+  });
+
+  it("הצירוף שהיה קודם — עמלה 10% מול בונוס 20% — עדיין מפסיד", () => {
+    const economy = { ...DEFAULT_CREDIT_ECONOMY, feeCreditsPercent: 10 };
+    const settlement = settleReferral(20, "credits", economy);
+    const net = platformCreditsNet({
+      recognizedAgorot: settlement.platformFeeCredits * economy.unitPriceAgorot,
+      bonusCreditsIssued: referralBonusCredits(settlement),
+      unitPriceAgorot: economy.unitPriceAgorot,
+    });
+    expect(net).toBe(-1_000);
   });
 
   it("מסלול כסף בברירות המחדל — 25 ₪ לכל 100 ₪", () => {
@@ -102,7 +117,7 @@ describe("platformCreditsNet", () => {
     expect(net).toBe(2_500);
   });
 
-  it("עמלה גבוהה מהבונוס הופכת גם את מסלול הקרדיטים לחיובי", () => {
+  it("הורדת העמלה מתחת לנקודת האיזון מחזירה את ההפסד", () => {
     const economy = {
       ...DEFAULT_CREDIT_ECONOMY,
       feeCreditsPercent: 30,
@@ -125,5 +140,56 @@ describe("platformCreditsNet", () => {
         unitPriceAgorot: 500,
       }),
     ).toBe(-2_000);
+  });
+});
+
+describe("creditPricingWarning", () => {
+  const economy = (fee: number, bonus = 20) => ({
+    ...DEFAULT_CREDIT_ECONOMY,
+    feeCreditsPercent: fee,
+    creditBonusPercent: bonus,
+  });
+
+  it("ברירות המחדל אינן מייצרות אזהרה", () => {
+    expect(creditPricingWarning(DEFAULT_CREDIT_ECONOMY)).toBeNull();
+  });
+
+  it("הצירוף הישן — 10% מול 20% — מזהיר", () => {
+    expect(creditPricingWarning(economy(10))).not.toBeNull();
+  });
+
+  /*
+   * הבדיקה שהגרסה הרציפה נכשלה בה.
+   *
+   * ‎b / (1 + b)‎ אומר ש-17% „מספיק”, אבל העיגול של `settleReferral`
+   * מפיל 124 מתוך 500 התמורות החוקיות להפסד, והממוצע יוצא 0.008
+   * קרדיט להפניה. בדיקה שמודדת את הגבייה האמיתית רואה את זה; בדיקה
+   * שמחשבת אחוזים לא (ביקורת Codex).
+   */
+  it("17% מול בונוס 20% — עובר את הנוסחה הרציפה ובכל זאת מזהיר", () => {
+    const warning = creditPricingWarning(economy(17));
+    expect(warning).not.toBeNull();
+    expect(warning).toContain("רעש עיגול");
+  });
+
+  it("20% ומעלה מול בונוס 20% — תקין", () => {
+    expect(creditPricingWarning(economy(20))).toBeNull();
+    expect(creditPricingWarning(economy(25))).toBeNull();
+  });
+
+  /*
+   * העיגול לטובת המפנה מוותר על קרדיט בתמורות הקטנות ביותר — גם
+   * בעמלה של 40%. תנאי של „אף תמורה לא מפסידה” היה מזהיר תמיד,
+   * ואזהרה שדולקת תמיד היא אזהרה שמפסיקים לקרוא.
+   */
+  it("עמלה גבוהה אינה מזהירה למרות שתמורות זעירות עדיין מפסידות", () => {
+    expect(creditPricingWarning(economy(40))).toBeNull();
+    const tiny = settleReferral(1, "credits", economy(40));
+    expect(tiny.platformFeeCredits - referralBonusCredits(tiny)).toBeLessThan(0);
+  });
+
+  /* בלי בונוס אין מה לאזן — כל עמלה חיובית מרוויחה */
+  it("בונוס אפס אינו מזהיר גם בעמלה נמוכה", () => {
+    expect(creditPricingWarning(economy(1, 0))).toBeNull();
   });
 });
