@@ -719,6 +719,16 @@ code {
   border-radius: 99px;
   padding: 2px 9px;
 }
+/* תג "בקרוב" — פיצ'ר שהוכרז וטרם הושק. ירוק על כהה, לא כתום: הבטחה ולא דחיפות */
+.mv-nav-soon {
+  margin-inline-start: auto;
+  background: rgba(112, 238, 145, 0.16);
+  color: #8cf2a6;
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: 99px;
+  padding: 2px 9px;
+}
 .mv-sidebar-link:focus-visible {
   outline: 3px solid var(--dk-primary);
   outline-offset: -2px;

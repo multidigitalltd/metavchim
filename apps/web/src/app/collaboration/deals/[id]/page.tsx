@@ -176,16 +176,17 @@ export default function DealRoomPage() {
 
   if (failed)
     return (
-      <main className="mv-page">
+      // div ולא main — העטיפה של AppShell היא ה-main landmark היחיד
+      <div className="mv-page">
         <LoadError message="לא הצלחנו לטעון את חדר העסקה" onRetry={load} />
-      </main>
+      </div>
     );
   if (deal === null) return null;
 
   const closed = isFinalCoopDealStage(deal.stage);
 
   return (
-    <main className="mv-page">
+    <div className="mv-page">
       <Link href="/collaboration?tab=deals" className="mb-3 inline-block">
         ← לכל העסקאות המשותפות
       </Link>
@@ -369,7 +370,7 @@ export default function DealRoomPage() {
           </section>
         </aside>
       </div>
-    </main>
+    </div>
   );
 }
 
