@@ -266,8 +266,14 @@ export function scoreMatch(
      * הסימון והרצועה נמדדת ממנו. מתחת לרצפה פחות הרצועה — פסילה;
      * ניקוד חלקי על "מתחת" ניתן רק כשהקונה הצהיר מינימום במפורש —
      * מי שאמר רק "עד 2.8" לא ביקש שנעניש נכס של 2.6.
+     *
+     * רצועת הרצפה נמדדת **מהרצפה עצמה** ולא מהתקרה (ביקורת Codex):
+     * בשכירות הרצועה יחסית, וטווח 5,000–10,000 ₪ עם רצועה שנגזרת
+     * מהתקרה היה מקבל נכס של 4,000 ₪ — 20% מתחת למינימום המפורש.
+     * במכירה אין הבדל — הרצועה קבועה.
      */
     const lowRef = buyer.budgetMinAgorot ?? max;
+    const lowBand = budgetBandAgorot(lowRef, dealType);
     let score: number;
     let note: string;
     if (price > max + band) {
@@ -277,7 +283,7 @@ export function scoreMatch(
     } else if (price > max) {
       score = 0.6; // בתוך רצועת הגמישות — מוצג, עם הסתייגות
       note = "מעט מעל התקציב — בתוך רצועת הגמישות";
-    } else if (price < lowRef - band) {
+    } else if (price < lowRef - lowBand) {
       score = 0;
       note = "נמוך מהתקציב המסומן בהרבה — כנראה סגמנט אחר";
       excluded = true;

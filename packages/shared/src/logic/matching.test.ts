@@ -106,6 +106,25 @@ describe("scoreMatch — מנוע ההתאמות", () => {
     ).toBe(false);
   });
 
+  it("בשכירות עם טווח — רצועת הרצפה נמדדת מהמינימום, לא מהתקרה", () => {
+    // טווח 5,000–10,000 ₪: הרצפה 5,000 − 15% = 4,250
+    const buyer: BuyerRequirements = {
+      ...baseBuyer,
+      dealType: "rent",
+      budgetMinAgorot: 500_000,
+      budgetMaxAgorot: 1_000_000,
+    };
+    const rental = { ...baseProperty, dealType: "rent" };
+    // 4,000 ₪ — מתחת לרצפה: מוחרג (רצועה מהתקרה הייתה מקבלת אותו)
+    expect(
+      scoreMatch({ ...rental, priceAgorot: 400_000 }, buyer).excluded,
+    ).toBe(true);
+    // 4,300 ₪ — בתוך רצועת הרצפה: ניקוד חלקי, לא פסילה
+    const near = scoreMatch({ ...rental, priceAgorot: 430_000 }, buyer);
+    expect(near.excluded).toBe(false);
+    expect(near.breakdown.find((p) => p.criterion === "budget")?.score).toBe(0.5);
+  });
+
   it("דרישת חובה שמופרת במפורש ⇒ מוחרג עם הסבר", () => {
     const buyer: BuyerRequirements = { ...baseBuyer, features: { hasElevator: "must" } };
     const result = scoreMatch({ ...baseProperty, hasElevator: false }, buyer);

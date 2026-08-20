@@ -426,7 +426,9 @@ export class MatchingService {
                 /*
                  * רצועת התקציב של המנוע, בשני הכיוונים: התקרה היא
                  * התקציב + הרצועה, והרצפה — המינימום המוצהר (או
-                 * התקציב עצמו כשאין) פחות הרצועה. קונה של 3.5 מיליון
+                 * התקציב עצמו כשאין) פחות רצועה שנמדדת **מהרצפה
+                 * עצמה** (ביקורת Codex) — אותו חישוב כמו במנוע, כדי
+                 * ש-SQL והניקוד יישארו מיושרים. קונה של 3.5 מיליון
                  * לא מקבל מועמדים של 2.5 מיליון כבר בסינון הגס.
                  */
                 priceAgorot: {
@@ -443,7 +445,8 @@ export class MatchingService {
                       (requirements.budgetMinAgorot ??
                         requirements.budgetMaxAgorot) -
                         budgetBandAgorot(
-                          requirements.budgetMaxAgorot,
+                          requirements.budgetMinAgorot ??
+                            requirements.budgetMaxAgorot,
                           requirements.dealType,
                         ),
                     ),
