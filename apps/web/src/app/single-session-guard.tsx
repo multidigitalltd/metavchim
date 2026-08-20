@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiDelete, apiGet, apiPost } from "@/lib/api";
 import { clearSessionCache } from "@/lib/session-cache";
 import { formatDateTime } from "@/lib/format";
 import { IconShield } from "./icons";
@@ -33,7 +33,7 @@ import { describeDevice, type SessionRow } from "./sessions-list";
  * הישן יפוג. הבחירה נותנת לבעל הסיסמה לנצח תמיד — הוא מנתק את
  * האחר בלחיצה. ומי שמשתף מנוי? שני הצדדים מנתקים זה את זה בלופ,
  * והשיתוף מפסיק להיות שווה את הכאב. האכיפה האמיתית נשארת בשרת:
- * revoke-others מוחק את ה-Sessions במסד, לא רק מהמסך.
+ * המחיקה היא של רשומות ה-Session במסד, לא רק מהמסך.
  *
  * ## מה לא סופר
  *
@@ -50,6 +50,14 @@ export function SingleSessionGuard(): React.JSX.Element | null {
   useEffect(() => {
     apiGet<{ sessions: SessionRow[] }>("/auth/sessions")
       .then((res) => {
+        /*
+         * דפדפן התמיכה עצמו פטור מהשער: כשהתמיכה נכנסת בהסכמה,
+         * החיבור הרגיל של המשתמש נראה משם כ"מכשיר נוסף" — והשער
+         * היה מכריח את התומך לנתק את המשתמש או לנטוש את הטיפול
+         * (ביקורת Codex). זו גישה בהסכמה, לא שיתוף מנוי.
+         */
+        const current = res.sessions.find((row) => row.current);
+        if (current !== undefined && current.supportAdminEmail !== null) return;
         const foreign = res.sessions.filter(
           (row) => !row.current && row.supportAdminEmail === null,
         );
@@ -67,10 +75,18 @@ export function SingleSessionGuard(): React.JSX.Element | null {
   }, [others]);
 
   async function stayHere(): Promise<void> {
+    if (others === null) return;
     setBusy(true);
     setError(null);
     try {
-      await apiPost("/auth/sessions/revoke-others", {});
+      /*
+       * ניתוק **בדיוק של מה שמוצג** — חיבור-חיבור, לא revoke-others:
+       * הגורף היה מוחק גם חיבור תמיכה פעיל שאינו מופיע ברשימה,
+       * כלומר מסיים בשקט טיפול שהמשתמש עצמו אישר (ביקורת Codex).
+       */
+      for (const row of others) {
+        await apiDelete(`/auth/sessions/${row.id}`);
+      }
       ref.current?.close();
       setOthers(null);
     } catch {
