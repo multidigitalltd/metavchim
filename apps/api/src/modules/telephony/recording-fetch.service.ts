@@ -1,9 +1,19 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from "@nestjs/common";
+import {
+  build015RecordingsListUrl,
   build015RecordingUrl,
   MAX_RECORDING_BYTES,
   parse015RecordingResponse,
+  parse015RecordingsList,
+  pbx015RecordingPath,
   split015RecordingPath,
+  unmatched015ListKeys,
 } from "@metavchim/shared";
 import { ulid } from "ulid";
 import { CryptoService } from "../../core/crypto.service";
@@ -134,6 +144,119 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     } finally {
       this.running = false;
     }
+  }
+
+  /**
+   * ייבוא הקלטות שהמרכזייה מחזיקה ואנחנו לא — **פעולה יזומה.**
+   *
+   * ## למה זה נחוץ
+   *
+   * הוובהוק מספר לנו על הקלטה בזמן שהשיחה מסתיימת, ולכן שיחה
+   * שהאירוע שלה אבד, הגיע בלי שדה `recording`, או נקלטה בזמן
+   * שההקלטה עוד לא הייתה מוכנה — נשארת אצלנו בלי אודיו לתמיד.
+   * `recording/recordings/list` הוא הצד השני של אותו מטבע: מה
+   * שאצל הספק, ולא מה שהוא טרח לספר לנו עליו.
+   *
+   * ## למה יזום ולא בסבב
+   *
+   * זו קריאה על טווח תאריכים שלם, והיא נוגעת במנוי של המשרד אצל
+   * הספק. סריקה אוטומטית אחורה הייתה מושכת עשרות הקלטות בלי
+   * שאיש ביקש. הכפתור נמצא במסך ההגדרות, אצל מי שמחזיק את
+   * החיבור.
+   *
+   * ## מה הפעולה עושה בפועל
+   *
+   * **רק מסמנת.** היא כותבת את הנתיב לשיחות שאין להן אחד, ומשם
+   * הסבב הקיים מושך את האודיו — עם אותה אידמפוטנטיות, אותו תור
+   * הוגן ואותו ניקוי מפתח יתום שכבר נבדקו. מסלול הורדה שני היה
+   * עותק שני של בדיוק ההיגיון שאסור שיתפצל.
+   *
+   * ## הגבול, ולמה הוא מדווח
+   *
+   * הקלטה שאין לה שיחה אצלנו — כלומר שיחה שקדמה לחיבור המרכזייה —
+   * אין לה לאן להיתלות: אין כרטיס לקוח, אין ליד, אין מה להשמיע.
+   * היא נספרת ומדווחת כ-`withoutCall` במקום להיבלע, כדי שהמשרד
+   * יראה את הפער ולא יניח שהכול נכנס.
+   */
+  async importRange(
+    tenantId: string,
+    from: Date,
+    to: Date,
+  ): Promise<{ found: number; linked: number; alreadyHad: number; withoutCall: number }> {
+    const integration = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+      tx.integration.findFirst({
+        where: { tenantId, kind: "telephony", provider: "015", status: "active" },
+        select: { secretsEncrypted: true, config: true },
+      }),
+    );
+    if (!integration) throw new BadRequestException("אין מרכזיית 015 מחוברת");
+
+    const secrets = this.readSecrets(integration.secretsEncrypted);
+    const config = (integration.config ?? {}) as Record<string, string>;
+    const authUsername = (config["authUsername"] ?? secrets["authUsername"] ?? "").trim();
+    const authPassword = (secrets["authPassword"] ?? "").trim();
+    if (authUsername === "" || authPassword === "") {
+      throw new BadRequestException("חסרים פרטי התחברות למרכזייה");
+    }
+
+    const res = await fetch(
+      build015RecordingsListUrl({
+        authUsername,
+        authPassword,
+        fromEpochSeconds: from.getTime() / 1000,
+        toEpochSeconds: to.getTime() / 1000,
+      }),
+      { signal: AbortSignal.timeout(60_000) },
+    );
+    if (!res.ok) throw new BadRequestException(`המרכזייה השיבה ${res.status}`);
+    const body: unknown = await res.json();
+
+    const rows = parse015RecordingsList(body);
+    if (rows.length === 0) {
+      /*
+       * שמות השדות אינם מתועדים. רשימה ריקה שהגיעה עם שורות היא
+       * שינוי שם שדה אצל הספק — ובלי השורה הזו הוא היה נראה
+       * כ"אין הקלטות" (השמות בלבד, בלי הערכים).
+       */
+      const unknownKeys = unmatched015ListKeys(body);
+      if (unknownKeys.length > 0) {
+        this.logger.warn(`רשימת ההקלטות הגיעה בשדות לא מוכרים: ${unknownKeys.join(", ")}`);
+      }
+    }
+
+    let linked = 0;
+    let alreadyHad = 0;
+    let withoutCall = 0;
+    await this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      for (const row of rows) {
+        const call = await tx.call.findFirst({
+          where: { tenantId, providerCallId: row.uniqueId },
+          select: { id: true, recordingKey: true, providerRecordingPath: true },
+        });
+        if (!call) {
+          withoutCall += 1;
+          continue;
+        }
+        if (call.recordingKey !== null || call.providerRecordingPath !== null) {
+          alreadyHad += 1;
+          continue;
+        }
+        await tx.call.updateMany({
+          where: { id: call.id, tenantId, providerRecordingPath: null, recordingKey: null },
+          data: {
+            providerRecordingPath: pbx015RecordingPath(row),
+            // איפוס החותמת מכניס את השיחה לראש התור בסבב הבא
+            providerRecordingAttemptAt: null,
+          },
+        });
+        linked += 1;
+      }
+    });
+
+    this.logger.log(
+      `ייבוא הקלטות (${tenantId}): ${rows.length} אצל הספק, ${linked} סומנו למשיכה`,
+    );
+    return { found: rows.length, linked, alreadyHad, withoutCall };
   }
 
   /**

@@ -21,6 +21,13 @@ interface Provider {
   clickToDial: boolean;
 }
 
+interface ImportResult {
+  found: number;
+  linked: number;
+  alreadyHad: number;
+  withoutCall: number;
+}
+
 interface Status {
   connected: boolean;
   provider?: string;
@@ -337,6 +344,8 @@ export function TelephonySection() {
             </p>
           )}
 
+          {status.provider === "015" ? <ImportRecordings /> : null}
+
           <button type="button" className="mv-btn-plain mt-3" disabled={busy} onClick={() => void disconnect()}>
             נתק מרכזייה
           </button>
@@ -546,6 +555,80 @@ function TeamSipLines() {
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+/**
+ * ייבוא הקלטות שהמרכזייה מחזיקה ואנחנו לא.
+ *
+ * הוובהוק מספר לנו על הקלטה בזמן שהשיחה מסתיימת. שיחה שהאירוע
+ * שלה אבד, הגיע בלי שדה ההקלטה, או נקלטה לפני שההקלטה הייתה
+ * מוכנה — נשארת בלי אודיו לתמיד, ואצל הספק היא תימחק בבוא היום.
+ *
+ * ידני ולא אוטומטי: זו קריאה על טווח תאריכים שלם, והיא נוגעת
+ * במנוי של המשרד אצל הספק.
+ */
+function ImportRecordings() {
+  const [days, setDays] = useState(30);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      setResult(await apiPost<ImportResult>("/settings/telephony/recordings/import", { days }));
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "הייבוא נכשל — נסו שוב");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border p-3" style={{ borderColor: "var(--color-border)" }}>
+      <p className="m-0 mb-1 font-bold text-[15px]">ייבוא הקלטות קודמות</p>
+      <p className="m-0 mb-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+        מושך מהמרכזייה את ההקלטות של שיחות שכבר רשומות אצלכם ואין להן אודיו —
+        למשל שיחות שההקלטה שלהן לא הייתה מוכנה כשהאירוע הגיע.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-[14px]">
+          עד לפני
+          <input
+            type="number"
+            min={1}
+            max={90}
+            value={days}
+            onChange={(e) => setDays(Number(e.target.value))}
+            className="mv-input mx-1.5 w-[70px]"
+          />
+          ימים
+        </label>
+        <button type="button" className="mv-btn-plain" disabled={busy} onClick={() => void run()}>
+          {busy ? "מייבא…" : "ייבא הקלטות"}
+        </button>
+      </div>
+      {error ? <Notice tone="danger">{error}</Notice> : null}
+      {result ? (
+        <Notice tone="success">
+          {result.linked > 0
+            ? `${result.linked} הקלטות סומנו למשיכה — הן ייכנסו לכרטיסים תוך כמה דקות.`
+            : "לא נמצאו הקלטות חדשות לצרף."}
+          {result.alreadyHad > 0 ? ` ${result.alreadyHad} כבר היו אצלנו.` : ""}
+          {/*
+            הפער מדווח ולא נבלע: הקלטה של שיחה שקדמה לחיבור המרכזייה
+            אין לה כרטיס להיתלות עליו, ובלי המשפט הזה המשרד היה מניח
+            שהכול נכנס.
+          */}
+          {result.withoutCall > 0
+            ? ` ${result.withoutCall} הקלטות אצל הספק שייכות לשיחות שאינן רשומות במערכת — אלה שיחות שקדמו לחיבור, ואין להן כרטיס לקוח לשייך אליו.`
+            : ""}
+        </Notice>
+      ) : null}
     </div>
   );
 }

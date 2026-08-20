@@ -4,7 +4,9 @@ import { z } from "zod";
 import { IdSchema, TELEPHONY_PROVIDERS } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
+import { TenantContext } from "../../common/tenant-context";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import { RecordingFetchService } from "./recording-fetch.service";
 import { TelephonyService } from "./telephony.service";
 
 const ConnectSchema = z
@@ -51,6 +53,17 @@ const MyLineSchema = z
 
 const ResolveSchema = z.object({ phone: z.string().min(3).max(30) }).strict();
 
+/**
+ * כמה ימים אחורה לייבא.
+ *
+ * תקרה של 90 יום ולא „הכול”: מדיניות השמירה אצל הספק ממילא
+ * מוגבלת, וטווח פתוח הוא בקשה שעלולה להימשך דקות ולהיתקל בפסק
+ * הזמן — כלומר ייבוא שנראה כאילו נכשל אחרי שכבר סימן חצי.
+ */
+const ImportSchema = z
+  .object({ days: z.coerce.number().int().min(1).max(90).default(30) })
+  .strict();
+
 /*
  * שער ברמת המחלקה. ה-Webhook הציבורי שבתוכה מסומן @Public ולכן
  * מדולג כאן — הזכאות שלו נבדקת ב-TelephonyService, אחרי שהמפתח זיהה
@@ -59,7 +72,32 @@ const ResolveSchema = z.object({ phone: z.string().min(3).max(30) }).strict();
 @RequireFeature("telephony")
 @Controller("settings/telephony")
 export class TelephonyController {
-  constructor(private readonly telephony: TelephonyService) {}
+  constructor(
+    private readonly telephony: TelephonyService,
+    private readonly recordings: RecordingFetchService,
+  ) {}
+
+  /**
+   * ייבוא הקלטות שהמרכזייה מחזיקה ואנחנו לא.
+   *
+   * `settings.manage` ולא `leads.edit`: זו פעולה על החיבור של
+   * המשרד, לא על לקוח בודד — ולכן היא שייכת למי שמחזיק אותו.
+   *
+   * מוגבל בקצב: זו קריאה יקרה אצל הספק על טווח תאריכים שלם,
+   * ולחיצה חוזרת אינה מוסיפה דבר (ההקלטות שכבר סומנו נספרות
+   * כ-`alreadyHad`).
+   */
+  @Post("recordings/import")
+  @RequireCapability("settings.manage")
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @HttpCode(200)
+  async importRecordings(
+    @Body(new ZodValidationPipe(ImportSchema)) body: z.infer<typeof ImportSchema>,
+  ): Promise<{ found: number; linked: number; alreadyHad: number; withoutCall: number }> {
+    const to = new Date();
+    const from = new Date(to.getTime() - body.days * 24 * 60 * 60 * 1000);
+    return this.recordings.importRange(TenantContext.current().tenantId, from, to);
+  }
 
   /** רשימת הספקים והשדות שכל אחד דורש — המסך נבנה ממנה. */
   @Get("providers")
