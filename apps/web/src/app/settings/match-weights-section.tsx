@@ -10,6 +10,7 @@ import {
   type MatchWeights,
 } from "@metavchim/shared";
 import { ApiError, apiGet, apiPatch } from "@/lib/api";
+import { formatDate } from "@/lib/format";
 import { IconInfo } from "../icons";
 import { MatchRefreshCard } from "./match-refresh-card";
 import { Notice } from "../notice";
@@ -30,9 +31,46 @@ const CRITERIA = Object.keys(MATCH_CRITERION_LABELS) as MatchCriterion[];
 const toPercent = (value: number): number => Math.round(value * 100);
 const fromPercent = (value: number): number => value / 100;
 
+interface CalibrationEntry {
+  criterion: MatchCriterion;
+  from: number;
+  to: number;
+}
+
+interface CalibrationInfo {
+  at: string;
+  adjusted: CalibrationEntry[];
+}
+
+/**
+ * הכיול נכתב על-ידי השרת, אבל שדה JSON חופשי אינו חוזה: רשומה
+ * מגרסה ישנה או ערך פגום לא צריכים להפיל את מסך ההגדרות — פשוט
+ * לא מציגים אותה.
+ */
+function parseCalibration(raw: unknown): CalibrationInfo | null {
+  if (raw === null || typeof raw !== "object") return null;
+  const at = (raw as { at?: unknown }).at;
+  const list = (raw as { adjusted?: unknown }).adjusted;
+  if (typeof at !== "string" || !Array.isArray(list)) return null;
+  const adjusted = list.filter((entry): entry is CalibrationEntry => {
+    if (entry === null || typeof entry !== "object") return false;
+    const e = entry as { criterion?: unknown; from?: unknown; to?: unknown };
+    return (
+      typeof e.criterion === "string" &&
+      (CRITERIA as string[]).includes(e.criterion) &&
+      typeof e.from === "number" &&
+      typeof e.to === "number"
+    );
+  });
+  if (adjusted.length === 0) return null;
+  return { at, adjusted };
+}
+
 export function MatchWeightsSection() {
   const [weights, setWeights] = useState<MatchWeights | null>(null);
   const [defaults, setDefaults] = useState<MatchWeights | null>(null);
+  const [autoTune, setAutoTune] = useState(true);
+  const [calibration, setCalibration] = useState<CalibrationInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,12 +83,17 @@ export function MatchWeightsSection() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    apiGet<{ weights: MatchWeights; defaults: MatchWeights }>(
-      "/settings/match-weights",
-    )
+    apiGet<{
+      weights: MatchWeights;
+      defaults: MatchWeights;
+      autoTune?: boolean;
+      calibration?: unknown;
+    }>("/settings/match-weights")
       .then((res) => {
         setWeights(res.weights);
         setDefaults(res.defaults);
+        setAutoTune(res.autoTune !== false);
+        setCalibration(parseCalibration(res.calibration ?? null));
       })
       .catch(() => setError("טעינת ההגדרות נכשלה"));
   }, []);
@@ -78,6 +121,26 @@ export function MatchWeightsSection() {
       setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
     } finally {
       setBusy(false);
+    }
+  }
+
+  /*
+   * אופטימי עם החזרה לאחור: המתג משקף מיד את הבחירה, ואם השרת נכשל
+   * הוא חוזר למצבו — מתג שנשאר "דולק" אחרי כיבוי שנכשל היה משאיר
+   * את הכיול רץ בלי שהמנהל יודע.
+   */
+  async function toggleAutoTune(enabled: boolean): Promise<void> {
+    setAutoTune(enabled);
+    setError(null);
+    try {
+      await apiPatch<{ autoTune: boolean }>("/settings/match-weights/auto-tune", {
+        enabled,
+      });
+    } catch (err: unknown) {
+      setAutoTune(!enabled);
+      setError(
+        err instanceof ApiError ? err.message : "עדכון הכיול האוטומטי נכשל",
+      );
     }
   }
 
@@ -217,6 +280,49 @@ export function MatchWeightsSection() {
           או דרישת חובה שהנכס מפר. כדי להתעלם מהמיקום, הסירו מהקונה גם את הערים
           וגם את אזורי החיפוש על המפה.
         </p>
+
+        <div
+          className="mb-4 rounded-lg border p-3"
+          style={{
+            borderColor: "var(--color-border)",
+            background: "var(--color-bg)",
+          }}
+        >
+          <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+            <input
+              type="checkbox"
+              checked={autoTune}
+              onChange={(event) => void toggleAutoTune(event.target.checked)}
+              className="mt-0.5"
+              style={{ accentColor: "var(--color-primary)" }}
+            />
+            <span>
+              <span className="font-medium">כיול אוטומטי לפי הדחיות</span>
+              <span
+                className="mt-0.5 block text-[14px]"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                כשמצטברות מספיק דחיות מסיבה אחת (למשל „המחיר לא מתאים"), המערכת
+                מעלה מעט את משקל הקריטריון — בצעד קטן, לכל היותר פעם בשבוע, ותמיד
+                עם התראה. גרירה ידנית תמיד גוברת.
+              </span>
+            </span>
+          </label>
+          {calibration !== null ? (
+            <p
+              className="m-0 mt-2 text-[14px]"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              כיול אחרון ({formatDate(calibration.at)}):{" "}
+              {calibration.adjusted
+                .map(
+                  (change) =>
+                    `${MATCH_CRITERION_LABELS[change.criterion]} ${toPercent(change.from)}% ← ${toPercent(change.to)}%`,
+                )
+                .join(" · ")}
+            </p>
+          ) : null}
+        </div>
 
         {error ? (
           <Notice tone="danger">{error}</Notice>

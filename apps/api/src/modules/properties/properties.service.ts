@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { ulid } from "ulid";
@@ -52,6 +53,8 @@ import {
 
 @Injectable()
 export class PropertiesService {
+  private readonly logger = new Logger(PropertiesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -135,8 +138,18 @@ export class PropertiesService {
     owner?: { name: string; phone: string };
   }): Promise<PropertyDto> {
     const id = await this.persist(input);
-    // חישוב התאמות — סינכרוני בשלב זה; יעבור לתור BullMQ עם עליית ה-Workers (docs/07 §5).
-    await this.matching.recomputeForProperty(id);
+    /*
+     * ההתאמות מחושבות **ברקע** — היצירה חוזרת מיד.
+     *
+     * החישוב סורק את כל הקונים במשרד, ובמאגר גדול זה שניות ארוכות
+     * שהסוכן חיכה בהן מול טופס קפוא. הנכס עצמו כבר נשמר; ההתאמות
+     * מופיעות בכרטיס שניות אחר כך. רשת הביטחון לכשל היא הרענון
+     * התקופתי (MatchRefreshService), שסורק את כל המאגר ממילא —
+     * אותה עסקת best-effort שכבר נהוגה בייבוא ובהמרת ליד.
+     */
+    void this.matching.recomputeForProperty(id).catch((error: unknown) => {
+      this.logger.warn(`background match recompute failed for property ${id}: ${String(error)}`);
+    });
     await this.autoPublishToNetwork(id);
     return this.getById(id);
   }
@@ -291,11 +304,10 @@ export class PropertiesService {
       throw error;
     }
 
-    try {
-      await this.matching.recomputeForProperty(propertyId);
-    } catch {
-      // הנכס כבר קיים; ההתאמות יחושבו בעריכה הבאה
-    }
+    // ברקע — כמו ביצירה; הליד כבר הומר והנכס נשמר
+    void this.matching.recomputeForProperty(propertyId).catch((error: unknown) => {
+      this.logger.warn(`background match recompute failed for property ${propertyId}: ${String(error)}`);
+    });
     // ליד שהומר הוא נכס חדש לכל דבר — אותה מדיניות רשת כמו בקליטה
     await this.autoPublishToNetwork(propertyId);
     return this.getById(propertyId);

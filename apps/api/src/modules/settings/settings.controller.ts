@@ -353,6 +353,10 @@ export class SettingsController {
   async matchWeights(): Promise<{
     weights: MatchWeights;
     defaults: MatchWeights;
+    /** הכיול האוטומטי מהדחיות — דולק כברירת מחדל. */
+    autoTune: boolean;
+    /** הכיול האחרון, אם היה — לשקיפות במסך. */
+    calibration: { at: string; adjusted: unknown[] } | null;
   }> {
     const tenantId = TenantContext.current().tenantId;
     const tenant = await this.prisma.tenant.findUnique({
@@ -360,10 +364,51 @@ export class SettingsController {
       select: { settings: true },
     });
     const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
+    const rawCalibration = settings["matchWeightsCalibration"] as
+      | { at?: unknown; adjusted?: unknown }
+      | null
+      | undefined;
     return {
       weights: resolveMatchWeights(settings["matchWeights"]),
       defaults: { ...DEFAULT_MATCH_WEIGHTS },
+      autoTune: settings["autoTuneMatchWeights"] !== false,
+      calibration:
+        rawCalibration !== null &&
+        typeof rawCalibration === "object" &&
+        typeof rawCalibration.at === "string" &&
+        Array.isArray(rawCalibration.adjusted)
+          ? { at: rawCalibration.at, adjusted: rawCalibration.adjusted }
+          : null,
     };
+  }
+
+  /**
+   * הפעלה/כיבוי של הכיול האוטומטי. מפתח נפרד ולא חלק מסכימת
+   * המשקלים: מתג שמצורף לשמירת המשקלים היה גורר סבב חישוב מלא על
+   * כל הקשה, והכיבוי הוא בדיוק הפעולה של מי שרוצה שקט.
+   */
+  @Patch("match-weights/auto-tune")
+  @RequireCapability("settings.manage")
+  @HttpCode(200)
+  async setMatchWeightsAutoTune(
+    @Body(new ZodValidationPipe(z.object({ enabled: z.boolean() }).strict()))
+    body: { enabled: boolean },
+  ): Promise<{ autoTune: boolean }> {
+    const tenantId = TenantContext.current().tenantId;
+    await this.prisma.$executeRaw`
+      UPDATE tenants
+      SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{autoTuneMatchWeights}', ${JSON.stringify(body.enabled)}::jsonb, true)
+      WHERE id = ${tenantId}
+    `;
+    await this.prisma.withTenant((tx) =>
+      this.audit.record(tx, {
+        action: "settings.match_weights_auto_tune",
+        entityType: "tenant",
+        entityId: tenantId,
+        metadata: { enabled: body.enabled },
+      }),
+    );
+    return { autoTune: body.enabled };
   }
 
   /**
