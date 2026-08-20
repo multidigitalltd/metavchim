@@ -308,12 +308,47 @@ export class AgentInterpretService {
       };
     }
     if (actionId === "add_note") {
-      // מנוע החוקים אינו מפריד כרטיס מהערה — השם למי, וכל המשפט כתוכן
-      return { cardPhrase: base["name"], note: person.summary };
+      /*
+       * "תוסיף הערה למשה כהן שהוא נוסע לחו״ל" — הכרטיס הוא מה שאחרי
+       * ה-ל', וההערה היא מה שאחרי השם. הגרסה הקודמת שלחה את **כל
+       * המשפט** כולל מילות הפקודה כתוכן ההערה, ולא זיהתה למי בכלל
+       * (דיווח המשתמש — הכרטיס לא הראה אצל מי הולכים לשנות).
+       */
+      const clean = transcript.replace(/\s+/gu, " ").trim();
+      const match =
+        /הערה\s+(?:ל|אצל\s+|על\s+)(?:הליד\s+של\s+|הקונה\s+|הכרטיס\s+של\s+|משפחת\s+)?(?<name>[א-ת]+(?:\s+[א-ת]+)?)\s*(?<rest>.*)$/u.exec(
+          clean,
+        );
+      let cardPhrase = match?.groups?.["name"];
+      let note = match?.groups?.["rest"]?.trim() ?? "";
+      /*
+       * "דנה שהיא…" — המילה השנייה היא פסוקית זיקה, לא שם משפחה.
+       * הבדיקה מול פתיחי פסוקית מפורשים ולא כל מילה שמתחילה ב-ש':
+       * "משה שלום" הוא שם מלא, ו"שלום" שנקרע ממנו היה משבש גם את
+       * החיפוש וגם את ההערה (ביקורת Codex).
+       */
+      const tokens = cardPhrase?.split(" ") ?? [];
+      if (tokens.length === 2 && CLAUSE_OPENER.test(tokens[1]!)) {
+        cardPhrase = tokens[0]!;
+        note = `${tokens[1]!} ${note}`.trim();
+      }
+      // "שהוא נוסע" ⟵ "הוא נוסע" — ש' החיבור אינה חלק מהתוכן
+      if (CLAUSE_OPENER.test(note)) note = note.slice(1);
+      return {
+        cardPhrase: cardPhrase ?? base["name"],
+        note: note !== "" ? note : person.summary,
+      };
     }
     if (actionId === "update_lead_status") {
+      // "תעדכן את הליד של דני לבטיפול" — השם אחרי "הליד של", לפני מילת הסטטוס
+      const leadMatch = /ה?ליד\s+(?:של\s+)?(?<name>[א-ת]+(?:\s+[א-ת]+)?)/u.exec(transcript);
+      let leadPhrase = leadMatch?.groups?.["name"];
+      const leadTokens = leadPhrase?.split(/\s+/u) ?? [];
+      if (leadTokens.length === 2 && /^ל?(?:בטיפול|ממתין|סגור|חדש)/u.test(leadTokens[1]!)) {
+        leadPhrase = leadTokens[0]!;
+      }
       return {
-        leadPhrase: base["name"],
+        leadPhrase: leadPhrase ?? base["name"],
         leadStatus: /בטיפול/u.test(transcript)
           ? "in_progress"
           : /ממתין/u.test(transcript)
@@ -326,6 +361,14 @@ export class AgentInterpretService {
     return base;
   }
 }
+
+/**
+ * פתיחי פסוקית זיקה — "שהוא", "שרוצה", "שיש"… רשימה סגורה בכוונה:
+ * כל מילה שמתחילה ב-ש' אינה פסוקית ("שלום", "שרה"), והכרעה רחבה
+ * מדי קורעת שמות משפחה אמיתיים.
+ */
+const CLAUSE_OPENER =
+  /^ש(?:הוא|היא|הם|הן|יש|אין|צריך|צריכה|רוצה|רוצים|מחפש|מחפשת|ביקש|ביקשה|אמר|אמרה)/u;
 
 /** הכוונות של מנוע החוקים ⟵ מזהי הקטלוג. */
 const RULE_ACTION_MAP: Record<string, string | undefined> = {

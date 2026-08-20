@@ -269,6 +269,13 @@ export function ProposalCard({
  * אמיתי.
  */
 function isEditable(field: ProposalField): boolean {
+  /*
+   * מזהה רשומה שנפתר מהמאגר (buyerId, cardId…) מוצג ואינו נערך:
+   * עריכה של הטקסט המוצג הייתה שולחת את **השם** במקום המזהה,
+   * והביצוע היה נכשל או פוגע ברשומה אחרת (ביקורת Codex). תיקון
+   * הבחירה נעשה בניסוח מחדש („תקנו אותי”), לא בהקלדה על מזהה.
+   */
+  if (field.key.endsWith("Id")) return false;
   return typeof field.value === "string" || typeof field.value === "number";
 }
 

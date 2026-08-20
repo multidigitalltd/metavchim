@@ -77,7 +77,7 @@ export class AgentResolveService {
     this.resolveDates(action.id, transcript, params, resolvedKeys);
     this.applyKindDefault(action.id, transcript, params, resolvedKeys);
 
-    const candidates = await this.resolveEntity(action.id, params);
+    const { candidates, chosen } = await this.resolveEntity(action.id, params);
 
     for (const key of interpretation.rejected) {
       warnings.push(`לא הצלחתי לקרוא את הערך של „${agentFieldLabel(action.id, key)}”`);
@@ -87,6 +87,13 @@ export class AgentResolveService {
     }
 
     const fields = this.toFields(action.id, params, interpretation, resolvedKeys);
+    /*
+     * התאמה יחידה שנבחרה אוטומטית **מוצגת** בכרטיס, ולא רק נכנסת
+     * לפרמטרים. "תוסיף הערה למשה כהן" שנפתר בשקט למזהה הציג כרטיס
+     * שלא אומר אצל מי ההערה תיכתב — והמתווך אישר פעולה עיוורת
+     * (דיווח המשתמש). ההצגה כשדה שנפתר, כמו תאריך.
+     */
+    if (chosen) fields.push(chosen);
 
     return {
       actionId: action.id,
@@ -204,22 +211,31 @@ export class AgentResolveService {
   private async resolveEntity(
     actionId: string,
     params: Record<string, unknown>,
-  ): Promise<AgentProposal["candidates"] | undefined> {
+  ): Promise<{ candidates?: AgentProposal["candidates"]; chosen?: AgentField }> {
     const spec = ENTITY_LOOKUP[actionId];
-    if (spec === undefined) return undefined;
+    if (spec === undefined) return {};
     const phrase = params[spec.key];
-    if (typeof phrase !== "string" || phrase.trim().length < 2) return undefined;
+    if (typeof phrase !== "string" || phrase.trim().length < 2) return {};
 
     const options = await this.candidatesFor(spec.kind, phrase.trim());
 
     if (options.length === 0) {
-      return { key: spec.key, idKey: spec.idKey, label: spec.label, options: [] };
+      return { candidates: { key: spec.key, idKey: spec.idKey, label: spec.label, options: [] } };
     }
     if (options.length === 1 && !spec.alwaysChoose) {
-      params[spec.idKey] = options[0]!.id;
-      return undefined;
+      const match = options[0]!;
+      params[spec.idKey] = match.id;
+      return {
+        chosen: {
+          key: spec.idKey,
+          label: spec.label,
+          value: match.id,
+          display: [match.label, match.detail].filter(Boolean).join(" — "),
+          source: "resolved",
+        },
+      };
     }
-    return { key: spec.key, idKey: spec.idKey, label: spec.label, options };
+    return { candidates: { key: spec.key, idKey: spec.idKey, label: spec.label, options } };
   }
 
   /** מועמדים לביטוי, לפי סוג הרשומה שהפעולה מדברת עליה. */
@@ -390,8 +406,19 @@ const RECOMMENDED: Record<string, readonly string[]> = {
   create_property: ["city", "propertyType", "dealType", "rooms", "priceShekels"],
   schedule_appointment: ["startsAt"],
   create_task: ["title"],
-  add_note: ["note"],
-  update_lead_status: ["leadStatus"],
+  /*
+   * בפעולות שמכוונות לרשומה קיימת, הביטוי המזהה הוא ההשלמה החשובה
+   * ביותר: בלעדיו הביצוע ייכשל ב"לא נבחר…" רק אחרי האישור. עדיף
+   * שהכרטיס יאמר מראש מה חסר.
+   */
+  add_note: ["cardPhrase", "note"],
+  update_lead_status: ["leadPhrase", "leadStatus"],
+  update_buyer: ["buyerPhrase"],
+  update_property: ["propertyPhrase"],
+  complete_task: ["taskPhrase"],
+  send_offer: ["buyerPhrase", "propertyPhrase"],
+  share_property: ["propertyPhrase"],
+  share_buyer: ["buyerPhrase"],
 };
 
 function formatDate(iso: string): string {
@@ -424,6 +451,18 @@ function summarize(actionId: string, params: Record<string, unknown>): string {
     }
     case "create_task":
       return typeof params["title"] === "string" ? params["title"] : "תזכורת";
+    case "add_note":
+      return typeof params["cardPhrase"] === "string"
+        ? `הערה אצל ${params["cardPhrase"]}`
+        : "הוספת הערה";
+    case "update_lead_status":
+      return typeof params["leadPhrase"] === "string"
+        ? `עדכון הליד של ${params["leadPhrase"]}`
+        : "עדכון סטטוס ליד";
+    case "complete_task":
+      return typeof params["taskPhrase"] === "string"
+        ? `סגירת המשימה „${params["taskPhrase"]}”`
+        : "סגירת משימה";
     case "search":
       return typeof params["query"] === "string" ? `חיפוש: ${params["query"]}` : "חיפוש";
     default:

@@ -176,6 +176,45 @@ export function PlatformSettingsSection({
     }
   }
 
+  /**
+   * בדיקת חיבור אמיתית למנוע ההבנה החכמה.
+   *
+   * "זיהוי בסיסי" בכל פקודה קולית כשמפתח מוגדר הוא כשל שקט — הסיבה
+   * חיה רק ביומן השרת. הבדיקה מריצה שתי קריאות אמת (פינג + פענוח
+   * מלא בסכימה האמיתית) ומציגה את התשובה המדויקת של Google: מפתח
+   * פסול, שם מודל שגוי, חסימת רשת או סכימה שנדחתה — כל אחד מהם
+   * נראה כאן אחרת.
+   */
+  async function testGemini(): Promise<void> {
+    setBusy(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await apiPost<{
+        model: string;
+        ping: { ok: boolean; latencyMs: number; error?: string };
+        interpret: { ok: boolean; latencyMs: number; error?: string; action?: string };
+        lastFailure: { at: string; detail: string } | null;
+      }>("/platform/settings/test-gemini", {});
+      if (res.ping.ok && res.interpret.ok) {
+        setMessage(
+          `✓ מנוע ההבנה תקין (${res.model}): פינג ${res.ping.latencyMs}ms, פענוח מלא ${res.interpret.latencyMs}ms` +
+            (res.interpret.action ? ` — זוהתה הפעולה "${res.interpret.action}"` : ""),
+        );
+      } else if (!res.ping.ok) {
+        setError(`מנוע ההבנה לא מגיב (${res.model}): ${res.ping.error ?? "ללא פירוט"}`);
+      } else {
+        setError(
+          `הפינג תקין אבל קריאת הפענוח המלאה נכשלת (${res.model}): ${res.interpret.error ?? "ללא פירוט"}`,
+        );
+      }
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "בדיקת החיבור נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveCardcom(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -522,6 +561,16 @@ export function PlatformSettingsSection({
             />
           </div>
           <Button type="submit" disabled={busy}>שמור</Button>
+          {/*
+            בדיקה אמיתית ולא בדיקת שדה: "מוגדר" מכסה גם על מפתח פסול,
+            שם מודל שכבר לא קיים, או שרת שחסום ליציאה אל Google — וכולם
+            נראים למשתמש כ"זיהוי בסיסי" בכל פקודה, בלי שום הסבר.
+          */}
+          {settings.gemini?.configured ? (
+            <Button type="button" variant="secondary" disabled={busy} onClick={() => void testGemini()}>
+              בדיקת מנוע ההבנה
+            </Button>
+          ) : null}
         </form>
       </div>
 
