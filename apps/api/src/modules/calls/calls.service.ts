@@ -1,6 +1,7 @@
 import type { Readable } from "node:stream";
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
+import { assertContactAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -197,18 +198,48 @@ export class CallsService {
    *
    * MinIO יושב ברשת פנימית בלי כתובת ציבורית, וכתובת חתומה הייתה
    * הופכת הקלטה של לקוח לקישור שאפשר להעביר הלאה. כאן כל בקשה
-   * עוברת את אותו שער של שאר המערכת, ו-RLS מוודא שהשיחה שייכת
-   * למשרד — ידיעת מזהה אינה הרשאה.
+   * עוברת את אותו שער של שאר המערכת.
+   *
+   * ## למה RLS לבדו אינו מספיק כאן
+   *
+   * ‎`FORCE ROW LEVEL SECURITY`‎ מבודד **משרד ממשרד**, לא סוכן
+   * מסוכן. שליפה לפי `{ id, tenantId }` בלבד הייתה מאפשרת לסוכן עם
+   * `leads.view_own` להשמיע את שיחת הלקוח של סוכן אחר — ידיעת מזהה
+   * אינה הרשאה, וזה בדיוק ה-IDOR הפנימי ש-`ownership.ts` נבנה נגדו
+   * (ביקורת Codex).
+   *
+   * הבעלות נגזרת מאיש הקשר, כמו בכל שאר הישויות שאין להן בעלים
+   * משלהן: `assertContactAccess` בודק אם הלקוח מופיע ככרטיס קונה,
+   * כליד או כבעל נכס שהמשתמש רשאי לראות. שיחה שנרשמה ידנית בלי
+   * איש קשר שייכת למי שרשם אותה.
+   *
+   * ## למה 404 ולמה בסדר הזה
+   *
+   * בדיקת הבעלות קודמת לבדיקת קיום ההקלטה, ושתיהן מחזירות 404
+   * זהה. אחרת ההבדל בין „אין הקלטה” לבין „לא שלך” היה מסגיר לסוכן
+   * אילו משיחות העמיתים שלו מוקלטות.
    */
   async recording(
     id: string,
   ): Promise<{ body: Readable; contentType: string; contentLength?: number }> {
     const key = await this.prisma.withTenant(async (tx) => {
+      const { tenantId, userId, capabilities } = TenantContext.current();
       const row = await tx.call.findFirst({
-        where: { id, tenantId: TenantContext.current().tenantId },
-        select: { recordingKey: true },
+        where: { id, tenantId },
+        select: { recordingKey: true, contactId: true, createdBy: true },
       });
       if (!row) throw new NotFoundException("שיחה לא נמצאה");
+
+      if (row.contactId !== null) {
+        // ההודעה מאוחדת: „איש קשר לא נמצא” על בקשת הקלטה היה מסגיר
+        // שהשיחה קיימת ורק הלקוח שבה אינו שלי
+        await assertContactAccess(tx, tenantId, row.contactId).catch(() => {
+          throw new NotFoundException("שיחה לא נמצאה");
+        });
+      } else if (!capabilities.has("leads.view_all") && row.createdBy !== userId) {
+        throw new NotFoundException("שיחה לא נמצאה");
+      }
+
       /*
        * שיחה בלי הקלטה אינה שגיאת שרת אלא מצב רגיל — רוב השיחות
        * אינן מוקלטות, והמסך צריך לדעת להבדיל בין "אין" ל"נכשל".

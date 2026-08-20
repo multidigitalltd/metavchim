@@ -1599,6 +1599,13 @@ model Call {
   /// „יש נתיב ואין מפתח” הוא מה שמסמן שיחה שממתינה למשיכה, ולכן
   /// הוא נשאר גם אחריה — שתי העמודות מתארות שני מקומות שונים.
   providerRecordingPath String? @map("provider_recording_path") @db.VarChar(300)
+  /// מתי נוסתה המשיכה בפעם האחרונה — על **כל** ניסיון, גם כושל.
+  ///
+  /// זה מה שהופך את הסבב להוגן. בלי החותמת כישלון אינו משנה דבר
+  /// בשורה, ולכן שיחה עם נתיב פגום או אישורים שפגו נבחרת שוב ושוב
+  /// ותופסת את מכסת הסבב — עד שתזדקן שבוע, ובינתיים שאר ההקלטות
+  /// של אותו משרד אינן נמשכות כלל (ביקורת Codex).
+  providerRecordingAttemptAt DateTime? @map("provider_recording_attempt_at")
   transcript          String?
   transcribedAt       DateTime? @map("transcribed_at")
   /**

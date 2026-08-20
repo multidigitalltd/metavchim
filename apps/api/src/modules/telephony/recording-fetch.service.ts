@@ -65,6 +65,15 @@ const MAX_PER_SWEEP = 20;
  */
 const GIVE_UP_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * כמה להמתין לפני ניסיון חוזר על שיחה שכבר נוסתה.
+ *
+ * חצי שעה, ולא חמש דקות כמו קצב הסבב: הסיבות הנפוצות לכישלון —
+ * הקלטה שהספק טרם הכין, מנוי שפג, תקלת רשת — אינן נפתרות בתוך סבב
+ * אחד, וניסיון כל חמש דקות רק היה שורף את המכסה.
+ */
+const RETRY_AFTER_MS = 30 * 60 * 1000;
+
 /** שיחה אחת שממתינה למשיכה, עם אישורי המרכזייה של המשרד שלה. */
 interface RecordingJob {
   callId: string;
@@ -114,6 +123,14 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
           this.logger.warn(`משיכת הקלטה נכשלה (${job.callId}): ${String(error)}`);
         });
       }
+    } catch (error: unknown) {
+      /*
+       * ‎`finally`‎ לבדו לא הספיק: `pending()` שנופל על תקלת מסד
+       * זמנית היה מדחה את `tick()`, ושני הטיימרים זורקים את ההבטחה
+       * עם `void`. דחייה לא-מטופלת מפילה את תהליך ה-API כולו — סבב
+       * רקע לא אמור להיות מסוגל לעשות את זה (ביקורת Codex).
+       */
+      this.logger.error(`סבב משיכת ההקלטות נכשל: ${String(error)}`);
     } finally {
       this.running = false;
     }
@@ -137,7 +154,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
    * ממשיך להיאכף במסד גם בסבב שאין בו בקשה ואין בו משתמש.
    */
   private async pending(): Promise<RecordingJob[]> {
-    const since = new Date(Date.now() - GIVE_UP_AFTER_MS);
+    const now = Date.now();
     const tenants = await this.prisma.tenant.findMany({
       where: { status: { in: ["active", "trial"] } },
       select: { id: true },
@@ -147,17 +164,29 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     for (const tenant of tenants) {
       // התקציב גלובלי, ולכן נבדק לפני כל משרד ולא רק בסופו
       if (jobs.length >= MAX_PER_SWEEP) break;
-      jobs.push(...(await this.pendingFor(tenant.id, since, MAX_PER_SWEEP - jobs.length)));
+      jobs.push(...(await this.pendingFor(tenant.id, now, MAX_PER_SWEEP - jobs.length)));
     }
     return jobs;
   }
 
-  /** השיחות הממתינות של משרד אחד — הכול תחת הקשר הדייר שלו. */
-  private async pendingFor(
-    tenantId: string,
-    since: Date,
-    take: number,
-  ): Promise<RecordingJob[]> {
+  /**
+   * השיחות הממתינות של משרד אחד — הכול תחת הקשר הדייר שלו.
+   *
+   * ## סדר הוגן, ולא „החדשות קודם”
+   *
+   * המיון הוא לפי מועד הניסיון האחרון, ומי שטרם נוסה קודם לכולם.
+   * הגרסה הראשונה מיינה לפי מועד השיחה יורד, וזו הייתה הרעבה: עשרים
+   * השיחות החדשות ביותר שהמשיכה שלהן נכשלת — נתיב פגום, אישורים
+   * שפגו, הקלטה שהספק טרם הכין — היו נבחרות מחדש בכל סבב ותופסות את
+   * המכסה, בעוד שהשיחות הישנות יותר לא נמשכות **כלל** עד שיזדקנו
+   * שבוע ויירדו מהחלון. כלומר דווקא אלה שהזמן אוזל להן (ראו
+   * `GIVE_UP_AFTER_MS`) נדחקו אחרונות (ביקורת Codex).
+   *
+   * החותמת נכתבת לפני המשיכה ועל כל השורות שנבחרו יחד, ולכן היא
+   * מתעדכנת גם אם התהליך נופל באמצע הסבב. הכתיבה היחידה הזו היא גם
+   * מה שמונע משתי הרצות במקביל לבחור את אותן שורות.
+   */
+  private async pendingFor(tenantId: string, now: number, take: number): Promise<RecordingJob[]> {
     return this.prisma.withExplicitTenant(tenantId, async (tx) => {
       const integration = await tx.integration.findFirst({
         where: { tenantId, kind: "telephony", provider: "015", status: "active" },
@@ -172,11 +201,25 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
           providerRecordingPath: { not: null },
           recordingKey: null,
           providerCallId: { not: null },
-          occurredAt: { gt: since },
+          occurredAt: { gt: new Date(now - GIVE_UP_AFTER_MS) },
+          OR: [
+            { providerRecordingAttemptAt: null },
+            { providerRecordingAttemptAt: { lt: new Date(now - RETRY_AFTER_MS) } },
+          ],
         },
         select: { id: true, providerCallId: true, providerRecordingPath: true },
-        orderBy: { occurredAt: "desc" },
+        orderBy: [
+          { providerRecordingAttemptAt: { sort: "asc", nulls: "first" } },
+          // בין אלה שטרם נוסו — הישנה קודם, כי הזמן שלה אוזל
+          { occurredAt: "asc" },
+        ],
         take,
+      });
+      if (calls.length === 0) return [];
+
+      await tx.call.updateMany({
+        where: { id: { in: calls.map((call) => call.id) }, tenantId },
+        data: { providerRecordingAttemptAt: new Date(now) },
       });
 
       return calls.map((call) => ({
@@ -238,15 +281,33 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     await this.storage.put(key, audio, parsed.contentType);
 
     const available = (await this.transcription.status()).available;
-    await this.prisma.withExplicitTenant(job.tenantId, async (tx) => {
-      await tx.call.updateMany({
+    const claimed = await this.prisma.withExplicitTenant(job.tenantId, (tx) =>
+      tx.call.updateMany({
         where: { id: job.callId, tenantId: job.tenantId, recordingKey: null },
         data: {
           recordingKey: key,
           transcriptionStatus: available ? "pending" : "unavailable",
         },
-      });
-    });
+      }),
+    );
+
+    /*
+     * העדכון מותנה, ולכן הוא יכול להפסיד: השיחה נמחקה בינתיים, מישהו
+     * העלה לה הקלטה ידנית, או סבב מקביל הקדים. במקרה כזה הקובץ כבר
+     * ב-S3 אבל אף שורה אינה מצביעה עליו — כלומר מסלולי המחיקה
+     * (מחיקת לקוח, מחיקת חשבון) לא ימצאו אותו לעולם, והמערכת תצהיר
+     * שהכול נמחק בזמן שאודיו של לקוח נשאר באחסון (ביקורת Codex).
+     *
+     * מפתח יתום נמחק כאן ועכשיו. הסבב הבא ימשוך שוב אם עדיין צריך.
+     */
+    if (claimed.count === 0) {
+      await this.storage
+        .delete(key)
+        .catch((error: unknown) =>
+          this.logger.error(`מפתח הקלטה יתום שלא נמחק (${key}): ${String(error)}`),
+        );
+      return;
+    }
     this.logger.log(`הקלטה נמשכה מ-015 לשיחה ${job.callId} (${audio.length} בתים)`);
   }
 
