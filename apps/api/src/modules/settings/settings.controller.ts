@@ -176,10 +176,10 @@ const LeadWebhookSchema = z
  */
 const MatchWeightsSchema = z
   .object({
-    // שלושת הפוסלים לא יורדים מתחת למינימום — ראו HARD_MATCH_CRITERIA
+    // הפוסלים לא יורדים מתחת למינימום — ראו HARD_MATCH_CRITERIA
     location: z.number().min(MIN_HARD_WEIGHT).max(1),
     budget: z.number().min(MIN_HARD_WEIGHT).max(1),
-    rooms: z.number().min(0).max(1),
+    rooms: z.number().min(MIN_HARD_WEIGHT).max(1),
     property_type: z.number().min(0).max(1),
     features_must: z.number().min(MIN_HARD_WEIGHT).max(1),
     features_nice: z.number().min(0).max(1),

@@ -88,10 +88,10 @@ export type MatchCriterion = keyof typeof DEFAULT_MATCH_WEIGHTS;
 /**
  * קריטריונים שאינם ניתנים לביטול.
  *
- * שלושת אלה אינם רק משוקללים — הם **פוסלים**: עיר שאינה ברשימת
- * הקונה, מחיר מעל התקציב, ודרישת חובה שהנכס מפר, כולם מוציאים את
- * ההתאמה מהרשימה לגמרי. חלקם אף מסננים כבר ב-SQL, לפני שהניקוד
- * בכלל רץ.
+ * אלה אינם רק משוקללים — הם **פוסלים**: עיר שאינה ברשימת הקונה,
+ * מחיר מחוץ לרצועת התקציב, מספר חדרים מחוץ לטווח שביקש הקונה,
+ * ודרישת חובה שהנכס מפר, כולם מוציאים את ההתאמה מהרשימה לגמרי.
+ * חלקם אף מסננים כבר ב-SQL, לפני שהניקוד בכלל רץ.
  *
  * לכן משקל אפס עליהם היה שקר: המסך היה מציג "מבוטל" בעוד שהקריטריון
  * ממשיך למחוק מועמדים (ביקורת Codex). במקום להתיר ביטול מדומה,
@@ -101,11 +101,36 @@ export type MatchCriterion = keyof typeof DEFAULT_MATCH_WEIGHTS;
 export const HARD_MATCH_CRITERIA: readonly MatchCriterion[] = [
   "location",
   "budget",
+  "rooms",
   "features_must",
 ];
 
 /** המשקל המזערי לקריטריון פוסל. */
 export const MIN_HARD_WEIGHT = 0.05;
+
+/**
+ * רצועת הסטייה המותרת מהתקציב המסומן — לכל כיוון, במכירה.
+ *
+ * 400 אלף ₪ (בקשת המשתמש): קונה שסימן 3.5 מיליון לא מחפש דירות של
+ * 2.5 מיליון — סטייה של מיליון ומטה אינה "מציאה" אלא סגמנט אחר —
+ * ונכס שמעל התקציב ביותר מהרצועה אינו גמישות אלא חלום.
+ */
+export const BUDGET_BAND_AGOROT = 40_000_000;
+/**
+ * בשכירות הרצועה יחסית: 400 אלף ₪ על שכר דירה של 6,000 ₪ הייתה
+ * מוחקת את הקריטריון. 15% לכל כיוון — הגמישות המקובלת בשוק השכירות.
+ */
+export const RENT_BUDGET_BAND_RATIO = 0.15;
+
+/** רוחב הרצועה סביב סכום נתון — לפי סוג העסקה. */
+export function budgetBandAgorot(
+  refAgorot: number,
+  dealType: string | undefined,
+): number {
+  return dealType === "rent"
+    ? Math.round(refAgorot * RENT_BUDGET_BAND_RATIO)
+    : BUDGET_BAND_AGOROT;
+}
 /**
  * תקרת משקל לקריטריון בודד — גם במחוון וגם בכיול האוטומטי.
  * ערך אחד לשניהם: כיול שהיה חורג מטווח המחוון היה מציג במסך ערך
@@ -225,25 +250,58 @@ export function scoreMatch(
   if (property.priceAgorot !== undefined && buyer.budgetMaxAgorot !== undefined) {
     const max = buyer.budgetMaxAgorot;
     const price = property.priceAgorot;
+    /*
+     * רצועת סטייה לשני הכיוונים (בקשת המשתמש): המחיר אינו חורג
+     * מהתקציב המסומן ביותר מ-400 אלף ₪ למעלה **או למטה** — קונה
+     * שסימן 3.5 מיליון אינו מחפש נכסים של 2.5 מיליון, והצעה כזו
+     * אינה "מציאה" אלא רעש. בשכירות הרצועה יחסית (15%).
+     *
+     * הרף התחתון: המינימום שהקונה הצהיר, ואם לא הצהיר — התקציב
+     * עצמו הוא הסימון, והרצועה נמדדת ממנו.
+     */
+    const dealType = property.dealType ?? buyer.dealType;
+    const band = budgetBandAgorot(max, dealType);
+    /*
+     * הרצפה לפסילה: המינימום המוצהר, ואם אין — התקציב עצמו הוא
+     * הסימון והרצועה נמדדת ממנו. מתחת לרצפה פחות הרצועה — פסילה;
+     * ניקוד חלקי על "מתחת" ניתן רק כשהקונה הצהיר מינימום במפורש —
+     * מי שאמר רק "עד 2.8" לא ביקש שנעניש נכס של 2.6.
+     */
+    const lowRef = buyer.budgetMinAgorot ?? max;
     let score: number;
     let note: string;
-    if (price <= max) {
-      score = 1;
-      note = "בתקציב";
-    } else if (price <= max * 1.07) {
-      score = 0.6; // עד 7% מעל — גמישות מקובלת בשוק
-      note = "מעט מעל התקציב (עד 7%)";
-    } else {
+    if (price > max + band) {
       score = 0;
       note = "מעל התקציב";
       excluded = true;
-    }
-    if (buyer.budgetMinAgorot !== undefined && price < buyer.budgetMinAgorot) {
-      score = Math.min(score, 0.5);
+    } else if (price > max) {
+      score = 0.6; // בתוך רצועת הגמישות — מוצג, עם הסתייגות
+      note = "מעט מעל התקציב — בתוך רצועת הגמישות";
+    } else if (price < lowRef - band) {
+      score = 0;
+      note = "נמוך מהתקציב המסומן בהרבה — כנראה סגמנט אחר";
+      excluded = true;
+    } else if (
+      buyer.budgetMinAgorot !== undefined &&
+      price < buyer.budgetMinAgorot
+    ) {
+      score = 0.5;
       note = "מתחת לרף התקציב שהוגדר";
+    } else {
+      score = 1;
+      note = "בתקציב";
     }
     parts.push({ criterion: "budget", weight: weights.budget, score, note });
   }
+
+  /*
+   * --- חדרים (0.15, פוסל) ---
+   *
+   * טווח החדרים הוא קריטי (בקשת המשתמש): נכס מחוץ לטווח שהקונה
+   * ביקש — ביותר מחצי חדר — נפסל ולא רק מאבד ניקוד. חצי חדר הוא
+   * גמישות סבירה (4.5 מוצג למי שביקש עד 4); שני חדרים אינם.
+   * נכס בלי מספר חדרים אינו נפסל — "לא ידוע" אינו "מחוץ לטווח".
+   */
 
   // --- חדרים (0.15) ---
   if (property.rooms !== undefined && (buyer.roomsMin !== undefined || buyer.roomsMax !== undefined)) {
@@ -257,6 +315,8 @@ export function scoreMatch(
       score: inRange ? 1 : nearMiss ? 0.5 : 0,
       note: inRange ? `${property.rooms} חדרים — בטווח` : `${property.rooms} חדרים — מחוץ לטווח המבוקש`,
     });
+    // מעבר לחצי חדר מהטווח — פסילה, לא רק גריעת ניקוד
+    if (!nearMiss) excluded = true;
   }
 
   // --- סוג נכס (0.1) ---
