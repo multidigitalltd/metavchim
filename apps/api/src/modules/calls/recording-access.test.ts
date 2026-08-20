@@ -161,6 +161,24 @@ describe("גישה להקלטת שיחה", () => {
     }
   });
 
+  /*
+   * מחיקת ליד משאירה את איש הקשר בחיים כל עוד יש שיחות שמצביעות
+   * עליו, אבל הוא כבר אינו כרטיס קונה, ליד או בעל נכס — כלומר אינו
+   * שייך לאיש. בלי ענף „אני רשמתי” ההיסטוריה של הסוכן הייתה נעלמת
+   * דווקא מהשיחות ששרדו את המחיקה (ביקורת Codex).
+   */
+  it("שיחה של לקוח שנמחק נשארת אצל מי שרשם אותה", async () => {
+    const orphan: FakeCall = { recordingKey: "k", contactId: "01ORPHAN", createdBy: "01ME" };
+    await expect(
+      asAgent(["leads.view_own"], "01ME", () => serviceFor(orphan).recording("01CALL")),
+    ).resolves.toBeDefined();
+
+    // ולא נפתחת לעמית רק מפני שהלקוח התייתם
+    await expect(
+      asAgent(["leads.view_own"], "01OTHER", () => serviceFor(orphan).recording("01CALL")),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
   it("שיחה שאינה שלי ושיחה שאינה קיימת נראות זהה", async () => {
     const messages: string[] = [];
     for (const call of [null, OTHERS_CALL, { ...OTHERS_CALL, recordingKey: null }]) {

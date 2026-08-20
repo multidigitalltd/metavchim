@@ -123,8 +123,18 @@ export class CallsService {
    * סוכן עם `leads.view_own` אינו רואה את הליד של עמיתו, אבל כן ראה
    * את תמלול השיחה איתו.
    *
-   * הכלל זהה ל-`assertContactAccess` בדיוק, רק בצורתו הקבוצתית.
-   * שיחה שנרשמה בלי לקוח (למשל תיעוד ידני) שייכת למי שרשם אותה.
+   * ## הכלל: הלקוח שלי, **או** שאני רשמתי
+   *
+   * החלק הראשון הוא `assertContactAccess` בצורתו הקבוצתית. החלק
+   * השני אינו נוחות אלא נדרש: לקוח יכול להישאר בלי אף כרטיס
+   * שמצביע עליו — מחיקת ליד משאירה את איש הקשר בחיים כל עוד יש
+   * שיחות שמצביעות עליו (`deleteContactIfOrphan`) — ואז הוא אינו
+   * שייך לאיש, והשיחה הייתה נעלמת גם מהסוכן שרשם אותה (ביקורת
+   * Codex). „אני רשמתי” מכסה גם את זה וגם שיחה שנרשמה בלי לקוח.
+   *
+   * מה שנשאר מחוץ לכלל בכוונה: שיחה שהמרכזייה קלטה (`createdBy`
+   * ריק) שהלקוח שלה נמחק. אין ממי לגזור בעלות, והיא נשארת גלויה
+   * למנהל בלבד — מחיקת ליד היא פעולה ניהולית ומכוונת.
    */
   async list(query: { outcome?: string; leadId?: string; limit: number }): Promise<CallDto[]> {
     const { tenantId, userId } = TenantContext.current();
@@ -137,12 +147,7 @@ export class CallsService {
           ...(query.leadId ? { leadId: query.leadId } : {}),
           ...(visible === null
             ? {}
-            : {
-                OR: [
-                  { contactId: { in: visible } },
-                  { contactId: null, createdBy: userId },
-                ],
-              }),
+            : { OR: [{ contactId: { in: visible } }, { createdBy: userId }] }),
         },
         orderBy: { occurredAt: "desc" },
         take: query.limit,
@@ -163,10 +168,13 @@ export class CallsService {
   /**
    * שער השיחה הבודדת — **אותו כלל כמו ברשימה, בצורת רשומה אחת.**
    *
-   * הבעלות נגזרת מהלקוח, כמו בכל ישות שאין לה בעלים משלה. שיחה
-   * שנרשמה בלי לקוח שייכת למי שרשם אותה, ומנהל שרואה גם קונים וגם
-   * לידים רואה הכול — בדיוק התנאי שבו `visibleContactIds` מוותר על
-   * הסינון, כדי ששני המסלולים לא ייתנו תשובות שונות.
+   * „הלקוח שלי **או** אני רשמתי”, ומנהל שרואה גם קונים וגם לידים
+   * רואה הכול — בדיוק שלושת התנאים שהרשימה בונה, כדי ששני
+   * המסלולים לא ייתנו תשובות שונות על אותה שיחה.
+   *
+   * הסדר מכוון: „אני רשמתי” נבדק ראשון כי הוא זול ואינו נוגע במסד
+   * שוב, והוא גם הענף שמכסה שיחה שהלקוח שלה נמחק ואינו שייך עוד
+   * לאיש.
    *
    * תמיד 404 ובאותו נוסח: תשובה שונה על „קיימת אך לא שלך” הייתה
    * מסגירה את קיומה, ואת זה אין למשתמש הזה הרשאה לדעת.
@@ -179,16 +187,14 @@ export class CallsService {
     });
     if (!row) throw new NotFoundException("שיחה לא נמצאה");
 
-    if (row.contactId !== null) {
-      // ההודעה מאוחדת: „איש קשר לא נמצא” היה מסגיר שהשיחה עצמה קיימת
-      await assertContactAccess(tx, tenantId, row.contactId).catch(() => {
-        throw new NotFoundException("שיחה לא נמצאה");
-      });
-      return;
-    }
-    const seesAll =
-      capabilities.has("buyers.view_all") && capabilities.has("leads.view_all");
-    if (!seesAll && row.createdBy !== userId) throw new NotFoundException("שיחה לא נמצאה");
+    if (row.createdBy === userId) return;
+    if (capabilities.has("buyers.view_all") && capabilities.has("leads.view_all")) return;
+    if (row.contactId === null) throw new NotFoundException("שיחה לא נמצאה");
+
+    // ההודעה מאוחדת: „איש קשר לא נמצא” היה מסגיר שהשיחה עצמה קיימת
+    await assertContactAccess(tx, tenantId, row.contactId).catch(() => {
+      throw new NotFoundException("שיחה לא נמצאה");
+    });
   }
 
   async remove(id: string): Promise<void> {
