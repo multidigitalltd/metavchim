@@ -9,6 +9,9 @@ import {
   settleReferral,
   type CreditEconomy,
   type CreditPackage,
+  creditPricingWarning,
+  platformCreditsNet,
+  referralBonusCredits,
 } from "@metavchim/shared";
 import { ApiError, apiGet, apiPatch } from "@/lib/api";
 import { IconCoins } from "../icons";
@@ -163,6 +166,17 @@ export function CreditEconomySection() {
   };
   const asCredits = settleReferral(100, "credits", preview);
   const asCash = settleReferral(100, "cash", preview);
+  /*
+   * הבונוס נגזר מהתוצאה ולא מחושב מחדש — אותה פונקציה שהדוח
+   * ב-`/platform` משתמש בה, כדי ששני המסכים לא יוכלו לחלוק.
+   */
+  const creditsBonus = referralBonusCredits(asCredits);
+  const creditsNet = platformCreditsNet({
+    recognizedAgorot: asCredits.platformFeeCredits * preview.unitPriceAgorot,
+    bonusCreditsIssued: creditsBonus,
+    unitPriceAgorot: preview.unitPriceAgorot,
+  });
+  const pricingWarning = creditPricingWarning(preview);
 
   return (
     <section
@@ -326,7 +340,26 @@ export function CreditEconomySection() {
           בחר <b>כסף</b>: הפלטפורמה שומרת {asCash.platformFeeCredits}, המשרד מקבל{" "}
           <b>{toShekels(asCash.payoutAgorot)} ₪</b>.
         </div>
+        {/*
+          השורה שלא הייתה: כמה נשאר לפלטפורמה **אחרי** הבונוס.
+
+          שני האחוזים נערכים בשדות סמוכים, ואף אחד מהם אינו נראה שגוי
+          לבדו — 10% עמלה סביר, 20% בונוס סביר, והצירוף מפסיד בכל
+          הפניה. זו הייתה ברירת המחדל של המערכת, ואיש לא ראה זאת כי
+          לא היה מספר שמראה את המכפלה.
+        */}
+        <div style={{ fontWeight: 700 }}>
+          נשאר לפלטפורמה במסלול הקרדיטים:{" "}
+          <b style={{ color: creditsNet >= 0 ? "var(--color-success)" : "var(--color-danger)" }}>
+            {toShekels(creditsNet)} ₪
+          </b>{" "}
+          — {asCredits.platformFeeCredits} קרדיט עמלה פחות {creditsBonus} קרדיט בונוס.
+        </div>
       </div>
+
+      {pricingWarning === null ? null : (
+        <Notice tone="warning">{pricingWarning}</Notice>
+      )}
 
       {error !== null ? (
         <Notice tone="danger">{error}</Notice>
