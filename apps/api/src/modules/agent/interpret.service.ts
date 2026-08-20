@@ -210,6 +210,34 @@ export class AgentInterpretService {
       };
     }
 
+    // שאלות קריאה בלי שדות — אין מה לחלץ; התאריך נפתר בשלב הבא
+    if (["show_schedule", "show_tasks", "show_calls", "show_deals"].includes(actionId)) {
+      return {};
+    }
+    if (actionId === "office_report") {
+      return {
+        windowDays: /רבעון/u.test(transcript) ? "90" : /שנה/u.test(transcript) ? "365" : "30",
+      };
+    }
+    if (actionId === "complete_task") {
+      return {
+        taskPhrase: transcript
+          .replace(/^.*?(?:סגור|תסגור|סמן|תסמן|סיימתי)\s+(?:את\s+)?(?:ה?משימה)?\s*(?:של)?\s*/u, "")
+          .replace(/\s+/gu, " ")
+          .trim(),
+      };
+    }
+    if (actionId === "share_property" || actionId === "share_buyer") {
+      const phrase = transcript
+        .replace(/^.*?(?:שתף|תשתף|פרסם|תפרסם|העלה|תעלה)\s+(?:את\s+)?/u, "")
+        .replace(/\s*(?:ברשת|לרשת)(?:\s+השיתופים)?\s*$/u, "")
+        .replace(/\s+/gu, " ")
+        .trim();
+      return actionId === "share_property"
+        ? { propertyPhrase: phrase }
+        : { buyerPhrase: phrase };
+    }
+
     // ליד, קונה ושאלות על הקונים — כולם נגזרים מאותו חילוץ אדם
     const { person } = extractPersonFromTranscript(transcript);
     const shekels = (agorot?: number): number | undefined =>
@@ -246,14 +274,53 @@ export class AgentInterpretService {
      * השאלה הייתה מזוהה נכון וחוזרת בלי אף קריטריון.
      */
     if (actionId === "find_properties") {
+      /*
+       * שני תיקונים מביקורת Codex:
+       *
+       * **מאפיינים** — לפעולה הזו יש שדה `mustFeatures` בלבד, ולכן
+       * "עם מעלית" שחולץ כרמת „רצוי” היה נזרק ב-`narrowParams`
+       * בשקט. בשאלת מלאי אין הבדל בין חובה לרצוי — המתווך אמר
+       * מאפיין וציפה שהוא ישתתף בסינון — ולכן שתי הרשימות מאוחדות.
+       *
+       * **סוג עסקה** — חילוץ האדם מזהה עסקה רק דרך פועל של כוונה
+       * ("מחפש לשכור"), ו"אילו דירות יש להשכרה" נשאר בלעדיו. בשאלת
+       * מלאי המילים "להשכרה"/"למכירה" חד-משמעיות גם לבדן.
+       */
+      const features = [
+        ...(base["mustFeatures"] as string[]),
+        ...(base["niceFeatures"] as string[]),
+      ];
+      const dealType =
+        base["dealType"] ??
+        (/להשכרה|לשכור|שכירות/u.test(transcript)
+          ? "rent"
+          : /למכירה/u.test(transcript)
+            ? "sale"
+            : undefined);
       return {
         cities: base["cities"],
-        dealType: base["dealType"],
+        dealType,
         roomsMin: base["roomsMin"],
         roomsMax: base["roomsMax"],
         priceMinShekels: base["budgetMinShekels"],
         priceMaxShekels: base["budgetMaxShekels"],
-        mustFeatures: base["mustFeatures"],
+        ...(features.length > 0 ? { mustFeatures: features } : {}),
+      };
+    }
+    if (actionId === "add_note") {
+      // מנוע החוקים אינו מפריד כרטיס מהערה — השם למי, וכל המשפט כתוכן
+      return { cardPhrase: base["name"], note: person.summary };
+    }
+    if (actionId === "update_lead_status") {
+      return {
+        leadPhrase: base["name"],
+        leadStatus: /בטיפול/u.test(transcript)
+          ? "in_progress"
+          : /ממתין/u.test(transcript)
+            ? "waiting_customer"
+            : /סגור|תסגור|לסגור/u.test(transcript)
+              ? "closed"
+              : undefined,
       };
     }
     return base;
@@ -269,6 +336,16 @@ const RULE_ACTION_MAP: Record<string, string | undefined> = {
   add_task: "create_task",
   query_buyers: "find_buyers",
   query_properties: "find_properties",
+  show_schedule: "show_schedule",
+  show_tasks: "show_tasks",
+  show_calls: "show_calls",
+  show_deals: "show_deals",
+  office_report: "office_report",
+  complete_task: "complete_task",
+  add_note: "add_note",
+  update_lead_status: "update_lead_status",
+  share_property: "share_property",
+  share_buyer: "share_buyer",
   send_offer: "send_offer",
   search: "search",
   unknown: undefined,

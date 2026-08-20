@@ -1,12 +1,16 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import {
   agentAction,
+  jerusalemDayRange,
   type BuyerRequirements,
   type PropertyFields,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
+import { AnalyticsService, type ReportWindowDays } from "../analytics/analytics.service";
 import { BuyersService } from "../buyers/buyers.service";
 import { CalendarService } from "../calendar/calendar.service";
+import { CallsService } from "../calls/calls.service";
+import { DealRoomService } from "../collaboration/deal-room.service";
 import { LeadsService } from "../leads/leads.service";
 import { MatchingService } from "../matching/matching.service";
 import { PropertiesService } from "../properties/properties.service";
@@ -51,6 +55,9 @@ export class AgentExecuteService {
     private readonly calendar: CalendarService,
     private readonly matching: MatchingService,
     private readonly search: SearchService,
+    private readonly calls: CallsService,
+    private readonly analytics: AnalyticsService,
+    private readonly dealRooms: DealRoomService,
   ) {}
 
   async execute(actionId: string, params: Record<string, unknown>): Promise<ExecuteResult> {
@@ -75,6 +82,16 @@ export class AgentExecuteService {
         return this.findProperties(params);
       case "show_matches":
         return this.showMatches(params);
+      case "show_schedule":
+        return this.showSchedule(params);
+      case "show_tasks":
+        return this.showTasks();
+      case "show_calls":
+        return this.showCalls();
+      case "show_deals":
+        return this.showDeals();
+      case "office_report":
+        return this.officeReport(params);
       case "create_lead":
         return this.createLead(params);
       case "create_buyer":
@@ -89,6 +106,16 @@ export class AgentExecuteService {
         return this.updateBuyer(params);
       case "update_property":
         return this.updateProperty(params);
+      case "complete_task":
+        return this.completeTask(params);
+      case "add_note":
+        return this.addNote(params);
+      case "update_lead_status":
+        return this.updateLeadStatus(params);
+      case "share_property":
+        return this.shareProperty(params);
+      case "share_buyer":
+        return this.shareBuyer(params);
       case "send_offer":
         return this.sendOffer(params);
       default:
@@ -163,6 +190,7 @@ export class AgentExecuteService {
     const page = await this.properties.list({
       limit: 50,
       ...(cities.length > 0 ? { cities } : {}),
+      ...(str(params["dealType"]) !== undefined ? { dealType: str(params["dealType"])! } : {}),
       ...(num(params["roomsMin"]) !== undefined ? { minRooms: num(params["roomsMin"])! } : {}),
       ...(num(params["roomsMax"]) !== undefined ? { maxRooms: num(params["roomsMax"])! } : {}),
       ...(num(params["priceMinShekels"]) !== undefined
@@ -173,10 +201,11 @@ export class AgentExecuteService {
         : {}),
     });
     /*
-     * המאפיינים מסוננים כאן ולא בשאילתה: `list` אינו מקבל אותם,
-     * והוספת פרמטר למסלול שכל המסכים משתמשים בו בשביל הסוכן הייתה
-     * הרחבה של שטח הפנים לטובת קורא אחד. חמישים שורות בזיכרון הן
-     * זולות; שינוי חוזה משותף אינו.
+     * ערים וסוג עסקה מסוננים **בשאילתה** — סינון בזיכרון על עמוד של
+     * חמישים היה ממלא את העמוד בנכסים מעיר אחרת ומחזיר תשובה חסרה
+     * (ביקורת Codex). המאפיינים לבדם מסוננים כאן: `list` אינו מקבל
+     * אותם, והם שדות boolean שרובם ממולאים — חמישים שורות בזיכרון
+     * זולות משינוי חוזה משותף.
      */
     const items = page.items.filter((property) =>
       must.every((key) => (property as unknown as Record<string, unknown>)[key] === true),
@@ -224,6 +253,99 @@ export class AgentExecuteService {
       // אותו סף שמסך ההתאמות מציג — תשובה של הסוכן לא אמורה לכלול
       // התאמות שהמסך מסתיר, אחרת שתי דרכים לשאול נותנות שתי תשובות
       data: await this.matching.listAll({ limit: 50, minScore: 50 }),
+    };
+  }
+
+  /**
+   * "מה יש לי ביומן" — היום שנפתר מהתמלול, ואם לא נאמר יום — היום.
+   * הטווח מחושב בשעון ירושלים, כמו כל תאריך במערכת.
+   */
+  private async showSchedule(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const anchor = date(params["day"]) ?? new Date();
+    const { start, end } = jerusalemDayRange(anchor);
+    const appointments = await this.calendar.list({ from: start, to: end });
+    const dayLabel = new Intl.DateTimeFormat("he-IL", {
+      timeZone: "Asia/Jerusalem",
+      dateStyle: "full",
+    }).format(anchor);
+    return {
+      href: "/calendar",
+      message:
+        appointments.length === 0
+          ? `אין פגישות ב${dayLabel}`
+          : `${appointments.length} פגישות ב${dayLabel}`,
+      data: {
+        appointments: appointments.map((a) => ({
+          id: a.id,
+          kind: a.kind,
+          ...(a.title !== undefined ? { title: a.title } : {}),
+          startsAt: a.startsAt,
+          status: a.status,
+        })),
+      },
+    };
+  }
+
+  private async showTasks(): Promise<ExecuteResult> {
+    const tasks = await this.tasks.list({ status: "open" });
+    return {
+      href: "/tasks",
+      message: tasks.length === 0 ? "אין משימות פתוחות" : `${tasks.length} משימות פתוחות`,
+      data: {
+        tasks: tasks.map((t) => ({
+          id: t.id,
+          title: t.title,
+          ...(t.dueAt !== undefined && t.dueAt !== null ? { dueAt: t.dueAt } : {}),
+          ...(t.entityLabel !== undefined ? { entityLabel: t.entityLabel } : {}),
+        })),
+      },
+    };
+  }
+
+  private async showCalls(): Promise<ExecuteResult> {
+    const calls = await this.calls.list({ limit: 20 });
+    return {
+      href: "/calls",
+      message: calls.length === 0 ? "אין שיחות אחרונות" : `${calls.length} שיחות אחרונות`,
+      data: {
+        calls: calls.map((c) => ({
+          id: c.id,
+          direction: c.direction,
+          ...(c.contactName !== undefined ? { contactName: c.contactName } : {}),
+          ...(c.phone !== undefined ? { phone: c.phone } : {}),
+          occurredAt: c.occurredAt,
+          outcome: c.outcome,
+          ...(c.summary !== undefined ? { summary: c.summary } : {}),
+        })),
+      },
+    };
+  }
+
+  private async showDeals(): Promise<ExecuteResult> {
+    const deals = await this.dealRooms.list();
+    return {
+      href: "/collaboration?tab=deals",
+      message: deals.length === 0 ? "אין עסקאות משותפות" : `${deals.length} עסקאות משותפות`,
+      data: {
+        deals: deals.map((d) => ({
+          id: d.id,
+          title: d.title,
+          stage: d.stage,
+          counterpartOffice: d.counterpartOffice,
+          lastActivityAt: d.lastActivityAt,
+        })),
+      },
+    };
+  }
+
+  private async officeReport(params: Record<string, unknown>): Promise<ExecuteResult> {
+    // הקטלוג מדבר במחרוזות enum; השירות מקבל 30 | 90 | 365
+    const raw = Number(str(params["windowDays"]) ?? "30");
+    const windowDays: ReportWindowDays = raw === 90 ? 90 : raw === 365 ? 365 : 30;
+    return {
+      href: "/reports",
+      message: "דוח המשרד",
+      data: { report: await this.analytics.officeStats(windowDays) },
     };
   }
 
@@ -363,6 +485,80 @@ export class AgentExecuteService {
         : {}),
     });
     return { href: `/properties/${property.id}`, message: "הנכס עודכן" };
+  }
+
+  private async completeTask(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const taskId = str(params["taskId"]);
+    if (taskId === undefined) throw new BadRequestException("לא נבחרה משימה");
+    await this.tasks.update(taskId, { status: "done" });
+    return { href: "/tasks", message: "המשימה סומנה כבוצעה" };
+  }
+
+  /**
+   * הערה — לקונה או לליד, לפי מה שנבחר.
+   *
+   * המזהה מגיע מהחיפוש בצורה `kind:id`, כי "הכרטיס של שרה" יכול
+   * להיות שניהם והבחירה היא של המתווך. אצל ליד ההערה היא אינטראקציה
+   * בציר הזמן; אצל קונה — צירוף להערות הסוכן, עם חותמת תאריך.
+   */
+  private async addNote(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const cardId = str(params["cardId"]);
+    const note = str(params["note"]);
+    if (cardId === undefined) throw new BadRequestException("לא נבחר כרטיס");
+    if (note === undefined) throw new BadRequestException("לא נאמר תוכן ההערה");
+
+    const [kind, id] = cardId.split(":", 2);
+    if (kind === "lead" && id !== undefined) {
+      await this.leads.addNote(id, note);
+      return { href: `/leads/${id}`, message: "ההערה נוספה לליד" };
+    }
+    if (kind === "buyer" && id !== undefined) {
+      const existing = await this.buyers.getById(id);
+      const stamp = new Intl.DateTimeFormat("he-IL", {
+        timeZone: "Asia/Jerusalem",
+        dateStyle: "short",
+      }).format(new Date());
+      const merged = [existing.agentNotes, `[${stamp}] ${note}`]
+        .filter((part): part is string => typeof part === "string" && part !== "")
+        .join("\n");
+      await this.buyers.update(id, { agentNotes: merged });
+      return { href: `/buyers/${id}`, message: "ההערה נוספה לכרטיס הקונה" };
+    }
+    throw new BadRequestException("כרטיס לא מזוהה");
+  }
+
+  private async updateLeadStatus(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const leadId = str(params["leadId"]);
+    if (leadId === undefined) throw new BadRequestException("לא נבחר ליד");
+    const status = str(params["leadStatus"]);
+    if (status === undefined) throw new BadRequestException("לא נאמר סטטוס");
+    await this.leads.updateStatus(leadId, status);
+    return { href: `/leads/${leadId}`, message: "סטטוס הליד עודכן" };
+  }
+
+  /**
+   * שיתוף ברשת — ניווט למסך השיתוף, לא פרסום.
+   *
+   * הפרסום לרשת חושף את הכרטיס למשרדים אחרים, והחשיפה עצמה נשארת
+   * לחיצה מפורשת במסך שמראה בדיוק מה ישותף. הסוכן מזהה את הכרטיס
+   * ומביא את המתווך לשם — כמו `send_offer`.
+   */
+  private async shareProperty(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const propertyId = str(params["propertyId"]);
+    if (propertyId === undefined) throw new BadRequestException("לא נבחר נכס לשיתוף");
+    return {
+      href: `/properties/${propertyId}?tab=network`,
+      message: "בחרו מה לחשוף ושתפו — הפרסום לרשת נעשה מהכרטיס",
+    };
+  }
+
+  private async shareBuyer(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const buyerId = str(params["buyerId"]);
+    if (buyerId === undefined) throw new BadRequestException("לא נבחר קונה לשיתוף");
+    return {
+      href: `/buyers/${buyerId}?tab=network`,
+      message: "בחרו מה לחשוף ושתפו — הפרסום לרשת נעשה מהכרטיס",
+    };
   }
 
   /**

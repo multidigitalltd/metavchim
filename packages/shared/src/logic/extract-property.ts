@@ -1,4 +1,5 @@
 import type { PropertyFields } from "../schemas/property.js";
+import { parseSpokenAmountShekels } from "./spoken-amount.js";
 
 /**
  * חילוץ שדות נכס מתמלול עברי (אפיון §6) — מנוע חוקים דטרמיניסטי.
@@ -151,6 +152,7 @@ export function extractPropertyFromTranscript(
   const millionHalf = /מיליון וחצי/u.exec(text);
   const priceThousand = /(?<n>\d{2,4})\s*אלף/u.exec(text);
   const priceShekel = /(?<n>\d[\d,]{2,})\s*(?:שקל|ש["״]ח|₪)/u.exec(text);
+  const spokenAmount = parseSpokenAmountShekels(text);
   const bareAmount = bareAmountAgorot(text);
   if (priceMillion?.groups?.["n"] !== undefined) {
     fields.priceAgorot = Math.round(
@@ -167,6 +169,10 @@ export function extractPropertyFromTranscript(
     fields.priceAgorot =
       Number(priceShekel.groups["n"].replace(/,/gu, "")) * 100;
     evidence.priceAgorot = priceShekel[0];
+  } else if (spokenAmount !== undefined) {
+    // תמלול דיבור: "שני מיליון וחצי", "שבע מאות אלף" — מילים, לא ספרות
+    fields.priceAgorot = spokenAmount.shekels * 100;
+    evidence.priceAgorot = spokenAmount.evidence;
   } else if (bareAmount !== undefined) {
     fields.priceAgorot = bareAmount.agorot;
     evidence.priceAgorot = bareAmount.evidence;

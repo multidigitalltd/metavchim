@@ -1,4 +1,5 @@
 import { CITIES, parseNumberWord } from "./extract-property.js";
+import { parseSpokenAmountShekels } from "./spoken-amount.js";
 
 /**
  * חילוץ פרטי אדם (ליד/קונה) מתמלול עברי — מנוע חוקים דטרמיניסטי,
@@ -59,6 +60,9 @@ function parseAmountAgorot(text: string): { agorot: number; evidence: string } |
   if (shekel?.groups?.["n"] !== undefined) {
     return { agorot: Number(shekel.groups["n"].replace(/,/gu, "")) * 100, evidence: shekel[0] };
   }
+  // תמלול דיבור מגיע גם במילים: "שני מיליון", "שבע מאות אלף"
+  const spoken = parseSpokenAmountShekels(text);
+  if (spoken) return { agorot: spoken.shekels * 100, evidence: spoken.evidence };
   return undefined;
 }
 

@@ -69,8 +69,12 @@ export interface AgentProposal {
    * שהמודל החזיר ונפסל, פרט שנאמר ולא נכנס לשום מקום.
    */
   warnings: string[];
-  /** זיהוי ישות שדורש בחירה — הפעולה חסומה עד שנבחר */
-  candidates?: { key: string; label: string; options: AgentCandidate[] };
+  /**
+   * זיהוי ישות שדורש בחירה — הפעולה חסומה עד שנבחר.
+   * `idKey` אומר למסך תחת איזה מפתח לשלוח את הבחירה לביצוע
+   * (buyerId / propertyId / taskId / cardId / leadId).
+   */
+  candidates?: { key: string; idKey: string; label: string; options: AgentCandidate[] };
   /** שאלה אחת, כשבאמת אי אפשר להציע בלעדיה */
   clarify?: string;
   /** האם המנוע הדטרמיניסטי הכריע — כלומר Gemini לא היה זמין */

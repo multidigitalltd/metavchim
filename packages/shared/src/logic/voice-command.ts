@@ -21,8 +21,18 @@ export type VoiceAction =
   | "add_lead"
   | "schedule_appointment"
   | "add_task"
+  | "complete_task"
+  | "add_note"
+  | "update_lead_status"
   | "query_buyers"
   | "query_properties"
+  | "show_schedule"
+  | "show_tasks"
+  | "show_calls"
+  | "show_deals"
+  | "office_report"
+  | "share_property"
+  | "share_buyer"
   | "send_offer"
   | "search"
   | "unknown";
@@ -94,8 +104,34 @@ const RULES: { action: VoiceAction; pattern: RegExp; confidence: "high" | "low" 
   /*
    * "מה יש לי" עם המילה קונים — לפני הכלל המקביל על הנכסים, שהוא
    * הקריאה הטבעית של אותו ניסוח בלי המילה הזו.
+   *
+   * בלי `\b`: גבול-מילה של JavaScript מוגדר על [A-Za-z0-9_] בלבד,
+   * ולכן בין אות עברית לרווח **אין** גבול — תבנית עם `\b` צמוד
+   * לעברית פשוט לא תתאים לעולם (ביקורת Codex). הגבולות כאן
+   * מפורשים: רווח לפני, ורווח/סוף/פיסוק אחרי.
    */
-  { action: "query_buyers", pattern: /(?:מה|כמה)\s+(?:יש|נשארו|נשאר)\s+(?:לי|לנו)\b[^?]*\bקונים\b/u, confidence: "high" },
+  { action: "query_buyers", pattern: /(?:מה|כמה)\s+(?:יש|נשארו|נשאר)\s+(?:לי|לנו)[^?]*\sה?קונים(?:[\s?,.!]|$)/u, confidence: "high" },
+
+  /*
+   * --- שאלות קריאה על שאר המערכת — יומן, משימות, שיחות, דוח ---
+   *
+   * **לפני** בלוק הנכסים בכוונה: "מה יש לי ביומן" מתאים גם לתבנית
+   * הנכסים (`לי` ואחריו `ב`+אות), ורק הסדר כאן מציל אותו. בתוך
+   * אותה רמת ביטחון — הכלל הראשון שמתאים מנצח.
+   */
+  { action: "show_schedule", pattern: /ביומן|ה?יומן\s+שלי|(?:מה|אילו|איזה)\s+ה?פגישות|ה?פגישות\s+(?:שלי|היום|מחר)/u, confidence: "high" },
+  { action: "show_schedule", pattern: /מה\s+יש\s+(?:לי|לנו)\s+(?:היום|מחר|מחרתיים|השבוע)/u, confidence: "high" },
+  { action: "complete_task", pattern: /(?:סמן|תסמן|סגור|תסגור)\s+(?:את\s+)?ה?משימה|סיימתי\s+(?:את\s+)?ה?משימה/u, confidence: "high" },
+  { action: "show_tasks", pattern: /(?:מה|אילו|איזה)\s+ה?משימות|ה?משימות\s+(?:שלי|פתוחות|להיום)/u, confidence: "high" },
+  { action: "show_calls", pattern: /מי\s+התקשר|שיחות\s+אחרונות|ה?שיחות\s+(?:שלי|האחרונות)|יומן\s+ה?שיחות/u, confidence: "high" },
+  { action: "show_deals", pattern: /ה?עסקאות\s+(?:ה?משותפות|בשת["״]?פ)|חדרי?\s+ה?עסקה|שיתופי\s+ה?פעולה\s+(?:שלי|הפעילים)/u, confidence: "high" },
+  { action: "office_report", pattern: /דו["״]?ח\s+ה?משרד|כמה\s+לידים\s+(?:נכנסו|הגיעו)|נתוני\s+ה?משרד|סיכום\s+ה?(?:שבוע|חודש)/u, confidence: "high" },
+
+  // --- עדכונים ממוקדים: הערה, סטטוס ליד, שיתוף ברשת ---
+  { action: "add_note", pattern: /(?:הוסף|תוסיף|רשום|תרשום|כתוב|תכתוב)\s+(?:לי\s+)?הערה/u, confidence: "high" },
+  { action: "update_lead_status", pattern: /(?:עדכן|תעדכן|שנה|תשנה|העבר|תעביר)\s+(?:את\s+)?(?:ה?סטטוס|ה?שלב|ה?ליד)/u, confidence: "high" },
+  { action: "share_property", pattern: /(?:שתף|תשתף|פרסם|תפרסם|העלה|תעלה)\s+(?:את\s+)?ה?(?:נכס|דירה)/u, confidence: "high" },
+  { action: "share_buyer", pattern: /(?:שתף|תשתף|פרסם|תפרסם|העלה|תעלה)\s+(?:את\s+)?ה?(?:קונה|ביקוש|דרישה)/u, confidence: "high" },
 
   /*
    * --- שאלה על מאגר הנכסים ---

@@ -121,7 +121,7 @@ export class AgentController {
       if (body.params[field.key] !== undefined) params[field.key] = body.params[field.key];
     }
     // מזהי הישויות שנבחרו במסך — אינם שדות של המודל ובכל זאת נדרשים
-    for (const key of ["buyerId", "propertyId"]) {
+    for (const key of ["buyerId", "propertyId", "taskId", "cardId", "leadId"]) {
       if (typeof body.params[key] === "string") params[key] = body.params[key];
     }
     return this.executor.execute(body.action, params);

@@ -13,6 +13,7 @@ import {
 } from "@metavchim/shared";
 import { BuyersService } from "../buyers/buyers.service";
 import { SearchService } from "../search/search.service";
+import { TasksService } from "../tasks/tasks.service";
 import type { Interpretation } from "./interpret.service";
 
 /**
@@ -45,6 +46,7 @@ export class AgentResolveService {
   constructor(
     private readonly buyers: BuyersService,
     private readonly search: SearchService,
+    private readonly tasks: TasksService,
   ) {}
 
   async toProposal(
@@ -208,31 +210,75 @@ export class AgentResolveService {
     const phrase = params[spec.key];
     if (typeof phrase !== "string" || phrase.trim().length < 2) return undefined;
 
-    const results = await this.search.search(phrase.trim());
-    const options: AgentCandidate[] =
-      spec.kind === "buyer"
-        ? results.buyers.slice(0, 8).map((b) => ({
-            id: b.id,
-            label: b.name,
-            ...(b.cities.length > 0 ? { detail: b.cities.join(" / ") } : {}),
-          }))
-        : results.properties.slice(0, 8).map((p) => ({
-            id: p.id,
-            label:
-              p.marketingTitle ??
-              [p.street, p.neighborhood, p.city].filter(Boolean).join(", ") ??
-              p.id,
-            ...(p.city ? { detail: p.city } : {}),
-          }));
+    const options = await this.candidatesFor(spec.kind, phrase.trim());
 
     if (options.length === 0) {
-      return { key: spec.key, label: spec.label, options: [] };
+      return { key: spec.key, idKey: spec.idKey, label: spec.label, options: [] };
     }
     if (options.length === 1 && !spec.alwaysChoose) {
       params[spec.idKey] = options[0]!.id;
       return undefined;
     }
-    return { key: spec.key, label: spec.label, options };
+    return { key: spec.key, idKey: spec.idKey, label: spec.label, options };
+  }
+
+  /** מועמדים לביטוי, לפי סוג הרשומה שהפעולה מדברת עליה. */
+  private async candidatesFor(kind: LookupKind, phrase: string): Promise<AgentCandidate[]> {
+    /*
+     * משימות אינן בחיפוש הגלובלי — הן נמצאות לפי מילים מכותרת
+     * המשימות הפתוחות. סגירה מדברת תמיד על משימה פתוחה, ולכן
+     * ההיצע מצומצם מראש למה שאפשר בכלל לסגור.
+     */
+    if (kind === "task") {
+      const needle = phrase.toLowerCase();
+      return (await this.tasks.list({ status: "open" }))
+        .filter((task) => task.title.toLowerCase().includes(needle))
+        .slice(0, 8)
+        .map((task) => ({
+          id: task.id,
+          label: task.title,
+          ...(task.entityLabel ? { detail: task.entityLabel } : {}),
+        }));
+    }
+
+    const results = await this.search.search(phrase);
+    if (kind === "buyer") {
+      return results.buyers.slice(0, 8).map((b) => ({
+        id: b.id,
+        label: b.name,
+        ...(b.cities.length > 0 ? { detail: b.cities.join(" / ") } : {}),
+      }));
+    }
+    if (kind === "lead") {
+      return results.leads.slice(0, 8).map((l) => ({ id: l.id, label: l.name }));
+    }
+    if (kind === "card") {
+      /*
+       * "הכרטיס של שרה" יכול להיות קונה או ליד, וההכרעה היא של
+       * המתווך — לכן שני הסוגים מוצעים יחד, והמזהה נושא את הסוג
+       * (`buyer:.. / lead:..`) כדי שהביצוע יידע לאן ההערה הולכת.
+       */
+      return [
+        ...results.buyers.slice(0, 5).map((b) => ({
+          id: `buyer:${b.id}`,
+          label: b.name,
+          detail: b.cities.length > 0 ? `קונה — ${b.cities.join(" / ")}` : "קונה",
+        })),
+        ...results.leads.slice(0, 5).map((l) => ({
+          id: `lead:${l.id}`,
+          label: l.name,
+          detail: "ליד",
+        })),
+      ];
+    }
+    return results.properties.slice(0, 8).map((p) => ({
+      id: p.id,
+      label:
+        p.marketingTitle ??
+        [p.street, p.neighborhood, p.city].filter(Boolean).join(", ") ??
+        p.id,
+      ...(p.city ? { detail: p.city } : {}),
+    }));
   }
 
   private toFields(
@@ -293,11 +339,15 @@ const DATE_FIELD: Record<string, string | undefined> = {
   update_property: "entryDate",
   create_buyer: "entryBy",
   update_buyer: "entryBy",
+  // "מה יש לי ביומן מחר" — היום שנשאל עליו
+  show_schedule: "day",
 };
+
+type LookupKind = "buyer" | "property" | "lead" | "task" | "card";
 
 const ENTITY_LOOKUP: Record<
   string,
-  { key: string; idKey: string; label: string; kind: "buyer" | "property"; alwaysChoose?: boolean }
+  { key: string; idKey: string; label: string; kind: LookupKind; alwaysChoose?: boolean }
 > = {
   update_buyer: { key: "buyerPhrase", idKey: "buyerId", label: "איזה קונה", kind: "buyer" },
   update_property: {
@@ -305,6 +355,24 @@ const ENTITY_LOOKUP: Record<
     idKey: "propertyId",
     label: "איזה נכס",
     kind: "property",
+  },
+  complete_task: { key: "taskPhrase", idKey: "taskId", label: "איזו משימה", kind: "task" },
+  add_note: { key: "cardPhrase", idKey: "cardId", label: "לאיזה כרטיס", kind: "card" },
+  update_lead_status: { key: "leadPhrase", idKey: "leadId", label: "איזה ליד", kind: "lead" },
+  share_property: {
+    key: "propertyPhrase",
+    idKey: "propertyId",
+    label: "איזה נכס לשתף",
+    kind: "property",
+    // חשיפה לרשת בין-משרדית — בחירה מפורשת תמיד, כמו שליחה ללקוח
+    alwaysChoose: true,
+  },
+  share_buyer: {
+    key: "buyerPhrase",
+    idKey: "buyerId",
+    label: "איזה קונה לשתף",
+    kind: "buyer",
+    alwaysChoose: true,
   },
   send_offer: {
     key: "buyerPhrase",
@@ -322,6 +390,8 @@ const RECOMMENDED: Record<string, readonly string[]> = {
   create_property: ["city", "propertyType", "dealType", "rooms", "priceShekels"],
   schedule_appointment: ["startsAt"],
   create_task: ["title"],
+  add_note: ["note"],
+  update_lead_status: ["leadStatus"],
 };
 
 function formatDate(iso: string): string {

@@ -584,11 +584,20 @@ export class BuyersService {
    */
   async placeVocabulary(): Promise<string[]> {
     const tenantId = TenantContext.current().tenantId;
+    /*
+     * המאגר כולו, לא הקונים בלבד: הסוכן פותר מולו גם שאלות על
+     * **נכסים** ("מה יש לי ברמת גן"), ועיר שקיימת רק בנכס הייתה
+     * מקבלת "אין במאגר אף רשומה" — אזהרה שגויה על שאלה נכונה.
+     */
     const rows = await this.prisma.withTenant((tx) =>
       tx.$queryRaw<{ city: string }[]>`
         SELECT DISTINCT unnest(cities) AS city
         FROM buyers
         WHERE tenant_id = ${tenantId}::char(26) AND deleted_at IS NULL
+        UNION
+        SELECT DISTINCT city
+        FROM properties
+        WHERE tenant_id = ${tenantId}::char(26) AND deleted_at IS NULL AND city IS NOT NULL
       `,
     );
     return cleanVocabulary(rows.map((row) => row.city));

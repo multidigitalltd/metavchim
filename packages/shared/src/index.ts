@@ -17,6 +17,7 @@ export * from "./logic/exclusivity.js";
 export * from "./logic/map-source.js";
 export * from "./logic/extract-property.js";
 export * from "./logic/extract-person.js";
+export * from "./logic/spoken-amount.js";
 export * from "./logic/voice-command.js";
 export * from "./logic/parse-hebrew-datetime.js";
 export * from "./logic/notifications.js";

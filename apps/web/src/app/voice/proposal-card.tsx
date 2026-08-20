@@ -49,7 +49,7 @@ export interface Proposal {
   fields: ProposalField[];
   missing: { key: string; label: string }[];
   warnings: string[];
-  candidates?: { key: string; label: string; options: { id: string; label: string; detail?: string }[] };
+  candidates?: { key: string; idKey: string; label: string; options: { id: string; label: string; detail?: string }[] };
   clarify?: string;
   fallback: boolean;
 }
@@ -108,8 +108,9 @@ export function ProposalCard({
     const merged: Record<string, unknown> = {};
     for (const field of proposal.fields) merged[field.key] = field.value;
     Object.assign(merged, edits);
-    if (chosen !== null) {
-      merged[proposal.actionId === "update_property" ? "propertyId" : "buyerId"] = chosen;
+    if (chosen !== null && proposal.candidates !== undefined) {
+      // השרת אומר תחת איזה מפתח נשלחת הבחירה — לא ניחוש לפי הפעולה
+      merged[proposal.candidates.idKey] = chosen;
     }
     return merged;
   }

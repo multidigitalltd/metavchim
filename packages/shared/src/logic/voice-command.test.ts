@@ -222,3 +222,71 @@ describe("שאלה על מאגר הנכסים", () => {
     );
   });
 });
+
+/**
+ * שאלות על שאר המערכת — יומן, משימות, שיחות, דוח ועסקאות שת"פ.
+ *
+ * הסדר הוא חלק מהנכונות: "מה יש לי ביומן" מתאים גם לתבנית הנכסים
+ * (`לי` ואחריו `ב`+אות), ורק העובדה שכלל היומן יושב לפניה מציל
+ * אותו. הבדיקות כאן נועלות את הגבולות האלה.
+ */
+describe("שאלות קריאה על כל המערכת", () => {
+  it("היומן גובר על שאלת הנכסים — „מה יש לי ביומן”", () => {
+    expect(routeVoiceCommand("מה יש לי ביומן").action).toBe("show_schedule");
+    expect(routeVoiceCommand("מה יש לי היום").action).toBe("show_schedule");
+    expect(routeVoiceCommand("מה הפגישות שלי מחר").action).toBe("show_schedule");
+  });
+
+  it("„מה יש לי ברמת גן” נשאר שאלת נכסים", () => {
+    expect(routeVoiceCommand("מה יש לי ברמת גן עד שני מיליון").action).toBe(
+      "query_properties",
+    );
+  });
+
+  it("קונים עם ה' הידיעה ובלי סימן שאלה", () => {
+    expect(routeVoiceCommand("מה יש לי בבני ברק מבחינת קונים").action).toBe(
+      "query_buyers",
+    );
+    expect(routeVoiceCommand("כמה יש לנו קונים?").action).toBe("query_buyers");
+  });
+
+  it("משימות: הצגה וסגירה", () => {
+    expect(routeVoiceCommand("מה המשימות שלי").action).toBe("show_tasks");
+    expect(routeVoiceCommand("סגור את המשימה להתקשר לדוד").action).toBe(
+      "complete_task",
+    );
+    // "תזכיר לי" נשאר תזכורת — לא נחטף על ידי כללי המשימות
+    expect(routeVoiceCommand("תזכיר לי מחר להתקשר לדוד").action).toBe("add_task");
+  });
+
+  it("שיחות, דוח ועסקאות שת\"פ", () => {
+    expect(routeVoiceCommand("מי התקשר אליי היום").action).toBe("show_calls");
+    expect(routeVoiceCommand("כמה לידים נכנסו החודש").action).toBe("office_report");
+    expect(routeVoiceCommand("מה קורה עם העסקאות המשותפות").action).toBe("show_deals");
+  });
+
+  it("הערה, סטטוס ליד ושיתוף ברשת", () => {
+    expect(routeVoiceCommand("תוסיף הערה למשה כהן שהוא נוסע לחול").action).toBe(
+      "add_note",
+    );
+    expect(routeVoiceCommand("תעדכן את הליד של דני לבטיפול").action).toBe(
+      "update_lead_status",
+    );
+    expect(routeVoiceCommand("שתף את הדירה ברמת גן ברשת").action).toBe(
+      "share_property",
+    );
+    expect(routeVoiceCommand("תעלה את הביקוש של משפחת כהן לרשת").action).toBe(
+      "share_buyer",
+    );
+  });
+
+  it("אינו חוטף את הפעולות הקיימות", () => {
+    expect(routeVoiceCommand("קבע סיור מחר בעשר בדירה ברמת גן").action).toBe(
+      "schedule_appointment",
+    );
+    expect(routeVoiceCommand("שלח את הדירה בהרב שך למשה כהן").action).toBe(
+      "send_offer",
+    );
+    expect(routeVoiceCommand("תוסיף משימה לבדוק את החוזה").action).toBe("add_task");
+  });
+});

@@ -1,6 +1,9 @@
 import { Module } from "@nestjs/common";
+import { AnalyticsModule } from "../analytics/analytics.module";
 import { BuyersModule } from "../buyers/buyers.module";
 import { CalendarModule } from "../calendar/calendar.module";
+import { CallsModule } from "../calls/calls.module";
+import { CollaborationModule } from "../collaboration/collaboration.module";
 import { LeadsModule } from "../leads/leads.module";
 import { MatchingModule } from "../matching/matching.module";
 import { PropertiesModule } from "../properties/properties.module";
@@ -28,6 +31,9 @@ import { AgentResolveService } from "./resolve.service";
     MatchingModule,
     TasksModule,
     CalendarModule,
+    CallsModule,
+    AnalyticsModule,
+    CollaborationModule,
   ],
   controllers: [AgentController],
   providers: [AgentInterpretService, AgentResolveService, AgentExecuteService],
