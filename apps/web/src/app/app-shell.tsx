@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { apiGet, apiPost } from "@/lib/api";
+import { clearSessionCache, fetchMe } from "@/lib/session-cache";
+import type { AuthUser } from "@/lib/use-auth";
 import { FeaturesProvider } from "@/lib/use-features";
 import { NotificationsBell } from "./notifications-bell";
 import { TopbarSearch } from "./topbar-search";
@@ -262,23 +264,14 @@ const NAV_MODULE: Record<string, string> = {
   "/setup": "admin",
 };
 
-interface Me {
-  name: string;
-  role: string;
-  /**
-   * היכולות בפועל, אחרי חריגי ההרשאות — לא ברירת המחדל של התפקיד.
-   *
-   * הסרגל נגזר מהן ולא מ-`role`: מסך שנפתח לפי תפקיד ונחסם בשרת
-   * לפי יכולת מבטיח קישור שמחזיר 403.
-   */
-  capabilities?: string[];
-  tenantName?: string;
-  isPlatformAdmin?: boolean;
-  /** סוף תקופת הניסיון; null = אין תפוגה. */
-  trialEndsAt?: string | null;
-  /** התקופה נגמרה — רק מסך המנוי פתוח. */
-  billingOnly?: boolean;
-}
+/**
+ * הזהות כפי שהמעטפת צריכה אותה.
+ *
+ * כינוי ל-`AuthUser` ולא הצהרה שנייה: שני הצרכנים קוראים את אותה
+ * תשובה מ-`/auth/me` ומאותו מטמון, ושתי הצהרות חלקיות היו נבדלות
+ * בשקט — בדיוק הדפוס שגרם לעמלת ההפניה להיות מוצגת 15% ונגבית 10%.
+ */
+type Me = AuthUser;
 
 function initials(name: string): string {
   return name
@@ -312,9 +305,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isPublic) return;
     let cancelled = false;
-    apiGet<{ user: Me }>("/auth/me")
-      .then((res) => {
-        if (!cancelled) setMe(res.user);
+    fetchMe()
+      .then((user) => {
+        if (!cancelled) setMe(user);
       })
       .catch(() => {
         // כשל מאפס במקום להשאיר את הקודם
@@ -344,10 +337,18 @@ export function AppShell({ children }: { children: ReactNode }) {
     ) {
       return;
     }
+    /*
+     * פעם אחת, לא בכל מעבר מסך.
+     *
+     * `ready` אינו חוזר להיות false אחרי שהמשרד סיים את ההקמה, ולכן
+     * שאילתה בכל ניווט היא בקשה שהתשובה שלה ידועה מראש — עוד נסיעה
+     * ברשת בכל מעבר, בשביל לשנות דבר.
+     */
+    if (setupDone) return;
     apiGet<{ ready: boolean }>("/settings/onboarding")
       .then((p) => setSetupDone(p.ready))
       .catch(() => undefined);
-  }, [isPublic, me, pathname]);
+  }, [isPublic, me, setupDone]);
 
   /* המונים מתרעננים במעבר מסך — פעולה במסך אחד (קליטת ליד) צריכה
      להשתקף בתג כשעוברים הלאה, בלי Polling קבוע */
@@ -433,6 +434,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             type="button"
             className="mv-btn-ghost"
             onClick={() => {
+              clearSessionCache();
               void apiPost("/auth/logout", {})
                 .catch(() => undefined)
                 .finally(() => window.location.assign("/login"));
