@@ -252,11 +252,19 @@ export default function ImportPage() {
       });
       if (current.length > 0) batches.push({ start, rows: current });
 
-      const total: ImportResult = { created: 0, failed: [] };
+      const total: ImportResult = { created: 0, failed: [], warnings: [] };
       for (const batch of batches) {
         const res = await apiPost<ImportResult>(`/import/${mode}`, { rows: batch.rows });
         total.created += res.created;
         total.failed.push(...res.failed.map((f) => ({ ...f, row: f.row + batch.start })));
+        /*
+         * גם האזהרות מצטברות — קודם הן נזרקו מכל אצווה שאינה
+         * הראשונה, ומתווך עם קובץ גדול לא ראה "אין תקציב" או
+         * "הלקוח כבר קיים" על רוב השורות.
+         */
+        total.warnings!.push(
+          ...(res.warnings ?? []).map((w) => ({ ...w, row: w.row + batch.start })),
+        );
       }
       setResult(total);
     } catch (err) {
