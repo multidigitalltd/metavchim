@@ -23,6 +23,8 @@ export function MediaSection({ propertyId, address }: { propertyId: string; addr
   const [items, setItems] = useState<MediaItem[] | null>(null);
   const [altText, setAltText] = useState("");
   const [busy, setBusy] = useState(false);
+  /** "3/12" בזמן העלאה מרובה — שידעו שמשהו קורה ומה נשאר */
+  const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -37,31 +39,50 @@ export function MediaSection({ propertyId, address }: { propertyId: string; addr
   }
 
   async function onUpload(event: React.ChangeEvent<HTMLInputElement>): Promise<void> {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    /*
+     * כל הקבצים שנבחרו, לא רק הראשון. סוכן חוזר מצילום נכס עם
+     * עשרים תמונות, והעלאה אחת-אחת היא עשרים סבבים של "בחר קובץ"
+     * (דיווח המשתמש). ההעלאה עצמה נשארת סדרתית: נקודת הקצה מקבלת
+     * קובץ אחד, וסדר ההעלאה הוא סדר התצוגה — מקביליות הייתה
+     * מערבבת אותו.
+     */
+    const files = [...(event.target.files ?? [])];
+    if (files.length === 0) return;
     setBusy(true);
     setError(null);
     try {
-      const form = new FormData();
-      form.append("file", file);
-      if (altText.trim() !== "") form.append("altText", altText.trim());
-      // multipart — בלי Content-Type ידני; הדפדפן קובע boundary
-      const res = await fetch(`${API_BASE}/properties/${propertyId}/media`, {
-        method: "POST",
-        credentials: "include",
-        body: form,
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as { message?: string } | null;
-        throw new Error(body?.message ?? "ההעלאה נכשלה");
+      for (const [index, file] of files.entries()) {
+        if (files.length > 1) setProgress(`${index + 1}/${files.length}`);
+        const form = new FormData();
+        form.append("file", file);
+        // התיאור החופשי שייך לתמונה בודדת; בהעלאה מרובה הוא מוצמד
+        // לראשונה בלבד — לשאר עורכים תיאור פרטני אחרי ההעלאה
+        if (index === 0 && altText.trim() !== "") form.append("altText", altText.trim());
+        // multipart — בלי Content-Type ידני; הדפדפן קובע boundary
+        const res = await fetch(`${API_BASE}/properties/${propertyId}/media`, {
+          method: "POST",
+          credentials: "include",
+          body: form,
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => null)) as { message?: string } | null;
+          throw new Error(
+            files.length > 1
+              ? `${body?.message ?? "ההעלאה נכשלה"} (תמונה ${index + 1} מתוך ${files.length}; הקודמות הועלו)`
+              : (body?.message ?? "ההעלאה נכשלה"),
+          );
+        }
       }
       setAltText("");
       if (fileRef.current) fileRef.current.value = "";
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "ההעלאה נכשלה");
+      // מה שכבר הועלה מוצג — רענון גם בכשל חלקי
+      await refresh().catch(() => undefined);
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   }
 
@@ -121,10 +142,11 @@ export function MediaSection({ propertyId, address }: { propertyId: string; addr
             opacity: busy ? 0.6 : 1,
           }}
         >
-          <span>{busy ? "מעלה…" : <><IconCamera s={15} /> העלה תמונה</>}</span>
+          <span>{busy ? `מעלה…${progress === null ? "" : ` ${progress}`}` : <><IconCamera s={15} /> העלאת תמונות</>}</span>
           <input
             ref={fileRef}
             type="file"
+            multiple
             accept="image/jpeg,image/png,image/webp"
             className="mv-visually-hidden"
             disabled={busy}

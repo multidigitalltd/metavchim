@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { NetworkChip } from "@metavchim/shared";
+import type { NetworkChip, NetworkDetailRow } from "@metavchim/shared";
 import {
   IconClock,
   IconDoor,
@@ -251,11 +251,9 @@ export function relativeTime(iso: string): string {
 export function NetDetailsButton({
   title,
   subtitle,
-  place,
   money,
   moneyLabel,
-  facts,
-  chips,
+  details,
   notes,
   notesLabel,
   photos,
@@ -265,11 +263,14 @@ export function NetDetailsButton({
 }: {
   title: string;
   subtitle?: string;
-  place: string;
   money?: string;
   moneyLabel: string;
-  facts: NetFact[];
-  chips: NetworkChip[];
+  /**
+   * רשימת השדות המלאה, מתויגת — מ-`demandDetailRows` /
+   * `presentationDetailRows`. שדה בלי ערך מוצג "לא צוין" ולא נעלם:
+   * המשתמש ביקש "ממש את כל השדות", ושדה שנעלם נקרא כמידע מוסתר.
+   */
+  details: NetworkDetailRow[];
   notes?: string;
   notesLabel: string;
   photos?: string[];
@@ -316,20 +317,25 @@ export function NetDetailsButton({
             </button>
           </div>
           {photos !== undefined && photos.length > 0 ? (
-            <NetPhotos photos={photos} alt={title} />
+            <NetPhotos photos={photos} alt={title} gallery />
           ) : null}
-          <NetPlace text={place} />
           {money === undefined ? null : <NetMoney label={moneyLabel} value={money} />}
-          <NetFacts facts={facts} />
-          {chips.length > 0 ? (
-            <div className="mv-net-chips mt-2">
-              {chips.map((chip) => (
-                <span key={chip.text} className="mv-net-chip">
-                  {chip.text}
-                </span>
-              ))}
-            </div>
-          ) : null}
+          {/*
+            רשימה מתויגת ולא צ'יפים: בפופאפ כבר לא סורקים אלא
+            מחליטים, והחלטה צריכה "מימון: אישור עקרוני ביד" ולא
+            תגית שצריך לנחש לאיזה שדה היא שייכת. שדה ריק נשאר
+            ברשימה עם "לא צוין" — כך רואים שאין מידע, לא שהוסתר.
+          */}
+          <dl className="mv-net-dialog-fields">
+            {details.map((row) => (
+              <div className="mv-net-dialog-field" key={row.label}>
+                <dt>{row.label}</dt>
+                <dd className={row.value === undefined ? "mv-net-dialog-field-empty" : ""}>
+                  {row.value ?? "לא צוין"}
+                </dd>
+              </div>
+            ))}
+          </dl>
           <NetSay label={notesLabel} text={notes} />
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
             <NetMeta id={id} {...(publishedAt === undefined ? {} : { publishedAt })} />
@@ -396,8 +402,21 @@ export function isFresh(iso?: string): boolean {
  * בטעינה. הכתובות חתומות וקצרות-חיים, ולכן תמונה שנכשלת נעלמת
  * בשקט במקום להשאיר סמל שבור על המודעה.
  */
-export function NetPhotos({ photos, alt }: { photos: string[]; alt: string }): React.JSX.Element | null {
-  const [open, setOpen] = useState(false);
+export function NetPhotos({
+  photos,
+  alt,
+  gallery = false,
+}: {
+  photos: string[];
+  alt: string;
+  /**
+   * `true` = הגלריה המלאה, פתוחה — לפופאפ "כל הפרטים".
+   * `false` = התמונה הראשית בלבד — לכרטיס בלוח. הגלריה אינה
+   * נפתחת בכרטיס: מי שרוצה את כל התמונות לוחץ "כל הפרטים",
+   * והכרטיסים נשארים שווי-גובה (בקשת המשתמש).
+   */
+  gallery?: boolean;
+}): React.JSX.Element | null {
   const [broken, setBroken] = useState<string[]>([]);
   const usable = photos.filter((url) => !broken.includes(url));
   if (usable.length === 0) return null;
@@ -412,7 +431,7 @@ export function NetPhotos({ photos, alt }: { photos: string[]; alt: string }): R
         className="mv-net-photo-main"
         onError={() => setBroken((was) => [...was, main!])}
       />
-      {rest.length === 0 ? null : open ? (
+      {gallery && rest.length > 0 ? (
         <div className="mv-net-photo-strip">
           {rest.map((url) => (
             <img
@@ -425,11 +444,13 @@ export function NetPhotos({ photos, alt }: { photos: string[]; alt: string }): R
             />
           ))}
         </div>
-      ) : (
-        <button type="button" className="mv-net-chip" onClick={() => setOpen(true)}>
-          <IconCamera s={14} /> כל התמונות ({usable.length})
-        </button>
-      )}
+      ) : null}
+      {!gallery && rest.length > 0 ? (
+        /* רמז שיש עוד — הפתיחה עצמה בפופאפ "כל הפרטים" */
+        <span className="mv-net-chip" aria-hidden="true">
+          <IconCamera s={14} /> ‎+{rest.length} תמונות
+        </span>
+      ) : null}
     </div>
   );
 }

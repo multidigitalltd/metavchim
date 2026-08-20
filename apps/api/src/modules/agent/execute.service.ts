@@ -157,6 +157,15 @@ export class AgentExecuteService {
       ...(num(params["budgetMaxShekels"]) !== undefined
         ? { maxPrice: num(params["budgetMaxShekels"])! }
         : {}),
+      /*
+       * נשאל תקציב ⇒ התקרה המוצהרת קובעת, כמו roomsDeclaredOnly:
+       * "עד 3 מיליון" לא יחזיר קונה עם תקציב 3.6 (דיווח המשתמש) —
+       * חפיפת הטווחים של מסך הסינון אינה תשובה לשאלה ישירה.
+       */
+      ...(num(params["budgetMinShekels"]) !== undefined ||
+      num(params["budgetMaxShekels"]) !== undefined
+        ? { budgetDeclaredOnly: true }
+        : {}),
     });
     return {
       message:
