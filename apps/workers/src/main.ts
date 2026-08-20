@@ -460,7 +460,12 @@ async function processViewingFollowup(job: Job): Promise<void> {
 }
 
 const LeadSlaJobSchema = z.object({ tenantId: z.string(), leadId: z.string() });
-const LEAD_SLA_TITLE = "ליד ממתין למענה — חלון ה-SLA חלף";
+/*
+ * בלי המילה SLA: המתווך שקורא את המשימה לא חי את הז'רגון הזה,
+ * ו"חלון ה-SLA חלף" נקרא כמו תקלה טכנית (דיווח המשתמש). אומרים
+ * את הדבר עצמו — עבר יותר מדי זמן בלי מענה.
+ */
+const LEAD_SLA_TITLE = "לחזור לליד — מחכה יותר מדי זמן בלי מענה";
 
 /**
  * SLA לליד (docs/01 — "כל ליד מקבל מענה"): ליד שנשאר "חדש" בלי מענה
@@ -526,7 +531,7 @@ async function escalateLeadSla(
           userId,
           type: "lead_sla",
           title: "⏳ ליד ממתין למענה",
-          body: "חלון ה-SLA חלף והליד עדיין ללא טיפול — נוצרה משימה לחזור ללקוח.",
+          body: "עבר יותר מדי זמן והליד עדיין ללא טיפול — נוצרה משימה לחזור ללקוח.",
           entityType: "lead",
           entityId: leadId,
         },
@@ -539,7 +544,7 @@ async function escalateLeadSla(
         leadId,
         kind: "system",
         content:
-          "חלון ה-SLA חלף — הליד עדיין ללא מענה ראשון; נוצרה משימת אסקלציה",
+          "עבר יותר מדי זמן בלי מענה ראשון — נוצרה משימת תזכורת לחזור ללקוח",
         createdBy: null,
       },
     });
