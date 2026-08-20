@@ -21,8 +21,12 @@ import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import { z } from "zod";
 import {
+  AGENT_ACTIONS,
   BLOCKABLE_MODULE_KEYS,
+  buildInterpretPrompt,
   IdSchema,
+  interpretJsonSchema,
+  InterpretResponseSchema,
   MAX_CREDIT_BONUS_PERCENT,
   MAX_CREDIT_EXPIRY_MONTHS,
   MAX_CREDIT_PACKAGES,
@@ -1391,6 +1395,72 @@ export class PlatformController {
       throw new BadRequestException("הסליקה טרם הוגדרה — מלאו מספר מסוף ושם API ושמרו");
     }
     return this.cardcom.testConnection();
+  }
+
+  /**
+   * בדיקת חיבור למנוע ההבנה החכמה — **שתי קריאות אמת, לא בדיקת שדה.**
+   *
+   * "זיהוי בסיסי" בכל פקודה כשמפתח מוגדר הוא כשל שקט: הסיבה נרשמת
+   * רק ביומן השרת (דיווח המשתמש). הבדיקה כאן מפרידה בין הגורמים:
+   *
+   * 1. **פינג** — פרומפט זעיר עם סכימה זעירה. כשל כאן = מפתח פסול,
+   *    שם מודל שגוי, או שרת שחסום ליציאה אל Google.
+   * 2. **קריאת פענוח מלאה** — אותו פרומפט ואותה סכימה שהסוכן שולח
+   *    באמת. פינג תקין וכשל כאן = הסכימה הגדולה היא הבעיה.
+   *
+   * מוחזרות גם ההצלחה/הכשל האחרונים מהשימוש האמיתי — כדי לראות אם
+   * התקלה חיה עכשיו או הייתה נקודתית.
+   */
+  @Post("settings/test-gemini")
+  @HttpCode(200)
+  async testGemini(): Promise<{
+    configured: boolean;
+    model: string;
+    ping: { ok: boolean; latencyMs: number; error?: string };
+    interpret: { ok: boolean; latencyMs: number; error?: string; action?: string };
+    lastFailure: { at: string; detail: string } | null;
+    lastSuccessAt: string | null;
+  }> {
+    if (!(await this.gemini.isConfigured())) {
+      throw new BadRequestException("לא מוגדר מפתח Gemini — מלאו מפתח ושמרו");
+    }
+    const model = await this.gemini.activeModel();
+
+    const ping = await this.gemini.probe('החזר JSON: {"ok": true}', {
+      type: "object",
+      properties: { ok: { type: "boolean" } },
+    });
+
+    const prompt = buildInterpretPrompt("תוסיף הערה לישראל ישראלי שהוא נוסע לחו\"ל עד סוף החודש", {
+      nowText: new Intl.DateTimeFormat("he-IL", {
+        timeZone: "Asia/Jerusalem",
+        dateStyle: "full",
+        timeStyle: "short",
+      }).format(new Date()),
+      allowedActions: AGENT_ACTIONS.map((a) => a.id),
+    });
+    const interpretProbe = await this.gemini.probe(prompt, interpretJsonSchema());
+    let interpretAction: string | undefined;
+    if (interpretProbe.ok) {
+      // מה המודל ענה בפועל — הוכחה שהצינור שלם מקצה לקצה
+      const parsed = InterpretResponseSchema.safeParse(
+        await this.gemini.generateStructured(prompt, interpretJsonSchema()),
+      );
+      interpretAction = parsed.success ? parsed.data.action : undefined;
+    }
+
+    const { lastFailure, lastSuccessAt } = this.gemini.status();
+    return {
+      configured: true,
+      model,
+      ping,
+      interpret: {
+        ...interpretProbe,
+        ...(interpretAction === undefined ? {} : { action: interpretAction }),
+      },
+      lastFailure,
+      lastSuccessAt,
+    };
   }
 
   /**

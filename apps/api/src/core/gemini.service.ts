@@ -49,6 +49,44 @@ export class GeminiService {
   }
 
   /**
+   * הכשל האחרון וההצלחה האחרונה — בזיכרון, לאבחון.
+   *
+   * "זיהוי בסיסי" בכל פקודה עם מפתח מוגדר הוא כשל שקט לחלוטין:
+   * הסיבה נרשמה רק ביומן השרת, ומי שמול המסך לא רואה דבר (דיווח
+   * המשתמש). הרישום כאן הוא מה שהופך את זה לניתן לאבחון בלחיצה.
+   */
+  private lastFailure: { at: string; detail: string } | null = null;
+  private lastSuccessAt: string | null = null;
+
+  /**
+   * בדיקת חיבור חיה — מחזירה את **הסיבה**, לא רק הצלחה/כשל.
+   *
+   * הקריאה זהה במבנה לקריאה אמיתית (אותו נתיב, אותם כותרים), כי
+   * בדיקת "המפתח קיים" אינה מוכיחה דבר: מפתח תקין עם שם מודל שגוי,
+   * או שרת שחסום ליציאה ל-Google, נכשלים באותה צורה שקטה.
+   */
+  async probe(
+    prompt: string,
+    responseSchema?: Record<string, unknown>,
+  ): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
+    const started = Date.now();
+    const result = await this.callDetailed(prompt, {
+      ...(responseSchema === undefined ? {} : { responseSchema }),
+      maxOutputTokens: 4_096,
+      timeoutMs: 15_000,
+    });
+    return {
+      ok: result.value !== null,
+      latencyMs: Date.now() - started,
+      ...(result.error === undefined ? {} : { error: result.error }),
+    };
+  }
+
+  status(): { lastFailure: { at: string; detail: string } | null; lastSuccessAt: string | null } {
+    return { lastFailure: this.lastFailure, lastSuccessAt: this.lastSuccessAt };
+  }
+
+  /**
    * פרומפט ⟵ JSON. מחזיר null על כל כשל — הקורא נופל-לאחור לחוקים.
    *
    * ‎responseMimeType: application/json‎ גורם למודל להחזיר JSON נקי
@@ -101,8 +139,27 @@ export class GeminiService {
       timeoutMs?: number;
     },
   ): Promise<unknown | null> {
+    return (await this.callDetailed(prompt, options)).value;
+  }
+
+  /**
+   * הקריאה עצמה, עם **הסיבה** לכשל ולא רק null.
+   *
+   * גוף התשובה של Google נקרא גם על שגיאה: `error.message` שלו אומר
+   * בדיוק מה לא בסדר — "model not found", "API key not valid",
+   * "Invalid JSON payload" — וזה ההבדל בין אבחון של עשר שניות לבין
+   * "זה פשוט לא עובד" (דיווח המשתמש: זיהוי בסיסי בכל פקודה).
+   */
+  private async callDetailed(
+    prompt: string,
+    options: {
+      responseSchema?: Record<string, unknown>;
+      maxOutputTokens?: number;
+      timeoutMs?: number;
+    },
+  ): Promise<{ value: unknown | null; error?: string }> {
     const key = await this.apiKey();
-    if (key === "") return null;
+    if (key === "") return { value: null, error: "לא מוגדר מפתח Gemini" };
     const model = await this.activeModel();
     try {
       const res = await fetch(
@@ -126,8 +183,8 @@ export class GeminiService {
         },
       );
       if (!res.ok) {
-        this.logger.warn(`Gemini השיב ${res.status} — נופלים לחוקים`);
-        return null;
+        const detail = `HTTP ${res.status} (מודל ${model}): ${await googleErrorMessage(res)}`;
+        return { value: null, error: this.recordFailure(detail) };
       }
       const body = (await res.json()) as {
         candidates?: {
@@ -143,16 +200,48 @@ export class GeminiService {
        * ב-`maxOutputTokens`.
        */
       if (candidate?.finishReason === "MAX_TOKENS") {
-        this.logger.warn("תשובת Gemini נחתכה בגלל מגבלת אסימונים — נופלים לחוקים");
-        return null;
+        return {
+          value: null,
+          error: this.recordFailure("התשובה נחתכה בגלל מגבלת אסימונים (MAX_TOKENS)"),
+        };
       }
       const text = candidate?.content?.parts?.[0]?.text ?? "";
-      if (text === "") return null;
-      return JSON.parse(text) as unknown;
+      if (text === "") {
+        return {
+          value: null,
+          error: this.recordFailure(
+            `תשובה ריקה (finishReason: ${candidate?.finishReason ?? "אין"})`,
+          ),
+        };
+      }
+      const value = JSON.parse(text) as unknown;
+      this.lastSuccessAt = new Date().toISOString();
+      return { value };
     } catch (error) {
-      // כשל רשת/timeout/JSON פגום — כולם אותו דבר מבחינת הקורא
-      this.logger.warn(`קריאת Gemini נכשלה — נופלים לחוקים: ${String(error)}`);
-      return null;
+      const name = error instanceof Error ? error.name : "";
+      const detail =
+        name === "TimeoutError" || name === "AbortError"
+          ? `פסק זמן אחרי ${options.timeoutMs ?? 5_000}ms — ייתכן שהשרת חסום ליציאה אל Google`
+          : `כשל רשת: ${String(error)}`;
+      return { value: null, error: this.recordFailure(detail) };
     }
+  }
+
+  private recordFailure(detail: string): string {
+    this.lastFailure = { at: new Date().toISOString(), detail };
+    this.logger.warn(`קריאת Gemini נכשלה — נופלים לחוקים: ${detail}`);
+    return detail;
+  }
+}
+
+/** ‎error.message‎ מגוף התשובה של Google — הסיבה האמיתית, לא רק הקוד. */
+async function googleErrorMessage(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: { message?: string; status?: string } };
+    const message = body.error?.message ?? "";
+    const status = body.error?.status ?? "";
+    return [status, message].filter(Boolean).join(" — ").slice(0, 500) || "ללא פירוט";
+  } catch {
+    return "ללא פירוט";
   }
 }

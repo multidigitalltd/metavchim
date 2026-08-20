@@ -321,14 +321,19 @@ export class AgentInterpretService {
         );
       let cardPhrase = match?.groups?.["name"];
       let note = match?.groups?.["rest"]?.trim() ?? "";
-      // "דנה שהיא…" — המילה השנייה היא פסוקית זיקה, לא שם משפחה
+      /*
+       * "דנה שהיא…" — המילה השנייה היא פסוקית זיקה, לא שם משפחה.
+       * הבדיקה מול פתיחי פסוקית מפורשים ולא כל מילה שמתחילה ב-ש':
+       * "משה שלום" הוא שם מלא, ו"שלום" שנקרע ממנו היה משבש גם את
+       * החיפוש וגם את ההערה (ביקורת Codex).
+       */
       const tokens = cardPhrase?.split(" ") ?? [];
-      if (tokens.length === 2 && tokens[1]!.startsWith("ש")) {
+      if (tokens.length === 2 && CLAUSE_OPENER.test(tokens[1]!)) {
         cardPhrase = tokens[0]!;
         note = `${tokens[1]!} ${note}`.trim();
       }
       // "שהוא נוסע" ⟵ "הוא נוסע" — ש' החיבור אינה חלק מהתוכן
-      note = note.replace(/^ש(?=הוא|היא|הם|הן|יש|אין|צריך|רוצה|מחפש|ביקש|אמר)/u, "");
+      if (CLAUSE_OPENER.test(note)) note = note.slice(1);
       return {
         cardPhrase: cardPhrase ?? base["name"],
         note: note !== "" ? note : person.summary,
@@ -356,6 +361,14 @@ export class AgentInterpretService {
     return base;
   }
 }
+
+/**
+ * פתיחי פסוקית זיקה — "שהוא", "שרוצה", "שיש"… רשימה סגורה בכוונה:
+ * כל מילה שמתחילה ב-ש' אינה פסוקית ("שלום", "שרה"), והכרעה רחבה
+ * מדי קורעת שמות משפחה אמיתיים.
+ */
+const CLAUSE_OPENER =
+  /^ש(?:הוא|היא|הם|הן|יש|אין|צריך|צריכה|רוצה|רוצים|מחפש|מחפשת|ביקש|ביקשה|אמר|אמרה)/u;
 
 /** הכוונות של מנוע החוקים ⟵ מזהי הקטלוג. */
 const RULE_ACTION_MAP: Record<string, string | undefined> = {
