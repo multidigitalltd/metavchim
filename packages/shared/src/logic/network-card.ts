@@ -25,6 +25,7 @@
 import { MATURITY_LABELS } from "../schemas/buyer.js";
 import { PROPERTY_TYPE_LABELS_HE } from "./csv-export.js";
 import { propertyFeatureLabel } from "./matching.js";
+import { describeDistance } from "./proximity.js";
 
 /**
  * שם האייקון — **לא האייקון עצמו.**
@@ -282,6 +283,171 @@ export function demandChips(demand: NetworkDemandFields): NetworkChip[] {
   }
 
   return chips;
+}
+
+/**
+ * שורה אחת ברשימת "כל הפרטים" — תווית וערך.
+ *
+ * `value` חסר פירושו **"לא צוין" ולא "אל תציג"**: המסך מציג את
+ * השורה עם ציון מפורש שהשדה ריק. מתווך שפותח את הפופאפ צריך לדעת
+ * שהשדה קיים ולא מולא — שדה שנעלם נקרא כמידע שמוסתר ממנו, וזה
+ * בדיוק חוסר האמון שהורג רשת שיתופים.
+ */
+export interface NetworkDetailRow {
+  label: string;
+  value?: string;
+}
+
+/**
+ * כל השדות של הביקוש, מתויגים — לפופאפ "כל הפרטים".
+ *
+ * **אותו גבול חיסיון של `demandChips`**: הקלט הוא צילום הרשת, ששם
+ * וטלפון מעולם לא נכנסו אליו. ההבדל הוא הצורה — הצ'יפים בכרטיס הם
+ * תקציר לסריקה, וכאן רשימה מלאה שבה כל שדה מופיע עם תווית, גם
+ * כשהוא ריק.
+ */
+export function demandDetailRows(
+  demand: NetworkDemandFields & {
+    cities: string[];
+    /** אזורי המפה שהקונה סימן — רדיוס ותווית, בלי קואורדינטות. */
+    searchAreas?: { radiusKm: number; label?: string }[] | undefined;
+  },
+): NetworkDetailRow[] {
+  const joined = (values: readonly string[] | undefined): string | undefined =>
+    values !== undefined && values.length > 0 ? values.join(" · ") : undefined;
+  const rooms = roomsText(demand.roomsMin, demand.roomsMax);
+  const areas = (demand.searchAreas ?? []).map((area) =>
+    area.label !== undefined && area.label !== ""
+      ? `${area.label} — רדיוס ${describeDistance(area.radiusKm)}`
+      : `רדיוס ${describeDistance(area.radiusKm)}`,
+  );
+  const budget =
+    demand.budgetMaxAgorot === undefined
+      ? undefined
+      : demand.budgetMinAgorot !== undefined && demand.budgetMinAgorot > 0
+        ? `${money(demand.budgetMinAgorot)}–${money(demand.budgetMaxAgorot)}`
+        : `עד ${money(demand.budgetMaxAgorot)}`;
+  const entry = entryChip(demand.entryType, demand.entryBy);
+  const financing =
+    demand.financing === undefined
+      ? undefined
+      : FINANCING_CHIP[demand.financing]?.text;
+  return [
+    {
+      label: "סוג עסקה",
+      value: demand.dealType === "rent" ? "שכירות" : "קנייה",
+    },
+    {
+      label: "סוגי נכס",
+      value: joined(
+        (demand.propertyTypes ?? [])
+          .map(
+            (t) =>
+              PROPERTY_TYPE_LABELS_HE[
+                t as keyof typeof PROPERTY_TYPE_LABELS_HE
+              ] ?? t,
+          )
+          .filter((t) => t !== ""),
+      ),
+    },
+    { label: "חדרים", value: rooms ?? undefined },
+    {
+      label: "שטח מינימלי",
+      value:
+        demand.areaSqmMin !== undefined && demand.areaSqmMin > 0
+          ? `${demand.areaSqmMin} מ״ר`
+          : undefined,
+    },
+    { label: "ערים", value: joined(demand.cities) },
+    { label: "שכונות", value: joined(demand.neighborhoods) },
+    { label: "אזורי חיפוש במפה", value: joined(areas) },
+    { label: "תקציב", value: budget },
+    { label: "מועד כניסה", value: entry?.text },
+    { label: "מימון", value: financing },
+    {
+      label: "רצינות הקונה",
+      value:
+        demand.maturity === undefined
+          ? undefined
+          : (MATURITY_LABELS[demand.maturity] ?? demand.maturity),
+    },
+    {
+      label: "דרישות חובה",
+      value: joined(demand.mustFeatures.map(propertyFeatureLabel)),
+    },
+    {
+      label: "עדיפויות (לא חובה)",
+      value: joined((demand.niceFeatures ?? []).map(propertyFeatureLabel)),
+    },
+  ];
+}
+
+/**
+ * כל השדות של הנכס, מתויגים — התאום של `demandDetailRows` לצד השני.
+ * הקלט הוא צילום הרשת: רחוב, מספר בית ובעלים אינם קיימים בו כלל.
+ */
+export function presentationDetailRows(
+  p: NetworkPresentationFields,
+): NetworkDetailRow[] {
+  const entry = entryChip(p.entryType, p.entryDate);
+  return [
+    {
+      label: "סוג עסקה",
+      value:
+        p.dealType === undefined
+          ? undefined
+          : p.dealType === "rent"
+            ? "השכרה"
+            : "מכירה",
+    },
+    {
+      label: "סוג נכס",
+      value:
+        p.propertyType === undefined
+          ? undefined
+          : (PROPERTY_TYPE_LABELS_HE[
+              p.propertyType as keyof typeof PROPERTY_TYPE_LABELS_HE
+            ] ?? p.propertyType),
+    },
+    { label: "עיר", value: p.city },
+    { label: "שכונה", value: p.neighborhood },
+    {
+      label: "חדרים",
+      value: p.rooms === undefined ? undefined : `${p.rooms}`,
+    },
+    {
+      label: "שטח",
+      value: p.areaSqm === undefined ? undefined : `${p.areaSqm} מ״ר`,
+    },
+    {
+      label: "קומה",
+      value:
+        p.floor === undefined
+          ? undefined
+          : p.totalFloors !== undefined
+            ? `${p.floor} מתוך ${p.totalFloors}`
+            : `${p.floor}`,
+    },
+    {
+      label: "מצב הנכס",
+      value:
+        p.condition === undefined
+          ? undefined
+          : (CONDITION_LABELS[p.condition] ?? p.condition),
+    },
+    {
+      label: p.dealType === "rent" ? "שכר דירה" : "מחיר",
+      value: p.priceAgorot === undefined ? undefined : money(p.priceAgorot),
+    },
+    { label: "מועד כניסה", value: entry?.text },
+    {
+      label: "מאפיינים",
+      value:
+        p.features !== undefined && p.features.length > 0
+          ? p.features.map(propertyFeatureLabel).join(" · ")
+          : undefined,
+    },
+  ];
 }
 
 /** צילום הנכס כפי שהוא נשלח לצד השני — בלי רחוב, בלי מספר בית, בלי בעלים. */

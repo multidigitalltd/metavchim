@@ -108,6 +108,18 @@ export function ProposalCard({
     const merged: Record<string, unknown> = {};
     for (const field of proposal.fields) merged[field.key] = field.value;
     Object.assign(merged, edits);
+    /*
+     * שדות שהושלמו ידנית מגיעים מהתיבה כמחרוזת, והשרת מקבל טיפוסים
+     * (`num()` דוחה "2300000" כמחרוזת בשקט). ההמרה כאן, ברגע
+     * השליחה: מספר נקי ⟵ number, ערים ⟵ רשימה, ריק ⟵ לא נשלח.
+     */
+    for (const missing of proposal.missing) {
+      const raw = merged[missing.key];
+      if (typeof raw !== "string") continue;
+      const value = looseValue(missing.key, raw);
+      if (value === undefined) delete merged[missing.key];
+      else merged[missing.key] = value;
+    }
     if (chosen !== null && proposal.candidates !== undefined) {
       // השרת אומר תחת איזה מפתח נשלחת הבחירה — לא ניחוש לפי הפעולה
       merged[proposal.candidates.idKey] = chosen;
@@ -204,10 +216,35 @@ export function ProposalCard({
         </dl>
       )}
 
+      {/*
+        השדות שלא זוהו — תיבות ריקות להשלמה, לא רק שורת "חסר עדיין".
+        המשתמש ביקש בדיוק את זה: מי שרואה "חסר: שם" נאלץ לבטל ולדבר
+        שוב; מי שרואה תיבה ריקה מקליד את השם וממשיך.
+      */}
       {proposal.missing.length === 0 ? null : (
-        <p className="mt-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
-          <IconPin s={14} /> חסר עדיין: {proposal.missing.map((m) => m.label).join(" · ")}
-        </p>
+        <div className="mt-2">
+          <p className="m-0 mb-1 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+            <IconPin s={14} /> לא זוהה בדיבור — אפשר להשלים כאן:
+          </p>
+          <dl className="mv-proposal-grid">
+            {proposal.missing.map((missing) => (
+              <div key={missing.key} className="mv-proposal-row">
+                <dt className="mv-proposal-label">{missing.label}</dt>
+                <dd className="mv-proposal-value">
+                  <input
+                    className="mv-field"
+                    value={String(edits[missing.key] ?? "")}
+                    aria-label={missing.label}
+                    placeholder={LIST_KEYS.has(missing.key) ? "מופרדות בפסיק" : ""}
+                    onChange={(e) =>
+                      setEdits((prev) => ({ ...prev, [missing.key]: e.target.value }))
+                    }
+                  />
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       )}
 
       {/*
@@ -284,4 +321,29 @@ function coerce(field: ProposalField, raw: string): unknown {
   if (typeof field.value !== "number") return raw;
   const parsed = Number(raw.replace(/[^\d.-]/gu, ""));
   return Number.isFinite(parsed) ? parsed : field.value;
+}
+
+/** מפתחות שהשרת מצפה בהם לרשימה — פסיקים בתיבה מתפרקים לאיברים. */
+const LIST_KEYS = new Set(["cities", "neighborhoods", "mustFeatures"]);
+
+/**
+ * השלמה ידנית של שדה חסר ⟵ הטיפוס שהשרת מצפה לו.
+ *
+ * אין כאן `field.value` ללמוד ממנו את הטיפוס — השדה לא זוהה בכלל.
+ * ההיסק לפי הצורה: מספר נקי הוא number ("2,300,000" כולל פסיקי
+ * אלפים), מפתח רשימה מתפרק בפסיקים, וכל השאר מחרוזת. ריק אינו
+ * נשלח — שדה שלא הושלם נשאר חסר, בדיוק כמו קודם.
+ */
+function looseValue(key: string, raw: string): unknown {
+  const trimmed = raw.trim();
+  if (trimmed === "") return undefined;
+  if (LIST_KEYS.has(key)) {
+    const items = trimmed.split(",").map((item) => item.trim()).filter((item) => item !== "");
+    return items.length > 0 ? items : undefined;
+  }
+  if (/^[\d.,]+$/u.test(trimmed)) {
+    const parsed = Number(trimmed.replace(/,/gu, ""));
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return trimmed;
 }

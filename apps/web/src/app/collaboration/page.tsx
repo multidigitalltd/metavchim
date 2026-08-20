@@ -5,9 +5,11 @@ import {
   COMMISSION_SPLIT_OPTIONS,
   DEFAULT_COMMISSION_SPLIT,
   demandChips,
+  demandDetailRows,
   describeCommissionSplit,
   describeReferralRating,
   presentationChips,
+  presentationDetailRows,
   referralReasonLabel,
   shekels,
   type PayoutMode,
@@ -1314,11 +1316,18 @@ export default function CollaborationPage() {
                               <NetDetailsButton
                                 title={`קונה מחפש ${roomsLabel(demand.roomsMin, demand.roomsMax)}`}
                                 subtitle={split.subtitle}
-                                place={split.place === "" ? demandArea(demand) : split.place}
                                 {...(split.money === undefined ? {} : { money: split.money.text })}
                                 moneyLabel="תקציב"
-                                facts={split.facts}
-                                chips={split.rest}
+                                details={[
+                                  ...demandDetailRows(demand),
+                                  {
+                                    label: "חלוקת עמלה",
+                                    value: describeCommissionSplit(demand.commissionSplit),
+                                  },
+                                  ...(demand.creditsCost > 0
+                                    ? [{ label: "מקור", value: demand.sourceLabel }]
+                                    : []),
+                                ]}
                                 {...(demand.notes === undefined ? {} : { notes: demand.notes })}
                                 notesLabel="הערות חשובות"
                                 id={demand.id}
@@ -1647,17 +1656,15 @@ export default function CollaborationPage() {
                               <NetDetailsButton
                                 title={listing.title ?? `נכס ב${listing.city ?? "רשת"}`}
                                 subtitle={split.subtitle}
-                                place={
-                                  split.place === ""
-                                    ? [listing.city, listing.neighborhood]
-                                        .filter(Boolean)
-                                        .join(" · ")
-                                    : split.place
-                                }
                                 {...(split.money === undefined ? {} : { money: split.money.text })}
-                                moneyLabel="מחיר"
-                                facts={split.facts}
-                                chips={split.rest}
+                                moneyLabel={listing.dealType === "rent" ? "שכר דירה" : "מחיר"}
+                                details={[
+                                  ...presentationDetailRows(listing),
+                                  {
+                                    label: "חלוקת עמלה",
+                                    value: describeCommissionSplit(listing.commissionSplit),
+                                  },
+                                ]}
                                 {...(listing.notes === undefined ? {} : { notes: listing.notes })}
                                 notesLabel="מה מיוחד בנכס"
                                 photos={listing.photos ?? []}

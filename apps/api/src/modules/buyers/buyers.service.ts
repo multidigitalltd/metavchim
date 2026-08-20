@@ -663,6 +663,17 @@ export class BuyersService {
      * החמישים.
      */
     roomsDeclaredOnly?: boolean;
+    /**
+     * תקציב כתנאי קשיח — לשאלה ישירה של הסוכן, לא למסך הסינון.
+     *
+     * הסינון הרגיל בודק חפיפת טווחים: "עד 3 מיליון" מעביר גם קונה
+     * עם תקציב עד 3.6, כי הטווחים נחתכים — נכון למסך שמצמצם רשימה,
+     * ושגוי כתשובה לשאלה "מי מחפש עד 3 מיליון" (המשתמש קיבל 3.6
+     * בתשובה וצדק שזו טעות). במצב הזה "עד X" פירושו שהתקרה
+     * **המוצהרת** של הקונה אינה עולה על X, ו"מעל X" — שהיא מגיעה
+     * לפחות ל-X; קונה בלי תקציב מוצהר אינו נכלל, כי איננו יודעים.
+     */
+    budgetDeclaredOnly?: boolean;
     cursor?: string;
     limit: number;
   }): Promise<Page<BuyerDto>> {
@@ -689,27 +700,41 @@ export class BuyersService {
      * סינון "עד X" — הסמנטיקה ההפוכה בדיוק ממה שהלוגיקה המשותפת
      * מגדירה ובודקת (ביקורת Codex).
      */
-    if (budget.max !== undefined) {
-      conditions.push({
-        OR: [
-          { budgetMinAgorot: { lte: budget.max } },
-          { budgetMinAgorot: null },
-        ],
-      });
-    }
-    /*
-     * אותה סמנטיקה בדיוק כמו למעלה, בכיוון הנגדי: קונה בלי תקציב
-     * מוצהר אינו "תקציב אפס" ולכן אינו נופל מסינון "מעל X". הוא
-     * פשוט לא הצהיר, וההסתרה שלו הייתה מסתירה בדיוק את הלקוחות
-     * שהמתווך צריך להתקשר אליהם כדי לברר.
-     */
-    if (budget.min !== undefined) {
-      conditions.push({
-        OR: [
-          { budgetMaxAgorot: { gte: budget.min } },
-          { budgetMaxAgorot: null },
-        ],
-      });
+    if (query.budgetDeclaredOnly === true) {
+      /*
+       * שאלה ישירה — התקרה המוצהרת קובעת, וקונה בלי תקציב לא נכלל.
+       * השוואת SQL על NULL אינה true, ולכן אין צורך בענף null: הוא
+       * נופל מעצמו, וזו בדיוק הכוונה (ראו budgetDeclaredOnly).
+       */
+      if (budget.max !== undefined) {
+        conditions.push({ budgetMaxAgorot: { lte: budget.max } });
+      }
+      if (budget.min !== undefined) {
+        conditions.push({ budgetMaxAgorot: { gte: budget.min } });
+      }
+    } else {
+      if (budget.max !== undefined) {
+        conditions.push({
+          OR: [
+            { budgetMinAgorot: { lte: budget.max } },
+            { budgetMinAgorot: null },
+          ],
+        });
+      }
+      /*
+       * אותה סמנטיקה בדיוק כמו למעלה, בכיוון הנגדי: קונה בלי תקציב
+       * מוצהר אינו "תקציב אפס" ולכן אינו נופל מסינון "מעל X". הוא
+       * פשוט לא הצהיר, וההסתרה שלו הייתה מסתירה בדיוק את הלקוחות
+       * שהמתווך צריך להתקשר אליהם כדי לברר.
+       */
+      if (budget.min !== undefined) {
+        conditions.push({
+          OR: [
+            { budgetMaxAgorot: { gte: budget.min } },
+            { budgetMaxAgorot: null },
+          ],
+        });
+      }
     }
     if (rooms.max !== undefined) {
       conditions.push({

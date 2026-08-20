@@ -86,12 +86,25 @@ export function VoiceConsole(): React.JSX.Element | null {
   }
 
   return (
-    <section className="mv-card mb-4" aria-labelledby="agent-console-title">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h2 id="agent-console-title" className="m-0 flex items-center gap-2 text-[17px] font-bold">
-          <IconMic s={17} /> מה עכשיו?
-        </h2>
-        <Link href="/voice" className="text-[14px] underline">
+    /*
+     * mv-agent ולא mv-card: המשתמש ביקש שהאזור יהיה תחום, צבעוני
+     * ומזמין — כרטיס לבן בין כרטיסים לבנים אינו אף אחד מהשלושה.
+     * הרקע, המסגרת והתג בצבע הראשי אומרים "כאן מדברים עם המערכת".
+     */
+    <section className="mv-agent mb-4" aria-labelledby="agent-console-title">
+      <div className="mv-agent-head">
+        <span className="mv-agent-badge" aria-hidden="true">
+          <IconMic s={21} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 id="agent-console-title" className="mv-agent-title">
+            מה עכשיו?
+          </h2>
+          <p className="mv-agent-sub">
+            דברו או כתבו — הסוכן יקלוט, יחפש ויעדכן בשבילכם.
+          </p>
+        </div>
+        <Link href="/voice" className="mv-agent-link">
           למסך הסוכן ←
         </Link>
       </div>
@@ -104,7 +117,7 @@ export function VoiceConsole(): React.JSX.Element | null {
 
       <div className="flex flex-wrap items-center gap-2">
         <input
-          className="mv-field"
+          className="mv-field mv-agent-field"
           style={{ flex: "1 1 260px" }}
           value={text}
           placeholder='למשל: "תוסיף קונה משה כהן, 4 חדרים בבני ברק עד 2.3 מיליון"'
