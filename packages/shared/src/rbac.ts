@@ -46,6 +46,16 @@ export const CAPABILITIES = [
   "calendar.manage",
   "collaboration.share",
   "collaboration.offer",
+  /**
+   * שינוי תנאי שת"פ שסוכן אחר קבע — חלוקת עמלה, הערה, והורדה מהרשת.
+   *
+   * נפרדת מ-`collaboration.share` בדיוק כמו ש-`buyers.view_all`
+   * נפרדת מ-`buyers.view_own`: לשתף זו שגרת עבודה, ולגעת בהתחייבות
+   * שעמית נתן למשרד אחר זו החלטה ניהולית. בלי ההפרדה כל סוכן במשרד
+   * יכול היה להוריד את חלקו של עמית מ-50% ל-34% על נכס שכבר מוצג
+   * בלוח — בלי ידיעתו, ואחרי שמשרדים אחרים כבר ראו את התנאים.
+   */
+  "collaboration.manage_all",
   "billing.manage",
   "users.manage",
   "settings.manage",
@@ -127,6 +137,8 @@ export const ROLE_CAPABILITIES: Record<string, readonly Capability[]> = {
     "calendar.manage",
     "collaboration.share",
     "collaboration.offer",
+    // מנהל סניף מתקן תנאים של סוכן שיצא לחופשה — זו בדיוק עבודתו
+    "collaboration.manage_all",
     "analytics.view",
     "tasks.assign",
     "tasks.view_all",

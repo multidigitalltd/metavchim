@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -32,7 +33,7 @@ import {
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { lockContact } from "../../common/locks";
-import { assertLeadAccess, ownershipFilter } from "../../common/ownership";
+import { assertBuyerAccess, assertLeadAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -196,6 +197,13 @@ function readSearchAreas(
 
 export interface SharedDemandDto {
   id: string;
+  /**
+   * האם המשתמש הזה רשאי לשנות את התנאים או להפסיק את השיתוף.
+   *
+   * הבעלות על תנאי הביקוש היא הבעלות על הקונה. השדה קיים כדי
+   * שהמסך לא יזמין את הסוכן לפעולה שהשרת ידחה.
+   */
+  canManage?: boolean;
   cities: string[];
   /** שכונות מבוקשות — מדרישות הקונה; מדויק יותר מעיר, עדיין אנונימי */
   neighborhoods: string[];
@@ -633,13 +641,39 @@ export class CollaborationService {
    */
   async activeDemandForBuyer(buyerId: string): Promise<SharedDemandDto | null> {
     const tenantId = TenantContext.current().tenantId;
-    const row = await this.prisma.withTenant(async (tx) =>
-      tx.sharedDemand.findFirst({
+    const found = await this.prisma.withTenant(async (tx) => {
+      const row = await tx.sharedDemand.findFirst({
         where: { tenantId, originBuyerId: buyerId, status: "active" },
         select: { id: true },
-      }),
-    );
-    return row ? this.getDemand(row.id) : null;
+      });
+      if (!row) return null;
+      /*
+       * הבעלות נבדקת כאן כדי שהמסך לא יציע כפתור שייכשל: אחרי
+       * ש-`updateSharedDemand` אוכף בעלות, סוכן שרואה ביקוש של
+       * קונה שאינו שלו היה לוחץ „עדכן” ומקבל 404.
+       */
+      const mayManage = await this.assertDemandTerms(tx, tenantId, buyerId).then(
+        () => true,
+        () => false,
+      );
+      return { id: row.id, mayManage };
+    });
+    if (!found) return null;
+    return { ...(await this.getDemand(found.id)), canManage: found.mayManage };
+  }
+
+  /**
+   * מי רשאי לקבוע את תנאי הרשת של קונה — **הבעלים או מנהל.**
+   *
+   * הבעלות על התנאים היא הבעלות על הקונה, ולכן `assertBuyerAccess`
+   * הוא הבסיס. `collaboration.manage_all` נבדקת לפניו במפורש:
+   * בצד הנכס היא כבר פותחת תנאים של עמית, ובלעדיה כאן אותה יכולת
+   * הייתה עובדת על חצי מהרשת בלבד — מנהל שקיבל אותה בחריג הרשאות
+   * בלי `buyers.view_all` היה נחסם דווקא בצד הקונה (ביקורת Codex).
+   */
+  private async assertDemandTerms(tx: TenantTx, tenantId: string, buyerId: string): Promise<void> {
+    if (TenantContext.current().capabilities.has("collaboration.manage_all")) return;
+    await assertBuyerAccess(tx, tenantId, buyerId);
   }
 
   /**
@@ -662,6 +696,16 @@ export class CollaborationService {
     if (splitRejection !== null) throw new BadRequestException(splitRejection);
 
     const demandId = await this.prisma.withTenant(async (tx) => {
+      /*
+       * הבעלות על התנאים היא הבעלות על הקונה.
+       *
+       * עד כה השליפה סוננה לפי `tenantId` בלבד, ולכן כל סוכן במשרד
+       * יכול היה לשנות את חלוקת העמלה שעמית הבטיח למשרד אחר — על
+       * ביקוש של קונה שאינו שלו, ובלי שיראה אותו בשום מסך. אצל
+       * הקונה יש בעלים מפורש, ולכן זה בדיוק אותו שער שכבר חל על
+       * עריכת דרישותיו (ביקורת המשתמש).
+       */
+      await this.assertDemandTerms(tx, tenantId, buyerId);
       const existing = await tx.sharedDemand.findFirst({
         where: { tenantId, originBuyerId: buyerId, status: "active" },
         select: { id: true },
@@ -684,9 +728,36 @@ export class CollaborationService {
     return this.getDemand(demandId);
   }
 
+  /**
+   * הפסקת שיתוף — **אותו שער בדיוק כמו שינוי התנאים.**
+   *
+   * זה היה החור: העדכון נסגר לבעלים, אבל המחיקה נשארה פתוחה לכל
+   * מי שיש לו `collaboration.share` ומזהה ביקוש. כלומר המסך הציג
+   * ‎`canManage: false`‎ והסתיר את הכפתור, ובקשת `DELETE` ישירה
+   * עדיין סגרה את הביקוש של העמית (ביקורת Codex).
+   *
+   * מסך שמסתיר פעולה אינו אכיפה — הוא נוחות. האכיפה כאן.
+   */
   async unshare(demandId: string): Promise<void> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {
+      const demand = await tx.sharedDemand.findFirst({
+        where: { id: demandId, tenantId, status: "active" },
+        select: { originBuyerId: true },
+      });
+      if (!demand) throw new NotFoundException("ביקוש לא נמצא");
+      /*
+       * ביקוש בלי קונה מקורי (מקור חיצוני, למשל קנקו) אינו שייך
+       * לאף סוכן, ולכן רק מנהל סוגר אותו.
+       */
+      if (demand.originBuyerId === null) {
+        if (!TenantContext.current().capabilities.has("collaboration.manage_all")) {
+          throw new ForbiddenException("רק מנהל יכול לסגור ביקוש שאינו של קונה במשרד");
+        }
+      } else {
+        await this.assertDemandTerms(tx, tenantId, demand.originBuyerId);
+      }
+
       const result = await tx.sharedDemand.updateMany({
         where: { id: demandId, tenantId, status: "active" },
         data: { status: "closed" },

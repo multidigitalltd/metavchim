@@ -1039,3 +1039,118 @@ function contentTypeOf(data: Record<string, unknown>): string {
   if (format.includes("gsm")) return "audio/gsm";
   return "audio/wav";
 }
+
+/* ============================================================
+   ייבוא הקלטות שקדמו לחיבור
+   ============================================================ */
+
+/**
+ * רשימת ההקלטות אצל הספק — **המסלול היחיד להקלטות ישנות.**
+ *
+ * הוובהוק מספר לנו על הקלטה בזמן שהיא נוצרת, ולכן הוא מכסה רק את
+ * מה שקרה **אחרי** שהמשרד חיבר את המרכזייה. כל מה שהוקלט לפני כן
+ * יושב אצל הספק בלי שנדע עליו, וייעלם כשמדיניות השמירה שלו תמחק
+ * אותו — כלומר בדיוק הראיה שהמשרד חושב שיש לו.
+ *
+ * ‎`recordgroup` אינו נשלח: התיעוד אומר שברירת המחדל היא „כל
+ * הקבוצות של הלקוח”, וזה מה שאנחנו רוצים — משרד יכול להחזיק כמה
+ * קבוצות הקלטה, ואיננו יודעים מראש אילו.
+ */
+export const PBX015_RECORDINGS_LIST_URL =
+  "https://www.015pbx.net/api/json/recording/recordings/list/";
+
+export function build015RecordingsListUrl(input: {
+  authUsername: string;
+  authPassword: string;
+  /** שניות, לא מילישניות — כמו בכל שאר ה-API של 015. */
+  fromEpochSeconds: number;
+  toEpochSeconds: number;
+}): string {
+  const query = (
+    [
+      ["auth_username", input.authUsername],
+      ["auth_password", input.authPassword],
+      ["start", String(Math.floor(input.fromEpochSeconds))],
+      ["end", String(Math.floor(input.toEpochSeconds))],
+      // הקלטות שהסתיימו בלבד; שיחה שעדיין רצה תיאסף בסבב הבא
+      ["complete", "1"],
+    ] as [string, string][]
+  )
+    .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+    .join("&");
+  return `${PBX015_RECORDINGS_LIST_URL}?${query}`;
+}
+
+/** הקלטה אחת ברשימה, אחרי שזוהתה. */
+export interface Pbx015RecordingRow {
+  /** מזהה השיחה — המפתח שמחבר להקלטה ולשיחה שאצלנו. */
+  uniqueId: string;
+  /** מזהה הרשומה, הסיפרה שאחרי הקו התחתון בשם הקובץ. */
+  recordId: string;
+  /** קבוצת ההקלטה — הסֶגמנט הראשון בנתיב. */
+  recordGroup: string;
+}
+
+const LIST_UNIQUE_KEYS = ["uniqueid", "unique_id", "uniqueId", "callid"] as const;
+const LIST_RECORD_ID_KEYS = ["recordid", "record_id", "id"] as const;
+const LIST_GROUP_KEYS = ["recordgroup", "record_group", "group", "groupid"] as const;
+
+function pick(row: Record<string, unknown>, keys: readonly string[]): string | undefined {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim() !== "") return value.trim();
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  }
+  return undefined;
+}
+
+function rowsOf(body: unknown): Record<string, unknown>[] {
+  const root = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  const data = root["data"] ?? root["recordings"] ?? root["rows"] ?? body;
+  if (!Array.isArray(data)) return [];
+  return data.filter(
+    (row): row is Record<string, unknown> => typeof row === "object" && row !== null,
+  );
+}
+
+/**
+ * התשובה ⟵ שורות שאפשר לפעול לפיהן.
+ *
+ * שמות השדות בשורה **אינם מתועדים** — התיעוד אומר רק „מערך שדות
+ * התואם לשורות טבלת ההקלטות”. לכן אותה גישה כמו בכל מה שמגיע
+ * מהספק: לחפש בשמות המקובלים, ולוותר בשקט על שורה שאין בה את
+ * המזהים — במקום לקבע שם אחד ולהישבר ביום שהוא ישתנה.
+ *
+ * שורה בלי `uniqueid` חסרת ערך לנו בכל מקרה: זה המפתח שמחבר את
+ * ההקלטה לשיחה שאצלנו.
+ */
+export function parse015RecordingsList(body: unknown): Pbx015RecordingRow[] {
+  const found: Pbx015RecordingRow[] = [];
+  for (const row of rowsOf(body)) {
+    const uniqueId = pick(row, LIST_UNIQUE_KEYS);
+    const recordId = pick(row, LIST_RECORD_ID_KEYS);
+    const recordGroup = pick(row, LIST_GROUP_KEYS);
+    if (uniqueId === undefined || recordId === undefined || recordGroup === undefined) continue;
+    found.push({ uniqueId, recordId, recordGroup });
+  }
+  return found;
+}
+
+/**
+ * שמות השדות שהגיעו ולא זוהו — **לאבחון, בלי הערכים.**
+ *
+ * אותו עיקרון כמו `lastEventKeys` על אירוע הוובהוק: אם 015 ישנה
+ * שם שדה, הייבוא יחזיר אפס שורות ואיש לא יידע למה. הרשימה הזו
+ * הופכת את הכשל הזה לניתן לדיווח בלי לכתוב מספרי טלפון ללוג.
+ */
+export function unmatched015ListKeys(body: unknown): string[] {
+  const [first] = rowsOf(body);
+  if (first === undefined) return [];
+  const known = new Set<string>([...LIST_UNIQUE_KEYS, ...LIST_RECORD_ID_KEYS, ...LIST_GROUP_KEYS]);
+  return Object.keys(first).filter((key) => !known.has(key));
+}
+
+/** הנתיב שאנחנו שומרים לשיחה — אותה צורה שהוובהוק שולח. */
+export function pbx015RecordingPath(row: Pbx015RecordingRow): string {
+  return `${row.recordGroup}/record_${row.uniqueId.replace(".", "")}_${row.recordId}`;
+}
