@@ -22,9 +22,21 @@ import { Notice } from "./notice";
  */
 const HIDDEN_KEY = "mv.duplicates.hidden";
 
+/**
+ * החתימה כוללת את **חברי** הקבוצה ולא רק את מפתחה.
+ *
+ * המפתח הוא חתימת השם, והוא אינו משתנה כשלקוח נוסף מצטרף לאותו
+ * שם. השרת דווקא מחזיר קבוצה שנדחתה ברגע שנוסף לה חבר — וחתימה
+ * שמסתמכת על המפתח בלבד הייתה מבטלת בדיוק את ההתנהגות הזו,
+ * ומשאירה מוסתרת כפילות חדשה לגמרי (ביקורת Codex).
+ */
 function signatureOf(groups: DuplicateGroup[]): string {
   return groups
-    .map((group) => group.key)
+    .map((group) =>
+      [group.key, group.survivor.contactId, ...group.duplicates.map((d) => d.contactId)]
+        .sort()
+        .join(","),
+    )
     .sort()
     .join("|");
 }

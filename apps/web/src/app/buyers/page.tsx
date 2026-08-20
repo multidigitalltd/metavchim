@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPost } from "@/lib/api";
 import { formatPrice, MATURITY_LABELS } from "@/lib/format";
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { IconMic, IconPlus, IconSheet } from "../icons";
 import { CapNote, FilterBar, FilterSelect, textMatches,
@@ -91,7 +91,7 @@ function MaturityPill({ maturity }: { maturity: string }) {
 const GRID = "1.6fr 0.9fr 1.1fr 1.4fr 0.9fr 0.9fr";
 
 export default function BuyersPage() {
-  const { loading: authLoading } = useRequireAuth();
+  const { user, loading: authLoading } = useRequireAuth();
   const canImport = useFeature("data_io");
   const canVoice = useFeature("voice_intake");
   const router = useRouter();
@@ -161,6 +161,15 @@ export default function BuyersPage() {
       ),
     [items, filters.q, maturity, offersFilter, dealType],
   );
+
+  /*
+   * הבחירה מוצגת רק למי שרשאי למחוק.
+   *
+   * `buyers.delete` היא יכולת נפרדת מ-`buyers.edit`, ואינה חלק
+   * מברירת המחדל של סוכן. בלי השער הזה המסך היה מציע לסמן ולמחוק,
+   * והשרת היה עונה 403 על פעולה שהמסך עצמו הזמין (ביקורת Codex).
+   */
+  const mayDelete = can(user, "buyers.delete");
 
   /* בחירה שיצאה מהסינון אינה נמחקת — היא פשוט אינה מוצגת ואינה נספרת */
   const selectedVisible = visible.filter((b) => selected.has(b.id));
@@ -341,7 +350,7 @@ export default function BuyersPage() {
                 סרגל הבחירה מופיע רק כשיש מה לעשות איתו. סרגל קבוע
                 עם "0 נבחרו" הוא רעש בכל מסך שבו לא בוחרים כלום.
               */}
-              {selected.size > 0 ? (
+              {mayDelete && selected.size > 0 ? (
                 <div
                   className="mv-list-card mb-3 flex flex-wrap items-center gap-2 px-4 py-3"
                   role="status"
@@ -387,12 +396,14 @@ export default function BuyersPage() {
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={selected.has(b.id)}
-                          onChange={() => toggle(b.id)}
-                          aria-label={`בחר את ${b.contact.name}`}
-                        />
+                        {mayDelete ? (
+                          <input
+                            type="checkbox"
+                            checked={selected.has(b.id)}
+                            onChange={() => toggle(b.id)}
+                            aria-label={`בחר את ${b.contact.name}`}
+                          />
+                        ) : null}
                         <Link href={`/buyers/${b.id}`} className="font-bold underline">
                           {b.contact.name}
                         </Link>
@@ -424,13 +435,15 @@ export default function BuyersPage() {
               <div className="mv-list-card hidden sm:block">
                 <div className="mv-list-head" style={{ gridTemplateColumns: GRID }}>
                   <span className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={allVisibleSelected}
-                      onChange={toggleAll}
-                      aria-label="בחר את כל הקונים המוצגים"
-                      title="בחר הכל"
-                    />
+                    {mayDelete ? (
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={toggleAll}
+                        aria-label="בחר את כל הקונים המוצגים"
+                        title="בחר הכל"
+                      />
+                    ) : null}
                     שם
                   </span>
                   <span>בשלות</span>
@@ -449,12 +462,14 @@ export default function BuyersPage() {
                       הייתה מנווטת לכרטיס במקום לסמן.
                     */
                     <div key={b.id} className="mv-list-select-row">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(b.id)}
-                        onChange={() => toggle(b.id)}
-                        aria-label={`בחר את ${b.contact.name}`}
-                      />
+                      {mayDelete ? (
+                        <input
+                          type="checkbox"
+                          checked={selected.has(b.id)}
+                          onChange={() => toggle(b.id)}
+                          aria-label={`בחר את ${b.contact.name}`}
+                        />
+                      ) : null}
                       <button
                         type="button"
                         className="mv-list-row grow"

@@ -54,9 +54,20 @@ const OWN_CONTROLS_DEPTH = 4;
 function hasOwnControls(el: TextField): boolean {
   let node: HTMLElement | null = el.parentElement;
   for (let depth = 0; node !== null && depth < OWN_CONTROLS_DEPTH; depth += 1) {
+    /*
+     * שני התנאים נבדקים **יחד**, וזה מה שהופך את הכלל למדויק:
+     * פקדים בתת-עץ שיש בו רק את השדה שלנו הם שלנו. פקדים בתת-עץ
+     * שיש בו שדה נוסף שייכים אולי לשדה ההוא — ואז אין לנו מה
+     * לטעון עליהם.
+     *
+     * בדיקת הפקדים לבדה, לפני גבול השדות, הייתה מוצאת בטופס
+     * הנכס את הפקדים של „כותרת שיווקית” בעת מיקוד ב„שם הבעלים”,
+     * ומכבה את המיקרופון הגלובלי דווקא בשדה שאין לו פקדים משלו
+     * (ביקורת Codex).
+     */
+    const others = [...node.querySelectorAll("input, textarea")].filter((other) => other !== el);
+    if (others.length > 0) return false;
     if (node.querySelector(".mv-dictate")) return true;
-    // שדה אחר באותה רמה ⇒ מכאן ומעלה הפקדים אינם בהכרח שלנו
-    if ([...node.querySelectorAll("input, textarea")].some((other) => other !== el)) return false;
     node = node.parentElement;
   }
   return false;
