@@ -154,9 +154,18 @@ describe("שני כיווני הרשת פותחים חדר", () => {
    * דחייה אינה פותחת דבר. בלי התנאי המפורש, "לא מתאים" היה פותח
    * חדר משותף עם משרד שהרגע אמר לא.
    */
+  /*
+   * בלי התנאי המפורש, „לא מתאים” היה פותח חדר משותף עם משרד שהרגע
+   * אמר לא. הבדיקה על **התוצאה** ולא על נוסח התנאי: שני המסלולים
+   * מנוסחים אחרת (בצד ההצעה יש גם מייל דחייה), ושתיהם חייבים
+   * לחזור עם `dealId: null` לפני שהם מגיעים לפתיחה.
+   */
   it("דחייה אינה פותחת חדר", () => {
     for (const source of [collaboration, listings]) {
-      expect(source).toContain('if (response !== "interested")');
+      const guard = source.indexOf("return { dealId: null };");
+      const open = source.indexOf("this.dealRoom.openFrom");
+      expect(guard).toBeGreaterThan(0);
+      expect(open).toBeGreaterThan(guard);
     }
   });
 

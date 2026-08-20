@@ -27,11 +27,13 @@ import { apiDelete, apiGet, apiPost, apiPatch, ApiError } from "@/lib/api";
 import { formatDate, shekelsToAgorot, waMeUrl } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { can, useRequireAuth } from "@/lib/use-auth";
+import { ClickToDial } from "../../click-to-dial";
 import { ContactPeople } from "../../contact-people";
 import { DictateFor } from "../../dictation-field";
 import { RelatedEntities } from "../../related-entities";
 import { EntityTasks } from "../../entity-tasks";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
+import { SelectMenu } from "../../select-menu";
 import { ReplyEmail } from "./reply-email";
 import {
   ClientScoresField,
@@ -47,6 +49,7 @@ import {
   IconGear,
   IconHome,
   IconInfo,
+  IconMail,
   IconPhone,
   IconRefresh,
   IconUser,
@@ -81,6 +84,26 @@ interface TimelineItem {
   kind: string;
   content: string;
   createdAt: string;
+}
+
+/**
+ * גלולת הסטטוס — אותה שפה של גלולת הבשלות בכרטיס הקונה.
+ *
+ * הסטטוס הוא המידע שקובע מה עושים עם הליד עכשיו, ולכן הוא צבוע
+ * ולא טקסט אפור: „חדש” שדורש מענה ו„סגור” שאינו דורש דבר לא
+ * אמורים להיראות אותו דבר משלושה מטרים.
+ */
+const STATUS_PILL: Record<string, { fg: string; bg: string }> = {
+  new: { fg: "#b0512c", bg: "#faf1ec" },
+  in_progress: { fg: "#7a5c1f", bg: "#f7efdd" },
+  waiting_customer: { fg: "#3F4742", bg: "#EDEFED" },
+  converted: { fg: "#0C6E34", bg: "#E5FCEA" },
+  closed: { fg: "#68716a", bg: "#eef1ec" },
+};
+
+/** האות הראשונה לעיגול הכותרת — כמו בכרטיס הקונה. */
+function initials(name: string): string {
+  return name.trim().slice(0, 1);
 }
 
 const KIND_LABELS: Record<string, ReactNode> = {
@@ -274,8 +297,8 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
 
   if (shared?.status === "sold") {
     return (
-      <div
-        className="mb-4 rounded-xl border p-4"
+      <section
+        className="mv-list-card px-5 py-[18px]"
         style={{ borderColor: "var(--color-success)" }}
       >
         {/*
@@ -306,15 +329,15 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
           declared={shared.clientScores}
           confirmation={shared.confirmation}
         />
-      </div>
+      </section>
     );
   }
 
   if (shared) {
     return (
-      <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+      <section className="mv-list-card px-5 py-[18px]">
         <p className="mb-2 font-medium">
-          <IconHandshake s={15} /> הלקוח מופנה בלוח ההפניות תמורת {shared.priceCredits} קרדיטים
+          <IconHandshake s={16} /> הלקוח מופנה בלוח ההפניות תמורת {shared.priceCredits} קרדיטים
           {shared.platformFeeCredits > 0
             ? ` — מתוכם ${shared.platformFeeCredits} עמלת פלטפורמה, ו${
                 shared.payoutMode === "cash"
@@ -328,16 +351,20 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
         <Button variant="ghost" disabled={busy} onClick={() => void withdraw()}>
           הסר מהלוח
         </Button>
-      </div>
+      </section>
     );
   }
 
   return (
-    <details className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-      <summary className="cursor-pointer font-medium">
-        <IconHandshake s={15} /> הפנה את הלקוח למשרד אחר
-      </summary>
-      <p className="mt-2 mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+    /*
+      פרוש ולא מקופל: כל הלשונית עוסקת בהפניה, ומשולש שצריך ללחוץ
+      עליו כדי להגיע לטופס שהוא כל תוכן המסך הוא חיכוך בלי תמורה.
+    */
+    <section className="mv-list-card px-5 py-[18px]">
+      <h2 className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
+        <IconHandshake s={16} /> הפניית הלקוח למשרד אחר
+      </h2>
+      <p className="mt-1 mb-4 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
         לקוח שאינו מתאים לכם — לא באזור שלכם, לא בתחום שלכם או שאין לכם פנאי —
         יכול לקבל מענה במשרד אחר, ואתם מקבלים תמורה על ההפניה. בלוח יופיעו רק
         הכוונה, המקור, הסיבה והתיאור שתכתבו; שם וטלפון נחשפים למשרד הקולט רק
@@ -514,7 +541,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
       <Button disabled={busy || !reason || !priceValid} onClick={() => void publish()}>
         {busy ? "מפרסם…" : "פרסם הפניה"}
       </Button>
-    </details>
+    </section>
   );
 }
 
@@ -843,220 +870,462 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
   }
   if (!lead) return <p aria-live="polite">טוען…</p>;
 
+  const pill = STATUS_PILL[lead.status] ?? STATUS_PILL["new"]!;
+
   return (
     <>
-      <nav aria-label="נתיב" className="mb-4 text-sm">
-        <Link href="/leads" className="underline">לידים</Link>
-        <span aria-hidden="true"> / </span>
-        <span>{lead.contact.name}</span>
-      </nav>
+      <Link
+        href="/leads"
+        className="mb-3.5 inline-block text-[15px] font-bold no-underline hover:underline"
+        style={{ color: "var(--color-primary)" }}
+      >
+        → חזרה לרשימת הלידים
+      </Link>
 
-      <div className="mb-2 flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-bold">{lead.contact.name}</h1>
-        <a href={`tel:${lead.contact.phone}`} className="underline" dir="ltr">
-          {lead.contact.phone}
-        </a>
-        <a
-          href={waMeUrl(lead.contact.phone)}
-          target="_blank"
-          rel="noreferrer"
-          className="underline"
+      {/*
+        ---- כותרת ----
+
+        אותה כותרת בדיוק כמו בכרטיס הקונה, ומאותה סיבה: היא עונה על
+        שתי שאלות — מי זה, ומה עושים איתו עכשיו — וכל השאר יורד
+        ללשוניות. עד כאן היא הייתה שורת טקסט עם ארבעה קישורים
+        מקווקוים ותיבת סטטוס שצפה מתחתיה, וזה מה שהפך את המסך
+        למבולגן: אין בו היררכיה, ולכן העין לא יודעת איפה להתחיל.
+      */}
+      <div
+        className="mv-list-card mb-3 flex flex-wrap items-center gap-4 px-6 py-5"
+        style={{ overflow: "visible" }}
+      >
+        <span
+          aria-hidden="true"
+          className="grid flex-none place-items-center rounded-full"
+          style={{
+            width: 48,
+            height: 48,
+            background: "var(--color-primary-soft)",
+            color: "var(--color-primary)",
+            fontWeight: 800,
+            fontSize: 19,
+          }}
         >
-          <IconChat s={15} /> וואטסאפ
-        </a>
-        {/* האימייל ליד הטלפון — ליד שנפתח מתיבת הדואר מביא איתו את
-            כתובת השולח, והיא הדרך הטבעית להשיב לו */}
-        {lead.contact.email ? (
-          <a href={`mailto:${lead.contact.email}`} className="underline" dir="ltr">
-            {lead.contact.email}
+          {initials(lead.contact.name)}
+        </span>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="m-0" style={{ fontSize: 21, fontWeight: 800 }}>
+              {lead.contact.name}
+            </h1>
+            {/* הכוונה צמודה לשם: "קונה" ו"מוכר" הן שתי שיחות שונות */}
+            <span
+              className="mv-pill"
+              style={{
+                background: "var(--color-primary-soft)",
+                color: "var(--color-primary)",
+                fontWeight: 700,
+              }}
+            >
+              {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent}
+            </span>
+            {/*
+              רשימה מעוצבת ולא `select` נייטיב — אותו תיקון שכבר
+              נעשה בכרטיס הקונה: הגלולה נראתה נכון סגורה, ובפתיחה
+              נפתחה רשימת מערכת עם הדגשה כחולה שאינה שייכת לכאן.
+            */}
+            <SelectMenu
+              value={lead.status}
+              onChange={(next) => void changeStatus(next)}
+              options={Object.entries(LEAD_STATUS_LABELS).map(
+                ([value, label]) => ({ value, label }),
+              )}
+              label="עדכון סטטוס"
+              minWidth={132}
+              tone={{ fg: pill.fg, bg: pill.bg }}
+            />
+          </div>
+          <p
+            className="m-0 mt-1 text-[14.5px]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            <span dir="ltr">{lead.contact.phone}</span> · מקור:{" "}
+            {LEAD_SOURCE_LABELS[lead.source] ?? lead.source}
+            {/*
+              המספר שאליו הלקוח התקשר — רזולוציה שהמקור לבדו אינו
+              נותן. משרד שמריץ שלוש מודעות באותו ערוץ רואה שלוש
+              שורות עם אותו מקור; המספר הוא מה שמפריד ביניהן.
+            */}
+            {dialed !== null ? (
+              <>
+                {" · התקשר אל: "}
+                <span style={{ color: "var(--color-text)" }}>
+                  {dialed.label ?? "מספר לא מוגדר"}
+                </span>{" "}
+                <span dir="ltr">({dialed.phone})</span>
+              </>
+            ) : null}
+          </p>
+        </div>
+        <div className="ms-auto flex flex-wrap items-center gap-2">
+          <a
+            href={waMeUrl(lead.contact.phone)}
+            target="_blank"
+            rel="noreferrer"
+            className="mv-btn-plain"
+            style={{ minHeight: 36, paddingInline: 13, fontSize: 14.5 }}
+          >
+            <IconChat s={14} /> וואטסאפ
           </a>
-        ) : null}
+          <a
+            href={`tel:${lead.contact.phone}`}
+            className="mv-btn-plain"
+            style={{ minHeight: 36, paddingInline: 13, fontSize: 14.5 }}
+          >
+            <IconPhone s={14} /> חייג
+          </a>
+          <ClickToDial
+            contactId={lead.contact.id}
+            phone={lead.contact.phone}
+            label="מהמרכזייה"
+          />
+          {lead.contact.email ? (
+            <a
+              href={`mailto:${lead.contact.email}`}
+              className="mv-btn-plain"
+              style={{ minHeight: 36, paddingInline: 13, fontSize: 14.5 }}
+            >
+              <IconMail s={14} /> אימייל
+            </a>
+          ) : null}
+          <Link
+            href={`/calendar/new?leadId=${lead.id}`}
+            className="mv-btn-plain"
+            style={{ minHeight: 36, paddingInline: 13, fontSize: 14.5 }}
+          >
+            <IconCalendar s={14} /> קבע פגישה
+          </Link>
+        </div>
       </div>
+
       {/*
         **הדחוף קודם.** ההתראה ישבה קודם במקום העשירי, מתחת לשש
         קופסאות — כלומר הדבר היחיד במסך שדורש פעולה מיידית היה
         הדבר שהכי קשה לראות.
       */}
       {lead.requiresHuman ? (
-        <Notice tone="danger">● דורש טיפול אנושי{lead.requiresHumanReason ? `: ${lead.requiresHumanReason}` : ""}</Notice>
+        <Notice tone="danger">
+          ● דורש טיפול אנושי
+          {lead.requiresHumanReason ? `: ${lead.requiresHumanReason}` : ""}
+        </Notice>
       ) : null}
 
       {merged ? (
-        <p role="status" className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-          <IconInfo s={15} /> לאיש הקשר כבר יש ליד פתוח — הפנייה החדשה נוספה לציר הזמן שלו במקום לפתוח ליד כפול.
-        </p>
+        <Notice tone="info">
+          <IconInfo s={15} /> לאיש הקשר כבר יש ליד פתוח — הפנייה החדשה נוספה
+          לציר הזמן שלו במקום לפתוח ליד כפול.
+        </Notice>
       ) : null}
 
-      <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
-        {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent} · מקור: {LEAD_SOURCE_LABELS[lead.source] ?? lead.source}
-        {/*
-          המספר שאליו הלקוח התקשר — ברזולוציה שהמקור לבדו אינו נותן.
-          משרד שמריץ שלוש מודעות באותו ערוץ רואה שלוש שורות עם אותו
-          מקור; המספר הוא מה שמפריד ביניהן.
-        */}
-        {dialed !== null ? (
-          <>
-            {" · התקשר אל: "}
-            <span style={{ color: "var(--color-text)" }}>
-              {dialed.label ?? "מספר לא מוגדר"}
-            </span>{" "}
-            <span dir="ltr">({dialed.phone})</span>
-          </>
-        ) : null}
-      </p>
-
-      {/*
-        סרגל פעולה אחד במקום שדה סטטוס קבור.
-        הסטטוס ישב קודם בין סעיפי ההמרה לציר הזמן — כלומר הפעולה
-        השכיחה ביותר בכרטיס דרשה גלילה דרך שלוש קופסאות גדולות.
-      */}
-      <div className="mb-5 flex flex-wrap items-end gap-3">
-        <div>
-          <label htmlFor="status" className="mb-1 block text-sm font-medium">סטטוס</label>
-          <select
-            id="status"
-            value={lead.status}
-            onChange={(event) => void changeStatus(event.target.value)}
-            className="rounded-lg border px-3 py-2.5"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
-          >
-            {Object.entries(LEAD_STATUS_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-        </div>
-        <Link href={`/calendar/new?leadId=${lead.id}`}>
-          <Button variant="secondary"><IconCalendar s={15} /> קבע פגישה</Button>
-        </Link>
+      {/* ---- לשוניות ---- */}
+      <div
+        className="mv-list-card mb-[18px] px-4"
+        style={{ overflow: "visible" }}
+      >
+        <EntityTabs
+          label="לשוניות כרטיס הליד"
+          active={tab}
+          onSelect={selectTab}
+          tabs={[
+            { key: "overview", label: "סקירה" },
+            { key: "next", label: "המשך טיפול" },
+            { key: "referral", label: "הפניות" },
+            { key: "timeline", label: "ציר זמן", count: timeline.length },
+          ]}
+        />
       </div>
 
-      <EntityTabs
-        label="לשוניות כרטיס הליד"
-        active={tab}
-        onSelect={selectTab}
-        tabs={[
-          { key: "overview", label: "סקירה" },
-          { key: "next", label: "המשך טיפול" },
-          { key: "timeline", label: "ציר זמן", count: timeline.length },
-        ]}
-      />
-
+      {/* ============================================================
+          סקירה — מה שסוכן קורא לפני שהוא מרים טלפון
+          ============================================================ */}
       <TabPanel tab="overview" active={tab}>
-      {/*
-        תוכן הפנייה בראש הכרטיס.
-        הוא נשמר מאז ומתמיד בשדה summary, אבל הוצג רק כהערה בציר
-        הזמן בתחתית העמוד — כלומר הדבר הראשון שהמתווך צריך לדעת
-        ("מה הוא רצה?") היה הדבר האחרון שהוא ראה.
-      */}
-      {lead.summary ? (
+        {/*
+          שתי עמודות ולא טור אחד ארוך, כמו בכרטיס הקונה.
+
+          בעמודה הצדדית יושב מה ש**קוראים** — תוכן הפנייה והקשרים
+          האחרים של אותו אדם; ברחבה יושב מה ש**עושים** — תשובה
+          במייל, משימות ואנשי קשר. טור אחד הכריח לגלול דרך טופס
+          תשובה שלם כדי להגיע לרשימת המשימות.
+        */}
+        <div className="grid items-start gap-[18px] lg:[grid-template-columns:340px_1fr]">
+          <div className="grid gap-[18px]">
+            {/*
+              ---- תוכן הפנייה ----
+              הדבר הראשון שהמתווך צריך לדעת ("מה הוא רצה?") היה עד
+              לא מזמן הדבר האחרון שהוא ראה. כאן הוא ראשון, ובצבע
+              שמפריד אותו משאר הכרטיס.
+            */}
+            {lead.summary ? (
+              <section
+                aria-labelledby="lead-summary-heading"
+                className="rounded-xl border px-5 py-[18px]"
+                style={{
+                  borderColor: "var(--color-primary)",
+                  background: "var(--color-primary-soft)",
+                }}
+              >
+                <h2
+                  id="lead-summary-heading"
+                  className="m-0 mb-1.5"
+                  style={{
+                    fontSize: 14.5,
+                    fontWeight: 800,
+                    color: "var(--color-primary)",
+                  }}
+                >
+                  תוכן הפנייה
+                </h2>
+                {/* whitespace-pre-line: שורות ההודעה נשמרות כפי שנשלחו */}
+                <p
+                  className="m-0 whitespace-pre-line"
+                  style={{ fontSize: 15.5, lineHeight: 1.5 }}
+                >
+                  {lead.summary}
+                </p>
+              </section>
+            ) : (
+              <section
+                className="mv-list-card px-5 py-[18px]"
+                aria-labelledby="lead-summary-heading"
+              >
+                <h2
+                  id="lead-summary-heading"
+                  className="m-0 mb-1.5"
+                  style={{ fontSize: 16.5, fontWeight: 800 }}
+                >
+                  תוכן הפנייה
+                </h2>
+                {/*
+                  מצב ריק שאומר מה לעשות ולא רק שאין כלום: ליד
+                  ממרכזייה מגיע בלי טקסט, וההערה בציר הזמן היא
+                  המקום שבו הסוכן רושם מה נאמר בשיחה.
+                */}
+                <p
+                  className="m-0 text-[14.5px]"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  הפנייה הגיעה בלי תוכן כתוב. מה שנאמר בשיחה נרשם
+                  כהערה בציר הזמן.
+                </p>
+              </section>
+            )}
+
+            {/* הכובעים האחרים של אותו אדם — קונה קיים, נכס שהוא מוכר */}
+            <RelatedEntities
+              contactId={lead.contact.id}
+              exclude={{ kind: "lead", id: lead.id }}
+            />
+          </div>
+
+          <div className="grid gap-[18px]">
+            {/* קראת מה הוא רצה — עכשיו תענה לו */}
+            <ReplyEmail
+              contactId={lead.contact.id}
+              leadId={lead.id}
+              contactName={lead.contact.name}
+              {...(lead.contact.email !== undefined
+                ? { contactEmail: lead.contact.email }
+                : {})}
+            />
+
+            <EntityTasks entityType="lead" entityId={id} />
+
+            <ContactPeople
+              contactId={lead.contact.id}
+              canEdit={canEditPeople}
+              canErase={can(user, "contacts.delete")}
+            />
+          </div>
+        </div>
+      </TabPanel>
+
+      {/* ============================================================
+          המשך טיפול — שתי הדרכים שבהן ליד הופך לכרטיס אצלנו
+          ============================================================ */}
+      <TabPanel tab="next" active={tab}>
+        {lead.status === "converted" ? (
+          <p
+            className="mv-list-card px-5 py-[18px]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            הליד כבר הומר — אין המשך טיפול נוסף.
+          </p>
+        ) : null}
+
+        {lead.status !== "converted" ? (
+          <div className="grid gap-[18px] lg:grid-cols-2">
+            {can(user, "buyers.edit") ? (
+              <section className="mv-list-card px-5 py-[18px]">
+                <h2 className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
+                  <IconUser s={16} /> המרה לקונה
+                </h2>
+                <p
+                  className="m-0 mb-3 text-[14.5px]"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  הלקוח מחפש נכס — הכרטיס נכנס למנוע ההתאמות. איש
+                  הקשר וההיסטוריה נשמרים.
+                </p>
+                <ConvertSection leadId={lead.id} />
+              </section>
+            ) : null}
+
+            {/* ליד אינו תמיד קונה — "יש לי דירה למכור" הוא בעל נכס */}
+            {can(user, "properties.create") ? (
+              <section className="mv-list-card px-5 py-[18px]">
+                <h2 className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
+                  <IconHome s={16} /> המרה לנכס
+                </h2>
+                <p
+                  className="m-0 mb-3 text-[14.5px]"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  הלקוח מוכר או משכיר — איש הקשר של הליד הופך לבעל
+                  הנכס אוטומטית.
+                </p>
+                <ConvertToPropertySection leadId={lead.id} />
+              </section>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* ליד שהומר כבר יצר כרטיס — מוחקים את הכרטיס, לא את המקור */}
+        {lead.status !== "converted" && can(user, "leads.delete") ? (
+          <div className="mt-[18px]">
+            <DeleteLeadSection leadId={lead.id} contactName={lead.contact.name} />
+          </div>
+        ) : null}
+      </TabPanel>
+
+      {/* ============================================================
+          הפניות — הדרך השלישית: לקוח שאינו לנו, למשרד שכן ישרת אותו
+          ============================================================ */}
+      <TabPanel tab="referral" active={tab}>
+        {/*
+          לשונית משלה, ולא אקורדיון בתחתית „המשך טיפול”.
+
+          הפניה היא החלטה עסקית עם טופס בן שישה שדות — סיבה, תמורה,
+          מסלול תשלום, עיר, הצהרת איכות ותיאור — והיא ישבה מקופלת
+          מתחת לשתי המרות, כלומר במקום שאיש לא פתח. מסך שמסתיר
+          מנגנון שלם מאחורי משולש קטן הוא מסך שהמנגנון הזה לא קיים
+          בו בפועל (בקשת המשתמש).
+        */}
+        {lead.status === "converted" ? (
+          <p
+            className="mv-list-card px-5 py-[18px]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            הליד כבר הומר לכרטיס אצלנו — אין מה להפנות.
+          </p>
+        ) : can(user, "collaboration.share") ? (
+          <ReferLeadSection leadId={lead.id} />
+        ) : (
+          <p
+            className="mv-list-card px-5 py-[18px]"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            הפניית לקוחות דורשת את הרשאת שיתופי הפעולה. מנהל המשרד
+            יכול להעניק אותה במסך ההרשאות.
+          </p>
+        )}
+      </TabPanel>
+
+      {/* ============================================================
+          ציר זמן — כל מה שקרה, והמקום לרשום מה נאמר עכשיו
+          ============================================================ */}
+      <TabPanel tab="timeline" active={tab}>
         <section
-          aria-labelledby="lead-summary-heading"
-          className="mb-4 rounded-xl border p-4"
-          style={{ borderColor: "var(--color-primary)", background: "var(--color-primary-soft)" }}
+          className="mv-list-card px-5 py-[18px]"
+          aria-labelledby="timeline-heading"
         >
           <h2
-            id="lead-summary-heading"
-            className="m-0 mb-1.5"
-            style={{ fontSize: 14.5, fontWeight: 800, color: "var(--color-primary)" }}
+            id="timeline-heading"
+            className="m-0 mb-3"
+            style={{ fontSize: 16.5, fontWeight: 800 }}
           >
-            תוכן הפנייה
+            ציר זמן
           </h2>
-          {/* whitespace-pre-line: שורות ההודעה נשמרות כפי שנשלחו */}
-          <p className="m-0 whitespace-pre-line" style={{ fontSize: 15.5, lineHeight: 1.5 }}>
-            {lead.summary}
-          </p>
+
+          <form
+            onSubmit={(event) => void addNote(event)}
+            className="mb-2 flex flex-wrap items-start gap-2"
+          >
+            <label htmlFor="note" className="mv-visually-hidden">
+              הוספת הערה
+            </label>
+            <input
+              id="note"
+              name="note"
+              placeholder="מה נאמר בשיחה?"
+              className="min-w-0 flex-1 rounded-lg border px-3 py-2.5"
+              style={{
+                borderColor: "var(--color-border)",
+                background: "var(--color-field)",
+              }}
+            />
+            {/* הערה אחרי שיחה היא הטקסט שהכי כדאי להכתיב — המתווך
+                עדיין עם הטלפון ביד ולא ליד המקלדת */}
+            <DictateFor targetId="note" />
+            <Button type="submit" variant="secondary">
+              הוסף
+            </Button>
+          </form>
+
+          {timeline.length === 0 ? (
+            <p
+              className="m-0 mt-3 text-[14.5px]"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              אין עדיין פעילות בליד.
+            </p>
+          ) : (
+            /*
+              קו רציף לאורך הרשימה, ונקודה לכל אירוע. הרשימה הקודמת
+              הייתה קופסאות מסוגרות זו מעל זו — נכון מבחינת המידע,
+              אבל לא נקרא כרצף שקרה בזמן.
+            */
+            <ol
+              className="m-0 mt-3 flex list-none flex-col gap-3 p-0 ps-4"
+              style={{
+                borderInlineStart: "2px solid var(--color-border)",
+              }}
+            >
+              {timeline.map((item) => (
+                <li key={item.id} className="relative">
+                  <span
+                    aria-hidden="true"
+                    className="absolute rounded-full"
+                    style={{
+                      insetInlineStart: -21,
+                      top: 7,
+                      width: 8,
+                      height: 8,
+                      background: "var(--color-primary)",
+                    }}
+                  />
+                  <p
+                    className="m-0 mb-0.5 text-[14px]"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    {KIND_LABELS[item.kind] ?? item.kind} ·{" "}
+                    {formatDate(item.createdAt)}
+                  </p>
+                  <p className="m-0 whitespace-pre-line text-[15.5px]">
+                    {item.kind === "status_change"
+                      ? `הסטטוס שונה ל: ${LEAD_STATUS_LABELS[item.content] ?? item.content}`
+                      : item.content}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          )}
         </section>
-      ) : null}
-
-      {/* מיד אחרי תוכן הפנייה: קראת מה הוא רצה — עכשיו תענה לו */}
-      <ReplyEmail
-        contactId={lead.contact.id}
-        leadId={lead.id}
-        contactName={lead.contact.name}
-        {...(lead.contact.email !== undefined ? { contactEmail: lead.contact.email } : {})}
-      />
-
-      <RelatedEntities contactId={lead.contact.id} exclude={{ kind: "lead", id: lead.id }} />
-
-      <EntityTasks entityType="lead" entityId={id} />
-
-      <ContactPeople contactId={lead.contact.id} canEdit={canEditPeople}
-        canErase={can(user, "contacts.delete")}
-      />
-      </TabPanel>
-
-      {/*
-        שלוש הדרכים שבהן ליד ממשיך: הופך לקונה, הופך לנכס, או מופנה
-        למשרד אחר. הן שלוש קופסאות גדולות ששימשו בפועל פעם אחת בחיי
-        הליד — ובגלילה אחת הן דחפו את ציר הזמן אל מחוץ למסך.
-      */}
-      <TabPanel tab="next" active={tab}>
-      {lead.status === "converted" ? (
-        <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
-          הליד כבר הומר — אין המשך טיפול נוסף.
-        </p>
-      ) : null}
-
-      {lead.status !== "converted" && can(user, "buyers.edit") ? (
-        <ConvertSection leadId={lead.id} />
-      ) : null}
-
-      {/* ליד אינו תמיד קונה — "יש לי דירה למכור" הוא בעל נכס */}
-      {lead.status !== "converted" && can(user, "properties.create") ? (
-        <ConvertToPropertySection leadId={lead.id} />
-      ) : null}
-
-      {/* הדרך השלישית: לקוח שלא מטפלים בו מופנה למשרד שכן ישרת אותו */}
-      {lead.status !== "converted" && can(user, "collaboration.share") ? (
-        <ReferLeadSection leadId={lead.id} />
-      ) : null}
-
-      {/* ליד שהומר כבר יצר כרטיס — מוחקים את הכרטיס, לא את המקור שלו */}
-      {lead.status !== "converted" && can(user, "leads.delete") ? (
-        <DeleteLeadSection leadId={lead.id} contactName={lead.contact.name} />
-      ) : null}
-      </TabPanel>
-
-      <TabPanel tab="timeline" active={tab}>
-      <section aria-labelledby="timeline-heading">
-        <h2 id="timeline-heading" className="mv-visually-hidden">ציר זמן</h2>
-
-        <form onSubmit={(event) => void addNote(event)} className="mb-4 flex gap-2">
-          <label htmlFor="note" className="mv-visually-hidden">הוספת הערה</label>
-          <input
-            id="note"
-            name="note"
-            placeholder="הוסף הערה…"
-            className="flex-1 rounded-lg border px-3 py-2.5"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
-          />
-          <Button type="submit" variant="secondary">הוסף</Button>
-        </form>
-        {/* הערה אחרי שיחה היא הטקסט שהכי כדאי להכתיב — המתווך עדיין
-            עם הטלפון ביד ולא ליד המקלדת */}
-        <div className="mb-4">
-          <DictateFor targetId="note" />
-        </div>
-
-        {timeline.length === 0 ? (
-          <p style={{ color: "var(--color-text-muted)" }}>אין עדיין פעילות בליד.</p>
-        ) : (
-          <ol className="flex flex-col gap-2">
-            {timeline.map((item) => (
-              <li key={item.id} className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-                <p className="mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
-                  {KIND_LABELS[item.kind] ?? item.kind} · {formatDate(item.createdAt)}
-                </p>
-                <p>
-                  {item.kind === "status_change"
-                    ? `הסטטוס שונה ל: ${LEAD_STATUS_LABELS[item.content] ?? item.content}`
-                    : item.content}
-                </p>
-              </li>
-            ))}
-          </ol>
-        )}
-      </section>
       </TabPanel>
     </>
   );

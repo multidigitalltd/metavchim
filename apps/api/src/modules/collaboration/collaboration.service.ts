@@ -45,6 +45,7 @@ import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
+import { collabRecipient, sendCollabMail } from "./collab-mail";
 import { DealRoomService } from "./deal-room.service";
 import { assertNetworkQuota } from "./network-quota";
 import { officeBadges, type OfficeBadge } from "./office-names";
@@ -1583,6 +1584,44 @@ export class CollaborationService {
     });
   }
 
+  /**
+   * עדכון למשרד שהציע נכס — ההצעה נדחתה.
+   *
+   * Best-effort: התגובה כבר נרשמה, וכשל בשליחה נרשם ביומן בלבד.
+   */
+  private async mailOfferDeclined(offerId: string): Promise<void> {
+    try {
+      const tenantId = TenantContext.current().tenantId;
+      const offer = await this.prisma.withTenant((tx) =>
+        tx.coopOffer.findFirst({
+          where: { id: offerId, toTenantId: tenantId },
+          select: { fromTenantId: true, createdBy: true },
+        }),
+      );
+      if (!offer) return;
+      const [to, badges] = await Promise.all([
+        collabRecipient(this.prisma, offer.fromTenantId, offer.createdBy),
+        officeBadges(this.prisma, this.storage, [tenantId]),
+      ]);
+      await sendCollabMail(this.email, to, {
+        subject: "עדכון על הנכס שהצעתם ברשת",
+        heading: "ההצעה נסגרה",
+        paragraphs: [
+          `${badges.get(tenantId)?.name ?? "המשרד שפרסם את הביקוש"} בדק את הנכס שהצעתם והשיב שהוא אינו מתאים לקונה.`,
+          "אין צורך להמתין לתשובה נוספת. אפשר להציע את אותו נכס על ביקושים אחרים בפיד.",
+        ],
+        button: {
+          label: "לרשת שיתופי הפעולה",
+          url: `${loadEnv().WEB_ORIGIN}/collaboration?tab=demands`,
+        },
+      });
+    } catch (error: unknown) {
+      this.logger.warn(
+        `מייל על דחיית הצעה (${offerId}) לא נשלח: ${String(error)}`,
+      );
+    }
+  }
+
   /** הצעות שיתוף — נכנסות (על הביקושים שלי) ויוצאות (ששלחתי). */
   async listCoopOffers(): Promise<CoopOfferDto[]> {
     const tenantId = TenantContext.current().tenantId;
@@ -1665,7 +1704,15 @@ export class CollaborationService {
      * (התראה לצד השני) ושולחת מייל, ושתי אלה אינן צריכות להחזיק
      * פתוחה טרנזקציה שכבר סיימה את עבודתה.
      */
-    if (response !== "interested") return { dealId: null };
+    /*
+     * הצד שהציע מקבל עדכון גם בדחייה. מתווך שממתין לתשובה שלא
+     * תגיע מפסיק להציע אחרי פעמיים — „לא מתאים” שנאמר מהר הוא
+     * חלק מהשירות (בקשת המשתמש).
+     */
+    if (response === "declined") {
+      await this.mailOfferDeclined(id);
+      return { dealId: null };
+    }
     return { dealId: await this.dealRoom.openFromOffer(id) };
   }
 

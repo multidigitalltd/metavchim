@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
+  COOP_DEAL_STAGE_LABELS,
   coopDealMessageRejectionReason,
   coopDealMoveRejectionReason,
   coopDealStageEventBody,
@@ -19,6 +20,7 @@ import { EmailService } from "../../core/email.service";
 import { loadEnv } from "../../config/env";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
+import { collabRecipient, sendCollabMail } from "./collab-mail";
 import { officeBadges } from "./office-names";
 
 /**
@@ -805,10 +807,73 @@ export class DealRoomService {
       });
     });
 
-    await this.notifyQuietly(id, {
-      title: "התקדמות בחדר עסקה",
-      body: coopDealStageEventBody(stage, actor?.name ?? "המשרד השותף"),
-    });
+    const line = coopDealStageEventBody(stage, actor?.name ?? "המשרד השותף");
+    await this.notifyQuietly(id, { title: "התקדמות בחדר עסקה", body: line });
+    /*
+     * גם מייל, ולא רק התראה במערכת: מעבר שלב הוא בדיוק הרגע שבו
+     * הצד השני צריך לפעול — לתאם סיור, להכין הצעה, או לדעת שהעסקה
+     * נסגרה — והוא לרוב אינו יושב באותו רגע במסך (בקשת המשתמש).
+     */
+    await this.mailStageChange(id, stage, line);
+  }
+
+  /**
+   * עדכון במייל לצד השני על מעבר שלב. Best-effort, כמו כל מייל
+   * ברשת: המעבר כבר נרשם ואינו מתגלגל לאחור בגלל תיבת דואר.
+   */
+  private async mailStageChange(
+    dealId: string,
+    stage: CoopDealStage,
+    line: string,
+  ): Promise<void> {
+    try {
+      const tenantId = TenantContext.current().tenantId;
+      const deal = await this.prisma.withTenant((tx) =>
+        tx.coopDeal.findFirst({
+          where: { id: dealId },
+          select: {
+            listingTenantId: true,
+            buyerTenantId: true,
+            listingUserId: true,
+            buyerUserId: true,
+            closedNote: true,
+          },
+        }),
+      );
+      if (!deal) return;
+      const mine = deal.listingTenantId === tenantId;
+      const otherTenantId = mine ? deal.buyerTenantId : deal.listingTenantId;
+      const otherUserId = mine ? deal.buyerUserId : deal.listingUserId;
+
+      const [to, badges] = await Promise.all([
+        collabRecipient(this.prisma, otherTenantId, otherUserId),
+        officeBadges(this.prisma, this.storage, [tenantId]),
+      ]);
+      const closing = isFinalCoopDealStage(stage);
+      await sendCollabMail(this.email, to, {
+        subject: closing
+          ? "העסקה המשותפת נסגרה"
+          : "התקדמות בעסקה המשותפת",
+        heading: COOP_DEAL_STAGE_LABELS[stage],
+        paragraphs: [
+          `${badges.get(tenantId)?.name ?? "המשרד השותף"}: ${line}.`,
+          ...(closing && deal.closedNote !== null
+            ? [`הסיבה שנרשמה: ${deal.closedNote}`]
+            : []),
+          closing
+            ? "השרשור והתנאים נשמרים לשני המשרדים כפי שהם."
+            : "אפשר להמשיך את התיאום בשרשור החדר.",
+        ],
+        button: {
+          label: "לחדר העסקה",
+          url: `${loadEnv().WEB_ORIGIN}/collaboration/deals/${dealId}`,
+        },
+      });
+    } catch (error: unknown) {
+      this.logger.warn(
+        `מייל על מעבר שלב (${dealId}) לא נשלח: ${String(error)}`,
+      );
+    }
   }
 
   /**
