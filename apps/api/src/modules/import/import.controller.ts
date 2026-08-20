@@ -6,11 +6,13 @@ import {
   MoneyAgorotSchema,
   PhoneSchema,
   PropertyFieldsSchema,
+  PropertyTypeSchema,
 } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { BuyersService } from "../buyers/buyers.service";
+import { LeadsService } from "../leads/leads.service";
 import { PropertiesService } from "../properties/properties.service";
 
 /**
@@ -22,6 +24,10 @@ import { PropertiesService } from "../properties/properties.service";
  */
 const ImportRowSchema = PropertyFieldsSchema.extend({
   marketingTitle: z.string().max(160).optional(),
+  marketingDescription: z.string().max(4000).optional(),
+  internalNotes: z.string().max(4000).optional(),
+  ownerName: z.string().max(120).optional(),
+  ownerPhone: z.string().max(30).optional(),
   /** שימור סטטוס בייבוא-חזרה של קובץ מיוצא (Round-trip). */
   status: z.enum(["draft", "active", "on_hold", "sold", "rented", "archived"]).optional(),
 }).strict();
@@ -50,7 +56,11 @@ const ImportBuyerRowSchema = z
   .object({
     name: z.string().min(2).max(120),
     phone: PhoneSchema,
+    email: z.string().trim().email().max(200).optional(),
     cities: z.array(z.string().min(1).max(80)).max(10).default([]),
+    neighborhoods: z.array(z.string().min(1).max(80)).max(10).optional(),
+    propertyTypes: z.array(PropertyTypeSchema).max(5).optional(),
+    areaSqmMin: z.number().int().min(10).max(2000).optional(),
     dealType: z.enum(["sale", "rent"], {
       errorMap: () => ({ message: "סוג עסקה לא מזוהה — יש לציין מכירה או השכרה" }),
     }),
@@ -132,12 +142,30 @@ function rowWarnings(row: { budgetMaxAgorot?: number }): string[] {
   ];
 }
 
+/**
+ * שורת ליד מיובאת — פנייה שהגיעה בקובץ במקום בטופס.
+ *
+ * שם וטלפון בלבד חובה, כמו אצל הקונים: פנייה בלי דרך לחזור אל
+ * הפונה אינה ליד. כל השאר משלים את הכרטיס אם הוא בקובץ.
+ */
+const ImportLeadRowSchema = z
+  .object({
+    name: z.string().min(2).max(120),
+    phone: PhoneSchema,
+    email: z.string().trim().email().max(200).optional(),
+    intent: z.enum(["buy", "sell", "rent_in", "rent_out", "info"]).optional(),
+    summary: z.string().max(4000).optional(),
+    source: z.string().max(60).optional(),
+  })
+  .strict();
+
 @RequireFeature("data_io")
 @Controller("import")
 export class ImportController {
   constructor(
     private readonly properties: PropertiesService,
     private readonly buyers: BuyersService,
+    private readonly leads: LeadsService,
   ) {}
 
   @Post("properties")
@@ -146,6 +174,7 @@ export class ImportController {
     @Body(new ZodValidationPipe(ImportEnvelopeSchema)) body: z.infer<typeof ImportEnvelopeSchema>,
   ): Promise<ImportResult> {
     const failed: ImportResult["failed"] = [];
+    const warnings: ImportResult["warnings"] = [];
     let created = 0;
 
     for (const [index, rawRow] of body.rows.entries()) {
@@ -158,8 +187,40 @@ export class ImportController {
         continue;
       }
       try {
-        const { marketingTitle, status, ...fields } = parsed.data;
-        await this.properties.createForImport({ fields, marketingTitle, status });
+        const {
+          marketingTitle,
+          marketingDescription,
+          internalNotes,
+          ownerName,
+          ownerPhone,
+          status,
+          ...fields
+        } = parsed.data;
+        /*
+         * בעל הנכס נקשר רק כששני הפרטים בקובץ **והטלפון תקין**:
+         * `findOrCreateByPhone` מזהה אדם לפי גיבוב הטלפון, וערך לא
+         * מנורמל היה יוצר איש קשר כפול לבעלים קיים (ביקורת Codex).
+         * טלפון פסול אינו מפיל את הנכס — הוא נקלט בלי הקישור,
+         * והאזהרה אומרת למתווך בדיוק מה להשלים.
+         */
+        const ownerPhoneValid =
+          ownerPhone !== undefined && PhoneSchema.safeParse(ownerPhone).success;
+        if (ownerName !== undefined && ownerPhone !== undefined && !ownerPhoneValid) {
+          warnings.push({
+            row: index + 1,
+            warning: "טלפון בעל הנכס אינו מספר ישראלי תקין — הנכס נקלט בלי קישור לבעלים",
+          });
+        }
+        await this.properties.createForImport({
+          fields,
+          marketingTitle,
+          marketingDescription,
+          internalNotes,
+          status,
+          ...(ownerName !== undefined && ownerPhoneValid
+            ? { owner: { name: ownerName, phone: ownerPhone } }
+            : {}),
+        });
         created += 1;
       } catch (error) {
         failed.push({
@@ -169,7 +230,7 @@ export class ImportController {
       }
     }
 
-    return { created, failed, warnings: [] };
+    return { created, failed, warnings };
   }
 
   @Post("buyers")
@@ -192,16 +253,18 @@ export class ImportController {
         await this.buyers.createForImport({
           contactName: row.name,
           contactPhone: row.phone,
+          contactEmail: row.email,
           requirements: {
             cities: row.cities,
-            neighborhoods: [],
+            neighborhoods: row.neighborhoods ?? [],
             searchAreas: [],
             dealType: row.dealType,
-            propertyTypes: [],
+            propertyTypes: row.propertyTypes ?? [],
             budgetMinAgorot: row.budgetMinAgorot,
             budgetMaxAgorot: row.budgetMaxAgorot,
             roomsMin: row.roomsMin,
             roomsMax: row.roomsMax,
+            areaSqmMin: row.areaSqmMin,
             features: {},
           },
           financing: row.financing,
@@ -213,6 +276,57 @@ export class ImportController {
         created += 1;
         for (const warning of rowWarnings(row)) {
           warnings.push({ row: index + 1, warning });
+        }
+      } catch (error) {
+        failed.push({
+          row: index + 1,
+          error: error instanceof Error ? error.message : "שגיאה לא צפויה",
+        });
+      }
+    }
+
+    return { created, failed, warnings };
+  }
+
+  /**
+   * ייבוא לידים — הסוג השלישי, שעד עכשיו פשוט לא היה קיים.
+   *
+   * כל שורה עוברת את **אותו מסלול של פנייה חיה** (`LeadsService.create`):
+   * איחוד לפי טלפון לליד פתוח קיים, נעילה נגד כפילויות, יומן ביקורת.
+   * שורה שאוחדה אינה כישלון — היא מדווחת כאזהרה כדי שהמתווך יידע
+   * שהלקוח כבר היה במערכת, והפנייה נוספה לציר הזמן שלו.
+   */
+  @Post("leads")
+  @RequireCapability("leads.edit")
+  async importLeads(
+    @Body(new ZodValidationPipe(ImportEnvelopeSchema)) body: z.infer<typeof ImportEnvelopeSchema>,
+  ): Promise<ImportResult> {
+    const failed: ImportResult["failed"] = [];
+    const warnings: ImportResult["warnings"] = [];
+    let created = 0;
+
+    for (const [index, rawRow] of body.rows.entries()) {
+      const parsed = ImportLeadRowSchema.safeParse(rawRow);
+      if (!parsed.success) {
+        failed.push({ row: index + 1, error: describeRowIssues(parsed.error) });
+        continue;
+      }
+      try {
+        const row = parsed.data;
+        const result = await this.leads.create({
+          contactName: row.name,
+          contactPhone: row.phone,
+          ...(row.email !== undefined ? { contactEmail: row.email } : {}),
+          source: row.source?.trim() || "ייבוא קובץ",
+          intent: row.intent ?? "info",
+          ...(row.summary !== undefined ? { summary: row.summary } : {}),
+        });
+        created += 1;
+        if (result.merged) {
+          warnings.push({
+            row: index + 1,
+            warning: "הלקוח כבר קיים — הפנייה צורפה לליד הפתוח שלו במקום לפתוח כרטיס חדש",
+          });
         }
       } catch (error) {
         failed.push({

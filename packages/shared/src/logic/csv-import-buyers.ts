@@ -1,5 +1,16 @@
 import type { BuyerMaturity } from "../schemas/buyer.js";
-import { parseCsvRecords, parseShekelsToAgorot, unsanitizeFormulaCell } from "./csv-import.js";
+import type { PropertyType } from "../schemas/property.js";
+import {
+  DEAL_TYPE_MAP,
+  normalizeHeader,
+  normalizeIsraeliPhone,
+  parseCsvRecords,
+  parseShekelsToAgorot,
+  PROPERTY_TYPE_MAP,
+  unsanitizeFormulaCell,
+} from "./csv-import.js";
+
+export { DEAL_TYPE_MAP, normalizeIsraeliPhone };
 
 /**
  * מיפוי CSV לרשומות קונים (docs/08 §6 — Onboarding): משרד חדש מעלה גם את
@@ -10,7 +21,11 @@ import { parseCsvRecords, parseShekelsToAgorot, unsanitizeFormulaCell } from "./
 export interface ParsedBuyerRow {
   name?: string;
   phone?: string;
+  email?: string;
   cities: string[];
+  neighborhoods?: string[];
+  propertyTypes?: PropertyType[];
+  areaSqmMin?: number;
   /** "מקור הגעה" — שדה אמיתי בכרטיס הקונה שלא היה ניתן לייבוא כלל. */
   source?: string;
   /** ערך לא מזוהה מועבר כמו-שהוא (string) — השרת ידחה את השורה עם שגיאה ברורה. */
@@ -26,23 +41,6 @@ export interface ParsedBuyerRow {
 
 type BuyerColumn = keyof ParsedBuyerRow;
 
-/**
- * נרמול כותרת לפני ההשוואה.
- *
- * גיליון אמיתי לא מגיע נקי: מרכאות שנשארו מייצוא, כוכבית שמסמנת
- * "חובה", ניקוד, רווח כפול, ורווח קשיח שנראה זהה לרווח רגיל. כל אחד
- * מהם לבדו הופך כותרת מוכרת ללא-מוכרת, והמשתמש רואה עמודה שנזרקה
- * בלי לדעת למה.
- */
-function normalizeHeader(raw: string): string {
-  return raw
-    .replace(/^\uFEFF/u, "")
-    .replace(/["'*׳״]/gu, "")
-    .replace(/[\u0591-\u05C7]/gu, "") // ניקוד וטעמים
-    .replace(/[\u00A0\s]+/gu, " ")
-    .trim()
-    .toLowerCase();
-}
 
 /**
  * מיפוי כותרת → שדה קונה.
@@ -74,6 +72,14 @@ const HEADER_MAP: Record<string, BuyerColumn> = {
   סלולרי: "phone",
   phone: "phone",
   mobile: "phone",
+  // --- אימייל ---
+  אימייל: "email",
+  מייל: "email",
+  'דוא"ל': "email",
+  דואל: "email",
+  "כתובת מייל": "email",
+  email: "email",
+  "e-mail": "email",
   // --- ערים ---
   עיר: "cities",
   ערים: "cities",
@@ -84,6 +90,20 @@ const HEADER_MAP: Record<string, BuyerColumn> = {
   "עיר מבוקשת": "cities",
   "אזור מבוקש": "cities",
   city: "cities",
+  // --- שכונות ---
+  שכונה: "neighborhoods",
+  שכונות: "neighborhoods",
+  "שכונה מבוקשת": "neighborhoods",
+  neighborhood: "neighborhoods",
+  // --- סוג נכס מבוקש ---
+  "סוג נכס": "propertyTypes",
+  "סוגי נכס": "propertyTypes",
+  "סוג דירה": "propertyTypes",
+  // --- שטח ---
+  שטח: "areaSqmMin",
+  "שטח מינימלי": "areaSqmMin",
+  'מ"ר': "areaSqmMin",
+  מר: "areaSqmMin",
   // --- סוג עסקה ---
   "סוג עסקה": "dealType",
   עסקה: "dealType",
@@ -155,23 +175,6 @@ const HEADER_MAP: Record<string, BuyerColumn> = {
   notes: "agentNotes",
 };
 
-export const DEAL_TYPE_MAP: Record<string, "sale" | "rent"> = {
-  מכירה: "sale",
-  קנייה: "sale",
-  קניה: "sale",
-  רכישה: "sale",
-  לקנות: "sale",
-  קונה: "sale",
-  מכר: "sale",
-  sale: "sale",
-  buy: "sale",
-  השכרה: "rent",
-  שכירות: "rent",
-  לשכור: "rent",
-  שוכר: "rent",
-  rent: "rent",
-};
-
 export const FINANCING_MAP: Record<string, ParsedBuyerRow["financing"]> = {
   מזומן: "cash",
   "אישור עקרוני": "pre_approved",
@@ -204,34 +207,26 @@ export const MATURITY_MAP: Record<string, BuyerMaturity> = {
  */
 const FALLBACK_NAME_HEADERS = new Set(["callerfirstname"]);
 
-/**
- * נורמליזציה של טלפון ישראלי ל-E.164 (‎+972…). מקבל 050-1234567,
- * 03 1234567, 972501234567 וכד'. מחזיר undefined אם לא ניתן לנרמל —
- * ההחלטה הסופית (דחיית השורה) נעשית בוולידציה בצד השרת.
- *
- * ## האפס שאקסל בולע
- *
- * תא שנראה כמו מספר מקבל באקסל טיפול של מספר, והאפס המוביל נעלם:
- * ‎"0583216016"‎ נשמר בקובץ כ-‎583216016‎. זה קורה בלי שהמשתמש עשה
- * דבר — מספיק שהעמודה לא הוגדרה כטקסט — והוא רואה את זה רק כשכל
- * הקובץ נדחה.
- *
- * לכן מספר לאומי **בלי** אפס מוביל מתקבל: הבדיקה `[2-9]\d{7,8}`
- * היא אותה בדיקה שחלה על שאר הצורות, ולכן ההשלמה אינה מרחיבה את
- * מה שנחשב תקין — היא רק מזהה את אותו מספר בכתיב שאקסל השאיר.
- * מספר שאינו ישראלי אינו עובר אותה וממשיך להידחות.
- */
-export function normalizeIsraeliPhone(raw: string): string | undefined {
-  const digits = raw.replace(/[^\d+]/gu, "");
-  let national: string;
-  if (digits.startsWith("+972")) national = digits.slice(4);
-  else if (digits.startsWith("972")) national = digits.slice(3);
-  else if (digits.startsWith("0")) national = digits.slice(1);
-  // בלי אפס מוביל — אקסל הסיר אותו; התקינות נבדקת מיד למטה
-  else national = digits;
-  if (!/^[2-9]\d{7,8}$/u.test(national)) return undefined;
-  return `+972${national}`;
-}
+/** תוויות השדות שאפשר למפות אליהם ידנית במסך הייבוא. */
+export const BUYER_TARGET_LABELS: Record<string, string> = {
+  name: "שם",
+  phone: "טלפון",
+  email: 'דוא"ל',
+  cities: "ערים",
+  neighborhoods: "שכונות",
+  propertyTypes: "סוג נכס מבוקש",
+  areaSqmMin: 'שטח מינימלי (מ"ר)',
+  dealType: "סוג עסקה",
+  budgetMinAgorot: "תקציב מינימלי",
+  budgetMaxAgorot: "תקציב",
+  roomsMin: "חדרים מינימום",
+  roomsMax: "חדרים מקסימום",
+  financing: "מימון",
+  maturity: "בשלות",
+  source: "מקור הגעה",
+  agentNotes: "הערות",
+};
+
 
 /** "תל אביב; רמת גן / גבעתיים" → ["תל אביב","רמת גן","גבעתיים"] */
 function splitCities(raw: string): string[] {
@@ -246,7 +241,10 @@ function splitCities(raw: string): string[] {
  * מפרק CSV מלא של קונים. מחזיר שורות + כותרות שלא זוהו (שקיפות למתווך).
  * טלפונים מנורמלים ל-E.164; תקציבים מומרים לאגורות.
  */
-export function parseBuyersCsv(csv: string): {
+export function parseBuyersCsv(
+  csv: string,
+  overrides: Record<string, string> = {},
+): {
   rows: ParsedBuyerRow[];
   unmappedHeaders: string[];
 } {
@@ -255,7 +253,11 @@ export function parseBuyersCsv(csv: string): {
 
   const headers = records[0] ?? [];
   const normalized = headers.map((h) => normalizeHeader(h));
-  const mapped = normalized.map((h) => HEADER_MAP[h]);
+  const mapped = headers.map((h, i) => {
+    const override = overrides[h.trim()];
+    if (override !== undefined && override !== "") return override as BuyerColumn;
+    return HEADER_MAP[normalized[i]!];
+  });
   const unmappedHeaders = headers.filter((_h, i) => mapped[i] === undefined);
 
   const rows: ParsedBuyerRow[] = [];
@@ -282,8 +284,25 @@ export function parseBuyersCsv(csv: string): {
         row.agentNotes = row.agentNotes ? `${raw} | ${row.agentNotes}` : raw;
       } else if (target === "phone") {
         row.phone = normalizeIsraeliPhone(raw) ?? raw;
+      } else if (target === "email") {
+        row.email = raw.toLowerCase();
       } else if (target === "cities") {
         row.cities = splitCities(raw);
+      } else if (target === "neighborhoods") {
+        row.neighborhoods = splitCities(raw);
+      } else if (target === "propertyTypes") {
+        /*
+         * "דירה; דירת גן" — כמה סוגים בעמודה אחת. ערך לא מזוהה
+         * אינו מפיל את השורה — הוא נשמר בהערות, כמו הבשלות.
+         */
+        const types = splitCities(raw)
+          .map((t) => PROPERTY_TYPE_MAP[t] ?? PROPERTY_TYPE_MAP[t.replace(/^דירת?\s+/u, "")])
+          .filter((t): t is PropertyType => t !== undefined);
+        if (types.length > 0) row.propertyTypes = types;
+        else row.agentNotes = row.agentNotes ? `${row.agentNotes} | סוג נכס: ${raw}` : `סוג נכס: ${raw}`;
+      } else if (target === "areaSqmMin") {
+        const digits = raw.replace(/[^\d]/gu, "");
+        if (digits !== "") row.areaSqmMin = Number(digits);
       } else if (target === "dealType") {
         // ערך לא מזוהה לא הופך בשקט ל"מכירה" — מועבר גולמי והשרת דוחה את השורה
         row.dealType = DEAL_TYPE_MAP[raw.trim()] ?? raw;

@@ -60,3 +60,90 @@ describe("parsePropertiesCsv", () => {
     expect(rows[0]?.fields.rooms).toBeUndefined();
   });
 });
+
+/**
+ * ההרחבה הגדולה של מפת הכותרות — הסיבה שהייבוא "לא עבד מספיק טוב":
+ * גיליון אמיתי מדבר על כתובת, סוג עסקה, מעלית ובעל הנכס, והמפה
+ * הישנה הכירה תשע כותרות בלבד. כל עמודה כזו נזרקה בשקט.
+ */
+describe("parsePropertiesCsv — הכותרות המורחבות", () => {
+  it("כתובת מלאה מתפצלת לרחוב ומספר בית", () => {
+    const csv = ["כתובת,עיר,חדרים", "רבי עקיבא 10,בני ברק,4"].join("\n");
+    const { rows, unmappedHeaders } = parsePropertiesCsv(csv);
+    expect(unmappedHeaders).toEqual([]);
+    expect(rows[0]?.fields).toMatchObject({
+      street: "רבי עקיבא",
+      houseNumber: "10",
+      city: "בני ברק",
+      rooms: 4,
+    });
+  });
+
+  it("סוג עסקה, מצב ומאפיינים בכן/לא", () => {
+    const csv = [
+      "עיר,סוג עסקה,מצב,מעלית,חניה,ממד,מחסן",
+      "רמת גן,השכרה,משופץ,כן,יש,לא,אין",
+    ].join("\n");
+    const { rows } = parsePropertiesCsv(csv);
+    expect(rows[0]?.fields).toMatchObject({
+      dealType: "rent",
+      condition: "renovated",
+      hasElevator: true,
+      hasParking: true,
+      hasSafeRoom: false,
+      hasStorage: false,
+    });
+  });
+
+  it("בעל הנכס, תיאור והערות פנימיות", () => {
+    const csv = [
+      "עיר,בעל הנכס,טלפון בעלים,תיאור,הערות",
+      'חולון,ישראל ישראלי,050-1234567,"נוף פתוח","המפתח אצל השכן"',
+    ].join("\n");
+    const { rows } = parsePropertiesCsv(csv);
+    expect(rows[0]).toMatchObject({
+      ownerName: "ישראל ישראלי",
+      ownerPhone: "+972501234567",
+      marketingDescription: "נוף פתוח",
+      internalNotes: "המפתח אצל השכן",
+    });
+  });
+
+  it("כותרות באנגלית ועם רעש (כוכבית, מרכאות, אותיות גדולות)", () => {
+    const csv = ['City,"*Rooms",PRICE', "חיפה,3.5,1200000"].join("\n");
+    const { rows, unmappedHeaders } = parsePropertiesCsv(csv);
+    expect(unmappedHeaders).toEqual([]);
+    expect(rows[0]?.fields).toMatchObject({ city: "חיפה", rooms: 3.5, priceAgorot: 120_000_000 });
+  });
+
+  it("קומת קרקע ומתוך קומות", () => {
+    const csv = ["עיר,קומה,מתוך קומות", "בת ים,קרקע,6"].join("\n");
+    const { rows } = parsePropertiesCsv(csv);
+    expect(rows[0]?.fields).toMatchObject({ floor: 0, totalFloors: 6 });
+  });
+
+  it("מיפוי ידני גובר על הזיהוי האוטומטי", () => {
+    const csv = ["מקום,עלות", "נתניה,2000000"].join("\n");
+    expect(parsePropertiesCsv(csv).unmappedHeaders).toHaveLength(2);
+    const { rows, unmappedHeaders } = parsePropertiesCsv(csv, {
+      מקום: "city",
+      עלות: "priceAgorot",
+    });
+    expect(unmappedHeaders).toEqual([]);
+    expect(rows[0]?.fields).toMatchObject({ city: "נתניה", priceAgorot: 200_000_000 });
+  });
+});
+
+describe("parsePropertiesCsv — טלפון בעל הנכס", () => {
+  it("מנורמל ל-E.164 כמו כל טלפון מיובא", () => {
+    const csv = ["עיר,בעל הנכס,טלפון בעלים", "חולון,ישראל,050-1234567"].join("\n");
+    const { rows } = parsePropertiesCsv(csv);
+    expect(rows[0]?.ownerPhone).toBe("+972501234567");
+  });
+
+  it("ערך שאינו טלפון מועבר גולמי — ההכרעה בשרת", () => {
+    const csv = ["עיר,טלפון בעלים", "חולון,אין"].join("\n");
+    const { rows } = parsePropertiesCsv(csv);
+    expect(rows[0]?.ownerPhone).toBe("אין");
+  });
+});
