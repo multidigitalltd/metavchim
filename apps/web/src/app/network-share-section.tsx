@@ -86,6 +86,14 @@ interface ActiveShare {
   id: string;
   commissionSplit: number;
   notes?: string | null;
+  /**
+   * האם המשתמש הזה רשאי לגעת בתנאים.
+   *
+   * חלוקת העמלה היא התחייבות כלפי משרד אחר, ולכן רק מי שקבע אותה
+   * (או מנהל) משנה אותה. חסר = שרת ישן שאינו מכיר את השדה; אז
+   * הכפתורים נשארים כפי שהיו, והשרת עדיין יאכוף.
+   */
+  canManage?: boolean;
 }
 
 export function NetworkShareSection({
@@ -257,26 +265,41 @@ export function NetworkShareSection({
             עדכון ולא פרסום מחדש: הביקוש הקיים מתעדכן במקום, ולכן
             ההיסטוריה וההצעות שכבר התקבלו עליו נשמרות
           */}
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              className="mv-btn-plain"
-              style={{ padding: "5px 12px", fontSize: 14 }}
-              disabled={busy}
-              onClick={() => setStage("form")}
+          {share?.canManage === false ? (
+            /*
+              ההסבר ולא רק היעדר הכפתורים: סוכן שרואה שיתוף פעיל בלי
+              שום פעולה זמינה מניח שמשהו שבור, ופונה לתמיכה. משפט
+              אחד הופך את זה מתקלה לכלל.
+            */
+            <p
+              className="m-0 mt-3 text-[14px]"
+              style={{ color: "var(--color-text-muted)" }}
             >
-              עדכן עמלה או תיאור
-            </button>
-            <button
-              type="button"
-              className="mv-btn-plain"
-              style={{ padding: "5px 12px", fontSize: 14 }}
-              disabled={busy}
-              onClick={() => void stopSharing()}
-            >
-              הפסק שיתוף
-            </button>
-          </div>
+              את תנאי השיתוף קובע מי שפרסם אותם — הם התחייבות כלפי המשרד
+              שיסגור את העסקה. לשינוי, פנו אליו או למנהל המשרד.
+            </p>
+          ) : (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="mv-btn-plain"
+                style={{ padding: "5px 12px", fontSize: 14 }}
+                disabled={busy}
+                onClick={() => setStage("form")}
+              >
+                עדכן עמלה או תיאור
+              </button>
+              <button
+                type="button"
+                className="mv-btn-plain"
+                style={{ padding: "5px 12px", fontSize: 14 }}
+                disabled={busy}
+                onClick={() => void stopSharing()}
+              >
+                הפסק שיתוף
+              </button>
+            </div>
+          )}
           {error ? (
             <Notice tone="danger">{error}</Notice>
           ) : null}

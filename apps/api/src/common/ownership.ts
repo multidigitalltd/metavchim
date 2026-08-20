@@ -107,6 +107,53 @@ export async function assertMatchAccess(
  * נכסים גלויים לכל המשרד בכוונה (אין להם פילטר בעלות), ולכן בעל נכס
  * נגיש לכל סוכן — זו התנהגות קיימת ולא הקלה חדשה.
  */
+/**
+ * מזהי אנשי הקשר שהמשתמש רשאי לראות — `null` = אין הגבלה.
+ *
+ * זו הצורה ה**קבוצתית** של `assertContactAccess`, לנתיבי רשימה.
+ * שתיהן מבטאות בדיוק את אותו כלל: הלקוח נגיש אם הוא כרטיס קונה
+ * שלי, ליד שמשויך אליי, או בעל נכס כלשהו (נכסים גלויים לכל המשרד
+ * בכוונה). כל שינוי בכלל חייב להיעשות בשתיהן — `recording-access.test.ts`
+ * מריץ את שני המסלולים על אותם נתונים ומשווה.
+ *
+ * המחיר הוא שלוש שליפות של מזהים בלבד, פעם אחת לבקשה. החלופה —
+ * `assertContactAccess` לכל שורה — הייתה שאילתה נפרדת לכל שיחה
+ * בעמוד, כלומר בדיוק ה-N+1 שהמודול הזה כבר תיקן פעם אחת.
+ */
+export async function visibleContactIds(
+  tx: TenantTx,
+  tenantId: string,
+): Promise<string[] | null> {
+  const ctx = TenantContext.current();
+  // מנהל שרואה גם קונים וגם לידים רואה כל לקוח — אין מה לשלוף
+  if (ctx.capabilities.has("buyers.view_all") && ctx.capabilities.has("leads.view_all")) {
+    return null;
+  }
+
+  const [buyers, leads, properties] = await Promise.all([
+    tx.buyer.findMany({
+      where: { tenantId, deletedAt: null, ...ownershipFilter("buyers.view_all", "ownerUserId") },
+      select: { contactId: true },
+    }),
+    tx.lead.findMany({
+      where: { tenantId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
+      select: { contactId: true },
+    }),
+    tx.property.findMany({
+      where: { tenantId, deletedAt: null, ownerContactId: { not: null } },
+      select: { ownerContactId: true },
+    }),
+  ]);
+
+  return [
+    ...new Set([
+      ...buyers.map((row) => row.contactId),
+      ...leads.map((row) => row.contactId),
+      ...properties.map((row) => row.ownerContactId!),
+    ]),
+  ];
+}
+
 export async function assertContactAccess(
   tx: TenantTx,
   tenantId: string,

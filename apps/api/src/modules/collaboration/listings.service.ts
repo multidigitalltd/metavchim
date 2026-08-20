@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
@@ -98,6 +99,14 @@ export interface SharedListingDto {
   status: string;
   /** true אם הפרסום שלי — רק אז יש קישור לנכס. */
   mine: boolean;
+  /**
+   * האם המשתמש הזה רשאי לשנות את התנאים או להוריד את הפרסום.
+   *
+   * המסך צריך את זה כדי **לא להציע כפתור שייכשל**: אחרי שהבעלות
+   * נאכפת בשרת, סוכן שרואה פרסום של עמית היה לוחץ "עדכן" ומקבל
+   * 403 על פעולה שהמסך הזמין אותו לעשות.
+   */
+  canManage: boolean;
   /** המשרד שפרסם את הנכס לרשת. */
   officeName?: string;
   originPropertyId?: string;
@@ -240,6 +249,8 @@ export class ListingsService {
           tenantId,
           originPropertyId: propertyId,
           commissionSplit,
+          // הבעלות על התנאים — ראו `assertListingOwner`
+          createdBy: TenantContext.current().userId,
           notes: note?.trim() || null,
           photoKeys: photos.map((p) => p.s3Key),
           ...this.snapshot(property),
@@ -256,6 +267,37 @@ export class ListingsService {
     return this.getListing(id);
   }
 
+  /**
+   * מי רשאי לגעת בתנאי פרסום קיים — **המפרסם או מנהל.**
+   *
+   * חלוקת העמלה אינה העדפה פנימית אלא התחייבות כלפי משרדים אחרים
+   * שרואים אותה בלוח ומחליטים לפיה אם להשקיע נכס. שליפה לפי
+   * `tenantId` בלבד אפשרה לכל סוכן במשרד לשנות את התנאים של עמית —
+   * או להוריד את הפרסום שלו — בלי ידיעתו.
+   *
+   * `network.share_all` היא הצורה הניהולית של הכלל: מי שמנהל את
+   * פעילות הרשת של המשרד כן צריך לתקן תנאים שסוכן שיצא לחופשה קבע.
+   * פרסום ישן בלי `createdBy` נשאר בידיו בלבד — ברירת המחדל
+   * השמרנית, ולא „פתוח לכולם”.
+   */
+  private mayManageListing(listing: { createdBy: string | null }): boolean {
+    const ctx = TenantContext.current();
+    if (ctx.capabilities.has("collaboration.manage_all")) return true;
+    return listing.createdBy !== null && listing.createdBy === ctx.userId;
+  }
+
+  /**
+   * הצורה הזורקת של אותה שאלה.
+   *
+   * הפרדה מכוונת: `canManage` ב-DTO ובדיקת השער חייבים להיות אותו
+   * חישוב, אחרת המסך מסתיר כפתור שהשרת דווקא מאשר — או גרוע יותר,
+   * מציג כפתור שייכשל.
+   */
+  private assertListingOwner(listing: { createdBy: string | null }): void {
+    if (this.mayManageListing(listing)) return;
+    throw new ForbiddenException("רק הסוכן שפרסם את הנכס יכול לשנות את תנאי הפרסום");
+  }
+
   async updatePublication(
     propertyId: string,
     commissionSplit: number,
@@ -268,9 +310,10 @@ export class ListingsService {
     const listingId = await this.prisma.withTenant(async (tx) => {
       const existing = await tx.sharedListing.findFirst({
         where: { tenantId, originPropertyId: propertyId, status: "active" },
-        select: { id: true },
+        select: { id: true, createdBy: true },
       });
       if (!existing) throw new NotFoundException("הנכס אינו מפורסם ברשת");
+      this.assertListingOwner(existing);
       await tx.sharedListing.updateMany({
         where: { id: existing.id, tenantId, status: "active" },
         data: { commissionSplit, notes: note?.trim() || null },
@@ -289,6 +332,17 @@ export class ListingsService {
   async unpublish(propertyId: string): Promise<void> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {
+      /*
+       * אותו שער כמו בשינוי התנאים, ומאותו נימוק — למעשה חמור יותר:
+       * הורדת פרסום של עמית מוחקת הזדמנות שכבר מוצגת למשרדים אחרים.
+       */
+      const existing = await tx.sharedListing.findFirst({
+        where: { tenantId, originPropertyId: propertyId, status: "active" },
+        select: { createdBy: true },
+      });
+      if (!existing) throw new NotFoundException("הנכס אינו מפורסם ברשת");
+      this.assertListingOwner(existing);
+
       const result = await tx.sharedListing.updateMany({
         where: { tenantId, originPropertyId: propertyId, status: "active" },
         data: { status: "closed" },
@@ -437,6 +491,8 @@ export class ListingsService {
       commissionSplit: row.commissionSplit,
       status: row.status,
       mine,
+      // רק על הפרסומים שלנו — למודעה של משרד אחר אין משמעות לשאלה
+      canManage: mine && this.mayManageListing(row),
       ...(officeName === undefined ? {} : { officeName }),
       // הקישור לנכס נחשף רק לסוכנות המקור — לעולם לא לרשת
       ...(mine ? { originPropertyId: row.originPropertyId } : {}),

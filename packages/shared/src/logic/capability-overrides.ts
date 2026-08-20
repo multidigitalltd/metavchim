@@ -79,6 +79,7 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   "calendar.manage": "ניהול יומן ופגישות",
   "collaboration.share": "שיתוף במאגר הביקושים",
   "collaboration.offer": "הצעות בין־משרדיות",
+  "collaboration.manage_all": "שינוי תנאי שת\"פ של סוכן אחר",
   "billing.manage": "ניהול חיוב ומנוי",
   "users.manage": "ניהול משתמשים והרשאות",
   "settings.manage": "הגדרות המשרד",
@@ -141,7 +142,11 @@ export const CAPABILITY_MODULES: readonly CapabilityModule[] = [
     key: "collaboration",
     label: "שיתוף פעולה בין משרדים",
     description: "מאגר הביקושים המשותף והצעות בין־משרדיות",
-    capabilities: ["collaboration.share", "collaboration.offer"],
+    capabilities: [
+      "collaboration.share",
+      "collaboration.offer",
+      "collaboration.manage_all",
+    ],
   },
   {
     key: "reports",

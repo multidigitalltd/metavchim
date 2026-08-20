@@ -1,7 +1,7 @@
 import type { Readable } from "node:stream";
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
-import { assertContactAccess } from "../../common/ownership";
+import { assertContactAccess, visibleContactIds } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -115,14 +115,34 @@ export class CallsService {
     });
   }
 
+  /**
+   * יומן השיחות — **מסונן לפי בעלות, כמו כל שאר המערכת.**
+   *
+   * עד כה הוא החזיר את כל שיחות המשרד לכל סוכן: הסיכום, מספר
+   * הטלפון והתמלול המלא של שיחות של עמיתים. זה חרג משאר המודולים —
+   * סוכן עם `leads.view_own` אינו רואה את הליד של עמיתו, אבל כן ראה
+   * את תמלול השיחה איתו.
+   *
+   * הכלל זהה ל-`assertContactAccess` בדיוק, רק בצורתו הקבוצתית.
+   * שיחה שנרשמה בלי לקוח (למשל תיעוד ידני) שייכת למי שרשם אותה.
+   */
   async list(query: { outcome?: string; leadId?: string; limit: number }): Promise<CallDto[]> {
-    const tenantId = TenantContext.current().tenantId;
+    const { tenantId, userId } = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
+      const visible = await visibleContactIds(tx, tenantId);
       const rows = await tx.call.findMany({
         where: {
           tenantId,
           ...(query.outcome ? { outcome: query.outcome } : {}),
           ...(query.leadId ? { leadId: query.leadId } : {}),
+          ...(visible === null
+            ? {}
+            : {
+                OR: [
+                  { contactId: { in: visible } },
+                  { contactId: null, createdBy: userId },
+                ],
+              }),
         },
         orderBy: { occurredAt: "desc" },
         take: query.limit,
@@ -140,9 +160,43 @@ export class CallsService {
     });
   }
 
+  /**
+   * שער השיחה הבודדת — **אותו כלל כמו ברשימה, בצורת רשומה אחת.**
+   *
+   * הבעלות נגזרת מהלקוח, כמו בכל ישות שאין לה בעלים משלה. שיחה
+   * שנרשמה בלי לקוח שייכת למי שרשם אותה, ומנהל שרואה גם קונים וגם
+   * לידים רואה הכול — בדיוק התנאי שבו `visibleContactIds` מוותר על
+   * הסינון, כדי ששני המסלולים לא ייתנו תשובות שונות.
+   *
+   * תמיד 404 ובאותו נוסח: תשובה שונה על „קיימת אך לא שלך” הייתה
+   * מסגירה את קיומה, ואת זה אין למשתמש הזה הרשאה לדעת.
+   */
+  private async assertCallAccess(tx: TenantTx, id: string): Promise<void> {
+    const { tenantId, userId, capabilities } = TenantContext.current();
+    const row = await tx.call.findFirst({
+      where: { id, tenantId },
+      select: { contactId: true, createdBy: true },
+    });
+    if (!row) throw new NotFoundException("שיחה לא נמצאה");
+
+    if (row.contactId !== null) {
+      // ההודעה מאוחדת: „איש קשר לא נמצא” היה מסגיר שהשיחה עצמה קיימת
+      await assertContactAccess(tx, tenantId, row.contactId).catch(() => {
+        throw new NotFoundException("שיחה לא נמצאה");
+      });
+      return;
+    }
+    const seesAll =
+      capabilities.has("buyers.view_all") && capabilities.has("leads.view_all");
+    if (!seesAll && row.createdBy !== userId) throw new NotFoundException("שיחה לא נמצאה");
+  }
+
   async remove(id: string): Promise<void> {
     const tenantId = TenantContext.current().tenantId;
     await this.prisma.withTenant(async (tx) => {
+      // מחיקה היא פעולה על השיחה, ולכן היא עוברת את אותו שער כמו
+      // הצפייה בה — אחרת סוכן היה יכול למחוק שיחה שאינו רשאי לראות
+      await this.assertCallAccess(tx, id);
       const result = await tx.call.deleteMany({ where: { id, tenantId } });
       if (result.count === 0) throw new NotFoundException("שיחה לא נמצאה");
       await this.audit.record(tx, { action: "call.delete", entityType: "call", entityId: id });
@@ -166,6 +220,14 @@ export class CallsService {
   ): Promise<{ status: string }> {
     const tenantId = TenantContext.current().tenantId;
     const available = (await this.transcription.status()).available;
+
+    /*
+     * השער **לפני** ההעלאה, ולא אחריה. שני נימוקים, ושניהם אמיתיים:
+     * צירוף הקלטה לשיחה שאינה שלי הוא כתיבה לכרטיס של עמית, ובקשה
+     * שנדחית אחרי ההעלאה משאירה אובייקט ב-S3 שאף שורה אינה מצביעה
+     * עליו — כלומר מסלולי המחיקה לא ימצאו אותו לעולם.
+     */
+    await this.prisma.withTenant((tx) => this.assertCallAccess(tx, id));
 
     const key = `calls/${tenantId}/${id}/${ulid()}`;
     await this.storage.put(key, file.buffer, file.mimetype || "audio/webm");
@@ -223,28 +285,16 @@ export class CallsService {
     id: string,
   ): Promise<{ body: Readable; contentType: string; contentLength?: number }> {
     const key = await this.prisma.withTenant(async (tx) => {
-      const { tenantId, userId, capabilities } = TenantContext.current();
+      await this.assertCallAccess(tx, id);
       const row = await tx.call.findFirst({
-        where: { id, tenantId },
-        select: { recordingKey: true, contactId: true, createdBy: true },
+        where: { id, tenantId: TenantContext.current().tenantId },
+        select: { recordingKey: true },
       });
-      if (!row) throw new NotFoundException("שיחה לא נמצאה");
-
-      if (row.contactId !== null) {
-        // ההודעה מאוחדת: „איש קשר לא נמצא” על בקשת הקלטה היה מסגיר
-        // שהשיחה קיימת ורק הלקוח שבה אינו שלי
-        await assertContactAccess(tx, tenantId, row.contactId).catch(() => {
-          throw new NotFoundException("שיחה לא נמצאה");
-        });
-      } else if (!capabilities.has("leads.view_all") && row.createdBy !== userId) {
-        throw new NotFoundException("שיחה לא נמצאה");
-      }
-
       /*
        * שיחה בלי הקלטה אינה שגיאת שרת אלא מצב רגיל — רוב השיחות
        * אינן מוקלטות, והמסך צריך לדעת להבדיל בין "אין" ל"נכשל".
        */
-      if (!row.recordingKey) throw new NotFoundException("לשיחה אין הקלטה");
+      if (!row?.recordingKey) throw new NotFoundException("לשיחה אין הקלטה");
       return row.recordingKey;
     });
 

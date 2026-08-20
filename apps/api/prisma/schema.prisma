@@ -655,6 +655,14 @@ model SharedListing {
   status           String    @default("active") @db.VarChar(20) // active | closed
   /// אחוז העמלה שהמשרד **המפרסם** לוקח; לצד השני נשאר המשלים.
   commissionSplit  Int       @default(50) @map("commission_split") @db.SmallInt
+  /// הסוכן שפרסם — הבעלים של **תנאי הפרסום**.
+  ///
+  /// חלוקת העמלה היא התחייבות כלפי משרדים אחרים, ולכן היא אינה
+  /// אמורה להיות ניתנת לשינוי בידי כל סוכן במשרד. אצל הקונה הכלל
+  /// נגזר מ-`Buyer.ownerUserId`; לנכס אין בעלים ברמת הסוכן — נכסים
+  /// גלויים לכל המשרד בכוונה — ולכן הבעלות היא של מי שקבע את
+  /// התנאים. `null` = פרסום שקדם לעמודה, ניתן לעריכה בידי מנהל.
+  createdBy        String?   @map("created_by") @db.Char(26)
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 

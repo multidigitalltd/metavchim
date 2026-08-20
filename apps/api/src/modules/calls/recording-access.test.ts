@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { NotFoundException } from "@nestjs/common";
 import type { Capability } from "@metavchim/shared";
+import { visibleContactIds } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { CallsService } from "./calls.service";
 
@@ -86,12 +87,25 @@ describe("גישה להקלטת שיחה", () => {
     ).resolves.toBeDefined();
   });
 
-  /* מנהל עם view_all שומע הכול — אחרת הבדיקה מאשרת שער נעול, לא נכון */
-  it("view_all פותח גם שיחה של סוכן אחר", async () => {
+  /*
+   * מנהל שומע הכול — אחרת הבדיקה מאשרת שער נעול ולא שער נכון.
+   *
+   * דרושות **שתי** היכולות ולא אחת, וזה בכוונה: זה בדיוק התנאי שבו
+   * `visibleContactIds` מוותר על הסינון ברשימה. יכולת אחת בלבד
+   * הייתה נותנת מסך שמראה שיחה שאי אפשר להשמיע, או להפך.
+   */
+  it("מנהל עם שתי היכולות שומע גם שיחה של סוכן אחר", async () => {
     const call: FakeCall = { recordingKey: "k", contactId: null, createdBy: "01OTHER" };
     await expect(
-      asAgent(["leads.view_all"], "01ME", () => serviceFor(call).recording("01CALL")),
+      asAgent(["leads.view_all", "buyers.view_all"], "01ME", () =>
+        serviceFor(call).recording("01CALL"),
+      ),
     ).resolves.toBeDefined();
+
+    // יכולת אחת בלבד אינה מספיקה — אחרת שני המסלולים היו נפרדים
+    await expect(
+      asAgent(["leads.view_all"], "01ME", () => serviceFor(call).recording("01CALL")),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   /*
@@ -99,6 +113,54 @@ describe("גישה להקלטת שיחה", () => {
    * הקלטה” הייתה מסגירה לסוכן אילו משיחות העמיתים שלו מוקלטות —
    * ולכן גם סדר הבדיקות חשוב: הבעלות נבדקת לפני קיום ההקלטה.
    */
+  /*
+   * שני המסלולים על אותם נתונים.
+   *
+   * הרשימה מסננת בשאילתה אחת (`visibleContactIds`) והשער הבודד
+   * בודק רשומה אחת (`assertContactAccess`). שני ביטויים לאותו כלל
+   * הם שתי הזדמנויות שהוא ייפרד — ואז המסך מציג שיחה שאי אפשר
+   * לפתוח, או גרוע מזה, מסתיר שיחה שכן מותרת.
+   */
+  it("הרשימה והשער הבודד מסכימים על אותו לקוח", async () => {
+    /* מקור אמת אחד לשני המסלולים — זה מה שהופך את זה לבדיקת הסכמה */
+    const owned = new Set(["01MINE"]);
+    const tx = {
+      buyer: {
+        findMany: async () => [...owned].map((contactId) => ({ contactId })),
+        findFirst: async ({ where }: { where: { contactId?: string } }) =>
+          where.contactId !== undefined && owned.has(where.contactId) ? { id: "01BUYER" } : null,
+      },
+      lead: { findMany: async () => [], findFirst: async () => null },
+      property: { findMany: async () => [], findFirst: async () => null },
+    };
+    const visible = await asAgent(["leads.view_own"], "01ME", () =>
+      visibleContactIds(tx as never, "01TENANT"),
+    );
+    expect(visible).toEqual(["01MINE"]);
+
+    // מה שברשימה — נפתח; מה שאינו בה — נחסם
+    for (const [contactId, allowed] of [
+      ["01MINE", true],
+      ["01CONTACT", false],
+    ] as const) {
+      const call: FakeCall = { recordingKey: "k", contactId, createdBy: "01OTHER" };
+      const service = new CallsService(
+        {
+          withTenant: async <T>(fn: (t: unknown) => Promise<T>): Promise<T> =>
+            fn({ ...tx, call: { findFirst: async () => call } }),
+        } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        { getObject: async () => ({ body: null, contentType: "audio/wav" }) } as never,
+        {} as never,
+      );
+      const attempt = asAgent(["leads.view_own"], "01ME", () => service.recording("01CALL"));
+      if (allowed) await expect(attempt).resolves.toBeDefined();
+      else await expect(attempt).rejects.toBeInstanceOf(NotFoundException);
+    }
+  });
+
   it("שיחה שאינה שלי ושיחה שאינה קיימת נראות זהה", async () => {
     const messages: string[] = [];
     for (const call of [null, OTHERS_CALL, { ...OTHERS_CALL, recordingKey: null }]) {

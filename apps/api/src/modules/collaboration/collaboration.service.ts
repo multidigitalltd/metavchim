@@ -32,7 +32,7 @@ import {
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { lockContact } from "../../common/locks";
-import { assertLeadAccess, ownershipFilter } from "../../common/ownership";
+import { assertBuyerAccess, assertLeadAccess, ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -196,6 +196,13 @@ function readSearchAreas(
 
 export interface SharedDemandDto {
   id: string;
+  /**
+   * האם המשתמש הזה רשאי לשנות את התנאים או להפסיק את השיתוף.
+   *
+   * הבעלות על תנאי הביקוש היא הבעלות על הקונה. השדה קיים כדי
+   * שהמסך לא יזמין את הסוכן לפעולה שהשרת ידחה.
+   */
+  canManage?: boolean;
   cities: string[];
   /** שכונות מבוקשות — מדרישות הקונה; מדויק יותר מעיר, עדיין אנונימי */
   neighborhoods: string[];
@@ -633,13 +640,25 @@ export class CollaborationService {
    */
   async activeDemandForBuyer(buyerId: string): Promise<SharedDemandDto | null> {
     const tenantId = TenantContext.current().tenantId;
-    const row = await this.prisma.withTenant(async (tx) =>
-      tx.sharedDemand.findFirst({
+    const found = await this.prisma.withTenant(async (tx) => {
+      const row = await tx.sharedDemand.findFirst({
         where: { tenantId, originBuyerId: buyerId, status: "active" },
         select: { id: true },
-      }),
-    );
-    return row ? this.getDemand(row.id) : null;
+      });
+      if (!row) return null;
+      /*
+       * הבעלות נבדקת כאן כדי שהמסך לא יציע כפתור שייכשל: אחרי
+       * ש-`updateSharedDemand` אוכף בעלות, סוכן שרואה ביקוש של
+       * קונה שאינו שלו היה לוחץ „עדכן” ומקבל 404.
+       */
+      const mayManage = await assertBuyerAccess(tx, tenantId, buyerId).then(
+        () => true,
+        () => false,
+      );
+      return { id: row.id, mayManage };
+    });
+    if (!found) return null;
+    return { ...(await this.getDemand(found.id)), canManage: found.mayManage };
   }
 
   /**
@@ -662,6 +681,16 @@ export class CollaborationService {
     if (splitRejection !== null) throw new BadRequestException(splitRejection);
 
     const demandId = await this.prisma.withTenant(async (tx) => {
+      /*
+       * הבעלות על התנאים היא הבעלות על הקונה.
+       *
+       * עד כה השליפה סוננה לפי `tenantId` בלבד, ולכן כל סוכן במשרד
+       * יכול היה לשנות את חלוקת העמלה שעמית הבטיח למשרד אחר — על
+       * ביקוש של קונה שאינו שלו, ובלי שיראה אותו בשום מסך. אצל
+       * הקונה יש בעלים מפורש, ולכן זה בדיוק אותו שער שכבר חל על
+       * עריכת דרישותיו (ביקורת המשתמש).
+       */
+      await assertBuyerAccess(tx, tenantId, buyerId);
       const existing = await tx.sharedDemand.findFirst({
         where: { tenantId, originBuyerId: buyerId, status: "active" },
         select: { id: true },
