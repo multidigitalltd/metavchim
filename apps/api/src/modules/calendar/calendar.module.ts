@@ -12,5 +12,7 @@ import { GoogleCalendarService } from "./google-calendar.service";
   imports: [CallsModule, ExclusivityModule],
   controllers: [CalendarController, GoogleCalendarController],
   providers: [CalendarService, GoogleCalendarService, CalendarSyncService],
+  // הסוכן קובע פגישות דרך אותו שירות שהמסך משתמש בו
+  exports: [CalendarService],
 })
 export class CalendarModule {}
