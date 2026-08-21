@@ -12,6 +12,7 @@ import { LeadPricesSection } from "./lead-prices-section";
 import { PaymentsSection } from "./payments-section";
 import { PlansSection } from "./plans-section";
 import { CouponsSection } from "./coupons-section";
+import { AgentUsageSection } from "./agent-usage-section";
 import { PlatformSettingsSection } from "./platform-settings-section";
 import { LegalDocsSection } from "./legal-docs-section";
 import { TelephonyWebhooksSection } from "./telephony-webhooks-section";
@@ -637,6 +638,12 @@ export default function PlatformPage() {
       <PaymentsSection />
 
       <PlatformSettingsSection onReferralFeeChange={() => setReferralFeeVersion((v) => v + 1)} />
+
+      {/*
+        צמוד להגדרות הספקים: מפתח ה-Gemini מוגדר שם, וכאן רואים כמה
+        הוא עולה בפועל — פקודות, אסימונים, ואיפה זה נצרך.
+      */}
+      <AgentUsageSection />
 
       {/*
         צמוד להגדרות הספקים: שתיהן עונות על "חיברתי ספק ולא קורה
