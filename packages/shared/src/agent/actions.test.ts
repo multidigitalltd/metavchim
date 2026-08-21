@@ -185,6 +185,82 @@ describe("צמצום לפעולה שנבחרה", () => {
     expect(parsed.success).toBe(true);
     expect(parsed.success && parsed.data.params).toEqual({});
   });
+
+  /*
+   * מצב ה-JSON החופשי (המודל דחה את הסכימה, קרה בפרודקשן): מודלים
+   * כותבים null בשדה ריק, מחזירים מחרוזת במקום רשימה, וממציאים צעד
+   * עם פעולה לא קיימת. אף אחת מהסטיות האלה לא מפילה את ההצעה —
+   * רק action קשיח.
+   */
+  describe("סלחנות למצב ה-JSON החופשי", () => {
+    it("null בשדות עזר אינו מפיל את הפענוח", () => {
+      const parsed = InterpretResponseSchema.safeParse({
+        action: "search",
+        params: { query: "קונים בגבעתיים" },
+        evidence: null,
+        unmapped: null,
+        clarify: null,
+        steps: null,
+      });
+      expect(parsed.success).toBe(true);
+      expect(parsed.success && parsed.data.steps).toEqual([]);
+      expect(parsed.success && parsed.data.clarify).toBeUndefined();
+    });
+
+    it("unmapped כמחרוזת בודדת הופך לרשימה, וערכים שאינם מחרוזת מסוננים", () => {
+      const parsed = InterpretResponseSchema.safeParse({
+        action: "search",
+        unmapped: "נאמר גם משהו על חניה",
+        evidence: { query: "קונים", rooms: 4 },
+      });
+      expect(parsed.success).toBe(true);
+      expect(parsed.success && parsed.data.unmapped).toEqual(["נאמר גם משהו על חניה"]);
+      expect(parsed.success && parsed.data.evidence).toEqual({ query: "קונים" });
+    });
+
+    it("צעד עם פעולה מומצאת נזרק בלי להפיל את הצעד התקין", () => {
+      const parsed = InterpretResponseSchema.safeParse({
+        action: "create_buyer",
+        params: { name: "משה" },
+        steps: [
+          { action: "fly_to_moon", params: {} },
+          { action: "add_note", params: { text: "הערה" }, dateText: null },
+        ],
+      });
+      expect(parsed.success).toBe(true);
+      expect(parsed.success && parsed.data.steps).toHaveLength(1);
+      expect(parsed.success && parsed.data.steps[0]?.action).toBe("add_note");
+    });
+
+    it("action חסר או מומצא עדיין נכשל — בלעדיו אין מה להציע", () => {
+      expect(InterpretResponseSchema.safeParse({ params: {} }).success).toBe(false);
+      expect(InterpretResponseSchema.safeParse({ action: "do_magic" }).success).toBe(false);
+    });
+
+    /*
+     * params שגוי אינו הופך ל-{} תקין-למראה: "קונים בגבעתיים עם 4
+     * חדרים" עם params ריק היה מחזיר את כל המאגר בלי סינון — תוצאה
+     * סבירה-למראה ושגויה. הכשל מפיל את הפירוש לחוקים (ביקורת Codex).
+     */
+    it("params כמחרוזת או מערך נכשל — לא נמחק בשקט", () => {
+      expect(
+        InterpretResponseSchema.safeParse({ action: "find_buyers", params: "גבעתיים" }).success,
+      ).toBe(false);
+      expect(
+        InterpretResponseSchema.safeParse({ action: "find_buyers", params: ["גבעתיים"] }).success,
+      ).toBe(false);
+    });
+
+    it("צעד עם params שגוי נפסל כולו — לא הופך לצעד בלי פרמטרים", () => {
+      const parsed = InterpretResponseSchema.safeParse({
+        action: "create_buyer",
+        params: { name: "משה" },
+        steps: [{ action: "add_note", params: "הערה כמחרוזת" }],
+      });
+      expect(parsed.success).toBe(true);
+      expect(parsed.success && parsed.data.steps).toEqual([]);
+    });
+  });
 });
 
 describe("הפרומפט", () => {

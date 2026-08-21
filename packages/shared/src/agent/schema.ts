@@ -151,34 +151,117 @@ export function interpretJsonSchema(): Record<string, unknown> {
   };
 }
 
-/** הצורה שהשרת מקבל — לפני הצמצום לפעולה שנבחרה. */
-export const InterpretResponseSchema = z.object({
-  action: z.enum([...AGENT_ACTION_IDS, "unknown"] as [string, ...string[]]),
-  params: z.record(z.string(), z.unknown()).default({}),
-  evidence: z.record(z.string(), z.string()).default({}),
-  unmapped: z.array(z.string().max(300)).max(10).default([]),
-  clarify: z.string().max(300).optional(),
+/**
+ * נרמול סלחני לפני הוולידציה — **למצב ה-JSON החופשי.**
+ *
+ * כשהמודל דוחה את `responseSchema` (‏HTTP 400‏, קרה בפרודקשן עם
+ * gemini-3.6-flash) הקריאה רצה בלי אכיפת מבנה, ומודלים במצב חופשי
+ * נוהגים לכתוב `null` בשדה ריק, להחזיר מחרוזת בודדת במקום רשימה,
+ * ולהמציא צעד עם פעולה לא קיימת. כל אחת מהסטיות האלה הפילה את
+ * הפענוח **כולו** ל"זיהוי בסיסי" — על משפט שהובן נכון (האבחון:
+ * כפתור בדיקת המנוע).
+ *
+ * הכלל: סטייה בשדה עזר (evidence/unmapped/clarify/צעד בודד) מנוקה
+ * או נזרקת — לא מפילה את ההצעה. `action` נשאר קשיח: בלעדיו אין מה
+ * להציע, וניחוש שלו הוא בדיוק מה שאסור.
+ */
+function tolerantInterpretInput(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
+  const value: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
+  for (const key of Object.keys(value)) {
+    if (value[key] === null) delete value[key];
+  }
+  if (isPlainObject(value["evidence"])) {
+    value["evidence"] = Object.fromEntries(
+      Object.entries(value["evidence"] as Record<string, unknown>).filter(
+        ([, v]) => typeof v === "string",
+      ),
+    );
+  } else {
+    delete value["evidence"];
+  }
+  if (typeof value["unmapped"] === "string") value["unmapped"] = [value["unmapped"]];
+  if (Array.isArray(value["unmapped"])) {
+    value["unmapped"] = (value["unmapped"] as unknown[])
+      .filter((v): v is string => typeof v === "string")
+      .slice(0, 10)
+      .map((v) => v.slice(0, 300));
+  } else {
+    delete value["unmapped"];
+  }
+  if (typeof value["clarify"] === "string") value["clarify"] = value["clarify"].slice(0, 300);
+  else delete value["clarify"];
   /*
-   * עד ארבעה צעדי המשך: משפט אחד מבקש לכל היותר כמה פעולות ספורות,
-   * ורשימה ארוכה מזה היא כמעט בוודאות הזיה — עדיף לקטוע אותה.
+   * `params` שגוי (מחרוזת/מערך) **נשאר** כדי שהוולידציה תיכשל והפירוש
+   * ייפול לחוקים. מחיקה שלו הייתה הופכת אותו ל-`{}` תקין-למראה —
+   * ו"קונים בגבעתיים עם 4 חדרים" היה מחזיר את כל המאגר בלי סינון,
+   * תוצאה סבירה-למראה ושגויה (ביקורת Codex). רק null נחשב "ריק".
    */
-  steps: z
-    .array(
-      z.object({
-        action: z.enum(AGENT_ACTION_IDS as unknown as [string, ...string[]]),
-        params: z.record(z.string(), z.unknown()).default({}),
-        /*
-         * מילות המועד של הצעד — לא תאריך מחושב. "תזכיר לי מחר ותקבע
-         * פגישה ביום שישי": פענוח המשפט המלא לכל צעד היה נותן לשניהם
-         * את אותו תאריך (ביקורת Codex); כל צעד נושא את הביטוי שלו,
-         * והקוד מחשב אותו בלוח ירושלים כרגיל.
-         */
-        dateText: z.string().max(200).optional(),
-      }),
-    )
-    .max(4)
-    .default([]),
-});
+  if (Array.isArray(value["steps"])) {
+    value["steps"] = (value["steps"] as unknown[])
+      .filter(
+        (step): step is Record<string, unknown> =>
+          isPlainObject(step) &&
+          (AGENT_ACTION_IDS as readonly string[]).includes(String(step["action"])) &&
+          // params שגוי פוסל את הצעד כולו — לא הופך אותו לצעד בלי פרמטרים
+          (step["params"] === undefined ||
+            step["params"] === null ||
+            isPlainObject(step["params"])),
+      )
+      .slice(0, 4)
+      .map((step) => {
+        const clean: Record<string, unknown> = { ...step };
+        for (const key of Object.keys(clean)) {
+          if (clean[key] === null) delete clean[key];
+        }
+        if (typeof clean["dateText"] === "string") {
+          clean["dateText"] = clean["dateText"].slice(0, 200);
+        } else {
+          delete clean["dateText"];
+        }
+        return clean;
+      });
+  } else {
+    delete value["steps"];
+  }
+  return value;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** הצורה שהשרת מקבל — לפני הצמצום לפעולה שנבחרה. */
+export const InterpretResponseSchema = z.preprocess(
+  tolerantInterpretInput,
+  z.object({
+    action: z.enum([...AGENT_ACTION_IDS, "unknown"] as [string, ...string[]]),
+    params: z.record(z.string(), z.unknown()).default({}),
+    evidence: z.record(z.string(), z.string()).default({}),
+    unmapped: z.array(z.string().max(300)).max(10).default([]),
+    clarify: z.string().max(300).optional(),
+    /*
+     * עד ארבעה צעדי המשך: משפט אחד מבקש לכל היותר כמה פעולות ספורות,
+     * ורשימה ארוכה מזה היא כמעט בוודאות הזיה — עדיף לקטוע אותה.
+     */
+    steps: z
+      .array(
+        z.object({
+          action: z.enum(AGENT_ACTION_IDS as unknown as [string, ...string[]]),
+          params: z.record(z.string(), z.unknown()).default({}),
+          /*
+           * מילות המועד של הצעד — לא תאריך מחושב. "תזכיר לי מחר ותקבע
+           * פגישה ביום שישי": פענוח המשפט המלא לכל צעד היה נותן לשניהם
+           * את אותו תאריך (ביקורת Codex); כל צעד נושא את הביטוי שלו,
+           * והקוד מחשב אותו בלוח ירושלים כרגיל.
+           */
+          dateText: z.string().max(200).optional(),
+        }),
+      )
+      .max(4)
+      .default([]),
+  }),
+);
 
 export type InterpretResponse = z.infer<typeof InterpretResponseSchema>;
 
