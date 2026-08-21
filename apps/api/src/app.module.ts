@@ -26,6 +26,7 @@ import { ImportModule } from "./modules/import/import.module";
 import { LeadsModule } from "./modules/leads/leads.module";
 import { MatchingModule } from "./modules/matching/matching.module";
 import { MessagingModule } from "./modules/messaging/messaging.module";
+import { WhatsAppModule } from "./modules/messaging/whatsapp.module";
 import { NavModule } from "./modules/nav/nav.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { AgreementsModule } from "./modules/agreements/agreements.module";
@@ -72,6 +73,7 @@ import { AgentModule } from "./modules/agent/agent.module";
     NotificationsModule,
     AnnouncementsModule,
     MessagingModule,
+    WhatsAppModule,
     CalendarModule,
     GmailModule,
     CollaborationModule,
