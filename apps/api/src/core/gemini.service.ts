@@ -72,7 +72,7 @@ export class GeminiService {
   async probe(
     prompt: string,
     responseSchema?: Record<string, unknown>,
-  ): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
+  ): Promise<{ ok: boolean; latencyMs: number; error?: string; value?: unknown }> {
     const started = Date.now();
     const result = await this.callDetailed(prompt, {
       ...(responseSchema === undefined ? {} : { responseSchema }),
@@ -83,6 +83,13 @@ export class GeminiService {
       ok: result.value !== null,
       latencyMs: Date.now() - started,
       ...(result.error === undefined ? {} : { error: result.error }),
+      /*
+       * התשובה עצמה חוזרת לקורא — כדי שבדיקת האבחון תוכל להריץ עליה
+       * את אותה ולידציה שהפענוח האמיתי מריץ. במצב ה-JSON החופשי
+       * "JSON תקין" לבדו אינו הוכחה: `{}` עובר פענוח ונופל בוולידציה,
+       * ובדיקה שמדווחת עליו "תקין" משקרת (ביקורת Codex).
+       */
+      ...(result.value === null ? {} : { value: result.value }),
     };
   }
 
@@ -195,16 +202,52 @@ export class GeminiService {
       this.modelFallbackFor === configured && this.modelOverride !== null
         ? this.modelOverride
         : configured;
+    const first = await this.attemptWithSchemaFallback(model, key, prompt, options);
+    /*
+     * המודל אינו קיים (404) וברירת המחדל שונה ממנו — ניסיון אחד
+     * נוסף איתה, **דרך אותה נפילת-סכימה**: מודל ישן שהוצא משימוש
+     * וברירת מחדל שדוחה את הסכימה הם בדיוק הצירוף ששני המנגנונים
+     * נועדו לכסות, וכל אחד לבדו משאיר אותו שבור (ביקורת Codex).
+     */
+    if (
+      first.modelNotFound === true &&
+      model !== DEFAULT_GEMINI_MODEL
+    ) {
+      const retry = await this.attemptWithSchemaFallback(DEFAULT_GEMINI_MODEL, key, prompt, options);
+      if (retry.value !== null) {
+        this.modelFallbackFor = configured;
+        this.modelOverride = DEFAULT_GEMINI_MODEL;
+        this.logger.warn(
+          `המודל ${model} אינו זמין — עוברים אוטומטית ל-${DEFAULT_GEMINI_MODEL}. כדאי לעדכן את ההגדרה במסך הפלטפורמה.`,
+        );
+      }
+      return { value: retry.value, ...(retry.error === undefined ? {} : { error: retry.error }) };
+    }
+    return { value: first.value, ...(first.error === undefined ? {} : { error: first.error }) };
+  }
+
+  /**
+   * ניסיון מול מודל אחד, כולל הנפילה-לאחור של הסכימה.
+   *
+   * ‏400 על קריאה עם סכימה — ניסיון אחד בלי הסכימה. הצלחה נזכרת
+   * לפי מודל, כדי שהפקודות הבאות ידלגו על הכשל ישירות למצב החופשי.
+   */
+  private async attemptWithSchemaFallback(
+    model: string,
+    key: string,
+    prompt: string,
+    options: {
+      responseSchema?: Record<string, unknown>;
+      maxOutputTokens?: number;
+      timeoutMs?: number;
+    },
+  ): Promise<{ value: unknown | null; error?: string; modelNotFound?: boolean }> {
     // המודל הזה כבר דחה את הסכימה — לא משלמים את ה-400 בכל פקודה
     const effective =
       this.schemaRejectedFor === model && options.responseSchema !== undefined
         ? { ...options, responseSchema: undefined }
         : options;
     const first = await this.attempt(model, key, prompt, effective);
-    /*
-     * ‏400 על קריאה עם סכימה — ניסיון אחד בלי הסכימה. הצלחה נזכרת,
-     * כדי שהפקודות הבאות ידלגו על הכשל ישירות למצב החופשי.
-     */
     if (
       first.badRequest === true &&
       effective.responseSchema !== undefined
@@ -219,29 +262,9 @@ export class GeminiService {
           `המודל ${model} דוחה את סכימת התשובה (HTTP 400) — עוברים למצב JSON חופשי; הוולידציה בשרת ממשיכה לאכוף את המבנה.`,
         );
       }
-      return { value: retry.value, ...(retry.error === undefined ? {} : { error: retry.error }) };
+      return retry;
     }
-    /*
-     * המודל אינו קיים (404) וברירת המחדל שונה ממנו — ניסיון אחד
-     * נוסף איתה. זה בדיוק התרחיש שהשבית את הסוכן: מודל שהוגדר
-     * בעבר הוצא משימוש, וכל פקודה נפלה לזיהוי הבסיסי עד שמישהו
-     * נכנס להגדרות.
-     */
-    if (
-      first.modelNotFound === true &&
-      model !== DEFAULT_GEMINI_MODEL
-    ) {
-      const retry = await this.attempt(DEFAULT_GEMINI_MODEL, key, prompt, options);
-      if (retry.value !== null) {
-        this.modelFallbackFor = configured;
-        this.modelOverride = DEFAULT_GEMINI_MODEL;
-        this.logger.warn(
-          `המודל ${model} אינו זמין — עוברים אוטומטית ל-${DEFAULT_GEMINI_MODEL}. כדאי לעדכן את ההגדרה במסך הפלטפורמה.`,
-        );
-      }
-      return { value: retry.value, ...(retry.error === undefined ? {} : { error: retry.error }) };
-    }
-    return { value: first.value, ...(first.error === undefined ? {} : { error: first.error }) };
+    return first;
   }
 
   /** קריאה אחת למודל אחד — הכשל חוזר עם סימון האם המודל אינו קיים. */
