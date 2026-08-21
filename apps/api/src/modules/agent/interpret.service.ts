@@ -54,6 +54,8 @@ export interface Interpretation {
   /** שדות שהמודל החזיר ונפסלו בוולידציה */
   rejected: string[];
   clarify?: string;
+  /** תשובה שיחתית לברכה/שאלה כללית — תצוגה בלבד, במקום "לא הבנתי" */
+  reply?: string;
   /** true = מנוע החוקים הכריע, כלומר Gemini לא היה זמין */
   fallback: boolean;
   /** צעדי המשך — כשהמשפט ביקש כמה פעולות. מותרים ומצומצמים כמו הראשי. */
@@ -130,6 +132,7 @@ export class AgentInterpretService {
         unmapped: answer.unmapped,
         rejected: [],
         ...(answer.clarify ? { clarify: answer.clarify } : {}),
+        ...(answer.reply ? { reply: answer.reply } : {}),
         fallback: false,
         steps: [],
       };

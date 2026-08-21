@@ -77,6 +77,11 @@ export interface AgentProposal {
   candidates?: { key: string; idKey: string; label: string; options: AgentCandidate[] };
   /** שאלה אחת, כשבאמת אי אפשר להציע בלעדיה */
   clarify?: string;
+  /**
+   * תשובה שיחתית — כשהמשפט הוא ברכה/תודה/שאלה כללית ולא פקודה.
+   * טקסט לתצוגה בלבד; מוצג במקום "לא הבנתי" ואינו מבצע דבר.
+   */
+  reply?: string;
   /** האם המנוע הדטרמיניסטי הכריע — כלומר Gemini לא היה זמין */
   fallback: boolean;
   /**

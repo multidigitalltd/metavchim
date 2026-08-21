@@ -71,6 +71,8 @@ export class AgentResolveService {
         missing: [],
         warnings: interpretation.unmapped,
         ...(interpretation.clarify ? { clarify: interpretation.clarify } : {}),
+        // ברכה/שאלה כללית — תשובה שיחתית במקום "לא הבנתי" יבש
+        ...(interpretation.reply ? { reply: interpretation.reply } : {}),
         fallback: interpretation.fallback,
       };
     }

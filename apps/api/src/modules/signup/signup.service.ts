@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { ulid } from "ulid";
-import { couponRejectionMessage, describeCoupon, type PlanDefinition } from "@metavchim/shared";
+import {
+  couponRejectionMessage,
+  describeCoupon,
+  isFreePlan,
+  type PlanDefinition,
+} from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
@@ -34,17 +39,23 @@ export class SignupService {
   /**
    * המסלולים שמוצגים בדף ההרשמה.
    *
-   * **מסלול בלי ימי ניסיון אינו נמכר בהרשמה עצמית.** ההרשמה פותחת
-   * משרד בסטטוס `trial`, והתפוגה היא מה שמגביל אותו; מסלול עם אפס
-   * ימים היה נפתח בלי תאריך תפוגה כלל — כלומר גישה מלאה, לתמיד,
-   * בלי תשלום (ביקורת Codex).
+   * **מסלול בתשלום בלי ימי ניסיון אינו נמכר בהרשמה עצמית.** ההרשמה
+   * פותחת משרד בסטטוס `trial`, והתפוגה היא מה שמגביל אותו; מסלול
+   * בתשלום עם אפס ימים היה נפתח בלי תאריך תפוגה כלל — כלומר גישה
+   * מלאה, לתמיד, בלי תשלום (ביקורת Codex).
+   *
+   * **מסלול חינמי הוא היוצא מהכלל המכוון**: "גישה לתמיד בלי תשלום"
+   * היא בדיוק ההגדרה שלו, ולכן הוא מוצע גם בלי ימי ניסיון ונפתח
+   * פעיל ובלי תפוגה (בקשת המשתמש: מסלול השת"פ נבחר בלי נציג).
    *
    * זה נשאר נכון גם אחרי שנוספה סליקה: ההרשמה עצמה אינה גובה תשלום,
    * והתשלום נעשה ממסך המנוי אחרי הכניסה. מסלול כזה עדיין ניתן לרכישה
    * שם — הוא פשוט אינו נקודת הכניסה למשרד חדש.
    */
   async offeredPlans(): Promise<PlanDefinition[]> {
-    return (await this.plans.publicPlans()).filter((plan) => plan.trialDays > 0);
+    return (await this.plans.publicPlans()).filter(
+      (plan) => plan.trialDays > 0 || isFreePlan(plan),
+    );
   }
 
   async register(input: {
@@ -55,7 +66,7 @@ export class SignupService {
     password: string;
     plan: string;
     coupon?: string;
-  }): Promise<{ user: ValidatedUser; trialEndsAt: Date; couponApplied?: string }> {
+  }): Promise<{ user: ValidatedUser; trialEndsAt: Date | null; couponApplied?: string }> {
     const email = input.email.toLowerCase().trim();
 
     const plan = await this.plans.byCode(input.plan);
@@ -64,8 +75,17 @@ export class SignupService {
      * הבחירה מגיעה מהדפדפן, ולכן "לא מוצג במסך" אינו אכיפה — בלי
      * הבדיקה הזו כל אחד היה יכול להירשם למסלול הרשת בשליחת הקוד שלו.
      */
-    if (!plan || !plan.isPublic || plan.trialDays <= 0) {
+    const freePlan = plan !== undefined && plan !== null && isFreePlan(plan);
+    if (!plan || !plan.isPublic || (plan.trialDays <= 0 && !freePlan)) {
       throw new BadRequestException("המסלול שנבחר אינו זמין להרשמה");
+    }
+    /*
+     * קופון על מסלול חינמי נדחה במפורש ולא נבלע: אין תשלום להנחות
+     * ואין ניסיון להאריך, ושריפת שימוש בקופון מוגבל על כלום היא
+     * בדיוק מה שהלקוח היה מגלה אחר-כך בכעס.
+     */
+    if (freePlan && input.coupon !== undefined && input.coupon.trim() !== "") {
+      throw new BadRequestException("המסלול חינמי — אין צורך בקופון");
     }
 
     const existing = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
@@ -119,7 +139,10 @@ export class SignupService {
      * שאפשר להנחות, ולכן "חינם לתקופה" פירושו ניסיון ארוך יותר.
      */
     const trialDays = plan.trialDays + (redeemed?.freeDays ?? 0);
-    const trialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
+    // מסלול חינמי נפתח פעיל ובלי תפוגה — אין מה שיפקע ואין מה לגבות
+    const trialEndsAt = freePlan
+      ? null
+      : new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
 
     /*
      * דייר ומשתמש בטרנזקציה אחת.
@@ -136,8 +159,8 @@ export class SignupService {
             id: tenantId,
             name: agencyName,
             plan: plan.code,
-            // ניסיון ולא פעיל: התשלום עוד לא נגבה
-            status: "trial",
+            // ניסיון ולא פעיל: התשלום עוד לא נגבה. חינמי — פעיל מיד.
+            status: freePlan ? "active" : "trial",
             trialEndsAt,
             signupSource: "self",
             ...(redeemed
@@ -222,7 +245,7 @@ export class SignupService {
     email: string,
     name: string,
     plan: PlanDefinition,
-    trialEndsAt: Date,
+    trialEndsAt: Date | null,
   ): Promise<void> {
     try {
       if (!(await this.email.isConfigured())) return;
@@ -230,7 +253,9 @@ export class SignupService {
         heading: "המשרד שלכם מוכן",
         greeting: `שלום ${name},`,
         paragraphs: [
-          `המשרד נפתח במסלול "${plan.name}", ותקופת הניסיון פתוחה עד ${trialEndsAt.toLocaleDateString("he-IL")}.`,
+          trialEndsAt === null
+            ? `המשרד נפתח במסלול "${plan.name}" — מסלול ללא תשלום, בלי הגבלת זמן.`
+            : `המשרד נפתח במסלול "${plan.name}", ותקופת הניסיון פתוחה עד ${trialEndsAt.toLocaleDateString("he-IL")}.`,
           "אפשר להתחיל להזין נכסים וקונים כבר עכשיו — המערכת תתאים ביניהם בעצמה.",
         ],
         button: { label: "כניסה למערכת", url: loadEnv().WEB_ORIGIN },

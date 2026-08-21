@@ -109,6 +109,25 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
     }
   }
 
+  /**
+   * מעבר למסלול חינמי — בלי דף תשלום ובלי נציג (בקשת המשתמש: מסלול
+   * השת"פ היה כתוב "פנו אלינו" בלי סיבה). השרת מאמת שהמסלול באמת
+   * חינמי; מסלול בתשלום שנשלח לכאן נדחה שם.
+   */
+  async function switchFree(planCode: string): Promise<void> {
+    setBusy(planCode);
+    setError(null);
+    try {
+      await apiPost<{ ok: true }>("/billing/switch-free", { plan: planCode });
+      const fresh = await apiGet<Overview>("/billing");
+      setData(fresh);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "המעבר נכשל");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function cancel(): Promise<void> {
     if (!window.confirm("לבטל את החידוש? השירות יישאר זמין עד סוף התקופה ששולמה.")) return;
     setBusy("cancel");
@@ -279,13 +298,27 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
                         מסלול חינמי או על מסלול שנסגר בשיחה הוא הסבר
                         שגוי, ולא רק חסר.
                       */}
-                      {price === null ? (
+                      {/* מסלול חינמי נבחר בלחיצה — בלי דף תשלום ובלי נציג */}
+                      {free ? (
+                        isCurrent ? (
+                          <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                            זה המסלול הנוכחי שלכם
+                          </p>
+                        ) : (
+                          <button
+                            type="button"
+                            className="mv-btn-primary w-full"
+                            onClick={() => void switchFree(plan.code)}
+                            disabled={busy !== null}
+                          >
+                            {busy === plan.code ? "עובר…" : "מעבר למסלול זה — חינם"}
+                          </button>
+                        )
+                      ) : price === null ? (
                         <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
                           {plan.priceOnRequest
                             ? "המחיר נסגר בשיחה — פנו אלינו"
-                            : free
-                              ? "מסלול ללא תשלום — פנו אלינו למעבר אליו"
-                              : `נמכר בחיוב ${describeCycle(cycle === "yearly" ? "monthly" : "yearly")} בלבד`}
+                            : `נמכר בחיוב ${describeCycle(cycle === "yearly" ? "monthly" : "yearly")} בלבד`}
                         </p>
                       ) : (
                         <button

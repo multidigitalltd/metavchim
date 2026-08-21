@@ -8,6 +8,7 @@ import {
   describeCycle,
   discountedAgorot,
   isBillingCycle,
+  isFreePlan,
   nextPeriodEnd,
   periodDaysLeft,
   type BillingCycle,
@@ -665,6 +666,59 @@ export class BillingService {
         paidAt: true,
         createdAt: true,
       },
+    });
+  }
+
+  /**
+   * מעבר עצמי למסלול חינמי — בלחיצה, בלי נציג ובלי דף תשלום
+   * (בקשת המשתמש: מסלול השת"פ היה כתוב "פנו אלינו" בלי סיבה).
+   *
+   * השרת מוודא בעצמו שהמסלול באמת חינמי **וגם** ציבורי — הקוד מגיע
+   * מהלקוח ואינו ראיה: מסלול בתשלום, "לפי הצעה", או מסלול מוסתר
+   * שנשלחו לכאן נדחים. תקופה ששולמה לא נלקחת: המעבר החינמי חל מיד,
+   * אבל `paidUntil` מתאפס רק כי המסלול החדש אינו פוקע — אין כאן
+   * ויתור על כסף, אין תקופת חיוב שממשיכה לרוץ, והכרטיס נמחק כמו
+   * בביטול.
+   */
+  async switchToFreePlan(tenantId: string, planCode: string): Promise<void> {
+    const plan = (await this.plans.publicPlans()).find((p) => p.code === planCode);
+    if (!plan) throw new BadRequestException("מסלול לא מוכר");
+    if (!isFreePlan(plan)) {
+      throw new BadRequestException("המסלול הזה אינו חינמי — המעבר אליו נעשה דרך דף התשלום");
+    }
+    await this.ensureSubscription(tenantId);
+    await this.prisma.withTenant(async (tx) => {
+      await tx.subscription.update({
+        where: { tenantId },
+        data: {
+          planCode: plan.code,
+          status: "active",
+          // אין תקופה = החידוש האוטומטי לא נוגע בשורה הזו
+          currentPeriodEnd: null,
+          cancelledAt: null,
+          cardTokenEncrypted: null,
+          cardLast4: null,
+          cardMonth: null,
+          cardYear: null,
+          cardOwnerIdEncrypted: null,
+        },
+      });
+      await tx.tenant.update({
+        where: { id: tenantId },
+        data: {
+          plan: plan.code,
+          status: "active",
+          trialEndsAt: null,
+          // null = בלי תפוגה — מסלול חינמי אינו ננעל
+          paidUntil: null,
+        },
+      });
+      await this.audit.record(tx, {
+        action: "subscription.switched_free",
+        entityType: "subscription",
+        entityId: tenantId,
+        metadata: { planCode: plan.code },
+      });
     });
   }
 

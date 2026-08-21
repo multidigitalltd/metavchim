@@ -51,6 +51,8 @@ export interface Proposal {
   warnings: string[];
   candidates?: { key: string; idKey: string; label: string; options: { id: string; label: string; detail?: string }[] };
   clarify?: string;
+  /** תשובה שיחתית לברכה/שאלה כללית — מוצגת במקום "לא הבנתי" */
+  reply?: string;
   fallback: boolean;
   /** צעדי המשך — משפט אחד שביקש כמה פעולות, אישור אחד לכולן */
   followUps?: Proposal[];
@@ -62,6 +64,8 @@ export interface ExecuteResult {
   data?: unknown;
   /** משפט תובנה על תוצאות שאילתה — מוצג מעל הרשימה */
   insight?: string;
+  /** צעד המשך מוצע — לחיצה שולחת אותו כמשפט חדש, דרך אותו אישור */
+  suggestion?: string;
 }
 
 const SOURCE_LABEL: Record<ProposalField["source"], string> = {
