@@ -153,7 +153,7 @@ export class SignupController {
     @Body(new ZodValidationPipe(SignupSchema)) body: z.infer<typeof SignupSchema>,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ trialEndsAt: string; couponApplied?: string }> {
+  ): Promise<{ trialEndsAt: string | null; couponApplied?: string }> {
     const { user, trialEndsAt, couponApplied } = await this.signup.register(body);
     const { token, expiresAt } = await this.auth.issueSession(user, {
       ip: req.ip,
@@ -167,7 +167,8 @@ export class SignupController {
       path: "/",
     });
     return {
-      trialEndsAt: trialEndsAt.toISOString(),
+      // null = מסלול חינמי, בלי תפוגה
+      trialEndsAt: trialEndsAt?.toISOString() ?? null,
       ...(couponApplied ? { couponApplied } : {}),
     };
   }

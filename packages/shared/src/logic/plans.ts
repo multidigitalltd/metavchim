@@ -225,6 +225,23 @@ export interface PlanDefinition {
 }
 
 /**
+ * מסלול חינמי באמת — אפס בשני המחזורים **ולא** "לפי הצעה".
+ *
+ * ההגדרה יושבת כאן, פעם אחת: היא קובעת מי נרשם בלי ניסיון, מי עובר
+ * מסלול בלי דף תשלום, ואיך המחיר מוצג — ושלושה עותקים שלה היו
+ * נפרדים זה מזה בדיוק ביום שמשנים מסלול.
+ */
+export function isFreePlan(
+  plan: Pick<PlanDefinition, "monthlyPriceAgorot" | "yearlyPriceAgorot" | "priceOnRequest">,
+): boolean {
+  return (
+    !plan.priceOnRequest &&
+    plan.monthlyPriceAgorot === 0 &&
+    (plan.yearlyPriceAgorot ?? 0) === 0
+  );
+}
+
+/**
  * ברירות המחדל — המסלולים שהמערכת עולה איתם.
  *
  * הן נשארות בקוד גם אחרי שהטבלה קיימת, כי הן שתי דברים שונים:

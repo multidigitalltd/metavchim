@@ -21,6 +21,9 @@ const CheckoutSchema = z
  */
 const BuyCreditsSchema = z.object({ credits: z.number().int().min(1).max(100_000) }).strict();
 
+/** מעבר למסלול חינמי — הקוד בלבד; השרת מוודא שהוא באמת חינמי. */
+const SwitchFreeSchema = z.object({ plan: z.string().min(1).max(20) }).strict();
+
 /**
  * מסך החיוב של המשרד.
  *
@@ -111,6 +114,20 @@ export class BillingController {
     @Param("id") id: string,
   ): Promise<{ status: string; failureReason: string | null }> {
     return this.billing.paymentStatus(TenantContext.current().tenantId, id);
+  }
+
+  /**
+   * מעבר למסלול חינמי — בלי דף תשלום ובלי נציג. השרת מאמת שהמסלול
+   * באמת חינמי וציבורי; ראו BillingService.switchToFreePlan.
+   */
+  @Post("switch-free")
+  @HttpCode(200)
+  @RequireCapability("billing.manage")
+  async switchFree(
+    @Body(new ZodValidationPipe(SwitchFreeSchema)) body: z.infer<typeof SwitchFreeSchema>,
+  ): Promise<{ ok: true }> {
+    await this.billing.switchToFreePlan(TenantContext.current().tenantId, body.plan);
+    return { ok: true };
   }
 
   @Post("cancel")
