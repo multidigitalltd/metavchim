@@ -146,13 +146,12 @@ export class WhatsAppAssistantService {
       return;
     }
 
-    const chat = await this.loadChat(user.tenantId, user.id);
-    if (chat.handledIds.includes(msg.externalId)) return; // משלוח כפול של Meta
+    // תפיסה לפני טיפול — כפול של Meta (גם מקביל) נבלם כאן, לא אחרי הביצוע
+    const chat = await this.claimMessage(user.tenantId, user.id, msg.externalId);
+    if (chat === null) return;
 
     const spoken = await this.extractText(msg);
     if (spoken.reply !== undefined) {
-      chat.handledIds = [msg.externalId, ...chat.handledIds].slice(0, HANDLED_KEPT);
-      await this.saveChat(user.tenantId, user.id, chat);
       await this.sender.sendText(msg.fromWaId, spoken.reply);
       return;
     }
@@ -163,7 +162,6 @@ export class WhatsAppAssistantService {
       this.converse(user, chat, text, spoken.transcribed === true),
     );
 
-    chat.handledIds = [msg.externalId, ...chat.handledIds].slice(0, HANDLED_KEPT);
     await this.saveChat(user.tenantId, user.id, chat);
     await this.sender.sendText(msg.fromWaId, reply);
   }
@@ -298,8 +296,9 @@ export class WhatsAppAssistantService {
     const pending = chat.pending;
     if (pending) {
       if (isCancelMessage(text)) {
+        const took = await this.takePending(user.tenantId, user.id);
         chat.pending = null;
-        return "בוטל. מה עוד אפשר לעשות?";
+        return took ? "בוטל. מה עוד אפשר לעשות?" : "אין פעולה ממתינה לביטול.";
       }
       if (pending.awaiting === "choice") {
         const options = pending.proposal.candidates?.options ?? [];
@@ -307,12 +306,15 @@ export class WhatsAppAssistantService {
         const chosen = choiceIndex(text, options.length);
         if (chosen !== null && idKey !== undefined) {
           const option = options[chosen]!;
-          pending.extraParams[idKey] = option.id;
           if (pending.proposal.risk === "read") {
-            // שאילתה — הבחירה היא כל מה שחסר, מריצים מיד
+            // שאילתה — הבחירה היא כל מה שחסר; הצריכה אטומית, מבצע יחיד
+            const took = await this.takePending(user.tenantId, user.id);
             chat.pending = null;
-            return this.runProposal(chat, pending);
+            if (!took) return "הבקשה כבר טופלה.";
+            took.extraParams[idKey] = option.id;
+            return this.runProposal(chat, took);
           }
+          pending.extraParams[idKey] = option.id;
           pending.awaiting = "confirm";
           return [
             `נבחר: ${option.label}${option.detail ? ` (${option.detail})` : ""}.`,
@@ -324,8 +326,15 @@ export class WhatsAppAssistantService {
         }
       }
       if (pending.awaiting === "confirm" && isConfirmMessage(text)) {
+        /*
+         * צריכה אטומית: UPDATE יחיד שמרוקן את ההצעה ומחזיר אותה. שני
+         * "אשר" שמגיעים במקביל — אחד מקבל את ההצעה ומבצע, השני מקבל
+         * null ותשובה שקטה, לא ביצוע כפול (ביקורת Codex).
+         */
+        const took = await this.takePending(user.tenantId, user.id);
         chat.pending = null;
-        return this.runProposal(chat, pending);
+        if (!took) return "הפעולה כבר בוצעה או בוטלה — אין הצעה ממתינה.";
+        return this.runProposal(chat, took);
       }
       /*
        * לא אישור, לא ביטול ולא בחירה — המתווך ממשיך לדבר: "לא, 4
@@ -485,20 +494,59 @@ export class WhatsAppAssistantService {
   /*  אחסון מצב השיחה — תחת RLS                                          */
   /* ------------------------------------------------------------------ */
 
-  private async loadChat(tenantId: string, userId: string): Promise<ChatState> {
-    const row = await this.prisma.withExplicitTenant(tenantId, (tx) =>
-      tx.whatsAppChat.findUnique({
+  /**
+   * תפיסת ההודעה **לפני** הטיפול, לא אחריו. Meta שולח כפולים — לעיתים
+   * במקביל, כשה-ACK הלך לאיבוד — ותפיסה שנשמרת רק בסוף הייתה משאירה
+   * חלון שבו "אשר" כפול מבצע את אותה פעולה פעמיים (ביקורת Codex).
+   * מנעול-ייעוץ פר-שיחה עושה את הבדיקה-ואת-הרישום אטומיים: הראשון
+   * רושם את המזהה ומקבל את מצב השיחה; השני רואה את המזהה ופורש.
+   */
+  private async claimMessage(
+    tenantId: string,
+    userId: string,
+    externalId: string,
+  ): Promise<ChatState | null> {
+    return this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`wa-chat:${tenantId}:${userId}`}, 0))`;
+      const row = await tx.whatsAppChat.findUnique({
         where: { tenantId_userId: { tenantId, userId } },
         select: { pending: true, history: true, handledIds: true },
-      }),
-    );
-    return {
-      pending: (row?.pending as PendingState | null) ?? null,
-      history: Array.isArray(row?.history) ? (row.history as unknown as AgentHistoryTurn[]) : [],
-      handledIds: Array.isArray(row?.handledIds) ? (row.handledIds as string[]) : [],
-    };
+      });
+      const handled = Array.isArray(row?.handledIds) ? (row.handledIds as string[]) : [];
+      if (handled.includes(externalId)) return null;
+      const handledIds = [externalId, ...handled].slice(0, HANDLED_KEPT);
+      await tx.whatsAppChat.upsert({
+        where: { tenantId_userId: { tenantId, userId } },
+        create: { id: ulid(), tenantId, userId, handledIds },
+        update: { handledIds },
+      });
+      return {
+        pending: (row?.pending as unknown as PendingState | null) ?? null,
+        history: Array.isArray(row?.history) ? (row.history as unknown as AgentHistoryTurn[]) : [],
+        handledIds,
+      };
+    });
   }
 
+  /**
+   * צריכת ההצעה הממתינה — UPDATE אטומי יחיד שמרוקן ומחזיר. רק מי
+   * שקיבל שורה מבצע; קריאה מקבילה מקבלת null ולא מבצעת שוב.
+   */
+  private async takePending(tenantId: string, userId: string): Promise<PendingState | null> {
+    return this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      const rows = await tx.$queryRaw<{ pending: unknown }[]>`
+        UPDATE whatsapp_chats SET pending = NULL, updated_at = now()
+        WHERE tenant_id = ${tenantId} AND user_id = ${userId} AND pending IS NOT NULL
+        RETURNING pending`;
+      const value = rows[0]?.pending;
+      return value ? (value as PendingState) : null;
+    });
+  }
+
+  /**
+   * שמירת ההצעה וההיסטוריה בלבד — **לא** מזהי ההודעות: אלה נכתבים רק
+   * ב-claimMessage, אחרת שמירה מאוחרת הייתה דורסת תפיסה מקבילה.
+   */
   private async saveChat(tenantId: string, userId: string, chat: ChatState): Promise<void> {
     const data = {
       // Prisma דורש את הסמן המפורש ל-null בעמודת JSON — לא null גולמי
@@ -507,12 +555,11 @@ export class WhatsAppAssistantService {
           ? Prisma.JsonNull
           : (chat.pending as unknown as Prisma.InputJsonValue),
       history: chat.history as unknown as Prisma.InputJsonValue,
-      handledIds: chat.handledIds,
     };
     await this.prisma.withExplicitTenant(tenantId, (tx) =>
       tx.whatsAppChat.upsert({
         where: { tenantId_userId: { tenantId, userId } },
-        create: { id: ulid(), tenantId, userId, ...data },
+        create: { id: ulid(), tenantId, userId, handledIds: chat.handledIds, ...data },
         update: data,
       }),
     );

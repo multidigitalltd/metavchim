@@ -197,6 +197,8 @@ export class AccountDeletionService {
         await tx.match.deleteMany({ where: { tenantId } });
         await tx.offer.deleteMany({ where: { tenantId } });
         await tx.message.deleteMany({ where: { tenantId } });
+        // שיחות הסוכן בוואטסאפ — ההצעות וההיסטוריה מכילות פרטי לקוחות
+        await tx.whatsAppChat.deleteMany({ where: { tenantId } });
         await tx.call.deleteMany({ where: { tenantId } });
         await tx.appointment.deleteMany({ where: { tenantId } });
         await tx.task.deleteMany({ where: { tenantId } });
