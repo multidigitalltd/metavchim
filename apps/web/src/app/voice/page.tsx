@@ -6,7 +6,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { useUserDismissed } from "@/lib/dismissed-panels";
 import { useRequireAuth } from "@/lib/use-auth";
-import { IconMic } from "../icons";
+import { IconMic, IconTarget } from "../icons";
 import { VoiceRecorder } from "../voice-recorder";
 import { Notice } from "../notice";
 import { AgentResults } from "./results";
@@ -37,6 +37,64 @@ interface AgentCapability {
   examples: readonly string[];
 }
 
+/** תור בשיחה — נשלח לשרת כהקשר למשפטי המשך ("ומה עם רמת גן?"). */
+interface HistoryTurn {
+  transcript: string;
+  action: string;
+  params: Record<string, unknown>;
+  resultSummary?: string;
+}
+
+interface Recommendation {
+  priority: number;
+  type: string;
+  title: string;
+  body: string;
+  entityType?: "property" | "lead" | "buyer" | "offer" | "appointment";
+  entityId?: string;
+}
+
+function recHref(rec: Recommendation): string | null {
+  if (!rec.entityId) return null;
+  switch (rec.entityType) {
+    case "property":
+      return `/properties/${rec.entityId}`;
+    case "lead":
+      return `/leads/${rec.entityId}`;
+    case "buyer":
+      return `/buyers/${rec.entityId}`;
+    case "appointment":
+      return "/calendar";
+    default:
+      return null;
+  }
+}
+
+/**
+ * תקציר תוצאה לזיכרון השיחה — שמות, לפי הסדר שהוצגו.
+ *
+ * "תתקשר לראשון מהם" עובד רק אם המודל יודע מי הראשון; לכן התקציר
+ * מונה את השמות ולא רק את הכמות. חמישה מספיקים — פנייה לרשומה
+ * עמוק ברשימה נעשית בשם מלא ממילא.
+ */
+function summarizeData(data: unknown): string {
+  const labels: string[] = [];
+  const collect = (items: unknown): void => {
+    if (!Array.isArray(items)) return;
+    for (const item of items) {
+      if (labels.length >= 5 || typeof item !== "object" || item === null) return;
+      const record = item as Record<string, unknown>;
+      const label = record["name"] ?? record["title"] ?? record["marketingTitle"];
+      if (typeof label === "string" && label !== "") labels.push(label);
+    }
+  };
+  if (Array.isArray(data)) collect(data);
+  else if (typeof data === "object" && data !== null) {
+    for (const value of Object.values(data as Record<string, unknown>)) collect(value);
+  }
+  return labels.length > 0 ? `בין התוצאות, לפי הסדר: ${labels.join(", ")}` : "";
+}
+
 
 export default function AgentPage(): React.JSX.Element {
   const { loading: authLoading } = useRequireAuth();
@@ -47,6 +105,14 @@ export default function AgentPage(): React.JSX.Element {
   const [examples, setExamples] = useState<string[]>([]);
   // סגירה ו"אל תציג יותר" (בקשת המשתמש) — נשמר למשתמש, בכל מכשיר
   const examplesBox = useUserDismissed("agent-examples");
+  /**
+   * זיכרון השיחה — רק מה ש**בוצע**, לא כל מה שהוצע. הצעה שבוטלה
+   * אינה הקשר; פעולה שנעשתה כן. ארבעה תורות אחרונים מספיקים
+   * ל"ומה עם…" בלי לנפח את הפרומפט.
+   */
+  const [history, setHistory] = useState<HistoryTurn[]>([]);
+  // "כדאי לטפל היום" — הסוכן פותח ביוזמה, לא רק ממתין לפקודה
+  const [recs, setRecs] = useState<Recommendation[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   /**
@@ -92,6 +158,10 @@ export default function AgentPage(): React.JSX.Element {
         setExamples(picked.map((cap) => cap.examples[0]).filter(Boolean) as string[]);
       })
       .catch(() => setExamples([]));
+    // אותן המלצות של המאמן בדשבורד — שלוש הדחופות, כפתיחה יזומה
+    apiGet<Recommendation[]>("/coach/recommendations")
+      .then((all) => setRecs(all.slice(0, 3)))
+      .catch(() => setRecs([]));
   }, [authLoading]);
 
   const interpret = useCallback(
@@ -107,6 +177,7 @@ export default function AgentPage(): React.JSX.Element {
         const next = await apiPost<Proposal>("/agent/interpret", {
           transcript: text.trim(),
           ...(prior ? { prior } : {}),
+          ...(history.length > 0 ? { history: history.slice(-4) } : {}),
         });
         setProposal(next);
       } catch (err: unknown) {
@@ -115,12 +186,33 @@ export default function AgentPage(): React.JSX.Element {
         setBusy(false);
       }
     },
-    [],
+    [history],
   );
 
   function onDone(executed: ExecuteResult): void {
     setProposal(null);
     if (executed.message === "") return; // בוטל
+    /*
+     * התור נכנס לזיכרון רק אחרי ביצוע אמיתי. התקציר כולל את שמות
+     * התוצאות לפי הסדר — זה מה שמאפשר "תתקשר לראשון מהם" בתור הבא.
+     */
+    if (proposal !== null && proposal.actionId !== "unknown") {
+      const executedParams: Record<string, unknown> = {};
+      for (const field of proposal.fields) executedParams[field.key] = field.value;
+      const dataSummary = summarizeData(executed.data);
+      setHistory((prev) => [
+        ...prev.slice(-3),
+        {
+          transcript: transcript.trim(),
+          action: proposal.actionId,
+          params: executedParams,
+          resultSummary: [executed.message, dataSummary]
+            .filter((part) => part !== "")
+            .join(". ")
+            .slice(0, 600),
+        },
+      ]);
+    }
     setResult(executed);
     setTranscript("");
     /*
@@ -148,6 +240,35 @@ export default function AgentPage(): React.JSX.Element {
           </p>
         </div>
       </header>
+
+      {/*
+        הסוכן פותח ביוזמה: מה שהכי כדאי לטפל בו היום, מאותו מנוע
+        המלצות של הדשבורד. מי שנכנס "רק לשאול משהו" רואה קודם את
+        מה שמחכה לו — עוזר אמיתי לא רק עונה, הוא מזכיר.
+      */}
+      {recs.length === 0 ? null : (
+        <section className="mv-example-box mb-5" aria-labelledby="agent-today">
+          <h2 id="agent-today" className="m-0 mb-2.5 text-[15px] font-bold">
+            <IconTarget s={15} /> כדאי לטפל היום:
+          </h2>
+          <ul className="m-0 flex list-none flex-col gap-2 p-0">
+            {recs.map((rec) => {
+              const href = recHref(rec);
+              return (
+                <li key={`${rec.type}-${rec.entityId ?? rec.title}`} className="text-[14.5px]">
+                  <span className="font-semibold">{rec.title}</span>
+                  <span style={{ color: "var(--color-text-muted)" }}> — {rec.body}</span>{" "}
+                  {href === null ? null : (
+                    <a href={href} className="underline">
+                      לטיפול ←
+                    </a>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       {examples.length === 0 || examplesBox.hidden ? null : (
         <section className="mv-example-box mb-5" aria-labelledby="agent-examples">
@@ -287,6 +408,15 @@ export default function AgentPage(): React.JSX.Element {
                 </>
               ) : null}
             </Notice>
+          )}
+          {/* התובנה לפני הרשימה: המסקנה קודם, הפירוט למי שרוצה */}
+          {result.insight === undefined ? null : (
+            <p
+              className="mb-2 mt-3 rounded-lg px-4 py-2.5 text-[15.5px] font-semibold"
+              style={{ background: "var(--color-primary-soft)" }}
+            >
+              {result.insight}
+            </p>
           )}
           {result.data === undefined ? null : <AgentResults data={result.data} />}
         </div>

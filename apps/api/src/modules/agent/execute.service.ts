@@ -6,7 +6,9 @@ import {
   type PropertyFields,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
+import { GeminiService } from "../../core/gemini.service";
 import { AnalyticsService, type ReportWindowDays } from "../analytics/analytics.service";
+import { AgentResolveService } from "./resolve.service";
 import { BuyersService } from "../buyers/buyers.service";
 import { CalendarService } from "../calendar/calendar.service";
 import { CallsService } from "../calls/calls.service";
@@ -43,6 +45,12 @@ export interface ExecuteResult {
   message: string;
   /** תוצאות לשאילתה — מוצגות במקום, בלי ניווט */
   data?: unknown;
+  /**
+   * משפט-שניים של תובנה על התוצאות — לא רשימה, מסקנה. המספרים
+   * מגיעים מהנתונים שכבר נשלפו; המודל רק מנסח. אופציונלי: בלי
+   * Gemini, או כשהניסוח נכשל, הרשימה עומדת בפני עצמה.
+   */
+  insight?: string;
 }
 
 @Injectable()
@@ -58,9 +66,16 @@ export class AgentExecuteService {
     private readonly calls: CallsService,
     private readonly analytics: AnalyticsService,
     private readonly dealRooms: DealRoomService,
+    private readonly resolver: AgentResolveService,
+    private readonly gemini: GeminiService,
   ) {}
 
-  async execute(actionId: string, params: Record<string, unknown>): Promise<ExecuteResult> {
+  async execute(
+    actionId: string,
+    params: Record<string, unknown>,
+    /** המשפט המקורי — לניסוח התובנה על תוצאות שאילתה בלבד */
+    transcript?: string,
+  ): Promise<ExecuteResult> {
     const action = agentAction(actionId);
     if (!action) throw new BadRequestException("פעולה לא מוכרת");
 
@@ -73,6 +88,23 @@ export class AgentExecuteService {
       throw new ForbiddenException(`אין לך הרשאה ל${action.title}`);
     }
 
+    /*
+     * ביטוי זהות בלי מזהה נפתר כאן, רגע לפני הביצוע — זה מה שמאפשר
+     * לצעד המשך של שרשור ("תוסיף קונה משה ותוסיף לו הערה") למצוא
+     * את הרשומה שהצעד הקודם יצר זה עתה. ריבוי התאמות או היעדר —
+     * שגיאה ברורה, לא ניחוש.
+     */
+    const resolution = await this.resolver.resolveForExecution(actionId, params);
+    if (!resolution.ok) throw new BadRequestException(resolution.message);
+
+    const result = await this.dispatch(actionId, params);
+    return this.withInsight(actionId, transcript, result);
+  }
+
+  private async dispatch(
+    actionId: string,
+    params: Record<string, unknown>,
+  ): Promise<ExecuteResult> {
     switch (actionId) {
       case "search":
         return this.doSearch(params);
@@ -120,6 +152,55 @@ export class AgentExecuteService {
         return this.sendOffer(params);
       default:
         throw new BadRequestException("פעולה לא מוכרת");
+    }
+  }
+
+  /**
+   * תובנה מסכמת על תוצאות שאילתה — מסקנה, לא רשימה.
+   *
+   * "מי מחפש 4 חדרים בגבעתיים?" מחזיר טבלה; מה שהמתווך באמת רוצה
+   * לדעת הוא "יש שלושה, ואחד מהם חם ובלי סיור". הנתונים כבר נשלפו
+   * ע"י הקוד — המודל רק קורא אותם ומנסח משפט. הוא אינו מקבל גישה
+   * למסד ואינו יכול להמציא רשומות; לכל היותר ינסח רע, והרשימה
+   * המלאה מוצגת מתחתיו בכל מקרה.
+   *
+   * best-effort במופגן: בלי מפתח, על שגיאה או על תשובה ריקה —
+   * התוצאה חוזרת בלי תובנה ולא נכשלת. שאילתה שעבדה אינה נופלת
+   * בגלל פסקת הסיכום שלה.
+   */
+  private async withInsight(
+    actionId: string,
+    transcript: string | undefined,
+    result: ExecuteResult,
+  ): Promise<ExecuteResult> {
+    if (!INSIGHT_ACTIONS.has(actionId)) return result;
+    if (result.data === undefined || transcript === undefined) return result;
+    try {
+      if (!(await this.gemini.isConfigured())) return result;
+      // קיצוץ קשיח: המודל צריך את ראש הרשימה, לא את כל המאגר
+      const compact = JSON.stringify(result.data).slice(0, 6000);
+      const raw = await this.gemini.generateStructured(
+        [
+          'אתה עוזר של מתווך נדל"ן. המתווך שאל:',
+          `"${transcript.replaceAll('"', "'")}"`,
+          "",
+          "אלו התוצאות שהמערכת שלפה (JSON, ייתכן קטוע):",
+          compact,
+          "",
+          "כתוב משפט אחד או שניים בעברית שמסכמים את התובנה החשובה למתווך — כמה נמצאו, מה בולט, מה כדאי לעשות. אל תמציא נתונים שאינם ב-JSON. אם אין מה להוסיף מעבר לרשימה עצמה — החזר insight ריק.",
+        ].join("\n"),
+        {
+          type: "object",
+          properties: { insight: { type: "string" } },
+        },
+      );
+      const insight =
+        typeof (raw as { insight?: unknown })?.insight === "string"
+          ? ((raw as { insight: string }).insight ?? "").trim()
+          : "";
+      return insight === "" || insight.length > 500 ? result : { ...result, insight };
+    } catch {
+      return result;
     }
   }
 
@@ -721,3 +802,16 @@ function buildTitle(fields: PropertyFields): string | undefined {
   if (fields.rooms === undefined || fields.city === undefined) return undefined;
   return `דירת ${fields.rooms} חדרים ב${fields.city}${fields.neighborhood ? `, ${fields.neighborhood}` : ""}`;
 }
+
+/**
+ * הפעולות שמקבלות תובנה מסכמת — שאילתות עם תוצאות להשוואה. יומן
+ * ומשימות של יום אחד אינם כאן: הרשימה שם קצרה וקריאה בעצמה, ומשפט
+ * סיכום עליה הוא רעש.
+ */
+const INSIGHT_ACTIONS = new Set([
+  "search",
+  "find_buyers",
+  "find_properties",
+  "show_matches",
+  "office_report",
+]);

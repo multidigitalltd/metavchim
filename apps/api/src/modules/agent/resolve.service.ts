@@ -95,6 +95,27 @@ export class AgentResolveService {
      */
     if (chosen) fields.push(chosen);
 
+    /*
+     * צעדי המשך נפתרים כל אחד כהצעה מלאה — אותם תאריכים, טלפונים
+     * וערים. ביטוי שמפנה למי שייווצר רק בצעד קודם לא יימצא כאן,
+     * וזה בסדר: הפתרון הסופי שלו קורה בזמן הביצוע, אחרי שהרשומה
+     * כבר קיימת (ראו AgentExecuteService).
+     */
+    const followUps: AgentProposal[] = [];
+    for (const step of interpretation.steps) {
+      followUps.push(
+        await this.toProposal(transcript, {
+          actionId: step.actionId,
+          params: step.params,
+          evidence: {},
+          unmapped: [],
+          rejected: step.rejected,
+          fallback: interpretation.fallback,
+          steps: [],
+        }),
+      );
+    }
+
     return {
       actionId: action.id,
       title: action.title,
@@ -106,6 +127,45 @@ export class AgentResolveService {
       ...(candidates ? { candidates } : {}),
       ...(interpretation.clarify ? { clarify: interpretation.clarify } : {}),
       fallback: interpretation.fallback,
+      ...(followUps.length > 0 ? { followUps } : {}),
+    };
+  }
+
+  /**
+   * פתרון ביטוי ⟵ מזהה **בזמן הביצוע** — לצעדי המשך של שרשור.
+   *
+   * "תוסיף קונה משה ותקבע לו סיור": בזמן ההצעה משה עוד לא קיים,
+   * ורק אחרי שהצעד הראשון בוצע יש את מי למצוא. התאמה יחידה נבחרת;
+   * ריבוי או היעדר עוצרים עם הודעה ברורה — לא מנחשים. פעולות
+   * שמסומנות alwaysChoose (שליחה ללקוח, חשיפה לרשת) לעולם אינן
+   * נפתרות כאן אוטומטית — הבחירה המפורשת היא חלק מהפעולה.
+   */
+  async resolveForExecution(
+    actionId: string,
+    params: Record<string, unknown>,
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
+    const spec = ENTITY_LOOKUP[actionId];
+    if (spec === undefined) return { ok: true };
+    if (typeof params[spec.idKey] === "string") return { ok: true };
+    const phrase = params[spec.key];
+    if (typeof phrase !== "string" || phrase.trim().length < 2) return { ok: true };
+    if (spec.alwaysChoose) {
+      return {
+        ok: false,
+        message: `„${agentAction(actionId)?.title ?? actionId}” דורשת בחירה מפורשת — פתחו את הפעולה בנפרד ובחרו את הרשומה`,
+      };
+    }
+    const options = await this.candidatesFor(spec.kind, phrase.trim());
+    if (options.length === 1) {
+      params[spec.idKey] = options[0]!.id;
+      return { ok: true };
+    }
+    if (options.length === 0) {
+      return { ok: false, message: `לא נמצא „${phrase}” במאגר` };
+    }
+    return {
+      ok: false,
+      message: `נמצאו כמה רשומות ל„${phrase}” — פתחו את הפעולה בנפרד ובחרו ביניהן`,
     };
   }
 

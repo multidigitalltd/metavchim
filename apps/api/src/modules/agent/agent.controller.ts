@@ -46,6 +46,22 @@ const InterpretSchema = z
         params: z.record(z.string(), z.unknown()),
       })
       .optional(),
+    /**
+     * התורות האחרונות בשיחה — למשפטי המשך ("ומה עם רמת גן?").
+     * המסך שולח את מה שבוצע בפועל, לא את מה שרק הוצע; שישה תורות
+     * מספיקים לשיחה ומונעים פרומפט שמתנפח בלי סוף.
+     */
+    history: z
+      .array(
+        z.object({
+          transcript: z.string().trim().min(1).max(4000),
+          action: z.enum(AGENT_ACTION_IDS as unknown as [string, ...string[]]),
+          params: z.record(z.string(), z.unknown()),
+          resultSummary: z.string().max(600).optional(),
+        }),
+      )
+      .max(6)
+      .optional(),
   })
   .strict();
 
@@ -91,6 +107,14 @@ export class AgentController {
     const interpretation = await this.interpret.interpret(
       body.transcript,
       body.prior as { action: string; params: Record<string, unknown> } | undefined,
+      body.history as
+        | {
+            transcript: string;
+            action: string;
+            params: Record<string, unknown>;
+            resultSummary?: string;
+          }[]
+        | undefined,
     );
     return this.resolve.toProposal(body.transcript, interpretation);
   }
@@ -124,6 +148,6 @@ export class AgentController {
     for (const key of ["buyerId", "propertyId", "taskId", "cardId", "leadId"]) {
       if (typeof body.params[key] === "string") params[key] = body.params[key];
     }
-    return this.executor.execute(body.action, params);
+    return this.executor.execute(body.action, params, body.transcript);
   }
 }

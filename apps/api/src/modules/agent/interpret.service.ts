@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import {
   AGENT_ACTIONS,
   agentAction,
+  type AgentHistoryTurn,
   buildInterpretPrompt,
   extractPersonFromTranscript,
   extractPropertyFromTranscript,
@@ -55,6 +56,8 @@ export interface Interpretation {
   clarify?: string;
   /** true = מנוע החוקים הכריע, כלומר Gemini לא היה זמין */
   fallback: boolean;
+  /** צעדי המשך — כשהמשפט ביקש כמה פעולות. מותרים ומצומצמים כמו הראשי. */
+  steps: { actionId: string; params: Record<string, unknown>; rejected: string[] }[];
 }
 
 @Injectable()
@@ -79,9 +82,10 @@ export class AgentInterpretService {
   async interpret(
     transcript: string,
     prior?: { action: string; params: Record<string, unknown> },
+    history?: AgentHistoryTurn[],
   ): Promise<Interpretation> {
     const allowed = this.allowedActions();
-    const viaLlm = await this.viaLlm(transcript, allowed, prior);
+    const viaLlm = await this.viaLlm(transcript, allowed, prior, history);
     return viaLlm ?? this.viaRules(transcript, allowed);
   }
 
@@ -89,6 +93,7 @@ export class AgentInterpretService {
     transcript: string,
     allowed: AgentActionDef[],
     prior?: { action: string; params: Record<string, unknown> },
+    history?: AgentHistoryTurn[],
   ): Promise<Interpretation | null> {
     if (allowed.length === 0) return null;
     if (!(await this.gemini.isConfigured())) return null;
@@ -97,6 +102,7 @@ export class AgentInterpretService {
       nowText: nowInJerusalem(),
       allowedActions: allowed.map((a) => a.id),
       ...(prior ? { prior } : {}),
+      ...(history !== undefined && history.length > 0 ? { history } : {}),
     });
 
     const raw = await this.gemini.generateStructured(prompt, interpretJsonSchema());
@@ -119,6 +125,7 @@ export class AgentInterpretService {
         rejected: [],
         ...(answer.clarify ? { clarify: answer.clarify } : {}),
         fallback: false,
+        steps: [],
       };
     }
 
@@ -138,6 +145,21 @@ export class AgentInterpretService {
       this.logger.warn(`שדות שנפסלו ב-${action.id}: ${rejected.join(", ")}`);
     }
 
+    /*
+     * צעדי המשך עוברים את אותם שערים כמו הצעד הראשי: פעולה שאין
+     * אליה הרשאה יורדת (ולא מפילה את השרשור כולו), והפרמטרים
+     * מצטמצמים לסכימה של הפעולה שלהם.
+     */
+    const steps = answer.steps.flatMap((step) => {
+      const stepAction = agentAction(step.action);
+      if (!stepAction || !allowed.some((a) => a.id === stepAction.id)) {
+        this.logger.warn(`צעד המשך לפעולה שאינה מותרת: ${step.action}`);
+        return [];
+      }
+      const narrowed = narrowParams(stepAction, step.params);
+      return [{ actionId: stepAction.id, params: narrowed.params, rejected: narrowed.rejected }];
+    });
+
     return {
       actionId: action.id,
       params,
@@ -149,6 +171,7 @@ export class AgentInterpretService {
       rejected,
       ...(answer.clarify ? { clarify: answer.clarify } : {}),
       fallback: false,
+      steps,
     };
   }
 
@@ -170,6 +193,7 @@ export class AgentInterpretService {
         unmapped: [],
         rejected: [],
         fallback: true,
+        steps: [],
       };
     }
 
@@ -183,6 +207,7 @@ export class AgentInterpretService {
       unmapped: [],
       rejected,
       fallback: true,
+      steps: [],
     };
   }
 

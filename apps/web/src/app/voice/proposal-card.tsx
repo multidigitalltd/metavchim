@@ -52,12 +52,16 @@ export interface Proposal {
   candidates?: { key: string; idKey: string; label: string; options: { id: string; label: string; detail?: string }[] };
   clarify?: string;
   fallback: boolean;
+  /** צעדי המשך — משפט אחד שביקש כמה פעולות, אישור אחד לכולן */
+  followUps?: Proposal[];
 }
 
 export interface ExecuteResult {
   href?: string;
   message: string;
   data?: unknown;
+  /** משפט תובנה על תוצאות שאילתה — מוצג מעל הרשימה */
+  insight?: string;
 }
 
 const SOURCE_LABEL: Record<ProposalField["source"], string> = {
@@ -131,12 +135,47 @@ export function ProposalCard({
     setBusy(true);
     setError(null);
     try {
-      onDone(
-        await apiPost<ExecuteResult>("/agent/execute", {
-          action: proposal.actionId,
-          params: params(),
-        }),
-      );
+      const primary = await apiPost<ExecuteResult>("/agent/execute", {
+        action: proposal.actionId,
+        params: params(),
+      });
+      const followUps = proposal.followUps ?? [];
+      if (followUps.length === 0) {
+        onDone(primary);
+        return;
+      }
+      /*
+       * צעדי ההמשך רצים **אחרי** שהראשי הצליח ולפי הסדר — "תקבע לו
+       * סיור" יכול למצוא את הקונה רק אחרי שהוא נוצר. כישלון באמצע
+       * אינו מוחק את מה שכבר בוצע (אי אפשר), ולכן הוא מדווח בשקיפות
+       * במקום להיראות כאילו הכול הצליח.
+       */
+      const messages = [primary.message];
+      let failure: string | null = null;
+      for (const step of followUps) {
+        try {
+          const stepParams: Record<string, unknown> = {};
+          for (const field of step.fields) stepParams[field.key] = field.value;
+          const done = await apiPost<ExecuteResult>("/agent/execute", {
+            action: step.actionId,
+            params: stepParams,
+          });
+          messages.push(done.message);
+        } catch (err: unknown) {
+          failure = `„${step.title}” לא בוצע: ${
+            err instanceof ApiError ? err.message : "שגיאה"
+          }`;
+          break;
+        }
+      }
+      onDone({
+        message:
+          failure === null
+            ? messages.join(" · ")
+            : `${messages.join(" · ")} · ${failure}`,
+        // בכישלון חלקי לא מנווטים — ניווט היה מסתיר את ההודעה
+        ...(failure === null && primary.href !== undefined ? { href: primary.href } : {}),
+      });
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "הפעולה נכשלה");
     } finally {
@@ -280,9 +319,49 @@ export function ProposalCard({
         </fieldset>
       )}
 
+      {/*
+        צעדי המשך — "תוסיף קונה משה ותקבע לו סיור" באישור אחד.
+        מוצגים לקריאה בלבד: מי שרוצה לערוך צעד המשך מריץ אותו
+        בנפרד; המקרה הנפוץ הוא אישור של מה שנאמר, לא עריכה.
+      */}
+      {proposal.followUps === undefined || proposal.followUps.length === 0 ? null : (
+        <div className="mt-3">
+          <p className="m-0 mb-1 text-[14.5px] font-semibold">
+            וגם, באותו אישור:
+          </p>
+          {proposal.followUps.map((step, i) => (
+            <div
+              key={`${step.actionId}-${i}`}
+              className="mb-2 rounded-lg border px-3 py-2"
+              style={{ borderColor: "var(--color-border)" }}
+            >
+              <p className="m-0 text-[15px] font-semibold">
+                {step.title}
+                {step.summary === "" ? null : (
+                  <span className="font-normal" style={{ color: "var(--color-text-muted)" }}>
+                    {" "}
+                    — {step.summary}
+                  </span>
+                )}
+              </p>
+              {step.fields.length === 0 ? null : (
+                <p className="m-0 mt-1 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                  {step.fields.map((f) => `${f.label}: ${f.display}`).join(" · ")}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="mt-4 flex flex-wrap gap-2">
         <Button onClick={() => void confirm()} disabled={busy || needsChoice || noCandidates}>
-          <IconCheck s={15} /> {busy ? "מבצע…" : CONFIRM_LABEL[proposal.risk]}
+          <IconCheck s={15} />{" "}
+          {busy
+            ? "מבצע…"
+            : proposal.followUps !== undefined && proposal.followUps.length > 0
+              ? `אשר את הכול (${proposal.followUps.length + 1} פעולות)`
+              : CONFIRM_LABEL[proposal.risk]}
         </Button>
         {onRefine === undefined ? null : (
           <Button variant="ghost" onClick={() => onRefine(params())}>
