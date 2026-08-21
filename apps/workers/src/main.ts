@@ -2238,6 +2238,55 @@ function entityFromPayload(
   return null;
 }
 
+/*
+ * הערך נבדק, לא רק נקרא: משתנה ריק או שלילי היה הופך את קו החיתוך
+ * ל"עכשיו" — והסריקה הבאה הייתה מוחקת את היומן כולו במקום לשמור
+ * חצי שנה (ביקורת Codex). ערך לא-תקין נופל לברירת המחדל.
+ */
+const AGENT_EVENTS_RETENTION_DAYS = (() => {
+  const parsed = Number(process.env["AGENT_EVENTS_RETENTION_DAYS"]);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 180;
+})();
+
+/**
+ * ניקוי יומן משימות הסוכן — שמירת נתונים מינימלית (ISO 27001 A.5.33).
+ *
+ * היומן צובר תמלולים עם שמות ופרטי לקוחות קצה, ושתי המטרות שלו —
+ * מדידת עלות ודאטה לאימון — לא דורשות היסטוריה אינסופית: חצי שנה
+ * של פקודות היא גם מדגם אימון מספק וגם חלון עלות רלוונטי. מה
+ * שמעבר לכך הוא PII שנשמר בלי תכלית. מי שרוצה לשמר את הדאטה מוריד
+ * את קובץ הייצוא מהמסך לפני שהחלון נסגר.
+ *
+ * דייר-דייר תחת RLS, כמו שאר הסורקים כאן ומאותה סיבה — שאילתה בלי
+ * הקשר דייר מוחקת אפס שורות בלי שגיאה.
+ */
+async function processAgentEventsRetention(): Promise<void> {
+  const cutoff = new Date(
+    Date.now() - AGENT_EVENTS_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+  );
+  const tenants = await prisma.tenant.findMany({ select: { id: true } });
+  let removed = 0;
+  for (const tenant of tenants) {
+    try {
+      const result = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+        return tx.agentEvent.deleteMany({
+          where: { tenantId: tenant.id, createdAt: { lt: cutoff } },
+        });
+      });
+      removed += result.count;
+    } catch (error: unknown) {
+      // דייר אחד שנכשל לא עוצר את הניקוי אצל השאר
+      console.error(`[agent-events-retention] ${tenant.id}: ${String(error)}`);
+    }
+  }
+  if (removed > 0) {
+    console.warn(
+      `[agent-events-retention] נמחקו ${removed} אירועי סוכן ישנים מ-${AGENT_EVENTS_RETENTION_DAYS} ימים`,
+    );
+  }
+}
+
 async function processLow(job: Job): Promise<void> {
   if (job.name === "push-sweep") return processPushSweep();
   if (job.name === "call-transcribe") return transcribeOneCall();
@@ -2254,6 +2303,7 @@ async function processLow(job: Job): Promise<void> {
   if (job.name === "subscription-expiry") return processSubscriptionExpiry();
   if (job.name === "exclusivity-sweep") return processExclusivitySweep();
   if (job.name === "custom-automations") return processCustomAutomations(job);
+  if (job.name === "agent-events-retention") return processAgentEventsRetention();
 }
 
 // רישום סריקת ה-SLA החוזרת (רבע שעה) — כולל ריצה מיידית בעלייה,
@@ -2368,6 +2418,19 @@ void lowQueue
   .catch((error: unknown) => {
     console.error(
       `weekly-summary scheduler registration failed: ${String(error)}`,
+    );
+  });
+// ניקוי יומן הסוכן — 04:00 שעון ישראל, כשהמערכת שקטה. פעם ביום
+// מספיק: חלון השמירה נמדד בחודשים, לא בשעות.
+void lowQueue
+  .upsertJobScheduler(
+    "agent-events-retention",
+    { pattern: "0 4 * * *", tz: "Asia/Jerusalem" },
+    { name: "agent-events-retention" },
+  )
+  .catch((error: unknown) => {
+    console.error(
+      `agent-events-retention scheduler registration failed: ${String(error)}`,
     );
   });
 
