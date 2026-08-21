@@ -29,6 +29,20 @@ import { PlatformSettingsService } from "./platform-settings.service";
  */
 export const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
 
+/**
+ * צריכת האסימונים של קריאה אחת — מדווחת על ידי Google, לא מוערכת.
+ *
+ * זה מה שהופך את "הסוכן יקר" ממשפט לתחושה למספר בשורת יומן: אסימוני
+ * הקלט, הפלט, ה"חשיבה" (שמחויבים כפלט — הרכיב היקר), וכמה מהקלט
+ * הגיע מהמטמון של Google (מוזל ברובו).
+ */
+export interface GeminiUsage {
+  promptTokens: number;
+  outputTokens: number;
+  thoughtTokens: number;
+  cachedTokens: number;
+}
+
 @Injectable()
 export class GeminiService {
   private readonly logger = new Logger(GeminiService.name);
@@ -72,7 +86,13 @@ export class GeminiService {
   async probe(
     prompt: string,
     responseSchema?: Record<string, unknown>,
-  ): Promise<{ ok: boolean; latencyMs: number; error?: string; value?: unknown }> {
+  ): Promise<{
+    ok: boolean;
+    latencyMs: number;
+    error?: string;
+    value?: unknown;
+    usage?: GeminiUsage;
+  }> {
     const started = Date.now();
     const result = await this.callDetailed(prompt, {
       ...(responseSchema === undefined ? {} : { responseSchema }),
@@ -83,6 +103,8 @@ export class GeminiService {
       ok: result.value !== null,
       latencyMs: Date.now() - started,
       ...(result.error === undefined ? {} : { error: result.error }),
+      // צריכת האסימונים של הבדיקה — כדי שהמסך יראה גם עלות, לא רק זמן
+      ...(result.usage === undefined ? {} : { usage: result.usage }),
       /*
        * התשובה עצמה חוזרת לקורא — כדי שבדיקת האבחון תוכל להריץ עליה
        * את אותה ולידציה שהפענוח האמיתי מריץ. במצב ה-JSON החופשי
@@ -135,11 +157,31 @@ export class GeminiService {
     responseSchema: Record<string, unknown>,
     options: { maxOutputTokens?: number; timeoutMs?: number } = {},
   ): Promise<unknown | null> {
-    return this.call(prompt, {
+    return (await this.generateStructuredDetailed(prompt, responseSchema, options)).value;
+  }
+
+  /**
+   * כמו `generateStructured`, עם הנתונים התפעוליים של הקריאה: המודל
+   * שענה בפועל (אחרי נפילות-לאחור), משך, וצריכת אסימונים. זה מה
+   * שיומן משימות הסוכן שומר — עלות אמיתית לכל פקודה, לא הערכה.
+   */
+  async generateStructuredDetailed(
+    prompt: string,
+    responseSchema: Record<string, unknown>,
+    options: { maxOutputTokens?: number; timeoutMs?: number } = {},
+  ): Promise<{ value: unknown | null; model: string; latencyMs: number; usage?: GeminiUsage }> {
+    const started = Date.now();
+    const result = await this.callDetailed(prompt, {
       responseSchema,
       maxOutputTokens: options.maxOutputTokens ?? 4_096,
       timeoutMs: options.timeoutMs ?? 12_000,
     });
+    return {
+      value: result.value,
+      model: result.model ?? DEFAULT_GEMINI_MODEL,
+      latencyMs: Date.now() - started,
+      ...(result.usage === undefined ? {} : { usage: result.usage }),
+    };
   }
 
   private async call(
@@ -187,6 +229,15 @@ export class GeminiService {
    */
   private schemaRejectedFor: string | null = null;
 
+  /**
+   * מודל שדחה את `thinkingConfig` ב-HTTP 400.
+   *
+   * דורות המודלים חלוקים בשדה הזה — מודל שאינו מכיר אותו דוחה את
+   * הבקשה כולה. הבקשה הראשונה משלמת את ה-400, הדחייה נזכרת לפי שם
+   * המודל, וכל הקריאות הבאות רצות בלעדיו. החלפת מודל מנסה שוב.
+   */
+  private thinkingRejectedFor: string | null = null;
+
   private async callDetailed(
     prompt: string,
     options: {
@@ -194,7 +245,7 @@ export class GeminiService {
       maxOutputTokens?: number;
       timeoutMs?: number;
     },
-  ): Promise<{ value: unknown | null; error?: string }> {
+  ): Promise<{ value: unknown | null; error?: string; model?: string; usage?: GeminiUsage }> {
     const key = await this.apiKey();
     if (key === "") return { value: null, error: "לא מוגדר מפתח Gemini" };
     const configured = await this.activeModel();
@@ -221,9 +272,19 @@ export class GeminiService {
           `המודל ${model} אינו זמין — עוברים אוטומטית ל-${DEFAULT_GEMINI_MODEL}. כדאי לעדכן את ההגדרה במסך הפלטפורמה.`,
         );
       }
-      return { value: retry.value, ...(retry.error === undefined ? {} : { error: retry.error }) };
+      return {
+        value: retry.value,
+        model: DEFAULT_GEMINI_MODEL,
+        ...(retry.error === undefined ? {} : { error: retry.error }),
+        ...(retry.usage === undefined ? {} : { usage: retry.usage }),
+      };
     }
-    return { value: first.value, ...(first.error === undefined ? {} : { error: first.error }) };
+    return {
+      value: first.value,
+      model,
+      ...(first.error === undefined ? {} : { error: first.error }),
+      ...(first.usage === undefined ? {} : { usage: first.usage }),
+    };
   }
 
   /**
@@ -241,7 +302,12 @@ export class GeminiService {
       maxOutputTokens?: number;
       timeoutMs?: number;
     },
-  ): Promise<{ value: unknown | null; error?: string; modelNotFound?: boolean }> {
+  ): Promise<{
+    value: unknown | null;
+    error?: string;
+    modelNotFound?: boolean;
+    usage?: GeminiUsage;
+  }> {
     // המודל הזה כבר דחה את הסכימה — לא משלמים את ה-400 בכל פקודה
     const effective =
       this.schemaRejectedFor === model && options.responseSchema !== undefined
@@ -267,7 +333,15 @@ export class GeminiService {
     return first;
   }
 
-  /** קריאה אחת למודל אחד — הכשל חוזר עם סימון האם המודל אינו קיים. */
+  /**
+   * ניסיון מול מודל אחד, כולל נפילת-לאחור של הגבלת החשיבה.
+   *
+   * הבקשה מגבילה את "חשיבת" המודל לרמה הנמוכה — במודלים החדשים היא
+   * דולקת כברירת מחדל, אסימוני החשיבה מחויבים **כפלט** (הרכיב היקר),
+   * ולמשימת חילוץ צרה בטמפרטורה 0 אין בהם צורך. מודל שאינו מכיר את
+   * השדה דוחה את הבקשה כולה ב-400 — ניסיון אחד בלעדיו, והדחייה
+   * נזכרת כדי שלא לשלם את ה-400 בכל פקודה.
+   */
   private async attempt(
     model: string,
     key: string,
@@ -283,7 +357,53 @@ export class GeminiService {
     modelNotFound?: boolean;
     /** HTTP 400 — בקשה שנדחתה; עם סכימה זה כמעט תמיד הסכימה עצמה */
     badRequest?: boolean;
+    usage?: GeminiUsage;
   }> {
+    const withThinkingCap = this.thinkingRejectedFor !== model;
+    const first = await this.rawAttempt(model, key, prompt, options, withThinkingCap);
+    if (first.badRequest === true && withThinkingCap) {
+      const retry = await this.rawAttempt(model, key, prompt, options, false);
+      /*
+       * הצליח (או לפחות כבר לא 400) בלי ההגבלה — היא הייתה הבעיה.
+       * נשאר 400 גם בלעדיה — הסיבה אחרת (כנראה הסכימה), והכשל
+       * המקורי חוזר כדי שנפילת-הסכימה תטפל בו כרגיל.
+       */
+      if (retry.badRequest !== true) {
+        this.thinkingRejectedFor = model;
+        this.logger.warn(
+          `המודל ${model} דוחה את הגבלת החשיבה (thinkingConfig) — ממשיכים בלעדיה; העלות לפקודה תהיה גבוהה יותר.`,
+        );
+        return retry;
+      }
+    }
+    return first;
+  }
+
+  /** קריאה אחת למודל אחד — הכשל חוזר עם סימון האם המודל אינו קיים. */
+  private async rawAttempt(
+    model: string,
+    key: string,
+    prompt: string,
+    options: {
+      responseSchema?: Record<string, unknown>;
+      maxOutputTokens?: number;
+      timeoutMs?: number;
+    },
+    withThinkingCap: boolean,
+  ): Promise<{
+    value: unknown | null;
+    error?: string;
+    modelNotFound?: boolean;
+    badRequest?: boolean;
+    usage?: GeminiUsage;
+  }> {
+    /*
+     * מחוץ ל-try כדי שגם כשל **אחרי** תשובת HTTP מוצלחת — תשובה
+     * שנחתכה, ריקה או JSON פגום — יחזור עם הצריכה ששולמה עליו.
+     * דווקא הכשלים האלה הם היקרים, והשמטתם מהיומן הייתה מציגה
+     * חשבון נמוך מהאמיתי (ביקורת Codex).
+     */
+    let usage: GeminiUsage | undefined;
     try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
@@ -300,6 +420,7 @@ export class GeminiService {
               // דטרמיניזם עדיף על יצירתיות — זה חילוץ, לא כתיבה
               temperature: 0,
               maxOutputTokens: options.maxOutputTokens ?? 1_024,
+              ...(withThinkingCap ? { thinkingConfig: { thinkingLevel: "low" } } : {}),
             },
           }),
           signal: AbortSignal.timeout(options.timeoutMs ?? 5_000),
@@ -320,6 +441,18 @@ export class GeminiService {
           content?: { parts?: { text?: string }[] };
           finishReason?: string;
         }[];
+        usageMetadata?: {
+          promptTokenCount?: number;
+          candidatesTokenCount?: number;
+          thoughtsTokenCount?: number;
+          cachedContentTokenCount?: number;
+        };
+      };
+      usage = {
+        promptTokens: body.usageMetadata?.promptTokenCount ?? 0,
+        outputTokens: body.usageMetadata?.candidatesTokenCount ?? 0,
+        thoughtTokens: body.usageMetadata?.thoughtsTokenCount ?? 0,
+        cachedTokens: body.usageMetadata?.cachedContentTokenCount ?? 0,
       };
       const candidate = body.candidates?.[0];
       /*
@@ -332,6 +465,7 @@ export class GeminiService {
         return {
           value: null,
           error: this.recordFailure("התשובה נחתכה בגלל מגבלת אסימונים (MAX_TOKENS)"),
+          usage,
         };
       }
       const text = candidate?.content?.parts?.[0]?.text ?? "";
@@ -341,18 +475,24 @@ export class GeminiService {
           error: this.recordFailure(
             `תשובה ריקה (finishReason: ${candidate?.finishReason ?? "אין"})`,
           ),
+          usage,
         };
       }
       const value = JSON.parse(text) as unknown;
       this.lastSuccessAt = new Date().toISOString();
-      return { value };
+      return { value, usage };
     } catch (error) {
       const name = error instanceof Error ? error.name : "";
       const detail =
         name === "TimeoutError" || name === "AbortError"
           ? `פסק זמן אחרי ${options.timeoutMs ?? 5_000}ms — ייתכן שהשרת חסום ליציאה אל Google`
           : `כשל רשת: ${String(error)}`;
-      return { value: null, error: this.recordFailure(detail) };
+      // JSON פגום אחרי תשובה מוצלחת — הצריכה כבר נקראה ושולמה
+      return {
+        value: null,
+        error: this.recordFailure(detail),
+        ...(usage === undefined ? {} : { usage }),
+      };
     }
   }
 

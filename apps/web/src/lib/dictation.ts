@@ -51,6 +51,55 @@ interface SpeechRecognitionLike {
   onerror: (() => void) | null;
 }
 
+/**
+ * איסוף הטקסט מרשימת תוצאות הזיהוי — עם סינון השכפול של אנדרואיד.
+ *
+ * כרום באנדרואיד, במצב continuous, משכפל קטעים: אותה תוצאה מופיעה
+ * פעמיים ברצף ברשימה, והטקסט נכתב פעמיים (דיווח המשתמש: "רושם
+ * פעמיים" במצב המהיר).
+ *
+ * ## איך מבדילים שכפול מחזרה מכוונת
+ *
+ * מי שחוזר על מילה אחרי הפסקה ("לא… לא") מייצר באמת שני קטעים
+ * זהים עוקבים — ומחיקת כל קטע שזהה לקודמו הייתה בולעת גם אותם
+ * (ביקורת Codex). ההבדל הוא בדרך שבה הקטע נולד: קטע אמיתי גדל מול
+ * העיניים — הוא מופיע קודם כתוצאה זמנית (isFinal=false) באירועים
+ * קודמים ורק אז מתקבע; קטע הרפאים של אנדרואיד מופיע יש-מאין, סופי
+ * מיד, לצד התאום שלו. לכן `interimSeen` — סט האינדקסים שנראו אי
+ * פעם כזמניים בסבב הזה, שהקורא מחזיק בין אירועים — קובע: קטע זהה
+ * לקודמו נמחק רק אם מעולם לא היה זמני.
+ *
+ * משותף לשני מנועי ההכתבה (שדות הטפסים ומסך הסוכן) — תיקון שחי
+ * רק באחד מהם היה משאיר את אותה כפילות בשני.
+ */
+export interface DictationResultSegment {
+  readonly isFinal?: boolean;
+  readonly 0?: { transcript: string } | undefined;
+}
+
+export function collectDictation(
+  results: ArrayLike<DictationResultSegment | undefined>,
+  /** אינדקסים שנראו כתוצאה זמנית בסבב הזה — סט אחד לכל סשן הקלטה */
+  interimSeen: Set<number>,
+): { final: string; interim: string } {
+  let final = "";
+  let interim = "";
+  let previous = "";
+  for (let i = 0; i < results.length; i += 1) {
+    const segment = results[i];
+    const text = segment?.[0]?.transcript ?? "";
+    if (text.trim() === "") continue;
+    const isInterim = segment?.isFinal === false;
+    if (isInterim) interimSeen.add(i);
+    // קטע רפאים: זהה לקודמו, סופי, ומעולם לא חי כתוצאה זמנית
+    if (!isInterim && text.trim() === previous.trim() && !interimSeen.has(i)) continue;
+    previous = text;
+    if (isInterim) interim += text;
+    else final += text;
+  }
+  return { final, interim };
+}
+
 function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
   if (typeof window === "undefined") return null;
   const w = window as unknown as Record<string, unknown>;
@@ -162,16 +211,10 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
     // התוצאות הזמניות הן כל העניין במצב המהיר: הטקסט זוחל על המסך
     // תוך כדי הדיבור במקום לקפוץ בסוף המשפט
     recognition.interimResults = true;
+    // סט חדש לכל סשן — זיכרון "מי היה זמני" חי בין אירועי onresult
+    const interimSeen = new Set<number>();
     recognition.onresult = (event) => {
-      let final = "";
-      let interim = "";
-      for (let i = 0; i < event.results.length; i += 1) {
-        const result = event.results[i];
-        if (!result) continue;
-        const text = result[0]?.transcript ?? "";
-        if (result.isFinal) final += text;
-        else interim += text;
-      }
+      const { final, interim } = collectDictation(event.results, interimSeen);
       const combined = `${final}${interim}`.trim();
       if (combined !== "") appendRef.current(combined, interim !== "");
     };

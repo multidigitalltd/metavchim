@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { DictationMode } from "@/lib/dictation";
+import { collectDictation, type DictationMode, type DictationResultSegment } from "@/lib/dictation";
 import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet } from "@/lib/api";
 import { IconLock, IconStop } from "./icons";
@@ -42,7 +42,7 @@ interface SpeechRecognitionLike {
   interimResults: boolean;
   start: () => void;
   stop: () => void;
-  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onresult: ((event: { results: ArrayLike<DictationResultSegment | undefined> }) => void) | null;
   onend: (() => void) | null;
   onerror: (() => void) | null;
 }
@@ -379,13 +379,13 @@ export function VoiceRecorder({
     // שוב ושוב על אותו קטע, ובלי בסיס קבוע כל עדכון היה מצטבר כפול
     const base = valueRef.current;
 
+    // סט חדש לכל סשן — זיכרון "מי היה זמני" חי בין אירועי onresult
+    const interimSeen = new Set<number>();
     recognition.onresult = (event) => {
-      let text = "";
-      for (let i = 0; i < event.results.length; i += 1) {
-        const alt = event.results[i]?.[0];
-        if (alt) text += alt.transcript;
-      }
-      const spoken = text.trim();
+      // collectDictation מסנן קטע רפאים שמופיע פעמיים ברצף — הבאג של
+      // כרום באנדרואיד שגרם לכל משפט להיכתב פעמיים (מסונן גם בשדות)
+      const { final, interim } = collectDictation(event.results, interimSeen);
+      const spoken = `${final}${interim}`.trim();
       if (spoken === "") return;
       onChange(base.trim() === "" ? spoken : `${base.trimEnd()} ${spoken}`);
     };

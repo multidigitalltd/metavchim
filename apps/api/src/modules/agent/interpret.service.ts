@@ -15,7 +15,8 @@ import {
   type AgentActionDef,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
-import { GeminiService } from "../../core/gemini.service";
+import { GeminiService, type GeminiUsage } from "../../core/gemini.service";
+import { AgentEventsService } from "./agent-events.service";
 
 /**
  * הבנת המשפט — **שלב אחד, לא שניים.**
@@ -72,7 +73,10 @@ export interface Interpretation {
 export class AgentInterpretService {
   private readonly logger = new Logger(AgentInterpretService.name);
 
-  constructor(private readonly gemini: GeminiService) {}
+  constructor(
+    private readonly gemini: GeminiService,
+    private readonly events: AgentEventsService,
+  ) {}
 
   /**
    * הפעולות שלמשתמש הזה מותר לבקש.
@@ -91,18 +95,53 @@ export class AgentInterpretService {
     transcript: string,
     prior?: { action: string; params: Record<string, unknown> },
     history?: AgentHistoryTurn[],
+    /** מאיפה הפקודה הגיעה — ליומן המשימות של הסוכן בלבד */
+    channel: "web" | "whatsapp" = "web",
   ): Promise<Interpretation> {
     const allowed = this.allowedActions();
-    const viaLlm = await this.viaLlm(transcript, allowed, prior, history);
-    return viaLlm ?? this.viaRules(transcript, allowed);
+    const attempt = await this.viaLlm(transcript, allowed, prior, history);
+    const interpretation = attempt?.interpretation ?? this.viaRules(transcript, allowed);
+    /*
+     * כל פירוש נרשם ביומן המשימות — גם כשה-LLM נכשל ונפלנו לחוקים,
+     * כי אז נרשמת גם העלות ששולמה על הכישלון. fire-and-forget:
+     * הרישום לעולם אינו מעכב את התשובה למתווך.
+     */
+    void this.events.record({
+      channel,
+      kind: "interpret",
+      transcript,
+      actionId: interpretation.actionId,
+      payload: interpretation as unknown as Record<string, unknown>,
+      source: interpretation.fallback ? "rules" : "llm",
+      ...(attempt === null
+        ? {}
+        : {
+            model: attempt.model,
+            latencyMs: attempt.latencyMs,
+            ...(attempt.usage === undefined ? {} : { usage: attempt.usage }),
+          }),
+    });
+    return interpretation;
   }
 
+  /**
+   * הפירוש דרך המודל, יחד עם הנתונים התפעוליים של הקריאה.
+   *
+   * `null` = לא נקראה קריאה כלל (אין מפתח או אין פעולות מותרות);
+   * `interpretation: null` = הקריאה נעשתה (ושולמה) אבל התשובה לא
+   * שמישה — נופלים לחוקים, והעלות עדיין נרשמת ביומן.
+   */
   private async viaLlm(
     transcript: string,
     allowed: AgentActionDef[],
     prior?: { action: string; params: Record<string, unknown> },
     history?: AgentHistoryTurn[],
-  ): Promise<Interpretation | null> {
+  ): Promise<{
+    interpretation: Interpretation | null;
+    model: string;
+    latencyMs: number;
+    usage?: GeminiUsage;
+  } | null> {
     if (allowed.length === 0) return null;
     if (!(await this.gemini.isConfigured())) return null;
 
@@ -113,9 +152,17 @@ export class AgentInterpretService {
       ...(history !== undefined && history.length > 0 ? { history } : {}),
     });
 
-    const raw = await this.gemini.generateStructured(prompt, interpretJsonSchema());
-    const parsed = InterpretResponseSchema.safeParse(raw);
-    if (!parsed.success) return null;
+    const detailed = await this.gemini.generateStructuredDetailed(prompt, interpretJsonSchema());
+    const meta = {
+      model: detailed.model,
+      latencyMs: detailed.latencyMs,
+      ...(detailed.usage === undefined ? {} : { usage: detailed.usage }),
+    };
+    const withMeta = (
+      interpretation: Interpretation | null,
+    ): { interpretation: Interpretation | null } & typeof meta => ({ interpretation, ...meta });
+    const parsed = InterpretResponseSchema.safeParse(detailed.value);
+    if (!parsed.success) return withMeta(null);
 
     const answer = parsed.data;
     if (answer.action === "unknown") {
@@ -125,7 +172,7 @@ export class AgentInterpretService {
        * רגולריים, אינו מקור סמכות טוב יותר ממנו — הוא היה דוחף את
        * המשפט למשבצת הקרובה וקורא לזה הבנה.
        */
-      return {
+      return withMeta({
         actionId: "unknown",
         params: {},
         evidence: {},
@@ -135,7 +182,7 @@ export class AgentInterpretService {
         ...(answer.reply ? { reply: answer.reply } : {}),
         fallback: false,
         steps: [],
-      };
+      });
     }
 
     const action = agentAction(answer.action);
@@ -146,7 +193,7 @@ export class AgentInterpretService {
      */
     if (!action || !allowed.some((a) => a.id === action.id)) {
       this.logger.warn(`המודל בחר פעולה שאינה מותרת: ${answer.action}`);
-      return null;
+      return withMeta(null);
     }
 
     const { params, rejected } = narrowParams(action, answer.params);
@@ -178,7 +225,7 @@ export class AgentInterpretService {
       ];
     });
 
-    return {
+    return withMeta({
       actionId: action.id,
       params,
       // ראיה לשדה שנפסל היא ראיה למשהו שלא נכנס — מטעה יותר משימושית
@@ -190,7 +237,7 @@ export class AgentInterpretService {
       ...(answer.clarify ? { clarify: answer.clarify } : {}),
       fallback: false,
       steps,
-    };
+    });
   }
 
   /**

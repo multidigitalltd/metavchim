@@ -358,6 +358,7 @@ export class WhatsAppAssistantService {
         ? { action: prior.proposal.actionId, params: this.paramsOf(prior) }
         : undefined,
       chat.history.slice(-HISTORY_KEPT),
+      "whatsapp",
     );
     const proposal = await this.resolver.toProposal(text, interpretation);
 
@@ -428,7 +429,12 @@ export class WhatsAppAssistantService {
     const params = this.paramsOf(state);
     let primary: ExecuteResult;
     try {
-      primary = await this.executor.execute(state.proposal.actionId, params, state.transcript);
+      primary = await this.executor.execute(
+        state.proposal.actionId,
+        params,
+        state.transcript,
+        "whatsapp",
+      );
     } catch (error) {
       return `„${state.proposal.title}” לא בוצע: ${errorMessage(error)}`;
     }
@@ -445,7 +451,12 @@ export class WhatsAppAssistantService {
         Object.fromEntries(followUp.fields.map((f) => [f.key, f.value])),
       );
       try {
-        const result = await this.executor.execute(followUp.actionId, stepParams);
+        const result = await this.executor.execute(
+          followUp.actionId,
+          stepParams,
+          undefined,
+          "whatsapp",
+        );
         lines.push(`· ${result.message}`);
       } catch (error) {
         lines.push(`· „${followUp.title}” לא בוצע: ${errorMessage(error)}`);
