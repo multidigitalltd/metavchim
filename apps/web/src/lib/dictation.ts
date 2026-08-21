@@ -51,6 +51,42 @@ interface SpeechRecognitionLike {
   onerror: (() => void) | null;
 }
 
+/**
+ * איסוף הטקסט מרשימת תוצאות הזיהוי — עם סינון השכפול של אנדרואיד.
+ *
+ * כרום באנדרואיד, במצב continuous, משכפל קטעים: אותה תוצאה מופיעה
+ * פעמיים ברצף ברשימה, והטקסט נכתב פעמיים (דיווח המשתמש: "רושם
+ * פעמיים" במצב המהיר). קטע שזהה בדיוק לקודמו ברצף נספר פעם אחת —
+ * אדם שחוזר על משפט נופל לאותו קטע זיהוי אחד, לא לשני קטעים זהים
+ * עוקבים.
+ *
+ * משותף לשני מנועי ההכתבה (שדות הטפסים ומסך הסוכן) — תיקון שחי
+ * רק באחד מהם היה משאיר את אותה כפילות בשני.
+ */
+export interface DictationResultSegment {
+  readonly isFinal?: boolean;
+  readonly 0?: { transcript: string } | undefined;
+}
+
+export function collectDictation(results: ArrayLike<DictationResultSegment | undefined>): {
+  final: string;
+  interim: string;
+} {
+  let final = "";
+  let interim = "";
+  let previous = "";
+  for (let i = 0; i < results.length; i += 1) {
+    const segment = results[i];
+    const text = segment?.[0]?.transcript ?? "";
+    if (text.trim() === "") continue;
+    if (text.trim() === previous.trim()) continue; // השכפול של אנדרואיד
+    previous = text;
+    if (segment?.isFinal === false) interim += text;
+    else final += text;
+  }
+  return { final, interim };
+}
+
 function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
   if (typeof window === "undefined") return null;
   const w = window as unknown as Record<string, unknown>;
@@ -163,15 +199,7 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
     // תוך כדי הדיבור במקום לקפוץ בסוף המשפט
     recognition.interimResults = true;
     recognition.onresult = (event) => {
-      let final = "";
-      let interim = "";
-      for (let i = 0; i < event.results.length; i += 1) {
-        const result = event.results[i];
-        if (!result) continue;
-        const text = result[0]?.transcript ?? "";
-        if (result.isFinal) final += text;
-        else interim += text;
-      }
+      const { final, interim } = collectDictation(event.results);
       const combined = `${final}${interim}`.trim();
       if (combined !== "") appendRef.current(combined, interim !== "");
     };
