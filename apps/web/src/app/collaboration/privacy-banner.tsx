@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useUserDismissed } from "@/lib/dismissed-panels";
 import {
   IconCheck,
   IconCoins,
@@ -56,6 +57,13 @@ const HIDDEN: [
 
 export function PrivacyBanner() {
   const [open, setOpen] = useState(false);
+  /*
+   * סגירה ו"אל תציג יותר" (בקשת המשתמש) — למשתמש ולא לדפדפן, כך
+   * שהבחירה מלווה אותו בכל מכשיר. מי שכבר הפנים את כללי החיסיון לא
+   * צריך לפגוש את הבאנר בכל כניסה לרשת.
+   */
+  const banner = useUserDismissed("net-privacy-banner");
+  if (banner.hidden) return null;
 
   return (
     <section className="mv-privacy" aria-labelledby="privacy-banner-heading">
@@ -86,6 +94,29 @@ export function PrivacyBanner() {
           onClick={() => setOpen((v) => !v)}
         >
           {open ? "סגור" : "מה בדיוק נחשף?"}
+        </button>
+        <button
+          type="button"
+          className="text-[14px] underline"
+          style={{ color: "var(--color-text-muted)", whiteSpace: "nowrap" }}
+          onClick={banner.never}
+        >
+          אל תציג יותר
+        </button>
+        <button
+          type="button"
+          aria-label="סגירת ההסבר על חיסיון הלקוחות"
+          style={{ color: "var(--color-text-muted)", lineHeight: 0 }}
+          onClick={banner.close}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path
+              d="M4 4l8 8M12 4l-8 8"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+          </svg>
         </button>
       </div>
 
