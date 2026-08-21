@@ -67,6 +67,7 @@ import {
 } from "../../core/platform-settings.service";
 import { CardcomService } from "../../core/cardcom.service";
 import { GeminiService } from "../../core/gemini.service";
+import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 import { GeocodingService } from "../../core/geocoding.service";
 import { CreditEconomyService } from "../../core/credit-economy.service";
 import {
@@ -240,6 +241,10 @@ const UpdateSettingsSchema = z
     emailFrom: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
     whatsappAppSecret: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
     whatsappVerifyToken: z.union([z.string().trim().min(16).max(200), z.literal("")]).optional(),
+    /** הסוכן האישי — טוקן קבוע של System User, לא הטוקן הזמני ממסך הפיתוח */
+    whatsappAccessToken: z.union([z.string().trim().min(20).max(500), z.literal("")]).optional(),
+    // מזהה ולא כמות — ספרות בלבד, אפסים מובילים משמעותיים
+    whatsappPhoneNumberId: z.union([z.string().trim().regex(/^\d{5,30}$/u), z.literal("")]).optional(),
     loginOtpEnabled: z.boolean().optional(),
     googleClientId: z.union([z.string().trim().min(10).max(200), z.literal("")]).optional(),
     googleClientSecret: z.union([z.string().trim().min(10).max(200), z.literal("")]).optional(),
@@ -483,6 +488,7 @@ export class PlatformController {
     private readonly telephonyWebhookLog: TelephonyWebhookLogService,
     private readonly platformCredits: PlatformCreditsService,
     private readonly gemini: GeminiService,
+    private readonly whatsappSender: WhatsAppSendService,
   ) {}
 
   /**
@@ -1185,7 +1191,13 @@ export class PlatformController {
   async settings(): Promise<{
     postmark: { configured: boolean; source: "db" | "env" | "none"; emailFrom?: string };
     /** webhookUrl מוגדר פעם אחת במטא לכל הפלטפורמה — ולכן הוא כאן ולא בהגדרות המשרד. */
-    whatsapp: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
+    whatsapp: {
+      configured: boolean;
+      source: "db" | "env" | "none";
+      webhookUrl: string;
+      /** הצד היוצא — הסוכן האישי עונה רק כשהוא מוגדר */
+      assistant: { configured: boolean; source: "db" | "env" | "none" };
+    };
     /**
      * אותם Client ID ו-Secret משרתים שלושה חיבורים — התחברות, יומן
      * ו-Gmail — ולכן מוחזרות **כל** כתובות החזרה. הצגת אחת בלבד
@@ -1253,6 +1265,10 @@ export class PlatformController {
     const postmarkEnv = env.POSTMARK_SERVER_TOKEN !== undefined && env.EMAIL_FROM !== undefined;
     const waDb = has("whatsappAppSecret") && has("whatsappVerifyToken");
     const waEnv = env.WHATSAPP_APP_SECRET !== undefined && env.WHATSAPP_VERIFY_TOKEN !== undefined;
+    // הצד היוצא של הסוכן האישי — טוקן ומזהה מספר, שניהם יחד
+    const waOutDb = has("whatsappAccessToken") && has("whatsappPhoneNumberId");
+    const waOutEnv =
+      env.WHATSAPP_ACCESS_TOKEN !== undefined && env.WHATSAPP_PHONE_NUMBER_ID !== undefined;
     const googleDb = has("googleClientId") && has("googleClientSecret");
     const googleEnv = env.GOOGLE_CLIENT_ID !== undefined && env.GOOGLE_CLIENT_SECRET !== undefined;
     const geminiDb = has("geminiApiKey");
@@ -1301,6 +1317,10 @@ export class PlatformController {
         configured: waDb || waEnv,
         source: waDb ? "db" : waEnv ? "env" : "none",
         webhookUrl: `${env.WEB_ORIGIN}/api/v1/webhooks/whatsapp`,
+        assistant: {
+          configured: waOutDb || waOutEnv,
+          source: waOutDb ? "db" : waOutEnv ? "env" : "none",
+        },
       },
       google: {
         configured: googleDb || googleEnv,
@@ -1395,6 +1415,17 @@ export class PlatformController {
       throw new BadRequestException("הסליקה טרם הוגדרה — מלאו מספר מסוף ושם API ושמרו");
     }
     return this.cardcom.testConnection();
+  }
+
+  /**
+   * בדיקת חיבור הסוכן האישי בוואטסאפ — קריאת אמת אל Graph על המספר
+   * עצמו. טוקן שפג (הזמני ממסך הפיתוח חי 24 שעות) או מזהה מספר שגוי
+   * מתגלים כאן, ולא בהודעה הראשונה של מתווך אמיתי.
+   */
+  @Post("settings/test-whatsapp")
+  @HttpCode(200)
+  async testWhatsApp(): Promise<{ ok: boolean; message: string }> {
+    return this.whatsappSender.probe();
   }
 
   /**

@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { CardcomService } from "../../core/cardcom.service";
 import { AuthModule } from "../auth/auth.module";
+import { MessagingModule } from "../messaging/messaging.module";
 import { TelephonyModule } from "../telephony/telephony.module";
 import { AccountDeletionService } from "../settings/account-deletion.service";
 import { BackupsService } from "./backups.service";
@@ -16,7 +17,8 @@ import { ServiceVersionsService } from "./service-versions.service";
 @Module({
   // יומן הוובהוקים של המרכזיות מוצג כאן ולא בהגדרות המשרד: פנייה
   // עם מפתח לא מוכר אינה שייכת לאף משרד, וזו בדיוק הפנייה שמחפשים
-  imports: [AuthModule, TelephonyModule],
+  // MessagingModule — בדיקת חיבור הוואטסאפ של הסוכן האישי מהמסך
+  imports: [AuthModule, TelephonyModule, MessagingModule],
   controllers: [PlatformController],
   providers: [
     BackupsService,

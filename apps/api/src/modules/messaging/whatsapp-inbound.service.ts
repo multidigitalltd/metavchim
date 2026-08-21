@@ -4,6 +4,8 @@ import { z } from "zod";
 import { rolesWithCapability } from "@metavchim/shared";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
+import { WhatsAppAssistantService } from "./whatsapp-assistant.service";
+import { WhatsAppSendService } from "./whatsapp-send.service";
 
 /**
  * קליטת הודעות וואטסאפ נכנסות (docs/05 §1) — פורמט Meta Cloud API.
@@ -21,7 +23,13 @@ const WebhookSchema = z.object({
       changes: z.array(
         z.object({
           value: z.object({
-            metadata: z.object({ display_phone_number: z.string() }).optional(),
+            metadata: z
+              .object({
+                display_phone_number: z.string().optional(),
+                /** מזהה הקו אצל Meta — כך מזוהה קו הסוכן האישי */
+                phone_number_id: z.string().optional(),
+              })
+              .optional(),
             contacts: z
               .array(z.object({ profile: z.object({ name: z.string() }).optional(), wa_id: z.string() }))
               .optional(),
@@ -32,6 +40,8 @@ const WebhookSchema = z.object({
                   from: z.string(),
                   type: z.string(),
                   text: z.object({ body: z.string() }).optional(),
+                  /** הודעה קולית לסוכן — יורדת ומתומללת */
+                  audio: z.object({ id: z.string() }).optional(),
                 }),
               )
               .optional(),
@@ -49,6 +59,8 @@ export class WhatsAppInboundService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
+    private readonly assistant: WhatsAppAssistantService,
+    private readonly sender: WhatsAppSendService,
   ) {}
 
   async handle(payload: Record<string, unknown>): Promise<void> {
@@ -58,9 +70,41 @@ export class WhatsAppInboundService {
       return;
     }
 
+    /*
+     * שני קווים על אותו Webhook: קו הסוכן האישי של הפלטפורמה (מזוהה
+     * לפי phone_number_id שבהגדרות) וקווי המשרדים לקליטת לידים.
+     * הבדיקה לפי המזהה של Meta ולא לפי המספר המוצג — הוא יציב ואינו
+     * תלוי בפורמט.
+     */
+    const assistantCreds = await this.sender.credentials();
+
     for (const entry of parsed.data.entry) {
       for (const change of entry.changes) {
         const value = change.value;
+        if (
+          assistantCreds !== null &&
+          value.metadata?.phone_number_id === assistantCreds.phoneNumberId
+        ) {
+          /*
+           * בלי await בכוונה: סבב מלא של הסוכן (הבנה + ביצוע) אורך
+           * עשרות שניות, ו-Meta שמחכה ל-200 מעבר לכמה שניות שולח את
+           * ההודעה שוב — כלומר ביצוע כפול. העיבוד ממשיך ברקע, בסדר
+           * ההודעות, ו-handle לעולם אינו זורק.
+           */
+          const messages = value.messages ?? [];
+          void (async () => {
+            for (const message of messages) {
+              await this.assistant.handle({
+                externalId: message.id,
+                fromWaId: message.from,
+                type: message.type,
+                ...(message.text ? { text: message.text.body } : {}),
+                ...(message.audio ? { mediaId: message.audio.id } : {}),
+              });
+            }
+          })();
+          continue;
+        }
         const businessNumber = value.metadata?.display_phone_number;
         if (!businessNumber || !value.messages?.length) continue;
 
