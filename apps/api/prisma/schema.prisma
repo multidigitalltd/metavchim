@@ -1099,6 +1099,32 @@ model WhatsAppChat {
   @@map("whatsapp_chats")
 }
 
+/// יומן משימות הסוכן — כל פירוש (משפט ⟵ פעולה ושדות) וכל ביצוע,
+/// משני הערוצים (דפדפן ווואטסאפ). שתי מטרות: מדידת עלות אמיתית
+/// לכל פקודה (אסימונים כפי ש-Google דיווחה), ודאטה לאימון מודל
+/// ייעודי בהמשך. תחת RLS מלא — התמלולים הם נתוני דייר לכל דבר.
+model AgentEvent {
+  id         String   @id @db.Char(26)
+  tenantId   String   @map("tenant_id") @db.Char(26)
+  userId     String   @map("user_id") @db.Char(26)
+  channel    String   @db.VarChar(20) // web | whatsapp
+  kind       String   @db.VarChar(20) // interpret | execute
+  transcript String?  @db.VarChar(4000)
+  actionId   String?  @map("action_id") @db.VarChar(40)
+  /// interpret: הפירוש המלא (שדות, ראיות, צעדים); execute: פרמטרים ותקציר תוצאה
+  payload    Json
+  /// llm | rules — מי הכריע בפועל (interpret בלבד)
+  source     String?  @db.VarChar(10)
+  model      String?  @db.VarChar(60)
+  latencyMs  Int?     @map("latency_ms")
+  /// צריכת אסימונים כפי ש-Google דיווחה — קלט/פלט/חשיבה/מטמון
+  usage      Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@map("agent_events")
+}
+
 // פגישה/סיור/שיחה ביומן (docs/01 §3 Calendar). google_event_id — לסנכרון עתידי.
 model Appointment {
   id              String    @id @db.Char(26)

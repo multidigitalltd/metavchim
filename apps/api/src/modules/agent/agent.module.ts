@@ -10,17 +10,22 @@ import { PropertiesModule } from "../properties/properties.module";
 import { SearchModule } from "../search/search.module";
 import { TasksModule } from "../tasks/tasks.module";
 import { AgentController } from "./agent.controller";
+import { AgentEventsService } from "./agent-events.service";
 import { AgentExecuteService } from "./execute.service";
 import { AgentInterpretService } from "./interpret.service";
 import { AgentResolveService } from "./resolve.service";
 
 /**
- * הסוכן אינו מחזיק נתונים משלו.
+ * הסוכן אינו מחזיק **נתוני CRM** משלו.
  *
  * הוא מייבא את המודולים הקיימים ומשתמש בשירותים שלהם — אותם
- * שירותים שהטפסים הידניים קוראים להם. לכן אין כאן `PrismaService`
- * ואין טבלה חדשה: מסלול קליטה שכותב למסד בעצמו מייצר רשומות
- * שנראות תקינות ומתנהגות אחרת מאלה של המסכים.
+ * שירותים שהטפסים הידניים קוראים להם. מסלול קליטה שכותב רשומות
+ * עסקיות למסד בעצמו מייצר רשומות שנראות תקינות ומתנהגות אחרת
+ * מאלה של המסכים.
+ *
+ * הטבלה היחידה של הסוכן היא היומן שלו עצמו (`agent_events`) —
+ * תיעוד של מה שהובן ובוצע, לא נתון עסקי: שום מסך ושום התאמה
+ * אינם קוראים ממנה.
  */
 @Module({
   imports: [
@@ -36,7 +41,7 @@ import { AgentResolveService } from "./resolve.service";
     CollaborationModule,
   ],
   controllers: [AgentController],
-  providers: [AgentInterpretService, AgentResolveService, AgentExecuteService],
+  providers: [AgentInterpretService, AgentResolveService, AgentExecuteService, AgentEventsService],
   // הסוכן האישי בוואטסאפ מדבר עם אותו מנוע בדיוק — לא מסלול מקביל
   exports: [AgentInterpretService, AgentResolveService, AgentExecuteService],
 })

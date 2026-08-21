@@ -8,6 +8,7 @@ import {
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { GeminiService } from "../../core/gemini.service";
+import { AgentEventsService } from "./agent-events.service";
 import { AnalyticsService, type ReportWindowDays } from "../analytics/analytics.service";
 import { AgentResolveService } from "./resolve.service";
 import { BuyersService } from "../buyers/buyers.service";
@@ -75,6 +76,7 @@ export class AgentExecuteService {
     private readonly dealRooms: DealRoomService,
     private readonly resolver: AgentResolveService,
     private readonly gemini: GeminiService,
+    private readonly events: AgentEventsService,
   ) {}
 
   async execute(
@@ -82,6 +84,8 @@ export class AgentExecuteService {
     params: Record<string, unknown>,
     /** המשפט המקורי — לניסוח התובנה על תוצאות שאילתה בלבד */
     transcript?: string,
+    /** מאיפה הפקודה הגיעה — ליומן המשימות של הסוכן בלבד */
+    channel: "web" | "whatsapp" = "web",
   ): Promise<ExecuteResult> {
     const action = agentAction(actionId);
     if (!action) throw new BadRequestException("פעולה לא מוכרת");
@@ -105,7 +109,26 @@ export class AgentExecuteService {
     if (!resolution.ok) throw new BadRequestException(resolution.message);
 
     const result = await this.dispatch(actionId, params);
-    return this.withInsight(actionId, transcript, result);
+    const final = await this.withInsight(actionId, transcript, result);
+    /*
+     * הביצוע נרשם ביומן המשימות — הפרמטרים שאושרו ותקציר התוצאה,
+     * בלי `data` (תוצאות שאילתה שלמות היו מנפחות את היומן בהעתק
+     * של המאגר). fire-and-forget — הרישום אינו מעכב את התשובה.
+     */
+    void this.events.record({
+      channel,
+      kind: "execute",
+      ...(transcript === undefined ? {} : { transcript }),
+      actionId,
+      payload: {
+        params,
+        message: final.message,
+        ...(final.href === undefined ? {} : { href: final.href }),
+        ...(final.insight === undefined ? {} : { insight: final.insight }),
+        ...(final.suggestion === undefined ? {} : { suggestion: final.suggestion }),
+      },
+    });
+    return final;
   }
 
   private async dispatch(
@@ -182,6 +205,12 @@ export class AgentExecuteService {
   ): Promise<ExecuteResult> {
     if (!INSIGHT_ACTIONS.has(actionId)) return result;
     if (result.data === undefined || transcript === undefined) return result;
+    /*
+     * אין תוצאות — אין קריאה. ההודעה כבר אומרת שלא נמצא דבר, ותובנה
+     * על רשימה ריקה אינה שווה את הקריאה השנייה ל-Gemini שהיא עולה
+     * (בקשת המשתמש: להוזיל כל הפעלה בלי לפגוע באיכות).
+     */
+    if (Array.isArray(result.data) && result.data.length === 0) return result;
     try {
       if (!(await this.gemini.isConfigured())) return result;
       // קיצוץ קשיח: המודל צריך את ראש הרשימה, לא את כל המאגר
