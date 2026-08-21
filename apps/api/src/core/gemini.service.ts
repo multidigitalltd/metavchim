@@ -164,6 +164,22 @@ export class GeminiService {
   private modelFallbackFor: string | null = null;
   private modelOverride: string | null = null;
 
+  /**
+   * מודל שדחה את `responseSchema` ב-HTTP 400 (‏INVALID_ARGUMENT‏).
+   *
+   * תרחיש אמיתי מהפרודקשן: הפינג (בלי סכימה) תקין, וקריאת הפענוח
+   * המלאה נופלת על 400 — כלומר גרסת ה-API של המודל החדש אינה
+   * מקבלת את הסכימה שעבדה בקודם, וכל פקודה קולית צונחת ל"זיהוי
+   * בסיסי". הנפילה-לאחור: אותה קריאה בלי הסכימה, רק
+   * ‎responseMimeType: application/json‎ — הפרומפט כבר מתאר את כל
+   * השדות, וה-zod בשרת ממילא מאמת כל תשובה. **הסכימה מצמצמת,
+   * ה-zod מכריע** — גם כשהסכימה אינה זמינה.
+   *
+   * נזכר לפי שם המודל: מודל אחר (או עדכון הגדרה) מנסה שוב עם
+   * הסכימה — ייתכן שהתיקון של Google כבר הגיע.
+   */
+  private schemaRejectedFor: string | null = null;
+
   private async callDetailed(
     prompt: string,
     options: {
@@ -179,7 +195,32 @@ export class GeminiService {
       this.modelFallbackFor === configured && this.modelOverride !== null
         ? this.modelOverride
         : configured;
-    const first = await this.attempt(model, key, prompt, options);
+    // המודל הזה כבר דחה את הסכימה — לא משלמים את ה-400 בכל פקודה
+    const effective =
+      this.schemaRejectedFor === model && options.responseSchema !== undefined
+        ? { ...options, responseSchema: undefined }
+        : options;
+    const first = await this.attempt(model, key, prompt, effective);
+    /*
+     * ‏400 על קריאה עם סכימה — ניסיון אחד בלי הסכימה. הצלחה נזכרת,
+     * כדי שהפקודות הבאות ידלגו על הכשל ישירות למצב החופשי.
+     */
+    if (
+      first.badRequest === true &&
+      effective.responseSchema !== undefined
+    ) {
+      const retry = await this.attempt(model, key, prompt, {
+        ...options,
+        responseSchema: undefined,
+      });
+      if (retry.value !== null) {
+        this.schemaRejectedFor = model;
+        this.logger.warn(
+          `המודל ${model} דוחה את סכימת התשובה (HTTP 400) — עוברים למצב JSON חופשי; הוולידציה בשרת ממשיכה לאכוף את המבנה.`,
+        );
+      }
+      return { value: retry.value, ...(retry.error === undefined ? {} : { error: retry.error }) };
+    }
     /*
      * המודל אינו קיים (404) וברירת המחדל שונה ממנו — ניסיון אחד
      * נוסף איתה. זה בדיוק התרחיש שהשבית את הסוכן: מודל שהוגדר
@@ -213,7 +254,13 @@ export class GeminiService {
       maxOutputTokens?: number;
       timeoutMs?: number;
     },
-  ): Promise<{ value: unknown | null; error?: string; modelNotFound?: boolean }> {
+  ): Promise<{
+    value: unknown | null;
+    error?: string;
+    modelNotFound?: boolean;
+    /** HTTP 400 — בקשה שנדחתה; עם סכימה זה כמעט תמיד הסכימה עצמה */
+    badRequest?: boolean;
+  }> {
     try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
@@ -242,6 +289,7 @@ export class GeminiService {
           error: this.recordFailure(detail),
           // 404 על נתיב המודל = המודל אינו קיים/הוצא משימוש
           modelNotFound: res.status === 404,
+          badRequest: res.status === 400,
         };
       }
       const body = (await res.json()) as {

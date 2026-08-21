@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import {
@@ -69,6 +69,20 @@ export function PlatformSettingsSection({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /*
+   * הבדיקות רצות 10–30 שניות (קריאות אמת לספק), והתוצאה מוצגת בראש
+   * המסך — רחוק מהכפתור. בלי חיווי על הכפתור עצמו ובלי גלילה אל
+   * התוצאה, הלחיצה נראית כאילו לא עשתה כלום (דיווח המשתמש:
+   * "הכפתור לא מגיב").
+   */
+  const [probing, setProbing] = useState<"gemini" | "cardcom" | null>(null);
+  const noticeRef = useRef<HTMLDivElement | null>(null);
+  const showProbeResult = (): void => {
+    // אחרי הרינדור של ההודעה — אחרת גוללים אל תיבה שעוד לא קיימת
+    requestAnimationFrame(() => {
+      noticeRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  };
 
   function load() {
     apiGet<PlatformSettings>("/platform/settings")
@@ -160,6 +174,7 @@ export function PlatformSettingsSection({
    */
   async function testCardcom(): Promise<void> {
     setBusy(true);
+    setProbing("cardcom");
     setMessage(null);
     setError(null);
     try {
@@ -173,6 +188,8 @@ export function PlatformSettingsSection({
       setError(err instanceof ApiError ? err.message : "בדיקת החיבור נכשלה");
     } finally {
       setBusy(false);
+      setProbing(null);
+      showProbeResult();
     }
   }
 
@@ -187,6 +204,7 @@ export function PlatformSettingsSection({
    */
   async function testGemini(): Promise<void> {
     setBusy(true);
+    setProbing("gemini");
     setMessage(null);
     setError(null);
     try {
@@ -212,6 +230,8 @@ export function PlatformSettingsSection({
       setError(err instanceof ApiError ? err.message : "בדיקת החיבור נכשלה");
     } finally {
       setBusy(false);
+      setProbing(null);
+      showProbeResult();
     }
   }
 
@@ -339,12 +359,14 @@ export function PlatformSettingsSection({
         שוב אחרי השמירה.
       </p>
 
-      {message ? (
-        <Notice tone="success">{message}</Notice>
-      ) : null}
-      {error ? (
-        <Notice tone="danger">{error}</Notice>
-      ) : null}
+      <div ref={noticeRef}>
+        {message ? (
+          <Notice tone="success">{message}</Notice>
+        ) : null}
+        {error ? (
+          <Notice tone="danger">{error}</Notice>
+        ) : null}
+      </div>
 
       {/* ---------- אימייל ---------- */}
       <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
@@ -568,7 +590,7 @@ export function PlatformSettingsSection({
           */}
           {settings.gemini?.configured ? (
             <Button type="button" variant="secondary" disabled={busy} onClick={() => void testGemini()}>
-              בדיקת מנוע ההבנה
+              {probing === "gemini" ? "בודק מול Google… עד חצי דקה" : "בדיקת מנוע ההבנה"}
             </Button>
           ) : null}
         </form>
@@ -662,7 +684,7 @@ export function PlatformSettingsSection({
           <Button type="submit" disabled={busy}>שמור</Button>
           {settings.cardcom.configured ? (
             <Button type="button" variant="ghost" disabled={busy} onClick={() => void testCardcom()}>
-              בדוק חיבור
+              {probing === "cardcom" ? "בודק…" : "בדוק חיבור"}
             </Button>
           ) : null}
         </form>
