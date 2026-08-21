@@ -397,6 +397,13 @@ export class GeminiService {
     badRequest?: boolean;
     usage?: GeminiUsage;
   }> {
+    /*
+     * מחוץ ל-try כדי שגם כשל **אחרי** תשובת HTTP מוצלחת — תשובה
+     * שנחתכה, ריקה או JSON פגום — יחזור עם הצריכה ששולמה עליו.
+     * דווקא הכשלים האלה הם היקרים, והשמטתם מהיומן הייתה מציגה
+     * חשבון נמוך מהאמיתי (ביקורת Codex).
+     */
+    let usage: GeminiUsage | undefined;
     try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
@@ -441,7 +448,7 @@ export class GeminiService {
           cachedContentTokenCount?: number;
         };
       };
-      const usage: GeminiUsage = {
+      usage = {
         promptTokens: body.usageMetadata?.promptTokenCount ?? 0,
         outputTokens: body.usageMetadata?.candidatesTokenCount ?? 0,
         thoughtTokens: body.usageMetadata?.thoughtsTokenCount ?? 0,
@@ -458,6 +465,7 @@ export class GeminiService {
         return {
           value: null,
           error: this.recordFailure("התשובה נחתכה בגלל מגבלת אסימונים (MAX_TOKENS)"),
+          usage,
         };
       }
       const text = candidate?.content?.parts?.[0]?.text ?? "";
@@ -467,6 +475,7 @@ export class GeminiService {
           error: this.recordFailure(
             `תשובה ריקה (finishReason: ${candidate?.finishReason ?? "אין"})`,
           ),
+          usage,
         };
       }
       const value = JSON.parse(text) as unknown;
@@ -478,7 +487,12 @@ export class GeminiService {
         name === "TimeoutError" || name === "AbortError"
           ? `פסק זמן אחרי ${options.timeoutMs ?? 5_000}ms — ייתכן שהשרת חסום ליציאה אל Google`
           : `כשל רשת: ${String(error)}`;
-      return { value: null, error: this.recordFailure(detail) };
+      // JSON פגום אחרי תשובה מוצלחת — הצריכה כבר נקראה ושולמה
+      return {
+        value: null,
+        error: this.recordFailure(detail),
+        ...(usage === undefined ? {} : { usage }),
+      };
     }
   }
 

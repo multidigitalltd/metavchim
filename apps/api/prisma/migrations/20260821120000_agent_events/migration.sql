@@ -27,6 +27,15 @@ CREATE TABLE "agent_events" (
 CREATE INDEX "agent_events_tenant_id_created_at_idx"
   ON "agent_events"("tenant_id", "created_at");
 
+-- הרישום הוא fire-and-forget, ולכן כתיבה יכולה לנחות אחרי שמחיקת
+-- החשבון כבר רצה. ה-FK עם Cascade סוגר את החלון: אחרי שהמשתמשים
+-- נמחקו שום אירוע מאוחר אינו יכול להיכתב, ומחיקת משתמש גוררת את
+-- האירועים שלו איתה (ביקורת Codex).
+ALTER TABLE "agent_events"
+  ADD CONSTRAINT "agent_events_user_id_fkey"
+  FOREIGN KEY ("user_id") REFERENCES "users"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
 -- RLS — בידוד מלא בין משרדים, כמו כל טבלת נתוני-דייר
 ALTER TABLE agent_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE agent_events FORCE ROW LEVEL SECURITY;

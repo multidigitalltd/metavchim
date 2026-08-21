@@ -379,10 +379,12 @@ export function VoiceRecorder({
     // שוב ושוב על אותו קטע, ובלי בסיס קבוע כל עדכון היה מצטבר כפול
     const base = valueRef.current;
 
+    // סט חדש לכל סשן — זיכרון "מי היה זמני" חי בין אירועי onresult
+    const interimSeen = new Set<number>();
     recognition.onresult = (event) => {
-      // collectDictation מסנן קטע סופי שמופיע פעמיים ברצף — הבאג של
+      // collectDictation מסנן קטע רפאים שמופיע פעמיים ברצף — הבאג של
       // כרום באנדרואיד שגרם לכל משפט להיכתב פעמיים (מסונן גם בשדות)
-      const { final, interim } = collectDictation(event.results);
+      const { final, interim } = collectDictation(event.results, interimSeen);
       const spoken = `${final}${interim}`.trim();
       if (spoken === "") return;
       onChange(base.trim() === "" ? spoken : `${base.trimEnd()} ${spoken}`);

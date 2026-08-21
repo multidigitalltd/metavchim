@@ -56,9 +56,18 @@ interface SpeechRecognitionLike {
  *
  * כרום באנדרואיד, במצב continuous, משכפל קטעים: אותה תוצאה מופיעה
  * פעמיים ברצף ברשימה, והטקסט נכתב פעמיים (דיווח המשתמש: "רושם
- * פעמיים" במצב המהיר). קטע שזהה בדיוק לקודמו ברצף נספר פעם אחת —
- * אדם שחוזר על משפט נופל לאותו קטע זיהוי אחד, לא לשני קטעים זהים
- * עוקבים.
+ * פעמיים" במצב המהיר).
+ *
+ * ## איך מבדילים שכפול מחזרה מכוונת
+ *
+ * מי שחוזר על מילה אחרי הפסקה ("לא… לא") מייצר באמת שני קטעים
+ * זהים עוקבים — ומחיקת כל קטע שזהה לקודמו הייתה בולעת גם אותם
+ * (ביקורת Codex). ההבדל הוא בדרך שבה הקטע נולד: קטע אמיתי גדל מול
+ * העיניים — הוא מופיע קודם כתוצאה זמנית (isFinal=false) באירועים
+ * קודמים ורק אז מתקבע; קטע הרפאים של אנדרואיד מופיע יש-מאין, סופי
+ * מיד, לצד התאום שלו. לכן `interimSeen` — סט האינדקסים שנראו אי
+ * פעם כזמניים בסבב הזה, שהקורא מחזיק בין אירועים — קובע: קטע זהה
+ * לקודמו נמחק רק אם מעולם לא היה זמני.
  *
  * משותף לשני מנועי ההכתבה (שדות הטפסים ומסך הסוכן) — תיקון שחי
  * רק באחד מהם היה משאיר את אותה כפילות בשני.
@@ -68,10 +77,11 @@ export interface DictationResultSegment {
   readonly 0?: { transcript: string } | undefined;
 }
 
-export function collectDictation(results: ArrayLike<DictationResultSegment | undefined>): {
-  final: string;
-  interim: string;
-} {
+export function collectDictation(
+  results: ArrayLike<DictationResultSegment | undefined>,
+  /** אינדקסים שנראו כתוצאה זמנית בסבב הזה — סט אחד לכל סשן הקלטה */
+  interimSeen: Set<number>,
+): { final: string; interim: string } {
   let final = "";
   let interim = "";
   let previous = "";
@@ -79,9 +89,12 @@ export function collectDictation(results: ArrayLike<DictationResultSegment | und
     const segment = results[i];
     const text = segment?.[0]?.transcript ?? "";
     if (text.trim() === "") continue;
-    if (text.trim() === previous.trim()) continue; // השכפול של אנדרואיד
+    const isInterim = segment?.isFinal === false;
+    if (isInterim) interimSeen.add(i);
+    // קטע רפאים: זהה לקודמו, סופי, ומעולם לא חי כתוצאה זמנית
+    if (!isInterim && text.trim() === previous.trim() && !interimSeen.has(i)) continue;
     previous = text;
-    if (segment?.isFinal === false) interim += text;
+    if (isInterim) interim += text;
     else final += text;
   }
   return { final, interim };
@@ -198,8 +211,10 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
     // התוצאות הזמניות הן כל העניין במצב המהיר: הטקסט זוחל על המסך
     // תוך כדי הדיבור במקום לקפוץ בסוף המשפט
     recognition.interimResults = true;
+    // סט חדש לכל סשן — זיכרון "מי היה זמני" חי בין אירועי onresult
+    const interimSeen = new Set<number>();
     recognition.onresult = (event) => {
-      const { final, interim } = collectDictation(event.results);
+      const { final, interim } = collectDictation(event.results, interimSeen);
       const combined = `${final}${interim}`.trim();
       if (combined !== "") appendRef.current(combined, interim !== "");
     };

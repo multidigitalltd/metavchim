@@ -120,6 +120,7 @@ model User {
   tenant              Tenant           @relation(fields: [tenantId], references: [id])
   sessions            Session[]
   capabilityOverrides UserCapability[]
+  agentEvents         AgentEvent[]
 
   @@index([tenantId, isActive])
   @@map("users")
@@ -1120,6 +1121,12 @@ model AgentEvent {
   /// צריכת אסימונים כפי ש-Google דיווחה — קלט/פלט/חשיבה/מטמון
   usage      Json?
   createdAt  DateTime @default(now()) @map("created_at")
+
+  /// FK עם Cascade — לא רק סדר: הרישום הוא fire-and-forget, ולכן
+  /// כתיבה מאוחרת יכולה לנחות **אחרי** שמחיקת החשבון כבר רצה. בלי
+  /// האילוץ היא הייתה משאירה תמלול עם PII אחרי שהמחיקה דיווחה
+  /// הצלחה; איתו — הכתיבה נדחית במסד ונבלעת (ביקורת Codex).
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, createdAt])
   @@map("agent_events")
