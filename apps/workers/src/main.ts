@@ -2238,9 +2238,15 @@ function entityFromPayload(
   return null;
 }
 
-const AGENT_EVENTS_RETENTION_DAYS = Number(
-  process.env["AGENT_EVENTS_RETENTION_DAYS"] ?? 180,
-);
+/*
+ * הערך נבדק, לא רק נקרא: משתנה ריק או שלילי היה הופך את קו החיתוך
+ * ל"עכשיו" — והסריקה הבאה הייתה מוחקת את היומן כולו במקום לשמור
+ * חצי שנה (ביקורת Codex). ערך לא-תקין נופל לברירת המחדל.
+ */
+const AGENT_EVENTS_RETENTION_DAYS = (() => {
+  const parsed = Number(process.env["AGENT_EVENTS_RETENTION_DAYS"]);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 180;
+})();
 
 /**
  * ניקוי יומן משימות הסוכן — שמירת נתונים מינימלית (ISO 27001 A.5.33).

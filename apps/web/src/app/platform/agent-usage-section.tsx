@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { API_BASE, ApiError, apiGet } from "@/lib/api";
 import {
@@ -49,11 +49,22 @@ export function AgentUsageSection(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
 
+  /*
+   * מזהה בקשה רץ: מעבר מהיר בין חלונות משאיר את שתי הבקשות באוויר,
+   * והאיטית (90 יום) יכולה לחזור אחרי המהירה ולדרוס אותה בזמן
+   * שהכותרת כבר מציגה "7 ימים" (ביקורת Codex). רק התשובה של הבקשה
+   * האחרונה מתקבלת.
+   */
+  const requestRef = useRef(0);
   const load = useCallback((window: number) => {
+    const requestId = ++requestRef.current;
     setError(null);
     apiGet<Report>(`/platform/agent-usage?days=${window}`)
-      .then(setReport)
+      .then((res) => {
+        if (requestRef.current === requestId) setReport(res);
+      })
       .catch((err: unknown) => {
+        if (requestRef.current !== requestId) return;
         setError(err instanceof ApiError ? err.message : "טעינת דוח הסוכן נכשלה");
       });
   }, []);

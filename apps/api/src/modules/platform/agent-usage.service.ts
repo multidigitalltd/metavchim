@@ -32,6 +32,12 @@ export interface AgentUsageTotals {
   /** כמה מהקלט הגיע מהמטמון של Google — מוזל ברובו */
   cachedTokens: number;
   avgLatencyMs: number;
+  /**
+   * כמה פקודות באמת נמדדו (יש להן latency). המשקל של השקלול
+   * חוצה-המשרדים: פקודות שנפלו לחוקים בלי קריאת מודל אינן חלק
+   * מהממוצע, ומשקל לפי סך הפקודות היה מעוות אותו (ביקורת Codex).
+   */
+  latencySamples: number;
 }
 
 export interface AgentUsageReport {
@@ -51,7 +57,11 @@ interface TotalsRow {
   thought_tokens: bigint;
   cached_tokens: bigint;
   avg_latency_ms: number;
+  latency_samples: number;
 }
+
+/** גודל דף בייצוא — קטן מספיק כדי שהזיכרון יישאר קבוע לכל אורך הקובץ. */
+const EXPORT_PAGE = 500;
 
 const EMPTY: AgentUsageTotals = {
   interpretCount: 0,
@@ -63,6 +73,7 @@ const EMPTY: AgentUsageTotals = {
   thoughtTokens: 0,
   cachedTokens: 0,
   avgLatencyMs: 0,
+  latencySamples: 0,
 };
 
 @Injectable()
@@ -89,12 +100,14 @@ export class AgentUsageService {
               COUNT(*) FILTER (WHERE kind = 'execute')::int              AS execute_count,
               COUNT(*) FILTER (WHERE kind = 'interpret'
                                  AND source = 'rules')::int              AS rules_count,
-              COUNT(*) FILTER (WHERE channel = 'whatsapp')::int          AS whatsapp_count,
+              COUNT(*) FILTER (WHERE kind = 'interpret'
+                                 AND channel = 'whatsapp')::int          AS whatsapp_count,
               COALESCE(SUM((usage->>'promptTokens')::bigint), 0)::bigint AS prompt_tokens,
               COALESCE(SUM((usage->>'outputTokens')::bigint), 0)::bigint AS output_tokens,
               COALESCE(SUM((usage->>'thoughtTokens')::bigint), 0)::bigint AS thought_tokens,
               COALESCE(SUM((usage->>'cachedTokens')::bigint), 0)::bigint AS cached_tokens,
-              COALESCE(AVG(latency_ms), 0)::int                          AS avg_latency_ms
+              COALESCE(AVG(latency_ms), 0)::int                          AS avg_latency_ms,
+              COUNT(latency_ms)::int                                     AS latency_samples
             FROM agent_events
             WHERE created_at >= ${since}`;
           const dayRows = await tx.$queryRaw<
@@ -138,15 +151,17 @@ export class AgentUsageService {
         outputTokens: acc.outputTokens + row.outputTokens,
         thoughtTokens: acc.thoughtTokens + row.thoughtTokens,
         cachedTokens: acc.cachedTokens + row.cachedTokens,
-        // ממוצע משוקלל לפי מספר הפקודות, לא ממוצע של ממוצעים
+        // משוקלל לפי הפקודות **שנמדדו** — לא ממוצע של ממוצעים, ולא
+        // משקל לפי פקודות-חוקים שאין להן זמן מדוד כלל
         avgLatencyMs:
-          acc.interpretCount + row.interpretCount === 0
+          acc.latencySamples + row.latencySamples === 0
             ? 0
             : Math.round(
-                (acc.avgLatencyMs * acc.interpretCount +
-                  row.avgLatencyMs * row.interpretCount) /
-                  (acc.interpretCount + row.interpretCount),
+                (acc.avgLatencyMs * acc.latencySamples +
+                  row.avgLatencyMs * row.latencySamples) /
+                  (acc.latencySamples + row.latencySamples),
               ),
+        latencySamples: acc.latencySamples + row.latencySamples,
       }),
       EMPTY,
     );
@@ -160,58 +175,73 @@ export class AgentUsageService {
   }
 
   /**
-   * ייצוא צמדי האימון — JSONL, שורה לכל פירוש.
+   * ייצוא צמדי האימון — JSONL, שורה לכל פירוש, **בזרימה**.
    *
    * זה הפורמט שכלי כוונון (fine-tuning) מקבלים: מה נאמר ⟵ מה הובן,
    * עם המקור והערוץ. `payload` הוא הפירוש המלא (שדות, ראיות, צעדים).
    * מזהה המשרד מוחלף במספר רץ — הדאטה יוצא מהמערכת לכלי אימון,
    * ואין סיבה שמזהים פנימיים ייסעו איתו.
+   *
+   * גנרטור ולא מחרוזת אחת: בתקרת השורות, תמלולים של 4,000 תווים
+   * ו-payload מלא היו נערמים למאות מגה-בייט בזיכרון לפני שהבקשה
+   * בכלל עונה — הורדה אחת של מנהל הייתה יכולה להפיל את התהליך
+   * (ביקורת Codex). הקורא כותב כל דף לתשובה ומשחרר אותו.
    */
-  async exportJsonl(days: number, maxRows: number): Promise<string> {
+  async *exportJsonl(days: number, maxRows: number): AsyncGenerator<string> {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const tenants = await this.prisma.tenant.findMany({
       select: { id: true },
       orderBy: { createdAt: "asc" },
     });
-    const lines: string[] = [];
+    let emitted = 0;
     let tenantIndex = 0;
     for (const tenant of tenants) {
       tenantIndex += 1;
-      if (lines.length >= maxRows) break;
-      const rows = await this.prisma.withExplicitTenant(tenant.id, (tx) =>
-        tx.agentEvent.findMany({
-          where: { tenantId: tenant.id, kind: "interpret", createdAt: { gte: since } },
-          orderBy: { createdAt: "asc" },
-          take: maxRows - lines.length,
-          select: {
-            transcript: true,
-            actionId: true,
-            payload: true,
-            source: true,
-            model: true,
-            channel: true,
-            latencyMs: true,
-            createdAt: true,
-          },
-        }),
-      );
-      for (const row of rows) {
-        lines.push(
-          JSON.stringify({
-            office: tenantIndex,
-            channel: row.channel,
-            transcript: row.transcript,
-            action: row.actionId,
-            interpretation: row.payload,
-            source: row.source,
-            model: row.model,
-            latencyMs: row.latencyMs,
-            at: row.createdAt.toISOString(),
+      if (emitted >= maxRows) return;
+      // דפים קטנים גם בתוך משרד אחד — לא שולפים 50 אלף שורות בבת אחת
+      let cursor: string | undefined;
+      for (;;) {
+        const rows = await this.prisma.withExplicitTenant(tenant.id, (tx) =>
+          tx.agentEvent.findMany({
+            where: { tenantId: tenant.id, kind: "interpret", createdAt: { gte: since } },
+            orderBy: { id: "asc" },
+            take: Math.min(EXPORT_PAGE, maxRows - emitted),
+            ...(cursor === undefined ? {} : { cursor: { id: cursor }, skip: 1 }),
+            select: {
+              id: true,
+              transcript: true,
+              actionId: true,
+              payload: true,
+              source: true,
+              model: true,
+              channel: true,
+              latencyMs: true,
+              createdAt: true,
+            },
           }),
         );
+        if (rows.length === 0) break;
+        yield rows
+          .map(
+            (row) =>
+              `${JSON.stringify({
+                office: tenantIndex,
+                channel: row.channel,
+                transcript: row.transcript,
+                action: row.actionId,
+                interpretation: row.payload,
+                source: row.source,
+                model: row.model,
+                latencyMs: row.latencyMs,
+                at: row.createdAt.toISOString(),
+              })}\n`,
+          )
+          .join("");
+        emitted += rows.length;
+        if (emitted >= maxRows) return;
+        cursor = rows[rows.length - 1]!.id;
       }
     }
-    return lines.join("\n");
   }
 }
 
@@ -226,5 +256,6 @@ function mapTotals(row: TotalsRow): AgentUsageTotals {
     thoughtTokens: Number(row.thought_tokens),
     cachedTokens: Number(row.cached_tokens),
     avgLatencyMs: row.avg_latency_ms,
+    latencySamples: row.latency_samples,
   };
 }
