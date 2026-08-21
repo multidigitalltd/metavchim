@@ -44,7 +44,7 @@ import { WhatsAppSendService } from "./whatsapp-send.service";
 
 const FEATURE_ID = "voice_intake";
 /** כמה תורות נשמרים לזיכרון השיחה — כמו המסך הקולי. */
-const HISTORY_KEPT = 4;
+const HISTORY_KEPT = 6;
 /** כמה מזהי הודעות נשמרים ל-Idempotency — Meta חוזר תוך דקות. */
 const HANDLED_KEPT = 30;
 /** המפתחות שההצעה פותרת לבחירת רשומה — כמו ב-AgentController. */
@@ -362,6 +362,8 @@ export class WhatsAppAssistantService {
     const proposal = await this.resolver.toProposal(text, interpretation);
 
     if (proposal.actionId === "unknown") {
+      // ברכה/שאלה כללית — תשובה שיחתית, לא "לא הבנתי" יבש
+      if (proposal.reply !== undefined && proposal.reply !== "") return proposal.reply;
       const lines = [proposal.clarify ?? "לא הצלחתי להבין מה לעשות — נסו לנסח אחרת."];
       for (const warning of proposal.warnings) lines.push(`⚠️ ${warning}`);
       return lines.join("\n");
@@ -454,6 +456,10 @@ export class WhatsAppAssistantService {
     // קישור למסך המלא — לרשומה שנוצרה או לרשימה שנשאלה
     if (primary.href !== undefined) {
       lines.push(`${loadEnv().WEB_ORIGIN}${primary.href}`);
+    }
+    // צעד ההמשך המוצע — המתווך פשוט עונה עם המשפט והמעגל נמשך
+    if (primary.suggestion !== undefined && primary.suggestion !== "") {
+      lines.push(`אפשר להמשיך: „${primary.suggestion}”`);
     }
 
     chat.history = [

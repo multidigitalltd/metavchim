@@ -125,6 +125,11 @@ export function interpretJsonSchema(): Record<string, unknown> {
         description:
           "שאלה קצרה אחת, רק אם באמת אי אפשר להמשיך בלעדיה. השאר ריק כשאפשר להציע משהו.",
       },
+      reply: {
+        type: "string",
+        description:
+          "רק כש-action=unknown: אם המשפט הוא ברכה, תודה או שאלה כללית — תשובה קצרה, חמה ומועילה בעברית, שמסתיימת בהכוונה עדינה למה שאתה כן יודע לעשות. אחרת השאר ריק.",
+      },
       steps: {
         type: "array",
         description:
@@ -191,6 +196,8 @@ function tolerantInterpretInput(raw: unknown): unknown {
   }
   if (typeof value["clarify"] === "string") value["clarify"] = value["clarify"].slice(0, 300);
   else delete value["clarify"];
+  if (typeof value["reply"] === "string") value["reply"] = value["reply"].slice(0, 600);
+  else delete value["reply"];
   /*
    * `params` שגוי (מחרוזת/מערך) **נשאר** כדי שהוולידציה תיכשל והפירוש
    * ייפול לחוקים. מחיקה שלו הייתה הופכת אותו ל-`{}` תקין-למראה —
@@ -240,6 +247,8 @@ export const InterpretResponseSchema = z.preprocess(
     evidence: z.record(z.string(), z.string()).default({}),
     unmapped: z.array(z.string().max(300)).max(10).default([]),
     clarify: z.string().max(300).optional(),
+    /** תשובה שיחתית לברכה/תודה/שאלה כללית — מוצגת בלבד, לעולם לא מבוצעת */
+    reply: z.string().max(600).optional(),
     /*
      * עד ארבעה צעדי המשך: משפט אחד מבקש לכל היותר כמה פעולות ספורות,
      * ורשימה ארוכה מזה היא כמעט בוודאות הזיה — עדיף לקטוע אותה.

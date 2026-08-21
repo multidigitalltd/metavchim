@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import {
+  AGENT_ACTIONS,
   agentAction,
   jerusalemDayRange,
   type BuyerRequirements,
@@ -51,6 +52,12 @@ export interface ExecuteResult {
    * Gemini, או כשהניסוח נכשל, הרשימה עומדת בפני עצמה.
    */
   insight?: string;
+  /**
+   * צעד המשך מוצע — משפט פקודה שהמתווך יכול לומר עכשיו ("קבע סיור
+   * לראשון מהם"). תצוגה בלבד: לחיצה עליו שולחת אותו לאותו מסלול
+   * הבנה⟵אישור כמו כל משפט, שום דבר אינו מבוצע ישירות.
+   */
+  suggestion?: string;
 }
 
 @Injectable()
@@ -179,6 +186,16 @@ export class AgentExecuteService {
       if (!(await this.gemini.isConfigured())) return result;
       // קיצוץ קשיח: המודל צריך את ראש הרשימה, לא את כל המאגר
       const compact = JSON.stringify(result.data).slice(0, 6000);
+      /*
+       * ההצעה מוגבלת לפעולות שלמשתמש הזה יש הרשאה אליהן — הצעה
+       * לפעולה חסומה הייתה מסתיימת ב"אין לך הרשאה" על משהו שהסוכן
+       * עצמו הציע.
+       */
+      const allowedTitles = AGENT_ACTIONS.filter((a) =>
+        TenantContext.current().capabilities.has(a.capability),
+      )
+        .map((a) => a.title)
+        .join(", ");
       const raw = await this.gemini.generateStructured(
         [
           'אתה עוזר של מתווך נדל"ן. המתווך שאל:',
@@ -188,17 +205,27 @@ export class AgentExecuteService {
           compact,
           "",
           "כתוב משפט אחד או שניים בעברית שמסכמים את התובנה החשובה למתווך — כמה נמצאו, מה בולט, מה כדאי לעשות. אל תמציא נתונים שאינם ב-JSON. אם אין מה להוסיף מעבר לרשימה עצמה — החזר insight ריק.",
+          "",
+          `בנוסף, אם מתבקש צעד המשך טבעי — כתוב ב-suggestion משפט פקודה קצר אחד שהמתווך יכול לומר לך עכשיו (למשל "קבע סיור לרות כהן מחר"), מבוסס רק על מה שבתוצאות ומהסוגים האלה: ${allowedTitles}. אם אין המשך מתבקש — השאר ריק.`,
         ].join("\n"),
         {
           type: "object",
-          properties: { insight: { type: "string" } },
+          properties: { insight: { type: "string" }, suggestion: { type: "string" } },
         },
       );
       const insight =
         typeof (raw as { insight?: unknown })?.insight === "string"
           ? ((raw as { insight: string }).insight ?? "").trim()
           : "";
-      return insight === "" || insight.length > 500 ? result : { ...result, insight };
+      const suggestion =
+        typeof (raw as { suggestion?: unknown })?.suggestion === "string"
+          ? ((raw as { suggestion: string }).suggestion ?? "").trim()
+          : "";
+      return {
+        ...result,
+        ...(insight !== "" && insight.length <= 500 ? { insight } : {}),
+        ...(suggestion !== "" && suggestion.length <= 200 ? { suggestion } : {}),
+      };
     } catch {
       return result;
     }
@@ -806,12 +833,15 @@ function buildTitle(fields: PropertyFields): string | undefined {
 /**
  * הפעולות שמקבלות תובנה מסכמת — שאילתות עם תוצאות להשוואה. יומן
  * ומשימות של יום אחד אינם כאן: הרשימה שם קצרה וקריאה בעצמה, ומשפט
- * סיכום עליה הוא רעש.
+ * סיכום עליה הוא רעש. שיחות ועסקאות כן — הרשימות שם ארוכות ומזמינות
+ * מסקנה ("שלוש שיחות בלי מענה מאתמול").
  */
 const INSIGHT_ACTIONS = new Set([
   "search",
   "find_buyers",
   "find_properties",
   "show_matches",
+  "show_calls",
+  "show_deals",
   "office_report",
 ]);

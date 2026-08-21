@@ -125,6 +125,32 @@ export default function AgentPage(): React.JSX.Element {
     action: string;
     params: Record<string, unknown>;
   } | null>(null);
+  /**
+   * הקראת התשובות בקול — העדפה של המכשיר (כמו עוצמת שמע), לא של
+   * החשבון: מי שמדליק באוזניות במשרד לא רוצה שהטלפון יקריא בבית לקוח.
+   */
+  const [tts, setTts] = useState(false);
+  useEffect(() => {
+    try {
+      setTts(localStorage.getItem("agent-tts") === "on");
+    } catch {
+      /* דפדפן שחוסם אחסון — נשאר כבוי */
+    }
+  }, []);
+  const speakOut = useCallback(
+    (text: string) => {
+      if (!tts || text.trim() === "" || typeof window === "undefined") return;
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = "he-IL";
+        window.speechSynthesis.speak(utterance);
+      } catch {
+        /* דפדפן בלי תמיכה — ההקראה פשוט לא קוראת */
+      }
+    },
+    [tts],
+  );
 
   /*
    * הדוגמאות נטענות מהשרת ולא מוקלדות כאן.
@@ -177,8 +203,19 @@ export default function AgentPage(): React.JSX.Element {
         const next = await apiPost<Proposal>("/agent/interpret", {
           transcript: text.trim(),
           ...(prior ? { prior } : {}),
-          ...(history.length > 0 ? { history: history.slice(-4) } : {}),
+          ...(history.length > 0 ? { history: history.slice(-6) } : {}),
         });
+        /*
+         * ברכה/שאלה כללית — תשובה שיחתית במקום כרטיס "לא הבנתי".
+         * מוצגת כתוצאה רגילה; אין מה לאשר כי שום דבר לא מבוצע.
+         */
+        if (next.actionId === "unknown" && next.reply !== undefined && next.reply !== "") {
+          setProposal(null);
+          setResult({ message: next.reply });
+          setTranscript("");
+          speakOut(next.reply);
+          return;
+        }
         setProposal(next);
       } catch (err: unknown) {
         setError(err instanceof ApiError ? err.message : "לא הצלחתי לנתח את הבקשה");
@@ -186,7 +223,7 @@ export default function AgentPage(): React.JSX.Element {
         setBusy(false);
       }
     },
-    [history],
+    [history, speakOut],
   );
 
   function onDone(executed: ExecuteResult, executedParams?: Record<string, unknown>): void {
@@ -201,7 +238,7 @@ export default function AgentPage(): React.JSX.Element {
     if (proposal !== null && proposal.actionId !== "unknown" && executedParams !== undefined) {
       const dataSummary = summarizeData(executed.data);
       setHistory((prev) => [
-        ...prev.slice(-3),
+        ...prev.slice(-5),
         {
           transcript: transcript.trim(),
           action: proposal.actionId,
@@ -215,6 +252,8 @@ export default function AgentPage(): React.JSX.Element {
     }
     setResult(executed);
     setTranscript("");
+    // ההקראה: המסקנה והתובנה, לא רשימת הנתונים כולה
+    speakOut([executed.message, executed.insight].filter(Boolean).join(". "));
     /*
      * ניווט רק אחרי פעולה שיצרה או שינתה משהו. לשאילתה יש `href`
      * למסך המלא, אבל התשובה כבר כאן — ניווט אוטומטי היה זורק את
@@ -239,6 +278,46 @@ export default function AgentPage(): React.JSX.Element {
             דברו או הקלידו רגיל. אראה לכם מה הבנתי לפני שאעשה משהו.
           </p>
         </div>
+        <button
+          type="button"
+          className="ms-auto self-start"
+          aria-pressed={tts}
+          aria-label={tts ? "כיבוי הקראת התשובות" : "הקראת התשובות בקול"}
+          title={tts ? "הקראה פועלת — לחצו לכיבוי" : "הקראת התשובות בקול"}
+          style={{ color: tts ? "var(--color-primary)" : "var(--color-text-muted)", lineHeight: 0 }}
+          onClick={() => {
+            const next = !tts;
+            setTts(next);
+            try {
+              localStorage.setItem("agent-tts", next ? "on" : "off");
+            } catch {
+              /* דפדפן שחוסם אחסון — ההעדפה תחיה עד הרענון */
+            }
+            if (!next && typeof window !== "undefined") window.speechSynthesis?.cancel();
+          }}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M4 9v6h4l5 4V5L8 9H4z"
+              fill="currentColor"
+            />
+            {tts ? (
+              <path
+                d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+            ) : (
+              <path
+                d="M16.5 9.5l5 5m0-5l-5 5"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+            )}
+          </svg>
+        </button>
       </header>
 
       {/*
@@ -420,6 +499,25 @@ export default function AgentPage(): React.JSX.Element {
             </p>
           )}
           {result.data === undefined ? null : <AgentResults data={result.data} />}
+          {/*
+            צעד ההמשך המוצע — לחיצה שולחת אותו כמשפט חדש דרך אותו
+            מסלול הבנה⟵אישור. שום דבר אינו מבוצע מהלחיצה עצמה.
+          */}
+          {result.suggestion === undefined || result.suggestion === "" ? null : (
+            <button
+              type="button"
+              className="mv-example-chip mt-3"
+              disabled={busy}
+              onClick={() => {
+                const next = result.suggestion ?? "";
+                setResult(null);
+                setTranscript(next);
+                void interpret(next);
+              }}
+            >
+              אפשר להמשיך: „{result.suggestion}”
+            </button>
+          )}
         </div>
       )}
 
