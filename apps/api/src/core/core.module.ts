@@ -10,6 +10,7 @@ import { GeminiService } from "./gemini.service";
 import { GeocodingService } from "./geocoding.service";
 import { CreditEconomyService } from "./credit-economy.service";
 import { CreditExpiryService } from "./credit-expiry.service";
+import { OnboardingOutreachService } from "./onboarding-outreach.service";
 import { PlatformSettingsService } from "./platform-settings.service";
 import { OutboxService } from "./outbox.service";
 import { PrismaService } from "./prisma.service";
@@ -29,6 +30,7 @@ import { StorageService } from "./storage.service";
     GeocodingService,
     CreditEconomyService,
     CreditExpiryService,
+    OnboardingOutreachService,
     GeminiService,
     PlanCatalogService,
     AutomationQuotaService,

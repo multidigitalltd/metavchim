@@ -94,6 +94,18 @@ export class TelephonyService {
     }
   }
 
+  /** קיום חיבור מרכזיה בלבד — לבאנר במסך השיחות, בלי שום פרט תצורה. */
+  async isConnected(): Promise<boolean> {
+    const tenantId = TenantContext.current().tenantId;
+    const row = await this.prisma.withTenant((tx) =>
+      tx.integration.findFirst({
+        where: { tenantId, kind: "telephony" },
+        select: { id: true },
+      }),
+    );
+    return row !== null;
+  }
+
   /** מצב החיבור כפי שמנהל המשרד רואה אותו — בלי הסודות. */
   async status(): Promise<{
     connected: boolean;

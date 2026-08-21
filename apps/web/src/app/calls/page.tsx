@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { API_BASE, ApiError, apiDelete, apiGet, apiPost } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
+import { useUserDismissed } from "@/lib/dismissed-panels";
 import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { FilterBar, SearchField, textMatches } from "../list-controls";
@@ -78,6 +79,13 @@ export default function CallsPage() {
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /*
+   * הבאנר למי שטרם חיבר מרכזיה (בקשת המשתמש): מה מפסידים בלי
+   * החיבור. מוצג רק כשבאמת אין חיבור — משרד מחובר לא צריך פרסומת
+   * למה שכבר יש לו — וניתן לסגירה כמו שאר פאנלי העזרה.
+   */
+  const [pbxConnected, setPbxConnected] = useState<boolean | null>(null);
+  const pbxPitch = useUserDismissed("calls-pbx-pitch");
 
   /*
    * השיחה שהכתובת מבקשת — `?call=<id>`.
@@ -117,6 +125,14 @@ export default function CallsPage() {
   useEffect(() => {
     if (!authLoading) load(outcome);
   }, [authLoading, outcome]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    apiGet<{ connected: boolean }>("/telephony/presence")
+      .then((res) => setPbxConnected(res.connected))
+      // הנתיב לא זמין? אין באנר — עדיף שקט מפרסומת שגויה
+      .catch(() => setPbxConnected(true));
+  }, [authLoading]);
 
   async function onAdd(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -169,6 +185,60 @@ export default function CallsPage() {
           {adding ? "ביטול" : "+ תעד שיחה"}
         </button>
       </div>
+
+      {/*
+        מה שמשרד בלי מרכזיה מפסיד — למעלה, לפני הרשימה (בקשת
+        המשתמש). מוצג רק כשאין חיבור, וניתן לסגירה ברמת המשתמש.
+      */}
+      {pbxConnected === false && !pbxPitch.hidden ? (
+        <section
+          className="mv-example-box mb-4"
+          aria-labelledby="pbx-pitch-heading"
+        >
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <h2 id="pbx-pitch-heading" className="m-0 mb-1 text-[16px] font-bold">
+                חברו את המרכזיה — וכל שיחה תתעד את עצמה
+              </h2>
+              <p className="m-0 text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
+                עכשיו כל שיחה נרשמת כאן ידנית. עם מרכזיה מחוברת: כל שיחה
+                נקלטת אוטומטית ליומן, לקוח מתקשר מזוהה ונפתח הכרטיס שלו,
+                ההקלטה מתומללת ומסתכמת ישירות לכרטיס, שיחה שלא נענתה הופכת
+                לליד שלא הולך לאיבוד, חיוג בלחיצה מכל מסך, ומספרים
+                וירטואליים שמודדים מאיזה קמפיין הגיעה כל שיחה.
+              </p>
+              <p className="m-0 mt-2 text-[14.5px] font-semibold">
+                <Link href="/settings?tab=integrations#telephony" className="underline">
+                  לחיבור המרכזיה בניהול המשרד ←
+                </Link>
+              </p>
+            </div>
+            <button
+              type="button"
+              className="text-[14px] underline"
+              style={{ color: "var(--color-text-muted)", whiteSpace: "nowrap" }}
+              onClick={pbxPitch.never}
+            >
+              אל תציג יותר
+            </button>
+            <button
+              type="button"
+              aria-label="סגירת ההסבר על חיבור מרכזיה"
+              style={{ color: "var(--color-text-muted)", lineHeight: 0 }}
+              onClick={pbxPitch.close}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path
+                  d="M4 4l8 8M12 4l-8 8"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       {error ? (
         <Notice tone="danger">{error}</Notice>
