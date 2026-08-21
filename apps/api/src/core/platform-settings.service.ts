@@ -16,6 +16,16 @@ export type PlatformSettingKey =
   | "emailFrom"
   | "whatsappAppSecret"
   | "whatsappVerifyToken"
+  /**
+   * הסוכן האישי בוואטסאפ — האסימון והמספר שדרכם הוא עונה.
+   *
+   * ה-Access Token הוא של System User קבוע (לא הטוקן הזמני ממסך
+   * הפיתוח, שפג אחרי 24 שעות); ה-Phone Number ID הוא המזהה המספרי
+   * שמופיע תחת המספר במסך WhatsApp → API Setup. המזהה משמש גם
+   * בקליטה — הודעה שמגיעה אליו מנותבת לסוכן ולא לקליטת לידים.
+   */
+  | "whatsappAccessToken"
+  | "whatsappPhoneNumberId"
   | "loginOtpEnabled"
   | "googleClientId"
   | "googleClientSecret"

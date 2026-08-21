@@ -21,7 +21,12 @@ const inputStyle = { borderColor: "var(--color-border)", background: "var(--colo
 
 interface PlatformSettings {
   postmark: { configured: boolean; source: "db" | "env" | "none"; emailFrom?: string };
-  whatsapp: { configured: boolean; source: "db" | "env" | "none"; webhookUrl: string };
+  whatsapp: {
+    configured: boolean;
+    source: "db" | "env" | "none";
+    webhookUrl: string;
+    assistant: { configured: boolean; source: "db" | "env" | "none" };
+  };
   google: {
     configured: boolean;
     source: "db" | "env" | "none";
@@ -75,7 +80,7 @@ export function PlatformSettingsSection({
    * התוצאה, הלחיצה נראית כאילו לא עשתה כלום (דיווח המשתמש:
    * "הכפתור לא מגיב").
    */
-  const [probing, setProbing] = useState<"gemini" | "cardcom" | null>(null);
+  const [probing, setProbing] = useState<"gemini" | "cardcom" | "whatsapp" | null>(null);
   const noticeRef = useRef<HTMLDivElement | null>(null);
   const showProbeResult = (): void => {
     // אחרי הרינדור של ההודעה — אחרת גוללים אל תיבה שעוד לא קיימת
@@ -125,9 +130,13 @@ export function PlatformSettingsSection({
     try {
       const secret = String(f.get("whatsappAppSecret")).trim();
       const verify = String(f.get("whatsappVerifyToken")).trim();
+      const accessToken = String(f.get("whatsappAccessToken") ?? "").trim();
+      const phoneNumberId = String(f.get("whatsappPhoneNumberId") ?? "").trim();
       await apiPatch("/platform/settings", {
         ...(secret !== "" ? { whatsappAppSecret: secret } : {}),
         ...(verify !== "" ? { whatsappVerifyToken: verify } : {}),
+        ...(accessToken !== "" ? { whatsappAccessToken: accessToken } : {}),
+        ...(phoneNumberId !== "" ? { whatsappPhoneNumberId: phoneNumberId } : {}),
       });
       form.reset();
       setMessage("✓ הגדרות הוואטסאפ נשמרו");
@@ -226,6 +235,32 @@ export function PlatformSettingsSection({
           `הפינג תקין אבל קריאת הפענוח המלאה נכשלת (${res.model}): ${res.interpret.error ?? "ללא פירוט"}`,
         );
       }
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "בדיקת החיבור נכשלה");
+    } finally {
+      setBusy(false);
+      setProbing(null);
+      showProbeResult();
+    }
+  }
+
+  /**
+   * בדיקת חיבור הסוכן האישי בוואטסאפ — קריאת אמת אל Meta על המספר.
+   * טוקן שפג (הזמני חי 24 שעות) או מזהה שגוי מתגלים כאן, לא אצל
+   * המתווך הראשון שכותב לסוכן.
+   */
+  async function testWhatsApp(): Promise<void> {
+    setBusy(true);
+    setProbing("whatsapp");
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await apiPost<{ ok: boolean; message: string }>(
+        "/platform/settings/test-whatsapp",
+        {},
+      );
+      if (res.ok) setMessage(`✓ ${res.message}`);
+      else setError(res.message);
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "בדיקת החיבור נכשלה");
     } finally {
@@ -748,7 +783,65 @@ export function PlatformSettingsSection({
               style={inputStyle}
             />
           </div>
+
+          {/* הסוכן האישי — הצד היוצא. בלעדיו המערכת קולטת ואינה עונה. */}
+          <div className="w-full border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <p className="font-medium">הסוכן האישי — שליחת תשובות</p>
+              <StatusBadge
+                configured={settings.whatsapp.assistant.configured}
+                source={settings.whatsapp.assistant.source}
+              />
+            </div>
+            <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              מתווך ששולח הודעה למספר הזה מקבל עוזרת אישית: היא מזהה אותו לפי
+              הטלפון שבפרופיל שלו, מבינה, ומבצעת אחרי אישור. ה-Access Token חייב
+              להיות טוקן קבוע של System User (הטוקן הזמני ממסך הפיתוח פג אחרי 24
+              שעות); ה-Phone Number ID מופיע במסך WhatsApp ‏← API Setup, מתחת למספר.
+            </p>
+          </div>
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="whatsappAccessToken" className="mb-1 block font-medium">
+              Access Token{" "}
+              {settings.whatsapp.assistant.configured ? (
+                <span className="font-normal">(ריק = ללא שינוי)</span>
+              ) : null}
+            </label>
+            <input
+              id="whatsappAccessToken"
+              name="whatsappAccessToken"
+              type="password"
+              dir="ltr"
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              placeholder={settings.whatsapp.assistant.configured ? "••••••••" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div className="flex-1" style={{ minWidth: "220px" }}>
+            <label htmlFor="whatsappPhoneNumberId" className="mb-1 block font-medium">
+              Phone Number ID <span className="font-normal">(ספרות בלבד)</span>
+            </label>
+            <input
+              id="whatsappPhoneNumberId"
+              name="whatsappPhoneNumberId"
+              type="text"
+              dir="ltr"
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder={settings.whatsapp.assistant.configured ? "מוגדר" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
           <Button type="submit" disabled={busy}>שמור</Button>
+          {settings.whatsapp.assistant.configured ? (
+            <Button type="button" variant="secondary" disabled={busy} onClick={() => void testWhatsApp()}>
+              {probing === "whatsapp" ? "בודק מול Meta…" : "בדוק חיבור"}
+            </Button>
+          ) : null}
         </form>
       </div>
 

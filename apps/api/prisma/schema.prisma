@@ -1079,6 +1079,26 @@ model Message {
   @@map("messages")
 }
 
+/// שיחת הסוכן האישי בוואטסאפ — שורה אחת למתווך (docs/05 §1).
+/// מחזיקה את ההצעה שממתינה ל"אשר", את התורות האחרונים (זיכרון
+/// השיחה) ואת מזהי ההודעות שכבר טופלו (Meta שולח כפולים). יושבת
+/// תחת RLS כי ההצעה וההיסטוריה מכילות שמות ופרטים של לקוחות קצה.
+model WhatsAppChat {
+  id         String   @id @db.Char(26)
+  tenantId   String   @map("tenant_id") @db.Char(26)
+  userId     String   @map("user_id") @db.Char(26)
+  /// ההצעה שממתינה לאישור + התמלול שהוליד אותה. null = אין ממתינה
+  pending    Json?
+  /// תורות שבוצעו בפועל (AgentHistoryTurn), עד 4 — למשפטי המשך
+  history    Json     @default("[]")
+  /// מזהי ההודעות האחרונות שטופלו — Idempotency מול משלוח כפול
+  handledIds Json     @default("[]") @map("handled_ids")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, userId])
+  @@map("whatsapp_chats")
+}
+
 // פגישה/סיור/שיחה ביומן (docs/01 §3 Calendar). google_event_id — לסנכרון עתידי.
 model Appointment {
   id              String    @id @db.Char(26)

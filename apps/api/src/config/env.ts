@@ -33,6 +33,10 @@ const EnvSchema = z.object({
   /** סודות WhatsApp Cloud API — ה-Webhook סגור עד שהם מוגדרים. */
   WHATSAPP_APP_SECRET: z.string().min(16).optional(),
   WHATSAPP_VERIFY_TOKEN: z.string().min(16).optional(),
+  /** הסוכן האישי בוואטסאפ — שליחת תשובות דרך Graph API. חסר = קליטה בלבד. */
+  WHATSAPP_ACCESS_TOKEN: z.string().min(20).optional(),
+  /** מזהה המספר העסקי אצל Meta (Phone Number ID) — גם מזהה את קו הסוכן בקליטה. */
+  WHATSAPP_PHONE_NUMBER_ID: z.string().regex(/^\d{5,30}$/u).optional(),
   /** סוד ה-Webhook של Kanko — קליטת ביקושים סגורה עד שהוא מוגדר. */
   KANKO_WEBHOOK_SECRET: z.string().min(16).optional(),
   /** שעות מהפתיחה הראשונה של הצעה ועד משימת פולו-אפ אם הקונה לא הגיב. */
