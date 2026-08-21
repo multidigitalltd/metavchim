@@ -52,6 +52,13 @@ export class AgentResolveService {
   async toProposal(
     transcript: string,
     interpretation: Interpretation,
+    /**
+     * מקור המועד, כשהוא אינו המשפט המלא: לצעד המשך יש `dateText`
+     * משלו ("ביום שישי"), ופענוח המשפט המלא היה נותן לכל הצעדים את
+     * אותו תאריך (ביקורת Codex). null = אל תפענח מועד כלל — צעד
+     * שלא נאמר לו מועד לא יורש את זה של הצעד הראשי.
+     */
+    dateSource?: string | null,
   ): Promise<AgentProposal> {
     const action = agentAction(interpretation.actionId);
     if (!action) {
@@ -74,7 +81,9 @@ export class AgentResolveService {
 
     await this.resolveCities(params, warnings, resolvedKeys);
     this.resolvePhones(params, warnings, resolvedKeys);
-    this.resolveDates(action.id, transcript, params, resolvedKeys);
+    if (dateSource !== null) {
+      this.resolveDates(action.id, dateSource ?? transcript, params, resolvedKeys);
+    }
     this.applyKindDefault(action.id, transcript, params, resolvedKeys);
 
     const { candidates, chosen } = await this.resolveEntity(action.id, params);
@@ -103,8 +112,9 @@ export class AgentResolveService {
      */
     const followUps: AgentProposal[] = [];
     for (const step of interpretation.steps) {
-      followUps.push(
-        await this.toProposal(transcript, {
+      const sub = await this.toProposal(
+        transcript,
+        {
           actionId: step.actionId,
           params: step.params,
           evidence: {},
@@ -112,8 +122,25 @@ export class AgentResolveService {
           rejected: step.rejected,
           fallback: interpretation.fallback,
           steps: [],
-        }),
+        },
+        // המועד של הצעד — משלו בלבד; בלי dateText אין תאריך, לא ירושה
+        step.dateText ?? null,
       );
+      /*
+       * צעד המשך שדורש בחירה בין רשומות (כמה התאמות, או פעולת
+       * alwaysChoose כמו שליחה ללקוח) אינו נכנס לשרשור: הבחירה לא
+       * קיימת בכרטיס המשורשר, והצעד היה נכשל רק **אחרי** שהראשי כבר
+       * בוצע (ביקורת Codex). הוא יורד עם אזהרה גלויה — לא בשקט.
+       * רשימת מועמדים ריקה נשארת: כנראה הרשומה תיווצר בצעד קודם,
+       * והפתרון קורה בזמן הביצוע.
+       */
+      if (sub.candidates !== undefined && sub.candidates.options.length > 0) {
+        warnings.push(
+          `„${sub.title}” דורשת בחירה בין רשומות ולכן לא נכללה באישור המשותף — הריצו אותה בנפרד`,
+        );
+        continue;
+      }
+      followUps.push(sub);
     }
 
     return {

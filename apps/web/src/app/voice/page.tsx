@@ -189,16 +189,16 @@ export default function AgentPage(): React.JSX.Element {
     [history],
   );
 
-  function onDone(executed: ExecuteResult): void {
+  function onDone(executed: ExecuteResult, executedParams?: Record<string, unknown>): void {
     setProposal(null);
     if (executed.message === "") return; // בוטל
     /*
-     * התור נכנס לזיכרון רק אחרי ביצוע אמיתי. התקציר כולל את שמות
-     * התוצאות לפי הסדר — זה מה שמאפשר "תתקשר לראשון מהם" בתור הבא.
+     * התור נכנס לזיכרון רק אחרי ביצוע אמיתי, עם הפרמטרים **שנשלחו
+     * בפועל** — כולל עריכות ובחירת מועמד (ביקורת Codex). התקציר
+     * כולל את שמות התוצאות לפי הסדר — זה מה שמאפשר "תתקשר לראשון
+     * מהם" בתור הבא.
      */
-    if (proposal !== null && proposal.actionId !== "unknown") {
-      const executedParams: Record<string, unknown> = {};
-      for (const field of proposal.fields) executedParams[field.key] = field.value;
+    if (proposal !== null && proposal.actionId !== "unknown" && executedParams !== undefined) {
       const dataSummary = summarizeData(executed.data);
       setHistory((prev) => [
         ...prev.slice(-3),
@@ -381,6 +381,7 @@ export default function AgentPage(): React.JSX.Element {
       ) : (
         <ProposalCard
           proposal={proposal}
+          transcript={transcript}
           onDone={onDone}
           onRefine={(params) => {
             setPriorForRefine({ action: proposal.actionId, params });

@@ -81,11 +81,19 @@ const CONFIRM_LABEL: Record<Proposal["risk"], string> = {
 
 export function ProposalCard({
   proposal,
+  transcript,
   onDone,
   onRefine,
 }: {
   proposal: Proposal;
-  onDone: (result: ExecuteResult) => void;
+  /** המשפט המקורי — נשלח לביצוע כדי שהשרת ינסח תובנה על שאילתות */
+  transcript?: string;
+  /**
+   * `executedParams` — הפרמטרים **שנשלחו בפועל**, כולל עריכות
+   * ובחירת מועמד. זיכרון השיחה נבנה מהם ולא מההצעה המקורית: תיקון
+   * ידני של עיר או בחירת רשומה הם חלק ממה שבוצע (ביקורת Codex).
+   */
+  onDone: (result: ExecuteResult, executedParams?: Record<string, unknown>) => void;
   /** תיקון בדיבור — „לא, 4 חדרים”. ההצעה הקודמת נשלחת כהקשר. */
   onRefine?: (params: Record<string, unknown>) => void;
 }): React.JSX.Element {
@@ -135,13 +143,18 @@ export function ProposalCard({
     setBusy(true);
     setError(null);
     try {
+      const sent = params();
       const primary = await apiPost<ExecuteResult>("/agent/execute", {
         action: proposal.actionId,
-        params: params(),
+        params: sent,
+        // המשפט המקורי — בלעדיו השרת לא מנסח תובנה על שאילתות
+        ...(transcript !== undefined && transcript.trim() !== ""
+          ? { transcript: transcript.trim() }
+          : {}),
       });
       const followUps = proposal.followUps ?? [];
       if (followUps.length === 0) {
-        onDone(primary);
+        onDone(primary, sent);
         return;
       }
       /*
@@ -168,14 +181,17 @@ export function ProposalCard({
           break;
         }
       }
-      onDone({
-        message:
-          failure === null
-            ? messages.join(" · ")
-            : `${messages.join(" · ")} · ${failure}`,
-        // בכישלון חלקי לא מנווטים — ניווט היה מסתיר את ההודעה
-        ...(failure === null && primary.href !== undefined ? { href: primary.href } : {}),
-      });
+      onDone(
+        {
+          message:
+            failure === null
+              ? messages.join(" · ")
+              : `${messages.join(" · ")} · ${failure}`,
+          // בכישלון חלקי לא מנווטים — ניווט היה מסתיר את ההודעה
+          ...(failure === null && primary.href !== undefined ? { href: primary.href } : {}),
+        },
+        sent,
+      );
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "הפעולה נכשלה");
     } finally {

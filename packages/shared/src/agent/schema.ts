@@ -137,6 +137,11 @@ export function interpretJsonSchema(): Record<string, unknown> {
               enum: [...AGENT_ACTION_IDS],
             },
             params: { type: "object", properties: params },
+            dateText: {
+              type: "string",
+              description:
+                "מילות המועד של הצעד הזה בלבד, כפי שנאמרו (\"מחר בעשר\", \"ביום שישי\"). השמט אם לא נאמר מועד לצעד הזה. אל תחשב תאריך — רק המילים.",
+            },
           },
           required: ["action"],
         },
@@ -162,6 +167,13 @@ export const InterpretResponseSchema = z.object({
       z.object({
         action: z.enum(AGENT_ACTION_IDS as unknown as [string, ...string[]]),
         params: z.record(z.string(), z.unknown()).default({}),
+        /*
+         * מילות המועד של הצעד — לא תאריך מחושב. "תזכיר לי מחר ותקבע
+         * פגישה ביום שישי": פענוח המשפט המלא לכל צעד היה נותן לשניהם
+         * את אותו תאריך (ביקורת Codex); כל צעד נושא את הביטוי שלו,
+         * והקוד מחשב אותו בלוח ירושלים כרגיל.
+         */
+        dateText: z.string().max(200).optional(),
       }),
     )
     .max(4)

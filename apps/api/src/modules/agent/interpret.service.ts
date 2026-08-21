@@ -57,7 +57,13 @@ export interface Interpretation {
   /** true = מנוע החוקים הכריע, כלומר Gemini לא היה זמין */
   fallback: boolean;
   /** צעדי המשך — כשהמשפט ביקש כמה פעולות. מותרים ומצומצמים כמו הראשי. */
-  steps: { actionId: string; params: Record<string, unknown>; rejected: string[] }[];
+  steps: {
+    actionId: string;
+    params: Record<string, unknown>;
+    rejected: string[];
+    /** מילות המועד של הצעד הזה בלבד — הקוד מחשב מהן את התאריך */
+    dateText?: string;
+  }[];
 }
 
 @Injectable()
@@ -157,7 +163,16 @@ export class AgentInterpretService {
         return [];
       }
       const narrowed = narrowParams(stepAction, step.params);
-      return [{ actionId: stepAction.id, params: narrowed.params, rejected: narrowed.rejected }];
+      return [
+        {
+          actionId: stepAction.id,
+          params: narrowed.params,
+          rejected: narrowed.rejected,
+          ...(step.dateText !== undefined && step.dateText.trim() !== ""
+            ? { dateText: step.dateText.trim() }
+            : {}),
+        },
+      ];
     });
 
     return {
