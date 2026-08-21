@@ -185,7 +185,7 @@ export class AgentExecuteService {
     try {
       if (!(await this.gemini.isConfigured())) return result;
       // קיצוץ קשיח: המודל צריך את ראש הרשימה, לא את כל המאגר
-      const compact = JSON.stringify(result.data).slice(0, 6000);
+      const compact = JSON.stringify(redactForInsight(result.data)).slice(0, 6000);
       /*
        * ההצעה מוגבלת לפעולות שלמשתמש הזה יש הרשאה אליהן — הצעה
        * לפעולה חסומה הייתה מסתיימת ב"אין לך הרשאה" על משהו שהסוכן
@@ -836,6 +836,26 @@ function buildTitle(fields: PropertyFields): string | undefined {
  * סיכום עליה הוא רעש. שיחות ועסקאות כן — הרשימות שם ארוכות ומזמינות
  * מסקנה ("שלוש שיחות בלי מענה מאתמול").
  */
+/**
+ * מה **לא** נשלח למודל כשמנסחים תובנה — טלפונים, אימיילים, סיכומי
+ * שיחות והערות חופשיות. התובנה זקוקה לשמות, ערים, מחירים וסטטוסים;
+ * היא אינה זקוקה לדרכי התקשרות או לתוכן שיחה של לקוח קצה, ושליחתם
+ * הייתה מייצאת בשקט בדיוק את מה שהתמלול המקומי נבנה כדי לשמור
+ * בתוך המכונה (ביקורת Codex).
+ */
+function redactForInsight(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactForInsight);
+  if (typeof value === "object" && value !== null) {
+    const out: Record<string, unknown> = {};
+    for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
+      if (/phone|email|summary|transcript|notes/iu.test(key)) continue;
+      out[key] = redactForInsight(inner);
+    }
+    return out;
+  }
+  return value;
+}
+
 const INSIGHT_ACTIONS = new Set([
   "search",
   "find_buyers",
