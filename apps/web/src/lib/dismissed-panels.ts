@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { apiGet, apiPatch } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 
 /**
  * "אל תציג יותר" לפאנלי עזרה — נשמר **למשתמש** ולא לדפדפן.
@@ -50,24 +50,18 @@ export function useUserDismissed(key: string): {
 
   const never = useCallback(() => {
     setHidden(true);
-    // קוראים את ההעדפות הטריות ורק אז כותבים — PATCH מחליף את
-    // האובייקט כולו, וכתיבה עיוורת הייתה דורסת את הגדרות הנגישות
-    void apiGet<ProfilePrefs>("/auth/profile")
-      .then((res) => {
-        const prefs = res.preferences ?? {};
-        const existing = Array.isArray(prefs.dismissedPanels)
-          ? (prefs.dismissedPanels as string[])
-          : [];
-        return apiPatch("/auth/profile", {
-          preferences: {
-            ...prefs,
-            dismissedPanels: [...new Set([...existing, key])],
-          },
-        });
-      })
-      .catch(() => {
-        /* לא נשמר — הפאנל יחזור בכניסה הבאה, והכפתור עדיין שם */
-      });
+    /*
+     * נתיב ייעודי שממזג אטומית בשרת — לא קריאה-ואז-PATCH של כל
+     * ה-preferences, שבמקביל לשמירת נגישות או לסגירה ממכשיר שני
+     * הייתה דורסת את הכתיבה השנייה (ביקורת Codex).
+     *
+     * נכשל? הפאנל חוזר — הסתרה שלא נשמרה שמוצגת כהצלחה הייתה
+     * מפתיעה את המשתמש בכניסה הבאה (ביקורת Codex). הכפתור נשאר
+     * זמין לניסיון נוסף.
+     */
+    void apiPost("/auth/profile/dismissed-panels", { key }).catch(() =>
+      setHidden(false),
+    );
   }, [key]);
 
   return { hidden, close, never };
