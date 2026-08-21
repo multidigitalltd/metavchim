@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { useUserDismissed } from "@/lib/dismissed-panels";
 import { useRequireAuth } from "@/lib/use-auth";
 import { IconMic } from "../icons";
 import { VoiceRecorder } from "../voice-recorder";
@@ -36,6 +37,7 @@ interface AgentCapability {
   examples: readonly string[];
 }
 
+
 export default function AgentPage(): React.JSX.Element {
   const { loading: authLoading } = useRequireAuth();
   const router = useRouter();
@@ -43,6 +45,8 @@ export default function AgentPage(): React.JSX.Element {
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [result, setResult] = useState<ExecuteResult | null>(null);
   const [examples, setExamples] = useState<string[]>([]);
+  // סגירה ו"אל תציג יותר" (בקשת המשתמש) — נשמר למשתמש, בכל מכשיר
+  const examplesBox = useUserDismissed("agent-examples");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   /**
@@ -145,11 +149,36 @@ export default function AgentPage(): React.JSX.Element {
         </div>
       </header>
 
-      {examples.length === 0 ? null : (
+      {examples.length === 0 || examplesBox.hidden ? null : (
         <section className="mv-example-box mb-5" aria-labelledby="agent-examples">
-          <h2 id="agent-examples" className="m-0 mb-2.5 text-[15px] font-bold">
-            למשל, אפשר להגיד:
-          </h2>
+          <div className="mb-2.5 flex items-center gap-2">
+            <h2 id="agent-examples" className="m-0 text-[15px] font-bold">
+              למשל, אפשר להגיד:
+            </h2>
+            <button
+              type="button"
+              className="ms-auto text-[14px] underline"
+              style={{ color: "var(--color-text-muted)" }}
+              onClick={examplesBox.never}
+            >
+              אל תציג יותר
+            </button>
+            <button
+              type="button"
+              aria-label="סגירת הדוגמאות"
+              style={{ color: "var(--color-text-muted)", lineHeight: 0 }}
+              onClick={examplesBox.close}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path
+                  d="M4 4l8 8M12 4l-8 8"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          </div>
           <div className="flex flex-wrap gap-2">
             {examples.map((example) => (
               <button

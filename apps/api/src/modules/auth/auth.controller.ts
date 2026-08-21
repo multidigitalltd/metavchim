@@ -63,6 +63,11 @@ const UpdateProfileSchema = z
   })
   .strict();
 
+/** מזהי פאנלים הם slugs קצרים שהמסכים קובעים — לא טקסט חופשי */
+const DismissPanelSchema = z
+  .object({ key: z.string().regex(/^[a-z0-9-]{1,60}$/u) })
+  .strict();
+
 const ChangePasswordSchema = z
   .object({
     currentPassword: z.string().min(1).max(200),
@@ -354,6 +359,25 @@ export class AuthController {
     if (!user) throw new UnauthorizedException();
     const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
     return this.auth.updateProfile(user.id, body, token);
+  }
+
+  /**
+   * "אל תציג יותר" לפאנל עזרה — נתיב ייעודי ולא PATCH של כל
+   * ה-preferences: המיזוג קורה אטומית בשרת, כך שסגירה משני מכשירים
+   * או שמירת נגישות מקבילה אינן דורסות זו את זו (ביקורת Codex).
+   */
+  @AnyAuthenticated()
+  @Post("profile/dismissed-panels")
+  @HttpCode(200)
+  @UsePipes(new ZodValidationPipe(DismissPanelSchema))
+  async dismissPanel(
+    @Body() body: z.infer<typeof DismissPanelSchema>,
+    @Req() req: Request,
+  ): Promise<{ ok: true }> {
+    const user = (req as Request & { authUser?: AuthenticatedUser }).authUser;
+    if (!user) throw new UnauthorizedException();
+    await this.auth.dismissPanel(user.id, body.key);
+    return { ok: true };
   }
 
   @AnyAuthenticated()

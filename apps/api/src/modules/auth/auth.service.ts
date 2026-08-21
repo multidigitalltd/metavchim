@@ -355,6 +355,27 @@ export class AuthService {
     };
   }
 
+  /**
+   * "אל תציג יותר" לפאנל עזרה — מיזוג אטומי בשרת.
+   *
+   * עדכון jsonb במשפט אחד ולא קריאה-ואז-כתיבה בצד הלקוח: שני
+   * מכשירים (או לשונית נגישות פתוחה) שכותבים preferences במקביל
+   * דורסים זה את זה, והפאנל שנסגר חוזר (ביקורת Codex). התנאי מונע
+   * כפילויות במערך והפעולה אידמפוטנטית.
+   */
+  async dismissPanel(userId: string, key: string): Promise<void> {
+    await this.prisma.$executeRaw`
+      UPDATE users
+      SET preferences = jsonb_set(
+        COALESCE(preferences, '{}'::jsonb),
+        '{dismissedPanels}',
+        COALESCE(preferences->'dismissedPanels', '[]'::jsonb) || to_jsonb(${key}::text)
+      )
+      WHERE id = ${userId}
+        AND NOT (COALESCE(preferences->'dismissedPanels', '[]'::jsonb) @> to_jsonb(${key}::text))
+    `;
+  }
+
   /** החלפת סיסמה ע"י המשתמש עצמו — מנקה את דגל mustChangePassword. */
   async changePassword(
     userId: string,
