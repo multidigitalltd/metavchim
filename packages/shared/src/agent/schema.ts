@@ -191,13 +191,22 @@ function tolerantInterpretInput(raw: unknown): unknown {
   }
   if (typeof value["clarify"] === "string") value["clarify"] = value["clarify"].slice(0, 300);
   else delete value["clarify"];
-  if (!isPlainObject(value["params"])) delete value["params"];
+  /*
+   * `params` שגוי (מחרוזת/מערך) **נשאר** כדי שהוולידציה תיכשל והפירוש
+   * ייפול לחוקים. מחיקה שלו הייתה הופכת אותו ל-`{}` תקין-למראה —
+   * ו"קונים בגבעתיים עם 4 חדרים" היה מחזיר את כל המאגר בלי סינון,
+   * תוצאה סבירה-למראה ושגויה (ביקורת Codex). רק null נחשב "ריק".
+   */
   if (Array.isArray(value["steps"])) {
     value["steps"] = (value["steps"] as unknown[])
       .filter(
         (step): step is Record<string, unknown> =>
           isPlainObject(step) &&
-          (AGENT_ACTION_IDS as readonly string[]).includes(String(step["action"])),
+          (AGENT_ACTION_IDS as readonly string[]).includes(String(step["action"])) &&
+          // params שגוי פוסל את הצעד כולו — לא הופך אותו לצעד בלי פרמטרים
+          (step["params"] === undefined ||
+            step["params"] === null ||
+            isPlainObject(step["params"])),
       )
       .slice(0, 4)
       .map((step) => {
@@ -210,7 +219,6 @@ function tolerantInterpretInput(raw: unknown): unknown {
         } else {
           delete clean["dateText"];
         }
-        if (!isPlainObject(clean["params"])) delete clean["params"];
         return clean;
       });
   } else {

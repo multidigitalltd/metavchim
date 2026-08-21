@@ -236,6 +236,30 @@ describe("צמצום לפעולה שנבחרה", () => {
       expect(InterpretResponseSchema.safeParse({ params: {} }).success).toBe(false);
       expect(InterpretResponseSchema.safeParse({ action: "do_magic" }).success).toBe(false);
     });
+
+    /*
+     * params שגוי אינו הופך ל-{} תקין-למראה: "קונים בגבעתיים עם 4
+     * חדרים" עם params ריק היה מחזיר את כל המאגר בלי סינון — תוצאה
+     * סבירה-למראה ושגויה. הכשל מפיל את הפירוש לחוקים (ביקורת Codex).
+     */
+    it("params כמחרוזת או מערך נכשל — לא נמחק בשקט", () => {
+      expect(
+        InterpretResponseSchema.safeParse({ action: "find_buyers", params: "גבעתיים" }).success,
+      ).toBe(false);
+      expect(
+        InterpretResponseSchema.safeParse({ action: "find_buyers", params: ["גבעתיים"] }).success,
+      ).toBe(false);
+    });
+
+    it("צעד עם params שגוי נפסל כולו — לא הופך לצעד בלי פרמטרים", () => {
+      const parsed = InterpretResponseSchema.safeParse({
+        action: "create_buyer",
+        params: { name: "משה" },
+        steps: [{ action: "add_note", params: "הערה כמחרוזת" }],
+      });
+      expect(parsed.success).toBe(true);
+      expect(parsed.success && parsed.data.steps).toEqual([]);
+    });
   });
 });
 
