@@ -125,6 +125,27 @@ export function interpretJsonSchema(): Record<string, unknown> {
         description:
           "שאלה קצרה אחת, רק אם באמת אי אפשר להמשיך בלעדיה. השאר ריק כשאפשר להציע משהו.",
       },
+      steps: {
+        type: "array",
+        description:
+          "פעולות המשך, כשהמשפט ביקש כמה פעולות. הראשונה נשארת ב-action/params; כאן הבאות, לפי הסדר. ריק כשיש פעולה אחת.",
+        items: {
+          type: "object",
+          properties: {
+            action: {
+              type: "string",
+              enum: [...AGENT_ACTION_IDS],
+            },
+            params: { type: "object", properties: params },
+            dateText: {
+              type: "string",
+              description:
+                "מילות המועד של הצעד הזה בלבד, כפי שנאמרו (\"מחר בעשר\", \"ביום שישי\"). השמט אם לא נאמר מועד לצעד הזה. אל תחשב תאריך — רק המילים.",
+            },
+          },
+          required: ["action"],
+        },
+      },
     },
     required: ["action"],
   };
@@ -137,6 +158,26 @@ export const InterpretResponseSchema = z.object({
   evidence: z.record(z.string(), z.string()).default({}),
   unmapped: z.array(z.string().max(300)).max(10).default([]),
   clarify: z.string().max(300).optional(),
+  /*
+   * עד ארבעה צעדי המשך: משפט אחד מבקש לכל היותר כמה פעולות ספורות,
+   * ורשימה ארוכה מזה היא כמעט בוודאות הזיה — עדיף לקטוע אותה.
+   */
+  steps: z
+    .array(
+      z.object({
+        action: z.enum(AGENT_ACTION_IDS as unknown as [string, ...string[]]),
+        params: z.record(z.string(), z.unknown()).default({}),
+        /*
+         * מילות המועד של הצעד — לא תאריך מחושב. "תזכיר לי מחר ותקבע
+         * פגישה ביום שישי": פענוח המשפט המלא לכל צעד היה נותן לשניהם
+         * את אותו תאריך (ביקורת Codex); כל צעד נושא את הביטוי שלו,
+         * והקוד מחשב אותו בלוח ירושלים כרגיל.
+         */
+        dateText: z.string().max(200).optional(),
+      }),
+    )
+    .max(4)
+    .default([]),
 });
 
 export type InterpretResponse = z.infer<typeof InterpretResponseSchema>;

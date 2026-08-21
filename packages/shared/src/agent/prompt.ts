@@ -10,6 +10,21 @@
 import { AGENT_ACTIONS } from "./actions.js";
 import { fieldDescription } from "./field-spec.js";
 
+/**
+ * תור אחד בשיחה — מה נאמר, מה בוצע, ומה חזר.
+ *
+ * `resultSummary` הוא לב הזיכרון: "ומה עם רמת גן?" דורש לדעת שהשאלה
+ * הקודמת הייתה על קונים בגבעתיים, ו"תתקשר לראשון מהם" דורש לדעת מי
+ * הראשון ברשימה שחזרה. השמות ברשימה — לא מזהים: המודל מפנה בשם,
+ * והקוד פותר אותו מול המאגר כרגיל.
+ */
+export interface AgentHistoryTurn {
+  transcript: string;
+  action: string;
+  params: Record<string, unknown>;
+  resultSummary?: string;
+}
+
 /** ההקשר שהופך את התשובה לנכונה למשרד הזה ולרגע הזה. */
 export interface AgentPromptContext {
   /** היום והשעה כפי שהמתווך חווה אותם — לפרשנות "מחר", לא לחישוב */
@@ -18,6 +33,8 @@ export interface AgentPromptContext {
   allowedActions: readonly string[];
   /** ההצעה הקודמת, כשזה תיקון ולא בקשה חדשה */
   prior?: { action: string; params: Record<string, unknown> };
+  /** התורות האחרונות בשיחה — למשפטי המשך ("ומה עם…", "תתקשר לראשון") */
+  history?: readonly AgentHistoryTurn[];
 }
 
 /**
@@ -72,7 +89,25 @@ export function buildInterpretPrompt(
     "5. סכומים תמיד בשקלים שלמים: \"2.3 מיליון\" ⇒ 2300000, \"900 אלף\" ⇒ 900000, \"מיליון וחצי\" ⇒ 1500000.",
     "6. שמות מקומות — כתוב בצורה המקובלת ובלי מילית חיבור: \"בגבעתיים\" ⇒ \"גבעתיים\", \"לראשל\\\"צ\" ⇒ \"ראשון לציון\". כלול כל שם מקום שנאמר, גם קטן או פחות מוכר.",
     "7. `clarify` — רק כשבאמת אי אפשר להציע כלום בלעדיה. הצעה חלקית עדיפה על שאלה.",
+    "8. משפט שמבקש **כמה** פעולות (\"תוסיף קונה משה ותקבע לו סיור מחר\") — הפעולה הראשונה ב-`action`/`params`, והבאות ב-`steps` לפי הסדר. פעולת המשך שמכוונת למי שנוצר בצעד קודם מפנה אליו **בשם** בשדה הביטוי המתאים. אם לצעד המשך נאמר מועד — שים את **מילות המועד** שלו (לא תאריך מחושב) ב-`dateText` של אותו צעד. משפט של פעולה אחת — השאר את `steps` ריק.",
   );
+
+  if (context.history !== undefined && context.history.length > 0) {
+    lines.push(
+      "",
+      "## השיחה עד כה",
+      "",
+      "המשפט החדש עשוי להמשיך את השיחה: \"ומה עם רמת גן?\" אחרי שאלה על גבעתיים היא אותה שאלה בעיר אחרת, ו\"תוסיף אותו כקונה\" מדבר על מי שחזר בתוצאה האחרונה. פנייה לרשומה מהתוצאות (\"הראשון מהם\") — מלא את שדה הביטוי בשם שלה מהרשימה. אל תיגרר להקשר כשהמשפט פותח נושא חדש לגמרי.",
+      "",
+    );
+    context.history.forEach((turn, i) => {
+      lines.push(
+        `${i + 1}. המתווך: "${turn.transcript.replaceAll('"', "'")}"`,
+        `   בוצע: ${turn.action} ${JSON.stringify(turn.params)}`,
+        ...(turn.resultSummary ? [`   תוצאה: ${turn.resultSummary.replaceAll('"', "'")}`] : []),
+      );
+    });
+  }
 
   if (context.prior) {
     lines.push(

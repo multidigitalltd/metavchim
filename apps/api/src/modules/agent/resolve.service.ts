@@ -52,6 +52,13 @@ export class AgentResolveService {
   async toProposal(
     transcript: string,
     interpretation: Interpretation,
+    /**
+     * מקור המועד, כשהוא אינו המשפט המלא: לצעד המשך יש `dateText`
+     * משלו ("ביום שישי"), ופענוח המשפט המלא היה נותן לכל הצעדים את
+     * אותו תאריך (ביקורת Codex). null = אל תפענח מועד כלל — צעד
+     * שלא נאמר לו מועד לא יורש את זה של הצעד הראשי.
+     */
+    dateSource?: string | null,
   ): Promise<AgentProposal> {
     const action = agentAction(interpretation.actionId);
     if (!action) {
@@ -74,7 +81,9 @@ export class AgentResolveService {
 
     await this.resolveCities(params, warnings, resolvedKeys);
     this.resolvePhones(params, warnings, resolvedKeys);
-    this.resolveDates(action.id, transcript, params, resolvedKeys);
+    if (dateSource !== null) {
+      this.resolveDates(action.id, dateSource ?? transcript, params, resolvedKeys);
+    }
     this.applyKindDefault(action.id, transcript, params, resolvedKeys);
 
     const { candidates, chosen } = await this.resolveEntity(action.id, params);
@@ -95,6 +104,45 @@ export class AgentResolveService {
      */
     if (chosen) fields.push(chosen);
 
+    /*
+     * צעדי המשך נפתרים כל אחד כהצעה מלאה — אותם תאריכים, טלפונים
+     * וערים. ביטוי שמפנה למי שייווצר רק בצעד קודם לא יימצא כאן,
+     * וזה בסדר: הפתרון הסופי שלו קורה בזמן הביצוע, אחרי שהרשומה
+     * כבר קיימת (ראו AgentExecuteService).
+     */
+    const followUps: AgentProposal[] = [];
+    for (const step of interpretation.steps) {
+      const sub = await this.toProposal(
+        transcript,
+        {
+          actionId: step.actionId,
+          params: step.params,
+          evidence: {},
+          unmapped: [],
+          rejected: step.rejected,
+          fallback: interpretation.fallback,
+          steps: [],
+        },
+        // המועד של הצעד — משלו בלבד; בלי dateText אין תאריך, לא ירושה
+        step.dateText ?? null,
+      );
+      /*
+       * צעד המשך שדורש בחירה בין רשומות (כמה התאמות, או פעולת
+       * alwaysChoose כמו שליחה ללקוח) אינו נכנס לשרשור: הבחירה לא
+       * קיימת בכרטיס המשורשר, והצעד היה נכשל רק **אחרי** שהראשי כבר
+       * בוצע (ביקורת Codex). הוא יורד עם אזהרה גלויה — לא בשקט.
+       * רשימת מועמדים ריקה נשארת: כנראה הרשומה תיווצר בצעד קודם,
+       * והפתרון קורה בזמן הביצוע.
+       */
+      if (sub.candidates !== undefined && sub.candidates.options.length > 0) {
+        warnings.push(
+          `„${sub.title}” דורשת בחירה בין רשומות ולכן לא נכללה באישור המשותף — הריצו אותה בנפרד`,
+        );
+        continue;
+      }
+      followUps.push(sub);
+    }
+
     return {
       actionId: action.id,
       title: action.title,
@@ -106,6 +154,45 @@ export class AgentResolveService {
       ...(candidates ? { candidates } : {}),
       ...(interpretation.clarify ? { clarify: interpretation.clarify } : {}),
       fallback: interpretation.fallback,
+      ...(followUps.length > 0 ? { followUps } : {}),
+    };
+  }
+
+  /**
+   * פתרון ביטוי ⟵ מזהה **בזמן הביצוע** — לצעדי המשך של שרשור.
+   *
+   * "תוסיף קונה משה ותקבע לו סיור": בזמן ההצעה משה עוד לא קיים,
+   * ורק אחרי שהצעד הראשון בוצע יש את מי למצוא. התאמה יחידה נבחרת;
+   * ריבוי או היעדר עוצרים עם הודעה ברורה — לא מנחשים. פעולות
+   * שמסומנות alwaysChoose (שליחה ללקוח, חשיפה לרשת) לעולם אינן
+   * נפתרות כאן אוטומטית — הבחירה המפורשת היא חלק מהפעולה.
+   */
+  async resolveForExecution(
+    actionId: string,
+    params: Record<string, unknown>,
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
+    const spec = ENTITY_LOOKUP[actionId];
+    if (spec === undefined) return { ok: true };
+    if (typeof params[spec.idKey] === "string") return { ok: true };
+    const phrase = params[spec.key];
+    if (typeof phrase !== "string" || phrase.trim().length < 2) return { ok: true };
+    if (spec.alwaysChoose) {
+      return {
+        ok: false,
+        message: `„${agentAction(actionId)?.title ?? actionId}” דורשת בחירה מפורשת — פתחו את הפעולה בנפרד ובחרו את הרשומה`,
+      };
+    }
+    const options = await this.candidatesFor(spec.kind, phrase.trim());
+    if (options.length === 1) {
+      params[spec.idKey] = options[0]!.id;
+      return { ok: true };
+    }
+    if (options.length === 0) {
+      return { ok: false, message: `לא נמצא „${phrase}” במאגר` };
+    }
+    return {
+      ok: false,
+      message: `נמצאו כמה רשומות ל„${phrase}” — פתחו את הפעולה בנפרד ובחרו ביניהן`,
     };
   }
 
