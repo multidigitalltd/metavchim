@@ -1440,13 +1440,24 @@ export class PlatformController {
       allowedActions: AGENT_ACTIONS.map((a) => a.id),
     });
     const interpretProbe = await this.gemini.probe(prompt, interpretJsonSchema());
+    let interpretOk = interpretProbe.ok;
+    let interpretError = interpretProbe.error;
     let interpretAction: string | undefined;
     if (interpretProbe.ok) {
-      // מה המודל ענה בפועל — הוכחה שהצינור שלם מקצה לקצה
-      const parsed = InterpretResponseSchema.safeParse(
-        await this.gemini.generateStructured(prompt, interpretJsonSchema()),
-      );
-      interpretAction = parsed.success ? parsed.data.action : undefined;
+      /*
+       * אותה ולידציה שהפענוח האמיתי מריץ, על אותה תשובה — לא קריאה
+       * שנייה. במצב ה-JSON החופשי "JSON תקין" לבדו אינו הוכחה: `{}`
+       * עובר פענוח ונופל בוולידציה, ובדיקה שמדווחת עליו "תקין"
+       * מסתירה בדיוק את הכשל שהיא נועדה לחשוף (ביקורת Codex).
+       */
+      const parsed = InterpretResponseSchema.safeParse(interpretProbe.value);
+      if (parsed.success) {
+        interpretAction = parsed.data.action;
+      } else {
+        interpretOk = false;
+        interpretError =
+          "המודל החזיר JSON שאינו במבנה התשובה — פקודות אמיתיות היו נופלות לזיהוי הבסיסי";
+      }
     }
 
     const { lastFailure, lastSuccessAt } = this.gemini.status();
@@ -1454,8 +1465,11 @@ export class PlatformController {
       configured: true,
       model,
       ping,
+      // מפורש ולא spread — התשובה הגולמית של המודל אינה חלק מה-API
       interpret: {
-        ...interpretProbe,
+        ok: interpretOk,
+        latencyMs: interpretProbe.latencyMs,
+        ...(interpretError === undefined ? {} : { error: interpretError }),
         ...(interpretAction === undefined ? {} : { action: interpretAction }),
       },
       lastFailure,
