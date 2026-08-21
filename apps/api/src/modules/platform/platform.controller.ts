@@ -1486,8 +1486,14 @@ export class PlatformController {
         interpretAction = parsed.data.action;
       } else {
         interpretOk = false;
-        interpretError =
-          "המודל החזיר JSON שאינו במבנה התשובה — פקודות אמיתיות היו נופלות לזיהוי הבסיסי";
+        /*
+         * דגימה מהתשובה הגולמית — בלעדיה האבחון עיוור: "לא במבנה"
+         * אינו אומר אם המודל עטף את התשובה, שינה שמות מפתחות או
+         * החזיר משהו אחר לגמרי. הפרומפט של הבדיקה סינתטי, אין כאן
+         * נתוני לקוחות.
+         */
+        const sample = JSON.stringify(interpretProbe.value).slice(0, 220);
+        interpretError = `המודל החזיר JSON שאינו במבנה התשובה — פקודות אמיתיות היו נופלות לזיהוי הבסיסי. תחילת התשובה: ${sample}`;
       }
     }
 
