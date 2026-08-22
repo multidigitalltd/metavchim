@@ -11,6 +11,7 @@ import {
 } from "@metavchim/shared";
 import { TenantContext, type RequestContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
+import { CryptoService } from "../../core/crypto.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
@@ -98,6 +99,7 @@ export class WhatsAppAssistantService {
     private readonly sender: WhatsAppSendService,
     private readonly plans: PlanCatalogService,
     private readonly platformSettings: PlatformSettingsService,
+    private readonly crypto: CryptoService,
     private readonly transcription: TranscriptionService,
     private readonly interpreter: AgentInterpretService,
     private readonly resolver: AgentResolveService,
@@ -184,17 +186,27 @@ export class WhatsAppAssistantService {
   private async greetProspect(waId: string): Promise<void> {
     const digits = waId.replace(/\D/gu, "").slice(0, 20);
     if (digits === "") return;
+    // מוצפן כמו כל PII במנוחה; ה-hash לחיפוש — הדפוס של אנשי הקשר
+    const phoneHash = this.crypto.phoneHash(digits);
 
     const now = new Date();
-    await this.prisma.whatsAppProspect.upsert({
-      where: { phone: digits },
-      create: { id: ulid(), phone: digits, messages: 1 },
+    const before = await this.prisma.whatsAppProspect.upsert({
+      where: { phoneHash },
+      create: {
+        id: ulid(),
+        phoneHash,
+        phoneEncrypted: this.crypto.encrypt(digits),
+        messages: 1,
+      },
       update: { messages: { increment: 1 } },
+      // העדכון אינו נוגע ב-repliedAt, ולכן זה הערך שלפני התפיסה —
+      // אליו משחררים אם השליחה תיכשל
+      select: { repliedAt: true },
     });
     const cooldownStart = new Date(now.getTime() - PROSPECT_REPLY_COOLDOWN_MS);
     const claimed = await this.prisma.whatsAppProspect.updateMany({
       where: {
-        phone: digits,
+        phoneHash,
         OR: [{ repliedAt: null }, { repliedAt: { lt: cooldownStart } }],
       },
       data: { repliedAt: now },
@@ -207,7 +219,19 @@ export class WhatsAppAssistantService {
       custom !== undefined && custom.trim() !== ""
         ? custom
         : prospectReplyText(loadEnv().WEB_ORIGIN);
-    await this.sender.sendText(waId, text);
+    /*
+     * `sendText` מחזיר false במקום לזרוק — טוקן שפג, דחייה של Meta.
+     * תפיסה שנשארת אחרי שליחה כושלת הייתה משתיקה את המתעניין לשבוע
+     * שלם בלי שקיבל דבר (ביקורת Codex). התנאי `repliedAt: now` משחרר
+     * רק את התפיסה שלנו — לא אחת חדשה שנתפסה בינתיים.
+     */
+    const sent = await this.sender.sendText(waId, text);
+    if (!sent) {
+      await this.prisma.whatsAppProspect.updateMany({
+        where: { phoneHash, repliedAt: now },
+        data: { repliedAt: before.repliedAt },
+      });
+    }
   }
 
   /**

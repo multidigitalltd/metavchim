@@ -5,13 +5,15 @@
 -- הציבורי של ה-Webhook, לפני שיש הקשר דייר כלשהו, בדיוק כמו
 -- telephony_webhook_hits.
 --
--- מה שנשמר הוא המינימום: מספר, מתי נראה, ומתי נענה. אין תוכן הודעה
--- ואין שם — המטרה היחידה היא לא לשלוח את אותו מענה שיווקי פעמיים.
+-- המספר מוצפן ברמת האפליקציה כמו כל PII במנוחה (docs/04), עם HMAC
+-- לחיפוש — אותו דפוס בדיוק של אנשי הקשר והשיחות (ביקורת Codex).
+-- מעבר לכך נשמר המינימום: מועדים ומונה, בלי תוכן הודעה ובלי שם.
 
 -- CreateTable
 CREATE TABLE "whatsapp_prospects" (
     "id" CHAR(26) NOT NULL,
-    "phone" VARCHAR(20) NOT NULL,
+    "phone_encrypted" TEXT NOT NULL,
+    "phone_hash" CHAR(64) NOT NULL,
     "first_seen_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "last_seen_at" TIMESTAMP(3) NOT NULL,
     "replied_at" TIMESTAMP(3),
@@ -21,4 +23,4 @@ CREATE TABLE "whatsapp_prospects" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "whatsapp_prospects_phone_key" ON "whatsapp_prospects"("phone");
+CREATE UNIQUE INDEX "whatsapp_prospects_phone_hash_key" ON "whatsapp_prospects"("phone_hash");
