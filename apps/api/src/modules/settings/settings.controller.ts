@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Header,
   HttpCode,
@@ -1261,6 +1262,17 @@ export class SettingsController {
     const ctx = TenantContext.current();
     if (id === ctx.userId) {
       throw new BadRequestException("אי אפשר לשנות את המשתמש של עצמך מכאן");
+    }
+    /*
+     * מנוי הסוכן בוואטסאפ הוא תוספת בתשלום — הדלקה וכיבוי הם החלטה
+     * כספית, לא ניהול צוות. admin מחזיק users.manage אבל בכוונה לא
+     * billing.manage, ובלי הבדיקה הזו הוא היה רוכש מנויים בשם
+     * המשרד (ביקורת Codex).
+     */
+    if (body.whatsappAccess !== undefined && !ctx.capabilities.has("billing.manage")) {
+      throw new ForbiddenException(
+        "הפעלת מנוי הסוכן בוואטסאפ דורשת הרשאת ניהול מנוי ותשלומים — פנו לבעל המשרד",
+      );
     }
     await this.prisma.withTenant(async (tx) => {
       /*

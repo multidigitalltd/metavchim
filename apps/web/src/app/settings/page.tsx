@@ -683,27 +683,51 @@ export default function SettingsPage() {
                                     void savePhone(member, event.target.value)
                                   }
                                 />
-                                <button
-                                  type="button"
-                                  className="mv-pill"
-                                  style={{
-                                    fontSize: 14,
-                                    cursor: "pointer",
-                                    border: "none",
-                                    color: member.whatsappAccess
-                                      ? "#0C6E34"
-                                      : "#68716a",
-                                    background: member.whatsappAccess
-                                      ? "#E5FCEA"
-                                      : "#eef1ec",
-                                  }}
-                                  aria-pressed={member.whatsappAccess}
-                                  onClick={() => void toggleWhatsapp(member)}
-                                >
-                                  {member.whatsappAccess
-                                    ? "מנוי פעיל"
-                                    : "הפעל מנוי"}
-                                </button>
+                                {/*
+                                  המתג רק למי שמחזיק billing.manage:
+                                  זו רכישה, לא ניהול צוות — והשרת
+                                  אוכף את אותו כלל (ביקורת Codex).
+                                */}
+                                {can(user, "billing.manage") ? (
+                                  <button
+                                    type="button"
+                                    className="mv-pill"
+                                    style={{
+                                      fontSize: 14,
+                                      cursor: "pointer",
+                                      border: "none",
+                                      color: member.whatsappAccess
+                                        ? "#0C6E34"
+                                        : "#68716a",
+                                      background: member.whatsappAccess
+                                        ? "#E5FCEA"
+                                        : "#eef1ec",
+                                    }}
+                                    aria-pressed={member.whatsappAccess}
+                                    onClick={() => void toggleWhatsapp(member)}
+                                  >
+                                    {member.whatsappAccess
+                                      ? "מנוי פעיל"
+                                      : "הפעל מנוי"}
+                                  </button>
+                                ) : (
+                                  <span
+                                    className="mv-pill"
+                                    style={{
+                                      fontSize: 14,
+                                      color: member.whatsappAccess
+                                        ? "#0C6E34"
+                                        : "#68716a",
+                                      background: member.whatsappAccess
+                                        ? "#E5FCEA"
+                                        : "#eef1ec",
+                                    }}
+                                  >
+                                    {member.whatsappAccess
+                                      ? "מנוי פעיל"
+                                      : "כבוי"}
+                                  </span>
+                                )}
                               </>
                             ) : (
                               <>
