@@ -98,6 +98,9 @@ model User {
   phone                String?   @db.VarChar(20)
   role                 String    @db.VarChar(20)
   isActive             Boolean   @default(true) @map("is_active")
+  /// גישה לסוכן האישי בוואטסאפ — מנוי נפרד לכל סוכן, בעל המשרד מפעיל.
+  /// בעל המשרד עצמו תמיד כלול (ראו whatsapp-assistant.service).
+  whatsappAccess       Boolean   @default(false) @map("whatsapp_access")
   totpSecret           String?   @map("totp_secret") @db.VarChar(255)
   // סיסמה זמנית שחובה להחליף בכניסה ראשונה (ביקורת Codex, PR #5)
   mustChangePassword   Boolean   @default(false) @map("must_change_password")

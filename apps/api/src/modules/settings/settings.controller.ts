@@ -157,6 +157,10 @@ const UpdateUserSchema = z
   .object({
     role: AssignableRoleSchema.optional(),
     isActive: z.boolean().optional(),
+    /** אותו כלל בדיוק כמו בפרופיל האישי; "" מנקה את השדה */
+    phone: z.union([z.string().regex(/^[\d\-+ ]{9,20}$/u), z.literal("")]).optional(),
+    /** מנוי הסוכן בוואטסאפ — נפרד לכל סוכן, בעל המשרד מפעיל */
+    whatsappAccess: z.boolean().optional(),
   })
   .strict();
 
@@ -207,6 +211,10 @@ export interface TeamUserDto {
   lastLoginAt?: Date;
   /** נעול זמנית בגלל ניסיונות התחברות כושלים — ניתן לשחרור ע"י המנהל */
   locked: boolean;
+  /** מספר הוואטסאפ האישי — הזהות מול הסוכן החכם */
+  phone?: string;
+  /** מנוי הסוכן בוואטסאפ פעיל למשתמש הזה (בעל המשרד כלול תמיד) */
+  whatsappAccess: boolean;
 }
 
 @Controller("settings")
@@ -861,6 +869,8 @@ export class SettingsController {
         role: true,
         isActive: true,
         lastLoginAt: true,
+        phone: true,
+        whatsappAccess: true,
       },
     });
     return Promise.all(
@@ -872,6 +882,8 @@ export class SettingsController {
         isActive: u.isActive,
         lastLoginAt: u.lastLoginAt ?? undefined,
         locked: await this.loginThrottle.isLocked(u.email),
+        phone: u.phone ?? undefined,
+        whatsappAccess: u.whatsappAccess,
       })),
     );
   }
@@ -1233,6 +1245,7 @@ export class SettingsController {
         role: body.role,
         isActive: true,
         locked: false,
+        whatsappAccess: false,
       },
       tempPassword,
     };
@@ -1279,6 +1292,18 @@ export class SettingsController {
         data: {
           ...(body.role !== undefined ? { role: body.role } : {}),
           ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+          /*
+           * הטלפון נערך גם כאן ולא רק בפרופיל האישי (בקשת בעל
+           * הפלטפורמה): בעל המשרד מזין את מספרי הסוכנים כדי לחבר
+           * אותם לסוכן הוואטסאפ. שורת ה-owner מוגנת למעלה — מנהל
+           * אינו יכול להחליף את מספר בעל המשרד ולחטוף את זהותו.
+           */
+          ...(body.phone !== undefined
+            ? { phone: body.phone.trim() === "" ? null : body.phone.trim() }
+            : {}),
+          ...(body.whatsappAccess !== undefined
+            ? { whatsappAccess: body.whatsappAccess }
+            : {}),
         },
       });
     });

@@ -49,6 +49,8 @@ interface TeamUser {
   isActive: boolean;
   lastLoginAt?: string;
   locked: boolean;
+  phone?: string;
+  whatsappAccess: boolean;
 }
 
 interface AuditRow {
@@ -60,7 +62,7 @@ interface AuditRow {
   createdAt: string;
 }
 
-const TEAM_GRID = "1.4fr 1fr 1.1fr 0.8fr 1fr";
+const TEAM_GRID = "1.4fr 1fr 1.15fr 1fr 0.8fr 1fr";
 
 /* רשימת "אבטחה ופרטיות" מקובץ העיצוב — כל שורה נכונה בפועל במערכת */
 const SECURITY_ROWS = [
@@ -323,6 +325,42 @@ export default function SettingsPage() {
     load();
   }
 
+  /**
+   * טלפון של סוכן — בעל המשרד מזין כדי לחבר אותו לסוכן הוואטסאפ.
+   * נשמר ביציאה מהשדה, ורק אם באמת השתנה — לא בכל מעבר פוקוס.
+   */
+  async function savePhone(member: TeamUser, raw: string) {
+    const phone = raw.trim();
+    if (phone === (member.phone ?? "")) return;
+    if (phone !== "" && !/^[\d\-+ ]{9,20}$/u.test(phone)) {
+      setMessage("מספר הטלפון לא נשמר — ספרות בלבד, 9 עד 20 תווים");
+      return;
+    }
+    try {
+      await apiPatch(`/settings/users/${member.id}`, { phone });
+      setMessage(
+        phone === ""
+          ? `✓ הטלפון של ${member.name} נמחק`
+          : `✓ הטלפון של ${member.name} נשמר`,
+      );
+      load();
+    } catch (err: unknown) {
+      setMessage(err instanceof ApiError ? err.message : "שמירת הטלפון נכשלה");
+    }
+  }
+
+  /** מנוי הסוכן בוואטסאפ — הפעלה/כיבוי לכל סוכן בנפרד. */
+  async function toggleWhatsapp(member: TeamUser) {
+    try {
+      await apiPatch(`/settings/users/${member.id}`, {
+        whatsappAccess: !member.whatsappAccess,
+      });
+      load();
+    } catch (err: unknown) {
+      setMessage(err instanceof ApiError ? err.message : "עדכון הגישה נכשל");
+    }
+  }
+
   async function unlock(member: TeamUser) {
     await apiPost(`/settings/users/${member.id}/unlock`, {});
     setMessage(`✓ הנעילה של ${member.name} שוחררה — אפשר להתחבר מיד`);
@@ -531,13 +569,14 @@ export default function SettingsPage() {
               ) : null}
 
               <div className="overflow-x-auto">
-                <div style={{ minWidth: 640 }}>
+                <div style={{ minWidth: 760 }}>
                   <div
                     className="mv-list-head"
                     style={{ gridTemplateColumns: TEAM_GRID }}
                   >
                     <span>שם</span>
                     <span>תפקיד</span>
+                    <span>סוכן וואטסאפ</span>
                     <span>רואה קונים</span>
                     <span>ייצוא נתונים</span>
                     <span>
@@ -618,6 +657,82 @@ export default function SettingsPage() {
                               </>
                             ) : (
                               roleLabel(member.role)
+                            )}
+                          </span>
+                          {/*
+                            הזהות מול סוכן הוואטסאפ: הטלפון האישי +
+                            מתג המנוי. המנוי נפרד לכל סוכן — בעל
+                            המשרד מדליק רק למי ששילם עליו. שורת
+                            בעל המשרד ושלי אינן ניתנות לעריכה כאן
+                            (טלפון עורכים בפרופיל; הבעלים כלול תמיד).
+                            key על הטלפון: אחרי שמירה ורענון הרשימה
+                            defaultValue ישן לא נדבק לשדה.
+                          */}
+                          <span className="flex flex-col items-start gap-1.5">
+                            {editable ? (
+                              <>
+                                <input
+                                  key={`${member.id}-${member.phone ?? ""}`}
+                                  aria-label={`טלפון וואטסאפ של ${member.name}`}
+                                  dir="ltr"
+                                  defaultValue={member.phone ?? ""}
+                                  placeholder="050-0000000"
+                                  className="w-full max-w-[150px] rounded-lg border px-2 py-1 text-sm"
+                                  style={inputStyle}
+                                  onBlur={(event) =>
+                                    void savePhone(member, event.target.value)
+                                  }
+                                />
+                                <button
+                                  type="button"
+                                  className="mv-pill"
+                                  style={{
+                                    fontSize: 14,
+                                    cursor: "pointer",
+                                    border: "none",
+                                    color: member.whatsappAccess
+                                      ? "#0C6E34"
+                                      : "#68716a",
+                                    background: member.whatsappAccess
+                                      ? "#E5FCEA"
+                                      : "#eef1ec",
+                                  }}
+                                  aria-pressed={member.whatsappAccess}
+                                  onClick={() => void toggleWhatsapp(member)}
+                                >
+                                  {member.whatsappAccess
+                                    ? "מנוי פעיל"
+                                    : "הפעל מנוי"}
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-sm" dir="ltr">
+                                  {member.phone ?? "—"}
+                                </span>
+                                <span
+                                  className="mv-pill"
+                                  style={{
+                                    fontSize: 14,
+                                    color:
+                                      member.role === "owner" ||
+                                      member.whatsappAccess
+                                        ? "#0C6E34"
+                                        : "#68716a",
+                                    background:
+                                      member.role === "owner" ||
+                                      member.whatsappAccess
+                                        ? "#E5FCEA"
+                                        : "#eef1ec",
+                                  }}
+                                >
+                                  {member.role === "owner"
+                                    ? "כלול תמיד"
+                                    : member.whatsappAccess
+                                      ? "מנוי פעיל"
+                                      : "כבוי"}
+                                </span>
+                              </>
                             )}
                           </span>
                           <span
@@ -729,7 +844,9 @@ export default function SettingsPage() {
                 style={{ color: "var(--color-text-muted)" }}
               >
                 הרשאות לפי תפקיד — הגנה מפני סוכן שעוזב עם המאגר. כל פעולה
-                מתועדת: מי עשה מה ומתי.
+                מתועדת: מי עשה מה ומתי. המנוי לסוכן הוואטסאפ נפרד לכל סוכן:
+                הזינו את הטלפון האישי של הסוכן והפעילו לו את המנוי — והוא
+                יקבל בוואטסאפ בדיוק את ההרשאות והנתונים שיש לו בדשבורד.
               </p>
             </section>
           ) : null}
