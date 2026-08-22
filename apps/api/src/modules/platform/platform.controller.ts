@@ -245,6 +245,8 @@ const UpdateSettingsSchema = z
     whatsappAccessToken: z.union([z.string().trim().min(20).max(500), z.literal("")]).optional(),
     // מזהה ולא כמות — ספרות בלבד, אפסים מובילים משמעותיים
     whatsappPhoneNumberId: z.union([z.string().trim().regex(/^\d{5,30}$/u), z.literal("")]).optional(),
+    /** המענה למספר לא רשום — ריק = הנוסח המובנה, לא שתיקה */
+    whatsappProspectReply: z.union([z.string().trim().min(10).max(2000), z.literal("")]).optional(),
     loginOtpEnabled: z.boolean().optional(),
     googleClientId: z.union([z.string().trim().min(10).max(200), z.literal("")]).optional(),
     googleClientSecret: z.union([z.string().trim().min(10).max(200), z.literal("")]).optional(),
@@ -1196,7 +1198,12 @@ export class PlatformController {
       source: "db" | "env" | "none";
       webhookUrl: string;
       /** הצד היוצא — הסוכן האישי עונה רק כשהוא מוגדר */
-      assistant: { configured: boolean; source: "db" | "env" | "none" };
+      assistant: {
+        configured: boolean;
+        source: "db" | "env" | "none";
+        /** הערך ולא "מוגדר" — זה מסך העריכה שלו; ריק = הנוסח שבקוד */
+        prospectReply: string;
+      };
     };
     /**
      * אותם Client ID ו-Secret משרתים שלושה חיבורים — התחברות, יומן
@@ -1320,6 +1327,7 @@ export class PlatformController {
         assistant: {
           configured: waOutDb || waOutEnv,
           source: waOutDb ? "db" : waOutEnv ? "env" : "none",
+          prospectReply: (await this.platformSettings.get("whatsappProspectReply")) ?? "",
         },
       },
       google: {

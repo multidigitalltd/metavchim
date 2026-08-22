@@ -11,7 +11,9 @@ import {
 } from "@metavchim/shared";
 import { TenantContext, type RequestContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
+import { CryptoService } from "../../core/crypto.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
+import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { tenantPeriodEnded, tenantSuspended } from "../auth/auth.service";
 import { AgentExecuteService, type ExecuteResult } from "../agent/execute.service";
@@ -19,6 +21,7 @@ import { AgentInterpretService } from "../agent/interpret.service";
 import { AgentResolveService } from "../agent/resolve.service";
 import { TranscriptionService } from "../../modules/voice-intake/transcription.service";
 import { choiceIndex, isCancelMessage, isConfirmMessage, waPhoneVariants } from "./assistant-lang";
+import { prospectReplyText } from "./prospect-reply";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 
 /**
@@ -47,6 +50,8 @@ const FEATURE_ID = "voice_intake";
 const HISTORY_KEPT = 6;
 /** כמה מזהי הודעות נשמרים ל-Idempotency — Meta חוזר תוך דקות. */
 const HANDLED_KEPT = 30;
+/** המענה השיווקי למספר לא רשום — לכל היותר פעם בשבוע לכל מספר. */
+const PROSPECT_REPLY_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 /** המפתחות שההצעה פותרת לבחירת רשומה — כמו ב-AgentController. */
 const ID_KEYS = ["buyerId", "propertyId", "taskId", "cardId", "leadId"] as const;
 
@@ -93,6 +98,8 @@ export class WhatsAppAssistantService {
     private readonly prisma: PrismaService,
     private readonly sender: WhatsAppSendService,
     private readonly plans: PlanCatalogService,
+    private readonly platformSettings: PlatformSettingsService,
+    private readonly crypto: CryptoService,
     private readonly transcription: TranscriptionService,
     private readonly interpreter: AgentInterpretService,
     private readonly resolver: AgentResolveService,
@@ -118,14 +125,7 @@ export class WhatsAppAssistantService {
   private async handleInner(msg: AssistantInbound): Promise<void> {
     const user = await this.identifyUser(msg.fromWaId);
     if (!user) {
-      /*
-       * מספר לא מוכר: תשובה קצרה אחת שמסבירה איך מתחברים, בלי לחשוף
-       * דבר על המשרדים. גם לקוח קצה שטעה במספר מקבל תשובה מנומסת.
-       */
-      await this.sender.sendText(
-        msg.fromWaId,
-        "כאן הסוכן האישי של מערכת מתווכים. המספר שלכם אינו מקושר לחשבון — היכנסו לפרופיל שלכם במערכת ועדכנו שם את מספר הטלפון, ואז כתבו לי שוב.",
-      );
+      await this.greetProspect(msg.fromWaId);
       return;
     }
 
@@ -169,6 +169,70 @@ export class WhatsAppAssistantService {
   /* ------------------------------------------------------------------ */
   /*  זהות והקשר                                                         */
   /* ------------------------------------------------------------------ */
+
+  /**
+   * מספר לא רשום שכתב לסוכן — מתעניין, לא תקלה.
+   *
+   * מי שכותב למספר העסקי הוא כמעט תמיד מתווך ששמע על המערכת, כלומר
+   * הליד הכי חם שיש — והתשובה היא הצגת המערכת, קישור הרשמה וטלפון
+   * של מנהלת המכירות (בקשת בעל הפלטפורמה). הנוסח ניתן לעריכה ממסך
+   * הפלטפורמה בלי גרסה.
+   *
+   * **פעם בשבוע לכל מספר, לא בכל הודעה.** מי ששולח שלוש הודעות
+   * ברצף היה מקבל את אותו עמוד מכירות שלוש פעמים — וזה גם ספאם וגם
+   * מהיר בדרך לפגוע בדירוג האיכות של המספר אצל Meta. התפיסה
+   * אטומית (updateMany מותנה), כך שגם הודעות מקבילות שולחות אחת.
+   */
+  private async greetProspect(waId: string): Promise<void> {
+    const digits = waId.replace(/\D/gu, "").slice(0, 20);
+    if (digits === "") return;
+    // מוצפן כמו כל PII במנוחה; ה-hash לחיפוש — הדפוס של אנשי הקשר
+    const phoneHash = this.crypto.phoneHash(digits);
+
+    const now = new Date();
+    const before = await this.prisma.whatsAppProspect.upsert({
+      where: { phoneHash },
+      create: {
+        id: ulid(),
+        phoneHash,
+        phoneEncrypted: this.crypto.encrypt(digits),
+        messages: 1,
+      },
+      update: { messages: { increment: 1 } },
+      // העדכון אינו נוגע ב-repliedAt, ולכן זה הערך שלפני התפיסה —
+      // אליו משחררים אם השליחה תיכשל
+      select: { repliedAt: true },
+    });
+    const cooldownStart = new Date(now.getTime() - PROSPECT_REPLY_COOLDOWN_MS);
+    const claimed = await this.prisma.whatsAppProspect.updateMany({
+      where: {
+        phoneHash,
+        OR: [{ repliedAt: null }, { repliedAt: { lt: cooldownStart } }],
+      },
+      data: { repliedAt: now },
+    });
+    // כבר נענה לאחרונה — שקט; ההודעה נספרה ולצוות המכירות יש את המספר
+    if (claimed.count === 0) return;
+
+    const custom = await this.platformSettings.get("whatsappProspectReply");
+    const text =
+      custom !== undefined && custom.trim() !== ""
+        ? custom
+        : prospectReplyText(loadEnv().WEB_ORIGIN);
+    /*
+     * `sendText` מחזיר false במקום לזרוק — טוקן שפג, דחייה של Meta.
+     * תפיסה שנשארת אחרי שליחה כושלת הייתה משתיקה את המתעניין לשבוע
+     * שלם בלי שקיבל דבר (ביקורת Codex). התנאי `repliedAt: now` משחרר
+     * רק את התפיסה שלנו — לא אחת חדשה שנתפסה בינתיים.
+     */
+    const sent = await this.sender.sendText(waId, text);
+    if (!sent) {
+      await this.prisma.whatsAppProspect.updateMany({
+        where: { phoneHash, repliedAt: now },
+        data: { repliedAt: before.repliedAt },
+      });
+    }
+  }
 
   /**
    * מהשולח למשתמש: השוואת ספרות בלבד, בשתי צורות ההקלדה הנפוצות.

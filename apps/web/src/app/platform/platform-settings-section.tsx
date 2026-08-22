@@ -25,7 +25,11 @@ interface PlatformSettings {
     configured: boolean;
     source: "db" | "env" | "none";
     webhookUrl: string;
-    assistant: { configured: boolean; source: "db" | "env" | "none" };
+    assistant: {
+      configured: boolean;
+      source: "db" | "env" | "none";
+      prospectReply: string;
+    };
   };
   google: {
     configured: boolean;
@@ -132,11 +136,15 @@ export function PlatformSettingsSection({
       const verify = String(f.get("whatsappVerifyToken")).trim();
       const accessToken = String(f.get("whatsappAccessToken") ?? "").trim();
       const phoneNumberId = String(f.get("whatsappPhoneNumberId") ?? "").trim();
+      const prospectReply = String(f.get("whatsappProspectReply") ?? "").trim();
       await apiPatch("/platform/settings", {
         ...(secret !== "" ? { whatsappAppSecret: secret } : {}),
         ...(verify !== "" ? { whatsappVerifyToken: verify } : {}),
         ...(accessToken !== "" ? { whatsappAccessToken: accessToken } : {}),
         ...(phoneNumberId !== "" ? { whatsappPhoneNumberId: phoneNumberId } : {}),
+        // נשלח תמיד, גם ריק: זה שדה ערך (כמו המסמכים המשפטיים),
+        // וריקון מכוון הוא חזרה לנוסח המובנה — לא "בלי שינוי"
+        whatsappProspectReply: prospectReply,
       });
       form.reset();
       setMessage("✓ הגדרות הוואטסאפ נשמרו");
@@ -832,6 +840,27 @@ export function PlatformSettingsSection({
               inputMode="numeric"
               autoComplete="off"
               placeholder={settings.whatsapp.assistant.configured ? "מוגדר" : ""}
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
+          </div>
+          <div className="w-full">
+            <label htmlFor="whatsappProspectReply" className="mb-1 block font-medium">
+              מענה למספר לא רשום{" "}
+              <span className="font-normal">(ריק = הנוסח המובנה עם קישור ההרשמה)</span>
+            </label>
+            <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              נשלח למי שכותב לסוכן ואינו משתמש במערכת — הזדמנות מכירה, לא הודעת
+              שגיאה. נשלח לכל היותר פעם בשבוע לכל מספר. אפשר ‎*הדגשה*‎ בכוכביות,
+              כמקובל בוואטסאפ.
+            </p>
+            <textarea
+              id="whatsappProspectReply"
+              name="whatsappProspectReply"
+              key={settings.whatsapp.assistant.prospectReply}
+              defaultValue={settings.whatsapp.assistant.prospectReply}
+              rows={5}
+              maxLength={2000}
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
             />
