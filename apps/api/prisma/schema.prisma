@@ -1100,6 +1100,26 @@ model WhatsAppChat {
   @@map("whatsapp_chats")
 }
 
+/// מספר שכתב לסוכן ואינו מזוהה כמשתמש — מתעניין, לא לקוח.
+///
+/// **אינו נתון דייר ולכן אין כאן tenant_id**: מי שכותב עדיין אינו
+/// שייך לאף משרד, וזו בדיוק הסיבה שהוא כאן. השורה קיימת כדי שהמענה
+/// השיווקי יישלח פעם אחת ולא בכל הודעה — שליחה חוזרת היא ספאם,
+/// ומספר עסקי שמדווח כספאם מאבד את דירוג האיכות שלו אצל Meta.
+model WhatsAppProspect {
+  id          String    @id @db.Char(26)
+  /// ספרות בלבד, כפי שהתקבל מ-Meta (wa_id)
+  phone       String    @unique @db.VarChar(20)
+  firstSeenAt DateTime  @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime  @updatedAt @map("last_seen_at")
+  /// מתי נשלח המענה האחרון. null = טרם נענה.
+  repliedAt   DateTime? @map("replied_at")
+  /// כמה הודעות הגיעו ממנו — עוצמת העניין, לצוות המכירות
+  messages    Int       @default(0)
+
+  @@map("whatsapp_prospects")
+}
+
 /// יומן משימות הסוכן — כל פירוש (משפט ⟵ פעולה ושדות) וכל ביצוע,
 /// משני הערוצים (דפדפן ווואטסאפ). שתי מטרות: מדידת עלות אמיתית
 /// לכל פקודה (אסימונים כפי ש-Google דיווחה), ודאטה לאימון מודל

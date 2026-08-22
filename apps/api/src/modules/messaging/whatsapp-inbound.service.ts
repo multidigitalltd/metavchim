@@ -81,10 +81,29 @@ export class WhatsAppInboundService {
     for (const entry of parsed.data.entry) {
       for (const change of entry.changes) {
         const value = change.value;
+        /*
+         * הניתוב עצמו נרשם. הודעה שמגיעה לקו שאינו הקו המוגדר נבלעת
+         * כאן בשקט מוחלט — היא אינה של הסוכן ואינה של שום משרד — וזה
+         * נראה למתווך בדיוק כמו מערכת שלא עובדת. השורה הזו אומרת
+         * לאיזה קו ההודעה הגיעה ולאיזה קו אנחנו מאזינים.
+         */
+        const incomingLine = value.metadata?.phone_number_id ?? "חסר";
+        if (assistantCreds === null) {
+          this.logger.warn(
+            `הודעה הגיעה לקו ${incomingLine} אך הסוכן אינו מוגדר (חסר טוקן או מזהה מספר במסך הפלטפורמה)`,
+          );
+        } else if (incomingLine !== assistantCreds.phoneNumberId) {
+          this.logger.log(
+            `הודעה לקו ${incomingLine} — אינו קו הסוכן (${assistantCreds.phoneNumberId}); ממשיכים לניתוב לפי משרד`,
+          );
+        }
         if (
           assistantCreds !== null &&
           value.metadata?.phone_number_id === assistantCreds.phoneNumberId
         ) {
+          this.logger.log(
+            `הודעה לקו הסוכן — ${(value.messages ?? []).length} הודעות לעיבוד`,
+          );
           /*
            * בלי await בכוונה: סבב מלא של הסוכן (הבנה + ביצוע) אורך
            * עשרות שניות, ו-Meta שמחכה ל-200 מעבר לכמה שניות שולח את

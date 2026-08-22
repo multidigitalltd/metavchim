@@ -26,6 +26,11 @@ export type PlatformSettingKey =
    */
   | "whatsappAccessToken"
   | "whatsappPhoneNumberId"
+  /**
+   * המענה למספר לא רשום שכתב לסוכן — נוסח שיווקי הניתן לעריכה מהמסך.
+   * ריק = הנוסח שבקוד (`prospect-reply.ts`), לא שתיקה.
+   */
+  | "whatsappProspectReply"
   | "loginOtpEnabled"
   | "googleClientId"
   | "googleClientSecret"
