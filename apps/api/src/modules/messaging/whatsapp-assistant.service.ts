@@ -82,6 +82,7 @@ interface IdentifiedUser {
   tenantId: string;
   name: string;
   role: string;
+  whatsappAccess: boolean;
   tenant: {
     status: string;
     trialEndsAt: Date | null;
@@ -143,6 +144,19 @@ export class WhatsAppAssistantService {
     }
     if (!(await this.plans.tenantHasFeature(user.tenantId, FEATURE_ID))) {
       await this.sender.sendText(msg.fromWaId, "הסוכן החכם אינו כלול במסלול של המשרד.");
+      return;
+    }
+    /*
+     * המנוי לסוכן הוואטסאפ הוא **לכל סוכן בנפרד** — לא לכל המשרד.
+     * בעל המשרד מפעיל אותו לכל סוכן במסך ניהול המשרד, ורק בעל
+     * המשרד עצמו כלול תמיד: הוא בעל המנוי, ואיש אינו מוסמך להדליק
+     * לו את הדגל (הנתיב מגן על שורת ה-owner מכל עריכה).
+     */
+    if (!user.whatsappAccess && user.role !== "owner") {
+      await this.sender.sendText(
+        msg.fromWaId,
+        "הסוכן האישי בוואטסאפ אינו פעיל עבורך עדיין. בעל המשרד יכול להפעיל אותו במסך ניהול משרד ← סוכני המשרד.",
+      );
       return;
     }
 
@@ -266,6 +280,7 @@ export class WhatsAppAssistantService {
         tenantId: true,
         name: true,
         role: true,
+        whatsappAccess: true,
         tenant: {
           select: {
             status: true,
