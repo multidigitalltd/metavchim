@@ -80,7 +80,10 @@ export default function NewBuyerPage() {
             .split(",")
             .map((c) => c.trim())
             .filter(Boolean),
-          neighborhoods: [],
+          neighborhoods: String(f.get("neighborhoods") ?? "")
+            .split(",")
+            .map((n) => n.trim())
+            .filter(Boolean),
           dealType: String(f.get("dealType")),
           propertyTypes: readPropertyTypes(f.get("propertyTypes")),
           /*
@@ -143,6 +146,26 @@ export default function NewBuyerPage() {
           <div className="mb-4">
             <label htmlFor="cities" className="mb-1 block font-medium">ערים * <span className="font-normal">(מופרדות בפסיק)</span></label>
             <input id="cities" name="cities" required placeholder="בני ברק, פתח תקווה" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+          </div>
+
+          {/*
+            שכונה כטקסט חופשי, צמוד לעיר: „איפה” נשאל פעם אחת, ומי
+            שאמר „רמת אהרון בבני ברק” צריך מקום לרשום את זה. הרשימה
+            אינה סגורה — שמות שכונות אינם רשומים בשום מרשם, ורשימה
+            נפתחת הייתה מכריחה לבחור „אחר” על כל שכונה שלא חשבנו
+            עליה. השדה קיים בסכימה מזמן ופשוט לא נשאל בטופס.
+          */}
+          <div className="mb-4">
+            <label htmlFor="neighborhoods" className="mb-1 block font-medium">
+              שכונות <span className="font-normal">(לא חובה, מופרדות בפסיק)</span>
+            </label>
+            <input
+              id="neighborhoods"
+              name="neighborhoods"
+              placeholder="רמת אהרון, פרדס כץ"
+              className="w-full rounded-lg border px-3 py-2.5"
+              style={inputStyle}
+            />
           </div>
 
           {/*

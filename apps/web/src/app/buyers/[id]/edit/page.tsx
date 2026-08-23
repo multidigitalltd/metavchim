@@ -129,6 +129,15 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
             .split(",")
             .map((c) => c.trim())
             .filter(Boolean),
+          /*
+           * עד כה השכונות נשמרו רק דרך ‎...buyer.requirements‎ — כלומר
+           * מה שנקלט בייבוא או בקול נשאר, ומהמסך לא היה אפשר לתקן
+           * אותו. עכשיו הטופס הוא המקור, וריקון השדה באמת מוחק.
+           */
+          neighborhoods: String(f.get("neighborhoods") ?? "")
+            .split(",")
+            .map((n) => n.trim())
+            .filter(Boolean),
           dealType: String(f.get("dealType")),
           propertyTypes: readPropertyTypes(f.get("propertyTypes")),
           budgetMinAgorot:
@@ -202,6 +211,19 @@ export default function EditBuyerPage({ params }: { params: Promise<{ id: string
             <div className="sm:col-span-2">
               <label htmlFor="cities" className="mb-1 block font-medium">ערים * <span className="font-normal">(מופרדות בפסיק)</span></label>
               <input id="cities" name="cities" required defaultValue={req.cities.join(", ")} className="w-full rounded-lg border px-3 py-2.5" style={inputStyle} />
+
+              {/* שכונה כטקסט חופשי, צמוד לעיר — כמו בטופס הקליטה. */}
+              <label htmlFor="neighborhoods" className="mb-1 mt-3 block font-medium">
+                שכונות <span className="font-normal">(לא חובה, מופרדות בפסיק)</span>
+              </label>
+              <input
+                id="neighborhoods"
+                name="neighborhoods"
+                defaultValue={req.neighborhoods.join(", ")}
+                placeholder="רמת אהרון, פרדס כץ"
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
               {/*
                 האזורים יושבים מתחת לערים ולא במסך נפרד: הם התשובה
                 המדויקת לאותה שאלה, ומי שממלא "ערים" הוא מי שצריך

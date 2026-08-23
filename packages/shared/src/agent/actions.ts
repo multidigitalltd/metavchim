@@ -121,6 +121,8 @@ const PROPERTY_TYPE_LABELS = {
   two_family: "דו משפחתי",
   studio: "סטודיו",
   unit: "יחידת דיור",
+  shared_tabu: "טאבו משותף",
+  divisible_apartment: "דירה מתאימה לחלוקה",
   plot: "מגרש",
   commercial: "מסחרי",
   other: "אחר",
