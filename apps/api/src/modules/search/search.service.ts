@@ -44,8 +44,13 @@ export interface SearchResults {
     marketingTitle: string | null;
     status: string;
   }[];
-  buyers: { id: string; name: string; maturity: string; cities: string[] }[];
-  leads: { id: string; name: string; status: string; requiresHuman: boolean }[];
+  /*
+   * `phone` הוא מה שהמתווך צריך בפועל: התוצאה נועדה להרים טלפון,
+   * לא רק לדעת שהלקוח קיים. הוא מסונן באותה בעלות כמו כל השורה,
+   * והוא כבר חוזר כך במסלול חיפוש-לפי-טלפון (`contact`).
+   */
+  buyers: { id: string; name: string; phone?: string; maturity: string; cities: string[] }[];
+  leads: { id: string; name: string; phone?: string; status: string; requiresHuman: boolean }[];
   /* --- טקסט חופשי שנכתב בתוך המערכת: לא רק "מי", גם "מה נאמר" --- */
   appointments: { id: string; title: string; kind: string; startsAt: Date; status: string }[];
   tasks: { id: string; title: string; status: string; dueAt: Date | null }[];
@@ -319,23 +324,30 @@ export class SearchService {
        * PII לעולם אינו נחשף למנוע ה-DB כטקסט גלוי בשני המסלולים.
        */
       const nameById = new Map<string, string>();
+      /** אותו מפתח כמו `nameById` — המספר להרמת טלפון מהתוצאה. */
+      const phoneById = new Map<string, string>();
       if (searchesFreeText) {
         const exact = await tx.contact.findMany({
           where: { tenantId, nameHash: this.crypto.nameHash(normalizeNameForMatch(textForMatch)) },
-          select: { id: true, nameEncrypted: true },
+          select: { id: true, nameEncrypted: true, phoneEncrypted: true },
           take: GROUP_LIMIT * 4,
         });
         const recent = await tx.contact.findMany({
           where: { tenantId },
-          select: { id: true, nameEncrypted: true },
+          select: { id: true, nameEncrypted: true, phoneEncrypted: true },
           orderBy: { updatedAt: "desc" },
           take: NAME_SCAN_LIMIT,
         });
-        for (const c of exact) nameById.set(c.id, this.crypto.decrypt(c.nameEncrypted));
+        for (const c of exact) {
+          nameById.set(c.id, this.crypto.decrypt(c.nameEncrypted));
+          phoneById.set(c.id, this.crypto.decrypt(c.phoneEncrypted));
+        }
         for (const c of recent) {
           if (nameById.has(c.id)) continue;
           const name = this.crypto.decrypt(c.nameEncrypted);
-          if (name.toLowerCase().includes(needleText)) nameById.set(c.id, name);
+          if (!name.toLowerCase().includes(needleText)) continue;
+          nameById.set(c.id, name);
+          phoneById.set(c.id, this.crypto.decrypt(c.phoneEncrypted));
         }
       }
       const matchedIds = [...nameById.keys()];
@@ -417,9 +429,12 @@ export class SearchService {
       if (missing.length > 0) {
         const extra = await tx.contact.findMany({
           where: { tenantId, id: { in: [...new Set(missing)] } },
-          select: { id: true, nameEncrypted: true },
+          select: { id: true, nameEncrypted: true, phoneEncrypted: true },
         });
-        for (const c of extra) nameById.set(c.id, this.crypto.decrypt(c.nameEncrypted));
+        for (const c of extra) {
+          nameById.set(c.id, this.crypto.decrypt(c.nameEncrypted));
+          phoneById.set(c.id, this.crypto.decrypt(c.phoneEncrypted));
+        }
       }
 
       return {
@@ -431,12 +446,14 @@ export class SearchService {
           maturity: b.maturity,
           cities: b.cities,
           name: nameById.get(b.contactId) ?? "",
+          ...(phoneById.has(b.contactId) ? { phone: phoneById.get(b.contactId)! } : {}),
         })),
         leads: leads.map((l) => ({
           id: l.id,
           status: l.status,
           requiresHuman: l.requiresHuman,
           name: nameById.get(l.contactId) ?? "",
+          ...(phoneById.has(l.contactId) ? { phone: phoneById.get(l.contactId)! } : {}),
         })),
       };
     });

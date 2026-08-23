@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { NotFoundException } from "@nestjs/common";
 import type { Capability } from "@metavchim/shared";
-import { visibleContactIds } from "../../common/ownership";
+import { assertContactAccess, visibleContactIds } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { CallsService } from "./calls.service";
 
@@ -31,11 +31,15 @@ interface FakeCall {
  * למשתמש — כלומר "הלקוח הזה אינו שלי".
  */
 function serviceFor(call: FakeCall | null): CallsService {
+  /*
+   * אף ישות אינה קושרת את הלקוח למשתמש — כלומר „הלקוח הזה אינו
+   * שלי”, ומבחינת `orphanContactIds` הוא גם יתום.
+   */
   const tx = {
     call: { findFirst: async () => call },
-    buyer: { findFirst: async () => null },
-    lead: { findFirst: async () => null },
-    property: { findFirst: async () => null },
+    buyer: { findFirst: async () => null, findMany: async () => [] },
+    lead: { findFirst: async () => null, findMany: async () => [] },
+    property: { findFirst: async () => null, findMany: async () => [] },
   };
   const prisma = {
     withTenant: async <T>(fn: (t: typeof tx) => Promise<T>): Promise<T> => fn(tx),
@@ -90,22 +94,28 @@ describe("גישה להקלטת שיחה", () => {
   /*
    * מנהל שומע הכול — אחרת הבדיקה מאשרת שער נעול ולא שער נכון.
    *
-   * דרושות **שתי** היכולות ולא אחת, וזה בכוונה: זה בדיוק התנאי שבו
-   * `visibleContactIds` מוותר על הסינון ברשימה. יכולת אחת בלבד
-   * הייתה נותנת מסך שמראה שיחה שאי אפשר להשמיע, או להפך.
+   * דרושות **שלוש** היכולות, וזה בדיוק התנאי של `seesAllContacts`:
+   * כל הקונים, כל הלידים, ומודול הנכסים פתוח. צירוף חלקי מוותר על
+   * הסינון עבור מקור שחסום — וזה בדיוק מה שנפתח כשהתנאי הזה היה
+   * כתוב בשלושה עותקים ורק שניים מהם עודכנו (ביקורת Codex).
    */
-  it("מנהל עם שתי היכולות שומע גם שיחה של סוכן אחר", async () => {
+  it("מנהל עם שלוש היכולות שומע גם שיחה של סוכן אחר", async () => {
     const call: FakeCall = { recordingKey: "k", contactId: null, createdBy: "01OTHER" };
     await expect(
-      asAgent(["leads.view_all", "buyers.view_all"], "01ME", () =>
+      asAgent(["leads.view_all", "buyers.view_all", "properties.view"], "01ME", () =>
         serviceFor(call).recording("01CALL"),
       ),
     ).resolves.toBeDefined();
 
-    // יכולת אחת בלבד אינה מספיקה — אחרת שני המסלולים היו נפרדים
-    await expect(
-      asAgent(["leads.view_all"], "01ME", () => serviceFor(call).recording("01CALL")),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    // צירוף חלקי אינו מספיק — לא אחת, וגם לא שתיים מתוך השלוש
+    for (const partial of [
+      ["leads.view_all"],
+      ["leads.view_all", "buyers.view_all"],
+    ] as const) {
+      await expect(
+        asAgent([...partial], "01ME", () => serviceFor(call).recording("01CALL")),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    }
   });
 
   /*
@@ -133,7 +143,12 @@ describe("גישה להקלטת שיחה", () => {
       lead: { findMany: async () => [], findFirst: async () => null },
       property: { findMany: async () => [], findFirst: async () => null },
     };
-    const visible = await asAgent(["leads.view_own"], "01ME", () =>
+    /*
+     * היכולת תואמת את המקור שבו הלקוח יושב. הבדיקה נכתבה כשהמקורות
+     * היו עיוורים ליכולות, ולכן היא נתנה `leads.view_own` על לקוח
+     * שיושב בטבלת הקונים — צירוף שכבר אינו מחזיר דבר, ובצדק.
+     */
+    const visible = await asAgent(["buyers.view_own"], "01ME", () =>
       visibleContactIds(tx as never, "01TENANT"),
     );
     expect(visible).toEqual(["01MINE"]);
@@ -155,10 +170,49 @@ describe("גישה להקלטת שיחה", () => {
         { getObject: async () => ({ body: null, contentType: "audio/wav" }) } as never,
         {} as never,
       );
-      const attempt = asAgent(["leads.view_own"], "01ME", () => service.recording("01CALL"));
+      const attempt = asAgent(["buyers.view_own"], "01ME", () => service.recording("01CALL"));
       if (allowed) await expect(attempt).resolves.toBeDefined();
       else await expect(attempt).rejects.toBeInstanceOf(NotFoundException);
     }
+  });
+
+  /*
+   * מודול חסום אינו תורם לקוחות — בשני המסלולים.
+   *
+   * זה מה שנשבר ברגע שנתיב השיחות קיבל שתי יכולות חלופיות: מי
+   * שמודול הלידים סגור אצלו נכנס בזכות הקונים, והכלל הישן — שתיאר
+   * בעלות בלבד — נתן לו גם את הלידים ואת בעלי הנכסים, כלומר טלפונים,
+   * תקצירים, תמלולים והקלטות ממודול שנחסם לו (ביקורת Codex).
+   */
+  it("לקוח ממודול חסום אינו נגיש — לא ברשימה ולא בשער הבודד", async () => {
+    const tx = {
+      buyer: { findMany: async () => [], findFirst: async () => null },
+      lead: {
+        findMany: async () => [{ contactId: "01LEADONLY" }],
+        findFirst: async () => ({ id: "01LEAD" }),
+      },
+      property: { findMany: async () => [], findFirst: async () => null },
+    };
+
+    // עם מודול הלידים — הלקוח נגיש בשני המסלולים
+    expect(
+      await asAgent(["leads.view_own"], "01ME", () => visibleContactIds(tx as never, "01TENANT")),
+    ).toEqual(["01LEADONLY"]);
+    await expect(
+      asAgent(["leads.view_own"], "01ME", () =>
+        assertContactAccess(tx as never, "01TENANT", "01LEADONLY"),
+      ),
+    ).resolves.toBeUndefined();
+
+    // בלעדיו — אינו נגיש בשניהם, למרות שהבעלות לא השתנתה
+    expect(
+      await asAgent(["buyers.view_own"], "01ME", () => visibleContactIds(tx as never, "01TENANT")),
+    ).toEqual([]);
+    await expect(
+      asAgent(["buyers.view_own"], "01ME", () =>
+        assertContactAccess(tx as never, "01TENANT", "01LEADONLY"),
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   /*
@@ -177,6 +231,136 @@ describe("גישה להקלטת שיחה", () => {
     await expect(
       asAgent(["leads.view_own"], "01OTHER", () => serviceFor(orphan).recording("01CALL")),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  /*
+   * „אני רשמתי” אינו עוקף מודול חסום.
+   *
+   * הענף נועד לשיחה **בלי בעלים** — בלי איש קשר, או עם לקוח
+   * שהתייתם. הוא היה עיוור ליכולות, ולכן שיחה שנרשמה כשמודול
+   * הלידים היה פתוח המשיכה לחשוף את הטלפון, התמלול וההקלטה של
+   * אותו ליד גם אחרי שהמודול נחסם (ביקורת Codex).
+   */
+  it("שיחה שרשמתי על ליד חי אינה נפתחת כשמודול הלידים חסום", async () => {
+    const call: FakeCall = { recordingKey: "k", contactId: "01LEAD", createdBy: "01ME" };
+    /* הלקוח חי — הוא ליד של מישהו, ולכן אינו יתום */
+    const live = {
+      call: { findFirst: async () => call },
+      buyer: { findFirst: async () => null, findMany: async () => [] },
+      lead: {
+        findFirst: async () => ({ id: "01L" }),
+        findMany: async () => [{ contactId: "01LEAD" }],
+      },
+      property: { findFirst: async () => null, findMany: async () => [] },
+    };
+    const service = new CallsService(
+      {
+        withTenant: async <T>(fn: (t: unknown) => Promise<T>): Promise<T> => fn(live),
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { getObject: async () => ({ body: null, contentType: "audio/wav" }) } as never,
+      {} as never,
+    );
+
+    // עם מודול הלידים — נפתחת
+    await expect(
+      asAgent(["leads.view_own"], "01ME", () => service.recording("01CALL")),
+    ).resolves.toBeDefined();
+
+    // בלעדיו — נחסמת, למרות שאני רשמתי אותה
+    await expect(
+      asAgent(["buyers.view_own"], "01ME", () => service.recording("01CALL")),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  /*
+   * העמוד אינו מתקצר.
+   *
+   * הצמצום היה נעשה **אחרי** ה-take: הסוכן שרשם שיחות חדשות על
+   * מודול שנחסם קיבל יומן ריק, בזמן ששיחות מותרות ישנות יותר
+   * קיימות — כלומר תיקון האבטחה הפך לבאג תצוגה (ביקורת Codex).
+   *
+   * המסד המדומה מפרש את ה-`where` כמו שהמסד היה מפרש אותו, כדי
+   * שהבדיקה תעיד על מה שחוזר ולא על צורת השאילתה.
+   */
+  it("יומן השיחות אינו מתקצר בגלל שיחות שנחסמו", async () => {
+    const now = Date.now();
+    const rows = [
+      // חדשות: לקוח חי שמודול הלידים שלו חסום — אני רשמתי אותן
+      { id: "01C4", contactId: "01BLOCKED", createdBy: "01ME", at: 4 },
+      { id: "01C3", contactId: "01BLOCKED", createdBy: "01ME", at: 3 },
+      // ישנות: הקונים שלי
+      { id: "01C2", contactId: "01MINE", createdBy: "01ME", at: 2 },
+      { id: "01C1", contactId: "01MINE", createdBy: "01ME", at: 1 },
+    ].map((row) => ({
+      ...row,
+      direction: "inbound",
+      source: "manual",
+      leadId: null,
+      phoneEncrypted: null,
+      occurredAt: new Date(now + row.at),
+      durationMinutes: null,
+      outcome: "answered",
+      summary: null,
+      recordingKey: null,
+      createdAt: new Date(now),
+    }));
+
+    /*
+     * הלקוחות הגלויים והחיים, כפי שהם יושבים במסד של הפיקסצ׳ר.
+     * ה-`$queryRaw` המדומה מחשב מהם את אותה הכרעה שה-SQL מחשב —
+     * „שלי, או שאני רשמתי ואין לו בעלים” — ומחיל את ה-LIMIT
+     * **אחריה**. זה בדיוק מה שנבדק: העמוד נחתך על שורות מותרות.
+     *
+     * הנוסח עצמו נבדק מול מסד אמיתי בלבד; כאן נבדקת התכונה שנשברה
+     * — שהעמוד אינו מתקצר (ביקורת Codex).
+     */
+    const visibleContacts = new Set(["01MINE"]);
+    const liveContacts = new Set(["01MINE", "01BLOCKED"]);
+    let sawLimit: unknown = null;
+
+    const tx = {
+      $queryRaw: async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+        sawLimit = values[values.length - 1];
+        const limit = typeof sawLimit === "number" ? sawLimit : rows.length;
+        return [...rows]
+          .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())
+          .filter(
+            (row) =>
+              (row.contactId !== null && visibleContacts.has(row.contactId)) ||
+              (row.createdBy === "01ME" && row.contactId === null) ||
+              (row.createdBy === "01ME" &&
+                row.contactId !== null &&
+                !liveContacts.has(row.contactId)),
+          )
+          .slice(0, limit)
+          .map((row) => ({ id: row.id }));
+      },
+      call: {
+        findMany: async ({ where }: { where: { id?: { in: string[] } } }) => {
+          const ids = where.id?.in ?? [];
+          return rows.filter((row) => ids.includes(row.id));
+        },
+      },
+      buyer: { findMany: async () => [{ contactId: "01MINE" }] },
+      lead: { findMany: async () => [{ contactId: "01BLOCKED" }] },
+      property: { findMany: async () => [] },
+    };
+    const service = new CallsService(
+      { withTenant: async <T>(fn: (t: unknown) => Promise<T>): Promise<T> => fn(tx) } as never,
+      {} as never,
+      { getByIds: async () => new Map(), getById: async () => null } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    const page = await asAgent(["buyers.view_own"], "01ME", () => service.list({ limit: 2 }));
+    // התקרה הועברה לשאילתה ולא הוחלה אחריה
+    expect(sawLimit).toBe(2);
+    expect(page.map((call) => call.id)).toEqual(["01C2", "01C1"]);
   });
 
   it("שיחה שאינה שלי ושיחה שאינה קיימת נראות זהה", async () => {

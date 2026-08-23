@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { parseSearchQuery, type ParsedSearchQuery } from "@metavchim/shared";
+import { parseSearchQuery, type ParsedSearchQuery , labelOf } from "@metavchim/shared";
 import { apiGet } from "@/lib/api";
 import { formatDateTime, MATURITY_LABELS, STATUS_LABELS } from "@/lib/format";
 import { LEAD_STATUS_LABELS } from "@/lib/lead-labels";
@@ -221,7 +221,7 @@ function SearchResultsView() {
                     >
                       <span className="font-semibold">{b.name}</span>{" "}
                       <span style={{ color: "var(--color-text-muted)" }}>
-                        — {MATURITY_LABELS[b.maturity] ?? b.maturity} · {b.cities.join(", ")}
+                        — {labelOf(MATURITY_LABELS, b.maturity) ?? b.maturity} · {b.cities.join(", ")}
                       </span>
                     </Link>
                   </li>
@@ -248,7 +248,7 @@ function SearchResultsView() {
                     >
                       <span className="font-semibold">{l.name}</span>{" "}
                       <span style={{ color: "var(--color-text-muted)" }}>
-                        — {LEAD_STATUS_LABELS[l.status] ?? l.status}
+                        — {labelOf(LEAD_STATUS_LABELS, l.status) ?? l.status}
                         {l.requiresHuman ? " · דורש טיפול אנושי" : ""}
                       </span>
                     </Link>

@@ -74,7 +74,20 @@ export interface AgentProposal {
    * `idKey` אומר למסך תחת איזה מפתח לשלוח את הבחירה לביצוע
    * (buyerId / propertyId / taskId / cardId / leadId).
    */
-  candidates?: { key: string; idKey: string; label: string; options: AgentCandidate[] };
+  candidates?: {
+    key: string;
+    idKey: string;
+    label: string;
+    options: AgentCandidate[];
+    /**
+     * למה אין במה לבחור, כשהרשימה ריקה.
+     *
+     * `unsaid` — לא נאמר על מי מדובר בכלל. `not_found` — נאמר, ולא
+     * נמצאה התאמה. שתי התשובות חוסמות את האישור, אבל הן שתי בעיות
+     * שונות וההנחיה למשתמש שונה, ולכן הן אינן חולקות נוסח.
+     */
+    reason?: "unsaid" | "not_found";
+  };
   /** שאלה אחת, כשבאמת אי אפשר להציע בלעדיה */
   clarify?: string;
   /**

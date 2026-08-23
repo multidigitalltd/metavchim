@@ -1,5 +1,4 @@
-import { normalizePhoneForWhatsapp } from "@metavchim/shared";
-import { LEAD_SOURCE_LABELS } from "./lead-labels";
+import { buyerSourceLabel, normalizePhoneForWhatsapp } from "@metavchim/shared";
 
 const nis = new Intl.NumberFormat("he-IL", {
   style: "currency",
@@ -65,21 +64,10 @@ export const STATUS_LABELS: Record<string, string> = {
   archived: "בארכיון",
 };
 
-export const FINANCING_LABELS: Record<string, string> = {
-  cash: "מזומן",
-  pre_approved: "אישור עקרוני ביד",
-  in_process: "משכנתא בתהליך",
-  not_started: "טרם התחיל מימון",
-  unknown: "לא ידוע",
-};
+/* התוויות יושבות ליד הסכימה — ראו `lead-labels.ts` לאותו נימוק. */
+export { FINANCING_LABELS } from "@metavchim/shared";
 
-export const BUYER_SOURCE_LABELS: Record<string, string> = {
-  phone: "טלפון",
-  whatsapp: "וואטסאפ",
-  referral: "המלצה",
-  web: "אתר",
-  manual: "אחר",
-};
+export { BUYER_SOURCE_LABELS } from "@metavchim/shared";
 
 /** קישור צ'אט וואטסאפ מטלפון שמור (E.164) — wa.me דורש ספרות בלבד */
 export function waMeUrl(phone: string, text?: string): string {
@@ -92,11 +80,7 @@ export function waMeUrl(phone: string, text?: string): string {
 
 /** מקור קונה לתצוגה — כולל קונים שהומרו מליד (source = "lead:<מקור הליד>") */
 export function formatBuyerSource(source: string): string {
-  if (source.startsWith("lead:")) {
-    const leadSource = source.slice("lead:".length);
-    return `ליד (${LEAD_SOURCE_LABELS[leadSource] ?? leadSource})`;
-  }
-  return BUYER_SOURCE_LABELS[source] ?? source;
+  return buyerSourceLabel(source) ?? source;
 }
 
 export const FIELD_LABELS: Record<string, string> = {

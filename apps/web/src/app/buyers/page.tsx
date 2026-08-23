@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { labelOf } from "@metavchim/shared";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
@@ -83,7 +84,7 @@ function MaturityPill({ maturity }: { maturity: string }) {
   const colors = MATURITY_PILL[maturity] ?? MATURITY_PILL["not_ripe"]!;
   return (
     <span className="mv-pill" style={{ color: colors.fg, background: colors.bg }}>
-      {MATURITY_LABELS[maturity] ?? maturity}
+      {labelOf(MATURITY_LABELS, maturity) ?? maturity}
     </span>
   );
 }

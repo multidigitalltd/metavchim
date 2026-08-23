@@ -37,8 +37,11 @@ import {
   confirmButtons,
   SNOOZE_LABEL,
   SNOOZE_MINUTES,
+  WA_AUDIO_SOURCE_MAX_BYTES,
   type AgentReply,
 } from "./assistant-buttons";
+import { formatCard } from "./assistant-card";
+import { historySummary, summarizeData } from "./assistant-results";
 import { prospectReplyText } from "./prospect-reply";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 
@@ -135,6 +138,7 @@ interface IdentifiedUser {
   whatsappAccess: boolean;
   tenant: {
     status: string;
+    plan: string;
     trialEndsAt: Date | null;
     paidUntil: Date | null;
     blockedModules: string[];
@@ -196,7 +200,7 @@ export class WhatsAppAssistantService {
       this.logger.warn(`הודעת וואטסאפ ממשרד מושהה ${user.tenantId} — נבלעת`);
       return;
     }
-    if (tenantPeriodEnded(user.tenant)) {
+    if (tenantPeriodEnded({ ...user.tenant, planIsFree: await this.plans.isFreeCode(user.tenant.plan) })) {
       await this.sender.sendText(
         msg.fromWaId,
         "תקופת המנוי של המשרד הסתיימה — חדשו אותה במסך ניהול המשרד, ואחזור לעבוד מיד.",
@@ -309,6 +313,31 @@ export class WhatsAppAssistantService {
    * לפיה, גם אם בהקלדה במקום בלחיצה.
    */
   private async deliver(msg: AssistantInbound, reply: AgentReply): Promise<void> {
+    /*
+     * הקלטה נשלחת אחרי הטקסט ולא במקומו: הטקסט אומר של מי השיחה
+     * ומתי, וקובץ שמע שמגיע לבד אינו אומר דבר.
+     */
+    if (reply.audio !== undefined) {
+      await this.sender.sendText(msg.fromWaId, reply.text, { replyTo: msg.externalId });
+      const sent = await this.sender.sendAudio(
+        msg.fromWaId,
+        reply.audio.buffer,
+        reply.audio.mimeType,
+        { caption: `🎧 ${reply.audio.label}` },
+      );
+      /*
+       * `sendAudio` מחזירה false ואינה זורקת — דחייה של Meta או צד
+       * יוצא שאינו מוגדר. בלי הבדיקה הזו המתווך היה מקבל „ההקלטה
+       * מ-14:20” ואז שקט, בלי לדעת אם היא בדרך (ביקורת Codex).
+       */
+      if (!sent) {
+        await this.sender.sendText(
+          msg.fromWaId,
+          `🎧 לא הצלחתי לשלוח את ההקלטה לכאן. היא זמינה במסך השיחות: ${loadEnv().WEB_ORIGIN}${reply.audio.href ?? "/calls"}`,
+        );
+      }
+      return;
+    }
     const body = reply.buttonBody ?? reply.text;
     if (reply.buttons && reply.buttons.length > 0) {
       if (await this.sender.sendButtons(msg.fromWaId, body, reply.buttons)) return;
@@ -457,6 +486,7 @@ export class WhatsAppAssistantService {
         tenant: {
           select: {
             status: true,
+            plan: true,
             trialEndsAt: true,
             paidUntil: true,
             blockedModules: true,
@@ -587,7 +617,7 @@ export class WhatsAppAssistantService {
             this.consumed(chat, took);
             if (!took) return { text: "הבקשה כבר טופלה." };
             took.extraParams[idKey] = option.id;
-            return { text: await this.runProposal(chat, took) };
+            return this.runProposal(chat, took);
           }
           /*
            * המעבר בחירה ⟵ אישור נכתב **בשורה עצמה**, מותנה בחותם
@@ -636,7 +666,7 @@ export class WhatsAppAssistantService {
         const took = await this.takePending(user.tenantId, user.id, pending.token);
         this.consumed(chat, took);
         if (!took) return { text: "הפעולה כבר בוצעה או בוטלה — אין הצעה ממתינה." };
-        return { text: await this.runProposal(chat, took) };
+        return this.runProposal(chat, took);
       }
       /*
        * לא אישור, לא ביטול ולא בחירה — המתווך ממשיך לדבר: "לא, 4
@@ -675,6 +705,24 @@ export class WhatsAppAssistantService {
     }
 
     const candidates = proposal.candidates;
+    /*
+     * רשימה ריקה = אין במה לבחור, ולכן אין מה לבצע.
+     *
+     * המסך חוסם את האישור במצב הזה; כאן זה נבדק רק כש-`length > 0`,
+     * ולכן „תראה לי את הכרטיס המלא” בלי שם היה מריץ מיד את פעולת
+     * הקריאה — או מציע אישור על פעולת כתיבה — ורק אז נופל על „לא
+     * נבחר כרטיס”. שני הצרכנים של אותה הכרעה חייבים לקרוא אותה אותו
+     * דבר (ביקורת Codex).
+     */
+    if (candidates && candidates.options.length === 0) {
+      chat.pending = null;
+      return {
+        text:
+          candidates.reason === "unsaid"
+            ? `לא הבנתי ${candidates.label}. כתבו לי את השם ואמשיך מכאן.`
+            : `לא מצאתי רשומה מתאימה — ${candidates.label}. אפשר לנסח אחרת או לבדוק את השם.`,
+      };
+    }
     if (candidates && candidates.options.length > 0) {
       const token = ulid();
       chat.pending = { transcript: text, proposal, awaiting: "choice", extraParams: {}, token };
@@ -719,7 +767,7 @@ export class WhatsAppAssistantService {
       (proposal.followUps ?? []).length === 0 &&
       proposal.clarify === undefined
     ) {
-      return { text: await this.runProposal(chat, state) };
+      return this.runProposal(chat, state);
     }
 
     chat.pending = state;
@@ -756,7 +804,10 @@ export class WhatsAppAssistantService {
   }
 
   /** ביצוע ההצעה + צעדי ההמשך, עדכון הזיכרון, וניסוח התשובה. */
-  private async runProposal(chat: ChatState, state: PendingState): Promise<string> {
+  private async runProposal(
+    chat: ChatState,
+    state: PendingState,
+  ): Promise<Pick<AgentReply, "text" | "audio">> {
     const params = this.paramsOf(state);
     let primary: ExecuteResult;
     try {
@@ -767,7 +818,7 @@ export class WhatsAppAssistantService {
         "whatsapp",
       );
     } catch (error) {
-      return `⚠️ „${state.proposal.title}” לא בוצע: ${errorMessage(error)}`;
+      return { text: `⚠️ „${state.proposal.title}” לא בוצע: ${errorMessage(error)}` };
     }
 
     /*
@@ -779,7 +830,12 @@ export class WhatsAppAssistantService {
      */
     const done = state.proposal.risk === "read" ? "" : "✅ ";
     const lines: string[] = [`${done}${primary.message}`];
-    const dataSummary = summarizeData(primary.data);
+    /*
+     * כרטיס יחיד מנוסח במלואו; רשימת תוצאות מקבלת את הסיכום. שני
+     * מנסחים ולא אחד, כי אלה שתי שאלות שונות — „מי הם” מול „מה יש
+     * עליו”, ומנסח אחד היה עונה על אחת מהן בלבד.
+     */
+    const dataSummary = formatCard(primary.data) ?? summarizeData(primary.data);
     if (dataSummary !== "") lines.push(dataSummary);
     /*
      * סייג ההיקף — התשובה היא על *הנתונים שלו*, לא של המשרד.
@@ -822,19 +878,61 @@ export class WhatsAppAssistantService {
       lines.push(`👉 אפשר להמשיך: „${primary.suggestion}”`);
     }
 
+    /*
+     * ההקלטה נשלפת **כאן**, בתוך הקשר הדייר.
+     *
+     * `CallsService.recording` אוכף בעלות על השיחה, והמשלוח קורה
+     * אחרי שההקשר נסגר — לכן הבייטים נוסעים עם התשובה ולא הפניה
+     * שהייתה דורשת לפתוח הקשר שני.
+     */
+    let audio: AgentReply["audio"];
+    if (primary.audio !== undefined) {
+      try {
+        const rec = await this.executor.recording(primary.audio.callId);
+        const chunks: Buffer[] = [];
+        let bytes = 0;
+        for await (const chunk of rec.body) {
+          const buf = Buffer.from(chunk as Buffer);
+          bytes += buf.length;
+          if (bytes > WA_AUDIO_SOURCE_MAX_BYTES) break;
+          chunks.push(buf);
+        }
+        /*
+         * התקרה כאן היא של הזיכרון, לא של Meta: ההקלטה עוד תעבור
+         * המרה שמכווצת אותה, ותקרת השליחה נאכפת על התוצר.
+         */
+        if (bytes > WA_AUDIO_SOURCE_MAX_BYTES) {
+          lines.push("🎧 ההקלטה ארוכה מכדי לשלוח בוואטסאפ — היא זמינה במסך השיחות.");
+        } else {
+          audio = {
+            buffer: Buffer.concat(chunks),
+            mimeType: rec.contentType,
+            label: primary.audio.label,
+            // הקישור מצביע על השיחה עצמה — הוא מה שיישלח אם המדיה תיכשל
+            ...(primary.href === undefined ? {} : { href: primary.href }),
+          };
+        }
+      } catch (error) {
+        lines.push(`🎧 ההקלטה לא נשלפה: ${errorMessage(error)}`);
+      }
+    }
+
     chat.history = [
       ...chat.history.slice(-(HISTORY_KEPT - 1)),
       {
         transcript: state.transcript,
         action: state.proposal.actionId,
         params,
-        resultSummary: [primary.message, dataSummary]
-          .filter((part) => part !== "")
-          .join(". ")
-          .slice(0, 600),
+        /*
+         * זיכרון השיחה נשלח לפרומפט של המודל בתור הבא, ולכן הוא
+         * **אינו** התשובה שהמתווך ראה: שורת המצב והשמות לפי הסדר,
+         * בלי טלפונים, אימיילים, הערות ותקצירי שיחות. `historySummary`
+         * מסביר למה בדיוק כך ולא פחות ולא יותר.
+         */
+        resultSummary: historySummary(primary.message, primary.data),
       },
     ];
-    return lines.join("\n");
+    return { text: lines.join("\n"), ...(audio === undefined ? {} : { audio }) };
   }
 
   /** ההצעה כפי שהמסך היה מציג אותה — כותרת, שדות, חוסרים ואזהרות. */
@@ -1002,7 +1100,12 @@ export class WhatsAppAssistantService {
 const SCOPE_CAPABILITIES: Record<string, readonly Capability[]> = {
   find_buyers: ["buyers.view_all"],
   show_tasks: ["tasks.view_all"],
-  show_calls: ["buyers.view_all", "leads.view_all"],
+  /*
+   * יומן השיחות מסונן גם לפי מודול הנכסים: שיחה של בעל נכס נשמטת
+   * ממי שהמודול חסום אצלו (`seesAllContacts`). בלי היכולת השלישית
+   * כאן הסייג היה נעלם דווקא כשחלק מההיסטוריה אכן הוסתר.
+   */
+  show_calls: ["buyers.view_all", "leads.view_all", "properties.view"],
 };
 
 /** קבוצות החיפוש הכללי שמסוננות לפי בעלות — הנכסים אינם ביניהן. */
@@ -1079,24 +1182,3 @@ function errorMessage(error: unknown): string {
   return "שגיאה לא צפויה";
 }
 
-/**
- * שמות התוצאות לפי הסדר — כמו במסך הקולי: זה מה שמאפשר "תתקשר
- * לראשון מהם" בהודעה הבאה, וזה גם מה שנשמר בזיכרון השיחה.
- */
-function summarizeData(data: unknown): string {
-  const labels: string[] = [];
-  const collect = (items: unknown): void => {
-    if (!Array.isArray(items)) return;
-    for (const item of items) {
-      if (labels.length >= 5 || typeof item !== "object" || item === null) return;
-      const record = item as Record<string, unknown>;
-      const label = record["name"] ?? record["title"] ?? record["marketingTitle"];
-      if (typeof label === "string" && label !== "") labels.push(label);
-    }
-  };
-  if (Array.isArray(data)) collect(data);
-  else if (typeof data === "object" && data !== null) {
-    for (const value of Object.values(data as Record<string, unknown>)) collect(value);
-  }
-  return labels.length > 0 ? `בין התוצאות, לפי הסדר: ${labels.join(", ")}` : "";
-}

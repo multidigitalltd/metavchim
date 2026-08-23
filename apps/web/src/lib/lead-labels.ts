@@ -1,26 +1,10 @@
-export const LEAD_STATUS_LABELS: Record<string, string> = {
-  new: "חדש",
-  in_progress: "בטיפול",
-  waiting_customer: "ממתין ללקוח",
-  converted: "הומר",
-  closed: "סגור",
-};
-
-export const LEAD_SOURCE_LABELS: Record<string, string> = {
-  voice_call: "שיחה",
-  whatsapp: "וואטסאפ",
-  web_form: "אתר",
-  landing: "דף נחיתה",
-  kanko: "Kanko",
-  referral: "המלצה",
-  manual: "ידני",
-};
-
-export const LEAD_INTENT_LABELS: Record<string, string> = {
-  buy: "קונה",
-  sell: "מוכר",
-  rent_in: "שוכר",
-  rent_out: "משכיר",
-  info: "מתעניין",
-  unknown: "לא ידוע",
-};
+/*
+ * התוויות עצמן יושבות ליד הסכימה שמגדירה את הערכים, כדי שמסך
+ * וטקסט שהשרת כותב יציגו את אותה מילה. הקובץ הזה נשאר כנקודת
+ * הייבוא הרגילה של המסכים.
+ */
+export {
+  LEAD_STATUS_LABELS,
+  LEAD_INTENT_LABELS,
+  LEAD_SOURCE_LABELS,
+} from "@metavchim/shared";

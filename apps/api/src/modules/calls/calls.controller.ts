@@ -41,6 +41,15 @@ const ListQuerySchema = z
   .object({
     outcome: OutcomeSchema.optional(),
     leadId: IdSchema.optional(),
+    /**
+     * שיחה אחת לפי מזהה.
+     *
+     * המסך טוען עמוד של 100 ומחפש בתוכו את השיחה שהכתובת מבקשת;
+     * מי שיש לו יותר שיחות חדשות ממנה היה נוחת על שיחה אחרת לגמרי
+     * (ביקורת Codex). עם הסינון הזה המסך יכול לבקש אותה במפורש —
+     * דרך אותו נתיב, ולכן דרך אותו סינון בעלות.
+     */
+    id: IdSchema.optional(),
     limit: z.coerce.number().int().min(1).max(200).default(100),
   })
   .strict();
@@ -53,8 +62,15 @@ const MAX_RECORDING_BYTES = 40 * 1024 * 1024;
 export class CallsController {
   constructor(private readonly calls: CallsService) {}
 
+  /*
+   * יומן השיחות אינו של הלידים בלבד: שיחה תלויה באיש קשר, והוא
+   * יכול להיות ליד או קונה. יכולת אחת חסמה מי שמודול הלידים סגור
+   * אצלו מלראות שיחות של הקונים שלו — ומאז שהסוכן יודע להשמיע
+   * הקלטה של קונה, הוא גם קיבל תשובה שהוא אינו יכול לפתוח
+   * (ביקורת Codex). הבעלות עצמה מסוננת בשירות בכל מקרה.
+   */
   @Get()
-  @RequireCapability("leads.view_own")
+  @RequireCapability("leads.view_own", "buyers.view_own")
   async list(
     @Query(new ZodValidationPipe(ListQuerySchema)) query: z.infer<typeof ListQuerySchema>,
   ): Promise<CallDto[]> {
@@ -113,7 +129,7 @@ export class CallsController {
    * הדפדפן ואינה עוברת דרך proxy משותף.
    */
   @Get(":id/recording")
-  @RequireCapability("leads.view_own")
+  @RequireCapability("leads.view_own", "buyers.view_own")
   async recording(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Res({ passthrough: true }) res: Response,

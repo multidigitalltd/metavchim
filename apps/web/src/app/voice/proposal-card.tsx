@@ -49,7 +49,14 @@ export interface Proposal {
   fields: ProposalField[];
   missing: { key: string; label: string }[];
   warnings: string[];
-  candidates?: { key: string; idKey: string; label: string; options: { id: string; label: string; detail?: string }[] };
+  candidates?: {
+    key: string;
+    idKey: string;
+    label: string;
+    options: { id: string; label: string; detail?: string }[];
+    /** `unsaid` — לא נאמר על מי מדובר; `not_found` — נאמר ולא נמצא. */
+    reason?: "unsaid" | "not_found";
+  };
   clarify?: string;
   /** תשובה שיחתית לברכה/שאלה כללית — מוצגת במקום "לא הבנתי" */
   reply?: string;
@@ -66,6 +73,15 @@ export interface ExecuteResult {
   insight?: string;
   /** צעד המשך מוצע — לחיצה שולחת אותו כמשפט חדש, דרך אותו אישור */
   suggestion?: string;
+  /**
+   * הקלטה שהתוצאה מצביעה עליה.
+   *
+   * במסך אין נגן משלנו — ההשמעה היא במסך השיחות, שם היא כבר
+   * קיימת. השדה כאן קיים כדי שהקישור למסך יופיע גם לתוצאה שאין
+   * לה `data` (הקלטה בלי תקציר), ולא רק כטקסט בלי דרך להגיע
+   * אליה (ביקורת Codex).
+   */
+  audio?: { callId: string; label: string };
 }
 
 const SOURCE_LABEL: Record<ProposalField["source"], string> = {
@@ -316,7 +332,9 @@ export function ProposalCard({
           <legend className="text-[15px] font-semibold">{proposal.candidates.label}</legend>
           {noCandidates ? (
             <p className="m-0 text-[15px]" style={{ color: "var(--color-danger)" }}>
-              לא נמצאה רשומה מתאימה במאגר. אפשר לחפש ידנית ולהמשיך משם.
+              {proposal.candidates.reason === "unsaid"
+                ? 'לא הבנתי על מי מדובר. לחצו „תקנו אותי” ואמרו את השם.'
+                : "לא נמצאה רשומה מתאימה במאגר. אפשר לחפש ידנית ולהמשיך משם."}
             </p>
           ) : (
             <div className="flex flex-wrap gap-2">

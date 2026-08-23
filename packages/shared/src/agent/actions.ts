@@ -44,6 +44,8 @@ export const AGENT_ACTION_IDS = [
   "show_schedule",
   "show_tasks",
   "show_calls",
+  "show_card",
+  "play_recording",
   "show_deals",
   "office_report",
   "create_lead",
@@ -78,6 +80,22 @@ export interface AgentActionDef {
   /** דוגמאות בעברית מדוברת. מודל שרואה ניסוח אמיתי מדייק בסדר גודל. */
   examples: readonly string[];
   capability: Capability;
+  /**
+   * יכולת שנייה שגם היא **מספיקה** לפתיחת הפעולה.
+   *
+   * לרוב המכריע של הפעולות יש מודול אחד, ולשדה הזה אין מה לעשות
+   * בהן. היוצא מן הכלל הוא פעולה שמזהה את הרשומה לפי מה שנאמר
+   * ולא לפי סוגה: „תראה לי את הכרטיס של משה” יכול להתברר כקונה
+   * או כליד, והשואל אינו יודע לומר מראש. הצהרה על יכולת אחת בלבד
+   * חסמה שם משתמשים חוקיים לגמרי — מי שיש לו רק לידים לא יכול היה
+   * לבקש כרטיס, ומי שיש לו רק קונים לא יכול היה לבקש הקלטה
+   * (ביקורת Codex).
+   *
+   * זהו שער **הכניסה** בלבד, ולא ההיתר לרשומה שנבחרה: מיד אחרי
+   * הזיהוי `cardTarget` בודק שוב את היכולת שמתאימה לסוג שנפתר,
+   * ולכן ההרחבה כאן אינה מרחיבה שום גישה בפועל.
+   */
+  capabilityAlt?: Capability;
   risk: AgentRisk;
   fields: readonly AgentFieldSpec[];
   /**
@@ -553,9 +571,44 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     title: "שיחות אחרונות",
     when: "שאלה על שיחות טלפון שהתקבלו או בוצעו.",
     examples: ["מי התקשר אליי היום", "תראה לי את השיחות האחרונות", "אילו שיחות פספסתי"],
+    /*
+     * שיחה תלויה בלקוח, ולקוח יכול להיות ליד או קונה — בדיוק כמו
+     * ב-`show_card` וב-`play_recording`, ובדיוק כמו נתיבי ה-REST של
+     * השיחות. מי שמודול הלידים חסום אצלו עדיין רשאי לשמוע על
+     * השיחות של הקונים שלו (ביקורת Codex).
+     */
     capability: "leads.view_own",
+    capabilityAlt: "buyers.view_own",
     risk: "read",
     fields: [],
+  },
+  {
+    id: "show_card",
+    title: "כרטיס הלקוח המלא",
+    when: "בקשה לראות את כל מה שיש על לקוח מסוים — פרטי קשר, מה הוא מחפש, הערות והשיחות איתו.",
+    examples: [
+      "תראה לי את הכרטיס של משה כהן",
+      "מה יש לנו על דנה לוי",
+      "כל הפרטים של שרה",
+    ],
+    capability: "buyers.view_own",
+    capabilityAlt: "leads.view_own",
+    risk: "read",
+    fields: [F_CARD_PHRASE],
+  },
+  {
+    id: "play_recording",
+    title: "השמעת הקלטת שיחה",
+    when: "בקשה לשמוע הקלטה של שיחה עם לקוח מסוים.",
+    examples: [
+      "תשמיע לי את ההקלטה של השיחה עם משה",
+      "אני רוצה לשמוע את השיחה האחרונה עם דנה",
+      "שלח לי את ההקלטה של שרה",
+    ],
+    capability: "leads.view_own",
+    capabilityAlt: "buyers.view_own",
+    risk: "read",
+    fields: [F_CARD_PHRASE],
   },
   {
     id: "show_deals",
@@ -895,4 +948,20 @@ export function agentFieldLabel(actionId: string, key: string): string {
  */
 export function isReadOnlyAction(id: string): boolean {
   return agentAction(id)?.risk === "read";
+}
+
+/**
+ * שער הכניסה לפעולה — היכולת שהיא מצהירה עליה, או החלופה שלה.
+ *
+ * פונקציה אחת ולא שלוש בדיקות מפוזרות: הרשימה שהמודל רואה, השער
+ * לפני הביצוע והרשימה שנשלחת לפרומפט חייבים להסכים ביניהם. שתי
+ * מהן שנשארו על `has(action.capability)` בזמן שהשלישית התעדכנה היו
+ * מייצרות בדיוק את מה שהמשתמש חווה כשרירותי: פעולה שמוצעת ונדחית.
+ */
+export function mayUseAction(
+  action: AgentActionDef,
+  capabilities: { has(capability: Capability): boolean },
+): boolean {
+  if (capabilities.has(action.capability)) return true;
+  return action.capabilityAlt !== undefined && capabilities.has(action.capabilityAlt);
 }

@@ -120,29 +120,135 @@ export async function assertMatchAccess(
  * `assertContactAccess` לכל שורה — הייתה שאילתה נפרדת לכל שיחה
  * בעמוד, כלומר בדיוק ה-N+1 שהמודול הזה כבר תיקן פעם אחת.
  */
+/**
+ * דרך איזה מודול מותר לו להגיע ללקוח.
+ *
+ * הכלל „כרטיס קונה שלי, ליד שמשויך אליי, או בעל נכס” תיאר **בעלות**
+ * בלבד, והניח שמי שהגיע לנתיב מחזיק ממילא את המודול — הנחה שהייתה
+ * נכונה כל עוד כל נתיב הצהיר על מודול אחד. ברגע שנתיב מצהיר על שתי
+ * יכולות חלופיות היא נשברת: מי שמודול הלידים חסום אצלו נכנס בזכות
+ * הקונים, וקיבל גם את הלידים ובעלי הנכסים (ביקורת Codex).
+ *
+ * לכן המקור עצמו נבדק, לא רק הבעלות: מודול חסום אינו תורם לקוחות.
+ */
+function contactSources(): { buyers: boolean; leads: boolean; properties: boolean } {
+  const caps = TenantContext.current().capabilities;
+  return {
+    buyers: caps.has("buyers.view_own") || caps.has("buyers.view_all"),
+    leads: caps.has("leads.view_own") || caps.has("leads.view_all"),
+    properties: caps.has("properties.view"),
+  };
+}
+
+/**
+ * רואה כל לקוח במשרד — ולכן אין מה לסנן.
+ *
+ * „בלי הגבלה” רק כשבאמת אין מה להגביל: כל הקונים, כל הלידים,
+ * ומודול הנכסים פתוח. חסר אחד מהשלושה והקיצור היה מחזיר לקוחות
+ * ממקור חסום דווקא למי שהכי הרבה פתוח אצלו.
+ *
+ * מיוצא כי אותו קיצור קיים גם בשער השיחה הבודדת. שלושה עותקים של
+ * התנאי הזה כבר נפרדו זה מזה פעם אחת — התיקון הקודם עדכן שניים
+ * מהם והשאיר את השלישי מאחור (ביקורת Codex), וכך נפתחה הקלטה של
+ * בעל נכס למי שמודול הנכסים חסום אצלו. ניסוח אחד, שלושה קוראים.
+ */
+export function seesAllContacts(): boolean {
+  const caps = TenantContext.current().capabilities;
+  return (
+    caps.has("buyers.view_all") && caps.has("leads.view_all") && contactSources().properties
+  );
+}
+
+/**
+ * מי מבין המועמדים האלה יתום — אינו כרטיס קונה, ליד או בעל נכס
+ * אצל איש.
+ *
+ * נועד לענף „אני רשמתי” ביומן השיחות: הוא קיים כדי ששיחה **בלי
+ * בעלים** לא תיעלם ממי שרשם אותה — שיחה בלי איש קשר, או כזו שהלקוח
+ * שלה נמחק מכל הכרטיסים. הענף היה עיוור ליכולות, ולכן שיחה שנרשמה
+ * כשמודול הלידים היה פתוח המשיכה לחשוף את הטלפון, התמלול וההקלטה
+ * של אותו ליד גם אחרי שהמודול נחסם (ביקורת Codex).
+ *
+ * **המועמדים ולא כל המשרד.** הניסוח הראשון שאל „מי שייך למישהו”
+ * על כל הדייר ושם את התוצאה ב-`NOT IN` — כלומר שלוש קריאות טבלה
+ * מלאות ורשימת פרמטרים שגדלה עם המשרד, על כל בקשת שיחות, גם כזו
+ * שמבקשת שורה אחת (ביקורת Codex). כאן השאלה מוגבלת לאנשי הקשר
+ * שבעמוד שכבר נשלף, ולכן היא חסומה בגודל התקרה ולא בגודל המאגר.
+ */
+export async function orphanContactIds(
+  tx: TenantTx,
+  tenantId: string,
+  candidates: readonly string[],
+): Promise<Set<string>> {
+  if (candidates.length === 0) return new Set();
+  const ids = [...new Set(candidates)];
+  const [buyers, leads, properties] = await Promise.all([
+    tx.buyer.findMany({
+      where: { tenantId, deletedAt: null, contactId: { in: ids } },
+      select: { contactId: true },
+    }),
+    tx.lead.findMany({
+      where: { tenantId, contactId: { in: ids } },
+      select: { contactId: true },
+    }),
+    tx.property.findMany({
+      where: { tenantId, deletedAt: null, ownerContactId: { in: ids } },
+      select: { ownerContactId: true },
+    }),
+  ]);
+  const owned = new Set([
+    ...buyers.map((row) => row.contactId),
+    ...leads.map((row) => row.contactId),
+    ...properties.map((row) => row.ownerContactId!),
+  ]);
+  return new Set(ids.filter((id) => !owned.has(id)));
+}
+
+/**
+ * האם הלקוח הזה יתום — הצורה היחידנית, ולא ניסוח שני של אותו כלל.
+ *
+ * הרשימה שואלת על עמוד והשער הבודד על רשומה, אבל ההגדרה של „יתום”
+ * חייבת להיות אחת: שני ביטויים שלה הם שתי הזדמנויות שהם ייפרדו,
+ * וזה בדיוק מה שכבר קרה בקובץ הזה עם הקיצור „רואה הכול”.
+ */
+export async function isOrphanContact(
+  tx: TenantTx,
+  tenantId: string,
+  contactId: string,
+): Promise<boolean> {
+  return (await orphanContactIds(tx, tenantId, [contactId])).has(contactId);
+}
+
 export async function visibleContactIds(
   tx: TenantTx,
   tenantId: string,
 ): Promise<string[] | null> {
-  const ctx = TenantContext.current();
-  // מנהל שרואה גם קונים וגם לידים רואה כל לקוח — אין מה לשלוף
-  if (ctx.capabilities.has("buyers.view_all") && ctx.capabilities.has("leads.view_all")) {
-    return null;
-  }
+  const sources = contactSources();
+  if (seesAllContacts()) return null;
 
   const [buyers, leads, properties] = await Promise.all([
-    tx.buyer.findMany({
-      where: { tenantId, deletedAt: null, ...ownershipFilter("buyers.view_all", "ownerUserId") },
-      select: { contactId: true },
-    }),
-    tx.lead.findMany({
-      where: { tenantId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
-      select: { contactId: true },
-    }),
-    tx.property.findMany({
-      where: { tenantId, deletedAt: null, ownerContactId: { not: null } },
-      select: { ownerContactId: true },
-    }),
+    sources.buyers
+      ? tx.buyer.findMany({
+          where: {
+            tenantId,
+            deletedAt: null,
+            ...ownershipFilter("buyers.view_all", "ownerUserId"),
+          },
+          select: { contactId: true },
+        })
+      : [],
+    sources.leads
+      ? tx.lead.findMany({
+          where: { tenantId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
+          select: { contactId: true },
+        })
+      : [],
+    sources.properties
+      ? tx.property.findMany({
+          where: { tenantId, deletedAt: null, ownerContactId: { not: null } },
+          select: { ownerContactId: true },
+        })
+      : [],
   ]);
 
   return [
@@ -159,24 +265,32 @@ export async function assertContactAccess(
   tenantId: string,
   contactId: string,
 ): Promise<void> {
+  // אותם מקורות בדיוק כמו ב-`visibleContactIds` — הן חייבות להסכים
+  const sources = contactSources();
   const [buyer, lead, property] = await Promise.all([
-    tx.buyer.findFirst({
-      where: {
-        tenantId,
-        contactId,
-        deletedAt: null,
-        ...ownershipFilter("buyers.view_all", "ownerUserId"),
-      },
-      select: { id: true },
-    }),
-    tx.lead.findFirst({
-      where: { tenantId, contactId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
-      select: { id: true },
-    }),
-    tx.property.findFirst({
-      where: { tenantId, ownerContactId: contactId, deletedAt: null },
-      select: { id: true },
-    }),
+    sources.buyers
+      ? tx.buyer.findFirst({
+          where: {
+            tenantId,
+            contactId,
+            deletedAt: null,
+            ...ownershipFilter("buyers.view_all", "ownerUserId"),
+          },
+          select: { id: true },
+        })
+      : null,
+    sources.leads
+      ? tx.lead.findFirst({
+          where: { tenantId, contactId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
+          select: { id: true },
+        })
+      : null,
+    sources.properties
+      ? tx.property.findFirst({
+          where: { tenantId, ownerContactId: contactId, deletedAt: null },
+          select: { id: true },
+        })
+      : null,
   ]);
   if (!buyer && !lead && !property) throw new NotFoundException("איש קשר לא נמצא");
 }

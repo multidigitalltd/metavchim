@@ -11,11 +11,26 @@ export const BuyerMaturitySchema = z.enum(["very_hot", "hot", "interested", "not
 export type BuyerMaturity = z.infer<typeof BuyerMaturitySchema>;
 
 /** תוויות עברית לבשלות — מקור אמת אחד ל-UI ולטקסטים שהשרת כותב (ציר, ייצוא). */
-export const MATURITY_LABELS: Record<string, string> = {
+export const MATURITY_LABELS: Record<BuyerMaturity, string> = {
   very_hot: "חם מאוד",
   hot: "חם",
   interested: "מתעניין",
   not_ripe: "לא בשל",
+};
+
+/*
+ * מקור הקונה — שדה חופשי (`z.string().max(60)`) ולא ערך סגור, ולכן
+ * הטבלה כאן רופפת בכוונה: מקור שהמשרד המציא נשאר כמות שהוא.
+ * הערכים שהמערכת עצמה כותבת חייבים להופיע.
+ */
+export const BUYER_SOURCE_LABELS: Record<string, string> = {
+  phone: "טלפון",
+  whatsapp: "וואטסאפ",
+  referral: "המלצה",
+  web: "אתר",
+  // הסוכן הקולי כותב את זה כשהוא פותח כרטיס קונה
+  voice: "סוכן קולי",
+  manual: "אחר",
 };
 
 export const FinancingStatusSchema = z.enum([
@@ -25,6 +40,16 @@ export const FinancingStatusSchema = z.enum([
   "not_started",
   "unknown",
 ]);
+export type FinancingStatus = z.infer<typeof FinancingStatusSchema>;
+
+/** תוויות מימון — אותו כלל כמו בבשלות: הטיפוס אוכף שכל ערך בסכימה מתורגם. */
+export const FINANCING_LABELS: Record<FinancingStatus, string> = {
+  cash: "מזומן",
+  pre_approved: "אישור עקרוני ביד",
+  in_process: "משכנתא בתהליך",
+  not_started: "טרם התחיל מימון",
+  unknown: "לא ידוע",
+};
 
 /** דרישה בודדת של קונה: חובה או עדיפות — ההבחנה מזינה ישירות את מנוע ההתאמות. */
 export const RequirementLevelSchema = z.enum(["must", "nice"]);

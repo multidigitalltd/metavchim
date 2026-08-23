@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, use, type ReactNode } from "react";
 import Link from "next/link";
-import { describeEntry } from "@metavchim/shared";
+import { describeEntry , labelOf } from "@metavchim/shared";
 import { useRouter } from "next/navigation";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import {
@@ -947,7 +947,7 @@ export default function PropertyDetailPage({
                               padding: "1px 8px",
                             }}
                           >
-                            {MATURITY_LABELS[m.buyerMaturity] ??
+                            {labelOf(MATURITY_LABELS, m.buyerMaturity) ??
                               m.buyerMaturity}
                           </span>
                         ) : null}

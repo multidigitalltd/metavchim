@@ -8,6 +8,7 @@ import {
   resolveCapabilities,
   type Capability,
 } from "@metavchim/shared";
+import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import type { RequestContext } from "../../common/tenant-context";
 
@@ -85,6 +86,19 @@ export interface TenantGateInput {
   status: string;
   trialEndsAt?: Date | null;
   paidUntil?: Date | null;
+  /**
+   * המסלול של המשרד חינמי — ולכן אין לו תפוגה, נקודה.
+   *
+   * זה אינו קיצור נוחות אלא תיקון של הנחה שגויה: „חינם = בלי
+   * תפוגה” הוכרע פעם אחת, בהרשמה, ונכתב לשורה כתאריך. כל מה שקרה
+   * אחר כך — מסלול ששויך מהפלטפורמה, מסלול שנערך והפך לחינמי,
+   * מסלול חינמי שבזמן ההרשמה עוד לא נראה כזה — השאיר תאריך תפוגה
+   * שפג אחרי 14 יום וסגר חשבון שאמור להיות לתמיד (דיווח המשתמש).
+   *
+   * מסלול חינמי אין ממה לגבות עליו ואין מה שיפוג בו, ולכן התשובה
+   * נגזרת מהמסלול החי ולא ממה שנכתב פעם.
+   */
+  planIsFree?: boolean;
 }
 
 /**
@@ -107,6 +121,8 @@ export function tenantSuspended(tenant: TenantGateInput): boolean {
  * שנפל היה נותן גישה חינם לכל מי ששילם פעם אחת (ביקורת Codex).
  */
 export function tenantPeriodEnded(tenant: TenantGateInput): boolean {
+  // מסלול חינמי אינו פוקע — גם אם נשאר על השורה תאריך מלפני שהיה כזה
+  if (tenant.planIsFree === true) return false;
   const now = Date.now();
   if (tenant.status === "trial") return isTrialExpired(tenant.trialEndsAt, new Date());
   if (tenant.status === "active") {
@@ -121,7 +137,10 @@ export function tenantCanOperate(tenant: TenantGateInput): boolean {
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly plans: PlanCatalogService,
+  ) {}
 
   static hashToken(token: string): string {
     return createHash("sha256").update(token).digest("hex");
@@ -514,6 +533,7 @@ export class AuthService {
               select: {
                 status: true,
                 name: true,
+                plan: true,
                 trialEndsAt: true,
                 paidUntil: true,
                 supportAccessUntil: true,
@@ -597,6 +617,11 @@ export class AuthService {
       ),
       session.user.tenant.blockedModules,
     );
+    /*
+     * המסלול נקרא מהקטלוג המומטמן ולא מהמסד — הקוד הזה רץ על כל
+     * בקשה, ושאילתה נוספת בכל אחת מהן היא מס.
+     */
+    const planIsFree = await this.plans.isFreeCode(session.user.tenant.plan);
     return {
       context: {
         tenantId: session.user.tenantId,
@@ -604,7 +629,7 @@ export class AuthService {
         capabilities,
         // תקופה שנגמרה אינה פוסלת את ה-Session — היא מצמצמת אותו
         // למסך המנוי. האכיפה ב-AuthGuard.
-        billingOnly: tenantPeriodEnded(session.user.tenant),
+        billingOnly: tenantPeriodEnded({ ...session.user.tenant, planIsFree }),
         ...(session.supportAdminEmail !== null
           ? { supportAdminEmail: session.supportAdminEmail }
           : {}),
@@ -617,7 +642,12 @@ export class AuthService {
         role: session.user.role,
         mustChangePassword: session.user.mustChangePassword,
         tenantName: session.user.tenant.name,
-        trialEndsAt: session.user.tenant.trialEndsAt?.toISOString() ?? null,
+        /*
+         * במסלול חינמי אין ספירה לאחור. הבאנר במסכים נגזר מהשדה
+         * הזה, ולכן משרד חינמי עם תאריך ישן על השורה היה רואה
+         * „הניסיון מסתיים בעוד X ימים” על חשבון שאינו מסתיים.
+         */
+        trialEndsAt: planIsFree ? null : (session.user.tenant.trialEndsAt?.toISOString() ?? null),
       },
     };
   }

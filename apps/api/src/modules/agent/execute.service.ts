@@ -3,6 +3,7 @@ import {
   AGENT_ACTIONS,
   agentAction,
   jerusalemDayRange,
+  mayUseAction,
   type BuyerRequirements,
   type PropertyFields,
 } from "@metavchim/shared";
@@ -13,7 +14,8 @@ import { AnalyticsService, type ReportWindowDays } from "../analytics/analytics.
 import { AgentResolveService } from "./resolve.service";
 import { BuyersService } from "../buyers/buyers.service";
 import { CalendarService } from "../calendar/calendar.service";
-import { CallsService } from "../calls/calls.service";
+import type { Readable } from "node:stream";
+import { CallsService, type CallDto } from "../calls/calls.service";
 import { DealRoomService } from "../collaboration/deal-room.service";
 import { LeadsService } from "../leads/leads.service";
 import { MatchingService } from "../matching/matching.service";
@@ -59,6 +61,14 @@ export interface ExecuteResult {
    * הבנה⟵אישור כמו כל משפט, שום דבר אינו מבוצע ישירות.
    */
   suggestion?: string;
+  /**
+   * הקלטה שאפשר להשמיע — **הפניה, לא בייטים**.
+   *
+   * הזרם עצמו אינו נכנס לתשובת ה-API: כל ערוץ מביא אותו בדרכו
+   * (`AgentExecuteService.recording`). במסך זו הפניה לנגן; בוואטסאפ
+   * הודעת שמע אמיתית, כדי שהמתווך ישמע את הלקוח בלי לפתוח דשבורד.
+   */
+  audio?: { callId: string; label: string };
 }
 
 @Injectable()
@@ -95,7 +105,7 @@ export class AgentExecuteService {
      * מצהיר עליה אינה מספיקה — היא של הנתיב, לא של מה שהתבקש בו.
      */
     const ctx = TenantContext.current();
-    if (!ctx.capabilities.has(action.capability)) {
+    if (!mayUseAction(action, ctx.capabilities)) {
       throw new ForbiddenException(`אין לך הרשאה ל${action.title}`);
     }
 
@@ -148,6 +158,10 @@ export class AgentExecuteService {
         return this.showSchedule(params);
       case "show_tasks":
         return this.showTasks();
+      case "show_card":
+        return this.showCard(params);
+      case "play_recording":
+        return this.playRecording(params);
       case "show_calls":
         return this.showCalls();
       case "show_deals":
@@ -221,7 +235,7 @@ export class AgentExecuteService {
        * עצמו הציע.
        */
       const allowedTitles = AGENT_ACTIONS.filter((a) =>
-        TenantContext.current().capabilities.has(a.capability),
+        mayUseAction(a, TenantContext.current().capabilities),
       )
         .map((a) => a.title)
         .join(", ");
@@ -314,6 +328,12 @@ export class AgentExecuteService {
         buyers: page.items.map((buyer) => ({
           id: buyer.id,
           name: buyer.contact.name,
+          /*
+           * הטלפון הוא מה שהמתווך עושה עם התשובה: רשימת שמות בלי
+           * מספרים מחייבת אותו לפתוח את הדשבורד, וזו בדיוק המטרה
+           * שהסוכן בוואטסאפ נבנה לחסוך.
+           */
+          phone: buyer.contact.phone,
           cities: buyer.requirements.cities,
           maturity: buyer.maturity,
           ...(buyer.requirements.roomsMin !== undefined
@@ -446,6 +466,139 @@ export class AgentExecuteService {
         })),
       },
     };
+  }
+
+  /**
+   * הכרטיס המלא — כל מה שיש על הלקוח, במכה אחת.
+   *
+   * זו הפעולה שהופכת את הסוכן לתחליף אמיתי לדשבורד: „מה יש לנו על
+   * משה כהן” החזיר עד עכשיו שורה עם שם, והמתווך נאלץ לפתוח מסך.
+   * כאן חוזרים פרטי הקשר, מה הלקוח מחפש, ההערות, והשיחות האחרונות
+   * איתו — כולל סימון אילו מהן מוקלטות, כדי שאפשר יהיה לבקש לשמוע.
+   *
+   * המזהה בצורה `kind:id` כמו ב-`add_note`: „הכרטיס של שרה” יכול
+   * להיות קונה או ליד, וההכרעה היא של המתווך.
+   */
+  private async showCard(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const { kind, id } = this.cardTarget(params);
+
+    if (kind === "buyer") {
+      const buyer = await this.buyers.getById(id);
+      const calls = await this.callsForContact(buyer.contact.id);
+      return {
+        href: `/buyers/${id}`,
+        message: `הכרטיס של ${buyer.contact.name}`,
+        data: { card: { kind: "buyer", ...buyer, calls } },
+      };
+    }
+    if (kind === "lead") {
+      const { lead, timeline } = await this.leads.getById(id);
+      const calls = await this.callsForContact(lead.contact.id);
+      return {
+        href: `/leads/${id}`,
+        message: `הכרטיס של ${lead.contact.name}`,
+        data: {
+          card: {
+            kind: "lead",
+            ...lead,
+            calls,
+            // ציר הזמן מקוצר: הכרטיס נקרא בטלפון, לא נסרק במסך
+            timeline: timeline.slice(0, 8),
+          },
+        },
+      };
+    }
+    throw new BadRequestException("כרטיס לא מזוהה");
+  }
+
+  /**
+   * ההקלטה האחרונה של הלקוח — כהודעת שמע.
+   *
+   * „האחרונה” ולא בחירה מרשימה: כשמתווך מבקש לשמוע שיחה עם לקוח,
+   * הוא כמעט תמיד מתכוון לזו שהרגע הסתיימה. בחירה מפורשת נשארת
+   * דרך `show_card`, שמראה את כל השיחות ומסמן אילו מוקלטות.
+   */
+  private async playRecording(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const { kind, id } = this.cardTarget(params);
+    const contactId =
+      kind === "buyer"
+        ? (await this.buyers.getById(id)).contact.id
+        : (await this.leads.getById(id)).lead.contact.id;
+
+    /*
+     * שאילתה נפרדת ולא `find` על השיחות של הכרטיס: התקרה חייבת
+     * לחול על השיחות **המוקלטות**, אחרת עשר שיחות חדשות בלי הקלטה
+     * מסתירות את ההקלטה שקיימת מתחתן.
+     */
+    const [recorded] = await this.calls.list({ contactId, recordedOnly: true, limit: 1 });
+    if (!recorded) {
+      return { message: "אין הקלטה זמינה לשיחות עם הלקוח הזה" };
+    }
+    const when = new Intl.DateTimeFormat("he-IL", {
+      timeZone: "Asia/Jerusalem",
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(recorded.occurredAt);
+    return {
+      /*
+       * הקישור מצביע על השיחה עצמה ולא על המסך.
+       *
+       * `/calls` לבדו פותח את החדשה מבין המאה שנטענו — כלומר על
+       * הקלטה שאינה האחרונה הוא נוחת על שיחה אחרת לגמרי, ועל אחת
+       * ישנה מספיק היא כלל אינה ברשימה (ביקורת Codex). המסך כבר
+       * יודע לפתוח שיחה מבוקשת לפי `?call=`.
+       */
+      href: `/calls?call=${recorded.id}`,
+      message: `ההקלטה מ-${when}`,
+      audio: { callId: recorded.id, label: `שיחה מ-${when}` },
+      ...(recorded.summary === undefined ? {} : { data: { summary: recorded.summary } }),
+    };
+  }
+
+  /**
+   * הכרטיס שנבחר — **עם השער של הסוג שלו**.
+   *
+   * היכולת שהפעולה מצהירה עליה היא אחת, והכרטיס יכול להיות שניים.
+   * מי שיש לו `buyers.view_own` אבל מודול הלידים חסום אצלו היה
+   * עובר את שער הפעולה ומקבל ליד מלא — כולל פרטי קשר, ציר זמן
+   * ושיחות (ביקורת Codex). לכן הסוג הנבחר נבדק כאן שוב, מול
+   * היכולת שלו.
+   */
+  private cardTarget(params: Record<string, unknown>): {
+    kind: "buyer" | "lead";
+    id: string;
+  } {
+    const cardId = str(params["cardId"]);
+    if (cardId === undefined) throw new BadRequestException("לא נבחר כרטיס");
+    const [kind, id] = cardId.split(":", 2);
+    if (id === undefined || (kind !== "buyer" && kind !== "lead")) {
+      throw new BadRequestException("כרטיס לא מזוהה");
+    }
+    const needed = kind === "buyer" ? "buyers.view_own" : "leads.view_own";
+    if (!TenantContext.current().capabilities.has(needed)) {
+      throw new ForbiddenException(
+        kind === "buyer" ? "אין לך הרשאה לצפות בקונים" : "אין לך הרשאה לצפות בלידים",
+      );
+    }
+    return { kind, id };
+  }
+
+  /** השיחות של איש קשר, החדשות תחילה — משותף לכרטיס ולהשמעה. */
+  private async callsForContact(contactId: string): Promise<CallDto[]> {
+    return this.calls.list({ contactId, limit: 10 });
+  }
+
+  /**
+   * ההקלטה עצמה — נקראת אחרי ש-`audio` סימן שיש מה להשמיע.
+   *
+   * כאן ולא בערוץ: `CallsService.recording` אוכף בעלות ומחזיר 404
+   * זהה ל„אין הקלטה” ול„לא שלך”, וכל ערוץ שיעקוף אותו היה מאבד את
+   * ההגנה הזו.
+   */
+  async recording(
+    callId: string,
+  ): Promise<{ body: Readable; contentType: string; contentLength?: number }> {
+    return this.calls.recording(callId);
   }
 
   private async showCalls(): Promise<ExecuteResult> {

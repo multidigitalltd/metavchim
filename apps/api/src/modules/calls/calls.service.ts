@@ -1,7 +1,12 @@
 import type { Readable } from "node:stream";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
-import { assertContactAccess, visibleContactIds } from "../../common/ownership";
+import {
+  assertContactAccess,
+  isOrphanContact,
+  seesAllContacts,
+  visibleContactIds,
+} from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -136,22 +141,110 @@ export class CallsService {
    * ריק) שהלקוח שלה נמחק. אין ממי לגזור בעלות, והיא נשארת גלויה
    * למנהל בלבד — מחיקת ליד היא פעולה ניהולית ומכוונת.
    */
-  async list(query: { outcome?: string; leadId?: string; limit: number }): Promise<CallDto[]> {
+  async list(query: {
+    outcome?: string;
+    leadId?: string;
+    /**
+     * שיחות של איש קשר אחד.
+     *
+     * הסינון חייב להיות **בשאילתה** ולא אחריה: מי שיש לו יותר
+     * שיחות חדשות מהתקרה עם לקוחות אחרים היה מקבל רשימה שהלקוח
+     * המבוקש כלל אינו בה, והכרטיס היה מציג „אין שיחות” על לקוח
+     * שדיברו איתו אתמול (ביקורת Codex).
+     */
+    contactId?: string;
+    /**
+     * רק שיחות שיש להן הקלטה.
+     *
+     * אותו היגיון כמו `contactId`, ומאותה סיבה: „ההקלטה האחרונה”
+     * היא ההקלטה האחרונה, לא „השיחה האחרונה אם במקרה הוקלטה”. לקוח
+     * עם עשר שיחות חדשות בלי הקלטה היה מקבל „אין הקלטה זמינה” בזמן
+     * שההקלטה קיימת, שורה אחת מתחת לתקרה (ביקורת Codex).
+     */
+    recordedOnly?: boolean;
+    /** שיחה אחת לפי מזהה — עדיין דרך סינון הבעלות של הרשימה. */
+    id?: string;
+    limit: number;
+  }): Promise<CallDto[]> {
     const { tenantId, userId } = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
       const visible = await visibleContactIds(tx, tenantId);
-      const rows = await tx.call.findMany({
-        where: {
-          tenantId,
-          ...(query.outcome ? { outcome: query.outcome } : {}),
-          ...(query.leadId ? { leadId: query.leadId } : {}),
-          ...(visible === null
-            ? {}
-            : { OR: [{ contactId: { in: visible } }, { createdBy: userId }] }),
-        },
+      const narrow = {
+        ...(query.outcome ? { outcome: query.outcome } : {}),
+        ...(query.leadId ? { leadId: query.leadId } : {}),
+        ...(query.contactId ? { contactId: query.contactId } : {}),
+        ...(query.recordedOnly ? { recordingKey: { not: null } } : {}),
+        ...(query.id ? { id: query.id } : {}),
+      };
+      /*
+       * „אני רשמתי” חל רק על שיחה **בלי בעלים** — בלי איש קשר, או
+       * עם לקוח שאינו שייך עוד לאיש. לקוח חי שהמודול שלו נחסם אינו
+       * חוזר דרך הענף הזה, אחרת שיחה שנרשמה כשהמודול היה פתוח הייתה
+       * שורדת את חסימתו (ביקורת Codex).
+       *
+       * ## למה SQL גולמי דווקא כאן
+       *
+       * שלושת התנאים חייבים להיות **בשאילתה אחת עם ה-LIMIT**:
+       * סינון אחרי החיתוך מקצר את העמוד, וחישוב היתמות מראש דורש
+       * לשלוף את כל אנשי הקשר שהמשתמש רשם עליהם — קבוצה שגדלה עם
+       * ההיסטוריה וממילא נכנסת ל-`IN` (שתי ביקורות Codex, שתי
+       * גרסאות שלי).
+       *
+       * `NOT EXISTS` עונה על שתיהן: המסד מכריע יתמות לשורה בזמן
+       * הסריקה, ועוצר ב-`LIMIT`. אין רשימת מזהים בזיכרון ואין
+       * פרמטרים שגדלים עם המשרד.
+       *
+       * זה **לא** מעקף RLS: `withTenant` פתחה טרנזקציה והזריקה
+       * `app.tenant_id` לאותו חיבור, והשאילתה הזו רצה בתוכה —
+       * הפוליסות חלות עליה כמו על כל `tx.*`. זהו אותו דפוס
+       * שב-`exclusivity.service.ts`: SQL גולמי בוחר מזהים לפי סדר,
+       * ו-Prisma שולפת את השורות עצמן.
+       */
+      let allowedIds: string[] | null = null;
+      if (visible !== null) {
+        const ordered = await tx.$queryRaw<{ id: string }[]>`
+          SELECT c.id
+            FROM calls c
+           WHERE c.tenant_id = ${tenantId}
+             AND (
+                  c.contact_id = ANY(${visible}::char(26)[])
+               OR (c.created_by = ${userId} AND c.contact_id IS NULL)
+               OR (c.created_by = ${userId}
+                   AND c.contact_id IS NOT NULL
+                   AND NOT EXISTS (SELECT 1 FROM buyers b
+                                    WHERE b.tenant_id = c.tenant_id
+                                      AND b.contact_id = c.contact_id
+                                      AND b.deleted_at IS NULL)
+                   AND NOT EXISTS (SELECT 1 FROM leads l
+                                    WHERE l.tenant_id = c.tenant_id
+                                      AND l.contact_id = c.contact_id)
+                   AND NOT EXISTS (SELECT 1 FROM properties p
+                                    WHERE p.tenant_id = c.tenant_id
+                                      AND p.owner_contact_id = c.contact_id
+                                      AND p.deleted_at IS NULL))
+             )
+             AND (${query.outcome ?? null}::text IS NULL OR c.outcome = ${query.outcome ?? null})
+             AND (${query.leadId ?? null}::char(26) IS NULL OR c.lead_id = ${query.leadId ?? null})
+             AND (${query.contactId ?? null}::char(26) IS NULL OR c.contact_id = ${query.contactId ?? null})
+             AND (${query.id ?? null}::char(26) IS NULL OR c.id = ${query.id ?? null})
+             AND (${query.recordedOnly === true} = false OR c.recording_key IS NOT NULL)
+           ORDER BY c.occurred_at DESC
+           LIMIT ${query.limit}
+        `;
+        allowedIds = ordered.map((row) => row.id);
+        if (allowedIds.length === 0) return [];
+      }
+
+      const allowed = await tx.call.findMany({
+        where:
+          allowedIds === null
+            ? { tenantId, ...narrow }
+            : // הסינון כבר הוכרע למעלה; כאן רק שליפת השורות לפי מזהה
+              { tenantId, id: { in: allowedIds } },
         orderBy: { occurredAt: "desc" },
         take: query.limit,
       });
+
       /*
        * שאילתה אחת לכל אנשי הקשר בעמוד. `Promise.all` על `toDto`
        * נראה מקבילי, אבל כל קריאה בתוכו הייתה שאילתה נפרדת על אותו
@@ -159,9 +252,9 @@ export class CallsService {
        */
       const contactsById = await this.contacts.getByIds(
         tx,
-        rows.map((row) => row.contactId).filter((id): id is string => id !== null),
+        allowed.map((row) => row.contactId).filter((id): id is string => id !== null),
       );
-      return Promise.all(rows.map((row) => this.toDto(tx, row, contactsById)));
+      return Promise.all(allowed.map((row) => this.toDto(tx, row, contactsById)));
     });
   }
 
@@ -180,16 +273,22 @@ export class CallsService {
    * מסגירה את קיומה, ואת זה אין למשתמש הזה הרשאה לדעת.
    */
   private async assertCallAccess(tx: TenantTx, id: string): Promise<void> {
-    const { tenantId, userId, capabilities } = TenantContext.current();
+    const { tenantId, userId } = TenantContext.current();
     const row = await tx.call.findFirst({
       where: { id, tenantId },
       select: { contactId: true, createdBy: true },
     });
     if (!row) throw new NotFoundException("שיחה לא נמצאה");
 
-    if (row.createdBy === userId) return;
-    if (capabilities.has("buyers.view_all") && capabilities.has("leads.view_all")) return;
+    // אותו ניסוח בדיוק כמו ברשימה — לא עותק שלו
+    if (seesAllContacts()) return;
+    /*
+     * „אני רשמתי” — רק על שיחה בלי בעלים, כמו ברשימה. שיחה בלי
+     * איש קשר, או עם לקוח שאינו כרטיס של איש.
+     */
+    if (row.createdBy === userId && row.contactId === null) return;
     if (row.contactId === null) throw new NotFoundException("שיחה לא נמצאה");
+    if (row.createdBy === userId && (await isOrphanContact(tx, tenantId, row.contactId))) return;
 
     // ההודעה מאוחדת: „איש קשר לא נמצא” היה מסגיר שהשיחה עצמה קיימת
     await assertContactAccess(tx, tenantId, row.contactId).catch(() => {

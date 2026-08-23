@@ -219,6 +219,13 @@ const ICONS = {
       <path d="M8.5 7.5h7M8.5 11h7" />
     </Icon>
   ),
+  /* המנטור — ניצוץ ולב: ליווי אישי, לא עוד מסך נתונים */
+  mentor: (
+    <Icon>
+      <path d="M12 3l1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7z" />
+      <path d="M17.5 15.5a2 2 0 0 0-2.8 0l-.7.7-.7-.7a2 2 0 1 0-2.8 2.8l3.5 3.5 3.5-3.5a2 2 0 0 0 0-2.8z" />
+    </Icon>
+  ),
   platform: (
     <Icon>
       <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" />
@@ -251,19 +258,25 @@ const ICONS = {
  *
  * נתיב שאינו כאן (דשבורד, הדרכות, פרופיל) אינו שייך לאף מודול.
  */
-const NAV_MODULE: Record<string, string> = {
-  "/properties": "properties",
-  "/buyers": "buyers",
-  "/leads": "leads",
-  "/calls": "leads",
-  "/matches": "matches",
-  "/offers": "offers",
-  "/calendar": "calendar",
-  "/tasks": "calendar",
-  "/collaboration": "collaboration",
-  "/reports": "reports",
-  "/settings": "admin",
-  "/setup": "admin",
+const NAV_MODULE: Record<string, readonly string[]> = {
+  "/properties": ["properties"],
+  "/buyers": ["buyers"],
+  "/leads": ["leads"],
+  /*
+   * שיחות שייכות לשני מודולים: שיחה תלויה בלקוח, ולקוח הוא ליד או
+   * קונה. סיווג לליד בלבד הוריד את הפריט מהסרגל למי שמודול הלידים
+   * חסום אצלו — אף שהמסך פתוח לו בזכות הקונים, והוא הגיע אליו רק
+   * דרך קישור עמוק (ביקורת Codex).
+   */
+  "/calls": ["leads", "buyers"],
+  "/matches": ["matches"],
+  "/offers": ["offers"],
+  "/calendar": ["calendar"],
+  "/tasks": ["calendar"],
+  "/collaboration": ["collaboration"],
+  "/reports": ["reports"],
+  "/settings": ["admin"],
+  "/setup": ["admin"],
 };
 
 /**
@@ -472,9 +485,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     icon: ReactNode,
     end?: ReactNode,
   ): ReactNode => {
-    // מודול חסום — הפריט יורד מהסרגל, ולא מוצג ומוביל ל-403
-    const module = NAV_MODULE[href];
-    if (module !== undefined && (counts?.blockedModules ?? []).includes(module)) return null;
+    /*
+     * מודול חסום — הפריט יורד מהסרגל, ולא מוצג ומוביל ל-403. פריט
+     * ששייך לכמה מודולים יורד רק כששולליהם **כולם** חסומים: די
+     * במודול אחד פתוח כדי שיהיה שם מה לראות.
+     */
+    const modules = NAV_MODULE[href];
+    const blocked = counts?.blockedModules ?? [];
+    if (modules !== undefined && modules.every((m) => blocked.includes(m))) return null;
     const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
     return (
       <Link
@@ -576,6 +594,16 @@ export function AppShell({ children }: { children: ReactNode }) {
           ? navLink("/reports", "דוחות", ICONS.reports)
           : null}
         {navLink("/guides", "הדרכות", ICONS.guides)}
+        {/*
+          המנטור האישי — עמוד "בקרוב" עד ההשקה (בקשת המשתמש).
+          התג AI מסמן שזה פיצ'ר של בינה מלאכותית ולא עוד מסך נתונים.
+        */}
+        {navLink(
+          "/mentor",
+          "המנטור האישי שלך",
+          ICONS.mentor,
+          <span className="mv-nav-ai">AI</span>,
+        )}
         {managesOffice ? navLink("/settings", "ניהול משרד", ICONS.office) : null}
         {managesOffice && !setupDone ? navLink("/setup", "הקמה", ICONS.setup) : null}
         {me?.isPlatformAdmin ? navLink("/platform", "פלטפורמה", ICONS.platform) : null}

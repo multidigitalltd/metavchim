@@ -5,6 +5,7 @@ import {
   agentAction,
   agentFieldLabel,
   isReadOnlyAction,
+  mayUseAction,
 } from "./actions";
 import { CAPABILITIES } from "../rbac";
 import { fieldDescription } from "./field-spec";
@@ -35,6 +36,30 @@ describe("קטלוג הפעולות — שלמות מבנית", () => {
   it("לכל פעולה יש יכולת קיימת", () => {
     for (const action of AGENT_ACTIONS) {
       expect(CAPABILITIES, `${action.id}`).toContain(action.capability);
+      if (action.capabilityAlt !== undefined) {
+        expect(CAPABILITIES, `${action.id}`).toContain(action.capabilityAlt);
+        // חלופה שהיא אותה יכולת אינה חלופה — סימן להעתקה
+        expect(action.capabilityAlt, action.id).not.toBe(action.capability);
+      }
+    }
+  });
+
+  /*
+   * השער החלופי הוא הרחבה, ולכן הוא נבדק בשני הכיוונים: שהוא אכן
+   * פותח למי שיש לו רק את החלופה, ושהוא אינו פותח פעולה אחרת למי
+   * שאין לו כלום. פעולה בלי `capabilityAlt` חייבת להישאר סגורה על
+   * יכולת אחת בדיוק.
+   */
+  it("היכולת החלופית פותחת את הפעולה — ורק אותה", () => {
+    const cardActions = AGENT_ACTIONS.filter((a) => a.capabilityAlt !== undefined);
+    expect(cardActions.length).toBeGreaterThan(0);
+    for (const action of cardActions) {
+      expect(mayUseAction(action, new Set([action.capability]))).toBe(true);
+      expect(mayUseAction(action, new Set([action.capabilityAlt!]))).toBe(true);
+      expect(mayUseAction(action, new Set())).toBe(false);
+    }
+    for (const action of AGENT_ACTIONS.filter((a) => a.capabilityAlt === undefined)) {
+      expect(mayUseAction(action, new Set()), action.id).toBe(false);
     }
   });
 

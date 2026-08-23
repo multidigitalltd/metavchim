@@ -9,6 +9,8 @@ import {
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
+import { WA_AUDIO_MAX_BYTES } from "./assistant-buttons";
+import { toWhatsAppAudio } from "./audio-transcode";
 
 /**
  * שליחה דרך WhatsApp Cloud API (docs/05 §1) — הצד היוצא של הסוכן
@@ -185,6 +187,92 @@ export class WhatsAppSendService {
     } catch (error) {
       this.logger.error(`שליחת וואטסאפ נכשלה: ${String(error)}`);
       return false;
+    }
+  }
+
+  /**
+   * שליחת הקלטה כהודעת שמע — הכיוון ההפוך של `downloadMedia`.
+   *
+   * Meta אינה מקבלת בייטים בהודעה עצמה: קודם מעלים ל-`/media`
+   * ומקבלים מזהה, ואז שולחים הודעה שמצביעה עליו. שני הצעדים כאן
+   * ולא בקורא, כדי שהערוץ ידע רק „שלח את ההקלטה הזו”.
+   *
+   * ההקלטה מומרת לפני ההעלאה. ההנחה הקודמת — „נשלח את מה שיש,
+   * וזה יגיע כקובץ מצורף” — פשוט אינה נכונה: `wav` ו-`webm`, שני
+   * הפורמטים שאנחנו שומרים בהם, נדחים בנתיב ה-`audio` של Meta,
+   * וההצהרה על `type` בהעלאה מתארת בייטים ואינה ממירה אותם. בלי
+   * ההמרה הפעולה הייתה נכשלת דווקא במקרה הנפוץ (ביקורת Codex).
+   */
+  async sendAudio(
+    to: string,
+    body: Buffer,
+    mimeType: string,
+    options: { caption?: string; replyTo?: string } = {},
+  ): Promise<boolean> {
+    const creds = await this.credentials();
+    if (!creds) {
+      this.logger.warn("שליחת הקלטה נדחתה — הצד היוצא של וואטסאפ אינו מוגדר");
+      return false;
+    }
+    const audio = await toWhatsAppAudio(body, mimeType);
+    if (audio === null) {
+      this.logger.warn("שליחת הקלטה נדחתה — לא ניתן להמיר לפורמט שוואטסאפ מקבלת");
+      return false;
+    }
+    /*
+     * התקרה נאכפת על התוצר ולא על המקור: ההמרה מכווצת wav בסדר
+     * גודל, ופסילה לפי גודל המקור פסלה שיחות שנכנסות בקלות לתקרה
+     * אחרי הקידוד (ביקורת Codex).
+     */
+    if (audio.body.length > WA_AUDIO_MAX_BYTES) {
+      this.logger.warn("שליחת הקלטה נדחתה — גדולה מתקרת המדיה של Meta גם אחרי המרה");
+      return false;
+    }
+    const mediaId = await this.uploadMedia(creds, audio.body, audio.mimeType);
+    if (mediaId === null) return false;
+    /*
+     * `audio` אינו נושא כיתוב אצל Meta, ולכן הכיתוב נשלח כהודעת
+     * טקסט לפניו — אחרת המתווך היה מקבל קובץ שמע בלי לדעת של מי
+     * ומאיזו שיחה.
+     */
+    if (options.caption !== undefined && options.caption !== "") {
+      await this.sendText(to, options.caption, options);
+    }
+    return this.post(creds, {
+      messaging_product: "whatsapp",
+      to,
+      type: "audio",
+      audio: { id: mediaId },
+    });
+  }
+
+  /** העלאת קובץ ל-Meta ⟵ מזהה מדיה. `null` = ההעלאה נכשלה. */
+  private async uploadMedia(
+    creds: WhatsAppCredentials,
+    body: Buffer,
+    mimeType: string,
+  ): Promise<string | null> {
+    try {
+      const form = new FormData();
+      form.append("messaging_product", "whatsapp");
+      form.append("type", mimeType);
+      form.append("file", new Blob([new Uint8Array(body)], { type: mimeType }), "recording");
+      const res = await fetch(`${GRAPH_BASE}/${creds.phoneNumberId}/media`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${creds.token}` },
+        body: form,
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        const detail = (await res.text()).slice(0, 300);
+        this.logger.error(`העלאת הקלטה נכשלה: HTTP ${res.status} — ${detail}`);
+        return null;
+      }
+      const json = (await res.json()) as { id?: unknown };
+      return typeof json.id === "string" ? json.id : null;
+    } catch (error) {
+      this.logger.error(`העלאת הקלטה נכשלה: ${String(error)}`);
+      return null;
     }
   }
 

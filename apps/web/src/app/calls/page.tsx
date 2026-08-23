@@ -6,11 +6,13 @@ import { Button } from "@metavchim/ui";
 import { API_BASE, ApiError, apiDelete, apiGet, apiPost } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { useUserDismissed } from "@/lib/dismissed-panels";
-import { useRequireAuth } from "@/lib/use-auth";
+import { CALL_OUTCOME_LABELS } from "@metavchim/shared";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { FilterBar, SearchField, textMatches } from "../list-controls";
 import { DictateFor } from "../dictation-field";
-import { IconClock, IconDoc, IconMic, IconRefresh } from "../icons";
+import { IconClock, IconDoc, IconMic, IconRefresh, IconX } from "../icons";
+import { TelephonyPitch } from "./telephony-pitch";
 import { Notice } from "../notice";
 
 /**
@@ -39,12 +41,8 @@ interface CallRow {
   hasRecording?: boolean;
 }
 
-const OUTCOME_LABELS: Record<string, string> = {
-  answered: "נענתה",
-  missed: "לא נענתה",
-  no_answer: "אין מענה",
-  voicemail: "תא קולי",
-};
+/* התוויות משותפות עם הכרטיס שהשרת כותב לוואטסאפ — מקור אחד. */
+const OUTCOME_LABELS = CALL_OUTCOME_LABELS;
 
 const FILTERS: [string, string][] = [
   ["", "הכול"],
@@ -70,7 +68,15 @@ const timeFmt = new Intl.DateTimeFormat("he-IL", {
 });
 
 export default function CallsPage() {
-  const { loading: authLoading } = useRequireAuth();
+  const { user, loading: authLoading } = useRequireAuth();
+  /*
+   * הצפייה ביומן נפתחה גם לקונים, אבל כל נתיבי הכתיבה של השיחה
+   * דורשים `leads.edit`. בלי הבדיקה הזו מי שרואה את המסך היה מקבל
+   * „תעד שיחה”, מחיקה, העלאת הקלטה ותמלול חוזר — וכל אחד מהם היה
+   * נכשל ב-403 (ביקורת Codex). מסך שמציג כפתור שייכשל הוא הבטחה
+   * שבורה.
+   */
+  const mayEdit = can(user, "leads.edit");
   const [items, setItems] = useState<CallRow[] | null>(null);
   const [outcome, setOutcome] = useState("");
   const [query, setQuery] = useState("");
@@ -108,16 +114,39 @@ export default function CallsPage() {
     apiGet<CallRow[]>(`/calls${query}`)
       .then((rows) => {
         setItems(rows);
+        const requested = requestedIdRef.current;
         setSelected((prev) => {
-          const requested = requestedIdRef.current;
           if (requested !== null) {
             const match = rows.find((r) => r.id === requested);
-            // נצרך פעם אחת; אחרי זה הבחירה של המשתמש היא הקובעת
-            requestedIdRef.current = null;
-            if (match) return match;
+            if (match) {
+              // נצרך פעם אחת; אחרי זה הבחירה של המשתמש היא הקובעת
+              requestedIdRef.current = null;
+              return match;
+            }
+            /*
+             * השיחה המבוקשת אינה בעמוד — נשלפת בנפרד למטה. עד אז
+             * לא בוחרים כלום: נפילה לשיחה החדשה הייתה פותחת שיחה
+             * של לקוח אחר לגמרי, וזה גרוע מלא לפתוח דבר.
+             */
+            return prev;
           }
           return rows.find((r) => r.id === prev?.id) ?? rows[0] ?? null;
         });
+        if (requested !== null && !rows.some((r) => r.id === requested)) {
+          /*
+           * דרך נתיב הרשימה עם `?id=`, ולא נתיב חדש: אותו סינון
+           * בעלות בדיוק חל עליה, ואין שער שני שאפשר לשכוח לעדכן.
+           */
+          apiGet<CallRow[]>(`/calls?id=${encodeURIComponent(requested)}`)
+            .then((found) => {
+              requestedIdRef.current = null;
+              setSelected((prev) => found[0] ?? prev ?? rows[0] ?? null);
+            })
+            .catch(() => {
+              requestedIdRef.current = null;
+              setSelected((prev) => prev ?? rows[0] ?? null);
+            });
+        }
       })
       .catch(() => setError("טעינת השיחות נכשלה"));
   }
@@ -181,63 +210,30 @@ export default function CallsPage() {
         <h1 className="m-0" style={{ fontSize: 22, fontWeight: 800 }}>
           שיחות
         </h1>
-        <button type="button" className="mv-btn-action ms-auto" onClick={() => setAdding((v) => !v)}>
-          {adding ? "ביטול" : "+ תעד שיחה"}
-        </button>
+        {mayEdit ? (
+          <button type="button" className="mv-btn-action ms-auto" onClick={() => setAdding((v) => !v)}>
+            {adding ? "ביטול" : "+ תעד שיחה"}
+          </button>
+        ) : null}
       </div>
 
       {/*
-        מה שמשרד בלי מרכזיה מפסיד — למעלה, לפני הרשימה (בקשת
-        המשתמש). מוצג רק כשאין חיבור, וניתן לסגירה ברמת המשתמש.
+        משרד בלי מרכזיה רואה קודם כול מה קורה כשהיא מחוברת — מסך
+        ולא פסקה (בקשת המשתמש). רשימת השיחות נשארת מתחתיו: תיעוד
+        ידני עובד גם בלי חיבור, ואין סיבה לקחת אותו ממי שמשתמש בו.
       */}
       {pbxConnected === false && !pbxPitch.hidden ? (
-        <section
-          className="mv-example-box mb-4"
-          aria-labelledby="pbx-pitch-heading"
-        >
-          <div className="flex items-start gap-2">
-            <div className="min-w-0 flex-1">
-              <h2 id="pbx-pitch-heading" className="m-0 mb-1 text-[16px] font-bold">
-                חברו את המרכזיה — וכל שיחה תתעד את עצמה
-              </h2>
-              <p className="m-0 text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
-                עכשיו כל שיחה נרשמת כאן ידנית. עם מרכזיה מחוברת: כל שיחה
-                נקלטת אוטומטית ליומן, לקוח מתקשר מזוהה ונפתח הכרטיס שלו,
-                ההקלטה מתומללת ומסתכמת ישירות לכרטיס, שיחה שלא נענתה הופכת
-                לליד שלא הולך לאיבוד, חיוג בלחיצה מכל מסך, ומספרים
-                וירטואליים שמודדים מאיזה קמפיין הגיעה כל שיחה.
-              </p>
-              <p className="m-0 mt-2 text-[14.5px] font-semibold">
-                <Link href="/settings?tab=integrations#telephony" className="underline">
-                  לחיבור המרכזיה בניהול המשרד ←
-                </Link>
-              </p>
-            </div>
-            <button
-              type="button"
-              className="text-[14px] underline"
-              style={{ color: "var(--color-text-muted)", whiteSpace: "nowrap" }}
-              onClick={pbxPitch.never}
-            >
+        <div className="relative mb-4">
+          <TelephonyPitch />
+          <div className="mv-pitch-dismiss">
+            <button type="button" onClick={pbxPitch.never}>
               אל תציג יותר
             </button>
-            <button
-              type="button"
-              aria-label="סגירת ההסבר על חיבור מרכזיה"
-              style={{ color: "var(--color-text-muted)", lineHeight: 0 }}
-              onClick={pbxPitch.close}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path
-                  d="M4 4l8 8M12 4l-8 8"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                />
-              </svg>
+            <button type="button" aria-label="סגירת ההסבר על חיבור מרכזיה" onClick={pbxPitch.close}>
+              <IconX s={16} />
             </button>
           </div>
-        </section>
+        </div>
       ) : null}
 
       {error ? (
@@ -485,7 +481,7 @@ export default function CallsPage() {
                   )}
                 </div>
 
-                <CallRecording call={selected} onChanged={load} />
+                <CallRecording call={selected} onChanged={load} mayEdit={mayEdit} />
 
                 <div className="mt-4 flex flex-wrap gap-3">
                   {selected.leadId ? (
@@ -493,14 +489,16 @@ export default function CallsPage() {
                       לכרטיס הליד
                     </Link>
                   ) : null}
-                  <button
-                    type="button"
-                    onClick={() => void onDelete(selected.id)}
-                    className="mv-btn-plain"
-                    style={{ color: "var(--color-danger)" }}
-                  >
-                    מחק תיעוד
-                  </button>
+                  {mayEdit ? (
+                    <button
+                      type="button"
+                      onClick={() => void onDelete(selected.id)}
+                      className="mv-btn-plain"
+                      style={{ color: "var(--color-danger)" }}
+                    >
+                      מחק תיעוד
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </section>
@@ -519,7 +517,16 @@ export default function CallsPage() {
  * הקשר, ומתווך שחוזר אליה בעוד חודש רוצה לשמוע מה נאמר ולא רק
  * לקרוא סיכום. מדיניות הפרטיות אומרת את ההבחנה הזו במפורש.
  */
-function CallRecording({ call, onChanged }: { call: CallRow; onChanged: () => void }) {
+function CallRecording({
+  call,
+  onChanged,
+  /** הנגן והתמלול הם צפייה ונשארים; ההעלאה והתמלול-החוזר הם כתיבה. */
+  mayEdit,
+}: {
+  call: CallRow;
+  onChanged: () => void;
+  mayEdit: boolean;
+}) {
   const canTranscribe = useFeature("transcription");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -600,7 +607,11 @@ function CallRecording({ call, onChanged }: { call: CallRow; onChanged: () => vo
         </audio>
       ) : null}
 
-      {status === undefined ? (
+      {status === undefined && !mayEdit ? (
+        <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          לא צורפה הקלטה לשיחה הזו.
+        </p>
+      ) : status === undefined ? (
         <label className="mv-btn-plain inline-block cursor-pointer">
           {busy ? "מעלה…" : <><IconMic s={15} /> צרף הקלטה</>}
           <input
@@ -628,14 +639,16 @@ function CallRecording({ call, onChanged }: { call: CallRow; onChanged: () => vo
             התמלול נכשל. ההקלטה עצמה נשמרה ולא אבדה.
           </p>
           {/* כשל תמלול הוא לרוב זמני — ניסיון נוסף במקום העלאה מחדש */}
-          <button
-            type="button"
-            className="mv-btn-plain"
-            disabled={busy}
-            onClick={() => void retryTranscription()}
-          >
-            {busy ? "שולח…" : <><IconRefresh s={15} /> נסו תמלול שוב</>}
-          </button>
+          {mayEdit ? (
+            <button
+              type="button"
+              className="mv-btn-plain"
+              disabled={busy}
+              onClick={() => void retryTranscription()}
+            >
+              {busy ? "שולח…" : <><IconRefresh s={15} /> נסו תמלול שוב</>}
+            </button>
+          ) : null}
         </div>
       ) : (
         <>

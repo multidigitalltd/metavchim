@@ -304,12 +304,39 @@ export class AgentResolveService {
     const spec = ENTITY_LOOKUP[actionId];
     if (spec === undefined) return {};
     const phrase = params[spec.key];
-    if (typeof phrase !== "string" || phrase.trim().length < 2) return {};
+    /*
+     * „תראה לי את הכרטיס המלא” — פעולה שמכוונת לרשומה קיימת, בלי
+     * לומר לאיזו. עד כה זה החזיר `{}`: בלי מועמדים ובלי שדה חסר,
+     * כלומר הצעה שנראית שלמה, והכישלון („לא נבחר כרטיס”) הגיע רק
+     * אחרי האישור (ביקורת Codex).
+     *
+     * רשימה ריקה חוסמת את האישור במסך, וזה הכלל לכל פעולה
+     * שמכוונת לרשומה — לא רק לשתי החדשות.
+     */
+    if (typeof phrase !== "string" || phrase.trim().length < 2) {
+      return {
+        candidates: {
+          key: spec.key,
+          idKey: spec.idKey,
+          label: spec.label,
+          options: [],
+          reason: "unsaid",
+        },
+      };
+    }
 
     const options = await this.candidatesFor(spec.kind, phrase.trim());
 
     if (options.length === 0) {
-      return { candidates: { key: spec.key, idKey: spec.idKey, label: spec.label, options: [] } };
+      return {
+        candidates: {
+          key: spec.key,
+          idKey: spec.idKey,
+          label: spec.label,
+          options: [],
+          reason: "not_found",
+        },
+      };
     }
     if (options.length === 1 && !spec.alwaysChoose) {
       const match = options[0]!;
@@ -463,6 +490,8 @@ const ENTITY_LOOKUP: Record<
   },
   complete_task: { key: "taskPhrase", idKey: "taskId", label: "איזו משימה", kind: "task" },
   add_note: { key: "cardPhrase", idKey: "cardId", label: "לאיזה כרטיס", kind: "card" },
+  show_card: { key: "cardPhrase", idKey: "cardId", label: "איזה כרטיס", kind: "card" },
+  play_recording: { key: "cardPhrase", idKey: "cardId", label: "שיחה עם מי", kind: "card" },
   update_lead_status: { key: "leadPhrase", idKey: "leadId", label: "איזה ליד", kind: "lead" },
   share_property: {
     key: "propertyPhrase",

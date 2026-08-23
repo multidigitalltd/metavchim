@@ -12,8 +12,7 @@ import {
   presentationDetailRows,
   referralReasonLabel,
   shekels,
-  type PayoutMode,
-} from "@metavchim/shared";
+  type PayoutMode,  labelOf } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS } from "@/lib/lead-labels";
@@ -2135,7 +2134,7 @@ export default function CollaborationPage() {
                         <IconUpload s={20} />
                       </span>
                       <h4 className="mv-net-title">
-                        {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent}
+                        {labelOf(LEAD_INTENT_LABELS, lead.intent) ?? lead.intent}
                         {lead.city ? ` · ${lead.city}` : ""}
                       </h4>
                       <span className="mv-net-chip">
@@ -2215,7 +2214,7 @@ export default function CollaborationPage() {
                         <IconDownload s={20} />
                       </span>
                       <h4 className="mv-net-title">
-                        {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent}
+                        {labelOf(LEAD_INTENT_LABELS, lead.intent) ?? lead.intent}
                         {lead.city ? ` · ${lead.city}` : ""}
                       </h4>
                       <span className="mv-net-chip mv-net-chip--money">
@@ -2256,12 +2255,12 @@ export default function CollaborationPage() {
                     <IconUsers s={20} />
                   </span>
                   <h4 className="mv-net-title">
-                    {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent}
+                    {labelOf(LEAD_INTENT_LABELS, lead.intent) ?? lead.intent}
                     {lead.city ? ` · ${lead.city}` : ""}
                   </h4>
                   <span className="mv-net-chip">
                     <IconSend s={14} />{" "}
-                    {LEAD_SOURCE_LABELS[lead.source] ?? lead.source}
+                    {labelOf(LEAD_SOURCE_LABELS, lead.source) ?? lead.source}
                   </span>
                   <span className="mv-net-chip mv-net-chip--money">
                     <IconCoins s={14} /> עמלת הפניה: {lead.priceCredits} קרדיטים

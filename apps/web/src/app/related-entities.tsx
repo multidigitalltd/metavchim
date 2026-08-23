@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { MATURITY_LABELS } from "@metavchim/shared";
+import { MATURITY_LABELS , labelOf } from "@metavchim/shared";
 import { apiGet } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { LEAD_STATUS_LABELS } from "@/lib/lead-labels";
@@ -63,7 +63,7 @@ export function RelatedEntities({
               className="inline-block rounded-full border px-3 py-1 text-sm underline"
               style={chipStyle}
             >
-              <IconUser s={15} /> קונה פעיל · {MATURITY_LABELS[buyer.maturity] ?? buyer.maturity}
+              <IconUser s={15} /> קונה פעיל · {labelOf(MATURITY_LABELS, buyer.maturity) ?? buyer.maturity}
             </Link>
           </li>
         ))}
@@ -74,7 +74,7 @@ export function RelatedEntities({
               className="inline-block rounded-full border px-3 py-1 text-sm underline"
               style={chipStyle}
             >
-              <IconPhone s={15} /> ליד {LEAD_STATUS_LABELS[l.status] ?? l.status} · {formatDate(l.createdAt)}
+              <IconPhone s={15} /> ליד {labelOf(LEAD_STATUS_LABELS, l.status) ?? l.status} · {formatDate(l.createdAt)}
             </Link>
           </li>
         ))}

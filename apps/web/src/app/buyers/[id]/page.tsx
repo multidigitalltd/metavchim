@@ -5,8 +5,7 @@ import Link from "next/link";
 import {
   buyerProfileCompleteness,
   describeEntryNeed,
-  priceInWordsWithCurrency,
-} from "@metavchim/shared";
+  priceInWordsWithCurrency,  labelOf } from "@metavchim/shared";
 import type { BuyerRequirements } from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import {
@@ -331,7 +330,7 @@ export default function BuyerDetailPage({
           >
             <span dir="ltr">{buyer.contact.phone}</span> ·{" "}
             {formatBuyerSource(buyer.source)} · מימון:{" "}
-            {FINANCING_LABELS[buyer.financing] ?? buyer.financing}
+            {labelOf(FINANCING_LABELS, buyer.financing) ?? buyer.financing}
           </p>
         </div>
         <div className="ms-auto flex flex-wrap items-center gap-2">

@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Post } from "@nestjs/common";
 import { z } from "zod";
 import { AGENT_ACTION_IDS, agentAction, type AgentProposal } from "@metavchim/shared";
-import { AnyAuthenticated, RequireCapability } from "../../common/auth.decorators";
+import { AnyAuthenticated } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AgentExecuteService, type ExecuteResult } from "./execute.service";
@@ -122,13 +122,24 @@ export class AgentController {
   /**
    * ביצוע ההצעה שאושרה.
    *
-   * `properties.view` היא היכולת של הנתיב — הרצפה שמאפשרת לדבר עם
-   * הסוכן בכלל. היכולת של הפעולה עצמה נבדקת בשירות, מול הקטלוג,
-   * כי היא נקבעת מגוף הבקשה ולא מהנתיב.
+   * **השער כאן הוא אימות בלבד, והיכולת נבדקת על הפעולה.** הנתיב
+   * מדבר על פעולה שמגיעה מגוף הבקשה, ולכן יכולת אחת שמוצהרת עליו
+   * אינה יכולה לתאר אותה: `properties.view` שעמדה כאן כ„רצפה”
+   * חסמה משתמש שמודול הנכסים סגור אצלו מלהריץ פעולות שהוא כן
+   * מורשה בהן — והן הוצעו לו רגע קודם ב-`/agent/capabilities`
+   * ובכרטיס ההצעה (ביקורת Codex).
+   *
+   * זו אינה הרפיה: `AgentExecuteService.execute` מחפש את הפעולה
+   * בקטלוג ובודק את היכולת שלה מול ההקשר לפני כל דבר אחר, ובדיקה
+   * מבנית מוודאת שאין בקטלוג פעולה בלי יכולת. השער עבר למקום
+   * היחיד שיודע מה באמת התבקש, במקום להיות ניחוש בנתיב.
+   *
+   * `@RequireFeature("voice_intake")` על הבקר עדיין חל — מסלול בלי
+   * הסוכן אינו מגיע לכאן בכלל.
    */
   @Post("execute")
   @HttpCode(200)
-  @RequireCapability("properties.view")
+  @AnyAuthenticated()
   async execute(
     @Body(new ZodValidationPipe(ExecuteSchema)) body: z.infer<typeof ExecuteSchema>,
   ): Promise<ExecuteResult> {

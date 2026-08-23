@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { groupTasksByBucket, isTaskUrgent, taskBucket } from "@metavchim/shared";
+import { groupTasksByBucket, isTaskUrgent, taskBucket , labelOf } from "@metavchim/shared";
 import { apiGet } from "@/lib/api";
 import { FIELD_LABELS, MATURITY_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -11,6 +11,7 @@ import { VoiceConsole } from "./voice-console";
 import { DuplicateContacts } from "./duplicate-contacts";
 import { LoadError } from "./load-error";
 import { SetupBanner } from "./setup-banner";
+import { SystemUpdate } from "./system-update";
 import { NowStamp } from "./now-stamp";
 import { BarChart, DonutChart, type Slice } from "./charts";
 import {
@@ -340,7 +341,7 @@ export default function DashboardPage() {
       key: `hot-${b.id}`,
       tone: "green",
       title: `לבדוק התאמות עבור ${b.contact.name}`,
-      why: `קונה ${MATURITY_LABELS[b.maturity] ?? b.maturity} — כדאי לוודא שקיבל הצעות רלוונטיות.`,
+      why: `קונה ${labelOf(MATURITY_LABELS, b.maturity) ?? b.maturity} — כדאי לוודא שקיבל הצעות רלוונטיות.`,
       action: "צפה בהתאמות",
       icon: <IconUsers s={16} />,
       href: `/buyers/${b.id}`,
@@ -442,6 +443,13 @@ export default function DashboardPage() {
       </div>
 
       <DuplicateContacts />
+
+      {/*
+        הכרזה על יכולת חדשה — אחרי הברכה ולפני העבודה של היום.
+        למעלה מדי היא הייתה קודמת למה שדחוף; למטה מדי איש לא היה
+        רואה אותה.
+      */}
+      <SystemUpdate />
 
       {/*
         הסוכן הקולי בראש המסך ולא בתחתיתו: הוא נקודת הכניסה לפעולה,

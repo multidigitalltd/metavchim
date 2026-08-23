@@ -27,6 +27,7 @@ import {
   IdSchema,
   interpretJsonSchema,
   InterpretResponseSchema,
+  isFreePlan,
   MAX_CREDIT_BONUS_PERCENT,
   MAX_CREDIT_EXPIRY_MONTHS,
   MAX_CREDIT_PACKAGES,
@@ -817,6 +818,10 @@ export class PlatformController {
         _count: { select: { users: true } },
       },
     });
+    // המסלולים נטענים פעם אחת לכל הרשימה, ולא פעם לכל שורה
+    const freeCodes = new Set(
+      (await this.plans.all()).filter((p) => isFreePlan(p)).map((p) => p.code),
+    );
     return tenants.map((t) => ({
       id: t.id,
       name: t.name,
@@ -837,7 +842,7 @@ export class PlatformController {
           ? t.supportAccessUntil
           : null,
       // אותה פונקציה שהשרת אוכף לפיה, ולא העתק שלה
-      periodEnded: tenantPeriodEnded(t),
+      periodEnded: tenantPeriodEnded({ ...t, planIsFree: freeCodes.has(t.plan) }),
     }));
   }
 
@@ -926,20 +931,41 @@ export class PlatformController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Body(new ZodValidationPipe(UpdateAgencySchema)) body: z.infer<typeof UpdateAgencySchema>,
   ): Promise<{ ok: true }> {
-    const tenant = await this.prisma.tenant.findUnique({ where: { id }, select: { id: true } });
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: { id: true, status: true },
+    });
     if (!tenant) throw new BadRequestException("משרד לא נמצא");
     /*
      * קוד מסלול נבדק מול הקטלוג ולא מול enum: מסלול שאינו קיים היה
      * נשמר על המשרד ומשאיר אותו בלי אף פיצ'ר, בלי שום שגיאה.
      */
-    if (body.plan !== undefined && (await this.plans.byCode(body.plan)) === undefined) {
+    const target = body.plan === undefined ? undefined : await this.plans.byCode(body.plan);
+    if (body.plan !== undefined && target === undefined) {
       throw new BadRequestException("מסלול לא מוכר");
     }
+    /*
+     * שיוך למסלול חינמי מנקה את התפוגה שהמסלול הקודם הותיר.
+     *
+     * השער כבר אינו נשען על השדות האלה כשהמסלול חינמי, אבל שורה
+     * שממשיכה לשאת תאריך תפוגה משקרת: היא מזינה באנרים של „הניסיון
+     * מסתיים”, והיא הופכת לאמת ברגע שהמשרד יוחזר למסלול בתשלום.
+     *
+     * **הסטטוס משתנה רק מ-`trial`.** משרד מושהה ששויך למסלול חינמי
+     * היה חוזר לאוויר בשקט — המסך שולח `{ plan }` בלבד, ולכן גם
+     * ניתוק ה-Sessions למטה לא היה רץ, וההשהיה של בעל הפלטפורמה
+     * הייתה מתבטלת מאליה (ביקורת Codex). המסלול נוגע בחיוב, לא
+     * בהחלטה מי חסום — בדיוק כפי שהמיגרציה משאירה מושהים בצד.
+     */
+    const toFree = target !== undefined && isFreePlan(target);
+    const activateFromTrial = toFree && tenant.status === "trial";
 
     await this.prisma.tenant.update({
       where: { id },
       data: {
         ...(body.plan !== undefined ? { plan: body.plan } : {}),
+        ...(toFree ? { trialEndsAt: null, paidUntil: null } : {}),
+        ...(activateFromTrial ? { status: "active" } : {}),
         ...(body.status !== undefined ? { status: body.status } : {}),
         ...(body.paidUntil !== undefined
           ? {
