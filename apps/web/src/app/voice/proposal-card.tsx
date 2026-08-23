@@ -49,7 +49,14 @@ export interface Proposal {
   fields: ProposalField[];
   missing: { key: string; label: string }[];
   warnings: string[];
-  candidates?: { key: string; idKey: string; label: string; options: { id: string; label: string; detail?: string }[] };
+  candidates?: {
+    key: string;
+    idKey: string;
+    label: string;
+    options: { id: string; label: string; detail?: string }[];
+    /** `unsaid` — לא נאמר על מי מדובר; `not_found` — נאמר ולא נמצא. */
+    reason?: "unsaid" | "not_found";
+  };
   clarify?: string;
   /** תשובה שיחתית לברכה/שאלה כללית — מוצגת במקום "לא הבנתי" */
   reply?: string;
@@ -325,7 +332,9 @@ export function ProposalCard({
           <legend className="text-[15px] font-semibold">{proposal.candidates.label}</legend>
           {noCandidates ? (
             <p className="m-0 text-[15px]" style={{ color: "var(--color-danger)" }}>
-              לא נמצאה רשומה מתאימה במאגר. אפשר לחפש ידנית ולהמשיך משם.
+              {proposal.candidates.reason === "unsaid"
+                ? 'לא הבנתי על מי מדובר. לחצו „תקנו אותי” ואמרו את השם.'
+                : "לא נמצאה רשומה מתאימה במאגר. אפשר לחפש ידנית ולהמשיך משם."}
             </p>
           ) : (
             <div className="flex flex-wrap gap-2">

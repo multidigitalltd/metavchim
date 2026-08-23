@@ -54,6 +54,53 @@ describe("formatCard", () => {
     }
   });
 
+  /*
+   * אותה בדיקה, לשאר הערכים הסגורים: הבשלות תוקנה והליד נשאר גולמי
+   * באותה פונקציה — המתווך קיבל `in_progress` ו-`rent_in` בוואטסאפ
+   * (ביקורת Codex). הטבלאות מגיעות מהסכימה, וכאן נבדק שהן בשימוש.
+   */
+  it("כל ערכי הליד שבסכימה מתורגמים לעברית", () => {
+    const cases: [string, string, string][] = [
+      ["status", "📊 סטטוס", "in_progress"],
+      ["intent", "🎯 עניין", "rent_in"],
+      ["source", "📍 מקור", "voice_call"],
+    ];
+    const expected: Record<string, string> = {
+      in_progress: "בטיפול",
+      rent_in: "שוכר",
+      voice_call: "שיחה",
+    };
+    for (const [field, label, value] of cases) {
+      const text = formatCard({
+        card: { kind: "lead", contact: { phone: "050-1234567" }, [field]: value, calls: [] },
+      });
+      expect(text, value).toContain(`${label}: ${expected[value]}`);
+      expect(text, value).not.toContain(value);
+    }
+  });
+
+  it("מימון הקונה מתורגם ואינו מוצג כערך פנימי", () => {
+    const text = formatCard({
+      card: {
+        kind: "buyer",
+        contact: { phone: "050-1234567" },
+        requirements: { cities: [] },
+        financing: "pre_approved",
+        calls: [],
+      },
+    });
+    expect(text).toContain("🏦 מימון: אישור עקרוני ביד");
+    expect(text).not.toContain("pre_approved");
+  });
+
+  /* ערך שאינו בטבלה — שורה ישנה במסד — מוצג כמות שהוא ולא נעלם. */
+  it("ערך לא מוכר מוצג כמות שהוא", () => {
+    const text = formatCard({
+      card: { kind: "lead", contact: { phone: "050-1234567" }, status: "legacy_value", calls: [] },
+    });
+    expect(text).toContain("📊 סטטוס: legacy_value");
+  });
+
   it("שדה חסר פשוט אינו מוצג — בלי „לא צוין” שממלא את המסך", () => {
     const text = formatCard({
       card: {

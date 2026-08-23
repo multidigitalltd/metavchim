@@ -23,6 +23,7 @@
  */
 
 import { MATURITY_LABELS } from "../schemas/buyer.js";
+import { labelOf } from "../schemas/labels.js";
 import { PROPERTY_TYPE_LABELS_HE } from "./csv-export.js";
 import { propertyFeatureLabel } from "./matching.js";
 import { describeDistance } from "./proximity.js";
@@ -275,7 +276,7 @@ export function demandChips(demand: NetworkDemandFields): NetworkChip[] {
   if (maturity !== undefined && demand.maturity !== undefined) {
     chips.push({
       icon: maturity.icon,
-      text: MATURITY_LABELS[demand.maturity] ?? demand.maturity,
+      text: labelOf(MATURITY_LABELS, demand.maturity) ?? demand.maturity,
       tone: maturity.tone,
       title: "בשלות הקונה כפי שהמשרד המשתף סימן אותה",
     });
@@ -383,10 +384,7 @@ export function demandDetailRows(
     { label: "מימון", value: financing },
     {
       label: "רצינות הקונה",
-      value:
-        demand.maturity === undefined
-          ? undefined
-          : (MATURITY_LABELS[demand.maturity] ?? demand.maturity),
+      value: labelOf(MATURITY_LABELS, demand.maturity),
     },
     {
       label: "דרישות חובה",

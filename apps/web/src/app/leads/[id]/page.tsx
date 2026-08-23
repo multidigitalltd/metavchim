@@ -21,8 +21,7 @@ import {
   settleReferral,
   shekels,
   type CreditEconomy,
-  type PayoutMode,
-} from "@metavchim/shared";
+  type PayoutMode,  labelOf } from "@metavchim/shared";
 import { apiDelete, apiGet, apiPost, apiPatch, ApiError } from "@/lib/api";
 import { formatDate, shekelsToAgorot, waMeUrl } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
@@ -923,7 +922,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                 fontWeight: 700,
               }}
             >
-              {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent}
+              {labelOf(LEAD_INTENT_LABELS, lead.intent) ?? lead.intent}
             </span>
             {/*
               רשימה מעוצבת ולא `select` נייטיב — אותו תיקון שכבר
@@ -946,7 +945,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             style={{ color: "var(--color-text-muted)" }}
           >
             <span dir="ltr">{lead.contact.phone}</span> · מקור:{" "}
-            {LEAD_SOURCE_LABELS[lead.source] ?? lead.source}
+            {labelOf(LEAD_SOURCE_LABELS, lead.source) ?? lead.source}
             {/*
               המספר שאליו הלקוח התקשר — רזולוציה שהמקור לבדו אינו
               נותן. משרד שמריץ שלוש מודעות באותו ערוץ רואה שלוש
@@ -1318,7 +1317,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                   </p>
                   <p className="m-0 whitespace-pre-line text-[15.5px]">
                     {item.kind === "status_change"
-                      ? `הסטטוס שונה ל: ${LEAD_STATUS_LABELS[item.content] ?? item.content}`
+                      ? `הסטטוס שונה ל: ${labelOf(LEAD_STATUS_LABELS, item.content) ?? item.content}`
                       : item.content}
                   </p>
                 </li>

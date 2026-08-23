@@ -6,7 +6,7 @@ import { Button } from "@metavchim/ui";
 import { API_BASE, ApiError, apiDelete, apiGet, apiPost } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { useUserDismissed } from "@/lib/dismissed-panels";
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { FilterBar, SearchField, textMatches } from "../list-controls";
 import { DictateFor } from "../dictation-field";
@@ -71,7 +71,15 @@ const timeFmt = new Intl.DateTimeFormat("he-IL", {
 });
 
 export default function CallsPage() {
-  const { loading: authLoading } = useRequireAuth();
+  const { user, loading: authLoading } = useRequireAuth();
+  /*
+   * הצפייה ביומן נפתחה גם לקונים, אבל כל נתיבי הכתיבה של השיחה
+   * דורשים `leads.edit`. בלי הבדיקה הזו מי שרואה את המסך היה מקבל
+   * „תעד שיחה”, מחיקה, העלאת הקלטה ותמלול חוזר — וכל אחד מהם היה
+   * נכשל ב-403 (ביקורת Codex). מסך שמציג כפתור שייכשל הוא הבטחה
+   * שבורה.
+   */
+  const mayEdit = can(user, "leads.edit");
   const [items, setItems] = useState<CallRow[] | null>(null);
   const [outcome, setOutcome] = useState("");
   const [query, setQuery] = useState("");
@@ -205,9 +213,11 @@ export default function CallsPage() {
         <h1 className="m-0" style={{ fontSize: 22, fontWeight: 800 }}>
           שיחות
         </h1>
-        <button type="button" className="mv-btn-action ms-auto" onClick={() => setAdding((v) => !v)}>
-          {adding ? "ביטול" : "+ תעד שיחה"}
-        </button>
+        {mayEdit ? (
+          <button type="button" className="mv-btn-action ms-auto" onClick={() => setAdding((v) => !v)}>
+            {adding ? "ביטול" : "+ תעד שיחה"}
+          </button>
+        ) : null}
       </div>
 
       {/*
@@ -474,7 +484,7 @@ export default function CallsPage() {
                   )}
                 </div>
 
-                <CallRecording call={selected} onChanged={load} />
+                <CallRecording call={selected} onChanged={load} mayEdit={mayEdit} />
 
                 <div className="mt-4 flex flex-wrap gap-3">
                   {selected.leadId ? (
@@ -482,14 +492,16 @@ export default function CallsPage() {
                       לכרטיס הליד
                     </Link>
                   ) : null}
-                  <button
-                    type="button"
-                    onClick={() => void onDelete(selected.id)}
-                    className="mv-btn-plain"
-                    style={{ color: "var(--color-danger)" }}
-                  >
-                    מחק תיעוד
-                  </button>
+                  {mayEdit ? (
+                    <button
+                      type="button"
+                      onClick={() => void onDelete(selected.id)}
+                      className="mv-btn-plain"
+                      style={{ color: "var(--color-danger)" }}
+                    >
+                      מחק תיעוד
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </section>
@@ -508,7 +520,16 @@ export default function CallsPage() {
  * הקשר, ומתווך שחוזר אליה בעוד חודש רוצה לשמוע מה נאמר ולא רק
  * לקרוא סיכום. מדיניות הפרטיות אומרת את ההבחנה הזו במפורש.
  */
-function CallRecording({ call, onChanged }: { call: CallRow; onChanged: () => void }) {
+function CallRecording({
+  call,
+  onChanged,
+  /** הנגן והתמלול הם צפייה ונשארים; ההעלאה והתמלול-החוזר הם כתיבה. */
+  mayEdit,
+}: {
+  call: CallRow;
+  onChanged: () => void;
+  mayEdit: boolean;
+}) {
   const canTranscribe = useFeature("transcription");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -589,7 +610,11 @@ function CallRecording({ call, onChanged }: { call: CallRow; onChanged: () => vo
         </audio>
       ) : null}
 
-      {status === undefined ? (
+      {status === undefined && !mayEdit ? (
+        <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          לא צורפה הקלטה לשיחה הזו.
+        </p>
+      ) : status === undefined ? (
         <label className="mv-btn-plain inline-block cursor-pointer">
           {busy ? "מעלה…" : <><IconMic s={15} /> צרף הקלטה</>}
           <input
@@ -617,14 +642,16 @@ function CallRecording({ call, onChanged }: { call: CallRow; onChanged: () => vo
             התמלול נכשל. ההקלטה עצמה נשמרה ולא אבדה.
           </p>
           {/* כשל תמלול הוא לרוב זמני — ניסיון נוסף במקום העלאה מחדש */}
-          <button
-            type="button"
-            className="mv-btn-plain"
-            disabled={busy}
-            onClick={() => void retryTranscription()}
-          >
-            {busy ? "שולח…" : <><IconRefresh s={15} /> נסו תמלול שוב</>}
-          </button>
+          {mayEdit ? (
+            <button
+              type="button"
+              className="mv-btn-plain"
+              disabled={busy}
+              onClick={() => void retryTranscription()}
+            >
+              {busy ? "שולח…" : <><IconRefresh s={15} /> נסו תמלול שוב</>}
+            </button>
+          ) : null}
         </div>
       ) : (
         <>

@@ -9,6 +9,7 @@ import { ulid } from "ulid";
 import {
   BuyerRequirementsSchema,
   DEFAULT_COMMISSION_SPLIT,
+  labelOf,
   MATURITY_LABELS,
   type BuyerRequirements,
   type Page,
@@ -438,7 +439,7 @@ export class BuyersService {
             tenantId,
             buyerId: id,
             kind: "status_change",
-            content: `בשלות: ${MATURITY_LABELS[existing.maturity] ?? existing.maturity} ← ${MATURITY_LABELS[patch.maturity] ?? patch.maturity}`,
+            content: `בשלות: ${labelOf(MATURITY_LABELS, existing.maturity)} ← ${labelOf(MATURITY_LABELS, patch.maturity)}`,
             createdBy: TenantContext.current().userId,
           },
         });

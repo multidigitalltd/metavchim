@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { groupTasksByBucket, isTaskUrgent, taskBucket } from "@metavchim/shared";
+import { groupTasksByBucket, isTaskUrgent, taskBucket , labelOf } from "@metavchim/shared";
 import { apiGet } from "@/lib/api";
 import { FIELD_LABELS, MATURITY_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -341,7 +341,7 @@ export default function DashboardPage() {
       key: `hot-${b.id}`,
       tone: "green",
       title: `לבדוק התאמות עבור ${b.contact.name}`,
-      why: `קונה ${MATURITY_LABELS[b.maturity] ?? b.maturity} — כדאי לוודא שקיבל הצעות רלוונטיות.`,
+      why: `קונה ${labelOf(MATURITY_LABELS, b.maturity) ?? b.maturity} — כדאי לוודא שקיבל הצעות רלוונטיות.`,
       action: "צפה בהתאמות",
       icon: <IconUsers s={16} />,
       href: `/buyers/${b.id}`,

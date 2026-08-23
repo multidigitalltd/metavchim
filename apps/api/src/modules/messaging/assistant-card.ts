@@ -15,7 +15,14 @@
  * השימוש — מי זה ואיך מתקשרים אליו קודם, ההיסטוריה בסוף.
  */
 
-import { MATURITY_LABELS } from "@metavchim/shared";
+import {
+  FINANCING_LABELS,
+  labelOf,
+  LEAD_INTENT_LABELS,
+  LEAD_SOURCE_LABELS,
+  LEAD_STATUS_LABELS,
+  MATURITY_LABELS,
+} from "@metavchim/shared";
 
 /** מה שהמסך היה קורא לו „לא צוין” — כאן פשוט לא מוצג. */
 function line(label: string, value: unknown): string | null {
@@ -96,14 +103,8 @@ export function formatCard(data: unknown): string | null {
         line("🏘️ שכונות", req["neighborhoods"]),
         line("🚪 חדרים", rooms),
         line("💰 תקציב", budget === "" ? undefined : budget),
-        /*
-         * התוויות מיובאות ואינן מועתקות: טבלה מקומית שנכתבה כאן
-         * המציאה „פושר” ו„קר” שאינם קיימים בסכימה, והחסירה שלושה
-         * ערכים אמיתיים — ולכן רוב הכרטיסים הציגו `very_hot` גולמי
-         * (ביקורת Codex). מקור אחד לתוויות אינו יכול לסטות מהערכים.
-         */
-        line("🌡️ בשלות", maturity === undefined ? undefined : (MATURITY_LABELS[maturity] ?? maturity)),
-        line("🏦 מימון", c["financing"]),
+        line("🌡️ בשלות", labelOf(MATURITY_LABELS, maturity)),
+        line("🏦 מימון", labelOf(FINANCING_LABELS, c["financing"])),
         line("📍 מקור", c["source"]),
         line("📝 הערות", c["agentNotes"]),
       ].filter((l): l is string => l !== null),
@@ -111,9 +112,9 @@ export function formatCard(data: unknown): string | null {
   } else {
     out.push(
       ...[
-        line("📊 סטטוס", c["status"]),
-        line("🎯 עניין", c["intent"]),
-        line("📍 מקור", c["source"]),
+        line("📊 סטטוס", labelOf(LEAD_STATUS_LABELS, c["status"])),
+        line("🎯 עניין", labelOf(LEAD_INTENT_LABELS, c["intent"])),
+        line("📍 מקור", labelOf(LEAD_SOURCE_LABELS, c["source"])),
         line("📝 תקציר", c["summary"]),
         c["requiresHuman"] === true ? "⚠️ מסומן כדורש טיפול אנושי" : null,
       ].filter((l): l is string => l !== null),

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
-import { compareLeadsByUrgency, leadWaiting, type LeadWaitingLevel } from "@metavchim/shared";
+import { compareLeadsByUrgency, leadWaiting, type LeadWaitingLevel , labelOf } from "@metavchim/shared";
 import { apiGet } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
@@ -235,12 +235,12 @@ export default function LeadsPage() {
                           <span className="mv-tag" style={{ background: "#faf1ec", color: "#b0512c" }}>דחוף</span>
                         ) : null}
                         <span className="mv-pill ms-auto" style={{ color: pill.fg, background: pill.bg }}>
-                          {LEAD_STATUS_LABELS[lead.status] ?? lead.status}
+                          {labelOf(LEAD_STATUS_LABELS, lead.status) ?? lead.status}
                         </span>
                       </div>
                       <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
-                        {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent} ·{" "}
-                        {LEAD_SOURCE_LABELS[lead.source] ?? lead.source}
+                        {labelOf(LEAD_INTENT_LABELS, lead.intent) ?? lead.intent} ·{" "}
+                        {labelOf(LEAD_SOURCE_LABELS, lead.source) ?? lead.source}
                       </p>
                       {waiting ? (
                         <p className="text-sm font-extrabold" style={{ color: WAITING_COLOR[waiting.level] }}>
@@ -293,17 +293,17 @@ export default function LeadsPage() {
                       </span>
                       <span className="flex items-center gap-1.5 truncate text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
                         <IconGlobe s={14} />
-                        {LEAD_SOURCE_LABELS[lead.source] ?? lead.source}
+                        {labelOf(LEAD_SOURCE_LABELS, lead.source) ?? lead.source}
                       </span>
                       <span className="truncate text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
-                        {LEAD_INTENT_LABELS[lead.intent] ?? lead.intent}
+                        {labelOf(LEAD_INTENT_LABELS, lead.intent) ?? lead.intent}
                       </span>
                       <span className="text-[14.5px] font-extrabold" style={{ color: waiting ? WAITING_COLOR[waiting.level] : "var(--color-text-muted)" }}>
                         {waiting?.label ?? "—"}
                       </span>
                       <span>
                         <span className="mv-pill" style={{ color: pill.fg, background: pill.bg, fontSize: 14 }}>
-                          {LEAD_STATUS_LABELS[lead.status] ?? lead.status}
+                          {labelOf(LEAD_STATUS_LABELS, lead.status) ?? lead.status}
                         </span>
                       </span>
                       <span className="flex gap-[7px]">

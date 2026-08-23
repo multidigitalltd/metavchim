@@ -1,4 +1,5 @@
 export * from "./schemas/common.js";
+export * from "./schemas/labels.js";
 export * from "./schemas/tenant.js";
 export * from "./schemas/user.js";
 export * from "./schemas/property.js";

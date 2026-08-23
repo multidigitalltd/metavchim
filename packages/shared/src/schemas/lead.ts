@@ -12,6 +12,7 @@ export const LeadSourceSchema = z.enum([
 export type LeadSource = z.infer<typeof LeadSourceSchema>;
 
 export const LeadIntentSchema = z.enum(["buy", "sell", "rent_in", "rent_out", "info", "unknown"]);
+export type LeadIntent = z.infer<typeof LeadIntentSchema>;
 
 export const LeadStatusSchema = z.enum([
   "new",
@@ -21,6 +22,41 @@ export const LeadStatusSchema = z.enum([
   "closed",
 ]);
 export type LeadStatus = z.infer<typeof LeadStatusSchema>;
+
+/*
+ * תוויות עברית לשלושת הערכים הסגורים של הליד — מקור אמת אחד למסכים
+ * ולטקסטים שהשרת כותב.
+ *
+ * הטיפוס הוא `Record<LeadStatus, string>` ולא `Record<string, string>`
+ * בכוונה: ערך שנוסף לסכימה ולא לטבלה שובר את הבנייה. טבלה מקומית
+ * שנכתבה ביד היא בדיוק מה שהציג `very_hot` גולמי למתווך, ובאותה
+ * פונקציה גם `in_progress` ו-`rent_in` (ביקורת Codex).
+ */
+export const LEAD_STATUS_LABELS: Record<LeadStatus, string> = {
+  new: "חדש",
+  in_progress: "בטיפול",
+  waiting_customer: "ממתין ללקוח",
+  converted: "הומר",
+  closed: "סגור",
+};
+
+export const LEAD_INTENT_LABELS: Record<LeadIntent, string> = {
+  buy: "קונה",
+  sell: "מוכר",
+  rent_in: "שוכר",
+  rent_out: "משכיר",
+  info: "מתעניין",
+  unknown: "לא ידוע",
+};
+
+export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
+  voice_call: "שיחה",
+  whatsapp: "וואטסאפ",
+  web_form: "אתר",
+  kanko: "Kanko",
+  referral: "המלצה",
+  manual: "ידני",
+};
 
 /** סטטוסים שבהם הליד עדיין "חי" — פנייה נוספת מצטרפת אליו במקום לפצל ציר זמן. */
 export const OPEN_LEAD_STATUSES: readonly LeadStatus[] = ["new", "in_progress", "waiting_customer"];

@@ -1,4 +1,4 @@
-import { normalizePhoneForWhatsapp } from "@metavchim/shared";
+import { normalizePhoneForWhatsapp , labelOf } from "@metavchim/shared";
 import { LEAD_SOURCE_LABELS } from "./lead-labels";
 
 const nis = new Intl.NumberFormat("he-IL", {
@@ -65,13 +65,8 @@ export const STATUS_LABELS: Record<string, string> = {
   archived: "בארכיון",
 };
 
-export const FINANCING_LABELS: Record<string, string> = {
-  cash: "מזומן",
-  pre_approved: "אישור עקרוני ביד",
-  in_process: "משכנתא בתהליך",
-  not_started: "טרם התחיל מימון",
-  unknown: "לא ידוע",
-};
+/* התוויות יושבות ליד הסכימה — ראו `lead-labels.ts` לאותו נימוק. */
+export { FINANCING_LABELS } from "@metavchim/shared";
 
 export const BUYER_SOURCE_LABELS: Record<string, string> = {
   phone: "טלפון",
@@ -94,7 +89,7 @@ export function waMeUrl(phone: string, text?: string): string {
 export function formatBuyerSource(source: string): string {
   if (source.startsWith("lead:")) {
     const leadSource = source.slice("lead:".length);
-    return `ליד (${LEAD_SOURCE_LABELS[leadSource] ?? leadSource})`;
+    return `ליד (${labelOf(LEAD_SOURCE_LABELS, leadSource) ?? leadSource})`;
   }
   return BUYER_SOURCE_LABELS[source] ?? source;
 }
