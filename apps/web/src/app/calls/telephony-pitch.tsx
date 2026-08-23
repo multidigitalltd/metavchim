@@ -67,7 +67,20 @@ const STEPS = [
   },
 ] as const;
 
-export function TelephonyPitch(): React.JSX.Element {
+export function TelephonyPitch({
+  canOpenSettings,
+}: {
+  /**
+   * האם למשתמש הזה יש `settings.manage`.
+   *
+   * הקישור „לחיבור בהגדרות” מוצג רק לו. סוכן בלי היכולת שלחץ עליו
+   * נחת ב-`/settings`, שם `/settings/tenant` מחזיר 403 והמסך מציג
+   * שגיאת הרשאה — כלומר הזמנה לפעולה שמסתיימת בקיר (ביקורת Codex).
+   * כפתור „להצטרפות לשירות” נשאר לכולם: הוא פותח פנייה לתמיכה,
+   * וסוכן שרוצה שהמשרד יתחבר הוא בדיוק מי שאמור לפנות.
+   */
+  canOpenSettings: boolean;
+}): React.JSX.Element {
   return (
     <section className="mv-pitch" aria-labelledby="pbx-pitch-heading">
       <div className="mv-pitch-head">
@@ -129,9 +142,11 @@ export function TelephonyPitch(): React.JSX.Element {
         >
           להצטרפות לשירות
         </button>
-        <Link href="/settings?tab=integrations#telephony" className="mv-pitch-link">
-          כבר יש לי מרכזיה — לחיבור בהגדרות ←
-        </Link>
+        {canOpenSettings ? (
+          <Link href="/settings?tab=integrations#telephony" className="mv-pitch-link">
+            כבר יש לי מרכזיה — לחיבור בהגדרות ←
+          </Link>
+        ) : null}
       </div>
     </section>
   );

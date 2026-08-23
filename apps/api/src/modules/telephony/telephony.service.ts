@@ -105,6 +105,17 @@ export class TelephonyService {
   /** קיום חיבור מרכזיה בלבד — לבאנר במסך השיחות, בלי שום פרט תצורה. */
   async isConnected(): Promise<boolean> {
     const tenantId = TenantContext.current().tenantId;
+    /*
+     * זכאות המסלול, ולא רק קיום שורת ההגדרה.
+     *
+     * שורת האינטגרציה **נשמרת** במעבר מסלול, ולכן משרד שהיה לו
+     * חיבור ועבר למסלול בלי מרכזייה ממשיך להיראות „מחובר”. בפועל
+     * קליטת הוובהוק דוחה בדיוק את אותה אינטגרציה על אותה בדיקה
+     * (`no_feature`), כלומר השירות אינו עובד — והבאנר שמסביר איך
+     * לחבר נשאר מוסתר. „מחובר” שמשמעותו „שום שיחה לא נקלטת” הוא
+     * בדיוק סוג ההצהרה שהמסך אינו אמור להצהיר (ביקורת Codex).
+     */
+    if (!(await this.plans.tenantHasFeature(tenantId, "telephony"))) return false;
     const row = await this.prisma.withTenant((tx) =>
       tx.integration.findFirst({
         where: { tenantId, kind: "telephony" },

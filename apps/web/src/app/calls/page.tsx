@@ -231,7 +231,7 @@ export default function CallsPage() {
       */}
       {pbxConnected === false && !pbxPitch.hidden ? (
         <div className="relative mb-4">
-          <TelephonyPitch />
+          <TelephonyPitch canOpenSettings={can(user, "settings.manage")} />
           <div className="mv-pitch-dismiss">
             <button type="button" onClick={pbxPitch.never}>
               אל תציג יותר
