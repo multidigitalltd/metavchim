@@ -3,7 +3,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { ulid } from "ulid";
 import {
   assertContactAccess,
-  contactIdsInAnySource,
+  orphanContactIds,
   isOrphanContact,
   seesAllContacts,
   visibleContactIds,
@@ -170,12 +170,6 @@ export class CallsService {
     const { tenantId, userId } = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
       const visible = await visibleContactIds(tx, tenantId);
-      /*
-       * „אני רשמתי” חל רק על שיחה בלי בעלים — בלי איש קשר, או עם
-       * לקוח שאינו שייך עוד לאיש. לקוח חי עובר בשער הרגיל, אחרת
-       * שיחה שנרשמה כשהמודול היה פתוח הייתה שורדת את חסימתו.
-       */
-      const owned = visible === null ? [] : await contactIdsInAnySource(tx, tenantId);
       const rows = await tx.call.findMany({
         where: {
           tenantId,
@@ -186,17 +180,43 @@ export class CallsService {
           ...(query.id ? { id: query.id } : {}),
           ...(visible === null
             ? {}
-            : {
-                OR: [
-                  { contactId: { in: visible } },
-                  { createdBy: userId, contactId: null },
-                  { createdBy: userId, contactId: { notIn: owned } },
-                ],
-              }),
+            : { OR: [{ contactId: { in: visible } }, { createdBy: userId }] }),
         },
         orderBy: { occurredAt: "desc" },
         take: query.limit,
       });
+      /*
+       * „אני רשמתי” חל רק על שיחה **בלי בעלים** — בלי איש קשר, או
+       * עם לקוח שאינו שייך עוד לאיש. השאילתה למעלה מחזירה על-קבוצה,
+       * והצמצום נעשה כאן על אנשי הקשר שבעמוד בלבד: לקוח חי שנשלף
+       * בזכות „אני רשמתי” נופל, אחרת שיחה שנרשמה כשהמודול היה פתוח
+       * הייתה שורדת את חסימתו (ביקורת Codex).
+       *
+       * העמוד מתקצר ולא מתארך — נופלות רק שורות שאסור להראות.
+       */
+      const visibleSet = visible === null ? null : new Set(visible);
+      const suspect =
+        visibleSet === null
+          ? []
+          : rows
+              .filter(
+                (row) =>
+                  row.contactId !== null &&
+                  !visibleSet.has(row.contactId) &&
+                  row.createdBy === userId,
+              )
+              .map((row) => row.contactId!);
+      const orphans = await orphanContactIds(tx, tenantId, suspect);
+      const allowed =
+        visibleSet === null
+          ? rows
+          : rows.filter(
+              (row) =>
+                row.contactId === null ||
+                visibleSet.has(row.contactId) ||
+                orphans.has(row.contactId),
+            );
+
       /*
        * שאילתה אחת לכל אנשי הקשר בעמוד. `Promise.all` על `toDto`
        * נראה מקבילי, אבל כל קריאה בתוכו הייתה שאילתה נפרדת על אותו
@@ -204,9 +224,9 @@ export class CallsService {
        */
       const contactsById = await this.contacts.getByIds(
         tx,
-        rows.map((row) => row.contactId).filter((id): id is string => id !== null),
+        allowed.map((row) => row.contactId).filter((id): id is string => id !== null),
       );
-      return Promise.all(rows.map((row) => this.toDto(tx, row, contactsById)));
+      return Promise.all(allowed.map((row) => this.toDto(tx, row, contactsById)));
     });
   }
 

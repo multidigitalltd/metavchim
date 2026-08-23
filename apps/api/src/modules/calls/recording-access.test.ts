@@ -31,11 +31,15 @@ interface FakeCall {
  * למשתמש — כלומר "הלקוח הזה אינו שלי".
  */
 function serviceFor(call: FakeCall | null): CallsService {
+  /*
+   * אף ישות אינה קושרת את הלקוח למשתמש — כלומר „הלקוח הזה אינו
+   * שלי”, ומבחינת `orphanContactIds` הוא גם יתום.
+   */
   const tx = {
     call: { findFirst: async () => call },
-    buyer: { findFirst: async () => null },
-    lead: { findFirst: async () => null },
-    property: { findFirst: async () => null },
+    buyer: { findFirst: async () => null, findMany: async () => [] },
+    lead: { findFirst: async () => null, findMany: async () => [] },
+    property: { findFirst: async () => null, findMany: async () => [] },
   };
   const prisma = {
     withTenant: async <T>(fn: (t: typeof tx) => Promise<T>): Promise<T> => fn(tx),
@@ -243,7 +247,10 @@ describe("גישה להקלטת שיחה", () => {
     const live = {
       call: { findFirst: async () => call },
       buyer: { findFirst: async () => null, findMany: async () => [] },
-      lead: { findFirst: async () => ({ id: "01L" }), findMany: async () => [] },
+      lead: {
+        findFirst: async () => ({ id: "01L" }),
+        findMany: async () => [{ contactId: "01LEAD" }],
+      },
       property: { findFirst: async () => null, findMany: async () => [] },
     };
     const service = new CallsService(

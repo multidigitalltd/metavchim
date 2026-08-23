@@ -160,52 +160,63 @@ export function seesAllContacts(): boolean {
 }
 
 /**
- * כל איש קשר שאיזושהי ישות במשרד מצביעה עליו — בלי בעלות ובלי
- * יכולות. זהו המשלים של „יתום”.
+ * מי מבין המועמדים האלה יתום — אינו כרטיס קונה, ליד או בעל נכס
+ * אצל איש.
  *
  * נועד לענף „אני רשמתי” ביומן השיחות: הוא קיים כדי ששיחה **בלי
  * בעלים** לא תיעלם ממי שרשם אותה — שיחה בלי איש קשר, או כזו שהלקוח
- * שלה נמחק מכל הכרטיסים ואינו שייך עוד לאיש. הענף היה עיוור
- * ליכולות, ולכן שיחה שנרשמה כשמודול הלידים היה פתוח המשיכה לחשוף
- * את הטלפון, התמלול וההקלטה של אותו ליד גם אחרי שהמודול נחסם
- * (ביקורת Codex). לקוח שעדיין שייך למישהו עובר בשער הרגיל.
+ * שלה נמחק מכל הכרטיסים. הענף היה עיוור ליכולות, ולכן שיחה שנרשמה
+ * כשמודול הלידים היה פתוח המשיכה לחשוף את הטלפון, התמלול וההקלטה
+ * של אותו ליד גם אחרי שהמודול נחסם (ביקורת Codex).
+ *
+ * **המועמדים ולא כל המשרד.** הניסוח הראשון שאל „מי שייך למישהו”
+ * על כל הדייר ושם את התוצאה ב-`NOT IN` — כלומר שלוש קריאות טבלה
+ * מלאות ורשימת פרמטרים שגדלה עם המשרד, על כל בקשת שיחות, גם כזו
+ * שמבקשת שורה אחת (ביקורת Codex). כאן השאלה מוגבלת לאנשי הקשר
+ * שבעמוד שכבר נשלף, ולכן היא חסומה בגודל התקרה ולא בגודל המאגר.
  */
-export async function contactIdsInAnySource(
+export async function orphanContactIds(
   tx: TenantTx,
   tenantId: string,
-): Promise<string[]> {
+  candidates: readonly string[],
+): Promise<Set<string>> {
+  if (candidates.length === 0) return new Set();
+  const ids = [...new Set(candidates)];
   const [buyers, leads, properties] = await Promise.all([
-    tx.buyer.findMany({ where: { tenantId, deletedAt: null }, select: { contactId: true } }),
-    tx.lead.findMany({ where: { tenantId }, select: { contactId: true } }),
+    tx.buyer.findMany({
+      where: { tenantId, deletedAt: null, contactId: { in: ids } },
+      select: { contactId: true },
+    }),
+    tx.lead.findMany({
+      where: { tenantId, contactId: { in: ids } },
+      select: { contactId: true },
+    }),
     tx.property.findMany({
-      where: { tenantId, deletedAt: null, ownerContactId: { not: null } },
+      where: { tenantId, deletedAt: null, ownerContactId: { in: ids } },
       select: { ownerContactId: true },
     }),
   ]);
-  return [
-    ...new Set([
-      ...buyers.map((row) => row.contactId),
-      ...leads.map((row) => row.contactId),
-      ...properties.map((row) => row.ownerContactId!),
-    ]),
-  ];
+  const owned = new Set([
+    ...buyers.map((row) => row.contactId),
+    ...leads.map((row) => row.contactId),
+    ...properties.map((row) => row.ownerContactId!),
+  ]);
+  return new Set(ids.filter((id) => !owned.has(id)));
 }
 
-/** האם הלקוח הזה יתום — אינו כרטיס קונה, ליד או בעל נכס אצל איש. */
+/**
+ * האם הלקוח הזה יתום — הצורה היחידנית, ולא ניסוח שני של אותו כלל.
+ *
+ * הרשימה שואלת על עמוד והשער הבודד על רשומה, אבל ההגדרה של „יתום”
+ * חייבת להיות אחת: שני ביטויים שלה הם שתי הזדמנויות שהם ייפרדו,
+ * וזה בדיוק מה שכבר קרה בקובץ הזה עם הקיצור „רואה הכול”.
+ */
 export async function isOrphanContact(
   tx: TenantTx,
   tenantId: string,
   contactId: string,
 ): Promise<boolean> {
-  const [buyer, lead, property] = await Promise.all([
-    tx.buyer.findFirst({ where: { tenantId, contactId, deletedAt: null }, select: { id: true } }),
-    tx.lead.findFirst({ where: { tenantId, contactId }, select: { id: true } }),
-    tx.property.findFirst({
-      where: { tenantId, ownerContactId: contactId, deletedAt: null },
-      select: { id: true },
-    }),
-  ]);
-  return !buyer && !lead && !property;
+  return (await orphanContactIds(tx, tenantId, [contactId])).has(contactId);
 }
 
 export async function visibleContactIds(
