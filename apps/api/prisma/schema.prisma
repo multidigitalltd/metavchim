@@ -352,6 +352,51 @@ model Property {
   @@map("properties")
 }
 
+// „מלאו לי מה אתם מחפשים” — טופס שהלקוח ממלא בעצמו.
+//
+// הדרישות נאספות היום בשיחה, והמתווך מקליד תוך כדי. מה שנופל בין
+// הכיסאות נופל שם לתמיד. הקישור מעביר את ההקלדה ללקוח — שגם יודע
+// את התשובות טוב יותר, וגם ממלא כשנוח לו.
+//
+// **הטוקן הוא ההרשאה**, כמו בדף הנחיתה ובדף ההצעה: 43 תווי base64url
+// (256 ביט), פוליסת RLS ציבורית שחושפת את השורה היחידה שהטוקן שלה
+// הוצג, ותוקף שפג. אין כאן התחברות, ולכן אין מה לגנוב מלבד הקישור
+// עצמו — ולכן גם אין בעמוד הציבורי שום פרט על לקוח אחר.
+model IntakeRequest {
+  id       String @id @db.Char(26)
+  tenantId String @map("tenant_id") @db.Char(26)
+  /// 43 תווי base64url. ייחודי גלובלית — הוא נפתר לפני שידוע הדייר.
+  token    String @unique @db.Char(43)
+
+  /// lead | buyer — שני הכרטיסים שיש בהם דרישות.
+  subject   String @db.VarChar(10)
+  subjectId String @map("subject_id") @db.Char(26)
+  /// למי הטופס מיועד — לברכה בעמוד ולמספר שאליו נשלחת ההודעה.
+  contactId String @map("contact_id") @db.Char(26)
+
+  /// sent | opened | submitted | revoked
+  status String @default("sent") @db.VarChar(12)
+  /// manual = המתווך לחץ · missed_call = שיחה שלא נענתה.
+  channel String @default("manual") @map("channel") @db.VarChar(20)
+  /// מי יצר. `null` באוטומציה — אין אדם שלחץ.
+  createdBy String? @map("created_by") @db.Char(26)
+
+  expiresAt   DateTime  @map("expires_at")
+  openedAt    DateTime? @map("opened_at")
+  submittedAt DateTime? @map("submitted_at")
+  /// מה הלקוח שלח, כפי ששלח. נשמר גם אחרי המיזוג לכרטיס — זו
+  /// הראיה למה השתנה ומי שינה, ובלעדיה „הכרטיס השתנה” הוא טענה
+  /// בלי מקור.
+  answers Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId, subject, subjectId])
+  @@index([tenantId, status])
+  @@map("intake_requests")
+}
+
 // נכסים תאומים — „עוד כמה כאלה יש לי”.
 //
 // לקוח מתעניין בדירה אחת, והמתווך יודע שיש לו עוד שתיים באותו

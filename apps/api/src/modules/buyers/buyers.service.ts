@@ -1133,6 +1133,14 @@ export class BuyersService {
       await tx.task.deleteMany({
         where: { tenantId: ctx.tenantId, entityType: "buyer", entityId: id },
       });
+      /*
+       * בקשות טופס הלקוח שהצביעו על הקונה — כולל מה שהלקוח מילא.
+       * קישור ששרד את הכרטיס הוא טופס שממשיך לעבוד ולהצביע על
+       * כרטיס שאיננו, ומחיקה ש„לא נשאר ממנה פרט” חייבת לכלול אותו.
+       */
+      await tx.intakeRequest.deleteMany({
+        where: { tenantId: ctx.tenantId, subject: "buyer", subjectId: id },
+      });
       await tx.buyer.delete({ where: { id } });
 
       // מזהים ומונים בלבד — ביומן לא נשמר מה שנמחק

@@ -34,7 +34,8 @@ export type AutomationKey =
   | "property_delisted"
   | "daily_brief"
   | "weekly_summary"
-  | "exclusivity";
+  | "exclusivity"
+  | "missed_call_intake";
 
 /** יחידת הסף שאפשר לכוון. `null` = לאוטומציה אין מספר, רק כן/לא. */
 export type AutomationUnit = "hours" | "days" | null;
@@ -134,6 +135,13 @@ export const AUTOMATIONS: readonly AutomationSpec[] = [
     when: "נבדק פעם ביום מול התאריכים שבחוזה.",
     unit: null,
     required: true,
+  },
+  {
+    key: "missed_call_intake",
+    title: "שיחה שלא נענתה — טופס ללקוח",
+    what: "שולחת ללקוח בוואטסאפ קישור למילוי מה הוא מחפש. אין תבנית מאושרת ⇒ נפתחת משימה עם ההודעה מוכנה לשליחה.",
+    when: "מיד עם קליטת שיחה נכנסת שלא נענתה, ופעם אחת ללקוח כל עוד הקישור הקודם בתוקף.",
+    unit: null,
   },
 ];
 

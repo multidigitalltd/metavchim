@@ -15,6 +15,7 @@ import {
   missedCallTitle,
   parse015DialResponse,
   parseTelephonyEvent,
+  resolveAutomationSettings,
   safeDiagnosticKeys,
   telephonyParseIssue,
   telephonyProvider,
@@ -36,8 +37,11 @@ import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
+import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
+import { IntakeService } from "../intake/intake.service";
+import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
 import { TelephonyWebhookLogService } from "./webhook-log.service";
 import { loadEnv } from "../../config/env";
 
@@ -63,6 +67,9 @@ export class TelephonyService {
     private readonly plans: PlanCatalogService,
     private readonly contacts: ContactsService,
     private readonly webhookLog: TelephonyWebhookLogService,
+    private readonly intake: IntakeService,
+    private readonly waSend: WhatsAppSendService,
+    private readonly platformSettings: PlatformSettingsService,
   ) {}
 
   /**
@@ -856,6 +863,25 @@ export class TelephonyService {
        * לחזור אליו במגע אחד.
        */
       if (event.type === "missed" && event.direction === "inbound") {
+        /*
+         * הקישור ללקוח — **לפני** ההתראה, כדי שההתראה תוכל לשאת את
+         * מה שנשאר לעשות.
+         *
+         * ההתראה אומרת למתווך שמישהו התקשר; הקישור הוא מה שאומר
+         * ל**לקוח** שראינו אותו. השיחה שלא נענתה היא הרגע שבו הוא
+         * הכי מחובר לעניין, ורבע שעה אחר כך הוא כבר מתקשר למשרד
+         * הבא.
+         *
+         * בתוך אותה טרנזקציה של קליטת האירוע: בקשה שנוצרה בלי
+         * שהשיחה נרשמה היא קישור שאיש לא יודע למה נשלח.
+         */
+        const pending = await this.offerIntakeAfterMissedCall(
+          tx,
+          tenantId,
+          leadId,
+          contactId,
+        );
+
         await tx.notification.create({
           data: {
             id: ulid(),
@@ -864,7 +890,14 @@ export class TelephonyService {
             userId: null,
             type: "call_missed",
             title: missedCallTitle(contactName, event.peerPhone),
-            body: leadId ? "נפתח ליד חדש מהשיחה" : null,
+            /*
+             * נוסח ההזמנה נכנס לגוף ההתראה כשלא נשלח אוטומטית ואין
+             * למי לשייך משימה. התראה שאומרת „לא נשלח” בלי לצרף את
+             * מה שצריך לשלוח מחייבת חיפוש, וזו בדיוק העבודה
+             * שהאוטומציה נועדה לחסוך.
+             */
+            body:
+              pending ?? (leadId ? "נפתח ליד חדש מהשיחה" : null),
             ...(leadId
               ? { entityType: "lead", entityId: leadId }
               : contactId
@@ -874,6 +907,89 @@ export class TelephonyService {
         });
       }
     });
+  }
+
+  /**
+   * שיחה נכנסת שלא נענתה ⇒ קישור לטופס הדרישות.
+   *
+   * ## שלוש דרגות, מהטובה לפחות טובה
+   *
+   * 1. **תבנית מאושרת** ⇒ ההודעה יוצאת מעצמה. זו הדרך היחידה
+   *    לפנות למי שלא כתב לנו: מחוץ לחלון 24 השעות Meta דוחה טקסט
+   *    חופשי, ולקוח שרק **התקשר** מעולם לא כתב.
+   * 2. **אין תבנית** ⇒ נפתחת משימה עם ההודעה מוכנה, והמתווך שולח
+   *    בלחיצה. זו נפילה מכוונת ולא כשל: מערכת שמבטיחה „נשלח
+   *    אוטומטית” ובפועל שותקת גרועה מכזו שאומרת מה נשאר לעשות.
+   * 3. **כשל שליחה** ⇒ אותה משימה. הקישור כבר נוצר, ולכן שום
+   *    עבודה לא הולכת לאיבוד.
+   *
+   * כל השרשרת עטופה: תקלה כאן לא תפיל את קליטת האירוע, שאם תיכשל
+   * תגרור שליחה חוזרת מהמרכזייה ורישום כפול של השיחה.
+   */
+  private async offerIntakeAfterMissedCall(
+    tx: Parameters<Parameters<PrismaService["withExplicitTenant"]>[1]>[0],
+    tenantId: string,
+    leadId: string | null,
+    contactId: string | null,
+  ): Promise<string | null> {
+    // בלי ליד אין כרטיס לתלות בו את הדרישות, ובלי איש קשר אין למי לשלוח
+    if (leadId === null || contactId === null) return null;
+    try {
+      const tenant = await tx.tenant.findUnique({
+        where: { id: tenantId },
+        select: { settings: true },
+      });
+      const raw = (tenant?.settings ?? {}) as Record<string, unknown>;
+      if (!resolveAutomationSettings(raw["automations"])["missed_call_intake"].enabled) {
+        return null;
+      }
+
+      const created = await this.intake.ensureForMissedCall(
+        tx,
+        tenantId,
+        "lead",
+        leadId,
+        contactId,
+      );
+      // כבר יש קישור בתוקף — לקוח שהתקשר שלוש פעמים אינו מקבל שלוש הודעות
+      if (created === null) return null;
+
+      const contact = await this.contacts.getById(tx, contactId);
+      const template = await this.platformSettings.get("whatsappIntakeTemplate");
+      const lang =
+        (await this.platformSettings.get("whatsappIntakeTemplateLang")) ?? "he";
+
+      const sent =
+        contact !== null && template !== undefined && template !== ""
+          ? await this.waSend.sendTemplate(contact.phone, template, lang, [
+              created.url,
+            ])
+          : false;
+
+      if (sent) return "נשלחה ללקוח הודעה עם קישור למילוי מה הוא מחפש";
+
+      /*
+       * לא נשלח — ההודעה המוכנה חוזרת לגוף ההתראה.
+       *
+       * לא משימה: משימה מחייבת בעלים (`assignedToUserId`), ולשיחה
+       * נכנסת אין מיפוי אמין משלוחה למשתמש — בדיוק הסיבה שההתראה
+       * עצמה נוצרת בלי `userId`. משימה שהייתה מוצמדת למישהו
+       * שרירותי הייתה נוחתת אצל מי שלא ענה לשיחה ולא יודע עליה.
+       */
+      return `לא נשלח אוטומטית (אין תבנית מאושרת). שלחו ללקוח:\n${created.message}`;
+    } catch (error: unknown) {
+      /*
+       * בלוע במתכוון, וברמת `warn` ולא `error`: השיחה נרשמה,
+       * ההתראה יצאה, ומה שנכשל הוא תוספת. חריגה כאן הייתה מפילה
+       * את קליטת האירוע כולה.
+       */
+      this.logger.warn(
+        `שליחת קישור הטופס אחרי שיחה שלא נענתה נכשלה: ${
+          error instanceof Error ? error.message : "שגיאה לא ידועה"
+        }`,
+      );
+      return null;
+    }
   }
 
   /**

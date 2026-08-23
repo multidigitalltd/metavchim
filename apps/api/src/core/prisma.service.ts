@@ -149,4 +149,24 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       return fn(tx);
     });
   }
+
+  /**
+   * גישה ציבורית לפי טוקן טופס הלקוח.
+   *
+   * **צר במתכוון: SELECT על שורה אחת בטבלה אחת.** הפוליסה חושפת את
+   * שורת `intake_requests` של הטוקן בלבד, ומשם נגזר הדייר. כל השאר
+   * — שם המשרד, שם הלקוח, הדרישות הקיימות והכתיבה עצמה — רץ תחת
+   * `withExplicitTenant`.
+   *
+   * זו ההחלטה המרכזית באבטחת התכונה: החלופה, פוליסות כתיבה ציבוריות
+   * על `buyers` ו-`contacts`, הייתה פותחת נתיב כתיבה לטבלאות הלקוחות
+   * שתלוי בנכונות `USING` אחד. כאן טעות בפוליסה חושפת שורת בקשה,
+   * ולא כרטיס לקוח.
+   */
+  async withPublicIntake<T>(token: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.intake_token', ${token}, true)`;
+      return fn(tx);
+    });
+  }
 }

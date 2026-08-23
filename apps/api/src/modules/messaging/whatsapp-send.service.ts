@@ -94,6 +94,55 @@ export class WhatsAppSendService {
   }
 
   /**
+   * הודעת **תבנית מאושרת** — הדרך היחידה לפנות למי שלא כתב לנו.
+   *
+   * ## למה זה קיים
+   *
+   * `sendText` עובד רק בתוך חלון 24 השעות של Meta, כלומר רק כתשובה
+   * להודעה של הנמען. לקוח שהתקשר ולא נענה **מעולם לא כתב לנו**,
+   * ולכן טקסט חופשי אליו נדחה. תבנית שאושרה מראש היא מה שמתיר את
+   * הפנייה הזו.
+   *
+   * ## למה `false` ולא חריגה
+   *
+   * אותו כלל של שאר השירות: השולח הוא קליטת וובהוק או עבודת רקע,
+   * ושליחה שנכשלה אינה סיבה להפיל אותן. הקורא מקבל `false` ומחליט
+   * — בפועל: פותח משימה עם ההודעה מוכנה, כדי שהמתווך ישלח בלחיצה
+   * במקום שהלקוח לא יקבל דבר.
+   */
+  async sendTemplate(
+    to: string,
+    name: string,
+    languageCode: string,
+    params: readonly string[],
+  ): Promise<boolean> {
+    const creds = await this.credentials();
+    if (!creds) {
+      this.logger.warn("תבנית לא נשלחה — הצד היוצא אינו מוגדר");
+      return false;
+    }
+    return this.post(creds, {
+      messaging_product: "whatsapp",
+      to,
+      type: "template",
+      template: {
+        name,
+        language: { code: languageCode },
+        ...(params.length > 0
+          ? {
+              components: [
+                {
+                  type: "body",
+                  parameters: params.map((text) => ({ type: "text", text })),
+                },
+              ],
+            }
+          : {}),
+      },
+    });
+  }
+
+  /**
    * הודעה עם כפתורי תשובה מהירה (עד שלושה).
    *
    * false גם כשהגוף ארוך מ-1024 התווים שהודעה אינטראקטיבית מתירה:
