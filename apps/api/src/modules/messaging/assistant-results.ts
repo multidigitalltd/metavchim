@@ -34,7 +34,7 @@ interface ResultRow {
  * `data` מגיע כמערך או כאובייקט של מערכים (`{buyers: [...]}`),
  * ושתי הצורות נסרקות באותו אופן.
  */
-export function resultRows(data: unknown): ResultRow[] {
+function resultRows(data: unknown): ResultRow[] {
   const rows: ResultRow[] = [];
   const collect = (items: unknown): void => {
     if (!Array.isArray(items)) return;

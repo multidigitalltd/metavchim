@@ -33,7 +33,7 @@ interface FakeCall {
 function serviceFor(call: FakeCall | null): CallsService {
   /*
    * אף ישות אינה קושרת את הלקוח למשתמש — כלומר „הלקוח הזה אינו
-   * שלי”, ומבחינת `orphanContactIds` הוא גם יתום.
+   * שלי”, ומבחינת `isOrphanContact` הוא גם יתום.
    */
   const tx = {
     call: { findFirst: async () => call },
