@@ -163,6 +163,8 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
   const chunksRef = useRef<Blob[]>([]);
   const disposedRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
+  /** ממתין ל-`onend` אחרי `stop()` — ראו ההערה ב-`stop`. */
+  const endGuardRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // ה-callback העדכני — ההקלטה חיה בין רינדורים, ולולאת הסגירה
   // (closure) הייתה נצמדת לגרסה הישנה ודורסת עריכות של המשתמש
   const appendRef = useRef(onAppend);
@@ -189,6 +191,7 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
   useEffect(() => {
     return () => {
       disposedRef.current = true;
+      if (endGuardRef.current !== null) clearTimeout(endGuardRef.current);
       abortRef.current?.abort();
       recognitionRef.current?.stop();
       const recorder = recorderRef.current;
@@ -219,10 +222,18 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
       if (combined !== "") appendRef.current(combined, interim !== "");
     };
     recognition.onend = () => {
+      if (endGuardRef.current !== null) {
+        clearTimeout(endGuardRef.current);
+        endGuardRef.current = null;
+      }
       recognitionRef.current = null;
       setRecording(null);
     };
     recognition.onerror = () => {
+      if (endGuardRef.current !== null) {
+        clearTimeout(endGuardRef.current);
+        endGuardRef.current = null;
+      }
       recognitionRef.current = null;
       setRecording(null);
       setError("זיהוי הדיבור בדפדפן נכשל — אפשר לנסות הקלטה מדויקת או להקליד");
@@ -322,9 +333,30 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
   const stop = useCallback((): void => {
     const recognition = recognitionRef.current;
     if (recognition) {
+      /*
+       * הסבב נגמר ב-`onend` ולא כאן.
+       *
+       * `stop()` אומר למנוע להפסיק להאזין **ולהחזיר את מה שכבר אסף**,
+       * ולכן `onresult` אחרון מגיע *אחרי* הקריאה הזו, ו-`onend`
+       * אחריו. סימון הסבב כגמור כאן היה מאפס את טקסט הבסיס
+       * (`onIdle` ⟵ `useAppender.reset`) בעודו באוויר, והקטע האחרון
+       * היה נכתב שוב על טקסט שכבר כולל אותו — כלומר המשפט האחרון
+       * מופיע פעמיים (דיווח המשתמש: „ההכתבה מתמללת פעמיים”).
+       *
+       * `voice-recorder` לא סבל מזה כי הוא לוכד את הבסיס פעם אחת
+       * לסשן ואינו מאפס אותו כלל.
+       */
       recognition.stop();
-      recognitionRef.current = null;
-      setRecording(null);
+      /*
+       * רשת ביטחון: מנוע שאינו יורה `onend` היה משאיר את הכפתורים
+       * במצב „מקליט” לנצח. שנייה וחצי היא הרבה מעבר לזמן שכרום לוקח,
+       * ועדיין קצרה מספיק כדי לא להיראות תקוע.
+       */
+      endGuardRef.current = setTimeout(() => {
+        endGuardRef.current = null;
+        recognitionRef.current = null;
+        setRecording(null);
+      }, 1500);
       return;
     }
     const recorder = recorderRef.current;
