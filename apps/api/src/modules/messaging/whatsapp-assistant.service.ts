@@ -6,6 +6,8 @@ import {
   applyBlockedModules,
   resolveCapabilities,
   roleLabel,
+  decodeButtonId,
+  type WhatsAppListRow,
   type AgentHistoryTurn,
   type AgentProposal,
   type Capability,
@@ -29,6 +31,13 @@ import {
   waPhoneVariants,
 } from "./assistant-lang";
 import { helpMenu, welcomeExamples, type HelpAction } from "./assistant-help";
+import {
+  buttonAsText,
+  confirmButtons,
+  SNOOZE_LABEL,
+  SNOOZE_MINUTES,
+  type AgentReply,
+} from "./assistant-buttons";
 import { prospectReplyText } from "./prospect-reply";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 
@@ -71,6 +80,10 @@ export interface AssistantInbound {
   type: string;
   text?: string;
   mediaId?: string;
+  /** מזהה הכפתור שנלחץ — מה ששלחנו בו, ולכן נושא את הפעולה */
+  buttonId?: string;
+  /** כותרת הכפתור כפי שהמתווך ראה אותה — ליומן ולזיכרון השיחה */
+  buttonTitle?: string;
 }
 
 interface PendingState {
@@ -208,6 +221,22 @@ export class WhatsAppAssistantService {
       await this.sender.sendText(msg.fromWaId, welcomeText(user.name, allowed));
     }
 
+    /*
+     * לחיצה על כפתור מתורגמת למילה שהשיחה כבר יודעת לפרש, כדי שלא
+     * יהיה מסלול ביצוע שני שצריך לזכור את אותם כללי אטומיות.
+     * „שקט לשעתיים” הוא היחיד שאינו פקודת שיחה ולכן מטופל כאן.
+     */
+    const button = msg.buttonId === undefined ? null : decodeButtonId(msg.buttonId);
+    if (button?.action === "snooze") {
+      await this.snoozeNotifications(user.tenantId, user.id);
+      await this.sender.sendText(
+        msg.fromWaId,
+        `🔕 ${SNOOZE_LABEL}. לא אפריע עד אז — ואם תצטרכו משהו קודם, פשוט כתבו לי.`,
+        { replyTo: msg.externalId },
+      );
+      return;
+    }
+
     // „עזרה” — מהקטלוג, בלי קריאת מודל ובלי סיכוי להזכיר פעולה חסומה
     if (msg.type === "text" && isHelpMessage(msg.text ?? "")) {
       await this.sender.sendText(msg.fromWaId, helpMenu(allowed, firstName(user.name)), {
@@ -216,19 +245,51 @@ export class WhatsAppAssistantService {
       return;
     }
 
-    const spoken = await this.extractText(msg);
-    if (spoken.reply !== undefined) {
+    const asText = button === null ? null : buttonAsText(button.action, button.arg);
+    const spoken = asText === null ? await this.extractText(msg) : { text: asText };
+    if ("reply" in spoken && spoken.reply !== undefined) {
       await this.sender.sendText(msg.fromWaId, spoken.reply, { replyTo: msg.externalId });
       return;
     }
     const text = spoken.text ?? "";
 
     const reply = await TenantContext.run(context, () =>
-      this.converse(user, chat, text, spoken.transcribed === true),
+      this.converse(user, chat, text, "transcribed" in spoken && spoken.transcribed === true),
     );
 
     await this.saveChat(user.tenantId, user.id, chat);
-    await this.sender.sendText(msg.fromWaId, reply, { replyTo: msg.externalId });
+    await this.deliver(msg, reply);
+  }
+
+  /**
+   * שליחת התשובה — כפתורים כשיש, וטקסט כשאין או כשהם לא יצאו.
+   *
+   * ההודעה האינטראקטיבית מוגבלת ל-1024 תווים ויכולה להידחות; הנפילה
+   * חזרה לטקסט המלא מבטיחה שהמתווך תמיד מקבל תשובה שאפשר לפעול
+   * לפיה, גם אם בהקלדה במקום בלחיצה.
+   */
+  private async deliver(msg: AssistantInbound, reply: AgentReply): Promise<void> {
+    const body = reply.buttonBody ?? reply.text;
+    if (reply.buttons && reply.buttons.length > 0) {
+      if (await this.sender.sendButtons(msg.fromWaId, body, reply.buttons)) return;
+    } else if (reply.list && reply.list.rows.length > 0) {
+      if (await this.sender.sendList(msg.fromWaId, body, reply.list.label, reply.list.rows)) {
+        return;
+      }
+    }
+    await this.sender.sendText(msg.fromWaId, reply.text, { replyTo: msg.externalId });
+  }
+
+  /** השתקה רגעית של העדכונים היזומים — הסורק מדלג עליה. */
+  private async snoozeNotifications(tenantId: string, userId: string): Promise<void> {
+    const until = new Date(Date.now() + SNOOZE_MINUTES * 60 * 1000);
+    await this.prisma.withExplicitTenant(tenantId, (tx) =>
+      tx.whatsAppChat.upsert({
+        where: { tenantId_userId: { tenantId, userId } },
+        create: { id: ulid(), tenantId, userId, notifySnoozeUntil: until },
+        update: { notifySnoozeUntil: until },
+      }),
+    );
   }
 
   /* ------------------------------------------------------------------ */
@@ -440,7 +501,7 @@ export class WhatsAppAssistantService {
     chat: ChatState,
     text: string,
     transcribed: boolean,
-  ): Promise<string> {
+  ): Promise<AgentReply> {
     /** תחילית לתשובה על הודעה קולית — שהמתווך יראה מה נשמע. */
     const heard = transcribed ? `שמעתי: „${text}”\n\n` : "";
     // מי מדבר — נכנס לפרומפט כדי שהתשובה תהיה שלו ולא כללית
@@ -451,7 +512,7 @@ export class WhatsAppAssistantService {
       if (isCancelMessage(text)) {
         const took = await this.takePending(user.tenantId, user.id);
         chat.pending = null;
-        return took ? "❌ בוטל. מה הלאה?" : "אין פעולה ממתינה לביטול.";
+        return { text: took ? "❌ בוטל. מה הלאה?" : "אין פעולה ממתינה לביטול." };
       }
       if (pending.awaiting === "choice") {
         const options = pending.proposal.candidates?.options ?? [];
@@ -463,19 +524,22 @@ export class WhatsAppAssistantService {
             // שאילתה — הבחירה היא כל מה שחסר; הצריכה אטומית, מבצע יחיד
             const took = await this.takePending(user.tenantId, user.id);
             chat.pending = null;
-            if (!took) return "הבקשה כבר טופלה.";
+            if (!took) return { text: "הבקשה כבר טופלה." };
             took.extraParams[idKey] = option.id;
-            return this.runProposal(chat, took);
+            return { text: await this.runProposal(chat, took) };
           }
           pending.extraParams[idKey] = option.id;
           pending.awaiting = "confirm";
-          return [
+          const chosenBody = [
             `נבחר: ${option.label}${option.detail ? ` (${option.detail})` : ""}.`,
             "",
             this.describeProposal(pending.proposal),
-            "",
-            "✅ לביצוע — *אשר* · ❌ לביטול — *בטל*",
           ].join("\n");
+          return {
+            text: `${chosenBody}\n\n✅ לביצוע — *אשר* · ❌ לביטול — *בטל*`,
+            buttonBody: chosenBody,
+            buttons: confirmButtons(),
+          };
         }
       }
       if (pending.awaiting === "confirm" && isConfirmMessage(text)) {
@@ -486,17 +550,17 @@ export class WhatsAppAssistantService {
          */
         const took = await this.takePending(user.tenantId, user.id);
         chat.pending = null;
-        if (!took) return "הפעולה כבר בוצעה או בוטלה — אין הצעה ממתינה.";
-        return this.runProposal(chat, took);
+        if (!took) return { text: "הפעולה כבר בוצעה או בוטלה — אין הצעה ממתינה." };
+        return { text: await this.runProposal(chat, took) };
       }
       /*
        * לא אישור, לא ביטול ולא בחירה — המתווך ממשיך לדבר: "לא, 4
        * חדרים". ההצעה הקודמת נשלחת כהקשר תיקון, בדיוק כמו במסך.
        */
-      return heard + (await this.propose(chat, text, pending, speaker));
+      return withHeard(await this.propose(chat, text, pending, speaker), heard);
     }
 
-    return heard + (await this.propose(chat, text, null, speaker));
+    return withHeard(await this.propose(chat, text, null, speaker), heard);
   }
 
   /** פירוש ⟵ הצעה ⟵ או ביצוע מיידי (קריאה) או בקשת אישור. */
@@ -505,7 +569,7 @@ export class WhatsAppAssistantService {
     text: string,
     prior: PendingState | null,
     speaker: { name: string; roleLabel: string },
-  ): Promise<string> {
+  ): Promise<AgentReply> {
     const interpretation = await this.interpreter.interpret(
       text,
       prior
@@ -519,21 +583,41 @@ export class WhatsAppAssistantService {
 
     if (proposal.actionId === "unknown") {
       // ברכה/שאלה כללית — תשובה שיחתית, לא "לא הבנתי" יבש
-      if (proposal.reply !== undefined && proposal.reply !== "") return proposal.reply;
+      if (proposal.reply !== undefined && proposal.reply !== "") return { text: proposal.reply };
       const lines = [proposal.clarify ?? "לא הצלחתי להבין מה לעשות — נסו לנסח אחרת."];
       for (const warning of proposal.warnings) lines.push(`⚠️ ${warning}`);
-      return lines.join("\n");
+      return { text: lines.join("\n") };
     }
 
     const candidates = proposal.candidates;
     if (candidates && candidates.options.length > 0) {
       chat.pending = { transcript: text, proposal, awaiting: "choice", extraParams: {} };
-      const lines = [`*${proposal.title}* — ${candidates.label}:`];
-      candidates.options.slice(0, 9).forEach((option, i) => {
+      const options = candidates.options.slice(0, 9);
+      const header = `*${proposal.title}* — ${candidates.label}:`;
+      const lines = [header];
+      options.forEach((option, i) => {
         lines.push(`${i + 1}. ${option.label}${option.detail ? ` — ${option.detail}` : ""}`);
       });
-      lines.push("", "🔢 השיבו עם המספר המתאים · ❌ לביטול — *בטל*");
-      return lines.join("\n");
+      /*
+       * עד שלושה מועמדים — כפתורים; יותר מזה — רשימה נפתחת.
+       *
+       * Meta מתירה שלושה כפתורים בלבד, ורשימה עד עשר שורות. הטקסט
+       * הממוספר נשאר בכל מקרה: הוא מה שנשלח כשההודעה האינטראקטיבית
+       * אינה אפשרית, והוא גם מאפשר לענות במספר במקום ללחוץ.
+       */
+      const rows: WhatsAppListRow[] = options.map((option, i) => ({
+        action: "pick",
+        arg: String(i + 1),
+        title: option.label,
+        ...(option.detail ? { description: option.detail } : {}),
+      }));
+      return {
+        text: `${lines.join("\n")}\n\n🔢 השיבו עם המספר המתאים · ❌ לביטול — *בטל*`,
+        buttonBody: header,
+        ...(rows.length <= 3
+          ? { buttons: rows.map(({ description: _ignored, ...button }) => button) }
+          : { list: { label: "בחירה", rows } }),
+      };
     }
 
     const state: PendingState = { transcript: text, proposal, awaiting: "confirm", extraParams: {} };
@@ -544,15 +628,16 @@ export class WhatsAppAssistantService {
       (proposal.followUps ?? []).length === 0 &&
       proposal.clarify === undefined
     ) {
-      return this.runProposal(chat, state);
+      return { text: await this.runProposal(chat, state) };
     }
 
     chat.pending = state;
-    return [
-      this.describeProposal(proposal),
-      "",
-      "✅ לביצוע — *אשר* · ❌ לביטול — *בטל* · ✏️ לתיקון פשוט כתבו אותו",
-    ].join("\n");
+    const description = this.describeProposal(proposal);
+    return {
+      text: `${description}\n\n✅ לביצוע — *אשר* · ❌ לביטול — *בטל* · ✏️ לתיקון פשוט כתבו אותו`,
+      buttonBody: `${description}\n\n✏️ לתיקון — פשוט כתבו מה לשנות`,
+      buttons: confirmButtons(),
+    };
   }
 
   /** הפרמטרים לביצוע — שדות ההצעה + בחירות, מצומצמים כמו בבקר. */
@@ -803,6 +888,20 @@ function scopeNote(actionId: string): string {
   if (required === undefined) return "";
   if (required.every((capability) => capabilities.has(capability))) return "";
   return "_(מהרשומות שמשויכות אליך — לא מכל המשרד)_";
+}
+
+/**
+ * תחילית „שמעתי: …” נכנסת לשני הנוסחים — המלא וזה שמתחת לכפתורים.
+ * בלעדיה גרסת הכפתורים לא הייתה מראה מה נשמע בהקלטה, וזה בדיוק
+ * הדבר שמאפשר לתפוס שגיאת תמלול לפני שמאשרים פעולה.
+ */
+function withHeard(reply: AgentReply, heard: string): AgentReply {
+  if (heard === "") return reply;
+  return {
+    ...reply,
+    text: heard + reply.text,
+    ...(reply.buttonBody === undefined ? {} : { buttonBody: heard + reply.buttonBody }),
+  };
 }
 
 /** „דוד כהן” ⇒ „דוד” — פנייה בשם פרטי, כמו שמדברים בוואטסאפ. */

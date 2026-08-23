@@ -18,6 +18,10 @@ ALTER TABLE "whatsapp_chats" ADD COLUMN "last_inbound_at" TIMESTAMP(3);
 -- אותה לקבל שוב בכל סריקה כשנמען אחר שלה נכשל.
 ALTER TABLE "whatsapp_chats" ADD COLUMN "notified_through" TIMESTAMP(3);
 
+-- AlterTable
+-- „שקט לשעתיים” מהכפתור בהודעה — השתקה רגעית, נפרדת משעות השקט.
+ALTER TABLE "whatsapp_chats" ADD COLUMN "notify_snooze_until" TIMESTAMP(3);
+
 -- CreateIndex
 -- הסורק שולף בדיוק את "טרם נשלחו, ומהזמן האחרון" בכל דייר.
 CREATE INDEX "notifications_tenant_whatsapp_idx"

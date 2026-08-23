@@ -49,7 +49,9 @@ import {
   type TranscriptSegment,
   formatNotifyMessage,
   inQuietHours,
+  fitsInteractive,
   normalizePhoneForWhatsapp,
+  replyButtonsPayload,
   splitForWhatsApp,
   parseWhatsAppNotifyPrefs,
   sessionWindowOpen,
@@ -2511,7 +2513,12 @@ async function processWhatsAppNotifySweep(): Promise<void> {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
       return tx.whatsAppChat.findMany({
         where: { tenantId: tenant.id, userId: { in: users.map((u) => u.id) } },
-        select: { userId: true, lastInboundAt: true, notifiedThrough: true },
+        select: {
+          userId: true,
+          lastInboundAt: true,
+          notifiedThrough: true,
+          notifySnoozeUntil: true,
+        },
       });
     });
     const chatOf = new Map(chats.map((chat) => [chat.userId, chat]));
@@ -2529,6 +2536,11 @@ async function processWhatsAppNotifySweep(): Promise<void> {
       const phone = normalizePhoneForWhatsapp(user.phone ?? "");
       if (phone === "") continue;
       const chat = chatOf.get(user.id);
+      /*
+       * „שקט לשעתיים” שנלחץ בהודעה הקודמת — דחייה, כמו שעות השקט:
+       * החותמת אינה זזה, ומה שהצטבר יגיע כשההשתקה תיגמר.
+       */
+      if (chat?.notifySnoozeUntil && chat.notifySnoozeUntil > now) continue;
       recipients.set(user.id, {
         userId: user.id,
         phone,
@@ -2573,15 +2585,32 @@ async function processWhatsAppNotifySweep(): Promise<void> {
          * נדחית כולה, כלומר הסוכן שותק דווקא ביום העמוס (ביקורת
          * Codex). אותה פונקציה שמשרתת את מענה הסוכן.
          */
-        ok = true;
-        for (const chunk of splitForWhatsApp(formatNotifyMessage(items, webOrigin))) {
-          ok = await sendWhatsApp(config, {
-            messaging_product: "whatsapp",
-            to: recipient.phone,
-            type: "text",
-            text: { body: chunk, preview_url: false },
-          });
-          if (!ok) break;
+        /*
+         * כפתורים כשהגוף נכנס ב-1024 התווים שהודעה אינטראקטיבית
+         * מתירה — הרבה פחות מ-4096 של טקסט. הודעה ארוכה יורדת
+         * לטקסט מפוצל: עדיף עדכון מלא בלי כפתורים מאשר הודעה
+         * שנדחית כולה.
+         */
+        const message = formatNotifyMessage(items, webOrigin);
+        if (fitsInteractive(message)) {
+          ok = await sendWhatsApp(
+            config,
+            replyButtonsPayload(recipient.phone, message, [
+              { action: "cmd", arg: "urgent", title: "📋 מה דחוף היום?" },
+              { action: "snooze", arg: "120", title: "🔕 שקט לשעתיים" },
+            ]),
+          );
+        } else {
+          ok = true;
+          for (const chunk of splitForWhatsApp(message)) {
+            ok = await sendWhatsApp(config, {
+              messaging_product: "whatsapp",
+              to: recipient.phone,
+              type: "text",
+              text: { body: chunk, preview_url: false },
+            });
+            if (!ok) break;
+          }
         }
       } else {
         ok = await sendWhatsApp(config, {

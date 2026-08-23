@@ -1115,6 +1115,14 @@ model WhatsAppChat {
    * החוזר לאישי.
    */
   notifiedThrough DateTime? @map("notified_through")
+  /**
+   * „שקט לשעתיים” — הכפתור שמשתיק עדכונים יזומים לזמן קצוב.
+   *
+   * הוא נפרד משעות השקט הקבועות: אלה הרגל, וזה רגע — פגישה, נהיגה,
+   * ארוחת ערב. בלעדיו הבחירה היחידה של מי שמוצף היא לכבות הכול
+   * בפרופיל, ומי שכיבה בדרך כלל אינו חוזר להדליק.
+   */
+  notifySnoozeUntil DateTime? @map("notify_snooze_until")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   @@unique([tenantId, userId])
