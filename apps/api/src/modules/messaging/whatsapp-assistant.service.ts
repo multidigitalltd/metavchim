@@ -37,8 +37,10 @@ import {
   confirmButtons,
   SNOOZE_LABEL,
   SNOOZE_MINUTES,
+  WA_AUDIO_MAX_BYTES,
   type AgentReply,
 } from "./assistant-buttons";
+import { formatCard } from "./assistant-card";
 import { prospectReplyText } from "./prospect-reply";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 
@@ -309,6 +311,20 @@ export class WhatsAppAssistantService {
    * לפיה, גם אם בהקלדה במקום בלחיצה.
    */
   private async deliver(msg: AssistantInbound, reply: AgentReply): Promise<void> {
+    /*
+     * הקלטה נשלחת אחרי הטקסט ולא במקומו: הטקסט אומר של מי השיחה
+     * ומתי, וקובץ שמע שמגיע לבד אינו אומר דבר.
+     */
+    if (reply.audio !== undefined) {
+      await this.sender.sendText(msg.fromWaId, reply.text, { replyTo: msg.externalId });
+      await this.sender.sendAudio(
+        msg.fromWaId,
+        reply.audio.buffer,
+        reply.audio.mimeType,
+        { caption: `🎧 ${reply.audio.label}` },
+      );
+      return;
+    }
     const body = reply.buttonBody ?? reply.text;
     if (reply.buttons && reply.buttons.length > 0) {
       if (await this.sender.sendButtons(msg.fromWaId, body, reply.buttons)) return;
@@ -587,7 +603,7 @@ export class WhatsAppAssistantService {
             this.consumed(chat, took);
             if (!took) return { text: "הבקשה כבר טופלה." };
             took.extraParams[idKey] = option.id;
-            return { text: await this.runProposal(chat, took) };
+            return this.runProposal(chat, took);
           }
           /*
            * המעבר בחירה ⟵ אישור נכתב **בשורה עצמה**, מותנה בחותם
@@ -636,7 +652,7 @@ export class WhatsAppAssistantService {
         const took = await this.takePending(user.tenantId, user.id, pending.token);
         this.consumed(chat, took);
         if (!took) return { text: "הפעולה כבר בוצעה או בוטלה — אין הצעה ממתינה." };
-        return { text: await this.runProposal(chat, took) };
+        return this.runProposal(chat, took);
       }
       /*
        * לא אישור, לא ביטול ולא בחירה — המתווך ממשיך לדבר: "לא, 4
@@ -719,7 +735,7 @@ export class WhatsAppAssistantService {
       (proposal.followUps ?? []).length === 0 &&
       proposal.clarify === undefined
     ) {
-      return { text: await this.runProposal(chat, state) };
+      return this.runProposal(chat, state);
     }
 
     chat.pending = state;
@@ -756,7 +772,10 @@ export class WhatsAppAssistantService {
   }
 
   /** ביצוע ההצעה + צעדי ההמשך, עדכון הזיכרון, וניסוח התשובה. */
-  private async runProposal(chat: ChatState, state: PendingState): Promise<string> {
+  private async runProposal(
+    chat: ChatState,
+    state: PendingState,
+  ): Promise<Pick<AgentReply, "text" | "audio">> {
     const params = this.paramsOf(state);
     let primary: ExecuteResult;
     try {
@@ -767,7 +786,7 @@ export class WhatsAppAssistantService {
         "whatsapp",
       );
     } catch (error) {
-      return `⚠️ „${state.proposal.title}” לא בוצע: ${errorMessage(error)}`;
+      return { text: `⚠️ „${state.proposal.title}” לא בוצע: ${errorMessage(error)}` };
     }
 
     /*
@@ -779,7 +798,12 @@ export class WhatsAppAssistantService {
      */
     const done = state.proposal.risk === "read" ? "" : "✅ ";
     const lines: string[] = [`${done}${primary.message}`];
-    const dataSummary = summarizeData(primary.data);
+    /*
+     * כרטיס יחיד מנוסח במלואו; רשימת תוצאות מקבלת את הסיכום. שני
+     * מנסחים ולא אחד, כי אלה שתי שאלות שונות — „מי הם” מול „מה יש
+     * עליו”, ומנסח אחד היה עונה על אחת מהן בלבד.
+     */
+    const dataSummary = formatCard(primary.data) ?? summarizeData(primary.data);
     if (dataSummary !== "") lines.push(dataSummary);
     /*
      * סייג ההיקף — התשובה היא על *הנתונים שלו*, לא של המשרד.
@@ -822,6 +846,39 @@ export class WhatsAppAssistantService {
       lines.push(`👉 אפשר להמשיך: „${primary.suggestion}”`);
     }
 
+    /*
+     * ההקלטה נשלפת **כאן**, בתוך הקשר הדייר.
+     *
+     * `CallsService.recording` אוכף בעלות על השיחה, והמשלוח קורה
+     * אחרי שההקשר נסגר — לכן הבייטים נוסעים עם התשובה ולא הפניה
+     * שהייתה דורשת לפתוח הקשר שני.
+     */
+    let audio: AgentReply["audio"];
+    if (primary.audio !== undefined) {
+      try {
+        const rec = await this.executor.recording(primary.audio.callId);
+        const chunks: Buffer[] = [];
+        let bytes = 0;
+        for await (const chunk of rec.body) {
+          const buf = Buffer.from(chunk as Buffer);
+          bytes += buf.length;
+          if (bytes > WA_AUDIO_MAX_BYTES) break;
+          chunks.push(buf);
+        }
+        if (bytes > WA_AUDIO_MAX_BYTES) {
+          lines.push("🎧 ההקלטה ארוכה מכדי לשלוח בוואטסאפ — היא זמינה במסך השיחות.");
+        } else {
+          audio = {
+            buffer: Buffer.concat(chunks),
+            mimeType: rec.contentType,
+            label: primary.audio.label,
+          };
+        }
+      } catch (error) {
+        lines.push(`🎧 ההקלטה לא נשלפה: ${errorMessage(error)}`);
+      }
+    }
+
     chat.history = [
       ...chat.history.slice(-(HISTORY_KEPT - 1)),
       {
@@ -834,7 +891,7 @@ export class WhatsAppAssistantService {
           .slice(0, 600),
       },
     ];
-    return lines.join("\n");
+    return { text: lines.join("\n"), ...(audio === undefined ? {} : { audio }) };
   }
 
   /** ההצעה כפי שהמסך היה מציג אותה — כותרת, שדות, חוסרים ואזהרות. */

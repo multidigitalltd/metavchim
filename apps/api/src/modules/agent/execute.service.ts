@@ -13,7 +13,8 @@ import { AnalyticsService, type ReportWindowDays } from "../analytics/analytics.
 import { AgentResolveService } from "./resolve.service";
 import { BuyersService } from "../buyers/buyers.service";
 import { CalendarService } from "../calendar/calendar.service";
-import { CallsService } from "../calls/calls.service";
+import type { Readable } from "node:stream";
+import { CallsService, type CallDto } from "../calls/calls.service";
 import { DealRoomService } from "../collaboration/deal-room.service";
 import { LeadsService } from "../leads/leads.service";
 import { MatchingService } from "../matching/matching.service";
@@ -59,6 +60,14 @@ export interface ExecuteResult {
    * הבנה⟵אישור כמו כל משפט, שום דבר אינו מבוצע ישירות.
    */
   suggestion?: string;
+  /**
+   * הקלטה שאפשר להשמיע — **הפניה, לא בייטים**.
+   *
+   * הזרם עצמו אינו נכנס לתשובת ה-API: כל ערוץ מביא אותו בדרכו
+   * (`AgentExecuteService.recording`). במסך זו הפניה לנגן; בוואטסאפ
+   * הודעת שמע אמיתית, כדי שהמתווך ישמע את הלקוח בלי לפתוח דשבורד.
+   */
+  audio?: { callId: string; label: string };
 }
 
 @Injectable()
@@ -148,6 +157,10 @@ export class AgentExecuteService {
         return this.showSchedule(params);
       case "show_tasks":
         return this.showTasks();
+      case "show_card":
+        return this.showCard(params);
+      case "play_recording":
+        return this.playRecording(params);
       case "show_calls":
         return this.showCalls();
       case "show_deals":
@@ -452,6 +465,110 @@ export class AgentExecuteService {
         })),
       },
     };
+  }
+
+  /**
+   * הכרטיס המלא — כל מה שיש על הלקוח, במכה אחת.
+   *
+   * זו הפעולה שהופכת את הסוכן לתחליף אמיתי לדשבורד: „מה יש לנו על
+   * משה כהן” החזיר עד עכשיו שורה עם שם, והמתווך נאלץ לפתוח מסך.
+   * כאן חוזרים פרטי הקשר, מה הלקוח מחפש, ההערות, והשיחות האחרונות
+   * איתו — כולל סימון אילו מהן מוקלטות, כדי שאפשר יהיה לבקש לשמוע.
+   *
+   * המזהה בצורה `kind:id` כמו ב-`add_note`: „הכרטיס של שרה” יכול
+   * להיות קונה או ליד, וההכרעה היא של המתווך.
+   */
+  private async showCard(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const cardId = str(params["cardId"]);
+    if (cardId === undefined) throw new BadRequestException("לא נבחר כרטיס");
+    const [kind, id] = cardId.split(":", 2);
+    if (id === undefined) throw new BadRequestException("כרטיס לא מזוהה");
+
+    if (kind === "buyer") {
+      const buyer = await this.buyers.getById(id);
+      const calls = await this.callsForContact(buyer.contact.id);
+      return {
+        href: `/buyers/${id}`,
+        message: `הכרטיס של ${buyer.contact.name}`,
+        data: { card: { kind: "buyer", ...buyer, calls } },
+      };
+    }
+    if (kind === "lead") {
+      const { lead, timeline } = await this.leads.getById(id);
+      const calls = await this.callsForContact(lead.contact.id);
+      return {
+        href: `/leads/${id}`,
+        message: `הכרטיס של ${lead.contact.name}`,
+        data: {
+          card: {
+            kind: "lead",
+            ...lead,
+            calls,
+            // ציר הזמן מקוצר: הכרטיס נקרא בטלפון, לא נסרק במסך
+            timeline: timeline.slice(0, 8),
+          },
+        },
+      };
+    }
+    throw new BadRequestException("כרטיס לא מזוהה");
+  }
+
+  /**
+   * ההקלטה האחרונה של הלקוח — כהודעת שמע.
+   *
+   * „האחרונה” ולא בחירה מרשימה: כשמתווך מבקש לשמוע שיחה עם לקוח,
+   * הוא כמעט תמיד מתכוון לזו שהרגע הסתיימה. בחירה מפורשת נשארת
+   * דרך `show_card`, שמראה את כל השיחות ומסמן אילו מוקלטות.
+   */
+  private async playRecording(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const cardId = str(params["cardId"]);
+    if (cardId === undefined) throw new BadRequestException("לא נבחר כרטיס");
+    const [kind, id] = cardId.split(":", 2);
+    if (id === undefined) throw new BadRequestException("כרטיס לא מזוהה");
+
+    const contactId =
+      kind === "buyer"
+        ? (await this.buyers.getById(id)).contact.id
+        : kind === "lead"
+          ? (await this.leads.getById(id)).lead.contact.id
+          : undefined;
+    if (contactId === undefined) throw new BadRequestException("כרטיס לא מזוהה");
+
+    const calls = await this.callsForContact(contactId);
+    const recorded = calls.find((call) => call.hasRecording);
+    if (!recorded) {
+      return { message: "אין הקלטה זמינה לשיחות עם הלקוח הזה" };
+    }
+    const when = new Intl.DateTimeFormat("he-IL", {
+      timeZone: "Asia/Jerusalem",
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(recorded.occurredAt);
+    return {
+      href: `/calls`,
+      message: `ההקלטה מ-${when}`,
+      audio: { callId: recorded.id, label: `שיחה מ-${when}` },
+      ...(recorded.summary === undefined ? {} : { data: { summary: recorded.summary } }),
+    };
+  }
+
+  /** השיחות של איש קשר, החדשות תחילה — משותף לכרטיס ולהשמעה. */
+  private async callsForContact(contactId: string): Promise<CallDto[]> {
+    const recent = await this.calls.list({ limit: 50 });
+    return recent.filter((call) => call.contactId === contactId).slice(0, 10);
+  }
+
+  /**
+   * ההקלטה עצמה — נקראת אחרי ש-`audio` סימן שיש מה להשמיע.
+   *
+   * כאן ולא בערוץ: `CallsService.recording` אוכף בעלות ומחזיר 404
+   * זהה ל„אין הקלטה” ול„לא שלך”, וכל ערוץ שיעקוף אותו היה מאבד את
+   * ההגנה הזו.
+   */
+  async recording(
+    callId: string,
+  ): Promise<{ body: Readable; contentType: string; contentLength?: number }> {
+    return this.calls.recording(callId);
   }
 
   private async showCalls(): Promise<ExecuteResult> {

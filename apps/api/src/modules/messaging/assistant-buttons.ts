@@ -30,7 +30,18 @@ export interface AgentReply {
   buttonBody?: string;
   buttons?: WhatsAppButton[];
   list?: { label: string; rows: WhatsAppListRow[] };
+  /**
+   * הקלטה לשליחה כהודעת שמע — **כבר נשלפה**.
+   *
+   * השליפה דורשת הקשר דייר (בעלות על השיחה נבדקת בשירות), והמשלוח
+   * קורה אחרי שההקשר נסגר. לכן הבייטים נוסעים כאן, ולא הפניה
+   * שהיה צריך לפתוח הקשר שני כדי לממש.
+   */
+  audio?: { buffer: Buffer; mimeType: string; label: string };
 }
+
+/** תקרת הקלטה לשליחה. מעליה Meta דוחה, ואנחנו אומרים למה. */
+export const WA_AUDIO_MAX_BYTES = 16 * 1024 * 1024;
 
 /** תווית ההשתקה הרגעית — מוצגת גם בהודעת האישור שאחריה. */
 export const SNOOZE_LABEL = "שקט לשעתיים";
