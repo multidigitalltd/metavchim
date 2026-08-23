@@ -317,12 +317,23 @@ export class WhatsAppAssistantService {
      */
     if (reply.audio !== undefined) {
       await this.sender.sendText(msg.fromWaId, reply.text, { replyTo: msg.externalId });
-      await this.sender.sendAudio(
+      const sent = await this.sender.sendAudio(
         msg.fromWaId,
         reply.audio.buffer,
         reply.audio.mimeType,
         { caption: `🎧 ${reply.audio.label}` },
       );
+      /*
+       * `sendAudio` מחזירה false ואינה זורקת — דחייה של Meta או צד
+       * יוצא שאינו מוגדר. בלי הבדיקה הזו המתווך היה מקבל „ההקלטה
+       * מ-14:20” ואז שקט, בלי לדעת אם היא בדרך (ביקורת Codex).
+       */
+      if (!sent) {
+        await this.sender.sendText(
+          msg.fromWaId,
+          `🎧 לא הצלחתי לשלוח את ההקלטה לכאן. היא זמינה במסך השיחות: ${loadEnv().WEB_ORIGIN}/calls`,
+        );
+      }
       return;
     }
     const body = reply.buttonBody ?? reply.text;
@@ -885,10 +896,18 @@ export class WhatsAppAssistantService {
         transcript: state.transcript,
         action: state.proposal.actionId,
         params,
-        resultSummary: [primary.message, dataSummary]
-          .filter((part) => part !== "")
-          .join(". ")
-          .slice(0, 600),
+        /*
+         * זיכרון השיחה נשלח לפרומפט של המודל בתור הבא, ולכן הוא
+         * **אינו** התשובה שהמתווך ראה.
+         *
+         * התשובה כוללת מעכשיו טלפונים, אימיילים, הערות ותקצירי
+         * שיחות — כל מה ש-`redactForInsight` נבנה כדי לא לייצא.
+         * שמירתה כמות שהיא הייתה מעקפת אותו בדלת האחורית ומייצאת
+         * נתוני CRM שנשלפו מהמסד (ביקורת Codex). כאן נשמרת שורת
+         * המצב בלבד — „נמצאו 3 קונים” — שהיא כל מה שהתור הבא צריך
+         * כדי להבין המשך כמו „תקבע לראשון סיור”.
+         */
+        resultSummary: primary.message.slice(0, 600),
       },
     ];
     return { text: lines.join("\n"), ...(audio === undefined ? {} : { audio }) };

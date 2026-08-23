@@ -479,10 +479,7 @@ export class AgentExecuteService {
    * להיות קונה או ליד, וההכרעה היא של המתווך.
    */
   private async showCard(params: Record<string, unknown>): Promise<ExecuteResult> {
-    const cardId = str(params["cardId"]);
-    if (cardId === undefined) throw new BadRequestException("לא נבחר כרטיס");
-    const [kind, id] = cardId.split(":", 2);
-    if (id === undefined) throw new BadRequestException("כרטיס לא מזוהה");
+    const { kind, id } = this.cardTarget(params);
 
     if (kind === "buyer") {
       const buyer = await this.buyers.getById(id);
@@ -521,18 +518,11 @@ export class AgentExecuteService {
    * דרך `show_card`, שמראה את כל השיחות ומסמן אילו מוקלטות.
    */
   private async playRecording(params: Record<string, unknown>): Promise<ExecuteResult> {
-    const cardId = str(params["cardId"]);
-    if (cardId === undefined) throw new BadRequestException("לא נבחר כרטיס");
-    const [kind, id] = cardId.split(":", 2);
-    if (id === undefined) throw new BadRequestException("כרטיס לא מזוהה");
-
+    const { kind, id } = this.cardTarget(params);
     const contactId =
       kind === "buyer"
         ? (await this.buyers.getById(id)).contact.id
-        : kind === "lead"
-          ? (await this.leads.getById(id)).lead.contact.id
-          : undefined;
-    if (contactId === undefined) throw new BadRequestException("כרטיס לא מזוהה");
+        : (await this.leads.getById(id)).lead.contact.id;
 
     const calls = await this.callsForContact(contactId);
     const recorded = calls.find((call) => call.hasRecording);
@@ -552,10 +542,37 @@ export class AgentExecuteService {
     };
   }
 
+  /**
+   * הכרטיס שנבחר — **עם השער של הסוג שלו**.
+   *
+   * היכולת שהפעולה מצהירה עליה היא אחת, והכרטיס יכול להיות שניים.
+   * מי שיש לו `buyers.view_own` אבל מודול הלידים חסום אצלו היה
+   * עובר את שער הפעולה ומקבל ליד מלא — כולל פרטי קשר, ציר זמן
+   * ושיחות (ביקורת Codex). לכן הסוג הנבחר נבדק כאן שוב, מול
+   * היכולת שלו.
+   */
+  private cardTarget(params: Record<string, unknown>): {
+    kind: "buyer" | "lead";
+    id: string;
+  } {
+    const cardId = str(params["cardId"]);
+    if (cardId === undefined) throw new BadRequestException("לא נבחר כרטיס");
+    const [kind, id] = cardId.split(":", 2);
+    if (id === undefined || (kind !== "buyer" && kind !== "lead")) {
+      throw new BadRequestException("כרטיס לא מזוהה");
+    }
+    const needed = kind === "buyer" ? "buyers.view_own" : "leads.view_own";
+    if (!TenantContext.current().capabilities.has(needed)) {
+      throw new ForbiddenException(
+        kind === "buyer" ? "אין לך הרשאה לצפות בקונים" : "אין לך הרשאה לצפות בלידים",
+      );
+    }
+    return { kind, id };
+  }
+
   /** השיחות של איש קשר, החדשות תחילה — משותף לכרטיס ולהשמעה. */
   private async callsForContact(contactId: string): Promise<CallDto[]> {
-    const recent = await this.calls.list({ limit: 50 });
-    return recent.filter((call) => call.contactId === contactId).slice(0, 10);
+    return this.calls.list({ contactId, limit: 10 });
   }
 
   /**

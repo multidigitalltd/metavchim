@@ -185,7 +185,7 @@ export function VoiceConsole(): React.JSX.Element | null {
           {result.message === "" ? null : (
             <Notice tone="success" onClose={() => setResult(null)}>
               {result.message}
-              {result.href !== undefined && result.data !== undefined ? (
+              {result.href !== undefined && (result.data !== undefined || result.audio !== undefined) ? (
                 <>
                   {" "}
                   <a href={result.href} className="underline">

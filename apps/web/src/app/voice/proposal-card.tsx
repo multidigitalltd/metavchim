@@ -66,6 +66,15 @@ export interface ExecuteResult {
   insight?: string;
   /** צעד המשך מוצע — לחיצה שולחת אותו כמשפט חדש, דרך אותו אישור */
   suggestion?: string;
+  /**
+   * הקלטה שהתוצאה מצביעה עליה.
+   *
+   * במסך אין נגן משלנו — ההשמעה היא במסך השיחות, שם היא כבר
+   * קיימת. השדה כאן קיים כדי שהקישור למסך יופיע גם לתוצאה שאין
+   * לה `data` (הקלטה בלי תקציר), ולא רק כטקסט בלי דרך להגיע
+   * אליה (ביקורת Codex).
+   */
+  audio?: { callId: string; label: string };
 }
 
 const SOURCE_LABEL: Record<ProposalField["source"], string> = {

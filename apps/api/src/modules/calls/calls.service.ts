@@ -136,7 +136,20 @@ export class CallsService {
    * ריק) שהלקוח שלה נמחק. אין ממי לגזור בעלות, והיא נשארת גלויה
    * למנהל בלבד — מחיקת ליד היא פעולה ניהולית ומכוונת.
    */
-  async list(query: { outcome?: string; leadId?: string; limit: number }): Promise<CallDto[]> {
+  async list(query: {
+    outcome?: string;
+    leadId?: string;
+    /**
+     * שיחות של איש קשר אחד.
+     *
+     * הסינון חייב להיות **בשאילתה** ולא אחריה: מי שיש לו יותר
+     * שיחות חדשות מהתקרה עם לקוחות אחרים היה מקבל רשימה שהלקוח
+     * המבוקש כלל אינו בה, והכרטיס היה מציג „אין שיחות” על לקוח
+     * שדיברו איתו אתמול (ביקורת Codex).
+     */
+    contactId?: string;
+    limit: number;
+  }): Promise<CallDto[]> {
     const { tenantId, userId } = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
       const visible = await visibleContactIds(tx, tenantId);
@@ -145,6 +158,7 @@ export class CallsService {
           tenantId,
           ...(query.outcome ? { outcome: query.outcome } : {}),
           ...(query.leadId ? { leadId: query.leadId } : {}),
+          ...(query.contactId ? { contactId: query.contactId } : {}),
           ...(visible === null
             ? {}
             : { OR: [{ contactId: { in: visible } }, { createdBy: userId }] }),
