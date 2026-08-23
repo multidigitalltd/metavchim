@@ -161,6 +161,14 @@ jobs:
       - name: Prisma client
         run: pnpm --filter @metavchim/api exec prisma generate
 
+      # אותו נימוק בדיוק, לחבילה המשותפת: `dist/` אינו בגיט, ובלעדיו
+      # כל `import` מ-`@metavchim/shared` נופל כאן ב-resolve. בדיקת
+      # אינטגרציה שמשווה את ההיגיון שבקוד להתנהגות המסד — למשל שהסדר
+      # ש-`canonicalTwinPair` מחשבת הוא הסדר שהאילוץ מקבל — חייבת
+      # לייבא ממנה, וזו בדיוק הבדיקה ששווה להריץ מול מסד אמיתי.
+      - name: Shared build
+        run: pnpm --filter @metavchim/shared build
+
       # וההרשאות **אחרי**. `create_app_role.sql` מסתיים ב-
       # `REVOKE ... ON audit_log`, וטבלה שאינה קיימת מפילה את
       # הסקריפט תחת ON_ERROR_STOP (ביקורת Codex). בייצור זה נפתר

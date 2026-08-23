@@ -74,6 +74,15 @@ const SEED_OVERRIDES: Readonly<Record<string, Readonly<Record<string, string>>>>
   // `interaction_exactly_one_parent`: אינטראקציה תלויה בליד או בקונה,
   // ובדיוק באחד מהם. שניהם NULL — וזה בדיוק מה שממלא רק חובה נותן.
   interactions: { lead_id: "'01SEEDLEADAAAAAAAAAAAAAAAA'" },
+  /*
+   * `property_twins_canonical_order`: הזוג נשמר בסדר קנוני
+   * (`property_a_id` < `property_b_id`), ולכן שני מזהים זהים —
+   * מה שהמחולל הגנרי מייצר לשתי עמודות מאותו טיפוס — מפרים אותו.
+   */
+  property_twins: {
+    property_a_id: "'01SEEDTWINAAAAAAAAAAAAAAAA'",
+    property_b_id: "'01SEEDTWINBBBBBBBBBBBBBBBB'",
+  },
 };
 
 interface Column {
