@@ -192,14 +192,12 @@ export default function DashboardPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const canVoice = useFeature("voice_intake");
   /*
-   * שני האזורים שאינם לכל משרד ולא לכל סוכן — ראו `loadDashboard`.
+   * שני האזורים שאינם לכל משרד ולא לכל סוכן.
    *
    * `featuresReady` אינו קישוט: `useFeature` מחזיר „כן” כל עוד
    * הרשימה לא הגיעה — נכון לכפתור שלא כדאי שיקפוץ, ושגוי לבקשת
-   * רשת. בלעדיו הטעינה הייתה יוצאת פעמיים בכל כניסה: פעם ראשונה
-   * לפני שהרשימה הגיעה (עם 403 מהסוכן שנרשם באבחון), ואז
-   * `hasCoach` היה מתהפך, `loadDashboard` נבנה מחדש, וכל שמונה
-   * הבקשות היו יוצאות שוב (ביקורת Codex).
+   * רשת שתחזור 403 ותירשם באבחון. הוא חוסם **רק** את הקריאה
+   * לסוכן (`loadCoach`), ולא את הדשבורד כולו — ראו ההסבר שם.
    */
   const featuresReady = useFeaturesReady();
   const hasCoach = useFeature("ai_coach");
@@ -246,8 +244,8 @@ export default function DashboardPage() {
      * חוזר שלעולם לא ינקה אותו — כלומר בדיוק הרעש שהמסך הזה נועד
      * למנוע, הפוך (ביקורת Codex).
      *
-     * שער מפורש עדיף על תפיסה בדיעבד, ולכן שתי הבקשות המותנות
-     * גם אינן נורות מלכתחילה (ראו מטה). זו רשת הביטחון: זכאות
+     * שער מפורש עדיף על תפיסה בדיעבד, ולכן הבקשות המותנות גם
+     * אינן נורות מלכתחילה (ראו מטה). זו רשת הביטחון: זכאות
      * משתנה, וכל נתיב אחר עלול לסרב מחר.
      */
     const fail = (err: unknown): void => {
@@ -276,26 +274,50 @@ export default function DashboardPage() {
       .then(setLeadBreakdown)
       .catch(fail);
     /*
-     * שתי הבקשות המותנות — אותו שער שכבר קיים למשימות ולרשת מטה.
-     * „הסוכן החכם” אינו במסלול הבסיסי, ורשימת ההצעות דורשת
-     * `offers.send`; בלי הבדיקה כאן הן חוזרות 403 בכל טעינה אצל
-     * מי שאינו זכאי, ומצייר אזור ריק שאין לו סיבה להתמלא.
+     * רשימת ההצעות דורשת `offers.send` — אותו שער שכבר קיים
+     * למשימות ולרשת מטה. היכולת מגיעה עם הזהות, שכבר המתנו לה,
+     * ולכן היא ידועה כאן ואינה משתנה תחת הרגליים.
      */
-    if (hasCoach) {
-      apiGet<Recommendation[]>("/coach/recommendations").then(setRecs).catch(fail);
-    }
     if (canSeeOffers) {
       apiGet<{ items: OfferRow[] }>("/offers")
         .then((r) => setOffers(r.items))
         .catch(fail);
     }
-  }, [hasCoach, canSeeOffers]);
+  }, [canSeeOffers]);
 
   useEffect(() => {
-    // ממתינים לזכאות: טעינה לפניה יוצאת פעם אחת מיותרת, ולשווא
-    if (authLoading || !user || !featuresReady) return;
+    if (authLoading || !user) return;
     loadDashboard();
-  }, [authLoading, user, featuresReady, loadDashboard]);
+  }, [authLoading, user, loadDashboard]);
+
+  /*
+   * „הסוכן החכם” נטען בנפרד, ולא כחלק מהמנה — כי הוא היחיד שתלוי
+   * ברשימת הפיצ'רים.
+   *
+   * ## למה לא שער אחד על הכל
+   *
+   * הגרסה הקודמת חסמה את **כל** הטעינה עד ש-`featuresReady`, וזה
+   * יצר תלות הרסנית: `/nav/summary` שנכשל משאיר את הרשימה `null`
+   * לנצח, ואיתה `featuresReady` שקרי — כלומר הדשבורד היה נתקע על
+   * שלדי טעינה לצמיתות, בלי שגיאה ובלי כפתור ניסיון חוזר. תקלה
+   * במטא-דאטה של המסלול הפילה מסך שלם שאינו תלוי בה (ביקורת
+   * Codex).
+   *
+   * ההפרדה גם מונעת את הטעינה הכפולה שבגללה נוסף השער מלכתחילה:
+   * `hasCoach` שמתהפך כשהרשימה מגיעה בונה מחדש את הקריאה הזו
+   * בלבד, ולא את שש הבקשות המרכזיות.
+   */
+  const loadCoach = useCallback(() => {
+    if (!featuresReady || !hasCoach) return;
+    apiGet<Recommendation[]>("/coach/recommendations")
+      .then(setRecs)
+      .catch(() => undefined);
+  }, [featuresReady, hasCoach]);
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    loadCoach();
+  }, [authLoading, user, loadCoach]);
 
   /*
    * שני האזורים האחרונים נטענים רק למי שרשאי לראות אותם. בלי הבדיקה
