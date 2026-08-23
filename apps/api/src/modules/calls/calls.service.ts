@@ -1,7 +1,7 @@
 import type { Readable } from "node:stream";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
-import { assertContactAccess, visibleContactIds } from "../../common/ownership";
+import { assertContactAccess, seesAllContacts, visibleContactIds } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -207,7 +207,7 @@ export class CallsService {
    * מסגירה את קיומה, ואת זה אין למשתמש הזה הרשאה לדעת.
    */
   private async assertCallAccess(tx: TenantTx, id: string): Promise<void> {
-    const { tenantId, userId, capabilities } = TenantContext.current();
+    const { tenantId, userId } = TenantContext.current();
     const row = await tx.call.findFirst({
       where: { id, tenantId },
       select: { contactId: true, createdBy: true },
@@ -215,7 +215,8 @@ export class CallsService {
     if (!row) throw new NotFoundException("שיחה לא נמצאה");
 
     if (row.createdBy === userId) return;
-    if (capabilities.has("buyers.view_all") && capabilities.has("leads.view_all")) return;
+    // אותו ניסוח בדיוק כמו ברשימה — לא עותק שלו
+    if (seesAllContacts()) return;
     if (row.contactId === null) throw new NotFoundException("שיחה לא נמצאה");
 
     // ההודעה מאוחדת: „איש קשר לא נמצא” היה מסגיר שהשיחה עצמה קיימת

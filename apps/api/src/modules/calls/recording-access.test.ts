@@ -90,22 +90,28 @@ describe("גישה להקלטת שיחה", () => {
   /*
    * מנהל שומע הכול — אחרת הבדיקה מאשרת שער נעול ולא שער נכון.
    *
-   * דרושות **שתי** היכולות ולא אחת, וזה בכוונה: זה בדיוק התנאי שבו
-   * `visibleContactIds` מוותר על הסינון ברשימה. יכולת אחת בלבד
-   * הייתה נותנת מסך שמראה שיחה שאי אפשר להשמיע, או להפך.
+   * דרושות **שלוש** היכולות, וזה בדיוק התנאי של `seesAllContacts`:
+   * כל הקונים, כל הלידים, ומודול הנכסים פתוח. צירוף חלקי מוותר על
+   * הסינון עבור מקור שחסום — וזה בדיוק מה שנפתח כשהתנאי הזה היה
+   * כתוב בשלושה עותקים ורק שניים מהם עודכנו (ביקורת Codex).
    */
-  it("מנהל עם שתי היכולות שומע גם שיחה של סוכן אחר", async () => {
+  it("מנהל עם שלוש היכולות שומע גם שיחה של סוכן אחר", async () => {
     const call: FakeCall = { recordingKey: "k", contactId: null, createdBy: "01OTHER" };
     await expect(
-      asAgent(["leads.view_all", "buyers.view_all"], "01ME", () =>
+      asAgent(["leads.view_all", "buyers.view_all", "properties.view"], "01ME", () =>
         serviceFor(call).recording("01CALL"),
       ),
     ).resolves.toBeDefined();
 
-    // יכולת אחת בלבד אינה מספיקה — אחרת שני המסלולים היו נפרדים
-    await expect(
-      asAgent(["leads.view_all"], "01ME", () => serviceFor(call).recording("01CALL")),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    // צירוף חלקי אינו מספיק — לא אחת, וגם לא שתיים מתוך השלוש
+    for (const partial of [
+      ["leads.view_all"],
+      ["leads.view_all", "buyers.view_all"],
+    ] as const) {
+      await expect(
+        asAgent([...partial], "01ME", () => serviceFor(call).recording("01CALL")),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    }
   });
 
   /*

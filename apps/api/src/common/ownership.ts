@@ -140,24 +140,31 @@ function contactSources(): { buyers: boolean; leads: boolean; properties: boolea
   };
 }
 
+/**
+ * רואה כל לקוח במשרד — ולכן אין מה לסנן.
+ *
+ * „בלי הגבלה” רק כשבאמת אין מה להגביל: כל הקונים, כל הלידים,
+ * ומודול הנכסים פתוח. חסר אחד מהשלושה והקיצור היה מחזיר לקוחות
+ * ממקור חסום דווקא למי שהכי הרבה פתוח אצלו.
+ *
+ * מיוצא כי אותו קיצור קיים גם בשער השיחה הבודדת. שלושה עותקים של
+ * התנאי הזה כבר נפרדו זה מזה פעם אחת — התיקון הקודם עדכן שניים
+ * מהם והשאיר את השלישי מאחור (ביקורת Codex), וכך נפתחה הקלטה של
+ * בעל נכס למי שמודול הנכסים חסום אצלו. ניסוח אחד, שלושה קוראים.
+ */
+export function seesAllContacts(): boolean {
+  const caps = TenantContext.current().capabilities;
+  return (
+    caps.has("buyers.view_all") && caps.has("leads.view_all") && contactSources().properties
+  );
+}
+
 export async function visibleContactIds(
   tx: TenantTx,
   tenantId: string,
 ): Promise<string[] | null> {
-  const ctx = TenantContext.current();
   const sources = contactSources();
-  /*
-   * „בלי הגבלה” רק כשבאמת אין מה להגביל: מנהל שרואה את כל הקונים
-   * ואת כל הלידים, ושמודול הנכסים פתוח אצלו. חסר אחד מהשלושה —
-   * הרשימה נבנית, אחרת הקיצור היה מחזיר גם לקוחות ממקור חסום.
-   */
-  if (
-    ctx.capabilities.has("buyers.view_all") &&
-    ctx.capabilities.has("leads.view_all") &&
-    sources.properties
-  ) {
-    return null;
-  }
+  if (seesAllContacts()) return null;
 
   const [buyers, leads, properties] = await Promise.all([
     sources.buyers
