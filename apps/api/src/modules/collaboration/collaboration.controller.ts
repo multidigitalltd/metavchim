@@ -3,11 +3,13 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   Param,
   Patch,
   Post,
   Query,
+  StreamableFile,
 } from "@nestjs/common";
 import { z } from "zod";
 import {
@@ -213,6 +215,24 @@ const ShareLeadSchema = z
  * הדיוק **אינו** מתקבל מהלקוח: הוא נגזר מהפער מול ההצהרה, ושליחתו
  * הייתה נתון שאפשר לזייף עבור חישוב שממילא שלנו.
  */
+/**
+ * מקום התמונה בגלריה. תקרה מכוונת: הנתיב מגיע מהמסך שלנו, ואינדקס
+ * שרירותי הוא ניסיון סריקה ולא בקשה.
+ */
+const PhotoIndexSchema = z.coerce.number().int().min(0).max(99);
+
+/** גוף מהאחסון ⟵ תשובת Nest, עם אורך כשידוע. */
+function streamed(obj: {
+  body: NodeJS.ReadableStream;
+  contentType?: string;
+  contentLength?: number;
+}): StreamableFile {
+  return new StreamableFile(obj.body as never, {
+    type: obj.contentType,
+    ...(obj.contentLength !== undefined ? { length: obj.contentLength } : {}),
+  });
+}
+
 const RateReferralSchema = z
   .object({
     scores: z
@@ -334,6 +354,47 @@ export class CollaborationController {
     query: z.infer<typeof NetworkFilterSchema>,
   ): Promise<SharedListingDto[]> {
     return this.listings.list(query);
+  }
+
+  /* ------------------------------------------------------------------
+     תמונות הרשת — נתיבים ב-API ולא כתובות אחסון חתומות.
+
+     כל שאר המדיה במערכת כבר זורמת כך; שלושת המקומות האלה היו
+     היוצאים מן הכלל, ובפרודקשן הם נשברו: חתימת SigV4 כוללת את
+     ה-Host, ו-MinIO יושבת על רשת פנימית בלי כתובת ציבורית
+     (`storage.service.ts`). ראו `network-media.ts`.
+
+     השער זהה לזה של הפיד — מי שרשאי לראות את המודעה רשאי לראות
+     את תמונותיה — וההרשאה נבדקת שוב בכל בקשה, בשירות.
+     ------------------------------------------------------------------ */
+
+  @Get("listings/:id/photo/:index")
+  @RequireCapability("collaboration.offer")
+  @Header("Cache-Control", "private, max-age=300")
+  async listingPhoto(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("index", new ZodValidationPipe(PhotoIndexSchema)) index: number,
+  ): Promise<StreamableFile> {
+    return streamed(await this.listings.photo(id, index));
+  }
+
+  @Get("offers/:id/photo/:index")
+  @RequireCapability("collaboration.offer")
+  @Header("Cache-Control", "private, max-age=300")
+  async offerPhoto(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("index", new ZodValidationPipe(PhotoIndexSchema)) index: number,
+  ): Promise<StreamableFile> {
+    return streamed(await this.collaboration.offerPhoto(id, index));
+  }
+
+  @Get("office/:tenantId/logo")
+  @RequireCapability("collaboration.offer")
+  @Header("Cache-Control", "private, max-age=300")
+  async officeLogo(
+    @Param("tenantId", new ZodValidationPipe(IdSchema)) tenantId: string,
+  ): Promise<StreamableFile> {
+    return streamed(await this.listings.officeLogo(tenantId));
   }
 
   @Post("listings/:id/interest")

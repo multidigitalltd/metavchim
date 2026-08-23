@@ -9,6 +9,20 @@ import { recordFailedRequest } from "./client-diagnostics";
 export const API_BASE = (process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:3001") + "/api/v1";
 const BASE = API_BASE;
 
+/**
+ * `src` לתמונה שה-API מזרים — מנתיב יחסי שהוא החזיר.
+ *
+ * ה-API אינו יכול לבנות את הכתובת המלאה: הבסיס (`/api/v1` באותו
+ * מקור בפרודקשן, `http://localhost:3001/api/v1` בפיתוח) ידוע כאן
+ * בזמן הבנייה ולא שם. לכן הוא מחזיר נתיב, והרכבה נעשית כאן.
+ *
+ * הבקשה יוצאת מאותו מקור ועם העוגייה שכבר יש לדפדפן — אין כתובת
+ * חתומה שאפשר לשבור, ואין כתובת שפגה אחרי שעה.
+ */
+export function mediaSrc(path: string): string {
+  return `${API_BASE}/${path}`;
+}
+
 export interface ApiIssue {
   path: string;
   message: string;

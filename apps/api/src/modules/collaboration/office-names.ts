@@ -1,5 +1,5 @@
 import type { PrismaService } from "../../core/prisma.service";
-import type { StorageService } from "../../core/storage.service";
+import { officeLogoPath } from "./network-media";
 
 /**
  * המשרד המפרסם, לכל מודעה בפיד הרשת — שם ולוגו.
@@ -24,17 +24,14 @@ import type { StorageService } from "../../core/storage.service";
 export interface OfficeBadge {
   name: string;
   /**
-   * כתובת חתומה קצרת-חיים ללוגו, כשיש.
-   *
-   * נחתמת בזמן הקריאה ולא נשמרת: כתובת חתומה שנשמרת בטבלה פגה
-   * אחרי שעה ומשאירה תמונה שבורה במודעה — בדיוק כמו בתמונות הנכס.
+   * נתיב ה-API ללוגו, כשיש — לא כתובת אחסון חתומה (ראו
+   * `network-media.ts`). הדפדפן מושך אותו מאותו מקור, וה-API מזרים.
    */
   logoUrl?: string;
 }
 
 export async function officeBadges(
   prisma: PrismaService,
-  storage: StorageService,
   tenantIds: readonly string[],
 ): Promise<Map<string, OfficeBadge>> {
   const unique = [...new Set(tenantIds)];
@@ -45,24 +42,20 @@ export async function officeBadges(
     select: { id: true, name: true, settings: true },
   });
 
-  const badges = await Promise.all(
-    rows.map(async (row) => {
+  return new Map(
+    rows.map((row) => {
       const settings = (row.settings ?? {}) as Record<string, unknown>;
       const logoKey = settings["logoKey"];
       /*
-       * לוגו שאי אפשר לחתום אינו מפיל את המודעה — היא פשוט מוצגת
-       * בלי לוגו. מודעה בלי תמונה שווה יותר משגיאת שרת.
+       * הנתיב נבנה רק כשיש מפתח: משרד בלי לוגו לא יקבל כתובת
+       * שתחזיר 404 בכל טעינת פיד.
        */
-      const logoUrl =
-        typeof logoKey === "string" && logoKey !== ""
-          ? await storage.signedGetUrl(logoKey).catch(() => null)
-          : null;
+      const hasLogo = typeof logoKey === "string" && logoKey !== "";
       const badge: OfficeBadge = {
         name: row.name,
-        ...(logoUrl === null ? {} : { logoUrl }),
+        ...(hasLogo ? { logoUrl: officeLogoPath(row.id) } : {}),
       };
       return [row.id, badge] as const;
     }),
   );
-  return new Map(badges);
 }

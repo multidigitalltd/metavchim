@@ -8,7 +8,7 @@ import {
   isFinalCoopDealStage,
   type CoopDealStage,
 } from "@metavchim/shared";
-import { apiGet } from "@/lib/api";
+import { apiGet, mediaSrc } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { IconHandshake, IconUsers } from "../icons";
 import { LoadError } from "../load-error";
@@ -144,11 +144,12 @@ function DealCard({ deal }: { deal: DealSummary }) {
               <IconUsers s={15} />
             ) : (
               /*
-               * `img` ולא `next/image`: הכתובת חתומה וקצרת-חיים,
-               * ואופטימיזציה בשרת הייתה מנסה למשוך אותה אחרי שפגה.
+               * `img` ולא `next/image`: הלוגו מוזרם דרך ה-API עם
+               * העוגייה של המשתמש, ואופטימיזציה בשרת הייתה מנסה
+               * למשוך אותו בלי הזדהות.
                */
               <img
-                src={deal.counterpartLogoUrl}
+                src={mediaSrc(deal.counterpartLogoUrl)}
                 alt=""
                 loading="lazy"
                 style={{ height: 20, width: "auto", borderRadius: 4 }}

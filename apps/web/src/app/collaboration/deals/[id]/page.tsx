@@ -14,7 +14,7 @@ import {
   MAX_COOP_DEAL_MESSAGE,
   type CoopDealStage,
 } from "@metavchim/shared";
-import { apiGet, ApiError, apiPatch, apiPost } from "@/lib/api";
+import { apiGet, ApiError, apiPatch, apiPost, mediaSrc } from "@/lib/api";
 import { formatDateTime, formatPrice } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
 import {
@@ -573,7 +573,7 @@ function SideCard({
       <p className="m-0 mb-1 flex items-center gap-1.5 font-bold">
         {side.officeLogoUrl === undefined ? null : (
           <img
-            src={side.officeLogoUrl}
+            src={mediaSrc(side.officeLogoUrl)}
             alt=""
             loading="lazy"
             style={{ height: 22, width: "auto", borderRadius: 4 }}
