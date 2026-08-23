@@ -91,6 +91,8 @@ describe("extractPropertyFromTranscript — קליטת נכס בקול", () => {
         "דירה שאינה ניתנת לחלוקה בבני ברק",
         "דירה ללא אפשרות לחלוקה",
         "דירה ללא חלוקה",
+        "דירה אין אפשרות לחלוקה",
+        "דירה איננה מתאימה לחלוקה",
       ]) {
         expect(
           extractPropertyFromTranscript(said).fields.propertyType,
@@ -113,6 +115,8 @@ describe("extractPropertyFromTranscript — קליטת נכס בקול", () => {
         "דירה ללא טאבו משותף",
         "דירה שאינה רשומה בטאבו משותף",
         "דירה שאינה בטאבו משותף",
+        "דירה איננה בטאבו משותף",
+        "דירה אין טאבו משותף",
       ]) {
         expect(
           extractPropertyFromTranscript(said).fields.propertyType,

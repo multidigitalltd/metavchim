@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { apiGet, apiPatch } from "@/lib/api";
 import { notificationHref } from "@/lib/notification-links";
+import { can, type AuthUser } from "@/lib/use-auth";
 
 const POLL_MS = 30_000;
 
@@ -42,7 +43,13 @@ function timeAgo(iso: string): string {
   return days === 1 ? "אתמול" : `לפני ${days} ימים`;
 }
 
-export function NotificationsBell() {
+/**
+ * `user` מגיע מהמעטפת ולא מ-hook נוסף: הזהות כבר נטענה שם, וקריאה
+ * שנייה הייתה מוסיפה בקשה ומרוץ. הוא דרוש כדי לא לשלוח את הלוחץ
+ * ליעד שיחזיר לו 403 — התראות משרדיות מגיעות גם למי שאינו רשאי
+ * לפתוח את היעד שלהן (ביקורת Codex).
+ */
+export function NotificationsBell({ user }: { user: AuthUser | null }) {
   const pathname = usePathname();
   const [unread, setUnread] = useState(0);
   const [items, setItems] = useState<NotificationDto[]>([]);
@@ -143,7 +150,9 @@ export function NotificationsBell() {
                * ההתראות המלא הוא היעד הנכון שם, כי בו מוצג גם
                * גוף ההתראה שנחתך כאן.
                */
-              const href = notificationHref(n.entityType, n.entityId) ?? "/notifications";
+              const href =
+                notificationHref(n.entityType, n.entityId, (c) => can(user, c)) ??
+                "/notifications";
               const inner = (
                 <>
                   <span

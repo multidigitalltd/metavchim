@@ -6,7 +6,7 @@ import { Button } from "@metavchim/ui";
 import { api, apiGet } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { notificationHref } from "@/lib/notification-links";
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
 import { LoadError } from "../load-error";
 
 interface NotificationRow {
@@ -20,13 +20,8 @@ interface NotificationRow {
   createdAt: string;
 }
 
-/** היעד — מהמקור המשותף עם הפעמון (lib/notification-links). */
-function entityHref(n: NotificationRow): string | null {
-  return notificationHref(n.entityType, n.entityId);
-}
-
 export default function NotificationsPage() {
-  const { loading: authLoading } = useRequireAuth();
+  const { user, loading: authLoading } = useRequireAuth();
   const [items, setItems] = useState<NotificationRow[] | null>(null);
   /*
    * כישלון טעינה צויר כאן כ„אין התראות עדיין” — כלומר תקלת רשת
@@ -75,7 +70,10 @@ export default function NotificationsPage() {
       ) : (
         <ol className="flex flex-col gap-2">
           {items.map((n) => {
-            const href = entityHref(n);
+            /* היעד — מהמקור המשותף עם הפעמון (lib/notification-links) */
+            const href = notificationHref(n.entityType, n.entityId, (c) =>
+              can(user, c),
+            );
             return (
               <li
                 key={n.id}

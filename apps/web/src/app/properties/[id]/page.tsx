@@ -192,9 +192,14 @@ export default function PropertyDetailPage({
       .catch(() => setError("הנכס לא נמצא"));
   }, [id]);
 
-  useEffect(() => {
-    if (authLoading) return;
-    loadProperty();
+  /*
+   * ההתאמות נטענות בפונקציה משלהן כדי שיהיה למה לחזור.
+   * `LoadError` בלי `onRetry` מודיע על תקלה ולא נותן דרך לצאת
+   * ממנה: האפקט לא ירוץ שוב כל עוד המתווך נשאר בכרטיס, ולכן
+   * הדרך היחידה הייתה רענון העמוד כולו (ביקורת Codex).
+   */
+  const loadMatches = useCallback((): void => {
+    setMatchesFailed(false);
     apiGet<MatchRow[]>(`/properties/${id}/matches`)
       .then((rows) => {
         setMatches(rows);
@@ -208,7 +213,13 @@ export default function PropertyDetailPage({
         }
       })
       .catch(() => setMatchesFailed(true));
-  }, [authLoading, id, loadProperty]);
+  }, [id]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    loadProperty();
+    loadMatches();
+  }, [authLoading, loadProperty, loadMatches]);
 
   async function createOffer(matchId: string) {
     try {
@@ -913,7 +924,10 @@ export default function PropertyDetailPage({
             ) : null}
 
             {matchesFailed ? (
-              <LoadError message="לא הצלחנו לטעון את ההתאמות" />
+              <LoadError
+                message="לא הצלחנו לטעון את ההתאמות"
+                onRetry={loadMatches}
+              />
             ) : matches === null ? (
               <p aria-live="polite">מחשב התאמות…</p>
             ) : matches.length === 0 ? (

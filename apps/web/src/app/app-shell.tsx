@@ -674,7 +674,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <TopbarSearch />
 
           <div className="mv-topbar-end">
-            <NotificationsBell />
+            <NotificationsBell user={me} />
 
           {/* קליטה קולית נחסמת בשרת בלי הפיצ'ר — קישור ל-403 גרוע
               מקישור שלא קיים */}

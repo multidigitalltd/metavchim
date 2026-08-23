@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useCallback, useEffect, useState, use } from "react";
 import Link from "next/link";
 import {
   buyerProfileCompleteness,
@@ -201,11 +201,9 @@ export default function BuyerDetailPage({
     }
   }
 
-  useEffect(() => {
-    if (authLoading) return;
-    apiGet<BuyerDetail>(`/buyers/${id}`)
-      .then(setBuyer)
-      .catch(() => setError("הקונה לא נמצא"));
+  /* אותה טעינה חוזרת כמו בכרטיס הנכס — ראו ההסבר שם. */
+  const loadMatches = useCallback((): void => {
+    setMatchesFailed(false);
     apiGet<MatchRow[]>(`/buyers/${id}/matches`)
       .then((rows) => {
         setMatches(rows);
@@ -219,7 +217,15 @@ export default function BuyerDetailPage({
         }
       })
       .catch(() => setMatchesFailed(true));
-  }, [authLoading, id]);
+  }, [id]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    apiGet<BuyerDetail>(`/buyers/${id}`)
+      .then(setBuyer)
+      .catch(() => setError("הקונה לא נמצא"));
+    loadMatches();
+  }, [authLoading, id, loadMatches]);
 
   if (error) {
     return (
@@ -743,7 +749,10 @@ export default function BuyerDetailPage({
               </p>
 
               {matchesFailed ? (
-                <LoadError message="לא הצלחנו לטעון את ההתאמות" />
+                <LoadError
+                  message="לא הצלחנו לטעון את ההתאמות"
+                  onRetry={loadMatches}
+                />
               ) : matches === null ? (
                 <p aria-live="polite">מחשב התאמות…</p>
               ) : matches.length === 0 ? (
