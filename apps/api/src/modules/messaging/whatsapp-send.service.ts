@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { loadEnv } from "../../config/env";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
+import { splitForWhatsApp } from "./whatsapp-text";
 
 /**
  * שליחה דרך WhatsApp Cloud API (docs/05 §1) — הצד היוצא של הסוכן
@@ -16,14 +17,23 @@ import { PlatformSettingsService } from "../../core/platform-settings.service";
 
 const GRAPH_BASE = "https://graph.facebook.com/v23.0";
 const SEND_TIMEOUT_MS = 15_000;
-/** תקרת Cloud API להודעת טקסט היא 4096 תווים — נחתך עם שוליים. */
-const MAX_TEXT_LENGTH = 4000;
 /** הקלטה קולית סבירה שוקלת מאות KB; מעל זה משהו אחר קורה. */
 const MAX_MEDIA_BYTES = 16 * 1024 * 1024;
 
 export interface WhatsAppCredentials {
   token: string;
   phoneNumberId: string;
+}
+
+export interface SendTextOptions {
+  /**
+   * ההודעה שהתשובה עונה עליה — מצוטטת מעליה בצ'אט.
+   *
+   * לא קישוט: המתווך שולח שלוש בקשות ברצף ומקבל שלוש תשובות, ובלי
+   * הציטוט אי אפשר לדעת איזו תשובה שייכת לאיזו בקשה. גם הודעה
+   * שמגיעה דקה אחרי שהוא כבר המשיך הלאה מוצאת את ההקשר שלה.
+   */
+  replyTo?: string;
 }
 
 @Injectable()
@@ -43,13 +53,79 @@ export class WhatsAppSendService {
     return { token, phoneNumberId };
   }
 
-  /** שליחת טקסט. false = לא נשלח (לא מוגדר / Meta דחה) — נרשם ללוג. */
-  async sendText(to: string, body: string): Promise<boolean> {
+  /**
+   * שליחת טקסט. false = לא נשלח (לא מוגדר / Meta דחה) — נרשם ללוג.
+   *
+   * תשובה ארוכה נשלחת בכמה הודעות ולא נחתכת: ראו `whatsapp-text`.
+   * הציטוט מוצמד להודעה הראשונה בלבד — ציטוט על כל חלק היה מציף
+   * את הצ'אט בשכפולים של אותה בקשה.
+   */
+  async sendText(to: string, body: string, options: SendTextOptions = {}): Promise<boolean> {
     const creds = await this.credentials();
     if (!creds) {
       this.logger.warn("תשובת וואטסאפ לא נשלחה — הצד היוצא אינו מוגדר");
       return false;
     }
+    const chunks = splitForWhatsApp(body);
+    if (chunks.length === 0) return true;
+    for (const [index, chunk] of chunks.entries()) {
+      const sent = await this.post(creds, {
+        messaging_product: "whatsapp",
+        to,
+        type: "text",
+        text: { body: chunk, preview_url: false },
+        ...(index === 0 && options.replyTo !== undefined
+          ? { context: { message_id: options.replyTo } }
+          : {}),
+      });
+      // חלק שנכשל עוצר את השאר: המשך בלי ההתחלה מבלבל יותר מכלום
+      if (!sent) return false;
+    }
+    return true;
+  }
+
+  /**
+   * „נקרא” + „מקליד…” על ההודעה שהגיעה — הסימן היחיד שהמתווך מקבל
+   * בזמן שהסוכן עובד.
+   *
+   * סבב מלא (תמלול, הבנה, שליפה) אורך עשרות שניות, ועד היום הצ'אט
+   * היה דומם לגמרי כל אותו זמן — כלומר נראה בדיוק כמו מערכת שלא
+   * קיבלה את ההודעה. Meta מאפשרת לשלוח את שניהם בבקשה אחת, וסימון
+   * ההקלדה נמשך עד 25 שניות או עד שהתשובה יוצאת.
+   *
+   * best-effort: כישלון כאן לעולם אינו מונע את התשובה עצמה.
+   */
+  async markRead(messageId: string, typing = false): Promise<void> {
+    const creds = await this.credentials();
+    if (!creds) return;
+    await this.post(creds, {
+      messaging_product: "whatsapp",
+      status: "read",
+      message_id: messageId,
+      ...(typing ? { typing_indicator: { type: "text" } } : {}),
+    });
+  }
+
+  /**
+   * תגובת אימוג'י על הודעה — קבלה שקטה, בלי להוסיף הודעה לצ'אט.
+   * משמשת לאישור קבלת הקלטה קולית לפני שהתמלול בכלל התחיל.
+   */
+  async react(to: string, messageId: string, emoji: string): Promise<void> {
+    const creds = await this.credentials();
+    if (!creds) return;
+    await this.post(creds, {
+      messaging_product: "whatsapp",
+      to,
+      type: "reaction",
+      reaction: { message_id: messageId, emoji },
+    });
+  }
+
+  /** קריאת POST אחת ל-Graph. שגיאות נרשמות ואינן נזרקות. */
+  private async post(
+    creds: WhatsAppCredentials,
+    payload: Record<string, unknown>,
+  ): Promise<boolean> {
     try {
       const res = await fetch(`${GRAPH_BASE}/${creds.phoneNumberId}/messages`, {
         method: "POST",
@@ -57,12 +133,7 @@ export class WhatsAppSendService {
           authorization: `Bearer ${creds.token}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          to,
-          type: "text",
-          text: { body: body.slice(0, MAX_TEXT_LENGTH), preview_url: false },
-        }),
+        body: JSON.stringify(payload),
         signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       });
       if (!res.ok) {

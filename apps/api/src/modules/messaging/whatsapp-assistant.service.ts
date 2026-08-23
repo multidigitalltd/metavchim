@@ -5,6 +5,7 @@ import {
   agentAction,
   applyBlockedModules,
   resolveCapabilities,
+  roleLabel,
   type AgentHistoryTurn,
   type AgentProposal,
   type Capability,
@@ -20,7 +21,14 @@ import { AgentExecuteService, type ExecuteResult } from "../agent/execute.servic
 import { AgentInterpretService } from "../agent/interpret.service";
 import { AgentResolveService } from "../agent/resolve.service";
 import { TranscriptionService } from "../../modules/voice-intake/transcription.service";
-import { choiceIndex, isCancelMessage, isConfirmMessage, waPhoneVariants } from "./assistant-lang";
+import {
+  choiceIndex,
+  isCancelMessage,
+  isConfirmMessage,
+  isHelpMessage,
+  waPhoneVariants,
+} from "./assistant-lang";
+import { helpMenu, welcomeExamples, type HelpAction } from "./assistant-help";
 import { prospectReplyText } from "./prospect-reply";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 
@@ -52,6 +60,8 @@ const HISTORY_KEPT = 6;
 const HANDLED_KEPT = 30;
 /** המענה השיווקי למספר לא רשום — לכל היותר פעם בשבוע לכל מספר. */
 const PROSPECT_REPLY_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+/** מעל זה התמלול מקבל הודעת „מתמלל…” — מתחת לזה התשובה עצמה מגיעה. */
+const SLOW_TRANSCRIBE_NOTICE_MS = 6_000;
 /** המפתחות שההצעה פותרת לבחירת רשומה — כמו ב-AgentController. */
 const ID_KEYS = ["buyerId", "propertyId", "taskId", "cardId", "leadId"] as const;
 
@@ -126,9 +136,20 @@ export class WhatsAppAssistantService {
   private async handleInner(msg: AssistantInbound): Promise<void> {
     const user = await this.identifyUser(msg.fromWaId);
     if (!user) {
+      // גם למתעניין: „נקרא” מיידי, כדי שלא ידבר לקיר
+      void this.sender.markRead(msg.externalId);
       await this.greetProspect(msg.fromWaId);
       return;
     }
+
+    /*
+     * „נקרא” מיד — אבל בלי „מקליד…” עדיין.
+     *
+     * סימון ההקלדה נשאר על המסך עד 25 שניות, ולכן על מסלול שאינו
+     * עונה — כפול של Meta, משרד מושהה — הוא היה „מקליד” תשובה שלא
+     * תגיע לעולם (ביקורת Codex). הוא נדלק רק אחרי שברור שיש תשובה.
+     */
+    void this.sender.markRead(msg.externalId);
 
     // שערי החשבון — אותם כללים כמו התחברות לדשבורד
     if (tenantSuspended(user.tenant)) {
@@ -139,11 +160,14 @@ export class WhatsAppAssistantService {
       await this.sender.sendText(
         msg.fromWaId,
         "תקופת המנוי של המשרד הסתיימה — חדשו אותה במסך ניהול המשרד, ואחזור לעבוד מיד.",
+        { replyTo: msg.externalId },
       );
       return;
     }
     if (!(await this.plans.tenantHasFeature(user.tenantId, FEATURE_ID))) {
-      await this.sender.sendText(msg.fromWaId, "הסוכן החכם אינו כלול במסלול של המשרד.");
+      await this.sender.sendText(msg.fromWaId, "הסוכן החכם אינו כלול במסלול של המשרד.", {
+        replyTo: msg.externalId,
+      });
       return;
     }
     /*
@@ -156,6 +180,7 @@ export class WhatsAppAssistantService {
       await this.sender.sendText(
         msg.fromWaId,
         "הסוכן האישי בוואטסאפ אינו פעיל עבורך עדיין. בעל המשרד יכול להפעיל אותו במסך ניהול משרד ← סוכני המשרד.",
+        { replyTo: msg.externalId },
       );
       return;
     }
@@ -164,20 +189,46 @@ export class WhatsAppAssistantService {
     const chat = await this.claimMessage(user.tenantId, user.id, msg.externalId);
     if (chat === null) return;
 
+    // מכאן ואילך תמיד תצא תשובה — עכשיו „מקליד…” אומר אמת
+    void this.sender.markRead(msg.externalId, true);
+
+    const context = await this.buildContext(user);
+    const allowed = TenantContext.run(context, () => this.interpreter.allowedActions());
+
+    /*
+     * הודעה ראשונה אי־פעם בצ'אט הזה — הכרות קצרה לפני התשובה.
+     *
+     * המתווך שהמנוי שלו הופעל אינו יודע מה מותר לבקש ובאיזה ניסוח,
+     * וניסיון ראשון שנכשל הוא בדרך כלל גם האחרון. הדוגמאות נגזרות
+     * מהפעולות שמותרות *לו* — צפייה בלבד שמקבלת „תוסיף קונה” לומדת
+     * בדיוק את הפקודה שתיחסם לה (ביקורת Codex). „ראשונה” נמדד לפי
+     * מזהי ההודעות שטופלו: בהודעה הראשונה יש בדיוק אחד.
+     */
+    if (chat.handledIds.length <= 1) {
+      await this.sender.sendText(msg.fromWaId, welcomeText(user.name, allowed));
+    }
+
+    // „עזרה” — מהקטלוג, בלי קריאת מודל ובלי סיכוי להזכיר פעולה חסומה
+    if (msg.type === "text" && isHelpMessage(msg.text ?? "")) {
+      await this.sender.sendText(msg.fromWaId, helpMenu(allowed, firstName(user.name)), {
+        replyTo: msg.externalId,
+      });
+      return;
+    }
+
     const spoken = await this.extractText(msg);
     if (spoken.reply !== undefined) {
-      await this.sender.sendText(msg.fromWaId, spoken.reply);
+      await this.sender.sendText(msg.fromWaId, spoken.reply, { replyTo: msg.externalId });
       return;
     }
     const text = spoken.text ?? "";
 
-    const context = await this.buildContext(user);
     const reply = await TenantContext.run(context, () =>
       this.converse(user, chat, text, spoken.transcribed === true),
     );
 
     await this.saveChat(user.tenantId, user.id, chat);
-    await this.sender.sendText(msg.fromWaId, reply);
+    await this.sender.sendText(msg.fromWaId, reply, { replyTo: msg.externalId });
   }
 
   /* ------------------------------------------------------------------ */
@@ -332,6 +383,14 @@ export class WhatsAppAssistantService {
     }
     if (msg.type === "audio") {
       if (!msg.mediaId) return { reply: "לא הצלחתי לקרוא את ההקלטה — נסו שוב." };
+      /*
+       * אישור קבלה **לפני** התמלול, ולא אחריו.
+       *
+       * תמלול על CPU אורך עשרות שניות, והאימוג'י על ההודעה עצמה אומר
+       * „ההקלטה הגיעה ואני עליה” בלי להוסיף הודעה לצ'אט. הוא יוצא
+       * במקביל: הוא לא צריך להקדים את ההורדה, רק את ההמתנה.
+       */
+      void this.sender.react(msg.fromWaId, msg.externalId, "🎧");
       const status = await this.transcription.status();
       if (!status.available) {
         return {
@@ -340,6 +399,17 @@ export class WhatsAppAssistantService {
       }
       const media = await this.sender.downloadMedia(msg.mediaId);
       if (!media) return { reply: "לא הצלחתי להוריד את ההקלטה — נסו שוב." };
+      /*
+       * תמלול ארוך מ-SLOW_TRANSCRIBE_NOTICE_MS מקבל הודעת ביניים.
+       * הקלטה קצרה נענית ישירות בתשובה עצמה ולא מציפה את הצ'אט
+       * בהודעת „מתמלל” מיותרת; הקלטה של דקה — שבה הדממה באמת מטרידה —
+       * מקבלת סימן חיים. הטיימר מבוטל תמיד, גם כשהתמלול נכשל.
+       */
+      const notice = setTimeout(() => {
+        void this.sender.sendText(msg.fromWaId, "🎧 קיבלתי את ההקלטה — מתמלל, עוד רגע…", {
+          replyTo: msg.externalId,
+        });
+      }, SLOW_TRANSCRIBE_NOTICE_MS);
       try {
         const { text } = await this.transcription.transcribe(media.buffer, "voice-note.ogg");
         if (text.trim() === "") {
@@ -348,6 +418,8 @@ export class WhatsAppAssistantService {
         return { text: text.trim(), transcribed: true };
       } catch {
         return { reply: "התמלול נכשל — נסו שוב או כתבו את הבקשה." };
+      } finally {
+        clearTimeout(notice);
       }
     }
     if (msg.type === "image") {
@@ -371,6 +443,8 @@ export class WhatsAppAssistantService {
   ): Promise<string> {
     /** תחילית לתשובה על הודעה קולית — שהמתווך יראה מה נשמע. */
     const heard = transcribed ? `שמעתי: „${text}”\n\n` : "";
+    // מי מדבר — נכנס לפרומפט כדי שהתשובה תהיה שלו ולא כללית
+    const speaker = { name: firstName(user.name), roleLabel: roleLabel(user.role) };
 
     const pending = chat.pending;
     if (pending) {
@@ -419,10 +493,10 @@ export class WhatsAppAssistantService {
        * לא אישור, לא ביטול ולא בחירה — המתווך ממשיך לדבר: "לא, 4
        * חדרים". ההצעה הקודמת נשלחת כהקשר תיקון, בדיוק כמו במסך.
        */
-      return heard + (await this.propose(chat, text, pending));
+      return heard + (await this.propose(chat, text, pending, speaker));
     }
 
-    return heard + (await this.propose(chat, text, null));
+    return heard + (await this.propose(chat, text, null, speaker));
   }
 
   /** פירוש ⟵ הצעה ⟵ או ביצוע מיידי (קריאה) או בקשת אישור. */
@@ -430,6 +504,7 @@ export class WhatsAppAssistantService {
     chat: ChatState,
     text: string,
     prior: PendingState | null,
+    speaker: { name: string; roleLabel: string },
   ): Promise<string> {
     const interpretation = await this.interpreter.interpret(
       text,
@@ -438,6 +513,7 @@ export class WhatsAppAssistantService {
         : undefined,
       chat.history.slice(-HISTORY_KEPT),
       "whatsapp",
+      speaker,
     );
     const proposal = await this.resolver.toProposal(text, interpretation);
 
@@ -521,6 +597,16 @@ export class WhatsAppAssistantService {
     const lines: string[] = [primary.message];
     const dataSummary = summarizeData(primary.data);
     if (dataSummary !== "") lines.push(dataSummary);
+    /*
+     * סייג ההיקף — התשובה היא על *הנתונים שלו*, לא של המשרד.
+     *
+     * השאילתות מסוננות לפי בעלות מזה זמן (`ownershipFilter`), אבל
+     * התשובה לא אמרה זאת: „אין קונים בגבעתיים” נשמע כמו עובדה על
+     * המשרד, בזמן שלעמית ממול יש שלושה כאלה. משפט אחד הופך תשובה
+     * מטעה לתשובה נכונה.
+     */
+    const scope = scopeNote(state.proposal.actionId);
+    if (scope !== "") lines.push(scope);
     if (primary.insight !== undefined && primary.insight !== "") lines.push(`💡 ${primary.insight}`);
 
     // צעדי המשך — לפי הסדר, וכישלון באמצע מדווח בשקיפות (כמו במסך)
@@ -660,6 +746,73 @@ export class WhatsAppAssistantService {
       }),
     );
   }
+}
+
+/**
+ * שאילתות שהתוצאה שלהן מצומצמת לבעלות, והיכולות שפותחות אותן למשרד
+ * כולו. פעולה שאינה כאן מחזירה ממילא נתוני משרד (נכסים, התאמות).
+ *
+ * יומן השיחות דורש את שתיהן — הוא מסונן כל עוד חסרה אחת מהן
+ * (`CallsService`), ולכן הסייג מוצג כשחסרה ולו אחת.
+ */
+const SCOPE_CAPABILITIES: Record<string, readonly Capability[]> = {
+  find_buyers: ["buyers.view_all"],
+  show_tasks: ["tasks.view_all"],
+  show_calls: ["buyers.view_all", "leads.view_all"],
+};
+
+/** קבוצות החיפוש הכללי שמסוננות לפי בעלות — הנכסים אינם ביניהן. */
+const SEARCH_SCOPED_GROUPS: readonly { capability: Capability; label: string }[] = [
+  { capability: "buyers.view_all", label: "קונים" },
+  { capability: "leads.view_all", label: "לידים" },
+];
+
+function scopeNote(actionId: string): string {
+  const capabilities = TenantContext.current().capabilities;
+
+  /*
+   * חיפוש כללי מחזיר כמה סוגי רשומות, ורק חלקם מסוננים לפי בעלות:
+   * הנכסים הם של המשרד ומוצגים במלואם. סייג גורף היה אומר על תוצאת
+   * נכסים מלאה שהיא חלקית (ביקורת Codex) — ולכן הוא מונה בשם את
+   * הקבוצות המצומצמות, ומזכיר את הנכסים רק למי שרואה אותם.
+   */
+  if (actionId === "search") {
+    const restricted = SEARCH_SCOPED_GROUPS.filter(
+      (group) => !capabilities.has(group.capability),
+    ).map((group) => group.label);
+    if (restricted.length === 0) return "";
+    const properties = capabilities.has("properties.view") ? "; נכסים — מכל המשרד" : "";
+    return `_(${restricted.join(" ו")} — מהרשומות שמשויכות אליך בלבד${properties})_`;
+  }
+
+  const required = SCOPE_CAPABILITIES[actionId];
+  if (required === undefined) return "";
+  if (required.every((capability) => capabilities.has(capability))) return "";
+  return "_(מהרשומות שמשויכות אליך — לא מכל המשרד)_";
+}
+
+/** „דוד כהן” ⇒ „דוד” — פנייה בשם פרטי, כמו שמדברים בוואטסאפ. */
+function firstName(name: string): string {
+  return name.trim().split(/\s+/u)[0] ?? name;
+}
+
+/**
+ * ההכרות הראשונה. שלוש שורות ושלוש דוגמאות — לא מדריך.
+ *
+ * מי שלא יודע *באיזה ניסוח* לבקש מנסה פעם אחת, מקבל „לא הבנתי”,
+ * וחוזר לדשבורד. הדוגמאות הן הניסוחים שהמודל מאומן עליהם.
+ */
+function welcomeText(name: string, actions: readonly HelpAction[]): string {
+  const examples = welcomeExamples(actions);
+  return [
+    `היי ${firstName(name)} 👋`,
+    "אני העוזרת האישית שלך במתווכים — כאן בוואטסאפ, בלי להיכנס למערכת.",
+    "",
+    ...(examples.length > 0
+      ? ["אפשר לכתוב לי או *להקליט* הודעה קולית, למשל:", ...examples.map((e) => `   „${e}”`), ""]
+      : ["אפשר לכתוב לי או *להקליט* הודעה קולית.", ""]),
+    "לרשימה המלאה כתבו *עזרה*.",
+  ].join("\n");
 }
 
 /** שגיאת Nest נושאת הודעה בעברית — היא התשובה; כל השאר מנוסח כללי. */

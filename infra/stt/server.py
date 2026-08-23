@@ -22,7 +22,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from faster_whisper import WhisperModel
 
 logging.basicConfig(level=logging.INFO)
@@ -107,6 +107,7 @@ def health() -> dict[str, object]:
 @app.post("/transcribe")
 async def transcribe(
     file: Annotated[UploadFile, File()],
+    prompt: Annotated[str | None, Form()] = None,
     x_stt_secret: Annotated[str | None, Header()] = None,
 ) -> dict[str, object]:
     if SHARED_SECRET and not hmac.compare_digest(x_stt_secret or "", SHARED_SECRET):
@@ -140,7 +141,7 @@ async def transcribe(
             # ריצת המודל היא CPU-bound — מועברת ל-thread כדי לא לחסום
             # את לולאת האירועים (בדיקת הבריאות ממשיכה לענות)
             started = time.monotonic()
-            text, duration, segments = await asyncio.to_thread(_run, tmp_path)
+            text, duration, segments = await asyncio.to_thread(_run, tmp_path, prompt)
             elapsed = time.monotonic() - started
 
         _avg_seconds = (
@@ -158,7 +159,9 @@ async def transcribe(
             os.unlink(tmp_path)  # האודיו לא נשאר על הדיסק
 
 
-def _run(path: str) -> tuple[str, float, list[dict[str, object]]]:
+def _run(
+    path: str, prompt: str | None = None
+) -> tuple[str, float, list[dict[str, object]]]:
     model = get_model()
     segments, info = model.transcribe(
         path,
@@ -167,6 +170,10 @@ def _run(path: str) -> tuple[str, float, list[dict[str, object]]]:
         vad_filter=True,  # מסנן שקט — מקצר את הזמן ומונע הזיות
         vad_parameters={"min_silence_duration_ms": 500},
         condition_on_previous_text=False,  # מונע גרירת הזיות בין קטעים
+        # רמז אוצר מילים: מונחי הנדל"ן שהמתווכים אומרים בפועל ("ממ״ד",
+        # "בלעדיות", "טאבו") נשמעים למודל כמילים נדירות, והוא בוחר במקומן
+        # מילה שכיחה שנשמעת דומה. הרמז מטה את הבחירה בלי לאלץ.
+        initial_prompt=(prompt or None),
     )
     # segments הוא גנרטור עצל — עוברים עליו פעם אחת בלבד ושומרים
     # גם את הטקסט וגם את חותמות הזמן. איטרציה שנייה הייתה מחזירה ריק.

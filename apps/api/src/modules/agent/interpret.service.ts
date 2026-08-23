@@ -95,11 +95,13 @@ export class AgentInterpretService {
     transcript: string,
     prior?: { action: string; params: Record<string, unknown> },
     history?: AgentHistoryTurn[],
-    /** מאיפה הפקודה הגיעה — ליומן המשימות של הסוכן בלבד */
+    /** מאיפה הפקודה הגיעה — ליומן המשימות, ולניסוח התשובה השיחתית */
     channel: "web" | "whatsapp" = "web",
+    /** מי מדבר — שם ותפקיד. ההיקף נגזר מהיכולות ולא מהקורא. */
+    speaker?: { name?: string; roleLabel?: string },
   ): Promise<Interpretation> {
     const allowed = this.allowedActions();
-    const attempt = await this.viaLlm(transcript, allowed, prior, history);
+    const attempt = await this.viaLlm(transcript, allowed, prior, history, channel, speaker);
     const interpretation = attempt?.interpretation ?? this.viaRules(transcript, allowed);
     /*
      * כל פירוש נרשם ביומן המשימות — גם כשה-LLM נכשל ונפלנו לחוקים,
@@ -136,6 +138,8 @@ export class AgentInterpretService {
     allowed: AgentActionDef[],
     prior?: { action: string; params: Record<string, unknown> },
     history?: AgentHistoryTurn[],
+    channel: "web" | "whatsapp" = "web",
+    speaker?: { name?: string; roleLabel?: string },
   ): Promise<{
     interpretation: Interpretation | null;
     model: string;
@@ -145,9 +149,19 @@ export class AgentInterpretService {
     if (allowed.length === 0) return null;
     if (!(await this.gemini.isConfigured())) return null;
 
+    /*
+     * ההיקף נגזר מהיכולות בשרת ולא מפרמטר של הקורא: „מי מחפש
+     * בגבעתיים” של סוכן שרואה רק את שלו הוא שאלה אחרת מזו של בעל
+     * המשרד, והמודל היה עונה על שתיהן אותו דבר.
+     */
+    const capabilities = TenantContext.current().capabilities;
+    const scope: "all" | "own" = capabilities.has("buyers.view_all") ? "all" : "own";
+
     const prompt = buildInterpretPrompt(transcript, {
       nowText: nowInJerusalem(),
       allowedActions: allowed.map((a) => a.id),
+      channel,
+      speaker: { ...speaker, scope },
       ...(prior ? { prior } : {}),
       ...(history !== undefined && history.length > 0 ? { history } : {}),
     });
