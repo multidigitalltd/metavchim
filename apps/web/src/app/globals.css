@@ -3999,3 +3999,316 @@ a.mv-bar-row:focus-visible {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
+
+/* ==========================================================================
+   הודעת עדכון מערכת — הכרזה, לא משוב
+   ==========================================================================
+   `Notice` מדווח על פעולה שקרתה; זו מספרת על יכולת חדשה ומזמינה
+   לפעולה. הפרדה ויזואלית בין השניים היא מה שמונע מ„נשמר בהצלחה”
+   להיראות כמו קמפיין — ומקמפיין להיראות כמו הודעת מערכת שאפשר
+   להתעלם ממנה.
+
+   הרקע הרך והתג נלקחו מהעיצוב שהמשתמש סיפק. הצבעים הם טוקנים ולא
+   ערכים קשיחים, ולכן ההודעה מתהפכת נכון במצב כהה. */
+.mv-announce {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  /* row-reverse: הטקסט מימין והאיור משמאל, כמו בקובץ העיצוב */
+  flex-direction: row-reverse;
+  justify-content: space-between;
+  background: var(--color-primary-soft);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, transparent);
+  border-radius: 18px;
+  padding: 22px 26px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.mv-announce-body {
+  min-width: 0;
+  flex: 1 1 320px;
+}
+.mv-announce-kicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-primary-accent);
+}
+.mv-announce-tag {
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: 99px;
+  padding: 2px 11px;
+}
+.mv-announce-title {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--color-primary);
+  line-height: 1.25;
+}
+.mv-announce-text {
+  margin: 0 0 16px;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--color-primary-accent);
+  max-width: 52ch;
+}
+.mv-announce-cta {
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: 11px;
+  padding: 10px 22px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.mv-announce-cta:hover {
+  background: var(--color-primary-hover);
+}
+/*
+ * האיקס בפינה הפותחת של השורה — היכן שהעין מסיימת לקרוא ב-RTL.
+ * `inset-inline-end` ולא `left`: המסך הוא RTL, והמיקום חייב להתהפך
+ * יחד איתו.
+ */
+.mv-announce-close {
+  position: absolute;
+  inset-block-start: 10px;
+  inset-inline-end: 12px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 6px;
+  cursor: pointer;
+  color: var(--color-primary-accent);
+  line-height: 0;
+}
+.mv-announce-close:hover {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+.mv-announce-art {
+  flex: 0 0 auto;
+  width: 200px;
+  height: 140px;
+}
+.mv-announce-blob {
+  fill: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+.mv-announce-bubble {
+  fill: var(--color-surface);
+  stroke: var(--color-primary);
+  stroke-width: 2.4;
+  stroke-linejoin: round;
+}
+.mv-announce-wave path {
+  stroke: var(--color-primary-accent);
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+.mv-announce-badge {
+  fill: var(--color-primary);
+}
+.mv-announce-tick {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* במסך צר האיור יורד ראשון — הטקסט והכפתור הם מה שצריך להישאר */
+@media (max-width: 720px) {
+  .mv-announce {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 20px;
+  }
+  .mv-announce-art {
+    order: -1;
+    align-self: center;
+    width: 168px;
+    height: 118px;
+  }
+}
+
+/* ==========================================================================
+   מסך ההסבר על חיבור הטלפון — בלשונית השיחות, למי שאינו מחובר
+   ==========================================================================
+   ארבעה שלבים בשורה אחת במסך רחב, ובמסך צר זה נערם. הרשת נסגרת
+   ל-2×2 לפני שהיא נסגרת לטור אחד: ארבעה כרטיסים בטור אחד בטלפון
+   דוחפים את הכפתור מתחת לקיפול, וכפתור שלא רואים אינו כפתור. */
+.mv-pitch {
+  background: var(--color-primary-soft);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, transparent);
+  border-radius: 18px;
+  padding: 24px 26px;
+}
+.mv-pitch-head {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.mv-pitch-art {
+  flex: 0 0 auto;
+  width: 220px;
+  height: 120px;
+}
+.mv-pitch-intro {
+  min-width: 0;
+  flex: 1 1 280px;
+}
+.mv-pitch-title {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.25;
+  color: var(--color-primary);
+}
+.mv-pitch-sub {
+  margin: 0;
+  font-size: 16px;
+  color: var(--color-primary-accent);
+}
+.mv-pitch-blob {
+  fill: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+.mv-pitch-device,
+.mv-pitch-page {
+  fill: var(--color-surface);
+  stroke: var(--color-primary);
+  stroke-width: 2.4;
+}
+.mv-pitch-line {
+  stroke: var(--color-primary-accent);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  opacity: 0.6;
+}
+.mv-pitch-wave path {
+  stroke: var(--color-primary-accent);
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.mv-pitch-steps {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.mv-pitch-step {
+  position: relative;
+  background: var(--color-surface);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 14%, transparent);
+  border-radius: 14px;
+  padding: 16px 16px 14px;
+}
+.mv-pitch-step-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  margin-bottom: 10px;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+/* המספר בפינה — סימן סדר, ולכן חלש מהכותרת ולא מתחרה בה */
+.mv-pitch-step-num {
+  position: absolute;
+  inset-block-start: 14px;
+  inset-inline-end: 16px;
+  font-size: 20px;
+  font-weight: 800;
+  color: color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+.mv-pitch-step-title {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 700;
+}
+.mv-pitch-step-text {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--color-text-soft);
+}
+
+.mv-pitch-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.mv-pitch-cta {
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: 11px;
+  padding: 11px 26px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.mv-pitch-cta:hover {
+  background: var(--color-primary-hover);
+}
+.mv-pitch-link {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-primary-accent);
+  text-decoration: underline;
+}
+/*
+ * כפתורי הסגירה — מחוץ לרכיב ההסבר עצמו, כי הם שייכים למסך ולא
+ * להסבר. `inset-inline-end` ולא `left`: המסך RTL.
+ */
+.mv-pitch-dismiss {
+  position: absolute;
+  inset-block-start: 12px;
+  inset-inline-end: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-primary-accent);
+}
+.mv-pitch-dismiss button {
+  font-size: 14px;
+  cursor: pointer;
+  line-height: 0;
+}
+.mv-pitch-dismiss button:first-child {
+  line-height: normal;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+@media (max-width: 900px) {
+  .mv-pitch-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 520px) {
+  .mv-pitch {
+    padding: 20px;
+  }
+  .mv-pitch-steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mv-pitch-art {
+    width: 100%;
+    height: 104px;
+  }
+}

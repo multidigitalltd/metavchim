@@ -35,6 +35,19 @@ interface Sent {
   withScreenshot: boolean;
 }
 
+/** פתיחת טופס הפנייה ממסך אחר, עם נושא וטקסט מוכנים. */
+export const SUPPORT_OPEN_EVENT = "mv:support-open";
+
+/** מה ששולחים ב-`detail` של האירוע. */
+export interface SupportOpenDetail {
+  kind?: SupportKind;
+  text?: string;
+}
+
+export function openSupport(detail: SupportOpenDetail): void {
+  window.dispatchEvent(new CustomEvent(SUPPORT_OPEN_EVENT, { detail }));
+}
+
 export function SupportButton() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -55,6 +68,28 @@ export function SupportButton() {
   useEffect(() => {
     recordScreen(pathname);
   }, [pathname]);
+
+  /*
+   * פתיחה מבחוץ — „דברו איתי” של הודעת עדכון, למשל.
+   *
+   * אירוע ולא prop: הפאנל חי בשכבת המעטפת, והמבקש יכול להיות כל
+   * מסך בעץ. טופס שני שיודע לשלוח פנייה היה עותק של הלוגיקה הזו
+   * שמפגר אחריה בכל שינוי — כאן זה אותו טופס, אותו נתיב, אותה
+   * איסוף ראיות.
+   */
+  useEffect(() => {
+    const onAsk = (event: Event): void => {
+      const detail = (event as CustomEvent<{ kind?: SupportKind; text?: string }>).detail;
+      if (detail?.kind !== undefined) setKind(detail.kind);
+      if (detail?.text !== undefined) {
+        setText(detail.text);
+        setBase(detail.text);
+      }
+      setOpen(true);
+    };
+    window.addEventListener(SUPPORT_OPEN_EVENT, onAsk);
+    return () => window.removeEventListener(SUPPORT_OPEN_EVENT, onAsk);
+  }, []);
 
   // Esc סוגר — חלון שנפתח בטעות לא אמור לדרוש חיפוש כפתור סגירה
   useEffect(() => {

@@ -10,7 +10,8 @@ import { useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { FilterBar, SearchField, textMatches } from "../list-controls";
 import { DictateFor } from "../dictation-field";
-import { IconClock, IconDoc, IconMic, IconRefresh } from "../icons";
+import { IconClock, IconDoc, IconMic, IconRefresh, IconX } from "../icons";
+import { TelephonyPitch } from "./telephony-pitch";
 import { Notice } from "../notice";
 
 /**
@@ -187,57 +188,22 @@ export default function CallsPage() {
       </div>
 
       {/*
-        מה שמשרד בלי מרכזיה מפסיד — למעלה, לפני הרשימה (בקשת
-        המשתמש). מוצג רק כשאין חיבור, וניתן לסגירה ברמת המשתמש.
+        משרד בלי מרכזיה רואה קודם כול מה קורה כשהיא מחוברת — מסך
+        ולא פסקה (בקשת המשתמש). רשימת השיחות נשארת מתחתיו: תיעוד
+        ידני עובד גם בלי חיבור, ואין סיבה לקחת אותו ממי שמשתמש בו.
       */}
       {pbxConnected === false && !pbxPitch.hidden ? (
-        <section
-          className="mv-example-box mb-4"
-          aria-labelledby="pbx-pitch-heading"
-        >
-          <div className="flex items-start gap-2">
-            <div className="min-w-0 flex-1">
-              <h2 id="pbx-pitch-heading" className="m-0 mb-1 text-[16px] font-bold">
-                חברו את המרכזיה — וכל שיחה תתעד את עצמה
-              </h2>
-              <p className="m-0 text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
-                עכשיו כל שיחה נרשמת כאן ידנית. עם מרכזיה מחוברת: כל שיחה
-                נקלטת אוטומטית ליומן, לקוח מתקשר מזוהה ונפתח הכרטיס שלו,
-                ההקלטה מתומללת ומסתכמת ישירות לכרטיס, שיחה שלא נענתה הופכת
-                לליד שלא הולך לאיבוד, חיוג בלחיצה מכל מסך, ומספרים
-                וירטואליים שמודדים מאיזה קמפיין הגיעה כל שיחה.
-              </p>
-              <p className="m-0 mt-2 text-[14.5px] font-semibold">
-                <Link href="/settings?tab=integrations#telephony" className="underline">
-                  לחיבור המרכזיה בניהול המשרד ←
-                </Link>
-              </p>
-            </div>
-            <button
-              type="button"
-              className="text-[14px] underline"
-              style={{ color: "var(--color-text-muted)", whiteSpace: "nowrap" }}
-              onClick={pbxPitch.never}
-            >
+        <div className="relative mb-4">
+          <TelephonyPitch />
+          <div className="mv-pitch-dismiss">
+            <button type="button" onClick={pbxPitch.never}>
               אל תציג יותר
             </button>
-            <button
-              type="button"
-              aria-label="סגירת ההסבר על חיבור מרכזיה"
-              style={{ color: "var(--color-text-muted)", lineHeight: 0 }}
-              onClick={pbxPitch.close}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path
-                  d="M4 4l8 8M12 4l-8 8"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                />
-              </svg>
+            <button type="button" aria-label="סגירת ההסבר על חיבור מרכזיה" onClick={pbxPitch.close}>
+              <IconX s={16} />
             </button>
           </div>
-        </section>
+        </div>
       ) : null}
 
       {error ? (

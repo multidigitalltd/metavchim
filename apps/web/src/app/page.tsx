@@ -11,6 +11,7 @@ import { VoiceConsole } from "./voice-console";
 import { DuplicateContacts } from "./duplicate-contacts";
 import { LoadError } from "./load-error";
 import { SetupBanner } from "./setup-banner";
+import { SystemUpdate } from "./system-update";
 import { NowStamp } from "./now-stamp";
 import { BarChart, DonutChart, type Slice } from "./charts";
 import {
@@ -442,6 +443,13 @@ export default function DashboardPage() {
       </div>
 
       <DuplicateContacts />
+
+      {/*
+        הכרזה על יכולת חדשה — אחרי הברכה ולפני העבודה של היום.
+        למעלה מדי היא הייתה קודמת למה שדחוף; למטה מדי איש לא היה
+        רואה אותה.
+      */}
+      <SystemUpdate />
 
       {/*
         הסוכן הקולי בראש המסך ולא בתחתיתו: הוא נקודת הכניסה לפעולה,
