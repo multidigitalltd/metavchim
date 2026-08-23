@@ -120,29 +120,68 @@ export async function assertMatchAccess(
  * `assertContactAccess` לכל שורה — הייתה שאילתה נפרדת לכל שיחה
  * בעמוד, כלומר בדיוק ה-N+1 שהמודול הזה כבר תיקן פעם אחת.
  */
+/**
+ * דרך איזה מודול מותר לו להגיע ללקוח.
+ *
+ * הכלל „כרטיס קונה שלי, ליד שמשויך אליי, או בעל נכס” תיאר **בעלות**
+ * בלבד, והניח שמי שהגיע לנתיב מחזיק ממילא את המודול — הנחה שהייתה
+ * נכונה כל עוד כל נתיב הצהיר על מודול אחד. ברגע שנתיב מצהיר על שתי
+ * יכולות חלופיות היא נשברת: מי שמודול הלידים חסום אצלו נכנס בזכות
+ * הקונים, וקיבל גם את הלידים ובעלי הנכסים (ביקורת Codex).
+ *
+ * לכן המקור עצמו נבדק, לא רק הבעלות: מודול חסום אינו תורם לקוחות.
+ */
+function contactSources(): { buyers: boolean; leads: boolean; properties: boolean } {
+  const caps = TenantContext.current().capabilities;
+  return {
+    buyers: caps.has("buyers.view_own") || caps.has("buyers.view_all"),
+    leads: caps.has("leads.view_own") || caps.has("leads.view_all"),
+    properties: caps.has("properties.view"),
+  };
+}
+
 export async function visibleContactIds(
   tx: TenantTx,
   tenantId: string,
 ): Promise<string[] | null> {
   const ctx = TenantContext.current();
-  // מנהל שרואה גם קונים וגם לידים רואה כל לקוח — אין מה לשלוף
-  if (ctx.capabilities.has("buyers.view_all") && ctx.capabilities.has("leads.view_all")) {
+  const sources = contactSources();
+  /*
+   * „בלי הגבלה” רק כשבאמת אין מה להגביל: מנהל שרואה את כל הקונים
+   * ואת כל הלידים, ושמודול הנכסים פתוח אצלו. חסר אחד מהשלושה —
+   * הרשימה נבנית, אחרת הקיצור היה מחזיר גם לקוחות ממקור חסום.
+   */
+  if (
+    ctx.capabilities.has("buyers.view_all") &&
+    ctx.capabilities.has("leads.view_all") &&
+    sources.properties
+  ) {
     return null;
   }
 
   const [buyers, leads, properties] = await Promise.all([
-    tx.buyer.findMany({
-      where: { tenantId, deletedAt: null, ...ownershipFilter("buyers.view_all", "ownerUserId") },
-      select: { contactId: true },
-    }),
-    tx.lead.findMany({
-      where: { tenantId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
-      select: { contactId: true },
-    }),
-    tx.property.findMany({
-      where: { tenantId, deletedAt: null, ownerContactId: { not: null } },
-      select: { ownerContactId: true },
-    }),
+    sources.buyers
+      ? tx.buyer.findMany({
+          where: {
+            tenantId,
+            deletedAt: null,
+            ...ownershipFilter("buyers.view_all", "ownerUserId"),
+          },
+          select: { contactId: true },
+        })
+      : [],
+    sources.leads
+      ? tx.lead.findMany({
+          where: { tenantId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
+          select: { contactId: true },
+        })
+      : [],
+    sources.properties
+      ? tx.property.findMany({
+          where: { tenantId, deletedAt: null, ownerContactId: { not: null } },
+          select: { ownerContactId: true },
+        })
+      : [],
   ]);
 
   return [
@@ -159,24 +198,32 @@ export async function assertContactAccess(
   tenantId: string,
   contactId: string,
 ): Promise<void> {
+  // אותם מקורות בדיוק כמו ב-`visibleContactIds` — הן חייבות להסכים
+  const sources = contactSources();
   const [buyer, lead, property] = await Promise.all([
-    tx.buyer.findFirst({
-      where: {
-        tenantId,
-        contactId,
-        deletedAt: null,
-        ...ownershipFilter("buyers.view_all", "ownerUserId"),
-      },
-      select: { id: true },
-    }),
-    tx.lead.findFirst({
-      where: { tenantId, contactId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
-      select: { id: true },
-    }),
-    tx.property.findFirst({
-      where: { tenantId, ownerContactId: contactId, deletedAt: null },
-      select: { id: true },
-    }),
+    sources.buyers
+      ? tx.buyer.findFirst({
+          where: {
+            tenantId,
+            contactId,
+            deletedAt: null,
+            ...ownershipFilter("buyers.view_all", "ownerUserId"),
+          },
+          select: { id: true },
+        })
+      : null,
+    sources.leads
+      ? tx.lead.findFirst({
+          where: { tenantId, contactId, ...ownershipFilter("leads.view_all", "assignedToUserId") },
+          select: { id: true },
+        })
+      : null,
+    sources.properties
+      ? tx.property.findFirst({
+          where: { tenantId, ownerContactId: contactId, deletedAt: null },
+          select: { id: true },
+        })
+      : null,
   ]);
   if (!buyer && !lead && !property) throw new NotFoundException("איש קשר לא נמצא");
 }

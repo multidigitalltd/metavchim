@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { NotFoundException } from "@nestjs/common";
 import type { Capability } from "@metavchim/shared";
-import { visibleContactIds } from "../../common/ownership";
+import { assertContactAccess, visibleContactIds } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { CallsService } from "./calls.service";
 
@@ -133,7 +133,12 @@ describe("גישה להקלטת שיחה", () => {
       lead: { findMany: async () => [], findFirst: async () => null },
       property: { findMany: async () => [], findFirst: async () => null },
     };
-    const visible = await asAgent(["leads.view_own"], "01ME", () =>
+    /*
+     * היכולת תואמת את המקור שבו הלקוח יושב. הבדיקה נכתבה כשהמקורות
+     * היו עיוורים ליכולות, ולכן היא נתנה `leads.view_own` על לקוח
+     * שיושב בטבלת הקונים — צירוף שכבר אינו מחזיר דבר, ובצדק.
+     */
+    const visible = await asAgent(["buyers.view_own"], "01ME", () =>
       visibleContactIds(tx as never, "01TENANT"),
     );
     expect(visible).toEqual(["01MINE"]);
@@ -155,10 +160,49 @@ describe("גישה להקלטת שיחה", () => {
         { getObject: async () => ({ body: null, contentType: "audio/wav" }) } as never,
         {} as never,
       );
-      const attempt = asAgent(["leads.view_own"], "01ME", () => service.recording("01CALL"));
+      const attempt = asAgent(["buyers.view_own"], "01ME", () => service.recording("01CALL"));
       if (allowed) await expect(attempt).resolves.toBeDefined();
       else await expect(attempt).rejects.toBeInstanceOf(NotFoundException);
     }
+  });
+
+  /*
+   * מודול חסום אינו תורם לקוחות — בשני המסלולים.
+   *
+   * זה מה שנשבר ברגע שנתיב השיחות קיבל שתי יכולות חלופיות: מי
+   * שמודול הלידים סגור אצלו נכנס בזכות הקונים, והכלל הישן — שתיאר
+   * בעלות בלבד — נתן לו גם את הלידים ואת בעלי הנכסים, כלומר טלפונים,
+   * תקצירים, תמלולים והקלטות ממודול שנחסם לו (ביקורת Codex).
+   */
+  it("לקוח ממודול חסום אינו נגיש — לא ברשימה ולא בשער הבודד", async () => {
+    const tx = {
+      buyer: { findMany: async () => [], findFirst: async () => null },
+      lead: {
+        findMany: async () => [{ contactId: "01LEADONLY" }],
+        findFirst: async () => ({ id: "01LEAD" }),
+      },
+      property: { findMany: async () => [], findFirst: async () => null },
+    };
+
+    // עם מודול הלידים — הלקוח נגיש בשני המסלולים
+    expect(
+      await asAgent(["leads.view_own"], "01ME", () => visibleContactIds(tx as never, "01TENANT")),
+    ).toEqual(["01LEADONLY"]);
+    await expect(
+      asAgent(["leads.view_own"], "01ME", () =>
+        assertContactAccess(tx as never, "01TENANT", "01LEADONLY"),
+      ),
+    ).resolves.toBeUndefined();
+
+    // בלעדיו — אינו נגיש בשניהם, למרות שהבעלות לא השתנתה
+    expect(
+      await asAgent(["buyers.view_own"], "01ME", () => visibleContactIds(tx as never, "01TENANT")),
+    ).toEqual([]);
+    await expect(
+      asAgent(["buyers.view_own"], "01ME", () =>
+        assertContactAccess(tx as never, "01TENANT", "01LEADONLY"),
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   /*
