@@ -314,6 +314,12 @@ export class AgentExecuteService {
         buyers: page.items.map((buyer) => ({
           id: buyer.id,
           name: buyer.contact.name,
+          /*
+           * הטלפון הוא מה שהמתווך עושה עם התשובה: רשימת שמות בלי
+           * מספרים מחייבת אותו לפתוח את הדשבורד, וזו בדיוק המטרה
+           * שהסוכן בוואטסאפ נבנה לחסוך.
+           */
+          phone: buyer.contact.phone,
           cities: buyer.requirements.cities,
           maturity: buyer.maturity,
           ...(buyer.requirements.roomsMin !== undefined

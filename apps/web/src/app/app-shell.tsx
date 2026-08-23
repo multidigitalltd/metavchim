@@ -219,6 +219,13 @@ const ICONS = {
       <path d="M8.5 7.5h7M8.5 11h7" />
     </Icon>
   ),
+  /* המנטור — ניצוץ ולב: ליווי אישי, לא עוד מסך נתונים */
+  mentor: (
+    <Icon>
+      <path d="M12 3l1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7z" />
+      <path d="M17.5 15.5a2 2 0 0 0-2.8 0l-.7.7-.7-.7a2 2 0 1 0-2.8 2.8l3.5 3.5 3.5-3.5a2 2 0 0 0 0-2.8z" />
+    </Icon>
+  ),
   platform: (
     <Icon>
       <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" />
@@ -576,6 +583,16 @@ export function AppShell({ children }: { children: ReactNode }) {
           ? navLink("/reports", "דוחות", ICONS.reports)
           : null}
         {navLink("/guides", "הדרכות", ICONS.guides)}
+        {/*
+          המנטור האישי — עמוד "בקרוב" עד ההשקה (בקשת המשתמש).
+          התג AI מסמן שזה פיצ'ר של בינה מלאכותית ולא עוד מסך נתונים.
+        */}
+        {navLink(
+          "/mentor",
+          "המנטור האישי שלך",
+          ICONS.mentor,
+          <span className="mv-nav-ai">AI</span>,
+        )}
         {managesOffice ? navLink("/settings", "ניהול משרד", ICONS.office) : null}
         {managesOffice && !setupDone ? navLink("/setup", "הקמה", ICONS.setup) : null}
         {me?.isPlatformAdmin ? navLink("/platform", "פלטפורמה", ICONS.platform) : null}

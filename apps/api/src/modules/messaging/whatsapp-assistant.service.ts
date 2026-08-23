@@ -1084,19 +1084,36 @@ function errorMessage(error: unknown): string {
  * לראשון מהם" בהודעה הבאה, וזה גם מה שנשמר בזיכרון השיחה.
  */
 function summarizeData(data: unknown): string {
-  const labels: string[] = [];
+  const lines: string[] = [];
   const collect = (items: unknown): void => {
     if (!Array.isArray(items)) return;
     for (const item of items) {
-      if (labels.length >= 5 || typeof item !== "object" || item === null) return;
+      if (lines.length >= 5 || typeof item !== "object" || item === null) return;
       const record = item as Record<string, unknown>;
       const label = record["name"] ?? record["title"] ?? record["marketingTitle"];
-      if (typeof label === "string" && label !== "") labels.push(label);
+      if (typeof label !== "string" || label === "") continue;
+      /*
+       * הטלפון נאמר לצד השם, ולא נבלע.
+       *
+       * קודם נאספה **רק** התווית, ולכן „מה הטלפון של משה כהן?”
+       * נענה ב„בין התוצאות: משה כהן” — בלי מספר, תמיד. המתווך הסיק
+       * שהמערכת לא מוצאת את הטלפון, בזמן שהוא הגיע מהשרת ונמחק
+       * ברינדור. הסוכן נבנה כדי לחסוך כניסה לדשבורד, ורשימת שמות
+       * בלי מספרים מחייבת בדיוק אותה.
+       *
+       * `contactPhone` הוא השם שפעולות השיחה משתמשות בו.
+       */
+      const phone = record["phone"] ?? record["contactPhone"];
+      lines.push(
+        typeof phone === "string" && phone !== "" ? `${label} · ${phone}` : label,
+      );
     }
   };
   if (Array.isArray(data)) collect(data);
   else if (typeof data === "object" && data !== null) {
     for (const value of Object.values(data as Record<string, unknown>)) collect(value);
   }
-  return labels.length > 0 ? `בין התוצאות, לפי הסדר: ${labels.join(", ")}` : "";
+  if (lines.length === 0) return "";
+  // שורה לכל תוצאה: מספר טלפון בתוך משפט רץ אי אפשר להעתיק בנוחות
+  return `בין התוצאות, לפי הסדר:\n${lines.map((line) => `• ${line}`).join("\n")}`;
 }
