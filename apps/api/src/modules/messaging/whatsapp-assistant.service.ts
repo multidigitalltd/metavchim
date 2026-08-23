@@ -333,7 +333,7 @@ export class WhatsAppAssistantService {
       if (!sent) {
         await this.sender.sendText(
           msg.fromWaId,
-          `🎧 לא הצלחתי לשלוח את ההקלטה לכאן. היא זמינה במסך השיחות: ${loadEnv().WEB_ORIGIN}/calls`,
+          `🎧 לא הצלחתי לשלוח את ההקלטה לכאן. היא זמינה במסך השיחות: ${loadEnv().WEB_ORIGIN}${reply.audio.href ?? "/calls"}`,
         );
       }
       return;
@@ -890,6 +890,8 @@ export class WhatsAppAssistantService {
             buffer: Buffer.concat(chunks),
             mimeType: rec.contentType,
             label: primary.audio.label,
+            // הקישור מצביע על השיחה עצמה — הוא מה שיישלח אם המדיה תיכשל
+            ...(primary.href === undefined ? {} : { href: primary.href }),
           };
         }
       } catch (error) {

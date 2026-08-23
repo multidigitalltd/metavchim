@@ -37,7 +37,7 @@ export interface AgentReply {
    * קורה אחרי שההקשר נסגר. לכן הבייטים נוסעים כאן, ולא הפניה
    * שהיה צריך לפתוח הקשר שני כדי לממש.
    */
-  audio?: { buffer: Buffer; mimeType: string; label: string };
+  audio?: { buffer: Buffer; mimeType: string; label: string; href?: string };
 }
 
 /**

@@ -79,7 +79,17 @@ export function SupportButton() {
    */
   useEffect(() => {
     const onAsk = (event: Event): void => {
-      const detail = (event as CustomEvent<{ kind?: SupportKind; text?: string }>).detail;
+      const detail = (event as CustomEvent<SupportOpenDetail>).detail;
+      /*
+       * איפוס **לפני** מילוי, ולא רק החלפת הנושא והטקסט.
+       *
+       * טיוטה קודמת שנזנחה משאירה אחריה שאריות: צילום מסך שהועלה
+       * לתקלה אחרת היה מתלווה לפנייה על הצטרפות לשירות, ו-`sent`
+       * שנשאר מפנייה שנשלחה היה פותח שוב את מסך ההצלחה הישן —
+       * שממנו „פנייה נוספת” מוחק את הטקסט שהרגע מילאנו
+       * (ביקורת Codex). הפנייה שנפתחת מכפתור היא פנייה חדשה.
+       */
+      reset();
       if (detail?.kind !== undefined) setKind(detail.kind);
       if (detail?.text !== undefined) {
         setText(detail.text);

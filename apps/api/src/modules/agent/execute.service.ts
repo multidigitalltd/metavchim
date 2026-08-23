@@ -540,7 +540,15 @@ export class AgentExecuteService {
       timeStyle: "short",
     }).format(recorded.occurredAt);
     return {
-      href: `/calls`,
+      /*
+       * הקישור מצביע על השיחה עצמה ולא על המסך.
+       *
+       * `/calls` לבדו פותח את החדשה מבין המאה שנטענו — כלומר על
+       * הקלטה שאינה האחרונה הוא נוחת על שיחה אחרת לגמרי, ועל אחת
+       * ישנה מספיק היא כלל אינה ברשימה (ביקורת Codex). המסך כבר
+       * יודע לפתוח שיחה מבוקשת לפי `?call=`.
+       */
+      href: `/calls?call=${recorded.id}`,
       message: `ההקלטה מ-${when}`,
       audio: { callId: recorded.id, label: `שיחה מ-${when}` },
       ...(recorded.summary === undefined ? {} : { data: { summary: recorded.summary } }),
