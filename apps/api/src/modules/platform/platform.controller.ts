@@ -931,7 +931,10 @@ export class PlatformController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Body(new ZodValidationPipe(UpdateAgencySchema)) body: z.infer<typeof UpdateAgencySchema>,
   ): Promise<{ ok: true }> {
-    const tenant = await this.prisma.tenant.findUnique({ where: { id }, select: { id: true } });
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id },
+      select: { id: true, status: true },
+    });
     if (!tenant) throw new BadRequestException("משרד לא נמצא");
     /*
      * קוד מסלול נבדק מול הקטלוג ולא מול enum: מסלול שאינו קיים היה
@@ -947,14 +950,22 @@ export class PlatformController {
      * השער כבר אינו נשען על השדות האלה כשהמסלול חינמי, אבל שורה
      * שממשיכה לשאת תאריך תפוגה משקרת: היא מזינה באנרים של „הניסיון
      * מסתיים”, והיא הופכת לאמת ברגע שהמשרד יוחזר למסלול בתשלום.
+     *
+     * **הסטטוס משתנה רק מ-`trial`.** משרד מושהה ששויך למסלול חינמי
+     * היה חוזר לאוויר בשקט — המסך שולח `{ plan }` בלבד, ולכן גם
+     * ניתוק ה-Sessions למטה לא היה רץ, וההשהיה של בעל הפלטפורמה
+     * הייתה מתבטלת מאליה (ביקורת Codex). המסלול נוגע בחיוב, לא
+     * בהחלטה מי חסום — בדיוק כפי שהמיגרציה משאירה מושהים בצד.
      */
     const toFree = target !== undefined && isFreePlan(target);
+    const activateFromTrial = toFree && tenant.status === "trial";
 
     await this.prisma.tenant.update({
       where: { id },
       data: {
         ...(body.plan !== undefined ? { plan: body.plan } : {}),
-        ...(toFree ? { status: "active", trialEndsAt: null, paidUntil: null } : {}),
+        ...(toFree ? { trialEndsAt: null, paidUntil: null } : {}),
+        ...(activateFromTrial ? { status: "active" } : {}),
         ...(body.status !== undefined ? { status: body.status } : {}),
         ...(body.paidUntil !== undefined
           ? {
