@@ -22,6 +22,20 @@ import {
 /** נשלח פעם אחת לכל טעינת עמוד, ולא בכל מעבר מסך. */
 let synced = false;
 
+/**
+ * מונה דורות — עולה בכל החלפת משתמש.
+ *
+ * הבקשה ל-`/auth/profile` היא אסינכרונית, והיציאה יכולה לקרות
+ * בזמן שהיא באוויר. בלי המונה הזה התשובה **הישנה** הייתה ממשיכה
+ * לרוץ אחרי האיפוס, מחילה את ההעדפות של המשתמש היוצא ושומרת
+ * אותן שוב במטמון — כלומר הניקוי היה זמני, וההגדרות של אחד היו
+ * חוזרות במסך ההתחברות או אצל הבא אחריו (ביקורת Codex).
+ *
+ * דור נלכד כשהבקשה יוצאת ונבדק כשהיא חוזרת. תשובה מדור שאינו
+ * הנוכחי נזרקת בשקט — היא נכונה למישהו שכבר אינו כאן.
+ */
+let generation = 0;
+
 export interface ProfilePrefsResponse {
   preferences?: { a11y?: Partial<A11yPrefs> };
 }
@@ -35,8 +49,14 @@ export interface ProfilePrefsResponse {
 export async function syncA11yFromServer(): Promise<A11yPrefs | null> {
   if (synced) return null;
   synced = true;
+  const mine = generation;
   try {
     const res = await apiGet<ProfilePrefsResponse>("/auth/profile");
+    /*
+     * החלפת משתמש קרתה בזמן שהבקשה הייתה באוויר — התשובה הזו
+     * שייכת למי שכבר יצא, והחלתה הייתה מבטלת את הניקוי.
+     */
+    if (mine !== generation) return null;
     const fromServer = res.preferences?.a11y;
     /*
      * שרת בלי העדפות = איפוס, לא "השאר מה שיש".
@@ -71,6 +91,7 @@ export async function syncA11yFromServer(): Promise<A11yPrefs | null> {
  */
 export function resetA11ySync(): void {
   synced = false;
+  generation += 1;
   if (typeof window === "undefined") return;
   clearA11y();
   applyA11y(A11Y_DEFAULTS);
@@ -88,5 +109,7 @@ export function resetA11ySync(): void {
  */
 export async function resyncA11yForUser(): Promise<A11yPrefs | null> {
   synced = false;
+  // דור חדש גם כאן: בקשה שיצאה עבור המשתמש הקודם לא תיושם על זה
+  generation += 1;
   return syncA11yFromServer();
 }
