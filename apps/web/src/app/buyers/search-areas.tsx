@@ -39,7 +39,23 @@ import { Notice } from "../notice";
  * המשיך, ואזורי החיפוש נשארו ריקים — כלומר הקריטריון המדויק ביותר
  * שיש לקונה פשוט לא נאסף. עכשיו המפה היא שדה קבוע בפרטי הקונה,
  * לצד העיר, והיא נראית ברגע שנפתח הטופס.
+ *
+ * ## למה שם האזור חובה
+ *
+ * הוא היה "לא חובה", וכמעט אף אחד לא מילא אותו. התוצאה נראתה רק
+ * בצד השני של הרשת: ביקוש שפורסם הציג „אזור מסומן במפה — רדיוס
+ * 1 ק״מ” ותו לא, כלומר לא אמר **איפה**. משרד אחר אינו רואה את
+ * המפה שלנו ואינו יכול לגזור שכונה מנקודת ציון, ולכן מודעה כזו
+ * אינה ניתנת לפעולה (דיווח המשתמש).
+ *
+ * החובה נאכפת כאן ולא ב-`searchAreaRejectionReason`: אזורים שכבר
+ * נשמרו בלי שם הם נתון קיים, וכלל משותף שפוסל אותם היה חוסם עריכת
+ * קונה על שדה שהמסך של אתמול לא ביקש. במקום זה השם ניתן לעריכה
+ * במקום ברשימה, כך שאפשר להשלים אותו בלי למחוק ולסמן מחדש.
  */
+
+/** אורך שם האזור — כותרת קצרה, לא תיאור. */
+const AREA_LABEL_MAX = 60;
 
 export function SearchAreas({
   value,
@@ -57,20 +73,50 @@ export function SearchAreas({
   const [draft, setDraft] = useState<LocationValue>({});
   const [radius, setRadius] = useState(String(DEFAULT_SEARCH_RADIUS_KM));
   const [label, setLabel] = useState("");
+  /*
+   * הסוכן נגע בשם בעצמו — ומאז הכתובת מהמפה כבר אינה דורסת אותו.
+   * בלי זה גרירה קטנה של הסיכה הייתה מוחקת שם שהוקלד ידנית.
+   */
+  const [labelTouched, setLabelTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const full = value.length >= MAX_SEARCH_AREAS;
+
+  /** עריכת שם של אזור שכבר ברשימה — כולל השלמה של אזור ישן בלי שם. */
+  function rename(index: number, next: string): void {
+    const text = next.slice(0, AREA_LABEL_MAX);
+    onChange(
+      value.map((area, i) => {
+        if (i !== index) return area;
+        /*
+          מחיקה ולא `label: undefined` — הטיפוסים כאן מדויקים
+          (`exactOptionalPropertyTypes`), ושדה שקיים עם ערך `undefined`
+          אינו אותו דבר כמו שדה שאינו קיים. שאר השדות נשמרים בהעתקה
+          כדי ששדה שיתווסף לאזור בעתיד לא ייעלם בשינוי שם.
+        */
+        const updated: SearchArea = { ...area };
+        if (text.trim() === "") delete updated.label;
+        else updated.label = text;
+        return updated;
+      }),
+    );
+  }
 
   function add(): void {
     if (draft.latitude === undefined || draft.longitude === undefined) {
       setError("סמנו נקודה על המפה");
       return;
     }
+    const name = label.trim();
+    if (name === "") {
+      setError("כתבו את שם השכונה או האזור — זה מה שיוצג למשרדים אחרים ברשת");
+      return;
+    }
     const area: SearchArea = {
       lat: draft.latitude,
       lon: draft.longitude,
       radiusKm: Number(radius),
-      ...(label.trim() === "" ? {} : { label: label.trim() }),
+      label: name,
     };
     const problem = searchAreaRejectionReason(area);
     if (problem) {
@@ -81,6 +127,7 @@ export function SearchAreas({
     // המפה נשארת פתוחה לאזור הבא, בלי הסיכה שכבר נוספה
     setDraft({});
     setLabel("");
+    setLabelTouched(false);
     setError(null);
   }
 
@@ -94,7 +141,26 @@ export function SearchAreas({
               className="flex flex-wrap items-center gap-2 border-b py-1.5 text-[14.5px]"
               style={{ borderColor: "var(--color-border)" }}
             >
-              <b>{area.label ?? `אזור ${i + 1}`}</b>
+              {/*
+                שדה ולא טקסט: אזור שנשמר בלי שם — וכאלה יש — ניתן
+                להשלמה כאן, בלי למחוק אותו ולסמן את הנקודה מחדש.
+              */}
+              <input
+                value={area.label ?? ""}
+                maxLength={AREA_LABEL_MAX}
+                disabled={disabled}
+                aria-label={`שם האזור ${i + 1}`}
+                placeholder="שם השכונה או האזור"
+                onChange={(e) => rename(i, e.target.value)}
+                className="min-w-0 grow rounded-lg border px-2.5 py-1 font-semibold"
+                style={{
+                  borderColor:
+                    area.label === undefined
+                      ? "var(--color-danger)"
+                      : "var(--color-border)",
+                  background: "var(--color-surface)",
+                }}
+              />
               <span style={{ color: "var(--color-text-muted)" }}>
                 רדיוס {describeDistance(area.radiusKm)} · {area.lat.toFixed(4)},{" "}
                 {area.lon.toFixed(4)}
@@ -133,6 +199,16 @@ export function SearchAreas({
           <LocationPicker
             value={draft}
             onChange={setDraft}
+            /*
+              הכתובת שהמפה מחזירה הופכת לשם האזור המוצע. הסוכן עדיין
+              רואה אותה ויכול לתקן — אבל ברירת המחדל כבר אינה ריקה,
+              וזה ההבדל בין מודעה שאומרת "רמת אהרן" למודעה שאומרת
+              "אזור מסומן במפה". כשהספק אינו מפענח הפוך (מפ״י) לא
+              נקרא כאן דבר, והשדה נשאר להקלדה.
+            */
+            onAddressSuggested={(suggested) => {
+              if (!labelTouched) setLabel(suggested);
+            }}
             disabled={disabled}
           />
           <div className="mt-2 flex flex-wrap items-end gap-2">
@@ -154,13 +230,16 @@ export function SearchAreas({
             </label>
             <label className="grow text-[14px]">
               <span className="mb-0.5 block font-semibold">
-                שם האזור (לא חובה)
+                שם השכונה או האזור *
               </span>
               <input
                 value={label}
-                maxLength={60}
-                placeholder="למשל: ליד ההורים"
-                onChange={(e) => setLabel(e.target.value)}
+                maxLength={AREA_LABEL_MAX}
+                placeholder="למשל: רמת אהרן, או ליד ההורים"
+                onChange={(e) => {
+                  setLabelTouched(true);
+                  setLabel(e.target.value);
+                }}
                 className="w-full rounded-lg border px-2.5 py-1.5"
                 style={{
                   borderColor: "var(--color-border)",
@@ -177,6 +256,7 @@ export function SearchAreas({
               onClick={() => {
                 setDraft({});
                 setLabel("");
+                setLabelTouched(false);
                 setError(null);
               }}
               disabled={disabled}
