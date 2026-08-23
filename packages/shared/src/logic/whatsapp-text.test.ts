@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { splitForWhatsApp } from "./whatsapp-text";
+import { splitForWhatsApp } from "./whatsapp-text.js";
 
 describe("splitForWhatsApp", () => {
   it("מחזיר הודעה אחת כשהתשובה נכנסת בתקרה", () => {

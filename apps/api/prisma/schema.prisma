@@ -1105,6 +1105,16 @@ model WhatsAppChat {
    * דחייה של Meta, ואנחנו היינו לומדים על הכלל מהשגיאה.
    */
   lastInboundAt DateTime? @map("last_inbound_at")
+  /**
+   * עד מתי המשתמש הזה כבר קיבל התראות בוואטסאפ.
+   *
+   * הסימון על ההתראה עצמה (`notifications.whatsapp_at`) אינו מספיק:
+   * התראה משרדית הולכת לכמה סוכנים, וכשאחד קיבל והשני נכשל היא
+   * נשארת בלי סימון — ואז מי שכבר קיבל אותה מקבל אותה שוב בכל
+   * סריקה (ביקורת Codex). החותמת פר-משתמש היא מה שהופך את הניסיון
+   * החוזר לאישי.
+   */
+  notifiedThrough DateTime? @map("notified_through")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   @@unique([tenantId, userId])

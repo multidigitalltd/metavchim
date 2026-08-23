@@ -49,6 +49,8 @@ import {
   type TranscriptSegment,
   formatNotifyMessage,
   inQuietHours,
+  normalizePhoneForWhatsapp,
+  splitForWhatsApp,
   parseWhatsAppNotifyPrefs,
   sessionWindowOpen,
   shouldNotifyByWhatsApp,
@@ -1969,6 +1971,7 @@ async function processPushSweep(): Promise<void> {
           body: true,
           entityType: true,
           entityId: true,
+          createdAt: true,
         },
       });
     });
@@ -2314,11 +2317,15 @@ const WA_GRAPH_BASE = "https://graph.facebook.com/v23.0";
 const WA_SEND_TIMEOUT_MS = 15_000;
 const WA_NOTIFY_BATCH = 200;
 /**
- * מעבר לזה לא דוחפים. התראה על שיחה שלא נענתה שמגיעה חצי יום אחרי
- * היא רעש, וגם הגבול שמונע מהתראות שנדחו (שעות שקט, חלון סגור)
- * להצטבר לנצח — הן פשוט יוצאות מהחלון שהשאילתה סורקת.
+ * מעבר לזה לא דוחפים — הגבול שמונע מהתראות שנדחו (שעות שקט, חלון
+ * סגור) להצטבר לנצח: הן פשוט יוצאות מהחלון שהשאילתה סורקת.
+ *
+ * יממה ולא חצי יום: טווח השקט המרבי שההעדפות מתירות הוא 18 שעות,
+ * והחלון חייב לכסות אותו — אחרת התראה שנוצרה בתחילת השקט הייתה
+ * מתיישנת לפני שהוא נגמר, כלומר לא נשלחת לעולם למרות שהמסך מבטיח
+ * שהיא תגיע בבוקר (ביקורת Codex).
  */
-const WA_NOTIFY_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+const WA_NOTIFY_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const WA_CONFIG_TTL_MS = 60_000;
 
 interface WhatsAppConfig {
@@ -2442,9 +2449,12 @@ function jerusalemHour(date: Date): number {
 
 interface WaRecipient {
   userId: string;
+  /** מנורמל לצורה הבינלאומית — היחידה ש-Meta מקבלת */
   phone: string;
   prefs: ReturnType<typeof parseWhatsAppNotifyPrefs>;
   windowOpen: boolean;
+  /** עד מתי כבר קיבל — מונע כפילות כשנמען אחר של אותה התראה נכשל */
+  notifiedThrough: Date | null;
 }
 
 async function processWhatsAppNotifySweep(): Promise<void> {
@@ -2474,6 +2484,8 @@ async function processWhatsAppNotifySweep(): Promise<void> {
           body: true,
           entityType: true,
           entityId: true,
+          // החותמת פר-משתמש נשענת עליו — בלעדיו אין ממה למדוד
+          createdAt: true,
         },
       });
     });
@@ -2499,97 +2511,140 @@ async function processWhatsAppNotifySweep(): Promise<void> {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
       return tx.whatsAppChat.findMany({
         where: { tenantId: tenant.id, userId: { in: users.map((u) => u.id) } },
-        select: { userId: true, lastInboundAt: true },
+        select: { userId: true, lastInboundAt: true, notifiedThrough: true },
       });
     });
-    const lastInbound = new Map(chats.map((chat) => [chat.userId, chat.lastInboundAt]));
+    const chatOf = new Map(chats.map((chat) => [chat.userId, chat]));
 
     const recipients = new Map<string, WaRecipient>();
     for (const user of users) {
       const prefs = parseWhatsAppNotifyPrefs(user.preferences);
       if (!prefs.enabled) continue;
+      /*
+       * המספר מנורמל לצורה הבינלאומית שהיא היחידה ש-Meta מקבלת.
+       * בפרופיל הוא נשמר כפי שהוקלד ("050-123-4567"), ושליחה שלו
+       * כמו שהוא נדחית (ביקורת Codex). מספר שאינו ניתן לנרמול
+       * אינו נמען.
+       */
+      const phone = normalizePhoneForWhatsapp(user.phone ?? "");
+      if (phone === "") continue;
+      const chat = chatOf.get(user.id);
       recipients.set(user.id, {
         userId: user.id,
-        phone: user.phone as string,
+        phone,
         prefs,
-        windowOpen: sessionWindowOpen(lastInbound.get(user.id) ?? null, now),
+        windowOpen: sessionWindowOpen(chat?.lastInboundAt ?? null, now),
+        notifiedThrough: chat?.notifiedThrough ?? null,
       });
     }
     if (recipients.size === 0) continue;
 
-    const buckets = new Map<string, typeof pending>();
-    const targetsOf = new Map<string, string[]>();
-    const settled: string[] = [];
+    /*
+     * החלוקה היא **פר-נמען**, וכל נמען מסונן מול החותמת שלו.
+     *
+     * זה מה שמונע כפילות: התראה משרדית שנשלחה בהצלחה לסוכן א' ונכשלה
+     * אצל ב' נשארת בלי סימון, וא' לא יקבל אותה שוב כי החותמת שלו כבר
+     * עברה אותה. שוויון חותמת נחשב „כבר נשלח” — עדיף לאבד התראה
+     * בודדת במרוץ נדיר מלשלוח מאות כפילויות.
+     */
+    const delivered = new Map<string, Date>();
+    for (const recipient of recipients.values()) {
+      const watermark = recipient.notifiedThrough?.getTime() ?? 0;
+      const items = pending.filter(
+        (notification) =>
+          (!notification.userId || notification.userId === recipient.userId) &&
+          shouldNotifyByWhatsApp(notification.type, recipient.prefs) &&
+          notification.createdAt.getTime() > watermark,
+      );
+      if (items.length === 0) continue;
 
-    for (const notification of pending) {
-      const targets = [...recipients.values()].filter((recipient) => {
-        // התראה אישית מגיעה רק לבעליה; משרדית — לכל מי שהדליק
-        if (notification.userId && notification.userId !== recipient.userId) return false;
-        return shouldNotifyByWhatsApp(notification.type, recipient.prefs);
-      });
-      if (targets.length === 0) {
-        settled.push(notification.id); // אין למי לשלוח — סגור, לא לנצח
-        continue;
-      }
       /*
        * שעות שקט, וחלון 24 השעות של Meta — שניהם *דחייה*, לא ויתור.
-       *
-       * ההתראה נשארת בלי סימון, והסבב הבא ירים אותה: בבוקר, או ברגע
-       * שהמתווך יכתוב לסוכן ויפתח את החלון. הדחייה היא של ההתראה
-       * כולה ולא של נמען בודד — סימון הוא פר-שורה, ושליחה חלקית
-       * הייתה מייצרת כפילות למי שכבר קיבל.
+       * החותמת אינה זזה, והסבב הבא ירים את אותם פריטים: בבוקר, או
+       * ברגע שהמתווך יכתוב לסוכן ויפתח את החלון.
        */
-      const blocked = targets.some(
-        (recipient) =>
-          inQuietHours(hour, recipient.prefs) ||
-          (!recipient.windowOpen && config.template === null),
-      );
-      if (blocked) continue;
+      if (inQuietHours(hour, recipient.prefs)) continue;
+      if (!recipient.windowOpen && config.template === null) continue;
 
-      targetsOf.set(
-        notification.id,
-        targets.map((t) => t.userId),
-      );
-      for (const target of targets) {
-        const bucket = buckets.get(target.userId) ?? [];
-        bucket.push(notification);
-        buckets.set(target.userId, bucket);
-      }
-    }
-
-    const delivered = new Set<string>();
-    for (const [userId, items] of buckets) {
-      const recipient = recipients.get(userId);
-      if (!recipient || items.length === 0) continue;
-      const ok = recipient.windowOpen
-        ? await sendWhatsApp(config, {
+      let ok: boolean;
+      if (recipient.windowOpen) {
+        /*
+         * חיתוך לפי תקרת 4096 התווים של Meta — הודעה ארוכה יותר
+         * נדחית כולה, כלומר הסוכן שותק דווקא ביום העמוס (ביקורת
+         * Codex). אותה פונקציה שמשרתת את מענה הסוכן.
+         */
+        ok = true;
+        for (const chunk of splitForWhatsApp(formatNotifyMessage(items, webOrigin))) {
+          ok = await sendWhatsApp(config, {
             messaging_product: "whatsapp",
             to: recipient.phone,
             type: "text",
-            text: { body: formatNotifyMessage(items, webOrigin), preview_url: false },
-          })
-        : await sendWhatsApp(config, {
-            messaging_product: "whatsapp",
-            to: recipient.phone,
-            type: "template",
-            template: {
-              name: config.template,
-              language: { code: config.templateLang },
-              components: [
-                {
-                  type: "body",
-                  parameters: templateParams(items).map((text) => ({ type: "text", text })),
-                },
-              ],
-            },
+            text: { body: chunk, preview_url: false },
           });
-      if (ok) delivered.add(userId);
+          if (!ok) break;
+        }
+      } else {
+        ok = await sendWhatsApp(config, {
+          messaging_product: "whatsapp",
+          to: recipient.phone,
+          type: "template",
+          template: {
+            name: config.template,
+            language: { code: config.templateLang },
+            components: [
+              {
+                type: "body",
+                parameters: templateParams(items).map((text) => ({ type: "text", text })),
+              },
+            ],
+          },
+        });
+      }
+      if (!ok) continue;
+
+      const through = items.reduce(
+        (latest, item) => (item.createdAt > latest ? item.createdAt : latest),
+        items[0]!.createdAt,
+      );
+      delivered.set(recipient.userId, through);
     }
 
-    // מסומנת רק התראה שכל נמעניה קיבלו — כישלון חוזר בסבב הבא
-    for (const [notificationId, targets] of targetsOf) {
-      if (targets.every((userId) => delivered.has(userId))) settled.push(notificationId);
+    /*
+     * החותמות נשמרות **לפני** סימון ההתראות: אם התהליך ייפול כאן,
+     * מה שכבר נשלח לא יישלח שוב. הסדר ההפוך היה מסמן התראה שנשלחה
+     * ומאבד את החותמת — כלומר כפילות בסבב הבא.
+     */
+    if (delivered.size > 0) {
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+        for (const [userId, through] of delivered) {
+          await tx.whatsAppChat.upsert({
+            where: { tenantId_userId: { tenantId: tenant.id, userId } },
+            create: { id: ulid(), tenantId: tenant.id, userId, notifiedThrough: through },
+            update: { notifiedThrough: through },
+          });
+        }
+      });
     }
+
+    /*
+     * סימון ההתראה עצמה הוא ניקיון בלבד: היא נסגרת כשכל נמעניה
+     * האפשריים כבר מעבר לחותמת שלהם — או שאין לה נמענים כלל.
+     * הדחיות (שקט, חלון סגור) נשארות פתוחות עד שיישלחו או יתיישנו.
+     */
+    const settled = pending
+      .filter((notification) => {
+        const targets = [...recipients.values()].filter(
+          (recipient) =>
+            (!notification.userId || notification.userId === recipient.userId) &&
+            shouldNotifyByWhatsApp(notification.type, recipient.prefs),
+        );
+        return targets.every((recipient) => {
+          const through = delivered.get(recipient.userId) ?? recipient.notifiedThrough;
+          return through !== null && through !== undefined && through >= notification.createdAt;
+        });
+      })
+      .map((notification) => notification.id);
     if (settled.length === 0) continue;
 
     await prisma.$transaction(async (tx) => {

@@ -13,6 +13,11 @@ ALTER TABLE "notifications" ADD COLUMN "whatsapp_at" TIMESTAMP(3);
 -- AlterTable
 ALTER TABLE "whatsapp_chats" ADD COLUMN "last_inbound_at" TIMESTAMP(3);
 
+-- AlterTable
+-- עד מתי כל סוכן קיבל. סימון על ההתראה בלבד היה גורם למי שקיבל
+-- אותה לקבל שוב בכל סריקה כשנמען אחר שלה נכשל.
+ALTER TABLE "whatsapp_chats" ADD COLUMN "notified_through" TIMESTAMP(3);
+
 -- CreateIndex
 -- הסורק שולף בדיוק את "טרם נשלחו, ומהזמן האחרון" בכל דייר.
 CREATE INDEX "notifications_tenant_whatsapp_idx"

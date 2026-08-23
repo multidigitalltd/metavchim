@@ -98,18 +98,31 @@ export interface WhatsAppNotifyPrefs {
 }
 
 /**
- * ברירת המחדל: **כבוי**.
+ * ברירת המחדל: **הכול פעיל** (בקשת בעל הפלטפורמה).
  *
- * הודעת וואטסאפ יזומה היא צלצול בטלפון הפרטי. משרד שמפעיל את הסוכן
- * לסוכניו אינו מבקש בכך להעיר אותם, ולכן ההפעלה היא בחירה של מי
- * שמקבל את ההודעות. השעות השקטות קיימות מהרגע הראשון מאותה סיבה.
+ * מי ששילם על סוכן אישי בוואטסאפ קנה בדיוק את זה — שהעבודה תגיע
+ * אליו. ברירת מחדל כבויה הייתה הופכת את הפיצ'ר למשהו שצריך לגלות
+ * ולהדליק, כלומר לפיצ'ר שרובם לא יקבלו. הכיבוי נשאר זמין לכל
+ * קטגוריה בנפרד, והשעות השקטות פעילות מהרגע הראשון כדי שההפעלה
+ * המלאה לא תעיר איש באמצע הלילה.
  */
 export const DEFAULT_WHATSAPP_NOTIFY_PREFS: WhatsAppNotifyPrefs = {
-  enabled: false,
+  enabled: true,
   categories: {},
   quietFromHour: 22,
   quietToHour: 7,
 };
+
+/**
+ * טווח השקט המרבי. טווח ארוך יותר פירושו „כמעט אף פעם”, והוא גם
+ * חורג מחלון השמירה של הסורק — כלומר התראה שנדחתה בתחילתו הייתה
+ * מתיישנת לפני סופו ולא נשלחת לעולם (ביקורת Codex).
+ */
+export const MAX_QUIET_SPAN_HOURS = 18;
+
+function quietSpan(from: number, to: number): number {
+  return from === to ? 0 : from < to ? to - from : 24 - from + to;
+}
 
 /** המפתח שתחתיו ההעדפות יושבות ב-`users.preferences`. */
 export const WHATSAPP_NOTIFY_PREF_KEY = "whatsappNotify";
@@ -147,11 +160,20 @@ export function parseWhatsAppNotifyPrefs(raw: unknown): WhatsAppNotifyPrefs {
     }
   }
 
+  const quietFromHour = hourAt(
+    record,
+    "quietFromHour",
+    DEFAULT_WHATSAPP_NOTIFY_PREFS.quietFromHour,
+  );
+  const quietToHour = hourAt(record, "quietToHour", DEFAULT_WHATSAPP_NOTIFY_PREFS.quietToHour);
+  // טווח חורג ⇒ ברירת המחדל, ולא „שקט תמידי” שנראה כמו תקלה
+  const withinCap = quietSpan(quietFromHour, quietToHour) <= MAX_QUIET_SPAN_HOURS;
+
   return {
     enabled: boolAt(record, "enabled") ?? DEFAULT_WHATSAPP_NOTIFY_PREFS.enabled,
     categories,
-    quietFromHour: hourAt(record, "quietFromHour", DEFAULT_WHATSAPP_NOTIFY_PREFS.quietFromHour),
-    quietToHour: hourAt(record, "quietToHour", DEFAULT_WHATSAPP_NOTIFY_PREFS.quietToHour),
+    quietFromHour: withinCap ? quietFromHour : DEFAULT_WHATSAPP_NOTIFY_PREFS.quietFromHour,
+    quietToHour: withinCap ? quietToHour : DEFAULT_WHATSAPP_NOTIFY_PREFS.quietToHour,
   };
 }
 
@@ -188,6 +210,67 @@ const CATEGORY_ICON: Record<WhatsAppNotifyCategory, string> = {
   system: "ℹ️",
 };
 
+/** אייקון מדויק יותר לסוגים שבהם ההבדל הוא ההבדל בין פעולות. */
+const TYPE_ICON: Record<string, string> = {
+  call_missed: "📵",
+  incoming_call: "📞",
+  call_transcribed: "🎧",
+  call_follow_up: "🎧",
+  call_transcribe_failed: "⚠️",
+  lead: "🔥",
+  lead_sla: "⏳",
+  lead_stale: "🥶",
+  lead_repeat_inquiry: "🔁",
+  task_reminder: "⏰",
+  appointment_reminder: "📅",
+  viewing_followup: "🚪",
+  offer_followup: "📨",
+  buyer: "🙋",
+  property: "🏠",
+  property_delisted: "🚫",
+  matches_refreshed: "🎯",
+  coop_deal: "🤝",
+  coop_offer: "💼",
+  payout_decision: "💰",
+  credits_expiring: "⌛",
+  daily_brief: "☀️",
+  weekly_summary: "📊",
+};
+
+/**
+ * משפט הפעולה בסוף ההודעה — מה עושים עכשיו.
+ *
+ * התראה שמסתיימת בלי משפט כזה היא ידיעה; עם משפט כזה היא תזכורת
+ * שאפשר לפעול עליה מיד, באותה שיחה. הניסוח נגזר מהקטגוריה השכיחה
+ * בהודעה — ולא אחד לכל פריט, שזה כבר הטפה.
+ */
+const CATEGORY_CALL_TO_ACTION: Record<WhatsAppNotifyCategory, string> = {
+  calls: "📲 להחזיר שיחה עכשיו — או לכתוב לי „תזכיר לי להתקשר אליו בעוד שעה”.",
+  leads: "⚡ ליד חם מתקרר תוך שעות — כתבו לי „תעדכן סטטוס” או „תקבע לו סיור”.",
+  tasks: "✅ לסגור את זה עכשיו? כתבו לי „בוצע” ואעדכן.",
+  matches: "🎯 יש התאמה — כתבו לי „תשלח הצעה” ואכין אותה.",
+  network: "🤝 שת\"פ שמחכה לתשובה — כתבו לי מה להשיב.",
+  digests: "🚀 שאלו אותי „מה הכי דחוף היום?” ואתן לכם את הסדר.",
+  system: "💬 אפשר לענות לי כאן ואטפל בזה.",
+};
+
+function dominantCategory(items: readonly NotifyItem[]): WhatsAppNotifyCategory {
+  const counts = new Map<WhatsAppNotifyCategory, number>();
+  for (const item of items) {
+    const category = notifyCategory(item.type);
+    counts.set(category, (counts.get(category) ?? 0) + 1);
+  }
+  let best: WhatsAppNotifyCategory = "system";
+  let bestCount = 0;
+  for (const [category, count] of counts) {
+    if (count > bestCount) {
+      best = category;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
 /** כמה פריטים נכנסים להודעה אחת לפני „ועוד N”. */
 export const NOTIFY_ITEMS_PER_MESSAGE = 6;
 
@@ -202,25 +285,25 @@ export function formatNotifyMessage(items: readonly NotifyItem[], webOrigin: str
   if (items.length === 0) return "";
   const shown = items.slice(0, NOTIFY_ITEMS_PER_MESSAGE);
   const lines: string[] = [
-    items.length === 1 ? "*עדכון מהמערכת*" : `*${items.length} עדכונים מהמערכת*`,
+    items.length === 1 ? "🔔 *עדכון חדש*" : `🔔 *${items.length} עדכונים חדשים*`,
     "",
   ];
 
   for (const item of shown) {
-    const icon = CATEGORY_ICON[notifyCategory(item.type)];
+    const icon = TYPE_ICON[item.type] ?? CATEGORY_ICON[notifyCategory(item.type)];
     lines.push(`${icon} *${item.title}*`);
     if (item.body !== null && item.body !== "") lines.push(item.body);
     const url = notificationUrl(item);
     // "/" הוא הדשבורד — קישור כללי אינו מוסיף דבר להתראה
-    if (url !== "/") lines.push(`${webOrigin}${url}`);
+    if (url !== "/") lines.push(`👈 ${webOrigin}${url}`);
     lines.push("");
   }
 
   if (items.length > shown.length) {
-    lines.push(`ועוד ${items.length - shown.length} עדכונים במערכת.`);
+    lines.push(`➕ ועוד ${items.length - shown.length} עדכונים במערכת.`);
     lines.push("");
   }
-  lines.push("אפשר לענות לי כאן כדי לטפל בזה — או לכתוב *עזרה*.");
+  lines.push(CATEGORY_CALL_TO_ACTION[dominantCategory(shown)]);
   return lines.join("\n").trim();
 }
 

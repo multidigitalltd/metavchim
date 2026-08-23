@@ -34,9 +34,9 @@ describe("notifyCategory", () => {
 });
 
 describe("parseWhatsAppNotifyPrefs", () => {
-  it("ברירת המחדל היא כבוי — הודעה יזומה היא בחירה", () => {
+  it("ברירת המחדל היא הכול פעיל — מי ששילם על הסוכן רוצה שיעדכן", () => {
     expect(parseWhatsAppNotifyPrefs(undefined)).toEqual(DEFAULT_WHATSAPP_NOTIFY_PREFS);
-    expect(parseWhatsAppNotifyPrefs({}).enabled).toBe(false);
+    expect(parseWhatsAppNotifyPrefs({}).enabled).toBe(true);
   });
 
   it("קורא את ההעדפות מתוך preferences של המשתמש", () => {
@@ -58,24 +58,42 @@ describe("parseWhatsAppNotifyPrefs", () => {
   it("מתעלם משדות פגומים במקום ליפול", () => {
     const prefs = parseWhatsAppNotifyPrefs({
       whatsappNotify: {
-        enabled: "כן",
+        enabled: 7,
         categories: { calls: "לא", לא_קיים: true },
         quietFromHour: 99,
         quietToHour: -3,
       },
     });
-    expect(prefs.enabled).toBe(false);
+    expect(prefs.enabled).toBe(true);
     expect(prefs.categories).toEqual({});
     expect(prefs.quietFromHour).toBe(22);
     expect(prefs.quietToHour).toBe(7);
+  });
+
+  it("שקט ארוך מ-18 שעות חוזר לברירת המחדל — אחרת התראות היו מתיישנות", () => {
+    // 20:00–16:00 הוא עשרים שעות שקט, כלומר „כמעט אף פעם”
+    const tooLong = parseWhatsAppNotifyPrefs({
+      whatsappNotify: { quietFromHour: 20, quietToHour: 16 },
+    });
+    expect(tooLong.quietFromHour).toBe(22);
+    expect(tooLong.quietToHour).toBe(7);
+  });
+
+  it("שקט של שש-עשרה שעות עדיין מותר — חלון הסורק מכסה אותו", () => {
+    const long = parseWhatsAppNotifyPrefs({
+      whatsappNotify: { quietFromHour: 20, quietToHour: 12 },
+    });
+    expect(long.quietFromHour).toBe(20);
+    expect(long.quietToHour).toBe(12);
   });
 });
 
 describe("shouldNotifyByWhatsApp", () => {
   const on = { ...DEFAULT_WHATSAPP_NOTIFY_PREFS, enabled: true };
 
-  it("המתג הראשי חוסם הכול", () => {
-    expect(shouldNotifyByWhatsApp("lead", DEFAULT_WHATSAPP_NOTIFY_PREFS)).toBe(false);
+  it("המתג הראשי חוסם הכול כשכיבו אותו", () => {
+    const off = { ...DEFAULT_WHATSAPP_NOTIFY_PREFS, enabled: false };
+    expect(shouldNotifyByWhatsApp("lead", off)).toBe(false);
   });
 
   it("קטגוריה שלא נכתבה נחשבת דלוקה", () => {
@@ -122,7 +140,7 @@ describe("formatNotifyMessage", () => {
       [item({ title: "משה לוי מתקשר", type: "incoming_call", entityType: "lead", entityId: "L1" })],
       "https://app.example.com",
     );
-    expect(text).toContain("*עדכון מהמערכת*");
+    expect(text).toContain("*עדכון חדש*");
     expect(text).toContain("משה לוי מתקשר");
     expect(text).toContain("https://app.example.com/leads/L1");
   });
@@ -132,7 +150,7 @@ describe("formatNotifyMessage", () => {
       [item({ title: "א" }), item({ title: "ב" }), item({ title: "ג" })],
       "https://x",
     );
-    expect(text).toContain("*3 עדכונים מהמערכת*");
+    expect(text).toContain("*3 עדכונים חדשים*");
     expect(text).toContain("א");
     expect(text).toContain("ג");
   });
