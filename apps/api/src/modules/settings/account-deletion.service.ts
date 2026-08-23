@@ -291,6 +291,15 @@ export class AccountDeletionService {
         await tx.googleCalendarLink.deleteMany({ where: { tenantId } });
         await tx.gmailLink.deleteMany({ where: { tenantId } });
         await tx.userCapability.deleteMany({ where: { tenantId } });
+        /*
+         * רישומי „עדכנו אותי כשזה עולה” וקישורי הנכסים התאומים.
+         *
+         * לשתי הטבלאות אין מפתח זר לשורת המשרד, ולכן הן **אינן**
+         * נופלות איתה: בלי המחיקה כאן היו נשארות שורות עם `tenant_id`
+         * של משרד שנמחק — בדיוק ההפך מ„שום פרט לא נשמר אחריה”.
+         */
+        await tx.featureSignup.deleteMany({ where: { tenantId } });
+        await tx.propertyTwin.deleteMany({ where: { tenantId } });
         // תיק הבלעדיות — פעולות לפני תקופות, ושתיהן לפני הנכסים
         await tx.marketingAction.deleteMany({ where: { tenantId } });
         await tx.propertyExclusivity.deleteMany({ where: { tenantId } });

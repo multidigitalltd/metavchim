@@ -16,6 +16,7 @@ import {
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { MediaSection } from "./media-section";
+import { PropertyTwins } from "./property-twins";
 import { NetworkDemandMatches } from "../network-demand-matches";
 import { NetworkShareSection } from "../../network-share-section";
 import { AgreementsPanel } from "../../agreements-panel";
@@ -129,6 +130,7 @@ export default function PropertyDetailPage({
     [
       "overview",
       "matches",
+      "twins",
       "network",
       "owner",
       "exclusivity",
@@ -138,6 +140,21 @@ export default function PropertyDetailPage({
     "overview",
   );
   const [openTasks, setOpenTasks] = useState<number | undefined>(undefined);
+  /*
+   * מונה התאומים, כמו מונה המשימות: נטען כאן כדי שהמספר יופיע על
+   * הלשונית **לפני** שנכנסים אליה — פאנל שאינו פעיל אינו מרונדר
+   * כלל, ולכן לשונית שממתינה לילד שלה תישאר בלי מונה עד שילחצו
+   * עליה. אחרי כניסה ללשונית הילד מדווח על כל שינוי, ולכן המספר
+   * אינו מתיישן בהסרה או בהוספה.
+   *
+   * `undefined` = טרם ידוע, ואז אין מונה — ולא „0”.
+   */
+  const [twinCount, setTwinCount] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    apiGet<{ id: string }[]>(`/properties/${id}/twins`)
+      .then((rows) => setTwinCount(rows.length))
+      .catch(() => setTwinCount(undefined));
+  }, [id]);
   useEffect(() => {
     apiGet<{ status: string }[]>(`/tasks/for/property/${id}`)
       .then((rows) =>
@@ -641,6 +658,13 @@ export default function PropertyDetailPage({
             { key: "overview", label: "סקירה" },
             { key: "matches", label: "התאמות", count: matches?.length },
             /*
+              נכסים תאומים — צמוד להתאמות ולא בסוף הסרגל. שתי
+              הלשוניות עונות על אותה שאלה בשיחה עם לקוח ("מה עוד
+              אפשר להציע לו"), ומי שפתח את ההתאמות הוא בדיוק מי
+              שיזדקק לתאומים בשנייה שאחר כך.
+            */
+            { key: "twins", label: "נכסים תאומים", count: twinCount },
+            /*
               לשונית משלה, כמו בכרטיס הקונה. הפרסום לרשת ישב עד כה
               בתחתית לשונית ההתאמות — כלומר מי שרצה לפרסם נכס היה
               צריך לדעת לגלול לשם, ורוב הנכסים פשוט לא פורסמו.
@@ -1103,6 +1127,15 @@ export default function PropertyDetailPage({
             </p>
           </section>
         </div>
+      </TabPanel>
+
+      {/* נכסים תאומים — מה עוד אפשר להציע ללקוח שהתעניין בנכס הזה */}
+      <TabPanel tab="twins" active={tab}>
+        <PropertyTwins
+          propertyId={id}
+          canEdit={canEditOwner}
+          onCountChange={setTwinCount}
+        />
       </TabPanel>
 
       {/* שיתופי פעולה — פרסום הנכס לרשת, והביקושים שהוא עונה עליהם */}

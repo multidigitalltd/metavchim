@@ -46,6 +46,7 @@ import {
 } from "../matching/matching.service";
 import { MessagingService } from "../messaging/messaging.service";
 import { mediaRawPath } from "./media.service";
+import { PropertyTwinsService } from "./property-twins.service";
 import {
   fieldsToColumns,
   rowToFields,
@@ -67,6 +68,7 @@ export class PropertiesService {
     private readonly crypto: CryptoService,
     private readonly geocoding: GeocodingService,
     private readonly listings: ListingsService,
+    private readonly twins: PropertyTwinsService,
   ) {}
 
   /**
@@ -961,6 +963,13 @@ export class PropertiesService {
         where: { tenantId: ctx.tenantId, propertyId: id },
       });
 
+      /*
+       * קישורי הנכסים התאומים — משני הצדדים. קשר שמצביע על נכס
+       * שאיננו אינו רק שורה מתה: הוא ממשיך להימנות בתקרת התאומים
+       * של הנכס שבצד השני, שם הוא גם אינו מוצג ואינו ניתן להסרה.
+       */
+      const twins = await this.twins.purgeFor(tx, id);
+
       // property_media לפני properties — מפתח זר RESTRICT
       await tx.propertyMedia.deleteMany({
         where: { tenantId: ctx.tenantId, propertyId: id },
@@ -982,7 +991,7 @@ export class PropertiesService {
         action: "property.purge",
         entityType: "property",
         entityId: id,
-        metadata: { media: media.length, matches: matchIds.length },
+        metadata: { media: media.length, matches: matchIds.length, twins },
       });
     });
   }
