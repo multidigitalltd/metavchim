@@ -366,11 +366,19 @@ export class CollaborationController {
 
      השער זהה לזה של הפיד — מי שרשאי לראות את המודעה רשאי לראות
      את תמונותיה — וההרשאה נבדקת שוב בכל בקשה, בשירות.
+
+     `Cross-Origin-Resource-Policy: same-site` נדרש כי `helmet()`
+     מגדיר `same-origin` לכל התשובות, והדפדפן חוסם `<img>` ממקור
+     אחר עוד לפני שה-CSP נשקל. בפיתוח ה-web על 3000 וה-API על 3001,
+     כלומר בדיוק המצב הזה (ביקורת Codex). `same-site` ולא
+     `cross-origin`: הוא מתיר פורט או תת-דומיין של אותו אתר, ואינו
+     מתיר לאתר זר להטמיע תמונה של לקוח.
      ------------------------------------------------------------------ */
 
   @Get("listings/:id/photo/:index")
   @RequireCapability("collaboration.offer")
   @Header("Cache-Control", "private, max-age=300")
+  @Header("Cross-Origin-Resource-Policy", "same-site")
   async listingPhoto(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Param("index", new ZodValidationPipe(PhotoIndexSchema)) index: number,
@@ -381,6 +389,7 @@ export class CollaborationController {
   @Get("offers/:id/photo/:index")
   @RequireCapability("collaboration.offer")
   @Header("Cache-Control", "private, max-age=300")
+  @Header("Cross-Origin-Resource-Policy", "same-site")
   async offerPhoto(
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
     @Param("index", new ZodValidationPipe(PhotoIndexSchema)) index: number,
@@ -397,6 +406,7 @@ export class CollaborationController {
   @Get("office/:tenantId/logo")
   @RequireCapability("collaboration.share", "collaboration.offer")
   @Header("Cache-Control", "private, max-age=300")
+  @Header("Cross-Origin-Resource-Policy", "same-site")
   async officeLogo(
     @Param("tenantId", new ZodValidationPipe(IdSchema)) tenantId: string,
   ): Promise<StreamableFile> {
