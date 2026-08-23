@@ -106,19 +106,6 @@ export class TelephonyController {
     return TELEPHONY_PROVIDERS;
   }
 
-  /**
-   * לבאנר במסך השיחות — האם מחוברת מרכזיה, ותו לא.
-   *
-   * `leads.view_own` ולא `settings.manage`: כל סוכן רואה את מסך
-   * השיחות, והבאנר צריך לדעת אם להופיע. שום פרט תצורה אינו נחשף —
-   * רק קיום החיבור.
-   */
-  @Get("presence")
-  @RequireCapability("leads.view_own")
-  async presence(): Promise<{ connected: boolean }> {
-    return { connected: await this.telephony.isConnected() };
-  }
-
   @Get()
   @RequireCapability("settings.manage")
   async status(): ReturnType<TelephonyService["status"]> {
