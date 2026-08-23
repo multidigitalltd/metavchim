@@ -92,6 +92,8 @@ export default function CallsPage() {
    */
   const [pbxConnected, setPbxConnected] = useState<boolean | null>(null);
   const pbxPitch = useUserDismissed("calls-pbx-pitch");
+  /** האם המרכזייה בכלל כלולה במסלול — ראו הקישור שב-`TelephonyPitch`. */
+  const hasTelephony = useFeature("telephony");
 
   /*
    * השיחה שהכתובת מבקשת — `?call=<id>`.
@@ -231,7 +233,17 @@ export default function CallsPage() {
       */}
       {pbxConnected === false && !pbxPitch.hidden ? (
         <div className="relative mb-4">
-          <TelephonyPitch canOpenSettings={can(user, "settings.manage")} />
+          {/*
+            שני התנאים, ולא רק ההרשאה: משרד שעבר למסלול בלי מרכזייה
+            רואה במסך ההגדרות `LockedFeature` במקום סעיף החיבור,
+            ונתיבי החיבור עצמם חסומים ב-`@RequireFeature("telephony")`.
+            קישור „כבר יש לי מרכזיה” היה מוביל אותו למסך שאומר לו
+            שהמודול אינו במסלול — הזמנה לפעולה שאי אפשר לבצע.
+            „להצטרפות לשירות” נשאר לו, וזה בדיוק המסלול הנכון עבורו.
+          */}
+          <TelephonyPitch
+            canOpenSettings={can(user, "settings.manage") && hasTelephony}
+          />
           <div className="mv-pitch-dismiss">
             <button type="button" onClick={pbxPitch.never}>
               אל תציג יותר
