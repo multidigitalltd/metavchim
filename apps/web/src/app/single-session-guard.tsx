@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { apiDelete, apiGet, apiPost } from "@/lib/api";
+import { resetA11ySync } from "@/lib/a11y-sync";
 import { clearSessionCache } from "@/lib/session-cache";
 import { formatDateTime } from "@/lib/format";
 import { IconShield } from "./icons";
@@ -99,6 +100,7 @@ export function SingleSessionGuard(): React.JSX.Element | null {
     setBusy(true);
     setError(null);
     clearSessionCache();
+    resetA11ySync();
     /* גם אם הקריאה נכשלת — עוזבים: המסך המחובר הוא מה שסוגרים */
     await apiPost("/auth/logout", {}).catch(() => undefined);
     window.location.assign("/login");

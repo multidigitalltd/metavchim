@@ -68,7 +68,7 @@ export const SNOOZE_MINUTES = 120;
  * הן נשלחות למנוע כאילו הוקלדו — ולכן הן מנוסחות בדיוק כמו שמתווך
  * היה מנסח, ולא כמפתחות טכניים. כך אין מסלול ביצוע שני.
  */
-export const BUTTON_COMMANDS: Record<string, string> = {
+const BUTTON_COMMANDS: Record<string, string> = {
   urgent: "מה הכי דחוף לי היום?",
   today: "מה יש לי היום?",
 };

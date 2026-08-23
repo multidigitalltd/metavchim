@@ -361,13 +361,13 @@ export class GmailService {
  * ללקוח כג'יבריש, ולכן הוא נעטף ב-‎=?UTF-8?B?…?=‎. כותרת שכולה ASCII
  * נשלחת כפי שהיא — אין טעם לקודד "Re: meeting".
  */
-export function encodeHeader(value: string): string {
+function encodeHeader(value: string): string {
   // ASCII מודפס בלבד — הטווח שכותרת אימייל רשאית לשאת ללא קידוד
   if (/^[\x20-\x7e]*$/u.test(value)) return value;
   return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
 }
 
-export function parseFromHeader(value: string): { name: string; email: string } {
+function parseFromHeader(value: string): { name: string; email: string } {
   const match = /^(.*?)<([^>]+)>\s*$/u.exec(value);
   if (match) {
     return {

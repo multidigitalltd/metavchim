@@ -28,7 +28,7 @@ const NEXT: Record<TriValue, TriValue> = { "": "yes", yes: "no", no: "" };
 const STATE_LABEL: Record<TriValue, string> = { "": "לא ידוע", yes: "יש", no: "אין" };
 
 /** boolean מהשרת → ערך התגית */
-export function boolToTri(value: boolean | undefined): TriValue {
+function boolToTri(value: boolean | undefined): TriValue {
   return value === true ? "yes" : value === false ? "no" : "";
 }
 

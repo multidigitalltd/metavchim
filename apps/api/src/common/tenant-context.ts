@@ -50,9 +50,3 @@ export const TenantContext = {
   },
 };
 
-export function requireCapability(capability: Capability): void {
-  const ctx = TenantContext.current();
-  if (!ctx.capabilities.has(capability)) {
-    throw new Error(`Missing capability: ${capability}`);
-  }
-}

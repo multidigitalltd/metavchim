@@ -14,7 +14,7 @@ import { IconMonitor, IconMoon, IconSun } from "./icons";
 
 export type ThemeChoice = "light" | "dark" | "auto";
 
-export const THEME_STORAGE_KEY = "mv-theme";
+const THEME_STORAGE_KEY = "mv-theme";
 
 /**
  * רץ ב-<head> לפני הצביעה הראשונה. חייב להישאר קטן וללא תלויות —

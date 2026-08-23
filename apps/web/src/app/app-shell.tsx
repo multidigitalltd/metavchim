@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { apiGet, apiPost } from "@/lib/api";
+import { resetA11ySync } from "@/lib/a11y-sync";
 import { clearSessionCache, fetchMe } from "@/lib/session-cache";
 import type { AuthUser } from "@/lib/use-auth";
 import { FeaturesProvider } from "@/lib/use-features";
@@ -453,6 +454,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             className="mv-btn-ghost"
             onClick={() => {
               clearSessionCache();
+              resetA11ySync();
               void apiPost("/auth/logout", {})
                 .catch(() => undefined)
                 .finally(() => window.location.assign("/login"));

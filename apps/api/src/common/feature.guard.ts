@@ -11,7 +11,7 @@ import { PlanCatalogService } from "../core/plan-catalog.service";
 import { IS_PUBLIC_KEY } from "./auth.decorators";
 import { TenantContext } from "./tenant-context";
 
-export const FEATURE_KEY = "requiredFeature";
+const FEATURE_KEY = "requiredFeature";
 
 /**
  * מגביל Endpoint לפיצ'ר של מסלול — Entitlement שנאכף בשרת.

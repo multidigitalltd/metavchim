@@ -3,7 +3,6 @@ import { ulid } from "ulid";
 import {
   AUTO_MARKETING_SOURCES,
   MARKETING_ACTION_KINDS,
-  MIN_MARKETING_ACTIONS,
   describeExclusivity,
   exclusivityRejectionReason,
   exclusivityState,
@@ -486,5 +485,3 @@ export class ExclusivityService {
   }
 }
 
-/** נחשף כדי שהמסך יציג את אותה דרישה שהשרת סופר. */
-export const MARKETING_ACTIONS_REQUIRED = MIN_MARKETING_ACTIONS;
