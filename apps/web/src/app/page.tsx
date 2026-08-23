@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { groupTasksByBucket, isTaskUrgent, taskBucket , labelOf } from "@metavchim/shared";
 import { apiGet, ApiError } from "@/lib/api";
@@ -245,8 +245,25 @@ export default function DashboardPage() {
    * session שפג), ושמונה הודעות נפרדות על אותה תקלה הן רעש.
    */
   const [dataFailed, setDataFailed] = useState(false);
+  const batch = useRef(0);
 
   const loadDashboard = useCallback(() => {
+    /*
+     * מונה מנות. „ניסיון חוזר” אינו מבטל את המנה הקודמת — הבקשות
+     * שלה עדיין באוויר, וכל אחת מהן עוד תכתוב למצב כשתסתיים.
+     *
+     * בלי המונה, בקשה ישנה שנכשלת **אחרי** שהניסיון החוזר הצליח
+     * מדליקה מחדש „חלק מנתוני הדשבורד לא נטענו” על מסך תקין,
+     * ותשובה ישנה שמגיעה מאוחר דורסת נתונים חדשים יותר (ביקורת
+     * Codex). רק המנה האחרונה רשאית לכתוב.
+     */
+    const mine = ++batch.current;
+    const ok =
+      <T,>(apply: (value: T) => void) =>
+      (value: T): void => {
+        if (mine !== batch.current) return;
+        apply(value);
+      };
     setDataFailed(false);
     /*
      * 403 אינו כישלון טעינה — הוא תשובה.
@@ -263,28 +280,29 @@ export default function DashboardPage() {
      * משתנה, וכל נתיב אחר עלול לסרב מחר.
      */
     const fail = (err: unknown): void => {
+      if (mine !== batch.current) return;
       if (err instanceof ApiError && err.status === 403) return;
       setDataFailed(true);
     };
     if (canSeeProperties) {
       apiGet<{ items: PropertyRow[] }>("/properties?limit=100")
-        .then((r) => setProperties(r.items))
+        .then(ok((r: { items: PropertyRow[] }) => setProperties(r.items)))
         .catch(fail);
     }
     if (canSeeBuyers) {
       apiGet<{ items: BuyerRow[] }>("/buyers?limit=100")
-        .then((r) => setBuyers(r.items))
+        .then(ok((r: { items: BuyerRow[] }) => setBuyers(r.items)))
         .catch(fail);
       apiGet<Breakdown<"byMaturity">>("/buyers/breakdown")
-        .then(setBuyerBreakdown)
+        .then(ok(setBuyerBreakdown))
         .catch(fail);
     }
     if (canSeeLeads) {
       apiGet<{ items: LeadRow[] }>("/leads?limit=100")
-        .then((r) => setLeads(r.items))
+        .then(ok((r: { items: LeadRow[] }) => setLeads(r.items)))
         .catch(fail);
       apiGet<Breakdown<"byStatus">>("/leads/breakdown")
-        .then(setLeadBreakdown)
+        .then(ok(setLeadBreakdown))
         .catch(fail);
     }
     if (canSeeCalendar) {
@@ -294,7 +312,7 @@ export default function DashboardPage() {
       apiGet<AppointmentRow[]>(
         `/appointments?from=${dayStart.toISOString()}&to=${dayEnd.toISOString()}`,
       )
-        .then(setToday)
+        .then(ok(setToday))
         .catch(fail);
     }
     /*
@@ -304,7 +322,7 @@ export default function DashboardPage() {
      */
     if (canSeeOffers) {
       apiGet<{ items: OfferRow[] }>("/offers")
-        .then((r) => setOffers(r.items))
+        .then(ok((r: { items: OfferRow[] }) => setOffers(r.items)))
         .catch(fail);
     }
   }, [canSeeOffers, canSeeProperties, canSeeBuyers, canSeeLeads, canSeeCalendar]);
