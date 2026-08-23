@@ -19,8 +19,8 @@ const hasFfmpeg = await run("ffmpeg", ["-version"]).then(
 );
 
 describe("isWhatsAppAudio", () => {
-  it("הפורמטים ש-Meta מקבלת", () => {
-    for (const type of ["audio/aac", "audio/amr", "audio/mpeg", "audio/mp4", "audio/ogg"]) {
+  it("הפורמטים ש-Meta מקבלת ללא תנאי", () => {
+    for (const type of ["audio/aac", "audio/amr", "audio/mpeg", "audio/mp4"]) {
       expect(isWhatsAppAudio(type), type).toBe(true);
     }
   });
@@ -31,17 +31,27 @@ describe("isWhatsAppAudio", () => {
     expect(isWhatsAppAudio("audio/webm;codecs=opus")).toBe(false);
   });
 
-  it("פרמטרי הקודק אינם חלק מהטיפוס", () => {
+  /*
+   * ogg הוא מכולה, לא קודק: אותו טיפוס יכול להיות Vorbis, ש-Meta
+   * דוחה. ההנחה שהוא Opus החזירה בדיוק את הכישלון שההמרה מונעת.
+   */
+  it("ogg עובר רק כשהקודק מוצהר Opus", () => {
     expect(isWhatsAppAudio("audio/ogg; codecs=opus")).toBe(true);
-    expect(isWhatsAppAudio("AUDIO/OGG")).toBe(true);
+    expect(isWhatsAppAudio('audio/ogg;codecs="opus"')).toBe(true);
+    expect(isWhatsAppAudio("audio/ogg")).toBe(false);
+    expect(isWhatsAppAudio("audio/ogg; codecs=vorbis")).toBe(false);
+  });
+
+  it("הטיפוס נבדק בלי תלות ברישיות", () => {
+    expect(isWhatsAppAudio("AUDIO/MPEG")).toBe(true);
   });
 });
 
 describe("toWhatsAppAudio", () => {
   it("פורמט נתמך עובר כמות שהוא — בלי המרה מיותרת", async () => {
     const body = Buffer.from("already-opus");
-    const result = await toWhatsAppAudio(body, "audio/ogg; codecs=opus");
-    expect(result).toEqual({ body, mimeType: "audio/ogg" });
+    const result = await toWhatsAppAudio(body, "audio/mpeg");
+    expect(result).toEqual({ body, mimeType: "audio/mpeg" });
   });
 
   it("קלט שאי אפשר להמיר מחזיר null ולא זורק", async () => {

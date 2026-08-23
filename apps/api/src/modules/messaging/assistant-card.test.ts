@@ -18,7 +18,7 @@ describe("formatCard", () => {
           roomsMax: 4,
           budgetMaxAgorot: 250_000_000,
         },
-        maturity: "hot",
+        maturity: "very_hot",
         agentNotes: "גמיש בקומה",
         calls: [],
       },
@@ -26,8 +26,32 @@ describe("formatCard", () => {
     expect(text).toContain("050-1234567");
     expect(text).toContain("גבעתיים, רמת גן");
     expect(text).toContain("3–4");
-    expect(text).toContain("חם");
+    expect(text).toContain("חם מאוד");
     expect(text).toContain("גמיש בקומה");
+  });
+
+  /*
+   * התוויות באות מהסכימה. טבלה מקומית שהמציאה ערכים („פושר”, „קר”)
+   * הציגה `very_hot` גולמי על רוב הכרטיסים האמיתיים.
+   */
+  it("כל ערכי הבשלות שבסכימה מתורגמים לעברית", () => {
+    for (const [value, label] of [
+      ["very_hot", "חם מאוד"],
+      ["hot", "חם"],
+      ["interested", "מתעניין"],
+      ["not_ripe", "לא בשל"],
+    ]) {
+      const text = formatCard({
+        card: {
+          kind: "buyer",
+          contact: { name: "משה", phone: "050-1234567" },
+          requirements: { cities: [] },
+          maturity: value,
+          calls: [],
+        },
+      });
+      expect(text, value).toContain(`🌡️ בשלות: ${label}`);
+    }
   });
 
   it("שדה חסר פשוט אינו מוצג — בלי „לא צוין” שממלא את המסך", () => {

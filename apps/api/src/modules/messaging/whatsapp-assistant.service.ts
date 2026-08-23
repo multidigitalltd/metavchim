@@ -37,7 +37,7 @@ import {
   confirmButtons,
   SNOOZE_LABEL,
   SNOOZE_MINUTES,
-  WA_AUDIO_MAX_BYTES,
+  WA_AUDIO_SOURCE_MAX_BYTES,
   type AgentReply,
 } from "./assistant-buttons";
 import { formatCard } from "./assistant-card";
@@ -874,10 +874,14 @@ export class WhatsAppAssistantService {
         for await (const chunk of rec.body) {
           const buf = Buffer.from(chunk as Buffer);
           bytes += buf.length;
-          if (bytes > WA_AUDIO_MAX_BYTES) break;
+          if (bytes > WA_AUDIO_SOURCE_MAX_BYTES) break;
           chunks.push(buf);
         }
-        if (bytes > WA_AUDIO_MAX_BYTES) {
+        /*
+         * התקרה כאן היא של הזיכרון, לא של Meta: ההקלטה עוד תעבור
+         * המרה שמכווצת אותה, ותקרת השליחה נאכפת על התוצר.
+         */
+        if (bytes > WA_AUDIO_SOURCE_MAX_BYTES) {
           lines.push("🎧 ההקלטה ארוכה מכדי לשלוח בוואטסאפ — היא זמינה במסך השיחות.");
         } else {
           audio = {

@@ -9,6 +9,7 @@ import {
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
+import { WA_AUDIO_MAX_BYTES } from "./assistant-buttons";
 import { toWhatsAppAudio } from "./audio-transcode";
 
 /**
@@ -216,6 +217,15 @@ export class WhatsAppSendService {
     const audio = await toWhatsAppAudio(body, mimeType);
     if (audio === null) {
       this.logger.warn("שליחת הקלטה נדחתה — לא ניתן להמיר לפורמט שוואטסאפ מקבלת");
+      return false;
+    }
+    /*
+     * התקרה נאכפת על התוצר ולא על המקור: ההמרה מכווצת wav בסדר
+     * גודל, ופסילה לפי גודל המקור פסלה שיחות שנכנסות בקלות לתקרה
+     * אחרי הקידוד (ביקורת Codex).
+     */
+    if (audio.body.length > WA_AUDIO_MAX_BYTES) {
+      this.logger.warn("שליחת הקלטה נדחתה — גדולה מתקרת המדיה של Meta גם אחרי המרה");
       return false;
     }
     const mediaId = await this.uploadMedia(creds, audio.body, audio.mimeType);

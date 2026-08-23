@@ -15,6 +15,8 @@
  * השימוש — מי זה ואיך מתקשרים אליו קודם, ההיסטוריה בסוף.
  */
 
+import { MATURITY_LABELS } from "@metavchim/shared";
+
 /** מה שהמסך היה קורא לו „לא צוין” — כאן פשוט לא מוצג. */
 function line(label: string, value: unknown): string | null {
   if (value === undefined || value === null || value === "") return null;
@@ -50,12 +52,6 @@ function when(value: unknown): string | undefined {
   }
   return undefined;
 }
-
-const MATURITY: Record<string, string> = {
-  hot: "חם",
-  warm: "פושר",
-  cold: "קר",
-};
 
 interface CardCall {
   id?: unknown;
@@ -100,7 +96,13 @@ export function formatCard(data: unknown): string | null {
         line("🏘️ שכונות", req["neighborhoods"]),
         line("🚪 חדרים", rooms),
         line("💰 תקציב", budget === "" ? undefined : budget),
-        line("🌡️ בשלות", maturity === undefined ? undefined : (MATURITY[maturity] ?? maturity)),
+        /*
+         * התוויות מיובאות ואינן מועתקות: טבלה מקומית שנכתבה כאן
+         * המציאה „פושר” ו„קר” שאינם קיימים בסכימה, והחסירה שלושה
+         * ערכים אמיתיים — ולכן רוב הכרטיסים הציגו `very_hot` גולמי
+         * (ביקורת Codex). מקור אחד לתוויות אינו יכול לסטות מהערכים.
+         */
+        line("🌡️ בשלות", maturity === undefined ? undefined : (MATURITY_LABELS[maturity] ?? maturity)),
         line("🏦 מימון", c["financing"]),
         line("📍 מקור", c["source"]),
         line("📝 הערות", c["agentNotes"]),

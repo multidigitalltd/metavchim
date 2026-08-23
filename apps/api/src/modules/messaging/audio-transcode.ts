@@ -31,21 +31,33 @@ const run = promisify(execFile);
  */
 
 /**
- * הפורמטים שנתיב ה-`audio` של Meta מקבל.
+ * הפורמטים שנתיב ה-`audio` של Meta מקבל ללא תנאי.
  *
- * `audio/ogg` נקלט רק עם קודק Opus, וזה בדיוק מה שאנחנו מייצרים.
- * הפורמטים האחרים מגיעים מבחוץ (הודעה קולית שהמתווך העביר, למשל)
- * ואין סיבה לקודד אותם מחדש.
+ * הם מגיעים מבחוץ — הודעה קולית שהמתווך העביר, קובץ שהועלה — ואין
+ * סיבה לקודד אותם מחדש.
+ *
+ * `audio/ogg` **אינו** ברשימה בכוונה: המכולה מתקבלת רק עם קודק
+ * Opus, ו-`audio/ogg` סתם יכול להיות גם Vorbis. `contentTypeOf`
+ * וגם העלאה ידנית שומרים את הערך הגנרי בלי לדעת מה בפנים, ולכן
+ * הנחה שהוא Opus הייתה מחזירה בדיוק את הכישלון שהמרה נועדה למנוע
+ * (ביקורת Codex). ogg עובר רק כשהקודק מוצהר במפורש.
  */
-const SUPPORTED = new Set(["audio/aac", "audio/amr", "audio/mpeg", "audio/mp4", "audio/ogg"]);
+const SUPPORTED = new Set(["audio/aac", "audio/amr", "audio/mpeg", "audio/mp4"]);
 
 /** `audio/ogg; codecs=opus` ⟵ `audio/ogg`. Meta מצפה לטיפוס בלבד. */
 function bareType(mimeType: string): string {
   return (mimeType.split(";")[0] ?? "").trim().toLowerCase();
 }
 
+/** קודק מוצהר, אם יש: `audio/ogg; codecs=opus` ⟵ `opus`. */
+function declaredCodec(mimeType: string): string | undefined {
+  return /;\s*codecs\s*=\s*"?([^";]+)"?/iu.exec(mimeType)?.[1]?.trim().toLowerCase();
+}
+
 export function isWhatsAppAudio(mimeType: string): boolean {
-  return SUPPORTED.has(bareType(mimeType));
+  const type = bareType(mimeType);
+  if (SUPPORTED.has(type)) return true;
+  return type === "audio/ogg" && declaredCodec(mimeType) === "opus";
 }
 
 /** מה שיוצא מההמרה — הפורמט שהודעה קולית מנוגנת בו בוואטסאפ. */
