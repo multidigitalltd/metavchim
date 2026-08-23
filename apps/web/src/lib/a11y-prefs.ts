@@ -64,7 +64,7 @@ export const A11Y_DEFAULTS: A11yPrefs = {
   readingGuide: false,
 };
 
-export const A11Y_STORAGE_KEY = "mv-a11y";
+const A11Y_STORAGE_KEY = "mv-a11y";
 
 export function applyA11y(prefs: A11yPrefs): void {
   if (typeof document === "undefined") return;

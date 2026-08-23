@@ -5,6 +5,7 @@ import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { ConfirmDialog } from "./confirm-dialog";
 import { IconDoc, IconEdit, IconWarning } from "./icons";
+import { LoadError } from "./load-error";
 import { Notice } from "./notice";
 
 /**
@@ -97,10 +98,18 @@ export function AgreementsPanel({
   const [chosenProperty, setChosenProperty] = useState("");
   const [properties, setProperties] = useState<PropertyOption[] | null>(null);
 
+  /*
+   * „עדיין לא נשלח הסכם” נאמר גם כשהטעינה נכשלה — והמסקנה המתבקשת
+   * ממנו היא לשלוח הסכם. כלומר תקלת רשת שלחה ללקוח הסכם שני על
+   * אותה עסקה, ולפעמים אחרי שהראשון כבר נחתם.
+   */
+  const [loadFailed, setLoadFailed] = useState(false);
+
   function load(): void {
+    setLoadFailed(false);
     apiGet<AgreementRow[]>(`/agreements/contact/${contactId}`)
       .then((all) => setRows(all.filter((row) => row.kind === kind)))
-      .catch(() => setRows([]));
+      .catch(() => setLoadFailed(true));
   }
 
   useEffect(load, [contactId, kind]);
@@ -238,7 +247,11 @@ export function AgreementsPanel({
         ) : null}
       </div>
 
-      {rows === null ? (
+      {loadFailed ? (
+        <div className="mb-3">
+          <LoadError message="לא הצלחנו לטעון את ההסכמים" onRetry={load} />
+        </div>
+      ) : rows === null ? (
         <p aria-live="polite">טוען…</p>
       ) : rows.length === 0 ? (
         <p className="mb-3" style={{ color: "var(--color-text-muted)" }}>

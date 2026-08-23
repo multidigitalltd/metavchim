@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Button } from "@metavchim/ui";
 import { API_BASE, apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
+import { useCopy } from "@/lib/clipboard";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
 
@@ -28,7 +29,7 @@ export function LeadWebhookSection() {
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const clipboard = useCopy();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -81,9 +82,7 @@ export function LeadWebhookSection() {
   }
 
   async function copy(hook: LeadWebhook): Promise<void> {
-    await navigator.clipboard.writeText(endpointFor(hook.key)).catch(() => undefined);
-    setCopiedId(hook.id);
-    setTimeout(() => setCopiedId(null), 3000);
+    await clipboard.copy(endpointFor(hook.key), hook.id);
   }
 
   return (
@@ -132,8 +131,25 @@ export function LeadWebhookSection() {
                     >
                       העתק כתובת
                     </button>
-                    {copiedId === hook.id ? (
-                      <span role="status" className="text-sm" style={{ color: "var(--color-success)" }}>✓ הועתקה</span>
+                    {/*
+                      הכתובת המלאה מוצגת ממילא בשורה מתחת, ולכן כישלון
+                      בהעתקה אינו מבוי סתום — רק צריך לומר אותו.
+                    */}
+                    {clipboard.key === hook.id && clipboard.state !== "idle" ? (
+                      <span
+                        role="status"
+                        className="text-sm"
+                        style={{
+                          color:
+                            clipboard.state === "copied"
+                              ? "var(--color-success)"
+                              : "var(--color-danger)",
+                        }}
+                      >
+                        {clipboard.state === "copied"
+                          ? "✓ הועתקה"
+                          : "הדפדפן חסם את הלוח — סמנו את הכתובת למטה והעתיקו ידנית"}
+                      </span>
                     ) : null}
                     <button
                       type="button"

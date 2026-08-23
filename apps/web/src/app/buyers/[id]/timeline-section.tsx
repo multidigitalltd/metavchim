@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPost } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { WithDictation } from "../../dictation-field";
 import { IconChat, IconDoc, IconGear, IconPhone, IconRefresh } from "../../icons";
+import { LoadError } from "../../load-error";
 import { Notice } from "../../notice";
 
 /**
@@ -108,14 +109,24 @@ export function TimelineSection({ buyerId }: { buyerId: string }) {
 
   const canEdit = can(user, "buyers.edit");
 
-  useEffect(() => {
+  /*
+   * ציר ריק מוצג כאן כמסך פתיחה מזמין („עדיין אין היסטוריה”) — וזה
+   * נכון ללקוח חדש, אבל שקר גמור על לקוח ותיק שהטעינה שלו נכשלה.
+   * המתווך מרים טלפון בלי לדעת מה נאמר בשיחה הקודמת.
+   */
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  const loadFirstPage = useCallback(() => {
+    setLoadFailed(false);
     apiGet<InteractionsPage>(`/buyers/${buyerId}/interactions`)
       .then((page) => {
         setItems(page.items);
         setNextCursor(page.nextCursor);
       })
-      .catch(() => setItems([]));
+      .catch(() => setLoadFailed(true));
   }, [buyerId]);
+
+  useEffect(loadFirstPage, [loadFirstPage]);
 
   async function loadMore(): Promise<void> {
     if (!nextCursor) return;
@@ -250,7 +261,9 @@ export function TimelineSection({ buyerId }: { buyerId: string }) {
         <Notice tone="danger">{error}</Notice>
       ) : null}
 
-      {items === null ? (
+      {loadFailed ? (
+        <LoadError message="לא הצלחנו לטעון את ההיסטוריה" onRetry={loadFirstPage} />
+      ) : items === null ? (
         <p aria-live="polite">טוען היסטוריה…</p>
       ) : items.length === 0 ? (
         /*

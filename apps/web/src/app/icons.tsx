@@ -288,13 +288,6 @@ export const IconCoins = ({ s }: IconProps) => (
   </svg>
 );
 
-export const IconCart = ({ s }: IconProps) => (
-  <svg {...svgProps(s)}>
-    <circle cx="9" cy="20" r="1.4" />
-    <circle cx="17.5" cy="20" r="1.4" />
-    <path d="M3 4h2.5l2.3 11.5h11L21 8H6.2" />
-  </svg>
-);
 
 export const IconMenu = ({ s }: IconProps) => (
   <svg {...svgProps(s)}>

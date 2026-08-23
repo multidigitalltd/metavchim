@@ -9,6 +9,7 @@ import {
   type A11yPrefs,
 } from "@/lib/a11y-prefs";
 
+
 /**
  * סנכרון העדפות הנגישות מהשרת — נקודה אחת, לכל מסך.
  *
@@ -20,6 +21,20 @@ import {
 
 /** נשלח פעם אחת לכל טעינת עמוד, ולא בכל מעבר מסך. */
 let synced = false;
+
+/**
+ * מונה דורות — עולה בכל החלפת משתמש.
+ *
+ * הבקשה ל-`/auth/profile` היא אסינכרונית, והיציאה יכולה לקרות
+ * בזמן שהיא באוויר. בלי המונה הזה התשובה **הישנה** הייתה ממשיכה
+ * לרוץ אחרי האיפוס, מחילה את ההעדפות של המשתמש היוצא ושומרת
+ * אותן שוב במטמון — כלומר הניקוי היה זמני, וההגדרות של אחד היו
+ * חוזרות במסך ההתחברות או אצל הבא אחריו (ביקורת Codex).
+ *
+ * דור נלכד כשהבקשה יוצאת ונבדק כשהיא חוזרת. תשובה מדור שאינו
+ * הנוכחי נזרקת בשקט — היא נכונה למישהו שכבר אינו כאן.
+ */
+let generation = 0;
 
 export interface ProfilePrefsResponse {
   preferences?: { a11y?: Partial<A11yPrefs> };
@@ -34,8 +49,14 @@ export interface ProfilePrefsResponse {
 export async function syncA11yFromServer(): Promise<A11yPrefs | null> {
   if (synced) return null;
   synced = true;
+  const mine = generation;
   try {
     const res = await apiGet<ProfilePrefsResponse>("/auth/profile");
+    /*
+     * החלפת משתמש קרתה בזמן שהבקשה הייתה באוויר — התשובה הזו
+     * שייכת למי שכבר יצא, והחלתה הייתה מבטלת את הניקוי.
+     */
+    if (mine !== generation) return null;
     const fromServer = res.preferences?.a11y;
     /*
      * שרת בלי העדפות = איפוס, לא "השאר מה שיש".
@@ -56,7 +77,39 @@ export async function syncA11yFromServer(): Promise<A11yPrefs | null> {
   }
 }
 
-/** איפוס הדגל — נדרש אחרי החלפת משתמש באותה טעינת עמוד. */
+/**
+ * יציאה: מחזיר את המסך לברירות המחדל **בפועל**, לא רק מתיר סנכרון הבא.
+ *
+ * הגרסה הראשונה כאן רק אפסה את הדגל, וזה לא הספיק: `router.replace`
+ * אינו טוען את הדף מחדש, `AccessibilityRuntime` נשאר מורכב
+ * ו-`useEffect([])` שלו לא רץ שוב — כלומר הפונט, הניגודיות וקו
+ * הקריאה של המשתמש היוצא נשארו על המסך, וגם המטמון המקומי נשאר
+ * (ביקורת Codex). דגל שמתיר סנכרון עתידי אינו תחליף לניקוי.
+ *
+ * הניקוי כאן ולא בכל מוקד יציאה בנפרד: שלושת המוקדים היו צריכים
+ * לזכור את אותם שלושה צעדים, ומי שיוסיף רביעי היה שוכח.
+ */
 export function resetA11ySync(): void {
   synced = false;
+  generation += 1;
+  if (typeof window === "undefined") return;
+  clearA11y();
+  applyA11y(A11Y_DEFAULTS);
+  window.dispatchEvent(new CustomEvent("mv-a11y-change", { detail: A11Y_DEFAULTS }));
+}
+
+/**
+ * כניסה: משיכה מחודשת של ההעדפות למשתמש שנכנס עכשיו.
+ *
+ * `syncA11yFromServer` הוא חד-פעמי לטעינת עמוד, ומסך ההתחברות כבר
+ * צרך את הפעם הזו — הקריאה שלו נכשלה שם כצפוי (אין Session) אבל
+ * הדגל נשאר דלוק. בלי הכפייה כאן, המשתמש שנכנס דרך `router.replace`
+ * לא היה מקבל את הגדרות הנגישות **שלו** עד רענון ידני. זהו הצד
+ * השני של אותה בעיה שהיציאה פותרת.
+ */
+export async function resyncA11yForUser(): Promise<A11yPrefs | null> {
+  synced = false;
+  // דור חדש גם כאן: בקשה שיצאה עבור המשתמש הקודם לא תיושם על זה
+  generation += 1;
+  return syncA11yFromServer();
 }

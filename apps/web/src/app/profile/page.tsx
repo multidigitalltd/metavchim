@@ -28,6 +28,7 @@ import {
 } from "@/lib/a11y-prefs";
 import { disablePush, enablePush, readPushState, type PushState } from "@/lib/push";
 import { useRequireAuth } from "@/lib/use-auth";
+import { resetA11ySync } from "@/lib/a11y-sync";
 import { clearSessionCache } from "@/lib/session-cache";
 import { ThemeToggle } from "../theme-toggle";
 import { PlanSection } from "../settings/plan-section";
@@ -167,6 +168,16 @@ export default function ProfilePage() {
     // המטמון קודם: המעטפת נשארת טעונה בין משתמשים, ובלי הניקוי
     // המשתמש הבא באותה לשונית יקבל את הזהות של הקודם עד לתפוגה
     clearSessionCache();
+    /*
+     * גם דגל סנכרון הנגישות — לא רק מטמון הזהות.
+     *
+     * `syncA11yFromServer` רץ פעם אחת לטעינת עמוד, ויציאה דרך
+     * `router.replace` אינה טוענת מחדש. בלי האיפוס המשתמש הבא
+     * באותה לשונית יורש את הפונט, הניגודיות וקו הקריאה של הקודם —
+     * בדיוק מה שהמטמון תוקן כדי למנוע (ביקורת Codex), בחצי השני
+     * של אותה בעיה.
+     */
+    resetA11ySync();
     try {
       await apiPost("/auth/logout", {});
     } finally {

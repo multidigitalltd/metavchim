@@ -36,7 +36,7 @@ interface Sent {
 }
 
 /** פתיחת טופס הפנייה ממסך אחר, עם נושא וטקסט מוכנים. */
-export const SUPPORT_OPEN_EVENT = "mv:support-open";
+const SUPPORT_OPEN_EVENT = "mv:support-open";
 
 /** מה ששולחים ב-`detail` של האירוע. */
 export interface SupportOpenDetail {

@@ -43,7 +43,7 @@ export function recordFailedRequest(status: number, method: string, path: string
 }
 
 /** שגיאת JavaScript שנתפסה. `source` = הקובץ או ה-stack, לזיהוי המקור. */
-export function recordClientError(message: string, source?: string): void {
+function recordClientError(message: string, source?: string): void {
   const text = message.slice(0, 300);
   const existing = errors.find((e) => e.message === text);
   if (existing) {

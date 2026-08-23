@@ -23,7 +23,12 @@ import {
   type CreditEconomy,
   type PayoutMode,  labelOf } from "@metavchim/shared";
 import { apiDelete, apiGet, apiPost, apiPatch, ApiError } from "@/lib/api";
-import { formatDate, shekelsToAgorot, waMeUrl } from "@/lib/format";
+import {
+  formatDate,
+  PROPERTY_TYPE_LABELS,
+  shekelsToAgorot,
+  waMeUrl,
+} from "@/lib/format";
 import { LEAD_INTENT_LABELS, LEAD_SOURCE_LABELS, LEAD_STATUS_LABELS } from "@/lib/lead-labels";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { ClickToDial } from "../../click-to-dial";
@@ -665,13 +670,16 @@ function ConvertToPropertySection({ leadId }: { leadId: string }) {
         <div>
           <label htmlFor="cp-type" className="mb-1 block text-sm">סוג נכס</label>
           <select id="cp-type" name="propertyType" className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}>
-            <option value="apartment">דירה</option>
-            <option value="garden_apartment">דירת גן</option>
-            <option value="penthouse">פנטהאוז</option>
-            <option value="private_house">בית פרטי</option>
-            <option value="duplex">דופלקס</option>
-            <option value="plot">מגרש</option>
-            <option value="commercial">מסחרי</option>
+            {/*
+              רשימה שנכתבה ביד כאן פספסה מלכתחילה חמישה סוגים
+              (דו-משפחתי, סטודיו, יחידת דיור, אחר), וכל סוג חדש היה
+              נעדר ממנה בשקט. המקור הוא הטבלה המשותפת.
+            */}
+            {Object.entries(PROPERTY_TYPE_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </select>
         </div>
         <div>

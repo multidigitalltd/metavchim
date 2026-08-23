@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { api, apiGet, apiPost, ApiError } from "@/lib/api";
 import { IconCheck, IconClock, IconUser } from "./icons";
+import { LoadError } from "./load-error";
 import { Notice } from "./notice";
 
 /**
@@ -46,10 +47,14 @@ export function EntityTasks({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /* „אין משימות פתוחות על הכרטיס הזה” אינו מה שאומרים על טעינה שנכשלה. */
+  const [loadFailed, setLoadFailed] = useState(false);
+
   const load = useCallback(() => {
+    setLoadFailed(false);
     apiGet<Task[]>(`/tasks/for/${entityType}/${entityId}`)
       .then(setTasks)
-      .catch(() => setTasks([]));
+      .catch(() => setLoadFailed(true));
   }, [entityType, entityId]);
 
   useEffect(load, [load]);
@@ -110,7 +115,11 @@ export function EntityTasks({
         <Notice tone="danger">{error}</Notice>
       ) : null}
 
-      {tasks === null ? (
+      {loadFailed ? (
+        <div className="mb-3">
+          <LoadError message="לא הצלחנו לטעון את המשימות" onRetry={load} />
+        </div>
+      ) : tasks === null ? (
         <p aria-live="polite">טוען…</p>
       ) : tasks.length === 0 ? (
         <p className="mb-3" style={{ color: "var(--color-text-muted)" }}>

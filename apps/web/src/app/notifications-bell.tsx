@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { apiGet, apiPatch } from "@/lib/api";
 import { notificationHref } from "@/lib/notification-links";
+import { can, type AuthUser } from "@/lib/use-auth";
 
 const POLL_MS = 30_000;
 
@@ -42,7 +43,13 @@ function timeAgo(iso: string): string {
   return days === 1 ? "אתמול" : `לפני ${days} ימים`;
 }
 
-export function NotificationsBell() {
+/**
+ * `user` מגיע מהמעטפת ולא מ-hook נוסף: הזהות כבר נטענה שם, וקריאה
+ * שנייה הייתה מוסיפה בקשה ומרוץ. הוא דרוש כדי לא לשלוח את הלוחץ
+ * ליעד שיחזיר לו 403 — התראות משרדיות מגיעות גם למי שאינו רשאי
+ * לפתוח את היעד שלהן (ביקורת Codex).
+ */
+export function NotificationsBell({ user }: { user: AuthUser | null }) {
   const pathname = usePathname();
   const [unread, setUnread] = useState(0);
   const [items, setItems] = useState<NotificationDto[]>([]);
@@ -135,7 +142,17 @@ export function NotificationsBell() {
             <p className="mv-notif-empty">אין התראות חדשות</p>
           ) : (
             items.map((n) => {
-              const href = notificationHref(n.entityType, n.entityId);
+              /*
+               * **כל שורה בפעמון לחיצה** (בקשת המשתמש). התראה
+               * בלי יעד ספציפי — סוג חדש, או כזו שאינה מקושרת
+               * לישות — הובילה עד כה לשום מקום: המתווך קרא
+               * „הצעת שיתוף פעולה חדשה”, לחץ, ולא קרה דבר. מסך
+               * ההתראות המלא הוא היעד הנכון שם, כי בו מוצג גם
+               * גוף ההתראה שנחתך כאן.
+               */
+              const href =
+                notificationHref(n.entityType, n.entityId, (c) => can(user, c)) ??
+                "/notifications";
               const inner = (
                 <>
                   <span
@@ -150,11 +167,10 @@ export function NotificationsBell() {
                 </>
               );
               /*
-               * התראה עם יעד היא קישור — לוחצים ומגיעים לפגישה/לליד,
-               * לא רק קוראים עליהם. הלחיצה גם מסמנת כנקראה (מיטבי:
-               * הניווט לא מחכה לסימון ולא נכשל בגללו).
+               * הלחיצה גם מסמנת כנקראה — מיטבית: הניווט אינו מחכה
+               * לסימון ואינו נכשל בגללו.
                */
-              return href ? (
+              return (
                 <Link
                   key={n.id}
                   href={href}
@@ -170,10 +186,6 @@ export function NotificationsBell() {
                 >
                   {inner}
                 </Link>
-              ) : (
-                <div key={n.id} className="mv-notif-item" style={{ opacity: n.readAt ? 0.6 : 1 }}>
-                  {inner}
-                </div>
               );
             })
           )}

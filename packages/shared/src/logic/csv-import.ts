@@ -231,6 +231,8 @@ export const PROPERTY_TYPE_MAP: Record<string, PropertyType> = {
   "דו-משפחתי": "two_family",
   סטודיו: "studio",
   "יחידת דיור": "unit",
+  "טאבו משותף": "shared_tabu",
+  "דירה מתאימה לחלוקה": "divisible_apartment",
   מגרש: "plot",
   מסחרי: "commercial",
   אחר: "other",

@@ -48,7 +48,7 @@ function numericValue(raw: string): string {
  * כמו שהשרת קורא אותם: אותה הסרה של מפרידי אלפים ואותה משמעות
  * ל"ריק". שני פירושים לאותו שדה הם באג שמתגלה רק אצל המשתמש.
  */
-export function filterNumber(raw: string): number | undefined {
+function filterNumber(raw: string): number | undefined {
   const clean = numericValue(raw);
   if (clean === "") return undefined;
   const value = Number(clean);

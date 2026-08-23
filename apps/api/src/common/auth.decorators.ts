@@ -23,7 +23,7 @@ export const RequireCapability = (
   ...capabilities: readonly [Capability, ...Capability[]]
 ) => SetMetadata(CAPABILITY_KEY, capabilities);
 
-export const ANY_AUTHENTICATED_KEY = "anyAuthenticated";
+const ANY_AUTHENTICATED_KEY = "anyAuthenticated";
 /**
  * "כל מי שמחובר, בלי יכולת מסוימת" — הצהרה מפורשת, לא השמטה.
  *

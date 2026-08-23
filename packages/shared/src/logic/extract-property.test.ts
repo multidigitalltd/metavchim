@@ -19,6 +19,152 @@ describe("extractPropertyFromTranscript — קליטת נכס בקול", () => {
     expect(fields.dealType).toBe("sale");
   });
 
+  /*
+   * הכלל הכללי `/דירה|דירת/` תופס כמעט כל תיאור, ולכן הבדיקות כאן
+   * הן על **הסדר**: סוג ספציפי שנוסף לסכימה ולא הוקדם לפניו נשמר
+   * בשקט כ-`apartment`, וההתאמות מתארות נכס אחר.
+   */
+  describe("סוגי נכס ספציפיים גוברים על „דירה” הכללית", () => {
+    it("דירה מתאימה לחלוקה אינה דירה רגילה", () => {
+      expect(
+        extractPropertyFromTranscript("דירה מתאימה לחלוקה בבני ברק, 4 חדרים")
+          .fields.propertyType,
+      ).toBe("divisible_apartment");
+      expect(
+        extractPropertyFromTranscript("דירת 5 חדרים ניתנת לחלוקה").fields
+          .propertyType,
+      ).toBe("divisible_apartment");
+    });
+
+    it("טאבו משותף אינו דירה רגילה", () => {
+      expect(
+        extractPropertyFromTranscript("דירה בטאבו משותף ברמת גן").fields
+          .propertyType,
+      ).toBe("shared_tabu");
+    });
+
+    /*
+     * „לחלוקה” לבדו מתאר גם נכסים שאינם דירה. סיווג „מגרש
+     * לחלוקה” כדירה לחלוקה משנה בשקט התאמה וייצוא.
+     */
+    it("„לחלוקה” בלי דירה אינו דירה לחלוקה", () => {
+      for (const said of [
+        "מגרש לחלוקה בבני ברק",
+        "מחסן לחלוקה",
+        /*
+         * מין דקדוקי אינו הקשר: „חנות” ו„קרקע” הן נקבה בדיוק כמו
+         * „דירה”, והניסוח המלא תופס אותן לא פחות מהקיצור.
+         */
+        "חנות מתאימה לחלוקה ברמת גן",
+        "קרקע ניתנת לחלוקה",
+      ]) {
+        expect(
+          extractPropertyFromTranscript(said).fields.propertyType,
+          said,
+        ).not.toBe("divisible_apartment");
+      }
+    });
+
+    it("„דירה לחלוקה” בקיצור עדיין מזוהה", () => {
+      expect(
+        extractPropertyFromTranscript("דירה לחלוקה בבני ברק").fields
+          .propertyType,
+      ).toBe("divisible_apartment");
+      expect(
+        extractPropertyFromTranscript("דירה מחולקת ברמת גן").fields
+          .propertyType,
+      ).toBe("divisible_apartment");
+    });
+
+    /*
+     * שלילה היא לא „פחות ביטחון” אלא ההפך הגמור. קליטה שגויה כאן
+     * גרועה מאי-זיהוי, כי היא נראית כמו הצלחה.
+     */
+    it("„לא מתאימה לחלוקה” אינה דירה לחלוקה", () => {
+      for (const said of [
+        "דירה לא מתאימה לחלוקה בבני ברק",
+        "דירת 4 חדרים אינה ניתנת לחלוקה",
+        "דירה לא מחולקת ברמת גן",
+        "דירה אינה מחולקת",
+        /* ש' החיבור ו„ללא” — ניסוחים רגילים, לא מקרי קצה */
+        "דירה שאינה מתאימה לחלוקה",
+        "דירה שאינה ניתנת לחלוקה בבני ברק",
+        "דירה ללא אפשרות לחלוקה",
+        "דירה ללא חלוקה",
+        "דירה אין אפשרות לחלוקה",
+        "דירה איננה מתאימה לחלוקה",
+      ]) {
+        expect(
+          extractPropertyFromTranscript(said).fields.propertyType,
+          said,
+        ).toBe("apartment");
+      }
+    });
+
+    /* שלילה של טאבו משותף היא אמירה על מצב קנייני הפוך. */
+    it("„לא בטאבו משותף” אינה טאבו משותף", () => {
+      for (const said of [
+        "דירה לא בטאבו משותף ברמת גן",
+        "דירה אינה בטאבו משותף",
+        "דירת 4 חדרים לא טאבו משותף",
+        /* הניסוח הרווח: מילת מצב בין השלילה לטאבו */
+        "דירה אינה רשומה בטאבו משותף",
+        "דירה לא רשומה בטאבו משותף",
+        "דירה אינה נמצאת בטאבו משותף",
+        /* אותם שני הניסוחים, בצד הזה */
+        "דירה ללא טאבו משותף",
+        "דירה שאינה רשומה בטאבו משותף",
+        "דירה שאינה בטאבו משותף",
+        "דירה איננה בטאבו משותף",
+        "דירה אין טאבו משותף",
+      ]) {
+        expect(
+          extractPropertyFromTranscript(said).fields.propertyType,
+          said,
+        ).toBe("apartment");
+      }
+    });
+
+    /*
+     * תיאור מורכב: „דירת גן בטאבו משותף” היא שניהם, והשדה יחיד.
+     * המצב הקנייני גובר, כי הוא נאמר בכוונה ומשנה מימון.
+     */
+    it("טאבו משותף וחלוקה גוברים גם על תת-סוגי דירה", () => {
+      expect(
+        extractPropertyFromTranscript("דירת גן בטאבו משותף ברמת גן").fields
+          .propertyType,
+      ).toBe("shared_tabu");
+      expect(
+        extractPropertyFromTranscript("דירת גן מתאימה לחלוקה").fields
+          .propertyType,
+      ).toBe("divisible_apartment");
+    });
+
+    /* ובלי המילים האלה — תת-הסוג נשאר כשהיה */
+    it("תת-סוגי דירה נשמרים כשלא נאמר טאבו או חלוקה", () => {
+      const cases: [string, string][] = [
+        ["דירת גן 4 חדרים בבני ברק", "garden_apartment"],
+        ["פנטהאוז ברמת גן", "penthouse"],
+        ["דופלקס בחיפה", "duplex"],
+        ["בית פרטי בהרצליה", "private_house"],
+        ["יחידת דיור בירושלים", "unit"],
+      ];
+      for (const [said, expected] of cases) {
+        expect(
+          extractPropertyFromTranscript(said).fields.propertyType,
+          said,
+        ).toBe(expected);
+      }
+    });
+
+    it("דירה רגילה נשארת דירה", () => {
+      expect(
+        extractPropertyFromTranscript("דירת 3 חדרים בפתח תקווה").fields
+          .propertyType,
+      ).toBe("apartment");
+    });
+  });
+
   it("חצאי חדרים: '3 וחצי חדרים' ו-'3.5 חדרים'", () => {
     expect(
       extractPropertyFromTranscript("3 וחצי חדרים בירושלים").fields.rooms,

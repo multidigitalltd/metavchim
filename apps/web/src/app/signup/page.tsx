@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { featureLabel, FREE_PRICE_LABEL } from "@metavchim/shared";
@@ -74,7 +74,17 @@ export default function SignupPage(): React.JSX.Element {
     { status: "idle" } | { status: "checking" } | { status: "ok"; text: string } | { status: "bad"; text: string }
   >({ status: "idle" });
 
-  useEffect(() => {
+  /*
+   * רשימה ריקה אמרה כאן „ההרשמה העצמית סגורה כרגע” — וזו הייתה גם
+   * התשובה לתקלת רשת. לקוח פוטנציאלי שקרא את זה הבין שהמוצר לא
+   * נמכר, סגר את הדף והלך. כישלון טעינה חייב להיראות כמו כישלון
+   * טעינה, עם כפתור לנסות שוב.
+   */
+  const [plansFailed, setPlansFailed] = useState(false);
+
+  const loadPlans = useCallback(() => {
+    setPlansFailed(false);
+    setPlans(null);
     apiGet<{ plans: OfferedPlan[]; priceNote: string }>("/signup/plans")
       .then((res) => {
         setPlans(res.plans);
@@ -83,8 +93,12 @@ export default function SignupPage(): React.JSX.Element {
         // לרוב המשרדים, ומי שרוצה אחר בוחר בלחיצה
         setChosen(res.plans[Math.min(1, res.plans.length - 1)]?.code ?? null);
       })
-      .catch(() => setPlans([]));
+      .catch(() => setPlansFailed(true));
   }, []);
+
+  useEffect(() => {
+    loadPlans();
+  }, [loadPlans]);
 
   async function checkCoupon(): Promise<void> {
     if (chosen === null) return;
@@ -174,7 +188,14 @@ export default function SignupPage(): React.JSX.Element {
         <Notice tone="danger" id="signup-error">{error}</Notice>
       ) : null}
 
-      {plans === null ? (
+      {plansFailed ? (
+        <p role="alert">
+          לא הצלחנו לטעון את המסלולים — זו תקלת טעינה, לא סגירה של ההרשמה.{" "}
+          <button type="button" className="underline" onClick={loadPlans}>
+            נסו שוב
+          </button>
+        </p>
+      ) : plans === null ? (
         <p aria-live="polite">טוען מסלולים…</p>
       ) : plans.length === 0 ? (
         <p role="alert">

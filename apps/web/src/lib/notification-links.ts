@@ -4,35 +4,89 @@
  * שתי רשימות נפרדות היו מתפצלות ביום שמתווסף סוג ישות: ההתראה
  * הייתה לחיצה במסך אחד ומתה בשני.
  */
-export function notificationHref(entityType?: string, entityId?: string): string | null {
-  if (!entityType || !entityId) return null;
+
+import type { Capability } from "@metavchim/shared";
+
+/**
+ * יעד ההתראה, יחד עם היכולות שנדרשות כדי לפתוח אותו.
+ *
+ * `Capability` ולא `string`: שם יכולת שגוי הוא בדיוק התקלה שהמפה
+ * הזו נועדה למנוע — הוא היה מסתיר קישור תקין ממי שכן רשאי, בלי
+ * שדבר ייכשל. הטיפוס הופך שגיאת כתיב לשגיאת קומפילציה.
+ */
+interface Target {
+  href: string;
+  /** אחת מהן מספיקה. חסר = היעד פתוח לכל מי שמחובר. */
+  needs?: readonly Capability[];
+}
+
+function targetFor(entityType: string, entityId: string): Target | null {
   switch (entityType) {
     case "property":
-      return `/properties/${entityId}`;
+      return { href: `/properties/${entityId}`, needs: ["properties.view"] };
     case "lead":
-      return `/leads/${entityId}`;
+      return { href: `/leads/${entityId}`, needs: ["leads.view_own"] };
     case "appointment":
-      return "/calendar";
+      return { href: "/calendar", needs: ["calendar.manage"] };
     case "task":
-      return "/calendar";
+      return { href: "/calendar", needs: ["calendar.manage"] };
     case "buyer":
-      return `/buyers/${entityId}`;
+      return { href: `/buyers/${entityId}`, needs: ["buyers.view_own"] };
+    /*
+     * להצעה אין מסך משלה — היא נצפית דרך כרטיס הנכס — אבל מזהה
+     * ההצעה אינו מזהה הנכס, ולכן אי אפשר לקפוץ ישירות. רשימת
+     * ההצעות היא הקרובה ביותר: ההצעה שההתראה מדברת עליה נמצאת בה.
+     */
     case "offer":
-      return null; // הצעה נצפית דרך כרטיס הנכס
+      return { href: "/offers", needs: ["offers.send"] };
+    /*
+     * שתי ההתראות האלה משרדיות (`recipientUserId` אינו נקבע), ולכן
+     * הן מגיעות גם למי שאינו רשאי לפתוח את היעד. בלי `needs` הן
+     * היו שולחות אותו לנתיב שיחזיר 403 (ביקורת Codex).
+     */
     case "coop_offer":
       // הלשונית מפורשת: בלעדיה ההתראה נחתה על "ביקושים ברשת", וההצעה
       // שההתראה דיברה עליה נראתה כאילו איננה
-      return "/collaboration?tab=incoming";
+      return { href: "/collaboration?tab=incoming" };
     case "shared_lead":
-      return "/collaboration"; // "נקלטה" מוצג בלשונית ההפניות
+      return { href: "/collaboration" }; // "נקלטה" מוצג בלשונית ההפניות
     /*
      * שיחה נבחרת בתוך הרשימה ואין לה נתיב משלה, ולכן פרמטר ולא
      * קטע נתיב. בלי זה ההתראה על סיום תמלול הייתה נוחתת על רשימת
      * השיחות בלי לבחור את השיחה שהיא מדברת עליה.
+     *
+     * שתי היכולות, כמו בשרת: שיחה תלויה בלקוח, ולקוח הוא ליד או קונה.
      */
     case "call":
-      return `/calls?call=${entityId}`;
+      return {
+        href: `/calls?call=${entityId}`,
+        needs: ["leads.view_own", "buyers.view_own"],
+      };
     default:
       return null;
   }
+}
+
+/**
+ * `null` = „אין יעד ספציפי”, וזו תשובה אמיתית ולא חוסר.
+ *
+ * הפעמון הופך אותה למסך ההתראות המלא, כדי שכל שורה בו תהיה
+ * לחיצה (בקשת המשתמש); מסך ההתראות עצמו מסתיר את הקישור, כי
+ * הפניה מהמסך אל עצמו אינה עוזרת לאיש. ההחלטה הזו שייכת לכל
+ * מסך בנפרד, ולכן היא אינה נאפית לתוך המפה.
+ *
+ * `can` — מה המשתמש רשאי. יעד שהוא אינו רשאי לפתוח אינו יעד: הוא
+ * מוחזר כ-`null` בדיוק כמו סוג ישות שאין לו מסך, כי מבחינת מי
+ * שלוחץ אין הבדל בין „אין לאן” לבין „יש לאן ותיחסם בכניסה”.
+ */
+export function notificationHref(
+  entityType: string | undefined,
+  entityId: string | undefined,
+  can: (capability: Capability) => boolean,
+): string | null {
+  if (!entityType || !entityId) return null;
+  const target = targetFor(entityType, entityId);
+  if (target === null) return null;
+  if (target.needs === undefined) return target.href;
+  return target.needs.some(can) ? target.href : null;
 }

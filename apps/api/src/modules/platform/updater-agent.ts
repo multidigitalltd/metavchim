@@ -22,7 +22,7 @@ import { loadEnv } from "../../config/env";
 const COMPOSE = "docker compose -f docker-compose.prod.yml --env-file .env.production";
 
 /** שתי הפקודות שמעדכנות את הסוכן, מלאות — להדבקה ישירה בשרת. */
-export const UPDATER_RESTART_COMMAND = `${COMPOSE} pull updater && ${COMPOSE} up -d updater`;
+const UPDATER_RESTART_COMMAND = `${COMPOSE} pull updater && ${COMPOSE} up -d updater`;
 
 /** תשובת הסוכן ↵ הודעה בעברית שאפשר לפעול לפיה. */
 export function updaterFailure(res: Response): ServiceUnavailableException {

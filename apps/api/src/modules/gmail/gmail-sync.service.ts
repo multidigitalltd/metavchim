@@ -28,7 +28,7 @@ const BATCH = 20;
 /** מספר ישראלי בתוך טקסט חופשי — כולל רווחים ומקפים באמצע. */
 const PHONE_IN_TEXT = /0(?:5\d|7\d|[23489])[\s.-]?\d{3}[\s.-]?\d{2}[\s.-]?\d{2}/u;
 
-export function extractPhone(text: string): string | null {
+function extractPhone(text: string): string | null {
   const match = PHONE_IN_TEXT.exec(text);
   if (!match) return null;
   const digits = match[0].replace(/\D/gu, "");

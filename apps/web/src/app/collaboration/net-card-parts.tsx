@@ -224,7 +224,7 @@ export function NetMeta({
  * מלפני חודש היא מודעה אחרת ממודעה מהבוקר, וכדי לדעת זאת מתאריך
  * צריך לחשב בראש.
  */
-export function relativeTime(iso: string): string {
+function relativeTime(iso: string): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "";
   const days = Math.floor((Date.now() - then) / 86_400_000);
@@ -381,13 +381,6 @@ export function NetNoMatch({
   );
 }
 
-/** מודעה שפורסמה בשבוע האחרון — הסימן היחיד שמצדיק צבע מלא בכרטיס. */
-export function isFresh(iso?: string): boolean {
-  if (iso === undefined) return false;
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return false;
-  return Date.now() - then < 7 * 86_400_000;
-}
 
 /**
  * תמונת הנכס במודעה — **ראשית גדולה, והשאר מאחורי כפתור.**

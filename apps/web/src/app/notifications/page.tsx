@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { api, apiGet } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { notificationHref } from "@/lib/notification-links";
-import { useRequireAuth } from "@/lib/use-auth";
+import { can, useRequireAuth } from "@/lib/use-auth";
+import { LoadError } from "../load-error";
 
 interface NotificationRow {
   id: string;
@@ -19,21 +20,28 @@ interface NotificationRow {
   createdAt: string;
 }
 
-/** היעד — מהמקור המשותף עם הפעמון (lib/notification-links). */
-function entityHref(n: NotificationRow): string | null {
-  return notificationHref(n.entityType, n.entityId);
-}
-
 export default function NotificationsPage() {
-  const { loading: authLoading } = useRequireAuth();
+  const { user, loading: authLoading } = useRequireAuth();
   const [items, setItems] = useState<NotificationRow[] | null>(null);
+  /*
+   * כישלון טעינה צויר כאן כ„אין התראות עדיין” — כלומר תקלת רשת
+   * נראתה בדיוק כמו שקט. מי שחיכה להתראה על ליד חדש הסיק שלא הגיע
+   * אף ליד.
+   */
+  const [failed, setFailed] = useState(false);
+
+  const load = useCallback(() => {
+    setFailed(false);
+    setItems(null);
+    apiGet<{ items: NotificationRow[] }>("/notifications?limit=50")
+      .then((res) => setItems(res.items))
+      .catch(() => setFailed(true));
+  }, []);
 
   useEffect(() => {
     if (authLoading) return;
-    apiGet<{ items: NotificationRow[] }>("/notifications?limit=50")
-      .then((res) => setItems(res.items))
-      .catch(() => setItems([]));
-  }, [authLoading]);
+    load();
+  }, [authLoading, load]);
 
   async function markAllRead() {
     await api("/notifications/read-all", { method: "PATCH" });
@@ -51,7 +59,9 @@ export default function NotificationsPage() {
         </Button>
       </div>
 
-      {items === null ? (
+      {failed ? (
+        <LoadError message="לא הצלחנו לטעון את ההתראות" onRetry={load} />
+      ) : items === null ? (
         <p aria-live="polite">טוען…</p>
       ) : items.length === 0 ? (
         <p style={{ color: "var(--color-text-muted)" }}>
@@ -60,7 +70,10 @@ export default function NotificationsPage() {
       ) : (
         <ol className="flex flex-col gap-2">
           {items.map((n) => {
-            const href = entityHref(n);
+            /* היעד — מהמקור המשותף עם הפעמון (lib/notification-links) */
+            const href = notificationHref(n.entityType, n.entityId, (c) =>
+              can(user, c),
+            );
             return (
               <li
                 key={n.id}

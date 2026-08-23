@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { collectDictation, type DictationMode, type DictationResultSegment } from "@/lib/dictation";
+import {
+  collectDictation,
+  extensionForAudioType,
+  preferredAudioFormat,
+  type DictationMode,
+  type DictationResultSegment,
+} from "@/lib/dictation";
 import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet } from "@/lib/api";
 import { IconLock, IconStop } from "./icons";
@@ -195,18 +201,27 @@ export function VoiceRecorder({
   }
 
   /**
-   * קטע אחד = הקלטת webm שלמה ועצמאית. מפעילים MediaRecorder חדש לכל
-   * קטע במקום לחתוך זרם אחד: חיתוך של זרם webm באמצע מייצר קובץ בלי
-   * כותרת שאי אפשר לפענח.
+   * קטע אחד = הקלטה שלמה ועצמאית. מפעילים MediaRecorder חדש לכל קטע
+   * במקום לחתוך זרם אחד: חיתוך של זרם באמצע מייצר קובץ בלי כותרת
+   * שאי אפשר לפענח.
+   *
+   * הפורמט נבחר ולא מונח: ספארי אינו יודע להקליט webm כלל, ולכן
+   * ההנחה הקשיחה שהייתה כאן שלחה mp4 בשם ‎.webm‎ מכל iPhone ו-iPad —
+   * ראו `preferredAudioFormat` ב-`lib/dictation.ts`.
    */
   function startSegment(stream: MediaStream): void {
     const chunks: Blob[] = [];
-    const recorder = new MediaRecorder(stream);
+    const format = preferredAudioFormat();
+    const recorder =
+      format === undefined
+        ? new MediaRecorder(stream)
+        : new MediaRecorder(stream, { mimeType: format.mimeType });
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) chunks.push(event.data);
     };
     recorder.onstop = () => {
-      const blob = new Blob(chunks, { type: "audio/webm" });
+      const actual = recorder.mimeType || chunks[0]?.type || "";
+      const blob = new Blob(chunks, ...(actual ? [{ type: actual }] : []));
       enqueueTranscription(blob);
       if (continueRef.current) {
         startSegment(stream); // ממשיכים לקטע הבא באותו זרם
@@ -283,7 +298,8 @@ export function VoiceRecorder({
     abortRef.current = controller;
     try {
       const form = new FormData();
-      form.append("file", blob, "recording.webm");
+      // הסיומת נגזרת מהפורמט שהוקלט בפועל — שירות התמלול פותח לפיה
+      form.append("file", blob, `recording.${extensionForAudioType(blob.type)}`);
       const res = await fetch(`${API_BASE}/voice-intakes/transcribe`, {
         method: "POST",
         credentials: "include",

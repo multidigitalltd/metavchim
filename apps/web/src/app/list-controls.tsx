@@ -78,7 +78,7 @@ export function SortSelect(props: {
 }
 
 /** מונה חי — מוקרא גם לקורא מסך בכל שינוי סינון */
-export function ResultsCount(props: { shown: number; total: number; noun: string }) {
+function ResultsCount(props: { shown: number; total: number; noun: string }) {
   return (
     <p aria-live="polite" className="text-sm" style={{ color: "var(--color-text-muted)" }}>
       {props.shown === props.total

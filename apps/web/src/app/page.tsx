@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { groupTasksByBucket, isTaskUrgent, taskBucket , labelOf } from "@metavchim/shared";
-import { apiGet } from "@/lib/api";
+import { apiGet, ApiError } from "@/lib/api";
 import { FIELD_LABELS, MATURITY_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
-import { useFeature } from "@/lib/use-features";
+import { useFeature, useFeaturesReady } from "@/lib/use-features";
 import { VoiceConsole } from "./voice-console";
 import { DuplicateContacts } from "./duplicate-contacts";
 import { LoadError } from "./load-error";
@@ -191,6 +191,31 @@ interface TaskRow {
 export default function DashboardPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const canVoice = useFeature("voice_intake");
+  /*
+   * שני האזורים שאינם לכל משרד ולא לכל סוכן.
+   *
+   * `featuresReady` אינו קישוט: `useFeature` מחזיר „כן” כל עוד
+   * הרשימה לא הגיעה — נכון לכפתור שלא כדאי שיקפוץ, ושגוי לבקשת
+   * רשת שתחזור 403 ותירשם באבחון. הוא חוסם **רק** את הקריאה
+   * לסוכן (`loadCoach`), ולא את הדשבורד כולו — ראו ההסבר שם.
+   */
+  const featuresReady = useFeaturesReady();
+  const hasCoach = useFeature("ai_coach");
+  /*
+   * כל מקור נתונים בדשבורד מאחורי היכולת שהשרת דורש עבורו — לא רק
+   * ההצעות. כל אחת מהיכולות האלה ניתנת לשלילה פרטנית למשתמש בודד
+   * (`capability-overrides`), ואז הנתיב מחזיר 403.
+   *
+   * בלי השערים האלה השלילה נראתה כמו נתונים: „אין פגישות מתוכננות
+   * להיום” למי שאינו רשאי לראות את היומן, ומוני נכסים/קונים/לידים
+   * שנתקעים על „…” לנצח — ואיתם `loading` שלעולם לא נגמר, שמשאיר
+   * את „מה חשוב לעשות היום” על „טוען…” לצמיתות (ביקורת Codex).
+   */
+  const canSeeOffers = can(user, "offers.send");
+  const canSeeProperties = can(user, "properties.view");
+  const canSeeBuyers = can(user, "buyers.view_own");
+  const canSeeLeads = can(user, "leads.view_own");
+  const canSeeCalendar = can(user, "calendar.manage");
   const [properties, setProperties] = useState<PropertyRow[] | null>(null);
   const [buyers, setBuyers] = useState<BuyerRow[] | null>(null);
   const [leads, setLeads] = useState<LeadRow[] | null>(null);
@@ -208,37 +233,133 @@ export default function DashboardPage() {
    */
   const [tasksFailed, setTasksFailed] = useState(false);
   const [networkFailed, setNetworkFailed] = useState(false);
+  /*
+   * אותו כלל, גם על שמונה הטעינות של הדשבורד עצמו.
+   *
+   * הן נכתבו עם `.catch(() => setX([]))`, כלומר כישלון רשת צויר
+   * כ„אפס נכסים, אפס קונים, אפס לידים” — המסך הכי מרתיע שאפשר
+   * להראות למתווך, ובלי שום רמז שמדובר בתקלה. הכלל כבר נכתב כאן
+   * למעלה עבור המשימות והרשת; זו החלת אותו כלל על השאר.
+   *
+   * דגל אחד לכל הקבוצה: הן נטענות יחד ונכשלות יחד (רשת, שרת,
+   * session שפג), ושמונה הודעות נפרדות על אותה תקלה הן רעש.
+   */
+  const [dataFailed, setDataFailed] = useState(false);
+  const batch = useRef(0);
+
+  const loadDashboard = useCallback(() => {
+    /*
+     * מונה מנות. „ניסיון חוזר” אינו מבטל את המנה הקודמת — הבקשות
+     * שלה עדיין באוויר, וכל אחת מהן עוד תכתוב למצב כשתסתיים.
+     *
+     * בלי המונה, בקשה ישנה שנכשלת **אחרי** שהניסיון החוזר הצליח
+     * מדליקה מחדש „חלק מנתוני הדשבורד לא נטענו” על מסך תקין,
+     * ותשובה ישנה שמגיעה מאוחר דורסת נתונים חדשים יותר (ביקורת
+     * Codex). רק המנה האחרונה רשאית לכתוב.
+     */
+    const mine = ++batch.current;
+    const ok =
+      <T,>(apply: (value: T) => void) =>
+      (value: T): void => {
+        if (mine !== batch.current) return;
+        apply(value);
+      };
+    setDataFailed(false);
+    /*
+     * 403 אינו כישלון טעינה — הוא תשובה.
+     *
+     * הדגל המשותף נכתב עבור תקלות (רשת, שרת, session שפג), ובלי
+     * ההבחנה הזו הוא נדלק גם על „המסלול שלך אינו כולל את זה”
+     * ו„אין לך את היכולת”. משרד במסלול הבסיסי היה רואה „חלק
+     * מנתוני הדשבורד לא נטענו” **בכל כניסה**, עם כפתור ניסיון
+     * חוזר שלעולם לא ינקה אותו — כלומר בדיוק הרעש שהמסך הזה נועד
+     * למנוע, הפוך (ביקורת Codex).
+     *
+     * שער מפורש עדיף על תפיסה בדיעבד, ולכן הבקשות המותנות גם
+     * אינן נורות מלכתחילה (ראו מטה). זו רשת הביטחון: זכאות
+     * משתנה, וכל נתיב אחר עלול לסרב מחר.
+     */
+    const fail = (err: unknown): void => {
+      if (mine !== batch.current) return;
+      if (err instanceof ApiError && err.status === 403) return;
+      setDataFailed(true);
+    };
+    if (canSeeProperties) {
+      apiGet<{ items: PropertyRow[] }>("/properties?limit=100")
+        .then(ok((r: { items: PropertyRow[] }) => setProperties(r.items)))
+        .catch(fail);
+    }
+    if (canSeeBuyers) {
+      apiGet<{ items: BuyerRow[] }>("/buyers?limit=100")
+        .then(ok((r: { items: BuyerRow[] }) => setBuyers(r.items)))
+        .catch(fail);
+      apiGet<Breakdown<"byMaturity">>("/buyers/breakdown")
+        .then(ok(setBuyerBreakdown))
+        .catch(fail);
+    }
+    if (canSeeLeads) {
+      apiGet<{ items: LeadRow[] }>("/leads?limit=100")
+        .then(ok((r: { items: LeadRow[] }) => setLeads(r.items)))
+        .catch(fail);
+      apiGet<Breakdown<"byStatus">>("/leads/breakdown")
+        .then(ok(setLeadBreakdown))
+        .catch(fail);
+    }
+    if (canSeeCalendar) {
+      const dayStart = new Date();
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+      apiGet<AppointmentRow[]>(
+        `/appointments?from=${dayStart.toISOString()}&to=${dayEnd.toISOString()}`,
+      )
+        .then(ok(setToday))
+        .catch(fail);
+    }
+    /*
+     * רשימת ההצעות דורשת `offers.send` — אותו שער שכבר קיים
+     * למשימות ולרשת מטה. היכולת מגיעה עם הזהות, שכבר המתנו לה,
+     * ולכן היא ידועה כאן ואינה משתנה תחת הרגליים.
+     */
+    if (canSeeOffers) {
+      apiGet<{ items: OfferRow[] }>("/offers")
+        .then(ok((r: { items: OfferRow[] }) => setOffers(r.items)))
+        .catch(fail);
+    }
+  }, [canSeeOffers, canSeeProperties, canSeeBuyers, canSeeLeads, canSeeCalendar]);
 
   useEffect(() => {
     if (authLoading || !user) return;
-    apiGet<{ items: PropertyRow[] }>("/properties?limit=100")
-      .then((r) => setProperties(r.items))
-      .catch(() => setProperties([]));
-    apiGet<{ items: BuyerRow[] }>("/buyers?limit=100")
-      .then((r) => setBuyers(r.items))
-      .catch(() => setBuyers([]));
-    apiGet<{ items: LeadRow[] }>("/leads?limit=100")
-      .then((r) => setLeads(r.items))
-      .catch(() => setLeads([]));
-    const dayStart = new Date();
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
-    apiGet<AppointmentRow[]>(`/appointments?from=${dayStart.toISOString()}&to=${dayEnd.toISOString()}`)
-      .then(setToday)
-      .catch(() => setToday([]));
-    apiGet<Breakdown<"byMaturity">>("/buyers/breakdown")
-      .then(setBuyerBreakdown)
-      .catch(() => setBuyerBreakdown(null));
-    apiGet<Breakdown<"byStatus">>("/leads/breakdown")
-      .then(setLeadBreakdown)
-      .catch(() => setLeadBreakdown(null));
+    loadDashboard();
+  }, [authLoading, user, loadDashboard]);
+
+  /*
+   * „הסוכן החכם” נטען בנפרד, ולא כחלק מהמנה — כי הוא היחיד שתלוי
+   * ברשימת הפיצ'רים.
+   *
+   * ## למה לא שער אחד על הכל
+   *
+   * הגרסה הקודמת חסמה את **כל** הטעינה עד ש-`featuresReady`, וזה
+   * יצר תלות הרסנית: `/nav/summary` שנכשל משאיר את הרשימה `null`
+   * לנצח, ואיתה `featuresReady` שקרי — כלומר הדשבורד היה נתקע על
+   * שלדי טעינה לצמיתות, בלי שגיאה ובלי כפתור ניסיון חוזר. תקלה
+   * במטא-דאטה של המסלול הפילה מסך שלם שאינו תלוי בה (ביקורת
+   * Codex).
+   *
+   * ההפרדה גם מונעת את הטעינה הכפולה שבגללה נוסף השער מלכתחילה:
+   * `hasCoach` שמתהפך כשהרשימה מגיעה בונה מחדש את הקריאה הזו
+   * בלבד, ולא את שש הבקשות המרכזיות.
+   */
+  const loadCoach = useCallback(() => {
+    if (!featuresReady || !hasCoach) return;
     apiGet<Recommendation[]>("/coach/recommendations")
       .then(setRecs)
-      .catch(() => setRecs([]));
-    apiGet<{ items: OfferRow[] }>("/offers")
-      .then((r) => setOffers(r.items))
-      .catch(() => setOffers([]));
-  }, [authLoading, user]);
+      .catch(() => undefined);
+  }, [featuresReady, hasCoach]);
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    loadCoach();
+  }, [authLoading, user, loadCoach]);
 
   /*
    * שני האזורים האחרונים נטענים רק למי שרשאי לראות אותם. בלי הבדיקה
@@ -276,7 +397,15 @@ export default function DashboardPage() {
   const incomplete = (properties ?? []).filter((p) => p.readinessScore < 80).slice(0, 2);
   const hotBuyers = (buyers ?? [])
     .filter((b) => b.maturity === "very_hot" || b.maturity === "hot");
-  const loading = properties === null || buyers === null || leads === null;
+  /*
+   * „טוען” רק על מקור שבאמת בדרך. מקור שנשלל אינו ממתין לכלום,
+   * ולכן ספירתו כ„טרם הגיע” הייתה משאירה את „מה חשוב לעשות היום”
+   * על „טוען…” לנצח אצל מי שאין לו את אחת משלוש היכולות.
+   */
+  const loading =
+    (canSeeProperties && properties === null) ||
+    (canSeeBuyers && buyers === null) ||
+    (canSeeLeads && leads === null);
 
   const activeProps = (properties ?? []).filter(
     (p) => p.status === undefined || ["draft", "active", "on_hold"].includes(p.status),
@@ -371,42 +500,69 @@ export default function DashboardPage() {
    * מספרים דומים, הצורה היא מה שמבדיל ביניהם לפני שקוראים מילה.
    */
   const statCards = [
-    {
-      label: "נכסים פעילים",
-      value: properties === null ? undefined : activeProps.length,
-      sub: incomplete.length > 0 ? `${incomplete.length} ממתינים להשלמת פרטים` : "כולם מוכנים לשיווק",
-      href: "/properties",
-      valueColor: undefined as string | undefined,
-      icon: <IconHome s={17} />,
-      tone: "var(--color-primary)",
-    },
-    {
-      label: "קונים חמים",
-      value: buyers === null ? undefined : hotBuyers.length,
-      sub: buyers === null ? "" : `מתוך ${buyers.length} קונים במאגר`,
-      href: "/buyers",
-      valueColor: "var(--color-danger)",
-      icon: <IconFlame s={17} />,
-      tone: "var(--color-danger)",
-    },
-    {
-      label: "הצעות ממתינות למענה",
-      value: offers === null ? undefined : pendingOffers.length,
-      sub: mullingOffer !== undefined ? `אחת נפתחה ${mullingOffer.openCount} פעמים` : "",
-      href: "/offers",
-      valueColor: undefined,
-      icon: <IconSend s={17} />,
-      tone: "var(--color-primary)",
-    },
-    {
-      label: "לידים חדשים",
-      value: leads === null ? undefined : leads.filter((l) => l.status === "new").length,
-      sub: urgentLeads.length > 0 ? `${urgentLeads.length} דורשים טיפול אנושי` : "",
-      href: "/leads",
-      valueColor: undefined,
-      icon: <IconBell s={17} />,
-      tone: "var(--color-primary)",
-    },
+    /*
+     * הקוביה נעלמת למי שאינו רשאי לראות הצעות, ולא מציגה „…” לנצח.
+     *
+     * משאירים את הבקשה מאחורי שער אבל לא את הקוביה — והיא נשארה
+     * תלויה על מצב הטעינה שלעולם לא ייגמר, עם קישור לנתיב שחוזר
+     * 403 (ביקורת Codex). „אין הרשאה” אינו „עוד רגע”.
+     */
+    ...(canSeeOffers
+      ? [
+          {
+            label: "הצעות ממתינות למענה",
+            value: offers === null ? undefined : pendingOffers.length,
+            sub: mullingOffer !== undefined ? `אחת נפתחה ${mullingOffer.openCount} פעמים` : "",
+            href: "/offers",
+            valueColor: undefined as string | undefined,
+            icon: <IconSend s={17} />,
+            tone: "var(--color-primary)",
+          },
+        ]
+      : []),
+    /* אותו כלל כמו בהצעות: מי שאינו רשאי לראות — הקוביה נעלמת. */
+    ...(canSeeProperties
+      ? [
+          {
+            label: "נכסים פעילים",
+            value: properties === null ? undefined : activeProps.length,
+            sub:
+              incomplete.length > 0
+                ? `${incomplete.length} ממתינים להשלמת פרטים`
+                : "כולם מוכנים לשיווק",
+            href: "/properties",
+            valueColor: undefined as string | undefined,
+            icon: <IconHome s={17} />,
+            tone: "var(--color-primary)",
+          },
+        ]
+      : []),
+    ...(canSeeBuyers
+      ? [
+          {
+            label: "קונים חמים",
+            value: buyers === null ? undefined : hotBuyers.length,
+            sub: buyers === null ? "" : `מתוך ${buyers.length} קונים במאגר`,
+            href: "/buyers",
+            valueColor: "var(--color-danger)" as string | undefined,
+            icon: <IconFlame s={17} />,
+            tone: "var(--color-danger)",
+          },
+        ]
+      : []),
+    ...(canSeeLeads
+      ? [
+          {
+            label: "לידים חדשים",
+            value: leads === null ? undefined : leads.filter((l) => l.status === "new").length,
+            sub: urgentLeads.length > 0 ? `${urgentLeads.length} דורשים טיפול אנושי` : "",
+            href: "/leads",
+            valueColor: undefined as string | undefined,
+            icon: <IconBell s={17} />,
+            tone: "var(--color-primary)",
+          },
+        ]
+      : []),
   ];
 
   /*
@@ -433,6 +589,16 @@ export default function DashboardPage() {
     <>
       <SetupBanner />
 
+      {/*
+        תקלת טעינה נאמרת במפורש, לפני המספרים.
+        בלי זה הדשבורד מציג אפסים אמינים למראה על נתונים שלא הגיעו.
+      */}
+      {dataFailed ? (
+        <div className="mb-4">
+          <LoadError message="חלק מנתוני הדשבורד לא נטענו" onRetry={loadDashboard} />
+        </div>
+      ) : null}
+
       {/* ברכה + תאריך — בשורת בסיס אחת, כמו בעיצוב */}
       <div className="mb-6 flex flex-wrap items-baseline gap-x-3.5 gap-y-1">
         <h1 className="m-0" style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-0.01em" }}>
@@ -458,6 +624,7 @@ export default function DashboardPage() {
       */}
       {canVoice ? <VoiceConsole /> : null}
 
+      {statCards.length > 0 ? (
       <section aria-labelledby="counts-heading" className="mb-7">
         <h2 id="counts-heading" className="mv-visually-hidden">מונים</h2>
         <dl className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
@@ -481,36 +648,48 @@ export default function DashboardPage() {
           ))}
         </dl>
       </section>
+      ) : null}
 
       {/* ---- פילוחים: איפה עומד המשרד, במבט אחד ---- */}
+      {canSeeBuyers || canSeeLeads ? (
       <section aria-labelledby="charts-heading" className="mb-7">
         <h2 id="charts-heading" className="mv-visually-hidden">פילוחי המאגר</h2>
         <div className="grid gap-3.5 lg:grid-cols-2">
-          <div className="mv-list-card px-5 py-[18px]">
-            <h3 className="m-0 mb-1 flex items-center gap-2" style={{ fontSize: 15.5, fontWeight: 800 }}>
-              <IconUsers s={16} /> בשלות הקונים
-            </h3>
-            <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
-              לחיצה על שורה פותחת את הרשימה המסוננת.
-            </p>
-            <DonutChart
-              slices={maturitySlices}
-              centerValue={buyerBreakdown === null ? "…" : String(buyerBreakdown.total)}
-              centerLabel="קונים"
-            />
-          </div>
+          {/*
+            פילוח הוא טענה על המאגר. „0 בכל פרוסה” למי שאינו רשאי
+            לראות קונים או לידים אינו „ריק” אלא תיאור שגוי — ולכן
+            הכרטיס נעלם ולא מתרוקן.
+          */}
+          {canSeeBuyers ? (
+            <div className="mv-list-card px-5 py-[18px]">
+              <h3 className="m-0 mb-1 flex items-center gap-2" style={{ fontSize: 15.5, fontWeight: 800 }}>
+                <IconUsers s={16} /> בשלות הקונים
+              </h3>
+              <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                לחיצה על שורה פותחת את הרשימה המסוננת.
+              </p>
+              <DonutChart
+                slices={maturitySlices}
+                centerValue={buyerBreakdown === null ? "…" : String(buyerBreakdown.total)}
+                centerLabel="קונים"
+              />
+            </div>
+          ) : null}
 
-          <div className="mv-list-card px-5 py-[18px]">
-            <h3 className="m-0 mb-1 flex items-center gap-2" style={{ fontSize: 15.5, fontWeight: 800 }}>
-              <IconFilter s={16} /> מצב הלידים
-            </h3>
-            <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
-              המשפך מהפנייה ועד ההמרה.
-            </p>
-            <BarChart slices={leadSlices} />
-          </div>
+          {canSeeLeads ? (
+            <div className="mv-list-card px-5 py-[18px]">
+              <h3 className="m-0 mb-1 flex items-center gap-2" style={{ fontSize: 15.5, fontWeight: 800 }}>
+                <IconFilter s={16} /> מצב הלידים
+              </h3>
+              <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                המשפך מהפנייה ועד ההמרה.
+              </p>
+              <BarChart slices={leadSlices} />
+            </div>
+          ) : null}
         </div>
       </section>
+      ) : null}
 
       <div className="grid items-start gap-6 lg:[grid-template-columns:1fr_340px]">
         {/* ---- מה חשוב לעשות היום ---- */}
@@ -596,6 +775,12 @@ export default function DashboardPage() {
 
         {/* ---- הטור הצדדי: היום ביומן + קליטה בקול ---- */}
         <div className="flex flex-col gap-4">
+          {/*
+            „אין פגישות מתוכננות להיום” היא טענה על היומן, ומי שאינו
+            רשאי לנהל יומן קיבל אותה על סמך 403 — יחד עם קישור
+            „ליומן המלא” שמוביל לנתיב שיסרב (ביקורת Codex).
+          */}
+          {canSeeCalendar ? (
           <section
             aria-labelledby="today-heading"
             className="rounded-xl border px-5 py-4"
@@ -643,6 +828,7 @@ export default function DashboardPage() {
               ))
             )}
           </section>
+          ) : null}
 
           {/*
             המשימות שלי — האזור היחיד בדשבורד שמראה מה **אני** רשמתי
@@ -651,7 +837,7 @@ export default function DashboardPage() {
             קיימת רק במסך המשימות, כלומר במסך שצריך לזכור להיכנס
             אליו. הדחופות כאן, השאר שם.
           */}
-          {can(user, "calendar.manage") ? (
+          {canSeeCalendar ? (
             <section
               aria-labelledby="my-tasks-heading"
               className="rounded-xl border px-5 py-4"

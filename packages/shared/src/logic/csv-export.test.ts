@@ -9,6 +9,7 @@ import {
   toCsv,
 } from "./csv-export.js";
 import { parseCsvRecords, parsePropertiesCsv, unsanitizeFormulaCell } from "./csv-import.js";
+import { PropertyTypeSchema } from "../schemas/property.js";
 
 describe("escapeCsvCell", () => {
   it("עוטף ערכים עם פסיק וגרשיים", () => {
@@ -71,11 +72,13 @@ describe("toCsv", () => {
     expect(rows[0]?.status).toBe("active");
   });
 
+  /*
+   * הרשימה נגזרת מהסכימה ואינה נכתבת כאן ביד: רשימה מקבילה הייתה
+   * מפספסת בשקט כל סוג נכס חדש — כלומר הבדיקה שנועדה לתפוס בדיוק
+   * את הפער הזה הייתה עוברת בלעדיו.
+   */
   it("כל סוגי הנכס בסכימה מקבלים תווית ייצוא", () => {
-    for (const type of [
-      "apartment", "garden_apartment", "penthouse", "duplex", "private_house",
-      "two_family", "studio", "unit", "plot", "commercial", "other",
-    ] as const) {
+    for (const type of PropertyTypeSchema.options) {
       expect(PROPERTY_TYPE_LABELS_HE[type], type).toBeTruthy();
     }
   });

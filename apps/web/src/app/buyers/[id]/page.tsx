@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useCallback, useEffect, useState, use } from "react";
 import Link from "next/link";
 import {
   buyerProfileCompleteness,
@@ -33,6 +33,7 @@ import { AgreementsPanel } from "../../agreements-panel";
 import { EntityNotes } from "../../entity-notes";
 import { SelectMenu } from "../../select-menu";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
+import { LoadError } from "../../load-error";
 import { Notice } from "../../notice";
 
 /**
@@ -146,6 +147,12 @@ export default function BuyerDetailPage({
   const canEditPeople = can(user, "buyers.edit");
   const [buyer, setBuyer] = useState<BuyerDetail | null>(null);
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
+  /*
+   * „אין עדיין נכסים מתאימים במאגר” הוא משפט על המאגר, לא על הרשת.
+   * כשהטעינה נכשלת הוא שולח את המתווך לחפש נכס בחוץ — או להתייאש
+   * מקונה שיש לו התאמות.
+   */
+  const [matchesFailed, setMatchesFailed] = useState(false);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState<string | null>(null);
@@ -194,11 +201,9 @@ export default function BuyerDetailPage({
     }
   }
 
-  useEffect(() => {
-    if (authLoading) return;
-    apiGet<BuyerDetail>(`/buyers/${id}`)
-      .then(setBuyer)
-      .catch(() => setError("הקונה לא נמצא"));
+  /* אותה טעינה חוזרת כמו בכרטיס הנכס — ראו ההסבר שם. */
+  const loadMatches = useCallback((): void => {
+    setMatchesFailed(false);
     apiGet<MatchRow[]>(`/buyers/${id}/matches`)
       .then((rows) => {
         setMatches(rows);
@@ -211,8 +216,16 @@ export default function BuyerDetailPage({
             .catch(() => undefined);
         }
       })
-      .catch(() => setMatches([]));
-  }, [authLoading, id]);
+      .catch(() => setMatchesFailed(true));
+  }, [id]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    apiGet<BuyerDetail>(`/buyers/${id}`)
+      .then(setBuyer)
+      .catch(() => setError("הקונה לא נמצא"));
+    loadMatches();
+  }, [authLoading, id, loadMatches]);
 
   if (error) {
     return (
@@ -735,7 +748,12 @@ export default function BuyerDetailPage({
                 נכסים ששוברים דרישת חובה אינם מופיעים
               </p>
 
-              {matches === null ? (
+              {matchesFailed ? (
+                <LoadError
+                  message="לא הצלחנו לטעון את ההתאמות"
+                  onRetry={loadMatches}
+                />
+              ) : matches === null ? (
                 <p aria-live="polite">מחשב התאמות…</p>
               ) : matches.length === 0 ? (
                 <p

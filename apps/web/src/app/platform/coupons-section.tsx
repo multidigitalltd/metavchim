@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
+import { LoadError } from "../load-error";
 import { Notice } from "../notice";
 
 /**
@@ -38,10 +39,14 @@ export function CouponsSection(): React.JSX.Element {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /* „עדיין אין קופונים” על תקלת רשת מזמין ליצור מחדש קוד שכבר קיים. */
+  const [loadFailed, setLoadFailed] = useState(false);
+
   function load(): void {
+    setLoadFailed(false);
     apiGet<{ coupons: Coupon[] }>("/platform/coupons")
       .then((res) => setCoupons(res.coupons))
-      .catch(() => setCoupons([]));
+      .catch(() => setLoadFailed(true));
   }
 
   useEffect(load, []);
@@ -196,7 +201,9 @@ export function CouponsSection(): React.JSX.Element {
         </button>
       </form>
 
-      {coupons === null ? (
+      {loadFailed ? (
+        <LoadError message="לא הצלחנו לטעון את הקופונים" onRetry={load} />
+      ) : coupons === null ? (
         <p aria-live="polite">טוען…</p>
       ) : coupons.length === 0 ? (
         <p style={{ color: "var(--color-text-muted)" }}>עדיין אין קופונים.</p>

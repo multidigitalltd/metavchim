@@ -68,7 +68,7 @@ interface RecurrenceRow {
   createdAt: Date;
 }
 
-export function ruleOf(row: {
+function ruleOf(row: {
   frequency: string;
   weekdays: number[];
   dayOfMonth: number | null;
