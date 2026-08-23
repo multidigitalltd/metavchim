@@ -10,7 +10,12 @@
  * את הראשון.
  */
 
-import type { WhatsAppButton, WhatsAppListRow } from "@metavchim/shared";
+import {
+  buttonTitle,
+  WA_MAX_REPLY_BUTTONS,
+  type WhatsAppButton,
+  type WhatsAppListRow,
+} from "@metavchim/shared";
 
 /** תשובת הסוכן: טקסט תמיד, וכפתורים כשיש מה ללחוץ. */
 export interface AgentReply {
@@ -48,6 +53,28 @@ export const confirmButtons = (token?: string): WhatsAppButton[] => [
   { action: "confirm", title: "✅ אשר", ...(token === undefined ? {} : { token }) },
   { action: "cancel", title: "❌ בטל", ...(token === undefined ? {} : { token }) },
 ];
+
+/**
+ * כפתורים או רשימה — ההכרעה שמונעת בחירה בניחוש.
+ *
+ * כפתור „תשובה מהירה” מציג כותרת בלבד; רשימה מציגה גם שורת תיאור.
+ * לכן כשהכותרות אינן מבחינות זו מזו — שני קונים בשם „משה כהן” —
+ * חייבים לרדת לרשימה, אחרת המתווך בוחר על כרטיס של מישהו אחר.
+ *
+ * ההשוואה היא על הכותרת **כפי שתוצג**: Meta מגבילה ל-20 תווים,
+ * ולכן שתי כותרות שנבדלות רק אחרי החיתוך נראות זהות על המסך
+ * (ביקורת Codex). השוואה על הטקסט הגולמי הייתה מפספסת בדיוק את
+ * המקרה הזה.
+ */
+export function choiceVariant(
+  rows: readonly WhatsAppListRow[],
+): Pick<AgentReply, "buttons" | "list"> {
+  const labels = rows.map((row) => buttonTitle(row.title));
+  const distinct = new Set(labels).size === labels.length;
+  return rows.length <= WA_MAX_REPLY_BUTTONS && distinct
+    ? { buttons: rows.map(({ description: _ignored, ...button }) => button) }
+    : { list: { label: "בחירה", rows: [...rows] } };
+}
 
 /**
  * לחיצה ⟵ המילה שהשיחה כבר יודעת לפרש. `null` = הכפתור מטופל

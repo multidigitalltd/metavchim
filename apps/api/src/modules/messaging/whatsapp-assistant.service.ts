@@ -33,6 +33,7 @@ import {
 import { helpMenu, welcomeExamples, type HelpAction } from "./assistant-help";
 import {
   buttonAsText,
+  choiceVariant,
   confirmButtons,
   SNOOZE_LABEL,
   SNOOZE_MINUTES,
@@ -543,7 +544,7 @@ export class WhatsAppAssistantService {
     const pending = chat.pending;
     if (pending) {
       if (isCancelMessage(text)) {
-        const took = await this.takePending(user.tenantId, user.id);
+        const took = await this.takePending(user.tenantId, user.id, pending.token);
         chat.pending = null;
         return { text: took ? "❌ בוטל. מה הלאה?" : "אין פעולה ממתינה לביטול." };
       }
@@ -555,7 +556,7 @@ export class WhatsAppAssistantService {
           const option = options[chosen]!;
           if (pending.proposal.risk === "read") {
             // שאילתה — הבחירה היא כל מה שחסר; הצריכה אטומית, מבצע יחיד
-            const took = await this.takePending(user.tenantId, user.id);
+            const took = await this.takePending(user.tenantId, user.id, pending.token);
             chat.pending = null;
             if (!took) return { text: "הבקשה כבר טופלה." };
             took.extraParams[idKey] = option.id;
@@ -583,7 +584,7 @@ export class WhatsAppAssistantService {
          * "אשר" שמגיעים במקביל — אחד מקבל את ההצעה ומבצע, השני מקבל
          * null ותשובה שקטה, לא ביצוע כפול (ביקורת Codex).
          */
-        const took = await this.takePending(user.tenantId, user.id);
+        const took = await this.takePending(user.tenantId, user.id, pending.token);
         chat.pending = null;
         if (!took) return { text: "הפעולה כבר בוצעה או בוטלה — אין הצעה ממתינה." };
         return { text: await this.runProposal(chat, took) };
@@ -648,22 +649,10 @@ export class WhatsAppAssistantService {
         title: option.label,
         ...(option.detail ? { description: option.detail } : {}),
       }));
-      /*
-       * כפתורים רק כששלוש התוויות שונות זו מזו.
-       *
-       * כפתור מציג כותרת בלבד, ולכן שני קונים בשם „משה כהן” היו
-       * נראים זהים — והמתווך היה בוחר בניחוש, על כרטיס של מישהו
-       * אחר (ביקורת Codex). כשיש התנגשות עוברים לרשימה, שם לכל
-       * שורה יש תיאור מבחין.
-       */
-      const labels = rows.map((row) => row.title.trim());
-      const distinct = new Set(labels).size === labels.length;
       return {
         text: `${lines.join("\n")}\n\n🔢 השיבו עם המספר המתאים · ❌ לביטול — *בטל*`,
         buttonBody: header,
-        ...(rows.length <= 3 && distinct
-          ? { buttons: rows.map(({ description: _ignored, ...button }) => button) }
-          : { list: { label: "בחירה", rows } }),
+        ...choiceVariant(rows),
       };
     }
 
@@ -865,13 +854,33 @@ export class WhatsAppAssistantService {
   /**
    * צריכת ההצעה הממתינה — UPDATE אטומי יחיד שמרוקן ומחזיר. רק מי
    * שקיבל שורה מבצע; קריאה מקבילה מקבלת null ולא מבצעת שוב.
+   *
+   * `expectToken` הוא חלק מתנאי ה-UPDATE ולא בדיקה שקדמה לו: השוואה
+   * מול הצילום שהוחזר מ-`claimMessage` אינה מספיקה, כי בין הצילום
+   * לצריכה יכול מסלול מקביל להחליף את ההצעה בשורה — ואז „אשר”
+   * להצעה א׳ היה שולף ומבצע את הצעה ב׳ (ביקורת Codex). כשהתנאי
+   * אינו מתקיים לא מתעדכנת שורה, ומי שלחץ מקבל null.
+   *
+   * בלי חותם — הצעה שנשמרה לפני שהחותמים נכנסו — נשמרת ההתנהגות
+   * הישנה, אחרת אישור להצעה כזו לא היה מתבצע לעולם.
    */
-  private async takePending(tenantId: string, userId: string): Promise<PendingState | null> {
+  private async takePending(
+    tenantId: string,
+    userId: string,
+    expectToken?: string,
+  ): Promise<PendingState | null> {
     return this.prisma.withExplicitTenant(tenantId, async (tx) => {
-      const rows = await tx.$queryRaw<{ pending: unknown }[]>`
-        UPDATE whatsapp_chats SET pending = NULL, updated_at = now()
-        WHERE tenant_id = ${tenantId} AND user_id = ${userId} AND pending IS NOT NULL
-        RETURNING pending`;
+      const rows =
+        expectToken === undefined
+          ? await tx.$queryRaw<{ pending: unknown }[]>`
+              UPDATE whatsapp_chats SET pending = NULL, updated_at = now()
+              WHERE tenant_id = ${tenantId} AND user_id = ${userId} AND pending IS NOT NULL
+              RETURNING pending`
+          : await tx.$queryRaw<{ pending: unknown }[]>`
+              UPDATE whatsapp_chats SET pending = NULL, updated_at = now()
+              WHERE tenant_id = ${tenantId} AND user_id = ${userId}
+                AND pending IS NOT NULL AND pending->>'token' = ${expectToken}
+              RETURNING pending`;
       const value = rows[0]?.pending;
       return value ? (value as PendingState) : null;
     });
