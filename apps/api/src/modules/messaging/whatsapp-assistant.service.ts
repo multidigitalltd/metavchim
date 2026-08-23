@@ -72,6 +72,14 @@ const HANDLED_KEPT = 30;
 const PROSPECT_REPLY_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 /** מעל זה התמלול מקבל הודעת „מתמלל…” — מתחת לזה התשובה עצמה מגיעה. */
 const SLOW_TRANSCRIBE_NOTICE_MS = 6_000;
+/**
+ * מה שנאמר כשההצעה שהמתווך פעל עליה כבר אינה הממתינה.
+ *
+ * שתיקה כאן הייתה גרועה במיוחד: הוא לחץ או ענה, לא קרה כלום, והוא
+ * אינו יודע אם הפעולה בוצעה או לא.
+ */
+const STALE_PROPOSAL_TEXT =
+  "ההצעה שהכפתור הזה שייך לה כבר אינה ממתינה — היא בוצעה, בוטלה, או הוחלפה בבקשה חדשה. כתבו לי מה לעשות ואכין אותה מחדש.";
 /** המפתחות שההצעה פותרת לבחירת רשומה — כמו ב-AgentController. */
 const ID_KEYS = ["buyerId", "propertyId", "taskId", "cardId", "leadId"] as const;
 
@@ -271,7 +279,7 @@ export class WhatsAppAssistantService {
     ) {
       await this.sender.sendText(
         msg.fromWaId,
-        "ההצעה שהכפתור הזה שייך לה כבר אינה ממתינה — היא בוצעה, בוטלה, או הוחלפה בבקשה חדשה. כתבו לי מה לעשות ואכין אותה מחדש.",
+        STALE_PROPOSAL_TEXT,
         { replyTo: msg.externalId },
       );
       return;
@@ -581,19 +589,41 @@ export class WhatsAppAssistantService {
             took.extraParams[idKey] = option.id;
             return { text: await this.runProposal(chat, took) };
           }
-          pending.extraParams[idKey] = option.id;
-          pending.awaiting = "confirm";
-          // חותם חדש: הכפתורים החדשים הם היחידים התקפים מכאן
-          pending.token = ulid();
+          /*
+           * המעבר בחירה ⟵ אישור נכתב **בשורה עצמה**, מותנה בחותם
+           * הישן, ולא רק בזיכרון.
+           *
+           * שינוי בזיכרון שנשמר אחר כך בכתיבה לא מותנית היה דורס
+           * הצעה חדשה שמסלול מקביל הספיק לשמור בין הצילום לשמירה —
+           * וההצעה שהמתווך זה עתה קיבל הייתה נמחקת (ביקורת Codex).
+           * `keepStoredPending` דולק בשני המקרים: מכאן והלאה מה
+           * שבשורה הוא המקור, ואין טעם לכתוב אותו שוב.
+           */
+          const next: PendingState = {
+            ...pending,
+            extraParams: { ...pending.extraParams, [idKey]: option.id },
+            awaiting: "confirm",
+            // חותם חדש: הכפתורים החדשים הם היחידים התקפים מכאן
+            token: ulid(),
+          };
+          const advanced = await this.advancePending(
+            user.tenantId,
+            user.id,
+            pending.token,
+            next,
+          );
+          chat.keepStoredPending = true;
+          if (!advanced) return { text: STALE_PROPOSAL_TEXT };
+          chat.pending = next;
           const chosenBody = [
             `נבחר: ${option.label}${option.detail ? ` (${option.detail})` : ""}.`,
             "",
-            this.describeProposal(pending.proposal),
+            this.describeProposal(next.proposal),
           ].join("\n");
           return {
             text: `${chosenBody}\n\n✅ לביצוע — *אשר* · ❌ לביטול — *בטל*`,
             buttonBody: chosenBody,
-            buttons: confirmButtons(pending.token),
+            buttons: confirmButtons(next.token),
           };
         }
       }
@@ -902,6 +932,36 @@ export class WhatsAppAssistantService {
               RETURNING pending`;
       const value = rows[0]?.pending;
       return value ? (value as PendingState) : null;
+    });
+  }
+
+  /**
+   * החלפת ההצעה הממתינה באחרת — מותנית בחותם הישן.
+   *
+   * זהו אותו כלל של `takePending`, לצד השני: מי שמקדם הצעה מקדם
+   * את *ההצעה שהוא ראה*, ולא את מה שמסלול מקביל הספיק לשים במקומה.
+   * `false` = ההצעה הוחלפה, ואין מה לקדם.
+   */
+  private async advancePending(
+    tenantId: string,
+    userId: string,
+    expectToken: string | undefined,
+    next: PendingState,
+  ): Promise<boolean> {
+    const value = next as unknown as Prisma.InputJsonValue;
+    return this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      const rows =
+        expectToken === undefined
+          ? await tx.$queryRaw<{ id: string }[]>`
+              UPDATE whatsapp_chats SET pending = ${value}, updated_at = now()
+              WHERE tenant_id = ${tenantId} AND user_id = ${userId} AND pending IS NOT NULL
+              RETURNING id`
+          : await tx.$queryRaw<{ id: string }[]>`
+              UPDATE whatsapp_chats SET pending = ${value}, updated_at = now()
+              WHERE tenant_id = ${tenantId} AND user_id = ${userId}
+                AND pending IS NOT NULL AND pending->>'token' = ${expectToken}
+              RETURNING id`;
+      return rows.length > 0;
     });
   }
 
