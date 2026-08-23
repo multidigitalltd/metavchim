@@ -125,6 +125,38 @@ describe("extractPropertyFromTranscript — קליטת נכס בקול", () => {
       }
     });
 
+    /*
+     * תיאור מורכב: „דירת גן בטאבו משותף” היא שניהם, והשדה יחיד.
+     * המצב הקנייני גובר, כי הוא נאמר בכוונה ומשנה מימון.
+     */
+    it("טאבו משותף וחלוקה גוברים גם על תת-סוגי דירה", () => {
+      expect(
+        extractPropertyFromTranscript("דירת גן בטאבו משותף ברמת גן").fields
+          .propertyType,
+      ).toBe("shared_tabu");
+      expect(
+        extractPropertyFromTranscript("דירת גן מתאימה לחלוקה").fields
+          .propertyType,
+      ).toBe("divisible_apartment");
+    });
+
+    /* ובלי המילים האלה — תת-הסוג נשאר כשהיה */
+    it("תת-סוגי דירה נשמרים כשלא נאמר טאבו או חלוקה", () => {
+      const cases: [string, string][] = [
+        ["דירת גן 4 חדרים בבני ברק", "garden_apartment"],
+        ["פנטהאוז ברמת גן", "penthouse"],
+        ["דופלקס בחיפה", "duplex"],
+        ["בית פרטי בהרצליה", "private_house"],
+        ["יחידת דיור בירושלים", "unit"],
+      ];
+      for (const [said, expected] of cases) {
+        expect(
+          extractPropertyFromTranscript(said).fields.propertyType,
+          said,
+        ).toBe(expected);
+      }
+    });
+
     it("דירה רגילה נשארת דירה", () => {
       expect(
         extractPropertyFromTranscript("דירת 3 חדרים בפתח תקווה").fields

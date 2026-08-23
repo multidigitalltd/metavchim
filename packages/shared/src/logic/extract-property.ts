@@ -273,14 +273,27 @@ export function extractPropertyFromTranscript(
   const DIVISIBLE =
     /דיר(?:ה|ת)[^.,]{0,40}?(?:מתאימה לחלוקה|ניתנת לחלוקה|לחלוקה|מחולקת)/u;
 
+  /*
+   * הסדר הוא ההכרעה, כי השדה יחיד ורק ערך אחד נשמר.
+   *
+   * טאבו משותף וחלוקה **לפני** תת-סוגי הדירה, ולא רק לפני „דירה”
+   * הכללית: „דירת גן בטאבו משותף” נתפסה כדירת גן, והמצב הקנייני
+   * — זה שקובע מימון וקהל קונים — נעלם בשקט (ביקורת Codex).
+   *
+   * ההכרעה לטובתם ולא לטובת תת-הסוג נשענת על מה שהמתווך אמר: „דירת
+   * גן” הוא תיאור שגרתי, ואילו „טאבו משותף” ו„מתאימה לחלוקה”
+   * נאמרים רק כשמסמנים אותם בכוונה. המסומן נושא יותר מידע מהשגרתי,
+   * ובשדה שמכיל ערך אחד הוא זה ששווה לשמור. התמלול המלא נשמר
+   * ממילא בתיאור השיווקי, ולכן „דירת גן” אינו אובד לגמרי.
+   */
   const typeMap: [RegExp, PropertyFields["propertyType"], RegExp?][] = [
+    [DIVISIBLE, "divisible_apartment", NOT_DIVISIBLE],
+    [/טאבו משותף|טאבו שיתופי/u, "shared_tabu", NOT_SHARED_TABU],
     [/פנטהאוז/u, "penthouse"],
     [/דירת גן/u, "garden_apartment"],
     [/דופלקס/u, "duplex"],
     [/בית פרטי|קוטג/u, "private_house"],
     [/יחידת דיור/u, "unit"],
-    [DIVISIBLE, "divisible_apartment", NOT_DIVISIBLE],
-    [/טאבו משותף|טאבו שיתופי/u, "shared_tabu", NOT_SHARED_TABU],
     [/דירה|דירת/u, "apartment"],
   ];
   for (const [re, type, unless] of typeMap) {
