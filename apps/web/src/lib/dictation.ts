@@ -348,15 +348,34 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
        */
       recognition.stop();
       /*
-       * רשת ביטחון: מנוע שאינו יורה `onend` היה משאיר את הכפתורים
-       * במצב „מקליט” לנצח. שנייה וחצי היא הרבה מעבר לזמן שכרום לוקח,
-       * ועדיין קצרה מספיק כדי לא להיראות תקוע.
+       * רשת ביטחון למנוע שאינו יורה `onend` — אחרת הכפתורים נשארים
+       * על „מקליט” לנצח ואי אפשר להכתיב שוב.
+       *
+       * ## שתי טעויות שהיו בגרסה הראשונה של השעון הזה (ביקורת Codex)
+       *
+       * **הוא סיים את הסבב בלי לנתק את המנוע.** איפוס ה-ref אינו
+       * מבטל את הזיהוי ואינו מסיר את המאזינים, ולכן תוצאה סופית
+       * שהגיעה אחרי שהשעון פעל נחתה על סבב שכבר „נגמר” — בדיוק
+       * הכפילות שה-PR הזה מתקן. לכן השעון **מנתק** קודם: בלי
+       * מאזינים אין תוצאה מאוחרת, והסיום בטוח.
+       *
+       * **הוא היה קצר מדי.** מנוע שנשען על רשת יכול לסגור משפט
+       * לאחר יותר משנייה וחצי, וניתוק בזמן כזה היה בולע את המשפט
+       * האחרון בשקט. עשר שניות הן הרבה מעבר לכל סגירה סבירה, ועדיין
+       * גבול ברור למנוע תקוע. איבוד טקסט גרוע מכפתור שנתקע.
        */
+      if (endGuardRef.current !== null) clearTimeout(endGuardRef.current);
       endGuardRef.current = setTimeout(() => {
         endGuardRef.current = null;
-        recognitionRef.current = null;
+        const stale = recognitionRef.current;
+        if (stale !== null) {
+          stale.onresult = null;
+          stale.onend = null;
+          stale.onerror = null;
+          recognitionRef.current = null;
+        }
         setRecording(null);
-      }, 1500);
+      }, 10_000);
       return;
     }
     const recorder = recorderRef.current;
