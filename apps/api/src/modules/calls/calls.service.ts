@@ -3,7 +3,6 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { ulid } from "ulid";
 import {
   assertContactAccess,
-  orphanContactIds,
   isOrphanContact,
   seesAllContacts,
   visibleContactIds,
@@ -183,45 +182,65 @@ export class CallsService {
        * חוזר דרך הענף הזה, אחרת שיחה שנרשמה כשהמודול היה פתוח הייתה
        * שורדת את חסימתו (ביקורת Codex).
        *
-       * הצמצום נעשה **לפני** ה-take ולא אחריו: סינון של עמוד שכבר
-       * נחתך מקצר אותו, וסוכן שרשם `limit` שיחות חדשות על מודול
-       * שנחסם היה מקבל יומן ריק בזמן ששיחות מותרות ישנות יותר
-       * קיימות (ביקורת Codex).
+       * ## למה SQL גולמי דווקא כאן
        *
-       * העלות חסומה במי שרשם: ה-`distinct` רץ על השיחות של המשתמש
-       * בלבד, ורק על אנשי קשר שאינם גלויים לו ממילא — כמעט תמיד
-       * קבוצה ריקה, ואז אין בכלל בדיקת יתמות.
+       * שלושת התנאים חייבים להיות **בשאילתה אחת עם ה-LIMIT**:
+       * סינון אחרי החיתוך מקצר את העמוד, וחישוב היתמות מראש דורש
+       * לשלוף את כל אנשי הקשר שהמשתמש רשם עליהם — קבוצה שגדלה עם
+       * ההיסטוריה וממילא נכנסת ל-`IN` (שתי ביקורות Codex, שתי
+       * גרסאות שלי).
+       *
+       * `NOT EXISTS` עונה על שתיהן: המסד מכריע יתמות לשורה בזמן
+       * הסריקה, ועוצר ב-`LIMIT`. אין רשימת מזהים בזיכרון ואין
+       * פרמטרים שגדלים עם המשרד.
+       *
+       * זה **לא** מעקף RLS: `withTenant` פתחה טרנזקציה והזריקה
+       * `app.tenant_id` לאותו חיבור, והשאילתה הזו רצה בתוכה —
+       * הפוליסות חלות עליה כמו על כל `tx.*`. זהו אותו דפוס
+       * שב-`exclusivity.service.ts`: SQL גולמי בוחר מזהים לפי סדר,
+       * ו-Prisma שולפת את השורות עצמן.
        */
-      let orphans: string[] = [];
+      let allowedIds: string[] | null = null;
       if (visible !== null) {
-        const mine = await tx.call.findMany({
-          where: {
-            tenantId,
-            ...narrow,
-            createdBy: userId,
-            contactId: { not: null, notIn: visible },
-          },
-          select: { contactId: true },
-          distinct: ["contactId"],
-        });
-        const candidates = mine.map((row) => row.contactId!);
-        orphans = [...(await orphanContactIds(tx, tenantId, candidates))];
+        const ordered = await tx.$queryRaw<{ id: string }[]>`
+          SELECT c.id
+            FROM calls c
+           WHERE c.tenant_id = ${tenantId}
+             AND (
+                  c.contact_id = ANY(${visible}::char(26)[])
+               OR (c.created_by = ${userId} AND c.contact_id IS NULL)
+               OR (c.created_by = ${userId}
+                   AND c.contact_id IS NOT NULL
+                   AND NOT EXISTS (SELECT 1 FROM buyers b
+                                    WHERE b.tenant_id = c.tenant_id
+                                      AND b.contact_id = c.contact_id
+                                      AND b.deleted_at IS NULL)
+                   AND NOT EXISTS (SELECT 1 FROM leads l
+                                    WHERE l.tenant_id = c.tenant_id
+                                      AND l.contact_id = c.contact_id)
+                   AND NOT EXISTS (SELECT 1 FROM properties p
+                                    WHERE p.tenant_id = c.tenant_id
+                                      AND p.owner_contact_id = c.contact_id
+                                      AND p.deleted_at IS NULL))
+             )
+             AND (${query.outcome ?? null}::text IS NULL OR c.outcome = ${query.outcome ?? null})
+             AND (${query.leadId ?? null}::char(26) IS NULL OR c.lead_id = ${query.leadId ?? null})
+             AND (${query.contactId ?? null}::char(26) IS NULL OR c.contact_id = ${query.contactId ?? null})
+             AND (${query.id ?? null}::char(26) IS NULL OR c.id = ${query.id ?? null})
+             AND (${query.recordedOnly === true} = false OR c.recording_key IS NOT NULL)
+           ORDER BY c.occurred_at DESC
+           LIMIT ${query.limit}
+        `;
+        allowedIds = ordered.map((row) => row.id);
+        if (allowedIds.length === 0) return [];
       }
 
       const allowed = await tx.call.findMany({
-        where: {
-          tenantId,
-          ...narrow,
-          ...(visible === null
-            ? {}
-            : {
-                OR: [
-                  { contactId: { in: visible } },
-                  { createdBy: userId, contactId: null },
-                  { createdBy: userId, contactId: { in: orphans } },
-                ],
-              }),
-        },
+        where:
+          allowedIds === null
+            ? { tenantId, ...narrow }
+            : // הסינון כבר הוכרע למעלה; כאן רק שליפת השורות לפי מזהה
+              { tenantId, id: { in: allowedIds } },
         orderBy: { occurredAt: "desc" },
         take: query.limit,
       });

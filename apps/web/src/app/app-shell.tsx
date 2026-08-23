@@ -258,19 +258,25 @@ const ICONS = {
  *
  * נתיב שאינו כאן (דשבורד, הדרכות, פרופיל) אינו שייך לאף מודול.
  */
-const NAV_MODULE: Record<string, string> = {
-  "/properties": "properties",
-  "/buyers": "buyers",
-  "/leads": "leads",
-  "/calls": "leads",
-  "/matches": "matches",
-  "/offers": "offers",
-  "/calendar": "calendar",
-  "/tasks": "calendar",
-  "/collaboration": "collaboration",
-  "/reports": "reports",
-  "/settings": "admin",
-  "/setup": "admin",
+const NAV_MODULE: Record<string, readonly string[]> = {
+  "/properties": ["properties"],
+  "/buyers": ["buyers"],
+  "/leads": ["leads"],
+  /*
+   * שיחות שייכות לשני מודולים: שיחה תלויה בלקוח, ולקוח הוא ליד או
+   * קונה. סיווג לליד בלבד הוריד את הפריט מהסרגל למי שמודול הלידים
+   * חסום אצלו — אף שהמסך פתוח לו בזכות הקונים, והוא הגיע אליו רק
+   * דרך קישור עמוק (ביקורת Codex).
+   */
+  "/calls": ["leads", "buyers"],
+  "/matches": ["matches"],
+  "/offers": ["offers"],
+  "/calendar": ["calendar"],
+  "/tasks": ["calendar"],
+  "/collaboration": ["collaboration"],
+  "/reports": ["reports"],
+  "/settings": ["admin"],
+  "/setup": ["admin"],
 };
 
 /**
@@ -479,9 +485,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     icon: ReactNode,
     end?: ReactNode,
   ): ReactNode => {
-    // מודול חסום — הפריט יורד מהסרגל, ולא מוצג ומוביל ל-403
-    const module = NAV_MODULE[href];
-    if (module !== undefined && (counts?.blockedModules ?? []).includes(module)) return null;
+    /*
+     * מודול חסום — הפריט יורד מהסרגל, ולא מוצג ומוביל ל-403. פריט
+     * ששייך לכמה מודולים יורד רק כששולליהם **כולם** חסומים: די
+     * במודול אחד פתוח כדי שיהיה שם מה לראות.
+     */
+    const modules = NAV_MODULE[href];
+    const blocked = counts?.blockedModules ?? [];
+    if (modules !== undefined && modules.every((m) => blocked.includes(m))) return null;
     const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
     return (
       <Link

@@ -571,7 +571,14 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
     title: "שיחות אחרונות",
     when: "שאלה על שיחות טלפון שהתקבלו או בוצעו.",
     examples: ["מי התקשר אליי היום", "תראה לי את השיחות האחרונות", "אילו שיחות פספסתי"],
+    /*
+     * שיחה תלויה בלקוח, ולקוח יכול להיות ליד או קונה — בדיוק כמו
+     * ב-`show_card` וב-`play_recording`, ובדיוק כמו נתיבי ה-REST של
+     * השיחות. מי שמודול הלידים חסום אצלו עדיין רשאי לשמוע על
+     * השיחות של הקונים שלו (ביקורת Codex).
+     */
     capability: "leads.view_own",
+    capabilityAlt: "buyers.view_own",
     risk: "read",
     fields: [],
   },

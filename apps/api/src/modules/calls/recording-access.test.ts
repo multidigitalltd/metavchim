@@ -308,46 +308,42 @@ describe("גישה להקלטת שיחה", () => {
       createdAt: new Date(now),
     }));
 
-    type Row = (typeof rows)[number];
-    const inList = (value: string | null, list: readonly string[]): boolean =>
-      value !== null && list.includes(value);
-    /** רק הצורות שהשאילתה בונה בפועל. */
-    const matches = (row: Row, where: Record<string, unknown>): boolean => {
-      const or = where.OR as { contactId?: unknown; createdBy?: string }[] | undefined;
-      if (or === undefined) return true;
-      return or.some((clause) => {
-        if (clause.createdBy !== undefined && clause.createdBy !== row.createdBy) return false;
-        if (clause.contactId === null) return row.contactId === null;
-        const spec = clause.contactId as { in: string[] };
-        return inList(row.contactId, spec.in);
-      });
-    };
+    /*
+     * הלקוחות הגלויים והחיים, כפי שהם יושבים במסד של הפיקסצ׳ר.
+     * ה-`$queryRaw` המדומה מחשב מהם את אותה הכרעה שה-SQL מחשב —
+     * „שלי, או שאני רשמתי ואין לו בעלים” — ומחיל את ה-LIMIT
+     * **אחריה**. זה בדיוק מה שנבדק: העמוד נחתך על שורות מותרות.
+     *
+     * הנוסח עצמו נבדק מול מסד אמיתי בלבד; כאן נבדקת התכונה שנשברה
+     * — שהעמוד אינו מתקצר (ביקורת Codex).
+     */
+    const visibleContacts = new Set(["01MINE"]);
+    const liveContacts = new Set(["01MINE", "01BLOCKED"]);
+    let sawLimit: unknown = null;
 
     const tx = {
+      $queryRaw: async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+        sawLimit = values[values.length - 1];
+        const limit = typeof sawLimit === "number" ? sawLimit : rows.length;
+        return [...rows]
+          .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())
+          .filter(
+            (row) =>
+              (row.contactId !== null && visibleContacts.has(row.contactId)) ||
+              (row.createdBy === "01ME" && row.contactId === null) ||
+              (row.createdBy === "01ME" &&
+                row.contactId !== null &&
+                !liveContacts.has(row.contactId)),
+          )
+          .slice(0, limit)
+          .map((row) => ({ id: row.id }));
+      },
       call: {
-        findMany: async (args: {
-          where: Record<string, unknown>;
-          take?: number;
-          distinct?: string[];
-        }) => {
-          if (args.distinct !== undefined) {
-            // שאילתת המועמדים: מה שרשמתי על לקוחות שאינם גלויים לי
-            const spec = args.where.contactId as { notIn: string[] };
-            const seen = new Set<string>();
-            for (const row of rows) {
-              if (row.createdBy !== args.where.createdBy) continue;
-              if (row.contactId === null || spec.notIn.includes(row.contactId)) continue;
-              seen.add(row.contactId);
-            }
-            return [...seen].map((contactId) => ({ contactId }));
-          }
-          const kept = [...rows]
-            .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())
-            .filter((row) => matches(row, args.where));
-          return args.take === undefined ? kept : kept.slice(0, args.take);
+        findMany: async ({ where }: { where: { id?: { in: string[] } } }) => {
+          const ids = where.id?.in ?? [];
+          return rows.filter((row) => ids.includes(row.id));
         },
       },
-      // הקונה שלי גלוי; הליד חי, ולכן אינו יתום
       buyer: { findMany: async () => [{ contactId: "01MINE" }] },
       lead: { findMany: async () => [{ contactId: "01BLOCKED" }] },
       property: { findMany: async () => [] },
@@ -362,6 +358,8 @@ describe("גישה להקלטת שיחה", () => {
     );
 
     const page = await asAgent(["buyers.view_own"], "01ME", () => service.list({ limit: 2 }));
+    // התקרה הועברה לשאילתה ולא הוחלה אחריה
+    expect(sawLimit).toBe(2);
     expect(page.map((call) => call.id)).toEqual(["01C2", "01C1"]);
   });
 

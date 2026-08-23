@@ -705,6 +705,24 @@ export class WhatsAppAssistantService {
     }
 
     const candidates = proposal.candidates;
+    /*
+     * רשימה ריקה = אין במה לבחור, ולכן אין מה לבצע.
+     *
+     * המסך חוסם את האישור במצב הזה; כאן זה נבדק רק כש-`length > 0`,
+     * ולכן „תראה לי את הכרטיס המלא” בלי שם היה מריץ מיד את פעולת
+     * הקריאה — או מציע אישור על פעולת כתיבה — ורק אז נופל על „לא
+     * נבחר כרטיס”. שני הצרכנים של אותה הכרעה חייבים לקרוא אותה אותו
+     * דבר (ביקורת Codex).
+     */
+    if (candidates && candidates.options.length === 0) {
+      chat.pending = null;
+      return {
+        text:
+          candidates.reason === "unsaid"
+            ? `לא הבנתי ${candidates.label}. כתבו לי את השם ואמשיך מכאן.`
+            : `לא מצאתי רשומה מתאימה — ${candidates.label}. אפשר לנסח אחרת או לבדוק את השם.`,
+      };
+    }
     if (candidates && candidates.options.length > 0) {
       const token = ulid();
       chat.pending = { transcript: text, proposal, awaiting: "choice", extraParams: {}, token };
