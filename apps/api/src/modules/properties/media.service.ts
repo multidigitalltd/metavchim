@@ -5,6 +5,7 @@ import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
 import { PrismaService } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
+import { ListingsService } from "../collaboration/listings.service";
 
 /**
  * תמונות נכס (docs/03 — property_media): העלאה דרך ה-API בלבד עם ולידציית
@@ -57,7 +58,32 @@ export class MediaService {
     private readonly storage: StorageService,
     private readonly audit: AuditService,
     private readonly outbox: OutboxService,
+    // תמונה שהשתנתה משנה את המודעה ברשת — ראו `syncNetworkListing`
+    private readonly listings: ListingsService,
   ) {}
+
+  /**
+   * רענון המודעה ברשת אחרי שינוי בתמונות.
+   *
+   * הפרסום ברשת נושא **צילום** של התמונות ולא הפניה חיה אליהן, כדי
+   * שהמודעה תשרוד מחיקת נכס. הצילום נכתב בפרסום, ועד כה שום דבר
+   * במסלול התמונות לא רענן אותו: העלאת תמונה אינה עריכת נכס, ולכן
+   * `PropertiesService.resyncForProperty` לא רץ. נכס שפורסם לרשת
+   * לפני שהועלו לו תמונות — הסדר הטבעי, כי מפרסמים מיד אחרי
+   * הקליטה — נשאר בפיד בלי תמונה, וגם העלאת התמונות אחר כך לא
+   * שינתה זאת (דיווח המשתמש).
+   *
+   * best-effort, כמו בעריכת נכס: התמונה כבר הועלתה (או נמחקה),
+   * וכשל זמני בסנכרון אינו הופך פעולה שהצליחה ל"נכשלה" — הצילום
+   * יתרענן בשינוי הבא.
+   */
+  private async syncNetworkListing(propertyId: string): Promise<void> {
+    try {
+      await this.listings.resyncForProperty(propertyId);
+    } catch {
+      // הצילום יתרענן בשינוי הבא — כמו בעריכת הנכס עצמו
+    }
+  }
 
   /**
    * מחיקת אובייקט עם רשת ביטחון: כשל זמני לא נבלע — נרשם אירוע Outbox
@@ -142,6 +168,8 @@ export class MediaService {
       await this.deleteObjectDurably(s3Key);
       throw error;
     }
+
+    await this.syncNetworkListing(propertyId);
 
     return {
       id,
@@ -228,6 +256,8 @@ export class MediaService {
         ) AS "exists"`;
       return { s3Key: row.s3Key, referencedByOffer: referencing[0]?.exists ?? false };
     });
+    // התמונה כבר אינה של הנכס, ולכן היא אינה אמורה להישאר במודעה
+    await this.syncNetworkListing(propertyId);
     if (referencedByOffer) return;
     // מחיקת האובייקט אחרי הטרנזקציה — כשל זמני מנותב לניסיון חוזר עמיד
     // דרך Outbox → תור low; לעולם לא רשומה שמצביעה לכלום.
@@ -258,6 +288,11 @@ export class MediaService {
         entityId: propertyId,
       });
     });
+    /*
+     * הסדר הוא מה שקובע מה התמונה הראשית במודעה, ולכן שינוי סדר
+     * הוא שינוי במודעה — לא רק בכרטיס הנכס.
+     */
+    await this.syncNetworkListing(propertyId);
   }
 
   async updateAltText(propertyId: string, mediaId: string, altText: string): Promise<void> {

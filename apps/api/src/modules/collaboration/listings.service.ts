@@ -66,6 +66,14 @@ import { readCustomFeatures, rowToFields } from "../properties/property.mapper";
 const COORD_PRECISION = 100;
 
 /**
+ * כמה תמונות נכנסות למודעה ברשת.
+ *
+ * מודעה אינה גלריה, וההגבלה שומרת גם על גודל התשובה בפיד — הפיד
+ * מחזיר עשרות מודעות בבת אחת.
+ */
+const MAX_LISTING_PHOTOS = 5;
+
+/**
  * דיוק המיקום שהרשת מקבלת.
  *
  * שתי ספרות אחרי הנקודה ≈ קילומטר. מספיק כדי שאזור חיפוש של קונה
@@ -200,6 +208,37 @@ export class ListingsService {
     };
   }
 
+  /**
+   * מפתחות התמונות של הנכס, לפי סדר התצוגה.
+   *
+   * נפרד מ-`snapshot`: התמונות חיות בטבלה אחרת, וקריאה למסד בתוך
+   * פונקציה שאמורה להיות המרה טהורה הייתה מסתירה שאילתה במקום שאיש
+   * לא מחפש אותה.
+   *
+   * `image` בלבד — מסמכים ותוכניות אינם חלק ממה שהרשת רואה.
+   * `MAX_LISTING_PHOTOS` הראשונות: מודעה אינה גלריה, וההגבלה שומרת
+   * גם על גודל התשובה בפיד.
+   *
+   * **הפונקציה משותפת לפרסום ולרענון בכוונה.** קודם היא הייתה כתובה
+   * בתוך `publish` בלבד, ולכן `resyncForProperty` — שרץ בכל עריכת
+   * נכס — כתב מחדש את כל הצילום *חוץ* מהתמונות. נכס שפורסם לפני
+   * שהועלו לו תמונות נשאר בפיד בלי תמונה **לתמיד**, ואף פעולה
+   * במערכת לא יכלה לתקן את זה חוץ מהורדה ופרסום מחדש.
+   */
+  private async photoKeysFor(
+    tx: TenantTx,
+    tenantId: string,
+    propertyId: string,
+  ): Promise<string[]> {
+    const photos = await tx.propertyMedia.findMany({
+      where: { tenantId, propertyId, kind: "image" },
+      orderBy: { sortOrder: "asc" },
+      take: MAX_LISTING_PHOTOS,
+      select: { s3Key: true },
+    });
+    return photos.map((p) => p.s3Key);
+  }
+
   /** פרסום נכס לרשת. */
   async publish(
     propertyId: string,
@@ -217,21 +256,7 @@ export class ListingsService {
       });
       if (!property) throw new NotFoundException("נכס לא נמצא");
 
-      /*
-       * התמונות נשלפות כאן ולא ב-`snapshot`: הן חיות בטבלה נפרדת,
-       * וקריאה למסד בתוך פונקציה שאמורה להיות המרה טהורה הייתה
-       * מסתירה שאילתה במקום שאיש לא מחפש אותה.
-       *
-       * `image` בלבד — מסמכים ותוכניות אינם חלק ממה שהרשת רואה.
-       * חמש הראשונות לפי סדר התצוגה: מודעה אינה גלריה, וההגבלה
-       * שומרת גם על גודל התשובה בפיד.
-       */
-      const photos = await tx.propertyMedia.findMany({
-        where: { tenantId, propertyId, kind: "image" },
-        orderBy: { sortOrder: "asc" },
-        take: 5,
-        select: { s3Key: true },
-      });
+      const photoKeys = await this.photoKeysFor(tx, tenantId, propertyId);
       /*
        * נכס שנמכר או ירד משיווק אינו מתפרסם. בלי הבדיקה הזו הרשת
        * הייתה מציגה נכסים שאי אפשר לקנות, ומשרד שפונה עליהם לומד
@@ -268,7 +293,7 @@ export class ListingsService {
           // הבעלות על התנאים — ראו `assertListingOwner`
           createdBy: TenantContext.current().userId,
           notes: note?.trim() || null,
-          photoKeys: photos.map((p) => p.s3Key),
+          photoKeys,
           ...this.snapshot(property),
         },
       });
@@ -450,7 +475,17 @@ export class ListingsService {
         where: { id: listing.id },
         // חלוקת העמלה והתיאור **אינם** נדרסים: הם נכתבו בפרסום
         // עצמו ואינם נגזרים מהנכס.
-        data: this.snapshot(property),
+        data: {
+          ...this.snapshot(property),
+          /*
+           * גם התמונות. קודם הן נכתבו בפרסום בלבד, ולכן מודעה של
+           * נכס שפורסם לפני שהועלו לו תמונות נשארה בפיד בלי תמונה
+           * — הכרטיס שהמשרד רואה אצל עצמו ובוודאי הכרטיס שהצד השני
+           * רואה. שום עריכה לא תיקנה את זה, כי הרענון דילג בדיוק על
+           * השדה הזה (דיווח המשתמש).
+           */
+          photoKeys: await this.photoKeysFor(tx, tenantId, propertyId),
+        },
       });
     });
   }
