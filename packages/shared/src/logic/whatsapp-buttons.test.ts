@@ -27,8 +27,16 @@ describe("encodeButtonId / decodeButtonId", () => {
     expect(decodeButtonId("mv:delete_everything")).toBeNull();
   });
 
-  it("שומר ארגומנט שמכיל נקודתיים", () => {
-    expect(decodeButtonId("mv:cmd:show:today")).toEqual({ action: "cmd", arg: "show:today" });
+  it("נושא חותם הצעה לצד הארגומנט", () => {
+    expect(decodeButtonId(encodeButtonId("confirm", undefined, "T7"))).toEqual({
+      action: "confirm",
+      token: "T7",
+    });
+    expect(decodeButtonId(encodeButtonId("pick", "2", "T7"))).toEqual({
+      action: "pick",
+      arg: "2",
+      token: "T7",
+    });
   });
 });
 

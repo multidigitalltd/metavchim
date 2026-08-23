@@ -48,17 +48,34 @@ export interface WhatsAppButton {
   action: WhatsAppButtonAction;
   /** ארגומנט קצר (מספר או מפתח) — נכנס למזהה שחוזר בלחיצה */
   arg?: string;
+  /**
+   * חותם ההצעה שהכפתור שייך לה.
+   *
+   * בלעדיו לחיצה על „אשר” בהודעה ישנה מבצעת את ההצעה ה*נוכחית*:
+   * המתווך התעלם מהצעה, ביקש משהו אחר, ואז לחץ בטעות על הכפתור
+   * הישן שגלל אליו — והמערכת ביצעה בקשה שהוא לא הסתכל עליה
+   * (ביקורת Codex). הצד המקבל משווה ודוחה חותם שאינו תואם.
+   */
+  token?: string;
   title: string;
 }
 
-export function encodeButtonId(action: WhatsAppButtonAction, arg?: string): string {
-  return arg === undefined ? `${ID_PREFIX}:${action}` : `${ID_PREFIX}:${action}:${arg}`;
+export function encodeButtonId(
+  action: WhatsAppButtonAction,
+  arg?: string,
+  token?: string,
+): string {
+  return [ID_PREFIX, action, arg ?? "", token ?? ""].join(":").replace(/:+$/u, "");
+}
+
+export interface DecodedButton {
+  action: WhatsAppButtonAction;
+  arg?: string;
+  token?: string;
 }
 
 /** null = לא מזהה שלנו (או פעולה שאיננו מכירים) — יטופל כטקסט רגיל. */
-export function decodeButtonId(
-  id: string,
-): { action: WhatsAppButtonAction; arg?: string } | null {
+export function decodeButtonId(id: string): DecodedButton | null {
   const parts = id.split(":");
   if (parts[0] !== ID_PREFIX || parts.length < 2) return null;
   const action = parts[1];
@@ -71,8 +88,13 @@ export function decodeButtonId(
   ) {
     return null;
   }
-  const arg = parts.slice(2).join(":");
-  return arg === "" ? { action } : { action, arg };
+  const arg = parts[2] ?? "";
+  const token = parts.slice(3).join(":");
+  return {
+    action,
+    ...(arg === "" ? {} : { arg }),
+    ...(token === "" ? {} : { token }),
+  };
 }
 
 /**
@@ -108,7 +130,7 @@ export function replyButtonsPayload(
         buttons: buttons.slice(0, WA_MAX_REPLY_BUTTONS).map((button) => ({
           type: "reply",
           reply: {
-            id: encodeButtonId(button.action, button.arg),
+            id: encodeButtonId(button.action, button.arg, button.token),
             title: buttonTitle(button.title),
           },
         })),
@@ -146,7 +168,7 @@ export function listPayload(
         sections: [
           {
             rows: rows.slice(0, WA_MAX_LIST_ROWS).map((row) => ({
-              id: encodeButtonId(row.action, row.arg),
+              id: encodeButtonId(row.action, row.arg, row.token),
               title: buttonTitle(row.title),
               // Meta מגבילה גם אותה; 72 היא התקרה המתועדת
               ...(row.description === undefined || row.description === ""

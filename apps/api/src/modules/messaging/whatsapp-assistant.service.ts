@@ -90,6 +90,15 @@ interface PendingState {
   transcript: string;
   proposal: AgentProposal;
   awaiting: "confirm" | "choice";
+  /**
+   * חותם ההצעה — נכנס למזהי הכפתורים שלה.
+   *
+   * הודעה בוואטסאפ נשארת בצ'אט לנצח, וכפתוריה נשארים לחיצים. בלי
+   * החותם לחיצה על „אשר” בהצעה מלפני שעה הייתה מבצעת את ההצעה
+   * שממתינה *עכשיו* — בקשה אחרת לגמרי, שהמתווך לא הסתכל עליה
+   * (ביקורת Codex).
+   */
+  token?: string;
   /** בחירות שכבר נעשו (מזהה מועמד) — מעבר לשדות ההצעה */
   extraParams: Record<string, unknown>;
 }
@@ -245,6 +254,19 @@ export class WhatsAppAssistantService {
       return;
     }
 
+    if (
+      button !== null &&
+      (button.action === "confirm" || button.action === "cancel" || button.action === "pick") &&
+      this.staleClick(chat.pending, button.token)
+    ) {
+      await this.sender.sendText(
+        msg.fromWaId,
+        "ההצעה שהכפתור הזה שייך לה כבר אינה ממתינה — היא בוצעה, בוטלה, או הוחלפה בבקשה חדשה. כתבו לי מה לעשות ואכין אותה מחדש.",
+        { replyTo: msg.externalId },
+      );
+      return;
+    }
+
     const asText = button === null ? null : buttonAsText(button.action, button.arg);
     const spoken = asText === null ? await this.extractText(msg) : { text: asText };
     if ("reply" in spoken && spoken.reply !== undefined) {
@@ -278,6 +300,17 @@ export class WhatsAppAssistantService {
       }
     }
     await this.sender.sendText(msg.fromWaId, reply.text, { replyTo: msg.externalId });
+  }
+
+  /**
+   * לחיצה על כפתור של הצעה שכבר אינה הממתינה — נדחית בהסבר.
+   *
+   * שתיקה כאן הייתה גרועה במיוחד: המתווך לחץ, לא קרה כלום, והוא
+   * אינו יודע אם הפעולה בוצעה או לא.
+   */
+  private staleClick(pending: PendingState | null, token?: string): boolean {
+    if (token === undefined) return false; // כפתור בלי חותם (פקודה/השתקה)
+    return pending === null || pending.token !== token;
   }
 
   /** השתקה רגעית של העדכונים היזומים — הסורק מדלג עליה. */
@@ -530,6 +563,8 @@ export class WhatsAppAssistantService {
           }
           pending.extraParams[idKey] = option.id;
           pending.awaiting = "confirm";
+          // חותם חדש: הכפתורים החדשים הם היחידים התקפים מכאן
+          pending.token = ulid();
           const chosenBody = [
             `נבחר: ${option.label}${option.detail ? ` (${option.detail})` : ""}.`,
             "",
@@ -538,7 +573,7 @@ export class WhatsAppAssistantService {
           return {
             text: `${chosenBody}\n\n✅ לביצוע — *אשר* · ❌ לביטול — *בטל*`,
             buttonBody: chosenBody,
-            buttons: confirmButtons(),
+            buttons: confirmButtons(pending.token),
           };
         }
       }
@@ -591,7 +626,8 @@ export class WhatsAppAssistantService {
 
     const candidates = proposal.candidates;
     if (candidates && candidates.options.length > 0) {
-      chat.pending = { transcript: text, proposal, awaiting: "choice", extraParams: {} };
+      const token = ulid();
+      chat.pending = { transcript: text, proposal, awaiting: "choice", extraParams: {}, token };
       const options = candidates.options.slice(0, 9);
       const header = `*${proposal.title}* — ${candidates.label}:`;
       const lines = [header];
@@ -608,19 +644,36 @@ export class WhatsAppAssistantService {
       const rows: WhatsAppListRow[] = options.map((option, i) => ({
         action: "pick",
         arg: String(i + 1),
+        token,
         title: option.label,
         ...(option.detail ? { description: option.detail } : {}),
       }));
+      /*
+       * כפתורים רק כששלוש התוויות שונות זו מזו.
+       *
+       * כפתור מציג כותרת בלבד, ולכן שני קונים בשם „משה כהן” היו
+       * נראים זהים — והמתווך היה בוחר בניחוש, על כרטיס של מישהו
+       * אחר (ביקורת Codex). כשיש התנגשות עוברים לרשימה, שם לכל
+       * שורה יש תיאור מבחין.
+       */
+      const labels = rows.map((row) => row.title.trim());
+      const distinct = new Set(labels).size === labels.length;
       return {
         text: `${lines.join("\n")}\n\n🔢 השיבו עם המספר המתאים · ❌ לביטול — *בטל*`,
         buttonBody: header,
-        ...(rows.length <= 3
+        ...(rows.length <= 3 && distinct
           ? { buttons: rows.map(({ description: _ignored, ...button }) => button) }
           : { list: { label: "בחירה", rows } }),
       };
     }
 
-    const state: PendingState = { transcript: text, proposal, awaiting: "confirm", extraParams: {} };
+    const state: PendingState = {
+      transcript: text,
+      proposal,
+      awaiting: "confirm",
+      extraParams: {},
+      token: ulid(),
+    };
 
     // שאילתת קריאה בלי שרשור ובלי שאלה פתוחה — עונים מיד, בלי טקס אישור
     if (
@@ -636,7 +689,7 @@ export class WhatsAppAssistantService {
     return {
       text: `${description}\n\n✅ לביצוע — *אשר* · ❌ לביטול — *בטל* · ✏️ לתיקון פשוט כתבו אותו`,
       buttonBody: `${description}\n\n✏️ לתיקון — פשוט כתבו מה לשנות`,
-      buttons: confirmButtons(),
+      buttons: confirmButtons(state.token),
     };
   }
 

@@ -43,13 +43,10 @@ export const BUTTON_COMMANDS: Record<string, string> = {
   today: "מה יש לי היום?",
 };
 
-export const confirmButtons = (): WhatsAppButton[] => [
-  { action: "confirm", title: "✅ אשר" },
-  { action: "cancel", title: "❌ בטל" },
-];
-
-export const cancelButtons = (): WhatsAppButton[] => [
-  { action: "cancel", title: "❌ בטל" },
+/** החותם נשלח עם שני הכפתורים — גם ביטול של הצעה ישנה הוא טעות. */
+export const confirmButtons = (token?: string): WhatsAppButton[] => [
+  { action: "confirm", title: "✅ אשר", ...(token === undefined ? {} : { token }) },
+  { action: "cancel", title: "❌ בטל", ...(token === undefined ? {} : { token }) },
 ];
 
 /**
