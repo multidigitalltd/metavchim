@@ -8,6 +8,7 @@ import {
   extractPropertyFromTranscript,
   interpretJsonSchema,
   InterpretResponseSchema,
+  mayUseAction,
   narrowParams,
   routeVoiceCommand,
   stripCommandPrefix,
@@ -88,7 +89,7 @@ export class AgentInterpretService {
    */
   allowedActions(): AgentActionDef[] {
     const ctx = TenantContext.current();
-    return AGENT_ACTIONS.filter((action) => ctx.capabilities.has(action.capability));
+    return AGENT_ACTIONS.filter((action) => mayUseAction(action, ctx.capabilities));
   }
 
   async interpret(

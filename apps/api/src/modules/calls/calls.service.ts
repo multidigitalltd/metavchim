@@ -148,6 +148,15 @@ export class CallsService {
      * שדיברו איתו אתמול (ביקורת Codex).
      */
     contactId?: string;
+    /**
+     * רק שיחות שיש להן הקלטה.
+     *
+     * אותו היגיון כמו `contactId`, ומאותה סיבה: „ההקלטה האחרונה”
+     * היא ההקלטה האחרונה, לא „השיחה האחרונה אם במקרה הוקלטה”. לקוח
+     * עם עשר שיחות חדשות בלי הקלטה היה מקבל „אין הקלטה זמינה” בזמן
+     * שההקלטה קיימת, שורה אחת מתחת לתקרה (ביקורת Codex).
+     */
+    recordedOnly?: boolean;
     limit: number;
   }): Promise<CallDto[]> {
     const { tenantId, userId } = TenantContext.current();
@@ -159,6 +168,7 @@ export class CallsService {
           ...(query.outcome ? { outcome: query.outcome } : {}),
           ...(query.leadId ? { leadId: query.leadId } : {}),
           ...(query.contactId ? { contactId: query.contactId } : {}),
+          ...(query.recordedOnly ? { recordingKey: { not: null } } : {}),
           ...(visible === null
             ? {}
             : { OR: [{ contactId: { in: visible } }, { createdBy: userId }] }),

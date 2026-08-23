@@ -41,6 +41,7 @@ import {
   type AgentReply,
 } from "./assistant-buttons";
 import { formatCard } from "./assistant-card";
+import { historySummary, summarizeData } from "./assistant-results";
 import { prospectReplyText } from "./prospect-reply";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 
@@ -898,16 +899,11 @@ export class WhatsAppAssistantService {
         params,
         /*
          * זיכרון השיחה נשלח לפרומפט של המודל בתור הבא, ולכן הוא
-         * **אינו** התשובה שהמתווך ראה.
-         *
-         * התשובה כוללת מעכשיו טלפונים, אימיילים, הערות ותקצירי
-         * שיחות — כל מה ש-`redactForInsight` נבנה כדי לא לייצא.
-         * שמירתה כמות שהיא הייתה מעקפת אותו בדלת האחורית ומייצאת
-         * נתוני CRM שנשלפו מהמסד (ביקורת Codex). כאן נשמרת שורת
-         * המצב בלבד — „נמצאו 3 קונים” — שהיא כל מה שהתור הבא צריך
-         * כדי להבין המשך כמו „תקבע לראשון סיור”.
+         * **אינו** התשובה שהמתווך ראה: שורת המצב והשמות לפי הסדר,
+         * בלי טלפונים, אימיילים, הערות ותקצירי שיחות. `historySummary`
+         * מסביר למה בדיוק כך ולא פחות ולא יותר.
          */
-        resultSummary: primary.message.slice(0, 600),
+        resultSummary: historySummary(primary.message, primary.data),
       },
     ];
     return { text: lines.join("\n"), ...(audio === undefined ? {} : { audio }) };
@@ -1155,41 +1151,3 @@ function errorMessage(error: unknown): string {
   return "שגיאה לא צפויה";
 }
 
-/**
- * שמות התוצאות לפי הסדר — כמו במסך הקולי: זה מה שמאפשר "תתקשר
- * לראשון מהם" בהודעה הבאה, וזה גם מה שנשמר בזיכרון השיחה.
- */
-function summarizeData(data: unknown): string {
-  const lines: string[] = [];
-  const collect = (items: unknown): void => {
-    if (!Array.isArray(items)) return;
-    for (const item of items) {
-      if (lines.length >= 5 || typeof item !== "object" || item === null) return;
-      const record = item as Record<string, unknown>;
-      const label = record["name"] ?? record["title"] ?? record["marketingTitle"];
-      if (typeof label !== "string" || label === "") continue;
-      /*
-       * הטלפון נאמר לצד השם, ולא נבלע.
-       *
-       * קודם נאספה **רק** התווית, ולכן „מה הטלפון של משה כהן?”
-       * נענה ב„בין התוצאות: משה כהן” — בלי מספר, תמיד. המתווך הסיק
-       * שהמערכת לא מוצאת את הטלפון, בזמן שהוא הגיע מהשרת ונמחק
-       * ברינדור. הסוכן נבנה כדי לחסוך כניסה לדשבורד, ורשימת שמות
-       * בלי מספרים מחייבת בדיוק אותה.
-       *
-       * `contactPhone` הוא השם שפעולות השיחה משתמשות בו.
-       */
-      const phone = record["phone"] ?? record["contactPhone"];
-      lines.push(
-        typeof phone === "string" && phone !== "" ? `${label} · ${phone}` : label,
-      );
-    }
-  };
-  if (Array.isArray(data)) collect(data);
-  else if (typeof data === "object" && data !== null) {
-    for (const value of Object.values(data as Record<string, unknown>)) collect(value);
-  }
-  if (lines.length === 0) return "";
-  // שורה לכל תוצאה: מספר טלפון בתוך משפט רץ אי אפשר להעתיק בנוחות
-  return `בין התוצאות, לפי הסדר:\n${lines.map((line) => `• ${line}`).join("\n")}`;
-}

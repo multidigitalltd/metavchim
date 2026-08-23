@@ -80,6 +80,22 @@ export interface AgentActionDef {
   /** דוגמאות בעברית מדוברת. מודל שרואה ניסוח אמיתי מדייק בסדר גודל. */
   examples: readonly string[];
   capability: Capability;
+  /**
+   * יכולת שנייה שגם היא **מספיקה** לפתיחת הפעולה.
+   *
+   * לרוב המכריע של הפעולות יש מודול אחד, ולשדה הזה אין מה לעשות
+   * בהן. היוצא מן הכלל הוא פעולה שמזהה את הרשומה לפי מה שנאמר
+   * ולא לפי סוגה: „תראה לי את הכרטיס של משה” יכול להתברר כקונה
+   * או כליד, והשואל אינו יודע לומר מראש. הצהרה על יכולת אחת בלבד
+   * חסמה שם משתמשים חוקיים לגמרי — מי שיש לו רק לידים לא יכול היה
+   * לבקש כרטיס, ומי שיש לו רק קונים לא יכול היה לבקש הקלטה
+   * (ביקורת Codex).
+   *
+   * זהו שער **הכניסה** בלבד, ולא ההיתר לרשומה שנבחרה: מיד אחרי
+   * הזיהוי `cardTarget` בודק שוב את היכולת שמתאימה לסוג שנפתר,
+   * ולכן ההרחבה כאן אינה מרחיבה שום גישה בפועל.
+   */
+  capabilityAlt?: Capability;
   risk: AgentRisk;
   fields: readonly AgentFieldSpec[];
   /**
@@ -569,6 +585,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
       "כל הפרטים של שרה",
     ],
     capability: "buyers.view_own",
+    capabilityAlt: "leads.view_own",
     risk: "read",
     fields: [F_CARD_PHRASE],
   },
@@ -582,6 +599,7 @@ export const AGENT_ACTIONS: readonly AgentActionDef[] = [
       "שלח לי את ההקלטה של שרה",
     ],
     capability: "leads.view_own",
+    capabilityAlt: "buyers.view_own",
     risk: "read",
     fields: [F_CARD_PHRASE],
   },
@@ -923,4 +941,20 @@ export function agentFieldLabel(actionId: string, key: string): string {
  */
 export function isReadOnlyAction(id: string): boolean {
   return agentAction(id)?.risk === "read";
+}
+
+/**
+ * שער הכניסה לפעולה — היכולת שהיא מצהירה עליה, או החלופה שלה.
+ *
+ * פונקציה אחת ולא שלוש בדיקות מפוזרות: הרשימה שהמודל רואה, השער
+ * לפני הביצוע והרשימה שנשלחת לפרומפט חייבים להסכים ביניהם. שתי
+ * מהן שנשארו על `has(action.capability)` בזמן שהשלישית התעדכנה היו
+ * מייצרות בדיוק את מה שהמשתמש חווה כשרירותי: פעולה שמוצעת ונדחית.
+ */
+export function mayUseAction(
+  action: AgentActionDef,
+  capabilities: { has(capability: Capability): boolean },
+): boolean {
+  if (capabilities.has(action.capability)) return true;
+  return action.capabilityAlt !== undefined && capabilities.has(action.capabilityAlt);
 }

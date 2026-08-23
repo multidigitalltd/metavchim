@@ -3,6 +3,7 @@ import {
   AGENT_ACTIONS,
   agentAction,
   jerusalemDayRange,
+  mayUseAction,
   type BuyerRequirements,
   type PropertyFields,
 } from "@metavchim/shared";
@@ -104,7 +105,7 @@ export class AgentExecuteService {
      * מצהיר עליה אינה מספיקה — היא של הנתיב, לא של מה שהתבקש בו.
      */
     const ctx = TenantContext.current();
-    if (!ctx.capabilities.has(action.capability)) {
+    if (!mayUseAction(action, ctx.capabilities)) {
       throw new ForbiddenException(`אין לך הרשאה ל${action.title}`);
     }
 
@@ -234,7 +235,7 @@ export class AgentExecuteService {
        * עצמו הציע.
        */
       const allowedTitles = AGENT_ACTIONS.filter((a) =>
-        TenantContext.current().capabilities.has(a.capability),
+        mayUseAction(a, TenantContext.current().capabilities),
       )
         .map((a) => a.title)
         .join(", ");
@@ -524,8 +525,12 @@ export class AgentExecuteService {
         ? (await this.buyers.getById(id)).contact.id
         : (await this.leads.getById(id)).lead.contact.id;
 
-    const calls = await this.callsForContact(contactId);
-    const recorded = calls.find((call) => call.hasRecording);
+    /*
+     * שאילתה נפרדת ולא `find` על השיחות של הכרטיס: התקרה חייבת
+     * לחול על השיחות **המוקלטות**, אחרת עשר שיחות חדשות בלי הקלטה
+     * מסתירות את ההקלטה שקיימת מתחתן.
+     */
+    const [recorded] = await this.calls.list({ contactId, recordedOnly: true, limit: 1 });
     if (!recorded) {
       return { message: "אין הקלטה זמינה לשיחות עם הלקוח הזה" };
     }
