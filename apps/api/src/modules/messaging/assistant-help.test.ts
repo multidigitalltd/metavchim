@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { helpMenu, type HelpAction } from "./assistant-help";
+import { helpMenu, welcomeExamples, type HelpAction } from "./assistant-help";
 import { isHelpMessage } from "./assistant-lang";
 
 const action = (id: string, title: string, example: string): HelpAction => ({
@@ -51,5 +51,33 @@ describe("helpMenu", () => {
   it("מתעלם מפעולה שאינה בשום קבוצה — בלי לשבור את התפריט", () => {
     const menu = helpMenu([action("unknown_future_action", "משהו חדש", "דוגמה")]);
     expect(menu).toContain("אין לך הרשאות");
+  });
+});
+
+describe("welcomeExamples", () => {
+  it("מלמד רק פקודות שמותרות למשתמש", () => {
+    // צפייה בלבד: אסור שההכרות תלמד „תוסיף קונה” שייחסם לו
+    const viewer = [action("find_buyers", "חיפוש קונים", "מי מחפש בגבעתיים")];
+    expect(welcomeExamples(viewer)).toEqual(["מי מחפש בגבעתיים"]);
+  });
+
+  it("מגוון בין שאלה, הוספה ומבט על היום — עד שלוש", () => {
+    const examples = welcomeExamples([
+      action("show_tasks", "משימות", "מה המשימות שלי"),
+      action("create_buyer", "קונה חדש", "תוסיף קונה משה"),
+      action("find_buyers", "חיפוש קונים", "מי מחפש בגבעתיים"),
+      action("show_schedule", "יומן", "מה יש לי מחר"),
+    ]);
+    expect(examples).toEqual(["מי מחפש בגבעתיים", "תוסיף קונה משה", "מה יש לי מחר"]);
+  });
+
+  it("משתמש גם בפעולה שאינה ברשימת ההעדפה כשאין אחרת", () => {
+    expect(welcomeExamples([action("share_buyer", "שיתוף", "תשתף את משה לרשת")])).toEqual([
+      "תשתף את משה לרשת",
+    ]);
+  });
+
+  it("מחזיר ריק כשאין פעולות — ההכרות מסתדרת בלי דוגמאות", () => {
+    expect(welcomeExamples([])).toEqual([]);
   });
 });

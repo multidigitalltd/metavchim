@@ -28,7 +28,7 @@ import {
   isHelpMessage,
   waPhoneVariants,
 } from "./assistant-lang";
-import { helpMenu } from "./assistant-help";
+import { helpMenu, welcomeExamples, type HelpAction } from "./assistant-help";
 import { prospectReplyText } from "./prospect-reply";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 
@@ -143,14 +143,13 @@ export class WhatsAppAssistantService {
     }
 
     /*
-     * „נקרא” + „מקליד…” לפני כל עבודה.
+     * „נקרא” מיד — אבל בלי „מקליד…” עדיין.
      *
-     * סבב מלא (תמלול, הבנה, שליפה) אורך עשרות שניות, ועד עכשיו הצ'אט
-     * היה דומם לחלוטין כל אותו זמן — מה שנראה בדיוק כמו מערכת שלא
-     * קיבלה את ההודעה, ומזמין שליחה חוזרת. הסימון יוצא במקביל ואינו
-     * מעכב דבר; כישלון שלו לעולם אינו מונע את התשובה.
+     * סימון ההקלדה נשאר על המסך עד 25 שניות, ולכן על מסלול שאינו
+     * עונה — כפול של Meta, משרד מושהה — הוא היה „מקליד” תשובה שלא
+     * תגיע לעולם (ביקורת Codex). הוא נדלק רק אחרי שברור שיש תשובה.
      */
-    void this.sender.markRead(msg.externalId, true);
+    void this.sender.markRead(msg.externalId);
 
     // שערי החשבון — אותם כללים כמו התחברות לדשבורד
     if (tenantSuspended(user.tenant)) {
@@ -190,26 +189,30 @@ export class WhatsAppAssistantService {
     const chat = await this.claimMessage(user.tenantId, user.id, msg.externalId);
     if (chat === null) return;
 
+    // מכאן ואילך תמיד תצא תשובה — עכשיו „מקליד…” אומר אמת
+    void this.sender.markRead(msg.externalId, true);
+
+    const context = await this.buildContext(user);
+    const allowed = TenantContext.run(context, () => this.interpreter.allowedActions());
+
     /*
      * הודעה ראשונה אי־פעם בצ'אט הזה — הכרות קצרה לפני התשובה.
      *
      * המתווך שהמנוי שלו הופעל אינו יודע מה מותר לבקש ובאיזה ניסוח,
-     * וניסיון ראשון שנכשל הוא בדרך כלל גם האחרון. „ראשונה” נמדד לפי
-     * מזהי ההודעות שטופלו: בהודעה הראשונה יש בדיוק אחד — זה שנתפס
-     * עכשיו. נשלחת בנפרד ולפני העיבוד, כדי שתגיע מיד.
+     * וניסיון ראשון שנכשל הוא בדרך כלל גם האחרון. הדוגמאות נגזרות
+     * מהפעולות שמותרות *לו* — צפייה בלבד שמקבלת „תוסיף קונה” לומדת
+     * בדיוק את הפקודה שתיחסם לה (ביקורת Codex). „ראשונה” נמדד לפי
+     * מזהי ההודעות שטופלו: בהודעה הראשונה יש בדיוק אחד.
      */
     if (chat.handledIds.length <= 1) {
-      await this.sender.sendText(msg.fromWaId, welcomeText(user.name));
+      await this.sender.sendText(msg.fromWaId, welcomeText(user.name, allowed));
     }
-
-    const context = await this.buildContext(user);
 
     // „עזרה” — מהקטלוג, בלי קריאת מודל ובלי סיכוי להזכיר פעולה חסומה
     if (msg.type === "text" && isHelpMessage(msg.text ?? "")) {
-      const menu = TenantContext.run(context, () =>
-        helpMenu(this.interpreter.allowedActions(), firstName(user.name)),
-      );
-      await this.sender.sendText(msg.fromWaId, menu, { replyTo: msg.externalId });
+      await this.sender.sendText(msg.fromWaId, helpMenu(allowed, firstName(user.name)), {
+        replyTo: msg.externalId,
+      });
       return;
     }
 
@@ -746,20 +749,45 @@ export class WhatsAppAssistantService {
 }
 
 /**
- * שאילתות שהתוצאה שלהן מצומצמת לבעלות, והיכולת שפותחת אותן למשרד
+ * שאילתות שהתוצאה שלהן מצומצמת לבעלות, והיכולות שפותחות אותן למשרד
  * כולו. פעולה שאינה כאן מחזירה ממילא נתוני משרד (נכסים, התאמות).
+ *
+ * יומן השיחות דורש את שתיהן — הוא מסונן כל עוד חסרה אחת מהן
+ * (`CallsService`), ולכן הסייג מוצג כשחסרה ולו אחת.
  */
-const SCOPE_CAPABILITY: Record<string, Capability> = {
-  find_buyers: "buyers.view_all",
-  show_tasks: "tasks.view_all",
-  show_calls: "leads.view_all",
-  search: "buyers.view_all",
+const SCOPE_CAPABILITIES: Record<string, readonly Capability[]> = {
+  find_buyers: ["buyers.view_all"],
+  show_tasks: ["tasks.view_all"],
+  show_calls: ["buyers.view_all", "leads.view_all"],
 };
 
+/** קבוצות החיפוש הכללי שמסוננות לפי בעלות — הנכסים אינם ביניהן. */
+const SEARCH_SCOPED_GROUPS: readonly { capability: Capability; label: string }[] = [
+  { capability: "buyers.view_all", label: "קונים" },
+  { capability: "leads.view_all", label: "לידים" },
+];
+
 function scopeNote(actionId: string): string {
-  const capability = SCOPE_CAPABILITY[actionId];
-  if (capability === undefined) return "";
-  if (TenantContext.current().capabilities.has(capability)) return "";
+  const capabilities = TenantContext.current().capabilities;
+
+  /*
+   * חיפוש כללי מחזיר כמה סוגי רשומות, ורק חלקם מסוננים לפי בעלות:
+   * הנכסים הם של המשרד ומוצגים במלואם. סייג גורף היה אומר על תוצאת
+   * נכסים מלאה שהיא חלקית (ביקורת Codex) — ולכן הוא מונה בשם את
+   * הקבוצות המצומצמות, ומזכיר את הנכסים רק למי שרואה אותם.
+   */
+  if (actionId === "search") {
+    const restricted = SEARCH_SCOPED_GROUPS.filter(
+      (group) => !capabilities.has(group.capability),
+    ).map((group) => group.label);
+    if (restricted.length === 0) return "";
+    const properties = capabilities.has("properties.view") ? "; נכסים — מכל המשרד" : "";
+    return `_(${restricted.join(" ו")} — מהרשומות שמשויכות אליך בלבד${properties})_`;
+  }
+
+  const required = SCOPE_CAPABILITIES[actionId];
+  if (required === undefined) return "";
+  if (required.every((capability) => capabilities.has(capability))) return "";
   return "_(מהרשומות שמשויכות אליך — לא מכל המשרד)_";
 }
 
@@ -774,16 +802,15 @@ function firstName(name: string): string {
  * מי שלא יודע *באיזה ניסוח* לבקש מנסה פעם אחת, מקבל „לא הבנתי”,
  * וחוזר לדשבורד. הדוגמאות הן הניסוחים שהמודל מאומן עליהם.
  */
-function welcomeText(name: string): string {
+function welcomeText(name: string, actions: readonly HelpAction[]): string {
+  const examples = welcomeExamples(actions);
   return [
     `היי ${firstName(name)} 👋`,
     "אני העוזרת האישית שלך במתווכים — כאן בוואטסאפ, בלי להיכנס למערכת.",
     "",
-    "אפשר לכתוב לי או *להקליט* הודעה קולית, למשל:",
-    "   „מי מחפש 4 חדרים בגבעתיים?”",
-    "   „תוסיף קונה משה לוי 052-1234567, תקציב 2.3 מיליון”",
-    "   „מה יש לי מחר?”",
-    "",
+    ...(examples.length > 0
+      ? ["אפשר לכתוב לי או *להקליט* הודעה קולית, למשל:", ...examples.map((e) => `   „${e}”`), ""]
+      : ["אפשר לכתוב לי או *להקליט* הודעה קולית.", ""]),
     "לרשימה המלאה כתבו *עזרה*.",
   ].join("\n");
 }

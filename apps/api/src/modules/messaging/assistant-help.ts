@@ -48,6 +48,45 @@ const GROUPS: { label: string; ids: readonly string[] }[] = [
 /** כמה דוגמאות מוצגות בכל קבוצה — תפריט, לא קטלוג. */
 const EXAMPLES_PER_GROUP = 2;
 
+/**
+ * הפעולות שמהן נלקחות דוגמאות ההכרות, לפי סדר עדיפות.
+ *
+ * הסדר מייצר גיוון: שאלה על המאגר, הוספה, ומבט על היום — כך שמי
+ * שקורא רואה את שלושת סוגי השימוש ולא שלוש וריאציות של אותו דבר.
+ * מסוננות מול מה שמותר למשתמש בפועל.
+ */
+const WELCOME_PREFERRED = [
+  "find_buyers",
+  "create_buyer",
+  "show_schedule",
+  "find_properties",
+  "create_property",
+  "show_tasks",
+  "create_task",
+  "search",
+] as const;
+
+/** עד שלוש דוגמאות — הכרות, לא קטלוג. */
+const WELCOME_EXAMPLES = 3;
+
+export function welcomeExamples(actions: readonly HelpAction[]): string[] {
+  const byId = new Map(actions.map((action) => [action.id, action]));
+  const ordered = [
+    ...WELCOME_PREFERRED.flatMap((id) => {
+      const action = byId.get(id);
+      return action ? [action] : [];
+    }),
+    // פעולה מותרת שאינה ברשימת ההעדפה עדיפה על דוגמה חסרה
+    ...actions.filter((action) => !WELCOME_PREFERRED.includes(action.id as never)),
+  ];
+  return ordered
+    .flatMap((action) => {
+      const example = action.examples[0];
+      return example === undefined ? [] : [example];
+    })
+    .slice(0, WELCOME_EXAMPLES);
+}
+
 export function helpMenu(actions: readonly HelpAction[], firstName?: string): string {
   const byId = new Map(actions.map((action) => [action.id, action]));
   const greeting = firstName ? `${firstName}, הנה מה שאני יודעת לעשות בשבילך:` : "הנה מה שאני יודעת לעשות:";
