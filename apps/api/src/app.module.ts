@@ -21,6 +21,7 @@ import { CollaborationModule } from "./modules/collaboration/collaboration.modul
 import { MapsModule } from "./modules/maps/maps.module";
 import { ContactsModule } from "./modules/contacts/contacts.module";
 import { ExportModule } from "./modules/export/export.module";
+import { FeatureSignupsModule } from "./modules/feature-signups/feature-signups.module";
 import { HealthModule } from "./modules/health/health.module";
 import { ImportModule } from "./modules/import/import.module";
 import { LeadsModule } from "./modules/leads/leads.module";
@@ -91,6 +92,7 @@ import { AgentModule } from "./modules/agent/agent.module";
     SearchModule,
     TasksModule,
     ExportModule,
+    FeatureSignupsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

@@ -352,6 +352,26 @@ model Property {
   @@map("properties")
 }
 
+// „עדכנו אותי כשזה עולה” — רישום עניין בפיצ'ר שטרם הושק.
+//
+// מסך „בקרוב” עם כפתור שאינו רושם דבר מבטיח הודעה שאין למי לשלוח
+// ביום ההשקה. הרישום נשמר, ולכן ההבטחה ניתנת לקיום.
+//
+// גנרי ולא טבלה לפיצ'ר: זה כבר הפיצ'ר השלישי שמוצג כ„בקרוב”, ולכל
+// אחד תגיע אותה בקשה. שם הפיצ'ר נבדק מול רשימה סגורה בשרת.
+model FeatureSignup {
+  id        String   @id @db.Char(26)
+  tenantId  String   @map("tenant_id") @db.Char(26)
+  userId    String   @map("user_id") @db.Char(26)
+  /// מזהה הפיצ'ר — ראו SIGNUP_FEATURES.
+  feature   String   @db.VarChar(30)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, userId, feature])
+  @@index([tenantId, feature])
+  @@map("feature_signups")
+}
+
 model PropertyMedia {
   id         String   @id @db.Char(26)
   tenantId   String   @map("tenant_id") @db.Char(26)

@@ -51,8 +51,20 @@
      דרך ‎--color-border‎ והצללית הרכה שלהם. */
   --color-bg: #ffffff;
   --color-surface: #ffffff;
-  --color-text: #212722; /* על הרקע: ~14:1 */
-  --color-text-muted: #68716a; /* על הרקע: ~4.7:1 */
+  /* טקסט ראשי — שחור למעשה.
+
+     „~14:1” היה תקין בכל בדיקה אוטומטית, אבל על מסך מלא כרטיסים
+     הגוון האפרפר נקרא כמשקל דק ולא ככהה (דיווח המשתמש). המערכת
+     אינה טוענת שום פונט במשקל 300 ומטה — מה שנראה „דק” הוא הצבע
+     ופריסת הקווים, ולכן התיקון הוא כאן ולא במשקל. */
+  --color-text: #101413; /* על הרקע: ~18.8:1 */
+  /* טקסט משני — כהה, לא אפור.
+
+     ‎#68716a‎ עמד ב-AA (‎4.7:1‎) ובכל זאת היה בלתי-נעים לקריאה: הוא
+     נושא את כל תת-הכותרות, הרמזים ותוויות המשנה — כלומר את רוב
+     הטקסט שבאמת קוראים. ההפרדה מהטקסט הראשי נשמרת, אבל היא כבר
+     אינה באה על חשבון הקריאוּת. */
+  --color-text-muted: #3c443e; /* על הרקע: ~10:1 */
   /* ירוק המותג #0F8A43 נותן 4.4:1 על לבן — מתחת לסף AA לטקסט רגיל.
      לטקסט ולקישורים משמש הגוון הכהה מהעיצוב (6.4:1); הבהיר נשמר
      לאלמנטים גרפיים, שם הסף הוא 3:1 (docs/06 §4). */
@@ -98,7 +110,8 @@
   --color-card-head-border: #eef1ec;
   --color-table-head: #f8faf7;
   --color-row-hover: #f6f9f6;
-  --color-text-soft: #4a534c;
+  /* גוון ביניים לתוויות לשוניות ולאייקונים — הוכהה מ-‎#4a534c‎ */
+  --color-text-soft: #2c322e;
   --color-progress-track: #e8ece6;
   --color-seg-track: #e8ece6;
   --color-focus: #0c6e34;
@@ -119,7 +132,7 @@
   --dk-bg: #0d130f;
   --dk-surface: #151d17;
   --dk-text: #e8f0ea; /* על הרקע: ~16:1 */
-  --dk-text-muted: #a3b0a6; /* על הרקע: ~8.3:1 */
+  --dk-text-muted: #c3cfc6; /* על הרקע: ~11.5:1 */
   --dk-primary: #5fe083; /* ירוק בהיר — על כהה: ~11.2:1 */
   --dk-primary-hover: #70ee91;
   --dk-primary-accent: #70ee91;
@@ -138,7 +151,7 @@
   --dk-card-head-border: #212c24;
   --dk-table-head: #101812;
   --dk-row-hover: #1a231c;
-  --dk-text-soft: #a3b0a6;
+  --dk-text-soft: #c3cfc6;
   --dk-progress-track: #26332a;
   --dk-seg-track: #1c2620;
   --dk-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -268,7 +281,15 @@ body {
     Arial,
     sans-serif;
   line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
+  /*
+    **בלי `-webkit-font-smoothing: antialiased`.**
+
+    ההגדרה הזו מדללת כל קו בפונט: היא מבטלת את הרינדור התת-פיקסלי
+    ומחזירה אפור. בעברית — שבה חלק מהאותיות נבדלות בקו אחד — זה
+    נקרא כמשקל דק, גם כשהמשקל הוא 400 בדיוק. הסרתה מחזירה לטקסט את
+    העובי שהפונט באמת נושא (דיווח המשתמש: „המשקל הדק לא מספיק
+    קריא”).
+  */
 }
 
 /* ---------- נגישות: פוקוס נראה, עקבי, בכל האלמנטים ---------- */
@@ -2045,6 +2066,66 @@ a.mv-bar-row:focus-visible {
   text-align: center;
   font-size: 14px;
   color: var(--color-text-muted);
+}
+
+/* ------------------------------------------------------------
+   „יש לי רעיון” — כפתור צף לרעיונות ולפידבק.
+
+   בקצה הנגדי ללשונית התמיכה: השתיים מזמינות שני דברים שונים —
+   „משהו נשבר” מול „יש לי רעיון” — ומי שמחפש אחת מהן לא צריך
+   לקרוא את השנייה. הפינה הימנית התחתונה פנויה: לשונית התמיכה
+   שמאלית, ובמסך צר היא עולה ל-76px מעל פס הסופטפון; הכפתור כאן
+   עושה את אותו הדבר בצד שלו, ולכן שניהם נשארים לחיצים.
+
+   z-index נמוך מפאנל התמיכה (60), כדי שפאנל פתוח לא ייחתך.
+   ------------------------------------------------------------ */
+.mv-feedback-fab {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 45;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 16px;
+  border: none;
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  box-shadow: 0 8px 22px rgb(0 0 0 / 18%);
+  cursor: pointer;
+}
+.mv-feedback-fab:hover {
+  background: var(--color-primary-hover);
+}
+.mv-feedback-panel {
+  position: fixed;
+  right: 12px;
+  bottom: 74px;
+  z-index: 55;
+  width: min(380px, calc(100vw - 24px));
+  max-height: min(80vh, 620px);
+  overflow-y: auto;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-pop);
+}
+/* במסך צר: מעל פס הסופטפון, ורק האייקון — טקסט בפינה גוזל רוחב */
+@media (max-width: 640px) {
+  .mv-feedback-fab {
+    bottom: 76px;
+    padding: 12px;
+  }
+  .mv-feedback-fab-label {
+    display: none;
+  }
+  .mv-feedback-panel {
+    bottom: 134px;
+  }
 }
 
 /*
