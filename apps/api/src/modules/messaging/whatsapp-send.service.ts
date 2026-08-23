@@ -1,5 +1,12 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { splitForWhatsApp } from "@metavchim/shared";
+import {
+  fitsInteractive,
+  listPayload,
+  replyButtonsPayload,
+  splitForWhatsApp,
+  type WhatsAppButton,
+  type WhatsAppListRow,
+} from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 
@@ -82,6 +89,38 @@ export class WhatsAppSendService {
       if (!sent) return false;
     }
     return true;
+  }
+
+  /**
+   * הודעה עם כפתורי תשובה מהירה (עד שלושה).
+   *
+   * false גם כשהגוף ארוך מ-1024 התווים שהודעה אינטראקטיבית מתירה:
+   * הקורא נופל בחזרה לטקסט רגיל במקום שהודעה שלמה תידחה אצל Meta.
+   * כפתורים אפשריים רק בתוך חלון 24 השעות — כאן זה תמיד המצב, כי
+   * הם נשלחים בתגובה להודעה של המתווך.
+   */
+  async sendButtons(
+    to: string,
+    body: string,
+    buttons: readonly WhatsAppButton[],
+  ): Promise<boolean> {
+    if (!fitsInteractive(body) || buttons.length === 0) return false;
+    const creds = await this.credentials();
+    if (!creds) return false;
+    return this.post(creds, replyButtonsPayload(to, body, buttons));
+  }
+
+  /** רשימת בחירה — ליותר משלושה מועמדים. אותה נפילה חזרה לטקסט. */
+  async sendList(
+    to: string,
+    body: string,
+    openLabel: string,
+    rows: readonly WhatsAppListRow[],
+  ): Promise<boolean> {
+    if (!fitsInteractive(body) || rows.length === 0) return false;
+    const creds = await this.credentials();
+    if (!creds) return false;
+    return this.post(creds, listPayload(to, body, openLabel, rows));
   }
 
   /**

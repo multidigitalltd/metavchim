@@ -42,6 +42,22 @@ const WebhookSchema = z.object({
                   text: z.object({ body: z.string() }).optional(),
                   /** הודעה קולית לסוכן — יורדת ומתומללת */
                   audio: z.object({ id: z.string() }).optional(),
+                  /**
+                   * לחיצה על כפתור או בחירה מרשימה. המזהה הוא מה
+                   * ששלחנו בכפתור, ולכן הוא נושא את הפעולה; הכותרת
+                   * נשמרת כדי שיהיה מה להציג ביומן השיחה.
+                   */
+                  interactive: z
+                    .object({
+                      type: z.string().optional(),
+                      button_reply: z
+                        .object({ id: z.string(), title: z.string().optional() })
+                        .optional(),
+                      list_reply: z
+                        .object({ id: z.string(), title: z.string().optional() })
+                        .optional(),
+                    })
+                    .optional(),
                 }),
               )
               .optional(),
@@ -119,6 +135,13 @@ export class WhatsAppInboundService {
                 type: message.type,
                 ...(message.text ? { text: message.text.body } : {}),
                 ...(message.audio ? { mediaId: message.audio.id } : {}),
+                ...(() => {
+                  const reply =
+                    message.interactive?.button_reply ?? message.interactive?.list_reply;
+                  return reply
+                    ? { buttonId: reply.id, ...(reply.title ? { buttonTitle: reply.title } : {}) }
+                    : {};
+                })(),
               });
             }
           })();

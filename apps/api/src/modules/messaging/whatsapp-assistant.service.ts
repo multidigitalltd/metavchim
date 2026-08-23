@@ -6,6 +6,8 @@ import {
   applyBlockedModules,
   resolveCapabilities,
   roleLabel,
+  decodeButtonId,
+  type WhatsAppListRow,
   type AgentHistoryTurn,
   type AgentProposal,
   type Capability,
@@ -29,6 +31,14 @@ import {
   waPhoneVariants,
 } from "./assistant-lang";
 import { helpMenu, welcomeExamples, type HelpAction } from "./assistant-help";
+import {
+  buttonAsText,
+  choiceVariant,
+  confirmButtons,
+  SNOOZE_LABEL,
+  SNOOZE_MINUTES,
+  type AgentReply,
+} from "./assistant-buttons";
 import { prospectReplyText } from "./prospect-reply";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 
@@ -62,6 +72,14 @@ const HANDLED_KEPT = 30;
 const PROSPECT_REPLY_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 /** מעל זה התמלול מקבל הודעת „מתמלל…” — מתחת לזה התשובה עצמה מגיעה. */
 const SLOW_TRANSCRIBE_NOTICE_MS = 6_000;
+/**
+ * מה שנאמר כשההצעה שהמתווך פעל עליה כבר אינה הממתינה.
+ *
+ * שתיקה כאן הייתה גרועה במיוחד: הוא לחץ או ענה, לא קרה כלום, והוא
+ * אינו יודע אם הפעולה בוצעה או לא.
+ */
+const STALE_PROPOSAL_TEXT =
+  "ההצעה שהכפתור הזה שייך לה כבר אינה ממתינה — היא בוצעה, בוטלה, או הוחלפה בבקשה חדשה. כתבו לי מה לעשות ואכין אותה מחדש.";
 /** המפתחות שההצעה פותרת לבחירת רשומה — כמו ב-AgentController. */
 const ID_KEYS = ["buyerId", "propertyId", "taskId", "cardId", "leadId"] as const;
 
@@ -71,12 +89,25 @@ export interface AssistantInbound {
   type: string;
   text?: string;
   mediaId?: string;
+  /** מזהה הכפתור שנלחץ — מה ששלחנו בו, ולכן נושא את הפעולה */
+  buttonId?: string;
+  /** כותרת הכפתור כפי שהמתווך ראה אותה — ליומן ולזיכרון השיחה */
+  buttonTitle?: string;
 }
 
 interface PendingState {
   transcript: string;
   proposal: AgentProposal;
   awaiting: "confirm" | "choice";
+  /**
+   * חותם ההצעה — נכנס למזהי הכפתורים שלה.
+   *
+   * הודעה בוואטסאפ נשארת בצ'אט לנצח, וכפתוריה נשארים לחיצים. בלי
+   * החותם לחיצה על „אשר” בהצעה מלפני שעה הייתה מבצעת את ההצעה
+   * שממתינה *עכשיו* — בקשה אחרת לגמרי, שהמתווך לא הסתכל עליה
+   * (ביקורת Codex).
+   */
+  token?: string;
   /** בחירות שכבר נעשו (מזהה מועמד) — מעבר לשדות ההצעה */
   extraParams: Record<string, unknown>;
 }
@@ -85,6 +116,15 @@ interface ChatState {
   pending: PendingState | null;
   history: AgentHistoryTurn[];
   handledIds: string[];
+  /**
+   * אל תכתוב את ההצעה המקומית חזרה — מה שבשורה חדש ממנה.
+   *
+   * נדלק כשצריכה עם חותם לא תפסה: פירוש הדבר שמסלול מקביל כבר
+   * החליף את ההצעה בין הצילום לצריכה. כתיבת ה-null המקומי הייתה
+   * מוחקת דווקא את ההצעה החדשה, והכפתורים שזה עתה נשלחו למתווך
+   * היו הופכים מיד לפגי-תוקף (ביקורת Codex).
+   */
+  keepStoredPending?: boolean;
 }
 
 interface IdentifiedUser {
@@ -208,6 +248,22 @@ export class WhatsAppAssistantService {
       await this.sender.sendText(msg.fromWaId, welcomeText(user.name, allowed));
     }
 
+    /*
+     * לחיצה על כפתור מתורגמת למילה שהשיחה כבר יודעת לפרש, כדי שלא
+     * יהיה מסלול ביצוע שני שצריך לזכור את אותם כללי אטומיות.
+     * „שקט לשעתיים” הוא היחיד שאינו פקודת שיחה ולכן מטופל כאן.
+     */
+    const button = msg.buttonId === undefined ? null : decodeButtonId(msg.buttonId);
+    if (button?.action === "snooze") {
+      await this.snoozeNotifications(user.tenantId, user.id);
+      await this.sender.sendText(
+        msg.fromWaId,
+        `🔕 ${SNOOZE_LABEL}. לא אפריע עד אז — ואם תצטרכו משהו קודם, פשוט כתבו לי.`,
+        { replyTo: msg.externalId },
+      );
+      return;
+    }
+
     // „עזרה” — מהקטלוג, בלי קריאת מודל ובלי סיכוי להזכיר פעולה חסומה
     if (msg.type === "text" && isHelpMessage(msg.text ?? "")) {
       await this.sender.sendText(msg.fromWaId, helpMenu(allowed, firstName(user.name)), {
@@ -216,19 +272,85 @@ export class WhatsAppAssistantService {
       return;
     }
 
-    const spoken = await this.extractText(msg);
-    if (spoken.reply !== undefined) {
+    if (
+      button !== null &&
+      (button.action === "confirm" || button.action === "cancel" || button.action === "pick") &&
+      this.staleClick(chat.pending, button.token)
+    ) {
+      await this.sender.sendText(
+        msg.fromWaId,
+        STALE_PROPOSAL_TEXT,
+        { replyTo: msg.externalId },
+      );
+      return;
+    }
+
+    const asText = button === null ? null : buttonAsText(button.action, button.arg);
+    const spoken = asText === null ? await this.extractText(msg) : { text: asText };
+    if ("reply" in spoken && spoken.reply !== undefined) {
       await this.sender.sendText(msg.fromWaId, spoken.reply, { replyTo: msg.externalId });
       return;
     }
     const text = spoken.text ?? "";
 
     const reply = await TenantContext.run(context, () =>
-      this.converse(user, chat, text, spoken.transcribed === true),
+      this.converse(user, chat, text, "transcribed" in spoken && spoken.transcribed === true),
     );
 
     await this.saveChat(user.tenantId, user.id, chat);
-    await this.sender.sendText(msg.fromWaId, reply, { replyTo: msg.externalId });
+    await this.deliver(msg, reply);
+  }
+
+  /**
+   * שליחת התשובה — כפתורים כשיש, וטקסט כשאין או כשהם לא יצאו.
+   *
+   * ההודעה האינטראקטיבית מוגבלת ל-1024 תווים ויכולה להידחות; הנפילה
+   * חזרה לטקסט המלא מבטיחה שהמתווך תמיד מקבל תשובה שאפשר לפעול
+   * לפיה, גם אם בהקלדה במקום בלחיצה.
+   */
+  private async deliver(msg: AssistantInbound, reply: AgentReply): Promise<void> {
+    const body = reply.buttonBody ?? reply.text;
+    if (reply.buttons && reply.buttons.length > 0) {
+      if (await this.sender.sendButtons(msg.fromWaId, body, reply.buttons)) return;
+    } else if (reply.list && reply.list.rows.length > 0) {
+      if (await this.sender.sendList(msg.fromWaId, body, reply.list.label, reply.list.rows)) {
+        return;
+      }
+    }
+    await this.sender.sendText(msg.fromWaId, reply.text, { replyTo: msg.externalId });
+  }
+
+  /**
+   * לחיצה על כפתור של הצעה שכבר אינה הממתינה — נדחית בהסבר.
+   *
+   * שתיקה כאן הייתה גרועה במיוחד: המתווך לחץ, לא קרה כלום, והוא
+   * אינו יודע אם הפעולה בוצעה או לא.
+   */
+  private staleClick(pending: PendingState | null, token?: string): boolean {
+    if (token === undefined) return false; // כפתור בלי חותם (פקודה/השתקה)
+    return pending === null || pending.token !== token;
+  }
+
+  /**
+   * אחרי צריכת ההצעה: המצב המקומי מתרוקן תמיד, אבל כשהצריכה לא
+   * תפסה — החותם לא תאם — מה שבשורה חדש ממה שבזיכרון, ואסור
+   * לכתוב עליו את הריקון המקומי.
+   */
+  private consumed(chat: ChatState, took: PendingState | null): void {
+    chat.pending = null;
+    if (took === null) chat.keepStoredPending = true;
+  }
+
+  /** השתקה רגעית של העדכונים היזומים — הסורק מדלג עליה. */
+  private async snoozeNotifications(tenantId: string, userId: string): Promise<void> {
+    const until = new Date(Date.now() + SNOOZE_MINUTES * 60 * 1000);
+    await this.prisma.withExplicitTenant(tenantId, (tx) =>
+      tx.whatsAppChat.upsert({
+        where: { tenantId_userId: { tenantId, userId } },
+        create: { id: ulid(), tenantId, userId, notifySnoozeUntil: until },
+        update: { notifySnoozeUntil: until },
+      }),
+    );
   }
 
   /* ------------------------------------------------------------------ */
@@ -440,7 +562,7 @@ export class WhatsAppAssistantService {
     chat: ChatState,
     text: string,
     transcribed: boolean,
-  ): Promise<string> {
+  ): Promise<AgentReply> {
     /** תחילית לתשובה על הודעה קולית — שהמתווך יראה מה נשמע. */
     const heard = transcribed ? `שמעתי: „${text}”\n\n` : "";
     // מי מדבר — נכנס לפרומפט כדי שהתשובה תהיה שלו ולא כללית
@@ -449,9 +571,9 @@ export class WhatsAppAssistantService {
     const pending = chat.pending;
     if (pending) {
       if (isCancelMessage(text)) {
-        const took = await this.takePending(user.tenantId, user.id);
-        chat.pending = null;
-        return took ? "❌ בוטל. מה הלאה?" : "אין פעולה ממתינה לביטול.";
+        const took = await this.takePending(user.tenantId, user.id, pending.token);
+        this.consumed(chat, took);
+        return { text: took ? "❌ בוטל. מה הלאה?" : "אין פעולה ממתינה לביטול." };
       }
       if (pending.awaiting === "choice") {
         const options = pending.proposal.candidates?.options ?? [];
@@ -461,21 +583,48 @@ export class WhatsAppAssistantService {
           const option = options[chosen]!;
           if (pending.proposal.risk === "read") {
             // שאילתה — הבחירה היא כל מה שחסר; הצריכה אטומית, מבצע יחיד
-            const took = await this.takePending(user.tenantId, user.id);
-            chat.pending = null;
-            if (!took) return "הבקשה כבר טופלה.";
+            const took = await this.takePending(user.tenantId, user.id, pending.token);
+            this.consumed(chat, took);
+            if (!took) return { text: "הבקשה כבר טופלה." };
             took.extraParams[idKey] = option.id;
-            return this.runProposal(chat, took);
+            return { text: await this.runProposal(chat, took) };
           }
-          pending.extraParams[idKey] = option.id;
-          pending.awaiting = "confirm";
-          return [
+          /*
+           * המעבר בחירה ⟵ אישור נכתב **בשורה עצמה**, מותנה בחותם
+           * הישן, ולא רק בזיכרון.
+           *
+           * שינוי בזיכרון שנשמר אחר כך בכתיבה לא מותנית היה דורס
+           * הצעה חדשה שמסלול מקביל הספיק לשמור בין הצילום לשמירה —
+           * וההצעה שהמתווך זה עתה קיבל הייתה נמחקת (ביקורת Codex).
+           * `keepStoredPending` דולק בשני המקרים: מכאן והלאה מה
+           * שבשורה הוא המקור, ואין טעם לכתוב אותו שוב.
+           */
+          const next: PendingState = {
+            ...pending,
+            extraParams: { ...pending.extraParams, [idKey]: option.id },
+            awaiting: "confirm",
+            // חותם חדש: הכפתורים החדשים הם היחידים התקפים מכאן
+            token: ulid(),
+          };
+          const advanced = await this.advancePending(
+            user.tenantId,
+            user.id,
+            pending.token,
+            next,
+          );
+          chat.keepStoredPending = true;
+          if (!advanced) return { text: STALE_PROPOSAL_TEXT };
+          chat.pending = next;
+          const chosenBody = [
             `נבחר: ${option.label}${option.detail ? ` (${option.detail})` : ""}.`,
             "",
-            this.describeProposal(pending.proposal),
-            "",
-            "✅ לביצוע — *אשר* · ❌ לביטול — *בטל*",
+            this.describeProposal(next.proposal),
           ].join("\n");
+          return {
+            text: `${chosenBody}\n\n✅ לביצוע — *אשר* · ❌ לביטול — *בטל*`,
+            buttonBody: chosenBody,
+            buttons: confirmButtons(next.token),
+          };
         }
       }
       if (pending.awaiting === "confirm" && isConfirmMessage(text)) {
@@ -484,19 +633,19 @@ export class WhatsAppAssistantService {
          * "אשר" שמגיעים במקביל — אחד מקבל את ההצעה ומבצע, השני מקבל
          * null ותשובה שקטה, לא ביצוע כפול (ביקורת Codex).
          */
-        const took = await this.takePending(user.tenantId, user.id);
-        chat.pending = null;
-        if (!took) return "הפעולה כבר בוצעה או בוטלה — אין הצעה ממתינה.";
-        return this.runProposal(chat, took);
+        const took = await this.takePending(user.tenantId, user.id, pending.token);
+        this.consumed(chat, took);
+        if (!took) return { text: "הפעולה כבר בוצעה או בוטלה — אין הצעה ממתינה." };
+        return { text: await this.runProposal(chat, took) };
       }
       /*
        * לא אישור, לא ביטול ולא בחירה — המתווך ממשיך לדבר: "לא, 4
        * חדרים". ההצעה הקודמת נשלחת כהקשר תיקון, בדיוק כמו במסך.
        */
-      return heard + (await this.propose(chat, text, pending, speaker));
+      return withHeard(await this.propose(chat, text, pending, speaker), heard);
     }
 
-    return heard + (await this.propose(chat, text, null, speaker));
+    return withHeard(await this.propose(chat, text, null, speaker), heard);
   }
 
   /** פירוש ⟵ הצעה ⟵ או ביצוע מיידי (קריאה) או בקשת אישור. */
@@ -505,7 +654,7 @@ export class WhatsAppAssistantService {
     text: string,
     prior: PendingState | null,
     speaker: { name: string; roleLabel: string },
-  ): Promise<string> {
+  ): Promise<AgentReply> {
     const interpretation = await this.interpreter.interpret(
       text,
       prior
@@ -519,24 +668,50 @@ export class WhatsAppAssistantService {
 
     if (proposal.actionId === "unknown") {
       // ברכה/שאלה כללית — תשובה שיחתית, לא "לא הבנתי" יבש
-      if (proposal.reply !== undefined && proposal.reply !== "") return proposal.reply;
+      if (proposal.reply !== undefined && proposal.reply !== "") return { text: proposal.reply };
       const lines = [proposal.clarify ?? "לא הצלחתי להבין מה לעשות — נסו לנסח אחרת."];
       for (const warning of proposal.warnings) lines.push(`⚠️ ${warning}`);
-      return lines.join("\n");
+      return { text: lines.join("\n") };
     }
 
     const candidates = proposal.candidates;
     if (candidates && candidates.options.length > 0) {
-      chat.pending = { transcript: text, proposal, awaiting: "choice", extraParams: {} };
-      const lines = [`*${proposal.title}* — ${candidates.label}:`];
-      candidates.options.slice(0, 9).forEach((option, i) => {
+      const token = ulid();
+      chat.pending = { transcript: text, proposal, awaiting: "choice", extraParams: {}, token };
+      const options = candidates.options.slice(0, 9);
+      const header = `*${proposal.title}* — ${candidates.label}:`;
+      const lines = [header];
+      options.forEach((option, i) => {
         lines.push(`${i + 1}. ${option.label}${option.detail ? ` — ${option.detail}` : ""}`);
       });
-      lines.push("", "🔢 השיבו עם המספר המתאים · ❌ לביטול — *בטל*");
-      return lines.join("\n");
+      /*
+       * עד שלושה מועמדים — כפתורים; יותר מזה — רשימה נפתחת.
+       *
+       * Meta מתירה שלושה כפתורים בלבד, ורשימה עד עשר שורות. הטקסט
+       * הממוספר נשאר בכל מקרה: הוא מה שנשלח כשההודעה האינטראקטיבית
+       * אינה אפשרית, והוא גם מאפשר לענות במספר במקום ללחוץ.
+       */
+      const rows: WhatsAppListRow[] = options.map((option, i) => ({
+        action: "pick",
+        arg: String(i + 1),
+        token,
+        title: option.label,
+        ...(option.detail ? { description: option.detail } : {}),
+      }));
+      return {
+        text: `${lines.join("\n")}\n\n🔢 השיבו עם המספר המתאים · ❌ לביטול — *בטל*`,
+        buttonBody: header,
+        ...choiceVariant(rows),
+      };
     }
 
-    const state: PendingState = { transcript: text, proposal, awaiting: "confirm", extraParams: {} };
+    const state: PendingState = {
+      transcript: text,
+      proposal,
+      awaiting: "confirm",
+      extraParams: {},
+      token: ulid(),
+    };
 
     // שאילתת קריאה בלי שרשור ובלי שאלה פתוחה — עונים מיד, בלי טקס אישור
     if (
@@ -544,15 +719,16 @@ export class WhatsAppAssistantService {
       (proposal.followUps ?? []).length === 0 &&
       proposal.clarify === undefined
     ) {
-      return this.runProposal(chat, state);
+      return { text: await this.runProposal(chat, state) };
     }
 
     chat.pending = state;
-    return [
-      this.describeProposal(proposal),
-      "",
-      "✅ לביצוע — *אשר* · ❌ לביטול — *בטל* · ✏️ לתיקון פשוט כתבו אותו",
-    ].join("\n");
+    const description = this.describeProposal(proposal);
+    return {
+      text: `${description}\n\n✅ לביצוע — *אשר* · ❌ לביטול — *בטל* · ✏️ לתיקון פשוט כתבו אותו`,
+      buttonBody: `${description}\n\n✏️ לתיקון — פשוט כתבו מה לשנות`,
+      buttons: confirmButtons(state.token),
+    };
   }
 
   /** הפרמטרים לביצוע — שדות ההצעה + בחירות, מצומצמים כמו בבקר. */
@@ -727,15 +903,65 @@ export class WhatsAppAssistantService {
   /**
    * צריכת ההצעה הממתינה — UPDATE אטומי יחיד שמרוקן ומחזיר. רק מי
    * שקיבל שורה מבצע; קריאה מקבילה מקבלת null ולא מבצעת שוב.
+   *
+   * `expectToken` הוא חלק מתנאי ה-UPDATE ולא בדיקה שקדמה לו: השוואה
+   * מול הצילום שהוחזר מ-`claimMessage` אינה מספיקה, כי בין הצילום
+   * לצריכה יכול מסלול מקביל להחליף את ההצעה בשורה — ואז „אשר”
+   * להצעה א׳ היה שולף ומבצע את הצעה ב׳ (ביקורת Codex). כשהתנאי
+   * אינו מתקיים לא מתעדכנת שורה, ומי שלחץ מקבל null.
+   *
+   * בלי חותם — הצעה שנשמרה לפני שהחותמים נכנסו — נשמרת ההתנהגות
+   * הישנה, אחרת אישור להצעה כזו לא היה מתבצע לעולם.
    */
-  private async takePending(tenantId: string, userId: string): Promise<PendingState | null> {
+  private async takePending(
+    tenantId: string,
+    userId: string,
+    expectToken?: string,
+  ): Promise<PendingState | null> {
     return this.prisma.withExplicitTenant(tenantId, async (tx) => {
-      const rows = await tx.$queryRaw<{ pending: unknown }[]>`
-        UPDATE whatsapp_chats SET pending = NULL, updated_at = now()
-        WHERE tenant_id = ${tenantId} AND user_id = ${userId} AND pending IS NOT NULL
-        RETURNING pending`;
+      const rows =
+        expectToken === undefined
+          ? await tx.$queryRaw<{ pending: unknown }[]>`
+              UPDATE whatsapp_chats SET pending = NULL, updated_at = now()
+              WHERE tenant_id = ${tenantId} AND user_id = ${userId} AND pending IS NOT NULL
+              RETURNING pending`
+          : await tx.$queryRaw<{ pending: unknown }[]>`
+              UPDATE whatsapp_chats SET pending = NULL, updated_at = now()
+              WHERE tenant_id = ${tenantId} AND user_id = ${userId}
+                AND pending IS NOT NULL AND pending->>'token' = ${expectToken}
+              RETURNING pending`;
       const value = rows[0]?.pending;
       return value ? (value as PendingState) : null;
+    });
+  }
+
+  /**
+   * החלפת ההצעה הממתינה באחרת — מותנית בחותם הישן.
+   *
+   * זהו אותו כלל של `takePending`, לצד השני: מי שמקדם הצעה מקדם
+   * את *ההצעה שהוא ראה*, ולא את מה שמסלול מקביל הספיק לשים במקומה.
+   * `false` = ההצעה הוחלפה, ואין מה לקדם.
+   */
+  private async advancePending(
+    tenantId: string,
+    userId: string,
+    expectToken: string | undefined,
+    next: PendingState,
+  ): Promise<boolean> {
+    const value = next as unknown as Prisma.InputJsonValue;
+    return this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      const rows =
+        expectToken === undefined
+          ? await tx.$queryRaw<{ id: string }[]>`
+              UPDATE whatsapp_chats SET pending = ${value}, updated_at = now()
+              WHERE tenant_id = ${tenantId} AND user_id = ${userId} AND pending IS NOT NULL
+              RETURNING id`
+          : await tx.$queryRaw<{ id: string }[]>`
+              UPDATE whatsapp_chats SET pending = ${value}, updated_at = now()
+              WHERE tenant_id = ${tenantId} AND user_id = ${userId}
+                AND pending IS NOT NULL AND pending->>'token' = ${expectToken}
+              RETURNING id`;
+      return rows.length > 0;
     });
   }
 
@@ -746,10 +972,14 @@ export class WhatsAppAssistantService {
   private async saveChat(tenantId: string, userId: string, chat: ChatState): Promise<void> {
     const data = {
       // Prisma דורש את הסמן המפורש ל-null בעמודת JSON — לא null גולמי
-      pending:
-        chat.pending === null
-          ? Prisma.JsonNull
-          : (chat.pending as unknown as Prisma.InputJsonValue),
+      ...(chat.keepStoredPending === true
+        ? {}
+        : {
+            pending:
+              chat.pending === null
+                ? Prisma.JsonNull
+                : (chat.pending as unknown as Prisma.InputJsonValue),
+          }),
       history: chat.history as unknown as Prisma.InputJsonValue,
     };
     await this.prisma.withExplicitTenant(tenantId, (tx) =>
@@ -803,6 +1033,20 @@ function scopeNote(actionId: string): string {
   if (required === undefined) return "";
   if (required.every((capability) => capabilities.has(capability))) return "";
   return "_(מהרשומות שמשויכות אליך — לא מכל המשרד)_";
+}
+
+/**
+ * תחילית „שמעתי: …” נכנסת לשני הנוסחים — המלא וזה שמתחת לכפתורים.
+ * בלעדיה גרסת הכפתורים לא הייתה מראה מה נשמע בהקלטה, וזה בדיוק
+ * הדבר שמאפשר לתפוס שגיאת תמלול לפני שמאשרים פעולה.
+ */
+function withHeard(reply: AgentReply, heard: string): AgentReply {
+  if (heard === "") return reply;
+  return {
+    ...reply,
+    text: heard + reply.text,
+    ...(reply.buttonBody === undefined ? {} : { buttonBody: heard + reply.buttonBody }),
+  };
 }
 
 /** „דוד כהן” ⇒ „דוד” — פנייה בשם פרטי, כמו שמדברים בוואטסאפ. */
