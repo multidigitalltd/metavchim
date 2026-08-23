@@ -50,6 +50,7 @@ import { collabRecipient, sendCollabMail } from "./collab-mail";
 import { DealRoomService } from "./deal-room.service";
 import { assertNetworkQuota } from "./network-quota";
 import { notifyProposerDeclined } from "./decline-notify";
+import { offerPhotoPath } from "./network-media";
 import { officeBadges, type OfficeBadge } from "./office-names";
 import {
   networkPrice,
@@ -59,6 +60,14 @@ import {
   type NetworkFilter,
 } from "./network-filter";
 import { readCustomFeatures, rowToFields } from "../properties/property.mapper";
+
+/**
+ * כמה תמונות מוצגות בהצעה נכנסת — אותה תקרה כמו בגלריית המודעה.
+ *
+ * די בהן כדי להחליט אם הנכס מעניין; מעבר לזה זו טעינה ארוכה על
+ * מסך שממילא עוברים ממנו הלאה.
+ */
+const OFFER_PHOTO_MAX = 12;
 
 /**
  * תפוגת הקרדיטים כפי שהמשרד רואה אותה.
@@ -964,7 +973,6 @@ export class CollaborationService {
       this.pricing.all(),
       officeBadges(
         this.prisma,
-        this.storage,
         visible.map((row) => row.tenantId),
       ),
     ]);
@@ -1313,7 +1321,7 @@ export class CollaborationService {
     );
     if (!row) throw new NotFoundException("ביקוש לא נמצא");
     // תמיד הביקוש שלי (השאילתה מסוננת לפי הדייר) — ולכן המשרד שלי
-    const offices = await officeBadges(this.prisma, this.storage, [row.tenantId]);
+    const offices = await officeBadges(this.prisma, [row.tenantId]);
     return this.toDemandDto(row, tenantId, prices, offices.get(row.tenantId));
   }
 
@@ -1659,7 +1667,7 @@ export class CollaborationService {
       if (!offer) return;
       const [to, badges] = await Promise.all([
         collabRecipient(this.prisma, offer.fromTenantId, offer.createdBy),
-        officeBadges(this.prisma, this.storage, [tenantId]),
+        officeBadges(this.prisma, [tenantId]),
       ]);
       await notifyProposerDeclined(this.prisma, {
         proposerTenantId: offer.fromTenantId,
@@ -1715,12 +1723,11 @@ export class CollaborationService {
       this.buyerNamesForDemands(incomingDemandIds),
       officeBadges(
         this.prisma,
-        this.storage,
         rows.map((row) =>
           row.toTenantId === tenantId ? row.fromTenantId : row.toTenantId,
         ),
       ),
-      this.offerPhotos(
+      this.offerPhotoCounts(
         rows.filter((row) => row.toTenantId === tenantId),
       ),
     ]);
@@ -1729,10 +1736,18 @@ export class CollaborationService {
       const office = offices.get(
         row.toTenantId === tenantId ? row.fromTenantId : row.toTenantId,
       );
-      const photos =
+      /*
+       * הנתיב נושא את מזהה **ההצעה** ולא את מזהה הנכס: ההרשאה לצפות
+       * בתמונה נגזרת מכך שההצעה נשלחה למשרד הזה, וזה מה שהנתיב
+       * צריך לשאת כדי שאפשר יהיה לבדוק אותה שוב בעת ההזרמה.
+       */
+      const count =
         row.toTenantId === tenantId
-          ? photosByProperty.get(row.propertyId)
-          : undefined;
+          ? (photosByProperty.get(row.propertyId) ?? 0)
+          : 0;
+      const photos = Array.from({ length: count }, (_unused, i) =>
+        offerPhotoPath(row.id, i),
+      );
       return {
         id: row.id,
         demandId: row.demandId,
@@ -1747,7 +1762,7 @@ export class CollaborationService {
         ...(office?.logoUrl === undefined
           ? {}
           : { officeLogoUrl: office.logoUrl }),
-        ...(photos === undefined || photos.length === 0 ? {} : { photos }),
+        ...(photos.length === 0 ? {} : { photos }),
         ...(row.declineNote === null ? {} : { declineNote: row.declineNote }),
         createdAt: row.createdAt,
       };
@@ -1762,12 +1777,17 @@ export class CollaborationService {
    * חוצה-דייר במתכוון וסלקטיבית — רק הנכסים שהוצעו לנו במפורש,
    * דרך `withExplicitTenant` של המשרד המציע, ורק מדיה מסוג תמונה.
    *
-   * Best-effort: תמונה שנכשלת בחתימה פשוט אינה מוצגת — הצעה בלי
-   * תמונות שווה יותר משגיאת שרת על כל הרשימה.
+   * מוחזרת כאן **הכמות** בלבד, ולא הקובץ ולא מפתחו: הכתובת שהמסך
+   * מקבל היא נתיב ב-API לפי מקום התמונה בגלריה (ראו `network-media.ts`),
+   * וההרשאה נבדקת שוב בעת ההזרמה. הצד המקבל אינו זקוק לכלום מעבר
+   * למספר, ומפתח האחסון אינו יוצא החוצה כלל.
+   *
+   * Best-effort: משרד שהקריאה אליו נכשלה פשוט אינו תורם תמונות —
+   * הצעה בלי תמונות שווה יותר משגיאת שרת על כל הרשימה.
    */
-  private async offerPhotos(
+  private async offerPhotoCounts(
     incoming: readonly { fromTenantId: string; propertyId: string }[],
-  ): Promise<Map<string, string[]>> {
+  ): Promise<Map<string, number>> {
     const byFromTenant = new Map<string, string[]>();
     for (const row of incoming) {
       const list = byFromTenant.get(row.fromTenantId) ?? [];
@@ -1775,32 +1795,25 @@ export class CollaborationService {
       byFromTenant.set(row.fromTenantId, list);
     }
 
-    const photos = new Map<string, string[]>();
+    const counts = new Map<string, number>();
     for (const [fromTenantId, propertyIds] of byFromTenant) {
       try {
         const media = await this.prisma.withExplicitTenant(
           fromTenantId,
           (tx) =>
-            tx.propertyMedia.findMany({
+            tx.propertyMedia.groupBy({
+              by: ["propertyId"],
               where: {
                 tenantId: fromTenantId,
                 propertyId: { in: propertyIds },
                 kind: "image",
               },
-              orderBy: { sortOrder: "asc" },
-              select: { propertyId: true, s3Key: true },
+              _count: { _all: true },
             }),
         );
         for (const item of media) {
-          const list = photos.get(item.propertyId) ?? [];
-          // אותה תקרה כמו בגלריית המודעה — אין טעם לחתום מעבר לה
-          if (list.length >= 12) continue;
-          const url = await this.storage
-            .signedGetUrl(item.s3Key)
-            .catch(() => null);
-          if (url === null) continue;
-          list.push(url);
-          photos.set(item.propertyId, list);
+          // אותה תקרה כמו בגלריית המודעה
+          counts.set(item.propertyId, Math.min(item._count._all, OFFER_PHOTO_MAX));
         }
       } catch (error: unknown) {
         this.logger.warn(
@@ -1808,7 +1821,66 @@ export class CollaborationService {
         );
       }
     }
-    return photos;
+    return counts;
+  }
+
+  /**
+   * הזרמת תמונת נכס שצורף להצעה — במקום כתובת אחסון חתומה.
+   *
+   * ההרשאה נגזרת מההצעה עצמה: רק המשרד ש**קיבל** אותה רשאי לראות
+   * את תמונות הנכס, וזו בדיוק אותה חשיפה מדורגת שהמסך כבר מציג —
+   * הנכס בלי בעליו ובלי כתובת מדויקת. המשרד המציע רואה את התמונות
+   * בכרטיס הנכס שלו ואינו זקוק לנתיב הזה.
+   *
+   * הקריאה למדיה חוצה-דייר במתכוון, דרך `withExplicitTenant` של
+   * המשרד המציע, ורק אחרי שנמצא שההצעה אכן נשלחה אלינו.
+   */
+  async offerPhoto(
+    offerId: string,
+    index: number,
+  ): Promise<{
+    body: NodeJS.ReadableStream;
+    contentType?: string;
+    contentLength?: number;
+  }> {
+    const tenantId = TenantContext.current().tenantId;
+    const offer = await this.prisma.withNetworkRead((tx) =>
+      tx.coopOffer.findFirst({
+        where: { id: offerId, toTenantId: tenantId },
+        select: { fromTenantId: true, propertyId: true },
+      }),
+    );
+    if (!offer) throw new NotFoundException("הצעה לא נמצאה");
+    if (index < 0 || index >= OFFER_PHOTO_MAX) {
+      throw new NotFoundException("תמונה לא נמצאה");
+    }
+
+    const media = await this.prisma.withExplicitTenant(
+      offer.fromTenantId,
+      (tx) =>
+        tx.propertyMedia.findMany({
+          where: {
+            tenantId: offer.fromTenantId,
+            propertyId: offer.propertyId,
+            kind: "image",
+          },
+          orderBy: { sortOrder: "asc" },
+          skip: index,
+          take: 1,
+          select: { s3Key: true },
+        }),
+    );
+    const key = media[0]?.s3Key;
+    if (key === undefined) throw new NotFoundException("תמונה לא נמצאה");
+    try {
+      return await this.storage.getObject(key);
+    } catch (error) {
+      // „לא קיים” הוא 404; כשל תשתית זמני נשאר 500 ולא נתקע בקאש
+      if (StorageService.isMissingObjectError(error)) {
+        throw new NotFoundException("התמונה לא נמצאה באחסון");
+      }
+      throw error;
+    }
   }
 
   /**

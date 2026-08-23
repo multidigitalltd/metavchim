@@ -7,12 +7,15 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 /**
  * אחסון אובייקטים S3-תואם (MinIO מקומית, S3/R2 בפרודקשן — docs/05).
- * העלאה עוברת דרך ה-API (ולידציה בצד השרת); צפייה ב-URL חתום קצר-מועד,
- * כך שהדפדפן לא זקוק לעוגיית Session מול שרת האחסון.
+ *
+ * העלאה וצפייה עוברות שתיהן דרך ה-API: הוא מוודא הרשאה ומזרים את
+ * הקובץ. **אין כאן חתימת כתובות.** חתימת SigV4 כוללת את ה-Host, ולכן
+ * כתובת חתומה שנשלחת לדפדפן נשברת בכל התקנה שבה האחסון יושב על רשת
+ * פנימית או מאחורי שער — וזה בדיוק המצב בפרודקשן שלנו. הפונקציה
+ * שחתמה כתובות הוסרה כדי שהמסלול הזה לא ייווצר שוב.
  */
 @Injectable()
 export class StorageService implements OnModuleInit {
@@ -56,13 +59,6 @@ export class StorageService implements OnModuleInit {
 
   async delete(key: string): Promise<void> {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
-  }
-
-  /** URL צפייה חתום — ברירת מחדל שעה. */
-  async signedGetUrl(key: string, expiresInSeconds = 3600): Promise<string> {
-    return getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.bucket, Key: key }), {
-      expiresIn: expiresInSeconds,
-    });
   }
 
   /** האם השגיאה היא "האובייקט לא קיים" — להבדיל מכשל תשתית זמני. */

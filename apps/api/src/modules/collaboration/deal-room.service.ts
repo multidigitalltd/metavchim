@@ -366,7 +366,6 @@ export class DealRoomService {
 
     const badges = await officeBadges(
       this.prisma,
-      this.storage,
       rows.map((row) =>
         row.listingTenantId === tenantId
           ? row.buyerTenantId
@@ -469,7 +468,7 @@ export class DealRoomService {
 
     const [badges, meSide, counterSide, property, buyer, entries] =
       await Promise.all([
-        officeBadges(this.prisma, this.storage, [
+        officeBadges(this.prisma, [
           row.listingTenantId,
           row.buyerTenantId,
         ]),
@@ -847,7 +846,7 @@ export class DealRoomService {
 
       const [to, badges] = await Promise.all([
         collabRecipient(this.prisma, otherTenantId, otherUserId),
-        officeBadges(this.prisma, this.storage, [tenantId]),
+        officeBadges(this.prisma, [tenantId]),
       ]);
       const closing = isFinalCoopDealStage(stage);
       await sendCollabMail(this.email, to, {
@@ -1037,7 +1036,7 @@ export class DealRoomService {
     );
     if (!deal) return;
 
-    const badges = await officeBadges(this.prisma, this.storage, [
+    const badges = await officeBadges(this.prisma, [
       deal.listingTenantId,
       deal.buyerTenantId,
     ]);

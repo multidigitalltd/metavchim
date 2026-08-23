@@ -497,6 +497,9 @@ export class SettingsController {
   @Get("tenant/logo/raw")
   @AnyAuthenticated()
   @Header("Cache-Control", "private, max-age=300")
+  // ראו ההסבר בנתיבי המדיה של הרשת — `helmet()` מגדיר CORP
+  // `same-origin`, שחוסם `<img>` מפורט אחר בפיתוח
+  @Header("Cross-Origin-Resource-Policy", "same-site")
   async logoRaw(): Promise<StreamableFile> {
     const obj = await this.tenantLogo.raw();
     return new StreamableFile(obj.body as never, {

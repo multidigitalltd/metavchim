@@ -105,7 +105,22 @@ function buildCsp(nonce: string, dev: boolean): string {
      * המסכים — עלות שאינה מוצדקת מול הסיכון.
      */
     "style-src": ["'self'", "'unsafe-inline'"],
-    "img-src": ["'self'", "data:", "blob:", ...media, ...mapOrigins, ...extra("CSP_IMG_SRC")],
+    /*
+     * `apiOrigin` נדרש גם כאן ולא רק ב-connect-src: תמונות הרשת
+     * (מודעה, הצעה, לוגו) מוזרמות מה-API, ובפיתוח הוא יושב על
+     * מקור אחר — 3001 מול 3000. בלעדיו הדפדפן חוסם כל תמונה כזו
+     * עוד לפני הבקשה (ביקורת Codex). בפרודקשן זו רשימה ריקה,
+     * כי ה-API הוא באותו מקור וכבר מכוסה ב-'self'.
+     */
+    "img-src": [
+      "'self'",
+      "data:",
+      "blob:",
+      ...apiOrigin,
+      ...media,
+      ...mapOrigins,
+      ...extra("CSP_IMG_SRC"),
+    ],
     "font-src": ["'self'", "data:"],
     /* MapLibre מייצר Web Worker מ-blob: */
     "worker-src": ["'self'", "blob:"],

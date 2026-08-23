@@ -3,11 +3,13 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   Param,
   Patch,
   Post,
   Query,
+  StreamableFile,
 } from "@nestjs/common";
 import { z } from "zod";
 import {
@@ -213,6 +215,24 @@ const ShareLeadSchema = z
  * הדיוק **אינו** מתקבל מהלקוח: הוא נגזר מהפער מול ההצהרה, ושליחתו
  * הייתה נתון שאפשר לזייף עבור חישוב שממילא שלנו.
  */
+/**
+ * מקום התמונה בגלריה. תקרה מכוונת: הנתיב מגיע מהמסך שלנו, ואינדקס
+ * שרירותי הוא ניסיון סריקה ולא בקשה.
+ */
+const PhotoIndexSchema = z.coerce.number().int().min(0).max(99);
+
+/** גוף מהאחסון ⟵ תשובת Nest, עם אורך כשידוע. */
+function streamed(obj: {
+  body: NodeJS.ReadableStream;
+  contentType?: string;
+  contentLength?: number;
+}): StreamableFile {
+  return new StreamableFile(obj.body as never, {
+    type: obj.contentType,
+    ...(obj.contentLength !== undefined ? { length: obj.contentLength } : {}),
+  });
+}
+
 const RateReferralSchema = z
   .object({
     scores: z
@@ -334,6 +354,63 @@ export class CollaborationController {
     query: z.infer<typeof NetworkFilterSchema>,
   ): Promise<SharedListingDto[]> {
     return this.listings.list(query);
+  }
+
+  /* ------------------------------------------------------------------
+     תמונות הרשת — נתיבים ב-API ולא כתובות אחסון חתומות.
+
+     כל שאר המדיה במערכת כבר זורמת כך; שלושת המקומות האלה היו
+     היוצאים מן הכלל, ובפרודקשן הם נשברו: חתימת SigV4 כוללת את
+     ה-Host, ו-MinIO יושבת על רשת פנימית בלי כתובת ציבורית
+     (`storage.service.ts`). ראו `network-media.ts`.
+
+     השער זהה לזה של הפיד — מי שרשאי לראות את המודעה רשאי לראות
+     את תמונותיה — וההרשאה נבדקת שוב בכל בקשה, בשירות.
+
+     `Cross-Origin-Resource-Policy: same-site` נדרש כי `helmet()`
+     מגדיר `same-origin` לכל התשובות, והדפדפן חוסם `<img>` ממקור
+     אחר עוד לפני שה-CSP נשקל. בפיתוח ה-web על 3000 וה-API על 3001,
+     כלומר בדיוק המצב הזה (ביקורת Codex). `same-site` ולא
+     `cross-origin`: הוא מתיר פורט או תת-דומיין של אותו אתר, ואינו
+     מתיר לאתר זר להטמיע תמונה של לקוח.
+     ------------------------------------------------------------------ */
+
+  @Get("listings/:id/photo/:index")
+  @RequireCapability("collaboration.offer")
+  @Header("Cache-Control", "private, max-age=300")
+  @Header("Cross-Origin-Resource-Policy", "same-site")
+  async listingPhoto(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("index", new ZodValidationPipe(PhotoIndexSchema)) index: number,
+  ): Promise<StreamableFile> {
+    return streamed(await this.listings.photo(id, index));
+  }
+
+  @Get("offers/:id/photo/:index")
+  @RequireCapability("collaboration.offer")
+  @Header("Cache-Control", "private, max-age=300")
+  @Header("Cross-Origin-Resource-Policy", "same-site")
+  async offerPhoto(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Param("index", new ZodValidationPipe(PhotoIndexSchema)) index: number,
+  ): Promise<StreamableFile> {
+    return streamed(await this.collaboration.offerPhoto(id, index));
+  }
+
+  /*
+   * הלוגו רחב יותר משני האחרים בכוונה: הוא מופיע גם בעסקה
+   * המשותפת וברשימת העסקאות, ואלה פתוחות לשתי היכולות. משרד
+   * שמשתף אך אינו מציע היה רואה שם שם משרד בלי לוגו — 403 על
+   * התמונה בלבד (ביקורת Codex).
+   */
+  @Get("office/:tenantId/logo")
+  @RequireCapability("collaboration.share", "collaboration.offer")
+  @Header("Cache-Control", "private, max-age=300")
+  @Header("Cross-Origin-Resource-Policy", "same-site")
+  async officeLogo(
+    @Param("tenantId", new ZodValidationPipe(IdSchema)) tenantId: string,
+  ): Promise<StreamableFile> {
+    return streamed(await this.listings.officeLogo(tenantId));
   }
 
   @Post("listings/:id/interest")

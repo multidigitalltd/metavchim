@@ -29,6 +29,7 @@ import { collabRecipient, sendCollabMail } from "./collab-mail";
 import { DealRoomService } from "./deal-room.service";
 import { assertNetworkQuota } from "./network-quota";
 import { notifyProposerDeclined } from "./decline-notify";
+import { listingPhotoPath } from "./network-media";
 import { officeBadges, type OfficeBadge } from "./office-names";
 import {
   networkPrice,
@@ -487,6 +488,84 @@ export class ListingsService {
     return row === null ? null : await this.toDto(row, tenantId);
   }
 
+  /**
+   * הזרמת תמונה מגלריית מודעה — במקום כתובת אחסון חתומה.
+   *
+   * הרשאת הצפייה זהה לזו של הפיד: מודעה **פעילה** גלויה לכל מנוי
+   * הרשת, כי זו כל מטרת הפרסום. מודעה שנסגרה נשארת גלויה לבעליה
+   * בלבד — לשונית השיתופים בכרטיס הנכס מציגה גם אותה.
+   *
+   * המפתח באחסון אינו יוצא החוצה לעולם; המסך מכיר רק את מקומה של
+   * התמונה בגלריה.
+   */
+  async photo(
+    id: string,
+    index: number,
+  ): Promise<{
+    body: NodeJS.ReadableStream;
+    contentType?: string;
+    contentLength?: number;
+  }> {
+    const tenantId = TenantContext.current().tenantId;
+    const row = await this.prisma.withNetworkRead((tx) =>
+      tx.sharedListing.findFirst({
+        where: { id },
+        select: { tenantId: true, status: true, photoKeys: true },
+      }),
+    );
+    if (!row || (row.status !== "active" && row.tenantId !== tenantId)) {
+      throw new NotFoundException("מודעה לא נמצאה");
+    }
+    const key = row.photoKeys[index];
+    if (key === undefined) throw new NotFoundException("תמונה לא נמצאה");
+    return this.streamKey(key);
+  }
+
+  /**
+   * מפתח ⟵ זרם, עם אותה הבחנה שכבר קיימת במדיה של הנכס: „האובייקט
+   * אינו קיים” הוא 404, וכשל תשתית זמני נשאר 500 — כדי שהדפדפן לא
+   * יקבע בקאש „תמונה חסרה” על תקלה חולפת.
+   */
+  private async streamKey(key: string): Promise<{
+    body: NodeJS.ReadableStream;
+    contentType?: string;
+    contentLength?: number;
+  }> {
+    try {
+      return await this.storage.getObject(key);
+    } catch (error) {
+      if (StorageService.isMissingObjectError(error)) {
+        throw new NotFoundException("התמונה לא נמצאה באחסון");
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * הזרמת לוגו של משרד שמופיע בפיד.
+   *
+   * הלוגו הוא מיתוג פומבי שכבר מוצג לצד שם המשרד בכל כרטיס — אין
+   * בו מידע על לקוח, וכל מי שרשאי לראות את הפיד רשאי לראות אותו.
+   * `tenants` אינה תחת RLS (תשתית ולא תוכן עסקי), ולכן הקריאה
+   * ישירה — בדיוק כמו ב-`officeBadges`.
+   */
+  async officeLogo(tenantId: string): Promise<{
+    body: NodeJS.ReadableStream;
+    contentType?: string;
+    contentLength?: number;
+  }> {
+    const row = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    const settings = (row?.settings ?? {}) as Record<string, unknown>;
+    const key = settings["logoKey"];
+    if (typeof key !== "string" || key === "") {
+      throw new NotFoundException("למשרד אין לוגו");
+    }
+    return this.streamKey(key);
+  }
+
   private async getListing(id: string): Promise<SharedListingDto> {
     const tenantId = TenantContext.current().tenantId;
     const row = await this.prisma.withTenant((tx) =>
@@ -496,30 +575,18 @@ export class ListingsService {
     return await this.toDto(row, tenantId);
   }
 
-  /**
-   * `async` בגלל התמונות בלבד.
-   *
-   * הכתובות נחתמות בזמן הקריאה ולא נשמרות: כתובת חתומה בטבלה פגה
-   * אחרי שעה ומשאירה תמונה שבורה במודעה. החתימה היא קריאה
-   * מקומית לספרייה ולא פנייה לרשת, ולכן היא זולה גם בפיד שלם.
-   */
-  private async toDto(
+  private toDto(
     row: Prisma.SharedListingGetPayload<object>,
     viewerTenantId: string,
     office?: OfficeBadge,
-  ): Promise<SharedListingDto> {
+  ): SharedListingDto {
     const mine = row.tenantId === viewerTenantId;
     /*
-     * תמונה שאין לה מפתח תקין אינה מפילה את המודעה כולה: היא
-     * פשוט אינה מוצגת. מודעה בלי תמונה שווה יותר משגיאת שרת.
+     * נתיב ב-API לכל תמונה, לפי מקומה בגלריה — לא כתובת אחסון
+     * חתומה (ראו `network-media.ts`). המפתח עצמו אינו יוצא החוצה,
+     * וגם אין כתובת שפגה אחרי שעה ומשאירה תמונה שבורה במודעה.
      */
-    const photos = (
-      await Promise.all(
-        row.photoKeys.map((key) =>
-          this.storage.signedGetUrl(key).catch(() => null),
-        ),
-      )
-    ).filter((url): url is string => url !== null);
+    const photos = row.photoKeys.map((_key, i) => listingPhotoPath(row.id, i));
     return {
       id: row.id,
       ...(row.city === null ? {} : { city: row.city }),
@@ -730,14 +797,13 @@ export class ListingsService {
 
     const offices = await officeBadges(
       this.prisma,
-      this.storage,
       visible.map((row) => row.tenantId),
     );
 
     /*
-     * `Promise.all` ולא לולאה סדרתית: חתימת התמונות היא החישוב
-     * היחיד שנוסף כאן, והיא מקומית — המתנה לכל מודעה בתורה הייתה
-     * מוסיפה השהיה לפיד בלי שום סיבה.
+     * `Promise.all` ולא לולאה סדרתית: התאמת הקונים שלי היא החישוב
+     * היחיד שנוסף כאן — המתנה לכל מודעה בתורה הייתה מוסיפה השהיה
+     * לפיד בלי שום סיבה.
      */
     return await Promise.all(
       visible.map(async (row) => {
@@ -989,7 +1055,7 @@ export class ListingsService {
         }),
       );
       if (!interest) return;
-      const badges = await officeBadges(this.prisma, this.storage, [tenantId]);
+      const badges = await officeBadges(this.prisma, [tenantId]);
       await notifyProposerDeclined(this.prisma, {
         proposerTenantId: interest.fromTenantId,
         proposerUserId: interest.createdBy,
@@ -1025,7 +1091,7 @@ export class ListingsService {
       if (!interest) return;
       const [to, badges] = await Promise.all([
         collabRecipient(this.prisma, interest.fromTenantId, interest.createdBy),
-        officeBadges(this.prisma, this.storage, [tenantId]),
+        officeBadges(this.prisma, [tenantId]),
       ]);
       const office = badges.get(tenantId)?.name ?? "משרד תיווך";
       const accepted = response === "interested";
@@ -1089,7 +1155,7 @@ export class ListingsService {
       );
       const [to, badges] = await Promise.all([
         collabRecipient(this.prisma, interest.toTenantId, listing?.createdBy ?? null),
-        officeBadges(this.prisma, this.storage, [ctx.tenantId]),
+        officeBadges(this.prisma, [ctx.tenantId]),
       ]);
       const which = listing?.title ?? listing?.city ?? "אחד הנכסים שפרסמתם";
       await sendCollabMail(this.email, to, {
@@ -1162,7 +1228,6 @@ export class ListingsService {
      */
     const offices = await officeBadges(
       this.prisma,
-      this.storage,
       rows.map((row) => row.fromTenantId),
     );
     return rows.map((row) => {

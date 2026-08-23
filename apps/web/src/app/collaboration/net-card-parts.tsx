@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import type { NetworkChip, NetworkDetailRow } from "@metavchim/shared";
+import { mediaSrc } from "@/lib/api";
 import {
   IconClock,
   IconDoor,
@@ -399,8 +400,11 @@ export function isFresh(iso?: string): boolean {
  * והשאר נפתח בלחיצה של מי שכבר התעניין.
  *
  * ‎`loading="lazy"`‎ — פיד של עשרות מודעות לא ימשוך עשרות תמונות
- * בטעינה. הכתובות חתומות וקצרות-חיים, ולכן תמונה שנכשלת נעלמת
- * בשקט במקום להשאיר סמל שבור על המודעה.
+ * בטעינה. תמונה שנכשלת נעלמת בשקט במקום להשאיר סמל שבור על
+ * המודעה.
+ *
+ * הכתובות הן נתיבים ב-API (`mediaSrc`), ולא כתובות אחסון חתומות —
+ * ראו `apps/api/.../network-media.ts`.
  */
 export function NetPhotos({
   photos,
@@ -425,7 +429,7 @@ export function NetPhotos({
   return (
     <div className="mv-net-photos">
       <img
-        src={main}
+        src={mediaSrc(main!)}
         alt={alt}
         loading="lazy"
         className="mv-net-photo-main"
@@ -436,7 +440,7 @@ export function NetPhotos({
           {rest.map((url) => (
             <img
               key={url}
-              src={url}
+              src={mediaSrc(url)}
               alt={alt}
               loading="lazy"
               className="mv-net-photo-thumb"
@@ -474,7 +478,7 @@ export function NetOffice({
     <span className="mv-net-chip" title="המשרד שפרסם את המודעה">
       {logoUrl !== undefined && !broken ? (
         <img
-          src={logoUrl}
+          src={mediaSrc(logoUrl)}
           alt=""
           loading="lazy"
           className="mv-net-office-logo"
