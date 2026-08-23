@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AUDIO_RECORDING_FORMATS, extensionForAudioType } from "@metavchim/shared";
 import { API_BASE, apiGet } from "@/lib/api";
+
+export { extensionForAudioType };
 
 /**
  * הכתבה לכל שדה טקסט במערכת, בשני מצבים שהמשתמש בוחר ביניהם במפורש:
@@ -48,7 +51,39 @@ interface SpeechRecognitionLike {
   stop: () => void;
   onresult: ((event: { results: ArrayLike<RecognitionResult> }) => void) | null;
   onend: (() => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+}
+
+/**
+ * למה זיהוי הדיבור נכשל — בניסוח שאפשר לעשות איתו משהו.
+ *
+ * עד כה כל כשל קיבל את אותו משפט („זיהוי הדיבור בדפדפן נכשל”),
+ * וזה בדיוק המצב שבו המשתמש אינו יכול לדעת אם צריך לאשר מיקרופון,
+ * לדבר חזק יותר, או לעבור למצב המדויק. בטלפון זה קריטי יותר מאשר
+ * במחשב: שם ההרשאה נשאלת פעם אחת בכרטיסייה, וכאן היא נשאלת לכל
+ * אתר ולעיתים נדחית בטעות.
+ *
+ * `language-not-supported` הוא החשוד המרכזי בפער בין מחשב לטלפון:
+ * מנוע הזיהוי במחשב הוא ענן שיש בו עברית, ובאנדרואיד הוא נשען על
+ * חבילת השפה שמותקנת במכשיר — ואם אין בה עברית, הזיהוי נכשל שם
+ * ועובד כאן.
+ */
+export function dictationErrorMessage(code: string | undefined): string {
+  switch (code) {
+    case "not-allowed":
+    case "service-not-allowed":
+      return "הדפדפן חסם את המיקרופון — אשרו גישה למיקרופון בהגדרות האתר ונסו שוב";
+    case "audio-capture":
+      return "לא נמצא מיקרופון במכשיר — אפשר להקליד או לנסות ממכשיר אחר";
+    case "language-not-supported":
+      return "זיהוי הדיבור במכשיר הזה אינו תומך בעברית — השתמשו ב„מדויק”, שמתמלל בשרת";
+    case "network":
+      return "זיהוי הדיבור בדפדפן דורש חיבור לרשת — נסו „מדויק” או בדקו את החיבור";
+    case "no-speech":
+      return "לא נשמע דיבור — נסו שוב קרוב יותר למיקרופון";
+    default:
+      return "זיהוי הדיבור בדפדפן נכשל — אפשר לנסות הקלטה מדויקת או להקליד";
+  }
 }
 
 /**
@@ -114,6 +149,38 @@ function canRecordAudio(): boolean {
     typeof MediaRecorder !== "undefined" &&
     navigator.mediaDevices !== undefined
   );
+}
+
+/* ---------- פורמט ההקלטה ---------- */
+
+/**
+ * הפורמט שהדפדפן **באמת** יודע להקליט.
+ *
+ * ## למה זה לא קבוע
+ *
+ * הקוד כאן בנה תמיד `Blob(..., { type: "audio/webm" })` ושלח בשם
+ * `recording.webm`. בכרום במחשב זה נכון במקרה — הוא באמת מקליט webm.
+ * ספארי אינו יודע להקליט webm **בכלל**: ב-iPhone וב-iPad
+ * `MediaRecorder` מפיק `audio/mp4`, וכל דפדפן ב-iOS הוא ספארי מתחת
+ * למכסה. כלומר ההקלטה יצאה mp4 עטופה בתווית webm ובשם ‎.webm‎.
+ *
+ * זה לא נעצר בתווית: שירות התמלול פותח קובץ זמני **לפי הסיומת של
+ * השם שנשלח** (`infra/stt/server.py`), ולכן קובץ mp4 נכתב כ-‎.webm‎
+ * ומגיע למפענח כשקר. זו הסיבה שההכתבה עבדה מצוין במחשב ולא עשתה
+ * דבר בטלפון (דיווח המשתמש).
+ *
+ * ## למה רשימה ולא בדיקת ספארי
+ *
+ * זיהוי דפדפן לפי `userAgent` מזדקן ומשקר. `isTypeSupported` היא
+ * שאלה ישירה למי שיודע את התשובה, והסדר כאן הוא סדר העדפה: opus
+ * דחוס יותר ומדויק יותר לדיבור, ו-mp4 הוא מה שנשאר כשאין.
+ */
+/** הפורמט הראשון ברשימה שהדפדפן הזה תומך בו, או `undefined` = ברירת המחדל שלו. */
+export function preferredAudioFormat(): { mimeType: string; extension: string } | undefined {
+  if (typeof MediaRecorder === "undefined") return undefined;
+  // דפדפן ישן ללא `isTypeSupported` — נותנים לו לבחור בעצמו
+  if (typeof MediaRecorder.isTypeSupported !== "function") return undefined;
+  return AUDIO_RECORDING_FORMATS.find((format) => MediaRecorder.isTypeSupported(format.mimeType));
 }
 
 /* ---------- זמינות שירות התמלול ---------- */
@@ -229,14 +296,14 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
       recognitionRef.current = null;
       setRecording(null);
     };
-    recognition.onerror = () => {
+    recognition.onerror = (event) => {
       if (endGuardRef.current !== null) {
         clearTimeout(endGuardRef.current);
         endGuardRef.current = null;
       }
       recognitionRef.current = null;
       setRecording(null);
-      setError("זיהוי הדיבור בדפדפן נכשל — אפשר לנסות הקלטה מדויקת או להקליד");
+      setError(dictationErrorMessage(event?.error));
     };
     recognitionRef.current = recognition;
     recognition.start();
@@ -257,15 +324,25 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
     }
     streamRef.current = stream;
     chunksRef.current = [];
-    const recorder = new MediaRecorder(stream);
+    const format = preferredAudioFormat();
+    const recorder =
+      format === undefined
+        ? new MediaRecorder(stream)
+        : new MediaRecorder(stream, { mimeType: format.mimeType });
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) chunksRef.current.push(event.data);
     };
     recorder.onstop = () => {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
-      const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-      void transcribe(blob);
+      /*
+       * הסוג נלקח מהמקליט עצמו ולא ממה שביקשנו: דפדפן רשאי להתעלם
+       * מהבקשה ולהקליט במה שיש לו, ואז שוב היינו מתייגים שקר.
+       * `chunk.type` הוא הגיבוי לדפדפן שאינו מכריז `mimeType`.
+       */
+      const actual = recorder.mimeType || chunksRef.current[0]?.type || "";
+      const blob = new Blob(chunksRef.current, ...(actual ? [{ type: actual }] : []));
+      void transcribe(blob, extensionForAudioType(actual || blob.type));
     };
     recorderRef.current = recorder;
     recorder.start();
@@ -282,7 +359,7 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
     setRecording("server");
   }, []);
 
-  async function transcribe(blob: Blob): Promise<void> {
+  async function transcribe(blob: Blob, extension: string): Promise<void> {
     // ההקלטה כבר סימנה `transcribing`; הקלטה ריקה חייבת לכבות אותו
     // בעצמה, אחרת הסבב נשאר "פעיל" לנצח והכפתורים אינם חוזרים
     if (blob.size === 0 || disposedRef.current) {
@@ -293,7 +370,11 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
     abortRef.current = controller;
     try {
       const form = new FormData();
-      form.append("file", blob, "recording.webm");
+      /*
+       * שם הקובץ אינו קישוט: שירות התמלול פותח את הקובץ הזמני לפי
+       * הסיומת שמגיעה כאן (`infra/stt/server.py`).
+       */
+      form.append("file", blob, `recording.${extension}`);
       const res = await fetch(`${API_BASE}/voice-intakes/transcribe`, {
         method: "POST",
         credentials: "include",
