@@ -80,6 +80,7 @@ const SCREEN_TITLES: [prefix: string, title: string][] = [
   ["/profile", "הפרופיל שלי"],
   ["/tasks", "משימות"],
   ["/guides", "הדרכות"],
+  ["/forum", "פורום"],
 ];
 
 function screenTitle(pathname: string): string {
@@ -596,6 +597,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           ? navLink("/reports", "דוחות", ICONS.reports)
           : null}
         {navLink("/guides", "הדרכות", ICONS.guides)}
+        {/* פורום מקצועי — עמוד "בקרוב" עד ההשקה (בקשת המשתמש) */}
+        {navLink(
+          "/forum",
+          "פורום",
+          ICONS.buyers,
+          <span className="mv-nav-soon">בקרוב</span>,
+        )}
         {/*
           המנטור האישי — עמוד "בקרוב" עד ההשקה (בקשת המשתמש).
           התג AI מסמן שזה פיצ'ר של בינה מלאכותית ולא עוד מסך נתונים.
