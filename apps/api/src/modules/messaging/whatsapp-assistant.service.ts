@@ -1082,7 +1082,12 @@ export class WhatsAppAssistantService {
 const SCOPE_CAPABILITIES: Record<string, readonly Capability[]> = {
   find_buyers: ["buyers.view_all"],
   show_tasks: ["tasks.view_all"],
-  show_calls: ["buyers.view_all", "leads.view_all"],
+  /*
+   * יומן השיחות מסונן גם לפי מודול הנכסים: שיחה של בעל נכס נשמטת
+   * ממי שהמודול חסום אצלו (`seesAllContacts`). בלי היכולת השלישית
+   * כאן הסייג היה נעלם דווקא כשחלק מההיסטוריה אכן הוסתר.
+   */
+  show_calls: ["buyers.view_all", "leads.view_all", "properties.view"],
 };
 
 /** קבוצות החיפוש הכללי שמסוננות לפי בעלות — הנכסים אינם ביניהן. */

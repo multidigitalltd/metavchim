@@ -1,7 +1,13 @@
 import type { Readable } from "node:stream";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
-import { assertContactAccess, seesAllContacts, visibleContactIds } from "../../common/ownership";
+import {
+  assertContactAccess,
+  contactIdsInAnySource,
+  isOrphanContact,
+  seesAllContacts,
+  visibleContactIds,
+} from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -164,6 +170,12 @@ export class CallsService {
     const { tenantId, userId } = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
       const visible = await visibleContactIds(tx, tenantId);
+      /*
+       * „אני רשמתי” חל רק על שיחה בלי בעלים — בלי איש קשר, או עם
+       * לקוח שאינו שייך עוד לאיש. לקוח חי עובר בשער הרגיל, אחרת
+       * שיחה שנרשמה כשהמודול היה פתוח הייתה שורדת את חסימתו.
+       */
+      const owned = visible === null ? [] : await contactIdsInAnySource(tx, tenantId);
       const rows = await tx.call.findMany({
         where: {
           tenantId,
@@ -174,7 +186,13 @@ export class CallsService {
           ...(query.id ? { id: query.id } : {}),
           ...(visible === null
             ? {}
-            : { OR: [{ contactId: { in: visible } }, { createdBy: userId }] }),
+            : {
+                OR: [
+                  { contactId: { in: visible } },
+                  { createdBy: userId, contactId: null },
+                  { createdBy: userId, contactId: { notIn: owned } },
+                ],
+              }),
         },
         orderBy: { occurredAt: "desc" },
         take: query.limit,
@@ -214,10 +232,15 @@ export class CallsService {
     });
     if (!row) throw new NotFoundException("שיחה לא נמצאה");
 
-    if (row.createdBy === userId) return;
     // אותו ניסוח בדיוק כמו ברשימה — לא עותק שלו
     if (seesAllContacts()) return;
+    /*
+     * „אני רשמתי” — רק על שיחה בלי בעלים, כמו ברשימה. שיחה בלי
+     * איש קשר, או עם לקוח שאינו כרטיס של איש.
+     */
+    if (row.createdBy === userId && row.contactId === null) return;
     if (row.contactId === null) throw new NotFoundException("שיחה לא נמצאה");
+    if (row.createdBy === userId && (await isOrphanContact(tx, tenantId, row.contactId))) return;
 
     // ההודעה מאוחדת: „איש קשר לא נמצא” היה מסגיר שהשיחה עצמה קיימת
     await assertContactAccess(tx, tenantId, row.contactId).catch(() => {

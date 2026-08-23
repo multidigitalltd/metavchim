@@ -229,6 +229,45 @@ describe("גישה להקלטת שיחה", () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  /*
+   * „אני רשמתי” אינו עוקף מודול חסום.
+   *
+   * הענף נועד לשיחה **בלי בעלים** — בלי איש קשר, או עם לקוח
+   * שהתייתם. הוא היה עיוור ליכולות, ולכן שיחה שנרשמה כשמודול
+   * הלידים היה פתוח המשיכה לחשוף את הטלפון, התמלול וההקלטה של
+   * אותו ליד גם אחרי שהמודול נחסם (ביקורת Codex).
+   */
+  it("שיחה שרשמתי על ליד חי אינה נפתחת כשמודול הלידים חסום", async () => {
+    const call: FakeCall = { recordingKey: "k", contactId: "01LEAD", createdBy: "01ME" };
+    /* הלקוח חי — הוא ליד של מישהו, ולכן אינו יתום */
+    const live = {
+      call: { findFirst: async () => call },
+      buyer: { findFirst: async () => null, findMany: async () => [] },
+      lead: { findFirst: async () => ({ id: "01L" }), findMany: async () => [] },
+      property: { findFirst: async () => null, findMany: async () => [] },
+    };
+    const service = new CallsService(
+      {
+        withTenant: async <T>(fn: (t: unknown) => Promise<T>): Promise<T> => fn(live),
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { getObject: async () => ({ body: null, contentType: "audio/wav" }) } as never,
+      {} as never,
+    );
+
+    // עם מודול הלידים — נפתחת
+    await expect(
+      asAgent(["leads.view_own"], "01ME", () => service.recording("01CALL")),
+    ).resolves.toBeDefined();
+
+    // בלעדיו — נחסמת, למרות שאני רשמתי אותה
+    await expect(
+      asAgent(["buyers.view_own"], "01ME", () => service.recording("01CALL")),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
   it("שיחה שאינה שלי ושיחה שאינה קיימת נראות זהה", async () => {
     const messages: string[] = [];
     for (const call of [null, OTHERS_CALL, { ...OTHERS_CALL, recordingKey: null }]) {

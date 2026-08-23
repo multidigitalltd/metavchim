@@ -159,6 +159,55 @@ export function seesAllContacts(): boolean {
   );
 }
 
+/**
+ * כל איש קשר שאיזושהי ישות במשרד מצביעה עליו — בלי בעלות ובלי
+ * יכולות. זהו המשלים של „יתום”.
+ *
+ * נועד לענף „אני רשמתי” ביומן השיחות: הוא קיים כדי ששיחה **בלי
+ * בעלים** לא תיעלם ממי שרשם אותה — שיחה בלי איש קשר, או כזו שהלקוח
+ * שלה נמחק מכל הכרטיסים ואינו שייך עוד לאיש. הענף היה עיוור
+ * ליכולות, ולכן שיחה שנרשמה כשמודול הלידים היה פתוח המשיכה לחשוף
+ * את הטלפון, התמלול וההקלטה של אותו ליד גם אחרי שהמודול נחסם
+ * (ביקורת Codex). לקוח שעדיין שייך למישהו עובר בשער הרגיל.
+ */
+export async function contactIdsInAnySource(
+  tx: TenantTx,
+  tenantId: string,
+): Promise<string[]> {
+  const [buyers, leads, properties] = await Promise.all([
+    tx.buyer.findMany({ where: { tenantId, deletedAt: null }, select: { contactId: true } }),
+    tx.lead.findMany({ where: { tenantId }, select: { contactId: true } }),
+    tx.property.findMany({
+      where: { tenantId, deletedAt: null, ownerContactId: { not: null } },
+      select: { ownerContactId: true },
+    }),
+  ]);
+  return [
+    ...new Set([
+      ...buyers.map((row) => row.contactId),
+      ...leads.map((row) => row.contactId),
+      ...properties.map((row) => row.ownerContactId!),
+    ]),
+  ];
+}
+
+/** האם הלקוח הזה יתום — אינו כרטיס קונה, ליד או בעל נכס אצל איש. */
+export async function isOrphanContact(
+  tx: TenantTx,
+  tenantId: string,
+  contactId: string,
+): Promise<boolean> {
+  const [buyer, lead, property] = await Promise.all([
+    tx.buyer.findFirst({ where: { tenantId, contactId, deletedAt: null }, select: { id: true } }),
+    tx.lead.findFirst({ where: { tenantId, contactId }, select: { id: true } }),
+    tx.property.findFirst({
+      where: { tenantId, ownerContactId: contactId, deletedAt: null },
+      select: { id: true },
+    }),
+  ]);
+  return !buyer && !lead && !property;
+}
+
 export async function visibleContactIds(
   tx: TenantTx,
   tenantId: string,
