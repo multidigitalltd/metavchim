@@ -44,6 +44,30 @@ describe("extractPropertyFromTranscript — קליטת נכס בקול", () => {
     });
 
     /*
+     * „לחלוקה” לבדו מתאר גם נכסים שאינם דירה. סיווג „מגרש
+     * לחלוקה” כדירה לחלוקה משנה בשקט התאמה וייצוא.
+     */
+    it("„לחלוקה” בלי דירה אינו דירה לחלוקה", () => {
+      for (const said of ["מגרש לחלוקה בבני ברק", "מחסן לחלוקה"]) {
+        expect(
+          extractPropertyFromTranscript(said).fields.propertyType,
+          said,
+        ).not.toBe("divisible_apartment");
+      }
+    });
+
+    it("„דירה לחלוקה” בקיצור עדיין מזוהה", () => {
+      expect(
+        extractPropertyFromTranscript("דירה לחלוקה בבני ברק").fields
+          .propertyType,
+      ).toBe("divisible_apartment");
+      expect(
+        extractPropertyFromTranscript("דירה מחולקת ברמת גן").fields
+          .propertyType,
+      ).toBe("divisible_apartment");
+    });
+
+    /*
      * שלילה היא לא „פחות ביטחון” אלא ההפך הגמור. קליטה שגויה כאן
      * גרועה מאי-זיהוי, כי היא נראית כמו הצלחה.
      */
@@ -53,6 +77,20 @@ describe("extractPropertyFromTranscript — קליטת נכס בקול", () => {
         "דירת 4 חדרים אינה ניתנת לחלוקה",
         "דירה לא מחולקת ברמת גן",
         "דירה אינה מחולקת",
+      ]) {
+        expect(
+          extractPropertyFromTranscript(said).fields.propertyType,
+          said,
+        ).toBe("apartment");
+      }
+    });
+
+    /* שלילה של טאבו משותף היא אמירה על מצב קנייני הפוך. */
+    it("„לא בטאבו משותף” אינה טאבו משותף", () => {
+      for (const said of [
+        "דירה לא בטאבו משותף ברמת גן",
+        "דירה אינה בטאבו משותף",
+        "דירת 4 חדרים לא טאבו משותף",
       ]) {
         expect(
           extractPropertyFromTranscript(said).fields.propertyType,

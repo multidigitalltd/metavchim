@@ -218,15 +218,26 @@ export function extractPropertyFromTranscript(
    */
   const NOT_DIVISIBLE = /(?:^|\s)(?:לא|אינה|אינו|אינם)\s+(?:מתאימה|מתאים|ניתנת|ניתן)?\s*(?:לחלוקה|מחולקת|מחולק)/u;
 
+  /* אותה שלילה, לצד השני: „דירה **לא** בטאבו משותף”. */
+  const NOT_SHARED_TABU = /(?:^|\s)(?:לא|אינה|אינו|אינם)\s+(?:ב)?טאבו\s+(?:משותף|שיתופי)/u;
+
+  /*
+   * „לחלוקה” לבדו אינו סוג נכס. „מגרש לחלוקה” ו„מחסן לחלוקה” אינם
+   * דירה, והקיצור היה הופך אותם ל-`divisible_apartment` — שינוי
+   * שקט של ההתאמה והייצוא (ביקורת Codex). הקיצור מחייב עכשיו
+   * הקשר של דירה; „מתאימה/ניתנת לחלוקה” נשארות עצמאיות, כי הן
+   * בנקבה ומתייחסות ממילא לדירה.
+   */
+  const DIVISIBLE = /מתאימה לחלוקה|ניתנת לחלוקה|דיר(?:ה|ת)[^.,]{0,30}?(?:לחלוקה|מחולקת)/u;
+
   const typeMap: [RegExp, PropertyFields["propertyType"], RegExp?][] = [
     [/פנטהאוז/u, "penthouse"],
     [/דירת גן/u, "garden_apartment"],
     [/דופלקס/u, "duplex"],
     [/בית פרטי|קוטג/u, "private_house"],
     [/יחידת דיור/u, "unit"],
-    // „מתאימה/ניתנת לחלוקה”, וגם „דירה לחלוקה” בקיצור
-    [/מתאימה לחלוקה|ניתנת לחלוקה|לחלוקה|מחולקת/u, "divisible_apartment", NOT_DIVISIBLE],
-    [/טאבו משותף|טאבו שיתופי/u, "shared_tabu"],
+    [DIVISIBLE, "divisible_apartment", NOT_DIVISIBLE],
+    [/טאבו משותף|טאבו שיתופי/u, "shared_tabu", NOT_SHARED_TABU],
     [/דירה|דירת/u, "apartment"],
   ];
   for (const [re, type, unless] of typeMap) {
