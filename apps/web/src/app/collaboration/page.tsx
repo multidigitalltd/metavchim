@@ -4,13 +4,13 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import {
   COMMISSION_SIDES,
   COMMISSION_SIDE_LABEL,
-  COMMISSION_SPLIT_OPTIONS,
   DEFAULT_COMMISSION_SPLIT,
   demandChips,
   demandDetailRows,
   describeCommissionSide,
   describeCommissionSplit,
   describeCommissionTerms,
+  commissionSplitOptionsWith,
   publisherStatedSplit,
   describeReferralRating,
   presentationChips,
@@ -1705,7 +1705,16 @@ export default function CollaborationPage() {
                                 }
                                 className="mv-control"
                               >
-                                {COMMISSION_SPLIT_OPTIONS.map((share) => (
+                                {/*
+                                  גם כאן הערך שהמשרד המפרסם הצהיר עליו
+                                  נכלל ברשימה כשאינו נופל על החמישיות —
+                                  אחרת הבורר היה נפתח על ערך אחר,
+                                  וההצעה הייתה יוצאת על אחוז שלישי
+                                  שאיש לא בחר.
+                                */}
+                                {commissionSplitOptionsWith(
+                                  publisherStatedSplit(demand.terms, "buyer"),
+                                ).map((share) => (
                                   <option key={share} value={share}>
                                     {describeCommissionSplit(share)}
                                   </option>
@@ -2041,7 +2050,13 @@ export default function CollaborationPage() {
                                   }
                                   className="mv-control"
                                 >
-                                  {COMMISSION_SPLIT_OPTIONS.map((share) => (
+                                  {/* אותו כלל כמו בצד ההצעה */}
+                                  {commissionSplitOptionsWith(
+                                    publisherStatedSplit(
+                                      listing.terms,
+                                      "property",
+                                    ),
+                                  ).map((share) => (
                                     <option key={share} value={share}>
                                       {describeCommissionSplit(share)}
                                     </option>

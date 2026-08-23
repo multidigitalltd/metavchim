@@ -5,6 +5,7 @@ import {
   DEFAULT_LEAD_SOURCES,
   MAX_COMMISSION_SHARE,
   MIN_COMMISSION_SHARE,
+  commissionSplitOptionsWith,
   commissionSplitRejectionReason,
   describeCommissionSplit,
   UNPRICED_SOURCE_COST,
@@ -115,6 +116,30 @@ describe("חלוקת עמלה", () => {
   it("הניסוח מציג את שני הצדדים", () => {
     expect(describeCommissionSplit(60)).toBe("60% / 40%");
     expect(describeCommissionSplit(50)).toBe("50% / 50%");
+  });
+});
+
+describe("commissionSplitOptionsWith", () => {
+  it("ערך שברשימה אינו מוסיף כפילות", () => {
+    expect(commissionSplitOptionsWith(DEFAULT_COMMISSION_SPLIT)).toEqual(
+      COMMISSION_SPLIT_OPTIONS,
+    );
+  });
+
+  it("null מחזיר את הרשימה כמות שהיא", () => {
+    expect(commissionSplitOptionsWith(null)).toEqual(COMMISSION_SPLIT_OPTIONS);
+  });
+
+  it("ערך שאינו ברשימה נכנס אליה במקומו הממוין", () => {
+    /*
+     * 37 תקין בשרת אך אינו נופל על החמישיות. בלי ההוספה הבורר היה
+     * נפתח על ערך אחר, ושמירה הייתה משנה בשקט תנאי שסוכם.
+     */
+    const options = commissionSplitOptionsWith(37);
+    expect(options).toContain(37);
+    expect(commissionSplitRejectionReason(37)).toBeNull();
+    expect([...options]).toEqual([...options].sort((a, b) => a - b));
+    expect(options.length).toBe(COMMISSION_SPLIT_OPTIONS.length + 1);
   });
 });
 

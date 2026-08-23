@@ -5,8 +5,8 @@ import {
   COMMISSION_SIDES,
   COMMISSION_SIDE_HINT,
   COMMISSION_SIDE_LABEL,
-  COMMISSION_SPLIT_OPTIONS,
   OTHER_SPLIT_MAX_NOTE,
+  commissionSplitOptionsWith,
   describeCommissionSide,
   describeCommissionSplit,
   publisherSideOf,
@@ -86,10 +86,7 @@ export function CommissionTermsTabs({
    */
   const uid = useId();
   const current = value[side];
-  const splitOptions =
-    current.split !== null && !COMMISSION_SPLIT_OPTIONS.includes(current.split)
-      ? [...COMMISSION_SPLIT_OPTIONS, current.split].sort((a, b) => a - b)
-      : COMMISSION_SPLIT_OPTIONS;
+  const splitOptions = commissionSplitOptionsWith(current.split);
 
   function set(next: Partial<CommissionTerms[CommissionSide]>): void {
     onChange({ ...value, [side]: { ...current, ...next } });
@@ -143,12 +140,7 @@ export function CommissionTermsTabs({
             )
           }
         >
-          {/*
-            הערך השמור נכלל גם כשאינו ברשימה. הרשימה קופצת בחמישיות,
-            והשרת מקבל כל שלם בטווח — פרסום שנשמר על 37% (דרך ה-API)
-            היה נפתח כאן בלי אפשרות תואמת, הדפדפן היה מציג את הראשונה,
-            ושמירה הייתה משנה בשקט תנאי שסוכם עם משרד אחר.
-          */}
+          {/* הערך השמור נכלל גם כשאינו ברשימה — ראו `commissionSplitOptionsWith` */}
           {splitOptions.map((option) => (
             <option key={option} value={String(option)}>
               {describeCommissionSplit(option)}
