@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import { API_BASE, apiGet, apiPost, ApiError } from "@/lib/api";
+import { resyncA11yForUser } from "@/lib/a11y-sync";
 import { clearSessionCache } from "@/lib/session-cache";
 import { AuthShell } from "../auth-shell";
 import { IconMail, LogoGoogle } from "../icons";
@@ -74,6 +75,12 @@ function LoginForm() {
       }
       /* הזהות במטמון היא של מי שהיה מחובר קודם — ראו session-cache */
       clearSessionCache();
+      /*
+       * והנגישות — אותו היגיון בדיוק, בשכבה שנייה. הכניסה היא
+       * `router.replace`, ולכן `AccessibilityRuntime` אינו מורכב
+       * מחדש והסנכרון החד-פעמי שלו כבר נצרך בטעינת מסך זה.
+       */
+      await resyncA11yForUser();
       router.replace(result.user.mustChangePassword ? "/change-password" : "/");
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "שגיאה בהתחברות — נסו שוב");
@@ -92,6 +99,7 @@ function LoginForm() {
         { otpToken, code },
       );
       clearSessionCache();
+      await resyncA11yForUser();
       router.replace(user.mustChangePassword ? "/change-password" : "/");
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "האימות נכשל — נסו שוב");

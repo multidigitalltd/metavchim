@@ -4205,7 +4205,12 @@ a.mv-bar-row:focus-visible {
   padding: 0;
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /*
+   * `auto-fit` ולא מספר קבוע: מספר השלבים משתנה (נוסף „הכרטיס נפתח
+   * מעצמו”), ועמודות קשיחות היו משאירות את השלב האחרון לבד בשורה
+   * שנייה. הרוחב המזערי הוא מה שקובע מתי נשבר, ולא ספירה ידנית.
+   */
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 }
 .mv-pitch-step {
   position: relative;

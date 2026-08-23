@@ -6,6 +6,7 @@ import {
   IconHeadphones,
   IconPhone,
   IconSparkle,
+  IconUsers,
 } from "../icons";
 import { openSupport } from "../support-button";
 
@@ -48,6 +49,16 @@ const STEPS = [
     icon: IconDoc,
     title: "התמלול נכתב",
     text: "המערכת מתמללת את השיחה בעברית ומסמנת מי אמר מה.",
+  },
+  {
+    /*
+     * השלב שהיה חסר, והוא זה שמוכר: השאר הוא תיעוד, וזה הרגע שבו
+     * שיחה הופכת לכרטיס עובד. „קונה או מוכר” במפורש — מתווך שקורא
+     * „נפתח כרטיס” לא יודע שגם הצד השני מכוסה (בקשת המשתמש).
+     */
+    icon: IconUsers,
+    title: "הכרטיס נפתח מעצמו",
+    text: "מה שנאמר בשיחה הופך לכרטיס קונה או מוכר — תקציב, אזור וחדרים כבר בפנים.",
   },
   {
     icon: IconSparkle,
