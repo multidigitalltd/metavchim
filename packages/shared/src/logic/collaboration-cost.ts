@@ -147,3 +147,22 @@ export const COMMISSION_SPLIT_OPTIONS: readonly number[] = (() => {
   }
   return [...values].sort((a, b) => a - b);
 })();
+
+/**
+ * הרשימה, ובתוכה גם הערך שכבר שמור — גם כשאינו נופל עליה.
+ *
+ * הרשימה קופצת בחמישיות, והשרת מקבל **כל** שלם בטווח. פרסום שנשמר
+ * על 37% (דרך ה-API) נפתח בבורר בלי אפשרות תואמת: הדפדפן מציג את
+ * הראשונה, ולחיצה על „שמור” משנה בשקט תנאי שסוכם עם משרד אחר.
+ *
+ * `null` = אין ערך נוכחי (חלוקה שנוסחה במילים), ואז הרשימה כמות
+ * שהיא.
+ */
+export function commissionSplitOptionsWith(
+  current: number | null,
+): readonly number[] {
+  if (current === null || COMMISSION_SPLIT_OPTIONS.includes(current)) {
+    return COMMISSION_SPLIT_OPTIONS;
+  }
+  return [...COMMISSION_SPLIT_OPTIONS, current].sort((a, b) => a - b);
+}

@@ -18,6 +18,7 @@ import {
   normalizeCommissionSide,
   otherTerms,
   publisherSideOf,
+  publisherStatedSplit,
   splitTerms,
   uniformTerms,
 } from "./commission-terms.js";
@@ -225,6 +226,25 @@ describe("headlineCommissionSplit", () => {
     expect(
       headlineCommissionSplit({ buyer: otherTerms("כמו תמיד"), seller: splitTerms(40) }, "buyer"),
     ).toBe(DEFAULT_COMMISSION_SPLIT);
+  });
+});
+
+describe("publisherStatedSplit", () => {
+  it("אחוז מוצהר מוחזר כמות שהוא", () => {
+    const terms = { buyer: splitTerms(60), seller: splitTerms(40) };
+    expect(publisherStatedSplit(terms, "buyer")).toBe(60);
+    expect(publisherStatedSplit(terms, "property")).toBe(40);
+  });
+
+  it("צד שנוסח במילים מחזיר null ולא ברירת מחדל", () => {
+    /*
+     * זה ההבדל מ-`headlineCommissionSplit`, וזו כל מטרת הפונקציה:
+     * מסך ההצעה חייב לדעת שאין מספר, במקום להציג 50% כאילו המשרד
+     * המפרסם ביקש אותו.
+     */
+    const terms = { buyer: otherTerms("כל צד גובה מהלקוח שלו"), seller: splitTerms(40) };
+    expect(publisherStatedSplit(terms, "buyer")).toBeNull();
+    expect(headlineCommissionSplit(terms, "buyer")).toBe(DEFAULT_COMMISSION_SPLIT);
   });
 });
 

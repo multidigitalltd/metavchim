@@ -5,9 +5,12 @@ import {
   COMMISSION_SIDES,
   COMMISSION_SIDE_HINT,
   COMMISSION_SIDE_LABEL,
-  COMMISSION_SPLIT_OPTIONS,
   OTHER_SPLIT_MAX_NOTE,
+  commissionSplitOptionsWith,
+  describeCommissionSide,
   describeCommissionSplit,
+  publisherSideOf,
+  publisherStatedSplit,
   type CommissionSide,
   type CommissionTerms,
 } from "@metavchim/shared";
@@ -39,6 +42,33 @@ import {
 /** הערך שמייצג „אחר” ב-`select`. אינו מספר, ולכן אינו מתנגש באחוז. */
 const OTHER = "other";
 
+/**
+ * אזהרה למי שעומד להציע על פרסום שחלוקתו נוסחה **במילים**.
+ *
+ * בלי זה המסך שיקר: הבורר של ההצעה מולא מ-`commissionSplit`, שהוא
+ * הכותרת — וכשהצד שהמשרד המפרסם מחזיק נוסח במילים, הכותרת נופלת
+ * ל-50. הכרטיס הראה „כל צד גובה מהלקוח שלו”, ההסבר הבטיח „ברירת
+ * המחדל היא מה שהמשרד המשתף ביקש”, וההצעה יצאה על 50% שאיש לא ביקש.
+ *
+ * `null` כשיש אחוז מוצהר — אז ההבטחה הישנה נכונה ואין מה להוסיף.
+ */
+export function ProposedSplitNote({
+  terms,
+  kind,
+}: {
+  terms: CommissionTerms;
+  kind: "buyer" | "property";
+}): React.JSX.Element | null {
+  if (publisherStatedSplit(terms, kind) !== null) return null;
+  const wording = describeCommissionSide(terms[publisherSideOf(kind)]);
+  return (
+    <p className="m-0 mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+      המשרד המפרסם ניסח את החלוקה במילים: <b>{wording}</b>. האחוז שנשלח כאן הוא
+      ה<b>הצעה שלכם</b>, ולא מה שהוא ביקש — סכמו איתו את הניסוח.
+    </p>
+  );
+}
+
 export function CommissionTermsTabs({
   value,
   onChange,
@@ -56,6 +86,7 @@ export function CommissionTermsTabs({
    */
   const uid = useId();
   const current = value[side];
+  const splitOptions = commissionSplitOptionsWith(current.split);
 
   function set(next: Partial<CommissionTerms[CommissionSide]>): void {
     onChange({ ...value, [side]: { ...current, ...next } });
@@ -109,7 +140,8 @@ export function CommissionTermsTabs({
             )
           }
         >
-          {COMMISSION_SPLIT_OPTIONS.map((option) => (
+          {/* הערך השמור נכלל גם כשאינו ברשימה — ראו `commissionSplitOptionsWith` */}
+          {splitOptions.map((option) => (
             <option key={option} value={String(option)}>
               {describeCommissionSplit(option)}
             </option>

@@ -440,6 +440,14 @@ export function NetworkShareSection({
             </p>
           </div>
 
+          {/*
+            ההסבר מוצג **כל הזמן** ולא רק אחרי לחיצה. הכפתור נחסם
+            כשהתנאים אינם שלמים, וכשהצד החסר הוא הלשונית שאינה פתוחה
+            לא היה על המסך דבר שמסביר למה — כפתור מת בלי סיבה.
+          */}
+          {termsProblem !== null ? (
+            <Notice tone="warning">{termsProblem}</Notice>
+          ) : null}
           {error ? (
             <Notice tone="danger">{error}</Notice>
           ) : null}

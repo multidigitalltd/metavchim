@@ -242,6 +242,23 @@ export function publisherSideOf(kind: "buyer" | "property"): CommissionSide {
   return kind === "buyer" ? "buyer" : "seller";
 }
 
+/**
+ * האחוז שהמשרד המפרסם **הצהיר עליו** בצד שהוא מחזיק, או `null`
+ * כשניסח אותו במילים.
+ *
+ * ההבדל מ-`headlineCommissionSplit` הוא כל העניין: שם `null` נופל
+ * ל-50 כדי שיהיה מספר לשמור, וכאן הוא נשאר `null` כדי שהמסך יידע
+ * שאין מספר. מסך ההצעה מילא את הבורר מהכותרת והבטיח „ברירת המחדל
+ * היא מה שהמשרד המשתף ביקש” — הבטחה נכונה כשיש אחוז, ושקרית בדיוק
+ * כשאין: הכרטיס הראה „כל צד גובה מהלקוח שלו” וההצעה יצאה על 50%.
+ */
+export function publisherStatedSplit(
+  terms: CommissionTerms,
+  kind: "buyer" | "property",
+): number | null {
+  return terms[publisherSideOf(kind)].split;
+}
+
 /** השדות כפי שהם נכתבים לשורה — `null` בצד שנשאר באחוז. */
 export function commissionTermsColumns(terms: CommissionTerms): {
   buyerSplit: number | null;

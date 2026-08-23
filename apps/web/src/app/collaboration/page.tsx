@@ -4,13 +4,14 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import {
   COMMISSION_SIDES,
   COMMISSION_SIDE_LABEL,
-  COMMISSION_SPLIT_OPTIONS,
   DEFAULT_COMMISSION_SPLIT,
   demandChips,
   demandDetailRows,
   describeCommissionSide,
   describeCommissionSplit,
   describeCommissionTerms,
+  commissionSplitOptionsWith,
+  publisherStatedSplit,
   describeReferralRating,
   presentationChips,
   presentationDetailRows,
@@ -26,6 +27,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { LoadError } from "../load-error";
 import { ActionToast, type ToastState } from "../action-toast";
+import { ProposedSplitNote } from "./commission-terms-tabs";
 import {
   EMPTY_FILTERS,
   filtersToQuery,
@@ -661,13 +663,21 @@ export default function CollaborationPage() {
       /*
        * החלוקה שהמשרד המשתף ביקש היא ברירת המחדל של ההצעה — הצעה
        * שמשנה אותה בשקט הייתה הפתעה לצד השני.
+       *
+       * `publisherStatedSplit` ולא `commissionSplit`: הכותרת נופלת
+       * ל-50 כשהמשרד המפרסם ניסח את צדו במילים, ואז „מה שהוא ביקש”
+       * הוא מספר שהוא מעולם לא ביקש. במקרה הזה הערך נשאר ברירת
+       * המחדל — וזה נאמר במפורש ליד הכפתור (`ProposedSplitNote`).
        */
+      const demand = demands?.find((d) => d.id === demandId);
       await apiPost(`/collaboration/demands/${demandId}/offer`, {
         propertyId,
         commissionSplit:
           offerSplit[demandId] ??
-          demands?.find((d) => d.id === demandId)?.commissionSplit ??
-          DEFAULT_COMMISSION_SPLIT,
+          (demand === undefined
+            ? DEFAULT_COMMISSION_SPLIT
+            : (publisherStatedSplit(demand.terms, "buyer") ??
+              DEFAULT_COMMISSION_SPLIT)),
       });
       setMessage("✓ ההצעה נשלחה. אם הקונה יתעניין — תקבלו התראה.");
       load();
@@ -711,12 +721,16 @@ export default function CollaborationPage() {
    */
   async function sendInterest(listingId: string, buyerId: string) {
     try {
+      /* אותו כלל בדיוק כמו בהצעה — ראו `sendOfferFor`. */
+      const listing = listings?.find((l) => l.id === listingId);
       await apiPost(`/collaboration/listings/${listingId}/interest`, {
         buyerId,
         commissionSplit:
           interestSplit[listingId] ??
-          listings?.find((l) => l.id === listingId)?.commissionSplit ??
-          DEFAULT_COMMISSION_SPLIT,
+          (listing === undefined
+            ? DEFAULT_COMMISSION_SPLIT
+            : (publisherStatedSplit(listing.terms, "property") ??
+              DEFAULT_COMMISSION_SPLIT)),
       });
       setMessage("✓ הפנייה נשלחה. אם המשרד השני יתעניין — תקבלו התראה.");
       load();
@@ -1680,7 +1694,8 @@ export default function CollaborationPage() {
                                 id={`split_${demand.id}`}
                                 value={
                                   offerSplit[demand.id] ??
-                                  demand.commissionSplit
+                                  publisherStatedSplit(demand.terms, "buyer") ??
+                                  DEFAULT_COMMISSION_SPLIT
                                 }
                                 onChange={(e) =>
                                   setOfferSplit((prev) => ({
@@ -1690,12 +1705,25 @@ export default function CollaborationPage() {
                                 }
                                 className="mv-control"
                               >
-                                {COMMISSION_SPLIT_OPTIONS.map((share) => (
+                                {/*
+                                  גם כאן הערך שהמשרד המפרסם הצהיר עליו
+                                  נכלל ברשימה כשאינו נופל על החמישיות —
+                                  אחרת הבורר היה נפתח על ערך אחר,
+                                  וההצעה הייתה יוצאת על אחוז שלישי
+                                  שאיש לא בחר.
+                                */}
+                                {commissionSplitOptionsWith(
+                                  publisherStatedSplit(demand.terms, "buyer"),
+                                ).map((share) => (
                                   <option key={share} value={share}>
                                     {describeCommissionSplit(share)}
                                   </option>
                                 ))}
                               </select>
+                              <ProposedSplitNote
+                                terms={demand.terms}
+                                kind="buyer"
+                              />
                               <label
                                 htmlFor={`prop_${demand.id}`}
                                 className="mv-visually-hidden"
@@ -2008,7 +2036,11 @@ export default function CollaborationPage() {
                                   id={`isplit_${listing.id}`}
                                   value={
                                     interestSplit[listing.id] ??
-                                    listing.commissionSplit
+                                    publisherStatedSplit(
+                                      listing.terms,
+                                      "property",
+                                    ) ??
+                                    DEFAULT_COMMISSION_SPLIT
                                   }
                                   onChange={(e) =>
                                     setInterestSplit((prev) => ({
@@ -2018,12 +2050,22 @@ export default function CollaborationPage() {
                                   }
                                   className="mv-control"
                                 >
-                                  {COMMISSION_SPLIT_OPTIONS.map((share) => (
+                                  {/* אותו כלל כמו בצד ההצעה */}
+                                  {commissionSplitOptionsWith(
+                                    publisherStatedSplit(
+                                      listing.terms,
+                                      "property",
+                                    ),
+                                  ).map((share) => (
                                     <option key={share} value={share}>
                                       {describeCommissionSplit(share)}
                                     </option>
                                   ))}
                                 </select>
+                                <ProposedSplitNote
+                                  terms={listing.terms}
+                                  kind="property"
+                                />
                                 <label
                                   htmlFor={`buyer_${listing.id}`}
                                   className="mv-visually-hidden"

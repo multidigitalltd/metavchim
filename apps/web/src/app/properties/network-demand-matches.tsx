@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import {
+  DEFAULT_COMMISSION_SPLIT,
   demandChips,
   describeCommissionTerms,
+  publisherStatedSplit,
   type CommissionTerms,
 } from "@metavchim/shared";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
@@ -79,9 +81,16 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
     setBusy(row.demandId);
     setError(null);
     try {
+      /*
+       * האחוז שהמשרד המפרסם **הצהיר** עליו, ולא הכותרת: כשצד הקונה
+       * שלו נוסח במילים הכותרת היא 50 שאיש לא ביקש, והמסך כאן שולח
+       * בלי לשאול. הנפילה לברירת המחדל נשארת — אין מספר אחר —
+       * אבל היא נאמרת ליד הכפתור במקום לצאת בשקט.
+       */
       await apiPost(`/collaboration/demands/${row.demandId}/offer`, {
         propertyId,
-        commissionSplit: row.commissionSplit,
+        commissionSplit:
+          publisherStatedSplit(row.terms, "buyer") ?? DEFAULT_COMMISSION_SPLIT,
       });
       setRows(
         (prev) =>
@@ -172,6 +181,20 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
                   ? ` · ההצעה תעלה ${row.creditsCost} קרדיטים`
                   : " · ללא עלות"}
               </div>
+              {/*
+                אין כאן בורר — ההצעה נשלחת בלחיצה אחת — ולכן כשאין
+                אחוז מוצהר צריך לומר מה ייצא בפועל.
+              */}
+              {publisherStatedSplit(row.terms, "buyer") === null ? (
+                <div
+                  className="text-[14px]"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  החלוקה נוסחה במילים, ולכן ההצעה תישלח על{" "}
+                  {DEFAULT_COMMISSION_SPLIT}% / {100 - DEFAULT_COMMISSION_SPLIT}%
+                  — סכמו את הניסוח מול המשרד המפרסם.
+                </div>
+              ) : null}
             </div>
             <div className="ms-auto flex-none">
               {row.alreadyOffered ? (
