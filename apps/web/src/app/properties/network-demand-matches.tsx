@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { demandChips } from "@metavchim/shared";
+import {
+  demandChips,
+  describeCommissionTerms,
+  type CommissionTerms,
+} from "@metavchim/shared";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { NetChips } from "../collaboration/net-chips";
 import { IconGlobe, IconHandshake } from "../icons";
@@ -45,6 +49,8 @@ interface NetworkDemandMatch {
   mustFeatures: string[];
   niceFeatures: string[];
   commissionSplit: number;
+  /** חלוקת העמלה לכל צד — זה מה שמוצג; `commissionSplit` הוא הכותרת. */
+  terms: CommissionTerms;
   creditsCost: number;
   source: string;
   alreadyOffered: boolean;
@@ -154,7 +160,14 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
                 className="text-[14px]"
                 style={{ color: "var(--color-text-muted)" }}
               >
-                <IconHandshake s={13} /> העמלה שלי {100 - row.commissionSplit}%
+                {/*
+                  התנאים שפורסמו, ולא „העמלה שלי X%”. משפורדה החלוקה
+                  לצד קונה ולצד מוכר אין מספר יחיד שאפשר להפחית
+                  ממאה, ובוודאי לא כשצד נוסח במילים — מספר כזה היה
+                  תנאי שאיש לא סיכם.
+                */}
+                <IconHandshake s={13} /> חלוקת עמלה:{" "}
+                {describeCommissionTerms(row.terms)}
                 {row.creditsCost > 0
                   ? ` · ההצעה תעלה ${row.creditsCost} קרדיטים`
                   : " · ללא עלות"}

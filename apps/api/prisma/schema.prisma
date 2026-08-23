@@ -608,7 +608,23 @@ model SharedDemand {
   /// אחוז העמלה שהמשרד **המשתף** לוקח; לצד השני נשאר המשלים.
   /// נקבע ברגע השיתוף ולא בסופו — מו"מ אחרי שהקונה התעניין הוא
   /// המקום שבו שיתופי פעולה נשברים. מינימום 33% לכל צד.
+  ///
+  /// זו ה**כותרת**: המספר שהצעה, הצעה נגדית וחדר עסקה נושאים. הוא
+  /// נגזר מהצד שהמשרד המפרסם מחזיק (כאן — צד הקונה), והתנאים
+  /// המלאים חיים בארבעת השדות שאחריו.
   commissionSplit Int       @default(50) @map("commission_split") @db.SmallInt
+  /// חלוקת דמי התיווך שהקונה משלם, ובנפרד אלה שהמוכר משלם.
+  ///
+  /// בעסקת תיווך יש שני תשלומים ולא אחד, ומספר יחיד לא ידע לבטא את
+  /// ההסדר הנפוץ ביותר — „כל צד גובה מהלקוח שלו”. אחוז, או `null`
+  /// עם ניסוח ב-`...Note` כשהחלוקה אינה אחוז בכלל.
+  ///
+  /// שניהם `null` = פרסום שקדם להפרדה, ואז `commissionSplit` הוא
+  /// החלוקה בשני הצדדים — לא השלמה אלא בדיוק מה שהוא אמר.
+  buyerSplit      Int?      @map("buyer_split") @db.SmallInt
+  buyerSplitNote  String?   @map("buyer_split_note") @db.VarChar(200)
+  sellerSplit     Int?      @map("seller_split") @db.SmallInt
+  sellerSplitNote String?   @map("seller_split_note") @db.VarChar(200)
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
@@ -658,7 +674,15 @@ model SharedListing {
   longitude        Float?
   status           String    @default("active") @db.VarChar(20) // active | closed
   /// אחוז העמלה שהמשרד **המפרסם** לוקח; לצד השני נשאר המשלים.
+  ///
+  /// זו ה**כותרת**, כמו בביקוש: המספר שההצעה וחדר העסקה נושאים.
+  /// כאן הוא נגזר מצד המוכר — זה הצד שהמשרד המפרסם מחזיק.
   commissionSplit  Int       @default(50) @map("commission_split") @db.SmallInt
+  /// חלוקה נפרדת לכל צד — ראו `SharedDemand`, אותה סמנטיקה בדיוק.
+  buyerSplit       Int?      @map("buyer_split") @db.SmallInt
+  buyerSplitNote   String?   @map("buyer_split_note") @db.VarChar(200)
+  sellerSplit      Int?      @map("seller_split") @db.SmallInt
+  sellerSplitNote  String?   @map("seller_split_note") @db.VarChar(200)
   /// הסוכן שפרסם — הבעלים של **תנאי הפרסום**.
   ///
   /// חלוקת העמלה היא התחייבות כלפי משרדים אחרים, ולכן היא אינה

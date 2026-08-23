@@ -2,10 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  COMMISSION_SPLIT_OPTIONS,
-  describeCommissionSplit,
+  commissionTermsRejectionReason,
+  defaultCommissionTerms,
+  describeCommissionSide,
+  COMMISSION_SIDES,
+  COMMISSION_SIDE_LABEL,
+  type CommissionTerms,
 } from "@metavchim/shared";
 import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
+import { CommissionTermsTabs } from "./collaboration/commission-terms-tabs";
 import { IconHandshake } from "./icons";
 import { Notice } from "./notice";
 
@@ -86,7 +91,15 @@ type Stage = "loading" | "invite" | "form" | "sent";
 /** הפרסום הפעיל, כפי שהשרת מחזיר אותו. */
 interface ActiveShare {
   id: string;
-  commissionSplit: number;
+  /**
+   * חלוקת העמלה לכל צד.
+   *
+   * השרת מחזיר גם `commissionSplit` — הכותרת — והוא אינו נקרא כאן
+   * בכוונה: הוא נגזר מאחד הצדדים, ומסך שיציג אותו יאמר „50% / 50%”
+   * על פרסום שתנאיו נוסחו במילים. פרסום שקדם להפרדה מקבל מהשרת שני
+   * צדדים זהים, ולכן אין כאן מקרה חסר.
+   */
+  terms: CommissionTerms;
   notes?: string | null;
   /**
    * האם המשתמש הזה רשאי לגעת בתנאים.
@@ -125,7 +138,7 @@ export function NetworkShareSection({
       ? `/collaboration/share/buyer/${entityId}`
       : `/collaboration/listings/property/${entityId}`;
   const [stage, setStage] = useState<Stage>("loading");
-  const [split, setSplit] = useState<number>(50);
+  const [terms, setTerms] = useState<CommissionTerms>(defaultCommissionTerms);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -142,7 +155,7 @@ export function NetworkShareSection({
       .then((active) => {
         if (active) {
           setShare(active);
-          setSplit(active.commissionSplit);
+          setTerms(active.terms);
           setNote(active.notes ?? "");
           setStage("sent");
         } else {
@@ -171,13 +184,26 @@ export function NetworkShareSection({
 
   useEffect(load, [load]);
 
+  /**
+   * מה חוסם שליחה — הודעה בעברית או `null`.
+   *
+   * אותו כלל משותף שהשרת אוכף, ולכן ההודעה זהה בשני הצדדים. היא
+   * נושאת את שם הלשונית, כי „בחרתם אחר — כתבו איך תתחלק העמלה” על
+   * מסך עם שתי לשוניות אינו אומר באיזו מהן לתקן.
+   */
+  const termsProblem = commissionTermsRejectionReason(terms);
+
   /** פרסום חדש, או עדכון כשהקונה כבר משותף — הכפתור אחד לשניהם. */
   async function publish(): Promise<void> {
+    if (termsProblem !== null) {
+      setError(termsProblem);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       const payload = {
-        commissionSplit: split,
+        terms,
         /*
           התיאור נשלח תמיד ואינו מותנה: הוא חובה בסכימת השרת, ושליחה
           מותנית הייתה מייצרת 400 עמום במקום את הודעת השדה.
@@ -283,9 +309,21 @@ export function NetworkShareSection({
             className="m-0 text-[14.5px]"
             style={{ color: "var(--color-text-muted)" }}
           >
-            {copy.sentBody}, וחלוקת העמלה שסוכמה היא{" "}
-            <strong>{describeCommissionSplit(split)}</strong>.
+            {copy.sentBody}.
           </p>
+          {/*
+            שתי השורות ולא צ'יפ אחד: זה המקום שבו המשרד בודק מה הוא
+            בעצם התחייב, וחלוקה שונה בין הצדדים היא בדיוק מה שצריך
+            להיקרא בבירור.
+          */}
+          <ul className="m-0 mt-2 list-none p-0 text-[14.5px]">
+            {COMMISSION_SIDES.map((option) => (
+              <li key={option}>
+                {COMMISSION_SIDE_LABEL[option]}:{" "}
+                <strong>{describeCommissionSide(terms[option])}</strong>
+              </li>
+            ))}
+          </ul>
           {/*
             עדכון ולא פרסום מחדש: הביקוש הקיים מתעדכן במקום, ולכן
             ההיסטוריה וההצעות שכבר התקבלו עליו נשמרות
@@ -359,38 +397,8 @@ export function NetworkShareSection({
         <>
           <p className="mv-explain m-0 mb-4">{copy.formHint}</p>
 
-          <div className="mb-3">
-            <label
-              htmlFor="shareSplit"
-              className="mb-1 block text-sm font-semibold"
-            >
-              חלוקת העמלה עם המשרד השני
-            </label>
-            <select
-              id="shareSplit"
-              value={split}
-              onChange={(e) => setSplit(Number(e.target.value))}
-              className="mv-select"
-              style={{ minHeight: 38, minWidth: 220 }}
-            >
-              {COMMISSION_SPLIT_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {describeCommissionSplit(option)}
-                </option>
-              ))}
-            </select>
-            {/*
-              "50%" בלי הקשר לא אומר דבר — חצי ממה, ומי גובה ממי.
-              זו השאלה שחוזרת בכל שיחת תמיכה על שת"פ.
-            */}
-            <p
-              className="m-0 mt-1 text-sm"
-              style={{ color: "var(--color-text-muted)" }}
-            >
-              זהו חלקכם <b>בדמי התיווך של העסקה</b> — לא סכום שמשולם למערכת. כל
-              צד גובה מהלקוח שלו לפי ההסכם שחתם איתו, והחלוקה נקבעת עכשיו ולא
-              במו&quot;מ אחרי שהעסקה כבר על השולחן.
-            </p>
+          <div className="mb-4">
+            <CommissionTermsTabs value={terms} onChange={setTerms} disabled={busy} />
           </div>
 
           <div className="mb-3">
@@ -445,7 +453,9 @@ export function NetworkShareSection({
             <button
               type="button"
               className="mv-btn-action"
-              disabled={busy || note.trim().length < MIN_NOTE}
+              disabled={
+                busy || note.trim().length < MIN_NOTE || termsProblem !== null
+              }
               onClick={() => void publish()}
             >
               {busy ? "שולח…" : share ? "שמור עדכון" : copy.cta}

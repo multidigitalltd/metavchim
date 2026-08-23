@@ -2,16 +2,21 @@
 
 import { Suspense, useCallback, useEffect, useState } from "react";
 import {
+  COMMISSION_SIDES,
+  COMMISSION_SIDE_LABEL,
   COMMISSION_SPLIT_OPTIONS,
   DEFAULT_COMMISSION_SPLIT,
   demandChips,
   demandDetailRows,
+  describeCommissionSide,
   describeCommissionSplit,
+  describeCommissionTerms,
   describeReferralRating,
   presentationChips,
   presentationDetailRows,
   referralReasonLabel,
   shekels,
+  type CommissionTerms,
   type PayoutMode,  labelOf } from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
@@ -184,6 +189,22 @@ function roomsLabel(min?: number, max?: number): string {
 
 
 /**
+ * שורות חלוקת העמלה לפופאפ „כל הפרטים” — שורה לכל צד.
+ *
+ * שתי שורות ולא אחת מרוכזת: הפופאפ הוא המקום שבו המשרד השני בודק
+ * על מה בדיוק הוא מסכים, וחלוקה שונה בין הצדדים חייבת להיקרא בלי
+ * לפרק מחרוזת. הצ'יפ שעל הכרטיס עצמו נשאר מרוכז — שם אין מקום.
+ */
+function commissionDetailRows(
+  terms: CommissionTerms,
+): { label: string; value: string }[] {
+  return COMMISSION_SIDES.map((side) => ({
+    label: COMMISSION_SIDE_LABEL[side],
+    value: describeCommissionSide(terms[side]),
+  }));
+}
+
+/**
  * איפה הקונה מחפש — ערים, ואם אין, האזורים שסומנו על המפה.
  *
  * המודעה חייבת לומר אזור: בלעדיו הצד השני אינו יודע אם יש לו נכס
@@ -238,6 +259,11 @@ interface DemandRow {
   creditsCost: number;
   /** אחוז העמלה שהמשרד המשתף מבקש; לצד השני נשאר המשלים. */
   commissionSplit: number;
+  /**
+   * חלוקת העמלה לכל צד. זה מה שמוצג; `commissionSplit` שלידו הוא
+   * הכותרת בלבד — ברירת המחדל בבורר של ההצעה הנגדית.
+   */
+  terms: CommissionTerms;
   mine: boolean;
   /** המשרד שפרסם. חסר לביקוש ממקור חיצוני, שאינו משרד תיווך. */
   officeName?: string;
@@ -279,6 +305,11 @@ interface ListingRow {
   /** תמונות הנכס — כתובות חתומות קצרות-חיים מהשרת. */
   photos?: string[];
   commissionSplit: number;
+  /**
+   * חלוקת העמלה לכל צד. זה מה שמוצג; `commissionSplit` שלידו הוא
+   * הכותרת בלבד — ברירת המחדל בבורר של ההצעה הנגדית.
+   */
+  terms: CommissionTerms;
   status: string;
   mine: boolean;
   /** המשרד שפרסם את הנכס לרשת. */
@@ -1473,10 +1504,10 @@ export default function CollaborationPage() {
                                 ) : (
                                   <span
                                     className="mv-net-chip"
-                                    title="חלוקת העמלה שהמשרד המשתף ביקש"
+                                    title="חלוקת העמלה שהמשרד המשתף ביקש — צד קונה וצד מוכר"
                                   >
                                     <IconHandshake s={14} />{" "}
-                                    {describeCommissionSplit(demand.commissionSplit)}
+                                    {describeCommissionTerms(demand.terms)}
                                   </span>
                                 )}
                                 {demand.officeName ? (
@@ -1528,10 +1559,7 @@ export default function CollaborationPage() {
                                 moneyLabel="תקציב"
                                 details={[
                                   ...demandDetailRows(demand),
-                                  {
-                                    label: "חלוקת עמלה",
-                                    value: describeCommissionSplit(demand.commissionSplit),
-                                  },
+                                  ...commissionDetailRows(demand.terms),
                                   ...(demand.creditsCost > 0
                                     ? [{ label: "מקור", value: demand.sourceLabel }]
                                     : []),
@@ -1821,7 +1849,7 @@ export default function CollaborationPage() {
                                     title="חלוקת העמלה שהמשרד המפרסם ביקש"
                                   >
                                     <IconHandshake s={14} />{" "}
-                                    {describeCommissionSplit(listing.commissionSplit)}
+                                    {describeCommissionTerms(listing.terms)}
                                   </span>
                                 )}
                                 {/* מי פרסם — שם המשרד ולוגו; הבעלים נשאר חסוי */}
@@ -1868,10 +1896,7 @@ export default function CollaborationPage() {
                                 moneyLabel={listing.dealType === "rent" ? "שכר דירה" : "מחיר"}
                                 details={[
                                   ...presentationDetailRows(listing),
-                                  {
-                                    label: "חלוקת עמלה",
-                                    value: describeCommissionSplit(listing.commissionSplit),
-                                  },
+                                  ...commissionDetailRows(listing.terms),
                                 ]}
                                 {...(listing.notes === undefined ? {} : { notes: listing.notes })}
                                 notesLabel="מה מיוחד בנכס"

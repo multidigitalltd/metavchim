@@ -8,6 +8,7 @@ import {
 import { ulid } from "ulid";
 import {
   DEFAULT_COMMISSION_SPLIT,
+  uniformTerms,
   computeReadiness,
   limitState,
   type Page,
@@ -180,7 +181,7 @@ export class PropertiesService {
     const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
     if (settings["autoShareProperties"] !== true) return;
     try {
-      await this.listings.publish(propertyId, DEFAULT_COMMISSION_SPLIT);
+      await this.listings.publish(propertyId, uniformTerms(DEFAULT_COMMISSION_SPLIT));
     } catch {
       // הנכס נשמר; פרסום ידני זמין מכרטיס הנכס
     }

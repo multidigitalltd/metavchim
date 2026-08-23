@@ -11,6 +11,12 @@ import {
   BuyerRequirementsSchema,
   DEFAULT_COMMISSION_SPLIT,
   commissionSplitRejectionReason,
+  commissionTermsColumns,
+  commissionTermsFromRow,
+  commissionTermsRejectionReason,
+  headlineCommissionSplit,
+  uniformTerms,
+  type CommissionTerms,
   scoreMatch,
   summarizeReach,
   type PropertyFields,
@@ -112,6 +118,13 @@ export interface SharedListingDto {
    */
   photos: string[];
   commissionSplit: number;
+  /**
+   * חלוקת העמלה לכל צד — צד הקונה וצד המוכר בנפרד.
+   *
+   * זה מה שהמסך מציג; `commissionSplit` שלידו הוא הכותרת בלבד.
+   * ראו `SharedDemandDto.terms` — אותה סמנטיקה בדיוק בכיוון השני.
+   */
+  terms: CommissionTerms;
   status: string;
   /** true אם הפרסום שלי — רק אז יש קישור לנכס. */
   mine: boolean;
@@ -242,13 +255,18 @@ export class ListingsService {
   /** פרסום נכס לרשת. */
   async publish(
     propertyId: string,
-    commissionSplit: number,
+    terms: CommissionTerms,
     note?: string,
   ): Promise<SharedListingDto> {
     const tenantId = TenantContext.current().tenantId;
     const id = ulid();
-    const rejection = commissionSplitRejectionReason(commissionSplit);
+    const rejection = commissionTermsRejectionReason(terms);
     if (rejection !== null) throw new BadRequestException(rejection);
+    /*
+     * המשרד שמפרסם נכס מחזיק את **צד המוכר**, ולכן הכותרת נגזרת
+     * ממנו — הכיוון ההפוך מהביקוש, ואותה סמנטיקה בדיוק.
+     */
+    const commissionSplit = headlineCommissionSplit(terms, "seller");
 
     await this.prisma.withTenant(async (tx) => {
       const property = await tx.property.findFirst({
@@ -290,6 +308,7 @@ export class ListingsService {
           tenantId,
           originPropertyId: propertyId,
           commissionSplit,
+          ...commissionTermsColumns(terms),
           // הבעלות על התנאים — ראו `assertListingOwner`
           createdBy: TenantContext.current().userId,
           notes: note?.trim() || null,
@@ -332,7 +351,7 @@ export class ListingsService {
         if (!property) throw new NotFoundException("נכס לא נמצא");
         const note =
           property.marketingDescription?.trim().slice(0, 300) || undefined;
-        await this.publish(propertyId, DEFAULT_COMMISSION_SPLIT, note);
+        await this.publish(propertyId, uniformTerms(DEFAULT_COMMISSION_SPLIT), note);
         results.push({ id: propertyId, ok: true });
       } catch (error) {
         results.push({
@@ -378,12 +397,13 @@ export class ListingsService {
 
   async updatePublication(
     propertyId: string,
-    commissionSplit: number,
+    terms: CommissionTerms,
     note?: string,
   ): Promise<SharedListingDto> {
     const tenantId = TenantContext.current().tenantId;
-    const rejection = commissionSplitRejectionReason(commissionSplit);
+    const rejection = commissionTermsRejectionReason(terms);
     if (rejection !== null) throw new BadRequestException(rejection);
+    const commissionSplit = headlineCommissionSplit(terms, "seller");
 
     const listingId = await this.prisma.withTenant(async (tx) => {
       const existing = await tx.sharedListing.findFirst({
@@ -394,7 +414,11 @@ export class ListingsService {
       this.assertListingOwner(existing);
       await tx.sharedListing.updateMany({
         where: { id: existing.id, tenantId, status: "active" },
-        data: { commissionSplit, notes: note?.trim() || null },
+        data: {
+          commissionSplit,
+          ...commissionTermsColumns(terms),
+          notes: note?.trim() || null,
+        },
       });
       await this.audit.record(tx, {
         action: "collaboration.publish_update",
@@ -643,6 +667,7 @@ export class ListingsService {
       ...(row.title === null ? {} : { title: row.title }),
       ...(row.notes === null ? {} : { notes: row.notes }),
       commissionSplit: row.commissionSplit,
+      terms: commissionTermsFromRow(row),
       status: row.status,
       mine,
       // רק על הפרסומים שלנו — למודעה של משרד אחר אין משמעות לשאלה
