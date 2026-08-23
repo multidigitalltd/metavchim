@@ -31,8 +31,27 @@ import type { PrismaService, TenantTx } from "../../core/prisma.service";
 const TENANT = "01JWAINTAKETENANTAAAAAAAAA";
 const TOKEN = "a".repeat(43);
 
+/**
+ * המצב המשותף של השורה המדומה.
+ *
+ * `submittedAt` הוא **מספר הגרסה** של השליחה, ולכן הוא חייב להיות
+ * מצב אמיתי ולא קבוע: הבדיקה של „שליחה שהוקדמה” מסתמכת בדיוק על
+ * ההבדל בין מה שהתפיסה כתבה לבין מה שנקרא מתחת לנעילת הקונה.
+ */
+interface FakeState {
+  submittedAt: Date | null;
+  /** מה `findUnique` יחזיר מתחת לנעילה. `undefined` = מה שנכתב. */
+  seenUnderLock?: Date | null;
+  buyerId?: string | undefined;
+  notifications: number;
+}
+
+function newState(buyerId?: string): FakeState {
+  return { submittedAt: null, buyerId, notifications: 0 };
+}
+
 /** ה-tx שהשירות מקבל — כל שאילתה מוחזרת ריקה, חוץ ממה שנדרש. */
-function fakeTx(buyerId?: string): TenantTx {
+function fakeTx(state: FakeState): TenantTx {
   const none = { findFirst: async () => null, findUnique: async () => null };
   return {
     intakeRequest: {
@@ -48,32 +67,77 @@ function fakeTx(buyerId?: string): TenantTx {
       }),
       findUnique: async () => ({
         status: "opened",
-        submittedAt: null,
+        submittedAt:
+          state.seenUnderLock === undefined
+            ? state.submittedAt
+            : state.seenUnderLock,
         answers: {},
       }),
-      updateMany: async () => ({ count: 1 }),
+      updateMany: async (args: { data?: { submittedAt?: Date } }) => {
+        if (args.data?.submittedAt) state.submittedAt = args.data.submittedAt;
+        return { count: 1 };
+      },
     },
     buyer:
-      buyerId === undefined
+      state.buyerId === undefined
         ? none
-        : { ...none, findFirst: async () => ({ id: buyerId, requirements: {} }) },
+        : {
+            ...none,
+            findFirst: async () => ({ id: state.buyerId, requirements: {} }),
+          },
     tenant: { findUnique: async () => ({ name: "נדל״ן ירוק" }) },
-    notification: { create: async () => ({}) },
+    notification: {
+      create: async () => {
+        state.notifications += 1;
+        return {};
+      },
+    },
   } as unknown as TenantTx;
 }
 
 /** `PrismaService` מזויף שמעביר את שתי הפונקציות ל-`fakeTx`. */
-function fakePrisma(buyerId?: string): PrismaService {
+function fakePrisma(state: FakeState): PrismaService {
   return {
     withPublicIntake: async <T>(
       _token: string,
       fn: (tx: TenantTx) => Promise<T>,
-    ) => fn(fakeTx(buyerId)),
+    ) => fn(fakeTx(state)),
     withExplicitTenant: async <T>(
       _tenantId: string,
       fn: (tx: TenantTx) => Promise<T>,
-    ) => fn(fakeTx(buyerId)),
+    ) => fn(fakeTx(state)),
   } as unknown as PrismaService;
+}
+
+/**
+ * `BuyersService.update` מזויף שמתנהג כמו האמיתי במה שחשוב כאן:
+ * הוא מפעיל את הפונקציה עם ה-JSON הגולמי ועם ה-`tx` שמתחת לנעילה.
+ */
+function fakeBuyers(
+  state: FakeState,
+  stored: Record<string, unknown> = {},
+): { service: BuyersService; written: () => Record<string, unknown> | null } {
+  let written: Record<string, unknown> | null = null;
+  const service = {
+    update: async (
+      _id: string,
+      patch: {
+        requirements?:
+          | Record<string, unknown>
+          | ((
+              current: Record<string, unknown>,
+              tx: TenantTx,
+            ) => Promise<Record<string, unknown>>);
+      },
+    ) => {
+      const next =
+        typeof patch.requirements === "function"
+          ? await patch.requirements(stored, fakeTx(state))
+          : patch.requirements;
+      written = next ?? null;
+    },
+  } as unknown as BuyersService;
+  return { service, written: () => written };
 }
 
 describe("הצד הציבורי של טופס הדרישות — הקשר דייר", () => {
@@ -91,11 +155,11 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
       withPublicIntake: async <T>(
         _token: string,
         fn: (tx: TenantTx) => Promise<T>,
-      ) => fn(fakeTx()),
+      ) => fn(fakeTx(newState())),
       withExplicitTenant: async <T>(
         _tenantId: string,
         fn: (tx: TenantTx) => Promise<T>,
-      ) => fn(fakeTx()),
+      ) => fn(fakeTx(newState())),
     } as unknown as PrismaService;
 
     const service = new IntakeService(
@@ -125,11 +189,11 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
       withPublicIntake: async <T>(
         _token: string,
         fn: (tx: TenantTx) => Promise<T>,
-      ) => fn(fakeTx()),
+      ) => fn(fakeTx(newState())),
       withExplicitTenant: async <T>(
         _tenantId: string,
         fn: (tx: TenantTx) => Promise<T>,
-      ) => fn(fakeTx()),
+      ) => fn(fakeTx(newState())),
     } as unknown as PrismaService;
 
     const service = new IntakeService(
@@ -154,7 +218,7 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
      * למצב „נשלחה” ומחילה את התשובות על הכרטיס — אחרי שהמשרד כבר
      * אמר שהקישור אינו תקף.
      */
-    const tx = fakeTx();
+    const tx = fakeTx(newState());
     (tx as unknown as { intakeRequest: { updateMany: unknown } }).intakeRequest.updateMany =
       async () => ({ count: 0 });
     const update = vi.fn();
@@ -162,7 +226,7 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
       withPublicIntake: async <T>(
         _token: string,
         fn: (tx: TenantTx) => Promise<T>,
-      ) => fn(fakeTx()),
+      ) => fn(fakeTx(newState())),
       withExplicitTenant: async <T>(
         _tenantId: string,
         fn: (t: TenantTx) => Promise<T>,
@@ -188,47 +252,85 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
 describe("המיזוג רץ מתחת לנעילת הכרטיס", () => {
   const BUYER = "01JWABUYERAAAAAAAAAAAAAAAA";
 
-  it("`BuyersService.update` מקבל פונקציה ולא ערך מוכן", async () => {
-    /*
-     * זו לא העדפת סגנון. ערך מוכן פירושו שהמיזוג חושב **לפני**
-     * ש-`update` נעלה את השורה, כלומר על צילום שכבר יכול היה
-     * להשתנות — עריכה של הסוכן בלשונית אחרת, או שליחה שנייה של
-     * הלקוח — והכתיבה מוחקת אותה בשקט. פונקציה נקראת אחרי הנעילה,
-     * ולכן היא רואה את מה שבאמת כתוב בכרטיס באותו רגע.
-     */
-    let received: unknown;
-    const update = vi.fn(async (_id: string, patch: { requirements?: unknown }) => {
-      received = patch.requirements;
-    });
-
-    const service = new IntakeService(
-      fakePrisma(BUYER),
+  function serviceFor(
+    state: FakeState,
+    buyers: BuyersService,
+  ): IntakeService {
+    return new IntakeService(
+      fakePrisma(state),
       { record: vi.fn() } as unknown as AuditService,
       {
         getById: async () => ({ id: "c", name: "דנה", phone: "+972500000000" }),
       } as unknown as ContactsService,
-      { update } as unknown as BuyersService,
+      buyers,
     );
+  }
 
-    await service.submit(TOKEN, { dealType: "rent", cities: ["חיפה"] });
-
-    expect(update).toHaveBeenCalledTimes(1);
-    expect(typeof received).toBe("function");
-
-    // והפונקציה ממזגת לתוך מה שהיא מקבלת, ולא לתוך צילום ישן
-    const merged = (received as (c: unknown) => Record<string, unknown>)({
+  it("המיזוג ממזג לתוך מה שקרא מתחת לנעילה, ולא לתוך צילום ישן", async () => {
+    /*
+     * ערך מוכן פירושו שהמיזוג חושב **לפני** ש-`update` נעל את
+     * השורה, כלומר על צילום שכבר יכול היה להשתנות — עריכה של הסוכן
+     * בלשונית אחרת, או שליחה שנייה של הלקוח — והכתיבה מוחקת אותה
+     * בשקט. הפונקציה נקראת אחרי הנעילה, ולכן היא רואה את מה שבאמת
+     * כתוב בכרטיס באותו רגע.
+     */
+    const state = newState(BUYER);
+    const { service: buyers, written } = fakeBuyers(state, {
       cities: ["תל אביב"],
-      neighborhoods: [],
-      searchAreas: [],
       dealType: "sale",
-      propertyTypes: [],
-      features: { "custom:נוף לים": "nice" },
       roomsMin: 4,
+      features: { "custom:נוף לים": "nice" },
     });
-    expect(merged["dealType"]).toBe("rent");
-    expect(merged["cities"]).toEqual(["חיפה"]);
+
+    await serviceFor(state, buyers).submit(TOKEN, {
+      dealType: "rent",
+      cities: ["חיפה"],
+    });
+
+    const result = written();
+    expect(result).not.toBeNull();
+    expect(result!["dealType"]).toBe("rent");
+    expect(result!["cities"]).toEqual(["חיפה"]);
     // מה שהטופס לא שאל עליו נשאר — כולל מאפיין מותאם של המשרד
-    expect(merged["roomsMin"]).toBe(4);
-    expect(merged["features"]).toEqual({ "custom:נוף לים": "nice" });
+    expect(result!["roomsMin"]).toBe(4);
+    expect(result!["features"]).toEqual({ "custom:נוף לים": "nice" });
+  });
+
+  it("ערך ישן בכרטיס אינו מפיל את העדכון — הוא מוחלף בו", async () => {
+    /*
+     * `house` הוצע בעמוד עד לתיקון ואינו ב-`PropertyTypeSchema`.
+     * אימות של **המקור** היה זורק כאן, אחרי שהבקשה כבר סומנה
+     * „נשלחה” — כלומר 500 ללקוח, בלי עדכון ובלי הודעה. האימות הוא
+     * על התוצאה, והתוצאה כבר נושאת את הערך התקין שהטופס שלח.
+     */
+    const state = newState(BUYER);
+    const { service: buyers, written } = fakeBuyers(state, {
+      cities: ["חיפה"],
+      dealType: "sale",
+      propertyTypes: ["house"],
+    });
+
+    await expect(
+      serviceFor(state, buyers).submit(TOKEN, { propertyTypes: ["private_house"] }),
+    ).resolves.toEqual({ ok: true });
+    expect(written()!["propertyTypes"]).toEqual(["private_house"]);
+  });
+
+  it("שליחה שהוקדמה מוותרת — ואינה דורסת בתשובות ישנות", async () => {
+    /*
+     * התפיסה והכתיבה לכרטיס הן שתי טרנזקציות, ולכן סדר ההגעה
+     * לנעילת הקונה אינו בהכרח סדר השליחות. כאן מדומה בדיוק המצב
+     * הזה: מתחת לנעילה נמצאת חותמת **אחרת** מזו שהשליחה הזו כתבה,
+     * כלומר מישהו הקדים אותה. היא מוותרת — בלי כתיבה ובלי התראה.
+     */
+    const state = newState(BUYER);
+    state.seenUnderLock = new Date(Date.now() + 60_000);
+    const { service: buyers, written } = fakeBuyers(state, { dealType: "sale" });
+
+    await expect(
+      serviceFor(state, buyers).submit(TOKEN, { dealType: "rent" }),
+    ).resolves.toEqual({ ok: true });
+    expect(written()).toBeNull();
+    expect(state.notifications).toBe(0);
   });
 });

@@ -417,13 +417,25 @@ export class BuyersService {
    * לטרנזקציה נשען על צילום שכבר יכול היה להשתנות, ואז הכתיבה
    * מוחקת בשקט עריכה שקרתה בין לבין. הפונקציה מופעלת כאן, בין
    * הנעילה לכתיבה, ולכן המיזוג רואה את מה שבאמת כתוב בכרטיס.
+   *
+   * היא מקבלת את ה-JSON **הגולמי** ולא מבנה מאומת, ואת ה-`tx`:
+   *
+   * - **גולמי**, כי אימות מוקדם היה חוסם דווקא את מי שהמיזוג נועד
+   *   לתקן. כרטיס שיושב בו ערך ישן שאינו בסכימה עוד היה מפיל את
+   *   העדכון לפני שהמיזוג מספיק להחליף אותו. מה שנאכף הוא
+   *   **התוצאה**, וזה גם הדבר היחיד שנכתב.
+   * - **`tx`**, כדי שהקורא יוכל לבדוק מתחת לאותה נעילה שהעדכון שלו
+   *   עדיין הרלוונטי — ולוותר עליו אם מישהו הקדים אותו.
    */
   async update(
     id: string,
     patch: {
       requirements?:
         | BuyerRequirements
-        | ((current: BuyerRequirements) => BuyerRequirements);
+        | ((
+            current: Record<string, unknown>,
+            tx: TenantTx,
+          ) => Promise<BuyerRequirements> | BuyerRequirements);
       financing?: string;
       maturity?: string;
       agentNotes?: string;
@@ -454,7 +466,7 @@ export class BuyersService {
        */
       const requirements =
         typeof patch.requirements === "function"
-          ? patch.requirements(BuyerRequirementsSchema.parse(existing.requirements))
+          ? await patch.requirements(asRecord(existing.requirements), tx)
           : patch.requirements;
       /*
        * העלאת תקציב — התאום של ירידת מחיר בנכס.
@@ -1291,4 +1303,11 @@ export class BuyersService {
       where: { tenantId, originBuyerId: buyerId },
     });
   }
+}
+
+/** JSON מהמסד → אובייקט, או ריק. מערך ו-`null` אינם דרישות. */
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }

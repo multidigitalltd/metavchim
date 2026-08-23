@@ -90,6 +90,15 @@ export interface IntakeRequestDto {
  */
 class MergeRejected extends Error {}
 
+/**
+ * שליחה חדשה יותר של אותו קישור כבר תפסה את השורה.
+ *
+ * גם היא זורקת, ומאותה סיבה: הכתיבה לכרטיס חייבת להתבטל. ההבדל הוא
+ * מה אומרים אחריה — כאן אין מה לומר, כי הגרסה החדשה כבר עדכנה,
+ * התריעה ונרשמה ביומן.
+ */
+class Superseded extends Error {}
+
 /** מה נשמר על הבקשה. מצומצם — הצד הציבורי אינו זקוק ליותר. */
 interface TokenRow {
   id: string;
@@ -372,6 +381,7 @@ export class IntakeService {
        * נבדק כאן בתוך `UPDATE` אחד, ולכן הוא נכון גם מול ביטול
        * מקביל: מי שהגיע שני רואה אפס שורות.
        */
+      const claimedAt = new Date();
       const claimed = await tx.intakeRequest.updateMany({
         where: {
           id: row.id,
@@ -381,13 +391,23 @@ export class IntakeService {
         },
         data: {
           status: "submitted",
-          submittedAt: new Date(),
+          submittedAt: claimedAt,
           answers: answers as unknown as Prisma.InputJsonValue,
         },
       });
       if (claimed.count === 0) return null;
 
-      return { targetBuyerId, resubmit };
+      /*
+       * `claimedAt` הוא **מספר הגרסה** של השליחה הזו.
+       *
+       * התפיסה והכתיבה לכרטיס הן שתי טרנזקציות, ולכן סדר ההגעה
+       * לנעילת הקונה אינו בהכרח סדר השליחות: שליחה ותיקה שנעצרה
+       * אחרי התפיסה יכולה להגיע לנעילה **אחרי** שליחה חדשה שכבר
+       * כתבה — ולדרוס אותה בתשובות ישנות, בעוד שורת הבקשה נושאת
+       * את החדשות. החותמת נבדקת מחדש מתחת לנעילה, ומי שכבר הוקדם
+       * מוותר.
+       */
+      return { targetBuyerId, resubmit, claimedAt };
     });
 
     if (claim === null) {
@@ -396,8 +416,21 @@ export class IntakeService {
 
     const outcome =
       claim.targetBuyerId === null
-        ? { applied: false, changed: [] as string[] }
-        : await this.applyToBuyer(row.tenantId, claim.targetBuyerId, answers);
+        ? { applied: false, changed: [] as string[], superseded: false }
+        : await this.applyToBuyer(
+            row.tenantId,
+            claim.targetBuyerId,
+            row.id,
+            claim.claimedAt,
+            answers,
+          );
+
+    /*
+     * שליחה שהוקדמה שותקת לגמרי. הכרטיס נושא את התשובות החדשות,
+     * ההתראה עליהן כבר נשלחה, והיומן כבר רשם אותן — הודעה שנייה על
+     * גרסה ישנה יותר רק מבלבלת את מי שקורא אותה.
+     */
+    if (outcome.superseded) return { ok: true };
 
     await this.asOffice(row.tenantId, async (tx) => {
       /*
@@ -444,8 +477,10 @@ export class IntakeService {
   private async applyToBuyer(
     tenantId: string,
     buyerId: string,
+    requestId: string,
+    claimedAt: Date,
     answers: IntakeAnswers,
-  ): Promise<{ applied: boolean; changed: string[] }> {
+  ): Promise<{ applied: boolean; changed: string[]; superseded: boolean }> {
     /*
      * מה שהמיזוג גילה, מתוך הטרנזקציה החוצה. ההתראה חייבת לתאר את
      * מה שנכתב בפועל, וזה ידוע רק שם — מתחת לנעילה.
@@ -456,9 +491,25 @@ export class IntakeService {
     try {
       await TenantContext.run(officeContext(tenantId), () =>
         this.buyers.update(buyerId, {
-          requirements: (current) => {
-            const before = current as unknown as Record<string, unknown>;
+          requirements: async (before, tx) => {
+            /*
+             * הבדיקה הראשונה מתחת לנעילה: האם השליחה הזו עדיין
+             * האחרונה. ראו ההסבר ליד `claimedAt` ב-`submit`.
+             */
+            const current = await tx.intakeRequest.findUnique({
+              where: { id: requestId },
+              select: { submittedAt: true },
+            });
+            if (current?.submittedAt?.getTime() !== claimedAt.getTime()) {
+              throw new Superseded();
+            }
+
             const after = applyIntakeAnswers(before, answers);
+            /*
+             * האימות על **התוצאה** ולא על המקור. כרטיס שיושב בו ערך
+             * ישן שאינו בסכימה עוד הוא בדיוק מי שהמיזוג אמור לתקן,
+             * ואימות מוקדם היה מפיל אותו לפני שהתיקון נכתב.
+             */
             const parsed = BuyerRequirementsSchema.safeParse(after);
             if (!parsed.success) {
               // בלי תוכן הדרישות ביומן — רק שמות השדות שנפלו
@@ -473,13 +524,16 @@ export class IntakeService {
         }),
       );
     } catch (error: unknown) {
+      if (error instanceof Superseded) {
+        return { applied: false, changed: [], superseded: true };
+      }
       if (!(error instanceof MergeRejected)) throw error;
       this.logger.warn(
         `intake submit: requirements rejected for buyer ${buyerId} — ${rejected ?? "unknown"}`,
       );
-      return { applied: false, changed: [] };
+      return { applied: false, changed: [], superseded: false };
     }
-    return { applied: true, changed };
+    return { applied: true, changed, superseded: false };
   }
 
   /**
