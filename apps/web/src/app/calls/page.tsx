@@ -159,8 +159,15 @@ export default function CallsPage() {
     if (authLoading) return;
     apiGet<{ connected: boolean }>("/telephony/presence")
       .then((res) => setPbxConnected(res.connected))
-      // הנתיב לא זמין? אין באנר — עדיף שקט מפרסומת שגויה
-      .catch(() => setPbxConnected(true));
+      /*
+       * תקלה משאירה `null` — „לא ידוע”, ולכן אין באנר.
+       *
+       * קודם נכתב כאן `setPbxConnected(true)`, שגם הוא השתיק את
+       * הבאנר אבל אמר משהו אחר לגמרי: „המשרד מחובר”. זו טענה על
+       * מצב שלא נבדק, והיא זו שהפכה 404 בכתובת שגויה להשתקה
+       * שקטה במקום לתקלה שמישהו שם לב אליה.
+       */
+      .catch(() => undefined);
   }, [authLoading]);
 
   async function onAdd(event: FormEvent<HTMLFormElement>): Promise<void> {
