@@ -811,6 +811,19 @@ export function incomingCallTitle(contactName: string | null, phone: string): st
   return contactName ? `📞 ${contactName} מתקשר` : `📞 שיחה נכנסת מ-${phone}`;
 }
 
+/**
+ * כותרת ההתראה על שיחה נכנסת שלא נענתה.
+ *
+ * המספר מופיע גם כשהלקוח מוכר: מי שקורא את ההתראה בטלפון רוצה לחזור
+ * אליו עכשיו, וחיפוש הכרטיס כדי למצוא מספר הוא בדיוק החיכוך שההתראה
+ * באה לחסוך.
+ */
+export function missedCallTitle(contactName: string | null, phone: string): string {
+  return contactName
+    ? `📵 ${contactName} התקשר ולא נענה — ${phone}`
+    : `📵 שיחה שלא נענתה מ-${phone}`;
+}
+
 /** תיאור השיחה לציר הזמן. */
 export function describeCall(event: TelephonyEvent): string {
   const direction = event.direction === "inbound" ? "שיחה נכנסת" : "שיחה יוצאת";

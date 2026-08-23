@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { splitForWhatsApp } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
-import { splitForWhatsApp } from "./whatsapp-text";
 
 /**
  * שליחה דרך WhatsApp Cloud API (docs/05 §1) — הצד היוצא של הסוכן

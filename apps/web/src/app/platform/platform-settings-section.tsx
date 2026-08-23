@@ -29,6 +29,9 @@ interface PlatformSettings {
       configured: boolean;
       source: "db" | "env" | "none";
       prospectReply: string;
+      /** תבנית ההתראה המאושרת ב-Meta; ריק = דחיפה רק בתוך חלון 24 השעות */
+      notifyTemplate?: string;
+      notifyTemplateLang?: string;
     };
   };
   google: {
@@ -137,6 +140,8 @@ export function PlatformSettingsSection({
       const accessToken = String(f.get("whatsappAccessToken") ?? "").trim();
       const phoneNumberId = String(f.get("whatsappPhoneNumberId") ?? "").trim();
       const prospectReply = String(f.get("whatsappProspectReply") ?? "").trim();
+      const notifyTemplate = String(f.get("whatsappNotifyTemplate") ?? "").trim();
+      const notifyTemplateLang = String(f.get("whatsappNotifyTemplateLang") ?? "").trim();
       await apiPatch("/platform/settings", {
         ...(secret !== "" ? { whatsappAppSecret: secret } : {}),
         ...(verify !== "" ? { whatsappVerifyToken: verify } : {}),
@@ -145,6 +150,10 @@ export function PlatformSettingsSection({
         // נשלח תמיד, גם ריק: זה שדה ערך (כמו המסמכים המשפטיים),
         // וריקון מכוון הוא חזרה לנוסח המובנה — לא "בלי שינוי"
         whatsappProspectReply: prospectReply,
+        // גם אלה שדות ערך: ריקון פירושו „אין תבנית”, כלומר דחיפה
+        // רק בתוך חלון 24 השעות — מצב תקין ולא היעדר שינוי
+        whatsappNotifyTemplate: notifyTemplate,
+        whatsappNotifyTemplateLang: notifyTemplateLang,
       });
       form.reset();
       setMessage("✓ הגדרות הוואטסאפ נשמרו");
@@ -864,6 +873,46 @@ export function PlatformSettingsSection({
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
             />
+          </div>
+          {/*
+            תבנית ההתראה — הדבר היחיד שמאפשר לדחוף התראה למתווך
+            שלא כתב לסוכן ב-24 השעות האחרונות. Meta מתירה הודעה
+            יזומה רק דרך תבנית מאושרת, ולכן בלי השדה הזה העדכונים
+            יוצאים רק אל מי שהשיחה איתו פתוחה.
+          */}
+          <div className="w-full">
+            <label htmlFor="whatsappNotifyTemplate" className="mb-1 block font-medium">
+              תבנית התראות מאושרת{" "}
+              <span className="font-normal">(ריק = דחיפה רק בתוך 24 שעות מהודעת המתווך)</span>
+            </label>
+            <p className="mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              שם תבנית מסוג Utility שאושרה ב-WhatsApp Manager, עם שני משתנים
+              בגוף — כותרת ופירוט. למשל תבנית בשם ‎metavchim_update‎ שגופה
+              „‎{"{{1}}"} — {"{{2}}"}‎”. אותיות קטנות, ספרות וקו תחתון בלבד.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <input
+                id="whatsappNotifyTemplate"
+                name="whatsappNotifyTemplate"
+                dir="ltr"
+                key={settings.whatsapp.assistant.notifyTemplate ?? ""}
+                defaultValue={settings.whatsapp.assistant.notifyTemplate ?? ""}
+                placeholder="metavchim_update"
+                className="min-w-[220px] flex-1 rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+              <input
+                id="whatsappNotifyTemplateLang"
+                name="whatsappNotifyTemplateLang"
+                dir="ltr"
+                aria-label="שפת התבנית"
+                key={`lang-${settings.whatsapp.assistant.notifyTemplateLang ?? "he"}`}
+                defaultValue={settings.whatsapp.assistant.notifyTemplateLang ?? "he"}
+                placeholder="he"
+                className="w-24 rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+            </div>
           </div>
           <Button type="submit" disabled={busy}>שמור</Button>
           {settings.whatsapp.assistant.configured ? (

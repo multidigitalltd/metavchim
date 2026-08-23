@@ -1097,6 +1097,24 @@ model WhatsAppChat {
   history    Json     @default("[]")
   /// מזהי ההודעות האחרונות שטופלו — Idempotency מול משלוח כפול
   handledIds Json     @default("[]") @map("handled_ids")
+  /**
+   * מתי המתווך כתב לסוכן לאחרונה — פתיחת חלון 24 השעות של Meta.
+   *
+   * הודעה יזומה (התראה) מותרת בטקסט חופשי רק בתוך החלון; מחוצה לו
+   * נדרשת תבנית מאושרת. בלי החותמת הזו כל דחיפה הייתה יוצאת אל
+   * דחייה של Meta, ואנחנו היינו לומדים על הכלל מהשגיאה.
+   */
+  lastInboundAt DateTime? @map("last_inbound_at")
+  /**
+   * עד מתי המשתמש הזה כבר קיבל התראות בוואטסאפ.
+   *
+   * הסימון על ההתראה עצמה (`notifications.whatsapp_at`) אינו מספיק:
+   * התראה משרדית הולכת לכמה סוכנים, וכשאחד קיבל והשני נכשל היא
+   * נשארת בלי סימון — ואז מי שכבר קיבל אותה מקבל אותה שוב בכל
+   * סריקה (ביקורת Codex). החותמת פר-משתמש היא מה שהופך את הניסיון
+   * החוזר לאישי.
+   */
+  notifiedThrough DateTime? @map("notified_through")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   @@unique([tenantId, userId])
@@ -1292,6 +1310,14 @@ model Notification {
    * מתי נדחפה כהתראת דפדפן; NULL = טרם נשלחה (הסורק מחפש בדיוק את אלה).
    */
   pushedAt   DateTime? @map("pushed_at")
+  /**
+   * מתי נשלחה לוואטסאפ — עמודה נפרדת מ-`pushed_at` בכוונה.
+   *
+   * שני הערוצים עצמאיים: פוש הדפדפן מושבת כשאין מפתחות VAPID,
+   * והוואטסאפ מושבת כשאין טוקן. סימון משותף היה גורם לערוץ אחד
+   * לבלוע התראות שהשני מעולם לא ראה.
+   */
+  whatsappAt DateTime? @map("whatsapp_at")
 
   @@index([tenantId, userId, readAt, createdAt])
   @@map("notifications")

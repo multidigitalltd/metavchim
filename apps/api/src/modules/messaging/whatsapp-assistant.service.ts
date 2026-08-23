@@ -451,7 +451,7 @@ export class WhatsAppAssistantService {
       if (isCancelMessage(text)) {
         const took = await this.takePending(user.tenantId, user.id);
         chat.pending = null;
-        return took ? "בוטל. מה עוד אפשר לעשות?" : "אין פעולה ממתינה לביטול.";
+        return took ? "❌ בוטל. מה הלאה?" : "אין פעולה ממתינה לביטול.";
       }
       if (pending.awaiting === "choice") {
         const options = pending.proposal.candidates?.options ?? [];
@@ -474,7 +474,7 @@ export class WhatsAppAssistantService {
             "",
             this.describeProposal(pending.proposal),
             "",
-            "לביצוע השיבו *אשר* · לביטול *בטל*",
+            "✅ לביצוע — *אשר* · ❌ לביטול — *בטל*",
           ].join("\n");
         }
       }
@@ -532,7 +532,7 @@ export class WhatsAppAssistantService {
       candidates.options.slice(0, 9).forEach((option, i) => {
         lines.push(`${i + 1}. ${option.label}${option.detail ? ` — ${option.detail}` : ""}`);
       });
-      lines.push("", "השיבו עם המספר המתאים, או *בטל*");
+      lines.push("", "🔢 השיבו עם המספר המתאים · ❌ לביטול — *בטל*");
       return lines.join("\n");
     }
 
@@ -551,7 +551,7 @@ export class WhatsAppAssistantService {
     return [
       this.describeProposal(proposal),
       "",
-      "לביצוע השיבו *אשר* · לביטול *בטל* · לתיקון פשוט כתבו אותו",
+      "✅ לביצוע — *אשר* · ❌ לביטול — *בטל* · ✏️ לתיקון פשוט כתבו אותו",
     ].join("\n");
   }
 
@@ -591,10 +591,18 @@ export class WhatsAppAssistantService {
         "whatsapp",
       );
     } catch (error) {
-      return `„${state.proposal.title}” לא בוצע: ${errorMessage(error)}`;
+      return `⚠️ „${state.proposal.title}” לא בוצע: ${errorMessage(error)}`;
     }
 
-    const lines: string[] = [primary.message];
+    /*
+     * ✅ לפני תוצאה של פעולה שמשנה נתונים.
+     *
+     * לא קישוט: בצ'אט שמתגלגל אי אפשר לדעת ממבט אם הבקשה בוצעה או
+     * שהסוכן רק הסביר משהו. סימן אחד בתחילת השורה עונה על זה.
+     * לשאילתות אין סימן — שם התוצאה עצמה היא התשובה.
+     */
+    const done = state.proposal.risk === "read" ? "" : "✅ ";
+    const lines: string[] = [`${done}${primary.message}`];
     const dataSummary = summarizeData(primary.data);
     if (dataSummary !== "") lines.push(dataSummary);
     /*
@@ -631,11 +639,11 @@ export class WhatsAppAssistantService {
 
     // קישור למסך המלא — לרשומה שנוצרה או לרשימה שנשאלה
     if (primary.href !== undefined) {
-      lines.push(`${loadEnv().WEB_ORIGIN}${primary.href}`);
+      lines.push(`👈 ${loadEnv().WEB_ORIGIN}${primary.href}`);
     }
     // צעד ההמשך המוצע — המתווך פשוט עונה עם המשפט והמעגל נמשך
     if (primary.suggestion !== undefined && primary.suggestion !== "") {
-      lines.push(`אפשר להמשיך: „${primary.suggestion}”`);
+      lines.push(`👉 אפשר להמשיך: „${primary.suggestion}”`);
     }
 
     chat.history = [
@@ -697,10 +705,16 @@ export class WhatsAppAssistantService {
       const handled = Array.isArray(row?.handledIds) ? (row.handledIds as string[]) : [];
       if (handled.includes(externalId)) return null;
       const handledIds = [externalId, ...handled].slice(0, HANDLED_KEPT);
+      /*
+       * החותמת נכתבת כאן ולא בשליחת התשובה: מה שפותח את חלון 24
+       * השעות של Meta הוא ההודעה של המתווך, גם אם הטיפול בה נכשל.
+       * בלעדיה כל דחיפת התראה הייתה יוצאת אל דחייה של Meta.
+       */
+      const lastInboundAt = new Date();
       await tx.whatsAppChat.upsert({
         where: { tenantId_userId: { tenantId, userId } },
-        create: { id: ulid(), tenantId, userId, handledIds },
-        update: { handledIds },
+        create: { id: ulid(), tenantId, userId, handledIds, lastInboundAt },
+        update: { handledIds, lastInboundAt },
       });
       return {
         pending: (row?.pending as unknown as PendingState | null) ?? null,

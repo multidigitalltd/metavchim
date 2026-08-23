@@ -32,6 +32,7 @@ import { clearSessionCache } from "@/lib/session-cache";
 import { ThemeToggle } from "../theme-toggle";
 import { PlanSection } from "../settings/plan-section";
 import { Notice } from "../notice";
+import { WhatsAppNotifySection } from "./whatsapp-notify-section";
 
 /**
  * הפרופיל האישי — כל מה ששייך למשתמש הזה ולא למשרד: ערכת נושא,
@@ -264,6 +265,8 @@ export default function ProfilePage() {
           </section>
 
           <PushSection />
+
+          <WhatsAppNotifySection />
 
           {/* ---- סיסמה ---- */}
           <section className="mv-list-card px-5 py-[17px]" aria-labelledby="password-heading">

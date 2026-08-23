@@ -31,6 +31,17 @@ export type PlatformSettingKey =
    * ריק = הנוסח שבקוד (`prospect-reply.ts`), לא שתיקה.
    */
   | "whatsappProspectReply"
+  /**
+   * שם תבנית ההתראה המאושרת ב-Meta, ושפתה.
+   *
+   * Meta מתירה הודעה יזומה בטקסט חופשי רק בתוך 24 שעות מההודעה
+   * האחרונה של המתווך. מחוץ לחלון — למשל התראה על שיחה שלא נענתה
+   * בשש בבוקר — נדרשת תבנית מאושרת מראש עם שני פרמטרים (כותרת
+   * ופירוט). ריק = דוחפים רק בתוך החלון, וזו התנהגות תקינה ולא
+   * תקלה: המערכת אינה שולחת דבר שייפסל.
+   */
+  | "whatsappNotifyTemplate"
+  | "whatsappNotifyTemplateLang"
   | "loginOtpEnabled"
   | "googleClientId"
   | "googleClientSecret"

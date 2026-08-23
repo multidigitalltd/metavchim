@@ -310,7 +310,20 @@ export class AuthService {
     } = {};
     if (input.name !== undefined) data.name = input.name.trim();
     if (input.phone !== undefined) data.phone = input.phone.trim() === "" ? null : input.phone.trim();
-    if (input.preferences !== undefined) data.preferences = input.preferences as object;
+    /*
+     * ההעדפות **ממוזגות** ולא מוחלפות.
+     *
+     * במסך הפרופיל יושבים כמה פקדים עצמאיים (נגישות, עדכוני
+     * וואטסאפ), וכל אחד שולח את מה שהוא מכיר על גבי תצלום שקרא
+     * בטעינה. החלפה מלאה גרמה לכך שהפקד ששמר אחרון מחק את מה
+     * שהאחר שמר לפניו — שניהם הציגו „נשמר”, ואחד מהם שיקר
+     * (ביקורת Codex). המיזוג ברמה העליונה בשרת פותר את זה לכל
+     * הפקדים בבת אחת, גם עתידיים.
+     */
+    if (input.preferences !== undefined) {
+      const current = (user.preferences ?? {}) as Record<string, unknown>;
+      data.preferences = { ...current, ...input.preferences } as object;
+    }
 
     const nextEmail = input.email?.trim().toLowerCase();
     const emailChanging = nextEmail !== undefined && nextEmail !== user.email;

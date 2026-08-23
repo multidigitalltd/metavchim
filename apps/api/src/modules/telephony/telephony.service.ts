@@ -12,6 +12,7 @@ import {
   callAction,
   describeCall,
   incomingCallTitle,
+  missedCallTitle,
   parse015DialResponse,
   parseTelephonyEvent,
   safeDiagnosticKeys,
@@ -843,6 +844,35 @@ export class TelephonyService {
           providerRecordingPath: event.providerRecordingPath ?? null,
         },
       });
+
+      /*
+       * שיחה נכנסת שלא נענתה — התראה משלה.
+       *
+       * עד כה התריעה המערכת רק על *צלצול*, כלומר בדיוק ברגע שבו
+       * המתווך ממילא רואה את הטלפון מצלצל. מי שלא הספיק לענות — או
+       * שהיה בפגישה — לא קיבל דבר: השיחה נרשמה ביומן השיחות, ומי
+       * שלא פתח אותו לא ידע שלקוח ניסה להשיג אותו. זו ההתראה שהופכת
+       * „לא נענתה” לפעולה, והיא מצביעה על הליד/הלקוח כדי שאפשר יהיה
+       * לחזור אליו במגע אחד.
+       */
+      if (event.type === "missed" && event.direction === "inbound") {
+        await tx.notification.create({
+          data: {
+            id: ulid(),
+            tenantId,
+            // כמו התראת הצלצול: אין מיפוי אמין משלוחה למשתמש
+            userId: null,
+            type: "call_missed",
+            title: missedCallTitle(contactName, event.peerPhone),
+            body: leadId ? "נפתח ליד חדש מהשיחה" : null,
+            ...(leadId
+              ? { entityType: "lead", entityId: leadId }
+              : contactId
+                ? { entityType: "contact", entityId: contactId }
+                : {}),
+          },
+        });
+      }
     });
   }
 
