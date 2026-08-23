@@ -18,6 +18,7 @@ import { CryptoService } from "../../core/crypto.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
 import { PrismaService } from "../../core/prisma.service";
+import { advancePendingRow, takePendingRow } from "./whatsapp-pending";
 import { tenantPeriodEnded, tenantSuspended } from "../auth/auth.service";
 import { AgentExecuteService, type ExecuteResult } from "../agent/execute.service";
 import { AgentInterpretService } from "../agent/interpret.service";
@@ -999,47 +1000,24 @@ export class WhatsAppAssistantService {
   }
 
   /**
-   * צריכת ההצעה הממתינה — UPDATE אטומי יחיד שמרוקן ומחזיר. רק מי
-   * שקיבל שורה מבצע; קריאה מקבילה מקבלת null ולא מבצעת שוב.
+   * צריכת ההצעה הממתינה — ראו `whatsapp-pending.ts`.
    *
-   * `expectToken` הוא חלק מתנאי ה-UPDATE ולא בדיקה שקדמה לו: השוואה
-   * מול הצילום שהוחזר מ-`claimMessage` אינה מספיקה, כי בין הצילום
-   * לצריכה יכול מסלול מקביל להחליף את ההצעה בשורה — ואז „אשר”
-   * להצעה א׳ היה שולף ומבצע את הצעה ב׳ (ביקורת Codex). כשהתנאי
-   * אינו מתקיים לא מתעדכנת שורה, ומי שלחץ מקבל null.
-   *
-   * בלי חותם — הצעה שנשמרה לפני שהחותמים נכנסו — נשמרת ההתנהגות
-   * הישנה, אחרת אישור להצעה כזו לא היה מתבצע לעולם.
+   * ה-SQL יצא לשם כדי שיהיה אפשר להריץ אותו מול מסד אמיתי: זהו כל
+   * מנגנון האטומיות של „אשר”, וכל עוד הוא היה קבור כאן אף בדיקה לא
+   * נגעה בו — ובאג שביטל את הביצוע לחלוטין חי בייצור.
    */
   private async takePending(
     tenantId: string,
     userId: string,
     expectToken?: string,
   ): Promise<PendingState | null> {
-    return this.prisma.withExplicitTenant(tenantId, async (tx) => {
-      const rows =
-        expectToken === undefined
-          ? await tx.$queryRaw<{ pending: unknown }[]>`
-              UPDATE whatsapp_chats SET pending = NULL, updated_at = now()
-              WHERE tenant_id = ${tenantId} AND user_id = ${userId} AND pending IS NOT NULL
-              RETURNING pending`
-          : await tx.$queryRaw<{ pending: unknown }[]>`
-              UPDATE whatsapp_chats SET pending = NULL, updated_at = now()
-              WHERE tenant_id = ${tenantId} AND user_id = ${userId}
-                AND pending IS NOT NULL AND pending->>'token' = ${expectToken}
-              RETURNING pending`;
-      const value = rows[0]?.pending;
-      return value ? (value as PendingState) : null;
-    });
+    const row = await this.prisma.withExplicitTenant(tenantId, (tx) =>
+      takePendingRow(tx, tenantId, userId, expectToken),
+    );
+    return row === null ? null : (row as unknown as PendingState);
   }
 
-  /**
-   * החלפת ההצעה הממתינה באחרת — מותנית בחותם הישן.
-   *
-   * זהו אותו כלל של `takePending`, לצד השני: מי שמקדם הצעה מקדם
-   * את *ההצעה שהוא ראה*, ולא את מה שמסלול מקביל הספיק לשים במקומה.
-   * `false` = ההצעה הוחלפה, ואין מה לקדם.
-   */
+  /** החלפת ההצעה הממתינה באחרת — ראו `whatsapp-pending.ts`. */
   private async advancePending(
     tenantId: string,
     userId: string,
@@ -1047,20 +1025,9 @@ export class WhatsAppAssistantService {
     next: PendingState,
   ): Promise<boolean> {
     const value = next as unknown as Prisma.InputJsonValue;
-    return this.prisma.withExplicitTenant(tenantId, async (tx) => {
-      const rows =
-        expectToken === undefined
-          ? await tx.$queryRaw<{ id: string }[]>`
-              UPDATE whatsapp_chats SET pending = ${value}, updated_at = now()
-              WHERE tenant_id = ${tenantId} AND user_id = ${userId} AND pending IS NOT NULL
-              RETURNING id`
-          : await tx.$queryRaw<{ id: string }[]>`
-              UPDATE whatsapp_chats SET pending = ${value}, updated_at = now()
-              WHERE tenant_id = ${tenantId} AND user_id = ${userId}
-                AND pending IS NOT NULL AND pending->>'token' = ${expectToken}
-              RETURNING id`;
-      return rows.length > 0;
-    });
+    return this.prisma.withExplicitTenant(tenantId, (tx) =>
+      advancePendingRow(tx, tenantId, userId, expectToken, value),
+    );
   }
 
   /**
