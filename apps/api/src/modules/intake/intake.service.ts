@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import type { Prisma } from "@prisma/client";
@@ -100,11 +105,24 @@ export class IntakeService {
    * ואז „מי מהם קובע” הופך לשאלה שאין לה תשובה טובה. מי שרוצה
    * להתחיל מחדש מבטל את הקיים.
    */
-  async ensure(subject: IntakeSubject, subjectId: string): Promise<IntakeRequestDto> {
+  async ensure(
+    subject: IntakeSubject,
+    subjectId: string,
+  ): Promise<IntakeRequestDto> {
     const ctx = TenantContext.current();
     const now = new Date();
     return this.prisma.withTenant(async (tx) => {
       const contactId = await this.contactOf(tx, subject, subjectId);
+
+      /*
+       * נעילת איש הקשר לפני הבדיקה — אותו דפוס של `convertFromLead`.
+       *
+       * בלעדיה שתי לחיצות מקבילות (שתי לשוניות, לחיצה כפולה שעקפה
+       * את ה-disabled) קוראות שתיהן „אין קישור פעיל” ויוצרות שניים.
+       * שני טפסים פעילים לאותו כרטיס הם השאלה „מי מהם קובע”, ואין
+       * לה תשובה טובה — לכן היא נמנעת כאן ולא מטופלת אחר כך.
+       */
+      await tx.$queryRaw`SELECT id FROM contacts WHERE id = ${contactId} AND tenant_id = ${ctx.tenantId} FOR UPDATE`;
 
       const existing = await tx.intakeRequest.findFirst({
         where: {
@@ -116,7 +134,12 @@ export class IntakeService {
         },
         orderBy: { createdAt: "desc" },
       });
-      if (existing !== null) return this.toDto(tx, existing);
+      if (existing !== null) {
+        return toDto(
+          existing,
+          await this.dtoContext(tx, ctx.tenantId, contactId),
+        );
+      }
 
       const row = await tx.intakeRequest.create({
         data: {
@@ -137,12 +160,22 @@ export class IntakeService {
         entityId: subjectId,
         metadata: { channel: "manual" },
       });
-      return this.toDto(tx, row);
+      return toDto(row, await this.dtoContext(tx, ctx.tenantId, contactId));
     });
   }
 
-  /** כל הבקשות של הכרטיס — החדשה ראשונה. */
-  async listFor(subject: IntakeSubject, subjectId: string): Promise<IntakeRequestDto[]> {
+  /**
+   * כל הבקשות של הכרטיס — החדשה ראשונה.
+   *
+   * שם המשרד ואיש הקשר נקראים **פעם אחת**, לא פעם לכל שורה: כל
+   * הבקשות של כרטיס אחד מצביעות על אותו איש קשר ועל אותו משרד,
+   * ולולאה שקוראת אותם בכל סיבוב הפכה עשרים שורות לארבעים
+   * שאילתות מיותרות.
+   */
+  async listFor(
+    subject: IntakeSubject,
+    subjectId: string,
+  ): Promise<IntakeRequestDto[]> {
     const ctx = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
       const rows = await tx.intakeRequest.findMany({
@@ -150,9 +183,13 @@ export class IntakeService {
         orderBy: { createdAt: "desc" },
         take: 20,
       });
-      const out: IntakeRequestDto[] = [];
-      for (const row of rows) out.push(await this.toDto(tx, row));
-      return out;
+      if (rows.length === 0) return [];
+      const ctxDto = await this.dtoContext(
+        tx,
+        ctx.tenantId,
+        rows[0]!.contactId,
+      );
+      return rows.map((row) => toDto(row, ctxDto));
     });
   }
 
@@ -271,6 +308,18 @@ export class IntakeService {
         });
       }
 
+      /*
+       * `resubmit` נקרא **לפני** העדכון: אחריו `submittedAt` תמיד
+       * מלא, וההבחנה בין „הלקוח ענה” לבין „הלקוח שלח שוב” הייתה
+       * נעלמת.
+       */
+      const previous = await tx.intakeRequest.findUnique({
+        where: { id: row.id },
+        select: { submittedAt: true },
+      });
+      const resubmit =
+        previous?.submittedAt !== null && previous?.submittedAt !== undefined;
+
       await tx.intakeRequest.update({
         where: { id: row.id },
         data: {
@@ -287,29 +336,45 @@ export class IntakeService {
        * מי שמילא טופס, כולל מי שהתקשר בטעות — ו-`convertFromLead`
        * גם נופלת כשלאיש הקשר כבר יש קונה פעיל.
        */
-      await tx.notification.create({
-        data: {
-          id: ulid(),
-          tenantId: row.tenantId,
-          userId: null,
-          type: "intake_submitted",
-          title: "הלקוח מילא את טופס הדרישות",
-          /*
-           * הגוף מתאר את מה שבאמת קרה, ולא את מה שהיה נחמד לומר:
-           * ליד בלי כרטיס קונה **לא** עודכן, ואמירה „עודכן” עליו
-           * הייתה שולחת את המתווך לחפש שינוי שאינו קיים.
-           */
-          body:
-            targetBuyerId === null
-              ? "הדרישות נשמרו בבקשה — המירו את הליד לקונה כדי שייכנסו לכרטיס"
-              : changed.length > 0
-                ? `עודכן: ${changed.join(", ")}`
-                : "לא היו שינויים לעומת מה שהיה בכרטיס",
-          entityType: row.subject,
-          entityId: row.subjectId,
-        },
-      });
+      /*
+       * שליחה חוזרת שלא שינתה דבר אינה מתריעה.
+       *
+       * הקישור פעיל שבועיים, ומי שמחזיק בו יכול לשלוח שוב ושוב —
+       * הגבלת הקצב מתירה עשר בדקה. התראה על כל שליחה הייתה מציפה
+       * את רשימת ההתראות של המשרד עד שהוא יפסיק להסתכל עליה,
+       * וכולל על ההתראות שהוא כן צריך. שליחה **ראשונה** תמיד
+       * מתריעה: הסוכן צריך לדעת שהלקוח ענה, גם כשהתשובות זהות למה
+       * שכבר ידע.
+       */
+      if (!resubmit || changed.length > 0) {
+        await tx.notification.create({
+          data: {
+            id: ulid(),
+            tenantId: row.tenantId,
+            userId: null,
+            type: "intake_submitted",
+            title: "הלקוח מילא את טופס הדרישות",
+            /*
+             * הגוף מתאר את מה שבאמת קרה, ולא את מה שהיה נחמד לומר:
+             * ליד בלי כרטיס קונה **לא** עודכן, ואמירה „עודכן” עליו
+             * הייתה שולחת את המתווך לחפש שינוי שאינו קיים.
+             */
+            body:
+              targetBuyerId === null
+                ? "הדרישות נשמרו בבקשה — המירו את הליד לקונה כדי שייכנסו לכרטיס"
+                : changed.length > 0
+                  ? `עודכן: ${changed.join(", ")}`
+                  : "לא היו שינויים לעומת מה שהיה בכרטיס",
+            entityType: row.subject,
+            entityId: row.subjectId,
+          },
+        });
+      }
 
+      /*
+       * היומן נרשם **בכל** שליחה, גם כשאין התראה: הוא הראיה למי
+       * נגע בכרטיס ומתי, ודילוג עליו היה יוצר שינוי בלי מקור.
+       */
       await this.audit.record(tx, {
         action: "intake.submit",
         entityType: row.subject,
@@ -434,7 +499,10 @@ export class IntakeService {
    * להיכנס לכרטיס שכבר קיים. אין קונה ⇒ `null`, והתשובות נשמרות
    * על הבקשה עד שהמתווך ימיר.
    */
-  private async targetBuyerId(tx: TenantTx, row: TokenRow): Promise<string | null> {
+  private async targetBuyerId(
+    tx: TenantTx,
+    row: TokenRow,
+  ): Promise<string | null> {
     const buyer = await tx.buyer.findFirst({
       where: {
         tenantId: row.tenantId,
@@ -473,40 +541,55 @@ export class IntakeService {
     return tenant?.name ?? "המשרד";
   }
 
-  private async toDto(
+  /** מה שמשותף לכל שורות הכרטיס — נקרא פעם אחת. */
+  private async dtoContext(
     tx: TenantTx,
-    row: {
-      id: string;
-      token: string;
-      status: string;
-      channel: string;
-      contactId: string;
-      expiresAt: Date;
-      openedAt: Date | null;
-      submittedAt: Date | null;
-      createdAt: Date;
-      tenantId: string;
-    },
-  ): Promise<IntakeRequestDto> {
-    const url = publicUrl(row.token);
-    const contact = await this.contacts.getById(tx, row.contactId);
-    const officeName = await this.officeName(tx, row.tenantId);
-    const message = intakeInviteMessage({ officeName, url });
-    return {
-      id: row.id,
-      url,
-      status: row.status as IntakeStatus,
-      channel: row.channel,
-      expiresAt: row.expiresAt,
-      openedAt: row.openedAt,
-      submittedAt: row.submittedAt,
-      createdAt: row.createdAt,
-      waUrl:
-        contact?.phone !== undefined
-          ? `https://wa.me/${contact.phone.replace(/\D/gu, "")}?text=${encodeURIComponent(message)}`
-          : null,
-    };
+    tenantId: string,
+    contactId: string,
+  ): Promise<DtoContext> {
+    const [officeName, contact] = await Promise.all([
+      this.officeName(tx, tenantId),
+      this.contacts.getById(tx, contactId),
+    ]);
+    return { officeName, phone: contact?.phone ?? null };
   }
+}
+
+/** ההקשר שנקרא פעם אחת לכל הכרטיס. ראו `dtoContext`. */
+interface DtoContext {
+  officeName: string;
+  phone: string | null;
+}
+
+function toDto(
+  row: {
+    id: string;
+    token: string;
+    status: string;
+    channel: string;
+    expiresAt: Date;
+    openedAt: Date | null;
+    submittedAt: Date | null;
+    createdAt: Date;
+  },
+  ctx: DtoContext,
+): IntakeRequestDto {
+  const url = publicUrl(row.token);
+  const message = intakeInviteMessage({ officeName: ctx.officeName, url });
+  return {
+    id: row.id,
+    url,
+    status: row.status as IntakeStatus,
+    channel: row.channel,
+    expiresAt: row.expiresAt,
+    openedAt: row.openedAt,
+    submittedAt: row.submittedAt,
+    createdAt: row.createdAt,
+    waUrl:
+      ctx.phone !== null
+        ? `https://wa.me/${ctx.phone.replace(/\D/gu, "")}?text=${encodeURIComponent(message)}`
+        : null,
+  };
 }
 
 /** 43 תווי base64url = 256 ביט. אותו אורך כמו טוקן דף הנחיתה. */
@@ -536,7 +619,9 @@ function toAnswers(req: Record<string, unknown>): IntakeAnswers {
     out.dealType = req["dealType"];
   }
   if (Array.isArray(req["cities"])) {
-    out.cities = req["cities"].filter((c): c is string => typeof c === "string");
+    out.cities = req["cities"].filter(
+      (c): c is string => typeof c === "string",
+    );
   }
   if (Array.isArray(req["propertyTypes"])) {
     out.propertyTypes = req["propertyTypes"].filter(
@@ -554,7 +639,11 @@ function toAnswers(req: Record<string, unknown>): IntakeAnswers {
     if (typeof value === "number" && Number.isFinite(value)) out[key] = value;
   }
   const features = req["features"];
-  if (typeof features === "object" && features !== null && !Array.isArray(features)) {
+  if (
+    typeof features === "object" &&
+    features !== null &&
+    !Array.isArray(features)
+  ) {
     const picked: Record<string, "must" | "nice"> = {};
     for (const [key, value] of Object.entries(features)) {
       if (value === "must" || value === "nice") picked[key] = value;
@@ -562,12 +651,17 @@ function toAnswers(req: Record<string, unknown>): IntakeAnswers {
     out.features = picked as IntakeAnswers["features"];
   }
   const entryType = req["entryType"];
-  if (entryType === "immediate" || entryType === "by_date" || entryType === "flexible") {
+  if (
+    entryType === "immediate" ||
+    entryType === "by_date" ||
+    entryType === "flexible"
+  ) {
     out.entryType = entryType;
   }
   const entryBy = req["entryBy"];
   if (typeof entryBy === "string") out.entryBy = entryBy.slice(0, 10);
-  else if (entryBy instanceof Date) out.entryBy = entryBy.toISOString().slice(0, 10);
+  else if (entryBy instanceof Date)
+    out.entryBy = entryBy.toISOString().slice(0, 10);
   const notes = req["flexibilityNotes"];
   if (typeof notes === "string") out.notes = notes;
   return out;

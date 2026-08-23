@@ -1,7 +1,12 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
-import { IdSchema, INTAKE_FEATURES, INTAKE_NOTES_MAX } from "@metavchim/shared";
+import {
+  IdSchema,
+  INTAKE_FEATURES,
+  INTAKE_NOTES_MAX,
+  type IntakeAnswers,
+} from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
@@ -153,19 +158,40 @@ export class IntakeController {
  * (השדה נמחק), ו-`null` הוא הביטוי של השני ברשת. הוא מתורגם כאן
  * ולא בסכימה כדי ש-`applyIntakeAnswers` יישאר עם טיפוס אחד לכל
  * מספר.
+ *
+ * **הטיפוס המוחזר הוא `IntakeAnswers` ולא `Record<string, unknown>`,
+ * וזה לא ניסוח.** TypeScript מקבל `Record<string, unknown>` כארגומנט
+ * לממשק שכל שדותיו רשות — חתימת האינדקס „מספקת” כל שדה — ולכן
+ * הגרסה הקודמת עברה קומפילציה בלי לבדוק דבר: שם שדה שהוקלד לא
+ * נכון היה עובר בשקט, והמיזוג היה מתעלם ממנו. כאן כל שדה נכתב
+ * מפורשות, והמהדר בודק אותו.
  */
 function normalizeAnswers(
   answers: Omit<z.infer<typeof AnswersSchema>, "website">,
-): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...answers };
-  for (const key of [
-    "roomsMin",
-    "roomsMax",
-    "budgetMinAgorot",
-    "budgetMaxAgorot",
-    "areaSqmMin",
-  ]) {
-    if (out[key] === null) out[key] = Number.NaN;
-  }
-  return out;
+): IntakeAnswers {
+  return {
+    ...(answers.dealType !== undefined ? { dealType: answers.dealType } : {}),
+    ...(answers.cities !== undefined ? { cities: answers.cities } : {}),
+    ...(answers.propertyTypes !== undefined
+      ? { propertyTypes: answers.propertyTypes }
+      : {}),
+    ...limit("roomsMin", answers.roomsMin),
+    ...limit("roomsMax", answers.roomsMax),
+    ...limit("budgetMinAgorot", answers.budgetMinAgorot),
+    ...limit("budgetMaxAgorot", answers.budgetMaxAgorot),
+    ...limit("areaSqmMin", answers.areaSqmMin),
+    ...(answers.features !== undefined ? { features: answers.features } : {}),
+    ...(answers.entryType !== undefined ? { entryType: answers.entryType } : {}),
+    ...(answers.entryBy !== undefined ? { entryBy: answers.entryBy } : {}),
+    ...(answers.notes !== undefined ? { notes: answers.notes } : {}),
+  };
+}
+
+/** שדה מספרי אחד: חסר ⇒ לא נשלח · `null` ⇒ „אין לי מגבלה” (NaN). */
+function limit<K extends string>(
+  key: K,
+  value: number | null | undefined,
+): Record<K, number> | Record<string, never> {
+  if (value === undefined) return {};
+  return { [key]: value === null ? Number.NaN : value } as Record<K, number>;
 }

@@ -8,7 +8,7 @@ import {
   type IntakeAnswers,
   type IntakeFeature,
 } from "@metavchim/shared";
-import { API_BASE } from "@/lib/api";
+import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { PROPERTY_TYPE_LABELS } from "@/lib/format";
 import { Notice } from "../../notice";
 
@@ -98,9 +98,13 @@ export default function IntakeFormPage({
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/f/${token}`);
-      if (!res.ok) throw new Error("load");
-      const data = (await res.json()) as PublicView;
+      /*
+       * `apiGet` ולא `fetch` גולמי — אותו עוזר שכל שאר המסכים
+       * משתמשים בו, כולל דף הנחיתה הציבורי. הוא מה שמביא את הודעת
+       * השגיאה של השרת בעברית ואת רישום הכישלון לאבחון; `fetch`
+       * ישיר היה מחזיר „נכשל” גנרי במקום „הקישור פג תוקף”.
+       */
+      const data = await apiGet<PublicView>(`/f/${token}`);
       setView(data);
       setLoadFailed(false);
       const p = data.prefill;
@@ -156,15 +160,21 @@ export default function IntakeFormPage({
         if (typeof body[key] === "number" && Number.isNaN(body[key])) delete body[key];
       }
 
-      const res = await fetch(`${API_BASE}/f/${token}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error("submit");
+      await apiPost<{ ok: true }>(`/f/${token}`, body);
       setDone(true);
-    } catch {
-      setError("השליחה נכשלה. בדקו את החיבור ונסו שוב.");
+    } catch (err: unknown) {
+      /*
+       * הסיבה שהשרת נתן, ולא „בדקו את החיבור”.
+       *
+       * קישור שפג בזמן שהלקוח מילא הוא המקרה השכיח כאן, ועצה לבדוק
+       * את החיבור שולחת אותו לחפש תקלה שאינה קיימת במקום לבקש
+       * קישור חדש.
+       */
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "השליחה נכשלה. בדקו את החיבור ונסו שוב.",
+      );
     } finally {
       setBusy(false);
     }
