@@ -23,6 +23,7 @@ import { ContactsModule } from "./modules/contacts/contacts.module";
 import { ExportModule } from "./modules/export/export.module";
 import { FeatureSignupsModule } from "./modules/feature-signups/feature-signups.module";
 import { HealthModule } from "./modules/health/health.module";
+import { IntakeModule } from "./modules/intake/intake.module";
 import { ImportModule } from "./modules/import/import.module";
 import { LeadsModule } from "./modules/leads/leads.module";
 import { MatchingModule } from "./modules/matching/matching.module";
@@ -93,6 +94,7 @@ import { AgentModule } from "./modules/agent/agent.module";
     TasksModule,
     ExportModule,
     FeatureSignupsModule,
+    IntakeModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

@@ -33,6 +33,7 @@ import { AgreementsPanel } from "../../agreements-panel";
 import { EntityNotes } from "../../entity-notes";
 import { SelectMenu } from "../../select-menu";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
+import { IntakePanel } from "../../intake-panel";
 import { LoadError } from "../../load-error";
 import { Notice } from "../../notice";
 
@@ -463,6 +464,14 @@ export default function BuyerDetailPage({
                 </div>
               )}
             </section>
+
+            {/*
+              ---- הלקוח ממלא בעצמו ----
+              מיד אחרי „פרטי חיפוש”, וזה לא מקרי: הכרטיס שמעל אומר
+              מה חסר, וזה אומר איך להשלים את זה בלי להקליד. הלקוח
+              יודע את התשובות טוב יותר, וממלא כשנוח לו.
+            */}
+            <IntakePanel subject="buyer" entityId={id} canEdit={canEditPeople} />
 
             {/* ---- מה הוא מחפש ---- */}
             <section

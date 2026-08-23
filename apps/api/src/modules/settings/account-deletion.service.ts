@@ -300,6 +300,12 @@ export class AccountDeletionService {
          */
         await tx.featureSignup.deleteMany({ where: { tenantId } });
         await tx.propertyTwin.deleteMany({ where: { tenantId } });
+        /*
+         * בקשות טופס הלקוח — כולל `answers`, שהוא מה שהלקוח כתב על
+         * עצמו. אותו נימוק: אין מפתח זר לשורת המשרד, ולכן בלי
+         * המחיקה כאן הן היו שורדות אותה.
+         */
+        await tx.intakeRequest.deleteMany({ where: { tenantId } });
         // תיק הבלעדיות — פעולות לפני תקופות, ושתיהן לפני הנכסים
         await tx.marketingAction.deleteMany({ where: { tenantId } });
         await tx.propertyExclusivity.deleteMany({ where: { tenantId } });

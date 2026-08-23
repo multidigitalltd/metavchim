@@ -37,6 +37,7 @@ import { DictateFor } from "../../dictation-field";
 import { RelatedEntities } from "../../related-entities";
 import { EntityTasks } from "../../entity-tasks";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
+import { IntakePanel } from "../../intake-panel";
 import { SelectMenu } from "../../select-menu";
 import { ReplyEmail } from "./reply-email";
 import {
@@ -1142,6 +1143,13 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             />
 
             <EntityTasks entityType="lead" entityId={id} />
+
+            {/*
+              „הלקוח ממלא בעצמו” — כאן, ולא בלשונית „המשך טיפול”.
+              זו הפעולה שעושים **לפני** שמחליטים אם להמיר: מה שהלקוח
+              ימלא הוא בדיוק המידע שההחלטה נשענת עליו.
+            */}
+            <IntakePanel subject="lead" entityId={id} canEdit={can(user, "leads.edit")} />
 
             <ContactPeople
               contactId={lead.contact.id}

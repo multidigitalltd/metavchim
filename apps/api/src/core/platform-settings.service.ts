@@ -42,6 +42,20 @@ export type PlatformSettingKey =
    */
   | "whatsappNotifyTemplate"
   | "whatsappNotifyTemplateLang"
+  /**
+   * תבנית ההזמנה למילוי טופס הדרישות, ושפתה.
+   *
+   * **תבנית נפרדת מ-`whatsappNotifyTemplate` בכוונה.** ההתראות
+   * נשלחות למתווך, וזו נשלחת ל**לקוח** שהתקשר ולא נענה — נוסח,
+   * קהל ומספר פרמטרים שונים (כאן אחד: הקישור). שימוש חוזר באותה
+   * תבנית היה שולח ללקוח טקסט שנכתב לסוכן.
+   *
+   * ריק = לא נשלח דבר אוטומטית, ובמקום זה נפתחת משימה עם ההודעה
+   * מוכנה. זו התנהגות תקינה ולא תקלה: מחוץ לחלון 24 השעות Meta
+   * דוחה טקסט חופשי, והמערכת אינה שולחת דבר שייפסל.
+   */
+  | "whatsappIntakeTemplate"
+  | "whatsappIntakeTemplateLang"
   | "loginOtpEnabled"
   | "googleClientId"
   | "googleClientSecret"
