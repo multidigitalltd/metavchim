@@ -12,6 +12,7 @@ import {
 } from "@metavchim/shared";
 import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { ContactErasure } from "./contact-erasure";
+import { LoadError } from "./load-error";
 import { Notice } from "./notice";
 
 /**
@@ -65,6 +66,8 @@ export function ContactPeople({
 }) {
   const [data, setData] = useState<PeopleResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** כישלון טעינה — נפרד מ-`error` של הפעולות, כי הוא חוסם את הכרטיס */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [addingPerson, setAddingPerson] = useState(false);
   const [addingPhone, setAddingPhone] = useState(false);
   const [editingEmail, setEditingEmail] = useState(false);
@@ -74,10 +77,28 @@ export function ContactPeople({
   );
   const [busy, setBusy] = useState(false);
 
+  /**
+   * כישלון טעינה **אינו** „ללקוח אין טלפון”.
+   *
+   * קודם כל שגיאה נבלעה והוחלפה ברשימה ריקה, והמסך הציג כרטיס בלי
+   * מספר — בדיוק כמו לקוח שבאמת אין לו. מתווך שראה את זה הסיק
+   * שהנתון אבד, בעוד שהוא יושב במסד בשלמותו. שגיאה נאמרת עכשיו
+   * במפורש, עם אפשרות לנסות שוב.
+   */
   const load = useCallback(() => {
+    setLoadError(null);
     apiGet<PeopleResponse>(`/contacts/${contactId}/people`)
-      .then(setData)
-      .catch(() => setData({ people: [], phones: [] }));
+      .then((res) => {
+        setData(res);
+      })
+      .catch((err: unknown) => {
+        setData(null);
+        setLoadError(
+          err instanceof ApiError
+            ? err.message
+            : "טעינת פרטי הקשר נכשלה — בדקו את החיבור ונסו שוב.",
+        );
+      });
   }, [contactId]);
 
   useEffect(load, [load]);
@@ -143,6 +164,14 @@ export function ContactPeople({
         phone: String(form.get("phone")).trim(),
         label: String(form.get("label")),
       }),
+    );
+  }
+
+  if (loadError !== null) {
+    return (
+      <section className="mv-list-card px-5 py-[17px]">
+        <LoadError message={loadError} onRetry={load} />
+      </section>
     );
   }
 
