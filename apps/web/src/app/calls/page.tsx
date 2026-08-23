@@ -109,16 +109,39 @@ export default function CallsPage() {
     apiGet<CallRow[]>(`/calls${query}`)
       .then((rows) => {
         setItems(rows);
+        const requested = requestedIdRef.current;
         setSelected((prev) => {
-          const requested = requestedIdRef.current;
           if (requested !== null) {
             const match = rows.find((r) => r.id === requested);
-            // נצרך פעם אחת; אחרי זה הבחירה של המשתמש היא הקובעת
-            requestedIdRef.current = null;
-            if (match) return match;
+            if (match) {
+              // נצרך פעם אחת; אחרי זה הבחירה של המשתמש היא הקובעת
+              requestedIdRef.current = null;
+              return match;
+            }
+            /*
+             * השיחה המבוקשת אינה בעמוד — נשלפת בנפרד למטה. עד אז
+             * לא בוחרים כלום: נפילה לשיחה החדשה הייתה פותחת שיחה
+             * של לקוח אחר לגמרי, וזה גרוע מלא לפתוח דבר.
+             */
+            return prev;
           }
           return rows.find((r) => r.id === prev?.id) ?? rows[0] ?? null;
         });
+        if (requested !== null && !rows.some((r) => r.id === requested)) {
+          /*
+           * דרך נתיב הרשימה עם `?id=`, ולא נתיב חדש: אותו סינון
+           * בעלות בדיוק חל עליה, ואין שער שני שאפשר לשכוח לעדכן.
+           */
+          apiGet<CallRow[]>(`/calls?id=${encodeURIComponent(requested)}`)
+            .then((found) => {
+              requestedIdRef.current = null;
+              setSelected((prev) => found[0] ?? prev ?? rows[0] ?? null);
+            })
+            .catch(() => {
+              requestedIdRef.current = null;
+              setSelected((prev) => prev ?? rows[0] ?? null);
+            });
+        }
       })
       .catch(() => setError("טעינת השיחות נכשלה"));
   }

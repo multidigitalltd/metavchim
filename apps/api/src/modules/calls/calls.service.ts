@@ -157,6 +157,8 @@ export class CallsService {
      * שההקלטה קיימת, שורה אחת מתחת לתקרה (ביקורת Codex).
      */
     recordedOnly?: boolean;
+    /** שיחה אחת לפי מזהה — עדיין דרך סינון הבעלות של הרשימה. */
+    id?: string;
     limit: number;
   }): Promise<CallDto[]> {
     const { tenantId, userId } = TenantContext.current();
@@ -169,6 +171,7 @@ export class CallsService {
           ...(query.leadId ? { leadId: query.leadId } : {}),
           ...(query.contactId ? { contactId: query.contactId } : {}),
           ...(query.recordedOnly ? { recordingKey: { not: null } } : {}),
+          ...(query.id ? { id: query.id } : {}),
           ...(visible === null
             ? {}
             : { OR: [{ contactId: { in: visible } }, { createdBy: userId }] }),
