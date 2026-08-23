@@ -34,20 +34,20 @@ const TOKEN = "a".repeat(43);
 /**
  * המצב המשותף של השורה המדומה.
  *
- * `submittedAt` הוא **מספר הגרסה** של השליחה, ולכן הוא חייב להיות
+ * `submissionRev` הוא **מספר הגרסה** של השליחה, ולכן הוא חייב להיות
  * מצב אמיתי ולא קבוע: הבדיקה של „שליחה שהוקדמה” מסתמכת בדיוק על
  * ההבדל בין מה שהתפיסה כתבה לבין מה שנקרא מתחת לנעילת הקונה.
  */
 interface FakeState {
-  submittedAt: Date | null;
+  rev: string | null;
   /** מה `findUnique` יחזיר מתחת לנעילה. `undefined` = מה שנכתב. */
-  seenUnderLock?: Date | null;
+  seenUnderLock?: string | null;
   buyerId?: string | undefined;
   notifications: number;
 }
 
 function newState(buyerId?: string): FakeState {
-  return { submittedAt: null, buyerId, notifications: 0 };
+  return { rev: null, buyerId, notifications: 0 };
 }
 
 /** ה-tx שהשירות מקבל — כל שאילתה מוחזרת ריקה, חוץ ממה שנדרש. */
@@ -67,14 +67,13 @@ function fakeTx(state: FakeState): TenantTx {
       }),
       findUnique: async () => ({
         status: "opened",
-        submittedAt:
-          state.seenUnderLock === undefined
-            ? state.submittedAt
-            : state.seenUnderLock,
+        submittedAt: null,
+        submissionRev:
+          state.seenUnderLock === undefined ? state.rev : state.seenUnderLock,
         answers: {},
       }),
-      updateMany: async (args: { data?: { submittedAt?: Date } }) => {
-        if (args.data?.submittedAt) state.submittedAt = args.data.submittedAt;
+      updateMany: async (args: { data?: { submissionRev?: string } }) => {
+        if (args.data?.submissionRev) state.rev = args.data.submissionRev;
         return { count: 1 };
       },
     },
@@ -85,6 +84,8 @@ function fakeTx(state: FakeState): TenantTx {
             ...none,
             findFirst: async () => ({ id: state.buyerId, requirements: {} }),
           },
+    // נעילת איש הקשר — הגבול המשותף עם המרת הליד
+    $queryRaw: async () => [],
     tenant: { findUnique: async () => ({ name: "נדל״ן ירוק" }) },
     notification: {
       create: async () => {
@@ -324,7 +325,7 @@ describe("המיזוג רץ מתחת לנעילת הכרטיס", () => {
      * כלומר מישהו הקדים אותה. היא מוותרת — בלי כתיבה ובלי התראה.
      */
     const state = newState(BUYER);
-    state.seenUnderLock = new Date(Date.now() + 60_000);
+    state.seenUnderLock = "01JWANEWERSUBMISSIONAAAAAA";
     const { service: buyers, written } = fakeBuyers(state, { dealType: "sale" });
 
     await expect(

@@ -184,6 +184,11 @@ export class BuyersService {
       });
       if (!lead) throw new NotFoundException("ליד לא נמצא");
 
+      // נעילת איש הקשר: שני לידים שונים של אותו אדם שמומרים במקביל
+      // מסתדרים בתור — בדיקת "קונה פעיל קיים" אטומית ברמת ה-contact,
+      // כי אין unique על (tenant, contact) בקונים (ביקורת Codex)
+      await tx.$queryRaw`SELECT id FROM contacts WHERE id = ${lead.contactId} AND tenant_id = ${ctx.tenantId} FOR UPDATE`;
+
       /*
        * מה שהלקוח כבר מילא בטופס הדרישות נכנס לכרטיס החדש.
        *
@@ -194,6 +199,13 @@ export class BuyersService {
        * הנכס, המאפיינים ומועד הכניסה שהלקוח טרח למלא היו נמחקים
        * בדיוק ברגע שהובטח שהם ייכנסו. מה שהמתווך הקליד גובר —
        * ראו `mergeIntakeSeed`.
+       *
+       * **אחרי נעילת איש הקשר, ולא לפניה.** השליחה של הלקוח נועלת
+       * את אותה שורה לפני שהיא מחליטה אם יש כרטיס קונה לכתוב אליו,
+       * ולכן הנעילה היא הגבול המשותף לשתי הפעולות. קריאה שלפניה
+       * הייתה מאפשרת בדיוק את הרצף שמאבד את התשובות: ההמרה קוראת
+       * „אין טופס שנשלח”, השליחה מוצאת „אין קונה” ושומרת על הבקשה
+       * בלבד, וההמרה פותחת כרטיס בלי מה שהלקוח מילא.
        */
       const requirements = await this.seedFromIntake(
         tx,
@@ -201,11 +213,6 @@ export class BuyersService {
         leadId,
         input.requirements,
       );
-
-      // נעילת איש הקשר: שני לידים שונים של אותו אדם שמומרים במקביל
-      // מסתדרים בתור — בדיקת "קונה פעיל קיים" אטומית ברמת ה-contact,
-      // כי אין unique על (tenant, contact) בקונים (ביקורת Codex)
-      await tx.$queryRaw`SELECT id FROM contacts WHERE id = ${lead.contactId} AND tenant_id = ${ctx.tenantId} FOR UPDATE`;
       const existingBuyer = await tx.buyer.findFirst({
         where: {
           tenantId: ctx.tenantId,
@@ -555,8 +562,25 @@ export class BuyersService {
       });
     });
 
+    /*
+     * חישוב ההתאמות מחדש — **אחרי** שהעריכה כבר נשמרה, ולכן כשל בו
+     * אינו הופך אותה ל„נכשלה”.
+     *
+     * זו אותה החלטה שכבר נלקחה ב-`create`, ומאותו נימוק: הרענון
+     * התקופתי הוא רשת הביטחון. בלי הבליעה הזו כשל כאן היה מחזיר
+     * שגיאה לקורא על כתיבה שהצליחה — ובמסלול טופס הלקוח זה גרוע
+     * במיוחד: הבקשה כבר סומנה „נשלחה”, הכרטיס כבר עודכן, ההתראה
+     * והיומן נדלגים, ושליחה חוזרת כבר לא תשחזר אותם כי היא אינה
+     * משנה דבר.
+     */
     if (patch.requirements) {
-      await this.matching.recomputeForBuyer(id, { trigger });
+      try {
+        await this.matching.recomputeForBuyer(id, { trigger });
+      } catch (error: unknown) {
+        this.logger.warn(
+          `match recompute failed for buyer ${id}: ${String(error)}`,
+        );
+      }
     }
     /*
      * הביקוש ברשת הוא צילום של הקונה, ולכן הוא מזדקן בכל עריכה:

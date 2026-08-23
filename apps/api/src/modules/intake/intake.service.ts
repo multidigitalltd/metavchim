@@ -346,6 +346,19 @@ export class IntakeService {
        * אחר — כלומר הלקוח רואה את התיקון שלו נעלם. לכן היעד נקבע
        * פעם אחת ומשמש את שני הצדדים.
        */
+      /*
+       * נעילת איש הקשר — הגבול המשותף עם המרת הליד.
+       *
+       * `convertFromLead` נועלת את אותה שורה לפני שהיא קוראת את
+       * הטופס שנשלח. בלי הנעילה כאן שתי הפעולות רואות זו את מצבה
+       * הישן של זו: ההמרה קוראת „אין טופס שנשלח”, השליחה מוצאת
+       * „אין כרטיס קונה” ושומרת את התשובות על הבקשה בלבד, ושתיהן
+       * מצליחות — כשהתשובות של הלקוח נשארות תלויות באוויר ואף אחד
+       * לא ידע. הנעילה מסדרת אותן בתור, ומי שמגיע שני רואה את מה
+       * שהראשון עשה.
+       */
+      await tx.$queryRaw`SELECT id FROM contacts WHERE id = ${row.contactId} AND tenant_id = ${row.tenantId} FOR UPDATE`;
+
       const targetBuyerId = await this.targetBuyerId(tx, row);
 
       /*
@@ -381,7 +394,22 @@ export class IntakeService {
        * נבדק כאן בתוך `UPDATE` אחד, ולכן הוא נכון גם מול ביטול
        * מקביל: מי שהגיע שני רואה אפס שורות.
        */
-      const claimedAt = new Date();
+      /*
+       * `rev` הוא **מספר הגרסה** של השליחה הזו.
+       *
+       * התפיסה והכתיבה לכרטיס הן שתי טרנזקציות, ולכן סדר ההגעה
+       * לנעילת הקונה אינו בהכרח סדר השליחות: שליחה ותיקה שנעצרה
+       * אחרי התפיסה יכולה להגיע לנעילה **אחרי** שליחה חדשה שכבר
+       * כתבה — ולדרוס אותה בתשובות ישנות, בעוד שורת הבקשה נושאת
+       * את החדשות. הגרסה נבדקת מחדש מתחת לנעילה, ומי שכבר הוקדם
+       * מוותר.
+       *
+       * ULID ולא `submittedAt`: חותמת מדויקת למילישנייה, ושתי
+       * שליחות שנופלות באותה מילישנייה מקבלות ערך זהה — כלומר
+       * הבדיקה מפסיקה להבחין ביניהן בדיוק במקרה שבשבילו היא
+       * נכתבה.
+       */
+      const rev = ulid();
       const claimed = await tx.intakeRequest.updateMany({
         where: {
           id: row.id,
@@ -391,23 +419,14 @@ export class IntakeService {
         },
         data: {
           status: "submitted",
-          submittedAt: claimedAt,
+          submittedAt: new Date(),
+          submissionRev: rev,
           answers: answers as unknown as Prisma.InputJsonValue,
         },
       });
       if (claimed.count === 0) return null;
 
-      /*
-       * `claimedAt` הוא **מספר הגרסה** של השליחה הזו.
-       *
-       * התפיסה והכתיבה לכרטיס הן שתי טרנזקציות, ולכן סדר ההגעה
-       * לנעילת הקונה אינו בהכרח סדר השליחות: שליחה ותיקה שנעצרה
-       * אחרי התפיסה יכולה להגיע לנעילה **אחרי** שליחה חדשה שכבר
-       * כתבה — ולדרוס אותה בתשובות ישנות, בעוד שורת הבקשה נושאת
-       * את החדשות. החותמת נבדקת מחדש מתחת לנעילה, ומי שכבר הוקדם
-       * מוותר.
-       */
-      return { targetBuyerId, resubmit, claimedAt };
+      return { targetBuyerId, resubmit, rev };
     });
 
     if (claim === null) {
@@ -421,7 +440,7 @@ export class IntakeService {
             row.tenantId,
             claim.targetBuyerId,
             row.id,
-            claim.claimedAt,
+            claim.rev,
             answers,
           );
 
@@ -478,7 +497,7 @@ export class IntakeService {
     tenantId: string,
     buyerId: string,
     requestId: string,
-    claimedAt: Date,
+    rev: string,
     answers: IntakeAnswers,
   ): Promise<{ applied: boolean; changed: string[]; superseded: boolean }> {
     /*
@@ -494,15 +513,13 @@ export class IntakeService {
           requirements: async (before, tx) => {
             /*
              * הבדיקה הראשונה מתחת לנעילה: האם השליחה הזו עדיין
-             * האחרונה. ראו ההסבר ליד `claimedAt` ב-`submit`.
+             * האחרונה. ראו ההסבר ליד `rev` ב-`submit`.
              */
             const current = await tx.intakeRequest.findUnique({
               where: { id: requestId },
-              select: { submittedAt: true },
+              select: { submissionRev: true },
             });
-            if (current?.submittedAt?.getTime() !== claimedAt.getTime()) {
-              throw new Superseded();
-            }
+            if (current?.submissionRev !== rev) throw new Superseded();
 
             const after = applyIntakeAnswers(before, answers);
             /*
