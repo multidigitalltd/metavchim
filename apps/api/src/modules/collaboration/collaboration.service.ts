@@ -11,6 +11,12 @@ import {
   BuyerRequirementsSchema,
   DEFAULT_COMMISSION_SPLIT,
   commissionSplitRejectionReason,
+  commissionTermsColumns,
+  commissionTermsFromRow,
+  commissionTermsRejectionReason,
+  headlineCommissionSplit,
+  uniformTerms,
+  type CommissionTerms,
   coopOfferCost,
   leadSourceLabel,
   planCreditExpiry,
@@ -144,6 +150,15 @@ export interface NetworkDemandMatchDto {
   mustFeatures: string[];
   niceFeatures: string[];
   commissionSplit: number;
+  /**
+   * חלוקת העמלה לכל צד — צד הקונה וצד המוכר בנפרד.
+   *
+   * זה מה שהמסך מציג. `commissionSplit` שלידו הוא הכותרת בלבד
+   * (ברירת המחדל בבורר של ההצעה הנגדית), והוא אינו מוצג במקום
+   * שהתנאים המלאים זמינים בו: „50% / 50%” על פרסום שתנאיו נוסחו
+   * במילים הוא תנאי שאיש לא סיכם.
+   */
+  terms: CommissionTerms;
   /** מה תעלה ההצעה; 0 = חינם. מוחזר מהשרת ולא מנוחש במסך. */
   creditsCost: number;
   source: string;
@@ -271,6 +286,15 @@ export interface SharedDemandDto {
   creditsCost: number;
   /** אחוז העמלה שהמשרד המשתף מבקש; לצד השני נשאר המשלים. */
   commissionSplit: number;
+  /**
+   * חלוקת העמלה לכל צד — צד הקונה וצד המוכר בנפרד.
+   *
+   * זה מה שהמסך מציג. `commissionSplit` שלידו הוא הכותרת בלבד
+   * (ברירת המחדל בבורר של ההצעה הנגדית), והוא אינו מוצג במקום
+   * שהתנאים המלאים זמינים בו: „50% / 50%” על פרסום שתנאיו נוסחו
+   * במילים הוא תנאי שאיש לא סיכם.
+   */
+  terms: CommissionTerms;
   status: string;
   /** true אם הביקוש שלי — רק אז יש קישור לקונה */
   mine: boolean;
@@ -468,13 +492,18 @@ export class CollaborationService {
    */
   async shareBuyer(
     buyerId: string,
-    commissionSplit: number,
+    terms: CommissionTerms,
     note?: string,
   ): Promise<SharedDemandDto> {
     const tenantId = TenantContext.current().tenantId;
     const id = ulid();
-    const splitRejection = commissionSplitRejectionReason(commissionSplit);
+    const splitRejection = commissionTermsRejectionReason(terms);
     if (splitRejection !== null) throw new BadRequestException(splitRejection);
+    /*
+     * המשרד שמשתף קונה מחזיק את **צד הקונה**, ולכן הכותרת נגזרת
+     * ממנו — בדיוק מה ש-`commissionSplit` תמיד תיאר.
+     */
+    const commissionSplit = headlineCommissionSplit(terms, "buyer");
 
     await this.prisma.withTenant(async (tx) => {
       const buyer = await tx.buyer.findFirst({
@@ -521,6 +550,7 @@ export class CollaborationService {
         data: {
           id,
           commissionSplit,
+          ...commissionTermsColumns(terms),
           tenantId,
           originBuyerId: buyerId,
           // התיאור החופשי של המשתף: "מה הקונה מחפש" במילים שלו
@@ -562,7 +592,7 @@ export class CollaborationService {
     const results: { id: string; ok: boolean; error?: string }[] = [];
     for (const buyerId of buyerIds) {
       try {
-        await this.shareBuyer(buyerId, DEFAULT_COMMISSION_SPLIT);
+        await this.shareBuyer(buyerId, uniformTerms(DEFAULT_COMMISSION_SPLIT));
         results.push({ id: buyerId, ok: true });
       } catch (error) {
         results.push({
@@ -758,12 +788,13 @@ export class CollaborationService {
    */
   async updateSharedDemand(
     buyerId: string,
-    commissionSplit: number,
+    terms: CommissionTerms,
     note?: string,
   ): Promise<SharedDemandDto> {
     const tenantId = TenantContext.current().tenantId;
-    const splitRejection = commissionSplitRejectionReason(commissionSplit);
+    const splitRejection = commissionTermsRejectionReason(terms);
     if (splitRejection !== null) throw new BadRequestException(splitRejection);
+    const commissionSplit = headlineCommissionSplit(terms, "buyer");
 
     const demandId = await this.prisma.withTenant(async (tx) => {
       /*
@@ -784,7 +815,11 @@ export class CollaborationService {
 
       await tx.sharedDemand.updateMany({
         where: { id: existing.id, tenantId, status: "active" },
-        data: { commissionSplit, notes: note?.trim() || null },
+        data: {
+          commissionSplit,
+          ...commissionTermsColumns(terms),
+          notes: note?.trim() || null,
+        },
       });
       await this.audit.record(tx, {
         action: "collaboration.share_update",
@@ -1192,6 +1227,7 @@ export class CollaborationService {
         mustFeatures: demand.mustFeatures,
         niceFeatures: demand.niceFeatures,
         commissionSplit: demand.commissionSplit,
+        terms: commissionTermsFromRow(demand),
         creditsCost: coopOfferCost(demand.source, prices),
         source: demand.source,
         alreadyOffered: alreadyOffered.has(demand.id),
@@ -3078,6 +3114,10 @@ export class CollaborationService {
       source: string;
       status: string;
       commissionSplit: number;
+      buyerSplit: number | null;
+      buyerSplitNote: string | null;
+      sellerSplit: number | null;
+      sellerSplitNote: string | null;
       createdAt: Date;
     },
     viewerTenantId: string,
@@ -3112,6 +3152,7 @@ export class CollaborationService {
       sourceLabel: leadSourceLabel(row.source, prices),
       creditsCost: coopOfferCost(row.source, prices),
       commissionSplit: row.commissionSplit,
+      terms: commissionTermsFromRow(row),
       status: row.status,
       mine,
       ...(office === undefined ? {} : { officeName: office.name }),

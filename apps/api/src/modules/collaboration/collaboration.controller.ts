@@ -27,6 +27,9 @@ import {
   MIN_COMMISSION_SHARE,
   MIN_REFERRAL_PRICE,
   MIN_REFERRAL_RATING,
+  OTHER_SPLIT_MAX_NOTE,
+  uniformTerms,
+  type CommissionTerms,
   type CoopDealStage,
   type PayoutMode,
 } from "@metavchim/shared";
@@ -62,6 +65,45 @@ const CommissionSplitSchema = z
   .default(DEFAULT_COMMISSION_SPLIT);
 
 /**
+ * חלוקה בצד אחד — אחוז, או „אחר” עם ניסוח.
+ *
+ * הסכימה כאן בודקת **צורה** בלבד: `split` מספר שלם או `null`.
+ * הטווח והחובה לנסח את „אחר” נאכפים ב-`commissionTermsRejectionReason`
+ * המשותף, כדי שההודעה שהמסך מקבל תהיה אותה הודעה בדיוק שהמסך כבר
+ * מציג לפני השליחה — ולא שתי גרסאות שנפרדות ביום שמישהו משנה גבול.
+ */
+const CommissionSideSchema = z
+  .object({
+    split: z.number().int().nullable(),
+    note: z.string().trim().max(OTHER_SPLIT_MAX_NOTE).nullable().optional(),
+  })
+  .strict();
+
+/**
+ * שני הצדדים — מה שהטופס שולח.
+ *
+ * רשות, ו-`commissionSplit` נשאר לצדו: לקוח שאינו מכיר את ההפרדה
+ * (למשל אינטגרציה קיימת) שולח מספר אחד, והוא נקרא כחלוקה זהה בשני
+ * הצדדים — בדיוק מה שהוא אמר, ולא ניחוש.
+ */
+const CommissionTermsSchema = z
+  .object({ buyer: CommissionSideSchema, seller: CommissionSideSchema })
+  .strict();
+
+/** מה שהשרת עובד איתו: התנאים המפורשים, או המספר היחיד כשאין. */
+function termsFrom(body: {
+  terms?: z.infer<typeof CommissionTermsSchema>;
+  commissionSplit: number;
+}): CommissionTerms {
+  if (body.terms === undefined) return uniformTerms(body.commissionSplit);
+  const { buyer, seller } = body.terms;
+  return {
+    buyer: { split: buyer.split, note: buyer.note ?? null },
+    seller: { split: seller.split, note: seller.note ?? null },
+  };
+}
+
+/**
  * התיאור החופשי — **חובה**, ולא רשות.
  *
  * מודעה בלי מילה אחת של המשתף היא רשימת מספרים: תקציב, חדרים
@@ -83,6 +125,7 @@ const ShareSchema = z
   .object({
     buyerId: IdSchema,
     commissionSplit: CommissionSplitSchema,
+    terms: CommissionTermsSchema.optional(),
     /** "מה הקונה מחפש" במילים — מוצג בפיד; באחריות המשתף בלי PII */
     note: NetworkNoteSchema,
   })
@@ -105,6 +148,7 @@ const BulkPublishSchema = z
 const UpdateShareSchema = z
   .object({
     commissionSplit: CommissionSplitSchema,
+    terms: CommissionTermsSchema.optional(),
     note: NetworkNoteSchema,
   })
   .strict();
@@ -112,6 +156,7 @@ const PublishListingSchema = z
   .object({
     propertyId: IdSchema,
     commissionSplit: CommissionSplitSchema,
+    terms: CommissionTermsSchema.optional(),
     /** "מה מיוחד בנכס" במילים; באחריות המפרסם בלי כתובת ובלי בעלים */
     note: NetworkNoteSchema,
   })
@@ -295,11 +340,7 @@ export class CollaborationController {
     @Body(new ZodValidationPipe(PublishListingSchema))
     body: z.infer<typeof PublishListingSchema>,
   ): Promise<SharedListingDto> {
-    return this.listings.publish(
-      body.propertyId,
-      body.commissionSplit,
-      body.note,
-    );
+    return this.listings.publish(body.propertyId, termsFrom(body), body.note);
   }
 
   /**
@@ -324,11 +365,7 @@ export class CollaborationController {
     @Body(new ZodValidationPipe(UpdateShareSchema))
     body: z.infer<typeof UpdateShareSchema>,
   ): Promise<SharedListingDto> {
-    return this.listings.updatePublication(
-      propertyId,
-      body.commissionSplit,
-      body.note,
-    );
+    return this.listings.updatePublication(propertyId, termsFrom(body), body.note);
   }
 
   @Delete("listings/property/:propertyId")
@@ -466,11 +503,7 @@ export class CollaborationController {
   async share(
     @Body(new ZodValidationPipe(ShareSchema)) body: z.infer<typeof ShareSchema>,
   ): Promise<SharedDemandDto> {
-    return this.collaboration.shareBuyer(
-      body.buyerId,
-      body.commissionSplit,
-      body.note,
-    );
+    return this.collaboration.shareBuyer(body.buyerId, termsFrom(body), body.note);
   }
 
   /** שיתוף מרוכז מרשימת הקונים — ראו BulkShareSchema. */
@@ -506,11 +539,7 @@ export class CollaborationController {
     @Body(new ZodValidationPipe(UpdateShareSchema))
     body: z.infer<typeof UpdateShareSchema>,
   ): Promise<SharedDemandDto> {
-    return this.collaboration.updateSharedDemand(
-      buyerId,
-      body.commissionSplit,
-      body.note,
-    );
+    return this.collaboration.updateSharedDemand(buyerId, termsFrom(body), body.note);
   }
 
   @Delete("demands/:id")

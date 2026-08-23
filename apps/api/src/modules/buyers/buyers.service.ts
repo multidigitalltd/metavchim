@@ -9,6 +9,7 @@ import { ulid } from "ulid";
 import {
   BuyerRequirementsSchema,
   DEFAULT_COMMISSION_SPLIT,
+  uniformTerms,
   labelOf,
   MATURITY_LABELS,
   type BuyerRequirements,
@@ -102,7 +103,10 @@ export class BuyersService {
     const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
     if (settings["autoShareBuyers"] !== true) return;
     try {
-      await this.collaboration.shareBuyer(buyerId, DEFAULT_COMMISSION_SPLIT);
+      await this.collaboration.shareBuyer(
+        buyerId,
+        uniformTerms(DEFAULT_COMMISSION_SPLIT),
+      );
     } catch {
       // הקונה נשמר; שיתוף ידני זמין מכרטיס הקונה
     }
