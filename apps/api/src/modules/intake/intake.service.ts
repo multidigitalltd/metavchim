@@ -379,10 +379,21 @@ export class IntakeService {
        */
       const previous = await tx.intakeRequest.findUnique({
         where: { id: row.id },
-        select: { submittedAt: true },
+        select: { submittedAt: true, answers: true },
       });
       const resubmit =
         previous?.submittedAt !== null && previous?.submittedAt !== undefined;
+      /*
+       * מה שנשלח קודם — להשוואה במסלול הליד.
+       *
+       * לליד בלי כרטיס קונה אין „דרישות שהיו” להשוות אליהן, ולכן
+       * `changed` שם היה תמיד ריק — ו-`notify` משתיקה שליחה חוזרת
+       * בלי שינויים. התוצאה: לקוח שתיקן או הרחיב את תשובותיו לפני
+       * ההמרה קיבל „נשמר”, והסוכן לא שמע דבר. ההשוואה כאן היא בין
+       * מה שהלקוח שלח קודם למה שהוא שולח עכשיו, וזו בדיוק השאלה
+       * שהסוכן צריך תשובה עליה.
+       */
+      const previousAnswers = asRecord(previous?.answers);
 
       /*
        * התפיסה מותנית, ולא כתיבה עיוורת.
@@ -426,7 +437,7 @@ export class IntakeService {
       });
       if (claimed.count === 0) return null;
 
-      return { targetBuyerId, resubmit, rev };
+      return { targetBuyerId, resubmit, rev, previousAnswers };
     });
 
     if (claim === null) {
@@ -435,7 +446,15 @@ export class IntakeService {
 
     const outcome =
       claim.targetBuyerId === null
-        ? { applied: false, changed: [] as string[], superseded: false }
+        ? {
+            applied: false,
+            superseded: false,
+            /* ראו `previousAnswers`: שליחה מול שליחה, ולא מול כרטיס */
+            changed: describeIntakeChanges(
+              applyIntakeAnswers({}, claim.previousAnswers as IntakeAnswers),
+              applyIntakeAnswers({}, answers),
+            ),
+          }
         : await this.applyToBuyer(
             row.tenantId,
             claim.targetBuyerId,

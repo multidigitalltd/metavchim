@@ -43,6 +43,9 @@ interface FakeState {
   /** מה `findUnique` יחזיר מתחת לנעילה. `undefined` = מה שנכתב. */
   seenUnderLock?: string | null;
   buyerId?: string | undefined;
+  /** מה שכבר נשלח קודם — למסלול הליד. */
+  previousAnswers?: Record<string, unknown>;
+  previouslySubmitted?: boolean;
   notifications: number;
 }
 
@@ -67,10 +70,10 @@ function fakeTx(state: FakeState): TenantTx {
       }),
       findUnique: async () => ({
         status: "opened",
-        submittedAt: null,
+        submittedAt: state.previouslySubmitted === true ? new Date() : null,
+        answers: state.previousAnswers ?? {},
         submissionRev:
           state.seenUnderLock === undefined ? state.rev : state.seenUnderLock,
-        answers: {},
       }),
       updateMany: async (args: { data?: { submissionRev?: string } }) => {
         if (args.data?.submissionRev) state.rev = args.data.submissionRev;
@@ -332,6 +335,47 @@ describe("המיזוג רץ מתחת לנעילת הכרטיס", () => {
       serviceFor(state, buyers).submit(TOKEN, { dealType: "rent" }),
     ).resolves.toEqual({ ok: true });
     expect(written()).toBeNull();
+    expect(state.notifications).toBe(0);
+  });
+});
+
+describe("ליד שטרם הומר — שליחה חוזרת שמשנה תשובות מתריעה", () => {
+  function serviceFor(state: FakeState, notified: () => void): IntakeService {
+    return new IntakeService(
+      fakePrisma(state),
+      { record: vi.fn() } as unknown as AuditService,
+      {
+        getById: async () => ({ id: "c", name: "דנה", phone: "+972500000000" }),
+      } as unknown as ContactsService,
+      { update: vi.fn(notified) } as unknown as BuyersService,
+    );
+  }
+
+  it("תשובות ששונו מהשליחה הקודמת מפיקות התראה", async () => {
+    /*
+     * לליד בלי כרטיס קונה אין „דרישות שהיו” להשוות אליהן, ולכן
+     * ההשוואה היא בין שליחה לשליחה. בלעדיה כל שליחה חוזרת דיווחה
+     * „לא השתנה דבר”, ו-`notify` השתיקה אותה — כלומר לקוח שתיקן את
+     * תשובותיו לפני ההמרה נענה ב„נשמר”, והסוכן לא שמע דבר.
+     */
+    const state = newState(); // בלי כרטיס קונה — זהו ליד
+    state.previouslySubmitted = true;
+    state.previousAnswers = { dealType: "sale" };
+
+    await expect(
+      serviceFor(state, () => undefined).submit(TOKEN, { dealType: "rent" }),
+    ).resolves.toEqual({ ok: true });
+    expect(state.notifications).toBe(1);
+  });
+
+  it("שליחה חוזרת זהה נשארת שקטה", async () => {
+    const state = newState();
+    state.previouslySubmitted = true;
+    state.previousAnswers = { dealType: "sale" };
+
+    await expect(
+      serviceFor(state, () => undefined).submit(TOKEN, { dealType: "sale" }),
+    ).resolves.toEqual({ ok: true });
     expect(state.notifications).toBe(0);
   });
 });
