@@ -388,8 +388,14 @@ export class CollaborationController {
     return streamed(await this.collaboration.offerPhoto(id, index));
   }
 
+  /*
+   * הלוגו רחב יותר משני האחרים בכוונה: הוא מופיע גם בעסקה
+   * המשותפת וברשימת העסקאות, ואלה פתוחות לשתי היכולות. משרד
+   * שמשתף אך אינו מציע היה רואה שם שם משרד בלי לוגו — 403 על
+   * התמונה בלבד (ביקורת Codex).
+   */
   @Get("office/:tenantId/logo")
-  @RequireCapability("collaboration.offer")
+  @RequireCapability("collaboration.share", "collaboration.offer")
   @Header("Cache-Control", "private, max-age=300")
   async officeLogo(
     @Param("tenantId", new ZodValidationPipe(IdSchema)) tenantId: string,
