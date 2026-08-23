@@ -27,6 +27,28 @@ const CONFIRM_WORDS = new Set([
 
 const CANCEL_WORDS = new Set(["בטל", "ביטול", "תבטל", "לא", "עזוב", "עזבי", "cancel", "no"]);
 
+/**
+ * בקשת תפריט — "מה אתה יודע לעשות?" נשאלת שוב ושוב, ובכל פעם עלתה
+ * קריאת מודל שלמה כדי לנסח את אותה תשובה. כאן היא נענית מהקטלוג,
+ * חינם ובלי סיכוי לניסוח שגוי: הרשימה נגזרת מהפעולות שלמשתמש הזה
+ * מותר לבקש. ההתאמה על משפט שלם בלבד — "עזרה עם הקונה של אתמול"
+ * הוא בקשה אמיתית ולא תפריט.
+ */
+const HELP_PHRASES = new Set([
+  "עזרה",
+  "תפריט",
+  "עזור לי",
+  "מה אתה יודע",
+  "מה אתה יודע לעשות",
+  "מה אפשר לעשות",
+  "מה את יודעת לעשות",
+  "מה אתה יכול לעשות",
+  "אפשרויות",
+  "help",
+  "menu",
+]);
+
+
 /** ניקוי לפני השוואה: סימני פיסוק וגרשיים שוואטסאפ ומקלדות מוסיפים. */
 function normalizeShort(text: string): string {
   return text
@@ -41,6 +63,10 @@ export function isConfirmMessage(text: string): boolean {
 
 export function isCancelMessage(text: string): boolean {
   return CANCEL_WORDS.has(normalizeShort(text));
+}
+
+export function isHelpMessage(text: string): boolean {
+  return HELP_PHRASES.has(normalizeShort(text));
 }
 
 /**
