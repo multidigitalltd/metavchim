@@ -991,6 +991,30 @@ code {
   overflow: hidden;
   z-index: 40;
 }
+/*
+ * במסך צר הפאנל נצמד למסך ולא לפעמון.
+ *
+ * `inset-inline-end: 0` עוגן אותו לקצה הכפתור, והכפתור יושב קרוב
+ * לקצה המסך — כלומר פאנל של 370px נמתח החוצה ונחתך (דיווח
+ * המשתמש, צילום מסך). `max-width` לבדו אינו מספיק: הוא מקצר את
+ * הרוחב אבל אינו מזיז את נקודת העיגון, ולכן החיתוך נשאר.
+ *
+ * `fixed` ביחס לחלון, עם שוליים משני הצדדים, מוציא את הפאנל
+ * מהתלות במיקום הכפתור לגמרי — הפתרון היחיד שאינו תלוי בשאלה איפה
+ * הפעמון יושב היום.
+ */
+@media (max-width: 640px) {
+  .mv-notif-pop {
+    position: fixed;
+    top: 66px;
+    inset-inline: 12px;
+    width: auto;
+    max-width: none;
+    /* גם רשימה ארוכה אינה חורגת מהמסך */
+    max-height: calc(100dvh - 90px);
+    overflow-y: auto;
+  }
+}
 .mv-notif-head {
   display: flex;
   align-items: center;
@@ -1028,6 +1052,16 @@ code {
   font-weight: 600;
   color: var(--color-text);
   line-height: 1.4;
+  /*
+   * כותרת ארוכה נחתכת אחרי שלוש שורות ולא דוחפת את הפאנל.
+   * התראה אחת ארוכה הסתירה את כל השאר, והמשך הטקסט ממילא נמצא
+   * במסך ההתראות המלא — שאליו השורה מובילה.
+   */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .mv-notif-time {
   display: block;

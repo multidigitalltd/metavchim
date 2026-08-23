@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { groupTasksByBucket, isTaskUrgent, taskBucket , labelOf } from "@metavchim/shared";
-import { apiGet } from "@/lib/api";
+import { apiGet, ApiError } from "@/lib/api";
 import { FIELD_LABELS, MATURITY_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
@@ -191,6 +191,9 @@ interface TaskRow {
 export default function DashboardPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const canVoice = useFeature("voice_intake");
+  /* שני האזורים שאינם לכל משרד ולא לכל סוכן — ראו `loadDashboard`. */
+  const hasCoach = useFeature("ai_coach");
+  const canSeeOffers = can(user, "offers.send");
   const [properties, setProperties] = useState<PropertyRow[] | null>(null);
   const [buyers, setBuyers] = useState<BuyerRow[] | null>(null);
   const [leads, setLeads] = useState<LeadRow[] | null>(null);
@@ -223,7 +226,24 @@ export default function DashboardPage() {
 
   const loadDashboard = useCallback(() => {
     setDataFailed(false);
-    const fail = (): void => setDataFailed(true);
+    /*
+     * 403 אינו כישלון טעינה — הוא תשובה.
+     *
+     * הדגל המשותף נכתב עבור תקלות (רשת, שרת, session שפג), ובלי
+     * ההבחנה הזו הוא נדלק גם על „המסלול שלך אינו כולל את זה”
+     * ו„אין לך את היכולת”. משרד במסלול הבסיסי היה רואה „חלק
+     * מנתוני הדשבורד לא נטענו” **בכל כניסה**, עם כפתור ניסיון
+     * חוזר שלעולם לא ינקה אותו — כלומר בדיוק הרעש שהמסך הזה נועד
+     * למנוע, הפוך (ביקורת Codex).
+     *
+     * שער מפורש עדיף על תפיסה בדיעבד, ולכן שתי הבקשות המותנות
+     * גם אינן נורות מלכתחילה (ראו מטה). זו רשת הביטחון: זכאות
+     * משתנה, וכל נתיב אחר עלול לסרב מחר.
+     */
+    const fail = (err: unknown): void => {
+      if (err instanceof ApiError && err.status === 403) return;
+      setDataFailed(true);
+    };
     apiGet<{ items: PropertyRow[] }>("/properties?limit=100")
       .then((r) => setProperties(r.items))
       .catch(fail);
@@ -245,11 +265,21 @@ export default function DashboardPage() {
     apiGet<Breakdown<"byStatus">>("/leads/breakdown")
       .then(setLeadBreakdown)
       .catch(fail);
-    apiGet<Recommendation[]>("/coach/recommendations").then(setRecs).catch(fail);
-    apiGet<{ items: OfferRow[] }>("/offers")
-      .then((r) => setOffers(r.items))
-      .catch(fail);
-  }, []);
+    /*
+     * שתי הבקשות המותנות — אותו שער שכבר קיים למשימות ולרשת מטה.
+     * „הסוכן החכם” אינו במסלול הבסיסי, ורשימת ההצעות דורשת
+     * `offers.send`; בלי הבדיקה כאן הן חוזרות 403 בכל טעינה אצל
+     * מי שאינו זכאי, ומצייר אזור ריק שאין לו סיבה להתמלא.
+     */
+    if (hasCoach) {
+      apiGet<Recommendation[]>("/coach/recommendations").then(setRecs).catch(fail);
+    }
+    if (canSeeOffers) {
+      apiGet<{ items: OfferRow[] }>("/offers")
+        .then((r) => setOffers(r.items))
+        .catch(fail);
+    }
+  }, [hasCoach, canSeeOffers]);
 
   useEffect(() => {
     if (authLoading || !user) return;

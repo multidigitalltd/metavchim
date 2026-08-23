@@ -19,6 +19,38 @@ describe("extractPropertyFromTranscript — קליטת נכס בקול", () => {
     expect(fields.dealType).toBe("sale");
   });
 
+  /*
+   * הכלל הכללי `/דירה|דירת/` תופס כמעט כל תיאור, ולכן הבדיקות כאן
+   * הן על **הסדר**: סוג ספציפי שנוסף לסכימה ולא הוקדם לפניו נשמר
+   * בשקט כ-`apartment`, וההתאמות מתארות נכס אחר.
+   */
+  describe("סוגי נכס ספציפיים גוברים על „דירה” הכללית", () => {
+    it("דירה מתאימה לחלוקה אינה דירה רגילה", () => {
+      expect(
+        extractPropertyFromTranscript("דירה מתאימה לחלוקה בבני ברק, 4 חדרים")
+          .fields.propertyType,
+      ).toBe("divisible_apartment");
+      expect(
+        extractPropertyFromTranscript("דירת 5 חדרים ניתנת לחלוקה").fields
+          .propertyType,
+      ).toBe("divisible_apartment");
+    });
+
+    it("טאבו משותף אינו דירה רגילה", () => {
+      expect(
+        extractPropertyFromTranscript("דירה בטאבו משותף ברמת גן").fields
+          .propertyType,
+      ).toBe("shared_tabu");
+    });
+
+    it("דירה רגילה נשארת דירה", () => {
+      expect(
+        extractPropertyFromTranscript("דירת 3 חדרים בפתח תקווה").fields
+          .propertyType,
+      ).toBe("apartment");
+    });
+  });
+
   it("חצאי חדרים: '3 וחצי חדרים' ו-'3.5 חדרים'", () => {
     expect(
       extractPropertyFromTranscript("3 וחצי חדרים בירושלים").fields.rooms,

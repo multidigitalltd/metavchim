@@ -5,6 +5,14 @@
  * הייתה לחיצה במסך אחד ומתה בשני.
  */
 export function notificationHref(entityType?: string, entityId?: string): string | null {
+  /*
+   * `null` = „אין יעד ספציפי”, וזו תשובה אמיתית ולא חוסר.
+   *
+   * הפעמון הופך אותה למסך ההתראות המלא, כדי שכל שורה בו תהיה
+   * לחיצה (בקשת המשתמש); מסך ההתראות עצמו מסתיר את הקישור, כי
+   * הפניה מהמסך אל עצמו אינה עוזרת לאיש. ההחלטה הזו שייכת לכל
+   * מסך בנפרד, ולכן היא אינה נאפית לתוך המפה.
+   */
   if (!entityType || !entityId) return null;
   switch (entityType) {
     case "property":
@@ -17,8 +25,13 @@ export function notificationHref(entityType?: string, entityId?: string): string
       return "/calendar";
     case "buyer":
       return `/buyers/${entityId}`;
+    /*
+     * להצעה אין מסך משלה — היא נצפית דרך כרטיס הנכס — אבל מזהה
+     * ההצעה אינו מזהה הנכס, ולכן אי אפשר לקפוץ ישירות. רשימת
+     * ההצעות היא הקרובה ביותר: ההצעה שההתראה מדברת עליה נמצאת בה.
+     */
     case "offer":
-      return null; // הצעה נצפית דרך כרטיס הנכס
+      return "/offers";
     case "coop_offer":
       // הלשונית מפורשת: בלעדיה ההתראה נחתה על "ביקושים ברשת", וההצעה
       // שההתראה דיברה עליה נראתה כאילו איננה
