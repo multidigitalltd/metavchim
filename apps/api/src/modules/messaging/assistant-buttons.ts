@@ -71,9 +71,19 @@ export function choiceVariant(
 ): Pick<AgentReply, "buttons" | "list"> {
   const labels = rows.map((row) => buttonTitle(row.title));
   const distinct = new Set(labels).size === labels.length;
-  return rows.length <= WA_MAX_REPLY_BUTTONS && distinct
-    ? { buttons: rows.map(({ description: _ignored, ...button }) => button) }
-    : { list: { label: "בחירה", rows: [...rows] } };
+  if (rows.length <= WA_MAX_REPLY_BUTTONS && distinct) {
+    return { buttons: rows.map(({ description: _ignored, ...button }) => button) };
+  }
+  /*
+   * הרשימה נחתכת באותה תקרה, ולא לכל מקור מועמדים יש תיאור — ליד,
+   * למשל, מוצע בשם בלבד. לכן כשהכותרות מתנגשות מוסיפים את המספר
+   * הסידורי לכל אחת: הוא קצר, הוא ייחודי בהגדרה, והוא בדיוק אותו
+   * מספר שאפשר גם להשיב בו בטקסט (ביקורת Codex).
+   */
+  const numbered = distinct
+    ? [...rows]
+    : rows.map((row, i) => ({ ...row, title: `${row.arg ?? String(i + 1)}. ${row.title}` }));
+  return { list: { label: "בחירה", rows: numbered } };
 }
 
 /**

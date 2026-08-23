@@ -2455,6 +2455,14 @@ interface WaRecipient {
   phone: string;
   prefs: ReturnType<typeof parseWhatsAppNotifyPrefs>;
   windowOpen: boolean;
+  /**
+   * „שקט לשעתיים” פעיל — דחייה, לא ויתור.
+   *
+   * הנמען נשאר ברשימה בכוונה: הוצאתו ממנה הייתה מוציאה אותו גם
+   * מחשבון הסגירה של ההתראה, ההתראה הייתה נסגרת כאילו הגיעה לכולם,
+   * ומה שהצטבר בשעתיים היה נמחק במקום להישלח אחריהן (ביקורת Codex).
+   */
+  snoozed: boolean;
   /** עד מתי כבר קיבל — מונע כפילות כשנמען אחר של אותה התראה נכשל */
   notifiedThrough: Date | null;
 }
@@ -2536,16 +2544,12 @@ async function processWhatsAppNotifySweep(): Promise<void> {
       const phone = normalizePhoneForWhatsapp(user.phone ?? "");
       if (phone === "") continue;
       const chat = chatOf.get(user.id);
-      /*
-       * „שקט לשעתיים” שנלחץ בהודעה הקודמת — דחייה, כמו שעות השקט:
-       * החותמת אינה זזה, ומה שהצטבר יגיע כשההשתקה תיגמר.
-       */
-      if (chat?.notifySnoozeUntil && chat.notifySnoozeUntil > now) continue;
       recipients.set(user.id, {
         userId: user.id,
         phone,
         prefs,
         windowOpen: sessionWindowOpen(chat?.lastInboundAt ?? null, now),
+        snoozed: chat?.notifySnoozeUntil ? chat.notifySnoozeUntil > now : false,
         notifiedThrough: chat?.notifiedThrough ?? null,
       });
     }
@@ -2571,10 +2575,12 @@ async function processWhatsAppNotifySweep(): Promise<void> {
       if (items.length === 0) continue;
 
       /*
-       * שעות שקט, וחלון 24 השעות של Meta — שניהם *דחייה*, לא ויתור.
-       * החותמת אינה זזה, והסבב הבא ירים את אותם פריטים: בבוקר, או
-       * ברגע שהמתווך יכתוב לסוכן ויפתח את החלון.
+       * „שקט לשעתיים”, שעות שקט, וחלון 24 השעות של Meta — שלושתם
+       * *דחייה*, לא ויתור. החותמת אינה זזה, והסבב הבא ירים את אותם
+       * פריטים: בתום ההשתקה, בבוקר, או ברגע שהמתווך יכתוב לסוכן
+       * ויפתח את החלון.
        */
+      if (recipient.snoozed) continue;
       if (inQuietHours(hour, recipient.prefs)) continue;
       if (!recipient.windowOpen && config.template === null) continue;
 

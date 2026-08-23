@@ -108,6 +108,15 @@ interface ChatState {
   pending: PendingState | null;
   history: AgentHistoryTurn[];
   handledIds: string[];
+  /**
+   * אל תכתוב את ההצעה המקומית חזרה — מה שבשורה חדש ממנה.
+   *
+   * נדלק כשצריכה עם חותם לא תפסה: פירוש הדבר שמסלול מקביל כבר
+   * החליף את ההצעה בין הצילום לצריכה. כתיבת ה-null המקומי הייתה
+   * מוחקת דווקא את ההצעה החדשה, והכפתורים שזה עתה נשלחו למתווך
+   * היו הופכים מיד לפגי-תוקף (ביקורת Codex).
+   */
+  keepStoredPending?: boolean;
 }
 
 interface IdentifiedUser {
@@ -312,6 +321,16 @@ export class WhatsAppAssistantService {
   private staleClick(pending: PendingState | null, token?: string): boolean {
     if (token === undefined) return false; // כפתור בלי חותם (פקודה/השתקה)
     return pending === null || pending.token !== token;
+  }
+
+  /**
+   * אחרי צריכת ההצעה: המצב המקומי מתרוקן תמיד, אבל כשהצריכה לא
+   * תפסה — החותם לא תאם — מה שבשורה חדש ממה שבזיכרון, ואסור
+   * לכתוב עליו את הריקון המקומי.
+   */
+  private consumed(chat: ChatState, took: PendingState | null): void {
+    chat.pending = null;
+    if (took === null) chat.keepStoredPending = true;
   }
 
   /** השתקה רגעית של העדכונים היזומים — הסורק מדלג עליה. */
@@ -545,7 +564,7 @@ export class WhatsAppAssistantService {
     if (pending) {
       if (isCancelMessage(text)) {
         const took = await this.takePending(user.tenantId, user.id, pending.token);
-        chat.pending = null;
+        this.consumed(chat, took);
         return { text: took ? "❌ בוטל. מה הלאה?" : "אין פעולה ממתינה לביטול." };
       }
       if (pending.awaiting === "choice") {
@@ -557,7 +576,7 @@ export class WhatsAppAssistantService {
           if (pending.proposal.risk === "read") {
             // שאילתה — הבחירה היא כל מה שחסר; הצריכה אטומית, מבצע יחיד
             const took = await this.takePending(user.tenantId, user.id, pending.token);
-            chat.pending = null;
+            this.consumed(chat, took);
             if (!took) return { text: "הבקשה כבר טופלה." };
             took.extraParams[idKey] = option.id;
             return { text: await this.runProposal(chat, took) };
@@ -585,7 +604,7 @@ export class WhatsAppAssistantService {
          * null ותשובה שקטה, לא ביצוע כפול (ביקורת Codex).
          */
         const took = await this.takePending(user.tenantId, user.id, pending.token);
-        chat.pending = null;
+        this.consumed(chat, took);
         if (!took) return { text: "הפעולה כבר בוצעה או בוטלה — אין הצעה ממתינה." };
         return { text: await this.runProposal(chat, took) };
       }
@@ -893,10 +912,14 @@ export class WhatsAppAssistantService {
   private async saveChat(tenantId: string, userId: string, chat: ChatState): Promise<void> {
     const data = {
       // Prisma דורש את הסמן המפורש ל-null בעמודת JSON — לא null גולמי
-      pending:
-        chat.pending === null
-          ? Prisma.JsonNull
-          : (chat.pending as unknown as Prisma.InputJsonValue),
+      ...(chat.keepStoredPending === true
+        ? {}
+        : {
+            pending:
+              chat.pending === null
+                ? Prisma.JsonNull
+                : (chat.pending as unknown as Prisma.InputJsonValue),
+          }),
       history: chat.history as unknown as Prisma.InputJsonValue,
     };
     await this.prisma.withExplicitTenant(tenantId, (tx) =>

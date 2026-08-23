@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { WhatsAppListRow } from "@metavchim/shared";
+import { buttonTitle, type WhatsAppListRow } from "@metavchim/shared";
 import { buttonAsText, choiceVariant } from "./assistant-buttons";
 
 const row = (title: string, i: number, description?: string): WhatsAppListRow => ({
@@ -36,6 +36,21 @@ describe("choiceVariant", () => {
     ]);
     expect(variant.buttons).toBeUndefined();
     expect(variant.list?.rows).toHaveLength(2);
+  });
+
+  it("מוסיף מספר סידורי כשאין תיאור להבחין בו — גם הרשימה נחתכת", () => {
+    const variant = choiceVariant([row("משה כהן", 0), row("משה כהן", 1)]);
+    const titles = (variant.list?.rows ?? []).map((r) => buttonTitle(r.title));
+    expect(new Set(titles).size).toBe(2);
+    expect(titles[0]).toContain("1.");
+    expect(titles[1]).toContain("2.");
+  });
+
+  it("כותרות מבחינות נשארות כמו שהן ברשימה ארוכה", () => {
+    const variant = choiceVariant(
+      ["א", "ב", "ג", "ד"].map((title, i) => row(title, i)),
+    );
+    expect(variant.list?.rows.map((r) => r.title)).toEqual(["א", "ב", "ג", "ד"]);
   });
 
   it("רשימה כשיש יותר משלוש אפשרויות — Meta מתירה שלושה כפתורים", () => {
