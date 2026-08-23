@@ -215,6 +215,86 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * רק מה שהטופס באמת שואל עליו.
+ *
+ * הדרישות השמורות של קונה עשירות מהטופס: מאפיינים מותאמים של
+ * המשרד (`custom:`), שכונות, אזורי מפה. כשהן נשלחות לעמוד הציבורי
+ * כערכי פתיחה הן חוזרות משם כמות שהן — והסכימה של הנתיב הציבורי
+ * מכירה חמישה מאפיינים בלבד, ולכן **כל** שליחה של קונה כזה נדחית.
+ * הלקוח רואה שגיאה על שדה שהעמוד אינו מציג לו בכלל.
+ *
+ * הסינון כאן ולא בעמוד: מה שלא יצא מהשרת אינו יכול לחזור אליו.
+ */
+export function pickIntakeFeatures(
+  features: unknown,
+): Partial<Record<IntakeFeature, "must" | "nice">> {
+  if (!isRecord(features)) return {};
+  const out: Partial<Record<IntakeFeature, "must" | "nice">> = {};
+  for (const key of INTAKE_FEATURES) {
+    const value = features[key];
+    if (value === "must" || value === "nice") out[key] = value;
+  }
+  return out;
+}
+
+/**
+ * המרת ליד לקונה — מה שהלקוח כבר מילא אינו הולך לאיבוד.
+ *
+ * ## מה זה פותר
+ *
+ * לליד אין שדה דרישות; התשובות של הלקוח נשמרות על הבקשה עד
+ * שהמתווך ימיר. ההתראה אומרת לו „המירו את הליד לקונה כדי שייכנסו
+ * לכרטיס” — וטופס ההמרה שואל ערים, סוג עסקה ותקציב בלבד. בלי
+ * המיזוג הזה החדרים, סוגי הנכס, המאפיינים ומועד הכניסה שהלקוח
+ * טרח למלא נמחקים ברגע ההמרה, וההתראה מתגלה כהבטחה שלא קוימה.
+ *
+ * ## מי גובר
+ *
+ * **מה שהמתווך הקליד בטופס ההמרה.** הוא ראה את הליד, אולי דיבר עם
+ * הלקוח מאז, והוא האחרון שהחליט. השדות שהוא **השאיר ריקים** הם
+ * אלה שנשאבים מהטופס — „ריק” כאן פירושו „לא הביע דעה”, ולא
+ * „מחק”. סוג העסקה תמיד שלו: הוא שדה חובה בטופס ההמרה, ולכן
+ * הערך שבו הוא בחירה מפורשת גם כשהיא ברירת המחדל.
+ */
+export function mergeIntakeSeed(
+  seed: RequirementsLike,
+  chosen: RequirementsLike,
+): RequirementsLike {
+  const out: RequirementsLike = { ...seed, ...chosen };
+  /* מערך ריק בטופס ההמרה = „לא נשאלתי”, ולכן אינו מוחק את מה שנאסף */
+  for (const key of ["cities", "propertyTypes"] as const) {
+    const picked = chosen[key];
+    if (!Array.isArray(picked) || picked.length === 0) {
+      const fromSeed = seed[key];
+      if (Array.isArray(fromSeed) && fromSeed.length > 0) out[key] = fromSeed;
+      else delete out[key];
+    }
+  }
+  const chosenFeatures = chosen["features"];
+  if (!isRecord(chosenFeatures) || Object.keys(chosenFeatures).length === 0) {
+    const fromSeed = seed["features"];
+    if (isRecord(fromSeed) && Object.keys(fromSeed).length > 0) {
+      out["features"] = fromSeed;
+    }
+  }
+  for (const key of [
+    "roomsMin",
+    "roomsMax",
+    "budgetMinAgorot",
+    "budgetMaxAgorot",
+    "areaSqmMin",
+    "entryType",
+    "entryBy",
+    "flexibilityNotes",
+  ]) {
+    if (chosen[key] === undefined && seed[key] !== undefined) {
+      out[key] = seed[key];
+    }
+  }
+  return out;
+}
+
+/**
  * מה השתנה בפועל — לשורת ציר הזמן בכרטיס.
  *
  * המתווך צריך לדעת **מה** הלקוח שינה, לא רק ש„הלקוח מילא טופס”.

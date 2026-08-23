@@ -49,7 +49,22 @@ interface PublicView {
 }
 
 /** סוגי הנכס שמוצעים ללקוח. רשימה קצרה — זה טופס, לא קטלוג. */
-const TYPES = ["apartment", "garden_apartment", "penthouse", "duplex", "house", "lot"];
+/*
+ * ערכי `PropertyTypeSchema` בדיוק — לא שמות שנראים נכון.
+ *
+ * הרשימה הקודמת שלחה `house` ו-`lot`, שאינם קיימים בסכימה: הלקוח
+ * שסימן „בית פרטי” היה שולח ערך שאינו מוכר, הכרטיס היה מציג את
+ * המחרוזת הגולמית, ומנוע ההתאמות לא היה מוצא לו אף נכס — בלי ששום
+ * דבר נראה שבור. השמות הנכונים הם `private_house` ו-`plot`.
+ */
+const TYPES = [
+  "apartment",
+  "garden_apartment",
+  "penthouse",
+  "duplex",
+  "private_house",
+  "plot",
+];
 
 /** אגורות ⇄ שקלים. הלקוח חושב בשקלים; המערכת שומרת באגורות. */
 function toShekels(agorot: number | undefined): string {

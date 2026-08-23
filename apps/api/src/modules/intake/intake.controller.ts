@@ -5,6 +5,7 @@ import {
   IdSchema,
   INTAKE_FEATURES,
   INTAKE_NOTES_MAX,
+  PropertyTypeSchema,
   type IntakeAnswers,
 } from "@metavchim/shared";
 import { Public, RequireCapability } from "../../common/auth.decorators";
@@ -49,9 +50,20 @@ const AnswersSchema = z
   .object({
     dealType: z.enum(["sale", "rent"]).optional(),
     cities: z.array(z.string().trim().max(80)).max(10).optional(),
-    propertyTypes: z.array(z.string().max(30)).max(12).optional(),
-    roomsMin: z.number().min(0).max(30).nullish(),
-    roomsMax: z.number().min(0).max(30).nullish(),
+    /*
+     * `PropertyTypeSchema` ולא מחרוזת חופשית: ערך שאינו ברשימה נכתב
+     * לדרישות הקונה ואז אינו תואם לשום נכס — כלומר הלקוח מסמן „בית
+     * פרטי” ומקבל אפס התאמות, בלי שדבר נראה שבור. הרשימה נסגרת כאן
+     * ולא בכרטיס, כי מכאן הערך נכנס.
+     */
+    propertyTypes: z.array(PropertyTypeSchema).max(12).optional(),
+    /*
+     * חצאי חדרים בלבד — אותה מגבלה שדרישות הקונה נושאות. בלעדיה
+     * „3.7 חדרים” היה נשמר על הבקשה ואז נדחה בשער הכרטיס, כלומר
+     * שליחה שנראית מוצלחת ואינה נכנסת לשום מקום.
+     */
+    roomsMin: z.number().min(0).max(30).multipleOf(0.5).nullish(),
+    roomsMax: z.number().min(0).max(30).multipleOf(0.5).nullish(),
     budgetMinAgorot: z.number().int().min(0).max(1e13).nullish(),
     budgetMaxAgorot: z.number().int().min(0).max(1e13).nullish(),
     areaSqmMin: z.number().int().min(0).max(10_000).nullish(),

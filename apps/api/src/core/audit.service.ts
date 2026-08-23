@@ -23,7 +23,14 @@ export class AuditService {
       data: {
         id: ulid(),
         tenantId: ctx.tenantId,
-        userId: ctx.userId,
+        /*
+         * הקשר בלי משתמש הוא מצב אמיתי: רענון התאמות מתוזמן, וטופס
+         * שהלקוח עצמו מילא. `userId` הוא `char(26)`, ומחרוזת ריקה
+         * הייתה נשמרת בו כ-26 רווחים — ערך שנראה כמו מזהה, מופיע
+         * בסינון „לפי משתמש”, ואינו שייך לאיש. `null` אומר את מה
+         * שקרה: לפעולה הזו לא היה משתמש.
+         */
+        userId: ctx.userId === "" ? null : ctx.userId,
         action: entry.action,
         entityType: entry.entityType,
         entityId: entry.entityId ?? null,

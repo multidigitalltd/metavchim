@@ -12,6 +12,7 @@ import {
 import { z } from "zod";
 import {
   IdSchema,
+  PAGE_LIMIT_MAX,
   PhoneSchema,
   PropertyFieldsSchema,
   PropertyStatusSchema,
@@ -50,7 +51,8 @@ const ListQuerySchema = z
     minRooms: z.coerce.number().min(0).max(30).optional(),
     maxRooms: z.coerce.number().min(0).max(30).optional(),
     cursor: z.string().max(30).optional(),
-    limit: z.coerce.number().int().min(1).max(100).default(50),
+    /* התקרה מהקבוע המשותף — כדי שמסך לא יבקש יותר ממה שהשער מקבל */
+    limit: z.coerce.number().int().min(1).max(PAGE_LIMIT_MAX).default(50),
   })
   .strict();
 

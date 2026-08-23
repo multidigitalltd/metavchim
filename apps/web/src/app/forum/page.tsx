@@ -40,7 +40,16 @@ export default function ForumComingSoonPage() {
   useEffect(() => {
     if (authLoading) return;
     apiGet<{ signed: boolean }>(`/feature-signups/${FEATURE}`)
-      .then((res) => setSigned(res.signed))
+      /*
+       * תשובה שאיחרה אינה דורסת מה שכבר הוכרע.
+       *
+       * הבדיקה הראשונית והלחיצה יכולות לחפוף: `signed: false` יוצא
+       * לדרך, המשתמש לוחץ, ההרשמה **נשמרת** — ואז התשובה הישנה
+       * מגיעה ומחזירה את המסך ל„טרם נרשמת”, עם כפתור שמזמין אותו
+       * להירשם שוב למה שכבר נרשם. `null` בלבד נחשב „טרם ידוע”,
+       * וכל הכרעה מאוחרת יותר גוברת עליה.
+       */
+      .then((res) => setSigned((prev) => (prev === null ? res.signed : prev)))
       /*
        * כשל קריאה משאיר `null` — „לא ידוע”. הכפתור נשאר זמין,
        * והשרת אידמפוטנטי, ולכן לחיצה נוספת אינה מזיקה. להציג

@@ -7,12 +7,15 @@ import {
 } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
+  applyIntakeAnswers,
   BuyerRequirementsSchema,
   DEFAULT_COMMISSION_SPLIT,
+  mergeIntakeSeed,
   uniformTerms,
   labelOf,
   MATURITY_LABELS,
   type BuyerRequirements,
+  type IntakeAnswers,
   type Page,
 } from "@metavchim/shared";
 import { assertBuyerAccess, ownershipFilter } from "../../common/ownership";
@@ -113,6 +116,47 @@ export class BuyersService {
   }
 
   /**
+   * הדרישות להמרה, אחרי שאיבה ממה שהלקוח כבר מילא בטופס.
+   *
+   * נלקחת **הבקשה האחרונה שנשלחה** עבור הליד הזה. שליחה חוזרת דורסת
+   * את הקודמת באותה שורה, ולכן „אחרונה” כאן היא פשוט „מה שהלקוח
+   * אומר עכשיו”.
+   *
+   * מבנה שאינו עובר את הסכימה אינו מוחל בכלל: ההמרה חייבת להצליח,
+   * ותשובה פגומה משורה ישנה אינה סיבה להכשיל אותה. במקרה כזה נכנסות
+   * הדרישות שהמתווך הקליד, כמו קודם.
+   */
+  private async seedFromIntake(
+    tx: TenantTx,
+    tenantId: string,
+    leadId: string,
+    chosen: BuyerRequirements,
+  ): Promise<BuyerRequirements> {
+    const request = await tx.intakeRequest.findFirst({
+      where: { tenantId, subject: "lead", subjectId: leadId, status: "submitted" },
+      orderBy: { submittedAt: "desc" },
+      select: { answers: true },
+    });
+    const answers = request?.answers;
+    if (typeof answers !== "object" || answers === null || Array.isArray(answers)) {
+      return chosen;
+    }
+    const seed = applyIntakeAnswers({}, answers as IntakeAnswers);
+    const merged = BuyerRequirementsSchema.safeParse(
+      mergeIntakeSeed(seed, chosen as unknown as Record<string, unknown>),
+    );
+    if (!merged.success) {
+      this.logger.warn(
+        `intake seed rejected for lead ${leadId} — ${merged.error.issues
+          .map((i) => i.path.join("."))
+          .join(", ")}`,
+      );
+      return chosen;
+    }
+    return merged.data;
+  }
+
+  /**
    * המרת ליד לקונה (docs/01): הליד הבשיל — המתווך מוסיף דרישות והאדם
    * נכנס למנוע ההתאמות. אותו contact (אין כפילות אדם, docs/03 §contacts),
    * ההמרה נתפסת אטומית (updateMany מותנה — לחיצה כפולה לא יוצרת שני
@@ -139,6 +183,24 @@ export class BuyersService {
         },
       });
       if (!lead) throw new NotFoundException("ליד לא נמצא");
+
+      /*
+       * מה שהלקוח כבר מילא בטופס הדרישות נכנס לכרטיס החדש.
+       *
+       * לליד אין שדה דרישות, ולכן התשובות של הלקוח שוכבות על בקשת
+       * הטופס עד הרגע הזה — וההתראה שהמשרד קיבל אומרת לו במפורש
+       * „המירו את הליד לקונה כדי שייכנסו לכרטיס”. טופס ההמרה שואל
+       * ערים, סוג עסקה ותקציב בלבד; בלי השאיבה הזו החדרים, סוגי
+       * הנכס, המאפיינים ומועד הכניסה שהלקוח טרח למלא היו נמחקים
+       * בדיוק ברגע שהובטח שהם ייכנסו. מה שהמתווך הקליד גובר —
+       * ראו `mergeIntakeSeed`.
+       */
+      const requirements = await this.seedFromIntake(
+        tx,
+        ctx.tenantId,
+        leadId,
+        input.requirements,
+      );
 
       // נעילת איש הקשר: שני לידים שונים של אותו אדם שמומרים במקביל
       // מסתדרים בתור — בדיקת "קונה פעיל קיים" אטומית ברמת ה-contact,
@@ -189,21 +251,21 @@ export class BuyersService {
           // הקונה שייך לסוכן שמטפל בליד — אדמין שממיר לא גונב בעלות
           // מסוכן שרואה רק view_own (ביקורת Codex, P1)
           ownerUserId: lead.assignedToUserId ?? ctx.userId,
-          cities: input.requirements.cities,
-          hasSearchAreas: input.requirements.searchAreas.length > 0,
-          dealType: input.requirements.dealType,
+          cities: requirements.cities,
+          hasSearchAreas: requirements.searchAreas.length > 0,
+          dealType: requirements.dealType,
           budgetMinAgorot:
-            input.requirements.budgetMinAgorot === undefined
+            requirements.budgetMinAgorot === undefined
               ? null
-              : BigInt(input.requirements.budgetMinAgorot),
+              : BigInt(requirements.budgetMinAgorot),
           // חסר = הלקוח לא מסר תקציב, ולא "תקציב אפס"
           budgetMaxAgorot:
-            input.requirements.budgetMaxAgorot === undefined
+            requirements.budgetMaxAgorot === undefined
               ? null
-              : BigInt(input.requirements.budgetMaxAgorot),
-          roomsMin: input.requirements.roomsMin ?? null,
-          roomsMax: input.requirements.roomsMax ?? null,
-          requirements: input.requirements as object,
+              : BigInt(requirements.budgetMaxAgorot),
+          roomsMin: requirements.roomsMin ?? null,
+          roomsMax: requirements.roomsMax ?? null,
+          requirements: requirements as object,
           financing: input.financing ?? "unknown",
           maturity: input.maturity ?? "interested",
           source: `lead:${lead.source}`,

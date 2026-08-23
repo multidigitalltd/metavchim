@@ -1601,6 +1601,18 @@ export default function CollaborationPage() {
                                 <IconTarget s={16} /> {demand.myMatches.length}{" "}
                                 מהנכסים שלכם מתאימים
                               </p>
+                              {/*
+                                גם כאן, ולא רק ליד הבורר: „הצע נכס זה”
+                                שולח בלחיצה אחת, ובלי הבורר מולו הוא
+                                שולח את **ברירת המחדל**. כשהמשרד
+                                המפרסם ניסח את חלוקתו במילים, זהו אחוז
+                                שאיש לא ביקש — והמסך חייב לומר זאת
+                                לפני הלחיצה, לא אחריה.
+                              */}
+                              <ProposedSplitNote
+                                terms={demand.terms}
+                                kind="buyer"
+                              />
                               <ul className="flex list-none flex-col gap-2 p-0">
                                 {demand.myMatches.map((match) => (
                                   <li
@@ -1957,6 +1969,11 @@ export default function CollaborationPage() {
                                 <IconTarget s={16} /> {listing.myMatches.length}{" "}
                                 מהקונים שלכם מתאימים
                               </p>
+                              {/* אותו נימוק בדיוק כמו בצד ההצעה על ביקוש */}
+                              <ProposedSplitNote
+                                terms={listing.terms}
+                                kind="property"
+                              />
                               <ul className="flex list-none flex-col gap-2 p-0">
                                 {listing.myMatches.map((match) => (
                                   <li
