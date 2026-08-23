@@ -5,6 +5,13 @@ export const LeadSourceSchema = z.enum([
   "voice_call",
   "whatsapp",
   "web_form",
+  /*
+   * פנייה מדף נחיתה של נכס. `LandingService` כותבת אותה כבר היום
+   * (`ingestForTenant(..., "landing")`), והיא נעדרה מהרשימה — כלומר
+   * הסכימה תיארה פחות ממה שהמערכת שומרת בפועל, והתווית שלה ירדה
+   * עם הרשימה (ביקורת Codex).
+   */
+  "landing",
   "kanko",
   "referral",
   "manual",
@@ -53,6 +60,7 @@ export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
   voice_call: "שיחה",
   whatsapp: "וואטסאפ",
   web_form: "אתר",
+  landing: "דף נחיתה",
   kanko: "Kanko",
   referral: "המלצה",
   manual: "ידני",

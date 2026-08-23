@@ -1,3 +1,6 @@
+import { BUYER_SOURCE_LABELS } from "./buyer.js";
+import { LEAD_SOURCE_LABELS } from "./lead.js";
+
 /**
  * חיפוש בטוח בטבלת תוויות.
  *
@@ -19,3 +22,32 @@ export function labelOf<K extends string>(
   if (typeof value !== "string" || value === "") return undefined;
   return (table as Record<string, string | undefined>)[value] ?? value;
 }
+
+/**
+ * מקור הקונה לתצוגה, כולל קונה שהומר מליד.
+ *
+ * המרה מליד שומרת `source = "lead:<מקור הליד>"`, ולכן החיפוש הוא
+ * דו-שלבי ואינו סתם טבלה. הפונקציה יושבת כאן ולא במסך כדי שגם
+ * הכרטיס שהשרת כותב לוואטסאפ יקרא את אותו דבר (ביקורת Codex).
+ */
+export function buyerSourceLabel(source: unknown): string | undefined {
+  if (typeof source !== "string" || source === "") return undefined;
+  if (source.startsWith("lead:")) {
+    const leadSource = source.slice("lead:".length);
+    return `ליד (${labelOf(LEAD_SOURCE_LABELS, leadSource) ?? leadSource})`;
+  }
+  return labelOf(BUYER_SOURCE_LABELS, source);
+}
+
+/**
+ * תוצאת שיחה — הערכים של `OutcomeSchema` בנתיב השיחות.
+ *
+ * הטבלה רופפת ולא `Record<Outcome, …>` כי הערכים מגיעים גם
+ * ממרכזייה חיצונית; מה שאינו מוכר מוצג כמות שהוא.
+ */
+export const CALL_OUTCOME_LABELS: Record<string, string> = {
+  answered: "נענתה",
+  missed: "לא נענתה",
+  no_answer: "אין מענה",
+  voicemail: "תא קולי",
+};

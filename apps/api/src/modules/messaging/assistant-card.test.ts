@@ -93,6 +93,41 @@ describe("formatCard", () => {
     expect(text).not.toContain("pre_approved");
   });
 
+  /*
+   * מקור הקונה ותוצאת השיחה — שני השדות שנשארו גולמיים אחרי הסבב
+   * הקודם, באותה פונקציה (ביקורת Codex).
+   */
+  it("מקור הקונה מתורגם, כולל קונה שהומר מליד", () => {
+    for (const [source, expected] of [
+      ["voice", "סוכן קולי"],
+      ["whatsapp", "וואטסאפ"],
+      ["lead:landing", "ליד (דף נחיתה)"],
+      ["lead:web_form", "ליד (אתר)"],
+    ]) {
+      const text = formatCard({
+        card: {
+          kind: "buyer",
+          contact: { phone: "050-1234567" },
+          requirements: { cities: [] },
+          source,
+          calls: [],
+        },
+      });
+      expect(text, source).toContain(`📍 מקור: ${expected}`);
+    }
+  });
+
+  it("תוצאת השיחה מתורגמת בשורות ההיסטוריה", () => {
+    const text = formatCard({
+      card: {
+        kind: "lead",
+        contact: { phone: "050-1234567" },
+        calls: [{ direction: "inbound", occurredAt: "2026-01-01T10:00:00Z", outcome: "no_answer" }],
+      },
+    });
+    expect(text).toContain("אין מענה");
+    expect(text).not.toContain("no_answer");
+  });
   /* ערך שאינו בטבלה — שורה ישנה במסד — מוצג כמות שהוא ולא נעלם. */
   it("ערך לא מוכר מוצג כמות שהוא", () => {
     const text = formatCard({

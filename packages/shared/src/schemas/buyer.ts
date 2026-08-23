@@ -18,6 +18,21 @@ export const MATURITY_LABELS: Record<BuyerMaturity, string> = {
   not_ripe: "לא בשל",
 };
 
+/*
+ * מקור הקונה — שדה חופשי (`z.string().max(60)`) ולא ערך סגור, ולכן
+ * הטבלה כאן רופפת בכוונה: מקור שהמשרד המציא נשאר כמות שהוא.
+ * הערכים שהמערכת עצמה כותבת חייבים להופיע.
+ */
+export const BUYER_SOURCE_LABELS: Record<string, string> = {
+  phone: "טלפון",
+  whatsapp: "וואטסאפ",
+  referral: "המלצה",
+  web: "אתר",
+  // הסוכן הקולי כותב את זה כשהוא פותח כרטיס קונה
+  voice: "סוכן קולי",
+  manual: "אחר",
+};
+
 export const FinancingStatusSchema = z.enum([
   "cash",
   "pre_approved",

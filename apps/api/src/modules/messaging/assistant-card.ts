@@ -16,6 +16,8 @@
  */
 
 import {
+  buyerSourceLabel,
+  CALL_OUTCOME_LABELS,
   FINANCING_LABELS,
   labelOf,
   LEAD_INTENT_LABELS,
@@ -105,7 +107,7 @@ export function formatCard(data: unknown): string | null {
         line("💰 תקציב", budget === "" ? undefined : budget),
         line("🌡️ בשלות", labelOf(MATURITY_LABELS, maturity)),
         line("🏦 מימון", labelOf(FINANCING_LABELS, c["financing"])),
-        line("📍 מקור", c["source"]),
+        line("📍 מקור", buyerSourceLabel(c["source"])),
         line("📝 הערות", c["agentNotes"]),
       ].filter((l): l is string => l !== null),
     );
@@ -133,7 +135,8 @@ export function formatCard(data: unknown): string | null {
        * שיש מה לשמוע ויכול לבקש „תשמיע לי את השיחה איתו”.
        */
       const rec = call.hasRecording === true ? " 🎧" : "";
-      out.push(`• ${stamp} · ${dir} · ${String(call.outcome ?? "")}${rec}`);
+      const outcome = labelOf(CALL_OUTCOME_LABELS, call.outcome) ?? "";
+      out.push(`• ${stamp} · ${dir} · ${outcome}${rec}`);
       if (typeof call.summary === "string" && call.summary !== "") {
         out.push(`  ↳ ${call.summary.slice(0, 200)}`);
       }

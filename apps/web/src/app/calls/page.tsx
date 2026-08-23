@@ -6,6 +6,7 @@ import { Button } from "@metavchim/ui";
 import { API_BASE, ApiError, apiDelete, apiGet, apiPost } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { useUserDismissed } from "@/lib/dismissed-panels";
+import { CALL_OUTCOME_LABELS } from "@metavchim/shared";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { FilterBar, SearchField, textMatches } from "../list-controls";
@@ -40,12 +41,8 @@ interface CallRow {
   hasRecording?: boolean;
 }
 
-const OUTCOME_LABELS: Record<string, string> = {
-  answered: "נענתה",
-  missed: "לא נענתה",
-  no_answer: "אין מענה",
-  voicemail: "תא קולי",
-};
+/* התוויות משותפות עם הכרטיס שהשרת כותב לוואטסאפ — מקור אחד. */
+const OUTCOME_LABELS = CALL_OUTCOME_LABELS;
 
 const FILTERS: [string, string][] = [
   ["", "הכול"],
