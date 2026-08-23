@@ -6,7 +6,7 @@ import { groupTasksByBucket, isTaskUrgent, taskBucket , labelOf } from "@metavch
 import { apiGet, ApiError } from "@/lib/api";
 import { FIELD_LABELS, MATURITY_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
-import { useFeature } from "@/lib/use-features";
+import { useFeature, useFeaturesReady } from "@/lib/use-features";
 import { VoiceConsole } from "./voice-console";
 import { DuplicateContacts } from "./duplicate-contacts";
 import { LoadError } from "./load-error";
@@ -191,7 +191,17 @@ interface TaskRow {
 export default function DashboardPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const canVoice = useFeature("voice_intake");
-  /* שני האזורים שאינם לכל משרד ולא לכל סוכן — ראו `loadDashboard`. */
+  /*
+   * שני האזורים שאינם לכל משרד ולא לכל סוכן — ראו `loadDashboard`.
+   *
+   * `featuresReady` אינו קישוט: `useFeature` מחזיר „כן” כל עוד
+   * הרשימה לא הגיעה — נכון לכפתור שלא כדאי שיקפוץ, ושגוי לבקשת
+   * רשת. בלעדיו הטעינה הייתה יוצאת פעמיים בכל כניסה: פעם ראשונה
+   * לפני שהרשימה הגיעה (עם 403 מהסוכן שנרשם באבחון), ואז
+   * `hasCoach` היה מתהפך, `loadDashboard` נבנה מחדש, וכל שמונה
+   * הבקשות היו יוצאות שוב (ביקורת Codex).
+   */
+  const featuresReady = useFeaturesReady();
   const hasCoach = useFeature("ai_coach");
   const canSeeOffers = can(user, "offers.send");
   const [properties, setProperties] = useState<PropertyRow[] | null>(null);
@@ -282,9 +292,10 @@ export default function DashboardPage() {
   }, [hasCoach, canSeeOffers]);
 
   useEffect(() => {
-    if (authLoading || !user) return;
+    // ממתינים לזכאות: טעינה לפניה יוצאת פעם אחת מיותרת, ולשווא
+    if (authLoading || !user || !featuresReady) return;
     loadDashboard();
-  }, [authLoading, user, loadDashboard]);
+  }, [authLoading, user, featuresReady, loadDashboard]);
 
   /*
    * שני האזורים האחרונים נטענים רק למי שרשאי לראות אותם. בלי הבדיקה
@@ -417,6 +428,26 @@ export default function DashboardPage() {
    * מספרים דומים, הצורה היא מה שמבדיל ביניהם לפני שקוראים מילה.
    */
   const statCards = [
+    /*
+     * הקוביה נעלמת למי שאינו רשאי לראות הצעות, ולא מציגה „…” לנצח.
+     *
+     * משאירים את הבקשה מאחורי שער אבל לא את הקוביה — והיא נשארה
+     * תלויה על מצב הטעינה שלעולם לא ייגמר, עם קישור לנתיב שחוזר
+     * 403 (ביקורת Codex). „אין הרשאה” אינו „עוד רגע”.
+     */
+    ...(canSeeOffers
+      ? [
+          {
+            label: "הצעות ממתינות למענה",
+            value: offers === null ? undefined : pendingOffers.length,
+            sub: mullingOffer !== undefined ? `אחת נפתחה ${mullingOffer.openCount} פעמים` : "",
+            href: "/offers",
+            valueColor: undefined as string | undefined,
+            icon: <IconSend s={17} />,
+            tone: "var(--color-primary)",
+          },
+        ]
+      : []),
     {
       label: "נכסים פעילים",
       value: properties === null ? undefined : activeProps.length,
@@ -434,15 +465,6 @@ export default function DashboardPage() {
       valueColor: "var(--color-danger)",
       icon: <IconFlame s={17} />,
       tone: "var(--color-danger)",
-    },
-    {
-      label: "הצעות ממתינות למענה",
-      value: offers === null ? undefined : pendingOffers.length,
-      sub: mullingOffer !== undefined ? `אחת נפתחה ${mullingOffer.openCount} פעמים` : "",
-      href: "/offers",
-      valueColor: undefined,
-      icon: <IconSend s={17} />,
-      tone: "var(--color-primary)",
     },
     {
       label: "לידים חדשים",

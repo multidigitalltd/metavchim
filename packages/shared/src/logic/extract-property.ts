@@ -204,18 +204,33 @@ export function extractPropertyFromTranscript(
    * הנתיב הזה הוא הגיבוי לכשהסוכן החכם אינו מוגדר או מחזיר תשובה
    * שאי אפשר לקרוא, ולכן הוא צריך לכסות את אותם ערכים בדיוק.
    */
-  const typeMap: [RegExp, PropertyFields["propertyType"]][] = [
+  /*
+   * `unless` — ביטוי ששולל את השורה.
+   *
+   * „דירה **לא** מתאימה לחלוקה” הוא ההפך הגמור מ„דירה מתאימה
+   * לחלוקה”, וחיפוש מחרוזת חיובית מוצא את שתיהן. בלי השלילה
+   * המפורשת המערכת הייתה שומרת בדיוק את ההפך ממה שנאמר — טעות
+   * גרועה יותר מלא לזהות כלל, כי היא נראית כמו זיהוי מוצלח
+   * (ביקורת Codex).
+   *
+   * `(?:^|\s)` ולא `\b`: הגבול של `\b` מוגדר על תווי ASCII ואינו
+   * עובד בעברית.
+   */
+  const NOT_DIVISIBLE = /(?:^|\s)(?:לא|אינה|אינו|אינם)\s+(?:מתאימה|מתאים|ניתנת|ניתן)?\s*(?:לחלוקה|מחולקת|מחולק)/u;
+
+  const typeMap: [RegExp, PropertyFields["propertyType"], RegExp?][] = [
     [/פנטהאוז/u, "penthouse"],
     [/דירת גן/u, "garden_apartment"],
     [/דופלקס/u, "duplex"],
     [/בית פרטי|קוטג/u, "private_house"],
     [/יחידת דיור/u, "unit"],
     // „מתאימה/ניתנת לחלוקה”, וגם „דירה לחלוקה” בקיצור
-    [/מתאימה לחלוקה|ניתנת לחלוקה|לחלוקה|מחולקת/u, "divisible_apartment"],
+    [/מתאימה לחלוקה|ניתנת לחלוקה|לחלוקה|מחולקת/u, "divisible_apartment", NOT_DIVISIBLE],
     [/טאבו משותף|טאבו שיתופי/u, "shared_tabu"],
     [/דירה|דירת/u, "apartment"],
   ];
-  for (const [re, type] of typeMap) {
+  for (const [re, type, unless] of typeMap) {
+    if (unless?.test(text)) continue;
     if (re.test(text)) {
       fields.propertyType = type;
       evidence.propertyType = re.source;

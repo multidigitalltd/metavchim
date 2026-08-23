@@ -43,6 +43,24 @@ describe("extractPropertyFromTranscript — קליטת נכס בקול", () => {
       ).toBe("shared_tabu");
     });
 
+    /*
+     * שלילה היא לא „פחות ביטחון” אלא ההפך הגמור. קליטה שגויה כאן
+     * גרועה מאי-זיהוי, כי היא נראית כמו הצלחה.
+     */
+    it("„לא מתאימה לחלוקה” אינה דירה לחלוקה", () => {
+      for (const said of [
+        "דירה לא מתאימה לחלוקה בבני ברק",
+        "דירת 4 חדרים אינה ניתנת לחלוקה",
+        "דירה לא מחולקת ברמת גן",
+        "דירה אינה מחולקת",
+      ]) {
+        expect(
+          extractPropertyFromTranscript(said).fields.propertyType,
+          said,
+        ).toBe("apartment");
+      }
+    });
+
     it("דירה רגילה נשארת דירה", () => {
       expect(
         extractPropertyFromTranscript("דירת 3 חדרים בפתח תקווה").fields
