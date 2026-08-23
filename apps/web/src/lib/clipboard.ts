@@ -55,6 +55,16 @@ export function useCopy(resetMs = 3000): {
   const [state, setState] = useState<CopyState>("idle");
   const [key, setKey] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /*
+   * מונה ניסיונות. שני תפקידים, ושניהם על אותה תקלה: תוצאה של
+   * ניסיון אחד שמתוארת כתוצאה של ניסיון אחר.
+   *
+   * בלעדיו ההעתקה **השנייה** ירשה את „✓ הועתק” של הראשונה לכל אורך
+   * ההמתנה — ועם `resetMs = 0` גם אחריה — כלומר בדיוק השקר שההוק
+   * הזה נכתב כדי למנוע, רק בפעם השנייה. ובשני ניסיונות חופפים,
+   * הישן שמסתיים אחרון היה דורס את החדש (ביקורת Codex).
+   */
+  const attempt = useRef(0);
 
   useEffect(
     () => () => {
@@ -65,14 +75,21 @@ export function useCopy(resetMs = 3000): {
 
   const copy = useCallback(
     async (text: string, itemKey?: string): Promise<void> => {
+      const mine = ++attempt.current;
+      /* חוזרים ל„לא ידוע” לפני ההמתנה, ולא אחריה */
+      if (timer.current !== null) {
+        clearTimeout(timer.current);
+        timer.current = null;
+      }
+      setState("idle");
+      setKey(null);
+
       const ok = await copyText(text);
+      if (mine !== attempt.current) return;
+
       setState(ok ? "copied" : "failed");
       setKey(itemKey ?? null);
-      if (timer.current !== null) clearTimeout(timer.current);
-      if (resetMs <= 0) {
-        timer.current = null;
-        return;
-      }
+      if (resetMs <= 0) return;
       timer.current = setTimeout(() => {
         timer.current = null;
         setState("idle");
