@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
+import { LoadError } from "../load-error";
 import { Notice } from "../notice";
 
 /**
@@ -56,10 +57,17 @@ export function RecurrenceSection(): React.JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /*
+   * „אין עדיין כללים” על תקלת טעינה מוביל להגדיר מחדש כלל שכבר קיים
+   * — ואז המשרד מקבל את אותה משימה פעמיים בכל שבוע.
+   */
+  const [loadFailed, setLoadFailed] = useState(false);
+
   function load(): void {
+    setLoadFailed(false);
     apiGet<Recurrence[]>("/task-recurrences")
       .then(setRules)
-      .catch(() => setRules([]));
+      .catch(() => setLoadFailed(true));
   }
 
   useEffect(load, []);
@@ -128,7 +136,9 @@ export function RecurrenceSection(): React.JSX.Element {
         <Notice tone="danger">{error}</Notice>
       ) : null}
 
-      {rules === null ? (
+      {loadFailed ? (
+        <LoadError message="לא הצלחנו לטעון את הכללים" onRetry={load} />
+      ) : rules === null ? (
         <p aria-live="polite">טוען…</p>
       ) : rules.length === 0 ? (
         <p className="m-0 mb-2 text-sm" style={{ color: "var(--color-text-muted)" }}>

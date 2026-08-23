@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, apiGet } from "@/lib/api";
 import { IconCamera, IconStar } from "../../icons";
+import { LoadError } from "../../load-error";
 import { Notice } from "../../notice";
 
 /**
@@ -28,11 +29,20 @@ export function MediaSection({ propertyId, address }: { propertyId: string; addr
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
+  /*
+   * „אין תמונות עדיין” על טעינה שנכשלה מזמין להעלות שוב את אותן
+   * עשרים התמונות שכבר נמצאות בגלריה.
+   */
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  const load = useCallback(() => {
+    setLoadFailed(false);
     apiGet<MediaItem[]>(`/properties/${propertyId}/media`)
       .then(setItems)
-      .catch(() => setItems([]));
+      .catch(() => setLoadFailed(true));
   }, [propertyId]);
+
+  useEffect(load, [load]);
 
   async function refresh(): Promise<void> {
     setItems(await apiGet<MediaItem[]>(`/properties/${propertyId}/media`));
@@ -159,7 +169,9 @@ export function MediaSection({ propertyId, address }: { propertyId: string; addr
         <Notice tone="danger">{error}</Notice>
       ) : null}
 
-      {items === null ? (
+      {loadFailed ? (
+        <LoadError message="לא הצלחנו לטעון את התמונות" onRetry={load} />
+      ) : items === null ? (
         <p aria-live="polite">טוען תמונות…</p>
       ) : items.length === 0 ? (
         <p style={{ color: "var(--color-text-muted)" }}>

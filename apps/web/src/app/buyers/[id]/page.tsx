@@ -33,6 +33,7 @@ import { AgreementsPanel } from "../../agreements-panel";
 import { EntityNotes } from "../../entity-notes";
 import { SelectMenu } from "../../select-menu";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
+import { LoadError } from "../../load-error";
 import { Notice } from "../../notice";
 
 /**
@@ -146,6 +147,12 @@ export default function BuyerDetailPage({
   const canEditPeople = can(user, "buyers.edit");
   const [buyer, setBuyer] = useState<BuyerDetail | null>(null);
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
+  /*
+   * „אין עדיין נכסים מתאימים במאגר” הוא משפט על המאגר, לא על הרשת.
+   * כשהטעינה נכשלת הוא שולח את המתווך לחפש נכס בחוץ — או להתייאש
+   * מקונה שיש לו התאמות.
+   */
+  const [matchesFailed, setMatchesFailed] = useState(false);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState<string | null>(null);
@@ -211,7 +218,7 @@ export default function BuyerDetailPage({
             .catch(() => undefined);
         }
       })
-      .catch(() => setMatches([]));
+      .catch(() => setMatchesFailed(true));
   }, [authLoading, id]);
 
   if (error) {
@@ -735,7 +742,9 @@ export default function BuyerDetailPage({
                 נכסים ששוברים דרישת חובה אינם מופיעים
               </p>
 
-              {matches === null ? (
+              {matchesFailed ? (
+                <LoadError message="לא הצלחנו לטעון את ההתאמות" />
+              ) : matches === null ? (
                 <p aria-live="polite">מחשב התאמות…</p>
               ) : matches.length === 0 ? (
                 <p

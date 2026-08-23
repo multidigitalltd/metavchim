@@ -208,37 +208,53 @@ export default function DashboardPage() {
    */
   const [tasksFailed, setTasksFailed] = useState(false);
   const [networkFailed, setNetworkFailed] = useState(false);
+  /*
+   * אותו כלל, גם על שמונה הטעינות של הדשבורד עצמו.
+   *
+   * הן נכתבו עם `.catch(() => setX([]))`, כלומר כישלון רשת צויר
+   * כ„אפס נכסים, אפס קונים, אפס לידים” — המסך הכי מרתיע שאפשר
+   * להראות למתווך, ובלי שום רמז שמדובר בתקלה. הכלל כבר נכתב כאן
+   * למעלה עבור המשימות והרשת; זו החלת אותו כלל על השאר.
+   *
+   * דגל אחד לכל הקבוצה: הן נטענות יחד ונכשלות יחד (רשת, שרת,
+   * session שפג), ושמונה הודעות נפרדות על אותה תקלה הן רעש.
+   */
+  const [dataFailed, setDataFailed] = useState(false);
 
-  useEffect(() => {
-    if (authLoading || !user) return;
+  const loadDashboard = useCallback(() => {
+    setDataFailed(false);
+    const fail = (): void => setDataFailed(true);
     apiGet<{ items: PropertyRow[] }>("/properties?limit=100")
       .then((r) => setProperties(r.items))
-      .catch(() => setProperties([]));
+      .catch(fail);
     apiGet<{ items: BuyerRow[] }>("/buyers?limit=100")
       .then((r) => setBuyers(r.items))
-      .catch(() => setBuyers([]));
+      .catch(fail);
     apiGet<{ items: LeadRow[] }>("/leads?limit=100")
       .then((r) => setLeads(r.items))
-      .catch(() => setLeads([]));
+      .catch(fail);
     const dayStart = new Date();
     dayStart.setHours(0, 0, 0, 0);
     const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
     apiGet<AppointmentRow[]>(`/appointments?from=${dayStart.toISOString()}&to=${dayEnd.toISOString()}`)
       .then(setToday)
-      .catch(() => setToday([]));
+      .catch(fail);
     apiGet<Breakdown<"byMaturity">>("/buyers/breakdown")
       .then(setBuyerBreakdown)
-      .catch(() => setBuyerBreakdown(null));
+      .catch(fail);
     apiGet<Breakdown<"byStatus">>("/leads/breakdown")
       .then(setLeadBreakdown)
-      .catch(() => setLeadBreakdown(null));
-    apiGet<Recommendation[]>("/coach/recommendations")
-      .then(setRecs)
-      .catch(() => setRecs([]));
+      .catch(fail);
+    apiGet<Recommendation[]>("/coach/recommendations").then(setRecs).catch(fail);
     apiGet<{ items: OfferRow[] }>("/offers")
       .then((r) => setOffers(r.items))
-      .catch(() => setOffers([]));
-  }, [authLoading, user]);
+      .catch(fail);
+  }, []);
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    loadDashboard();
+  }, [authLoading, user, loadDashboard]);
 
   /*
    * שני האזורים האחרונים נטענים רק למי שרשאי לראות אותם. בלי הבדיקה
@@ -432,6 +448,16 @@ export default function DashboardPage() {
   return (
     <>
       <SetupBanner />
+
+      {/*
+        תקלת טעינה נאמרת במפורש, לפני המספרים.
+        בלי זה הדשבורד מציג אפסים אמינים למראה על נתונים שלא הגיעו.
+      */}
+      {dataFailed ? (
+        <div className="mb-4">
+          <LoadError message="חלק מנתוני הדשבורד לא נטענו" onRetry={loadDashboard} />
+        </div>
+      ) : null}
 
       {/* ברכה + תאריך — בשורת בסיס אחת, כמו בעיצוב */}
       <div className="mb-6 flex flex-wrap items-baseline gap-x-3.5 gap-y-1">

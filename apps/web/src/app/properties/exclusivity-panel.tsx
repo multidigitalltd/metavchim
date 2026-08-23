@@ -17,6 +17,7 @@ import {
   type MarketingActionKind,
 } from "@metavchim/shared";
 import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
+import { useCopy } from "@/lib/clipboard";
 import { SelectMenu } from "../select-menu";
 import { Notice } from "../notice";
 
@@ -589,6 +590,7 @@ function OwnerReport({
   propertyTitle: string;
   officeName: string;
 }) {
+  const clipboard = useCopy();
   const text = ownerReportText({
     propertyTitle,
     officeName,
@@ -612,8 +614,8 @@ function OwnerReport({
       <pre className="m-0 whitespace-pre-wrap text-[14px]" style={{ fontFamily: "inherit" }}>
         {text}
       </pre>
-      <div className="mt-2 flex gap-2">
-        <Button variant="ghost" onClick={() => void navigator.clipboard.writeText(text)}>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Button variant="ghost" onClick={() => void clipboard.copy(text)}>
           העתקה
         </Button>
         <a
@@ -624,6 +626,20 @@ function OwnerReport({
         >
           שליחה בוואטסאפ
         </a>
+        {/*
+          עד כאן הלחיצה על „העתקה” לא אמרה דבר — לא בהצלחה ולא
+          בכישלון. הדוח עצמו מוצג מעל, ולכן גם כשהלוח חסום יש דרך
+          פשוטה קדימה.
+        */}
+        <span role="status" className="text-[14px]">
+          {clipboard.state === "copied" ? (
+            <span style={{ color: "var(--color-success)" }}>✓ הדוח הועתק</span>
+          ) : clipboard.state === "failed" ? (
+            <span style={{ color: "var(--color-danger)" }}>
+              הדפדפן חסם את הגישה ללוח — סמנו את הדוח שמעל והעתיקו ידנית
+            </span>
+          ) : null}
+        </span>
       </div>
     </div>
   );

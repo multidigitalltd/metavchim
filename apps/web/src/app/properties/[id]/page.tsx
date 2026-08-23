@@ -5,6 +5,7 @@ import Link from "next/link";
 import { describeEntry , labelOf } from "@metavchim/shared";
 import { useRouter } from "next/navigation";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
+import { useCopy } from "@/lib/clipboard";
 import {
   FIELD_LABELS,
   formatPrice,
@@ -26,6 +27,7 @@ import { EntityNotes } from "../../entity-notes";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { RelatedEntities } from "../../related-entities";
 import { IconThumbUp } from "../../icons";
+import { LoadError } from "../../load-error";
 import { Notice } from "../../notice";
 
 /**
@@ -155,8 +157,19 @@ export default function PropertyDetailPage({
   const [purgeError, setPurgeError] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
   const [matches, setMatches] = useState<MatchRow[] | null>(null);
+  /*
+   * „אין עדיין קונים מתאימים” + הזמנה להוסיף קונה, על תקלת רשת,
+   * שולח את המתווך לעבוד במקום שבו כבר יש לו תשובה.
+   */
+  const [matchesFailed, setMatchesFailed] = useState(false);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
-  const [copiedFor, setCopiedFor] = useState<string | null>(null);
+  /*
+   * קישור ההצעה מועתק לפי התאמה, ולכן ההודעה נושאת את מזהה ההתאמה.
+   * שתיהן בלי איפוס אוטומטי: הן יושבות בתוך שורה/באנר שנשארים על
+   * המסך, והודעה שנעלמת משם נראית כאילו משהו התקלקל.
+   */
+  const offerClipboard = useCopy(0);
+  const landingClipboard = useCopy(0);
   const [bulkConfirm, setBulkConfirm] = useState(false);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
   /** matchId ⟵ קישור חתימה, להתאמות שנחסמו בשער ההחתמה */
@@ -194,7 +207,7 @@ export default function PropertyDetailPage({
             .catch(() => undefined);
         }
       })
-      .catch(() => setMatches([]));
+      .catch(() => setMatchesFailed(true));
   }, [authLoading, id, loadProperty]);
 
   async function createOffer(matchId: string) {
@@ -203,8 +216,7 @@ export default function PropertyDetailPage({
         matchId,
       });
       setOffers((prev) => ({ ...prev, [matchId]: offer }));
-      await navigator.clipboard.writeText(offer.url).catch(() => undefined);
-      setCopiedFor(matchId);
+      await offerClipboard.copy(offer.url, matchId);
     } catch (err: unknown) {
       /*
        * שער ההחתמה מוחזר כ-409 עם קישור לחתימה. בלי הטיפול הזה
@@ -251,7 +263,7 @@ export default function PropertyDetailPage({
         {},
       );
       setLandingUrl(url);
-      await navigator.clipboard.writeText(url).catch(() => undefined);
+      await landingClipboard.copy(url);
     } finally {
       setLandingBusy(false);
     }
@@ -566,11 +578,18 @@ export default function PropertyDetailPage({
             className="m-0 mt-3 flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-sm"
             style={{ background: "#F1FEF4", border: "1px solid #BDF4CB" }}
           >
+            {/*
+              הכותרת אמרה „והקישור הועתק” תמיד, גם כשהדפדפן חסם את
+              הלוח — והמתווך הדביק אז משהו אחר. הדף באמת מוכן בכל
+              מקרה, וההעתקה היא החלק שיכול להיכשל בנפרד.
+            */}
             <span
               className="font-bold"
               style={{ color: "var(--color-primary)" }}
             >
-              ✓ דף הנחיתה מוכן והקישור הועתק:
+              {landingClipboard.state === "failed"
+                ? "✓ דף הנחיתה מוכן (הדפדפן חסם את הלוח — העתיקו את הקישור ידנית):"
+                : "✓ דף הנחיתה מוכן והקישור הועתק:"}
             </span>
             <a
               href={landingUrl}
@@ -884,7 +903,9 @@ export default function PropertyDetailPage({
               <Notice tone="success">✓ {bulkResult}</Notice>
             ) : null}
 
-            {matches === null ? (
+            {matchesFailed ? (
+              <LoadError message="לא הצלחנו לטעון את ההתאמות" />
+            ) : matches === null ? (
               <p aria-live="polite">מחשב התאמות…</p>
             ) : matches.length === 0 ? (
               <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
@@ -998,12 +1019,25 @@ export default function PropertyDetailPage({
                           >
                             דף ההצעה
                           </a>
-                          {copiedFor === m.id ? (
+                          {/*
+                            „הקישור הועתק” נאמר קודם גם כשההעתקה
+                            נכשלה. הקישור עצמו יושב כאן כ„דף ההצעה”,
+                            ולכן כשהלוח חסום ההפניה אליו היא המוצא.
+                          */}
+                          {offerClipboard.key === m.id &&
+                          offerClipboard.state !== "idle" ? (
                             <span
                               role="status"
-                              style={{ color: "var(--color-primary)" }}
+                              style={{
+                                color:
+                                  offerClipboard.state === "copied"
+                                    ? "var(--color-primary)"
+                                    : "var(--color-danger)",
+                              }}
                             >
-                              ✓ הקישור הועתק
+                              {offerClipboard.state === "copied"
+                                ? "✓ הקישור הועתק"
+                                : "הדפדפן חסם את הלוח — פתחו את „דף ההצעה” והעתיקו משורת הכתובת"}
                             </span>
                           ) : null}
                         </div>

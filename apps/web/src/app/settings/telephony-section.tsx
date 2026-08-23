@@ -2,8 +2,10 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
+import { useCopy } from "@/lib/clipboard";
 import { formatDateTime } from "@/lib/format";
 import { IconInfo, IconWarning } from "../icons";
+import { LoadError } from "../load-error";
 import { Notice } from "../notice";
 
 /**
@@ -120,8 +122,12 @@ export function TelephonySection() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [copiedTemplate, setCopiedTemplate] = useState(false);
+  /*
+   * שני מצבי העתקה נפרדים ולא אחד: הכתובת והתבנית הם שני כפתורים
+   * שיכולים להילחץ ברצף, ומצב משותף היה מכבה את ההודעה של הראשון.
+   */
+  const urlClipboard = useCopy();
+  const templateClipboard = useCopy();
 
   function load(): void {
     apiGet<Provider[]>("/settings/telephony/providers")
@@ -229,13 +235,26 @@ export function TelephonySection() {
               type="button"
               className="mv-btn-plain"
               onClick={() => {
-                void navigator.clipboard.writeText(status.webhookUrl ?? "");
-                setCopied(true);
+                void urlClipboard.copy(status.webhookUrl ?? "");
               }}
             >
-              {copied ? "✓ הועתק" : "העתק"}
+              העתק
             </button>
           </div>
+          {/*
+            הודעה נפרדת ולא תווית מתחלפת: כישלון בהעתקה צריך להיאמר,
+            וכפתור שהשם שלו מתחלף מבלבל קורא מסך שמגיע אליו אחר כך.
+            הכתובת עצמה מוצגת מעליו, ולכן ההעתקה הידנית זמינה תמיד.
+          */}
+          <p role="status" className="m-0 mt-1 text-[14px]">
+            {urlClipboard.state === "copied" ? (
+              <span style={{ color: "var(--color-success)" }}>✓ הכתובת הועתקה</span>
+            ) : urlClipboard.state === "failed" ? (
+              <span style={{ color: "var(--color-danger)" }}>
+                הדפדפן חסם את הגישה ללוח — סמנו את הכתובת שמעל והעתיקו ידנית
+              </span>
+            ) : null}
+          </p>
           {/*
             אבחון: שלושה מצבים שונים לגמרי, ובלי ההבחנה ביניהם אי אפשר
             לדעת אם הבעיה אצל הספק או אצלנו.
@@ -326,12 +345,20 @@ export function TelephonySection() {
                 type="button"
                 className="mv-btn-plain"
                 onClick={() => {
-                  void navigator.clipboard.writeText(PBX015_TEMPLATE);
-                  setCopiedTemplate(true);
+                  void templateClipboard.copy(PBX015_TEMPLATE);
                 }}
               >
-                {copiedTemplate ? "✓ הועתק" : "העתק תבנית"}
+                העתק תבנית
               </button>
+              <p role="status" className="m-0 mt-1 text-[14px]">
+                {templateClipboard.state === "copied" ? (
+                  <span style={{ color: "var(--color-success)" }}>✓ התבנית הועתקה</span>
+                ) : templateClipboard.state === "failed" ? (
+                  <span style={{ color: "var(--color-danger)" }}>
+                    הדפדפן חסם את הגישה ללוח — סמנו את התבנית שמעל והעתיקו ידנית
+                  </span>
+                ) : null}
+              </p>
               <p className="m-0 mt-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
                 ‎<code dir="ltr">talktime</code> ו-<code dir="ltr">totaltime</code> שניהם
                 נחוצים: ההפרש ביניהם הוא מה שמבדיל בין שיחה שנענתה לשיחה שרק צלצלה.
@@ -456,10 +483,17 @@ function TeamSipLines() {
   const [savedId, setSavedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /*
+   * רשימה ריקה כאן נראית כמו „לאף סוכן אין קו”, ומזמינה להזין מחדש
+   * שם משתמש וסיסמה שכבר שמורים.
+   */
+  const [loadFailed, setLoadFailed] = useState(false);
+
   function load(): void {
+    setLoadFailed(false);
     apiGet<TeamLine[]>("/settings/telephony/lines")
       .then(setLines)
-      .catch(() => setLines([]));
+      .catch(() => setLoadFailed(true));
   }
 
   useEffect(load, []);
@@ -498,7 +532,9 @@ function TeamSipLines() {
         <Notice tone="danger">{error}</Notice>
       ) : null}
 
-      {lines === null ? (
+      {loadFailed ? (
+        <LoadError message="לא הצלחנו לטעון את קווי הצוות" onRetry={load} />
+      ) : lines === null ? (
         <p aria-live="polite" className="m-0 text-sm">טוען…</p>
       ) : (
         <ul className="m-0 flex list-none flex-col gap-2 p-0">

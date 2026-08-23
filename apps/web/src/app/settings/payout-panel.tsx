@@ -102,6 +102,7 @@ function BankField({
 export function PayoutPanel() {
   const [balance, setBalance] = useState<Balance | null>(null);
   const [rows, setRows] = useState<PayoutRow[]>([]);
+  const [rowsFailed, setRowsFailed] = useState(false);
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("");
   const [bank, setBank] = useState<BankDetails>(EMPTY_BANK);
@@ -119,9 +120,15 @@ export function PayoutPanel() {
     apiGet<Balance>("/payouts/balance")
       .then(setBalance)
       .catch(() => setBalance(null));
+    /*
+     * רשימת הבקשות היא מה שמספר למשרד ש„כבר ביקשתי” — ובלעדיה
+     * הטופס נראה כמו טופס שטרם מולא. כישלון טעינה שלה נאמר, כדי
+     * שלא תישלח בקשת משיכה שנייה על אותו כסף.
+     */
+    setRowsFailed(false);
     apiGet<PayoutRow[]>("/payouts/requests")
       .then(setRows)
-      .catch(() => setRows([]));
+      .catch(() => setRowsFailed(true));
   }
 
   useEffect(load, []);
@@ -291,6 +298,13 @@ export function PayoutPanel() {
       ) : null}
       {done !== null ? (
         <Notice tone="success">✓ {done}</Notice>
+      ) : null}
+
+      {rowsFailed ? (
+        <Notice tone="warning">
+          לא הצלחנו לטעון את הבקשות הקודמות — ייתכן שכבר קיימת בקשה פתוחה.
+          רעננו את המסך לפני שליחת בקשה חדשה.
+        </Notice>
       ) : null}
 
       {rows.length > 0 ? (

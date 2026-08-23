@@ -13,6 +13,7 @@ import {
 import { api, apiGet, apiPost, ApiError } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { IconClock, IconUser } from "../icons";
+import { LoadError } from "../load-error";
 import { Notice } from "../notice";
 
 /**
@@ -98,10 +99,18 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
   /** המשימה שהטופס שלה פתוח — אחת בכל רגע, כמו הפולו-אפ ביומן. */
   const [editingId, setEditingId] = useState<string | null>(null);
 
+  /*
+   * „הכל נקי ✓” נאמר גם כשהטעינה נכשלה. זו ההודעה שהכי מסוכן
+   * לשקר בה: מי שראה אותה סגר את המסך והלך, בזמן שיש לו משימות
+   * שממתינות.
+   */
+  const [loadFailed, setLoadFailed] = useState(false);
+
   const load = useCallback(() => {
+    setLoadFailed(false);
     apiGet<Task[]>(`/tasks?assignee=${encodeURIComponent(scope)}`)
       .then(setTasks)
-      .catch(() => setTasks([]));
+      .catch(() => setLoadFailed(true));
   }, [scope]);
 
   useEffect(() => {
@@ -472,7 +481,9 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
         <Notice tone="danger">{error}</Notice>
       ) : null}
 
-      {tasks === null ? (
+      {loadFailed ? (
+        <LoadError message="לא הצלחנו לטעון את המשימות" onRetry={load} />
+      ) : tasks === null ? (
         <p aria-live="polite">טוען משימות…</p>
       ) : open.length === 0 ? (
         <p style={{ color: "var(--color-text-muted)" }}>אין משימות פתוחות — הכל נקי ✓</p>

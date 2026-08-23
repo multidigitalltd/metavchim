@@ -5,6 +5,7 @@ import { Button } from "@metavchim/ui";
 import type { LeadSourcePrice } from "@metavchim/shared";
 import { apiGet, apiPatch, ApiError } from "@/lib/api";
 import { IconDiamond } from "../icons";
+import { LoadError } from "../load-error";
 import { Notice } from "../notice";
 
 /**
@@ -22,11 +23,17 @@ export function LeadPricesSection(): React.JSX.Element {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /*
+   * רשימה ריקה כאן נראית כמו „אין מקורות מתומחרים”, ומזמינה להגדיר
+   * מחדש תמחור שכבר קיים. כישלון טעינה נאמר במפורש.
+   */
+  const [loadFailed, setLoadFailed] = useState(false);
 
   function load(): void {
+    setLoadFailed(false);
     apiGet<{ prices: LeadSourcePrice[] }>("/platform/lead-prices")
       .then((res) => setPrices(res.prices))
-      .catch(() => setPrices([]));
+      .catch(() => setLoadFailed(true));
   }
 
   useEffect(load, []);
@@ -73,7 +80,9 @@ export function LeadPricesSection(): React.JSX.Element {
         <Notice tone="danger">{error}</Notice>
       ) : null}
 
-      {prices === null ? (
+      {loadFailed ? (
+        <LoadError message="לא הצלחנו לטעון את מחירי הלידים" onRetry={load} />
+      ) : prices === null ? (
         <p aria-live="polite">טוען…</p>
       ) : (
         <ul className="m-0 list-none p-0">

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { IconCard } from "../icons";
+import { LoadError } from "../load-error";
 import { Notice } from "../notice";
 
 /**
@@ -53,10 +54,17 @@ export function PaymentsSection(): React.JSX.Element {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /*
+   * „עדיין אין תשלומים” הוא משפט על הכסף של הפלטפורמה. אסור שתקלת
+   * רשת תאמר אותו.
+   */
+  const [loadFailed, setLoadFailed] = useState(false);
+
   function load(): void {
+    setLoadFailed(false);
     apiGet<PaymentRow[]>("/platform/payments")
       .then(setRows)
-      .catch(() => setRows([]));
+      .catch(() => setLoadFailed(true));
   }
 
   useEffect(load, []);
@@ -115,7 +123,9 @@ export function PaymentsSection(): React.JSX.Element {
         <Notice tone="success">{message}</Notice>
       ) : null}
 
-      {rows === null ? (
+      {loadFailed ? (
+        <LoadError message="לא הצלחנו לטעון את התשלומים" onRetry={load} />
+      ) : rows === null ? (
         <p aria-live="polite">טוען…</p>
       ) : rows.length === 0 ? (
         <p style={{ color: "var(--color-text-muted)" }}>עדיין אין תשלומים.</p>
