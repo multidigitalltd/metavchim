@@ -27,6 +27,7 @@ import {
   IdSchema,
   interpretJsonSchema,
   InterpretResponseSchema,
+  isFreePlan,
   MAX_CREDIT_BONUS_PERCENT,
   MAX_CREDIT_EXPIRY_MONTHS,
   MAX_CREDIT_PACKAGES,
@@ -817,6 +818,10 @@ export class PlatformController {
         _count: { select: { users: true } },
       },
     });
+    // המסלולים נטענים פעם אחת לכל הרשימה, ולא פעם לכל שורה
+    const freeCodes = new Set(
+      (await this.plans.all()).filter((p) => isFreePlan(p)).map((p) => p.code),
+    );
     return tenants.map((t) => ({
       id: t.id,
       name: t.name,
@@ -837,7 +842,7 @@ export class PlatformController {
           ? t.supportAccessUntil
           : null,
       // אותה פונקציה שהשרת אוכף לפיה, ולא העתק שלה
-      periodEnded: tenantPeriodEnded(t),
+      periodEnded: tenantPeriodEnded({ ...t, planIsFree: freeCodes.has(t.plan) }),
     }));
   }
 
@@ -932,14 +937,24 @@ export class PlatformController {
      * קוד מסלול נבדק מול הקטלוג ולא מול enum: מסלול שאינו קיים היה
      * נשמר על המשרד ומשאיר אותו בלי אף פיצ'ר, בלי שום שגיאה.
      */
-    if (body.plan !== undefined && (await this.plans.byCode(body.plan)) === undefined) {
+    const target = body.plan === undefined ? undefined : await this.plans.byCode(body.plan);
+    if (body.plan !== undefined && target === undefined) {
       throw new BadRequestException("מסלול לא מוכר");
     }
+    /*
+     * שיוך למסלול חינמי מנקה את התפוגה שהמסלול הקודם הותיר.
+     *
+     * השער כבר אינו נשען על השדות האלה כשהמסלול חינמי, אבל שורה
+     * שממשיכה לשאת תאריך תפוגה משקרת: היא מזינה באנרים של „הניסיון
+     * מסתיים”, והיא הופכת לאמת ברגע שהמשרד יוחזר למסלול בתשלום.
+     */
+    const toFree = target !== undefined && isFreePlan(target);
 
     await this.prisma.tenant.update({
       where: { id },
       data: {
         ...(body.plan !== undefined ? { plan: body.plan } : {}),
+        ...(toFree ? { status: "active", trialEndsAt: null, paidUntil: null } : {}),
         ...(body.status !== undefined ? { status: body.status } : {}),
         ...(body.paidUntil !== undefined
           ? {

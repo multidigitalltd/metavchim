@@ -93,3 +93,37 @@ describe("השהיה ותפוגה אינן אותו דבר", () => {
     expect(tenantPeriodEnded({ status: "active", paidUntil: future })).toBe(false);
   });
 });
+
+/*
+ * מסלול חינמי הוא לתמיד.
+ *
+ * זו לא הקלה אלא תיקון: „חינם = בלי תפוגה” הוכרע פעם אחת בהרשמה
+ * ונכתב לשורה כתאריך, ולכן כל דרך אחרת להגיע למסלול חינמי — שיוך
+ * מהפלטפורמה, מסלול שנערך והפך לחינמי — הותירה תאריך שפג אחרי 14
+ * יום וסגר חשבון שאינו אמור להיסגר (דיווח המשתמש).
+ */
+describe("tenantCanOperate — מסלול חינמי", () => {
+  it("ניסיון שפג אינו סוגר חשבון חינמי", () => {
+    const tenant = { status: "trial", trialEndsAt: past, planIsFree: true };
+    expect(tenantPeriodEnded(tenant)).toBe(false);
+    expect(tenantCanOperate(tenant)).toBe(true);
+  });
+
+  it("גם תקופה ששולמה והסתיימה אינה סוגרת אותו", () => {
+    const tenant = { status: "active", paidUntil: past, planIsFree: true };
+    expect(tenantPeriodEnded(tenant)).toBe(false);
+    expect(tenantCanOperate(tenant)).toBe(true);
+  });
+
+  it("השהיה מהפלטפורמה חזקה מהמסלול — היא אינה עניין של חיוב", () => {
+    const tenant = { status: "suspended", planIsFree: true };
+    expect(tenantSuspended(tenant)).toBe(true);
+    expect(tenantCanOperate(tenant)).toBe(false);
+  });
+
+  it("מסלול שאינו חינמי ממשיך לפוג כרגיל", () => {
+    expect(tenantPeriodEnded({ status: "trial", trialEndsAt: past, planIsFree: false })).toBe(true);
+    // שדה חסר אינו „חינמי” — ברירת המחדל היא ההתנהגות הקיימת
+    expect(tenantPeriodEnded({ status: "trial", trialEndsAt: past })).toBe(true);
+  });
+});

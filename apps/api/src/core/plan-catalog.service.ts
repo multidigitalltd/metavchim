@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import {
   DEFAULT_PLANS,
   effectiveFeatures,
+  isFreePlan,
   sanitizeFeatures,
   type PlanDefinition,
   type PlanFeature,
@@ -116,6 +117,20 @@ export class PlanCatalogService {
 
   async byCode(code: string, tx?: TenantTx): Promise<PlanDefinition | undefined> {
     return (await this.all(tx)).find((plan) => plan.code === code);
+  }
+
+  /**
+   * האם קוד המסלול הזה חינמי — התשובה למי שיש לו קוד ולא הגדרה.
+   *
+   * מסלול שאינו מוכר מחזיר `false`, כמו `planAllows`: הכיוון הבטוח
+   * הוא לא להעניק גישה בלתי-פוקעת על סמך מחרוזת שגויה.
+   *
+   * הקריאה יורדת דרך `all`, כלומר דרך המטמון — היא נמצאת על שער
+   * ההרשאה של כל בקשה, ואסור לה להיות שאילתה.
+   */
+  async isFreeCode(code: string, tx?: TenantTx): Promise<boolean> {
+    const plan = await this.byCode(code, tx);
+    return plan !== undefined && isFreePlan(plan);
   }
 
   /** המסלולים שמוצגים בדף ההרשמה הציבורי. */

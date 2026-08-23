@@ -138,6 +138,7 @@ interface IdentifiedUser {
   whatsappAccess: boolean;
   tenant: {
     status: string;
+    plan: string;
     trialEndsAt: Date | null;
     paidUntil: Date | null;
     blockedModules: string[];
@@ -199,7 +200,7 @@ export class WhatsAppAssistantService {
       this.logger.warn(`הודעת וואטסאפ ממשרד מושהה ${user.tenantId} — נבלעת`);
       return;
     }
-    if (tenantPeriodEnded(user.tenant)) {
+    if (tenantPeriodEnded({ ...user.tenant, planIsFree: await this.plans.isFreeCode(user.tenant.plan) })) {
       await this.sender.sendText(
         msg.fromWaId,
         "תקופת המנוי של המשרד הסתיימה — חדשו אותה במסך ניהול המשרד, ואחזור לעבוד מיד.",
@@ -485,6 +486,7 @@ export class WhatsAppAssistantService {
         tenant: {
           select: {
             status: true,
+            plan: true,
             trialEndsAt: true,
             paidUntil: true,
             blockedModules: true,
