@@ -30,6 +30,10 @@ RUN pnpm --filter @metavchim/api deploy --prod --legacy /prod/api \
 # ---------- API ----------
 FROM base AS api
 ENV NODE_ENV=production
+# ffmpeg ממיר הקלטות ל-ogg/opus לפני שליחתן בוואטסאפ — wav ו-webm,
+# שני הפורמטים שאנחנו שומרים בהם, נדחים בנתיב המדיה של Meta.
+# אותו כלי שכבר משמש את שירותי התמלול והזיהוי (infra/stt, infra/diarize).
+RUN apk add --no-cache ffmpeg
 COPY --from=build /prod/api /app
 WORKDIR /app
 # הקליינט של Prisma חייב להיווצר מחדש בתוך העץ הפרוס (node_modules חדש)

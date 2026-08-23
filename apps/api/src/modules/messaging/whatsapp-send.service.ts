@@ -9,6 +9,7 @@ import {
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { PlatformSettingsService } from "../../core/platform-settings.service";
+import { toWhatsAppAudio } from "./audio-transcode";
 
 /**
  * שליחה דרך WhatsApp Cloud API (docs/05 §1) — הצד היוצא של הסוכן
@@ -195,10 +196,11 @@ export class WhatsAppSendService {
    * ומקבלים מזהה, ואז שולחים הודעה שמצביעה עליו. שני הצעדים כאן
    * ולא בקורא, כדי שהערוץ ידע רק „שלח את ההקלטה הזו”.
    *
-   * `audio/ogg; codecs=opus` הוא הפורמט ש-WhatsApp מנגן כהודעה
-   * קולית; פורמטים אחרים (wav, mp3) מגיעים כקובץ מצורף — עדיין
-   * שמיע, אבל בלחיצה נוספת. אנחנו שולחים את מה שיש בלי המרה:
-   * שרת המרות היה תלות חדשה בשביל נוחות, וההקלטה נשמעת כך או כך.
+   * ההקלטה מומרת לפני ההעלאה. ההנחה הקודמת — „נשלח את מה שיש,
+   * וזה יגיע כקובץ מצורף” — פשוט אינה נכונה: `wav` ו-`webm`, שני
+   * הפורמטים שאנחנו שומרים בהם, נדחים בנתיב ה-`audio` של Meta,
+   * וההצהרה על `type` בהעלאה מתארת בייטים ואינה ממירה אותם. בלי
+   * ההמרה הפעולה הייתה נכשלת דווקא במקרה הנפוץ (ביקורת Codex).
    */
   async sendAudio(
     to: string,
@@ -211,7 +213,12 @@ export class WhatsAppSendService {
       this.logger.warn("שליחת הקלטה נדחתה — הצד היוצא של וואטסאפ אינו מוגדר");
       return false;
     }
-    const mediaId = await this.uploadMedia(creds, body, mimeType);
+    const audio = await toWhatsAppAudio(body, mimeType);
+    if (audio === null) {
+      this.logger.warn("שליחת הקלטה נדחתה — לא ניתן להמיר לפורמט שוואטסאפ מקבלת");
+      return false;
+    }
+    const mediaId = await this.uploadMedia(creds, audio.body, audio.mimeType);
     if (mediaId === null) return false;
     /*
      * `audio` אינו נושא כיתוב אצל Meta, ולכן הכיתוב נשלח כהודעת
