@@ -32,7 +32,7 @@ const TENANT = "01JWAINTAKETENANTAAAAAAAAA";
 const TOKEN = "a".repeat(43);
 
 /** ה-tx שהשירות מקבל — כל שאילתה מוחזרת ריקה, חוץ ממה שנדרש. */
-function fakeTx(): TenantTx {
+function fakeTx(buyerId?: string): TenantTx {
   const none = { findFirst: async () => null, findUnique: async () => null };
   return {
     intakeRequest: {
@@ -53,10 +53,27 @@ function fakeTx(): TenantTx {
       }),
       updateMany: async () => ({ count: 1 }),
     },
-    buyer: none,
+    buyer:
+      buyerId === undefined
+        ? none
+        : { ...none, findFirst: async () => ({ id: buyerId, requirements: {} }) },
     tenant: { findUnique: async () => ({ name: "נדל״ן ירוק" }) },
     notification: { create: async () => ({}) },
   } as unknown as TenantTx;
+}
+
+/** `PrismaService` מזויף שמעביר את שתי הפונקציות ל-`fakeTx`. */
+function fakePrisma(buyerId?: string): PrismaService {
+  return {
+    withPublicIntake: async <T>(
+      _token: string,
+      fn: (tx: TenantTx) => Promise<T>,
+    ) => fn(fakeTx(buyerId)),
+    withExplicitTenant: async <T>(
+      _tenantId: string,
+      fn: (tx: TenantTx) => Promise<T>,
+    ) => fn(fakeTx(buyerId)),
+  } as unknown as PrismaService;
 }
 
 describe("הצד הציבורי של טופס הדרישות — הקשר דייר", () => {
@@ -165,5 +182,53 @@ describe("הצד הציבורי של טופס הדרישות — הקשר דיי
       "הקישור אינו פעיל עוד",
     );
     expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe("המיזוג רץ מתחת לנעילת הכרטיס", () => {
+  const BUYER = "01JWABUYERAAAAAAAAAAAAAAAA";
+
+  it("`BuyersService.update` מקבל פונקציה ולא ערך מוכן", async () => {
+    /*
+     * זו לא העדפת סגנון. ערך מוכן פירושו שהמיזוג חושב **לפני**
+     * ש-`update` נעלה את השורה, כלומר על צילום שכבר יכול היה
+     * להשתנות — עריכה של הסוכן בלשונית אחרת, או שליחה שנייה של
+     * הלקוח — והכתיבה מוחקת אותה בשקט. פונקציה נקראת אחרי הנעילה,
+     * ולכן היא רואה את מה שבאמת כתוב בכרטיס באותו רגע.
+     */
+    let received: unknown;
+    const update = vi.fn(async (_id: string, patch: { requirements?: unknown }) => {
+      received = patch.requirements;
+    });
+
+    const service = new IntakeService(
+      fakePrisma(BUYER),
+      { record: vi.fn() } as unknown as AuditService,
+      {
+        getById: async () => ({ id: "c", name: "דנה", phone: "+972500000000" }),
+      } as unknown as ContactsService,
+      { update } as unknown as BuyersService,
+    );
+
+    await service.submit(TOKEN, { dealType: "rent", cities: ["חיפה"] });
+
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(typeof received).toBe("function");
+
+    // והפונקציה ממזגת לתוך מה שהיא מקבלת, ולא לתוך צילום ישן
+    const merged = (received as (c: unknown) => Record<string, unknown>)({
+      cities: ["תל אביב"],
+      neighborhoods: [],
+      searchAreas: [],
+      dealType: "sale",
+      propertyTypes: [],
+      features: { "custom:נוף לים": "nice" },
+      roomsMin: 4,
+    });
+    expect(merged["dealType"]).toBe("rent");
+    expect(merged["cities"]).toEqual(["חיפה"]);
+    // מה שהטופס לא שאל עליו נשאר — כולל מאפיין מותאם של המשרד
+    expect(merged["roomsMin"]).toBe(4);
+    expect(merged["features"]).toEqual({ "custom:נוף לים": "nice" });
   });
 });

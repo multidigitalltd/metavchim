@@ -408,10 +408,22 @@ export class BuyersService {
     return id;
   }
 
+  /**
+   * עריכת קונה.
+   *
+   * `requirements` מקבל גם **פונקציה** ולא רק ערך, וזה לא נוחות:
+   * קורא שהדרישות החדשות שלו נגזרות מהקיימות — כמו מיזוג התשובות
+   * מטופס הלקוח — חייב לגזור אותן **אחרי** נעילת השורה. חישוב מחוץ
+   * לטרנזקציה נשען על צילום שכבר יכול היה להשתנות, ואז הכתיבה
+   * מוחקת בשקט עריכה שקרתה בין לבין. הפונקציה מופעלת כאן, בין
+   * הנעילה לכתיבה, ולכן המיזוג רואה את מה שבאמת כתוב בכרטיס.
+   */
   async update(
     id: string,
     patch: {
-      requirements?: BuyerRequirements;
+      requirements?:
+        | BuyerRequirements
+        | ((current: BuyerRequirements) => BuyerRequirements);
       financing?: string;
       maturity?: string;
       agentNotes?: string;
@@ -437,6 +449,14 @@ export class BuyersService {
       });
       if (!existing) throw new NotFoundException("קונה לא נמצא");
       /*
+       * הגזירה כאן — **אחרי** ה-`FOR UPDATE` ואחרי הקריאה החוזרת.
+       * ראו ההסבר בראש המתודה: זו כל הסיבה שהפרמטר מקבל פונקציה.
+       */
+      const requirements =
+        typeof patch.requirements === "function"
+          ? patch.requirements(BuyerRequirementsSchema.parse(existing.requirements))
+          : patch.requirements;
+      /*
        * העלאת תקציב — התאום של ירידת מחיר בנכס.
        *
        * לקוח שהעלה תקציב אמר בכך שהוא רציני, ובאותו רגע נפתחים לו
@@ -453,7 +473,7 @@ export class BuyersService {
        */
       const budgetBefore =
         existing.budgetMaxAgorot === null ? null : Number(existing.budgetMaxAgorot);
-      const budgetAfter = patch.requirements?.budgetMaxAgorot;
+      const budgetAfter = requirements?.budgetMaxAgorot;
       if (budgetBefore !== null && budgetAfter !== undefined && budgetAfter > budgetBefore) {
         trigger = {
           kind: "budget_raise",
@@ -465,22 +485,22 @@ export class BuyersService {
       await tx.buyer.update({
         where: { id },
         data: {
-          ...(patch.requirements
+          ...(requirements
             ? {
-                cities: patch.requirements.cities,
-                hasSearchAreas: patch.requirements.searchAreas.length > 0,
-                dealType: patch.requirements.dealType,
+                cities: requirements.cities,
+                hasSearchAreas: requirements.searchAreas.length > 0,
+                dealType: requirements.dealType,
                 budgetMinAgorot:
-                  patch.requirements.budgetMinAgorot === undefined
+                  requirements.budgetMinAgorot === undefined
                     ? null
-                    : BigInt(patch.requirements.budgetMinAgorot),
+                    : BigInt(requirements.budgetMinAgorot),
                 budgetMaxAgorot:
-                  patch.requirements.budgetMaxAgorot === undefined
+                  requirements.budgetMaxAgorot === undefined
                     ? null
-                    : BigInt(patch.requirements.budgetMaxAgorot),
-                roomsMin: patch.requirements.roomsMin ?? null,
-                roomsMax: patch.requirements.roomsMax ?? null,
-                requirements: patch.requirements as object,
+                    : BigInt(requirements.budgetMaxAgorot),
+                roomsMin: requirements.roomsMin ?? null,
+                roomsMax: requirements.roomsMax ?? null,
+                requirements: requirements as object,
               }
             : {}),
           ...(patch.financing !== undefined

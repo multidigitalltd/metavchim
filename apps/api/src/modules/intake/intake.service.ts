@@ -16,6 +16,7 @@ import {
   intakeInactiveReason,
   intakeInviteMessage,
   pickIntakeFeatures,
+  PropertyTypeSchema,
   type IntakeAnswers,
   type IntakeStatus,
   type IntakeSubject,
@@ -79,6 +80,15 @@ export interface IntakeRequestDto {
   /** קישור wa.me מוכן לשליחה — הנוסח כבר בפנים. */
   waUrl: string | null;
 }
+
+/**
+ * המיזוג נדחה בסכימה — ולכן הטרנזקציה של הכרטיס מתבטלת.
+ *
+ * מחלקה ולא דגל, כי הסימון צריך לצאת מתוך פונקציה שרצה בתוך
+ * `BuyersService.update`: זריקה מבטלת שם את הכתיבה כולה, וזה בדיוק
+ * מה שנדרש — כרטיס מעודכן חצי גרוע מכרטיס שלא עודכן.
+ */
+class MergeRejected extends Error {}
 
 /** מה נשמר על הבקשה. מצומצם — הצד הציבורי אינו זקוק ליותר. */
 interface TokenRow {
@@ -328,9 +338,17 @@ export class IntakeService {
        * פעם אחת ומשמש את שני הצדדים.
        */
       const targetBuyerId = await this.targetBuyerId(tx, row);
-      const before = await this.currentRequirements(tx, row, targetBuyerId);
-      const after = applyIntakeAnswers(before, answers);
-      const changed = describeIntakeChanges(before, after);
+
+      /*
+       * **המיזוג אינו נעשה כאן.**
+       *
+       * מפתה לחשב אותו יחד עם התפיסה, אבל הכתיבה לכרטיס קורית
+       * בטרנזקציה אחרת — ואז „הדרישות שהיו” הן צילום שכבר יכול היה
+       * להשתנות: הסוכן ערך את הכרטיס בלשונית אחרת, או שהלקוח שלח
+       * פעמיים והשתיים נחתו לא לפי הסדר. התוצאה היא מחיקה שקטה של
+       * מה שקרה בין לבין. לכן המיזוג יורד ל-`applyToBuyer`, שרץ
+       * מתחת לנעילת שורת הקונה.
+       */
 
       /*
        * `resubmit` נקרא **לפני** העדכון: אחריו `submittedAt` תמיד
@@ -369,32 +387,38 @@ export class IntakeService {
       });
       if (claimed.count === 0) return null;
 
-      /*
-       * היומן נרשם **בכל** שליחה, גם כשאין התראה: הוא הראיה למי
-       * נגע בכרטיס ומתי, ודילוג עליו היה יוצר שינוי בלי מקור.
-       */
-      await this.audit.record(tx, {
-        action: "intake.submit",
-        entityType: row.subject,
-        entityId: row.subjectId,
-        // רק שמות שדות — לא מה שנכתב בהם
-        metadata: { changed },
-      });
-      return { targetBuyerId, after, changed, resubmit };
+      return { targetBuyerId, resubmit };
     });
 
     if (claim === null) {
       throw new BadRequestException("הקישור אינו פעיל עוד");
     }
 
-    const applied =
+    const outcome =
       claim.targetBuyerId === null
-        ? false
-        : await this.applyToBuyer(row.tenantId, claim.targetBuyerId, claim.after);
+        ? { applied: false, changed: [] as string[] }
+        : await this.applyToBuyer(row.tenantId, claim.targetBuyerId, answers);
 
-    await this.asOffice(row.tenantId, (tx) =>
-      this.notify(tx, row, { ...claim, applied }),
-    );
+    await this.asOffice(row.tenantId, async (tx) => {
+      /*
+       * היומן נרשם **בכל** שליחה, גם כשאין התראה: הוא הראיה למי
+       * נגע בכרטיס ומתי, ודילוג עליו היה יוצר שינוי בלי מקור. הוא
+       * נרשם כאן ולא בתפיסה כדי שיישא את השינויים שבאמת נכתבו —
+       * אלה מחושבים תחת נעילת הכרטיס, אחריה.
+       */
+      await this.audit.record(tx, {
+        action: "intake.submit",
+        entityType: row.subject,
+        entityId: row.subjectId,
+        // רק שמות שדות — לא מה שנכתב בהם
+        metadata: { changed: outcome.changed },
+      });
+      await this.notify(tx, row, {
+        targetBuyerId: claim.targetBuyerId,
+        resubmit: claim.resubmit,
+        ...outcome,
+      });
+    });
     return { ok: true };
   }
 
@@ -409,28 +433,53 @@ export class IntakeService {
    * כתיבה גם דילגה על ה-outbox ועל רענון הביקוש ברשת, כלומר על כל
    * מה שהופך עריכה לעריכה.
    *
+   * **המיזוג עצמו קורה בתוך הקריאה**, כפונקציה ש-`update` מפעילה
+   * אחרי שהיא נעלה את שורת הקונה. זה מה שמונע מחיקה שקטה: „הדרישות
+   * שהיו” נקראות אחרי הנעילה, ולכן עריכה של הסוכן או שליחה מקבילה
+   * של הלקוח נכנסות למיזוג במקום להידרס על ידו.
+   *
    * הסכימה נאכפת לפני הכתיבה. מבנה שאינו עובר אותה אינו נכתב חצי —
    * התשובות כבר שמורות על הבקשה, וההתראה תאמר שהכרטיס לא עודכן.
    */
   private async applyToBuyer(
     tenantId: string,
     buyerId: string,
-    requirements: Record<string, unknown>,
-  ): Promise<boolean> {
-    const parsed = BuyerRequirementsSchema.safeParse(requirements);
-    if (!parsed.success) {
-      // בלי תוכן הדרישות ביומן — רק העובדה ושמות השדות שנפלו
-      this.logger.warn(
-        `intake submit: requirements rejected for buyer ${buyerId} — ${parsed.error.issues
-          .map((i) => i.path.join("."))
-          .join(", ")}`,
+    answers: IntakeAnswers,
+  ): Promise<{ applied: boolean; changed: string[] }> {
+    /*
+     * מה שהמיזוג גילה, מתוך הטרנזקציה החוצה. ההתראה חייבת לתאר את
+     * מה שנכתב בפועל, וזה ידוע רק שם — מתחת לנעילה.
+     */
+    let changed: string[] = [];
+    let rejected: string | null = null;
+
+    try {
+      await TenantContext.run(officeContext(tenantId), () =>
+        this.buyers.update(buyerId, {
+          requirements: (current) => {
+            const before = current as unknown as Record<string, unknown>;
+            const after = applyIntakeAnswers(before, answers);
+            const parsed = BuyerRequirementsSchema.safeParse(after);
+            if (!parsed.success) {
+              // בלי תוכן הדרישות ביומן — רק שמות השדות שנפלו
+              rejected = parsed.error.issues
+                .map((issue) => issue.path.join("."))
+                .join(", ");
+              throw new MergeRejected();
+            }
+            changed = describeIntakeChanges(before, after);
+            return parsed.data;
+          },
+        }),
       );
-      return false;
+    } catch (error: unknown) {
+      if (!(error instanceof MergeRejected)) throw error;
+      this.logger.warn(
+        `intake submit: requirements rejected for buyer ${buyerId} — ${rejected ?? "unknown"}`,
+      );
+      return { applied: false, changed: [] };
     }
-    await TenantContext.run(officeContext(tenantId), () =>
-      this.buyers.update(buyerId, { requirements: parsed.data }),
-    );
-    return true;
+    return { applied: true, changed };
   }
 
   /**
@@ -799,9 +848,20 @@ function toAnswers(req: Record<string, unknown>): IntakeAnswers {
       (c): c is string => typeof c === "string",
     );
   }
+  /*
+   * רק סוגי נכס שהסכימה מכירה.
+   *
+   * לפני התיקון העמוד הציבורי הציע `house` ו-`lot`, שאינם קיימים
+   * ב-`PropertyTypeSchema`. הם נשמרו בדרישות של מי שסימן אותם,
+   * וכשהנתיב הציבורי נסגר על ה-enum האמיתי הם הפכו את הטופס של אותו
+   * לקוח לבלתי-שליח: הערך חוזר בפריפיל, נשלח בחזרה, ונדחה — והוא
+   * אינו מוצג לו בכלל, ולכן אינו יכול להסיר אותו. מה שלא יוצא מכאן
+   * אינו חוזר לכאן, והשליחה הראשונה מנקה את השארית.
+   */
   if (Array.isArray(req["propertyTypes"])) {
     out.propertyTypes = req["propertyTypes"].filter(
-      (t): t is string => typeof t === "string",
+      (t): t is string =>
+        typeof t === "string" && PropertyTypeSchema.safeParse(t).success,
     );
   }
   for (const key of [
