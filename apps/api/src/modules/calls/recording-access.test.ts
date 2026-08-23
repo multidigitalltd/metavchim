@@ -275,6 +275,96 @@ describe("גישה להקלטת שיחה", () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  /*
+   * העמוד אינו מתקצר.
+   *
+   * הצמצום היה נעשה **אחרי** ה-take: הסוכן שרשם שיחות חדשות על
+   * מודול שנחסם קיבל יומן ריק, בזמן ששיחות מותרות ישנות יותר
+   * קיימות — כלומר תיקון האבטחה הפך לבאג תצוגה (ביקורת Codex).
+   *
+   * המסד המדומה מפרש את ה-`where` כמו שהמסד היה מפרש אותו, כדי
+   * שהבדיקה תעיד על מה שחוזר ולא על צורת השאילתה.
+   */
+  it("יומן השיחות אינו מתקצר בגלל שיחות שנחסמו", async () => {
+    const now = Date.now();
+    const rows = [
+      // חדשות: לקוח חי שמודול הלידים שלו חסום — אני רשמתי אותן
+      { id: "01C4", contactId: "01BLOCKED", createdBy: "01ME", at: 4 },
+      { id: "01C3", contactId: "01BLOCKED", createdBy: "01ME", at: 3 },
+      // ישנות: הקונים שלי
+      { id: "01C2", contactId: "01MINE", createdBy: "01ME", at: 2 },
+      { id: "01C1", contactId: "01MINE", createdBy: "01ME", at: 1 },
+    ].map((row) => ({
+      ...row,
+      direction: "inbound",
+      source: "manual",
+      leadId: null,
+      phoneEncrypted: null,
+      occurredAt: new Date(now + row.at),
+      durationMinutes: null,
+      outcome: "answered",
+      summary: null,
+      recordingKey: null,
+      createdAt: new Date(now),
+    }));
+
+    type Row = (typeof rows)[number];
+    const inList = (value: string | null, list: readonly string[]): boolean =>
+      value !== null && list.includes(value);
+    /** רק הצורות שהשאילתה בונה בפועל. */
+    const matches = (row: Row, where: Record<string, unknown>): boolean => {
+      const or = where.OR as { contactId?: unknown; createdBy?: string }[] | undefined;
+      if (or === undefined) return true;
+      return or.some((clause) => {
+        if (clause.createdBy !== undefined && clause.createdBy !== row.createdBy) return false;
+        if (clause.contactId === null) return row.contactId === null;
+        const spec = clause.contactId as { in: string[] };
+        return inList(row.contactId, spec.in);
+      });
+    };
+
+    const tx = {
+      call: {
+        findMany: async (args: {
+          where: Record<string, unknown>;
+          take?: number;
+          distinct?: string[];
+        }) => {
+          if (args.distinct !== undefined) {
+            // שאילתת המועמדים: מה שרשמתי על לקוחות שאינם גלויים לי
+            const spec = args.where.contactId as { notIn: string[] };
+            const seen = new Set<string>();
+            for (const row of rows) {
+              if (row.createdBy !== args.where.createdBy) continue;
+              if (row.contactId === null || spec.notIn.includes(row.contactId)) continue;
+              seen.add(row.contactId);
+            }
+            return [...seen].map((contactId) => ({ contactId }));
+          }
+          const kept = [...rows]
+            .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())
+            .filter((row) => matches(row, args.where));
+          return args.take === undefined ? kept : kept.slice(0, args.take);
+        },
+      },
+      // הקונה שלי גלוי; הליד חי, ולכן אינו יתום
+      buyer: { findMany: async () => [{ contactId: "01MINE" }] },
+      lead: { findMany: async () => [{ contactId: "01BLOCKED" }] },
+      property: { findMany: async () => [] },
+    };
+    const service = new CallsService(
+      { withTenant: async <T>(fn: (t: unknown) => Promise<T>): Promise<T> => fn(tx) } as never,
+      {} as never,
+      { getByIds: async () => new Map(), getById: async () => null } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    const page = await asAgent(["buyers.view_own"], "01ME", () => service.list({ limit: 2 }));
+    expect(page.map((call) => call.id)).toEqual(["01C2", "01C1"]);
+  });
+
   it("שיחה שאינה שלי ושיחה שאינה קיימת נראות זהה", async () => {
     const messages: string[] = [];
     for (const call of [null, OTHERS_CALL, { ...OTHERS_CALL, recordingKey: null }]) {

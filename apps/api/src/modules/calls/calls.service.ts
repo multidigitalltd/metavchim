@@ -170,52 +170,61 @@ export class CallsService {
     const { tenantId, userId } = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
       const visible = await visibleContactIds(tx, tenantId);
-      const rows = await tx.call.findMany({
+      const narrow = {
+        ...(query.outcome ? { outcome: query.outcome } : {}),
+        ...(query.leadId ? { leadId: query.leadId } : {}),
+        ...(query.contactId ? { contactId: query.contactId } : {}),
+        ...(query.recordedOnly ? { recordingKey: { not: null } } : {}),
+        ...(query.id ? { id: query.id } : {}),
+      };
+      /*
+       * „אני רשמתי” חל רק על שיחה **בלי בעלים** — בלי איש קשר, או
+       * עם לקוח שאינו שייך עוד לאיש. לקוח חי שהמודול שלו נחסם אינו
+       * חוזר דרך הענף הזה, אחרת שיחה שנרשמה כשהמודול היה פתוח הייתה
+       * שורדת את חסימתו (ביקורת Codex).
+       *
+       * הצמצום נעשה **לפני** ה-take ולא אחריו: סינון של עמוד שכבר
+       * נחתך מקצר אותו, וסוכן שרשם `limit` שיחות חדשות על מודול
+       * שנחסם היה מקבל יומן ריק בזמן ששיחות מותרות ישנות יותר
+       * קיימות (ביקורת Codex).
+       *
+       * העלות חסומה במי שרשם: ה-`distinct` רץ על השיחות של המשתמש
+       * בלבד, ורק על אנשי קשר שאינם גלויים לו ממילא — כמעט תמיד
+       * קבוצה ריקה, ואז אין בכלל בדיקת יתמות.
+       */
+      let orphans: string[] = [];
+      if (visible !== null) {
+        const mine = await tx.call.findMany({
+          where: {
+            tenantId,
+            ...narrow,
+            createdBy: userId,
+            contactId: { not: null, notIn: visible },
+          },
+          select: { contactId: true },
+          distinct: ["contactId"],
+        });
+        const candidates = mine.map((row) => row.contactId!);
+        orphans = [...(await orphanContactIds(tx, tenantId, candidates))];
+      }
+
+      const allowed = await tx.call.findMany({
         where: {
           tenantId,
-          ...(query.outcome ? { outcome: query.outcome } : {}),
-          ...(query.leadId ? { leadId: query.leadId } : {}),
-          ...(query.contactId ? { contactId: query.contactId } : {}),
-          ...(query.recordedOnly ? { recordingKey: { not: null } } : {}),
-          ...(query.id ? { id: query.id } : {}),
+          ...narrow,
           ...(visible === null
             ? {}
-            : { OR: [{ contactId: { in: visible } }, { createdBy: userId }] }),
+            : {
+                OR: [
+                  { contactId: { in: visible } },
+                  { createdBy: userId, contactId: null },
+                  { createdBy: userId, contactId: { in: orphans } },
+                ],
+              }),
         },
         orderBy: { occurredAt: "desc" },
         take: query.limit,
       });
-      /*
-       * „אני רשמתי” חל רק על שיחה **בלי בעלים** — בלי איש קשר, או
-       * עם לקוח שאינו שייך עוד לאיש. השאילתה למעלה מחזירה על-קבוצה,
-       * והצמצום נעשה כאן על אנשי הקשר שבעמוד בלבד: לקוח חי שנשלף
-       * בזכות „אני רשמתי” נופל, אחרת שיחה שנרשמה כשהמודול היה פתוח
-       * הייתה שורדת את חסימתו (ביקורת Codex).
-       *
-       * העמוד מתקצר ולא מתארך — נופלות רק שורות שאסור להראות.
-       */
-      const visibleSet = visible === null ? null : new Set(visible);
-      const suspect =
-        visibleSet === null
-          ? []
-          : rows
-              .filter(
-                (row) =>
-                  row.contactId !== null &&
-                  !visibleSet.has(row.contactId) &&
-                  row.createdBy === userId,
-              )
-              .map((row) => row.contactId!);
-      const orphans = await orphanContactIds(tx, tenantId, suspect);
-      const allowed =
-        visibleSet === null
-          ? rows
-          : rows.filter(
-              (row) =>
-                row.contactId === null ||
-                visibleSet.has(row.contactId) ||
-                orphans.has(row.contactId),
-            );
 
       /*
        * שאילתה אחת לכל אנשי הקשר בעמוד. `Promise.all` על `toDto`
