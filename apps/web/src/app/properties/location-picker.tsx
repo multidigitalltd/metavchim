@@ -127,7 +127,18 @@ export function LocationPicker({
       setResults(found);
       if (found.length === 0) setNote("לא נמצאה כתובת — אפשר לסמן ידנית על המפה.");
       else if (found.length === 1) {
-        placeMarker(found[0]!.lat, found[0]!.lon, "geocode");
+        /*
+         * גם כאן מדווחים על הכתובת — בדיוק כמו בבחירה מתוך כמה.
+         *
+         * המסלול הזה דילג על `onAddressSuggested`, ולכן טופס שנשען
+         * עליו למילוי שם (אזור החיפוש של הקונה) נשאר ריק דווקא
+         * במקרה **הקל**: הגיאוקודר החזיר תוצאה אחת מדויקת, הסיכה
+         * הונחה, והלחיצה על „הוסף” נענתה ב„כתבו את שם האזור”.
+         */
+        const only = found[0]!;
+        placeMarker(only.lat, only.lon, "geocode");
+        setQuery(only.label);
+        onAddressSuggested?.(only.label);
         setResults(null);
       }
     } catch {

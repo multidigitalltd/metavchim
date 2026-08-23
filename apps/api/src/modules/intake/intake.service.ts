@@ -7,20 +7,26 @@ import {
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import type { Prisma } from "@prisma/client";
+import type { Capability } from "@metavchim/shared";
 import {
   applyIntakeAnswers,
+  BuyerRequirementsSchema,
   describeIntakeChanges,
   intakeExpiryFrom,
   intakeInactiveReason,
   intakeInviteMessage,
+  pickIntakeFeatures,
+  PropertyTypeSchema,
   type IntakeAnswers,
   type IntakeStatus,
   type IntakeSubject,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
+import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
+import { BuyersService } from "../buyers/buyers.service";
 import { ContactsService } from "../contacts/contacts.service";
 
 /**
@@ -75,6 +81,24 @@ export interface IntakeRequestDto {
   waUrl: string | null;
 }
 
+/**
+ * המיזוג נדחה בסכימה — ולכן הטרנזקציה של הכרטיס מתבטלת.
+ *
+ * מחלקה ולא דגל, כי הסימון צריך לצאת מתוך פונקציה שרצה בתוך
+ * `BuyersService.update`: זריקה מבטלת שם את הכתיבה כולה, וזה בדיוק
+ * מה שנדרש — כרטיס מעודכן חצי גרוע מכרטיס שלא עודכן.
+ */
+class MergeRejected extends Error {}
+
+/**
+ * שליחה חדשה יותר של אותו קישור כבר תפסה את השורה.
+ *
+ * גם היא זורקת, ומאותה סיבה: הכתיבה לכרטיס חייבת להתבטל. ההבדל הוא
+ * מה אומרים אחריה — כאן אין מה לומר, כי הגרסה החדשה כבר עדכנה,
+ * התריעה ונרשמה ביומן.
+ */
+class Superseded extends Error {}
+
 /** מה נשמר על הבקשה. מצומצם — הצד הציבורי אינו זקוק ליותר. */
 interface TokenRow {
   id: string;
@@ -94,6 +118,7 @@ export class IntakeService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly contacts: ContactsService,
+    private readonly buyers: BuyersService,
   ) {}
 
   /* ================= הצד הפנימי — המתווך ================= */
@@ -171,6 +196,10 @@ export class IntakeService {
    * הבקשות של כרטיס אחד מצביעות על אותו איש קשר ועל אותו משרד,
    * ולולאה שקוראת אותם בכל סיבוב הפכה עשרים שורות לארבעים
    * שאילתות מיותרות.
+   *
+   * הבעלות נבדקת **לפני** השליפה, ולא רק ביצירה: הרשימה מחזירה את
+   * הקישורים הפעילים ואת `waUrl` שבו מספר הטלפון, כלומר בדיוק מה
+   * שיצירה מחזירה. שער על הכתיבה בלבד הוא חצי שער.
    */
   async listFor(
     subject: IntakeSubject,
@@ -178,6 +207,7 @@ export class IntakeService {
   ): Promise<IntakeRequestDto[]> {
     const ctx = TenantContext.current();
     return this.prisma.withTenant(async (tx) => {
+      await this.contactOf(tx, subject, subjectId);
       const rows = await tx.intakeRequest.findMany({
         where: { tenantId: ctx.tenantId, subject, subjectId },
         orderBy: { createdAt: "desc" },
@@ -193,10 +223,24 @@ export class IntakeService {
     });
   }
 
-  /** ביטול — הקישור מפסיק לעבוד מיידית. */
+  /**
+   * ביטול — הקישור מפסיק לעבוד מיידית.
+   *
+   * מזהה הבקשה לבדו אינו אומר של מי הכרטיס, ולכן הכרטיס נשלף
+   * תחילה והבעלות נבדקת עליו. בלי זה סוכן היה יכול לבטל את הקישור
+   * שעמית שלו שלח ללקוח — פעולה הרסנית שקשה לשחזר, כי הלקוח כבר
+   * מחזיק קישור שהפסיק לעבוד.
+   */
   async revoke(id: string): Promise<void> {
     const ctx = TenantContext.current();
     await this.prisma.withTenant(async (tx) => {
+      const row = await tx.intakeRequest.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+        select: { subject: true, subjectId: true },
+      });
+      if (row === null) throw new NotFoundException("הבקשה לא נמצאה");
+      await this.contactOf(tx, row.subject as IntakeSubject, row.subjectId);
+
       const updated = await tx.intakeRequest.updateMany({
         where: { id, tenantId: ctx.tenantId, status: { not: "revoked" } },
         data: { status: "revoked" },
@@ -214,7 +258,7 @@ export class IntakeService {
 
   async publicView(token: string): Promise<IntakePublicView> {
     const row = await this.resolveToken(token);
-    return this.prisma.withExplicitTenant(row.tenantId, async (tx) => {
+    return this.asOffice(row.tenantId, async (tx) => {
       const officeName = await this.officeName(tx, row.tenantId);
       const contact = await this.contacts.getById(tx, row.contactId);
       const inactive = intakeInactiveReason(
@@ -247,21 +291,27 @@ export class IntakeService {
         });
       }
 
-      const current = await this.currentRequirements(
-        tx,
-        row,
-        await this.targetBuyerId(tx, row),
-      );
+      const buyerId = await this.targetBuyerId(tx, row);
+      const current = await this.currentRequirements(tx, row, buyerId);
       const full = await tx.intakeRequest.findUnique({
         where: { id: row.id },
-        select: { status: true, submittedAt: true },
+        select: { status: true, submittedAt: true, answers: true },
       });
       return {
         officeName,
         greetingName: firstName(contact?.name),
         status: (full?.status ?? row.status) as IntakeStatus,
         inactive: null,
-        prefill: toAnswers(current),
+        /*
+         * ליד שאין לו עדיין כרטיס קונה מוצג ממה שהלקוח **עצמו** שלח
+         * קודם. בלי זה לקוח שפתח את הקישור בשנית — או שלחץ „שלחתי
+         * בטעות” — היה מקבל טופס ריק ומתחיל מאפס, אחרי שכבר מילא
+         * אותו: התשובות שמורות על הבקשה, והן פשוט לא הוצגו לו.
+         */
+        prefill:
+          buyerId !== null
+            ? toAnswers(current)
+            : toAnswers(asRecord(full?.answers)),
         submittedAt: full?.submittedAt?.toISOString() ?? null,
       };
     });
@@ -287,7 +337,7 @@ export class IntakeService {
       );
     }
 
-    await this.prisma.withExplicitTenant(row.tenantId, async (tx) => {
+    const claim = await this.asOffice(row.tenantId, async (tx) => {
       /*
        * **אותו כרטיס שממנו נשאב הטופס הוא הכרטיס שנכתב.**
        *
@@ -296,17 +346,31 @@ export class IntakeService {
        * אחר — כלומר הלקוח רואה את התיקון שלו נעלם. לכן היעד נקבע
        * פעם אחת ומשמש את שני הצדדים.
        */
-      const targetBuyerId = await this.targetBuyerId(tx, row);
-      const before = await this.currentRequirements(tx, row, targetBuyerId);
-      const after = applyIntakeAnswers(before, answers);
-      const changed = describeIntakeChanges(before, after);
+      /*
+       * נעילת איש הקשר — הגבול המשותף עם המרת הליד.
+       *
+       * `convertFromLead` נועלת את אותה שורה לפני שהיא קוראת את
+       * הטופס שנשלח. בלי הנעילה כאן שתי הפעולות רואות זו את מצבה
+       * הישן של זו: ההמרה קוראת „אין טופס שנשלח”, השליחה מוצאת
+       * „אין כרטיס קונה” ושומרת את התשובות על הבקשה בלבד, ושתיהן
+       * מצליחות — כשהתשובות של הלקוח נשארות תלויות באוויר ואף אחד
+       * לא ידע. הנעילה מסדרת אותן בתור, ומי שמגיע שני רואה את מה
+       * שהראשון עשה.
+       */
+      await tx.$queryRaw`SELECT id FROM contacts WHERE id = ${row.contactId} AND tenant_id = ${row.tenantId} FOR UPDATE`;
 
-      if (targetBuyerId !== null) {
-        await tx.buyer.updateMany({
-          where: { id: targetBuyerId, tenantId: row.tenantId, deletedAt: null },
-          data: { requirements: after as Prisma.InputJsonValue },
-        });
-      }
+      const targetBuyerId = await this.targetBuyerId(tx, row);
+
+      /*
+       * **המיזוג אינו נעשה כאן.**
+       *
+       * מפתה לחשב אותו יחד עם התפיסה, אבל הכתיבה לכרטיס קורית
+       * בטרנזקציה אחרת — ואז „הדרישות שהיו” הן צילום שכבר יכול היה
+       * להשתנות: הסוכן ערך את הכרטיס בלשונית אחרת, או שהלקוח שלח
+       * פעמיים והשתיים נחתו לא לפי הסדר. התוצאה היא מחיקה שקטה של
+       * מה שקרה בין לבין. לכן המיזוג יורד ל-`applyToBuyer`, שרץ
+       * מתחת לנעילת שורת הקונה.
+       */
 
       /*
        * `resubmit` נקרא **לפני** העדכון: אחריו `submittedAt` תמיד
@@ -315,76 +379,231 @@ export class IntakeService {
        */
       const previous = await tx.intakeRequest.findUnique({
         where: { id: row.id },
-        select: { submittedAt: true },
+        select: { submittedAt: true, answers: true },
       });
       const resubmit =
         previous?.submittedAt !== null && previous?.submittedAt !== undefined;
+      /*
+       * מה שנשלח קודם — להשוואה במסלול הליד.
+       *
+       * לליד בלי כרטיס קונה אין „דרישות שהיו” להשוות אליהן, ולכן
+       * `changed` שם היה תמיד ריק — ו-`notify` משתיקה שליחה חוזרת
+       * בלי שינויים. התוצאה: לקוח שתיקן או הרחיב את תשובותיו לפני
+       * ההמרה קיבל „נשמר”, והסוכן לא שמע דבר. ההשוואה כאן היא בין
+       * מה שהלקוח שלח קודם למה שהוא שולח עכשיו, וזו בדיוק השאלה
+       * שהסוכן צריך תשובה עליה.
+       */
+      const previousAnswers = asRecord(previous?.answers);
 
-      await tx.intakeRequest.update({
-        where: { id: row.id },
+      /*
+       * התפיסה מותנית, ולא כתיבה עיוורת.
+       *
+       * בין קריאת הטוקן לבין הכתיבה יכול לעבור זמן — והמתווך יכול
+       * לבטל את הקישור בדיוק בו, או שהתוקף פג. `update` בלתי מותנה
+       * היה **מחזיר** בקשה שבוטלה למצב „נשלחה”, ומחיל את התשובות
+       * על הכרטיס אחרי שהמשרד כבר אמר שהקישור אינו תקף. התנאי
+       * נבדק כאן בתוך `UPDATE` אחד, ולכן הוא נכון גם מול ביטול
+       * מקביל: מי שהגיע שני רואה אפס שורות.
+       */
+      /*
+       * `rev` הוא **מספר הגרסה** של השליחה הזו.
+       *
+       * התפיסה והכתיבה לכרטיס הן שתי טרנזקציות, ולכן סדר ההגעה
+       * לנעילת הקונה אינו בהכרח סדר השליחות: שליחה ותיקה שנעצרה
+       * אחרי התפיסה יכולה להגיע לנעילה **אחרי** שליחה חדשה שכבר
+       * כתבה — ולדרוס אותה בתשובות ישנות, בעוד שורת הבקשה נושאת
+       * את החדשות. הגרסה נבדקת מחדש מתחת לנעילה, ומי שכבר הוקדם
+       * מוותר.
+       *
+       * ULID ולא `submittedAt`: חותמת מדויקת למילישנייה, ושתי
+       * שליחות שנופלות באותה מילישנייה מקבלות ערך זהה — כלומר
+       * הבדיקה מפסיקה להבחין ביניהן בדיוק במקרה שבשבילו היא
+       * נכתבה.
+       */
+      const rev = ulid();
+      const claimed = await tx.intakeRequest.updateMany({
+        where: {
+          id: row.id,
+          tenantId: row.tenantId,
+          status: { not: "revoked" },
+          expiresAt: { gt: new Date() },
+        },
         data: {
           status: "submitted",
           submittedAt: new Date(),
+          submissionRev: rev,
           answers: answers as unknown as Prisma.InputJsonValue,
         },
       });
+      if (claimed.count === 0) return null;
 
-      /*
-       * ליד אינו נושא דרישות — הן שדה של קונה. התשובות נשמרות על
-       * הבקשה, וההתראה מזמינה להמיר בלחיצה; ההמרה עצמה נשארת
-       * החלטה של המתווך. המרה אוטומטית הייתה פותחת כרטיס קונה לכל
-       * מי שמילא טופס, כולל מי שהתקשר בטעות — ו-`convertFromLead`
-       * גם נופלת כשלאיש הקשר כבר יש קונה פעיל.
-       */
-      /*
-       * שליחה חוזרת שלא שינתה דבר אינה מתריעה.
-       *
-       * הקישור פעיל שבועיים, ומי שמחזיק בו יכול לשלוח שוב ושוב —
-       * הגבלת הקצב מתירה עשר בדקה. התראה על כל שליחה הייתה מציפה
-       * את רשימת ההתראות של המשרד עד שהוא יפסיק להסתכל עליה,
-       * וכולל על ההתראות שהוא כן צריך. שליחה **ראשונה** תמיד
-       * מתריעה: הסוכן צריך לדעת שהלקוח ענה, גם כשהתשובות זהות למה
-       * שכבר ידע.
-       */
-      if (!resubmit || changed.length > 0) {
-        await tx.notification.create({
-          data: {
-            id: ulid(),
-            tenantId: row.tenantId,
-            userId: null,
-            type: "intake_submitted",
-            title: "הלקוח מילא את טופס הדרישות",
-            /*
-             * הגוף מתאר את מה שבאמת קרה, ולא את מה שהיה נחמד לומר:
-             * ליד בלי כרטיס קונה **לא** עודכן, ואמירה „עודכן” עליו
-             * הייתה שולחת את המתווך לחפש שינוי שאינו קיים.
-             */
-            body:
-              targetBuyerId === null
-                ? "הדרישות נשמרו בבקשה — המירו את הליד לקונה כדי שייכנסו לכרטיס"
-                : changed.length > 0
-                  ? `עודכן: ${changed.join(", ")}`
-                  : "לא היו שינויים לעומת מה שהיה בכרטיס",
-            entityType: row.subject,
-            entityId: row.subjectId,
-          },
-        });
-      }
+      return { targetBuyerId, resubmit, rev, previousAnswers };
+    });
 
+    if (claim === null) {
+      throw new BadRequestException("הקישור אינו פעיל עוד");
+    }
+
+    const outcome =
+      claim.targetBuyerId === null
+        ? {
+            applied: false,
+            superseded: false,
+            /* ראו `previousAnswers`: שליחה מול שליחה, ולא מול כרטיס */
+            changed: describeIntakeChanges(
+              applyIntakeAnswers({}, claim.previousAnswers as IntakeAnswers),
+              applyIntakeAnswers({}, answers),
+            ),
+          }
+        : await this.applyToBuyer(
+            row.tenantId,
+            claim.targetBuyerId,
+            row.id,
+            claim.rev,
+            answers,
+          );
+
+    /*
+     * שליחה שהוקדמה שותקת לגמרי. הכרטיס נושא את התשובות החדשות,
+     * ההתראה עליהן כבר נשלחה, והיומן כבר רשם אותן — הודעה שנייה על
+     * גרסה ישנה יותר רק מבלבלת את מי שקורא אותה.
+     */
+    if (outcome.superseded) return { ok: true };
+
+    await this.asOffice(row.tenantId, async (tx) => {
       /*
        * היומן נרשם **בכל** שליחה, גם כשאין התראה: הוא הראיה למי
-       * נגע בכרטיס ומתי, ודילוג עליו היה יוצר שינוי בלי מקור.
+       * נגע בכרטיס ומתי, ודילוג עליו היה יוצר שינוי בלי מקור. הוא
+       * נרשם כאן ולא בתפיסה כדי שיישא את השינויים שבאמת נכתבו —
+       * אלה מחושבים תחת נעילת הכרטיס, אחריה.
        */
       await this.audit.record(tx, {
         action: "intake.submit",
         entityType: row.subject,
         entityId: row.subjectId,
         // רק שמות שדות — לא מה שנכתב בהם
-        metadata: { changed },
+        metadata: { changed: outcome.changed },
+      });
+      await this.notify(tx, row, {
+        targetBuyerId: claim.targetBuyerId,
+        resubmit: claim.resubmit,
+        ...outcome,
       });
     });
-
     return { ok: true };
+  }
+
+  /**
+   * הדרישות החדשות → כרטיס הקונה, **דרך `BuyersService.update`.**
+   *
+   * כתיבה ישירה של ה-JSON לבדו היא חצי עדכון: לקונה יש גם עמודות
+   * „חמות” — ערים, סוג עסקה, תקציב, חדרים, ודגל אזורי המפה — והסינון
+   * הגס של מנוע ההתאמות קורא **אותן**, לא את ה-JSON. לקוח שהחליף עיר
+   * או העלה תקציב היה מקבל „נשמר”, ובפועל ממשיך להיבחן לפי הערכים
+   * הישנים: התאמות קיימות נשארות תקועות וחדשות אינן נפתחות. אותה
+   * כתיבה גם דילגה על ה-outbox ועל רענון הביקוש ברשת, כלומר על כל
+   * מה שהופך עריכה לעריכה.
+   *
+   * **המיזוג עצמו קורה בתוך הקריאה**, כפונקציה ש-`update` מפעילה
+   * אחרי שהיא נעלה את שורת הקונה. זה מה שמונע מחיקה שקטה: „הדרישות
+   * שהיו” נקראות אחרי הנעילה, ולכן עריכה של הסוכן או שליחה מקבילה
+   * של הלקוח נכנסות למיזוג במקום להידרס על ידו.
+   *
+   * הסכימה נאכפת לפני הכתיבה. מבנה שאינו עובר אותה אינו נכתב חצי —
+   * התשובות כבר שמורות על הבקשה, וההתראה תאמר שהכרטיס לא עודכן.
+   */
+  private async applyToBuyer(
+    tenantId: string,
+    buyerId: string,
+    requestId: string,
+    rev: string,
+    answers: IntakeAnswers,
+  ): Promise<{ applied: boolean; changed: string[]; superseded: boolean }> {
+    /*
+     * מה שהמיזוג גילה, מתוך הטרנזקציה החוצה. ההתראה חייבת לתאר את
+     * מה שנכתב בפועל, וזה ידוע רק שם — מתחת לנעילה.
+     */
+    let changed: string[] = [];
+    let rejected: string | null = null;
+
+    try {
+      await TenantContext.run(officeContext(tenantId), () =>
+        this.buyers.update(buyerId, {
+          requirements: async (before, tx) => {
+            /*
+             * הבדיקה הראשונה מתחת לנעילה: האם השליחה הזו עדיין
+             * האחרונה. ראו ההסבר ליד `rev` ב-`submit`.
+             */
+            const current = await tx.intakeRequest.findUnique({
+              where: { id: requestId },
+              select: { submissionRev: true },
+            });
+            if (current?.submissionRev !== rev) throw new Superseded();
+
+            const after = applyIntakeAnswers(before, answers);
+            /*
+             * האימות על **התוצאה** ולא על המקור. כרטיס שיושב בו ערך
+             * ישן שאינו בסכימה עוד הוא בדיוק מי שהמיזוג אמור לתקן,
+             * ואימות מוקדם היה מפיל אותו לפני שהתיקון נכתב.
+             */
+            const parsed = BuyerRequirementsSchema.safeParse(after);
+            if (!parsed.success) {
+              // בלי תוכן הדרישות ביומן — רק שמות השדות שנפלו
+              rejected = parsed.error.issues
+                .map((issue) => issue.path.join("."))
+                .join(", ");
+              throw new MergeRejected();
+            }
+            changed = describeIntakeChanges(before, after);
+            return parsed.data;
+          },
+        }),
+      );
+    } catch (error: unknown) {
+      if (error instanceof Superseded) {
+        return { applied: false, changed: [], superseded: true };
+      }
+      if (!(error instanceof MergeRejected)) throw error;
+      this.logger.warn(
+        `intake submit: requirements rejected for buyer ${buyerId} — ${rejected ?? "unknown"}`,
+      );
+      return { applied: false, changed: [], superseded: false };
+    }
+    return { applied: true, changed, superseded: false };
+  }
+
+  /**
+   * ההתראה לסוכן — מתארת את מה שבאמת קרה.
+   *
+   * שליחה חוזרת שלא שינתה דבר אינה מתריעה: הקישור פעיל שבועיים, מי
+   * שמחזיק בו יכול לשלוח שוב ושוב, והתראה על כל שליחה הייתה מציפה
+   * את הרשימה עד שהמשרד יפסיק להסתכל עליה — גם על ההתראות שהוא כן
+   * צריך. שליחה **ראשונה** תמיד מתריעה: הסוכן צריך לדעת שהלקוח ענה,
+   * גם כשהתשובות זהות למה שכבר ידע.
+   */
+  private async notify(
+    tx: TenantTx,
+    row: TokenRow,
+    result: {
+      targetBuyerId: string | null;
+      changed: string[];
+      resubmit: boolean;
+      applied: boolean;
+    },
+  ): Promise<void> {
+    if (result.resubmit && result.changed.length === 0) return;
+    await tx.notification.create({
+      data: {
+        id: ulid(),
+        tenantId: row.tenantId,
+        userId: null,
+        type: "intake_submitted",
+        title: "הלקוח מילא את טופס הדרישות",
+        body: notificationBody(result),
+        entityType: row.subject,
+        entityId: row.subjectId,
+      },
+    });
   }
 
   /* ================= האוטומציה — שיחה שלא נענתה ================= */
@@ -443,6 +662,28 @@ export class IntakeService {
   /* ================= פנימי ================= */
 
   /**
+   * העבודה שאחרי הטוקן — תחת הקשר דייר **מלא**, ולא רק תחת RLS.
+   *
+   * `withExplicitTenant` מזריק את `app.tenant_id` לטרנזקציה, וזה מה
+   * שאוכף את הבידוד. אבל חצי מהשירותים שהצד הציבורי משתמש בהם
+   * קוראים גם את `TenantContext` — פענוח איש הקשר, יומן הביקורת,
+   * עדכון הכרטיס — וברקע של בקשה בלי עוגייה ההקשר הזה **ריק**,
+   * ולכן הם זורקים. שתי השכבות חייבות להיות מוגדרות יחד, ולכן הן
+   * נכרכות כאן ולא בכל קורא בנפרד.
+   *
+   * המשתמש ריק כי אין כזה: את הטופס מילא הלקוח, לא סוכן. היומן
+   * רושם את הפעולה בלי לייחס אותה למי שלא עשה אותה.
+   */
+  private async asOffice<T>(
+    tenantId: string,
+    fn: (tx: TenantTx) => Promise<T>,
+  ): Promise<T> {
+    return TenantContext.run(officeContext(tenantId), () =>
+      this.prisma.withExplicitTenant(tenantId, fn),
+    );
+  }
+
+  /**
    * הטוקן → השורה. `withPublicIntake` בלבד, ובלי הקשר דייר.
    *
    * טוקן שאינו קיים וטוקן של משרד אחר מחזירים את אותה שגיאה: מבקר
@@ -467,7 +708,18 @@ export class IntakeService {
     return row;
   }
 
-  /** איש הקשר של הכרטיס, ואימות שהכרטיס בכלל קיים ושייך למשרד. */
+  /**
+   * איש הקשר של הכרטיס — **ואימות שהכרטיס שייך למי שמבקש.**
+   *
+   * הדייר לבדו אינו מספיק כאן. סוכן עם `buyers.edit` אך בלי
+   * `buyers.view_all` אינו רואה את הקונים של חבריו למשרד, ובלי
+   * פילטר הבעלות הוא כן היה יכול להנפיק להם קישור ציבורי — ולקבל
+   * בתשובה גם `waUrl` ובו מספר הטלפון של לקוח שאינו שלו. אותו
+   * פילטר שסוגר את מסך הקונים סוגר גם את הדלת הזו.
+   *
+   * `404` ולא `403`: לכרטיס של סוכן אחר אין למבקש הרשאה לדעת אפילו
+   * שהוא קיים.
+   */
   private async contactOf(
     tx: TenantTx,
     subject: IntakeSubject,
@@ -476,14 +728,23 @@ export class IntakeService {
     const tenantId = TenantContext.current().tenantId;
     if (subject === "buyer") {
       const buyer = await tx.buyer.findFirst({
-        where: { id: subjectId, tenantId, deletedAt: null },
+        where: {
+          id: subjectId,
+          tenantId,
+          deletedAt: null,
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
         select: { contactId: true },
       });
       if (buyer === null) throw new NotFoundException("קונה לא נמצא");
       return buyer.contactId;
     }
     const lead = await tx.lead.findFirst({
-      where: { id: subjectId, tenantId },
+      where: {
+        id: subjectId,
+        tenantId,
+        ...ownershipFilter("leads.view_all", "assignedToUserId"),
+      },
       select: { contactId: true },
     });
     if (lead === null) throw new NotFoundException("ליד לא נמצא");
@@ -561,6 +822,60 @@ interface DtoContext {
   phone: string | null;
 }
 
+/**
+ * ההקשר שהצד הציבורי פועל בו — **של המשרד, לא של סוכן.**
+ *
+ * `buyers.view_all` ולא `view_own`: „שלי” חסר משמעות כאן, כי אין
+ * משתמש. הכרטיס שנכתב נגזר משורת הבקשה עצמה, בתוך הדייר של אותה
+ * שורה, ולכן הרוחב הזה אינו פותח דבר שהטוקן לא פתח ממילא. היכולות
+ * מצומצמות לזו האחת בכוונה: ההקשר אינו עובר לשום ניתוב, והרחבה
+ * שלו הייתה הרחבה של מה שקישור ברחוב שווה.
+ */
+function officeContext(tenantId: string): {
+  tenantId: string;
+  userId: string;
+  capabilities: ReadonlySet<Capability>;
+  billingOnly: boolean;
+} {
+  return {
+    tenantId,
+    userId: "",
+    capabilities: new Set<Capability>(["buyers.view_all"]),
+    billingOnly: false,
+  };
+}
+
+/**
+ * גוף ההתראה — מתאר את מה שקרה, ולא את מה שהיה נחמד לומר.
+ *
+ * ליד בלי כרטיס קונה **לא** עודכן; „עודכן” עליו היה שולח את
+ * המתווך לחפש שינוי שאינו קיים. וכרטיס שהעדכון עליו נדחה חייב
+ * לומר זאת במפורש, אחרת השינוי אבד בשקט — וזו התקלה הגרועה
+ * מבין השלוש.
+ */
+function notificationBody(result: {
+  targetBuyerId: string | null;
+  changed: string[];
+  applied: boolean;
+}): string {
+  if (result.targetBuyerId === null) {
+    return "הדרישות נשמרו בבקשה — המירו את הליד לקונה כדי שייכנסו לכרטיס";
+  }
+  if (!result.applied) {
+    return "הדרישות נשמרו בבקשה, אך לא נכנסו לכרטיס — בדקו אותן ידנית";
+  }
+  return result.changed.length > 0
+    ? `עודכן: ${result.changed.join(", ")}`
+    : "לא היו שינויים לעומת מה שהיה בכרטיס";
+}
+
+/** JSON מהמסד → אובייקט, או ריק. מערך ו-`null` אינם דרישות. */
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 function toDto(
   row: {
     id: string;
@@ -623,9 +938,20 @@ function toAnswers(req: Record<string, unknown>): IntakeAnswers {
       (c): c is string => typeof c === "string",
     );
   }
+  /*
+   * רק סוגי נכס שהסכימה מכירה.
+   *
+   * לפני התיקון העמוד הציבורי הציע `house` ו-`lot`, שאינם קיימים
+   * ב-`PropertyTypeSchema`. הם נשמרו בדרישות של מי שסימן אותם,
+   * וכשהנתיב הציבורי נסגר על ה-enum האמיתי הם הפכו את הטופס של אותו
+   * לקוח לבלתי-שליח: הערך חוזר בפריפיל, נשלח בחזרה, ונדחה — והוא
+   * אינו מוצג לו בכלל, ולכן אינו יכול להסיר אותו. מה שלא יוצא מכאן
+   * אינו חוזר לכאן, והשליחה הראשונה מנקה את השארית.
+   */
   if (Array.isArray(req["propertyTypes"])) {
     out.propertyTypes = req["propertyTypes"].filter(
-      (t): t is string => typeof t === "string",
+      (t): t is string =>
+        typeof t === "string" && PropertyTypeSchema.safeParse(t).success,
     );
   }
   for (const key of [
@@ -638,17 +964,14 @@ function toAnswers(req: Record<string, unknown>): IntakeAnswers {
     const value = req[key];
     if (typeof value === "number" && Number.isFinite(value)) out[key] = value;
   }
-  const features = req["features"];
-  if (
-    typeof features === "object" &&
-    features !== null &&
-    !Array.isArray(features)
-  ) {
-    const picked: Record<string, "must" | "nice"> = {};
-    for (const [key, value] of Object.entries(features)) {
-      if (value === "must" || value === "nice") picked[key] = value;
-    }
-    out.features = picked as IntakeAnswers["features"];
+  /*
+   * חמשת המאפיינים הקבועים בלבד. מאפיין מותאם של המשרד
+   * (`custom:נוף לים`) שהיה יוצא לעמוד הציבורי היה חוזר משם בשליחה,
+   * והסכימה של הנתיב הציבורי דוחה אותו — כלומר קונה אחד כזה הפך
+   * את הטופס שלו לבלתי-שליח, על שדה שהעמוד אינו מציג בכלל.
+   */
+  if (req["features"] !== undefined) {
+    out.features = pickIntakeFeatures(req["features"]);
   }
   const entryType = req["entryType"];
   if (

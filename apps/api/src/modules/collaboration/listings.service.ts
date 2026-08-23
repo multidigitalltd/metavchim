@@ -515,6 +515,32 @@ export class ListingsService {
   }
 
   /**
+   * רענון מפתחות התמונות **בתוך** הטרנזקציה של הקורא.
+   *
+   * אותו נימוק כמו ב-`closeForProperty`, ובאותה חומרה. מחיקת תמונה
+   * מוחקת גם את האובייקט באחסון; אם הרענון של הצילום הוא „כמיטב
+   * היכולת” וכשל זמני נבלע, המודעה ברשת נשארת מצביעה למפתח שכבר
+   * אינו קיים — כלומר תמונה שבורה בפיד של כל המשרדים, **לצמיתות**,
+   * עד שיקרה במקרה שינוי אחר באותו נכס. צילום ישן של מחיר מתוקן
+   * בעריכה הבאה; הפניה לאובייקט מחוק אינה מתקנת את עצמה.
+   *
+   * רק `photoKeys`: זה כל מה שמסלול התמונות משנה, וכתיבת שאר הצילום
+   * כאן הייתה מרחיבה טרנזקציה של מחיקת תמונה לשדות שלא נגעו בהם.
+   */
+  async syncPhotoKeys(tx: TenantTx, propertyId: string): Promise<void> {
+    const tenantId = TenantContext.current().tenantId;
+    const listing = await tx.sharedListing.findFirst({
+      where: { tenantId, originPropertyId: propertyId, status: "active" },
+      select: { id: true },
+    });
+    if (!listing) return;
+    await tx.sharedListing.update({
+      where: { id: listing.id },
+      data: { photoKeys: await this.photoKeysFor(tx, tenantId, propertyId) },
+    });
+  }
+
+  /**
    * סגירת הפרסום **בתוך** הטרנזקציה שמורידה את הנכס.
    *
    * `resyncForProperty` מספיק לעריכה — שם הכישלון הגרוע ביותר הוא

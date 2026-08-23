@@ -15,10 +15,20 @@ export type Phone = z.infer<typeof PhoneSchema>;
 export const MoneyAgorotSchema = z.number().int().nonnegative();
 export type MoneyAgorot = z.infer<typeof MoneyAgorotSchema>;
 
+/**
+ * התקרה לגודל עמוד — **מקור אמת אחד לשרת ולמסך.**
+ *
+ * הסכימות בשרת הן `.strict()`, ולכן בקשה מעל התקרה נדחית בשער ולא
+ * מגיעה לשירות כלל. מסך שקבע לעצמו מספר גדול יותר אינו „מקבל פחות
+ * שורות” — הוא מקבל 400 על כל בקשה, וזה בדיוק מה שקרה לבורר
+ * הנכסים התאומים. קבוע משותף הופך את הפער הזה לבלתי אפשרי.
+ */
+export const PAGE_LIMIT_MAX = 100;
+
 /** עמוד תוצאות מבוסס Cursor — הסטנדרט לכל רשימה במערכת. */
 export const PageRequestSchema = z.object({
   cursor: z.string().optional(),
-  limit: z.number().int().min(1).max(100).default(50),
+  limit: z.number().int().min(1).max(PAGE_LIMIT_MAX).default(50),
 });
 export type PageRequest = z.infer<typeof PageRequestSchema>;
 

@@ -67,7 +67,26 @@ const STEPS = [
   },
 ] as const;
 
-export function TelephonyPitch(): React.JSX.Element {
+export function TelephonyPitch({
+  canOpenSettings,
+}: {
+  /**
+   * האם החיבור בהגדרות פתוח בפועל למשתמש הזה — **הרשאה וגם מסלול.**
+   *
+   * הקישור „לחיבור בהגדרות” מוצג רק כשהתשובה חיובית, ושתי הדרכים
+   * שהוא נשבר בהן שקולות מבחינת מי שלוחץ עליו:
+   *
+   * - **בלי `settings.manage`** הסוכן נוחת ב-`/settings`, שם
+   *   `/settings/tenant` מחזיר 403 והמסך מציג שגיאת הרשאה.
+   * - **בלי המודול במסלול** המשרד נוחת על `LockedFeature` במקום
+   *   סעיף החיבור, ונתיבי החיבור חסומים ב-`@RequireFeature`.
+   *
+   * בשני המקרים זו הזמנה לפעולה שמסתיימת בקיר. כפתור „להצטרפות
+   * לשירות” נשאר לכולם: הוא פותח פנייה לתמיכה, ומי שהמודול אינו
+   * במסלול שלו — או שאין לו הרשאה — הוא בדיוק מי שאמור לפנות.
+   */
+  canOpenSettings: boolean;
+}): React.JSX.Element {
   return (
     <section className="mv-pitch" aria-labelledby="pbx-pitch-heading">
       <div className="mv-pitch-head">
@@ -129,9 +148,11 @@ export function TelephonyPitch(): React.JSX.Element {
         >
           להצטרפות לשירות
         </button>
-        <Link href="/settings?tab=integrations#telephony" className="mv-pitch-link">
-          כבר יש לי מרכזיה — לחיבור בהגדרות ←
-        </Link>
+        {canOpenSettings ? (
+          <Link href="/settings?tab=integrations#telephony" className="mv-pitch-link">
+            כבר יש לי מרכזיה — לחיבור בהגדרות ←
+          </Link>
+        ) : null}
       </div>
     </section>
   );

@@ -6,6 +6,8 @@ import {
   intakeExpiryFrom,
   intakeInactiveReason,
   intakeInviteMessage,
+  mergeIntakeSeed,
+  pickIntakeFeatures,
 } from "./intake";
 
 const NOW = new Date("2026-08-23T10:00:00Z");
@@ -194,5 +196,86 @@ describe("intakeInviteMessage", () => {
       missedCall: true,
     });
     expect(text).toContain("ניסינו להשיג אתכם");
+  });
+});
+
+describe("pickIntakeFeatures", () => {
+  it("מאפיין מותאם של המשרד אינו יוצא לעמוד הציבורי", () => {
+    /*
+     * זו לא הידור: הסכימה של הנתיב הציבורי מכירה חמישה מאפיינים
+     * בלבד, וכל מפתח אחר שחוזר ממנה **דוחה את כל השליחה**. קונה
+     * אחד עם `custom:` היה הופך את הטופס שלו לבלתי-שליח, על שדה
+     * שהעמוד אינו מציג בכלל.
+     */
+    const picked = pickIntakeFeatures({
+      hasElevator: "must",
+      "custom:נוף לים": "nice",
+      hasParking: "nice",
+    });
+    expect(picked).toEqual({ hasElevator: "must", hasParking: "nice" });
+  });
+
+  it("ערך שאינו „חובה” או „נחמד” אינו עובר", () => {
+    expect(pickIntakeFeatures({ hasElevator: "maybe" })).toEqual({});
+  });
+
+  it("קלט שאינו אובייקט מחזיר ריק ולא זורק", () => {
+    expect(pickIntakeFeatures(null)).toEqual({});
+    expect(pickIntakeFeatures(["hasElevator"])).toEqual({});
+  });
+});
+
+describe("mergeIntakeSeed", () => {
+  const seed = {
+    dealType: "sale",
+    cities: ["רמת גן"],
+    propertyTypes: ["penthouse"],
+    roomsMin: 4,
+    budgetMaxAgorot: 300_000_000,
+    features: { hasSafeRoom: "must" },
+    entryType: "flexible",
+  };
+
+  it("מה שהמתווך הקליד גובר", () => {
+    const merged = mergeIntakeSeed(seed, {
+      dealType: "rent",
+      cities: ["תל אביב"],
+      budgetMaxAgorot: 250_000_000,
+    });
+    expect(merged["dealType"]).toBe("rent");
+    expect(merged["cities"]).toEqual(["תל אביב"]);
+    expect(merged["budgetMaxAgorot"]).toBe(250_000_000);
+  });
+
+  it("מה שהוא השאיר ריק נשאב ממה שהלקוח מילא", () => {
+    /*
+     * טופס ההמרה שואל ערים, סוג עסקה ותקציב בלבד. בלי השאיבה
+     * החדרים, סוגי הנכס, המאפיינים ומועד הכניסה שהלקוח טרח למלא
+     * היו נמחקים בדיוק ברגע שההתראה הבטיחה שהם ייכנסו.
+     */
+    const merged = mergeIntakeSeed(seed, {
+      dealType: "sale",
+      cities: ["רמת גן"],
+      propertyTypes: [],
+      features: {},
+      neighborhoods: [],
+      searchAreas: [],
+    });
+    expect(merged["roomsMin"]).toBe(4);
+    expect(merged["propertyTypes"]).toEqual(["penthouse"]);
+    expect(merged["features"]).toEqual({ hasSafeRoom: "must" });
+    expect(merged["entryType"]).toBe("flexible");
+    expect(merged["budgetMaxAgorot"]).toBe(300_000_000);
+  });
+
+  it("מערך ריק בשני הצדדים אינו מחזיר מפתח ריק", () => {
+    const merged = mergeIntakeSeed({}, { cities: [], propertyTypes: [] });
+    expect(merged["cities"]).toBeUndefined();
+    expect(merged["propertyTypes"]).toBeUndefined();
+  });
+
+  it("בלי תשובות מהלקוח — מה שהוקלד עובר כמות שהוא", () => {
+    const chosen = { dealType: "rent", cities: ["חיפה"] };
+    expect(mergeIntakeSeed({}, chosen)).toEqual(chosen);
   });
 });

@@ -73,9 +73,13 @@ export class MediaService {
    * הקליטה — נשאר בפיד בלי תמונה, וגם העלאת התמונות אחר כך לא
    * שינתה זאת (דיווח המשתמש).
    *
-   * best-effort, כמו בעריכת נכס: התמונה כבר הועלתה (או נמחקה),
-   * וכשל זמני בסנכרון אינו הופך פעולה שהצליחה ל"נכשלה" — הצילום
-   * יתרענן בשינוי הבא.
+   * best-effort, כמו בעריכת נכס: התמונה כבר הועלתה, וכשל זמני
+   * בסנכרון אינו הופך פעולה שהצליחה ל"נכשלה" — הכישלון הגרוע ביותר
+   * כאן הוא תמונה חדשה שתופיע בפיד רק אחרי השינוי הבא.
+   *
+   * **מחיקה אינה עוברת כאן** אלא ב-`syncPhotoKeys` בתוך הטרנזקציה:
+   * שם הכישלון הגרוע ביותר הוא הפניה לאובייקט שנמחק, והוא אינו
+   * מתקן את עצמו. ראו `remove`.
    */
   private async syncNetworkListing(propertyId: string): Promise<void> {
     try {
@@ -240,6 +244,15 @@ export class MediaService {
       });
       if (!row) throw new NotFoundException("תמונה לא נמצאה");
       await tx.propertyMedia.delete({ where: { id: mediaId } });
+      /*
+       * הצילום ברשת מתרענן **באותה טרנזקציה**, ולא כמיטב היכולת.
+       *
+       * בהמשך הפונקציה האובייקט נמחק מהאחסון. רענון שנבלע בכשל היה
+       * משאיר את `photoKeys` של המודעה מצביע למפתח שנמחק — תמונה
+       * שבורה בפיד של כל המשרדים, בלי דרך לתקן אותה מלבד שינוי אקראי
+       * אחר באותו נכס. כאן או ששניהם קורים או שאף אחד מהם.
+       */
+      await this.listings.syncPhotoKeys(tx, propertyId);
       await this.audit.record(tx, {
         action: "property.media_delete",
         entityType: "property",
@@ -256,8 +269,6 @@ export class MediaService {
         ) AS "exists"`;
       return { s3Key: row.s3Key, referencedByOffer: referencing[0]?.exists ?? false };
     });
-    // התמונה כבר אינה של הנכס, ולכן היא אינה אמורה להישאר במודעה
-    await this.syncNetworkListing(propertyId);
     if (referencedByOffer) return;
     // מחיקת האובייקט אחרי הטרנזקציה — כשל זמני מנותב לניסיון חוזר עמיד
     // דרך Outbox → תור low; לעולם לא רשומה שמצביעה לכלום.

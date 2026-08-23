@@ -7,12 +7,15 @@ import {
 } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
+  applyIntakeAnswers,
   BuyerRequirementsSchema,
   DEFAULT_COMMISSION_SPLIT,
+  mergeIntakeSeed,
   uniformTerms,
   labelOf,
   MATURITY_LABELS,
   type BuyerRequirements,
+  type IntakeAnswers,
   type Page,
 } from "@metavchim/shared";
 import { assertBuyerAccess, ownershipFilter } from "../../common/ownership";
@@ -113,6 +116,47 @@ export class BuyersService {
   }
 
   /**
+   * הדרישות להמרה, אחרי שאיבה ממה שהלקוח כבר מילא בטופס.
+   *
+   * נלקחת **הבקשה האחרונה שנשלחה** עבור הליד הזה. שליחה חוזרת דורסת
+   * את הקודמת באותה שורה, ולכן „אחרונה” כאן היא פשוט „מה שהלקוח
+   * אומר עכשיו”.
+   *
+   * מבנה שאינו עובר את הסכימה אינו מוחל בכלל: ההמרה חייבת להצליח,
+   * ותשובה פגומה משורה ישנה אינה סיבה להכשיל אותה. במקרה כזה נכנסות
+   * הדרישות שהמתווך הקליד, כמו קודם.
+   */
+  private async seedFromIntake(
+    tx: TenantTx,
+    tenantId: string,
+    leadId: string,
+    chosen: BuyerRequirements,
+  ): Promise<BuyerRequirements> {
+    const request = await tx.intakeRequest.findFirst({
+      where: { tenantId, subject: "lead", subjectId: leadId, status: "submitted" },
+      orderBy: { submittedAt: "desc" },
+      select: { answers: true },
+    });
+    const answers = request?.answers;
+    if (typeof answers !== "object" || answers === null || Array.isArray(answers)) {
+      return chosen;
+    }
+    const seed = applyIntakeAnswers({}, answers as IntakeAnswers);
+    const merged = BuyerRequirementsSchema.safeParse(
+      mergeIntakeSeed(seed, chosen as unknown as Record<string, unknown>),
+    );
+    if (!merged.success) {
+      this.logger.warn(
+        `intake seed rejected for lead ${leadId} — ${merged.error.issues
+          .map((i) => i.path.join("."))
+          .join(", ")}`,
+      );
+      return chosen;
+    }
+    return merged.data;
+  }
+
+  /**
    * המרת ליד לקונה (docs/01): הליד הבשיל — המתווך מוסיף דרישות והאדם
    * נכנס למנוע ההתאמות. אותו contact (אין כפילות אדם, docs/03 §contacts),
    * ההמרה נתפסת אטומית (updateMany מותנה — לחיצה כפולה לא יוצרת שני
@@ -144,6 +188,31 @@ export class BuyersService {
       // מסתדרים בתור — בדיקת "קונה פעיל קיים" אטומית ברמת ה-contact,
       // כי אין unique על (tenant, contact) בקונים (ביקורת Codex)
       await tx.$queryRaw`SELECT id FROM contacts WHERE id = ${lead.contactId} AND tenant_id = ${ctx.tenantId} FOR UPDATE`;
+
+      /*
+       * מה שהלקוח כבר מילא בטופס הדרישות נכנס לכרטיס החדש.
+       *
+       * לליד אין שדה דרישות, ולכן התשובות של הלקוח שוכבות על בקשת
+       * הטופס עד הרגע הזה — וההתראה שהמשרד קיבל אומרת לו במפורש
+       * „המירו את הליד לקונה כדי שייכנסו לכרטיס”. טופס ההמרה שואל
+       * ערים, סוג עסקה ותקציב בלבד; בלי השאיבה הזו החדרים, סוגי
+       * הנכס, המאפיינים ומועד הכניסה שהלקוח טרח למלא היו נמחקים
+       * בדיוק ברגע שהובטח שהם ייכנסו. מה שהמתווך הקליד גובר —
+       * ראו `mergeIntakeSeed`.
+       *
+       * **אחרי נעילת איש הקשר, ולא לפניה.** השליחה של הלקוח נועלת
+       * את אותה שורה לפני שהיא מחליטה אם יש כרטיס קונה לכתוב אליו,
+       * ולכן הנעילה היא הגבול המשותף לשתי הפעולות. קריאה שלפניה
+       * הייתה מאפשרת בדיוק את הרצף שמאבד את התשובות: ההמרה קוראת
+       * „אין טופס שנשלח”, השליחה מוצאת „אין קונה” ושומרת על הבקשה
+       * בלבד, וההמרה פותחת כרטיס בלי מה שהלקוח מילא.
+       */
+      const requirements = await this.seedFromIntake(
+        tx,
+        ctx.tenantId,
+        leadId,
+        input.requirements,
+      );
       const existingBuyer = await tx.buyer.findFirst({
         where: {
           tenantId: ctx.tenantId,
@@ -189,21 +258,21 @@ export class BuyersService {
           // הקונה שייך לסוכן שמטפל בליד — אדמין שממיר לא גונב בעלות
           // מסוכן שרואה רק view_own (ביקורת Codex, P1)
           ownerUserId: lead.assignedToUserId ?? ctx.userId,
-          cities: input.requirements.cities,
-          hasSearchAreas: input.requirements.searchAreas.length > 0,
-          dealType: input.requirements.dealType,
+          cities: requirements.cities,
+          hasSearchAreas: requirements.searchAreas.length > 0,
+          dealType: requirements.dealType,
           budgetMinAgorot:
-            input.requirements.budgetMinAgorot === undefined
+            requirements.budgetMinAgorot === undefined
               ? null
-              : BigInt(input.requirements.budgetMinAgorot),
+              : BigInt(requirements.budgetMinAgorot),
           // חסר = הלקוח לא מסר תקציב, ולא "תקציב אפס"
           budgetMaxAgorot:
-            input.requirements.budgetMaxAgorot === undefined
+            requirements.budgetMaxAgorot === undefined
               ? null
-              : BigInt(input.requirements.budgetMaxAgorot),
-          roomsMin: input.requirements.roomsMin ?? null,
-          roomsMax: input.requirements.roomsMax ?? null,
-          requirements: input.requirements as object,
+              : BigInt(requirements.budgetMaxAgorot),
+          roomsMin: requirements.roomsMin ?? null,
+          roomsMax: requirements.roomsMax ?? null,
+          requirements: requirements as object,
           financing: input.financing ?? "unknown",
           maturity: input.maturity ?? "interested",
           source: `lead:${lead.source}`,
@@ -346,10 +415,34 @@ export class BuyersService {
     return id;
   }
 
+  /**
+   * עריכת קונה.
+   *
+   * `requirements` מקבל גם **פונקציה** ולא רק ערך, וזה לא נוחות:
+   * קורא שהדרישות החדשות שלו נגזרות מהקיימות — כמו מיזוג התשובות
+   * מטופס הלקוח — חייב לגזור אותן **אחרי** נעילת השורה. חישוב מחוץ
+   * לטרנזקציה נשען על צילום שכבר יכול היה להשתנות, ואז הכתיבה
+   * מוחקת בשקט עריכה שקרתה בין לבין. הפונקציה מופעלת כאן, בין
+   * הנעילה לכתיבה, ולכן המיזוג רואה את מה שבאמת כתוב בכרטיס.
+   *
+   * היא מקבלת את ה-JSON **הגולמי** ולא מבנה מאומת, ואת ה-`tx`:
+   *
+   * - **גולמי**, כי אימות מוקדם היה חוסם דווקא את מי שהמיזוג נועד
+   *   לתקן. כרטיס שיושב בו ערך ישן שאינו בסכימה עוד היה מפיל את
+   *   העדכון לפני שהמיזוג מספיק להחליף אותו. מה שנאכף הוא
+   *   **התוצאה**, וזה גם הדבר היחיד שנכתב.
+   * - **`tx`**, כדי שהקורא יוכל לבדוק מתחת לאותה נעילה שהעדכון שלו
+   *   עדיין הרלוונטי — ולוותר עליו אם מישהו הקדים אותו.
+   */
   async update(
     id: string,
     patch: {
-      requirements?: BuyerRequirements;
+      requirements?:
+        | BuyerRequirements
+        | ((
+            current: Record<string, unknown>,
+            tx: TenantTx,
+          ) => Promise<BuyerRequirements> | BuyerRequirements);
       financing?: string;
       maturity?: string;
       agentNotes?: string;
@@ -375,6 +468,14 @@ export class BuyersService {
       });
       if (!existing) throw new NotFoundException("קונה לא נמצא");
       /*
+       * הגזירה כאן — **אחרי** ה-`FOR UPDATE` ואחרי הקריאה החוזרת.
+       * ראו ההסבר בראש המתודה: זו כל הסיבה שהפרמטר מקבל פונקציה.
+       */
+      const requirements =
+        typeof patch.requirements === "function"
+          ? await patch.requirements(asRecord(existing.requirements), tx)
+          : patch.requirements;
+      /*
        * העלאת תקציב — התאום של ירידת מחיר בנכס.
        *
        * לקוח שהעלה תקציב אמר בכך שהוא רציני, ובאותו רגע נפתחים לו
@@ -391,7 +492,7 @@ export class BuyersService {
        */
       const budgetBefore =
         existing.budgetMaxAgorot === null ? null : Number(existing.budgetMaxAgorot);
-      const budgetAfter = patch.requirements?.budgetMaxAgorot;
+      const budgetAfter = requirements?.budgetMaxAgorot;
       if (budgetBefore !== null && budgetAfter !== undefined && budgetAfter > budgetBefore) {
         trigger = {
           kind: "budget_raise",
@@ -403,22 +504,22 @@ export class BuyersService {
       await tx.buyer.update({
         where: { id },
         data: {
-          ...(patch.requirements
+          ...(requirements
             ? {
-                cities: patch.requirements.cities,
-                hasSearchAreas: patch.requirements.searchAreas.length > 0,
-                dealType: patch.requirements.dealType,
+                cities: requirements.cities,
+                hasSearchAreas: requirements.searchAreas.length > 0,
+                dealType: requirements.dealType,
                 budgetMinAgorot:
-                  patch.requirements.budgetMinAgorot === undefined
+                  requirements.budgetMinAgorot === undefined
                     ? null
-                    : BigInt(patch.requirements.budgetMinAgorot),
+                    : BigInt(requirements.budgetMinAgorot),
                 budgetMaxAgorot:
-                  patch.requirements.budgetMaxAgorot === undefined
+                  requirements.budgetMaxAgorot === undefined
                     ? null
-                    : BigInt(patch.requirements.budgetMaxAgorot),
-                roomsMin: patch.requirements.roomsMin ?? null,
-                roomsMax: patch.requirements.roomsMax ?? null,
-                requirements: patch.requirements as object,
+                    : BigInt(requirements.budgetMaxAgorot),
+                roomsMin: requirements.roomsMin ?? null,
+                roomsMax: requirements.roomsMax ?? null,
+                requirements: requirements as object,
               }
             : {}),
           ...(patch.financing !== undefined
@@ -461,8 +562,25 @@ export class BuyersService {
       });
     });
 
+    /*
+     * חישוב ההתאמות מחדש — **אחרי** שהעריכה כבר נשמרה, ולכן כשל בו
+     * אינו הופך אותה ל„נכשלה”.
+     *
+     * זו אותה החלטה שכבר נלקחה ב-`create`, ומאותו נימוק: הרענון
+     * התקופתי הוא רשת הביטחון. בלי הבליעה הזו כשל כאן היה מחזיר
+     * שגיאה לקורא על כתיבה שהצליחה — ובמסלול טופס הלקוח זה גרוע
+     * במיוחד: הבקשה כבר סומנה „נשלחה”, הכרטיס כבר עודכן, ההתראה
+     * והיומן נדלגים, ושליחה חוזרת כבר לא תשחזר אותם כי היא אינה
+     * משנה דבר.
+     */
     if (patch.requirements) {
-      await this.matching.recomputeForBuyer(id, { trigger });
+      try {
+        await this.matching.recomputeForBuyer(id, { trigger });
+      } catch (error: unknown) {
+        this.logger.warn(
+          `match recompute failed for buyer ${id}: ${String(error)}`,
+        );
+      }
     }
     /*
      * הביקוש ברשת הוא צילום של הקונה, ולכן הוא מזדקן בכל עריכה:
@@ -1209,4 +1327,11 @@ export class BuyersService {
       where: { tenantId, originBuyerId: buyerId },
     });
   }
+}
+
+/** JSON מהמסד → אובייקט, או ריק. מערך ו-`null` אינם דרישות. */
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }

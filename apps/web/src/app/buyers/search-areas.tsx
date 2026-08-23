@@ -82,9 +82,22 @@ export function SearchAreas({
 
   const full = value.length >= MAX_SEARCH_AREAS;
 
-  /** עריכת שם של אזור שכבר ברשימה — כולל השלמה של אזור ישן בלי שם. */
+  /**
+   * עריכת שם של אזור שכבר ברשימה — כולל השלמה של אזור ישן בלי שם.
+   *
+   * **ריק אינו שם, ולכן אינו נשמר.** הוספת אזור כבר דורשת שם, ובלי
+   * אותה דרישה כאן היה אפשר להוסיף אזור עם שם ומיד למחוק אותו —
+   * ולחזור בדיוק לביקוש שהמשרדים ברשת רואים כ„עיגול על המפה” בלי
+   * לדעת על מה מדובר, שזה מה שהדרישה נועדה למנוע. הערך הקודם נשמר,
+   * וההודעה מסבירה למה השדה לא התרוקן.
+   */
   function rename(index: number, next: string): void {
     const text = next.slice(0, AREA_LABEL_MAX);
+    if (text.trim() === "" && value[index]?.label !== undefined) {
+      setError("שם האזור לא יכול להישאר ריק — זה מה שיוצג למשרדים אחרים ברשת");
+      return;
+    }
+    setError(null);
     onChange(
       value.map((area, i) => {
         if (i !== index) return area;

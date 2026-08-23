@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   MAX_TWINS_PER_PROPERTY,
+  PAGE_LIMIT_MAX,
   propertyHeadline,
   TWIN_NOTE_MAX,
 } from "@metavchim/shared";
@@ -64,8 +65,16 @@ interface PickerRow {
   thumbnailUrl?: string;
 }
 
-/** כמה נכסים נטענים לבורר. הרשימה מסוננת בדפדפן — ראו `visible`. */
-const PICKER_LIMIT = 200;
+/**
+ * כמה נכסים נטענים לבורר. הרשימה מסוננת בדפדפן — ראו `visible`.
+ *
+ * 100 הוא **התקרה ש-`/properties` מקבל**, לא מספר שנבחר לנוחות.
+ * הערך הקודם היה 200, והסכימה שם היא `.strict()` עם `max(100)` —
+ * כלומר כל פתיחה של הבורר נדחתה בשער ולא הגיעה לשירות בכלל, והבורר
+ * מעולם לא הציג נכס אחד. `PAGE_LIMIT_MAX` הוא מקור האמת, כדי
+ * שהשניים לא יוכלו להיפרד שוב.
+ */
+const PICKER_LIMIT = PAGE_LIMIT_MAX;
 
 function Thumb({ url, size }: { url?: string | undefined; size: number }) {
   const style = { width: size, height: size } as const;
@@ -160,6 +169,15 @@ export function PropertyTwins({
     setChosen(null);
     setNote("");
     setError(null);
+    /*
+     * טעינה שנכשלה נשארת ניתנת לניסיון חוזר.
+     *
+     * הגרסה הקודמת כתבה `[]` לתוך `options` בכשל, ומכיוון שהפתיחה
+     * מדלגת על הטעינה כש-`options` אינו `null`, סגירה ופתיחה מחדש
+     * כבר לא ניסו שוב — הרשימה נשארה ריקה עד רענון העמוד, מתחת
+     * להודעה שאומרת „נסו שוב”. `null` הוא „לא ידוע”, וכשל משאיר
+     * אותו „לא ידוע”.
+     */
     if (options !== null) return;
     try {
       const page = await apiGet<{ items: PickerRow[] }>(
@@ -167,8 +185,7 @@ export function PropertyTwins({
       );
       setOptions(page.items);
     } catch {
-      setOptions([]);
-      setError("לא הצלחנו לטעון את רשימת הנכסים — נסו שוב.");
+      setError("לא הצלחנו לטעון את רשימת הנכסים — סגרו ופתחו שוב.");
     }
   }, [options]);
 
@@ -422,7 +439,8 @@ export function PropertyTwins({
 
         {options === null ? (
           <p className="mt-3" style={{ color: "var(--color-text-muted)" }}>
-            טוען את הנכסים…
+            {/* הכשל עצמו מוצג בהודעת השגיאה; כאן לא טוענים שהרשימה ריקה */}
+            {error === null ? "טוען את הנכסים…" : "הרשימה לא נטענה."}
           </p>
         ) : visible.length === 0 ? (
           <p
