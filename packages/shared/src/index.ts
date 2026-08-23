@@ -41,6 +41,7 @@ export * from "./logic/network-card.js";
 export * from "./logic/network-reach.js";
 export * from "./logic/note-visibility.js";
 export * from "./logic/web-push.js";
+export * from "./logic/whatsapp-notify.js";
 export * from "./logic/contact-people.js";
 export * from "./logic/parse-search-query.js";
 export * from "./logic/price-words.js";

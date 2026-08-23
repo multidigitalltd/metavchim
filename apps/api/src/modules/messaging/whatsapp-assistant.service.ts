@@ -697,10 +697,16 @@ export class WhatsAppAssistantService {
       const handled = Array.isArray(row?.handledIds) ? (row.handledIds as string[]) : [];
       if (handled.includes(externalId)) return null;
       const handledIds = [externalId, ...handled].slice(0, HANDLED_KEPT);
+      /*
+       * החותמת נכתבת כאן ולא בשליחת התשובה: מה שפותח את חלון 24
+       * השעות של Meta הוא ההודעה של המתווך, גם אם הטיפול בה נכשל.
+       * בלעדיה כל דחיפת התראה הייתה יוצאת אל דחייה של Meta.
+       */
+      const lastInboundAt = new Date();
       await tx.whatsAppChat.upsert({
         where: { tenantId_userId: { tenantId, userId } },
-        create: { id: ulid(), tenantId, userId, handledIds },
-        update: { handledIds },
+        create: { id: ulid(), tenantId, userId, handledIds, lastInboundAt },
+        update: { handledIds, lastInboundAt },
       });
       return {
         pending: (row?.pending as unknown as PendingState | null) ?? null,

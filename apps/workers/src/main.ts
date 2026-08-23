@@ -1,3 +1,4 @@
+import { createDecipheriv } from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { Queue, Worker, type Job } from "bullmq";
@@ -46,6 +47,12 @@ import {
   type MarketingActionKind,
   type SpeakerTurn,
   type TranscriptSegment,
+  formatNotifyMessage,
+  inQuietHours,
+  parseWhatsAppNotifyPrefs,
+  sessionWindowOpen,
+  shouldNotifyByWhatsApp,
+  templateParams,
   resolveAutomationSettings,
   automationThresholdMs,
   type AutomationKey,
@@ -2287,8 +2294,317 @@ async function processAgentEventsRetention(): Promise<void> {
   }
 }
 
+/* ==================== דחיפת התראות לוואטסאפ ==================== */
+
+/**
+ * הסוכן בוואטסאפ נבנה כדי שמתווך יוכל לעבוד **בלי להיכנס למערכת**.
+ * כל עוד הוא רק עונה, מי שאינו פותח את הדשבורד אינו יודע ששיחה לא
+ * נענתה, שנכנס ליד או שתמלול הסתיים — כלומר הוא חייב להיכנס.
+ * הסורק הזה סוגר את המעגל: אותן שורות `notifications` שכבר מזינות
+ * את הפעמון ואת פוש הדפדפן, יוצאות גם לוואטסאפ.
+ *
+ * מדוע עמודה נפרדת (`whatsapp_at`) ולא שימוש ב-`pushed_at`: הערוצים
+ * עצמאיים. פוש מושבת בלי מפתחות VAPID, וואטסאפ מושבת בלי טוקן של
+ * Meta — סימון משותף היה גורם לערוץ אחד לבלוע התראות שהשני לא ראה.
+ *
+ * ההחלטות עצמן (מה נשלח, למי, מתי שקט, ואיך זה נראה) יושבות
+ * ב-`packages/shared/logic/whatsapp-notify` ומכוסות בבדיקות.
+ */
+const WA_GRAPH_BASE = "https://graph.facebook.com/v23.0";
+const WA_SEND_TIMEOUT_MS = 15_000;
+const WA_NOTIFY_BATCH = 200;
+/**
+ * מעבר לזה לא דוחפים. התראה על שיחה שלא נענתה שמגיעה חצי יום אחרי
+ * היא רעש, וגם הגבול שמונע מהתראות שנדחו (שעות שקט, חלון סגור)
+ * להצטבר לנצח — הן פשוט יוצאות מהחלון שהשאילתה סורקת.
+ */
+const WA_NOTIFY_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+const WA_CONFIG_TTL_MS = 60_000;
+
+interface WhatsAppConfig {
+  token: string;
+  phoneNumberId: string;
+  /** שם תבנית מאושרת לשליחה מחוץ לחלון 24 השעות; ריק = אין */
+  template: string | null;
+  templateLang: string;
+}
+
+let waConfigCache: { config: WhatsAppConfig | null; until: number } | null = null;
+
+/**
+ * פענוח הגדרת פלטפורמה.
+ *
+ * מימוש מקוצר של `CryptoService.decrypt` שב-API: התהליכים נפרדים,
+ * ולפתוח ערוץ HTTP פנימי בין העובדים ל-API רק כדי לקרוא שני מפתחות
+ * היה מוסיף שטח תקיפה על משהו שהוא בסך הכול AES-GCM מוסכם.
+ * הפורמט חייב להישאר זהה לשני הצדדים — הוא מתועד בסכימה.
+ */
+function decryptSetting(stored: string): string | null {
+  const key = process.env["DATA_ENCRYPTION_KEY"];
+  if (!key) return null;
+  try {
+    const raw = Buffer.from(stored, "base64");
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      Buffer.from(key, "base64"),
+      raw.subarray(0, 12),
+    );
+    decipher.setAuthTag(raw.subarray(12, 28));
+    return Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+/** ההגדרות ממסך הפלטפורמה, עם משתני הסביבה כ-Fallback — כמו ב-API. */
+async function whatsappConfig(): Promise<WhatsAppConfig | null> {
+  const now = Date.now();
+  if (waConfigCache && now < waConfigCache.until) return waConfigCache.config;
+
+  const rows = await prisma.platformSetting.findMany({
+    where: {
+      key: {
+        in: [
+          "whatsappAccessToken",
+          "whatsappPhoneNumberId",
+          "whatsappNotifyTemplate",
+          "whatsappNotifyTemplateLang",
+        ],
+      },
+    },
+    select: { key: true, valueEncrypted: true },
+  });
+  const stored = new Map(
+    rows.map((row) => [row.key, decryptSetting(row.valueEncrypted)] as const),
+  );
+
+  const token = stored.get("whatsappAccessToken") ?? process.env["WHATSAPP_ACCESS_TOKEN"] ?? null;
+  const phoneNumberId =
+    stored.get("whatsappPhoneNumberId") ?? process.env["WHATSAPP_PHONE_NUMBER_ID"] ?? null;
+  const template = stored.get("whatsappNotifyTemplate") ?? null;
+  const config: WhatsAppConfig | null =
+    token && phoneNumberId
+      ? {
+          token,
+          phoneNumberId,
+          template: template !== null && template.trim() !== "" ? template.trim() : null,
+          templateLang: stored.get("whatsappNotifyTemplateLang")?.trim() || "he",
+        }
+      : null;
+  waConfigCache = { config, until: now + WA_CONFIG_TTL_MS };
+  return config;
+}
+
+/** שליחה אחת ל-Graph. false = לא יצא; הסורק ינסה שוב בסבב הבא. */
+async function sendWhatsApp(
+  config: WhatsAppConfig,
+  payload: Record<string, unknown>,
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${WA_GRAPH_BASE}/${config.phoneNumberId}/messages`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${config.token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(WA_SEND_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      // גוף השגיאה מוגבל — בלי להדפיס טוקנים או תוכן הודעה ליומן
+      console.error(
+        `[whatsapp-notify] Meta דחתה: HTTP ${res.status} — ${(await res.text()).slice(0, 200)}`,
+      );
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error(`[whatsapp-notify] שליחה נכשלה: ${String(error)}`);
+    return false;
+  }
+}
+
+/** השעה בישראל — לשעות השקט. נכשל ⇒ שעת UTC, ולא קריסה. */
+function jerusalemHour(date: Date): number {
+  try {
+    return Number.parseInt(
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: "Asia/Jerusalem",
+        hour: "numeric",
+        hour12: false,
+      }).format(date),
+      10,
+    );
+  } catch {
+    return date.getUTCHours();
+  }
+}
+
+interface WaRecipient {
+  userId: string;
+  phone: string;
+  prefs: ReturnType<typeof parseWhatsAppNotifyPrefs>;
+  windowOpen: boolean;
+}
+
+async function processWhatsAppNotifySweep(): Promise<void> {
+  const config = await whatsappConfig();
+  if (!config) return; // הצד היוצא אינו מוגדר — אין מה לדחוף
+  const webOrigin = process.env["WEB_ORIGIN"] ?? "";
+  const now = new Date();
+  const since = new Date(now.getTime() - WA_NOTIFY_MAX_AGE_MS);
+  const hour = jerusalemHour(now);
+  const tenants = await prisma.tenant.findMany({ select: { id: true } });
+
+  for (const tenant of tenants) {
+    // אותו שער כמו הסוכן עצמו: הדחיפה היא חלק מהפיצ'ר, לא תוספת חינם
+    if (!(await tenantHasFeature(tenant.id, "voice_intake"))) continue;
+
+    const pending = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      return tx.notification.findMany({
+        where: { tenantId: tenant.id, whatsappAt: null, createdAt: { gte: since } },
+        orderBy: { createdAt: "asc" },
+        take: WA_NOTIFY_BATCH,
+        select: {
+          id: true,
+          userId: true,
+          type: true,
+          title: true,
+          body: true,
+          entityType: true,
+          entityId: true,
+        },
+      });
+    });
+    if (pending.length === 0) continue;
+
+    /*
+     * הנמענים: מי שהמנוי שלו פעיל (בעל המשרד תמיד), יש לו טלפון,
+     * והוא הדליק את ההתראות. אותם שערים בדיוק כמו במענה של הסוכן —
+     * דחיפה למי שאינו מנוי הייתה מוצר בחינם, ולמי שכיבה היא ספאם.
+     */
+    const users = await prisma.user.findMany({
+      where: {
+        tenantId: tenant.id,
+        isActive: true,
+        phone: { not: null },
+        OR: [{ whatsappAccess: true }, { role: "owner" }],
+      },
+      select: { id: true, phone: true, preferences: true },
+    });
+    if (users.length === 0) continue;
+
+    const chats = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      return tx.whatsAppChat.findMany({
+        where: { tenantId: tenant.id, userId: { in: users.map((u) => u.id) } },
+        select: { userId: true, lastInboundAt: true },
+      });
+    });
+    const lastInbound = new Map(chats.map((chat) => [chat.userId, chat.lastInboundAt]));
+
+    const recipients = new Map<string, WaRecipient>();
+    for (const user of users) {
+      const prefs = parseWhatsAppNotifyPrefs(user.preferences);
+      if (!prefs.enabled) continue;
+      recipients.set(user.id, {
+        userId: user.id,
+        phone: user.phone as string,
+        prefs,
+        windowOpen: sessionWindowOpen(lastInbound.get(user.id) ?? null, now),
+      });
+    }
+    if (recipients.size === 0) continue;
+
+    const buckets = new Map<string, typeof pending>();
+    const targetsOf = new Map<string, string[]>();
+    const settled: string[] = [];
+
+    for (const notification of pending) {
+      const targets = [...recipients.values()].filter((recipient) => {
+        // התראה אישית מגיעה רק לבעליה; משרדית — לכל מי שהדליק
+        if (notification.userId && notification.userId !== recipient.userId) return false;
+        return shouldNotifyByWhatsApp(notification.type, recipient.prefs);
+      });
+      if (targets.length === 0) {
+        settled.push(notification.id); // אין למי לשלוח — סגור, לא לנצח
+        continue;
+      }
+      /*
+       * שעות שקט, וחלון 24 השעות של Meta — שניהם *דחייה*, לא ויתור.
+       *
+       * ההתראה נשארת בלי סימון, והסבב הבא ירים אותה: בבוקר, או ברגע
+       * שהמתווך יכתוב לסוכן ויפתח את החלון. הדחייה היא של ההתראה
+       * כולה ולא של נמען בודד — סימון הוא פר-שורה, ושליחה חלקית
+       * הייתה מייצרת כפילות למי שכבר קיבל.
+       */
+      const blocked = targets.some(
+        (recipient) =>
+          inQuietHours(hour, recipient.prefs) ||
+          (!recipient.windowOpen && config.template === null),
+      );
+      if (blocked) continue;
+
+      targetsOf.set(
+        notification.id,
+        targets.map((t) => t.userId),
+      );
+      for (const target of targets) {
+        const bucket = buckets.get(target.userId) ?? [];
+        bucket.push(notification);
+        buckets.set(target.userId, bucket);
+      }
+    }
+
+    const delivered = new Set<string>();
+    for (const [userId, items] of buckets) {
+      const recipient = recipients.get(userId);
+      if (!recipient || items.length === 0) continue;
+      const ok = recipient.windowOpen
+        ? await sendWhatsApp(config, {
+            messaging_product: "whatsapp",
+            to: recipient.phone,
+            type: "text",
+            text: { body: formatNotifyMessage(items, webOrigin), preview_url: false },
+          })
+        : await sendWhatsApp(config, {
+            messaging_product: "whatsapp",
+            to: recipient.phone,
+            type: "template",
+            template: {
+              name: config.template,
+              language: { code: config.templateLang },
+              components: [
+                {
+                  type: "body",
+                  parameters: templateParams(items).map((text) => ({ type: "text", text })),
+                },
+              ],
+            },
+          });
+      if (ok) delivered.add(userId);
+    }
+
+    // מסומנת רק התראה שכל נמעניה קיבלו — כישלון חוזר בסבב הבא
+    for (const [notificationId, targets] of targetsOf) {
+      if (targets.every((userId) => delivered.has(userId))) settled.push(notificationId);
+    }
+    if (settled.length === 0) continue;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+      await tx.notification.updateMany({
+        where: { tenantId: tenant.id, id: { in: settled } },
+        data: { whatsappAt: new Date() },
+      });
+    });
+  }
+}
+
 async function processLow(job: Job): Promise<void> {
   if (job.name === "push-sweep") return processPushSweep();
+  if (job.name === "whatsapp-notify-sweep") return processWhatsAppNotifySweep();
   if (job.name === "call-transcribe") return transcribeOneCall();
   if (job.name === "delete-object") return processCleanup(job);
   if (job.name === "offer-followup") return processOfferFollowup(job);
@@ -2342,6 +2658,24 @@ void lowQueue
   )
   .catch((error: unknown) => {
     console.error(`push-sweep scheduler registration failed: ${String(error)}`);
+  });
+/*
+ * סורק ההתראות לוואטסאפ — כל דקה, ולא כל 30 שניות כמו הפוש.
+ *
+ * הודעת וואטסאפ היא צלצול בטלפון: דחייה של עד דקה אינה מורגשת,
+ * והרווח האמיתי הוא שכמה התראות שנוצרו ברצף (שיחה שלא נענתה ואחריה
+ * הליד שנפתח ממנה) מתקבצות להודעה אחת במקום שתיים.
+ */
+void lowQueue
+  .upsertJobScheduler(
+    "whatsapp-notify-sweep",
+    { every: 60 * 1000 },
+    { name: "whatsapp-notify-sweep" },
+  )
+  .catch((error: unknown) => {
+    console.error(
+      `whatsapp-notify-sweep scheduler registration failed: ${String(error)}`,
+    );
   });
 // משימות אוטומטיות קבועות — כל 10 דקות. הרזולוציה של הכלל היא דקה,
 // אבל איחור של עד עשר דקות במשימה יומית אינו מורגש, וסריקה תכופה

@@ -247,6 +247,17 @@ const UpdateSettingsSchema = z
     whatsappPhoneNumberId: z.union([z.string().trim().regex(/^\d{5,30}$/u), z.literal("")]).optional(),
     /** המענה למספר לא רשום — ריק = הנוסח המובנה, לא שתיקה */
     whatsappProspectReply: z.union([z.string().trim().min(10).max(2000), z.literal("")]).optional(),
+    /*
+     * תבנית ההתראה המאושרת ב-Meta. שם תבנית הוא מזהה טכני: אותיות
+     * קטנות, ספרות וקו תחתון — בדיוק מה ש-Meta מתירה, כדי שטעות
+     * הקלדה תיתפס כאן ולא בדחייה של הודעה בשלוש לפנות בוקר.
+     */
+    whatsappNotifyTemplate: z
+      .union([z.string().trim().regex(/^[a-z0-9_]{1,512}$/u), z.literal("")])
+      .optional(),
+    whatsappNotifyTemplateLang: z
+      .union([z.string().trim().regex(/^[a-zA-Z]{2}(_[A-Z]{2})?$/u), z.literal("")])
+      .optional(),
     loginOtpEnabled: z.boolean().optional(),
     googleClientId: z.union([z.string().trim().min(10).max(200), z.literal("")]).optional(),
     googleClientSecret: z.union([z.string().trim().min(10).max(200), z.literal("")]).optional(),
@@ -1203,6 +1214,9 @@ export class PlatformController {
         source: "db" | "env" | "none";
         /** הערך ולא "מוגדר" — זה מסך העריכה שלו; ריק = הנוסח שבקוד */
         prospectReply: string;
+        /** תבנית ההתראות; ריק = דחיפה רק בתוך חלון 24 השעות של Meta */
+        notifyTemplate: string;
+        notifyTemplateLang: string;
       };
     };
     /**
@@ -1328,6 +1342,14 @@ export class PlatformController {
           configured: waOutDb || waOutEnv,
           source: waOutDb ? "db" : waOutEnv ? "env" : "none",
           prospectReply: (await this.platformSettings.get("whatsappProspectReply")) ?? "",
+          /*
+           * תבנית ההתראה — ריק פירושו שדחיפת ההתראות עובדת רק בתוך
+           * חלון 24 השעות של Meta. זו הגדרה תקינה, ולכן המסך מציג
+           * אותה כמצב ולא כשגיאה.
+           */
+          notifyTemplate: (await this.platformSettings.get("whatsappNotifyTemplate")) ?? "",
+          notifyTemplateLang:
+            (await this.platformSettings.get("whatsappNotifyTemplateLang")) ?? "he",
         },
       },
       google: {
