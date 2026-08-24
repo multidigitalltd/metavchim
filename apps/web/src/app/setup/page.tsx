@@ -330,13 +330,24 @@ export default function SetupPage() {
                 <span
                   className="grid h-[22px] w-[22px] flex-none place-items-center rounded-full text-sm font-extrabold"
                   style={{
+                    /*
+                     * הדיו עוקב אחרי המילוי באותם תנאים ובאותו סדר:
+                     * כשהוא נכתב הפוך (`state === "next"`), כל מצב
+                     * שאינו אחד משלושת המוכרים קיבל טקסט בהיר על
+                     * משטח בהיר.
+                     */
                     background:
                       state === "done"
                         ? "var(--color-primary)"
                         : state === "now"
                           ? "var(--color-text)"
                           : "var(--color-hover-soft)",
-                    color: state === "next" ? "var(--color-text-muted)" : "var(--color-bg)",
+                    color:
+                      state === "done"
+                        ? "var(--color-bg)"
+                        : state === "now"
+                          ? "var(--color-bg)"
+                          : "var(--color-text-muted)",
                   }}
                 >
                   {state === "done" ? <IconCheck s={13} /> : s.n}

@@ -1094,16 +1094,19 @@ function reachablePairs(text, fill) {
   };
   for (const active of guards) add(active);
   /*
-   * „אף תנאי אינו מתקיים” הוא מצב אמיתי רק אם יש לו מה להוסיף.
-   * כששתי השרשראות בודקות את אותו משתנה מול ערכים שונים, ענף
-   * ה-`else` של כל אחת כבר נבחר תחת אחד התנאים הנקובים — ואז
-   * המצב הריק אינו קיים, והוספתו הייתה ממציאה צירוף. סימן הבוחן
-   * מכני: האם ה-`else` של שתיהן כבר הופיע.
+   * **„אף תנאי אינו מתקיים” נוסף תמיד.**
+   *
+   * ניסיתי לוותר עליו כשענף ה-`else` של שתי השרשראות כבר הופיע
+   * תחת תנאי נקוב, בהנחה שהתנאים הם חלופות של אותו משתנה. ההנחה
+   * שגויה ברגע שהתנאים **בלתי תלויים**: ב-`a ? A : B` מול
+   * `b ? C : D` נוצרים (A,D) ו-(B,C), והמצב `!a && !b` — הצמד
+   * (B,D) — הוא מצב אמיתי לכל דבר שנפל מהרשימה (ביקורת Codex).
+   *
+   * להוכיח מיצוי היה דורש את הטיפוס של המשתנה, ואין לו גישה
+   * מכאן. לכן המצב נכלל תמיד: מוטב שהקוד יהיה קריא גם במצב
+   * שכרגע אינו נוצר, מאשר ששער יסתמך על הנחה שאינו יכול לבדוק.
    */
-  const last = (chain) => chain.values[chain.values.length - 1];
-  const covered = (chain, other) =>
-    guards.some((active) => pick(chain, active) === last(chain) && pick(other, active) !== undefined);
-  if (guards.length === 0 || !(covered(text, fill) && covered(fill, text))) add(null);
+  add(null);
   return pairs;
 }
 
@@ -1194,9 +1197,17 @@ const inline = scanInlineColors(measuredControls, unmeasuredControls);
  */
 const CONTRAST_DECLS = themeDeclarations([':root[data-a11y-contrast="on"]']);
 const DARK_DECLS = themeDeclarations([':root[data-theme="dark"]']);
-const missingInHighContrast = [...DARK_DECLS.keys()].filter(
-  (name) => !CONTRAST_DECLS.has(name),
-);
+const DARK_MEDIA_DECLS = themeDeclarations([':root:not([data-theme="light"])']);
+/*
+ * **איחוד שתי ההצהרות הכהות, ולא רק המפורשת.**
+ *
+ * הצהרה שנוספה רק ל-`prefers-color-scheme` לא נבדקה כאן כלל:
+ * הרשימה נגזרה מהמפה המפורשת בלבד, ולכן גם השוואת שתי ההצהרות
+ * וגם בדיקת הדליפה לניגודיות גבוהה פסחו עליה. משתמש שערכת
+ * המערכת שלו כהה היה מקבל התנהגות שאיש אינו בודק (ביקורת Codex).
+ */
+const DARK_NAMES = [...new Set([...DARK_DECLS.keys(), ...DARK_MEDIA_DECLS.keys()])];
+const missingInHighContrast = DARK_NAMES.filter((name) => !CONTRAST_DECLS.has(name));
 
 /**
  * שתי ההצהרות הכהות חייבות להיות זהות.
@@ -1207,8 +1218,7 @@ const missingInHighContrast = [...DARK_DECLS.keys()].filter(
  * ולכן שינוי שנעשה רק באחת מהן היה עובר בשקט אצל **חצי**
  * המשתמשים (ביקורת Codex).
  */
-const DARK_MEDIA_DECLS = themeDeclarations([':root:not([data-theme="light"])']);
-const darkMismatch = [...DARK_DECLS.keys()].filter(
+const darkMismatch = DARK_NAMES.filter(
   (name) => DARK_MEDIA_DECLS.get(name) !== DARK_DECLS.get(name),
 );
 
