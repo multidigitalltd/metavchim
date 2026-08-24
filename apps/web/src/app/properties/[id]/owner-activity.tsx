@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   OWNER_ACTIVITY_KIND_LABELS,
   OWNER_ACTIVITY_RESULT_LABELS,
@@ -85,33 +85,55 @@ export function OwnerActivity({
   propertyLabel: string;
   officeName: string;
 }) {
-  const [period, setPeriod] = useState<PeriodKey>("all");
+  /*
+   * התקופה **וגבול הטווח שלה יחד**, בעדכון מצב אחד.
+   *
+   * ההערה כאן קודם אמרה שהגבול מחושב פעם אחת, והקוד חישב אותו מחדש
+   * בכל קריאה — כלומר `Date.now()` נפרד למסך ולהורדה. פעילות שנפלה
+   * בדיוק על הגבול הופיעה במסך ונעדרה מהקובץ שנשלח ללקוח (ביקורת
+   * Codex). עכשיו הגבול נקפא ברגע הבחירה, ושתי הבקשות נושאות את
+   * אותה מחרוזת בדיוק.
+   */
+  const [selection, setSelection] = useState<{ period: PeriodKey; query: string }>({
+    period: "all",
+    query: "",
+  });
   const [report, setReport] = useState<ActivityReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const copy = useCopy();
-
   /*
-   * הטווח מחושב פעם אחת לכל טעינה ולא נגזר מ-`Date.now()` בשני
-   * מקומות: הרשימה שעל המסך והקובץ שיורד חייבים לתאר את אותה
-   * תקופה, אחרת המתווך שולח ללקוח קובץ שאינו מה שהוא ראה.
+   * מונה בקשות. בלעדיו החלפת תקופה מהירה משאירה שתי טעינות באוויר,
+   * והאיטית מביניהן — זו של התקופה **הקודמת** — דורסת את החדשה:
+   * הטבלה מציגה נתונים של תקופה אחת תחת הכותרת של אחרת, וההודעה
+   * להעתקה מתייגת אותם בתווית השגויה (ביקורת Codex).
    */
-  const query = useCallback((): string => {
-    const days = PERIODS.find((p) => p.key === period)?.days ?? null;
-    if (days === null) return "";
-    return `?from=${new Date(Date.now() - days * DAY_MS).toISOString()}`;
-  }, [period]);
+  const requestId = useRef(0);
+
+  function choose(key: PeriodKey): void {
+    const days = PERIODS.find((p) => p.key === key)?.days ?? null;
+    setSelection({
+      period: key,
+      query: days === null ? "" : `?from=${new Date(Date.now() - days * DAY_MS).toISOString()}`,
+    });
+  }
+
+  const query = selection.query;
 
   const load = useCallback(async (): Promise<void> => {
+    const mine = ++requestId.current;
     setLoading(true);
     setError(null);
     try {
-      setReport(await apiGet<ActivityReport>(`/properties/${propertyId}/activity${query()}`));
+      const data = await apiGet<ActivityReport>(`/properties/${propertyId}/activity${query}`);
+      if (mine !== requestId.current) return;
+      setReport(data);
     } catch {
+      if (mine !== requestId.current) return;
       setError("טעינת הפעילות נכשלה");
     } finally {
-      setLoading(false);
+      if (mine === requestId.current) setLoading(false);
     }
   }, [propertyId, query]);
 
@@ -127,7 +149,7 @@ export function OwnerActivity({
     setDownloading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/properties/${propertyId}/activity.csv${query()}`, {
+      const res = await fetch(`${API_BASE}/properties/${propertyId}/activity.csv${query}`, {
         credentials: "include",
       });
       if (!res.ok) throw new Error("הורדת הדוח נכשלה");
@@ -145,7 +167,7 @@ export function OwnerActivity({
   }
 
   function messageText(): string {
-    const periodLabel = PERIODS.find((p) => p.key === period)?.label ?? "כל התקופה";
+    const periodLabel = PERIODS.find((p) => p.key === selection.period)?.label ?? "כל התקופה";
     return ownerActivityText({
       propertyLabel,
       officeName,
@@ -181,8 +203,8 @@ export function OwnerActivity({
             key={option.key}
             type="button"
             className="mv-chip"
-            aria-pressed={period === option.key}
-            onClick={() => setPeriod(option.key)}
+            aria-pressed={selection.period === option.key}
+            onClick={() => choose(option.key)}
           >
             {option.label}
           </button>
