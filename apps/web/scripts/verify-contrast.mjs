@@ -567,22 +567,96 @@ function styleValues(style, property) {
   return raw === null ? null : branches(raw);
 }
 
+/** התוכן שבין `{` שבאינדקס הזה לבין ה-`}` שסוגר אותו. */
+function balancedAt(source, open) {
+  let depth = 0;
+  let quote = null;
+  for (let i = open; i < source.length; i += 1) {
+    const ch = source[i];
+    if (quote !== null) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if ("\"'`".includes(ch)) quote = ch;
+    else if ("({[".includes(ch)) depth += 1;
+    else if (")}]".includes(ch)) {
+      depth -= 1;
+      if (depth === 0) return source.slice(open + 1, i);
+    }
+  }
+  return null;
+}
+
+/**
+ * הענפים של מאפיין `style` — **גם כשהתנאי עוטף את האובייקט כולו.**
+ *
+ * שתי הצורות שזוהו קודם היו `style={{…}}` ו-`style={name}`. הצורה
+ * השלישית, `style={active ? {…} : {…}}`, לא התאימה לאף אחת מהן
+ * ולכן האתר **דולג בשקט** — ובו כפתורי הציר בכרטיס הקונה, שבמצב
+ * הנבחר נבדלים מהרגיל ב-1.80:1 בערכה הכהה (ביקורת Codex).
+ *
+ * הפירוק כאן מבני: תנאי עוטף מפוצל לענפיו, וכל עלה הוא אובייקט
+ * סגנון או שם של קבוע. היתרון על פני תנאי לכל מאפיין בנפרד הוא
+ * שהזיווג בתוך ענף הוא **ודאי** — הצבע והמשטח שבאותו אובייקט
+ * מופיעים יחד תמיד.
+ */
+function styleBranches(expression, styles) {
+  const text = expression.trim();
+  if (text.startsWith("{")) return [{ condition: null, body: balancedAt(text, 0) ?? text }];
+  if (/^[A-Za-z_$][\w$]*$/u.test(text)) {
+    const body = styles.get(text);
+    return body === undefined ? [] : [{ condition: null, body }];
+  }
+  let depth = 0;
+  let quote = null;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (quote !== null) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if ("\"'`".includes(ch)) quote = ch;
+    else if ("({[".includes(ch)) depth += 1;
+    else if (")}]".includes(ch)) depth -= 1;
+    else if (ch === "?" && depth === 0) {
+      const split = matchingColon(text, i + 1);
+      if (split === -1) break;
+      const guard = text.slice(0, i).trim();
+      const left = styleBranches(text.slice(i + 1, split), styles);
+      const right = styleBranches(text.slice(split + 1), styles);
+      return [
+        ...left.map((branch) => ({ ...branch, condition: branch.condition ?? guard })),
+        ...right,
+      ];
+    }
+  }
+  return [];
+}
+
+/** מצב שנשאר על המסך — ולכן ההבדל בינו לבין הרגיל חייב להיראות. */
+const PERSISTENT_ATTR = /\b(?:aria-pressed|aria-selected|aria-current)=/u;
+
 function collectInline(file, source, styles) {
   for (const match of source.matchAll(/<([a-zA-Z][\w.]*)/gu)) {
     const body = openingTag(source, match.index);
-    const direct = /style=\{\{([\s\S]*)$/u.exec(body);
-    const named = direct === null ? /style=\{([A-Za-z_$][\w$]*)\}/u.exec(body) : null;
-    const style = direct?.[1] ?? (named === null ? null : styles.get(named[1]));
-    if (style === null || style === undefined) continue;
-    const text = styleValues(style, "color");
-    if (text === null) continue;
-    inlineUses.push({
+    const at = body.indexOf("style={");
+    if (at === -1) continue;
+    const branches = styleBranches(balancedAt(body, at + "style=".length) ?? "", styles);
+    const site = {
       where: `${file}:${source.slice(0, match.index).split("\n").length}`,
       tag: match[1],
       classes: classNamesIn(body).filter((cls) => /^mv-[\w-]+$/u.test(cls)),
-      text,
-      fill: styleValues(style, "background") ?? styleValues(style, "backgroundColor"),
-    });
+      persistent: PERSISTENT_ATTR.test(body),
+      branches: [],
+    };
+    for (const branch of branches) {
+      site.branches.push({
+        condition: branch.condition,
+        text: styleValues(branch.body, "color"),
+        fill: styleValues(branch.body, "background") ?? styleValues(branch.body, "backgroundColor"),
+      });
+    }
+    if (site.branches.length > 0) inlineUses.push(site);
   }
 }
 
@@ -1114,50 +1188,88 @@ function scanInlineColors(hits, unmeasured) {
   let measured = 0;
   let runtime = 0;
   let unknown = 0;
-  for (const use of inlineUses) {
-    const inks = use.text.values;
-    if (inks.every((value) => value === null)) {
-      runtime += 1;
-      continue;
-    }
-    const fills = use.fill?.values ?? [null];
-    const pairs = reachablePairs(use.text, use.fill);
-    for (const [ink, fill] of pairs) {
-      if (ink === null || TRANSPARENT_BY_DESIGN.includes(ink) || ink === "inherit") continue;
-      for (const theme of Object.keys(THEME_SELECTORS)) {
-        /*
-         * **רק משטח שידוע.** אלמנט בלי רקע משלו יושב על מה
-         * שההורה שלו נותן, וההורה ב-JSX אינו נקרא מכאן. ניחוש
-         * „רקע העמוד” היה מדווח על הנקודה שבלוגו — טקסט ירוק על
-         * סרגל כהה — כאילו היא על לבן. גבול הבדיקה נספר ומוצג.
-         */
-        const declared = fill !== null && fill !== "transparent";
-        const ground = declared
-          ? resolveValue(fill, theme)
-          : classBackground(use.classes, theme);
-        if (ground === null) {
+  for (const site of inlineUses) {
+    /*
+     * המשטח נלקח מהסגנון עצמו, ובהיעדרו מהמחלקה שעל התגית. אין
+     * ניחוש „רקע העמוד”: אלמנט בלי רקע משלו יושב על מה שההורה
+     * נותן, וההורה ב-JSX אינו נקרא מכאן.
+     */
+    const grounds = (theme) => classBackground(site.classes, theme);
+    const resolved = [];
+    for (const branch of site.branches) {
+      if (branch.text === null || branch.text.values.every((value) => value === null)) {
+        if (branch.fill === null) runtime += 1;
+      }
+      const pairs = branch.text === null ? [] : reachablePairs(branch.text, branch.fill);
+      for (const [ink, fill] of pairs) {
+        if (ink === null || TRANSPARENT_BY_DESIGN.includes(ink) || ink === "inherit") continue;
+        for (const theme of Object.keys(THEME_SELECTORS)) {
           /*
-           * משטח שהוצהר ואינו נפתר הוא **ממצא**, לא „לא ידוע”:
-           * הדפדפן לא יצייר אותו כלל. אלמנט שלא הצהיר משטח הוא
-           * המקרה השני — שם באמת אין לשער דרך לדעת.
+           * שלושה מצבים שונים, ורק השני נופל חזרה למחלקה:
+           * משטח שנכתב בשורה גובר עליה; משטח שהוצהר וערכו נקבע
+           * בזמן ריצה משאיר את המצע **בלתי ידוע** — ונפילה למחלקה
+           * שם הייתה מודדת לבן על לבן ומדווחת 1.00:1 על כפתור
+           * שצבעו נקבע בכלל ממפה; ומשטח שלא הוצהר כלל הוא היחיד
+           * שבו המחלקה היא באמת מה שמתחת.
            */
-          if (declared) {
-            const line = `${use.where} — <${use.tag}> background: ${fill}`;
+          if (fill === null && branch.fill !== null) {
+            if (theme === "light") unknown += 1;
+            continue;
+          }
+          const declared = fill !== null && fill !== "transparent";
+          const ground = declared ? resolveValue(fill, theme) : grounds(theme);
+          if (ground === null) {
+            if (declared) {
+              const line = `${site.where} — <${site.tag}> background: ${fill}`;
+              if (!unmeasured.includes(line)) unmeasured.push(line);
+            } else if (theme === "light") unknown += 1;
+            continue;
+          }
+          const color = resolveValue(ink, theme, ground);
+          if (color === null) {
+            const line = `${site.where} — <${site.tag}> color: ${ink}`;
             if (!unmeasured.includes(line)) unmeasured.push(line);
-          } else if (theme === "light") unknown += 1;
-          continue;
+            continue;
+          }
+          measured += 1;
+          const ratio = contrast(color, ground);
+          if (ratio < 4.5) {
+            hits.push(
+              `${site.where} — <${site.tag}> ${ink} (${color}) על ${fill ?? "מחלקת האלמנט"} (${ground}) = ${ratio.toFixed(2)}:1, נדרש 4.5:1 (${THEME_LABEL[theme]})`,
+            );
+          }
         }
-        const color = resolveValue(ink, theme, ground);
-        if (color === null) {
-          const line = `${use.where} — <${use.tag}> color: ${ink}`;
-          if (!unmeasured.includes(line)) unmeasured.push(line);
-          continue;
-        }
+      }
+      resolved.push(branch);
+    }
+
+    /*
+     * **המצב הנבחר חייב להיבדל מהרגיל.** כשהתנאי עוטף את האובייקט
+     * כולו, הענף המותנה הוא „נבחר” והאחרון הוא „רגיל” — ואותו כלל
+     * שחל על מצב ב-CSS חל גם כאן: 3:1 במילוי, אלא אם הטקסט לבדו
+     * כבר מבדיל ב-3:1.
+     */
+    if (!site.persistent || resolved.length < 2) continue;
+    const base = resolved[resolved.length - 1];
+    for (const branch of resolved.slice(0, -1)) {
+      if (branch.fill?.values == null || base.fill?.values == null) continue;
+      for (const theme of Object.keys(THEME_SELECTORS)) {
+        const ground = grounds(theme);
+        const now = resolveValue(branch.fill.values[0], theme, ground);
+        const before = resolveValue(base.fill.values[0], theme, ground);
+        if (now === null || before === null || now === before) continue;
+        const ink = branch.text?.values[0] ?? null;
+        const wasInk = base.text?.values[0] ?? null;
+        const inkNow = ink === null ? null : resolveValue(ink, theme, now);
+        const inkBefore = wasInk === null ? null : resolveValue(wasInk, theme, before);
+        const inkSpeaks =
+          inkNow !== null && inkBefore !== null && contrast(inkNow, inkBefore) >= 3;
+        if (inkSpeaks) continue;
         measured += 1;
-        const ratio = contrast(color, ground);
-        if (ratio < 4.5) {
+        const ratio = contrast(now, before);
+        if (ratio < 3) {
           hits.push(
-            `${use.where} — <${use.tag}> ${ink} (${color}) על ${fill ?? "מחלקת האלמנט"} (${ground}) = ${ratio.toFixed(2)}:1, נדרש 4.5:1 (${THEME_LABEL[theme]})`,
+            `${site.where} — <${site.tag}> המצב הנבחר מסומן במילוי בלבד — ${branch.fill.values[0]} (${now}) מול ${base.fill.values[0]} (${before}) = ${ratio.toFixed(2)}:1, נדרש 3:1 (${THEME_LABEL[theme]})`,
           );
         }
       }

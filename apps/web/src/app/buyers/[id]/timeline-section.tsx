@@ -206,11 +206,6 @@ export function TimelineSection({ buyerId }: { buyerId: string }) {
                     className="mv-chip"
                     aria-pressed={active}
                     onClick={() => setKind(option)}
-                    style={
-                      active
-                        ? { background: meta.fg, color: "#ffffff", borderColor: meta.fg }
-                        : { background: "var(--color-surface)" }
-                    }
                   >
                     <span className="inline-flex items-center gap-1.5">
                       {meta.icon}
