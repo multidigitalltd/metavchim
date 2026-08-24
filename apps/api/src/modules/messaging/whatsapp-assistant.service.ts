@@ -126,6 +126,16 @@ interface PendingState {
 interface ChatState {
   pending: PendingState | null;
   history: AgentHistoryTurn[];
+  /**
+   * כמה תורים היו בשורה כשנטענה — **הבסיס למיזוג בשמירה.**
+   *
+   * ההיסטוריה נקראת בתחילת התור ונכתבת בסופו, ובין לבין יש קריאה
+   * למודל. סורק ההתראות בוורקר כותב לאותה עמודה באותו זמן, ולכן
+   * כתיבה של המערך המקומי כמו-שהוא דורסת את מה שהוא הוסיף (או
+   * להפך). מה שנשמר הוא לכן **מה שנוסף כאן**, על גבי מה שקריאה
+   * חוזרת מתחת לנעילה מוצאת — ולא צילום ישן (ביקורת Codex).
+   */
+  baseHistory: number;
   handledIds: string[];
   /**
    * אל תכתוב את ההצעה המקומית חזרה — מה שבשורה חדש ממנה.
@@ -1017,9 +1027,13 @@ export class WhatsAppAssistantService {
         create: { id: ulid(), tenantId, userId, handledIds, lastInboundAt },
         update: { handledIds, lastInboundAt },
       });
+      const history = Array.isArray(row?.history)
+        ? (row.history as unknown as AgentHistoryTurn[])
+        : [];
       return {
         pending: (row?.pending as unknown as PendingState | null) ?? null,
-        history: Array.isArray(row?.history) ? (row.history as unknown as AgentHistoryTurn[]) : [],
+        history,
+        baseHistory: history.length,
         handledIds,
       };
     });
@@ -1061,25 +1075,43 @@ export class WhatsAppAssistantService {
    * ב-claimMessage, אחרת שמירה מאוחרת הייתה דורסת תפיסה מקבילה.
    */
   private async saveChat(tenantId: string, userId: string, chat: ChatState): Promise<void> {
-    const data = {
-      // Prisma דורש את הסמן המפורש ל-null בעמודת JSON — לא null גולמי
-      ...(chat.keepStoredPending === true
-        ? {}
-        : {
-            pending:
-              chat.pending === null
-                ? Prisma.JsonNull
-                : (chat.pending as unknown as Prisma.InputJsonValue),
-          }),
-      history: chat.history as unknown as Prisma.InputJsonValue,
-    };
-    await this.prisma.withExplicitTenant(tenantId, (tx) =>
-      tx.whatsAppChat.upsert({
+    await this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      /*
+       * אותה נעילה של `claimMessage` ושל סורק ההתראות בוורקר —
+       * שלושתם כותבים לאותה עמודה, והיא מה שמסדר אותם בתור.
+       */
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`wa-chat:${tenantId}:${userId}`}, 0))`;
+      const row = await tx.whatsAppChat.findUnique({
+        where: { tenantId_userId: { tenantId, userId } },
+        select: { history: true },
+      });
+      const stored = Array.isArray(row?.history)
+        ? (row.history as unknown as AgentHistoryTurn[])
+        : [];
+      /*
+       * רק מה שהתור הזה הוסיף. ההיסטוריה מתווספת בסופה ואינה
+       * נערכת אחורה, ולכן החיבור הזה הוא מיזוג נכון ולא ניחוש.
+       */
+      const added = chat.history.slice(chat.baseHistory);
+      const merged = [...stored, ...added].slice(-HISTORY_KEPT);
+      const data = {
+        // Prisma דורש את הסמן המפורש ל-null בעמודת JSON — לא null גולמי
+        ...(chat.keepStoredPending === true
+          ? {}
+          : {
+              pending:
+                chat.pending === null
+                  ? Prisma.JsonNull
+                  : (chat.pending as unknown as Prisma.InputJsonValue),
+            }),
+        history: merged as unknown as Prisma.InputJsonValue,
+      };
+      await tx.whatsAppChat.upsert({
         where: { tenantId_userId: { tenantId, userId } },
         create: { id: ulid(), tenantId, userId, handledIds: chat.handledIds, ...data },
         update: data,
-      }),
-    );
+      });
+    });
   }
 }
 

@@ -138,6 +138,20 @@ interface TokenRow {
 /** בקשה שכבר יש לה כרטיס — כל מה שאחרי `materializeOpen` עובד עליה. */
 type LinkedRow = TokenRow & { subjectId: string; contactId: string };
 
+/**
+ * שליחה שכבר **נתפסה** בתוך טרנזקציית ההתממשות.
+ *
+ * קיים כי בקישור פתוח התפיסה חייבת להיות באותה טרנזקציה שיוצרת את
+ * הכרטיס — ראו `materializeOpen`. מה שנקרא שם לפני התפיסה נמסר
+ * הלאה, כי אחריה `submittedAt` ו-`answers` כבר נושאים את השליחה
+ * הנוכחית ו„מה היה קודם” אבד.
+ */
+interface PreClaim {
+  rev: string;
+  resubmit: boolean;
+  previousAnswers: Record<string, unknown>;
+}
+
 @Injectable()
 export class IntakeService {
   private readonly logger = new Logger(IntakeService.name);
@@ -464,10 +478,18 @@ export class IntakeService {
      * לכרטיס, והיא נבדקת **לפני** התפיסה. שליחה שנתפסת ואז נדחית
      * הייתה משאירה בקשה מסומנת „נשלחה” בלי שום דבר מאחוריה.
      */
-    const resolved =
+    const materialized =
       row.subject === "open" && row.subjectId === null
         ? await this.materializeOpen(row, answers)
-        : row;
+        : null;
+    const resolved = materialized ?? row;
+    /*
+     * בקישור פתוח התפיסה כבר נעשתה — באותה טרנזקציה שיצרה את
+     * הכרטיס, וזו כל הנקודה. תפיסה שנייה כאן הייתה מיותרת במקרה
+     * הטוב, ובמקרה הרע הייתה נכשלת על ביטול שהגיע אחרי שהשליחה
+     * כבר התקבלה — ומחזירה שגיאה על כרטיס שכבר קיים.
+     */
+    const preClaim = materialized?.preClaim ?? null;
     /*
      * מכאן והלאה יש כרטיס ויש איש קשר. בקישור לכרטיס קיים זה אילוץ
      * המסד; בקישור פתוח זה מה ש-`materializeOpen` בדיוק עשתה. הבדיקה
@@ -523,12 +545,16 @@ export class IntakeService {
        * מלא, וההבחנה בין „הלקוח ענה” לבין „הלקוח שלח שוב” הייתה
        * נעלמת.
        */
-      const previous = await tx.intakeRequest.findUnique({
-        where: { id: live.id },
-        select: { submittedAt: true, answers: true },
-      });
+      const previous =
+        preClaim === null
+          ? await tx.intakeRequest.findUnique({
+              where: { id: live.id },
+              select: { submittedAt: true, answers: true },
+            })
+          : null;
       const resubmit =
-        previous?.submittedAt !== null && previous?.submittedAt !== undefined;
+        preClaim?.resubmit ??
+        (previous?.submittedAt !== null && previous?.submittedAt !== undefined);
       /*
        * מה שנשלח קודם — להשוואה במסלול הליד.
        *
@@ -539,7 +565,7 @@ export class IntakeService {
        * מה שהלקוח שלח קודם למה שהוא שולח עכשיו, וזו בדיוק השאלה
        * שהסוכן צריך תשובה עליה.
        */
-      const previousAnswers = asRecord(previous?.answers);
+      const previousAnswers = preClaim?.previousAnswers ?? asRecord(previous?.answers);
 
       /*
        * התפיסה מותנית, ולא כתיבה עיוורת.
@@ -566,6 +592,10 @@ export class IntakeService {
        * הבדיקה מפסיקה להבחין ביניהן בדיוק במקרה שבשבילו היא
        * נכתבה.
        */
+      if (preClaim !== null) {
+        return { targetBuyerId, resubmit, rev: preClaim.rev, previousAnswers };
+      }
+
       const rev = ulid();
       const claimed = await tx.intakeRequest.updateMany({
         where: {
@@ -669,7 +699,7 @@ export class IntakeService {
   private async materializeOpen(
     row: TokenRow,
     answers: IntakeAnswers,
-  ): Promise<TokenRow> {
+  ): Promise<TokenRow & { preClaim: PreClaim | null }> {
     const rejection = intakeOpenRejectionReason(answers);
     if (rejection !== null) throw new BadRequestException(rejection);
     const fullName = (answers.fullName ?? "").trim();
@@ -731,8 +761,59 @@ export class IntakeService {
           }
           // שליחה מקבילה הקדימה — הכרטיס שלה הוא הכרטיס
           if (again.subjectId !== null && again.contactId !== null) {
-            return { subjectId: again.subjectId, contactId: again.contactId };
+            /*
+             * בלי תפיסה: היא כבר נעשתה על ידי מי שהקדים, והמסלול
+             * הרגיל שאחרי כאן יתפוס את השליחה הזו כשליחה חוזרת.
+             */
+            return {
+              subjectId: again.subjectId,
+              contactId: again.contactId,
+              preClaim: null,
+            };
           }
+
+          /*
+           * **התפיסה כאן, ולפני שנוצר משהו.**
+           *
+           * הבדיקה שמעל אינה מספיקה: `revoke` אינו נוטל את הנעילה
+           * הזו, ובין הבדיקה לבין הכתיבה — ואחר כך גם בין סיום
+           * הטרנזקציה הזו לבין התפיסה שהייתה בטרנזקציה נפרדת —
+           * הקישור יכול היה להתבטל. התוצאה הייתה הגרועה משני
+           * העולמות: הלקוח מקבל „הקישור אינו פעיל”, והמשרד מקבל
+           * קונה שנולד מקישור מבוטל (ביקורת Codex, P1).
+           *
+           * `UPDATE ... WHERE status <> 'revoked' AND expires_at > now`
+           * הוא הכרעה אטומית, והיא נעשית מעתה **באותה טרנזקציה**
+           * שיוצרת את הכרטיס. או ששניהם קרו, או ששום דבר לא קרה.
+           * ביטול שמגיע אחריה מאחר — השליחה כבר התקבלה.
+           */
+          const before = await tx.intakeRequest.findUnique({
+            where: { id: row.id },
+            select: { submittedAt: true, answers: true },
+          });
+          const rev = ulid();
+          const claimed = await tx.intakeRequest.updateMany({
+            where: {
+              id: row.id,
+              tenantId: row.tenantId,
+              status: { not: "revoked" },
+              expiresAt: { gt: new Date() },
+            },
+            data: {
+              status: "submitted",
+              submittedAt: new Date(),
+              submissionRev: rev,
+              answers: answers as unknown as Prisma.InputJsonValue,
+            },
+          });
+          if (claimed.count === 0) {
+            throw new BadRequestException("הקישור אינו פעיל עוד");
+          }
+          const preClaim: PreClaim = {
+            rev,
+            resubmit: before?.submittedAt !== null && before?.submittedAt !== undefined,
+            previousAnswers: asRecord(before?.answers),
+          };
 
           const contact = await this.contacts.findOrCreateByPhone(tx, {
             name: fullName,
@@ -749,7 +830,7 @@ export class IntakeService {
           });
           if (existing !== null) {
             await this.link(tx, row, existing.id, contact.id);
-            return { subjectId: existing.id, contactId: contact.id };
+            return { subjectId: existing.id, contactId: contact.id, preClaim };
           }
 
           /*
@@ -768,7 +849,7 @@ export class IntakeService {
           });
           fresh.push(buyerId);
           await this.link(tx, row, buyerId, contact.id);
-          return { subjectId: buyerId, contactId: contact.id };
+          return { subjectId: buyerId, contactId: contact.id, preClaim };
         },
       );
 
@@ -903,7 +984,17 @@ export class IntakeService {
         type: "intake_submitted",
         title: "הלקוח מילא את טופס הדרישות",
         body: notificationBody(result),
-        entityType: row.subject,
+        /*
+         * ‎`open` הוא סוג של **קישור**, לא סוג של כרטיס.
+         *
+         * ‎`row.subject` נשאר "open" גם אחרי ההתממשות במכוון — הוא
+         * מתאר מאין הבקשה באה — אבל `subjectId` מצביע מאותו רגע על
+         * כרטיס קונה. התראה שנשמרה עם `entityType: "open"` לא
+         * נפתחת בשום מקום: מנתב הקישורים במסך ובפוש מכיר `buyer`
+         * ולא `open`, ולכן הלחיצה נחתה בדף הבית — דווקא ההתראה
+         * שאומרת „הלקוח מילא את הטופס” (ביקורת Codex).
+         */
+        entityType: row.subject === "open" ? "buyer" : row.subject,
         entityId: row.subjectId,
       },
     });
