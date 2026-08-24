@@ -65,6 +65,18 @@ function classRules(name) {
   return found;
 }
 
+/**
+ * ‎#rgb‎ ⟵ ‎#rrggbb‎. הצורה המקוצרת חוקית לגמרי ב-CSS, ויש 19 כאלה
+ * בגיליון הזה — כמעט כולם `#fff`. ביטוי שמכיר רק שש ספרות אינו
+ * „מפספס תו”: הוא **מדלג בשקט** על ההצהרה כולה, ולכן טקסט לבן על
+ * רקע בהיר נספר כתקין (ביקורת Codex).
+ */
+function normalizeHex(value) {
+  const short = /^#([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])$/u.exec(value);
+  if (short !== null) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`.toLowerCase();
+  return /^#[0-9a-fA-F]{6}$/u.test(value) ? value.toLowerCase() : null;
+}
+
 /** ‎#rrggbb‎ ⟵ הבהירות היחסית לפי WCAG. */
 function luminance(hex) {
   const c = hex.replace("#", "");
@@ -150,18 +162,52 @@ const THEME_LABEL = { light: "בהיר", dark: "כהה", contrast: "ניגודי
  * (`--color-X` → `--dk-Y` → צבע), והחסם מונע לולאה אינסופית מכל
  * טעות עתידית שתיצור מעגל.
  */
-function resolveValue(value, theme) {
+function resolveValue(value, theme, backdrop = null) {
   const decls = THEMES[theme];
   let current = value;
   for (let step = 0; step < 5 && current !== undefined && current !== null; step += 1) {
-    if (/^#[0-9a-fA-F]{6}$/u.test(current)) return current.toLowerCase();
-    const mixed = mixValue(current, theme);
+    const hex = normalizeHex(current);
+    if (hex !== null) return hex;
+    const mixed = mixValue(current, theme, backdrop);
     if (mixed !== null) return mixed;
+    const composited = compositeValue(current, backdrop);
+    if (composited !== null) return composited;
     const ref = /^var\(\s*(--[\w-]+)\s*\)$/u.exec(current);
     if (ref === null) return null;
     current = decls.get(ref[1]);
   }
   return null;
+}
+
+/**
+ * `rgba(0, 0, 0, 0.45)` ו-`rgb(255 255 255 / 22%)` — **מורכבים על
+ * מה שמתחתיהם**, לא מדולגים.
+ *
+ * צבע שקוף־למחצה אינו „צבע” עד שיודעים על מה הוא יושב, ולכן הוא
+ * דרש את שרשרת המשטחים: משטח הבסיס של המחלקה, ומתחתיו משטח
+ * העמוד. בלי זה גלולה על רקע לבן־22% נספרה כלא־נמדדת — ושתיקה
+ * כזו היא בדיוק מה שהסתיר את `#fff`.
+ *
+ * ‎`backdrop === null`‎ מחזיר `null` במכוון: אין שקר גרוע יותר
+ * מלהניח לבן ולדווח „עובר”.
+ */
+function compositeValue(value, backdrop) {
+  const parts = /^rgba?\(([^()]*)\)$/u.exec(value);
+  if (parts === null) return null;
+  const numbers = parts[1].split(/[\s,/]+/u).filter((token) => token !== "");
+  if (numbers.length < 3) return null;
+  const channels = numbers.slice(0, 3).map((token) => Number(token));
+  if (channels.some((n) => !Number.isFinite(n))) return null;
+  const raw = numbers[3];
+  const alpha =
+    raw === undefined ? 1 : raw.endsWith("%") ? Number(raw.slice(0, -1)) / 100 : Number(raw);
+  if (!Number.isFinite(alpha)) return null;
+  const hex = (list) =>
+    `#${list.map((n) => Math.round(n).toString(16).padStart(2, "0")).join("")}`;
+  if (alpha >= 0.999) return hex(channels);
+  if (backdrop === null) return null;
+  const under = [0, 1, 2].map((at) => parseInt(backdrop.slice(1 + at * 2, 3 + at * 2), 16));
+  return hex(channels.map((n, at) => n * alpha + under[at] * (1 - alpha)));
 }
 
 function resolve(name, theme) {
@@ -179,10 +225,17 @@ function resolve(name, theme) {
  * המיזוג ב-sRGB הוא ממוצע משוקלל פשוט לכל ערוץ, ולכן אין סיבה
  * לוותר על המדידה.
  */
-function mixValue(value, theme) {
+function mixValue(value, theme, backdrop = null) {
   const mix = /^color-mix\(\s*in\s+srgb\s*,\s*(.+?)\s+([\d.]+)%\s*,\s*(.+?)\s*\)$/u.exec(value);
   if (mix === null) return null;
-  const [first, second] = [resolveValue(mix[1], theme), resolveValue(mix[3], theme)];
+  /*
+   * `color-mix(…, var(--x) 12%, transparent)` הוא הניב המקובל
+   * ל„שכבה קלה מעל מה שמתחת” — התוצאה שקופה־למחצה, ולכן היא
+   * נפתרת רק מול מצע. בלי הענף הזה היא נספרה כבלתי־פתירה.
+   */
+  const first = resolveValue(mix[1], theme, backdrop);
+  const second =
+    mix[3].trim() === "transparent" ? backdrop : resolveValue(mix[3], theme, backdrop);
   if (first === null || second === null) return null;
   const weight = Number(mix[2]) / 100;
   const channel = (hex, at) => parseInt(hex.slice(1 + at * 2, 3 + at * 2), 16);
@@ -478,12 +531,28 @@ function scanControls(dir, hits) {
  * פקד אם היא הופיעה על פקד ב-JSX, או אם קיים כלל CSS שבו היא
  * הורה של פקד (`.x input`). מחלקה חדשה שתיווצר מחר נכנסת מאליה.
  */
-function controlSelectorNames() {
+/**
+ * `tags` — אילו תגיות הופכות עוטפת ל„מחלקה של פקד”.
+ *
+ * שתי השאלות אינן זהות, ולכן גם הרשימה אינה. **באיזה טוקן משתמש
+ * הגבול** היא שאלה על שדה טופס: שם העוטפת נושאת את המסגרת ממש
+ * (`.mv-search-field > input` — לשדה עצמו אין), ולכן היא נמדדת
+ * בסף הפקד. מסלול הלשוניות אינו כזה: הכפתורים שבתוכו מזוהים
+ * במילוי שלהם, והקו שמקיף את כולם הוא קישוט. כפיית 3:1 עליו הייתה
+ * מקיפה כל סרגל לשוניות במערכת בקו כהה.
+ *
+ * **מה יוצא על המסך** היא שאלה אחרת לגמרי, והיא חלה על כל פקד —
+ * כולל כפתור עירום בתוך עוטפת. שם הרשימה רחבה.
+ */
+function controlSelectorNames(tags = ["input", "select", "textarea"]) {
   const names = new Set(controlClasses);
   for (const rule of CSS_RULES) {
     const selector = rule[1];
     // `.x input`, `.x > textarea`, `.x:focus-within select` — כולם עוטפים
-    const wrapper = /\.([\w-]+)[^,{]*[\s>+~](?:input|select|textarea)\b/u.exec(selector);
+    const wrapper = new RegExp(
+      `\\.([\\w-]+)[^,{]*[\\s>+~](?:${tags.join("|")})(?![\\w-])`,
+      "u",
+    ).exec(selector);
     if (wrapper) names.add(wrapper[1]);
   }
   return names;
@@ -591,7 +660,17 @@ function scanClassDefinitions(hits) {
  * הייתה מבטלת את הפטור שהקובץ הזה מנמק בפתיחתו.
  */
 const DECORATIVE_TOKENS = ["var(--color-border)", "var(--color-row-border)"];
-const COLOR_VALUE = /(#[0-9a-fA-F]{6}|var\(--[\w-]+\)|color-mix\([^)]*\)|transparent|currentColor)/u;
+/*
+ * ‎`[^)]*`‎ אינו יכול לחצות סוגריים מקוננים, ו-`color-mix(in srgb,
+ * var(--x) 6%, var(--y))` נחתך אצלו בסוגר הראשון — כלומר הערך
+ * שנקרא היה `color-mix(in srgb, var(--x)`, שאינו נפתר. רמה אחת של
+ * קינון היא כל מה שיש כאן, ודי בה.
+ */
+const NESTED = "(?:[^()]|\\([^()]*\\))*";
+const COLOR_VALUE = new RegExp(
+  `(#[0-9a-fA-F]{6}(?![0-9a-fA-F])|#[0-9a-fA-F]{3}(?![0-9a-fA-F])|var\\(--[\\w-]+\\)|color-mix\\(${NESTED}\\)|rgba?\\(${NESTED}\\)|transparent|currentColor)`,
+  "u",
+);
 const BORDER_PROP =
   /(?:^|[\s;])border(?:-(?:top|right|bottom|left|block|inline|start|end))?(?:-(?:start|end))?(?:-color)?\s*:\s*([^;]+)/gmu;
 const BACKGROUND_PROP = /(?:^|[\s;])background(?:-color)?\s*:\s*([^;]+)/gmu;
@@ -631,6 +710,8 @@ function withoutThemePrefix(part) {
 }
 
 function controlRuleGroups() {
+  // כאן הרשימה הרחבה: גם כפתור עירום בתוך עוטפת הוא פקד שנצבע
+  const names = controlSelectorNames(CONTROL_TAGS);
   const groups = new Map();
   for (const rule of CSS_RULES) {
     const line = css.slice(0, rule.index).split("\n").length;
@@ -638,8 +719,8 @@ function controlRuleGroups() {
       const part = raw.trim();
       if (part === "" || part.startsWith("@")) continue;
       const key = withoutThemePrefix(part);
-      const names = [...key.matchAll(/\.([\w-]+)(?![\w-])/gu)].map((m) => m[1]);
-      if (!names.some((name) => controlClasses.has(name))) continue;
+      const mine = [...key.matchAll(/\.([\w-]+)(?![\w-])/gu)].map((m) => m[1]);
+      if (!mine.some((name) => names.has(name))) continue;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push({ body: rule[2], line, themes: themesFor(part) });
     }
@@ -647,9 +728,53 @@ function controlRuleGroups() {
   return groups;
 }
 
-function scanControlColors(hits) {
+/**
+ * ערך שהוצהר ואי אפשר לפתור אותו לצבע.
+ *
+ * זו אותה משפחה של הכשל שהתגלה ב-`#fff`: הבדיקה לא „טעתה
+ * במספר”, היא **דילגה בשקט** — ופלט השער אמר „הכול נמדד”. ערך
+ * ששקוף במכוון (`transparent`, `none`, `currentColor`) הוא החלטה
+ * מפורשת ולכן מוחרג; כל השאר חייב להגיע לכאן ולהיאמר בקול.
+ */
+const TRANSPARENT_BY_DESIGN = ["transparent", "currentColor", "none"];
+
+/**
+ * המצע שהפקד יושב עליו.
+ *
+ * ברירת המחדל היא שלושת משטחי העמוד — פקד יכול לשבת על כל אחד
+ * מהם, ולכן הוא נמדד מול שלושתם. אבל כשהבורר עצמו אומר מי ההורה
+ * (`.mv-seg > button[aria-selected="true"] .mv-chip`), ההנחה הזו
+ * פשוט **שגויה**: התג יושב על הלשונית הירוקה, לא על העמוד, ומדידה
+ * מול העמוד מייצרת מספר שאיש לא יראה על המסך.
+ */
+function groundsFor(key, theme, groups) {
+  const surfaces = SURFACES.map(([token]) => resolve(token, theme));
+  const split = key.match(/^(.*[\s>+~])\s*[^\s>+~]+$/u);
+  if (split === null) return surfaces;
+  const ancestor = split[1].replace(/[\s>+~]+$/u, "").trim();
+  let background = null;
+  for (const rule of CSS_RULES) {
+    for (const raw of rule[1].split(",")) {
+      if (withoutThemePrefix(raw.trim()) !== ancestor) continue;
+      if (!themesFor(raw.trim()).includes(theme)) continue;
+      const value = lastColor(rule[2], BACKGROUND_PROP);
+      if (value !== null) background = value;
+    }
+  }
+  if (background === null || background === "transparent") return surfaces;
+  const solved = surfaces.map((ground) => resolveValue(background, theme, ground));
+  return solved.every((hex) => hex === null) ? surfaces : solved;
+}
+
+function scanControlColors(hits, unmeasured) {
   const groups = controlRuleGroups();
   let measured = 0;
+  const note = (where, property, value) => {
+    if (value === null || TRANSPARENT_BY_DESIGN.includes(value)) return;
+    if (resolveValue(value, "light") !== null) return;
+    const line = `${where} — ${property}: ${value}`;
+    if (!unmeasured.includes(line)) unmeasured.push(line);
+  };
   for (const key of groups.keys()) {
     const base = /^\.[\w-]+/u.exec(key)?.[0] ?? null;
     const chain = base !== null && base !== key ? [base, key] : [key];
@@ -672,24 +797,46 @@ function scanControlColors(hits) {
       }
       if (at.line === null) continue;
       const where = `globals.css:${at.line} — ${key} (${THEME_LABEL[theme]})`;
-      const surface = at.background === null ? null : resolveValue(at.background, theme);
+      note(where, "border-color", at.border);
+      note(where, "color", at.text);
+
+      /*
+       * המצעים שהפקד יכול לשבת עליהם. רקע אטום מורכב לאותו צבע
+       * מעל שלושתם ולכן מתקפל לערך אחד; רקע שקוף־למחצה אינו
+       * מתקפל, וזו בדיוק הסיבה שהשרשרת נדרשת.
+       */
+      const grounds = groundsFor(key, theme, groups);
+      const surfacesOn = (value) => {
+        if (value === null || value === "transparent") return grounds;
+        return grounds.map((ground) => {
+          if (ground === null) return null;
+          const solved = resolveValue(value, theme, ground);
+          if (solved === null) note(where, "background", value);
+          return solved;
+        });
+      };
+      const surfaces = surfacesOn(at.background);
+      const label = at.background ?? "רקע העמוד";
       const decorative = at.border !== null && DECORATIVE_TOKENS.includes(at.border);
       const edge =
         at.border === null || at.border === "transparent" || at.border === "currentColor"
           ? null
           : resolveValue(at.border, theme);
 
-      if (edge !== null && !decorative && (surface === null || surface !== edge)) {
-        const against =
-          surface !== null
-            ? [[at.background, surface]]
-            : SURFACES.map(([token]) => [`--${token}`, resolve(token, theme)]);
-        for (const [name, color] of against) {
-          if (color === null) continue;
+      const said = new Set();
+      const once = (line) => {
+        if (said.has(line)) return;
+        said.add(line);
+        hits.push(line);
+      };
+
+      if (edge !== null && !decorative) {
+        for (const color of surfaces) {
+          if (color === null || color === edge) continue;
           measured += 1;
           const ratio = contrast(edge, color);
           if (ratio < 3) {
-            hits.push(`${where}: ${at.border} (${edge}) מול ${name} (${color}) = ${ratio.toFixed(2)}:1, נדרש 3:1`);
+            once(`${where}: ${at.border} (${edge}) מול ${label} (${color}) = ${ratio.toFixed(2)}:1, נדרש 3:1`);
           }
         }
       }
@@ -706,33 +853,58 @@ function scanControlColors(hits) {
        * ההנחתה שלו היא **המטרה**.
        */
       const persistentState = /\[(?:aria|data)-[\w-]+/u.test(key.slice(base?.length ?? 0));
-      if (base !== key && persistentState && surface !== null && (edge === null || edge === surface)) {
-        const before = { background: null };
+      if (base !== key && persistentState && at.background !== null) {
+        let baseBackground = null;
+        let baseText = null;
         for (const rule of groups.get(base) ?? []) {
           if (!rule.themes.includes(theme)) continue;
-          const value = lastColor(rule.body, BACKGROUND_PROP);
-          if (value !== null) before.background = value;
+          const fill = lastColor(rule.body, BACKGROUND_PROP);
+          if (fill !== null) baseBackground = fill;
+          const ink = lastColor(rule.body, TEXT_PROP);
+          if (ink !== null) baseText = ink;
         }
-        const previous = before.background === null ? null : resolveValue(before.background, theme);
-        if (previous !== null && previous !== surface) {
+        const before = surfacesOn(baseBackground);
+        surfaces.forEach((surface, index) => {
+          const previous = before[index];
+          if (surface === null || previous === null || previous === surface) return;
+          if (edge !== null && edge !== surface) return;
+          /*
+           * „מסומן במילוי בלבד” — והמילה **בלבד** צריכה להיבדק.
+           * מצב שגם החליף את צבע הטקסט מסומן בשני ערוצים, ודי
+           * באחד מהם שיהיה קריא. בלי התנאי הזה כל מתג מקוטע
+           * במערכת נופל, כולל כאלה שברור לגמרי מה נבחר בהם.
+           */
+          const ink = at.text === null ? null : resolveValue(at.text, theme, surface);
+          const wasInk = baseText === null ? null : resolveValue(baseText, theme, previous);
+          const inkSpeaks = ink !== null && wasInk !== null && contrast(ink, wasInk) >= 3;
+          /*
+           * צללית היא גבול לכל דבר — כך מסומנת לשונית נבחרת
+           * שמורמת מעל המסלול, וכך גם WCAG מכיר בה. מדידת הצללית
+           * עצמה אינה בהישג ידו של שער סטטי; די בכך שהיא קיימת
+           * כדי שהמצב לא יהיה „מילוי בלבד”.
+           */
+          const shadowSpeaks = (groups.get(key) ?? []).some(
+            (rule) => rule.themes.includes(theme) && /box-shadow\s*:/u.test(rule.body),
+          );
+          if (inkSpeaks || shadowSpeaks) return;
           measured += 1;
           const ratio = contrast(surface, previous);
           if (ratio < 3) {
-            hits.push(
-              `${where}: המצב מסומן במילוי בלבד — ${at.background} (${surface}) מול ${before.background} (${previous}) = ${ratio.toFixed(2)}:1, נדרש 3:1`,
+            once(
+              `${where}: המצב מסומן במילוי בלבד — ${label} (${surface}) מול ${baseBackground ?? "רקע העמוד"} (${previous}) = ${ratio.toFixed(2)}:1, נדרש 3:1`,
             );
           }
-        }
+        });
       }
 
-      if (at.text !== null && surface !== null) {
-        const ink = resolveValue(at.text, theme);
-        if (ink !== null && ink !== surface) {
+      for (const surface of at.text === null ? [] : surfaces) {
+        const ink = resolveValue(at.text, theme, surface);
+        if (surface !== null && ink !== null && ink !== surface) {
           measured += 1;
           const ratio = contrast(ink, surface);
           if (ratio < 4.5) {
-            hits.push(
-              `${where}: טקסט ${at.text} (${ink}) על ${at.background} (${surface}) = ${ratio.toFixed(2)}:1, נדרש 4.5:1`,
+            once(
+              `${where}: טקסט ${at.text} (${ink}) על ${label} (${surface}) = ${ratio.toFixed(2)}:1, נדרש 4.5:1`,
             );
           }
         }
@@ -745,11 +917,12 @@ function scanControlColors(hits) {
 const misuse = [];
 const unresolved = [];
 const measuredControls = [];
+const unmeasuredControls = [];
 // סדר: הסריקה ב-JSX אוספת את שמות המחלקות ואת השימושים שהמשך מחפש
 scanControls(join(here, "..", "src"), misuse);
 scanStylesheet(misuse);
 scanClassDefinitions(unresolved);
-const controlPairs = scanControlColors(measuredControls);
+const controlPairs = scanControlColors(measuredControls, unmeasuredControls);
 
 /* ==================== מצב ניגודיות גבוהה ==================== */
 
@@ -794,6 +967,7 @@ if (
   misuse.length > 0 ||
   unresolved.length > 0 ||
   measuredControls.length > 0 ||
+  unmeasuredControls.length > 0 ||
   missingInHighContrast.length > 0 ||
   darkMismatch.length > 0
 ) {
@@ -845,6 +1019,18 @@ if (
     console.error(
       "\nצבע קשיח בכלל של מצב (ריחוף, מיקוד, „נבחר”) אינו עובר דרך הערכות" +
         " הצבע, ולכן הוא זהה בשלושתן. השתמשו בטוקן.",
+    );
+  }
+  if (unmeasuredControls.length > 0) {
+    console.error("\n✗ צבעים של פקדים שאי אפשר לפתור, ולכן לא נמדדו:\n");
+    for (const line of unmeasuredControls.slice(0, 20)) console.error(`  • ${line}`);
+    if (unmeasuredControls.length > 20) {
+      console.error(`  • ...ועוד ${unmeasuredControls.length - 20}`);
+    }
+    console.error(
+      "\nערך שהשער אינו יודע לפתור אינו „עובר” — הוא פשוט לא נבדק, והפלט" +
+        " היה מצהיר „הכול נמדד”. כתבו אותו כטוקן, כ-‎#rgb‎/‎#rrggbb‎ או" +
+        " כ-color-mix, או הצהירו transparent במפורש.",
     );
   }
   console.error(

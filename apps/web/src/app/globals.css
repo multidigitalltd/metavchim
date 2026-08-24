@@ -343,7 +343,7 @@ body {
   z-index: 100;
   padding: 0.6rem 1.2rem;
   background: var(--color-primary);
-  color: #ffffff;
+  color: var(--color-surface);
   border-radius: var(--radius);
   transition: top 0.15s ease;
 }
@@ -1732,13 +1732,13 @@ button.mv-list-row:hover {
 .mv-seg > button[aria-pressed="true"],
 .mv-seg > button[aria-selected="true"] {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-surface);
   box-shadow: 0 2px 6px rgb(18 122 62 / 30%);
 }
 .mv-seg > button[aria-pressed="true"]:hover,
 .mv-seg > button[aria-selected="true"]:hover {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-surface);
 }
 
 /*
@@ -2049,7 +2049,7 @@ a.mv-bar-row:focus-visible {
   gap: 5px;
   border: none;
   background: var(--color-danger);
-  color: #fff;
+  color: var(--color-surface);
   font-size: 14px;
   font-weight: 700;
   border-radius: 99px;
@@ -2259,7 +2259,7 @@ a.mv-bar-row:focus-visible {
   border: none;
   border-radius: 999px;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-surface);
   font-size: 15px;
   font-weight: 800;
   box-shadow: 0 8px 22px rgb(0 0 0 / 18%);
@@ -2631,8 +2631,8 @@ a.mv-bar-row:focus-visible {
   cursor: pointer;
 }
 .mv-custom-feature-toggle[aria-pressed="true"] {
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-surface);
 }
 .mv-custom-feature-remove {
   border: none;
@@ -3001,7 +3001,7 @@ a.mv-bar-row:focus-visible {
   height: 46px;
   border-radius: 15px;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-surface);
   box-shadow: 0 6px 16px color-mix(in srgb, var(--color-primary) 35%, transparent);
 }
 .mv-deal-hero-meta {
@@ -4135,9 +4135,9 @@ a.mv-bar-row:focus-visible {
 /* תג מונה בתוך לשונית פעילה (מילוי ירוק) — לבן שקוף במקום צ'יפ בהיר */
 .mv-seg > button[aria-selected="true"] .mv-chip,
 .mv-seg > button[aria-pressed="true"] .mv-chip {
-  background: rgb(255 255 255 / 22%);
+  background: rgb(0 0 0 / 22%);
   border-color: transparent;
-  color: #fff;
+  color: var(--color-surface);
 }
 
 /*
@@ -4280,7 +4280,7 @@ a.mv-bar-row:focus-visible {
   height: 46px;
   border-radius: 15px;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-surface);
   box-shadow: 0 6px 16px color-mix(in srgb, var(--color-primary) 35%, transparent);
 }
 .mv-agent-title {
@@ -4355,7 +4355,7 @@ a.mv-bar-row:focus-visible {
 }
 .mv-announce-tag {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-surface);
   font-size: 14px;
   font-weight: 700;
   border-radius: 99px;
@@ -4377,7 +4377,7 @@ a.mv-bar-row:focus-visible {
 }
 .mv-announce-cta {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-surface);
   border: none;
   border-radius: 11px;
   padding: 10px 22px;
@@ -4403,7 +4403,7 @@ a.mv-bar-row:focus-visible {
   border-radius: 8px;
   padding: 6px;
   cursor: pointer;
-  color: var(--color-primary-accent);
+  color: var(--color-primary);
   line-height: 0;
 }
 .mv-announce-close:hover {
@@ -4574,7 +4574,7 @@ a.mv-bar-row:focus-visible {
 }
 .mv-pitch-cta {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-surface);
   border: none;
   border-radius: 11px;
   padding: 11px 26px;
@@ -4603,7 +4603,7 @@ a.mv-bar-row:focus-visible {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--color-primary-accent);
+  color: var(--color-primary);
 }
 .mv-pitch-dismiss button {
   font-size: 14px;
