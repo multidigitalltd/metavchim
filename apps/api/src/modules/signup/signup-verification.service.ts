@@ -55,6 +55,19 @@ const MAX_ATTEMPTS = 5;
 const MAX_CODES_PER_EMAIL = 3;
 const EMAIL_WINDOW_SECONDS = 60 * 60;
 
+/**
+ * כמה זמן „שלחו שוב” אחת חוסמת שנייה על אותו טוקן.
+ *
+ * שתי שליחות חוזרות מקבילות שולחות **שני קודים שונים**, ורק
+ * האחרונה שנכתבת עובדת — כלומר המשתמש מקבל שני אימיילים ואינו
+ * יודע איזה מהם תקף. זה קורה בלחיצה כפולה, בשתי לשוניות, או
+ * בניסיון חוזר של הדפדפן (ביקורת Codex).
+ *
+ * הערך קצר בכוונה: הוא נועד לסדר בקשות שנשלחו כמעט יחד, ולא
+ * להוסיף השהיה למי שבאמת לא קיבל את הקוד וממתין.
+ */
+const RESEND_LOCK_SECONDS = 20;
+
 /** הפרטים שממתינים לאימות. סיסמה — מוצפנת בלבד. */
 export interface PendingSignup {
   agencyName: string;
@@ -149,13 +162,28 @@ export class SignupVerificationService implements OnModuleDestroy {
     if (!(await this.email.isConfigured())) {
       throw new ServiceUnavailableException("ההרשמה העצמית אינה זמינה כרגע — נסו שוב מאוחר יותר");
     }
+    /*
+     * תפיסת הטוקן לפני השליחה — ראו `RESEND_LOCK_SECONDS`.
+     *
+     * ‎`NX` הוא מה שהופך את זה לתפיסה ולא לבדיקה: מי שהגיע שני אינו
+     * מקבל את המנעול, ולכן אינו שולח קוד שני שיבטל את הראשון.
+     */
+    const lock = this.resendKey(token);
+    const claimed = await this.redis.set(lock, "1", "EX", RESEND_LOCK_SECONDS, "NX");
+    if (claimed === null) {
+      throw new BadRequestException("קוד חדש נשלח זה עתה — בדקו את תיבת הדואר");
+    }
+
     const code = SignupVerificationService.freshCode();
     /*
      * ה-TTL נשמר ואינו מתחדש: הארכה בכל „שלחו שוב” הייתה הופכת את
      * חלון התפוגה לבלתי-מוגבל בלחיצות.
      */
     const ttl = await this.redis.ttl(this.key(token));
-    if (ttl <= 0) throw new BadRequestException("ההרשמה פגה — מלאו את הפרטים שוב");
+    if (ttl <= 0) {
+      await this.redis.del(lock);
+      throw new BadRequestException("ההרשמה פגה — מלאו את הפרטים שוב");
+    }
 
     /*
      * **השליחה קודמת לכתיבה** — וכאן דווקא הפוך מ-`issue`.
@@ -167,7 +195,16 @@ export class SignupVerificationService implements OnModuleDestroy {
      * ב-`issue` הסדר הפוך ונכון: שם אין קוד קודם להגן עליו, ומה
      * שיש להימנע ממנו הוא ההפך — קוד שנשלח ואין לו רשומה.
      */
-    await this.chargeAndDeliver(stored.pending, code);
+    /*
+     * כישלון משחרר את המנעול: מי שלא קיבל דבר אינו אמור להמתין
+     * בגללו. הצלחה משאירה אותו לפוג מעצמו — זו כל מטרתו.
+     */
+    try {
+      await this.chargeAndDeliver(stored.pending, code);
+    } catch (error) {
+      await this.redis.del(lock);
+      throw error;
+    }
     await this.redis.set(
       this.key(token),
       JSON.stringify({ ...stored, codeHmac: this.hmac(code) } satisfies StoredPending),
@@ -240,6 +277,10 @@ export class SignupVerificationService implements OnModuleDestroy {
 
   private attemptsKey(token: string): string {
     return `signup-pending:attempts:${token}`;
+  }
+
+  private resendKey(token: string): string {
+    return `signup-pending:resend:${token}`;
   }
 
   private static freshCode(): string {

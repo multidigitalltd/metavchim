@@ -819,6 +819,21 @@ export class IntakeService {
             name: fullName,
             phone,
           });
+          /*
+           * נעילת **שורת** איש הקשר לפני בדיקת „יש כבר קונה”.
+           *
+           * ‎`findOrCreateByPhone` נוטלת נעילה מייעצת על המספר, וזה
+           * מסדר אותה מול יוצרי כרטיסים אחרים — אבל לא מול
+           * `BuyersService.convertFromLead`, שנועלת את שורת איש הקשר
+           * ב-`SELECT … FOR UPDATE`. שני מנגנוני נעילה שונים אינם
+           * נפגשים: שתי הטרנזקציות רואות „אין קונה פעיל”, שתיהן
+           * יוצרות, ולאותו אדם נפתחים שני כרטיסי קונה פעילים
+           * (ביקורת Codex, P1).
+           *
+           * זו אותה נעילה שהמסלול שאחרי `materializeOpen` כבר נוטל
+           * ב-`submit`; היא פשוט הייתה חסרה כאן, לפני ההכרעה שיוצרת.
+           */
+          await tx.$queryRaw`SELECT id FROM contacts WHERE id = ${contact.id} AND tenant_id = ${row.tenantId} FOR UPDATE`;
           const existing = await tx.buyer.findFirst({
             where: {
               tenantId: row.tenantId,
