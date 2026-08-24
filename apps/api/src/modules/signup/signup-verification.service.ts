@@ -124,13 +124,11 @@ export class SignupVerificationService implements OnModuleDestroy {
         "ההרשמה העצמית אינה זמינה כרגע — נסו שוב מאוחר יותר או פנו אלינו",
       );
     }
-    await this.chargeEmailQuota(pending.email);
-
     const token = randomBytes(24).toString("base64url");
     const code = SignupVerificationService.freshCode();
     const stored: StoredPending = { pending, codeHmac: this.hmac(code) };
     await this.redis.set(this.key(token), JSON.stringify(stored), "EX", PENDING_TTL_SECONDS);
-    await this.deliverOrRefund(pending, code);
+    await this.chargeAndDeliver(pending, code);
     // בלי הקוד, בלי הטוקן ובלי הכתובת — שורת יומן היא ספירה, לא ראיה
     this.logger.log("נשלח קוד אימות לפתיחת משרד");
     return token;
@@ -151,8 +149,6 @@ export class SignupVerificationService implements OnModuleDestroy {
     if (!(await this.email.isConfigured())) {
       throw new ServiceUnavailableException("ההרשמה העצמית אינה זמינה כרגע — נסו שוב מאוחר יותר");
     }
-    await this.chargeEmailQuota(stored.pending.email);
-
     const code = SignupVerificationService.freshCode();
     /*
      * ה-TTL נשמר ואינו מתחדש: הארכה בכל „שלחו שוב” הייתה הופכת את
@@ -171,7 +167,7 @@ export class SignupVerificationService implements OnModuleDestroy {
      * ב-`issue` הסדר הפוך ונכון: שם אין קוד קודם להגן עליו, ומה
      * שיש להימנע ממנו הוא ההפך — קוד שנשלח ואין לו רשומה.
      */
-    await this.deliverOrRefund(stored.pending, code);
+    await this.chargeAndDeliver(stored.pending, code);
     await this.redis.set(
       this.key(token),
       JSON.stringify({ ...stored, codeHmac: this.hmac(code) } satisfies StoredPending),
@@ -286,8 +282,20 @@ export class SignupVerificationService implements OnModuleDestroy {
       .catch(() => this.logger.warn("החזר מכסת האימייל נכשל"));
   }
 
-  /** שליחה שגובה מכסה ומחזירה אותה אם הספק דחה. */
-  private async deliverOrRefund(pending: PendingSignup, code: string): Promise<void> {
+  /**
+   * גבייה, שליחה, והחזר אם השליחה נכשלה — **כיחידה אחת.**
+   *
+   * הגבייה ישבה קודם בראש `issue` ו-`reissue`, וביניה לבין השליחה
+   * היו פעולות שיכולות להיכשל בעצמן: כתיבת הרשומה ל-Redis, וקריאת
+   * ה-TTL. כישלון שם שרף מכסה בלי שאיש ניסה לשלוח דבר, וההחזר לא
+   * רץ כי הוא היה תלוי בניסיון השליחה (ביקורת Codex).
+   *
+   * צירוף השניים לפונקציה אחת אינו נוחות: הוא הופך את הפער הזה
+   * לבלתי-ניתן לכתיבה מחדש. אין מקום שבו אפשר לגבות בלי שההחזר
+   * שומר עליו, כי אין קריאה נפרדת לגבייה.
+   */
+  private async chargeAndDeliver(pending: PendingSignup, code: string): Promise<void> {
+    await this.chargeEmailQuota(pending.email);
     try {
       await this.deliver(pending, code);
     } catch (error) {

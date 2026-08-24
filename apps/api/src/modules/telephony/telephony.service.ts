@@ -33,7 +33,7 @@ import {
   type SoftphoneGap,
   type VirtualNumberRule,
 } from "@metavchim/shared";
-import { lockProviderCall } from "../../common/locks";
+import { lockContactPhone, lockProviderCall } from "../../common/locks";
 import { notifyOnce } from "../../common/notify-once";
 import { assertContactAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -906,6 +906,12 @@ export class TelephonyService {
              *
              * שיחה יוצאת אינה נושאת נכס, מאותו נימוק שהליד שלה אינו
              * נושא: היעד נבחר על ידי הסוכן ולא על ידי מספר שפורסם.
+             *
+             * **„באותו רגע” הוא רגע כתיבת השורה — האירוע המסיים.**
+             * ‎`Calling` אינו שומר את הניתוב שראה, ולכן מספר שהועבר
+             * לנכס אחר באמצע השיחה (או לפני `Hangup` שנשלח שוב
+             * באיחור) ייתן כאן את התצורה החדשה. ראו ההערה על העמודה
+             * בסכימה — הגבול הזה מתועד ולא מוסתר.
              */
             propertyId:
               event.direction === "outbound" ? null : (virtualNumber?.propertyId ?? null),
@@ -1141,6 +1147,18 @@ export class TelephonyService {
     direction: "inbound" | "outbound",
     callerName: string | undefined,
   ): Promise<{ contactId: string; leadId: string }> {
+    /*
+     * אותה נעילת מספר שנוטלת `findOrCreateByPhone`.
+     *
+     * היצירה כאן אינה עוברת דרכה — היא נושאת את שם המתקשר
+     * מהמרכזייה — ולכן היא הייתה מחוץ להסדר. שיחה נכנסת ממספר חדש
+     * שנפגשת עם ליד מהאתר או עם קישור פתוח באותו רגע: שתי
+     * הטרנזקציות אינן מוצאות כרטיס, שתיהן יוצרות, והאינדקס הייחודי
+     * מפיל את השנייה — כלומר שיחה שנבלעת (ביקורת Codex).
+     *
+     * הנעילה על המספר ולא על הכרטיס: כרטיס עדיין אין.
+     */
+    await lockContactPhone(tx, tenantId, phoneHash);
     const contact = await tx.contact.create({
       data: {
         id: ulid(),
