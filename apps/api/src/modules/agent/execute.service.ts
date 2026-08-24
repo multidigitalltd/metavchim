@@ -46,6 +46,17 @@ import { TasksService } from "../tasks/tasks.service";
  * בפועל.
  */
 
+/**
+ * חלון החזרות — חייב להיות זהה לזה שב-`pendingMissedCalls`.
+ *
+ * הוא מוזרק לשאילתה כאן וגם משמש שם לסינון; שני מספרים שונים היו
+ * מייצרים שיחות שנשלפו ונזרקו, או להפך — חלון שהשאילתה מקצרת.
+ */
+const MISSED_CALL_WINDOW_DAYS = 14;
+/** תקרות סריקה. גבוהות מספיק שלא ייחתך דבר במשרד אמיתי. */
+const CALLBACK_CALL_SCAN = 500;
+const CALLBACK_LEAD_SCAN = 500;
+
 export interface ExecuteResult {
   /** לאן לנווט אחרי הביצוע */
   href?: string;
@@ -628,10 +639,21 @@ export class AgentExecuteService {
    */
   private async showCallbacks(): Promise<ExecuteResult> {
     const now = new Date();
+    /*
+     * שתי שאילתות ממוקדות ולא „העמוד הראשון ואז מסננים”.
+     *
+     * גרסה קודמת שלפה 200 שיחות אחרונות ו-100 לידים אחרונים, וסיננה
+     * אחר כך. שתיהן חתכו בדיוק את הצד הלא-נכון: השיחות לפי „החדשות
+     * ביותר” בלי קשר לחלון, והלידים לפי מזהה יורד — כלומר הליד
+     * הוותיק ביותר, זה שהרשימה קיימת בשבילו, נעלם בשקט (ביקורת
+     * Codex). כאן החלון והסטטוס נמצאים בשאילתה עצמה.
+     */
     const [calls, waiting, tasks] = await Promise.all([
-      // חלון רחב מספיק כדי לכסות כמה ימים של שיחות, לפני הסינון
-      this.calls.list({ limit: 200 }),
-      this.leads.list({ limit: 100 }),
+      this.calls.list({
+        since: new Date(now.getTime() - MISSED_CALL_WINDOW_DAYS * 24 * 60 * 60 * 1000),
+        limit: CALLBACK_CALL_SCAN,
+      }),
+      this.leads.openAwaitingResponse(CALLBACK_LEAD_SCAN),
       this.tasks.list({ status: "open" }),
     ]);
 
@@ -653,8 +675,7 @@ export class AgentExecuteService {
      * ליד שהכדור אצלנו. `converted` ו-`closed` יצאו מהתמונה,
      * ו-`waiting_customer` הוא בדיוק ההפך — שם ממתינים ללקוח.
      */
-    for (const lead of waiting.items) {
-      if (lead.status !== "new" && lead.status !== "in_progress") continue;
+    for (const lead of waiting) {
       candidates.push({
         contactId: lead.contact.id,
         name: lead.contact.name,
@@ -671,7 +692,13 @@ export class AgentExecuteService {
      * משימה על נכס („לצלם את הדירה”) אינה חזרה לאדם, והכללתה הייתה
      * מחזירה בדיוק את הרשימה שהמתווך התלונן עליה.
      */
-    const leadById = new Map(waiting.items.map((lead) => [lead.id, lead]));
+    /*
+     * הלידים שכבר נשלפו הם הפתוחים — ולכן משימה שמצביעה על ליד
+     * שאינו כאן היא משימה על ליד סגור או מומר, ואינה חזרה לאיש.
+     * גם אם ליד פתוח נחתך בתקרה, **האדם אינו נעלם**: הוא כבר ברשימה
+     * כ„פנייה שממתינה”. מה שאובד הוא כותרת המשימה בלבד.
+     */
+    const leadById = new Map(waiting.map((lead) => [lead.id, lead]));
     for (const task of tasks) {
       if (task.entityType !== "lead" || task.entityId === undefined) continue;
       const lead = leadById.get(task.entityId);

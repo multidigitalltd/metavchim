@@ -532,6 +532,49 @@ export class LeadsService {
       return { items, nextCursor: hasMore ? (page.at(-1)?.id ?? null) : null };
     });
   }
+
+  /**
+   * לידים שהכדור אצל המתווך — **הוותיקים ראשונים**.
+   *
+   * ## למה שיטה ייעודית ולא `list` עם סינון אחריה
+   *
+   * `list` מחזירה עמוד לפי `id` יורד, כלומר את ה**חדשים**, וסינון
+   * הסטטוס קורה אחריה. משרד עם יותר לידים מגודל העמוד היה מאבד
+   * בשקט בדיוק את הליד שרשימת החזרות קיימת בשבילו: הוותיק ביותר,
+   * זה שממתין הכי הרבה זמן (ביקורת Codex).
+   *
+   * כאן הסטטוס מסונן במסד והמיון הוא לפי מועד הכניסה בסדר עולה —
+   * ולכן חיתוך התקרה מוריד את החדשים, שהם הפחות דחופים. חיתוך שמסיר
+   * את הצד הלא-נכון של הרשימה הוא באג; חיתוך שמסיר את הזנב הוא
+   * החלטה.
+   *
+   * `waiting_customer` אינו כאן בכוונה: שם ממתינים **ללקוח**, ולכן
+   * אין למה לחזור אליו.
+   */
+  async openAwaitingResponse(limit: number): Promise<LeadDto[]> {
+    return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
+      const rows = await tx.lead.findMany({
+        where: {
+          tenantId,
+          ...ownershipFilter("leads.view_all", "assignedToUserId"),
+          status: { in: ["new", "in_progress"] },
+        },
+        orderBy: { createdAt: "asc" },
+        take: limit,
+      });
+      const contactsById = await this.contacts.getByIds(
+        tx,
+        rows.map((row) => row.contactId),
+      );
+      const items: LeadDto[] = [];
+      for (const row of rows) {
+        const contact = contactsById.get(row.contactId);
+        if (contact) items.push(toLeadDto(row, contact));
+      }
+      return items;
+    });
+  }
 }
 
 function toLeadDto(

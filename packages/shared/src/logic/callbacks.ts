@@ -57,6 +57,15 @@ export interface CallbackRow {
   /** „ממתין 3 שעות” */
   waitedText: string;
   urgency: CallbackUrgency;
+  /**
+   * מתי נוצרה הסיבה — נשמר על השורה ולא רק משמש לניסוח.
+   *
+   * בלעדיו המיון נפל לשם הלקוח בתוך אותה דרגת דחיפות, ושתי שיחות
+   * שלא נענו — אחת לפני 5 שעות ואחת לפני 23 — יצאו בסדר שרירותי.
+   * ההודעה מכריזה „הדחוף ביותר: X”, ולכן סדר שרירותי הוא הכרזה
+   * שגויה (ביקורת Codex).
+   */
+  since: Date;
   href: string;
   detail?: string;
   /**
@@ -211,6 +220,7 @@ export function rankCallbacks(
       reasonText: REASON_TEXT[strongest.reason],
       waitedText: `ממתין ${hebrewElapsed(strongest.since, now)}`,
       urgency: urgencyOf(strongest.since, now),
+      since: strongest.since instanceof Date ? strongest.since : new Date(strongest.since),
       href: strongest.href,
       ...(strongest.detail !== undefined && strongest.detail !== ""
         ? { detail: strongest.detail }
@@ -223,15 +233,12 @@ export function rankCallbacks(
     if (REASON_RANK[a.reason] !== REASON_RANK[b.reason]) {
       return REASON_RANK[a.reason] - REASON_RANK[b.reason];
     }
-    // בתוך אותה סיבה: מי שממתין יותר — למעלה
-    const byWait = urgencyWeight(b.urgency) - urgencyWeight(a.urgency);
+    // בתוך אותה סיבה: מי שממתין יותר — למעלה. הזמן עצמו, ולא
+    // הדרגה: „5 שעות” ו„23 שעות” הן אותה דרגה ולא אותה דחיפות.
+    const byWait = a.since.getTime() - b.since.getTime();
     if (byWait !== 0) return byWait;
     return a.name.localeCompare(b.name, "he");
   });
-}
-
-function urgencyWeight(urgency: CallbackUrgency): number {
-  return urgency === "now" ? 2 : urgency === "today" ? 1 : 0;
 }
 
 /**
