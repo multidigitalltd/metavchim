@@ -82,6 +82,18 @@ export function VoiceRecorder({
 }) {
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  /**
+   * „הפסקתי לדבר, והמנוע עוד מחזיר את המשפט האחרון” (ביקורת Codex).
+   *
+   * `stop()` אומר למנוע להפסיק להאזין **ולהחזיר את מה שכבר אסף**,
+   * ולכן `onresult` אחרון מגיע *אחרי* הקריאה. כשהכפתורים חזרו מיד,
+   * משתמש שהתחיל סבב חדש באותו רגע איבד את המשפט האחרון בשקט —
+   * הסבב החדש מנתק את הישן, וזה בדיוק מה שאמור לקרות. לכן הסבב
+   * נשאר תפוס עד שהמנוע סוגר אותו בעצמו.
+   *
+   * זו כבר ההתנהגות בשדות הטפסים; כאן היא הייתה חסרה.
+   */
+  const [finishing, setFinishing] = useState(false);
   const [browserSupported, setBrowserSupported] = useState(false);
   const [serverStt, setServerStt] = useState(false);
   /**
@@ -104,6 +116,10 @@ export function VoiceRecorder({
    * את זה: הלוגיקה נבדקת ב-`@metavchim/shared`.
    */
   const sessionsRef = useRef(createDictationSessions());
+  /** מזהה הסבב שהמנוע שב-`recognitionRef` שייך אליו. */
+  const browserTokenRef = useRef(0);
+  /** ממתין ל-`onend` אחרי `stop()` — ראו `finishing`. */
+  const endGuardRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   // האם להמשיך לקטע הבא כשהנוכחי נסגר (false = המתווך לחץ עצירה)
@@ -408,8 +424,13 @@ export function VoiceRecorder({
    * בחלק מהדפדפנים, ולכן הוא עטוף.
    */
   function retireRecognition(): void {
+    if (endGuardRef.current !== null) {
+      clearTimeout(endGuardRef.current);
+      endGuardRef.current = null;
+    }
     const previous = recognitionRef.current;
     recognitionRef.current = null;
+    browserTokenRef.current = 0;
     if (previous === null) return;
     previous.onresult = null;
     previous.onend = null;
@@ -459,31 +480,64 @@ export function VoiceRecorder({
     };
     recognition.onend = () => {
       if (!sessions.end(token)) return;
-      recognitionRef.current = null;
+      retireRecognition();
       setRecording(false);
+      setFinishing(false);
       setActiveMode(null);
     };
     recognition.onerror = () => {
       if (!sessions.end(token)) return;
-      recognitionRef.current = null;
+      retireRecognition();
       setRecording(false);
+      setFinishing(false);
       setActiveMode(null);
       onError?.("זיהוי הדיבור נכשל — אפשר להקליד במקום");
     };
     recognitionRef.current = recognition;
+    browserTokenRef.current = token;
     recognition.start();
     setRecording(true);
   }
 
   /** עצירה — לפי המצב שרץ בפועל, לא לפי מה שזמין. */
   function stop(): void {
-    if (activeMode === "server") stopServerRecording();
-    else {
-      recognitionRef.current?.stop();
-      setRecording(false);
+    if (activeMode === "server") {
+      stopServerRecording();
       setActiveMode(null);
+      return;
     }
-    setActiveMode(null);
+    const recognition = recognitionRef.current;
+    if (recognition === null) {
+      setRecording(false);
+      setFinishing(false);
+      setActiveMode(null);
+      return;
+    }
+    /*
+     * הסבב נגמר ב-`onend` ולא כאן — המשפט האחרון עוד באוויר.
+     * `activeMode` נשמר עד אז כדי ש„עצור” נוסף ינותב לאותו מסלול.
+     */
+    const guarded = browserTokenRef.current;
+    recognition.stop();
+    setRecording(false);
+    setFinishing(true);
+    /*
+     * רשת ביטחון למנוע שאינו יורה `onend` — אחרת הסבב נשאר תפוס
+     * לנצח ואי אפשר להכתיב שוב. עשר שניות הן הרבה מעבר לכל סגירה
+     * סבירה: מנוע שנשען על רשת יכול לסגור משפט גם אחרי שנייה וחצי,
+     * וניתוק מוקדם היה בולע בשקט בדיוק את מה שבאנו לשמר.
+     *
+     * השעון שייך לסבב מסוים: אם בינתיים נפתח סבב חדש הוא אינו רשאי
+     * לגעת בו.
+     */
+    if (endGuardRef.current !== null) clearTimeout(endGuardRef.current);
+    endGuardRef.current = setTimeout(() => {
+      endGuardRef.current = null;
+      if (!sessionsRef.current.end(guarded)) return;
+      retireRecognition();
+      setFinishing(false);
+      setActiveMode(null);
+    }, 10_000);
   }
 
   function begin(mode: DictationMode): void {
@@ -492,7 +546,7 @@ export function VoiceRecorder({
      * הקלטה, אבל בין הלחיצה לרינדור יש חלון — ולחיצה כפולה מהירה,
      * שכיחה במסך מגע, נכנסה בו והשאירה שני מקליטים על אותו שדה.
      */
-    if (recording) return;
+    if (recording || finishing) return;
     setActiveMode(mode);
     if (mode === "server") void startServerRecording();
     else startBrowserRecognition();
@@ -517,7 +571,12 @@ export function VoiceRecorder({
                   : "מקליט… הטקסט מופיע תוך כדי הדיבור"}
               </p>
             </>
-          ) : transcribing ? (
+          ) : transcribing || finishing ? (
+            /*
+              הכפתורים אינם חוזרים כל עוד הסבב לא נסגר. `finishing`
+              הוא החלון שבין „עצור” לבין המשפט האחרון שהמנוע עוד
+              מחזיר — סבב חדש שנפתח בתוכו היה בולע אותו (ביקורת Codex).
+            */
             <p aria-live="polite" className="mt-2" style={{ color: "var(--color-text-muted)" }}>
               מסיים לתמלל…
             </p>
