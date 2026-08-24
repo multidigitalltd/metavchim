@@ -71,6 +71,21 @@ function durationText(hours: number): string {
 }
 
 /**
+ * „כמה זמן עבר”, בעברית תקנית — יחידה אחת, בצורת זוגי כשצריך.
+ *
+ * מיוצא כדי שרשימת החזרות (`callbacks.ts`) לא תכתוב את אותה טבלת
+ * צורות זוגי בפעם השנייה. „שעתיים” ו„יומיים” הם המקום שבו ניסוח
+ * שנכתב פעמיים מתחיל להתפצל.
+ *
+ * תאריך עתידי (שעון לא מסונכרן) נחשב „עכשיו” ולא זמן שלילי.
+ */
+export function hebrewElapsed(from: Date | string, now: Date): string {
+  const started = from instanceof Date ? from : new Date(from);
+  const hours = Math.max(0, (now.getTime() - started.getTime()) / HOUR_MS);
+  return durationText(hours);
+}
+
+/**
  * סדר הטיפול במסך הלידים: קודם מה שסומן כדורש טיפול אנושי, ואחריו
  * הוותיק ביותר — הליד שהכי קרוב להפר את ה-KPI נמצא למעלה.
  */

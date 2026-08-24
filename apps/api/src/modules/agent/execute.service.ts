@@ -4,7 +4,10 @@ import {
   agentAction,
   jerusalemDayRange,
   mayUseAction,
+  pendingMissedCalls,
+  rankCallbacks,
   type BuyerRequirements,
+  type CallbackCandidate,
   type PropertyFields,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
@@ -162,6 +165,8 @@ export class AgentExecuteService {
         return this.showCard(params);
       case "play_recording":
         return this.playRecording(params);
+      case "show_callbacks":
+        return this.showCallbacks();
       case "show_calls":
         return this.showCalls();
       case "show_deals":
@@ -599,6 +604,98 @@ export class AgentExecuteService {
     callId: string,
   ): Promise<{ body: Readable; contentType: string; contentLength?: number }> {
     return this.calls.recording(callId);
+  }
+
+  /**
+   * „למי אני צריך לחזור” — הרשימה שהמתווך ביקש וקיבל במקומה משימות.
+   *
+   * ## למה שלושה מקורות ולא אחד
+   *
+   * „ממתין לחזרה” אינו עמודה במסד — הוא נגזר משלושה מצבים שונים
+   * שהמתווך חווה כאותה מטלה: שיחה שלא נענתה, ליד שאיש לא חזר אליו,
+   * ומשימה שקשורה לאיש קשר. כל אחד חי בטבלה אחרת ולכל אחד מסנן
+   * בעלות משלו — ולכן שלוש קריאות דרך השירותים הקיימים, ולא JOIN
+   * ידני שעוקף אותם.
+   *
+   * המיזוג והדירוג נעשים בלוגיקה טהורה ב-`@metavchim/shared`, שם יש
+   * להם בדיקות: „מי דוחק יותר” הוא כלל מוצר, לא שאילתה.
+   *
+   * ## מה הופך את זה לתשובה ולא לרשימה
+   *
+   * כל שורה נושאת **מספר טלפון**. `show_tasks` מחזירה כותרות בלבד,
+   * ולכן מתווך שקיבל אותה נשאר בדיוק במקום שבו התחיל — הוא יודע
+   * למי לחזור ולא יודע לאן לחייג.
+   */
+  private async showCallbacks(): Promise<ExecuteResult> {
+    const now = new Date();
+    const [calls, waiting, tasks] = await Promise.all([
+      // חלון רחב מספיק כדי לכסות כמה ימים של שיחות, לפני הסינון
+      this.calls.list({ limit: 200 }),
+      this.leads.list({ limit: 100 }),
+      this.tasks.list({ status: "open" }),
+    ]);
+
+    const candidates: CallbackCandidate[] = pendingMissedCalls(
+      calls.map((call) => ({
+        id: call.id,
+        ...(call.contactId !== undefined ? { contactId: call.contactId } : {}),
+        ...(call.contactName !== undefined ? { contactName: call.contactName } : {}),
+        ...(call.phone !== undefined ? { phone: call.phone } : {}),
+        direction: call.direction,
+        outcome: call.outcome,
+        occurredAt: call.occurredAt,
+        ...(call.summary !== undefined ? { summary: call.summary } : {}),
+      })),
+      now,
+    );
+
+    /*
+     * ליד שהכדור אצלנו. `converted` ו-`closed` יצאו מהתמונה,
+     * ו-`waiting_customer` הוא בדיוק ההפך — שם ממתינים ללקוח.
+     */
+    for (const lead of waiting.items) {
+      if (lead.status !== "new" && lead.status !== "in_progress") continue;
+      candidates.push({
+        contactId: lead.contact.id,
+        name: lead.contact.name,
+        phone: lead.contact.phone === "" ? null : lead.contact.phone,
+        reason: "waiting_lead",
+        since: lead.createdAt,
+        href: `/leads/${lead.id}`,
+        ...(lead.summary !== undefined ? { detail: lead.summary } : {}),
+      });
+    }
+
+    /*
+     * משימה נכנסת רק כשהיא קשורה לליד — שם יש איש קשר, ולכן מספר.
+     * משימה על נכס („לצלם את הדירה”) אינה חזרה לאדם, והכללתה הייתה
+     * מחזירה בדיוק את הרשימה שהמתווך התלונן עליה.
+     */
+    const leadById = new Map(waiting.items.map((lead) => [lead.id, lead]));
+    for (const task of tasks) {
+      if (task.entityType !== "lead" || task.entityId === undefined) continue;
+      const lead = leadById.get(task.entityId);
+      if (!lead) continue;
+      candidates.push({
+        contactId: lead.contact.id,
+        name: lead.contact.name,
+        phone: lead.contact.phone === "" ? null : lead.contact.phone,
+        reason: "task",
+        since: task.dueAt ?? now,
+        href: `/leads/${lead.id}`,
+        detail: task.title,
+      });
+    }
+
+    const rows = rankCallbacks(candidates, now);
+    return {
+      href: "/leads",
+      message:
+        rows.length === 0
+          ? "אין כרגע אף אחד שממתין לחזרה"
+          : `${rows.length} ממתינים לחזרה — הדחוף ביותר: ${rows[0]?.name}`,
+      data: { callbacks: rows },
+    };
   }
 
   private async showCalls(): Promise<ExecuteResult> {
