@@ -153,15 +153,18 @@ function openingTag(source, from) {
 }
 
 /**
- * שמות של אובייקטי סגנון שנושאים את המסגרת הדקורטיבית.
+ * אובייקטי הסגנון שבקובץ — שם הקבוע ⟵ הגוף שלו.
  *
  * הבדיקה על התגית לבדה אינה מספיקה: `style={editInputStyle}` אינו
  * מכיל את שם הטוקן, והשדה בכל זאת מקבל אותו (ביקורת Codex). זו
  * הצורה השכיחה בקוד הזה — קבוע אחד בראש הקובץ שמוחל על חמישה
  * שדות — ולכן בדיקה שאינה פותרת אותו מפספסת דווקא את המקרה הנפוץ.
+ *
+ * המפה משמשת את שתי השאלות: אילו קבועים נושאים את המסגרת
+ * הדקורטיבית, ואילו קובעים מסגרת כלשהי.
  */
-function taintedStyleNames(source) {
-  const names = new Set();
+function styleObjects(source) {
+  const bodies = new Map();
   const pattern = /const\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*\{/gu;
   let match;
   while ((match = pattern.exec(source)) !== null) {
@@ -178,13 +181,20 @@ function taintedStyleNames(source) {
         }
       }
     }
-    if (source.slice(open, end).includes(DECORATIVE_BORDER)) names.add(match[1]);
+    bodies.set(match[1], source.slice(open, end));
   }
-  return names;
+  return bodies;
 }
+
+/** הצהרת מסגרת — `border`, `borderColor`, `border-inline-start` וכו'. אך לא `border-radius`. */
+const BORDER_DECL =
+  /(?:^|[\s;{,])border(?:-?(?:block|inline|top|right|bottom|left|start|end))?(?:-?(?:start|end))?(?:-?(?:color|width|style|Color|Width|Style))?\s*:/mu;
 
 /** המחלקות שמופיעות על פקד ב-JSX — לחצי השני של הבדיקה, ב-CSS. */
 const controlClasses = new Set();
+
+/** פקד אחד ב-JSX והמחלקות שהוא נושא — לבדיקה השלישית. */
+const controlUses = [];
 
 function scanControls(dir, hits) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -195,36 +205,51 @@ function scanControls(dir, hits) {
     }
     if (!entry.name.endsWith(".tsx")) continue;
     const source = readFileSync(full, "utf8");
-    const tainted = taintedStyleNames(source);
+    const styles = styleObjects(source);
+    const tainted = [...styles].filter(([, body]) => body.includes(DECORATIVE_BORDER));
+    const bordered = [...styles].filter(([, body]) => BORDER_DECL.test(body));
     for (const tag of CONTROL_TAGS) {
       const pattern = new RegExp(`<${tag}\\b`, "gu");
       let match;
       while ((match = pattern.exec(source)) !== null) {
         const body = openingTag(source, match.index);
+        const line = source.slice(0, match.index).split("\n").length;
         /*
          * כל מחרוזת בתוך `className` — גם `"a b"` וגם ביטוי מותנה
          * שבתוכו מחרוזות. השמות האלה הם מה שהחלק שב-CSS מחפש.
          */
+        const classes = [];
         for (const attr of body.matchAll(/className=(?:"([^"]*)"|\{([\s\S]*?)\})/gu)) {
           const text = attr[1] ?? attr[2] ?? "";
           for (const quoted of text.matchAll(/["'`]([^"'`]*)["'`]/gu)) {
-            for (const cls of quoted[1].split(/\s+/u)) {
-              if (cls.startsWith("mv-")) controlClasses.add(cls);
-            }
+            classes.push(...quoted[1].split(/\s+/u));
           }
-          if (attr[1] !== undefined) {
-            for (const cls of attr[1].split(/\s+/u)) {
-              if (cls.startsWith("mv-")) controlClasses.add(cls);
-            }
-          }
+          if (attr[1] !== undefined) classes.push(...attr[1].split(/\s+/u));
+        }
+        const mine = classes.filter((cls) => /^mv-[\w-]+$/u.test(cls));
+        for (const cls of mine) controlClasses.add(cls);
+        if (mine.length > 0) {
+          controlUses.push({
+            where: `${full}:${line}`,
+            tag,
+            classes: mine,
+            /*
+             * מסגרת שנקבעת על התגית עצמה מייתרת את המחלקה: מחלקת
+             * Tailwind (`border-0` על גלולת הסטטוס), סגנון בשורה,
+             * או קבוע סגנון שקובע מסגרת.
+             */
+            explicit:
+              classes.some((cls) => /^border(?:-|$)/u.test(cls)) ||
+              BORDER_DECL.test(body) ||
+              bordered.some(([name]) => new RegExp(`\\b${name}\\b`, "u").test(body)),
+          });
         }
         const direct = body.includes(DECORATIVE_BORDER);
         // הפניה לקבוע נגוע — כולל בפריסה (`{...inputStyle, ...}`)
-        const viaName = [...tainted].find((name) =>
-          new RegExp(`\\b${name}\\b`, "u").test(body),
-        );
+        const viaName = tainted
+          .map(([name]) => name)
+          .find((name) => new RegExp(`\\b${name}\\b`, "u").test(body));
         if (!direct && viaName === undefined) continue;
-        const line = source.slice(0, match.index).split("\n").length;
         hits.push(
           `${full}:${line} — <${tag}> עם ${direct ? DECORATIVE_BORDER : `${viaName} (סגנון נגוע)`}`,
         );
@@ -248,9 +273,23 @@ function scanControls(dir, hits) {
  * פקד אם היא הופיעה על פקד ב-JSX, או אם קיים כלל CSS שבו היא
  * הורה של פקד (`.x input`). מחלקה חדשה שתיווצר מחר נכנסת מאליה.
  */
+/** כל כללי הגיליון פעם אחת — `[בורר, גוף, אינדקס]`. */
+const CSS_RULES = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/gu)];
+
+/** הכללים שנוגעים במחלקה מסוימת — `.mv-select` ולא `.mv-select-list`. */
+const rulesByClass = new Map();
+function classRules(name) {
+  const cached = rulesByClass.get(name);
+  if (cached !== undefined) return cached;
+  const probe = new RegExp(`\\.${name}(?![\\w-])`, "u");
+  const found = CSS_RULES.filter((rule) => probe.test(rule[1]));
+  rulesByClass.set(name, found);
+  return found;
+}
+
 function controlSelectorNames() {
   const names = new Set(controlClasses);
-  for (const rule of css.matchAll(/([^{}]+)\{[^{}]*\}/gu)) {
+  for (const rule of CSS_RULES) {
     const selector = rule[1];
     // `.x input`, `.x > textarea`, `.x:focus-within select` — כולם עוטפים
     const wrapper = /\.([\w-]+)[^,{]*[\s>+~](?:input|select|textarea)\b/u.exec(selector);
@@ -261,7 +300,7 @@ function controlSelectorNames() {
 
 function scanStylesheet(hits) {
   const names = controlSelectorNames();
-  for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/gu)) {
+  for (const rule of CSS_RULES) {
     /*
      * הבורר הוא מה שאחרי ה-`}` הקודם, ולכן הוא גורר איתו את ההערה
      * שמעליו. חיתוך להערה האחרונה שנסגרה משאיר את הבורר עצמו —
@@ -284,10 +323,53 @@ function scanStylesheet(hits) {
   }
 }
 
+/* ==================== מסגרת שלא נקבעה כלל ==================== */
+
+/**
+ * שתי הבדיקות הקודמות שואלות **איזו** מסגרת הפקד מקבל. הן אינן
+ * שואלות אם הוא מקבל מסגרת בכלל.
+ *
+ * `className="mv-input"` הופיע על חמישה שדות — שני אזורי הטקסט
+ * בעסקה המשותפת, שני שדות מחיקת הקרדיטים ושדה הימים בייבוא
+ * ההקלטות — בלי שקיים לה כלל בגיליון. Preflight של Tailwind מאפס
+ * `input`/`textarea` ל-`border: 0` ולרקע שקוף, ולכן הם הוצגו בלי
+ * שדה סביבם; השער דיווח „הכול תקין”, כי אין שם טוקן דקורטיבי
+ * להיתפס בו (ביקורת Codex).
+ *
+ * לכן פקד שנשען על מחלקת מערכת נבדק גם על מה שהמחלקה **מספקת**:
+ * שהיא מוגדרת, ושהיא קובעת מסגרת. פקד שמסגרתו נקבעת על התגית
+ * עצמה — `border-0` על גלולת הסטטוס, סגנון בשורה — מוחרג, כי שם
+ * ההחלטה מפורשת וגלויה במקום שבו קוראים אותה.
+ *
+ * הבדיקה חלה על פקד שנושא מחלקת `mv-` דווקא: פקד בלי מחלקה כזו
+ * מקבל את מסגרתו מסגנון בשורה או מעוטפת (`.mv-search-field`), ואלה
+ * אינם ניתנים להכרעה מקריאת התגית לבדה. הכשל שנתפס כאן הוא הפער
+ * בין מה שהמחלקה מבטיחה למה שהיא עושה.
+ */
+function scanClassDefinitions(hits) {
+  for (const use of controlUses) {
+    const undefinedNames = use.classes.filter((name) => classRules(name).length === 0);
+    if (undefinedNames.length > 0) {
+      hits.push(`${use.where} — <${use.tag}> נושא מחלקה שאינה מוגדרת: ${undefinedNames.join(", ")}`);
+      continue;
+    }
+    if (use.explicit) continue;
+    const anyBorder = use.classes.some((name) =>
+      classRules(name).some((rule) => BORDER_DECL.test(rule[2])),
+    );
+    if (anyBorder) continue;
+    hits.push(
+      `${use.where} — <${use.tag}> אינו מקבל מסגרת מאף מקור (${use.classes.join(" ")})`,
+    );
+  }
+}
+
 const misuse = [];
-// סדר: הסריקה ב-JSX אוספת את שמות המחלקות שהצד השני מחפש
+const unresolved = [];
+// סדר: הסריקה ב-JSX אוספת את שמות המחלקות ואת השימושים שהמשך מחפש
 scanControls(join(here, "..", "src"), misuse);
 scanStylesheet(misuse);
+scanClassDefinitions(unresolved);
 
 /* ==================== מצב ניגודיות גבוהה ==================== */
 
@@ -306,7 +388,12 @@ const missingInHighContrast = HIGH_CONTRAST_REQUIRED.filter(
   (name) => !new RegExp(`--${name}:`, "u").test(contrastBlock),
 );
 
-if (failures.length > 0 || misuse.length > 0 || missingInHighContrast.length > 0) {
+if (
+  failures.length > 0 ||
+  misuse.length > 0 ||
+  unresolved.length > 0 ||
+  missingInHighContrast.length > 0
+) {
   if (missingInHighContrast.length > 0) {
     console.error("\n✗ טוקנים שאינם נדרסים במצב ניגודיות גבוהה:\n");
     for (const name of missingInHighContrast) console.error(`  • --${name}`);
@@ -328,6 +415,16 @@ if (failures.length > 0 || misuse.length > 0 || missingInHighContrast.length > 0
         " 1.65:1 בלבד — היא נועדה לכרטיס, לא לשדה.",
     );
   }
+  if (unresolved.length > 0) {
+    console.error("\n✗ פקדים שהמחלקה שלהם אינה נותנת להם מסגרת:\n");
+    for (const line of unresolved.slice(0, 20)) console.error(`  • ${line}`);
+    if (unresolved.length > 20) console.error(`  • ...ועוד ${unresolved.length - 20}`);
+    console.error(
+      "\nהגדירו את המחלקה ב-globals.css עם border ב-var(--color-input-border)." +
+        " בלי הגדרה, Preflight של Tailwind מותיר את השדה בלי מסגרת ובלי רקע —" +
+        " כלומר בלי שדה נראה כלל.",
+    );
+  }
   console.error(
     "\nהמסגרות והצבעים מוגדרים ב-apps/web/src/app/globals.css. סף 3:1 לגבול פקד" +
       " הוא WCAG 1.4.11; 4.5:1 לטקסט הוא 1.4.3.",
@@ -343,4 +440,5 @@ const notes = INFORMATIVE.map(([fg, bg, label]) => {
 
 console.log(`✓ ${checked} זוגות צבע נמדדו — כולם מעל הסף`);
 console.log("✓ כל הפקדים משתמשים בגבול הפקד ולא במסגרת הדקורטיבית");
+console.log(`✓ ${controlUses.length} פקדים עם מחלקת מערכת — לכולם מחלקה מוגדרת שקובעת מסגרת`);
 console.log(`  דקורטיבי (לידיעה בלבד): ${notes.join(" · ")}`);
