@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { featureLabel, FREE_PRICE_LABEL } from "@metavchim/shared";
+import { featureLabel, FREE_PRICE_LABEL, normalizeSignupCode } from "@metavchim/shared";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { clearSessionCache } from "@/lib/session-cache";
 import { AuthShell } from "../auth-shell";
@@ -22,6 +22,16 @@ import { Notice } from "../notice";
  *
  * המסלולים מגיעים מהשרת ולא נצרבים כאן: הם נערכים במסך הפלטפורמה,
  * ורשימה מקומית הייתה מציגה מחיר שכבר לא נכון.
+ *
+ * ## הקוד שנשלח לאימייל
+ *
+ * שליחת הטופס **אינה פותחת משרד** אלא שולחת קוד לכתובת שהוקלדה.
+ * המשרד נפתח רק כשהקוד חוזר, ולכן כתובת שאיש אינו קורא אינה משאירה
+ * שום עקבה במסד.
+ *
+ * הטופס אינו מפורק בין השלבים אלא **מוסתר**: משתמש שגילה במסך הקוד
+ * שהקליד כתובת שגויה חוזר אחורה ומוצא את כל מה שמילא במקומו. טופס
+ * שמתאפס בחזרה אחורה הוא טופס שנוטשים.
  */
 
 interface OfferedPlan {
@@ -82,6 +92,16 @@ export default function SignupPage(): React.JSX.Element {
    */
   const [plansFailed, setPlansFailed] = useState(false);
 
+  /*
+   * ההרשמה הממתינה: הטוקן שמייצג את הפרטים שנשמרו בשרת עד שהקוד
+   * יחזור, והכתובת שאליה נשלח — כדי שהמסך יאמר לאן להסתכל. הסיסמה
+   * אינה נשמרת כאן: היא כבר בשרת, מוצפנת, ואין שום סיבה שתמתין
+   * בזיכרון הדפדפן.
+   */
+  const [pending, setPending] = useState<{ token: string; email: string } | null>(null);
+  const [code, setCode] = useState("");
+  const [resent, setResent] = useState<string | null>(null);
+
   const loadPlans = useCallback(() => {
     setPlansFailed(false);
     setPlans(null);
@@ -136,7 +156,7 @@ export default function SignupPage(): React.JSX.Element {
     setSubmitting(true);
     setError(null);
     try {
-      await apiPost("/signup", {
+      const res = await apiPost<{ token: string; email: string }>("/signup", {
         agencyName: String(form.get("agencyName") ?? "").trim(),
         ownerName: String(form.get("ownerName") ?? "").trim(),
         email: String(form.get("email") ?? "").trim(),
@@ -147,16 +167,47 @@ export default function SignupPage(): React.JSX.Element {
         ...(coupon.trim() !== "" ? { coupon: coupon.trim() } : {}),
         acceptTerms: true,
       });
+      // עדיין לא נפתח משרד — נשלח קוד, וזה כל מה שקרה
+      setPending(res);
+      setCode("");
+      setResent(null);
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "ההרשמה נכשלה — נסו שוב");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  /** השלב השני — הקוד חוזר, והמשרד נפתח. */
+  async function confirm(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (pending === null) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await apiPost("/signup/confirm", { token: pending.token, code });
       /*
-       * ההרשמה כבר הנפיקה Session, ולכן ישר פנימה ולא למסך כניסה.
+       * האישור כבר הנפיק Session, ולכן ישר פנימה ולא למסך כניסה.
        * `replace` ולא `push`: חזרה אחורה אל טופס ההרשמה אחרי שהמשרד
        * כבר נפתח הייתה מובילה לניסיון הרשמה שני עם אותו אימייל.
        */
       clearSessionCache();
       router.replace("/setup");
     } catch (err: unknown) {
-      setError(err instanceof ApiError ? err.message : "ההרשמה נכשלה — נסו שוב");
+      setError(err instanceof ApiError ? err.message : "האימות נכשל — נסו שוב");
       setSubmitting(false);
+    }
+  }
+
+  async function resend(): Promise<void> {
+    if (pending === null) return;
+    setError(null);
+    setResent(null);
+    try {
+      await apiPost("/signup/resend", { token: pending.token });
+      setResent("נשלח קוד חדש. הקוד הקודם כבר אינו תקף.");
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "לא הצלחנו לשלוח קוד נוסף");
     }
   }
 
@@ -166,9 +217,11 @@ export default function SignupPage(): React.JSX.Element {
     <AuthShell
       title="פתיחת משרד"
       subtitle={
-        selected && selected.trialDays > 0
-          ? `${selected.trialDays} ימי ניסיון, בלי כרטיס אשראי.`
-          : "כמה פרטים, והמשרד שלכם פתוח."
+        pending !== null
+          ? "נשאר רק לאמת את כתובת האימייל."
+          : selected && selected.trialDays > 0
+            ? `${selected.trialDays} ימי ניסיון, בלי כרטיס אשראי.`
+            : "כמה פרטים, והמשרד שלכם פתוח."
       }
       points={[
         "המשרד נפתח מיד — בלי התקנה ובלי המתנה",
@@ -205,6 +258,87 @@ export default function SignupPage(): React.JSX.Element {
           </Link>
         </p>
       ) : (
+        <>
+        {pending === null ? null : (
+          <form
+            method="post"
+            onSubmit={(e) => void confirm(e)}
+            noValidate
+            className="mb-2"
+            aria-describedby={error ? "signup-error" : undefined}
+          >
+            <p className="mt-0 mb-3 text-[15px]">
+              שלחנו קוד בן שש ספרות אל{" "}
+              <strong dir="ltr" className="inline-block">
+                {pending.email}
+              </strong>
+              . הזינו אותו כדי לפתוח את המשרד.
+            </p>
+
+            <div className="mv-auth-field">
+              <label htmlFor="signup-code">קוד האימות</label>
+              <input
+                id="signup-code"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                /*
+                  ‎`inputMode="numeric"` ולא `type="number"`: מקלדת ספרות
+                  בנייד בלי חצי החצים והגלגלת שמקפיצים ספרה בטעות.
+                */
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={20}
+                dir="ltr"
+                autoFocus
+                className="mv-auth-input"
+              />
+            </div>
+
+            {resent === null ? null : (
+              <p aria-live="polite" className="m-0 mb-3 text-[15px]" style={{ color: "var(--color-success)" }}>
+                {resent}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              /*
+                הכפתור נדלק לפי אותו נרמול שהשרת מפעיל. שתי הכרעות
+                שונות על אותה מחרוזת היו מייצרות בדיוק את הפער שבו
+                הכפתור פעיל והשרת עונה „קוד שגוי”.
+              */
+              disabled={submitting || normalizeSignupCode(code) === null}
+              className="mv-auth-submit"
+            >
+              {submitting ? "פותח משרד…" : "אישור ופתיחת המשרד"}
+            </button>
+
+            <p className="mt-3 mb-0 text-[15px]" style={{ color: "var(--color-text-muted)" }}>
+              לא הגיע?{" "}
+              <button type="button" className="underline" onClick={() => void resend()}>
+                שלחו קוד שוב
+              </button>
+              {" · "}
+              <button
+                type="button"
+                className="underline"
+                onClick={() => {
+                  setPending(null);
+                  setError(null);
+                  setResent(null);
+                }}
+              >
+                לתיקון הפרטים
+              </button>
+            </p>
+          </form>
+        )}
+
+        {/*
+          הטופס מוסתר ואינו מפורק: כל מה שהמשתמש מילא נשאר במקומו,
+          וחזרה מ„לתיקון הפרטים” מוצאת אותו כפי שהיה.
+        */}
+        <div style={{ display: pending === null ? "block" : "none" }}>
         <form method="post" onSubmit={(e) => void submit(e)} noValidate aria-describedby={error ? "signup-error" : undefined}>
           <fieldset className="m-0 mb-5 border-0 p-0">
             <legend className="mb-2 text-[15px] font-bold">בחרו מסלול</legend>
@@ -439,9 +573,15 @@ export default function SignupPage(): React.JSX.Element {
             disabled={submitting || chosen === null || !accepted}
             className="mv-auth-submit"
           >
-            {submitting ? "פותח משרד…" : "פתחו את המשרד"}
+            {/*
+              הכפתור אומר מה יקרה ולא מה המטרה. „פתחו את המשרד” היה
+              מבטיח שהמסך הבא הוא המערכת, והמסך הבא הוא בקשת קוד.
+            */}
+            {submitting ? "שולח קוד…" : "המשך — קוד לאימייל"}
           </button>
         </form>
+        </div>
+        </>
       )}
     </AuthShell>
   );

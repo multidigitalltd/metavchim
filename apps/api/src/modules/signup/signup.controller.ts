@@ -17,6 +17,7 @@ import { AuthService } from "../auth/auth.service";
 import { SESSION_COOKIE } from "../auth/auth.controller";
 import { SignupService } from "./signup.service";
 import { CouponService } from "./coupon.service";
+import { SignupVerificationService } from "./signup-verification.service";
 
 /**
  * הרשמה עצמית — הנתיב הציבורי היחיד שיוצר דייר חדש.
@@ -24,6 +25,10 @@ import { CouponService } from "./coupon.service";
  * ההגבלה כאן הדוקה יותר מזו של ההתחברות. התחברות כושלת לא משאירה
  * דבר במסד; הרשמה יוצרת משרד, משתמש, ותפוסה על כתובת אימייל. סקריפט
  * שרץ דקה היה ממלא את המסד במשרדי רפאים.
+ *
+ * לכן ההרשמה מפוצלת לשניים: `POST /signup` בודק, שולח קוד לכתובת
+ * ו**אינו כותב דבר**, ו-`POST /signup/confirm` פותח את המשרד רק אחרי
+ * שהקוד חזר. מי שמילא כתובת שאינה שלו אינו מגיע לשלב השני.
  */
 
 const SignupSchema = z
@@ -49,6 +54,19 @@ const SignupSchema = z
 const CouponCheckSchema = z
   .object({ code: z.string().min(1).max(40), plan: z.string().min(2).max(20) })
   .strict();
+
+/**
+ * הטוקן של ההרשמה הממתינה. אורך קבוע — `randomBytes(24)` ב-base64url.
+ * גבול עליון על מחרוזת שמגיעה מהדפדפן הוא לא נימוס אלא הגנה: בלעדיו
+ * אפשר לשלוח מגה-בייט ולגרום לנו לחשב עליו.
+ */
+const PendingToken = z.string().min(20).max(64);
+
+const ConfirmSchema = z
+  .object({ token: PendingToken, code: z.string().min(1).max(40) })
+  .strict();
+
+const ResendSchema = z.object({ token: PendingToken }).strict();
 
 /** מה שדף התמחור צריך — בלי חלקים פנימיים של הגדרת המסלול. */
 export interface OfferedPlan {
@@ -80,6 +98,7 @@ export class SignupController {
     private readonly signup: SignupService,
     private readonly auth: AuthService,
     private readonly coupons: CouponService,
+    private readonly verification: SignupVerificationService,
   ) {}
 
   /** המסלולים שאפשר להירשם אליהם — לדף התמחור הציבורי. */
@@ -139,22 +158,58 @@ export class SignupController {
   }
 
   /**
-   * פתיחת משרד חדש והתחברות מיידית.
+   * שלב ראשון — בדיקת הפרטים ושליחת קוד לכתובת. **בלי כתיבה למסד.**
+   *
+   * מחזיר 200 ולא 201 בכוונה: שום דבר לא נוצר. `email` מוחזר כדי
+   * שהמסך יוכל לומר לאן נשלח הקוד — זו הכתובת שהמשתמש עצמו הרגע
+   * הקליד, ולכן אין כאן חשיפה של דבר.
+   */
+  @Public()
+  @Throttle({ default: { limit: 3, ttl: 3_600_000 } })
+  @Post()
+  @HttpCode(200)
+  async register(
+    @Body(new ZodValidationPipe(SignupSchema)) body: z.infer<typeof SignupSchema>,
+  ): Promise<{ token: string; email: string }> {
+    return this.signup.prepare(body);
+  }
+
+  /**
+   * שליחה חוזרת של הקוד לאותה הרשמה ממתינה.
+   *
+   * הגבלה נפרדת והדוקה: כל בקשה כאן היא מייל אמיתי לתיבה של מישהו,
+   * וללא תקרה טופס ההרשמה שלנו הופך לכלי הצפה. יש גם תקרה שנייה
+   * לפי כתובת היעד בשירות עצמו — זו לפי מקור הבקשה בלבד.
+   */
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 3_600_000 } })
+  @Post("resend")
+  @HttpCode(200)
+  async resend(
+    @Body(new ZodValidationPipe(ResendSchema)) body: z.infer<typeof ResendSchema>,
+  ): Promise<{ sent: true }> {
+    await this.verification.reissue(body.token);
+    return { sent: true };
+  }
+
+  /**
+   * שלב שני — הקוד חזר, המשרד נפתח, והמשתמש נכנס.
    *
    * ה-Session מונפק כאן ולא במסך התחברות נפרד: משרד שסיים להירשם
    * ונשלח למסך כניסה כדי להקליד שוב את מה שהרגע בחר הוא חיכוך מיותר
    * בדיוק בנקודה שבה הוא הכי קרוב לנטוש.
    */
   @Public()
-  @Throttle({ default: { limit: 3, ttl: 3_600_000 } })
-  @Post()
+  @Throttle({ default: { limit: 10, ttl: 3_600_000 } })
+  @Post("confirm")
   @HttpCode(201)
-  async register(
-    @Body(new ZodValidationPipe(SignupSchema)) body: z.infer<typeof SignupSchema>,
+  async confirm(
+    @Body(new ZodValidationPipe(ConfirmSchema)) body: z.infer<typeof ConfirmSchema>,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ trialEndsAt: string | null; couponApplied?: string }> {
-    const { user, trialEndsAt, couponApplied } = await this.signup.register(body);
+    const verified = await this.verification.consume(body.token, body.code);
+    const { user, trialEndsAt, couponApplied } = await this.signup.create(verified);
     const { token, expiresAt } = await this.auth.issueSession(user, {
       ip: req.ip,
       userAgent: req.headers["user-agent"],
