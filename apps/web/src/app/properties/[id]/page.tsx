@@ -24,6 +24,7 @@ import { AgreementsPanel } from "../../agreements-panel";
 import { EntityTasks } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
 import { OwnerActivity } from "./owner-activity";
+import { PropertyOccupant, type OccupantContact } from "../property-occupant";
 import { LocationPicker } from "../location-picker";
 import { ExclusivityPanel } from "../exclusivity-panel";
 import { EntityNotes } from "../../entity-notes";
@@ -69,6 +70,8 @@ interface PropertyDetail {
   readinessScore: number;
   missingFields: string[];
   ownerContact?: OwnerContact;
+  /** מי גר בנכס כשזה אינו הבעלים — דירה שמושכרת בזמן שהיא מוצעת. */
+  occupantContact?: OccupantContact;
   /** מתי הנכס נקלט — היה בשרת מאז ומתמיד ולא הוצהר כאן */
   createdAt: string;
 }
@@ -1175,6 +1178,19 @@ export default function PropertyDetailPage({
             onChanged={loadProperty}
             canSendUpdate={canWhatsApp}
             onSendUpdate={() => void sendOwnerUpdate()}
+          />
+
+          {/*
+            מי גר בנכס — אחרי הבעלים ובסעיף נפרד משלו. ההפרדה היא
+            העניין: השוכר פותח את הדלת, הבעלים מחליט על העסקה.
+          */}
+          <PropertyOccupant
+            propertyId={id}
+            occupant={property.occupantContact}
+            canEdit={canEditOwner}
+            canEditPeople={canEditOwnerPeople}
+            canErase={can(user, "contacts.delete")}
+            onChanged={loadProperty}
           />
 
           {/*

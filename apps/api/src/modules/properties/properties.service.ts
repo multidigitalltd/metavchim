@@ -139,6 +139,8 @@ export class PropertiesService {
     internalNotes?: string;
     /** בעל הנכס (המוכר) — נקשר כ-contact לפי טלפון (docs/03: אדם אחד) */
     owner?: { name: string; phone: string };
+    /** מי גר בנכס כשזה אינו הבעלים — לתיאום ביקור. */
+    occupant?: { name: string; phone: string };
   }): Promise<PropertyDto> {
     const id = await this.persist(input);
     /*
@@ -323,6 +325,8 @@ export class PropertiesService {
     internalNotes?: string;
     /** בעל הנכס נקשר רק כששני הפרטים בקובץ — שם בלי טלפון יוצר כפילויות */
     owner?: { name: string; phone: string };
+    /** מי גר בנכס כשזה אינו הבעלים — לתיאום ביקור. */
+    occupant?: { name: string; phone: string };
     /** שימור סטטוס בייבוא-חזרה של קובץ מיוצא (Round-trip); ברירת מחדל: טיוטה. */
     status?: string;
   }): Promise<string> {
@@ -374,6 +378,8 @@ export class PropertiesService {
     internalNotes?: string;
     status?: string;
     owner?: { name: string; phone: string };
+    /** מי גר בנכס כשזה אינו הבעלים — לתיאום ביקור. */
+    occupant?: { name: string; phone: string };
   }): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
     const id = ulid();
@@ -403,11 +409,15 @@ export class PropertiesService {
       const ownerContact = input.owner
         ? await this.contacts.findOrCreateByPhone(tx, input.owner)
         : null;
+      const occupantContact = input.occupant
+        ? await this.contacts.findOrCreateByPhone(tx, input.occupant)
+        : null;
       await tx.property.create({
         data: {
           id,
           tenantId,
           ownerContactId: ownerContact?.id ?? null,
+          occupantContactId: occupantContact?.id ?? null,
           status: input.status ?? "draft",
           marketingTitle: input.marketingTitle ?? null,
           marketingDescription: input.marketingDescription ?? null,
@@ -446,6 +456,10 @@ export class PropertiesService {
       marketingDescription?: string;
       internalNotes?: string;
       owner?: { name: string; phone: string };
+      /** מי גר בנכס כשזה אינו הבעלים — לתיאום ביקור. */
+      occupant?: { name: string; phone: string };
+      /** הדירה התפנתה — מסירים את הדייר במקום להחליף אותו. */
+      occupantCleared?: boolean;
     },
   ): Promise<PropertyDto> {
     const tenantId = TenantContext.current().tenantId;
@@ -455,6 +469,8 @@ export class PropertiesService {
       marketingDescription,
       internalNotes,
       owner,
+      occupant,
+      occupantCleared,
       ...fieldPatch
     } = patch;
 
@@ -495,6 +511,9 @@ export class PropertiesService {
       const ownerContact = owner
         ? await this.contacts.findOrCreateByPhone(tx, owner)
         : null;
+      const occupantContact = occupant
+        ? await this.contacts.findOrCreateByPhone(tx, occupant)
+        : null;
       const mergedFields = { ...rowToFields(existing), ...fieldPatch };
       const readiness = computeReadiness(mergedFields, {
         hasTitle: Boolean(marketingTitle ?? existing.marketingTitle),
@@ -514,6 +533,13 @@ export class PropertiesService {
             : {}),
           ...(internalNotes !== undefined ? { internalNotes } : {}),
           ...(ownerContact ? { ownerContactId: ownerContact.id } : {}),
+          /*
+           * `occupantCleared` נבדק בנפרד מ-`occupantContact`: דירה
+           * שהתפנתה צריכה דרך להסיר את הדייר, ו„שדה שלא נשלח” אינו
+           * יכול לשמש גם ל„בלי שינוי” וגם ל„למחוק”.
+           */
+          ...(occupantContact ? { occupantContactId: occupantContact.id } : {}),
+          ...(occupantCleared === true ? { occupantContactId: null } : {}),
           readinessScore: readiness.score,
         },
       });
@@ -579,6 +605,9 @@ export class PropertiesService {
       const ownerContact = row.ownerContactId
         ? await this.contacts.getById(tx, row.ownerContactId)
         : null;
+      const occupantContact = row.occupantContactId
+        ? await this.contacts.getById(tx, row.occupantContactId)
+        : null;
       return {
         ...fields,
         id: row.id,
@@ -603,6 +632,16 @@ export class PropertiesService {
                 name: ownerContact.name,
                 phone: ownerContact.phone,
                 ...(ownerContact.email ? { email: ownerContact.email } : {}),
+              },
+            }
+          : {}),
+        ...(occupantContact
+          ? {
+              occupantContact: {
+                id: occupantContact.id,
+                name: occupantContact.name,
+                phone: occupantContact.phone,
+                ...(occupantContact.email ? { email: occupantContact.email } : {}),
               },
             }
           : {}),

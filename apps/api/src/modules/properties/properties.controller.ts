@@ -38,10 +38,26 @@ const CreatePropertySchema = PropertyFieldsSchema.extend({
   // בעל הנכס (המוכר) — contact לפי טלפון; מזין את התיק המאוחד (docs/03)
   ownerName: z.string().min(2).max(120).optional(),
   ownerPhone: PhoneSchema.optional(),
+  /*
+   * מי גר בנכס כשזה אינו הבעלים — דירה שמושכרת בזמן שהיא מוצעת.
+   * הבעלים מחליט על המכירה, אבל הדלת נפתחת על ידי מי שגר שם.
+   */
+  occupantName: z.string().min(2).max(120).optional(),
+  occupantPhone: PhoneSchema.optional(),
 }).strict();
 
 const UpdatePropertySchema = CreatePropertySchema.partial()
-  .extend({ status: PropertyStatusSchema.optional() })
+  .extend({
+    status: PropertyStatusSchema.optional(),
+    /*
+     * „הדירה התפנתה” — מחיקה מפורשת ולא שדה ריק.
+     *
+     * ‎`occupantName: ""` היה נופל על ה-`min(2)` של הסכימה, ושדה
+     * שלא נשלח פירושו „בלי שינוי” בכל שאר המסך. בלי הדגל הזה אין
+     * דרך להסיר דייר אחרי שהוא עזב — והמספר שלו היה נשאר בכרטיס.
+     */
+    occupantCleared: z.literal(true).optional(),
+  })
   .strict();
 
 const ListQuerySchema = z
@@ -117,6 +133,8 @@ export class PropertiesController {
       internalNotes,
       ownerName,
       ownerPhone,
+      occupantName,
+      occupantPhone,
       ...fields
     } = body;
     return this.properties.create({
@@ -126,6 +144,9 @@ export class PropertiesController {
       internalNotes,
       ...(ownerName !== undefined && ownerPhone !== undefined
         ? { owner: { name: ownerName, phone: ownerPhone } }
+        : {}),
+      ...(occupantName !== undefined && occupantPhone !== undefined
+        ? { occupant: { name: occupantName, phone: occupantPhone } }
         : {}),
     });
   }
@@ -173,11 +194,14 @@ export class PropertiesController {
     @Body(new ZodValidationPipe(UpdatePropertySchema))
     body: z.infer<typeof UpdatePropertySchema>,
   ): Promise<PropertyDto> {
-    const { ownerName, ownerPhone, ...rest } = body;
+    const { ownerName, ownerPhone, occupantName, occupantPhone, ...rest } = body;
     return this.properties.update(id, {
       ...rest,
       ...(ownerName !== undefined && ownerPhone !== undefined
         ? { owner: { name: ownerName, phone: ownerPhone } }
+        : {}),
+      ...(occupantName !== undefined && occupantPhone !== undefined
+        ? { occupant: { name: occupantName, phone: occupantPhone } }
         : {}),
     });
   }

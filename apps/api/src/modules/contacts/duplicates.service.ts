@@ -210,6 +210,8 @@ export class DuplicatesService {
         tx.buyer.updateMany({ where: { tenantId, contactId: duplicateId }, data: { contactId: survivorId } }),
         tx.lead.updateMany({ where: { tenantId, contactId: duplicateId }, data: { contactId: survivorId } }),
         tx.property.updateMany({ where: { tenantId, ownerContactId: duplicateId }, data: { ownerContactId: survivorId } }),
+        // גם „מי גר בנכס”: מיזוג שמשאיר אותו על הכפיל מנתק את הדייר
+        tx.property.updateMany({ where: { tenantId, occupantContactId: duplicateId }, data: { occupantContactId: survivorId } }),
         tx.call.updateMany({ where: { tenantId, contactId: duplicateId }, data: { contactId: survivorId } }),
         tx.message.updateMany({ where: { tenantId, contactId: duplicateId }, data: { contactId: survivorId } }),
         tx.contactPhone.updateMany({ where: { tenantId, contactId: duplicateId }, data: { contactId: survivorId } }),

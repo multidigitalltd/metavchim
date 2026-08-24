@@ -225,7 +225,12 @@ export async function isOrphanContact(
     tx.buyer.findFirst({ where: { tenantId, deletedAt: null, contactId }, select: { id: true } }),
     tx.lead.findFirst({ where: { tenantId, contactId }, select: { id: true } }),
     tx.property.findFirst({
-      where: { tenantId, deletedAt: null, ownerContactId: contactId },
+      where: {
+        tenantId,
+        deletedAt: null,
+        // גם דייר קושר אדם לנכס — לא רק בעלות
+        OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
+      },
       select: { id: true },
     }),
   ]);
@@ -258,8 +263,12 @@ export async function visibleContactIds(
       : [],
     sources.properties
       ? tx.property.findMany({
-          where: { tenantId, deletedAt: null, ownerContactId: { not: null } },
-          select: { ownerContactId: true },
+          where: {
+            tenantId,
+            deletedAt: null,
+            OR: [{ ownerContactId: { not: null } }, { occupantContactId: { not: null } }],
+          },
+          select: { ownerContactId: true, occupantContactId: true },
         })
       : [],
   ]);
@@ -268,7 +277,17 @@ export async function visibleContactIds(
     ...new Set([
       ...buyers.map((row) => row.contactId),
       ...leads.map((row) => row.contactId),
-      ...properties.map((row) => row.ownerContactId!),
+      /*
+       * שני התפקידים, ולכן `flatMap` ולא `map`: לנכס יכולים להיות
+       * בעלים **וגם** דייר, ושניהם אנשים שהמשרד רשאי לראות. סינון
+       * ה-`null` נעשה כאן ולא ב-`!`, כי עכשיו כל שורה יכולה להביא
+       * אפס, אחד או שניים.
+       */
+      ...properties.flatMap((row) =>
+        [row.ownerContactId, row.occupantContactId].filter(
+          (id): id is string => id !== null,
+        ),
+      ),
     ]),
   ];
 }
@@ -300,7 +319,11 @@ export async function assertContactAccess(
       : null,
     sources.properties
       ? tx.property.findFirst({
-          where: { tenantId, ownerContactId: contactId, deletedAt: null },
+          where: {
+            tenantId,
+            deletedAt: null,
+            OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
+          },
           select: { id: true },
         })
       : null,
