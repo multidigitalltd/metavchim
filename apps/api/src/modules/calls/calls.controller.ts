@@ -145,6 +145,19 @@ export class CallsController {
     return new StreamableFile(audio.body);
   }
 
+  /**
+   * החזרת שיחה לתור המשיכה. אותה יכולת כמו השמעה — מי שרשאי
+   * לשמוע את ההקלטה רשאי לבקש שננסה להביא אותה שוב.
+   */
+  @Post(":id/recording/retry")
+  @RequireCapability("leads.view_own", "buyers.view_own")
+  @HttpCode(200)
+  async retryRecording(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ queued: boolean }> {
+    return this.calls.retryRecording(id);
+  }
+
   @Delete(":id")
   @RequireCapability("leads.edit")
   @HttpCode(200)

@@ -6,7 +6,11 @@ import { Button } from "@metavchim/ui";
 import { API_BASE, ApiError, apiDelete, apiGet, apiPost } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { useUserDismissed } from "@/lib/dismissed-panels";
-import { CALL_OUTCOME_LABELS } from "@metavchim/shared";
+import {
+  CALL_OUTCOME_LABELS,
+  recordingStateLabel,
+  type RecordingStatus,
+} from "@metavchim/shared";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { FilterBar, SearchField, textMatches } from "../list-controls";
@@ -39,6 +43,8 @@ interface CallRow {
   transcript?: string;
   /** יש קובץ להשמעה — לא נגזר מסטטוס התמלול, ראו ה-DTO בשרת. */
   hasRecording?: boolean;
+  /** למה אין — „אין בכלל”, „בדרך”, או „נכשלה” עם הסיבה. */
+  recording?: RecordingStatus;
 }
 
 /* התוויות משותפות עם הכרטיס שהשרת כותב לוואטסאפ — מקור אחד. */
@@ -588,14 +594,42 @@ function CallRecording({
     }
   }
 
+  async function retryRecording(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiPost<{ queued: boolean }>(`/calls/${call.id}/recording/retry`, {});
+      if (!res.queued) setError("אין מה למשוך — לשיחה אין נתיב הקלטה מהמרכזייה");
+      onChanged();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "הבקשה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const status = call.transcriptionStatus;
+  /*
+   * ברירת המחדל היא „אין”, כדי ששרת ישן שאינו שולח את השדה יציג
+   * בדיוק את מה שהוצג עד היום ולא ייפול.
+   */
+  const recording = call.recording ?? { state: "none" as const };
 
   /*
    * בלי הפיצ'ר **ובלי הקלטה** אין טעם בסעיף. הקלטה שכבר נמשכה
    * מהמרכזייה נשמעת גם כשהתמלול כבוי — היא הראיה למה שנאמר, וזה
    * ערך בפני עצמו שאינו תלוי בתמלול.
    */
-  if (!canTranscribe && status === undefined && call.hasRecording !== true) return null;
+  if (
+    !canTranscribe &&
+    status === undefined &&
+    call.hasRecording !== true &&
+    // „בדרך” ו„נכשלה” הם בדיוק המצבים שבגללם הסעיף נכתב — הסתרתם
+    // הייתה מחזירה את המסך למצב שבו שלושה מצבים נראים כאחד
+    (call.recording?.state ?? "none") === "none"
+  ) {
+    return null;
+  }
 
   return (
     <div className="mt-4">
@@ -626,10 +660,38 @@ function CallRecording({
         </audio>
       ) : null}
 
+      {/*
+        מצב המשיכה מהמרכזייה — מעל הכול, כי הוא התשובה לשאלה
+        „למה אין הקלטה”. עד היום כל שלושת המצבים הופיעו כמשפט
+        אחד, „לא צורפה הקלטה”, והמתווך לא יכול היה לדעת אם להמתין,
+        לתקן הגדרה, או לפנות לספק.
+      */}
+      {recording.state === "pending" ||
+      recording.state === "retrying" ||
+      recording.state === "failed" ? (
+        <div className="mb-2">
+          <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            {recordingStateLabel(recording)}
+          </p>
+          {recording.state !== "pending" && mayEdit ? (
+            <button
+              type="button"
+              className="mv-btn-plain mt-2"
+              disabled={busy}
+              onClick={() => void retryRecording()}
+            >
+              {busy ? "שולח…" : <><IconRefresh s={15} /> נסו למשוך שוב</>}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       {status === undefined && !mayEdit ? (
-        <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          לא צורפה הקלטה לשיחה הזו.
-        </p>
+        recording.state === "none" ? (
+          <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            לא צורפה הקלטה לשיחה הזו.
+          </p>
+        ) : null
       ) : status === undefined ? (
         <label className="mv-btn-plain inline-block cursor-pointer">
           {busy ? "מעלה…" : <><IconMic s={15} /> צרף הקלטה</>}

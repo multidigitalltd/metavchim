@@ -85,6 +85,25 @@ const GIVE_UP_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 const RETRY_AFTER_MS = 30 * 60 * 1000;
 
 /** שיחה אחת שממתינה למשיכה, עם אישורי המרכזייה של המשרד שלה. */
+/**
+ * הסיבות שמשיכה יכולה להיכשל בהן — **רשימה סגורה.**
+ *
+ * הקוד הזה מגיע למסך של המתווך, ולכן הוא אינו הודעת השגיאה של
+ * הספק: הודעה כזו עלולה לשאת נתיבים ומזהים, וכתובת המשיכה עצמה
+ * נושאת שם משתמש וסיסמה. קוד מרשימה ידועה אפשר להציג, לתרגם
+ * ולחפש — ואי אפשר לדלוף דרכו.
+ */
+export const RECORDING_ERRORS = {
+  path: "path_unreadable",
+  credentials: "missing_credentials",
+  provider: "provider_rejected",
+  unreadable: "response_unreadable",
+  empty: "empty_audio",
+  tooLarge: "too_large",
+  network: "network_error",
+  integration: "no_integration",
+} as const;
+
 interface RecordingJob {
   callId: string;
   tenantId: string;
@@ -315,8 +334,37 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
         where: { tenantId, kind: "telephony", provider: "015", status: "active" },
         select: { secretsEncrypted: true, config: true },
       });
-      // משרד בלי מרכזיית 015 פעילה — אין למי לפנות, ואין מה לשלוף
-      if (!integration) return [];
+      /*
+       * משרד בלי מרכזיית 015 פעילה — אין למי לפנות. אבל אם יש
+       * שיחות שממתינות לנתיב שכבר הגיע, השתיקה כאן היא בדיוק מה
+       * שהותיר את המתווך בלי מושג: ההקלטות לא נמשכות והמסך אומר
+       * „אין הקלטה”.
+       */
+      if (!integration) {
+        /*
+         * ורושמים זאת על השיחות עצמן. בלי זה הן נשארות במצב
+         * „ממתינה” לנצח, והמסך מבטיח „נמשכת תוך דקות” על משיכה
+         * שלא תתחיל לעולם — שקר גרוע יותר מ„אין הקלטה”.
+         *
+         * ‎`providerRecordingError: null`‎ בתנאי כדי שהכתיבה תקרה
+         * פעם אחת לכל שיחה ולא בכל סבב.
+         */
+        const marked = await tx.call.updateMany({
+          where: {
+            tenantId,
+            providerRecordingPath: { not: null },
+            recordingKey: null,
+            providerRecordingError: null,
+          },
+          data: { providerRecordingError: RECORDING_ERRORS.integration },
+        });
+        if (marked.count > 0) {
+          this.logger.warn(
+            `${marked.count} הקלטות ממתינות למשרד ${tenantId} — אין אינטגרציית 015 פעילה`,
+          );
+        }
+        return [];
+      }
 
       const calls = await tx.call.findMany({
         where: {
@@ -356,10 +404,31 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /**
+   * רישום סיבת הכישלון על השורה.
+   *
+   * הכתיבה מותנית ב-`recordingKey: null` מאותו נימוק שהתפיסה
+   * מותנית: אם בינתיים כבר נמשכה הקלטה (סבב מקביל, העלאה ידנית),
+   * אסור לסמן את השיחה ככושלת.
+   */
+  private async note(job: RecordingJob, reason: string): Promise<void> {
+    await this.prisma
+      .withExplicitTenant(job.tenantId, (tx) =>
+        tx.call.updateMany({
+          where: { id: job.callId, tenantId: job.tenantId, recordingKey: null },
+          data: { providerRecordingError: reason },
+        }),
+      )
+      .catch((error: unknown) =>
+        this.logger.warn(`רישום סיבת כישלון נכשל (${job.callId}): ${String(error)}`),
+      );
+  }
+
   private async fetchOne(job: RecordingJob): Promise<void> {
     const ids = split015RecordingPath(job.recordingPath);
     if (!ids) {
       this.logger.warn(`נתיב הקלטה בצורה לא מוכרת: ${job.recordingPath}`);
+      await this.note(job, RECORDING_ERRORS.path);
       return;
     }
 
@@ -368,7 +437,17 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     // אותה נפילה-לאחור כמו בחיוג: שם המשתמש עבר מסוד לשדה גלוי
     const authUsername = (config["authUsername"] ?? secrets["authUsername"] ?? "").trim();
     const authPassword = (secrets["authPassword"] ?? "").trim();
-    if (authUsername === "" || authPassword === "") return;
+    if (authUsername === "" || authPassword === "") {
+      /*
+       * זה היה `return` עירום — הכשל השקט ביותר בכל המסלול. משרד
+       * שהאישורים שלו חסרים או פגו לא קיבל אף שורת יומן ואף סימן
+       * במסך: ההקלטות פשוט לא הגיעו, וכל שיחה נראתה כאילו מעולם
+       * לא הוקלטה.
+       */
+      this.logger.warn(`אישורי 015 חסרים למשרד ${job.tenantId} — משיכת הקלטות מושבתת`);
+      await this.note(job, RECORDING_ERRORS.credentials);
+      return;
+    }
 
     const url = build015RecordingUrl({
       authUsername,
@@ -379,18 +458,37 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       recordId: ids.recordId,
     });
 
-    const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+    let res: Response;
+    try {
+      res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+    } catch (error: unknown) {
+      // פסק זמן או תקלת רשת — נרשם כאן ולא נבלע ב-`tick`, כדי
+      // שהמסך יבחין בין „לא הצלחנו להגיע” לבין „אין הקלטה”
+      this.logger.warn(`פנייה ל-015 נכשלה (${job.callId}): ${String(error)}`);
+      await this.note(job, RECORDING_ERRORS.network);
+      return;
+    }
     if (!res.ok) {
       this.logger.warn(`015 השיב ${res.status} על הקלטה ${job.recordingPath}`);
+      await this.note(job, `${RECORDING_ERRORS.provider}_${res.status}`);
       return;
     }
     const parsed = parse015RecordingResponse(await res.json());
-    if (!parsed) return;
+    if (!parsed) {
+      this.logger.warn(`תשובת 015 לא נקראה על הקלטה ${job.recordingPath}`);
+      await this.note(job, RECORDING_ERRORS.unreadable);
+      return;
+    }
 
     const audio = Buffer.from(parsed.base64, "base64");
-    if (audio.length === 0) return;
+    if (audio.length === 0) {
+      // 015 מכין את ההקלטה לאחר סיום השיחה; ריק כאן הוא „עדיין לא”
+      await this.note(job, RECORDING_ERRORS.empty);
+      return;
+    }
     if (audio.length > MAX_RECORDING_BYTES) {
       this.logger.warn(`הקלטה חורגת מהגבול (${audio.length} בתים) — ${job.recordingPath}`);
+      await this.note(job, RECORDING_ERRORS.tooLarge);
       return;
     }
 
@@ -410,6 +508,8 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
         data: {
           recordingKey: key,
           transcriptionStatus: available ? "pending" : "unavailable",
+          // הצלחה מנקה סיבת כישלון קודמת — אחרת המסך ימשיך להתלונן
+          providerRecordingError: null,
         },
       }),
     );

@@ -12,6 +12,7 @@ import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
+import { recordingStateOf, type RecordingStatus } from "@metavchim/shared";
 import { ContactsService, type ContactDto } from "../contacts/contacts.service";
 import { TranscriptionService } from "../voice-intake/transcription.service";
 
@@ -48,6 +49,16 @@ export interface CallDto {
    * שיש לו.
    */
   hasRecording: boolean;
+  /**
+   * **למה אין הקלטה** — ולא רק „אין”.
+   *
+   * `hasRecording` נשאר בוליאני, כי הצרכנים שלו (כרטיס הוואטסאפ,
+   * הסוכן, סינון „עם הקלטה בלבד”) שואלים שאלה אחת: אפשר לנגן?
+   * אבל למסך זו הייתה תשובה מטעה: „לא צורפה הקלטה” הוצג באותה
+   * מילה עצמה לשיחה שלא הוקלטה, לשיחה שההקלטה שלה בדרך, ולשיחה
+   * שהמשיכה שלה נכשלת — ולפעמים בשקט מוחלט.
+   */
+  recording: RecordingStatus;
   createdAt: Date;
 }
 
@@ -531,6 +542,39 @@ export class CallsService {
     };
   }
 
+  /**
+   * „נסו למשוך שוב” — מאפס את ההמתנה כדי שהסבב הבא ייקח את השיחה.
+   *
+   * הפעולה אינה מושכת בעצמה. משיכה סינכרונית הייתה מחזיקה את
+   * הבקשה עד דקה שלמה מול שרת חיצוני, ובכשל היא גם לא הייתה
+   * מספרת יותר ממה שכבר רשום. איפוס החותמת עולה מיליוניות שנייה
+   * ומחזיר את השיחה לראש התור, כי המיון הוא „מי שטרם נוסה קודם”.
+   *
+   * מותנה ב-`recordingKey: null` ובקיום נתיב: אין טעם לתור על
+   * שיחה שכבר יש לה הקלטה, ואין לאן לפנות בלי נתיב.
+   */
+  async retryRecording(id: string): Promise<{ queued: boolean }> {
+    return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
+      const done = await tx.call.updateMany({
+        where: {
+          id,
+          tenantId,
+          recordingKey: null,
+          providerRecordingPath: { not: null },
+        },
+        data: { providerRecordingAttemptAt: null, providerRecordingError: null },
+      });
+      if (done.count === 0) return { queued: false };
+      await this.audit.record(tx, {
+        action: "call.recording.retry",
+        entityType: "call",
+        entityId: id,
+      });
+      return { queued: true };
+    });
+  }
+
   private async toDto(
     tx: TenantTx,
     row: {
@@ -547,6 +591,9 @@ export class CallsService {
       transcriptionStatus?: string | null;
       transcript?: string | null;
       recordingKey?: string | null;
+      providerRecordingPath?: string | null;
+      providerRecordingAttemptAt?: Date | null;
+      providerRecordingError?: string | null;
       createdAt: Date;
     },
     /**
@@ -574,6 +621,7 @@ export class CallsService {
           : {}),
       occurredAt: row.occurredAt,
       hasRecording: (row.recordingKey ?? null) !== null,
+      recording: recordingStateOf(row),
       ...(row.durationMinutes !== null ? { durationMinutes: row.durationMinutes } : {}),
       outcome: row.outcome,
       ...(row.summary ? { summary: row.summary } : {}),
