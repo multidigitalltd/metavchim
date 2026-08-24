@@ -239,7 +239,7 @@ export function TimelineSection({ buyerId }: { buyerId: string }) {
               }
               className="w-full rounded-xl border px-3 py-2.5 text-[15px]"
               style={{
-                borderColor: "var(--color-border)",
+                borderColor: "var(--color-input-border)",
                 background: "var(--color-surface)",
                 resize: "vertical",
               }}

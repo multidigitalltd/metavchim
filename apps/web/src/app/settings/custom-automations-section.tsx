@@ -24,7 +24,7 @@ import { Notice } from "../notice";
  * התנאי לפני בחירת הטריגר היה מציג שדות ריקים שאין להם משמעות.
  */
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
+const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
 interface RuleRow {
   id: string;

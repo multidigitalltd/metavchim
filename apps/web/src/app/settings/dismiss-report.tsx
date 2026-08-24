@@ -41,7 +41,7 @@ export function DismissReportSection() {
           onChange={(e) => setDays(Number(e.target.value))}
           aria-label="טווח הדוח"
           className="rounded-lg border px-2 py-1 text-sm"
-          style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+          style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
         >
           <option value={30}>30 יום</option>
           <option value={90}>90 יום</option>

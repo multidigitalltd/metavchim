@@ -163,7 +163,7 @@ export default function ReportsPage() {
             value={days}
             onChange={(event) => setDays(event.target.value)}
             className="rounded-lg border px-3 py-2"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+            style={{ borderColor: "var(--color-input-border)", background: "var(--color-surface)" }}
           >
             {WINDOWS.map(([value, label]) => (
               <option key={value} value={value}>{label}</option>

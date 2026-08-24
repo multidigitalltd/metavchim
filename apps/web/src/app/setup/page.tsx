@@ -19,7 +19,7 @@ import { OfficeLogo } from "../settings/office-logo";
  * והנכס הראשון נקלט בקול במסלול הקיים.
  */
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
+const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
 const STEPS = [
   { n: 1, t: "פרטי המשרד", s: "איך תיראו ללקוחות" },

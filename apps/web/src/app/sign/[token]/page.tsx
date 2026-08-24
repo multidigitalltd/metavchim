@@ -25,7 +25,7 @@ interface AgreementView {
   bodyHash: string;
 }
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
+const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
 export default function SignPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);

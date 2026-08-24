@@ -51,7 +51,7 @@ const FILTERS: [string, string][] = [
   ["no_answer", "אין מענה"],
 ];
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
+const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
 /** ערך ברירת מחדל לשדה datetime-local — "עכשיו" בשעון המקומי. */
 function nowLocal(): string {

@@ -376,7 +376,7 @@ export default function ImportPage() {
         rows={8}
         dir="ltr"
         className="mb-4 w-full rounded-md border p-3 font-mono text-sm"
-        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+        style={{ borderColor: "var(--color-input-border)", background: "var(--color-surface)" }}
         placeholder={SAMPLES[mode]}
         aria-describedby="csv-help"
       />
@@ -414,7 +414,7 @@ export default function ImportPage() {
                 <select
                   aria-label={`לאיזה שדה שייכת העמודה ${header}`}
                   className="rounded-md border px-2 py-1 text-sm"
-                  style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+                  style={{ borderColor: "var(--color-input-border)", background: "var(--color-surface)" }}
                   value={overrides[header.trim()] ?? ""}
                   onChange={(e) => {
                     const value = e.target.value;

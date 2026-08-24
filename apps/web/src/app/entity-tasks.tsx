@@ -193,7 +193,7 @@ export function EntityTasks({
             maxLength={200}
             placeholder="למשל: לחזור אליו מחר בבוקר"
             className="w-full rounded-lg border px-3 py-2.5"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+            style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
           />
         </div>
         <div>
@@ -206,7 +206,7 @@ export function EntityTasks({
             value={dueAt}
             onChange={(e) => setDueAt(e.target.value)}
             className="rounded-lg border px-3 py-2.5"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+            style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
           />
         </div>
         <Button type="submit" disabled={busy || title.trim() === ""}>

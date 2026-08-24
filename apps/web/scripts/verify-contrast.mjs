@@ -27,7 +27,7 @@
  * פגיעה בקריאוּת. הן מופיעות בפלט כמידע, בלי להכשיל.
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -100,9 +100,75 @@ for (const [fg, bg, min, label] of REQUIRED) {
   }
 }
 
-if (failures.length > 0) {
-  console.error("✗ ניגודיות מתחת לסף:\n");
-  for (const line of failures) console.error(`  • ${line}`);
+/* ==================== מי באמת משתמש בטוקן ==================== */
+
+/**
+ * הטוקן שנמדד אינו בהכרח הטוקן שהמשתמש רואה.
+ *
+ * הגרסה הראשונה של השער הזו עברה בירוק בזמן שרוב טפסי המערכת
+ * המשיכו להיות חיוורים: הם אינם נשענים על מחלקת ה-CSS אלא על
+ * `style={{ borderColor: "var(--color-border)" }}` בתוך ה-JSX,
+ * והטוקן הזה הוא הדקורטיבי — 1.65:1 (ביקורת Codex). כלומר השער
+ * הוכיח שהטוקן תקין ולא שהמסך תקין.
+ *
+ * לכן החלק הזה בודק **שימוש**: כל `input`, `select` ו-`textarea`
+ * חייבים לקבל את גבול הפקד. סגנון בשורה גובר על CSS, ואין דרך
+ * לתקן זאת בגיליון הסגנונות.
+ */
+const CONTROL_TAGS = ["input", "select", "textarea"];
+const DECORATIVE_BORDER = "var(--color-border)";
+
+/** תוכן התגית מהפתיחה ועד ה-`>` שסוגר אותה, בלי להיבלע בסוגריים מסולסלים. */
+function openingTag(source, from) {
+  let depth = 0;
+  for (let i = from; i < source.length; i += 1) {
+    const ch = source[i];
+    if (ch === "{") depth += 1;
+    else if (ch === "}") depth -= 1;
+    else if (ch === ">" && depth === 0) return source.slice(from, i);
+  }
+  return source.slice(from);
+}
+
+function scanControls(dir, hits) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      scanControls(full, hits);
+      continue;
+    }
+    if (!entry.name.endsWith(".tsx")) continue;
+    const source = readFileSync(full, "utf8");
+    for (const tag of CONTROL_TAGS) {
+      const pattern = new RegExp(`<${tag}\\b`, "gu");
+      let match;
+      while ((match = pattern.exec(source)) !== null) {
+        const body = openingTag(source, match.index);
+        if (!body.includes(DECORATIVE_BORDER)) continue;
+        const line = source.slice(0, match.index).split("\n").length;
+        hits.push(`${full}:${line} — <${tag}> עם ${DECORATIVE_BORDER}`);
+      }
+    }
+  }
+}
+
+const misuse = [];
+scanControls(join(here, "..", "src"), misuse);
+
+if (failures.length > 0 || misuse.length > 0) {
+  if (failures.length > 0) {
+    console.error("✗ ניגודיות מתחת לסף:\n");
+    for (const line of failures) console.error(`  • ${line}`);
+  }
+  if (misuse.length > 0) {
+    console.error("\n✗ פקדים שמקבלים את המסגרת הדקורטיבית במקום את גבול הפקד:\n");
+    for (const line of misuse.slice(0, 20)) console.error(`  • ${line}`);
+    if (misuse.length > 20) console.error(`  • ...ועוד ${misuse.length - 20}`);
+    console.error(
+      "\nהחליפו ל-var(--color-input-border). המסגרת הדקורטיבית עומדת על" +
+        " 1.65:1 בלבד — היא נועדה לכרטיס, לא לשדה.",
+    );
+  }
   console.error(
     "\nהמסגרות והצבעים מוגדרים ב-apps/web/src/app/globals.css. סף 3:1 לגבול פקד" +
       " הוא WCAG 1.4.11; 4.5:1 לטקסט הוא 1.4.3.",
@@ -117,4 +183,5 @@ const notes = INFORMATIVE.map(([fg, bg, label]) => {
 }).filter(Boolean);
 
 console.log(`✓ ${checked} זוגות צבע נמדדו — כולם מעל הסף`);
+console.log("✓ כל הפקדים משתמשים בגבול הפקד ולא במסגרת הדקורטיבית");
 console.log(`  דקורטיבי (לידיעה בלבד): ${notes.join(" · ")}`);

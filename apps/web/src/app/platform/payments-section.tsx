@@ -186,7 +186,7 @@ export function PaymentsSection(): React.JSX.Element {
                               inputMode="numeric"
                               className="w-24 rounded-lg border px-2 py-1"
                               style={{
-                                borderColor: "var(--color-border)",
+                                borderColor: "var(--color-input-border)",
                                 background: "var(--color-bg)",
                               }}
                             />
@@ -201,7 +201,7 @@ export function PaymentsSection(): React.JSX.Element {
                               onChange={(event) => setReason(event.target.value)}
                               className="w-40 rounded-lg border px-2 py-1"
                               style={{
-                                borderColor: "var(--color-border)",
+                                borderColor: "var(--color-input-border)",
                                 background: "var(--color-bg)",
                               }}
                             />

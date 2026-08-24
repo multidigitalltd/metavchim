@@ -18,7 +18,7 @@ import { IconDoc } from "../icons";
  * יכול רק לכתוב אותו מחדש במקום לתקן בו מילה.
  */
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
+const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
 interface LegalSettings {
   operator: string;

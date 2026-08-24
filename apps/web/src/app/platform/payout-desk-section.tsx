@@ -197,7 +197,7 @@ export function PayoutDeskSection(): React.JSX.Element {
                             : setNote({ ...note, [row.id]: e.target.value })
                         }
                         className="w-full rounded-lg border px-2.5 py-1.5"
-                        style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                        style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
                       />
                     </label>
                     {row.status === "pending" ? (

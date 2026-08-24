@@ -28,7 +28,7 @@ import { Notice } from "../notice";
  * הפלטפורמה (PLATFORM_ADMIN_EMAILS); לכל שאר המשתמשים מוצג "אין הרשאה".
  */
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
+const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
 interface AgencyRow {
   id: string;
@@ -717,7 +717,7 @@ export default function PlatformPage() {
                           value={a.plan}
                           onChange={(e) => void changePlan(a.id, e.target.value)}
                           className="rounded-lg border px-2 py-1.5"
-                          style={{ borderColor: "var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)" }}
+                          style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)", color: "var(--color-text)" }}
                         >
                           {planOptions.map((plan) => (
                             <option key={plan.code} value={plan.code}>{plan.name}</option>

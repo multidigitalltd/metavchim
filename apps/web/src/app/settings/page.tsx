@@ -37,7 +37,7 @@ import { Notice } from "../notice";
 import { OfficeLogo } from "./office-logo";
 
 const inputStyle = {
-  borderColor: "var(--color-border)",
+  borderColor: "var(--color-input-border)",
   background: "var(--color-field)",
 } as const;
 

@@ -422,7 +422,7 @@ export function ReferralConfirmation({
             rows={2}
             className="flex-1 rounded-lg border px-3 py-2"
             style={{
-              borderColor: "var(--color-border)",
+              borderColor: "var(--color-input-border)",
               background: "var(--color-surface)",
             }}
           />

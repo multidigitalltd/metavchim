@@ -106,7 +106,7 @@ export function LeadPricesSection(): React.JSX.Element {
                     defaultValue={price.label}
                     maxLength={60}
                     className="w-full rounded-lg border px-3 py-2"
-                    style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                    style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
                   />
                 </label>
                 <label style={{ width: "120px" }}>
@@ -119,7 +119,7 @@ export function LeadPricesSection(): React.JSX.Element {
                     step={1}
                     defaultValue={price.creditsCost}
                     className="w-full rounded-lg border px-3 py-2"
-                    style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                    style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
                   />
                 </label>
                 <Button type="submit" disabled={busy}>

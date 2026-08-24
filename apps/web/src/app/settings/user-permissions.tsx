@@ -203,7 +203,7 @@ export function UserPermissions({
                           defaultValue="7"
                           className="rounded-lg border px-2 py-1 text-[14.5px]"
                           style={{
-                            borderColor: "var(--color-border)",
+                            borderColor: "var(--color-input-border)",
                             background: "var(--color-bg)",
                           }}
                         >

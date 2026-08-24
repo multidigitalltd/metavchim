@@ -17,7 +17,7 @@ import { Notice } from "../notice";
  * מוחזרים לדפדפן — מוצג רק "מוגדר / לא מוגדר".
  */
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
+const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
 interface PlatformSettings {
   postmark: { configured: boolean; source: "db" | "env" | "none"; emailFrom?: string };

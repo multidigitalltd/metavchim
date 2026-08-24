@@ -47,7 +47,7 @@ import { WhatsAppNotifySection } from "./whatsapp-notify-section";
  * וסוכן שעובד גם מהנייד וגם מהמשרד ירצה הגדרות שונות בכל אחד.
  */
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
+const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
 export default function ProfilePage() {
   const { user, loading } = useRequireAuth();

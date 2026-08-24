@@ -68,7 +68,7 @@ const BUCKET_COLOR: Record<TaskBucket, string> = {
   someday: "var(--color-text-muted)",
 };
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
+const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
 /** ISO → ערך לשדה datetime-local (בזמן המקומי של הדפדפן). */
 function toLocalInput(iso?: string): string {

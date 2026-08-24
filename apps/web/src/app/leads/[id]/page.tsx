@@ -388,7 +388,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             className="rounded-lg border px-3 py-2"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
+            style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
           >
             <option value="">בחרו סיבה…</option>
             {REFERRAL_REASONS.map((option) => (
@@ -413,7 +413,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
                 onChange={(e) => setReasonDetail(e.target.value)}
                 maxLength={MAX_REFERRAL_REASON_DETAIL}
                 className="flex-1 rounded-lg border px-3 py-2"
-                style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
+                style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
               />
               <DictateFor targetId="referReasonDetail" />
             </div>
@@ -431,7 +431,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
             value={price}
             onChange={(e) => setPrice(e.target.value)}
             className="rounded-lg border px-3 py-2"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
+            style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
           />
           {/*
             הפירוק מוצג לפני הפרסום ולא אחרי הקליטה. עמלה שמתגלה
@@ -506,7 +506,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
             onChange={(e) => setCity(e.target.value)}
             maxLength={MAX_REFERRAL_CITY}
             className="rounded-lg border px-3 py-2"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
+            style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
           />
         </label>
         {/*
@@ -530,7 +530,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
               maxLength={MAX_REFERRAL_NOTE}
               rows={2}
               className="flex-1 rounded-lg border px-3 py-2"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
+              style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
             />
             <DictateFor targetId="referNote" />
           </div>
@@ -655,22 +655,22 @@ function ConvertToPropertySection({ leadId }: { leadId: string }) {
       <div className="flex flex-wrap items-end gap-2">
         <div>
           <label htmlFor="cp-city" className="mb-1 block text-sm">עיר</label>
-          <input id="cp-city" name="city" required className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }} />
+          <input id="cp-city" name="city" required className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }} />
         </div>
         <div>
           <label htmlFor="cp-address" className="mb-1 block text-sm">רחוב ומספר (לא חובה)</label>
-          <input id="cp-address" name="street" className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }} />
+          <input id="cp-address" name="street" className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }} />
         </div>
         <div>
           <label htmlFor="cp-deal" className="mb-1 block text-sm">עסקה</label>
-          <select id="cp-deal" name="dealType" className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}>
+          <select id="cp-deal" name="dealType" className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}>
             <option value="sale">מכירה</option>
             <option value="rent">השכרה</option>
           </select>
         </div>
         <div>
           <label htmlFor="cp-type" className="mb-1 block text-sm">סוג נכס</label>
-          <select id="cp-type" name="propertyType" className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}>
+          <select id="cp-type" name="propertyType" className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}>
             {/*
               רשימה שנכתבה ביד כאן פספסה מלכתחילה חמישה סוגים
               (דו-משפחתי, סטודיו, יחידת דיור, אחר), וכל סוג חדש היה
@@ -685,11 +685,11 @@ function ConvertToPropertySection({ leadId }: { leadId: string }) {
         </div>
         <div>
           <label htmlFor="cp-price" className="mb-1 block text-sm">מחיר בש"ח (לא חובה)</label>
-          <input id="cp-price" name="price" type="number" min={0} className="w-32 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }} />
+          <input id="cp-price" name="price" type="number" min={0} className="w-32 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }} />
         </div>
         <div>
           <label htmlFor="cp-rooms" className="mb-1 block text-sm">חדרים (לא חובה)</label>
-          <input id="cp-rooms" name="rooms" type="number" min={1} max={20} step={0.5} className="w-24 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }} />
+          <input id="cp-rooms" name="rooms" type="number" min={1} max={20} step={0.5} className="w-24 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }} />
         </div>
         <Button type="submit" disabled={busy}>{busy ? "ממיר…" : "צור נכס"}</Button>
         <Button type="button" variant="ghost" onClick={() => setOpen(false)}>ביטול</Button>
@@ -763,7 +763,7 @@ function ConvertSection({ leadId }: { leadId: string }) {
             required
             placeholder="תל אביב, גבעתיים"
             className="rounded-lg border px-3 py-2"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
+            style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
           />
         </div>
         <div>
@@ -772,7 +772,7 @@ function ConvertSection({ leadId }: { leadId: string }) {
             id="cv-deal"
             name="dealType"
             className="rounded-lg border px-3 py-2"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
+            style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
           >
             <option value="sale">קנייה</option>
             <option value="rent">שכירות</option>
@@ -791,7 +791,7 @@ function ConvertSection({ leadId }: { leadId: string }) {
             type="number"
             min={1}
             className="rounded-lg border px-3 py-2"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
+            style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
             dir="ltr"
           />
         </div>
@@ -802,7 +802,7 @@ function ConvertSection({ leadId }: { leadId: string }) {
             name="maturity"
             defaultValue="interested"
             className="rounded-lg border px-3 py-2"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
+            style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
           >
             {Object.entries(SHARED_MATURITY).map(([value, label]) => (
               <option key={value} value={value}>{label}</option>
@@ -1280,7 +1280,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
               placeholder="מה נאמר בשיחה?"
               className="min-w-0 flex-1 rounded-lg border px-3 py-2.5"
               style={{
-                borderColor: "var(--color-border)",
+                borderColor: "var(--color-input-border)",
                 background: "var(--color-field)",
               }}
             />

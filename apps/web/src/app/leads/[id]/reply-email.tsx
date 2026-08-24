@@ -106,7 +106,7 @@ export function ReplyEmail({
               maxLength={200}
               defaultValue={`בהמשך לפנייתך — ${contactName}`}
               className="mt-1 w-full rounded-lg border px-3 py-2 text-sm font-normal"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+              style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
             />
           </label>
           <label htmlFor="reply-body" className="text-sm font-semibold">
@@ -120,7 +120,7 @@ export function ReplyEmail({
                 rows={6}
                 maxLength={5000}
                 className="flex-1 rounded-lg border px-3 py-2 text-sm font-normal"
-                style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
               />
               <DictateFor targetId="reply-body" />
             </div>

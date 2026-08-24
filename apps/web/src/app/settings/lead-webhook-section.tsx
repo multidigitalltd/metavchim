@@ -196,7 +196,7 @@ export function LeadWebhookSection() {
                 maxLength={20}
                 placeholder="למשל: פייסבוק"
                 className="rounded-lg border px-3 py-2.5"
-                style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
               />
               <datalist id="lw-source-suggestions">
                 {SOURCE_SUGGESTIONS.map((s) => (

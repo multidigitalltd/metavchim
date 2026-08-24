@@ -398,7 +398,7 @@ export function TelephonySection() {
             value={chosen}
             onChange={(event) => setChosen(event.target.value)}
             className="w-full rounded-lg border px-3 py-2.5"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+            style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
           >
             {providers.map((p) => (
               <option key={p.id} value={p.id}>
@@ -436,7 +436,7 @@ export function TelephonySection() {
                   field.secret && stored ? "שמורה — השאירו ריק כדי לא לשנות" : undefined
                 }
                 className="w-full rounded-lg border px-3 py-2.5"
-                style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
               />
               {/*
                 ההבחנה בין "שמור" ל"חסר" היא כל העניין: קודם שני המצבים
@@ -569,7 +569,7 @@ function TeamSipLines() {
                     maxLength={80}
                     autoComplete="off"
                     className="w-32 rounded-lg border px-2.5 py-1.5 text-sm"
-                    style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                    style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
                   />
                 </div>
                 <div>
@@ -584,7 +584,7 @@ function TeamSipLines() {
                     autoComplete="new-password"
                     placeholder={line.hasPassword ? "שמורה — השאירו ריק" : ""}
                     className="w-36 rounded-lg border px-2.5 py-1.5 text-sm"
-                    style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                    style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
                   />
                 </div>
                 <button type="submit" className="mv-btn-plain" disabled={busyId !== null}>

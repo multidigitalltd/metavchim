@@ -50,7 +50,7 @@ const OUTCOME_LABELS: Record<string, string> = {
   needs_other: "צריך נכס אחר",
 };
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
+const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
 function pad(n: number): string {
   return String(n).padStart(2, "0");
