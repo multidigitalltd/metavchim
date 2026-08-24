@@ -10,7 +10,7 @@ import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 
 import IORedis from "ioredis";
 import { normalizeSignupCode, SIGNUP_CODE_LENGTH } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
-import { EmailService } from "../../core/email.service";
+import { EmailRejectedError, EmailService } from "../../core/email.service";
 
 /**
  * אימות כתובת האימייל **לפני** שהמשרד נפתח.
@@ -224,6 +224,16 @@ export class SignupVerificationService implements OnModuleDestroy {
       await release();
       throw new BadRequestException("ההרשמה פגה — מלאו את הפרטים שוב");
     }
+    /*
+     * **מועד, ולא יתרה** — מאותו נימוק בדיוק כמו ב-`withVerified`.
+     *
+     * ‎`ttl` נמדד כאן, וההתקנה קורית אחרי השליחה: כתיבה של `ttl`
+     * כמו-שהוא מוסיפה לתפוגה את כל משך השליחה. „שלחו שוב” בעשר
+     * שניות של שליחה, עשר פעמים, מותחת חלון של עשרים דקות ללא
+     * גבול — וזה בדיוק מה שההערה מעל טוענת שאינו קורה (ביקורת
+     * Codex). את התיקון הזה עשיתי בסבב הקודם בצד אחד בלבד.
+     */
+    const deadline = Date.now() + ttl * 1000;
 
     /*
      * **השליחה קודמת לכתיבה** — וכאן דווקא הפוך מ-`issue`.
@@ -245,6 +255,16 @@ export class SignupVerificationService implements OnModuleDestroy {
       await release();
       throw error;
     }
+
+    /* מה שנותר מהמועד המקורי — אחרי השליחה, ולא לפניה. */
+    const left = Math.floor((deadline - Date.now()) / 1000);
+    if (left <= 0) {
+      await release();
+      throw new BadRequestException(
+        "ההרשמה פגה — הקוד שנשלח זה עתה אינו בתוקף, מלאו את הפרטים שוב",
+      );
+    }
+
     /*
      * הכתיבה מותנית ב**ערך שנקרא בכניסה**, ולא עיוורת.
      *
@@ -280,7 +300,7 @@ export class SignupVerificationService implements OnModuleDestroy {
         codeHmac: this.hmac(code),
         version: SignupVerificationService.freshVersion(),
       } satisfies StoredPending),
-      String(ttl),
+      String(left),
     );
     if (replaced !== 1) {
       /*
@@ -421,16 +441,32 @@ export class SignupVerificationService implements OnModuleDestroy {
       return await create(stored.pending as VerifiedSignup);
     } catch (error) {
       /*
-       * הפתיחה נכשלה — הרשומה חוזרת בדיוק כפי שהייתה, עד למועד
-       * התפוגה המקורי. ‎`NX` ולא כתיבה גסה: אם משהו כבר יושב שם
-       * הוא חדש מזה, ואין להחליף אותו במה שזה עתה נצרך.
+       * הפתיחה נכשלה — אותו קוד בדיוק חוזר לתוקף, עד למועד התפוגה
+       * המקורי, אבל **תחת גרסה חדשה**.
        *
-       * מונה הניסיונות אינו מוחזר. הקוד הוכח כנכון, ומה שנכשל הוא
-       * הצד שלנו — התחלה נקייה היא הדבר הנכון למי שממילא לא טעה.
+       * החזרה של אותה גרסה נראית תמימה והיא אינה: בזמן שהפתיחה
+       * רצה, אישורים מקבילים שקראו את אותו `raw` ממשיכים להגדיל את
+       * מונה הגרסה הזו — מונה שכבר נמחק כאן ונוצר מחדש על ידם.
+       * חמישה כאלה, והרשומה המוחזרת חוזרת לחיים עם מונה שכבר עומד
+       * על חמש: ההקלדה הבאה של המשתמש היא השישית, והקוד שלו נמחק
+       * (ביקורת Codex). ‎`codeHmac` נשמר, ולכן הקוד שבתיבת הדואר
+       * ממשיך לעבוד — רק המונה מתחיל נקי.
+       *
+       * ‎`NX` ולא כתיבה גסה: אם משהו כבר יושב שם הוא חדש מזה, ואין
+       * להחליף אותו במה שזה עתה נצרך.
        */
       const left = Math.floor((deadline - Date.now()) / 1000);
       if (left > 0) {
-        await this.redis.set(this.key(token), raw, "EX", left, "NX");
+        await this.redis.set(
+          this.key(token),
+          JSON.stringify({
+            ...stored,
+            version: SignupVerificationService.freshVersion(),
+          } satisfies StoredPending),
+          "EX",
+          left,
+          "NX",
+        );
       }
       throw error;
     }
@@ -533,7 +569,25 @@ export class SignupVerificationService implements OnModuleDestroy {
     try {
       await this.deliver(pending, code);
     } catch (error) {
-      await this.refundEmailQuota(pending.email);
+      /*
+       * **מוחזר רק מה שידוע שלא נשלח.**
+       *
+       * ההחזר היה על כל כישלון, וזו טעות: פסק זמן או נפילת רשת
+       * אינם „לא נשלח” אלא „איננו יודעים” — ייתכן ש-Postmark קיבל
+       * את ההודעה ושלח אותה, ורק התשובה אבדה. מי שמסוגל לגרום
+       * לתוצאה העמומה הזו שוב ושוב מקבל מכסה שחוזרת לאפס בכל פעם,
+       * כלומר שליחה בלי גבול אל תיבה של אדם אחר — בדיוק ההצפה
+       * שהתקרה נועדה למנוע, וההערה מעל `chargeEmailQuota` טענה
+       * שהיא עדיין מגינה מפניה (ביקורת Codex).
+       *
+       * ‎`EmailRejectedError` הוא המקרה היחיד שבו הספק **ענה ודחה**,
+       * ולכן היחיד שבו הוודאות קיימת. בהיעדרה נשמרת הגבייה: תקלה
+       * אצל הספק עולה למשתמש עיכוב של שעה על כתובתו שלו, וזה מחיר
+       * נמוך מהאפשרות להשתמש בנו כדי להטריד.
+       */
+      if (error instanceof EmailRejectedError) {
+        await this.refundEmailQuota(pending.email);
+      }
       throw error;
     }
   }

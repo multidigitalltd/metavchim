@@ -18,6 +18,21 @@ import { PlatformSettingsService } from "./platform-settings.service";
  * שליחת שתיהן אינה קישוט: הודעה עם HTML בלבד נענשת במסננים, ולקוחות
  * טקסט-בלבד היו מקבלים תגיות גולמיות.
  */
+/**
+ * הספק **ענה, ודחה** — ההודעה בוודאות לא יצאה.
+ *
+ * ההבחנה הזו אינה סגנונית. כישלון רשת או פסק זמן הוא תוצאה
+ * **עמומה**: ייתכן ש-Postmark קיבל את ההודעה ושלח אותה, ורק התשובה
+ * אבדה. קורא שמתייחס לשני המקרים כאל „לא נשלח” ומחזיר מכסה הופך
+ * את התקרה לחסרת משמעות — מי שמסוגל לגרום לפסק זמן חוזר שולח בלי
+ * הגבלה, וזו בדיוק ההצפה שהתקרה נועדה למנוע (ביקורת Codex).
+ *
+ * תשובה מפורשת של הספק (‏4xx/5xx) היא הוודאות היחידה שיש לנו, ולכן
+ * רק היא נושאת את הסוג הזה. היורש מ-`ServiceUnavailableException`
+ * ולא מחליף אותו: מי שאינו מבחין ממשיך לקבל בדיוק את אותה תשובה.
+ */
+export class EmailRejectedError extends ServiceUnavailableException {}
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -80,7 +95,8 @@ export class EmailService {
       const detail = await res.text().catch(() => "");
       // 422 של Postmark כולל סיבה (כתובת From לא מאומתת וכו') — ללוג בלבד
       this.logger.error(`Postmark החזיר ${res.status}: ${detail.slice(0, 300)}`);
-      throw new ServiceUnavailableException("שליחת האימייל נכשלה — נסו שוב");
+      // הספק ענה ודחה — ראו `EmailRejectedError`
+      throw new EmailRejectedError("שליחת האימייל נכשלה — נסו שוב");
     }
   }
 
