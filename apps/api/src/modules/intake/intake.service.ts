@@ -15,6 +15,8 @@ import {
   intakeExpiryFrom,
   intakeInactiveReason,
   intakeInviteMessage,
+  intakeOpenRejectionReason,
+  normalizePhone,
   pickIntakeFeatures,
   PropertyTypeSchema,
   type IntakeAnswers,
@@ -22,6 +24,7 @@ import {
   type IntakeSubject,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
+import { lockIntakeRequest } from "../../common/locks";
 import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
@@ -65,6 +68,15 @@ export interface IntakePublicView {
   /** הדרישות הידועות, כדי שהלקוח יתקן ולא יתחיל מאפס. */
   prefill: IntakeAnswers;
   submittedAt: string | null;
+  /**
+   * הטופס שואל גם „מי אתם” — קישור פתוח שעוד אין לו כרטיס.
+   *
+   * מרגע שהכרטיס נוצר הדגל כבה, והשליחה הבאה מאותו קישור מעדכנת
+   * אותו כרטיס. זו גם הסיבה שהזהות שנמסרה **אינה** חוזרת לעמוד:
+   * מי שמצא את הקישור אחרי המילוי היה לומד ממנו שם ומספר של אדם
+   * אמיתי, וזה בדיוק מה שהעמוד הזה אינו אמור להסגיר.
+   */
+  needsIdentity: boolean;
 }
 
 /** שורת בקשה כפי שהיא מוצגת בכרטיס. */
@@ -79,6 +91,14 @@ export interface IntakeRequestDto {
   createdAt: Date;
   /** קישור wa.me מוכן לשליחה — הנוסח כבר בפנים. */
   waUrl: string | null;
+  /**
+   * הכרטיס שנוצר מהקישור הפתוח, או `null` כשעוד לא נשלח.
+   *
+   * ברשימת הקישורים הפתוחים זו העמודה היחידה שמעניינת אחרי
+   * השליחה: „מי מילא” הוא שאלה על כרטיס, ובלי הקישור אליו הרשימה
+   * מודיעה שמשהו קרה ואינה אומרת איפה.
+   */
+  buyerId: string | null;
 }
 
 /**
@@ -99,16 +119,24 @@ class MergeRejected extends Error {}
  */
 class Superseded extends Error {}
 
-/** מה נשמר על הבקשה. מצומצם — הצד הציבורי אינו זקוק ליותר. */
+/**
+ * מה נשמר על הבקשה. מצומצם — הצד הציבורי אינו זקוק ליותר.
+ *
+ * `subjectId` ו-`contactId` ריקים בקישור פתוח **עד השליחה**: הכרטיס
+ * ואיש הקשר נוצרים ממה שהלקוח ימלא, ולכן אין מה למלא בהם קודם.
+ */
 interface TokenRow {
   id: string;
   tenantId: string;
   subject: string;
-  subjectId: string;
-  contactId: string;
+  subjectId: string | null;
+  contactId: string | null;
   status: string;
   expiresAt: Date;
 }
+
+/** בקשה שכבר יש לה כרטיס — כל מה שאחרי `materializeOpen` עובד עליה. */
+type LinkedRow = TokenRow & { subjectId: string; contactId: string };
 
 @Injectable()
 export class IntakeService {
@@ -190,6 +218,78 @@ export class IntakeService {
   }
 
   /**
+   * קישור **בלי כרטיס** — ללקוח שעדיין אינו במאגר.
+   *
+   * ## למה זה לא „ליד ואז קישור”
+   *
+   * הדרך הקיימת דורשת מהמתווך לפתוח כרטיס ידני קודם, כלומר להקליד
+   * שם וטלפון בזמן שהלקוח על הקו — בדיוק ההקלדה שהתכונה הזו נועדה
+   * להעביר ללקוח. ומי שפוגש לקוח ברחוב ורוצה לשלוח לו טופס לפני
+   * שהוא יודע עליו דבר אינו יכול, כי אין למה לקשור את הקישור.
+   *
+   * ## למה כל לחיצה יוצרת קישור חדש
+   *
+   * `ensure` לכרטיס מחזירה קישור פעיל קיים, כי שני טפסים לאותו
+   * כרטיס הם השאלה „מי מהם קובע”. כאן אין כרטיס לקשור אליו, ושני
+   * לקוחות שונים שנפגשו באותו יום צריכים **שני** קישורים שונים.
+   * החזרת אותו קישור לשניהם הייתה מכניסה את השני לכרטיס של הראשון.
+   */
+  async ensureOpen(): Promise<IntakeRequestDto> {
+    const ctx = TenantContext.current();
+    const now = new Date();
+    return this.prisma.withTenant(async (tx) => {
+      const row = await tx.intakeRequest.create({
+        data: {
+          id: ulid(),
+          tenantId: ctx.tenantId,
+          token: freshToken(),
+          subject: "open",
+          subjectId: null,
+          contactId: null,
+          channel: "manual",
+          createdBy: ctx.userId,
+          expiresAt: intakeExpiryFrom(now),
+        },
+      });
+      await this.audit.record(tx, {
+        action: "intake.create_open",
+        entityType: "intake",
+        entityId: row.id,
+      });
+      return toDto(row, {
+        officeName: await this.officeName(tx, ctx.tenantId),
+        phone: null,
+      });
+    });
+  }
+
+  /**
+   * הקישורים הפתוחים של המשרד — החדש ראשון.
+   *
+   * הבעלות היא **מי שיצר**, ולא בעל הכרטיס: לפני השליחה אין כרטיס,
+   * ואחריה הכרטיס נושא את הבעלות בעצמו. סוכן בלי `buyers.view_all`
+   * רואה את הקישורים ששלח הוא — הרשימה מחזירה כתובות פעילות, וקישור
+   * פעיל של עמית הוא טופס שאפשר למלא בשמו.
+   */
+  async listOpen(): Promise<IntakeRequestDto[]> {
+    const ctx = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.intakeRequest.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          subject: "open",
+          ...ownershipFilter("buyers.view_all", "createdBy"),
+        },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      });
+      if (rows.length === 0) return [];
+      const officeName = await this.officeName(tx, ctx.tenantId);
+      return rows.map((row) => toDto(row, { officeName, phone: null }));
+    });
+  }
+
+  /**
    * כל הבקשות של הכרטיס — החדשה ראשונה.
    *
    * שם המשרד ואיש הקשר נקראים **פעם אחת**, לא פעם לכל שורה: כל
@@ -236,10 +336,26 @@ export class IntakeService {
     await this.prisma.withTenant(async (tx) => {
       const row = await tx.intakeRequest.findFirst({
         where: { id, tenantId: ctx.tenantId },
-        select: { subject: true, subjectId: true },
+        select: { subject: true, subjectId: true, createdBy: true },
       });
       if (row === null) throw new NotFoundException("הבקשה לא נמצאה");
-      await this.contactOf(tx, row.subject as IntakeSubject, row.subjectId);
+      if (row.subjectId === null) {
+        /*
+         * קישור פתוח שטרם נשלח — אין כרטיס שהבעלות עליו נבדקת,
+         * ולכן היא נבדקת על מי ששלח אותו. אותו כלל של `listOpen`:
+         * קישור פעיל של עמית הוא טופס שאפשר למלא בשמו, ולכן גם
+         * הביטול שלו אינו נתון לכל סוכן במשרד.
+         */
+        const mine = ownershipFilter("buyers.view_all", "createdBy");
+        if (
+          mine["createdBy"] !== undefined &&
+          mine["createdBy"] !== row.createdBy
+        ) {
+          throw new NotFoundException("הבקשה לא נמצאה");
+        }
+      } else {
+        await this.contactOf(tx, row.subject as IntakeSubject, row.subjectId);
+      }
 
       const updated = await tx.intakeRequest.updateMany({
         where: { id, tenantId: ctx.tenantId, status: { not: "revoked" } },
@@ -260,7 +376,11 @@ export class IntakeService {
     const row = await this.resolveToken(token);
     return this.asOffice(row.tenantId, async (tx) => {
       const officeName = await this.officeName(tx, row.tenantId);
-      const contact = await this.contacts.getById(tx, row.contactId);
+      // קישור פתוח שטרם נשלח — אין עדיין איש קשר להביא ממנו שם
+      const contact =
+        row.contactId === null
+          ? null
+          : await this.contacts.getById(tx, row.contactId);
       const inactive = intakeInactiveReason(
         row.status as IntakeStatus,
         row.expiresAt,
@@ -280,6 +400,7 @@ export class IntakeService {
           inactive,
           prefill: {},
           submittedAt: null,
+          needsIdentity: false,
         };
       }
 
@@ -313,6 +434,7 @@ export class IntakeService {
             ? toAnswers(current)
             : toAnswers(asRecord(full?.answers)),
         submittedAt: full?.submittedAt?.toISOString() ?? null,
+        needsIdentity: row.subject === "open" && row.subjectId === null,
       };
     });
   }
@@ -337,7 +459,31 @@ export class IntakeService {
       );
     }
 
-    const claim = await this.asOffice(row.tenantId, async (tx) => {
+    /*
+     * קישור פתוח שעדיין אין לו כרטיס — הזהות היא מה שהופך תשובות
+     * לכרטיס, והיא נבדקת **לפני** התפיסה. שליחה שנתפסת ואז נדחית
+     * הייתה משאירה בקשה מסומנת „נשלחה” בלי שום דבר מאחוריה.
+     */
+    const resolved =
+      row.subject === "open" && row.subjectId === null
+        ? await this.materializeOpen(row, answers)
+        : row;
+    /*
+     * מכאן והלאה יש כרטיס ויש איש קשר. בקישור לכרטיס קיים זה אילוץ
+     * המסד; בקישור פתוח זה מה ש-`materializeOpen` בדיוק עשתה. הבדיקה
+     * מנסחת את האינוריאנטה למהדר — הוא אינו יכול לגזור אותה משום
+     * שהיא מפוצלת בין הסכימה לבין המסלול שמעליה.
+     */
+    if (resolved.subjectId === null || resolved.contactId === null) {
+      throw new BadRequestException("הקישור אינו פעיל עוד");
+    }
+    const live: LinkedRow = {
+      ...resolved,
+      subjectId: resolved.subjectId,
+      contactId: resolved.contactId,
+    };
+
+    const claim = await this.asOffice(live.tenantId, async (tx) => {
       /*
        * **אותו כרטיס שממנו נשאב הטופס הוא הכרטיס שנכתב.**
        *
@@ -357,9 +503,9 @@ export class IntakeService {
        * לא ידע. הנעילה מסדרת אותן בתור, ומי שמגיע שני רואה את מה
        * שהראשון עשה.
        */
-      await tx.$queryRaw`SELECT id FROM contacts WHERE id = ${row.contactId} AND tenant_id = ${row.tenantId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM contacts WHERE id = ${live.contactId} AND tenant_id = ${live.tenantId} FOR UPDATE`;
 
-      const targetBuyerId = await this.targetBuyerId(tx, row);
+      const targetBuyerId = await this.targetBuyerId(tx, live);
 
       /*
        * **המיזוג אינו נעשה כאן.**
@@ -378,7 +524,7 @@ export class IntakeService {
        * נעלמת.
        */
       const previous = await tx.intakeRequest.findUnique({
-        where: { id: row.id },
+        where: { id: live.id },
         select: { submittedAt: true, answers: true },
       });
       const resubmit =
@@ -423,8 +569,8 @@ export class IntakeService {
       const rev = ulid();
       const claimed = await tx.intakeRequest.updateMany({
         where: {
-          id: row.id,
-          tenantId: row.tenantId,
+          id: live.id,
+          tenantId: live.tenantId,
           status: { not: "revoked" },
           expiresAt: { gt: new Date() },
         },
@@ -456,9 +602,9 @@ export class IntakeService {
             ),
           }
         : await this.applyToBuyer(
-            row.tenantId,
+            live.tenantId,
             claim.targetBuyerId,
-            row.id,
+            live.id,
             claim.rev,
             answers,
           );
@@ -470,7 +616,7 @@ export class IntakeService {
      */
     if (outcome.superseded) return { ok: true };
 
-    await this.asOffice(row.tenantId, async (tx) => {
+    await this.asOffice(live.tenantId, async (tx) => {
       /*
        * היומן נרשם **בכל** שליחה, גם כשאין התראה: הוא הראיה למי
        * נגע בכרטיס ומתי, ודילוג עליו היה יוצר שינוי בלי מקור. הוא
@@ -479,18 +625,145 @@ export class IntakeService {
        */
       await this.audit.record(tx, {
         action: "intake.submit",
-        entityType: row.subject,
-        entityId: row.subjectId,
+        entityType: live.subject,
+        entityId: live.subjectId,
         // רק שמות שדות — לא מה שנכתב בהם
         metadata: { changed: outcome.changed },
       });
-      await this.notify(tx, row, {
+      await this.notify(tx, live, {
         targetBuyerId: claim.targetBuyerId,
         resubmit: claim.resubmit,
         ...outcome,
       });
     });
     return { ok: true };
+  }
+
+  /**
+   * הקישור הפתוח הופך לכרטיס — פעם אחת, ולא פעם לכל שליחה.
+   *
+   * ## מה נוצר כאן
+   *
+   * איש קשר וכרטיס קונה, מתוך מה שהלקוח **עצמו** מילא. משם ואילך
+   * הבקשה מצביעה על הכרטיס, וכל המנגנון הקיים ממשיך כרגיל: השליחה
+   * הזו ממזגת לתוכו, וכל שליחה נוספת מאותו קישור מעדכנת אותו.
+   *
+   * ## מיזוג לפי טלפון
+   *
+   * לקוח שכבר קונה במשרד — קיבל קישור פתוח בטעות, או חזר אחרי חצי
+   * שנה — **אינו** מקבל כרטיס שני. `findOrCreateByPhone` מחזירה את
+   * איש הקשר הקיים, והקונה הראשון שלו הוא היעד. כרטיס כפול הוא
+   * התקלה שהתכונה הזו הכי קלה לייצר, והיא מתגלה רק כשמישהו מנסה
+   * להבין למה יש שתי שורות לאותו אדם.
+   *
+   * ## למה הכול בטרנזקציה אחת
+   *
+   * הנעילה על שורת הבקשה, הקריאה החוזרת, יצירת הכרטיס והסימון של
+   * הבקשה עליו — כולם יחד. שתי שליחות מקבילות של אותו קישור הן לא
+   * תרחיש נדיר (לחיצה כפולה על „שליחה” בנייד היא בדיוק זה), ופיצול
+   * לשתי טרנזקציות היה מייצר קונה שאיש אינו מצביע עליו: כרטיס יתום
+   * שהמתווך רואה בלי לדעת מאיפה הגיע, ולידו עוד אחד.
+   *
+   * הפעולות שאחרי הכתיבה רצות מחוץ לטרנזקציה — ראו `afterCreate`.
+   */
+  private async materializeOpen(
+    row: TokenRow,
+    answers: IntakeAnswers,
+  ): Promise<TokenRow> {
+    const rejection = intakeOpenRejectionReason(answers);
+    if (rejection !== null) throw new BadRequestException(rejection);
+    const fullName = (answers.fullName ?? "").trim();
+    // הצורה המנורמלת היא מה שנשמר ומה שמזהה כפילות — ראו `normalizePhone`
+    const phone = normalizePhone(answers.phone ?? "");
+
+    /*
+     * הבעלים הוא מי ששלח את הקישור, ולא „אף אחד”: את השליחה עשה
+     * הלקוח, ובלי בעלים מפורש הכרטיס נעלם מכל סוכן שרואה „רק שלי”
+     * — כלומר מהסוכן שביקש אותו.
+     */
+    const link = await this.prisma.withExplicitTenant(row.tenantId, (tx) =>
+      tx.intakeRequest.findUnique({
+        where: { id: row.id },
+        select: { createdBy: true },
+      }),
+    );
+    const owner = link?.createdBy ?? "";
+
+    const fresh: string[] = [];
+    return TenantContext.run(officeContext(row.tenantId, owner), async () => {
+      const linked = await this.prisma.withExplicitTenant(
+        row.tenantId,
+        async (tx) => {
+          await lockIntakeRequest(tx, row.tenantId, row.id);
+          const again = await tx.intakeRequest.findUnique({
+            where: { id: row.id },
+            select: { subjectId: true, contactId: true },
+          });
+          // שליחה מקבילה הקדימה — הכרטיס שלה הוא הכרטיס
+          if (again?.subjectId !== null && again?.subjectId !== undefined && again.contactId !== null) {
+            return { subjectId: again.subjectId, contactId: again.contactId };
+          }
+
+          const contact = await this.contacts.findOrCreateByPhone(tx, {
+            name: fullName,
+            phone,
+          });
+          const existing = await tx.buyer.findFirst({
+            where: {
+              tenantId: row.tenantId,
+              contactId: contact.id,
+              deletedAt: null,
+            },
+            orderBy: { createdAt: "asc" },
+            select: { id: true },
+          });
+          if (existing !== null) {
+            await this.link(tx, row, existing.id, contact.id);
+            return { subjectId: existing.id, contactId: contact.id };
+          }
+
+          /*
+           * הכרטיס נולד עם הדרישות שכבר נשלחו, ולא ריק ואז מעודכן:
+           * קונה ריק שנכתב ומיד נערך מייצר שתי רשומות ביומן ושתי
+           * הרצות התאמה, והראשונה מהן על כרטיס שאין בו דבר.
+           */
+          const buyerId = await this.buyers.createWithin(tx, {
+            contactName: fullName,
+            contactPhone: phone,
+            requirements: BuyerRequirementsSchema.parse(
+              applyIntakeAnswers({}, answers),
+            ),
+            source: "intake_link",
+            ownerUserId: owner === "" ? undefined : owner,
+          });
+          fresh.push(buyerId);
+          await this.link(tx, row, buyerId, contact.id);
+          return { subjectId: buyerId, contactId: contact.id };
+        },
+      );
+
+      for (const id of fresh) await this.buyers.afterCreate(id);
+      return { ...row, ...linked };
+    });
+  }
+
+  /**
+   * שורת הבקשה מצביעה על הכרטיס — **רק אם עוד לא הצביעה.**
+   *
+   * `updateMany` עם `subjectId: null` בתנאי ולא `update`: הנעילה
+   * מסדרת את השליחות זו אחר זו, והתנאי הוא מה שמוודא שהשנייה אינה
+   * מסיטה את הבקשה לכרטיס אחר אם משהו בכל זאת חמק.
+   */
+  private async link(
+    tx: TenantTx,
+    row: TokenRow,
+    buyerId: string,
+    contactId: string,
+  ): Promise<void> {
+    await tx.intakeRequest.updateMany({
+      where: { id: row.id, tenantId: row.tenantId, subjectId: null },
+      data: { subjectId: buyerId, contactId },
+    });
   }
 
   /**
@@ -726,6 +999,24 @@ export class IntakeService {
     subjectId: string,
   ): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
+    if (subject === "open") {
+      /*
+       * קישור פתוח שכבר נשלח מצביע על קונה, ומאותו רגע הבעלות היא
+       * של הכרטיס — בדיוק כמו בכל קישור אחר לקונה. לפני השליחה אין
+       * כרטיס, והמסלול הזה אינו מגיע לכאן: `revoke` בודקת קודם.
+       */
+      const buyer = await tx.buyer.findFirst({
+        where: {
+          id: subjectId,
+          tenantId,
+          deletedAt: null,
+          ...ownershipFilter("buyers.view_all", "ownerUserId"),
+        },
+        select: { contactId: true },
+      });
+      if (buyer === null) throw new NotFoundException("קונה לא נמצא");
+      return buyer.contactId;
+    }
     if (subject === "buyer") {
       const buyer = await tx.buyer.findFirst({
         where: {
@@ -764,13 +1055,19 @@ export class IntakeService {
     tx: TenantTx,
     row: TokenRow,
   ): Promise<string | null> {
+    /*
+     * קישור פתוח שטרם נשלח מצביע על כלום — לא על כרטיס ולא על איש
+     * קשר — ולכן אין מה לחפש. חיפוש לפי `contactId` ריק היה מוצא
+     * את הקונה הראשון של המשרד ומעדכן **אותו**.
+     */
+    if (row.subject === "open" && row.subjectId === null) return null;
     const buyer = await tx.buyer.findFirst({
       where: {
         tenantId: row.tenantId,
         deletedAt: null,
-        ...(row.subject === "buyer"
-          ? { id: row.subjectId }
-          : { contactId: row.contactId }),
+        ...(row.subject === "lead"
+          ? { contactId: row.contactId ?? "" }
+          : { id: row.subjectId ?? "" }),
       },
       select: { id: true },
     });
@@ -806,11 +1103,14 @@ export class IntakeService {
   private async dtoContext(
     tx: TenantTx,
     tenantId: string,
-    contactId: string,
+    contactId: string | null,
   ): Promise<DtoContext> {
     const [officeName, contact] = await Promise.all([
       this.officeName(tx, tenantId),
-      this.contacts.getById(tx, contactId),
+      // קישור פתוח שטרם נשלח — אין איש קשר, ולכן גם אין קישור wa.me
+      contactId === null
+        ? Promise.resolve(null)
+        : this.contacts.getById(tx, contactId),
     ]);
     return { officeName, phone: contact?.phone ?? null };
   }
@@ -831,7 +1131,10 @@ interface DtoContext {
  * מצומצמות לזו האחת בכוונה: ההקשר אינו עובר לשום ניתוב, והרחבה
  * שלו הייתה הרחבה של מה שקישור ברחוב שווה.
  */
-function officeContext(tenantId: string): {
+function officeContext(
+  tenantId: string,
+  userId = "",
+): {
   tenantId: string;
   userId: string;
   capabilities: ReadonlySet<Capability>;
@@ -839,7 +1142,7 @@ function officeContext(tenantId: string): {
 } {
   return {
     tenantId,
-    userId: "",
+    userId,
     capabilities: new Set<Capability>(["buyers.view_all"]),
     billingOnly: false,
   };
@@ -880,6 +1183,8 @@ function toDto(
   row: {
     id: string;
     token: string;
+    subject: string;
+    subjectId: string | null;
     status: string;
     channel: string;
     expiresAt: Date;
@@ -904,6 +1209,8 @@ function toDto(
       ctx.phone !== null
         ? `https://wa.me/${ctx.phone.replace(/\D/gu, "")}?text=${encodeURIComponent(message)}`
         : null,
+    // רק בקישור הפתוח `subjectId` הוא קונה; בשאר הוא הכרטיס שהקישור נשלח ממנו
+    buyerId: row.subject === "open" ? row.subjectId : null,
   };
 }
 

@@ -83,6 +83,16 @@ const SEED_OVERRIDES: Readonly<Record<string, Readonly<Record<string, string>>>>
     property_a_id: "'01SEEDTWINAAAAAAAAAAAAAAAA'",
     property_b_id: "'01SEEDTWINBBBBBBBBBBBBBBBB'",
   },
+  /*
+   * `intake_requests_card_required`: קישור לכרטיס חייב להצביע על
+   * כרטיס ועל איש קשר; רק `subject = 'open'` מתחיל בלעדיהם. המחולל
+   * בוחר את הערך הראשון שה-CHECK מתיר (`lead`), ומשאיר את שתי
+   * העמודות הנילות ריקות — כלומר בדיוק את הצירוף שאינו חוקי.
+   */
+  intake_requests: {
+    subject_id: "'01SEEDINTAKESUBJECTAAAAAAA'",
+    contact_id: "'01SEEDINTAKECONTACTAAAAAAA'",
+  },
 };
 
 interface Column {

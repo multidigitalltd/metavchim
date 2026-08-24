@@ -21,6 +21,7 @@ import {
   type ListFilterValues,
 } from "../list-filters";
 import { Notice } from "../notice";
+import { OpenIntakePanel } from "./open-intake-panel";
 
 /**
  * מסך הקונים לפי קובץ העיצוב: מקרא בשלות בכותרת, טבלת grid עם גלולת
@@ -95,6 +96,7 @@ export default function BuyersPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const canImport = useFeature("data_io");
   const canVoice = useFeature("voice_intake");
+  const canEditBuyers = can(user, "buyers.edit");
   const router = useRouter();
   const [items, setItems] = useState<BuyerRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -287,6 +289,13 @@ export default function BuyersPage() {
               <IconMic s={15} /> קונה בקול
             </Link>
           ) : null}
+          {/*
+            „קישור ללקוח חדש” ליד „קונה חדש”, ולא במסך משלו: אלה שתי
+            הדרכים לאותה מטרה — האחת מקלידה, והשנייה נותנת ללקוח
+            להקליד. מסך נפרד היה מקום שאיש לא נכנס אליו כדי לבדוק אם
+            מישהו מילא.
+          */}
+          <OpenIntakePanel canEdit={canEditBuyers} />
           <Link href="/buyers/new" className="mv-btn-action" style={{ minHeight: 38 }}>
             <IconPlus s={15} /> קונה חדש
           </Link>

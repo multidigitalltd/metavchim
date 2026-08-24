@@ -375,11 +375,20 @@ model IntakeRequest {
   /// 43 תווי base64url. ייחודי גלובלית — הוא נפתר לפני שידוע הדייר.
   token    String @unique @db.Char(43)
 
-  /// lead | buyer — שני הכרטיסים שיש בהם דרישות.
+  /// lead | buyer | open — שני הכרטיסים שיש בהם דרישות, ועוד אחד.
+  ///
+  /// `open` הוא קישור שנוצר **לפני שיש כרטיס**: המתווך שולח טופס
+  /// ללקוח שאינו במאגר, והכרטיס נוצר מהפרטים שהלקוח ימלא. הערך
+  /// נשאר `open` גם אחרי שהכרטיס נוצר — הוא התשובה לשאלה מאיפה
+  /// הכרטיס הזה הגיע.
   subject   String @db.VarChar(10)
-  subjectId String @map("subject_id") @db.Char(26)
+  /// הכרטיס. `null` בקישור פתוח **עד השליחה**, ומלא אחריה.
+  subjectId String? @map("subject_id") @db.Char(26)
   /// למי הטופס מיועד — לברכה בעמוד ולמספר שאליו נשלחת ההודעה.
-  contactId String @map("contact_id") @db.Char(26)
+  ///
+  /// `null` באותו מצב בדיוק: בקישור פתוח אין עדיין איש קשר, והוא
+  /// נוצר (או נמצא לפי הטלפון) כשהלקוח שולח.
+  contactId String? @map("contact_id") @db.Char(26)
 
   /// sent | opened | submitted | revoked
   status String @default("sent") @db.VarChar(12)

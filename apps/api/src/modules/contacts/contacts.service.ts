@@ -7,7 +7,7 @@ import {
   type ContactPerson,
   type ContactRole,
 } from "@metavchim/shared";
-import { lockContact } from "../../common/locks";
+import { lockContact, lockContactPhone } from "../../common/locks";
 import { TenantContext } from "../../common/tenant-context";
 import { CryptoService } from "../../core/crypto.service";
 import type { TenantTx } from "../../core/prisma.service";
@@ -59,6 +59,16 @@ export class ContactsService {
   ): Promise<ContactDto> {
     const tenantId = TenantContext.current().tenantId;
     const phoneHash = this.crypto.phoneHash(input.phone);
+
+    /*
+     * נעילת המספר **לפני** החיפוש — ראו `lockContactPhone`.
+     *
+     * הנעילה על הכרטיס שנמצא (למטה) מגנה על מיחזור בלבד. שתי פניות
+     * מקבילות מאותו מספר **חדש** אינן מוצאות דבר, ולכן שתיהן מגיעות
+     * ל-`create` והאינדקס הייחודי מפיל את השנייה — בתוך טרנזקציה
+     * זו אינה שגיאה שאפשר לתפוס אלא נפילה של הפנייה כולה.
+     */
+    await lockContactPhone(tx, tenantId, phoneHash);
 
     // דרך findByAnyPhone ולא מול הטלפון הראשי בלבד: מספר משני מוכר
     // חייב להחזיר את האדם הקיים, אחרת ייווצר לו כרטיס שני
