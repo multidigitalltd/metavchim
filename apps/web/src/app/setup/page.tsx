@@ -385,7 +385,7 @@ export default function SetupPage() {
                 className="rounded-2xl border p-5 text-start"
                 style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)", cursor: "pointer" }}
               >
-                <span className="mb-3 grid h-11 w-11 place-items-center rounded-xl" style={{ background: "var(--color-border)", color: "var(--color-text-muted)" }}>
+                <span className="mb-3 grid h-11 w-11 place-items-center rounded-xl" style={{ background: "var(--color-hover-soft)", color: "var(--color-text-muted)" }}>
                   <IconMic s={21} />
                 </span>
                 <span className="mb-1 block text-lg font-extrabold">מתחילים מאפס</span>

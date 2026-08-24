@@ -79,6 +79,9 @@
   --color-danger: #b0512c; /* לבן עליו: ~5.2:1 */
   --color-success: #0c6e34;
   --color-success-soft: #e5fcea;
+  --color-danger-soft: #fdf0eb;
+  --color-warning: #8f4200;
+  --color-warning-bg: #fef3c7;
   /*
    * גבולות — הוכהו אחרי שמתווכים דיווחו ש„השדות מאוד חיוורים”.
    *
@@ -164,6 +167,9 @@
   --dk-danger: #f0a58a; /* על הרקע: ~9.4:1 */
   --dk-success: #5fe083;
   --dk-success-soft: #17301f;
+  --dk-danger-soft: #331a12;
+  --dk-warning: #f0c674;
+  --dk-warning-bg: #33280f;
   /*
    * אותה הכרעה כמו בערכה הבהירה, ומאותה מדידה: `#2c392f` נתן
    * 1.49:1 מול השדה — כלומר מסגרת שאינה נראית, רק שכאן היא נבלעת
@@ -212,6 +218,9 @@
     --color-danger: var(--dk-danger);
     --color-success: var(--dk-success);
     --color-success-soft: var(--dk-success-soft);
+    --color-danger-soft: var(--dk-danger-soft);
+    --color-warning: var(--dk-warning);
+    --color-warning-bg: var(--dk-warning-bg);
     --color-border: var(--dk-border);
     --color-input-border: var(--dk-input-border);
     --color-border-hover: var(--dk-border-hover);
@@ -247,6 +256,9 @@
   --color-danger: var(--dk-danger);
   --color-success: var(--dk-success);
   --color-success-soft: var(--dk-success-soft);
+  --color-danger-soft: var(--dk-danger-soft);
+  --color-warning: var(--dk-warning);
+  --color-warning-bg: var(--dk-warning-bg);
   --color-border: var(--dk-border);
   --color-input-border: var(--dk-input-border);
   --color-border-hover: var(--dk-border-hover);
@@ -592,6 +604,9 @@ code {
   --color-danger: #a30000;
   --color-success: #00521f;
   --color-success-soft: #ddf3e4;
+  --color-danger-soft: #ffe4e4;
+  --color-warning: #663300;
+  --color-warning-bg: #fff0cc;
   --color-field: #ffffff;
   --color-hover-soft: #eeeeee;
   --color-row-border: #000000;
@@ -4150,7 +4165,7 @@ a.mv-bar-row:focus-visible {
   gap: 10px;
   border: 1px dashed var(--color-border-hover);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--color-warning, #d97706) 7%, var(--color-surface));
+  background: color-mix(in srgb, var(--color-warning) 7%, var(--color-surface));
   padding: 10px 12px;
   margin-bottom: 12px;
 }
@@ -4161,8 +4176,8 @@ a.mv-bar-row:focus-visible {
   width: 32px;
   height: 32px;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--color-warning, #d97706) 16%, var(--color-surface));
-  color: var(--color-warning, #b45309);
+  background: color-mix(in srgb, var(--color-warning) 16%, var(--color-surface));
+  color: var(--color-warning);
 }
 
 /*

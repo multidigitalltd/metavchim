@@ -541,7 +541,7 @@ function Choice({
       style={{
         borderColor: active ? "var(--color-primary)" : "var(--color-input-border)",
         background: active ? "var(--color-primary)" : "var(--color-surface)",
-        color: active ? "#fff" : "var(--color-text)",
+        color: active ? "var(--color-surface)" : "var(--color-text)",
       }}
     >
       {children}

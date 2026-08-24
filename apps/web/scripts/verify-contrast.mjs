@@ -172,9 +172,13 @@ function resolveValue(value, theme, backdrop = null) {
     if (mixed !== null) return mixed;
     const composited = compositeValue(current, backdrop);
     if (composited !== null) return composited;
-    const ref = /^var\(\s*(--[\w-]+)\s*\)$/u.exec(current);
+    /*
+     * `var(--x, #fff)` — הערך השני הוא מה שהדפדפן מצייר כשהטוקן
+     * אינו מוגדר, ולכן הוא חלק מהמדידה ולא הערה צדדית.
+     */
+    const ref = /^var\(\s*(--[\w-]+)\s*(?:,\s*([^)]+))?\)$/u.exec(current);
     if (ref === null) return null;
-    current = decls.get(ref[1]);
+    current = decls.get(ref[1]) ?? ref[2]?.trim();
   }
   return null;
 }
@@ -469,6 +473,119 @@ const controlClasses = new Set();
 /** פקד אחד ב-JSX והמחלקות שהוא נושא — לבדיקה השלישית. */
 const controlUses = [];
 
+/**
+ * כל אתר ב-JSX שקובע צבע **בסגנון בשורה** — הצבע והמשטח יחד.
+ *
+ * המדידה של הגיליון אינה רואה אותו כלל, ולכן כפתור הבחירה בטופס
+ * הציבורי הציג `#fff` על `var(--color-primary)` — בערכה הכהה
+ * 1.68:1 — והשער דיווח שכל צמדי הטקסט עוברים (ביקורת Codex).
+ *
+ * **בלי רשימת תגיות.** התנאי היחיד הוא שהמחבר כתב את הצבע בשורה:
+ * אם הוא קבע אותו שם, הצמד ניתן להכרעה, ו-1.4.3 חל על טקסט ולא
+ * על „פקדים”. שני מהכשלים שנמצאו כאן הם `span` ולא כפתור.
+ */
+const inlineUses = [];
+
+/** הטקסט הגולמי של מאפיין סגנון — עד הפסיק הבא ברמת האובייקט. */
+function rawValue(style, property) {
+  const found = new RegExp(`(?:^|[,{\\s])${property}\\s*:\\s*`, "u").exec(style);
+  if (found === null) return null;
+  let depth = 0;
+  const from = found.index + found[0].length;
+  for (let i = from; i < style.length; i += 1) {
+    const ch = style[i];
+    if ("({[".includes(ch)) depth += 1;
+    else if (")}]".includes(ch)) {
+      if (depth === 0) return style.slice(from, i);
+      depth -= 1;
+    } else if (ch === "," && depth === 0) return style.slice(from, i);
+  }
+  return style.slice(from);
+}
+
+/**
+ * הענפים של ביטוי הסגנון — **הערכים בלבד, לא התנאים.**
+ *
+ * שליפת „כל מחרוזת שבביטוי” נראית פשוטה וטועה בדיוק במקום הרגיש:
+ * התנאי עצמו נושא מחרוזות (`weight === "must" ? … : …`), והן
+ * נקראו כצבעים. שרשרת תנאים מפורקת כאן לפי מבנה — התנאי לחוד
+ * והערך לחוד — ולכן `"must"` אינו נמדד, ושלושת הענפים כן.
+ */
+function branches(raw) {
+  const text = raw.trim();
+  let depth = 0;
+  let quote = null;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (quote !== null) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if ("\"'`".includes(ch)) quote = ch;
+    else if ("({[".includes(ch)) depth += 1;
+    else if (")}]".includes(ch)) depth -= 1;
+    else if (ch === "?" && depth === 0) {
+      const split = matchingColon(text, i + 1);
+      if (split === -1) break;
+      const left = branches(text.slice(i + 1, split));
+      const right = branches(text.slice(split + 1));
+      return {
+        conditions: [text.slice(0, i).trim(), ...left.conditions.slice(1), ...right.conditions],
+        values: [...left.values, ...right.values],
+      };
+    }
+  }
+  const literal = /^("([^"]*)"|'([^']*)')$/u.exec(text);
+  return { conditions: [null], values: [literal === null ? null : (literal[2] ?? literal[3])] };
+}
+
+/** ה-`:` שסוגר את ה-`?` — מדלג על תנאים מקוננים. */
+function matchingColon(text, from) {
+  let depth = 0;
+  let pending = 0;
+  let quote = null;
+  for (let i = from; i < text.length; i += 1) {
+    const ch = text[i];
+    if (quote !== null) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if ("\"'`".includes(ch)) quote = ch;
+    else if ("({[".includes(ch)) depth += 1;
+    else if (")}]".includes(ch)) depth -= 1;
+    else if (ch === "?" && depth === 0) pending += 1;
+    else if (ch === ":" && depth === 0) {
+      if (pending === 0) return i;
+      pending -= 1;
+    }
+  }
+  return -1;
+}
+
+function styleValues(style, property) {
+  const raw = rawValue(style, property);
+  return raw === null ? null : branches(raw);
+}
+
+function collectInline(file, source, styles) {
+  for (const match of source.matchAll(/<([a-zA-Z][\w.]*)/gu)) {
+    const body = openingTag(source, match.index);
+    const direct = /style=\{\{([\s\S]*)$/u.exec(body);
+    const named = direct === null ? /style=\{([A-Za-z_$][\w$]*)\}/u.exec(body) : null;
+    const style = direct?.[1] ?? (named === null ? null : styles.get(named[1]));
+    if (style === null || style === undefined) continue;
+    const text = styleValues(style, "color");
+    if (text === null) continue;
+    inlineUses.push({
+      where: `${file}:${source.slice(0, match.index).split("\n").length}`,
+      tag: match[1],
+      classes: classNamesIn(body).filter((cls) => /^mv-[\w-]+$/u.test(cls)),
+      text,
+      fill: styleValues(style, "background") ?? styleValues(style, "backgroundColor"),
+    });
+  }
+}
+
 function scanControls(dir, hits) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
@@ -481,6 +598,7 @@ function scanControls(dir, hits) {
     const styles = styleObjects(source);
     const tainted = [...styles].filter(([, body]) => body.includes(DECORATIVE_BORDER));
     const bordered = [...styles].filter(([, body]) => BORDER_DECL.test(body));
+    collectInline(full, source, styles);
     for (const site of controlSites(source)) {
       const { tag, body } = site;
       const line = source.slice(0, site.index).split("\n").length;
@@ -914,6 +1032,106 @@ function scanControlColors(hits, unmeasured) {
   return measured;
 }
 
+/**
+ * הצבעים שנכתבו בשורה — נמדדים באותם ספים ובאותן שלוש ערכות.
+ *
+ * המשטח נלקח מהסגנון עצמו; ובהיעדרו, מהמחלקה שעל התגית, ובהיעדרה
+ * משלושת משטחי העמוד. `transparent` ו-`inherit` אינם „ערך שלא
+ * נפתר” אלא **החלטה מפורשת** של המחבר להישען על מה שמסביב, ולכן
+ * הם נופלים למצע ולא לרשימת הבלתי־פתירים.
+ *
+ * כשגם הצבע וגם המשטח הם תנאי עם **אותו** תנאי, הענפים מזווגים
+ * לפי סדר: `active ? A : B` מול `active ? C : D` הם הצמדים (A,C)
+ * ו-(B,D) בלבד. זיווג צולב היה ממציא צירוף שלא קיים על המסך.
+ */
+function classBackground(classes, theme) {
+  for (const name of classes) {
+    for (const rule of classRules(name)) {
+      const value = lastColor(rule[2], BACKGROUND_PROP);
+      if (value !== null && value !== "transparent") {
+        const solved = resolveValue(value, theme);
+        if (solved !== null) return solved;
+      }
+    }
+  }
+  return null;
+}
+
+function scanInlineColors(hits, unmeasured) {
+  let measured = 0;
+  let runtime = 0;
+  let unknown = 0;
+  for (const use of inlineUses) {
+    const inks = use.text.values;
+    if (inks.every((value) => value === null)) {
+      runtime += 1;
+      continue;
+    }
+    const fills = use.fill?.values ?? [null];
+    /*
+     * זיווג לפי מבנה: אותם תנאים בדיוק ⟵ ענף מול ענף. אחרת, אם
+     * צד אחד קבוע — הוא מזדווג עם כל ענפי השני. צירוף שאין לו
+     * בסיס במבנה אינו „מחמיר”, הוא **מומצא**: הוא מדווח על צבע
+     * ומשטח שלעולם אינם מופיעים יחד.
+     */
+    const aligned =
+      fills.length === inks.length &&
+      JSON.stringify(use.fill?.conditions) === JSON.stringify(use.text.conditions);
+    const pairs = aligned
+      ? inks.map((ink, index) => [ink, fills[index]])
+      : fills.length === 1
+        ? inks.map((ink) => [ink, fills[0]])
+        : inks.length === 1
+          ? fills.map((fill) => [inks[0], fill])
+          : null;
+    if (pairs === null) {
+      unknown += 1;
+      continue;
+    }
+    for (const [ink, fill] of pairs) {
+      if (ink === null || TRANSPARENT_BY_DESIGN.includes(ink) || ink === "inherit") continue;
+      for (const theme of Object.keys(THEME_SELECTORS)) {
+        /*
+         * **רק משטח שידוע.** אלמנט בלי רקע משלו יושב על מה
+         * שההורה שלו נותן, וההורה ב-JSX אינו נקרא מכאן. ניחוש
+         * „רקע העמוד” היה מדווח על הנקודה שבלוגו — טקסט ירוק על
+         * סרגל כהה — כאילו היא על לבן. גבול הבדיקה נספר ומוצג.
+         */
+        const declared = fill !== null && fill !== "transparent";
+        const ground = declared
+          ? resolveValue(fill, theme)
+          : classBackground(use.classes, theme);
+        if (ground === null) {
+          /*
+           * משטח שהוצהר ואינו נפתר הוא **ממצא**, לא „לא ידוע”:
+           * הדפדפן לא יצייר אותו כלל. אלמנט שלא הצהיר משטח הוא
+           * המקרה השני — שם באמת אין לשער דרך לדעת.
+           */
+          if (declared) {
+            const line = `${use.where} — <${use.tag}> background: ${fill}`;
+            if (!unmeasured.includes(line)) unmeasured.push(line);
+          } else if (theme === "light") unknown += 1;
+          continue;
+        }
+        const color = resolveValue(ink, theme, ground);
+        if (color === null) {
+          const line = `${use.where} — <${use.tag}> color: ${ink}`;
+          if (!unmeasured.includes(line)) unmeasured.push(line);
+          continue;
+        }
+        measured += 1;
+        const ratio = contrast(color, ground);
+        if (ratio < 4.5) {
+          hits.push(
+            `${use.where} — <${use.tag}> ${ink} (${color}) על ${fill ?? "מחלקת האלמנט"} (${ground}) = ${ratio.toFixed(2)}:1, נדרש 4.5:1 (${THEME_LABEL[theme]})`,
+          );
+        }
+      }
+    }
+  }
+  return { measured, runtime, unknown };
+}
+
 const misuse = [];
 const unresolved = [];
 const measuredControls = [];
@@ -923,6 +1141,7 @@ scanControls(join(here, "..", "src"), misuse);
 scanStylesheet(misuse);
 scanClassDefinitions(unresolved);
 const controlPairs = scanControlColors(measuredControls, unmeasuredControls);
+const inline = scanInlineColors(measuredControls, unmeasuredControls);
 
 /* ==================== מצב ניגודיות גבוהה ==================== */
 
@@ -1053,5 +1272,9 @@ console.log("✓ כל הפקדים משתמשים בגבול הפקד ולא ב�
 console.log(`✓ ${controlUses.length} פקדים עם מחלקת מערכת — לכולם מחלקה מוגדרת שקובעת מסגרת`);
 console.log(
   `✓ ${controlPairs} צבעים של פקדים נמדדו בכל מצב ובכל ערכה — מסגרת, מילוי וטקסט`,
+);
+console.log(
+  `✓ ${inline.measured} צבעים שנכתבו בסגנון בשורה נמדדו — כולל כל ענפי התנאי` +
+    ` (${inline.runtime + inline.unknown} נקבעים בזמן ריצה או על משטח שאינו ידוע מכאן)`,
 );
 console.log(`  דקורטיבי (לידיעה בלבד): ${notes.join(" · ")}`);

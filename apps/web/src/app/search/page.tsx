@@ -152,7 +152,7 @@ function SearchResultsView() {
         <button
           type="submit"
           className="rounded-md px-4 py-2 font-medium"
-          style={{ background: "var(--color-primary)", color: "var(--color-primary-contrast, #fff)" }}
+          style={{ background: "var(--color-primary)", color: "var(--color-surface)" }}
         >
           חפש
         </button>
