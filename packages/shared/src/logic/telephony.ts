@@ -629,8 +629,15 @@ export function diagnosticFields(raw: Record<string, unknown>): string {
     /*
      * כל מה שאינו טקסט או מספר נחשב ריק — אובייקט מקונן יכול
      * להכיל פרט מזהה, וקריאתו אינה שווה את הסיכון.
+     *
+     * ו-`trim`, כי `pickFrom` מתעלם ממחרוזת של רווחים בלבד ורואה
+     * בה שדה חסר. בלי אותה נורמליזציה כאן, placeholder שהספק מילא
+     * ברווח היה מוצג כ-`direction=   ` — כלומר „יש ערך” — בזמן
+     * שהניתוח מתייחס אליו כריק. שתי קריאות של אותו payload חייבות
+     * להסכים (ביקורת Codex).
      */
-    const asText = typeof value === "string" || typeof value === "number" ? String(value) : "";
+    const asText =
+      typeof value === "string" ? value.trim() : typeof value === "number" ? String(value) : "";
     if (asText === "") {
       parts.push(`${key}=${EMPTY_FIELD_MARK}`);
       continue;

@@ -790,6 +790,17 @@ describe("diagnosticFields", () => {
     );
   });
 
+  /*
+   * `pickFrom` רואה במחרוזת של רווחים בלבד שדה חסר. אילו האבחון היה
+   * מציג „direction=   ” — כלומר „יש ערך” — שתי קריאות של אותו
+   * payload היו סותרות זו את זו בדיוק בשאלה שבגללה קוראים אותו.
+   */
+  it("שדה שמלא ברווחים בלבד נחשב ריק, כמו בניתוח", () => {
+    const out = diagnosticFields({ direction: "   ", callerid_external: "  " });
+    expect(out).toContain(`direction=${EMPTY_FIELD_MARK}`);
+    expect(out).toContain(`callerid_external=${EMPTY_FIELD_MARK}`);
+  });
+
   it("ערך שאינו טקסט או מספר נחשב ריק ולא מודלף", () => {
     const out = diagnosticFields({ status: { nested: "סוד" }, callername: { x: "דנה" } });
     expect(out).toContain(`status=${EMPTY_FIELD_MARK}`);

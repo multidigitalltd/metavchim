@@ -405,19 +405,40 @@ export class TasksService {
    * שגויה (ביקורת Codex).
    */
   async openLinkedToLeads(limit: number): Promise<TaskDto[]> {
-    const tenantId = TenantContext.current().tenantId;
+    const ctx = TenantContext.current();
+    const tenantId = ctx.tenantId;
+    // אותו סינון בעלות של `scopeFilter`, בצורה שאפשר להזריק ל-SQL
+    const ownerOnly = ctx.capabilities.has("tasks.view_all") ? null : ctx.userId;
     return this.prisma.withTenant(async (tx) => {
-      const rows = await tx.task.findMany({
-        where: {
-          tenantId,
-          deletedAfterSync: false,
-          status: "open",
-          entityType: "lead",
-          ...this.scopeFilter(),
-        },
-        orderBy: { dueAt: { sort: "asc", nulls: "last" } },
-        take: limit,
-      });
+      /*
+       * המיון הוא לפי **אותו זמן שהדירוג משתמש בו** — `due_at`, ובלעדיו
+       * `created_at`.
+       *
+       * `nulls: "last"` נראה תמים ודחק כל משימה בלי מועד יעד אל מעבר
+       * לתקרה: במשרד עם יותר משימות מתוארכות מהתקרה, תזכורת בלי תאריך
+       * מלפני חודשיים לא הגיעה כלל לשלב הדירוג — ושם דווקא היה נקבע
+       * שהיא הוותיקה ביותר. חיתוך שמסיר את הוותיק במקום את הפחות דחוף
+       * הוא בדיוק הבאג שכבר תוקן בשני המקורות האחרים (ביקורת Codex).
+       *
+       * `COALESCE` אינו ניתן לביטוי ב-`orderBy` של Prisma, ולכן SQL
+       * גולמי בוחר מזהים ו-Prisma שולפת את השורות — אותו דפוס שבו
+       * `CallsService.latestPerContactSince` משתמש, ובתוך `withTenant`
+       * כך שה-RLS חל.
+       */
+      const ordered = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id
+          FROM tasks
+         WHERE tenant_id = ${tenantId}
+           AND deleted_after_sync = FALSE
+           AND status = 'open'
+           AND entity_type = 'lead'
+           AND (${ownerOnly}::char(26) IS NULL OR assigned_to_user_id = ${ownerOnly})
+         ORDER BY COALESCE(due_at, created_at) ASC
+         LIMIT ${limit}
+      `;
+      const ids = ordered.map((row) => row.id);
+      if (ids.length === 0) return [];
+      const rows = await tx.task.findMany({ where: { tenantId, id: { in: ids } } });
       return this.toDtos(tx, rows);
     });
   }
