@@ -51,6 +51,20 @@ const css = source.replace(/\/\*[\s\S]*?\*\//gu, (block) =>
   block.replace(/[^\n]/gu, " "),
 );
 
+/** כל כללי הגיליון פעם אחת — `[בורר, גוף, אינדקס]`. */
+const CSS_RULES = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/gu)];
+
+/** הכללים שנוגעים במחלקה מסוימת — `.mv-select` ולא `.mv-select-list`. */
+const rulesByClass = new Map();
+function classRules(name) {
+  const cached = rulesByClass.get(name);
+  if (cached !== undefined) return cached;
+  const probe = new RegExp(`\\.${name}(?![\\w-])`, "u");
+  const found = CSS_RULES.filter((rule) => probe.test(rule[1]));
+  rulesByClass.set(name, found);
+  return found;
+}
+
 /** ‎#rrggbb‎ ⟵ הבהירות היחסית לפי WCAG. */
 function luminance(hex) {
   const c = hex.replace("#", "");
@@ -66,68 +80,139 @@ function contrast(a, b) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+/* ==================== הערך שמגיע למסך ==================== */
+
 /**
- * ערך טוקן כפי שהוא מוגדר בקובץ.
+ * **הטוקן הסמנטי נפתר עד לצבע, בכל ערכה בנפרד.**
  *
- * ההגדרה הראשונה בלבד: הטוקנים הבהירים מוגדרים ב-`:root`, ומיפוי
- * הערכה הכהה מצביע עליהם דרך `var(--dk-*)` — כלומר הופעה שנייה של
- * אותו שם אינה ערך חדש אלא הפניה.
+ * הגרסה הקודמת מדדה את `--dk-input-border` ישירות, ומעולם לא בדקה
+ * ש-`--color-input-border` אכן מצביע עליו. החלפת המיפוי בשתי
+ * ההצהרות הכהות ל-`var(--dk-border)` — הטוקן הדקורטיבי, 1.80:1 —
+ * הייתה משאירה את השער ירוק: המספרים שנמדדו נשארו נכונים, והם
+ * פשוט כבר לא היו הצבעים שהמשתמש מקבל (ביקורת Codex).
+ *
+ * לכן הבדיקה מנוסחת בשמות **סמנטיים** בלבד, והפתרון עובר דרך
+ * המיפוי: `--color-X` בערכה הכהה הוא `var(--dk-Y)`, ו-`--dk-Y`
+ * נפתר לצבע. מיפוי שיוסט מצביע כעת על ערך אחר, והמדידה נופלת.
+ *
+ * ## שלוש ערכות ולא שתיים
+ *
+ * `contrast` היא הערכה הכהה **ועליה** בלוק הניגודיות הגבוהה, כי כך
+ * הדפדפן מרכיב אותן: הבלוק דורס טוקנים מסוימים ומשאיר את השאר
+ * כפי שהערכה הכהה קבעה. זו הצירוף שאיש אינו חושב עליו — ושם היה
+ * טקסט שחור על משטח כמעט-שחור.
  */
-function token(name) {
-  const match = new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})`, "u").exec(css);
-  return match?.[1] ?? null;
+const THEME_SELECTORS = {
+  light: [":root"],
+  dark: [":root", ":root[data-theme=\"dark\"]"],
+  contrast: [":root", ":root[data-theme=\"dark\"]", ":root[data-a11y-contrast=\"on\"]"],
+};
+
+/** `--name: value;` בתוך גוף כלל — האחרון גובר, כמו בקסקייד. */
+function declarationsIn(body, into) {
+  for (const decl of body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/gu)) {
+    into.set(decl[1], decl[2].trim());
+  }
+  return into;
 }
 
-/** [שם הטוקן, שם הרקע שמולו הוא נמדד, סף, תיאור] */
-const REQUIRED = [
-  /*
-   * גבול הפקד נמדד מול **כל** רקע שהוא יכול לשבת עליו, ולא רק מול
-   * השדה: יש פקדים ש-`background` שלהם הוא `--color-bg` (בורר הספק
-   * בהגדרות המרכזייה) ואחרים שיושבים על משטח הכרטיס. מדידה מול
-   * רקע אחד היא הצהרה על מסך שלם לפי מקרה אחד (ביקורת Codex).
-   *
-   * בערכה הבהירה שלושתם לבנים כרגע ולכן המספר זהה; בכהה הם שונים
-   * זה מזה, ושם ההבדל אמיתי.
-   */
-  ["color-input-border", "color-field", 3, "גבול שדה קלט (בהיר)"],
-  ["color-input-border", "color-bg", 3, "גבול פקד מול רקע העמוד (בהיר)"],
-  ["color-input-border", "color-surface", 3, "גבול פקד מול הכרטיס (בהיר)"],
-  ["dk-input-border", "dk-field", 3, "גבול שדה קלט (כהה)"],
-  ["dk-input-border", "dk-bg", 3, "גבול פקד מול רקע העמוד (כהה)"],
-  ["dk-input-border", "dk-surface", 3, "גבול פקד מול הכרטיס (כהה)"],
-  ["color-text", "color-bg", 4.5, "טקסט ראשי (בהיר)"],
-  ["dk-text", "dk-bg", 4.5, "טקסט ראשי (כהה)"],
-  ["color-text-muted", "color-bg", 4.5, "טקסט משני (בהיר)"],
-  ["dk-text-muted", "dk-bg", 4.5, "טקסט משני (כהה)"],
-  ["color-text-soft", "color-bg", 4.5, "תוויות לשוניות (בהיר)"],
-  ["color-danger", "color-bg", 4.5, "שגיאה (בהיר)"],
-  ["color-primary", "color-bg", 4.5, "קישורים (בהיר)"],
-  /*
-   * הערכה הכהה של אותם שלושה. הן מוגדרות פעם אחת ב-`:root` ומוחלפות
-   * במיפוי הכהה ל-`--dk-*`, ולכן בדיקת השם הסמנטי בלבד מדדה את
-   * הערך הבהיר וטענה על „שתי הערכות” (ביקורת Codex). נסיגה בערך
-   * הכהה הייתה עוברת את השער בשקט.
-   */
-  ["dk-text-soft", "dk-bg", 4.5, "תוויות לשוניות (כהה)"],
-  ["dk-danger", "dk-bg", 4.5, "שגיאה (כהה)"],
-  ["dk-primary", "dk-bg", 4.5, "קישורים (כהה)"],
+/** כל ההצהרות של ערכה, לפי סדר הבוררים שמרכיבים אותה. */
+function themeDeclarations(selectors) {
+  const out = new Map();
+  for (const selector of selectors) {
+    for (const rule of CSS_RULES) {
+      if (rule[1].trim() === selector) declarationsIn(rule[2], out);
+    }
+  }
+  return out;
+}
+
+const THEMES = Object.fromEntries(
+  Object.entries(THEME_SELECTORS).map(([name, selectors]) => [
+    name,
+    themeDeclarations(selectors),
+  ]),
+);
+
+const THEME_LABEL = { light: "בהיר", dark: "כהה", contrast: "ניגודיות גבוהה" };
+
+/**
+ * הצבע שהטוקן מקבל בערכה — אחרי מעקב אחרי `var(--…)`.
+ *
+ * העומק חסום: שרשרת הפניות אמיתית כאן היא באורך אחת
+ * (`--color-X` → `--dk-Y` → צבע), והחסם מונע לולאה אינסופית מכל
+ * טעות עתידית שתיצור מעגל.
+ */
+function resolve(name, theme) {
+  const decls = THEMES[theme];
+  let value = decls.get(`--${name}`);
+  for (let step = 0; step < 5 && value !== undefined; step += 1) {
+    if (/^#[0-9a-fA-F]{6}$/u.test(value)) return value.toLowerCase();
+    const ref = /^var\(\s*(--[\w-]+)\s*\)$/u.exec(value);
+    if (ref === null) return null;
+    value = decls.get(ref[1]);
+  }
+  return null;
+}
+
+/** [ערכה, טוקן, טוקן הרקע, סף, תיאור] — הכול בשמות סמנטיים. */
+const REQUIRED = [];
+
+/*
+ * גבול הפקד נמדד מול **כל** רקע שהוא יכול לשבת עליו, ולא רק מול
+ * השדה: יש פקדים ש-`background` שלהם הוא `--color-bg` (בורר הספק
+ * בהגדרות המרכזייה) ואחרים שיושבים על משטח הכרטיס. מדידה מול רקע
+ * אחד היא הצהרה על מסך שלם לפי מקרה אחד (ביקורת Codex).
+ *
+ * שלוש הערכות × שלושה רקעים — כי הרקעים אינם זהים בכולן, ולא
+ * מספיק שהם זהים היום.
+ */
+const SURFACES = [
+  ["color-field", "השדה"],
+  ["color-bg", "רקע העמוד"],
+  ["color-surface", "הכרטיס"],
 ];
+const TEXT_ON_SURFACE = [
+  ["color-text", 4.5, "טקסט ראשי"],
+  ["color-text-muted", 4.5, "טקסט משני"],
+];
+
+for (const theme of Object.keys(THEME_SELECTORS)) {
+  const suffix = THEME_LABEL[theme];
+  for (const [surface, where] of SURFACES) {
+    REQUIRED.push([theme, "color-input-border", surface, 3, `גבול פקד מול ${where} (${suffix})`]);
+  }
+  /*
+   * הטקסט נמדד גם הוא מול **השדה** ולא רק מול העמוד. זה הזוג
+   * שנשבר בניגודיות גבוהה על ערכה כהה: הבלוק משחיר את הטקסט,
+   * ומשאיר את משטח השדה כפי שהערכה הכהה קבעה אותו.
+   */
+  for (const [name, min, where] of TEXT_ON_SURFACE) {
+    REQUIRED.push([theme, name, "color-bg", min, `${where} (${suffix})`]);
+    REQUIRED.push([theme, name, "color-field", min, `${where} על שדה (${suffix})`]);
+  }
+  REQUIRED.push([theme, "color-text-soft", "color-bg", 4.5, `תוויות לשוניות (${suffix})`]);
+  REQUIRED.push([theme, "color-danger", "color-bg", 4.5, `שגיאה (${suffix})`]);
+  REQUIRED.push([theme, "color-primary", "color-bg", 4.5, `קישורים (${suffix})`]);
+}
 
 /** נמדדים ומוצגים, אך אינם מכשילים — ראו „מה לא נבדק”. */
 const INFORMATIVE = [
-  ["color-border", "color-bg", "מסגרת כרטיס (בהיר)"],
-  ["color-row-border", "color-bg", "מפריד שורות (בהיר)"],
-  ["dk-border", "dk-surface", "מסגרת כרטיס (כהה)"],
+  ["light", "color-border", "color-bg", "מסגרת כרטיס (בהיר)"],
+  ["light", "color-row-border", "color-bg", "מפריד שורות (בהיר)"],
+  ["dark", "color-border", "color-surface", "מסגרת כרטיס (כהה)"],
 ];
 
 const failures = [];
 let checked = 0;
 
-for (const [fg, bg, min, label] of REQUIRED) {
-  const a = token(fg);
-  const b = token(bg);
-  if (!a || !b) {
-    failures.push(`טוקן חסר: --${!a ? fg : bg}`);
+for (const [theme, fg, bg, min, label] of REQUIRED) {
+  const a = resolve(fg, theme);
+  const b = resolve(bg, theme);
+  if (a === null || b === null) {
+    failures.push(
+      `${label}: --${a === null ? fg : bg} אינו נפתר לצבע בערכה ה${THEME_LABEL[theme]}`,
+    );
     continue;
   }
   checked += 1;
@@ -290,20 +375,6 @@ function scanControls(dir, hits) {
  * פקד אם היא הופיעה על פקד ב-JSX, או אם קיים כלל CSS שבו היא
  * הורה של פקד (`.x input`). מחלקה חדשה שתיווצר מחר נכנסת מאליה.
  */
-/** כל כללי הגיליון פעם אחת — `[בורר, גוף, אינדקס]`. */
-const CSS_RULES = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/gu)];
-
-/** הכללים שנוגעים במחלקה מסוימת — `.mv-select` ולא `.mv-select-list`. */
-const rulesByClass = new Map();
-function classRules(name) {
-  const cached = rulesByClass.get(name);
-  if (cached !== undefined) return cached;
-  const probe = new RegExp(`\\.${name}(?![\\w-])`, "u");
-  const found = CSS_RULES.filter((rule) => probe.test(rule[1]));
-  rulesByClass.set(name, found);
-  return found;
-}
-
 function controlSelectorNames() {
   const names = new Set(controlClasses);
   for (const rule of CSS_RULES) {
@@ -387,32 +458,62 @@ scanClassDefinitions(unresolved);
 /* ==================== מצב ניגודיות גבוהה ==================== */
 
 /**
- * מה שההגדרה מחזקת — חייב לכלול גם את גבול הפקד.
+ * **כל טוקן שהערכה הכהה קובעת — חייב להידרס גם כאן.**
  *
- * `[data-a11y-contrast="on"]` דורס טוקנים לשחור. כל עוד הפקדים
- * נשענו על המסגרת הדקורטיבית הם ירשו את השחור בחינם; ברגע שקיבלו
- * טוקן משלהם, שכחה של הטוקן החדש בבלוק הזה **מחלישה** אותם דווקא
- * במצב שנועד לחזק (ביקורת Codex). זו בדיקה מבנית ולא מספרית: אין
- * מה למדוד — יש רק לוודא שהטוקן נדרס יחד עם אחיו.
+ * הבדיקה הקודמת רשמה שלושה שמות ביד, ולכן ענתה רק על השאלה
+ * שבגללה נכתבה. השאלה הכללית היא אחרת: הבלוק הזה יושב גם **מעל
+ * הערכה הכהה**, וכל טוקן שהוא אינו דורס נשאר בערך הכהה שלו — על
+ * עמוד שהבלוק הזה בדיוק הפך ללבן.
+ *
+ * כך דלפו שמונה-עשר טוקנים, ושלושה מהם הפכו לבלתי קריאים ממש
+ * (ביקורת Codex). המדידה תופסת אותם רק אם הם משתתפים בזוג נמדד;
+ * הבדיקה המבנית תופסת את **כולם**, כולל אלה שאיש עוד לא חשב
+ * למדוד.
+ *
+ * הרשימה נגזרת מהערכה הכהה ואינה מתוחזקת: טוקן חדש שיתווסף שם
+ * ייכנס לכאן מאליו.
  */
-const contrastBlock = /:root\[data-a11y-contrast="on"\]\s*\{([^}]*)\}/u.exec(css)?.[1] ?? "";
-const HIGH_CONTRAST_REQUIRED = ["color-border", "color-input-border", "color-border-hover"];
-const missingInHighContrast = HIGH_CONTRAST_REQUIRED.filter(
-  (name) => !new RegExp(`--${name}:`, "u").test(contrastBlock),
-);
+const CONTRAST_DECLS = themeDeclarations([':root[data-a11y-contrast="on"]']);
+const DARK_DECLS = themeDeclarations([':root[data-theme="dark"]']);
+const missingInHighContrast = [...DARK_DECLS.keys()]
+  .filter((name) => name.startsWith("--color-") && !CONTRAST_DECLS.has(name))
+  .map((name) => name.slice(2));
+
+/**
+ * שתי ההצהרות הכהות חייבות להיות זהות.
+ *
+ * הערכה הכהה כתובה פעמיים — פעם ב-`prefers-color-scheme` ופעם
+ * ב-`[data-theme="dark"]` — כי אלה שני מצבים שונים לגמרי: העדפת
+ * המערכת, והבחירה המפורשת של המשתמש. המדידה נעשית על השנייה,
+ * ולכן שינוי שנעשה רק באחת מהן היה עובר בשקט אצל **חצי**
+ * המשתמשים (ביקורת Codex).
+ */
+const DARK_MEDIA_DECLS = themeDeclarations([':root:not([data-theme="light"])']);
+const darkMismatch = [...DARK_DECLS.keys()]
+  .filter((name) => DARK_MEDIA_DECLS.get(name) !== DARK_DECLS.get(name))
+  .map((name) => name.slice(2));
 
 if (
   failures.length > 0 ||
   misuse.length > 0 ||
   unresolved.length > 0 ||
-  missingInHighContrast.length > 0
+  missingInHighContrast.length > 0 ||
+  darkMismatch.length > 0
 ) {
   if (missingInHighContrast.length > 0) {
     console.error("\n✗ טוקנים שאינם נדרסים במצב ניגודיות גבוהה:\n");
     for (const name of missingInHighContrast) console.error(`  • --${name}`);
     console.error(
-      "\nההגדרה נועדה לחזק גבולות. טוקן גבול שנשכח בבלוק" +
-        " ‎:root[data-a11y-contrast=\"on\"]‎ נשאר בצבע הרגיל בזמן שכל השאר משחירים.",
+      "\nהבלוק הזה יושב גם מעל הערכה הכהה. טוקן שנשכח בו נשאר בערך" +
+        " הכהה שלו על עמוד לבן — כלומר ההגדרה שנועדה לחזק קריאוּת פוגעת בה.",
+    );
+  }
+  if (darkMismatch.length > 0) {
+    console.error("\n✗ שתי ההצהרות של הערכה הכהה אינן זהות:\n");
+    for (const name of darkMismatch) console.error(`  • --${name}`);
+    console.error(
+      "\n‎prefers-color-scheme‎ ו-‎[data-theme=\"dark\"]‎ הם שני מצבים נפרדים," +
+        " ושינוי שנעשה רק באחד מהם מגיע רק לחלק מהמשתמשים.",
     );
   }
   if (failures.length > 0) {
@@ -445,13 +546,15 @@ if (
   process.exit(1);
 }
 
-const notes = INFORMATIVE.map(([fg, bg, label]) => {
-  const a = token(fg);
-  const b = token(bg);
+const notes = INFORMATIVE.map(([theme, fg, bg, label]) => {
+  const a = resolve(fg, theme);
+  const b = resolve(bg, theme);
   return a && b ? `${label} ${contrast(a, b).toFixed(2)}:1` : null;
 }).filter(Boolean);
 
-console.log(`✓ ${checked} זוגות צבע נמדדו — כולם מעל הסף`);
+console.log(
+  `✓ ${checked} זוגות צבע נמדדו בשלוש הערכות (בהיר · כהה · ניגודיות גבוהה) — כולם מעל הסף`,
+);
 console.log("✓ כל הפקדים משתמשים בגבול הפקד ולא במסגרת הדקורטיבית");
 console.log(`✓ ${controlUses.length} פקדים עם מחלקת מערכת — לכולם מחלקה מוגדרת שקובעת מסגרת`);
 console.log(`  דקורטיבי (לידיעה בלבד): ${notes.join(" · ")}`);
