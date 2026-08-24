@@ -382,7 +382,7 @@ export default function IntakeFormPage({
                       : level === "nice"
                         ? "var(--color-primary-soft)"
                         : "var(--color-surface)",
-                  color: level === "must" ? "#fff" : "var(--color-text)",
+                  color: level === "must" ? "var(--color-surface)" : "var(--color-text)",
                 }}
               >
                 {INTAKE_FEATURE_LABEL[key]}

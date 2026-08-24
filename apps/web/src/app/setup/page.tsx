@@ -335,7 +335,7 @@ export default function SetupPage() {
                         ? "var(--color-primary)"
                         : state === "now"
                           ? "var(--color-text)"
-                          : "var(--color-border)",
+                          : "var(--color-hover-soft)",
                     color: state === "next" ? "var(--color-text-muted)" : "var(--color-bg)",
                   }}
                 >

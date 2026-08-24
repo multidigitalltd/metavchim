@@ -1057,6 +1057,56 @@ function classBackground(classes, theme) {
   return null;
 }
 
+/**
+ * הצמדים שבאמת מגיעים למסך — לפי **התנאי** ולא לפי מספר הענפים.
+ *
+ * הגרסה הקודמת זיווגה ענף מול ענף רק כששתי השרשראות זהות באורכן,
+ * ואחרת ויתרה בשקט. זה בדיוק המקרה של גלולת המאפיין בטופס
+ * הציבורי: לצבע שני ענפים ולמשטח שלושה, ולכן הצירוף שנשבר —
+ * `level === "must"` עם `#fff` על הירוק — לא נבדק כלל (ביקורת
+ * Codex). ויתור בשקט הוא הכשל שכל השער הזה נבנה נגדו.
+ *
+ * במקום זאת: אוסף התנאים משתי השרשראות, ולכל תנאי שיכול להיות
+ * הראשון שמתקיים — ולמצב שבו אף אחד אינו מתקיים — נבחר הערך שכל
+ * שרשרת הייתה מחזירה. כך נוצרים בדיוק המצבים שקיימים, בלי להמציא
+ * ובלי לדלג.
+ */
+function reachablePairs(text, fill) {
+  if (fill?.values == null) return text.values.map((ink) => [ink, null]);
+  const guards = [];
+  for (const condition of [...text.conditions, ...fill.conditions]) {
+    if (condition !== null && !guards.includes(condition)) guards.push(condition);
+  }
+  const pick = (chain, active) => {
+    for (const [index, condition] of chain.conditions.entries()) {
+      if (condition === null || condition === active) return chain.values[index];
+    }
+    return chain.values[chain.values.length - 1];
+  };
+  const seen = new Set();
+  const pairs = [];
+  const add = (active) => {
+    const pair = [pick(text, active), pick(fill, active)];
+    const key = JSON.stringify(pair);
+    if (seen.has(key)) return;
+    seen.add(key);
+    pairs.push(pair);
+  };
+  for (const active of guards) add(active);
+  /*
+   * „אף תנאי אינו מתקיים” הוא מצב אמיתי רק אם יש לו מה להוסיף.
+   * כששתי השרשראות בודקות את אותו משתנה מול ערכים שונים, ענף
+   * ה-`else` של כל אחת כבר נבחר תחת אחד התנאים הנקובים — ואז
+   * המצב הריק אינו קיים, והוספתו הייתה ממציאה צירוף. סימן הבוחן
+   * מכני: האם ה-`else` של שתיהן כבר הופיע.
+   */
+  const last = (chain) => chain.values[chain.values.length - 1];
+  const covered = (chain, other) =>
+    guards.some((active) => pick(chain, active) === last(chain) && pick(other, active) !== undefined);
+  if (guards.length === 0 || !(covered(text, fill) && covered(fill, text))) add(null);
+  return pairs;
+}
+
 function scanInlineColors(hits, unmeasured) {
   let measured = 0;
   let runtime = 0;
@@ -1068,26 +1118,7 @@ function scanInlineColors(hits, unmeasured) {
       continue;
     }
     const fills = use.fill?.values ?? [null];
-    /*
-     * זיווג לפי מבנה: אותם תנאים בדיוק ⟵ ענף מול ענף. אחרת, אם
-     * צד אחד קבוע — הוא מזדווג עם כל ענפי השני. צירוף שאין לו
-     * בסיס במבנה אינו „מחמיר”, הוא **מומצא**: הוא מדווח על צבע
-     * ומשטח שלעולם אינם מופיעים יחד.
-     */
-    const aligned =
-      fills.length === inks.length &&
-      JSON.stringify(use.fill?.conditions) === JSON.stringify(use.text.conditions);
-    const pairs = aligned
-      ? inks.map((ink, index) => [ink, fills[index]])
-      : fills.length === 1
-        ? inks.map((ink) => [ink, fills[0]])
-        : inks.length === 1
-          ? fills.map((fill) => [inks[0], fill])
-          : null;
-    if (pairs === null) {
-      unknown += 1;
-      continue;
-    }
+    const pairs = reachablePairs(use.text, use.fill);
     for (const [ink, fill] of pairs) {
       if (ink === null || TRANSPARENT_BY_DESIGN.includes(ink) || ink === "inherit") continue;
       for (const theme of Object.keys(THEME_SELECTORS)) {
