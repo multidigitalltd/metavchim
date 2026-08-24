@@ -699,20 +699,25 @@ export class TelephonyService {
     const event = parseTelephonyEvent(payload);
     const issue = event === null ? telephonyParseIssue(payload) : null;
     /*
-     * צלצול הוא **אירוע ביניים**, ולא שיחה שנרשמה.
+     * אירוע ביניים אינו שיחה שנרשמה.
      *
-     * `callAction` קובעת `logCall: false` לצלצול בכוונה: השיחה עוד
-     * לא קרתה, ומה שנוצר הוא התראה בלבד. סימונו כ„נקלטה כשיחה” היה
-     * הופך מרכזייה ששולחת `Calling` ומאבדת את ה-`Hangup` לתקינה
-     * למראית עין — כלומר בדיוק התקלה שהאבחון הזה קיים כדי לחשוף
-     * (ביקורת Codex).
+     * 015 שולחת שלושה אירועים לשיחה אחת (`Calling` ⟵ `Answer` ⟵
+     * `Hangup`), ורק האחרון כותב שורת שיחה. סימון כולם כ„נקלטה
+     * כשיחה” היה הופך מרכזייה שמאבדת את ה-`Hangup` לתקינה למראית
+     * עין — בדיוק התקלה שהאבחון קיים כדי לחשוף.
      *
-     * ההכרעה נגזרת מסוג האירוע בלבד ואינה דורשת פנייה למסד: אירוע
-     * מסיים ייכתב כשיחה, וכפילות שלו פירושה שהשיחה כבר רשומה.
+     * ההכרעה נשאלת מ-`callAction` עצמה ולא מרשימת סוגים שנכתבת
+     * כאן מחדש. ניסיון קודם שלי מנה את `ringing` בלבד ופספס את
+     * `answered`, שגם הוא אינו מסיים — כלומר בדיוק אותו באג, סוג
+     * אחד הלאה (ביקורת Codex). מי שיוסיף סוג אירוע בעתיד לא יצטרך
+     * לזכור את המקום הזה.
+     *
+     * `knownContact: false` אינו משנה דבר כאן: הוא משפיע על
+     * `createLead` בלבד, לא על `logCall`.
      */
+    const willLogCall = event !== null && callAction(event, false).logCall;
     await this.webhookLog.record({
-      outcome:
-        event === null ? "unparsed" : event.type === "ringing" ? "preliminary" : "accepted",
+      outcome: event === null ? "unparsed" : willLogCall ? "accepted" : "preliminary",
       issue,
       tenantId: integration.tenantId,
       key,
