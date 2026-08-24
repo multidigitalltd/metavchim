@@ -375,7 +375,18 @@ export class LeadsService {
     const [leads, buyers, properties, agreements, calls, messages, linkedTo] = await Promise.all([
       tx.lead.count({ where: { tenantId, contactId } }),
       tx.buyer.count({ where: { tenantId, contactId } }),
-      tx.property.count({ where: { tenantId, ownerContactId: contactId } }),
+      /*
+       * גם שוכר הוא קשר. בלי הענף השני, מחיקת ליד של אדם שהוא
+       * **רק** השוכר בנכס הייתה מוחקת את איש הקשר — ומכיוון שלנכס
+       * אין מפתח זר לכוונה, `occupant_contact_id` היה נשאר מצביע על
+       * שורה שאיננה והשוכר היה נעלם מהכרטיס (ביקורת Codex, P1).
+       */
+      tx.property.count({
+        where: {
+          tenantId,
+          OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
+        },
+      }),
       tx.agreement.count({ where: { tenantId, contactId } }),
       tx.call.count({ where: { tenantId, contactId } }),
       tx.message.count({ where: { tenantId, contactId } }),

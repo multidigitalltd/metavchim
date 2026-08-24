@@ -257,7 +257,8 @@ export class CallsService {
                                       AND l.contact_id = c.contact_id)
                    AND NOT EXISTS (SELECT 1 FROM properties p
                                     WHERE p.tenant_id = c.tenant_id
-                                      AND p.owner_contact_id = c.contact_id
+                                      AND (p.owner_contact_id = c.contact_id
+                                        OR p.occupant_contact_id = c.contact_id)
                                       AND p.deleted_at IS NULL))
              )
              AND (${query.outcome ?? null}::text IS NULL OR c.outcome = ${query.outcome ?? null})
@@ -341,7 +342,8 @@ export class CallsService {
                                     AND l.contact_id = c.contact_id)
                  AND NOT EXISTS (SELECT 1 FROM properties p
                                   WHERE p.tenant_id = c.tenant_id
-                                    AND p.owner_contact_id = c.contact_id
+                                    AND (p.owner_contact_id = c.contact_id
+                                      OR p.occupant_contact_id = c.contact_id)
                                     AND p.deleted_at IS NULL))
            )
          ORDER BY c.contact_id, c.occurred_at DESC
