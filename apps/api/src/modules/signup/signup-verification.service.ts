@@ -253,42 +253,33 @@ export class SignupVerificationService implements OnModuleDestroy {
       throw new BadRequestException("קוד חדש נשלח זה עתה — בדקו את תיבת הדואר");
     }
 
-    try {
-      await this.chargeAndDeliver(stored.pending, code);
-    } catch (error) {
-      /*
-       * **מוחזר רק מה שידוע שלא נשלח** — אותו גבול בדיוק של החזר
-       * המכסה, ובאותו נימוק.
-       *
-       * ההחזרה הייתה על כל כישלון, וזו תוצאה גרועה יותר מזו שהיא
-       * באה למנוע: בשליחה עמומה — פסק זמן, ‎5xx, תשובה שאבדה —
-       * ההודעה כנראה **כן** הגיעה, והחזרת הקוד הקודם הופכת דווקא
-       * את הקוד החדש שבתיבה לפסול. המשתמש יקליד באופן טבעי את
-       * האחרון שקיבל ויידחה, בעוד שהקוד ה„נכון” הוא זה שהוא כבר
-       * גלל מעליו (ביקורת Codex).
-       *
-       * ‎`EmailRejectedError` פירושו שהספק דחה על סמך תוכן הבקשה,
-       * כלומר בוודאות לא יצאה הודעה — ורק אז הקוד הקודם הוא היחיד
-       * שקיים באמת, ומגיע לו לחזור. בכל מקרה אחר החדש נשאר.
-       *
-       * ההחזרה מותנית בכך שהחדש עדיין שלנו: `consume` שהספיקה
-       * לנצל את הרשומה, או שליחה חוזרת שהחליפה אותה, אינן נדרסות.
-       */
-      if (error instanceof EmailRejectedError) {
-        await this.redis.eval(
-          `if redis.call('GET', KEYS[1]) == ARGV[1] then
-             redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
-             return 1
-           end
-           return 0`,
-          1,
-          this.key(token),
-          replacement,
-          raw,
-        );
-      }
-      throw error;
-    }
+    /*
+     * **הביטול נמסר פנימה ואינו מוכרע כאן.**
+     *
+     * „האם יצאה הודעה” היא שאלה שרק `chargeAndDeliver` יודעת לענות
+     * עליה — היא זו שרואה גם את התקרה וגם את תשובת הספק. כל עוד
+     * ההכרעה הזו ישבה כאן, היא שוכפלה ואז נעשתה שגויה: בסבב אחד
+     * ביטלתי גם בתוצאה עמומה, ובסבב הבא הצטמצמתי כל כך שבקשה
+     * שנחסמה על התקרה — שבה בוודאות לא נשלח דבר — הפסיקה לבטל
+     * (שתי ביקורות Codex). מכאן: המקום שיודע, מחליט.
+     *
+     * הביטול עצמו מותנה בכך שהקוד החדש עדיין שלנו: `consume`
+     * שהספיקה לנצל את הרשומה, או שליחה חוזרת שהחליפה אותה, אינן
+     * נדרסות.
+     */
+    await this.chargeAndDeliver(stored.pending, code, async () => {
+      await this.redis.eval(
+        `if redis.call('GET', KEYS[1]) == ARGV[1] then
+           redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
+           return 1
+         end
+         return 0`,
+        1,
+        this.key(token),
+        replacement,
+        raw,
+      );
+    });
 
     await this.requireStillPending(
       token,
@@ -623,29 +614,54 @@ export class SignupVerificationService implements OnModuleDestroy {
    * לבלתי-ניתן לכתיבה מחדש. אין מקום שבו אפשר לגבות בלי שההחזר
    * שומר עליו, כי אין קריאה נפרדת לגבייה.
    */
-  private async chargeAndDeliver(pending: PendingSignup, code: string): Promise<void> {
-    const window = await this.chargeEmailQuota(pending.email);
+  private async chargeAndDeliver(
+    pending: PendingSignup,
+    code: string,
+    onNotDelivered?: () => Promise<void>,
+  ): Promise<void> {
+    /*
+     * **התקרה נדחתה — לא נעשתה שום פנייה לספק.**
+     *
+     * זהו הענף שהחמצתי: צמצמתי את הביטול ל-`EmailRejectedError`
+     * בלבד, וכך בקשה שנחסמה על התקרה — שבה **בוודאות** לא יצאה
+     * הודעה — הפסיקה לבטל. ב-`reissue` פירוש הדבר שהקוד החדש נשאר
+     * מותקן בלי שנשלח, והקוד האחרון שבתיבת הדואר נפסל: המשתמש
+     * נשאר בלי קוד שמיש עד סוף חלון המכסה (ביקורת Codex).
+     *
+     * הגבול הנכון אינו „הספק דחה” אלא **„ידוע שלא יצאה הודעה”**,
+     * ויש לו שני מקורות: כישלון לפני הפנייה, ודחייה מפורשת שלה.
+     */
+    let window: string | null;
+    try {
+      window = await this.chargeEmailQuota(pending.email);
+    } catch (error) {
+      await onNotDelivered?.();
+      throw error;
+    }
+
     try {
       await this.deliver(pending, code);
     } catch (error) {
       /*
-       * **מוחזר רק מה שידוע שלא נשלח.**
+       * **מבוטל רק מה שידוע שלא נשלח.**
        *
-       * ההחזר היה על כל כישלון, וזו טעות: פסק זמן או נפילת רשת
-       * אינם „לא נשלח” אלא „איננו יודעים” — ייתכן ש-Postmark קיבל
-       * את ההודעה ושלח אותה, ורק התשובה אבדה. מי שמסוגל לגרום
-       * לתוצאה העמומה הזו שוב ושוב מקבל מכסה שחוזרת לאפס בכל פעם,
-       * כלומר שליחה בלי גבול אל תיבה של אדם אחר — בדיוק ההצפה
-       * שהתקרה נועדה למנוע, וההערה מעל `chargeEmailQuota` טענה
-       * שהיא עדיין מגינה מפניה (ביקורת Codex).
+       * פסק זמן או נפילת רשת אינם „לא נשלח” אלא „איננו יודעים” —
+       * ייתכן ש-Postmark קיבל את ההודעה ושלח אותה, ורק התשובה
+       * אבדה. החזר מכסה שם היה הופך את התקרה לחסרת משמעות; והחזרת
+       * הקוד הקודם שם הייתה פוסלת דווקא את הקוד החדש שכנראה כן
+       * הגיע (שתי ביקורות Codex, בשני סבבים).
        *
-       * ‎`EmailRejectedError` הוא המקרה היחיד שבו הספק **ענה ודחה**,
-       * ולכן היחיד שבו הוודאות קיימת. בהיעדרה נשמרת הגבייה: תקלה
-       * אצל הספק עולה למשתמש עיכוב של שעה על כתובתו שלו, וזה מחיר
-       * נמוך מהאפשרות להשתמש בנו כדי להטריד.
+       * ‎`EmailRejectedError` הוא המקרה היחיד שבו הספק ענה ודחה,
+       * ולכן היחיד שבו הוודאות קיימת אחרי שהפנייה יצאה.
+       *
+       * **שתי ההשלכות יחד ולא בנפרד.** קודם הן ישבו בשני מקומות,
+       * ובכל פעם שהגבול זז אחת מהן נשארה מאחור — ארבע פעמים
+       * בביקורת הזו. כאן ההכרעה „לא נשלח” נעשית פעם אחת, ושתי
+       * הפעולות תלויות בה יחד.
        */
-      if (error instanceof EmailRejectedError && window !== null) {
-        await this.refundEmailQuota(pending.email, window);
+      if (error instanceof EmailRejectedError) {
+        if (window !== null) await this.refundEmailQuota(pending.email, window);
+        await onNotDelivered?.();
       }
       throw error;
     }
