@@ -305,7 +305,7 @@ export default function ImportPage() {
             }}
             className="rounded-md border px-4 py-2 font-medium disabled:opacity-60"
             style={{
-              borderColor: "var(--color-border)",
+              borderColor: "var(--color-input-border)",
               background: mode === m ? "var(--color-primary)" : "var(--color-surface)",
               color: mode === m ? "var(--color-primary-contrast, #fff)" : "inherit",
             }}

@@ -233,7 +233,7 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
                     style={
                       cycle === option
                         ? { borderColor: "var(--color-primary)", background: "var(--color-primary-soft)", color: "var(--color-primary)" }
-                        : { borderColor: "var(--color-border)" }
+                        : { borderColor: "var(--color-input-border)" }
                     }
                   >
                     חיוב {describeCycle(option)}

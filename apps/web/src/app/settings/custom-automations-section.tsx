@@ -411,7 +411,7 @@ export function CustomAutomationsSection() {
                           background: "var(--color-primary-soft)",
                           color: "var(--color-primary)",
                         }
-                      : { borderColor: "var(--color-border)" }
+                      : { borderColor: "var(--color-input-border)" }
                   }
                 >
                   {label}

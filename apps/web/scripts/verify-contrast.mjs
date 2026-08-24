@@ -246,7 +246,23 @@ for (const [theme, fg, bg, min, label] of REQUIRED) {
  * חייבים לקבל את גבול הפקד. סגנון בשורה גובר על CSS, ואין דרך
  * לתקן זאת בגיליון הסגנונות.
  */
-const CONTROL_TAGS = ["input", "select", "textarea"];
+/**
+ * מה נחשב פקד — **לא רק תגית טופס.**
+ *
+ * `input`/`select`/`textarea` הן הצורה הנפוצה, אך לא היחידה. שטח
+ * החתימה בהסכם הוא `canvas` שהמשתמש מצייר בתוכו, והמסגרת שלו היא
+ * מילולית „חתמו כאן” — היא הייתה על המסגרת הדקורטיבית, 1.65:1
+ * מול הקנבס הלבן, בעמוד חתימה משפטי (ביקורת Codex).
+ *
+ * `button` נוסף מאותו נימוק: 1.4.11 מדבר על „רכיבי ממשק”, וגבול
+ * של כפתור מזהה אותו בדיוק כמו גבול של שדה. ההרחבה הזו מצאה מיד
+ * שתי מחלקות כפתור שהיו בשימוש ולא הוגדרו כלל.
+ *
+ * `contentEditable` נבדק בנפרד למטה: זו הדרך השנייה והאחרונה
+ * ב-HTML לייצר משטח קלט שאינו תגית טופס. אין כזה בקוד היום —
+ * הכלל קיים כדי שגם לא יהיה בלי שיישאל.
+ */
+const CONTROL_TAGS = ["input", "select", "textarea", "canvas", "button"];
 const DECORATIVE_BORDER = "var(--color-border)";
 
 /** תוכן התגית מהפתיחה ועד ה-`>` שסוגר אותה, בלי להיבלע בסוגריים מסולסלים. */
@@ -299,6 +315,26 @@ function styleObjects(source) {
 const BORDER_DECL =
   /(?:^|[\s;{,])border(?:-?(?:block|inline|top|right|bottom|left|start|end))?(?:-?(?:start|end))?(?:-?(?:color|width|style|Color|Width|Style))?\s*:/mu;
 
+/**
+ * כל מקום בקובץ שהמשתמש מזין או פועל בו.
+ *
+ * תגית מרשימת הפקדים, **או** כל תגית שנושאת `contentEditable` —
+ * שתי הדרכים היחידות ב-HTML לייצר משטח קלט. הסריקה עוברת פעם
+ * אחת על כל התגיות בקובץ במקום פעם לכל שם, וזה גם מה שמאפשר
+ * לתפוס תגית שאינה ברשימה מראש.
+ */
+function controlSites(source) {
+  const sites = [];
+  for (const match of source.matchAll(/<([a-zA-Z][\w.]*)/gu)) {
+    const tag = match[1];
+    const native = CONTROL_TAGS.includes(tag);
+    const body = openingTag(source, match.index);
+    if (!native && !/\bcontentEditable\b/u.test(body)) continue;
+    sites.push({ tag, body, index: match.index });
+  }
+  return sites;
+}
+
 /** המחלקות שמופיעות על פקד ב-JSX — לחצי השני של הבדיקה, ב-CSS. */
 const controlClasses = new Set();
 
@@ -317,52 +353,48 @@ function scanControls(dir, hits) {
     const styles = styleObjects(source);
     const tainted = [...styles].filter(([, body]) => body.includes(DECORATIVE_BORDER));
     const bordered = [...styles].filter(([, body]) => BORDER_DECL.test(body));
-    for (const tag of CONTROL_TAGS) {
-      const pattern = new RegExp(`<${tag}\\b`, "gu");
-      let match;
-      while ((match = pattern.exec(source)) !== null) {
-        const body = openingTag(source, match.index);
-        const line = source.slice(0, match.index).split("\n").length;
-        /*
-         * כל מחרוזת בתוך `className` — גם `"a b"` וגם ביטוי מותנה
-         * שבתוכו מחרוזות. השמות האלה הם מה שהחלק שב-CSS מחפש.
-         */
-        const classes = [];
-        for (const attr of body.matchAll(/className=(?:"([^"]*)"|\{([\s\S]*?)\})/gu)) {
-          const text = attr[1] ?? attr[2] ?? "";
-          for (const quoted of text.matchAll(/["'`]([^"'`]*)["'`]/gu)) {
-            classes.push(...quoted[1].split(/\s+/u));
-          }
-          if (attr[1] !== undefined) classes.push(...attr[1].split(/\s+/u));
+    for (const site of controlSites(source)) {
+      const { tag, body } = site;
+      const line = source.slice(0, site.index).split("\n").length;
+      /*
+       * כל מחרוזת בתוך `className` — גם `"a b"` וגם ביטוי מותנה
+       * שבתוכו מחרוזות. השמות האלה הם מה שהחלק שב-CSS מחפש.
+       */
+      const classes = [];
+      for (const attr of body.matchAll(/className=(?:"([^"]*)"|\{([\s\S]*?)\})/gu)) {
+        const text = attr[1] ?? attr[2] ?? "";
+        for (const quoted of text.matchAll(/["'`]([^"'`]*)["'`]/gu)) {
+          classes.push(...quoted[1].split(/\s+/u));
         }
-        const mine = classes.filter((cls) => /^mv-[\w-]+$/u.test(cls));
-        for (const cls of mine) controlClasses.add(cls);
-        if (mine.length > 0) {
-          controlUses.push({
-            where: `${full}:${line}`,
-            tag,
-            classes: mine,
-            /*
-             * מסגרת שנקבעת על התגית עצמה מייתרת את המחלקה: מחלקת
-             * Tailwind (`border-0` על גלולת הסטטוס), סגנון בשורה,
-             * או קבוע סגנון שקובע מסגרת.
-             */
-            explicit:
-              classes.some((cls) => /^border(?:-|$)/u.test(cls)) ||
-              BORDER_DECL.test(body) ||
-              bordered.some(([name]) => new RegExp(`\\b${name}\\b`, "u").test(body)),
-          });
-        }
-        const direct = body.includes(DECORATIVE_BORDER);
-        // הפניה לקבוע נגוע — כולל בפריסה (`{...inputStyle, ...}`)
-        const viaName = tainted
-          .map(([name]) => name)
-          .find((name) => new RegExp(`\\b${name}\\b`, "u").test(body));
-        if (!direct && viaName === undefined) continue;
-        hits.push(
-          `${full}:${line} — <${tag}> עם ${direct ? DECORATIVE_BORDER : `${viaName} (סגנון נגוע)`}`,
-        );
+        if (attr[1] !== undefined) classes.push(...attr[1].split(/\s+/u));
       }
+      const mine = classes.filter((cls) => /^mv-[\w-]+$/u.test(cls));
+      for (const cls of mine) controlClasses.add(cls);
+      if (mine.length > 0) {
+        controlUses.push({
+          where: `${full}:${line}`,
+          tag,
+          classes: mine,
+          /*
+           * מסגרת שנקבעת על התגית עצמה מייתרת את המחלקה: מחלקת
+           * Tailwind (`border-0` על גלולת הסטטוס), סגנון בשורה,
+           * או קבוע סגנון שקובע מסגרת.
+           */
+          explicit:
+            classes.some((cls) => /^border(?:-|$)/u.test(cls)) ||
+            BORDER_DECL.test(body) ||
+            bordered.some(([name]) => new RegExp(`\\b${name}\\b`, "u").test(body)),
+        });
+      }
+      const direct = body.includes(DECORATIVE_BORDER);
+      // הפניה לקבוע נגוע — כולל בפריסה (`{...inputStyle, ...}`)
+      const viaName = tainted
+        .map(([name]) => name)
+        .find((name) => new RegExp(`\\b${name}\\b`, "u").test(body));
+      if (!direct && viaName === undefined) continue;
+      hits.push(
+        `${full}:${line} — <${tag}> עם ${direct ? DECORATIVE_BORDER : `${viaName} (סגנון נגוע)`}`,
+      );
     }
   }
 }

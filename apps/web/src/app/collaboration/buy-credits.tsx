@@ -84,7 +84,7 @@ export function BuyCredits({
                 onClick={() => void buy(pkg.credits)}
                 className="rounded-lg border px-3 py-2 text-start"
                 style={{
-                  borderColor: "var(--color-border)",
+                  borderColor: "var(--color-input-border)",
                   background: "var(--color-surface)",
                 }}
               >
