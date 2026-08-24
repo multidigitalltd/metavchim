@@ -64,8 +64,24 @@ export class TelephonyWebhookLogService {
 
   private writes = 0;
 
+  /**
+   * התוצאה כפי שהיא נראית ביומן.
+   *
+   * ## למה `unparsed` הוא ערך בפני עצמו
+   *
+   * „התקבלה” נרשמה עד כה על **ההגעה** — מפתח תקין, חיבור פעיל,
+   * מודול במסלול — ולא על מה שקרה אחר כך. אירוע שנזרק שנייה לאחר
+   * מכן מפני שלא היה בו מספר טלפון נראה ביומן זהה לאירוע שהפך
+   * לשיחה, וזו בדיוק השאלה שמחפשים ביומן כשלקוח התקשר ואין רישום.
+   *
+   * מי שקורא את היומן צריך לדעת שני דברים נפרדים: האם הפנייה הגיעה
+   * אלינו, והאם הפכה לשיחה. עמודה אחת שעונה רק על הראשון שולחת
+   * לחפש את התקלה במקום הלא נכון.
+   */
   async record(input: {
-    outcome: "accepted" | "unknown_key" | "disabled" | "no_feature";
+    outcome: "accepted" | "unparsed" | "unknown_key" | "disabled" | "no_feature";
+    /** מדוע לא נותח — רק כש-`outcome` הוא `unparsed`. */
+    issue?: string | null;
     tenantId: string | null;
     key: string;
     method: "GET" | "POST";
@@ -76,6 +92,7 @@ export class TelephonyWebhookLogService {
         data: {
           id: ulid(),
           outcome: input.outcome,
+          issue: input.issue ?? null,
           tenantId: input.tenantId,
           /*
            * קידומת בלבד. מפתח מלא ביומן הוא סוד שנשמר בטקסט גלוי,
@@ -117,6 +134,7 @@ export class TelephonyWebhookLogService {
       id: string;
       receivedAt: Date;
       outcome: string;
+      issue: string | null;
       tenantId: string | null;
       keyPrefix: string;
       method: string;

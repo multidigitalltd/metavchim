@@ -16,6 +16,7 @@ import {
   parse015DialResponse,
   parseTelephonyEvent,
   resolveAutomationSettings,
+  diagnosticFields,
   safeDiagnosticKeys,
   telephonyParseIssue,
   telephonyProvider,
@@ -684,15 +685,28 @@ export class TelephonyService {
       throw new NotFoundException("לא נמצא");
     }
 
+    /*
+     * הניתוח **לפני** רישום היומן, כדי שהשורה תגיד מה קרה לאירוע.
+     *
+     * קודם נרשם „התקבלה” כאן ורק אחר כך נותח האירוע, ולכן פנייה
+     * שנזרקה שנייה לאחר מכן — למשל בלי מספר מתקשר — נראתה ביומן
+     * זהה לפנייה שהפכה לשיחה. מי שבודק „לקוח התקשר ואין רישום”
+     * הסתכל בדיוק בעמודה שאינה יכולה לענות לו.
+     *
+     * `parseTelephonyEvent` הוא חישוב טהור על ה-payload ואינו נוגע
+     * במסד, ולכן הזזתו לכאן אינה משנה דבר מלבד מה שהיומן יודע.
+     */
+    const event = parseTelephonyEvent(payload);
+    const issue = event === null ? telephonyParseIssue(payload) : null;
     await this.webhookLog.record({
-      outcome: "accepted",
+      outcome: event === null ? "unparsed" : "accepted",
+      issue,
       tenantId: integration.tenantId,
       key,
       method,
       payload,
     });
 
-    const event = parseTelephonyEvent(payload);
     const tenantId = integration.tenantId;
 
     /*
@@ -704,25 +718,32 @@ export class TelephonyService {
      * שני המצבים דורשים פעולה הפוכה: כתובת שגויה אצל הספק מול מיפוי
      * שדות חסר אצלנו, ובלי ההבחנה אי אפשר לדעת במה מדובר.
      *
-     * `safeDiagnosticKeys` ולא `Object.keys` גולמי: ספק עם מפתחות
-     * דינמיים יכול לשלוח `{"0501234567": "..."}`, וכך מספר הלקוח היה
-     * נשמר בעמודה גלויה ונכתב ללוג — בדיוק מה שההצפנה בכל שאר
-     * המערכת מונעת (ביקורת Codex).
+     * מסונן תמיד: ספק עם מפתחות דינמיים יכול לשלוח
+     * `{"0501234567": "..."}`, וכך מספר הלקוח היה נשמר בעמודה גלויה
+     * ונכתב ללוג — בדיוק מה שההצפנה בכל שאר המערכת מונעת (ביקורת
+     * Codex).
+     *
+     * `diagnosticFields` ולא `safeDiagnosticKeys`: השמות לבדם אינם
+     * עונים על השאלה שבעל המשרד שואל כאן. „‎direction‎ הגיע” יכול
+     * להיות ערך תקין או שדה ריק, ומרכזייה ששולחת תבנית עם
+     * placeholder שאינו נתמך שולחת אותו ריק. הכללים על מה מותר
+     * להציג זהים — שדות מזהים נשארים שם בלבד — וזה גם הופך את המסך
+     * הזה לזהה ליומן הפלטפורמה במקום שני ניסוחים לאותו payload.
      */
     await this.prisma.withExplicitTenant(tenantId, async (tx) => {
       await tx.integration.updateMany({
         where: { id: integration.id, tenantId },
         data: {
           lastEventAt: new Date(),
-          lastEventKeys: safeDiagnosticKeys(Object.keys(payload)),
+          lastEventKeys: diagnosticFields(payload),
           lastEventOk: event !== null,
-          lastEventIssue: event === null ? telephonyParseIssue(payload) : null,
+          lastEventIssue: issue,
         },
       });
     });
     if (!event) {
       this.logger.warn(
-        `אירוע מרכזייה שלא זוהה (${integration.tenantId}): ${telephonyParseIssue(payload) ?? "לא ידוע"}. ` +
+        `אירוע מרכזייה שלא זוהה (${integration.tenantId}): ${issue ?? "לא ידוע"}. ` +
           `שדות: ${safeDiagnosticKeys(Object.keys(payload))}`,
       );
       return; // חסר מספר או מזהה — אין מה לעשות איתו

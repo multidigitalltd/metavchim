@@ -12,12 +12,11 @@ import {
   PBX015_MAKE_URL,
   safeDiagnosticKeys,
   diagnosticFields,
+  EMPTY_FIELD_MARK,
   unmappedFields,
   telephonyParseIssue,
   mergeIntegrationSecrets,
   telephonySecretKeys,
-  TELEPHONY_PROVIDERS,
-  telephonyProvider,
   mergeLegacySecretsIntoConfig,
   sipUriFor,
   phoneFromSipUri,
@@ -762,6 +761,32 @@ describe("diagnosticFields", () => {
   it("ערך ארוך נחתך ואינו מציף את השורה", () => {
     const out = diagnosticFields({ recording: "a".repeat(500) });
     expect(out.length).toBeLessThan(200);
+  });
+
+  /*
+   * ההבחנה שבלעדיה אי אפשר לאבחן: שדה טכני שהגיע ריק נראה בדיוק
+   * כמו שדה מזהה שהערך שלו מוסתר בכוונה. 015 שולחת תבנית עם
+   * placeholders, וכשאחד מהם אינו נתמך היא שולחת אותו ריק — ואז
+   * „direction הגיע” אינו אומר אם הכיוון ידוע או לא.
+   */
+  it("שדה טכני שהגיע ריק מסומן כריק, ולא כשדה מוסתר", () => {
+    const out = diagnosticFields({ direction: "", extension: "", status: "Hangup" });
+    expect(out).toContain(`direction=${EMPTY_FIELD_MARK}`);
+    expect(out).toContain(`extension=${EMPTY_FIELD_MARK}`);
+    expect(out).toContain("status=Hangup");
+  });
+
+  it("שדה מזהה נשאר שם בלבד — גם כשיש בו ערך וגם כשהוא ריק", () => {
+    const filled = diagnosticFields({ callerid_external: "0501234567" });
+    const empty = diagnosticFields({ callerid_external: "" });
+    expect(filled).toBe("callerid_external");
+    expect(empty).toBe("callerid_external");
+  });
+
+  it("ערך שאינו טקסט או מספר נחשב ריק ולא מודלף", () => {
+    const out = diagnosticFields({ status: { nested: "סוד" } });
+    expect(out).toContain(`status=${EMPTY_FIELD_MARK}`);
+    expect(out).not.toContain("סוד");
   });
 });
 

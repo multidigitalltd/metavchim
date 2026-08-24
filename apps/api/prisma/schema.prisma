@@ -1718,8 +1718,18 @@ model LeadSourcePrice {
 model TelephonyWebhookHit {
   id         String   @id @db.Char(26)
   receivedAt DateTime @default(now()) @map("received_at")
-  /// accepted | unknown_key | disabled | no_feature
+  /// accepted | unparsed | unknown_key | disabled | no_feature
+  ///
+  /// `accepted` = הפנייה הגיעה **והפכה לאירוע שיחה**.
+  /// `unparsed` = הגיעה, המפתח והמסלול תקינים, ולא היה בה די כדי
+  /// לזהות שיחה. `issue` אומר מה חסר.
   outcome    String   @db.VarChar(20)
+  /// למה לא נותח — `no_fields | no_call_id | no_phone | invalid_phone`.
+  ///
+  /// עמודה נפרדת מ-`outcome`: „לא נותחה” היא התוצאה, והסיבה היא מה
+  /// שקובע לאן ללכת — כותרת Content-Type שגויה אצלנו, מול תבנית
+  /// שמחסירה את מספר המתקשר אצל הספק.
+  issue      String?  @db.VarChar(20)
   /// המשרד — רק כשהמפתח נפתר. `null` בדיוק במקרים המעניינים.
   tenantId   String?  @map("tenant_id") @db.Char(26)
   /// שש התווים הראשונים של המפתח בלבד.
