@@ -55,6 +55,14 @@ const MAX_ATTEMPTS = 5;
 const MAX_CODES_PER_EMAIL = 3;
 const EMAIL_WINDOW_SECONDS = 60 * 60;
 
+/**
+ * כמה זמן שליחה נחשבת „בדרך” וחוסמת שליחה חוזרת נוספת — ראו
+ * ‎`StoredPending.sendingUntil`. ‎60 שניות הן חלון ההשהיה המקובל
+ * ב„שלחו שוב”, והן מכסות בנוחות שליחה שגבולה העליון המעשי הוא
+ * פסק הזמן של הספק.
+ */
+const RESEND_DEBOUNCE_MS = 60_000;
+
 /** הפרטים שממתינים לאימות. סיסמה — מוצפנת בלבד. */
 export interface PendingSignup {
   agencyName: string;
@@ -95,6 +103,21 @@ interface StoredPending {
    * קוד שהוחלף פשוט פג מעצמו, ולעולם אינו נוגע ביורש.
    */
   version: string;
+  /**
+   * עד מתי שליחה נחשבת „בדרך” — **השהיה, ולא ערובה.**
+   *
+   * ההתקנה המותנית מסדרת שתי בקשות שנכנסות יחד, אבל אינה מסדרת
+   * בקשה שנכנסת **אחרי** שהראשונה כבר התקינה ועדיין שולחת: היא
+   * רואה את הרשומה החדשה כערך הנוכחי, מצליחה בהתאמה, ושולחת קוד
+   * שלישי שהורג את זה שיצא לפני רגע (ביקורת Codex).
+   *
+   * הסימון חי **בתוך הרשומה**, ולכן הוא נשמר ונקרא באותה התאמה
+   * אטומית — בלי מפתח נפרד, בלי חכירה ובלי חידוש. וחשוב מכך:
+   * הנכונות אינה תלויה בו. אם השליחה נמשכת מעבר לחלון, מה שקורה
+   * הוא שני אימיילים **לאותה תיבה** שהאחרון בהם תקף — לא שחיתות
+   * ולא קוד חי שאיש אינו יודע עליו. זו הסיבה שהוא נקרא השהיה.
+   */
+  sendingUntil: number;
 }
 
 @Injectable()
@@ -144,6 +167,7 @@ export class SignupVerificationService implements OnModuleDestroy {
       pending,
       codeHmac: this.hmac(code),
       version: SignupVerificationService.freshVersion(),
+      sendingUntil: Date.now() + RESEND_DEBOUNCE_MS,
     };
     await this.redis.set(this.key(token), JSON.stringify(stored), "EX", PENDING_TTL_SECONDS);
     await this.chargeAndDeliver(pending, code);
@@ -189,12 +213,22 @@ export class SignupVerificationService implements OnModuleDestroy {
       throw new ServiceUnavailableException("ההרשמה העצמית אינה זמינה כרגע — נסו שוב מאוחר יותר");
     }
 
+    /*
+     * שליחה שעדיין בדרך חוסמת שליחה נוספת — ראו
+     * ‎`StoredPending.sendingUntil`. הבדיקה כאן, לפני ההתקנה, כדי
+     * שהבקשה השנייה לא תיגע ברשומה כלל.
+     */
+    if (stored.sendingUntil > Date.now()) {
+      throw new BadRequestException("קוד חדש נשלח זה עתה — בדקו את תיבת הדואר");
+    }
+
     const code = SignupVerificationService.freshCode();
     const replacement = JSON.stringify({
       ...stored,
       codeHmac: this.hmac(code),
       /* גרסה חדשה — מונה הניסיונות נספר תחתיה (ראו `StoredPending.version`) */
       version: SignupVerificationService.freshVersion(),
+      sendingUntil: Date.now() + RESEND_DEBOUNCE_MS,
     } satisfies StoredPending);
 
     /*
@@ -237,6 +271,23 @@ export class SignupVerificationService implements OnModuleDestroy {
         raw,
       );
       throw error;
+    }
+
+    /*
+     * **„נשלח” נאמר רק אם הקוד באמת תקף עכשיו.**
+     *
+     * ‎`KEEPTTL` שומר את המועד המקורי, ולכן רשומה שנותרו לה שניות
+     * יכולה לפוג **בזמן** השליחה. הגרסה הקודמת בדקה את היתרה אחרי
+     * השליחה, וכשהחלפתי אותה בהתקנה מותנית הבדיקה הזו נשמטה: המסך
+     * אמר „נשלח קוד חדש” בעוד שאין רשומה והקוד שבתיבה לא יעבוד
+     * (ביקורת Codex). אותה בדיקה תופסת גם רשומה שנוצלה ב-`consume`
+     * או הוחלפה בינתיים.
+     */
+    const current = await this.redis.get(this.key(token));
+    if (current !== replacement) {
+      throw new BadRequestException(
+        "ההרשמה כבר הושלמה או פגה — הקוד שנשלח זה עתה אינו בתוקף",
+      );
     }
     this.logger.log("נשלח קוד אימות חוזר לפתיחת משרד");
   }
