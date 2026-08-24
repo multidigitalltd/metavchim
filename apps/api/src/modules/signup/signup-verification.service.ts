@@ -257,21 +257,36 @@ export class SignupVerificationService implements OnModuleDestroy {
       await this.chargeAndDeliver(stored.pending, code);
     } catch (error) {
       /*
-       * השליחה נכשלה — הקוד הקודם חוזר לתוקף, ורק אם החדש עדיין
-       * שלנו. ‎`consume` שהספיקה לנצל את הרשומה בינתיים, או שליחה
-       * חוזרת שהחליפה אותה, אינן נדרסות: ההתאמה נכשלת ואיננו כותבים.
+       * **מוחזר רק מה שידוע שלא נשלח** — אותו גבול בדיוק של החזר
+       * המכסה, ובאותו נימוק.
+       *
+       * ההחזרה הייתה על כל כישלון, וזו תוצאה גרועה יותר מזו שהיא
+       * באה למנוע: בשליחה עמומה — פסק זמן, ‎5xx, תשובה שאבדה —
+       * ההודעה כנראה **כן** הגיעה, והחזרת הקוד הקודם הופכת דווקא
+       * את הקוד החדש שבתיבה לפסול. המשתמש יקליד באופן טבעי את
+       * האחרון שקיבל ויידחה, בעוד שהקוד ה„נכון” הוא זה שהוא כבר
+       * גלל מעליו (ביקורת Codex).
+       *
+       * ‎`EmailRejectedError` פירושו שהספק דחה על סמך תוכן הבקשה,
+       * כלומר בוודאות לא יצאה הודעה — ורק אז הקוד הקודם הוא היחיד
+       * שקיים באמת, ומגיע לו לחזור. בכל מקרה אחר החדש נשאר.
+       *
+       * ההחזרה מותנית בכך שהחדש עדיין שלנו: `consume` שהספיקה
+       * לנצל את הרשומה, או שליחה חוזרת שהחליפה אותה, אינן נדרסות.
        */
-      await this.redis.eval(
-        `if redis.call('GET', KEYS[1]) == ARGV[1] then
-           redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
-           return 1
-         end
-         return 0`,
-        1,
-        this.key(token),
-        replacement,
-        raw,
-      );
+      if (error instanceof EmailRejectedError) {
+        await this.redis.eval(
+          `if redis.call('GET', KEYS[1]) == ARGV[1] then
+             redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
+             return 1
+           end
+           return 0`,
+          1,
+          this.key(token),
+          replacement,
+          raw,
+        );
+      }
       throw error;
     }
 
