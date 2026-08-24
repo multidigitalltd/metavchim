@@ -234,40 +234,72 @@ export class SignupVerificationService implements OnModuleDestroy {
     } satisfies StoredPending);
 
     /*
-     * מותנה ב**ערך שנקרא בכניסה**: צילום שהתיישן — משום ששליחה
-     * חוזרת אחרת הקדימה אותנו, או ש-`consume` כבר ניצלה את הרשומה —
-     * נדחה כאן, לפני שיצא אימייל כלשהו.
+     * **ההתקנה והגבייה הן פעולה אחת** — ולא שתיים עם פיצוי ביניהן.
+     *
+     * קודם הן היו נפרדות, וכל כישלון של הגבייה חייב ביטול של
+     * ההתקנה. הביטול הזה נכתב ל-Redis — **אותו Redis שכשלונו גרם
+     * לו** — ולכן בדיוק כשהוא נחוץ הוא אינו יכול לרוץ: הקוד החדש
+     * נשאר מותקן בלי שנשלח, והקוד שכבר בתיבת הדואר מת (ביקורת
+     * Codex). פיצוי שמסתמך על התלות שנפלה אינו פיצוי.
+     *
+     * שתיהן ב-Redis, ולכן הן יכולות להיות סקריפט אחד: או ששתיהן
+     * קרו או שאף אחת. אין עוד מצב ביניים לפצות עליו, ואין מסלול
+     * שבו התקרה חוסמת אחרי שהקוד כבר הוחלף.
+     *
+     * הצילום שהתיישן נדחה כאן באותה נשימה: שליחה חוזרת אחרת
+     * שהקדימה אותנו, או `consume` שניצלה את הרשומה, מפילות את
+     * ההתאמה — לפני שיצא אימייל וגם לפני שנגבתה מכסה.
      */
-    const installed = await this.redis.eval(
-      `if redis.call('GET', KEYS[1]) == ARGV[1] then
-         redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
-         return 1
+    const charged = await this.redis.eval(
+      `if redis.call('GET', KEYS[1]) ~= ARGV[1] then return { 0, 'stale' } end
+       local n = redis.call('INCR', KEYS[2])
+       if n == 1 or redis.call('TTL', KEYS[2]) == -1 then
+         redis.call('EXPIRE', KEYS[2], ARGV[3])
+         redis.call('SET', KEYS[3], ARGV[4], 'EX', ARGV[3])
        end
-       return 0`,
-      1,
+       if n > tonumber(ARGV[5]) then
+         redis.call('DECR', KEYS[2])
+         return { 0, 'quota' }
+       end
+       redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
+       return { 1, redis.call('GET', KEYS[3]) }`,
+      3,
       this.key(token),
+      this.quotaKey(stored.pending.email),
+      this.quotaWindowKey(stored.pending.email),
       raw,
       replacement,
+      String(EMAIL_WINDOW_SECONDS),
+      SignupVerificationService.freshVersion(),
+      String(MAX_CODES_PER_EMAIL),
     );
-    if (installed !== 1) {
+    const [okRaw, detailRaw] = Array.isArray(charged) ? charged : [];
+    /* תשובה שאי אפשר לקרוא עוצרת — ולא ממשיכה לשלוח על סמך ניחוש. */
+    if (typeof okRaw !== "number") {
+      throw new ServiceUnavailableException("שליחת הקוד אינה זמינה כרגע — נסו שוב בעוד רגע");
+    }
+    if (okRaw !== 1) {
+      if (detailRaw === "quota") {
+        throw new BadRequestException(
+          "נשלחו כבר כמה קודים לכתובת הזו — נסו שוב בעוד שעה או פנו אלינו",
+        );
+      }
       throw new BadRequestException("קוד חדש נשלח זה עתה — בדקו את תיבת הדואר");
     }
+    const window = typeof detailRaw === "string" && detailRaw !== "" ? detailRaw : null;
 
     /*
      * **הביטול נמסר פנימה ואינו מוכרע כאן.**
      *
-     * „האם יצאה הודעה” היא שאלה שרק `chargeAndDeliver` יודעת לענות
-     * עליה — היא זו שרואה גם את התקרה וגם את תשובת הספק. כל עוד
-     * ההכרעה הזו ישבה כאן, היא שוכפלה ואז נעשתה שגויה: בסבב אחד
-     * ביטלתי גם בתוצאה עמומה, ובסבב הבא הצטמצמתי כל כך שבקשה
-     * שנחסמה על התקרה — שבה בוודאות לא נשלח דבר — הפסיקה לבטל
-     * (שתי ביקורות Codex). מכאן: המקום שיודע, מחליט.
+     * „האם יצאה הודעה” היא שאלה שרק `deliverOrUndo` יודעת לענות
+     * עליה. כל עוד ההכרעה הזו ישבה כאן היא שוכפלה ואז נעשתה
+     * שגויה — פעמיים בסבבים רצופים (ביקורות Codex). מכאן: המקום
+     * שיודע, מחליט, ושתי ההשלכות תלויות בו יחד.
      *
-     * הביטול עצמו מותנה בכך שהקוד החדש עדיין שלנו: `consume`
-     * שהספיקה לנצל את הרשומה, או שליחה חוזרת שהחליפה אותה, אינן
-     * נדרסות.
+     * הביטול מותנה בכך שהקוד החדש עדיין שלנו: `consume` שהספיקה
+     * לנצל את הרשומה, או שליחה חוזרת שהחליפה אותה, אינן נדרסות.
      */
-    await this.chargeAndDeliver(stored.pending, code, async () => {
+    await this.deliverOrUndo(stored.pending, code, window, async () => {
       await this.redis.eval(
         `if redis.call('GET', KEYS[1]) == ARGV[1] then
            redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
@@ -614,54 +646,55 @@ export class SignupVerificationService implements OnModuleDestroy {
    * לבלתי-ניתן לכתיבה מחדש. אין מקום שבו אפשר לגבות בלי שההחזר
    * שומר עליו, כי אין קריאה נפרדת לגבייה.
    */
-  private async chargeAndDeliver(
+  /**
+   * גבייה ואז שליחה — מסלול ההנפקה הראשונה.
+   *
+   * ‎`reissue` אינה עוברת כאן: שם הגבייה מאוחדת עם ההתקנה לסקריפט
+   * אחד, כדי שלא יהיה מצב ביניים שדורש פיצוי דרך Redis שאולי נפל.
+   */
+  private async chargeAndDeliver(pending: PendingSignup, code: string): Promise<void> {
+    const window = await this.chargeEmailQuota(pending.email);
+    await this.deliverOrUndo(pending, code, window);
+  }
+
+  /**
+   * השליחה, ומה שמתבטל אם **ידוע** שהיא לא יצאה.
+   *
+   * זהו המקום היחיד שמכריע „לא נשלח”, ושתי ההשלכות תלויות בהכרעה
+   * הזו יחד: החזר המכסה, וביטול שהקורא מוסר פנימה (ב-`reissue` —
+   * החזרת הקוד הקודם). כל עוד הן ישבו בשני מקומות, כל הזזה של
+   * הגבול שכחה אחת מהן — חמש פעמים בביקורת הזו.
+   *
+   * ‎**`EmailRejectedError` בלבד.** פסק זמן, נפילת רשת או ‎5xx אינם
+   * „לא נשלח” אלא „איננו יודעים”: ייתכן שההודעה כן יצאה. החזר מכסה
+   * שם היה הופך את התקרה לחסרת משמעות, והחזרת הקוד הקודם הייתה
+   * פוסלת דווקא את הקוד החדש שכנראה הגיע — והמשתמש היה מקליד את
+   * האחרון שקיבל ונדחה (שתי ביקורות Codex, בשני סבבים).
+   */
+  private async deliverOrUndo(
     pending: PendingSignup,
     code: string,
-    onNotDelivered?: () => Promise<void>,
+    window: string | null,
+    undo?: () => Promise<void>,
   ): Promise<void> {
-    /*
-     * **התקרה נדחתה — לא נעשתה שום פנייה לספק.**
-     *
-     * זהו הענף שהחמצתי: צמצמתי את הביטול ל-`EmailRejectedError`
-     * בלבד, וכך בקשה שנחסמה על התקרה — שבה **בוודאות** לא יצאה
-     * הודעה — הפסיקה לבטל. ב-`reissue` פירוש הדבר שהקוד החדש נשאר
-     * מותקן בלי שנשלח, והקוד האחרון שבתיבת הדואר נפסל: המשתמש
-     * נשאר בלי קוד שמיש עד סוף חלון המכסה (ביקורת Codex).
-     *
-     * הגבול הנכון אינו „הספק דחה” אלא **„ידוע שלא יצאה הודעה”**,
-     * ויש לו שני מקורות: כישלון לפני הפנייה, ודחייה מפורשת שלה.
-     */
-    let window: string | null;
-    try {
-      window = await this.chargeEmailQuota(pending.email);
-    } catch (error) {
-      await onNotDelivered?.();
-      throw error;
-    }
-
     try {
       await this.deliver(pending, code);
     } catch (error) {
-      /*
-       * **מבוטל רק מה שידוע שלא נשלח.**
-       *
-       * פסק זמן או נפילת רשת אינם „לא נשלח” אלא „איננו יודעים” —
-       * ייתכן ש-Postmark קיבל את ההודעה ושלח אותה, ורק התשובה
-       * אבדה. החזר מכסה שם היה הופך את התקרה לחסרת משמעות; והחזרת
-       * הקוד הקודם שם הייתה פוסלת דווקא את הקוד החדש שכנראה כן
-       * הגיע (שתי ביקורות Codex, בשני סבבים).
-       *
-       * ‎`EmailRejectedError` הוא המקרה היחיד שבו הספק ענה ודחה,
-       * ולכן היחיד שבו הוודאות קיימת אחרי שהפנייה יצאה.
-       *
-       * **שתי ההשלכות יחד ולא בנפרד.** קודם הן ישבו בשני מקומות,
-       * ובכל פעם שהגבול זז אחת מהן נשארה מאחור — ארבע פעמים
-       * בביקורת הזו. כאן ההכרעה „לא נשלח” נעשית פעם אחת, ושתי
-       * הפעולות תלויות בה יחד.
-       */
       if (error instanceof EmailRejectedError) {
-        if (window !== null) await this.refundEmailQuota(pending.email, window);
-        await onNotDelivered?.();
+        /*
+         * **כישלון של הפיצוי אינו מסתיר את הסיבה.**
+         *
+         * הפיצוי כותב ל-Redis, ו-Redis יכול ליפול בדיוק כאן. זריקה
+         * שלו הייתה מחליפה את שגיאת השליחה האמיתית בשגיאת Redis,
+         * ומשאירה את הקורא בלי לדעת מה קרה. נרשם באזהרה, והשגיאה
+         * המקורית ממשיכה למעלה.
+         */
+        if (window !== null) {
+          await this.refundEmailQuota(pending.email, window);
+        }
+        if (undo !== undefined) {
+          await undo().catch(() => this.logger.warn("ביטול הקוד שנשלח נכשל"));
+        }
       }
       throw error;
     }
