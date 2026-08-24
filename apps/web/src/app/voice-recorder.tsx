@@ -236,8 +236,19 @@ export function VoiceRecorder({
     failuresRef.current = 0;
     producedTextRef.current = false;
     sendQueueRef.current = Promise.resolve();
+    if (!startSegment(stream)) {
+      /*
+       * המקליט לא עלה — משחררים הכול. בלי זה המנעול שמונע שני
+       * מקליטים במקביל נשאר נעול על סבב שמעולם לא התחיל, וכל ניסיון
+       * הקלטה נוסף נדחה בשקט בעוד המיקרופון פתוח (ביקורת Codex).
+       */
+      continueRef.current = false;
+      stream.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      onError?.("ההקלטה לא נפתחה במכשיר הזה — נסו „מהיר” או הקלידו");
+      return;
+    }
     setRecording(true);
-    startSegment(stream);
     startSegmentWatcher(stream);
   }
 
@@ -250,13 +261,32 @@ export function VoiceRecorder({
    * ההנחה הקשיחה שהייתה כאן שלחה mp4 בשם ‎.webm‎ מכל iPhone ו-iPad —
    * ראו `preferredAudioFormat` ב-`lib/dictation.ts`.
    */
-  function startSegment(stream: MediaStream): void {
+  /**
+   * פותח קטע הקלטה. מחזיר `false` אם המקליט לא עלה בכלל.
+   *
+   * ## למה זה מחזיר ערך ולא פשוט זורק
+   *
+   * `new MediaRecorder(...)` ו-`start()` יכולים לזרוק — פורמט שהמכשיר
+   * מכריז עליו ואינו תומך בו בפועל הוא המקרה השכיח. עד כה זריקה כזו
+   * השאירה את `mediaRecorderRef` ואת הזרם דלוקים בלי שאיש יסגור
+   * אותם: המסך נראה רגוע, המיקרופון נשאר פתוח, וכל ניסיון הקלטה
+   * נוסף נדחה על ידי המנעול החדש שנועד למנוע כפילות (ביקורת Codex).
+   *
+   * הקורא הוא זה שיודע מה לעשות בכישלון — לשחרר הכול בפתיחה, או
+   * לסגור את הסבב באמצע — ולכן התשובה חוזרת אליו.
+   */
+  function startSegment(stream: MediaStream): boolean {
     const chunks: Blob[] = [];
     const format = preferredAudioFormat();
-    const recorder =
-      format === undefined
-        ? new MediaRecorder(stream)
-        : new MediaRecorder(stream, { mimeType: format.mimeType });
+    let recorder: MediaRecorder;
+    try {
+      recorder =
+        format === undefined
+          ? new MediaRecorder(stream)
+          : new MediaRecorder(stream, { mimeType: format.mimeType });
+    } catch {
+      return false;
+    }
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) chunks.push(event.data);
     };
@@ -264,16 +294,24 @@ export function VoiceRecorder({
       const actual = recorder.mimeType || chunks[0]?.type || "";
       const blob = new Blob(chunks, ...(actual ? [{ type: actual }] : []));
       enqueueTranscription(blob);
-      if (continueRef.current) {
-        startSegment(stream); // ממשיכים לקטע הבא באותו זרם
-      } else {
-        finishRecording();
-      }
+      // קטע הבא באותו זרם; אם המקליט אינו נפתח, סוגרים את הסבב
+      // במקום להשאיר מיקרופון פתוח שאיש כבר אינו מקליט ממנו
+      if (continueRef.current && startSegment(stream)) return;
+      continueRef.current = false;
+      finishRecording();
     };
     mediaRecorderRef.current = recorder;
     segmentStartRef.current = performance.now();
     silenceSinceRef.current = null;
-    recorder.start();
+    try {
+      recorder.start();
+    } catch {
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+      mediaRecorderRef.current = null;
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -287,12 +325,23 @@ export function VoiceRecorder({
     let analyser: AnalyserNode | null = null;
     let samples: Float32Array<ArrayBuffer> | null = null;
     if (Ctor) {
-      const context = new Ctor();
-      audioContextRef.current = context;
-      analyser = context.createAnalyser();
-      analyser.fftSize = 2048;
-      context.createMediaStreamSource(stream).connect(analyser);
-      samples = new Float32Array(analyser.fftSize);
+      /*
+       * ניתוח עוצמת הקול הוא שיפור, לא תנאי: בלעדיו הקטעים נחתכים
+       * לפי משך במקום לפי הפסקה טבעית. `AudioContext` שנופל (מדיניות
+       * autoplay, מכשיר עמוס) לא אמור להפיל את ההקלטה כולה ולהשאיר
+       * את המיקרופון פתוח.
+       */
+      try {
+        const context = new Ctor();
+        audioContextRef.current = context;
+        analyser = context.createAnalyser();
+        analyser.fftSize = 2048;
+        context.createMediaStreamSource(stream).connect(analyser);
+        samples = new Float32Array(analyser.fftSize);
+      } catch {
+        analyser = null;
+        samples = null;
+      }
     }
 
     watcherRef.current = setInterval(() => {

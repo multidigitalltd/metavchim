@@ -360,13 +360,39 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
       stream.getTracks().forEach((t) => t.stop());
       return;
     }
+    /**
+     * שחרור מלא כשהמקליט אינו עולה.
+     *
+     * `new MediaRecorder(...)` ו-`start()` יכולים לזרוק — פורמט
+     * שהמכשיר מכריז עליו ואינו תומך בו בפועל הוא המקרה השכיח. אז
+     * `onstop` לעולם אינו נורה, ולכן המנעול שמונע שני מקליטים
+     * במקביל נשאר נעול על סבב שמעולם לא התחיל: המסך נראה רגוע,
+     * המיקרופון פתוח, וכל ניסיון „מדויק” נוסף נדחה בשקט
+     * (ביקורת Codex).
+     */
+    function abandon(): void {
+      recorderRef.current = null;
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      stream.getTracks().forEach((t) => t.stop());
+      setRecording(null);
+      setTranscribing(false);
+      setError("ההקלטה לא נפתחה בדפדפן הזה — נסו „מהיר” או הקלידו");
+    }
+
     streamRef.current = stream;
     chunksRef.current = [];
     const format = preferredAudioFormat();
-    const recorder =
-      format === undefined
-        ? new MediaRecorder(stream)
-        : new MediaRecorder(stream, { mimeType: format.mimeType });
+    let recorder: MediaRecorder;
+    try {
+      recorder =
+        format === undefined
+          ? new MediaRecorder(stream)
+          : new MediaRecorder(stream, { mimeType: format.mimeType });
+    } catch {
+      abandon();
+      return;
+    }
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) chunksRef.current.push(event.data);
     };
@@ -386,7 +412,14 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
       void transcribe(blob, extensionForAudioType(actual || blob.type));
     };
     recorderRef.current = recorder;
-    recorder.start();
+    try {
+      recorder.start();
+    } catch {
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+      abandon();
+      return;
+    }
     /*
      * `transcribing` נדלק **כאן** ולא רק כשהבקשה יוצאת.
      *
