@@ -11,6 +11,7 @@ import { MediaController } from "./media.controller";
 import { MediaService } from "./media.service";
 import { PropertiesController } from "./properties.controller";
 import { PropertiesService } from "./properties.service";
+import { PropertyActivityService } from "./property-activity.service";
 import { PropertyTwinsController } from "./property-twins.controller";
 import { PropertyTwinsService } from "./property-twins.service";
 
@@ -37,6 +38,7 @@ import { PropertyTwinsService } from "./property-twins.service";
   ],
   providers: [
     PropertiesService,
+    PropertyActivityService,
     PropertyTwinsService,
     MediaService,
     LandingService,

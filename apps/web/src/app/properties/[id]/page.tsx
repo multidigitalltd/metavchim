@@ -23,6 +23,7 @@ import { NetworkShareSection } from "../../network-share-section";
 import { AgreementsPanel } from "../../agreements-panel";
 import { EntityTasks } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
+import { OwnerActivity } from "./owner-activity";
 import { LocationPicker } from "../location-picker";
 import { ExclusivityPanel } from "../exclusivity-panel";
 import { EntityNotes } from "../../entity-notes";
@@ -1187,6 +1188,18 @@ export default function PropertyDetailPage({
               exclude={{ kind: "property", id: property.id }}
             />
           ) : null}
+
+          {/*
+            הדוח יושב בלשונית של בעל הנכס ולא בזו של ההתאמות, כי
+            השאלה שהוא עונה עליה נשאלת בשיחה **איתו**: "מה עשיתם
+            בשביל הדירה שלי". מי שפתח את הכרטיס שלו הוא בדיוק מי
+            שעומד לענות.
+          */}
+          <OwnerActivity
+            propertyId={property.id}
+            propertyLabel={property.marketingTitle ?? (address || "הנכס")}
+            officeName={user?.tenantName ?? "משרד התיווך"}
+          />
         </div>
       </TabPanel>
 
