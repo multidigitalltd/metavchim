@@ -62,6 +62,8 @@ const MISSED_CALL_WINDOW_DAYS = 14;
  * בשאילתה שמחזירה שורה אחת לאיש קשר (ביקורת Codex).
  */
 const CALLBACK_LEAD_SCAN = 500;
+/** אותו היגיון, על המשימות הפתוחות שקשורות ללידים בלבד. */
+const CALLBACK_TASK_SCAN = 500;
 
 export interface ExecuteResult {
   /** לאן לנווט אחרי הביצוע */
@@ -654,14 +656,26 @@ export class AgentExecuteService {
      * בשקט (שתי ביקורות Codex).
      *
      * לכן כל מקור נשאל בדיוק על מה שהוא צריך: שיחה אחרונה לכל איש
-     * קשר בחלון, ולידים פתוחים ממוינים מהוותיק.
+     * קשר בחלון, לידים פתוחים ממוינים מהוותיק, ומשימות פתוחות
+     * שקשורות ללידים — מסוננות במסד ולא אחרי תקרה משותפת לכל סוגי
+     * הישויות.
+     *
+     * ## גבול המודול נשמר גם כאן
+     *
+     * מקור המשימות מותנה ב-`calendar.manage`, היכולת שכל נתיבי
+     * המשימות דורשים. הפעולה עצמה נשענת על `leads.view_own`, ובלי
+     * התנאי הזה היא הייתה דלת אחורית: משתמש שמודול היומן חסום אצלו
+     * — או תפקיד `viewer` — היה מקבל כותרות משימות שהמסך אינו מראה
+     * לו (ביקורת Codex). מי שאין לו את היכולת עדיין מקבל את שני
+     * המקורות האחרים; הרשימה מצטמצמת, לא נחסמת.
      */
+    const mayReadTasks = TenantContext.current().capabilities.has("calendar.manage");
     const [calls, waiting, tasks] = await Promise.all([
       this.calls.latestPerContactSince(
         new Date(now.getTime() - MISSED_CALL_WINDOW_DAYS * 24 * 60 * 60 * 1000),
       ),
       this.leads.openAwaitingResponse(CALLBACK_LEAD_SCAN),
-      this.tasks.list({ status: "open" }),
+      mayReadTasks ? this.tasks.openLinkedToLeads(CALLBACK_TASK_SCAN) : Promise.resolve([]),
     ]);
 
     const candidates: CallbackCandidate[] = pendingMissedCalls(
@@ -722,7 +736,15 @@ export class AgentExecuteService {
         name: lead.contact.name,
         phone: lead.contact.phone === "" ? null : lead.contact.phone,
         reason: "task",
-        since: task.dueAt ?? now,
+        /*
+         * בלי מועד יעד — מועד היצירה, ולא „עכשיו”.
+         *
+         * `now` איפס את הוותק בכל בקשה מחדש: תזכורת בלי תאריך שנפתחה
+         * לפני חודשיים הוצגה תמיד כ„ממתין דקה”, נשארה בדרגת הדחיפות
+         * הנמוכה, ומוינה לפי שם במקום לפי ותק. הדבר היחיד שיכול
+         * להזדקן הוא הרגע שבו היא נוצרה (ביקורת Codex).
+         */
+        since: task.dueAt ?? task.createdAt,
         href: `/leads/${lead.id}`,
         detail: task.title,
       });

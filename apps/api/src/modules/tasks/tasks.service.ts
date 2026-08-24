@@ -385,6 +385,44 @@ export class TasksService {
   }
 
   /**
+   * משימות פתוחות שקשורות ללידים — לרשימת „למי לחזור”.
+   *
+   * ## למה שאילתה משלה ולא `list` עם סינון אחריה
+   *
+   * `list` מחזירה 200 משימות פתוחות **מכל הסוגים** וממיינת לפי מועד,
+   * והסינון לפי „קשורה לליד” קרה אחריה. מתווך עם מאתיים משימות נכס
+   * שמועדן מוקדם יותר („לצלם את הדירה”) איבד בשקט משימת חזרה תקפה —
+   * בדיוק דפוס „עמוד ואז מסננים” שכבר תוקן בשני המקורות האחרים
+   * (ביקורת Codex).
+   *
+   * ## ההיקף
+   *
+   * `scopeFilter` בלבד: מי שיש לו `tasks.view_all` מקבל את כל המשרד,
+   * והשאר את שלו. זה נבדל מ-`list`, שברירת המחדל שלה היא „שלי” גם
+   * למי שרשאי לראות הכול — ושם זה נכון, כי מסך המשימות עונה על „מה
+   * עלי לעשות”. כאן השאלה היא „למי במשרד צריך לחזור”, וההודעה
+   * מכריזה מספר; מספר שמסתיר את עמיתיו ממי שרשאי לראותם הוא הצהרה
+   * שגויה (ביקורת Codex).
+   */
+  async openLinkedToLeads(limit: number): Promise<TaskDto[]> {
+    const tenantId = TenantContext.current().tenantId;
+    return this.prisma.withTenant(async (tx) => {
+      const rows = await tx.task.findMany({
+        where: {
+          tenantId,
+          deletedAfterSync: false,
+          status: "open",
+          entityType: "lead",
+          ...this.scopeFilter(),
+        },
+        orderBy: { dueAt: { sort: "asc", nulls: "last" } },
+        take: limit,
+      });
+      return this.toDtos(tx, rows);
+    });
+  }
+
+  /**
    * כמה דורשות תשומת לב עכשיו — הבאדג' בסרגל.
    *
    * הספירה על **המשימות שלי** גם למנהל: הבאדג' אומר "מה עלי לעשות",
