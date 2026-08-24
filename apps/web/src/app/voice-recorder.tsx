@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { appendDictated, collectDictation, createDictationSessions } from "@metavchim/shared";
 import {
-  collectDictation,
   extensionForAudioType,
   preferredAudioFormat,
   type DictationMode,
@@ -94,6 +94,16 @@ export function VoiceRecorder({
   const [activeMode, setActiveMode] = useState<DictationMode | null>(null);
   const segmentSecondsRef = useRef(DEFAULT_SEGMENT_SECONDS);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  /**
+   * מי הסבב הפעיל — אותה הגנה שיש בשדות הטפסים.
+   *
+   * מנוע הזיהוי מחזיר תוצאה אחרונה ויורה `onend` מאות מילישניות
+   * אחרי `stop()`. לחיצה חוזרת על „הקלטה” בתוך החלון הזה השאירה
+   * את המנוע הישן חי — שני מנועים כותבים לאותו שדה, כל אחד עם
+   * טקסט הבסיס שלו, וכל מה שנאמר הופיע פעמיים. מזהה לכל סבב סוגר
+   * את זה: הלוגיקה נבדקת ב-`@metavchim/shared`.
+   */
+  const sessionsRef = useRef(createDictationSessions());
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   // האם להמשיך לקטע הבא כשהנוכחי נסגר (false = המתווך לחץ עצירה)
@@ -136,7 +146,11 @@ export function VoiceRecorder({
       // אחרי שעזב את המסך (ביקורת Codex)
       disposedRef.current = true;
       abortRef.current?.abort();
-      recognitionRef.current?.stop();
+      /*
+       * גם כאן הסבב נסגר במפורש ולא רק „נעצר”: מנוע שנשאר עם
+       * `onresult` דלוק כותב לשדה של רכיב שכבר ירד מהמסך.
+       */
+      retireRecognition();
       continueRef.current = false;
       const recorder = mediaRecorderRef.current;
       if (recorder?.state === "recording") {
@@ -188,6 +202,17 @@ export function VoiceRecorder({
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
       onError?.("אין גישה למיקרופון — אשרו הרשאה בדפדפן או הקלידו");
+      return;
+    }
+    /*
+     * בקשת ההרשאה למיקרופון היא `await`, ולכן שתי לחיצות מהירות על
+     * „הקלטה” הגיעו לכאן שתיהן — הבדיקה ב-`begin` נשענת על state
+     * שעוד לא התעדכן. עד כה כל אחת פתחה מקליט וצופה-קטעים משלה,
+     * וכל קטע נשלח לתמלול פעמיים: הטקסט הופיע כפול וההקלטה
+     * הראשונה נשארה פתוחה עם המיקרופון דלוק. השנייה מוותרת.
+     */
+    if (disposedRef.current || streamRef.current !== null) {
+      stream.getTracks().forEach((track) => track.stop());
       return;
     }
     streamRef.current = stream;
@@ -375,10 +400,35 @@ export function VoiceRecorder({
     });
   }
 
+  /**
+   * ניתוק מוחלט של מנוע הזיהוי שרץ כרגע — לא רק החלפת ה-ref.
+   *
+   * מנוע שאיש לא עצר ממשיך להאזין ולירות `onresult`, ושני מנועים
+   * חיים כותבים כל מילה פעמיים. `stop()` על מנוע שכבר נסגר זורק
+   * בחלק מהדפדפנים, ולכן הוא עטוף.
+   */
+  function retireRecognition(): void {
+    const previous = recognitionRef.current;
+    recognitionRef.current = null;
+    if (previous === null) return;
+    previous.onresult = null;
+    previous.onend = null;
+    previous.onerror = null;
+    try {
+      previous.stop();
+    } catch {
+      /* מנוע שכבר נסגר — אין מה לעצור */
+    }
+  }
+
   /** מצב "מהיר" — זיהוי הדפדפן, הטקסט זוחל על המסך תוך כדי הדיבור. */
   function startBrowserRecognition(): void {
     const Ctor = getSpeechRecognition();
     if (!Ctor) return;
+    // סבב חדש מבטל את הקודם במפורש, ולא מקווה שייסגר בזמן
+    retireRecognition();
+    const sessions = sessionsRef.current;
+    const token = sessions.begin();
     const recognition = new Ctor();
     recognition.lang = "he-IL";
     recognition.continuous = true;
@@ -398,18 +448,24 @@ export function VoiceRecorder({
     // סט חדש לכל סשן — זיכרון "מי היה זמני" חי בין אירועי onresult
     const interimSeen = new Set<number>();
     recognition.onresult = (event) => {
+      // תוצאה מאוחרת של סבב שכבר הוחלף אינה שייכת לשדה שלפנינו
+      if (!sessions.isCurrent(token)) return;
       // collectDictation מסנן קטע רפאים שמופיע פעמיים ברצף — הבאג של
       // כרום באנדרואיד שגרם לכל משפט להיכתב פעמיים (מסונן גם בשדות)
       const { final, interim } = collectDictation(event.results, interimSeen);
       const spoken = `${final}${interim}`.trim();
       if (spoken === "") return;
-      onChange(base.trim() === "" ? spoken : `${base.trimEnd()} ${spoken}`);
+      onChange(appendDictated(base, spoken));
     };
     recognition.onend = () => {
+      if (!sessions.end(token)) return;
+      recognitionRef.current = null;
       setRecording(false);
       setActiveMode(null);
     };
     recognition.onerror = () => {
+      if (!sessions.end(token)) return;
+      recognitionRef.current = null;
       setRecording(false);
       setActiveMode(null);
       onError?.("זיהוי הדיבור נכשל — אפשר להקליד במקום");
@@ -431,6 +487,12 @@ export function VoiceRecorder({
   }
 
   function begin(mode: DictationMode): void {
+    /*
+     * סבב שכבר רץ אינו נפתח שוב. הכפתור אמנם מוחלף ב„עצור” בזמן
+     * הקלטה, אבל בין הלחיצה לרינדור יש חלון — ולחיצה כפולה מהירה,
+     * שכיחה במסך מגע, נכנסה בו והשאירה שני מקליטים על אותו שדה.
+     */
+    if (recording) return;
     setActiveMode(mode);
     if (mode === "server") void startServerRecording();
     else startBrowserRecognition();
