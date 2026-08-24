@@ -42,6 +42,7 @@ import {
   type AgentReply,
 } from "./assistant-buttons";
 import { formatCard } from "./assistant-card";
+import { formatCallbacks } from "./assistant-callbacks";
 import { historySummary, summarizeData } from "./assistant-results";
 import { prospectReplyText } from "./prospect-reply";
 import { WhatsAppSendService } from "./whatsapp-send.service";
@@ -836,7 +837,13 @@ export class WhatsAppAssistantService {
      * מנסחים ולא אחד, כי אלה שתי שאלות שונות — „מי הם” מול „מה יש
      * עליו”, ומנסח אחד היה עונה על אחת מהן בלבד.
      */
-    const dataSummary = formatCard(primary.data) ?? summarizeData(primary.data);
+    /*
+     * רשימת החזרות מנוסחת בנפרד, ולפניה — ראו `assistant-callbacks`.
+     * הסיכום הכללי חותך בחמש שורות ומוותר על הסיבה ועל זמן ההמתנה,
+     * וזו בדיוק הרשימה שקיימת כדי לשאת אותם (ביקורת Codex).
+     */
+    const dataSummary =
+      formatCallbacks(primary.data) ?? formatCard(primary.data) ?? summarizeData(primary.data);
     if (dataSummary !== "") lines.push(dataSummary);
     /*
      * סייג ההיקף — התשובה היא על *הנתונים שלו*, לא של המשרד.
@@ -1073,6 +1080,16 @@ const SCOPE_CAPABILITIES: Record<string, readonly Capability[]> = {
    * כאן הסייג היה נעלם דווקא כשחלק מההיסטוריה אכן הוסתר.
    */
   show_calls: ["buyers.view_all", "leads.view_all", "properties.view"],
+  /*
+   * „למי לחזור” שואבת משלושה מקורות — שיחות, לידים ומשימות —
+   * ולכן דורשת את איחוד היכולות שלהם.
+   *
+   * ההודעה מכריזה מספר („3 ממתינים לחזרה”), ומספר בלי הסייג נשמע
+   * כמו תור החזרות של כל המשרד בזמן שהוא האישי בלבד. בפעולה
+   * שהתשובה שלה היא רשימת מטלות זו לא אי-דיוק אלא הנחיה שגויה
+   * (ביקורת Codex).
+   */
+  show_callbacks: ["buyers.view_all", "leads.view_all", "properties.view", "tasks.view_all"],
 };
 
 /** קבוצות החיפוש הכללי שמסוננות לפי בעלות — הנכסים אינם ביניהן. */

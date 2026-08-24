@@ -94,3 +94,5 @@ export * from "./agent/prompt.js";
 export * from "./agent/proposal.js";
 
 export * from "./logic/dictation.js";
+
+export * from "./logic/callbacks.js";

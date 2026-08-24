@@ -65,6 +65,19 @@ interface TaskRow {
   entityLabel?: string;
 }
 
+/** שורה ברשימת „למי לחזור” — האדם, המספר, והסיבה. */
+interface CallbackRow {
+  contactId: string;
+  name: string;
+  /** `null` = אין מספר בכרטיס. השורה נשארת, עם אמירה מפורשת. */
+  phone: string | null;
+  reasonText: string;
+  waitedText: string;
+  href: string;
+  detail?: string;
+  alsoCount: number;
+}
+
 interface CallRow {
   id: string;
   direction: "inbound" | "outbound";
@@ -118,6 +131,7 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
     properties?: PropertyRow[];
     appointments?: AppointmentRow[];
     tasks?: TaskRow[];
+    callbacks?: CallbackRow[];
     calls?: CallRow[];
     deals?: DealRow[];
     report?: unknown;
@@ -158,6 +172,48 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
             </a>
             <span style={{ color: "var(--color-text-muted)" }}>
               {[t.entityLabel ?? null, t.dueAt === undefined ? null : whenText(t.dueAt)]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          </li>
+        ))}
+      </ResultList>
+    );
+  }
+
+  if (Array.isArray(payload.callbacks)) {
+    return (
+      <ResultList
+        hasMore={false}
+        count={payload.callbacks.length}
+        noun="ממתינים לחזרה"
+        empty="אין כרגע אף אחד שממתין לחזרה"
+      >
+        {payload.callbacks.map((row) => (
+          <li key={row.contactId} className="mv-result-row">
+            <a href={row.href} className="font-medium underline">
+              <IconPhone s={15} /> {row.name}
+            </a>
+            {/*
+              המספר הוא קישור חיוג ולא טקסט.
+              המתווך ביקש „מספרים שצריך לחזור אליהם”; מספר שאי אפשר
+              ללחוץ עליו משאיר אותו בדיוק במקום שבו התחיל — במיוחד
+              בטלפון, שם `tel:` פותח את החייגן.
+            */}
+            {row.phone === null ? (
+              <span style={{ color: "var(--color-text-muted)" }}>אין מספר בכרטיס</span>
+            ) : (
+              <a href={`tel:${row.phone}`} dir="ltr" className="font-medium underline">
+                {row.phone}
+              </a>
+            )}
+            <span style={{ color: "var(--color-text-muted)" }}>
+              {[
+                row.reasonText,
+                row.waitedText,
+                row.alsoCount > 0 ? `+${row.alsoCount} בכרטיס` : null,
+                row.detail ?? null,
+              ]
                 .filter(Boolean)
                 .join(" · ")}
             </span>

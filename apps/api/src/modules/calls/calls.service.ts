@@ -164,6 +164,15 @@ export class CallsService {
     recordedOnly?: boolean;
     /** שיחה אחת לפי מזהה — עדיין דרך סינון הבעלות של הרשימה. */
     id?: string;
+    /**
+     * רק שיחות מאז המועד הזה.
+     *
+     * החלון חייב להיות **בתוך השאילתה** ולא סינון אחריה: תקרה
+     * גלובלית של „החדשות ביותר” מסירה שיחות ותיקות מהחלון עוד לפני
+     * שהמסנן רואה אותן, ואי אפשר להחזיר שורה שכבר נחתכה (ביקורת
+     * Codex). כך התקרה חלה על החלון בלבד.
+     */
+    since?: Date;
     limit: number;
   }): Promise<CallDto[]> {
     const { tenantId, userId } = TenantContext.current();
@@ -175,6 +184,7 @@ export class CallsService {
         ...(query.contactId ? { contactId: query.contactId } : {}),
         ...(query.recordedOnly ? { recordingKey: { not: null } } : {}),
         ...(query.id ? { id: query.id } : {}),
+        ...(query.since ? { occurredAt: { gte: query.since } } : {}),
       };
       /*
        * „אני רשמתי” חל רק על שיחה **בלי בעלים** — בלי איש קשר, או
@@ -228,6 +238,7 @@ export class CallsService {
              AND (${query.contactId ?? null}::char(26) IS NULL OR c.contact_id = ${query.contactId ?? null})
              AND (${query.id ?? null}::char(26) IS NULL OR c.id = ${query.id ?? null})
              AND (${query.recordedOnly === true} = false OR c.recording_key IS NOT NULL)
+             AND (${query.since ?? null}::timestamptz IS NULL OR c.occurred_at >= ${query.since ?? null})
            ORDER BY c.occurred_at DESC
            LIMIT ${query.limit}
         `;
@@ -255,6 +266,71 @@ export class CallsService {
         allowed.map((row) => row.contactId).filter((id): id is string => id !== null),
       );
       return Promise.all(allowed.map((row) => this.toDto(tx, row, contactsById)));
+    });
+  }
+
+  /**
+   * השיחה **האחרונה** של כל איש קשר בחלון — לרשימת „למי לחזור”.
+   *
+   * ## למה שאילתה משלה ולא `list` עם תקרה
+   *
+   * „למי לחזור” מוכרעת לפי מה שקרה אחרון עם כל אדם, ולכן כל מה
+   * שנחוץ הוא שורה אחת לאיש קשר. גרסה קודמת שלפה את 500 השיחות
+   * החדשות בחלון וסיננה אחריהן — ומשרד עמוס חצה את התקרה, כך שלקוח
+   * שהתקשר לפני עשרה ימים ומאז שקט נפל מהרשימה בשקט. תקרה גדולה
+   * יותר הייתה דוחה את אותו באג, לא מתקנת אותו (ביקורת Codex).
+   *
+   * `DISTINCT ON` מכריע את „האחרונה” במסד. הגודל חסום מטבעו —
+   * מספר אנשי הקשר שדיברו איתם בחלון — ולכן אין כאן תקרה שתחתוך
+   * שוב את הצד הלא-נכון.
+   *
+   * ## מה נשאר זהה
+   *
+   * תנאי הראות הם **אותו נוסח** של `list`, כולל ענפי „אני רשמתי”:
+   * שתי דרכים לשאול על אותה שיחה חייבות לראות אותה אותו דבר.
+   * שיחות בלי איש קשר אינן כאן — לא כי אינן נראות, אלא כי „חזרה”
+   * מחייבת אדם.
+   */
+  async latestPerContactSince(since: Date): Promise<CallDto[]> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const visible = await visibleContactIds(tx, tenantId);
+      const latest = await tx.$queryRaw<{ id: string }[]>`
+        SELECT DISTINCT ON (c.contact_id) c.id
+          FROM calls c
+         WHERE c.tenant_id = ${tenantId}
+           AND c.contact_id IS NOT NULL
+           AND c.occurred_at >= ${since}
+           AND (
+                ${visible === null}
+             OR c.contact_id = ANY(${visible ?? []}::char(26)[])
+             OR (c.created_by = ${userId}
+                 AND NOT EXISTS (SELECT 1 FROM buyers b
+                                  WHERE b.tenant_id = c.tenant_id
+                                    AND b.contact_id = c.contact_id
+                                    AND b.deleted_at IS NULL)
+                 AND NOT EXISTS (SELECT 1 FROM leads l
+                                  WHERE l.tenant_id = c.tenant_id
+                                    AND l.contact_id = c.contact_id)
+                 AND NOT EXISTS (SELECT 1 FROM properties p
+                                  WHERE p.tenant_id = c.tenant_id
+                                    AND p.owner_contact_id = c.contact_id
+                                    AND p.deleted_at IS NULL))
+           )
+         ORDER BY c.contact_id, c.occurred_at DESC
+      `;
+      const ids = latest.map((row) => row.id);
+      if (ids.length === 0) return [];
+
+      const rows = await tx.call.findMany({
+        where: { tenantId, id: { in: ids } },
+        orderBy: { occurredAt: "desc" },
+      });
+      const contactsById = await this.contacts.getByIds(
+        tx,
+        rows.map((row) => row.contactId).filter((id): id is string => id !== null),
+      );
+      return Promise.all(rows.map((row) => this.toDto(tx, row, contactsById)));
     });
   }
 

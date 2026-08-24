@@ -259,6 +259,32 @@ describe("שאלות קריאה על כל המערכת", () => {
     expect(routeVoiceCommand("תזכיר לי מחר להתקשר לדוד").action).toBe("add_task");
   });
 
+  /*
+   * מנוע הכללים רץ כשהמודל אינו זמין. פעולה שאין לה כלל פשוט אינה
+   * קיימת שם — ולכן „למי לחזור” נבדקת כאן ולא רק בקטלוג.
+   */
+  it("„למי לחזור” — בכל שלוש דרכי הניסוח", () => {
+    for (const said of [
+      "למי אני צריך לחזור",
+      "למי לחזור היום",
+      "מי מחכה לי",
+      "מי ממתין לחזרה",
+      "תן לי טלפונים שצריך לחזור אליהם",
+      "רשימת החזרות",
+    ]) {
+      expect(routeVoiceCommand(said).action).toBe("show_callbacks");
+    }
+  });
+
+  /*
+   * „מי התקשר ולא חזרתי אליו” נופל גם על תבנית יומן השיחות. סדר
+   * הכללים הוא מה שמכריע, ולכן הוא נבדק ולא מונח.
+   */
+  it("„מי התקשר ולא חזרתי” הוא חזרה, לא יומן שיחות", () => {
+    expect(routeVoiceCommand("מי התקשר ולא חזרתי אליו").action).toBe("show_callbacks");
+    expect(routeVoiceCommand("מי התקשר אליי היום").action).toBe("show_calls");
+  });
+
   it("שיחות, דוח ועסקאות שת\"פ", () => {
     expect(routeVoiceCommand("מי התקשר אליי היום").action).toBe("show_calls");
     expect(routeVoiceCommand("כמה לידים נכנסו החודש").action).toBe("office_report");

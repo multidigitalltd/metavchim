@@ -532,6 +532,93 @@ export class LeadsService {
       return { items, nextCursor: hasMore ? (page.at(-1)?.id ?? null) : null };
     });
   }
+
+  /**
+   * לידים שהכדור אצל המתווך — **הוותיקים ראשונים**.
+   *
+   * ## למה שיטה ייעודית ולא `list` עם סינון אחריה
+   *
+   * `list` מחזירה עמוד לפי `id` יורד, כלומר את ה**חדשים**, וסינון
+   * הסטטוס קורה אחריה. משרד עם יותר לידים מגודל העמוד היה מאבד
+   * בשקט בדיוק את הליד שרשימת החזרות קיימת בשבילו: הוותיק ביותר,
+   * זה שממתין הכי הרבה זמן (ביקורת Codex).
+   *
+   * כאן הסטטוס מסונן במסד והמיון הוא לפי מועד הכניסה בסדר עולה —
+   * ולכן חיתוך התקרה מוריד את החדשים, שהם הפחות דחופים. חיתוך שמסיר
+   * את הצד הלא-נכון של הרשימה הוא באג; חיתוך שמסיר את הזנב הוא
+   * החלטה.
+   *
+   * `waiting_customer` אינו כאן בכוונה: שם ממתינים **ללקוח**, ולכן
+   * אין למה לחזור אליו.
+   */
+  async openAwaitingResponse(limit: number): Promise<LeadDto[]> {
+    return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
+      const rows = await tx.lead.findMany({
+        where: {
+          tenantId,
+          ...ownershipFilter("leads.view_all", "assignedToUserId"),
+          status: { in: ["new", "in_progress"] },
+        },
+        orderBy: { createdAt: "asc" },
+        take: limit,
+      });
+      const contactsById = await this.contacts.getByIds(
+        tx,
+        rows.map((row) => row.contactId),
+      );
+      const items: LeadDto[] = [];
+      for (const row of rows) {
+        const contact = contactsById.get(row.contactId);
+        if (contact) items.push(toLeadDto(row, contact));
+      }
+      return items;
+    });
+  }
+
+  /**
+   * הלידים החיים שמשימות מצביעות עליהם — לפי מזהה, בלי תלות בסטטוס.
+   *
+   * ## למה לא לעשות שימוש חוזר ב-`openAwaitingResponse`
+   *
+   * זה נראה כמו חיסכון בשאילתה והתברר כביטול של מקור שלם. אותה
+   * שליפה מחזירה `new` ו-`in_progress` בלבד, וכל איש קשר בה כבר
+   * נכנס לרשימה כ„פנייה שממתינה” — סיבה שגוברת על „משימה”. התוצאה:
+   * משימה על ליד משם לעולם אינה הסיבה המוצגת, ומשימה על ליד
+   * ב-`waiting_customer` — „לחזור אליו ביום שישי”, בדיוק המשימה
+   * שכן צריך להזכיר — נשמטה כליל. מקור המשימות היה מפורסם וכבוי
+   * (ביקורת Codex).
+   *
+   * `waiting_customer` שייך כאן ולא שם: אין למה לחזור ללקוח שממתינים
+   * לו — **אלא אם** המתווך רשם לעצמו משימה לחזור, וזה בדיוק המקרה.
+   *
+   * הסטטוסים הסגורים (`converted`, `closed`) נשארים בחוץ: משימה על
+   * ליד שהסתיים אינה חזרה לאיש.
+   */
+  async activeByIds(ids: readonly string[]): Promise<LeadDto[]> {
+    if (ids.length === 0) return [];
+    return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
+      const rows = await tx.lead.findMany({
+        where: {
+          tenantId,
+          ...ownershipFilter("leads.view_all", "assignedToUserId"),
+          id: { in: [...new Set(ids)] },
+          status: { in: [...OPEN_LEAD_STATUSES] },
+        },
+      });
+      const contactsById = await this.contacts.getByIds(
+        tx,
+        rows.map((row) => row.contactId),
+      );
+      const items: LeadDto[] = [];
+      for (const row of rows) {
+        const contact = contactsById.get(row.contactId);
+        if (contact) items.push(toLeadDto(row, contact));
+      }
+      return items;
+    });
+  }
 }
 
 function toLeadDto(
