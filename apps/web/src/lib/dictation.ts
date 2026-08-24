@@ -216,6 +216,21 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
    * נוגע במצב. הלוגיקה עצמה נבדקת ב-`@metavchim/shared`.
    */
   const sessionsRef = useRef(createDictationSessions());
+  /**
+   * סבב הקלטה תפוס — **נלקח לפני כל `await`, ומשותף לשני המצבים.**
+   *
+   * המנעולים הקודמים היו לכל מצב בנפרד, ולכן החור שבין המצבים נשאר
+   * פתוח: „מדויק” ממתין ל-`getUserMedia`, ובינתיים לחיצה על „מהיר”
+   * עוברת — `recording` ו-`transcribing` עדיין כבויים. כשההרשאה
+   * חוזרת, המסלול השני בודק רק את `recorderRef` ומתחיל גם הוא: שני
+   * מנועים מקליטים יחד, `stop()` מעדיף את מנוע הזיהוי, וה-`onend`
+   * שלו מכבה את מצב ההקלטה בעוד ה-`MediaRecorder` ממשיך לרוץ בלי
+   * כפתור שיעצור אותו (ביקורת Codex).
+   *
+   * זה `ref` ולא `state` בכוונה: state מתעדכן ברינדור הבא, וכל החלון
+   * שאנחנו סוגרים כאן נמצא *לפניו*.
+   */
+  const busyRef = useRef(false);
   /** מזהה הסבב שהמנוע שב-`recognitionRef` שייך אליו. */
   const browserTokenRef = useRef(0);
   // ה-callback העדכני — ההקלטה חיה בין רינדורים, ולולאת הסגירה
@@ -294,7 +309,10 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
 
   const startBrowser = useCallback((): void => {
     const Ctor = getSpeechRecognition();
-    if (!Ctor) return;
+    if (!Ctor) {
+      busyRef.current = false;
+      return;
+    }
     // סבב חדש מבטל את הקודם במפורש, ולא מקווה שייסגר בזמן
     retireBrowser();
     const sessions = sessionsRef.current;
@@ -322,6 +340,7 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
       }
       recognitionRef.current = null;
       browserTokenRef.current = 0;
+      busyRef.current = false;
       setRecording(null);
     };
     recognition.onerror = (event) => {
@@ -332,12 +351,22 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
       }
       recognitionRef.current = null;
       browserTokenRef.current = 0;
+      busyRef.current = false;
       setRecording(null);
       setError(dictationErrorMessage(event?.error));
     };
     recognitionRef.current = recognition;
     browserTokenRef.current = token;
-    recognition.start();
+    try {
+      recognition.start();
+    } catch {
+      // מנוע שאינו עולה אינו רשאי להשאיר את הסבב תפוס לנצח
+      sessions.end(token);
+      retireBrowser();
+      busyRef.current = false;
+      setError(dictationErrorMessage(undefined));
+      return;
+    }
     setRecording("browser");
   }, [retireBrowser]);
 
@@ -346,6 +375,7 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
+      busyRef.current = false;
       setError("אין גישה למיקרופון — אשרו הרשאה בדפדפן או הקלידו");
       return;
     }
@@ -358,6 +388,7 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
      */
     if (disposedRef.current || recorderRef.current !== null) {
       stream.getTracks().forEach((t) => t.stop());
+      busyRef.current = false;
       return;
     }
     /**
@@ -371,6 +402,7 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
      * (ביקורת Codex).
      */
     function abandon(): void {
+      busyRef.current = false;
       recorderRef.current = null;
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -437,6 +469,7 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
     // ההקלטה כבר סימנה `transcribing`; הקלטה ריקה חייבת לכבות אותו
     // בעצמה, אחרת הסבב נשאר "פעיל" לנצח והכפתורים אינם חוזרים
     if (blob.size === 0 || disposedRef.current) {
+      busyRef.current = false;
       setTranscribing(false);
       return;
     }
@@ -472,6 +505,8 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
       if (disposedRef.current) return;
       setError("התמלול נכשל — נסו הקלטה מהירה או הקלידו");
     } finally {
+      // הסבב נגמר רק כשהטקסט חזר — עד אז „מדויק” עדיין באוויר
+      busyRef.current = false;
       if (!disposedRef.current) setTranscribing(false);
     }
   }
@@ -486,7 +521,8 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
        * נכנסה בו. במצב המדויק זה שלח לתמלול קובץ שמכיל את אותה
        * שמיעה פעמיים; במצב המהיר זה השאיר שני מנועים מקליטים.
        */
-      if (recording !== null || transcribing) return;
+      if (busyRef.current || recording !== null || transcribing) return;
+      busyRef.current = true;
       setError(null);
       if (mode === "browser") startBrowser();
       else void startServer();
@@ -540,6 +576,7 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
          */
         if (!sessionsRef.current.end(token)) return;
         retireBrowser();
+        busyRef.current = false;
         setRecording(null);
       }, 10_000);
       return;

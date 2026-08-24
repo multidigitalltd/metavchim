@@ -116,6 +116,20 @@ export function VoiceRecorder({
    * את זה: הלוגיקה נבדקת ב-`@metavchim/shared`.
    */
   const sessionsRef = useRef(createDictationSessions());
+  /**
+   * סבב הקלטה תפוס — **נלקח לפני כל `await`, ומשותף לשני המצבים.**
+   *
+   * המנעולים הקודמים היו לכל מצב בנפרד, ולכן חורים בין המצבים נשארו
+   * פתוחים: „מדויק” ממתין ל-`getUserMedia`, ובינתיים לחיצה על „מהיר”
+   * עוברת — כי `recording` עדיין כבוי וכי המסלול השני בודק רק את
+   * `streamRef`. כשההרשאה חוזרת, שני המנועים מקליטים יחד, ו-`stop()`
+   * מטפל רק באחד מהם: המיקרופון נשאר פתוח בלי כפתור שיעצור אותו
+   * (ביקורת Codex).
+   *
+   * זה `ref` ולא `state` בכוונה: state מתעדכן ברינדור הבא, וכל החלון
+   * שאנחנו סוגרים כאן נמצא *לפניו*.
+   */
+  const busyRef = useRef(false);
   /** מזהה הסבב שהמנוע שב-`recognitionRef` שייך אליו. */
   const browserTokenRef = useRef(0);
   /** ממתין ל-`onend` אחרי `stop()` — ראו `finishing`. */
@@ -217,6 +231,8 @@ export function VoiceRecorder({
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
+      busyRef.current = false;
+      setActiveMode(null);
       onError?.("אין גישה למיקרופון — אשרו הרשאה בדפדפן או הקלידו");
       return;
     }
@@ -229,6 +245,7 @@ export function VoiceRecorder({
      */
     if (disposedRef.current || streamRef.current !== null) {
       stream.getTracks().forEach((track) => track.stop());
+      busyRef.current = false;
       return;
     }
     streamRef.current = stream;
@@ -245,6 +262,8 @@ export function VoiceRecorder({
       continueRef.current = false;
       stream.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+      busyRef.current = false;
+      setActiveMode(null);
       onError?.("ההקלטה לא נפתחה במכשיר הזה — נסו „מהיר” או הקלידו");
       return;
     }
@@ -458,6 +477,9 @@ export function VoiceRecorder({
     streamRef.current?.getTracks().forEach((track) => track.stop()); // כיבוי המיקרופון
     streamRef.current = null;
     void sendQueueRef.current.then(() => {
+      // הסבב נגמר רק כשהקטע האחרון כבר תומלל — עד אז סבב חדש היה
+      // מאפס את תור השליחות מתחת לרגליו
+      busyRef.current = false;
       if (disposedRef.current) return; // הרכיב כבר ירד מהמסך
       // אחרי כשל שירות כבר הוצגה הודעה מדויקת יותר — לא מציפים בשתיים
       if (failuresRef.current >= MAX_CONSECUTIVE_FAILURES) return;
@@ -494,7 +516,11 @@ export function VoiceRecorder({
   /** מצב "מהיר" — זיהוי הדפדפן, הטקסט זוחל על המסך תוך כדי הדיבור. */
   function startBrowserRecognition(): void {
     const Ctor = getSpeechRecognition();
-    if (!Ctor) return;
+    if (!Ctor) {
+      busyRef.current = false;
+      setActiveMode(null);
+      return;
+    }
     // סבב חדש מבטל את הקודם במפורש, ולא מקווה שייסגר בזמן
     retireRecognition();
     const sessions = sessionsRef.current;
@@ -530,6 +556,7 @@ export function VoiceRecorder({
     recognition.onend = () => {
       if (!sessions.end(token)) return;
       retireRecognition();
+      busyRef.current = false;
       setRecording(false);
       setFinishing(false);
       setActiveMode(null);
@@ -537,6 +564,7 @@ export function VoiceRecorder({
     recognition.onerror = () => {
       if (!sessions.end(token)) return;
       retireRecognition();
+      busyRef.current = false;
       setRecording(false);
       setFinishing(false);
       setActiveMode(null);
@@ -544,7 +572,17 @@ export function VoiceRecorder({
     };
     recognitionRef.current = recognition;
     browserTokenRef.current = token;
-    recognition.start();
+    try {
+      recognition.start();
+    } catch {
+      // מנוע שאינו עולה אינו רשאי להשאיר את הסבב תפוס לנצח
+      sessions.end(token);
+      retireRecognition();
+      busyRef.current = false;
+      setActiveMode(null);
+      onError?.("זיהוי הדיבור נכשל — אפשר להקליד במקום");
+      return;
+    }
     setRecording(true);
   }
 
@@ -557,6 +595,7 @@ export function VoiceRecorder({
     }
     const recognition = recognitionRef.current;
     if (recognition === null) {
+      busyRef.current = false;
       setRecording(false);
       setFinishing(false);
       setActiveMode(null);
@@ -584,6 +623,7 @@ export function VoiceRecorder({
       endGuardRef.current = null;
       if (!sessionsRef.current.end(guarded)) return;
       retireRecognition();
+      busyRef.current = false;
       setFinishing(false);
       setActiveMode(null);
     }, 10_000);
@@ -595,7 +635,8 @@ export function VoiceRecorder({
      * הקלטה, אבל בין הלחיצה לרינדור יש חלון — ולחיצה כפולה מהירה,
      * שכיחה במסך מגע, נכנסה בו והשאירה שני מקליטים על אותו שדה.
      */
-    if (recording || finishing) return;
+    if (busyRef.current || recording || finishing) return;
+    busyRef.current = true;
     setActiveMode(mode);
     if (mode === "server") void startServerRecording();
     else startBrowserRecognition();
