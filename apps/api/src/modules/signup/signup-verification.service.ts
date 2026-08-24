@@ -63,10 +63,14 @@ const EMAIL_WINDOW_SECONDS = 60 * 60;
  * יודע איזה מהם תקף. זה קורה בלחיצה כפולה, בשתי לשוניות, או
  * בניסיון חוזר של הדפדפן (ביקורת Codex).
  *
- * הערך קצר בכוונה: הוא נועד לסדר בקשות שנשלחו כמעט יחד, ולא
- * להוסיף השהיה למי שבאמת לא קיבל את הקוד וממתין.
+ * **החכירה מוכרחה לכסות את השליחה עצמה.** הערך היה 20 שניות בעוד
+ * ‎`chargeAndDeliver` יכולה לרוץ יותר מזה: החכירה פגה באמצע, בקשה
+ * שנייה תפסה מנעול חדש ושלחה קוד מחליף, ורק אחד מהשניים נכתב —
+ * כלומר שני אימיילים ואחד מהם מת (ביקורת Codex). ‎`EmailService`
+ * חוסמת את הקריאה לספק ב-`AbortSignal.timeout(10_000)` ואינה מנסה
+ * שוב, ולכן 45 שניות הן מעל הגבול העליון של השליחה בהפרש ניכר.
  */
-const RESEND_LOCK_SECONDS = 20;
+const RESEND_LOCK_SECONDS = 45;
 
 /** הפרטים שממתינים לאימות. סיסמה — מוצפנת בלבד. */
 export interface PendingSignup {
@@ -94,6 +98,20 @@ export type VerifiedSignup = PendingSignup & { readonly [verified]: true };
 interface StoredPending {
   pending: PendingSignup;
   codeHmac: string;
+  /**
+   * מזהה הגרסה — **המפתח שמונה הניסיונות נספר תחתיו.**
+   *
+   * מונה אחד לטוקן היה נמנה על „ההרשמה” ולא על הקוד, וכל שליחה
+   * חוזרת נאלצה לאפס אותו בדיוק ברגע שבו היא מתקינה קוד חדש.
+   * אישור שקרא את הקוד הישן והספיק להגדיל את המונה אחרי האיפוס
+   * זקף ניסיון לחובת הקוד **החדש**: כמה כאלה במקביל מוצים את
+   * חמשת הניסיונות שלו לפני שהמשתמש בכלל הקליד אותו, וההקלדה
+   * הראשונה שלו מוחקת אותו (ביקורת Codex).
+   *
+   * גרסה משלה לכל קוד פירושה שאין מה לאפס ואין מה לתאם: מונה של
+   * קוד שהוחלף פשוט פג מעצמו, ולעולם אינו נוגע ביורש.
+   */
+  version: string;
 }
 
 @Injectable()
@@ -139,7 +157,11 @@ export class SignupVerificationService implements OnModuleDestroy {
     }
     const token = randomBytes(24).toString("base64url");
     const code = SignupVerificationService.freshCode();
-    const stored: StoredPending = { pending, codeHmac: this.hmac(code) };
+    const stored: StoredPending = {
+      pending,
+      codeHmac: this.hmac(code),
+      version: SignupVerificationService.freshVersion(),
+    };
     await this.redis.set(this.key(token), JSON.stringify(stored), "EX", PENDING_TTL_SECONDS);
     await this.chargeAndDeliver(pending, code);
     // בלי הקוד, בלי הטוקן ובלי הכתובת — שורת יומן היא ספירה, לא ראיה
@@ -169,10 +191,28 @@ export class SignupVerificationService implements OnModuleDestroy {
      * מקבל את המנעול, ולכן אינו שולח קוד שני שיבטל את הראשון.
      */
     const lock = this.resendKey(token);
-    const claimed = await this.redis.set(lock, "1", "EX", RESEND_LOCK_SECONDS, "NX");
+    /*
+     * למנעול יש **בעלים**, ולא רק קיום.
+     *
+     * ‎`DEL` עיוור מוחק את מה שיושב בכתובת ולא את מה שתפסנו: חכירה
+     * שפגה תוך כדי שליחה, ובקשה שנייה שתפסה מנעול חדש בעקבותיה,
+     * הפכו את שחרור-הכישלון שלנו למחיקת המנעול **שלה** (ביקורת
+     * Codex). החותם נבדק לפני המחיקה, ולכן אין דרך לשחרר מנעול של
+     * מישהו אחר.
+     */
+    const holder = randomBytes(12).toString("base64url");
+    const claimed = await this.redis.set(lock, holder, "EX", RESEND_LOCK_SECONDS, "NX");
     if (claimed === null) {
       throw new BadRequestException("קוד חדש נשלח זה עתה — בדקו את תיבת הדואר");
     }
+    const release = async (): Promise<void> => {
+      await this.redis.eval(
+        "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+        1,
+        lock,
+        holder,
+      );
+    };
 
     const code = SignupVerificationService.freshCode();
     /*
@@ -181,7 +221,7 @@ export class SignupVerificationService implements OnModuleDestroy {
      */
     const ttl = await this.redis.ttl(this.key(token));
     if (ttl <= 0) {
-      await this.redis.del(lock);
+      await release();
       throw new BadRequestException("ההרשמה פגה — מלאו את הפרטים שוב");
     }
 
@@ -202,7 +242,7 @@ export class SignupVerificationService implements OnModuleDestroy {
     try {
       await this.chargeAndDeliver(stored.pending, code);
     } catch (error) {
-      await this.redis.del(lock);
+      await release();
       throw error;
     }
     /*
@@ -219,30 +259,27 @@ export class SignupVerificationService implements OnModuleDestroy {
      * זה עדיין מה שאימתתי”, כאן „כתוב אם זה עדיין מה שקראתי”.
      */
     /*
-     * ההתקנה **ואיפוס המונה** הם פעולה אחת.
+     * **בלי איפוס מונה כאן, כי אין מה לאפס.**
      *
-     * קודם הם היו שתיים, ובין לבין נשאר מונה ניסיונות שאינו שייך
-     * לקוד שיושב בכתובת: אישור מקביל שקורא את הקוד החדש, מגלה
-     * שהמונה של הקודם מוצה, ומוחק בהתאמה-ומחיקה דווקא אותו. השליחה
-     * החוזרת מדווחת הצלחה על קוד שנמחק (ביקורת Codex). הקדמת
-     * הצילום ב-`consume` צמצמה את החלון ולא סגרה אותו — מה שסוגר
-     * אותו הוא שהמונה לעולם אינו שורד את הקוד שהוא נספר עליו.
-     *
-     * Lua רץ אטומית ב-Redis, ולכן אין רגע שבו הקוד החדש כבר בפנים
-     * והמונה הישן עדיין קיים.
+     * הקוד החדש נושא גרסה חדשה, והמונה נספר תחת הגרסה (ראו
+     * ‎`StoredPending.version`). המונה של הקוד המוחלף אינו נוגע בו
+     * ופג מעצמו, ולכן אין עוד שתי פעולות שצריך לתאם ביניהן — וגם
+     * לא רגע שבו אחת מהן כבר קרתה והשנייה טרם.
      */
     const replaced = await this.redis.eval(
       `if redis.call('GET', KEYS[1]) == ARGV[1] then
          redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
-         redis.call('DEL', KEYS[2])
          return 1
        end
        return 0`,
-      2,
+      1,
       this.key(token),
-      this.attemptsKey(token),
       raw,
-      JSON.stringify({ ...stored, codeHmac: this.hmac(code) } satisfies StoredPending),
+      JSON.stringify({
+        ...stored,
+        codeHmac: this.hmac(code),
+        version: SignupVerificationService.freshVersion(),
+      } satisfies StoredPending),
       String(ttl),
     );
     if (replaced !== 1) {
@@ -250,7 +287,7 @@ export class SignupVerificationService implements OnModuleDestroy {
        * האימייל כבר יצא, ולכן נאמר במפורש שהקוד שבו אינו בתוקף —
        * „נשלח קוד” בלי המשך היה משאיר את המשתמש ממתין לו לחינם.
        */
-      await this.redis.del(lock);
+      await release();
       throw new BadRequestException(
         "ההרשמה כבר הושלמה או פגה — הקוד שנשלח זה עתה אינו בתוקף",
       );
@@ -289,52 +326,56 @@ export class SignupVerificationService implements OnModuleDestroy {
     if (normalized === null) throw new UnauthorizedException("הקוד אינו בצורה הנכונה");
 
     /*
-     * הרשומה נקראת **לפני** ספירת הניסיון — זו הגרסה שהניסיון הזה
-     * נספר עליה, וזו היחידה שמותר למצוי למחוק.
+     * הרשומה נקראת **לפני** ספירת הניסיון, והספירה נזקפת לגרסה
+     * שנקראה — לא ל„הרשמה” באופן כללי.
      *
-     * קודם היא נקראה רק אחרי גילוי המיצוי, ואז אין קשר בין הערך
-     * שנקרא לבין הניסיונות שנספרו: „שלחו קוד שוב” שהספיק להתקין
-     * קוד חדש ועוד לא ניקה את המונה גורם לקריאה הזו להחזיר דווקא
-     * את **החדש**, וההתאמה-ומחיקה מסירה בדיוק אותו. השליחה החוזרת
-     * מדווחת הצלחה, והקוד שבתיבת הדואר של המשתמש לעולם לא יעבוד
-     * (ביקורת Codex). מכאן — צילום לפני ה-INCR.
+     * הסדר הזה הוא מה שמונע ניסיון שנזקף לקוד הלא-נכון בשני
+     * הכיוונים: מחיקת מיצוי שמסירה קוד שהוחלף (וזה הקוד שנשלח זה
+     * עתה למשתמש), וספירה של אישור שהתיישן שנזקפת לקוד החדש —
+     * כמה כאלה במקביל מוצים אותו לפני שהוקלד ולו פעם אחת (ביקורת
+     * Codex). הצילום קודם, ומפתח המונה נגזר ממנו.
      */
     const raw = await this.redis.get(this.key(token));
-
-    const attemptNo = await this.redis.incr(this.attemptsKey(token));
-    if (attemptNo === 1) await this.redis.expire(this.attemptsKey(token), PENDING_TTL_SECONDS);
-    if (attemptNo > MAX_ATTEMPTS) {
-      /*
-       * גם מחיקת המיצוי מותנית בגרסה — ולא במחיקה עיוורת.
-       *
-       * „שלחו קוד שוב” שהספיק להתקין קוד חדש, ועוד לא ניקה את מונה
-       * הניסיונות, נופל אחרת קורבן לבקשת אישור שמגיעה באותו רגע:
-       * המחיקה מסירה את **הרשומה החדשה**, השליחה החוזרת מחזירה
-       * הצלחה, והקוד שבאימייל שלה לעולם לא יעבוד (ביקורת Codex).
-       *
-       * הניסיונות מוצו על הקוד ש**נקרא לפני הספירה**, ולכן רק הוא
-       * נמחק. אם בינתיים הותקן אחר — ההתאמה נכשלת, הוא שורד,
-       * והמונה שלו מאופס ממילא על ידי השליחה החוזרת.
-       */
-      if (raw !== null) {
-        await this.redis.eval(
-          "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
-          1,
-          this.key(token),
-          raw,
-        );
-      }
-      await this.redis.del(this.attemptsKey(token));
-      throw new UnauthorizedException("יותר מדי ניסיונות — מלאו את הפרטים שוב");
-    }
-
-    /*
-     * אותו צילום מלמעלה. קריאה שנייה כאן הייתה יכולה להחזיר גרסה
-     * אחרת מזו שהניסיון נספר עליה, וההתאמה-ומחיקה שבסוף חוסמת
-     * ממילא כל צילום שהתיישן בינתיים.
-     */
     if (raw === null) throw new UnauthorizedException("ההרשמה פגה — מלאו את הפרטים שוב");
     const stored = JSON.parse(raw) as StoredPending;
+    const attempts = this.attemptsKey(token, stored.version);
+
+    /*
+     * הגדלה ותפוגה בפעולה אחת: ‎`EXPIRE` נפרד שלא הספיק לרוץ משאיר
+     * מונה נצחי, ומאותו רגע ההרשמה חסומה עד שמישהו ינקה ידנית.
+     */
+    const counted = await this.redis.eval(
+      `local n = redis.call('INCR', KEYS[1])
+       if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+       return n`,
+      1,
+      attempts,
+      String(PENDING_TTL_SECONDS),
+    );
+    /*
+     * ‎`eval` מוחזר כ-`unknown`, ומונה שאי אפשר לקרוא **עוצר את
+     * הניסיון** ולא מכשיר אותו: תנאי מהצורה „אם זה מספר וגם גדול
+     * מהתקרה” נכשל לכיוון הפתוח, כלומר הופך תקלה בספירה לביטול
+     * מגבלת הניחושים. הרשומה אינה נמחקת כאן — לא הוכח שהניסיונות
+     * מוצו, אלא שאיננו יודעים.
+     */
+    if (typeof counted !== "number") {
+      throw new ServiceUnavailableException("האימות אינו זמין כרגע — נסו שוב בעוד רגע");
+    }
+    if (counted > MAX_ATTEMPTS) {
+      /*
+       * המחיקה מותנית בגרסה שנקראה. אם בינתיים הותקן קוד אחר —
+       * ההתאמה נכשלת, הוא שורד, והמונה שלו הוא ממילא מונה אחר.
+       */
+      await this.redis.eval(
+        "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+        1,
+        this.key(token),
+        raw,
+      );
+      await this.redis.del(attempts);
+      throw new UnauthorizedException("יותר מדי ניסיונות — מלאו את הפרטים שוב");
+    }
 
     const expected = Buffer.from(stored.codeHmac, "hex");
     const actual = Buffer.from(this.hmac(normalized), "hex");
@@ -355,8 +396,17 @@ export class SignupVerificationService implements OnModuleDestroy {
      * ‎Lua כי אין ל-Redis פקודת „מחק אם הערך שווה”; זו אותה תבנית
      * של שחרור נעילה מבוזרת, ומאותו נימוק בדיוק.
      */
-    /* נקרא לפני המחיקה — אחריה כבר אין ממי לשאול כמה נותר. */
+    /*
+     * **מועד התפוגה, ולא כמה נותר.**
+     *
+     * נשמר כאן `remaining` שנמדד לפני `create`, וההחזרה נעשתה
+     * ב-`EX remaining` — כלומר פתיחה שנתקעה שתי דקות ונפלה הייתה
+     * מאריכה את חיי הקוד בשתי דקות מעבר לעשרים המקוריות, בניגוד
+     * למה שנכתב באימייל ולמה שההערה כאן טענה (ביקורת Codex).
+     * מועד מוחלט אינו נסחף: מה שנותר ממנו מחושב בזמן ההחזרה.
+     */
     const remaining = await this.redis.ttl(this.key(token));
+    const deadline = remaining > 0 ? Date.now() + remaining * 1000 : 0;
 
     const claimed = await this.redis.eval(
       "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
@@ -365,21 +415,22 @@ export class SignupVerificationService implements OnModuleDestroy {
       raw,
     );
     if (claimed !== 1) throw new UnauthorizedException("הקוד כבר אינו תקף — בקשו קוד חדש");
-    await this.redis.del(this.attemptsKey(token));
+    await this.redis.del(attempts);
 
     try {
       return await create(stored.pending as VerifiedSignup);
     } catch (error) {
       /*
-       * הפתיחה נכשלה — הרשומה חוזרת בדיוק כפי שהייתה, עם מה שנותר
-       * מהתפוגה המקורית. ‎`NX` ולא כתיבה גסה: אם משהו כבר יושב שם
+       * הפתיחה נכשלה — הרשומה חוזרת בדיוק כפי שהייתה, עד למועד
+       * התפוגה המקורי. ‎`NX` ולא כתיבה גסה: אם משהו כבר יושב שם
        * הוא חדש מזה, ואין להחליף אותו במה שזה עתה נצרך.
        *
        * מונה הניסיונות אינו מוחזר. הקוד הוכח כנכון, ומה שנכשל הוא
        * הצד שלנו — התחלה נקייה היא הדבר הנכון למי שממילא לא טעה.
        */
-      if (remaining > 0) {
-        await this.redis.set(this.key(token), raw, "EX", remaining, "NX");
+      const left = Math.floor((deadline - Date.now()) / 1000);
+      if (left > 0) {
+        await this.redis.set(this.key(token), raw, "EX", left, "NX");
       }
       throw error;
     }
@@ -389,8 +440,13 @@ export class SignupVerificationService implements OnModuleDestroy {
     return `signup-pending:${token}`;
   }
 
-  private attemptsKey(token: string): string {
-    return `signup-pending:attempts:${token}`;
+  /** מזהה קצר וייחודי לגרסת קוד — משמש רק כשם מפתח, לא כסוד. */
+  private static freshVersion(): string {
+    return randomBytes(9).toString("base64url");
+  }
+
+  private attemptsKey(token: string, version: string): string {
+    return `signup-pending:attempts:${token}:${version}`;
   }
 
   private resendKey(token: string): string {
