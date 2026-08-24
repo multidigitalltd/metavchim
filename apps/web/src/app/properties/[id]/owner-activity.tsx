@@ -156,6 +156,12 @@ export function OwnerActivity({
         result: entry.result,
         ...(entry.durationMinutes === undefined ? {} : { durationMinutes: entry.durationMinutes }),
       })),
+      /*
+       * בלי זה השורה האחרונה הייתה מחשבת „ועוד N פעולות” מתוך המערך
+       * שבידה — מספר מדויק שהוא שגוי, כי הוא אינו יודע על מה שנחתך
+       * כבר במסד (ביקורת Codex).
+       */
+      ...(report?.truncated === true ? { truncated: true } : {}),
       now: new Date(),
     });
   }

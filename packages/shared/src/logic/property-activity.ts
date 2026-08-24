@@ -235,18 +235,33 @@ export function summarizeOwnerActivity(
 
 export const OWNER_ACTIVITY_CSV_HEADERS = ["תאריך", "שעה", "פעולה", "תוצאה", "משך (דקות)"];
 
-/** CSV לבעל הנכס — אותן עמודות בדיוק שמוצגות במסך, בלי שדה נוסף. */
-export function ownerActivityCsv(entries: readonly OwnerActivityEntry[]): string {
-  return toCsv(
-    OWNER_ACTIVITY_CSV_HEADERS,
-    entries.map((entry) => [
-      formatJerusalemDate(entry.at),
-      formatJerusalemTime(entry.at),
-      OWNER_ACTIVITY_KIND_LABELS[entry.kind],
-      OWNER_ACTIVITY_RESULT_LABELS[entry.result],
-      entry.durationMinutes,
-    ]),
-  );
+/** הנוסח שמסמן קובץ חלקי — במקום אחד, כי מבחן מצביע עליו. */
+export const OWNER_ACTIVITY_TRUNCATED_NOTE =
+  "הדוח חלקי — הוצגו הפעולות האחרונות בלבד. לתקופה ארוכה יש לייצא בטווחים קצרים יותר.";
+
+/**
+ * CSV לבעל הנכס — אותן עמודות בדיוק שמוצגות במסך, בלי שדה נוסף.
+ *
+ * ‎`truncated` נכתב **לתוך הקובץ** ולא רק מוצג במסך: הקובץ הוא מה
+ * שנשלח לבעל הנכס, והאזהרה שנשארת במערכת אינה נוסעת איתו. קובץ
+ * שנראה שלם ואינו שלם הוא בדיוק השקר שהדוח הזה נועד לא לספר
+ * (ביקורת Codex).
+ */
+export function ownerActivityCsv(
+  entries: readonly OwnerActivityEntry[],
+  options: { truncated?: boolean } = {},
+): string {
+  const rows: (string | number | undefined)[][] = entries.map((entry) => [
+    formatJerusalemDate(entry.at),
+    formatJerusalemTime(entry.at),
+    OWNER_ACTIVITY_KIND_LABELS[entry.kind],
+    OWNER_ACTIVITY_RESULT_LABELS[entry.result],
+    entry.durationMinutes,
+  ]);
+  if (options.truncated === true) {
+    rows.push([OWNER_ACTIVITY_TRUNCATED_NOTE, undefined, undefined, undefined, undefined]);
+  }
+  return toCsv(OWNER_ACTIVITY_CSV_HEADERS, rows);
 }
 
 /** מפרידי נתיב ותווים האסורים בשם קובץ; תווי בקרה נסרקים לפי קוד ולא בביטוי רגיל. */
@@ -289,6 +304,14 @@ export function ownerActivityText(input: {
   /** "כל התקופה" / "‏30 הימים האחרונים" — מה שנבחר במסך. */
   periodLabel: string;
   entries: readonly OwnerActivityEntry[];
+  /**
+   * המסד החזיר יותר שורות מהתקרה, והרשימה כאן חלקית מלכתחילה.
+   *
+   * בלי זה השורה האחרונה הייתה מחשבת „ועוד N פעולות” מתוך המערך
+   * שבידה — כלומר מוסרת ללקוח מספר מדויק שהוא שגוי, ומשמיטה את
+   * העובדה שיש עוד (ביקורת Codex).
+   */
+  truncated?: boolean;
   now: Date;
 }): string {
   const summary = summarizeOwnerActivity(input.entries, input.now);
@@ -319,6 +342,10 @@ export function ownerActivityText(input: {
   }
 
   const omitted = input.entries.length - shown.length;
-  if (omitted > 0) lines.push("", `ועוד ${omitted} פעולות — ברשימה המלאה בקובץ.`);
+  if (input.truncated === true) {
+    lines.push("", "ועוד פעולות נוספות — ברשימה המלאה בקובץ.");
+  } else if (omitted > 0) {
+    lines.push("", `ועוד ${omitted} פעולות — ברשימה המלאה בקובץ.`);
+  }
   return lines.join("\n");
 }

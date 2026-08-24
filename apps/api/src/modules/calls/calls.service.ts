@@ -99,12 +99,21 @@ export class CallsService {
     return this.prisma.withTenant(async (tx) => {
       // ליד שהוזן — משמש גם למילוי איש הקשר, כדי שהשיחה תיקשר לכרטיס
       let contactId = input.contactId;
-      if (contactId === undefined && input.leadId !== undefined) {
+      /*
+       * הנכס נקרא מהליד **ברגע היצירה** ונשמר כצילום.
+       *
+       * ‎`leads.property_id` אינו קבוע — ליד כללי מקבל שיוך לנכס
+       * מאוחר יותר, ואז שיחות ישנות שלו היו נספרות בדוח של אותו נכס
+       * (ביקורת Codex). הצילום נלקח פעם אחת ואינו משתנה איתו.
+       */
+      let propertyId: string | null = null;
+      if (input.leadId !== undefined) {
         const lead = await tx.lead.findFirst({
           where: { id: input.leadId, tenantId },
-          select: { contactId: true },
+          select: { contactId: true, propertyId: true },
         });
-        contactId = lead?.contactId;
+        contactId = contactId ?? lead?.contactId;
+        propertyId = lead?.propertyId ?? null;
       }
 
       const row = await tx.call.create({
@@ -114,6 +123,7 @@ export class CallsService {
           direction: input.direction,
           source: input.source ?? "manual",
           appointmentId: input.appointmentId ?? null,
+          propertyId,
           contactId: contactId ?? null,
           leadId: input.leadId ?? null,
           phoneEncrypted: input.phone ? this.crypto.encrypt(input.phone) : null,

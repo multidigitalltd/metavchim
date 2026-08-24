@@ -1964,6 +1964,19 @@ model Call {
   leadId              String?   @map("lead_id") @db.Char(26)
   /// הפגישה שההקלטה הזו מתעדת, כשהמקור הוא `meeting`.
   appointmentId       String?   @map("appointment_id") @db.Char(26)
+  /// הנכס שהשיחה נוגעת לו — **צילום ברגע השיחה, לא הפניה חיה.**
+  ///
+  /// עמודה משלה ולא שליפה דרך `leads.property_id`, וזו אינה כפילות:
+  /// שיוך הליד לנכס **משתנה בדיעבד**. ליד כללי שנפתח בלי נכס מקבל
+  /// אותו מאוחר יותר, כשאותו אדם ממלא טופס של נכס מסוים
+  /// (`WebLeadService.upsertLead` ממלא `propertyId` ריק). מרגע זה כל
+  /// השיחות הישנות של אותו ליד היו נספרות כפעילות בנכס החדש — עד
+  /// לתוך דוח שנמסר לבעל הנכס, שמראה לו פעילות שלא נעשתה עבורו
+  /// (ביקורת Codex, P1).
+  ///
+  /// NULL = לא ידוע, והדוח אינו טוען דבר. שורות שנוצרו לפני העמודה
+  /// נשארות NULL בכוונה: ניחוש בדיעבד הוא בדיוק מה שהעמודה מונעת.
+  propertyId          String?   @map("property_id") @db.Char(26)
   phoneEncrypted      String?   @map("phone_encrypted")
   phoneHash           String?   @map("phone_hash") @db.Char(64)
   /// המספר שאליו הלקוח התקשר — **הצד שלנו**, ולכן אינו מוצפן.
@@ -2039,6 +2052,7 @@ model Call {
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
   @@index([tenantId, occurredAt(sort: Desc)])
+  @@index([tenantId, propertyId, occurredAt(sort: Desc)])
   @@index([tenantId, contactId])
   @@index([tenantId, leadId])
   @@index([tenantId, appointmentId])

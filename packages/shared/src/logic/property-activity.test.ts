@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   OWNER_ACTIVITY_TEXT_LINES,
+  OWNER_ACTIVITY_TRUNCATED_NOTE,
   buildOwnerActivity,
   ownerActivityCsv,
   ownerActivityFileName,
@@ -213,6 +214,17 @@ describe("ownerActivityCsv", () => {
     expect(header?.replace("﻿", "")).toBe("תאריך,שעה,פעולה,תוצאה,משך (דקות)");
     expect(row?.split(",")).toHaveLength(5);
   });
+
+  it("קיטום נוסע עם הקובץ — האזהרה שבמסך אינה מגיעה לבעל הנכס", () => {
+    /*
+     * הקובץ הוא מה שנשלח. קובץ שנראה שלם ואינו שלם הוא בדיוק
+     * השקר שהדוח נועד לא לספר.
+     */
+    expect(ownerActivityCsv([entry], { truncated: true })).toContain(
+      OWNER_ACTIVITY_TRUNCATED_NOTE,
+    );
+    expect(ownerActivityCsv([entry])).not.toContain(OWNER_ACTIVITY_TRUNCATED_NOTE);
+  });
 });
 
 describe("ownerActivityFileName", () => {
@@ -263,6 +275,21 @@ describe("ownerActivityText", () => {
 
   it("תקופה ריקה אומרת זאת במקום לשלוח כותרת בלי גוף", () => {
     expect(ownerActivityText({ ...base, entries: [] })).toContain("לא נרשמה פעילות");
+  });
+
+  it("כשהמסד עצמו קיצץ — אין מספר, כי המספר שבידנו שגוי", () => {
+    /*
+     * ‎`entries` כבר חתוך ב-500 שורות. „ועוד 460 פעולות” שמחושב
+     * ממנו הוא מספר מדויק שאינו נכון, ומשמיט את קיומן של השאר.
+     */
+    const entries: OwnerActivityEntry[] = Array.from({ length: 45 }, (_, i) => ({
+      at: new Date(NOW.getTime() - i * 3_600_000),
+      kind: "inquiry",
+      result: "answered",
+    }));
+    const text = ownerActivityText({ ...base, entries, truncated: true });
+    expect(text).toContain("ועוד פעולות נוספות");
+    expect(text).not.toContain("ועוד 5 פעולות");
   });
 
   it("קיטום נאמר בפירוש — דוח מקוצץ בשקט הוא שקר", () => {
