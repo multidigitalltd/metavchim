@@ -262,7 +262,28 @@ export class SignupVerificationService implements OnModuleDestroy {
     const attemptNo = await this.redis.incr(this.attemptsKey(token));
     if (attemptNo === 1) await this.redis.expire(this.attemptsKey(token), PENDING_TTL_SECONDS);
     if (attemptNo > MAX_ATTEMPTS) {
-      await this.redis.del(this.key(token), this.attemptsKey(token));
+      /*
+       * גם מחיקת המיצוי מותנית בגרסה — ולא במחיקה עיוורת.
+       *
+       * „שלחו קוד שוב” שהספיק להתקין קוד חדש, ועוד לא ניקה את מונה
+       * הניסיונות, נופל אחרת קורבן לבקשת אישור שמגיעה באותו רגע:
+       * המחיקה מסירה את **הרשומה החדשה**, השליחה החוזרת מחזירה
+       * הצלחה, והקוד שבאימייל שלה לעולם לא יעבוד (ביקורת Codex).
+       *
+       * הניסיונות מוצו על הקוד ש**נקרא כאן**, ולכן רק הוא נמחק.
+       * אם בינתיים הותקן אחר — הוא חדש, המונה שלו יאופס על ידי
+       * השליחה החוזרת, והוא שורד.
+       */
+      const current = await this.redis.get(this.key(token));
+      if (current !== null) {
+        await this.redis.eval(
+          "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+          1,
+          this.key(token),
+          current,
+        );
+      }
+      await this.redis.del(this.attemptsKey(token));
       throw new UnauthorizedException("יותר מדי ניסיונות — מלאו את הפרטים שוב");
     }
 
