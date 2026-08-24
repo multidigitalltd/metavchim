@@ -45,6 +45,8 @@ interface CallRow {
   hasRecording?: boolean;
   /** למה אין — „אין בכלל”, „בדרך”, או „נכשלה” עם הסיבה. */
   recording?: RecordingStatus;
+  /** פירוט טכני מהספק — מגיע רק למי שרשאי לתקן את החיבור. */
+  recordingDetail?: string;
 }
 
 /* התוויות משותפות עם הכרטיס שהשרת כותב לוואטסאפ — מקור אחד. */
@@ -692,6 +694,21 @@ function CallRecording({
           <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
             {recordingStateLabel(recording)}
           </p>
+          {/*
+            הפירוט הטכני — מגיע מהשרת רק למי שמחזיק `settings.manage`,
+            ולכן עצם קיומו כאן הוא כבר ההחלטה. הוא מדבר בשמות מפתחות
+            של הספק, וזה בדיוק מה שחסר כדי לדעת אם להשלים סיסמה או
+            לפנות אליו.
+          */}
+          {call.recordingDetail === undefined ? null : (
+            <p
+              className="m-0 mt-1 text-sm"
+              dir="ltr"
+              style={{ color: "var(--color-text-muted)", wordBreak: "break-word" }}
+            >
+              {call.recordingDetail}
+            </p>
+          )}
           {/*
             תנאי חיובי ולא „כל מה שאינו ממתין”.
             ‎`blocked` הוא בדיוק המצב שבו הסבב חוזר ריק לפני שהוא

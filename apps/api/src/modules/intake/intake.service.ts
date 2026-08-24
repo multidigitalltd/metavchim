@@ -697,10 +697,40 @@ export class IntakeService {
           await lockIntakeRequest(tx, row.tenantId, row.id);
           const again = await tx.intakeRequest.findUnique({
             where: { id: row.id },
-            select: { subjectId: true, contactId: true },
+            select: {
+              subjectId: true,
+              contactId: true,
+              status: true,
+              expiresAt: true,
+            },
           });
+          if (again === null) throw new BadRequestException("הקישור אינו פעיל עוד");
+          /*
+           * הפעילוּת נבדקת **שוב, בתוך הנעילה** — ולא רק בכניסה
+           * ל-`submit`.
+           *
+           * בין שתי הנקודות אפשר שהקישור בוטל או פג, והתפיסה
+           * המותנית שמאוחר יותר בזרימה אכן תופסת זאת ומחזירה
+           * „הקישור אינו פעיל”. אבל עד שהיא רצה הכרטיס **כבר
+           * נוצר**, ו-`afterCreate` אולי כבר פרסם אותו לרשת: הלקוח
+           * מקבל הודעת שגיאה, והמשרד מקבל קונה שנולד מקישור מבוטל
+           * (ביקורת Codex).
+           *
+           * הנעילה כאן היא אותה נעילה שמסדרת את השליחות המקבילות,
+           * ולכן הבדיקה בתוכה רואה את מצב הביטול האמיתי.
+           */
+          const stillInactive = intakeInactiveReason(
+            again.status as IntakeStatus,
+            again.expiresAt,
+            new Date(),
+          );
+          if (stillInactive !== null) {
+            throw new BadRequestException(
+              stillInactive === "expired" ? "הקישור פג תוקף" : "הקישור בוטל",
+            );
+          }
           // שליחה מקבילה הקדימה — הכרטיס שלה הוא הכרטיס
-          if (again?.subjectId !== null && again?.subjectId !== undefined && again.contactId !== null) {
+          if (again.subjectId !== null && again.contactId !== null) {
             return { subjectId: again.subjectId, contactId: again.contactId };
           }
 

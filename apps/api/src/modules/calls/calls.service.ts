@@ -63,6 +63,8 @@ export interface CallDto {
    * שהמשיכה שלה נכשלת — ולפעמים בשקט מוחלט.
    */
   recording: RecordingStatus;
+  /** פירוט טכני מצונזר של תשובת הספק — רק ל-`settings.manage`. */
+  recordingDetail?: string;
   createdAt: Date;
 }
 
@@ -618,6 +620,7 @@ export class CallsService {
       providerRecordingPath?: string | null;
       providerRecordingAttemptAt?: Date | null;
       providerRecordingError?: string | null;
+      providerRecordingDetail?: string | null;
       createdAt: Date;
     },
     /**
@@ -646,6 +649,20 @@ export class CallsService {
       occurredAt: row.occurredAt,
       hasRecording: (row.recordingKey ?? null) !== null,
       recording: recordingStateOf(row),
+      /*
+       * הפירוט הטכני — **רק למי שיכול לתקן את החיבור.**
+       *
+       * הקוד לבדו („התשובה מהמרכזייה לא נקראה”) אמר למתווך שמשהו
+       * נכשל ולא נתן לו דבר לעשות איתו — בדיוק הדיווח שחזר מהשטח.
+       * הפירוט עונה על „למה”, אבל הוא מדבר בשמות מפתחות של הספק:
+       * הוא מיועד למי שמחזיק את מסך ההגדרות, ורק מבלבל את מי שרצה
+       * לשמוע את השיחה.
+       */
+      ...(row.providerRecordingDetail !== null &&
+      row.providerRecordingDetail !== undefined &&
+      TenantContext.current().capabilities.has("settings.manage")
+        ? { recordingDetail: row.providerRecordingDetail }
+        : {}),
       ...(row.durationMinutes !== null ? { durationMinutes: row.durationMinutes } : {}),
       outcome: row.outcome,
       ...(row.summary ? { summary: row.summary } : {}),

@@ -10,7 +10,9 @@ import {
   type CallbackCandidate,
   type PropertyFields,
 } from "@metavchim/shared";
+import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
+import { PrismaService } from "../../core/prisma.service";
 import { GeminiService } from "../../core/gemini.service";
 import { AgentEventsService } from "./agent-events.service";
 import { AnalyticsService, type ReportWindowDays } from "../analytics/analytics.service";
@@ -96,6 +98,7 @@ export interface ExecuteResult {
 @Injectable()
 export class AgentExecuteService {
   constructor(
+    private readonly prisma: PrismaService,
     private readonly leads: LeadsService,
     private readonly buyers: BuyersService,
     private readonly properties: PropertiesService,
@@ -618,14 +621,52 @@ export class AgentExecuteService {
    * רשאי לראות היה מחזיר את **שמו** אל תוך רשימת המשימות שלו
    * (`entityLabel`), כלומר הופך שדה עזר לדלת אחורית להיקף.
    */
-  private optionalCardTarget(raw: unknown): { kind: "buyer" | "lead"; id: string } | null {
+  private async optionalCardTarget(
+    raw: unknown,
+  ): Promise<{ kind: "buyer" | "lead"; id: string } | null> {
     const cardId = str(raw);
     if (cardId === undefined) return null;
     const [kind, id] = cardId.split(":", 2);
     if (id === undefined || (kind !== "buyer" && kind !== "lead")) return null;
     const needed = kind === "buyer" ? "buyers.view_own" : "leads.view_own";
     if (!TenantContext.current().capabilities.has(needed)) return null;
-    return { kind, id };
+
+    /*
+     * היכולת מוכיחה גישה **למודול**, לא לכרטיס הזה.
+     *
+     * המזהה אינו תמיד משהו שהסוכן הקליד: הוא מגיע גם מהתראות
+     * ברמת המשרד — `call_missed` למשל — ולכן סוכן עם `view_own`
+     * בלבד יכול להחזיק מזהה של כרטיס של עמית. בדיקת היכולת לבדה
+     * קיבלה אותו, והתזכורת נקשרה לכרטיס שאינו שלו; מכאן
+     * `entityLabel` שולף את שם הלקוח אל תוך רשימת המשימות שלו
+     * (ביקורת Codex).
+     *
+     * ההערה שמעל תיארה בדיוק את הסיכון הזה, והמימוש לא אכף אותו.
+     * הבדיקה כאן היא אותו סינון בעלות של הרשימות עצמן, ולכן שיוך
+     * לכרטיס לא-נגיש פשוט לא נוצר — התזכורת עדיין נוצרת בלעדיו.
+     */
+    const { tenantId } = TenantContext.current();
+    const found = await this.prisma.withTenant((tx) =>
+      kind === "buyer"
+        ? tx.buyer.findFirst({
+            where: {
+              id,
+              tenantId,
+              deletedAt: null,
+              ...ownershipFilter("buyers.view_all", "assignedToUserId"),
+            },
+            select: { id: true },
+          })
+        : tx.lead.findFirst({
+            where: {
+              id,
+              tenantId,
+              ...ownershipFilter("leads.view_all", "assignedToUserId"),
+            },
+            select: { id: true },
+          }),
+    );
+    return found === null ? null : { kind, id };
   }
 
   /** השיחות של איש קשר, החדשות תחילה — משותף לכרטיס ולהשמעה. */
@@ -911,7 +952,7 @@ export class AgentExecuteService {
      * נכתבה בלי שיוך, ומסך המשימות הראה „להתקשר אליו” בלי לומר
      * למי.
      */
-    const related = this.optionalCardTarget(params["relatedId"]);
+    const related = await this.optionalCardTarget(params["relatedId"]);
     const task = await this.tasks.create({
       title,
       ...(dueAt ? { dueAt } : {}),

@@ -160,6 +160,18 @@ export class SignupVerificationService implements OnModuleDestroy {
      */
     const ttl = await this.redis.ttl(this.key(token));
     if (ttl <= 0) throw new BadRequestException("ההרשמה פגה — מלאו את הפרטים שוב");
+
+    /*
+     * **השליחה קודמת לכתיבה** — וכאן דווקא הפוך מ-`issue`.
+     *
+     * הסדר ההפוך פסל את הקוד הישן ברגע שהחדש נכתב, ואם ספק
+     * האימייל נפל אחר-כך המשתמש נשאר בלי כלום: הקוד שכבר בתיבה
+     * שלו הפסיק לעבוד, והמחליף מעולם לא נשלח (ביקורת Codex).
+     *
+     * ב-`issue` הסדר הפוך ונכון: שם אין קוד קודם להגן עליו, ומה
+     * שיש להימנע ממנו הוא ההפך — קוד שנשלח ואין לו רשומה.
+     */
+    await this.deliver(stored.pending, code);
     await this.redis.set(
       this.key(token),
       JSON.stringify({ ...stored, codeHmac: this.hmac(code) } satisfies StoredPending),
@@ -167,7 +179,6 @@ export class SignupVerificationService implements OnModuleDestroy {
       ttl,
     );
     await this.redis.del(this.attemptsKey(token));
-    await this.deliver(stored.pending, code);
     this.logger.log("נשלח קוד אימות חוזר לפתיחת משרד");
   }
 

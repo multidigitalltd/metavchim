@@ -2002,6 +2002,15 @@ model Call {
   /// שגיאה של הספק עלולה לשאת נתיבים או מזהים, וכתובת ה-URL של
   /// המשיכה נושאת שם משתמש וסיסמה. הקוד נבחר מרשימה סגורה.
   providerRecordingError String? @map("provider_recording_error") @db.VarChar(60)
+  /**
+   * מה בעצם ענתה המרכזייה — **בצורה שנבנתה מצונזרת.**
+   *
+   * הקוד לבדו לא הספיק: `response_unreadable` מכסה גם מעטפת שגיאה
+   * של הספק וגם שם מפתח שאיננו מכירים, ושני אלה דורשים תיקון הפוך
+   * (דיווח מהשטח). הפירוט כאן הוא שמות מפתחות, ערכים של שדות
+   * טכניים בלבד, בלי כתובות ובלי הסודות — ראו `describeProviderResponse`.
+   */
+  providerRecordingDetail String? @map("provider_recording_detail") @db.VarChar(200)
   transcript          String?
   transcribedAt       DateTime? @map("transcribed_at")
   /**
