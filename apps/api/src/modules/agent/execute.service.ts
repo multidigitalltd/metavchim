@@ -10,7 +10,7 @@ import {
   type CallbackCandidate,
   type PropertyFields,
 } from "@metavchim/shared";
-import { ownershipFilter } from "../../common/ownership";
+import { isCardAccessible } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { PrismaService } from "../../core/prisma.service";
 import { GeminiService } from "../../core/gemini.service";
@@ -646,27 +646,10 @@ export class AgentExecuteService {
      * לכרטיס לא-נגיש פשוט לא נוצר — התזכורת עדיין נוצרת בלעדיו.
      */
     const { tenantId } = TenantContext.current();
-    const found = await this.prisma.withTenant((tx) =>
-      kind === "buyer"
-        ? tx.buyer.findFirst({
-            where: {
-              id,
-              tenantId,
-              deletedAt: null,
-              ...ownershipFilter("buyers.view_all", "assignedToUserId"),
-            },
-            select: { id: true },
-          })
-        : tx.lead.findFirst({
-            where: {
-              id,
-              tenantId,
-              ...ownershipFilter("leads.view_all", "assignedToUserId"),
-            },
-            select: { id: true },
-          }),
+    const accessible = await this.prisma.withTenant((tx) =>
+      isCardAccessible(tx, tenantId, kind, id),
     );
-    return found === null ? null : { kind, id };
+    return accessible ? { kind, id } : null;
   }
 
   /** השיחות של איש קשר, החדשות תחילה — משותף לכרטיס ולהשמעה. */

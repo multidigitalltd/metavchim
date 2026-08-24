@@ -53,11 +53,23 @@ function withoutUrls(text: string): string {
   return text.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/giu, "[כתובת]");
 }
 
-/** רשת ביטחון אחרונה — הסוד עצמו, גם אם הופיע בלי כתובת סביבו. */
+/**
+ * רשת ביטחון אחרונה — הסוד עצמו, גם אם הופיע בלי כתובת סביבו.
+ *
+ * **בלי חריג של אורך.** היה כאן דילוג על סוד קצר משלושה תווים, כדי
+ * שסיסמה בת תו אחד לא תהפוך כל מילה באנגלית לכוכביות ותשאיר תיאור
+ * חסר תועלת. זה היה איזון שגוי: תצורת המרכזייה אינה כופה אורך
+ * מזערי, ומשרד שהזין סיסמה בת תו אחד היה מקבל אותה מודפסת ביומן
+ * ובעמודה שבמסד (ביקורת Codex, P1). אבחון עקר עדיף על סוד שדלף —
+ * ומי שהסיסמה שלו קצרה כל כך יראה תיאור מלא כוכביות, וטוב שכך.
+ *
+ * מחרוזת ריקה כן מדולגת, וזו אינה הקלה אלא נכונות: `split("")`
+ * מפרק כל תו בנפרד ומחזיר טקסט מרוסק לגמרי.
+ */
 function withoutSecrets(text: string, secrets: readonly string[]): string {
   let out = text;
   for (const secret of secrets) {
-    if (secret.length < 3) continue;
+    if (secret === "") continue;
     out = out.split(secret).join("***");
   }
   return out;
@@ -65,7 +77,7 @@ function withoutSecrets(text: string, secrets: readonly string[]): string {
 
 function clean(value: string, secrets: readonly string[]): string {
   const safe = withoutSecrets(withoutUrls(value), secrets).replace(/\s+/gu, " ").trim();
-  return safe.length > VALUE_LIMIT ? `${safe.slice(0, VALUE_LIMIT)}…` : safe;
+  return safe.length > VALUE_LIMIT ? `${safe.slice(0, VALUE_LIMIT - 1)}…` : safe;
 }
 
 /**
@@ -117,5 +129,12 @@ export function describeProviderResponse(body: unknown, secrets: readonly string
 
   if (parts.length === 0) return "התשובה היא אובייקט ריק";
   const joined = parts.join(" · ");
-  return joined.length > TOTAL_LIMIT ? `${joined.slice(0, TOTAL_LIMIT)}…` : joined;
+  /*
+   * ‎`TOTAL_LIMIT - 1` ואז שלוש הנקודות: `provider_recording_detail`
+   * הוא `VARCHAR(200)`, ותיאור באורך 201 היה נדחה על ידי PostgreSQL
+   * יחד עם `providerRecordingError` שבאותו עדכון — כלומר תשובה
+   * רחבה ולא מוכרת, בדיוק המקרה שבשבילו נכתב האבחון, הייתה נשארת
+   * בלי סטטוס כשל ובלי תיאור (ביקורת Codex).
+   */
+  return joined.length > TOTAL_LIMIT ? `${joined.slice(0, TOTAL_LIMIT - 1)}…` : joined;
 }

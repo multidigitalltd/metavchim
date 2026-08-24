@@ -79,19 +79,32 @@ describe("describeProviderResponse — מה שמותר לשמור", () => {
     expect(describeProviderResponse({}, SECRETS)).toContain("ריק");
   });
 
-  it("התיאור חסום באורך — יומן אינו מקום לתשובה שלמה", () => {
+  it("התיאור חסום ב-200 תווים — כאורך העמודה שבה הוא נשמר", () => {
+    /*
+     * ‎`provider_recording_detail` הוא `VARCHAR(200)`. תיאור באורך
+     * 201 נדחה על ידי PostgreSQL יחד עם סטטוס הכשל שבאותו עדכון,
+     * ואז דווקא התשובה הרחבה — זו שבשבילה נכתב האבחון — נשארת
+     * בלי שום סימן.
+     */
     const wide = Object.fromEntries(
       Array.from({ length: 60 }, (_, i) => [`field${i}`, "x".repeat(50)]),
     );
-    expect(describeProviderResponse(wide, SECRETS).length).toBeLessThanOrEqual(201);
+    expect(describeProviderResponse(wide, SECRETS).length).toBeLessThanOrEqual(200);
   });
 
-  it("סוד קצר מדי אינו הופך כל טקסט לכוכביות", () => {
+  it("גם סוד בן תו אחד מוחלף — אבחון עקר עדיף על סוד שדלף", () => {
     /*
-     * סיסמה בת שני תווים אינה סבירה, אבל אם תופיע — החלפה עיוורת
-     * שלה הייתה הורסת כל מילה באנגלית ומשאירה תיאור חסר תועלת.
+     * היה כאן חריג הפוך: סוד קצר משלושה תווים דולג, כדי שסיסמה בת
+     * תו אחד לא תהפוך כל מילה לכוכביות. תצורת המרכזייה אינה כופה
+     * אורך מזערי, ולכן החריג הזה היה מדפיס סיסמה אמיתית ליומן.
      */
     const text = describeProviderResponse({ status: "not-found" }, ["o"]);
-    expect(text).toBe("status=not-found");
+    expect(text).not.toContain("not-found");
+    expect(text).toContain("***");
+  });
+
+  it("מחרוזת ריקה ברשימת הסודות אינה מרסקת את הטקסט", () => {
+    // split("") מפרק כל תו בנפרד — דילוג עליה הוא נכונות, לא הקלה
+    expect(describeProviderResponse({ status: "error" }, [""])).toBe("status=error");
   });
 });

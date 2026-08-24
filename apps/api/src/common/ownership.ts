@@ -69,6 +69,48 @@ export async function assertBuyerAccess(
 }
 
 /**
+ * הצורה ה**מוותרת** של השערים: "האם הכרטיס הזה נגיש לי", בלי לזרוק.
+ *
+ * קיימת כי לא כל שימוש הוא שער. שיוך תזכורת לכרטיס הוא שיפור ולא
+ * תנאי: כרטיס לא-נגיש פשוט אינו נקשר, והתזכורת נוצרת בלעדיו — שגיאה
+ * שם הייתה מפילה פעולה שהמשתמש כן ביקש.
+ *
+ * **שם עמודת הבעלות נכתב כאן ולא אצל הקורא, וזו כל הנקודה.** קונה
+ * מסומן ב-`ownerUserId` וליד ב-`assignedToUserId`; `ownershipFilter`
+ * מקבל מחרוזת ולכן טעות בשם אינה נתפסת בהידור אלא בזמן ריצה, כשהיא
+ * כבר שגיאת Prisma על ארגומנט לא מוכר — ודווקא אצל המשתמש המוגבל,
+ * זה שהפילטר בכלל חל עליו (ביקורת Codex, P1). שני השמות חיים כאן,
+ * ליד `assertBuyerAccess` שכבר מכיר אותם.
+ */
+export async function isCardAccessible(
+  tx: TenantTx,
+  tenantId: string,
+  kind: "buyer" | "lead",
+  id: string,
+): Promise<boolean> {
+  const found =
+    kind === "buyer"
+      ? await tx.buyer.findFirst({
+          where: {
+            id,
+            tenantId,
+            deletedAt: null,
+            ...ownershipFilter("buyers.view_all", "ownerUserId"),
+          },
+          select: { id: true },
+        })
+      : await tx.lead.findFirst({
+          where: {
+            id,
+            tenantId,
+            ...ownershipFilter("leads.view_all", "assignedToUserId"),
+          },
+          select: { id: true },
+        });
+  return found !== null;
+}
+
+/**
  * התאמה: אין לה בעלים משלה — היא זוג (נכס, קונה). הנכסים גלויים לכל
  * המשרד, ולכן מי שרשאי לפעול על ההתאמה נגזר מהקונה שבה.
  */
