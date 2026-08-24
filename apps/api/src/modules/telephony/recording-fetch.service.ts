@@ -229,7 +229,31 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       { signal: AbortSignal.timeout(60_000) },
     );
     if (!res.ok) throw new BadRequestException(`המרכזייה השיבה ${res.status}`);
-    const body: unknown = await res.json();
+
+    /*
+     * אותה תפיסה שיש ב-`fetchOne`, ומאותו נימוק בדיוק — היא פשוט
+     * לא הייתה כאן.
+     *
+     * ‎`res.json()` על גוף פגום זורק שגיאה שנושאת קטע מהגוף עצמו,
+     * והגוף מגיע מהספק: הוא עלול להחזיר בו את כתובת הבקשה, שנושאת
+     * ‎`auth_username` ו-`auth_password`. שגיאה שאינה נתפסת כאן
+     * עולה ל-Nest ונרשמת ביומן על הודעתה — כלומר טקסט של הספק
+     * עוקף את `describeProviderResponse` בשקט (ביקורת Codex, P1).
+     *
+     * מה שנרשם הוא עובדות שאנחנו כתבנו בלבד: הסטטוס ואורך הגוף.
+     * האורך הוא מה שמבדיל בין דף שגיאה של שרת מתווך לבין תשובה
+     * קצרה, וזה מספיק כדי לדעת לאן להסתכל.
+     */
+    const raw = await res.text();
+    let body: unknown;
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      this.logger.warn(
+        `רשימת ההקלטות לא נקראה — גוף שאינו JSON תקין (סטטוס ${res.status}, ${raw.length} תווים)`,
+      );
+      throw new BadRequestException("התשובה מהמרכזייה לא נקראה — גוף שאינו JSON תקין");
+    }
 
     const rows = parse015RecordingsList(body);
     if (rows.length === 0) {
