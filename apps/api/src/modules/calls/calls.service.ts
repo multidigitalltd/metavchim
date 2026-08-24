@@ -270,6 +270,71 @@ export class CallsService {
   }
 
   /**
+   * השיחה **האחרונה** של כל איש קשר בחלון — לרשימת „למי לחזור”.
+   *
+   * ## למה שאילתה משלה ולא `list` עם תקרה
+   *
+   * „למי לחזור” מוכרעת לפי מה שקרה אחרון עם כל אדם, ולכן כל מה
+   * שנחוץ הוא שורה אחת לאיש קשר. גרסה קודמת שלפה את 500 השיחות
+   * החדשות בחלון וסיננה אחריהן — ומשרד עמוס חצה את התקרה, כך שלקוח
+   * שהתקשר לפני עשרה ימים ומאז שקט נפל מהרשימה בשקט. תקרה גדולה
+   * יותר הייתה דוחה את אותו באג, לא מתקנת אותו (ביקורת Codex).
+   *
+   * `DISTINCT ON` מכריע את „האחרונה” במסד. הגודל חסום מטבעו —
+   * מספר אנשי הקשר שדיברו איתם בחלון — ולכן אין כאן תקרה שתחתוך
+   * שוב את הצד הלא-נכון.
+   *
+   * ## מה נשאר זהה
+   *
+   * תנאי הראות הם **אותו נוסח** של `list`, כולל ענפי „אני רשמתי”:
+   * שתי דרכים לשאול על אותה שיחה חייבות לראות אותה אותו דבר.
+   * שיחות בלי איש קשר אינן כאן — לא כי אינן נראות, אלא כי „חזרה”
+   * מחייבת אדם.
+   */
+  async latestPerContactSince(since: Date): Promise<CallDto[]> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const visible = await visibleContactIds(tx, tenantId);
+      const latest = await tx.$queryRaw<{ id: string }[]>`
+        SELECT DISTINCT ON (c.contact_id) c.id
+          FROM calls c
+         WHERE c.tenant_id = ${tenantId}
+           AND c.contact_id IS NOT NULL
+           AND c.occurred_at >= ${since}
+           AND (
+                ${visible === null}
+             OR c.contact_id = ANY(${visible ?? []}::char(26)[])
+             OR (c.created_by = ${userId}
+                 AND NOT EXISTS (SELECT 1 FROM buyers b
+                                  WHERE b.tenant_id = c.tenant_id
+                                    AND b.contact_id = c.contact_id
+                                    AND b.deleted_at IS NULL)
+                 AND NOT EXISTS (SELECT 1 FROM leads l
+                                  WHERE l.tenant_id = c.tenant_id
+                                    AND l.contact_id = c.contact_id)
+                 AND NOT EXISTS (SELECT 1 FROM properties p
+                                  WHERE p.tenant_id = c.tenant_id
+                                    AND p.owner_contact_id = c.contact_id
+                                    AND p.deleted_at IS NULL))
+           )
+         ORDER BY c.contact_id, c.occurred_at DESC
+      `;
+      const ids = latest.map((row) => row.id);
+      if (ids.length === 0) return [];
+
+      const rows = await tx.call.findMany({
+        where: { tenantId, id: { in: ids } },
+        orderBy: { occurredAt: "desc" },
+      });
+      const contactsById = await this.contacts.getByIds(
+        tx,
+        rows.map((row) => row.contactId).filter((id): id is string => id !== null),
+      );
+      return Promise.all(rows.map((row) => this.toDto(tx, row, contactsById)));
+    });
+  }
+
+  /**
    * שער השיחה הבודדת — **אותו כלל כמו ברשימה, בצורת רשומה אחת.**
    *
    * „הלקוח שלי **או** אני רשמתי”, ומנהל שרואה גם קונים וגם לידים

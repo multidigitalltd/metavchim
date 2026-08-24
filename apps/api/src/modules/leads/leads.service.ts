@@ -575,6 +575,50 @@ export class LeadsService {
       return items;
     });
   }
+
+  /**
+   * הלידים החיים שמשימות מצביעות עליהם — לפי מזהה, בלי תלות בסטטוס.
+   *
+   * ## למה לא לעשות שימוש חוזר ב-`openAwaitingResponse`
+   *
+   * זה נראה כמו חיסכון בשאילתה והתברר כביטול של מקור שלם. אותה
+   * שליפה מחזירה `new` ו-`in_progress` בלבד, וכל איש קשר בה כבר
+   * נכנס לרשימה כ„פנייה שממתינה” — סיבה שגוברת על „משימה”. התוצאה:
+   * משימה על ליד משם לעולם אינה הסיבה המוצגת, ומשימה על ליד
+   * ב-`waiting_customer` — „לחזור אליו ביום שישי”, בדיוק המשימה
+   * שכן צריך להזכיר — נשמטה כליל. מקור המשימות היה מפורסם וכבוי
+   * (ביקורת Codex).
+   *
+   * `waiting_customer` שייך כאן ולא שם: אין למה לחזור ללקוח שממתינים
+   * לו — **אלא אם** המתווך רשם לעצמו משימה לחזור, וזה בדיוק המקרה.
+   *
+   * הסטטוסים הסגורים (`converted`, `closed`) נשארים בחוץ: משימה על
+   * ליד שהסתיים אינה חזרה לאיש.
+   */
+  async activeByIds(ids: readonly string[]): Promise<LeadDto[]> {
+    if (ids.length === 0) return [];
+    return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
+      const rows = await tx.lead.findMany({
+        where: {
+          tenantId,
+          ...ownershipFilter("leads.view_all", "assignedToUserId"),
+          id: { in: [...new Set(ids)] },
+          status: { in: [...OPEN_LEAD_STATUSES] },
+        },
+      });
+      const contactsById = await this.contacts.getByIds(
+        tx,
+        rows.map((row) => row.contactId),
+      );
+      const items: LeadDto[] = [];
+      for (const row of rows) {
+        const contact = contactsById.get(row.contactId);
+        if (contact) items.push(toLeadDto(row, contact));
+      }
+      return items;
+    });
+  }
 }
 
 function toLeadDto(

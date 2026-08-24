@@ -486,6 +486,7 @@ const RULE_ACTION_MAP: Record<string, string | undefined> = {
   query_properties: "find_properties",
   show_schedule: "show_schedule",
   show_tasks: "show_tasks",
+  show_callbacks: "show_callbacks",
   show_calls: "show_calls",
   show_deals: "show_deals",
   office_report: "office_report",

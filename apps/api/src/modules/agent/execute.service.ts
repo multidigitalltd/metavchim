@@ -53,8 +53,14 @@ import { TasksService } from "../tasks/tasks.service";
  * מייצרים שיחות שנשלפו ונזרקו, או להפך — חלון שהשאילתה מקצרת.
  */
 const MISSED_CALL_WINDOW_DAYS = 14;
-/** תקרות סריקה. גבוהות מספיק שלא ייחתך דבר במשרד אמיתי. */
-const CALLBACK_CALL_SCAN = 500;
+/**
+ * תקרת הלידים הממתינים.
+ *
+ * זו התקרה היחידה שנשארה, והיא חותכת את **החדשים**: `openAwaitingResponse`
+ * ממיינת מהוותיק, כלומר מה שנופל מעבר לה הוא הפחות דחוף. השיחות אינן
+ * מוגבלות כלל — שם התקרה הסירה בשקט לקוחות שממתינים, ולכן הוחלפה
+ * בשאילתה שמחזירה שורה אחת לאיש קשר (ביקורת Codex).
+ */
 const CALLBACK_LEAD_SCAN = 500;
 
 export interface ExecuteResult {
@@ -640,19 +646,20 @@ export class AgentExecuteService {
   private async showCallbacks(): Promise<ExecuteResult> {
     const now = new Date();
     /*
-     * שתי שאילתות ממוקדות ולא „העמוד הראשון ואז מסננים”.
+     * שאילתות ממוקדות ולא „העמוד הראשון ואז מסננים”.
      *
-     * גרסה קודמת שלפה 200 שיחות אחרונות ו-100 לידים אחרונים, וסיננה
-     * אחר כך. שתיהן חתכו בדיוק את הצד הלא-נכון: השיחות לפי „החדשות
-     * ביותר” בלי קשר לחלון, והלידים לפי מזהה יורד — כלומר הליד
-     * הוותיק ביותר, זה שהרשימה קיימת בשבילו, נעלם בשקט (ביקורת
-     * Codex). כאן החלון והסטטוס נמצאים בשאילתה עצמה.
+     * גרסה קודמת שלפה שיחות ולידים אחרונים וסיננה אחר כך, ושתיהן
+     * חתכו בדיוק את הצד הלא-נכון: לקוח ששקט מאז השיחה שלא נענתה
+     * נפל מהתקרה, והליד הוותיק — זה שהרשימה קיימת בשבילו — נעלם
+     * בשקט (שתי ביקורות Codex).
+     *
+     * לכן כל מקור נשאל בדיוק על מה שהוא צריך: שיחה אחרונה לכל איש
+     * קשר בחלון, ולידים פתוחים ממוינים מהוותיק.
      */
     const [calls, waiting, tasks] = await Promise.all([
-      this.calls.list({
-        since: new Date(now.getTime() - MISSED_CALL_WINDOW_DAYS * 24 * 60 * 60 * 1000),
-        limit: CALLBACK_CALL_SCAN,
-      }),
+      this.calls.latestPerContactSince(
+        new Date(now.getTime() - MISSED_CALL_WINDOW_DAYS * 24 * 60 * 60 * 1000),
+      ),
       this.leads.openAwaitingResponse(CALLBACK_LEAD_SCAN),
       this.tasks.list({ status: "open" }),
     ]);
@@ -693,12 +700,19 @@ export class AgentExecuteService {
      * מחזירה בדיוק את הרשימה שהמתווך התלונן עליה.
      */
     /*
-     * הלידים שכבר נשלפו הם הפתוחים — ולכן משימה שמצביעה על ליד
-     * שאינו כאן היא משימה על ליד סגור או מומר, ואינה חזרה לאיש.
-     * גם אם ליד פתוח נחתך בתקרה, **האדם אינו נעלם**: הוא כבר ברשימה
-     * כ„פנייה שממתינה”. מה שאובד הוא כותרת המשימה בלבד.
+     * הלידים של המשימות נשלפים **בנפרד**, ולא מתוך `waiting`.
+     *
+     * שימוש חוזר ב-`waiting` נראה כמו חיסכון בשאילתה והיה ביטול של
+     * המקור כולו: הוא מחזיק `new` ו-`in_progress` בלבד, שכל אחד מהם
+     * כבר נכנס לרשימה כ„פנייה שממתינה” — סיבה שגוברת על „משימה”.
+     * כלומר משימה על ליד משם לעולם אינה הסיבה המוצגת, ומשימה על ליד
+     * ב-`waiting_customer` — „לחזור אליו ביום שישי”, בדיוק המשימה
+     * שצריך להזכיר — נשמטה כליל (ביקורת Codex).
      */
-    const leadById = new Map(waiting.map((lead) => [lead.id, lead]));
+    const taskLeadIds = tasks
+      .filter((task) => task.entityType === "lead" && task.entityId !== undefined)
+      .map((task) => task.entityId as string);
+    const leadById = new Map((await this.leads.activeByIds(taskLeadIds)).map((l) => [l.id, l]));
     for (const task of tasks) {
       if (task.entityType !== "lead" || task.entityId === undefined) continue;
       const lead = leadById.get(task.entityId);
