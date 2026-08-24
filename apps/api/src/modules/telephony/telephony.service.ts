@@ -1157,9 +1157,35 @@ export class TelephonyService {
      * מפיל את השנייה — כלומר שיחה שנבלעת (ביקורת Codex).
      *
      * הנעילה על המספר ולא על הכרטיס: כרטיס עדיין אין.
+     *
+     * **והקריאה החוזרת אחריה היא חצי השני של התיקון.** נעילה
+     * מסדרת בתור, היא אינה מבטלת את מה שקרה לפניה: החיפוש שהחליט
+     * „מספר לא מוכר” רץ למעלה, לפני שהנעילה נתפסה, ומי שהחזיק בה
+     * קודם כבר יכול היה ליצור את הכרטיס. יצירה בלתי-מותנית אחרי
+     * ההמתנה נופלת אז על האינדקס הייחודי ומגלגלת אחורה את כל
+     * הטרנזקציה של האירוע המסיים — ובניסיון החוזר המתקשר כבר מוכר,
+     * ולכן `callAction` אינו פותח את הליד שהיה אמור להיפתח. השיחה
+     * נבלעת בשקט (ביקורת Codex, P1). זה בדיוק הדפוס שכבר מתועד
+     * ב-`findOrCreateByPhone`: „‏findFirst שמחזיר null אחרי הנעילה”.
      */
     await lockContactPhone(tx, tenantId, phoneHash);
-    const contact = await tx.contact.create({
+    /*
+     * גם מספר משני ולא רק הראשי — אחרת אדם שהמספר הזה רשום אצלו
+     * כמספר נוסף היה מקבל כרטיס שני, וזו התקלה שריבוי המספרים בא
+     * למנוע.
+     */
+    const known =
+      (await tx.contact.findFirst({ where: { tenantId, phoneHash }, select: { id: true } })) ??
+      (
+        await tx.contactPhone.findFirst({
+          where: { tenantId, phoneHash },
+          select: { contact: { select: { id: true } } },
+        })
+      )?.contact ??
+      null;
+    const contact =
+      known ??
+      (await tx.contact.create({
       data: {
         id: ulid(),
         tenantId,
@@ -1175,7 +1201,7 @@ export class TelephonyService {
         phoneHash,
       },
       select: { id: true },
-    });
+    }));
     const leadId = ulid();
     /*
      * שיחה יוצאת אינה מגיעה ממספר וירטואלי — הסוכן הוא שיזם אותה,

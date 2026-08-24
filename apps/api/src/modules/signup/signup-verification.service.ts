@@ -266,8 +266,31 @@ export class SignupVerificationService implements OnModuleDestroy {
    */
   private async chargeEmailQuota(emailAddress: string): Promise<void> {
     const key = this.quotaKey(emailAddress);
-    const sent = await this.redis.incr(key);
-    if (sent === 1) await this.redis.expire(key, EMAIL_WINDOW_SECONDS);
+    /*
+     * המונה והתפוגה **בפעולה אחת.**
+     *
+     * ‎`INCR` ואז `EXPIRE` הם שתי פקודות, ובין השתיים אפשר להיכשל.
+     * מה שנשאר אז הוא מפתח מונה **בלי תפוגה**: הוא ממשיך לגדול בכל
+     * ניסיון, ומרגע שעבר את התקרה הכתובת חסומה **לתמיד** ולא לשעה
+     * (ביקורת Codex). זה הכשל הגרוע ביותר האפשרי בהגבלת קצב —
+     * הגבלה שאין לה סוף.
+     *
+     * ‎Lua מריץ את שתיהן כיחידה. התפוגה נקבעת גם אם המפתח קיים
+     * ואיבד אותה משום מה — `ttl == -1` — כדי שמפתח כזה שכבר שרד
+     * מגרסה קודמת ייפדה מעצמו בפנייה הבאה.
+     */
+    const sent = Number(
+      await this.redis.eval(
+        `local n = redis.call('INCR', KEYS[1])
+         if n == 1 or redis.call('TTL', KEYS[1]) == -1 then
+           redis.call('EXPIRE', KEYS[1], ARGV[1])
+         end
+         return n`,
+        1,
+        key,
+        String(EMAIL_WINDOW_SECONDS),
+      ),
+    );
     if (sent > MAX_CODES_PER_EMAIL) {
       throw new BadRequestException(
         "נשלחו כבר כמה קודים לכתובת הזו — נסו שוב בעוד שעה או פנו אלינו",
