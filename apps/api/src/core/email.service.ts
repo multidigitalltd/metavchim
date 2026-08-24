@@ -7,8 +7,9 @@ import { PlatformSettingsService } from "./platform-settings.service";
  * שליחת אימייל — שכבת הפשטה (docs/05 §0): הליבה לא מכירה ספק.
  * הספק המחובר: Postmark. ההגדרות נקראות קודם מהגדרות הפלטפורמה
  * (מסך /platform, מוצפן ב-DB) ואם אינן שם — ממשתני הסביבה.
- * בלי הגדרות כלל — Fallback ללוג; פיצ'רים שדורשים אימייל בפועל
- * (אימות כניסה) בודקים את isConfigured().
+ * בלי הגדרות כלל — Fallback ללוג. פיצ'ר שההמשך שלו תלוי בשליחה
+ * מבקש `required` ומקבל דחייה ודאית במקום שקט; `isConfigured()`
+ * נותרה לשער מוקדם וידידותי, ולא כערובה.
  *
  * כל הודעה נשלחת בשתי גרסאות: HTML מעוצב מימין לשמאל, וטקסט.
  * שתיהן נגזרות מאותו `EmailContent` (packages/shared) ולא נכתבות
@@ -61,12 +62,32 @@ export class EmailService {
    *
    * `content` מקבל גם מחרוזת, כדי שקריאה פשוטה לא תחייב אובייקט —
    * היא נקראת כפסקה יחידה ועוברת באותה תבנית בדיוק.
+   *
+   * ‎`required` — **שליחה שהמשך התהליך תלוי בה.** בלי ספק מחובר
+   * ההודעה נרשמת ליומן והקריאה חוזרת בשקט, וזה הנכון להתראה: אין
+   * סיבה להפיל פעולה במערכת משום שאין ספק דואר. אבל קורא שמסיק
+   * מכך שההודעה יצאה מקבל תשובה שגויה — ובנתיב ההרשמה זה אומר
+   * שהקוד הקודם נפסל, קוד חדש „נשלח”, ואיש לא קיבל דבר (ביקורת
+   * Codex). מי שתלוי בשליחה מבקש `required`, ומקבל דחייה ודאית.
+   *
+   * הבדיקה כאן ולא ב-`isConfigured` נפרד: ההגדרות יכולות להשתנות
+   * בין שתי קריאות, ורק קריאה **אחת** של האישורים מכריעה גם אם יש
+   * ספק וגם אם השליחה יצאה.
    */
-  async send(to: string, subject: string, content: EmailContent | string): Promise<void> {
+  async send(
+    to: string,
+    subject: string,
+    content: EmailContent | string,
+    options: { required?: boolean } = {},
+  ): Promise<void> {
     const body: EmailContent =
       typeof content === "string" ? { paragraphs: [content] } : content;
     const creds = await this.credentials();
     if (!creds) {
+      if (options.required === true) {
+        this.logger.error(`[אימייל נדרש ולא נשלח — אין ספק מחובר] ${subject}`);
+        throw new EmailRejectedError("שליחת האימייל נכשלה — נסו שוב");
+      }
       // אין ספק — נרשם ללוג השרת בלבד (לא נשלח לאף אחד)
       this.logger.warn(`[אימייל לא נשלח — אין ספק מחובר] אל: ${to} | ${subject}`);
       return;

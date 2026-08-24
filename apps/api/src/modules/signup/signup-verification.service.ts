@@ -701,15 +701,21 @@ export class SignupVerificationService implements OnModuleDestroy {
   }
 
   private async deliver(pending: PendingSignup, code: string): Promise<void> {
-    await this.email.send(pending.email, "קוד לפתיחת המשרד שלכם במתווכים", {
-      heading: "אימות כתובת האימייל",
-      greeting: `שלום ${pending.ownerName},`,
-      paragraphs: [
-        `קיבלנו בקשה לפתוח את המשרד "${pending.agencyName}" עם הכתובת הזו. הזינו את הקוד במסך ההרשמה כדי להשלים את הפתיחה.`,
-      ],
-      code,
-      footnote:
-        "הקוד תקף לעשרים דקות וניתן לשימוש פעם אחת. אם לא ביקשתם לפתוח משרד — אפשר להתעלם מהודעה זו, ולא ייפתח שום חשבון.",
-    });
+    await this.email.send(
+      pending.email,
+      "קוד לפתיחת המשרד שלכם במתווכים",
+      {
+        heading: "אימות כתובת האימייל",
+        greeting: `שלום ${pending.ownerName},`,
+        paragraphs: [
+          `קיבלנו בקשה לפתוח את המשרד "${pending.agencyName}" עם הכתובת הזו. הזינו את הקוד במסך ההרשמה כדי להשלים את הפתיחה.`,
+        ],
+        code,
+        footnote:
+          "הקוד תקף לעשרים דקות וניתן לשימוש פעם אחת. אם לא ביקשתם לפתוח משרד — אפשר להתעלם מהודעה זו, ולא ייפתח שום חשבון.",
+      },
+      /* ההמשך תלוי בשליחה — היעדר ספק הוא דחייה ודאית, לא שורת יומן */
+      { required: true },
+    );
   }
 }
