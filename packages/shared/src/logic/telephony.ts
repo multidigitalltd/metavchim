@@ -586,12 +586,37 @@ const VALUE_SAFE_KEYS = new Set([
 /** אורך מרבי לערך בודד ביומן — נתיב הקלטה ארוך אינו מציף את השורה. */
 const MAX_VALUE_LENGTH = 120;
 
+/** מה שנכתב על שדה טכני שהגיע ריק — ראו `diagnosticFields`. */
+export const EMPTY_FIELD_MARK = "‹ריק›";
+
 /**
  * שמות השדות, ולשדות הטכניים גם הערך.
  *
  * `key=value` למה שבטוח, `key` בלבד לכל השאר — כך שורה אחת ביומן
  * עונה גם על "מה הגיע" וגם על "איך זה נראה", בלי להכניס פרטי לקוח
  * לעמודה שנקראת בעיניים.
+ *
+ * ## למה שדה ריק מסומן במפורש
+ *
+ * קודם שדה טכני שהגיע **ריק** נכתב כשמו בלבד — בדיוק כמו שדה מזהה
+ * שהערך שלו מוסתר בכוונה. שתי סיבות הפוכות, מראה זהה: „‎direction‎”
+ * ביומן יכול היה להיות „הספק שלח כיוון ואנחנו לא מציגים אותו” או
+ * „הספק שלח שדה ריק”. הראשון תקין, השני הוא התקלה.
+ *
+ * זה לא תיאורטי: מרכזיית 015 שולחת תבנית עם placeholders, וכשאחד
+ * מהם אינו נתמך היא שולחת את השדה ריק. בלי ההבחנה הזו אי אפשר היה
+ * לדעת מהיומן אם המספר הגיע — וזו השאלה היחידה שחשובה כשאין שיחה.
+ *
+ * ## למה הריקנות נבדקת **לפני** ההסתרה
+ *
+ * הסדר הזה הוא כל העניין. השדה שמכריע `no_phone` הוא
+ * `callerid_external` — שדה מזהה, כלומר כזה שערכו לעולם אינו מוצג.
+ * אילו ההסתרה קדמה, דווקא השדה החשוב ביותר לאבחון לא היה יכול
+ * להיות מסומן כריק, והמסך היה מבטיח סימון שאינו מגיע (ביקורת
+ * Codex).
+ *
+ * „ריק” אינו ערך של לקוח, ולכן סימונו אינו חושף דבר: הוא אומר
+ * שאין מה לחשוף.
  */
 export function diagnosticFields(raw: Record<string, unknown>): string {
   const parts: string[] = [];
@@ -601,11 +626,26 @@ export function diagnosticFields(raw: Record<string, unknown>): string {
       continue;
     }
     const value = raw[key];
-    const printable =
-      VALUE_SAFE_KEYS.has(key) && (typeof value === "string" || typeof value === "number")
-        ? String(value).slice(0, MAX_VALUE_LENGTH)
-        : null;
-    parts.push(printable !== null && printable !== "" ? `${key}=${printable}` : key);
+    /*
+     * כל מה שאינו טקסט או מספר נחשב ריק — אובייקט מקונן יכול
+     * להכיל פרט מזהה, וקריאתו אינה שווה את הסיכון.
+     *
+     * ו-`trim`, כי `pickFrom` מתעלם ממחרוזת של רווחים בלבד ורואה
+     * בה שדה חסר. בלי אותה נורמליזציה כאן, placeholder שהספק מילא
+     * ברווח היה מוצג כ-`direction=   ` — כלומר „יש ערך” — בזמן
+     * שהניתוח מתייחס אליו כריק. שתי קריאות של אותו payload חייבות
+     * להסכים (ביקורת Codex).
+     */
+    const asText =
+      typeof value === "string" ? value.trim() : typeof value === "number" ? String(value) : "";
+    if (asText === "") {
+      parts.push(`${key}=${EMPTY_FIELD_MARK}`);
+      continue;
+    }
+    // יש ערך: לשדה טכני מציגים אותו, לשדה מזהה — השם בלבד
+    parts.push(
+      VALUE_SAFE_KEYS.has(key) ? `${key}=${asText.slice(0, MAX_VALUE_LENGTH)}` : key,
+    );
   }
   return [...new Set(parts)].join(", ").slice(0, 1000);
 }

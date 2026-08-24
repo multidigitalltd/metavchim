@@ -12,12 +12,11 @@ import {
   PBX015_MAKE_URL,
   safeDiagnosticKeys,
   diagnosticFields,
+  EMPTY_FIELD_MARK,
   unmappedFields,
   telephonyParseIssue,
   mergeIntegrationSecrets,
   telephonySecretKeys,
-  TELEPHONY_PROVIDERS,
-  telephonyProvider,
   mergeLegacySecretsIntoConfig,
   sipUriFor,
   phoneFromSipUri,
@@ -762,6 +761,52 @@ describe("diagnosticFields", () => {
   it("ערך ארוך נחתך ואינו מציף את השורה", () => {
     const out = diagnosticFields({ recording: "a".repeat(500) });
     expect(out.length).toBeLessThan(200);
+  });
+
+  /*
+   * ההבחנה שבלעדיה אי אפשר לאבחן: שדה טכני שהגיע ריק נראה בדיוק
+   * כמו שדה מזהה שהערך שלו מוסתר בכוונה. 015 שולחת תבנית עם
+   * placeholders, וכשאחד מהם אינו נתמך היא שולחת אותו ריק — ואז
+   * „direction הגיע” אינו אומר אם הכיוון ידוע או לא.
+   */
+  it("שדה טכני שהגיע ריק מסומן כריק, ולא כשדה מוסתר", () => {
+    const out = diagnosticFields({ direction: "", extension: "", status: "Hangup" });
+    expect(out).toContain(`direction=${EMPTY_FIELD_MARK}`);
+    expect(out).toContain(`extension=${EMPTY_FIELD_MARK}`);
+    expect(out).toContain("status=Hangup");
+  });
+
+  /*
+   * השדה שמכריע `no_phone` הוא שדה **מזהה**, ולכן ערכו לעולם אינו
+   * מוצג. אילו ההסתרה קדמה לבדיקת הריקנות, דווקא הוא לא היה יכול
+   * להיות מסומן כריק — והמסך מבטיח את הסימון הזה במפורש.
+   *
+   * „ריק” אינו ערך של לקוח: סימונו אומר שאין מה לחשוף.
+   */
+  it("שדה מזהה ריק מסומן כריק; עם ערך — השם בלבד", () => {
+    expect(diagnosticFields({ callerid_external: "0501234567" })).toBe("callerid_external");
+    expect(diagnosticFields({ callerid_external: "" })).toBe(
+      `callerid_external=${EMPTY_FIELD_MARK}`,
+    );
+  });
+
+  /*
+   * `pickFrom` רואה במחרוזת של רווחים בלבד שדה חסר. אילו האבחון היה
+   * מציג „direction=   ” — כלומר „יש ערך” — שתי קריאות של אותו
+   * payload היו סותרות זו את זו בדיוק בשאלה שבגללה קוראים אותו.
+   */
+  it("שדה שמלא ברווחים בלבד נחשב ריק, כמו בניתוח", () => {
+    const out = diagnosticFields({ direction: "   ", callerid_external: "  " });
+    expect(out).toContain(`direction=${EMPTY_FIELD_MARK}`);
+    expect(out).toContain(`callerid_external=${EMPTY_FIELD_MARK}`);
+  });
+
+  it("ערך שאינו טקסט או מספר נחשב ריק ולא מודלף", () => {
+    const out = diagnosticFields({ status: { nested: "סוד" }, callername: { x: "דנה" } });
+    expect(out).toContain(`status=${EMPTY_FIELD_MARK}`);
+    expect(out).toContain(`callername=${EMPTY_FIELD_MARK}`);
+    expect(out).not.toContain("סוד");
+    expect(out).not.toContain("דנה");
   });
 });
 

@@ -1088,8 +1088,18 @@ const SCOPE_CAPABILITIES: Record<string, readonly Capability[]> = {
    * כמו תור החזרות של כל המשרד בזמן שהוא האישי בלבד. בפעולה
    * שהתשובה שלה היא רשימת מטלות זו לא אי-דיוק אלא הנחיה שגויה
    * (ביקורת Codex).
+   *
+   * `calendar.manage` ברשימה מסיבה שנייה: בלעדיה מקור המשימות אינו
+   * נשאל כלל (גבול המודול), ולכן הרשימה חסרה — וסייג שנעלם דווקא אז
+   * היה מציג רשימה מקוצצת כאילו היא מלאה.
    */
-  show_callbacks: ["buyers.view_all", "leads.view_all", "properties.view", "tasks.view_all"],
+  show_callbacks: [
+    "buyers.view_all",
+    "leads.view_all",
+    "properties.view",
+    "tasks.view_all",
+    "calendar.manage",
+  ],
 };
 
 /** קבוצות החיפוש הכללי שמסוננות לפי בעלות — הנכסים אינם ביניהן. */

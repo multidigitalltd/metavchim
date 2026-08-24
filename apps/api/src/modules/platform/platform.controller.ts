@@ -522,6 +522,8 @@ export class PlatformController {
       id: string;
       receivedAt: Date;
       outcome: string;
+      /** למה הפנייה לא הפכה לשיחה — `null` כשהיא כן. */
+      issue: string | null;
       tenantId: string | null;
       tenantName: string | null;
       keyPrefix: string;

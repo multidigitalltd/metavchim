@@ -29,9 +29,30 @@ import { IconPhone } from "../icons";
 /** מה קרה לפנייה, בשפה של מי שצריך לפעול. */
 const OUTCOMES: Record<string, { label: string; hint: string; ok: boolean }> = {
   accepted: {
-    label: "התקבלה",
-    hint: "המפתח זוהה והאירוע הועבר לעיבוד",
+    label: "נקלטה כשיחה",
+    hint: "המפתח זוהה, האירוע נותח, והשיחה נרשמה",
     ok: true,
+  },
+  /*
+   * צלצול נקרא בהצלחה ובכל זאת אינו יוצר שורת שיחה — כך נקבע
+   * בכוונה, כי השיחה עוד לא קרתה. סימונו כ„נקלטה” היה מציג
+   * מרכזייה ששולחת `Calling` ומאבדת את ה-`Hangup` כתקינה, בזמן
+   * שאף שיחה אינה נרשמת אצלה.
+   */
+  preliminary: {
+    label: "אירוע ביניים",
+    hint: "צלצול או מענה — נקרא בהצלחה, אך שורת השיחה נכתבת רק באירוע המסיים (ניתוק). אם הוא אינו מגיע, לא תיווצר שיחה",
+    ok: true,
+  },
+  /*
+   * „התקבלה” הישנה נרשמה על ההגעה בלבד, ולכן פנייה שנזרקה מיד אחריה
+   * נראתה כמו פנייה שהפכה לשיחה. זו הייתה בדיוק העמודה שמסתכלים בה
+   * כשלקוח התקשר ואין רישום — והיא לא יכלה לענות.
+   */
+  unparsed: {
+    label: "הגיעה ולא זוהתה",
+    hint: "המפתח והמסלול תקינים, אבל לא היה באירוע די כדי לזהות שיחה — ראו את הסיבה",
+    ok: false,
   },
   unknown_key: {
     label: "מפתח לא מוכר",
@@ -50,10 +71,26 @@ const OUTCOMES: Record<string, { label: string; hint: string; ok: boolean }> = {
   },
 };
 
+/**
+ * מה חסר היה באירוע שלא זוהה.
+ *
+ * `invalid_phone` אינו תקלה: כך נראית שיחה ממספר חסוי, והיא נפוצה.
+ * הוא מנוסח כאן כעובדה ולא כאזהרה — אותה הבחנה שמסך ההגדרות של
+ * המשרד כבר עושה.
+ */
+const ISSUES: Record<string, string> = {
+  no_fields: "הבקשה הגיעה ריקה — כנראה Content-Type שאינו תואם לתבנית",
+  no_call_id: "אין מזהה שיחה (callid)",
+  no_phone: "לא הגיע מספר מתקשר — השדה חסר או שהספק שלח אותו ריק",
+  invalid_phone: "המספר שהגיע אינו מספר תקין — כך נראית שיחה ממספר חסוי",
+};
+
 interface Hit {
   id: string;
   receivedAt: string;
   outcome: string;
+  /** למה הפנייה לא הפכה לשיחה — `null` כשהיא כן */
+  issue: string | null;
   tenantId: string | null;
   tenantName: string | null;
   keyPrefix: string;
@@ -143,6 +180,19 @@ export function TelephonyWebhooksSection() {
                       >
                         {outcome?.label ?? hit.outcome}
                       </span>
+                      {/*
+                        הסיבה צמודה לתוצאה ולא בעמודה משלה: „הגיעה
+                        ולא זוהתה” בלי „חסר מספר מתקשר” אינה עוזרת,
+                        ושתיהן נקראות כמשפט אחד.
+                      */}
+                      {hit.issue === null ? null : (
+                        <span
+                          className="mt-1 block text-sm"
+                          style={{ color: "var(--color-text-muted)" }}
+                        >
+                          {ISSUES[hit.issue] ?? hit.issue}
+                        </span>
+                      )}
                     </td>
                     {/* מפתח שלא זוהה אינו שייך לאף משרד — וזו התשובה עצמה */}
                     <td>{hit.tenantName ?? "—"}</td>

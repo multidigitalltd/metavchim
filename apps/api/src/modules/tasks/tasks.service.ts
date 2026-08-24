@@ -385,6 +385,65 @@ export class TasksService {
   }
 
   /**
+   * משימות פתוחות שקשורות ללידים — לרשימת „למי לחזור”.
+   *
+   * ## למה שאילתה משלה ולא `list` עם סינון אחריה
+   *
+   * `list` מחזירה 200 משימות פתוחות **מכל הסוגים** וממיינת לפי מועד,
+   * והסינון לפי „קשורה לליד” קרה אחריה. מתווך עם מאתיים משימות נכס
+   * שמועדן מוקדם יותר („לצלם את הדירה”) איבד בשקט משימת חזרה תקפה —
+   * בדיוק דפוס „עמוד ואז מסננים” שכבר תוקן בשני המקורות האחרים
+   * (ביקורת Codex).
+   *
+   * ## ההיקף
+   *
+   * `scopeFilter` בלבד: מי שיש לו `tasks.view_all` מקבל את כל המשרד,
+   * והשאר את שלו. זה נבדל מ-`list`, שברירת המחדל שלה היא „שלי” גם
+   * למי שרשאי לראות הכול — ושם זה נכון, כי מסך המשימות עונה על „מה
+   * עלי לעשות”. כאן השאלה היא „למי במשרד צריך לחזור”, וההודעה
+   * מכריזה מספר; מספר שמסתיר את עמיתיו ממי שרשאי לראותם הוא הצהרה
+   * שגויה (ביקורת Codex).
+   */
+  async openLinkedToLeads(limit: number): Promise<TaskDto[]> {
+    const ctx = TenantContext.current();
+    const tenantId = ctx.tenantId;
+    // אותו סינון בעלות של `scopeFilter`, בצורה שאפשר להזריק ל-SQL
+    const ownerOnly = ctx.capabilities.has("tasks.view_all") ? null : ctx.userId;
+    return this.prisma.withTenant(async (tx) => {
+      /*
+       * המיון הוא לפי **אותו זמן שהדירוג משתמש בו** — `due_at`, ובלעדיו
+       * `created_at`.
+       *
+       * `nulls: "last"` נראה תמים ודחק כל משימה בלי מועד יעד אל מעבר
+       * לתקרה: במשרד עם יותר משימות מתוארכות מהתקרה, תזכורת בלי תאריך
+       * מלפני חודשיים לא הגיעה כלל לשלב הדירוג — ושם דווקא היה נקבע
+       * שהיא הוותיקה ביותר. חיתוך שמסיר את הוותיק במקום את הפחות דחוף
+       * הוא בדיוק הבאג שכבר תוקן בשני המקורות האחרים (ביקורת Codex).
+       *
+       * `COALESCE` אינו ניתן לביטוי ב-`orderBy` של Prisma, ולכן SQL
+       * גולמי בוחר מזהים ו-Prisma שולפת את השורות — אותו דפוס שבו
+       * `CallsService.latestPerContactSince` משתמש, ובתוך `withTenant`
+       * כך שה-RLS חל.
+       */
+      const ordered = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id
+          FROM tasks
+         WHERE tenant_id = ${tenantId}
+           AND deleted_after_sync = FALSE
+           AND status = 'open'
+           AND entity_type = 'lead'
+           AND (${ownerOnly}::char(26) IS NULL OR assigned_to_user_id = ${ownerOnly})
+         ORDER BY COALESCE(due_at, created_at) ASC
+         LIMIT ${limit}
+      `;
+      const ids = ordered.map((row) => row.id);
+      if (ids.length === 0) return [];
+      const rows = await tx.task.findMany({ where: { tenantId, id: { in: ids } } });
+      return this.toDtos(tx, rows);
+    });
+  }
+
+  /**
    * כמה דורשות תשומת לב עכשיו — הבאדג' בסרגל.
    *
    * הספירה על **המשימות שלי** גם למנהל: הבאדג' אומר "מה עלי לעשות",
