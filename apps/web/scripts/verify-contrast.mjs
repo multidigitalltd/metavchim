@@ -183,6 +183,9 @@ function taintedStyleNames(source) {
   return names;
 }
 
+/** המחלקות שמופיעות על פקד ב-JSX — לחצי השני של הבדיקה, ב-CSS. */
+const controlClasses = new Set();
+
 function scanControls(dir, hits) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
@@ -198,6 +201,23 @@ function scanControls(dir, hits) {
       let match;
       while ((match = pattern.exec(source)) !== null) {
         const body = openingTag(source, match.index);
+        /*
+         * כל מחרוזת בתוך `className` — גם `"a b"` וגם ביטוי מותנה
+         * שבתוכו מחרוזות. השמות האלה הם מה שהחלק שב-CSS מחפש.
+         */
+        for (const attr of body.matchAll(/className=(?:"([^"]*)"|\{([\s\S]*?)\})/gu)) {
+          const text = attr[1] ?? attr[2] ?? "";
+          for (const quoted of text.matchAll(/["'`]([^"'`]*)["'`]/gu)) {
+            for (const cls of quoted[1].split(/\s+/u)) {
+              if (cls.startsWith("mv-")) controlClasses.add(cls);
+            }
+          }
+          if (attr[1] !== undefined) {
+            for (const cls of attr[1].split(/\s+/u)) {
+              if (cls.startsWith("mv-")) controlClasses.add(cls);
+            }
+          }
+        }
         const direct = body.includes(DECORATIVE_BORDER);
         // הפניה לקבוע נגוע — כולל בפריסה (`{...inputStyle, ...}`)
         const viaName = [...tainted].find((name) =>
@@ -213,8 +233,61 @@ function scanControls(dir, hits) {
   }
 }
 
+/* ==================== הצד השני: גיליון הסגנונות ==================== */
+
+/**
+ * פקד שהמסגרת שלו מגיעה מ-CSS ולא מסגנון בשורה.
+ *
+ * הסריקה ב-JSX לבדה מכסה חצי מהמערכת: `.mv-control` מוחלת על שדות
+ * ישירות, ו-`.mv-search-field` היא **עוטפת** — השדה עצמו חסר מסגרת
+ * והגבול הנראה שייך לה. שינוי של אחת מהן חזרה למסגרת הדקורטיבית
+ * היה משאיר שדות אמיתיים בניגודיות נמוכה בזמן שהשער מדפיס „הכול
+ * תקין” (ביקורת Codex).
+ *
+ * הרשימה אינה מתוחזקת ביד — היא **נגזרת**: מחלקה נחשבת מחלקה של
+ * פקד אם היא הופיעה על פקד ב-JSX, או אם קיים כלל CSS שבו היא
+ * הורה של פקד (`.x input`). מחלקה חדשה שתיווצר מחר נכנסת מאליה.
+ */
+function controlSelectorNames() {
+  const names = new Set(controlClasses);
+  for (const rule of css.matchAll(/([^{}]+)\{[^{}]*\}/gu)) {
+    const selector = rule[1];
+    // `.x input`, `.x > textarea`, `.x:focus-within select` — כולם עוטפים
+    const wrapper = /\.([\w-]+)[^,{]*[\s>+~](?:input|select|textarea)\b/u.exec(selector);
+    if (wrapper) names.add(wrapper[1]);
+  }
+  return names;
+}
+
+function scanStylesheet(hits) {
+  const names = controlSelectorNames();
+  for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/gu)) {
+    /*
+     * הבורר הוא מה שאחרי ה-`}` הקודם, ולכן הוא גורר איתו את ההערה
+     * שמעליו. חיתוך להערה האחרונה שנסגרה משאיר את הבורר עצמו —
+     * שורה שאפשר לחפש בקובץ, ולא פסקה שלמה בפלט השגיאה.
+     */
+    const selector = rule[1].split("*/").pop().trim();
+    const body = rule[2];
+    if (!/(?:^|[\s;])border(?:-[a-z-]+)?:[^;]*var\(--color-border\)/mu.test(body)) continue;
+    const touchesControl =
+      /(?:^|[\s,>+~])(?:input|select|textarea)\b/u.test(selector) ||
+      /*
+       * `(?![\w-])` ולא `\b`: מקף אינו תו-מילה, ולכן `\b` אחרי
+       * `.mv-select` נתפס גם בתוך `.mv-select-list` — והשער דיווח
+       * על רשימת הבחירה כאילו היא שדה קלט.
+       */
+      [...names].some((name) => new RegExp(`\\.${name}(?![\\w-])`, "u").test(selector));
+    if (!touchesControl) continue;
+    const line = css.slice(0, rule.index).split("\n").length;
+    hits.push(`globals.css:${line} — ${selector.replace(/\s+/gu, " ")} עם ${DECORATIVE_BORDER}`);
+  }
+}
+
 const misuse = [];
+// סדר: הסריקה ב-JSX אוספת את שמות המחלקות שהצד השני מחפש
 scanControls(join(here, "..", "src"), misuse);
+scanStylesheet(misuse);
 
 /* ==================== מצב ניגודיות גבוהה ==================== */
 
