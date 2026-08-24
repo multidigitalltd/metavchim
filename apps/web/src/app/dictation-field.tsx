@@ -67,9 +67,8 @@ export function DictationControls({
   onBusyChange?: (busy: boolean) => void;
   disabled?: boolean;
 }) {
-  const { browserReady, serverReady, recording, transcribing, error, start, stop } = useDictation(
-    (text) => onAppend(text),
-  );
+  const { browserReady, serverReady, recording, transcribing, pending, error, start, stop } =
+    useDictation((text) => onAppend(text));
 
   /*
    * סוף סבב = לא מקליט ולא מתמלל. בלי האיפוס הזה הקלטה שנייה באותו
@@ -80,7 +79,7 @@ export function DictationControls({
   idleRef.current = onIdle;
   const busyRef = useRef(onBusyChange);
   busyRef.current = onBusyChange;
-  const busy = recording !== null || transcribing;
+  const busy = recording !== null || transcribing || pending;
   const wasBusyRef = useRef(false);
   useEffect(() => {
     if (wasBusyRef.current && !busy) idleRef.current?.();
@@ -108,6 +107,20 @@ export function DictationControls({
         </>
       ) : transcribing ? (
         <span className="mv-dictate-live" aria-live="polite">מתמלל בשרת…</span>
+      ) : pending ? (
+        /*
+          חלונית ההרשאה של הדפדפן אינה חייבת להיענות, ו-`getUserMedia`
+          יכול להישאר תלוי לנצח. בלי השורה הזו הכפתורים נראו זמינים
+          וכל לחיצה נדחתה בשקט על ידי מנעול נסתר (ביקורת Codex).
+        */
+        <>
+          <button type="button" className="mv-dictate-stop" onClick={stop}>
+            ביטול
+          </button>
+          <span className="mv-dictate-live" aria-live="polite">
+            ממתין לאישור המיקרופון בדפדפן…
+          </span>
+        </>
       ) : (
         <>
           {browserReady ? (

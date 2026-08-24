@@ -33,6 +33,16 @@ export type { DictationResultSegment };
 export type DictationMode = "browser" | "server";
 
 /**
+ * תקרת זמן לבקשת התמלול.
+ *
+ * `fetch` ללא תקרה אינו נכשל לעולם כשהשרת מפסיק לענות באמצע — הוא
+ * פשוט תלוי. הסבב נשאר „פעיל”, המסך תקוע על „מתמלל”, וההכתבה חסומה
+ * עד רענון העמוד (ביקורת Codex). הכתבה בשדה טופס היא 3–10 שניות של
+ * אודיו, ולכן דקה היא הרבה מעבר לכל תמלול סביר וגם גבול ברור.
+ */
+const TRANSCRIBE_TIMEOUT_MS = 60_000;
+
+/**
  * אין ברירת מחדל ואין העדפה שמורה.
  *
  * היה כאן מצב מועדף שנבחר בעמוד הפרופיל, והוא היה טעות: הוא הוסיף
@@ -173,6 +183,8 @@ export interface DictationState {
   serverReady: boolean;
   recording: DictationMode | null;
   transcribing: boolean;
+  /** ממתינים לתשובת הדפדפן על בקשת המיקרופון — ניתן לביטול ב-`stop`. */
+  pending: boolean;
   error: string | null;
   start: (mode: DictationMode) => void;
   stop: () => void;
@@ -189,6 +201,15 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
   const [serverReady, setServerReady] = useState(false);
   const [recording, setRecording] = useState<DictationMode | null>(null);
   const [transcribing, setTranscribing] = useState(false);
+  /**
+   * ממתינים לתשובת הדפדפן על בקשת המיקרופון.
+   *
+   * `getUserMedia` אינו חייב לחזור: משתמש שמתעלם מחלונית ההרשאה
+   * משאיר אותו תלוי לנצח. עד כה זה נראה כאילו לא קרה כלום — הכפתורים
+   * נשארו על המסך, וכל לחיצה נוספת נדחתה בשקט על ידי מנעול נסתר
+   * (ביקורת Codex). עכשיו ההמתנה גלויה, ואפשר לבטל אותה.
+   */
+  const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -231,6 +252,10 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
    * שאנחנו סוגרים כאן נמצא *לפניו*.
    */
   const busyRef = useRef(false);
+  /** מזהה בקשת ההרשאה הפעילה — ביטול פשוט מקדם אותו. */
+  const permitRef = useRef(0);
+  /** בבואה של `pending` שנקראת מתוך callbacks, שאינם רואים state. */
+  const pendingRef = useRef(false);
   /** מזהה הסבב שהמנוע שב-`recognitionRef` שייך אליו. */
   const browserTokenRef = useRef(0);
   // ה-callback העדכני — ההקלטה חיה בין רינדורים, ולולאת הסגירה
@@ -370,15 +395,32 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
     setRecording("browser");
   }, [retireBrowser]);
 
+  /** מצב ההמתנה נכתב לשניהם יחד — ה-state לתצוגה, ה-ref ללוגיקה. */
+  const markPending = useCallback((value: boolean): void => {
+    pendingRef.current = value;
+    setPending(value);
+  }, []);
+
   const startServer = useCallback(async (): Promise<void> => {
+    const permit = (permitRef.current += 1);
+    markPending(true);
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
+      // תשובה שהגיעה אחרי שהמשתמש כבר ביטל אינה שלנו
+      if (permitRef.current !== permit) return;
+      markPending(false);
       busyRef.current = false;
       setError("אין גישה למיקרופון — אשרו הרשאה בדפדפן או הקלידו");
       return;
     }
+    if (permitRef.current !== permit) {
+      // בוטל בזמן ההמתנה — הזרם שהגיע באיחור נסגר ואינו מקליט דבר
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    markPending(false);
     /*
      * בקשת ההרשאה למיקרופון היא `await`, ולכן שתי לחיצות מהירות על
      * „מדויק” הגיעו לכאן שתיהן. עד כה כל אחת בנתה מקליט משלה —
@@ -463,7 +505,7 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
      */
     setTranscribing(true);
     setRecording("server");
-  }, []);
+  }, [markPending]);
 
   async function transcribe(blob: Blob, extension: string): Promise<void> {
     // ההקלטה כבר סימנה `transcribing`; הקלטה ריקה חייבת לכבות אותו
@@ -475,6 +517,8 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
     }
     const controller = new AbortController();
     abortRef.current = controller;
+    // שרת שהפסיק לענות באמצע אינו רשאי להשאיר את הסבב פתוח לנצח
+    const timeout = setTimeout(() => controller.abort(), TRANSCRIBE_TIMEOUT_MS);
     try {
       const form = new FormData();
       /*
@@ -505,6 +549,7 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
       if (disposedRef.current) return;
       setError("התמלול נכשל — נסו הקלטה מהירה או הקלידו");
     } finally {
+      clearTimeout(timeout);
       // הסבב נגמר רק כשהטקסט חזר — עד אז „מדויק” עדיין באוויר
       busyRef.current = false;
       if (!disposedRef.current) setTranscribing(false);
@@ -531,6 +576,17 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
   );
 
   const stop = useCallback((): void => {
+    /*
+     * ביטול בזמן ההמתנה להרשאה. אי אפשר לבטל `getUserMedia` עצמו,
+     * ולכן במקום זה מקדמים את מזהה הבקשה: הזרם שיגיע באיחור יזוהה
+     * כלא-שלנו וייסגר מיד.
+     */
+    if (pendingRef.current) {
+      permitRef.current += 1;
+      markPending(false);
+      busyRef.current = false;
+      return;
+    }
     const recognition = recognitionRef.current;
     if (recognition) {
       /*
@@ -584,9 +640,19 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
     const recorder = recorderRef.current;
     if (recorder?.state === "recording") recorder.stop();
     setRecording(null);
-  }, [retireBrowser]);
+  }, [retireBrowser, markPending]);
 
   const clearError = useCallback((): void => setError(null), []);
 
-  return { browserReady, serverReady, recording, transcribing, error, start, stop, clearError };
+  return {
+    browserReady,
+    serverReady,
+    recording,
+    transcribing,
+    pending,
+    error,
+    start,
+    stop,
+    clearError,
+  };
 }

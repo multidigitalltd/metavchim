@@ -41,6 +41,16 @@ const SILENCE_MS = 500;
 const SILENCE_RMS = 0.015;
 /** אחרי כמה כשלים רצופים מוותרים על השרת ועוברים לדפדפן. */
 const MAX_CONSECUTIVE_FAILURES = 2;
+/**
+ * תקרת זמן לבקשת התמלול של קטע.
+ *
+ * `fetch` ללא תקרה אינו נכשל לעולם כשהשרת מפסיק לענות באמצע — הוא
+ * פשוט תלוי, ואיתו גם תור השליחות שסוגר את הסבב. המסך נשאר על
+ * „מסיים לתמלל…” וההכתבה חסומה עד רענון העמוד (ביקורת Codex).
+ * קטע הוא עד ~30 שניות אודיו, ולכן דקה וחצי היא הרבה מעבר לכל תמלול
+ * סביר — גם כששירות התמלול עמוס.
+ */
+const SEGMENT_TRANSCRIBE_TIMEOUT_MS = 90_000;
 
 interface SpeechRecognitionLike {
   lang: string;
@@ -94,6 +104,15 @@ export function VoiceRecorder({
    * זו כבר ההתנהגות בשדות הטפסים; כאן היא הייתה חסרה.
    */
   const [finishing, setFinishing] = useState(false);
+  /**
+   * ממתינים לתשובת הדפדפן על בקשת המיקרופון.
+   *
+   * `getUserMedia` אינו חייב לחזור: משתמש שמתעלם מחלונית ההרשאה
+   * משאיר אותו תלוי לנצח. עד כה זה נראה כאילו לא קרה כלום —
+   * הכפתורים נשארו על המסך, וכל לחיצה נוספת נדחתה בשקט על ידי
+   * מנעול נסתר (ביקורת Codex). עכשיו ההמתנה גלויה וניתנת לביטול.
+   */
+  const [pending, setPending] = useState(false);
   const [browserSupported, setBrowserSupported] = useState(false);
   const [serverStt, setServerStt] = useState(false);
   /**
@@ -130,6 +149,10 @@ export function VoiceRecorder({
    * שאנחנו סוגרים כאן נמצא *לפניו*.
    */
   const busyRef = useRef(false);
+  /** מזהה בקשת ההרשאה הפעילה — ביטול פשוט מקדם אותו. */
+  const permitRef = useRef(0);
+  /** בבואה של `pending` שנקראת מתוך callbacks, שאינם רואים state. */
+  const pendingRef = useRef(false);
   /** מזהה הסבב שהמנוע שב-`recognitionRef` שייך אליו. */
   const browserTokenRef = useRef(0);
   /** ממתין ל-`onend` אחרי `stop()` — ראו `finishing`. */
@@ -216,6 +239,12 @@ export function VoiceRecorder({
   const serverAvailable = serverStt && canRecordAudio;
   const browserAvailable = browserSupported;
 
+  /** מצב ההמתנה נכתב לשניהם יחד — ה-state לתצוגה, ה-ref ללוגיקה. */
+  function markPending(value: boolean): void {
+    pendingRef.current = value;
+    setPending(value);
+  }
+
   function stopWatching(): void {
     if (watcherRef.current !== null) {
       clearInterval(watcherRef.current);
@@ -227,15 +256,26 @@ export function VoiceRecorder({
 
   /** מצב 1 — הקלטה רציפה שנחתכת בהפסקות ומתומללת תוך כדי. */
   async function startServerRecording(): Promise<void> {
+    const permit = (permitRef.current += 1);
+    markPending(true);
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
+      // תשובה שהגיעה אחרי שהמשתמש כבר ביטל אינה שלנו
+      if (permitRef.current !== permit) return;
+      markPending(false);
       busyRef.current = false;
       setActiveMode(null);
       onError?.("אין גישה למיקרופון — אשרו הרשאה בדפדפן או הקלידו");
       return;
     }
+    if (permitRef.current !== permit) {
+      // בוטל בזמן ההמתנה — הזרם שהגיע באיחור נסגר ואינו מקליט דבר
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    markPending(false);
     /*
      * בקשת ההרשאה למיקרופון היא `await`, ולכן שתי לחיצות מהירות על
      * „הקלטה” הגיעו לכאן שתיהן — הבדיקה ב-`begin` נשענת על state
@@ -405,6 +445,8 @@ export function VoiceRecorder({
     setTranscribing(true);
     const controller = new AbortController();
     abortRef.current = controller;
+    // שרת שהפסיק לענות באמצע אינו רשאי להשאיר את הסבב פתוח לנצח
+    const timeout = setTimeout(() => controller.abort(), SEGMENT_TRANSCRIBE_TIMEOUT_MS);
     try {
       const form = new FormData();
       // הסיומת נגזרת מהפורמט שהוקלט בפועל — שירות התמלול פותח לפיה
@@ -452,6 +494,7 @@ export function VoiceRecorder({
           : "התמלול נכשל — אפשר להקליד את הטקסט",
       );
     } finally {
+      clearTimeout(timeout);
       setTranscribing(false);
     }
   }
@@ -588,6 +631,18 @@ export function VoiceRecorder({
 
   /** עצירה — לפי המצב שרץ בפועל, לא לפי מה שזמין. */
   function stop(): void {
+    /*
+     * ביטול בזמן ההמתנה להרשאה. אי אפשר לבטל `getUserMedia` עצמו,
+     * ולכן במקום זה מקדמים את מזהה הבקשה: הזרם שיגיע באיחור יזוהה
+     * כלא-שלנו וייסגר מיד.
+     */
+    if (pendingRef.current) {
+      permitRef.current += 1;
+      markPending(false);
+      busyRef.current = false;
+      setActiveMode(null);
+      return;
+    }
     if (activeMode === "server") {
       stopServerRecording();
       setActiveMode(null);
@@ -635,7 +690,7 @@ export function VoiceRecorder({
      * הקלטה, אבל בין הלחיצה לרינדור יש חלון — ולחיצה כפולה מהירה,
      * שכיחה במסך מגע, נכנסה בו והשאירה שני מקליטים על אותו שדה.
      */
-    if (busyRef.current || recording || finishing) return;
+    if (busyRef.current || recording || finishing || pending) return;
     busyRef.current = true;
     setActiveMode(mode);
     if (mode === "server") void startServerRecording();
@@ -659,6 +714,20 @@ export function VoiceRecorder({
                 {activeMode === "server"
                   ? "מקליט… כל הפסקה נשלחת לתמלול"
                   : "מקליט… הטקסט מופיע תוך כדי הדיבור"}
+              </p>
+            </>
+          ) : pending ? (
+            /*
+              חלונית ההרשאה של הדפדפן אינה חייבת להיענות, ו-`getUserMedia`
+              יכול להישאר תלוי לנצח. בלי הענף הזה הכפתורים נראו זמינים
+              וכל לחיצה נדחתה בשקט על ידי מנעול נסתר (ביקורת Codex).
+            */
+            <>
+              <Button type="button" variant="ghost" onClick={stop} className="min-w-48">
+                ביטול
+              </Button>
+              <p aria-live="polite" className="mt-2" style={{ color: "var(--color-text-muted)" }}>
+                ממתין לאישור המיקרופון בדפדפן…
               </p>
             </>
           ) : transcribing || finishing ? (
