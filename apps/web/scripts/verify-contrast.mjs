@@ -32,7 +32,24 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(here, "..", "src", "app", "globals.css"), "utf8");
+const source = readFileSync(join(here, "..", "src", "app", "globals.css"), "utf8");
+
+/**
+ * הגיליון **בלי ההערות** — וזו הצורה היחידה שנקראת כאן.
+ *
+ * הערה אינה קוד, אבל היא נראית כמוהו לכל ביטוי רגולרי. שתי פעמים
+ * כבר הטעתה אחת את השער הזה: הערה ישנה נשאה ערך צבע שכבר לא קיים
+ * (`--color-bg: #f4f6f3`), והערה שמסבירה מחלקה גרמה לשם המחלקה
+ * להיספר כ„מוגדרת” גם אחרי שהכלל עצמו נמחק — כי הבורר שנקרא הוא
+ * מה שאחרי ה-`}` הקודם, כלומר ההערה **ועוד** הבורר של הכלל הבא
+ * (ביקורת Codex).
+ *
+ * המחיקה שומרת על שורות: כל תו שאינו ירידת שורה הופך לרווח, ולכן
+ * `slice(0, index)` ממשיך להחזיר את מספר השורה האמיתי בקובץ.
+ */
+const css = source.replace(/\/\*[\s\S]*?\*\//gu, (block) =>
+  block.replace(/[^\n]/gu, " "),
+);
 
 /** ‎#rrggbb‎ ⟵ הבהירות היחסית לפי WCAG. */
 function luminance(hex) {
@@ -301,12 +318,8 @@ function controlSelectorNames() {
 function scanStylesheet(hits) {
   const names = controlSelectorNames();
   for (const rule of CSS_RULES) {
-    /*
-     * הבורר הוא מה שאחרי ה-`}` הקודם, ולכן הוא גורר איתו את ההערה
-     * שמעליו. חיתוך להערה האחרונה שנסגרה משאיר את הבורר עצמו —
-     * שורה שאפשר לחפש בקובץ, ולא פסקה שלמה בפלט השגיאה.
-     */
-    const selector = rule[1].split("*/").pop().trim();
+    // ההערות כבר נמחקו מהמקור; נשאר רק לקצץ את הרווח שהן הותירו
+    const selector = rule[1].trim();
     const body = rule[2];
     if (!/(?:^|[\s;])border(?:-[a-z-]+)?:[^;]*var\(--color-border\)/mu.test(body)) continue;
     const touchesControl =
