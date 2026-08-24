@@ -229,22 +229,45 @@ export class SignupVerificationService implements OnModuleDestroy {
     /*
      * **החכירה מתחדשת כל עוד העבודה רצה** — ראו `RESEND_LOCK_SECONDS`.
      *
-     * החידוש מותנה בחותם, ולכן אינו יכול להאריך מנעול של מישהו אחר;
-     * והוא נעצר ב-`finally`, בכל מסלול יציאה.
+     * שתי הכרעות שאינן מובנות מאליהן, ושתיהן תיקנו טעות שלי:
+     *
+     * ‏1. **תוצאת החידוש נבדקת.** קודם היא נזרקה, ולכן „החכירה
+     *    מתחדשת” היה תיאור של מה שניסינו ולא של מה שקרה: אם המנעול
+     *    אבד — Redis לא היה זמין, או שהתהליך נעצר מעבר לחכירה —
+     *    הבקשה המשיכה לשלוח כאילו היא עדיין מחזיקה בו (ביקורת
+     *    Codex). ‎`owned` נדלק כבוי ברגע שהחידוש מחזיר משהו שאינו 1,
+     *    וגם כשהוא נכשל: מנעול שאיננו יכולים לאשר אינו מנעול.
+     *
+     * ‏2. **‏`setTimeout` משרשר ולא `setInterval`.** ‎`setInterval` יורה
+     *    בלי קשר לשאלה אם הקודם הסתיים, ובקשה שתקועה מול Redis
+     *    הייתה צוברת פקודה והבטחה בכל מחזור — דליפה, ואז מטח בעת
+     *    התאוששות (ביקורת Codex). כאן יש לכל היותר חידוש אחד באוויר.
      */
-    const renewal = setInterval(() => {
-      void this.redis
-        .eval(
-          "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('EXPIRE', KEYS[1], ARGV[2]) end return 0",
-          1,
-          lock,
-          holder,
-          String(RESEND_LOCK_SECONDS),
-        )
-        .catch(() => undefined);
-    }, RESEND_LOCK_RENEW_MS);
-    /* אינו מחזיק את התהליך בחיים אם משהו נתקע */
-    renewal.unref();
+    let owned = true;
+    let stopped = false;
+    let renewal: NodeJS.Timeout | undefined;
+    const scheduleRenewal = (): void => {
+      renewal = setTimeout(() => {
+        void (async () => {
+          try {
+            const extended = await this.redis.eval(
+              "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('EXPIRE', KEYS[1], ARGV[2]) end return 0",
+              1,
+              lock,
+              holder,
+              String(RESEND_LOCK_SECONDS),
+            );
+            if (extended !== 1) owned = false;
+          } catch {
+            owned = false;
+          }
+          if (!stopped && owned) scheduleRenewal();
+        })();
+      }, RESEND_LOCK_RENEW_MS);
+      /* אינו מחזיק את התהליך בחיים אם משהו נתקע */
+      renewal.unref();
+    };
+    scheduleRenewal();
 
     try {
       const code = SignupVerificationService.freshCode();
@@ -282,6 +305,24 @@ export class SignupVerificationService implements OnModuleDestroy {
        * כישלון משחרר את המנעול: מי שלא קיבל דבר אינו אמור להמתין
        * בגללו. הצלחה משאירה אותו לפוג מעצמו — זו כל מטרתו.
        */
+      /*
+       * **השער היחיד שהבעלות באמת סוגרת הוא לפני השליחה.**
+       *
+       * אחריה האימייל כבר יצא, ונטישה הייתה משאירה קוד בתיבת הדואר
+       * בלי רשומה — גרוע מהמצב שממנו ברחנו. מה שקורה שם מטופל
+       * במקום אחר: ההתקנה מותנית ב-`raw`, ולכן מי שאיבד את המרוץ
+       * נכשל בה ואומר למשתמש שהקוד ששלח אינו בתוקף.
+       *
+       * הסייג נאמר במפורש: אם החכירה אובדת **בתוך** השליחה עצמה,
+       * שני אימיילים עדיין יכולים לצאת. רק אחד מהם יהיה תקף,
+       * והשולח השני יידע זאת — אבל זו הגבלה של המנגנון ולא הבטחה
+       * שהוא מקיים.
+       */
+      if (!owned) {
+        await release();
+        throw new BadRequestException("קוד חדש נשלח זה עתה — בדקו את תיבת הדואר");
+      }
+
       try {
         await this.chargeAndDeliver(stored.pending, code);
       } catch (error) {
@@ -347,7 +388,8 @@ export class SignupVerificationService implements OnModuleDestroy {
       }
       this.logger.log("נשלח קוד אימות חוזר לפתיחת משרד");
     } finally {
-      clearInterval(renewal);
+      stopped = true;
+      if (renewal !== undefined) clearTimeout(renewal);
     }
   }
 
@@ -576,35 +618,50 @@ export class SignupVerificationService implements OnModuleDestroy {
      * משלוש שליחות בשעה (ביקורת Codex). המזהה נכתב עם הגבייה
      * הראשונה, חי בדיוק כמו המונה, וההחזר מותנה בו.
      */
+    /*
+     * **בקשה שנדחתה אינה משאירה את ההגדלה שלה.**
+     *
+     * הבדיקה ישבה מחוץ לסקריפט, ולכן הבקשה הרביעית הגדילה ל-4,
+     * נדחתה — והשאירה את ה-4 במונה. אם אחת מקודמותיה קיבלה אחר-כך
+     * דחייה ודאית והוחזרה, המונה ירד ל-3 בעוד שרק שתי שליחות
+     * בפועל יצאו: הבקשה הלגיטימית הבאה מוצאת תקרה מלאה עד סוף
+     * השעה (ביקורת Codex). הביטול קורה באותו סקריפט, ולכן אין רגע
+     * שבו הספירה כוללת ניסיון שנדחה.
+     */
     const charged = await this.redis.eval(
       `local n = redis.call('INCR', KEYS[1])
        if n == 1 or redis.call('TTL', KEYS[1]) == -1 then
          redis.call('EXPIRE', KEYS[1], ARGV[1])
          redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[1])
        end
-       return { n, redis.call('GET', KEYS[2]) }`,
+       if n > tonumber(ARGV[3]) then
+         redis.call('DECR', KEYS[1])
+         return { 0, '' }
+       end
+       return { 1, redis.call('GET', KEYS[2]) }`,
       2,
       key,
       this.quotaWindowKey(emailAddress),
       String(EMAIL_WINDOW_SECONDS),
       SignupVerificationService.freshVersion(),
+      String(MAX_CODES_PER_EMAIL),
     );
-    const [sentRaw, windowRaw] = Array.isArray(charged) ? charged : [];
+    const [allowedRaw, windowRaw] = Array.isArray(charged) ? charged : [];
     /*
-     * מונה שאי אפשר לקרוא **עוצר** את השליחה. „אם זה מספר וגם מעל
+     * תשובה שאי אפשר לקרוא **עוצרת** את השליחה. „אם זה מספר וגם מעל
      * התקרה” נכשל לכיוון הפתוח, כלומר הופך תקלה בספירה לביטול
      * ההגבלה — אותו לקח כמו במונה הניסיונות.
      */
-    if (typeof sentRaw !== "number") {
+    if (typeof allowedRaw !== "number") {
       throw new ServiceUnavailableException("שליחת הקוד אינה זמינה כרגע — נסו שוב בעוד רגע");
     }
-    if (sentRaw > MAX_CODES_PER_EMAIL) {
+    if (allowedRaw !== 1) {
       throw new BadRequestException(
         "נשלחו כבר כמה קודים לכתובת הזו — נסו שוב בעוד שעה או פנו אלינו",
       );
     }
     /* בלי מזהה חלון לא יוחזר דבר — עדיף לגבות יתר על לאבד תקרה. */
-    return typeof windowRaw === "string" ? windowRaw : null;
+    return typeof windowRaw === "string" && windowRaw !== "" ? windowRaw : null;
   }
 
   /**
