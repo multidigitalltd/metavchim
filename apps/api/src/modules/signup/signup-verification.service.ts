@@ -259,6 +259,19 @@ export class SignupVerificationService implements OnModuleDestroy {
      */
     if (normalized === null) throw new UnauthorizedException("הקוד אינו בצורה הנכונה");
 
+    /*
+     * הרשומה נקראת **לפני** ספירת הניסיון — זו הגרסה שהניסיון הזה
+     * נספר עליה, וזו היחידה שמותר למצוי למחוק.
+     *
+     * קודם היא נקראה רק אחרי גילוי המיצוי, ואז אין קשר בין הערך
+     * שנקרא לבין הניסיונות שנספרו: „שלחו קוד שוב” שהספיק להתקין
+     * קוד חדש ועוד לא ניקה את המונה גורם לקריאה הזו להחזיר דווקא
+     * את **החדש**, וההתאמה-ומחיקה מסירה בדיוק אותו. השליחה החוזרת
+     * מדווחת הצלחה, והקוד שבתיבת הדואר של המשתמש לעולם לא יעבוד
+     * (ביקורת Codex). מכאן — צילום לפני ה-INCR.
+     */
+    const raw = await this.redis.get(this.key(token));
+
     const attemptNo = await this.redis.incr(this.attemptsKey(token));
     if (attemptNo === 1) await this.redis.expire(this.attemptsKey(token), PENDING_TTL_SECONDS);
     if (attemptNo > MAX_ATTEMPTS) {
@@ -270,24 +283,27 @@ export class SignupVerificationService implements OnModuleDestroy {
        * המחיקה מסירה את **הרשומה החדשה**, השליחה החוזרת מחזירה
        * הצלחה, והקוד שבאימייל שלה לעולם לא יעבוד (ביקורת Codex).
        *
-       * הניסיונות מוצו על הקוד ש**נקרא כאן**, ולכן רק הוא נמחק.
-       * אם בינתיים הותקן אחר — הוא חדש, המונה שלו יאופס על ידי
-       * השליחה החוזרת, והוא שורד.
+       * הניסיונות מוצו על הקוד ש**נקרא לפני הספירה**, ולכן רק הוא
+       * נמחק. אם בינתיים הותקן אחר — ההתאמה נכשלת, הוא שורד,
+       * והמונה שלו מאופס ממילא על ידי השליחה החוזרת.
        */
-      const current = await this.redis.get(this.key(token));
-      if (current !== null) {
+      if (raw !== null) {
         await this.redis.eval(
           "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
           1,
           this.key(token),
-          current,
+          raw,
         );
       }
       await this.redis.del(this.attemptsKey(token));
       throw new UnauthorizedException("יותר מדי ניסיונות — מלאו את הפרטים שוב");
     }
 
-    const raw = await this.redis.get(this.key(token));
+    /*
+     * אותו צילום מלמעלה. קריאה שנייה כאן הייתה יכולה להחזיר גרסה
+     * אחרת מזו שהניסיון נספר עליה, וההתאמה-ומחיקה שבסוף חוסמת
+     * ממילא כל צילום שהתיישן בינתיים.
+     */
     if (raw === null) throw new UnauthorizedException("ההרשמה פגה — מלאו את הפרטים שוב");
     const stored = JSON.parse(raw) as StoredPending;
 

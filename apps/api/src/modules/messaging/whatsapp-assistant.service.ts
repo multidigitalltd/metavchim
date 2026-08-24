@@ -127,15 +127,22 @@ interface ChatState {
   pending: PendingState | null;
   history: AgentHistoryTurn[];
   /**
-   * כמה תורים היו בשורה כשנטענה — **הבסיס למיזוג בשמירה.**
+   * התורים ש**התור הזה** הוסיף — הבסיס למיזוג בשמירה.
    *
    * ההיסטוריה נקראת בתחילת התור ונכתבת בסופו, ובין לבין יש קריאה
    * למודל. סורק ההתראות בוורקר כותב לאותה עמודה באותו זמן, ולכן
    * כתיבה של המערך המקומי כמו-שהוא דורסת את מה שהוא הוסיף (או
    * להפך). מה שנשמר הוא לכן **מה שנוסף כאן**, על גבי מה שקריאה
    * חוזרת מתחת לנעילה מוצאת — ולא צילום ישן (ביקורת Codex).
+   *
+   * **רשימה נפרדת, ולא מונה על `history`.** קודם נשמר כאן מספר
+   * התורים שהיו בטעינה, והתוספת נגזרה ב-`history.slice(base)`.
+   * מרגע ש-`history` מגיעה לתקרה היא נחתכת בכל תור וחוזרת לאותו
+   * אורך בדיוק, ולכן ההפרש הזה הוא אפס: בשיחה ותיקה שום תור חדש
+   * לא נשמר יותר, והסוכן שכח כל מה שהוא עשה מאז (ביקורת Codex).
+   * ‎`history` נחתכת בשביל הפרומפט; מה שנשמר נספר כאן.
    */
-  baseHistory: number;
+  added: AgentHistoryTurn[];
   handledIds: string[];
   /**
    * אל תכתוב את ההצעה המקומית חזרה — מה שבשורה חדש ממנה.
@@ -954,21 +961,25 @@ export class WhatsAppAssistantService {
       }
     }
 
-    chat.history = [
-      ...chat.history.slice(-(HISTORY_KEPT - 1)),
-      {
-        transcript: state.transcript,
-        action: state.proposal.actionId,
-        params,
-        /*
-         * זיכרון השיחה נשלח לפרומפט של המודל בתור הבא, ולכן הוא
-         * **אינו** התשובה שהמתווך ראה: שורת המצב והשמות לפי הסדר,
-         * בלי טלפונים, אימיילים, הערות ותקצירי שיחות. `historySummary`
-         * מסביר למה בדיוק כך ולא פחות ולא יותר.
-         */
-        resultSummary: historySummary(primary.message, primary.data),
-      },
-    ];
+    const turn: AgentHistoryTurn = {
+      transcript: state.transcript,
+      action: state.proposal.actionId,
+      params,
+      /*
+       * זיכרון השיחה נשלח לפרומפט של המודל בתור הבא, ולכן הוא
+       * **אינו** התשובה שהמתווך ראה: שורת המצב והשמות לפי הסדר,
+       * בלי טלפונים, אימיילים, הערות ותקצירי שיחות. `historySummary`
+       * מסביר למה בדיוק כך ולא פחות ולא יותר.
+       */
+      resultSummary: historySummary(primary.message, primary.data),
+    };
+    /*
+     * שתי הרשימות: `history` היא מה שנשלח לפרומפט ולכן נחתכת
+     * לתקרה, ו-`added` היא מה שיישמר ולכן אינה נחתכת כאן — החיתוך
+     * שלה קורה במיזוג עם השורה, מול מה שנמצא שם בפועל.
+     */
+    chat.history = [...chat.history.slice(-(HISTORY_KEPT - 1)), turn];
+    chat.added = [...chat.added, turn];
     return { text: lines.join("\n"), ...(audio === undefined ? {} : { audio }) };
   }
 
@@ -1033,7 +1044,7 @@ export class WhatsAppAssistantService {
       return {
         pending: (row?.pending as unknown as PendingState | null) ?? null,
         history,
-        baseHistory: history.length,
+        added: [],
         handledIds,
       };
     });
@@ -1092,8 +1103,7 @@ export class WhatsAppAssistantService {
        * רק מה שהתור הזה הוסיף. ההיסטוריה מתווספת בסופה ואינה
        * נערכת אחורה, ולכן החיבור הזה הוא מיזוג נכון ולא ניחוש.
        */
-      const added = chat.history.slice(chat.baseHistory);
-      const merged = [...stored, ...added].slice(-HISTORY_KEPT);
+      const merged = [...stored, ...chat.added].slice(-HISTORY_KEPT);
       const data = {
         // Prisma דורש את הסמן המפורש ל-null בעמודת JSON — לא null גולמי
         ...(chat.keepStoredPending === true
