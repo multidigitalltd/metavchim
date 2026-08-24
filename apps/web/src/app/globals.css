@@ -544,6 +544,16 @@ code {
   --color-primary: #00521f;
   --color-primary-soft: #ddf3e4;
   --color-border: #000000;
+  /*
+   * גם גבול הפקד, ולא רק המסגרת הדקורטיבית.
+   *
+   * הפקדים נשענו עד עכשיו על `--color-border`, ולכן הם ירשו את
+   * השחור הזה בחינם. המעבר שלהם ל-`--color-input-border` היה מנתק
+   * אותם ממנו — כלומר דווקא ההגדרה שנועדה לחזק גבולות הייתה
+   * מחלישה אותם, בזמן שהמסגרות שסביבם משחירות (ביקורת Codex).
+   */
+  --color-input-border: #000000;
+  --color-border-hover: #000000;
   --header-bg: #ffffff;
   --shadow-card: none;
   --shadow-pop: none;

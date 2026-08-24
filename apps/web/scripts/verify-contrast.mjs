@@ -216,7 +216,32 @@ function scanControls(dir, hits) {
 const misuse = [];
 scanControls(join(here, "..", "src"), misuse);
 
-if (failures.length > 0 || misuse.length > 0) {
+/* ==================== מצב ניגודיות גבוהה ==================== */
+
+/**
+ * מה שההגדרה מחזקת — חייב לכלול גם את גבול הפקד.
+ *
+ * `[data-a11y-contrast="on"]` דורס טוקנים לשחור. כל עוד הפקדים
+ * נשענו על המסגרת הדקורטיבית הם ירשו את השחור בחינם; ברגע שקיבלו
+ * טוקן משלהם, שכחה של הטוקן החדש בבלוק הזה **מחלישה** אותם דווקא
+ * במצב שנועד לחזק (ביקורת Codex). זו בדיקה מבנית ולא מספרית: אין
+ * מה למדוד — יש רק לוודא שהטוקן נדרס יחד עם אחיו.
+ */
+const contrastBlock = /:root\[data-a11y-contrast="on"\]\s*\{([^}]*)\}/u.exec(css)?.[1] ?? "";
+const HIGH_CONTRAST_REQUIRED = ["color-border", "color-input-border", "color-border-hover"];
+const missingInHighContrast = HIGH_CONTRAST_REQUIRED.filter(
+  (name) => !new RegExp(`--${name}:`, "u").test(contrastBlock),
+);
+
+if (failures.length > 0 || misuse.length > 0 || missingInHighContrast.length > 0) {
+  if (missingInHighContrast.length > 0) {
+    console.error("\n✗ טוקנים שאינם נדרסים במצב ניגודיות גבוהה:\n");
+    for (const name of missingInHighContrast) console.error(`  • --${name}`);
+    console.error(
+      "\nההגדרה נועדה לחזק גבולות. טוקן גבול שנשכח בבלוק" +
+        " ‎:root[data-a11y-contrast=\"on\"]‎ נשאר בצבע הרגיל בזמן שכל השאר משחירים.",
+    );
+  }
   if (failures.length > 0) {
     console.error("✗ ניגודיות מתחת לסף:\n");
     for (const line of failures) console.error(`  • ${line}`);
