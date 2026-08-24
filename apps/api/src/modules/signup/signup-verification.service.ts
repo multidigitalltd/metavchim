@@ -169,8 +169,10 @@ export class SignupVerificationService implements OnModuleDestroy {
       version: SignupVerificationService.freshVersion(),
       sendingUntil: Date.now() + RESEND_DEBOUNCE_MS,
     };
-    await this.redis.set(this.key(token), JSON.stringify(stored), "EX", PENDING_TTL_SECONDS);
+    const value = JSON.stringify(stored);
+    await this.redis.set(this.key(token), value, "EX", PENDING_TTL_SECONDS);
     await this.chargeAndDeliver(pending, code);
+    await this.requireStillPending(token, value, "ההרשמה לא הושלמה — מלאו את הפרטים שוב");
     // בלי הקוד, בלי הטוקן ובלי הכתובת — שורת יומן היא ספירה, לא ראיה
     this.logger.log("נשלח קוד אימות לפתיחת משרד");
     return token;
@@ -273,22 +275,11 @@ export class SignupVerificationService implements OnModuleDestroy {
       throw error;
     }
 
-    /*
-     * **„נשלח” נאמר רק אם הקוד באמת תקף עכשיו.**
-     *
-     * ‎`KEEPTTL` שומר את המועד המקורי, ולכן רשומה שנותרו לה שניות
-     * יכולה לפוג **בזמן** השליחה. הגרסה הקודמת בדקה את היתרה אחרי
-     * השליחה, וכשהחלפתי אותה בהתקנה מותנית הבדיקה הזו נשמטה: המסך
-     * אמר „נשלח קוד חדש” בעוד שאין רשומה והקוד שבתיבה לא יעבוד
-     * (ביקורת Codex). אותה בדיקה תופסת גם רשומה שנוצלה ב-`consume`
-     * או הוחלפה בינתיים.
-     */
-    const current = await this.redis.get(this.key(token));
-    if (current !== replacement) {
-      throw new BadRequestException(
-        "ההרשמה כבר הושלמה או פגה — הקוד שנשלח זה עתה אינו בתוקף",
-      );
-    }
+    await this.requireStillPending(
+      token,
+      replacement,
+      "ההרשמה כבר הושלמה או פגה — הקוד שנשלח זה עתה אינו בתוקף",
+    );
     this.logger.log("נשלח קוד אימות חוזר לפתיחת משרד");
   }
 
@@ -446,6 +437,31 @@ export class SignupVerificationService implements OnModuleDestroy {
         );
       }
       throw error;
+    }
+  }
+
+  /**
+   * **„נשלח” נאמר רק אם הרשומה שנשלח עליה עדיין קיימת כפי שנכתבה.**
+   *
+   * השליחה אינה מיידית, והתפוגה אינה מחכה לה: רשומה יכולה לפוג
+   * **בזמן** השליחה, ואז המסך אומר „נשלח קוד” בעוד שבצד השרת אין
+   * דבר — המשתמש מקליד את מה שקיבל ומקבל „פג תוקף” בלי להבין למה.
+   * ההשוואה היא לערך שנכתב ולא בדיקת קיום, ולכן היא תופסת גם רשומה
+   * שנוצלה ב-`consume` או הוחלפה בשליחה חוזרת אחרת.
+   *
+   * **פונקציה משותפת ולא בדיקה כפולה במכוון.** הוספתי אותה תחילה
+   * ב-`reissue` בלבד, ו-`issue` נשארה מאחור עם אותו כשל בדיוק
+   * (ביקורת Codex) — זו הפעם השלישית בביקורת הזו שתיקנתי דפוס
+   * במופע אחד מתוך שניים. מכאן היא במקום אחד, ואין מופע שני שיכול
+   * להתיישן.
+   */
+  private async requireStillPending(
+    token: string,
+    expected: string,
+    message: string,
+  ): Promise<void> {
+    if ((await this.redis.get(this.key(token))) !== expected) {
+      throw new BadRequestException(message);
     }
   }
 
