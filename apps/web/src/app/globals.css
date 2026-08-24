@@ -94,7 +94,9 @@
    * הייתה מבהירה במקום להדגיש.
    */
   --color-border: #c3ccc5; /* 1.65:1 — דקורטיבי, לצד הצללית */
-  --color-input-border: #879189; /* 3.26:1 — גבול פקד, מעל סף AA */
+  /* 3.57:1 מול משטח לבן ו-3.24:1 מול משטח הריחוף — גבול פקד מעל סף AA
+     בשני המשטחים שהוא יושב עליהם, ולא רק במנוחה */
+  --color-input-border: #808a82;
   --color-border-hover: #66716a; /* 4.7:1 — כהה מהשניים */
   /*
    * שדה קלט לבן, ולא אפור בהיר.
@@ -475,10 +477,12 @@ code {
   box-shadow: var(--shadow-pop);
 }
 
+/* ההתחברות עם Google היא `<a>` ולא `<button>` — ולכן היא נשארה על
+   המסגרת הדקורטיבית, 1.65:1, כשכל שאר הפקדים עברו לגבול הפקד */
 .mv-button--secondary {
   background: var(--color-surface);
   color: var(--color-primary);
-  border-color: var(--color-border);
+  border-color: var(--color-input-border);
   box-shadow: var(--shadow-card);
 }
 .mv-button--secondary:hover {
@@ -645,22 +649,7 @@ code {
   transition: none !important;
 }
 
-/* ---------- כפתור ופאנל הסרגל ---------- */
-.mv-a11y-trigger {
-  position: fixed;
-  inset-block-end: 1rem;
-  inset-inline-start: 1rem;
-  z-index: 90;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  border: 2px solid #ffffff;
-  background: var(--color-primary);
-  color: #ffffff;
-  font-size: 1.6rem;
-  cursor: pointer;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-}
+/* ---------- פאנל הנגישות ---------- */
 .mv-a11y-panel {
   position: fixed;
   inset-block-end: 5rem;
@@ -691,9 +680,12 @@ code {
   font-size: 1rem;
   cursor: pointer;
 }
+/* המצב הנבחר: לבן קשיח היה 1.68:1 על הירוק הבהיר של הערכה הכהה —
+   מתג הנגישות עצמו היה בלתי קריא כשהוא דלוק. `--color-surface` הוא
+   ההיפוך של `--color-primary` בכל ערכה, ולכן קריא בשלושתן */
 .mv-a11y-toggle[aria-pressed="true"] {
   background: var(--color-primary);
-  color: #ffffff;
+  color: var(--color-surface);
   border-color: var(--color-primary);
 }
 .mv-reading-guide {
@@ -999,7 +991,7 @@ code {
   color: var(--color-text-muted);
 }
 .mv-search-input:focus {
-  border-color: #2ecc66;
+  border-color: var(--color-focus);
   background: var(--color-surface);
   box-shadow: 0 0 0 3px var(--color-primary-soft);
 }
@@ -1396,10 +1388,13 @@ button.mv-list-row:hover {
   padding: 6px 14px;
   cursor: pointer;
 }
+/* גלולת סינון שנבחרה. הצבע הקשיח ‎#111513‎ היה זהה בשלוש הערכות,
+   ולכן בערכה הכהה הוא עמד על 1.07:1 מול הכרטיס — לא היה אפשר לראות
+   מה סוּנן. אותו זוג טוקנים של מתג הנגישות, מאותו נימוק */
 .mv-chip[aria-pressed="true"] {
-  background: #111513;
-  color: #ffffff;
-  border-color: #111513;
+  background: var(--color-primary);
+  color: var(--color-surface);
+  border-color: var(--color-primary);
 }
 
 /*
@@ -1530,9 +1525,11 @@ button.mv-list-row:hover {
   background: var(--color-action-hover);
   text-decoration: none;
 }
+/* הזוג הקשיח ‎#bdf4cb‎ על ‎#f1fef4‎ היה זהה בשלוש הערכות: מסגרת
+   ב-1.19:1, ובערכה הכהה גם טקסט ירוק־בהיר על משטח בהיר — 1.62:1 */
 .mv-btn-soft {
-  border: 1px solid #bdf4cb;
-  background: #f1fef4;
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary-soft);
   color: var(--color-primary);
   font-size: 14px;
   font-weight: 700;
@@ -2010,7 +2007,7 @@ a.mv-bar-row:focus-visible {
   color: var(--color-text-muted);
 }
 .mv-field:focus {
-  border-color: #2ecc66;
+  border-color: var(--color-focus);
   background: var(--color-surface);
   box-shadow: 0 0 0 3px var(--color-primary-soft);
 }
@@ -2038,16 +2035,13 @@ a.mv-bar-row:focus-visible {
 .mv-dictate-btn:hover {
   background: var(--color-hover-soft);
 }
-/* המצב האחרון שנבחר — מודגש, אבל השני נשאר לחיץ באותה מידה */
+/* המצב האחרון שנבחר — מודגש, אבל השני נשאר לחיץ באותה מידה.
+   הערכה הכהה נדרסה כאן בעבר בטוקנים, כי הזוג הקשיח שהיה בכלל
+   הבסיס לא עבר דרכה. משעברו גם הם לטוקנים, ההחרגה מיותרת */
 .mv-dictate-btn[data-preferred="true"] {
-  border-color: #bdf4cb;
-  background: #f1fef4;
-  color: var(--color-primary);
-}
-:root[data-theme="dark"] .mv-dictate-btn[data-preferred="true"],
-:root:not([data-theme="light"]) .mv-dictate-btn[data-preferred="true"] {
   border-color: var(--color-primary);
   background: var(--color-primary-soft);
+  color: var(--color-primary);
 }
 .mv-dictate-stop {
   display: inline-flex;

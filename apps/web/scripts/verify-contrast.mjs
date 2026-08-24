@@ -150,16 +150,46 @@ const THEME_LABEL = { light: "בהיר", dark: "כהה", contrast: "ניגודי
  * (`--color-X` → `--dk-Y` → צבע), והחסם מונע לולאה אינסופית מכל
  * טעות עתידית שתיצור מעגל.
  */
-function resolve(name, theme) {
+function resolveValue(value, theme) {
   const decls = THEMES[theme];
-  let value = decls.get(`--${name}`);
-  for (let step = 0; step < 5 && value !== undefined; step += 1) {
-    if (/^#[0-9a-fA-F]{6}$/u.test(value)) return value.toLowerCase();
-    const ref = /^var\(\s*(--[\w-]+)\s*\)$/u.exec(value);
+  let current = value;
+  for (let step = 0; step < 5 && current !== undefined && current !== null; step += 1) {
+    if (/^#[0-9a-fA-F]{6}$/u.test(current)) return current.toLowerCase();
+    const mixed = mixValue(current, theme);
+    if (mixed !== null) return mixed;
+    const ref = /^var\(\s*(--[\w-]+)\s*\)$/u.exec(current);
     if (ref === null) return null;
-    value = decls.get(ref[1]);
+    current = decls.get(ref[1]);
   }
   return null;
+}
+
+function resolve(name, theme) {
+  return resolveValue(THEMES[theme].get(`--${name}`), theme);
+}
+
+/**
+ * `color-mix(in srgb, A 6%, B)` — נפתר ולא מדולג.
+ *
+ * זה הרקע של ריחוף על כפתור „כל הפרטים” ברשת. ביטוי רגולרי
+ * שמחפש „הצבע הראשון” בערך היה קורא ממנו את `A` ומדווח על טקסט
+ * בניגודיות 1.00:1 — התראת שווא על כפתור תקין. דילוג היה הקצה
+ * השני: שקט על כל מה שנכתב בצורה הזו.
+ *
+ * המיזוג ב-sRGB הוא ממוצע משוקלל פשוט לכל ערוץ, ולכן אין סיבה
+ * לוותר על המדידה.
+ */
+function mixValue(value, theme) {
+  const mix = /^color-mix\(\s*in\s+srgb\s*,\s*(.+?)\s+([\d.]+)%\s*,\s*(.+?)\s*\)$/u.exec(value);
+  if (mix === null) return null;
+  const [first, second] = [resolveValue(mix[1], theme), resolveValue(mix[3], theme)];
+  if (first === null || second === null) return null;
+  const weight = Number(mix[2]) / 100;
+  const channel = (hex, at) => parseInt(hex.slice(1 + at * 2, 3 + at * 2), 16);
+  return `#${[0, 1, 2]
+    .map((at) => Math.round(channel(first, at) * weight + channel(second, at) * (1 - weight)))
+    .map((n) => n.toString(16).padStart(2, "0"))
+    .join("")}`;
 }
 
 /** [ערכה, טוקן, טוקן הרקע, סף, תיאור] — הכול בשמות סמנטיים. */
@@ -265,6 +295,31 @@ for (const [theme, fg, bg, min, label] of REQUIRED) {
 const CONTROL_TAGS = ["input", "select", "textarea", "canvas", "button"];
 const DECORATIVE_BORDER = "var(--color-border)";
 
+/**
+ * **קישור שמעוצב ככפתור הוא כפתור.**
+ *
+ * פעולת ההתחברות עם Google היא `<a>` ולא `<button>`, ולכן היא
+ * נשארה מחוץ לסריקה עם המסגרת הדקורטיבית — 1.65:1 — בזמן שהשער
+ * הדפיס „כל הפקדים תקינים” (ביקורת Codex).
+ *
+ * ההבחנה אינה לפי שם המחלקה אלא לפי מה שהגיליון אומר עליה:
+ * `cursor: pointer` על **נושא** הבורר. קישור הוא לחיץ מטבעו, ולכן
+ * גיליון שטורח להצהיר זאת עליו מתאר כפתור. כרטיס או שורה שהם
+ * קישור — אריח הנתון בדשבורד, פריט „טווח ההגעה” — אינם מצהירים
+ * זאת, וזה נכון גם לגופו של עניין: 1.4.11 מדבר על מה שנדרש כדי
+ * **לזהות** את הרכיב, וכרטיס מזוהה בתוכן שלו ולא בקצה שלו. שער
+ * שהיה כופה 3:1 גם עליהם היה מקיף כל אריח בדשבורד בקו כהה.
+ */
+const LINK_TAGS = ["a", "Link"];
+const clickableClasses = new Set();
+for (const rule of CSS_RULES) {
+  if (!/cursor\s*:\s*pointer/u.test(rule[2])) continue;
+  for (const part of rule[1].split(",")) {
+    const names = [...part.matchAll(/\.([\w-]+)(?![\w-])/gu)];
+    if (names.length > 0) clickableClasses.add(names[names.length - 1][1]);
+  }
+}
+
 /** תוכן התגית מהפתיחה ועד ה-`>` שסוגר אותה, בלי להיבלע בסוגריים מסולסלים. */
 function openingTag(source, from) {
   let depth = 0;
@@ -329,10 +384,30 @@ function controlSites(source) {
     const tag = match[1];
     const native = CONTROL_TAGS.includes(tag);
     const body = openingTag(source, match.index);
-    if (!native && !/\bcontentEditable\b/u.test(body)) continue;
+    const link =
+      LINK_TAGS.includes(tag) &&
+      (/role="button"/u.test(body) ||
+        classNamesIn(body).some((cls) => clickableClasses.has(cls)));
+    if (!native && !link && !/\bcontentEditable\b/u.test(body)) continue;
     sites.push({ tag, body, index: match.index });
   }
   return sites;
+}
+
+/**
+ * כל מחרוזת בתוך `className` — גם `"a b"` וגם ביטוי מותנה שבתוכו
+ * מחרוזות. השמות האלה הם מה שהחלק שב-CSS מחפש.
+ */
+function classNamesIn(body) {
+  const classes = [];
+  for (const attr of body.matchAll(/className=(?:"([^"]*)"|\{([\s\S]*?)\})/gu)) {
+    const text = attr[1] ?? attr[2] ?? "";
+    for (const quoted of text.matchAll(/["'`]([^"'`]*)["'`]/gu)) {
+      classes.push(...quoted[1].split(/\s+/u));
+    }
+    if (attr[1] !== undefined) classes.push(...attr[1].split(/\s+/u));
+  }
+  return classes;
 }
 
 /** המחלקות שמופיעות על פקד ב-JSX — לחצי השני של הבדיקה, ב-CSS. */
@@ -356,18 +431,7 @@ function scanControls(dir, hits) {
     for (const site of controlSites(source)) {
       const { tag, body } = site;
       const line = source.slice(0, site.index).split("\n").length;
-      /*
-       * כל מחרוזת בתוך `className` — גם `"a b"` וגם ביטוי מותנה
-       * שבתוכו מחרוזות. השמות האלה הם מה שהחלק שב-CSS מחפש.
-       */
-      const classes = [];
-      for (const attr of body.matchAll(/className=(?:"([^"]*)"|\{([\s\S]*?)\})/gu)) {
-        const text = attr[1] ?? attr[2] ?? "";
-        for (const quoted of text.matchAll(/["'`]([^"'`]*)["'`]/gu)) {
-          classes.push(...quoted[1].split(/\s+/u));
-        }
-        if (attr[1] !== undefined) classes.push(...attr[1].split(/\s+/u));
-      }
+      const classes = classNamesIn(body);
       const mine = classes.filter((cls) => /^mv-[\w-]+$/u.test(cls));
       for (const cls of mine) controlClasses.add(cls);
       if (mine.length > 0) {
@@ -487,12 +551,205 @@ function scanClassDefinitions(hits) {
   }
 }
 
+/* ==================== הצבע שהמחלקה באמת נותנת ==================== */
+
+/**
+ * **הצבעים של הפקד נמדדים, ולא רק נבדק באיזה טוקן הם כתובים.**
+ *
+ * שלוש הבדיקות שקדמו שואלות אם הפקד נשען על הטוקן הנכון. אף אחת
+ * מהן אינה שואלת כמה יוצא בסוף — ולכן ערך שנכתב כצבע קשיח, בלי
+ * טוקן כלל, עבר בשקט. `.mv-search-input:focus` ו-`.mv-field:focus`
+ * החליפו את גבול הפקד ב-`#2ecc66`, שהוא 2.11:1 מול השדה הלבן:
+ * ברגע שהמשתמש נכנס לשדה, המסגרת התקינה מוחלפת בחיוורת ממנה
+ * (ביקורת Codex).
+ *
+ * ## למה זה חוזר דווקא במצבים
+ *
+ * המצב — ריחוף, מיקוד, „נבחר” — הוא המקום שבו מעצב כותב צבע
+ * מהעין ולא מהמערכת. שלושה מתוך חמשת הכשלים שנמצאו כאן היו
+ * צבעים קשיחים בהירים שמעולם לא עברו דרך הערכה הכהה, ולכן היו
+ * זהים בשלוש הערכות: כפתור ירקרק על לבן נראה סביר, ואותו כפתור
+ * עצמו על מסך כהה הוא כתם בהיר עם טקסט בהיר עליו.
+ *
+ * ## מה נמדד
+ *
+ * לכל מחלקה של פקד — ולכל **מצב** שלה — נבנית שרשרת הכללים כפי
+ * שהדפדפן מרכיב אותה: כלל הבסיס ואחריו כלל המצב, ומהם נלקחות
+ * המסגרת, המשטח והטקסט. אחר כך:
+ *
+ * - **מסגרת מול המשטח שלה** — 3:1 (1.4.11).
+ * - **טקסט מול המשטח שלו** — 4.5:1 (1.4.3).
+ * - **מצב שאין לו מסגרת נפרדת** (המסגרת בצבע המשטח) נמדד אחרת:
+ *   המשטח שלו מול משטח הבסיס. אם המצב מסומן במילוי בלבד, המילוי
+ *   הוא כל ההבדל — וגלולת סינון „נבחרה” בצבע ‎#111513‎ עומדת על
+ *   1.02:1 מול העמוד הכהה, כלומר אין דרך לדעת מה נבחר.
+ *
+ * ## מה לא נמדד כאן, ולמה
+ *
+ * שני הטוקנים הדקורטיביים — מסגרת הכרטיס ומפריד השורות. יש להם
+ * מדיניות משלהם ובדיקה משלהם (`scanStylesheet`), והכפלתה כאן
+ * הייתה מבטלת את הפטור שהקובץ הזה מנמק בפתיחתו.
+ */
+const DECORATIVE_TOKENS = ["var(--color-border)", "var(--color-row-border)"];
+const COLOR_VALUE = /(#[0-9a-fA-F]{6}|var\(--[\w-]+\)|color-mix\([^)]*\)|transparent|currentColor)/u;
+const BORDER_PROP =
+  /(?:^|[\s;])border(?:-(?:top|right|bottom|left|block|inline|start|end))?(?:-(?:start|end))?(?:-color)?\s*:\s*([^;]+)/gmu;
+const BACKGROUND_PROP = /(?:^|[\s;])background(?:-color)?\s*:\s*([^;]+)/gmu;
+const TEXT_PROP = /(?:^|[\s;])color\s*:\s*([^;]+)/gmu;
+
+/** הערך האחרון שהצהרה כזו קובעת בגוף הכלל — האחרון גובר, כמו בקסקייד. */
+function lastColor(body, property) {
+  let found = null;
+  for (const decl of body.matchAll(new RegExp(property.source, "gmu"))) {
+    const color = COLOR_VALUE.exec(decl[1]);
+    if (color !== null) found = color[1];
+    else if (/^\s*(?:none|0)\b/u.test(decl[1])) found = "transparent";
+  }
+  return found;
+}
+
+/**
+ * הערכות שבהן הבורר בכלל חל.
+ *
+ * הסדר כאן אינו קוסמטי: `:root:not([data-theme="light"])` — הבורר
+ * של העדפת המערכת — **מכיל** את המחרוזת `[data-theme="light"]`,
+ * ולכן בדיקת הבהיר לפני הכהה הייתה קוראת את הכלל הכהה כבהיר
+ * ומחליפה בו את ערכי הערכה הבהירה.
+ */
+function themesFor(selector) {
+  if (/\[data-a11y-contrast="on"\]/u.test(selector)) return ["contrast"];
+  if (/:not\(\[data-theme="light"\]\)|\[data-theme="dark"\]/u.test(selector)) {
+    return ["dark", "contrast"];
+  }
+  if (/\[data-theme="light"\]/u.test(selector)) return ["light"];
+  return ["light", "dark", "contrast"];
+}
+
+/** בורר אחד בלי קידומת הערכה — `:root[data-theme="dark"] .mv-chip:hover` ⟵ `.mv-chip:hover`. */
+function withoutThemePrefix(part) {
+  return part.replace(/^:root(?:\[[^\]]*\]|:not\([^)]*\))*\s+/u, "").trim();
+}
+
+function controlRuleGroups() {
+  const groups = new Map();
+  for (const rule of CSS_RULES) {
+    const line = css.slice(0, rule.index).split("\n").length;
+    for (const raw of rule[1].split(",")) {
+      const part = raw.trim();
+      if (part === "" || part.startsWith("@")) continue;
+      const key = withoutThemePrefix(part);
+      const names = [...key.matchAll(/\.([\w-]+)(?![\w-])/gu)].map((m) => m[1]);
+      if (!names.some((name) => controlClasses.has(name))) continue;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push({ body: rule[2], line, themes: themesFor(part) });
+    }
+  }
+  return groups;
+}
+
+function scanControlColors(hits) {
+  const groups = controlRuleGroups();
+  let measured = 0;
+  for (const key of groups.keys()) {
+    const base = /^\.[\w-]+/u.exec(key)?.[0] ?? null;
+    const chain = base !== null && base !== key ? [base, key] : [key];
+    for (const theme of Object.keys(THEME_SELECTORS)) {
+      const at = { border: null, background: null, text: null, line: null };
+      for (const name of chain) {
+        for (const rule of groups.get(name) ?? []) {
+          if (!rule.themes.includes(theme)) continue;
+          for (const [field, property] of [
+            ["border", BORDER_PROP],
+            ["background", BACKGROUND_PROP],
+            ["text", TEXT_PROP],
+          ]) {
+            const value = lastColor(rule.body, property);
+            if (value === null) continue;
+            at[field] = value;
+            if (name === key) at.line = rule.line;
+          }
+        }
+      }
+      if (at.line === null) continue;
+      const where = `globals.css:${at.line} — ${key} (${THEME_LABEL[theme]})`;
+      const surface = at.background === null ? null : resolveValue(at.background, theme);
+      const decorative = at.border !== null && DECORATIVE_TOKENS.includes(at.border);
+      const edge =
+        at.border === null || at.border === "transparent" || at.border === "currentColor"
+          ? null
+          : resolveValue(at.border, theme);
+
+      if (edge !== null && !decorative && (surface === null || surface !== edge)) {
+        const against =
+          surface !== null
+            ? [[at.background, surface]]
+            : SURFACES.map(([token]) => [`--${token}`, resolve(token, theme)]);
+        for (const [name, color] of against) {
+          if (color === null) continue;
+          measured += 1;
+          const ratio = contrast(edge, color);
+          if (ratio < 3) {
+            hits.push(`${where}: ${at.border} (${edge}) מול ${name} (${color}) = ${ratio.toFixed(2)}:1, נדרש 3:1`);
+          }
+        }
+      }
+
+      /*
+       * מצב שהמסגרת שלו בצבע המשטח שלו — הצבע לא מסמן קצה אלא
+       * מילוי, וההבדל שהמשתמש אמור לראות הוא מולו לפני הלחיצה.
+       *
+       * **רק מצב שנשאר.** ‎`[aria-pressed]`‎, ‎`[data-preferred]`‎ —
+       * מצב שהמשתמש צריך לקרוא מהמסך כדי לדעת מה בחר. ריחוף,
+       * מיקוד ולחיצה הם פסאודו-מחלקות והם חולפים: הם מלווים את
+       * הסמן, הפקד כבר מזוהה, ודרישת 3:1 ביניהם הייתה מחייבת כל
+       * ריחוף במערכת להיות קפיצת צבע. `:disabled` אף גרוע מכך —
+       * ההנחתה שלו היא **המטרה**.
+       */
+      const persistentState = /\[(?:aria|data)-[\w-]+/u.test(key.slice(base?.length ?? 0));
+      if (base !== key && persistentState && surface !== null && (edge === null || edge === surface)) {
+        const before = { background: null };
+        for (const rule of groups.get(base) ?? []) {
+          if (!rule.themes.includes(theme)) continue;
+          const value = lastColor(rule.body, BACKGROUND_PROP);
+          if (value !== null) before.background = value;
+        }
+        const previous = before.background === null ? null : resolveValue(before.background, theme);
+        if (previous !== null && previous !== surface) {
+          measured += 1;
+          const ratio = contrast(surface, previous);
+          if (ratio < 3) {
+            hits.push(
+              `${where}: המצב מסומן במילוי בלבד — ${at.background} (${surface}) מול ${before.background} (${previous}) = ${ratio.toFixed(2)}:1, נדרש 3:1`,
+            );
+          }
+        }
+      }
+
+      if (at.text !== null && surface !== null) {
+        const ink = resolveValue(at.text, theme);
+        if (ink !== null && ink !== surface) {
+          measured += 1;
+          const ratio = contrast(ink, surface);
+          if (ratio < 4.5) {
+            hits.push(
+              `${where}: טקסט ${at.text} (${ink}) על ${at.background} (${surface}) = ${ratio.toFixed(2)}:1, נדרש 4.5:1`,
+            );
+          }
+        }
+      }
+    }
+  }
+  return measured;
+}
+
 const misuse = [];
 const unresolved = [];
+const measuredControls = [];
 // סדר: הסריקה ב-JSX אוספת את שמות המחלקות ואת השימושים שהמשך מחפש
 scanControls(join(here, "..", "src"), misuse);
 scanStylesheet(misuse);
 scanClassDefinitions(unresolved);
+const controlPairs = scanControlColors(measuredControls);
 
 /* ==================== מצב ניגודיות גבוהה ==================== */
 
@@ -536,6 +793,7 @@ if (
   failures.length > 0 ||
   misuse.length > 0 ||
   unresolved.length > 0 ||
+  measuredControls.length > 0 ||
   missingInHighContrast.length > 0 ||
   darkMismatch.length > 0
 ) {
@@ -578,6 +836,17 @@ if (
         " כלומר בלי שדה נראה כלל.",
     );
   }
+  if (measuredControls.length > 0) {
+    console.error("\n✗ צבעים של פקדים שנמדדו מתחת לסף:\n");
+    for (const line of measuredControls.slice(0, 20)) console.error(`  • ${line}`);
+    if (measuredControls.length > 20) {
+      console.error(`  • ...ועוד ${measuredControls.length - 20}`);
+    }
+    console.error(
+      "\nצבע קשיח בכלל של מצב (ריחוף, מיקוד, „נבחר”) אינו עובר דרך הערכות" +
+        " הצבע, ולכן הוא זהה בשלושתן. השתמשו בטוקן.",
+    );
+  }
   console.error(
     "\nהמסגרות והצבעים מוגדרים ב-apps/web/src/app/globals.css. סף 3:1 לגבול פקד" +
       " הוא WCAG 1.4.11; 4.5:1 לטקסט הוא 1.4.3.",
@@ -596,4 +865,7 @@ console.log(
 );
 console.log("✓ כל הפקדים משתמשים בגבול הפקד ולא במסגרת הדקורטיבית");
 console.log(`✓ ${controlUses.length} פקדים עם מחלקת מערכת — לכולם מחלקה מוגדרת שקובעת מסגרת`);
+console.log(
+  `✓ ${controlPairs} צבעים של פקדים נמדדו בכל מצב ובכל ערכה — מסגרת, מילוי וטקסט`,
+);
 console.log(`  דקורטיבי (לידיעה בלבד): ${notes.join(" · ")}`);
