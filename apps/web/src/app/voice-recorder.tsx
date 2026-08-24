@@ -262,17 +262,20 @@ export function VoiceRecorder({
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
-      // תשובה שהגיעה אחרי שהמשתמש כבר ביטל אינה שלנו
-      if (permitRef.current !== permit) return;
+      // תשובה שהגיעה אחרי שהמשתמש כבר ביטל, או אחרי שעזב את המסך,
+      // אינה שלנו — ואין לה למי לדווח
+      if (permitRef.current !== permit || disposedRef.current) return;
       markPending(false);
       busyRef.current = false;
       setActiveMode(null);
       onError?.("אין גישה למיקרופון — אשרו הרשאה בדפדפן או הקלידו");
       return;
     }
-    if (permitRef.current !== permit) {
-      // בוטל בזמן ההמתנה — הזרם שהגיע באיחור נסגר ואינו מקליט דבר
+    if (permitRef.current !== permit || disposedRef.current) {
+      // בוטל בזמן ההמתנה, או שהרכיב ירד — הזרם שהגיע באיחור נסגר
+      // ואינו מקליט דבר. שתי הבדיקות יחד ולפני כל עדכון מצב.
       stream.getTracks().forEach((track) => track.stop());
+      if (permitRef.current === permit) busyRef.current = false;
       return;
     }
     markPending(false);
@@ -283,7 +286,7 @@ export function VoiceRecorder({
      * וכל קטע נשלח לתמלול פעמיים: הטקסט הופיע כפול וההקלטה
      * הראשונה נשארה פתוחה עם המיקרופון דלוק. השנייה מוותרת.
      */
-    if (disposedRef.current || streamRef.current !== null) {
+    if (streamRef.current !== null) {
       stream.getTracks().forEach((track) => track.stop());
       busyRef.current = false;
       return;

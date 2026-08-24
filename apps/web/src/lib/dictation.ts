@@ -408,16 +408,19 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
-      // תשובה שהגיעה אחרי שהמשתמש כבר ביטל אינה שלנו
-      if (permitRef.current !== permit) return;
+      // תשובה שהגיעה אחרי שהמשתמש כבר ביטל, או אחרי שהשדה ירד מהמסך,
+      // אינה שלנו — ואין לה למי לדווח
+      if (permitRef.current !== permit || disposedRef.current) return;
       markPending(false);
       busyRef.current = false;
       setError("אין גישה למיקרופון — אשרו הרשאה בדפדפן או הקלידו");
       return;
     }
-    if (permitRef.current !== permit) {
-      // בוטל בזמן ההמתנה — הזרם שהגיע באיחור נסגר ואינו מקליט דבר
+    if (permitRef.current !== permit || disposedRef.current) {
+      // בוטל בזמן ההמתנה, או שהרכיב ירד — הזרם שהגיע באיחור נסגר
+      // ואינו מקליט דבר. שתי הבדיקות יחד ולפני כל עדכון מצב.
       stream.getTracks().forEach((t) => t.stop());
+      if (permitRef.current === permit) busyRef.current = false;
       return;
     }
     markPending(false);
@@ -428,7 +431,7 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
      * אותה שמיעה פעמיים, ולכן הטקסט חזר כפול, וההקלטה הראשונה
      * נשארה פתוחה עם המיקרופון דלוק. השנייה מוותרת.
      */
-    if (disposedRef.current || recorderRef.current !== null) {
+    if (recorderRef.current !== null) {
       stream.getTracks().forEach((t) => t.stop());
       busyRef.current = false;
       return;
