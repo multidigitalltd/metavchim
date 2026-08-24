@@ -63,14 +63,27 @@ const EMAIL_WINDOW_SECONDS = 60 * 60;
  * יודע איזה מהם תקף. זה קורה בלחיצה כפולה, בשתי לשוניות, או
  * בניסיון חוזר של הדפדפן (ביקורת Codex).
  *
- * **החכירה מוכרחה לכסות את השליחה עצמה.** הערך היה 20 שניות בעוד
- * ‎`chargeAndDeliver` יכולה לרוץ יותר מזה: החכירה פגה באמצע, בקשה
- * שנייה תפסה מנעול חדש ושלחה קוד מחליף, ורק אחד מהשניים נכתב —
- * כלומר שני אימיילים ואחד מהם מת (ביקורת Codex). ‎`EmailService`
- * חוסמת את הקריאה לספק ב-`AbortSignal.timeout(10_000)` ואינה מנסה
- * שוב, ולכן 45 שניות הן מעל הגבול העליון של השליחה בהפרש ניכר.
+ * **החכירה מוכרחה לכסות את השליחה, ומספר קבוע אינו יכול.** הערך היה
+ * 20 שניות בעוד `chargeAndDeliver` יכולה לרוץ יותר מזה: החכירה פגה
+ * באמצע, בקשה שנייה תפסה מנעול חדש ושלחה קוד מחליף, ורק אחד מהשניים
+ * נכתב — שני אימיילים ואחד מהם מת (ביקורת Codex).
+ *
+ * הכתבתי אז 45 שניות בנימוק ש-`AbortSignal.timeout(10_000)` חוסם את
+ * השליחה. הנימוק היה שגוי: הפסק-זמן חוסם את ה-`fetch` בלבד, ולפניו
+ * רצים `chargeEmailQuota` מול Redis ו-`credentials()` שיורדת לשאילתת
+ * Prisma — שניהם בלתי-חסומים (ביקורת Codex).
+ *
+ * לכן החכירה **מתחדשת** כל עוד העבודה רצה, והערך כאן אינו טענה על
+ * משך השליחה אלא על שני דברים אחרים: כמה זמן המנעול שורד אם התהליך
+ * מת באמצע, וכמה זמן הוא חוסם שליחה נוספת אחרי הצלחה.
  */
 const RESEND_LOCK_SECONDS = 45;
+
+/**
+ * תדירות חידוש החכירה — שליש מאורכה, כדי לשרוד החמצה או שתיים
+ * ברצף בלי שהמנעול ייעלם תחת מי שמחזיק בו.
+ */
+const RESEND_LOCK_RENEW_MS = 15_000;
 
 /** הפרטים שממתינים לאימות. סיסמה — מוצפנת בלבד. */
 export interface PendingSignup {
@@ -213,106 +226,129 @@ export class SignupVerificationService implements OnModuleDestroy {
         holder,
       );
     };
+    /*
+     * **החכירה מתחדשת כל עוד העבודה רצה** — ראו `RESEND_LOCK_SECONDS`.
+     *
+     * החידוש מותנה בחותם, ולכן אינו יכול להאריך מנעול של מישהו אחר;
+     * והוא נעצר ב-`finally`, בכל מסלול יציאה.
+     */
+    const renewal = setInterval(() => {
+      void this.redis
+        .eval(
+          "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('EXPIRE', KEYS[1], ARGV[2]) end return 0",
+          1,
+          lock,
+          holder,
+          String(RESEND_LOCK_SECONDS),
+        )
+        .catch(() => undefined);
+    }, RESEND_LOCK_RENEW_MS);
+    /* אינו מחזיק את התהליך בחיים אם משהו נתקע */
+    renewal.unref();
 
-    const code = SignupVerificationService.freshCode();
-    /*
-     * ה-TTL נשמר ואינו מתחדש: הארכה בכל „שלחו שוב” הייתה הופכת את
-     * חלון התפוגה לבלתי-מוגבל בלחיצות.
-     */
-    const ttl = await this.redis.ttl(this.key(token));
-    if (ttl <= 0) {
-      await release();
-      throw new BadRequestException("ההרשמה פגה — מלאו את הפרטים שוב");
-    }
-    /*
-     * **מועד, ולא יתרה** — מאותו נימוק בדיוק כמו ב-`withVerified`.
-     *
-     * ‎`ttl` נמדד כאן, וההתקנה קורית אחרי השליחה: כתיבה של `ttl`
-     * כמו-שהוא מוסיפה לתפוגה את כל משך השליחה. „שלחו שוב” בעשר
-     * שניות של שליחה, עשר פעמים, מותחת חלון של עשרים דקות ללא
-     * גבול — וזה בדיוק מה שההערה מעל טוענת שאינו קורה (ביקורת
-     * Codex). את התיקון הזה עשיתי בסבב הקודם בצד אחד בלבד.
-     */
-    const deadline = Date.now() + ttl * 1000;
-
-    /*
-     * **השליחה קודמת לכתיבה** — וכאן דווקא הפוך מ-`issue`.
-     *
-     * הסדר ההפוך פסל את הקוד הישן ברגע שהחדש נכתב, ואם ספק
-     * האימייל נפל אחר-כך המשתמש נשאר בלי כלום: הקוד שכבר בתיבה
-     * שלו הפסיק לעבוד, והמחליף מעולם לא נשלח (ביקורת Codex).
-     *
-     * ב-`issue` הסדר הפוך ונכון: שם אין קוד קודם להגן עליו, ומה
-     * שיש להימנע ממנו הוא ההפך — קוד שנשלח ואין לו רשומה.
-     */
-    /*
-     * כישלון משחרר את המנעול: מי שלא קיבל דבר אינו אמור להמתין
-     * בגללו. הצלחה משאירה אותו לפוג מעצמו — זו כל מטרתו.
-     */
     try {
-      await this.chargeAndDeliver(stored.pending, code);
-    } catch (error) {
-      await release();
-      throw error;
-    }
-
-    /* מה שנותר מהמועד המקורי — אחרי השליחה, ולא לפניה. */
-    const left = Math.floor((deadline - Date.now()) / 1000);
-    if (left <= 0) {
-      await release();
-      throw new BadRequestException(
-        "ההרשמה פגה — הקוד שנשלח זה עתה אינו בתוקף, מלאו את הפרטים שוב",
-      );
-    }
-
-    /*
-     * הכתיבה מותנית ב**ערך שנקרא בכניסה**, ולא עיוורת.
-     *
-     * ‎`consume` יכולה לרוץ בזמן שהשליחה הזו באוויר, ולהצליח: היא
-     * מוחקת את הרשומה בהתאמה-ומחיקה, המשרד נפתח, וזהו. כתיבה
-     * בלתי-מותנית אחריה **מחייה רשומה שכבר נוצלה** — והקוד שזה עתה
-     * נשלח באימייל הופך לקוד תקף להרשמה שכבר הושלמה. אישור שני היה
-     * נכנס למסלול פתיחת המשרד ונופל רק בהמשך, על אילוצי ייחודיות
-     * (ביקורת Codex).
-     *
-     * זו אותה התאמה-ואז-פעולה של `consume`, מהצד השני: שם „מחק אם
-     * זה עדיין מה שאימתתי”, כאן „כתוב אם זה עדיין מה שקראתי”.
-     */
-    /*
-     * **בלי איפוס מונה כאן, כי אין מה לאפס.**
-     *
-     * הקוד החדש נושא גרסה חדשה, והמונה נספר תחת הגרסה (ראו
-     * ‎`StoredPending.version`). המונה של הקוד המוחלף אינו נוגע בו
-     * ופג מעצמו, ולכן אין עוד שתי פעולות שצריך לתאם ביניהן — וגם
-     * לא רגע שבו אחת מהן כבר קרתה והשנייה טרם.
-     */
-    const replaced = await this.redis.eval(
-      `if redis.call('GET', KEYS[1]) == ARGV[1] then
-         redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
-         return 1
-       end
-       return 0`,
-      1,
-      this.key(token),
-      raw,
-      JSON.stringify({
-        ...stored,
-        codeHmac: this.hmac(code),
-        version: SignupVerificationService.freshVersion(),
-      } satisfies StoredPending),
-      String(left),
-    );
-    if (replaced !== 1) {
+      const code = SignupVerificationService.freshCode();
       /*
-       * האימייל כבר יצא, ולכן נאמר במפורש שהקוד שבו אינו בתוקף —
-       * „נשלח קוד” בלי המשך היה משאיר את המשתמש ממתין לו לחינם.
+       * ה-TTL נשמר ואינו מתחדש: הארכה בכל „שלחו שוב” הייתה הופכת את
+       * חלון התפוגה לבלתי-מוגבל בלחיצות.
        */
-      await release();
-      throw new BadRequestException(
-        "ההרשמה כבר הושלמה או פגה — הקוד שנשלח זה עתה אינו בתוקף",
+      const ttl = await this.redis.ttl(this.key(token));
+      if (ttl <= 0) {
+        await release();
+        throw new BadRequestException("ההרשמה פגה — מלאו את הפרטים שוב");
+      }
+      /*
+       * **מועד, ולא יתרה** — מאותו נימוק בדיוק כמו ב-`withVerified`.
+       *
+       * ‎`ttl` נמדד כאן, וההתקנה קורית אחרי השליחה: כתיבה של `ttl`
+       * כמו-שהוא מוסיפה לתפוגה את כל משך השליחה. „שלחו שוב” בעשר
+       * שניות של שליחה, עשר פעמים, מותחת חלון של עשרים דקות ללא
+       * גבול — וזה בדיוק מה שההערה מעל טוענת שאינו קורה (ביקורת
+       * Codex). את התיקון הזה עשיתי בסבב הקודם בצד אחד בלבד.
+       */
+      const deadline = Date.now() + ttl * 1000;
+
+      /*
+       * **השליחה קודמת לכתיבה** — וכאן דווקא הפוך מ-`issue`.
+       *
+       * הסדר ההפוך פסל את הקוד הישן ברגע שהחדש נכתב, ואם ספק
+       * האימייל נפל אחר-כך המשתמש נשאר בלי כלום: הקוד שכבר בתיבה
+       * שלו הפסיק לעבוד, והמחליף מעולם לא נשלח (ביקורת Codex).
+       *
+       * ב-`issue` הסדר הפוך ונכון: שם אין קוד קודם להגן עליו, ומה
+       * שיש להימנע ממנו הוא ההפך — קוד שנשלח ואין לו רשומה.
+       */
+      /*
+       * כישלון משחרר את המנעול: מי שלא קיבל דבר אינו אמור להמתין
+       * בגללו. הצלחה משאירה אותו לפוג מעצמו — זו כל מטרתו.
+       */
+      try {
+        await this.chargeAndDeliver(stored.pending, code);
+      } catch (error) {
+        await release();
+        throw error;
+      }
+
+      /* מה שנותר מהמועד המקורי — אחרי השליחה, ולא לפניה. */
+      const left = Math.floor((deadline - Date.now()) / 1000);
+      if (left <= 0) {
+        await release();
+        throw new BadRequestException(
+          "ההרשמה פגה — הקוד שנשלח זה עתה אינו בתוקף, מלאו את הפרטים שוב",
+        );
+      }
+
+      /*
+       * הכתיבה מותנית ב**ערך שנקרא בכניסה**, ולא עיוורת.
+       *
+       * ‎`consume` יכולה לרוץ בזמן שהשליחה הזו באוויר, ולהצליח: היא
+       * מוחקת את הרשומה בהתאמה-ומחיקה, המשרד נפתח, וזהו. כתיבה
+       * בלתי-מותנית אחריה **מחייה רשומה שכבר נוצלה** — והקוד שזה עתה
+       * נשלח באימייל הופך לקוד תקף להרשמה שכבר הושלמה. אישור שני היה
+       * נכנס למסלול פתיחת המשרד ונופל רק בהמשך, על אילוצי ייחודיות
+       * (ביקורת Codex).
+       *
+       * זו אותה התאמה-ואז-פעולה של `consume`, מהצד השני: שם „מחק אם
+       * זה עדיין מה שאימתתי”, כאן „כתוב אם זה עדיין מה שקראתי”.
+       */
+      /*
+       * **בלי איפוס מונה כאן, כי אין מה לאפס.**
+       *
+       * הקוד החדש נושא גרסה חדשה, והמונה נספר תחת הגרסה (ראו
+       * ‎`StoredPending.version`). המונה של הקוד המוחלף אינו נוגע בו
+       * ופג מעצמו, ולכן אין עוד שתי פעולות שצריך לתאם ביניהן — וגם
+       * לא רגע שבו אחת מהן כבר קרתה והשנייה טרם.
+       */
+      const replaced = await this.redis.eval(
+        `if redis.call('GET', KEYS[1]) == ARGV[1] then
+           redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+           return 1
+         end
+         return 0`,
+        1,
+        this.key(token),
+        raw,
+        JSON.stringify({
+          ...stored,
+          codeHmac: this.hmac(code),
+          version: SignupVerificationService.freshVersion(),
+        } satisfies StoredPending),
+        String(left),
       );
+      if (replaced !== 1) {
+        /*
+         * האימייל כבר יצא, ולכן נאמר במפורש שהקוד שבו אינו בתוקף —
+         * „נשלח קוד” בלי המשך היה משאיר את המשתמש ממתין לו לחינם.
+         */
+        await release();
+        throw new BadRequestException(
+          "ההרשמה כבר הושלמה או פגה — הקוד שנשלח זה עתה אינו בתוקף",
+        );
+      }
+      this.logger.log("נשלח קוד אימות חוזר לפתיחת משרד");
+    } finally {
+      clearInterval(renewal);
     }
-    this.logger.log("נשלח קוד אימות חוזר לפתיחת משרד");
   }
 
   /**
@@ -497,6 +533,11 @@ export class SignupVerificationService implements OnModuleDestroy {
     return `signup-pending:sent:${SignupVerificationService.fingerprint(emailAddress)}`;
   }
 
+  /** מזהה הדור של חלון המכסה — ראו `refundEmailQuota`. */
+  private quotaWindowKey(emailAddress: string): string {
+    return `${this.quotaKey(emailAddress)}:window`;
+  }
+
   /**
    * גבייה **לפני** השליחה, והחזר אם השליחה נכשלה.
    *
@@ -511,7 +552,7 @@ export class SignupVerificationService implements OnModuleDestroy {
    * ההודעה ובכל זאת החזיר שגיאה (פסק זמן), וההגזמה שם חסומה
    * ממילא בתקרה עצמה.
    */
-  private async chargeEmailQuota(emailAddress: string): Promise<void> {
+  private async chargeEmailQuota(emailAddress: string): Promise<string | null> {
     const key = this.quotaKey(emailAddress);
     /*
      * המונה והתפוגה **בפעולה אחת.**
@@ -526,29 +567,64 @@ export class SignupVerificationService implements OnModuleDestroy {
      * ואיבד אותה משום מה — `ttl == -1` — כדי שמפתח כזה שכבר שרד
      * מגרסה קודמת ייפדה מעצמו בפנייה הבאה.
      */
-    const sent = Number(
-      await this.redis.eval(
-        `local n = redis.call('INCR', KEYS[1])
-         if n == 1 or redis.call('TTL', KEYS[1]) == -1 then
-           redis.call('EXPIRE', KEYS[1], ARGV[1])
-         end
-         return n`,
-        1,
-        key,
-        String(EMAIL_WINDOW_SECONDS),
-      ),
+    /*
+     * **החלון מסומן במזהה, כדי שההחזר יידע למי הוא שייך.**
+     *
+     * ההחזר היה `DECR` עיוור, ולכן פגע בכל דבר חוץ מהחלון שנגבה:
+     * מפתח שפג בינתיים נוצר מחדש בערך ‎-1 **בלי תפוגה**, וחלון חדש
+     * שכבר נפתח ספג הפחתה של בקשה שאינה שייכת לו — ומכאן יותר
+     * משלוש שליחות בשעה (ביקורת Codex). המזהה נכתב עם הגבייה
+     * הראשונה, חי בדיוק כמו המונה, וההחזר מותנה בו.
+     */
+    const charged = await this.redis.eval(
+      `local n = redis.call('INCR', KEYS[1])
+       if n == 1 or redis.call('TTL', KEYS[1]) == -1 then
+         redis.call('EXPIRE', KEYS[1], ARGV[1])
+         redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[1])
+       end
+       return { n, redis.call('GET', KEYS[2]) }`,
+      2,
+      key,
+      this.quotaWindowKey(emailAddress),
+      String(EMAIL_WINDOW_SECONDS),
+      SignupVerificationService.freshVersion(),
     );
-    if (sent > MAX_CODES_PER_EMAIL) {
+    const [sentRaw, windowRaw] = Array.isArray(charged) ? charged : [];
+    /*
+     * מונה שאי אפשר לקרוא **עוצר** את השליחה. „אם זה מספר וגם מעל
+     * התקרה” נכשל לכיוון הפתוח, כלומר הופך תקלה בספירה לביטול
+     * ההגבלה — אותו לקח כמו במונה הניסיונות.
+     */
+    if (typeof sentRaw !== "number") {
+      throw new ServiceUnavailableException("שליחת הקוד אינה זמינה כרגע — נסו שוב בעוד רגע");
+    }
+    if (sentRaw > MAX_CODES_PER_EMAIL) {
       throw new BadRequestException(
         "נשלחו כבר כמה קודים לכתובת הזו — נסו שוב בעוד שעה או פנו אלינו",
       );
     }
+    /* בלי מזהה חלון לא יוחזר דבר — עדיף לגבות יתר על לאבד תקרה. */
+    return typeof windowRaw === "string" ? windowRaw : null;
   }
 
-  /** מה שנגבה ולא נשלח מוחזר. כישלון ההחזר עצמו אינו מפיל את הבקשה. */
-  private async refundEmailQuota(emailAddress: string): Promise<void> {
+  /**
+   * מה שנגבה ולא נשלח מוחזר — **רק לחלון שממנו נגבה.**
+   *
+   * כישלון ההחזר עצמו אינו מפיל את הבקשה: השליחה כבר נכשלה, ומכסה
+   * שנשארה גבויה היא הכיוון הבטוח מבין השניים.
+   */
+  private async refundEmailQuota(emailAddress: string, window: string): Promise<void> {
     await this.redis
-      .decr(this.quotaKey(emailAddress))
+      .eval(
+        `if redis.call('GET', KEYS[2]) == ARGV[1] and redis.call('EXISTS', KEYS[1]) == 1 then
+           return redis.call('DECR', KEYS[1])
+         end
+         return 0`,
+        2,
+        this.quotaKey(emailAddress),
+        this.quotaWindowKey(emailAddress),
+        window,
+      )
       .catch(() => this.logger.warn("החזר מכסת האימייל נכשל"));
   }
 
@@ -565,7 +641,7 @@ export class SignupVerificationService implements OnModuleDestroy {
    * שומר עליו, כי אין קריאה נפרדת לגבייה.
    */
   private async chargeAndDeliver(pending: PendingSignup, code: string): Promise<void> {
-    await this.chargeEmailQuota(pending.email);
+    const window = await this.chargeEmailQuota(pending.email);
     try {
       await this.deliver(pending, code);
     } catch (error) {
@@ -585,8 +661,8 @@ export class SignupVerificationService implements OnModuleDestroy {
        * אצל הספק עולה למשתמש עיכוב של שעה על כתובתו שלו, וזה מחיר
        * נמוך מהאפשרות להשתמש בנו כדי להטריד.
        */
-      if (error instanceof EmailRejectedError) {
-        await this.refundEmailQuota(pending.email);
+      if (error instanceof EmailRejectedError && window !== null) {
+        await this.refundEmailQuota(pending.email, window);
       }
       throw error;
     }

@@ -95,8 +95,19 @@ export class EmailService {
       const detail = await res.text().catch(() => "");
       // 422 של Postmark כולל סיבה (כתובת From לא מאומתת וכו') — ללוג בלבד
       this.logger.error(`Postmark החזיר ${res.status}: ${detail.slice(0, 300)}`);
-      // הספק ענה ודחה — ראו `EmailRejectedError`
-      throw new EmailRejectedError("שליחת האימייל נכשלה — נסו שוב");
+      /*
+       * **רק 4xx הוא דחייה ודאית.**
+       *
+       * 4xx אומר שהבקשה נפסלה על סמך תוכנה — טוקן שגוי, כתובת From
+       * שאינה מאומתת, נמען פסול, חריגה מקצב — ולכן בוודאות לא יצאה
+       * הודעה. 5xx הוא תקלה **אצל הספק**, שיכולה לקרות אחרי שההודעה
+       * כבר נקלטה ולפני שהתשובה הושלמה; הוא שייך לאותה משפחה של פסק
+       * זמן, כלומר „איננו יודעים” (ביקורת Codex).
+       */
+      if (res.status < 500) {
+        throw new EmailRejectedError("שליחת האימייל נכשלה — נסו שוב");
+      }
+      throw new ServiceUnavailableException("שליחת האימייל נכשלה — נסו שוב");
     }
   }
 
