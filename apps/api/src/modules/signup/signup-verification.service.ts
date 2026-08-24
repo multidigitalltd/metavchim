@@ -205,12 +205,41 @@ export class SignupVerificationService implements OnModuleDestroy {
       await this.redis.del(lock);
       throw error;
     }
-    await this.redis.set(
+    /*
+     * הכתיבה מותנית ב**ערך שנקרא בכניסה**, ולא עיוורת.
+     *
+     * ‎`consume` יכולה לרוץ בזמן שהשליחה הזו באוויר, ולהצליח: היא
+     * מוחקת את הרשומה בהתאמה-ומחיקה, המשרד נפתח, וזהו. כתיבה
+     * בלתי-מותנית אחריה **מחייה רשומה שכבר נוצלה** — והקוד שזה עתה
+     * נשלח באימייל הופך לקוד תקף להרשמה שכבר הושלמה. אישור שני היה
+     * נכנס למסלול פתיחת המשרד ונופל רק בהמשך, על אילוצי ייחודיות
+     * (ביקורת Codex).
+     *
+     * זו אותה התאמה-ואז-פעולה של `consume`, מהצד השני: שם „מחק אם
+     * זה עדיין מה שאימתתי”, כאן „כתוב אם זה עדיין מה שקראתי”.
+     */
+    const replaced = await this.redis.eval(
+      `if redis.call('GET', KEYS[1]) == ARGV[1] then
+         redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+         return 1
+       end
+       return 0`,
+      1,
       this.key(token),
+      raw,
       JSON.stringify({ ...stored, codeHmac: this.hmac(code) } satisfies StoredPending),
-      "EX",
-      ttl,
+      String(ttl),
     );
+    if (replaced !== 1) {
+      /*
+       * האימייל כבר יצא, ולכן נאמר במפורש שהקוד שבו אינו בתוקף —
+       * „נשלח קוד” בלי המשך היה משאיר את המשתמש ממתין לו לחינם.
+       */
+      await this.redis.del(lock);
+      throw new BadRequestException(
+        "ההרשמה כבר הושלמה או פגה — הקוד שנשלח זה עתה אינו בתוקף",
+      );
+    }
     await this.redis.del(this.attemptsKey(token));
     this.logger.log("נשלח קוד אימות חוזר לפתיחת משרד");
   }
