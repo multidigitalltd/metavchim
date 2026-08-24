@@ -829,7 +829,7 @@ export function VoiceRecorder({
           rows={5}
           placeholder={placeholder}
           className="w-full rounded-lg border px-3 py-2.5"
-          style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+          style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
         />
       </div>
     </>

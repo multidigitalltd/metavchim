@@ -136,7 +136,7 @@ export function AgentUsageSection(): React.JSX.Element {
               onClick={() => setDays(option)}
               style={{
                 cursor: "pointer",
-                border: "1px solid var(--color-border)",
+                border: "1px solid var(--color-input-border)",
                 background: days === option ? "var(--color-hover-soft)" : "transparent",
                 fontWeight: days === option ? 700 : 400,
               }}

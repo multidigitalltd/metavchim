@@ -37,7 +37,7 @@ import { Notice } from "../notice";
 import { OfficeLogo } from "./office-logo";
 
 const inputStyle = {
-  borderColor: "var(--color-border)",
+  borderColor: "var(--color-input-border)",
   background: "var(--color-field)",
 } as const;
 
@@ -697,11 +697,11 @@ export default function SettingsPage() {
                                       cursor: "pointer",
                                       border: "none",
                                       color: member.whatsappAccess
-                                        ? "#0C6E34"
-                                        : "#68716a",
+                                        ? "var(--color-primary)"
+                                        : "var(--color-text-muted)",
                                       background: member.whatsappAccess
-                                        ? "#E5FCEA"
-                                        : "#eef1ec",
+                                        ? "var(--color-primary-soft)"
+                                        : "var(--color-hover-soft)",
                                     }}
                                     aria-pressed={member.whatsappAccess}
                                     onClick={() => void toggleWhatsapp(member)}
@@ -716,11 +716,11 @@ export default function SettingsPage() {
                                     style={{
                                       fontSize: 14,
                                       color: member.whatsappAccess
-                                        ? "#0C6E34"
-                                        : "#68716a",
+                                        ? "var(--color-primary)"
+                                        : "var(--color-text-muted)",
                                       background: member.whatsappAccess
-                                        ? "#E5FCEA"
-                                        : "#eef1ec",
+                                        ? "var(--color-primary-soft)"
+                                        : "var(--color-hover-soft)",
                                     }}
                                   >
                                     {member.whatsappAccess
@@ -741,13 +741,13 @@ export default function SettingsPage() {
                                     color:
                                       member.role === "owner" ||
                                       member.whatsappAccess
-                                        ? "#0C6E34"
-                                        : "#68716a",
+                                        ? "var(--color-primary)"
+                                        : "var(--color-text-muted)",
                                     background:
                                       member.role === "owner" ||
                                       member.whatsappAccess
-                                        ? "#E5FCEA"
-                                        : "#eef1ec",
+                                        ? "var(--color-primary-soft)"
+                                        : "var(--color-hover-soft)",
                                   }}
                                 >
                                   {member.role === "owner"
@@ -770,8 +770,8 @@ export default function SettingsPage() {
                               className="mv-pill"
                               style={{
                                 fontSize: 14,
-                                color: canExport ? "#0C6E34" : "#68716a",
-                                background: canExport ? "#E5FCEA" : "#eef1ec",
+                                color: canExport ? "var(--color-primary)" : "var(--color-text-muted)",
+                                background: canExport ? "var(--color-primary-soft)" : "var(--color-hover-soft)",
                               }}
                             >
                               {canExport ? "מותר" : "חסום"}

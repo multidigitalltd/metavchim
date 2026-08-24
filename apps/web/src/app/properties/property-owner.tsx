@@ -147,7 +147,7 @@ export function PropertyOwner({
               minLength={2}
               maxLength={120}
               className="w-full rounded-lg border px-3 py-2.5"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+              style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
             />
           </div>
           <div className="mb-3">
@@ -162,7 +162,7 @@ export function PropertyOwner({
               required
               placeholder="050-1234567"
               className="w-full rounded-lg border px-3 py-2.5"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+              style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
             />
           </div>
           <div className="flex flex-wrap gap-2">

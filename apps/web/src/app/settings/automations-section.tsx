@@ -176,7 +176,7 @@ export function AutomationsSection() {
                       disabled={!setting.enabled || busy === spec.key}
                       className="w-28 rounded-lg border px-2.5 py-1.5"
                       style={{
-                        borderColor: "var(--color-border)",
+                        borderColor: "var(--color-input-border)",
                         background: "var(--color-field)",
                       }}
                       onChange={(e) => {

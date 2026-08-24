@@ -170,7 +170,7 @@ export function SearchAreas({
                   borderColor:
                     area.label === undefined
                       ? "var(--color-danger)"
-                      : "var(--color-border)",
+                      : "var(--color-input-border)",
                   background: "var(--color-surface)",
                 }}
               />
@@ -236,7 +236,7 @@ export function SearchAreas({
                 onChange={(e) => setRadius(e.target.value)}
                 className="w-24 rounded-lg border px-2.5 py-1.5"
                 style={{
-                  borderColor: "var(--color-border)",
+                  borderColor: "var(--color-input-border)",
                   background: "var(--color-surface)",
                 }}
               />
@@ -255,7 +255,7 @@ export function SearchAreas({
                 }}
                 className="w-full rounded-lg border px-2.5 py-1.5"
                 style={{
-                  borderColor: "var(--color-border)",
+                  borderColor: "var(--color-input-border)",
                   background: "var(--color-surface)",
                 }}
               />

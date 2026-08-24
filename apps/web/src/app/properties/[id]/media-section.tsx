@@ -141,7 +141,7 @@ export function MediaSection({ propertyId, address }: { propertyId: string; addr
             maxLength={300}
             placeholder={`למשל: סלון הדירה ב${address || "נכס"}`}
             className="w-full rounded-md border px-3 py-2"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+            style={{ borderColor: "var(--color-input-border)", background: "var(--color-surface)" }}
           />
         </div>
         <label

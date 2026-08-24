@@ -84,7 +84,7 @@ export function BuyCredits({
                 onClick={() => void buy(pkg.credits)}
                 className="rounded-lg border px-3 py-2 text-start"
                 style={{
-                  borderColor: "var(--color-border)",
+                  borderColor: "var(--color-input-border)",
                   background: "var(--color-surface)",
                 }}
               >
@@ -122,7 +122,7 @@ export function BuyCredits({
             placeholder="למשל 25"
             className="w-full rounded-lg border px-2.5 py-2"
             style={{
-              borderColor: "var(--color-border)",
+              borderColor: "var(--color-input-border)",
               background: "var(--color-surface)",
             }}
           />

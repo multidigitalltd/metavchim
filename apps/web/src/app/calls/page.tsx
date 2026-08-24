@@ -6,7 +6,11 @@ import { Button } from "@metavchim/ui";
 import { API_BASE, ApiError, apiDelete, apiGet, apiPost } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { useUserDismissed } from "@/lib/dismissed-panels";
-import { CALL_OUTCOME_LABELS } from "@metavchim/shared";
+import {
+  CALL_OUTCOME_LABELS,
+  recordingStateLabel,
+  type RecordingStatus,
+} from "@metavchim/shared";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { FilterBar, SearchField, textMatches } from "../list-controls";
@@ -39,6 +43,8 @@ interface CallRow {
   transcript?: string;
   /** יש קובץ להשמעה — לא נגזר מסטטוס התמלול, ראו ה-DTO בשרת. */
   hasRecording?: boolean;
+  /** למה אין — „אין בכלל”, „בדרך”, או „נכשלה” עם הסיבה. */
+  recording?: RecordingStatus;
 }
 
 /* התוויות משותפות עם הכרטיס שהשרת כותב לוואטסאפ — מקור אחד. */
@@ -51,7 +57,7 @@ const FILTERS: [string, string][] = [
   ["no_answer", "אין מענה"],
 ];
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
+const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
 /** ערך ברירת מחדל לשדה datetime-local — "עכשיו" בשעון המקומי. */
 function nowLocal(): string {
@@ -77,6 +83,16 @@ export default function CallsPage() {
    * שבורה.
    */
   const mayEdit = can(user, "leads.edit");
+  /*
+   * „נסו למשוך שוב” **אינו עריכה**, ולכן אינו נגזר מ-`leads.edit`.
+   *
+   * הפעולה מבקשת מהמרכזייה קובץ שהמשתמש ממילא רשאי לשמוע, ולכן
+   * הנתיב בשרת פתוח לאותה יכולת צפייה שפותחת את השיחה עצמה. גזירה
+   * מ-`leads.edit` הסתירה את הכפתור דווקא ממי שרשאי ללחוץ עליו:
+   * סוכן צפייה ראה „ההקלטה לא נמשכה” בלי שום דרך פעולה, בזמן
+   * שהשרת היה מקבל ממנו את הבקשה (ביקורת Codex).
+   */
+  const mayRetryRecording = can(user, "leads.view_own") || can(user, "buyers.view_own");
   const [items, setItems] = useState<CallRow[] | null>(null);
   const [outcome, setOutcome] = useState("");
   const [query, setQuery] = useState("");
@@ -500,7 +516,12 @@ export default function CallsPage() {
                   )}
                 </div>
 
-                <CallRecording call={selected} onChanged={load} mayEdit={mayEdit} />
+                <CallRecording
+                  call={selected}
+                  onChanged={load}
+                  mayEdit={mayEdit}
+                  mayRetryRecording={mayRetryRecording}
+                />
 
                 <div className="mt-4 flex flex-wrap gap-3">
                   {selected.leadId ? (
@@ -541,10 +562,13 @@ function CallRecording({
   onChanged,
   /** הנגן והתמלול הם צפייה ונשארים; ההעלאה והתמלול-החוזר הם כתיבה. */
   mayEdit,
+  /** משיכה חוזרת מהמרכזייה — גבול הצפייה, לא גבול העריכה. */
+  mayRetryRecording,
 }: {
   call: CallRow;
   onChanged: () => void;
   mayEdit: boolean;
+  mayRetryRecording: boolean;
 }) {
   const canTranscribe = useFeature("transcription");
   const [busy, setBusy] = useState(false);
@@ -588,14 +612,42 @@ function CallRecording({
     }
   }
 
+  async function retryRecording(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiPost<{ queued: boolean }>(`/calls/${call.id}/recording/retry`, {});
+      if (!res.queued) setError("אין מה למשוך — לשיחה אין נתיב הקלטה מהמרכזייה");
+      onChanged();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "הבקשה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const status = call.transcriptionStatus;
+  /*
+   * ברירת המחדל היא „אין”, כדי ששרת ישן שאינו שולח את השדה יציג
+   * בדיוק את מה שהוצג עד היום ולא ייפול.
+   */
+  const recording = call.recording ?? { state: "none" as const };
 
   /*
    * בלי הפיצ'ר **ובלי הקלטה** אין טעם בסעיף. הקלטה שכבר נמשכה
    * מהמרכזייה נשמעת גם כשהתמלול כבוי — היא הראיה למה שנאמר, וזה
    * ערך בפני עצמו שאינו תלוי בתמלול.
    */
-  if (!canTranscribe && status === undefined && call.hasRecording !== true) return null;
+  if (
+    !canTranscribe &&
+    status === undefined &&
+    call.hasRecording !== true &&
+    // „בדרך” ו„נכשלה” הם בדיוק המצבים שבגללם הסעיף נכתב — הסתרתם
+    // הייתה מחזירה את המסך למצב שבו שלושה מצבים נראים כאחד
+    (call.recording?.state ?? "none") === "none"
+  ) {
+    return null;
+  }
 
   return (
     <div className="mt-4">
@@ -626,10 +678,46 @@ function CallRecording({
         </audio>
       ) : null}
 
+      {/*
+        מצב המשיכה מהמרכזייה — מעל הכול, כי הוא התשובה לשאלה
+        „למה אין הקלטה”. עד היום כל שלושת המצבים הופיעו כמשפט
+        אחד, „לא צורפה הקלטה”, והמתווך לא יכול היה לדעת אם להמתין,
+        לתקן הגדרה, או לפנות לספק.
+      */}
+      {recording.state === "pending" ||
+      recording.state === "retrying" ||
+      recording.state === "blocked" ||
+      recording.state === "failed" ? (
+        <div className="mb-2">
+          <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            {recordingStateLabel(recording)}
+          </p>
+          {/*
+            תנאי חיובי ולא „כל מה שאינו ממתין”.
+            ‎`blocked` הוא בדיוק המצב שבו הסבב חוזר ריק לפני שהוא
+            בוחר שיחה, ולכן כפתור שם היה מחזיר „בתור” ולא עושה דבר —
+            והניסוח השלילי היה מכניס אותו פנימה בשקט (ביקורת Codex).
+          */}
+          {(recording.state === "retrying" || recording.state === "failed") &&
+          mayRetryRecording ? (
+            <button
+              type="button"
+              className="mv-btn-plain mt-2"
+              disabled={busy}
+              onClick={() => void retryRecording()}
+            >
+              {busy ? "שולח…" : <><IconRefresh s={15} /> נסו למשוך שוב</>}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       {status === undefined && !mayEdit ? (
-        <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          לא צורפה הקלטה לשיחה הזו.
-        </p>
+        recording.state === "none" ? (
+          <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            לא צורפה הקלטה לשיחה הזו.
+          </p>
+        ) : null
       ) : status === undefined ? (
         <label className="mv-btn-plain inline-block cursor-pointer">
           {busy ? "מעלה…" : <><IconMic s={15} /> צרף הקלטה</>}

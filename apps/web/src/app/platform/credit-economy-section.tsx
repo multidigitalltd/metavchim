@@ -64,7 +64,7 @@ function NumberField({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className="w-full rounded-lg border px-2.5 py-2"
-          style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+          style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
         />
         {suffix !== undefined ? (
           <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>{suffix}</span>
@@ -250,7 +250,7 @@ export function CreditEconomySection({ refreshToken = 0 }: { refreshToken?: numb
                     )
                   }
                   className="w-full rounded-lg border px-2.5 py-2"
-                  style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                  style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
                 />
               </label>
               <label className="grow">
@@ -268,7 +268,7 @@ export function CreditEconomySection({ refreshToken = 0 }: { refreshToken?: numb
                     )
                   }
                   className="w-full rounded-lg border px-2.5 py-2"
-                  style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                  style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
                 />
               </label>
               <span className="pb-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>

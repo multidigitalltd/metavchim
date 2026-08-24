@@ -30,7 +30,7 @@ import { PROPERTY_TYPE_LABELS } from "@/lib/format";
  */
 
 const inputStyle = {
-  borderColor: "var(--color-border)",
+  borderColor: "var(--color-input-border)",
   background: "var(--color-field)",
 } as const;
 

@@ -850,7 +850,7 @@ export default function DashboardPage() {
                 {dueNow > 0 ? (
                   <span
                     className="rounded-full px-2 py-0.5 text-[14px] font-bold"
-                    style={{ background: "#f7e6e0", color: "var(--color-danger)" }}
+                    style={{ background: "var(--color-danger-soft)", color: "var(--color-danger)" }}
                   >
                     {dueNow} להיום
                   </span>

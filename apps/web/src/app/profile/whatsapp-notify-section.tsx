@@ -145,7 +145,7 @@ export function WhatsAppNotifySection() {
             <select
               id="quiet-from"
               className="rounded-lg border px-2 py-1"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
+              style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
               value={prefs.quietFromHour}
               onChange={(event) =>
                 persist({ ...prefs, quietFromHour: Number(event.target.value) })
@@ -161,7 +161,7 @@ export function WhatsAppNotifySection() {
             <select
               id="quiet-to"
               className="rounded-lg border px-2 py-1"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-field)" }}
+              style={{ borderColor: "var(--color-input-border)", background: "var(--color-field)" }}
               value={prefs.quietToHour}
               onChange={(event) => persist({ ...prefs, quietToHour: Number(event.target.value) })}
             >

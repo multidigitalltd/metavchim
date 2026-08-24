@@ -147,12 +147,12 @@ function SearchResultsView() {
           maxLength={80}
           placeholder="קונים 4 חדרים בני ברק · טלפון · שם · כתובת…"
           className="w-full rounded-md border px-3 py-2"
-          style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+          style={{ borderColor: "var(--color-input-border)", background: "var(--color-surface)" }}
         />
         <button
           type="submit"
           className="rounded-md px-4 py-2 font-medium"
-          style={{ background: "var(--color-primary)", color: "var(--color-primary-contrast, #fff)" }}
+          style={{ background: "var(--color-primary)", color: "var(--color-surface)" }}
         >
           חפש
         </button>

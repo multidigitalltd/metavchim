@@ -27,7 +27,7 @@ const OUTCOMES: { value: string; label: string }[] = [
   { value: "needs_other", label: "צריך נכס אחר" },
 ];
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
+const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
 /** ‎`datetime-local` דורש זמן מקומי בלי אזור — לא ISO של UTC. */
 function localInputValue(date: Date): string {

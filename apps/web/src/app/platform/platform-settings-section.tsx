@@ -17,7 +17,7 @@ import { Notice } from "../notice";
  * מוחזרים לדפדפן — מוצג רק "מוגדר / לא מוגדר".
  */
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
+const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
 interface PlatformSettings {
   postmark: { configured: boolean; source: "db" | "env" | "none"; emailFrom?: string };
@@ -57,7 +57,7 @@ function StatusBadge({ configured, source }: { configured: boolean; source: stri
     <span
       className="rounded-full px-3 py-0.5 text-sm font-medium"
       style={{
-        background: configured ? "var(--color-primary-soft)" : "var(--color-border)",
+        background: configured ? "var(--color-primary-soft)" : "var(--color-hover-soft)",
         color: configured ? "var(--color-primary)" : "var(--color-text-muted)",
       }}
     >

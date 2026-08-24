@@ -375,14 +375,14 @@ export default function IntakeFormPage({
                 onClick={() => cycleFeature(key)}
                 style={{
                   borderColor:
-                    level === undefined ? "var(--color-border)" : "var(--color-primary)",
+                    level === undefined ? "var(--color-input-border)" : "var(--color-primary)",
                   background:
                     level === "must"
                       ? "var(--color-primary)"
                       : level === "nice"
                         ? "var(--color-primary-soft)"
                         : "var(--color-surface)",
-                  color: level === "must" ? "#fff" : "var(--color-text)",
+                  color: level === "must" ? "var(--color-surface)" : "var(--color-text)",
                 }}
               >
                 {INTAKE_FEATURE_LABEL[key]}
@@ -539,9 +539,9 @@ function Choice({
       aria-pressed={active}
       onClick={onClick}
       style={{
-        borderColor: active ? "var(--color-primary)" : "var(--color-border)",
+        borderColor: active ? "var(--color-primary)" : "var(--color-input-border)",
         background: active ? "var(--color-primary)" : "var(--color-surface)",
-        color: active ? "#fff" : "var(--color-text)",
+        color: active ? "var(--color-surface)" : "var(--color-text)",
       }}
     >
       {children}

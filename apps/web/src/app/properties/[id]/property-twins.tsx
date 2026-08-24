@@ -474,7 +474,7 @@ export function PropertyTwins({
                       marginBottom: 6,
                       borderColor: selected
                         ? "var(--color-primary)"
-                        : "var(--color-border)",
+                        : "var(--color-input-border)",
                       background: selected
                         ? "var(--color-primary-soft)"
                         : "var(--color-surface)",

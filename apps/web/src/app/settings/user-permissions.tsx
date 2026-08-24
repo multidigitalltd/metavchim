@@ -157,7 +157,7 @@ export function UserPermissions({
               ? { color: "#8a1c1c", background: "#fde8e8" }
               : state === "מלא"
                 ? { color: "#0C6E34", background: "#E5FCEA" }
-                : { color: "#68716a", background: "#eef1ec" };
+                : { color: "#616a63", background: "#eef1ec" };
           const timed = module.capabilities
             .map((c) => overrideOf.get(c))
             .find((row) => row?.effect === "deny" && row.expiresAt && row.active);
@@ -203,7 +203,7 @@ export function UserPermissions({
                           defaultValue="7"
                           className="rounded-lg border px-2 py-1 text-[14.5px]"
                           style={{
-                            borderColor: "var(--color-border)",
+                            borderColor: "var(--color-input-border)",
                             background: "var(--color-bg)",
                           }}
                         >

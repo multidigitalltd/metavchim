@@ -19,7 +19,7 @@ import { OfficeLogo } from "../settings/office-logo";
  * והנכס הראשון נקלט בקול במסלול הקיים.
  */
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
+const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
 const STEPS = [
   { n: 1, t: "פרטי המשרד", s: "איך תיראו ללקוחות" },
@@ -322,7 +322,7 @@ export default function SetupPage() {
               className="rounded-xl border p-3 text-start"
               style={{
                 background: state === "now" ? "var(--color-surface)" : "transparent",
-                borderColor: state === "now" ? "var(--color-border)" : "transparent",
+                borderColor: state === "now" ? "var(--color-input-border)" : "transparent",
                 cursor: "pointer",
               }}
             >
@@ -330,13 +330,24 @@ export default function SetupPage() {
                 <span
                   className="grid h-[22px] w-[22px] flex-none place-items-center rounded-full text-sm font-extrabold"
                   style={{
+                    /*
+                     * הדיו עוקב אחרי המילוי באותם תנאים ובאותו סדר:
+                     * כשהוא נכתב הפוך (`state === "next"`), כל מצב
+                     * שאינו אחד משלושת המוכרים קיבל טקסט בהיר על
+                     * משטח בהיר.
+                     */
                     background:
                       state === "done"
                         ? "var(--color-primary)"
                         : state === "now"
                           ? "var(--color-text)"
-                          : "var(--color-border)",
-                    color: state === "next" ? "var(--color-text-muted)" : "var(--color-bg)",
+                          : "var(--color-hover-soft)",
+                    color:
+                      state === "done"
+                        ? "var(--color-bg)"
+                        : state === "now"
+                          ? "var(--color-bg)"
+                          : "var(--color-text-muted)",
                   }}
                 >
                   {state === "done" ? <IconCheck s={13} /> : s.n}
@@ -383,9 +394,9 @@ export default function SetupPage() {
                 type="button"
                 onClick={() => setStep(3)}
                 className="rounded-2xl border p-5 text-start"
-                style={{ borderColor: "var(--color-border)", background: "var(--color-bg)", cursor: "pointer" }}
+                style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)", cursor: "pointer" }}
               >
-                <span className="mb-3 grid h-11 w-11 place-items-center rounded-xl" style={{ background: "var(--color-border)", color: "var(--color-text-muted)" }}>
+                <span className="mb-3 grid h-11 w-11 place-items-center rounded-xl" style={{ background: "var(--color-hover-soft)", color: "var(--color-text-muted)" }}>
                   <IconMic s={21} />
                 </span>
                 <span className="mb-1 block text-lg font-extrabold">מתחילים מאפס</span>

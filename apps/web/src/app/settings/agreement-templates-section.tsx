@@ -224,7 +224,7 @@ export function AgreementTemplatesSection() {
                   spellCheck={false}
                   className="w-full rounded-lg border px-3 py-2.5 text-sm"
                   style={{
-                    borderColor: "var(--color-border)",
+                    borderColor: "var(--color-input-border)",
                     background: "var(--color-bg)",
                     lineHeight: 1.7,
                   }}

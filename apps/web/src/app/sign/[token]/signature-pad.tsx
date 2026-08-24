@@ -122,7 +122,7 @@ export function SignaturePad({
           onClick={clear}
           disabled={!hasInk || disabled}
           className="rounded-lg border px-3 py-1 text-sm disabled:opacity-50"
-          style={{ borderColor: "var(--color-border)" }}
+          style={{ borderColor: "var(--color-input-border)" }}
         >
           נקה
         </button>
@@ -136,7 +136,7 @@ export function SignaturePad({
         aria-label="שטח לחתימה בכתב יד"
         className="w-full cursor-crosshair rounded-lg border"
         style={{
-          borderColor: "var(--color-border)",
+          borderColor: "var(--color-input-border)",
           background: "#ffffff",
           aspectRatio: `${WIDTH} / ${HEIGHT}`,
           // בלי זה הדפדפן גולל את העמוד במקום לצייר, בטלפון

@@ -79,14 +79,32 @@
   --color-danger: #b0512c; /* לבן עליו: ~5.2:1 */
   --color-success: #0c6e34;
   --color-success-soft: #e5fcea;
-  --color-border: #e2e6e0;
-  /* גבולות עדינים יותר מהעיצוב: שדות קלט והתחדדות בריחוף */
-  --color-input-border: #dfe4dd;
-  --color-border-hover: #b9cfc1;
+  --color-danger-soft: #fdf0eb;
+  --color-warning: #8f4200;
+  --color-warning-bg: #fef3c7;
+  /*
+   * גבולות — הוכהו אחרי שמתווכים דיווחו ש„השדות מאוד חיוורים”.
+   *
+   * המדידה הצביעה על המסגרות ולא על הטקסט: `#e2e6e0` נותן 1.26:1
+   * מול הרקע ו-`#dfe4dd` נותן 1.29:1, בזמן ש-WCAG 1.4.11 דורש
+   * **3:1** לגבולות של פקדי ממשק. שדה שגבולו כמעט בלתי נראה אינו
+   * נקרא כמקום שכותבים בו אלא כשטח ריק — וזה מה שגורם למסך כולו
+   * להיראות דהוי, גם כשהטקסט עצמו כהה לגמרי.
+   *
+   * ההפרדה בין השלושה נשמרת ומקבלת משמעות: מסגרת השדה עומדת בסף
+   * (3.26:1) כי היא גבול של פקד; מסגרת הכרטיס רכה יותר כי הכרטיס
+   * נבדל גם בצללית; והריחוף כהה מהשתיים, אחרת „התחדדות בריחוף”
+   * הייתה מבהירה במקום להדגיש.
+   */
+  --color-border: #c3ccc5; /* 1.65:1 — דקורטיבי, לצד הצללית */
+  /* 3.57:1 מול משטח לבן ו-3.24:1 מול משטח הריחוף — גבול פקד מעל סף AA
+     בשני המשטחים שהוא יושב עליהם, ולא רק במנוחה */
+  --color-input-border: #808a82;
+  --color-border-hover: #66716a; /* 4.7:1 — כהה מהשניים */
   /*
    * שדה קלט לבן, ולא אפור בהיר.
    *
-   * האפור (#f6f8f5) היה כמעט זהה לרקע העמוד (#f4f6f3), ולכן שדה
+   * האפור שהיה כאן היה כמעט זהה לרקע העמוד **כפי שהיה אז**, ולכן שדה
    * נראה כמו שטח ריק ולא כמו מקום שכותבים בו — ההבחנה נשענה כולה
    * על מסגרת של פיקסל אחד. לבן על רקע אפרפר מפריד את השדה מהעמוד
    * בלי מסגרת, וגם מעלה את הניגודיות של הטקסט שנכתב בו.
@@ -106,8 +124,15 @@
    */
   --control-h: 42px;
   --control-radius: 10px;
-  --color-row-border: #f2f4f0;
-  --color-card-head-border: #eef1ec;
+  /*
+   * מפרידי שורות וכותרות — 1.11:1 ו-1.14:1 היו קו שאי אפשר לראות.
+   *
+   * הם דקורטיביים ואינם כפופים לסף ה-3:1, אבל מפריד שאינו נראה
+   * אינו מפריד: טבלה בלי קווים נקראת כגוש, וזה חלק מאותה תחושת
+   * „חיוורון” שדווחה.
+   */
+  --color-row-border: #dde2db;
+  --color-card-head-border: #d6ddd5;
   --color-table-head: #f8faf7;
   --color-row-hover: #f6f9f6;
   /* גוון ביניים לתוויות לשוניות ולאייקונים — הוכהה מ-‎#4a534c‎ */
@@ -142,13 +167,30 @@
   --dk-danger: #f0a58a; /* על הרקע: ~9.4:1 */
   --dk-success: #5fe083;
   --dk-success-soft: #17301f;
-  --dk-border: #26332a;
-  --dk-input-border: #2c392f;
-  --dk-border-hover: #3b4f41;
+  --dk-danger-soft: #331a12;
+  --dk-warning: #f0c674;
+  --dk-warning-bg: #33280f;
+  /*
+   * אותה הכרעה כמו בערכה הבהירה, ומאותה מדידה: `#2c392f` נתן
+   * 1.49:1 מול השדה — כלומר מסגרת שאינה נראית, רק שכאן היא נבלעת
+   * בכהה במקום בבהיר. הסף זהה: 3:1 לגבול של פקד.
+   */
+  --dk-border: #364a3b; /* דקורטיבי, לצד הצללית */
+  /*
+   * מול **שלושת** הרקעים שפקד יכול לשבת עליהם, ולא רק מול השדה.
+   *
+   * הערך הקודם עמד על 3.02:1 מול משטח הכרטיס — עובר, אבל בלי שום
+   * מרווח: כל כיוונון עתידי של גוון הכרטיס היה מפיל אותו מתחת לסף
+   * בלי שאיש יבחין. הערך הזה מחזיק 3.36:1 שם, ו-3.68:1 מול רקע
+   * העמוד.
+   */
+  --dk-input-border: #5a7461;
+  --dk-border-hover: #66876e; /* 4.53:1 — כהה מהשניים */
   --dk-field: #101812;
   --dk-hover-soft: #1a231c;
-  --dk-row-border: #1c2620;
-  --dk-card-head-border: #212c24;
+  /* מפרידים שנראים — ראו את המקבילים בערכה הבהירה */
+  --dk-row-border: #2b3a2f;
+  --dk-card-head-border: #334339;
   --dk-table-head: #101812;
   --dk-row-hover: #1a231c;
   --dk-text-soft: #c3cfc6;
@@ -176,6 +218,9 @@
     --color-danger: var(--dk-danger);
     --color-success: var(--dk-success);
     --color-success-soft: var(--dk-success-soft);
+    --color-danger-soft: var(--dk-danger-soft);
+    --color-warning: var(--dk-warning);
+    --color-warning-bg: var(--dk-warning-bg);
     --color-border: var(--dk-border);
     --color-input-border: var(--dk-input-border);
     --color-border-hover: var(--dk-border-hover);
@@ -211,6 +256,9 @@
   --color-danger: var(--dk-danger);
   --color-success: var(--dk-success);
   --color-success-soft: var(--dk-success-soft);
+  --color-danger-soft: var(--dk-danger-soft);
+  --color-warning: var(--dk-warning);
+  --color-warning-bg: var(--dk-warning-bg);
   --color-border: var(--dk-border);
   --color-input-border: var(--dk-input-border);
   --color-border-hover: var(--dk-border-hover);
@@ -307,7 +355,7 @@ body {
   z-index: 100;
   padding: 0.6rem 1.2rem;
   background: var(--color-primary);
-  color: #ffffff;
+  color: var(--color-surface);
   border-radius: var(--radius);
   transition: top 0.15s ease;
 }
@@ -441,10 +489,12 @@ code {
   box-shadow: var(--shadow-pop);
 }
 
+/* ההתחברות עם Google היא `<a>` ולא `<button>` — ולכן היא נשארה על
+   המסגרת הדקורטיבית, 1.65:1, כשכל שאר הפקדים עברו לגבול הפקד */
 .mv-button--secondary {
   background: var(--color-surface);
   color: var(--color-primary);
-  border-color: var(--color-border);
+  border-color: var(--color-input-border);
   box-shadow: var(--shadow-card);
 }
 .mv-button--secondary:hover {
@@ -503,6 +553,16 @@ code {
 
 /* ניגודיות גבוהה */
 :root[data-a11y-contrast="on"] {
+  /*
+   * גם `color-scheme`, ולא רק הטוקנים.
+   *
+   * הבלוק כופה פלטה בהירה, אבל `color-scheme: dark` נשאר בירושה
+   * מהערכה הכהה — והוא מה שקובע איך הדפדפן מצייר את מה ש**אינו**
+   * שלנו: חץ הבורר, אייקון לוח השנה ב-`datetime-local`, פסי
+   * הגלילה והשלמה אוטומטית. התוצאה היא אייקון בהיר שצויר לרקע
+   * כהה, על שדה שהפך ללבן — כלומר נעלם (ביקורת Codex).
+   */
+  color-scheme: light;
   --color-bg: #ffffff;
   --color-surface: #ffffff;
   --color-text: #000000;
@@ -510,6 +570,53 @@ code {
   --color-primary: #00521f;
   --color-primary-soft: #ddf3e4;
   --color-border: #000000;
+  /*
+   * גם גבול הפקד, ולא רק המסגרת הדקורטיבית.
+   *
+   * הפקדים נשענו עד עכשיו על `--color-border`, ולכן הם ירשו את
+   * השחור הזה בחינם. המעבר שלהם ל-`--color-input-border` היה מנתק
+   * אותם ממנו — כלומר דווקא ההגדרה שנועדה לחזק גבולות הייתה
+   * מחלישה אותם, בזמן שהמסגרות שסביבם משחירות (ביקורת Codex).
+   */
+  --color-input-border: #000000;
+  --color-border-hover: #000000;
+  /* ============================================================
+     שאר הפלטה — כי הבלוק הזה יושב גם **מעל הערכה הכהה**
+     ------------------------------------------------------------
+     הבלוק נכתב בהנחה שמתחתיו הערכה הבהירה, ודרס את מה שהיה צריך
+     תיקון שם. אבל משתמש יכול להפעיל ניגודיות גבוהה **ומצב כהה**
+     יחד, וכל טוקן שלא נדרס כאן נשאר בערך הכהה שלו — על עמוד
+     שהבלוק הזה בדיוק הפך ללבן.
+
+     שמונה-עשר טוקנים דלפו כך: משטח השדה נשאר ‎#101812‎ מתחת לטקסט
+     שחור (1.16:1), תוויות לשוניות נשארו אפור בהיר על לבן (1.61:1),
+     וצבע השגיאה נשאר כתום-בהיר (2.01:1) — כלומר ההגדרה שנועדה
+     לחזק קריאוּת הפכה שלושה מהם לבלתי קריאים (ביקורת Codex).
+
+     השער אוכף כעת את הכלל: כל טוקן ‎--color-*‎ שהערכה הכהה קובעת
+     חייב להידרס גם כאן.
+     ============================================================ */
+  --color-primary-hover: #003d17;
+  --color-primary-accent: #00521f;
+  --color-action: #0000cc;
+  --color-action-hover: #000099;
+  --color-on-action: #ffffff;
+  --color-danger: #a30000;
+  --color-success: #00521f;
+  --color-success-soft: #ddf3e4;
+  --color-danger-soft: #ffe4e4;
+  --color-warning: #663300;
+  --color-warning-bg: #fff0cc;
+  --color-field: #ffffff;
+  --color-hover-soft: #eeeeee;
+  --color-row-border: #000000;
+  --color-card-head-border: #000000;
+  --color-table-head: #ffffff;
+  --color-row-hover: #eeeeee;
+  --color-text-soft: #000000;
+  --color-progress-track: #dddddd;
+  --color-seg-track: #eeeeee;
+  --color-focus: #0000cc;
   --header-bg: #ffffff;
   --shadow-card: none;
   --shadow-pop: none;
@@ -557,22 +664,7 @@ code {
   transition: none !important;
 }
 
-/* ---------- כפתור ופאנל הסרגל ---------- */
-.mv-a11y-trigger {
-  position: fixed;
-  inset-block-end: 1rem;
-  inset-inline-start: 1rem;
-  z-index: 90;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  border: 2px solid #ffffff;
-  background: var(--color-primary);
-  color: #ffffff;
-  font-size: 1.6rem;
-  cursor: pointer;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-}
+/* ---------- פאנל הנגישות ---------- */
 .mv-a11y-panel {
   position: fixed;
   inset-block-end: 5rem;
@@ -597,15 +689,18 @@ code {
   gap: 0.5rem;
   padding: 0.5rem 0.9rem;
   border-radius: var(--radius);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-input-border);
   background: var(--color-bg);
   color: var(--color-text);
   font-size: 1rem;
   cursor: pointer;
 }
+/* המצב הנבחר: לבן קשיח היה 1.68:1 על הירוק הבהיר של הערכה הכהה —
+   מתג הנגישות עצמו היה בלתי קריא כשהוא דלוק. `--color-surface` הוא
+   ההיפוך של `--color-primary` בכל ערכה, ולכן קריא בשלושתן */
 .mv-a11y-toggle[aria-pressed="true"] {
   background: var(--color-primary);
-  color: #ffffff;
+  color: var(--color-surface);
   border-color: var(--color-primary);
 }
 .mv-reading-guide {
@@ -911,7 +1006,7 @@ code {
   color: var(--color-text-muted);
 }
 .mv-search-input:focus {
-  border-color: #2ecc66;
+  border-color: var(--color-focus);
   background: var(--color-surface);
   box-shadow: 0 0 0 3px var(--color-primary-soft);
 }
@@ -1110,7 +1205,7 @@ code {
   gap: 6px;
   min-height: 44px;
   padding: 0 12px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-input-border);
   border-radius: 10px;
   background: var(--color-surface);
   color: var(--color-text);
@@ -1154,6 +1249,27 @@ code {
 @media (min-width: 640px) {
   .mv-content {
     padding: 30px 34px 44px;
+  }
+}
+/*
+ * מסכים גדולים — התקרה עולה במדרגות.
+ *
+ * 1240px נבחרו כשהמסך הנפוץ היה מחשב נייד. על צג 24" (1920px)
+ * נשארו כ-340px ריקים בכל צד, והמערכת „נפתחה קטן” באמצע מסך רחב
+ * (דיווח מתווכים). זה מורגש במיוחד בטבלאות — נכסים, קונים, שיחות —
+ * שבהן העמודות נדחסות בזמן שיש מקום פנוי.
+ *
+ * מדרגות ולא רוחב מלא: שורת טקסט ארוכה מדי קשה לקריאה, ולכן
+ * התוכן ממשיך להיות תחום — רק בגבול שמתאים למסך שבאמת מולנו.
+ */
+@media (min-width: 1440px) {
+  .mv-content {
+    max-width: 1400px;
+  }
+}
+@media (min-width: 1760px) {
+  .mv-content {
+    max-width: 1640px;
   }
 }
 
@@ -1287,10 +1403,13 @@ button.mv-list-row:hover {
   padding: 6px 14px;
   cursor: pointer;
 }
+/* גלולת סינון שנבחרה. הצבע הקשיח ‎#111513‎ היה זהה בשלוש הערכות,
+   ולכן בערכה הכהה הוא עמד על 1.07:1 מול הכרטיס — לא היה אפשר לראות
+   מה סוּנן. אותו זוג טוקנים של מתג הנגישות, מאותו נימוק */
 .mv-chip[aria-pressed="true"] {
-  background: #111513;
-  color: #ffffff;
-  border-color: #111513;
+  background: var(--color-primary);
+  color: var(--color-surface);
+  border-color: var(--color-primary);
 }
 
 /*
@@ -1421,9 +1540,11 @@ button.mv-list-row:hover {
   background: var(--color-action-hover);
   text-decoration: none;
 }
+/* הזוג הקשיח ‎#bdf4cb‎ על ‎#f1fef4‎ היה זהה בשלוש הערכות: מסגרת
+   ב-1.19:1, ובערכה הכהה גם טקסט ירוק־בהיר על משטח בהיר — 1.62:1 */
 .mv-btn-soft {
-  border: 1px solid #bdf4cb;
-  background: #f1fef4;
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary-soft);
   color: var(--color-primary);
   font-size: 14px;
   font-weight: 700;
@@ -1441,6 +1562,71 @@ button.mv-list-row:hover {
   background: var(--color-primary-soft);
   text-decoration: none;
 }
+/* ============================================================
+   `.mv-btn-primary` ו-`.mv-btn-ghost` — הוגדרו באיחור
+   ------------------------------------------------------------
+   שלוש-עשרה נקודות בקוד השתמשו בשתי המחלקות האלה בלי שהוגדרו
+   כאן, ובהן הפעולה הראשית של מסכי המנוי: „מעבר למסלול זה”,
+   „שדרגו מסלול”, „ביטול חידוש”, וכפתור בקליפת האפליקציה.
+
+   Preflight של Tailwind מאפס `button` ל-`border: 0`, לרקע שקוף
+   ולגופן ברירת המחדל — כלומר הפעולה שעליה נשען כל מסלול הרכישה
+   הוצגה כטקסט חשוף. אותו כשל בדיוק שנתפס ב-`.mv-input`, ושהתגלה
+   כאן כשבדיקת המחלקות הורחבה גם לכפתורים (ביקורת Codex).
+
+   `primary` היא הפעולה הראשית ולכן היא תאומה של `.mv-btn-action`;
+   `ghost` היא הפעולה המשנית ולכן היא תאומה של `.mv-btn-plain`.
+   שתיהן מוגדרות מחדש ולא ממופות בשם, כדי ששינוי באחת לא ישנה
+   בשקט את השנייה.
+   ============================================================ */
+.mv-btn-primary {
+  border: none;
+  background: var(--color-action);
+  color: var(--color-on-action);
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: var(--control-radius);
+  padding: 0 18px;
+  min-height: var(--control-h);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.mv-btn-primary:hover:not(:disabled) {
+  background: var(--color-action-hover);
+}
+.mv-btn-primary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.mv-btn-ghost {
+  border: 1px solid var(--color-input-border);
+  background: var(--color-surface);
+  color: var(--color-text-soft);
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: 8px;
+  padding: 6px 11px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.mv-btn-ghost:hover:not(:disabled) {
+  border-color: var(--color-border-hover);
+}
+.mv-btn-ghost:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .mv-btn-plain {
   border: 1px solid var(--color-input-border);
   background: var(--color-surface);
@@ -1561,13 +1747,13 @@ button.mv-list-row:hover {
 .mv-seg > button[aria-pressed="true"],
 .mv-seg > button[aria-selected="true"] {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-surface);
   box-shadow: 0 2px 6px rgb(18 122 62 / 30%);
 }
 .mv-seg > button[aria-pressed="true"]:hover,
 .mv-seg > button[aria-selected="true"]:hover {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-surface);
 }
 
 /*
@@ -1836,7 +2022,7 @@ a.mv-bar-row:focus-visible {
   color: var(--color-text-muted);
 }
 .mv-field:focus {
-  border-color: #2ecc66;
+  border-color: var(--color-focus);
   background: var(--color-surface);
   box-shadow: 0 0 0 3px var(--color-primary-soft);
 }
@@ -1864,16 +2050,13 @@ a.mv-bar-row:focus-visible {
 .mv-dictate-btn:hover {
   background: var(--color-hover-soft);
 }
-/* המצב האחרון שנבחר — מודגש, אבל השני נשאר לחיץ באותה מידה */
+/* המצב האחרון שנבחר — מודגש, אבל השני נשאר לחיץ באותה מידה.
+   הערכה הכהה נדרסה כאן בעבר בטוקנים, כי הזוג הקשיח שהיה בכלל
+   הבסיס לא עבר דרכה. משעברו גם הם לטוקנים, ההחרגה מיותרת */
 .mv-dictate-btn[data-preferred="true"] {
-  border-color: #bdf4cb;
-  background: #f1fef4;
-  color: var(--color-primary);
-}
-:root[data-theme="dark"] .mv-dictate-btn[data-preferred="true"],
-:root:not([data-theme="light"]) .mv-dictate-btn[data-preferred="true"] {
   border-color: var(--color-primary);
   background: var(--color-primary-soft);
+  color: var(--color-primary);
 }
 .mv-dictate-stop {
   display: inline-flex;
@@ -1881,7 +2064,7 @@ a.mv-bar-row:focus-visible {
   gap: 5px;
   border: none;
   background: var(--color-danger);
-  color: #fff;
+  color: var(--color-surface);
   font-size: 14px;
   font-weight: 700;
   border-radius: 99px;
@@ -2091,7 +2274,7 @@ a.mv-bar-row:focus-visible {
   border: none;
   border-radius: 999px;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-surface);
   font-size: 15px;
   font-weight: 800;
   box-shadow: 0 8px 22px rgb(0 0 0 / 18%);
@@ -2143,7 +2326,7 @@ a.mv-bar-row:focus-visible {
   align-items: center;
   gap: 6px;
   padding: 10px 10px 10px 8px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-input-border);
   border-inline-start: none;
   border-radius: 0 12px 12px 0;
   background: var(--color-surface);
@@ -2357,6 +2540,38 @@ a.mv-bar-row:focus-visible {
 }
 
 /* ============================================================
+   שדה טופס כללי — לקלט ולאזור טקסט כאחד
+   ------------------------------------------------------------
+   `.mv-control` מקבע גובה כדי ליישר פקדים שיושבים בשורה אחת, ולכן
+   אינו מתאים ל-`textarea` שגובהו נגזר מ-`rows`. `.mv-input` הוא
+   אותה שפה בלי הגובה: מסגרת, רדיוס ומשטח בלבד.
+
+   המחלקה הזו כבר הופיעה על חמישה שדות בלי שהוגדרה כאן, ו-Preflight
+   של Tailwind מאפס `input`/`textarea` ל-`border: 0` ולרקע שקוף —
+   כלומר הם נראו כטקסט חופשי על הכרטיס, בלי שדה סביבו. השער לא ראה
+   זאת, כי הוא בדק רק שאין טוקן דקורטיבי; היום הוא דורש גם שהמחלקה
+   תהיה מוגדרת ותקבע מסגרת (ביקורת Codex).
+
+   הרוחב נשאר לקורא במתכוון: יש שדות שממלאים את השורה (`w-full`)
+   ויש שהם מילה בתוך משפט (`w-[70px]` ב„עד לפני __ ימים”). ערך
+   רוחב כאן היה גובר על מחלקת Tailwind, כי הגיליון הזה אינו בשכבה.
+   ============================================================ */
+.mv-input {
+  box-sizing: border-box;
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--control-radius);
+  background: var(--color-field);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 14px;
+  padding: 8px 12px;
+}
+.mv-input:focus-visible {
+  outline: 2px solid var(--color-primary-accent);
+  outline-offset: 1px;
+}
+
+/* ============================================================
    חלון אישור ותצוגה מקדימה
    ------------------------------------------------------------
    `dialog` נייטיב: מלכודת פוקוס, Escape, ושכבה מעל הכול — בחינם
@@ -2431,8 +2646,8 @@ a.mv-bar-row:focus-visible {
   cursor: pointer;
 }
 .mv-custom-feature-toggle[aria-pressed="true"] {
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-surface);
 }
 .mv-custom-feature-remove {
   border: none;
@@ -2801,7 +3016,7 @@ a.mv-bar-row:focus-visible {
   height: 46px;
   border-radius: 15px;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-surface);
   box-shadow: 0 6px 16px color-mix(in srgb, var(--color-primary) 35%, transparent);
 }
 .mv-deal-hero-meta {
@@ -3258,7 +3473,7 @@ a.mv-bar-row:focus-visible {
   gap: 4px;
   padding: 14px 16px;
   border-radius: 14px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-input-border);
   background: var(--color-surface);
   font-size: 14px;
 }
@@ -3564,7 +3779,7 @@ a.mv-bar-row:focus-visible {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-input-border);
   border-radius: 99px;
   background: var(--color-surface);
   color: var(--color-text-soft);
@@ -3832,7 +4047,7 @@ a.mv-bar-row:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-input-border);
   border-radius: 999px;
   background: var(--color-surface);
   padding: 5px 12px;
@@ -3882,7 +4097,7 @@ a.mv-bar-row:focus-visible {
   width: 32px;
   height: 32px;
   border-radius: 10px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-input-border);
   background: var(--color-surface);
   color: var(--color-text-muted);
   cursor: pointer;
@@ -3935,9 +4150,9 @@ a.mv-bar-row:focus-visible {
 /* תג מונה בתוך לשונית פעילה (מילוי ירוק) — לבן שקוף במקום צ'יפ בהיר */
 .mv-seg > button[aria-selected="true"] .mv-chip,
 .mv-seg > button[aria-pressed="true"] .mv-chip {
-  background: rgb(255 255 255 / 22%);
+  background: rgb(0 0 0 / 22%);
   border-color: transparent;
-  color: #fff;
+  color: var(--color-surface);
 }
 
 /*
@@ -3950,7 +4165,7 @@ a.mv-bar-row:focus-visible {
   gap: 10px;
   border: 1px dashed var(--color-border-hover);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--color-warning, #d97706) 7%, var(--color-surface));
+  background: color-mix(in srgb, var(--color-warning) 7%, var(--color-surface));
   padding: 10px 12px;
   margin-bottom: 12px;
 }
@@ -3961,8 +4176,8 @@ a.mv-bar-row:focus-visible {
   width: 32px;
   height: 32px;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--color-warning, #d97706) 16%, var(--color-surface));
-  color: var(--color-warning, #b45309);
+  background: color-mix(in srgb, var(--color-warning) 16%, var(--color-surface));
+  color: var(--color-warning);
 }
 
 /*
@@ -4080,7 +4295,7 @@ a.mv-bar-row:focus-visible {
   height: 46px;
   border-radius: 15px;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-surface);
   box-shadow: 0 6px 16px color-mix(in srgb, var(--color-primary) 35%, transparent);
 }
 .mv-agent-title {
@@ -4155,7 +4370,7 @@ a.mv-bar-row:focus-visible {
 }
 .mv-announce-tag {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-surface);
   font-size: 14px;
   font-weight: 700;
   border-radius: 99px;
@@ -4177,7 +4392,7 @@ a.mv-bar-row:focus-visible {
 }
 .mv-announce-cta {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-surface);
   border: none;
   border-radius: 11px;
   padding: 10px 22px;
@@ -4203,7 +4418,7 @@ a.mv-bar-row:focus-visible {
   border-radius: 8px;
   padding: 6px;
   cursor: pointer;
-  color: var(--color-primary-accent);
+  color: var(--color-primary);
   line-height: 0;
 }
 .mv-announce-close:hover {
@@ -4374,7 +4589,7 @@ a.mv-bar-row:focus-visible {
 }
 .mv-pitch-cta {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-surface);
   border: none;
   border-radius: 11px;
   padding: 11px 26px;
@@ -4403,7 +4618,7 @@ a.mv-bar-row:focus-visible {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--color-primary-accent);
+  color: var(--color-primary);
 }
 .mv-pitch-dismiss button {
   font-size: 14px;

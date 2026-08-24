@@ -44,7 +44,7 @@ function duration(ms: number): string {
 
 const LEVEL_COLOR: Record<MatchRefreshLevel, string> = {
   ok: "var(--color-primary)",
-  warn: "var(--color-warning, #b45309)",
+  warn: "var(--color-warning)",
   danger: "var(--color-danger)",
 };
 

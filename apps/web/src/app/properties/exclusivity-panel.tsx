@@ -421,7 +421,7 @@ function NoExclusivity({
             value={startsAt}
             onChange={(e) => setStartsAt(e.target.value)}
             className="rounded-lg border px-2.5 py-1.5"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+            style={{ borderColor: "var(--color-input-border)", background: "var(--color-surface)" }}
           />
         </label>
         <label className="text-[14px]">
@@ -432,7 +432,7 @@ function NoExclusivity({
             max={maxEnd}
             onChange={(e) => setEndsAt(e.target.value)}
             className="rounded-lg border px-2.5 py-1.5"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+            style={{ borderColor: "var(--color-input-border)", background: "var(--color-surface)" }}
           />
         </label>
       </div>
@@ -526,7 +526,7 @@ function LogAction({
             min={toDateInput(minStart)}
             onChange={(e) => setPerformedAt(e.target.value)}
             className="rounded-lg border px-2.5 py-1.5"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+            style={{ borderColor: "var(--color-input-border)", background: "var(--color-surface)" }}
           />
         </label>
         {kind === "broker_network" ? (
@@ -539,7 +539,7 @@ function LogAction({
               value={brokerCount}
               onChange={(e) => setBrokerCount(e.target.value)}
               className="w-24 rounded-lg border px-2.5 py-1.5"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+              style={{ borderColor: "var(--color-input-border)", background: "var(--color-surface)" }}
             />
           </label>
         ) : null}
@@ -553,7 +553,7 @@ function LogAction({
           placeholder="למשל: מודעה בידיעות רמת גן, גיליון 12.1"
           onChange={(e) => setDetail(e.target.value)}
           className="w-full rounded-lg border px-2.5 py-1.5"
-          style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+          style={{ borderColor: "var(--color-input-border)", background: "var(--color-surface)" }}
         />
       </label>
 

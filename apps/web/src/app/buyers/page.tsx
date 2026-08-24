@@ -51,7 +51,7 @@ const MATURITY_PILL: Record<string, { fg: string; bg: string }> = {
   very_hot: { fg: "#b0512c", bg: "#faf1ec" },
   hot: { fg: "#7a5c1f", bg: "#f7efdd" },
   interested: { fg: "#0C6E34", bg: "#E5FCEA" },
-  not_ripe: { fg: "#68716a", bg: "#eef1ec" },
+  not_ripe: { fg: "#616a63", bg: "#eef1ec" },
 };
 
 function budgetText(b: BuyerRow): string {

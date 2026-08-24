@@ -1062,7 +1062,7 @@ export default function CollaborationPage() {
                           maxLength={300}
                           className="w-full rounded-lg border p-2 text-[14px]"
                           style={{
-                            borderColor: "var(--color-border)",
+                            borderColor: "var(--color-input-border)",
                             background: "var(--color-bg)",
                           }}
                           value={declineText}
@@ -1230,7 +1230,7 @@ export default function CollaborationPage() {
                               maxLength={300}
                               className="w-full rounded-lg border p-2 text-[14px]"
                               style={{
-                                borderColor: "var(--color-border)",
+                                borderColor: "var(--color-input-border)",
                                 background: "var(--color-bg)",
                               }}
                               value={declineText}

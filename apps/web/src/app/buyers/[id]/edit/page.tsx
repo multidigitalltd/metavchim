@@ -30,7 +30,7 @@ import { Notice } from "../../../notice";
  * הערכים הקיימים.
  */
 
-const inputStyle = { borderColor: "var(--color-border)", background: "var(--color-field)" } as const;
+const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
 const FEATURES = [
   ["hasElevator", "מעלית"],

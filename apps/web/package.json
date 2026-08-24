@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
     "verify:assets": "node scripts/verify-assets.mjs",
+    "verify:contrast": "node scripts/verify-contrast.mjs",
     "verify:language": "node scripts/verify-referral-language.mjs",
     "verify:typography": "node scripts/verify-typography.mjs"
   },

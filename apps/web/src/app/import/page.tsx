@@ -305,9 +305,9 @@ export default function ImportPage() {
             }}
             className="rounded-md border px-4 py-2 font-medium disabled:opacity-60"
             style={{
-              borderColor: "var(--color-border)",
+              borderColor: "var(--color-input-border)",
               background: mode === m ? "var(--color-primary)" : "var(--color-surface)",
-              color: mode === m ? "var(--color-primary-contrast, #fff)" : "inherit",
+              color: mode === m ? "var(--color-surface)" : "inherit",
             }}
           >
             {MODE_LABELS[m]}
@@ -376,7 +376,7 @@ export default function ImportPage() {
         rows={8}
         dir="ltr"
         className="mb-4 w-full rounded-md border p-3 font-mono text-sm"
-        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+        style={{ borderColor: "var(--color-input-border)", background: "var(--color-surface)" }}
         placeholder={SAMPLES[mode]}
         aria-describedby="csv-help"
       />
@@ -393,7 +393,7 @@ export default function ImportPage() {
         <div
           role="alert"
           className="mb-4 rounded-xl border-2 p-4"
-          style={{ borderColor: "var(--color-warning, #d97706)", background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-text)" }}
+          style={{ borderColor: "var(--color-warning, #d97706)", background: "var(--color-warning-bg)", color: "var(--color-text)" }}
         >
           <p className="m-0 mb-1 font-bold" style={{ fontSize: 16 }}>
             <IconWarning s={15} />{" "}
@@ -414,7 +414,7 @@ export default function ImportPage() {
                 <select
                   aria-label={`לאיזה שדה שייכת העמודה ${header}`}
                   className="rounded-md border px-2 py-1 text-sm"
-                  style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+                  style={{ borderColor: "var(--color-input-border)", background: "var(--color-surface)" }}
                   value={overrides[header.trim()] ?? ""}
                   onChange={(e) => {
                     const value = e.target.value;

@@ -179,7 +179,7 @@ export function ReferralRevenueSection(): React.JSX.Element {
         <label className="mv-auth-field" style={{ maxWidth: 150 }}>
           <span>קרדיטים למחיקה</span>
           <input
-            className="mv-input"
+            className="mv-input w-full"
             inputMode="numeric"
             value={burnAmount}
             onChange={(e) => setBurnAmount(e.target.value)}
@@ -189,7 +189,7 @@ export function ReferralRevenueSection(): React.JSX.Element {
         <label className="mv-auth-field" style={{ flex: "1 1 220px" }}>
           <span>הערה</span>
           <input
-            className="mv-input"
+            className="mv-input w-full"
             value={burnNote}
             onChange={(e) => setBurnNote(e.target.value)}
             placeholder="למשל: סגירת רבעון"
