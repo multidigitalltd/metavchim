@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { appendDictated } from "@metavchim/shared";
 import { DictationControls } from "./dictation-field";
 
 /**
@@ -143,8 +144,7 @@ export function GlobalDictation() {
     const el = fieldRef.current;
     if (!el || !document.contains(el)) return;
     baseRef.current ??= el.value;
-    const base = baseRef.current;
-    setFieldValue(el, base.trim() === "" ? text : `${base.trimEnd()} ${text}`);
+    setFieldValue(el, appendDictated(baseRef.current, text));
   }
 
   return createPortal(

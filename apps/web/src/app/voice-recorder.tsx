@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { appendDictated, collectDictation, createDictationSessions } from "@metavchim/shared";
 import {
-  collectDictation,
   extensionForAudioType,
   preferredAudioFormat,
   type DictationMode,
@@ -41,6 +41,16 @@ const SILENCE_MS = 500;
 const SILENCE_RMS = 0.015;
 /** אחרי כמה כשלים רצופים מוותרים על השרת ועוברים לדפדפן. */
 const MAX_CONSECUTIVE_FAILURES = 2;
+/**
+ * תקרת זמן לבקשת התמלול של קטע.
+ *
+ * `fetch` ללא תקרה אינו נכשל לעולם כשהשרת מפסיק לענות באמצע — הוא
+ * פשוט תלוי, ואיתו גם תור השליחות שסוגר את הסבב. המסך נשאר על
+ * „מסיים לתמלל…” וההכתבה חסומה עד רענון העמוד (ביקורת Codex).
+ * קטע הוא עד ~30 שניות אודיו, ולכן דקה וחצי היא הרבה מעבר לכל תמלול
+ * סביר — גם כששירות התמלול עמוס.
+ */
+const SEGMENT_TRANSCRIBE_TIMEOUT_MS = 90_000;
 
 interface SpeechRecognitionLike {
   lang: string;
@@ -82,6 +92,27 @@ export function VoiceRecorder({
 }) {
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  /**
+   * „הפסקתי לדבר, והמנוע עוד מחזיר את המשפט האחרון” (ביקורת Codex).
+   *
+   * `stop()` אומר למנוע להפסיק להאזין **ולהחזיר את מה שכבר אסף**,
+   * ולכן `onresult` אחרון מגיע *אחרי* הקריאה. כשהכפתורים חזרו מיד,
+   * משתמש שהתחיל סבב חדש באותו רגע איבד את המשפט האחרון בשקט —
+   * הסבב החדש מנתק את הישן, וזה בדיוק מה שאמור לקרות. לכן הסבב
+   * נשאר תפוס עד שהמנוע סוגר אותו בעצמו.
+   *
+   * זו כבר ההתנהגות בשדות הטפסים; כאן היא הייתה חסרה.
+   */
+  const [finishing, setFinishing] = useState(false);
+  /**
+   * ממתינים לתשובת הדפדפן על בקשת המיקרופון.
+   *
+   * `getUserMedia` אינו חייב לחזור: משתמש שמתעלם מחלונית ההרשאה
+   * משאיר אותו תלוי לנצח. עד כה זה נראה כאילו לא קרה כלום —
+   * הכפתורים נשארו על המסך, וכל לחיצה נוספת נדחתה בשקט על ידי
+   * מנעול נסתר (ביקורת Codex). עכשיו ההמתנה גלויה וניתנת לביטול.
+   */
+  const [pending, setPending] = useState(false);
   const [browserSupported, setBrowserSupported] = useState(false);
   const [serverStt, setServerStt] = useState(false);
   /**
@@ -94,6 +125,38 @@ export function VoiceRecorder({
   const [activeMode, setActiveMode] = useState<DictationMode | null>(null);
   const segmentSecondsRef = useRef(DEFAULT_SEGMENT_SECONDS);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  /**
+   * מי הסבב הפעיל — אותה הגנה שיש בשדות הטפסים.
+   *
+   * מנוע הזיהוי מחזיר תוצאה אחרונה ויורה `onend` מאות מילישניות
+   * אחרי `stop()`. לחיצה חוזרת על „הקלטה” בתוך החלון הזה השאירה
+   * את המנוע הישן חי — שני מנועים כותבים לאותו שדה, כל אחד עם
+   * טקסט הבסיס שלו, וכל מה שנאמר הופיע פעמיים. מזהה לכל סבב סוגר
+   * את זה: הלוגיקה נבדקת ב-`@metavchim/shared`.
+   */
+  const sessionsRef = useRef(createDictationSessions());
+  /**
+   * סבב הקלטה תפוס — **נלקח לפני כל `await`, ומשותף לשני המצבים.**
+   *
+   * המנעולים הקודמים היו לכל מצב בנפרד, ולכן חורים בין המצבים נשארו
+   * פתוחים: „מדויק” ממתין ל-`getUserMedia`, ובינתיים לחיצה על „מהיר”
+   * עוברת — כי `recording` עדיין כבוי וכי המסלול השני בודק רק את
+   * `streamRef`. כשההרשאה חוזרת, שני המנועים מקליטים יחד, ו-`stop()`
+   * מטפל רק באחד מהם: המיקרופון נשאר פתוח בלי כפתור שיעצור אותו
+   * (ביקורת Codex).
+   *
+   * זה `ref` ולא `state` בכוונה: state מתעדכן ברינדור הבא, וכל החלון
+   * שאנחנו סוגרים כאן נמצא *לפניו*.
+   */
+  const busyRef = useRef(false);
+  /** מזהה בקשת ההרשאה הפעילה — ביטול פשוט מקדם אותו. */
+  const permitRef = useRef(0);
+  /** בבואה של `pending` שנקראת מתוך callbacks, שאינם רואים state. */
+  const pendingRef = useRef(false);
+  /** מזהה הסבב שהמנוע שב-`recognitionRef` שייך אליו. */
+  const browserTokenRef = useRef(0);
+  /** ממתין ל-`onend` אחרי `stop()` — ראו `finishing`. */
+  const endGuardRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   // האם להמשיך לקטע הבא כשהנוכחי נסגר (false = המתווך לחץ עצירה)
@@ -130,13 +193,29 @@ export function VoiceRecorder({
   // ניתוק המיקרופון גם כשעוזבים את המסך באמצע הקלטה — בלי זה
   // ה-MediaStream ממשיך לרוץ אחרי שהרכיב ירד (ביקורת Codex)
   useEffect(() => {
+    /*
+     * מתאפס בעלייה ולא רק נדלק בירידה.
+     *
+     * הדגל נכתב ב-cleanup ולא נוקה לעולם, ולכן רכיב שנטען מחדש —
+     * StrictMode בפיתוח, או מסך שמורכב שוב — נשאר עם `disposed`
+     * דלוק, וכל הקלטה מדויקת נעצרה מיד אחרי אישור ההרשאה. עם מצב
+     * ההמתנה החדש זה נעשה גלוי: המסך נתקע על „ממתין לאישור
+     * המיקרופון” ללא מוצא (ביקורת Codex).
+     *
+     * `useDictation` כבר תוקן כך; כאן זה נשאר פתוח.
+     */
+    disposedRef.current = false;
     return () => {
       // דגל נטישה: קטעים שכבר בתור לא ייצאו לרשת, והבקשה שבאוויר
       // מבוטלת. בלעדיו הקלטות שהמתווך נטש היו ממשיכות להישלח לתמלול
       // אחרי שעזב את המסך (ביקורת Codex)
       disposedRef.current = true;
       abortRef.current?.abort();
-      recognitionRef.current?.stop();
+      /*
+       * גם כאן הסבב נסגר במפורש ולא רק „נעצר”: מנוע שנשאר עם
+       * `onresult` דלוק כותב לשדה של רכיב שכבר ירד מהמסך.
+       */
+      retireRecognition();
       continueRef.current = false;
       const recorder = mediaRecorderRef.current;
       if (recorder?.state === "recording") {
@@ -172,6 +251,12 @@ export function VoiceRecorder({
   const serverAvailable = serverStt && canRecordAudio;
   const browserAvailable = browserSupported;
 
+  /** מצב ההמתנה נכתב לשניהם יחד — ה-state לתצוגה, ה-ref ללוגיקה. */
+  function markPending(value: boolean): void {
+    pendingRef.current = value;
+    setPending(value);
+  }
+
   function stopWatching(): void {
     if (watcherRef.current !== null) {
       clearInterval(watcherRef.current);
@@ -183,11 +268,48 @@ export function VoiceRecorder({
 
   /** מצב 1 — הקלטה רציפה שנחתכת בהפסקות ומתומללת תוך כדי. */
   async function startServerRecording(): Promise<void> {
+    const permit = (permitRef.current += 1);
+    markPending(true);
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
+      // תשובה שהגיעה אחרי שהמשתמש כבר ביטל, או אחרי שעזב את המסך,
+      // אינה שלנו — ואין לה למי לדווח
+      if (permitRef.current !== permit || disposedRef.current) return;
+      markPending(false);
+      busyRef.current = false;
+      setActiveMode(null);
       onError?.("אין גישה למיקרופון — אשרו הרשאה בדפדפן או הקלידו");
+      return;
+    }
+    if (permitRef.current !== permit || disposedRef.current) {
+      // בוטל בזמן ההמתנה, או שהרכיב ירד — הזרם שהגיע באיחור נסגר
+      // ואינו מקליט דבר. שתי הבדיקות יחד ולפני כל עדכון מצב.
+      stream.getTracks().forEach((track) => track.stop());
+      if (permitRef.current !== permit) return;
+      /*
+       * הבקשה עדיין שלנו — ולכן משחררים בכל מקרה, גם אם הדגל אומר
+       * שהרכיב ירד. אם הוא בכל זאת על המסך, זו ההגנה מפני מסך שתקוע
+       * על „ממתין לאישור המיקרופון” בלי מוצא; ואם הוא באמת ירד,
+       * העדכון הוא no-op.
+       */
+      busyRef.current = false;
+      markPending(false);
+      setActiveMode(null);
+      return;
+    }
+    markPending(false);
+    /*
+     * בקשת ההרשאה למיקרופון היא `await`, ולכן שתי לחיצות מהירות על
+     * „הקלטה” הגיעו לכאן שתיהן — הבדיקה ב-`begin` נשענת על state
+     * שעוד לא התעדכן. עד כה כל אחת פתחה מקליט וצופה-קטעים משלה,
+     * וכל קטע נשלח לתמלול פעמיים: הטקסט הופיע כפול וההקלטה
+     * הראשונה נשארה פתוחה עם המיקרופון דלוק. השנייה מוותרת.
+     */
+    if (streamRef.current !== null) {
+      stream.getTracks().forEach((track) => track.stop());
+      busyRef.current = false;
       return;
     }
     streamRef.current = stream;
@@ -195,8 +317,21 @@ export function VoiceRecorder({
     failuresRef.current = 0;
     producedTextRef.current = false;
     sendQueueRef.current = Promise.resolve();
+    if (!startSegment(stream)) {
+      /*
+       * המקליט לא עלה — משחררים הכול. בלי זה המנעול שמונע שני
+       * מקליטים במקביל נשאר נעול על סבב שמעולם לא התחיל, וכל ניסיון
+       * הקלטה נוסף נדחה בשקט בעוד המיקרופון פתוח (ביקורת Codex).
+       */
+      continueRef.current = false;
+      stream.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      busyRef.current = false;
+      setActiveMode(null);
+      onError?.("ההקלטה לא נפתחה במכשיר הזה — נסו „מהיר” או הקלידו");
+      return;
+    }
     setRecording(true);
-    startSegment(stream);
     startSegmentWatcher(stream);
   }
 
@@ -209,13 +344,32 @@ export function VoiceRecorder({
    * ההנחה הקשיחה שהייתה כאן שלחה mp4 בשם ‎.webm‎ מכל iPhone ו-iPad —
    * ראו `preferredAudioFormat` ב-`lib/dictation.ts`.
    */
-  function startSegment(stream: MediaStream): void {
+  /**
+   * פותח קטע הקלטה. מחזיר `false` אם המקליט לא עלה בכלל.
+   *
+   * ## למה זה מחזיר ערך ולא פשוט זורק
+   *
+   * `new MediaRecorder(...)` ו-`start()` יכולים לזרוק — פורמט שהמכשיר
+   * מכריז עליו ואינו תומך בו בפועל הוא המקרה השכיח. עד כה זריקה כזו
+   * השאירה את `mediaRecorderRef` ואת הזרם דלוקים בלי שאיש יסגור
+   * אותם: המסך נראה רגוע, המיקרופון נשאר פתוח, וכל ניסיון הקלטה
+   * נוסף נדחה על ידי המנעול החדש שנועד למנוע כפילות (ביקורת Codex).
+   *
+   * הקורא הוא זה שיודע מה לעשות בכישלון — לשחרר הכול בפתיחה, או
+   * לסגור את הסבב באמצע — ולכן התשובה חוזרת אליו.
+   */
+  function startSegment(stream: MediaStream): boolean {
     const chunks: Blob[] = [];
     const format = preferredAudioFormat();
-    const recorder =
-      format === undefined
-        ? new MediaRecorder(stream)
-        : new MediaRecorder(stream, { mimeType: format.mimeType });
+    let recorder: MediaRecorder;
+    try {
+      recorder =
+        format === undefined
+          ? new MediaRecorder(stream)
+          : new MediaRecorder(stream, { mimeType: format.mimeType });
+    } catch {
+      return false;
+    }
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) chunks.push(event.data);
     };
@@ -223,16 +377,24 @@ export function VoiceRecorder({
       const actual = recorder.mimeType || chunks[0]?.type || "";
       const blob = new Blob(chunks, ...(actual ? [{ type: actual }] : []));
       enqueueTranscription(blob);
-      if (continueRef.current) {
-        startSegment(stream); // ממשיכים לקטע הבא באותו זרם
-      } else {
-        finishRecording();
-      }
+      // קטע הבא באותו זרם; אם המקליט אינו נפתח, סוגרים את הסבב
+      // במקום להשאיר מיקרופון פתוח שאיש כבר אינו מקליט ממנו
+      if (continueRef.current && startSegment(stream)) return;
+      continueRef.current = false;
+      finishRecording();
     };
     mediaRecorderRef.current = recorder;
     segmentStartRef.current = performance.now();
     silenceSinceRef.current = null;
-    recorder.start();
+    try {
+      recorder.start();
+    } catch {
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+      mediaRecorderRef.current = null;
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -246,12 +408,23 @@ export function VoiceRecorder({
     let analyser: AnalyserNode | null = null;
     let samples: Float32Array<ArrayBuffer> | null = null;
     if (Ctor) {
-      const context = new Ctor();
-      audioContextRef.current = context;
-      analyser = context.createAnalyser();
-      analyser.fftSize = 2048;
-      context.createMediaStreamSource(stream).connect(analyser);
-      samples = new Float32Array(analyser.fftSize);
+      /*
+       * ניתוח עוצמת הקול הוא שיפור, לא תנאי: בלעדיו הקטעים נחתכים
+       * לפי משך במקום לפי הפסקה טבעית. `AudioContext` שנופל (מדיניות
+       * autoplay, מכשיר עמוס) לא אמור להפיל את ההקלטה כולה ולהשאיר
+       * את המיקרופון פתוח.
+       */
+      try {
+        const context = new Ctor();
+        audioContextRef.current = context;
+        analyser = context.createAnalyser();
+        analyser.fftSize = 2048;
+        context.createMediaStreamSource(stream).connect(analyser);
+        samples = new Float32Array(analyser.fftSize);
+      } catch {
+        analyser = null;
+        samples = null;
+      }
     }
 
     watcherRef.current = setInterval(() => {
@@ -293,9 +466,24 @@ export function VoiceRecorder({
     // נבדק כאן ולא רק בכניסה לתור: קטע שממתין בתור עשוי להגיע לתורו
     // אחרי שהמתווך כבר עזב את המסך
     if (blob.size === 0 || disposedRef.current) return;
+    /*
+     * ויתרנו על השרת — התור מתרוקן בלי לשלוח (ביקורת Codex).
+     *
+     * התור סדרתי, ותקרת הזמן חוסמת כל בקשה בנפרד. שרת שמקבל בקשות
+     * ואינו עונה גרם לכך ששני הכשלים הראשונים כיבו את התמלול בשרת —
+     * אבל כל קטע שכבר הצטבר בתור המשיך לחכות דקה וחצי משלו. ההקלטה
+     * נגמרה, המיקרופון נסגר, והמסך נשאר תקוע על „מסיים לתמלל…”
+     * דקות ארוכות, כי המנעול משתחרר רק כשהתור מתרוקן.
+     *
+     * `failuresRef` מתאפס בתחילת כל סבב, ולכן זה אינו חוסם הקלטה
+     * הבאה — רק את שאריות הסבב שכבר ויתרנו עליו.
+     */
+    if (failuresRef.current >= MAX_CONSECUTIVE_FAILURES) return;
     setTranscribing(true);
     const controller = new AbortController();
     abortRef.current = controller;
+    // שרת שהפסיק לענות באמצע אינו רשאי להשאיר את הסבב פתוח לנצח
+    const timeout = setTimeout(() => controller.abort(), SEGMENT_TRANSCRIBE_TIMEOUT_MS);
     try {
       const form = new FormData();
       // הסיומת נגזרת מהפורמט שהוקלט בפועל — שירות התמלול פותח לפיה
@@ -343,6 +531,7 @@ export function VoiceRecorder({
           : "התמלול נכשל — אפשר להקליד את הטקסט",
       );
     } finally {
+      clearTimeout(timeout);
       setTranscribing(false);
     }
   }
@@ -368,6 +557,9 @@ export function VoiceRecorder({
     streamRef.current?.getTracks().forEach((track) => track.stop()); // כיבוי המיקרופון
     streamRef.current = null;
     void sendQueueRef.current.then(() => {
+      // הסבב נגמר רק כשהקטע האחרון כבר תומלל — עד אז סבב חדש היה
+      // מאפס את תור השליחות מתחת לרגליו
+      busyRef.current = false;
       if (disposedRef.current) return; // הרכיב כבר ירד מהמסך
       // אחרי כשל שירות כבר הוצגה הודעה מדויקת יותר — לא מציפים בשתיים
       if (failuresRef.current >= MAX_CONSECUTIVE_FAILURES) return;
@@ -375,10 +567,44 @@ export function VoiceRecorder({
     });
   }
 
+  /**
+   * ניתוק מוחלט של מנוע הזיהוי שרץ כרגע — לא רק החלפת ה-ref.
+   *
+   * מנוע שאיש לא עצר ממשיך להאזין ולירות `onresult`, ושני מנועים
+   * חיים כותבים כל מילה פעמיים. `stop()` על מנוע שכבר נסגר זורק
+   * בחלק מהדפדפנים, ולכן הוא עטוף.
+   */
+  function retireRecognition(): void {
+    if (endGuardRef.current !== null) {
+      clearTimeout(endGuardRef.current);
+      endGuardRef.current = null;
+    }
+    const previous = recognitionRef.current;
+    recognitionRef.current = null;
+    browserTokenRef.current = 0;
+    if (previous === null) return;
+    previous.onresult = null;
+    previous.onend = null;
+    previous.onerror = null;
+    try {
+      previous.stop();
+    } catch {
+      /* מנוע שכבר נסגר — אין מה לעצור */
+    }
+  }
+
   /** מצב "מהיר" — זיהוי הדפדפן, הטקסט זוחל על המסך תוך כדי הדיבור. */
   function startBrowserRecognition(): void {
     const Ctor = getSpeechRecognition();
-    if (!Ctor) return;
+    if (!Ctor) {
+      busyRef.current = false;
+      setActiveMode(null);
+      return;
+    }
+    // סבב חדש מבטל את הקודם במפורש, ולא מקווה שייסגר בזמן
+    retireRecognition();
+    const sessions = sessionsRef.current;
+    const token = sessions.begin();
     const recognition = new Ctor();
     recognition.lang = "he-IL";
     recognition.continuous = true;
@@ -398,39 +624,111 @@ export function VoiceRecorder({
     // סט חדש לכל סשן — זיכרון "מי היה זמני" חי בין אירועי onresult
     const interimSeen = new Set<number>();
     recognition.onresult = (event) => {
+      // תוצאה מאוחרת של סבב שכבר הוחלף אינה שייכת לשדה שלפנינו
+      if (!sessions.isCurrent(token)) return;
       // collectDictation מסנן קטע רפאים שמופיע פעמיים ברצף — הבאג של
       // כרום באנדרואיד שגרם לכל משפט להיכתב פעמיים (מסונן גם בשדות)
       const { final, interim } = collectDictation(event.results, interimSeen);
       const spoken = `${final}${interim}`.trim();
       if (spoken === "") return;
-      onChange(base.trim() === "" ? spoken : `${base.trimEnd()} ${spoken}`);
+      onChange(appendDictated(base, spoken));
     };
     recognition.onend = () => {
+      if (!sessions.end(token)) return;
+      retireRecognition();
+      busyRef.current = false;
       setRecording(false);
+      setFinishing(false);
       setActiveMode(null);
     };
     recognition.onerror = () => {
+      if (!sessions.end(token)) return;
+      retireRecognition();
+      busyRef.current = false;
       setRecording(false);
+      setFinishing(false);
       setActiveMode(null);
       onError?.("זיהוי הדיבור נכשל — אפשר להקליד במקום");
     };
     recognitionRef.current = recognition;
-    recognition.start();
+    browserTokenRef.current = token;
+    try {
+      recognition.start();
+    } catch {
+      // מנוע שאינו עולה אינו רשאי להשאיר את הסבב תפוס לנצח
+      sessions.end(token);
+      retireRecognition();
+      busyRef.current = false;
+      setActiveMode(null);
+      onError?.("זיהוי הדיבור נכשל — אפשר להקליד במקום");
+      return;
+    }
     setRecording(true);
   }
 
   /** עצירה — לפי המצב שרץ בפועל, לא לפי מה שזמין. */
   function stop(): void {
-    if (activeMode === "server") stopServerRecording();
-    else {
-      recognitionRef.current?.stop();
-      setRecording(false);
+    /*
+     * ביטול בזמן ההמתנה להרשאה. אי אפשר לבטל `getUserMedia` עצמו,
+     * ולכן במקום זה מקדמים את מזהה הבקשה: הזרם שיגיע באיחור יזוהה
+     * כלא-שלנו וייסגר מיד.
+     */
+    if (pendingRef.current) {
+      permitRef.current += 1;
+      markPending(false);
+      busyRef.current = false;
       setActiveMode(null);
+      return;
     }
-    setActiveMode(null);
+    if (activeMode === "server") {
+      stopServerRecording();
+      setActiveMode(null);
+      return;
+    }
+    const recognition = recognitionRef.current;
+    if (recognition === null) {
+      busyRef.current = false;
+      setRecording(false);
+      setFinishing(false);
+      setActiveMode(null);
+      return;
+    }
+    /*
+     * הסבב נגמר ב-`onend` ולא כאן — המשפט האחרון עוד באוויר.
+     * `activeMode` נשמר עד אז כדי ש„עצור” נוסף ינותב לאותו מסלול.
+     */
+    const guarded = browserTokenRef.current;
+    recognition.stop();
+    setRecording(false);
+    setFinishing(true);
+    /*
+     * רשת ביטחון למנוע שאינו יורה `onend` — אחרת הסבב נשאר תפוס
+     * לנצח ואי אפשר להכתיב שוב. עשר שניות הן הרבה מעבר לכל סגירה
+     * סבירה: מנוע שנשען על רשת יכול לסגור משפט גם אחרי שנייה וחצי,
+     * וניתוק מוקדם היה בולע בשקט בדיוק את מה שבאנו לשמר.
+     *
+     * השעון שייך לסבב מסוים: אם בינתיים נפתח סבב חדש הוא אינו רשאי
+     * לגעת בו.
+     */
+    if (endGuardRef.current !== null) clearTimeout(endGuardRef.current);
+    endGuardRef.current = setTimeout(() => {
+      endGuardRef.current = null;
+      if (!sessionsRef.current.end(guarded)) return;
+      retireRecognition();
+      busyRef.current = false;
+      setFinishing(false);
+      setActiveMode(null);
+    }, 10_000);
   }
 
   function begin(mode: DictationMode): void {
+    /*
+     * סבב שכבר רץ אינו נפתח שוב. הכפתור אמנם מוחלף ב„עצור” בזמן
+     * הקלטה, אבל בין הלחיצה לרינדור יש חלון — ולחיצה כפולה מהירה,
+     * שכיחה במסך מגע, נכנסה בו והשאירה שני מקליטים על אותו שדה.
+     */
+    if (busyRef.current || recording || finishing || pending) return;
+    busyRef.current = true;
     setActiveMode(mode);
     if (mode === "server") void startServerRecording();
     else startBrowserRecognition();
@@ -455,7 +753,26 @@ export function VoiceRecorder({
                   : "מקליט… הטקסט מופיע תוך כדי הדיבור"}
               </p>
             </>
-          ) : transcribing ? (
+          ) : pending ? (
+            /*
+              חלונית ההרשאה של הדפדפן אינה חייבת להיענות, ו-`getUserMedia`
+              יכול להישאר תלוי לנצח. בלי הענף הזה הכפתורים נראו זמינים
+              וכל לחיצה נדחתה בשקט על ידי מנעול נסתר (ביקורת Codex).
+            */
+            <>
+              <Button type="button" variant="ghost" onClick={stop} className="min-w-48">
+                ביטול
+              </Button>
+              <p aria-live="polite" className="mt-2" style={{ color: "var(--color-text-muted)" }}>
+                ממתין לאישור המיקרופון בדפדפן…
+              </p>
+            </>
+          ) : transcribing || finishing ? (
+            /*
+              הכפתורים אינם חוזרים כל עוד הסבב לא נסגר. `finishing`
+              הוא החלון שבין „עצור” לבין המשפט האחרון שהמנוע עוד
+              מחזיר — סבב חדש שנפתח בתוכו היה בולע אותו (ביקורת Codex).
+            */
             <p aria-live="polite" className="mt-2" style={{ color: "var(--color-text-muted)" }}>
               מסיים לתמלל…
             </p>

@@ -1,10 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AUDIO_RECORDING_FORMATS, extensionForAudioType } from "@metavchim/shared";
+import {
+  AUDIO_RECORDING_FORMATS,
+  collectDictation,
+  createDictationSessions,
+  extensionForAudioType,
+  type DictationResultSegment,
+} from "@metavchim/shared";
 import { API_BASE, apiGet } from "@/lib/api";
 
-export { extensionForAudioType };
+export { extensionForAudioType, collectDictation };
+export type { DictationResultSegment };
 
 /**
  * הכתבה לכל שדה טקסט במערכת, בשני מצבים שהמשתמש בוחר ביניהם במפורש:
@@ -24,6 +31,16 @@ export { extensionForAudioType };
  */
 
 export type DictationMode = "browser" | "server";
+
+/**
+ * תקרת זמן לבקשת התמלול.
+ *
+ * `fetch` ללא תקרה אינו נכשל לעולם כשהשרת מפסיק לענות באמצע — הוא
+ * פשוט תלוי. הסבב נשאר „פעיל”, המסך תקוע על „מתמלל”, וההכתבה חסומה
+ * עד רענון העמוד (ביקורת Codex). הכתבה בשדה טופס היא 3–10 שניות של
+ * אודיו, ולכן דקה היא הרבה מעבר לכל תמלול סביר וגם גבול ברור.
+ */
+const TRANSCRIBE_TIMEOUT_MS = 60_000;
 
 /**
  * אין ברירת מחדל ואין העדפה שמורה.
@@ -86,54 +103,14 @@ export function dictationErrorMessage(code: string | undefined): string {
   }
 }
 
-/**
- * איסוף הטקסט מרשימת תוצאות הזיהוי — עם סינון השכפול של אנדרואיד.
+/*
+ * `collectDictation` ו-`DictationResultSegment` עברו ל-`@metavchim/shared`
+ * (ראו `logic/dictation.ts`) ומיוצאים מכאן מחדש לשם תאימות.
  *
- * כרום באנדרואיד, במצב continuous, משכפל קטעים: אותה תוצאה מופיעה
- * פעמיים ברצף ברשימה, והטקסט נכתב פעמיים (דיווח המשתמש: "רושם
- * פעמיים" במצב המהיר).
- *
- * ## איך מבדילים שכפול מחזרה מכוונת
- *
- * מי שחוזר על מילה אחרי הפסקה ("לא… לא") מייצר באמת שני קטעים
- * זהים עוקבים — ומחיקת כל קטע שזהה לקודמו הייתה בולעת גם אותם
- * (ביקורת Codex). ההבדל הוא בדרך שבה הקטע נולד: קטע אמיתי גדל מול
- * העיניים — הוא מופיע קודם כתוצאה זמנית (isFinal=false) באירועים
- * קודמים ורק אז מתקבע; קטע הרפאים של אנדרואיד מופיע יש-מאין, סופי
- * מיד, לצד התאום שלו. לכן `interimSeen` — סט האינדקסים שנראו אי
- * פעם כזמניים בסבב הזה, שהקורא מחזיק בין אירועים — קובע: קטע זהה
- * לקודמו נמחק רק אם מעולם לא היה זמני.
- *
- * משותף לשני מנועי ההכתבה (שדות הטפסים ומסך הסוכן) — תיקון שחי
- * רק באחד מהם היה משאיר את אותה כפילות בשני.
+ * הסיבה מעשית: ב-`apps/web` אין הרצת בדיקות, ולכן שני התיקונים
+ * הקודמים לכפילות ההכתבה נמסרו בלי שאיש הריץ עליהם ולו מקרה אחד.
+ * בחבילה המשותפת יש להם בדיקות.
  */
-export interface DictationResultSegment {
-  readonly isFinal?: boolean;
-  readonly 0?: { transcript: string } | undefined;
-}
-
-export function collectDictation(
-  results: ArrayLike<DictationResultSegment | undefined>,
-  /** אינדקסים שנראו כתוצאה זמנית בסבב הזה — סט אחד לכל סשן הקלטה */
-  interimSeen: Set<number>,
-): { final: string; interim: string } {
-  let final = "";
-  let interim = "";
-  let previous = "";
-  for (let i = 0; i < results.length; i += 1) {
-    const segment = results[i];
-    const text = segment?.[0]?.transcript ?? "";
-    if (text.trim() === "") continue;
-    const isInterim = segment?.isFinal === false;
-    if (isInterim) interimSeen.add(i);
-    // קטע רפאים: זהה לקודמו, סופי, ומעולם לא חי כתוצאה זמנית
-    if (!isInterim && text.trim() === previous.trim() && !interimSeen.has(i)) continue;
-    previous = text;
-    if (isInterim) interim += text;
-    else final += text;
-  }
-  return { final, interim };
-}
 
 function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
   if (typeof window === "undefined") return null;
@@ -206,6 +183,8 @@ export interface DictationState {
   serverReady: boolean;
   recording: DictationMode | null;
   transcribing: boolean;
+  /** ממתינים לתשובת הדפדפן על בקשת המיקרופון — ניתן לביטול ב-`stop`. */
+  pending: boolean;
   error: string | null;
   start: (mode: DictationMode) => void;
   stop: () => void;
@@ -222,6 +201,15 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
   const [serverReady, setServerReady] = useState(false);
   const [recording, setRecording] = useState<DictationMode | null>(null);
   const [transcribing, setTranscribing] = useState(false);
+  /**
+   * ממתינים לתשובת הדפדפן על בקשת המיקרופון.
+   *
+   * `getUserMedia` אינו חייב לחזור: משתמש שמתעלם מחלונית ההרשאה
+   * משאיר אותו תלוי לנצח. עד כה זה נראה כאילו לא קרה כלום — הכפתורים
+   * נשארו על המסך, וכל לחיצה נוספת נדחתה בשקט על ידי מנעול נסתר
+   * (ביקורת Codex). עכשיו ההמתנה גלויה, ואפשר לבטל אותה.
+   */
+  const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -232,10 +220,75 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
   const abortRef = useRef<AbortController | null>(null);
   /** ממתין ל-`onend` אחרי `stop()` — ראו ההערה ב-`stop`. */
   const endGuardRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * מי הסבב הפעיל — התיקון ל„ההכתבה מתמללת פעמיים”.
+   *
+   * מנוע הזיהוי אינו נעצר ברגע ש-`stop()` נקרא: הוא מחזיר תוצאה
+   * אחרונה ואז יורה `onend`, מאות מילישניות אחר כך. עד כה הזהות
+   * של הסבב הייתה ה-ref היחיד שהחזיק את המנוע, ולכן לחיצה חוזרת
+   * על „מהיר” לפני שהסבב הקודם נסגר הפילה שרשרת שלמה: `onend`
+   * הישן אִפֵּס את ה-ref — כלומר ניתק את המערכת מהמנוע **החדש**
+   * שכבר רץ — כיבה את „מקליט”, וכיבוי הסבב אִפֵּס את טקסט הבסיס
+   * בעוד המנוע החדש ממשיך לכתוב. מכאן ואילך כל מה שנאמר נכתב על
+   * טקסט שכבר מכיל אותו, ולחיצה נוספת הוסיפה מנוע שלישי שמקליט
+   * במקביל. שתי דרכים שונות לאותה תוצאה: הכול פעמיים.
+   *
+   * עכשיו לכל סבב מזהה משלו, וכל callback מציג אותו לפני שהוא
+   * נוגע במצב. הלוגיקה עצמה נבדקת ב-`@metavchim/shared`.
+   */
+  const sessionsRef = useRef(createDictationSessions());
+  /**
+   * סבב הקלטה תפוס — **נלקח לפני כל `await`, ומשותף לשני המצבים.**
+   *
+   * המנעולים הקודמים היו לכל מצב בנפרד, ולכן החור שבין המצבים נשאר
+   * פתוח: „מדויק” ממתין ל-`getUserMedia`, ובינתיים לחיצה על „מהיר”
+   * עוברת — `recording` ו-`transcribing` עדיין כבויים. כשההרשאה
+   * חוזרת, המסלול השני בודק רק את `recorderRef` ומתחיל גם הוא: שני
+   * מנועים מקליטים יחד, `stop()` מעדיף את מנוע הזיהוי, וה-`onend`
+   * שלו מכבה את מצב ההקלטה בעוד ה-`MediaRecorder` ממשיך לרוץ בלי
+   * כפתור שיעצור אותו (ביקורת Codex).
+   *
+   * זה `ref` ולא `state` בכוונה: state מתעדכן ברינדור הבא, וכל החלון
+   * שאנחנו סוגרים כאן נמצא *לפניו*.
+   */
+  const busyRef = useRef(false);
+  /** מזהה בקשת ההרשאה הפעילה — ביטול פשוט מקדם אותו. */
+  const permitRef = useRef(0);
+  /** בבואה של `pending` שנקראת מתוך callbacks, שאינם רואים state. */
+  const pendingRef = useRef(false);
+  /** מזהה הסבב שהמנוע שב-`recognitionRef` שייך אליו. */
+  const browserTokenRef = useRef(0);
   // ה-callback העדכני — ההקלטה חיה בין רינדורים, ולולאת הסגירה
   // (closure) הייתה נצמדת לגרסה הישנה ודורסת עריכות של המשתמש
   const appendRef = useRef(onAppend);
   appendRef.current = onAppend;
+
+  /**
+   * ניתוק מוחלט של מנוע הזיהוי שרץ כרגע, אם יש כזה.
+   *
+   * לא די בהחלפת ה-ref: מנוע שאיש לא עצר ממשיך להאזין למיקרופון
+   * ולירות `onresult`, ושני מנועים חיים כותבים כל מילה פעמיים. לכן
+   * כאן מסירים את המאזינים **וגם** עוצרים בפועל. `stop()` על מנוע
+   * שכבר נסגר זורק בחלק מהדפדפנים, ולכן הוא עטוף.
+   */
+  const retireBrowser = useCallback((): void => {
+    if (endGuardRef.current !== null) {
+      clearTimeout(endGuardRef.current);
+      endGuardRef.current = null;
+    }
+    const previous = recognitionRef.current;
+    recognitionRef.current = null;
+    browserTokenRef.current = 0;
+    if (previous === null) return;
+    previous.onresult = null;
+    previous.onend = null;
+    previous.onerror = null;
+    try {
+      previous.stop();
+    } catch {
+      /* מנוע שכבר נסגר — אין מה לעצור */
+    }
+  }, []);
 
   useEffect(() => {
     /*
@@ -256,12 +309,19 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
   /* ניתוק המיקרופון והבקשה כשהשדה יורד מהמסך — בלי זה ההקלטה
      ממשיכה לרוץ אחרי שהמשתמש עזב (אותה תקלה שתוקנה ב-VoiceRecorder) */
   useEffect(() => {
+    const sessions = sessionsRef.current;
+    const retire = retireBrowser;
     return () => {
       disposedRef.current = true;
-      if (endGuardRef.current !== null) clearTimeout(endGuardRef.current);
       abortRef.current?.abort();
-      recognitionRef.current?.stop();
+      /*
+       * גם כאן הסבב נסגר במפורש ולא רק „נעצר”: רכיב שירד מהמסך
+       * בעוד המנוע חי היה משאיר `onresult` שכותב לשדה שכבר איננו.
+       */
+      sessions.end(browserTokenRef.current);
+      retire();
       const recorder = recorderRef.current;
+      recorderRef.current = null;
       if (recorder?.state === "recording") {
         recorder.ondataavailable = null;
         recorder.onstop = null;
@@ -270,11 +330,18 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     };
-  }, []);
+  }, [retireBrowser]);
 
   const startBrowser = useCallback((): void => {
     const Ctor = getSpeechRecognition();
-    if (!Ctor) return;
+    if (!Ctor) {
+      busyRef.current = false;
+      return;
+    }
+    // סבב חדש מבטל את הקודם במפורש, ולא מקווה שייסגר בזמן
+    retireBrowser();
+    const sessions = sessionsRef.current;
+    const token = sessions.begin();
     const recognition = new Ctor();
     recognition.lang = "he-IL";
     recognition.continuous = true;
@@ -284,55 +351,136 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
     // סט חדש לכל סשן — זיכרון "מי היה זמני" חי בין אירועי onresult
     const interimSeen = new Set<number>();
     recognition.onresult = (event) => {
+      // תוצאה מאוחרת של סבב שכבר הוחלף אינה שייכת לשדה שלפנינו
+      if (!sessions.isCurrent(token)) return;
       const { final, interim } = collectDictation(event.results, interimSeen);
       const combined = `${final}${interim}`.trim();
       if (combined !== "") appendRef.current(combined, interim !== "");
     };
     recognition.onend = () => {
+      if (!sessions.end(token)) return;
       if (endGuardRef.current !== null) {
         clearTimeout(endGuardRef.current);
         endGuardRef.current = null;
       }
       recognitionRef.current = null;
+      browserTokenRef.current = 0;
+      busyRef.current = false;
       setRecording(null);
     };
     recognition.onerror = (event) => {
+      if (!sessions.end(token)) return;
       if (endGuardRef.current !== null) {
         clearTimeout(endGuardRef.current);
         endGuardRef.current = null;
       }
       recognitionRef.current = null;
+      browserTokenRef.current = 0;
+      busyRef.current = false;
       setRecording(null);
       setError(dictationErrorMessage(event?.error));
     };
     recognitionRef.current = recognition;
-    recognition.start();
+    browserTokenRef.current = token;
+    try {
+      recognition.start();
+    } catch {
+      // מנוע שאינו עולה אינו רשאי להשאיר את הסבב תפוס לנצח
+      sessions.end(token);
+      retireBrowser();
+      busyRef.current = false;
+      setError(dictationErrorMessage(undefined));
+      return;
+    }
     setRecording("browser");
+  }, [retireBrowser]);
+
+  /** מצב ההמתנה נכתב לשניהם יחד — ה-state לתצוגה, ה-ref ללוגיקה. */
+  const markPending = useCallback((value: boolean): void => {
+    pendingRef.current = value;
+    setPending(value);
   }, []);
 
   const startServer = useCallback(async (): Promise<void> => {
+    const permit = (permitRef.current += 1);
+    markPending(true);
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
+      // תשובה שהגיעה אחרי שהמשתמש כבר ביטל, או אחרי שהשדה ירד מהמסך,
+      // אינה שלנו — ואין לה למי לדווח
+      if (permitRef.current !== permit || disposedRef.current) return;
+      markPending(false);
+      busyRef.current = false;
       setError("אין גישה למיקרופון — אשרו הרשאה בדפדפן או הקלידו");
       return;
     }
-    if (disposedRef.current) {
+    if (permitRef.current !== permit || disposedRef.current) {
+      // בוטל בזמן ההמתנה, או שהרכיב ירד — הזרם שהגיע באיחור נסגר
+      // ואינו מקליט דבר. שתי הבדיקות יחד ולפני כל עדכון מצב.
       stream.getTracks().forEach((t) => t.stop());
+      if (permitRef.current !== permit) return;
+      // הבקשה עדיין שלנו — משחררים בכל מקרה, כדי ששום מסלול לא
+      // ישאיר את השדה תקוע על „ממתין לאישור המיקרופון”
+      busyRef.current = false;
+      markPending(false);
       return;
     }
+    markPending(false);
+    /*
+     * בקשת ההרשאה למיקרופון היא `await`, ולכן שתי לחיצות מהירות על
+     * „מדויק” הגיעו לכאן שתיהן. עד כה כל אחת בנתה מקליט משלה —
+     * ושתיהן דחפו לאותו `chunksRef`. הקובץ שנשלח לתמלול הכיל את
+     * אותה שמיעה פעמיים, ולכן הטקסט חזר כפול, וההקלטה הראשונה
+     * נשארה פתוחה עם המיקרופון דלוק. השנייה מוותרת.
+     */
+    if (recorderRef.current !== null) {
+      stream.getTracks().forEach((t) => t.stop());
+      busyRef.current = false;
+      return;
+    }
+    /**
+     * שחרור מלא כשהמקליט אינו עולה.
+     *
+     * `new MediaRecorder(...)` ו-`start()` יכולים לזרוק — פורמט
+     * שהמכשיר מכריז עליו ואינו תומך בו בפועל הוא המקרה השכיח. אז
+     * `onstop` לעולם אינו נורה, ולכן המנעול שמונע שני מקליטים
+     * במקביל נשאר נעול על סבב שמעולם לא התחיל: המסך נראה רגוע,
+     * המיקרופון פתוח, וכל ניסיון „מדויק” נוסף נדחה בשקט
+     * (ביקורת Codex).
+     */
+    function abandon(): void {
+      busyRef.current = false;
+      recorderRef.current = null;
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      stream.getTracks().forEach((t) => t.stop());
+      setRecording(null);
+      setTranscribing(false);
+      setError("ההקלטה לא נפתחה בדפדפן הזה — נסו „מהיר” או הקלידו");
+    }
+
     streamRef.current = stream;
     chunksRef.current = [];
     const format = preferredAudioFormat();
-    const recorder =
-      format === undefined
-        ? new MediaRecorder(stream)
-        : new MediaRecorder(stream, { mimeType: format.mimeType });
+    let recorder: MediaRecorder;
+    try {
+      recorder =
+        format === undefined
+          ? new MediaRecorder(stream)
+          : new MediaRecorder(stream, { mimeType: format.mimeType });
+    } catch {
+      abandon();
+      return;
+    }
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) chunksRef.current.push(event.data);
     };
     recorder.onstop = () => {
+      // משחרר את המנעול שמונע שני מקליטים במקביל — בלי זה ההקלטה
+      // הבאה באותו שדה הייתה נדחית לנצח
+      if (recorderRef.current === recorder) recorderRef.current = null;
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       /*
@@ -345,7 +493,14 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
       void transcribe(blob, extensionForAudioType(actual || blob.type));
     };
     recorderRef.current = recorder;
-    recorder.start();
+    try {
+      recorder.start();
+    } catch {
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+      abandon();
+      return;
+    }
     /*
      * `transcribing` נדלק **כאן** ולא רק כשהבקשה יוצאת.
      *
@@ -357,17 +512,20 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
      */
     setTranscribing(true);
     setRecording("server");
-  }, []);
+  }, [markPending]);
 
   async function transcribe(blob: Blob, extension: string): Promise<void> {
     // ההקלטה כבר סימנה `transcribing`; הקלטה ריקה חייבת לכבות אותו
     // בעצמה, אחרת הסבב נשאר "פעיל" לנצח והכפתורים אינם חוזרים
     if (blob.size === 0 || disposedRef.current) {
+      busyRef.current = false;
       setTranscribing(false);
       return;
     }
     const controller = new AbortController();
     abortRef.current = controller;
+    // שרת שהפסיק לענות באמצע אינו רשאי להשאיר את הסבב פתוח לנצח
+    const timeout = setTimeout(() => controller.abort(), TRANSCRIBE_TIMEOUT_MS);
     try {
       const form = new FormData();
       /*
@@ -398,20 +556,44 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
       if (disposedRef.current) return;
       setError("התמלול נכשל — נסו הקלטה מהירה או הקלידו");
     } finally {
+      clearTimeout(timeout);
+      // הסבב נגמר רק כשהטקסט חזר — עד אז „מדויק” עדיין באוויר
+      busyRef.current = false;
       if (!disposedRef.current) setTranscribing(false);
     }
   }
 
   const start = useCallback(
     (mode: DictationMode): void => {
+      /*
+       * סבב שכבר רץ אינו נפתח שוב.
+       *
+       * הכפתורים אמנם מוחלפים ב„עצור” בזמן הקלטה, אבל בין הלחיצה
+       * לבין הרינדור יש חלון — ולחיצה כפולה מהירה, שכיחה במסך מגע,
+       * נכנסה בו. במצב המדויק זה שלח לתמלול קובץ שמכיל את אותה
+       * שמיעה פעמיים; במצב המהיר זה השאיר שני מנועים מקליטים.
+       */
+      if (busyRef.current || recording !== null || transcribing) return;
+      busyRef.current = true;
       setError(null);
       if (mode === "browser") startBrowser();
       else void startServer();
     },
-    [startBrowser, startServer],
+    [recording, transcribing, startBrowser, startServer],
   );
 
   const stop = useCallback((): void => {
+    /*
+     * ביטול בזמן ההמתנה להרשאה. אי אפשר לבטל `getUserMedia` עצמו,
+     * ולכן במקום זה מקדמים את מזהה הבקשה: הזרם שיגיע באיחור יזוהה
+     * כלא-שלנו וייסגר מיד.
+     */
+    if (pendingRef.current) {
+      permitRef.current += 1;
+      markPending(false);
+      busyRef.current = false;
+      return;
+    }
     const recognition = recognitionRef.current;
     if (recognition) {
       /*
@@ -445,16 +627,19 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
        * האחרון בשקט. עשר שניות הן הרבה מעבר לכל סגירה סבירה, ועדיין
        * גבול ברור למנוע תקוע. איבוד טקסט גרוע מכפתור שנתקע.
        */
+      const token = browserTokenRef.current;
       if (endGuardRef.current !== null) clearTimeout(endGuardRef.current);
       endGuardRef.current = setTimeout(() => {
         endGuardRef.current = null;
-        const stale = recognitionRef.current;
-        if (stale !== null) {
-          stale.onresult = null;
-          stale.onend = null;
-          stale.onerror = null;
-          recognitionRef.current = null;
-        }
+        /*
+         * השעון שייך לסבב מסוים. אם בינתיים נפתח סבב חדש — משתמש
+         * שלחץ „מהיר” שוב — הוא אינו רשאי לנתק את המנוע שרץ עכשיו.
+         * בלי הבדיקה הזו השעון היה הורג הקלטה פעילה עשר שניות
+         * אחרי שקודמתה נעצרה.
+         */
+        if (!sessionsRef.current.end(token)) return;
+        retireBrowser();
+        busyRef.current = false;
         setRecording(null);
       }, 10_000);
       return;
@@ -462,9 +647,19 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
     const recorder = recorderRef.current;
     if (recorder?.state === "recording") recorder.stop();
     setRecording(null);
-  }, []);
+  }, [retireBrowser, markPending]);
 
   const clearError = useCallback((): void => setError(null), []);
 
-  return { browserReady, serverReady, recording, transcribing, error, start, stop, clearError };
+  return {
+    browserReady,
+    serverReady,
+    recording,
+    transcribing,
+    pending,
+    error,
+    start,
+    stop,
+    clearError,
+  };
 }

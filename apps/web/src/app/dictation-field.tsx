@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, type ReactNode } from "react";
+import { appendDictated } from "@metavchim/shared";
 import { useDictation, type DictationMode } from "@/lib/dictation";
 import { IconStop } from "./icons";
 
@@ -66,9 +67,8 @@ export function DictationControls({
   onBusyChange?: (busy: boolean) => void;
   disabled?: boolean;
 }) {
-  const { browserReady, serverReady, recording, transcribing, error, start, stop } = useDictation(
-    (text) => onAppend(text),
-  );
+  const { browserReady, serverReady, recording, transcribing, pending, error, start, stop } =
+    useDictation((text) => onAppend(text));
 
   /*
    * סוף סבב = לא מקליט ולא מתמלל. בלי האיפוס הזה הקלטה שנייה באותו
@@ -79,7 +79,7 @@ export function DictationControls({
   idleRef.current = onIdle;
   const busyRef = useRef(onBusyChange);
   busyRef.current = onBusyChange;
-  const busy = recording !== null || transcribing;
+  const busy = recording !== null || transcribing || pending;
   const wasBusyRef = useRef(false);
   useEffect(() => {
     if (wasBusyRef.current && !busy) idleRef.current?.();
@@ -107,6 +107,20 @@ export function DictationControls({
         </>
       ) : transcribing ? (
         <span className="mv-dictate-live" aria-live="polite">מתמלל בשרת…</span>
+      ) : pending ? (
+        /*
+          חלונית ההרשאה של הדפדפן אינה חייבת להיענות, ו-`getUserMedia`
+          יכול להישאר תלוי לנצח. בלי השורה הזו הכפתורים נראו זמינים
+          וכל לחיצה נדחתה בשקט על ידי מנעול נסתר (ביקורת Codex).
+        */
+        <>
+          <button type="button" className="mv-dictate-stop" onClick={stop}>
+            ביטול
+          </button>
+          <span className="mv-dictate-live" aria-live="polite">
+            ממתין לאישור המיקרופון בדפדפן…
+          </span>
+        </>
       ) : (
         <>
           {browserReady ? (
@@ -153,8 +167,7 @@ function useAppender(value: string, onChange: (v: string) => void) {
     // שמתעדכן תוך כדי דיבור) מחליפים רק את החלק שהוכתב, ולכן הם
     // מתווספים לאותו בסיס ולא מצטברים כפול.
     baseRef.current ??= valueRef.current;
-    const base = baseRef.current;
-    onChange(base.trim() === "" ? text : `${base.trimEnd()} ${text}`);
+    onChange(appendDictated(baseRef.current, text));
   };
   const reset = (): void => {
     baseRef.current = null;
@@ -277,8 +290,7 @@ export function DictateFor({ targetId }: { targetId: string }) {
       | null;
     if (!el) return;
     baseRef.current ??= el.value;
-    const base = baseRef.current;
-    el.value = base.trim() === "" ? text : `${base.trimEnd()} ${text}`;
+    el.value = appendDictated(baseRef.current, text);
     el.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
