@@ -552,9 +552,18 @@ export class CallsService {
    *
    * מותנה ב-`recordingKey: null` ובקיום נתיב: אין טעם לתור על
    * שיחה שכבר יש לה הקלטה, ואין לאן לפנות בלי נתיב.
+   *
+   * ‎`assertCallAccess` קודם לעדכון, ולא רק סינון לפי דייר.
+   *
+   * בידוד הדייר אינו הגבול היחיד כאן: שיחה שייכת גם לסוכן, ו-`list`,
+   * ‎`recording`, `attachRecording` ו-`retryTranscription` כולם אוכפים
+   * את הבעלות הזו. בלי אותה אכיפה, סוכן שמנחש מזהה של שיחה של עמית
+   * היה יכול לאפס לה את מצב המשיכה — ובעיקר ללמוד מהתשובה `queued`
+   * שלשיחה ההיא **יש** נתיב הקלטה אצל הספק (ביקורת Codex).
    */
   async retryRecording(id: string): Promise<{ queued: boolean }> {
     return this.prisma.withTenant(async (tx) => {
+      await this.assertCallAccess(tx, id);
       const tenantId = TenantContext.current().tenantId;
       const done = await tx.call.updateMany({
         where: {

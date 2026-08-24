@@ -39,11 +39,11 @@ const FILTERS: [string, string][] = [
 /* גלולות הסטטוס — הכללים מקובץ העיצוב (stChip) */
 function statusChip(o: OfferRow): { label: string; fg: string; bg: string } {
   if (o.status === "interested") return { label: "מעוניין ✓", fg: "#0C6E34", bg: "#E5FCEA" };
-  if (o.status === "declined") return { label: "לא מתאים", fg: "#68716a", bg: "#eef1ec" };
-  if (o.status === "pending_approval") return { label: "ממתין לאישור", fg: "#68716a", bg: "#eef1ec" };
+  if (o.status === "declined") return { label: "לא מתאים", fg: "#616a63", bg: "#eef1ec" };
+  if (o.status === "pending_approval") return { label: "ממתין לאישור", fg: "#616a63", bg: "#eef1ec" };
   if (o.openCount >= 3) return { label: "מתלבט — שווה טלפון", fg: "#7a5c1f", bg: "#f7efdd" };
   if (o.openCount > 0) return { label: "נפתחה", fg: "#3F4742", bg: "#EDEFED" };
-  return { label: "נשלחה", fg: "#68716a", bg: "#eef1ec" };
+  return { label: "נשלחה", fg: "#616a63", bg: "#eef1ec" };
 }
 
 /** קונה שמתלבט: פתח שוב ושוב ולא ענה. */

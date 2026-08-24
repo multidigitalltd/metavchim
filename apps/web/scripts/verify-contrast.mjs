@@ -486,6 +486,97 @@ const controlUses = [];
  */
 const inlineUses = [];
 
+/**
+ * צמדי צבע שיושבים ב**מפת צבעים סטטית**, לא בסגנון בשורה.
+ *
+ * ‎`MATURITY_PILL`, `STATUS_PILL`, `offerChip` — כולם מחזירים
+ * ‎`{ fg, bg }` שנצרך במקום אחר לגמרי, לרוב כ-`tone.fg` ו-`tone.bg`
+ * דרך prop. הסורק של הסגנון בשורה רואה שם שני מזהים, אינו יודע
+ * לפתור אותם, וסופר אותם כ„נקבעים בזמן ריצה” — כלומר הצמד יורד
+ * מהמדידה בשקט.
+ *
+ * וכך נשאר על המסך `#68716a` על `#eef1ec` = 4.43:1 — מתחת לסף,
+ * בארבעה-עשר מקומות, בעוד השער מצהיר שהכול עובר (ביקורת Codex).
+ *
+ * המדידה כאן אינה עוקבת אחרי הזרימה בין הקבצים — היא אינה צריכה.
+ * ‎**האובייקט עצמו הוא הצמד**: מי שכתב `fg` ו-`bg` באותו אובייקט
+ * הצהיר שהם מיועדים זה על גבי זה, וזו הכרעה מלאה בלי לדעת מי
+ * צורך אותה. מעקב דו-קבצי היה מסובך פי כמה ומוכיח פחות.
+ */
+const paletteUses = [];
+
+/** שמות המאפיינים שמכריזים „זה הדיו” ו„זה המשטח” באותו אובייקט. */
+const PALETTE_INK = ["fg", "color"];
+const PALETTE_GROUND = ["bg", "background", "backgroundColor"];
+
+/** ערך שהוא מחרוזת סגורה — `"#eef1ec"`. אחרת אין מה למדוד מכאן. */
+function literalString(raw) {
+  if (raw === null) return null;
+  const found = /^\s*(["'])([^"'`]*)\1\s*$/u.exec(raw);
+  return found === null ? null : found[2].trim();
+}
+
+/**
+ * איסוף מפות הצבע מקובץ אחד.
+ *
+ * נסרקים רק אובייקטים **עלים** — כאלה שאין בתוכם `{` נוסף. אובייקט
+ * עוטף מכיל את כל הצאצאים שלו, ו-`rawValue` היה שולף ממנו את
+ * ה-`fg` הראשון ואת ה-`bg` הראשון גם כשהם שייכים לשתי גלולות שונות
+ * — כלומר מודד צמד שאינו קיים.
+ */
+function collectPalettes(file, source) {
+  for (let i = 0; i < source.length; i += 1) {
+    if (source[i] !== "{") continue;
+    const body = balancedAt(source, i);
+    if (body === null || body.includes("{")) continue;
+    const ink = literalString(PALETTE_INK.map((key) => rawValue(body, key)).find(Boolean) ?? null);
+    const ground = literalString(
+      PALETTE_GROUND.map((key) => rawValue(body, key)).find(Boolean) ?? null,
+    );
+    if (ink === null || ground === null) continue;
+    paletteUses.push({
+      where: `${file}:${source.slice(0, i).split("\n").length}`,
+      ink,
+      ground,
+    });
+  }
+}
+
+/**
+ * מדידת מפות הצבע.
+ *
+ * הערכים בהן קשיחים ברובם, ולכן שלוש הערכות היו מדווחות שלוש פעמים
+ * על אותו כשל. הדיווח מאחד ערכות שהניבו את אותה תוצאה, כמו בבדיקת
+ * הגיליון.
+ */
+function scanPaletteColors(hits, unmeasured) {
+  let measured = 0;
+  const byLine = new Map();
+  for (const site of paletteUses) {
+    for (const theme of Object.keys(THEME_SELECTORS)) {
+      const ground = resolveValue(site.ground, theme);
+      if (ground === null) {
+        const line = `${site.where} — background: ${site.ground}`;
+        if (!unmeasured.includes(line)) unmeasured.push(line);
+        continue;
+      }
+      const color = resolveValue(site.ink, theme, ground);
+      if (color === null) {
+        const line = `${site.where} — color: ${site.ink}`;
+        if (!unmeasured.includes(line)) unmeasured.push(line);
+        continue;
+      }
+      measured += 1;
+      const ratio = contrast(color, ground);
+      if (ratio >= 4.5) continue;
+      const key = `${site.where} — ${site.ink} (${color}) על ${site.ground} (${ground}) = ${ratio.toFixed(2)}:1, נדרש 4.5:1`;
+      byLine.set(key, [...(byLine.get(key) ?? []), THEME_LABEL[theme]]);
+    }
+  }
+  for (const [key, themes] of byLine) hits.push(`${key} (${themes.join(" · ")})`);
+  return measured;
+}
+
 /** הטקסט הגולמי של מאפיין סגנון — עד הפסיק הבא ברמת האובייקט. */
 function rawValue(style, property) {
   const found = new RegExp(`(?:^|[,{\\s])${property}\\s*:\\s*`, "u").exec(style);
@@ -673,6 +764,7 @@ function scanControls(dir, hits) {
     const tainted = [...styles].filter(([, body]) => body.includes(DECORATIVE_BORDER));
     const bordered = [...styles].filter(([, body]) => BORDER_DECL.test(body));
     collectInline(full, source, styles);
+    collectPalettes(full, source);
     for (const site of controlSites(source)) {
       const { tag, body } = site;
       const line = source.slice(0, site.index).split("\n").length;
@@ -1288,6 +1380,16 @@ scanStylesheet(misuse);
 scanClassDefinitions(unresolved);
 const controlPairs = scanControlColors(measuredControls, unmeasuredControls);
 const inline = scanInlineColors(measuredControls, unmeasuredControls);
+/*
+ * דלי נפרד ולא צירוף לרשימת הפקדים.
+ *
+ * הכותרת שם היא „צבעים של פקדים”, וההסבר שמתחתיה מפנה לכלל של מצב
+ * ב-CSS. כשל במפת צבעים אינו זה ואינו שם — דיווח שמצביע על הסיבה
+ * הלא נכונה שולח את מי שקורא אותו לתקן את המקום הלא נכון.
+ */
+const paletteHits = [];
+const paletteUnmeasured = [];
+const palettePairs = scanPaletteColors(paletteHits, paletteUnmeasured);
 
 /* ==================== מצב ניגודיות גבוהה ==================== */
 
@@ -1340,6 +1442,8 @@ if (
   unresolved.length > 0 ||
   measuredControls.length > 0 ||
   unmeasuredControls.length > 0 ||
+  paletteHits.length > 0 ||
+  paletteUnmeasured.length > 0 ||
   missingInHighContrast.length > 0 ||
   darkMismatch.length > 0
 ) {
@@ -1405,6 +1509,27 @@ if (
         " כ-color-mix, או הצהירו transparent במפורש.",
     );
   }
+  if (paletteHits.length > 0) {
+    console.error("\n✗ צמדי צבע במפות צבע סטטיות שנמדדו מתחת לסף:\n");
+    for (const line of paletteHits.slice(0, 20)) console.error(`  • ${line}`);
+    if (paletteHits.length > 20) console.error(`  • ...ועוד ${paletteHits.length - 20}`);
+    console.error(
+      "\nהצמד נמדד במקום שבו הוא נכתב, ולא במקום שבו הוא מוצג: `fg` ו-`bg`" +
+        " באותו אובייקט מיועדים זה על גבי זה. גלולה אחת כזו מופיעה לרוב" +
+        " בעשרות מסכים, ולכן כשל כאן אינו מקומי.",
+    );
+  }
+  if (paletteUnmeasured.length > 0) {
+    console.error("\n✗ צמדים במפות צבע שאי אפשר לפתור, ולכן לא נמדדו:\n");
+    for (const line of paletteUnmeasured.slice(0, 20)) console.error(`  • ${line}`);
+    if (paletteUnmeasured.length > 20) {
+      console.error(`  • ...ועוד ${paletteUnmeasured.length - 20}`);
+    }
+    console.error(
+      "\nערך שהשער אינו יודע לפתור אינו „עובר” — הוא פשוט לא נבדק." +
+        " כתבו אותו כטוקן או כ-‎#rgb‎/‎#rrggbb‎.",
+    );
+  }
   console.error(
     "\nהמסגרות והצבעים מוגדרים ב-apps/web/src/app/globals.css. סף 3:1 לגבול פקד" +
       " הוא WCAG 1.4.11; 4.5:1 לטקסט הוא 1.4.3.",
@@ -1429,5 +1554,9 @@ console.log(
 console.log(
   `✓ ${inline.measured} צבעים שנכתבו בסגנון בשורה נמדדו — כולל כל ענפי התנאי` +
     ` (${inline.runtime + inline.unknown} נקבעים בזמן ריצה או על משטח שאינו ידוע מכאן)`,
+);
+console.log(
+  `✓ ${palettePairs} צבעים במפות צבע סטטיות נמדדו — הצמד נלקח מהאובייקט` +
+    ` שבו נכתב, גם כשהוא נצרך במקום אחר`,
 );
 console.log(`  דקורטיבי (לידיעה בלבד): ${notes.join(" · ")}`);

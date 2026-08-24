@@ -44,7 +44,7 @@ const STATUS_PILL: Record<string, { fg: string; bg: string }> = {
   new: { fg: "#0C6E34", bg: "#E5FCEA" },
   in_progress: { fg: "#7a5c1f", bg: "#f7efdd" },
   converted: { fg: "#3F4742", bg: "#EDEFED" },
-  closed: { fg: "#68716a", bg: "#eef1ec" },
+  closed: { fg: "#616a63", bg: "#eef1ec" },
 };
 
 const GRID = "1.4fr 1fr 1.6fr 1fr 0.9fr 1.3fr";

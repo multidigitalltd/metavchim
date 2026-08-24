@@ -346,15 +346,26 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
          * „ממתינה” לנצח, והמסך מבטיח „נמשכת תוך דקות” על משיכה
          * שלא תתחיל לעולם — שקר גרוע יותר מ„אין הקלטה”.
          *
-         * ‎`providerRecordingError: null`‎ בתנאי כדי שהכתיבה תקרה
-         * פעם אחת לכל שיחה ולא בכל סבב.
+         * התנאי מחריג **רק את מי שכבר מסומן `no_integration`**, ולא
+         * כל שורה שיש עליה סיבה כלשהי. הגרסה הראשונה סיננה
+         * ‎`providerRecordingError: null`‎ כדי לכתוב פעם אחת בלבד,
+         * ובכך השאירה סיבה חולפת — `network_error` למשל — על שיחה
+         * שהחיבור שלה כובה בינתיים: המסך המשיך לומר „לא הצלחנו
+         * להגיע למרכזייה”, ושלח את המתווך לבדוק רשת במקום להפעיל
+         * חיבור (ביקורת Codex).
+         *
+         * ‎`OR` מפורש ולא `not`: התנהגות `not` מול `NULL` תלויה
+         * במימוש, ושורה שסיבתה ריקה היא בדיוק זו שחייבת להיכלל.
          */
         const marked = await tx.call.updateMany({
           where: {
             tenantId,
             providerRecordingPath: { not: null },
             recordingKey: null,
-            providerRecordingError: null,
+            OR: [
+              { providerRecordingError: null },
+              { providerRecordingError: { not: RECORDING_ERRORS.integration } },
+            ],
           },
           data: { providerRecordingError: RECORDING_ERRORS.integration },
         });
@@ -372,10 +383,24 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
           providerRecordingPath: { not: null },
           recordingKey: null,
           providerCallId: { not: null },
-          occurredAt: { gt: new Date(now - GIVE_UP_AFTER_MS) },
+          /*
+           * חלון הוויתור חל על מי ש**כבר נוסתה**, ולא על כל שורה.
+           *
+           * שיחה שחותמת הניסיון שלה ריקה טרם נגענו בה — אם משום
+           * שהיא חדשה, אם משום שהסבב היה מושבת, ואם משום שמתווך
+           * לחץ „נסו למשוך שוב”. הגרסה הראשונה סיננה לפי גיל בלבד,
+           * ולכן הלחיצה הידנית על שיחה בת שבוע לא עשתה **כלום**:
+           * הכפתור החזיר „בתור” והסבב לא בחר אותה לעולם (ביקורת
+           * Codex). ניסיון ידני הוא החלטה של אדם, והוא גובר על
+           * הוויתור האוטומטי — אבל פעם אחת, כי מיד אחריו נכתבת
+           * חותמת חדשה והשורה חוזרת לכלל הרגיל.
+           */
           OR: [
             { providerRecordingAttemptAt: null },
-            { providerRecordingAttemptAt: { lt: new Date(now - RETRY_AFTER_MS) } },
+            {
+              providerRecordingAttemptAt: { lt: new Date(now - RETRY_AFTER_MS) },
+              occurredAt: { gt: new Date(now - GIVE_UP_AFTER_MS) },
+            },
           ],
         },
         select: { id: true, providerCallId: true, providerRecordingPath: true },
@@ -473,7 +498,28 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       await this.note(job, `${RECORDING_ERRORS.provider}_${res.status}`);
       return;
     }
-    const parsed = parse015RecordingResponse(await res.json());
+    /*
+     * פענוח ה-JSON נתפס **כאן** ולא נופל ל-`tick`.
+     *
+     * ‎`res.json()` על גוף פגום זורק שגיאה שנושאת קטע מהגוף עצמו.
+     * הגוף מגיע מהספק, והוא עלול להחזיר בו את כתובת הבקשה — וזו
+     * נושאת `auth_username` ו-`auth_password`. ה-catch החיצוני מדפיס
+     * ‎`String(error)`, ולכן בלי התפיסה הזו תשובה פגומה אחת הייתה
+     * מדליפה את האישורים ליומן — ועוקפת בשקט את כל הרעיון של רשימת
+     * הקודים הסגורה (ביקורת Codex).
+     *
+     * נרשמות רק עובדות שאנחנו כתבנו: מה קרה, ועל איזו שיחה.
+     */
+    let payload: unknown;
+    try {
+      payload = await res.json();
+    } catch {
+      this.logger.warn(`תשובת 015 לא נקראה (${job.callId}) — גוף שאינו JSON תקין`);
+      await this.note(job, RECORDING_ERRORS.unreadable);
+      return;
+    }
+
+    const parsed = parse015RecordingResponse(payload);
     if (!parsed) {
       this.logger.warn(`תשובת 015 לא נקראה על הקלטה ${job.recordingPath}`);
       await this.note(job, RECORDING_ERRORS.unreadable);

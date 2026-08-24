@@ -47,7 +47,7 @@ const KIND_PROPERTY = { fg: "#0C6E34", bg: "#E5FCEA" };
 const KIND_BUYER = { fg: "#7a5c1f", bg: "#f7efdd" };
 const KIND_LEAD = { fg: "#3F4742", bg: "#EDEFED" };
 /* טקסט חופשי שנכתב במערכת — יומן, משימות, שיחות והערות */
-const KIND_TEXT = { fg: "#68716a", bg: "#eef1ec" };
+const KIND_TEXT = { fg: "#616a63", bg: "#eef1ec" };
 
 /** קיצור לשורה אחת בתפריט — הערה ארוכה לא שוברת את הפריסה. */
 function snip(text: string): string {

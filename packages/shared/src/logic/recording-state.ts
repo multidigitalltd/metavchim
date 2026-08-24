@@ -53,11 +53,18 @@ export function recordingStateOf(row: RecordingFields, now: number = Date.now())
 
   const reason = row.providerRecordingError ?? undefined;
   /*
-   * הוויתור נמדד ממועד השיחה ולא ממועד הניסיון האחרון, בדיוק כמו
-   * תנאי הבחירה בסבב: שיחה שיצאה מהחלון לא תיבחר שוב, ולכן
-   * „ננסה שוב” אינו נכון לגביה גם אם הניסיון האחרון היה לפני רגע.
+   * „נכשלה סופית” פירושו **הסבב לא יבחר את השיחה הזו שוב**, וזו
+   * חייבת להיות בדיוק אותה הכרעה שהסבב מקבל — אחרת המסך מבטיח
+   * „ננסה שוב” על משיכה שלא תקרה, או מכריז „נכשלה” על שיחה
+   * שממתינה בתור.
+   *
+   * שני התנאים יחד: הוויתור נמדד ממועד השיחה, אבל הוא חל רק על מי
+   * שכבר נוסתה. חותמת ניסיון ריקה פירושה שטרם נגענו בשיחה — חדשה,
+   * או כזו שמתווך החזיר לתור בלחיצה — והסבב ייקח אותה בלי קשר
+   * לגילה.
    */
-  if (now - row.occurredAt.getTime() > RECORDING_GIVE_UP_MS) {
+  const attempted = (row.providerRecordingAttemptAt ?? null) !== null;
+  if (attempted && now - row.occurredAt.getTime() > RECORDING_GIVE_UP_MS) {
     return reason === undefined ? { state: "failed" } : { state: "failed", reason };
   }
   if (reason !== undefined) return { state: "retrying", reason };

@@ -59,10 +59,10 @@ const KINDS: Record<string, { icon: ReactNode; label: string; fg: string; bg: st
   call: { icon: <IconPhone s={14} />, label: "שיחה", fg: "#0C6E34", bg: "#E5FCEA" },
   whatsapp: { icon: <IconChat s={14} />, label: "וואטסאפ", fg: "#7a5c1f", bg: "#f7efdd" },
   status_change: { icon: <IconRefresh s={14} />, label: "שינוי סטטוס", fg: "#b0512c", bg: "#faf1ec" },
-  system: { icon: <IconGear s={14} />, label: "מערכת", fg: "#68716a", bg: "#eef1ec" },
+  system: { icon: <IconGear s={14} />, label: "מערכת", fg: "#616a63", bg: "#eef1ec" },
 };
 
-const FALLBACK = { icon: <IconDoc s={14} />, label: "אירוע", fg: "#68716a", bg: "#eef1ec" };
+const FALLBACK = { icon: <IconDoc s={14} />, label: "אירוע", fg: "#616a63", bg: "#eef1ec" };
 
 const hourFmt = new Intl.DateTimeFormat("he-IL", { timeStyle: "short" });
 const dayFmt = new Intl.DateTimeFormat("he-IL", {

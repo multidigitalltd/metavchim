@@ -90,6 +90,7 @@ describe("recordingStateOf", () => {
       recordingStateOf(
         {
           providerRecordingPath: "54936/12048/record_1_2",
+          providerRecordingAttemptAt: minutesAgo(40),
           occurredAt: new Date(now - RECORDING_GIVE_UP_MS),
         },
         now,
@@ -98,15 +99,56 @@ describe("recordingStateOf", () => {
   });
 
   it("מחוץ לחלון בלי סיבה רשומה — נכשלה, בלי להמציא סיבה", () => {
+    /*
+     * כך נראית שיחה שהתהליך נפל באמצע הניסיון שלה: החותמת נכתבה,
+     * הסיבה לא. בלי המצב הזה היא הייתה מוצגת „ממתינה” לנצח.
+     */
     const status = recordingStateOf(
       {
         providerRecordingPath: "54936/12048/record_1_2",
+        providerRecordingAttemptAt: minutesAgo(90),
         occurredAt: new Date(now - RECORDING_GIVE_UP_MS - hour),
       },
       now,
     );
     expect(status).toEqual({ state: "failed" });
     expect(status.reason).toBeUndefined();
+  });
+
+  it("שיחה ישנה שטרם נוסתה — ממתינה, כי הסבב עוד ייקח אותה", () => {
+    /*
+     * חלון הוויתור חל על מי שכבר נוסתה. שיחה שחותמת הניסיון שלה
+     * ריקה — למשל בגלל שהסבב היה מושבת — תיבחר בלי קשר לגילה,
+     * ולכן „נכשלה” היה כאן שקר.
+     */
+    expect(
+      recordingStateOf(
+        {
+          providerRecordingPath: "54936/12048/record_1_2",
+          occurredAt: new Date(now - RECORDING_GIVE_UP_MS - hour),
+        },
+        now,
+      ),
+    ).toEqual({ state: "pending" });
+  });
+
+  it("„נסו למשוך שוב” על שיחה ישנה מחזיר אותה לתור ולא ל„נכשלה”", () => {
+    /*
+     * זו בדיוק הלחיצה מהמסך: הנתיב מאפס את החותמת ואת הסיבה.
+     * אם ההכרעה כאן הייתה נשארת „נכשלה”, המתווך היה לוחץ ורואה
+     * שדבר לא השתנה — וזה גרוע יותר מכפתור שאינו קיים.
+     */
+    expect(
+      recordingStateOf(
+        {
+          providerRecordingPath: "54936/12048/record_1_2",
+          providerRecordingAttemptAt: null,
+          providerRecordingError: null,
+          occurredAt: new Date(now - RECORDING_GIVE_UP_MS - hour),
+        },
+        now,
+      ),
+    ).toEqual({ state: "pending" });
   });
 });
 

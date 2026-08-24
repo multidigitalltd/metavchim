@@ -103,7 +103,7 @@ const STATUS_PILL: Record<string, { fg: string; bg: string }> = {
   in_progress: { fg: "#7a5c1f", bg: "#f7efdd" },
   waiting_customer: { fg: "#3F4742", bg: "#EDEFED" },
   converted: { fg: "#0C6E34", bg: "#E5FCEA" },
-  closed: { fg: "#68716a", bg: "#eef1ec" },
+  closed: { fg: "#616a63", bg: "#eef1ec" },
 };
 
 /** האות הראשונה לעיגול הכותרת — כמו בכרטיס הקונה. */
