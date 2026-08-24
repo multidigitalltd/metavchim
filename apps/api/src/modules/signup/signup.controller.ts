@@ -208,8 +208,15 @@ export class SignupController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ trialEndsAt: string | null; couponApplied?: string }> {
-    const verified = await this.verification.consume(body.token, body.code);
-    const { user, trialEndsAt, couponApplied } = await this.signup.create(verified);
+    /*
+     * האימות והפתיחה כיחידה אחת — פתיחה שנכשלת מחזירה את הקוד
+     * לתוקף במקום להשאיר את המשתמש עם רשומה שנצרכה (ביקורת Codex).
+     */
+    const { user, trialEndsAt, couponApplied } = await this.verification.withVerified(
+      body.token,
+      body.code,
+      (verified) => this.signup.create(verified),
+    );
     const { token, expiresAt } = await this.auth.issueSession(user, {
       ip: req.ip,
       userAgent: req.headers["user-agent"],

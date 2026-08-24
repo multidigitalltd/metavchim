@@ -218,14 +218,29 @@ export class SignupVerificationService implements OnModuleDestroy {
      * זו אותה התאמה-ואז-פעולה של `consume`, מהצד השני: שם „מחק אם
      * זה עדיין מה שאימתתי”, כאן „כתוב אם זה עדיין מה שקראתי”.
      */
+    /*
+     * ההתקנה **ואיפוס המונה** הם פעולה אחת.
+     *
+     * קודם הם היו שתיים, ובין לבין נשאר מונה ניסיונות שאינו שייך
+     * לקוד שיושב בכתובת: אישור מקביל שקורא את הקוד החדש, מגלה
+     * שהמונה של הקודם מוצה, ומוחק בהתאמה-ומחיקה דווקא אותו. השליחה
+     * החוזרת מדווחת הצלחה על קוד שנמחק (ביקורת Codex). הקדמת
+     * הצילום ב-`consume` צמצמה את החלון ולא סגרה אותו — מה שסוגר
+     * אותו הוא שהמונה לעולם אינו שורד את הקוד שהוא נספר עליו.
+     *
+     * Lua רץ אטומית ב-Redis, ולכן אין רגע שבו הקוד החדש כבר בפנים
+     * והמונה הישן עדיין קיים.
+     */
     const replaced = await this.redis.eval(
       `if redis.call('GET', KEYS[1]) == ARGV[1] then
          redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+         redis.call('DEL', KEYS[2])
          return 1
        end
        return 0`,
-      1,
+      2,
       this.key(token),
+      this.attemptsKey(token),
       raw,
       JSON.stringify({ ...stored, codeHmac: this.hmac(code) } satisfies StoredPending),
       String(ttl),
@@ -240,17 +255,31 @@ export class SignupVerificationService implements OnModuleDestroy {
         "ההרשמה כבר הושלמה או פגה — הקוד שנשלח זה עתה אינו בתוקף",
       );
     }
-    await this.redis.del(this.attemptsKey(token));
     this.logger.log("נשלח קוד אימות חוזר לפתיחת משרד");
   }
 
   /**
-   * אימות (טוקן, קוד) — מחזיר את הפרטים המאומתים.
+   * אימות (טוקן, קוד) → פתיחת המשרד, כיחידה אחת.
    *
-   * המחיקה נעשית ב-`GETDEL` אטומי: שתי בקשות מקבילות עם אותו קוד
-   * מקבלות ערך רק אחת, ולכן אין דרך לפתוח שני משרדים מקוד אחד.
+   * המחיקה נעשית בהתאמה-ומחיקה אטומית: שתי בקשות מקבילות עם אותו
+   * קוד מקבלות ערך רק אחת, ולכן אין דרך לפתוח שני משרדים מקוד אחד.
+   *
+   * **הפתיחה נמסרת פנימה ואינה קורית אחרי החזרה**, כדי שכישלון
+   * שלה יחזיר את מה שנצרך. קודם `consume` הייתה מחזירה את הפרטים
+   * והמשרד נפתח אצל הקורא: קופון שנגמר בינתיים, כתובת שנתפסה
+   * במקביל או נפילה זמנית של המסד השאירו את המשתמש במסך הקוד עם
+   * רשומה שכבר נמחקה — גם „נסו שוב” וגם „שלחו קוד חדש” ענו
+   * „פג תוקף”, והדרך היחידה קדימה הייתה למלא את הטופס מחדש ולשרוף
+   * עוד מכסת אימייל על כלום (ביקורת Codex).
+   *
+   * ‎`issueSession` נשאר **מחוץ** לחלון הזה במכוון: מרגע שהמשרד
+   * נוצר אין לשחזר את הקוד: אישור שני היה מנסה ליצור אותו שוב.
    */
-  async consume(token: string, code: string): Promise<VerifiedSignup> {
+  async withVerified<T>(
+    token: string,
+    code: string,
+    create: (verified: VerifiedSignup) => Promise<T>,
+  ): Promise<T> {
     const normalized = normalizeSignupCode(code);
     /*
      * קוד שאינו בצורה של קוד אינו נספר כניסיון: הוא אינו ניחוש, והוא
@@ -326,6 +355,9 @@ export class SignupVerificationService implements OnModuleDestroy {
      * ‎Lua כי אין ל-Redis פקודת „מחק אם הערך שווה”; זו אותה תבנית
      * של שחרור נעילה מבוזרת, ומאותו נימוק בדיוק.
      */
+    /* נקרא לפני המחיקה — אחריה כבר אין ממי לשאול כמה נותר. */
+    const remaining = await this.redis.ttl(this.key(token));
+
     const claimed = await this.redis.eval(
       "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
       1,
@@ -334,7 +366,23 @@ export class SignupVerificationService implements OnModuleDestroy {
     );
     if (claimed !== 1) throw new UnauthorizedException("הקוד כבר אינו תקף — בקשו קוד חדש");
     await this.redis.del(this.attemptsKey(token));
-    return stored.pending as VerifiedSignup;
+
+    try {
+      return await create(stored.pending as VerifiedSignup);
+    } catch (error) {
+      /*
+       * הפתיחה נכשלה — הרשומה חוזרת בדיוק כפי שהייתה, עם מה שנותר
+       * מהתפוגה המקורית. ‎`NX` ולא כתיבה גסה: אם משהו כבר יושב שם
+       * הוא חדש מזה, ואין להחליף אותו במה שזה עתה נצרך.
+       *
+       * מונה הניסיונות אינו מוחזר. הקוד הוכח כנכון, ומה שנכשל הוא
+       * הצד שלנו — התחלה נקייה היא הדבר הנכון למי שממילא לא טעה.
+       */
+      if (remaining > 0) {
+        await this.redis.set(this.key(token), raw, "EX", remaining, "NX");
+      }
+      throw error;
+    }
   }
 
   private key(token: string): string {
