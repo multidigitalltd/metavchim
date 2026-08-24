@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  RECORDING_BLOCKED_REASON,
   RECORDING_GIVE_UP_MS,
   recordingReasonLabel,
   recordingStateLabel,
@@ -50,6 +51,41 @@ describe("recordingStateOf", () => {
         now,
       ),
     ).toEqual({ state: "pending" });
+  });
+
+  it("אין חיבור פעיל — חסומה, ולא „ננסה שוב”", () => {
+    /*
+     * הסבב חוזר ריק לפני שהוא בוחר ולו שיחה אחת, ולכן „ננסה שוב”
+     * הוא הבטחה שלא תתקיים כמה שלא ימתינו. התיקון בהגדרות.
+     */
+    expect(
+      recordingStateOf(
+        {
+          providerRecordingPath: "54936/12048/record_1_2",
+          providerRecordingError: RECORDING_BLOCKED_REASON,
+          occurredAt: minutesAgo(30),
+        },
+        now,
+      ),
+    ).toEqual({ state: "blocked", reason: RECORDING_BLOCKED_REASON });
+  });
+
+  it("אין חיבור, אבל השיחה כבר נוסתה ויצאה מהחלון — נכשלה", () => {
+    /*
+     * חותמת הניסיון שלה כתובה, ולכן גם החזרת החיבור לא תחזיר אותה
+     * לתור. „חסומה” כאן היה מרמז שיש מה לעשות.
+     */
+    expect(
+      recordingStateOf(
+        {
+          providerRecordingPath: "54936/12048/record_1_2",
+          providerRecordingAttemptAt: minutesAgo(1),
+          providerRecordingError: RECORDING_BLOCKED_REASON,
+          occurredAt: new Date(now - RECORDING_GIVE_UP_MS - hour),
+        },
+        now,
+      ),
+    ).toEqual({ state: "failed", reason: RECORDING_BLOCKED_REASON });
   });
 
   it("נכשלה ועדיין בחלון — ננסה שוב, עם הסיבה", () => {
@@ -155,11 +191,21 @@ describe("recordingStateOf", () => {
 describe("הניסוח למתווך", () => {
   it("כל מצב מקבל משפט משלו", () => {
     const seen = new Set(
-      (["ready", "none", "pending", "retrying", "failed"] as const).map((state) =>
+      (["ready", "none", "pending", "retrying", "blocked", "failed"] as const).map((state) =>
         recordingStateLabel({ state }),
       ),
     );
-    expect(seen.size).toBe(5);
+    expect(seen.size).toBe(6);
+  });
+
+  it("„חסומה” אינה מבטיחה ניסיון נוסף", () => {
+    /*
+     * זה כל ההבדל בין המצב הזה ל„ננסה שוב”: הכפתור אינו מוצג,
+     * ולכן גם המשפט אינו רומז שיש מה ללחוץ.
+     */
+    const label = recordingStateLabel({ state: "blocked", reason: RECORDING_BLOCKED_REASON });
+    expect(label).not.toContain("ננסה שוב");
+    expect(label).toContain("הגדרות");
   });
 
   it("„נכשלה” ו„ננסה שוב” אינם אותו משפט", () => {

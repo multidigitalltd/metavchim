@@ -12,7 +12,11 @@ import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
-import { recordingStateOf, type RecordingStatus } from "@metavchim/shared";
+import {
+  RECORDING_BLOCKED_REASON,
+  recordingStateOf,
+  type RecordingStatus,
+} from "@metavchim/shared";
 import { ContactsService, type ContactDto } from "../contacts/contacts.service";
 import { TranscriptionService } from "../voice-intake/transcription.service";
 
@@ -571,6 +575,17 @@ export class CallsService {
           tenantId,
           recordingKey: null,
           providerRecordingPath: { not: null },
+          /*
+           * שיחה שמסומנת „אין חיבור” אינה נכנסת לתור.
+           *
+           * הסבב חוזר ריק לפני שהוא בוחר ולו שיחה אחת כשאין
+           * אינטגרציה פעילה, ולכן `queued: true` כאן היה הצהרה
+           * שקרית: הסבב הבא היה מחזיר את אותה סיבה בדיוק. הסימון
+           * עצמו הוא הבדיקה — אין צורך לשאול את טבלת האינטגרציות,
+           * ומשרד שהפעיל את החיבור מחדש נאסף ממילא בסבב הבא, כי
+           * חותמת הניסיון שלו ריקה (ביקורת Codex).
+           */
+          NOT: { providerRecordingError: RECORDING_BLOCKED_REASON },
         },
         data: { providerRecordingAttemptAt: null, providerRecordingError: null },
       });

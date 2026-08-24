@@ -27,7 +27,15 @@
 /** אחרי כמה זמן הסבב מפסיק לנסות — חייב להתאים ל-`GIVE_UP_AFTER_MS`. */
 export const RECORDING_GIVE_UP_MS = 7 * 24 * 60 * 60 * 1000;
 
-export type RecordingState = "ready" | "none" | "pending" | "retrying" | "failed";
+/**
+ * הסיבה היחידה שאינה „ננסה שוב” אלא „אי אפשר לנסות”.
+ *
+ * חייב להתאים ל-`RECORDING_ERRORS.integration` בשרת. מוגדר כאן ולא
+ * מיובא משם, כי הלוגיקה המשותפת אינה תלויה ב-API.
+ */
+export const RECORDING_BLOCKED_REASON = "no_integration";
+
+export type RecordingState = "ready" | "none" | "pending" | "retrying" | "blocked" | "failed";
 
 export interface RecordingStatus {
   state: RecordingState;
@@ -67,6 +75,17 @@ export function recordingStateOf(row: RecordingFields, now: number = Date.now())
   if (attempted && now - row.occurredAt.getTime() > RECORDING_GIVE_UP_MS) {
     return reason === undefined ? { state: "failed" } : { state: "failed", reason };
   }
+  /*
+   * „חסום” ולא „ננסה שוב”: אין חיבור פעיל, ולכן הסבב חוזר ריק לפני
+   * שהוא בוחר ולו שיחה אחת. „ננסה שוב” כאן הוא הבטחה שלא תתקיים
+   * **לא משנה כמה זמן ימתינו**, והכפתור שנלווה אליה מחזיר „בתור”
+   * ואינו עושה דבר. התיקון נמצא בהגדרות, לא בלחיצה נוספת (ביקורת
+   * Codex).
+   *
+   * הבדיקה באה **אחרי** הוויתור: שיחה שכבר נוסתה ויצאה מהחלון
+   * מתה גם אם יחזירו את החיבור, כי חותמת הניסיון שלה כתובה.
+   */
+  if (reason === RECORDING_BLOCKED_REASON) return { state: "blocked", reason };
   if (reason !== undefined) return { state: "retrying", reason };
   return { state: "pending" };
 }
@@ -82,6 +101,9 @@ export function recordingStateLabel(status: RecordingStatus): string {
       return "ההקלטה בדרך מהמרכזייה — נמשכת תוך דקות";
     case "retrying":
       return `המשיכה מהמרכזייה נכשלה, ננסה שוב — ${recordingReasonLabel(status.reason)}`;
+    case "blocked":
+      // בלי „ננסה שוב”: לא ננסה, ואין טעם בלחיצה נוספת
+      return `אי אפשר למשוך את ההקלטה — ${recordingReasonLabel(status.reason)}`;
     case "failed":
       return `ההקלטה לא נמשכה מהמרכזייה — ${recordingReasonLabel(status.reason)}`;
   }

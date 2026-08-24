@@ -686,12 +686,20 @@ function CallRecording({
       */}
       {recording.state === "pending" ||
       recording.state === "retrying" ||
+      recording.state === "blocked" ||
       recording.state === "failed" ? (
         <div className="mb-2">
           <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
             {recordingStateLabel(recording)}
           </p>
-          {recording.state !== "pending" && mayRetryRecording ? (
+          {/*
+            תנאי חיובי ולא „כל מה שאינו ממתין”.
+            ‎`blocked` הוא בדיוק המצב שבו הסבב חוזר ריק לפני שהוא
+            בוחר שיחה, ולכן כפתור שם היה מחזיר „בתור” ולא עושה דבר —
+            והניסוח השלילי היה מכניס אותו פנימה בשקט (ביקורת Codex).
+          */}
+          {(recording.state === "retrying" || recording.state === "failed") &&
+          mayRetryRecording ? (
             <button
               type="button"
               className="mv-btn-plain mt-2"
