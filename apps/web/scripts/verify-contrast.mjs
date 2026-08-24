@@ -108,9 +108,16 @@ const THEME_SELECTORS = {
   contrast: [":root", ":root[data-theme=\"dark\"]", ":root[data-a11y-contrast=\"on\"]"],
 };
 
-/** `--name: value;` בתוך גוף כלל — האחרון גובר, כמו בקסקייד. */
+/**
+ * כל ההצהרות בגוף כלל — האחרונה גוברת, כמו בקסקייד.
+ *
+ * **לא רק טוקנים.** `color-scheme` אינו טוקן והוא קובע איך הדפדפן
+ * מצייר את מה שאינו שלנו — חץ הבורר, אייקון לוח השנה, פסי הגלילה
+ * וההשלמה האוטומטית. סינון ל-`--*` בלבד היה משאיר אותו מחוץ
+ * לבדיקת הדליפה, וזה בדיוק המקום שבו הוא נשכח (ביקורת Codex).
+ */
 function declarationsIn(body, into) {
-  for (const decl of body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/gu)) {
+  for (const decl of body.matchAll(/([\w-]+)\s*:\s*([^;]+);/gu)) {
     into.set(decl[1], decl[2].trim());
   }
   return into;
@@ -458,7 +465,7 @@ scanClassDefinitions(unresolved);
 /* ==================== מצב ניגודיות גבוהה ==================== */
 
 /**
- * **כל טוקן שהערכה הכהה קובעת — חייב להידרס גם כאן.**
+ * **כל מה שהערכה הכהה קובעת — חייב להידרס גם כאן.**
  *
  * הבדיקה הקודמת רשמה שלושה שמות ביד, ולכן ענתה רק על השאלה
  * שבגללה נכתבה. השאלה הכללית היא אחרת: הבלוק הזה יושב גם **מעל
@@ -470,14 +477,14 @@ scanClassDefinitions(unresolved);
  * הבדיקה המבנית תופסת את **כולם**, כולל אלה שאיש עוד לא חשב
  * למדוד.
  *
- * הרשימה נגזרת מהערכה הכהה ואינה מתוחזקת: טוקן חדש שיתווסף שם
- * ייכנס לכאן מאליו.
+ * הרשימה נגזרת מהערכה הכהה ואינה מתוחזקת: מה שיתווסף שם ייכנס
+ * לכאן מאליו — כולל הצהרה שאינה טוקן, כמו `color-scheme`.
  */
 const CONTRAST_DECLS = themeDeclarations([':root[data-a11y-contrast="on"]']);
 const DARK_DECLS = themeDeclarations([':root[data-theme="dark"]']);
-const missingInHighContrast = [...DARK_DECLS.keys()]
-  .filter((name) => name.startsWith("--color-") && !CONTRAST_DECLS.has(name))
-  .map((name) => name.slice(2));
+const missingInHighContrast = [...DARK_DECLS.keys()].filter(
+  (name) => !CONTRAST_DECLS.has(name),
+);
 
 /**
  * שתי ההצהרות הכהות חייבות להיות זהות.
@@ -489,9 +496,9 @@ const missingInHighContrast = [...DARK_DECLS.keys()]
  * המשתמשים (ביקורת Codex).
  */
 const DARK_MEDIA_DECLS = themeDeclarations([':root:not([data-theme="light"])']);
-const darkMismatch = [...DARK_DECLS.keys()]
-  .filter((name) => DARK_MEDIA_DECLS.get(name) !== DARK_DECLS.get(name))
-  .map((name) => name.slice(2));
+const darkMismatch = [...DARK_DECLS.keys()].filter(
+  (name) => DARK_MEDIA_DECLS.get(name) !== DARK_DECLS.get(name),
+);
 
 if (
   failures.length > 0 ||
@@ -501,16 +508,16 @@ if (
   darkMismatch.length > 0
 ) {
   if (missingInHighContrast.length > 0) {
-    console.error("\n✗ טוקנים שאינם נדרסים במצב ניגודיות גבוהה:\n");
-    for (const name of missingInHighContrast) console.error(`  • --${name}`);
+    console.error("\n✗ הצהרות שאינן נדרסות במצב ניגודיות גבוהה:\n");
+    for (const name of missingInHighContrast) console.error(`  • ${name}`);
     console.error(
-      "\nהבלוק הזה יושב גם מעל הערכה הכהה. טוקן שנשכח בו נשאר בערך" +
-        " הכהה שלו על עמוד לבן — כלומר ההגדרה שנועדה לחזק קריאוּת פוגעת בה.",
+      "\nהבלוק הזה יושב גם מעל הערכה הכהה. מה שנשכח בו נשאר בערך הכהה" +
+        " שלו על עמוד לבן — כלומר ההגדרה שנועדה לחזק קריאוּת פוגעת בה.",
     );
   }
   if (darkMismatch.length > 0) {
     console.error("\n✗ שתי ההצהרות של הערכה הכהה אינן זהות:\n");
-    for (const name of darkMismatch) console.error(`  • --${name}`);
+    for (const name of darkMismatch) console.error(`  • ${name}`);
     console.error(
       "\n‎prefers-color-scheme‎ ו-‎[data-theme=\"dark\"]‎ הם שני מצבים נפרדים," +
         " ושינוי שנעשה רק באחד מהם מגיע רק לחלק מהמשתמשים.",
