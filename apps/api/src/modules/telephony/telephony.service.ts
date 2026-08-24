@@ -33,6 +33,8 @@ import {
   type SoftphoneGap,
   type VirtualNumberRule,
 } from "@metavchim/shared";
+import { lockProviderCall } from "../../common/locks";
+import { notifyOnce } from "../../common/notify-once";
 import { assertContactAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
@@ -793,35 +795,44 @@ export class TelephonyService {
       const contactName = contact ? this.crypto.decrypt(contact.nameEncrypted) : null;
 
       /*
-       * בדיקת הכפילות רצה לפני הפיצול לענפים, ולא רק במסלול הרישום.
+       * שתי הגנות שונות מפני אותו אירוע שמגיע פעמיים, כי הן מגינות
+       * על שני דברים שונים.
        *
-       * ספק ששולח שוב אירוע צלצול — כי לא קיבל 200, או סתם — היה
-       * מייצר התראה נוספת על אותה שיחה בכל שליחה (ביקורת Codex).
+       * **הנעילה** מסדרת שתי פניות מקבילות עם אותו `callid`. בלעדיה
+       * הבדיקה למטה היא קרא־ואז־כתוב: שתיהן קוראות „אין שיחה”,
+       * ושתיהן כותבות. מרכזייה ששולחת שוב כי לא קיבלה 200 עושה בדיוק
+       * את זה.
+       *
+       * **`seen`** מסתכל על שורת השיחה, וזה מספיק בדיוק למסלול אחד —
+       * זה שכותב אותה. במסלול ההתראה על צלצול הוא היה חסר משמעות:
+       * שורת השיחה נוצרת רק באירוע המסיים, ולכן `seen` תמיד ריק שם
+       * וכל `Calling` חוזר ייצר התראה נוספת. זה מה שגרם לשתי הודעות
+       * הוואטסאפ על שיחה נכנסת אחת. ההגנה שם היא מפתח הייחודיות של
+       * ההתראה עצמה — ראו `notifyOnce`.
        */
+      await lockProviderCall(tx, tenantId, event.providerCallId);
       const seen = await tx.call.findFirst({
         where: { tenantId, providerCallId: event.providerCallId },
         select: { id: true, outcome: true },
       });
 
       if (action.notify) {
-        if (seen) return; // כבר טופל — לא מתריעים פעמיים
+        if (seen) return; // כבר הפכה לשיחה — ההתראה עליה כבר יצאה
         /*
          * ההתראה נכתבת לכל המשרד (userId = null) ולא לסוכן מסוים:
          * השלוחה שהמרכזייה מדווחת עליה היא של המכשיר שמצלצל, ואין
          * לנו מיפוי אמין ממנה למשתמש. עדיף שכולם יראו מי מתקשר מאשר
          * שההתראה תגיע לאדם הלא נכון.
          */
-        await tx.notification.create({
-          data: {
-            id: ulid(),
-            tenantId,
-            userId: null,
-            type: "incoming_call",
-            title: incomingCallTitle(contactName, event.peerPhone),
-            body: contact ? null : "מספר שאינו מוכר במערכת",
-            entityType: contact ? "contact" : null,
-            entityId: contact?.id ?? null,
-          },
+        await notifyOnce(tx, {
+          tenantId,
+          dedupeKey: `incoming_call:${event.providerCallId}`,
+          userId: null,
+          type: "incoming_call",
+          title: incomingCallTitle(contactName, event.peerPhone),
+          body: contact ? null : "מספר שאינו מוכר במערכת",
+          entityType: contact ? "contact" : null,
+          entityId: contact?.id ?? null,
         });
         return;
       }
@@ -932,28 +943,28 @@ export class TelephonyService {
           contactId,
         );
 
-        await tx.notification.create({
-          data: {
-            id: ulid(),
-            tenantId,
-            // כמו התראת הצלצול: אין מיפוי אמין משלוחה למשתמש
-            userId: null,
-            type: "call_missed",
-            title: missedCallTitle(contactName, event.peerPhone),
-            /*
-             * נוסח ההזמנה נכנס לגוף ההתראה כשלא נשלח אוטומטית ואין
-             * למי לשייך משימה. התראה שאומרת „לא נשלח” בלי לצרף את
-             * מה שצריך לשלוח מחייבת חיפוש, וזו בדיוק העבודה
-             * שהאוטומציה נועדה לחסוך.
-             */
-            body:
-              pending ?? (leadId ? "נפתח ליד חדש מהשיחה" : null),
-            ...(leadId
-              ? { entityType: "lead", entityId: leadId }
-              : contactId
-                ? { entityType: "contact", entityId: contactId }
-                : {}),
-          },
+        await notifyOnce(tx, {
+          tenantId,
+          /*
+           * גם כאן מפתח, ולא רק `seen`. שורת השיחה כבר נכתבה בטרנזקציה
+           * הזו, אבל היא נראית רק אחרי COMMIT — כלומר שתי פניות
+           * מקבילות עדיין יכולות לכתוב שתי התראות. הנעילה מונעת את
+           * המרוץ, והמפתח הופך את זה לוודאות שאינה תלויה בה.
+           */
+          dedupeKey: `call_missed:${event.providerCallId}`,
+          // כמו התראת הצלצול: אין מיפוי אמין משלוחה למשתמש
+          userId: null,
+          type: "call_missed",
+          title: missedCallTitle(contactName, event.peerPhone),
+          /*
+           * נוסח ההזמנה נכנס לגוף ההתראה כשלא נשלח אוטומטית ואין
+           * למי לשייך משימה. התראה שאומרת „לא נשלח” בלי לצרף את
+           * מה שצריך לשלוח מחייבת חיפוש, וזו בדיוק העבודה
+           * שהאוטומציה נועדה לחסוך.
+           */
+          body: pending ?? (leadId ? "נפתח ליד חדש מהשיחה" : null),
+          entityType: leadId ? "lead" : contactId ? "contact" : null,
+          entityId: leadId ?? contactId,
         });
       }
     });

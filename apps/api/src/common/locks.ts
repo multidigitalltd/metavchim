@@ -22,3 +22,28 @@ import type { TenantTx } from "../core/prisma.service";
 export async function lockContact(tx: TenantTx, contactId: string): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`contact:${contactId}`}, 0))`;
 }
+
+/**
+ * נעילת שיחה לפי מזהה הספק — סדרוּר של פניות חוזרות מהמרכזייה.
+ *
+ * קליטת אירוע היא קרא־ואז־כתוב: מחפשים שורת שיחה עם אותו
+ * `provider_call_id`, וכותבים רק אם אין. מרכזייה ששולחת את אותו
+ * אירוע פעמיים — כי לא קיבלה 200, או סתם — יכולה לשלוח את שתי
+ * הפניות במקביל, ואז שתיהן קוראות „אין” ושתיהן כותבות.
+ *
+ * מפתח זר או אילוץ ייחודיות על `(tenant_id, provider_call_id)` לא
+ * יעזרו כאן: העמודה ריקה לשיחות ידניות ולהקלטות פגישה, ואילוץ
+ * חלקי היה מפיל את הקליטה בשגיאה במקום להתעלם ממנה בשקט. הנעילה
+ * מסדרת את שתי הפניות זו אחר זו, והשנייה רואה את מה שהראשונה
+ * כתבה.
+ *
+ * הדייר נכלל במפתח: `provider_call_id` ייחודי אצל הספק, לא אצלנו,
+ * ושני משרדים באותה מרכזייה יכולים לקבל אותו מזהה.
+ */
+export async function lockProviderCall(
+  tx: TenantTx,
+  tenantId: string,
+  providerCallId: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`call:${tenantId}:${providerCallId}`}, 0))`;
+}

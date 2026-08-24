@@ -7,6 +7,9 @@ import {
   resolveCapabilities,
   roleLabel,
   decodeButtonId,
+  historyRefs,
+  AGENT_HISTORY_KEPT,
+  AGENT_ID_KEYS,
   type WhatsAppListRow,
   type AgentHistoryTurn,
   type AgentProposal,
@@ -69,8 +72,13 @@ import { WhatsAppSendService } from "./whatsapp-send.service";
  */
 
 const FEATURE_ID = "voice_intake";
-/** כמה תורות נשמרים לזיכרון השיחה — כמו המסך הקולי. */
-const HISTORY_KEPT = 6;
+/**
+ * כמה תורות נשמרים לזיכרון השיחה.
+ *
+ * מהחבילה המשותפת ולא כמספר כאן: סבב ההתראות ב-Worker כותב לאותו
+ * שדה, ושני חלונות שונים היו חותכים זה את זה.
+ */
+const HISTORY_KEPT = AGENT_HISTORY_KEPT;
 /** כמה מזהי הודעות נשמרים ל-Idempotency — Meta חוזר תוך דקות. */
 const HANDLED_KEPT = 30;
 /** המענה השיווקי למספר לא רשום — לכל היותר פעם בשבוע לכל מספר. */
@@ -85,8 +93,6 @@ const SLOW_TRANSCRIBE_NOTICE_MS = 6_000;
  */
 const STALE_PROPOSAL_TEXT =
   "ההצעה שהכפתור הזה שייך לה כבר אינה ממתינה — היא בוצעה, בוטלה, או הוחלפה בבקשה חדשה. כתבו לי מה לעשות ואכין אותה מחדש.";
-/** המפתחות שההצעה פותרת לבחירת רשומה — כמו ב-AgentController. */
-const ID_KEYS = ["buyerId", "propertyId", "taskId", "cardId", "leadId"] as const;
 
 export interface AssistantInbound {
   externalId: string;
@@ -696,7 +702,20 @@ export class WhatsAppAssistantService {
       "whatsapp",
       speaker,
     );
-    const proposal = await this.resolver.toProposal(text, interpretation);
+    /*
+     * ההפניות מהעדכונים שהסוכן שלח — מה ש„אליו” חל עליו.
+     *
+     * כאן הן מגיעות מזיכרון השיחה השמור, שסבב ההתראות כתב לו את מה
+     * ששלח בפועל. בבקר המסך אותו דבר בדיוק נגזר מההתראות עצמן
+     * (`AgentMemoryService`) — שני איסופים, אותה פונקציה משותפת,
+     * ואותה התנהגות בשני הערוצים.
+     */
+    const proposal = await this.resolver.toProposal(
+      text,
+      interpretation,
+      undefined,
+      historyRefs(chat.history),
+    );
 
     if (proposal.actionId === "unknown") {
       // ברכה/שאלה כללית — תשובה שיחתית, לא "לא הבנתי" יבש
@@ -799,7 +818,7 @@ export class WhatsAppAssistantService {
     for (const field of action.resolved ?? []) {
       if (source[field.key] !== undefined) params[field.key] = source[field.key];
     }
-    for (const key of ID_KEYS) {
+    for (const key of AGENT_ID_KEYS) {
       if (typeof source[key] === "string") params[key] = source[key];
     }
     return params;

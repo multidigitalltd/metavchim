@@ -607,6 +607,27 @@ export class AgentExecuteService {
     return { kind, id };
   }
 
+  /**
+   * אותה הכרעה כמו `cardTarget`, אבל **מוותרת במקום לזרוק**.
+   *
+   * שיוך התזכורת לכרטיס הוא שיפור ולא תנאי: תזכורת שנוצרה בלי
+   * קישור עדיין עושה את עבודתה, ותזכורת שלא נוצרה כלל בגלל שיוך
+   * שלא נפתר — לא.
+   *
+   * בדיקת ההרשאה נשארת זהה ואינה מתרככת. שיוך לליד שהסוכן אינו
+   * רשאי לראות היה מחזיר את **שמו** אל תוך רשימת המשימות שלו
+   * (`entityLabel`), כלומר הופך שדה עזר לדלת אחורית להיקף.
+   */
+  private optionalCardTarget(raw: unknown): { kind: "buyer" | "lead"; id: string } | null {
+    const cardId = str(raw);
+    if (cardId === undefined) return null;
+    const [kind, id] = cardId.split(":", 2);
+    if (id === undefined || (kind !== "buyer" && kind !== "lead")) return null;
+    const needed = kind === "buyer" ? "buyers.view_own" : "leads.view_own";
+    if (!TenantContext.current().capabilities.has(needed)) return null;
+    return { kind, id };
+  }
+
   /** השיחות של איש קשר, החדשות תחילה — משותף לכרטיס ולהשמעה. */
   private async callsForContact(contactId: string): Promise<CallDto[]> {
     return this.calls.list({ contactId, limit: 10 });
@@ -880,13 +901,26 @@ export class AgentExecuteService {
     const title = str(params["title"]);
     if (title === undefined) throw new BadRequestException("לתזכורת דרושה כותרת");
     const dueAt = date(params["dueAt"]);
-    await this.tasks.create({
+    /*
+     * הקישור לכרטיס — מה שהופך „תזכיר לי להתקשר אליו” לתזכורת
+     * שאפשר לפעול לפיה.
+     *
+     * `relatedId` נפתר ב-`AgentResolveService` בצורת `lead:01J…` /
+     * `buyer:01J…`, כמו כל ביטוי מסוג „כרטיס”. עד עכשיו השדה נאסף
+     * מהמודל, הוצג בכרטיס האישור — ונזרק: כל תזכורת שנוצרה בקול
+     * נכתבה בלי שיוך, ומסך המשימות הראה „להתקשר אליו” בלי לומר
+     * למי.
+     */
+    const related = this.optionalCardTarget(params["relatedId"]);
+    const task = await this.tasks.create({
       title,
       ...(dueAt ? { dueAt } : {}),
+      ...(related ? { entityType: related.kind, entityId: related.id } : {}),
     });
     return {
-      href: "/tasks",
+      href: related ? `/${related.kind}s/${related.id}` : "/tasks",
       message: dueAt ? "התזכורת נוצרה — תישלח התראה במועד" : "המשימה נוצרה",
+      data: { id: task.id },
     };
   }
 

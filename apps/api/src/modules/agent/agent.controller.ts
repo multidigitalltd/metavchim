@@ -1,11 +1,19 @@
 import { Body, Controller, Get, HttpCode, Post } from "@nestjs/common";
 import { z } from "zod";
-import { AGENT_ACTION_IDS, agentAction, type AgentProposal } from "@metavchim/shared";
+import {
+  AGENT_ACTION_IDS,
+  AGENT_ID_KEYS,
+  agentAction,
+  historyRefs,
+  type AgentHistoryTurn,
+  type AgentProposal,
+} from "@metavchim/shared";
 import { AnyAuthenticated } from "../../common/auth.decorators";
 import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AgentExecuteService, type ExecuteResult } from "./execute.service";
 import { AgentInterpretService } from "./interpret.service";
+import { AgentMemoryService } from "./agent-memory.service";
 import { AgentResolveService } from "./resolve.service";
 
 /**
@@ -85,6 +93,7 @@ export class AgentController {
     private readonly interpret: AgentInterpretService,
     private readonly resolve: AgentResolveService,
     private readonly executor: AgentExecuteService,
+    private readonly memory: AgentMemoryService,
   ) {}
 
   /** מה הסוכן יודע לעשות עבור המשתמש הזה — למסך הדוגמאות. */
@@ -104,19 +113,32 @@ export class AgentController {
   async interpretCommand(
     @Body(new ZodValidationPipe(InterpretSchema)) body: z.infer<typeof InterpretSchema>,
   ): Promise<AgentProposal> {
+    /*
+     * מה שהסוכן הראה למתווך זה עתה — אותו זיכרון שיש לו בוואטסאפ.
+     *
+     * בוואטסאפ הוא נכתב לשיחה בסבב ההתראות; כאן אין שיחה שנשמרת
+     * בשרת (ההיסטוריה חיה בפאנל של הדפדפן), ולכן הוא נגזר מחדש
+     * מההתראות עצמן. שני האיסופים, אותה פונקציה, אותו תוצר — כדי
+     * ש„תזכיר לי להתקשר אליו” יעבוד בשני הערוצים ולא באחד.
+     *
+     * בראש ההיסטוריה: זהו ההקשר שקדם למה שהמתווך הקליד עכשיו.
+     */
+    const memory = await this.memory.recentTurn();
+    const history = [
+      ...(memory ? [memory] : []),
+      ...((body.history ?? []) as AgentHistoryTurn[]),
+    ];
     const interpretation = await this.interpret.interpret(
       body.transcript,
       body.prior as { action: string; params: Record<string, unknown> } | undefined,
-      body.history as
-        | {
-            transcript: string;
-            action: string;
-            params: Record<string, unknown>;
-            resultSummary?: string;
-          }[]
-        | undefined,
+      history,
     );
-    return this.resolve.toProposal(body.transcript, interpretation);
+    return this.resolve.toProposal(
+      body.transcript,
+      interpretation,
+      undefined,
+      historyRefs(history),
+    );
   }
 
   /**
@@ -155,8 +177,14 @@ export class AgentController {
     for (const field of action.resolved ?? []) {
       if (body.params[field.key] !== undefined) params[field.key] = body.params[field.key];
     }
-    // מזהי הישויות שנבחרו במסך — אינם שדות של המודל ובכל זאת נדרשים
-    for (const key of ["buyerId", "propertyId", "taskId", "cardId", "leadId"]) {
+    /*
+     * מזהי הישויות שנבחרו במסך — אינם שדות של המודל ובכל זאת נדרשים.
+     *
+     * `relatedId` הוא הכרטיס שהתזכורת נקשרת אליו. השמטתו מכאן הייתה
+     * מבטלת את הקישור בדיוק בשלב האחרון: ההצעה הציגה „קשור ל: הליד
+     * מהעדכון”, המתווך אישר, והמשימה נוצרה בלי שיוך.
+     */
+    for (const key of AGENT_ID_KEYS) {
       if (typeof body.params[key] === "string") params[key] = body.params[key];
     }
     return this.executor.execute(body.action, params, body.transcript);
