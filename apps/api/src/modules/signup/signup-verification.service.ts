@@ -130,7 +130,7 @@ export class SignupVerificationService implements OnModuleDestroy {
     const code = SignupVerificationService.freshCode();
     const stored: StoredPending = { pending, codeHmac: this.hmac(code) };
     await this.redis.set(this.key(token), JSON.stringify(stored), "EX", PENDING_TTL_SECONDS);
-    await this.deliver(pending, code);
+    await this.deliverOrRefund(pending, code);
     // בלי הקוד, בלי הטוקן ובלי הכתובת — שורת יומן היא ספירה, לא ראיה
     this.logger.log("נשלח קוד אימות לפתיחת משרד");
     return token;
@@ -171,7 +171,7 @@ export class SignupVerificationService implements OnModuleDestroy {
      * ב-`issue` הסדר הפוך ונכון: שם אין קוד קודם להגן עליו, ומה
      * שיש להימנע ממנו הוא ההפך — קוד שנשלח ואין לו רשומה.
      */
-    await this.deliver(stored.pending, code);
+    await this.deliverOrRefund(stored.pending, code);
     await this.redis.set(
       this.key(token),
       JSON.stringify({ ...stored, codeHmac: this.hmac(code) } satisfies StoredPending),
@@ -214,9 +214,26 @@ export class SignupVerificationService implements OnModuleDestroy {
       throw new UnauthorizedException("קוד שגוי");
     }
 
-    // שימוש יחיד — המחיקה קודמת להחזרה, לא אחריה
-    const claimed = await this.redis.getdel(this.key(token));
-    if (claimed === null) throw new UnauthorizedException("הקוד כבר נוצל");
+    /*
+     * שימוש יחיד — והמחיקה היא של **בדיוק הגרסה שאומתה**.
+     *
+     * ‎`GETDEL` מוחק את מה שיושב שם עכשיו, ולא את מה שנקרא למעלה.
+     * „שלחו קוד שוב” שנכנס בין הקריאה למחיקה היה גורם לשליחה עם
+     * הקוד **הישן** למחוק את הרשומה החדשה — כלומר הקוד הישן מתקבל,
+     * והקוד שזה עתה נשלח למשתמש כבר אינו קיים (ביקורת Codex). זו
+     * בדיוק הפרה של מה שכתוב מעל `reissue`: „הקוד הקודם נפסל
+     * באותו רגע”.
+     *
+     * ‎Lua כי אין ל-Redis פקודת „מחק אם הערך שווה”; זו אותה תבנית
+     * של שחרור נעילה מבוזרת, ומאותו נימוק בדיוק.
+     */
+    const claimed = await this.redis.eval(
+      "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+      1,
+      this.key(token),
+      raw,
+    );
+    if (claimed !== 1) throw new UnauthorizedException("הקוד כבר אינו תקף — בקשו קוד חדש");
     await this.redis.del(this.attemptsKey(token));
     return stored.pending as VerifiedSignup;
   }
@@ -233,14 +250,49 @@ export class SignupVerificationService implements OnModuleDestroy {
     return String(randomInt(0, 10 ** SIGNUP_CODE_LENGTH)).padStart(SIGNUP_CODE_LENGTH, "0");
   }
 
+  private quotaKey(emailAddress: string): string {
+    return `signup-pending:sent:${SignupVerificationService.fingerprint(emailAddress)}`;
+  }
+
+  /**
+   * גבייה **לפני** השליחה, והחזר אם השליחה נכשלה.
+   *
+   * הסדר הזה מכוון: התקרה מגינה על תיבת הדואר של מישהו מפני הצפה,
+   * וגבייה אחרי השליחה הייתה מאפשרת לבקשות מקבילות לחמוק בין
+   * הבדיקות. אבל **גבייה בלי החזר שורפת מכסה על אימייל שלא נשלח**:
+   * שלוש נפילות של הספק חסמו את המשתמש לשעה על משהו שלא באשמתו,
+   * ודווקא אחרי שהוא כבר לא קיבל שום קוד (ביקורת Codex).
+   *
+   * ההחזר אינו פותח פרצה: אם השליחה נכשלה — לא נשלח אימייל, ולכן
+   * אין הצפה להגן מפניה. המקרה היחיד שנותר הוא ספק שקיבל את
+   * ההודעה ובכל זאת החזיר שגיאה (פסק זמן), וההגזמה שם חסומה
+   * ממילא בתקרה עצמה.
+   */
   private async chargeEmailQuota(emailAddress: string): Promise<void> {
-    const key = `signup-pending:sent:${SignupVerificationService.fingerprint(emailAddress)}`;
+    const key = this.quotaKey(emailAddress);
     const sent = await this.redis.incr(key);
     if (sent === 1) await this.redis.expire(key, EMAIL_WINDOW_SECONDS);
     if (sent > MAX_CODES_PER_EMAIL) {
       throw new BadRequestException(
         "נשלחו כבר כמה קודים לכתובת הזו — נסו שוב בעוד שעה או פנו אלינו",
       );
+    }
+  }
+
+  /** מה שנגבה ולא נשלח מוחזר. כישלון ההחזר עצמו אינו מפיל את הבקשה. */
+  private async refundEmailQuota(emailAddress: string): Promise<void> {
+    await this.redis
+      .decr(this.quotaKey(emailAddress))
+      .catch(() => this.logger.warn("החזר מכסת האימייל נכשל"));
+  }
+
+  /** שליחה שגובה מכסה ומחזירה אותה אם הספק דחה. */
+  private async deliverOrRefund(pending: PendingSignup, code: string): Promise<void> {
+    try {
+      await this.deliver(pending, code);
+    } catch (error) {
+      await this.refundEmailQuota(pending.email);
+      throw error;
     }
   }
 

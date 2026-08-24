@@ -131,6 +131,16 @@ export function OwnerActivity({
       setReport(data);
     } catch {
       if (mine !== requestId.current) return;
+      /*
+       * הדוח הישן **נמחק** ולא נשאר על המסך.
+       *
+       * מונה הבקשות מתעלם מתשובה שהוחלפה, אבל טעינה נוכחית שנכשלה
+       * החזירה את `loading` ל-false והשאירה את שורות התקופה
+       * הקודמת — תחת הכותרת החדשה, ועם כפתור העתקה שמתייג אותן
+       * בתווית התקופה שנבחרה עכשיו (ביקורת Codex). מוטב מסך ריק
+       * עם הודעת שגיאה מאשר טבלה שנראית תקפה ואינה.
+       */
+      setReport(null);
       setError("טעינת הפעילות נכשלה");
     } finally {
       if (mine === requestId.current) setLoading(false);
