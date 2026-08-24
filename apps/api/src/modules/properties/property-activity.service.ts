@@ -41,6 +41,12 @@ import { PrismaService } from "../../core/prisma.service";
  * תקרת שורות לכל מקור. הדוח מדווח על קיטום ואינו בולע אותו —
  * "‏37 ביקורים" שהוא בעצם 500 הוא בדיוק סוג השקר שמסמך ללקוח
  * אינו יכול להכיל.
+ *
+ * **נשלפת שורה אחת מעבר לתקרה, והיא זו שמכריעה.** ‎`length === MAX_ROWS`
+ * אינו יודע להבחין בין „בדיוק 500” לבין „יותר מ-500”, ולכן דוח שלם
+ * בן 500 פעולות היה מסומן כחלקי — ומאז שהסימון נוסע אל הקובץ ואל
+ * ההודעה, זו טענה שגויה שמגיעה ללקוח (ביקורת Codex). השורה הנוספת
+ * נזרקת ואינה מוצגת; כל תפקידה הוא לענות על השאלה הזו.
  */
 const MAX_ROWS = 500;
 
@@ -168,10 +174,16 @@ export class PropertyActivityService {
         where: { tenantId, propertyId, ...(hasWindow ? { startsAt: window } : {}) },
         select: { id: true, kind: true, startsAt: true, status: true, outcome: true },
         orderBy: { startsAt: "desc" },
-        take: MAX_ROWS,
+        take: MAX_ROWS + 1,
       });
+      const appointmentsTruncated = appointmentRows.length > MAX_ROWS;
+      const appointments = appointmentRows.slice(0, MAX_ROWS);
 
-      const appointmentIds = appointmentRows.map((row) => row.id);
+      /*
+       * העוגנים נלקחים מהשורות **שיוצגו** ולא מהשלף המורחב: שיחה
+       * שנקשרה לפגישה שנחתכה מהדוח אינה אמורה להופיע בו לבדה.
+       */
+      const appointmentIds = appointments.map((row) => row.id);
       const callRows = await tx.call.findMany({
         where: {
           tenantId,
@@ -199,18 +211,18 @@ export class PropertyActivityService {
           durationMinutes: true,
         },
         orderBy: { occurredAt: "desc" },
-        take: MAX_ROWS,
+        take: MAX_ROWS + 1,
       });
 
       return {
-        appointments: appointmentRows.map((row) => ({
+        appointments: appointments.map((row) => ({
           kind: row.kind,
           startsAt: row.startsAt,
           status: row.status,
           outcome: row.outcome,
         })),
-        calls: callRows,
-        truncated: appointmentRows.length === MAX_ROWS || callRows.length === MAX_ROWS,
+        calls: callRows.slice(0, MAX_ROWS),
+        truncated: appointmentsTruncated || callRows.length > MAX_ROWS,
       };
     });
   }
