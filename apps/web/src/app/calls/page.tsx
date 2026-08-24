@@ -83,6 +83,16 @@ export default function CallsPage() {
    * שבורה.
    */
   const mayEdit = can(user, "leads.edit");
+  /*
+   * „נסו למשוך שוב” **אינו עריכה**, ולכן אינו נגזר מ-`leads.edit`.
+   *
+   * הפעולה מבקשת מהמרכזייה קובץ שהמשתמש ממילא רשאי לשמוע, ולכן
+   * הנתיב בשרת פתוח לאותה יכולת צפייה שפותחת את השיחה עצמה. גזירה
+   * מ-`leads.edit` הסתירה את הכפתור דווקא ממי שרשאי ללחוץ עליו:
+   * סוכן צפייה ראה „ההקלטה לא נמשכה” בלי שום דרך פעולה, בזמן
+   * שהשרת היה מקבל ממנו את הבקשה (ביקורת Codex).
+   */
+  const mayRetryRecording = can(user, "leads.view_own") || can(user, "buyers.view_own");
   const [items, setItems] = useState<CallRow[] | null>(null);
   const [outcome, setOutcome] = useState("");
   const [query, setQuery] = useState("");
@@ -506,7 +516,12 @@ export default function CallsPage() {
                   )}
                 </div>
 
-                <CallRecording call={selected} onChanged={load} mayEdit={mayEdit} />
+                <CallRecording
+                  call={selected}
+                  onChanged={load}
+                  mayEdit={mayEdit}
+                  mayRetryRecording={mayRetryRecording}
+                />
 
                 <div className="mt-4 flex flex-wrap gap-3">
                   {selected.leadId ? (
@@ -547,10 +562,13 @@ function CallRecording({
   onChanged,
   /** הנגן והתמלול הם צפייה ונשארים; ההעלאה והתמלול-החוזר הם כתיבה. */
   mayEdit,
+  /** משיכה חוזרת מהמרכזייה — גבול הצפייה, לא גבול העריכה. */
+  mayRetryRecording,
 }: {
   call: CallRow;
   onChanged: () => void;
   mayEdit: boolean;
+  mayRetryRecording: boolean;
 }) {
   const canTranscribe = useFeature("transcription");
   const [busy, setBusy] = useState(false);
@@ -673,7 +691,7 @@ function CallRecording({
           <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
             {recordingStateLabel(recording)}
           </p>
-          {recording.state !== "pending" && mayEdit ? (
+          {recording.state !== "pending" && mayRetryRecording ? (
             <button
               type="button"
               className="mv-btn-plain mt-2"

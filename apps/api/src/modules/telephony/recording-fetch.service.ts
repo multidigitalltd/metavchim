@@ -399,7 +399,14 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
             { providerRecordingAttemptAt: null },
             {
               providerRecordingAttemptAt: { lt: new Date(now - RETRY_AFTER_MS) },
-              occurredAt: { gt: new Date(now - GIVE_UP_AFTER_MS) },
+              /*
+               * ‎`gte` ולא `gt`: „יצאה מהחלון” פירושו
+               * ‎`now - occurredAt > GIVE_UP`, כלומר `occurredAt` **קטן**
+               * מהסף — ולכן שיחה שיושבת בדיוק על הסף עדיין בפנים.
+               * ‎`gt` הוציא אותה כאן בעוד המסך הכריז עליה „ננסה שוב”,
+               * והבטיח משיכה שלא תקרה (ביקורת Codex).
+               */
+              occurredAt: { gte: new Date(now - GIVE_UP_AFTER_MS) },
             },
           ],
         },

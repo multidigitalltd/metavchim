@@ -517,18 +517,55 @@ function literalString(raw) {
 }
 
 /**
- * איסוף מפות הצבע מקובץ אחד.
+ * מה שהאובייקט מצהיר **ברמה שלו**, בלי מה שמקונן בתוכו.
  *
- * נסרקים רק אובייקטים **עלים** — כאלה שאין בתוכם `{` נוסף. אובייקט
- * עוטף מכיל את כל הצאצאים שלו, ו-`rawValue` היה שולף ממנו את
- * ה-`fg` הראשון ואת ה-`bg` הראשון גם כשהם שייכים לשתי גלולות שונות
- * — כלומר מודד צמד שאינו קיים.
+ * כל תו שיושב בתוך `{}` פנימי מוחלף ברווח. שתי תוצאות:
+ *
+ * - **אובייקט עוטף מתרוקן.** מפה של גלולות מכילה `fg` ו-`bg` רבים,
+ *   ו-`rawValue` היה שולף את הראשון מכל סוג — כלומר מזווג צבע של
+ *   גלולה אחת עם משטח של אחרת ומודד צמד שאינו קיים.
+ * - **סוגריים של JSX אינם נחשבים לקינון של אובייקט.** הניסוח הקודם
+ *   פסל כל מועמד שיש בו `{`, ולכן `icon: <IconGear s={14} />` הוציא
+ *   את כל מפת סוגי האירועים בציר הזמן מהמדידה — בשקט, ותוך שהפלט
+ *   מצהיר שהכול נמדד (ביקורת Codex).
  */
+function ownDeclarations(body) {
+  let out = "";
+  let depth = 0;
+  let quote = null;
+  for (const ch of body) {
+    if (quote !== null) {
+      out += depth === 0 ? ch : " ";
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if ("\"'`".includes(ch)) {
+      quote = ch;
+      out += depth === 0 ? ch : " ";
+      continue;
+    }
+    if (ch === "{") {
+      depth += 1;
+      out += " ";
+      continue;
+    }
+    if (ch === "}") {
+      depth -= 1;
+      out += " ";
+      continue;
+    }
+    out += depth === 0 || ch === "\n" ? ch : " ";
+  }
+  return out;
+}
+
+/** איסוף מפות הצבע מקובץ אחד. */
 function collectPalettes(file, source) {
   for (let i = 0; i < source.length; i += 1) {
     if (source[i] !== "{") continue;
-    const body = balancedAt(source, i);
-    if (body === null || body.includes("{")) continue;
+    const inner = balancedAt(source, i);
+    if (inner === null) continue;
+    const body = ownDeclarations(inner);
     const ink = literalString(PALETTE_INK.map((key) => rawValue(body, key)).find(Boolean) ?? null);
     const ground = literalString(
       PALETTE_GROUND.map((key) => rawValue(body, key)).find(Boolean) ?? null,
