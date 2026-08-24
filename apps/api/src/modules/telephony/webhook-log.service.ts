@@ -77,9 +77,16 @@ export class TelephonyWebhookLogService {
    * מי שקורא את היומן צריך לדעת שני דברים נפרדים: האם הפנייה הגיעה
    * אלינו, והאם הפכה לשיחה. עמודה אחת שעונה רק על הראשון שולחת
    * לחפש את התקלה במקום הלא נכון.
+   *
+   * ## ולמה `preliminary` הוא ערך שלישי
+   *
+   * אירוע צלצול נקרא בהצלחה ובכל זאת **אינו** יוצר שורת שיחה —
+   * `callAction` קובעת זאת בכוונה, כי השיחה עוד לא קרתה. סימונו
+   * כ„נקלטה” היה מציג מרכזייה ששולחת `Calling` ומאבדת את ה-`Hangup`
+   * כתקינה, בזמן שאף שיחה אינה נרשמת אצלה (ביקורת Codex).
    */
   async record(input: {
-    outcome: "accepted" | "unparsed" | "unknown_key" | "disabled" | "no_feature";
+    outcome: "accepted" | "preliminary" | "unparsed" | "unknown_key" | "disabled" | "no_feature";
     /** מדוע לא נותח — רק כש-`outcome` הוא `unparsed`. */
     issue?: string | null;
     tenantId: string | null;

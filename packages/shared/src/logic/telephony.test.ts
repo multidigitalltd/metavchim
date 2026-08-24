@@ -776,17 +776,26 @@ describe("diagnosticFields", () => {
     expect(out).toContain("status=Hangup");
   });
 
-  it("שדה מזהה נשאר שם בלבד — גם כשיש בו ערך וגם כשהוא ריק", () => {
-    const filled = diagnosticFields({ callerid_external: "0501234567" });
-    const empty = diagnosticFields({ callerid_external: "" });
-    expect(filled).toBe("callerid_external");
-    expect(empty).toBe("callerid_external");
+  /*
+   * השדה שמכריע `no_phone` הוא שדה **מזהה**, ולכן ערכו לעולם אינו
+   * מוצג. אילו ההסתרה קדמה לבדיקת הריקנות, דווקא הוא לא היה יכול
+   * להיות מסומן כריק — והמסך מבטיח את הסימון הזה במפורש.
+   *
+   * „ריק” אינו ערך של לקוח: סימונו אומר שאין מה לחשוף.
+   */
+  it("שדה מזהה ריק מסומן כריק; עם ערך — השם בלבד", () => {
+    expect(diagnosticFields({ callerid_external: "0501234567" })).toBe("callerid_external");
+    expect(diagnosticFields({ callerid_external: "" })).toBe(
+      `callerid_external=${EMPTY_FIELD_MARK}`,
+    );
   });
 
   it("ערך שאינו טקסט או מספר נחשב ריק ולא מודלף", () => {
-    const out = diagnosticFields({ status: { nested: "סוד" } });
+    const out = diagnosticFields({ status: { nested: "סוד" }, callername: { x: "דנה" } });
     expect(out).toContain(`status=${EMPTY_FIELD_MARK}`);
+    expect(out).toContain(`callername=${EMPTY_FIELD_MARK}`);
     expect(out).not.toContain("סוד");
+    expect(out).not.toContain("דנה");
   });
 });
 

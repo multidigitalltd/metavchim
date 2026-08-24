@@ -698,8 +698,21 @@ export class TelephonyService {
      */
     const event = parseTelephonyEvent(payload);
     const issue = event === null ? telephonyParseIssue(payload) : null;
+    /*
+     * צלצול הוא **אירוע ביניים**, ולא שיחה שנרשמה.
+     *
+     * `callAction` קובעת `logCall: false` לצלצול בכוונה: השיחה עוד
+     * לא קרתה, ומה שנוצר הוא התראה בלבד. סימונו כ„נקלטה כשיחה” היה
+     * הופך מרכזייה ששולחת `Calling` ומאבדת את ה-`Hangup` לתקינה
+     * למראית עין — כלומר בדיוק התקלה שהאבחון הזה קיים כדי לחשוף
+     * (ביקורת Codex).
+     *
+     * ההכרעה נגזרת מסוג האירוע בלבד ואינה דורשת פנייה למסד: אירוע
+     * מסיים ייכתב כשיחה, וכפילות שלו פירושה שהשיחה כבר רשומה.
+     */
     await this.webhookLog.record({
-      outcome: event === null ? "unparsed" : "accepted",
+      outcome:
+        event === null ? "unparsed" : event.type === "ringing" ? "preliminary" : "accepted",
       issue,
       tenantId: integration.tenantId,
       key,
