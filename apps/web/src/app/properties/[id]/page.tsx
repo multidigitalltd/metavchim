@@ -8,6 +8,7 @@ import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
 import {
   FIELD_LABELS,
+  formatDate,
   formatPrice,
   MATURITY_LABELS,
   PROPERTY_TYPE_LABELS,
@@ -67,6 +68,8 @@ interface PropertyDetail {
   readinessScore: number;
   missingFields: string[];
   ownerContact?: OwnerContact;
+  /** מתי הנכס נקלט — היה בשרת מאז ומתמיד ולא הוצהר כאן */
+  createdAt: string;
 }
 
 interface MatchRow {
@@ -502,6 +505,12 @@ export default function PropertyDetailPage({
                 משלו בטור הראשי — הוא צד לעסקה, לא הערת שוליים לכתובת.
               */}
               {address}
+              {/* מתי הכרטיס נכנס למערכת — ראו את אותה שורה בכרטיס הליד */}
+              {address === "" ? "" : " · "}
+              נקלט:{" "}
+              <span style={{ color: "var(--color-text)" }}>
+                {formatDate(property.createdAt)}
+              </span>
             </p>
           </div>
           <div className="ms-auto text-start">

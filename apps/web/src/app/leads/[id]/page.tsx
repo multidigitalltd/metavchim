@@ -70,6 +70,8 @@ interface LeadDetail {
   requiresHuman: boolean;
   requiresHumanReason?: string;
   summary?: string;
+  /** מתי הליד נקלט — היה בשרת מאז ומתמיד ולא הוצהר כאן */
+  createdAt: string;
 }
 
 /**
@@ -955,6 +957,16 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           >
             <span dir="ltr">{lead.contact.phone}</span> · מקור:{" "}
             {labelOf(LEAD_SOURCE_LABELS, lead.source) ?? lead.source}
+            {/*
+              מתי הכרטיס נכנס למערכת. התאריך היה בנתונים מהיום הראשון
+              ולא הוצג באף מסך, ולכן „מתי הליד הזה נכנס?” הייתה שאלה
+              בלי תשובה — גם כשהיא ההבדל בין פנייה טרייה לבין אחת
+              ששוכבת שבועיים (בקשת בעל הפלטפורמה).
+            */}
+            {" · נקלט: "}
+            <span style={{ color: "var(--color-text)" }}>
+              {formatDate(lead.createdAt)}
+            </span>
             {/*
               המספר שאליו הלקוח התקשר — רזולוציה שהמקור לבדו אינו
               נותן. משרד שמריץ שלוש מודעות באותו ערוץ רואה שלוש

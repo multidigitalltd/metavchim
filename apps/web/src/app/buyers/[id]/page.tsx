@@ -12,6 +12,7 @@ import {
   DEAL_TYPE_LABELS,
   FINANCING_LABELS,
   formatBuyerSource,
+  formatDate,
   formatPrice,
   MATURITY_LABELS,
   PROPERTY_TYPE_LABELS,
@@ -87,6 +88,8 @@ interface BuyerDetail {
   maturity: string;
   source: string;
   agentNotes?: string;
+  /** מתי הכרטיס נקלט — היה בשרת מאז ומתמיד ולא הוצהר כאן */
+  createdAt: string;
 }
 
 interface MatchRow {
@@ -345,6 +348,11 @@ export default function BuyerDetailPage({
             <span dir="ltr">{buyer.contact.phone}</span> ·{" "}
             {formatBuyerSource(buyer.source)} · מימון:{" "}
             {labelOf(FINANCING_LABELS, buyer.financing) ?? buyer.financing}
+            {/* מתי הכרטיס נכנס למערכת — ראו את אותה שורה בכרטיס הליד */}
+            {" · נקלט: "}
+            <span style={{ color: "var(--color-text)" }}>
+              {formatDate(buyer.createdAt)}
+            </span>
           </p>
         </div>
         <div className="ms-auto flex flex-wrap items-center gap-2">
