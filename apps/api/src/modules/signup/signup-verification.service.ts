@@ -55,36 +55,6 @@ const MAX_ATTEMPTS = 5;
 const MAX_CODES_PER_EMAIL = 3;
 const EMAIL_WINDOW_SECONDS = 60 * 60;
 
-/**
- * כמה זמן „שלחו שוב” אחת חוסמת שנייה על אותו טוקן.
- *
- * שתי שליחות חוזרות מקבילות שולחות **שני קודים שונים**, ורק
- * האחרונה שנכתבת עובדת — כלומר המשתמש מקבל שני אימיילים ואינו
- * יודע איזה מהם תקף. זה קורה בלחיצה כפולה, בשתי לשוניות, או
- * בניסיון חוזר של הדפדפן (ביקורת Codex).
- *
- * **החכירה מוכרחה לכסות את השליחה, ומספר קבוע אינו יכול.** הערך היה
- * 20 שניות בעוד `chargeAndDeliver` יכולה לרוץ יותר מזה: החכירה פגה
- * באמצע, בקשה שנייה תפסה מנעול חדש ושלחה קוד מחליף, ורק אחד מהשניים
- * נכתב — שני אימיילים ואחד מהם מת (ביקורת Codex).
- *
- * הכתבתי אז 45 שניות בנימוק ש-`AbortSignal.timeout(10_000)` חוסם את
- * השליחה. הנימוק היה שגוי: הפסק-זמן חוסם את ה-`fetch` בלבד, ולפניו
- * רצים `chargeEmailQuota` מול Redis ו-`credentials()` שיורדת לשאילתת
- * Prisma — שניהם בלתי-חסומים (ביקורת Codex).
- *
- * לכן החכירה **מתחדשת** כל עוד העבודה רצה, והערך כאן אינו טענה על
- * משך השליחה אלא על שני דברים אחרים: כמה זמן המנעול שורד אם התהליך
- * מת באמצע, וכמה זמן הוא חוסם שליחה נוספת אחרי הצלחה.
- */
-const RESEND_LOCK_SECONDS = 45;
-
-/**
- * תדירות חידוש החכירה — שליש מאורכה, כדי לשרוד החמצה או שתיים
- * ברצף בלי שהמנעול ייעלם תחת מי שמחזיק בו.
- */
-const RESEND_LOCK_RENEW_MS = 15_000;
-
 /** הפרטים שממתינים לאימות. סיסמה — מוצפנת בלבד. */
 export interface PendingSignup {
   agencyName: string;
@@ -188,6 +158,27 @@ export class SignupVerificationService implements OnModuleDestroy {
    * הקוד הקודם נפסל באותו רגע: משתמש שביקש קוד חדש כי הראשון לא
    * הגיע אינו מצפה ששניהם יעבדו, ושני קודים חיים בו-זמנית פירושם
    * הכפלה של מרחב הניחוש בלי שום תועלת.
+   *
+   * ## ההתקנה קודמת לשליחה, והיא נקודת הסידור
+   *
+   * חמישה סבבים ניסיתי לסדר את השליחות המקבילות במנעול: תפיסה,
+   * חותם בעלים, חכירה מתחדשת, מעקב אחר אובדן בעלות. כל אחד מהם סגר
+   * מקרה ופתח שכן, והמסקנה נכונה ומנוסחת היטב בביקורת: **חכירה
+   * אינה יכולה לאכוף סידור סביב שליחה חיצונית שאינה טרנזקציה.** כל
+   * עוד השליחה קודמת לכתיבה, שני קודים יכולים לצאת ורק אחד להיכתב
+   * — ואחד המקבלים מחזיק אימייל מת.
+   *
+   * ההתקנה המותנית **לפני** השליחה מסלקת את הבעיה במקום לגדר אותה:
+   * היא אטומית, ולכן מבין שתי בקשות מקבילות רק אחת מצליחה — והשנייה
+   * **אינה שולחת דבר** ואומרת למשתמש שקוד חדש כבר בדרך. אין מנעול,
+   * אין חכירה, אין חידוש, ואין בעלות לעקוב אחריה.
+   *
+   * ומה שדחף אותי במקור לסדר ההפוך — „אם הספק ייפול, המשתמש יישאר
+   * בלי כלום” — נפתר בהחזרה ולא בהיפוך הסדר: כישלון שליחה מחזיר את
+   * הקוד הקודם בהתאמה-וכתיבה, ולכן מה שכבר בתיבת הדואר ממשיך לעבוד.
+   *
+   * ‎`KEEPTTL` בשתי הכתיבות: חלון התפוגה נשמר בידי Redis עצמו, ואין
+   * חשבון זמן שיכול לסטות — לא בהתקנה ולא בהחזרה.
    */
   async reissue(token: string): Promise<void> {
     const raw = await this.redis.get(this.key(token));
@@ -197,200 +188,57 @@ export class SignupVerificationService implements OnModuleDestroy {
     if (!(await this.email.isConfigured())) {
       throw new ServiceUnavailableException("ההרשמה העצמית אינה זמינה כרגע — נסו שוב מאוחר יותר");
     }
+
+    const code = SignupVerificationService.freshCode();
+    const replacement = JSON.stringify({
+      ...stored,
+      codeHmac: this.hmac(code),
+      /* גרסה חדשה — מונה הניסיונות נספר תחתיה (ראו `StoredPending.version`) */
+      version: SignupVerificationService.freshVersion(),
+    } satisfies StoredPending);
+
     /*
-     * תפיסת הטוקן לפני השליחה — ראו `RESEND_LOCK_SECONDS`.
-     *
-     * ‎`NX` הוא מה שהופך את זה לתפיסה ולא לבדיקה: מי שהגיע שני אינו
-     * מקבל את המנעול, ולכן אינו שולח קוד שני שיבטל את הראשון.
+     * מותנה ב**ערך שנקרא בכניסה**: צילום שהתיישן — משום ששליחה
+     * חוזרת אחרת הקדימה אותנו, או ש-`consume` כבר ניצלה את הרשומה —
+     * נדחה כאן, לפני שיצא אימייל כלשהו.
      */
-    const lock = this.resendKey(token);
-    /*
-     * למנעול יש **בעלים**, ולא רק קיום.
-     *
-     * ‎`DEL` עיוור מוחק את מה שיושב בכתובת ולא את מה שתפסנו: חכירה
-     * שפגה תוך כדי שליחה, ובקשה שנייה שתפסה מנעול חדש בעקבותיה,
-     * הפכו את שחרור-הכישלון שלנו למחיקת המנעול **שלה** (ביקורת
-     * Codex). החותם נבדק לפני המחיקה, ולכן אין דרך לשחרר מנעול של
-     * מישהו אחר.
-     */
-    const holder = randomBytes(12).toString("base64url");
-    const claimed = await this.redis.set(lock, holder, "EX", RESEND_LOCK_SECONDS, "NX");
-    if (claimed === null) {
+    const installed = await this.redis.eval(
+      `if redis.call('GET', KEYS[1]) == ARGV[1] then
+         redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
+         return 1
+       end
+       return 0`,
+      1,
+      this.key(token),
+      raw,
+      replacement,
+    );
+    if (installed !== 1) {
       throw new BadRequestException("קוד חדש נשלח זה עתה — בדקו את תיבת הדואר");
     }
-    const release = async (): Promise<void> => {
-      await this.redis.eval(
-        "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
-        1,
-        lock,
-        holder,
-      );
-    };
-    /*
-     * **החכירה מתחדשת כל עוד העבודה רצה** — ראו `RESEND_LOCK_SECONDS`.
-     *
-     * שתי הכרעות שאינן מובנות מאליהן, ושתיהן תיקנו טעות שלי:
-     *
-     * ‏1. **תוצאת החידוש נבדקת.** קודם היא נזרקה, ולכן „החכירה
-     *    מתחדשת” היה תיאור של מה שניסינו ולא של מה שקרה: אם המנעול
-     *    אבד — Redis לא היה זמין, או שהתהליך נעצר מעבר לחכירה —
-     *    הבקשה המשיכה לשלוח כאילו היא עדיין מחזיקה בו (ביקורת
-     *    Codex). ‎`owned` נדלק כבוי ברגע שהחידוש מחזיר משהו שאינו 1,
-     *    וגם כשהוא נכשל: מנעול שאיננו יכולים לאשר אינו מנעול.
-     *
-     * ‏2. **‏`setTimeout` משרשר ולא `setInterval`.** ‎`setInterval` יורה
-     *    בלי קשר לשאלה אם הקודם הסתיים, ובקשה שתקועה מול Redis
-     *    הייתה צוברת פקודה והבטחה בכל מחזור — דליפה, ואז מטח בעת
-     *    התאוששות (ביקורת Codex). כאן יש לכל היותר חידוש אחד באוויר.
-     */
-    let owned = true;
-    let stopped = false;
-    let renewal: NodeJS.Timeout | undefined;
-    const scheduleRenewal = (): void => {
-      renewal = setTimeout(() => {
-        void (async () => {
-          try {
-            const extended = await this.redis.eval(
-              "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('EXPIRE', KEYS[1], ARGV[2]) end return 0",
-              1,
-              lock,
-              holder,
-              String(RESEND_LOCK_SECONDS),
-            );
-            if (extended !== 1) owned = false;
-          } catch {
-            owned = false;
-          }
-          if (!stopped && owned) scheduleRenewal();
-        })();
-      }, RESEND_LOCK_RENEW_MS);
-      /* אינו מחזיק את התהליך בחיים אם משהו נתקע */
-      renewal.unref();
-    };
-    scheduleRenewal();
 
     try {
-      const code = SignupVerificationService.freshCode();
+      await this.chargeAndDeliver(stored.pending, code);
+    } catch (error) {
       /*
-       * ה-TTL נשמר ואינו מתחדש: הארכה בכל „שלחו שוב” הייתה הופכת את
-       * חלון התפוגה לבלתי-מוגבל בלחיצות.
+       * השליחה נכשלה — הקוד הקודם חוזר לתוקף, ורק אם החדש עדיין
+       * שלנו. ‎`consume` שהספיקה לנצל את הרשומה בינתיים, או שליחה
+       * חוזרת שהחליפה אותה, אינן נדרסות: ההתאמה נכשלת ואיננו כותבים.
        */
-      const ttl = await this.redis.ttl(this.key(token));
-      if (ttl <= 0) {
-        await release();
-        throw new BadRequestException("ההרשמה פגה — מלאו את הפרטים שוב");
-      }
-      /*
-       * **מועד, ולא יתרה** — מאותו נימוק בדיוק כמו ב-`withVerified`.
-       *
-       * ‎`ttl` נמדד כאן, וההתקנה קורית אחרי השליחה: כתיבה של `ttl`
-       * כמו-שהוא מוסיפה לתפוגה את כל משך השליחה. „שלחו שוב” בעשר
-       * שניות של שליחה, עשר פעמים, מותחת חלון של עשרים דקות ללא
-       * גבול — וזה בדיוק מה שההערה מעל טוענת שאינו קורה (ביקורת
-       * Codex). את התיקון הזה עשיתי בסבב הקודם בצד אחד בלבד.
-       */
-      const deadline = Date.now() + ttl * 1000;
-
-      /*
-       * **השליחה קודמת לכתיבה** — וכאן דווקא הפוך מ-`issue`.
-       *
-       * הסדר ההפוך פסל את הקוד הישן ברגע שהחדש נכתב, ואם ספק
-       * האימייל נפל אחר-כך המשתמש נשאר בלי כלום: הקוד שכבר בתיבה
-       * שלו הפסיק לעבוד, והמחליף מעולם לא נשלח (ביקורת Codex).
-       *
-       * ב-`issue` הסדר הפוך ונכון: שם אין קוד קודם להגן עליו, ומה
-       * שיש להימנע ממנו הוא ההפך — קוד שנשלח ואין לו רשומה.
-       */
-      /*
-       * כישלון משחרר את המנעול: מי שלא קיבל דבר אינו אמור להמתין
-       * בגללו. הצלחה משאירה אותו לפוג מעצמו — זו כל מטרתו.
-       */
-      /*
-       * **השער היחיד שהבעלות באמת סוגרת הוא לפני השליחה.**
-       *
-       * אחריה האימייל כבר יצא, ונטישה הייתה משאירה קוד בתיבת הדואר
-       * בלי רשומה — גרוע מהמצב שממנו ברחנו. מה שקורה שם מטופל
-       * במקום אחר: ההתקנה מותנית ב-`raw`, ולכן מי שאיבד את המרוץ
-       * נכשל בה ואומר למשתמש שהקוד ששלח אינו בתוקף.
-       *
-       * הסייג נאמר במפורש: אם החכירה אובדת **בתוך** השליחה עצמה,
-       * שני אימיילים עדיין יכולים לצאת. רק אחד מהם יהיה תקף,
-       * והשולח השני יידע זאת — אבל זו הגבלה של המנגנון ולא הבטחה
-       * שהוא מקיים.
-       */
-      if (!owned) {
-        await release();
-        throw new BadRequestException("קוד חדש נשלח זה עתה — בדקו את תיבת הדואר");
-      }
-
-      try {
-        await this.chargeAndDeliver(stored.pending, code);
-      } catch (error) {
-        await release();
-        throw error;
-      }
-
-      /* מה שנותר מהמועד המקורי — אחרי השליחה, ולא לפניה. */
-      const left = Math.floor((deadline - Date.now()) / 1000);
-      if (left <= 0) {
-        await release();
-        throw new BadRequestException(
-          "ההרשמה פגה — הקוד שנשלח זה עתה אינו בתוקף, מלאו את הפרטים שוב",
-        );
-      }
-
-      /*
-       * הכתיבה מותנית ב**ערך שנקרא בכניסה**, ולא עיוורת.
-       *
-       * ‎`consume` יכולה לרוץ בזמן שהשליחה הזו באוויר, ולהצליח: היא
-       * מוחקת את הרשומה בהתאמה-ומחיקה, המשרד נפתח, וזהו. כתיבה
-       * בלתי-מותנית אחריה **מחייה רשומה שכבר נוצלה** — והקוד שזה עתה
-       * נשלח באימייל הופך לקוד תקף להרשמה שכבר הושלמה. אישור שני היה
-       * נכנס למסלול פתיחת המשרד ונופל רק בהמשך, על אילוצי ייחודיות
-       * (ביקורת Codex).
-       *
-       * זו אותה התאמה-ואז-פעולה של `consume`, מהצד השני: שם „מחק אם
-       * זה עדיין מה שאימתתי”, כאן „כתוב אם זה עדיין מה שקראתי”.
-       */
-      /*
-       * **בלי איפוס מונה כאן, כי אין מה לאפס.**
-       *
-       * הקוד החדש נושא גרסה חדשה, והמונה נספר תחת הגרסה (ראו
-       * ‎`StoredPending.version`). המונה של הקוד המוחלף אינו נוגע בו
-       * ופג מעצמו, ולכן אין עוד שתי פעולות שצריך לתאם ביניהן — וגם
-       * לא רגע שבו אחת מהן כבר קרתה והשנייה טרם.
-       */
-      const replaced = await this.redis.eval(
+      await this.redis.eval(
         `if redis.call('GET', KEYS[1]) == ARGV[1] then
-           redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+           redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
            return 1
          end
          return 0`,
         1,
         this.key(token),
+        replacement,
         raw,
-        JSON.stringify({
-          ...stored,
-          codeHmac: this.hmac(code),
-          version: SignupVerificationService.freshVersion(),
-        } satisfies StoredPending),
-        String(left),
       );
-      if (replaced !== 1) {
-        /*
-         * האימייל כבר יצא, ולכן נאמר במפורש שהקוד שבו אינו בתוקף —
-         * „נשלח קוד” בלי המשך היה משאיר את המשתמש ממתין לו לחינם.
-         */
-        await release();
-        throw new BadRequestException(
-          "ההרשמה כבר הושלמה או פגה — הקוד שנשלח זה עתה אינו בתוקף",
-        );
-      }
-      this.logger.log("נשלח קוד אימות חוזר לפתיחת משרד");
-    } finally {
-      stopped = true;
-      if (renewal !== undefined) clearTimeout(renewal);
+      throw error;
     }
+    this.logger.log("נשלח קוד אימות חוזר לפתיחת משרד");
   }
 
   /**
@@ -561,10 +409,6 @@ export class SignupVerificationService implements OnModuleDestroy {
 
   private attemptsKey(token: string, version: string): string {
     return `signup-pending:attempts:${token}:${version}`;
-  }
-
-  private resendKey(token: string): string {
-    return `signup-pending:resend:${token}`;
   }
 
   private static freshCode(): string {
