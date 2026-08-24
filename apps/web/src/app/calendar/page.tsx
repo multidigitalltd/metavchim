@@ -77,7 +77,7 @@ function weekStart(offsetWeeks: number): Date {
 type Tab = "calendar" | "tasks";
 
 const editInputStyle = {
-  borderColor: "var(--color-border)",
+  borderColor: "var(--color-input-border)",
   background: "var(--color-bg)",
 } as const;
 

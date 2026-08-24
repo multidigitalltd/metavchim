@@ -72,6 +72,15 @@ const REQUIRED = [
   ["color-text-soft", "color-bg", 4.5, "תוויות לשוניות (בהיר)"],
   ["color-danger", "color-bg", 4.5, "שגיאה (בהיר)"],
   ["color-primary", "color-bg", 4.5, "קישורים (בהיר)"],
+  /*
+   * הערכה הכהה של אותם שלושה. הן מוגדרות פעם אחת ב-`:root` ומוחלפות
+   * במיפוי הכהה ל-`--dk-*`, ולכן בדיקת השם הסמנטי בלבד מדדה את
+   * הערך הבהיר וטענה על „שתי הערכות” (ביקורת Codex). נסיגה בערך
+   * הכהה הייתה עוברת את השער בשקט.
+   */
+  ["dk-text-soft", "dk-bg", 4.5, "תוויות לשוניות (כהה)"],
+  ["dk-danger", "dk-bg", 4.5, "שגיאה (כהה)"],
+  ["dk-primary", "dk-bg", 4.5, "קישורים (כהה)"],
 ];
 
 /** נמדדים ומוצגים, אך אינם מכשילים — ראו „מה לא נבדק”. */
@@ -130,6 +139,37 @@ function openingTag(source, from) {
   return source.slice(from);
 }
 
+/**
+ * שמות של אובייקטי סגנון שנושאים את המסגרת הדקורטיבית.
+ *
+ * הבדיקה על התגית לבדה אינה מספיקה: `style={editInputStyle}` אינו
+ * מכיל את שם הטוקן, והשדה בכל זאת מקבל אותו (ביקורת Codex). זו
+ * הצורה השכיחה בקוד הזה — קבוע אחד בראש הקובץ שמוחל על חמישה
+ * שדות — ולכן בדיקה שאינה פותרת אותו מפספסת דווקא את המקרה הנפוץ.
+ */
+function taintedStyleNames(source) {
+  const names = new Set();
+  const pattern = /const\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*\{/gu;
+  let match;
+  while ((match = pattern.exec(source)) !== null) {
+    const open = source.indexOf("{", match.index);
+    let depth = 0;
+    let end = source.length;
+    for (let i = open; i < source.length; i += 1) {
+      if (source[i] === "{") depth += 1;
+      else if (source[i] === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    if (source.slice(open, end).includes(DECORATIVE_BORDER)) names.add(match[1]);
+  }
+  return names;
+}
+
 function scanControls(dir, hits) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
@@ -139,14 +179,22 @@ function scanControls(dir, hits) {
     }
     if (!entry.name.endsWith(".tsx")) continue;
     const source = readFileSync(full, "utf8");
+    const tainted = taintedStyleNames(source);
     for (const tag of CONTROL_TAGS) {
       const pattern = new RegExp(`<${tag}\\b`, "gu");
       let match;
       while ((match = pattern.exec(source)) !== null) {
         const body = openingTag(source, match.index);
-        if (!body.includes(DECORATIVE_BORDER)) continue;
+        const direct = body.includes(DECORATIVE_BORDER);
+        // הפניה לקבוע נגוע — כולל בפריסה (`{...inputStyle, ...}`)
+        const viaName = [...tainted].find((name) =>
+          new RegExp(`\\b${name}\\b`, "u").test(body),
+        );
+        if (!direct && viaName === undefined) continue;
         const line = source.slice(0, match.index).split("\n").length;
-        hits.push(`${full}:${line} — <${tag}> עם ${DECORATIVE_BORDER}`);
+        hits.push(
+          `${full}:${line} — <${tag}> עם ${direct ? DECORATIVE_BORDER : `${viaName} (סגנון נגוע)`}`,
+        );
       }
     }
   }
