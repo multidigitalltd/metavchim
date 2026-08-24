@@ -420,7 +420,11 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
       // בוטל בזמן ההמתנה, או שהרכיב ירד — הזרם שהגיע באיחור נסגר
       // ואינו מקליט דבר. שתי הבדיקות יחד ולפני כל עדכון מצב.
       stream.getTracks().forEach((t) => t.stop());
-      if (permitRef.current === permit) busyRef.current = false;
+      if (permitRef.current !== permit) return;
+      // הבקשה עדיין שלנו — משחררים בכל מקרה, כדי ששום מסלול לא
+      // ישאיר את השדה תקוע על „ממתין לאישור המיקרופון”
+      busyRef.current = false;
+      markPending(false);
       return;
     }
     markPending(false);
