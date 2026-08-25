@@ -213,6 +213,16 @@
   --type-body: calc(15.5px * var(--a11y-font-scale));
   --type-nav: calc(15.5px * var(--a11y-font-scale));
   /*
+   * ‎**שני קצות הדרגה, ולא ערך יחיד.**
+   *
+   * החבילה נוקבת בשתי דרגות כטווח — „body, row subtitle 15 to
+   * 15.5” ו„caption, meta 13.5 to 14.5” — ואז משתמשת בשני הקצוות
+   * במפורש: השורה השנייה בשורת רשימה היא 15, שורת התאריך היא 15,
+   * הסופרר הוא 15, ואילו טקסט הגוף הוא 15.5. טוקן יחיד לדרגה היה
+   * מחייב לעגל את אחד הקצוות, כלומר לסטות ממספר שכתוב בפירוש.
+   */
+  --type-body-sm: calc(15px * var(--a11y-font-scale));
+  /*
    * כיתוב עזר ועינית — **14px, ולא 11.5 ולא 13.5.**
    *
    * כאן החבילה סותרת את עצמה: §1 מפרט „eyebrow, group label
@@ -226,8 +236,18 @@
    * שמבדיל עינית מטקסט רגיל הוא המרווח והמשקל, לא הקוטן.
    */
   --type-caption: calc(14px * var(--a11y-font-scale));
+  /* הקצה העליון של אותה דרגה — כיתוב-על בכרטיס וקישור טקסט בכותרת */
+  --type-caption-lg: calc(14.5px * var(--a11y-font-scale));
   --type-eyebrow: calc(14px * var(--a11y-font-scale));
   --type-eyebrow-track: 0.09em;
+  /*
+   * המספר הגדול בכרטיס המונה (§24) — „a big number at 30px/900”.
+   *
+   * דרגה שאין לה שורה בסולם של §1, ולכן היא נכתבת כאן ולא בתוך
+   * הרכיב: אחרת היא הייתה המספר היחיד בקובץ שאיש אינו יודע מניין
+   * בא, והמספר הזה גדול מספיק כדי שסקלת נגישות תשנה בו הרבה.
+   */
+  --type-counter: calc(30px * var(--a11y-font-scale));
   /*
    * ‎`ink-3` מהחבילה — הרצפה למספרי נתונים.
    *
@@ -4822,10 +4842,18 @@ a.mv-bar-row:focus-visible {
     transform: scale(1.08);
   }
 }
+/*
+ * ‎`display: none` ולא „אנימציה כבויה”.
+ *
+ * ‎§26 מונה שלושה סעיפים בנשימה אחת: „no enter animation, **no
+ * halo**; hovers stay”. כלומר ההילה נמנית עם מה שיורד, לצד אנימציית
+ * הכניסה, ובניגוד לריחוף שנשאר במפורש. עצירת האנימציה בלבד הייתה
+ * משאירה טבעת ירוקה קבועה מאחורי האריח — לא תנועה, אבל גם לא מה
+ * שהמסמך מבקש, ובלי האנימציה היא ממילא כבר אינה מסמנת דבר.
+ */
 @media (prefers-reduced-motion: reduce) {
   .mv-agent .mv-agent-badge::before {
-    animation: none;
-    opacity: 0.45;
+    display: none;
   }
 }
 .mv-agent-title {
@@ -5301,13 +5329,13 @@ a.mv-bar-row:focus-visible {
 }
 .mv-card-head__link {
   margin-inline-start: auto;
-  font-size: 14.5px;
+  font-size: var(--type-caption-lg);
   font-weight: 800;
   color: var(--color-primary);
 }
 .mv-card-sub {
   margin-top: 10px;
-  font-size: 14.5px;
+  font-size: var(--type-caption-lg);
   color: var(--color-text-muted);
 }
 
@@ -5355,7 +5383,7 @@ a.mv-bar-row:focus-visible {
   gap: 11px;
 }
 .mv-kpi__label {
-  font-size: 15.5px;
+  font-size: var(--type-body);
   font-weight: 800;
   color: var(--color-text-muted);
 }
@@ -5403,7 +5431,7 @@ a.mv-bar-row:focus-visible {
   flex: none;
   width: 26px;
   text-align: center;
-  font-size: 15px;
+  font-size: var(--type-body-sm);
   font-weight: 900;
   color: var(--color-data-muted);
 }
@@ -5416,7 +5444,7 @@ a.mv-bar-row:focus-visible {
 }
 .mv-row__why {
   margin-top: 4px;
-  font-size: 15px;
+  font-size: var(--type-body-sm);
   color: var(--color-text-muted);
 }
 .mv-row__action {
@@ -5485,7 +5513,13 @@ a.mv-bar-row:focus-visible {
   background: currentColor;
 }
 .mv-metric__label {
-  font-size: 16px;
+  /*
+   * ‎`--type-button` ולא דרגת גוף: §14 נוקב ב-16/800, ובסולם של §1
+   * הדרגה היחידה שמכסה 16 היא „button label 15.5 to 17”. וזה גם
+   * נכון לגופו — שורת מדד היא כפתור, ולחיצה עליה פותחת את הרשימה
+   * המסוננת.
+   */
+  font-size: var(--type-button);
   font-weight: 800;
   color: var(--d-fg, var(--domain-neutral-fg));
 }
@@ -5532,7 +5566,7 @@ a.mv-bar-row:focus-visible {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 15px;
+  font-size: var(--type-body-sm);
   font-weight: 700;
   color: var(--color-primary);
 }
@@ -5562,13 +5596,13 @@ a.mv-bar-row:focus-visible {
   border: 1px solid var(--color-input-border);
 }
 .mv-counter__number {
-  font-size: 30px;
+  font-size: var(--type-counter);
   font-weight: 900;
   line-height: 1;
   color: var(--color-primary);
 }
 .mv-counter__lead {
-  font-size: 15.5px;
+  font-size: var(--type-body);
   font-weight: 800;
   color: var(--color-text);
 }
@@ -5599,7 +5633,7 @@ a.mv-bar-row:focus-visible {
 }
 .mv-greet__date {
   margin-top: 6px;
-  font-size: 15px;
+  font-size: var(--type-body-sm);
   color: var(--color-text-muted);
 }
 .mv-greet__counter {
