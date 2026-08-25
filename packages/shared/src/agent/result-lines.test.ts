@@ -751,4 +751,73 @@ describe("מספור בתוך הגבול", () => {
     expect(new Set(labels).size).toBe(3);
     expect(labels[2]).toBe("משה כהן 1");
   });
+
+  /*
+   * ההתנגשות השנייה, ועדינה יותר: התווית הממוספרת חורגת מהגבול
+   * ולכן מתקצרת — והצורה **המקוצרת** היא שנופלת על תווית אחרת
+   * שכבר ברשימה. הבדיקה על הצורה הביניימית עוברת, וההתנגשות
+   * נוצרת בשלב שאחריה (ביקורת Codex).
+   */
+  it("קיצור אחרי מספור אינו מייצר התנגשות חדשה", () => {
+    const long = "א".repeat(120);
+    // בדיוק מה ש„<38 תווים> 1” היה נותן — שם באורך הגבול
+    const collides = `${"א".repeat(38)} 1`;
+    expect(collides).toHaveLength(AGENT_RESULT_LABEL_MAX);
+    const found = {
+      buyers: [
+        { id: "b1", name: long, cities: [] },
+        { id: "b2", name: long, cities: [] },
+        { id: "b3", name: collides, cities: [] },
+      ],
+    };
+    const list = agentResultList(found)!;
+    const labels = list.rows.map((row) => row.label);
+    expect(new Set(labels).size).toBe(3);
+    expect(labels).toContain(collides);
+    const memory = list.rows.map((row) => row.memoryLabel ?? row.label);
+    expect(new Set(memory).size).toBe(3);
+    for (const value of [...labels, ...memory]) {
+      expect(value.length).toBeLessThanOrEqual(AGENT_RESULT_LABEL_MAX);
+    }
+    // וההפניות נושאות את אותן מחרוזות — הן מה שיפתור את התור הבא
+    expect(agentResultRefs(found).map((ref) => ref.label)).toEqual(memory);
+  });
+});
+
+/*
+ * „מי מתקשר אליי” מחזירה את איש הקשר **וגם** את הכרטיסים שלו,
+ * ולשניהם אותו שם. השורה הכפולה מפעילה את המספור, והראשונה —
+ * זו שאין לה קישור — הופכת ל„משה כהן 1” בלי הפניה מאחוריה
+ * (ביקורת Codex).
+ */
+describe("איש הקשר והכרטיס שלו — אותו שם, שורה אחת", () => {
+  const search = {
+    contact: { id: "c1", name: "משה כהן", phone: "050-1234567" },
+    properties: [],
+    buyers: [{ id: "01J000000000000000000000AA", name: "משה כהן", cities: ["רמת גן"] }],
+    leads: [],
+    appointments: [],
+    tasks: [],
+    calls: [],
+    notes: [],
+  };
+
+  it("הכרטיס הוא השורה — ואין שורת זהות כפולה ואין מספור", () => {
+    const list = agentResultList(search)!;
+    expect(list.rows).toHaveLength(1);
+    expect(list.rows[0]!.label).toBe("משה כהן");
+    expect(list.rows[0]!.href).toBe("/buyers/01J000000000000000000000AA");
+  });
+
+  it("והשם נפתר להפניה יציבה", () => {
+    expect(agentResultRefs(search)).toEqual([
+      { label: "משה כהן", entityType: "buyer", entityId: "01J000000000000000000000AA" },
+    ]);
+  });
+
+  it("בלי כרטיס באותו שם — שורת הזהות נשארת, כי היא כל מה שיש", () => {
+    const list = agentResultList({ ...search, buyers: [] })!;
+    expect(list.rows).toHaveLength(1);
+    expect(list.rows[0]).toMatchObject({ label: "משה כהן", phone: "050-1234567" });
+  });
 });

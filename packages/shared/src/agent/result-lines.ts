@@ -396,25 +396,6 @@ function remembered(label: string): string {
 }
 
 /**
- * מספור, ואז **חזרה לגבול** — הסיומת נשמרת והבסיס מתקצר.
- *
- * המספור נעשה על התווית המקוצרת, ולכן „<39 תווים> 1” חורג מהגבול
- * שהוא עצמו אכף. זה לא נשאר ויזואלי: סכימת הנתיב מאמתת את אורך
- * התווית בהפניות, וחריגה **פוסלת את כל ההיסטוריה** — כלומר כל
- * משפט המשך אחרי תוצאה כזו נכשל עוד לפני הפירוש (ביקורת Codex).
- *
- * הבסיס מתקצר ולא הסיומת, כי הסיומת היא כל מה שמבדיל בין השתיים.
- */
-function fitted(labels: readonly string[]): string[] {
-  const numbered = numberedLabels(labels);
-  return numbered.map((label, i) => {
-    if (label.length <= AGENT_RESULT_LABEL_MAX) return label;
-    const suffix = label.slice(labels[i]!.length);
-    return `${labels[i]!.slice(0, AGENT_RESULT_LABEL_MAX - suffix.length)}${suffix}`;
-  });
-}
-
-/**
  * שער היציאה היחיד של `agentResultList` — **כאן, ורק כאן, נחתכות
  * הכותרות.**
  *
@@ -436,8 +417,14 @@ function bounded(list: AgentResultList): AgentResultList {
    * כדי שגם שני שמות ארוכים שנחתכו לאותה רישא יובחנו — ובאותה
    * מחרוזת בדיוק בתצוגה, בזיכרון ובהפניה.
    */
-  const display = fitted(list.rows.map((row) => clamp(row.label)));
-  const memory = fitted(list.rows.map((row) => remembered(row.memoryLabel ?? row.label)));
+  const display = numberedLabels(
+    list.rows.map((row) => clamp(row.label)),
+    AGENT_RESULT_LABEL_MAX,
+  );
+  const memory = numberedLabels(
+    list.rows.map((row) => remembered(row.memoryLabel ?? row.label)),
+    AGENT_RESULT_LABEL_MAX,
+  );
   return {
     ...list,
     rows: list.rows.map((row, i) => {
@@ -490,25 +477,33 @@ export function agentResultList(data: unknown): AgentResultList | null {
   const sections = SECTION_KEYS.filter((key) => Array.isArray(payload[key]));
   if (isAggregateResult(data)) {
     const rows: AgentResultRow[] = [];
+    for (const key of sections) rows.push(...SECTION_ROWS[key]!(payload[key]));
+
     const contact = payload["contact"];
     if (typeof contact === "object" && contact !== null) {
       const record = contact as Record<string, unknown>;
       const name = text(record["name"]);
-      if (name !== null) {
-        /*
-         * **בלי קישור.** לאיש קשר אין מסך משלו — הוא נצפה דרך כרטיס
-         * הקונה או הליד, ו-`/contacts/…` הוא 404 (ביקורת Codex).
-         * הכרטיסים עצמם מופיעים כשורות במקטעים שמתחת, ומהם אפשר
-         * להמשיך.
-         */
-        rows.push({
+      /*
+       * **שורת הזהות רק כשאין כרטיס שאומר את אותו דבר.**
+       *
+       * „מי מתקשר אליי” מחזירה גם את איש הקשר וגם את הכרטיסים שלו,
+       * ולשניהם אותו שם. שורה כפולה אינה רק רעש: המספור הופך את
+       * הראשונה ל„משה כהן 1”, ולה **אין** קישור ולכן גם אין הפניה —
+       * כלומר „תוסיף הערה לראשון” מחפש שם שאינו קיים (ביקורת Codex).
+       *
+       * לאיש קשר אין מסך משלו (‏`/contacts/…` הוא 404), ולכן כשיש
+       * כרטיס הוא **התשובה הטובה יותר**: אותו שם, ואפשר להמשיך ממנו.
+       * בלי כרטיס — למשל לקוח מוכר בלי ליד פתוח — השורה נשארת, כי
+       * היא כל מה שיש.
+       */
+      if (name !== null && !rows.some((row) => row.label === name)) {
+        rows.unshift({
           label: name,
           detail: "",
           ...(phoneOf(record) !== null ? { phone: phoneOf(record)! } : {}),
         });
       }
     }
-    for (const key of sections) rows.push(...SECTION_ROWS[key]!(payload[key]));
     return bounded({ noun: "תוצאות", hasMore, rows });
   }
 

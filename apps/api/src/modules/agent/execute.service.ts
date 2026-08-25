@@ -103,6 +103,8 @@ export interface ExecuteResult {
  * מפסיק לחפש על סמך תקרה שלנו (ביקורת Codex).
  */
 const OFFICE_MATCHES = 50;
+/** הסף שמסך ההתאמות מציג — כאן ובספירה, מאותו מקום. */
+const OFFICE_MIN_SCORE = 50;
 
 /**
  * עמוד + סימן קיטום — **הספירה היא מה שקובע „יש עוד”.**
@@ -475,17 +477,16 @@ export class AgentExecuteService {
     /*
      * אותו סף שמסך ההתאמות מציג — תשובה של הסוכן לא אמורה לכלול
      * התאמות שהמסך מסתיר, אחרת שתי דרכים לשאול נותנות שתי תשובות.
-     *
-     * כאן השורה העודפת **כן** מספיקה: `listAll` שולפת מרווח מעל
-     * המבוקש וחותכת **אחרי** הסינון, ולכן מה שחוזר מעבר לתקרה הוא
-     * שורה חיה. לרשימה המשרדית גם אין תנאי קבוע לספור — הסף והציון
-     * משתנים לפי הבקשה.
      */
-    const office = await this.matching.listAll({ limit: OFFICE_MATCHES + 1, minScore: 50 });
+    const officeQuery = { limit: OFFICE_MATCHES, minScore: OFFICE_MIN_SCORE };
     return {
       href: "/matches",
       message: "ההתאמות של המשרד",
-      data: page(office, office.length, OFFICE_MATCHES),
+      data: page(
+        await this.matching.listAll(officeQuery),
+        await this.matching.countAll({ minScore: OFFICE_MIN_SCORE }),
+        OFFICE_MATCHES,
+      ),
     };
   }
 

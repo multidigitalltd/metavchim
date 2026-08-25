@@ -152,25 +152,38 @@ export function assistantMemoryTurn(items: readonly NotifiedForMemory[]): AgentH
  * וזו שבהפניה חייבות להיות אותה מחרוזת, אחרת המספור עצמו יוצר
  * את הפער שהוא נועד לסגור.
  */
-export function numberedLabels(labels: readonly string[]): string[] {
+export function numberedLabels(labels: readonly string[], maxLength?: number): string[] {
   const counts = new Map<string, number>();
   for (const label of labels) counts.set(label, (counts.get(label) ?? 0) + 1);
   /*
-   * **המספר נבדק מול כל מה שכבר קיים ברשימה.**
+   * **הייחודיות נבדקת על התווית הסופית — אחרי המספור ואחרי הקיצור.**
    *
-   * „משה כהן 1” יכול להיות שם אמיתי של לקוח שלישי, ואז המספור
-   * שנוצר מתנגש בו — שתי תוויות זהות שוב, כלומר בדיוק מה שהמספור
-   * בא למנוע (ביקורת Codex). לכן המונה מדלג על מה שתפוס.
+   * שני מקורות להתנגשות, ושניהם נתפסו רק אחרי שתיקנתי כל אחד
+   * בנפרד (ביקורת Codex):
+   *
+   * 1. „משה כהן 1” יכול להיות שם אמיתי של לקוח שלישי ברשימה.
+   * 2. תווית באורך המרבי מתקצרת כדי לפנות מקום לסיומת — והתוצאה
+   *    המקוצרת עלולה להיות שווה לתווית אחרת שכבר ברשימה.
+   *
+   * לכן המונה עולה עד שהצורה **הסופית** פנויה, ולא עד שהצורה
+   * הביניימית פנויה. `maxLength` חסר = אין קיצור (תוויות התראה).
    */
+  const fit = (label: string, suffix: string): string => {
+    if (maxLength === undefined || label.length + suffix.length <= maxLength) {
+      return `${label}${suffix}`;
+    }
+    return `${label.slice(0, Math.max(0, maxLength - suffix.length))}${suffix}`;
+  };
   const taken = new Set(labels);
   const used = new Map<string, number>();
   return labels.map((label) => {
     if ((counts.get(label) ?? 0) < 2) return label;
     let n = (used.get(label) ?? 0) + 1;
-    while (taken.has(`${label} ${n}`)) n += 1;
+    while (taken.has(fit(label, ` ${n}`))) n += 1;
     used.set(label, n);
-    taken.add(`${label} ${n}`);
-    return `${label} ${n}`;
+    const chosen = fit(label, ` ${n}`);
+    taken.add(chosen);
+    return chosen;
   });
 }
 

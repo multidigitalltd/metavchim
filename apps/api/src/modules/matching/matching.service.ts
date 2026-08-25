@@ -122,6 +122,16 @@ function openMatchesOf(tenantId: string, key: { propertyId: string } | { buyerId
   return { tenantId, ...key, status: { not: "dismissed" } };
 }
 
+/** אותו דבר לרשימה המשרדית — הסף והנכס משתנים לפי הבקשה. */
+function officeMatchesOf(tenantId: string, query: { minScore: number; propertyId?: string }) {
+  return {
+    tenantId,
+    status: { not: "dismissed" },
+    score: { gte: query.minScore },
+    ...(query.propertyId ? { propertyId: query.propertyId } : {}),
+  };
+}
+
 @Injectable()
 export class MatchingService {
   constructor(
@@ -151,12 +161,7 @@ export class MatchingService {
        * ביטחון לשורות ישנות ולא הפתרון עצמו.
        */
       const rows = await tx.match.findMany({
-        where: {
-          tenantId,
-          status: { not: "dismissed" },
-          score: { gte: query.minScore },
-          ...(query.propertyId ? { propertyId: query.propertyId } : {}),
-        },
+        where: officeMatchesOf(tenantId, query),
         orderBy: { score: "desc" },
         take: query.limit + LIVE_HEADROOM,
       });
@@ -605,6 +610,20 @@ export class MatchingService {
       // "חזק" נספר רק על חדשה — ההתראה מדברת על מה שהתחדש
       strong: existing === null && result.score >= MATCH_THRESHOLDS.recommended,
     };
+  }
+
+  /**
+   * כמה התאמות משרדיות עומדות בסף — **התשובה ל„יש עוד”.**
+   *
+   * אותו נימוק כמו לכרטיס: הרשימה מסוננת בזיכרון משורות מיושנות,
+   * ולכן אורכה אינו מעיד על מה שקיים. השארתי את המשרדית על השורה
+   * העודפת בסבב הקודם בטענה שאין לה תנאי קבוע לספור — ויש, הוא
+   * פשוט נגזר מהבקשה (ביקורת Codex).
+   */
+  async countAll(query: { minScore: number; propertyId?: string }): Promise<number> {
+    return this.prisma.withTenant(async (tx) =>
+      tx.match.count({ where: officeMatchesOf(TenantContext.current().tenantId, query) }),
+    );
   }
 
   /**
