@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
-import { hebrewDateFull, hebrewDateShort, jerusalemWeekStart } from "@metavchim/shared";
+import {
+  hebrewDateFull,
+  hebrewDateShort,
+  JERUSALEM_TZ,
+  jerusalemDayRange,
+  jerusalemDayStart,
+  jerusalemWeekStart,
+} from "@metavchim/shared";
 import { NowStamp } from "../now-stamp";
 import { AppointmentFollowUp } from "./appointment-followup";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
@@ -56,9 +63,18 @@ const KIND_COLORS: Record<string, { fg: string; bg: string }> = {
 
 const DAY_NAMES = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי"];
 
-const timeFmt = new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit" });
-const shortDateFmt = new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric" });
+const timeFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ,
+  hour: "2-digit",
+  minute: "2-digit",
+});
+const shortDateFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ,
+  day: "numeric",
+  month: "numeric",
+});
 const longFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ,
   weekday: "long",
   day: "numeric",
   month: "long",
@@ -228,15 +244,20 @@ export default function CalendarPage() {
   }
 
   const start = weekStart(weekOffset);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  /*
+   * ‎**גבולות הטורים בלוח הישראלי, לא בלוח הדפדפן.**
+   *
+   * ‎`setDate(getDate() + 1)` מזיז יום של המארח: בדפדפן ניו-יורקי
+   * גבול ישראלי של יום ראשון נופל בשבת, וביום מעבר שעון אמריקאי
+   * טור אחד נמתח ל-25 שעות ובולע שעה מהיום הישראלי הבא (ביקורת
+   * Codex). אותה פונקציה שהשרת בוחר לפיה מה להמליץ.
+   */
+  const today = jerusalemDayRange(new Date()).start;
 
   /* שישה טורי ימים, ראשון–שישי */
   const days = DAY_NAMES.map((name, i) => {
-    const date = new Date(start);
-    date.setDate(start.getDate() + i);
-    const next = new Date(date);
-    next.setDate(date.getDate() + 1);
+    const date = jerusalemDayStart(start, i);
+    const next = jerusalemDayStart(start, i + 1);
     const events = (items ?? [])
       .filter((a) => {
         const t = new Date(a.startsAt);

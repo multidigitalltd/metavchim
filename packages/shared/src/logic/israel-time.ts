@@ -17,9 +17,47 @@ export const JERUSALEM_TZ = "Asia/Jerusalem";
  * תלוי-רגע ולא קבוע: ישראל עוברת שעון פעמיים בשנה, ולכן "שעתיים
  * מ-UTC" נכון רק חצי שנה.
  */
+const PARTS_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: JERUSALEM_TZ,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
+
 export function jerusalemOffsetMs(at: Date): number {
-  const wallAsUtc = new Date(at.toLocaleString("en-US", { timeZone: JERUSALEM_TZ }));
-  return wallAsUtc.getTime() - at.getTime();
+  /*
+   * ‎**הפירוק לחלקים, ולא `new Date(toLocaleString(...))`.**
+   *
+   * ‎`toLocaleString` מחזיר את שעת הקיר הישראלית כמחרוזת, ו-`new
+   * Date` מפרש מחרוזת כזו **באזור הזמן של המארח**. על שרת UTC זה
+   * יצא נכון במקרה, ולכן הבאג היה בלתי נראה בבדיקות; בדפדפן
+   * ניו-יורקי ההיסט יצא 7 שעות במקום 3, ובטוקיו מינוס 6 — כלומר
+   * ‎`jerusalemDayRange` ו-`jerusalemWeekStart` החזירו גבולות שגויים
+   * לכל מתווך שאינו יושב על UTC (ביקורת Codex).
+   *
+   * ‎`formatToParts` מחזיר מספרים ולא טקסט לפרסור, ו-`Date.UTC`
+   * מרכיב מהם רגע ללא תלות במארח. זו הפונקציה שכל חישובי הגבולות
+   * כאן נשענים עליה, ולכן היא נבדקת מפורשות בכמה אזורי זמן.
+   */
+  const parts = PARTS_FMT.formatToParts(at);
+  const value = (type: string): number => {
+    const found = parts.find((p) => p.type === type);
+    return found === undefined ? 0 : Number(found.value);
+  };
+  const asUtc = Date.UTC(
+    value("year"),
+    value("month") - 1,
+    value("day"),
+    /* חלק מהמנועים מחזירים "24" לחצות ב-`hour12: false` */
+    value("hour") % 24,
+    value("minute"),
+    value("second"),
+  );
+  return asUtc - at.getTime();
 }
 
 /**
@@ -72,9 +110,40 @@ export function jerusalemDayRange(now: Date): { start: Date; end: Date } {
  * הפער שהפונקציה נועדה לסגור, למתווך שנמצא בחו"ל.
  */
 export function jerusalemWeekStart(now: Date, offsetWeeks = 0): Date {
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: JERUSALEM_TZ }).format(now);
-  const anchor = new Date(`${today}T00:00:00Z`);
-  anchor.setUTCDate(anchor.getUTCDate() - anchor.getUTCDay() + offsetWeeks * 7);
+  return shiftJerusalemDays(now, offsetWeeks * 7 - jerusalemWeekday(now));
+}
+
+/**
+ * היום בשבוע לפי הלוח הישראלי — 0 ראשון … 6 שבת.
+ *
+ * ‎`getDay()` על `Date` נותן את היום של **המארח**: פגישה בשבת
+ * ב-00:30 בישראל היא עדיין שישי בערב בניו-יורק. מי שסופר ימים
+ * לרשת של שישה טורים חייב את הלוח הישראלי.
+ */
+export function jerusalemWeekday(at: Date): number {
+  return new Date(`${jerusalemDayLabel(at)}T00:00:00Z`).getUTCDay();
+}
+
+/**
+ * תחילת היום הישראלי, `offsetDays` ימי לוח מהרגע הנתון.
+ *
+ * ‎`setDate(getDate() + 1)` על תהליך שאינו ישראלי מזיז יום של
+ * המארח, וביום מעבר שעון גם „24 שעות” אינן יום — טור אחד ברשת
+ * בולע שעה מהיום הבא. חשבון על תווית התאריך, כמו בשבוע.
+ */
+export function jerusalemDayStart(at: Date, offsetDays = 0): Date {
+  return shiftJerusalemDays(at, offsetDays);
+}
+
+/** התאריך הישראלי כתווית `YYYY-MM-DD` — הבסיס לכל חשבון הלוח כאן. */
+function jerusalemDayLabel(at: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: JERUSALEM_TZ }).format(at);
+}
+
+/** חצות ישראלית, `days` ימי לוח מהיום הישראלי של `at`. */
+function shiftJerusalemDays(at: Date, days: number): Date {
+  const anchor = new Date(`${jerusalemDayLabel(at)}T00:00:00Z`);
+  anchor.setUTCDate(anchor.getUTCDate() + days);
   return jerusalemWallIsoToUtc(`${anchor.toISOString().slice(0, 10)}T00:00:00.000`);
 }
 

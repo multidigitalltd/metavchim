@@ -4,6 +4,7 @@ import {
   computeReadiness,
   type CoachRecommendation,
   jerusalemDayRange,
+  jerusalemWeekday,
   jerusalemWeekStart,
   type CoachSignals,
 } from "@metavchim/shared";
@@ -176,6 +177,11 @@ export class CoachService {
          * הגבול הוא תחילת השבוע הישראלי — אותה פונקציה שהיומן
          * עצמו בונה בה את הרשת, ולכן „בשבוע” אומר אותו דבר בשני
          * הצדדים גם למתווך שנמצא בחו"ל.
+         *
+         * ‎**ושבת יוצאת**: לרשת שישה טורים, ראשון עד שישי, ולכן
+         * סיור של שבת נמצא בתוך השבוע אך אין לו טור להופיע בו
+         * (ביקורת Codex). הגבול התחתון לבדו תפס רק את תחילת הרשת,
+         * לא את היום שהיא משמיטה.
          */
         const viewingSince = jerusalemWeekStart(new Date());
         const pastViewings = await tx.appointment.findMany({
@@ -189,10 +195,13 @@ export class CoachService {
           orderBy: { startsAt: "desc" },
           take: 5,
         });
-        pastViewingsWithoutOutcome = pastViewings.map((a) => ({
-          appointmentId: a.id,
-          title: a.title ?? "סיור",
-        }));
+        pastViewingsWithoutOutcome = pastViewings
+          /* 6 = שבת בלוח הישראלי; לרשת אין לה טור */
+          .filter((a) => jerusalemWeekday(a.startsAt) !== 6)
+          .map((a) => ({
+            appointmentId: a.id,
+            title: a.title ?? "סיור",
+          }));
       }
 
       /*

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { formatJerusalemTime, jerusalemDayRange, jerusalemWeekStart } from "./israel-time.js";
+import {
+  formatJerusalemTime,
+  jerusalemDayRange,
+  jerusalemDayStart,
+  jerusalemOffsetMs,
+  jerusalemWeekday,
+  jerusalemWeekStart,
+} from "./israel-time.js";
 
 /*
  * הבדיקות מנוסחות ברגעי UTC מפורשים ולא ב"עכשיו": כל התקלה שהן
@@ -77,9 +84,70 @@ describe("jerusalemWeekStart — שבוע ישראלי אחד לשני הצדד�
     expect(across.toISOString()).toBe("2026-10-17T21:00:00.000Z");
   });
 
-  it("אזור הזמן של התהליך אינו משנה את התוצאה", () => {
-    /* אותו רגע, אותו גבול — הפונקציה קוראת רק ללוח הישראלי */
+  /*
+   * ‎**הבדיקה הזו חייבת באמת להחליף אזור זמן.**
+   *
+   * הגרסה הראשונה שלה נשאה את אותה כותרת והריצה הכול תחת UTC —
+   * כלומר טענה „ללא תלות במארח” בלי לבדוק ולו מארח אחד אחר, ולכן
+   * עברה בזמן ש-`jerusalemOffsetMs` היה שגוי בכל דפדפן שאינו UTC
+   * (ביקורת Codex). שם של בדיקה אינו הבדיקה.
+   */
+  it("אזור הזמן של המארח אינו משנה את התוצאה", () => {
     const at = new Date("2026-08-26T09:00:00Z");
-    expect(jerusalemWeekStart(at).toISOString()).toBe("2026-08-22T21:00:00.000Z");
+    const original = process.env.TZ;
+    try {
+      const seen = new Set<string>();
+      for (const tz of ["UTC", "America/New_York", "Asia/Tokyo", "Pacific/Kiritimati"]) {
+        process.env.TZ = tz;
+        seen.add(jerusalemWeekStart(at).toISOString());
+        seen.add(jerusalemDayRange(at).start.toISOString());
+        /* ישראל ב-+3 באוגוסט, ולא ההיסט של המארח */
+        expect(jerusalemOffsetMs(at)).toBe(3 * 3_600_000);
+      }
+      expect(seen).toEqual(
+        new Set(["2026-08-22T21:00:00.000Z", "2026-08-25T21:00:00.000Z"]),
+      );
+    } finally {
+      process.env.TZ = original;
+    }
+  });
+});
+
+describe("jerusalemWeekday / jerusalemDayStart — לוח ישראלי, לא של המארח", () => {
+  it("היום בשבוע נקבע בישראל — גם כשבמארח זה עדיין אתמול", () => {
+    const original = process.env.TZ;
+    try {
+      /* שבת 29/08 ב-00:30 בישראל = שישי 21:30 UTC = שישי 17:30 בניו-יורק */
+      const at = new Date("2026-08-28T21:30:00Z");
+      for (const tz of ["UTC", "America/New_York", "Asia/Tokyo"]) {
+        process.env.TZ = tz;
+        expect(jerusalemWeekday(at)).toBe(6);
+      }
+    } finally {
+      process.env.TZ = original;
+    }
+  });
+
+  it("טור יום הוא יום ישראלי שלם, גם בשבוע מעבר שעון", () => {
+    const original = process.env.TZ;
+    try {
+      process.env.TZ = "America/New_York";
+      /*
+       * מעבר השעון בישראל חל ביום ראשון — כלומר על הטור **הפותח**
+       * את השבוע, ולא בתוך השבוע שלפניו. הטור הזה נמשך 25 שעות,
+       * וזה בדיוק מה שחשבון על מילישניות היה מחמיץ.
+       */
+      const weekStart = jerusalemWeekStart(new Date("2026-10-28T09:00:00Z"));
+      const spans = [0, 1, 2, 3, 4, 5].map(
+        (i) =>
+          (jerusalemDayStart(weekStart, i + 1).getTime() -
+            jerusalemDayStart(weekStart, i).getTime()) /
+          3_600_000,
+      );
+      /* חמישה ימים של 24 שעות ואחד של 25 — ולא שישה של 24 */
+      expect(spans).toEqual([25, 24, 24, 24, 24, 24]);
+    } finally {
+      process.env.TZ = original;
+    }
   });
 });
