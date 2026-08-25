@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   groupTasksByBucket,
   isTaskUrgent,
+  jerusalemDayRange,
   recommendationHref,
   taskBucket,
   labelOf,
@@ -262,6 +263,18 @@ export default function DashboardPage() {
    */
   const now = useMinuteNow();
   /*
+   * ‎**מפתח היום — כדי שחצות יביא נתונים חדשים ולא רק יסנן ישנים.**
+   *
+   * ‎`today` נשלף פעם אחת לטווח היום שהיה בזמן הטעינה. שעון חי מסיר
+   * ממנו את פגישות אתמול, אבל אינו יכול לגלות את פגישות היום החדש —
+   * והרשימה נשארת „מלאה” (`today !== null`), ולכן הדירוג ממשיך
+   * להכריז בזמן שפגישה בדחיפות 105 קיימת ואינה ידועה (ביקורת Codex).
+   *
+   * הגבול נמדד בשעון ישראל ולא בשעון הדפדפן, מאותה פונקציה שהשרת
+   * משתמש בה — אחרת מתווך שנוסע לחו"ל מקבל „יום” אחר מהשרת.
+   */
+  const dayKey = jerusalemDayRange(now).start.getTime();
+  /*
    * כל מקור נתונים בדשבורד מאחורי היכולת שהשרת דורש עבורו — לא רק
    * ההצעות. כל אחת מהיכולות האלה ניתנת לשלילה פרטנית למשתמש בודד
    * (`capability-overrides`), ואז הנתיב מחזיר 403.
@@ -388,7 +401,7 @@ export default function DashboardPage() {
         .then(ok((r: { items: OfferRow[] }) => setOffers(r.items)))
         .catch(fail);
     }
-  }, [canSeeOffers, canSeeProperties, canSeeBuyers, canSeeLeads, canSeeCalendar]);
+  }, [canSeeOffers, canSeeProperties, canSeeBuyers, canSeeLeads, canSeeCalendar, dayKey]);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -470,7 +483,7 @@ export default function DashboardPage() {
         }
         setCoachFailed(true);
       });
-  }, [featuresReady, featuresFailed, hasCoach]);
+  }, [featuresReady, featuresFailed, hasCoach, dayKey]);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -508,9 +521,24 @@ export default function DashboardPage() {
 
   if (authLoading || !user) return <p aria-live="polite">טוען…</p>;
 
-  const urgentLeads = (leads ?? []).filter((l) => l.requiresHuman).slice(0, 2);
-  const newLeads = (leads ?? []).filter((l) => l.status === "new" && !l.requiresHuman).slice(0, 2);
-  const incomplete = (properties ?? []).filter((p) => p.readinessScore < 80).slice(0, 2);
+  /*
+   * ‎**בלי תקרה לכל מקור בנפרד.** ארבעה מקורות נחתכו לשניים לפני
+   * שנכנסו לרשימה, ולכן הגבול הסופי של שש שורות מעולם לא ראה את כל
+   * המועמדים: משרד עם שלושה לידים שדורשים טיפול אנושי (100) וליד
+   * חדש אחד (92) הציג את ה-92 ודילג על ה-100 השלישי — בזמן ששלוש
+   * מתוך שש המשבצות ריקות (ביקורת Codex).
+   *
+   * זו בדיוק התקלה שאמרתי שסגרתי בסבב 3, כשהסרתי חיתוך מוקדם
+   * **אחד** מתוך חמישה והשארתי את השאר. הגבול היחיד הוא זה שבסוף,
+   * אחרי המיון והסרת הכפילויות.
+   *
+   * ‎`incomplete.length` ו-`urgentLeads.length` נצרכים גם ככיתוב
+   * באריחי המונים, ושם התקרה שיקרה במפורש: „2 ממתינים להשלמת
+   * פרטים” כשיש שבעה.
+   */
+  const urgentLeads = (leads ?? []).filter((l) => l.requiresHuman);
+  const newLeads = (leads ?? []).filter((l) => l.status === "new" && !l.requiresHuman);
+  const incomplete = (properties ?? []).filter((p) => p.readinessScore < 80);
   const hotBuyers = (buyers ?? [])
     .filter((b) => b.maturity === "very_hot" || b.maturity === "hot");
   /*
@@ -594,7 +622,21 @@ export default function DashboardPage() {
    *
    * הגבול היחיד הוא זה שבסוף הצינור, אחרי שהכול מוזג ומוין.
    */
-  for (const rec of recs ?? []) {
+  /*
+   * ‎**פגישות מגיעות ממקור אחד — החי.**
+   *
+   * ‎`today_appointment` מהסוכן נושא כותרת קבועה ואינו נושא `startsAt`,
+   * ולכן אין דרך לדעת ממנו שהפגישה כבר התחילה: הוא נשאר בדחיפות 105
+   * כל עוד `recs` לא נטען מחדש, ומחזיק את ההדגשה גם ב-09:40. שעון חי
+   * אינו עוזר לו — הוא מרענן את התנאי המקומי, לא את תוכן ההמלצה
+   * (ביקורת Codex).
+   *
+   * תיקנתי בסבב הקודם את המסלול המקומי והשארתי את המסלול הזה, אף
+   * שהוא אותה שורה בדיוק. המיזוג המקומי הוא ממילא על-קבוצה — אותה
+   * הרשאת יומן, בלי `take: 5` — ולכן ההמלצה כאן היא כפילות שאינה
+   * יכולה להתיישן, וזו הסיבה להשמיט אותה ולא לנסות לתקן אותה.
+   */
+  for (const rec of (recs ?? []).filter((r) => r.type !== "today_appointment")) {
     push({
       key: `rec-${rec.type}-${rec.entityId ?? ""}`,
       priority: rec.priority,
@@ -712,7 +754,7 @@ export default function DashboardPage() {
       href: "/tasks",
     });
   }
-  for (const b of hotBuyers.slice(0, 2)) {
+  for (const b of hotBuyers) {
     push({
       key: `hot-${b.id}`,
       priority: PRIORITY.hotBuyer,
