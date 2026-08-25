@@ -1207,14 +1207,28 @@ function rowsOf(body: unknown): Record<string, unknown>[] {
    * הסיבה שרשימה מלאה נראתה כאן ריקה. שורות המעטפת עצמה (`code`,
    * ‎`message`) אינן מזיקות — הן נופלות בבדיקת המזהים.
    */
-  const envelope = asRecord(Array.isArray(root["responses"]) ? undefined : root["responses"]);
+  const raw = root["responses"];
+  /*
+   * המעטפת נפתחת גם כשהיא מערך — בדיוק כמו ב-`parse015Status`
+   * וב-`pbx015Scopes`. הצורה הנפוצה היא מערך של תשובה אחת, ובתוכה
+   * ‎`data` עם השורות; בלי הפתיחה נבחר המערך החיצוני עצמו, השורה
+   * היחידה שנבדקה הייתה המעטפת (`code`, `message`), והייבוא דיווח
+   * אפס הקלטות על תשובה מלאה (ביקורת Codex).
+   */
+  const envelope = asRecord(Array.isArray(raw) ? raw[0] : raw);
+  /*
+   * שדות המעטפת נבדקים **לפני** המעטפת עצמה, כדי שנתיב שמחזיר את
+   * השורות ישירות ב-`responses` ימשיך לעבוד: שם אין ב-`responses[0]`
+   * לא `data` ולא `recordings`, והבחירה נופלת חזרה על המערך.
+   */
   const candidates = [
     root["data"],
     root["recordings"],
     root["rows"],
-    root["responses"],
     envelope["data"],
     envelope["recordings"],
+    envelope["rows"],
+    raw,
     body,
   ];
   const rows = candidates.find((value) => Array.isArray(value));
