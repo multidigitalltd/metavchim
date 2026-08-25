@@ -5322,7 +5322,19 @@ a.mv-bar-row:focus-visible {
 .mv-kpi {
   display: flex;
   flex-direction: column;
-  height: 150px;
+  /*
+   * ‎`min-height` ולא `height`, מאותו טעם כמו שורת הניווט.
+   *
+   * החבילה נוקבת ב„Fixed height 150”, וזה נכון ב-100%. אבל
+   * ‎`--type-kpi` מוכפל בסקלת הנגישות, ולכן ב-200% המספר לבדו הוא
+   * 92px — בתוך תיבה שמכילה גם אריח 38, תווית והערה. גובה נעול
+   * היה חותך את המספר שהאריח כולו קיים בשבילו.
+   *
+   * הכלל „ALL TILES IN A ROW SHARE ONE HEIGHT” נשמר בלי הנעילה:
+   * ‎`align-items: stretch` על ה-grid משווה אותם ממילא, וה-`auto`
+   * שדוחף את המספר לתחתית ממשיך לעבוד.
+   */
+  min-height: 150px;
   padding: 20px 22px;
   border-radius: var(--radius);
   background: var(--d-bg, var(--domain-neutral-bg));
@@ -5444,8 +5456,9 @@ a.mv-bar-row:focus-visible {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 52px;
-  padding: 0 16px;
+  /* ‎`min-height` וריפוד אנכי — ‎`--type-metric` מגיע ל-40px ב-200% */
+  min-height: 52px;
+  padding: 6px 16px;
   border-radius: 15px;
   background: var(--d-bg, var(--domain-neutral-bg));
   border: 1px solid var(--d-line, var(--domain-neutral-line));
