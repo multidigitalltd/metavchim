@@ -20,10 +20,25 @@ import { join } from "node:path";
 /** שם טבלה ב-SQL — עם מרכאות כפולות או בלעדיהן. */
 const TABLE = String.raw`"?(\w+)"?`;
 
+/**
+ * כל ה-SQL של המיגרציות, **בסדר כרונולוגי**.
+ *
+ * ‎`readdirSync` אינו מבטיח סדר: הוא מחזיר את מה שמערכת הקבצים
+ * מחזירה. כל עוד הקריאה הייתה „מי בו-זמנית”, זה לא הפריע — אבל
+ * ‎`cascadingFromTenants` שואלת „מי הוצהר אחרון”, ושם סדר אקראי
+ * אומר שהצהרה ישנה יכולה לדרוס חדשה. אילוץ שהוחלף מ-CASCADE
+ * ל-RESTRICT היה נקרא הפוך, והבדיקה הייתה מדלגת על טבלה שדורשת
+ * מחיקה מפורשת — כלומר דליפה שקטה, בדיוק מה שהיא נועדה למנוע
+ * (ביקורת Codex).
+ *
+ * שמות התיקיות נושאים חותמת זמן (`20260825010000_call_routing`),
+ * ולכן מיון לקסיקוגרפי **הוא** מיון כרונולוגי.
+ */
 function migrationSql(prismaDir: string): string {
   const dir = join(prismaDir, "migrations");
   return readdirSync(dir, { recursive: true, encoding: "utf8" })
     .filter((name) => name.endsWith("migration.sql"))
+    .sort((a, b) => a.localeCompare(b, "en"))
     .map((name) => readFileSync(join(dir, name), "utf8"))
     .join("\n");
 }

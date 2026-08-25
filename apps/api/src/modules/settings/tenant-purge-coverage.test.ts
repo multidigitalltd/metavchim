@@ -45,17 +45,52 @@ const KEPT_ON_PURPOSE: Record<string, string> = {
   payout_ledger: "ספר כספי Append-Only, בלי פרט מזהה",
 };
 
-/** אילו מאפיינים נמחקים בפועל בשירות המחיקה. */
+/**
+ * אילו מאפיינים נמחקים בפועל — בשירות **ובעוזרים שהוא קורא להם.**
+ *
+ * ‎`deleteCoopDeals` מוחקת את חדר העסקה ואת השרשור שלו, ונקראת מכאן
+ * וגם משלושה מסלולי מחיקה אחרים. סריקה של הקובץ הזה בלבד לא ראתה
+ * אותה, וסימנה `coop_deals` ו-`coop_deal_messages` כלא-נמחקות
+ * (ביקורת Codex).
+ *
+ * הייבוא נגזר מהקובץ עצמו ואינו רשימה כתובה: עוזר מחיקה חדש ייכנס
+ * לסריקה בלי שאיש יזכור לעדכן כאן. רמה אחת מספיקה — עוזר שקורא
+ * לעוזר יהיה סימן שהמחיקה נעשתה מסובכת מדי מכדי להיקרא.
+ */
 function purgedAccessors(): Set<string> {
-  const source = readFileSync(SERVICE, "utf8");
+  const service = readFileSync(SERVICE, "utf8");
+  const sources = [service];
+
+  for (const match of service.matchAll(/from\s+"(\.[^"]+)"/gu)) {
+    const path = join(import.meta.dirname, `${match[1]!}.ts`);
+    try {
+      sources.push(readFileSync(path, "utf8"));
+    } catch {
+      // ייבוא של תיקייה או של חבילה — אינו קובץ עוזר
+    }
+  }
+
   const found = new Set<string>();
-  for (const match of source.matchAll(/\btx\.(\w+)\.deleteMany\(/gu)) found.add(match[1]!);
+  for (const source of sources) {
+    for (const match of source.matchAll(/\btx\.(\w+)\.deleteMany\(/gu)) found.add(match[1]!);
+  }
   return found;
 }
 
 describe("מחיקת משרד — כיסוי הטבלאות", () => {
   it("כל טבלה תחת RLS נמחקת, או רשומה במפורש כנשמרת בכוונה", () => {
-    const accessors = accessorsByTable(PRISMA_DIR, { requireTenantId: true });
+    /*
+     * **גם טבלה משותפת לשני משרדים.**
+     *
+     * סינון לפי קיום שדה `tenantId` היה שקט ומסוכן: הוא הוציא
+     * מהבדיקה את `coop_deals`, `coop_deal_messages`, `coop_interests`,
+     * `coop_offers` ו-`lead_referral_ratings` — שכולן **כן** נמחקות
+     * היום, בנתיבים ייעודיים עם `from/to`, `listing/buyer` או
+     * `seller/buyer`. הסרה של אחת מהמחיקות האלה לא הייתה מפילה דבר
+     * (ביקורת Codex). הן נבדקות עכשיו כמו כולן; מה שנדרש היה לגרום
+     * לסריקה לראות את העוזר, לא לוותר על הטבלאות.
+     */
+    const accessors = accessorsByTable(PRISMA_DIR);
     const purged = purgedAccessors();
     /*
      * מה שנופל עם שורת המשרד ב-CASCADE אינו צריך `deleteMany`.
@@ -67,7 +102,7 @@ describe("מחיקת משרד — כיסוי הטבלאות", () => {
     const missing = [...rlsTables(PRISMA_DIR)]
       .filter((table) => KEPT_ON_PURPOSE[table] === undefined)
       .filter((table) => !cascading.has(table))
-      // טבלה בלי מודל, או בלי `tenantId`, אינה נמחקת בדפוס הזה
+      // טבלה בלי מודל ב-Prisma אינה נגישה דרך `tx.<x>` ממילא
       .filter((table) => accessors.has(table))
       .filter((table) => !purged.has(accessors.get(table)!));
 
