@@ -135,6 +135,33 @@ const RULES = [
   },
   {
     /*
+     * ‎`style={{ fontSize: "calc(15px * var(--a11y-font-scale))" }}`
+     *
+     * שני הכללים שמעל נכתבו בכתיב של CSS בלבד, ובאותו סבב עצמו
+     * כתבתי את שתי הצורות האלה ב-TSX. כלומר השער הורחב בדיוק
+     * לצד אחד של אותה הצהרה, והגדלים שהוספתי ב-JSX נשארו בלי
+     * בדיקה (ביקורת Codex).
+     */
+    pattern: /fontSize: ["']calc\(([0-9.]+)px ?\* ?var\(--a11y-font-scale\)\)["']/gu,
+    fails: (m) => Number(m[1]) < FLOOR_PX,
+    describe: (m) => `${m[0]} — מתחת ל-${FLOOR_PX}px`,
+  },
+  {
+    /* ‎`style={{ fontSize: "var(--type-body)" }}` — אותה הכרעה בכתיב JSX */
+    pattern: /fontSize: ["']var\((--type-[a-z0-9-]+)\)["']/gu,
+    fails: (m) => {
+      const px = SCALE_STEPS.get(m[1]);
+      return px === undefined || px < FLOOR_PX;
+    },
+    describe: (m) => {
+      const px = SCALE_STEPS.get(m[1]);
+      return px === undefined
+        ? `${m[0]} — דרגה שאינה מוגדרת בסולם`
+        : `${m[0]} = ${px}px — מתחת ל-${FLOOR_PX}px`;
+    },
+  },
+  {
+    /*
      * ‎`font-size: var(--type-body)` — הדרגה נפתרת מהסולם עצמו.
      *
      * הערך נלקח מהצהרת הטוקן ב-`:root` (ראו `SCALE_STEPS`), ולכן

@@ -1315,7 +1315,15 @@ code {
   display: grid;
   place-items: center;
   font-weight: 700;
-  font-size: var(--type-caption);
+  /*
+   * ‎**סימן ולא טקסט, ולכן אינו גדל עם הגדרת הנגישות.**
+   *
+   * המרת הקובץ לסולם הגדילה גם את האות שבתוך הצורה הקבועה
+   * הזו, ואות בת 28 פיקסלים ב-200% אינה נכנסת ל-34. כאן זו
+   * מונוגרמה או סימן מזהה — לא תוכן שנקרא כדי להחליט משהו —
+   * ולכן גודל קבוע, ולא צורה שגדלה (ביקורת Codex).
+   */
+  font-size: 14px;
   flex: none;
 }
 .mv-sidebar-user-name {
@@ -1443,7 +1451,7 @@ code {
 }
 .mv-search-input {
   width: 100%;
-  height: 38px;
+  min-height: 38px;
   border: 1px solid var(--color-input-border);
   border-radius: 10px;
   background: var(--color-field);
@@ -1705,7 +1713,7 @@ code {
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  height: 40px;
+  min-height: 40px;
   padding: 0 18px;
   border: none;
   border-radius: 10px;
@@ -2193,8 +2201,8 @@ button.mv-list-row:hover {
   place-items: center;
 }
 .mv-score-ring > span {
-  width: 34px;
-  height: 34px;
+  width: calc(34px * var(--a11y-font-scale));
+  height: calc(34px * var(--a11y-font-scale));
   border-radius: 50%;
   background: var(--color-surface);
   display: grid;
@@ -2313,8 +2321,8 @@ button.mv-list-row:hover {
   display: grid;
   place-items: center;
   flex: none;
-  width: 26px;
-  height: 26px;
+  width: calc(26px * var(--a11y-font-scale));
+  height: calc(26px * var(--a11y-font-scale));
   border-radius: 999px;
   background: var(--color-primary-soft);
   color: var(--color-primary);
@@ -2389,14 +2397,20 @@ button.mv-list-row:hover {
 }
 /* מונה בתוך הלשונית — כמה יש שם, בלי להיכנס */
 .mv-tab-count {
-  min-width: 19px;
+  min-width: calc(19px * var(--a11y-font-scale));
   padding: 0 6px;
   border-radius: 999px;
   background: var(--color-seg-track);
   color: var(--color-text-soft);
   font-size: var(--type-caption);
   font-weight: 800;
-  line-height: 19px;
+  /*
+   * ‎יחס ולא 19 פיקסלים. הגופן כאן גדל עם ההגדרה, ותיבת שורה
+   * נעולה הפכה אותו לחורג: ב-200% הספרה היא 28 בתוך 19
+   * (ביקורת Codex). ‎`min-width` נשאר ומבטיח עיגול ולא סגלגל
+   * כשיש ספרה אחת.
+   */
+  line-height: 1.35;
   text-align: center;
 }
 .mv-entity-tabs > button[aria-selected="true"] .mv-tab-count {
@@ -3666,8 +3680,8 @@ a.mv-bar-row:focus-visible {
   flex: none;
   display: grid;
   place-items: center;
-  width: 46px;
-  height: 46px;
+  width: calc(46px * var(--a11y-font-scale));
+  height: calc(46px * var(--a11y-font-scale));
   border-radius: 50%;
   background: var(--color-surface);
   border: 2px solid var(--color-primary-accent);
@@ -4212,7 +4226,15 @@ a.mv-bar-row:focus-visible {
   border-radius: 50%;
   background: var(--color-hover-soft);
   color: var(--color-text-soft);
-  font-size: var(--type-caption);
+  /*
+   * ‎**סימן ולא טקסט, ולכן אינו גדל עם הגדרת הנגישות.**
+   *
+   * המרת הקובץ לסולם הגדילה גם את האות שבתוך הצורה הקבועה
+   * הזו, ואות בת 28 פיקסלים ב-200% אינה נכנסת ל-30. כאן זו
+   * מונוגרמה או סימן מזהה — לא תוכן שנקרא כדי להחליט משהו —
+   * ולכן גודל קבוע, ולא צורה שגדלה (ביקורת Codex).
+   */
+  font-size: 14px;
   font-weight: 800;
 }
 
@@ -4230,7 +4252,15 @@ a.mv-bar-row:focus-visible {
   border: 1px dashed var(--color-border-hover);
   border-radius: 12px;
   background: var(--color-surface);
-  font-size: var(--type-caption);
+  /*
+   * ‎**סימן ולא טקסט, ולכן אינו גדל עם הגדרת הנגישות.**
+   *
+   * המרת הקובץ לסולם הגדילה גם את האות שבתוך הצורה הקבועה
+   * הזו, ואות בת 28 פיקסלים ב-200% אינה נכנסת ל-120×72. כאן זו
+   * מונוגרמה או סימן מזהה — לא תוכן שנקרא כדי להחליט משהו —
+   * ולכן גודל קבוע, ולא צורה שגדלה (ביקורת Codex).
+   */
+  font-size: 14px;
   overflow: hidden;
 }
 
