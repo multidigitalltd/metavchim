@@ -154,6 +154,32 @@ describe("parseHebrewDateTime", () => {
     expect(il(parseHebrewDateTime("מחר בעוד שעה", NOW).date).day).toBe(2);
   });
 
+  /*
+   * ‎„מחר בעוד שלוש שעות”: מילת היום גוברת, אבל „שלוש” שייכת להיסט
+   * שנדחה — לא לשעון. בלי הסתרת הביטוי היא נקראה כ-15:00, כלומר
+   * מילת יום שגוברת על ההיסט הייתה גוררת אחריה חצי ממנו (ביקורת
+   * Codex). מה שנשאר הוא ברירת המחדל, והיא מסומנת ככזו.
+   */
+  it("והמספר שבהיסט שנדחה אינו הופך לשעה על השעון", () => {
+    const result = parseHebrewDateTime("מחר בעוד שלוש שעות", NOW);
+    expect(il(result.date).day).toBe(2);
+    expect(il(result.date).hour).toBe(10);
+    expect(result.timeExplicit).toBe(false);
+    expect(result.evidence ?? "").not.toContain("שלוש");
+  });
+
+  /*
+   * ‎`setSeconds(0, 0)` קיצץ, ולכן ב-10:00:59 „עוד דקה” הפכה לדקה
+   * אחת פחות חמישים ותשע שניות — תזכורת שמצלצלת כמעט מיד (ביקורת
+   * Codex). העיגול כלפי מעלה שומר שההמתנה לעולם אינה קצרה מהמבוקש.
+   */
+  it("היסט של דקות אינו מתקצר בגלל השניות שעל השעון", () => {
+    const almost = new Date("2026-02-01T07:00:59.000Z");
+    const at = parseHebrewDateTime("תזכיר לי עוד דקה", almost).date!;
+    expect(at.getTime() - almost.getTime()).toBeGreaterThanOrEqual(60_000);
+    expect(at.getSeconds()).toBe(0);
+  });
+
   it("בלי שעה — ברירת מחדל 10:00 ומסומן שלא נאמר במפורש", () => {
     const result = parseHebrewDateTime("פגישה מחר", NOW);
     expect(il(result.date).hour).toBe(10);

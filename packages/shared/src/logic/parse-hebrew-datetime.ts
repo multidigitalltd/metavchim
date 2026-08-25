@@ -154,28 +154,50 @@ function bareWord(raw: string | undefined): string | undefined {
  */
 const RELATIVE_TRIGGER = /(?<![\p{L}\p{N}])(ב?עוד|תוך)\s+/gu;
 
-/** מועמד אחד: מילת פתיחה, ומה שבא אחריה. */
-function offsetAt(lead: string, rest: string): { ms: number; evidence: string } | null {
-  const words = rest.split(/\s+/u);
-  const first = bareWord(words[0]);
+/**
+ * מועמד אחד: מילת פתיחה, ומה שבא אחריה.
+ *
+ * ‎`consumed` הוא מספר התווים של `rest` שהביטוי בלע. הוא נדרש כדי
+ * להסתיר את הביטוי מפענוח השעון — ראו `parseHebrewDateTime`.
+ */
+function offsetAt(
+  lead: string,
+  rest: string,
+): { ms: number; evidence: string; consumed: number } | null {
+  const words = [...rest.matchAll(/\S+/gu)].slice(0, 2);
+  const firstWord = words[0];
+  if (firstWord?.index === undefined) return null;
+  const endOf = (word: RegExpExecArray | RegExpMatchArray): number =>
+    (word.index ?? 0) + word[0].length;
+  const first = bareWord(firstWord[0]);
   if (first === undefined) return null;
 
   // „שעתיים”, „שעה” — היחידה עומדת לבדה ונושאת את הכמות שלה
   const alone = soloUnit(first);
-  if (alone !== undefined) return { ms: alone.ms, evidence: `${lead} ${first}` };
+  if (alone !== undefined) {
+    return { ms: alone.ms, evidence: `${lead} ${first}`, consumed: endOf(firstWord) };
+  }
 
   // „עשרים דקות”, „רבע שעה”, „3 ימים”
-  const second = bareWord(words[1]);
+  const secondWord = words[1];
+  const second = secondWord === undefined ? undefined : bareWord(secondWord[0]);
   const quantity = quantityOf(first);
-  if (quantity === undefined || second === undefined) return null;
+  if (quantity === undefined || second === undefined || secondWord === undefined) return null;
   const unit = countedUnit(second);
   if (unit === undefined || quantity > unit.max) return null;
   const ms = Math.round(quantity * unit.ms);
   if (!Number.isFinite(ms) || ms <= 0) return null;
-  return { ms, evidence: `${lead} ${first} ${second}` };
+  return { ms, evidence: `${lead} ${first} ${second}`, consumed: endOf(secondWord) };
 }
 
-export function parseRelativeOffset(text: string): { ms: number; evidence: string } | null {
+/**
+ * ‎`start`/`end` הם גבולות הביטוי בטקסט המקורי — לא שחזור מהראיה.
+ * „בעוד שלוש, שעות” מייצר ראיה מנוקה שאינה מחרוזת-משנה של המקור,
+ * ומחיקה לפי טקסט הייתה נכשלת בשקט דווקא בקלט שבור.
+ */
+export function parseRelativeOffset(
+  text: string,
+): { ms: number; evidence: string; start: number; end: number } | null {
   /*
    * **כל המופעים, לא הראשון.**
    *
@@ -187,8 +209,16 @@ export function parseRelativeOffset(text: string): { ms: number; evidence: strin
   for (const match of text.matchAll(RELATIVE_TRIGGER)) {
     const lead = match[1];
     if (lead === undefined || match.index === undefined) continue;
-    const resolved = offsetAt(lead, text.slice(match.index + match[0].length));
-    if (resolved !== null) return resolved;
+    const restStart = match.index + match[0].length;
+    const resolved = offsetAt(lead, text.slice(restStart));
+    if (resolved !== null) {
+      return {
+        ms: resolved.ms,
+        evidence: resolved.evidence,
+        start: match.index,
+        end: restStart + resolved.consumed,
+      };
+    }
   }
   return null;
 }
@@ -319,20 +349,37 @@ function parseExplicitDate(
 
 export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTime {
   const text = transcript.replace(/\s+/gu, " ").trim();
-  const time = parseTime(text);
-  const evidenceParts: string[] = [];
+  const relative = parseRelativeOffset(text);
 
   /*
    * "בעוד שעתיים" הוא אריתמטיקה על **הרגע** ולא על שעון הקיר, ולכן
    * הוא מחושב לפני המעבר לשעון ירושלמי: ביום מעבר שעון "בעוד שעתיים"
    * הוא בדיוק שעתיים, גם אם שעון הקיר קפץ.
    */
-  const relative = /מחר|מחרתיים|היום/u.test(text) ? null : parseRelativeOffset(text);
-  if (relative !== null) {
+  if (relative !== null && !/מחר|מחרתיים|היום/u.test(text)) {
     const at = new Date(now.getTime() + relative.ms);
-    at.setSeconds(0, 0);
+    /*
+     * עיגול **כלפי מעלה** לדקה השלמה.
+     *
+     * ‎`setSeconds(0, 0)` מקצץ, ולכן ב-10:00:59 „עוד דקה” היה הופך
+     * ל-10:01:00 — שנייה אחת, לא דקה (ביקורת Codex). תזכורת שמגיעה
+     * מוקדם מהמבוקש נראית כתקלה; מאוחר בשניות ספורות איש אינו מרגיש.
+     */
+    if (at.getSeconds() !== 0 || at.getMilliseconds() !== 0) at.setSeconds(60, 0);
     return { date: at, timeExplicit: true, evidence: relative.evidence };
   }
+
+  /*
+   * "מחר בעוד שלוש שעות" — היום המפורש גובר, אבל המספר שבביטוי
+   * היחסי אינו שעה על השעון. בלי הסתרתו `parseTime` קרא „שלוש”
+   * כ-15:00 והחזיר מחר ב-15:00 עם ראיה „מחר שלוש” — שעה שאיש לא
+   * אמר, שנראית על המסך כהחלטה (ביקורת Codex). הביטוי יורד, ונשארת
+   * ברירת המחדל המוצהרת.
+   */
+  const clockText =
+    relative === null ? text : `${text.slice(0, relative.start)} ${text.slice(relative.end)}`;
+  const time = parseTime(clockText);
+  const evidenceParts: string[] = [];
 
   // מכאן והלאה החישוב הוא בשעון קיר ירושלמי, והמרה אחת בסוף
   const base = toJerusalemWall(now);
