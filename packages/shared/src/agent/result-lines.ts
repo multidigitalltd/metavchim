@@ -1,5 +1,6 @@
 import { COOP_DEAL_STAGE_LABELS, type CoopDealStage } from "../logic/coop-deal.js";
 import { formatJerusalemDate, formatJerusalemTime } from "../logic/israel-time.js";
+import { CALL_OUTCOME_LABELS } from "../schemas/labels.js";
 
 /**
  * התשובה לשאילתה — **שדות, תוויות וסדר, במקום אחד לשני המסכים.**
@@ -42,16 +43,20 @@ const CALL_DIRECTION_LABELS: Record<string, string> = {
   outbound: "יוצאת",
 };
 
-const CALL_OUTCOME_SHORT: Record<string, string> = {
-  answered: "נענתה",
-  missed: "לא נענתה",
-};
-
 /** שורה אחת בתשובה — כותרת, פרטים, ולאן ממשיכים. */
 export interface AgentResultRow {
   label: string;
   /** הפרטים שמתחת לכותרת, כבר מחוברים. ריק = אין מה להוסיף. */
   detail: string;
+  /**
+   * הטלפון — **בשדה נפרד ולא בתוך `detail`.**
+   *
+   * הוא נשלח למתווך אבל **לעולם אינו נשמר בזיכרון השיחה**, שנוסע
+   * בתור הבא לפרומפט של מודל חיצוני. הפרדה מבנית ולא סינון של
+   * מחרוזת: מספר שנבלע בתוך `detail` היה זולג לזיכרון ביום שמישהו
+   * מוסיף אותו שם בלי לשים לב.
+   */
+  phone?: string;
   /** קישור יחסי למסך המלא של השורה, כשיש כזה. */
   href?: string;
 }
@@ -98,6 +103,17 @@ function price(agorot: unknown): string | null {
 
 function text(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
+}
+
+/**
+ * הטלפון של השורה — **בשני השמות שקיימים בפועל.**
+ *
+ * פעולות השיחה מחזירות `contactPhone`, והשאר `phone`. הסורק הכללי
+ * שקדם לכאן קיבל את שניהם, וקריאה של אחד בלבד הייתה מוחקת מספרים
+ * מחצי מהצורות — אותה נסיגה שבגללה השדה הזה נוסף מלכתחילה.
+ */
+function phoneOf(record: Record<string, unknown>): string | null {
+  return text(record["phone"]) ?? text(record["contactPhone"]);
 }
 
 function rowsOf(value: unknown): Record<string, unknown>[] {
@@ -156,9 +172,23 @@ export function agentResultList(data: unknown): AgentResultList | null {
               text((property as Record<string, unknown>)["address"]))
             : null;
         const score = typeof match["score"] === "number" ? `${match["score"]}%` : null;
+        /*
+         * **שתי צורות הפוכות של אותה שאלה.**
+         *
+         * „התאמות לנכס” מחזירה קונים, ו„התאמות לקונה” מחזירה
+         * נכסים — עם `property` מקונן ובלי `buyerName`. נפילה
+         * אחידה ל„קונה של סוכן אחר” תייגה כל שורה בצד השני של
+         * המשוואה בשם של ישות שאינה שם בכלל (ביקורת Codex).
+         *
+         * לכן: שם הקונה כשיש, אחרת הנכס — והנפילה האנונימית
+         * נשמרת למה שהיא נועדה לו, קונה של סוכן אחר ברשימה
+         * שמרכזה נכס.
+         */
+        const buyerName = text(match["buyerName"]);
+        const label = buyerName ?? address ?? "קונה של סוכן אחר";
         return {
-          label: text(match["buyerName"]) ?? "קונה של סוכן אחר",
-          detail: join([address, score, text(match["explanation"])]),
+          label,
+          detail: join([label === address ? null : address, score, text(match["explanation"])]),
           ...(text(match["propertyId"]) !== null
             ? { href: `/properties/${String(match["propertyId"])}` }
             : {}),
@@ -210,13 +240,18 @@ export function agentResultList(data: unknown): AgentResultList | null {
          * מספר לא מוכר נשאר מספר. „לא מזוהה” בלבד היה מוחק בדיוק
          * את מה שהמתווך צריך כדי לחזור אליו.
          */
-        label: text(c["contactName"]) ?? text(c["phone"]) ?? "מספר לא מזוהה",
+        label: text(c["contactName"]) ?? phoneOf(c) ?? "מספר לא מזוהה",
         detail: join([
           CALL_DIRECTION_LABELS[String(c["direction"])],
-          CALL_OUTCOME_SHORT[String(c["outcome"])],
+          CALL_OUTCOME_LABELS[String(c["outcome"])],
           whenText(c["occurredAt"]),
           text(c["summary"]),
         ]),
+        /*
+         * המספר נשלח גם כשיש שם: „תחזור לשרה” בלי מספר מחייב
+         * בדיוק את הכניסה לדשבורד שהסוכן קיים כדי לחסוך.
+         */
+        ...(phoneOf(c) !== null ? { phone: phoneOf(c)! } : {}),
         href: "/calls",
       })),
     };
@@ -251,6 +286,12 @@ export function agentResultList(data: unknown): AgentResultList | null {
           Array.isArray(b["cities"]) ? b["cities"].join(" / ") : null,
           price(b["budgetMaxAgorot"]) === null ? null : `עד ${price(b["budgetMaxAgorot"])!}`,
         ]),
+        /*
+         * `summarizeData` הציג את הטלפון, והמנסח הזה קודם לו —
+         * ולכן השמטתו כאן הייתה **נסיגה**: חיפוש קונים היה מחזיר
+         * קריטריונים עשירים יותר ומספר אחד פחות (ביקורת Codex).
+         */
+        ...(phoneOf(b) !== null ? { phone: phoneOf(b)! } : {}),
         ...(text(b["id"]) !== null ? { href: `/buyers/${String(b["id"])}` } : {}),
       })),
     };
@@ -286,8 +327,15 @@ export function agentResultList(data: unknown): AgentResultList | null {
   return null;
 }
 
-/** כמה שורות נשלחות בהודעה אחת — מעבר לזה זה גלילה, לא תשובה. */
-const MAX_LINES = 8;
+/**
+ * כמה שורות נלקחות מהתוצאה — **לתשובה ולזיכרון גם יחד.**
+ *
+ * שתי תקרות נפרדות היו שוברות את ההמשך הרב-תורי: המתווך רואה שורה
+ * שביעית, אומר „תקבע לשביעי”, והזיכרון שנשלח לתור הבא מכיר חמש
+ * (ביקורת Codex). מה שנראה ומה שנזכר חייבים להיות אותה רשימה
+ * בדיוק — ולכן אותו קבוע.
+ */
+export const AGENT_RESULT_ROWS = 8;
 
 /**
  * אותה תשובה, כטקסט לוואטסאפ. `null` כשהצורה אינה מוכרת — הקורא
@@ -298,9 +346,9 @@ export function agentResultText(data: unknown): string | null {
   if (list === null) return null;
   if (list.rows.length === 0) return list.emptyText;
 
-  const shown = list.rows.slice(0, MAX_LINES);
+  const shown = list.rows.slice(0, AGENT_RESULT_ROWS);
   const lines = shown.map((row) =>
-    row.detail === "" ? `• ${row.label}` : `• ${row.label} — ${row.detail}`,
+    [`• ${row.label}`, row.detail, row.phone].filter((part) => part !== undefined && part !== "").join(" — "),
   );
   /*
    * „ועוד N” נאמר במפורש. רשימה שנחתכת בשקט נקראת כרשימה מלאה,

@@ -102,8 +102,24 @@ describe("התאמות — מערך חשוף, שאף מסך לא זיהה", () =
     expect(text).toContain("92%");
   });
 
-  it("קונה של סוכן אחר נשאר בלי שם ולא נעלם מהרשימה", () => {
+  /*
+   * „התאמות לנכס” מחזירה קונים, ו„התאמות לקונה” מחזירה נכסים —
+   * שתי צורות הפוכות של אותה שאלה. הבחנה ביניהן היא ההבדל בין
+   * רשימה נכונה לרשימה שכל שורה בה מתויגת בשם של ישות אחרת.
+   */
+  it("שורה שממוקדת בקונה — הנכס הוא הכותרת, ולא „קונה של סוכן אחר”", () => {
     const text = agentResultText([{ ...matches[0], buyerName: null }])!;
+    expect(text).toContain("דירת 4 חדרים");
+    expect(text).not.toContain("קונה של סוכן אחר");
+    // והכתובת אינה מופיעה פעמיים — פעם ככותרת ופעם בפרטים
+    expect(text.match(/דירת 4 חדרים/gu)).toHaveLength(1);
+  });
+
+  it("קונה של סוכן אחר ברשימה שמרכזה נכס — הנפילה האנונימית נשמרת", () => {
+    // `listForProperty` מחזירה שורות בלי `property` מקונן
+    const text = agentResultText([
+      { id: "m2", propertyId: "p1", buyerId: "b2", score: 71, explanation: "עיר", buyerName: null },
+    ])!;
     expect(text).toContain("קונה של סוכן אחר");
   });
 });
@@ -172,5 +188,53 @@ describe("הגבולות", () => {
   it("שורה בלי פרטים אינה משאירה מקף יתום", () => {
     const text = agentResultText({ tasks: [{ id: "t", title: "משימה" }] })!;
     expect(text).toBe("• משימה");
+  });
+});
+
+describe("הטלפון — מה שהמנסח הקודם הציג, ואסור היה לאבד", () => {
+  it("קונה נושא את המספר שלו", () => {
+    const text = agentResultText({
+      buyers: [{ id: "b", name: "משה כהן", cities: ["רמת גן"], phone: "0501234567" }],
+    })!;
+    expect(text).toContain("0501234567");
+  });
+
+  it("שיחה נושאת מספר גם כשיש שם", () => {
+    const text = agentResultText({
+      calls: [
+        {
+          id: "c",
+          direction: "inbound",
+          contactName: "שרה לוי",
+          phone: "0521111111",
+          occurredAt: "2026-08-24T11:30:00Z",
+          outcome: "answered",
+        },
+      ],
+    })!;
+    expect(text).toContain("שרה לוי");
+    expect(text).toContain("0521111111");
+  });
+
+  it("המספר בשדה נפרד, ולא בתוך `detail` שנשמר לזיכרון", () => {
+    const list = agentResultList({
+      buyers: [{ id: "b", name: "משה כהן", cities: [], phone: "0501234567" }],
+    })!;
+    expect(list.rows[0]!.phone).toBe("0501234567");
+    expect(list.rows[0]!.detail).not.toContain("050");
+  });
+});
+
+describe("תוצאת השיחה — כל הערכים שהסכימה מקבלת", () => {
+  it.each([
+    ["answered", "נענתה"],
+    ["missed", "לא נענתה"],
+    ["no_answer", "אין מענה"],
+    ["voicemail", "תא קולי"],
+  ])("%s ⟵ %s", (outcome, label) => {
+    const text = agentResultText({
+      calls: [{ id: "c", direction: "inbound", phone: "050", occurredAt: "2026-08-24T11:30:00Z", outcome }],
+    })!;
+    expect(text).toContain(label);
   });
 });

@@ -1,3 +1,5 @@
+import { AGENT_RESULT_ROWS, agentResultList } from "@metavchim/shared";
+
 /**
  * שתי קריאות של אותן תוצאות — אחת למתווך, אחת לזיכרון השיחה.
  *
@@ -20,9 +22,6 @@
  * לזיכרון בלי שמישהו יוסיף אותו לכאן במפורש.
  */
 
-/** תקרת התוצאות שנאספות — ראש הרשימה הוא מה שמפנים אליו. */
-const MAX_ROWS = 5;
-
 interface ResultRow {
   label: string;
   phone?: string;
@@ -31,15 +30,33 @@ interface ResultRow {
 /**
  * שורות התוצאה לפי הסדר שהוחזר.
  *
+ * **קודם הרשימה המשותפת, ורק אחר כך הסריקה הכללית.**
+ *
+ * זו לא אופטימיזציה אלא מה שמחזיק את ההמשך הרב-תורי: התשובה
+ * שנשלחה למתווך נבנית מ-`agentResultList`, וכשהזיכרון נבנה מסריקה
+ * אחרת — עם תקרה אחרת ועם שמות משדות אחרים — נוצר פער שהמתווך
+ * נופל לתוכו. אחרי `show_calls` אפילו „הראשון מהם” לא היה מוכר,
+ * כי שורת שיחה נושאת `contactName` ולא `name` (ביקורת Codex).
+ *
+ * הסריקה הכללית נשארת לצורות שהרשימה המשותפת אינה מכירה — כרטיס
+ * יחיד, ותוצאות של פעולות שאינן קריאה.
+ *
  * `data` מגיע כמערך או כאובייקט של מערכים (`{buyers: [...]}`),
  * ושתי הצורות נסרקות באותו אופן.
  */
 function resultRows(data: unknown): ResultRow[] {
+  const shared = agentResultList(data);
+  if (shared !== null) {
+    return shared.rows
+      .slice(0, AGENT_RESULT_ROWS)
+      .map((row) => (row.phone === undefined ? { label: row.label } : { label: row.label, phone: row.phone }));
+  }
+
   const rows: ResultRow[] = [];
   const collect = (items: unknown): void => {
     if (!Array.isArray(items)) return;
     for (const item of items) {
-      if (rows.length >= MAX_ROWS) return;
+      if (rows.length >= AGENT_RESULT_ROWS) return;
       if (typeof item !== "object" || item === null) continue;
       const record = item as Record<string, unknown>;
       const label = record["name"] ?? record["title"] ?? record["marketingTitle"];
