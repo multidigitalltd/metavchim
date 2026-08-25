@@ -1,6 +1,11 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+  accessorsByTable,
+  cascadingFromTenants,
+  rlsTables,
+} from "../../common/rls-tables.testkit";
 
 /**
  * **מחיקת משרד מוחקת כל טבלה שיש בה נתוני דייר.**
@@ -40,53 +45,6 @@ const KEPT_ON_PURPOSE: Record<string, string> = {
   payout_ledger: "ספר כספי Append-Only, בלי פרט מזהה",
 };
 
-function migrationSql(): string {
-  const dir = join(PRISMA_DIR, "migrations");
-  return readdirSync(dir, { recursive: true, encoding: "utf8" })
-    .filter((name) => name.endsWith("migration.sql"))
-    .map((name) => readFileSync(join(dir, name), "utf8"))
-    .join("\n");
-}
-
-/** אילו טבלאות תחת RLS — מהמיגרציות, לא מרשימה ידנית. */
-function rlsTables(): Set<string> {
-  const sql = migrationSql();
-  const enabled = new Set<string>();
-  for (const match of sql.matchAll(/ALTER TABLE\s+(\w+)\s+ENABLE ROW LEVEL SECURITY/gu)) {
-    enabled.add(match[1]!);
-  }
-  for (const block of sql.matchAll(/FOREACH\s+\w+\s+IN ARRAY ARRAY\[([^\]]+)\]/gu)) {
-    for (const name of block[1]!.matchAll(/'(\w+)'/gu)) enabled.add(name[1]!);
-  }
-  for (const match of sql.matchAll(/ALTER TABLE\s+(\w+)\s+DISABLE ROW LEVEL SECURITY/gu)) {
-    enabled.delete(match[1]!);
-  }
-  return enabled;
-}
-
-/**
- * `model PropertyMedia { … @@map("property_media") }` ⟵ `propertyMedia`.
- *
- * **רק מודלים שיש בהם `tenantId`.** טבלה משותפת לשני משרדים —
- * `coop_deals` עם `listingTenantId`/`buyerTenantId`, או
- * `coop_deal_messages` עם `authorTenantId` — אינה שייכת לדייר אחד,
- * ומחיקתה בשמו הייתה מוחקת את הרשומה של המשרד השני. אין שם
- * `deleteMany({ where: { tenantId } })` שאפשר לכתוב בכלל, ולכן זו
- * הבחנה מבנית ולא פטור.
- */
-function purgeableAccessorsByTable(): Map<string, string> {
-  const schema = readFileSync(join(PRISMA_DIR, "schema.prisma"), "utf8");
-  const byTable = new Map<string, string>();
-  for (const block of schema.matchAll(/model\s+(\w+)\s*\{([\s\S]*?)\n\}/gu)) {
-    const model = block[1]!;
-    const body = block[2]!;
-    if (!/^\s*tenantId\s/mu.test(body)) continue;
-    const mapped = /@@map\("(\w+)"\)/u.exec(body)?.[1];
-    byTable.set(mapped ?? model, model.charAt(0).toLowerCase() + model.slice(1));
-  }
-  return byTable;
-}
-
 /** אילו מאפיינים נמחקים בפועל בשירות המחיקה. */
 function purgedAccessors(): Set<string> {
   const source = readFileSync(SERVICE, "utf8");
@@ -97,11 +55,18 @@ function purgedAccessors(): Set<string> {
 
 describe("מחיקת משרד — כיסוי הטבלאות", () => {
   it("כל טבלה תחת RLS נמחקת, או רשומה במפורש כנשמרת בכוונה", () => {
-    const accessors = purgeableAccessorsByTable();
+    const accessors = accessorsByTable(PRISMA_DIR, { requireTenantId: true });
     const purged = purgedAccessors();
+    /*
+     * מה שנופל עם שורת המשרד ב-CASCADE אינו צריך `deleteMany`.
+     * דרישה כזו הייתה ממלאת את הרשימה בשורות שאינן עושות דבר, ובתוך
+     * רשימה כזו שורה חסרה נבלעת — כלומר בדיוק הפוך מהמטרה.
+     */
+    const cascading = cascadingFromTenants(PRISMA_DIR);
 
-    const missing = [...rlsTables()]
+    const missing = [...rlsTables(PRISMA_DIR)]
       .filter((table) => KEPT_ON_PURPOSE[table] === undefined)
+      .filter((table) => !cascading.has(table))
       // טבלה בלי מודל, או בלי `tenantId`, אינה נמחקת בדפוס הזה
       .filter((table) => accessors.has(table))
       .filter((table) => !purged.has(accessors.get(table)!));
@@ -110,7 +75,7 @@ describe("מחיקת משרד — כיסוי הטבלאות", () => {
   });
 
   it("הרשימה של „נשמר בכוונה” אינה מכילה טבלה שכבר אינה תחת RLS", () => {
-    const tables = rlsTables();
+    const tables = rlsTables(PRISMA_DIR);
     const stale = Object.keys(KEPT_ON_PURPOSE).filter((table) => !tables.has(table));
     expect(stale).toEqual([]);
   });
