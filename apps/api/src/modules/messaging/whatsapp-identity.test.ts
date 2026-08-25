@@ -259,16 +259,25 @@ describe("מכשיר אחד גם במקביל", () => {
   it("וקישור וניתוק נכנסים לתור על אותו חשבון", () => {
     const bind = link.slice(link.indexOf("private async bind("), link.indexOf("private async lock("));
     expect(bind).toContain("await this.lock(tx, userId)");
-    expect(bind).toContain("this.revokedSince(userId, issuedAt)");
+    expect(bind).toContain("(await this.generation(userId)) !== generation");
     const revoke = link.slice(link.indexOf("private async revokeWithin("));
     expect(revoke).toContain("await this.lock(tx, userId)");
     // החותמת נכתבת לפני הכתיבה במסד, בתוך הנעילה
-    expect(revoke.indexOf("wa-link:revoked:")).toBeLessThan(revoke.indexOf("updateMany"));
+    expect(revoke.indexOf("wa-link:gen:")).toBeLessThan(revoke.indexOf("updateMany"));
   });
 
-  it("והקוד נושא את מועד ההפקה שלו", () => {
+  /*
+   * שעון אינו סדר: שתי פעולות באותה מילישנייה נראות „בו-זמניות”,
+   * והפרשי שעונים בין תהליכים יכולים אפילו להפוך את היחס. הדור
+   * מקודד בדיוק את הסדר שהנעילה כבר קבעה.
+   */
+  it("והקוד נושא את הדור שבו הופק — לא שעה", () => {
     const issue = link.slice(link.indexOf("async issueCode("), link.indexOf("async redeemCode("));
-    expect(issue).toContain("issuedAt: Date.now()");
+    expect(issue).toContain("this.generation(userId)");
+    expect(issue).toContain("JSON.stringify({ tenantId, userId, generation })");
+    expect(issue).not.toContain("Date.now()");
+    const revoke = link.slice(link.indexOf("private async revokeWithin("));
+    expect(revoke).toContain("redis.incr(`wa-link:gen:${userId}`)");
   });
 
   /*

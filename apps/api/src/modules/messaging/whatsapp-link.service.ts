@@ -70,6 +70,15 @@ const UNLINKED_HINT_COOLDOWN_SECONDS = 24 * 60 * 60;
  */
 const INBOUND_CLAIM_SECONDS = 24 * 60 * 60;
 
+/**
+ * כמה זמן נשמר מונה הדורות של חשבון.
+ *
+ * ארוך בהרבה מחיי הקוד ומתחדש בכל ניתוק: מונה שפג בין ההפקה לניצול
+ * ייקרא כדור 0 ויפסול קוד תקין. שלושים יום הם סדר גודל אחר לגמרי
+ * מרבע שעה, ולכן זה אינו מצב שאפשר להיקלע אליו בפועל.
+ */
+const GENERATION_TTL_SECONDS = 30 * 24 * 60 * 60;
+
 /** למה הקישור נותק — נשמר כדי שהמסך יאמר משהו אמיתי. */
 export type LinkRevokeReason = "user" | "phone_changed" | "expired" | "relinked";
 
@@ -174,6 +183,16 @@ export class WhatsAppLinkService implements OnModuleDestroy {
      * הראשון, שהמסך שלו עדיין מציג אותו, היה שולח אותו ומקשר את
      * המכשיר שלו לחשבון של השני (ביקורת Codex). התנגשות מגרילה מחדש.
      */
+    /*
+     * **דור ולא שעה.**
+     *
+     * הקוד נושא את מספר הדור של החשבון ברגע ההפקה, וכל ניתוק מקדם
+     * אותו. ההשוואה בין השניים היא בדיוק הסדר שהנעילה כבר קבעה —
+     * בלי להישען על שעון, שאינו סדר: שתי פעולות באותה מילישנייה
+     * נראות כמו „בו-זמנית”, והפרשי שעונים בין תהליכים יכולים אפילו
+     * להפוך את היחס (ביקורת Codex).
+     */
+    const generation = await this.generation(userId);
     let body = "";
     let codeHmac = "";
     for (let attempt = 0; ; attempt += 1) {
@@ -183,8 +202,8 @@ export class WhatsAppLinkService implements OnModuleDestroy {
       codeHmac = this.hmac(body);
       const claimed = await this.redis.set(
         `wa-link:code:${codeHmac}`,
-        // `issuedAt` הוא מה שמאפשר לזהות אחר כך שהקוד קדם לניתוק
-        JSON.stringify({ tenantId, userId, issuedAt: Date.now() }),
+        // הדור הוא מה שמאפשר לזהות אחר כך שהקוד קדם לניתוק
+        JSON.stringify({ tenantId, userId, generation }),
         "EX",
         WHATSAPP_LINK_CODE_TTL_SECONDS,
         "NX",
@@ -243,7 +262,7 @@ export class WhatsAppLinkService implements OnModuleDestroy {
      */
     if (!timingSafeEqual(Buffer.from(codeHmac), Buffer.from(this.hmac(body)))) return null;
 
-    const claim = JSON.parse(raw) as { tenantId: string; userId: string; issuedAt?: number };
+    const claim = JSON.parse(raw) as { tenantId: string; userId: string; generation?: number };
     // קוד לשימוש אחד — נמחק לפני שהקישור נכתב, כדי ששני מכשירים
     // שישלחו אותו יחד לא ייצרו שני קישורים
     const consumed = await this.redis.del(`wa-link:code:${codeHmac}`);
@@ -275,7 +294,7 @@ export class WhatsAppLinkService implements OnModuleDestroy {
       claim.tenantId,
       claim.userId,
       SOURCE_CODE,
-      claim.issuedAt,
+      claim.generation,
     );
     if (!bound) return null;
     return { userId: claim.userId, tenantId: claim.tenantId };
@@ -323,7 +342,7 @@ export class WhatsAppLinkService implements OnModuleDestroy {
     tenantId: string,
     userId: string,
     source: string,
-    issuedAt?: number,
+    generation?: number,
   ): Promise<boolean> {
     const waIdHash = this.crypto.phoneHash(digits);
     const write = async (): Promise<boolean> =>
@@ -342,7 +361,7 @@ export class WhatsAppLinkService implements OnModuleDestroy {
          * וזה מה שהתור נותן: קוד שהופק **לפני** הניתוק כבר אינו
          * תקף, גם אם הניצול שלו התחיל קודם.
          */
-        if (issuedAt !== undefined && (await this.revokedSince(userId, issuedAt))) return false;
+        if (generation !== undefined && (await this.generation(userId)) !== generation) return false;
         /*
          * **וגם המצבה נבדקת כאן — בתוך הנעילה.**
          *
@@ -424,15 +443,21 @@ export class WhatsAppLinkService implements OnModuleDestroy {
   }
 
   /**
-   * האם נותק קישור לחשבון הזה **אחרי** שהקוד הופק.
+   * הדור הנוכחי של החשבון — **מונה, לא שעון.**
    *
-   * חותמת ב-Redis ולא שאילתה: ניתוק על חשבון שלא היה מקושר כלל אינו
-   * משאיר שורה במסד, ובדיוק המקרה הזה — „הפקתי קוד, התחרטתי וניתקתי”
-   * — הוא מה שצריך להיחסם. תוחלת החיים של החותמת כאורך חיי הקוד.
+   * כל ניתוק מקדם אותו, וקוד נושא את הדור שבו הופק. השוואה ביניהם
+   * אומרת „האם נותק משהו מאז ההפקה” בלי להישען על שעה: שתי פעולות
+   * שנעולות זו אחרי זו מקבלות ערכים שונים גם כשהן באותה מילישנייה,
+   * ושעונים שאינם מסונכרנים בין תהליכים אינם יכולים להפוך את היחס.
+   *
+   * ב-Redis ולא במסד: ניתוק על חשבון שלא היה מקושר כלל אינו משאיר
+   * שורה, ובדיוק המקרה הזה — „הפקתי קוד, התחרטתי וניתקתי” — הוא מה
+   * שצריך להיחסם. מפתח חסר נקרא כדור 0, וזה נכון: לפני הניתוק
+   * הראשון אין מה לחסום.
    */
-  private async revokedSince(userId: string, issuedAt: number): Promise<boolean> {
-    const at = await this.redis.get(`wa-link:revoked:${userId}`);
-    return at !== null && Number(at) >= issuedAt;
+  private async generation(userId: string): Promise<number> {
+    const value = await this.redis.get(`wa-link:gen:${userId}`);
+    return value === null ? 0 : Number(value);
   }
 
   /**
@@ -580,19 +605,18 @@ export class WhatsAppLinkService implements OnModuleDestroy {
   ): Promise<void> {
     await this.lock(tx, userId);
     /*
-     * **החותמת נכתבת בתוך הנעילה, לפני הכתיבה במסד.**
+     * **הדור מקודם בתוך הנעילה, לפני הכתיבה במסד.**
      *
-     * היא מה שאומר לניצול קוד שהתחיל קודם: „הקוד הזה קדם לניתוק”.
-     * בלעדיה הניצול היה יכול לכתוב קישור חדש מיד אחרי שהניתוק
+     * זה מה שאומר לניצול קוד שהתחיל קודם: „הקוד הזה קדם לניתוק”.
+     * בלעדיו הניצול היה יכול לכתוב קישור חדש מיד אחרי שהניתוק
      * הסתיים — כלומר „המכשיר נותק” על המסך ומכשיר מחובר במסד
-     * (ביקורת Codex). התפוגה כאורך חיי הקוד: אחריה אין מה לחסום.
+     * (ביקורת Codex).
+     *
+     * תפוגה ארוכה בהרבה מחיי הקוד, ומתחדשת בכל ניתוק: מונה שפג בין
+     * ההפקה לניצול היה נקרא כדור 0 ופוסל קוד תקין.
      */
-    await this.redis.set(
-      `wa-link:revoked:${userId}`,
-      String(Date.now()),
-      "EX",
-      WHATSAPP_LINK_CODE_TTL_SECONDS,
-    );
+    await this.redis.incr(`wa-link:gen:${userId}`);
+    await this.redis.expire(`wa-link:gen:${userId}`, GENERATION_TTL_SECONDS);
     /*
      * **וגם הקוד שממתין נשרף.**
      *
