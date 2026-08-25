@@ -41,7 +41,19 @@ describe("מספר קבוצה שגוי אינו נראה כמו הקלטה שנ�
   });
 
   it("ונתיב עם מספר אחד אינו מנסה פעמיים", () => {
-    expect(source).toContain("groups.length > 0 ? groups : [ids.recordGroup]");
+    expect(source).toContain("fromPath.length > 0 ? fromPath : [ids.recordGroup]");
+  });
+
+  /*
+   * בעל הפלטפורמה אישר שהגזירה מהנתיב שגויה: בנתיב `54936/12048/…`
+   * הקבוצה היא **השני**, ולכל משרד מספר אחר. לכן היא הגדרה של
+   * המשרד ולא נגזרת — והנתיב נשאר נפילה לאחור בלבד.
+   */
+  it("וקבוצה שהוגדרה במפורש קודמת לניחוש מהנתיב", () => {
+    expect(source).toContain('const configured = (config["recordGroup"] ?? "").trim()');
+    expect(source).toContain(
+      'configured === "" ? guesses : [configured, ...guesses.filter((g) => g !== configured)]',
+    );
   });
 
   /*

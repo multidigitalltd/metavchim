@@ -247,10 +247,23 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException("חסרים פרטי התחברות למרכזייה");
     }
 
+    /*
+     * קבוצת ההקלטות היא **הגדרה של המשרד**, ולכל משרד מספר אחר.
+     * בלעדיה אין מה לבקש: התיעוד דורש `recordgroup` או `customer`,
+     * והבקשה בלי שניהם היא בדיוק מה ששלחנו עד עכשיו.
+     */
+    const recordGroup = (config["recordGroup"] ?? "").trim();
+    if (recordGroup === "") {
+      throw new BadRequestException(
+        "חסר מספר קבוצת ההקלטות (recordgroup) בהגדרות המרכזייה",
+      );
+    }
+
     const res = await fetch(
       build015RecordingsListUrl({
         authUsername,
         authPassword,
+        recordGroup,
         fromEpochSeconds: from.getTime() / 1000,
         toEpochSeconds: to.getTime() / 1000,
       }),
@@ -551,8 +564,19 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
      * לחלוטין לתשובה על הקלטה שנמחקה — ולכן ניחוש מתוקן היה רק
      * מחליף הנחה בהנחה. שניהם נשלחים, והספק מכריע.
      */
-    const groups = pbx015RecordingGroups(job.recordingPath);
-    const candidates = groups.length > 0 ? groups : [ids.recordGroup];
+    /*
+     * **ההגדרה קודמת לנתיב.**
+     *
+     * הגזירה מהנתיב הייתה ניחוש מלכתחילה, ובעל הפלטפורמה אישר שהיא
+     * שגויה: בנתיב `54936/12048/…` הקבוצה היא השני, ולכל משרד מספר
+     * אחר. מה שמוגדר במפורש הוא מה שנשלח; הנתיב נשאר נפילה לאחור
+     * למשרד שטרם מילא את השדה, כדי שלא יאבד את מה שכבר עבד.
+     */
+    const configured = (config["recordGroup"] ?? "").trim();
+    const fromPath = pbx015RecordingGroups(job.recordingPath);
+    const guesses = fromPath.length > 0 ? fromPath : [ids.recordGroup];
+    const candidates =
+      configured === "" ? guesses : [configured, ...guesses.filter((g) => g !== configured)];
     let lastRefusal: { code: string; detail: string } | null = null;
 
     for (const [index, recordGroup] of candidates.entries()) {

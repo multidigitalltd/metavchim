@@ -28,6 +28,7 @@ describe("בניית בקשת הרשימה", () => {
   const url = build015RecordingsListUrl({
     authUsername: "user",
     authPassword: "p@ss word",
+    recordGroup: "12048",
     fromEpochSeconds: 1787000000,
     toEpochSeconds: 1787999999,
   });
@@ -41,12 +42,16 @@ describe("בניית בקשת הרשימה", () => {
   });
 
   /*
-   * `recordgroup` **אינו** נשלח: ברירת המחדל היא כל הקבוצות של
-   * הלקוח, ומשרד יכול להחזיק כמה — קיבוע קבוצה אחת היה מייבא חלק
-   * מההקלטות ומשאיר את השאר מאחור בלי שאיש ישים לב.
+   * ‎`recordgroup` **חובה**, ולא ברירת מחדל.
+   *
+   * כאן עמדה בדיוק ההפך: בדיקה שאכפה שהוא **לא** יישלח, על סמך
+   * הנחה שברירת המחדל היא „כל הקבוצות של הלקוח”. התיעוד של 015
+   * אומר `recordgroup` או `customer` — „Yes, unless the other is
+   * specified” — כלומר הבקשה שלנו הייתה חסרה, וכנראה שהייבוא לא
+   * עבד מעולם. רשימה ריקה נראית בדיוק כמו „אין הקלטות”.
    */
-  it("אינה מקבעת קבוצת הקלטה אחת", () => {
-    expect(url).not.toContain("recordgroup=");
+  it("נושאת את קבוצת ההקלטות, כפי שהתיעוד דורש", () => {
+    expect(url).toContain("recordgroup=12048");
   });
 
   it("מבקשת רק הקלטות שהסתיימו", () => {
@@ -57,6 +62,7 @@ describe("בניית בקשת הרשימה", () => {
     const fractional = build015RecordingsListUrl({
       authUsername: "u",
       authPassword: "p",
+      recordGroup: "12048",
       fromEpochSeconds: 1787000000.9,
       toEpochSeconds: 1787999999.9,
     });
