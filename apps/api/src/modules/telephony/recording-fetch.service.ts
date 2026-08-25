@@ -13,6 +13,7 @@ import {
   MAX_RECORDING_BYTES,
   parse015RecordingResponse,
   parse015RecordingsList,
+  type Pbx015RecordingRow,
   pbx015ListRowKeys,
   parse015Status,
   pbx015RecordingPath,
@@ -138,6 +139,13 @@ export const RECORDING_ERRORS = {
 
 interface RecordingJob {
   callId: string;
+  /**
+   * מועד השיחה — נדרש לחלון הזמן של `recordings/list`.
+   *
+   * הרשימה של 015 מתבקשת בטווח זמנים, ולכן בלי המועד אין דרך לשאול
+   * את הספק מה המזהה האמיתי של ההקלטה הזו.
+   */
+  occurredAt: Date;
   tenantId: string;
   providerCallId: string;
   recordingPath: string;
@@ -518,7 +526,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
             },
           ],
         },
-        select: { id: true, providerCallId: true, providerRecordingPath: true },
+        select: { id: true, providerCallId: true, providerRecordingPath: true, occurredAt: true },
         orderBy: [
           { providerRecordingAttemptAt: { sort: "asc", nulls: "first" } },
           // בין אלה שטרם נוסו — הישנה קודם, כי הזמן שלה אוזל
@@ -536,6 +544,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       return calls.map((call) => ({
         callId: call.id,
         tenantId,
+        occurredAt: call.occurredAt,
         providerCallId: call.providerCallId!,
         recordingPath: call.providerRecordingPath!,
         secretsEncrypted: integration.secretsEncrypted,
@@ -678,6 +687,64 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       break;
     }
 
+    /*
+     * ‎**המזהה שמעולם לא נבדק — ועכשיו נשאלים עליו במקום לנחש.**
+     *
+     * הלולאה שלמעלה מנסה מטריצה של `recordgroup` × `uniqueid`, שתי
+     * צורות לכל אחד. ‎`recordid` נשלח בכל הניסיונות כערך **קבוע
+     * יחיד** — הוא היחיד שלא שונה מעולם, והוא היחיד שאנחנו מחלצים
+     * ממחרוזת: „הספרות אחרי הקו התחתון האחרון” בשם הקובץ.
+     *
+     * ההנחה הזו לא אומתה מול הספק אף פעם, וכל עוד היא שגויה שום
+     * צירוף של השניים האחרים לא יעזור — וזה בדיוק מה שנראה בשטח.
+     *
+     * ‎`recordings/list` מחזיר את המזהה מפי הספק עצמו. הקריאה נעשית
+     * **רק אחרי שכל הניסיונות נכשלו**, כלומר בקשה אחת נוספת במקרה
+     * שבו ממילא אין הקלטה — ולא עלות על המסלול המוצלח.
+     *
+     * זה תיקון שאינו תלוי בכך שהניתוח שלי נכון: הוא **מסיר את
+     * הניחוש** במקום להחליף אותו בניחוש אחר.
+     */
+    if (lastRefusal !== null && lastRefusal.code === "404") {
+      const authoritative = await this.recordIdFromProvider(job, {
+        authUsername,
+        authPassword,
+        recordGroups: groups,
+        uniqueIds,
+        derivedRecordId: ids.recordId,
+      });
+      if (authoritative !== null) {
+        const attempt = await this.attemptFetch(job, {
+          authUsername,
+          authPassword,
+          recordGroup: authoritative.recordGroup,
+          uniqueId: authoritative.uniqueId,
+          recordId: authoritative.recordId,
+        });
+        if (attempt.kind === "audio") {
+          /*
+           * זו התשובה לשאלה שהחזיקה את המסלול תקוע חודש, ולכן היא
+           * נרשמת במפורש ולא כהצלחה שקטה: אם המזהה מהספק שונה מזה
+           * שחילצנו, הפענוח של שם הקובץ הוא הבאג — ואפשר לתקן אותו
+           * במקור במקום להישען על הרשימה בכל משיכה.
+           */
+          this.logger.log(
+            `הקלטה נמצאה עם recordid מהספק: ${authoritative.recordId} ` +
+              `(חילצנו ${ids.recordId}${authoritative.recordId === ids.recordId ? "" : " — שונה"})` +
+              ` — ${job.callId}`,
+          );
+          await this.storeAudio(job, attempt.base64, attempt.contentType);
+          return;
+        }
+        if (attempt.kind === "refused") {
+          lastRefusal = { code: attempt.code, detail: attempt.detail };
+        } else {
+          // „audio” כבר טופל למעלה; מה שנשאר הוא „handled” — נרשם בפנים
+          return;
+        }
+      }
+    }
+
     if (lastRefusal !== null) {
       /*
        * הפרמטרים שנשלחו נכנסים לתיאור — **בלי האישורים.**
@@ -701,6 +768,89 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
         joinDetail(lastRefusal.detail, asked),
       );
     }
+  }
+
+  /**
+   * ‎`recordid` מפי הספק — במקום מחילוץ של שם הקובץ.
+   *
+   * ## למה רשימה ולא פענוח מתוקן
+   *
+   * אותו נימוק שכבר נכתב כאן על `recordgroup`: להחליף „הספרות אחרי
+   * הקו התחתון האחרון” ב„הספרות שלפניו” זה להחליף הנחה בהנחה.
+   * ‎`recordings/list` מחזיר את המזהה שהספק עצמו מכיר, וזו תשובה
+   * ולא ניחוש.
+   *
+   * ## חלון הזמן
+   *
+   * הרשימה מתבקשת בטווח, ולכן נלקח יום לכל צד סביב מועד השיחה.
+   * טווח צר מדי היה מפספס בגלל הפרשי אזור זמן אצל הספק; טווח רחב
+   * מדי מחזיר הרבה שורות בלי צורך.
+   *
+   * ## מה נרשם ומה לא
+   *
+   * ‎`uniqueid` הוא מזהה שיחה ולכן נרשם בצורה ובאורך בלבד, כמו בכל
+   * שאר המסלול הזה. מה שכן נרשם הוא **ספירות**: כמה שורות חזרו
+   * וכמה מהן נשאו מזהה — זה מה שמבדיל „הספק לא מכיר את ההקלטה”
+   * מ„הספק מכיר אותה ואנחנו שולחים מזהה אחר”.
+   */
+  private async recordIdFromProvider(
+    job: RecordingJob,
+    input: {
+      authUsername: string;
+      authPassword: string;
+      recordGroups: string[];
+      uniqueIds: string[];
+      derivedRecordId: string;
+    },
+  ): Promise<{ recordGroup: string; uniqueId: string; recordId: string } | null> {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const from = (job.occurredAt.getTime() - DAY_MS) / 1000;
+    const to = (job.occurredAt.getTime() + DAY_MS) / 1000;
+
+    for (const recordGroup of input.recordGroups) {
+      let rows: Pbx015RecordingRow[];
+      try {
+        const res = await fetch(
+          build015RecordingsListUrl({
+            authUsername: input.authUsername,
+            authPassword: input.authPassword,
+            recordGroup,
+            fromEpochSeconds: from,
+            toEpochSeconds: to,
+          }),
+          { signal: AbortSignal.timeout(60_000) },
+        );
+        if (!res.ok) {
+          this.logger.warn(`רשימת ההקלטות השיבה ${res.status} (${job.callId})`);
+          continue;
+        }
+        /*
+         * ‎`res.text()` ואז `JSON.parse` בתוך `try` — מאותו נימוק
+         * שכבר מנומק בייבוא: שגיאת פענוח נושאת קטע מהגוף, והגוף
+         * עלול להחזיר את כתובת הבקשה על אישוריה.
+         */
+        rows = parse015RecordingsList(JSON.parse(await res.text()), recordGroup);
+      } catch {
+        this.logger.warn(`רשימת ההקלטות לא נקראה (${job.callId})`);
+        continue;
+      }
+
+      const match = rows.find((row) => input.uniqueIds.includes(row.uniqueId));
+      if (match === undefined) {
+        this.logger.warn(
+          `הספק החזיר ${rows.length} הקלטות בקבוצה ${recordGroup} ואף אחת אינה השיחה הזו — ${job.callId}`,
+        );
+        continue;
+      }
+      if (match.recordId === undefined) {
+        this.logger.warn(
+          `הספק מכיר את השיחה בקבוצה ${recordGroup} אך שורתה בלי מזהה הורדה — ${job.callId}`,
+        );
+        continue;
+      }
+      return { recordGroup, uniqueId: match.uniqueId, recordId: match.recordId };
+    }
+    return null;
   }
 
   /**
