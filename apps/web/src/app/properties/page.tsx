@@ -346,22 +346,58 @@ export default function PropertiesPage() {
           </FilterBar>
 
           {visible.length === 0 ? (
+            /*
+             * **שני מצבי ריק שונים, ולא אחד** (SPEC-2 §5).
+             *
+             * עד עכשיו שניהם קיבלו „אף נכס לא תואם את הסינון”. למשרד
+             * שזה עתה נפתח ואין לו נכסים בכלל, המשפט הזה שגוי פעמיים:
+             * הוא מדבר על סינון שלא הופעל, והוא מציע פעולה — ניקוי
+             * סינון — שלא תעשה דבר. במסך הראשון שהמתווך רואה.
+             *
+             * הכלל של החבילה הוא „every empty state names the action
+             * that fills it”, וכדי לקיים אותו צריך קודם לדעת איזה
+             * מצב זה: אין נכסים, או אין התאמה לסינון.
+             */
             <div
               className="rounded-xl border p-8 text-center"
               style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
             >
-              <p className="mb-3">אף נכס לא תואם את הסינון.</p>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setFilters(EMPTY_FILTERS);
-                  setCity("הכל");
-                  setStatus("");
-                  setType("");
-                }}
-              >
-                נקה סינון
-              </Button>
+              {items.length === 0 ? (
+                <>
+                  <p className="mb-1 text-[19px] font-black">עוד לא הוספת נכסים</p>
+                  <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
+                    כל נכס שתוסיפו ייבדק מול הקונים שבמאגר, וההתאמות יחושבו לבד.
+                  </p>
+                  <div className="flex flex-wrap items-center justify-center gap-2.5">
+                    <Link href="/properties/new" className="mv-btn-action">
+                      <IconPlus s={16} /> נכס חדש
+                    </Link>
+                    {canVoice ? (
+                      <Link href="/voice" className="mv-btn-plain">
+                        <IconMic s={16} /> קליטה בקול
+                      </Link>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="mb-1 text-[19px] font-black">אין נכסים שמתאימים לסינון</p>
+                  <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
+                    יש {items.length} נכסים במאגר — הסינון הנוכחי לא מחזיר אף אחד מהם.
+                  </p>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setFilters(EMPTY_FILTERS);
+                      setCity("הכל");
+                      setStatus("");
+                      setType("");
+                    }}
+                  >
+                    ניקוי הסינון
+                  </Button>
+                </>
+              )}
             </div>
           ) : (
             <>
