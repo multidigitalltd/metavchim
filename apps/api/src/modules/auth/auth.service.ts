@@ -11,6 +11,7 @@ import {
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import type { RequestContext } from "../../common/tenant-context";
+import { WhatsAppLinkService } from "../messaging/whatsapp-link.service";
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12 שעות; Refresh בפעילות
 
@@ -140,6 +141,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly plans: PlanCatalogService,
+    private readonly whatsappLinks: WhatsAppLinkService,
   ) {}
 
   static hashToken(token: string): string {
@@ -364,7 +366,22 @@ export class AuthService {
       data.email = nextEmail;
     }
 
+    const phoneChanging = data.phone !== undefined && data.phone !== user.phone;
     const updated = await this.prisma.user.update({ where: { id: userId }, data });
+
+    /*
+     * **החלפת מספר מנתקת את קישור הוואטסאפ.**
+     *
+     * הקישור נוצר מול המספר הקודם, ומי שמעדכן כאן מספר עושה זאת
+     * בדרך כלל מפני שהוא **החליף** מכשיר או קו. השארת הקישור פתוחה
+     * הייתה משאירה מפתח פעיל למאגר אצל מי שמחזיק עכשיו במספר הישן.
+     *
+     * ניתוק ולא אימות שקט: המתווך יראה במסך שהחיבור נותק, ויקשר
+     * מחדש בקוד מהמכשיר שבידו — וזו בדיוק ההצהרה שהקישור אמור לשאת.
+     */
+    if (phoneChanging) {
+      await this.whatsappLinks.revoke(userId, "phone_changed");
+    }
 
     if (emailChanging) {
       /*
