@@ -179,9 +179,16 @@ function quantityOf(word: string): number | undefined {
  */
 function bareWord(raw: string | undefined): string | undefined {
   if (raw === undefined) return undefined;
-  const negative = /^-\d/u.test(raw);
   const cleaned = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
   if (cleaned === "") return undefined;
+  /*
+   * הסימן נבדק **צמוד לספרה הראשונה** ולא בתחילת האסימון, ובכל
+   * צורותיו. „‎(-2)‎” עטוף בסוגריים ו„‎−2‎” משתמש בסימן המינוס
+   * הטיפוגרפי — שניהם נוקו לכדי „2” חיובי (ביקורת Codex).
+   */
+  const first = raw.search(/[\p{L}\p{N}]/u);
+  const negative =
+    first > 0 && /[-−–—‒]/u.test(raw[first - 1] ?? "") && /^\d/u.test(cleaned);
   return negative ? `-${cleaned}` : cleaned;
 }
 
@@ -381,6 +388,8 @@ export function parseRelativeOffset(text: string): RelativeOffset | null {
   const masks: { start: number; end: number }[] = [];
   let chosen: RelativeOffset | null = null;
   let rejected: RelativeOffset | null = null;
+  /** סוף הביטוי הקודם — מילת התיקון חייבת לשבת בינו לבין הנוכחי. */
+  let previousEnd: number | null = null;
   for (const match of text.matchAll(RELATIVE_TRIGGER)) {
     const lead = match[1];
     if (lead === undefined || match.index === undefined) continue;
@@ -395,8 +404,22 @@ export function parseRelativeOffset(text: string): RelativeOffset | null {
       masks,
     };
     masks.push({ start: found.start, end: found.end });
+    const corrects =
+      previousEnd !== null && CORRECTION.test(text.slice(previousEnd, found.start));
+    previousEnd = found.end;
+
     if (found.ms === null) {
       rejected ??= found;
+      /*
+       * **תיקון אל ביטוי פסול מבטל את מה שתוקן.**
+       *
+       * „עוד שעה, לא, בעוד 900 שעות” — הדובר חזר בו מהשעה. ענף
+       * הדחייה יצא מהלולאה לפני בדיקת התיקון, ולכן השעה שנזנחה
+       * נשארה ונקבעה תזכורת למה שבוטל במפורש (ביקורת Codex).
+       * שדה ריק הוא התשובה הנכונה כאן: המתווך אמר משהו שאי אפשר
+       * לחשב, ועדיף שיראה זאת מאשר שיקבל את מה שביטל.
+       */
+      if (corrects) chosen = null;
       continue;
     }
     /*
@@ -408,8 +431,7 @@ export function parseRelativeOffset(text: string): RelativeOffset | null {
      * אינו התשובה: הוא היה שובר משפט שבו לביטוי השני יש נושא
      * משלו. מה שמכריע הוא מילת התיקון שביניהם.
      */
-    if (chosen === null) chosen = found;
-    else if (CORRECTION.test(text.slice(chosen.end, found.start))) chosen = found;
+    if (chosen === null || corrects) chosen = found;
   }
   return chosen ?? rejected;
 }
