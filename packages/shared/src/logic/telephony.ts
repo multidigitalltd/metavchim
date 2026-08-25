@@ -856,10 +856,24 @@ export interface CallAction {
  */
 export function callAction(event: TelephonyEvent, knownContact: boolean): CallAction {
   const finished = event.type === "ended" || event.type === "missed";
+  /*
+   * ‎**„נענתה” היא ראיה, ו-`ended` אינו ראיה.**
+   *
+   * ההסבר שלמעלה מבטיח „רק שיחה שנענתה”, אבל התנאי היה
+   * ‎`type === "ended"` בלבד — ואירוע ניתוק שהגיע **בלי משך** מסווג
+   * ‎`ended` מבלי שנאמר דבר על מענה. כלומר בדיוק השיחות שסטטוסן נרשם
+   * „לא ידוע” פתחו ליד בכרטיסייה, בסתירה למה שכתוב כאן (ביקורת
+   * Codex).
+   *
+   * זו אותה ראיה שקובעת את הסטטוס — משך חיובי — ולכן היא נבדקת פעם
+   * אחת ובאותו אופן. ליד שנפתח על סמך ניחוש הוא רשומה שמישהו יתקשר
+   * לפיה.
+   */
+  const spoke = event.durationSeconds !== undefined && event.durationSeconds > 0;
   return {
     logCall: finished,
     notify: event.type === "ringing" && event.direction === "inbound",
-    createLead: event.type === "ended" && !knownContact,
+    createLead: event.type === "ended" && spoke && !knownContact,
   };
 }
 

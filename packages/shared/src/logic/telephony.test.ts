@@ -110,7 +110,19 @@ describe("callAction", () => {
   });
 
   it("מספר לא מוכר שדיבר איתנו פותח ליד", () => {
-    expect(callAction(event({ type: "ended" }), false).createLead).toBe(true);
+    expect(callAction(event({ type: "ended", durationSeconds: 90 }), false).createLead).toBe(true);
+  });
+
+  /*
+   * ‎**אירוע ניתוק בלי משך אינו „דיבר איתנו”.**
+   *
+   * הבדיקה שמעליה נקראה „שדיבר איתנו” ובנתה אירוע בלי משך, ולכן היא
+   * אישרה בפועל את ההפך: שכל ניתוק פותח ליד. 015 שולח ניתוק גם על
+   * שיחה שאיש לא ענה לה, וזה הליד שנפתח על סמך כלום — ומישהו
+   * מתקשר לפיו.
+   */
+  it("ניתוק בלי משך אינו פותח ליד — אין ראיה שמישהו דיבר", () => {
+    expect(callAction(event({ type: "ended" }), false).createLead).toBe(false);
   });
 
   it("מספר לא מוכר שלא נענה לא פותח ליד — טעויות חיוג ומוקדנים", () => {
@@ -126,9 +138,10 @@ describe("callAction", () => {
    * דורשת שהסוכן טרח לחייג.
    */
   it("שיחה יוצאת שנענתה פותחת ליד — הסוכן הציע נכס למישהו", () => {
-    expect(callAction(event({ type: "ended", direction: "outbound" }), false).createLead).toBe(
-      true,
-    );
+    expect(
+      callAction(event({ type: "ended", direction: "outbound", durationSeconds: 45 }), false)
+        .createLead,
+    ).toBe(true);
   });
 
   it("חיוג יוצא שנותק בצלצול אינו פותח ליד — טעות חיוג", () => {

@@ -370,6 +370,12 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
+    /*
+     * גם הייבוא היזום עובר במרווח. הוא נראה כמו מסלול נפרד — אדם
+     * לוחץ, זו בקשה אחת — אבל הספק רואה תור אחד: לחיצה בזמן שהסבב
+     * רץ מוסיפה בקשה בדיוק לתוך הרצף שהמרווח בא לפרוס.
+     */
+    await this.pace();
     const res = await fetch(
       build015RecordingsListUrl({
         authUsername,
@@ -1020,9 +1026,19 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       return { kind: "handled" };
     }
     if (!res.ok) {
+      /*
+       * ‎**סירוב שמגיע ככשל HTTP הוא סירוב לכל דבר.**
+       *
+       * כאן נרשם קודם `handled`, ולכן הוא חזר לסבב כ-`other` ואיפס
+       * את מונה הסירובים הרצופים. התוצאה: העצירה שנועדה לעצור חנק
+       * עבדה רק על סירוב שנעטף ב-HTTP 200, בעוד שחנק אמיתי מגיע
+       * דווקא כ-429 או 400 — כלומר המנגנון היה עיוור לצורה הנפוצה
+       * ביותר של מה שהוא בא למנוע (ביקורת Codex).
+       *
+       * הרישום עובר לקורא, שם הוא נכתב יחד עם הפרמטרים ששלחנו.
+       */
       this.logger.warn(`015 השיב ${res.status} על הקלטה ${job.recordingPath}`);
-      await this.note(job, `${RECORDING_ERRORS.provider}_${res.status}`);
-      return { kind: "handled" };
+      return { kind: "refused", code: String(res.status), detail: `HTTP ${res.status}` };
     }
     /*
      * פענוח ה-JSON נתפס **כאן** ולא נופל ל-`tick`.
