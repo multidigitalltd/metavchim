@@ -1,3 +1,5 @@
+import { stripPastedNoise } from "./pasted-code.js";
+
 /**
  * קוד האימות שנשלח לכתובת האימייל בפתיחת משרד.
  *
@@ -18,22 +20,6 @@
 export const SIGNUP_CODE_LENGTH = 6;
 
 /**
- * סימני כיווניות בלתי-נראים.
- *
- * `LRM`/`RLM`/`ALM`, ההטמעות (`LRE`…`RLO`), `PDF`, הבידוד
- * (`LRI`…`PDI`) ו-`BOM`. כולם מגיעים מהעתקה מתוך דואר בעברית, כולם
- * ברוחב אפס, ואף אחד מהם אינו נראה למי שמדביק אותם.
- *
- * כתובים כתווי בריחה ולא כתווים עצמם — **בכוונה**. תו בלתי-נראה
- * בתוך קוד מקור אינו ניתן לביקורת: הוא נראה בדיוק כמו כלום, ועורך
- * או כלי מיזוג יכולים לבלוע אותו בלי שאיש ישים לב.
- */
-const INVISIBLE = /[\u200e\u200f\u061c\u202a-\u202e\u2066-\u2069\ufeff]/gu;
-
-/** מפרידים שהמשתמש עשוי להוסיף בעצמו: רווחים, מקפים ונקודות. */
-const SEPARATORS = /[\s\-–—.·]/gu;
-
-/**
  * הקוד בצורתו התקנית, או `null` אם אינו קוד.
  *
  * מחזיר `null` ולא מחרוזת ריקה: „לא קוד” ו„קוד ריק” הם אותו דבר
@@ -41,7 +27,7 @@ const SEPARATORS = /[\s\-–—.·]/gu;
  * אחד מחמשת הניסיונות.
  */
 export function normalizeSignupCode(raw: string): string | null {
-  const stripped = raw.replace(INVISIBLE, "").replace(SEPARATORS, "");
+  const stripped = stripPastedNoise(raw);
   if (stripped.length !== SIGNUP_CODE_LENGTH) return null;
   return /^\d+$/u.test(stripped) ? stripped : null;
 }

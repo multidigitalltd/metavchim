@@ -78,8 +78,9 @@ model Tenant {
   createdAt              DateTime  @default(now()) @map("created_at")
   updatedAt              DateTime  @updatedAt @map("updated_at")
 
-  users      User[]
-  properties Property[]
+  users         User[]
+  properties    Property[]
+  whatsappLinks WhatsAppLink[]
 
   @@index([trialEndsAt])
   @@index([paidUntil])
@@ -124,6 +125,7 @@ model User {
   sessions            Session[]
   capabilityOverrides UserCapability[]
   agentEvents         AgentEvent[]
+  whatsappLinks       WhatsAppLink[]
 
   @@index([tenantId, isActive])
   @@map("users")
@@ -1292,6 +1294,39 @@ model WhatsAppChat {
 
   @@unique([tenantId, userId])
   @@map("whatsapp_chats")
+}
+
+/// קישור מפורש בין מספר וואטסאפ לחשבון — **הזהות בערוץ.**
+///
+/// הזהות נגזרה עד כה מהשוואת ספרות מול שדה `phone`, כלומר מהנחה ולא
+/// מהצהרה: מספר שהוחזר לשוק פותח לבעליו החדש את המאגר, ואותו מספר
+/// אצל שני משתמשים הוכרע בשקט לפי „מי התחבר לאחרונה”.
+///
+/// **אינו תחת RLS למרות ה-tenant_id** — כמו `users`: הוא נקרא בנתיב
+/// הציבורי של ה-Webhook, ברגע שבו הדייר עדיין אינו ידוע, והוא עצמו
+/// מה שמגלה אותו. הפוליסה הייתה חוסמת את השאילתה שנועדה להכריע.
+model WhatsAppLink {
+  id             String    @id @db.Char(26)
+  /// המספר מוצפן כמו כל PII במנוחה; ה-HMAC לחיפוש
+  waIdEncrypted  String    @map("wa_id_encrypted") @db.Text
+  waIdHash       String    @map("wa_id_hash") @db.Char(64)
+  tenantId       String    @map("tenant_id") @db.Char(26)
+  userId         String    @map("user_id") @db.Char(26)
+  /// `code` = הוכח בקוד; `phone` = נוצר מהשוואה לחשבון יחיד
+  source         String    @db.VarChar(10)
+  linkedAt       DateTime  @default(now()) @map("linked_at")
+  /// מתי מישהו **הוכיח** שהמספר שלו — לא מתי השתמש בו
+  verifiedAt     DateTime  @default(now()) @map("verified_at")
+  lastSeenAt     DateTime? @map("last_seen_at")
+  /// מנותק ולא נמחק: „היה ונותק” הוא מידע שהמתווך צריך לראות
+  revokedAt      DateTime? @map("revoked_at")
+  revokedReason  String?   @map("revoked_reason") @db.VarChar(20)
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("whatsapp_links")
 }
 
 /// מספר שכתב לסוכן ואינו מזוהה כמשתמש — מתעניין, לא לקוח.

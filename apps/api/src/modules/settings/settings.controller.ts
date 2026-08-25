@@ -59,6 +59,10 @@ import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { AuthService, type SessionInfo } from "../auth/auth.service";
 import { LoginThrottleService } from "../auth/login-throttle.service";
 import { MatchRefreshService } from "../matching/match-refresh.service";
+import {
+  WhatsAppLinkService,
+  type LinkStatus,
+} from "../messaging/whatsapp-link.service";
 import { AccountDeletionService } from "./account-deletion.service";
 import { MAX_LOGO_BYTES, TenantLogoService } from "./tenant-logo.service";
 
@@ -230,6 +234,7 @@ export class SettingsController {
     private readonly accountDeletion: AccountDeletionService,
     private readonly matchRefresh: MatchRefreshService,
     private readonly platformSettings: PlatformSettingsService,
+    private readonly whatsappLinks: WhatsAppLinkService,
   ) {}
 
   /**
@@ -1461,6 +1466,42 @@ export class SettingsController {
        */
       lastInboundAt: lastInbound?.createdAt,
     };
+  }
+
+  /**
+   * הקישור בין המכשיר של המתווך לחשבון שלו.
+   *
+   * `@AnyAuthenticated` ולא `settings.manage`: זו אינה הגדרת משרד
+   * אלא **הזהות של הסוכן עצמו**, וכל סוכן מנהל את המכשיר שלו. כל
+   * שלוש הפעולות עובדות על `userId` מההקשר בלבד — אין פרמטר שמאפשר
+   * לגעת בקישור של מישהו אחר.
+   */
+  @Get("whatsapp-link")
+  @AnyAuthenticated()
+  async whatsappLink(): Promise<LinkStatus> {
+    return this.whatsappLinks.status(TenantContext.current().userId);
+  }
+
+  /**
+   * קוד חדש. הוא מוחזר **פעם אחת** ואינו נשמר בגלוי בשום מקום —
+   * המסך מציג אותו, והמתווך שולח אותו מהמכשיר שהוא רוצה לקשר.
+   */
+  @Post("whatsapp-link/code")
+  @AnyAuthenticated()
+  async whatsappLinkCode(): Promise<{ code: string; expiresInSeconds: number }> {
+    const ctx = TenantContext.current();
+    return this.whatsappLinks.issueCode(ctx.tenantId, ctx.userId);
+  }
+
+  /**
+   * ניתוק. מכאן ואילך אותו מספר חוזר להיות „לא מוכר” — כולל אם הוא
+   * עדיין רשום בשדה הטלפון של המשתמש: ניתוק מפורש גובר על השוואה.
+   */
+  @Delete("whatsapp-link")
+  @AnyAuthenticated()
+  async whatsappUnlink(): Promise<{ ok: true }> {
+    await this.whatsappLinks.revoke(TenantContext.current().userId, "user");
+    return { ok: true };
   }
 
   /**

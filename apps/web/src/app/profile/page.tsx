@@ -33,6 +33,7 @@ import { clearSessionCache } from "@/lib/session-cache";
 import { ThemeToggle } from "../theme-toggle";
 import { PlanSection } from "../settings/plan-section";
 import { Notice } from "../notice";
+import { WhatsAppLinkSection } from "./whatsapp-link-section";
 import { WhatsAppNotifySection } from "./whatsapp-notify-section";
 
 /**
@@ -277,6 +278,7 @@ export default function ProfilePage() {
 
           <PushSection />
 
+          <WhatsAppLinkSection />
           <WhatsAppNotifySection />
 
           {/* ---- סיסמה ---- */}

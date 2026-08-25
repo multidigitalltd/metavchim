@@ -56,6 +56,8 @@ const RLS_EXEMPT: Readonly<Record<string, string>> = {
   // הנתיב הציבורי מקבל מפתח וממנו מגלה את הדייר
   lead_webhooks: "מפתח הקליטה הציבורי הוא מה שמזהה את הדייר",
   telephony_webhook_hits: "יומן קליטה שנכתב לפני זיהוי הדייר",
+  // הוובהוק מקבל מספר וממנו מגלה את המשתמש ואת המשרד שלו
+  whatsapp_links: "הקישור עצמו הוא מה שמזהה את הדייר בערוץ הוואטסאפ",
 };
 
 const TENANT_A = "01TENANTAAAAAAAAAAAAAAAAAA";
