@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   TELEPHONY_PROVIDERS,
   callAction,
+  callIsFinal,
+  callOutcomeOf,
+  callSpoke,
   describeCall,
   incomingCallTitle,
   parseTelephonyEvent,
@@ -90,7 +93,7 @@ describe("parseTelephonyEvent", () => {
 
 describe("callAction", () => {
   it("צלצול מקפיץ התראה ולא רושם שיחה", () => {
-    expect(callAction(event({ type: "ringing" }), true)).toEqual({
+    expect(callAction(event({ type: "ringing" }), true, false)).toEqual({
       logCall: false,
       notify: true,
       createLead: false,
@@ -98,7 +101,7 @@ describe("callAction", () => {
   });
 
   it("סיום רושם שיחה ולא מתריע — התראה אחרי שהשיחה נגמרה חסרת ערך", () => {
-    expect(callAction(event({ type: "ended" }), true)).toEqual({
+    expect(callAction(event({ type: "ended" }), true, false)).toEqual({
       logCall: true,
       notify: false,
       createLead: false,
@@ -106,11 +109,13 @@ describe("callAction", () => {
   });
 
   it("שיחה שלא נענתה כן נרשמת — היא מידע על הלקוח", () => {
-    expect(callAction(event({ type: "missed" }), true).logCall).toBe(true);
+    expect(callAction(event({ type: "missed" }), true, false).logCall).toBe(true);
   });
 
   it("מספר לא מוכר שדיבר איתנו פותח ליד", () => {
-    expect(callAction(event({ type: "ended", durationSeconds: 90 }), false).createLead).toBe(true);
+    expect(callAction(event({ type: "ended", durationSeconds: 90 }), false, false).createLead).toBe(
+      true,
+    );
   });
 
   /*
@@ -122,11 +127,27 @@ describe("callAction", () => {
    * מתקשר לפיו.
    */
   it("ניתוק בלי משך אינו פותח ליד — אין ראיה שמישהו דיבר", () => {
-    expect(callAction(event({ type: "ended" }), false).createLead).toBe(false);
+    expect(callAction(event({ type: "ended" }), false, false).createLead).toBe(false);
+  });
+
+  /*
+   * ‎**הצד השני של אותה בדיקה.**
+   *
+   * 015 שולחת `Answer` לפני ה-`Hangup`, וזו אמירה מפורשת שהשיחה
+   * נענתה. כשהניתוק מגיע בלי `talktime`, דרישת משך בלבד הייתה
+   * מוחקת את הליד ממספר לא מוכר שדיברנו איתו — כלומר הופכת תיקון
+   * של תווית שגויה לאובדן רשומה.
+   */
+  it("ניתוק בלי משך אחרי אירוע מענה כן פותח ליד — המרכזייה אמרה שנענתה", () => {
+    expect(callAction(event({ type: "ended" }), false, true).createLead).toBe(true);
   });
 
   it("מספר לא מוכר שלא נענה לא פותח ליד — טעויות חיוג ומוקדנים", () => {
-    expect(callAction(event({ type: "missed" }), false).createLead).toBe(false);
+    expect(callAction(event({ type: "missed" }), false, false).createLead).toBe(false);
+  });
+
+  it("שיחה שלא נענתה אינה פותחת ליד גם אחרי אירוע מענה", () => {
+    expect(callAction(event({ type: "missed" }), false, true).createLead).toBe(false);
   });
 
   /*
@@ -139,25 +160,94 @@ describe("callAction", () => {
    */
   it("שיחה יוצאת שנענתה פותחת ליד — הסוכן הציע נכס למישהו", () => {
     expect(
-      callAction(event({ type: "ended", direction: "outbound", durationSeconds: 45 }), false)
+      callAction(event({ type: "ended", direction: "outbound", durationSeconds: 45 }), false, false)
         .createLead,
     ).toBe(true);
   });
 
   it("חיוג יוצא שנותק בצלצול אינו פותח ליד — טעות חיוג", () => {
-    expect(callAction(event({ type: "missed", direction: "outbound" }), false).createLead).toBe(
-      false,
-    );
+    expect(
+      callAction(event({ type: "missed", direction: "outbound" }), false, false).createLead,
+    ).toBe(false);
   });
 
   it("שיחה יוצאת ללקוח מוכר אינה פותחת כרטיס שני", () => {
-    expect(callAction(event({ type: "ended", direction: "outbound" }), true).createLead).toBe(
+    expect(callAction(event({ type: "ended", direction: "outbound" }), true, false).createLead).toBe(
       false,
     );
   });
 
   it("צלצול יוצא לא מתריע למתווך על עצמו", () => {
-    expect(callAction(event({ type: "ringing", direction: "outbound" }), true).notify).toBe(false);
+    expect(callAction(event({ type: "ringing", direction: "outbound" }), true, false).notify).toBe(
+      false,
+    );
+  });
+});
+
+describe("callOutcomeOf", () => {
+  it("משך חיובי הוא ראיה למענה", () => {
+    expect(callOutcomeOf(event({ type: "ended", durationSeconds: 30 }), false)).toBe("answered");
+  });
+
+  /*
+   * זה הבאג מהשטח: „על כל השיחות כתוב נענתה”. ניתוק בלי משך אינו
+   * אומר דבר על מענה, ורישומו כ„נענתה” הוא טענה שאיש לא בדק.
+   */
+  it("ניתוק בלי משך ובלי אירוע מענה הוא „לא ידוע” ולא „נענתה”", () => {
+    expect(callOutcomeOf(event({ type: "ended" }), false)).toBe("unknown");
+  });
+
+  it("אירוע מענה שנצפה קודם הופך את אותו ניתוק ל„נענתה”", () => {
+    expect(callOutcomeOf(event({ type: "ended" }), true)).toBe("answered");
+  });
+
+  it("„לא נענתה” נשארת „לא נענתה” גם אחרי אירוע מענה", () => {
+    expect(callOutcomeOf(event({ type: "missed" }), true)).toBe("missed");
+  });
+});
+
+describe("callSpoke", () => {
+  /*
+   * ‎**הבדיקה קוראת ל-`callSpoke` ישירות בכוונה.**
+   *
+   * הניסוח הראשון שלי בדק את הכלל הזה דרך `callAction`, ועבר גם
+   * כשהכלל נמחק: ‎`createLead` דורש ממילא `type === "ended"`, ולכן
+   * אירוע „לא נענתה” לעולם אינו מגיע אל הכלל. הבדיקה נשאה שם של
+   * הגנה שהיא לא בדקה — בדיוק שתי הבדיקות ששיקרו קודם ב-PR הזה.
+   *
+   * ‎`talktime = 0` הוא אמירה מפורשת שלא היה דיבור, והוא מאוחר
+   * מה-`Answer`: מרכזייה יכולה לצלצל, לענות במענה קולי ולנתק.
+   */
+  it("„לא נענתה” גובר על אירוע מענה קודם — מענה קולי אינו שיחה", () => {
+    expect(callSpoke(event({ type: "missed" }), true)).toBe(false);
+  });
+
+  it("אירוע מענה הוא ראיה כשאין משך", () => {
+    expect(callSpoke(event({ type: "ended" }), true)).toBe(true);
+    expect(callSpoke(event({ type: "ended" }), false)).toBe(false);
+  });
+
+  it("משך חיובי הוא ראיה גם בלי אירוע מענה", () => {
+    expect(callSpoke(event({ type: "ended", durationSeconds: 12 }), false)).toBe(true);
+  });
+});
+
+describe("callIsFinal", () => {
+  /*
+   * ‎`answered` אינו מסיים שיחה — הוא אמצע. הבדיקה קיימת כי בדיוק
+   * הסוג הזה נשכח פעם אחת ברשימה שנכתבה ידנית במקום הקריאה.
+   */
+  it("רק ניתוק ו„לא נענתה” מסיימים — צלצול ומענה אינם", () => {
+    expect(callIsFinal(event({ type: "ended" }))).toBe(true);
+    expect(callIsFinal(event({ type: "missed" }))).toBe(true);
+    expect(callIsFinal(event({ type: "answered" }))).toBe(false);
+    expect(callIsFinal(event({ type: "ringing" }))).toBe(false);
+  });
+
+  it("מסכימה עם `callAction` — הן אינן שתי הגדרות", () => {
+    for (const type of ["ringing", "answered", "ended", "missed"] as const) {
+      expect(callAction(event({ type }), true, false).logCall).toBe(callIsFinal(event({ type })));
+    }
   });
 });
 
@@ -579,7 +669,7 @@ describe("שמות השדות של 015", () => {
      */
     const parsed = parseTelephonyEvent(pbx015({ status: "Hangup Answered Only", talktime: "42" }));
     expect(parsed?.type).toBe("ended");
-    expect(callAction(parsed!, true).logCall).toBe(true);
+    expect(callAction(parsed!, true, false).logCall).toBe(true);
   });
 
   it("Abandon — מתקשר שוויתר בתור — נרשם כשיחה שלא נענתה", () => {

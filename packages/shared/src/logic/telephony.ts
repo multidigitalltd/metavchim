@@ -854,27 +854,71 @@ export interface CallAction {
  * ההגנה מפני זבל נשארת אותה הגנה — רק שיחה שנענתה, ורק למספר שאינו
  * מוכר. חיוג שגוי שנותק בצלצול אינו פותח דבר.
  */
-export function callAction(event: TelephonyEvent, knownContact: boolean): CallAction {
-  const finished = event.type === "ended" || event.type === "missed";
-  /*
-   * ‎**„נענתה” היא ראיה, ו-`ended` אינו ראיה.**
-   *
-   * ההסבר שלמעלה מבטיח „רק שיחה שנענתה”, אבל התנאי היה
-   * ‎`type === "ended"` בלבד — ואירוע ניתוק שהגיע **בלי משך** מסווג
-   * ‎`ended` מבלי שנאמר דבר על מענה. כלומר בדיוק השיחות שסטטוסן נרשם
-   * „לא ידוע” פתחו ליד בכרטיסייה, בסתירה למה שכתוב כאן (ביקורת
-   * Codex).
-   *
-   * זו אותה ראיה שקובעת את הסטטוס — משך חיובי — ולכן היא נבדקת פעם
-   * אחת ובאותו אופן. ליד שנפתח על סמך ניחוש הוא רשומה שמישהו יתקשר
-   * לפיה.
-   */
-  const spoke = event.durationSeconds !== undefined && event.durationSeconds > 0;
+export function callAction(
+  event: TelephonyEvent,
+  knownContact: boolean,
+  answerObserved: boolean,
+): CallAction {
   return {
-    logCall: finished,
+    logCall: callIsFinal(event),
     notify: event.type === "ringing" && event.direction === "inbound",
-    createLead: event.type === "ended" && spoke && !knownContact,
+    createLead: event.type === "ended" && callSpoke(event, answerObserved) && !knownContact,
   };
+}
+
+/**
+ * האם האירוע **מסיים** שיחה — כלומר האם הוא זה שכותב שורה.
+ *
+ * מיוצא כדי שמי שצריך רק את התשובה הזו (האבחון, למשל) לא יקרא
+ * ל-`callAction` עם ארגומנטים מומצאים כדי לשלוף שדה אחד. ניסיון קודם
+ * לכתוב את הרשימה מחדש במקום הקריאה מנה `ringing` בלבד ופספס את
+ * `answered` (ביקורת Codex) — ולכן `callAction` עצמה קוראת לפונקציה
+ * הזו, ושתי התשובות אינן יכולות להיפרד.
+ */
+export function callIsFinal(event: TelephonyEvent): boolean {
+  return event.type === "ended" || event.type === "missed";
+}
+
+/**
+ * ‎**הראיה שמישהו דיבר** — משך חיובי, או אירוע מענה שנצפה קודם.
+ *
+ * ‎„נענתה” היא ראיה ולא היעדר ראיה לכך שלא נענתה: אירוע ניתוק שהגיע
+ * בלי משך מסווג `ended` מבלי שנאמר דבר על מענה, ורישומו כ„נענתה”
+ * הוא מה שהציג בשטח „על כל השיחות כתוב נענתה”.
+ *
+ * ‎**אבל המשך אינו הראיה היחידה.** 015 שולחת `Calling` ⟵ `Answer` ⟵
+ * `Hangup`, ואירוע ה-`Answer` הוא אמירה מפורשת של המרכזייה שהשיחה
+ * נענתה. כשהניתוק מגיע בלי `talktime`, הסתמכות על המשך לבדו הופכת
+ * שיחה שהמרכזייה **אמרה** עליה שנענתה ל„לא ידוע” — ומונעת פתיחת ליד
+ * ממספר לא מוכר שדיברנו איתו בפועל (ביקורת Codex). הראיה קיימת,
+ * ופשוט נזרקה באירוע קודם.
+ *
+ * ‎**„לא נענתה” גובר על שניהם.** ניתוק עם `talktime = 0` הוא אמירה
+ * מפורשת שלא היה דיבור, והוא מאוחר יותר מה-`Answer`; מרכזייה יכולה
+ * לצלצל, לענות במענה קולי ולנתק בלי שאיש דיבר.
+ *
+ * ‎`answerObserved` מגיע מהקורא ואינו נגזר מהאירוע, כי הוא **עובדה
+ * על שיחה ולא על אירוע**: מי שמחזיק אותה הוא מי ששמר את האירוע
+ * הקודם.
+ */
+export function callSpoke(event: TelephonyEvent, answerObserved: boolean): boolean {
+  if (event.type === "missed") return false;
+  return answerObserved || (event.durationSeconds !== undefined && event.durationSeconds > 0);
+}
+
+/** תוצאת השיחה כפי שהיא נרשמת ומוצגת. ראו `CALL_OUTCOME_LABELS`. */
+export type CallOutcome = "answered" | "missed" | "unknown";
+
+/**
+ * התוצאה שנרשמת לשורת השיחה — **מאותה ראיה** שפותחת ליד.
+ *
+ * הפונקציה קיימת כדי ששני הדברים לא ייפרדו: קודם הביטוי היה כתוב
+ * ידנית בשירות, ו-`callAction` החזיקה עותק משלו של „דיבר”. שתי
+ * הגדרות של אותה עובדה נוטות להסכים ביום שנכתבו ולא אחריו.
+ */
+export function callOutcomeOf(event: TelephonyEvent, answerObserved: boolean): CallOutcome {
+  if (event.type === "missed") return "missed";
+  return callSpoke(event, answerObserved) ? "answered" : "unknown";
 }
 
 /** כותרת ההתראה שהמתווך רואה כשהטלפון מצלצל. */
