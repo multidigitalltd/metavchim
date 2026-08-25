@@ -155,11 +155,21 @@ export function assistantMemoryTurn(items: readonly NotifiedForMemory[]): AgentH
 export function numberedLabels(labels: readonly string[]): string[] {
   const counts = new Map<string, number>();
   for (const label of labels) counts.set(label, (counts.get(label) ?? 0) + 1);
+  /*
+   * **המספר נבדק מול כל מה שכבר קיים ברשימה.**
+   *
+   * „משה כהן 1” יכול להיות שם אמיתי של לקוח שלישי, ואז המספור
+   * שנוצר מתנגש בו — שתי תוויות זהות שוב, כלומר בדיוק מה שהמספור
+   * בא למנוע (ביקורת Codex). לכן המונה מדלג על מה שתפוס.
+   */
+  const taken = new Set(labels);
   const used = new Map<string, number>();
   return labels.map((label) => {
     if ((counts.get(label) ?? 0) < 2) return label;
-    const n = (used.get(label) ?? 0) + 1;
+    let n = (used.get(label) ?? 0) + 1;
+    while (taken.has(`${label} ${n}`)) n += 1;
     used.set(label, n);
+    taken.add(`${label} ${n}`);
     return `${label} ${n}`;
   });
 }

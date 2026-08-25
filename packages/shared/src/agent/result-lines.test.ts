@@ -704,3 +704,51 @@ describe("שני לקוחות באותו שם", () => {
     expect(list.rows[0]!.label).toBe("משה כהן");
   });
 });
+
+
+/*
+ * המספור נעשה על התווית המקוצרת, ולכן הוא עלול לחרוג מהגבול שהוא
+ * עצמו אכף — וסכימת הנתיב מאמתת את האורך בהפניות ופוסלת את כל
+ * ההיסטוריה על חריגה אחת (ביקורת Codex).
+ */
+describe("מספור בתוך הגבול", () => {
+  it("שני שמות ארוכים ממוספרים ונשארים בגבול", () => {
+    const long = "א".repeat(120);
+    const list = agentResultList({
+      buyers: [
+        { id: "b1", name: long, cities: [] },
+        { id: "b2", name: long, cities: [] },
+      ],
+    })!;
+    for (const row of list.rows) {
+      expect(row.label.length).toBeLessThanOrEqual(AGENT_RESULT_LABEL_MAX);
+      expect((row.memoryLabel ?? row.label).length).toBeLessThanOrEqual(AGENT_RESULT_LABEL_MAX);
+    }
+    expect(new Set(list.rows.map((row) => row.label)).size).toBe(2);
+    for (const ref of agentResultRefs({
+      buyers: [
+        { id: "b1", name: long, cities: [] },
+        { id: "b2", name: long, cities: [] },
+      ],
+    })) {
+      expect(ref.label.length).toBeLessThanOrEqual(AGENT_RESULT_LABEL_MAX);
+    }
+  });
+
+  /*
+   * „משה כהן 1” יכול להיות שם אמיתי, ואז המספור שנוצר מתנגש בו —
+   * שתי תוויות זהות שוב (ביקורת Codex).
+   */
+  it("מספר שכבר תפוס בשם אמיתי אינו נוצר שוב", () => {
+    const list = agentResultList({
+      buyers: [
+        { id: "b1", name: "משה כהן", cities: [] },
+        { id: "b2", name: "משה כהן", cities: [] },
+        { id: "b3", name: "משה כהן 1", cities: [] },
+      ],
+    })!;
+    const labels = list.rows.map((row) => row.label);
+    expect(new Set(labels).size).toBe(3);
+    expect(labels[2]).toBe("משה כהן 1");
+  });
+});

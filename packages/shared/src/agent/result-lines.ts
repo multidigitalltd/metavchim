@@ -396,6 +396,25 @@ function remembered(label: string): string {
 }
 
 /**
+ * מספור, ואז **חזרה לגבול** — הסיומת נשמרת והבסיס מתקצר.
+ *
+ * המספור נעשה על התווית המקוצרת, ולכן „<39 תווים> 1” חורג מהגבול
+ * שהוא עצמו אכף. זה לא נשאר ויזואלי: סכימת הנתיב מאמתת את אורך
+ * התווית בהפניות, וחריגה **פוסלת את כל ההיסטוריה** — כלומר כל
+ * משפט המשך אחרי תוצאה כזו נכשל עוד לפני הפירוש (ביקורת Codex).
+ *
+ * הבסיס מתקצר ולא הסיומת, כי הסיומת היא כל מה שמבדיל בין השתיים.
+ */
+function fitted(labels: readonly string[]): string[] {
+  const numbered = numberedLabels(labels);
+  return numbered.map((label, i) => {
+    if (label.length <= AGENT_RESULT_LABEL_MAX) return label;
+    const suffix = label.slice(labels[i]!.length);
+    return `${labels[i]!.slice(0, AGENT_RESULT_LABEL_MAX - suffix.length)}${suffix}`;
+  });
+}
+
+/**
  * שער היציאה היחיד של `agentResultList` — **כאן, ורק כאן, נחתכות
  * הכותרות.**
  *
@@ -417,8 +436,8 @@ function bounded(list: AgentResultList): AgentResultList {
    * כדי שגם שני שמות ארוכים שנחתכו לאותה רישא יובחנו — ובאותה
    * מחרוזת בדיוק בתצוגה, בזיכרון ובהפניה.
    */
-  const display = numberedLabels(list.rows.map((row) => clamp(row.label)));
-  const memory = numberedLabels(list.rows.map((row) => remembered(row.memoryLabel ?? row.label)));
+  const display = fitted(list.rows.map((row) => clamp(row.label)));
+  const memory = fitted(list.rows.map((row) => remembered(row.memoryLabel ?? row.label)));
   return {
     ...list,
     rows: list.rows.map((row, i) => {
