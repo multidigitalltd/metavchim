@@ -456,10 +456,15 @@ describe("אורך הכותרת — התקציב של הזיכרון", () => {
     expect(list.rows[0]!.label.endsWith("…")).toBe(true);
   });
 
-  it("שמונה שורות מלאות נכנסות בתקציב 600 התווים", () => {
+  /*
+   * שמונה שמות ארוכים נחתכים לאותה רישא בדיוק, ולכן הם גם המקרה
+   * שבו המספור נחוץ: בלעדיו „תעדכן את השלישי” היה מצביע על שמונה
+   * תוויות זהות.
+   */
+  it("שמונה שורות מלאות נכנסות בתקציב 600 התווים, ונשארות נבדלות", () => {
     const buyers = Array.from({ length: 8 }, (_, i) => ({ id: String(i), name: long, cities: [] }));
     const labels = agentResultList({ buyers })!.rows.map((row) => row.label);
-    expect(labels.join(", ")).toHaveLength(8 * AGENT_RESULT_LABEL_MAX + 7 * 2);
+    expect(new Set(labels).size).toBe(8);
     expect(labels.join(", ").length).toBeLessThan(600);
   });
 
@@ -667,5 +672,35 @@ describe("ההפניות — מזהה יציב לצד התווית", () => {
       cities: [],
     }));
     expect(agentResultRefs({ buyers })).toHaveLength(8);
+  });
+});
+
+
+/*
+ * תווית שחוזרת אינה מזהה דבר: „תעדכן את משה כהן” מצביע על שתי
+ * שורות, וההכרעה נופלת על הראשונה — ניחוש שקט ברשומה של מישהו אחר
+ * (ביקורת Codex).
+ */
+describe("שני לקוחות באותו שם", () => {
+  const twins = {
+    buyers: [
+      { id: "01J000000000000000000000AA", name: "משה כהן", cities: ["רמת גן"] },
+      { id: "01J000000000000000000000BB", name: "משה כהן", cities: ["חולון"] },
+    ],
+  };
+
+  it("הכותרות ממוספרות, ואותה מחרוזת בתצוגה ובהפניה", () => {
+    const list = agentResultList(twins)!;
+    expect(list.rows.map((row) => row.label)).toEqual(["משה כהן 1", "משה כהן 2"]);
+    expect(agentResultRefs(twins).map((ref) => ref.label)).toEqual(["משה כהן 1", "משה כהן 2"]);
+  });
+
+  it("וגם הזיכרון נושא את אותן תוויות", () => {
+    expect(agentHistorySummary("נמצאו 2 קונים", twins)).toContain("משה כהן 1, משה כהן 2");
+  });
+
+  it("לקוח יחיד אינו ממוספר", () => {
+    const list = agentResultList({ buyers: [twins.buyers[0]!] })!;
+    expect(list.rows[0]!.label).toBe("משה כהן");
   });
 });

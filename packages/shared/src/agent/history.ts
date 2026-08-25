@@ -140,17 +140,34 @@ export function assistantMemoryTurn(items: readonly NotifiedForMemory[]): AgentH
   };
 }
 
-/** „הליד מהעדכון” ⟵ „הליד מהעדכון 1/2” כששניים נושאים אותה תווית. */
-function numberDuplicateLabels(refs: readonly AgentHistoryRef[]): AgentHistoryRef[] {
+/**
+ * „משה כהן” ⟵ „משה כהן 1” / „משה כהן 2” כששניים נושאים אותו שם.
+ *
+ * תווית שחוזרת פעמיים אינה מזהה דבר: היא מצביעה על שתי רשומות,
+ * והבחירה ביניהן נופלת על „הראשונה שנמצאה” — כלומר ניחוש שקט
+ * (ביקורת Codex). מספור הופך אותה למזהה, ובמקום שבו הוא מוצג הוא
+ * גם אומר למתווך שיש שניים.
+ *
+ * מיוצא כדי שגם שורות התוצאה יעברו בו: התווית שנשמרת, זו שמוצגת
+ * וזו שבהפניה חייבות להיות אותה מחרוזת, אחרת המספור עצמו יוצר
+ * את הפער שהוא נועד לסגור.
+ */
+export function numberedLabels(labels: readonly string[]): string[] {
   const counts = new Map<string, number>();
-  for (const ref of refs) counts.set(ref.label, (counts.get(ref.label) ?? 0) + 1);
+  for (const label of labels) counts.set(label, (counts.get(label) ?? 0) + 1);
   const used = new Map<string, number>();
-  return refs.map((ref) => {
-    if ((counts.get(ref.label) ?? 0) < 2) return ref;
-    const n = (used.get(ref.label) ?? 0) + 1;
-    used.set(ref.label, n);
-    return { ...ref, label: `${ref.label} ${n}` };
+  return labels.map((label) => {
+    if ((counts.get(label) ?? 0) < 2) return label;
+    const n = (used.get(label) ?? 0) + 1;
+    used.set(label, n);
+    return `${label} ${n}`;
   });
+}
+
+/** אותו כלל, על רשימת הפניות. */
+function numberDuplicateLabels(refs: readonly AgentHistoryRef[]): AgentHistoryRef[] {
+  const labels = numberedLabels(refs.map((ref) => ref.label));
+  return refs.map((ref, i) => ({ ...ref, label: labels[i]! }));
 }
 
 /**
@@ -169,11 +186,44 @@ export function matchHistoryRef(
   if (refs === undefined || refs.length === 0) return null;
   const needle = stripBrackets(phrase);
   if (needle.length < 2) return null;
-  for (const ref of refs) {
+  /*
+   * **התאמה מדויקת קודמת לסלחנית.**
+   *
+   * „משה כהן 2” מכיל את „משה כהן 1”? לא — אבל „משה כהן” כן נכלל
+   * בשתיהן, ולכן ההשוואה הסלחנית לבדה הייתה בוחרת את הראשונה.
+   */
+  /*
+   * **תווית שחוזרת בשני תורות נפתרת לזו של המאוחר.**
+   *
+   * הרשימה מסודרת מהחדש לישן, ולכן ההופעה הראשונה היא הנכונה —
+   * וההופעות הישנות יורדות כאן, לפני בדיקת הריבוי. בלי זה שני
+   * עדכונים על „הליד מהעדכון” היו נראים כשתי אפשרויות, וההכרעה
+   * הייתה חוזרת לחיפוש דווקא כשהתשובה ידועה.
+   *
+   * מה שנשאר אחרי הצמצום הוא ריבוי אמיתי: שתי רשומות **מאותו תור**
+   * שנושאות תווית מתאימה.
+   */
+  const newest = refs.filter(
+    (ref, i) =>
+      refs.findIndex((other) => stripBrackets(other.label) === stripBrackets(ref.label)) === i,
+  );
+  const exact = newest.filter((ref) => stripBrackets(ref.label) === needle);
+  if (exact.length === 1) return exact[0]!;
+  if (exact.length > 1) return null;
+
+  const loose = newest.filter((ref) => {
     const label = stripBrackets(ref.label);
-    if (needle === label || needle.includes(label) || label.includes(needle)) return ref;
-  }
-  return null;
+    return needle.includes(label) || label.includes(needle);
+  });
+  /*
+   * **ביטוי שמתאים לכמה הפניות אינו מכריע.**
+   *
+   * שתי רשומות באותו שם, או שני שמות ארוכים שנחתכו לאותה רישא —
+   * ובחירת הראשונה היא פגיעה שקטה ברשומה הלא נכונה. `null` מחזיר
+   * את ההכרעה לחיפוש, שיודע לומר „נמצאו כמה” ולבקש בחירה
+   * (ביקורת Codex).
+   */
+  return loose.length === 1 ? loose[0]! : null;
 }
 
 function stripBrackets(text: string): string {

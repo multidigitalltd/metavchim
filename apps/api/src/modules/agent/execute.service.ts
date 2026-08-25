@@ -105,16 +105,18 @@ export interface ExecuteResult {
 const OFFICE_MATCHES = 50;
 
 /**
- * עמוד + סימן קיטום — **נשאלת שורה אחת מעבר לתקרה.**
+ * עמוד + סימן קיטום — **הספירה היא מה שקובע „יש עוד”.**
  *
- * השוואת אורך התוצאה לתקרה אינה מספיקה, כי שירות ההתאמות מסנן
- * שורות מיושנות (קונה או נכס שנמחקו) **אחרי** ה-`take`: מספיק
- * שאחת מהמאה הראשונות מפנה לכרטיס מחוק, והרשימה חוזרת בת 99 —
- * כלומר „זה הכול”, בזמן שיש עוד (ביקורת Codex). שורה עודפת אחת
- * הופכת את הבדיקה למדידה של מה שבאמת קיים.
+ * אורך הרשימה אינו מעיד: שירות ההתאמות מסנן שורות מיושנות (קונה
+ * או נכס שנמחקו) **אחרי** ה-`take`, ומרווח קבוע נשבר כשמספרן עולה
+ * עליו (ביקורת Codex). הספירה נשאלת מהמסד באותו תנאי בדיוק, ולכן
+ * היא מודדת את מה שקיים ולא את מה שנשאר.
+ *
+ * כיוון אי-הדיוק שנשאר מכוון: שורה מיושנת נספרת ואינה מוצגת, ולכן
+ * התשובה עלולה לומר „יש עוד” כשאין — ולעולם לא „זה הכול” כשיש.
  */
-function page<T>(rows: T[], limit: number): { matches: T[]; hasMore: boolean } {
-  return { matches: rows.slice(0, limit), hasMore: rows.length > limit };
+function page<T>(rows: T[], total: number, limit: number): { matches: T[]; hasMore: boolean } {
+  return { matches: rows.slice(0, limit), hasMore: total > limit };
 }
 
 @Injectable()
@@ -451,7 +453,11 @@ export class AgentExecuteService {
       return {
         href: `/properties/${propertyId}`,
         message: refresh ? "ההתאמות חושבו מחדש" : "ההתאמות של הנכס",
-        data: page(await this.matching.listForProperty(propertyId, MATCH_LIST_LIMIT + 1), MATCH_LIST_LIMIT),
+        data: page(
+          await this.matching.listForProperty(propertyId, MATCH_LIST_LIMIT),
+          await this.matching.countForProperty(propertyId),
+          MATCH_LIST_LIMIT,
+        ),
       };
     }
     if (buyerId !== undefined) {
@@ -459,18 +465,27 @@ export class AgentExecuteService {
       return {
         href: `/buyers/${buyerId}`,
         message: refresh ? "ההתאמות חושבו מחדש" : "ההתאמות של הקונה",
-        data: page(await this.matching.listForBuyer(buyerId, MATCH_LIST_LIMIT + 1), MATCH_LIST_LIMIT),
+        data: page(
+          await this.matching.listForBuyer(buyerId, MATCH_LIST_LIMIT),
+          await this.matching.countForBuyer(buyerId),
+          MATCH_LIST_LIMIT,
+        ),
       };
     }
-    // אותו סף שמסך ההתאמות מציג — תשובה של הסוכן לא אמורה לכלול
-    // התאמות שהמסך מסתיר, אחרת שתי דרכים לשאול נותנות שתי תשובות
+    /*
+     * אותו סף שמסך ההתאמות מציג — תשובה של הסוכן לא אמורה לכלול
+     * התאמות שהמסך מסתיר, אחרת שתי דרכים לשאול נותנות שתי תשובות.
+     *
+     * כאן השורה העודפת **כן** מספיקה: `listAll` שולפת מרווח מעל
+     * המבוקש וחותכת **אחרי** הסינון, ולכן מה שחוזר מעבר לתקרה הוא
+     * שורה חיה. לרשימה המשרדית גם אין תנאי קבוע לספור — הסף והציון
+     * משתנים לפי הבקשה.
+     */
+    const office = await this.matching.listAll({ limit: OFFICE_MATCHES + 1, minScore: 50 });
     return {
       href: "/matches",
       message: "ההתאמות של המשרד",
-      data: page(
-        await this.matching.listAll({ limit: OFFICE_MATCHES + 1, minScore: 50 }),
-        OFFICE_MATCHES,
-      ),
+      data: page(office, office.length, OFFICE_MATCHES),
     };
   }
 

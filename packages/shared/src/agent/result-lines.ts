@@ -1,4 +1,5 @@
 import { COOP_DEAL_STAGE_LABELS, type CoopDealStage } from "../logic/coop-deal.js";
+import { numberedLabels } from "./history.js";
 import type { AgentHistoryRef } from "./prompt.js";
 import { formatJerusalemDate, formatJerusalemTime } from "../logic/israel-time.js";
 import { CALL_OUTCOME_LABELS } from "../schemas/labels.js";
@@ -407,12 +408,23 @@ function remembered(label: string): string {
  * לזכור אחרת” נשאר סימן ולא רעש על כל שורה.
  */
 function bounded(list: AgentResultList): AgentResultList {
+  /*
+   * **שתי רשומות באותו שם מקבלות מספר.**
+   *
+   * תווית שחוזרת אינה מזהה דבר: „תעדכן את משה כהן” מצביע על שתי
+   * שורות, וההכרעה נופלת על הראשונה — ניחוש שקט ברשומה של מישהו
+   * אחר (ביקורת Codex). המספור נעשה כאן, על התווית **המקוצרת**,
+   * כדי שגם שני שמות ארוכים שנחתכו לאותה רישא יובחנו — ובאותה
+   * מחרוזת בדיוק בתצוגה, בזיכרון ובהפניה.
+   */
+  const display = numberedLabels(list.rows.map((row) => clamp(row.label)));
+  const memory = numberedLabels(list.rows.map((row) => remembered(row.memoryLabel ?? row.label)));
   return {
     ...list,
-    rows: list.rows.map((row) => {
-      const label = clamp(row.label);
-      const memory = remembered(row.memoryLabel ?? row.label);
-      return { ...row, label, ...(memory === label ? {} : { memoryLabel: memory }) };
+    rows: list.rows.map((row, i) => {
+      const label = display[i]!;
+      const remembers = memory[i]!;
+      return { ...row, label, ...(remembers === label ? {} : { memoryLabel: remembers }) };
     }),
   };
 }

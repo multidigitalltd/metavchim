@@ -108,6 +108,20 @@ const NO_MATCHES: RecomputeResult = { matches: 0, opened: 0 };
  */
 export const MATCH_LIST_LIMIT = 100;
 
+/**
+ * ההתאמות הפתוחות של כרטיס — **תנאי אחד לשאילתה ולספירה.**
+ *
+ * הספירה קיימת כדי לומר „יש עוד” בלי לנחש: הסינון של שורות
+ * מיושנות קורה בזיכרון, ולכן אורך התוצאה אינו מעיד על מה שקיים
+ * במאגר — ומרווח קבוע, גדול ככל שיהיה, נשבר כשמספר השורות
+ * המיושנות עולה עליו (ביקורת Codex). שני מקומות שכותבים את אותו
+ * תנאי היו נפרדים ביום שאחד מהם משתנה, ואז הספירה הייתה של משהו
+ * אחר מהרשימה.
+ */
+function openMatchesOf(tenantId: string, key: { propertyId: string } | { buyerId: string }) {
+  return { tenantId, ...key, status: { not: "dismissed" } };
+}
+
 @Injectable()
 export class MatchingService {
   constructor(
@@ -593,6 +607,30 @@ export class MatchingService {
     };
   }
 
+  /**
+   * כמה התאמות פתוחות יש לכרטיס — **התשובה ל„יש עוד”.**
+   *
+   * ספירה ולא אורך הרשימה, כי הרשימה מסוננת בזיכרון משורות
+   * מיושנות. הכיוון של אי-הדיוק חשוב: הספירה כוללת שורה מיושנת
+   * שהרשימה השמיטה, ולכן היא עלולה לומר „יש עוד” כשאין — ולעולם
+   * לא „זה הכול” כשיש. השקר הראשון עולה למתווך לחיצה, השני עולה
+   * לו לקוח.
+   */
+  async countForProperty(propertyId: string): Promise<number> {
+    return this.prisma.withTenant(async (tx) =>
+      tx.match.count({ where: openMatchesOf(TenantContext.current().tenantId, { propertyId }) }),
+    );
+  }
+
+  /** אותו דבר לקונה — ובאותה בדיקת גישה כמו הרשימה שלו. */
+  async countForBuyer(buyerId: string): Promise<number> {
+    return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
+      await assertBuyerAccess(tx, tenantId, buyerId);
+      return tx.match.count({ where: openMatchesOf(tenantId, { buyerId }) });
+    });
+  }
+
   async listForProperty(
     propertyId: string,
     limit: number = MATCH_LIST_LIMIT,
@@ -600,11 +638,7 @@ export class MatchingService {
     return this.prisma.withTenant(async (tx) => {
       const tenantId = TenantContext.current().tenantId;
       const rows = await tx.match.findMany({
-        where: {
-          tenantId,
-          propertyId,
-          status: { not: "dismissed" },
-        },
+        where: openMatchesOf(tenantId, { propertyId }),
         orderBy: { score: "desc" },
         take: limit + LIVE_HEADROOM,
       });
@@ -663,11 +697,7 @@ export class MatchingService {
       // הכרטיס אינו רשאי לראות לאילו נכסים הוא מותאם
       await assertBuyerAccess(tx, tenantId, buyerId);
       const rows = await tx.match.findMany({
-        where: {
-          tenantId,
-          buyerId,
-          status: { not: "dismissed" },
-        },
+        where: openMatchesOf(tenantId, { buyerId }),
         orderBy: { score: "desc" },
         take: limit + LIVE_HEADROOM,
       });
