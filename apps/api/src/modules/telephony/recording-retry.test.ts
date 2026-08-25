@@ -153,3 +153,94 @@ describe("הדיווח נושא את מה שנשלח", () => {
     expect(asked).not.toContain("authUsername");
   });
 });
+
+
+/**
+ * ‎`recordid` — **המזהה היחיד שמעולם לא נבדק מול הספק.**
+ *
+ * ## מה היה
+ *
+ * הלולאה מנסה מטריצה של `recordgroup` × `uniqueid`, שתי צורות לכל
+ * אחד — ארבעה צירופים. ‎`recordid` נשלח בכל ארבעתם כערך **קבוע
+ * יחיד**, והוא היחיד מבין השלושה שאנחנו מחלצים ממחרוזת: „הספרות
+ * אחרי הקו התחתון האחרון” בשם הקובץ.
+ *
+ * כל עוד החילוץ שגוי, שום צירוף של השניים האחרים לא יעזור — וזה
+ * בדיוק מה שנראה בשטח: „לא נמצא” בכל ניסיון.
+ *
+ * ## מה נבדק כאן
+ *
+ * לא שהתיקון „עובד” — הבקשה יוצאת לרשת. מה שנבדק הוא **הסדר
+ * והמקור**, כלומר בדיוק מה שאפשר להזיז בשורה אחת בלי שאיש ירגיש:
+ * שהשאלה לספק קורית רק אחרי כישלון, שהיא קורית לפני הוויתור,
+ * ושהמזהה שנשלח בניסיון האחרון בא מהתשובה של הספק ולא מהחילוץ.
+ */
+describe("recordid נשאל מהספק במקום להיות מנוחש", () => {
+  it("הרשימה נקראת רק אחרי „לא נמצא”, ולא בכל משיכה", () => {
+    expect(source).toContain('if (lastRefusal !== null && lastRefusal.code === "404") {');
+    /* הקריאה יושבת בתוך אותו תנאי ולא לפניו */
+    const guard = source.indexOf('if (lastRefusal !== null && lastRefusal.code === "404") {');
+    const call = source.indexOf("this.recordIdFromProvider(job, {");
+    expect(guard).toBeGreaterThan(0);
+    expect(call).toBeGreaterThan(guard);
+  });
+
+  it("והיא נקראת לפני שנרשמת סיבת הכישלון", () => {
+    const call = source.indexOf("this.recordIdFromProvider(job, {");
+    const giveUp = source.indexOf("`${RECORDING_ERRORS.provider}_${lastRefusal.code}`");
+    expect(call).toBeGreaterThan(0);
+    expect(giveUp).toBeGreaterThan(call);
+  });
+
+  it("הניסיון האחרון נושא את המזהה של הספק ולא את זה שחילצנו", () => {
+    const after = source.slice(source.indexOf("if (authoritative !== null) {"));
+    const attempt = after.slice(0, after.indexOf("if (attempt.kind === \"audio\")"));
+    expect(attempt).toContain("recordId: authoritative.recordId");
+    expect(attempt).not.toContain("recordId: ids.recordId");
+  });
+
+  it("חלון הזמן נגזר ממועד השיחה, ולא מרגע המשיכה", () => {
+    const fn = source.slice(source.indexOf("private async recordIdFromProvider"));
+    expect(fn.slice(0, 1200)).toContain("job.occurredAt.getTime()");
+  });
+
+  /*
+   * „הספק החזיר N הקלטות ואף אחת אינה השיחה” ו„הספק מכיר אותה בלי
+   * מזהה הורדה” הם שני אבחונים שונים לחלוטין, ומבחוץ הם נראים זהים
+   * אם לא מבדילים ביניהם בכתב.
+   */
+  /*
+   * ‎`parse015RecordingsList` שומר בכוונה את הקבוצה שהשורה נושאת.
+   * להחזיר במקומה את משתנה הלולאה זה לזרוק בדיוק את המידע שהלכנו
+   * לחפש, והניסיון החוזר היה חוזר לניחוש שכבר נכשל.
+   */
+  it("הקבוצה שמוחזרת היא של הספק ולא זו שביקשנו", () => {
+    const fn = source.slice(source.indexOf("private async recordIdFromProvider"));
+    expect(fn).toContain("recordGroup: match.recordGroup,");
+  });
+
+  /*
+   * **האבחון הוא כל התכלית, ולכן הוא נרשם לפני הניסיון.**
+   *
+   * אם ההשוואה נכתבת רק במסלול המוצלח, אז דווקא כשהמשיכה ממשיכה
+   * להיכשל — המקרה שבו התשובה הכי נחוצה — לא נדע אם המזהה של
+   * הספק זהה לשלנו או שונה ממנו.
+   */
+  it("ההשוואה בין המזהים נרשמת עוד לפני הניסיון החוזר", () => {
+    const after = source.slice(source.indexOf("if (authoritative !== null) {"));
+    const log = after.indexOf("הספק מסר recordid=");
+    const retry = after.indexOf("const attempt = await this.attemptFetch");
+    expect(log).toBeGreaterThan(-1);
+    expect(retry).toBeGreaterThan(log);
+  });
+
+  it("ושורת הכישלון מתארת גם את המזהה שהגיע מהספק", () => {
+    expect(source).toContain("ואז מהספק: recordgroup=");
+    expect(source).toContain("attemptedAuthoritative");
+  });
+
+  it("שני מצבי הכישלון של הרשימה נבדלים ביומן", () => {
+    expect(source).toContain("ואף אחת אינה השיחה הזו");
+    expect(source).toContain("אך שורתה בלי מזהה הורדה");
+  });
+});
