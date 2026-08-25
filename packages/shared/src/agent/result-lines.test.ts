@@ -173,8 +173,15 @@ describe("הגבולות", () => {
     expect(agentResultList("טקסט")).toBeNull();
   });
 
-  it("רשימה ריקה אומרת מה אין, ואינה null", () => {
-    expect(agentResultText({ tasks: [] })).toBe("אין משימות פתוחות");
+  /*
+   * „אין משימות פתוחות” הוא כבר המסר של הפעולה, וההודעה בוואטסאפ
+   * פותחת בו. תוספת שנייה הייתה אומרת את אותו דבר פעמיים ברצף —
+   * וביומן גם בניסוח פחות מדויק, כי הפעולה יודעת על איזה יום
+   * נשאלה (ביקורת Codex).
+   */
+  it("רשימה ריקה אינה מוסיפה דבר — המסר כבר נאמר", () => {
+    expect(agentResultText({ tasks: [] })).toBeNull();
+    expect(agentResultList({ tasks: [] })).not.toBeNull();
   });
 
   it("רשימה ארוכה נחתכת — ואומרת בכמה", () => {
@@ -188,6 +195,22 @@ describe("הגבולות", () => {
     const buyers = Array.from({ length: 3 }, (_, i) => ({ id: String(i), name: `קונה ${i}`, cities: [] }));
     const text = agentResultText({ buyers, hasMore: true })!;
     expect(text).toContain("יש עוד");
+  });
+
+  /*
+   * שני קיטומים מצטברים: שלנו (8 שורות מתוך מה שחזר) ושל השרת
+   * (עמוד מתוך המאגר). „ועוד 42” לבדו על עמוד עם `hasMore` נשמע
+   * כמו סך הכול (ביקורת Codex).
+   */
+  it("שני הקיטומים — שלנו ושל השרת — נאמרים יחד", () => {
+    const buyers = Array.from({ length: 50 }, (_, i) => ({
+      id: String(i),
+      name: `קונה ${i}`,
+      cities: [],
+    }));
+    const text = agentResultText({ buyers, hasMore: true })!;
+    expect(text).toContain("ועוד 42 קונים");
+    expect(text).toContain("יש עוד מעבר להם");
   });
 
   it("שורה בלי פרטים אינה משאירה מקף יתום", () => {
@@ -275,8 +298,8 @@ describe("חיפוש כללי — כל המקטעים חוזרים תמיד, ג�
     expect(text).not.toContain("לא נמצא כלום");
   });
 
-  it("חיפוש שלא מצא דבר אומר זאת פעם אחת", () => {
-    expect(agentResultText({ ...search, buyers: [] })).toBe("לא נמצא כלום");
+  it("חיפוש שלא מצא דבר אינו מוסיף שורה — הפעולה כבר ענתה", () => {
+    expect(agentResultText({ ...search, buyers: [] })).toBeNull();
   });
 
   it("תוכן ההערה נשאר בפרטים — הוא אינו נשמר לזיכרון", () => {

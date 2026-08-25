@@ -74,11 +74,18 @@ export interface AgentResultRow {
   href?: string;
 }
 
-/** רשימת תשובה שלמה — מה נמצא, כמה, ומה לומר כשאין. */
+/**
+ * רשימת תשובה שלמה — מה נמצא וכמה.
+ *
+ * **מה שאין אינו נאמר כאן.** „אין משימות פתוחות” הוא כבר המסר של
+ * הפעולה עצמה (`ExecuteResult.message`), והתשובה בוואטסאפ פותחת בו.
+ * נוסח שני לאותה מסקנה היה נאמר פעמיים באותה הודעה — ובמקרה של
+ * היומן גם בניסוח **פחות** מדויק, כי הפעולה יודעת על איזה יום
+ * נשאלה והרשימה אינה יודעת (ביקורת Codex).
+ */
 export interface AgentResultList {
   /** „קונים”, „פגישות” — לשורת הסיכום שמעל */
   noun: string;
-  emptyText: string;
   rows: AgentResultRow[];
   /** נחתך בשרת — „מוצגים N ראשונים” ולא „נמצאו N” */
   hasMore: boolean;
@@ -234,16 +241,21 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
     })),
 };
 
-/** שם הרשימה ומה לומר כשאין — למקטע שעומד לבדו. */
-const SECTION_META: Record<string, { noun: string; empty: string; counted: boolean }> = {
-  appointments: { noun: "פגישות", empty: "אין פגישות ביום הזה", counted: false },
-  tasks: { noun: "משימות פתוחות", empty: "אין משימות פתוחות", counted: false },
-  calls: { noun: "שיחות אחרונות", empty: "אין שיחות אחרונות", counted: false },
-  deals: { noun: "עסקאות משותפות", empty: "אין עסקאות משותפות", counted: false },
-  buyers: { noun: "קונים", empty: "לא נמצאו קונים שמתאימים לקריטריונים", counted: true },
-  leads: { noun: "לידים", empty: "לא נמצאו לידים", counted: true },
-  notes: { noun: "הערות", empty: "לא נמצאו הערות", counted: false },
-  properties: { noun: "נכסים", empty: "אין נכסים שעונים על התנאים", counted: true },
+/**
+ * שם הרשימה — למקטע שעומד לבדו.
+ *
+ * `counted` מבדיל בין „נחתך בשרת” לבין „זה הכול”: שאילתות החיפוש
+ * מחזירות עמוד ומדווחות `hasMore`, ורשימות היום אינן.
+ */
+const SECTION_META: Record<string, { noun: string; counted: boolean }> = {
+  appointments: { noun: "פגישות", counted: false },
+  tasks: { noun: "משימות פתוחות", counted: false },
+  calls: { noun: "שיחות אחרונות", counted: false },
+  deals: { noun: "עסקאות משותפות", counted: false },
+  buyers: { noun: "קונים", counted: true },
+  leads: { noun: "לידים", counted: true },
+  notes: { noun: "הערות", counted: false },
+  properties: { noun: "נכסים", counted: true },
 };
 
 /** הסדר קובע מה מוצג ראשון בתוצאת חיפוש כללי. */
@@ -349,7 +361,6 @@ export function agentResultList(data: unknown): AgentResultList | null {
   if (Array.isArray(data)) {
     return bounded({
       noun: "התאמות",
-      emptyText: "אין התאמות פעילות",
       hasMore: false,
       rows: rowsOf(data).map((match) => {
         const property = match["property"];
@@ -417,7 +428,7 @@ export function agentResultList(data: unknown): AgentResultList | null {
       }
     }
     for (const key of sections) rows.push(...SECTION_ROWS[key]!(payload[key]));
-    return bounded({ noun: "תוצאות", emptyText: "לא נמצא כלום", hasMore, rows });
+    return bounded({ noun: "תוצאות", hasMore, rows });
   }
 
   const only = sections[0];
@@ -425,7 +436,6 @@ export function agentResultList(data: unknown): AgentResultList | null {
     const meta = SECTION_META[only]!;
     return bounded({
       noun: meta.noun,
-      emptyText: meta.empty,
       hasMore: meta.counted ? hasMore : false,
       rows: SECTION_ROWS[only]!(payload[only]),
     });
@@ -435,7 +445,6 @@ export function agentResultList(data: unknown): AgentResultList | null {
     const stats = officeReportStats(payload["report"]);
     return bounded({
       noun: "נתוני המשרד",
-      emptyText: "אין נתונים לתקופה שנבחרה",
       hasMore: false,
       rows: stats.map((stat) => ({ label: stat.label, detail: String(stat.value) })),
     });
@@ -455,13 +464,16 @@ export function agentResultList(data: unknown): AgentResultList | null {
 export const AGENT_RESULT_ROWS = 8;
 
 /**
- * אותה תשובה, כטקסט לוואטסאפ. `null` כשהצורה אינה מוכרת — הקורא
- * נופל אז למנסח הכללי, ולא לשורה ריקה.
+ * אותה תשובה, כטקסט לוואטסאפ — או `null` כשאין מה **להוסיף.**
+ *
+ * שני מצבים שונים מחזירים `null`, ולשניהם אותה משמעות לקורא: צורה
+ * שאינה מוכרת (נופל למנסח הכללי), ורשימה מוכרת שאין בה שורות. על
+ * „אין” כבר ענתה שורת המסר של הפעולה, שפותחת את ההודעה — ותוספת
+ * שנייה הייתה אומרת את אותו דבר פעמיים ברצף (ביקורת Codex).
  */
 export function agentResultText(data: unknown): string | null {
   const list = agentResultList(data);
-  if (list === null) return null;
-  if (list.rows.length === 0) return list.emptyText;
+  if (list === null || list.rows.length === 0) return null;
 
   const shown = list.rows.slice(0, AGENT_RESULT_ROWS);
   const lines = shown.map((row) =>
@@ -473,9 +485,15 @@ export function agentResultText(data: unknown): string | null {
   /*
    * „ועוד N” נאמר במפורש. רשימה שנחתכת בשקט נקראת כרשימה מלאה,
    * והמתווך מסיק שאין יותר — על סמך תקרת תצוגה שלנו.
+   *
+   * **שני קיטומים, ושניהם נאמרים.** אחד שלנו (8 שורות מתוך מה
+   * שחזר) ואחד של השרת (עמוד מתוך המאגר), והם מצטברים: „ועוד 42”
+   * לבדו על עמוד של 50 עם `hasMore` נשמע כמו סך הכול, בזמן
+   * שבמאגר יש עוד (ביקורת Codex).
    */
   const hidden = list.rows.length - shown.length;
-  if (hidden > 0) lines.push(`ועוד ${hidden} ${list.noun}`);
+  const beyond = list.hasMore ? " — ויש עוד מעבר להם" : "";
+  if (hidden > 0) lines.push(`ועוד ${hidden} ${list.noun}${beyond}`);
   else if (list.hasMore) lines.push(`מוצגים ${shown.length} ה${list.noun} הראשונים — יש עוד`);
   return lines.join("\n");
 }
