@@ -782,14 +782,15 @@ export default function PropertyDetailPage({
                 <h2
                   id="readiness-heading"
                   className="m-0"
-                  style={{ fontSize: 16.5, fontWeight: 800 }}
+                  style={{ fontSize: "calc(16.5px * var(--a11y-font-scale))", fontWeight: 800 }}
                 >
                   מוכנות לשיווק
                 </h2>
                 <span
                   className="ms-auto"
                   style={{
-                    fontSize: 21,
+                    /* ‎21 כשהוא, אבל מגיב להגדרת הנגישות — ראו ההערה למטה */
+                    fontSize: "calc(21px * var(--a11y-font-scale))",
                     fontWeight: 800,
                     color: readinessBand(property.readinessScore).text,
                   }}
@@ -818,14 +819,24 @@ export default function PropertyDetailPage({
                 המכנה נגזר מהנתונים ואינו כתוב קשיח: `9` קבוע היה
                 הופך לשקר ברגע שיתווסף שדה עשירי לחישוב שבשרת, ואז
                 שוב יהיו שני מספרים לנכס אחד.
+
+                ‎**כל הכרטיס הזה מגיב להגדרת גודל הטקסט** — הכותרת,
+                האחוז, השורה הזו, שורת „מוכן לשיווק” ושורות השדות
+                החסרים. הגדלת אחת מהן לבדה הייתה יוצרת בדיוק את
+                הרכיב החצי-מוגדל שהביקורת מצביעה עליו: משפט בן 31
+                פיקסלים ב-200% מתחת לאחוז שנשאר על 21. הערכים עצמם
+                לא השתנו ב-100% (ביקורת Codex).
+
+                שאר המסכים עדיין נושאים גדלים קבועים; זה מעבר יסודי
+                אחד ולא המרה חלקית שמפזרת חוסר עקביות.
               */}
-              <p className="m-0 mb-2 text-[15.5px]" style={{ color: "var(--color-text-muted)" }}>
+              <p className="m-0 mb-2" style={{ fontSize: "var(--type-body)", color: "var(--color-text-muted)" }}>
                 {readinessCount(property.missingFields.length, PROPERTY_REQUIRED_FOR_MARKETING.length)}
               </p>
               {property.missingFields.length === 0 ? (
                 <p
-                  className="m-0 flex items-center gap-2 text-[15px] font-bold"
-                  style={{ color: "var(--color-primary)" }}
+                  className="m-0 flex items-center gap-2 font-bold"
+                  style={{ fontSize: "var(--type-body-sm)", color: "var(--color-primary)" }}
                 >
                   {/* אייקון ולא „✓” — „NO EMOJI anywhere in the product UI” */}
                   <IconCheck s={18} />
@@ -835,8 +846,8 @@ export default function PropertyDetailPage({
                 property.missingFields.map((field) => (
                   <div
                     key={field}
-                    className="flex items-center gap-2 py-[5px] text-[14.5px]"
-                    style={{ color: "var(--color-text-muted)" }}
+                    className="flex items-center gap-2 py-[5px]"
+                    style={{ fontSize: "var(--type-caption-lg)", color: "var(--color-text-muted)" }}
                   >
                     <span
                       aria-hidden="true"

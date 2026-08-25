@@ -477,21 +477,50 @@ export default function PropertiesPage() {
                               }}
                             />
                           </span>
-                          <span className="font-bold" style={{ color: readinessBand(p.readinessScore).text, fontSize: "14px" }}>
+                          <span
+                            className="font-bold"
+                            style={{ color: readinessBand(p.readinessScore).text, fontSize: "var(--type-caption)" }}
+                          >
                             {p.readinessScore}%
                           </span>
                         </p>
+                        {/*
+                          שדות החובה והסטטוס — **הכרטיס נושא את אותן
+                          עובדות כמו הטבלה.**
+
+                          כשהעברתי את נקודת המעבר מ-640 ל-1280, כל מי
+                          שנמצא בין השתיים עבר מהטבלה לכרטיס. הטבלה
+                          מציגה סטטוס, שדות חסרים ומצב „אין עדיין”
+                          להתאמות; הכרטיס לא הציג אף אחד מהם. כלומר
+                          פתרתי בעיית רוחב במחיר של מידע, ודווקא
+                          למשתמשי הטאבלט ולרוחב 1024 שהוא נפוץ
+                          (ביקורת Codex).
+
+                          הניסוח והדומיינים נלקחים מאותן פונקציות
+                          שמזינות את הטבלה, ולא נכתבים כאן מחדש.
+                        */}
+                        <p className="mt-1" style={{ fontSize: "var(--type-caption)", color: "var(--color-text-muted)" }}>
+                          {p.missingFields.length > 0
+                            ? `חסרים ${p.missingFields.length} שדות חובה`
+                            : "כל שדות החובה מלאים"}
+                        </p>
                       </div>
                     </div>
-                    {p.suggestedMatchCount ? (
-                      <Link
-                        href={`/matches?property=${p.id}`}
-                        className="mv-pill mt-3 inline-block no-underline"
-                        style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}
-                      >
-                        {p.suggestedMatchCount} קונים מתאימים ←
-                      </Link>
-                    ) : null}
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className={`mv-pill ${statusDomain(p.status)}`}>
+                        {STATUS_LABELS[p.status] ?? p.status}
+                      </span>
+                      {p.suggestedMatchCount ? (
+                        <Link
+                          href={`/matches?property=${p.id}`}
+                          className="mv-pill mv-domain-violet no-underline"
+                        >
+                          {p.suggestedMatchCount} קונים מתאימים ←
+                        </Link>
+                      ) : (
+                        <span className="mv-pill mv-domain-neutral">אין עדיין</span>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -558,7 +587,7 @@ export default function PropertiesPage() {
                           <span className="mv-progress">
                             <span style={{ width: `${p.readinessScore}%`, background: ready.bar }} />
                           </span>
-                          <span className="font-bold" style={{ color: ready.text, fontSize: "14px" }}>
+                          <span className="font-bold" style={{ color: ready.text, fontSize: "var(--type-caption)" }}>
                             {p.readinessScore}%
                           </span>
                         </span>
@@ -582,7 +611,7 @@ export default function PropertiesPage() {
                           הוא הסיבה שכרטיס הנכס אומר „N מתוך M שדות חובה”.
                           כתבתי אותו שם, ולא החלתי אותו כאן.
                         */}
-                        <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                        <span style={{ fontSize: "var(--type-caption)", color: "var(--color-text-muted)" }}>
                           {p.missingFields.length > 0
                             ? `חסרים ${p.missingFields.length} שדות חובה`
                             : "כל שדות החובה מלאים"}
