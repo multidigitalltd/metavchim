@@ -114,10 +114,24 @@ function quantityOf(word: string): number | undefined {
  * „בעוד שעתיים” הוא אריתמטיקה על **הרגע**: ביום מעבר שעון הוא בדיוק
  * שעתיים, גם אם שעון הקיר קפץ.
  */
+/**
+ * מילה אחת, בלי הפיסוק שנדבק אליה.
+ *
+ * ‎`\S+` בולע נקודה או פסיק — „עוד שעה**.**” נותן `שעה.`, והתבניות
+ * העוגנות דוחות אותו. תמלול ותשובה בוואטסאפ מסתיימים בפיסוק כדבר
+ * שבשגרה, וזו הייתה אפילו **נסיגה** מהצורה הקודמת: הביטוי הישן
+ * התאים לתחילית, והמשך המילה לא עניין אותו (ביקורת Codex).
+ */
+function bareWord(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  const cleaned = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  return cleaned === "" ? undefined : cleaned;
+}
+
 export function parseRelativeOffset(text: string): { ms: number; evidence: string } | null {
   const trigger = /(?<lead>ב?עוד|תוך)\s+(?<rest>\S+)(?:\s+(?<tail>\S+))?/u.exec(text);
   const lead = trigger?.groups?.["lead"];
-  const first = trigger?.groups?.["rest"];
+  const first = bareWord(trigger?.groups?.["rest"]);
   if (lead === undefined || first === undefined) return null;
 
   // „שעתיים”, „שעה” — היחידה עומדת לבדה ונושאת את הכמות שלה
@@ -125,7 +139,7 @@ export function parseRelativeOffset(text: string): { ms: number; evidence: strin
   if (alone !== undefined) return { ms: alone.ms, evidence: `${lead} ${first}` };
 
   // „עשרים דקות”, „רבע שעה”, „3 ימים”
-  const second = trigger?.groups?.["tail"];
+  const second = bareWord(trigger?.groups?.["tail"]);
   const quantity = quantityOf(first);
   if (quantity === undefined || second === undefined) return null;
   const unit = unitOf(second);

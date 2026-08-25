@@ -93,6 +93,17 @@ describe("parseHebrewDateTime", () => {
     expect(il(parseHebrewDateTime("תזכיר לי עוד שבוע", NOW).date).day).toBe(8);
   });
 
+  /*
+   * תמלול ותשובה בוואטסאפ מסתיימים בפיסוק כדבר שבשגרה. ‎`\S+` בולע
+   * את הנקודה, והתבניות העוגנות דוחות את „שעה.” — כלומר הצורה
+   * הבסיסית ביותר נופלת שוב, והפעם גם בנסיגה מהקוד הישן.
+   */
+  it("ופיסוק שנדבק למילה אינו מבטל את הזיהוי", () => {
+    expect(il(parseHebrewDateTime("תזכיר לי עוד שעה.", NOW).date).hour).toBe(10);
+    expect(il(parseHebrewDateTime("חזור אליו בעוד שעתיים,", NOW).date).hour).toBe(11);
+    expect(il(parseHebrewDateTime("תזכיר לי עוד עשרים דקות!", NOW).date).minute).toBe(20);
+  });
+
   it("ו'תוך' עובד כמו 'עוד'", () => {
     expect(il(parseHebrewDateTime("תחזור אליו תוך שעתיים", NOW).date).hour).toBe(11);
   });
