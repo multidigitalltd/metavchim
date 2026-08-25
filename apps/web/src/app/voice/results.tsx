@@ -1,5 +1,14 @@
 "use client";
 
+import {
+  AGENT_RESULT_ROWS,
+  APPOINTMENT_KIND_LABELS,
+  COOP_DEAL_STAGE_LABELS,
+  agentResultList,
+  isAggregateResult,
+  officeReportStats,
+  type CoopDealStage,
+} from "@metavchim/shared";
 import { formatPrice } from "@/lib/format";
 import {
   IconCalendar,
@@ -96,19 +105,13 @@ interface DealRow {
   lastActivityAt: string;
 }
 
-const APPOINTMENT_KIND: Record<string, string> = {
-  viewing: "סיור",
-  meeting: "פגישה",
-  call: "שיחה",
-};
-
-const DEAL_STAGE: Record<string, string> = {
-  contact: "יצירת קשר",
-  viewing: "סיור",
-  negotiation: "משא ומתן",
-  signed: "נחתם",
-  cancelled: "בוטל",
-};
+/*
+ * התוויות מגיעות מהלוגיקה המשותפת, ולא נכתבות כאן.
+ *
+ * שתי המפות היו מקומיות, ו-`DEAL_STAGE` כבר **הספיקה להתפצל**:
+ * מסך העסקה המשותפת אומר „לא יצא לפועל”, והפאנל הזה אמר „בוטל”
+ * על אותו שלב בדיוק. אותו סוכן, שתי תשובות.
+ */
 
 function whenText(iso: string): string {
   const at = new Date(iso);
@@ -134,21 +137,47 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
     callbacks?: CallbackRow[];
     calls?: CallRow[];
     deals?: DealRow[];
+    matches?: unknown[];
     report?: unknown;
   };
 
+  /*
+   * **תוצאת חיפוש כללי — לפני כל מקטע בודד.**
+   *
+   * `SearchService.search` מחזירה תמיד את כל המקטעים, כולל הריקים,
+   * ולכן שרשרת התנאים שלמטה זיהתה כל חיפוש כרשימת פגישות ריקה
+   * וענתה „אין פגישות”. אותו באג בדיוק היה בצד וואטסאפ, ולכן
+   * ההכרעה עצמה משותפת (`isAggregateResult`) ולא נכתבת כאן שוב.
+   *
+   * הרשימה המאוחדת מרונדרת מהשורות המשותפות — היא חוצה סוגים,
+   * ולכן אין לה JSX ייעודי. מקטע יחיד ממשיך לתצוגה העשירה שלו.
+   */
+  if (isAggregateResult(data)) {
+    return <SharedRows data={data} empty="לא נמצא כלום" />;
+  }
+
+  /*
+   * התאמות — הצורה היחידה שלא הוצגה כאן **בכלל**. הן חוצות סוגים
+   * (קונים לנכס, נכסים לקונה), ולכן הן מרונדרות מהשורות המשותפות
+   * ולא מ-JSX ייעודי.
+   */
+  if (Array.isArray(payload.matches)) {
+    return <SharedRows data={data} empty="אין התאמות פעילות" />;
+  }
+
   if (Array.isArray(payload.appointments)) {
+    const rows = payload.appointments.slice(0, AGENT_RESULT_ROWS);
     return (
       <ResultList
-        hasMore={false}
-        count={payload.appointments.length}
+        hasMore={payload.hasMore === true || payload.appointments.length > rows.length}
+        count={rows.length}
         noun="פגישות"
         empty="אין פגישות ביום הזה"
       >
-        {payload.appointments.map((a) => (
+        {rows.map((a) => (
           <li key={a.id} className="mv-result-row">
             <a href="/calendar" className="font-medium underline">
-              <IconCalendar s={15} /> {a.title || APPOINTMENT_KIND[a.kind] || "פגישה"}
+              <IconCalendar s={15} /> {a.title || APPOINTMENT_KIND_LABELS[a.kind] || "פגישה"}
             </a>
             <span style={{ color: "var(--color-text-muted)" }}>{whenText(a.startsAt)}</span>
           </li>
@@ -158,14 +187,15 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
   }
 
   if (Array.isArray(payload.tasks)) {
+    const rows = payload.tasks.slice(0, AGENT_RESULT_ROWS);
     return (
       <ResultList
-        hasMore={false}
-        count={payload.tasks.length}
+        hasMore={payload.hasMore === true || payload.tasks.length > rows.length}
+        count={rows.length}
         noun="משימות פתוחות"
         empty="אין משימות פתוחות"
       >
-        {payload.tasks.map((t) => (
+        {rows.map((t) => (
           <li key={t.id} className="mv-result-row">
             <a href="/tasks" className="font-medium underline">
               <IconCheck s={15} /> {t.title}
@@ -182,14 +212,15 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
   }
 
   if (Array.isArray(payload.callbacks)) {
+    const rows = payload.callbacks.slice(0, AGENT_RESULT_ROWS);
     return (
       <ResultList
-        hasMore={false}
-        count={payload.callbacks.length}
+        hasMore={payload.hasMore === true || payload.callbacks.length > rows.length}
+        count={rows.length}
         noun="ממתינים לחזרה"
         empty="אין כרגע אף אחד שממתין לחזרה"
       >
-        {payload.callbacks.map((row) => (
+        {rows.map((row) => (
           <li key={row.contactId} className="mv-result-row">
             <a href={row.href} className="font-medium underline">
               <IconPhone s={15} /> {row.name}
@@ -224,14 +255,15 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
   }
 
   if (Array.isArray(payload.calls)) {
+    const rows = payload.calls.slice(0, AGENT_RESULT_ROWS);
     return (
       <ResultList
-        hasMore={false}
-        count={payload.calls.length}
+        hasMore={payload.hasMore === true || payload.calls.length > rows.length}
+        count={rows.length}
         noun="שיחות"
         empty="אין שיחות אחרונות"
       >
-        {payload.calls.map((c) => (
+        {rows.map((c) => (
           <li key={c.id} className="mv-result-row">
             <a href="/calls" className="font-medium underline">
               <IconPhone s={15} /> {c.contactName || c.phone || "מספר חסוי"}
@@ -252,20 +284,21 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
   }
 
   if (Array.isArray(payload.deals)) {
+    const rows = payload.deals.slice(0, AGENT_RESULT_ROWS);
     return (
       <ResultList
-        hasMore={false}
-        count={payload.deals.length}
+        hasMore={payload.hasMore === true || payload.deals.length > rows.length}
+        count={rows.length}
         noun="עסקאות משותפות"
         empty="אין עסקאות משותפות"
       >
-        {payload.deals.map((d) => (
+        {rows.map((d) => (
           <li key={d.id} className="mv-result-row">
             <a href={`/collaboration/deals/${d.id}`} className="font-medium underline">
               <IconHandshake s={15} /> {d.title}
             </a>
             <span style={{ color: "var(--color-text-muted)" }}>
-              {[DEAL_STAGE[d.stage] ?? d.stage, d.counterpartOffice].filter(Boolean).join(" · ")}
+              {[COOP_DEAL_STAGE_LABELS[d.stage as CoopDealStage] ?? d.stage, d.counterpartOffice].filter(Boolean).join(" · ")}
             </span>
           </li>
         ))}
@@ -274,27 +307,15 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
   }
 
   if (typeof payload.report === "object" && payload.report !== null) {
-    const report = payload.report as {
-      properties?: { active?: number };
-      buyers?: { total?: number; hot?: number };
-      leads?: { open?: number };
-      deals?: { closed?: number };
-      offers?: { sent?: number };
-      appointments?: { upcoming?: number };
-    };
-    const stats: [string, number | undefined][] = [
-      ["עסקאות שנסגרו", report.deals?.closed],
-      ["נכסים פעילים", report.properties?.active],
-      ["קונים חמים", report.buyers?.hot],
-      ["לידים פתוחים", report.leads?.open],
-      ["הצעות שנשלחו", report.offers?.sent],
-      ["פגישות קרובות", report.appointments?.upcoming],
-    ];
+    /*
+     * אילו מדדים, באיזה סדר ובאילו שמות — בלוגיקה המשותפת, כדי
+     * שהסוכן בוואטסאפ ימסור בדיוק את אותו דוח.
+     */
+    const stats = officeReportStats(payload.report);
     return (
       <ul className="flex flex-col gap-2">
         {stats
-          .filter((entry): entry is [string, number] => typeof entry[1] === "number")
-          .map(([label, value]) => (
+          .map(({ label, value }) => (
             <li key={label} className="mv-result-row">
               <span className="font-medium">{label}</span>
               <span style={{ color: "var(--color-text-muted)" }}>{value}</span>
@@ -310,14 +331,15 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
   }
 
   if (Array.isArray(payload.buyers)) {
+    const rows = payload.buyers.slice(0, AGENT_RESULT_ROWS);
     return (
       <ResultList
-        hasMore={payload.hasMore === true}
-        count={payload.buyers.length}
+        hasMore={payload.hasMore === true || payload.buyers.length > rows.length}
+        count={rows.length}
         noun="קונים"
         empty="לא נמצאו קונים שמתאימים לקריטריונים"
       >
-        {payload.buyers.map((buyer) => (
+        {rows.map((buyer) => (
           <li key={buyer.id} className="mv-result-row">
             <a href={`/buyers/${buyer.id}`} className="font-medium underline">
               {MATURITY_ICON[buyer.maturity] ?? <IconUser s={15} />} {buyer.name}
@@ -340,14 +362,15 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
   }
 
   if (Array.isArray(payload.properties)) {
+    const rows = payload.properties.slice(0, AGENT_RESULT_ROWS);
     return (
       <ResultList
-        hasMore={payload.hasMore === true}
-        count={payload.properties.length}
+        hasMore={payload.hasMore === true || payload.properties.length > rows.length}
+        count={rows.length}
         noun="נכסים"
         empty="אין נכסים שעונים על התנאים"
       >
-        {payload.properties.map((property) => (
+        {rows.map((property) => (
           <li key={property.id} className="mv-result-row">
             <a href={`/properties/${property.id}`} className="font-medium underline">
               <IconHome s={15} /> {property.title || "נכס"}
@@ -368,6 +391,42 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
   }
 
   return null;
+}
+
+/**
+ * רשימה שנבנתה מהשורות המשותפות — לצורות שאין להן JSX ייעודי.
+ *
+ * אלה הצורות שחוצות סוגים: תוצאת חיפוש כללי והתאמות. הכותרת,
+ * הפרטים והקישור נגזרים ב-`agentResultList`, בדיוק כמו בוואטסאפ —
+ * ולכן שתי התשובות זהות בתוכן ונבדלות רק בצורה.
+ */
+function SharedRows({ data, empty }: { data: unknown; empty: string }): React.JSX.Element | null {
+  const list = agentResultList(data);
+  if (list === null) return null;
+  const shown = list.rows.slice(0, AGENT_RESULT_ROWS);
+  return (
+    <ResultList
+      hasMore={list.hasMore || list.rows.length > shown.length}
+      count={shown.length}
+      noun={list.noun}
+      empty={empty}
+    >
+      {shown.map((row, index) => (
+        <li key={`${row.href ?? row.label}-${index}`} className="mv-result-row">
+          {row.href === undefined ? (
+            <span className="font-medium">{row.label}</span>
+          ) : (
+            <a href={row.href} className="font-medium underline">
+              {row.label}
+            </a>
+          )}
+          <span style={{ color: "var(--color-text-muted)" }}>
+            {[row.detail, row.phone].filter(Boolean).join(" · ")}
+          </span>
+        </li>
+      ))}
+    </ResultList>
+  );
 }
 
 function ResultList({

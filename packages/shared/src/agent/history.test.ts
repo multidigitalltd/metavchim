@@ -121,3 +121,29 @@ describe("הפרומפט אינו חושף מזהים", () => {
     expect(prompt).not.toContain(LEAD_ID);
   });
 });
+
+
+/*
+ * שתי רשומות מאותו תור שנושאות תווית מתאימה הן ריבוי אמיתי:
+ * בחירת הראשונה היא פגיעה שקטה ברשומה הלא נכונה, ולכן ההכרעה
+ * חוזרת לחיפוש — שיודע לומר „נמצאו כמה” ולבקש בחירה (ביקורת Codex).
+ */
+describe("matchHistoryRef — ריבוי אינו הכרעה", () => {
+  const refs = [
+    { label: "משה כהן 1", entityType: "buyer" as const, entityId: "A" },
+    { label: "משה כהן 2", entityType: "buyer" as const, entityId: "B" },
+  ];
+
+  it("תווית מדויקת פותרת", () => {
+    expect(matchHistoryRef(refs, "משה כהן 2")?.entityId).toBe("B");
+  });
+
+  it("ביטוי שמתאים לשתיהן אינו פותר", () => {
+    expect(matchHistoryRef(refs, "משה כהן")).toBeNull();
+  });
+
+  it("ותווית יחידה ממשיכה להיפתר בסלחנות", () => {
+    const one = [{ label: "הליד מהעדכון", entityType: "lead" as const, entityId: "L" }];
+    expect(matchHistoryRef(one, "⟪הליד מהעדכון⟫")?.entityId).toBe("L");
+  });
+});

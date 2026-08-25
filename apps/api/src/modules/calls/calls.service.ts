@@ -5,6 +5,7 @@ import {
   assertContactAccess,
   isOrphanContact,
   seesAllContacts,
+  visibleCallsCondition,
   visibleContactIds,
 } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
@@ -242,25 +243,7 @@ export class CallsService {
         const ordered = await tx.$queryRaw<{ id: string }[]>`
           SELECT c.id
             FROM calls c
-           WHERE c.tenant_id = ${tenantId}
-             AND (
-                  c.contact_id = ANY(${visible}::char(26)[])
-               OR (c.created_by = ${userId} AND c.contact_id IS NULL)
-               OR (c.created_by = ${userId}
-                   AND c.contact_id IS NOT NULL
-                   AND NOT EXISTS (SELECT 1 FROM buyers b
-                                    WHERE b.tenant_id = c.tenant_id
-                                      AND b.contact_id = c.contact_id
-                                      AND b.deleted_at IS NULL)
-                   AND NOT EXISTS (SELECT 1 FROM leads l
-                                    WHERE l.tenant_id = c.tenant_id
-                                      AND l.contact_id = c.contact_id)
-                   AND NOT EXISTS (SELECT 1 FROM properties p
-                                    WHERE p.tenant_id = c.tenant_id
-                                      AND (p.owner_contact_id = c.contact_id
-                                        OR p.occupant_contact_id = c.contact_id)
-                                      AND p.deleted_at IS NULL))
-             )
+           WHERE ${visibleCallsCondition(tenantId, userId, visible)}
              AND (${query.outcome ?? null}::text IS NULL OR c.outcome = ${query.outcome ?? null})
              AND (${query.leadId ?? null}::char(26) IS NULL OR c.lead_id = ${query.leadId ?? null})
              AND (${query.contactId ?? null}::char(26) IS NULL OR c.contact_id = ${query.contactId ?? null})
@@ -326,26 +309,9 @@ export class CallsService {
       const latest = await tx.$queryRaw<{ id: string }[]>`
         SELECT DISTINCT ON (c.contact_id) c.id
           FROM calls c
-         WHERE c.tenant_id = ${tenantId}
+         WHERE ${visibleCallsCondition(tenantId, userId, visible)}
            AND c.contact_id IS NOT NULL
            AND c.occurred_at >= ${since}
-           AND (
-                ${visible === null}
-             OR c.contact_id = ANY(${visible ?? []}::char(26)[])
-             OR (c.created_by = ${userId}
-                 AND NOT EXISTS (SELECT 1 FROM buyers b
-                                  WHERE b.tenant_id = c.tenant_id
-                                    AND b.contact_id = c.contact_id
-                                    AND b.deleted_at IS NULL)
-                 AND NOT EXISTS (SELECT 1 FROM leads l
-                                  WHERE l.tenant_id = c.tenant_id
-                                    AND l.contact_id = c.contact_id)
-                 AND NOT EXISTS (SELECT 1 FROM properties p
-                                  WHERE p.tenant_id = c.tenant_id
-                                    AND (p.owner_contact_id = c.contact_id
-                                      OR p.occupant_contact_id = c.contact_id)
-                                    AND p.deleted_at IS NULL))
-           )
          ORDER BY c.contact_id, c.occurred_at DESC
       `;
       const ids = latest.map((row) => row.id);

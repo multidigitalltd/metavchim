@@ -23,7 +23,7 @@ import type { Readable } from "node:stream";
 import { CallsService, type CallDto } from "../calls/calls.service";
 import { DealRoomService } from "../collaboration/deal-room.service";
 import { LeadsService } from "../leads/leads.service";
-import { MatchingService } from "../matching/matching.service";
+import { MATCH_LIST_LIMIT, MatchingService } from "../matching/matching.service";
 import { PropertiesService } from "../properties/properties.service";
 import { SearchService } from "../search/search.service";
 import { TasksService } from "../tasks/tasks.service";
@@ -93,6 +93,32 @@ export interface ExecuteResult {
    * הודעת שמע אמיתית, כדי שהמתווך ישמע את הלקוח בלי לפתוח דשבורד.
    */
   audio?: { callId: string; label: string };
+}
+
+/**
+ * כמה התאמות משרדיות הסוכן מוסר — ומול מה נבדק „יש עוד”.
+ *
+ * רשימה שחזרה בדיוק בגודל התקרה אינה בהכרח הרשימה כולה, וזה מה
+ * ש-`hasMore` אומר. בלעדיו „ועוד 42 התאמות” נקרא כסך הכול, והמתווך
+ * מפסיק לחפש על סמך תקרה שלנו (ביקורת Codex).
+ */
+const OFFICE_MATCHES = 50;
+/** הסף שמסך ההתאמות מציג — כאן ובספירה, מאותו מקום. */
+const OFFICE_MIN_SCORE = 50;
+
+/**
+ * עמוד + סימן קיטום — **הספירה היא מה שקובע „יש עוד”.**
+ *
+ * אורך הרשימה אינו מעיד: שירות ההתאמות מסנן שורות מיושנות (קונה
+ * או נכס שנמחקו) **אחרי** ה-`take`, ומרווח קבוע נשבר כשמספרן עולה
+ * עליו (ביקורת Codex). הספירה נשאלת מהמסד באותו תנאי בדיוק, ולכן
+ * היא מודדת את מה שקיים ולא את מה שנשאר.
+ *
+ * כיוון אי-הדיוק שנשאר מכוון: שורה מיושנת נספרת ואינה מוצגת, ולכן
+ * התשובה עלולה לומר „יש עוד” כשאין — ולעולם לא „זה הכול” כשיש.
+ */
+function page<T>(rows: T[], total: number, limit: number): { matches: T[]; hasMore: boolean } {
+  return { matches: rows.slice(0, limit), hasMore: total > limit };
 }
 
 @Injectable()
@@ -429,7 +455,11 @@ export class AgentExecuteService {
       return {
         href: `/properties/${propertyId}`,
         message: refresh ? "ההתאמות חושבו מחדש" : "ההתאמות של הנכס",
-        data: await this.matching.listForProperty(propertyId),
+        data: page(
+          await this.matching.listForProperty(propertyId, MATCH_LIST_LIMIT),
+          await this.matching.countForProperty(propertyId),
+          MATCH_LIST_LIMIT,
+        ),
       };
     }
     if (buyerId !== undefined) {
@@ -437,15 +467,26 @@ export class AgentExecuteService {
       return {
         href: `/buyers/${buyerId}`,
         message: refresh ? "ההתאמות חושבו מחדש" : "ההתאמות של הקונה",
-        data: await this.matching.listForBuyer(buyerId),
+        data: page(
+          await this.matching.listForBuyer(buyerId, MATCH_LIST_LIMIT),
+          await this.matching.countForBuyer(buyerId),
+          MATCH_LIST_LIMIT,
+        ),
       };
     }
+    /*
+     * אותו סף שמסך ההתאמות מציג — תשובה של הסוכן לא אמורה לכלול
+     * התאמות שהמסך מסתיר, אחרת שתי דרכים לשאול נותנות שתי תשובות.
+     */
+    const officeQuery = { limit: OFFICE_MATCHES, minScore: OFFICE_MIN_SCORE };
     return {
       href: "/matches",
       message: "ההתאמות של המשרד",
-      // אותו סף שמסך ההתאמות מציג — תשובה של הסוכן לא אמורה לכלול
-      // התאמות שהמסך מסתיר, אחרת שתי דרכים לשאול נותנות שתי תשובות
-      data: await this.matching.listAll({ limit: 50, minScore: 50 }),
+      data: page(
+        await this.matching.listAll(officeQuery),
+        await this.matching.countAll({ minScore: OFFICE_MIN_SCORE }),
+        OFFICE_MATCHES,
+      ),
     };
   }
 

@@ -140,17 +140,125 @@ export function assistantMemoryTurn(items: readonly NotifiedForMemory[]): AgentH
   };
 }
 
-/** „הליד מהעדכון” ⟵ „הליד מהעדכון 1/2” כששניים נושאים אותה תווית. */
-function numberDuplicateLabels(refs: readonly AgentHistoryRef[]): AgentHistoryRef[] {
-  const counts = new Map<string, number>();
-  for (const ref of refs) counts.set(ref.label, (counts.get(ref.label) ?? 0) + 1);
-  const used = new Map<string, number>();
-  return refs.map((ref) => {
-    if ((counts.get(ref.label) ?? 0) < 2) return ref;
-    const n = (used.get(ref.label) ?? 0) + 1;
-    used.set(ref.label, n);
-    return { ...ref, label: `${ref.label} ${n}` };
+/**
+ * „משה כהן” ⟵ „משה כהן 1” / „משה כהן 2” כששניים נושאים אותו שם.
+ *
+ * תווית שחוזרת פעמיים אינה מזהה דבר: היא מצביעה על שתי רשומות,
+ * והבחירה ביניהן נופלת על „הראשונה שנמצאה” — כלומר ניחוש שקט
+ * (ביקורת Codex). מספור הופך אותה למזהה, ובמקום שבו הוא מוצג הוא
+ * גם אומר למתווך שיש שניים.
+ *
+ * מיוצא כדי שגם שורות התוצאה יעברו בו: התווית שנשמרת, זו שמוצגת
+ * וזו שבהפניה חייבות להיות אותה מחרוזת, אחרת המספור עצמו יוצר
+ * את הפער שהוא נועד לסגור.
+ */
+export function numberedLabels(
+  labels: readonly string[],
+  maxLength?: number,
+  /**
+   * אילו תוויות **רשאיות** לקבל מספר. חסר = כולן.
+   *
+   * מספור הופך תווית למפתח, ולכן הוא מיועד לשורה שיש לה רשומה
+   * להצביע עליה. שורת אירוע (שיחה, פגישה) שקיבלה מספר הפכה
+   * ל„<כותרת> 2” — ביטוי שאין לו מקבילה באף רשומה, והחיפוש עליו
+   * נכשל בשקט (ביקורת Codex). מי שאינו רשאי עדיין **תופס** את
+   * התווית שלו, כדי שמספר שנוצר לא ייפול עליה.
+   */
+  numberable?: readonly boolean[],
+): string[] {
+  return numberedForms(labels, labels, maxLength, numberable).display;
+}
+
+/**
+ * אותה הכרעה בדיוק, לשתי הצורות של אותה תווית — **מספר אחד לשתיהן.**
+ *
+ * לשורת תוצאה יש צורה מוצגת (נחתכת ב„…”) וצורה נשמרת (רישא נקייה),
+ * והן נבדלות דווקא בקצה. שני מעברי מספור נפרדים הכריעו אחרת על
+ * אותה שורה: שני שמות שנחלקים ב-39 התווים הראשונים ונבדלים ב-40
+ * נראים זהים בתצוגה ומקבלים „1” ו„2”, בעוד הזיכרון רואה שתי
+ * מחרוזות שונות ואינו ממספר. המתווך רואה מספר, חוזר עליו, ואף
+ * הפניה אינה נושאת אותו (ביקורת Codex).
+ *
+ * לכן ההתנגשות נבדקת בשתי הצורות, המספר נבחר כך שהוא פנוי
+ * ב**שתיהן**, ומוצמד לשתיהן. מקרה הפוך קיים גם הוא — שם באורך
+ * הגבול בדיוק מול שם ארוך שנחתך אליו — ולכן אין די בבדיקת התצוגה.
+ */
+export function numberedForms(
+  display: readonly string[],
+  memory: readonly string[],
+  maxLength?: number,
+  numberable?: readonly boolean[],
+): { display: string[]; memory: string[] } {
+  const mayNumber = (i: number): boolean => numberable?.[i] ?? true;
+  /*
+   * **הספירה כוללת את כולם; רק ההצמדה מוגבלת.**
+   *
+   * ספירה שדילגה על מי שאינו רשאי למספר עיוורת בדיוק להתנגשות
+   * שהיא אמורה למצוא: שם קונה ארוך ופגישה שכותרתה שווה לארבעים
+   * התווים הראשונים שלו נראים שונה בתצוגה ונחתכים לאותה רישא
+   * בזיכרון. איש מהם לא נספר כפול, אף אחד לא מוספר, ושתי השורות
+   * חוזרות לפרומפט באותה תווית — כשרק לאחת מהן יש הפניה
+   * (ביקורת Codex).
+   *
+   * ההכרעה מי מקבל את המספר נשארת כפי שהייתה: השורה שיש לה רשומה
+   * זזה, ושורת האירוע נשארת בשמה.
+   */
+  const tally = (values: readonly string[]): Map<string, number> => {
+    const counts = new Map<string, number>();
+    for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+    return counts;
+  };
+  const displayCounts = tally(display);
+  const memoryCounts = tally(memory);
+  /*
+   * **הייחודיות נבדקת על התווית הסופית — אחרי המספור ואחרי הקיצור.**
+   *
+   * שני מקורות להתנגשות, ושניהם נתפסו רק אחרי שתיקנתי כל אחד
+   * בנפרד (ביקורת Codex):
+   *
+   * 1. „משה כהן 1” יכול להיות שם אמיתי של לקוח שלישי ברשימה.
+   * 2. תווית באורך המרבי מתקצרת כדי לפנות מקום לסיומת — והתוצאה
+   *    המקוצרת עלולה להיות שווה לתווית אחרת שכבר ברשימה.
+   *
+   * לכן המונה עולה עד שהצורה **הסופית** פנויה, ולא עד שהצורה
+   * הביניימית פנויה. `maxLength` חסר = אין קיצור (תוויות התראה).
+   */
+  const fit = (label: string, suffix: string): string => {
+    if (maxLength === undefined || label.length + suffix.length <= maxLength) {
+      return `${label}${suffix}`;
+    }
+    return `${label.slice(0, Math.max(0, maxLength - suffix.length))}${suffix}`;
+  };
+  const takenDisplay = new Set(display);
+  const takenMemory = new Set(memory);
+  const numbered: { display: string[]; memory: string[] } = { display: [], memory: [] };
+  display.forEach((shown, i) => {
+    const remembered = memory[i] ?? shown;
+    const duplicated =
+      (displayCounts.get(shown) ?? 0) > 1 || (memoryCounts.get(remembered) ?? 0) > 1;
+    if (!mayNumber(i) || !duplicated) {
+      numbered.display.push(shown);
+      numbered.memory.push(remembered);
+      return;
+    }
+    let n = 1;
+    while (takenDisplay.has(fit(shown, ` ${n}`)) || takenMemory.has(fit(remembered, ` ${n}`))) {
+      n += 1;
+    }
+    const chosenDisplay = fit(shown, ` ${n}`);
+    const chosenMemory = fit(remembered, ` ${n}`);
+    takenDisplay.add(chosenDisplay);
+    takenMemory.add(chosenMemory);
+    numbered.display.push(chosenDisplay);
+    numbered.memory.push(chosenMemory);
   });
+  return numbered;
+}
+
+/** אותו כלל, על רשימת הפניות. */
+function numberDuplicateLabels(refs: readonly AgentHistoryRef[]): AgentHistoryRef[] {
+  const labels = numberedLabels(refs.map((ref) => ref.label));
+  return refs.map((ref, i) => ({ ...ref, label: labels[i]! }));
 }
 
 /**
@@ -169,11 +277,44 @@ export function matchHistoryRef(
   if (refs === undefined || refs.length === 0) return null;
   const needle = stripBrackets(phrase);
   if (needle.length < 2) return null;
-  for (const ref of refs) {
+  /*
+   * **התאמה מדויקת קודמת לסלחנית.**
+   *
+   * „משה כהן 2” מכיל את „משה כהן 1”? לא — אבל „משה כהן” כן נכלל
+   * בשתיהן, ולכן ההשוואה הסלחנית לבדה הייתה בוחרת את הראשונה.
+   */
+  /*
+   * **תווית שחוזרת בשני תורות נפתרת לזו של המאוחר.**
+   *
+   * הרשימה מסודרת מהחדש לישן, ולכן ההופעה הראשונה היא הנכונה —
+   * וההופעות הישנות יורדות כאן, לפני בדיקת הריבוי. בלי זה שני
+   * עדכונים על „הליד מהעדכון” היו נראים כשתי אפשרויות, וההכרעה
+   * הייתה חוזרת לחיפוש דווקא כשהתשובה ידועה.
+   *
+   * מה שנשאר אחרי הצמצום הוא ריבוי אמיתי: שתי רשומות **מאותו תור**
+   * שנושאות תווית מתאימה.
+   */
+  const newest = refs.filter(
+    (ref, i) =>
+      refs.findIndex((other) => stripBrackets(other.label) === stripBrackets(ref.label)) === i,
+  );
+  const exact = newest.filter((ref) => stripBrackets(ref.label) === needle);
+  if (exact.length === 1) return exact[0]!;
+  if (exact.length > 1) return null;
+
+  const loose = newest.filter((ref) => {
     const label = stripBrackets(ref.label);
-    if (needle === label || needle.includes(label) || label.includes(needle)) return ref;
-  }
-  return null;
+    return needle.includes(label) || label.includes(needle);
+  });
+  /*
+   * **ביטוי שמתאים לכמה הפניות אינו מכריע.**
+   *
+   * שתי רשומות באותו שם, או שני שמות ארוכים שנחתכו לאותה רישא —
+   * ובחירת הראשונה היא פגיעה שקטה ברשומה הלא נכונה. `null` מחזיר
+   * את ההכרעה לחיפוש, שיודע לומר „נמצאו כמה” ולבקש בחירה
+   * (ביקורת Codex).
+   */
+  return loose.length === 1 ? loose[0]! : null;
 }
 
 function stripBrackets(text: string): string {

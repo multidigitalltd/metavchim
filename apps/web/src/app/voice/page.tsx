@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  agentHistorySummary,
+  agentResultRefs,
+  type AgentHistoryRef,
+} from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { useUserDismissed } from "@/lib/dismissed-panels";
@@ -43,6 +48,13 @@ interface HistoryTurn {
   action: string;
   params: Record<string, unknown>;
   resultSummary?: string;
+  /**
+   * ההפניות לרשומות שהוצגו — תווית ומזהה.
+   *
+   * המזהה נשאר בין הדפדפן לשרת ו**אינו** נכתב לפרומפט: הוא מה
+   * שהופך „הראשון מהם” לרשומה בלי לחפש את התווית כטקסט.
+   */
+  refs?: AgentHistoryRef[];
 }
 
 interface Recommendation {
@@ -69,32 +81,6 @@ function recHref(rec: Recommendation): string | null {
       return null;
   }
 }
-
-/**
- * תקציר תוצאה לזיכרון השיחה — שמות, לפי הסדר שהוצגו.
- *
- * "תתקשר לראשון מהם" עובד רק אם המודל יודע מי הראשון; לכן התקציר
- * מונה את השמות ולא רק את הכמות. חמישה מספיקים — פנייה לרשומה
- * עמוק ברשימה נעשית בשם מלא ממילא.
- */
-function summarizeData(data: unknown): string {
-  const labels: string[] = [];
-  const collect = (items: unknown): void => {
-    if (!Array.isArray(items)) return;
-    for (const item of items) {
-      if (labels.length >= 5 || typeof item !== "object" || item === null) return;
-      const record = item as Record<string, unknown>;
-      const label = record["name"] ?? record["title"] ?? record["marketingTitle"];
-      if (typeof label === "string" && label !== "") labels.push(label);
-    }
-  };
-  if (Array.isArray(data)) collect(data);
-  else if (typeof data === "object" && data !== null) {
-    for (const value of Object.values(data as Record<string, unknown>)) collect(value);
-  }
-  return labels.length > 0 ? `בין התוצאות, לפי הסדר: ${labels.join(", ")}` : "";
-}
-
 
 export default function AgentPage(): React.JSX.Element {
   const { loading: authLoading } = useRequireAuth();
@@ -236,17 +222,28 @@ export default function AgentPage(): React.JSX.Element {
      * מהם" בתור הבא.
      */
     if (proposal !== null && proposal.actionId !== "unknown" && executedParams !== undefined) {
-      const dataSummary = summarizeData(executed.data);
       setHistory((prev) => [
         ...prev.slice(-5),
         {
           transcript: transcript.trim(),
           action: proposal.actionId,
           params: executedParams,
-          resultSummary: [executed.message, dataSummary]
-            .filter((part) => part !== "")
-            .join(". ")
-            .slice(0, 600),
+          /*
+           * הזיכרון נגזר מהשורות המשותפות — **אותה גזירה כמו בוואטסאפ.**
+           *
+           * כאן היה מנסח שלישי: תקרה של חמישה, וסריקה שמכירה
+           * `name`/`title` בלבד. כלומר חיפוש שנפל על הערה הציג את שם
+           * הלקוח ולא שמר דבר, וחיפוש מעורב הציג פגישה ראשונה ושמר
+           * קונה ראשון — „תוסיף הערה לראשון” פגע ברשומה אחרת מזו
+           * שהמתווך ראה (ביקורת Codex).
+           */
+          resultSummary: agentHistorySummary(executed.message, executed.data),
+          /*
+           * המזהים של מה שהוצג — כדי ש„הראשון מהם” ייפתר בלי חיפוש
+           * טקסט. התווית לבדה אינה מפתח אמין כשהיא רישא של שם ארוך
+           * (ביקורת Codex). המזהה אינו מגיע לפרומפט של המודל.
+           */
+          refs: agentResultRefs(executed.data),
         },
       ]);
     }

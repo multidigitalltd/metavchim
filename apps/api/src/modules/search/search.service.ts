@@ -7,7 +7,11 @@ import {
   type ParsedSearchQuery,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
-import { ownershipFilter } from "../../common/ownership";
+import {
+  ownershipFilter,
+  visibleCallsCondition,
+  visibleContactIds,
+} from "../../common/ownership";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 
@@ -34,6 +38,15 @@ import { PrismaService, type TenantTx } from "../../core/prisma.service";
  */
 
 export interface SearchResults {
+  /**
+   * **קבוצה כלשהי נחתכה בשרת** — „מוצגים הראשונים” ולא „נמצאו N”.
+   *
+   * כל קבוצה מוגבלת ל-`GROUP_LIMIT`, ובלי הסימן הזה תשובה חתוכה
+   * נקראת כרשימה מלאה בשני המסכים — והמתווך מסיק שאין יותר על סמך
+   * תקרה שלנו (ביקורת Codex). נשאלת שורה אחת מעבר לתקרה, ולכן
+   * הסימן מודד את מה שקיים ולא את מה שהוחזר.
+   */
+  hasMore: boolean;
   /** זהות בהתאמת-טלפון מדויקת — "מי מתקשר אליי?" */
   contact: { id: string; name: string; phone: string } | null;
   properties: {
@@ -54,7 +67,14 @@ export interface SearchResults {
   /* --- טקסט חופשי שנכתב בתוך המערכת: לא רק "מי", גם "מה נאמר" --- */
   appointments: { id: string; title: string; kind: string; startsAt: Date; status: string }[];
   tasks: { id: string; title: string; status: string; dueAt: Date | null }[];
-  calls: { id: string; summary: string; occurredAt: Date; direction: string }[];
+  calls: {
+    id: string;
+    summary: string;
+    occurredAt: Date;
+    direction: string;
+    /** שם הלקוח, כשהחיפוש היה לפי מספר וזהותו ידועה. */
+    contactName?: string;
+  }[];
   /** הערות ותיעודי שיחה על לידים וקונים. */
   notes: {
     id: string;
@@ -62,11 +82,19 @@ export interface SearchResults {
     createdAt: Date;
     leadId: string | null;
     buyerId: string | null;
+    /**
+     * שם הלקוח שההערה נכתבה עליו — **התשובה לשאלה עצמה.**
+     *
+     * „מי אמר שהוא גמיש בקומה” נענה עד כה ב„הערה — אמר שהוא גמיש
+     * בקומה”, כלומר בחזרה על השאלה. `null` רק כשהכרטיס נמחק בינתיים.
+     */
+    entityLabel: string | null;
   }[];
 }
 
 /** תוצאה ריקה — נקודת פתיחה אחת לכל מסלולי החיפוש. */
 const EMPTY: SearchResults = {
+  hasMore: false,
   contact: null,
   properties: [],
   buyers: [],
@@ -78,6 +106,19 @@ const EMPTY: SearchResults = {
 };
 
 const GROUP_LIMIT = 8;
+/**
+ * נשאלת שורה אחת מעבר לתקרה — **כדי לדעת אם יש עוד.**
+ *
+ * השוואת אורך התוצאה לתקרה אינה מבחינה בין „בדיוק שמונה” לבין
+ * „שמונה מתוך רבים”, ושורה עודפת אחת הופכת את ההבחנה למדידה.
+ * היא נחתכת מיד אחרי (`capped`), ולכן אינה מגיעה לאף מסך.
+ */
+const GROUP_PROBE = GROUP_LIMIT + 1;
+
+/** הקבוצה בגודלה המוצג, והאם נחתכה. */
+function capped<T>(rows: T[]): { rows: T[]; more: boolean } {
+  return { rows: rows.slice(0, GROUP_LIMIT), more: rows.length > GROUP_LIMIT };
+}
 /**
  * הערות נשלפות בעודף ומסוננות לפי בעלות אחרי כן (ראו visibleNotes) —
  * בלי העודף, סינון של סוכן עם view_own היה מרוקן את הקבוצה כמעט תמיד.
@@ -134,7 +175,7 @@ export class SearchService {
                 id: true, city: true, street: true, neighborhood: true,
                 marketingTitle: true, status: true,
               },
-              take: GROUP_LIMIT,
+              take: GROUP_PROBE,
             })
           : [],
         can.canBuyers
@@ -146,7 +187,7 @@ export class SearchService {
                 ...ownershipFilter("buyers.view_all", "ownerUserId"),
               },
               select: { id: true, maturity: true, cities: true },
-              take: GROUP_LIMIT,
+              take: GROUP_PROBE,
             })
           : [],
         can.canLeads
@@ -157,7 +198,7 @@ export class SearchService {
                 ...ownershipFilter("leads.view_all", "assignedToUserId"),
               },
               select: { id: true, status: true, requiresHuman: true },
-              take: GROUP_LIMIT,
+              take: GROUP_PROBE,
             })
           : [],
       ]);
@@ -173,22 +214,37 @@ export class SearchService {
         return EMPTY;
       }
 
-      // שיחות מהמספר הזה — התשובה ל"מי התקשר אליי" כוללת גם את
-      // ההיסטוריה של השיחות איתו, לא רק את הכרטיס
-      const calls = await tx.call.findMany({
-        where: { tenantId, contactId: contact.id },
-        select: { id: true, summary: true, occurredAt: true, direction: true },
-        orderBy: { occurredAt: "desc" },
-        take: GROUP_LIMIT,
-      });
+      /*
+       * שיחות מהמספר הזה — התשובה ל„מי התקשר אליי” כוללת גם את
+       * ההיסטוריה של השיחות איתו, לא רק את הכרטיס.
+       *
+       * דרך אותו שער כמו החיפוש החופשי: השער שמעל („יש לו כרטיס
+       * גלוי, או שיש לי גישה משרדית”) קרוב אך אינו זהה לכלל
+       * השיחות — `buyers.view_all` לבדה פתחה גם שיחות של ליד שאינו
+       * שלי. תנאי אחד לשני המסלולים מסיר את ההשוואה הזו מהתמונה.
+       */
+      const calls = await this.visibleCalls(tx, tenantId, { contactId: contact.id });
 
+      const shownProperties = capped(properties);
+      const shownBuyers = capped(buyers);
+      const shownLeads = capped(leads);
+      const shownCalls = capped(calls);
       return {
         ...EMPTY,
+        hasMore: [shownProperties, shownBuyers, shownLeads, shownCalls].some((g) => g.more),
         contact: identity,
-        properties,
-        buyers: buyers.map((b) => ({ ...b, name: identity.name })),
-        leads: leads.map((l) => ({ ...l, name: identity.name })),
-        calls: calls.map((c) => ({ ...c, summary: c.summary ?? "" })),
+        properties: shownProperties.rows,
+        buyers: shownBuyers.rows.map((b) => ({ ...b, name: identity.name })),
+        leads: shownLeads.rows.map((l) => ({ ...l, name: identity.name })),
+        /*
+         * שם הלקוח נלווה לכל שיחה — **הוא ידוע כאן.** בלעדיו השורה
+         * מתויגת „שיחה” בזמן שהזהות מוצגת שורה מעליה (ביקורת Codex).
+         */
+        calls: shownCalls.rows.map((c) => ({
+          ...c,
+          summary: c.summary ?? "",
+          contactName: identity.name,
+        })),
       };
     });
   }
@@ -247,7 +303,7 @@ export class SearchService {
                 marketingTitle: true, status: true,
               },
               orderBy: { updatedAt: "desc" },
-              take: GROUP_LIMIT,
+              take: GROUP_PROBE,
             })
           : [];
 
@@ -265,12 +321,20 @@ export class SearchService {
        */
       const searchesFreeText = textForMatch.trim().length > 0;
       const like = { contains: textForMatch, mode: "insensitive" as const };
-      const [appointments, tasks, calls, notes] = await Promise.all([
+      /*
+       * בלי שארית טקסטואלית אין מה לחפש כאן — ו-`contains: ""` מתאים
+       * ל**כל** שורה במשרד. עד כה ארבע השאילתות רצו בכל מקרה ותוצאתן
+       * נזרקה מיד; מלבד העלות, זה מה שאפשר לקיטום של קבוצה שאינה
+       * מוצגת לזלוג לתשובה (ביקורת Codex).
+       */
+      const [appointments, tasks, calls, notes] = !searchesFreeText
+        ? [[], [], [], []]
+        : await Promise.all([
         tx.appointment.findMany({
           where: { tenantId, OR: [{ title: like }, { notes: like }] },
           select: { id: true, title: true, kind: true, startsAt: true, status: true },
           orderBy: { startsAt: "desc" },
-          take: GROUP_LIMIT,
+          take: GROUP_PROBE,
         }),
         tx.task.findMany({
           where: {
@@ -280,14 +344,9 @@ export class SearchService {
           },
           select: { id: true, title: true, status: true, dueAt: true },
           orderBy: { createdAt: "desc" },
-          take: GROUP_LIMIT,
+          take: GROUP_PROBE,
         }),
-        tx.call.findMany({
-          where: { tenantId, summary: like },
-          select: { id: true, summary: true, occurredAt: true, direction: true },
-          orderBy: { occurredAt: "desc" },
-          take: GROUP_LIMIT,
-        }),
+        this.visibleCalls(tx, tenantId, { text: textForMatch }),
         /*
          * מועמדים בלבד — הסינון לפי בעלות נעשה מיד אחרי, ולכן שולפים
          * יותר מהתקרה כדי שלא נישאר עם רשימה ריקה אחרי הסינון.
@@ -300,17 +359,39 @@ export class SearchService {
         }),
       ]);
 
+      const visibleNotes = searchesFreeText ? await this.visibleNotes(tx, tenantId, notes) : [];
+      const shownAppointments = capped(appointments);
+      const shownTasks = capped(tasks);
+      const shownCalls = capped(calls);
+      const shownNotes = capped(visibleNotes);
+      const shownProperties = capped(properties);
       const freeText = searchesFreeText
         ? {
-            appointments: appointments.map((a) => ({ ...a, title: a.title ?? "פגישה" })),
-            tasks,
-            calls: calls.map((c) => ({ ...c, summary: c.summary ?? "" })),
-            notes: await this.visibleNotes(tx, tenantId, notes),
+            appointments: shownAppointments.rows.map((a) => ({ ...a, title: a.title ?? "פגישה" })),
+            tasks: shownTasks.rows,
+            calls: shownCalls.rows.map((c) => ({ ...c, summary: c.summary ?? "" })),
+            notes: await this.labelNotes(tx, tenantId, shownNotes.rows),
           }
         : { appointments: [], tasks: [], calls: [], notes: [] };
+      /**
+       * האם קבוצה כלשהי נחתכה — **רק מבין אלה שבאמת מוצגות.**
+       *
+       * שאילתה מובְנית בלי שארית („קונים 4 חדרים בבני ברק”) אינה
+       * מציגה את קבוצות הטקסט החופשי כלל, וספירת הקיטום שלהן הייתה
+       * הופכת כל משרד עם יותר משמונה פגישות ל„יש עוד קונים” — טענה
+       * על קבוצה שכן מוצגת, ושקרית לגביה (ביקורת Codex).
+       */
+      const truncated = searchesFreeText
+        ? [shownProperties, shownAppointments, shownTasks, shownCalls, shownNotes]
+        : [shownProperties];
 
       if (!can.canBuyers && !can.canLeads) {
-        return { ...EMPTY, properties, ...freeText };
+        return {
+          ...EMPTY,
+          hasMore: truncated.some((g) => g.more),
+          properties: shownProperties.rows,
+          ...freeText,
+        };
       }
 
       /*
@@ -404,7 +485,7 @@ export class SearchService {
               where: buyerWhere,
               select: { id: true, maturity: true, cities: true, contactId: true },
               orderBy: { updatedAt: "desc" },
-              take: GROUP_LIMIT,
+              take: GROUP_PROBE,
             })
           : [],
         can.canLeads && wantsLeads && matchedIds.length > 0
@@ -415,7 +496,7 @@ export class SearchService {
                 ...ownershipFilter("leads.view_all", "assignedToUserId"),
               },
               select: { id: true, status: true, requiresHuman: true, contactId: true },
-              take: GROUP_LIMIT,
+              take: GROUP_PROBE,
             })
           : [],
       ]);
@@ -437,18 +518,21 @@ export class SearchService {
         }
       }
 
+      const shownBuyers = capped(buyers);
+      const shownLeads = capped(leads);
       return {
         ...EMPTY,
-        properties,
+        hasMore: [...truncated, shownBuyers, shownLeads].some((g) => g.more),
+        properties: shownProperties.rows,
         ...freeText,
-        buyers: buyers.map((b) => ({
+        buyers: shownBuyers.rows.map((b) => ({
           id: b.id,
           maturity: b.maturity,
           cities: b.cities,
           name: nameById.get(b.contactId) ?? "",
           ...(phoneById.has(b.contactId) ? { phone: phoneById.get(b.contactId)! } : {}),
         })),
-        leads: leads.map((l) => ({
+        leads: shownLeads.rows.map((l) => ({
           id: l.id,
           status: l.status,
           requiresHuman: l.requiresHuman,
@@ -528,6 +612,120 @@ export class SearchService {
    * סוכן אחר — וזה בדיוק המידע המסחרי הרגיש ביותר במערכת (תקציב,
    * מניעים, מצב מו"מ).
    */
+  /**
+   * שם הלקוח לכל הערה — **אחרי סינון הנראות, לא לפניו.**
+   *
+   * הסדר אינו סגנון: `visibleNotes` כבר צמצמה לשמונה הערות שהמשתמש
+   * רשאי לראות, ולכן כאן נפתחים רק הכרטיסים שלהן. פענוח לפני הסינון
+   * היה מפענח שמות של לקוחות שהמשתמש אינו רשאי לראות בכלל — עלות
+   * מיותרת, וגרוע מכך, PII שנפתח בלי סיבה.
+   *
+   * שלוש שאילתות חסומות בגודלן (‏≤8 הערות): הליד/הקונה למזהה
+   * הכרטיס, והכרטיסים לשמות. שדה יחס אינו קיים בסכימה, ולכן
+   * ‎`contactId` נשלף במפורש.
+   */
+  private async labelNotes(
+    tx: TenantTx,
+    tenantId: string,
+    notes: {
+      id: string;
+      content: string;
+      createdAt: Date;
+      leadId: string | null;
+      buyerId: string | null;
+    }[],
+  ): Promise<SearchResults["notes"]> {
+    const leadIds = [...new Set(notes.map((n) => n.leadId).filter((id): id is string => id !== null))];
+    const buyerIds = [...new Set(notes.map((n) => n.buyerId).filter((id): id is string => id !== null))];
+    if (leadIds.length === 0 && buyerIds.length === 0) {
+      return notes.map((note) => ({ ...note, entityLabel: null }));
+    }
+
+    const [leads, buyers] = await Promise.all([
+      leadIds.length > 0
+        ? tx.lead.findMany({
+            where: { tenantId, id: { in: leadIds } },
+            select: { id: true, contactId: true },
+          })
+        : [],
+      buyerIds.length > 0
+        ? tx.buyer.findMany({
+            where: { tenantId, id: { in: buyerIds } },
+            select: { id: true, contactId: true },
+          })
+        : [],
+    ]);
+
+    const contactIds = [...new Set([...leads, ...buyers].map((row) => row.contactId))];
+    const contacts =
+      contactIds.length > 0
+        ? await tx.contact.findMany({
+            where: { tenantId, id: { in: contactIds } },
+            select: { id: true, nameEncrypted: true },
+          })
+        : [];
+    const nameByContact = new Map(
+      contacts.map((c) => [c.id, this.crypto.decrypt(c.nameEncrypted)] as const),
+    );
+    const nameByLead = new Map(
+      leads.map((l) => [l.id, nameByContact.get(l.contactId) ?? null] as const),
+    );
+    const nameByBuyer = new Map(
+      buyers.map((b) => [b.id, nameByContact.get(b.contactId) ?? null] as const),
+    );
+
+    return notes.map((note) => ({
+      ...note,
+      entityLabel:
+        (note.buyerId === null ? null : (nameByBuyer.get(note.buyerId) ?? null)) ??
+        (note.leadId === null ? null : (nameByLead.get(note.leadId) ?? null)),
+    }));
+  }
+
+  /**
+   * שיחות שהתקציר שלהן מכיל את הטקסט — **ורק כאלה שמותר לו לראות.**
+   *
+   * השאילתה כאן שלפה לפי `tenantId` בלבד, בזמן שיומן השיחות מסנן
+   * לפי בעלות. פעולת `search` דורשת `properties.view`, ולכן סוכן
+   * בלי גישה משרדית ללידים ולקונים יכול היה לחפש ביטוי מתוך שיחה
+   * של סוכן אחר ולקבל את התקציר שלה — בפאנל ובוואטסאפ כאחד
+   * (ביקורת Codex, P1). התנאי אינו נכתב כאן מחדש: הוא מיובא מאותו
+   * מקום שהיומן משתמש בו.
+   *
+   * SQL גולמי לבחירת מזהים ואז שליפה ב-Prisma — אותו דפוס בדיוק
+   * כמו ב-`CallsService.list`, מפני שענף היתומה דורש `NOT EXISTS`.
+   * זה אינו מעקף RLS: `withTenant` פתחה טרנזקציה עם `app.tenant_id`,
+   * והשאילתה רצה בתוכה.
+   */
+  private async visibleCalls(
+    tx: TenantTx,
+    tenantId: string,
+    /** לפי תקציר (חיפוש חופשי) או לפי לקוח („מי התקשר אליי”) */
+    match: { text: string } | { contactId: string },
+  ): Promise<{ id: string; summary: string | null; occurredAt: Date; direction: string }[]> {
+    const select = { id: true, summary: true, occurredAt: true, direction: true } as const;
+    const visible = await visibleContactIds(tx, tenantId);
+    const { userId } = TenantContext.current();
+    const allowed = await tx.$queryRaw<{ id: string }[]>`
+      SELECT c.id
+        FROM calls c
+       WHERE ${visibleCallsCondition(tenantId, userId, visible)}
+         AND (${"text" in match ? match.text : null}::text IS NULL
+              OR c.summary ILIKE '%' || ${"text" in match ? match.text : null} || '%')
+         AND (${"contactId" in match ? match.contactId : null}::char(26) IS NULL
+              OR c.contact_id = ${"contactId" in match ? match.contactId : null})
+       ORDER BY c.occurred_at DESC
+       LIMIT ${GROUP_PROBE}
+    `;
+    if (allowed.length === 0) return [];
+    return tx.call.findMany({
+      where: { tenantId, id: { in: allowed.map((row) => row.id) } },
+      select,
+      orderBy: { occurredAt: "desc" },
+      take: GROUP_PROBE,
+    });
+  }
+
   private async visibleNotes(
     tx: TenantTx,
     tenantId: string,
@@ -542,7 +740,7 @@ export class SearchService {
     const ctx = TenantContext.current();
     const seesAllLeads = ctx.capabilities.has("leads.view_all");
     const seesAllBuyers = ctx.capabilities.has("buyers.view_all");
-    if (seesAllLeads && seesAllBuyers) return candidates.slice(0, GROUP_LIMIT);
+    if (seesAllLeads && seesAllBuyers) return candidates.slice(0, GROUP_PROBE);
 
     const leadIds = [...new Set(candidates.map((n) => n.leadId).filter((id): id is string => id !== null))];
     const buyerIds = [...new Set(candidates.map((n) => n.buyerId).filter((id): id is string => id !== null))];
@@ -573,7 +771,7 @@ export class SearchService {
     return filterVisibleNotes(
       candidates,
       { leadIds: new Set(leads.map((l) => l.id)), buyerIds: new Set(buyers.map((b) => b.id)) },
-      GROUP_LIMIT,
+      GROUP_PROBE,
     );
   }
 }

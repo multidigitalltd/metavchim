@@ -98,6 +98,40 @@ const NO_MATCHES: RecomputeResult = { matches: 0, opened: 0 };
  * סטטוסים ידניים (dismissed/offered) לעולם לא נדרסים ע"י חישוב מחדש —
  * החלטת המתווך גוברת על האלגוריתם.
  */
+/**
+ * כמה התאמות מוחזרות לכרטיס אחד — **קבוע אחד, כי הקורא צריך לדעת.**
+ *
+ * רשימה שהגיעה לתקרה אינה „כל ההתאמות”, והתשובה של הסוכן אמורה
+ * לומר זאת. כל עוד המספר היה כתוב פעמיים ב-`take` בלבד, הקורא לא
+ * יכול היה להשוות אליו — ולכן הציג עמוד חתוך כרשימה מלאה
+ * (ביקורת Codex).
+ */
+export const MATCH_LIST_LIMIT = 100;
+
+/**
+ * ההתאמות הפתוחות של כרטיס — **תנאי אחד לשאילתה ולספירה.**
+ *
+ * הספירה קיימת כדי לומר „יש עוד” בלי לנחש: הסינון של שורות
+ * מיושנות קורה בזיכרון, ולכן אורך התוצאה אינו מעיד על מה שקיים
+ * במאגר — ומרווח קבוע, גדול ככל שיהיה, נשבר כשמספר השורות
+ * המיושנות עולה עליו (ביקורת Codex). שני מקומות שכותבים את אותו
+ * תנאי היו נפרדים ביום שאחד מהם משתנה, ואז הספירה הייתה של משהו
+ * אחר מהרשימה.
+ */
+function openMatchesOf(tenantId: string, key: { propertyId: string } | { buyerId: string }) {
+  return { tenantId, ...key, status: { not: "dismissed" } };
+}
+
+/** אותו דבר לרשימה המשרדית — הסף והנכס משתנים לפי הבקשה. */
+function officeMatchesOf(tenantId: string, query: { minScore: number; propertyId?: string }) {
+  return {
+    tenantId,
+    status: { not: "dismissed" },
+    score: { gte: query.minScore },
+    ...(query.propertyId ? { propertyId: query.propertyId } : {}),
+  };
+}
+
 @Injectable()
 export class MatchingService {
   constructor(
@@ -127,12 +161,7 @@ export class MatchingService {
        * ביטחון לשורות ישנות ולא הפתרון עצמו.
        */
       const rows = await tx.match.findMany({
-        where: {
-          tenantId,
-          status: { not: "dismissed" },
-          score: { gte: query.minScore },
-          ...(query.propertyId ? { propertyId: query.propertyId } : {}),
-        },
+        where: officeMatchesOf(tenantId, query),
         orderBy: { score: "desc" },
         take: query.limit + LIVE_HEADROOM,
       });
@@ -583,19 +612,54 @@ export class MatchingService {
     };
   }
 
+  /**
+   * כמה התאמות משרדיות עומדות בסף — **התשובה ל„יש עוד”.**
+   *
+   * אותו נימוק כמו לכרטיס: הרשימה מסוננת בזיכרון משורות מיושנות,
+   * ולכן אורכה אינו מעיד על מה שקיים. השארתי את המשרדית על השורה
+   * העודפת בסבב הקודם בטענה שאין לה תנאי קבוע לספור — ויש, הוא
+   * פשוט נגזר מהבקשה (ביקורת Codex).
+   */
+  async countAll(query: { minScore: number; propertyId?: string }): Promise<number> {
+    return this.prisma.withTenant(async (tx) =>
+      tx.match.count({ where: officeMatchesOf(TenantContext.current().tenantId, query) }),
+    );
+  }
+
+  /**
+   * כמה התאמות פתוחות יש לכרטיס — **התשובה ל„יש עוד”.**
+   *
+   * ספירה ולא אורך הרשימה, כי הרשימה מסוננת בזיכרון משורות
+   * מיושנות. הכיוון של אי-הדיוק חשוב: הספירה כוללת שורה מיושנת
+   * שהרשימה השמיטה, ולכן היא עלולה לומר „יש עוד” כשאין — ולעולם
+   * לא „זה הכול” כשיש. השקר הראשון עולה למתווך לחיצה, השני עולה
+   * לו לקוח.
+   */
+  async countForProperty(propertyId: string): Promise<number> {
+    return this.prisma.withTenant(async (tx) =>
+      tx.match.count({ where: openMatchesOf(TenantContext.current().tenantId, { propertyId }) }),
+    );
+  }
+
+  /** אותו דבר לקונה — ובאותה בדיקת גישה כמו הרשימה שלו. */
+  async countForBuyer(buyerId: string): Promise<number> {
+    return this.prisma.withTenant(async (tx) => {
+      const tenantId = TenantContext.current().tenantId;
+      await assertBuyerAccess(tx, tenantId, buyerId);
+      return tx.match.count({ where: openMatchesOf(tenantId, { buyerId }) });
+    });
+  }
+
   async listForProperty(
     propertyId: string,
+    limit: number = MATCH_LIST_LIMIT,
   ): Promise<(MatchDto & { buyerName: string | null; buyerMaturity: string | null })[]> {
     return this.prisma.withTenant(async (tx) => {
       const tenantId = TenantContext.current().tenantId;
       const rows = await tx.match.findMany({
-        where: {
-          tenantId,
-          propertyId,
-          status: { not: "dismissed" },
-        },
+        where: openMatchesOf(tenantId, { propertyId }),
         orderBy: { score: "desc" },
-        take: 100,
+        take: limit + LIVE_HEADROOM,
       });
 
       /*
@@ -633,6 +697,7 @@ export class MatchingService {
 
       return rows
         .filter((row) => maturityById.has(row.buyerId))
+        .slice(0, limit)
         .map((row) => ({
           ...toMatchDto(row),
           buyerName: nameById.get(row.buyerId) ?? null,
@@ -643,6 +708,7 @@ export class MatchingService {
 
   async listForBuyer(
     buyerId: string,
+    limit: number = MATCH_LIST_LIMIT,
   ): Promise<(MatchDto & { property: { address: string; title?: string; priceAgorot?: number } })[]> {
     return this.prisma.withTenant(async (tx) => {
       const tenantId = TenantContext.current().tenantId;
@@ -650,13 +716,9 @@ export class MatchingService {
       // הכרטיס אינו רשאי לראות לאילו נכסים הוא מותאם
       await assertBuyerAccess(tx, tenantId, buyerId);
       const rows = await tx.match.findMany({
-        where: {
-          tenantId,
-          buyerId,
-          status: { not: "dismissed" },
-        },
+        where: openMatchesOf(tenantId, { buyerId }),
         orderBy: { score: "desc" },
-        take: 100,
+        take: limit + LIVE_HEADROOM,
       });
 
       // שם הנכס לכל התאמה — לכרטיס הקונה (קובץ העיצוב); שאילתה אחת לעמוד
@@ -676,6 +738,7 @@ export class MatchingService {
 
       return rows
         .filter((row) => propertyById.has(row.propertyId))
+        .slice(0, limit)
         .map((row) => {
           const property = propertyById.get(row.propertyId)!;
           return {

@@ -1,4 +1,5 @@
 import { NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import type { Capability } from "@metavchim/shared";
 import type { TenantTx } from "../core/prisma.service";
 import { TenantContext } from "./tenant-context";
@@ -329,4 +330,50 @@ export async function assertContactAccess(
       : null,
   ]);
   if (!buyer && !lead && !property) throw new NotFoundException("איש קשר לא נמצא");
+}
+
+/**
+ * מי רשאי לראות שיחה — **התנאי היחיד, ולא עותק אצל כל קורא.**
+ *
+ * הוא נכתב בתוך `CallsService.list`, ולכן החיפוש הגלובלי — שמוצא
+ * שיחה לפי טקסט מתוך התקציר — שלף לפי `tenantId` בלבד. פעולת
+ * `search` דורשת `properties.view`, כלומר סוכן בלי גישה משרדית
+ * ללידים ולקונים יכול היה לחפש ביטוי מתוך שיחה של סוכן אחר ולקבל
+ * את התקציר שלה (ביקורת Codex). הכלל יושב עכשיו במקום אחד, ושני
+ * הקוראים מרכיבים אותו לתוך השאילתה שלהם.
+ *
+ * הכינוי של הטבלה חייב להיות `c` — התנאי מתייחס אליו.
+ *
+ * שלושה ענפים, וכולם קיימים גם ביומן השיחות: איש קשר שהמשתמש
+ * רשאי לו, שיחה שהוא רשם בלי איש קשר, ושיחה שהוא רשם על איש קשר
+ * שאין לו עוד כרטיס חי — „אני רשמתי” חל על יתומה בלבד, אחרת שיחה
+ * שנרשמה לפני חסימת מודול הייתה שורדת אותה.
+ */
+export function visibleCallsCondition(
+  tenantId: string,
+  userId: string,
+  /** `null` = רואה כל לקוח במשרד, ולכן אין מה להגביל */
+  visible: string[] | null,
+): Prisma.Sql {
+  if (visible === null) return Prisma.sql`c.tenant_id = ${tenantId}`;
+  return Prisma.sql`
+    c.tenant_id = ${tenantId}
+    AND (
+         c.contact_id = ANY(${visible}::char(26)[])
+      OR (c.created_by = ${userId} AND c.contact_id IS NULL)
+      OR (c.created_by = ${userId}
+          AND c.contact_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM buyers b
+                           WHERE b.tenant_id = c.tenant_id
+                             AND b.contact_id = c.contact_id
+                             AND b.deleted_at IS NULL)
+          AND NOT EXISTS (SELECT 1 FROM leads l
+                           WHERE l.tenant_id = c.tenant_id
+                             AND l.contact_id = c.contact_id)
+          AND NOT EXISTS (SELECT 1 FROM properties p
+                           WHERE p.tenant_id = c.tenant_id
+                             AND (p.owner_contact_id = c.contact_id
+                               OR p.occupant_contact_id = c.contact_id)
+                             AND p.deleted_at IS NULL))
+    )`;
 }
