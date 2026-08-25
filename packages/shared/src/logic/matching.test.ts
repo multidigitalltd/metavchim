@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MIN_CORE_COVERAGE, scoreMatch } from "./matching.js";
+import { MIN_CORE_COVERAGE, resolveMatchWeights, scoreMatch } from "./matching.js";
 import type { PropertyFields } from "../schemas/property.js";
 import type { BuyerRequirements } from "../schemas/buyer.js";
 
@@ -501,6 +501,47 @@ describe("סף המידע — כרטיס ריק אינו נכנס להתאמות
     });
     expect(atGate.coverage).toBeGreaterThanOrEqual(MIN_CORE_COVERAGE);
     expect(atGate.insufficientData).toBe(false);
+  });
+
+  /*
+   * ‎**השער אינו ניתן לכיול, ובכוונה.**
+   *
+   * הגרסה הראשונה גזרה את הכיסוי מ-`weights`, וזה החזיר את הבאג
+   * דרך הדלת האחורית: משרד שמעלה את משקל התקציב לתקרה (0.5) —
+   * ובכיול האוטומטי שדולק כברירת מחדל זה קורה מעצמו — הפך את משקל
+   * הליבה ל-1.0, כך שקונה עם תקציב בלבד קיבל כיסוי 0.5, עבר את
+   * השער וקיבל ציון 50. `MATCH_THRESHOLDS.review` הוא 50 בדיוק,
+   * ולכן ההתאמה גם נשמרה (ביקורת Codex).
+   *
+   * הכיסוי הוא תכונה של הנתונים ולא של ההעדפות, ולכן הוא נמדד
+   * בברירת המחדל תמיד. הבדיקה מנפחת את הליבה כדי לוודא זאת.
+   */
+  it("כיול משקלים אינו יכול לפתוח את השער", () => {
+    for (const stored of [
+      { budget: 0.5 },
+      { budget: 0.5, location: 0.5, rooms: 0.5, property_type: 0.5 },
+      { location: 0.5 },
+    ]) {
+      const result = scoreMatch(baseProperty, importedBuyer, resolveMatchWeights(stored));
+      expect(result.coverage).toBeCloseTo(1 / 3, 2);
+      expect(result.insufficientData).toBe(true);
+      expect(result.score).toBe(0);
+    }
+  });
+
+  /* אותו נימוק לכיוון השני: הכיסוי המדווח זהה בכל משרד. */
+  it("הכיסוי המדווח אינו תלוי במשקלי המשרד", () => {
+    const buyer: BuyerRequirements = {
+      cities: ["בני ברק"],
+      neighborhoods: [],
+      dealType: "sale",
+      propertyTypes: [],
+      budgetMaxAgorot: 280_000_000,
+      features: {},
+    };
+    const plain = scoreMatch(baseProperty, buyer);
+    const tuned = scoreMatch(baseProperty, buyer, resolveMatchWeights({ budget: 0.5 }));
+    expect(tuned.coverage).toBe(plain.coverage);
   });
 
   /* ההסבר החסום נוקב במה שחסר — „אין מספיק פרטים” לבדו אינו פעולה. */

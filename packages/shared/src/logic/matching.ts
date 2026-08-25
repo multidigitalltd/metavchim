@@ -485,10 +485,28 @@ export function scoreMatch(
    * הסוכן להשלים את הכרטיס הוא מונה השלמות שכבר קיים בכרטיס
    * הקונה ובציון המוכנות של הנכס.
    */
-  const coreWeight = CORE_MATCH_CRITERIA.reduce((sum, c) => sum + weights[c], 0);
+  /*
+   * ‎**הכיסוי נמדד במשקלי ברירת המחדל, לא במשקלי המשרד.**
+   *
+   * הכיסוי עונה על „כמה ממה שחשוב באמת נבדק” — תכונה של הנתונים,
+   * לא של ההעדפות. גזירתו מ-`weights` הפכה אותו לניתן לכיול, וזה
+   * החזיר בדיוק את הבאג: משרד שמעלה את משקל התקציב ל-0.5 (התקרה,
+   * ובכיול האוטומטי שדולק כברירת מחדל זה קורה מעצמו) הופך את משקל
+   * הליבה ל-1.0, וקונה עם תקציב בלבד מקבל כיסוי 0.5 — עובר את
+   * השער, מקבל ציון 50, ו-`MATCH_THRESHOLDS.review` הוא 50 בדיוק,
+   * כך שהוא נשמר. נמדד (ביקורת Codex).
+   *
+   * בברירת המחדל אף קריטריון ליבה בודד אינו מגיע לחצי (הכבד ביותר
+   * הוא 0.25 מתוך 0.75), ולכן „לפחות חצי” פירושו בהכרח לפחות שניים
+   * — בלי תלות במה שהמשרד כיוון.
+   *
+   * זה גם מה שמאפשר להשוות: „87%” על ביקוש ברשת חייב לומר את אותו
+   * דבר בשני משרדים, בדיוק כמו הציון עצמו שרץ שם בברירת המחדל.
+   */
+  const coreWeight = CORE_MATCH_CRITERIA.reduce((sum, c) => sum + DEFAULT_MATCH_WEIGHTS[c], 0);
   const examinedCore = parts
     .filter((p) => CORE_MATCH_CRITERIA.includes(p.criterion as MatchCriterion))
-    .reduce((sum, p) => sum + p.weight, 0);
+    .reduce((sum, p) => sum + DEFAULT_MATCH_WEIGHTS[p.criterion as MatchCriterion], 0);
   const coverage = coreWeight > 0 ? Math.min(1, examinedCore / coreWeight) : 0;
 
   if (coverage < MIN_CORE_COVERAGE) {
