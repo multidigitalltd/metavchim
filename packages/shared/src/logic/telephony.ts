@@ -77,6 +77,23 @@ export const TELEPHONY_PROVIDERS: readonly TelephonyProvider[] = [
     fields: [
       { key: "authUsername", label: "שם משתמש ב-015", secret: false },
       { key: "authPassword", label: "סיסמה ב-015", secret: true },
+      /*
+       * **קבוצת ההקלטות — של המשרד, ולא של המערכת.**
+       *
+       * ‎`recordings/list` דורש `recordgroup` או `customer` (תיעוד
+       * 015), והמשיכה הבודדת דורשת `recordgroup` תמיד. עד עכשיו הוא
+       * נגזר מהסֶגמנט הראשון בנתיב שהוובהוק שולח — ניחוש שהתברר
+       * כשגוי: בנתיב `54936/12048/…` הקבוצה היא **השני**, ולכל משרד
+       * מספר אחר.
+       *
+       * לכן הוא שדה ולא נגזרת. כשהוא ריק, הנתיב עדיין משמש כנפילה
+       * לאחור — כדי שמשרד שלא מילא אותו לא יאבד את מה שכבר עבד.
+       */
+      {
+        key: "recordGroup",
+        label: "מספר קבוצת ההקלטות ב-015 (recordgroup)",
+        secret: false,
+      },
       { key: "defaultLine", label: "קו ברירת מחדל (כשלסוכן אין טלפון בפרופיל)", secret: false },
       { key: "callerId", label: "מזהה מתקשר שיוצג ללקוח (לא חובה)", secret: false },
       /*
@@ -1194,6 +1211,16 @@ export const PBX015_RECORDINGS_LIST_URL =
 export function build015RecordingsListUrl(input: {
   authUsername: string;
   authPassword: string;
+  /**
+   * קבוצת ההקלטות — **חובה לפי התיעוד**, לא ברירת מחדל.
+   *
+   * התיעוד של `recordings/list` אומר `recordgroup` או `customer`:
+   * „Yes, unless the other is specified”. הבקשה שלנו לא שלחה אף
+   * אחד מהם, עם הערה בקוד שהניחה שברירת המחדל היא „כל הקבוצות של
+   * הלקוח”. ההנחה הזו לא נבדקה מול התיעוד, וכנראה שהייבוא לא עבד
+   * מעולם — בלי הודעה, כי רשימה ריקה נראית כמו „אין הקלטות”.
+   */
+  recordGroup: string;
   /** שניות, לא מילישניות — כמו בכל שאר ה-API של 015. */
   fromEpochSeconds: number;
   toEpochSeconds: number;
@@ -1202,6 +1229,7 @@ export function build015RecordingsListUrl(input: {
     [
       ["auth_username", input.authUsername],
       ["auth_password", input.authPassword],
+      ["recordgroup", input.recordGroup],
       ["start", String(Math.floor(input.fromEpochSeconds))],
       ["end", String(Math.floor(input.toEpochSeconds))],
       // הקלטות שהסתיימו בלבד; שיחה שעדיין רצה תיאסף בסבב הבא
