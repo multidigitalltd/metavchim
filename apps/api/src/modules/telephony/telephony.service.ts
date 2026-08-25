@@ -1329,19 +1329,34 @@ export class TelephonyService {
         routeResolved: true,
       },
     });
-    /*
-     * ניקוי היתומות — כאן, ולא בסבב רקע נפרד.
-     *
-     * שיחה שה-`Hangup` שלה לא הגיע מעולם משאירה שורה שאיש לא ימחק.
-     * הניקוי רץ פעם אחת לכל שיחה חדשה, מוגבל לדייר, ונשען על
-     * האינדקס `(tenant_id, created_at)` — כלומר משרד שמייצר הרבה
-     * יתומות הוא גם זה שמנקה אותן לעיתים קרובות. סבב רקע נוסף היה
-     * טיימר שלם שצריך לתחזק בשביל טבלה שמחזיקה דקות.
-     */
+    await this.pruneScratch(tx, tenantId);
+    return { rule, answerObserved };
+  }
+
+  /**
+   * ניקוי היתומות — **בכל נתיב שכותב שורה**, ולא בסבב רקע נפרד.
+   *
+   * שיחה שה-`Hangup` שלה לא הגיע מעולם משאירה שורה שאיש לא ימחק.
+   * הניקוי מוגבל לדייר ונשען על האינדקס `(tenant_id, created_at)` —
+   * כלומר משרד שמייצר הרבה יתומות הוא גם זה שמנקה אותן לעיתים
+   * קרובות. סבב רקע נוסף היה טיימר שלם שצריך לתחזק בשביל טבלה
+   * שמחזיקה שעות.
+   *
+   * ‎**למה זו פונקציה ולא שורה בסוף פתירת הניתוב.** כשהניקוי ישב שם
+   * הוא היה תלוי בכך שהשורה **תמיד** נוצרת באותו נתיב, וזה הפסיק
+   * להיות נכון ברגע שאירוע `Answer` קיבל יכולת ליצור שורה בעצמו:
+   * מרכזייה שאינה שולחת `dialedNumber` כלל חוזרת מוקדם לפני הניקוי,
+   * ולכן כל `Hangup` שאבד היה משאיר שורה לצמיתות (ביקורת Codex).
+   *
+   * הכלל עכשיו פשוט לניסוח ולכן קשה לשבור: מי שכותב שורה, מנקה.
+   */
+  private async pruneScratch(
+    tx: Parameters<Parameters<PrismaService["withExplicitTenant"]>[1]>[0],
+    tenantId: string,
+  ): Promise<void> {
     await tx.callRouting.deleteMany({
       where: { tenantId, createdAt: { lt: new Date(Date.now() - ROUTING_RETENTION_MS) } },
     });
-    return { rule, answerObserved };
   }
 
   /**
@@ -1358,6 +1373,11 @@ export class TelephonyService {
    * הרשומה נמחקת כששורת השיחה נכתבת, ובכל מקרה מתיישנת לפי
    * ‎`ROUTING_RETENTION_MS` — שתים-עשרה שעות, כלומר יותר מכל פער
    * סביר בין `Answer` ל-`Hangup` של אותה שיחה.
+   *
+   * ‎**והניקוי נקרא כאן במפורש.** מרכזייה שאינה שולחת `dialedNumber`
+   * כלל אינה מגיעה לעולם לנתיב פתירת הניתוב, ולכן שורה שנוצרה כאן
+   * ושה-`Hangup` שלה אבד הייתה נשארת לצמיתות (ביקורת Codex). מי
+   * שכותב שורה, מנקה — ראו `pruneScratch`.
    */
   private async rememberAnswer(
     tx: Parameters<Parameters<PrismaService["withExplicitTenant"]>[1]>[0],
@@ -1369,6 +1389,7 @@ export class TelephonyService {
       create: { tenantId, providerCallId, answerObserved: true, routeResolved: false },
       update: { answerObserved: true },
     });
+    await this.pruneScratch(tx, tenantId);
   }
 
   /**
