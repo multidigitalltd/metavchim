@@ -183,21 +183,35 @@
    * שלישיית ערכים לכל דרגה: גודל, משקל, מרווח אותיות. גובה השורה
    * נשמר בנפרד רק היכן שהחבילה נוקבת בו.
    */
-  --type-h1: 38px; /* ברכת העמוד */
+  /*
+   * ‎**כל דרגה מוכפלת ב-`--a11y-font-scale`.**
+   *
+   * ‎`html` מחיל את הסקלה דרך `font-size: calc(1em * scale)`, ולכן
+   * טקסט ב-`rem` גדל איתה וטקסט ב-`px` **אינו** גדל. הסולם הזה
+   * נכתב תחילה בפיקסלים קבועים, וכך `.mv-button` — שהיה `1rem`
+   * וכן הגיב — נעצר על 16px גם בהגדרה של 200% (ביקורת Codex).
+   * כלומר הטמעת מערכת העיצוב כיבתה בשקט יכולת נגישות קיימת.
+   *
+   * ‎`calc(38px * var(--a11y-font-scale))` נותן בדיוק את מה
+   * ש-`2.375rem` היה נותן, ובנוסף משאיר את המספר המקורי גלוי —
+   * גם לקורא הקוד וגם ל-`verify:typography`, שאינו יודע להכריע
+   * יחידות יחסיות ומצהיר על כך במפורש.
+   */
+  --type-h1: calc(38px * var(--a11y-font-scale)); /* ברכת העמוד */
   --type-h1-track: -0.035em;
-  --type-kpi: 46px; /* מספר ב-KPI, בצבע הדומיין */
+  --type-kpi: calc(46px * var(--a11y-font-scale)); /* מספר ב-KPI, בצבע הדומיין */
   --type-kpi-track: -0.04em;
-  --type-panel: 22px; /* כותרת פאנל */
+  --type-panel: calc(22px * var(--a11y-font-scale)); /* כותרת פאנל */
   --type-panel-track: -0.025em;
-  --type-metric: 20px; /* מספר בשורת מדד */
+  --type-metric: calc(20px * var(--a11y-font-scale)); /* מספר בשורת מדד */
   --type-metric-track: -0.02em;
-  --type-card-title: 18.5px;
+  --type-card-title: calc(18.5px * var(--a11y-font-scale));
   --type-card-title-track: -0.02em;
-  --type-row-title: 17.5px;
+  --type-row-title: calc(17.5px * var(--a11y-font-scale));
   --type-row-title-track: -0.015em;
-  --type-button: 16px;
-  --type-body: 15.5px;
-  --type-nav: 15.5px;
+  --type-button: calc(16px * var(--a11y-font-scale));
+  --type-body: calc(15.5px * var(--a11y-font-scale));
+  --type-nav: calc(15.5px * var(--a11y-font-scale));
   /*
    * כיתוב עזר ועינית — **14px, ולא 11.5 ולא 13.5.**
    *
@@ -211,8 +225,8 @@
    * מתחתיה היה מפיל את השער. בעברית אין אותיות גדולות, ולכן מה
    * שמבדיל עינית מטקסט רגיל הוא המרווח והמשקל, לא הקוטן.
    */
-  --type-caption: 14px;
-  --type-eyebrow: 14px;
+  --type-caption: calc(14px * var(--a11y-font-scale));
+  --type-eyebrow: calc(14px * var(--a11y-font-scale));
   --type-eyebrow-track: 0.09em;
   /*
    * ‎`ink-3` מהחבילה — הרצפה למספרי נתונים.
@@ -686,12 +700,19 @@ code {
     transform 0.16s cubic-bezier(0.22, 1, 0.36, 1),
     box-shadow 0.2s ease;
 }
-/* ‎`scale(.98)` מהחבילה — לחיצה שמרגישה כלחיצה ולא כקפיצה */
-.mv-button:active {
-  transform: translateY(0) scale(0.98);
-}
 .mv-button:hover {
   transform: translateY(-2px);
+}
+/*
+ * ‎`:active` **אחרי** `:hover`, ולא לפניו.
+ *
+ * בלחיצת עכבר הכפתור מקיים את שני הבוררים בו-זמנית, והם באותה
+ * ספציפיות — כלומר המאוחר גובר. בסדר הקודם הרמת הריחוף דרסה את
+ * ‎`scale(.98)`, ומשוב הלחיצה פשוט לא התרחש בשולחן העבודה
+ * (ביקורת Codex).
+ */
+.mv-button:active {
+  transform: translateY(0) scale(0.98);
 }
 @media (prefers-reduced-motion: reduce) {
   .mv-button:hover,
