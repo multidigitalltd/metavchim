@@ -178,6 +178,20 @@ type ActionDomain = "green" | "peach" | "violet" | "blue" | "amber" | "neutral";
 
 interface TaskRow {
   key: string;
+  /**
+   * ‎**הדחיפות, על הסולם של עוזר המכירות** (`buildRecommendations`).
+   *
+   * בלי זה הדירוג היה סדר ההוספה: לידים שדורשים אדם נדחפו ראשונים,
+   * ולכן קיבלו את הרקע ואת הכפתור הראשי גם כשהמלצה דחופה יותר
+   * חיכתה מתחתיהם. כל עוד כל השורות נראו זהות זו הייתה רק רשימה לא
+   * ממוינת; מרגע שהשורה הראשונה מכריזה „זה הדבר לעשות עכשיו”, סדר
+   * ההוספה הפך לטענה שגויה על המציאות (ביקורת Codex).
+   *
+   * המספרים אינם מומצאים: הם נלקחים מ-`buildRecommendations`, שכבר
+   * מדרג בדיוק את אותם מושגים. השורה היחידה בלי מקבילה שם היא „ליד
+   * חדש ממתין” — ראו `PRIORITY`.
+   */
+  priority: number;
   domain: ActionDomain;
   title: string;
   why: string;
@@ -191,6 +205,29 @@ interface TaskRow {
    */
   icon: ReactNode;
 }
+
+/**
+ * דחיפות לשורות שהדשבורד גוזר בעצמו.
+ *
+ * הערכים מועתקים מ-`buildRecommendations` ב-`shared`, שמדרג את אותם
+ * מושגים בדיוק — ולכן שתי הרשימות מתמזגות לסולם אחד ולא לשניים.
+ *
+ * ‎**`newLead` הוא היחיד בלי מקבילה שם**, ולכן היחיד שהוא הכרעה
+ * שלי: מתחת לליד שדורש אדם (100) ומתחת להצעת שת"פ שממתינה לתשובה
+ * (95, כי משרד אחר מחכה לנו), ומעל קונה חם בלי הצעה (70). ליד שהגיע
+ * לפני רגע יהפוך ל-`stale_lead` (110) אם יישאר בלי מענה — כלומר
+ * המיקום כאן הוא תחילת אותו שעון.
+ */
+const PRIORITY = {
+  /** `urgent_lead` */
+  urgentLead: 100,
+  /** אין מקבילה — ראו ההסבר למעלה */
+  newLead: 92,
+  /** `hot_buyers_idle` */
+  hotBuyer: 70,
+  /** `incomplete_property` */
+  incompleteProperty: 40,
+} as const;
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useRequireAuth();
@@ -418,16 +455,14 @@ export default function DashboardPage() {
   const mullingOffer = pendingOffers.find((o) => o.openCount >= 2);
 
   /* ---- "מה חשוב לעשות היום": איחוד המקורות לרשימה ממוספרת אחת ---- */
-  const tasks: TaskRow[] = [];
-  const seen = new Set<string>();
+  const candidates: TaskRow[] = [];
   const push = (t: TaskRow): void => {
-    if (t.href !== null && seen.has(t.href)) return;
-    if (t.href !== null) seen.add(t.href);
-    tasks.push(t);
+    candidates.push(t);
   };
   for (const l of urgentLeads) {
     push({
       key: `urgent-${l.id}`,
+      priority: PRIORITY.urgentLead,
       domain: "peach",
       title: `ליד דורש טיפול אנושי: ${l.contact.name}`,
       why: l.requiresHumanReason ?? "העוזר הדיגיטלי לא הצליח להתקדם לבד.",
@@ -439,6 +474,7 @@ export default function DashboardPage() {
   for (const rec of (recs ?? []).slice(0, 4)) {
     push({
       key: `rec-${rec.type}-${rec.entityId ?? ""}`,
+      priority: rec.priority,
       domain: rec.priority >= 90 ? "peach" : "green",
       title: rec.title,
       why: rec.body,
@@ -450,6 +486,7 @@ export default function DashboardPage() {
   for (const l of newLeads) {
     push({
       key: `new-${l.id}`,
+      priority: PRIORITY.newLead,
       domain: "amber",
       title: `ליד חדש ממתין: ${l.contact.name}`,
       why: "מענה מהיר מכפיל את סיכוי ההמרה.",
@@ -461,6 +498,7 @@ export default function DashboardPage() {
   for (const p of incomplete) {
     push({
       key: `inc-${p.id}`,
+      priority: PRIORITY.incompleteProperty,
       domain: "blue",
       title: `${[p.street, p.city].filter(Boolean).join(", ") || "נכס ללא כתובת"} — מוכנות ${p.readinessScore}%`,
       why: `חסרים: ${p.missingFields.slice(0, 3).map((f) => FIELD_LABELS[f] ?? f).join(", ")}${p.missingFields.length > 3 ? " ועוד" : ""}. השלמה תפתח קונים חדשים.`,
@@ -472,6 +510,7 @@ export default function DashboardPage() {
   for (const b of hotBuyers.slice(0, 2)) {
     push({
       key: `hot-${b.id}`,
+      priority: PRIORITY.hotBuyer,
       domain: "violet",
       title: `לבדוק התאמות עבור ${b.contact.name}`,
       why: `קונה ${labelOf(MATURITY_LABELS, b.maturity) ?? b.maturity} — כדאי לוודא שקיבל הצעות רלוונטיות.`,
@@ -480,7 +519,30 @@ export default function DashboardPage() {
       href: `/buyers/${b.id}`,
     });
   }
-  const shownTasks = tasks.slice(0, 6);
+  /*
+   * ‎**ממיינים, ואז מסירים כפילויות — בסדר הזה.**
+   *
+   * המיון הוא התיקון: הדירוג שהשורה הראשונה מכריזה עליו חייב להיות
+   * דחיפות ולא סדר הוספה.
+   *
+   * וההסרה **אחרי** המיון, לא לפניה. קודם היא רצה בזמן הדחיפה, כך
+   * שמתוך שתי שורות שמובילות לאותו כרטיס ניצחה זו שנדחפה ראשונה —
+   * כלומר שוב סדר ההוספה, רק במקום שקשה יותר לראות. עכשיו מנצחת
+   * הדחופה מביניהן, וזו גם השורה שהמתווך היה בוחר לראות.
+   *
+   * ‎`sort` יציב במנועים המודרניים, ולכן שוויון דחיפות שומר על סדר
+   * המקורות — יציב בין רינדורים, וזה מה שחשוב כאן.
+   */
+  const seen = new Set<string>();
+  const shownTasks = [...candidates]
+    .sort((a, b) => b.priority - a.priority)
+    .filter((t) => {
+      if (t.href === null) return true;
+      if (seen.has(t.href)) return false;
+      seen.add(t.href);
+      return true;
+    })
+    .slice(0, 6);
 
   const todayEvents = (today ?? [])
     .filter((a) => a.status === "scheduled")
