@@ -28,6 +28,10 @@ interface ImportResult {
   linked: number;
   alreadyHad: number;
   withoutCall: number;
+  /** הקלטות שהספק החזיר ואין בהן מזהה הורדה שאנחנו מכירים */
+  withoutRecordId: number;
+  /** שמות השדות בשורה שהספק החזיר — שמות בלבד, בלי ערכים */
+  rowKeys: string[];
 }
 
 interface Status {
@@ -672,6 +676,27 @@ function ImportRecordings() {
           {result.withoutCall > 0
             ? ` ${result.withoutCall} הקלטות אצל הספק שייכות לשיחות שאינן רשומות במערכת — אלה שיחות שקדמו לחיבור, ואין להן כרטיס לקוח לשייך אליו.`
             : ""}
+          {/*
+            „הספק החזיר הקלטות ואין לנו מזהה הורדה” הוא אבחון; „לא
+            נמצאו הקלטות” הוא מבוי סתום. צורת השורה אינה מתועדת אצל
+            015, ולכן שמות השדות שהוא באמת החזיר הם מה שסוגר את
+            הפער — והם חייבים להגיע למסך, לא רק ליומן השרת.
+            שמות בלבד: ערכי השורה נושאים מספרי טלפון.
+          */}
+          {result.withoutRecordId > 0 ? (
+            <span className="mt-1 block">
+              {`${result.withoutRecordId} הקלטות אצל הספק בלי מזהה הורדה שאנחנו מכירים — אי אפשר למשוך אותן עד שנדע באיזה שדה הוא מגיע.`}
+              {result.rowKeys.length > 0 ? (
+                <>
+                  {" השדות שהמרכזייה החזירה: "}
+                  <span dir="ltr" style={{ unicodeBidi: "isolate" }}>
+                    {result.rowKeys.join(", ")}
+                  </span>
+                  {". שלחו את השורה הזו לתמיכה."}
+                </>
+              ) : null}
+            </span>
+          ) : null}
         </Notice>
       ) : null}
     </div>

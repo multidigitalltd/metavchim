@@ -8,10 +8,12 @@ import {
 import {
   build015RecordingsListUrl,
   describeProviderResponse,
+  dropped015ListRows,
   build015RecordingUrl,
   MAX_RECORDING_BYTES,
   parse015RecordingResponse,
   parse015RecordingsList,
+  pbx015ListRowKeys,
   parse015Status,
   pbx015RecordingPath,
   pbx015RecordingGroups,
@@ -231,7 +233,16 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     tenantId: string,
     from: Date,
     to: Date,
-  ): Promise<{ found: number; linked: number; alreadyHad: number; withoutCall: number }> {
+  ): Promise<{
+    found: number;
+    linked: number;
+    alreadyHad: number;
+    withoutCall: number;
+    /** הקלטות שהספק החזיר ואין בהן מזהה הורדה שאנחנו מכירים */
+    withoutRecordId: number;
+    /** שמות השדות בשורה הראשונה — שמות בלבד; ראו `pbx015ListRowKeys` */
+    rowKeys: string[];
+  }> {
     const integration = await this.prisma.withExplicitTenant(tenantId, (tx) =>
       tx.integration.findFirst({
         where: { tenantId, kind: "telephony", provider: "015", status: "active" },
@@ -297,24 +308,46 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException("התשובה מהמרכזייה לא נקראה — גוף שאינו JSON תקין");
     }
 
-    const rows = parse015RecordingsList(body);
-    if (rows.length === 0) {
-      /*
-       * שמות השדות אינם מתועדים. רשימה ריקה שהגיעה עם שורות היא
-       * שינוי שם שדה אצל הספק — ובלי השורה הזו הוא היה נראה
-       * כ"אין הקלטות" (השמות בלבד, בלי הערכים).
-       */
+    /*
+     * הקבוצה שביקשנו נמסרת לקורא: היא פרמטר של הבקשה ואינה שדה
+     * שהתשובה חייבת לחזור עליו. הדרישה שתופיע בשורה הפילה כל שורה
+     * בשקט, והייבוא דיווח „אין הקלטות אצל הספק” על תשובה מלאה.
+     */
+    const rows = parse015RecordingsList(body, recordGroup);
+    /*
+     * **שורה שנשמטה מדווחת תמיד, לא רק כשכולן נשמטו.**
+     *
+     * שמות השדות אינם מתועדים, ולכן „שם שדה שאיננו מכירים” ו„אין
+     * הקלטות” נראים זהים מבחוץ ודורשים פעולה הפוכה. הספירה היא מה
+     * שמבדיל, ואחריה שמות המפתחות — שמות בלבד, בלי ערכים, כי שורת
+     * הקלטה נושאת מספרי טלפון.
+     */
+    const dropped = dropped015ListRows(body, recordGroup);
+    if (dropped > 0) {
       const unknownKeys = unmatched015ListKeys(body);
-      if (unknownKeys.length > 0) {
-        this.logger.warn(`רשימת ההקלטות הגיעה בשדות לא מוכרים: ${unknownKeys.join(", ")}`);
-      }
+      this.logger.warn(
+        `רשימת ההקלטות: ${dropped} שורות בלי מזהים שאנחנו מכירים` +
+          (unknownKeys.length > 0 ? ` · שדות לא מוכרים: ${unknownKeys.join(", ")}` : ""),
+      );
     }
 
     let linked = 0;
     let alreadyHad = 0;
     let withoutCall = 0;
+    let withoutRecordId = 0;
     await this.prisma.withExplicitTenant(tenantId, async (tx) => {
       for (const row of rows) {
+        /*
+         * ‎`recordings/get` דורש `recordid`, ולכן הקלטה בלעדיו אינה
+         * ניתנת למשיכה. היא עדיין **נספרת**: „הספק החזיר ארבעים
+         * הקלטות ואין לנו מזהה הורדה” הוא אבחון, ו„אין הקלטות” הוא
+         * מבוי סתום — וזה מה שנראה מהשטח (ביקורת Codex).
+         */
+        const recordId = row.recordId;
+        if (recordId === undefined) {
+          withoutRecordId += 1;
+          continue;
+        }
         const call = await tx.call.findFirst({
           where: { tenantId, providerCallId: row.uniqueId },
           select: { id: true, recordingKey: true, providerRecordingPath: true },
@@ -330,7 +363,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
         await tx.call.updateMany({
           where: { id: call.id, tenantId, providerRecordingPath: null, recordingKey: null },
           data: {
-            providerRecordingPath: pbx015RecordingPath(row),
+            providerRecordingPath: pbx015RecordingPath({ ...row, recordId }),
             // איפוס החותמת מכניס את השיחה לראש התור בסבב הבא
             providerRecordingAttemptAt: null,
           },
@@ -339,10 +372,18 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       }
     });
 
+    /*
+     * שמות השדות עולים למסך ולא רק ליומן. צורת השורה אינה מתועדת,
+     * וכל עוד לא ראינו תשובה אמיתית כל בחירת שם היא הימור — הרצת
+     * ייבוא אחת אצל המשרד עונה על השאלה. שמות בלבד: הערכים נושאים
+     * מספרי טלפון.
+     */
+    const rowKeys = pbx015ListRowKeys(body);
     this.logger.log(
-      `ייבוא הקלטות (${tenantId}): ${rows.length} אצל הספק, ${linked} סומנו למשיכה`,
+      `ייבוא הקלטות (${tenantId}): ${rows.length} אצל הספק, ${linked} סומנו למשיכה` +
+        (withoutRecordId > 0 ? `, ${withoutRecordId} בלי מזהה הורדה` : ""),
     );
-    return { found: rows.length, linked, alreadyHad, withoutCall };
+    return { found: rows.length, linked, alreadyHad, withoutCall, withoutRecordId, rowKeys };
   }
 
   /**

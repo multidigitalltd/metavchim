@@ -58,6 +58,13 @@ export interface Interpretation {
   clarify?: string;
   /** תשובה שיחתית לברכה/שאלה כללית — תצוגה בלבד, במקום "לא הבנתי" */
   reply?: string;
+  /**
+   * מילות המועד של הפעולה הראשית, כפי שהמודל שמע אותן.
+   *
+   * הקוד מחשב מהן את התאריך; בלעדיהן הוא סורק את המשפט המלא כרשת
+   * ביטחון. ראו `AgentResolveService`.
+   */
+  dateText?: string;
   /** true = מנוע החוקים הכריע, כלומר Gemini לא היה זמין */
   fallback: boolean;
   /** צעדי המשך — כשהמשפט ביקש כמה פעולות. מותרים ומצומצמים כמו הראשי. */
@@ -250,6 +257,9 @@ export class AgentInterpretService {
       unmapped: answer.unmapped,
       rejected,
       ...(answer.clarify ? { clarify: answer.clarify } : {}),
+      ...(answer.dateText !== undefined && answer.dateText.trim() !== ""
+        ? { dateText: answer.dateText.trim() }
+        : {}),
       fallback: false,
       steps,
     });

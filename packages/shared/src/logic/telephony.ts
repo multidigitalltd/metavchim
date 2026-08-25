@@ -1273,8 +1273,19 @@ export function build015RecordingsListUrl(input: {
 export interface Pbx015RecordingRow {
   /** מזהה השיחה — המפתח שמחבר להקלטה ולשיחה שאצלנו. */
   uniqueId: string;
-  /** מזהה הרשומה, הסיפרה שאחרי הקו התחתון בשם הקובץ. */
-  recordId: string;
+  /**
+   * מזהה הרשומה — **ואינו מובטח.**
+   *
+   * ‎`recordings/get` דורש אותו, אבל התיעוד אינו מונה אותו בין שדות
+   * השורה שהרשימה מחזירה (`uniqueid`, `snumber`, `cnumber`, `start`,
+   * ‎`totaltime`, `expires`). דרישה שלו הפילה את השורה — בדיוק אותה
+   * תקלה שתוקנה ב-`recordgroup`, ובאותה שורה עצמה (ביקורת Codex).
+   *
+   * שורה בלעדיו אינה ניתנת למשיכה, אבל היא **קיימת**, וזה בדיוק מה
+   * שצריך להיראות: „הספק החזיר ארבעים הקלטות ואין לנו את המזהה
+   * להורדה” הוא אבחון, ו„אין הקלטות” הוא מבוי סתום.
+   */
+  recordId?: string;
   /** קבוצת ההקלטה — הסֶגמנט הראשון בנתיב. */
   recordGroup: string;
 }
@@ -1340,17 +1351,46 @@ function rowsOf(body: unknown): Record<string, unknown>[] {
  *
  * שורה בלי `uniqueid` חסרת ערך לנו בכל מקרה: זה המפתח שמחבר את
  * ההקלטה לשיחה שאצלנו.
+ *
+ * ## למה הקבוצה **אינה** נדרשת בשורה
+ *
+ * ‎`recordgroup` הוא פרמטר של ה**בקשה**, ולא שדה שהתיעוד מבטיח
+ * בתשובה: השדות שהוא מונה לשורה הם `uniqueid`, `snumber`,
+ * ‎`cnumber`, `start`, `totaltime` ו-`expires`. דרישה שהספק יחזיר
+ * אותו הפילה **כל** שורה בשקט, והייבוא דיווח „אין הקלטות אצל
+ * הספק” על תשובה מלאה — בדיוק הדיווח שהתקבל מהשטח.
+ *
+ * הקבוצה שביקשנו היא הקבוצה שהשורות שייכות לה; אין מה לגזור.
+ * שורה שכן נושאת אותה גוברת, כי ספק שטרח לומר יודע טוב מאיתנו.
  */
-export function parse015RecordingsList(body: unknown): Pbx015RecordingRow[] {
+export function parse015RecordingsList(
+  body: unknown,
+  /** הקבוצה שנשלחה בבקשה — התשובה אינה חייבת לחזור עליה */
+  requestedGroup?: string,
+): Pbx015RecordingRow[] {
   const found: Pbx015RecordingRow[] = [];
   for (const row of rowsOf(body)) {
     const uniqueId = pick(row, LIST_UNIQUE_KEYS);
+    const recordGroup = pick(row, LIST_GROUP_KEYS) ?? requestedGroup;
+    if (uniqueId === undefined || recordGroup === undefined) continue;
     const recordId = pick(row, LIST_RECORD_ID_KEYS);
-    const recordGroup = pick(row, LIST_GROUP_KEYS);
-    if (uniqueId === undefined || recordId === undefined || recordGroup === undefined) continue;
-    found.push({ uniqueId, recordId, recordGroup });
+    found.push(recordId === undefined ? { uniqueId, recordGroup } : { uniqueId, recordGroup, recordId });
   }
   return found;
+}
+
+/**
+ * שורות שהגיעו ונשמטו — **הפער בין מה שהספק שלח למה שקראנו.**
+ *
+ * ‎`parse015RecordingsList` מוותרת בשקט על שורה בלי מזהים, וזו
+ * ההתנהגות הנכונה. אבל שקט מלא הופך „שם שדה שאיננו מכירים” ל„אין
+ * הקלטות” — שני מצבים שדורשים פעולה הפוכה, ושנראו זהים מבחוץ.
+ *
+ * המספר הזה הוא מה שמבדיל ביניהם, ואפשר לדווח אותו: הוא ספירה
+ * ולא תוכן.
+ */
+export function dropped015ListRows(body: unknown, requestedGroup?: string): number {
+  return rowsOf(body).length - parse015RecordingsList(body, requestedGroup).length;
 }
 
 /**
@@ -1367,7 +1407,25 @@ export function unmatched015ListKeys(body: unknown): string[] {
   return Object.keys(first).filter((key) => !known.has(key));
 }
 
+/**
+ * שמות השדות בשורה הראשונה — **כל השמות, לא רק אלה שלא זיהינו.**
+ *
+ * צורת השורה אינה מתועדת: התיעוד מונה שישה שדות לסינון ולמיון
+ * ואומר „מערך שדות התואם לשורות טבלת ההקלטות”. לכן כל ניחוש על
+ * שם שדה הוא הימור, ומספיק הימור אחד שגוי כדי שהייבוא יידום.
+ *
+ * הדרך היחידה לדעת היא **לראות תשובה אמיתית**, ולכן השמות עולים
+ * למסך ולא רק ליומן: הרצת ייבוא אחת אצל המשרד עונה על השאלה.
+ *
+ * שמות שדות אינם מידע אישי; הערכים כן — שורת הקלטה נושאת מספרי
+ * טלפון — ולכן הם אינם נכללים.
+ */
+export function pbx015ListRowKeys(body: unknown): string[] {
+  const [first] = rowsOf(body);
+  return first === undefined ? [] : Object.keys(first);
+}
+
 /** הנתיב שאנחנו שומרים לשיחה — אותה צורה שהוובהוק שולח. */
-export function pbx015RecordingPath(row: Pbx015RecordingRow): string {
+export function pbx015RecordingPath(row: Pbx015RecordingRow & { recordId: string }): string {
   return `${row.recordGroup}/record_${row.uniqueId.replace(".", "")}_${row.recordId}`;
 }
