@@ -274,7 +274,28 @@ export interface RelativeOffset {
   evidence: string;
   start: number;
   end: number;
+  /**
+   * גבולותיהם של **כל** ביטויי הזמן שזוהו במשפט, לא רק הנבחר.
+   *
+   * „מחר עוד שלוש שעות, לא, בעוד ארבע שעות”: מילת היום גוברת על
+   * שניהם, ואם מסתירים רק את הנבחר — „שלוש” נשארת ונקראת כ-15:00.
+   * מספר ששייך לביטוי זמן אינו שעון, גם כשהביטוי שלו לא נבחר.
+   */
+  masks: readonly { start: number; end: number }[];
 }
+
+/**
+ * „לא”, „סליחה”, „בעצם” — סימני **תיקון עצמי.**
+ *
+ * „עוד שעה, לא, בעוד שעתיים” הוא דיבור רגיל לגמרי, והמועד הנכון בו
+ * הוא האחרון. בלי הסימן הכלל ההפוך נכון: „תזכיר לי בעוד שעה לשלוח
+ * את המסמך שצריך להגיע בעוד יומיים” — שם הראשון הוא מועד הפעולה
+ * והשני שייך למשפט אחר לגמרי.
+ *
+ * לכן לא „הראשון תמיד” ולא „האחרון תמיד”, אלא: הראשון, אלא אם
+ * הדובר אמר במפורש שהוא מתקן.
+ */
+const CORRECTION = /(?<![\p{L}\p{N}])(לא|סליחה|בעצם|טעות|תיקון)(?![\p{L}\p{N}])/u;
 
 export function parseRelativeOffset(text: string): RelativeOffset | null {
   /*
@@ -290,6 +311,8 @@ export function parseRelativeOffset(text: string): RelativeOffset | null {
    * בעוד שעה” עדיין אמור להגיע לשעה. הוא נזכר בצד, ומוחזר רק אם לא
    * נמצא אחריו ביטוי תקין — כי גם הוא צריך להיות מוסתר מהשעון.
    */
+  const masks: { start: number; end: number }[] = [];
+  let chosen: RelativeOffset | null = null;
   let rejected: RelativeOffset | null = null;
   for (const match of text.matchAll(RELATIVE_TRIGGER)) {
     const lead = match[1];
@@ -302,11 +325,33 @@ export function parseRelativeOffset(text: string): RelativeOffset | null {
       evidence: resolved.evidence,
       start: match.index,
       end: restStart + resolved.consumed,
+      masks,
     };
-    if (found.ms !== null) return found;
-    rejected ??= found;
+    masks.push({ start: found.start, end: found.end });
+    if (found.ms === null) {
+      rejected ??= found;
+      continue;
+    }
+    /*
+     * **הראשון, אלא אם הדובר תיקן את עצמו.**
+     *
+     * חיפוש שנעצר על הראשון הפך „עוד שעה, לא, בעוד שעתיים” לשעה
+     * אחת — נסיגה, כי הביטוי הישן דרש `בעוד` ולכן דילג על הצורה
+     * בלי בי"ת והגיע דווקא לתיקון (ביקורת Codex). „האחרון תמיד”
+     * אינו התשובה: הוא היה שובר משפט שבו לביטוי השני יש נושא
+     * משלו. מה שמכריע הוא מילת התיקון שביניהם.
+     */
+    if (chosen === null) chosen = found;
+    else if (CORRECTION.test(text.slice(chosen.end, found.start))) chosen = found;
   }
-  return rejected;
+  return chosen ?? rejected;
+}
+
+/** הסתרת ביטויי הזמן מהטקסט שממנו נקרא השעון — מהסוף להתחלה. */
+function maskSpans(text: string, spans: readonly { start: number; end: number }[]): string {
+  return [...spans]
+    .sort((a, b) => b.start - a.start)
+    .reduce((acc, span) => `${acc.slice(0, span.start)} ${acc.slice(span.end)}`, text);
 }
 
 /** שמות החודשים הלועזיים כפי שאומרים אותם. */
@@ -466,8 +511,7 @@ export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTi
    * אינו מייצר תאריך, אבל „תשע” שבו אינה 09:00 (ביקורת Codex).
    * מספר ששייך לביטוי זמן אינו הופך לשעון רק משום שהביטוי נפסל.
    */
-  const clockText =
-    relative === null ? text : `${text.slice(0, relative.start)} ${text.slice(relative.end)}`;
+  const clockText = relative === null ? text : maskSpans(text, relative.masks);
   const time = parseTime(clockText);
   const evidenceParts: string[] = [];
 
