@@ -319,6 +319,11 @@ export default function DashboardPage() {
    * session שפג), ושמונה הודעות נפרדות על אותה תקלה הן רעש.
    */
   const [dataFailed, setDataFailed] = useState(false);
+  /*
+   * היום שאליו שייכות הפגישות שבידינו. נדרש כדי ש„הכל מטופל” לא
+   * ייאמר בחצות על סמך הרשימה של אתמול, שהתנאי החי מרוקן ממילא.
+   */
+  const [todayDay, setTodayDay] = useState<number | null>(null);
   const [coachFailed, setCoachFailed] = useState(false);
   const batch = useRef(0);
 
@@ -333,6 +338,8 @@ export default function DashboardPage() {
      * Codex). רק המנה האחרונה רשאית לכתוב.
      */
     const mine = ++batch.current;
+    /* היום שאליו הבקשה הזו שייכת — נשמר יחד עם התוצאה. */
+    const requestedDay = dayKey;
     const ok =
       <T,>(apply: (value: T) => void) =>
       (value: T): void => {
@@ -405,7 +412,12 @@ export default function DashboardPage() {
       apiGet<AppointmentRow[]>(
         `/appointments?from=${dayStart.toISOString()}&to=${dayEndInclusive.toISOString()}`,
       )
-        .then(ok(setToday))
+        .then(
+          ok((rows: AppointmentRow[]) => {
+            setToday(rows);
+            setTodayDay(requestedDay);
+          }),
+        )
         .catch(fail);
     }
     /*
@@ -560,10 +572,32 @@ export default function DashboardPage() {
    * ולכן ספירתו כ„טרם הגיע” הייתה משאירה את „מה חשוב לעשות היום”
    * על „טוען…” לנצח אצל מי שאין לו את אחת משלוש היכולות.
    */
+  const canSeeNetwork = can(user, "collaboration.offer");
+  /*
+   * ‎**„הכל מטופל” הוא טענה, ולכן הוא ממתין לכל מקור שיכול לסתור
+   * אותה.**
+   *
+   * הביטוי כיסה את שלושת המקורות המקוריים בלבד, ומרגע שפגישות
+   * היום, המשימות באיחור והצעות השת"פ נכנסו לרשימה נפתח חלון שבו
+   * שלושת הראשונים חזרו ריקים, המסך הכריז „הכל מטופל”, ורגע אחר כך
+   * הגיעה פעולה. אותו חלון חוזר בכל רענון חצות (ביקורת Codex).
+   *
+   * הפגישות נמדדות מול **היום הנוכחי** ולא מול „הגיע משהו”: בחצות
+   * המערך של אתמול עדיין בידינו, התנאי החי מרוקן אותו, ובלי
+   * ההשוואה הזו המסך היה מכריז „הכל מטופל” בזמן שפגישות היום עוד
+   * לא ידועות.
+   *
+   * ‎**מקור שנכשל אינו „בדרך”.** אחרת תקלה ברשת הייתה משאירה את
+   * הרשימה על שלד טעינה לנצח — הכישלון מוצג במקומו עם „נסו שוב”,
+   * והרשימה ממשיכה עם מה שיש.
+   */
   const loading =
     (canSeeProperties && properties === null) ||
     (canSeeBuyers && buyers === null) ||
-    (canSeeLeads && leads === null);
+    (canSeeLeads && leads === null) ||
+    (canSeeCalendar && todayDay !== dayKey && !dataFailed) ||
+    (canSeeCalendar && myTasks === null && !tasksFailed) ||
+    (canSeeNetwork && network === null && !networkFailed);
 
   /*
    * ‎**אין הכרזה על „הדבר לעשות עכשיו”, ובכוונה.**
