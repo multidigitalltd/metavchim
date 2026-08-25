@@ -4,7 +4,7 @@ import {
   computeReadiness,
   type CoachRecommendation,
   jerusalemDayRange,
-  jerusalemWeekday,
+  jerusalemDayStart,
   jerusalemWeekStart,
   type CoachSignals,
 } from "@metavchim/shared";
@@ -178,30 +178,35 @@ export class CoachService {
          * עצמו בונה בה את הרשת, ולכן „בשבוע” אומר אותו דבר בשני
          * הצדדים גם למתווך שנמצא בחו"ל.
          *
-         * ‎**ושבת יוצאת**: לרשת שישה טורים, ראשון עד שישי, ולכן
-         * סיור של שבת נמצא בתוך השבוע אך אין לו טור להופיע בו
-         * (ביקורת Codex). הגבול התחתון לבדו תפס רק את תחילת הרשת,
-         * לא את היום שהיא משמיטה.
+         * ‎**ושבת יוצאת בשאילתה, לא אחריה**: לרשת שישה טורים,
+         * ראשון עד שישי, ולכן סיור של שבת נמצא בתוך השבוע אך אין
+         * לו טור. סינון אחרי `take` היה מסנן מתוך חמש שורות שכבר
+         * נבחרו — חמישה סיורי שבת היו דוחקים החוצה סיור שישי שכן
+         * מוצג, ולא הייתה המלצה כלל (ביקורת Codex).
+         *
+         * הגבול העליון הוא תחילת שבת, ולכן ההוצאה היא חלק מהטווח
+         * ולא שלב אחריו. שבת היא היום השביעי, כך שגבול אחד מוציא
+         * אותה בלי לגעת בשאר.
          */
-        const viewingSince = jerusalemWeekStart(new Date());
+        const weekStartAt = jerusalemWeekStart(new Date());
+        const saturdayAt = jerusalemDayStart(weekStartAt, 6);
+        const nowAt = new Date();
+        const viewingUntil = nowAt < saturdayAt ? nowAt : saturdayAt;
         const pastViewings = await tx.appointment.findMany({
           where: {
             tenantId,
             kind: "viewing",
             status: "scheduled",
-            startsAt: { lt: new Date(), gte: viewingSince },
+            startsAt: { gte: weekStartAt, lt: viewingUntil },
             outcome: null,
           },
           orderBy: { startsAt: "desc" },
           take: 5,
         });
-        pastViewingsWithoutOutcome = pastViewings
-          /* 6 = שבת בלוח הישראלי; לרשת אין לה טור */
-          .filter((a) => jerusalemWeekday(a.startsAt) !== 6)
-          .map((a) => ({
-            appointmentId: a.id,
-            title: a.title ?? "סיור",
-          }));
+        pastViewingsWithoutOutcome = pastViewings.map((a) => ({
+          appointmentId: a.id,
+          title: a.title ?? "סיור",
+        }));
       }
 
       /*

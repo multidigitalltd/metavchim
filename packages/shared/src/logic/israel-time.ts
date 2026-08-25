@@ -135,6 +135,25 @@ export function jerusalemDayStart(at: Date, offsetDays = 0): Date {
   return shiftJerusalemDays(at, offsetDays);
 }
 
+/**
+ * שעת הקיר הישראלית, מפוצלת לשדות טופס: `YYYY-MM-DD` ו-`HH:MM`.
+ *
+ * ‎**הצד השני של `jerusalemWallIsoToUtc`.** שדה תאריך ושדה שעה
+ * מציגים ועורכים שעת קיר, ולכן שניהם חייבים לדבר באותו אזור זמן —
+ * אחרת מסך שמציג „09:00” נפתח לעריכה על „02:00”, ושמירה של
+ * „10:00” מזיזה את הפגישה לעשר בשעון הדפדפן. זה לא הבדל תצוגה
+ * אלא שינוי בנתון (ביקורת Codex).
+ */
+export function jerusalemWallParts(at: Date): { date: string; time: string } {
+  const parts = PARTS_FMT.formatToParts(at);
+  const value = (type: string): string => parts.find((p) => p.type === type)?.value ?? "00";
+  const hour = String(Number(value("hour")) % 24).padStart(2, "0");
+  return {
+    date: `${value("year")}-${value("month")}-${value("day")}`,
+    time: `${hour}:${value("minute")}`,
+  };
+}
+
 /** התאריך הישראלי כתווית `YYYY-MM-DD` — הבסיס לכל חשבון הלוח כאן. */
 function jerusalemDayLabel(at: Date): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: JERUSALEM_TZ }).format(at);

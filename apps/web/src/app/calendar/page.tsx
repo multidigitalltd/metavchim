@@ -9,6 +9,8 @@ import {
   JERUSALEM_TZ,
   jerusalemDayRange,
   jerusalemDayStart,
+  jerusalemWallIsoToUtc,
+  jerusalemWallParts,
   jerusalemWeekStart,
 } from "@metavchim/shared";
 import { NowStamp } from "../now-stamp";
@@ -117,9 +119,17 @@ function EditAppointment({
   onCancel: () => void;
 }) {
   const start = new Date(appointment.startsAt);
-  const pad = (n: number): string => String(n).padStart(2, "0");
-  const initialDate = `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`;
-  const initialTime = `${pad(start.getHours())}:${pad(start.getMinutes())}`;
+  /*
+   * ‎**שדות הטופס בשעת הקיר הישראלית, לא בזו של הדפדפן.**
+   *
+   * השורה מציגה 09:00 בשעון ישראל; `getHours()` היה פותח את אותה
+   * פגישה על 02:00 בניו-יורק, ושמירה של „10:00” הייתה מזיזה אותה
+   * לעשר ניו-יורקית. זה לא פער תצוגה — זה שינוי במועד הפגישה
+   * (ביקורת Codex). קריאה וכתיבה עוברות דרך אותו זוג פונקציות.
+   */
+  const initial = jerusalemWallParts(start);
+  const initialDate = initial.date;
+  const initialTime = initial.time;
   const initialDuration = appointment.endsAt
     ? Math.max(15, Math.round((new Date(appointment.endsAt).getTime() - start.getTime()) / 60_000))
     : 60;
@@ -140,7 +150,7 @@ function EditAppointment({
         date !== initialDate || time !== initialTime || duration !== initialDuration;
       if (timeChanged) {
         await apiPost(`/appointments/${appointment.id}/reschedule`, {
-          startsAt: new Date(`${date}T${time}`).toISOString(),
+          startsAt: jerusalemWallIsoToUtc(`${date}T${time}:00.000`).toISOString(),
           durationMinutes: duration,
         });
       }
