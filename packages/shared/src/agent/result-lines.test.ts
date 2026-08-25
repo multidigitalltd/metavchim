@@ -314,12 +314,18 @@ describe("חיפוש כללי — כל המקטעים חוזרים תמיד, ג�
     expect(text).not.toContain("אין פגישות");
   });
 
-  it("כל המקטעים שיש בהם תוצאות מאוחדים לרשימה אחת", () => {
+  /*
+   * הסדר בתשובה מאוחדת הוא **קודם מי, ואחר כך מה קרה** — ולא סדר
+   * המקטעים. „הראשון מהם” הוא ביטוי לפי מיקום, ולכן השורה הראשונה
+   * חייבת להיות כזו שאפשר להמשיך ממנה, ולא פגישה שנפלה ראשונה רק
+   * כי המקטע שלה מוקדם ברשימה (ביקורת Codex).
+   */
+  it("כל המקטעים שיש בהם תוצאות מאוחדים — הכרטיסים קודם", () => {
     const list = agentResultList({
       ...search,
       appointments: [{ id: "a1", title: "סיור בהרצל", startsAt: "2026-08-24T13:00:00Z" }],
     })!;
-    expect(list.rows.map((row) => row.label)).toEqual(["סיור בהרצל", "משה כהן"]);
+    expect(list.rows.map((row) => row.label)).toEqual(["משה כהן", "סיור בהרצל"]);
   });
 
   it("הזהות בהתאמת-טלפון פותחת את הרשימה", () => {
@@ -651,14 +657,60 @@ describe("ההפניות — מזהה יציב לצד התווית", () => {
     expect(refs[0]!.label).toBe(rows[0]!.memoryLabel);
   });
 
-  it("שורה בלי כרטיס אינה מייצרת הפניה", () => {
-    // פגישה ומשימה מקשרות למסך ולא לרשומה, ולשיחה אין סוג חיפוש
+  it("שורת אירוע אינה מייצרת הפניה", () => {
+    // לפגישה ולשיחה אין סוג חיפוש שאפשר לפתור אליו
     expect(
       agentResultRefs({
         appointments: [{ id: "a1", title: "סיור", startsAt: "2026-08-24T13:00:00Z" }],
       }),
     ).toEqual([]);
-    expect(agentResultRefs({ tasks: [{ id: "t1", title: "משימה" }] })).toEqual([]);
+    expect(
+      agentResultRefs({
+        calls: [{ id: "c1", direction: "inbound", contactName: "דנה לוי" }],
+      }),
+    ).toEqual([]);
+  });
+
+  /*
+   * למשימה **יש** רשומה, גם כשהקישור מוביל למסך המשימות: „תסגור
+   * את השנייה” על שתי משימות באותו שם חיפש כותרת ממוספרת שאינה
+   * קיימת באף משימה (ביקורת Codex).
+   */
+  it("משימה מייצרת הפניה — הקישור למסך אינו אומר שאין רשומה", () => {
+    expect(agentResultRefs({ tasks: [{ id: "t1", title: "לחזור לדנה" }] })).toEqual([
+      { label: "לחזור לדנה", entityType: "task", entityId: "t1" },
+    ]);
+  });
+
+  it("שתי משימות באותו שם — התוויות מוספרות, ולכל אחת המזהה שלה", () => {
+    const tasks = {
+      tasks: [
+        { id: "t1", title: "לחזור ללקוח", entityLabel: "דנה לוי" },
+        { id: "t2", title: "לחזור ללקוח", entityLabel: "משה כהן" },
+      ],
+    };
+    expect(agentResultList(tasks)!.rows.map((row) => row.label)).toEqual([
+      "לחזור ללקוח 1",
+      "לחזור ללקוח 2",
+    ]);
+    expect(agentResultRefs(tasks)).toEqual([
+      { label: "לחזור ללקוח 1", entityType: "task", entityId: "t1" },
+      { label: "לחזור ללקוח 2", entityType: "task", entityId: "t2" },
+    ]);
+  });
+
+  /*
+   * ההפך: שתי שיחות באותו שם **אינן** מוספרות. מספר על שורה בלי
+   * רשומה יוצר ביטוי שאין לו מקבילה בשום מקום (ביקורת Codex).
+   */
+  it("שתי שיחות באותו שם אינן ממוספרות", () => {
+    const list = agentResultList({
+      calls: [
+        { id: "c1", direction: "inbound", contactName: "דנה לוי", outcome: "answered" },
+        { id: "c2", direction: "outbound", contactName: "דנה לוי", outcome: "missed" },
+      ],
+    })!;
+    expect(list.rows.map((row) => row.label)).toEqual(["דנה לוי", "דנה לוי"]);
   });
 
   it("צורה שאינה מוכרת אינה מייצרת הפניות", () => {
@@ -819,5 +871,40 @@ describe("איש הקשר והכרטיס שלו — אותו שם, שורה אח
     const list = agentResultList({ ...search, buyers: [] })!;
     expect(list.rows).toHaveLength(1);
     expect(list.rows[0]).toMatchObject({ label: "משה כהן", phone: "050-1234567" });
+  });
+
+  /*
+   * `searchByPhone` נותנת את שם איש הקשר גם לכל שיחה שהיא מחזירה.
+   * שורת שיחה אינה כרטיס — היא אירוע — ולכן היא אינה מבטלת את
+   * שורת הזהות, ואיתה גם את המספר שלפיו חיפשנו (ביקורת Codex).
+   */
+  const withCall = {
+    ...search,
+    buyers: [],
+    calls: [
+      {
+        id: "c1",
+        direction: "inbound",
+        contactName: "משה כהן",
+        outcome: "answered",
+        occurredAt: "2026-08-24T11:30:00Z",
+      },
+    ],
+  };
+
+  it("שיחה בשם אותו לקוח אינה מוחקת את הזהות ואת המספר", () => {
+    const list = agentResultList(withCall)!;
+    expect(list.rows[0]).toMatchObject({ label: "משה כהן", phone: "050-1234567" });
+    // והשיחה חוזרת לקרוא לעצמה בשמה, כדי לא להתחרות על אותו שם
+    expect(list.rows[1]!.label).toBe("שיחה");
+    expect(list.rows[1]!.detail).toContain("נכנסת");
+  });
+
+  it("כרטיס ושיחה יחד — הכרטיס ראשון, ולו לבדו יש הפניה", () => {
+    const list = agentResultList({ ...withCall, buyers: search.buyers })!;
+    expect(list.rows.map((row) => row.label)).toEqual(["משה כהן", "שיחה"]);
+    expect(agentResultRefs({ ...withCall, buyers: search.buyers })).toEqual([
+      { label: "משה כהן", entityType: "buyer", entityId: "01J000000000000000000000AA" },
+    ]);
   });
 });

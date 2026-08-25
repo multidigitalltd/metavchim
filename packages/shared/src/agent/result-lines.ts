@@ -74,6 +74,27 @@ export interface AgentResultRow {
   memoryLabel?: string;
   /** קישור יחסי למסך המלא של השורה, כשיש כזה. */
   href?: string;
+  /**
+   * הרשומה שהשורה מצביעה עליה — **מה שהופך את התווית למפתח.**
+   *
+   * זה נגזר קודם מפענוח ה-`href`, ולכן שורה שמקשרת ל**מסך** (משימה
+   * ל-`/tasks`, שיחה ל-`/calls`) נראתה כמו שורה בלי רשומה — גם
+   * כשהמזהה היה בידנו כל הזמן. הבונה יודע בדיוק מה הוא בונה, ולכן
+   * ההפניה נכתבת כאן ואינה מנוחשת מהמחרוזת.
+   *
+   * שורה בלי `ref` היא **אירוע ולא רשומה** (שיחה, פגישה): התווית
+   * שלה מתארת מה קרה, ואינה נועדה לשמש „תוסיף לו הערה”.
+   */
+  ref?: { entityType: AgentHistoryRef["entityType"]; entityId: string };
+  /**
+   * מה השורה **היא** — כשהתווית שלה היא שמה של רשומה אחרת.
+   *
+   * שיחה נושאת את שם המתקשר, וזה נכון ברשימת שיחות. בתשובה
+   * מאוחדת, שבה אותו אדם מופיע גם ככרטיס, השם כבר תפוס — ושתי
+   * שורות באותו שם הופכות את „הראשון מהם” לניחוש (ביקורת Codex).
+   * אז השורה חוזרת לקרוא לעצמה בשמה: „שיחה”.
+   */
+  kindLabel?: string;
 }
 
 /**
@@ -157,12 +178,25 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
     rowsOf(value).map((a) => ({
       label: text(a["title"]) ?? APPOINTMENT_KIND_LABELS[String(a["kind"])] ?? "פגישה",
       detail: whenText(a["startsAt"]),
+      kindLabel: APPOINTMENT_KIND_LABELS[String(a["kind"])] ?? "פגישה",
       href: "/calendar",
     })),
+  /*
+   * למשימה **יש** הפניה, גם כשהקישור מוביל למסך.
+   *
+   * „תסגור את השנייה” על שתי משימות באותו שם נפל בשקט: התוויות
+   * מוספרו („<כותרת> 1”), והפותר מחפש כותרת משימה ב-`includes` —
+   * כלומר מחרוזת שאינה קיימת באף משימה (ביקורת Codex). המזהה היה
+   * כאן כל הזמן, ורק הגזירה מה-`href` הסתירה אותו.
+   */
   tasks: (value) =>
     rowsOf(value).map((t) => ({
       label: text(t["title"]) ?? "משימה",
       detail: join([text(t["entityLabel"]), whenText(t["dueAt"])]),
+      kindLabel: "משימה",
+      ...(text(t["id"]) !== null
+        ? { ref: { entityType: "task" as const, entityId: String(t["id"]) } }
+        : {}),
       href: "/tasks",
     })),
   calls: (value) =>
@@ -185,6 +219,7 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
          */
         label: name ?? phone ?? "שיחה",
         ...(name === null && phone !== null ? { memoryLabel: "מספר לא מזוהה" } : {}),
+        kindLabel: "שיחה",
         detail: join([
           CALL_DIRECTION_LABELS[String(c["direction"])],
           CALL_OUTCOME_LABELS[String(c["outcome"])],
@@ -203,6 +238,7 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
         text(d["counterpartOffice"]),
         whenText(d["lastActivityAt"]),
       ]),
+      kindLabel: "עסקה משותפת",
       ...(text(d["id"]) !== null ? { href: `/collaboration/deals/${String(d["id"])}` } : {}),
     })),
   buyers: (value) =>
@@ -218,14 +254,24 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
        * השמטתו כאן הייתה **נסיגה** (ביקורת Codex).
        */
       ...(phoneOf(b) !== null ? { phone: phoneOf(b)! } : {}),
-      ...(text(b["id"]) !== null ? { href: `/buyers/${String(b["id"])}` } : {}),
+      ...(text(b["id"]) !== null
+        ? {
+            href: `/buyers/${String(b["id"])}`,
+            ref: { entityType: "buyer" as const, entityId: String(b["id"]) },
+          }
+        : {}),
     })),
   leads: (value) =>
     rowsOf(value).map((l) => ({
       label: text(l["name"]) ?? "ליד",
       detail: join([text(l["status"]), l["requiresHuman"] === true ? "דורש טיפול" : null]),
       ...(phoneOf(l) !== null ? { phone: phoneOf(l)! } : {}),
-      ...(text(l["id"]) !== null ? { href: `/leads/${String(l["id"])}` } : {}),
+      ...(text(l["id"]) !== null
+        ? {
+            href: `/leads/${String(l["id"])}`,
+            ref: { entityType: "lead" as const, entityId: String(l["id"]) },
+          }
+        : {}),
     })),
   /*
    * הערה שנמצאה בחיפוש היא **תוצאה לכל דבר**: היא הסיבה היחידה
@@ -249,10 +295,17 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
          */
         label: who ?? "הערה",
         detail: join([text(n["content"]), whenText(n["createdAt"])]),
+        kindLabel: "הערה",
         ...(text(n["buyerId"]) !== null
-          ? { href: `/buyers/${String(n["buyerId"])}` }
+          ? {
+              href: `/buyers/${String(n["buyerId"])}`,
+              ref: { entityType: "buyer" as const, entityId: String(n["buyerId"]) },
+            }
           : text(n["leadId"]) !== null
-            ? { href: `/leads/${String(n["leadId"])}` }
+            ? {
+                href: `/leads/${String(n["leadId"])}`,
+                ref: { entityType: "lead" as const, entityId: String(n["leadId"]) },
+              }
             : {}),
       };
     }),
@@ -292,23 +345,36 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
        * אותו למקום שממנו בא, ולא לקונה שהשורה מדברת עליו
        * (ביקורת Codex).
        */
-      const target =
+      const target: { entityType: "buyer" | "property"; entityId: string } | null =
         buyerName !== null && text(match["buyerId"]) !== null
-          ? `/buyers/${String(match["buyerId"])}`
+          ? { entityType: "buyer", entityId: String(match["buyerId"]) }
           : text(match["propertyId"]) !== null
-            ? `/properties/${String(match["propertyId"])}`
+            ? { entityType: "property", entityId: String(match["propertyId"]) }
             : null;
       return {
         label,
         detail: join([label === address ? null : address, score, text(match["explanation"])]),
-        ...(target === null ? {} : { href: target }),
+        ...(target === null
+          ? {}
+          : {
+              href:
+                target.entityType === "buyer"
+                  ? `/buyers/${target.entityId}`
+                  : `/properties/${target.entityId}`,
+              ref: target,
+            }),
       };
     }),
   properties: (value) =>
     rowsOf(value).map((p) => ({
       label: text(p["title"]) ?? text(p["marketingTitle"]) ?? text(p["street"]) ?? "נכס",
       detail: join([rooms(p["rooms"], undefined), text(p["city"]), price(p["priceAgorot"])]),
-      ...(text(p["id"]) !== null ? { href: `/properties/${String(p["id"])}` } : {}),
+      ...(text(p["id"]) !== null
+        ? {
+            href: `/properties/${String(p["id"])}`,
+            ref: { entityType: "property" as const, entityId: String(p["id"]) },
+          }
+        : {}),
     })),
 };
 
@@ -416,14 +482,21 @@ function bounded(list: AgentResultList): AgentResultList {
    * אחר (ביקורת Codex). המספור נעשה כאן, על התווית **המקוצרת**,
    * כדי שגם שני שמות ארוכים שנחתכו לאותה רישא יובחנו — ובאותה
    * מחרוזת בדיוק בתצוגה, בזיכרון ובהפניה.
+   *
+   * **ורק לשורה שיש לה רשומה.** מספר על שורת אירוע יוצר ביטוי
+   * שאין לו מקבילה בשום מקום, ו„תסגור את השנייה” מחפש אותו ונופל
+   * (ביקורת Codex). היא נשארת כפי שהיא — ואינה מתיימרת להיות מפתח.
    */
+  const keyed = list.rows.map((row) => row.ref !== undefined);
   const display = numberedLabels(
     list.rows.map((row) => clamp(row.label)),
     AGENT_RESULT_LABEL_MAX,
+    keyed,
   );
   const memory = numberedLabels(
     list.rows.map((row) => remembered(row.memoryLabel ?? row.label)),
     AGENT_RESULT_LABEL_MAX,
+    keyed,
   );
   return {
     ...list,
@@ -479,32 +552,67 @@ export function agentResultList(data: unknown): AgentResultList | null {
     const rows: AgentResultRow[] = [];
     for (const key of sections) rows.push(...SECTION_ROWS[key]!(payload[key]));
 
+    /*
+     * **על שם יש בעלים אחד, וזו השורה שיש לה רשומה.**
+     *
+     * „מי מתקשר אליי” מחזירה את איש הקשר, את הכרטיסים שלו **ואת
+     * השיחות שלו** — ולשלושתם אותו שם. כל שורה כפולה כאן מזיקה
+     * פעמיים: המספור מייצר „משה כהן 1”, ומי שקיבל אותו עשוי להיות
+     * דווקא השורה בלי הפניה — כלומר „תוסיף הערה לראשון” מחפש שם
+     * שאינו קיים בשום מקום (ביקורת Codex).
+     */
+    const owned = new Set(rows.filter((row) => row.ref !== undefined).map((row) => row.label));
+
+    /*
+     * **שורת הזהות רק כשאין כרטיס שאומר את אותו דבר.**
+     *
+     * לאיש קשר אין מסך משלו (‏`/contacts/…` הוא 404), ולכן כשיש
+     * כרטיס הוא התשובה הטובה יותר: אותו שם, ואפשר להמשיך ממנו.
+     * בלי כרטיס — למשל לקוח מוכר בלי ליד פתוח — השורה נשארת, כי
+     * היא כל מה שיש, ואיתה **המספר שלפיו חיפשנו**. הבדיקה היא מול
+     * שורות עם הפניה בלבד: שורת שיחה נושאת את אותו שם, ובלעדיה
+     * גם הזהות וגם המספר היו נעלמים (ביקורת Codex).
+     */
+    let identity: AgentResultRow | null = null;
     const contact = payload["contact"];
     if (typeof contact === "object" && contact !== null) {
       const record = contact as Record<string, unknown>;
       const name = text(record["name"]);
-      /*
-       * **שורת הזהות רק כשאין כרטיס שאומר את אותו דבר.**
-       *
-       * „מי מתקשר אליי” מחזירה גם את איש הקשר וגם את הכרטיסים שלו,
-       * ולשניהם אותו שם. שורה כפולה אינה רק רעש: המספור הופך את
-       * הראשונה ל„משה כהן 1”, ולה **אין** קישור ולכן גם אין הפניה —
-       * כלומר „תוסיף הערה לראשון” מחפש שם שאינו קיים (ביקורת Codex).
-       *
-       * לאיש קשר אין מסך משלו (‏`/contacts/…` הוא 404), ולכן כשיש
-       * כרטיס הוא **התשובה הטובה יותר**: אותו שם, ואפשר להמשיך ממנו.
-       * בלי כרטיס — למשל לקוח מוכר בלי ליד פתוח — השורה נשארת, כי
-       * היא כל מה שיש.
-       */
-      if (name !== null && !rows.some((row) => row.label === name)) {
-        rows.unshift({
+      if (name !== null && !owned.has(name)) {
+        identity = {
           label: name,
           detail: "",
           ...(phoneOf(record) !== null ? { phone: phoneOf(record)! } : {}),
-        });
+        };
+        owned.add(name);
       }
     }
-    return bounded({ noun: "תוצאות", hasMore, rows });
+
+    /*
+     * שורת אירוע שהשם שלה כבר שייך לרשומה חוזרת לקרוא לעצמה בשמה:
+     * „שיחה”. שום פרט אינו אובד — הכיוון, התוצאה, המועד והמספר
+     * יושבים בשדות שלהם ממילא, והשם נמצא שורה מעליה.
+     */
+    const settled = rows.map((row) =>
+      row.ref === undefined && row.kindLabel !== undefined && owned.has(row.label)
+        ? { ...row, label: row.kindLabel }
+        : row,
+    );
+
+    /*
+     * **קודם מי, ואחר כך מה קרה.** „הראשון מהם” הוא ביטוי לפי
+     * מיקום, ולכן השורה הראשונה חייבת להיות כזו שאפשר להמשיך
+     * ממנה — ולא פגישה שנפלה ראשונה רק כי כך סדר המקטעים.
+     */
+    return bounded({
+      noun: "תוצאות",
+      hasMore,
+      rows: [
+        ...(identity === null ? [] : [identity]),
+        ...settled.filter((row) => row.ref !== undefined),
+        ...settled.filter((row) => row.ref === undefined),
+      ],
+    });
   }
 
   const only = sections[0];
@@ -668,13 +776,6 @@ export function agentHistorySummary(message: string, data: unknown): string {
   );
 }
 
-/** הקידומת בקישור ⟵ סוג הרשומה שאפשר להצביע עליה. */
-const REF_TYPE_BY_SECTION: Record<string, AgentHistoryRef["entityType"]> = {
-  buyers: "buyer",
-  leads: "lead",
-  properties: "property",
-};
-
 /**
  * הפניות לרשומות שהוצגו — **מזהה יציב לצד התווית, ולא במקומה.**
  *
@@ -705,12 +806,8 @@ export function agentResultRefs(data: unknown): AgentHistoryRef[] {
   if (list === null) return [];
   const refs: AgentHistoryRef[] = [];
   for (const row of list.rows.slice(0, AGENT_RESULT_ROWS)) {
-    const parts = (row.href ?? "").split("/");
-    if (parts.length !== 3) continue;
-    const entityType = REF_TYPE_BY_SECTION[parts[1] ?? ""];
-    const entityId = parts[2] ?? "";
-    if (entityType === undefined || entityId === "") continue;
-    refs.push({ label: row.memoryLabel ?? row.label, entityType, entityId });
+    if (row.ref === undefined || row.ref.entityId === "") continue;
+    refs.push({ label: row.memoryLabel ?? row.label, ...row.ref });
   }
   return refs;
 }

@@ -81,7 +81,7 @@ const InterpretSchema = z
             .array(
               z.object({
                 label: z.string().trim().min(1).max(AGENT_RESULT_LABEL_MAX),
-                entityType: z.enum(["lead", "buyer", "property"]),
+                entityType: z.enum(["lead", "buyer", "property", "task"]),
                 entityId: z.string().length(26),
               }),
             )

@@ -55,7 +55,12 @@ export interface AgentHistoryTurn {
 export interface AgentHistoryRef {
   /** מה שהמודל רואה ומחזיר — קצר, בעברית, ובלי פרט מזהה */
   label: string;
-  entityType: "lead" | "buyer" | "property";
+  /**
+   * `task` נוסף אחרון: „תסגור את השנייה” על שתי משימות באותו שם
+   * חיפש כותרת ממוספרת שאינה קיימת בשום משימה (ביקורת Codex).
+   * הפותר כבר ידע לחפש משימות — מה שחסר היה המזהה היציב.
+   */
+  entityType: "lead" | "buyer" | "property" | "task";
   entityId: string;
 }
 

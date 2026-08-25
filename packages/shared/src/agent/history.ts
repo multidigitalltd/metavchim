@@ -152,9 +152,25 @@ export function assistantMemoryTurn(items: readonly NotifiedForMemory[]): AgentH
  * וזו שבהפניה חייבות להיות אותה מחרוזת, אחרת המספור עצמו יוצר
  * את הפער שהוא נועד לסגור.
  */
-export function numberedLabels(labels: readonly string[], maxLength?: number): string[] {
+export function numberedLabels(
+  labels: readonly string[],
+  maxLength?: number,
+  /**
+   * אילו תוויות **רשאיות** לקבל מספר. חסר = כולן.
+   *
+   * מספור הופך תווית למפתח, ולכן הוא מיועד לשורה שיש לה רשומה
+   * להצביע עליה. שורת אירוע (שיחה, פגישה) שקיבלה מספר הפכה
+   * ל„<כותרת> 2” — ביטוי שאין לו מקבילה באף רשומה, והחיפוש עליו
+   * נכשל בשקט (ביקורת Codex). מי שאינו רשאי עדיין **תופס** את
+   * התווית שלו, כדי שמספר שנוצר לא ייפול עליה.
+   */
+  numberable?: readonly boolean[],
+): string[] {
+  const mayNumber = (i: number): boolean => numberable?.[i] ?? true;
   const counts = new Map<string, number>();
-  for (const label of labels) counts.set(label, (counts.get(label) ?? 0) + 1);
+  labels.forEach((label, i) => {
+    if (mayNumber(i)) counts.set(label, (counts.get(label) ?? 0) + 1);
+  });
   /*
    * **הייחודיות נבדקת על התווית הסופית — אחרי המספור ואחרי הקיצור.**
    *
@@ -176,7 +192,8 @@ export function numberedLabels(labels: readonly string[], maxLength?: number): s
   };
   const taken = new Set(labels);
   const used = new Map<string, number>();
-  return labels.map((label) => {
+  return labels.map((label, i) => {
+    if (!mayNumber(i)) return label;
     if ((counts.get(label) ?? 0) < 2) return label;
     let n = (used.get(label) ?? 0) + 1;
     while (taken.has(fit(label, ` ${n}`))) n += 1;
