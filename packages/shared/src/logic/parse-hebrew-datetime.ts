@@ -815,7 +815,18 @@ function parseExplicitDate(
  * ההרחבה של הצורה בלי בי"ת הייתה הופכת תיקון שעבד לתיקון שנבלע
  * (ביקורת Codex).
  */
-function correctedToCalendar(text: string, offsetEnd: number): boolean {
+/**
+ * ‎`limit` — **היכן נגמר מה ששייך להיסט שנבחר.**
+ *
+ * החיפוש היה פתוח עד סוף המשפט, ולכן תיקון ששייך לפסוקית אחרת
+ * נחת על התזכורת: „תזכיר לי בעוד שעה לשלוח את המסמך שצריך להגיע
+ * בעוד יומיים, **בעצם ביום שלישי**” העביר את התזכורת ליום שלישי,
+ * בעוד שהתיקון מתקן את מועד הגעת המסמך (ביקורת Codex).
+ *
+ * הגבול הוא תחילת ביטוי הזמן הבא: מרגע שהמשפט עבר להיסט אחר, מה
+ * שנאמר אחריו מתקן אותו ולא את שלנו.
+ */
+function correctedToCalendar(text: string, offsetEnd: number, limit: number): boolean {
   /*
    * **אותו כלל תיקון של הבחירה בין שני היסטים, ולא ניסוח שני.**
    *
@@ -826,7 +837,7 @@ function correctedToCalendar(text: string, offsetEnd: number): boolean {
    * ולכן הכלל יושב עכשיו במקום אחד. „לא” והדרישה לפיסוק אחריה
    * נכללות בו.
    */
-  const correction = correctionAt(text.slice(offsetEnd));
+  const correction = correctionAt(text.slice(offsetEnd, limit));
   if (correction === null) return false;
   // הלוח חייב להיות צמוד לסימן — אחרת יום שמופיע במקרה בהמשך המשפט
   // היה מוחק את ההיסט
@@ -852,6 +863,20 @@ function correctedToCalendar(text: string, offsetEnd: number): boolean {
 const NEGATED_CALENDAR =
   /(?<![\p{L}\p{N}])לא\s+(מחר|מחרתיים|היום|ב?יום\s+(?:ראשון|שני|שלישי|רביעי|חמישי|שישי)|ב?שבת)(?![\p{L}\p{N}])/gu;
 
+/**
+ * תחילת ביטוי הזמן הבא אחרי הנבחר, או סוף הטקסט.
+ *
+ * ‎`masks` נושאת את גבולותיהם של **כל** ביטויי הזמן שזוהו, ולכן היא
+ * בדיוק מה שנדרש כדי לדעת היכן נגמרת הפסוקית של הנבחר.
+ */
+function nextExpressionStart(relative: RelativeOffset, end: number): number {
+  let limit = end;
+  for (const span of relative.masks) {
+    if (span.start >= relative.end && span.start < limit) limit = span.start;
+  }
+  return limit;
+}
+
 export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTime {
   const text = transcript
     .replace(/\s+/gu, " ")
@@ -868,7 +893,7 @@ export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTi
     relative !== null &&
     relative.ms !== null &&
     !/מחר|מחרתיים|היום/u.test(text) &&
-    !correctedToCalendar(text, relative.end)
+    !correctedToCalendar(text, relative.end, nextExpressionStart(relative, text.length))
   ) {
     const at = new Date(now.getTime() + relative.ms);
     /*
