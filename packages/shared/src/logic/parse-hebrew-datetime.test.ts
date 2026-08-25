@@ -104,6 +104,20 @@ describe("parseHebrewDateTime", () => {
     expect(il(parseHebrewDateTime("תזכיר לי עוד עשרים דקות!", NOW).date).minute).toBe(20);
   });
 
+  /*
+   * „עוד פעם” אינו זמן, וחיפוש יחיד נעצר עליו — בזמן ש„בעוד שעה”
+   * יושב מיד אחריו. חזרה ותיקון עצמי הם דיבור רגיל לגמרי.
+   */
+  it("ו'עוד' שאינו זמן אינו מסתיר 'עוד' שכן", () => {
+    expect(il(parseHebrewDateTime("תתקשר עוד פעם בעוד שעה", NOW).date).hour).toBe(10);
+    expect(il(parseHebrewDateTime("תשלח לו עוד הודעה, ותזכיר לי עוד יומיים", NOW).date).day).toBe(3);
+  });
+
+  /* „מעודכן” ו„עודף” אינם „עוד” — ההתאמה היא בגבול מילה */
+  it("ו'עוד' בתוך מילה אחרת אינו נחשב", () => {
+    expect(parseHebrewDateTime("תעדכן אותי כשהמצב מעודכן", NOW).date).toBeUndefined();
+  });
+
   it("ו'תוך' עובד כמו 'עוד'", () => {
     expect(il(parseHebrewDateTime("תחזור אליו תוך שעתיים", NOW).date).hour).toBe(11);
   });

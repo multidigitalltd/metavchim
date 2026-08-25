@@ -128,18 +128,26 @@ function bareWord(raw: string | undefined): string | undefined {
   return cleaned === "" ? undefined : cleaned;
 }
 
-export function parseRelativeOffset(text: string): { ms: number; evidence: string } | null {
-  const trigger = /(?<lead>ב?עוד|תוך)\s+(?<rest>\S+)(?:\s+(?<tail>\S+))?/u.exec(text);
-  const lead = trigger?.groups?.["lead"];
-  const first = bareWord(trigger?.groups?.["rest"]);
-  if (lead === undefined || first === undefined) return null;
+/**
+ * מילת הפתיחה בלבד — **בגבול מילה, וכל המופעים.**
+ *
+ * ‎`(?:^|\s)` מונע התאמה בתוך מילה („מעודכן”, „עודף”), והדגל
+ * הגלובלי הוא מה שמאפשר לעבור על כל המופעים.
+ */
+const RELATIVE_TRIGGER = /(?:^|\s)(ב?עוד|תוך)\s+/gu;
+
+/** מועמד אחד: מילת פתיחה, ומה שבא אחריה. */
+function offsetAt(lead: string, rest: string): { ms: number; evidence: string } | null {
+  const words = rest.split(/\s+/u);
+  const first = bareWord(words[0]);
+  if (first === undefined) return null;
 
   // „שעתיים”, „שעה” — היחידה עומדת לבדה ונושאת את הכמות שלה
   const alone = unitOf(first);
   if (alone !== undefined) return { ms: alone.ms, evidence: `${lead} ${first}` };
 
   // „עשרים דקות”, „רבע שעה”, „3 ימים”
-  const second = bareWord(trigger?.groups?.["tail"]);
+  const second = bareWord(words[1]);
   const quantity = quantityOf(first);
   if (quantity === undefined || second === undefined) return null;
   const unit = unitOf(second);
@@ -147,6 +155,24 @@ export function parseRelativeOffset(text: string): { ms: number; evidence: strin
   const ms = Math.round(quantity * unit.ms);
   if (!Number.isFinite(ms) || ms <= 0) return null;
   return { ms, evidence: `${lead} ${first} ${second}` };
+}
+
+export function parseRelativeOffset(text: string): { ms: number; evidence: string } | null {
+  /*
+   * **כל המופעים, לא הראשון.**
+   *
+   * „תתקשר **עוד פעם** בעוד שעה” — המופע הראשון אינו זמן, וחיפוש
+   * יחיד נעצר עליו ומחזיר `null`, בזמן ש„בעוד שעה” יושב מיד אחריו.
+   * חזרה ותיקון עצמי הם דיבור רגיל לגמרי, והצורה הקודמת דווקא
+   * שרדה אותם — היא חיפשה יחידה ולא מילה כלשהי (ביקורת Codex).
+   */
+  for (const match of text.matchAll(RELATIVE_TRIGGER)) {
+    const lead = match[1];
+    if (lead === undefined || match.index === undefined) continue;
+    const resolved = offsetAt(lead, text.slice(match.index + match[0].length));
+    if (resolved !== null) return resolved;
+  }
+  return null;
 }
 
 /** שמות החודשים הלועזיים כפי שאומרים אותם. */
