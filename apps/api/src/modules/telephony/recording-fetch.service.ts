@@ -8,6 +8,7 @@ import {
 import {
   build015RecordingsListUrl,
   describeProviderResponse,
+  dropped015ListRows,
   build015RecordingUrl,
   MAX_RECORDING_BYTES,
   parse015RecordingResponse,
@@ -297,17 +298,27 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException("התשובה מהמרכזייה לא נקראה — גוף שאינו JSON תקין");
     }
 
-    const rows = parse015RecordingsList(body);
-    if (rows.length === 0) {
-      /*
-       * שמות השדות אינם מתועדים. רשימה ריקה שהגיעה עם שורות היא
-       * שינוי שם שדה אצל הספק — ובלי השורה הזו הוא היה נראה
-       * כ"אין הקלטות" (השמות בלבד, בלי הערכים).
-       */
+    /*
+     * הקבוצה שביקשנו נמסרת לקורא: היא פרמטר של הבקשה ואינה שדה
+     * שהתשובה חייבת לחזור עליו. הדרישה שתופיע בשורה הפילה כל שורה
+     * בשקט, והייבוא דיווח „אין הקלטות אצל הספק” על תשובה מלאה.
+     */
+    const rows = parse015RecordingsList(body, recordGroup);
+    /*
+     * **שורה שנשמטה מדווחת תמיד, לא רק כשכולן נשמטו.**
+     *
+     * שמות השדות אינם מתועדים, ולכן „שם שדה שאיננו מכירים” ו„אין
+     * הקלטות” נראים זהים מבחוץ ודורשים פעולה הפוכה. הספירה היא מה
+     * שמבדיל, ואחריה שמות המפתחות — שמות בלבד, בלי ערכים, כי שורת
+     * הקלטה נושאת מספרי טלפון.
+     */
+    const dropped = dropped015ListRows(body, recordGroup);
+    if (dropped > 0) {
       const unknownKeys = unmatched015ListKeys(body);
-      if (unknownKeys.length > 0) {
-        this.logger.warn(`רשימת ההקלטות הגיעה בשדות לא מוכרים: ${unknownKeys.join(", ")}`);
-      }
+      this.logger.warn(
+        `רשימת ההקלטות: ${dropped} שורות בלי מזהים שאנחנו מכירים` +
+          (unknownKeys.length > 0 ? ` · שדות לא מוכרים: ${unknownKeys.join(", ")}` : ""),
+      );
     }
 
     let linked = 0;

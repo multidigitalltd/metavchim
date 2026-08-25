@@ -1340,17 +1340,46 @@ function rowsOf(body: unknown): Record<string, unknown>[] {
  *
  * שורה בלי `uniqueid` חסרת ערך לנו בכל מקרה: זה המפתח שמחבר את
  * ההקלטה לשיחה שאצלנו.
+ *
+ * ## למה הקבוצה **אינה** נדרשת בשורה
+ *
+ * ‎`recordgroup` הוא פרמטר של ה**בקשה**, ולא שדה שהתיעוד מבטיח
+ * בתשובה: השדות שהוא מונה לשורה הם `uniqueid`, `snumber`,
+ * ‎`cnumber`, `start`, `totaltime` ו-`expires`. דרישה שהספק יחזיר
+ * אותו הפילה **כל** שורה בשקט, והייבוא דיווח „אין הקלטות אצל
+ * הספק” על תשובה מלאה — בדיוק הדיווח שהתקבל מהשטח.
+ *
+ * הקבוצה שביקשנו היא הקבוצה שהשורות שייכות לה; אין מה לגזור.
+ * שורה שכן נושאת אותה גוברת, כי ספק שטרח לומר יודע טוב מאיתנו.
  */
-export function parse015RecordingsList(body: unknown): Pbx015RecordingRow[] {
+export function parse015RecordingsList(
+  body: unknown,
+  /** הקבוצה שנשלחה בבקשה — התשובה אינה חייבת לחזור עליה */
+  requestedGroup?: string,
+): Pbx015RecordingRow[] {
   const found: Pbx015RecordingRow[] = [];
   for (const row of rowsOf(body)) {
     const uniqueId = pick(row, LIST_UNIQUE_KEYS);
     const recordId = pick(row, LIST_RECORD_ID_KEYS);
-    const recordGroup = pick(row, LIST_GROUP_KEYS);
+    const recordGroup = pick(row, LIST_GROUP_KEYS) ?? requestedGroup;
     if (uniqueId === undefined || recordId === undefined || recordGroup === undefined) continue;
     found.push({ uniqueId, recordId, recordGroup });
   }
   return found;
+}
+
+/**
+ * שורות שהגיעו ונשמטו — **הפער בין מה שהספק שלח למה שקראנו.**
+ *
+ * ‎`parse015RecordingsList` מוותרת בשקט על שורה בלי מזהים, וזו
+ * ההתנהגות הנכונה. אבל שקט מלא הופך „שם שדה שאיננו מכירים” ל„אין
+ * הקלטות” — שני מצבים שדורשים פעולה הפוכה, ושנראו זהים מבחוץ.
+ *
+ * המספר הזה הוא מה שמבדיל ביניהם, ואפשר לדווח אותו: הוא ספירה
+ * ולא תוכן.
+ */
+export function dropped015ListRows(body: unknown, requestedGroup?: string): number {
+  return rowsOf(body).length - parse015RecordingsList(body, requestedGroup).length;
 }
 
 /**
