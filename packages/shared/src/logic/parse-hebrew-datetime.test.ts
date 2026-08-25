@@ -206,6 +206,29 @@ describe("parseHebrewDateTime", () => {
     expect(parseHebrewDateTime("תזכיר לי בעוד 0 דקות", NOW).date).toBeUndefined();
   });
 
+  /*
+   * ‎„-2” אינו „2”. הניקוי הסיר את הסימן כאילו היה פיסוק, הכמות
+   * הגיעה חיובית, ונקבעה תזכורת שעתיים קדימה ממשפט שאומר את ההפך
+   * (ביקורת Codex).
+   */
+  it("וסימן מינוס אינו פיסוק", () => {
+    expect(parseHebrewDateTime("תזכיר לי בעוד -2 שעות", NOW).date).toBeUndefined();
+    expect(parseHebrewDateTime("תזכיר לי בעוד -2", NOW).date).toBeUndefined();
+  });
+
+  /*
+   * וי"ו החיבור נבלעת: „ובעוד שעה” הוא „בעוד שעה” עם חיבור למשפט
+   * שלפניו. המבט לאחור ראה בה אות ופסל את הביטוי (ביקורת Codex).
+   *
+   * שאר התחיליות אינן נבלעות, וזה נבדק: „ש” משעבדת פסוקית ומשנה
+   * את מה שנאמר.
+   */
+  it("וי\"ו החיבור נבלעת, ושאר התחיליות לא", () => {
+    expect(il(parseHebrewDateTime("תזכיר לי ובעוד שעה להתקשר", NOW).date).hour).toBe(10);
+    expect(il(parseHebrewDateTime("ועוד שעתיים תחזור אליו", NOW).date).hour).toBe(11);
+    expect(parseHebrewDateTime("המערכת מעודכנת", NOW).date).toBeUndefined();
+  });
+
   /* וביטוי שנדחה אינו עוצר את הסריקה — ביטוי תקין אחריו עדיין נמצא */
   it("היסט שנדחה אינו מסתיר היסט תקין שאחריו", () => {
     expect(il(parseHebrewDateTime("עוד 900 שעות, לא, בעוד שעה", NOW).date).hour).toBe(10);
