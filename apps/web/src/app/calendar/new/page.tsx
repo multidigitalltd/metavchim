@@ -3,6 +3,12 @@
 import { Suspense, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
+import {
+  JERUSALEM_TZ,
+  jerusalemWallErrorMessage,
+  jerusalemWallParts,
+  resolveJerusalemWall,
+} from "@metavchim/shared";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { waMeUrl } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-auth";
@@ -31,12 +37,17 @@ function NewAppointmentForm() {
   const initialKind = params.get("kind") ?? "viewing";
   const parsedStart = startsAtParam ? new Date(startsAtParam) : null;
   const validStart = parsedStart && !Number.isNaN(parsedStart.getTime()) ? parsedStart : null;
-  // ערכי input date/time הם מקומיים — נגזרים מהשעון של הדפדפן
-  const pad = (n: number): string => String(n).padStart(2, "0");
-  const initialDate = validStart
-    ? `${validStart.getFullYear()}-${pad(validStart.getMonth() + 1)}-${pad(validStart.getDate())}`
-    : "";
-  const initialTime = validStart ? `${pad(validStart.getHours())}:${pad(validStart.getMinutes())}` : "";
+  /*
+   * ‎**שדות הטופס בשעת הקיר הישראלית.**
+   *
+   * ‎`getHours()` היה נותן את שעת הדפדפן: פקודה קולית „מחר בתשע”
+   * שהשרת פירש כתשע בישראל הייתה נפתחת בטופס על 02:00 בניו-יורק,
+   * והמתווך היה מאשר מועד אחר מזה שאמר. אותו זוג פונקציות לקריאה
+   * ולכתיבה, כמו בעריכה שביומן (ביקורת Codex).
+   */
+  const initialWall = validStart ? jerusalemWallParts(validStart) : null;
+  const initialDate = initialWall?.date ?? "";
+  const initialTime = initialWall?.time ?? "";
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   /** אחרי היצירה, כשהפגישה מקושרת לליד: הצעה לעדכן את הלקוח בוואטסאפ. */
@@ -50,11 +61,24 @@ function NewAppointmentForm() {
     const date = String(f.get("date"));
     const time = String(f.get("time"));
     const kind = String(f.get("kind"));
+    /*
+     * הטופס הוא `noValidate`, ולכן `required` אינו נאכף ושדה ריק
+     * מגיע לכאן כמחרוזת ריקה. הפונקציה טוטלית ומחזירה סיבה במקום
+     * לזרוק, והמסך אומר איזו — „מלאו תאריך ושעה” אינו „השעה אינה
+     * קיימת” (ביקורת Codex).
+     */
+    const resolved = resolveJerusalemWall(date, time, null);
+    if (!resolved.ok) {
+      setError(jerusalemWallErrorMessage(resolved.reason));
+      setSubmitting(false);
+      return;
+    }
+    const startsAt = resolved.at;
     try {
       await apiPost("/appointments", {
         kind,
         title: String(f.get("title") ?? "").trim() || undefined,
-        startsAt: new Date(`${date}T${time}`).toISOString(),
+        startsAt: startsAt.toISOString(),
         durationMinutes: Number(f.get("duration")),
         notes: String(f.get("notes") ?? "").trim() || undefined,
         leadId,
@@ -71,10 +95,12 @@ function NewAppointmentForm() {
           const { lead } = await apiGet<{ lead: { contact: { name: string; phone: string } } }>(
             `/leads/${leadId}`,
           );
+          // ההודעה ללקוח נוקבת בשעה — ולכן בשעון ישראל, לא בזה של המכשיר
           const when = new Intl.DateTimeFormat("he-IL", {
+            timeZone: JERUSALEM_TZ,
             dateStyle: "full",
             timeStyle: "short",
-          }).format(new Date(`${date}T${time}`));
+          }).format(startsAt);
           setNotify({
             waUrl: waMeUrl(
               lead.contact.phone,

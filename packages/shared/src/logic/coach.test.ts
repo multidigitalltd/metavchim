@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildRecommendations, type CoachSignals } from "./coach.js";
+import {
+  buildRecommendations,
+  recommendationCapabilities,
+  recommendationHref,
+  type CoachSignals,
+} from "./coach.js";
+import type { Capability } from "../rbac.js";
 
 const empty: CoachSignals = {
   hotBuyersWithoutOffer: 0,
@@ -104,5 +110,131 @@ describe("buildRecommendations — עוזר המכירות החכם", () => {
     });
     const priorities = recs.map((r) => r.priority);
     expect(priorities).toEqual([...priorities].sort((a, b) => b - a));
+  });
+});
+
+/*
+ * ‎**כל אות דולק בבת אחת** — כדי שכל סוג המלצה שהפונקציה מסוגלת
+ * לייצר ייוצג בפועל. זה מה שהופך את הבדיקה מטה לספירה ולא לדגימה:
+ * סוג חדש שייכתב ב-`buildRecommendations` ייכנס לרשימה מעצמו, וייפול
+ * אם לא נתנו לו יעד.
+ */
+const allSignals: CoachSignals = {
+  hotBuyersWithoutOffer: 4,
+  propertiesWithUnsentMatches: [{ propertyId: ID, title: "נכס", matchCount: 7 }],
+  hesitatingOffers: [{ offerId: ID, propertyTitle: "נכס", openCount: 3 }],
+  urgentLeads: [{ leadId: ID, contactName: "א" }],
+  incompleteProperties: [{ propertyId: ID, title: "נכס", missingCount: 2 }],
+  pastViewingsWithoutOutcome: [{ appointmentId: ID, title: "סיור" }],
+  staleLeads: [{ leadId: ID, contactName: "ב", hoursWaiting: 5 }],
+  todayAppointments: [{ appointmentId: ID, title: "פגישה", startsAt: new Date() }],
+  overdueTasks: [{ taskId: ID, title: "משימה", daysLate: 2 }],
+  pendingCoopOffers: 5,
+};
+
+describe("recommendationHref — לכל המלצה יש לאן ללחוץ", () => {
+  /*
+   * הבדיקה המרכזית. השורה הראשונה בדשבורד מקבלת את הכפתור הראשי,
+   * ולכן המלצה בלי יעד היא הכרזה „זה הדבר לעשות עכשיו” שאי אפשר
+   * לפעול לפיה. ארבעה סוגים נשברו כך — שלושה מצרפים בלי `entityId`
+   * ו-`hesitating_buyer` שנושא `entityType: "offer"`.
+   */
+  it("כל סוג שהסוכן מסוגל לייצר מקבל יעד", () => {
+    const recs = buildRecommendations(allSignals);
+    const without = recs.filter((r) => recommendationHref(r) === null).map((r) => r.type);
+    expect(without).toEqual([]);
+  });
+
+  it("עשרת הסוגים אכן נבדקו — אחרת הבדיקה שמעל ריקה", () => {
+    const types = new Set(buildRecommendations(allSignals).map((r) => r.type));
+    expect(types).toEqual(
+      new Set([
+        "stale_lead",
+        "today_appointment",
+        "urgent_lead",
+        "pending_coop_offers",
+        "hesitating_buyer",
+        "overdue_task",
+        "unsent_matches",
+        "hot_buyers_idle",
+        "viewing_followup",
+        "incomplete_property",
+      ]),
+    );
+  });
+
+  it("המלצה מצרפת מגיעה ליעד המרוכז ולא לכרטיס", () => {
+    const recs = buildRecommendations(allSignals);
+    const href = (type: string): string | null =>
+      recommendationHref(recs.find((r) => r.type === type)!);
+    expect(href("pending_coop_offers")).toBe("/collaboration");
+    expect(href("overdue_task")).toBe("/tasks");
+    expect(href("hot_buyers_idle")).toBe("/buyers");
+    // נושא `entityId` אך אין מסך להצעה בודדת
+    expect(href("hesitating_buyer")).toBe("/offers");
+  });
+
+  it("המלצה על ישות מגיעה לכרטיס שלה", () => {
+    const recs = buildRecommendations(allSignals);
+    const href = (type: string): string | null =>
+      recommendationHref(recs.find((r) => r.type === type)!);
+    expect(href("stale_lead")).toBe(`/leads/${ID}`);
+    expect(href("unsent_matches")).toBe(`/properties/${ID}`);
+    expect(href("today_appointment")).toBe("/calendar");
+  });
+
+  it("סוג שאינו מוכר ואין לו ישות — אין יעד, ולא ניחוש", () => {
+    expect(recommendationHref({ priority: 1, type: "מומצא", title: "", body: "" })).toBeNull();
+  });
+});
+
+/*
+ * ‎**היכולת נמדדת לפי הפעולה, לא לפי המסך.**
+ *
+ * ‎`/coach/recommendations` יושב מאחורי `matches.view`, והיעדים
+ * שאליהם הוא מפנה דורשים יכולות אחרות. הגרסה הראשונה של המפה
+ * נגזרה מקידומת ה-href, כלומר ענתה „האם מותר לו לראות את המסך” —
+ * שאלה אחרת מ„האם מותר לו לעשות את מה שביקשנו”. שתיהן מתלכדות רק
+ * כשההמלצה היא לקרוא; ברגע שהיא מבקשת לשלוח או לערוך, הן נפרדות,
+ * והסוכן מקבל הזמנה לפעולה שתחזיר לו 403.
+ */
+describe("recommendationCapabilities — לפתוח את המסך וגם לבצע", () => {
+  const capsOf = (type: string): Capability[] =>
+    recommendationCapabilities(buildRecommendations(allSignals).find((r) => r.type === type)!);
+
+  it("כל סוג שהסוכן מייצר נושא לפחות דרישה אחת — אין המלצה בלי שער", () => {
+    const recs = buildRecommendations(allSignals);
+    const without = recs.filter((r) => recommendationCapabilities(r).length === 0).map((r) => r.type);
+    expect(without).toEqual([]);
+  });
+
+  /*
+   * הלב של הביקורת השנייה: „שלח הצעות” דורש גם לפתוח את כרטיס הנכס
+   * וגם לשלוח. שלילת כל אחת מהשתיים לבדה מספיקה כדי שההמלצה תוביל
+   * לשגיאה, ולכן שתיהן חייבות להופיע.
+   */
+  it("„לשלוח הצעות” דורש גם צפייה בנכס וגם שליחה", () => {
+    expect(capsOf("unsent_matches").sort()).toEqual(["offers.send", "properties.view"]);
+  });
+
+  it("„להשלים פרטים” דורש גם צפייה וגם עריכה", () => {
+    expect(capsOf("incomplete_property").sort()).toEqual(["properties.edit", "properties.view"]);
+  });
+
+  it("כשהמסך והפעולה הם אותה יכולת — היא נספרת פעם אחת", () => {
+    expect(capsOf("hesitating_buyer")).toEqual(["offers.send"]);
+    expect(capsOf("stale_lead")).toEqual(["leads.view_own"]);
+    expect(capsOf("today_appointment")).toEqual(["calendar.manage"]);
+    expect(capsOf("overdue_task")).toEqual(["calendar.manage"]);
+    expect(capsOf("viewing_followup")).toEqual(["calendar.manage"]);
+    expect(capsOf("pending_coop_offers")).toEqual(["collaboration.offer"]);
+    expect(capsOf("urgent_lead")).toEqual(["leads.view_own"]);
+    expect(capsOf("hot_buyers_idle")).toEqual(["buyers.view_own"]);
+  });
+
+  it("סוג שאינו מוכר — אין דרישה מומצאת", () => {
+    expect(recommendationCapabilities({ priority: 1, type: "מומצא", title: "", body: "" })).toEqual(
+      [],
+    );
   });
 });

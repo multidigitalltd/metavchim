@@ -4,6 +4,8 @@ import {
   computeReadiness,
   type CoachRecommendation,
   jerusalemDayRange,
+  jerusalemDayStart,
+  jerusalemWeekStart,
   type CoachSignals,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
@@ -11,6 +13,17 @@ import { ownershipFilter } from "../../common/ownership";
 import { PrismaService } from "../../core/prisma.service";
 import { rowToFields } from "../properties/property.mapper";
 import { loadEnv } from "../../config/env";
+
+/*
+ * ‎**המלצה לא תנקוב בשם דבר שהיעד שלה אינו יכול להציג** — ולא רק
+ * „נטען”, אלא מה שנראה בכניסה למסך.
+ *
+ * שני האותות שמפנים לרשימה, ולא לכרטיס, נבחרו בלי קשר לכך, ולכן
+ * „לפרטים” פתח מסך שהפריט שההמלצה דיברה עליו אינו בתוכו (ביקורת
+ * Codex). הגבולות מוצמדים למה שהצד השני עושה בפועל, ולא מנוחשים.
+ */
+/** `GET /offers` — ברירת המחדל של `limit` ב-`ListQuerySchema`. */
+const OFFERS_PAGE_SIZE = 100;
 
 /**
  * אוסף את האותות מהדאטה של הדייר (מכבד בעלות — סוכן רואה המלצות על
@@ -96,16 +109,36 @@ export class CoachService {
           select: { id: true },
         })
       ).map((m) => m.id);
-      const hesitating = await tx.offer.findMany({
-        where: {
-          tenantId,
-          matchId: { in: scopedMatchIds },
-          openCount: { gte: 3 },
-          status: { in: ["opened", "sent", "delivered"] },
-        },
-        orderBy: { openCount: "desc" },
-        take: 10,
+      /*
+       * ‎**רק מתוך מה שמסך ההצעות באמת יציג** — ובאותו סדר שהוא
+       * עושה בו את זה.
+       *
+       * מיון לפי `openCount` על כל המאגר בוחר דווקא הצעות ישנות,
+       * שצברו פתיחות לאורך זמן, בעוד `/offers` טוען מאה אחרונות לפי
+       * ‎`createdAt`. לכן העמוד נלקח קודם, והמתלבטים נבחרים בתוכו.
+       *
+       * ‎**וסינון הבעלות חל אחרי העמוד**, כמו ב-`OffersService.listAll`
+       * שלוקח את מאה האחרונות של המשרד ורק אז מסתיר שמות. הסדר
+       * ההפוך מחזיר את אותו פער שכבה אחת מתחת: „מאה האחרונות **של
+       * הסוכן**” מגיעות עמוק יותר לעבר מאלה של המשרד, ברגע
+       * שהחדשות שייכות לעמיתים (ביקורת Codex).
+       */
+      const listed = await tx.offer.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: "desc" },
+        take: OFFERS_PAGE_SIZE,
+        select: { id: true, matchId: true, openCount: true, status: true, presentation: true },
       });
+      const scoped = new Set(scopedMatchIds);
+      const hesitating = listed
+        .filter(
+          (o) =>
+            scoped.has(o.matchId) &&
+            o.openCount >= 3 &&
+            ["opened", "sent", "delivered"].includes(o.status),
+        )
+        .sort((a, b) => b.openCount - a.openCount)
+        .slice(0, 10);
       const hesitatingOffers: CoachSignals["hesitatingOffers"] = [];
       for (const offer of hesitating) {
         const presentation = offer.presentation as { title?: string };
@@ -131,14 +164,43 @@ export class CoachService {
       // להכיל שם לקוח, ביקורת Codex)
       let pastViewingsWithoutOutcome: CoachSignals["pastViewingsWithoutOutcome"] = [];
       if (canSeeCalendar) {
+        /*
+         * ‎**רק סיורים שהיומן מציג בכניסה אליו.**
+         *
+         * שלוש גרסאות, וכל אחת הרחיבה את השאלה: בלי גבול תחתון
+         * נבחר גם סיור מלפני חצי שנה; חלון של 14 יום היה בתוך מה
+         * ש-`/appointments` **טוען**, אבל הרשת נפתחת על השבוע
+         * הנוכחי, וסיור משבוע שעבר מופיע רק בפאנל „סיורים שטרם
+         * תועדו” — שניתן לסגור ליום, ואז אין לו זכר במסך (ביקורת
+         * Codex). בלי `orderBy` גם לא היה קבוע *אילו* חמישה נבחרים.
+         *
+         * הגבול הוא תחילת השבוע הישראלי — אותה פונקציה שהיומן
+         * עצמו בונה בה את הרשת, ולכן „בשבוע” אומר אותו דבר בשני
+         * הצדדים גם למתווך שנמצא בחו"ל.
+         *
+         * ‎**ושבת יוצאת בשאילתה, לא אחריה**: לרשת שישה טורים,
+         * ראשון עד שישי, ולכן סיור של שבת נמצא בתוך השבוע אך אין
+         * לו טור. סינון אחרי `take` היה מסנן מתוך חמש שורות שכבר
+         * נבחרו — חמישה סיורי שבת היו דוחקים החוצה סיור שישי שכן
+         * מוצג, ולא הייתה המלצה כלל (ביקורת Codex).
+         *
+         * הגבול העליון הוא תחילת שבת, ולכן ההוצאה היא חלק מהטווח
+         * ולא שלב אחריו. שבת היא היום השביעי, כך שגבול אחד מוציא
+         * אותה בלי לגעת בשאר.
+         */
+        const weekStartAt = jerusalemWeekStart(new Date());
+        const saturdayAt = jerusalemDayStart(weekStartAt, 6);
+        const nowAt = new Date();
+        const viewingUntil = nowAt < saturdayAt ? nowAt : saturdayAt;
         const pastViewings = await tx.appointment.findMany({
           where: {
             tenantId,
             kind: "viewing",
             status: "scheduled",
-            startsAt: { lt: new Date() },
+            startsAt: { gte: weekStartAt, lt: viewingUntil },
             outcome: null,
           },
+          orderBy: { startsAt: "desc" },
           take: 5,
         });
         pastViewingsWithoutOutcome = pastViewings.map((a) => ({

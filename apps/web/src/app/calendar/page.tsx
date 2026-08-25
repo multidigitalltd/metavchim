@@ -3,7 +3,17 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
-import { hebrewDateFull, hebrewDateShort } from "@metavchim/shared";
+import {
+  hebrewDateFull,
+  hebrewDateShort,
+  JERUSALEM_TZ,
+  jerusalemDayRange,
+  jerusalemDayStart,
+  jerusalemWallErrorMessage,
+  jerusalemWallParts,
+  jerusalemWeekStart,
+  resolveJerusalemWall,
+} from "@metavchim/shared";
 import { NowStamp } from "../now-stamp";
 import { AppointmentFollowUp } from "./appointment-followup";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
@@ -56,9 +66,18 @@ const KIND_COLORS: Record<string, { fg: string; bg: string }> = {
 
 const DAY_NAMES = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי"];
 
-const timeFmt = new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit" });
-const shortDateFmt = new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric" });
+const timeFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ,
+  hour: "2-digit",
+  minute: "2-digit",
+});
+const shortDateFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ,
+  day: "numeric",
+  month: "numeric",
+});
 const longFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ,
   weekday: "long",
   day: "numeric",
   month: "long",
@@ -66,13 +85,15 @@ const longFmt = new Intl.DateTimeFormat("he-IL", {
   minute: "2-digit",
 });
 
-/** תחילת השבוע (יום ראשון 00:00) של תאריך נתון, בהיסט שבועות. */
-function weekStart(offsetWeeks: number): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - d.getDay() + offsetWeeks * 7);
-  return d;
-}
+/*
+ * תחילת השבוע — **בשעון ישראל**, מהפונקציה המשותפת.
+ *
+ * הגרסה המקומית חישבה חצי-לילה של הדפדפן: מתווך בחו"ל קיבל רשת
+ * שגבולותיה אינם גבולות השבוע שהשרת בוחר לפיו מה להמליץ, ולכן סיור
+ * שההמלצה נקבה בשמו יכול היה ליפול מחוץ לרשת. אותה פונקציה בשני
+ * הצדדים, כמו בטווח היום בדשבורד.
+ */
+const weekStart = (offsetWeeks: number): Date => jerusalemWeekStart(new Date(), offsetWeeks);
 
 type Tab = "calendar" | "tasks";
 
@@ -99,9 +120,17 @@ function EditAppointment({
   onCancel: () => void;
 }) {
   const start = new Date(appointment.startsAt);
-  const pad = (n: number): string => String(n).padStart(2, "0");
-  const initialDate = `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`;
-  const initialTime = `${pad(start.getHours())}:${pad(start.getMinutes())}`;
+  /*
+   * ‎**שדות הטופס בשעת הקיר הישראלית, לא בזו של הדפדפן.**
+   *
+   * השורה מציגה 09:00 בשעון ישראל; `getHours()` היה פותח את אותה
+   * פגישה על 02:00 בניו-יורק, ושמירה של „10:00” הייתה מזיזה אותה
+   * לעשר ניו-יורקית. זה לא פער תצוגה — זה שינוי במועד הפגישה
+   * (ביקורת Codex). קריאה וכתיבה עוברות דרך אותו זוג פונקציות.
+   */
+  const initial = jerusalemWallParts(start);
+  const initialDate = initial.date;
+  const initialTime = initial.time;
   const initialDuration = appointment.endsAt
     ? Math.max(15, Math.round((new Date(appointment.endsAt).getTime() - start.getTime()) / 60_000))
     : 60;
@@ -121,8 +150,14 @@ function EditAppointment({
       const timeChanged =
         date !== initialDate || time !== initialTime || duration !== initialDuration;
       if (timeChanged) {
+        const resolved = resolveJerusalemWall(date, time, start);
+        if (!resolved.ok) {
+          setError(jerusalemWallErrorMessage(resolved.reason));
+          setBusy(false);
+          return;
+        }
         await apiPost(`/appointments/${appointment.id}/reschedule`, {
-          startsAt: new Date(`${date}T${time}`).toISOString(),
+          startsAt: resolved.at.toISOString(),
           durationMinutes: duration,
         });
       }
@@ -226,15 +261,20 @@ export default function CalendarPage() {
   }
 
   const start = weekStart(weekOffset);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  /*
+   * ‎**גבולות הטורים בלוח הישראלי, לא בלוח הדפדפן.**
+   *
+   * ‎`setDate(getDate() + 1)` מזיז יום של המארח: בדפדפן ניו-יורקי
+   * גבול ישראלי של יום ראשון נופל בשבת, וביום מעבר שעון אמריקאי
+   * טור אחד נמתח ל-25 שעות ובולע שעה מהיום הישראלי הבא (ביקורת
+   * Codex). אותה פונקציה שהשרת בוחר לפיה מה להמליץ.
+   */
+  const today = jerusalemDayRange(new Date()).start;
 
   /* שישה טורי ימים, ראשון–שישי */
   const days = DAY_NAMES.map((name, i) => {
-    const date = new Date(start);
-    date.setDate(start.getDate() + i);
-    const next = new Date(date);
-    next.setDate(date.getDate() + 1);
+    const date = jerusalemDayStart(start, i);
+    const next = jerusalemDayStart(start, i + 1);
     const events = (items ?? [])
       .filter((a) => {
         const t = new Date(a.startsAt);

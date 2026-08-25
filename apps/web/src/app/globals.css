@@ -287,6 +287,23 @@
   --domain-peach-line: #edbc9d;
   --domain-peach-tile: #f7d2b9;
   --domain-peach-fg: #8f3d1c; /* 6.4:1 */
+  /*
+   * ענבר — דרגת „חם” בלבד, ולכן הוא דומיין ולא הקסה במסך.
+   *
+   * ‎`SPEC` של הדשבורד נוקב לשורה הזו בשלושה ערכים משלה
+   * (‎`#FBEFD3` / `#EBD59A` / `#79541A`) שאינם אף אחד מחמשת
+   * הדומיינים. אפשר היה לכתוב אותם ישירות בשורה, וזה בדיוק מה
+   * שהמערכת אוסרת: ערך שנכתב במסך אינו עובר מיפוי למצב כהה, ולכן
+   * „חם” היה נשאר צהוב-בהיר על כרטיס כהה — הדרגה היחידה בסולם
+   * שנשברת.
+   *
+   * דרגות הבשלות מופיעות גם ברשימת הקונים, ולכן זה גם אינו טוקן
+   * לשימוש יחיד.
+   */
+  --domain-amber-bg: #fbefd3; /* דרגת „חם” בסולם הבשלות */
+  --domain-amber-line: #ebd59a;
+  --domain-amber-tile: #f5e3b8;
+  --domain-amber-fg: #79541a; /* על הרקע שלו: 6.1:1 */
   --domain-violet-bg: #e9e1fb; /* מנוע ההתאמות: התאמות, הצעות */
   --domain-violet-line: #c9baf0;
   --domain-violet-tile: #dcd1f7;
@@ -382,6 +399,10 @@
   --dm-peach-line: #5f3b26;
   --dm-peach-tile: #422718;
   --dm-peach-fg: #f5b48e; /* 7.9:1 */
+  --dm-amber-bg: #2e2410;
+  --dm-amber-line: #574524;
+  --dm-amber-tile: #3c2f15;
+  --dm-amber-fg: #f0cd85; /* 9.2:1 */
   --dm-violet-bg: #241c3d;
   --dm-violet-line: #453a6b;
   --dm-violet-tile: #2e2450;
@@ -444,6 +465,10 @@
     --domain-peach-line: var(--dm-peach-line);
     --domain-peach-tile: var(--dm-peach-tile);
     --domain-peach-fg: var(--dm-peach-fg);
+    --domain-amber-bg: var(--dm-amber-bg);
+    --domain-amber-line: var(--dm-amber-line);
+    --domain-amber-tile: var(--dm-amber-tile);
+    --domain-amber-fg: var(--dm-amber-fg);
     --domain-violet-bg: var(--dm-violet-bg);
     --domain-violet-line: var(--dm-violet-line);
     --domain-violet-tile: var(--dm-violet-tile);
@@ -504,6 +529,10 @@
   --domain-peach-line: var(--dm-peach-line);
   --domain-peach-tile: var(--dm-peach-tile);
   --domain-peach-fg: var(--dm-peach-fg);
+  --domain-amber-bg: var(--dm-amber-bg);
+  --domain-amber-line: var(--dm-amber-line);
+  --domain-amber-tile: var(--dm-amber-tile);
+  --domain-amber-fg: var(--dm-amber-fg);
   --domain-violet-bg: var(--dm-violet-bg);
   --domain-violet-line: var(--dm-violet-line);
   --domain-violet-tile: var(--dm-violet-tile);
@@ -979,6 +1008,10 @@ code {
   --domain-peach-line: #000000;
   --domain-peach-tile: #eeeeee;
   --domain-peach-fg: #7a2b00;
+  --domain-amber-bg: #ffffff;
+  --domain-amber-line: #000000;
+  --domain-amber-tile: #eeeeee;
+  --domain-amber-fg: #4a3300;
   --domain-violet-bg: #ffffff;
   --domain-violet-line: #000000;
   --domain-violet-tile: #eeeeee;
@@ -5383,6 +5416,12 @@ a.mv-bar-row:focus-visible {
   --d-tile: var(--domain-peach-tile);
   --d-fg: var(--domain-peach-fg);
 }
+.mv-domain-amber {
+  --d-bg: var(--domain-amber-bg);
+  --d-line: var(--domain-amber-line);
+  --d-tile: var(--domain-amber-tile);
+  --d-fg: var(--domain-amber-fg);
+}
 .mv-domain-violet {
   --d-bg: var(--domain-violet-bg);
   --d-line: var(--domain-violet-line);
@@ -5397,7 +5436,25 @@ a.mv-bar-row:focus-visible {
 }
 .mv-domain-neutral {
   --d-bg: var(--domain-neutral-bg);
-  --d-line: var(--domain-neutral-line);
+  /*
+   * ‎**גבול הפקד ולא הגבול הדקורטיבי** — ‎`--color-input-border`.
+   *
+   * זה התיקון היחיד שבו הדומיין הניטרלי סוטה מהטוקן ששמו כשמו,
+   * והסיבה נמדדה: ‎`--domain-neutral-bg` מול רקע העמוד הוא 1.02:1,
+   * כלומר אריח ניטרלי **אינו נראה כלל** כתיבה נפרדת — הגבול הוא
+   * הדבר היחיד שמגדיר אותו. ‎`--domain-neutral-line` נותן 1.24:1,
+   * ולכן אריח KPI או שורת מדד שעברו לניטרלי (כלומר: כל אריח
+   * שערכו אפס) היו הופכים לשטח לחיץ בלי צורה.
+   *
+   * הטוקן הזה כבר קיים בדיוק בשביל זה — הוא גבול השדה, ושער
+   * הניגודיות אוכף עליו 3:1 מול המשטחים. ‎3.4:1 בבהיר, 3.53:1
+   * בכהה.
+   *
+   * ‎`--d-line` נצרך רק על ידי `mv-kpi`, `mv-metric` ו-
+   * ‎`mv-button--domain`, ושלושתם פקדים — ולכן ההחמרה אינה נוגעת
+   * בשום גבול דקורטיבי.
+   */
+  --d-line: var(--color-input-border);
   --d-tile: var(--domain-neutral-tile);
   --d-fg: var(--domain-neutral-fg);
 }
@@ -5501,7 +5558,7 @@ a.mv-bar-row:focus-visible {
   padding: 20px 22px;
   border-radius: var(--radius);
   background: var(--d-bg, var(--domain-neutral-bg));
-  border: 1px solid var(--d-line, var(--domain-neutral-line));
+  border: 1px solid var(--d-line, var(--color-input-border));
   box-shadow: var(--shadow-card);
   cursor: pointer;
   transition:
@@ -5624,7 +5681,7 @@ a.mv-bar-row:focus-visible {
   padding: 6px 16px;
   border-radius: 15px;
   background: var(--d-bg, var(--domain-neutral-bg));
-  border: 1px solid var(--d-line, var(--domain-neutral-line));
+  border: 1px solid var(--d-line, var(--color-input-border));
   /*
    * ‎`color` על השורה, כדי שהנקודה תוכל לרשת אותו.
    *
@@ -5675,7 +5732,7 @@ a.mv-bar-row:focus-visible {
  */
 .mv-button--domain {
   background: var(--d-tile, var(--domain-neutral-tile));
-  border-color: var(--d-line, var(--domain-neutral-line));
+  border-color: var(--d-line, var(--color-input-border));
   color: var(--d-fg, var(--domain-neutral-fg));
 }
 
@@ -5757,7 +5814,19 @@ a.mv-bar-row:focus-visible {
 .mv-greet {
   display: flex;
   align-items: center;
-  gap: 20px;
+  /*
+   * ‎**עוטף.** השורה הזו נושאת כותרת בגודל `--type-h1` ולצדה כרטיס
+   * מונה מרופד בן שתי שורות. במסך צר שורה שאינה עוטפת דוחסת את
+   * הכותרת לעמודה צרה, ושם פרטי ארוך גולש ממנה — והמונה הוא בדיוק
+   * מה שהופך את זה מתיאורטי למעשי, כי הוא מופיע רק כשיש פעולות
+   * (ביקורת Codex).
+   *
+   * המבנה הקודם היה `flex-wrap` ואיבד את היכולת הזו במעבר לרכיב.
+   * ‎`row-gap` קטן מ-`column-gap`: כשהמונה יורד שורה הוא נצמד
+   * לברכה ולא נראה כאילו הוא שייך למשהו אחר.
+   */
+  flex-wrap: wrap;
+  gap: 12px 20px;
 }
 .mv-greet__title {
   font-size: var(--type-h1);
@@ -5783,4 +5852,130 @@ a.mv-bar-row:focus-visible {
 .mv-ltr {
   direction: ltr;
   unicode-bidi: isolate;
+}
+
+/*
+ * ‎**כרטיס כהה — המנטור** (§21).
+ *
+ * „At most ONE dark card per screen, and it is the last card in its
+ * column”. הוא בנוי כאן ולא בשורה במסך משתי סיבות שהשערים אכפו
+ * עליי בפועל: ערך `rgba()` בסגנון-שורה אינו נפתר לשער הניגודיות
+ * ולכן פשוט **אינו נבדק**, וגודל טקסט בסגנון-שורה מתחת ל-14
+ * נחסם. שניהם נכונים, ושניהם נמנעים כשהרכיב יושב ב-CSS.
+ *
+ * הצבעים כאן קבועים ואינם עוברים בערכות: כרטיס כהה הוא כהה גם
+ * במצב כהה. זו הצהרה על הרכיב, לא על הערכה.
+ */
+.mv-dark-card {
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  border-radius: var(--radius);
+  background: #141a15;
+  color: #e9eeea;
+}
+.mv-dark-card__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+/*
+ * תג ה-AI — **סימן בתוך צורה קבועה**, ולכן גודל קבוע.
+ *
+ * אותה הכרעה בדיוק כמו במונוגרמה של `mv-avatar`: אלו שתי אותיות
+ * שמזהות את הכרטיס ואינן תוכן שקוראים כדי להחליט משהו. טקסט
+ * שגדל בתיבה שאינה גדלה גולש ממנה, והחבילה נוקבת כאן ב-13 —
+ * מתחת לרצפה של המערכת, ולכן 14 כמו בכל שאר הסימנים.
+ */
+.mv-dark-card__badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 13px;
+  background: color-mix(in srgb, #9f7aea 22%, #141a15);
+  color: #cbb6f5; /* 9.72:1 */
+  font-size: 14px;
+  font-weight: 900;
+}
+/*
+ * תגית „בקרוב” על הכרטיס הכהה.
+ *
+ * ‎`margin-inline-start: auto` דוחפת אותה לקצה השורה, ולכן היא
+ * נקראת כמצב של הכרטיס ולא כחלק מהכותרת.
+ */
+.mv-dark-card__soon {
+  margin-inline-start: auto;
+  flex: none;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #70ee91 16%, #141a15);
+  color: #9fe6b3; /* 9.4:1 על רקע הכרטיס */
+  font-size: var(--type-caption);
+  font-weight: 800;
+}
+.mv-dark-card__title {
+  font-size: var(--type-card-title);
+  font-weight: 900;
+  color: #ffffff; /* 17.67:1 */
+}
+.mv-dark-card__body {
+  margin-top: 12px;
+  font-size: var(--type-body-sm);
+  line-height: 1.5;
+  color: #9aa89e; /* 7.13:1 */
+}
+/*
+ * „ghost-on-dark” — ‎`margin-top: auto` מצמיד אותו לתחתית, וזה מה
+ * שמאפשר לכרטיס למתוח את עצמו כדי ליישר את תחתית שני הטורים בלי
+ * שהכפתור יצוף באמצע.
+ *
+ * גבול ‎#5a6a5d ולא לבן-שקוף: 3.08:1 מול הרקע, כלומר גבול פקד
+ * שנראה — ובניגוד ל-`rgba()` הוא גם ערך שהשער יודע לפתור ולמדוד.
+ */
+.mv-dark-card .mv-dark-card__action {
+  margin-top: auto;
+  justify-content: center;
+  background: transparent;
+  border-color: #5a6a5d;
+  color: #e9eeea; /* 15.05:1 */
+}
+.mv-dark-card .mv-dark-card__action:hover {
+  background: color-mix(in srgb, #ffffff 8%, #141a15);
+  border-color: #7f9184;
+}
+
+/*
+ * שורת פעולה במסך צר — הכפתור יורד לשורה משלו.
+ *
+ * ‎§13 מתאר שורה אחת: מספר סידורי 26, אריח 44, שלושה רווחים של 15,
+ * וכפתור מרופד — כולם `flex-none`. במסך של 320–390 נשאר לכותרת
+ * ולשורת ה„למה” רוחב שאינו מספיק למילים עבריות רגילות, והן נדחסות
+ * אל הכפתור. השורה הקודמת לא סבלה מזה כי לא היו בה מספר סידורי,
+ * אריח בגודל הזה או כפתור מלא (ביקורת Codex).
+ *
+ * הפתרון אינו „להקטין את הכפתור” אלא לתת לו שורה: מטרה של 44 פיקסל
+ * היא דרישת נגישות (§26), והצרתו כדי שייכנס הייתה מפרה כלל אחד כדי
+ * לקיים אחר.
+ *
+ * הטקסט מקבל `flex-basis: 100%` כדי שיישבר **לפני** הכפתור ולא
+ * יגרור אותו איתו, והכפתור מיושר לתחילת השורה הלוגית — כלומר לימין
+ * ב-RTL, מתחת לטקסט שהוא שייך לו.
+ */
+@media (max-width: 480px) {
+  .mv-row--action {
+    flex-wrap: wrap;
+    row-gap: 12px;
+  }
+  /*
+   * ‎`flex: 0 0 100%` ולא הסתמכות על עטיפה טבעית: עם `wrap` לבדו
+   * הטקסט מתכווץ עד `min-content` **לפני** שהכפתור יורד, כלומר
+   * בדיוק הדחיסה שהעטיפה נועדה למנוע. רוחב מלא מוציא אותו לשורה
+   * משלו בוודאות, וגם נותן מטרת נגיעה נוחה בטלפון.
+   */
+  .mv-row--action > .mv-row__action {
+    flex: 0 0 100%;
+    margin-inline-start: 0;
+  }
 }

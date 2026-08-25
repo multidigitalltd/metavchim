@@ -307,6 +307,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   const isPublic = PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p));
   const [me, setMe] = useState<Me | null>(null);
   const [counts, setCounts] = useState<NavSummary | null>(null);
+  /*
+   * כישלון בהבאת `/nav/summary` נשמר בנפרד מהתוצאה.
+   *
+   * `counts` מתאפס ל-`null` בארבעה מצבים שונים — טרם נטען, מסך
+   * ציבורי, משתמש בחיוב בלבד, וכישלון — ורשימת היכולות נגזרת ממנו.
+   * צרכן שממתין לרשימה אינו יכול להבדיל ביניהם, ולכן כישלון נראה לו
+   * כמו המתנה שלא נגמרת (ביקורת Codex). רק הכישלון מסומן כאן.
+   */
+  const [featuresFailed, setFeaturesFailed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -388,19 +397,33 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (isPublic) {
       setCounts(null);
       setMe(null);
+      setFeaturesFailed(false);
       return;
     }
     if (me?.billingOnly === true) {
       setCounts(null);
+      setFeaturesFailed(false);
       return;
     }
     let cancelled = false;
+    /*
+     * ‎**הדגל מתאפס בפתיחת הניסיון, לא בסיומו.**
+     *
+     * אחרת כישלון במסך אחד נשאר דולק לאורך כל המעבר למסך הבא, ובחלון
+     * הזה צרכן שמפרש „לא ייוודע” כרשות לפעול יוצא לרשת על סמך מידע
+     * ישן — ומקבל 403 שנרשם כתקלה (ביקורת Codex). מרגע שבקשה חדשה
+     * באוויר המצב הוא „עוד לא ידוע”, וזו האמת.
+     */
+    setFeaturesFailed(false);
     apiGet<NavSummary>("/nav/summary")
       .then((summary) => {
         if (!cancelled) setCounts(summary);
       })
       .catch(() => {
-        if (!cancelled) setCounts(null);
+        if (!cancelled) {
+          setCounts(null);
+          setFeaturesFailed(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -740,7 +763,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             `useFeature("telephony")`. פס השיחה עצמו ממוקם `fixed`,
             ולכן העטיפה כאן אינה כולאת אותו בתוך אזור התוכן.
           */}
-          <FeaturesProvider features={features}>
+          <FeaturesProvider features={features} failed={featuresFailed}>
             <SoftphoneProvider>{children}</SoftphoneProvider>
           </FeaturesProvider>
         </main>

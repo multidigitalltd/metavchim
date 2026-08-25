@@ -2,20 +2,32 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { groupTasksByBucket, isTaskUrgent, taskBucket , labelOf } from "@metavchim/shared";
+import {
+  formatJerusalemTime,
+  groupTasksByBucket,
+  isTaskUrgent,
+  jerusalemDayRange,
+  JERUSALEM_TZ,
+  recommendationCapabilities,
+  recommendationHref,
+  taskBucket,
+  labelOf,
+  type CoachRecommendation,
+} from "@metavchim/shared";
 import { apiGet, ApiError } from "@/lib/api";
 import { FIELD_LABELS, MATURITY_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
-import { useFeature, useFeaturesReady } from "@/lib/use-features";
+import { useFeature, useFeaturesFailed, useFeaturesReady } from "@/lib/use-features";
+import { useMinuteNow } from "@/lib/use-minute-now";
 import { VoiceConsole } from "./voice-console";
 import { DuplicateContacts } from "./duplicate-contacts";
 import { LoadError } from "./load-error";
 import { SetupBanner } from "./setup-banner";
 import { SystemUpdate } from "./system-update";
 import { NowStamp } from "./now-stamp";
-import { BarChart, DonutChart, type Slice } from "./charts";
 import {
   IconBell,
+  IconCalendar,
   IconCheck,
   IconFilter,
   IconFlame,
@@ -110,8 +122,26 @@ const APPOINTMENT_KIND_LABELS: Record<string, string> = {
   call: "שיחה",
 };
 
-const timeFmt = new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit" });
-const dayFmt = new Intl.DateTimeFormat("he-IL", { day: "2-digit", month: "2-digit" });
+/*
+ * ‎**המסך מציג בשעון ישראל, כי בשעון ישראל הוא גם מחליט.**
+ *
+ * כל ההכרעות כאן ירושלמיות: הטווח שהבקשה מבקשת, `dayKey` שקובע מתי
+ * מרעננים, `startsToday` שמכריע מה „של היום”, ו-`taskBucket`
+ * שמכריע מה „באיחור”. העיצוב הזמני הישן היה בשעון הדפדפן, ולכן
+ * מתווך בחו"ל קיבל שורה שסוננה כ„היום בירושלים” ומודפסת בשעה
+ * ניו-יורקית: פגישת 09:00 מוצגת „היום 02:00” (ביקורת Codex).
+ *
+ * אזור הזמן נקבע כאן, במקום ההגדרה, ולא בכל אתר קריאה — ארבעה
+ * צרכנים משתמשים בשני העיצובים האלה, ותיקון באחד מהם היה משאיר
+ * שלושה שסותרים אותו.
+ */
+const timeFmt = { format: formatJerusalemTime };
+/* בלי שנה — „24.08”. `formatJerusalemDate` כולל שנה ומשמש במסמכים. */
+const dayFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ,
+  day: "2-digit",
+  month: "2-digit",
+});
 
 /**
  * מתי המשימה. "באיחור" ו"היום" ולא תאריך: אלה שתי המילים שקובעות אם
@@ -131,30 +161,27 @@ function dueLabel(dueAt: string | undefined, now: Date): { text: string; urgent:
   return { text: dayFmt.format(due), urgent: false };
 }
 
-interface Recommendation {
-  priority: number;
-  type: string;
-  title: string;
-  body: string;
-  entityType?: "property" | "lead" | "buyer" | "offer" | "appointment";
-  entityId?: string;
-}
+/*
+ * הטיפוס עצמו מגיע מ-`shared` ואינו משוכפל כאן: עותק מקומי היה
+ * הדרך שבה ענף `offer` נשמט מלכתחילה — הוא היה קיים בהגדרה ולא
+ * בטיפול.
+ */
+type Recommendation = CoachRecommendation;
 
-function recHref(rec: Recommendation): string | null {
-  if (!rec.entityId) return null;
-  switch (rec.entityType) {
-    case "property":
-      return `/properties/${rec.entityId}`;
-    case "lead":
-      return `/leads/${rec.entityId}`;
-    case "buyer":
-      return `/buyers/${rec.entityId}`;
-    case "appointment":
-      return "/calendar";
-    default:
-      return null;
-  }
-}
+/*
+ * ‎**היעד נקבע ב-`shared`, ליד הפונקציה שמייצרת את ההמלצות.**
+ *
+ * העותק שהיה כאן החזיר `null` לארבעה מעשרת הסוגים — שלושה מצרפים
+ * שנכתבים בלי `entityId`, ו-`hesitating_buyer` שנושא
+ * ‎`entityType: "offer"` שלא היה לו ענף. כל אחד מהם דחוף מספיק כדי
+ * לקבל את השורה הראשונה, כלומר להיבחר כ„הדבר לעשות עכשיו”
+ * **בלי דרך לפעול** (ביקורת Codex).
+ *
+ * ‎`recommendationHref` יושבת עכשיו לצד `buildRecommendations`, עם
+ * בדיקה שמונה את הסוגים במקום לדגום אותם: סוג חדש שייכתב שם ואין
+ * לו יעד — ייפול בבנייה, ולא יגיע למסך.
+ */
+const recHref = recommendationHref;
 
 /** ברכה לפי שעת היום — הדשבורד בעיצוב פותח ב"בוקר טוב". */
 function greeting(): string {
@@ -164,17 +191,36 @@ function greeting(): string {
   return "ערב טוב";
 }
 
-/* צבעי מספור השורות — הפלטה מקובץ העיצוב; ירוק הטקסט מועמק ל-AA */
-const TONE = {
-  danger: { bg: "#faf1ec", fg: "#b0512c" },
-  green: { bg: "#E5FCEA", fg: "#0C6E34" },
-  amber: { bg: "#f7efdd", fg: "#7a5c1f" },
-  neutral: { bg: "#EDEFED", fg: "#3F4742" },
-} as const;
+/*
+ * הדומיין של שורת פעולה — **על מה היא**, ולא כמה היא דחופה.
+ *
+ * השדה נקרא קודם `tone` ונשא ארבע פלטות הקסה מקומיות. שני דברים
+ * היו שגויים בו: הצבעים לא עברו מיפוי למצב כהה, ובעיקר — „דחיפות”
+ * כבר נאמרת על ידי המיקום ברשימה ועל ידי כלל השורה הראשונה. צבע
+ * שאומר שוב „דחוף” מבזבז את הממד היחיד שיכול לומר „וזה נכס”.
+ *
+ * לכן חמשת הדומיינים של §4, ולפי נושא: אפרסק לדחיפות, ענבר
+ * להמתנה, כחול לנכסים, סגול למנוע ההתאמות, ירוק לסוכן ולשת"פ.
+ */
+type ActionDomain = "green" | "peach" | "violet" | "blue" | "amber" | "neutral";
 
 interface TaskRow {
   key: string;
-  tone: keyof typeof TONE;
+  /**
+   * ‎**הדחיפות, על הסולם של עוזר המכירות** (`buildRecommendations`).
+   *
+   * בלי זה הדירוג היה סדר ההוספה: לידים שדורשים אדם נדחפו ראשונים,
+   * ולכן קיבלו את הרקע ואת הכפתור הראשי גם כשהמלצה דחופה יותר
+   * חיכתה מתחתיהם. כל עוד כל השורות נראו זהות זו הייתה רק רשימה לא
+   * ממוינת; מרגע שהשורה הראשונה מכריזה „זה הדבר לעשות עכשיו”, סדר
+   * ההוספה הפך לטענה שגויה על המציאות (ביקורת Codex).
+   *
+   * המספרים אינם מומצאים: הם נלקחים מ-`buildRecommendations`, שכבר
+   * מדרג בדיוק את אותם מושגים. השורה היחידה בלי מקבילה שם היא „ליד
+   * חדש ממתין” — ראו `PRIORITY`.
+   */
+  priority: number;
+  domain: ActionDomain;
   title: string;
   why: string;
   action: string;
@@ -188,6 +234,35 @@ interface TaskRow {
   icon: ReactNode;
 }
 
+/**
+ * דחיפות לשורות שהדשבורד גוזר בעצמו.
+ *
+ * הערכים מועתקים מ-`buildRecommendations` ב-`shared`, שמדרג את אותם
+ * מושגים בדיוק — ולכן שתי הרשימות מתמזגות לסולם אחד ולא לשניים.
+ *
+ * ‎**`newLead` הוא היחיד בלי מקבילה שם**, ולכן היחיד שהוא הכרעה
+ * שלי: מתחת לליד שדורש אדם (100) ומתחת להצעת שת"פ שממתינה לתשובה
+ * (95, כי משרד אחר מחכה לנו), ומעל קונה חם בלי הצעה (70). ליד שהגיע
+ * לפני רגע יהפוך ל-`stale_lead` (110) אם יישאר בלי מענה — כלומר
+ * המיקום כאן הוא תחילת אותו שעון.
+ */
+const PRIORITY = {
+  /** `today_appointment` */
+  todayAppointment: 105,
+  /** `urgent_lead` */
+  urgentLead: 100,
+  /** `pending_coop_offers` */
+  pendingCoopOffers: 95,
+  /** אין מקבילה — ראו ההסבר למעלה */
+  newLead: 92,
+  /** `overdue_task` */
+  overdueTask: 85,
+  /** `hot_buyers_idle` */
+  hotBuyer: 70,
+  /** `incomplete_property` */
+  incompleteProperty: 40,
+} as const;
+
 export default function DashboardPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const canVoice = useFeature("voice_intake");
@@ -200,7 +275,45 @@ export default function DashboardPage() {
    * לסוכן (`loadCoach`), ולא את הדשבורד כולו — ראו ההסבר שם.
    */
   const featuresReady = useFeaturesReady();
+  const featuresFailed = useFeaturesFailed();
   const hasCoach = useFeature("ai_coach");
+  /*
+   * „עכשיו” אחד לכל המסך, **ומתקדם מעצמו**. קודם הוא חושב בזמן
+   * הרינדור, ולכן קפא: מסך שנשאר פתוח המשיך להציג פגישת 09:00
+   * כפעולה הדחופה ביותר גם אחרי שהתחילה (ביקורת Codex).
+   */
+  const now = useMinuteNow();
+  /*
+   * ‎**מפתח היום — כדי שחצות יביא נתונים חדשים ולא רק יסנן ישנים.**
+   *
+   * ‎`today` נשלף פעם אחת לטווח היום שהיה בזמן הטעינה. שעון חי מסיר
+   * ממנו את פגישות אתמול, אבל אינו יכול לגלות את פגישות היום החדש —
+   * והרשימה נשארת „מלאה” (`today !== null`), ולכן הדירוג ממשיך
+   * להכריז בזמן שפגישה בדחיפות 105 קיימת ואינה ידועה (ביקורת Codex).
+   *
+   * הגבול נמדד בשעון ישראל ולא בשעון הדפדפן, מאותה פונקציה שהשרת
+   * משתמש בה — אחרת מתווך שנוסע לחו"ל מקבל „יום” אחר מהשרת.
+   */
+  const dayRange = jerusalemDayRange(now);
+  const dayKey = dayRange.start.getTime();
+  /*
+   * ‎**„של היום” נקבע מהערך, לא ממקורו.**
+   *
+   * ‎`today` הוא „הפגישות של יום כלשהו” — היום שהיה כשהבקשה יצאה.
+   * כל צרכן שקרא אותו כ„הפגישות של היום” נשען על ההנחה שהמערך
+   * טרי, ובחצות היא נשברת: `todayEvents` סינן לפי סטטוס בלבד,
+   * ולכן הציג את פגישות אתמול כל עוד הבקשה החדשה באוויר — ולתמיד
+   * אם היא נכשלה (ביקורת Codex).
+   *
+   * זו הפעם הרביעית שאותה טעות חוזרת בקובץ הזה, ובכל פעם על צרכן
+   * אחר. לכן הבדיקה אינה במקום שדווח אלא בערך עצמו: מסננת אחת
+   * שכל מי שמדבר על „היום” עובר דרכה. מערך ישן אינו יכול לייצר
+   * שורה שגויה גם אם הרענון נכשל, וגם אם מישהו יוסיף צרכן חמישי.
+   */
+  const startsToday = (a: AppointmentRow): boolean => {
+    const at = new Date(a.startsAt).getTime();
+    return at >= dayRange.start.getTime() && at < dayRange.end.getTime();
+  };
   /*
    * כל מקור נתונים בדשבורד מאחורי היכולת שהשרת דורש עבורו — לא רק
    * ההצעות. כל אחת מהיכולות האלה ניתנת לשלילה פרטנית למשתמש בודד
@@ -245,6 +358,28 @@ export default function DashboardPage() {
    * session שפג), ושמונה הודעות נפרדות על אותה תקלה הן רעש.
    */
   const [dataFailed, setDataFailed] = useState(false);
+  /** הקריאה לסוכן נכשלה — מוצג עם „נסו שוב”, ואינו כולל 403. */
+  const [coachFailed, setCoachFailed] = useState(false);
+  /*
+   * ‎**כמה ממקורות הפעולה עדיין באוויר במנה הנוכחית.**
+   *
+   * השער שואל שאלה אחת — „האם עוד משהו בדרך” — ולכן יש לו ערך
+   * אחד. הדרך לכאן עברה בארבעה קירובים שכל אחד מהם נשבר במקום
+   * אחר: `today !== null` לא הבחין בין אתמול להיום, `todayDay ===
+   * dayKey` נשאר אמת בניסיון חוזר, `dataFailed` ענה על הקבוצה
+   * במקום על הבקשה, ודגל שכיסה רק את הפגישות השאיר את שלושת
+   * האוספים האחרים עם `x === null` — שמשמעו גם „טרם הגיע” וגם
+   * „נכשל”, ולכן כישלון של `/properties` הותיר את הרשימה על שלד
+   * טעינה **לנצח** (ביקורת Codex).
+   *
+   * מונה, ולא דגל לכל מקור: ארבעה דגלים היו ארבעה מקומות לשכוח
+   * בהם אחד. הוא נקבע פעם אחת בפתיחת המנה — לפי היכולות, כלומר
+   * לפי כמה בקשות באמת ייורו — ויורד ב-`finally` של כל אחת מהן,
+   * בהצלחה ובכישלון כאחד, 403 כולל.
+   *
+   * ‎`null` = טרם נורתה מנה, כלומר עדיין בטעינה.
+   */
+  const [sourcesPending, setSourcesPending] = useState<number | null>(null);
   const batch = useRef(0);
 
   const loadDashboard = useCallback(() => {
@@ -265,6 +400,19 @@ export default function DashboardPage() {
         apply(value);
       };
     setDataFailed(false);
+    /*
+     * נספר לפי היכולות ולא לפי מספר קבוע: הבקשות המותנות אינן
+     * נורות למי שאינו רשאי, ומונה שסופר אותן היה נתקע על מספר
+     * שלעולם לא ירד. הפירוקים (`/buyers/breakdown` וכו') אינם
+     * נספרים — הם מזינים קוביות ולא את רשימת הפעולות.
+     */
+    setSourcesPending(
+      [canSeeProperties, canSeeBuyers, canSeeLeads, canSeeCalendar].filter(Boolean).length,
+    );
+    const settled = (): void => {
+      if (mine !== batch.current) return;
+      setSourcesPending((n) => (n === null ? null : Math.max(0, n - 1)));
+    };
     /*
      * 403 אינו כישלון טעינה — הוא תשובה.
      *
@@ -287,12 +435,14 @@ export default function DashboardPage() {
     if (canSeeProperties) {
       apiGet<{ items: PropertyRow[] }>("/properties?limit=100")
         .then(ok((r: { items: PropertyRow[] }) => setProperties(r.items)))
-        .catch(fail);
+        .catch(fail)
+        .finally(settled);
     }
     if (canSeeBuyers) {
       apiGet<{ items: BuyerRow[] }>("/buyers?limit=100")
         .then(ok((r: { items: BuyerRow[] }) => setBuyers(r.items)))
-        .catch(fail);
+        .catch(fail)
+        .finally(settled);
       apiGet<Breakdown<"byMaturity">>("/buyers/breakdown")
         .then(ok(setBuyerBreakdown))
         .catch(fail);
@@ -300,20 +450,41 @@ export default function DashboardPage() {
     if (canSeeLeads) {
       apiGet<{ items: LeadRow[] }>("/leads?limit=100")
         .then(ok((r: { items: LeadRow[] }) => setLeads(r.items)))
-        .catch(fail);
+        .catch(fail)
+        .finally(settled);
       apiGet<Breakdown<"byStatus">>("/leads/breakdown")
         .then(ok(setLeadBreakdown))
         .catch(fail);
     }
     if (canSeeCalendar) {
-      const dayStart = new Date();
-      dayStart.setHours(0, 0, 0, 0);
-      const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+      /*
+       * ‎**הטווח המבוקש בשעון ישראל, לא בשעון הדפדפן.**
+       *
+       * ‎`jerusalemDayRange` שימש עד כה רק כמפתח לרענון, בעוד הבקשה
+       * עצמה נבנתה מ-`setHours(0,0,0,0)` מקומי ועוד 24 שעות קבועות.
+       * דפדפן בניו-יורק היה מרענן בחצות ירושלים ומבקש **יום
+       * ניו-יורקי**, ומציג את התוצאה כדירוג מלא של „היום”; 24 שעות
+       * קבועות גם שגויות ביום מעבר שעון (ביקורת Codex).
+       *
+       * אותה פונקציה קובעת עכשיו גם מתי מרעננים וגם מה מבקשים.
+       */
+      const { start: dayStart, end: dayEnd } = jerusalemDayRange(new Date());
+      /*
+       * ‎**הקצה בלעדי — הנתיב מסנן `lte`.**
+       *
+       * ‎`jerusalemDayRange().end` הוא מחר ב-00:00, ו-`calendar.service`
+       * משווה `startsAt: { gte: from, lte: to }` — כלומר פגישה שמתחילה
+       * בדיוק בחצות הבאה נכללה ותויגה „היום” (ביקורת Codex).
+       * מילישנייה אחורה מוציאה אותה בלי להזיז את שאר היום.
+       */
+      const dayEndInclusive = new Date(dayEnd.getTime() - 1);
       apiGet<AppointmentRow[]>(
-        `/appointments?from=${dayStart.toISOString()}&to=${dayEnd.toISOString()}`,
+        `/appointments?from=${dayStart.toISOString()}&to=${dayEndInclusive.toISOString()}`,
       )
         .then(ok(setToday))
-        .catch(fail);
+        /* גם 403 — הבקשה הסתיימה, ולכן היא אינה „בדרך”. */
+        .catch(fail)
+        .finally(settled);
     }
     /*
      * רשימת ההצעות דורשת `offers.send` — אותו שער שכבר קיים
@@ -325,7 +496,7 @@ export default function DashboardPage() {
         .then(ok((r: { items: OfferRow[] }) => setOffers(r.items)))
         .catch(fail);
     }
-  }, [canSeeOffers, canSeeProperties, canSeeBuyers, canSeeLeads, canSeeCalendar]);
+  }, [canSeeOffers, canSeeProperties, canSeeBuyers, canSeeLeads, canSeeCalendar, dayKey]);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -350,11 +521,61 @@ export default function DashboardPage() {
    * בלבד, ולא את שש הבקשות המרכזיות.
    */
   const loadCoach = useCallback(() => {
-    if (!featuresReady || !hasCoach) return;
+    /*
+     * ‎**„עוד לא ידוע” ממתין; „לא ייוודע” מנסה בכל זאת.**
+     *
+     * השער הקודם היה `!featuresReady`, ולכן `/nav/summary` שנכשל
+     * השאיר אותו סגור לנצח: `hasCoach` נשאר „כן” אופטימי, הקריאה
+     * מעולם לא יצאה, `coachFailed` מעולם לא נדלק — והדירוג נשאר
+     * כבוי בלי הסבר ובלי ניסיון חוזר. תקלה במטא-דאטה שתקה מסך
+     * (ביקורת Codex). זה בדיוק הכשל שממנו הופרדה הקריאה הזו,
+     * שירד רמה אחת.
+     *
+     * כשהרשימה לא תגיע — יוצאים. הצלחה מביאה המלצות, ו-403 מדליק
+     * `coachFailed` שמוצג עם „נסו שוב”. בשני המקרים המצב **נפתר**.
+     */
+    if (!featuresReady && !featuresFailed) return;
+    /*
+     * ‎**זכאות שנודעה כשלילית מוחקת גם שגיאה קודמת.** ניסיון שנעשה
+     * על סמך „לא ייוודע” ונדחה ב-403 השאיר `coachFailed` דולק, ואז
+     * הרשימה שהגיעה סגרה את השער לפני הניקוי — כלומר הודעת „לא
+     * הצלחנו לטעון את המלצות הסוכן” נשארה לנצח על מסך של משרד שאין
+     * לו סוכן חכם בכלל (ביקורת Codex). ברגע שידוע שאין — אין גם על
+     * מה לדווח.
+     */
+    if (featuresReady && !hasCoach) {
+      setCoachFailed(false);
+      return;
+    }
+    setCoachFailed(false);
     apiGet<Recommendation[]>("/coach/recommendations")
       .then(setRecs)
-      .catch(() => undefined);
-  }, [featuresReady, hasCoach]);
+      /*
+       * ‎**כישלון נשמר ואינו נבלע.** קודם הוא הושתק, ולכן `recs`
+       * נשאר `null` לנצח בלי שאיש ידע. כל עוד השורות נראו זהות זה
+       * היה חוסר בלבד; מרגע שהשורה הראשונה מכריזה „זה הדבר לעשות
+       * עכשיו”, שתיקה כזו הופכת להכרזה על סמך חלק מהמקורות
+       * (ביקורת Codex).
+       */
+      /*
+       * ‎**403 הוא תשובה, לא תקלה** — אותה הבחנה שכבר קיימת ב-`fail`
+       * של מנת הדשבורד, ולא החלתי אותה כאן.
+       *
+       * הקריאה הזו יוצאת ביודעין גם כשרשימת היכולות לא הגיעה, ולכן
+       * משרד שאין לו סוכן חכם מקבל 403 ודאי. רישומו ככישלון טעינה
+       * הציג „לא הצלחנו לטעון את המלצות הסוכן” עם „נסו שוב” שקורא
+       * לאותה קריאה ומחזיר את אותו 403 — לולאה שלא נסגרת, על מסך של
+       * מי שאין לו את הפיצ'ר בכלל (ביקורת Codex).
+       *
+       */
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 403) {
+          /* 403 = אין סוכן במסלול. תשובה, לא תקלה — ואין מה לדווח. */
+          return;
+        }
+        setCoachFailed(true);
+      });
+  }, [featuresReady, featuresFailed, hasCoach, dayKey]);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -392,9 +613,24 @@ export default function DashboardPage() {
 
   if (authLoading || !user) return <p aria-live="polite">טוען…</p>;
 
-  const urgentLeads = (leads ?? []).filter((l) => l.requiresHuman).slice(0, 2);
-  const newLeads = (leads ?? []).filter((l) => l.status === "new" && !l.requiresHuman).slice(0, 2);
-  const incomplete = (properties ?? []).filter((p) => p.readinessScore < 80).slice(0, 2);
+  /*
+   * ‎**בלי תקרה לכל מקור בנפרד.** ארבעה מקורות נחתכו לשניים לפני
+   * שנכנסו לרשימה, ולכן הגבול הסופי של שש שורות מעולם לא ראה את כל
+   * המועמדים: משרד עם שלושה לידים שדורשים טיפול אנושי (100) וליד
+   * חדש אחד (92) הציג את ה-92 ודילג על ה-100 השלישי — בזמן ששלוש
+   * מתוך שש המשבצות ריקות (ביקורת Codex).
+   *
+   * זו בדיוק התקלה שאמרתי שסגרתי בסבב 3, כשהסרתי חיתוך מוקדם
+   * **אחד** מתוך חמישה והשארתי את השאר. הגבול היחיד הוא זה שבסוף,
+   * אחרי המיון והסרת הכפילויות.
+   *
+   * ‎`incomplete.length` ו-`urgentLeads.length` נצרכים גם ככיתוב
+   * באריחי המונים, ושם התקרה שיקרה במפורש: „2 ממתינים להשלמת
+   * פרטים” כשיש שבעה.
+   */
+  const urgentLeads = (leads ?? []).filter((l) => l.requiresHuman);
+  const newLeads = (leads ?? []).filter((l) => l.status === "new" && !l.requiresHuman);
+  const incomplete = (properties ?? []).filter((p) => p.readinessScore < 80);
   const hotBuyers = (buyers ?? [])
     .filter((b) => b.maturity === "very_hot" || b.maturity === "hot");
   /*
@@ -402,11 +638,45 @@ export default function DashboardPage() {
    * ולכן ספירתו כ„טרם הגיע” הייתה משאירה את „מה חשוב לעשות היום”
    * על „טוען…” לנצח אצל מי שאין לו את אחת משלוש היכולות.
    */
+  const canSeeNetwork = can(user, "collaboration.offer");
+  /*
+   * ‎**„הכל מטופל” הוא טענה, ולכן הוא ממתין לכל מקור שיכול לסתור
+   * אותה.**
+   *
+   * הביטוי כיסה את שלושת המקורות המקוריים בלבד, ומרגע שפגישות
+   * היום, המשימות באיחור והצעות השת"פ נכנסו לרשימה נפתח חלון שבו
+   * שלושת הראשונים חזרו ריקים, המסך הכריז „הכל מטופל”, ורגע אחר כך
+   * הגיעה פעולה. אותו חלון חוזר בכל רענון חצות (ביקורת Codex).
+   *
+   * הפגישות נמדדות מול **היום הנוכחי** ולא מול „הגיע משהו”: בחצות
+   * המערך של אתמול עדיין בידינו, התנאי החי מרוקן אותו, ובלי
+   * ההשוואה הזו המסך היה מכריז „הכל מטופל” בזמן שפגישות היום עוד
+   * לא ידועות.
+   *
+   * ‎**מקור שנכשל אינו „בדרך”.** אחרת תקלה ברשת הייתה משאירה את
+   * הרשימה על שלד טעינה לנצח — הכישלון מוצג במקומו עם „נסו שוב”,
+   * והרשימה ממשיכה עם מה שיש.
+   */
   const loading =
-    (canSeeProperties && properties === null) ||
-    (canSeeBuyers && buyers === null) ||
-    (canSeeLeads && leads === null);
+    sourcesPending === null ||
+    sourcesPending > 0 ||
+    (canSeeCalendar && myTasks === null && !tasksFailed) ||
+    (canSeeNetwork && network === null && !networkFailed);
 
+  /*
+   * ‎**אין הכרזה על „הדבר לעשות עכשיו”, ובכוונה.**
+   *
+   * ‎§13 מתאר שורה ראשונה מודגשת עם הכפתור הראשי. תשעה סבבי ביקורת
+   * הראו שההכרזה הזו אינה נתמכת מכאן: הרשימה נשענת על מקורות
+   * שהדפדפן רואה מהם עמוד ראשון בלבד, והסוכן בשרת חותך 30→5 לידים
+   * בלי לדווח על כך — כלומר גם „הכול הגיע” אינו ניתן לקביעה כאן.
+   * שורה מודגשת שגויה גרועה משורה שאינה מודגשת, ולכן ההדגשה
+   * יורדת עד שיהיה נתיב דירוג בשרת (החלטת בעל המוצר).
+   *
+   * ‎**מה שנשאר תקף:** המיון לפי דחיפות, המספור, ואיחוד המקורות —
+   * סדר טוב יותר מסדר הכנסה שרירותי, בלי לטעון שהראשון הוא
+   * „הדבר”. כל השורות נראות זהות ומקבלות כפתור משני.
+   */
   const activeProps = (properties ?? []).filter(
     (p) => p.status === undefined || ["draft", "active", "on_hold"].includes(p.status),
   );
@@ -414,17 +684,15 @@ export default function DashboardPage() {
   const mullingOffer = pendingOffers.find((o) => o.openCount >= 2);
 
   /* ---- "מה חשוב לעשות היום": איחוד המקורות לרשימה ממוספרת אחת ---- */
-  const tasks: TaskRow[] = [];
-  const seen = new Set<string>();
+  const candidates: TaskRow[] = [];
   const push = (t: TaskRow): void => {
-    if (t.href !== null && seen.has(t.href)) return;
-    if (t.href !== null) seen.add(t.href);
-    tasks.push(t);
+    candidates.push(t);
   };
   for (const l of urgentLeads) {
     push({
       key: `urgent-${l.id}`,
-      tone: "danger",
+      priority: PRIORITY.urgentLead,
+      domain: "peach",
       title: `ליד דורש טיפול אנושי: ${l.contact.name}`,
       why: l.requiresHumanReason ?? "העוזר הדיגיטלי לא הצליח להתקדם לבד.",
       action: "טפל עכשיו",
@@ -432,10 +700,47 @@ export default function DashboardPage() {
       href: `/leads/${l.id}`,
     });
   }
-  for (const rec of (recs ?? []).slice(0, 4)) {
+  /*
+   * ‎**בלי חיתוך מוקדם.** קודם נלקחו ארבע ההמלצות הראשונות בלבד,
+   * והחיתוך רץ **לפני** המיון והסרת הכפילויות — כך שאם שתיים מהן
+   * מובילות לאותו כרטיס (כמה המלצות פגישה מצביעות כולן על
+   * `/calendar`), המלצה חמישית דחופה יותר נזרקה בעוד שורה מקומית
+   * פחות דחופה הוצגה במקומה (ביקורת Codex).
+   *
+   * הגבול היחיד הוא זה שבסוף הצינור, אחרי שהכול מוזג ומוין.
+   */
+  /*
+   * ‎**פגישות מגיעות ממקור אחד — החי.**
+   *
+   * ‎`today_appointment` מהסוכן נושא כותרת קבועה ואינו נושא `startsAt`,
+   * ולכן אין דרך לדעת ממנו שהפגישה כבר התחילה: הוא נשאר בדחיפות 105
+   * כל עוד `recs` לא נטען מחדש, ומחזיק את ההדגשה גם ב-09:40. שעון חי
+   * אינו עוזר לו — הוא מרענן את התנאי המקומי, לא את תוכן ההמלצה
+   * (ביקורת Codex).
+   *
+   * תיקנתי בסבב הקודם את המסלול המקומי והשארתי את המסלול הזה, אף
+   * שהוא אותה שורה בדיוק. המיזוג המקומי הוא ממילא על-קבוצה — אותה
+   * הרשאת יומן, בלי `take: 5` — ולכן ההמלצה כאן היא כפילות שאינה
+   * יכולה להתיישן, וזו הסיבה להשמיט אותה ולא לנסות לתקן אותה.
+   */
+  /*
+   * ‎**המלצה שהיעד שלה חסום למשתמש אינה מוצגת.**
+   *
+   * הנתיב לסוכן שמור מאחורי `matches.view`, אבל היעדים יושבים
+   * מאחורי יכולות אחרות — סוכן רגיל יכול לקבל המלצה על הצעת שת"פ
+   * ולקבל 403 בלחיצה (ביקורת Codex). היכולת שכל יעד דורש מוגדרת
+   * ליד היעד עצמו ב-`shared`, ולא כאן.
+   */
+  const reachable = (recs ?? []).filter((r) => {
+    if (r.type === "today_appointment") return false;
+    /* פתיחת היעד **וגם** ביצוע הפעולה — ראו `coach.ts`. */
+    return recommendationCapabilities(r).every((c) => can(user, c));
+  });
+  for (const rec of reachable) {
     push({
       key: `rec-${rec.type}-${rec.entityId ?? ""}`,
-      tone: rec.priority >= 90 ? "danger" : "green",
+      priority: rec.priority,
+      domain: rec.priority >= 90 ? "peach" : "green",
       title: rec.title,
       why: rec.body,
       action: "לפרטים",
@@ -446,7 +751,8 @@ export default function DashboardPage() {
   for (const l of newLeads) {
     push({
       key: `new-${l.id}`,
-      tone: "amber",
+      priority: PRIORITY.newLead,
+      domain: "amber",
       title: `ליד חדש ממתין: ${l.contact.name}`,
       why: "מענה מהיר מכפיל את סיכוי ההמרה.",
       action: "פתח ליד",
@@ -457,7 +763,8 @@ export default function DashboardPage() {
   for (const p of incomplete) {
     push({
       key: `inc-${p.id}`,
-      tone: "neutral",
+      priority: PRIORITY.incompleteProperty,
+      domain: "blue",
       title: `${[p.street, p.city].filter(Boolean).join(", ") || "נכס ללא כתובת"} — מוכנות ${p.readinessScore}%`,
       why: `חסרים: ${p.missingFields.slice(0, 3).map((f) => FIELD_LABELS[f] ?? f).join(", ")}${p.missingFields.length > 3 ? " ועוד" : ""}. השלמה תפתח קונים חדשים.`,
       action: "השלם פרטים",
@@ -465,10 +772,89 @@ export default function DashboardPage() {
       href: `/properties/${p.id}/edit`,
     });
   }
-  for (const b of hotBuyers.slice(0, 2)) {
+  /*
+   * ‎**שלושת המקורות שהמסך טוען ומעולם לא הכניס לרשימה.**
+   *
+   * פגישות היום, המשימות שלי והצעות השת"פ הממתינות הוצגו בטור
+   * הצדדי בלבד, אף שהמסך טוען אותן ממילא — כלומר „מה חשוב לעשות
+   * היום” לא יכול היה להכיל את הפריט הדחוף ביותר: פגישה בעוד
+   * שעתיים יושבת בצד בזמן שנכס לא מושלם (40) עומד בראש
+   * (ביקורת Codex).
+   *
+   * המספרים אינם מומצאים — הם של `buildRecommendations` עצמו, שכבר
+   * מדרג את אותם שלושה מושגים (105 / 95 / 85). זה מה שהופך את שני
+   * המקורות לסולם אחד במקום לשניים.
+   *
+   * ‎**הכפילות מול הטור הצדדי מכוונת**, וכך גם בחבילת העיצוב: שם
+   * השורה הראשונה היא „5 הצעות שיתוף פעולה ממתינות לתגובה” בעוד
+   * כרטיס „שת״פים” בצד מציג את אותו מספר. הרשימה אומרת מה לעשות,
+   * הכרטיס אומר מה יש. כשהסוכן החכם דולק הוא שולח את אותן המלצות,
+   * והסרת הכפילות לפי היעד — שכבר רצה אחרי המיון — משאירה אחת.
+   */
+  /*
+   * ‎**„פעולה” היא פגישה שעוד לא קרתה.**
+   *
+   * הסינון הראשון פסל רק `cancelled`, ולכן `completed` ו-`no_show`
+   * נכנסו — ופגישה שכבר התקיימה ב-09:00 יכלה לקבל 105 ולדחוק בשתיים
+   * אחר הצהריים כל פעולה אמיתית, בתור „הדבר לעשות עכשיו”
+   * (ביקורת Codex). הנתיב מחזיר את כל הסטטוסים בטווח, ולקחתי את
+   * הטווח מחצות.
+   *
+   * התנאים כאן הם בדיוק אלה של שאילתת הסוכן — `status: "scheduled"`
+   * ו-`startsAt >= now` — כי שתי הדרכים מייצרות את אותה שורה
+   * בדחיפות 105, ואסור שהן יחלוקו על מה נכלל בה.
+   */
+  const upcomingToday = (today ?? []).filter(
+    (a) => a.status === "scheduled" && startsToday(a) && new Date(a.startsAt).getTime() >= now.getTime(),
+  );
+  for (const a of upcomingToday) {
+    push({
+      key: `appt-${a.id}`,
+      priority: PRIORITY.todayAppointment,
+      domain: "blue",
+      title: `היום ${timeFmt.format(new Date(a.startsAt))} — ${a.title ?? APPOINTMENT_KIND_LABELS[a.kind] ?? a.kind}`,
+      why: "כדאי לוודא מול הלקוח שהפגישה בתוקף, ולהגיע עם הנכסים המתאימים בהישג יד.",
+      action: "ליומן",
+      icon: <IconCalendar s={16} />,
+      href: "/calendar",
+    });
+  }
+  if (network !== null && network.incomingOffers > 0) {
+    push({
+      key: "coop-offers",
+      priority: PRIORITY.pendingCoopOffers,
+      domain: "green",
+      title:
+        network.incomingOffers === 1
+          ? "הצעת שיתוף פעולה ממתינה לתגובה"
+          : `${network.incomingOffers} הצעות שיתוף פעולה ממתינות לתגובה`,
+      why: "משרד אחר הציע נכס על אחד הביקושים שלכם ומחכה לתשובה.",
+      action: "לעבור על ההצעות",
+      icon: <IconHandshake s={16} />,
+      href: "/collaboration",
+    });
+  }
+  const overdueTasks = (myTasks ?? []).filter((t) => taskBucket(t.dueAt ?? null, now) === "overdue");
+  if (overdueTasks.length > 0) {
+    push({
+      key: "overdue-tasks",
+      priority: PRIORITY.overdueTask,
+      domain: "peach",
+      title:
+        overdueTasks.length === 1
+          ? `משימה באיחור: ${overdueTasks[0]!.title}`
+          : `${overdueTasks.length} משימות באיחור`,
+      why: "משימה שעבר זמנה. אם היא כבר לא רלוונטית — עדיף לסגור אותה מלהשאיר אותה פתוחה.",
+      action: "למשימות",
+      icon: <IconCheck s={16} />,
+      href: "/tasks",
+    });
+  }
+  for (const b of hotBuyers) {
     push({
       key: `hot-${b.id}`,
-      tone: "green",
+      priority: PRIORITY.hotBuyer,
+      domain: "violet",
       title: `לבדוק התאמות עבור ${b.contact.name}`,
       why: `קונה ${labelOf(MATURITY_LABELS, b.maturity) ?? b.maturity} — כדאי לוודא שקיבל הצעות רלוונטיות.`,
       action: "צפה בהתאמות",
@@ -476,10 +862,33 @@ export default function DashboardPage() {
       href: `/buyers/${b.id}`,
     });
   }
-  const shownTasks = tasks.slice(0, 6);
+  /*
+   * ‎**ממיינים, ואז מסירים כפילויות — בסדר הזה.**
+   *
+   * המיון הוא התיקון: הדירוג שהשורה הראשונה מכריזה עליו חייב להיות
+   * דחיפות ולא סדר הוספה.
+   *
+   * וההסרה **אחרי** המיון, לא לפניה. קודם היא רצה בזמן הדחיפה, כך
+   * שמתוך שתי שורות שמובילות לאותו כרטיס ניצחה זו שנדחפה ראשונה —
+   * כלומר שוב סדר ההוספה, רק במקום שקשה יותר לראות. עכשיו מנצחת
+   * הדחופה מביניהן, וזו גם השורה שהמתווך היה בוחר לראות.
+   *
+   * ‎`sort` יציב במנועים המודרניים, ולכן שוויון דחיפות שומר על סדר
+   * המקורות — יציב בין רינדורים, וזה מה שחשוב כאן.
+   */
+  const seen = new Set<string>();
+  const shownTasks = [...candidates]
+    .sort((a, b) => b.priority - a.priority)
+    .filter((t) => {
+      if (t.href === null) return true;
+      if (seen.has(t.href)) return false;
+      seen.add(t.href);
+      return true;
+    })
+    .slice(0, 6);
 
   const todayEvents = (today ?? [])
-    .filter((a) => a.status === "scheduled")
+    .filter((a) => a.status === "scheduled" && startsToday(a))
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
     .slice(0, 4);
 
@@ -489,7 +898,6 @@ export default function DashboardPage() {
    * כל דלי לפי עדיפות ואז מועד. מיון מקומי היה מציג כאן סדר אחר
    * מזה שרואים בלחיצה על "לכל המשימות".
    */
-  const now = new Date();
   const shownMyTasks = groupTasksByBucket(myTasks ?? [], now)
     .flatMap((group) => group.tasks)
     .slice(0, 4);
@@ -514,9 +922,9 @@ export default function DashboardPage() {
             value: offers === null ? undefined : pendingOffers.length,
             sub: mullingOffer !== undefined ? `אחת נפתחה ${mullingOffer.openCount} פעמים` : "",
             href: "/offers",
-            valueColor: undefined as string | undefined,
+            /* הצעות והתאמות הן מנוע ההתאמות — סגול (§4) */
+            domain: "violet",
             icon: <IconSend s={17} />,
-            tone: "var(--color-primary)",
           },
         ]
       : []),
@@ -531,9 +939,9 @@ export default function DashboardPage() {
                 ? `${incomplete.length} ממתינים להשלמת פרטים`
                 : "כולם מוכנים לשיווק",
             href: "/properties",
-            valueColor: undefined as string | undefined,
+            /* נכסים ויומן — כחול */
+            domain: "blue",
             icon: <IconHome s={17} />,
-            tone: "var(--color-primary)",
           },
         ]
       : []),
@@ -544,9 +952,13 @@ export default function DashboardPage() {
             value: buyers === null ? undefined : hotBuyers.length,
             sub: buyers === null ? "" : `מתוך ${buyers.length} קונים במאגר`,
             href: "/buyers",
-            valueColor: "var(--color-danger)" as string | undefined,
+            /*
+             * אפרסק ולא אדום. „קונה חם” הוא הזדמנות דחופה ולא כשל,
+             * ואדום שמור לשגיאה ולחסימה — הצבע היה אומר למתווך
+             * שמשהו רע קרה דווקא כשמשהו טוב קרה.
+             */
+            domain: "peach",
             icon: <IconFlame s={17} />,
-            tone: "var(--color-danger)",
           },
         ]
       : []),
@@ -557,9 +969,9 @@ export default function DashboardPage() {
             value: leads === null ? undefined : leads.filter((l) => l.status === "new").length,
             sub: urgentLeads.length > 0 ? `${urgentLeads.length} דורשים טיפול אנושי` : "",
             href: "/leads",
-            valueColor: undefined as string | undefined,
+            /* דחיפות: ליד חדש שממתין — אפרסק, כמו קונה חם */
+            domain: "peach",
             icon: <IconBell s={17} />,
-            tone: "var(--color-primary)",
           },
         ]
       : []),
@@ -570,21 +982,39 @@ export default function DashboardPage() {
    * לשרת בשביל הגרפים. כל פרוסה מקשרת לרשימה המסוננת, כי פילוח
    * שאי אפשר לצלול אליו הוא קישוט.
    */
+  /*
+   * ‎**שורות מדד, ולא דונאט ולא פס התקדמות** (§23).
+   *
+   * החבילה אוסרת את שניהם כאן במפורש — „Do not render donuts or pie
+   * charts for small integer counts, and never draw an empty progress
+   * bar… This replaced exactly that, on purpose”. והנימוק מעשי ולא
+   * טעם: פילוח של ארבעה מספרים קטנים אינו „צורה של נתונים”, ודונאט
+   * מבקש מהקורא להשוות שטחי גזרה כדי לשחזר מספר שאפשר פשוט לכתוב.
+   * במשרד חדש, שכל הערכים בו אפס, דונאט הוא עיגול ריק שאינו אומר
+   * דבר — ושורת מדד עדיין אומרת „לא בשל: 0”.
+   *
+   * הדומיין נושא את משפחת הצבע, והנקודה את הדרגה בתוכה.
+   */
   const bm = buyerBreakdown?.byMaturity ?? {};
-  const maturitySlices: Slice[] = [
-    { label: "חם מאוד", value: bm["very_hot"] ?? 0, color: "#b0512c", href: "/buyers?maturity=very_hot" },
-    { label: "חם", value: bm["hot"] ?? 0, color: "#d9a441", href: "/buyers?maturity=hot" },
-    { label: "מתעניין", value: bm["interested"] ?? 0, color: "var(--color-primary-accent)", href: "/buyers?maturity=interested" },
-    { label: "לא בשל", value: bm["not_ripe"] ?? 0, color: "#9aa79d", href: "/buyers?maturity=not_ripe" },
+  const maturityRows = [
+    { label: "חם מאוד", value: bm["very_hot"] ?? 0, domain: "mv-domain-peach", dot: "#b4471f", href: "/buyers?maturity=very_hot" },
+    { label: "חם", value: bm["hot"] ?? 0, domain: "mv-domain-amber", dot: "#8a6217", href: "/buyers?maturity=hot" },
+    { label: "מתעניין", value: bm["interested"] ?? 0, domain: "mv-domain-green", dot: "#15803d", href: "/buyers?maturity=interested" },
+    { label: "לא בשל", value: bm["not_ripe"] ?? 0, domain: "mv-domain-neutral", dot: "#5e6860", href: "/buyers?maturity=not_ripe" },
   ];
 
+  /*
+   * שלוש דרגות המשפך שעדיין דורשות מישהו. „הומר” אינו ביניהן —
+   * הוא הסוף הטוב, ואינו „ממתין”. הוא נספר בשורת האישור למטה ולא
+   * כשלב שמחכה לטיפול.
+   */
   const ls = leadBreakdown?.byStatus ?? {};
-  const leadSlices: Slice[] = [
-    { label: "חדש", value: ls["new"] ?? 0, color: "var(--color-primary-accent)", href: "/leads?status=new" },
-    { label: "בטיפול", value: ls["in_progress"] ?? 0, color: "#d9a441", href: "/leads?status=in_progress" },
-    { label: "ממתין ללקוח", value: ls["waiting_customer"] ?? 0, color: "#7a9bd4", href: "/leads?status=waiting_customer" },
-    { label: "הומר", value: ls["converted"] ?? 0, color: "var(--color-primary)", href: "/leads?status=converted" },
+  const leadRows = [
+    { label: "חדש", value: ls["new"] ?? 0, domain: "mv-domain-peach", href: "/leads?status=new" },
+    { label: "בטיפול", value: ls["in_progress"] ?? 0, domain: "mv-domain-blue", href: "/leads?status=in_progress" },
+    { label: "ממתין ללקוח", value: ls["waiting_customer"] ?? 0, domain: "mv-domain-neutral", href: "/leads?status=waiting_customer" },
   ];
+  const leadsWaiting = leadRows.reduce((sum, row) => sum + row.value, 0);
   return (
     <>
       <SetupBanner />
@@ -599,13 +1029,34 @@ export default function DashboardPage() {
         </div>
       ) : null}
 
-      {/* ברכה + תאריך — בשורת בסיס אחת, כמו בעיצוב */}
-      <div className="mb-6 flex flex-wrap items-baseline gap-x-3.5 gap-y-1">
-        <h1 className="m-0" style={{ fontSize: "calc(26 / 16 * 1rem)", fontWeight: 800, letterSpacing: "-0.01em" }}>
-          {greeting()}, {user.name.split(" ")[0]}
-        </h1>
-        {/* לועזי + עברי + שעון — מתווך ישראלי חי בשני לוחות */}
-        <NowStamp />
+      {/*
+        שורת הברכה (§24) — כותרת ותאריך, ואז המונה בקצה השורה.
+
+        המונה אינו קישוט: הוא אומר כמה פעולות ממתינות, והמספר שלו
+        הוא **אורך הרשימה של §6.1** ולא ספירה נפרדת. שני מספרים
+        שמתארים את אותו דבר ומחושבים בשתי דרכים נפרדים ביום
+        שמישהו משנה את אחד מהם.
+      */}
+      <div className="mv-greet mb-6">
+        <div className="min-w-0">
+          <h1 className="mv-greet__title m-0">
+            {greeting()}, {user.name.split(" ")[0]}
+            <span style={{ color: "var(--color-primary)" }}>.</span>
+          </h1>
+          {/* לועזי + עברי + שעון — מתווך ישראלי חי בשני לוחות */}
+          <div className="mv-greet__date">
+            <NowStamp />
+          </div>
+        </div>
+        {shownTasks.length > 0 ? (
+          <div className="mv-greet__counter mv-counter">
+            <span className="mv-counter__number mv-ltr">{shownTasks.length}</span>
+            <span>
+              <span className="mv-counter__lead block">פעולות מחכות לך</span>
+              <span className="mv-counter__note block">מסודרות לפי דחיפות</span>
+            </span>
+          </div>
+        ) : null}
       </div>
 
       <DuplicateContacts />
@@ -627,153 +1078,273 @@ export default function DashboardPage() {
       {statCards.length > 0 ? (
       <section aria-labelledby="counts-heading" className="mb-7">
         <h2 id="counts-heading" className="mv-visually-hidden">מונים</h2>
-        <dl className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
+        <dl className="grid grid-cols-2 items-stretch gap-4 lg:grid-cols-4">
           {statCards.map((card) => (
-            <Link key={card.label} href={card.href} className="mv-stat-card no-underline">
-              <dt className="flex items-center gap-2 text-[length:var(--type-caption-lg)] font-semibold" style={{ color: "var(--color-text-muted)" }}>
-                <span className="mv-stat-icon" style={{ color: card.tone }} aria-hidden="true">
+            /*
+              ‎**אפס עובר לניטרלי — מהנתון, לא מהמסך.**
+
+              „Any tile whose value is 0 switches to Neutral tokens
+              automatically — that is a data-driven rule, not
+              hard-coded”. הכלל הזה הוא מה שמונע מ„אין הצעות
+              פתוחות” להיראות כמו התרעה: אריח סגול עם 0 גדול קורא
+              כמו משהו שדורש טיפול, ובדיוק ההפך נכון.
+
+              ‎`undefined` (טרם נטען) אינו אפס ואינו עובר לניטרלי:
+              „עוד לא יודעים” ו„אין” הם שני מצבים שונים.
+            */
+            <Link
+              key={card.label}
+              href={card.href}
+              className={`mv-kpi no-underline ${
+                card.value === 0 ? "mv-domain-neutral" : `mv-domain-${card.domain}`
+              }`}
+            >
+              <dt className="mv-kpi__head">
+                <span className="mv-tile" aria-hidden="true">
                   {card.icon}
                 </span>
-                {card.label}
+                <span className="mv-kpi__label">{card.label}</span>
               </dt>
-              <dd className="mv-stat-value m-0" style={card.valueColor ? { color: card.valueColor } : undefined}>
-                {card.value ?? "…"}
-              </dd>
-              <dd className="m-0 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)", minHeight: "1.2em" }}>
+              <dd className="mv-kpi__value mv-ltr m-0">{card.value ?? "…"}</dd>
+              <dd className="mv-kpi__note m-0" style={{ minHeight: "1.2em" }}>
                 {card.sub}
               </dd>
-              {/* חץ שמופיע בריחוף — רמז שהכרטיס כולו לחיץ */}
-              <span className="mv-stat-go" aria-hidden="true">←</span>
             </Link>
           ))}
         </dl>
       </section>
       ) : null}
 
-      {/* ---- פילוחים: איפה עומד המשרד, במבט אחד ---- */}
-      {canSeeBuyers || canSeeLeads ? (
-      <section aria-labelledby="charts-heading" className="mb-7">
-        <h2 id="charts-heading" className="mv-visually-hidden">פילוחי המאגר</h2>
-        <div className="grid gap-3.5 lg:grid-cols-2">
-          {/*
-            פילוח הוא טענה על המאגר. „0 בכל פרוסה” למי שאינו רשאי
-            לראות קונים או לידים אינו „ריק” אלא תיאור שגוי — ולכן
-            הכרטיס נעלם ולא מתרוקן.
-          */}
-          {canSeeBuyers ? (
-            <div className="mv-list-card px-5 py-[18px]">
-              <h3 className="m-0 mb-1 flex items-center gap-2" style={{ fontSize: "var(--type-body)", fontWeight: 800 }}>
-                <IconUsers s={16} /> בשלות הקונים
-              </h3>
-              <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-                לחיצה על שורה פותחת את הרשימה המסוננת.
-              </p>
-              <DonutChart
-                slices={maturitySlices}
-                centerValue={buyerBreakdown === null ? "…" : String(buyerBreakdown.total)}
-                centerLabel="קונים"
-              />
-            </div>
-          ) : null}
 
-          {canSeeLeads ? (
-            <div className="mv-list-card px-5 py-[18px]">
-              <h3 className="m-0 mb-1 flex items-center gap-2" style={{ fontSize: "var(--type-body)", fontWeight: 800 }}>
-                <IconFilter s={16} /> מצב הלידים
-              </h3>
-              <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-                המשפך מהפנייה ועד ההמרה.
-              </p>
-              <BarChart slices={leadSlices} />
-            </div>
-          ) : null}
-        </div>
-      </section>
-      ) : null}
+      {/*
+        ‎`align-items: stretch` (ברירת המחדל) ולא `items-start`, ו-372
+        ולא 340 — שניהם מ-§24. הכלל שם הוא „Both columns must end at
+        the same height… No dead space at the bottom of either
+        column”, והכרטיס האחרון בטור הצדדי מקבל `flex-1` כדי לממש
+        אותו.
+      */}
+      <div className="grid gap-4 lg:[grid-template-columns:1fr_372px]">
+        {/*
+          ‎**הטור הראשי הוא מכל אחד** — הרשימה המדורגת, ואז תת-רשת
+          של שני כרטיסי הניתוח (§24).
 
-      <div className="grid items-start gap-6 lg:[grid-template-columns:1fr_340px]">
-        {/* ---- מה חשוב לעשות היום ---- */}
-        <section
-          aria-labelledby="today-tasks-heading"
-          className="overflow-hidden rounded-xl border"
-          style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-        >
-          <div
-            className="flex flex-wrap items-center gap-2.5 px-5 py-4"
-            style={{ borderBottom: "1px solid var(--color-card-head-border)" }}
+          קודם כרטיסי הניתוח ישבו **מחוץ** לרשת, ולכן הילד היחיד של
+          הטור הראשי היה הרשימה המדורגת. עם `stretch` היא נמתחה לגובה
+          הטור הצדדי כולו והשאירה מתחת לשורותיה שטח ריק — בדיוק במשרד
+          שבו יש מעט פעולות, כלומר במסך שאמור להיראות רגוע ולא חסר
+          (ביקורת Codex).
+        */}
+        <div className="flex flex-col gap-4">
+          {/* ---- מה חשוב לעשות היום ---- */}
+          <section
+            aria-labelledby="today-tasks-heading"
+            className="overflow-hidden rounded-xl border"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
           >
-            <h2 id="today-tasks-heading" className="m-0" style={{ fontSize: "calc(18 / 16 * 1rem)", fontWeight: 800 }}>
-              מה חשוב לעשות היום
-            </h2>
-            <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-              מתעדכן לבד לפי המצב בשטח
-            </span>
-            {shownTasks.length > 0 ? (
-              <span
-                className="ms-auto rounded-full px-2.5 py-0.5 text-sm font-bold"
-                style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}
-              >
-                {shownTasks.length} פעולות
+            <div
+              className="flex flex-wrap items-center gap-2.5 px-5 py-4"
+              style={{ borderBottom: "1px solid var(--color-card-head-border)" }}
+            >
+              <h2 id="today-tasks-heading" className="m-0" style={{ fontSize: "calc(18 / 16 * 1rem)", fontWeight: 800 }}>
+                מה חשוב לעשות היום
+              </h2>
+              <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
+                מתעדכן לבד לפי המצב בשטח
               </span>
+              {shownTasks.length > 0 ? (
+                <span
+                  className="ms-auto rounded-full px-2.5 py-0.5 text-sm font-bold"
+                  style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}
+                >
+                  {shownTasks.length} פעולות
+                </span>
+              ) : null}
+            </div>
+
+            {/*
+              ‎**„הרשימה חלקית” נאמר בקול, ולא נבלע.**
+
+              כשהקריאה לסוכן נכשלת חסרות מהרשימה המלצות שהיו אמורות
+              להופיע בה. משתמש שרואה רשימה קצרה מהרגיל בלי הסבר יחשוב
+              שהמסך נשבר; לכן נאמר מה חסר ומוצע ניסיון חוזר — כל מצב
+              ריק או חלקי מציין את הפעולה שסוגרת אותו.
+            */}
+            {coachFailed ? (
+              <div className="px-5 pt-4">
+                <LoadError
+                  message="לא הצלחנו לטעון את המלצות הסוכן — הסדר כאן חלקי"
+                  onRetry={loadCoach}
+                />
+              </div>
+            ) : null}
+
+            {loading ? (
+              <p aria-live="polite" className="px-5 py-4">טוען…</p>
+            ) : shownTasks.length === 0 ? (
+              <p className="px-5 py-6 text-center" style={{ color: "var(--color-text-muted)" }}>
+                הכל מטופל ✓ — אפשר לקלוט נכס או קונה חדשים.
+              </p>
+            ) : (
+              <ul className="m-0 list-none p-0">
+                {shownTasks.map((t, index) => (
+                  /*
+                    ‎**„PRIORITY RULE” — רק השורה הראשונה** (§13).
+
+                    החבילה קוראת לזה „the core UX decision of the
+                    product”, ולא בכדי: חמש שורות עם חמש קריאות זהות
+                    לפעולה אינן מדרג אלא רשימה, ומתווך שקורא את המסך
+                    בין שתי פגישות צריך לדעת מה **הדבר האחד**.
+
+                    ‎`index === 0` ולא סוג פעולה מסוים: הצבע והכפתור
+                    הראשי נגזרים מהדירוג, ולכן הם עוברים עם הראש
+                    כשהסדר משתנה — ולא נדבקים לשורה שהייתה ראשונה פעם.
+                  */
+                  <li
+                    key={t.key}
+                    className={`mv-row mv-row--action mv-row--flush mv-domain-${t.domain}`}
+                  >
+                    {/*
+                      המספר הסידורי חזר לשורה — הוא הדירוג עצמו, וזה
+                      מה שהכרטיס הזה מוכר. האייקון נשאר לצדו ועונה על
+                      השאלה השנייה, „מה זה בכלל”, כדי שאפשר יהיה לזהות
+                      שורה בסריקה לפני קריאת הכותרת.
+                    */}
+                    <span className="mv-row__ordinal mv-ltr" aria-hidden="true">
+                      {index + 1}
+                    </span>
+                    <span className="mv-tile mv-tile--44" aria-hidden="true">
+                      {t.icon}
+                    </span>
+                    <span className="mv-visually-hidden">פעולה {index + 1}:</span>
+                    <span className="min-w-0">
+                      <span className="mv-row__title block">{t.title}</span>
+                      <span className="mv-row__why block">{t.why}</span>
+                    </span>
+                    {t.href ? (
+                      <Link
+                        href={t.href}
+                        className="mv-row__action mv-button mv-button--secondary flex-none no-underline"
+                      >
+                        {t.action}
+                      </Link>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+        {/* ---- פילוחים: איפה עומד המשרד, במבט אחד ---- */}
+        {canSeeBuyers || canSeeLeads ? (
+        <section aria-labelledby="charts-heading" className="flex flex-1 flex-col">
+          <h2 id="charts-heading" className="mv-visually-hidden">פילוחי המאגר</h2>
+          <div className="grid flex-1 items-stretch gap-4 lg:grid-cols-2">
+            {/*
+              פילוח הוא טענה על המאגר. „0 בכל פרוסה” למי שאינו רשאי
+              לראות קונים או לידים אינו „ריק” אלא תיאור שגוי — ולכן
+              הכרטיס נעלם ולא מתרוקן.
+            */}
+            {canSeeBuyers ? (
+              <div className="mv-list-card flex flex-col px-5 py-[18px]">
+                <div className="mv-card-head mv-domain-violet">
+                  <span className="mv-tile" aria-hidden="true">
+                    <IconUsers s={19} />
+                  </span>
+                  <h3 className="mv-card-head__title m-0">בשלות הקונים</h3>
+                </div>
+                <p className="mv-card-sub m-0">לחיצה על שורה פותחת את הרשימה המסוננת.</p>
+                <ul className="m-0 mt-3 flex list-none flex-col gap-2 p-0">
+                  {maturityRows.map((row) => (
+                    <li key={row.label}>
+                      <Link
+                        href={row.href}
+                        className={`mv-metric no-underline ${
+                          row.value === 0 ? "mv-domain-neutral" : row.domain
+                        }`}
+                      >
+                        {/*
+                          הנקודה נושאת את **הדרגה**, לא את הדומיין: „חם
+                          מאוד” ו„חם” חולקים משפחת צבע, והנקודה היא מה
+                          שמפריד ביניהן. בשורת אפס היא יורשת את הניטרלי
+                          ואינה צובעת דרגה שאין לה נציגים.
+                        */}
+                        <span
+                          className="mv-metric__dot"
+                          aria-hidden="true"
+                          style={row.value === 0 ? undefined : { color: row.dot }}
+                        />
+                        <span className="mv-metric__label">{row.label}</span>
+                        <span className="mv-metric__value mv-ltr">
+                          {buyerBreakdown === null ? "…" : row.value}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+                {/*
+                  הסך-הכול בתחתית, ו-`margin-top:auto` כדי ששני
+                  כרטיסי הניתוח יסתיימו באותו גובה גם כשמספר השורות
+                  בהם שונה.
+                */}
+                <p
+                  className="m-0 mt-auto pt-3 text-[length:var(--type-body-sm)]"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  סה&quot;כ{" "}
+                  <b style={{ color: "var(--color-text)" }}>
+                    {buyerBreakdown === null ? "…" : buyerBreakdown.total}
+                  </b>{" "}
+                  קונים במאגר
+                </p>
+              </div>
+            ) : null}
+
+            {canSeeLeads ? (
+              <div className="mv-list-card flex flex-col px-5 py-[18px]">
+                <div className="mv-card-head mv-domain-peach">
+                  <span className="mv-tile" aria-hidden="true">
+                    <IconFilter s={19} />
+                  </span>
+                  <h3 className="mv-card-head__title m-0">מצב הלידים</h3>
+                </div>
+                <p className="mv-card-sub m-0">המשפך מהפנייה ועד ההמרה.</p>
+                <ul className="m-0 mt-3 flex list-none flex-col gap-2 p-0">
+                  {leadRows.map((row) => (
+                    <li key={row.label}>
+                      <Link
+                        href={row.href}
+                        className={`mv-metric no-underline ${
+                          row.value === 0 ? "mv-domain-neutral" : row.domain
+                        }`}
+                      >
+                        <span className="mv-metric__dot" aria-hidden="true" />
+                        <span className="mv-metric__label">{row.label}</span>
+                        <span className="mv-metric__value mv-ltr">
+                          {leadBreakdown === null ? "…" : row.value}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+                {/*
+                  מצב ריק (§22): אישור ירוק ולא פאנל ריק ולא אזהרה.
+                  „הכל טופל” היא עובדה טובה, וזה מה שהיא צריכה להיראות.
+                */}
+                <div className="mt-auto pt-3">
+                  {leadBreakdown !== null && leadsWaiting === 0 ? (
+                    <p className="mv-zero-line m-0">
+                      <IconCheck s={18} /> אין לידים שממתינים — הכל טופל
+                    </p>
+                  ) : null}
+                </div>
+              </div>
             ) : null}
           </div>
-
-          {loading ? (
-            <p aria-live="polite" className="px-5 py-4">טוען…</p>
-          ) : shownTasks.length === 0 ? (
-            <p className="px-5 py-6 text-center" style={{ color: "var(--color-text-muted)" }}>
-              הכל מטופל ✓ — אפשר לקלוט נכס או קונה חדשים.
-            </p>
-          ) : (
-            <ul className="m-0 list-none p-0">
-              {shownTasks.map((t, index) => (
-                <li
-                  key={t.key}
-                  className="mv-todo-row flex items-center gap-3.5 px-5 py-3.5"
-                  style={{ borderBottom: "1px solid var(--color-row-border)" }}
-                >
-                  {/*
-                    אייקון במקום מספר סידורי: המספר חזר על עצמו בכל
-                    שורה ולא אמר דבר על התוכן, בעוד שהצורה מזהה את סוג
-                    הפעולה במבט. הסדר עצמו נשמר במיקום ברשימה, ונקרא
-                    לקורא מסך דרך aria-label.
-                  */}
-                  <span
-                    aria-hidden="true"
-                    className="grid flex-none place-items-center"
-                    style={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: 9,
-                      background: TONE[t.tone].bg,
-                      color: TONE[t.tone].fg,
-                    }}
-                  >
-                    {t.icon}
-                  </span>
-                  <span className="mv-visually-hidden">פעולה {index + 1}:</span>
-                  <span className="min-w-0" style={{ lineHeight: 1.35 }}>
-                    <span className="block text-[length:var(--type-body)] font-bold">{t.title}</span>
-                    <span className="block text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-                      {t.why}
-                    </span>
-                  </span>
-                  {t.href ? (
-                    <Link
-                      href={t.href}
-                      className="ms-auto flex-none text-[length:var(--type-caption-lg)] font-bold no-underline"
-                      style={{ color: "var(--color-primary)" }}
-                    >
-                      {t.action}
-                    </Link>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
         </section>
+        ) : null}
+        </div>
 
-        {/* ---- הטור הצדדי: היום ביומן + קליטה בקול ---- */}
+        {/* ---- הטור הצדדי: יומן, משימות, רשת, והמנטור ---- */}
         <div className="flex flex-col gap-4">
           {/*
             „אין פגישות מתוכננות להיום” היא טענה על היומן, ומי שאינו
@@ -938,27 +1509,49 @@ export default function DashboardPage() {
                     יחיד ורבים ולא "1 הצעות". מספר צמוד לשם עצם בעברית
                     מחייב התאמה, וברשימה קצרה כזו הפער בולט מיד.
                   */}
-                  <ul className="m-0 list-none p-0 text-[length:var(--type-caption-lg)]">
-                    <li className="flex items-baseline gap-2 py-1.5" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
-                      <b style={{ color: (network?.incomingOffers ?? 0) > 0 ? "var(--color-primary)" : undefined }}>
-                        {network === null ? "…" : network.incomingOffers}
-                      </b>
-                      <span>
-                        {network?.incomingOffers === 1
-                          ? "הצעה שהתקבלה על הביקושים שלכם"
-                          : "הצעות שהתקבלו על הביקושים שלכם"}
-                      </span>
-                    </li>
-                    <li className="flex items-baseline gap-2 py-1.5">
-                      <b style={{ color: (network?.openReferrals ?? 0) > 0 ? "var(--color-primary)" : undefined }}>
-                        {network === null ? "…" : network.openReferrals}
-                      </b>
-                      <span>
-                        {network?.openReferrals === 1
-                          ? "הפניית לקוח פתוחה ברשת"
-                          : "הפניות לקוחות פתוחות ברשת"}
-                      </span>
-                    </li>
+                  {/*
+                    שורות ירוקות שהמספר פותח אותן (§6.3): כאן המספר
+                    הוא העניין — „5 הצעות שהתקבלו” — ולכן הוא ראשון
+                    ובגודל שמאפשר לקרוא אותו בלי להתקרב.
+                  */}
+                  <ul className="m-0 mt-2 flex list-none flex-col gap-2 p-0">
+                    {[
+                      {
+                        value: network?.incomingOffers ?? 0,
+                        text:
+                          network?.incomingOffers === 1
+                            ? "הצעה שהתקבלה על הביקושים שלכם"
+                            : "הצעות שהתקבלו על הביקושים שלכם",
+                      },
+                      {
+                        value: network?.openReferrals ?? 0,
+                        text:
+                          network?.openReferrals === 1
+                            ? "הפניית לקוח פתוחה ברשת"
+                            : "הפניות לקוחות פתוחות ברשת",
+                      },
+                    ].map((row) => (
+                      <li
+                        key={row.text}
+                        className={`mv-row mv-row--nested ${
+                          row.value === 0 ? "mv-domain-neutral" : "mv-domain-green"
+                        }`}
+                      >
+                        <span
+                          className="mv-ltr flex-none text-center font-black"
+                          style={{
+                            minWidth: 26,
+                            fontSize: "var(--type-metric)",
+                            color: "var(--d-fg)",
+                          }}
+                        >
+                          {network === null ? "…" : row.value}
+                        </span>
+                        <span className="text-[length:var(--type-body-sm)] font-bold">
+                          {row.text}
+                        </span>
+                      </li>
+                    ))}
                   </ul>
                   <p className="m-0 mt-1.5 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                     {network === null
@@ -970,43 +1563,47 @@ export default function DashboardPage() {
             </section>
           ) : null}
 
-          {/* קידום שמוביל לפיצ'ר שאינו במסלול נחסם בשרת — אין טעם
-              להזמין אליו */}
-          {canVoice ? (
-            <section
-              aria-labelledby="voice-promo-heading"
-              className="rounded-xl p-[18px]"
-              style={{ background: "#111513", color: "#dfe3e0" }}
-            >
-              <div className="mb-2 flex items-center gap-2">
-                <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#70EE91"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  aria-hidden="true"
-                >
-                  <rect x="9" y="2.5" width="6" height="11" rx="3" />
-                  <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
-                  <line x1="12" y1="17.5" x2="12" y2="21" />
-                </svg>
-                <h2 id="voice-promo-heading" className="m-0 text-sm font-extrabold" style={{ color: "#fff" }}>
-                  קלטו נכס בדיבור
+          {/*
+            ‎**כרטיס כהה אחד למסך, והוא האחרון בטור** (§21).
+
+            עד עכשיו הוא היה קידום לקליטה בקול — אבל הסוכן הקולי כבר
+            יושב בראש המסך בפאנל משלו, כלומר הכרטיס הכהה חזר על
+            הזמנה שכבר נאמרה. לפי החבילה הוא המנטור: המקום היחיד
+            שבו אפשר לשאול שאלה פתוחה על המערכת ועל שת"פים, ולא
+            עוד קיצור לפעולה שיש לה כפתור.
+
+            ‎`flex-1` כאן הוא מה שמיישר את תחתית שני הטורים (§24).
+          */}
+          {hasCoach ? (
+            <section aria-labelledby="mentor-heading" className="mv-dark-card flex-1">
+              <div className="mv-dark-card__head">
+                <span className="mv-dark-card__badge" aria-hidden="true">
+                  AI
+                </span>
+                <h2 id="mentor-heading" className="mv-dark-card__title m-0">
+                  המנטור האישי שלך
                 </h2>
+                <span className="mv-dark-card__soon">בקרוב</span>
               </div>
-              <p className="m-0 text-[length:var(--type-caption-lg)]" style={{ lineHeight: 1.5, color: "#aab3ad" }}>
-                ״דירת 4 חדרים בהרצל 12 בית שמש, קומה 3, עם מעלית וחניה, 2.4 מיליון״ — פחות
-                מדקה, וכרטיס הנכס מוכן.
+              {/*
+                ‎**מה שכתוב כאן חייב להיות מה שקורה בלחיצה.**
+
+                הניסוח מהחבילה הוא „שואל אותי כל שאלה…” וכפתור „לדבר
+                עם המנטור” — והנתיב `/mentor` הוא עמוד „בקרוב” בלי
+                שום ממשק שיחה. כלומר הפעולה שקודמה כאן מובילה לקיר
+                (ביקורת Codex).
+
+                לא הסרתי את הכרטיס: הלשונית קיימת בתפריט בבקשת בעל
+                המוצר, ומתווך שרואה אותה יודע מה מגיע. מה שתוקן הוא
+                ההבטחה — תגית „בקרוב” וכפתור שאומר מה הלחיצה באמת
+                עושה. „Never blame the user for an empty state. State
+                the fact” חל גם על פיצ'ר שטרם הושק.
+              */}
+              <p className="mv-dark-card__body m-0">
+                הליווי שיזכיר לכם את היעד, ויענה על כל שאלה על המערכת ועל שת&quot;פים.
               </p>
-              <Link
-                href="/voice"
-                className="mt-3 block rounded-[9px] py-[9px] text-center text-[length:var(--type-body-sm)] font-bold no-underline"
-                style={{ background: "#70EE91", color: "#0B1F12" }}
-              >
-                נסו עכשיו
+              <Link href="/mentor" className="mv-button mv-dark-card__action no-underline">
+                לראות מה מגיע
               </Link>
             </section>
           ) : null}
