@@ -43,6 +43,7 @@ import {
   resolveAutomationSettings,
   type AutomationSettings,
   type AutomationSpec,
+  normalizePhone,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { onboardingSteps, type OnboardingProgress } from "@metavchim/shared";
@@ -1337,8 +1338,20 @@ export class SettingsController {
        * בתוך אותה טרנזקציה, מאותו נימוק: חצי כתיבה כאן היא בדיוק
        * החור שהניתוק נועד לסגור.
        */
-      if (nextPhone !== undefined && nextPhone !== target.phone) {
-        await this.whatsappLinks.revoke(id, "phone_changed", tx);
+      const phoneChanging =
+        nextPhone !== undefined &&
+        normalizePhone(nextPhone ?? "") !== normalizePhone(target.phone ?? "");
+      /*
+       * **והשבתת חשבון מנתקת גם היא.**
+       *
+       * השורה מתחת מוחקת את כל ה-Session של המושבת, אבל הקישור
+       * בוואטסאפ שרד: ההודעות נחסמו רק משום ש-`loadUser` דורש חשבון
+       * פעיל, וברגע שהחשבון הופעל מחדש המכשיר הישן חזר לגישה מלאה
+       * בלי לאמת דבר (ביקורת Codex). „הושבת” פירושו שהמכשיר מתנתק,
+       * בדיוק כמו הדפדפן.
+       */
+      if (phoneChanging || body.isActive === false) {
+        await this.whatsappLinks.revoke(id, phoneChanging ? "phone_changed" : "user", tx);
       }
     });
     if (body.isActive === false) {

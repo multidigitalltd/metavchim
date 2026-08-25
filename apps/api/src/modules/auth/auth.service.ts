@@ -5,6 +5,7 @@ import { ulid } from "ulid";
 import {
   applyBlockedModules,
   isTrialExpired,
+  normalizePhone,
   resolveCapabilities,
   type Capability,
 } from "@metavchim/shared";
@@ -366,7 +367,16 @@ export class AuthService {
       data.email = nextEmail;
     }
 
-    const phoneChanging = data.phone !== undefined && data.phone !== user.phone;
+    /*
+     * **השוואה מנורמלת, ולא מחרוזת מול מחרוזת.**
+     *
+     * „050-1234567” ו„0501234567” הם אותו מספר. השוואת גלם הייתה
+     * מנתקת את הקישור על שינוי עיצוב בלבד — ומכיוון שהניתוק מותיר
+     * מצבה, המתווך היה נדרש למסלול קוד שלם בלי סיבה (ביקורת Codex).
+     */
+    const phoneChanging =
+      data.phone !== undefined &&
+      normalizePhone(data.phone ?? "") !== normalizePhone(user.phone ?? "");
     /*
      * **החלפת מספר מנתקת את קישור הוואטסאפ — באותה עסקה.**
      *

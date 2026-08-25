@@ -113,7 +113,8 @@ describe("החלפת מספר מנתקת", () => {
   });
 
   it("והשוואה היא מול המספר הקודם, לא מול הקלט בלבד", () => {
-    expect(auth).toContain("data.phone !== user.phone");
+    // מנורמל: „050-1234567” ו„0501234567” הם אותו מספר, לא החלפה
+    expect(auth).toContain('normalizePhone(data.phone ?? "") !== normalizePhone(user.phone ?? "")');
   });
 
   /*
@@ -263,7 +264,7 @@ describe("מכשיר אחד גם במקביל", () => {
     const revoke = link.slice(link.indexOf("private async revokeWithin("));
     expect(revoke).toContain("await this.lock(tx, userId)");
     // החותמת נכתבת לפני הכתיבה במסד, בתוך הנעילה
-    expect(revoke.indexOf("wa-link:gen:")).toBeLessThan(revoke.indexOf("updateMany"));
+    expect(revoke.indexOf("bumpGeneration")).toBeLessThan(revoke.indexOf("updateMany"));
   });
 
   /*
@@ -273,11 +274,11 @@ describe("מכשיר אחד גם במקביל", () => {
    */
   it("והקוד נושא את הדור שבו הופק — לא שעה", () => {
     const issue = link.slice(link.indexOf("async issueCode("), link.indexOf("async redeemCode("));
-    expect(issue).toContain("this.generation(userId)");
+    expect(issue).toContain("this.bumpGeneration(userId)");
     expect(issue).toContain("JSON.stringify({ tenantId, userId, generation })");
     expect(issue).not.toContain("Date.now()");
     const revoke = link.slice(link.indexOf("private async revokeWithin("));
-    expect(revoke).toContain("redis.incr(`wa-link:gen:${userId}`)");
+    expect(revoke).toContain("this.bumpGeneration(userId)");
   });
 
   /*
@@ -304,17 +305,52 @@ describe("מכשיר אחד גם במקביל", () => {
  * אותו שינוי, מסך אחר: בעל המשרד מעדכן את מספר הסוכן מניהול הצוות.
  * בלי הניתוק המכשיר שמחזיק במספר הישן ממשיך להיפתר לחשבון הסוכן.
  */
+/*
+ * שלוש נקודות שבהן „הקישור אמור לחדול” נבדקות יחד, כי כל אחת מהן
+ * נשברת בשקט: הנפקה שאינה מבטלת קוד קודם, השבתת חשבון שמשאירה
+ * מכשיר מחובר, ושינוי עיצוב של מספר שנקרא כהחלפה.
+ */
+describe("החלפה היא ביטול", () => {
+  const link = readFileSync(
+    new URL("./whatsapp-link.service.ts", import.meta.url),
+    "utf8",
+  );
+
+  it("הנפקת קוד חדש מבטלת ניצול של קוד קודם שעוד באוויר", () => {
+    const issue = link.slice(link.indexOf("async issueCode("), link.indexOf("async redeemCode("));
+    // ההנפקה מקדמת את הדור, ולכן קוד שהופק לפניה כבר אינו תואם
+    expect(issue).toContain("this.bumpGeneration(userId)");
+  });
+});
+
 describe("גם החלפת מספר בידי בעל המשרד מנתקת", () => {
   const settings = readFileSync(
     new URL("../settings/settings.controller.ts", import.meta.url),
     "utf8",
   );
 
+  /*
+   * מחיקת ה-Session נעשתה תמיד; הקישור בוואטסאפ שרד. ההודעות נחסמו
+   * רק משום ש-`loadUser` דורש חשבון פעיל — וברגע שהחשבון הופעל
+   * מחדש, המכשיר הישן חזר לגישה מלאה בלי לאמת דבר.
+   */
+  it("והשבתת חשבון מנתקת את המכשיר, כמו את הדפדפן", () => {
+    const route = settings.slice(settings.indexOf("pg_advisory_xact_lock"));
+    expect(route).toContain("phoneChanging || body.isActive === false");
+  });
+
+  it("ושינוי עיצוב בלבד אינו נחשב להחלפת מספר", () => {
+    const route = settings.slice(settings.indexOf("pg_advisory_xact_lock"));
+    expect(route).toContain("normalizePhone(nextPhone");
+    const auth = readFileSync(new URL("../auth/auth.service.ts", import.meta.url), "utf8");
+    expect(auth).toContain("normalizePhone(data.phone");
+  });
+
   it("עדכון סוכן מניהול הצוות מנתק את הקישור, באותה טרנזקציה", () => {
     const route = settings.slice(settings.indexOf("pg_advisory_xact_lock"));
     const update = route.indexOf("tx.user.update");
-    const revoke = route.indexOf('this.whatsappLinks.revoke(id, "phone_changed", tx)');
+    const revoke = route.indexOf("this.whatsappLinks.revoke(id,");
     expect(revoke).toBeGreaterThan(update);
-    expect(route).toContain("nextPhone !== target.phone");
+    expect(route).toContain("normalizePhone(target.phone");
   });
 });

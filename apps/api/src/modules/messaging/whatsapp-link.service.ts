@@ -192,7 +192,7 @@ export class WhatsAppLinkService implements OnModuleDestroy {
      * נראות כמו „בו-זמנית”, והפרשי שעונים בין תהליכים יכולים אפילו
      * להפוך את היחס (ביקורת Codex).
      */
-    const generation = await this.generation(userId);
+    const generation = await this.bumpGeneration(userId);
     let body = "";
     let codeHmac = "";
     for (let attempt = 0; ; attempt += 1) {
@@ -455,6 +455,21 @@ export class WhatsAppLinkService implements OnModuleDestroy {
    * שצריך להיחסם. מפתח חסר נקרא כדור 0, וזה נכון: לפני הניתוק
    * הראשון אין מה לחסום.
    */
+  /**
+   * קידום הדור — **גם בהנפקה, לא רק בניתוק.**
+   *
+   * הנפקת קוד חדש היא החלפה: הקוד הקודם אמור לחדול. בלי הקידום כאן
+   * נשאר חלון שבו ניצול של הקוד הישן כבר מחק את המפתחות ב-Redis
+   * אך טרם נכנס לנעילה — הנפקה חדשה הייתה נכנסת לפניו עם אותו דור,
+   * והניצול היה עובר את הבדיקה ומקשר את מי שמחזיק בקוד הישן, אחרי
+   * שהמסך כבר מציג קוד אחר (ביקורת Codex).
+   */
+  private async bumpGeneration(userId: string): Promise<number> {
+    const next = await this.redis.incr(`wa-link:gen:${userId}`);
+    await this.redis.expire(`wa-link:gen:${userId}`, GENERATION_TTL_SECONDS);
+    return next;
+  }
+
   private async generation(userId: string): Promise<number> {
     const value = await this.redis.get(`wa-link:gen:${userId}`);
     return value === null ? 0 : Number(value);
@@ -615,8 +630,7 @@ export class WhatsAppLinkService implements OnModuleDestroy {
      * תפוגה ארוכה בהרבה מחיי הקוד, ומתחדשת בכל ניתוק: מונה שפג בין
      * ההפקה לניצול היה נקרא כדור 0 ופוסל קוד תקין.
      */
-    await this.redis.incr(`wa-link:gen:${userId}`);
-    await this.redis.expire(`wa-link:gen:${userId}`, GENERATION_TTL_SECONDS);
+    await this.bumpGeneration(userId);
     /*
      * **וגם הקוד שממתין נשרף.**
      *
