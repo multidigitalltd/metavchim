@@ -1196,10 +1196,29 @@ code {
   top: 0;
   z-index: 30;
 }
+/*
+ * ‎78 ו-34 מהחבילה (§16) — **בשולחן העבודה בלבד.**
+ *
+ * החבילה מתארת מסך ברוחב מזערי 1320px, ולכן הערכים שלה הם ערכי
+ * שולחן עבודה. כותרת בגובה 78 על מסך של 375 גוזלת נתח מכובד מגובה
+ * הגלילה, והמובייל נשאר ב-64 שכבר עובד. זו אינה סטייה מהחבילה אלא
+ * הגבול שהיא עצמה מציבה לעצמה.
+ *
+ * מסגרת הכותרת נשארת `--color-border` ואינה מקבלת טוקן משלה:
+ * ‎#E6EBE2‎ שבחבילה רחוק ממנו בשלוש יחידות, שניהם קווים
+ * דקורטיביים, וטוקן כמעט-כפול הוא בדיוק מה שמפרק מערכת עיצוב
+ * לאורך זמן.
+ */
 @media (min-width: 640px) {
   .mv-topbar {
-    gap: 16px;
+    gap: 14px;
     padding: 0 26px;
+  }
+}
+@media (min-width: 1024px) {
+  .mv-topbar {
+    height: 78px;
+    padding: 0 34px;
   }
 }
 .mv-topbar-end {
@@ -1220,8 +1239,10 @@ code {
  */
 .mv-screen-title {
   margin: 0;
-  font-size: 16px;
-  font-weight: 800;
+  /* ‎19/900/-.02em מהחבילה (§16) — היה 16/800 */
+  font-size: 19px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
   color: var(--color-text);
   white-space: nowrap;
   overflow: hidden;
@@ -5229,4 +5250,103 @@ a.mv-bar-row:focus-visible {
   .mv-metric:hover {
     transform: none;
   }
+}
+
+/*
+ * שורת אישור למצב ריק (§22).
+ *
+ * „Never an empty panel and never a red-flavoured warning”: פאנל
+ * שאין בו נתונים אינו תקלה, ולכן הוא מקבל אישור ירוק ולא אזהרה.
+ * המספר עצמו נשאר ‎`--color-data-muted`‎ — אפס שנקרא כאפס.
+ *
+ * מה שאין כאן הוא הכלל „every empty state names the action that
+ * fills it”. זה ניסוח ולא צורה, ולכן הוא נכתב בכל מסך בנפרד —
+ * „אין לידים שממתינים — הכל טופל” ולא „אין נתונים”.
+ */
+.mv-zero-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.mv-zero-line svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+/*
+ * כרטיס המונה (§24) — „It is a CARD, not a pill”.
+ *
+ * ההדגשה במקור, וההבדל אמיתי: גלולה נקראת כתגית שמלווה משהו אחר,
+ * וכרטיס נקרא כפריט בפני עצמו. המונה אומר „חמש פעולות מחכות לך”,
+ * וזו הכותרת השנייה של המסך — לא תווית.
+ *
+ * שתי שורות הטקסט הן 15.5 ו-14. החבילה נוקבת ב-13.5 בשנייה, וזה
+ * מתחת לרצפה שהמערכת אוכפת — אותה הכרעה כמו בעינית.
+ */
+.mv-counter {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 12px 18px;
+  border-radius: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-input-border);
+}
+.mv-counter__number {
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--color-primary);
+}
+.mv-counter__lead {
+  font-size: 15.5px;
+  font-weight: 800;
+  color: var(--color-text);
+}
+.mv-counter__note {
+  font-size: var(--type-caption);
+  color: var(--color-text-muted);
+}
+
+/*
+ * ברכת העמוד (§24) — כותרת, שורת תאריך, ואז המונה בקצה.
+ *
+ * שורת התאריך נושאת מספרים ושעה בתוך טקסט עברי, ולכן כל ריצה
+ * מספרית בתוכה חייבת `dir="ltr"` עם `unicode-bidi: isolate`.
+ * בלי זה „23:02” מתהפך ל„02:23” — לא שגיאה שנראית כשגיאה, אלא
+ * שעה אחרת לגמרי.
+ */
+.mv-greet {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.mv-greet__title {
+  font-size: var(--type-h1);
+  font-weight: 900;
+  letter-spacing: var(--type-h1-track);
+  line-height: 1.06;
+  color: var(--color-text);
+}
+.mv-greet__date {
+  margin-top: 6px;
+  font-size: 15px;
+  color: var(--color-text-muted);
+}
+.mv-greet__counter {
+  margin-inline-start: auto;
+}
+/*
+ * ריצה מספרית בתוך טקסט עברי — שעה, מטבע, קיצור מקלדת, יחס.
+ *
+ * זו אינה מחלקת נוחות אלא הכלל של §6, ולכן היא קיימת כדי שאפשר
+ * יהיה לכתוב אותה פעם אחת במקום להיזכר בה בכל מסך.
+ */
+.mv-ltr {
+  direction: ltr;
+  unicode-bidi: isolate;
 }
