@@ -142,15 +142,20 @@ describe("מצבה עוצרת את ההשוואה", () => {
     "utf8",
   );
 
-  it("צירוף לפי מספר נבדק מול קישור קודם על אותו מספר", () => {
-    const fn = link.slice(
-      link.indexOf("async bindByPhone("),
-      link.indexOf("async claimUnlinkedHint("),
-    );
-    expect(fn).toContain("whatsAppLink.findFirst");
-    // בלי `revokedAt: null` — כל שורה שנמצאת כאן היא מצבה
-    expect(fn).not.toContain("revokedAt: null");
-    expect(fn).toContain("return false");
+  /*
+   * הבדיקה יושבת בתוך `bind`, תחת הנעילה: מחוצה לה היא יכולה
+   * להתיישן בדיוק כשזה קובע — ההודעה הראשונה מהמספר הישן קוראת
+   * „אין קישור קודם”, הניתוק מסתיים, והצירוף כותב קישור פעיל
+   * למכשיר שזה עתה נותק.
+   */
+  it("צירוף לפי מספר נבדק מול קישור קודם על אותו מספר, בתוך הנעילה", () => {
+    const fn = link.slice(link.indexOf("private async bind("), link.indexOf("private async lock("));
+    const lock = fn.indexOf("await this.lock(tx, userId)");
+    const tombstone = fn.indexOf("source === SOURCE_PHONE");
+    expect(lock).toBeGreaterThan(-1);
+    expect(tombstone).toBeGreaterThan(lock);
+    // בלי `revokedAt: null` — כל שורה שנמצאת שם היא מצבה
+    expect(fn.slice(tombstone, fn.indexOf("updateMany"))).not.toContain("revokedAt: null");
   });
 
   it("והדחייה אינה מגלגלת למענה השיווקי", () => {

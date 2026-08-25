@@ -342,6 +342,22 @@ export class WhatsAppLinkService implements OnModuleDestroy {
          * תקף, גם אם הניצול שלו התחיל קודם.
          */
         if (issuedAt !== undefined && (await this.revokedSince(userId, issuedAt))) return false;
+        /*
+         * **וגם המצבה נבדקת כאן — בתוך הנעילה.**
+         *
+         * בדיקה מחוץ לה יכולה להתיישן בדיוק כשזה קובע: ההודעה
+         * הראשונה מהמספר הישן קוראת „אין קישור קודם”, הניתוק מסתיים,
+         * והצירוף — שכבר עבר את הבדיקה — כותב קישור פעיל למכשיר
+         * שזה עתה נותק (ביקורת Codex). בתוך התור הקריאה תמיד רואה
+         * את מה שהניתוק כתב.
+         */
+        if (source === SOURCE_PHONE) {
+          const previous = await tx.whatsAppLink.findFirst({
+            where: { waIdHash },
+            select: { id: true },
+          });
+          if (previous !== null) return false;
+        }
         await tx.whatsAppLink.updateMany({
           where: { revokedAt: null, OR: [{ waIdHash }, { userId }] },
           data: { revokedAt: new Date(), revokedReason: "relinked" },
@@ -451,17 +467,12 @@ export class WhatsAppLinkService implements OnModuleDestroy {
     const digits = this.canonical(waId);
     if (digits === null) return false;
     /*
-     * כל שורה שנמצאת כאן היא מצבה: `resolve` כבר החזיר `null`, ולכן
-     * אין למספר הזה קישור פעיל. גם „הועבר לחשבון אחר” נכלל — מספר
-     * שהועבר במפורש אינו חוזר לבעליו הקודם בהשוואת ספרות.
+     * המצבה נבדקת בתוך `bind`, תחת הנעילה: כל שורה שנמצאת שם היא
+     * מצבה (`resolve` כבר החזיר `null`, ולכן אין קישור פעיל), וגם
+     * „הועבר לחשבון אחר” נכלל — מספר שהועבר במפורש אינו חוזר
+     * לבעליו הקודם בהשוואת ספרות.
      */
-    const previous = await this.prisma.whatsAppLink.findFirst({
-      where: { waIdHash: this.crypto.phoneHash(digits) },
-      select: { id: true },
-    });
-    if (previous !== null) return false;
-    await this.bind(digits, tenantId, userId, SOURCE_PHONE);
-    return true;
+    return this.bind(digits, tenantId, userId, SOURCE_PHONE);
   }
 
   /**
