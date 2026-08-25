@@ -15,16 +15,24 @@ import { createContext, useContext } from "react";
  */
 
 const FeaturesContext = createContext<string[] | null>(null);
+const FeaturesFailedContext = createContext<boolean>(false);
 
 export function FeaturesProvider({
   features,
+  failed = false,
   children,
 }: {
   /** `null` = טרם נטען. */
   features: string[] | null;
+  /** האם הניסיון האחרון להביא את הרשימה נכשל. */
+  failed?: boolean;
   children: React.ReactNode;
 }): React.JSX.Element {
-  return <FeaturesContext.Provider value={features}>{children}</FeaturesContext.Provider>;
+  return (
+    <FeaturesContext.Provider value={features}>
+      <FeaturesFailedContext.Provider value={failed}>{children}</FeaturesFailedContext.Provider>
+    </FeaturesContext.Provider>
+  );
 }
 
 /**
@@ -51,4 +59,20 @@ export function useFeature(code: string): boolean {
  */
 export function useFeaturesReady(): boolean {
   return useContext(FeaturesContext) !== null;
+}
+
+/**
+ * האם הניסיון להביא את רשימת היכולות **נכשל**.
+ *
+ * `useFeaturesReady` לבדו אינו מבדיל בין "עוד לא הגיעה" ל"לא תגיע
+ * לעולם" — בשני המקרים הרשימה `null`. כל עוד ההבדל היה רק בין כפתור
+ * שמוצג לכפתור שמוסתר זה הספיק; מסך שממתין לרשימה כדי להחליט אם
+ * לצאת לרשת נתקע על ההמתנה לנצח, בלי שגיאה ובלי ניסיון חוזר
+ * (ביקורת Codex).
+ *
+ * מי שממתין לרשימה צריך את שתי השאלות: `ready` כדי לדעת שהתשובה
+ * ידועה, ו-`failed` כדי לדעת שהיא לא תגיע.
+ */
+export function useFeaturesFailed(): boolean {
+  return useContext(FeaturesFailedContext);
 }

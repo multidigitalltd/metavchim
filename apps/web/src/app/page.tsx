@@ -2,11 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { groupTasksByBucket, isTaskUrgent, taskBucket , labelOf } from "@metavchim/shared";
+import {
+  groupTasksByBucket,
+  isTaskUrgent,
+  recommendationHref,
+  taskBucket,
+  labelOf,
+  type CoachRecommendation,
+} from "@metavchim/shared";
 import { apiGet, ApiError } from "@/lib/api";
 import { FIELD_LABELS, MATURITY_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
-import { useFeature, useFeaturesReady } from "@/lib/use-features";
+import { useFeature, useFeaturesFailed, useFeaturesReady } from "@/lib/use-features";
 import { VoiceConsole } from "./voice-console";
 import { DuplicateContacts } from "./duplicate-contacts";
 import { LoadError } from "./load-error";
@@ -15,6 +22,7 @@ import { SystemUpdate } from "./system-update";
 import { NowStamp } from "./now-stamp";
 import {
   IconBell,
+  IconCalendar,
   IconCheck,
   IconFilter,
   IconFlame,
@@ -130,30 +138,27 @@ function dueLabel(dueAt: string | undefined, now: Date): { text: string; urgent:
   return { text: dayFmt.format(due), urgent: false };
 }
 
-interface Recommendation {
-  priority: number;
-  type: string;
-  title: string;
-  body: string;
-  entityType?: "property" | "lead" | "buyer" | "offer" | "appointment";
-  entityId?: string;
-}
+/*
+ * הטיפוס עצמו מגיע מ-`shared` ואינו משוכפל כאן: עותק מקומי היה
+ * הדרך שבה ענף `offer` נשמט מלכתחילה — הוא היה קיים בהגדרה ולא
+ * בטיפול.
+ */
+type Recommendation = CoachRecommendation;
 
-function recHref(rec: Recommendation): string | null {
-  if (!rec.entityId) return null;
-  switch (rec.entityType) {
-    case "property":
-      return `/properties/${rec.entityId}`;
-    case "lead":
-      return `/leads/${rec.entityId}`;
-    case "buyer":
-      return `/buyers/${rec.entityId}`;
-    case "appointment":
-      return "/calendar";
-    default:
-      return null;
-  }
-}
+/*
+ * ‎**היעד נקבע ב-`shared`, ליד הפונקציה שמייצרת את ההמלצות.**
+ *
+ * העותק שהיה כאן החזיר `null` לארבעה מעשרת הסוגים — שלושה מצרפים
+ * שנכתבים בלי `entityId`, ו-`hesitating_buyer` שנושא
+ * ‎`entityType: "offer"` שלא היה לו ענף. כל אחד מהם דחוף מספיק כדי
+ * לקבל את השורה הראשונה, כלומר להיבחר כ„הדבר לעשות עכשיו”
+ * **בלי דרך לפעול** (ביקורת Codex).
+ *
+ * ‎`recommendationHref` יושבת עכשיו לצד `buildRecommendations`, עם
+ * בדיקה שמונה את הסוגים במקום לדגום אותם: סוג חדש שייכתב שם ואין
+ * לו יעד — ייפול בבנייה, ולא יגיע למסך.
+ */
+const recHref = recommendationHref;
 
 /** ברכה לפי שעת היום — הדשבורד בעיצוב פותח ב"בוקר טוב". */
 function greeting(): string {
@@ -219,10 +224,16 @@ interface TaskRow {
  * המיקום כאן הוא תחילת אותו שעון.
  */
 const PRIORITY = {
+  /** `today_appointment` */
+  todayAppointment: 105,
   /** `urgent_lead` */
   urgentLead: 100,
+  /** `pending_coop_offers` */
+  pendingCoopOffers: 95,
   /** אין מקבילה — ראו ההסבר למעלה */
   newLead: 92,
+  /** `overdue_task` */
+  overdueTask: 85,
   /** `hot_buyers_idle` */
   hotBuyer: 70,
   /** `incomplete_property` */
@@ -241,6 +252,7 @@ export default function DashboardPage() {
    * לסוכן (`loadCoach`), ולא את הדשבורד כולו — ראו ההסבר שם.
    */
   const featuresReady = useFeaturesReady();
+  const featuresFailed = useFeaturesFailed();
   const hasCoach = useFeature("ai_coach");
   /*
    * כל מקור נתונים בדשבורד מאחורי היכולת שהשרת דורש עבורו — לא רק
@@ -392,7 +404,21 @@ export default function DashboardPage() {
    * בלבד, ולא את שש הבקשות המרכזיות.
    */
   const loadCoach = useCallback(() => {
-    if (!featuresReady || !hasCoach) return;
+    /*
+     * ‎**„עוד לא ידוע” ממתין; „לא ייוודע” מנסה בכל זאת.**
+     *
+     * השער הקודם היה `!featuresReady`, ולכן `/nav/summary` שנכשל
+     * השאיר אותו סגור לנצח: `hasCoach` נשאר „כן” אופטימי, הקריאה
+     * מעולם לא יצאה, `coachFailed` מעולם לא נדלק — והדירוג נשאר
+     * כבוי בלי הסבר ובלי ניסיון חוזר. תקלה במטא-דאטה שתקה מסך
+     * (ביקורת Codex). זה בדיוק הכשל שממנו הופרדה הקריאה הזו,
+     * שירד רמה אחת.
+     *
+     * כשהרשימה לא תגיע — יוצאים. הצלחה מביאה המלצות, ו-403 מדליק
+     * `coachFailed` שמוצג עם „נסו שוב”. בשני המקרים המצב **נפתר**.
+     */
+    if (!featuresReady && !featuresFailed) return;
+    if (featuresReady && !hasCoach) return;
     setCoachFailed(false);
     apiGet<Recommendation[]>("/coach/recommendations")
       .then(setRecs)
@@ -404,7 +430,7 @@ export default function DashboardPage() {
        * (ביקורת Codex).
        */
       .catch(() => setCoachFailed(true));
-  }, [featuresReady, hasCoach]);
+  }, [featuresReady, featuresFailed, hasCoach]);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -474,7 +500,30 @@ export default function DashboardPage() {
    * הנתונים: מתווך שרואה חמש פעולות בלי אחת מודגשת קיבל פחות,
    * ומתווך שרואה הדגשה שגויה קיבל **מידע כוזב**.
    */
-  const ranked = !hasCoach || recs !== null;
+  /*
+   * ‎**הדירוג ממתין לכל מקור שהוא מדרג — גם לשלושה שנוספו כאן.**
+   *
+   * הביטוי הקודם בדק את הסוכן החכם בלבד, ומרגע שפגישות היום,
+   * המשימות באיחור והצעות השת"פ נכנסו לרשימה, בדיקה חלקית הייתה
+   * משחזרת בדיוק את התקלה שהיא נועדה לסגור: הצעת שת"פ (95) מגיעה
+   * שנייה אחרי שנכס לא מושלם (40) כבר הוכתר.
+   *
+   * מקור שנשלל אינו ממתין לכלום ולכן אינו נספר. מקור **שנכשל**
+   * אינו „נענה”: אם טעינת הרשת נכשלה איננו יודעים אם ממתינה הצעת
+   * שת"פ ב-95, והכתרת נכס לא מושלם ב-40 תהיה אמירה שקרית. אותו
+   * כלל בדיוק שהוחל על הסוכן החכם: **פחות זה חסר, שגוי זה כוזב** —
+   * ולכן אין הדגשה, וכל אחד מהכישלונות האלה כבר מוצג במקומו עם
+   * „נסו שוב” שמנקה אותו.
+   */
+  const canSeeNetwork = can(user, "collaboration.offer");
+  const ranked =
+    (!hasCoach || recs !== null) &&
+    (!canSeeCalendar || today !== null) &&
+    (!canSeeCalendar || myTasks !== null) &&
+    (!canSeeNetwork || network !== null);
+
+  /* „עכשיו” אחד לכל המסך — הדירוג והרשימות חייבים למדוד מאותה נקודה. */
+  const now = new Date();
 
   const activeProps = (properties ?? []).filter(
     (p) => p.status === undefined || ["draft", "active", "on_hold"].includes(p.status),
@@ -544,6 +593,72 @@ export default function DashboardPage() {
       href: `/properties/${p.id}/edit`,
     });
   }
+  /*
+   * ‎**שלושת המקורות שהמסך טוען ומעולם לא הכניס לרשימה.**
+   *
+   * פגישות היום, המשימות שלי והצעות השת"פ הממתינות הוצגו בטור
+   * הצדדי בלבד. כל עוד השורות נראו זהות זה היה סידור; מרגע שהשורה
+   * הראשונה מכריזה „זה הדבר לעשות עכשיו”, ההכרזה נעשתה מעל קבוצה
+   * שמלכתחילה **אינה יכולה** להכיל את הפריט הדחוף ביותר — פגישה
+   * בעוד שעתיים יושבת בצד בזמן שנכס לא מושלם (40) מוכתר
+   * (ביקורת Codex).
+   *
+   * ‎`ranked` היה `true` ללא תנאי למסלול בלי סוכן חכם, כלומר דווקא
+   * אצל מי שאין לו את המקור שכן מכיל אותם.
+   *
+   * המספרים אינם מומצאים — הם של `buildRecommendations` עצמו, שכבר
+   * מדרג את אותם שלושה מושגים (105 / 95 / 85). זה מה שהופך את שני
+   * המקורות לסולם אחד במקום לשניים.
+   *
+   * ‎**הכפילות מול הטור הצדדי מכוונת**, וכך גם בחבילת העיצוב: שם
+   * השורה הראשונה היא „5 הצעות שיתוף פעולה ממתינות לתגובה” בעוד
+   * כרטיס „שת״פים” בצד מציג את אותו מספר. הרשימה אומרת מה לעשות,
+   * הכרטיס אומר מה יש. כשהסוכן החכם דולק הוא שולח את אותן המלצות,
+   * והסרת הכפילות לפי היעד — שכבר רצה אחרי המיון — משאירה אחת.
+   */
+  for (const a of (today ?? []).filter((x) => x.status !== "cancelled")) {
+    push({
+      key: `appt-${a.id}`,
+      priority: PRIORITY.todayAppointment,
+      domain: "blue",
+      title: `היום ${timeFmt.format(new Date(a.startsAt))} — ${a.title ?? APPOINTMENT_KIND_LABELS[a.kind] ?? a.kind}`,
+      why: "כדאי לוודא מול הלקוח שהפגישה בתוקף, ולהגיע עם הנכסים המתאימים בהישג יד.",
+      action: "ליומן",
+      icon: <IconCalendar s={16} />,
+      href: "/calendar",
+    });
+  }
+  if (network !== null && network.incomingOffers > 0) {
+    push({
+      key: "coop-offers",
+      priority: PRIORITY.pendingCoopOffers,
+      domain: "green",
+      title:
+        network.incomingOffers === 1
+          ? "הצעת שיתוף פעולה ממתינה לתגובה"
+          : `${network.incomingOffers} הצעות שיתוף פעולה ממתינות לתגובה`,
+      why: "משרד אחר הציע נכס על אחד הביקושים שלכם ומחכה לתשובה.",
+      action: "לעבור על ההצעות",
+      icon: <IconHandshake s={16} />,
+      href: "/collaboration",
+    });
+  }
+  const overdueTasks = (myTasks ?? []).filter((t) => taskBucket(t.dueAt ?? null, now) === "overdue");
+  if (overdueTasks.length > 0) {
+    push({
+      key: "overdue-tasks",
+      priority: PRIORITY.overdueTask,
+      domain: "peach",
+      title:
+        overdueTasks.length === 1
+          ? `משימה באיחור: ${overdueTasks[0]!.title}`
+          : `${overdueTasks.length} משימות באיחור`,
+      why: "משימה שעבר זמנה. אם היא כבר לא רלוונטית — עדיף לסגור אותה מלהשאיר אותה פתוחה.",
+      action: "למשימות",
+      icon: <IconCheck s={16} />,
+      href: "/tasks",
+    });
+  }
   for (const b of hotBuyers.slice(0, 2)) {
     push({
       key: `hot-${b.id}`,
@@ -592,7 +707,6 @@ export default function DashboardPage() {
    * כל דלי לפי עדיפות ואז מועד. מיון מקומי היה מציג כאן סדר אחר
    * מזה שרואים בלחיצה על "לכל המשימות".
    */
-  const now = new Date();
   const shownMyTasks = groupTasksByBucket(myTasks ?? [], now)
     .flatMap((group) => group.tasks)
     .slice(0, 4);

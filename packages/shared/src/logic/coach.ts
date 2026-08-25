@@ -183,3 +183,42 @@ export function buildRecommendations(signals: CoachSignals): CoachRecommendation
 
   return recs.sort((a, b) => b.priority - a.priority);
 }
+
+/*
+ * ‎**היעד של המלצה — כאן ולא במסך.**
+ *
+ * הכלל הזה נשבר ארבע פעמים בזו אחר זו, כל פעם בסוג אחר: שלוש
+ * המלצות מצרפות נכתבות בלי `entityId` ולכן החזירו `null`, ו-
+ * `hesitating_buyer` נושא `entityType: "offer"` שלא היה לו ענף.
+ * כל אחת מהן דחופה מספיק כדי לקבל את השורה הראשונה, כלומר להיבחר
+ * כ„הדבר לעשות עכשיו” ולהופיע **בלי דרך לפעול**.
+ *
+ * תיקון נקודתי במסך היה מזמין את החמישית. כלל שנשבר שוב ושוב הוא
+ * כלל שמקומו כאן — ליד הפונקציה שמייצרת את הסוגים, עם בדיקה
+ * שמונה אותם. `recommendationHref` מחזיר `null` רק לסוג שבאמת אין
+ * לו יעד, ובדיקה אחת מוודאת שאין כזה.
+ */
+const AGGREGATE_HREF: Record<string, string> = {
+  pending_coop_offers: "/collaboration",
+  overdue_task: "/tasks",
+  hot_buyers_idle: "/buyers",
+};
+
+export function recommendationHref(rec: CoachRecommendation): string | null {
+  if (rec.entityId === undefined) return AGGREGATE_HREF[rec.type] ?? null;
+  switch (rec.entityType) {
+    case "property":
+      return `/properties/${rec.entityId}`;
+    case "lead":
+      return `/leads/${rec.entityId}`;
+    case "buyer":
+      return `/buyers/${rec.entityId}`;
+    /* אין מסך לפגישה בודדת ואין להצעה בודדת — הרשימה היא היעד. */
+    case "appointment":
+      return "/calendar";
+    case "offer":
+      return "/offers";
+    default:
+      return AGGREGATE_HREF[rec.type] ?? null;
+  }
+}
