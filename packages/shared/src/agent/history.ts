@@ -190,11 +190,22 @@ export function numberedForms(
   numberable?: readonly boolean[],
 ): { display: string[]; memory: string[] } {
   const mayNumber = (i: number): boolean => numberable?.[i] ?? true;
+  /*
+   * **הספירה כוללת את כולם; רק ההצמדה מוגבלת.**
+   *
+   * ספירה שדילגה על מי שאינו רשאי למספר עיוורת בדיוק להתנגשות
+   * שהיא אמורה למצוא: שם קונה ארוך ופגישה שכותרתה שווה לארבעים
+   * התווים הראשונים שלו נראים שונה בתצוגה ונחתכים לאותה רישא
+   * בזיכרון. איש מהם לא נספר כפול, אף אחד לא מוספר, ושתי השורות
+   * חוזרות לפרומפט באותה תווית — כשרק לאחת מהן יש הפניה
+   * (ביקורת Codex).
+   *
+   * ההכרעה מי מקבל את המספר נשארת כפי שהייתה: השורה שיש לה רשומה
+   * זזה, ושורת האירוע נשארת בשמה.
+   */
   const tally = (values: readonly string[]): Map<string, number> => {
     const counts = new Map<string, number>();
-    values.forEach((value, i) => {
-      if (mayNumber(i)) counts.set(value, (counts.get(value) ?? 0) + 1);
-    });
+    for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
     return counts;
   };
   const displayCounts = tally(display);

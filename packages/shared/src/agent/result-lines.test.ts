@@ -544,6 +544,30 @@ describe("אורך הכותרת — התקציב של הזיכרון", () => {
    * שונות („…” מול התו האמיתי) והרישות זהות — כלומר התנגשות
    * שקיימת רק בזיכרון, ובדיקת התצוגה לבדה מפספסת אותה.
    */
+  /*
+   * ההתנגשות יכולה להיות בין שורה שיש לה רשומה לבין שורת אירוע:
+   * שם קונה ארוך ופגישה שכותרתה שווה לרישא שלו. ספירה שדילגה על מי
+   * שאינו רשאי למספר לא ראתה אותה כלל, ושתי השורות חזרו לפרומפט
+   * באותה תווית — כשרק לאחת יש הפניה (ביקורת Codex).
+   */
+  it("גם פגישה שנחתכה לרישא של קונה נספרת — והקונה זז", () => {
+    const found = {
+      buyers: [{ id: "b1", name: "א".repeat(45), cities: [] }],
+      appointments: [
+        { id: "a1", title: "א".repeat(AGENT_RESULT_LABEL_MAX), startsAt: "2026-08-24T13:00:00Z" },
+      ],
+    };
+    const rows = agentResultList(found)!.rows;
+    const memory = rows.map((row) => row.memoryLabel ?? row.label);
+    expect(new Set(memory).size).toBe(2);
+    // הכרטיס הוא זה שזז; הפגישה נשארת בכותרת שלה
+    expect(/ \d$/u.test(memory[0]!)).toBe(true);
+    expect(memory[1]).toBe("א".repeat(AGENT_RESULT_LABEL_MAX));
+    expect(agentResultRefs(found)).toEqual([
+      { label: memory[0], entityType: "buyer", entityId: "b1" },
+    ]);
+  });
+
   it("התנגשות שקיימת רק בזיכרון ממוספרת גם היא", () => {
     const exact = "א".repeat(AGENT_RESULT_LABEL_MAX);
     const found = {
