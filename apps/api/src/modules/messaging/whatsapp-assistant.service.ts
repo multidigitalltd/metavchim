@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
   agentAction,
+  agentResultText,
   applyBlockedModules,
   resolveCapabilities,
   roleLabel,
@@ -878,8 +879,23 @@ export class WhatsAppAssistantService {
      * הסיכום הכללי חותך בחמש שורות ומוותר על הסיבה ועל זמן ההמתנה,
      * וזו בדיוק הרשימה שקיימת כדי לשאת אותם (ביקורת Codex).
      */
+    /*
+     * ‎`agentResultText` הוא מה שהופך „5 שיחות אחרונות” לתשובה.
+     *
+     * המנסח הכללי מחפש `name`/`title` בלבד, ולכן על שיחות, על דוח
+     * המשרד ועל התאמות הוא החזיר **מחרוזת ריקה** — הודעה עם מספר
+     * ובלי שום פרט. הבחירה מה מציגים יושבת בלוגיקה המשותפת יחד עם
+     * זו של הפאנל במערכת, כדי ששתי הפנים של הסוכן לא יענו שתי
+     * תשובות שונות על אותה שאלה.
+     *
+     * הסדר: הרשימות הייעודיות (חזרות, כרטיס) קודם — הן יודעות על
+     * הצורה שלהן יותר; אחר כך הרשימה המשותפת; ורק בסוף הכללי.
+     */
     const dataSummary =
-      formatCallbacks(primary.data) ?? formatCard(primary.data) ?? summarizeData(primary.data);
+      formatCallbacks(primary.data) ??
+      formatCard(primary.data) ??
+      agentResultText(primary.data) ??
+      summarizeData(primary.data);
     if (dataSummary !== "") lines.push(dataSummary);
     /*
      * סייג ההיקף — התשובה היא על *הנתונים שלו*, לא של המשרד.

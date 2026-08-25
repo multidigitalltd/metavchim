@@ -1,5 +1,11 @@
 "use client";
 
+import {
+  APPOINTMENT_KIND_LABELS,
+  COOP_DEAL_STAGE_LABELS,
+  officeReportStats,
+  type CoopDealStage,
+} from "@metavchim/shared";
 import { formatPrice } from "@/lib/format";
 import {
   IconCalendar,
@@ -96,19 +102,13 @@ interface DealRow {
   lastActivityAt: string;
 }
 
-const APPOINTMENT_KIND: Record<string, string> = {
-  viewing: "סיור",
-  meeting: "פגישה",
-  call: "שיחה",
-};
-
-const DEAL_STAGE: Record<string, string> = {
-  contact: "יצירת קשר",
-  viewing: "סיור",
-  negotiation: "משא ומתן",
-  signed: "נחתם",
-  cancelled: "בוטל",
-};
+/*
+ * התוויות מגיעות מהלוגיקה המשותפת, ולא נכתבות כאן.
+ *
+ * שתי המפות היו מקומיות, ו-`DEAL_STAGE` כבר **הספיקה להתפצל**:
+ * מסך העסקה המשותפת אומר „לא יצא לפועל”, והפאנל הזה אמר „בוטל”
+ * על אותו שלב בדיוק. אותו סוכן, שתי תשובות.
+ */
 
 function whenText(iso: string): string {
   const at = new Date(iso);
@@ -148,7 +148,7 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
         {payload.appointments.map((a) => (
           <li key={a.id} className="mv-result-row">
             <a href="/calendar" className="font-medium underline">
-              <IconCalendar s={15} /> {a.title || APPOINTMENT_KIND[a.kind] || "פגישה"}
+              <IconCalendar s={15} /> {a.title || APPOINTMENT_KIND_LABELS[a.kind] || "פגישה"}
             </a>
             <span style={{ color: "var(--color-text-muted)" }}>{whenText(a.startsAt)}</span>
           </li>
@@ -265,7 +265,7 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
               <IconHandshake s={15} /> {d.title}
             </a>
             <span style={{ color: "var(--color-text-muted)" }}>
-              {[DEAL_STAGE[d.stage] ?? d.stage, d.counterpartOffice].filter(Boolean).join(" · ")}
+              {[COOP_DEAL_STAGE_LABELS[d.stage as CoopDealStage] ?? d.stage, d.counterpartOffice].filter(Boolean).join(" · ")}
             </span>
           </li>
         ))}
@@ -274,27 +274,15 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
   }
 
   if (typeof payload.report === "object" && payload.report !== null) {
-    const report = payload.report as {
-      properties?: { active?: number };
-      buyers?: { total?: number; hot?: number };
-      leads?: { open?: number };
-      deals?: { closed?: number };
-      offers?: { sent?: number };
-      appointments?: { upcoming?: number };
-    };
-    const stats: [string, number | undefined][] = [
-      ["עסקאות שנסגרו", report.deals?.closed],
-      ["נכסים פעילים", report.properties?.active],
-      ["קונים חמים", report.buyers?.hot],
-      ["לידים פתוחים", report.leads?.open],
-      ["הצעות שנשלחו", report.offers?.sent],
-      ["פגישות קרובות", report.appointments?.upcoming],
-    ];
+    /*
+     * אילו מדדים, באיזה סדר ובאילו שמות — בלוגיקה המשותפת, כדי
+     * שהסוכן בוואטסאפ ימסור בדיוק את אותו דוח.
+     */
+    const stats = officeReportStats(payload.report);
     return (
       <ul className="flex flex-col gap-2">
         {stats
-          .filter((entry): entry is [string, number] => typeof entry[1] === "number")
-          .map(([label, value]) => (
+          .map(({ label, value }) => (
             <li key={label} className="mv-result-row">
               <span className="font-medium">{label}</span>
               <span style={{ color: "var(--color-text-muted)" }}>{value}</span>
