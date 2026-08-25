@@ -563,8 +563,15 @@ const CORRECTION_MARKER = /(?:^|[^\s\p{L}\p{N}])\s*(לא|סליחה|בעצם|ט�
  * שבא אחריה. `null` = אין תיקון, כלומר הביטוי הראשון עומד בעינו —
  * וזהו הכישלון הבטוח מבין השניים.
  */
-function correctionAt(after: string): { rest: string } | null {
+function correctionAt(after: string, searchLimit = after.length): { rest: string } | null {
   for (const match of after.matchAll(CORRECTION_MARKER)) {
+    /*
+     * ‎`searchLimit` חוסם את **מציאת הסימן** בלבד, ולא את קריאת מה
+     * שאחריו: היעד של התיקון בא אחרי הסימן, ולעיתים קרובות הוא
+     * עצמו ביטוי הזמן שהגבול נמדד לפיו. חיתוך המחרוזת כולה היה
+     * מוחק את „ביום שלישי” מ„בעוד שעה, בעצם ביום שלישי”.
+     */
+    if (match.index >= searchLimit) break;
     const rest = after.slice(match.index + match[0].length);
     // „לא” שוללת את מה שאחריה; רק פיסוק מפריד הופך אותה לתיקון
     if (match[1] === "לא" && !/^\s*[^\s\p{L}\p{N}]/u.test(rest)) continue;
@@ -837,7 +844,8 @@ function correctedToCalendar(text: string, offsetEnd: number, limit: number): bo
    * ולכן הכלל יושב עכשיו במקום אחד. „לא” והדרישה לפיסוק אחריה
    * נכללות בו.
    */
-  const correction = correctionAt(text.slice(offsetEnd, limit));
+  const after = text.slice(offsetEnd);
+  const correction = correctionAt(after, limit - offsetEnd);
   if (correction === null) return false;
   // הלוח חייב להיות צמוד לסימן — אחרת יום שמופיע במקרה בהמשך המשפט
   // היה מוחק את ההיסט
@@ -864,15 +872,40 @@ const NEGATED_CALENDAR =
   /(?<![\p{L}\p{N}])לא\s+(מחר|מחרתיים|היום|ב?יום\s+(?:ראשון|שני|שלישי|רביעי|חמישי|שישי)|ב?שבת)(?![\p{L}\p{N}])/gu;
 
 /**
+ * ביטויי לוח שנה בכל מקום בטקסט — לצורך גבול הפסוקית בלבד.
+ *
+ * אותה רשימה של `calendarStart`, בלי העיגון להתחלה: כאן השאלה
+ * אינה „האם התיקון מצביע על לוח שנה” אלא „היכן מתחיל ביטוי הזמן
+ * הבא”.
+ */
+const CALENDAR_ANYWHERE =
+  /(?<![\p{L}\p{N}])(מחר|מחרתיים|היום|ב?יום\s+(?:ראשון|שני|שלישי|רביעי|חמישי|שישי)|ב?שבת|ב?מוצ["״]ש)(?![\p{L}\p{N}])/gu;
+
+/**
  * תחילת ביטוי הזמן הבא אחרי הנבחר, או סוף הטקסט.
  *
  * ‎`masks` נושאת את גבולותיהם של **כל** ביטויי הזמן שזוהו, ולכן היא
  * בדיוק מה שנדרש כדי לדעת היכן נגמרת הפסוקית של הנבחר.
  */
-function nextExpressionStart(relative: RelativeOffset, end: number): number {
-  let limit = end;
+function nextExpressionStart(relative: RelativeOffset, text: string): number {
+  let limit = text.length;
   for (const span of relative.masks) {
     if (span.start >= relative.end && span.start < limit) limit = span.start;
+  }
+  /*
+   * ‎`masks` נושאת רק ביטויים שנפתחו ב-`RELATIVE_TRIGGER`, ולכן
+   * ביטוי **לוח שנה** שחוצץ ביניהם לא סגר את הפסוקית: „בעוד שעה
+   * לשלוח מסמך שמגיע ביום שני, בעצם ביום שלישי” נתן ליום שלישי
+   * לתקן את התזכורת, בעוד שהוא מתקן את מועד המסמך (ביקורת Codex).
+   *
+   * גם יום בשבוע הוא ביטוי זמן, וגם הוא פותח פסוקית משלו.
+   */
+  CALENDAR_ANYWHERE.lastIndex = 0;
+  for (const match of text.matchAll(CALENDAR_ANYWHERE)) {
+    if (match.index >= relative.end && match.index < limit) {
+      limit = match.index;
+      break;
+    }
   }
   return limit;
 }
@@ -893,7 +926,7 @@ export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTi
     relative !== null &&
     relative.ms !== null &&
     !/מחר|מחרתיים|היום/u.test(text) &&
-    !correctedToCalendar(text, relative.end, nextExpressionStart(relative, text.length))
+    !correctedToCalendar(text, relative.end, nextExpressionStart(relative, text))
   ) {
     const at = new Date(now.getTime() + relative.ms);
     /*
