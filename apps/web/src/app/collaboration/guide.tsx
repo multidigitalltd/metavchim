@@ -89,12 +89,12 @@ export function CollaborationGuide() {
       <h2
         id="coop-guide-heading"
         className="m-0 mb-1"
-        style={{ fontSize: 17, fontWeight: 800 }}
+        style={{ fontSize: "calc(17 / 16 * 1rem)", fontWeight: 800 }}
       >
         איך עובדת רשת שיתופי הפעולה
       </h2>
       <p
-        className="m-0 mb-4 text-[14.5px]"
+        className="m-0 mb-4 text-[length:var(--type-caption-lg)]"
         style={{ color: "var(--color-text-soft)" }}
       >
         קונה שאין לו נכס, ונכס שאין לו קונה — יושבים בשני משרדים שונים. הרשת
@@ -110,12 +110,12 @@ export function CollaborationGuide() {
           >
             <div className="mb-1.5 flex items-center gap-2">
               <span style={{ color: "var(--color-primary)" }}>{step.icon}</span>
-              <b className="text-[15px]">
+              <b className="text-[length:var(--type-body-sm)]">
                 {index + 1}. {step.title}
               </b>
             </div>
             <p
-              className="m-0 text-[14px]"
+              className="m-0 text-[length:var(--type-caption)]"
               style={{ color: "var(--color-text-muted)" }}
             >
               {step.body}
@@ -132,7 +132,7 @@ export function CollaborationGuide() {
         שהמסך מראה הוא בדיוק הטקסט המיותר שהפך את האזור לעמוס.
       */}
       <p
-        className="m-0 mb-3 text-[14.5px]"
+        className="m-0 mb-3 text-[length:var(--type-caption-lg)]"
         style={{ color: "var(--color-text-soft)" }}
       >
         <IconGift s={14} /> שיתוף פעולה עם משרד תיווך — <b>חינם בכל המסלולים</b>

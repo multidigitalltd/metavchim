@@ -295,7 +295,7 @@ export function ListFilters({
         <button
           type="button"
           className="mv-btn-plain"
-          style={{ minHeight: 38, fontSize: "14px", paddingInline: 14 }}
+          style={{ minHeight: 38, fontSize: "var(--type-caption)", paddingInline: 14 }}
           aria-expanded={open}
           onClick={() => setOpen(!open)}
         >
@@ -305,7 +305,7 @@ export function ListFilters({
           <button
             type="button"
             className="mv-btn-plain"
-            style={{ minHeight: 38, fontSize: "14px", paddingInline: 14 }}
+            style={{ minHeight: 38, fontSize: "var(--type-caption)", paddingInline: 14 }}
             onClick={clear}
           >
             <IconX s={14} /> נקה

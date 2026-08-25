@@ -195,7 +195,7 @@ export function MatchWeightsSection() {
         קרה כלום. עדיף שיידע מראש.
       */}
         <p
-          className="m-0 mb-4 rounded-lg border p-2.5 text-[14px]"
+          className="m-0 mb-4 rounded-lg border p-2.5 text-[length:var(--type-caption)]"
           style={{
             borderColor: "var(--color-border)",
             background: "var(--color-bg)",
@@ -222,7 +222,7 @@ export function MatchWeightsSection() {
                     {MATCH_CRITERION_LABELS[criterion]}
                     {isHard ? (
                       <span
-                        className="ms-1.5 text-[14px]"
+                        className="ms-1.5 text-[length:var(--type-caption)]"
                         style={{ color: "var(--color-text-muted)" }}
                       >
                         (פוסל)
@@ -261,7 +261,7 @@ export function MatchWeightsSection() {
         </ul>
 
         <p
-          className="m-0 mb-3 text-[14px]"
+          className="m-0 mb-3 text-[length:var(--type-caption)]"
           style={{ color: "var(--color-text-muted)" }}
         >
           סך המשקלים: {total}%. אין צורך להגיע ל-100 — הציון נקבע לפי היחס
@@ -273,7 +273,7 @@ export function MatchWeightsSection() {
         למחוק מועמדים מהרשימה — כלומר שקר במסך.
       */}
         <p
-          className="m-0 mb-3 text-[14px]"
+          className="m-0 mb-3 text-[length:var(--type-caption)]"
           style={{ color: "var(--color-text-muted)" }}
         >
           המסומנים כ„פוסל" אינם יורדים לאפס: הם לא רק משפיעים על הציון אלא
@@ -301,7 +301,7 @@ export function MatchWeightsSection() {
             <span>
               <span className="font-medium">כיול אוטומטי לפי הדחיות</span>
               <span
-                className="mt-0.5 block text-[14px]"
+                className="mt-0.5 block text-[length:var(--type-caption)]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 כשמצטברות מספיק דחיות מסיבה אחת (למשל „המחיר לא מתאים"), המערכת
@@ -312,7 +312,7 @@ export function MatchWeightsSection() {
           </label>
           {calibration !== null ? (
             <p
-              className="m-0 mt-2 text-[14px]"
+              className="m-0 mt-2 text-[length:var(--type-caption)]"
               style={{ color: "var(--color-text-muted)" }}
             >
               כיול אחרון ({formatDate(calibration.at)}):{" "}

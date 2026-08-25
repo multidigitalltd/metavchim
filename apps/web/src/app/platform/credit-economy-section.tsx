@@ -71,7 +71,7 @@ function NumberField({
         ) : null}
       </span>
       {hint !== undefined ? (
-        <span className="mt-0.5 block text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+        <span className="mt-0.5 block text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
           {hint}
         </span>
       ) : null}
@@ -228,7 +228,7 @@ export function CreditEconomySection({ refreshToken = 0 }: { refreshToken?: numb
 
       {/* ---------- חבילות ---------- */}
       <h3 className="mb-1 text-sm font-semibold">חבילות למכירה</h3>
-      <p className="mb-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="mb-2 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
         בלי חבילות נמכר ביחידות בלבד. ההנחה מחושבת מול מחיר הקרדיט הבודד.
       </p>
       <div className="mb-2 flex flex-col gap-2">
@@ -271,7 +271,7 @@ export function CreditEconomySection({ refreshToken = 0 }: { refreshToken?: numb
                   style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
                 />
               </label>
-              <span className="pb-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+              <span className="pb-2 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                 {toShekels(Math.round(packageUnitPriceAgorot(pkg)))} ₪ לקרדיט
                 {/* הנחה שלילית מוצגת ככזו: חבילה יקרה ממחיר היחידה היא טעות הקלדה */}
                 {discount !== 0 ? (
@@ -302,7 +302,7 @@ export function CreditEconomySection({ refreshToken = 0 }: { refreshToken?: numb
 
       {/* ---------- התמורה על הפניה ---------- */}
       <h3 className="mb-1 mt-5 text-sm font-semibold">התמורה על הפניית לקוח</h3>
-      <p className="mb-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="mb-2 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
         <b>שני המסלולים פעילים.</b> המשרד המפנה בוחר ברגע הפרסום, והבחירה
         נצרבת על ההפניה — שינוי מחיר אחר כך אינו נוגע בעסקה שכבר פורסמה. עמלת
         מסלול הקרדיטים נערכת למעלה כ&quot;עמלת הפלטפורמה על הפניית לקוח&quot;,
@@ -337,7 +337,7 @@ export function CreditEconomySection({ refreshToken = 0 }: { refreshToken?: numb
 
       {/* תרחיש חי: תמחור דו-מסלולי קשה לדמיין, וטעות כאן היא כסף אמיתי */}
       <div
-        className="mt-3 rounded-lg border p-3 text-[14.5px]"
+        className="mt-3 rounded-lg border p-3 text-[length:var(--type-caption-lg)]"
         style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
       >
         <b>לדוגמה — הפניה שנמכרה ב-100 קרדיטים:</b>

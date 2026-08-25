@@ -122,7 +122,7 @@ function Tile({
         {icon}
         {label}
       </span>
-      <strong style={{ fontSize: 24, fontWeight: 800, color }}>{value}</strong>
+      <strong style={{ fontSize: "calc(24 / 16 * 1rem)", fontWeight: 800, color }}>{value}</strong>
     </>
   );
 

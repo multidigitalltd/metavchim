@@ -121,11 +121,11 @@ export function SingleSessionGuard(): React.JSX.Element | null {
           <span className="mv-agent-badge" aria-hidden="true" style={{ width: 40, height: 40 }}>
             <IconShield s={19} />
           </span>
-          <h2 id="single-session-title" className="m-0 text-[18px] font-extrabold">
+          <h2 id="single-session-title" className="m-0 text-[length:calc(18/16*1rem)] font-extrabold">
             זוהה חיבור נוסף לחשבון
           </h2>
         </div>
-        <p className="m-0 mb-3 text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
+        <p className="m-0 mb-3 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-soft)" }}>
           החשבון שלכם מחובר כרגע גם ממקום אחר. מטעמי אבטחה אפשר להישאר מחוברים
           רק ממכשיר אחד — בחרו איפה להמשיך.
         </p>
@@ -137,8 +137,8 @@ export function SingleSessionGuard(): React.JSX.Element | null {
               className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2.5"
               style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
             >
-              <span className="text-[15px] font-semibold">{describeDevice(row.userAgent)}</span>
-              <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+              <span className="text-[length:var(--type-body-sm)] font-semibold">{describeDevice(row.userAgent)}</span>
+              <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                 התחברות: {formatDateTime(row.createdAt)}
                 {row.ipAddress !== null ? (
                   <>

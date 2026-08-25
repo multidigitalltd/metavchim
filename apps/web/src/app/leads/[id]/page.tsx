@@ -368,10 +368,10 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
       עליו כדי להגיע לטופס שהוא כל תוכן המסך הוא חיכוך בלי תמורה.
     */
     <section className="mv-list-card px-5 py-[18px]">
-      <h2 className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
+      <h2 className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
         <IconHandshake s={16} /> הפניית הלקוח למשרד אחר
       </h2>
-      <p className="mt-1 mb-4 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="mt-1 mb-4 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
         לקוח שאינו מתאים לכם — לא באזור שלכם, לא בתחום שלכם או שאין לכם פנאי —
         יכול לקבל מענה במשרד אחר, ואתם מקבלים תמורה על ההפניה. בלוח יופיעו רק
         הכוונה, המקור, הסיבה והתיאור שתכתבו; שם וטלפון נחשפים למשרד הקולט רק
@@ -400,7 +400,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
             ))}
           </select>
           {reason ? (
-            <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+            <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
               {REFERRAL_REASONS.find((option) => option.value === reason)?.hint}
             </span>
           ) : null}
@@ -440,7 +440,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
             בדיעבד היא בדיוק מה שהורס אמון בלוח.
           */}
           {settlement === null && preview ? (
-            <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+            <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
               המשרד הקולט משלם {preview.priceCredits} · עמלת פלטפורמה{" "}
               {terms ? `${terms.platformFeePercent}% = ` : ""}
               {preview.platformFeeCredits} · <b>אליכם {preview.payoutCredits} קרדיטים</b>
@@ -474,7 +474,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
                     onChange={() => setPayoutMode(mode)}
                     className="mt-0.5"
                   />
-                  <span className="text-[14px]">
+                  <span className="text-[length:var(--type-caption)]">
                     <b>{PAYOUT_MODE_LABEL[mode]}</b>
                     <br />
                     {mode === "credits" ? (
@@ -494,7 +494,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
                 </label>
               ))}
             </div>
-            <p className="m-0 mt-1 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+            <p className="m-0 mt-1 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
               המשרד הקולט משלם {priceNumber} קרדיטים בשני המסלולים. הבחירה נקבעת עכשיו
               ואי אפשר לשנותה אחרי הפרסום.
             </p>
@@ -539,7 +539,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
         </label>
       </div>
 
-      <p className="mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
         המשרד הקולט משלם על ההפניה ברגע הקליטה, ולא על עסקה שתיסגר. אחרי הקליטה
         הוא מאשר את ההצהרה שלכם, והפער בין השניים הוא המוניטין שמוצג לצד ההפניות
         הבאות שלכם — כלומר <b>הצהרה מדויקת שווה יותר מהצהרה גבוהה</b>.
@@ -886,7 +886,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
     <>
       <Link
         href="/leads"
-        className="mb-3.5 inline-block text-[15px] font-bold no-underline hover:underline"
+        className="mb-3.5 inline-block text-[length:var(--type-body-sm)] font-bold no-underline hover:underline"
         style={{ color: "var(--color-primary)" }}
       >
         → חזרה לרשימת הלידים
@@ -914,14 +914,14 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             background: "var(--color-primary-soft)",
             color: "var(--color-primary)",
             fontWeight: 800,
-            fontSize: 19,
+            fontSize: "19px",
           }}
         >
           {initials(lead.contact.name)}
         </span>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="m-0" style={{ fontSize: 21, fontWeight: 800 }}>
+            <h1 className="m-0" style={{ fontSize: "calc(21 / 16 * 1rem)", fontWeight: 800 }}>
               {lead.contact.name}
             </h1>
             {/* הכוונה צמודה לשם: "קונה" ו"מוכר" הן שתי שיחות שונות */}
@@ -952,7 +952,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             />
           </div>
           <p
-            className="m-0 mt-1 text-[14.5px]"
+            className="m-0 mt-1 text-[length:var(--type-caption-lg)]"
             style={{ color: "var(--color-text-muted)" }}
           >
             <span dir="ltr">{lead.contact.phone}</span> · מקור:{" "}
@@ -989,14 +989,14 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             target="_blank"
             rel="noreferrer"
             className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: 14.5 }}
+            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
           >
             <IconChat s={14} /> וואטסאפ
           </a>
           <a
             href={`tel:${lead.contact.phone}`}
             className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: 14.5 }}
+            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
           >
             <IconPhone s={14} /> חייג
           </a>
@@ -1009,7 +1009,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             <a
               href={`mailto:${lead.contact.email}`}
               className="mv-btn-plain"
-              style={{ minHeight: 36, paddingInline: 13, fontSize: 14.5 }}
+              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
             >
               <IconMail s={14} /> אימייל
             </a>
@@ -1017,7 +1017,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           <Link
             href={`/calendar/new?leadId=${lead.id}`}
             className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: 14.5 }}
+            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
           >
             <IconCalendar s={14} /> קבע פגישה
           </Link>
@@ -1094,7 +1094,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                   id="lead-summary-heading"
                   className="m-0 mb-1.5"
                   style={{
-                    fontSize: 14.5,
+                    fontSize: "var(--type-caption-lg)",
                     fontWeight: 800,
                     color: "var(--color-primary)",
                   }}
@@ -1104,7 +1104,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                 {/* whitespace-pre-line: שורות ההודעה נשמרות כפי שנשלחו */}
                 <p
                   className="m-0 whitespace-pre-line"
-                  style={{ fontSize: 15.5, lineHeight: 1.5 }}
+                  style={{ fontSize: "var(--type-body)", lineHeight: 1.5 }}
                 >
                   {lead.summary}
                 </p>
@@ -1117,7 +1117,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                 <h2
                   id="lead-summary-heading"
                   className="m-0 mb-1.5"
-                  style={{ fontSize: 16.5, fontWeight: 800 }}
+                  style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
                 >
                   תוכן הפנייה
                 </h2>
@@ -1127,7 +1127,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                   המקום שבו הסוכן רושם מה נאמר בשיחה.
                 */}
                 <p
-                  className="m-0 text-[14.5px]"
+                  className="m-0 text-[length:var(--type-caption-lg)]"
                   style={{ color: "var(--color-text-muted)" }}
                 >
                   הפנייה הגיעה בלי תוכן כתוב. מה שנאמר בשיחה נרשם
@@ -1189,11 +1189,11 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           <div className="grid gap-[18px] lg:grid-cols-2">
             {can(user, "buyers.edit") ? (
               <section className="mv-list-card px-5 py-[18px]">
-                <h2 className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
+                <h2 className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
                   <IconUser s={16} /> המרה לקונה
                 </h2>
                 <p
-                  className="m-0 mb-3 text-[14.5px]"
+                  className="m-0 mb-3 text-[length:var(--type-caption-lg)]"
                   style={{ color: "var(--color-text-muted)" }}
                 >
                   הלקוח מחפש נכס — הכרטיס נכנס למנוע ההתאמות. איש
@@ -1206,11 +1206,11 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             {/* ליד אינו תמיד קונה — "יש לי דירה למכור" הוא בעל נכס */}
             {can(user, "properties.create") ? (
               <section className="mv-list-card px-5 py-[18px]">
-                <h2 className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
+                <h2 className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
                   <IconHome s={16} /> המרה לנכס
                 </h2>
                 <p
-                  className="m-0 mb-3 text-[14.5px]"
+                  className="m-0 mb-3 text-[length:var(--type-caption-lg)]"
                   style={{ color: "var(--color-text-muted)" }}
                 >
                   הלקוח מוכר או משכיר — איש הקשר של הליד הופך לבעל
@@ -1274,7 +1274,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           <h2
             id="timeline-heading"
             className="m-0 mb-3"
-            style={{ fontSize: 16.5, fontWeight: 800 }}
+            style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
           >
             ציר זמן
           </h2>
@@ -1306,7 +1306,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
 
           {timeline.length === 0 ? (
             <p
-              className="m-0 mt-3 text-[14.5px]"
+              className="m-0 mt-3 text-[length:var(--type-caption-lg)]"
               style={{ color: "var(--color-text-muted)" }}
             >
               אין עדיין פעילות בליד.
@@ -1337,13 +1337,13 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                     }}
                   />
                   <p
-                    className="m-0 mb-0.5 text-[14px]"
+                    className="m-0 mb-0.5 text-[length:var(--type-caption)]"
                     style={{ color: "var(--color-text-muted)" }}
                   >
                     {KIND_LABELS[item.kind] ?? item.kind} ·{" "}
                     {formatDate(item.createdAt)}
                   </p>
-                  <p className="m-0 whitespace-pre-line text-[15.5px]">
+                  <p className="m-0 whitespace-pre-line text-[length:var(--type-body)]">
                     {item.kind === "status_change"
                       ? `הסטטוס שונה ל: ${labelOf(LEAD_STATUS_LABELS, item.content) ?? item.content}`
                       : item.content}

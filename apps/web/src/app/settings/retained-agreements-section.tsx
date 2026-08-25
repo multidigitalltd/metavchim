@@ -46,7 +46,7 @@ export function RetainedAgreementsSection() {
         className="px-5 py-[15px]"
         style={{ borderBottom: "1px solid var(--color-card-head-border)" }}
       >
-        <h3 id="retained-agreements-heading" className="m-0 text-[16px] font-bold">
+        <h3 id="retained-agreements-heading" className="m-0 text-[length:var(--type-button)] font-bold">
           מסמכים חתומים של לקוחות שנמחקו
         </h3>
         <p className="m-0 mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>

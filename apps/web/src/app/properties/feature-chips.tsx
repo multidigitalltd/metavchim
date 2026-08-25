@@ -80,7 +80,7 @@ export function FeatureChips({
   return (
     <fieldset className="mt-4">
       <legend className="mb-1 font-medium">מאפיינים</legend>
-      <p className="m-0 mb-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mb-2 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
         לחיצה מסמנת שיש, לחיצה נוספת שאין, ושלישית מנקה — מה שלא סומן נחשב &quot;לא ידוע&quot;.
       </p>
       <div className="flex flex-wrap gap-2">

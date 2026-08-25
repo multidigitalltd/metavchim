@@ -151,7 +151,7 @@ export function SearchAreas({
           {value.map((area, i) => (
             <li
               key={`${area.lat},${area.lon},${i}`}
-              className="flex flex-wrap items-center gap-2 border-b py-1.5 text-[14.5px]"
+              className="flex flex-wrap items-center gap-2 border-b py-1.5 text-[length:var(--type-caption-lg)]"
               style={{ borderColor: "var(--color-border)" }}
             >
               {/*
@@ -195,7 +195,7 @@ export function SearchAreas({
       {full ? (
         /* הגבלה אמיתית, ולכן היא נאמרת במקום שבו היה השדה */
         <p
-          className="m-0 text-[14px]"
+          className="m-0 text-[length:var(--type-caption)]"
           style={{ color: "var(--color-text-muted)" }}
         >
           הגעתם ל-{MAX_SEARCH_AREAS} אזורי חיפוש — אפשר להסיר אזור כדי להוסיף
@@ -225,7 +225,7 @@ export function SearchAreas({
             disabled={disabled}
           />
           <div className="mt-2 flex flex-wrap items-end gap-2">
-            <label className="text-[14px]">
+            <label className="text-[length:var(--type-caption)]">
               <span className="mb-0.5 block font-semibold">רדיוס (ק״מ)</span>
               <input
                 type="number"
@@ -241,7 +241,7 @@ export function SearchAreas({
                 }}
               />
             </label>
-            <label className="grow text-[14px]">
+            <label className="grow text-[length:var(--type-caption)]">
               <span className="mb-0.5 block font-semibold">
                 שם השכונה או האזור *
               </span>

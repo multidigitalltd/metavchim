@@ -161,7 +161,7 @@ export function CustomAutomationsSection() {
       <h2 className="mb-1 text-lg font-semibold">
         <IconBolt s={17} /> האוטומציות שלכם
       </h2>
-      <p className="mb-3 text-[15.5px]" style={{ color: "var(--color-text-soft)" }}>
+      <p className="mb-3 text-[length:var(--type-body)]" style={{ color: "var(--color-text-soft)" }}>
         מה שהמערכת לא עושה מעצמה ואתם רוצים שתעשה. בוחרים מתי זה קורה, על
         מה מתוך זה, ומה לעשות.
       </p>
@@ -172,7 +172,7 @@ export function CustomAutomationsSection() {
         לגלות את זה רק בשגיאה אחרי שבנה כלל שלם.
       */}
       {quota !== null && quota.limit !== null ? (
-        <p className="mb-3 text-[14.5px]" style={{ color: full ? "var(--color-danger)" : "var(--color-text-muted)" }}>
+        <p className="mb-3 text-[length:var(--type-caption-lg)]" style={{ color: full ? "var(--color-danger)" : "var(--color-text-muted)" }}>
           {quota.used} מתוך {quota.limit} אוטומציות בשימוש — כולל המשימות
           האוטומטיות הקבועות.
         </p>
@@ -183,7 +183,7 @@ export function CustomAutomationsSection() {
       ) : null}
 
       {data.rules.length === 0 && draft === null ? (
-        <p className="mb-3 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
+        <p className="mb-3 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
           עדיין לא בניתם אוטומציות. לדוגמה: „ליד חדש מוואטסאפ ⟵ משימה לחזור
           אליו היום”.
         </p>
@@ -203,7 +203,7 @@ export function CustomAutomationsSection() {
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <b>{rule.name}</b>
-                <p className="m-0 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                <p className="m-0 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                   {describeRule({
                     name: rule.name,
                     enabled: rule.enabled,
@@ -274,7 +274,7 @@ export function CustomAutomationsSection() {
               ))}
             </select>
             {trigger !== null ? (
-              <p className="mt-1 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+              <p className="mt-1 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                 {trigger.description}
               </p>
             ) : null}
@@ -284,7 +284,7 @@ export function CustomAutomationsSection() {
           {trigger !== null && trigger.fields.length > 0 ? (
             <div className="mb-3">
               <span className="mb-1 block font-medium">2 · על מה מתוך זה (לא חובה)</span>
-              <p className="mb-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+              <p className="mb-2 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                 בלי תנאים — האוטומציה תרוץ בכל פעם. כל תנאי מצמצם: שני תנאים
                 פירושם ששניהם צריכים להתקיים.
               </p>
@@ -420,7 +420,7 @@ export function CustomAutomationsSection() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <label className="text-[14.5px]">
+              <label className="text-[length:var(--type-caption-lg)]">
                 <span className="mb-1 block font-medium">למי</span>
                 <select
                   value={
@@ -449,7 +449,7 @@ export function CustomAutomationsSection() {
                 </select>
               </label>
 
-              <label className="flex-1 text-[14.5px]" style={{ minWidth: "200px" }}>
+              <label className="flex-1 text-[length:var(--type-caption-lg)]" style={{ minWidth: "200px" }}>
                 <span className="mb-1 block font-medium">
                   {draft.action.kind === "task" ? "כותרת המשימה" : "כותרת ההתראה"}
                 </span>
@@ -473,7 +473,7 @@ export function CustomAutomationsSection() {
               </label>
 
               {draft.action.kind === "task" ? (
-                <label className="text-[14.5px]">
+                <label className="text-[length:var(--type-caption-lg)]">
                   <span className="mb-1 block font-medium">מועד יעד (ימים)</span>
                   <input
                     type="number"
@@ -494,7 +494,7 @@ export function CustomAutomationsSection() {
                   />
                 </label>
               ) : (
-                <label className="flex-1 text-[14.5px]" style={{ minWidth: "200px" }}>
+                <label className="flex-1 text-[length:var(--type-caption-lg)]" style={{ minWidth: "200px" }}>
                   <span className="mb-1 block font-medium">גוף ההתראה</span>
                   <input
                     value={draft.action.body}
@@ -532,7 +532,7 @@ export function CustomAutomationsSection() {
         </div>
       )}
 
-      <p className="m-0 mt-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mt-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
         אוטומציה חדשה חלה על אירועים שיקרו מכאן והלאה. פעולות על לקוח — מייל
         או וואטסאפ — אינן זמינות עדיין.
       </p>

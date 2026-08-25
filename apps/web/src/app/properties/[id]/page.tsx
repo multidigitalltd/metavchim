@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useState, use, type ReactNode } from "react";
 import Link from "next/link";
-import { describeEntry , labelOf } from "@metavchim/shared";
+import {
+  describeEntry,
+  labelOf,
+  PROPERTY_REQUIRED_FOR_MARKETING,
+} from "@metavchim/shared";
 import { useRouter } from "next/navigation";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
@@ -16,6 +20,7 @@ import {
 } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
+import { readinessBand, readinessCount } from "@/lib/readiness";
 import { MediaSection } from "./media-section";
 import { PropertyTwins } from "./property-twins";
 import { NetworkDemandMatches } from "../network-demand-matches";
@@ -30,7 +35,7 @@ import { ExclusivityPanel } from "../exclusivity-panel";
 import { EntityNotes } from "../../entity-notes";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { RelatedEntities } from "../../related-entities";
-import { IconThumbUp } from "../../icons";
+import { IconCheck, IconThumbUp } from "../../icons";
 import { LoadError } from "../../load-error";
 import { Notice } from "../../notice";
 
@@ -111,16 +116,15 @@ const MATURITY_TAG: Record<string, { fg: string; bg: string }> = {
   not_ripe: { fg: "#616a63", bg: "#eef1ec" },
 };
 
-function readinessColor(score: number): string {
-  if (score >= 85) return "#12A150";
-  if (score >= 70) return "#c98a2e";
-  return "#b0512c";
-}
-function readinessTextColor(score: number): string {
-  if (score >= 85) return "var(--color-primary)";
-  if (score >= 70) return "#8a6414";
-  return "#b0512c";
-}
+/*
+ * הרצועות מגיעות מ-`@/lib/readiness` ואינן מוגדרות כאן.
+ *
+ * היו כאן שני עותקים של אותם ספים — אחד במסך הזה ואחד ברשימת
+ * הנכסים — ושניהם היו 85 ו-70. ברגע שהרשימה עברה לספים של
+ * החבילה (90 ו-60), **אותו נכס בדיוק** היה מוצג ירוק במסך אחד
+ * וענבר בשני, בלי שאיש שינה נתון. החבילה אוסרת זאת פעמיים
+ * ובשני מסמכים: „Never three numbers for one listing”.
+ */
 
 export default function PropertyDetailPage({
   params,
@@ -460,7 +464,7 @@ export default function PropertyDetailPage({
     <>
       <Link
         href="/properties"
-        className="mb-3.5 inline-block text-[15px] font-bold no-underline hover:underline"
+        className="mb-3.5 inline-block text-[length:var(--type-body-sm)] font-bold no-underline hover:underline"
         style={{ color: "var(--color-primary)" }}
       >
         → חזרה לרשימת הנכסים
@@ -474,7 +478,7 @@ export default function PropertyDetailPage({
         <div className="flex flex-wrap items-start gap-4">
           <div>
             <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="m-0" style={{ fontSize: 23, fontWeight: 800 }}>
+              <h1 className="m-0" style={{ fontSize: "calc(23 / 16 * 1rem)", fontWeight: 800 }}>
                 {property.marketingTitle ?? (address || "נכס")}
               </h1>
               <label>
@@ -518,21 +522,21 @@ export default function PropertyDetailPage({
             </p>
           </div>
           <div className="ms-auto text-start">
-            <div style={{ fontSize: 25, fontWeight: 800 }}>
+            <div style={{ fontSize: "calc(25 / 16 * 1rem)", fontWeight: 800 }}>
               {formatPrice(property.priceAgorot)}
             </div>
             <div className="mt-[9px] flex flex-wrap gap-2">
               <Link
                 href={`/properties/${id}/edit`}
                 className="mv-btn-plain"
-                style={{ padding: "7px 13px", fontSize: 14.5 }}
+                style={{ padding: "7px 13px", fontSize: "var(--type-caption-lg)" }}
               >
                 עריכה
               </Link>
               <Link
                 href={`/calendar/new?propertyId=${id}`}
                 className="mv-btn-plain"
-                style={{ padding: "7px 13px", fontSize: 14.5 }}
+                style={{ padding: "7px 13px", fontSize: "var(--type-caption-lg)" }}
               >
                 קבע סיור
               </Link>
@@ -548,7 +552,7 @@ export default function PropertyDetailPage({
                 className="mv-btn-plain"
                 style={{
                   padding: "7px 13px",
-                  fontSize: 14.5,
+                  fontSize: "var(--type-caption-lg)",
                   color:
                     archiveConfirm || purgeConfirm
                       ? "var(--color-danger)"
@@ -568,7 +572,7 @@ export default function PropertyDetailPage({
                 <button
                   type="button"
                   className="mv-btn-plain"
-                  style={{ padding: "7px 13px", fontSize: 14.5 }}
+                  style={{ padding: "7px 13px", fontSize: "var(--type-caption-lg)" }}
                   onClick={() => {
                     setArchiveConfirm(false);
                     setPurgeConfirm(false);
@@ -581,7 +585,7 @@ export default function PropertyDetailPage({
                 <button
                   type="button"
                   className="mv-btn-soft"
-                  style={{ padding: "7px 13px", fontSize: 14.5 }}
+                  style={{ padding: "7px 13px", fontSize: "var(--type-caption-lg)" }}
                   disabled={landingBusy}
                   onClick={() => void createLanding()}
                 >
@@ -597,7 +601,7 @@ export default function PropertyDetailPage({
               <button
                 type="button"
                 className="mv-btn-action"
-                style={{ padding: "7px 15px", fontSize: 14.5 }}
+                style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
                 onClick={() => {
                   selectTab("matches");
                   requestAnimationFrame(() => {
@@ -702,7 +706,7 @@ export default function PropertyDetailPage({
               <h2
                 id="details-heading"
                 className="m-0 mb-3.5"
-                style={{ fontSize: 16.5, fontWeight: 800 }}
+                style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
               >
                 פרטי הנכס
               </h2>
@@ -720,7 +724,7 @@ export default function PropertyDetailPage({
                     >
                       {label}
                     </dt>
-                    <dd className="m-0 mt-0.5 text-[15.5px] font-bold">
+                    <dd className="m-0 mt-0.5 text-[length:var(--type-body)] font-bold">
                       {value}
                     </dd>
                   </div>
@@ -734,7 +738,7 @@ export default function PropertyDetailPage({
               כדי למקם נכס פשוט לא ימקם אותו.
             */}
             <section className="mv-list-card mb-[18px] p-5">
-              <h2 className="m-0 mb-2 text-[16px] font-bold">מיקום על המפה</h2>
+              <h2 className="m-0 mb-2 text-[length:var(--type-button)] font-bold">מיקום על המפה</h2>
               <LocationPicker
                 value={{
                   latitude: property.latitude,
@@ -778,16 +782,17 @@ export default function PropertyDetailPage({
                 <h2
                   id="readiness-heading"
                   className="m-0"
-                  style={{ fontSize: 16.5, fontWeight: 800 }}
+                  style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
                 >
                   מוכנות לשיווק
                 </h2>
                 <span
                   className="ms-auto"
                   style={{
-                    fontSize: 21,
+                    /* ‎21 כשהוא, אבל מגיב להגדרת הנגישות — ראו ההערה למטה */
+                    fontSize: "calc(21 / 16 * 1rem)",
                     fontWeight: 800,
-                    color: readinessTextColor(property.readinessScore),
+                    color: readinessBand(property.readinessScore).text,
                   }}
                 >
                   {property.readinessScore}%
@@ -801,24 +806,48 @@ export default function PropertyDetailPage({
                   style={{
                     height: "100%",
                     width: `${property.readinessScore}%`,
-                    background: readinessColor(property.readinessScore),
+                    background: readinessBand(property.readinessScore).bar,
                     borderRadius: 99,
                   }}
                 />
               </div>
+              {/*
+                „‎N מתוך M שדות מלאים” — הניסוח שהחבילה נוקבת בו
+                (SPEC-3b §4), והשורה שהייתה חסרה כאן.
+
+                האחוז לבדו אומר „82%” ולא אומר על כמה שדות מדובר.
+                המכנה נגזר מהנתונים ואינו כתוב קשיח: `9` קבוע היה
+                הופך לשקר ברגע שיתווסף שדה עשירי לחישוב שבשרת, ואז
+                שוב יהיו שני מספרים לנכס אחד.
+
+                ‎**כל הכרטיס הזה מגיב להגדרת גודל הטקסט** — הכותרת,
+                האחוז, השורה הזו, שורת „מוכן לשיווק” ושורות השדות
+                החסרים. הגדלת אחת מהן לבדה הייתה יוצרת בדיוק את
+                הרכיב החצי-מוגדל שהביקורת מצביעה עליו: משפט בן 31
+                פיקסלים ב-200% מתחת לאחוז שנשאר על 21. הערכים עצמם
+                לא השתנו ב-100% (ביקורת Codex).
+
+                שאר המסכים עדיין נושאים גדלים קבועים; זה מעבר יסודי
+                אחד ולא המרה חלקית שמפזרת חוסר עקביות.
+              */}
+              <p className="m-0 mb-2" style={{ fontSize: "var(--type-body)", color: "var(--color-text-muted)" }}>
+                {readinessCount(property.missingFields.length, PROPERTY_REQUIRED_FOR_MARKETING.length)}
+              </p>
               {property.missingFields.length === 0 ? (
                 <p
-                  className="m-0 text-[14.5px] font-bold"
-                  style={{ color: "var(--color-primary)" }}
+                  className="m-0 flex items-center gap-2 font-bold"
+                  style={{ fontSize: "var(--type-body-sm)", color: "var(--color-primary)" }}
                 >
-                  ✓ הנכס מוכן לשיווק
+                  {/* אייקון ולא „✓” — „NO EMOJI anywhere in the product UI” */}
+                  <IconCheck s={18} />
+                  הנכס מוכן לשיווק
                 </p>
               ) : (
                 property.missingFields.map((field) => (
                   <div
                     key={field}
-                    className="flex items-center gap-2 py-[5px] text-[14.5px]"
-                    style={{ color: "var(--color-text-muted)" }}
+                    className="flex items-center gap-2 py-[5px]"
+                    style={{ fontSize: "var(--type-caption-lg)", color: "var(--color-text-muted)" }}
                   >
                     <span
                       aria-hidden="true"
@@ -846,7 +875,7 @@ export default function PropertyDetailPage({
               <h2
                 id="media-heading"
                 className="m-0 mb-3"
-                style={{ fontSize: 16.5, fontWeight: 800 }}
+                style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
               >
                 תמונות
               </h2>
@@ -925,12 +954,12 @@ export default function PropertyDetailPage({
               <h2
                 id="matches-heading"
                 className="m-0"
-                style={{ fontSize: 16.5, fontWeight: 800 }}
+                style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
               >
                 קונים מתאימים מהמאגר
               </h2>
               <span
-                className="text-[14px]"
+                className="text-[length:var(--type-caption)]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 כל התאמה מוסברת — בלי קופסה שחורה
@@ -946,7 +975,7 @@ export default function PropertyDetailPage({
                   style={
                     bulkConfirm
                       ? { color: "var(--color-danger)" }
-                      : { padding: "7px 15px", fontSize: 14.5 }
+                      : { padding: "7px 15px", fontSize: "var(--type-caption-lg)" }
                   }
                   onClick={() => void bulkSend()}
                 >
@@ -990,20 +1019,18 @@ export default function PropertyDetailPage({
                     }}
                   >
                     <span
-                      className="mv-score-ring"
+                      className="mv-score-ring mv-score-ring--lg"
                       style={{
-                        width: 46,
-                        height: 46,
                         background: `conic-gradient(#2ECC66 ${Math.round(m.score * 3.6)}deg, var(--color-progress-track) 0deg)`,
                       }}
                       aria-hidden="true"
                     >
-                      <span style={{ width: 35, height: 35, fontSize: 14 }}>
+                      <span>
                         {m.score}%
                       </span>
                     </span>
                     <div className="min-w-0 flex-1" style={{ lineHeight: 1.4 }}>
-                      <div className="text-[15.5px] font-bold">
+                      <div className="text-[length:var(--type-body)] font-bold">
                         {m.buyerName ? (
                           <Link
                             href={`/buyers/${m.buyerId}`}
@@ -1024,7 +1051,7 @@ export default function PropertyDetailPage({
                               color: tag.fg,
                               background: tag.bg,
                               fontWeight: 600,
-                              fontSize: 14,
+                              fontSize: "var(--type-caption)",
                               padding: "1px 8px",
                             }}
                           >
@@ -1034,13 +1061,13 @@ export default function PropertyDetailPage({
                         ) : null}
                       </div>
                       <div
-                        className="text-[14.5px]"
+                        className="text-[length:var(--type-caption-lg)]"
                         style={{ color: "var(--color-text-muted)" }}
                       >
                         {m.explanation}
                       </div>
                       {awaitingSignature[m.id] ? (
-                        <div className="mt-1.5 text-[14.5px]">
+                        <div className="mt-1.5 text-[length:var(--type-caption-lg)]">
                           <span style={{ color: "var(--color-danger)" }}>
                             ממתין לחתימה על הזמנה בכתב
                           </span>
@@ -1056,7 +1083,7 @@ export default function PropertyDetailPage({
                         </div>
                       ) : null}
                       {offer ? (
-                        <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-[14.5px]">
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-[length:var(--type-caption-lg)]">
                           <span
                             className="font-bold"
                             style={{
@@ -1108,7 +1135,7 @@ export default function PropertyDetailPage({
                         <button
                           type="button"
                           className="mv-btn-action"
-                          style={{ padding: "7px 15px", fontSize: 14.5 }}
+                          style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
                           onClick={() => void sendWhatsApp(offer.id)}
                         >
                           שלח בוואטסאפ
@@ -1117,7 +1144,7 @@ export default function PropertyDetailPage({
                         <button
                           type="button"
                           className="mv-btn-action"
-                          style={{ padding: "7px 15px", fontSize: 14.5 }}
+                          style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
                           onClick={() => void createOffer(m.id)}
                         >
                           שלח הצעה
@@ -1129,7 +1156,7 @@ export default function PropertyDetailPage({
               })
             )}
             <p
-              className="m-0 mt-3 rounded-[9px] px-[13px] py-[9px] text-[14px]"
+              className="m-0 mt-3 rounded-[9px] px-[13px] py-[9px] text-[length:var(--type-caption)]"
               style={{
                 color: "var(--color-text-muted)",
                 background: "var(--color-table-head)",

@@ -280,12 +280,12 @@ export default function BuyersPage() {
           {/* כפתור שמוביל לפיצ'ר שאינו במסלול נחסם בשרת ממילא —
               עדיף לא להציג אותו מאשר להסביר 403 אחרי בחירת קובץ */}
           {canImport ? (
-            <Link href="/import" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "14px" }}>
+            <Link href="/import" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "var(--type-caption)" }}>
               <IconSheet s={15} /> ייבוא מאקסל
             </Link>
           ) : null}
           {canVoice ? (
-            <Link href="/voice" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "14px" }}>
+            <Link href="/voice" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "var(--type-caption)" }}>
               <IconMic s={15} /> קונה בקול
             </Link>
           ) : null}
@@ -404,7 +404,7 @@ export default function BuyersPage() {
                   className="mv-list-card mb-3 flex flex-wrap items-center gap-2 px-4 py-3"
                   role="status"
                 >
-                  <strong className="text-[15px]">{selectedVisible.length} נבחרו</strong>
+                  <strong className="text-[length:var(--type-body-sm)]">{selectedVisible.length} נבחרו</strong>
                   <button
                     type="button"
                     className="mv-btn-plain"
@@ -540,16 +540,16 @@ export default function BuyersPage() {
                         style={{ gridTemplateColumns: GRID }}
                         onClick={() => router.push(`/buyers/${b.id}`)}
                       >
-                      <span className="truncate text-[15.5px] font-bold">{b.contact.name}</span>
+                      <span className="truncate text-[length:var(--type-body)] font-bold">{b.contact.name}</span>
                       <span>
                         <MaturityPill maturity={b.maturity} />
                       </span>
                       <span className="text-sm font-bold">{budgetText(b)}</span>
-                      <span className="truncate text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
+                      <span className="truncate text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-soft)" }}>
                         {wantsText(b)}
                       </span>
                       <span
-                        className="text-[15px] font-bold"
+                        className="text-[length:var(--type-body-sm)] font-bold"
                         style={{
                           // קונה חם מאוד בלי אף הצעה — הדגשה באדום, כמו בעיצוב
                           color:
@@ -560,7 +560,7 @@ export default function BuyersPage() {
                       >
                         {noOffers ? "אף אחת עדיין" : `${b.offersReceived} הצעות`}
                       </span>
-                      <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                      <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                         {lastActivityText(b.lastActivityAt)}
                       </span>
                       </button>

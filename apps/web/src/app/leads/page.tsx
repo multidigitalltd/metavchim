@@ -99,12 +99,12 @@ export default function LeadsPage() {
         מקום לנצח, מעל התוכן שבאמת מסתכלים עליו. מקומו במדריכים.
       */}
       <div className="mb-[18px] flex flex-wrap items-center gap-3">
-        <h1 className="m-0" style={{ fontSize: 22, fontWeight: 800 }}>
+        <h1 className="m-0" style={{ fontSize: "var(--type-panel)", fontWeight: 800 }}>
           לידים
         </h1>
         <div className="ms-auto flex flex-wrap gap-2.5">
           {canVoice ? (
-            <Link href="/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "14px" }}>
+            <Link href="/voice" className="mv-btn-plain" style={{ padding: "8px 14px", fontSize: "var(--type-caption)" }}>
               <IconMic s={15} /> ליד בקול
             </Link>
           ) : null}
@@ -275,7 +275,7 @@ export default function LeadsPage() {
                   const pill = STATUS_PILL[lead.status] ?? STATUS_PILL["closed"]!;
                   return (
                     <div key={lead.id} className="mv-list-row" style={{ gridTemplateColumns: GRID }}>
-                      <span className="flex items-center gap-2 truncate text-[15.5px] font-bold">
+                      <span className="flex items-center gap-2 truncate text-[length:var(--type-body)] font-bold">
                         {/*
                           אות ראשונה בעיגול. ברשימה של עשרות שורות
                           זהות היא מה שמאפשר למצוא שוב שורה שכבר
@@ -291,18 +291,18 @@ export default function LeadsPage() {
                           <span className="mv-tag" style={{ background: "#faf1ec", color: "#b0512c" }}>דחוף</span>
                         ) : null}
                       </span>
-                      <span className="flex items-center gap-1.5 truncate text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
+                      <span className="flex items-center gap-1.5 truncate text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-soft)" }}>
                         <IconGlobe s={14} />
                         {labelOf(LEAD_SOURCE_LABELS, lead.source) ?? lead.source}
                       </span>
-                      <span className="truncate text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
+                      <span className="truncate text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-soft)" }}>
                         {labelOf(LEAD_INTENT_LABELS, lead.intent) ?? lead.intent}
                       </span>
-                      <span className="text-[14.5px] font-extrabold" style={{ color: waiting ? WAITING_COLOR[waiting.level] : "var(--color-text-muted)" }}>
+                      <span className="text-[length:var(--type-caption-lg)] font-extrabold" style={{ color: waiting ? WAITING_COLOR[waiting.level] : "var(--color-text-muted)" }}>
                         {waiting?.label ?? "—"}
                       </span>
                       <span>
-                        <span className="mv-pill" style={{ color: pill.fg, background: pill.bg, fontSize: 14 }}>
+                        <span className="mv-pill" style={{ color: pill.fg, background: pill.bg, fontSize: "var(--type-caption)" }}>
                           {labelOf(LEAD_STATUS_LABELS, lead.status) ?? lead.status}
                         </span>
                       </span>
@@ -339,7 +339,7 @@ export default function LeadsPage() {
             className="mt-3.5 flex flex-wrap items-center gap-3 rounded-xl border border-dashed px-[18px] py-3.5"
             style={{ borderColor: "#cfd6ce", background: "var(--color-surface)" }}
           >
-            <span className="flex items-center gap-2 text-[15px]" style={{ color: "var(--color-text-muted)" }}>
+            <span className="flex items-center gap-2 text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-muted)" }}>
               <IconLink s={16} />
               כתובת קליטה לכל ערוץ פרסום
             </span>

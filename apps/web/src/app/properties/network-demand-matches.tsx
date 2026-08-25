@@ -115,12 +115,12 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
       <h2
         id="network-matches-heading"
         className="m-0 mb-1"
-        style={{ fontSize: 16.5, fontWeight: 800 }}
+        style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
       >
         <IconGlobe s={16} /> ביקושים ברשת
       </h2>
       <p
-        className="m-0 mb-2.5 text-[14px]"
+        className="m-0 mb-2.5 text-[length:var(--type-caption)]"
         style={{ color: "var(--color-text-muted)" }}
       >
         קונים של משרדים אחרים שהנכס מתאים להם
@@ -144,15 +144,13 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
             style={{ borderBottom: "1px solid var(--color-row-border)" }}
           >
             <span
-              className="mv-score-ring"
+              className="mv-score-ring mv-score-ring--lg"
               style={{
-                width: 46,
-                height: 46,
                 background: `conic-gradient(#7B61FF ${Math.round(row.score * 3.6)}deg, var(--color-progress-track) 0deg)`,
               }}
               aria-hidden="true"
             >
-              <span style={{ width: 35, height: 35, fontSize: 14 }}>
+              <span>
                 {row.score}%
               </span>
             </span>
@@ -160,13 +158,13 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
               {/* כל מה שידוע על הביקוש, למעט מה שמזהה אדם */}
               <NetChips chips={demandChips(row)} />
               <div
-                className="text-[14.5px]"
+                className="text-[length:var(--type-caption-lg)]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 {row.notes ?? row.explanation}
               </div>
               <div
-                className="text-[14px]"
+                className="text-[length:var(--type-caption)]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 {/*
@@ -187,7 +185,7 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
               */}
               {publisherStatedSplit(row.terms, "buyer") === null ? (
                 <div
-                  className="text-[14px]"
+                  className="text-[length:var(--type-caption)]"
                   style={{ color: "var(--color-text-muted)" }}
                 >
                   החלוקה נוסחה במילים, ולכן ההצעה תישלח על{" "}
@@ -211,7 +209,7 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
                 <button
                   type="button"
                   className="mv-btn-action"
-                  style={{ padding: "7px 15px", fontSize: 14.5 }}
+                  style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
                   disabled={busy !== null}
                   onClick={() => void offer(row)}
                 >

@@ -97,10 +97,10 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
     <div className="mx-auto max-w-3xl pb-16">
       {/* כותרת */}
       <header className="mb-5 pt-4">
-        <p className="m-0 text-[14.5px] font-bold" style={{ color: "var(--color-primary)" }}>
+        <p className="m-0 text-[length:var(--type-caption-lg)] font-bold" style={{ color: "var(--color-primary)" }}>
           {view.officeName}
         </p>
-        <h1 className="m-0 mt-1" style={{ fontSize: 27, fontWeight: 800, letterSpacing: "-0.01em" }}>
+        <h1 className="m-0 mt-1" style={{ fontSize: "calc(27 / 16 * 1rem)", fontWeight: 800, letterSpacing: "-0.01em" }}>
           {view.title}
         </h1>
         <p className="m-0 mt-1 flex flex-wrap items-baseline gap-3">
@@ -138,7 +138,7 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
                 <div className="text-sm font-semibold" style={{ color: "var(--color-text-muted)" }}>
                   {label}
                 </div>
-                <div className="mt-0.5 text-[16px] font-bold">{value}</div>
+                <div className="mt-0.5 text-[length:var(--type-button)] font-bold">{value}</div>
               </div>
             ))}
           </div>
@@ -174,7 +174,7 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
           </div>
         ) : (
           <>
-            <h2 id="contact-heading" className="m-0 mb-1" style={{ fontSize: 20, fontWeight: 800 }}>
+            <h2 id="contact-heading" className="m-0 mb-1" style={{ fontSize: "var(--type-metric)", fontWeight: 800 }}>
               מעוניינים בנכס?
             </h2>
             <p className="m-0 mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -188,7 +188,7 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
                   required
                   minLength={2}
                   className="mv-search-input"
-                  style={{ height: 44 }}
+                  style={{ minHeight: 44 }}
                 />
               </label>
               <label>
@@ -199,7 +199,7 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
                   dir="ltr"
                   inputMode="tel"
                   className="mv-search-input"
-                  style={{ height: 44 }}
+                  style={{ minHeight: 44 }}
                 />
               </label>
               <label className="sm:col-span-2">
@@ -218,7 +218,7 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
                 <Notice tone="danger">{formError}</Notice>
               ) : null}
               <div className="sm:col-span-2">
-                <button type="submit" disabled={sending} className="mv-btn-action w-full" style={{ padding: "12px 0", fontSize: 16 }}>
+                <button type="submit" disabled={sending} className="mv-btn-action w-full" style={{ padding: "12px 0", fontSize: "var(--type-button)" }}>
                   {sending ? "שולח…" : "השאירו לי פרטים"}
                 </button>
               </div>

@@ -191,7 +191,7 @@ export function ContactPeople({
         <h2
           id="people-heading"
           className="m-0"
-          style={{ fontSize: 16.5, fontWeight: 800 }}
+          style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
         >
           אנשי קשר וטלפונים
         </h2>
@@ -200,7 +200,7 @@ export function ContactPeople({
             <button
               type="button"
               className="mv-btn-plain"
-              style={{ padding: "5px 11px", fontSize: 14 }}
+              style={{ padding: "5px 11px", fontSize: "var(--type-caption)" }}
               onClick={() => {
                 setAddingPerson((v) => !v);
                 setAddingPhone(false);
@@ -211,7 +211,7 @@ export function ContactPeople({
             <button
               type="button"
               className="mv-btn-plain"
-              style={{ padding: "5px 11px", fontSize: 14 }}
+              style={{ padding: "5px 11px", fontSize: "var(--type-caption)" }}
               onClick={() => {
                 setAddingPhone((v) => !v);
                 setAddingPerson(false);
@@ -254,7 +254,7 @@ export function ContactPeople({
               <button
                 type="button"
                 className="mv-btn-plain ms-auto"
-                style={{ padding: "3px 9px", fontSize: 14 }}
+                style={{ padding: "3px 9px", fontSize: "var(--type-caption)" }}
                 disabled={busy}
                 onClick={() =>
                   void run(() =>
@@ -327,7 +327,7 @@ export function ContactPeople({
             <button
               type="button"
               className="mv-btn-plain ms-auto"
-              style={{ padding: "3px 9px", fontSize: 14 }}
+              style={{ padding: "3px 9px", fontSize: "var(--type-caption)" }}
               onClick={() => setEditingEmail(true)}
             >
               {data.email ? "ערוך" : "הוסף אימייל"}
@@ -409,7 +409,7 @@ export function ContactPeople({
                   <button
                     type="button"
                     className="mv-btn-plain"
-                    style={{ padding: "3px 9px", fontSize: 14 }}
+                    style={{ padding: "3px 9px", fontSize: "var(--type-caption)" }}
                     onClick={() =>
                       setEditingPersonEmail((current) =>
                         current === person.contactId ? null : person.contactId,
@@ -421,7 +421,7 @@ export function ContactPeople({
                   <button
                     type="button"
                     className="mv-btn-plain"
-                    style={{ padding: "3px 9px", fontSize: 14 }}
+                    style={{ padding: "3px 9px", fontSize: "var(--type-caption)" }}
                     disabled={busy}
                     onClick={() =>
                       void run(() =>

@@ -81,7 +81,7 @@ export function DealsList() {
         <IconHandshake s={17} /> עסקאות משותפות
       </h2>
       <p
-        className="mb-4 text-[15.5px]"
+        className="mb-4 text-[length:var(--type-body)]"
         style={{ color: "var(--color-text-muted)" }}
       >
         כל חיבור שאושר פותח כאן חדר משותף: פרטי הסוכן שמולכם, כתובת
@@ -139,7 +139,7 @@ function DealCard({ deal }: { deal: DealSummary }) {
           >
             {COOP_DEAL_STAGE_LABELS[deal.stage]}
           </span>
-          <span className="flex items-center gap-1.5 text-[15px]">
+          <span className="flex items-center gap-1.5 text-[length:var(--type-body-sm)]">
             {deal.counterpartLogoUrl === undefined ? (
               <IconUsers s={15} />
             ) : (
@@ -160,7 +160,7 @@ function DealCard({ deal }: { deal: DealSummary }) {
         </div>
         <p className="m-0 mb-1 font-bold">{deal.title}</p>
         <p
-          className="m-0 text-[15px]"
+          className="m-0 text-[length:var(--type-body-sm)]"
           style={{ color: "var(--color-text-muted)" }}
         >
           {coopDealSplitLabel(deal.commissionSplit, deal.mySide)} · עודכן{" "}

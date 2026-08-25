@@ -202,8 +202,8 @@ export function OwnerActivity({
 
   return (
     <section className="mv-list-card px-[22px] py-[18px]">
-      <h2 className="m-0 text-[17px] font-bold">דוח פעילות לבעל הנכס</h2>
-      <p className="m-0 mt-[6px] text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+      <h2 className="m-0 text-[length:calc(17/16*1rem)] font-bold">דוח פעילות לבעל הנכס</h2>
+      <p className="m-0 mt-[6px] text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
         ביקורים, פגישות ופניות של מתעניינים בנכס. בלי שמות, בלי מספרי טלפון ובלי תוכן השיחות.
       </p>
 
@@ -224,20 +224,20 @@ export function OwnerActivity({
       {error ? <Notice tone="danger">{error}</Notice> : null}
 
       {loading ? (
-        <p className="m-0 mt-[14px] text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+        <p className="m-0 mt-[14px] text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
           טוען…
         </p>
       ) : null}
 
       {!loading && empty ? (
-        <p className="m-0 mt-[14px] text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+        <p className="m-0 mt-[14px] text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
           לא נרשמה פעילות בתקופה שנבחרה.
         </p>
       ) : null}
 
       {!loading && report !== null && report.entries.length > 0 ? (
         <>
-          <p className="m-0 mt-[14px] text-[14.5px] font-bold">
+          <p className="m-0 mt-[14px] text-[length:var(--type-caption-lg)] font-bold">
             {[
               report.summary.held > 0 ? `${report.summary.held} מפגשים התקיימו` : null,
               report.summary.upcoming > 0 ? `${report.summary.upcoming} נקבעו וטרם התקיימו` : null,
@@ -248,7 +248,7 @@ export function OwnerActivity({
           </p>
 
           <div className="mt-[12px] max-h-[360px] overflow-auto">
-            <table className="w-full border-collapse text-[14px]">
+            <table className="w-full border-collapse text-[length:var(--type-caption)]">
               <thead>
                 <tr>
                   <th className="p-[6px] text-right font-bold">מתי</th>
@@ -291,7 +291,7 @@ export function OwnerActivity({
             <button
               type="button"
               className="mv-btn-plain"
-              style={{ padding: "8px 16px", fontSize: 14.5 }}
+              style={{ padding: "8px 16px", fontSize: "var(--type-caption-lg)" }}
               disabled={downloading}
               onClick={() => void download()}
             >
@@ -300,7 +300,7 @@ export function OwnerActivity({
             <button
               type="button"
               className="mv-btn-plain"
-              style={{ padding: "8px 16px", fontSize: 14.5 }}
+              style={{ padding: "8px 16px", fontSize: "var(--type-caption-lg)" }}
               onClick={() => void copy.copy(messageText(), "activity")}
             >
               {copy.key === "activity" && copy.state === "copied"

@@ -444,14 +444,14 @@ function ResultList({
 }): React.JSX.Element {
   if (count === 0) {
     return (
-      <p className="text-[15px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-muted)" }}>
         {empty}
       </p>
     );
   }
   return (
     <>
-      <p className="mb-2 text-[15px] font-medium">
+      <p className="mb-2 text-[length:var(--type-body-sm)] font-medium">
         {hasMore
           ? `מוצגים ${count} ${noun} ראשונים — יש עוד`
           : `נמצאו ${count} ${noun}`}

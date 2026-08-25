@@ -272,12 +272,12 @@ export function NetworkShareSection({
         <div>
           <h2
             id="network-share-heading"
-            className="m-0 text-[19px] font-extrabold leading-tight"
+            className="m-0 text-[length:var(--type-screen-title)] font-extrabold leading-tight"
           >
             {copy.title}
           </h2>
           <p
-            className="m-0 mt-0.5 text-[15px]"
+            className="m-0 mt-0.5 text-[length:var(--type-body-sm)]"
             style={{ color: "var(--color-text-muted)" }}
           >
             {copy.subtitle}
@@ -287,7 +287,7 @@ export function NetworkShareSection({
 
       {stage === "loading" ? (
         <p
-          className="m-0 mt-2 text-[14.5px]"
+          className="m-0 mt-2 text-[length:var(--type-caption-lg)]"
           aria-live="polite"
           style={{ color: "var(--color-text-muted)" }}
         >
@@ -302,11 +302,11 @@ export function NetworkShareSection({
             background: "var(--color-primary-soft)",
           }}
         >
-          <p className="m-0 mb-1 font-bold" style={{ fontSize: 15.5 }}>
+          <p className="m-0 mb-1 font-bold" style={{ fontSize: "var(--type-body)" }}>
             ✓ {copy.sent}
           </p>
           <p
-            className="m-0 text-[14.5px]"
+            className="m-0 text-[length:var(--type-caption-lg)]"
             style={{ color: "var(--color-text-muted)" }}
           >
             {copy.sentBody}.
@@ -316,7 +316,7 @@ export function NetworkShareSection({
             בעצם התחייב, וחלוקה שונה בין הצדדים היא בדיוק מה שצריך
             להיקרא בבירור.
           */}
-          <ul className="m-0 mt-2 list-none p-0 text-[14.5px]">
+          <ul className="m-0 mt-2 list-none p-0 text-[length:var(--type-caption-lg)]">
             {COMMISSION_SIDES.map((option) => (
               <li key={option}>
                 {COMMISSION_SIDE_LABEL[option]}:{" "}
@@ -335,7 +335,7 @@ export function NetworkShareSection({
               אחד הופך את זה מתקלה לכלל.
             */
             <p
-              className="m-0 mt-3 text-[14px]"
+              className="m-0 mt-3 text-[length:var(--type-caption)]"
               style={{ color: "var(--color-text-muted)" }}
             >
               את תנאי השיתוף קובע מי שפרסם אותם — הם התחייבות כלפי המשרד
@@ -346,7 +346,7 @@ export function NetworkShareSection({
               <button
                 type="button"
                 className="mv-btn-plain"
-                style={{ padding: "5px 12px", fontSize: 14 }}
+                style={{ padding: "5px 12px", fontSize: "var(--type-caption)" }}
                 disabled={busy}
                 onClick={() => setStage("form")}
               >
@@ -355,7 +355,7 @@ export function NetworkShareSection({
               <button
                 type="button"
                 className="mv-btn-plain"
-                style={{ padding: "5px 12px", fontSize: 14 }}
+                style={{ padding: "5px 12px", fontSize: "var(--type-caption)" }}
                 disabled={busy}
                 onClick={() => void stopSharing()}
               >

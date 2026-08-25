@@ -110,7 +110,7 @@ export function ReferralRevenueSection(): React.JSX.Element {
     <section className="mv-list-card px-5 py-[17px]" aria-labelledby="revenue-heading">
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <IconHandshake s={20} />
-        <h2 id="revenue-heading" className="m-0" style={{ fontSize: 18, fontWeight: 800 }}>
+        <h2 id="revenue-heading" className="m-0" style={{ fontSize: "calc(18 / 16 * 1rem)", fontWeight: 800 }}>
           הכנסה מהפניות
         </h2>
         <span className="mv-tag" style={{ background: "var(--color-hover-soft)" }}>
@@ -156,10 +156,10 @@ export function ReferralRevenueSection(): React.JSX.Element {
           border: `1px solid ${netPositive ? "var(--color-success)" : "var(--color-danger)"}`,
         }}
       >
-        <span style={{ fontSize: 16, fontWeight: 700 }}>שורה תחתונה</span>
+        <span style={{ fontSize: "var(--type-button)", fontWeight: 700 }}>שורה תחתונה</span>
         <span
           style={{
-            fontSize: 24,
+            fontSize: "calc(24 / 16 * 1rem)",
             fontWeight: 800,
             color: netPositive ? "var(--color-success)" : "var(--color-danger)",
           }}
@@ -214,7 +214,7 @@ export function ReferralRevenueSection(): React.JSX.Element {
       {/* ---- הספר ---- */}
       {entries.length === 0 ? null : (
         <div className="mt-5">
-          <h3 className="m-0 mb-2" style={{ fontSize: 16, fontWeight: 700 }}>
+          <h3 className="m-0 mb-2" style={{ fontSize: "var(--type-button)", fontWeight: 700 }}>
             תנועות אחרונות
           </h3>
           <ul className="m-0 list-none p-0">
@@ -294,7 +294,7 @@ function Stat({
         {icon}
         {label}
       </span>
-      <strong style={{ fontSize: 20, fontWeight: 800, color }}>{value}</strong>
+      <strong style={{ fontSize: "var(--type-metric)", fontWeight: 800, color }}>{value}</strong>
       <span style={{ color: "var(--color-text-muted)" }}>{sub}</span>
     </div>
   );

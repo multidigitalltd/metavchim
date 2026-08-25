@@ -88,11 +88,11 @@ export function WhatsAppNotifySection() {
       <h2
         id="wa-notify-heading"
         className="m-0 mb-1"
-        style={{ fontSize: 16.5, fontWeight: 800 }}
+        style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
       >
         עדכונים בוואטסאפ
       </h2>
-      <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
         הסוכן שולח לכם לוואטסאפ שיחות שלא נענו, לידים חדשים, סיכומי תמלול
         ותזכורות — בלי להיכנס למערכת. אפשר לענות לו באותה שיחה כדי לטפל.
         הכול פעיל כברירת מחדל; מה שלא רוצים — מכבים כאן.
@@ -106,7 +106,7 @@ export function WhatsAppNotifySection() {
         </Notice>
       ) : null}
 
-      <label className="flex items-center gap-2.5 text-[15px] font-semibold">
+      <label className="flex items-center gap-2.5 text-[length:var(--type-body-sm)] font-semibold">
         <input
           type="checkbox"
           checked={prefs.enabled}
@@ -117,10 +117,10 @@ export function WhatsAppNotifySection() {
 
       {prefs.enabled ? (
         <>
-          <p className="mb-1.5 mt-4 text-[14px] font-semibold">מה לשלוח</p>
+          <p className="mb-1.5 mt-4 text-[length:var(--type-caption)] font-semibold">מה לשלוח</p>
           <div className="flex flex-col gap-1.5">
             {CATEGORY_ORDER.map((category) => (
-              <label key={category} className="flex items-center gap-2.5 text-[14.5px]">
+              <label key={category} className="flex items-center gap-2.5 text-[length:var(--type-caption-lg)]">
                 <input
                   type="checkbox"
                   checked={prefs.categories[category] !== false}
@@ -136,11 +136,11 @@ export function WhatsAppNotifySection() {
             ))}
           </div>
 
-          <p className="mb-1.5 mt-4 text-[14px] font-semibold">שעות שקט</p>
-          <p className="m-0 mb-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="mb-1.5 mt-4 text-[length:var(--type-caption)] font-semibold">שעות שקט</p>
+          <p className="m-0 mb-2 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
             בשעות האלה לא תישלח הודעה. מה שהצטבר יגיע בבוקר.
           </p>
-          <div className="flex flex-wrap items-center gap-2 text-[14.5px]">
+          <div className="flex flex-wrap items-center gap-2 text-[length:var(--type-caption-lg)]">
             <label htmlFor="quiet-from">מ־</label>
             <select
               id="quiet-from"

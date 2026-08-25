@@ -51,7 +51,7 @@ export function AuthShell({
           {subtitle ? <p className="mv-auth-sub">{subtitle}</p> : null}
           {children}
           {foot ? <div className="mv-auth-foot">{foot}</div> : null}
-          <p className="mv-auth-foot" style={{ fontSize: 14 }}>
+          <p className="mv-auth-foot" style={{ fontSize: "var(--type-caption)" }}>
             <Link href="/privacy" className="underline">
               פרטיות
             </Link>

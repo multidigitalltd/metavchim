@@ -29,7 +29,7 @@ export function FormSection({
       <div className="mb-4 flex items-start gap-2.5" aria-hidden="true">
         {step !== undefined ? <span className="mv-step-badge">{step}</span> : null}
         <div className="min-w-0">
-          <h2 className="m-0" style={{ fontSize: 16.5, fontWeight: 800 }}>
+          <h2 className="m-0" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
             {title}
           </h2>
           {hint !== undefined ? <p className="mv-form-hint">{hint}</p> : null}

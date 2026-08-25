@@ -161,7 +161,7 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
 
   if (rows === null) {
     return (
-      <p className="m-0 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
         טוען חיבורים…
       </p>
     );
@@ -173,7 +173,7 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
   return (
     <div>
       {rows.length === 0 ? (
-        <p className="m-0 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
+        <p className="m-0 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
           אין כרגע חיבורים פתוחים.
         </p>
       ) : (
@@ -185,11 +185,11 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
               style={{ borderColor: "var(--color-border)" }}
             >
               <span className="min-w-0">
-                <span className="block text-[15px] font-semibold">
+                <span className="block text-[length:var(--type-body-sm)] font-semibold">
                   {describeDevice(row.userAgent)}
                   {row.current ? (
                     <span
-                      className="mv-pill mr-2 text-[14px]"
+                      className="mv-pill mr-2 text-[length:var(--type-caption)]"
                       style={{
                         background: "var(--color-primary-soft)",
                         color: "var(--color-primary)",
@@ -205,14 +205,14 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
                   */}
                   {row.supportAdminEmail !== null ? (
                     <span
-                      className="mv-pill mr-2 text-[14px]"
+                      className="mv-pill mr-2 text-[length:var(--type-caption)]"
                       style={{ color: "var(--color-danger)", fontWeight: 700 }}
                     >
                       תמיכה · {row.supportAdminEmail}
                     </span>
                   ) : null}
                 </span>
-                <span className="block text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                <span className="block text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                   {/* הכתובת ב-LTR: ספרות ונקודות בכיוון עברי נקראות הפוך */}
                   התחברות: {formatDateTime(row.createdAt)}
                   {row.ipAddress !== null ? (
@@ -229,7 +229,7 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
               {managing ? null : (
                 <button
                   type="button"
-                  className="mv-btn-plain text-[14.5px]"
+                  className="mv-btn-plain text-[length:var(--type-caption-lg)]"
                   onClick={() => void revokeOne(row)}
                   disabled={busy}
                 >
@@ -244,7 +244,7 @@ export function SessionsList({ userId = null, userName }: Props): React.JSX.Elem
       {(managing ? rows.length > 0 : others > 0) ? (
         <button
           type="button"
-          className="mv-btn-plain mt-3 text-[14.5px]"
+          className="mv-btn-plain mt-3 text-[length:var(--type-caption-lg)]"
           onClick={() => void revokeAll()}
           disabled={busy}
         >

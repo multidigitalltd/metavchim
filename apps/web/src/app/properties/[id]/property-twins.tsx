@@ -272,12 +272,12 @@ export function PropertyTwins({
           <h2
             id="twins-heading"
             className="m-0"
-            style={{ fontSize: 16.5, fontWeight: 800 }}
+            style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
           >
             נכסים תאומים
           </h2>
           <p
-            className="m-0 mt-1 text-[14.5px] leading-relaxed"
+            className="m-0 mt-1 text-[length:var(--type-caption-lg)] leading-relaxed"
             style={{ color: "var(--color-text-muted)" }}
           >
             נכסים מהמאגר שלכם שמתאימים לאותו סוג לקוח. בשיחה על הנכס
@@ -303,7 +303,7 @@ export function PropertyTwins({
 
       {atLimit ? (
         <p
-          className="m-0 mt-3 text-[14.5px] font-semibold"
+          className="m-0 mt-3 text-[length:var(--type-caption-lg)] font-semibold"
           style={{ color: "var(--color-text-muted)" }}
         >
           סימנתם {MAX_TWINS_PER_PROPERTY} נכסים תאומים — המקסימום. הסירו
@@ -330,7 +330,7 @@ export function PropertyTwins({
         </p>
       ) : twins.length === 0 ? (
         <p
-          className="m-0 mt-4 rounded-xl border p-4 text-[15px]"
+          className="m-0 mt-4 rounded-xl border p-4 text-[length:var(--type-body-sm)]"
           style={{
             borderColor: "var(--color-border)",
             background: "var(--color-field)",
@@ -375,12 +375,12 @@ export function PropertyTwins({
                     ) : null}
                   </div>
                   <p
-                    className="m-0 mt-1 text-[14px]"
+                    className="m-0 mt-1 text-[length:var(--type-caption)]"
                     style={{ color: "var(--color-text-muted)" }}
                   >
                     {detailLine(twin) || "אין פרטים נוספים"}
                   </p>
-                  <p className="m-0 mt-1 text-[15px] font-bold">
+                  <p className="m-0 mt-1 text-[length:var(--type-body-sm)] font-bold">
                     {twin.priceAgorot !== undefined
                       ? formatPrice(twin.priceAgorot)
                       : "מחיר לא צוין"}
@@ -396,7 +396,7 @@ export function PropertyTwins({
                   </p>
                   {twin.note !== undefined ? (
                     <p
-                      className="m-0 mt-1.5 text-[14px] leading-relaxed"
+                      className="m-0 mt-1.5 text-[length:var(--type-caption)] leading-relaxed"
                       style={{ color: "var(--color-text-soft)" }}
                     >
                       {twin.note}
@@ -423,7 +423,7 @@ export function PropertyTwins({
           setError(null);
         }}
       >
-        <label htmlFor="twin-search" className="block text-[14.5px] font-semibold">
+        <label htmlFor="twin-search" className="block text-[length:var(--type-caption-lg)] font-semibold">
           חיפוש בנכסים שלכם
         </label>
         <div className="mt-1 flex items-center gap-2">
@@ -444,7 +444,7 @@ export function PropertyTwins({
           </p>
         ) : visible.length === 0 ? (
           <p
-            className="m-0 mt-3 text-[14.5px]"
+            className="m-0 mt-3 text-[length:var(--type-caption-lg)]"
             style={{ color: "var(--color-text-muted)" }}
           >
             {/*
@@ -493,7 +493,7 @@ export function PropertyTwins({
                         })}
                       </span>
                       <span
-                        className="block text-[14px]"
+                        className="block text-[length:var(--type-caption)]"
                         style={{ color: "var(--color-text-muted)" }}
                       >
                         {row.priceAgorot !== undefined
@@ -511,7 +511,7 @@ export function PropertyTwins({
 
         <label
           htmlFor="twin-note"
-          className="mt-3 block text-[14.5px] font-semibold"
+          className="mt-3 block text-[length:var(--type-caption-lg)] font-semibold"
         >
           למה הם תאומים? <span className="font-normal">(רשות)</span>
         </label>

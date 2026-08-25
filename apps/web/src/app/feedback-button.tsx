@@ -122,7 +122,7 @@ export function FeedbackButton() {
             <h2
               id="feedback-heading"
               className="m-0 grow"
-              style={{ fontSize: 17, fontWeight: 800, lineHeight: 1.35 }}
+              style={{ fontSize: "calc(17 / 16 * 1rem)", fontWeight: 800, lineHeight: 1.35 }}
             >
               את המערכת הזו אתם מפתחים
             </h2>
@@ -143,7 +143,7 @@ export function FeedbackButton() {
                 ✓ קיבלנו. תודה.
               </p>
               <p
-                className="m-0 mt-1 text-[14.5px]"
+                className="m-0 mt-1 text-[length:var(--type-caption-lg)]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 נעבור על מה שכתבתם. אם הרעיון ייושם — נעדכן אתכם ונזכה
@@ -167,12 +167,12 @@ export function FeedbackButton() {
             </div>
           ) : (
             <>
-              <p className="m-0 mt-1.5 text-[14.5px] leading-relaxed">
+              <p className="m-0 mt-1.5 text-[length:var(--type-caption-lg)] leading-relaxed">
                 אנחנו מחכים לשמוע מכם. רעיונות, פידבק והצעות לשיפור
                 וייעול — מי שעובד במערכת כל יום רואה דברים שאנחנו לא.
               </p>
               <p
-                className="m-0 mt-2 rounded-lg px-3 py-2 text-[14.5px] font-bold"
+                className="m-0 mt-2 rounded-lg px-3 py-2 text-[length:var(--type-caption-lg)] font-bold"
                 style={{
                   background: "var(--color-primary-soft)",
                   color: "var(--color-primary)",
@@ -183,7 +183,7 @@ export function FeedbackButton() {
 
               <label
                 htmlFor="feedback-text"
-                className="mt-3 block text-[14.5px] font-semibold"
+                className="mt-3 block text-[length:var(--type-caption-lg)] font-semibold"
               >
                 מה הרעיון?
               </label>

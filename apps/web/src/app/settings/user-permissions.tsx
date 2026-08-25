@@ -122,7 +122,7 @@ export function UserPermissions({
       </div>
 
       {data.protected ? (
-        <p className="m-0 mb-3 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
+        <p className="m-0 mb-3 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
           אי אפשר לשנות כאן הרשאות — בעל המשרד וההרשאות שלכם עצמכם מוגנים, כדי שתמיד
           יישאר מי שיכול לתקן.
         </p>
@@ -171,7 +171,7 @@ export function UserPermissions({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
                   <span className="text-sm font-bold">{module.label}</span>
-                  <span className="mv-pill mr-2" style={{ fontSize: 14, ...tone }}>
+                  <span className="mv-pill mr-2" style={{ fontSize: "var(--type-caption)", ...tone }}>
                     {state}
                   </span>
                   <span
@@ -201,7 +201,7 @@ export function UserPermissions({
                         <select
                           id={`dur_${module.key}`}
                           defaultValue="7"
-                          className="rounded-lg border px-2 py-1 text-[14.5px]"
+                          className="rounded-lg border px-2 py-1 text-[length:var(--type-caption-lg)]"
                           style={{
                             borderColor: "var(--color-input-border)",
                             background: "var(--color-bg)",
@@ -253,7 +253,7 @@ export function UserPermissions({
                     return (
                       <li
                         key={capability}
-                        className="flex flex-wrap items-center justify-between gap-2 border-t py-2 text-[14.5px]"
+                        className="flex flex-wrap items-center justify-between gap-2 border-t py-2 text-[length:var(--type-caption-lg)]"
                         style={{ borderColor: "var(--color-border)" }}
                       >
                         <span>
@@ -299,7 +299,7 @@ export function UserPermissions({
         })}
       </div>
 
-      <p className="m-0 mt-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mt-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
         התפקיד קובע את נקודת הפתיחה, וכאן מכווננים אותה למשתמש הזה. חסימה זמנית פגה
         מעצמה במועד שנקבע — אין צורך לזכור לבטל אותה. כל שינוי נרשם ביומן הפעולות.
       </p>

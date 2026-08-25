@@ -19,6 +19,7 @@ import {
   type ListFilterValues,
 } from "../list-filters";
 import { Notice } from "../notice";
+import { readinessBand } from "@/lib/readiness";
 
 /**
  * מסך הנכסים לפי קובץ העיצוב: צ'יפי ערים לסינון, טבלת grid עם תג
@@ -51,14 +52,24 @@ function isNew(p: PropertyRow): boolean {
   return Date.now() - new Date(p.createdAt).getTime() < 7 * 24 * 60 * 60 * 1000;
 }
 
-/* צבעי פס המוכנות מהעיצוב; צבע הטקסט לצידו מועמק ל-AA (docs/06 §4) */
-function readinessColors(score: number): { bar: string; text: string } {
-  if (score >= 85) return { bar: "#12A150", text: "var(--color-primary)" };
-  if (score >= 70) return { bar: "#c98a2e", text: "#8a6414" };
-  return { bar: "#b0512c", text: "#b0512c" };
+/**
+ * הדומיין של סטטוס הנכס (SPEC-2 §4).
+ *
+ * ‎**„טיוטה” הוא ניטרלי ולעולם לא ענבר** — החבילה מדגישה זאת
+ * פעמיים, ובצדק: טיוטה אינה תקלה ואינה דורשת תשומת לב דחופה,
+ * היא פשוט נכס שטרם הושלם. ענבר היה קורא לה „טפל בי עכשיו”.
+ */
+function statusDomain(status: string): string {
+  if (status === "active") return "mv-domain-green";
+  return "mv-domain-neutral";
 }
 
-const GRID = "2.2fr 0.9fr 0.7fr 1fr 1.2fr 0.9fr 0.6fr";
+/*
+ * שתי העמודות האחרונות התרחבו יחד עם התוכן שנכנס אליהן: המוכנות
+ * נושאת כעת שתי שורות („‎82%” ומתחתיו „חסרים 2 שדות חובה”), והסטטוס
+ * וההתאמות הפכו מטקסט לגלולות. ‎0.6fr‎ היה חותך „12 התאמות”.
+ */
+const GRID = "2fr 0.8fr 0.6fr 0.9fr 1.3fr 1fr 1fr";
 
 const SORTS: [string, string][] = [
   ["newest", "חדשים קודם"],
@@ -241,12 +252,12 @@ export default function PropertiesPage() {
           {/* כפתור שמוביל לפיצ'ר שאינו במסלול נחסם בשרת ממילא —
               עדיף לא להציג אותו מאשר להסביר 403 אחרי בחירת קובץ */}
           {canImport ? (
-            <Link href="/import" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "14px" }}>
+            <Link href="/import" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "var(--type-caption)" }}>
               <IconSheet s={15} /> ייבוא מאקסל
             </Link>
           ) : null}
           {canVoice ? (
-            <Link href="/voice" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "14px" }}>
+            <Link href="/voice" className="mv-btn-plain" style={{ minHeight: 38, paddingInline: 14, fontSize: "var(--type-caption)" }}>
               <IconMic s={15} /> נכס בקול
             </Link>
           ) : null}
@@ -261,17 +272,47 @@ export default function PropertiesPage() {
       ) : items === null ? (
         <p aria-live="polite">טוען נכסים…</p>
       ) : items.length === 0 && !hasActiveFilters(filters) ? (
+        /*
+         * **מצב „אין נכסים בכלל” יושב כאן, ולא בתוך הרשימה.**
+         *
+         * הענף הזה קודם לסרגל הסינון, וזה נכון: למשרד שאין לו נכסים
+         * אין מה לסנן, וצ׳יפים ריקים מעל כרטיס ריק הם רעש.
+         *
+         * בגרסה הקודמת כתבתי מצב „אין נכסים” משופר **בתוך** בלוק
+         * הרשימה, ולא שמתי לב שהענף הזה תופס את המקרה לפניו. התוצאה
+         * הייתה קוד מת: משרד חדש קיבל את הנוסח הישן, והפעולה שהוספתי
+         * („קליטה בקול”) לא הופיעה לעולם. הנוסח המשופר עבר לכאן
+         * (ביקורת Codex).
+         */
         <div
           className="rounded-xl border p-8 text-center"
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
         >
-          <p className="mb-3 text-lg font-semibold">עדיין אין נכסים</p>
+          <p className="mb-1 text-[length:var(--type-screen-title)] font-black">עוד לא הוספת נכסים</p>
           <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
-            הוסיפו את הנכס הראשון — ותוך שניות תראו קונים מתאימים.
+            כל נכס שתוסיפו ייבדק מול הקונים שבמאגר, וההתאמות יחושבו לבד.
           </p>
-          <Link href="/properties/new">
-            <Button>הוסף נכס ראשון</Button>
-          </Link>
+          {/*
+           * ‎`mv-button` ולא `mv-btn-action`/`mv-btn-plain` — יעד מגע.
+           *
+           * ‎§26 דורש „buttons 46 and up”, ושני הכפתורים שכתבתי כאן
+           * היו מתחת ל-44: ‎`mv-btn-action` הוא 42, ו-`mv-btn-plain`
+           * הוא ריפוד 6px סביב טקסט 14 — כ-34 בפועל. דווקא הפעולה
+           * הזו מיועדת לשימוש במובייל תוך כדי תנועה (ביקורת Codex).
+           *
+           * ‎`mv-button` הוא 46 בזכות `min-height`, כלומר גם טקסט
+           * שנשבר לשתי שורות אינו מקטין את יעד המגע.
+           */}
+          <div className="flex flex-wrap items-center justify-center gap-2.5">
+            <Link href="/properties/new" className="mv-button mv-button--primary">
+              <IconPlus s={16} /> נכס חדש
+            </Link>
+            {canVoice ? (
+              <Link href="/voice" className="mv-button mv-button--secondary">
+                <IconMic s={16} /> קליטה בקול
+              </Link>
+            ) : null}
+          </div>
         </div>
       ) : (
         <>
@@ -306,11 +347,21 @@ export default function PropertiesPage() {
           </FilterBar>
 
           {visible.length === 0 ? (
+            /*
+             * כאן **תמיד** „הסינון לא החזיר כלום”, ולא „אין נכסים”.
+             *
+             * המקרה השני נתפס בענף שלפני סרגל הסינון. אם הגענו לכאן
+             * והרשימה ריקה, בהכרח פעיל מסנן כלשהו — שרת או צ׳יפ —
+             * ולכן אין כאן תנאי, ואין ענף שני שלעולם לא ירוץ.
+             */
             <div
               className="rounded-xl border p-8 text-center"
               style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
             >
-              <p className="mb-3">אף נכס לא תואם את הסינון.</p>
+              <p className="mb-1 text-[length:var(--type-screen-title)] font-black">אין נכסים שמתאימים לסינון</p>
+              <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
+                הסינון הנוכחי לא מחזיר אף נכס. נסו לצמצם אותו או לנקות אותו לגמרי.
+              </p>
               <Button
                 variant="secondary"
                 onClick={() => {
@@ -320,7 +371,7 @@ export default function PropertiesPage() {
                   setType("");
                 }}
               >
-                נקה סינון
+                ניקוי הסינון
               </Button>
             </div>
           ) : (
@@ -331,7 +382,7 @@ export default function PropertiesPage() {
                   className="mv-list-card mb-3 flex flex-wrap items-center gap-2 px-4 py-3"
                   role="status"
                 >
-                  <strong className="text-[15px]">{selectedVisible.length} נבחרו</strong>
+                  <strong className="text-[length:var(--type-body-sm)]">{selectedVisible.length} נבחרו</strong>
                   <button
                     type="button"
                     className="mv-btn-plain"
@@ -354,9 +405,34 @@ export default function PropertiesPage() {
 
               {bulkNote ? <Notice tone="success">{bulkNote}</Notice> : null}
 
-              {/* מובייל: כרטיסים. טבלת grid במסך 375px דורשת גלילה לצדדים —
-                  והמתווך עומד בשטח עם יד אחת פנויה (docs/06 §1.5) */}
-              <ul className="flex flex-col gap-3 sm:hidden">
+              <div className="mv-list-switch">
+              {/*
+                כרטיסים עד 1280, טבלה מעליו — **ולא 640 ולא 1024.**
+
+                הטבלה נפתחה תחילה ב-`sm`, ובטווח 640–1023 נשארו לשתי
+                העמודות האחרונות כשישים פיקסלים כל אחת. כל עוד הן
+                נשאו טקסט זה עבד; מרגע שהפכתי אותן לגלולות — שהן
+                ‎`white-space: nowrap` עם 22 פיקסלים ריפוד אופקי —
+                „12 התאמות” ותוויות סטטוס ארוכות נחתכות או דורסות
+                את העמודה השכנה (ביקורת Codex).
+
+                ‎**‎`lg` היה התיקון הגרוע ביותר האפשרי, ולא במקרה.**
+                ‎1024 הוא בדיוק הרוחב שבו `.mv-sidebar` נכנס ותופס
+                250 פיקסלים. כלומר רוחב התוכן **מצטמצם** שם:
+                ב-1023 הכרטיסים מקבלים ‎1023−68 ≈ 955‎, וב-1024
+                הטבלה נפתחת על ‎1024−250−68 ≈ 706‎. בחרתי את הנקודה
+                היחידה שבה המעבר לפריסה הרחבה נעשה על שטח צר יותר
+                (ביקורת Codex).
+
+                ‎1280 מחזיר ‎1280−250−68 ≈ 962‎ — הרוחב הראשון שעובר
+                את מה שתצוגת הכרטיסים כבר קיבלה, וכ-115 פיקסלים לכל
+                עמודת ‎`1fr`‎, די לגלולה השלמה.
+
+                ולא גלילה אופקית: בטאבלט כרטיס קריא עדיף על טבלה
+                שצריך לגרור, וזה גם הנימוק המקורי של תצוגת הכרטיסים
+                (docs/06 §1.5).
+              */}
+              <ul className="mv-list-as-cards flex-col gap-3">
                 {visible.map((p) => (
                   <li
                     key={p.id}
@@ -398,31 +474,60 @@ export default function PropertiesPage() {
                             <span
                               style={{
                                 width: `${p.readinessScore}%`,
-                                background: readinessColors(p.readinessScore).bar,
+                                background: readinessBand(p.readinessScore).bar,
                               }}
                             />
                           </span>
-                          <span className="font-bold" style={{ color: readinessColors(p.readinessScore).text, fontSize: "14px" }}>
+                          <span
+                            className="font-bold"
+                            style={{ color: readinessBand(p.readinessScore).text, fontSize: "var(--type-caption)" }}
+                          >
                             {p.readinessScore}%
                           </span>
                         </p>
+                        {/*
+                          שדות החובה והסטטוס — **הכרטיס נושא את אותן
+                          עובדות כמו הטבלה.**
+
+                          כשהעברתי את נקודת המעבר מ-640 ל-1280, כל מי
+                          שנמצא בין השתיים עבר מהטבלה לכרטיס. הטבלה
+                          מציגה סטטוס, שדות חסרים ומצב „אין עדיין”
+                          להתאמות; הכרטיס לא הציג אף אחד מהם. כלומר
+                          פתרתי בעיית רוחב במחיר של מידע, ודווקא
+                          למשתמשי הטאבלט ולרוחב 1024 שהוא נפוץ
+                          (ביקורת Codex).
+
+                          הניסוח והדומיינים נלקחים מאותן פונקציות
+                          שמזינות את הטבלה, ולא נכתבים כאן מחדש.
+                        */}
+                        <p className="mt-1" style={{ fontSize: "var(--type-caption)", color: "var(--color-text-muted)" }}>
+                          {p.missingFields.length > 0
+                            ? `חסרים ${p.missingFields.length} שדות חובה`
+                            : "כל שדות החובה מלאים"}
+                        </p>
                       </div>
                     </div>
-                    {p.suggestedMatchCount ? (
-                      <Link
-                        href={`/matches?property=${p.id}`}
-                        className="mv-pill mt-3 inline-block no-underline"
-                        style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}
-                      >
-                        {p.suggestedMatchCount} קונים מתאימים ←
-                      </Link>
-                    ) : null}
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className={`mv-pill ${statusDomain(p.status)}`}>
+                        {STATUS_LABELS[p.status] ?? p.status}
+                      </span>
+                      {p.suggestedMatchCount ? (
+                        <Link
+                          href={`/matches?property=${p.id}`}
+                          className="mv-pill mv-domain-violet no-underline"
+                        >
+                          {p.suggestedMatchCount} קונים מתאימים ←
+                        </Link>
+                      ) : (
+                        <span className="mv-pill mv-domain-neutral">אין עדיין</span>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
 
-              {/* שולחני: טבלת ה-grid מהעיצוב */}
-              <div className="mv-list-card hidden sm:block">
+              {/* שולחני: טבלת ה-grid מהעיצוב. הנקודה מנומקת ליד `xl:hidden` */}
+              <div className="mv-list-as-table mv-list-card">
                 <div className="mv-list-head" style={{ gridTemplateColumns: GRID }}>
                   <span className="flex items-center gap-2">
                     {mayShare ? (
@@ -444,7 +549,7 @@ export default function PropertiesPage() {
                   <span>התאמות</span>
                 </div>
                 {visible.map((p) => {
-                  const ready = readinessColors(p.readinessScore);
+                  const ready = readinessBand(p.readinessScore);
                   return (
                     /* התיבה לצד השורה ולא בתוכה — השורה כולה כפתור
                        ניווט, ותיבת סימון בתוך כפתור אינה נגישה */
@@ -463,7 +568,7 @@ export default function PropertiesPage() {
                       style={{ gridTemplateColumns: GRID }}
                       onClick={() => router.push(`/properties/${p.id}`)}
                     >
-                      <span className="flex items-center gap-2 truncate text-[15.5px] font-bold">
+                      <span className="flex items-center gap-2 truncate text-[length:var(--type-body)] font-bold">
                         {addressOf(p)}
                         {isNew(p) ? (
                           <span className="mv-tag" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}>
@@ -471,34 +576,78 @@ export default function PropertiesPage() {
                           </span>
                         ) : null}
                       </span>
-                      <span className="truncate text-[15px]" style={{ color: "var(--color-text-soft)" }}>
+                      <span className="truncate text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-soft)" }}>
                         {p.city ?? "—"}
                       </span>
-                      <span className="text-[15px]" style={{ color: "var(--color-text-soft)" }}>
+                      <span className="text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-soft)" }}>
                         {p.rooms ?? "—"}
                       </span>
                       <span className="text-sm font-bold">{formatPrice(p.priceAgorot)}</span>
-                      <span className="flex items-center gap-2">
-                        <span className="mv-progress">
-                          <span style={{ width: `${p.readinessScore}%`, background: ready.bar }} />
+                      <span className="flex flex-col gap-1">
+                        <span className="flex items-center gap-2">
+                          <span className="mv-progress">
+                            <span style={{ width: `${p.readinessScore}%`, background: ready.bar }} />
+                          </span>
+                          <span className="font-bold" style={{ color: ready.text, fontSize: "var(--type-caption)" }}>
+                            {p.readinessScore}%
+                          </span>
                         </span>
-                        <span className="font-bold" style={{ color: ready.text, fontSize: "14px" }}>
-                          {p.readinessScore}%
+                        {/*
+                          „‎82% · חסרים 2 שדות” — **גלוי, ולא רק לקורא מסך.**
+
+                          המספר היה כאן ב-`mv-visually-hidden`, כלומר מתווך
+                          רואה אחוז ואינו יודע כמה שדות עומדים מאחוריו ולא
+                          שהם בכלל ניתנים להשלמה. זו העמודה שכל תכליתה לומר
+                          „מה חסר”, והמידע כבר הגיע מהשרת.
+
+                          ‎**„שדות חובה” ולא „שדות”.** ‎`missingFields` סופר
+                          אך ורק את ‎`PROPERTY_REQUIRED_FOR_MARKETING`, ואילו
+                          הציון נותן לרשימה הזו 80% ומשלים עשרה אחוזים על
+                          כותרת שיווקית ועשרה על תיאור. נכס שכל שדות החובה
+                          שלו מלאים ואין לו תיאור מגיע ל-80%, ובלי המילה
+                          „חובה” השורה אמרה „כל השדות מלאים” ליד „80%” —
+                          סתירה גלויה שמזמינה את „אז מה חסר?” (ביקורת Codex).
+
+                          הנימוק הזה כתוב במלואו ב-`lib/readiness.ts`, ושם
+                          הוא הסיבה שכרטיס הנכס אומר „N מתוך M שדות חובה”.
+                          כתבתי אותו שם, ולא החלתי אותו כאן.
+                        */}
+                        <span style={{ fontSize: "var(--type-caption)", color: "var(--color-text-muted)" }}>
+                          {p.missingFields.length > 0
+                            ? `חסרים ${p.missingFields.length} שדות חובה`
+                            : "כל שדות החובה מלאים"}
                         </span>
-                        {p.missingFields.length > 0 ? (
-                          <span className="mv-visually-hidden">חסרים {p.missingFields.length} פרטים</span>
-                        ) : null}
                       </span>
-                      <span className="text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
-                        {STATUS_LABELS[p.status] ?? p.status}
+                      <span>
+                        <span className={`mv-pill ${statusDomain(p.status)}`}>
+                          {STATUS_LABELS[p.status] ?? p.status}
+                        </span>
                       </span>
-                      <span className="text-[14.5px] font-extrabold" style={{ color: "var(--color-primary)" }}>
-                        {p.suggestedMatchCount || "—"}
+                      {/*
+                        התאמות הן **סגול** ולא ירוק (§2 של מערכת העיצוב:
+                        „VIOLET — matching engine: matches, offers”). הירוק
+                        שהיה כאן שייך לכסף ולשיתופי פעולה, ושורה אחת בשני
+                        דומיינים היא בדיוק מה שהכלל אוסר.
+
+                        אפס עובר לניטרלי — „Zero must never look like
+                        failure”.
+                      */}
+                      <span>
+                        <span
+                          className={`mv-pill ${
+                            p.suggestedMatchCount ? "mv-domain-violet" : "mv-domain-neutral"
+                          }`}
+                        >
+                          {p.suggestedMatchCount
+                            ? `${p.suggestedMatchCount} התאמות`
+                            : "אין עדיין"}
+                        </span>
                       </span>
                     </button>
                     </div>
                   );
                 })}
+              </div>
               </div>
             </>
           )}

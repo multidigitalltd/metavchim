@@ -218,7 +218,7 @@ export function SupportButton() {
           className="mv-support-panel"
         >
           <div className="flex items-center gap-2">
-            <h2 id="support-panel-heading" className="m-0 grow" style={{ fontSize: 17, fontWeight: 800 }}>
+            <h2 id="support-panel-heading" className="m-0 grow" style={{ fontSize: "calc(17 / 16 * 1rem)", fontWeight: 800 }}>
               פנייה לתמיכה
             </h2>
             <button
@@ -237,7 +237,7 @@ export function SupportButton() {
           {sent !== null ? (
             <div className="mt-3">
               <p className="m-0 font-semibold">הפנייה נשלחה.</p>
-              <p className="m-0 mt-1 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
+              <p className="m-0 mt-1 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
                 {sent.withScreenshot
                   ? "צורף גם צילום המסך."
                   : "בלי צילום מסך — הפנייה נשלחה עם פרטי המסך והשגיאות."}{" "}
@@ -294,7 +294,7 @@ export function SupportButton() {
                 מה שנשלח, כתוב במפורש. צירוף שקט של הקשר טכני הוא
                 איסוף מידע; צירוף שהמשתמש רואה הוא עזרה.
               */}
-              <p className="m-0 mt-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+              <p className="m-0 mt-2 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                 נשלח גם: המסך ({area})
                 {diagnostics.failedRequests.length > 0
                   ? ` · ${diagnostics.failedRequests.length} בקשות שנכשלו`
@@ -304,7 +304,7 @@ export function SupportButton() {
               </p>
 
               {canCaptureScreen() ? (
-                <label className="mt-2 flex items-center gap-2 text-[14.5px]">
+                <label className="mt-2 flex items-center gap-2 text-[length:var(--type-caption-lg)]">
                   <input
                     type="checkbox"
                     checked={withShot && upload === null}
@@ -315,7 +315,7 @@ export function SupportButton() {
                 </label>
               ) : null}
 
-              <label className="mt-1.5 block text-[14.5px]">
+              <label className="mt-1.5 block text-[length:var(--type-caption-lg)]">
                 <span style={{ color: "var(--color-text-muted)" }}>
                   {canCaptureScreen() ? "או העלו צילום מהמכשיר:" : "אפשר לצרף צילום מהמכשיר:"}
                 </span>{" "}

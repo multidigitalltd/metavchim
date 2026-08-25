@@ -43,7 +43,7 @@ export function ExportSection() {
         <button
           type="button"
           className="mv-btn-plain flex-1 text-center"
-          style={{ padding: "8px 0", fontSize: 14.5 }}
+          style={{ padding: "8px 0", fontSize: "var(--type-caption-lg)" }}
           disabled={busy !== null}
           onClick={() => download("/export/properties.csv", "properties.csv")}
         >
@@ -52,14 +52,14 @@ export function ExportSection() {
         <button
           type="button"
           className="mv-btn-plain flex-1 text-center"
-          style={{ padding: "8px 0", fontSize: 14.5 }}
+          style={{ padding: "8px 0", fontSize: "var(--type-caption-lg)" }}
           disabled={busy !== null}
           onClick={() => download("/export/buyers.csv", "buyers.csv")}
         >
           {busy === "buyers.csv" ? "מוריד…" : "ייצוא קונים"}
         </button>
       </div>
-      <p className="m-0 mt-[9px] text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mt-[9px] text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
         קבצים בעברית שנפתחים באקסל וניתנים לייבוא חזרה. כל ייצוא מתועד ביומן הפעילות.
       </p>
       {error ? (

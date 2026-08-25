@@ -204,10 +204,10 @@ export function TelephonySection() {
 
   return (
     <section className="mv-list-card px-5 py-[17px]" aria-labelledby="telephony-heading">
-      <h2 id="telephony-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
+      <h2 id="telephony-heading" className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
         מרכזיית טלפון
       </h2>
-      <p className="m-0 mb-3 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mb-3 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
         שיחה נכנסת תקפיץ את שם הלקוח לפני שעונים, ותירשם אוטומטית בכרטיס שלו.
         מספר שאינו מוכר שדיברתם איתו ייפתח כליד.
       </p>
@@ -227,19 +227,19 @@ export function TelephonySection() {
           <p className="m-0 text-sm font-bold">
             ✓ מחובר · {status.providerLabel}
           </p>
-          <p className="m-0 mt-1 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 mt-1 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
             {status.lastEventAt
               ? `אירוע אחרון: ${formatDateTime(status.lastEventAt)}`
               : "טרם התקבל אירוע מהמרכזייה"}
           </p>
 
-          <p className="m-0 mb-1 mt-3 text-[14.5px] font-bold">
+          <p className="m-0 mb-1 mt-3 text-[length:var(--type-caption-lg)] font-bold">
             הכתובת להדבקה בהגדרות המרכזייה
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <code
               dir="ltr"
-              className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-[14px]"
+              className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-[length:var(--type-caption)]"
               style={{ background: "var(--color-bg)" }}
             >
               {status.webhookUrl}
@@ -259,7 +259,7 @@ export function TelephonySection() {
             וכפתור שהשם שלו מתחלף מבלבל קורא מסך שמגיע אליו אחר כך.
             הכתובת עצמה מוצגת מעליו, ולכן ההעתקה הידנית זמינה תמיד.
           */}
-          <p role="status" className="m-0 mt-1 text-[14px]">
+          <p role="status" className="m-0 mt-1 text-[length:var(--type-caption)]">
             {urlClipboard.state === "copied" ? (
               <span style={{ color: "var(--color-success)" }}>✓ הכתובת הועתקה</span>
             ) : urlClipboard.state === "failed" ? (
@@ -274,7 +274,7 @@ export function TelephonySection() {
           */}
           <div className="mt-2.5 rounded-lg border p-2.5" style={{ borderColor: "var(--color-border)" }}>
             {status.lastEventAt === undefined ? (
-              <p className="m-0 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+              <p className="m-0 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                 טרם התקבל אף אירוע מהמרכזייה. אם כבר הזנתם את הכתובת אצל הספק —
                 בצעו שיחת בדיקה, ואם עדיין ריק כאן, הכתובת אצלו אינה מצביעה לכאן.
               </p>
@@ -284,7 +284,7 @@ export function TelephonySection() {
                 return (
                   <>
                     <p
-                      className="m-0 text-[14px]"
+                      className="m-0 text-[length:var(--type-caption)]"
                       style={{
                         color: why.tone === "warning" ? "var(--color-warning)" : "var(--color-text-muted)",
                       }}
@@ -296,13 +296,13 @@ export function TelephonySection() {
                     {why.showKeys && status.lastEventKeys ? (
                       <>
                         <p
-                          className="m-0 mt-1 text-[14px]"
+                          className="m-0 mt-1 text-[length:var(--type-caption)]"
                           dir="ltr"
                           style={{ color: "var(--color-text-muted)" }}
                         >
                           {status.lastEventKeys}
                         </p>
-                        <p className="m-0 mt-1 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                        <p className="m-0 mt-1 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                           שלחו לנו את השורה הזו — היא כל מה שצריך כדי להוסיף את המיפוי.
                         </p>
                       </>
@@ -311,7 +311,7 @@ export function TelephonySection() {
                 );
               })()
             ) : (
-              <p className="m-0 text-[14px]" style={{ color: "var(--color-success)" }}>
+              <p className="m-0 text-[length:var(--type-caption)]" style={{ color: "var(--color-success)" }}>
                 ✓ אירוע אחרון התקבל וזוהה ב-{new Date(status.lastEventAt).toLocaleString("he-IL")}
               </p>
             )}
@@ -325,11 +325,11 @@ export function TelephonySection() {
               הן בדיוק מה שצריך להיות בכל שדה, ולא הסבר כללי.
             */
             <details className="mt-2.5">
-              <summary className="cursor-pointer text-[14.5px] font-bold">
+              <summary className="cursor-pointer text-[length:var(--type-caption-lg)] font-bold">
                 מה להגדיר במסך ה-Webhook של 015
               </summary>
               <ol
-                className="m-0 mt-2 pr-5 text-[14px]"
+                className="m-0 mt-2 pr-5 text-[length:var(--type-caption)]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 <li className="mb-1">
@@ -349,7 +349,7 @@ export function TelephonySection() {
               </ol>
               <pre
                 dir="ltr"
-                className="mt-1 overflow-x-auto rounded p-2 text-[14px]"
+                className="mt-1 overflow-x-auto rounded p-2 text-[length:var(--type-caption)]"
                 style={{ background: "var(--color-bg)" }}
               >
                 {PBX015_TEMPLATE}
@@ -363,7 +363,7 @@ export function TelephonySection() {
               >
                 העתק תבנית
               </button>
-              <p role="status" className="m-0 mt-1 text-[14px]">
+              <p role="status" className="m-0 mt-1 text-[length:var(--type-caption)]">
                 {templateClipboard.state === "copied" ? (
                   <span style={{ color: "var(--color-success)" }}>✓ התבנית הועתקה</span>
                 ) : templateClipboard.state === "failed" ? (
@@ -372,13 +372,13 @@ export function TelephonySection() {
                   </span>
                 ) : null}
               </p>
-              <p className="m-0 mt-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+              <p className="m-0 mt-2 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                 ‎<code dir="ltr">talktime</code> ו-<code dir="ltr">totaltime</code> שניהם
                 נחוצים: ההפרש ביניהם הוא מה שמבדיל בין שיחה שנענתה לשיחה שרק צלצלה.
               </p>
             </details>
           ) : (
-            <p className="m-0 mt-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+            <p className="m-0 mt-2 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
               המרכזייה יכולה לקרוא לכתובת ב-GET עם פרמטרים או ב-POST. השדות הנדרשים:
               מספר המתקשר, מזהה שיחה, וסטטוס (‎ringing / answered / hangup‎).
             </p>
@@ -535,7 +535,7 @@ function TeamSipLines() {
   return (
     <div className="mt-6 border-t pt-4" style={{ borderColor: "var(--color-border)" }}>
       <h3 className="m-0 mb-1 text-sm font-extrabold">קווי סופטפון לצוות</h3>
-      <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
         הקצו לכל סוכן את הקו והסיסמה שקיבלתם ממנהל המרכזייה — אצלו יופיע כפתור
         &quot;חבר סופטפון&quot; והוא יוכל לדבר מהדפדפן. סיסמה שמורה לא מוצגת; השאירו
         ריק כדי לא לשנות אותה.
@@ -639,13 +639,13 @@ function ImportRecordings() {
 
   return (
     <div className="mt-4 rounded-xl border p-3" style={{ borderColor: "var(--color-border)" }}>
-      <p className="m-0 mb-1 font-bold text-[15px]">ייבוא הקלטות קודמות</p>
-      <p className="m-0 mb-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mb-1 font-bold text-[length:var(--type-body-sm)]">ייבוא הקלטות קודמות</p>
+      <p className="m-0 mb-2 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
         מושך מהמרכזייה את ההקלטות של שיחות שכבר רשומות אצלכם ואין להן אודיו —
         למשל שיחות שההקלטה שלהן לא הייתה מוכנה כשהאירוע הגיע.
       </p>
       <div className="flex flex-wrap items-center gap-2">
-        <label className="text-[14px]">
+        <label className="text-[length:var(--type-caption)]">
           עד לפני
           <input
             type="number"
