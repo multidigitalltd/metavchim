@@ -390,6 +390,16 @@ export function parseRelativeOffset(text: string): RelativeOffset | null {
   let rejected: RelativeOffset | null = null;
   /** סוף הביטוי הקודם — מילת התיקון חייבת לשבת בינו לבין הנוכחי. */
   let previousEnd: number | null = null;
+  /**
+   * האם בחירה קודמת בוטלה בתיקון.
+   *
+   * „אין בחירה עדיין” ו„הבחירה בוטלה” הם שני מצבים שונים, ו-`null`
+   * לבדו אינו מבחין ביניהם: אחרי הביטול, ביטוי תקין **שאינו תיקון**
+   * נבלע כאילו היה הראשון. „עוד שעה, לא, בעוד 900 שעות, והמסמך
+   * צריך להגיע בעוד יומיים” היה קובע את התזכורת למועד המסמך
+   * (ביקורת Codex) — משפט אחר לגמרי, שנבחר רק מפני שהמקום התפנה.
+   */
+  let invalidated = false;
   for (const match of text.matchAll(RELATIVE_TRIGGER)) {
     const lead = match[1];
     if (lead === undefined || match.index === undefined) continue;
@@ -419,7 +429,10 @@ export function parseRelativeOffset(text: string): RelativeOffset | null {
        * שדה ריק הוא התשובה הנכונה כאן: המתווך אמר משהו שאי אפשר
        * לחשב, ועדיף שיראה זאת מאשר שיקבל את מה שביטל.
        */
-      if (corrects) chosen = null;
+      if (corrects) {
+        chosen = null;
+        invalidated = true;
+      }
       continue;
     }
     /*
@@ -430,8 +443,16 @@ export function parseRelativeOffset(text: string): RelativeOffset | null {
      * בלי בי"ת והגיע דווקא לתיקון (ביקורת Codex). „האחרון תמיד”
      * אינו התשובה: הוא היה שובר משפט שבו לביטוי השני יש נושא
      * משלו. מה שמכריע הוא מילת התיקון שביניהם.
+     *
+     * ואחרי ביטול — **רק תיקון מפורש מחייה את הבחירה.** מקום פנוי
+     * אינו הזמנה לביטוי הבא שבמשפט.
      */
-    if (chosen === null || corrects) chosen = found;
+    if (corrects) {
+      chosen = found;
+      invalidated = false;
+    } else if (chosen === null && !invalidated) {
+      chosen = found;
+    }
   }
   return chosen ?? rejected;
 }
