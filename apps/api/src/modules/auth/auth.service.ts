@@ -367,16 +367,7 @@ export class AuthService {
       data.email = nextEmail;
     }
 
-    /*
-     * **השוואה מנורמלת, ולא מחרוזת מול מחרוזת.**
-     *
-     * „050-1234567” ו„0501234567” הם אותו מספר. השוואת גלם הייתה
-     * מנתקת את הקישור על שינוי עיצוב בלבד — ומכיוון שהניתוק מותיר
-     * מצבה, המתווך היה נדרש למסלול קוד שלם בלי סיבה (ביקורת Codex).
-     */
-    const phoneChanging =
-      data.phone !== undefined &&
-      normalizePhone(data.phone ?? "") !== normalizePhone(user.phone ?? "");
+    const phoneIncoming = data.phone;
     /*
      * **החלפת מספר מנתקת את קישור הוואטסאפ — באותה עסקה.**
      *
@@ -393,6 +384,28 @@ export class AuthService {
      * מחדש בקוד מהמכשיר שבידו — וזו בדיוק ההצהרה שהקישור אמור לשאת.
      */
     const updated = await this.prisma.$transaction(async (tx) => {
+      /*
+       * **הנעילה והקריאה מתוכה — ולא צילום מצב מלפני העסקה.**
+       *
+       * שתי בקשות חופפות קראו את אותו מספר: אחת שינתה ל-B וניתקה,
+       * והשנייה — שכותבת בחזרה את A — חישבה „לא השתנה” והשאירה את
+       * המכשיר של B מחובר לפרופיל שכבר אומר A (ביקורת Codex).
+       * הקריאה כאן היא אחרי הנעילה, ולכן היא רואה את מה שקדם לה.
+       */
+      await this.whatsappLinks.lockAccount(tx, userId);
+      const current = await tx.user.findUnique({
+        where: { id: userId },
+        select: { phone: true },
+      });
+      /*
+       * השוואה מנורמלת: „050-1234567” ו„0501234567” הם אותו מספר,
+       * והשוואת גלם הייתה מנתקת את הקישור על שינוי עיצוב בלבד —
+       * ומכיוון שהניתוק מותיר מצבה, המתווך היה נדרש למסלול קוד שלם
+       * בלי סיבה (ביקורת Codex).
+       */
+      const phoneChanging =
+        phoneIncoming !== undefined &&
+        normalizePhone(phoneIncoming ?? "") !== normalizePhone(current?.phone ?? "");
       const next = await tx.user.update({ where: { id: userId }, data });
       if (phoneChanging) await this.whatsappLinks.revoke(userId, "phone_changed", tx);
       return next;

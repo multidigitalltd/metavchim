@@ -437,7 +437,19 @@ export class WhatsAppLinkService implements OnModuleDestroy {
     }
   }
 
-  /** נעילה לפי חשבון — קישור וניתוק נכנסים בתור ולא חוצים זה את זה. */
+  /**
+   * נעילה לפי חשבון — קישור וניתוק נכנסים בתור ולא חוצים זה את זה.
+   *
+   * ציבורית משום שגם מי שמשנה את **המספר** צריך להיכנס לאותו תור:
+   * ההחלטה „האם המספר השתנה” חייבת להיקרא מתוך הנעילה, אחרת היא
+   * מסתמכת על צילום מצב שהתיישן (ביקורת Codex). `pg_advisory_xact_lock`
+   * ניתן לנעילה חוזרת באותה עסקה, ולכן `revoke` שלוקח אותו שוב אינו
+   * נחסם.
+   */
+  async lockAccount(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+    await this.lock(tx, userId);
+  }
+
   private async lock(tx: Prisma.TransactionClient, userId: string): Promise<void> {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wa-link:${userId}`}))`;
   }
@@ -499,11 +511,20 @@ export class WhatsAppLinkService implements OnModuleDestroy {
       await this.revokeById(link.id, "expired");
       return null;
     }
-    // חותמת שימוש, ולא אימות: היא נועדה למסך („נראה לאחרונה”) בלבד
-    await this.prisma.whatsAppLink.update({
-      where: { id: link.id },
+    /*
+     * חותמת שימוש, ולא אימות: היא נועדה למסך („נראה לאחרונה”) בלבד.
+     *
+     * **אבל היא גם הבדיקה האחרונה.** כתיבה בלתי-מותנית הייתה מצליחה
+     * גם על שורה שנותקה בין הקריאה לכאן, והזהות הישנה הייתה חוזרת —
+     * כלומר פקודה אחת שרצה על החשבון הקודם אחרי ש„המכשיר נותק”
+     * הוצג למתווך (ביקורת Codex). התנאי `revokedAt: null` הופך את
+     * העדכון עצמו לאימות: אפס שורות פירושו שהקישור כבר אינו.
+     */
+    const touched = await this.prisma.whatsAppLink.updateMany({
+      where: { id: link.id, revokedAt: null },
       data: { lastSeenAt: new Date() },
     });
+    if (touched.count === 0) return null;
     return { userId: link.userId, tenantId: link.tenantId };
   }
 

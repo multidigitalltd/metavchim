@@ -114,7 +114,7 @@ describe("החלפת מספר מנתקת", () => {
 
   it("והשוואה היא מול המספר הקודם, לא מול הקלט בלבד", () => {
     // מנורמל: „050-1234567” ו„0501234567” הם אותו מספר, לא החלפה
-    expect(auth).toContain('normalizePhone(data.phone ?? "") !== normalizePhone(user.phone ?? "")');
+    expect(auth).toContain('normalizePhone(phoneIncoming ?? "") !== normalizePhone(current?.phone ?? "")');
   });
 
   /*
@@ -122,7 +122,7 @@ describe("החלפת מספר מנתקת", () => {
    * והניתוק נכשל — והניסיון החוזר כבר קורא את המספר החדש ולא מנתק.
    */
   it("והשתיים באותה עסקה", () => {
-    const block = auth.slice(auth.indexOf("const phoneChanging"));
+    const block = auth.slice(auth.indexOf("const phoneIncoming"));
     const tx = block.indexOf("this.prisma.$transaction");
     const update = block.indexOf("tx.user.update");
     const revoke = block.indexOf("whatsappLinks.revoke");
@@ -310,6 +310,36 @@ describe("מכשיר אחד גם במקביל", () => {
  * נשברת בשקט: הנפקה שאינה מבטלת קוד קודם, השבתת חשבון שמשאירה
  * מכשיר מחובר, ושינוי עיצוב של מספר שנקרא כהחלפה.
  */
+/*
+ * שתי הכרעות שנקראו מחוץ לנעילה, ולכן יכלו להתיישן בדיוק כשזה
+ * קובע: „האם הקישור עדיין קיים” בזיהוי, ו„האם המספר השתנה” בעדכון.
+ */
+describe("ההכרעה נקראת מתוך הנעילה", () => {
+  const link = readFileSync(
+    new URL("./whatsapp-link.service.ts", import.meta.url),
+    "utf8",
+  );
+  const auth = readFileSync(
+    new URL("../auth/auth.service.ts", import.meta.url),
+    "utf8",
+  );
+
+  it("זיהוי מאמת שהקישור לא נותק בין הקריאה לתשובה", () => {
+    const fn = link.slice(link.indexOf("async resolve("), link.indexOf("async bindByPhone("));
+    // העדכון עצמו הוא האימות: אפס שורות = הקישור כבר אינו
+    expect(fn).toContain("where: { id: link.id, revokedAt: null }");
+    expect(fn).toContain("if (touched.count === 0) return null");
+  });
+
+  it("ועדכון הפרופיל קורא את המספר הנוכחי מתוך הנעילה", () => {
+    const block = auth.slice(auth.indexOf("const phoneIncoming"));
+    const lock = block.indexOf("lockAccount(tx, userId)");
+    const read = block.indexOf("tx.user.findUnique");
+    expect(lock).toBeGreaterThan(-1);
+    expect(read).toBeGreaterThan(lock);
+  });
+});
+
 describe("החלפה היא ביטול", () => {
   const link = readFileSync(
     new URL("./whatsapp-link.service.ts", import.meta.url),
@@ -343,7 +373,7 @@ describe("גם החלפת מספר בידי בעל המשרד מנתקת", () =>
     const route = settings.slice(settings.indexOf("pg_advisory_xact_lock"));
     expect(route).toContain("normalizePhone(nextPhone");
     const auth = readFileSync(new URL("../auth/auth.service.ts", import.meta.url), "utf8");
-    expect(auth).toContain("normalizePhone(data.phone");
+    expect(auth).toContain("normalizePhone(phoneIncoming");
   });
 
   it("עדכון סוכן מניהול הצוות מנתק את הקישור, באותה טרנזקציה", () => {

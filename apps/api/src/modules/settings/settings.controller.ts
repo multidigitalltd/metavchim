@@ -1296,6 +1296,12 @@ export class SettingsController {
        * assertSeatAvailable שלוקח אותו שוב אינו נחסם.
        */
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seat-quota:${ctx.tenantId}`}))`;
+      /*
+       * ונעילה שנייה, לפי החשבון: ההכרעה „האם המספר השתנה” נקראת
+       * מתוכה, ולכן היא רואה את מה שקדם לה ולא צילום מצב שהתיישן.
+       * שתי הנעילות באותה עסקה, ושתיהן ניתנות לנעילה חוזרת.
+       */
+      await this.whatsappLinks.lockAccount(tx, id);
       const target = await tx.user.findFirst({
         where: { id, tenantId: ctx.tenantId },
         select: { role: true, isActive: true, phone: true },
