@@ -75,6 +75,11 @@ function withoutSecrets(text: string, secrets: readonly string[]): string {
   return out;
 }
 
+/** המעטפת עצמה — מערך בן פריט אחד או אובייקט יחיד, לפי הנתיב. */
+function envelopeOf(value: unknown): unknown {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 function clean(value: string, secrets: readonly string[]): string {
   const safe = withoutSecrets(withoutUrls(value), secrets).replace(/\s+/gu, " ").trim();
   return safe.length > VALUE_LIMIT ? `${safe.slice(0, VALUE_LIMIT - 1)}…` : safe;
@@ -117,14 +122,36 @@ export function describeProviderResponse(body: unknown, secrets: readonly string
         parts.push(`${name}(${value.length} תווים)`);
         continue;
       }
+      /*
+       * מערך מקבל **אורך**, ולא „object”.
+       *
+       * ‎`typeof []` הוא `"object"`, ולכן מעטפת `responses` — מערך בן
+       * פריט אחד עם קוד השגיאה של הספק — הודפסה כ„responses:object”
+       * וזהו. זה כל מה שהיה למתווך על המסך ולנו ביומן, ומשם אי אפשר
+       * להתקדם לשום כיוון (דיווח מהשטח).
+       */
+      if (Array.isArray(value)) {
+        parts.push(`${name}[${value.length}]`);
+        continue;
+      }
       parts.push(`${name}:${value === null ? "null" : typeof value}`);
     }
   };
 
   describe(root, "");
-  const data = root["data"];
-  if (typeof data === "object" && data !== null && !Array.isArray(data)) {
-    describe(data as Record<string, unknown>, "data.");
+  /*
+   * ‎`data` ו-`responses` — שני המקומות שבהם 015 מניחה את התוכן.
+   * המעטפת היא הראשונה שכדאי לראות: הקוד וההודעה שבתוכה הם ההבדל
+   * בין „הסיסמה שגויה” לבין „ההקלטה נמחקה”, ושניהם מגיעים בסטטוס
+   * 200 שאין בו רמז.
+   */
+  for (const [key, scope] of [
+    ["data", root["data"]],
+    ["responses", envelopeOf(root["responses"])],
+  ] as const) {
+    if (typeof scope === "object" && scope !== null && !Array.isArray(scope)) {
+      describe(scope as Record<string, unknown>, `${key}.`);
+    }
   }
 
   if (parts.length === 0) return "התשובה היא אובייקט ריק";

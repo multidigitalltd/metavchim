@@ -120,6 +120,24 @@ export function recordingReasonLabel(reason: string | undefined): string {
   if (reason === undefined) return "הסיבה אינה ידועה";
   if (reason.startsWith("provider_rejected")) {
     const status = reason.slice("provider_rejected_".length);
+    /*
+     * הקוד מגיע משני מקורות — סטטוס ה-HTTP, ומעטפת `responses`
+     * שבתוך תשובת 200 — ומשמעותו זהה בשניהם. שלושת המקרים שיש
+     * לגביהם מה לעשות אומרים **מה** לעשות; השאר נשארים כמספר,
+     * שאפשר להעביר לתמיכה של הספק כמו שהוא.
+     */
+    const known: Record<string, string> = {
+      "401": "שם המשתמש או הסיסמה של המרכזייה שגויים — יש לעדכן אותם בהגדרות",
+      "402": "לחבילה במרכזייה אין הרשאה למשוך הקלטות",
+      "403": "לחבילה במרכזייה אין הרשאה למשוך הקלטות",
+      "404": "ההקלטה אינה קיימת עוד אצל המרכזייה",
+    };
+    /*
+     * המספר נשאר גם כשיש משפט — הוא מה שאפשר להקריא לתמיכה של
+     * הספק, והבדיקה הקיימת דורשת אותו בכל דחייה.
+     */
+    const sentence = known[status];
+    if (sentence !== undefined) return `${sentence} (${status})`;
     return /^\d+$/u.test(status)
       ? `המרכזייה דחתה את הבקשה (${status})`
       : "המרכזייה דחתה את הבקשה";

@@ -951,24 +951,54 @@ export function build015DialUrl(input: {
 export function parse015DialResponse(
   body: unknown,
 ): { ok: boolean; callId?: string; message: string } {
-  const root = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
-  const responses = Array.isArray(root["responses"]) ? root["responses"] : [];
-  const first =
-    typeof responses[0] === "object" && responses[0] !== null
-      ? (responses[0] as Record<string, unknown>)
-      : {};
-  const code = String(first["code"] ?? "");
-  const message = typeof first["message"] === "string" ? first["message"] : "";
-  const data =
-    typeof root["data"] === "object" && root["data"] !== null
-      ? (root["data"] as Record<string, unknown>)
-      : {};
+  const root = asRecord(body);
+  const status = parse015Status(body);
+  const code = status?.code ?? "";
+  const message = status?.message ?? "";
+  const data = asRecord(root["data"]);
   const callId = typeof data["callid"] === "string" ? data["callid"] : undefined;
 
   if (code === "200" || code === "204") {
     return { ok: true, ...(callId ? { callId } : {}), message: message || "השיחה יוצאת" };
   }
   return { ok: false, message: DIAL_ERRORS[code] ?? message ?? `שגיאה מ-015 (${code})` };
+}
+
+/** אובייקט, או אובייקט ריק — במקום לחזור על הבדיקה בכל פענוח. */
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/** מה ש-015 אומרת **על הבקשה עצמה**, בנפרד ממה שהיא מחזירה. */
+export interface Pbx015Status {
+  /** קוד בסגנון HTTP — אך בגוף התשובה, כשהסטטוס עצמו 200. */
+  code: string;
+  /** הודעת הספק. אינה מוצגת כמו שהיא — היא עלולה לשאת פרטי בקשה. */
+  message: string;
+}
+
+/**
+ * מעטפת ה-JSON של 015 — **`responses`, בכל נתיבי ה-API שלה.**
+ *
+ * הספק מחזיר 200 כמעט תמיד, ומה שקרה באמת יושב במעטפת: אישורים
+ * שגויים, חבילה בלי הרשאה, הקלטה שנמחקה. `parse015DialResponse`
+ * הכירה את המעטפת מהיום הראשון; נתיבי ההקלטות נכתבו כאילו התוכן
+ * יושב בשורש או תחת `data` — ולכן תשובה תקינה לחלוטין נראתה להם
+ * כ„לא נקראה”, בלי דרך לדעת מה הספק אמר (דיווח מהשטח).
+ *
+ * הצורה אינה אחידה בין הנתיבים: לפעמים מערך של תשובה אחת ולפעמים
+ * אובייקט יחיד. שתיהן מתקבלות כאן, כי ההבדל אינו מעניין אף קורא.
+ */
+export function parse015Status(body: unknown): Pbx015Status | null {
+  const raw = asRecord(body)["responses"];
+  const scope = asRecord(Array.isArray(raw) ? raw[0] : raw);
+  const code = scope["code"];
+  const text =
+    typeof code === "string" ? code.trim() : typeof code === "number" ? String(code) : "";
+  if (text === "") return null;
+  return { code: text, message: typeof scope["message"] === "string" ? scope["message"] : "" };
 }
 
 /** תרגום קודי השגיאה של 015 למה שהמתווך צריך לעשות. */
@@ -1064,18 +1094,31 @@ export const MAX_RECORDING_BYTES = 40 * 1024 * 1024;
 export function parse015RecordingResponse(
   body: unknown,
 ): { base64: string; contentType: string } | null {
-  const root = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
-  const data =
-    typeof root["data"] === "object" && root["data"] !== null
-      ? (root["data"] as Record<string, unknown>)
-      : root;
-  for (const key of ["sound", "soundfile", "sound_file", "file", "recording", "data"]) {
-    const value = data[key];
-    if (typeof value === "string" && value.length > 0) {
-      return { base64: value, contentType: contentTypeOf(data) };
+  for (const scope of pbx015Scopes(body)) {
+    for (const key of ["sound", "soundfile", "sound_file", "file", "recording", "data"]) {
+      const value = scope[key];
+      if (typeof value === "string" && value.length > 0) {
+        return { base64: value, contentType: contentTypeOf(scope) };
+      }
     }
   }
   return null;
+}
+
+/**
+ * המקומות שבהם 015 מניחה תוכן — **בסדר של הסבירות.**
+ *
+ * שם השדה אינו מובטח בתיעוד, וגם לא **היכן** הוא יושב: בשורש, תחת
+ * ‎`data`, או בתוך מעטפת `responses` (ואז לעיתים תחת `data` שבתוכה).
+ * חיפוש בשורש בלבד היה מחמיץ תשובה תקינה שהגיעה במעטפת.
+ */
+function pbx015Scopes(body: unknown): Record<string, unknown>[] {
+  const root = asRecord(body);
+  const raw = root["responses"];
+  const envelope = asRecord(Array.isArray(raw) ? raw[0] : raw);
+  return [root, asRecord(root["data"]), envelope, asRecord(envelope["data"])].filter(
+    (scope) => Object.keys(scope).length > 0,
+  );
 }
 
 /**
@@ -1158,10 +1201,25 @@ function pick(row: Record<string, unknown>, keys: readonly string[]): string | u
 }
 
 function rowsOf(body: unknown): Record<string, unknown>[] {
-  const root = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
-  const data = root["data"] ?? root["recordings"] ?? root["rows"] ?? body;
-  if (!Array.isArray(data)) return [];
-  return data.filter(
+  const root = asRecord(body);
+  /*
+   * גם בתוך מעטפת `responses`: אותה מעטפת שנתיב החיוג מכיר, ושהיא
+   * הסיבה שרשימה מלאה נראתה כאן ריקה. שורות המעטפת עצמה (`code`,
+   * ‎`message`) אינן מזיקות — הן נופלות בבדיקת המזהים.
+   */
+  const envelope = asRecord(Array.isArray(root["responses"]) ? undefined : root["responses"]);
+  const candidates = [
+    root["data"],
+    root["recordings"],
+    root["rows"],
+    root["responses"],
+    envelope["data"],
+    envelope["recordings"],
+    body,
+  ];
+  const rows = candidates.find((value) => Array.isArray(value));
+  if (!Array.isArray(rows)) return [];
+  return rows.filter(
     (row): row is Record<string, unknown> => typeof row === "object" && row !== null,
   );
 }

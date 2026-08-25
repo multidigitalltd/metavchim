@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   build015RecordingUrl,
   parse015RecordingResponse,
+  parse015Status,
   parseTelephonyEvent,
   split015RecordingPath,
 } from "./telephony.js";
@@ -142,5 +143,44 @@ describe("פענוח תשובת ההקלטה", () => {
     expect(parse015RecordingResponse({ data: {} })).toBeNull();
     expect(parse015RecordingResponse(null)).toBeNull();
     expect(parse015RecordingResponse({ data: { sound: "" } })).toBeNull();
+  });
+
+  /*
+   * המעטפת של 015 — אותה `responses` שנתיב החיוג מכיר. תשובה תקינה
+   * שהגיעה בתוכה נראתה כ„לא נקראה”, וזה מה שהמתווך ראה על המסך.
+   */
+  it("ומוצא את הקובץ גם בתוך מעטפת responses", () => {
+    expect(parse015RecordingResponse({ responses: [{ sound: "QUJD" }] })?.base64).toBe("QUJD");
+    expect(parse015RecordingResponse({ responses: { data: { sound: "QUJD" } } })?.base64).toBe(
+      "QUJD",
+    );
+  });
+});
+
+describe("מעטפת התשובה של 015", () => {
+  it("קוראת קוד והודעה משתי הצורות", () => {
+    expect(parse015Status({ responses: [{ code: "401", message: "bad auth" }] })).toEqual({
+      code: "401",
+      message: "bad auth",
+    });
+    expect(parse015Status({ responses: { code: 404, message: "gone" } })).toEqual({
+      code: "404",
+      message: "gone",
+    });
+  });
+
+  it("ותשובה בלי מעטפת אינה סירוב", () => {
+    expect(parse015Status({ data: { sound: "QUJD" } })).toBeNull();
+    expect(parse015Status(null)).toBeNull();
+  });
+
+  /*
+   * הסירוב מגיע בסטטוס 200, ולכן `res.ok` אינו תופס אותו. הקוד
+   * שבמעטפת הוא ההבדל בין „הסיסמה שגויה” לבין „ההקלטה נמחקה”.
+   */
+  it("וסירוב מזוהה גם כשאין בתשובה קובץ", () => {
+    const body = { responses: [{ code: "401", message: "auth failed" }] };
+    expect(parse015RecordingResponse(body)).toBeNull();
+    expect(parse015Status(body)?.code).toBe("401");
   });
 });
