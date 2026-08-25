@@ -91,7 +91,17 @@ export class AgentResolveService {
     await this.resolveCities(params, warnings, resolvedKeys);
     this.resolvePhones(params, warnings, resolvedKeys);
     if (dateSource !== null) {
-      this.resolveDates(action.id, dateSource ?? transcript, params, resolvedKeys);
+      /*
+       * ‎`dateSource` מוגדר ⟸ צעד המשך, ולו מקור משלו בלבד.
+       * ‎`undefined` ⟸ הפעולה הראשית: קודם מילות המועד שהמודל שמע,
+       * ואחריהן המשפט המלא כרשת ביטחון.
+       */
+      this.resolveDates(
+        action.id,
+        dateSource === undefined ? [interpretation.dateText, transcript] : [dateSource],
+        params,
+        resolvedKeys,
+      );
     }
     this.applyKindDefault(action.id, transcript, params, resolvedKeys);
 
@@ -267,25 +277,47 @@ export class AgentResolveService {
   }
 
   /**
-   * המועד — תמיד מהמנוע שלנו, לעולם לא מהמודל.
+   * המועד — **החישוב** תמיד מהמנוע שלנו, לעולם לא מהמודל.
    *
    * `timeExplicit=false` אומר שנאמר יום בלי שעה ונבחרה 10:00. זה
    * נאמר במפורש בכרטיס, כי „מחר” שהופך ל-10:00 בלי להודיע הוא
    * פגישה שנקבעה בשעה שאיש לא אמר.
+   *
+   * ## מה כן עבר למודל, ולמה
+   *
+   * עד כה גם **הזיהוי** היה כאן: המנוע סרק את המשפט המלא וחיפש בו
+   * תבניות. כלומר דווקא בחלק שדורש הבנת שפה המודל הודר, וכל ניסוח
+   * שהתבניות לא צפו נפל בשקט — „עוד שעה” בלי בי"ת, פיסוק שנדבק
+   * למילה, „תתקשר עוד פעם בעוד שעה” שנעצר על „עוד פעם”. כל אחד
+   * מהם היה ממצא אמיתי, וכל אחד דרש תבנית נוספת. זו מלחמת התשה
+   * שאי אפשר לנצח בה, כי אין רשימה סופית של דרכים לומר „מחר”.
+   *
+   * עכשיו המודל מסמן **אילו מילים** הן המועד (`dateText`), והמנוע
+   * מחשב מהן — לוח שנה ואזור זמן נשארים דטרמיניסטיים ובדיקים.
+   *
+   * המקורות נוסו לפי הסדר, והראשון שנפתר מנצח. המשפט המלא נשאר
+   * אחרון: כשהמודל אינו זמין ומנוע החוקים הכריע, `dateText` אינו
+   * קיים כלל — והנתיב הישן חייב להמשיך לעבוד.
    */
   private resolveDates(
     actionId: string,
-    transcript: string,
+    sources: readonly (string | undefined)[],
     params: Record<string, unknown>,
     resolved: Set<string>,
   ): void {
     const key = DATE_FIELD[actionId];
     if (key === undefined) return;
-    const parsed = parseHebrewDateTime(transcript, new Date());
-    if (!parsed.date) return;
-    params[key] = parsed.date.toISOString();
-    params["__timeExplicit"] = parsed.timeExplicit;
-    resolved.add(key);
+    // רגע אחד לכל המקורות: „עוד שעה” אינו אמור לזוז בין ניסיונות
+    const now = new Date();
+    for (const source of sources) {
+      if (source === undefined || source.trim() === "") continue;
+      const parsed = parseHebrewDateTime(source, now);
+      if (!parsed.date) continue;
+      params[key] = parsed.date.toISOString();
+      params["__timeExplicit"] = parsed.timeExplicit;
+      resolved.add(key);
+      return;
+    }
   }
 
   /** סוג הפגישה — מהניסוח, כשהמודל לא אמר. */

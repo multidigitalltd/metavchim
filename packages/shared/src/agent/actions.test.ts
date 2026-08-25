@@ -257,6 +257,33 @@ describe("צמצום לפעולה שנבחרה", () => {
       expect(parsed.success && parsed.data.steps[0]?.action).toBe("add_note");
     });
 
+    /*
+     * ‎`dateText` של הפעולה הראשית — **מילים, לא תאריך.**
+     *
+     * המנגנון היה קיים לצעדי המשך בלבד, והפעולה הראשית — השכיחה
+     * מכולן — נשארה עם סריקה חוזרת של המשפט המלא. כלומר דווקא
+     * בחלק שדורש הבנת שפה המודל הודר, וכל ניסוח שהתבניות לא צפו
+     * נפל בשקט.
+     */
+    it("מילות המועד של הפעולה הראשית נקראות, ובמצב חופשי גם מנוקות", () => {
+      const parsed = InterpretResponseSchema.safeParse({
+        action: "create_task",
+        params: { title: "להתקשר לדנה" },
+        dateText: "מחר בעשר וחצי",
+      });
+      expect(parsed.success && parsed.data.dateText).toBe("מחר בעשר וחצי");
+
+      // null במצב ה-JSON החופשי, וערך ארוך שנקטע — כמו בשאר השדות
+      expect(
+        InterpretResponseSchema.safeParse({ action: "create_task", dateText: null }).success,
+      ).toBe(true);
+      const long = InterpretResponseSchema.safeParse({
+        action: "create_task",
+        dateText: "מחר ".repeat(200),
+      });
+      expect(long.success && (long.data.dateText?.length ?? 0)).toBeLessThanOrEqual(200);
+    });
+
     it("action חסר או מומצא עדיין נכשל — בלעדיו אין מה להציע", () => {
       expect(InterpretResponseSchema.safeParse({ params: {} }).success).toBe(false);
       expect(InterpretResponseSchema.safeParse({ action: "do_magic" }).success).toBe(false);
