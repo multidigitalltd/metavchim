@@ -8,6 +8,7 @@ import { waMeUrl } from "@/lib/format";
 import { useUserDismissed } from "@/lib/dismissed-panels";
 import {
   CALL_OUTCOME_LABELS,
+  CALL_OUTCOME_MANUAL,
   recordingStateLabel,
   type RecordingStatus,
 } from "@metavchim/shared";
@@ -312,8 +313,14 @@ export default function CallsPage() {
             <label>
               <span className="mb-1 block font-medium">תוצאה</span>
               <select name="outcome" className="w-full rounded-lg border px-3 py-2.5" style={inputStyle}>
-                {Object.entries(OUTCOME_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
+                {/*
+                  הרשימה מגיעה מ-`CALL_OUTCOME_MANUAL` ולא מטבלת התצוגה:
+                  „לא ידוע” הוא מה שהמרכזייה כותבת כשלא מסרה אם השיחה
+                  נענתה, והשרת דוחה אותו ברישום ידני. בנייה מטבלת התצוגה
+                  הייתה מציעה אותו כאן ומחזירה שגיאה בשמירה.
+                */}
+                {CALL_OUTCOME_MANUAL.map((value) => (
+                  <option key={value} value={value}>{OUTCOME_LABELS[value]}</option>
                 ))}
               </select>
             </label>

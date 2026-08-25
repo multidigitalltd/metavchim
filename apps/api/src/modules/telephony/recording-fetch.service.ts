@@ -92,19 +92,22 @@ const GIVE_UP_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 const RETRY_AFTER_MS = 30 * 60 * 1000;
 
 /**
- * השהיה בין משיכה למשיכה — **כדי לא לחנוק את הספק.**
+ * השהיה בין **בקשה לבקשה** — כדי לא לחנוק את הספק.
  *
- * הסבב רץ בטור, אבל בלי רווח: עשרים הקלטות נמשכות בזו אחר זו במלוא
- * המהירות, וכל אחת שנכשלת מוסיפה עד ארבעה ניסיונות ועוד קריאת
- * רשימה. כשמצטברות הרבה הקלטות זה עשרות בקשות בשניות ספורות, ואז
- * 015 משיב „Bad request” על בקשות תקינות לחלוטין — מה שנראה מבחוץ
- * כמו תקלה אקראית שנפתרת בלחיצה שנייה (דיווח מהמשרד).
+ * הסבב רץ בטור אבל בלי רווח: עשרים הקלטות בזו אחר זו במלוא המהירות,
+ * וכל אחת שנכשלת מוסיפה עד ארבעה צירופי מועמדים, קריאת רשימה
+ * וניסיון חוזר. כשמצטברות הרבה הקלטות אלה עשרות בקשות בשניות
+ * ספורות, ואז 015 משיב „Bad request” על בקשות תקינות לחלוטין — מה
+ * שנראה מבחוץ כתקלה אקראית שנפתרת בלחיצה שנייה (דיווח מהמשרד).
  *
- * שנייה לכל הקלטה הופכת מנה של עשרים לכדקה. זה זמן רקע שאיש אינו
- * ממתין לו — ההקלטה מופיעה דקות אחרי השיחה בכל מקרה — ובתמורה
- * הבקשות מפסיקות להיכשל.
+ * ‎**היחידה היא הבקשה ולא ההקלטה.** ריווח סביב משיכה שלמה היה
+ * מחטיא את מסלול הכישלון, שבו שש בקשות יוצאות בתוך „משיכה אחת” —
+ * וזה בדיוק המסלול שרץ כשהספק כבר עמוס.
+ *
+ * שנייה לבקשה הופכת מנה מוצלחת של עשרים לכדקה. זה זמן רקע שאיש
+ * אינו ממתין לו — ההקלטה מופיעה דקות אחרי השיחה בכל מקרה.
  */
-const PAUSE_BETWEEN_PULLS_MS = 1_000;
+const PAUSE_BETWEEN_REQUESTS_MS = 1_000;
 
 /**
  * כמה סירובים רצופים עוצרים את הסבב.
@@ -201,6 +204,33 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
   private first: NodeJS.Timeout | null = null;
   /** סבב אחד בכל רגע — שניים היו מושכים את אותן שורות פעמיים. */
   private running = false;
+  /**
+   * מתי יצאה הבקשה האחרונה ל-015 — **לכל הבקשות, לא לכל שיחה.**
+   *
+   * הריווח היה במקור סביב `fetchOne` כולה, וזה החטיא בדיוק את המקרה
+   * שבגללו הוא נוסף: שיחה שהמועמד הראשון שלה נדחה שולחת עוד שלושה
+   * צירופים, ואז קריאת רשימה וניסיון חוזר — שש בקשות ברצף בתוך
+   * „משיכה אחת”. כלומר דווקא מסלול הכישלון, זה שמופיע כשהספק כבר
+   * עמוס, נשאר בלי ריווח — ויכול להיחנק בדיוק על המועמד הנכון
+   * (ביקורת Codex).
+   *
+   * השעון גלובלי לשירות ולא לשיחה, כי מה שמעניין את הספק הוא הקצב
+   * שמגיע אליו, ולא איך חילקנו אותו אצלנו לפעולות.
+   */
+  private lastRequestAt = 0;
+
+  /**
+   * ממתין עד שחלף הריווח מאז הבקשה הקודמת, ומסמן את הזמן החדש.
+   *
+   * הסימון נעשה **לפני** ההמתנה מסתיימת ולא אחרי הבקשה, כדי שמדובר
+   * יהיה במרווח בין *התחלות* בקשות — הזמן שהבקשה עצמה לוקחת כבר
+   * מרווח בפני עצמו.
+   */
+  private async pace(): Promise<void> {
+    const wait = this.lastRequestAt + PAUSE_BETWEEN_REQUESTS_MS - Date.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    this.lastRequestAt = Date.now();
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -231,10 +261,9 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       let refusalsInARow = 0;
       for (const [index, job] of jobs.entries()) {
         /*
-         * ההשהיה **לפני** הבקשה ולא אחריה, ומדולגת בראשונה: אחרי
-         * האחרונה אין למי להתחשב, והמתנה שם רק מאריכה את הסבב.
+         * אין כאן השהיה: היא יושבת ב-`pace()` שנקראת לפני **כל**
+         * בקשה לספק, כולל אלה שמסלול הכישלון של שיחה בודדת שולח.
          */
-        if (index > 0) await new Promise((r) => setTimeout(r, PAUSE_BETWEEN_PULLS_MS));
         const result = await this.fetchOne(job).catch((error: unknown) => {
           // כשל בשיחה אחת אינו עוצר את הסבב — הבאה בתור עשויה להצליח
           this.logger.warn(`משיכת הקלטה נכשלה (${job.callId}): ${String(error)}`);
@@ -891,6 +920,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     for (const recordGroup of input.recordGroups) {
       let rows: Pbx015RecordingRow[];
       try {
+        await this.pace();
         const res = await fetch(
           build015RecordingsListUrl({
             authUsername: input.authUsername,
@@ -980,6 +1010,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
 
     let res: Response;
     try {
+      await this.pace();
       res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
     } catch (error: unknown) {
       // פסק זמן או תקלת רשת — נרשם כאן ולא נבלע ב-`tick`, כדי
