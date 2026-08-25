@@ -1105,6 +1105,34 @@ export function pbx015RecordingGroups(path: string): string[] {
   return groups;
 }
 
+/**
+ * שתי הצורות של `uniqueid` — **כי אין דרך לדעת איזו נכונה.**
+ *
+ * ## מה נשלל
+ *
+ * הוובהוק שולח `uniqueid` כ-`1787204775.1258756`, ובשם הקובץ הוא
+ * מופיע בלי הנקודה. שלחנו את הצורה עם הנקודה, בהיגיון שהשדה עדיף
+ * על שחזור מהנתיב — והתקבל 404 עקבי גם אחרי שקבוצת ההקלטות נבדקה
+ * מול הספק **בשני** ערכיה (דיווח מהשטח: `recordgroup=12048|54936`).
+ *
+ * כלומר הקבוצה אינה החשוד, ו-`uniqueid` כן. הדוגמה בתיעוד של 015
+ * היא ספרות בלבד (`1234567890`), בלי נקודה.
+ *
+ * ## למה שתיהן ולא „הנכונה”
+ *
+ * להחליף „עם נקודה” ב„בלי נקודה” זה להחליף הנחה בהנחה, וכבר עברנו
+ * את זה עם הקבוצה. שתיהן נשלחות והספק מכריע — בדיוק אותו דפוס,
+ * מאותו נימוק: תשובת 404 על מזהה שגוי זהה לחלוטין לתשובה על הקלטה
+ * שנמחקה, ואין דרך להבחין ביניהן מבחוץ.
+ *
+ * הצורה שהוובהוק שלח נשארת ראשונה: היא מגיעה מהספק עצמו.
+ */
+export function pbx015UniqueIdForms(uniqueId: string): string[] {
+  const digitsOnly = uniqueId.replace(/\D/gu, "");
+  if (digitsOnly === "" || digitsOnly === uniqueId) return [uniqueId];
+  return [uniqueId, digitsOnly];
+}
+
 export function build015RecordingUrl(input: {
   authUsername: string;
   authPassword: string;
