@@ -586,13 +586,18 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
      * אינה החשוד. הצורה שאנחנו שולחים — עם הנקודה — היא ההנחה
      * הבאה בתור, והדוגמה בתיעוד היא ספרות בלבד.
      *
-     * הסדר: `uniqueid` בחוץ והקבוצה בפנים. אם הצורה היא הבעיה,
-     * הניסיון השני כבר פותר אותה עם הקבוצה המוגדרת, בלי לעבור קודם
-     * על כל ניחושי הנתיב.
+     * הסדר: **הקבוצה בחוץ והצורה בפנים.** הקבוצה המוגדרת היא הערך
+     * המהימן היחיד כאן, ולכן שתי הצורות נבדקות איתה לפני כל ניחוש
+     * מהנתיב — אם הצורה היא הבעיה, הניסיון **השני** פותר אותה.
+     *
+     * הקינון ההפוך נכתב כאן תחילה, והוא עשה בדיוק את ההפך ממה
+     * שהוצהר: `נקודה/מוגדרת, נקודה/ניחוש, ספרות/מוגדרת` — הצורה
+     * המתוקנת חיכתה מאחורי ניחוש הנתיב, וכל תשובה שאינה 404 על
+     * הניחוש הייתה עוצרת את הלולאה לפניה (ביקורת Codex).
      */
     const uniqueIds = pbx015UniqueIdForms(job.providerCallId);
-    const candidates = uniqueIds.flatMap((uniqueId) =>
-      groups.map((recordGroup) => ({ uniqueId, recordGroup })),
+    const candidates = groups.flatMap((recordGroup) =>
+      uniqueIds.map((uniqueId) => ({ uniqueId, recordGroup })),
     );
     let lastRefusal: { code: string; detail: string } | null = null;
 
