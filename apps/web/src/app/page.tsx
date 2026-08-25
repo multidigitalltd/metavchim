@@ -6,6 +6,7 @@ import {
   groupTasksByBucket,
   isTaskUrgent,
   jerusalemDayRange,
+  recommendationCapability,
   recommendationHref,
   taskBucket,
   labelOf,
@@ -319,25 +320,6 @@ export default function DashboardPage() {
    */
   const [dataFailed, setDataFailed] = useState(false);
   const [coachFailed, setCoachFailed] = useState(false);
-  /** 403 מהסוכן — כלומר נודע בוודאות שאין סוכן במסלול. אינו שגיאה. */
-  const [coachDenied, setCoachDenied] = useState(false);
-  /*
-   * ‎**האם המקור הגיע במלואו, או שזה רק העמוד הראשון.**
-   *
-   * הנתיבים מחזירים 100 רשומות ממוינות מהחדש לישן, עם `nextCursor`
-   * כשיש עוד. הסרת התקרות המקומיות לא הספיקה: במשרד עם יותר
-   * מ-100 לידים, ליד ותיק שדורש טיפול אנושי פשוט אינו נמצא
-   * בדפדפן — ודירוג „גלובלי” מעל העמוד הראשון בלבד הוא טענה שאין
-   * לה כיסוי (ביקורת Codex).
-   *
-   * השרת כבר אומר לנו את זה; רק לא הקשבנו. מי שהמאגר שלו נכנס
-   * בעמוד אחד — ורוב המשרדים — מקבל דירוג מלא כרגיל.
-   */
-  const [propertiesComplete, setPropertiesComplete] = useState(false);
-  const [buyersComplete, setBuyersComplete] = useState(false);
-  const [leadsComplete, setLeadsComplete] = useState(false);
-  /** היום שאליו שייכות הפגישות שבידינו — ראו ההסבר בטעינה. */
-  const [todayDay, setTodayDay] = useState<number | null>(null);
   const batch = useRef(0);
 
   const loadDashboard = useCallback(() => {
@@ -351,8 +333,6 @@ export default function DashboardPage() {
      * Codex). רק המנה האחרונה רשאית לכתוב.
      */
     const mine = ++batch.current;
-    /* היום שאליו הבקשה הזו שייכת — נשמר יחד עם התוצאה. */
-    const requestedDay = dayKey;
     const ok =
       <T,>(apply: (value: T) => void) =>
       (value: T): void => {
@@ -380,36 +360,21 @@ export default function DashboardPage() {
       setDataFailed(true);
     };
     if (canSeeProperties) {
-      apiGet<{ items: PropertyRow[]; nextCursor: string | null }>("/properties?limit=100")
-        .then(
-          ok((r: { items: PropertyRow[]; nextCursor: string | null }) => {
-            setProperties(r.items);
-            setPropertiesComplete(r.nextCursor === null);
-          }),
-        )
+      apiGet<{ items: PropertyRow[] }>("/properties?limit=100")
+        .then(ok((r: { items: PropertyRow[] }) => setProperties(r.items)))
         .catch(fail);
     }
     if (canSeeBuyers) {
-      apiGet<{ items: BuyerRow[]; nextCursor: string | null }>("/buyers?limit=100")
-        .then(
-          ok((r: { items: BuyerRow[]; nextCursor: string | null }) => {
-            setBuyers(r.items);
-            setBuyersComplete(r.nextCursor === null);
-          }),
-        )
+      apiGet<{ items: BuyerRow[] }>("/buyers?limit=100")
+        .then(ok((r: { items: BuyerRow[] }) => setBuyers(r.items)))
         .catch(fail);
       apiGet<Breakdown<"byMaturity">>("/buyers/breakdown")
         .then(ok(setBuyerBreakdown))
         .catch(fail);
     }
     if (canSeeLeads) {
-      apiGet<{ items: LeadRow[]; nextCursor: string | null }>("/leads?limit=100")
-        .then(
-          ok((r: { items: LeadRow[]; nextCursor: string | null }) => {
-            setLeads(r.items);
-            setLeadsComplete(r.nextCursor === null);
-          }),
-        )
+      apiGet<{ items: LeadRow[] }>("/leads?limit=100")
+        .then(ok((r: { items: LeadRow[] }) => setLeads(r.items)))
         .catch(fail);
       apiGet<Breakdown<"byStatus">>("/leads/breakdown")
         .then(ok(setLeadBreakdown))
@@ -428,21 +393,19 @@ export default function DashboardPage() {
        * אותה פונקציה קובעת עכשיו גם מתי מרעננים וגם מה מבקשים.
        */
       const { start: dayStart, end: dayEnd } = jerusalemDayRange(new Date());
+      /*
+       * ‎**הקצה בלעדי — הנתיב מסנן `lte`.**
+       *
+       * ‎`jerusalemDayRange().end` הוא מחר ב-00:00, ו-`calendar.service`
+       * משווה `startsAt: { gte: from, lte: to }` — כלומר פגישה שמתחילה
+       * בדיוק בחצות הבאה נכללה ותויגה „היום” (ביקורת Codex).
+       * מילישנייה אחורה מוציאה אותה בלי להזיז את שאר היום.
+       */
+      const dayEndInclusive = new Date(dayEnd.getTime() - 1);
       apiGet<AppointmentRow[]>(
-        `/appointments?from=${dayStart.toISOString()}&to=${dayEnd.toISOString()}`,
+        `/appointments?from=${dayStart.toISOString()}&to=${dayEndInclusive.toISOString()}`,
       )
-        .then(
-          ok((rows: AppointmentRow[]) => {
-            setToday(rows);
-            /*
-             * הנתונים נושאים את היום שאליו הם שייכים. בלי זה
-             * ‎`today !== null` נשאר אמת עם המערך של אתמול לאורך כל
-             * הבקשה החדשה — ולנצח אם היא נכשלת — והדירוג ממשיך
-             * להכריז בזמן שפגישות היום החדש עדיין לא ידועות.
-             */
-            setTodayDay(requestedDay);
-          }),
-        )
+        .then(ok(setToday))
         .catch(fail);
     }
     /*
@@ -507,7 +470,6 @@ export default function DashboardPage() {
       return;
     }
     setCoachFailed(false);
-    setCoachDenied(false);
     apiGet<Recommendation[]>("/coach/recommendations")
       .then(setRecs)
       /*
@@ -527,12 +489,10 @@ export default function DashboardPage() {
        * לאותה קריאה ומחזיר את אותו 403 — לולאה שלא נסגרת, על מסך של
        * מי שאין לו את הפיצ'ר בכלל (ביקורת Codex).
        *
-       * ‎`coachDenied` הוא **ידיעה**: משם והלאה ברור שאין סוכן, ולכן
-       * גם הדירוג יכול להימשך בלי להמתין להמלצות שלא יגיעו לעולם.
        */
       .catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 403) {
-          setCoachDenied(true);
+          /* 403 = אין סוכן במסלול. תשובה, לא תקלה — ואין מה לדווח. */
           return;
         }
         setCoachFailed(true);
@@ -606,49 +566,19 @@ export default function DashboardPage() {
     (canSeeLeads && leads === null);
 
   /*
-   * ‎**מותר להכריז „זה הדבר לעשות עכשיו” רק כשכל המקורות הגיעו.**
+   * ‎**אין הכרזה על „הדבר לעשות עכשיו”, ובכוונה.**
    *
-   * ‎`recs` מתחיל `null`, ו-`loading` ממתין לנכסים, לקונים וללידים
-   * בלבד — הקריאה לסוכן רצה בנפרד בכוונה, כדי שתקלה בה לא תשבית
-   * את המסך. התוצאה: השורה הראשונה יכולה להיצבע ולקבל את הכפתור
-   * הראשי לפני שהמלצה בדחיפות 110 בכלל הגיעה, ולהישאר כך לתמיד אם
-   * הבקשה נכשלה (ביקורת Codex).
+   * ‎§13 מתאר שורה ראשונה מודגשת עם הכפתור הראשי. תשעה סבבי ביקורת
+   * הראו שההכרזה הזו אינה נתמכת מכאן: הרשימה נשענת על מקורות
+   * שהדפדפן רואה מהם עמוד ראשון בלבד, והסוכן בשרת חותך 30→5 לידים
+   * בלי לדווח על כך — כלומר גם „הכול הגיע” אינו ניתן לקביעה כאן.
+   * שורה מודגשת שגויה גרועה משורה שאינה מודגשת, ולכן ההדגשה
+   * יורדת עד שיהיה נתיב דירוג בשרת (החלטת בעל המוצר).
    *
-   * ‎`useFeature` מחזיר „כן” כל עוד רשימת היכולות לא הגיעה, ולכן
-   * הביטוי הזה מכסה גם את חלון אי-הידיעה: כל עוד ייתכן שיגיעו
-   * המלצות — אין דירוג.
-   *
-   * ‎**הרשימה עצמה מוצגת בכל מקרה.** מה שממתין הוא הטענה, לא
-   * הנתונים: מתווך שרואה חמש פעולות בלי אחת מודגשת קיבל פחות,
-   * ומתווך שרואה הדגשה שגויה קיבל **מידע כוזב**.
+   * ‎**מה שנשאר תקף:** המיון לפי דחיפות, המספור, ואיחוד המקורות —
+   * סדר טוב יותר מסדר הכנסה שרירותי, בלי לטעון שהראשון הוא
+   * „הדבר”. כל השורות נראות זהות ומקבלות כפתור משני.
    */
-  /*
-   * ‎**הדירוג ממתין לכל מקור שהוא מדרג — גם לשלושה שנוספו כאן.**
-   *
-   * הביטוי הקודם בדק את הסוכן החכם בלבד, ומרגע שפגישות היום,
-   * המשימות באיחור והצעות השת"פ נכנסו לרשימה, בדיקה חלקית הייתה
-   * משחזרת בדיוק את התקלה שהיא נועדה לסגור: הצעת שת"פ (95) מגיעה
-   * שנייה אחרי שנכס לא מושלם (40) כבר הוכתר.
-   *
-   * מקור שנשלל אינו ממתין לכלום ולכן אינו נספר. מקור **שנכשל**
-   * אינו „נענה”: אם טעינת הרשת נכשלה איננו יודעים אם ממתינה הצעת
-   * שת"פ ב-95, והכתרת נכס לא מושלם ב-40 תהיה אמירה שקרית. אותו
-   * כלל בדיוק שהוחל על הסוכן החכם: **פחות זה חסר, שגוי זה כוזב** —
-   * ולכן אין הדגשה, וכל אחד מהכישלונות האלה כבר מוצג במקומו עם
-   * „נסו שוב” שמנקה אותו.
-   */
-  const canSeeNetwork = can(user, "collaboration.offer");
-  const ranked =
-    (!hasCoach || coachDenied || recs !== null) &&
-    /* לא „הגיע משהו”, אלא **הכול הגיע** — אחרת אין מעל מה לדרג. */
-    (!canSeeProperties || propertiesComplete) &&
-    (!canSeeBuyers || buyersComplete) &&
-    (!canSeeLeads || leadsComplete) &&
-    /* והפגישות שבידינו הן של היום הזה, לא של אתמול בזמן שהבקשה באוויר. */
-    (!canSeeCalendar || todayDay === dayKey) &&
-    (!canSeeCalendar || myTasks !== null) &&
-    (!canSeeNetwork || network !== null);
-
   const activeProps = (properties ?? []).filter(
     (p) => p.status === undefined || ["draft", "active", "on_hold"].includes(p.status),
   );
@@ -695,7 +625,20 @@ export default function DashboardPage() {
    * הרשאת יומן, בלי `take: 5` — ולכן ההמלצה כאן היא כפילות שאינה
    * יכולה להתיישן, וזו הסיבה להשמיט אותה ולא לנסות לתקן אותה.
    */
-  for (const rec of (recs ?? []).filter((r) => r.type !== "today_appointment")) {
+  /*
+   * ‎**המלצה שהיעד שלה חסום למשתמש אינה מוצגת.**
+   *
+   * הנתיב לסוכן שמור מאחורי `matches.view`, אבל היעדים יושבים
+   * מאחורי יכולות אחרות — סוכן רגיל יכול לקבל המלצה על הצעת שת"פ
+   * ולקבל 403 בלחיצה (ביקורת Codex). היכולת שכל יעד דורש מוגדרת
+   * ליד היעד עצמו ב-`shared`, ולא כאן.
+   */
+  const reachable = (recs ?? []).filter((r) => {
+    if (r.type === "today_appointment") return false;
+    const capability = recommendationCapability(r);
+    return capability === null || can(user, capability);
+  });
+  for (const rec of reachable) {
     push({
       key: `rec-${rec.type}-${rec.entityId ?? ""}`,
       priority: rec.priority,
@@ -735,14 +678,10 @@ export default function DashboardPage() {
    * ‎**שלושת המקורות שהמסך טוען ומעולם לא הכניס לרשימה.**
    *
    * פגישות היום, המשימות שלי והצעות השת"פ הממתינות הוצגו בטור
-   * הצדדי בלבד. כל עוד השורות נראו זהות זה היה סידור; מרגע שהשורה
-   * הראשונה מכריזה „זה הדבר לעשות עכשיו”, ההכרזה נעשתה מעל קבוצה
-   * שמלכתחילה **אינה יכולה** להכיל את הפריט הדחוף ביותר — פגישה
-   * בעוד שעתיים יושבת בצד בזמן שנכס לא מושלם (40) מוכתר
+   * הצדדי בלבד, אף שהמסך טוען אותן ממילא — כלומר „מה חשוב לעשות
+   * היום” לא יכול היה להכיל את הפריט הדחוף ביותר: פגישה בעוד
+   * שעתיים יושבת בצד בזמן שנכס לא מושלם (40) עומד בראש
    * (ביקורת Codex).
-   *
-   * ‎`ranked` היה `true` ללא תנאי למסלול בלי סוכן חכם, כלומר דווקא
-   * אצל מי שאין לו את המקור שכן מכיל אותם.
    *
    * המספרים אינם מומצאים — הם של `buildRecommendations` עצמו, שכבר
    * מדרג את אותם שלושה מושגים (105 / 95 / 85). זה מה שהופך את שני
@@ -1125,11 +1064,10 @@ export default function DashboardPage() {
             </div>
 
             {/*
-              ‎**„הדירוג חלקי” נאמר בקול, ולא נבלע.**
+              ‎**„הרשימה חלקית” נאמר בקול, ולא נבלע.**
 
-              כשהקריאה לסוכן נכשלת אין דרך לדעת אם המלצה דחופה יותר
-              הייתה מגיעה, ולכן אף שורה אינה מודגשת (`ranked`).
-              משתמש שרואה חמש פעולות בלי אחת מודגשת ובלי הסבר יחשוב
+              כשהקריאה לסוכן נכשלת חסרות מהרשימה המלצות שהיו אמורות
+              להופיע בה. משתמש שרואה רשימה קצרה מהרגיל בלי הסבר יחשוב
               שהמסך נשבר; לכן נאמר מה חסר ומוצע ניסיון חוזר — כל מצב
               ריק או חלקי מציין את הפעולה שסוגרת אותו.
             */}
@@ -1165,9 +1103,7 @@ export default function DashboardPage() {
                   */
                   <li
                     key={t.key}
-                    className={`mv-row mv-row--action mv-row--flush mv-domain-${t.domain} ${
-                      index === 0 && ranked ? "mv-row--rank-1" : ""
-                    }`}
+                    className={`mv-row mv-row--action mv-row--flush mv-domain-${t.domain}`}
                   >
                     {/*
                       המספר הסידורי חזר לשורה — הוא הדירוג עצמו, וזה
@@ -1189,9 +1125,7 @@ export default function DashboardPage() {
                     {t.href ? (
                       <Link
                         href={t.href}
-                        className={`mv-row__action mv-button flex-none no-underline ${
-                          index === 0 && ranked ? "mv-button--primary" : "mv-button--secondary"
-                        }`}
+                        className="mv-row__action mv-button mv-button--secondary flex-none no-underline"
                       >
                         {t.action}
                       </Link>

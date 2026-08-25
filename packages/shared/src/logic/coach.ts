@@ -6,6 +6,7 @@
  */
 
 import { formatJerusalemTime } from "./israel-time.js";
+import type { Capability } from "../rbac.js";
 
 export interface CoachSignals {
   /** קונים חמים/חמים-מאוד שלא קיבלו הצעה כלל */
@@ -203,6 +204,31 @@ const AGGREGATE_HREF: Record<string, string> = {
   overdue_task: "/tasks",
   hot_buyers_idle: "/buyers",
 };
+
+/*
+ * ‎**היכולת שהיעד דורש.**
+ *
+ * ‎`/coach/recommendations` נשמר מאחורי `matches.view`, אבל היעדים
+ * שהוא מפנה אליהם יושבים מאחורי יכולות אחרות: סוכן רגיל עם
+ * ‎`matches.view` יכול לקבל המלצה על הצעת שת"פ בלי שיש לו
+ * ‎`collaboration.offer`, ואז הכפתור מוביל למסך שמחזיר 403
+ * (ביקורת Codex).
+ *
+ * המפה יושבת כאן ולא במסך מאותה סיבה שהיעד עצמו יושב כאן: הכלל
+ * נשבר פעם אחר פעם כשהוא מפוזר, ומי שמוסיף סוג המלצה חדש צריך
+ * למצוא את שתי השאלות באותו מקום.
+ */
+export function recommendationCapability(rec: CoachRecommendation): Capability | null {
+  const href = recommendationHref(rec);
+  if (href === null) return null;
+  if (href.startsWith("/collaboration")) return "collaboration.offer";
+  if (href.startsWith("/tasks") || href.startsWith("/calendar")) return "calendar.manage";
+  if (href.startsWith("/offers")) return "offers.send";
+  if (href.startsWith("/properties")) return "properties.view";
+  if (href.startsWith("/buyers")) return "buyers.view_own";
+  if (href.startsWith("/leads")) return "leads.view_own";
+  return null;
+}
 
 export function recommendationHref(rec: CoachRecommendation): string | null {
   if (rec.entityId === undefined) return AGGREGATE_HREF[rec.type] ?? null;
