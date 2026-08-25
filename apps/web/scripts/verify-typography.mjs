@@ -60,6 +60,33 @@ const SCOPED = [
   },
 ];
 
+/*
+ * הסולם עצמו — נקרא מ-`globals.css` ולא נכתב כאן שוב.
+ *
+ * כל דרגה מוצהרת כ-‎`--type-x: calc(Npx * var(--a11y-font-scale))`,
+ * ומכאן ש-‎`N` הוא הגודל ב-100%. עותק של הטבלה בתוך השער היה נפרד
+ * מהסולם בשקט בשינוי הראשון, והשער היה מודד רצפה מול מספרים
+ * שכבר אינם נכונים — כלומר בדיוק סוג התקלה שהוא קיים כדי לתפוס.
+ *
+ * סולם ריק הוא כשל: הוא אומר שהפורמט השתנה ושהכלל שנשען עליו
+ * אינו בודק עוד דבר.
+ */
+const SCALE_STEPS = new Map();
+{
+  const css = readFileSync(join(root, "src/app/globals.css"), "utf8");
+  for (const m of css.matchAll(
+    /(--type-[a-z0-9-]+): ?calc\(([0-9.]+)px ?\* ?var\(--a11y-font-scale\)\)/gu,
+  )) {
+    SCALE_STEPS.set(m[1], Number(m[2]));
+  }
+  if (SCALE_STEPS.size === 0) {
+    console.error(
+      "✗ לא נמצאה אף דרגה בסולם ב-globals.css — הכלל של `font-size: var(--type-*)` אינו בודק דבר\n",
+    );
+    process.exit(1);
+  }
+}
+
 const RULES = [
   {
     /* text-[13.5px] — ערך שרירותי של Tailwind */
@@ -90,6 +117,42 @@ const RULES = [
     pattern: /font-size: ?([0-9.]+)px/gu,
     fails: (m) => Number(m[1]) < FLOOR_PX,
     describe: (m) => `${m[0]} — מתחת ל-${FLOOR_PX}px`,
+  },
+  {
+    /*
+     * ‎`font-size: calc(15px * var(--a11y-font-scale))` — הצורה
+     * שגודל מקבל כשהוא אמור להגיב להגדרת הנגישות.
+     *
+     * ‎**בלי הכלל הזה השער מפסיק לבדוק בדיוק את הקובץ שהכי חשוב
+     * לבדוק.** ההמרה של `globals.css` לצורה הזו הורידה את מספר
+     * ההתאמות ל-`font-size: Npx` שם לאפס, כלומר כל הרצפה של
+     * מערכת העיצוב הייתה נעשית ריקה והשער היה ממשיך לדווח „תקין”.
+     * זו בדיוק התקלה שהשער הזה קיים כדי למנוע, רק על עצמו.
+     */
+    pattern: /font-size: ?calc\(([0-9.]+)px ?\* ?var\(--a11y-font-scale\)\)/gu,
+    fails: (m) => Number(m[1]) < FLOOR_PX,
+    describe: (m) => `${m[0]} — מתחת ל-${FLOOR_PX}px`,
+  },
+  {
+    /*
+     * ‎`font-size: var(--type-body)` — הדרגה נפתרת מהסולם עצמו.
+     *
+     * הערך נלקח מהצהרת הטוקן ב-`:root` (ראו `SCALE_STEPS`), ולכן
+     * דרגה שתרד מתחת לרצפה תיתפס בכל מקום שצורך אותה, ולא רק
+     * בהגדרה. טוקן שאינו בסולם הוא כשל: הוא נפתר ל„כלום” בדפדפן
+     * והטקסט מקבל גודל שנירש במקרה.
+     */
+    pattern: /font-size: ?var\((--type-[a-z0-9-]+)\)/gu,
+    fails: (m) => {
+      const px = SCALE_STEPS.get(m[1]);
+      return px === undefined || px < FLOOR_PX;
+    },
+    describe: (m) => {
+      const px = SCALE_STEPS.get(m[1]);
+      return px === undefined
+        ? `${m[0]} — דרגה שאינה מוגדרת בסולם`
+        : `${m[0]} = ${px}px — מתחת ל-${FLOOR_PX}px`;
+    },
   },
   {
     pattern: /\bfont-(light|thin|extralight)\b/gu,

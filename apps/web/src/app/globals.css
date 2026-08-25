@@ -1131,14 +1131,14 @@ code {
   align-items: center;
   gap: 10px;
   font-weight: 900;
-  font-size: 27px;
+  font-size: calc(27px * var(--a11y-font-scale));
   /* גם צבע הטקסט וגם הצלע הלבנה של הסימן (currentColor) */
   color: #fff;
   line-height: 1;
   letter-spacing: -0.01em;
 }
 .mv-sidebar-sub {
-  font-size: 14px;
+  font-size: var(--type-caption);
   color: #9aa89e;
   margin-top: 5px;
   min-height: 1em;
@@ -1232,7 +1232,7 @@ code {
 /* מונה ליד פריט ניווט (נכסים, קונים, התאמות) */
 .mv-nav-count {
   margin-inline-start: auto;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   color: #9aa89e;
 }
@@ -1251,7 +1251,7 @@ code {
   margin-inline-start: auto;
   background: rgba(245, 180, 142, 0.16);
   color: #f5b48e;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   border-radius: 99px;
   padding: 2px 9px;
@@ -1261,7 +1261,7 @@ code {
   margin-inline-start: auto;
   background: rgba(112, 238, 145, 0.16);
   color: #8cf2a6;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   border-radius: 99px;
   padding: 2px 9px;
@@ -1276,7 +1276,7 @@ code {
   margin-inline-start: auto;
   background: rgba(167, 139, 250, 0.18);
   color: #c4b5fd;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 800;
   letter-spacing: 0.04em;
   border-radius: 99px;
@@ -1315,18 +1315,18 @@ code {
   display: grid;
   place-items: center;
   font-weight: 700;
-  font-size: 14px;
+  font-size: var(--type-caption);
   flex: none;
 }
 .mv-sidebar-user-name {
   display: block;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   color: #fff;
 }
 .mv-sidebar-user-role {
   display: block;
-  font-size: 14px;
+  font-size: var(--type-caption);
   color: #9aa89e;
 }
 
@@ -1448,7 +1448,7 @@ code {
   border-radius: 10px;
   background: var(--color-field);
   padding: 0 14px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   color: var(--color-text);
   outline: none;
 }
@@ -1490,14 +1490,14 @@ code {
   background: var(--color-hover-soft);
 }
 .mv-search-kind {
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   border-radius: 6px;
   padding: 2px 7px;
   flex: none;
 }
 .mv-search-label {
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1505,13 +1505,13 @@ code {
 }
 .mv-search-sub {
   margin-inline-start: auto;
-  font-size: 14px;
+  font-size: var(--type-caption);
   color: var(--color-text-muted);
   flex: none;
 }
 .mv-search-empty {
   padding: 12px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   color: var(--color-text-muted);
   text-align: center;
 }
@@ -1619,7 +1619,7 @@ code {
   align-items: center;
   padding: 13px 16px;
   border-bottom: 1px solid var(--color-card-head-border);
-  font-size: 14.5px;
+  font-size: var(--type-caption-lg);
   font-weight: 800;
 }
 .mv-notif-mark {
@@ -1627,7 +1627,7 @@ code {
   border: none;
   background: none;
   color: var(--color-primary);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   cursor: pointer;
 }
@@ -1647,7 +1647,7 @@ code {
 }
 .mv-notif-text {
   display: block;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 600;
   color: var(--color-text);
   line-height: 1.4;
@@ -1664,20 +1664,20 @@ code {
 }
 .mv-notif-time {
   display: block;
-  font-size: 14px;
+  font-size: var(--type-caption);
   color: var(--color-text-muted);
 }
 .mv-notif-empty {
   margin: 0;
   padding: 16px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   color: var(--color-text-muted);
   text-align: center;
 }
 .mv-notif-all {
   display: block;
   padding: 11px 16px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   color: var(--color-primary);
   text-align: center;
@@ -1711,7 +1711,7 @@ code {
   border-radius: 10px;
   background: var(--color-action);
   color: var(--color-on-action);
-  font-size: 14.5px;
+  font-size: var(--type-caption-lg);
   font-weight: 700;
   cursor: pointer;
   text-decoration: none;
@@ -1786,7 +1786,7 @@ code {
   padding: 11px 20px;
   background: var(--color-table-head);
   border-bottom: 1px solid var(--color-card-head-border);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   color: var(--color-text-muted);
 }
@@ -1839,7 +1839,7 @@ button.mv-list-row:hover {
  */
 .mv-pill {
   display: inline-block;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   border-radius: 99px;
   padding: 4px 11px;
@@ -1850,7 +1850,7 @@ button.mv-list-row:hover {
 /* תג קטן ("חדש", "דחוף") — פינות 6px */
 .mv-tag {
   display: inline-block;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 800;
   border-radius: 6px;
   padding: 2px 8px;
@@ -1898,7 +1898,7 @@ button.mv-list-row:hover {
   border: 1px solid var(--color-input-border);
   background: var(--color-surface);
   color: var(--color-text-soft);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   border-radius: 99px;
   padding: 6px 14px;
@@ -1932,7 +1932,7 @@ button.mv-list-row:hover {
   border: 1px solid var(--color-input-border);
   background: var(--color-surface);
   color: var(--color-text);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   border-radius: var(--control-radius);
   min-height: var(--control-h);
@@ -1974,7 +1974,7 @@ button.mv-list-row:hover {
   gap: 10px;
   padding: 8px 11px;
   border-radius: 8px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 600;
   color: var(--color-text);
   cursor: pointer;
@@ -1997,7 +1997,7 @@ button.mv-list-row:hover {
   border: 1px solid var(--color-input-border);
   background-color: var(--color-surface);
   color: var(--color-text);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   border-radius: 10px;
   min-height: 38px;
@@ -2022,7 +2022,7 @@ button.mv-list-row:hover {
   border: none;
   background: var(--color-action);
   color: var(--color-on-action);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   border-radius: var(--control-radius);
   padding: 0 18px;
@@ -2047,7 +2047,7 @@ button.mv-list-row:hover {
   border: 1px solid var(--color-primary);
   background: var(--color-primary-soft);
   color: var(--color-primary);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   border-radius: 8px;
   padding: 6px 11px;
@@ -2084,7 +2084,7 @@ button.mv-list-row:hover {
   border: none;
   background: var(--color-action);
   color: var(--color-on-action);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   border-radius: var(--control-radius);
   padding: 0 18px;
@@ -2108,7 +2108,7 @@ button.mv-list-row:hover {
   border: 1px solid var(--color-input-border);
   background: var(--color-surface);
   color: var(--color-text-soft);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   border-radius: 8px;
   padding: 6px 11px;
@@ -2132,7 +2132,7 @@ button.mv-list-row:hover {
   border: 1px solid var(--color-input-border);
   background: var(--color-surface);
   color: var(--color-text-soft);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   border-radius: 8px;
   padding: 6px 11px;
@@ -2199,7 +2199,7 @@ button.mv-list-row:hover {
   background: var(--color-surface);
   display: grid;
   place-items: center;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 800;
   color: var(--color-primary);
 }
@@ -2226,7 +2226,7 @@ button.mv-list-row:hover {
   border: none;
   border-radius: 999px;
   padding: 8px 16px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   cursor: pointer;
   background: transparent;
@@ -2278,7 +2278,7 @@ button.mv-list-row:hover {
   border: none;
   border-radius: 9px;
   padding: 8px 15px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   cursor: pointer;
   background: transparent;
@@ -2318,12 +2318,12 @@ button.mv-list-row:hover {
   border-radius: 999px;
   background: var(--color-primary-soft);
   color: var(--color-primary);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 800;
 }
 .mv-form-hint {
   margin: 2px 0 0;
-  font-size: 14px;
+  font-size: var(--type-caption);
   color: var(--color-text-muted);
   line-height: 1.5;
 }
@@ -2368,7 +2368,7 @@ button.mv-list-row:hover {
   border: none;
   background: transparent;
   padding: 12px 14px 11px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   color: var(--color-text-soft);
   cursor: pointer;
@@ -2394,7 +2394,7 @@ button.mv-list-row:hover {
   border-radius: 999px;
   background: var(--color-seg-track);
   color: var(--color-text-soft);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 800;
   line-height: 19px;
   text-align: center;
@@ -2449,7 +2449,7 @@ button.mv-list-row:hover {
   position: absolute;
   inset-inline-start: 16px;
   top: 16px;
-  font-size: 15px;
+  font-size: var(--type-body-sm);
   font-weight: 800;
   color: var(--color-primary);
   opacity: 0;
@@ -2497,7 +2497,7 @@ a.mv-bar-row:focus-visible {
   outline-offset: 1px;
 }
 .mv-stat-value {
-  font-size: 28px;
+  font-size: calc(28px * var(--a11y-font-scale));
   font-weight: 800;
   margin-top: 2px;
   line-height: 1.15;
@@ -2515,7 +2515,7 @@ a.mv-bar-row:focus-visible {
   border-radius: 10px;
   background: var(--color-field);
   padding: 10px 14px;
-  font-size: 14.5px;
+  font-size: var(--type-caption-lg);
   color: var(--color-text);
   outline: none;
 }
@@ -2542,7 +2542,7 @@ a.mv-bar-row:focus-visible {
   border: 1px solid var(--color-input-border);
   background: var(--color-surface);
   color: var(--color-text-soft);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   border-radius: 99px;
   padding: 4px 11px;
@@ -2566,7 +2566,7 @@ a.mv-bar-row:focus-visible {
   border: none;
   background: var(--color-danger);
   color: var(--color-surface);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   border-radius: 99px;
   padding: 5px 13px;
@@ -2576,7 +2576,7 @@ a.mv-bar-row:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 600;
   color: var(--color-text-muted);
 }
@@ -2598,7 +2598,7 @@ a.mv-bar-row:focus-visible {
 }
 .mv-dictate-error {
   flex-basis: 100%;
-  font-size: 14px;
+  font-size: var(--type-caption);
   color: var(--color-danger);
 }
 
@@ -2640,18 +2640,18 @@ a.mv-bar-row:focus-visible {
 }
 .mv-auth-brand h1 {
   margin: 0;
-  font-size: 30px;
+  font-size: calc(30px * var(--a11y-font-scale));
   font-weight: 900;
   line-height: 1.15;
 }
 @media (min-width: 900px) {
   .mv-auth-brand h1 {
-    font-size: 40px;
+    font-size: calc(40px * var(--a11y-font-scale));
   }
 }
 .mv-auth-brand p {
   margin: 0;
-  font-size: 15.5px;
+  font-size: var(--type-body);
   line-height: 1.6;
   /* לבן ב-88% על הירוק הכהה — עדיין מעל 7:1 */
   color: rgba(255, 255, 255, 0.88);
@@ -2660,7 +2660,7 @@ a.mv-bar-row:focus-visible {
   display: flex;
   align-items: center;
   gap: 9px;
-  font-size: 21px;
+  font-size: calc(21px * var(--a11y-font-scale));
   font-weight: 900;
   letter-spacing: -0.4px;
 }
@@ -2675,7 +2675,7 @@ a.mv-bar-row:focus-visible {
   display: flex;
   align-items: flex-start;
   gap: 9px;
-  font-size: 14.5px;
+  font-size: var(--type-caption-lg);
   color: rgba(255, 255, 255, 0.92);
 }
 .mv-auth-points li::before {
@@ -2697,13 +2697,13 @@ a.mv-bar-row:focus-visible {
 }
 .mv-auth-card h2 {
   margin: 0 0 4px;
-  font-size: 23px;
+  font-size: calc(23px * var(--a11y-font-scale));
   font-weight: 800;
 }
 .mv-auth-sub {
   margin: 0 0 20px;
   color: var(--color-text-muted);
-  font-size: 14.5px;
+  font-size: var(--type-caption-lg);
 }
 .mv-auth-field {
   margin-bottom: 14px;
@@ -2711,7 +2711,7 @@ a.mv-bar-row:focus-visible {
 .mv-auth-field > label {
   display: block;
   margin-bottom: 5px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
 }
 .mv-auth-input {
@@ -2721,7 +2721,7 @@ a.mv-bar-row:focus-visible {
   color: var(--color-text);
   border-radius: 10px;
   padding: 11px 13px;
-  font-size: 15px;
+  font-size: var(--type-body-sm);
 }
 .mv-auth-input:focus-visible {
   outline: 2px solid var(--color-primary-accent);
@@ -2732,7 +2732,7 @@ a.mv-bar-row:focus-visible {
   border: none;
   background: var(--color-action);
   color: var(--color-on-action);
-  font-size: 15px;
+  font-size: var(--type-body-sm);
   font-weight: 800;
   border-radius: 10px;
   padding: 12px 18px;
@@ -2748,7 +2748,7 @@ a.mv-bar-row:focus-visible {
 .mv-auth-foot {
   margin-top: 18px;
   text-align: center;
-  font-size: 14px;
+  font-size: var(--type-caption);
   color: var(--color-text-muted);
 }
 
@@ -2776,7 +2776,7 @@ a.mv-bar-row:focus-visible {
   border-radius: 999px;
   background: var(--color-primary);
   color: var(--color-surface);
-  font-size: 15px;
+  font-size: var(--type-body-sm);
   font-weight: 800;
   box-shadow: 0 8px 22px rgb(0 0 0 / 18%);
   cursor: pointer;
@@ -2832,7 +2832,7 @@ a.mv-bar-row:focus-visible {
   border-radius: 0 12px 12px 0;
   background: var(--color-surface);
   color: var(--color-text);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
   cursor: pointer;
@@ -2912,7 +2912,7 @@ a.mv-bar-row:focus-visible {
   border: 1px solid transparent;
   background: var(--color-surface);
   color: var(--color-text);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 600;
   line-height: 1.45;
   border-radius: 99px;
@@ -2938,7 +2938,7 @@ a.mv-bar-row:focus-visible {
  * שמסביר למה ללחוץ על הכפתור שמתחתיה.
  */
 .mv-explain {
-  font-size: 15px;
+  font-size: var(--type-body-sm);
   line-height: 1.65;
   color: var(--color-text-soft);
 }
@@ -2964,14 +2964,14 @@ a.mv-bar-row:focus-visible {
   margin-top: 0;
 }
 .mv-voice-row .mv-dictate-btn {
-  font-size: 14px;
+  font-size: var(--type-caption);
   padding: 9px 14px;
 }
 .mv-voice-go {
   border: none;
   background: var(--color-action);
   color: var(--color-on-action);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 800;
   border-radius: 99px;
   padding: 10px 20px;
@@ -2987,7 +2987,7 @@ a.mv-bar-row:focus-visible {
 
 /* טריגר צבוע — כשהערך הנבחר הוא מידע (בשלות, סטטוס) ולא רק בחירה */
 .mv-select-button--tone {
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   border-radius: 99px;
   padding: 5px 12px;
@@ -3009,7 +3009,7 @@ a.mv-bar-row:focus-visible {
   border-radius: var(--control-radius);
   background: var(--color-field);
   color: var(--color-text);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-family: inherit;
   padding: 0 12px;
   width: 100%;
@@ -3027,7 +3027,7 @@ a.mv-bar-row:focus-visible {
   border-radius: var(--control-radius);
   background: var(--color-action);
   color: var(--color-on-action);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 800;
   padding: 0 22px;
   cursor: pointer;
@@ -3064,7 +3064,7 @@ a.mv-bar-row:focus-visible {
   background: var(--color-field);
   color: var(--color-text);
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--type-caption);
   padding: 8px 12px;
 }
 .mv-input:focus-visible {
@@ -3095,7 +3095,7 @@ a.mv-bar-row:focus-visible {
   backdrop-filter: blur(2px);
 }
 .mv-dialog-body {
-  font-size: 15px;
+  font-size: var(--type-body-sm);
   line-height: 1.65;
   color: var(--color-text-soft);
 }
@@ -3119,7 +3119,7 @@ a.mv-bar-row:focus-visible {
   max-height: min(58vh, 520px);
   overflow-y: auto;
   white-space: pre-wrap;
-  font-size: 14px;
+  font-size: var(--type-caption);
   line-height: 1.75;
   color: var(--color-text);
   background: var(--color-field);
@@ -3141,7 +3141,7 @@ a.mv-bar-row:focus-visible {
   border: none;
   background: transparent;
   color: var(--color-text-soft);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   padding: 6px 14px;
   cursor: pointer;
@@ -3155,7 +3155,7 @@ a.mv-bar-row:focus-visible {
   border-inline-start: 1px solid var(--color-input-border);
   background: transparent;
   color: var(--color-text-muted);
-  font-size: 15px;
+  font-size: var(--type-body-sm);
   line-height: 1;
   padding: 0 10px;
   cursor: pointer;
@@ -3213,7 +3213,7 @@ a.mv-bar-row:focus-visible {
   background: var(--color-surface);
   color: var(--color-primary);
   border-radius: 99px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   padding: 8px 16px;
   cursor: pointer;
@@ -3234,7 +3234,7 @@ a.mv-bar-row:focus-visible {
   align-items: center;
   gap: 6px;
   margin: 0 0 8px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 800;
 }
 .mv-privacy-list {
@@ -3244,7 +3244,7 @@ a.mv-bar-row:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 7px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   color: var(--color-text-soft);
 }
 .mv-privacy-list li {
@@ -3382,7 +3382,7 @@ a.mv-bar-row:focus-visible {
 }
 .mv-net-title {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--type-button);
   font-weight: 800;
   line-height: 1.3;
   flex: 1 1 200px;
@@ -3409,7 +3409,7 @@ a.mv-bar-row:focus-visible {
   background: var(--color-bg);
   color: var(--color-text-soft);
   border-radius: 99px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 600;
   /*
    * ריפוד לא סימטרי: האייקון בתחילת התגית כבר נושא רווח פנימי משלו
@@ -3475,7 +3475,7 @@ a.mv-bar-row:focus-visible {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 800;
   letter-spacing: 0.01em;
   color: var(--color-primary);
@@ -3542,7 +3542,7 @@ a.mv-bar-row:focus-visible {
   align-items: center;
   gap: 9px;
   margin: 0 0 10px;
-  font-size: 15.5px;
+  font-size: var(--type-body);
   font-weight: 800;
 }
 .mv-deal-card-icon {
@@ -3573,7 +3573,7 @@ a.mv-bar-row:focus-visible {
   color: var(--color-text-soft);
   border-radius: 999px;
   padding: 7px 14px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
@@ -3629,7 +3629,7 @@ a.mv-bar-row:focus-visible {
 }
 .mv-deal-bubble-meta {
   margin: 0 0 3px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 600;
   color: var(--color-text-muted);
 }
@@ -3644,7 +3644,7 @@ a.mv-bar-row:focus-visible {
   background: var(--color-surface);
   border-radius: 999px;
   padding: 4px 12px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   color: var(--color-text-muted);
 }
 .mv-net-foot--spread {
@@ -3672,7 +3672,7 @@ a.mv-bar-row:focus-visible {
   background: var(--color-surface);
   border: 2px solid var(--color-primary-accent);
   color: var(--color-primary);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 800;
 }
 /* שם הקונה/הנכס בהתאמה — קישור לכרטיס המלא. הקו והעין אומרים
@@ -3776,7 +3776,7 @@ a.mv-bar-row:focus-visible {
   border-radius: 10px;
   background: var(--color-surface);
   padding: 7px 11px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 600;
   text-decoration: none;
   color: inherit;
@@ -3799,12 +3799,12 @@ a.mv-bar-row:focus-visible {
   background: var(--color-primary-soft);
   color: var(--color-primary);
   padding: 2px 9px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   white-space: nowrap;
 }
 .mv-reach-rest {
-  font-size: 14px;
+  font-size: var(--type-caption);
   color: var(--color-text-muted);
   padding-inline-start: 11px;
 }
@@ -3861,7 +3861,7 @@ a.mv-bar-row:focus-visible {
   gap: 7px;
   width: fit-content;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 600;
   color: var(--color-text-muted);
   padding: 4px 8px;
@@ -3909,7 +3909,7 @@ a.mv-bar-row:focus-visible {
   border-radius: 10px;
   border: 1px solid var(--color-border);
   background: var(--color-hover-soft);
-  font-size: 14px;
+  font-size: var(--type-caption);
   line-height: 1.55;
 }
 .mv-notice-text {
@@ -3976,7 +3976,7 @@ a.mv-bar-row:focus-visible {
   border-radius: 14px;
   border: 1px solid var(--color-input-border);
   background: var(--color-surface);
-  font-size: 14px;
+  font-size: var(--type-caption);
 }
 .mv-stat-tile:hover {
   border-color: var(--color-border-hover);
@@ -4013,7 +4013,7 @@ a.mv-bar-row:focus-visible {
   border-radius: 99px;
   background: var(--color-action);
   color: var(--color-on-action);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 800;
 }
 .mv-net-badge--quiet {
@@ -4046,13 +4046,13 @@ a.mv-bar-row:focus-visible {
 }
 .mv-net-hero-title {
   margin: 0;
-  font-size: 18px;
+  font-size: calc(18px * var(--a11y-font-scale));
   font-weight: 800;
   line-height: 1.25;
 }
 .mv-net-hero-sub {
   margin: 2px 0 0;
-  font-size: 14px;
+  font-size: var(--type-caption);
   color: var(--color-text-muted);
 }
 
@@ -4066,7 +4066,7 @@ a.mv-bar-row:focus-visible {
   border: 1px solid var(--color-border);
   border-radius: 12px;
   background: var(--color-surface);
-  font-size: 15px;
+  font-size: var(--type-body-sm);
   font-weight: 600;
 }
 .mv-net-place > svg {
@@ -4087,11 +4087,11 @@ a.mv-bar-row:focus-visible {
   background: var(--color-primary-soft);
 }
 .mv-net-money-label {
-  font-size: 14px;
+  font-size: var(--type-caption);
   color: var(--color-primary);
 }
 .mv-net-money-value {
-  font-size: 22px;
+  font-size: var(--type-panel);
   font-weight: 800;
   color: var(--color-primary);
 }
@@ -4118,11 +4118,11 @@ a.mv-bar-row:focus-visible {
   color: var(--color-text-muted);
 }
 .mv-net-fact-value {
-  font-size: 15px;
+  font-size: var(--type-body-sm);
   font-weight: 800;
 }
 .mv-net-fact-label {
-  font-size: 14px;
+  font-size: var(--type-caption);
   color: var(--color-text-muted);
 }
 
@@ -4137,13 +4137,13 @@ a.mv-bar-row:focus-visible {
 .mv-net-say-label {
   display: block;
   margin-bottom: 2px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   color: var(--color-primary);
 }
 .mv-net-say-text {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--type-body-sm);
   line-height: 1.55;
   color: var(--color-text-soft);
 }
@@ -4155,7 +4155,7 @@ a.mv-bar-row:focus-visible {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 12px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   color: var(--color-text-muted);
 }
 .mv-net-meta-id {
@@ -4212,7 +4212,7 @@ a.mv-bar-row:focus-visible {
   border-radius: 50%;
   background: var(--color-hover-soft);
   color: var(--color-text-soft);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 800;
 }
 
@@ -4230,7 +4230,7 @@ a.mv-bar-row:focus-visible {
   border: 1px dashed var(--color-border-hover);
   border-radius: 12px;
   background: var(--color-surface);
-  font-size: 14px;
+  font-size: var(--type-caption);
   overflow: hidden;
 }
 
@@ -4284,7 +4284,7 @@ a.mv-bar-row:focus-visible {
   border-radius: 99px;
   background: var(--color-surface);
   color: var(--color-text-soft);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 600;
   cursor: pointer;
 }
@@ -4324,7 +4324,7 @@ a.mv-bar-row:focus-visible {
   background: transparent;
   color: var(--color-text);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--type-caption);
   padding: 9px 0;
   outline: none;
 }
@@ -4413,7 +4413,7 @@ a.mv-bar-row:focus-visible {
 
 .mv-proposal-label {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 600;
   color: var(--color-text-muted);
 }
@@ -4424,7 +4424,7 @@ a.mv-bar-row:focus-visible {
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: 15px;
+  font-size: var(--type-body-sm);
 }
 
 .mv-proposal-value .mv-field {
@@ -4437,7 +4437,7 @@ a.mv-bar-row:focus-visible {
   מהירה של „מאיפה זה הגיע” ולא לקריאה שורה-שורה.
 */
 .mv-proposal-evidence {
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-style: italic;
   color: var(--color-text-muted);
 }
@@ -4459,7 +4459,7 @@ a.mv-bar-row:focus-visible {
   border: 1px solid var(--color-border);
   border-radius: 10px;
   background: var(--color-surface);
-  font-size: 15px;
+  font-size: var(--type-body-sm);
 }
 
 @media (max-width: 560px) {
@@ -4552,7 +4552,7 @@ a.mv-bar-row:focus-visible {
   border-radius: 999px;
   background: var(--color-surface);
   padding: 5px 12px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 600;
   color: var(--color-primary);
   cursor: pointer;
@@ -4632,14 +4632,14 @@ a.mv-bar-row:focus-visible {
 }
 .mv-net-dialog-field dt {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 600;
   color: var(--color-text-muted);
   flex: none;
 }
 .mv-net-dialog-field dd {
   margin: 0;
-  font-size: 14.5px;
+  font-size: var(--type-caption-lg);
   font-weight: 700;
   text-align: start;
 }
@@ -4727,7 +4727,7 @@ a.mv-bar-row:focus-visible {
   position: absolute;
   top: 10px;
   inset-inline-end: 12px;
-  font-size: 22px;
+  font-size: var(--type-panel);
   font-weight: 800;
   line-height: 1;
   color: color-mix(in srgb, var(--color-primary) 22%, transparent);
@@ -4744,19 +4744,19 @@ a.mv-bar-row:focus-visible {
 }
 .mv-ref-step-title {
   display: block;
-  font-size: 14.5px;
+  font-size: var(--type-caption-lg);
   margin-bottom: 3px;
 }
 .mv-ref-step-body {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--type-caption);
   line-height: 1.45;
   color: var(--color-text-soft);
 }
 .mv-ref-steps-privacy {
   grid-column: 1 / -1;
   margin: 0;
-  font-size: 14px;
+  font-size: var(--type-caption);
   color: var(--color-text-muted);
   text-align: center;
 }
@@ -4963,28 +4963,28 @@ a.mv-bar-row:focus-visible {
   align-items: center;
   gap: 8px;
   margin: 0 0 6px;
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   color: var(--color-primary-accent);
 }
 .mv-announce-tag {
   background: var(--color-primary);
   color: var(--color-surface);
-  font-size: 14px;
+  font-size: var(--type-caption);
   font-weight: 700;
   border-radius: 99px;
   padding: 2px 11px;
 }
 .mv-announce-title {
   margin: 0 0 8px;
-  font-size: 22px;
+  font-size: var(--type-panel);
   font-weight: 800;
   color: var(--color-primary);
   line-height: 1.25;
 }
 .mv-announce-text {
   margin: 0 0 16px;
-  font-size: 16px;
+  font-size: var(--type-button);
   line-height: 1.6;
   color: var(--color-primary-accent);
   max-width: 52ch;
@@ -4995,7 +4995,7 @@ a.mv-bar-row:focus-visible {
   border: none;
   border-radius: 11px;
   padding: 10px 22px;
-  font-size: 16px;
+  font-size: var(--type-button);
   font-weight: 700;
   cursor: pointer;
   transition: background 0.15s ease;
@@ -5097,14 +5097,14 @@ a.mv-bar-row:focus-visible {
 }
 .mv-pitch-title {
   margin: 0 0 6px;
-  font-size: 22px;
+  font-size: var(--type-panel);
   font-weight: 800;
   line-height: 1.25;
   color: var(--color-primary);
 }
 .mv-pitch-sub {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--type-button);
   color: var(--color-primary-accent);
 }
 .mv-pitch-blob {
@@ -5164,18 +5164,18 @@ a.mv-bar-row:focus-visible {
   position: absolute;
   inset-block-start: 14px;
   inset-inline-end: 16px;
-  font-size: 20px;
+  font-size: calc(20px * var(--a11y-font-scale));
   font-weight: 800;
   color: color-mix(in srgb, var(--color-primary) 28%, transparent);
 }
 .mv-pitch-step-title {
   margin: 0 0 4px;
-  font-size: 16px;
+  font-size: var(--type-button);
   font-weight: 700;
 }
 .mv-pitch-step-text {
   margin: 0;
-  font-size: 14.5px;
+  font-size: var(--type-caption-lg);
   line-height: 1.55;
   color: var(--color-text-soft);
 }
@@ -5192,7 +5192,7 @@ a.mv-bar-row:focus-visible {
   border: none;
   border-radius: 11px;
   padding: 11px 26px;
-  font-size: 16px;
+  font-size: var(--type-button);
   font-weight: 700;
   cursor: pointer;
   transition: background 0.15s ease;
@@ -5201,7 +5201,7 @@ a.mv-bar-row:focus-visible {
   background: var(--color-primary-hover);
 }
 .mv-pitch-link {
-  font-size: 15px;
+  font-size: var(--type-body-sm);
   font-weight: 600;
   color: var(--color-primary-accent);
   text-decoration: underline;
@@ -5220,7 +5220,7 @@ a.mv-bar-row:focus-visible {
   color: var(--color-primary);
 }
 .mv-pitch-dismiss button {
-  font-size: 14px;
+  font-size: var(--type-caption);
   cursor: pointer;
   line-height: 0;
 }
