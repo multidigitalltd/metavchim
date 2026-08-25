@@ -132,7 +132,7 @@ export class AccountDeletionService {
      * בהקשר של דייר אחר לגמרי, והטבלאות תחת FORCE RLS היו מחזירות
      * אפס מפתחות בשקט — כלומר הקבצים היו נשארים ב-S3 לנצח.
      */
-    const [media, calls, tenantRow] = await Promise.all([
+    const [media, calls, tickets, tenantRow] = await Promise.all([
       this.prisma.withExplicitTenant(tenantId, (tx) =>
         tx.propertyMedia.findMany({
           where: { tenantId },
@@ -143,6 +143,20 @@ export class AccountDeletionService {
         tx.call.findMany({
           where: { tenantId, recordingKey: { not: null } },
           select: { recordingKey: true },
+        }),
+      ),
+      /*
+       * צילומי המסך של פניות התמיכה.
+       *
+       * צילום מסך של המערכת הוא בדיוק מה שהוא נשמע: כרטיס לקוח
+       * פתוח, רשימת נכסים, לפעמים מספר טלפון. הוא נאסף כאן מאותה
+       * סיבה שתמונות הנכסים וההקלטות נאספות — אחרי מחיקת השורות אין
+       * דבר שיודע אילו קבצים היו של המשרד.
+       */
+      this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.supportTicket.findMany({
+          where: { tenantId, screenshotKey: { not: null } },
+          select: { screenshotKey: true },
         }),
       ),
       /*
@@ -158,6 +172,9 @@ export class AccountDeletionService {
     const logoKey = (tenantRow?.settings as Record<string, unknown> | null)?.["logoKey"];
     const s3Keys = [
       ...media.map((m) => m.s3Key),
+      ...tickets
+        .map((t) => t.screenshotKey)
+        .filter((k): k is string => k !== null),
       ...calls
         .map((c) => c.recordingKey)
         .filter((k): k is string => k !== null),
@@ -201,6 +218,8 @@ export class AccountDeletionService {
         await tx.whatsAppChat.deleteMany({ where: { tenantId } });
         await tx.agentEvent.deleteMany({ where: { tenantId } });
         await tx.call.deleteMany({ where: { tenantId } });
+        // צילומי הניתוב של שיחות שעדיין באוויר ברגע המחיקה
+        await tx.callRouting.deleteMany({ where: { tenantId } });
         await tx.appointment.deleteMany({ where: { tenantId } });
         await tx.task.deleteMany({ where: { tenantId } });
         await tx.taskRecurrence.deleteMany({ where: { tenantId } });
@@ -287,6 +306,19 @@ export class AccountDeletionService {
          * כל המחיקה.
          */
         await tx.payoutRequest.deleteMany({ where: { tenantId } });
+        /*
+         * פניות התמיכה — **נשכחו כאן עד היום.**
+         *
+         * הן נראות כמו נתוני שירות, ובפועל הן הטבלה עם הטקסט החופשי
+         * ביותר במערכת: שם המשתמש, כתובת האימייל שלו, מה שהוא כתב
+         * בלשונו, ותשובת התמיכה. צילום המסך שמצורף אליהן הוא בדיוק
+         * מה שהוא נשמע — כרטיס לקוח פתוח על המסך. כל זה שרד את
+         * „מחיקת חשבון מלאה” בשקט.
+         *
+         * הפוליסה `support_desk` אינה מפריעה: היא **מוסיפה** גישה
+         * לתמיכה, וה-`tenant_isolation` הרגילה מספיקה למחיקה כאן.
+         */
+        await tx.supportTicket.deleteMany({ where: { tenantId } });
         await tx.duplicateDismissal.deleteMany({ where: { tenantId } });
         await tx.googleCalendarLink.deleteMany({ where: { tenantId } });
         await tx.gmailLink.deleteMany({ where: { tenantId } });

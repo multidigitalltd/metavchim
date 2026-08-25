@@ -213,6 +213,23 @@ describe("ownerReportText", () => {
     expect(text).toContain("טרם בוצעו פעולות שיווק");
   });
 
+  /*
+   * הבדיקה שהייתה חסרה: כל התאריכים בבדיקות האחרות נופלים בחצות
+   * UTC, שהיא 02:00 בירושלים — כלומר אותו יום קלנדרי בשני השעונים,
+   * ולכן מעצב שמחשב ב-UTC עובר אותן בשלמות. פעולה בערב חושפת את
+   * ההפרש.
+   */
+  it("פעולה בערב מדווחת בתאריך הישראלי ולא בזה של UTC", () => {
+    const evening = new Date("2026-01-20T22:30:00Z"); // 00:30 ב-21.01 בירושלים
+    const text = ownerReportText({
+      ...base,
+      now: new Date("2026-01-25T00:00:00Z"),
+      actions: [{ kind: "signage", performedAt: evening }],
+    });
+    expect(text).toContain("21.01.2026");
+    expect(text).not.toContain("20.01.2026");
+  });
+
   it("אינו חושף למוכר את מצב כלל השליש", () => {
     const text = ownerReportText({ ...base, actions: [action("signage", 2)] });
     expect(text).not.toContain("שליש");

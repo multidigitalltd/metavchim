@@ -12,6 +12,7 @@ import {
   addMonths,
   defaultExclusivityEnd,
   exclusivityRejectionReason,
+  formatJerusalemDate,
   ownerReportText,
   type ExclusivitySubject,
   type MarketingActionKind,
@@ -81,9 +82,19 @@ function toDateInput(iso: string): string {
   return iso.slice(0, 10);
 }
 
+/*
+ * שעון ישראל, ולא UTC ולא שעון הדפדפן.
+ *
+ * העותק הקודם כאן חישב ב-UTC בדיוק כמו זה שבלוגיקה המשותפת — ולכן
+ * פעולת שיווק שנרשמה בערב הופיעה במסך ביום הקודם, ואותה סטייה
+ * בדיוק הופיעה גם בהודעה שנשלחה למוכר. עכשיו שניהם קוראים לאותה
+ * פונקציה, כדי שהמסך והדוח לא יוכלו להתפצל שוב.
+ *
+ * גבולות התקופה נשמרים כחצות UTC ולכן אינם מושפעים; ‎`performedAt`
+ * הוא חותמת זמן אמיתית וזה מה שנשבר.
+ */
 function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getUTCDate()).padStart(2, "0")}.${String(d.getUTCMonth() + 1).padStart(2, "0")}.${d.getUTCFullYear()}`;
+  return formatJerusalemDate(new Date(iso));
 }
 
 export function ExclusivityPanel({
