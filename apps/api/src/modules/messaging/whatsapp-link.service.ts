@@ -134,16 +134,28 @@ export class WhatsAppLinkService implements OnModuleDestroy {
      * הקשר מלבד הקוד עצמו, ולכן זה הצד שצריך להיות ניתן לחיפוש.
      * מפתח שני לפי משתמש קיים רק כדי למחוק קוד קודם.
      */
-    const previous = await this.redis.getdel(`wa-link:user:${userId}`);
-    if (previous !== null) await this.redis.del(`wa-link:code:${previous}`);
     const codeHmac = this.hmac(body);
+    /*
+     * **הסדר הוא מה שהופך „קוד אחד” לנכון גם במקביל.**
+     *
+     * הקוד נכתב תחילה, ורק אחריו מתחלף המצביע — ב-`GETSET`, שהוא
+     * אטומי. שתי הנפקות מקבילות נחתכות שם: מי שהחליף אחרון רואה את
+     * ה-HMAC של השנייה ומוחק אותה, ולכן בדיוק אחד שורד. הצורה
+     * הקודמת (`GETDEL` ואז שתי כתיבות) יכלה להשאיר שניים תקפים —
+     * שתיהן קראו „אין קודם” לפני שאיזו מהן כתבה (ביקורת Codex).
+     */
     await this.redis.set(
       `wa-link:code:${codeHmac}`,
       JSON.stringify({ tenantId, userId }),
       "EX",
       WHATSAPP_LINK_CODE_TTL_SECONDS,
     );
-    await this.redis.set(`wa-link:user:${userId}`, codeHmac, "EX", WHATSAPP_LINK_CODE_TTL_SECONDS);
+    const previous = await this.redis.getset(`wa-link:user:${userId}`, codeHmac);
+    // GETSET מאפס את התפוגה, ולכן היא נקבעת מחדש
+    await this.redis.expire(`wa-link:user:${userId}`, WHATSAPP_LINK_CODE_TTL_SECONDS);
+    if (previous !== null && previous !== codeHmac) {
+      await this.redis.del(`wa-link:code:${previous}`);
+    }
     return { code: formatWhatsappLinkCode(body), expiresInSeconds: WHATSAPP_LINK_CODE_TTL_SECONDS };
   }
 
@@ -204,22 +216,44 @@ export class WhatsAppLinkService implements OnModuleDestroy {
    */
   private async bind(digits: string, tenantId: string, userId: string, source: string): Promise<void> {
     const waIdHash = this.crypto.phoneHash(digits);
-    await this.prisma.$transaction(async (tx) => {
-      await tx.whatsAppLink.updateMany({
-        where: { revokedAt: null, OR: [{ waIdHash }, { userId }] },
-        data: { revokedAt: new Date(), revokedReason: "relinked" },
+    const write = async (): Promise<void> => {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.whatsAppLink.updateMany({
+          where: { revokedAt: null, OR: [{ waIdHash }, { userId }] },
+          data: { revokedAt: new Date(), revokedReason: "relinked" },
+        });
+        await tx.whatsAppLink.create({
+          data: {
+            id: ulid(),
+            waIdHash,
+            waIdEncrypted: this.crypto.encrypt(digits),
+            tenantId,
+            userId,
+            source,
+          },
+        });
       });
-      await tx.whatsAppLink.create({
-        data: {
-          id: ulid(),
-          waIdHash,
-          waIdEncrypted: this.crypto.encrypt(digits),
-          tenantId,
-          userId,
-          source,
-        },
-      });
-    });
+    };
+    try {
+      await write();
+    } catch (error: unknown) {
+      /*
+       * **המרוץ נפתר בניסיון שני, לא בנעילה.**
+       *
+       * שתי כתיבות מקבילות מנתקות שתיהן אפס שורות (אין עדיין קישור)
+       * ומוסיפות שתיהן — ושני האינדקסים החלקיים הם מה שמכריע: אחת
+       * עוברת, השנייה מקבלת P2002. הניסיון השני כבר רואה את השורה
+       * שנכתבה, מנתק אותה, ומוסיף — כלומר „האחרון קובע”, שזו
+       * התוצאה הנכונה גם ברצף (ביקורת Codex).
+       *
+       * ניסיון אחד בלבד: שני כשלים ברצף אינם מרוץ אלא תקלה אמיתית,
+       * ולולאה כאן הייתה מסתירה אותה.
+       */
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+        throw error;
+      }
+      await write();
+    }
   }
 
   /**

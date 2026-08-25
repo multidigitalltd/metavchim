@@ -55,7 +55,11 @@ describe("ריבוי אינו מוכרע", () => {
       source.indexOf("private async loadUser("),
     );
     expect(fn).toContain("matched.length > 1");
-    expect(fn).toContain("return null");
+    /*
+     * ‎`NEEDS_LINK` ולא `null`: „לא מוכר” היה מגלגל את מי שהמערכת
+     * דווקא מכירה למסלול המתעניין — עמוד מכירות, ורישום כליד.
+     */
+    expect(fn).toContain("return NEEDS_LINK");
     // והבחירה השקטה שהייתה כאן נמחקה
     expect(fn).not.toContain("נבחר ");
   });
@@ -147,5 +151,58 @@ describe("מצבה עוצרת את ההשוואה", () => {
     const fn = link.slice(link.indexOf("private async bind("), link.indexOf("async resolve("));
     // המסך מבטיח „המכשיר שמחובר”, ביחיד — משני הכיוונים
     expect(fn).toContain("OR: [{ waIdHash }, { userId }]");
+  });
+});
+
+/*
+ * הניתוק שבקוד מספיק לרצף פעולות, לא לשתי בקשות מקבילות: שתיהן
+ * מנתקות אפס שורות ושתיהן מוסיפות. האכיפה היא במסד, וההתאוששות
+ * היא ניסיון שני שכבר רואה את השורה שנכתבה.
+ */
+describe("מכשיר אחד גם במקביל", () => {
+  const link = readFileSync(
+    new URL("./whatsapp-link.service.ts", import.meta.url),
+    "utf8",
+  );
+  const migration = readFileSync(
+    new URL("../../../prisma/migrations/20260825050000_whatsapp_links/migration.sql", import.meta.url),
+    "utf8",
+  );
+
+  it("אינדקס ייחודי חלקי אוכף קישור פעיל אחד לכל חשבון", () => {
+    expect(migration).toContain('CREATE UNIQUE INDEX "whatsapp_links_active_user_key"');
+    expect(migration).toMatch(/whatsapp_links_active_user_key"\s*\n?\s*ON "whatsapp_links"\("user_id"\) WHERE "revoked_at" IS NULL/u);
+  });
+
+  it("ומרוץ נפתר בניסיון שני ולא בשגיאה למשתמש", () => {
+    const fn = link.slice(link.indexOf("private async bind("), link.indexOf("async resolve("));
+    expect(fn).toContain('error.code !== "P2002"');
+    expect(fn).toContain("await write()");
+  });
+
+  it("והנפקת קוד מחליפה מצביע באטומיות — לא שני קודים תקפים", () => {
+    const fn = link.slice(link.indexOf("async issueCode("), link.indexOf("async redeemCode("));
+    // הקוד נכתב לפני החלפת המצביע, וההחלפה עצמה היא GETSET
+    expect(fn.indexOf("wa-link:code:${codeHmac}")).toBeLessThan(fn.indexOf("getset("));
+    expect(fn).not.toContain("getdel(");
+  });
+});
+
+/*
+ * אותו שינוי, מסך אחר: בעל המשרד מעדכן את מספר הסוכן מניהול הצוות.
+ * בלי הניתוק המכשיר שמחזיק במספר הישן ממשיך להיפתר לחשבון הסוכן.
+ */
+describe("גם החלפת מספר בידי בעל המשרד מנתקת", () => {
+  const settings = readFileSync(
+    new URL("../settings/settings.controller.ts", import.meta.url),
+    "utf8",
+  );
+
+  it("עדכון סוכן מניהול הצוות מנתק את הקישור, באותה טרנזקציה", () => {
+    const route = settings.slice(settings.indexOf("pg_advisory_xact_lock"));
+    const update = route.indexOf("tx.user.update");
+    const revoke = route.indexOf('this.whatsappLinks.revoke(id, "phone_changed", tx)');
+    expect(revoke).toBeGreaterThan(update);
+    expect(route).toContain("nextPhone !== target.phone");
   });
 });

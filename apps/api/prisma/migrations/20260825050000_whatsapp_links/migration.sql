@@ -44,6 +44,15 @@ CREATE UNIQUE INDEX "whatsapp_links_active_wa_id_key"
 -- „איזה מכשיר מחובר אליי” — השאילתה של מסך ההגדרות
 CREATE INDEX "whatsapp_links_user_id_idx" ON "whatsapp_links"("user_id");
 
+-- ומהצד השני: חשבון אחד, מכשיר פעיל אחד.
+--
+-- זו האכיפה של מה שהמסך מבטיח („המכשיר שמחובר”, ביחיד). הניתוק
+-- שבקוד מספיק לרצף פעולות, אבל לא לשתי בקשות מקבילות: שתיהן
+-- מנתקות אפס שורות ושתיהן מוסיפות, ואינדקס על המספר בלבד אינו
+-- מונע זאת. האינדקס הזה הופך את המרוץ לשגיאה שאפשר לנסות שוב.
+CREATE UNIQUE INDEX "whatsapp_links_active_user_key"
+    ON "whatsapp_links"("user_id") WHERE "revoked_at" IS NULL;
+
 -- מחיקת משתמש גוררת את הקישור: קישור בלי חשבון הוא מפתח למאגר
 -- שאין לו בעלים
 ALTER TABLE "whatsapp_links" ADD CONSTRAINT "whatsapp_links_user_id_fkey"

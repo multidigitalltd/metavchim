@@ -1297,7 +1297,7 @@ export class SettingsController {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seat-quota:${ctx.tenantId}`}))`;
       const target = await tx.user.findFirst({
         where: { id, tenantId: ctx.tenantId },
-        select: { role: true, isActive: true },
+        select: { role: true, isActive: true, phone: true },
       });
       if (!target) throw new BadRequestException("משתמש לא נמצא");
       if (target.role === "owner") {
@@ -1307,6 +1307,8 @@ export class SettingsController {
       if (body.isActive === true && !target.isActive) {
         await this.assertSeatAvailable(tx, ctx.tenantId);
       }
+      const nextPhone =
+        body.phone === undefined ? undefined : body.phone.trim() === "" ? null : body.phone.trim();
       await tx.user.update({
         where: { id },
         data: {
@@ -1318,14 +1320,26 @@ export class SettingsController {
            * אותם לסוכן הוואטסאפ. שורת ה-owner מוגנת למעלה — מנהל
            * אינו יכול להחליף את מספר בעל המשרד ולחטוף את זהותו.
            */
-          ...(body.phone !== undefined
-            ? { phone: body.phone.trim() === "" ? null : body.phone.trim() }
-            : {}),
+          ...(nextPhone === undefined ? {} : { phone: nextPhone }),
           ...(body.whatsappAccess !== undefined
             ? { whatsappAccess: body.whatsappAccess }
             : {}),
         },
       });
+      /*
+       * **גם כאן המספר משנה זהות, ולכן גם כאן הקישור מנותק.**
+       *
+       * המסלול הזה הוא הצד השני של אותו שינוי: בעל המשרד מעדכן את
+       * מספר הסוכן מניהול הצוות. בלי הניתוק המכשיר הישן — זה שמחזיק
+       * במספר שהוחלף — היה ממשיך להיפתר לחשבון הסוכן ולקרוא את
+       * המאגר, בעוד המסך מציג מספר אחר לגמרי (ביקורת Codex).
+       *
+       * בתוך אותה טרנזקציה, מאותו נימוק: חצי כתיבה כאן היא בדיוק
+       * החור שהניתוק נועד לסגור.
+       */
+      if (nextPhone !== undefined && nextPhone !== target.phone) {
+        await this.whatsappLinks.revoke(id, "phone_changed", tx);
+      }
     });
     if (body.isActive === false) {
       // ניתוק מיידי: משתמש שהושבת לא ממשיך לעבוד עם Session חי

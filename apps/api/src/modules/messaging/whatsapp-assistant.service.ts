@@ -540,7 +540,7 @@ export class WhatsAppAssistantService {
     if (linked !== null) return this.loadUser(linked.userId);
 
     const identified = await this.identifyByPhone(waId);
-    if (identified === null) return null;
+    if (identified === null || identified === NEEDS_LINK) return identified;
     /*
      * הודעה ראשונה ממספר שכבר רשום במערכת — הקישור נוצר עכשיו,
      * ומכאן הוא הזהות. משתמש קיים אינו נעצר, אבל גם אינו נשען שוב
@@ -591,7 +591,9 @@ export class WhatsAppAssistantService {
    * שחולקים מספר מקבלים בקשה לקוד, וזו התשובה הנכונה — רק הם יודעים
    * מי מהם מחזיק במכשיר.
    */
-  private async identifyByPhone(waId: string): Promise<IdentifiedUser | null> {
+  private async identifyByPhone(
+    waId: string,
+  ): Promise<IdentifiedUser | typeof NEEDS_LINK | null> {
     const variants = waPhoneVariants(waId);
     if (variants[0] === undefined || variants[0] === "") return null;
     // שתי השוואות מפורשות ולא IN על מערך — פרמטרים פשוטים ובטוחים
@@ -606,8 +608,17 @@ export class WhatsAppAssistantService {
     const first = matched[0];
     if (!first) return null;
     if (matched.length > 1) {
+      /*
+       * ריבוי הוא **מוכר-ולא-מוכח**, ולא „לא מוכר”.
+       *
+       * ‎`null` כאן היה בלתי נבדל ממספר שאיננו מכירים כלל, ולכן שני
+       * שותפים שחולקים מספר קיבלו את עמוד המכירות — ואף נרשמו
+       * כמתעניינים במאגר (ביקורת Codex). מי שהמערכת מכירה מקבל את
+       * ההוראה להפיק קוד, וזו בדיוק התשובה שהריבוי דורש: רק הם
+       * יודעים מי מהם מחזיק במכשיר.
+       */
       this.logger.warn("מספר וואטסאפ משויך ליותר ממשתמש אחד — נדרש קוד קישור");
-      return null;
+      return NEEDS_LINK;
     }
     return this.loadUser(first.id);
   }
