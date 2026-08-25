@@ -204,7 +204,12 @@ function offsetAt(
   lead: string,
   rest: string,
 ): { ms: number | null; evidence: string; consumed: number } | null {
-  const words = [...rest.matchAll(/\S+/gu)].slice(0, 2);
+  /*
+   * שלוש מילים ולא שתיים — „שלוש שעות **וחצי**” צריכה את השלישית.
+   * התיקון הקודם כיסה רק את היחידה שעומדת לבדה („שעה וחצי”), והשבר
+   * אחרי כמות נשאר נבלע (ביקורת Codex).
+   */
+  const words = [...rest.matchAll(/\S+/gu)].slice(0, 3);
   const firstWord = words[0];
   if (firstWord?.index === undefined) return null;
   const endOf = (word: RegExpExecArray | RegExpMatchArray): number =>
@@ -212,22 +217,55 @@ function offsetAt(
   const first = bareWord(firstWord[0]);
   if (first === undefined) return null;
 
+  /** השבר שנגרר אחרי היחידה, אם יש. אותו טיפול בכל הענפים. */
+  const fractionAt = (
+    word: RegExpMatchArray | undefined,
+  ): { value: number; text: string; word: RegExpMatchArray } | undefined => {
+    if (word === undefined) return undefined;
+    const text = bareWord(word[0]);
+    if (text === undefined) return undefined;
+    const value = FRACTION_SUFFIX[text];
+    return value === undefined ? undefined : { value, text, word };
+  };
+
+  /**
+   * גבול תחתון וגבול עליון יחד — שניהם דוחים אל אותה תשובה.
+   *
+   * ‎`max` נשלח במפורש ואינו נלקח מהיחידה, כי הוא שומר על **כמות
+   * שהדובר אמר** („עוד 900 שעות” הוא תמלול שגוי). צורה שעומדת לבדה
+   * אינה אומרת כמות — „שעתיים” הן שתיים מעצם המילה — ולכן התקרה
+   * שלה אינה חלה, והיחידות הזוגיות אף מצהירות `max: 1` שהיה פוסל
+   * אותן על עצמן.
+   */
+  const bounded = (
+    units: number,
+    unit: RelativeUnit,
+    max: number,
+    evidence: string,
+    consumed: number,
+  ): { ms: number | null; evidence: string; consumed: number } => {
+    const ms = Math.round(units * unit.ms);
+    if (units > max || !Number.isFinite(ms) || ms <= 0) {
+      return { ms: null, evidence, consumed };
+    }
+    return { ms, evidence, consumed };
+  };
+
   // „שעתיים”, „שעה” — היחידה עומדת לבדה ונושאת את הכמות שלה
   const alone = soloUnit(first);
   if (alone !== undefined) {
-    const whole = (alone.soloCount ?? 1) * alone.ms;
-    // „שעה וחצי” — השבר שייך לביטוי, ואסור לבלוע אותו
-    const next = words[1];
-    const suffix = next === undefined ? undefined : bareWord(next[0]);
-    const fraction = suffix === undefined ? undefined : FRACTION_SUFFIX[suffix];
-    if (fraction !== undefined && next !== undefined) {
-      return {
-        ms: whole + fraction * alone.ms,
-        evidence: `${lead} ${first} ${suffix}`,
-        consumed: endOf(next),
-      };
+    const whole = alone.soloCount ?? 1;
+    const fraction = fractionAt(words[1]);
+    if (fraction !== undefined) {
+      return bounded(
+        whole + fraction.value,
+        alone,
+        Number.POSITIVE_INFINITY,
+        `${lead} ${first} ${fraction.text}`,
+        endOf(fraction.word),
+      );
     }
-    return { ms: whole, evidence: `${lead} ${first}`, consumed: endOf(firstWord) };
+    return bounded(whole, alone, Number.POSITIVE_INFINITY, `${lead} ${first}`, endOf(firstWord));
   }
 
   const quantity = quantityOf(first);
@@ -244,20 +282,31 @@ function offsetAt(
    */
   if (unit === undefined) {
     if (!/^\d+$/u.test(first)) return null;
-    const evidence = `${lead} ${first}`;
-    const consumed = endOf(firstWord);
-    if (quantity > BARE_UNIT.max) return { ms: null, evidence, consumed };
-    return { ms: quantity * BARE_UNIT.ms, evidence, consumed };
+    const fraction = fractionAt(secondWord);
+    if (fraction !== undefined) {
+      return bounded(
+        quantity + fraction.value,
+        BARE_UNIT,
+        BARE_UNIT.max,
+        `${lead} ${first} ${fraction.text}`,
+        endOf(fraction.word),
+      );
+    }
+    return bounded(quantity, BARE_UNIT, BARE_UNIT.max, `${lead} ${first}`, endOf(firstWord));
   }
 
-  // „עשרים דקות”, „רבע שעה”, „3 ימים”
-  const evidence = `${lead} ${first} ${second}`;
-  const consumed = endOf(secondWord!);
-  const ms = Math.round(quantity * unit.ms);
-  if (quantity > unit.max || !Number.isFinite(ms) || ms <= 0) {
-    return { ms: null, evidence, consumed };
+  // „עשרים דקות”, „רבע שעה”, „3 ימים”, „שלוש שעות וחצי”
+  const fraction = fractionAt(words[2]);
+  if (fraction !== undefined) {
+    return bounded(
+      quantity + fraction.value,
+      unit,
+      unit.max,
+      `${lead} ${first} ${second} ${fraction.text}`,
+      endOf(fraction.word),
+    );
   }
-  return { ms, evidence, consumed };
+  return bounded(quantity, unit, unit.max, `${lead} ${first} ${second}`, endOf(secondWord!));
 }
 
 /**

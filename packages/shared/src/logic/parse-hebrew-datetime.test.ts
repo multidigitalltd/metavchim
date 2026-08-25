@@ -181,6 +181,31 @@ describe("parseHebrewDateTime", () => {
     expect(il(parseHebrewDateTime("תזכיר לי עוד שעה ורבע", NOW).date).minute).toBe(15);
   });
 
+  /*
+   * ואותו שבר גם **אחרי כמות** — „שלוש שעות וחצי”. התיקון הראשון
+   * כיסה רק את היחידה שעומדת לבדה, כי חלון המילים היה שתיים; אחרי
+   * כמות השבר הוא המילה השלישית ולכן הוא נשאר נבלע (ביקורת Codex).
+   */
+  it("וגם כשהשבר בא אחרי כמות", () => {
+    const at = parseHebrewDateTime("תחזור אליו בעוד שלוש שעות וחצי", NOW);
+    expect(il(at.date).hour).toBe(12);
+    expect(il(at.date).minute).toBe(30);
+    expect(il(parseHebrewDateTime("תזכיר לי בעוד 2 וחצי", NOW).date).hour).toBe(11);
+    expect(il(parseHebrewDateTime("תזכיר לי בעוד 2 וחצי", NOW).date).minute).toBe(30);
+  });
+
+  /*
+   * ‎„בעוד 0” אינו מועד. הענף של המספר העירום בדק רק את הגבול
+   * העליון, ולכן אפס עבר והפך להיסט של אפס — תזכורת שמצלצלת מיד
+   * (ביקורת Codex). שני הגבולות נבדקים עכשיו באותו מקום, לכל
+   * הצורות, וזו הסיבה שהבדיקה מרוכזת ולא משוכפלת בכל ענף.
+   */
+  it("ואפס אינו היסט, בשום צורה", () => {
+    expect(parseHebrewDateTime("תזכיר לי בעוד 0", NOW).date).toBeUndefined();
+    expect(parseHebrewDateTime("תזכיר לי בעוד 0 שעות", NOW).date).toBeUndefined();
+    expect(parseHebrewDateTime("תזכיר לי בעוד 0 דקות", NOW).date).toBeUndefined();
+  });
+
   /* וביטוי שנדחה אינו עוצר את הסריקה — ביטוי תקין אחריו עדיין נמצא */
   it("היסט שנדחה אינו מסתיר היסט תקין שאחריו", () => {
     expect(il(parseHebrewDateTime("עוד 900 שעות, לא, בעוד שעה", NOW).date).hour).toBe(10);
