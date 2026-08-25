@@ -35,9 +35,9 @@ import {
   isCancelMessage,
   isConfirmMessage,
   isHelpMessage,
-  waPhoneVariants,
 } from "./assistant-lang";
 import { looksLikeWhatsappLinkCode } from "@metavchim/shared";
+import { phoneDigitsCondition } from "./phone-match";
 import { helpMenu, welcomeExamples, type HelpAction } from "./assistant-help";
 import {
   buttonAsText,
@@ -607,15 +607,13 @@ export class WhatsAppAssistantService {
   private async identifyByPhone(
     waId: string,
   ): Promise<IdentifiedUser | typeof NEEDS_LINK | null> {
-    const variants = waPhoneVariants(waId);
-    if (variants[0] === undefined || variants[0] === "") return null;
-    // שתי השוואות מפורשות ולא IN על מערך — פרמטרים פשוטים ובטוחים
+    const digits = phoneDigitsCondition(waId);
+    if (digits === null) return null;
     const matched = await this.prisma.$queryRaw<{ id: string }[]>`
       SELECT id FROM users
       WHERE is_active = TRUE
         AND phone IS NOT NULL
-        AND (regexp_replace(phone, '\\D', '', 'g') = ${variants[0]}
-             OR regexp_replace(phone, '\\D', '', 'g') = ${variants[1] ?? variants[0]})
+        AND ${digits}
       ORDER BY last_login_at DESC NULLS LAST
       LIMIT 2`;
     const first = matched[0];

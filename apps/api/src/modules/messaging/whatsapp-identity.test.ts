@@ -158,6 +158,33 @@ describe("מצבה עוצרת את ההשוואה", () => {
     expect(fn.slice(tombstone, fn.indexOf("updateMany"))).not.toContain("revokedAt: null");
   });
 
+  /*
+   * המצבה לבדה אינה מספיקה: חשבון שלא היה מקושר מעולם אינו מותיר
+   * שורה כשמנתקים אותו, ולכן החלפת מספר עליו עוברת בלי עקבות —
+   * והודעה ראשונה מהמספר הישן, שעברה את הזיהוי רגע לפני ההחלפה,
+   * הייתה נקשרת אחריה.
+   */
+  it("והמספר נבדק מול הפרופיל העדכני, מתוך הנעילה", () => {
+    const fn = link.slice(link.indexOf("private async bind("), link.indexOf("private async lock("));
+    expect(fn).toContain("phoneDigitsCondition(digits)");
+    expect(fn).toContain("SELECT id FROM users");
+    expect(fn.indexOf("phoneDigitsCondition")).toBeGreaterThan(
+      fn.indexOf("await this.lock(tx, userId)"),
+    );
+  });
+
+  /*
+   * אותה השוואה בדיוק משמשת את הזיהוי ואת הכתיבה. שני עותקים שלה
+   * היו נפרדים ביום שבו אחד מהם יתוקן — וזו ההשוואה שקובעת למי
+   * נפתח המאגר.
+   */
+  it("וההשוואה עצמה משותפת לזיהוי ולכתיבה", () => {
+    expect(source).toContain('from "./phone-match"');
+    expect(link).toContain('from "./phone-match"');
+    expect(source).not.toContain("regexp_replace(phone");
+    expect(link).not.toContain("regexp_replace(phone");
+  });
+
   it("והדחייה אינה מגלגלת למענה השיווקי", () => {
     expect(source).toContain("bound ? identified : NEEDS_LINK");
     const hint = source.indexOf("identified === NEEDS_LINK");

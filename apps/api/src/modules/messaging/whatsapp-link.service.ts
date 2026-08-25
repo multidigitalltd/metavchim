@@ -21,6 +21,7 @@ import { loadEnv } from "../../config/env";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
 import { waPhoneVariants } from "./assistant-lang";
+import { phoneDigitsCondition } from "./phone-match";
 
 /**
  * הקישור בין מספר וואטסאפ לחשבון — **מי מדבר איתנו, ומי אמר את זה.**
@@ -352,6 +353,26 @@ export class WhatsAppLinkService implements OnModuleDestroy {
          * את מה שהניתוק כתב.
          */
         if (source === SOURCE_PHONE) {
+          /*
+           * **והמספר עדיין שלו.**
+           *
+           * המצבה לבדה אינה מספיקה: חשבון שלא היה מקושר מעולם אינו
+           * מותיר שורה כשמנתקים אותו, ולכן החלפת מספר על חשבון כזה
+           * עוברת בלי להשאיר עקבות. הודעה ראשונה מהמספר הישן, שעברה
+           * את הזיהוי רגע לפני ההחלפה, הייתה נקשרת אחריה (ביקורת
+           * Codex). הקריאה כאן היא מהמסד ובתוך הנעילה — כלומר אחרי
+           * ההחלפה, לא לפניה.
+           */
+          const phoneMatches = phoneDigitsCondition(digits);
+          if (phoneMatches === null) return false;
+          const [current] = await tx.$queryRaw<{ id: string }[]>`
+            SELECT id FROM users
+             WHERE id = ${userId}
+               AND is_active = TRUE
+               AND phone IS NOT NULL
+               AND ${phoneMatches}
+             LIMIT 1`;
+          if (current === undefined) return false;
           const previous = await tx.whatsAppLink.findFirst({
             where: { waIdHash },
             select: { id: true },
