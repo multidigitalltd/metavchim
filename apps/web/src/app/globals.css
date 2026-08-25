@@ -192,26 +192,26 @@
    * וכן הגיב — נעצר על 16px גם בהגדרה של 200% (ביקורת Codex).
    * כלומר הטמעת מערכת העיצוב כיבתה בשקט יכולת נגישות קיימת.
    *
-   * ‎`calc(38px * var(--a11y-font-scale))` נותן בדיוק את מה
+   * ‎`calc(38 / 16 * 1rem)` נותן בדיוק את מה
    * ש-`2.375rem` היה נותן, ובנוסף משאיר את המספר המקורי גלוי —
    * גם לקורא הקוד וגם ל-`verify:typography`, שאינו יודע להכריע
    * יחידות יחסיות ומצהיר על כך במפורש.
    */
-  --type-h1: calc(38px * var(--a11y-font-scale)); /* ברכת העמוד */
+  --type-h1: calc(38 / 16 * 1rem); /* ברכת העמוד */
   --type-h1-track: -0.035em;
-  --type-kpi: calc(46px * var(--a11y-font-scale)); /* מספר ב-KPI, בצבע הדומיין */
+  --type-kpi: calc(46 / 16 * 1rem); /* מספר ב-KPI, בצבע הדומיין */
   --type-kpi-track: -0.04em;
-  --type-panel: calc(22px * var(--a11y-font-scale)); /* כותרת פאנל */
+  --type-panel: calc(22 / 16 * 1rem); /* כותרת פאנל */
   --type-panel-track: -0.025em;
-  --type-metric: calc(20px * var(--a11y-font-scale)); /* מספר בשורת מדד */
+  --type-metric: calc(20 / 16 * 1rem); /* מספר בשורת מדד */
   --type-metric-track: -0.02em;
-  --type-card-title: calc(18.5px * var(--a11y-font-scale));
+  --type-card-title: calc(18.5 / 16 * 1rem);
   --type-card-title-track: -0.02em;
-  --type-row-title: calc(17.5px * var(--a11y-font-scale));
+  --type-row-title: calc(17.5 / 16 * 1rem);
   --type-row-title-track: -0.015em;
-  --type-button: calc(16px * var(--a11y-font-scale));
-  --type-body: calc(15.5px * var(--a11y-font-scale));
-  --type-nav: calc(15.5px * var(--a11y-font-scale));
+  --type-button: calc(16 / 16 * 1rem);
+  --type-body: calc(15.5 / 16 * 1rem);
+  --type-nav: calc(15.5 / 16 * 1rem);
   /*
    * ‎**שני קצות הדרגה, ולא ערך יחיד.**
    *
@@ -221,7 +221,7 @@
    * הסופרר הוא 15, ואילו טקסט הגוף הוא 15.5. טוקן יחיד לדרגה היה
    * מחייב לעגל את אחד הקצוות, כלומר לסטות ממספר שכתוב בפירוש.
    */
-  --type-body-sm: calc(15px * var(--a11y-font-scale));
+  --type-body-sm: calc(15 / 16 * 1rem);
   /*
    * כיתוב עזר ועינית — **14px, ולא 11.5 ולא 13.5.**
    *
@@ -235,10 +235,10 @@
    * מתחתיה היה מפיל את השער. בעברית אין אותיות גדולות, ולכן מה
    * שמבדיל עינית מטקסט רגיל הוא המרווח והמשקל, לא הקוטן.
    */
-  --type-caption: calc(14px * var(--a11y-font-scale));
+  --type-caption: calc(14 / 16 * 1rem);
   /* הקצה העליון של אותה דרגה — כיתוב-על בכרטיס וקישור טקסט בכותרת */
-  --type-caption-lg: calc(14.5px * var(--a11y-font-scale));
-  --type-eyebrow: calc(14px * var(--a11y-font-scale));
+  --type-caption-lg: calc(14.5 / 16 * 1rem);
+  --type-eyebrow: calc(14 / 16 * 1rem);
   --type-eyebrow-track: 0.09em;
   /*
    * כותרת המסך בסרגל העליון (§16) — „the page title at 19/900”.
@@ -248,7 +248,7 @@
    * זו בדיוק הזוג שכבר נפרד פעם אחת בענף הזה, כשה-19 הוחל על
    * המובייל בלבד ושולחני נשאר על 17 (ביקורת Codex).
    */
-  --type-screen-title: calc(19px * var(--a11y-font-scale));
+  --type-screen-title: calc(19 / 16 * 1rem);
   /*
    * המספר הגדול בכרטיס המונה (§24) — „a big number at 30px/900”.
    *
@@ -256,7 +256,7 @@
    * הרכיב: אחרת היא הייתה המספר היחיד בקובץ שאיש אינו יודע מניין
    * בא, והמספר הזה גדול מספיק כדי שסקלת נגישות תשנה בו הרבה.
    */
-  --type-counter: calc(30px * var(--a11y-font-scale));
+  --type-counter: calc(30 / 16 * 1rem);
   /*
    * ‎`ink-3` מהחבילה — הרצפה למספרי נתונים.
    *
@@ -1176,7 +1176,7 @@ code {
   align-items: center;
   gap: 10px;
   font-weight: 900;
-  font-size: calc(27px * var(--a11y-font-scale));
+  font-size: calc(27 / 16 * 1rem);
   /* גם צבע הטקסט וגם הצלע הלבנה של הסימן (currentColor) */
   color: #fff;
   line-height: 1;
@@ -2247,15 +2247,15 @@ button.mv-list-row:hover {
    * וגם חורג מהמקום ששורת ה-flex שמרה לו. בדיוק אותו לקח כמו
    * התיבות הקבועות, רק שכבה אחת מעל (ביקורת Codex).
    */
-  width: calc(44px * var(--a11y-font-scale));
-  height: calc(44px * var(--a11y-font-scale));
+  width: calc(44 / 16 * 1rem);
+  height: calc(44 / 16 * 1rem);
   border-radius: 50%;
   display: grid;
   place-items: center;
 }
 .mv-score-ring > span {
-  width: calc(34px * var(--a11y-font-scale));
-  height: calc(34px * var(--a11y-font-scale));
+  width: calc(34 / 16 * 1rem);
+  height: calc(34 / 16 * 1rem);
   border-radius: 50%;
   background: var(--color-surface);
   display: grid;
@@ -2278,12 +2278,12 @@ button.mv-list-row:hover {
  * פעמים בשלושה קבצים היא מידה שתישכח בפעם הרביעית.
  */
 .mv-score-ring--lg {
-  width: calc(46px * var(--a11y-font-scale));
-  height: calc(46px * var(--a11y-font-scale));
+  width: calc(46 / 16 * 1rem);
+  height: calc(46 / 16 * 1rem);
 }
 .mv-score-ring--lg > span {
-  width: calc(35px * var(--a11y-font-scale));
-  height: calc(35px * var(--a11y-font-scale));
+  width: calc(35 / 16 * 1rem);
+  height: calc(35 / 16 * 1rem);
 }
 
 /*
@@ -2395,8 +2395,8 @@ button.mv-list-row:hover {
   display: grid;
   place-items: center;
   flex: none;
-  width: calc(26px * var(--a11y-font-scale));
-  height: calc(26px * var(--a11y-font-scale));
+  width: calc(26 / 16 * 1rem);
+  height: calc(26 / 16 * 1rem);
   border-radius: 999px;
   background: var(--color-primary-soft);
   color: var(--color-primary);
@@ -2471,7 +2471,7 @@ button.mv-list-row:hover {
 }
 /* מונה בתוך הלשונית — כמה יש שם, בלי להיכנס */
 .mv-tab-count {
-  min-width: calc(19px * var(--a11y-font-scale));
+  min-width: calc(19 / 16 * 1rem);
   padding: 0 6px;
   border-radius: 999px;
   background: var(--color-seg-track);
@@ -2585,7 +2585,7 @@ a.mv-bar-row:focus-visible {
   outline-offset: 1px;
 }
 .mv-stat-value {
-  font-size: calc(28px * var(--a11y-font-scale));
+  font-size: calc(28 / 16 * 1rem);
   font-weight: 800;
   margin-top: 2px;
   line-height: 1.15;
@@ -2728,13 +2728,13 @@ a.mv-bar-row:focus-visible {
 }
 .mv-auth-brand h1 {
   margin: 0;
-  font-size: calc(30px * var(--a11y-font-scale));
+  font-size: calc(30 / 16 * 1rem);
   font-weight: 900;
   line-height: 1.15;
 }
 @media (min-width: 900px) {
   .mv-auth-brand h1 {
-    font-size: calc(40px * var(--a11y-font-scale));
+    font-size: calc(40 / 16 * 1rem);
   }
 }
 .mv-auth-brand p {
@@ -2748,7 +2748,7 @@ a.mv-bar-row:focus-visible {
   display: flex;
   align-items: center;
   gap: 9px;
-  font-size: calc(21px * var(--a11y-font-scale));
+  font-size: calc(21 / 16 * 1rem);
   font-weight: 900;
   letter-spacing: -0.4px;
 }
@@ -2785,7 +2785,7 @@ a.mv-bar-row:focus-visible {
 }
 .mv-auth-card h2 {
   margin: 0 0 4px;
-  font-size: calc(23px * var(--a11y-font-scale));
+  font-size: calc(23 / 16 * 1rem);
   font-weight: 800;
 }
 .mv-auth-sub {
@@ -3754,8 +3754,8 @@ a.mv-bar-row:focus-visible {
   flex: none;
   display: grid;
   place-items: center;
-  width: calc(46px * var(--a11y-font-scale));
-  height: calc(46px * var(--a11y-font-scale));
+  width: calc(46 / 16 * 1rem);
+  height: calc(46 / 16 * 1rem);
   border-radius: 50%;
   background: var(--color-surface);
   border: 2px solid var(--color-primary-accent);
@@ -4134,7 +4134,7 @@ a.mv-bar-row:focus-visible {
 }
 .mv-net-hero-title {
   margin: 0;
-  font-size: calc(18px * var(--a11y-font-scale));
+  font-size: calc(18 / 16 * 1rem);
   font-weight: 800;
   line-height: 1.25;
 }
@@ -5268,7 +5268,7 @@ a.mv-bar-row:focus-visible {
   position: absolute;
   inset-block-start: 14px;
   inset-inline-end: 16px;
-  font-size: calc(20px * var(--a11y-font-scale));
+  font-size: calc(20 / 16 * 1rem);
   font-weight: 800;
   color: color-mix(in srgb, var(--color-primary) 28%, transparent);
 }

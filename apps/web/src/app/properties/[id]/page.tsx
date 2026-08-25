@@ -782,7 +782,7 @@ export default function PropertyDetailPage({
                 <h2
                   id="readiness-heading"
                   className="m-0"
-                  style={{ fontSize: "calc(16.5px * var(--a11y-font-scale))", fontWeight: 800 }}
+                  style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
                 >
                   מוכנות לשיווק
                 </h2>
@@ -790,7 +790,7 @@ export default function PropertyDetailPage({
                   className="ms-auto"
                   style={{
                     /* ‎21 כשהוא, אבל מגיב להגדרת הנגישות — ראו ההערה למטה */
-                    fontSize: "calc(21px * var(--a11y-font-scale))",
+                    fontSize: "calc(21 / 16 * 1rem)",
                     fontWeight: 800,
                     color: readinessBand(property.readinessScore).text,
                   }}
