@@ -515,6 +515,53 @@ describe("אורך הכותרת — התקציב של הזיכרון", () => {
       row.memoryLabel!.slice(0, AGENT_RESULT_LABEL_MAX - 1),
     );
   });
+
+  /*
+   * שתי הצורות נבדלות בקצה, ולכן שני מעברי מספור נפרדים הכריעו
+   * אחרת על אותה שורה: התצוגה ראתה שתי תוויות זהות ומיספרה, הזיכרון
+   * ראה שתיים שונות ולא. המתווך רואה „1” ו„2” וחוזר עליהם, ואף
+   * הפניה אינה נושאת אותם (ביקורת Codex).
+   */
+  it("מה שממוספר בתצוגה ממוספר גם בזיכרון ובהפניה", () => {
+    const base = "א".repeat(39);
+    const found = {
+      buyers: [
+        { id: "b1", name: `${base}ב${"ג".repeat(20)}`, cities: [] },
+        { id: "b2", name: `${base}ד${"ה".repeat(20)}`, cities: [] },
+      ],
+    };
+    const rows = agentResultList(found)!.rows;
+    // התצוגה זהה עד ה„…”, ולכן שתיהן ממוספרות
+    expect(rows.map((row) => row.label)).toEqual([`${base.slice(0, 38)} 1`, `${base.slice(0, 38)} 2`]);
+    const memory = rows.map((row) => row.memoryLabel ?? row.label);
+    for (const value of memory) expect(/ \d$/u.test(value)).toBe(true);
+    expect(new Set(memory).size).toBe(2);
+    expect(agentResultRefs(found).map((ref) => ref.label)).toEqual(memory);
+  });
+
+  /*
+   * וההפך: שם באורך הגבול בדיוק מול שם ארוך שנחתך אליו. התצוגות
+   * שונות („…” מול התו האמיתי) והרישות זהות — כלומר התנגשות
+   * שקיימת רק בזיכרון, ובדיקת התצוגה לבדה מפספסת אותה.
+   */
+  it("התנגשות שקיימת רק בזיכרון ממוספרת גם היא", () => {
+    const exact = "א".repeat(AGENT_RESULT_LABEL_MAX);
+    const found = {
+      buyers: [
+        { id: "b1", name: exact, cities: [] },
+        { id: "b2", name: `${exact}${"א".repeat(20)}`, cities: [] },
+      ],
+    };
+    const rows = agentResultList(found)!.rows;
+    const memory = rows.map((row) => row.memoryLabel ?? row.label);
+    expect(new Set(memory).size).toBe(2);
+    expect(new Set(rows.map((row) => row.label)).size).toBe(2);
+    // ומה שממוספר בזיכרון ממוספר גם בתצוגה — אחרת המתווך רואה שם בלי מספר
+    for (const row of rows) expect(/ \d$/u.test(row.label)).toBe(true);
+    for (const value of [...memory, ...rows.map((row) => row.label)]) {
+      expect(value.length).toBeLessThanOrEqual(AGENT_RESULT_LABEL_MAX);
+    }
+  });
 });
 
 describe("שיחה בלי שם ובלי מספר — „שיחה”, ולא טענה על הלקוח", () => {

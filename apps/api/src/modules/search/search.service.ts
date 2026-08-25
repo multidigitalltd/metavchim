@@ -7,7 +7,11 @@ import {
   type ParsedSearchQuery,
 } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
-import { ownershipFilter } from "../../common/ownership";
+import {
+  ownershipFilter,
+  visibleCallsCondition,
+  visibleContactIds,
+} from "../../common/ownership";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 
@@ -210,14 +214,16 @@ export class SearchService {
         return EMPTY;
       }
 
-      // שיחות מהמספר הזה — התשובה ל"מי התקשר אליי" כוללת גם את
-      // ההיסטוריה של השיחות איתו, לא רק את הכרטיס
-      const calls = await tx.call.findMany({
-        where: { tenantId, contactId: contact.id },
-        select: { id: true, summary: true, occurredAt: true, direction: true },
-        orderBy: { occurredAt: "desc" },
-        take: GROUP_PROBE,
-      });
+      /*
+       * שיחות מהמספר הזה — התשובה ל„מי התקשר אליי” כוללת גם את
+       * ההיסטוריה של השיחות איתו, לא רק את הכרטיס.
+       *
+       * דרך אותו שער כמו החיפוש החופשי: השער שמעל („יש לו כרטיס
+       * גלוי, או שיש לי גישה משרדית”) קרוב אך אינו זהה לכלל
+       * השיחות — `buyers.view_all` לבדה פתחה גם שיחות של ליד שאינו
+       * שלי. תנאי אחד לשני המסלולים מסיר את ההשוואה הזו מהתמונה.
+       */
+      const calls = await this.visibleCalls(tx, tenantId, { contactId: contact.id });
 
       const shownProperties = capped(properties);
       const shownBuyers = capped(buyers);
@@ -340,12 +346,7 @@ export class SearchService {
           orderBy: { createdAt: "desc" },
           take: GROUP_PROBE,
         }),
-        tx.call.findMany({
-          where: { tenantId, summary: like },
-          select: { id: true, summary: true, occurredAt: true, direction: true },
-          orderBy: { occurredAt: "desc" },
-          take: GROUP_PROBE,
-        }),
+        this.visibleCalls(tx, tenantId, { text: textForMatch }),
         /*
          * מועמדים בלבד — הסינון לפי בעלות נעשה מיד אחרי, ולכן שולפים
          * יותר מהתקרה כדי שלא נישאר עם רשימה ריקה אחרי הסינון.
@@ -679,6 +680,50 @@ export class SearchService {
         (note.buyerId === null ? null : (nameByBuyer.get(note.buyerId) ?? null)) ??
         (note.leadId === null ? null : (nameByLead.get(note.leadId) ?? null)),
     }));
+  }
+
+  /**
+   * שיחות שהתקציר שלהן מכיל את הטקסט — **ורק כאלה שמותר לו לראות.**
+   *
+   * השאילתה כאן שלפה לפי `tenantId` בלבד, בזמן שיומן השיחות מסנן
+   * לפי בעלות. פעולת `search` דורשת `properties.view`, ולכן סוכן
+   * בלי גישה משרדית ללידים ולקונים יכול היה לחפש ביטוי מתוך שיחה
+   * של סוכן אחר ולקבל את התקציר שלה — בפאנל ובוואטסאפ כאחד
+   * (ביקורת Codex, P1). התנאי אינו נכתב כאן מחדש: הוא מיובא מאותו
+   * מקום שהיומן משתמש בו.
+   *
+   * SQL גולמי לבחירת מזהים ואז שליפה ב-Prisma — אותו דפוס בדיוק
+   * כמו ב-`CallsService.list`, מפני שענף היתומה דורש `NOT EXISTS`.
+   * זה אינו מעקף RLS: `withTenant` פתחה טרנזקציה עם `app.tenant_id`,
+   * והשאילתה רצה בתוכה.
+   */
+  private async visibleCalls(
+    tx: TenantTx,
+    tenantId: string,
+    /** לפי תקציר (חיפוש חופשי) או לפי לקוח („מי התקשר אליי”) */
+    match: { text: string } | { contactId: string },
+  ): Promise<{ id: string; summary: string | null; occurredAt: Date; direction: string }[]> {
+    const select = { id: true, summary: true, occurredAt: true, direction: true } as const;
+    const visible = await visibleContactIds(tx, tenantId);
+    const { userId } = TenantContext.current();
+    const allowed = await tx.$queryRaw<{ id: string }[]>`
+      SELECT c.id
+        FROM calls c
+       WHERE ${visibleCallsCondition(tenantId, userId, visible)}
+         AND (${"text" in match ? match.text : null}::text IS NULL
+              OR c.summary ILIKE '%' || ${"text" in match ? match.text : null} || '%')
+         AND (${"contactId" in match ? match.contactId : null}::char(26) IS NULL
+              OR c.contact_id = ${"contactId" in match ? match.contactId : null})
+       ORDER BY c.occurred_at DESC
+       LIMIT ${GROUP_PROBE}
+    `;
+    if (allowed.length === 0) return [];
+    return tx.call.findMany({
+      where: { tenantId, id: { in: allowed.map((row) => row.id) } },
+      select,
+      orderBy: { occurredAt: "desc" },
+      take: GROUP_PROBE,
+    });
   }
 
   private async visibleNotes(

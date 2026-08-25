@@ -1,5 +1,5 @@
 import { COOP_DEAL_STAGE_LABELS, type CoopDealStage } from "../logic/coop-deal.js";
-import { numberedLabels } from "./history.js";
+import { numberedForms } from "./history.js";
 import type { AgentHistoryRef } from "./prompt.js";
 import { formatJerusalemDate, formatJerusalemTime } from "../logic/israel-time.js";
 import { CALL_OUTCOME_LABELS } from "../schemas/labels.js";
@@ -498,22 +498,17 @@ function bounded(list: AgentResultList): AgentResultList {
    * שאין לו מקבילה בשום מקום, ו„תסגור את השנייה” מחפש אותו ונופל
    * (ביקורת Codex). היא נשארת כפי שהיא — ואינה מתיימרת להיות מפתח.
    */
-  const keyed = list.rows.map((row) => row.ref !== undefined);
-  const display = numberedLabels(
+  const numbered = numberedForms(
     list.rows.map((row) => clamp(row.label)),
-    AGENT_RESULT_LABEL_MAX,
-    keyed,
-  );
-  const memory = numberedLabels(
     list.rows.map((row) => remembered(row.memoryLabel ?? row.label)),
     AGENT_RESULT_LABEL_MAX,
-    keyed,
+    list.rows.map((row) => row.ref !== undefined),
   );
   return {
     ...list,
     rows: list.rows.map((row, i) => {
-      const label = display[i]!;
-      const remembers = memory[i]!;
+      const label = numbered.display[i]!;
+      const remembers = numbered.memory[i]!;
       return { ...row, label, ...(remembers === label ? {} : { memoryLabel: remembers }) };
     }),
   };

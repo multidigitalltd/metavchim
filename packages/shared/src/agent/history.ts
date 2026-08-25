@@ -166,11 +166,39 @@ export function numberedLabels(
    */
   numberable?: readonly boolean[],
 ): string[] {
+  return numberedForms(labels, labels, maxLength, numberable).display;
+}
+
+/**
+ * אותה הכרעה בדיוק, לשתי הצורות של אותה תווית — **מספר אחד לשתיהן.**
+ *
+ * לשורת תוצאה יש צורה מוצגת (נחתכת ב„…”) וצורה נשמרת (רישא נקייה),
+ * והן נבדלות דווקא בקצה. שני מעברי מספור נפרדים הכריעו אחרת על
+ * אותה שורה: שני שמות שנחלקים ב-39 התווים הראשונים ונבדלים ב-40
+ * נראים זהים בתצוגה ומקבלים „1” ו„2”, בעוד הזיכרון רואה שתי
+ * מחרוזות שונות ואינו ממספר. המתווך רואה מספר, חוזר עליו, ואף
+ * הפניה אינה נושאת אותו (ביקורת Codex).
+ *
+ * לכן ההתנגשות נבדקת בשתי הצורות, המספר נבחר כך שהוא פנוי
+ * ב**שתיהן**, ומוצמד לשתיהן. מקרה הפוך קיים גם הוא — שם באורך
+ * הגבול בדיוק מול שם ארוך שנחתך אליו — ולכן אין די בבדיקת התצוגה.
+ */
+export function numberedForms(
+  display: readonly string[],
+  memory: readonly string[],
+  maxLength?: number,
+  numberable?: readonly boolean[],
+): { display: string[]; memory: string[] } {
   const mayNumber = (i: number): boolean => numberable?.[i] ?? true;
-  const counts = new Map<string, number>();
-  labels.forEach((label, i) => {
-    if (mayNumber(i)) counts.set(label, (counts.get(label) ?? 0) + 1);
-  });
+  const tally = (values: readonly string[]): Map<string, number> => {
+    const counts = new Map<string, number>();
+    values.forEach((value, i) => {
+      if (mayNumber(i)) counts.set(value, (counts.get(value) ?? 0) + 1);
+    });
+    return counts;
+  };
+  const displayCounts = tally(display);
+  const memoryCounts = tally(memory);
   /*
    * **הייחודיות נבדקת על התווית הסופית — אחרי המספור ואחרי הקיצור.**
    *
@@ -190,18 +218,30 @@ export function numberedLabels(
     }
     return `${label.slice(0, Math.max(0, maxLength - suffix.length))}${suffix}`;
   };
-  const taken = new Set(labels);
-  const used = new Map<string, number>();
-  return labels.map((label, i) => {
-    if (!mayNumber(i)) return label;
-    if ((counts.get(label) ?? 0) < 2) return label;
-    let n = (used.get(label) ?? 0) + 1;
-    while (taken.has(fit(label, ` ${n}`))) n += 1;
-    used.set(label, n);
-    const chosen = fit(label, ` ${n}`);
-    taken.add(chosen);
-    return chosen;
+  const takenDisplay = new Set(display);
+  const takenMemory = new Set(memory);
+  const numbered: { display: string[]; memory: string[] } = { display: [], memory: [] };
+  display.forEach((shown, i) => {
+    const remembered = memory[i] ?? shown;
+    const duplicated =
+      (displayCounts.get(shown) ?? 0) > 1 || (memoryCounts.get(remembered) ?? 0) > 1;
+    if (!mayNumber(i) || !duplicated) {
+      numbered.display.push(shown);
+      numbered.memory.push(remembered);
+      return;
+    }
+    let n = 1;
+    while (takenDisplay.has(fit(shown, ` ${n}`)) || takenMemory.has(fit(remembered, ` ${n}`))) {
+      n += 1;
+    }
+    const chosenDisplay = fit(shown, ` ${n}`);
+    const chosenMemory = fit(remembered, ` ${n}`);
+    takenDisplay.add(chosenDisplay);
+    takenMemory.add(chosenMemory);
+    numbered.display.push(chosenDisplay);
+    numbered.memory.push(chosenMemory);
   });
+  return numbered;
 }
 
 /** אותו כלל, על רשימת הפניות. */
