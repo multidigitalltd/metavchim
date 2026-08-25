@@ -91,10 +91,61 @@ describe("החלפת מספר מנתקת", () => {
 
   it("עדכון הפרופיל מנתק את הקישור כשהמספר השתנה", () => {
     expect(auth).toContain("phoneChanging");
-    expect(auth).toContain('this.whatsappLinks.revoke(userId, "phone_changed")');
+    expect(auth).toContain('this.whatsappLinks.revoke(userId, "phone_changed", tx)');
   });
 
   it("והשוואה היא מול המספר הקודם, לא מול הקלט בלבד", () => {
     expect(auth).toContain("data.phone !== user.phone");
+  });
+
+  /*
+   * שתי כתיבות נפרדות היו משאירות את הקישור פתוח כשהעדכון עבר
+   * והניתוק נכשל — והניסיון החוזר כבר קורא את המספר החדש ולא מנתק.
+   */
+  it("והשתיים באותה עסקה", () => {
+    const block = auth.slice(auth.indexOf("const phoneChanging"));
+    const tx = block.indexOf("this.prisma.$transaction");
+    const update = block.indexOf("tx.user.update");
+    const revoke = block.indexOf("whatsappLinks.revoke");
+    expect(tx).toBeGreaterThan(-1);
+    expect(update).toBeGreaterThan(tx);
+    expect(revoke).toBeGreaterThan(update);
+  });
+});
+
+/*
+ * הניתוק חייב לשרוד את ההודעה הבאה. שדה `phone` אינו משתנה בניתוק,
+ * ולכן השוואת המספר הייתה בונה את הקישור מחדש — ומבטלת בשקט גם את
+ * הניתוק היזום וגם את חובת האימות מחדש.
+ */
+describe("מצבה עוצרת את ההשוואה", () => {
+  const link = readFileSync(
+    new URL("./whatsapp-link.service.ts", import.meta.url),
+    "utf8",
+  );
+
+  it("צירוף לפי מספר נבדק מול קישור קודם על אותו מספר", () => {
+    const fn = link.slice(
+      link.indexOf("async bindByPhone("),
+      link.indexOf("async claimUnlinkedHint("),
+    );
+    expect(fn).toContain("whatsAppLink.findFirst");
+    // בלי `revokedAt: null` — כל שורה שנמצאת כאן היא מצבה
+    expect(fn).not.toContain("revokedAt: null");
+    expect(fn).toContain("return false");
+  });
+
+  it("והדחייה אינה מגלגלת למענה השיווקי", () => {
+    expect(source).toContain("bound ? identified : NEEDS_LINK");
+    const hint = source.indexOf("identified === NEEDS_LINK");
+    const prospect = source.indexOf("await this.greetProspect(");
+    expect(hint).toBeGreaterThan(0);
+    expect(hint).toBeLessThan(prospect);
+  });
+
+  it("וקישור חדש מנתק גם מכשיר קודם של אותו משתמש", () => {
+    const fn = link.slice(link.indexOf("private async bind("), link.indexOf("async resolve("));
+    // המסך מבטיח „המכשיר שמחובר”, ביחיד — משני הכיוונים
+    expect(fn).toContain("OR: [{ waIdHash }, { userId }]");
   });
 });

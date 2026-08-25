@@ -367,21 +367,26 @@ export class AuthService {
     }
 
     const phoneChanging = data.phone !== undefined && data.phone !== user.phone;
-    const updated = await this.prisma.user.update({ where: { id: userId }, data });
-
     /*
-     * **החלפת מספר מנתקת את קישור הוואטסאפ.**
+     * **החלפת מספר מנתקת את קישור הוואטסאפ — באותה עסקה.**
      *
      * הקישור נוצר מול המספר הקודם, ומי שמעדכן כאן מספר עושה זאת
      * בדרך כלל מפני שהוא **החליף** מכשיר או קו. השארת הקישור פתוחה
      * הייתה משאירה מפתח פעיל למאגר אצל מי שמחזיק עכשיו במספר הישן.
      *
+     * שתי כתיבות נפרדות היו יוצרות בדיוק את החור: אילו העדכון עבר
+     * והניתוק נכשל, הניסיון החוזר כבר היה קורא את המספר **החדש**,
+     * מחשב „לא השתנה”, ולא מנתק לעולם (ביקורת Codex). עסקה אחת
+     * הופכת את הכישלון לחזרה שלמה — או ששניהם נכתבו, או אף אחד.
+     *
      * ניתוק ולא אימות שקט: המתווך יראה במסך שהחיבור נותק, ויקשר
      * מחדש בקוד מהמכשיר שבידו — וזו בדיוק ההצהרה שהקישור אמור לשאת.
      */
-    if (phoneChanging) {
-      await this.whatsappLinks.revoke(userId, "phone_changed");
-    }
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const next = await tx.user.update({ where: { id: userId }, data });
+      if (phoneChanging) await this.whatsappLinks.revoke(userId, "phone_changed", tx);
+      return next;
+    });
 
     if (emailChanging) {
       /*

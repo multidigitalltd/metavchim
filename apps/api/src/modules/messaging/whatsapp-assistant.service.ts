@@ -91,6 +91,17 @@ const PROSPECT_REPLY_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 /** מעל זה התמלול מקבל הודעת „מתמלל…” — מתחת לזה התשובה עצמה מגיעה. */
 const SLOW_TRANSCRIBE_NOTICE_MS = 6_000;
 /**
+ * מספר שהמערכת מכירה אך אינו מקושר — **מוכר, ולא מוכח.**
+ *
+ * זה מצב שלישי, ולא „לא זוהה”: המספר תואם משתמש רשום, אבל הקישור
+ * שלו נותק, פג, או הועבר לחשבון אחר. מענה שיווקי כאן היה מטעה, וזיהוי
+ * לפי ההשוואה בלבד היה מבטל את הניתוק עצמו.
+ */
+const NEEDS_LINK = "needs-link";
+/** מה שנאמר למספר מוכר שאינו מקושר. בלי שם ובלי פרט מזהה. */
+const NEEDS_LINK_TEXT =
+  "המכשיר הזה אינו מחובר לחשבון. היכנסו למערכת ← פרופיל ← „המכשיר שמחובר לסוכן”, הפיקו קוד חיבור, ושלחו אותו לכאן.";
+/**
  * מה שנאמר כשההצעה שהמתווך פעל עליה כבר אינה הממתינה.
  *
  * שתיקה כאן הייתה גרועה במיוחד: הוא לחץ או ענה, לא קרה כלום, והוא
@@ -222,7 +233,22 @@ export class WhatsAppAssistantService {
       return;
     }
 
-    const user = await this.identifyUser(msg.fromWaId);
+    const identified = await this.identifyUser(msg.fromWaId);
+    /*
+     * מספר מוכר שאינו מקושר — נאמר לו בדיוק זאת, פעם ביממה.
+     *
+     * לא מענה שיווקי (הוא אינו מתעניין) ולא שתיקה: הוא ניתק, או
+     * שהקישור פג, והדרך חזרה היא קוד. התקרה נחוצה מפני שהשולח אינו
+     * מזוהה — ייתכן שמדובר במי שמחזיק עכשיו במספר שהוחלף.
+     */
+    if (identified === NEEDS_LINK) {
+      void this.sender.markRead(msg.externalId);
+      if (await this.links.claimUnlinkedHint(msg.fromWaId)) {
+        await this.sender.sendText(msg.fromWaId, NEEDS_LINK_TEXT, { replyTo: msg.externalId });
+      }
+      return;
+    }
+    const user = identified;
     if (!user) {
       // גם למתעניין: „נקרא” מיידי, כדי שלא ידבר לקיר
       void this.sender.markRead(msg.externalId);
@@ -501,7 +527,7 @@ export class WhatsAppAssistantService {
    * מקפים). users מחוץ ל-RLS בכוונה — זו תשתית אימות, כמו ב-Login.
    * הטבלה קטנה (סוכני המשרדים, לא לקוחות קצה), אז סריקה זולה.
    */
-  private async identifyUser(waId: string): Promise<IdentifiedUser | null> {
+  private async identifyUser(waId: string): Promise<IdentifiedUser | typeof NEEDS_LINK | null> {
     /*
      * **הקישור קודם — הוא ההצהרה; ההשוואה היא רק ההנחה.**
      *
@@ -519,9 +545,13 @@ export class WhatsAppAssistantService {
      * הודעה ראשונה ממספר שכבר רשום במערכת — הקישור נוצר עכשיו,
      * ומכאן הוא הזהות. משתמש קיים אינו נעצר, אבל גם אינו נשען שוב
      * ושוב על השוואה שאיש לא אישר.
+     *
+     * הצירוף נדחה כשלמספר הזה כבר היה קישור שנותק או פג. אז ההשוואה
+     * אינה מכריעה יותר — היא בדיוק מה שהניתוק ביטל — והמענה הוא
+     * בקשה לקוד.
      */
-    await this.links.bindByPhone(waId, identified.tenantId, identified.id);
-    return identified;
+    const bound = await this.links.bindByPhone(waId, identified.tenantId, identified.id);
+    return bound ? identified : NEEDS_LINK;
   }
 
   /**

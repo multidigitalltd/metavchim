@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
 import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import IORedis from "ioredis";
 import { ulid } from "ulid";
 import {
@@ -44,6 +45,15 @@ import { waPhoneVariants } from "./assistant-lang";
 /** קישור שנוצר מהשוואת מספר, ולא מקוד שהמתווך שלח. */
 const SOURCE_PHONE = "phone";
 const SOURCE_CODE = "code";
+
+/**
+ * כל כמה זמן נאמר למספר שנותק „אינך מחובר” — יממה.
+ *
+ * ההודעה נשלחת למספר שאינו מזוהה, ולכן היא חייבת תקרה: מי שמחזיק
+ * עכשיו במספר שהוחלף אינו אמור לקבל את אותה שורה בכל הודעה, וגם
+ * דירוג האיכות של המספר אצל Meta נפגע מחזרתיות.
+ */
+const UNLINKED_HINT_COOLDOWN_SECONDS = 24 * 60 * 60;
 
 /** למה הקישור נותק — נשמר כדי שהמסך יאמר משהו אמיתי. */
 export type LinkRevokeReason = "user" | "phone_changed" | "expired" | "relinked";
@@ -181,14 +191,22 @@ export class WhatsAppLinkService implements OnModuleDestroy {
   /**
    * כתיבת הקישור — **מספר אחד, מכשיר אחד, חשבון אחד.**
    *
-   * קישור קודם לאותו מספר מנותק ולא נדרס: „הועבר לחשבון אחר” הוא
-   * מידע שהמתווך הקודם צריך לראות במסך שלו.
+   * הניתוק שלפני הכתיבה הוא **דו-כיווני**, וזו הנקודה:
+   *
+   * - קישור קודם לאותו מספר — כדי שמספר אחד לא יפתח שני חשבונות.
+   * - קישור קודם של אותו משתמש — כדי שמכשיר קודם לא יישאר תקף אחרי
+   *   שהמתווך קישר מכשיר חדש. המסך מבטיח „המכשיר שמחובר”, ביחיד;
+   *   בלי הצד הזה המכשיר הישן היה ממשיך לפתוח את המאגר בשקט
+   *   (ביקורת Codex).
+   *
+   * הקישורים מנותקים ולא נדרסים: „הועבר לחשבון אחר” הוא מידע
+   * שהמתווך הקודם צריך לראות במסך שלו.
    */
   private async bind(digits: string, tenantId: string, userId: string, source: string): Promise<void> {
     const waIdHash = this.crypto.phoneHash(digits);
     await this.prisma.$transaction(async (tx) => {
       await tx.whatsAppLink.updateMany({
-        where: { waIdHash, revokedAt: null },
+        where: { revokedAt: null, OR: [{ waIdHash }, { userId }] },
         data: { revokedAt: new Date(), revokedReason: "relinked" },
       });
       await tx.whatsAppLink.create({
@@ -237,17 +255,57 @@ export class WhatsAppLinkService implements OnModuleDestroy {
   }
 
   /**
-   * קישור מהשוואת מספר — **רק כשהתשובה חד-משמעית.**
+   * קישור מהשוואת מספר — **רק פעם ראשונה, ורק כשהתשובה חד-משמעית.**
    *
    * זו הדרך שבה משתמש קיים ממשיך לעבוד בלי לעצור: המספר שלו כבר
    * רשום במערכת, ההודעה הראשונה שלו יוצרת את הקישור, ומכאן היא
    * הזהות. מה שהשתנה הוא שריבוי אינו מוכרע יותר: שני משתמשים עם
    * אותו מספר מקבלים בקשה לקוד, ולא ניחוש שקט.
+   *
+   * **מצבה עוצרת את ההשוואה.** ניתוק, תפוגה והחלפת מספר כולם מותירים
+   * שורה מנותקת על אותו hash. בלי הבדיקה הזאת ההודעה הבאה הייתה
+   * משווה שוב מול שדה `phone` — שלא השתנה — ובונה את הקישור מחדש,
+   * כלומר מבטלת בשקט גם את הניתוק וגם את חובת האימות מחדש (ביקורת
+   * Codex). מרגע שהיה כאן קישור, החזרה אליו היא בקוד בלבד.
+   *
+   * מחזירה `false` כשהצירוף נדחה — הקורא צריך לדעת שהמספר מוכר אך
+   * אינו מקושר, כדי לומר זאת ולא לענות מענה שיווקי.
    */
-  async bindByPhone(waId: string, tenantId: string, userId: string): Promise<void> {
+  async bindByPhone(waId: string, tenantId: string, userId: string): Promise<boolean> {
     const digits = this.canonical(waId);
-    if (digits === null) return;
+    if (digits === null) return false;
+    /*
+     * כל שורה שנמצאת כאן היא מצבה: `resolve` כבר החזיר `null`, ולכן
+     * אין למספר הזה קישור פעיל. גם „הועבר לחשבון אחר” נכלל — מספר
+     * שהועבר במפורש אינו חוזר לבעליו הקודם בהשוואת ספרות.
+     */
+    const previous = await this.prisma.whatsAppLink.findFirst({
+      where: { waIdHash: this.crypto.phoneHash(digits) },
+      select: { id: true },
+    });
+    if (previous !== null) return false;
     await this.bind(digits, tenantId, userId, SOURCE_PHONE);
+    return true;
+  }
+
+  /**
+   * „כבר אמרנו לו היום” — תקרה על הודעת „המכשיר אינו מחובר”.
+   *
+   * מחזירה `true` פעם אחת ביממה לכל מספר. ההודעה יוצאת למספר שאינו
+   * מזוהה, ולכן חזרה עליה בכל הודעה הייתה ספאם — ובדרך גם פגיעה
+   * בדירוג האיכות של המספר אצל Meta.
+   */
+  async claimUnlinkedHint(waId: string): Promise<boolean> {
+    const digits = this.canonical(waId);
+    if (digits === null) return false;
+    const claimed = await this.redis.set(
+      `wa-link:hint:${this.hmac(digits)}`,
+      "1",
+      "EX",
+      UNLINKED_HINT_COOLDOWN_SECONDS,
+      "NX",
+    );
+    return claimed === "OK";
   }
 
   /* ------------------------------------------------------------------ */
@@ -282,9 +340,21 @@ export class WhatsAppLinkService implements OnModuleDestroy {
     };
   }
 
-  /** ניתוק יזום מהמסך. */
-  async revoke(userId: string, reason: LinkRevokeReason = "user"): Promise<void> {
-    const { count } = await this.prisma.whatsAppLink.updateMany({
+  /**
+   * ניתוק יזום מהמסך.
+   *
+   * `tx` קיים כדי שהניתוק יוכל להיות **חלק מהעסקה שגרמה לו**: החלפת
+   * מספר טלפון מנתקת את הקישור, ואם רק אחד מהשניים נכתב נוצר בדיוק
+   * המצב שהניתוק נועד למנוע — מספר חדש בפרופיל וקישור פעיל למספר
+   * הישן, שניסיון חוזר כבר לא יזהה כשינוי (ביקורת Codex).
+   */
+  async revoke(
+    userId: string,
+    reason: LinkRevokeReason = "user",
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const db = tx ?? this.prisma;
+    const { count } = await db.whatsAppLink.updateMany({
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date(), revokedReason: reason },
     });
