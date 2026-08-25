@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useState, use, type ReactNode } from "react";
 import Link from "next/link";
-import { describeEntry , labelOf } from "@metavchim/shared";
+import {
+  describeEntry,
+  labelOf,
+  PROPERTY_REQUIRED_FOR_MARKETING,
+} from "@metavchim/shared";
 import { useRouter } from "next/navigation";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
@@ -16,6 +20,7 @@ import {
 } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
+import { readinessBand, readinessCount } from "@/lib/readiness";
 import { MediaSection } from "./media-section";
 import { PropertyTwins } from "./property-twins";
 import { NetworkDemandMatches } from "../network-demand-matches";
@@ -30,7 +35,7 @@ import { ExclusivityPanel } from "../exclusivity-panel";
 import { EntityNotes } from "../../entity-notes";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { RelatedEntities } from "../../related-entities";
-import { IconThumbUp } from "../../icons";
+import { IconCheck, IconThumbUp } from "../../icons";
 import { LoadError } from "../../load-error";
 import { Notice } from "../../notice";
 
@@ -111,16 +116,15 @@ const MATURITY_TAG: Record<string, { fg: string; bg: string }> = {
   not_ripe: { fg: "#616a63", bg: "#eef1ec" },
 };
 
-function readinessColor(score: number): string {
-  if (score >= 85) return "#12A150";
-  if (score >= 70) return "#c98a2e";
-  return "#b0512c";
-}
-function readinessTextColor(score: number): string {
-  if (score >= 85) return "var(--color-primary)";
-  if (score >= 70) return "#8a6414";
-  return "#b0512c";
-}
+/*
+ * הרצועות מגיעות מ-`@/lib/readiness` ואינן מוגדרות כאן.
+ *
+ * היו כאן שני עותקים של אותם ספים — אחד במסך הזה ואחד ברשימת
+ * הנכסים — ושניהם היו 85 ו-70. ברגע שהרשימה עברה לספים של
+ * החבילה (90 ו-60), **אותו נכס בדיוק** היה מוצג ירוק במסך אחד
+ * וענבר בשני, בלי שאיש שינה נתון. החבילה אוסרת זאת פעמיים
+ * ובשני מסמכים: „Never three numbers for one listing”.
+ */
 
 export default function PropertyDetailPage({
   params,
@@ -787,7 +791,7 @@ export default function PropertyDetailPage({
                   style={{
                     fontSize: 21,
                     fontWeight: 800,
-                    color: readinessTextColor(property.readinessScore),
+                    color: readinessBand(property.readinessScore).text,
                   }}
                 >
                   {property.readinessScore}%
@@ -801,17 +805,31 @@ export default function PropertyDetailPage({
                   style={{
                     height: "100%",
                     width: `${property.readinessScore}%`,
-                    background: readinessColor(property.readinessScore),
+                    background: readinessBand(property.readinessScore).bar,
                     borderRadius: 99,
                   }}
                 />
               </div>
+              {/*
+                „‎N מתוך M שדות מלאים” — הניסוח שהחבילה נוקבת בו
+                (SPEC-3b §4), והשורה שהייתה חסרה כאן.
+
+                האחוז לבדו אומר „82%” ולא אומר על כמה שדות מדובר.
+                המכנה נגזר מהנתונים ואינו כתוב קשיח: `9` קבוע היה
+                הופך לשקר ברגע שיתווסף שדה עשירי לחישוב שבשרת, ואז
+                שוב יהיו שני מספרים לנכס אחד.
+              */}
+              <p className="m-0 mb-2 text-[15.5px]" style={{ color: "var(--color-text-muted)" }}>
+                {readinessCount(property.missingFields.length, PROPERTY_REQUIRED_FOR_MARKETING.length)}
+              </p>
               {property.missingFields.length === 0 ? (
                 <p
-                  className="m-0 text-[14.5px] font-bold"
+                  className="m-0 flex items-center gap-2 text-[15px] font-bold"
                   style={{ color: "var(--color-primary)" }}
                 >
-                  ✓ הנכס מוכן לשיווק
+                  {/* אייקון ולא „✓” — „NO EMOJI anywhere in the product UI” */}
+                  <IconCheck s={18} />
+                  הנכס מוכן לשיווק
                 </p>
               ) : (
                 property.missingFields.map((field) => (

@@ -19,6 +19,7 @@ import {
   type ListFilterValues,
 } from "../list-filters";
 import { Notice } from "../notice";
+import { readinessBand } from "@/lib/readiness";
 
 /**
  * מסך הנכסים לפי קובץ העיצוב: צ'יפי ערים לסינון, טבלת grid עם תג
@@ -49,36 +50,6 @@ function addressOf(p: PropertyRow): string {
 function isNew(p: PropertyRow): boolean {
   if (!p.createdAt) return false;
   return Date.now() - new Date(p.createdAt).getTime() < 7 * 24 * 60 * 60 * 1000;
-}
-
-/**
- * שלוש רצועות המוכנות (SPEC-2 §4, SPEC-3b §4).
- *
- * ## הספים מהחבילה
- *
- * ‎90–100 ירוק · 60–89 ענבר · מתחת ל-60 אדום-חמרה. היו 85 ו-70,
- * ובלי סיבה מתועדת.
- *
- * ## למה לא הגוונים של החבילה
- *
- * החבילה נוקבת ב-‎#3FBF63‎ ו-‎#B4801F‎, ומדדתי אותם מול מסילת הפס
- * (‎#EAEDE6‎): **2.01:1 ו-2.94:1**. מילוי של פס התקדמות הוא „חלק
- * מאובייקט גרפי שנדרש להבנת התוכן” ולכן כפוף ל-3:1 של WCAG 1.4.11
- * — כלומר בדיוק העמודה שאמורה לומר „מה חסר בנכס” הייתה זו שאי
- * אפשר לקרוא. האדום-חמרה דווקא עובר (4.22:1) ונשאר.
- *
- * לכן נלקחים הטוקנים הסמנטיים שכבר קיימים במערכת: אותן שלוש
- * משמעויות, ערכים שעומדים בסף, ומיפוי נכון בשלוש הערכות בלי
- * הצהרה נוספת.
- *
- * המילוי והטקסט נפרדים כי הסף שונה: 3:1 לגרפיקה, 4.5:1 לטקסט.
- */
-function readinessColors(score: number): { bar: string; text: string } {
-  if (score >= 90) {
-    return { bar: "var(--color-primary-accent)", text: "var(--color-primary)" };
-  }
-  if (score >= 60) return { bar: "var(--color-warning)", text: "var(--color-warning)" };
-  return { bar: "var(--color-danger)", text: "var(--color-danger)" };
 }
 
 /**
@@ -474,11 +445,11 @@ export default function PropertiesPage() {
                             <span
                               style={{
                                 width: `${p.readinessScore}%`,
-                                background: readinessColors(p.readinessScore).bar,
+                                background: readinessBand(p.readinessScore).bar,
                               }}
                             />
                           </span>
-                          <span className="font-bold" style={{ color: readinessColors(p.readinessScore).text, fontSize: "14px" }}>
+                          <span className="font-bold" style={{ color: readinessBand(p.readinessScore).text, fontSize: "14px" }}>
                             {p.readinessScore}%
                           </span>
                         </p>
@@ -520,7 +491,7 @@ export default function PropertiesPage() {
                   <span>התאמות</span>
                 </div>
                 {visible.map((p) => {
-                  const ready = readinessColors(p.readinessScore);
+                  const ready = readinessBand(p.readinessScore);
                   return (
                     /* התיבה לצד השורה ולא בתוכה — השורה כולה כפתור
                        ניווט, ותיבת סימון בתוך כפתור אינה נגישה */
