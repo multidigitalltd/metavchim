@@ -169,13 +169,20 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
       const name = text(c["contactName"]);
       return {
         /*
-         * מספר לא מוכר נשאר מספר **בתשובה** — הוא בדיוק מה שדרוש
-         * כדי לחזור אליו. אבל אז הוא גם ה-`label`, ו-`label` נשמר
-         * לזיכרון שנוסע למודל חיצוני; לכן `memoryLabel` מחליף אותו
+         * שלושה מצבים, ולא שניים.
+         *
+         * שם — הכותרת. מספר בלי שם — **המספר עצמו**, כי הוא בדיוק מה
+         * שדרוש כדי לחזור; אבל אז הוא גם ה-`label`, ו-`label` נשמר
+         * לזיכרון שנוסע למודל חיצוני, ולכן `memoryLabel` מחליף אותו
          * שם (ביקורת Codex).
+         *
+         * ובלי שניהם — „שיחה”, ולא „מספר לא מזוהה”. תוצאות החיפוש
+         * מחזירות שורת שיחה בלי שם ובלי מספר (היא נמצאה לפי התקציר),
+         * ו„לא מזוהה” הוא טענה על הלקוח — שקרית במיוחד כשהחיפוש היה
+         * לפי מספר והזהות מוצגת שורה מעליה (ביקורת Codex).
          */
-        label: name ?? phone ?? "מספר לא מזוהה",
-        ...(name === null ? { memoryLabel: "מספר לא מזוהה" } : {}),
+        label: name ?? phone ?? "שיחה",
+        ...(name === null && phone !== null ? { memoryLabel: "מספר לא מזוהה" } : {}),
         detail: join([
           CALL_DIRECTION_LABELS[String(c["direction"])],
           CALL_OUTCOME_LABELS[String(c["outcome"])],
@@ -275,12 +282,24 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
        */
       const buyerName = text(match["buyerName"]);
       const label = buyerName ?? address ?? "קונה של סוכן אחר";
+      /*
+       * **הקישור הולך לישות שבכותרת.**
+       *
+       * שורה שכותרתה שם הקונה קישרה לנכס — כלומר לכרטיס שהמתווך
+       * כבר עומד עליו, כי משם הוא שאל. הקישור היחיד בשורה החזיר
+       * אותו למקום שממנו בא, ולא לקונה שהשורה מדברת עליו
+       * (ביקורת Codex).
+       */
+      const target =
+        buyerName !== null && text(match["buyerId"]) !== null
+          ? `/buyers/${String(match["buyerId"])}`
+          : text(match["propertyId"]) !== null
+            ? `/properties/${String(match["propertyId"])}`
+            : null;
       return {
         label,
         detail: join([label === address ? null : address, score, text(match["explanation"])]),
-        ...(text(match["propertyId"]) !== null
-          ? { href: `/properties/${String(match["propertyId"])}` }
-          : {}),
+        ...(target === null ? {} : { href: target }),
       };
     }),
   properties: (value) =>

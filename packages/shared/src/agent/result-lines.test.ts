@@ -146,6 +146,19 @@ describe("התאמות — הצורה שאף מסך לא זיהה", () => {
     expect(agentResultList(rows)).toBeNull();
   });
 
+  /*
+   * שורה שכותרתה שם הקונה קישרה לנכס — כלומר לכרטיס שהמתווך כבר
+   * עומד עליו, כי משם שאל (ביקורת Codex).
+   */
+  it("שורה שכותרתה קונה מקשרת לקונה, ולא חזרה לנכס", () => {
+    expect(agentResultList(matches)!.rows[0]!.href).toBe("/buyers/b1");
+  });
+
+  it("שורה שכותרתה נכס מקשרת לנכס", () => {
+    const list = agentResultList({ matches: [{ ...rows[0]!, buyerName: null }] })!;
+    expect(list.rows[0]!.href).toBe("/properties/p1");
+  });
+
   it("קונה של סוכן אחר ברשימה שמרכזה נכס — הנפילה האנונימית נשמרת", () => {
     // `listForProperty` מחזירה שורות בלי `property` מקונן
     const text = agentResultText({
@@ -474,6 +487,30 @@ describe("אורך הכותרת — התקציב של הזיכרון", () => {
     expect(row.label.slice(0, AGENT_RESULT_LABEL_MAX - 1)).toBe(
       row.memoryLabel!.slice(0, AGENT_RESULT_LABEL_MAX - 1),
     );
+  });
+});
+
+describe("שיחה בלי שם ובלי מספר — „שיחה”, ולא טענה על הלקוח", () => {
+  /*
+   * תוצאות החיפוש מחזירות שורת שיחה שנמצאה לפי התקציר, בלי שם ובלי
+   * מספר. „מספר לא מזוהה” הוא טענה שקרית — במיוחד כשהחיפוש היה לפי
+   * מספר והזהות מוצגת שורה מעליה (ביקורת Codex).
+   */
+  const found = {
+    calls: [{ id: "c1", direction: "inbound", occurredAt: "2026-08-24T11:30:00Z", summary: "דיבר על תקציב" }],
+  };
+
+  it("הכותרת ניטרלית", () => {
+    const list = agentResultList(found)!;
+    expect(list.rows[0]!.label).toBe("שיחה");
+    expect(list.rows[0]!.memoryLabel).toBeUndefined();
+  });
+
+  it("וכשהשם ידוע הוא הכותרת", () => {
+    const list = agentResultList({
+      calls: [{ ...found.calls[0]!, contactName: "דנה לוי" }],
+    })!;
+    expect(list.rows[0]!.label).toBe("דנה לוי");
   });
 });
 

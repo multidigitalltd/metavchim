@@ -606,7 +606,7 @@ export class MatchingService {
           status: { not: "dismissed" },
         },
         orderBy: { score: "desc" },
-        take: limit,
+        take: limit + LIVE_HEADROOM,
       });
 
       /*
@@ -644,6 +644,7 @@ export class MatchingService {
 
       return rows
         .filter((row) => maturityById.has(row.buyerId))
+        .slice(0, limit)
         .map((row) => ({
           ...toMatchDto(row),
           buyerName: nameById.get(row.buyerId) ?? null,
@@ -668,7 +669,7 @@ export class MatchingService {
           status: { not: "dismissed" },
         },
         orderBy: { score: "desc" },
-        take: limit,
+        take: limit + LIVE_HEADROOM,
       });
 
       // שם הנכס לכל התאמה — לכרטיס הקונה (קובץ העיצוב); שאילתה אחת לעמוד
@@ -688,6 +689,7 @@ export class MatchingService {
 
       return rows
         .filter((row) => propertyById.has(row.propertyId))
+        .slice(0, limit)
         .map((row) => {
           const property = propertyById.get(row.propertyId)!;
           return {

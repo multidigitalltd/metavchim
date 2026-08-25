@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  AGENT_RESULT_ROWS,
   APPOINTMENT_KIND_LABELS,
   COOP_DEAL_STAGE_LABELS,
   agentResultList,
@@ -165,14 +166,15 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
   }
 
   if (Array.isArray(payload.appointments)) {
+    const rows = payload.appointments.slice(0, AGENT_RESULT_ROWS);
     return (
       <ResultList
-        hasMore={false}
-        count={payload.appointments.length}
+        hasMore={payload.hasMore === true || payload.appointments.length > rows.length}
+        count={rows.length}
         noun="פגישות"
         empty="אין פגישות ביום הזה"
       >
-        {payload.appointments.map((a) => (
+        {rows.map((a) => (
           <li key={a.id} className="mv-result-row">
             <a href="/calendar" className="font-medium underline">
               <IconCalendar s={15} /> {a.title || APPOINTMENT_KIND_LABELS[a.kind] || "פגישה"}
@@ -185,14 +187,15 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
   }
 
   if (Array.isArray(payload.tasks)) {
+    const rows = payload.tasks.slice(0, AGENT_RESULT_ROWS);
     return (
       <ResultList
-        hasMore={false}
-        count={payload.tasks.length}
+        hasMore={payload.hasMore === true || payload.tasks.length > rows.length}
+        count={rows.length}
         noun="משימות פתוחות"
         empty="אין משימות פתוחות"
       >
-        {payload.tasks.map((t) => (
+        {rows.map((t) => (
           <li key={t.id} className="mv-result-row">
             <a href="/tasks" className="font-medium underline">
               <IconCheck s={15} /> {t.title}
@@ -209,14 +212,15 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
   }
 
   if (Array.isArray(payload.callbacks)) {
+    const rows = payload.callbacks.slice(0, AGENT_RESULT_ROWS);
     return (
       <ResultList
-        hasMore={false}
-        count={payload.callbacks.length}
+        hasMore={payload.hasMore === true || payload.callbacks.length > rows.length}
+        count={rows.length}
         noun="ממתינים לחזרה"
         empty="אין כרגע אף אחד שממתין לחזרה"
       >
-        {payload.callbacks.map((row) => (
+        {rows.map((row) => (
           <li key={row.contactId} className="mv-result-row">
             <a href={row.href} className="font-medium underline">
               <IconPhone s={15} /> {row.name}
@@ -251,14 +255,15 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
   }
 
   if (Array.isArray(payload.calls)) {
+    const rows = payload.calls.slice(0, AGENT_RESULT_ROWS);
     return (
       <ResultList
-        hasMore={false}
-        count={payload.calls.length}
+        hasMore={payload.hasMore === true || payload.calls.length > rows.length}
+        count={rows.length}
         noun="שיחות"
         empty="אין שיחות אחרונות"
       >
-        {payload.calls.map((c) => (
+        {rows.map((c) => (
           <li key={c.id} className="mv-result-row">
             <a href="/calls" className="font-medium underline">
               <IconPhone s={15} /> {c.contactName || c.phone || "מספר חסוי"}
@@ -279,14 +284,15 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
   }
 
   if (Array.isArray(payload.deals)) {
+    const rows = payload.deals.slice(0, AGENT_RESULT_ROWS);
     return (
       <ResultList
-        hasMore={false}
-        count={payload.deals.length}
+        hasMore={payload.hasMore === true || payload.deals.length > rows.length}
+        count={rows.length}
         noun="עסקאות משותפות"
         empty="אין עסקאות משותפות"
       >
-        {payload.deals.map((d) => (
+        {rows.map((d) => (
           <li key={d.id} className="mv-result-row">
             <a href={`/collaboration/deals/${d.id}`} className="font-medium underline">
               <IconHandshake s={15} /> {d.title}
@@ -325,14 +331,15 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
   }
 
   if (Array.isArray(payload.buyers)) {
+    const rows = payload.buyers.slice(0, AGENT_RESULT_ROWS);
     return (
       <ResultList
-        hasMore={payload.hasMore === true}
-        count={payload.buyers.length}
+        hasMore={payload.hasMore === true || payload.buyers.length > rows.length}
+        count={rows.length}
         noun="קונים"
         empty="לא נמצאו קונים שמתאימים לקריטריונים"
       >
-        {payload.buyers.map((buyer) => (
+        {rows.map((buyer) => (
           <li key={buyer.id} className="mv-result-row">
             <a href={`/buyers/${buyer.id}`} className="font-medium underline">
               {MATURITY_ICON[buyer.maturity] ?? <IconUser s={15} />} {buyer.name}
@@ -355,14 +362,15 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
   }
 
   if (Array.isArray(payload.properties)) {
+    const rows = payload.properties.slice(0, AGENT_RESULT_ROWS);
     return (
       <ResultList
-        hasMore={payload.hasMore === true}
-        count={payload.properties.length}
+        hasMore={payload.hasMore === true || payload.properties.length > rows.length}
+        count={rows.length}
         noun="נכסים"
         empty="אין נכסים שעונים על התנאים"
       >
-        {payload.properties.map((property) => (
+        {rows.map((property) => (
           <li key={property.id} className="mv-result-row">
             <a href={`/properties/${property.id}`} className="font-medium underline">
               <IconHome s={15} /> {property.title || "נכס"}
@@ -395,9 +403,15 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
 function SharedRows({ data, empty }: { data: unknown; empty: string }): React.JSX.Element | null {
   const list = agentResultList(data);
   if (list === null) return null;
+  const shown = list.rows.slice(0, AGENT_RESULT_ROWS);
   return (
-    <ResultList hasMore={list.hasMore} count={list.rows.length} noun={list.noun} empty={empty}>
-      {list.rows.map((row, index) => (
+    <ResultList
+      hasMore={list.hasMore || list.rows.length > shown.length}
+      count={shown.length}
+      noun={list.noun}
+      empty={empty}
+    >
+      {shown.map((row, index) => (
         <li key={`${row.href ?? row.label}-${index}`} className="mv-result-row">
           {row.href === undefined ? (
             <span className="font-medium">{row.label}</span>

@@ -63,7 +63,14 @@ export interface SearchResults {
   /* --- טקסט חופשי שנכתב בתוך המערכת: לא רק "מי", גם "מה נאמר" --- */
   appointments: { id: string; title: string; kind: string; startsAt: Date; status: string }[];
   tasks: { id: string; title: string; status: string; dueAt: Date | null }[];
-  calls: { id: string; summary: string; occurredAt: Date; direction: string }[];
+  calls: {
+    id: string;
+    summary: string;
+    occurredAt: Date;
+    direction: string;
+    /** שם הלקוח, כשהחיפוש היה לפי מספר וזהותו ידועה. */
+    contactName?: string;
+  }[];
   /** הערות ותיעודי שיחה על לידים וקונים. */
   notes: {
     id: string;
@@ -223,7 +230,15 @@ export class SearchService {
         properties: shownProperties.rows,
         buyers: shownBuyers.rows.map((b) => ({ ...b, name: identity.name })),
         leads: shownLeads.rows.map((l) => ({ ...l, name: identity.name })),
-        calls: shownCalls.rows.map((c) => ({ ...c, summary: c.summary ?? "" })),
+        /*
+         * שם הלקוח נלווה לכל שיחה — **הוא ידוע כאן.** בלעדיו השורה
+         * מתויגת „שיחה” בזמן שהזהות מוצגת שורה מעליה (ביקורת Codex).
+         */
+        calls: shownCalls.rows.map((c) => ({
+          ...c,
+          summary: c.summary ?? "",
+          contactName: identity.name,
+        })),
       };
     });
   }
@@ -300,7 +315,15 @@ export class SearchService {
        */
       const searchesFreeText = textForMatch.trim().length > 0;
       const like = { contains: textForMatch, mode: "insensitive" as const };
-      const [appointments, tasks, calls, notes] = await Promise.all([
+      /*
+       * בלי שארית טקסטואלית אין מה לחפש כאן — ו-`contains: ""` מתאים
+       * ל**כל** שורה במשרד. עד כה ארבע השאילתות רצו בכל מקרה ותוצאתן
+       * נזרקה מיד; מלבד העלות, זה מה שאפשר לקיטום של קבוצה שאינה
+       * מוצגת לזלוג לתשובה (ביקורת Codex).
+       */
+      const [appointments, tasks, calls, notes] = !searchesFreeText
+        ? [[], [], [], []]
+        : await Promise.all([
         tx.appointment.findMany({
           where: { tenantId, OR: [{ title: like }, { notes: like }] },
           select: { id: true, title: true, kind: true, startsAt: true, status: true },
@@ -349,8 +372,17 @@ export class SearchService {
             notes: await this.labelNotes(tx, tenantId, shownNotes.rows),
           }
         : { appointments: [], tasks: [], calls: [], notes: [] };
-      /** האם קבוצה כלשהי נחתכה — נצבר עד ההחזרה. */
-      const truncated = [shownProperties, shownAppointments, shownTasks, shownCalls, shownNotes];
+      /**
+       * האם קבוצה כלשהי נחתכה — **רק מבין אלה שבאמת מוצגות.**
+       *
+       * שאילתה מובְנית בלי שארית („קונים 4 חדרים בבני ברק”) אינה
+       * מציגה את קבוצות הטקסט החופשי כלל, וספירת הקיטום שלהן הייתה
+       * הופכת כל משרד עם יותר משמונה פגישות ל„יש עוד קונים” — טענה
+       * על קבוצה שכן מוצגת, ושקרית לגביה (ביקורת Codex).
+       */
+      const truncated = searchesFreeText
+        ? [shownProperties, shownAppointments, shownTasks, shownCalls, shownNotes]
+        : [shownProperties];
 
       if (!can.canBuyers && !can.canLeads) {
         return {
