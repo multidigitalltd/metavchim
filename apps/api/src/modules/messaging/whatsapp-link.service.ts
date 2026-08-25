@@ -60,6 +60,15 @@ const SOURCE_CODE = "code";
  */
 const UNLINKED_HINT_COOLDOWN_SECONDS = 24 * 60 * 60;
 
+/**
+ * כמה זמן זוכרים שהודעת קוד כבר טופלה.
+ *
+ * Meta שולחת שוב הודעה שהתשובה עליה התמהמהה, ומסלול הקוד עוקף את
+ * התפיסה שבמסד — היא דורשת משתמש מזוהה, וכאן עוד אין אחד. יממה
+ * מכסה בהרבה את חלון השליחה החוזרת, והמפתח זעיר.
+ */
+const INBOUND_CLAIM_SECONDS = 24 * 60 * 60;
+
 /** למה הקישור נותק — נשמר כדי שהמסך יאמר משהו אמיתי. */
 export type LinkRevokeReason = "user" | "phone_changed" | "expired" | "relinked";
 
@@ -152,7 +161,8 @@ export class WhatsAppLinkService implements OnModuleDestroy {
       codeHmac = this.hmac(body);
       const claimed = await this.redis.set(
         `wa-link:code:${codeHmac}`,
-        JSON.stringify({ tenantId, userId }),
+        // `issuedAt` הוא מה שמאפשר לזהות אחר כך שהקוד קדם לניתוק
+        JSON.stringify({ tenantId, userId, issuedAt: Date.now() }),
         "EX",
         WHATSAPP_LINK_CODE_TTL_SECONDS,
         "NX",
@@ -211,7 +221,7 @@ export class WhatsAppLinkService implements OnModuleDestroy {
      */
     if (!timingSafeEqual(Buffer.from(codeHmac), Buffer.from(this.hmac(body)))) return null;
 
-    const claim = JSON.parse(raw) as { tenantId: string; userId: string };
+    const claim = JSON.parse(raw) as { tenantId: string; userId: string; issuedAt?: number };
     // קוד לשימוש אחד — נמחק לפני שהקישור נכתב, כדי ששני מכשירים
     // שישלחו אותו יחד לא ייצרו שני קישורים
     const consumed = await this.redis.del(`wa-link:code:${codeHmac}`);
@@ -233,8 +243,39 @@ export class WhatsAppLinkService implements OnModuleDestroy {
     );
     await this.redis.del(attemptsKey);
 
-    await this.bind(digits, claim.tenantId, claim.userId, SOURCE_CODE);
+    /*
+     * הקוד נוצל — אבל ייתכן שבינתיים נותק החשבון. `bind` מכריע את
+     * זה **בתוך הנעילה**, ולכן „נותק אחרי שהקוד הופק” מסתיים בסירוב
+     * ולא בקישור חדש שנולד רגע אחרי „המכשיר נותק”.
+     */
+    const bound = await this.bind(
+      digits,
+      claim.tenantId,
+      claim.userId,
+      SOURCE_CODE,
+      claim.issuedAt,
+    );
+    if (!bound) return null;
     return { userId: claim.userId, tenantId: claim.tenantId };
+  }
+
+  /**
+   * „כבר טיפלנו בהודעה הזו” — תפיסה לפי מזהה ההודעה של Meta.
+   *
+   * מסלול הקוד רץ **לפני** הזיהוי, ולכן התפיסה שבמסד (שדורשת משתמש
+   * ומשרד) אינה זמינה לו. בלי תפיסה, שליחה חוזרת של Meta הייתה
+   * מקבלת „הקוד אינו תקף” על קוד שהמשלוח הראשון בדיוק ניצל — שתי
+   * תשובות סותרות לאותה הודעה (ביקורת Codex).
+   */
+  async claimInbound(externalId: string): Promise<boolean> {
+    const claimed = await this.redis.set(
+      `wa-link:msg:${this.hmac(externalId)}`,
+      "1",
+      "EX",
+      INBOUND_CLAIM_SECONDS,
+      "NX",
+    );
+    return claimed === "OK";
   }
 
   /* ------------------------------------------------------------------ */
@@ -255,10 +296,31 @@ export class WhatsAppLinkService implements OnModuleDestroy {
    * הקישורים מנותקים ולא נדרסים: „הועבר לחשבון אחר” הוא מידע
    * שהמתווך הקודם צריך לראות במסך שלו.
    */
-  private async bind(digits: string, tenantId: string, userId: string, source: string): Promise<void> {
+  private async bind(
+    digits: string,
+    tenantId: string,
+    userId: string,
+    source: string,
+    issuedAt?: number,
+  ): Promise<boolean> {
     const waIdHash = this.crypto.phoneHash(digits);
-    const write = async (): Promise<void> => {
-      await this.prisma.$transaction(async (tx) => {
+    const write = async (): Promise<boolean> =>
+      this.prisma.$transaction(async (tx) => {
+        /*
+         * **הנעילה היא מה שמסדר קישור מול ניתוק.**
+         *
+         * בלעדיה השניים יכולים לחצות זה את זה: הניתוק כותב את
+         * הביטול ולא רואה קוד ממתין, והקישור — שכבר ניצל את הקוד —
+         * מוסיף שורה חדשה רגע אחריו. התוצאה היא „המכשיר נותק” על
+         * המסך ומכשיר מחובר במסד (ביקורת Codex). מרגע שהשניים
+         * נכנסים בתור, אחד מהם רואה תמיד את מה שהשני עשה.
+         */
+        await this.lock(tx, userId);
+        /*
+         * וזה מה שהתור נותן: קוד שהופק **לפני** הניתוק כבר אינו
+         * תקף, גם אם הניצול שלו התחיל קודם.
+         */
+        if (issuedAt !== undefined && (await this.revokedSince(userId, issuedAt))) return false;
         await tx.whatsAppLink.updateMany({
           where: { revokedAt: null, OR: [{ waIdHash }, { userId }] },
           data: { revokedAt: new Date(), revokedReason: "relinked" },
@@ -273,18 +335,19 @@ export class WhatsAppLinkService implements OnModuleDestroy {
             source,
           },
         });
+        return true;
       });
-    };
     try {
-      await write();
+      return await write();
     } catch (error: unknown) {
       /*
-       * **המרוץ נפתר בניסיון שני, לא בנעילה.**
+       * **מה שהנעילה אינה מכסה — האינדקס מכסה.**
        *
-       * שתי כתיבות מקבילות מנתקות שתיהן אפס שורות (אין עדיין קישור)
-       * ומוסיפות שתיהן — ושני האינדקסים החלקיים הם מה שמכריע: אחת
-       * עוברת, השנייה מקבלת P2002. הניסיון השני כבר רואה את השורה
-       * שנכתבה, מנתק אותה, ומוסיף — כלומר „האחרון קובע”, שזו
+       * הנעילה היא לפי חשבון, ולכן שני **משתמשים שונים** שקושרים את
+       * אותו מספר בו-זמנית אינם נכנסים לאותו תור: שניהם מנתקים אפס
+       * שורות ושניהם מוסיפים, והאינדקס החלקי על המספר הוא מה
+       * שמכריע — אחד עובר, השני מקבל P2002. הניסיון השני כבר רואה
+       * את השורה שנכתבה, מנתק אותה ומוסיף: „האחרון קובע”, שזו
        * התוצאה הנכונה גם ברצף (ביקורת Codex).
        *
        * ניסיון אחד בלבד: שני כשלים ברצף אינם מרוץ אלא תקלה אמיתית,
@@ -293,8 +356,25 @@ export class WhatsAppLinkService implements OnModuleDestroy {
       if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
         throw error;
       }
-      await write();
+      return write();
     }
+  }
+
+  /** נעילה לפי חשבון — קישור וניתוק נכנסים בתור ולא חוצים זה את זה. */
+  private async lock(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wa-link:${userId}`}))`;
+  }
+
+  /**
+   * האם נותק קישור לחשבון הזה **אחרי** שהקוד הופק.
+   *
+   * חותמת ב-Redis ולא שאילתה: ניתוק על חשבון שלא היה מקושר כלל אינו
+   * משאיר שורה במסד, ובדיוק המקרה הזה — „הפקתי קוד, התחרטתי וניתקתי”
+   * — הוא מה שצריך להיחסם. תוחלת החיים של החותמת כאורך חיי הקוד.
+   */
+  private async revokedSince(userId: string, issuedAt: number): Promise<boolean> {
+    const at = await this.redis.get(`wa-link:revoked:${userId}`);
+    return at !== null && Number(at) >= issuedAt;
   }
 
   /**
@@ -428,11 +508,38 @@ export class WhatsAppLinkService implements OnModuleDestroy {
     reason: LinkRevokeReason = "user",
     tx?: Prisma.TransactionClient,
   ): Promise<void> {
-    const db = tx ?? this.prisma;
-    const { count } = await db.whatsAppLink.updateMany({
-      where: { userId, revokedAt: null },
-      data: { revokedAt: new Date(), revokedReason: reason },
-    });
+    /*
+     * בלי `tx` נפתחת עסקה משלנו — לא לשם הכתיבה היחידה שיש כאן,
+     * אלא בשביל הנעילה: `pg_advisory_xact_lock` חי בתוך עסקה, וזה
+     * מה שמכניס את הניתוק ואת הקישור לאותו תור.
+     */
+    if (tx === undefined) {
+      await this.prisma.$transaction((t) => this.revokeWithin(t, userId, reason));
+      return;
+    }
+    await this.revokeWithin(tx, userId, reason);
+  }
+
+  private async revokeWithin(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    reason: LinkRevokeReason,
+  ): Promise<void> {
+    await this.lock(tx, userId);
+    /*
+     * **החותמת נכתבת בתוך הנעילה, לפני הכתיבה במסד.**
+     *
+     * היא מה שאומר לניצול קוד שהתחיל קודם: „הקוד הזה קדם לניתוק”.
+     * בלעדיה הניצול היה יכול לכתוב קישור חדש מיד אחרי שהניתוק
+     * הסתיים — כלומר „המכשיר נותק” על המסך ומכשיר מחובר במסד
+     * (ביקורת Codex). התפוגה כאורך חיי הקוד: אחריה אין מה לחסום.
+     */
+    await this.redis.set(
+      `wa-link:revoked:${userId}`,
+      String(Date.now()),
+      "EX",
+      WHATSAPP_LINK_CODE_TTL_SECONDS,
+    );
     /*
      * **וגם הקוד שממתין נשרף.**
      *
@@ -443,6 +550,10 @@ export class WhatsAppLinkService implements OnModuleDestroy {
      */
     const pending = await this.redis.getdel(`wa-link:user:${userId}`);
     if (pending !== null) await this.redis.del(`wa-link:code:${pending}`);
+    const { count } = await tx.whatsAppLink.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date(), revokedReason: reason },
+    });
     if (count > 0) this.logger.log(`קישור וואטסאפ נותק (${reason}) למשתמש ${userId}`);
   }
 

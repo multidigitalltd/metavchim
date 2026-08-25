@@ -232,6 +232,15 @@ export class WhatsAppAssistantService {
      * למשפט „הקוד אינו תקף” (ביקורת Codex).
      */
     if (msg.type === "text" && looksLikeWhatsappLinkCode(msg.text ?? "")) {
+      /*
+       * תפיסה לפי מזהה ההודעה — **גם כאן, ולא רק אחרי הזיהוי.**
+       *
+       * המסלול הזה עוקף את `claimMessage` (שדורש משתמש ומשרד), ולכן
+       * שליחה חוזרת של Meta הייתה מקבלת „הקוד אינו תקף” על אותו קוד
+       * שהמשלוח הראשון בדיוק ניצל — שתי תשובות סותרות, בסדר אקראי
+       * (ביקורת Codex).
+       */
+      if (!(await this.links.claimInbound(msg.externalId))) return;
       void this.sender.markRead(msg.externalId);
       await this.completeLink(msg);
       return;

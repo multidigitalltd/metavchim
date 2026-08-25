@@ -35,6 +35,20 @@ describe("סדר ההכרעה בהודעה נכנסת", () => {
     expect(code).toBeLessThan(identify);
   });
 
+  /*
+   * המסלול הזה עוקף את התפיסה שבמסד (היא דורשת משתמש מזוהה), ולכן
+   * שליחה חוזרת של Meta הייתה עונה „הקוד אינו תקף” על קוד שהמשלוח
+   * הראשון בדיוק ניצל.
+   */
+  it("ושליחה חוזרת של אותה הודעה אינה מטופלת פעמיים", () => {
+    const branch = source.slice(
+      source.indexOf("looksLikeWhatsappLinkCode"),
+      source.indexOf("const identified = await this.identifyUser("),
+    );
+    expect(branch).toContain("this.links.claimInbound(msg.externalId)");
+    expect(branch.indexOf("claimInbound")).toBeLessThan(branch.indexOf("completeLink"));
+  });
+
   it("והקישור נבדק לפני השוואת המספר", () => {
     const resolve = source.indexOf("this.links.resolve(");
     const byPhone = source.indexOf("this.identifyByPhone(");
@@ -204,6 +218,27 @@ describe("מכשיר אחד גם במקביל", () => {
    * מחיקת הקוד למחיקת המצביע היה מאבד את המצביע שלו, וההנפקה
    * הבאה כבר לא הייתה יודעת לבטל אותו.
    */
+  /*
+   * ניצול קוד וניתוק יכלו לחצות זה את זה: הניתוק כותב את הביטול
+   * ואינו רואה קוד ממתין, והניצול — שכבר לקח את הקוד — מוסיף שורה
+   * חדשה רגע אחריו. הנעילה מכניסה את שניהם לתור, והחותמת היא מה
+   * שאומר לניצול שהקוד שלו קדם לניתוק.
+   */
+  it("וקישור וניתוק נכנסים לתור על אותו חשבון", () => {
+    const bind = link.slice(link.indexOf("private async bind("), link.indexOf("private async lock("));
+    expect(bind).toContain("await this.lock(tx, userId)");
+    expect(bind).toContain("this.revokedSince(userId, issuedAt)");
+    const revoke = link.slice(link.indexOf("private async revokeWithin("));
+    expect(revoke).toContain("await this.lock(tx, userId)");
+    // החותמת נכתבת לפני הכתיבה במסד, בתוך הנעילה
+    expect(revoke.indexOf("wa-link:revoked:")).toBeLessThan(revoke.indexOf("updateMany"));
+  });
+
+  it("והקוד נושא את מועד ההפקה שלו", () => {
+    const issue = link.slice(link.indexOf("async issueCode("), link.indexOf("async redeemCode("));
+    expect(issue).toContain("issuedAt: Date.now()");
+  });
+
   it("וניצול קוד מוחק את המצביע רק כשהוא עדיין שלו", () => {
     const fn = link.slice(link.indexOf("async redeemCode("), link.indexOf("private async bind("));
     expect(fn).toContain("redis.eval(");
