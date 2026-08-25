@@ -274,7 +274,26 @@ export default function DashboardPage() {
    * הגבול נמדד בשעון ישראל ולא בשעון הדפדפן, מאותה פונקציה שהשרת
    * משתמש בה — אחרת מתווך שנוסע לחו"ל מקבל „יום” אחר מהשרת.
    */
-  const dayKey = jerusalemDayRange(now).start.getTime();
+  const dayRange = jerusalemDayRange(now);
+  const dayKey = dayRange.start.getTime();
+  /*
+   * ‎**„של היום” נקבע מהערך, לא ממקורו.**
+   *
+   * ‎`today` הוא „הפגישות של יום כלשהו” — היום שהיה כשהבקשה יצאה.
+   * כל צרכן שקרא אותו כ„הפגישות של היום” נשען על ההנחה שהמערך
+   * טרי, ובחצות היא נשברת: `todayEvents` סינן לפי סטטוס בלבד,
+   * ולכן הציג את פגישות אתמול כל עוד הבקשה החדשה באוויר — ולתמיד
+   * אם היא נכשלה (ביקורת Codex).
+   *
+   * זו הפעם הרביעית שאותה טעות חוזרת בקובץ הזה, ובכל פעם על צרכן
+   * אחר. לכן הבדיקה אינה במקום שדווח אלא בערך עצמו: מסננת אחת
+   * שכל מי שמדבר על „היום” עובר דרכה. מערך ישן אינו יכול לייצר
+   * שורה שגויה גם אם הרענון נכשל, וגם אם מישהו יוסיף צרכן חמישי.
+   */
+  const startsToday = (a: AppointmentRow): boolean => {
+    const at = new Date(a.startsAt).getTime();
+    return at >= dayRange.start.getTime() && at < dayRange.end.getTime();
+  };
   /*
    * כל מקור נתונים בדשבורד מאחורי היכולת שהשרת דורש עבורו — לא רק
    * ההצעות. כל אחת מהיכולות האלה ניתנת לשלילה פרטנית למשתמש בודד
@@ -753,7 +772,7 @@ export default function DashboardPage() {
    * בדחיפות 105, ואסור שהן יחלוקו על מה נכלל בה.
    */
   const upcomingToday = (today ?? []).filter(
-    (a) => a.status === "scheduled" && new Date(a.startsAt).getTime() >= now.getTime(),
+    (a) => a.status === "scheduled" && startsToday(a) && new Date(a.startsAt).getTime() >= now.getTime(),
   );
   for (const a of upcomingToday) {
     push({
@@ -836,7 +855,7 @@ export default function DashboardPage() {
     .slice(0, 6);
 
   const todayEvents = (today ?? [])
-    .filter((a) => a.status === "scheduled")
+    .filter((a) => a.status === "scheduled" && startsToday(a))
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
     .slice(0, 4);
 
