@@ -2166,6 +2166,13 @@ model CallRouting {
   leadSource       String   @default("") @map("lead_source") @db.VarChar(20)
   assignedToUserId String?  @map("assigned_to_user_id") @db.Char(26)
   propertyId       String?  @map("property_id") @db.Char(26)
+  /// האם הניתוב כבר נפתר. `virtual_number_id IS NULL` לבדו אינו מבחין
+  /// בין „נצפה מספר ולא התאים” לבין „השורה נוצרה רק כדי לזכור מענה”,
+  /// ובלי ההבחנה הזו אירוע `Answer` היה מוחק את הניתוב של כל שיחה.
+  routeResolved    Boolean  @default(false) @map("route_resolved")
+  /// האם נצפה אירוע מענה (`Answer`) לשיחה הזו — ראיית מענה שאינה
+  /// תלויה ב-`talktime` שיגיע (או לא יגיע) ב-`Hangup`.
+  answerObserved   Boolean  @default(false) @map("answer_observed")
   createdAt        DateTime @default(now()) @map("created_at")
 
   @@id([tenantId, providerCallId])

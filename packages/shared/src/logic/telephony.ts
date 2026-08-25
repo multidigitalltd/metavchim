@@ -854,13 +854,115 @@ export interface CallAction {
  * ההגנה מפני זבל נשארת אותה הגנה — רק שיחה שנענתה, ורק למספר שאינו
  * מוכר. חיוג שגוי שנותק בצלצול אינו פותח דבר.
  */
-export function callAction(event: TelephonyEvent, knownContact: boolean): CallAction {
-  const finished = event.type === "ended" || event.type === "missed";
+export function callAction(
+  event: TelephonyEvent,
+  knownContact: boolean,
+  answerObserved: boolean,
+): CallAction {
   return {
-    logCall: finished,
+    logCall: callIsFinal(event),
     notify: event.type === "ringing" && event.direction === "inbound",
-    createLead: event.type === "ended" && !knownContact,
+    createLead: event.type === "ended" && callSpoke(event, answerObserved) && !knownContact,
   };
+}
+
+/**
+ * האם האירוע **מסיים** שיחה — כלומר האם הוא זה שכותב שורה.
+ *
+ * מיוצא כדי שמי שצריך רק את התשובה הזו (האבחון, למשל) לא יקרא
+ * ל-`callAction` עם ארגומנטים מומצאים כדי לשלוף שדה אחד. ניסיון קודם
+ * לכתוב את הרשימה מחדש במקום הקריאה מנה `ringing` בלבד ופספס את
+ * `answered` (ביקורת Codex) — ולכן `callAction` עצמה קוראת לפונקציה
+ * הזו, ושתי התשובות אינן יכולות להיפרד.
+ */
+export function callIsFinal(event: TelephonyEvent): boolean {
+  return event.type === "ended" || event.type === "missed";
+}
+
+/**
+ * ‎**הראיה שמישהו דיבר** — משך חיובי, או אירוע מענה שנצפה קודם.
+ *
+ * ‎„נענתה” היא ראיה ולא היעדר ראיה לכך שלא נענתה: אירוע ניתוק שהגיע
+ * בלי משך מסווג `ended` מבלי שנאמר דבר על מענה, ורישומו כ„נענתה”
+ * הוא מה שהציג בשטח „על כל השיחות כתוב נענתה”.
+ *
+ * ‎**אבל המשך אינו הראיה היחידה.** 015 שולחת `Calling` ⟵ `Answer` ⟵
+ * `Hangup`, ואירוע ה-`Answer` הוא אמירה מפורשת של המרכזייה שהשיחה
+ * נענתה. כשהניתוק מגיע בלי `talktime`, הסתמכות על המשך לבדו הופכת
+ * שיחה שהמרכזייה **אמרה** עליה שנענתה ל„לא ידוע” — ומונעת פתיחת ליד
+ * ממספר לא מוכר שדיברנו איתו בפועל (ביקורת Codex). הראיה קיימת,
+ * ופשוט נזרקה באירוע קודם.
+ *
+ * ‎**„לא נענתה” גובר על שניהם.** ניתוק עם `talktime = 0` הוא אמירה
+ * מפורשת שלא היה דיבור, והוא מאוחר יותר מה-`Answer`; מרכזייה יכולה
+ * לצלצל, לענות במענה קולי ולנתק בלי שאיש דיבר.
+ *
+ * ‎`answerObserved` מגיע מהקורא ואינו נגזר מהאירוע, כי הוא **עובדה
+ * על שיחה ולא על אירוע**: מי שמחזיק אותה הוא מי ששמר את האירוע
+ * הקודם.
+ */
+export function callSpoke(event: TelephonyEvent, answerObserved: boolean): boolean {
+  if (event.type === "missed") return false;
+  return answerObserved || (event.durationSeconds !== undefined && event.durationSeconds > 0);
+}
+
+/* ==================== משיכת הקלטות — עצירת הסבב ==================== */
+
+/**
+ * תוצאת ניסיון משיכה בודד של הקלטה מהספק.
+ *
+ * שלוש ולא שתיים, וזו כל הנקודה: „הצליח”, „הספק סירב”, ו**„נכשל
+ * אצלנו”** — נתיב פגום, אישורי גישה חסרים, תשובה בלתי קריאה, תקלת
+ * רשת מקומית. השלישי אינו אומר דבר על הספק.
+ */
+export type RecordingPullResult = "stored" | "refused" | "other";
+
+/**
+ * מונה הסירובים הרצופים אחרי תוצאה אחת — **שלוש תוצאות, שלוש
+ * התנהגויות.**
+ *
+ * הסבב נעצר אחרי כמה סירובים רצופים כדי שחנק מצד הספק לא יזין את
+ * עצמו. השאלה היחידה כאן היא מה עושה כל תוצאה למונה:
+ *
+ * | תוצאה | מה זה מוכיח | המונה |
+ * |---|---|---|
+ * | `refused` | הספק אמר „לא” | ‎+1 |
+ * | `stored` | הספק ענה, והוא בסדר | ‎0 |
+ * | `other` | **כלום** — נכשלנו לפני שהספק ענה | ללא שינוי |
+ *
+ * ‎**`other` אינו מאפס**, וזה התיקון. הקוד איפס על כל מה שאינו
+ * סירוב, וההערה שמעליו כתבה „כל **הצלחה** מאפסת” — כלומר ההערה
+ * תיארה כלל מחמיר מזה שהקוד הריץ. התוצאה: שני סירובים, כישלון
+ * מקומי אחד באמצע, והמונה חוזר לאפס בלי ששום בקשה מוצלחת הוכיחה
+ * שהספק התאושש. כשלים מקומיים מפוזרים היו מבטלים את העצירה לגמרי
+ * בדיוק בזמן חנק (ביקורת Codex).
+ *
+ * ‎`other` גם אינו **מגדיל** — תקלת רשת אצלנו אינה „לא” של הספק,
+ * ועצירת הסבב בגללה הייתה מאטה את המשיכה בלי שיש חנק כלל.
+ *
+ * הפונקציה יושבת כאן ולא בשירות כדי שהכלל יהיה **נבדק**: בשירות
+ * הוא שורה אחת שאפשר להפוך בלי שאף בדיקה תרגיש, וזה בדיוק מה
+ * שקרה פעמיים.
+ */
+export function nextRefusalStreak(streak: number, result: RecordingPullResult): number {
+  if (result === "refused") return streak + 1;
+  if (result === "stored") return 0;
+  return streak;
+}
+
+/** תוצאת השיחה כפי שהיא נרשמת ומוצגת. ראו `CALL_OUTCOME_LABELS`. */
+export type CallOutcome = "answered" | "missed" | "unknown";
+
+/**
+ * התוצאה שנרשמת לשורת השיחה — **מאותה ראיה** שפותחת ליד.
+ *
+ * הפונקציה קיימת כדי ששני הדברים לא ייפרדו: קודם הביטוי היה כתוב
+ * ידנית בשירות, ו-`callAction` החזיקה עותק משלו של „דיבר”. שתי
+ * הגדרות של אותה עובדה נוטות להסכים ביום שנכתבו ולא אחריו.
+ */
+export function callOutcomeOf(event: TelephonyEvent, answerObserved: boolean): CallOutcome {
+  if (event.type === "missed") return "missed";
+  return callSpoke(event, answerObserved) ? "answered" : "unknown";
 }
 
 /** כותרת ההתראה שהמתווך רואה כשהטלפון מצלצל. */

@@ -70,7 +70,16 @@ export type OwnerActivityResult =
   | "needs_other"
   | "answered"
   | "unanswered"
-  | "voicemail";
+  | "voicemail"
+  /*
+   * ‎**שיחה שהמרכזייה לא מסרה עליה אם נענתה.**
+   *
+   * בלי הערך הזה השיחה נושרת מהדוח כולו: המיפוי מדלג על תוצאה שאינה
+   * מוכרת, ולכן שיחה שקרתה באמת נעלמת מהטבלה, מהייצוא, מהסיכומים
+   * ומחישוב „פעילות אחרונה” (ביקורת Codex). לבעל הנכס זו פגיעה
+   * כפולה — גם הפעילות נעלמת וגם הדוח מציג פחות ממה שנעשה עבורו.
+   */
+  | "unknown";
 
 export interface OwnerActivityEntry {
   at: Date;
@@ -99,6 +108,8 @@ export const OWNER_ACTIVITY_RESULT_LABELS: Record<OwnerActivityResult, string> =
   needs_other: "הלקוח מחפש משהו אחר",
   answered: "נענתה",
   unanswered: "לא נענתה",
+  /* לבעל הנכס: התקשרו, ואיננו יודעים אם נענה. עדיף על טענה שגויה */
+  unknown: "לא ידוע אם נענתה",
   voicemail: "הועברה לתא קולי",
 };
 
@@ -139,6 +150,7 @@ const CALL_OUTCOMES: Record<string, OwnerActivityResult> = {
   missed: "unanswered",
   no_answer: "unanswered",
   voicemail: "voicemail",
+  unknown: "unknown",
 };
 
 function appointmentResult(row: OwnerAppointmentRow): OwnerActivityResult {

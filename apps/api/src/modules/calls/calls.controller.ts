@@ -22,7 +22,25 @@ import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { CallsService, type CallDto } from "./calls.service";
 
+/*
+ * ‎**רישום ידני וסינון אינם אותה רשימה.**
+ *
+ * ‎`unknown` נכתב רק בקליטה אוטומטית מהמרכזייה, כשהיא לא מסרה אם
+ * השיחה נענתה. מי שרושם שיחה בעצמו **יודע** מה קרה בה, ולכן אין
+ * טעם להציע לו „לא ידוע” — זו הזמנה לרשומה ריקה מתוכן.
+ *
+ * הסינון, לעומת זאת, חייב להכיר את הערך: בלעדיו הצ׳יפ „לא ידוע”
+ * במסך היה נדחה בבקשה שגויה, כלומר מצב שהמערכת כותבת ואינה מאפשרת
+ * לחפש.
+ */
 const OutcomeSchema = z.enum(["answered", "missed", "no_answer", "voicemail"]);
+const OutcomeFilterSchema = z.enum([
+  "answered",
+  "missed",
+  "no_answer",
+  "voicemail",
+  "unknown",
+]);
 
 const CreateSchema = z
   .object({
@@ -39,7 +57,7 @@ const CreateSchema = z
 
 const ListQuerySchema = z
   .object({
-    outcome: OutcomeSchema.optional(),
+    outcome: OutcomeFilterSchema.optional(),
     leadId: IdSchema.optional(),
     /**
      * שיחה אחת לפי מזהה.

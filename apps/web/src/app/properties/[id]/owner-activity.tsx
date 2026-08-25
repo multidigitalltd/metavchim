@@ -74,6 +74,12 @@ const RESULT_TONE: Record<OwnerActivityResult, string> = {
   answered: "var(--color-success)",
   unanswered: "var(--color-danger)",
   voicemail: "var(--color-warning)",
+  /*
+   * ניטרלי ולא אדום: „לא ידוע אם נענתה” אינו כשל אלא היעדר מידע,
+   * ואדום שמור לחסימה ולשגיאה. השורה מופיעה כדי שהפעילות תיספר —
+   * הרי השיחה קרתה — בלי לטעון עליה מה שאיננו יודעים.
+   */
+  unknown: "var(--color-text-soft)",
 };
 
 export function OwnerActivity({
