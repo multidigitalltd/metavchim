@@ -405,6 +405,7 @@ export default function PropertiesPage() {
 
               {bulkNote ? <Notice tone="success">{bulkNote}</Notice> : null}
 
+              <div className="mv-list-switch">
               {/*
                 כרטיסים עד 1280, טבלה מעליו — **ולא 640 ולא 1024.**
 
@@ -431,7 +432,7 @@ export default function PropertiesPage() {
                 שצריך לגרור, וזה גם הנימוק המקורי של תצוגת הכרטיסים
                 (docs/06 §1.5).
               */}
-              <ul className="flex flex-col gap-3 xl:hidden">
+              <ul className="mv-list-as-cards flex-col gap-3">
                 {visible.map((p) => (
                   <li
                     key={p.id}
@@ -526,7 +527,7 @@ export default function PropertiesPage() {
               </ul>
 
               {/* שולחני: טבלת ה-grid מהעיצוב. הנקודה מנומקת ליד `xl:hidden` */}
-              <div className="mv-list-card hidden xl:block">
+              <div className="mv-list-as-table mv-list-card">
                 <div className="mv-list-head" style={{ gridTemplateColumns: GRID }}>
                   <span className="flex items-center gap-2">
                     {mayShare ? (
@@ -646,6 +647,7 @@ export default function PropertiesPage() {
                     </div>
                   );
                 })}
+              </div>
               </div>
             </>
           )}
