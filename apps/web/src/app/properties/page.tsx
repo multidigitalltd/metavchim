@@ -292,12 +292,23 @@ export default function PropertiesPage() {
           <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
             כל נכס שתוסיפו ייבדק מול הקונים שבמאגר, וההתאמות יחושבו לבד.
           </p>
+          {/*
+           * ‎`mv-button` ולא `mv-btn-action`/`mv-btn-plain` — יעד מגע.
+           *
+           * ‎§26 דורש „buttons 46 and up”, ושני הכפתורים שכתבתי כאן
+           * היו מתחת ל-44: ‎`mv-btn-action` הוא 42, ו-`mv-btn-plain`
+           * הוא ריפוד 6px סביב טקסט 14 — כ-34 בפועל. דווקא הפעולה
+           * הזו מיועדת לשימוש במובייל תוך כדי תנועה (ביקורת Codex).
+           *
+           * ‎`mv-button` הוא 46 בזכות `min-height`, כלומר גם טקסט
+           * שנשבר לשתי שורות אינו מקטין את יעד המגע.
+           */}
           <div className="flex flex-wrap items-center justify-center gap-2.5">
-            <Link href="/properties/new" className="mv-btn-action">
+            <Link href="/properties/new" className="mv-button mv-button--primary">
               <IconPlus s={16} /> נכס חדש
             </Link>
             {canVoice ? (
-              <Link href="/voice" className="mv-btn-plain">
+              <Link href="/voice" className="mv-button mv-button--secondary">
                 <IconMic s={16} /> קליטה בקול
               </Link>
             ) : null}
@@ -395,20 +406,32 @@ export default function PropertiesPage() {
               {bulkNote ? <Notice tone="success">{bulkNote}</Notice> : null}
 
               {/*
-                כרטיסים עד 1024, טבלה מעליו — **ולא 640 כמו קודם.**
+                כרטיסים עד 1280, טבלה מעליו — **ולא 640 ולא 1024.**
 
-                הטבלה נפתחה ב-`sm`, ובטווח 640–1023 נשארו לשתי
+                הטבלה נפתחה תחילה ב-`sm`, ובטווח 640–1023 נשארו לשתי
                 העמודות האחרונות כשישים פיקסלים כל אחת. כל עוד הן
                 נשאו טקסט זה עבד; מרגע שהפכתי אותן לגלולות — שהן
                 ‎`white-space: nowrap` עם 22 פיקסלים ריפוד אופקי —
                 „12 התאמות” ותוויות סטטוס ארוכות נחתכות או דורסות
                 את העמודה השכנה (ביקורת Codex).
 
-                העברה ל-`lg` ולא הוספת גלילה אופקית: בטאבלט כרטיס
-                קריא עדיף על טבלה שצריך לגרור, וזה גם הנימוק המקורי
-                של תצוגת הכרטיסים (docs/06 §1.5).
+                ‎**‎`lg` היה התיקון הגרוע ביותר האפשרי, ולא במקרה.**
+                ‎1024 הוא בדיוק הרוחב שבו `.mv-sidebar` נכנס ותופס
+                250 פיקסלים. כלומר רוחב התוכן **מצטמצם** שם:
+                ב-1023 הכרטיסים מקבלים ‎1023−68 ≈ 955‎, וב-1024
+                הטבלה נפתחת על ‎1024−250−68 ≈ 706‎. בחרתי את הנקודה
+                היחידה שבה המעבר לפריסה הרחבה נעשה על שטח צר יותר
+                (ביקורת Codex).
+
+                ‎1280 מחזיר ‎1280−250−68 ≈ 962‎ — הרוחב הראשון שעובר
+                את מה שתצוגת הכרטיסים כבר קיבלה, וכ-115 פיקסלים לכל
+                עמודת ‎`1fr`‎, די לגלולה השלמה.
+
+                ולא גלילה אופקית: בטאבלט כרטיס קריא עדיף על טבלה
+                שצריך לגרור, וזה גם הנימוק המקורי של תצוגת הכרטיסים
+                (docs/06 §1.5).
               */}
-              <ul className="flex flex-col gap-3 lg:hidden">
+              <ul className="flex flex-col gap-3 xl:hidden">
                 {visible.map((p) => (
                   <li
                     key={p.id}
@@ -473,8 +496,8 @@ export default function PropertiesPage() {
                 ))}
               </ul>
 
-              {/* שולחני: טבלת ה-grid מהעיצוב */}
-              <div className="mv-list-card hidden lg:block">
+              {/* שולחני: טבלת ה-grid מהעיצוב. הנקודה מנומקת ליד `xl:hidden` */}
+              <div className="mv-list-card hidden xl:block">
                 <div className="mv-list-head" style={{ gridTemplateColumns: GRID }}>
                   <span className="flex items-center gap-2">
                     {mayShare ? (
