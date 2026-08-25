@@ -52,6 +52,15 @@ import {
 import { loadEnv } from "../../config/env";
 
 /**
+ * כמה זמן צילום ניתוב נחשב „שיחה באוויר”.
+ *
+ * שיחה נמשכת דקות, ולא שעות. שתים-עשרה שעות הן מרווח שמכסה בנוחות
+ * גם ניסיון חוזר מאוחר של המרכזייה, ועדיין מבטיח שצילום של שיחה
+ * שה-`Hangup` שלה לא הגיע מעולם לא יישאר במסד לתמיד.
+ */
+const ROUTING_RETENTION_MS = 12 * 60 * 60 * 1000;
+
+/**
  * חיבור מרכזיית הטלפון של המשרד.
  *
  * המשרד מחבר ספק ומקבל כתובת Webhook ייחודית משלו; המרכזייה דוחפת
@@ -826,6 +835,24 @@ export class TelephonyService {
           select: { id: true, outcome: true },
         });
 
+        /*
+         * **הניתוב נצפה כאן — באירוע הראשון של השיחה.**
+         *
+         * קודם הוא נפתר רק באירוע המסיים, ולכן מספר שהועבר לנכס אחר
+         * באמצע השיחה — או לפני `Hangup` שנשלח שוב באיחור — קבע
+         * למפרע לאיזה נכס השיחה שייכת. דוח שיוצא לבעל נכס אינו יכול
+         * להישען על תצורה שאולי כבר אינה זו שהלקוח חייג אליה
+         * (ביקורת Codex).
+         *
+         * ‎`routeOf` צופה פעם אחת ומחזיר את אותה תשובה בכל אירוע
+         * נוסף של אותה שיחה. כשהשורה כבר קיימת אין כאן שאילתת
+         * ניתוב חדשה, ולכן זה גם זול יותר ולא רק נכון יותר.
+         *
+         * כש-`seen` — שורת השיחה כבר נכתבה, שני המסלולים חוזרים
+         * מיד, ואין מה לצלם.
+         */
+        const virtualNumber = seen ? null : await this.routeOf(tx, tenantId, event);
+
         if (action.notify) {
           if (seen) return; // כבר הפכה לשיחה — ההתראה עליה כבר יצאה
           /*
@@ -856,15 +883,6 @@ export class TelephonyService {
          * לתמיד — כלומר הלקוח שנפתח מהשיחה לא היה מקושר לשיחה שיצרה
          * אותו, ומכרטיסו אי אפשר היה להגיע אליה (ביקורת Codex).
          */
-        /*
-         * ההגדרה של המספר שאליו התקשרו — מקור, סוכן ונכס.
-         *
-         * נקראת גם כשלא נפתח ליד: היא זולה, והשורה נכתבת בכל מקרה עם
-         * `dialedNumber` כדי שדוח הקמפיינים יספור גם שיחות מלקוחות
-         * מוכרים. קמפיין שמחזיר לקוח ותיק הוא קמפיין שעבד.
-         */
-        const virtualNumber = await this.matchVirtualNumber(tx, tenantId, event.dialedNumber);
-
         let contactId = contact?.id ?? null;
         let leadId: string | null = null;
         if (action.createLead) {
@@ -907,11 +925,11 @@ export class TelephonyService {
              * שיחה יוצאת אינה נושאת נכס, מאותו נימוק שהליד שלה אינו
              * נושא: היעד נבחר על ידי הסוכן ולא על ידי מספר שפורסם.
              *
-             * **„באותו רגע” הוא רגע כתיבת השורה — האירוע המסיים.**
-             * ‎`Calling` אינו שומר את הניתוב שראה, ולכן מספר שהועבר
-             * לנכס אחר באמצע השיחה (או לפני `Hangup` שנשלח שוב
-             * באיחור) ייתן כאן את התצורה החדשה. ראו ההערה על העמודה
-             * בסכימה — הגבול הזה מתועד ולא מוסתר.
+             * **„באותו רגע” הוא הרגע שבו השיחה הגיעה**, ולא הרגע
+             * שבו השורה נכתבת. `routeOf` צילם את הניתוב באירוע
+             * הראשון, וכאן נקרא הצילום — כך שהעברת המספר לנכס אחר
+             * באמצע השיחה, או `Hangup` שנשלח שוב באיחור, אינם
+             * משנים למי השיחה משויכת.
              */
             propertyId:
               event.direction === "outbound" ? null : (virtualNumber?.propertyId ?? null),
@@ -937,6 +955,15 @@ export class TelephonyService {
             // ל-`recordingKey` שלנו. ראו `RecordingFetchService`.
             providerRecordingPath: event.providerRecordingPath ?? null,
           },
+        });
+
+        /*
+         * הצילום מילא את תפקידו ונמחק באותה טרנזקציה שכתבה את השורה.
+         * כך הטבלה מחזיקה שיחות באוויר בלבד, ולא היסטוריה שנייה של
+         * כל שיחה שאי פעם נכנסה.
+         */
+        await tx.callRouting.deleteMany({
+          where: { tenantId, providerCallId: event.providerCallId },
         });
 
         /*
@@ -1126,6 +1153,109 @@ export class TelephonyService {
       },
     });
     return row === null ? null : matchVirtualNumber(dialed, [row]);
+  }
+
+  /**
+   * הניתוב של השיחה — **כפי שנצפה כשהיא הגיעה.**
+   *
+   * 015 שולחת שלושה אירועים לשיחה אחת, ורק האחרון כותב שורת שיחה.
+   * פתרון המספר הווירטואלי באירוע האחרון בלבד אומר שהגדרה שהועברה
+   * לנכס אחר באמצע השיחה — או לפני `Hangup` שנשלח שוב באיחור —
+   * קובעת למפרע לאיזה נכס השיחה שייכת, ודוח שיוצא לבעל הנכס נשען
+   * על תצורה שאולי כבר אינה זו שהלקוח חייג אליה (ביקורת Codex).
+   *
+   * הקריאה הראשונה **שיש בה מספר** צופה ושומרת; כל קריאה נוספת
+   * מחזירה את מה שנשמר. שלוש מצבים ולא שניים:
+   *
+   * | במסד | פירוש |
+   * |---|---|
+   * | שורה עם `virtualNumberId` | זו ההגדרה שהלקוח חייג אליה |
+   * | שורה עם `virtualNumberId` ריק | נצפה מספר, ולא התאים לאף הגדרה |
+   * | אין שורה | טרם הגיע אירוע שנשא מספר בכלל |
+   *
+   * ההבחנה בין השתיים האחרונות אינה קוסמטית. „נצפה ולא התאים”
+   * מגן מפני מספר שהוגדר **אחרי** תחילת השיחה ונתפס בסופה; „טרם
+   * נצפה” נדרש כי יש מרכזיות ששולחות `dialedNumber` רק באירוע
+   * המסיים, ואצלן צילום מוקדם היה מוחק את הניתוב לכל שיחה
+   * (ביקורת Codex).
+   *
+   * ‎`isActive: true` בהחזרה אינו ניחוש: שורה נכתבת רק כשההתאמה
+   * הצליחה, ו-`matchVirtualNumber` אינו מתאים מספר מושבת. כלומר
+   * המספר **היה** פעיל ברגע שהלקוח חייג, וכיבוי מאוחר יותר אינו
+   * אמור לשנות את מה שנרשם על שיחה שכבר קרתה.
+   *
+   * הקריאה מוגנת בנעילת `providerCallId` שנלקחה למעלה, ולכן שתי
+   * פניות מקבילות של אותה שיחה אינן יכולות לצלם שתי תצורות שונות.
+   */
+  private async routeOf(
+    tx: Parameters<Parameters<PrismaService["withExplicitTenant"]>[1]>[0],
+    tenantId: string,
+    event: { providerCallId: string; dialedNumber?: string },
+  ): Promise<VirtualNumberRule | null> {
+    const seen = await tx.callRouting.findFirst({
+      where: { tenantId, providerCallId: event.providerCallId },
+      select: {
+        virtualNumberId: true,
+        label: true,
+        leadSource: true,
+        assignedToUserId: true,
+        propertyId: true,
+      },
+    });
+    if (seen !== null) {
+      return seen.virtualNumberId === null
+        ? null
+        : {
+            id: seen.virtualNumberId,
+            // המספר שאליו חייגו, כפי שהאירוע דיווח עליו
+            phone: event.dialedNumber ?? "",
+            label: seen.label,
+            leadSource: seen.leadSource,
+            assignedToUserId: seen.assignedToUserId,
+            propertyId: seen.propertyId,
+            isActive: true,
+          };
+    }
+
+    /*
+     * **אין מספר — אין צילום.**
+     *
+     * ‎`dialedNumber` הוא שדה אופציונלי, ויש מרכזיות ששולחות אותו
+     * רק באירוע המסיים. צילום „נצפה, ולא התאים” על אירוע שלא נשא
+     * מספר כלל היה נקרא אחר כך כדחייה ודאית, והאירוע המסיים — זה
+     * שכן נשא את המספר — לא היה פותר אותו. כל שיחה אצל ספק כזה
+     * הייתה מאבדת את מקור הקמפיין, הנכס והסוכן (ביקורת Codex).
+     *
+     * שתי אי-ידיעות שונות, ולכן שתי תוצאות שונות: „לא נשאל” נדחה
+     * לאירוע הבא, ו„נשאל ולא נמצא” נשמר.
+     */
+    if (event.dialedNumber === undefined) return null;
+
+    const rule = await this.matchVirtualNumber(tx, tenantId, event.dialedNumber);
+    await tx.callRouting.create({
+      data: {
+        tenantId,
+        providerCallId: event.providerCallId,
+        virtualNumberId: rule?.id ?? null,
+        label: rule?.label ?? "",
+        leadSource: rule?.leadSource ?? "",
+        assignedToUserId: rule?.assignedToUserId ?? null,
+        propertyId: rule?.propertyId ?? null,
+      },
+    });
+    /*
+     * ניקוי היתומות — כאן, ולא בסבב רקע נפרד.
+     *
+     * שיחה שה-`Hangup` שלה לא הגיע מעולם משאירה שורה שאיש לא ימחק.
+     * הניקוי רץ פעם אחת לכל שיחה חדשה, מוגבל לדייר, ונשען על
+     * האינדקס `(tenant_id, created_at)` — כלומר משרד שמייצר הרבה
+     * יתומות הוא גם זה שמנקה אותן לעיתים קרובות. סבב רקע נוסף היה
+     * טיימר שלם שצריך לתחזק בשביל טבלה שמחזיקה דקות.
+     */
+    await tx.callRouting.deleteMany({
+      where: { tenantId, createdAt: { lt: new Date(Date.now() - ROUTING_RETENTION_MS) } },
+    });
+    return rule;
   }
 
   /**

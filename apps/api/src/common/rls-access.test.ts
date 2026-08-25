@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { accessorsByTable, rlsTables } from "./rls-tables.testkit";
 
 /**
  * טבלה תחת RLS נקראת **רק** דרך טרנזקציה עם הקשר דייר.
@@ -27,52 +28,13 @@ const PRISMA_DIR = join(API_SRC, "..", "prisma");
 const WORKERS_SRC = join(API_SRC, "..", "..", "workers", "src");
 
 /* ============================================================
-   1. אילו טבלאות תחת RLS — מהמיגרציות, לא מרשימה ידנית
-   ============================================================ */
+   1-2. אילו טבלאות תחת RLS, ומה שם המאפיין שלהן ב-Prisma
+   ============================================================
 
-function migrationSql(): string {
-  const dir = join(PRISMA_DIR, "migrations");
-  return readdirSync(dir, { recursive: true, encoding: "utf8" })
-    .filter((name) => name.endsWith("migration.sql"))
-    .map((name) => readFileSync(join(dir, name), "utf8"))
-    .join("\n");
-}
-
-function rlsTables(): Set<string> {
-  const sql = migrationSql();
-  const enabled = new Set<string>();
-
-  // הצורה המפורשת: ALTER TABLE x ENABLE ROW LEVEL SECURITY
-  for (const match of sql.matchAll(/ALTER TABLE\s+(\w+)\s+ENABLE ROW LEVEL SECURITY/gu)) {
-    enabled.add(match[1]!);
-  }
-  // הצורה בלולאה: FOREACH t IN ARRAY ARRAY[ 'a', 'b', … ]
-  for (const block of sql.matchAll(/FOREACH\s+\w+\s+IN ARRAY ARRAY\[([^\]]+)\]/gu)) {
-    for (const name of block[1]!.matchAll(/'(\w+)'/gu)) enabled.add(name[1]!);
-  }
-  // מה שבוטל במפורש אינו תחת RLS (outbox_events)
-  for (const match of sql.matchAll(/ALTER TABLE\s+(\w+)\s+DISABLE ROW LEVEL SECURITY/gu)) {
-    enabled.delete(match[1]!);
-  }
-  return enabled;
-}
-
-/* ============================================================
-   2. שם הטבלה ⟵ שם המאפיין ב-Prisma Client
-   ============================================================ */
-
-/** `model PropertyMedia { … @@map("property_media") }` ⟵ `propertyMedia`. */
-function accessorsByTable(): Map<string, string> {
-  const schema = readFileSync(join(PRISMA_DIR, "schema.prisma"), "utf8");
-  const byTable = new Map<string, string>();
-  for (const block of schema.matchAll(/model\s+(\w+)\s*\{([\s\S]*?)\n\}/gu)) {
-    const model = block[1]!;
-    const mapped = /@@map\("(\w+)"\)/u.exec(block[2]!)?.[1];
-    const accessor = model.charAt(0).toLowerCase() + model.slice(1);
-    byTable.set(mapped ?? model, accessor);
-  }
-  return byTable;
-}
+   שתי הגזירות עברו ל-`rls-tables.testkit`, כי `tenant-purge-coverage`
+   שואלת בדיוק את אותה שאלה. כשלכל בדיקה היה עותק משלה, הביטוי כאן
+   לא קיבל **שם מצוטט** — ושלוש טבלאות נעדרו משתיהן גם יחד בלי
+   שאיש ראה זאת (ביקורת Codex). */
 
 /* ============================================================
    3. איפה נקראת גישה ישירה
@@ -152,8 +114,8 @@ function violationsIn(file: string, guarded: Set<string>, tables: Set<string>): 
 
 /* ============================================================ */
 
-const TABLES = rlsTables();
-const BY_TABLE = accessorsByTable();
+const TABLES = rlsTables(PRISMA_DIR);
+const BY_TABLE = accessorsByTable(PRISMA_DIR);
 const GUARDED = new Set(
   [...TABLES].map((table) => BY_TABLE.get(table)).filter((a): a is string => a !== undefined),
 );

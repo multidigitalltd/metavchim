@@ -2104,6 +2104,42 @@ model VirtualNumber {
 }
 
 /**
+ * הניתוב שנצפה כשהשיחה **הגיעה** — לא כשהיא הסתיימה.
+ *
+ * 015 שולחת שלושה אירועים לשיחה אחת, ורק האחרון כותב שורת שיחה.
+ * עד כה המספר הווירטואלי נפתר באירוע האחרון בלבד, ולכן הגדרה
+ * שהשתנתה באמצע השיחה — או לפני `Hangup` שנשלח שוב באיחור — קבעה
+ * למפרע לאיזה נכס השיחה שייכת. דוח שיוצא לבעל נכס אינו יכול
+ * להישען על תצורה שאולי כבר לא זו שהלקוח חייג אליה.
+ *
+ * השורה נכתבת פעם אחת, באירוע הראשון, ונמחקת ברגע ששורת השיחה
+ * נכתבה מתוכה. כלומר הטבלה מחזיקה שיחות **באוויר** בלבד. שיחה
+ * שה-`Hangup` שלה לא הגיע מעולם משאירה שורה יתומה, ולכן יש ניקוי
+ * לפי גיל — ראו `ROUTING_RETENTION_MS`.
+ *
+ * קיום השורה הוא עצמו הנתון: `virtualNumberId = NULL` פירושו
+ * „נצפה, ולא התאים אף מספר”, ולא „לא נצפה”. בלי ההבחנה הזו מספר
+ * שהוגדר **אחרי** תחילת השיחה היה נתפס בסוף שלה.
+ */
+model CallRouting {
+  tenantId         String   @map("tenant_id") @db.Char(26)
+  providerCallId   String   @map("provider_call_id") @db.VarChar(80)
+  /// ההגדרה שהותאמה, או NULL כשנצפה שאין התאמה
+  virtualNumberId  String?  @map("virtual_number_id") @db.Char(26)
+  /// שדות ההגדרה כצילום — היא יכולה להשתנות או להימחק בזמן השיחה
+  label            String   @default("") @db.VarChar(60)
+  leadSource       String   @default("") @map("lead_source") @db.VarChar(20)
+  assignedToUserId String?  @map("assigned_to_user_id") @db.Char(26)
+  propertyId       String?  @map("property_id") @db.Char(26)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@id([tenantId, providerCallId])
+  /// לניקוי היתומות לפי גיל
+  @@index([tenantId, createdAt])
+  @@map("call_routings")
+}
+
+/**
  * חיבור יומן Google של משתמש.
  * למשתמש ולא למשרד: ליומן יש בעלים אחד, וחיבור ברמת המשרד היה מחייב
  * חשבון Google משותף — מה שאף משרד לא עושה.

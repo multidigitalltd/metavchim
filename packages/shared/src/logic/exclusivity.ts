@@ -43,6 +43,7 @@
  */
 
 import { addMonths } from "./credit-expiry.js";
+import { formatJerusalemDate } from "./israel-time.js";
 
 /**
  * סוג הנכס לעניין סעיף 9 — **ולא סוג הנכס במערכת.**
@@ -386,8 +387,15 @@ export function ownerReportText(input: {
   return lines.join("\n");
 }
 
-function formatDate(date: Date): string {
-  const day = String(date.getUTCDate()).padStart(2, "0");
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  return `${day}.${month}.${date.getUTCFullYear()}`;
-}
+/**
+ * תאריך בשעון ישראל — ולא בשעון התהליך.
+ *
+ * כאן זה לא עניין של הצגה. פעולת שיווק שנרשמה ב-01:00 בלילה
+ * בירושלים היא 22:00 של **אתמול** ב-UTC, והנוסח שיצא למוכר הקדים
+ * אותה ביום שלם. בדוח שנועד להראות שעמדנו בתקנות — ושמועד השליש
+ * נגזר ממנו — יום הוא ההבדל בין „בזמן” ל„באיחור”.
+ *
+ * ‎`formatJerusalemDate` היה קיים כאן לצדנו לאורך כל הזמן; המודול
+ * הזה פשוט לא קרא לו והחזיק מעצב פרטי משלו על `getUTC*`.
+ */
+const formatDate = formatJerusalemDate;
