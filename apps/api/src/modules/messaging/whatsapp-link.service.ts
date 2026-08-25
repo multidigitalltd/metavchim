@@ -392,8 +392,21 @@ export class WhatsAppLinkService implements OnModuleDestroy {
                AND ${phoneMatches}
              LIMIT 1`;
           if (current === undefined) return false;
+          /*
+           * **גם היסטוריה של החשבון עוצרת, לא רק של המספר.**
+           *
+           * מתווך שקישר מכשיר בקוד בזמן שבפרופיל עדיין רשום מספר
+           * אחר — מצב רגיל לגמרי — לא הותיר שום מצבה על המספר
+           * ההוא. הודעה ראשונה ממנו הייתה עוברת את שתי הבדיקות,
+           * מנתקת את המכשיר שאושר בקוד ותופסת את מקומו: בדיוק
+           * ההיפוך של מה שהקוד נועד להוכיח (ביקורת Codex).
+           *
+           * הצירוף לפי מספר קיים אך ורק לחשבון שמעולם לא נגע
+           * בקישור — לא הוא ולא המספר. מרגע שהיה קישור, כל שינוי
+           * עובר בקוד.
+           */
           const previous = await tx.whatsAppLink.findFirst({
-            where: { waIdHash },
+            where: { OR: [{ waIdHash }, { userId }] },
             select: { id: true },
           });
           if (previous !== null) return false;
