@@ -239,6 +239,17 @@ describe("מכשיר אחד גם במקביל", () => {
     expect(issue).toContain("issuedAt: Date.now()");
   });
 
+  /*
+   * בלי הנעילה, הנפקה שרצה במקביל לניתוק יכלה לכתוב קוד אחרי
+   * החותמת ולהתקין מצביע אחרי שהניתוק חיפש אותו — קוד ששרד ניתוק
+   * שהצליח, ותקף בעיני הבדיקה כי הוא חדש מהחותמת.
+   */
+  it("וגם ההנפקה נכנסת לתור", () => {
+    const issue = link.slice(link.indexOf("async issueCode("), link.indexOf("private async writeCode("));
+    expect(issue).toContain("await this.lock(tx, userId)");
+    expect(issue).toContain("this.writeCode(tenantId, userId)");
+  });
+
   it("וניצול קוד מוחק את המצביע רק כשהוא עדיין שלו", () => {
     const fn = link.slice(link.indexOf("async redeemCode("), link.indexOf("private async bind("));
     expect(fn).toContain("redis.eval(");

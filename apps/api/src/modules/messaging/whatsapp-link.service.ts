@@ -141,6 +141,27 @@ export class WhatsAppLinkService implements OnModuleDestroy {
    */
   async issueCode(tenantId: string, userId: string): Promise<{ code: string; expiresInSeconds: number }> {
     /*
+     * **ההנפקה נכנסת לאותו תור כמו הקישור והניתוק.**
+     *
+     * עסקה שכל תוכנה הוא נעילה נראית מוזר — הכתיבות עצמן ב-Redis —
+     * אבל הנעילה חיה בתוך עסקה, וזה מה שקונים כאן: בלעדיה הנפקה
+     * שרצה במקביל לניתוק יכלה לכתוב קוד **אחרי** שהחותמת נכתבה
+     * ולהתקין את המצביע **אחרי** שהניתוק חיפש אותו. התוצאה הייתה
+     * קוד ששרד ניתוק שהצליח, ותקף בעיני הבדיקה כי הוא חדש מהחותמת
+     * (ביקורת Codex). בתור, „הופק לפני הניתוק” ו„הופק אחריו” הם שני
+     * מצבים מובחנים — והשני, שהוא בקשה מפורשת לקשר מכשיר, אכן תקף.
+     */
+    return this.prisma.$transaction(async (tx) => {
+      await this.lock(tx, userId);
+      return this.writeCode(tenantId, userId);
+    });
+  }
+
+  private async writeCode(
+    tenantId: string,
+    userId: string,
+  ): Promise<{ code: string; expiresInSeconds: number }> {
+    /*
      * המפתח הוא **הקוד**, לא המשתמש: ההודעה בוואטסאפ מגיעה בלי שום
      * הקשר מלבד הקוד עצמו, ולכן זה הצד שצריך להיות ניתן לחיפוש.
      * מפתח שני לפי משתמש קיים רק כדי למחוק קוד קודם.
