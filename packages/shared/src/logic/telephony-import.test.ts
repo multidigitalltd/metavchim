@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   build015RecordingsListUrl,
   dropped015ListRows,
+  pbx015ListRowKeys,
   parse015RecordingsList,
   pbx015RecordingPath,
   split015RecordingPath,
@@ -124,6 +125,48 @@ describe("פענוח הרשימה", () => {
     expect(parse015RecordingsList(body, "12048")).toHaveLength(1);
     expect(dropped015ListRows(body, "12048")).toBe(1);
     expect(dropped015ListRows(LIST_RESPONSE, "12048")).toBe(0);
+  });
+
+  /*
+   * **וגם `recordid` אינו שדה שהתשובה מבטיחה.**
+   *
+   * זו אותה תקלה של `recordgroup`, באותה שורה — ותיקון אחד מהם
+   * לבדו לא היה משנה דבר: שורה בצורה המתועדת בדיוק המשיכה ליפול,
+   * רק על שדה אחר (ביקורת Codex).
+   *
+   * הקלטה בלי מזהה הורדה אינה ניתנת למשיכה, אבל היא קיימת — וזה
+   * ההבדל בין אבחון לבין מבוי סתום.
+   */
+  it("שורה בצורה המתועדת נקראת, גם בלי מזהה הורדה", () => {
+    const documented = {
+      uniqueid: "1787204775.1258756",
+      snumber: "5826830221",
+      cnumber: "0501234567",
+      start: "1787204776",
+      totaltime: "43",
+      expires: "1790000000",
+    };
+    const rows = parse015RecordingsList({ data: [documented] }, "12048");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.uniqueId).toBe("1787204775.1258756");
+    expect(rows[0]?.recordGroup).toBe("12048");
+    expect(rows[0]?.recordId).toBeUndefined();
+    expect(dropped015ListRows({ data: [documented] }, "12048")).toBe(0);
+  });
+
+  /*
+   * שמות השדות הם הדרך היחידה ללמוד את צורת השורה האמיתית: היא
+   * אינה מתועדת, וכל בחירת שם בלעדיה היא הימור. שמות בלבד — ערכי
+   * השורה נושאים מספרי טלפון.
+   */
+  it("ושמות השדות של השורה הראשונה נחשפים לאבחון", () => {
+    expect(pbx015ListRowKeys(LIST_RESPONSE)).toEqual([
+      "uniqueid",
+      "recordid",
+      "recordgroup",
+      "start",
+    ]);
+    expect(pbx015ListRowKeys({ data: [] })).toEqual([]);
   });
 
   it("שורה בלי מזהה שיחה נזרקת ואינה מפילה את השאר", () => {

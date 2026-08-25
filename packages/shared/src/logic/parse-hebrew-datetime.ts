@@ -230,12 +230,22 @@ function additiveTail(
       return word === undefined ? undefined : consumed + (word.index ?? 0) + word[0].length;
     };
 
-    // „ויומיים”, „ושבוע” — יחידה שעומדת לבדה ונושאת את כמותה
+    /*
+     * „ויומיים”, „ושבוע” — יחידה שעומדת לבדה ונושאת את כמותה,
+     * **וגם לה שבר**: „בעוד שבוע ויומיים וחצי” איבד את החצי, כי
+     * הבדיקה נעשתה רק בענף של הכמות (ביקורת Codex). שני הענפים
+     * מסתיימים באותו דקדוק, ולכן שניהם בודקים אותו.
+     */
     const solo = soloUnit(body);
     if (solo !== undefined) {
-      consumed = endOf(0)!;
-      evidence += ` ${raw}`;
-      if (ms !== null) ms += Math.round((solo.soloCount ?? 1) * solo.ms);
+      const soloFractionText = bareWord(words[1]?.[0]);
+      const soloFraction =
+        soloFractionText === undefined ? undefined : FRACTION_SUFFIX[soloFractionText];
+      const end = endOf(soloFraction === undefined ? 0 : 1);
+      if (end === undefined) break;
+      consumed = end;
+      evidence += ` ${raw}${soloFraction === undefined ? "" : ` ${soloFractionText}`}`;
+      if (ms !== null) ms += Math.round(((solo.soloCount ?? 1) + (soloFraction ?? 0)) * solo.ms);
       continue;
     }
 

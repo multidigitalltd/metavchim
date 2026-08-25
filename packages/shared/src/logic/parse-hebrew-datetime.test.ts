@@ -252,12 +252,21 @@ describe("parseHebrewDateTime", () => {
     expect(il(both.date).minute).toBe(25);
   });
 
-  /* והשבר שייך גם ליחידה שנוספה, לא רק לראשונה */
+  /*
+   * והשבר שייך גם ליחידה שנוספה, לא רק לראשונה — **בשני ענפי
+   * התוספת.** „ויומיים וחצי” הוא יחידה שעומדת לבדה, והבדיקה
+   * נעשתה בתחילה רק בענף של הכמות (ביקורת Codex).
+   */
   it("ושבר שנגרר אחרי התוספת נספר גם הוא", () => {
-    const at = parseHebrewDateTime("תזכיר לי בעוד יומיים ושלוש שעות וחצי", NOW);
-    expect(il(at.date).day).toBe(3);
-    expect(il(at.date).hour).toBe(12);
-    expect(il(at.date).minute).toBe(30);
+    const counted = parseHebrewDateTime("תזכיר לי בעוד יומיים ושלוש שעות וחצי", NOW);
+    expect(il(counted.date).day).toBe(3);
+    expect(il(counted.date).hour).toBe(12);
+    expect(il(counted.date).minute).toBe(30);
+
+    // שבוע ויומיים וחצי = תשעה ימים וחצי
+    const solo = parseHebrewDateTime("תזכיר לי בעוד שבוע ויומיים וחצי", NOW);
+    expect(il(solo.date).day).toBe(10);
+    expect(il(solo.date).hour).toBe(21);
   });
 
   /*
