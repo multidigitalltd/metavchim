@@ -22,3 +22,73 @@ import type { TenantTx } from "../core/prisma.service";
 export async function lockContact(tx: TenantTx, contactId: string): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`contact:${contactId}`}, 0))`;
 }
+
+/**
+ * נעילת **מספר** — לפני שידוע אם יש לו כרטיס.
+ *
+ * `lockContact` נועלת כרטיס קיים, ולכן היא חסרת תועלת בדיוק במקרה
+ * שבו שני נתיבים יוצרים את **אותו** אדם בו-זמנית: שניהם קוראים „אין
+ * כרטיס למספר הזה”, שניהם כותבים, והאינדקס הייחודי
+ * `(tenant_id, phone_hash)` מפיל את השני. בתוך טרנזקציה זו אינה
+ * שגיאה שאפשר לתפוס — משפט שנכשל מבטל את הטרנזקציה כולה (`25P02`),
+ * ולכן הפנייה כולה נופלת.
+ *
+ * זה אינו תרחיש תיאורטי: טופס פתוח שנשלח פעמיים, ליד מוובהוק שמגיע
+ * במקביל לשיחה נכנסת מאותו מספר, ושתי לשוניות פתוחות — כולם מגיעים
+ * לאותה שורה מאותו מספר.
+ *
+ * הנעילה נלקחת **לפני** החיפוש, ולכן מי שמגיע שני רואה את הכרטיס
+ * שהראשון יצר במקום ליצור שני. סדר הנעילות קבוע — מספר, ואז כרטיס —
+ * ומי שמוחק נועל כרטיס בלבד, ולכן אין מעגל המתנה.
+ *
+ * הדייר במפתח: אותו מספר יכול להיות לקוח של שני משרדים, ואלה שני
+ * כרטיסים שונים לגמרי.
+ */
+export async function lockContactPhone(
+  tx: TenantTx,
+  tenantId: string,
+  phoneHash: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`phone:${tenantId}:${phoneHash}`}, 0))`;
+}
+
+/**
+ * נעילת בקשת טופס — לקישור הפתוח בלבד.
+ *
+ * הקישור הפתוח יוצר את הכרטיס בשליחה, ולכן שתי שליחות שלו יוצרות
+ * שני כרטיסים לאותו אדם. `lockContactPhone` אינה מספיקה כאן: היא
+ * מסדרת את יצירת **איש הקשר**, בעוד השאלה היא אם כבר נוצר **קונה**
+ * ואם שורת הבקשה כבר מצביעה עליו.
+ */
+export async function lockIntakeRequest(
+  tx: TenantTx,
+  tenantId: string,
+  requestId: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`intake:${tenantId}:${requestId}`}, 0))`;
+}
+
+/**
+ * נעילת שיחה לפי מזהה הספק — סדרוּר של פניות חוזרות מהמרכזייה.
+ *
+ * קליטת אירוע היא קרא־ואז־כתוב: מחפשים שורת שיחה עם אותו
+ * `provider_call_id`, וכותבים רק אם אין. מרכזייה ששולחת את אותו
+ * אירוע פעמיים — כי לא קיבלה 200, או סתם — יכולה לשלוח את שתי
+ * הפניות במקביל, ואז שתיהן קוראות „אין” ושתיהן כותבות.
+ *
+ * מפתח זר או אילוץ ייחודיות על `(tenant_id, provider_call_id)` לא
+ * יעזרו כאן: העמודה ריקה לשיחות ידניות ולהקלטות פגישה, ואילוץ
+ * חלקי היה מפיל את הקליטה בשגיאה במקום להתעלם ממנה בשקט. הנעילה
+ * מסדרת את שתי הפניות זו אחר זו, והשנייה רואה את מה שהראשונה
+ * כתבה.
+ *
+ * הדייר נכלל במפתח: `provider_call_id` ייחודי אצל הספק, לא אצלנו,
+ * ושני משרדים באותה מרכזייה יכולים לקבל אותו מזהה.
+ */
+export async function lockProviderCall(
+  tx: TenantTx,
+  tenantId: string,
+  providerCallId: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`call:${tenantId}:${providerCallId}`}, 0))`;
+}

@@ -73,15 +73,7 @@ export class BuyersService {
     agentNotes?: string;
   }): Promise<BuyerDto> {
     const id = await this.persist(input);
-    /*
-     * ההתאמות ברקע — היצירה חוזרת מיד. אותם כללים כמו בצד הנכסים:
-     * הקונה כבר נשמר, ההתאמות מופיעות בכרטיס שניות אחר כך, והרענון
-     * התקופתי הוא רשת הביטחון לכשל.
-     */
-    void this.matching.recomputeForBuyer(id).catch((error: unknown) => {
-      this.logger.warn(`background match recompute failed for buyer ${id}: ${String(error)}`);
-    });
-    await this.autoShareToNetwork(id);
+    await this.afterCreate(id);
     return this.getById(id);
   }
 
@@ -358,10 +350,40 @@ export class BuyersService {
     source: string;
     agentNotes?: string;
   }): Promise<string> {
+    return this.prisma.withTenant((tx) => this.createWithin(tx, input));
+  }
+
+  /**
+   * אותה יצירה, **בטרנזקציה של הקורא**.
+   *
+   * הקישור הפתוח יוצר את הקונה מתוך שליחת הטופס, ושם היצירה אינה
+   * עומדת לבדה: היא חייבת להיות באותה טרנזקציה שבה שורת הבקשה
+   * מסומנת כמי שמצביעה עליו. שתי טרנזקציות היו פותחות חלון שבו
+   * נוצר קונה שאיש אינו מצביע עליו — כרטיס יתום שהמתווך יראה בלי
+   * לדעת מאיפה הגיע, ושליחה חוזרת תיצור לידו עוד אחד.
+   *
+   * הפעולות שאחרי הכתיבה (התאמות ברקע, שיתוף אוטומטי) **אינן** כאן:
+   * הן פונות למסד בעצמן, ומתוך טרנזקציה פתוחה הן היו נועלות את
+   * עצמן. הקורא מפעיל אותן אחרי ה-COMMIT — ראו `afterCreate`.
+   */
+  async createWithin(
+    tx: TenantTx,
+    input: {
+      contactName: string;
+      contactPhone: string;
+      contactEmail?: string;
+      requirements: BuyerRequirements;
+      financing?: string;
+      maturity?: string;
+      source: string;
+      agentNotes?: string;
+      ownerUserId?: string;
+    },
+  ): Promise<string> {
     const tenantId = TenantContext.current().tenantId;
     const id = ulid();
 
-    await this.prisma.withTenant(async (tx) => {
+    {
       const contact = await this.contacts.findOrCreateByPhone(tx, {
         name: input.contactName,
         phone: input.contactPhone,
@@ -378,7 +400,13 @@ export class BuyersService {
           id,
           tenantId,
           contactId: contact.id,
-          ownerUserId: TenantContext.current().userId,
+          /*
+           * הבעלים הוא מי שיצר — למעט הקישור הפתוח, שבו את השליחה
+           * עשה הלקוח ולא סוכן. שם הבעלים הוא **מי ששלח את הקישור**,
+           * והוא מגיע כאן מפורשות; בלעדיו הכרטיס היה נשמר בלי בעלים
+           * ונעלם מכל סוכן שרואה „רק שלי”.
+           */
+          ownerUserId: input.ownerUserId ?? TenantContext.current().userId,
           cities: input.requirements.cities,
           hasSearchAreas: input.requirements.searchAreas.length > 0,
           dealType: input.requirements.dealType,
@@ -410,9 +438,30 @@ export class BuyersService {
         tenantId,
         changedFields: ["created"],
       });
-    });
+    }
 
     return id;
+  }
+
+  /**
+   * מה שרץ **אחרי** שהקונה נכתב — התאמות ברקע ושיתוף אוטומטי.
+   *
+   * מופרד מהכתיבה כדי ש-`createWithin` יוכל לרוץ בטרנזקציה של
+   * הקורא: שתי הפעולות האלה פונות למסד בעצמן, ומתוך טרנזקציה
+   * פתוחה הן היו ממתינות לשורה שהיא עצמה מחזיקה.
+   */
+  async afterCreate(id: string): Promise<void> {
+    /*
+     * ההתאמות ברקע — היצירה חוזרת מיד. אותם כללים כמו בצד הנכסים:
+     * הקונה כבר נשמר, ההתאמות מופיעות בכרטיס שניות אחר כך, והרענון
+     * התקופתי הוא רשת הביטחון לכשל.
+     */
+    void this.matching.recomputeForBuyer(id).catch((error: unknown) => {
+      this.logger.warn(
+        `background match recompute failed for buyer ${id}: ${String(error)}`,
+      );
+    });
+    await this.autoShareToNetwork(id);
   }
 
   /**

@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { Queue, Worker, type Job } from "bullmq";
 import IORedis from "ioredis";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
   DeleteObjectCommand,
@@ -47,8 +47,11 @@ import {
   type MarketingActionKind,
   type SpeakerTurn,
   type TranscriptSegment,
+  AGENT_HISTORY_KEPT,
+  assistantMemoryTurn,
   formatNotifyMessage,
   inQuietHours,
+  type AgentHistoryTurn,
   fitsInteractive,
   normalizePhoneForWhatsapp,
   replyButtonsPayload,
@@ -2564,6 +2567,8 @@ async function processWhatsAppNotifySweep(): Promise<void> {
      * בודדת במרוץ נדיר מלשלוח מאות כפילויות.
      */
     const delivered = new Map<string, Date>();
+    /** תור הזיכרון של הסוכן על מה ששלח, פר-נמען */
+    const remembered = new Map<string, AgentHistoryTurn>();
     for (const recipient of recipients.values()) {
       const watermark = recipient.notifiedThrough?.getTime() ?? 0;
       const items = pending.filter(
@@ -2642,6 +2647,14 @@ async function processWhatsAppNotifySweep(): Promise<void> {
         items[0]!.createdAt,
       );
       delivered.set(recipient.userId, through);
+      /*
+       * מה שנשלח נרשם גם כתור בשיחה — זה מה שנותן ל„תזכיר לי
+       * להתקשר אליו” על מה לחול. `assistantMemoryTurn` גוזר את
+       * הניסוח מסוג ההתראה ולא מכותרתה, ולכן שום טלפון אינו נכנס
+       * לזיכרון שנשלח למודל.
+       */
+      const turn = assistantMemoryTurn(items);
+      if (turn !== null) remembered.set(recipient.userId, turn);
     }
 
     /*
@@ -2652,11 +2665,56 @@ async function processWhatsAppNotifySweep(): Promise<void> {
     if (delivered.size > 0) {
       await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenant.id}, true)`;
+        /*
+         * ההיסטוריה נקראת ונכתבת כאן, ולא נבנית מאפס: המתווך יכול
+         * לכתוב לסוכן בדיוק בין הקריאה לכתיבה, ודריסה עיוורת הייתה
+         * מוחקת את מה שהוא אמר.
+         *
+         * **הנעילה היא מה שסוגר את החלון.** ‎`wa-chat:{משרד}:{משתמש}`
+         * היא אותה נעילה ש-`claimMessage` ו-`saveChat` ב-API נוטלים,
+         * ולכן שלושת הכותבים לעמודה הזו מסודרים בתור. בלעדיה
+         * הקריאה כאן והשמירה בצד ה-API יכלו לדרוס זו את זו, ותור
+         * שיחה שלם היה נעלם (ביקורת Codex).
+         *
+         * הנעילה נלקחת לכל משתמש בנפרד ולפי סדר קבוע — מיון לפי
+         * מזהה — כדי ששני סבבים מקבילים לא ייתפסו זה בזה.
+         */
+        for (const userId of [...remembered.keys()].sort()) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`wa-chat:${tenant.id}:${userId}`}, 0))`;
+        }
+        const existing =
+          remembered.size === 0
+            ? []
+            : await tx.whatsAppChat.findMany({
+                where: { tenantId: tenant.id, userId: { in: [...remembered.keys()] } },
+                select: { userId: true, history: true },
+              });
+        const historyOf = new Map(
+          existing.map((row) => [
+            row.userId,
+            Array.isArray(row.history) ? (row.history as unknown as AgentHistoryTurn[]) : [],
+          ]),
+        );
+
         for (const [userId, through] of delivered) {
+          const turn = remembered.get(userId);
+          const history =
+            turn === undefined
+              ? null
+              : ([...(historyOf.get(userId) ?? []).slice(-(AGENT_HISTORY_KEPT - 1)), turn] as unknown);
           await tx.whatsAppChat.upsert({
             where: { tenantId_userId: { tenantId: tenant.id, userId } },
-            create: { id: ulid(), tenantId: tenant.id, userId, notifiedThrough: through },
-            update: { notifiedThrough: through },
+            create: {
+              id: ulid(),
+              tenantId: tenant.id,
+              userId,
+              notifiedThrough: through,
+              ...(history === null ? {} : { history: history as Prisma.InputJsonValue }),
+            },
+            update: {
+              notifiedThrough: through,
+              ...(history === null ? {} : { history: history as Prisma.InputJsonValue }),
+            },
           });
         }
       });

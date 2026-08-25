@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
-import { isTaskUrgent, type TaskPriority } from "@metavchim/shared";
+import { Prisma } from "@prisma/client";
+import { isTaskUrgent, OPEN_LEAD_STATUSES, type TaskPriority } from "@metavchim/shared";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
@@ -409,6 +410,14 @@ export class TasksService {
     const tenantId = ctx.tenantId;
     // אותו סינון בעלות של `scopeFilter`, בצורה שאפשר להזריק ל-SQL
     const ownerOnly = ctx.capabilities.has("tasks.view_all") ? null : ctx.userId;
+    /*
+     * בעלות על ה**ליד** היא תנאי נפרד מבעלות על המשימה, ושתיהן
+     * נדרשות כאן. משימה יכולה להיות משויכת אליי בזמן שהליד שהיא
+     * תלויה בו שייך לעמית — `LeadsService.activeByIds` מסנן אותה
+     * אחר כך, אבל אחרי ה-LIMIT. זו בדיוק אותה תקלה שההערה שמתחת
+     * מתארת על סטטוס הליד, רק על הממד השני שלו (ביקורת Codex).
+     */
+    const leadOwnerOnly = ctx.capabilities.has("leads.view_all") ? null : ctx.userId;
     return this.prisma.withTenant(async (tx) => {
       /*
        * המיון הוא לפי **אותו זמן שהדירוג משתמש בו** — `due_at`, ובלעדיו
@@ -424,16 +433,31 @@ export class TasksService {
        * גולמי בוחר מזהים ו-Prisma שולפת את השורות — אותו דפוס שבו
        * `CallsService.latestPerContactSince` משתמש, ובתוך `withTenant`
        * כך שה-RLS חל.
+       *
+       * **הצירוף ל-`leads` הוא חלק מהתנאי ולא סינון אחריו — גם על
+       * הסטטוס וגם על הבעלות.** שניהם כבר קיימים בקוד
+       * (`LeadsService.activeByIds`), אבל הוא רץ על מה ששרד את
+       * ה-LIMIT. משרד עם יותר משימות
+       * פתוחות מהתקרה שתלויות בלידים שנסגרו או הומרו — ושינוי סטטוס
+       * סוגר רק משימות SLA, לא משימות רגילות — היה ממלא בהן את כל
+       * המכסה, וכולן היו נזרקות רגע אחר כך. משימה על ליד חי לא
+       * הייתה מגיעה לדירוג כלל (ביקורת Codex).
        */
       const ordered = await tx.$queryRaw<{ id: string }[]>`
-        SELECT id
-          FROM tasks
-         WHERE tenant_id = ${tenantId}
-           AND deleted_after_sync = FALSE
-           AND status = 'open'
-           AND entity_type = 'lead'
-           AND (${ownerOnly}::char(26) IS NULL OR assigned_to_user_id = ${ownerOnly})
-         ORDER BY COALESCE(due_at, created_at) ASC
+        SELECT t.id
+          FROM tasks t
+          JOIN leads l
+            ON l.id = t.entity_id
+           AND l.tenant_id = t.tenant_id
+         WHERE t.tenant_id = ${tenantId}
+           AND t.deleted_after_sync = FALSE
+           AND t.status = 'open'
+           AND t.entity_type = 'lead'
+           AND (${ownerOnly}::char(26) IS NULL OR t.assigned_to_user_id = ${ownerOnly})
+           -- הליד עצמו חייב להיות חי **ונגיש**; ראו את ההסבר שמעל
+           AND l.status IN (${Prisma.join([...OPEN_LEAD_STATUSES])})
+           AND (${leadOwnerOnly}::char(26) IS NULL OR l.assigned_to_user_id = ${leadOwnerOnly})
+         ORDER BY COALESCE(t.due_at, t.created_at) ASC
          LIMIT ${limit}
       `;
       const ids = ordered.map((row) => row.id);

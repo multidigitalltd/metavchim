@@ -25,6 +25,8 @@
  * וזה בדיוק ההבדל שהופך את הטופס לבטוח לשליחה.
  */
 
+import { normalizePhone } from "./contact-people.js";
+
 /** ימי תוקף לקישור. אחריהם הוא מפסיק לעבוד. */
 export const INTAKE_TTL_DAYS = 14;
 
@@ -41,8 +43,75 @@ export const INTAKE_STATUS_LABEL: Record<IntakeStatus, string> = {
   revoked: "הקישור בוטל",
 };
 
-/** אל מי הבקשה מצביעה. ליד וקונה — שני הכרטיסים שיש בהם דרישות. */
-export type IntakeSubject = "lead" | "buyer";
+/**
+ * אל מי הבקשה מצביעה.
+ *
+ * `lead` ו-`buyer` הם שני הכרטיסים שיש בהם דרישות. `open` הוא
+ * הקישור שנוצר **לפני שיש כרטיס בכלל**: המתווך פגש לקוח בטלפון או
+ * ברחוב, ורוצה לשלוח לו טופס בלי לפתוח לו קודם כרטיס ידני. הכרטיס
+ * נוצר בשליחה, מהפרטים שהלקוח עצמו מילא.
+ *
+ * הערך נשאר `open` גם אחרי שהכרטיס נוצר, והכרטיס נרשם ב-`subjectId`.
+ * מפתה להחליף אותו אז ל-`buyer`, וזה היה מוחק את התשובה לשאלה „מאיפה
+ * הלקוח הזה הגיע” — בדיוק מה שהמתווך שואל כשהוא רואה כרטיס שהוא לא
+ * זוכר שפתח.
+ */
+export type IntakeSubject = "lead" | "buyer" | "open";
+
+/** האורך שהמערכת מקבלת לשם שהלקוח מקליד על עצמו. */
+export const INTAKE_NAME_MIN = 2;
+export const INTAKE_NAME_MAX = 80;
+
+/**
+ * מה חסר בזיהוי שהלקוח מסר — או `null` כשהכול תקין.
+ *
+ * רלוונטי לקישור פתוח בלבד: שם ומספר הם מה שהופך תשובות לכרטיס,
+ * ובלעדיהם אין את מי ליצור. בשאר הקישורים הכרטיס כבר קיים והשדות
+ * האלה אינם נשאלים כלל.
+ *
+ * הפונקציה מחזירה **מה חסר ולמה**, ולא `false`: הטופס מוצג ללקוח
+ * שאינו מתווך, ו„שגיאה” בלי הסבר היא סיבה לסגור את העמוד.
+ */
+export function intakeIdentityRejectionReason(input: {
+  fullName?: string;
+  phone?: string;
+}): string | null {
+  const name = (input.fullName ?? "").trim();
+  if (name.length < INTAKE_NAME_MIN) return "נא למלא שם מלא";
+  if (name.length > INTAKE_NAME_MAX) return "השם ארוך מדי";
+  /*
+   * המספר נבדק כאן על הצורה המנורמלת ולא על מה שהוקלד: לקוח מקליד
+   * ‎050-123-4567‎ ו-‎+972 50 123 4567‎ באותה מידה, ודחייה של הראשון
+   * הייתה נראית לו כמו תקלה במערכת.
+   */
+  const phone = normalizePhone(input.phone ?? "");
+  if (phone === "") return "נא למלא מספר טלפון";
+  if (!/^\+972[2-9]\d{7,8}$/u.test(phone)) return "מספר הטלפון אינו תקין";
+  return null;
+}
+
+/**
+ * מה חסר כדי **לפתוח כרטיס** מקישור פתוח — או `null` כשאפשר.
+ *
+ * מעבר לזהות יש שדה אחד שהוא מבני ולא „נחמד שיהיה”: סוג העסקה.
+ * כרטיס קונה אינו יכול להתקיים בלעדיו — מנוע ההתאמות מסנן עליו
+ * ראשון, וקונה בלי סוג עסקה אינו מותאם לשום נכס. ברירת מחדל שקטה
+ * („קנייה”) הייתה גרועה יותר מהשאלה: היא נראית כמו תשובה, ומי
+ * שחיפש שכירות מקבל כרטיס שמציע לו נכסים למכירה.
+ *
+ * זהו **ההבדל היחיד** בין הטופס הפתוח לטופס של כרטיס קיים: שם
+ * הכרטיס כבר נושא סוג עסקה, ולכן שדה שלא נענה אינו מוחק אותו.
+ */
+export function intakeOpenRejectionReason(input: {
+  fullName?: string;
+  phone?: string;
+  dealType?: "sale" | "rent";
+}): string | null {
+  const identity = intakeIdentityRejectionReason(input);
+  if (identity !== null) return identity;
+  if (input.dealType === undefined) return "נא לבחור קנייה או שכירות";
+  return null;
+}
 
 /**
  * מדוע הקישור אינו פעיל, או `null` כשהוא פעיל.
@@ -99,6 +168,16 @@ export const INTAKE_FEATURE_LABEL: Record<IntakeFeature, string> = {
  * ריק, כי מנוע ההתאמות מתייחס למספר שהומצא כאילו הוא נכון.
  */
 export interface IntakeAnswers {
+  /**
+   * מי הלקוח — **בקישור פתוח בלבד.**
+   *
+   * בקישור לכרטיס קיים השדות האלה אינם נשאלים ואינם נשלחים: הכרטיס
+   * כבר יודע מי הלקוח, וטופס שמבקש ממנו למלא את שמו מחדש מזמין
+   * גרסה שנייה של אותו אדם. `intakeIdentityRejectionReason` היא
+   * מה שמכריע אם מה שנמסר מספיק כדי לפתוח כרטיס.
+   */
+  fullName?: string;
+  phone?: string;
   dealType?: "sale" | "rent";
   cities?: string[];
   propertyTypes?: string[];

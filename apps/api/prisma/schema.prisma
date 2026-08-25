@@ -329,6 +329,23 @@ model Property {
   exclusive            Boolean?
   exclusiveUntil       DateTime? @map("exclusive_until") @db.Date
   ownerContactId       String?   @map("owner_contact_id") @db.Char(26)
+  /**
+   * מי **גר** בנכס, כשזה אינו הבעלים — דירה שמושכרת בזמן שהיא מוצעת.
+   *
+   * זה איש הקשר לתיאום ביקור: הבעלים מחליט על המכירה, אבל הדלת
+   * נפתחת על ידי מי שגר שם. עד היום היה בכרטיס איש קשר אחד, ולכן
+   * המתווך החזיק את מספר השוכר בטלפון שלו או בהערה חופשית — כלומר
+   * מחוץ להרשאות, מחוץ להצפנה, ומחוץ למחיקת לקוח.
+   *
+   * `occupant` ולא `tenant`: `tenantId` הוא המשרד בכל המערכת, ועמודה
+   * בשם `tenant_contact_id` הייתה נקראת „איש הקשר של המשרד” בכל
+   * שאילתה שמישהו יכתוב עליה בעתיד.
+   *
+   * מועד הפינוי אינו נשמר כאן — `entryType`/`entryDate`/`entryNote`
+   * כבר עונים על „מתי אפשר להיכנס”, וההערה שם אף נותנת „לאחר פינוי
+   * השוכר” כדוגמה. שדה שני לאותה שאלה היה מתחיל לסתור את הראשון.
+   */
+  occupantContactId    String?   @map("occupant_contact_id") @db.Char(26)
   /// מיקום הנכס — **תמיד WGS84**, גם כשהמקור עבד ברשת ישראל.
   ///
   /// פורמט אחד בכל המערכת, המרה בקצה: החלפת ספק פענוח אינה אמורה
@@ -375,11 +392,20 @@ model IntakeRequest {
   /// 43 תווי base64url. ייחודי גלובלית — הוא נפתר לפני שידוע הדייר.
   token    String @unique @db.Char(43)
 
-  /// lead | buyer — שני הכרטיסים שיש בהם דרישות.
+  /// lead | buyer | open — שני הכרטיסים שיש בהם דרישות, ועוד אחד.
+  ///
+  /// `open` הוא קישור שנוצר **לפני שיש כרטיס**: המתווך שולח טופס
+  /// ללקוח שאינו במאגר, והכרטיס נוצר מהפרטים שהלקוח ימלא. הערך
+  /// נשאר `open` גם אחרי שהכרטיס נוצר — הוא התשובה לשאלה מאיפה
+  /// הכרטיס הזה הגיע.
   subject   String @db.VarChar(10)
-  subjectId String @map("subject_id") @db.Char(26)
+  /// הכרטיס. `null` בקישור פתוח **עד השליחה**, ומלא אחריה.
+  subjectId String? @map("subject_id") @db.Char(26)
   /// למי הטופס מיועד — לברכה בעמוד ולמספר שאליו נשלחת ההודעה.
-  contactId String @map("contact_id") @db.Char(26)
+  ///
+  /// `null` באותו מצב בדיוק: בקישור פתוח אין עדיין איש קשר, והוא
+  /// נוצר (או נמצא לפי הטלפון) כשהלקוח שולח.
+  contactId String? @map("contact_id") @db.Char(26)
 
   /// sent | opened | submitted | revoked
   status String @default("sent") @db.VarChar(12)
@@ -1465,7 +1491,27 @@ model Notification {
    * לבלוע התראות שהשני מעולם לא ראה.
    */
   whatsappAt DateTime? @map("whatsapp_at")
+  /**
+   * מפתח ייחודיות לאירוע שההתראה מדווחת עליו. NULL = בלי הגנה.
+   *
+   * ההגנה מפני התראה כפולה אינה יכולה להישען על הרשומה שהאירוע
+   * *עתיד* לייצר. מרכזיית 015 שולחת `Calling` פעמיים לאותה שיחה,
+   * וההתראה על צלצול נכתבת **לפני** ששורת השיחה נוצרת (היא נוצרת
+   * רק בניתוק) — כלומר הבדיקה „האם כבר יש שיחה כזו” חיפשה שורה
+   * שבשלב הזה לעולם אינה קיימת, והמתווך קיבל שתי התראות.
+   *
+   * המפתח מתאר את **האירוע** ולא את הרשומה: `incoming_call:<callid>`.
+   * הכתיבה עצמה היא `INSERT ... ON CONFLICT DO NOTHING`, ולכן שתי
+   * הפניות אינן צריכות לקרוא זו את זו — האילוץ מכריע, גם כששתיהן
+   * מגיעות בו-זמנית.
+   *
+   * NULL נשאר מותר וחוזר: ב-Postgres שורות עם NULL אינן מתנגשות
+   * באילוץ ייחודיות, ולכן התראות שאין להן אירוע חיצוני (תזכורת
+   * משימה, סיום תמלול) נכתבות כרגיל בלי לשאת מפתח מלאכותי.
+   */
+  dedupeKey  String?   @map("dedupe_key") @db.VarChar(120)
 
+  @@unique([tenantId, dedupeKey])
   @@index([tenantId, userId, readAt, createdAt])
   @@map("notifications")
 }
@@ -1918,6 +1964,27 @@ model Call {
   leadId              String?   @map("lead_id") @db.Char(26)
   /// הפגישה שההקלטה הזו מתעדת, כשהמקור הוא `meeting`.
   appointmentId       String?   @map("appointment_id") @db.Char(26)
+  /// הנכס שהשיחה נוגעת לו — **צילום ברגע השיחה, לא הפניה חיה.**
+  ///
+  /// עמודה משלה ולא שליפה דרך `leads.property_id`, וזו אינה כפילות:
+  /// שיוך הליד לנכס **משתנה בדיעבד**. ליד כללי שנפתח בלי נכס מקבל
+  /// אותו מאוחר יותר, כשאותו אדם ממלא טופס של נכס מסוים
+  /// (`WebLeadService.upsertLead` ממלא `propertyId` ריק). מרגע זה כל
+  /// השיחות הישנות של אותו ליד היו נספרות כפעילות בנכס החדש — עד
+  /// לתוך דוח שנמסר לבעל הנכס, שמראה לו פעילות שלא נעשתה עבורו
+  /// (ביקורת Codex, P1).
+  ///
+  /// NULL = לא ידוע, והדוח אינו טוען דבר. שורות שנוצרו לפני העמודה
+  /// נשארות NULL בכוונה: ניחוש בדיעבד הוא בדיוק מה שהעמודה מונעת.
+  ///
+  /// **גבול הצילום, במדויק:** בשיחה ממרכזייה הוא נלקח כשנכתבת שורת
+  /// השיחה — באירוע המסיים — ולא כשהשיחה החלה. מספר וירטואלי
+  /// שהועבר לנכס אחר בין תחילת השיחה לסיומה, או לפני `Hangup`
+  /// שנשלח שוב באיחור, ייתן צילום מהתצורה החדשה. סגירה מלאה דורשת
+  /// לשמור את הניתוב שנצפה באירוע הראשון, וזו תוספת תכן ולא תיקון
+  /// (ביקורת Codex; רשום כמשימה נפרדת). מה שנאמר כאן הוא מה שהעמודה
+  /// באמת מבטיחה — לא יותר.
+  propertyId          String?   @map("property_id") @db.Char(26)
   phoneEncrypted      String?   @map("phone_encrypted")
   phoneHash           String?   @map("phone_hash") @db.Char(64)
   /// המספר שאליו הלקוח התקשר — **הצד שלנו**, ולכן אינו מוצפן.
@@ -1973,6 +2040,15 @@ model Call {
   /// שגיאה של הספק עלולה לשאת נתיבים או מזהים, וכתובת ה-URL של
   /// המשיכה נושאת שם משתמש וסיסמה. הקוד נבחר מרשימה סגורה.
   providerRecordingError String? @map("provider_recording_error") @db.VarChar(60)
+  /**
+   * מה בעצם ענתה המרכזייה — **בצורה שנבנתה מצונזרת.**
+   *
+   * הקוד לבדו לא הספיק: `response_unreadable` מכסה גם מעטפת שגיאה
+   * של הספק וגם שם מפתח שאיננו מכירים, ושני אלה דורשים תיקון הפוך
+   * (דיווח מהשטח). הפירוט כאן הוא שמות מפתחות, ערכים של שדות
+   * טכניים בלבד, בלי כתובות ובלי הסודות — ראו `describeProviderResponse`.
+   */
+  providerRecordingDetail String? @map("provider_recording_detail") @db.VarChar(200)
   transcript          String?
   transcribedAt       DateTime? @map("transcribed_at")
   /**
@@ -1984,6 +2060,7 @@ model Call {
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
   @@index([tenantId, occurredAt(sort: Desc)])
+  @@index([tenantId, propertyId, occurredAt(sort: Desc)])
   @@index([tenantId, contactId])
   @@index([tenantId, leadId])
   @@index([tenantId, appointmentId])

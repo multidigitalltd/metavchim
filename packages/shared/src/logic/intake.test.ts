@@ -6,6 +6,8 @@ import {
   intakeExpiryFrom,
   intakeInactiveReason,
   intakeInviteMessage,
+  intakeOpenRejectionReason,
+  INTAKE_NAME_MAX,
   mergeIntakeSeed,
   pickIntakeFeatures,
 } from "./intake";
@@ -277,5 +279,82 @@ describe("mergeIntakeSeed", () => {
   it("בלי תשובות מהלקוח — מה שהוקלד עובר כמות שהוא", () => {
     const chosen = { dealType: "rent", cities: ["חיפה"] };
     expect(mergeIntakeSeed({}, chosen)).toEqual(chosen);
+  });
+});
+
+/**
+ * השער של הקישור הפתוח — הוא זה שמחליט אם ייווצר כרטיס.
+ *
+ * הבדיקות כאן אינן על ניסוח אלא על **מה עובר ומה לא**: כל תשובה
+ * שעוברת הופכת לאיש קשר ולכרטיס קונה בייצור, וכל דחייה היא הודעה
+ * שלקוח שאינו מתווך קורא ואמור להבין ממנה מה לתקן.
+ */
+describe("intakeOpenRejectionReason", () => {
+  const VALID = { fullName: "דנה כהן", phone: "050-1234567", dealType: "sale" as const };
+
+  it("שם, טלפון וסוג עסקה — עובר", () => {
+    expect(intakeOpenRejectionReason(VALID)).toBeNull();
+  });
+
+  it("בלי שם — נדחה", () => {
+    expect(intakeOpenRejectionReason({ ...VALID, fullName: "" })).toBe("נא למלא שם מלא");
+  });
+
+  it("שם באות אחת אינו שם", () => {
+    expect(intakeOpenRejectionReason({ ...VALID, fullName: "ד" })).toBe("נא למלא שם מלא");
+  });
+
+  it("רווחים בלבד אינם שם", () => {
+    expect(intakeOpenRejectionReason({ ...VALID, fullName: "   " })).toBe("נא למלא שם מלא");
+  });
+
+  it("שם ארוך מהמותר — נדחה", () => {
+    expect(
+      intakeOpenRejectionReason({ ...VALID, fullName: "א".repeat(INTAKE_NAME_MAX + 1) }),
+    ).toBe("השם ארוך מדי");
+  });
+
+  it("בלי טלפון — נדחה", () => {
+    expect(intakeOpenRejectionReason({ ...VALID, phone: "" })).toBe("נא למלא מספר טלפון");
+  });
+
+  /*
+   * הצורות שלקוח באמת מקליד. דחייה של אחת מהן נראית לו כתקלה
+   * במערכת ולא כטעות שלו — ולכן היא נבדקת ולא מונחת.
+   */
+  it.each([
+    ["050-1234567"],
+    ["0501234567"],
+    ["+972501234567"],
+    ["+972 50 123 4567"],
+    ["052 999 8888"],
+  ])("מספר בצורה %s מתקבל", (phone) => {
+    expect(intakeOpenRejectionReason({ ...VALID, phone })).toBeNull();
+  });
+
+  it("מספר קצר מדי — נדחה", () => {
+    expect(intakeOpenRejectionReason({ ...VALID, phone: "0501234" })).toBe(
+      "מספר הטלפון אינו תקין",
+    );
+  });
+
+  it("טקסט שאינו מספר — נדחה", () => {
+    expect(intakeOpenRejectionReason({ ...VALID, phone: "תתקשרו אליי" })).toBe(
+      "נא למלא מספר טלפון",
+    );
+  });
+
+  /*
+   * סוג העסקה הוא היחיד מבין הדרישות שהוא מבני: מנוע ההתאמות מסנן
+   * עליו ראשון, וכרטיס בלעדיו אינו מותאם לשום נכס.
+   */
+  it("בלי סוג עסקה — נדחה", () => {
+    const { dealType: _omitted, ...rest } = VALID;
+    expect(intakeOpenRejectionReason(rest)).toBe("נא לבחור קנייה או שכירות");
+  });
+
+  it("הזהות נבדקת לפני סוג העסקה", () => {
+    const { dealType: _omitted, ...rest } = VALID;
+    expect(intakeOpenRejectionReason({ ...rest, fullName: "" })).toBe("נא למלא שם מלא");
   });
 });

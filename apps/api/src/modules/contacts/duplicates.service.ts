@@ -88,12 +88,16 @@ export class DuplicatesService {
 
       // מדד הפעילות בחמש שאילתות מקובצות ולא אחת לכל כרטיס — משרד
       // עם חמישים כפילויות לא ישלח מאתיים וחמישים שאילתות
-      const [buyers, leads, properties, calls, messages] = await Promise.all([
+      const [buyers, leads, properties, occupied, calls, messages] = await Promise.all([
         // מחוקים אינם פעילות. הציון הזה קובע איזה כרטיס נשאר הראשי
         // במיזוג — ניפוח שלו בגלל רשומות מחוקות בוחר את הכרטיס הלא נכון.
         tx.buyer.groupBy({ by: ["contactId"], where: { tenantId, deletedAt: null, contactId: { in: ids } }, _count: { _all: true } }),
         tx.lead.groupBy({ by: ["contactId"], where: { tenantId, contactId: { in: ids } }, _count: { _all: true } }),
         tx.property.groupBy({ by: ["ownerContactId"], where: { tenantId, deletedAt: null, ownerContactId: { in: ids } }, _count: { _all: true } }),
+        // גם „גר בנכס” הוא קשר. המיזוג כבר מעביר אותו, והספירה
+        // שקובעת מי הכרטיס הראשי הייתה מתעלמת ממנו — שתי הכרעות על
+        // אותו נתון שאינן מסכימות
+        tx.property.groupBy({ by: ["occupantContactId"], where: { tenantId, deletedAt: null, occupantContactId: { in: ids } }, _count: { _all: true } }),
         tx.call.groupBy({ by: ["contactId"], where: { tenantId, contactId: { in: ids } }, _count: { _all: true } }),
         tx.message.groupBy({ by: ["contactId"], where: { tenantId, contactId: { in: ids } }, _count: { _all: true } }),
       ]);
@@ -104,6 +108,7 @@ export class DuplicatesService {
       for (const r of buyers) add(r.contactId, r._count._all);
       for (const r of leads) add(r.contactId, r._count._all);
       for (const r of properties) add(r.ownerContactId, r._count._all);
+      for (const r of occupied) add(r.occupantContactId, r._count._all);
       for (const r of calls) add(r.contactId, r._count._all);
       for (const r of messages) add(r.contactId, r._count._all);
 
@@ -210,6 +215,8 @@ export class DuplicatesService {
         tx.buyer.updateMany({ where: { tenantId, contactId: duplicateId }, data: { contactId: survivorId } }),
         tx.lead.updateMany({ where: { tenantId, contactId: duplicateId }, data: { contactId: survivorId } }),
         tx.property.updateMany({ where: { tenantId, ownerContactId: duplicateId }, data: { ownerContactId: survivorId } }),
+        // גם „מי גר בנכס”: מיזוג שמשאיר אותו על הכפיל מנתק את הדייר
+        tx.property.updateMany({ where: { tenantId, occupantContactId: duplicateId }, data: { occupantContactId: survivorId } }),
         tx.call.updateMany({ where: { tenantId, contactId: duplicateId }, data: { contactId: survivorId } }),
         tx.message.updateMany({ where: { tenantId, contactId: duplicateId }, data: { contactId: survivorId } }),
         tx.contactPhone.updateMany({ where: { tenantId, contactId: duplicateId }, data: { contactId: survivorId } }),

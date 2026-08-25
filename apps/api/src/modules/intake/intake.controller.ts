@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   IdSchema,
   INTAKE_FEATURES,
+  INTAKE_NAME_MAX,
   INTAKE_NOTES_MAX,
   PropertyTypeSchema,
   type IntakeAnswers,
@@ -48,6 +49,20 @@ const TokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
  */
 const AnswersSchema = z
   .object({
+    /*
+     * הזהות — **קישור פתוח בלבד.**
+     *
+     * הסכימה מקבלת אותם תמיד, והשירות הוא שמחליט אם הם נדרשים ואם
+     * הם משמשים: בקישור לכרטיס קיים הם נשלחים לכל היותר בטעות
+     * ואינם נוגעים בשום דבר. הכרעה כאן הייתה דורשת מהסכימה לדעת
+     * איזה סוג קישור זה — כלומר לשלוף את השורה — ובדיקת קלט אינה
+     * המקום שבו פונים למסד.
+     *
+     * האורך נאכף כאן; **התוכן** נבדק ב-`intakeOpenRejectionReason`,
+     * שהוא גם מה שמנסח את השגיאה שהלקוח רואה.
+     */
+    fullName: z.string().trim().max(INTAKE_NAME_MAX).optional(),
+    phone: z.string().trim().max(30).optional(),
     dealType: z.enum(["sale", "rent"]).optional(),
     cities: z.array(z.string().trim().max(80)).max(10).optional(),
     /*
@@ -117,6 +132,26 @@ export class IntakeController {
   }
 
   /**
+   * הקישורים הפתוחים של המשרד, ויצירת אחד חדש.
+   *
+   * `buyers.*` ולא יכולת חדשה: הקישור הפתוח מייצר **כרטיס קונה**,
+   * ולכן מי שרשאי ליצור קונה רשאי לשלוח קישור שייצר אחד. יכולת
+   * נפרדת הייתה מתג שאיש לא יודע מתי להדליק.
+   */
+  @Get("intake/open")
+  @RequireCapability("buyers.view_own")
+  listOpen(): Promise<IntakeRequestDto[]> {
+    return this.intake.listOpen();
+  }
+
+  @Post("intake/open")
+  @RequireCapability("buyers.edit")
+  @HttpCode(200)
+  createOpen(): Promise<IntakeRequestDto> {
+    return this.intake.ensureOpen();
+  }
+
+  /**
    * ביטול קישור.
    *
    * `buyers.edit` **או** `leads.edit`: הבקשה יכולה להיות של כל אחד
@@ -182,6 +217,8 @@ function normalizeAnswers(
   answers: Omit<z.infer<typeof AnswersSchema>, "website">,
 ): IntakeAnswers {
   return {
+    ...(answers.fullName !== undefined ? { fullName: answers.fullName } : {}),
+    ...(answers.phone !== undefined ? { phone: answers.phone } : {}),
     ...(answers.dealType !== undefined ? { dealType: answers.dealType } : {}),
     ...(answers.cities !== undefined ? { cities: answers.cities } : {}),
     ...(answers.propertyTypes !== undefined

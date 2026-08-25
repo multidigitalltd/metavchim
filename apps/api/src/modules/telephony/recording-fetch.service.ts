@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import {
   build015RecordingsListUrl,
+  describeProviderResponse,
   build015RecordingUrl,
   MAX_RECORDING_BYTES,
   parse015RecordingResponse,
@@ -228,7 +229,31 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       { signal: AbortSignal.timeout(60_000) },
     );
     if (!res.ok) throw new BadRequestException(`המרכזייה השיבה ${res.status}`);
-    const body: unknown = await res.json();
+
+    /*
+     * אותה תפיסה שיש ב-`fetchOne`, ומאותו נימוק בדיוק — היא פשוט
+     * לא הייתה כאן.
+     *
+     * ‎`res.json()` על גוף פגום זורק שגיאה שנושאת קטע מהגוף עצמו,
+     * והגוף מגיע מהספק: הוא עלול להחזיר בו את כתובת הבקשה, שנושאת
+     * ‎`auth_username` ו-`auth_password`. שגיאה שאינה נתפסת כאן
+     * עולה ל-Nest ונרשמת ביומן על הודעתה — כלומר טקסט של הספק
+     * עוקף את `describeProviderResponse` בשקט (ביקורת Codex, P1).
+     *
+     * מה שנרשם הוא עובדות שאנחנו כתבנו בלבד: הסטטוס ואורך הגוף.
+     * האורך הוא מה שמבדיל בין דף שגיאה של שרת מתווך לבין תשובה
+     * קצרה, וזה מספיק כדי לדעת לאן להסתכל.
+     */
+    const raw = await res.text();
+    let body: unknown;
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      this.logger.warn(
+        `רשימת ההקלטות לא נקראה — גוף שאינו JSON תקין (סטטוס ${res.status}, ${raw.length} תווים)`,
+      );
+      throw new BadRequestException("התשובה מהמרכזייה לא נקראה — גוף שאינו JSON תקין");
+    }
 
     const rows = parse015RecordingsList(body);
     if (rows.length === 0) {
@@ -443,12 +468,20 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
    * מותנית: אם בינתיים כבר נמשכה הקלטה (סבב מקביל, העלאה ידנית),
    * אסור לסמן את השיחה ככושלת.
    */
-  private async note(job: RecordingJob, reason: string): Promise<void> {
+  private async note(job: RecordingJob, reason: string, detail?: string): Promise<void> {
     await this.prisma
       .withExplicitTenant(job.tenantId, (tx) =>
         tx.call.updateMany({
           where: { id: job.callId, tenantId: job.tenantId, recordingKey: null },
-          data: { providerRecordingError: reason },
+          data: {
+            providerRecordingError: reason,
+            /*
+             * הפירוט נכתב **תמיד**, גם כשהוא ריק: סיבה חדשה בלי
+             * פירוט חייבת למחוק את הפירוט של הסיבה הקודמת, אחרת
+             * המסך יצרף הסבר על כשל שכבר לא קיים.
+             */
+            providerRecordingDetail: detail ?? null,
+          },
         }),
       )
       .catch((error: unknown) =>
@@ -528,8 +561,23 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
 
     const parsed = parse015RecordingResponse(payload);
     if (!parsed) {
-      this.logger.warn(`תשובת 015 לא נקראה על הקלטה ${job.recordingPath}`);
-      await this.note(job, RECORDING_ERRORS.unreadable);
+      /*
+       * „לא נקראה” בלי עוד מילה אינו שימושי, וזה היה הכשל של
+       * הגרסה הקודמת (דיווח מהשטח).
+       *
+       * המצב הזה מכסה שני דברים שהתיקון שלהם הפוך: מעטפת שגיאה
+       * של הספק — 015 מחזירה 200 גם על אישורים שגויים וגם על
+       * הקלטה שנמחקה, ולכן `res.ok` אינו תופס אותה — לעומת שם
+       * מפתח שאיננו מכירים, שבו ההקלטה שם ואנחנו מחפשים במקום
+       * הלא נכון. בלי לדעת מה חזר אי אפשר להחליט לאן ללכת.
+       *
+       * התיאור **נבנה מצונזר** ואינו קיצור של הגוף: שמות מפתחות
+       * תמיד, ערכים רק לשדות טכניים, כתובות נמחקות והסודות
+       * מוחלפים. אותו עיקרון של `TelephonyWebhookHit`.
+       */
+      const detail = describeProviderResponse(payload, [authUsername, authPassword]);
+      this.logger.warn(`תשובת 015 לא נקראה על הקלטה ${job.recordingPath} — ${detail}`);
+      await this.note(job, RECORDING_ERRORS.unreadable, detail);
       return;
     }
 

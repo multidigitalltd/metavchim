@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   Param,
   Patch,
@@ -23,6 +24,10 @@ import { RequireFeature } from "../../common/feature.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { MatchingService, type MatchDto } from "../matching/matching.service";
 import { FeatureCatalogueService } from "./feature-catalogue.service";
+import {
+  PropertyActivityService,
+  type OwnerActivityReportDto,
+} from "./property-activity.service";
 import { PropertiesService } from "./properties.service";
 import type { PropertyDto } from "./property.mapper";
 
@@ -33,10 +38,26 @@ const CreatePropertySchema = PropertyFieldsSchema.extend({
   // בעל הנכס (המוכר) — contact לפי טלפון; מזין את התיק המאוחד (docs/03)
   ownerName: z.string().min(2).max(120).optional(),
   ownerPhone: PhoneSchema.optional(),
+  /*
+   * מי גר בנכס כשזה אינו הבעלים — דירה שמושכרת בזמן שהיא מוצעת.
+   * הבעלים מחליט על המכירה, אבל הדלת נפתחת על ידי מי שגר שם.
+   */
+  occupantName: z.string().min(2).max(120).optional(),
+  occupantPhone: PhoneSchema.optional(),
 }).strict();
 
 const UpdatePropertySchema = CreatePropertySchema.partial()
-  .extend({ status: PropertyStatusSchema.optional() })
+  .extend({
+    status: PropertyStatusSchema.optional(),
+    /*
+     * „הדירה התפנתה” — מחיקה מפורשת ולא שדה ריק.
+     *
+     * ‎`occupantName: ""` היה נופל על ה-`min(2)` של הסכימה, ושדה
+     * שלא נשלח פירושו „בלי שינוי” בכל שאר המסך. בלי הדגל הזה אין
+     * דרך להסיר דייר אחרי שהוא עזב — והמספר שלו היה נשאר בכרטיס.
+     */
+    occupantCleared: z.literal(true).optional(),
+  })
   .strict();
 
 const ListQuerySchema = z
@@ -56,12 +77,27 @@ const ListQuerySchema = z
   })
   .strict();
 
+/**
+ * טווח הדוח לבעל הנכס. שני הקצוות רשות — בלעדיהם הדוח הוא כל
+ * ההיסטוריה של הנכס, וזו ברירת המחדל הנכונה למי שמבקש "מה עשיתם
+ * עד היום".
+ */
+const ActivityQuerySchema = z
+  .object({
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
+  })
+  .strict();
+
+type ActivityQuery = z.infer<typeof ActivityQuerySchema>;
+
 @Controller("properties")
 export class PropertiesController {
   constructor(
     private readonly properties: PropertiesService,
     private readonly matching: MatchingService,
     private readonly catalogue: FeatureCatalogueService,
+    private readonly activityReport: PropertyActivityService,
   ) {}
 
   /**
@@ -97,6 +133,8 @@ export class PropertiesController {
       internalNotes,
       ownerName,
       ownerPhone,
+      occupantName,
+      occupantPhone,
       ...fields
     } = body;
     return this.properties.create({
@@ -106,6 +144,9 @@ export class PropertiesController {
       internalNotes,
       ...(ownerName !== undefined && ownerPhone !== undefined
         ? { owner: { name: ownerName, phone: ownerPhone } }
+        : {}),
+      ...(occupantName !== undefined && occupantPhone !== undefined
+        ? { occupant: { name: occupantName, phone: occupantPhone } }
         : {}),
     });
   }
@@ -153,11 +194,14 @@ export class PropertiesController {
     @Body(new ZodValidationPipe(UpdatePropertySchema))
     body: z.infer<typeof UpdatePropertySchema>,
   ): Promise<PropertyDto> {
-    const { ownerName, ownerPhone, ...rest } = body;
+    const { ownerName, ownerPhone, occupantName, occupantPhone, ...rest } = body;
     return this.properties.update(id, {
       ...rest,
       ...(ownerName !== undefined && ownerPhone !== undefined
         ? { owner: { name: ownerName, phone: ownerPhone } }
+        : {}),
+      ...(occupantName !== undefined && occupantPhone !== undefined
+        ? { occupant: { name: occupantName, phone: occupantPhone } }
         : {}),
     });
   }
@@ -204,5 +248,39 @@ export class PropertiesController {
     @Param("id", new ZodValidationPipe(IdSchema)) id: string,
   ): Promise<MatchDto[]> {
     return this.matching.listForProperty(id);
+  }
+
+  /**
+   * דוח הפעילות שהמתווך מוסר לבעל הנכס.
+   *
+   * ‎`properties.view` ולא `data.export`: הדוח אינו נתוני המשרד
+   * אלא מה שנעשה בנכס אחד, והוא נטול פרטי אדם. מי שרואה את הנכס
+   * רואה גם מה נעשה בו.
+   */
+  @Get(":id/activity")
+  @RequireCapability("properties.view")
+  async activity(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Query(new ZodValidationPipe(ActivityQuerySchema)) query: ActivityQuery,
+  ): Promise<OwnerActivityReportDto> {
+    return this.activityReport.report(id, query);
+  }
+
+  /**
+   * אותו דוח כקובץ.
+   *
+   * ‎`Content-Disposition` קבוע ואינו נבנה מכתובת הנכס: כותרת
+   * תגובה שמורכבת מקלט חופשי היא הזרקת כותרת, והשם הידידותי נקבע
+   * ממילא בצד הלקוח בזמן השמירה.
+   */
+  @Get(":id/activity.csv")
+  @RequireCapability("properties.view")
+  @Header("Content-Type", "text/csv; charset=utf-8")
+  @Header("Content-Disposition", 'attachment; filename="property-activity.csv"')
+  async activityCsv(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+    @Query(new ZodValidationPipe(ActivityQuerySchema)) query: ActivityQuery,
+  ): Promise<string> {
+    return this.activityReport.csv(id, query);
   }
 }

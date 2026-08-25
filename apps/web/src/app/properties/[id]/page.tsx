@@ -8,6 +8,7 @@ import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
 import {
   FIELD_LABELS,
+  formatDate,
   formatPrice,
   MATURITY_LABELS,
   PROPERTY_TYPE_LABELS,
@@ -22,6 +23,8 @@ import { NetworkShareSection } from "../../network-share-section";
 import { AgreementsPanel } from "../../agreements-panel";
 import { EntityTasks } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
+import { OwnerActivity } from "./owner-activity";
+import { PropertyOccupant, type OccupantContact } from "../property-occupant";
 import { LocationPicker } from "../location-picker";
 import { ExclusivityPanel } from "../exclusivity-panel";
 import { EntityNotes } from "../../entity-notes";
@@ -67,6 +70,10 @@ interface PropertyDetail {
   readinessScore: number;
   missingFields: string[];
   ownerContact?: OwnerContact;
+  /** מי גר בנכס כשזה אינו הבעלים — דירה שמושכרת בזמן שהיא מוצעת. */
+  occupantContact?: OccupantContact;
+  /** מתי הנכס נקלט — היה בשרת מאז ומתמיד ולא הוצהר כאן */
+  createdAt: string;
 }
 
 interface MatchRow {
@@ -502,6 +509,12 @@ export default function PropertyDetailPage({
                 משלו בטור הראשי — הוא צד לעסקה, לא הערת שוליים לכתובת.
               */}
               {address}
+              {/* מתי הכרטיס נכנס למערכת — ראו את אותה שורה בכרטיס הליד */}
+              {address === "" ? "" : " · "}
+              נקלט:{" "}
+              <span style={{ color: "var(--color-text)" }}>
+                {formatDate(property.createdAt)}
+              </span>
             </p>
           </div>
           <div className="ms-auto text-start">
@@ -1168,6 +1181,19 @@ export default function PropertyDetailPage({
           />
 
           {/*
+            מי גר בנכס — אחרי הבעלים ובסעיף נפרד משלו. ההפרדה היא
+            העניין: השוכר פותח את הדלת, הבעלים מחליט על העסקה.
+          */}
+          <PropertyOccupant
+            propertyId={id}
+            occupant={property.occupantContact}
+            canEdit={canEditOwner}
+            canEditPeople={canEditOwnerPeople}
+            canErase={can(user, "contacts.delete")}
+            onChanged={loadProperty}
+          />
+
+          {/*
             הכובעים האחרים של בעל הנכס — מוכר שהוא גם קונה פעיל (או
             ליד) מוצג כאן כצ'יפ, בדיוק כמו שכרטיס הקונה מציג את
             הנכסים שבבעלותו. אותו endpoint, אותם פילטרי הרשאה.
@@ -1178,6 +1204,18 @@ export default function PropertyDetailPage({
               exclude={{ kind: "property", id: property.id }}
             />
           ) : null}
+
+          {/*
+            הדוח יושב בלשונית של בעל הנכס ולא בזו של ההתאמות, כי
+            השאלה שהוא עונה עליה נשאלת בשיחה **איתו**: "מה עשיתם
+            בשביל הדירה שלי". מי שפתח את הכרטיס שלו הוא בדיוק מי
+            שעומד לענות.
+          */}
+          <OwnerActivity
+            propertyId={property.id}
+            propertyLabel={property.marketingTitle ?? (address || "הנכס")}
+            officeName={user?.tenantName ?? "משרד התיווך"}
+          />
         </div>
       </TabPanel>
 

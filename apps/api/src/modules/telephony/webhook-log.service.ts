@@ -40,6 +40,22 @@ function keyPrefix(raw: string): string {
   return cleaned === "" ? "‹ריק›" : cleaned;
 }
 
+/**
+ * מה קרה לפנייה.
+ *
+ * `failed` הוא התוצאה הרביעית, ולא סוג של „נקלטה”: המפתח היה תקין,
+ * האירוע הובן — והעיבוד אצלנו נפל. המרכזייה תשלח שוב, ומי שקורא את
+ * היומן צריך לדעת שהתקלה בצד שלנו ולא אצל הספק (ביקורת Codex).
+ */
+export type TelephonyWebhookOutcome =
+  | "accepted"
+  | "preliminary"
+  | "unparsed"
+  | "failed"
+  | "unknown_key"
+  | "disabled"
+  | "no_feature";
+
 @Injectable()
 export class TelephonyWebhookLogService {
   private readonly logger = new Logger(TelephonyWebhookLogService.name);
@@ -86,7 +102,7 @@ export class TelephonyWebhookLogService {
    * כתקינה, בזמן שאף שיחה אינה נרשמת אצלה (ביקורת Codex).
    */
   async record(input: {
-    outcome: "accepted" | "preliminary" | "unparsed" | "unknown_key" | "disabled" | "no_feature";
+    outcome: TelephonyWebhookOutcome;
     /** מדוע לא נותח — רק כש-`outcome` הוא `unparsed`. */
     issue?: string | null;
     tenantId: string | null;

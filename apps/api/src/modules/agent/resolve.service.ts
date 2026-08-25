@@ -3,12 +3,14 @@ import {
   agentAction,
   agentFieldLabel,
   formatFieldValue,
+  matchHistoryRef,
   normalizePhone,
   parseHebrewDateTime,
   PhoneSchema,
   resolvePlaces,
   type AgentCandidate,
   type AgentField,
+  type AgentHistoryRef,
   type AgentProposal,
 } from "@metavchim/shared";
 import { BuyersService } from "../buyers/buyers.service";
@@ -59,6 +61,11 @@ export class AgentResolveService {
      * שלא נאמר לו מועד לא יורש את זה של הצעד הראשי.
      */
     dateSource?: string | null,
+    /**
+     * ההפניות שהשיחה מכירה — התוויות שהסוכן נתן לרשומות בעדכונים
+     * שהוא עצמו שלח. ריק בערוץ המסך: שם אין לסוכן יוזמה.
+     */
+    refs?: readonly AgentHistoryRef[],
   ): Promise<AgentProposal> {
     const action = agentAction(interpretation.actionId);
     if (!action) {
@@ -88,7 +95,8 @@ export class AgentResolveService {
     }
     this.applyKindDefault(action.id, transcript, params, resolvedKeys);
 
-    const { candidates, chosen } = await this.resolveEntity(action.id, params);
+    const { candidates, chosen, warning } = await this.resolveEntity(action.id, params, refs);
+    if (warning !== undefined) warnings.push(warning);
 
     for (const key of interpretation.rejected) {
       warnings.push(`לא הצלחתי לקרוא את הערך של „${agentFieldLabel(action.id, key)}”`);
@@ -127,6 +135,7 @@ export class AgentResolveService {
         },
         // המועד של הצעד — משלו בלבד; בלי dateText אין תאריך, לא ירושה
         step.dateText ?? null,
+        refs,
       );
       /*
        * צעד המשך שדורש בחירה בין רשומות (כמה התאמות, או פעולת
@@ -189,6 +198,12 @@ export class AgentResolveService {
       params[spec.idKey] = options[0]!.id;
       return { ok: true };
     }
+    /*
+     * ביטוי אופציונלי שלא נפתר אינו מפיל את הצעד. „תוסיף קונה משה
+     * ותזכיר לי להתקשר אליו מחר” — אם „אליו” לא נפתר, התזכורת עדיין
+     * צריכה להיווצר: אי-קישור אינו סיבה לאבד את התזכורת עצמה.
+     */
+    if (spec.optional) return { ok: true };
     if (options.length === 0) {
       return { ok: false, message: `לא נמצא „${phrase}” במאגר` };
     }
@@ -300,7 +315,12 @@ export class AgentResolveService {
   private async resolveEntity(
     actionId: string,
     params: Record<string, unknown>,
-  ): Promise<{ candidates?: AgentProposal["candidates"]; chosen?: AgentField }> {
+    refs?: readonly AgentHistoryRef[],
+  ): Promise<{
+    candidates?: AgentProposal["candidates"];
+    chosen?: AgentField;
+    warning?: string;
+  }> {
     const spec = ENTITY_LOOKUP[actionId];
     if (spec === undefined) return {};
     const phrase = params[spec.key];
@@ -312,8 +332,13 @@ export class AgentResolveService {
      *
      * רשימה ריקה חוסמת את האישור במסך, וזה הכלל לכל פעולה
      * שמכוונת לרשומה — לא רק לשתי החדשות.
+     *
+     * `optional` הוא היוצא מן הכלל: „תזכיר לי מחר לקנות חלב” היא
+     * תזכורת תקינה לחלוטין בלי שום כרטיס, וחסימה שם הייתה הופכת
+     * את הפעולה השכיחה ביותר לבלתי אפשרית.
      */
     if (typeof phrase !== "string" || phrase.trim().length < 2) {
+      if (spec.optional) return {};
       return {
         candidates: {
           key: spec.key,
@@ -325,9 +350,44 @@ export class AgentResolveService {
       };
     }
 
+    /*
+     * ההפניה **לפני** החיפוש.
+     *
+     * „תזכיר לי להתקשר אליו” אחרי עדכון על שיחה שלא נענתה מגיע
+     * מהמודל עם התווית שהפרומפט נתן לו (`⟪הליד מהעדכון⟫`). חיפוש
+     * טקסט חופשי אחריה לעולם לא ימצא דבר — היא אינה שם של אף אחד
+     * — ולכן הפתרון הוא כאן, מול מה שהסוכן עצמו זוכר ששלח.
+     *
+     * המזהה מגיע מהזיכרון של אותה שיחה בלבד, כלומר מרשומה שכבר
+     * נשלחה למשתמש הזה. `alwaysChoose` נשאר מחוץ לזה: פעולה שיוצאת
+     * ללקוח דורשת בחירה מפורשת גם כשההקשר ברור.
+     */
+    const ref = spec.alwaysChoose ? null : matchHistoryRef(refs, phrase);
+    const refId = ref ? entityRefId(spec.kind, ref) : null;
+    if (ref && refId) {
+      params[spec.idKey] = refId;
+      return {
+        chosen: {
+          key: spec.idKey,
+          label: spec.label,
+          value: refId,
+          display: ref.label,
+          source: "resolved",
+        },
+      };
+    }
+
     const options = await this.candidatesFor(spec.kind, phrase.trim());
 
     if (options.length === 0) {
+      /*
+       * בפעולה אופציונלית ביטוי שלא נמצא אינו עוצר — הוא נאמר,
+       * ולכן גם אינו נעלם בשקט. התזכורת נוצרת בלי קישור, והאזהרה
+       * אומרת בדיוק את זה.
+       */
+      if (spec.optional) {
+        return { warning: `„${phrase.trim()}” לא נמצא במאגר — ${spec.label} יישאר ריק` };
+      }
       return {
         candidates: {
           key: spec.key,
@@ -349,6 +409,17 @@ export class AgentResolveService {
           display: [match.label, match.detail].filter(Boolean).join(" — "),
           source: "resolved",
         },
+      };
+    }
+    /*
+     * כמה מועמדים בפעולה אופציונלית: אין למי להציג בחירה בלי לחסום
+     * את הפעולה כולה, ולכן הקישור יורד — עם אזהרה. ניחוש בין
+     * שניים היה קושר את התזכורת לכרטיס הלא נכון, וזה גרוע מלא
+     * לקשור בכלל.
+     */
+    if (spec.optional) {
+      return {
+        warning: `„${phrase.trim()}” מתאים ליותר מכרטיס אחד — ${spec.label} יישאר ריק`,
       };
     }
     return { candidates: { key: spec.key, idKey: spec.idKey, label: spec.label, options } };
@@ -477,9 +548,37 @@ const DATE_FIELD: Record<string, string | undefined> = {
 
 type LookupKind = "buyer" | "property" | "lead" | "task" | "card";
 
+/**
+ * צורת המזהה שהפעולה מצפה לה, לפי סוג החיפוש.
+ *
+ * `card` מקבץ קונים ולידים תחת ביטוי אחד, ולכן המזהה שלו נושא גם
+ * את הסוג (`lead:01J…`) — הביצוע צריך לדעת לאן ההערה הולכת. שאר
+ * הסוגים מקבלים מזהה חשוף. `null` = ההפניה אינה מתאימה לפעולה
+ * הזו (למשל נכס בפעולה שמדברת על קונה), וההחלטה חוזרת לחיפוש.
+ */
+function entityRefId(kind: LookupKind, ref: AgentHistoryRef): string | null {
+  if (kind === "card") {
+    return ref.entityType === "buyer" || ref.entityType === "lead"
+      ? `${ref.entityType}:${ref.entityId}`
+      : null;
+  }
+  return kind === ref.entityType ? ref.entityId : null;
+}
+
 const ENTITY_LOOKUP: Record<
   string,
-  { key: string; idKey: string; label: string; kind: LookupKind; alwaysChoose?: boolean }
+  {
+    key: string;
+    idKey: string;
+    label: string;
+    kind: LookupKind;
+    alwaysChoose?: boolean;
+    /**
+     * הביטוי משפר את הפעולה ואינו תנאי לה. חסר, לא נמצא, או מתאים
+     * לכמה — הפעולה ממשיכה בלי קישור, עם אזהרה גלויה.
+     */
+    optional?: boolean;
+  }
 > = {
   update_buyer: { key: "buyerPhrase", idKey: "buyerId", label: "איזה קונה", kind: "buyer" },
   update_property: {
@@ -489,6 +588,19 @@ const ENTITY_LOOKUP: Record<
     kind: "property",
   },
   complete_task: { key: "taskPhrase", idKey: "taskId", label: "איזו משימה", kind: "task" },
+  /*
+   * „קשור ל” היה שדה מת: המודל התבקש למלא אותו, הוא הוצג בכרטיס,
+   * ואיש לא קרא אותו — התזכורת נוצרה תמיד בלי שיוך. כאן הוא הופך
+   * לקישור אמיתי, וזה גם מה שנותן ל„תזכיר לי להתקשר אליו” לאן
+   * להצביע.
+   */
+  create_task: {
+    key: "relatedPhrase",
+    idKey: "relatedId",
+    label: "קשור ל",
+    kind: "card",
+    optional: true,
+  },
   add_note: { key: "cardPhrase", idKey: "cardId", label: "לאיזה כרטיס", kind: "card" },
   show_card: { key: "cardPhrase", idKey: "cardId", label: "איזה כרטיס", kind: "card" },
   play_recording: { key: "cardPhrase", idKey: "cardId", label: "שיחה עם מי", kind: "card" },

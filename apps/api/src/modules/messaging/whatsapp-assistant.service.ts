@@ -7,6 +7,9 @@ import {
   resolveCapabilities,
   roleLabel,
   decodeButtonId,
+  historyRefs,
+  AGENT_HISTORY_KEPT,
+  AGENT_ID_KEYS,
   type WhatsAppListRow,
   type AgentHistoryTurn,
   type AgentProposal,
@@ -69,8 +72,13 @@ import { WhatsAppSendService } from "./whatsapp-send.service";
  */
 
 const FEATURE_ID = "voice_intake";
-/** כמה תורות נשמרים לזיכרון השיחה — כמו המסך הקולי. */
-const HISTORY_KEPT = 6;
+/**
+ * כמה תורות נשמרים לזיכרון השיחה.
+ *
+ * מהחבילה המשותפת ולא כמספר כאן: סבב ההתראות ב-Worker כותב לאותו
+ * שדה, ושני חלונות שונים היו חותכים זה את זה.
+ */
+const HISTORY_KEPT = AGENT_HISTORY_KEPT;
 /** כמה מזהי הודעות נשמרים ל-Idempotency — Meta חוזר תוך דקות. */
 const HANDLED_KEPT = 30;
 /** המענה השיווקי למספר לא רשום — לכל היותר פעם בשבוע לכל מספר. */
@@ -85,8 +93,6 @@ const SLOW_TRANSCRIBE_NOTICE_MS = 6_000;
  */
 const STALE_PROPOSAL_TEXT =
   "ההצעה שהכפתור הזה שייך לה כבר אינה ממתינה — היא בוצעה, בוטלה, או הוחלפה בבקשה חדשה. כתבו לי מה לעשות ואכין אותה מחדש.";
-/** המפתחות שההצעה פותרת לבחירת רשומה — כמו ב-AgentController. */
-const ID_KEYS = ["buyerId", "propertyId", "taskId", "cardId", "leadId"] as const;
 
 export interface AssistantInbound {
   externalId: string;
@@ -120,6 +126,23 @@ interface PendingState {
 interface ChatState {
   pending: PendingState | null;
   history: AgentHistoryTurn[];
+  /**
+   * התורים ש**התור הזה** הוסיף — הבסיס למיזוג בשמירה.
+   *
+   * ההיסטוריה נקראת בתחילת התור ונכתבת בסופו, ובין לבין יש קריאה
+   * למודל. סורק ההתראות בוורקר כותב לאותה עמודה באותו זמן, ולכן
+   * כתיבה של המערך המקומי כמו-שהוא דורסת את מה שהוא הוסיף (או
+   * להפך). מה שנשמר הוא לכן **מה שנוסף כאן**, על גבי מה שקריאה
+   * חוזרת מתחת לנעילה מוצאת — ולא צילום ישן (ביקורת Codex).
+   *
+   * **רשימה נפרדת, ולא מונה על `history`.** קודם נשמר כאן מספר
+   * התורים שהיו בטעינה, והתוספת נגזרה ב-`history.slice(base)`.
+   * מרגע ש-`history` מגיעה לתקרה היא נחתכת בכל תור וחוזרת לאותו
+   * אורך בדיוק, ולכן ההפרש הזה הוא אפס: בשיחה ותיקה שום תור חדש
+   * לא נשמר יותר, והסוכן שכח כל מה שהוא עשה מאז (ביקורת Codex).
+   * ‎`history` נחתכת בשביל הפרומפט; מה שנשמר נספר כאן.
+   */
+  added: AgentHistoryTurn[];
   handledIds: string[];
   /**
    * אל תכתוב את ההצעה המקומית חזרה — מה שבשורה חדש ממנה.
@@ -696,7 +719,20 @@ export class WhatsAppAssistantService {
       "whatsapp",
       speaker,
     );
-    const proposal = await this.resolver.toProposal(text, interpretation);
+    /*
+     * ההפניות מהעדכונים שהסוכן שלח — מה ש„אליו” חל עליו.
+     *
+     * כאן הן מגיעות מזיכרון השיחה השמור, שסבב ההתראות כתב לו את מה
+     * ששלח בפועל. בבקר המסך אותו דבר בדיוק נגזר מההתראות עצמן
+     * (`AgentMemoryService`) — שני איסופים, אותה פונקציה משותפת,
+     * ואותה התנהגות בשני הערוצים.
+     */
+    const proposal = await this.resolver.toProposal(
+      text,
+      interpretation,
+      undefined,
+      historyRefs(chat.history),
+    );
 
     if (proposal.actionId === "unknown") {
       // ברכה/שאלה כללית — תשובה שיחתית, לא "לא הבנתי" יבש
@@ -799,7 +835,7 @@ export class WhatsAppAssistantService {
     for (const field of action.resolved ?? []) {
       if (source[field.key] !== undefined) params[field.key] = source[field.key];
     }
-    for (const key of ID_KEYS) {
+    for (const key of AGENT_ID_KEYS) {
       if (typeof source[key] === "string") params[key] = source[key];
     }
     return params;
@@ -925,21 +961,25 @@ export class WhatsAppAssistantService {
       }
     }
 
-    chat.history = [
-      ...chat.history.slice(-(HISTORY_KEPT - 1)),
-      {
-        transcript: state.transcript,
-        action: state.proposal.actionId,
-        params,
-        /*
-         * זיכרון השיחה נשלח לפרומפט של המודל בתור הבא, ולכן הוא
-         * **אינו** התשובה שהמתווך ראה: שורת המצב והשמות לפי הסדר,
-         * בלי טלפונים, אימיילים, הערות ותקצירי שיחות. `historySummary`
-         * מסביר למה בדיוק כך ולא פחות ולא יותר.
-         */
-        resultSummary: historySummary(primary.message, primary.data),
-      },
-    ];
+    const turn: AgentHistoryTurn = {
+      transcript: state.transcript,
+      action: state.proposal.actionId,
+      params,
+      /*
+       * זיכרון השיחה נשלח לפרומפט של המודל בתור הבא, ולכן הוא
+       * **אינו** התשובה שהמתווך ראה: שורת המצב והשמות לפי הסדר,
+       * בלי טלפונים, אימיילים, הערות ותקצירי שיחות. `historySummary`
+       * מסביר למה בדיוק כך ולא פחות ולא יותר.
+       */
+      resultSummary: historySummary(primary.message, primary.data),
+    };
+    /*
+     * שתי הרשימות: `history` היא מה שנשלח לפרומפט ולכן נחתכת
+     * לתקרה, ו-`added` היא מה שיישמר ולכן אינה נחתכת כאן — החיתוך
+     * שלה קורה במיזוג עם השורה, מול מה שנמצא שם בפועל.
+     */
+    chat.history = [...chat.history.slice(-(HISTORY_KEPT - 1)), turn];
+    chat.added = [...chat.added, turn];
     return { text: lines.join("\n"), ...(audio === undefined ? {} : { audio }) };
   }
 
@@ -998,9 +1038,13 @@ export class WhatsAppAssistantService {
         create: { id: ulid(), tenantId, userId, handledIds, lastInboundAt },
         update: { handledIds, lastInboundAt },
       });
+      const history = Array.isArray(row?.history)
+        ? (row.history as unknown as AgentHistoryTurn[])
+        : [];
       return {
         pending: (row?.pending as unknown as PendingState | null) ?? null,
-        history: Array.isArray(row?.history) ? (row.history as unknown as AgentHistoryTurn[]) : [],
+        history,
+        added: [],
         handledIds,
       };
     });
@@ -1042,25 +1086,42 @@ export class WhatsAppAssistantService {
    * ב-claimMessage, אחרת שמירה מאוחרת הייתה דורסת תפיסה מקבילה.
    */
   private async saveChat(tenantId: string, userId: string, chat: ChatState): Promise<void> {
-    const data = {
-      // Prisma דורש את הסמן המפורש ל-null בעמודת JSON — לא null גולמי
-      ...(chat.keepStoredPending === true
-        ? {}
-        : {
-            pending:
-              chat.pending === null
-                ? Prisma.JsonNull
-                : (chat.pending as unknown as Prisma.InputJsonValue),
-          }),
-      history: chat.history as unknown as Prisma.InputJsonValue,
-    };
-    await this.prisma.withExplicitTenant(tenantId, (tx) =>
-      tx.whatsAppChat.upsert({
+    await this.prisma.withExplicitTenant(tenantId, async (tx) => {
+      /*
+       * אותה נעילה של `claimMessage` ושל סורק ההתראות בוורקר —
+       * שלושתם כותבים לאותה עמודה, והיא מה שמסדר אותם בתור.
+       */
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`wa-chat:${tenantId}:${userId}`}, 0))`;
+      const row = await tx.whatsAppChat.findUnique({
+        where: { tenantId_userId: { tenantId, userId } },
+        select: { history: true },
+      });
+      const stored = Array.isArray(row?.history)
+        ? (row.history as unknown as AgentHistoryTurn[])
+        : [];
+      /*
+       * רק מה שהתור הזה הוסיף. ההיסטוריה מתווספת בסופה ואינה
+       * נערכת אחורה, ולכן החיבור הזה הוא מיזוג נכון ולא ניחוש.
+       */
+      const merged = [...stored, ...chat.added].slice(-HISTORY_KEPT);
+      const data = {
+        // Prisma דורש את הסמן המפורש ל-null בעמודת JSON — לא null גולמי
+        ...(chat.keepStoredPending === true
+          ? {}
+          : {
+              pending:
+                chat.pending === null
+                  ? Prisma.JsonNull
+                  : (chat.pending as unknown as Prisma.InputJsonValue),
+            }),
+        history: merged as unknown as Prisma.InputJsonValue,
+      };
+      await tx.whatsAppChat.upsert({
         where: { tenantId_userId: { tenantId, userId } },
         create: { id: ulid(), tenantId, userId, handledIds: chat.handledIds, ...data },
         update: data,
-      }),
-    );
+      });
+    });
   }
 }
 

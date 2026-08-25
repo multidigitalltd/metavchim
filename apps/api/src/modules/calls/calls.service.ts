@@ -63,6 +63,8 @@ export interface CallDto {
    * שהמשיכה שלה נכשלת — ולפעמים בשקט מוחלט.
    */
   recording: RecordingStatus;
+  /** פירוט טכני מצונזר של תשובת הספק — רק ל-`settings.manage`. */
+  recordingDetail?: string;
   createdAt: Date;
 }
 
@@ -97,12 +99,21 @@ export class CallsService {
     return this.prisma.withTenant(async (tx) => {
       // ליד שהוזן — משמש גם למילוי איש הקשר, כדי שהשיחה תיקשר לכרטיס
       let contactId = input.contactId;
-      if (contactId === undefined && input.leadId !== undefined) {
+      /*
+       * הנכס נקרא מהליד **ברגע היצירה** ונשמר כצילום.
+       *
+       * ‎`leads.property_id` אינו קבוע — ליד כללי מקבל שיוך לנכס
+       * מאוחר יותר, ואז שיחות ישנות שלו היו נספרות בדוח של אותו נכס
+       * (ביקורת Codex). הצילום נלקח פעם אחת ואינו משתנה איתו.
+       */
+      let propertyId: string | null = null;
+      if (input.leadId !== undefined) {
         const lead = await tx.lead.findFirst({
           where: { id: input.leadId, tenantId },
-          select: { contactId: true },
+          select: { contactId: true, propertyId: true },
         });
-        contactId = lead?.contactId;
+        contactId = contactId ?? lead?.contactId;
+        propertyId = lead?.propertyId ?? null;
       }
 
       const row = await tx.call.create({
@@ -112,6 +123,7 @@ export class CallsService {
           direction: input.direction,
           source: input.source ?? "manual",
           appointmentId: input.appointmentId ?? null,
+          propertyId,
           contactId: contactId ?? null,
           leadId: input.leadId ?? null,
           phoneEncrypted: input.phone ? this.crypto.encrypt(input.phone) : null,
@@ -245,7 +257,8 @@ export class CallsService {
                                       AND l.contact_id = c.contact_id)
                    AND NOT EXISTS (SELECT 1 FROM properties p
                                     WHERE p.tenant_id = c.tenant_id
-                                      AND p.owner_contact_id = c.contact_id
+                                      AND (p.owner_contact_id = c.contact_id
+                                        OR p.occupant_contact_id = c.contact_id)
                                       AND p.deleted_at IS NULL))
              )
              AND (${query.outcome ?? null}::text IS NULL OR c.outcome = ${query.outcome ?? null})
@@ -329,7 +342,8 @@ export class CallsService {
                                     AND l.contact_id = c.contact_id)
                  AND NOT EXISTS (SELECT 1 FROM properties p
                                   WHERE p.tenant_id = c.tenant_id
-                                    AND p.owner_contact_id = c.contact_id
+                                    AND (p.owner_contact_id = c.contact_id
+                                      OR p.occupant_contact_id = c.contact_id)
                                     AND p.deleted_at IS NULL))
            )
          ORDER BY c.contact_id, c.occurred_at DESC
@@ -618,6 +632,7 @@ export class CallsService {
       providerRecordingPath?: string | null;
       providerRecordingAttemptAt?: Date | null;
       providerRecordingError?: string | null;
+      providerRecordingDetail?: string | null;
       createdAt: Date;
     },
     /**
@@ -646,6 +661,20 @@ export class CallsService {
       occurredAt: row.occurredAt,
       hasRecording: (row.recordingKey ?? null) !== null,
       recording: recordingStateOf(row),
+      /*
+       * הפירוט הטכני — **רק למי שיכול לתקן את החיבור.**
+       *
+       * הקוד לבדו („התשובה מהמרכזייה לא נקראה”) אמר למתווך שמשהו
+       * נכשל ולא נתן לו דבר לעשות איתו — בדיוק הדיווח שחזר מהשטח.
+       * הפירוט עונה על „למה”, אבל הוא מדבר בשמות מפתחות של הספק:
+       * הוא מיועד למי שמחזיק את מסך ההגדרות, ורק מבלבל את מי שרצה
+       * לשמוע את השיחה.
+       */
+      ...(row.providerRecordingDetail !== null &&
+      row.providerRecordingDetail !== undefined &&
+      TenantContext.current().capabilities.has("settings.manage")
+        ? { recordingDetail: row.providerRecordingDetail }
+        : {}),
       ...(row.durationMinutes !== null ? { durationMinutes: row.durationMinutes } : {}),
       outcome: row.outcome,
       ...(row.summary ? { summary: row.summary } : {}),

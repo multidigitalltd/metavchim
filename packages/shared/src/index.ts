@@ -91,9 +91,13 @@ export * from "./agent/field-spec.js";
 export * from "./agent/actions.js";
 export * from "./agent/schema.js";
 export * from "./agent/prompt.js";
+export * from "./agent/history.js";
 export * from "./agent/proposal.js";
 
 export * from "./logic/dictation.js";
 
 export * from "./logic/callbacks.js";
 export * from "./logic/recording-state.js";
+export * from "./logic/provider-response.js";
+export * from "./logic/signup-code.js";
+export * from "./logic/property-activity.js";

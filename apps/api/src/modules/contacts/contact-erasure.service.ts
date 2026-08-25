@@ -114,7 +114,12 @@ export class ContactErasureService {
             OR: [{ buyerId: { in: buyers } }, { leadId: { in: leads } }],
           },
         }),
-        tx.property.count({ where: { tenantId, ownerContactId: contactId } }),
+        tx.property.count({
+          where: {
+            tenantId,
+            OR: [{ ownerContactId: contactId }, { occupantContactId: contactId }],
+          },
+        }),
         tx.sharedLead.count({ where: { tenantId, originLeadId: { in: leads } } }),
         tx.sharedDemand.count({ where: { tenantId, originBuyerId: { in: buyers } } }),
         tx.contactLink.count({ where: { tenantId, contactId } }),
@@ -347,6 +352,18 @@ export class ContactErasureService {
     await tx.property.updateMany({
       where: { tenantId, ownerContactId: contactId },
       data: { ownerContactId: null },
+    });
+    /*
+     * ואותו דבר למי שגר בנכס.
+     *
+     * שוכר שביקש מחיקה הוא בדיוק המקרה שבגללו הפרטים שלו נכנסו
+     * לכרטיס מלכתחילה במקום להישאר בטלפון של המתווך: הבקשה חייבת
+     * למצוא אותו. בלי השורה הזו הייתה נשארת הפניה למזהה שנמחק —
+     * כלומר גם דליפה שקטה וגם „נמחק הכול” שאינו נכון.
+     */
+    await tx.property.updateMany({
+      where: { tenantId, occupantContactId: contactId },
+      data: { occupantContactId: null },
     });
 
     /*

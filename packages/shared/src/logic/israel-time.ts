@@ -56,6 +56,22 @@ export function jerusalemDayRange(now: Date): { start: Date; end: Date } {
   return { start, end: jerusalemWallIsoToUtc(`${nextDay}T00:00:00.000`) };
 }
 
+/**
+ * תאריך בשעון ישראל — "24.08.2026", ללא תלות באזור הזמן של התהליך.
+ *
+ * ‎`toLocaleDateString` בלי `timeZone` היה נותן את התאריך של השרת:
+ * פגישה ב-01:30 בירושלים היא עדיין 22:30 של אתמול ב-UTC, ולכן דוח
+ * שיוצא ללקוח היה מקדים אותה ביום שלם.
+ */
+export function formatJerusalemDate(at: Date): string {
+  return new Intl.DateTimeFormat("he-IL", {
+    timeZone: JERUSALEM_TZ,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(at);
+}
+
 /** שעה בשעון ישראל — "14:30", ללא תלות באזור הזמן של התהליך. */
 export function formatJerusalemTime(at: Date): string {
   return new Intl.DateTimeFormat("he-IL", {

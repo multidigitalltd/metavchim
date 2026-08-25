@@ -46,6 +46,14 @@ interface PublicView {
   inactive: "revoked" | "expired" | null;
   prefill: IntakeAnswers;
   submittedAt: string | null;
+  /**
+   * הטופס שואל גם „מי אתם” — קישור פתוח שעוד אין לו כרטיס.
+   *
+   * השרת מכריע, לא העמוד: הוא זה שיודע אם הבקשה כבר מצביעה על
+   * כרטיס. הפרדה כזו היא גם מה שמונע מהעמוד לשאול שם וטלפון
+   * מלקוח שהמשרד כבר מכיר — ולקבל בתשובה גרסה שנייה של אותו אדם.
+   */
+  needsIdentity: boolean;
 }
 
 /** סוגי הנכס שמוצעים ללקוח. רשימה קצרה — זה טופס, לא קטלוג. */
@@ -111,6 +119,16 @@ export default function IntakeFormPage({
   /** מלכודת דבש — נשארת ריקה אצל אדם. */
   const [website, setWebsite] = useState("");
 
+  /*
+   * הזהות — קישור פתוח בלבד, ואינה מגיעה מלאה מראש.
+   *
+   * `prefill` אינו נושא אותה גם אחרי שהלקוח מילא: מי שמצא את
+   * הקישור אחר כך היה לומד ממנו שם ומספר של אדם אמיתי. ומרגע
+   * שהכרטיס נוצר `needsIdentity` כבה, ולכן אין גם מה למלא מחדש.
+   */
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+
   const load = useCallback(async () => {
     try {
       /*
@@ -156,6 +174,11 @@ export default function IntakeFormPage({
         .map((c) => c.trim())
         .filter((c) => c !== "");
       const body: Record<string, unknown> = {
+        /*
+         * נשלחים רק כשנשאלו. בקישור לכרטיס קיים המשרד כבר יודע מי
+         * הלקוח, ושליחת שם ריק הייתה נראית לשרת כתשובה.
+         */
+        ...(view?.needsIdentity === true ? { fullName, phone } : {}),
         dealType,
         cities: cityList,
         propertyTypes: types,
@@ -264,9 +287,15 @@ export default function IntakeFormPage({
         <h1 className="m-0 text-2xl font-extrabold">
           שלום {view.greetingName}, מה אתם מחפשים?
         </h1>
+        {/*
+          נוסח שונה כשהטופס שואל גם „מי אתם”: „אין שדות חובה” הוא
+          הבטחה שהעמוד עומד לשבור מיד, והלקוח שנתקל בשגיאה אחרי
+          שהובטח לו אחרת קורא אותה כתקלה ולא כהוראה.
+        */}
         <p className="m-0 mt-2 text-[16px] leading-relaxed">
-          כמה שאלות קצרות, כדי שנציע לכם בדיוק את מה שמתאים. אין שדות
-          חובה — מלאו את מה שידוע, ואת השאר נשלים בשיחה.
+          {view.needsIdentity
+            ? "כמה שאלות קצרות, כדי שנציע לכם בדיוק את מה שמתאים. רק השם, הטלפון וסוג העסקה נחוצים — את השאר מלאו כמה שידוע."
+            : "כמה שאלות קצרות, כדי שנציע לכם בדיוק את מה שמתאים. אין שדות חובה — מלאו את מה שידוע, ואת השאר נשלים בשיחה."}
         </p>
         {view.submittedAt !== null ? (
           <p
@@ -277,6 +306,40 @@ export default function IntakeFormPage({
           </p>
         ) : null}
       </header>
+
+      {/*
+        „מי אתם” — ראשון, ורק בקישור פתוח.
+
+        הסדר אינו אקראי: אלה השדות היחידים שבלעדיהם השליחה נדחית,
+        והצבתם בסוף הייתה שולחת את הלקוח לגלול חזרה אחרי שכבר מילא
+        הכול. `autoComplete` נותן לדפדפן להשלים אותם בלחיצה אחת —
+        זה טופס שממלאים בטלפון.
+      */}
+      {view.needsIdentity ? (
+        <>
+          <Field label="איך קוראים לכם?">
+            <input
+              className="mv-field w-full"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              autoComplete="name"
+              placeholder="שם מלא"
+            />
+          </Field>
+          <Field label="באיזה מספר להשיג אתכם?" hint="לשם כך בלבד — לא נעביר אותו לאף אחד">
+            <input
+              className="mv-field w-full"
+              dir="ltr"
+              type="tel"
+              inputMode="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              autoComplete="tel"
+              placeholder="050-0000000"
+            />
+          </Field>
+        </>
+      ) : null}
 
       <Field label="לקנות או לשכור?">
         <div className="flex gap-2">

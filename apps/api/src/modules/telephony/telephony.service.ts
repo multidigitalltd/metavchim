@@ -33,6 +33,8 @@ import {
   type SoftphoneGap,
   type VirtualNumberRule,
 } from "@metavchim/shared";
+import { lockContactPhone, lockProviderCall } from "../../common/locks";
+import { notifyOnce } from "../../common/notify-once";
 import { assertContactAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
@@ -43,7 +45,10 @@ import { PrismaService } from "../../core/prisma.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { IntakeService } from "../intake/intake.service";
 import { WhatsAppSendService } from "../messaging/whatsapp-send.service";
-import { TelephonyWebhookLogService } from "./webhook-log.service";
+import {
+  TelephonyWebhookLogService,
+  type TelephonyWebhookOutcome,
+} from "./webhook-log.service";
 import { loadEnv } from "../../config/env";
 
 /**
@@ -716,226 +721,263 @@ export class TelephonyService {
      * `createLead` בלבד, לא על `logCall`.
      */
     const willLogCall = event !== null && callAction(event, false).logCall;
-    await this.webhookLog.record({
-      outcome: event === null ? "unparsed" : willLogCall ? "accepted" : "preliminary",
-      issue,
-      tenantId: integration.tenantId,
-      key,
-      method,
-      payload,
-    });
-
-    const tenantId = integration.tenantId;
 
     /*
-     * **התיעוד נרשם על ההגעה, לא על ההצלחה.**
+     * שורת היומן נכתבת **אחרי** העיבוד, ולא לפניו.
      *
-     * קודם `lastEventAt` נכתב רק אחרי שהאירוע נותח בהצלחה, ולכן
-     * מרכזייה ששלחה payload בשמות שדות שאיננו מכירים השאירה את המסך
-     * אומר "לא התקבל אף אירוע" — בדיוק כמו מרכזייה שמעולם לא פנתה.
-     * שני המצבים דורשים פעולה הפוכה: כתובת שגויה אצל הספק מול מיפוי
-     * שדות חסר אצלנו, ובלי ההבחנה אי אפשר לדעת במה מדובר.
+     * כשהיא נכתבה מראש היא הצהירה „נקלטה כשיחה” על סמך כוונה
+     * בלבד. עיבוד שנפל אחר כך — חיפוש איש קשר, פתיחת ליד, כתיבת
+     * שורת השיחה — השאיר את היומן אומר בדיוק את ההפך ממה שקרה,
+     * ודווקא במקרה שבשבילו מסתכלים בו (ביקורת Codex).
      *
-     * מסונן תמיד: ספק עם מפתחות דינמיים יכול לשלוח
-     * `{"0501234567": "..."}`, וכך מספר הלקוח היה נשמר בעמודה גלויה
-     * ונכתב ללוג — בדיוק מה שההצפנה בכל שאר המערכת מונעת (ביקורת
-     * Codex).
-     *
-     * `diagnosticFields` ולא `safeDiagnosticKeys`: השמות לבדם אינם
-     * עונים על השאלה שבעל המשרד שואל כאן. „‎direction‎ הגיע” יכול
-     * להיות ערך תקין או שדה ריק, ומרכזייה ששולחת תבנית עם
-     * placeholder שאינו נתמך שולחת אותו ריק. הכללים על מה מותר
-     * להציג זהים — שדות מזהים נשארים שם בלבד — וזה גם הופך את המסך
-     * הזה לזהה ליומן הפלטפורמה במקום שני ניסוחים לאותו payload.
+     * `finally` ולא `catch` בלבד: הכתיבה חייבת לקרות גם במסלול
+     * ה-`return` המוקדם של אירוע שלא זוהה. `record` בולעת שגיאות
+     * בעצמה, ולכן היא אינה יכולה להסתיר את החריגה המקורית.
      */
-    await this.prisma.withExplicitTenant(tenantId, async (tx) => {
-      await tx.integration.updateMany({
-        where: { id: integration.id, tenantId },
-        data: {
-          lastEventAt: new Date(),
-          lastEventKeys: diagnosticFields(payload),
-          lastEventOk: event !== null,
-          lastEventIssue: issue,
-        },
-      });
-    });
-    if (!event) {
-      this.logger.warn(
-        `אירוע מרכזייה שלא זוהה (${integration.tenantId}): ${issue ?? "לא ידוע"}. ` +
-          `שדות: ${safeDiagnosticKeys(Object.keys(payload))}`,
-      );
-      return; // חסר מספר או מזהה — אין מה לעשות איתו
-    }
-
-    await this.prisma.withExplicitTenant(tenantId, async (tx) => {
-
-      const phoneHash = this.crypto.phoneHash(event.peerPhone);
-      /*
-       * גם המספרים המשניים של איש הקשר, לא רק הראשי.
-       *
-       * לקוח שמתקשר מהמספר השני שלו הוא אותו אדם. חיפוש בטבלת
-       * contacts בלבד היה מסמן אותו כלא-מוכר, וייצר לו כרטיס שני
-       * וליד מיותר — בדיוק מה שתמיכת ריבוי המספרים באה למנוע
-       * (ביקורת Codex).
-       */
-      const primary = await tx.contact.findFirst({
-        where: { tenantId, phoneHash },
-        select: { id: true, nameEncrypted: true },
-      });
-      const secondary = primary
-        ? null
-        : await tx.contactPhone.findFirst({
-            where: { tenantId, phoneHash },
-            select: { contact: { select: { id: true, nameEncrypted: true } } },
-          });
-      const contact = primary ?? secondary?.contact ?? null;
-      const action = callAction(event, contact !== null);
-      const contactName = contact ? this.crypto.decrypt(contact.nameEncrypted) : null;
+    let outcome: TelephonyWebhookOutcome =
+      event === null ? "unparsed" : willLogCall ? "accepted" : "preliminary";
+    try {
+      const tenantId = integration.tenantId;
 
       /*
-       * בדיקת הכפילות רצה לפני הפיצול לענפים, ולא רק במסלול הרישום.
+       * **התיעוד נרשם על ההגעה, לא על ההצלחה.**
        *
-       * ספק ששולח שוב אירוע צלצול — כי לא קיבל 200, או סתם — היה
-       * מייצר התראה נוספת על אותה שיחה בכל שליחה (ביקורת Codex).
+       * קודם `lastEventAt` נכתב רק אחרי שהאירוע נותח בהצלחה, ולכן
+       * מרכזייה ששלחה payload בשמות שדות שאיננו מכירים השאירה את המסך
+       * אומר "לא התקבל אף אירוע" — בדיוק כמו מרכזייה שמעולם לא פנתה.
+       * שני המצבים דורשים פעולה הפוכה: כתובת שגויה אצל הספק מול מיפוי
+       * שדות חסר אצלנו, ובלי ההבחנה אי אפשר לדעת במה מדובר.
+       *
+       * מסונן תמיד: ספק עם מפתחות דינמיים יכול לשלוח
+       * `{"0501234567": "..."}`, וכך מספר הלקוח היה נשמר בעמודה גלויה
+       * ונכתב ללוג — בדיוק מה שההצפנה בכל שאר המערכת מונעת (ביקורת
+       * Codex).
+       *
+       * `diagnosticFields` ולא `safeDiagnosticKeys`: השמות לבדם אינם
+       * עונים על השאלה שבעל המשרד שואל כאן. „‎direction‎ הגיע” יכול
+       * להיות ערך תקין או שדה ריק, ומרכזייה ששולחת תבנית עם
+       * placeholder שאינו נתמך שולחת אותו ריק. הכללים על מה מותר
+       * להציג זהים — שדות מזהים נשארים שם בלבד — וזה גם הופך את המסך
+       * הזה לזהה ליומן הפלטפורמה במקום שני ניסוחים לאותו payload.
        */
-      const seen = await tx.call.findFirst({
-        where: { tenantId, providerCallId: event.providerCallId },
-        select: { id: true, outcome: true },
-      });
-
-      if (action.notify) {
-        if (seen) return; // כבר טופל — לא מתריעים פעמיים
-        /*
-         * ההתראה נכתבת לכל המשרד (userId = null) ולא לסוכן מסוים:
-         * השלוחה שהמרכזייה מדווחת עליה היא של המכשיר שמצלצל, ואין
-         * לנו מיפוי אמין ממנה למשתמש. עדיף שכולם יראו מי מתקשר מאשר
-         * שההתראה תגיע לאדם הלא נכון.
-         */
-        await tx.notification.create({
+      await this.prisma.withExplicitTenant(tenantId, async (tx) => {
+        await tx.integration.updateMany({
+          where: { id: integration.id, tenantId },
           data: {
-            id: ulid(),
+            lastEventAt: new Date(),
+            lastEventKeys: diagnosticFields(payload),
+            lastEventOk: event !== null,
+            lastEventIssue: issue,
+          },
+        });
+      });
+      if (!event) {
+        this.logger.warn(
+          `אירוע מרכזייה שלא זוהה (${integration.tenantId}): ${issue ?? "לא ידוע"}. ` +
+            `שדות: ${safeDiagnosticKeys(Object.keys(payload))}`,
+        );
+        return; // חסר מספר או מזהה — אין מה לעשות איתו
+      }
+
+      await this.prisma.withExplicitTenant(tenantId, async (tx) => {
+
+        const phoneHash = this.crypto.phoneHash(event.peerPhone);
+        /*
+         * גם המספרים המשניים של איש הקשר, לא רק הראשי.
+         *
+         * לקוח שמתקשר מהמספר השני שלו הוא אותו אדם. חיפוש בטבלת
+         * contacts בלבד היה מסמן אותו כלא-מוכר, וייצר לו כרטיס שני
+         * וליד מיותר — בדיוק מה שתמיכת ריבוי המספרים באה למנוע
+         * (ביקורת Codex).
+         */
+        const primary = await tx.contact.findFirst({
+          where: { tenantId, phoneHash },
+          select: { id: true, nameEncrypted: true },
+        });
+        const secondary = primary
+          ? null
+          : await tx.contactPhone.findFirst({
+              where: { tenantId, phoneHash },
+              select: { contact: { select: { id: true, nameEncrypted: true } } },
+            });
+        const contact = primary ?? secondary?.contact ?? null;
+        const action = callAction(event, contact !== null);
+        const contactName = contact ? this.crypto.decrypt(contact.nameEncrypted) : null;
+
+        /*
+         * שתי הגנות שונות מפני אותו אירוע שמגיע פעמיים, כי הן מגינות
+         * על שני דברים שונים.
+         *
+         * **הנעילה** מסדרת שתי פניות מקבילות עם אותו `callid`. בלעדיה
+         * הבדיקה למטה היא קרא־ואז־כתוב: שתיהן קוראות „אין שיחה”,
+         * ושתיהן כותבות. מרכזייה ששולחת שוב כי לא קיבלה 200 עושה בדיוק
+         * את זה.
+         *
+         * **`seen`** מסתכל על שורת השיחה, וזה מספיק בדיוק למסלול אחד —
+         * זה שכותב אותה. במסלול ההתראה על צלצול הוא היה חסר משמעות:
+         * שורת השיחה נוצרת רק באירוע המסיים, ולכן `seen` תמיד ריק שם
+         * וכל `Calling` חוזר ייצר התראה נוספת. זה מה שגרם לשתי הודעות
+         * הוואטסאפ על שיחה נכנסת אחת. ההגנה שם היא מפתח הייחודיות של
+         * ההתראה עצמה — ראו `notifyOnce`.
+         */
+        await lockProviderCall(tx, tenantId, event.providerCallId);
+        const seen = await tx.call.findFirst({
+          where: { tenantId, providerCallId: event.providerCallId },
+          select: { id: true, outcome: true },
+        });
+
+        if (action.notify) {
+          if (seen) return; // כבר הפכה לשיחה — ההתראה עליה כבר יצאה
+          /*
+           * ההתראה נכתבת לכל המשרד (userId = null) ולא לסוכן מסוים:
+           * השלוחה שהמרכזייה מדווחת עליה היא של המכשיר שמצלצל, ואין
+           * לנו מיפוי אמין ממנה למשתמש. עדיף שכולם יראו מי מתקשר מאשר
+           * שההתראה תגיע לאדם הלא נכון.
+           */
+          await notifyOnce(tx, {
             tenantId,
+            dedupeKey: `incoming_call:${event.providerCallId}`,
             userId: null,
             type: "incoming_call",
             title: incomingCallTitle(contactName, event.peerPhone),
             body: contact ? null : "מספר שאינו מוכר במערכת",
             entityType: contact ? "contact" : null,
             entityId: contact?.id ?? null,
-          },
-        });
-        return;
-      }
+          });
+          return;
+        }
 
-      if (!action.logCall || seen) return;
+        if (!action.logCall || seen) return;
 
-      /*
-       * הלקוח והליד נוצרים **לפני** שורת השיחה, ולא אחריה.
-       *
-       * בסדר ההפוך שורת השיחה נכתבה עם contactId ריק ונשארה כך
-       * לתמיד — כלומר הלקוח שנפתח מהשיחה לא היה מקושר לשיחה שיצרה
-       * אותו, ומכרטיסו אי אפשר היה להגיע אליה (ביקורת Codex).
-       */
-      /*
-       * ההגדרה של המספר שאליו התקשרו — מקור, סוכן ונכס.
-       *
-       * נקראת גם כשלא נפתח ליד: היא זולה, והשורה נכתבת בכל מקרה עם
-       * `dialedNumber` כדי שדוח הקמפיינים יספור גם שיחות מלקוחות
-       * מוכרים. קמפיין שמחזיר לקוח ותיק הוא קמפיין שעבד.
-       */
-      const virtualNumber = await this.matchVirtualNumber(tx, tenantId, event.dialedNumber);
-
-      let contactId = contact?.id ?? null;
-      let leadId: string | null = null;
-      if (action.createLead) {
-        const opened = await this.openLeadForUnknownCaller(
-          tx,
-          tenantId,
-          event.peerPhone,
-          phoneHash,
-          virtualNumber,
-          event.direction,
-          event.callerName,
-        );
-        contactId = opened.contactId;
-        leadId = opened.leadId;
-      }
-
-      await tx.call.create({
-        data: {
-          id: ulid(),
-          tenantId,
-          direction: event.direction,
-          source: "provider",
-          providerCallId: event.providerCallId,
-          contactId,
-          leadId,
-          phoneEncrypted: this.crypto.encrypt(event.peerPhone),
-          phoneHash,
-          // הצד שלנו — הבסיס לדוח "כמה שיחות מכל מספר"; ראו הסכימה
-          dialedNumber: event.dialedNumber ?? null,
-          /*
-           * השם נשמר כצילום ולא כהפניה: ההגדרה יכולה להימחק, וזה
-           * לא אמור לשנות את מה שכתוב על שיחה שכבר קרתה.
-           */
-          dialedLabel: virtualNumber?.label ?? null,
-          /*
-           * שעת השיחה כפי שהמרכזייה דיווחה, ורק בהיעדרה שעת הקליטה.
-           *
-           * 015 שולח שלושה אירועים לשיחה אחת (`Calling` ⟵ `Answer`
-           * ⟵ `Hangup`) שמתפרסים על עשרות שניות, ושולח שוב בניסיון
-           * חוזר. `new Date()` רשם את מועד ההודעה האחרונה שהתקבלה
-           * ולא את מועד השיחה — שיחה שקרתה ב-8:46:16 נרשמה ב-8:46:59,
-           * ובניסיון חוזר שעה אחר כך בשעה אחרת לגמרי.
-           */
-          occurredAt: event.startedAt ?? new Date(),
-          // שיחה שלא נענתה נשארת בלי משך. עיגול כלפי מעלה היה מציג
-          // "דקה אחת" על שיחה שהסיכום שלה אומר שלא נענתה כלל.
-          durationMinutes:
-            event.type === "missed" || event.durationSeconds === undefined
-              ? null
-              : Math.max(1, Math.round(event.durationSeconds / 60)),
-          outcome: event.type === "missed" ? "missed" : "answered",
-          summary: describeCall(event),
-          // מצביע בלבד בשלב הזה; העובד מושך את האודיו וממיר אותו
-          // ל-`recordingKey` שלנו. ראו `RecordingFetchService`.
-          providerRecordingPath: event.providerRecordingPath ?? null,
-        },
-      });
-
-      /*
-       * שיחה נכנסת שלא נענתה — התראה משלה.
-       *
-       * עד כה התריעה המערכת רק על *צלצול*, כלומר בדיוק ברגע שבו
-       * המתווך ממילא רואה את הטלפון מצלצל. מי שלא הספיק לענות — או
-       * שהיה בפגישה — לא קיבל דבר: השיחה נרשמה ביומן השיחות, ומי
-       * שלא פתח אותו לא ידע שלקוח ניסה להשיג אותו. זו ההתראה שהופכת
-       * „לא נענתה” לפעולה, והיא מצביעה על הליד/הלקוח כדי שאפשר יהיה
-       * לחזור אליו במגע אחד.
-       */
-      if (event.type === "missed" && event.direction === "inbound") {
         /*
-         * הקישור ללקוח — **לפני** ההתראה, כדי שההתראה תוכל לשאת את
-         * מה שנשאר לעשות.
+         * הלקוח והליד נוצרים **לפני** שורת השיחה, ולא אחריה.
          *
-         * ההתראה אומרת למתווך שמישהו התקשר; הקישור הוא מה שאומר
-         * ל**לקוח** שראינו אותו. השיחה שלא נענתה היא הרגע שבו הוא
-         * הכי מחובר לעניין, ורבע שעה אחר כך הוא כבר מתקשר למשרד
-         * הבא.
-         *
-         * בתוך אותה טרנזקציה של קליטת האירוע: בקשה שנוצרה בלי
-         * שהשיחה נרשמה היא קישור שאיש לא יודע למה נשלח.
+         * בסדר ההפוך שורת השיחה נכתבה עם contactId ריק ונשארה כך
+         * לתמיד — כלומר הלקוח שנפתח מהשיחה לא היה מקושר לשיחה שיצרה
+         * אותו, ומכרטיסו אי אפשר היה להגיע אליה (ביקורת Codex).
          */
-        const pending = await this.offerIntakeAfterMissedCall(
-          tx,
-          tenantId,
-          leadId,
-          contactId,
-        );
+        /*
+         * ההגדרה של המספר שאליו התקשרו — מקור, סוכן ונכס.
+         *
+         * נקראת גם כשלא נפתח ליד: היא זולה, והשורה נכתבת בכל מקרה עם
+         * `dialedNumber` כדי שדוח הקמפיינים יספור גם שיחות מלקוחות
+         * מוכרים. קמפיין שמחזיר לקוח ותיק הוא קמפיין שעבד.
+         */
+        const virtualNumber = await this.matchVirtualNumber(tx, tenantId, event.dialedNumber);
 
-        await tx.notification.create({
+        let contactId = contact?.id ?? null;
+        let leadId: string | null = null;
+        if (action.createLead) {
+          const opened = await this.openLeadForUnknownCaller(
+            tx,
+            tenantId,
+            event.peerPhone,
+            phoneHash,
+            virtualNumber,
+            event.direction,
+            event.callerName,
+          );
+          contactId = opened.contactId;
+          leadId = opened.leadId;
+        }
+
+        await tx.call.create({
           data: {
             id: ulid(),
             tenantId,
+            direction: event.direction,
+            source: "provider",
+            providerCallId: event.providerCallId,
+            contactId,
+            leadId,
+            phoneEncrypted: this.crypto.encrypt(event.peerPhone),
+            phoneHash,
+            // הצד שלנו — הבסיס לדוח "כמה שיחות מכל מספר"; ראו הסכימה
+            dialedNumber: event.dialedNumber ?? null,
+            /*
+             * השם נשמר כצילום ולא כהפניה: ההגדרה יכולה להימחק, וזה
+             * לא אמור לשנות את מה שכתוב על שיחה שכבר קרתה.
+             */
+            dialedLabel: virtualNumber?.label ?? null,
+            /*
+             * הנכס כצילום, מאותו מקור שממנו נקבע שיוך הליד — ובאותו
+             * רגע. השיוך של הליד יכול להשתנות אחר כך, ולכן דוח שנשען
+             * עליו היה מייחס שיחות ישנות לנכס חדש (ביקורת Codex).
+             *
+             * שיחה יוצאת אינה נושאת נכס, מאותו נימוק שהליד שלה אינו
+             * נושא: היעד נבחר על ידי הסוכן ולא על ידי מספר שפורסם.
+             *
+             * **„באותו רגע” הוא רגע כתיבת השורה — האירוע המסיים.**
+             * ‎`Calling` אינו שומר את הניתוב שראה, ולכן מספר שהועבר
+             * לנכס אחר באמצע השיחה (או לפני `Hangup` שנשלח שוב
+             * באיחור) ייתן כאן את התצורה החדשה. ראו ההערה על העמודה
+             * בסכימה — הגבול הזה מתועד ולא מוסתר.
+             */
+            propertyId:
+              event.direction === "outbound" ? null : (virtualNumber?.propertyId ?? null),
+            /*
+             * שעת השיחה כפי שהמרכזייה דיווחה, ורק בהיעדרה שעת הקליטה.
+             *
+             * 015 שולח שלושה אירועים לשיחה אחת (`Calling` ⟵ `Answer`
+             * ⟵ `Hangup`) שמתפרסים על עשרות שניות, ושולח שוב בניסיון
+             * חוזר. `new Date()` רשם את מועד ההודעה האחרונה שהתקבלה
+             * ולא את מועד השיחה — שיחה שקרתה ב-8:46:16 נרשמה ב-8:46:59,
+             * ובניסיון חוזר שעה אחר כך בשעה אחרת לגמרי.
+             */
+            occurredAt: event.startedAt ?? new Date(),
+            // שיחה שלא נענתה נשארת בלי משך. עיגול כלפי מעלה היה מציג
+            // "דקה אחת" על שיחה שהסיכום שלה אומר שלא נענתה כלל.
+            durationMinutes:
+              event.type === "missed" || event.durationSeconds === undefined
+                ? null
+                : Math.max(1, Math.round(event.durationSeconds / 60)),
+            outcome: event.type === "missed" ? "missed" : "answered",
+            summary: describeCall(event),
+            // מצביע בלבד בשלב הזה; העובד מושך את האודיו וממיר אותו
+            // ל-`recordingKey` שלנו. ראו `RecordingFetchService`.
+            providerRecordingPath: event.providerRecordingPath ?? null,
+          },
+        });
+
+        /*
+         * שיחה נכנסת שלא נענתה — התראה משלה.
+         *
+         * עד כה התריעה המערכת רק על *צלצול*, כלומר בדיוק ברגע שבו
+         * המתווך ממילא רואה את הטלפון מצלצל. מי שלא הספיק לענות — או
+         * שהיה בפגישה — לא קיבל דבר: השיחה נרשמה ביומן השיחות, ומי
+         * שלא פתח אותו לא ידע שלקוח ניסה להשיג אותו. זו ההתראה שהופכת
+         * „לא נענתה” לפעולה, והיא מצביעה על הליד/הלקוח כדי שאפשר יהיה
+         * לחזור אליו במגע אחד.
+         */
+        if (event.type === "missed" && event.direction === "inbound") {
+          /*
+           * הקישור ללקוח — **לפני** ההתראה, כדי שההתראה תוכל לשאת את
+           * מה שנשאר לעשות.
+           *
+           * ההתראה אומרת למתווך שמישהו התקשר; הקישור הוא מה שאומר
+           * ל**לקוח** שראינו אותו. השיחה שלא נענתה היא הרגע שבו הוא
+           * הכי מחובר לעניין, ורבע שעה אחר כך הוא כבר מתקשר למשרד
+           * הבא.
+           *
+           * בתוך אותה טרנזקציה של קליטת האירוע: בקשה שנוצרה בלי
+           * שהשיחה נרשמה היא קישור שאיש לא יודע למה נשלח.
+           */
+          const pending = await this.offerIntakeAfterMissedCall(
+            tx,
+            tenantId,
+            leadId,
+            contactId,
+          );
+
+          await notifyOnce(tx, {
+            tenantId,
+            /*
+             * גם כאן מפתח, ולא רק `seen`. שורת השיחה כבר נכתבה בטרנזקציה
+             * הזו, אבל היא נראית רק אחרי COMMIT — כלומר שתי פניות
+             * מקבילות עדיין יכולות לכתוב שתי התראות. הנעילה מונעת את
+             * המרוץ, והמפתח הופך את זה לוודאות שאינה תלויה בה.
+             */
+            dedupeKey: `call_missed:${event.providerCallId}`,
             // כמו התראת הצלצול: אין מיפוי אמין משלוחה למשתמש
             userId: null,
             type: "call_missed",
@@ -946,17 +988,30 @@ export class TelephonyService {
              * מה שצריך לשלוח מחייבת חיפוש, וזו בדיוק העבודה
              * שהאוטומציה נועדה לחסוך.
              */
-            body:
-              pending ?? (leadId ? "נפתח ליד חדש מהשיחה" : null),
-            ...(leadId
-              ? { entityType: "lead", entityId: leadId }
-              : contactId
-                ? { entityType: "contact", entityId: contactId }
-                : {}),
-          },
-        });
-      }
-    });
+            body: pending ?? (leadId ? "נפתח ליד חדש מהשיחה" : null),
+            entityType: leadId ? "lead" : contactId ? "contact" : null,
+            entityId: leadId ?? contactId,
+          });
+        }
+      });
+    } catch (error) {
+      /*
+       * הפנייה הגיעה, הובנה — ונפלה אצלנו. זו תוצאה רביעית
+       * ולא אחת מהשלוש: המרכזייה תשלח שוב (הבקשה מסתיימת
+       * בשגיאה), ומי שקורא את היומן צריך לדעת שהתקלה כאן.
+       */
+      outcome = "failed";
+      throw error;
+    } finally {
+      await this.webhookLog.record({
+        outcome,
+        issue,
+        tenantId: integration.tenantId,
+        key,
+        method,
+        payload,
+      });
+    }
   }
 
   /**
@@ -1092,7 +1147,45 @@ export class TelephonyService {
     direction: "inbound" | "outbound",
     callerName: string | undefined,
   ): Promise<{ contactId: string; leadId: string }> {
-    const contact = await tx.contact.create({
+    /*
+     * אותה נעילת מספר שנוטלת `findOrCreateByPhone`.
+     *
+     * היצירה כאן אינה עוברת דרכה — היא נושאת את שם המתקשר
+     * מהמרכזייה — ולכן היא הייתה מחוץ להסדר. שיחה נכנסת ממספר חדש
+     * שנפגשת עם ליד מהאתר או עם קישור פתוח באותו רגע: שתי
+     * הטרנזקציות אינן מוצאות כרטיס, שתיהן יוצרות, והאינדקס הייחודי
+     * מפיל את השנייה — כלומר שיחה שנבלעת (ביקורת Codex).
+     *
+     * הנעילה על המספר ולא על הכרטיס: כרטיס עדיין אין.
+     *
+     * **והקריאה החוזרת אחריה היא חצי השני של התיקון.** נעילה
+     * מסדרת בתור, היא אינה מבטלת את מה שקרה לפניה: החיפוש שהחליט
+     * „מספר לא מוכר” רץ למעלה, לפני שהנעילה נתפסה, ומי שהחזיק בה
+     * קודם כבר יכול היה ליצור את הכרטיס. יצירה בלתי-מותנית אחרי
+     * ההמתנה נופלת אז על האינדקס הייחודי ומגלגלת אחורה את כל
+     * הטרנזקציה של האירוע המסיים — ובניסיון החוזר המתקשר כבר מוכר,
+     * ולכן `callAction` אינו פותח את הליד שהיה אמור להיפתח. השיחה
+     * נבלעת בשקט (ביקורת Codex, P1). זה בדיוק הדפוס שכבר מתועד
+     * ב-`findOrCreateByPhone`: „‏findFirst שמחזיר null אחרי הנעילה”.
+     */
+    await lockContactPhone(tx, tenantId, phoneHash);
+    /*
+     * גם מספר משני ולא רק הראשי — אחרת אדם שהמספר הזה רשום אצלו
+     * כמספר נוסף היה מקבל כרטיס שני, וזו התקלה שריבוי המספרים בא
+     * למנוע.
+     */
+    const known =
+      (await tx.contact.findFirst({ where: { tenantId, phoneHash }, select: { id: true } })) ??
+      (
+        await tx.contactPhone.findFirst({
+          where: { tenantId, phoneHash },
+          select: { contact: { select: { id: true } } },
+        })
+      )?.contact ??
+      null;
+    const contact =
+      known ??
+      (await tx.contact.create({
       data: {
         id: ulid(),
         tenantId,
@@ -1108,7 +1201,7 @@ export class TelephonyService {
         phoneHash,
       },
       select: { id: true },
-    });
+    }));
     const leadId = ulid();
     /*
      * שיחה יוצאת אינה מגיעה ממספר וירטואלי — הסוכן הוא שיזם אותה,

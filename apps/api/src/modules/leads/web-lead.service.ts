@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
+import { lockContactPhone } from "../../common/locks";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
 
@@ -88,6 +89,16 @@ export class WebLeadService {
             }
           : {};
 
+      /*
+       * אותה נעילת מספר שנוטלת `findOrCreateByPhone`.
+       *
+       * החיפוש-ואז-יצירה כאן אינו עובר דרכה — הוא משלים גם כתובת
+       * אימייל — ולכן היה מחוץ להסדר. ליד מהאתר שנפגש עם שיחה
+       * נכנסת או עם קישור פתוח מאותו מספר חדש: שניהם אינם מוצאים
+       * כרטיס, שניהם יוצרים, והאינדקס הייחודי מפיל את השני — כלומר
+       * ליד שנבלע (ביקורת Codex).
+       */
+      await lockContactPhone(tx, tenantId, phoneHash);
       let contact = await tx.contact.findUnique({
         where: { tenantId_phoneHash: { tenantId, phoneHash } },
         select: { id: true, emailHash: true },
