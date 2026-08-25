@@ -226,6 +226,17 @@ export default function PropertiesPage() {
     type !== "" ||
     sort !== "newest";
 
+  /**
+   * האם **מסנן** כלשהו פעיל — בלי המיון.
+   *
+   * ‎`filtering` שמעליו כולל גם את המיון, כי הוא משרת את הערת
+   * התקרה („יש עוד תוצאות”). לבחירת מצב הריק הוא אינו מתאים:
+   * שינוי סדר אינו מצמצם את הרשימה, ולכן רשימה ריקה אחרי מיון
+   * פירושה שאין נכסים ולא שהסינון לא החזיר כלום.
+   */
+  const anyFilterActive =
+    hasActiveFilters(filters) || city !== "הכל" || status !== "" || type !== "";
+
   return (
     <>
       {/* לפני הסינון והרשימה: בלעדיות שנגמרת היא נכס שעובר למתחרה,
@@ -328,12 +339,19 @@ export default function PropertiesPage() {
              * הכלל של החבילה הוא „every empty state names the action
              * that fills it”, וכדי לקיים אותו צריך קודם לדעת איזה
              * מצב זה: אין נכסים, או אין התאמה לסינון.
+             *
+             * **ההכרעה היא לפי המסננים ולא לפי אורך הרשימה.** בגרסה
+             * הראשונה בדקתי `items.length === 0`, ו-`items` הוא
+             * התוצאה **המסוננת** מהשרת — כלומר משרד עם חמישים נכסים
+             * שהקליד חיפוש בלי תוצאות היה מקבל „עוד לא הוספת נכסים”.
+             * בדיוק אותו בלבול שבאתי לתקן, רק בכיוון ההפוך
+             * (ביקורת Codex).
              */
             <div
               className="rounded-xl border p-8 text-center"
               style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
             >
-              {items.length === 0 ? (
+              {!anyFilterActive ? (
                 <>
                   <p className="mb-1 text-[19px] font-black">עוד לא הוספת נכסים</p>
                   <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
@@ -353,8 +371,18 @@ export default function PropertiesPage() {
               ) : (
                 <>
                   <p className="mb-1 text-[19px] font-black">אין נכסים שמתאימים לסינון</p>
+                  {/*
+                    כאן עמד „יש N נכסים במאגר”, ו-N היה `items.length`
+                    — כלומר **התוצאה המסוננת**, לא המאגר. במצב ריק הוא
+                    תמיד אפס, ובכל מקרה מעולם לא היה המספר שהובטח.
+
+                    זו בדיוק ההפרה של „never invent facts a record does
+                    not hold”: מספר אמיתי שהוצג כמשהו אחר. אין לנו את
+                    סך המאגר בלי בקשה נוספת, ולכן המשפט אינו מתיימר
+                    לדעת אותו.
+                  */}
                   <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
-                    יש {items.length} נכסים במאגר — הסינון הנוכחי לא מחזיר אף אחד מהם.
+                    הסינון הנוכחי לא מחזיר אף נכס. נסו לצמצם אותו או לנקות אותו לגמרי.
                   </p>
                   <Button
                     variant="secondary"
