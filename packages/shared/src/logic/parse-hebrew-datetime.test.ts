@@ -149,6 +149,25 @@ describe("parseHebrewDateTime", () => {
     expect(parseHebrewDateTime("תזכיר לי עוד קצת", NOW).date).toBeUndefined();
   });
 
+  /*
+   * ‎„בעוד 2” — מספר עירום, בלי יחידה. הצורה הישנה קראה אותו
+   * כשעות, והדרישה החדשה ליחידה מפורשת הפילה אותו בשקט (ביקורת
+   * Codex). זו נסיגה בצורה שאנשים באמת כותבים.
+   *
+   * רק ספרות: „בעוד שלוש” במילה מתחלף עם השעון („בשלוש”), ואין
+   * דרך להכריע — ולכן הוא נשאר מחוץ לתחום ולא מנוחש.
+   */
+  it("מספר עירום אחרי מילת הפתיחה נקרא כשעות, כמו קודם", () => {
+    expect(il(parseHebrewDateTime("תחזור אליו בעוד 2", NOW).date).hour).toBe(11);
+    expect(parseHebrewDateTime("תחזור אליו בעוד 900", NOW).date).toBeUndefined();
+    expect(parseHebrewDateTime("תחזור אליו בעוד שלוש", NOW).date).toBeUndefined();
+  });
+
+  /* וביטוי שנדחה אינו עוצר את הסריקה — ביטוי תקין אחריו עדיין נמצא */
+  it("היסט שנדחה אינו מסתיר היסט תקין שאחריו", () => {
+    expect(il(parseHebrewDateTime("עוד 900 שעות, לא, בעוד שעה", NOW).date).hour).toBe(10);
+  });
+
   /* „מחר בעוד שעה” סותר את עצמו — מילת היום גוברת על ההיסט */
   it("ומילת יום מפורשת גוברת על ההיסט", () => {
     expect(il(parseHebrewDateTime("מחר בעוד שעה", NOW).date).day).toBe(2);
@@ -166,6 +185,19 @@ describe("parseHebrewDateTime", () => {
     expect(il(result.date).hour).toBe(10);
     expect(result.timeExplicit).toBe(false);
     expect(result.evidence ?? "").not.toContain("שלוש");
+  });
+
+  /*
+   * אותו דבר כשההיסט נדחה בגלל **התקרה** ולא בגלל מילת היום:
+   * „מחר בעוד תשע שבועות” אינו מייצר תאריך יחסי, אבל „תשע” שבו
+   * אינה 09:00. נתיב הדחייה זרק את גבולות הביטוי יחד עם המשך
+   * הפסול, ואז המספר דלף לשעון (ביקורת Codex).
+   */
+  it("וגם היסט שנדחה בגלל תקרה אינו דולף לשעון", () => {
+    const result = parseHebrewDateTime("קבע פגישה מחר בעוד תשע שבועות", NOW);
+    expect(il(result.date).day).toBe(2);
+    expect(il(result.date).hour).toBe(10);
+    expect(result.timeExplicit).toBe(false);
   });
 
   /*

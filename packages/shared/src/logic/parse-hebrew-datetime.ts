@@ -69,6 +69,15 @@ interface RelativeUnit {
    * בדיוק והוא לגיטימי לגמרי. מה שמבדיל ביניהם הוא היחידה.
    */
   max: number;
+  /**
+   * היחידה המשתמעת ממספר עירום — „בעוד 2” הן שעתיים.
+   *
+   * הצורה הישנה הייתה ‎`בעוד\s+(שעה|שעתיים|\d+)`‎, כלומר ספרה אחרי
+   * „בעוד” הובנה כשעות בלי לומר „שעות”. השכתוב דרש יחידה מפורשת
+   * אחרי כמות והפיל אותה בשקט (ביקורת Codex). זו נסיגה בצורה
+   * שאנשים באמת כותבים, ולכן היא נשמרת במפורש.
+   */
+  bare?: true;
 }
 
 const RELATIVE_UNITS: RelativeUnit[] = [
@@ -82,7 +91,7 @@ const RELATIVE_UNITS: RelativeUnit[] = [
    * ומפספס בדיוק את היחיד, שהוא הצורה השכיחה בשיחה.
    */
   { solo: /^דקה$/u, counted: /^דקה$|^דקות$/u, ms: MINUTE_MS, max: 180 },
-  { solo: /^שעה$/u, counted: /^שעה$|^שעות$/u, ms: HOUR_MS, max: 48 },
+  { solo: /^שעה$/u, counted: /^שעה$|^שעות$/u, ms: HOUR_MS, max: 48, bare: true },
   { solo: /^יום$/u, counted: /^יום$|^ימים$/u, ms: DAY_MS, max: 60 },
   { solo: /^שבוע$/u, counted: /^שבוע$|^שבועות$/u, ms: 7 * DAY_MS, max: 8 },
 ];
@@ -108,6 +117,9 @@ function soloUnit(word: string): RelativeUnit | undefined {
 function countedUnit(word: string): RelativeUnit | undefined {
   return RELATIVE_UNITS.find((unit) => unit.counted?.test(word) === true);
 }
+
+/** „בעוד 2” — היחידה שמספר עירום מתכוון אליה. */
+const BARE_UNIT = RELATIVE_UNITS.find((unit) => unit.bare === true)!;
 
 function quantityOf(word: string): number | undefined {
   if (/^\d+$/u.test(word)) return Number(word);
@@ -159,11 +171,17 @@ const RELATIVE_TRIGGER = /(?<![\p{L}\p{N}])(ב?עוד|תוך)\s+/gu;
  *
  * ‎`consumed` הוא מספר התווים של `rest` שהביטוי בלע. הוא נדרש כדי
  * להסתיר את הביטוי מפענוח השעון — ראו `parseHebrewDateTime`.
+ *
+ * ‎`ms: null` הוא **לא** „זה אינו ביטוי זמן”. הוא „זה ביטוי זמן
+ * שזוהה, ומשכו אינו סביר”. ההבחנה חשובה: „מחר בעוד תשע שבועות”
+ * נדחה בגלל התקרה, ובלי לדעת את גבולותיו „תשע” נשארה בטקסט
+ * ו‎`parseTime`‎ קראה אותה כ-09:00 (ביקורת Codex). ביטוי שאינו זמן
+ * כלל מוחזר כ-`null`, ואותו אין מה להסתיר.
  */
 function offsetAt(
   lead: string,
   rest: string,
-): { ms: number; evidence: string; consumed: number } | null {
+): { ms: number | null; evidence: string; consumed: number } | null {
   const words = [...rest.matchAll(/\S+/gu)].slice(0, 2);
   const firstWord = words[0];
   if (firstWord?.index === undefined) return null;
@@ -178,26 +196,53 @@ function offsetAt(
     return { ms: alone.ms, evidence: `${lead} ${first}`, consumed: endOf(firstWord) };
   }
 
-  // „עשרים דקות”, „רבע שעה”, „3 ימים”
+  const quantity = quantityOf(first);
+  if (quantity === undefined) return null;
+
   const secondWord = words[1];
   const second = secondWord === undefined ? undefined : bareWord(secondWord[0]);
-  const quantity = quantityOf(first);
-  if (quantity === undefined || second === undefined || secondWord === undefined) return null;
-  const unit = countedUnit(second);
-  if (unit === undefined || quantity > unit.max) return null;
+  const unit = second === undefined ? undefined : countedUnit(second);
+
+  /*
+   * „בעוד 2” — מספר עירום בלי יחידה, שעות. רק ספרות: „בעוד שלוש”
+   * במילה מתחלף בשעון („בשלוש”) ואי אפשר להכריע בינו לבין היסט,
+   * ולכן הוא נשאר מחוץ לתחום.
+   */
+  if (unit === undefined) {
+    if (!/^\d+$/u.test(first)) return null;
+    const evidence = `${lead} ${first}`;
+    const consumed = endOf(firstWord);
+    if (quantity > BARE_UNIT.max) return { ms: null, evidence, consumed };
+    return { ms: quantity * BARE_UNIT.ms, evidence, consumed };
+  }
+
+  // „עשרים דקות”, „רבע שעה”, „3 ימים”
+  const evidence = `${lead} ${first} ${second}`;
+  const consumed = endOf(secondWord!);
   const ms = Math.round(quantity * unit.ms);
-  if (!Number.isFinite(ms) || ms <= 0) return null;
-  return { ms, evidence: `${lead} ${first} ${second}`, consumed: endOf(secondWord) };
+  if (quantity > unit.max || !Number.isFinite(ms) || ms <= 0) {
+    return { ms: null, evidence, consumed };
+  }
+  return { ms, evidence, consumed };
 }
 
 /**
  * ‎`start`/`end` הם גבולות הביטוי בטקסט המקורי — לא שחזור מהראיה.
  * „בעוד שלוש, שעות” מייצר ראיה מנוקה שאינה מחרוזת-משנה של המקור,
  * ומחיקה לפי טקסט הייתה נכשלת בשקט דווקא בקלט שבור.
+ *
+ * ‎`ms: null` = ביטוי זמן שזוהה ומשכו נדחה. אין ממנו תאריך, אבל יש
+ * לו גבולות — והם מה שמונע מ„תשע” שב„בעוד תשע שבועות” להיקרא
+ * כשעה על השעון.
  */
-export function parseRelativeOffset(
-  text: string,
-): { ms: number; evidence: string; start: number; end: number } | null {
+export interface RelativeOffset {
+  ms: number | null;
+  evidence: string;
+  start: number;
+  end: number;
+}
+
+export function parseRelativeOffset(text: string): RelativeOffset | null {
   /*
    * **כל המופעים, לא הראשון.**
    *
@@ -206,21 +251,28 @@ export function parseRelativeOffset(
    * חזרה ותיקון עצמי הם דיבור רגיל לגמרי, והצורה הקודמת דווקא
    * שרדה אותם — היא חיפשה יחידה ולא מילה כלשהי (ביקורת Codex).
    */
+  /*
+   * ביטוי שנדחה בגלל משכו אינו עוצר את הסריקה: „עוד 900 שעות, לא,
+   * בעוד שעה” עדיין אמור להגיע לשעה. הוא נזכר בצד, ומוחזר רק אם לא
+   * נמצא אחריו ביטוי תקין — כי גם הוא צריך להיות מוסתר מהשעון.
+   */
+  let rejected: RelativeOffset | null = null;
   for (const match of text.matchAll(RELATIVE_TRIGGER)) {
     const lead = match[1];
     if (lead === undefined || match.index === undefined) continue;
     const restStart = match.index + match[0].length;
     const resolved = offsetAt(lead, text.slice(restStart));
-    if (resolved !== null) {
-      return {
-        ms: resolved.ms,
-        evidence: resolved.evidence,
-        start: match.index,
-        end: restStart + resolved.consumed,
-      };
-    }
+    if (resolved === null) continue;
+    const found: RelativeOffset = {
+      ms: resolved.ms,
+      evidence: resolved.evidence,
+      start: match.index,
+      end: restStart + resolved.consumed,
+    };
+    if (found.ms !== null) return found;
+    rejected ??= found;
   }
-  return null;
+  return rejected;
 }
 
 /** שמות החודשים הלועזיים כפי שאומרים אותם. */
@@ -356,7 +408,7 @@ export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTi
    * הוא מחושב לפני המעבר לשעון ירושלמי: ביום מעבר שעון "בעוד שעתיים"
    * הוא בדיוק שעתיים, גם אם שעון הקיר קפץ.
    */
-  if (relative !== null && !/מחר|מחרתיים|היום/u.test(text)) {
+  if (relative !== null && relative.ms !== null && !/מחר|מחרתיים|היום/u.test(text)) {
     const at = new Date(now.getTime() + relative.ms);
     /*
      * עיגול **כלפי מעלה** לדקה השלמה.
@@ -375,6 +427,10 @@ export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTi
    * כ-15:00 והחזיר מחר ב-15:00 עם ראיה „מחר שלוש” — שעה שאיש לא
    * אמר, שנראית על המסך כהחלטה (ביקורת Codex). הביטוי יורד, ונשארת
    * ברירת המחדל המוצהרת.
+   *
+   * ההסתרה חלה גם על ביטוי שנדחה בגלל משכו: „מחר בעוד תשע שבועות”
+   * אינו מייצר תאריך, אבל „תשע” שבו אינה 09:00 (ביקורת Codex).
+   * מספר ששייך לביטוי זמן אינו הופך לשעון רק משום שהביטוי נפסל.
    */
   const clockText =
     relative === null ? text : `${text.slice(0, relative.start)} ${text.slice(relative.end)}`;
