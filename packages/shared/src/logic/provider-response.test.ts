@@ -103,6 +103,27 @@ describe("describeProviderResponse — מה שמותר לשמור", () => {
     expect(text).toContain("***");
   });
 
+  /*
+   * ‎`typeof []` הוא `"object"`, ולכן מעטפת `responses` הודפסה
+   * כ„responses:object” — כל מה שהיה למתווך ולנו על כשל אמיתי
+   * בשטח, ובלי שום כיוון להמשיך אליו.
+   */
+  it("מעטפת responses נפרשת, ולא מודפסת כ-object", () => {
+    const text = describeProviderResponse(
+      { responses: [{ code: "401", message: "auth failed" }] },
+      SECRETS,
+    );
+    expect(text).toContain("responses[1]");
+    expect(text).toContain("responses.code=401");
+    expect(text).toContain('responses.message="auth failed"');
+  });
+
+  it("וגם בצורת האובייקט היחיד", () => {
+    expect(describeProviderResponse({ responses: { code: "404" } }, SECRETS)).toContain(
+      "responses.code=404",
+    );
+  });
+
   it("מחרוזת ריקה ברשימת הסודות אינה מרסקת את הטקסט", () => {
     // split("") מפרק כל תו בנפרד — דילוג עליה הוא נכונות, לא הקלה
     expect(describeProviderResponse({ status: "error" }, [""])).toBe("status=error");

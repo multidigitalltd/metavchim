@@ -101,4 +101,6 @@ export * from "./logic/callbacks.js";
 export * from "./logic/recording-state.js";
 export * from "./logic/provider-response.js";
 export * from "./logic/signup-code.js";
+export * from "./logic/pasted-code.js";
+export * from "./logic/whatsapp-link-code.js";
 export * from "./logic/property-activity.js";

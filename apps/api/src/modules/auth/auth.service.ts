@@ -5,12 +5,14 @@ import { ulid } from "ulid";
 import {
   applyBlockedModules,
   isTrialExpired,
+  normalizePhone,
   resolveCapabilities,
   type Capability,
 } from "@metavchim/shared";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import type { RequestContext } from "../../common/tenant-context";
+import { WhatsAppLinkService } from "../messaging/whatsapp-link.service";
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12 שעות; Refresh בפעילות
 
@@ -140,6 +142,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly plans: PlanCatalogService,
+    private readonly whatsappLinks: WhatsAppLinkService,
   ) {}
 
   static hashToken(token: string): string {
@@ -364,7 +367,61 @@ export class AuthService {
       data.email = nextEmail;
     }
 
-    const updated = await this.prisma.user.update({ where: { id: userId }, data });
+    const phoneIncoming = data.phone;
+    /*
+     * **החלפת מספר מנתקת את קישור הוואטסאפ — באותה עסקה.**
+     *
+     * הקישור נוצר מול המספר הקודם, ומי שמעדכן כאן מספר עושה זאת
+     * בדרך כלל מפני שהוא **החליף** מכשיר או קו. השארת הקישור פתוחה
+     * הייתה משאירה מפתח פעיל למאגר אצל מי שמחזיק עכשיו במספר הישן.
+     *
+     * שתי כתיבות נפרדות היו יוצרות בדיוק את החור: אילו העדכון עבר
+     * והניתוק נכשל, הניסיון החוזר כבר היה קורא את המספר **החדש**,
+     * מחשב „לא השתנה”, ולא מנתק לעולם (ביקורת Codex). עסקה אחת
+     * הופכת את הכישלון לחזרה שלמה — או ששניהם נכתבו, או אף אחד.
+     *
+     * ניתוק ולא אימות שקט: המתווך יראה במסך שהחיבור נותק, ויקשר
+     * מחדש בקוד מהמכשיר שבידו — וזו בדיוק ההצהרה שהקישור אמור לשאת.
+     */
+    const updated = await this.prisma.$transaction(async (tx) => {
+      /*
+       * **הנעילה והקריאה מתוכה — ולא צילום מצב מלפני העסקה.**
+       *
+       * שתי בקשות חופפות קראו את אותו מספר: אחת שינתה ל-B וניתקה,
+       * והשנייה — שכותבת בחזרה את A — חישבה „לא השתנה” והשאירה את
+       * המכשיר של B מחובר לפרופיל שכבר אומר A (ביקורת Codex).
+       * הקריאה כאן היא אחרי הנעילה, ולכן היא רואה את מה שקדם לה.
+       */
+      await this.whatsappLinks.lockAccount(tx, userId);
+      const current = await tx.user.findUnique({
+        where: { id: userId },
+        select: { phone: true },
+      });
+      /*
+       * השוואה מנורמלת: „050-1234567” ו„0501234567” הם אותו מספר,
+       * והשוואת גלם הייתה מנתקת את הקישור על שינוי עיצוב בלבד —
+       * ומכיוון שהניתוק מותיר מצבה, המתווך היה נדרש למסלול קוד שלם
+       * בלי סיבה (ביקורת Codex).
+       */
+      const phoneChanging =
+        phoneIncoming !== undefined &&
+        normalizePhone(phoneIncoming ?? "") !== normalizePhone(current?.phone ?? "");
+      /*
+       * **וגם המספר עצמו נכנס לתור.**
+       *
+       * הצירוף האוטומטי בוואטסאפ נכתב רק כשמספר שייך לחשבון **אחד**,
+       * והספירה הזו נעשית על חשבון אחר לגמרי — ולכן הנעילה לפי חשבון
+       * אינה פוגשת אותה. בלי התור של המספר, הקצאה שנכתבת כאן יכולה
+       * להיכנס בדיוק בין הספירה לכתיבה ולהפוך מספר משותף לקישור שקט
+       * לאחד משני החשבונות (ביקורת Codex).
+       */
+      if (phoneChanging && phoneIncoming !== null && phoneIncoming !== undefined) {
+        await this.whatsappLinks.lockPhone(tx, phoneIncoming);
+      }
+      const next = await tx.user.update({ where: { id: userId }, data });
+      if (phoneChanging) await this.whatsappLinks.revoke(userId, "phone_changed", tx);
+      return next;
+    });
 
     if (emailChanging) {
       /*

@@ -35,8 +35,9 @@ import {
   isCancelMessage,
   isConfirmMessage,
   isHelpMessage,
-  waPhoneVariants,
 } from "./assistant-lang";
+import { looksLikeWhatsappLinkCode } from "@metavchim/shared";
+import { phoneDigitsCondition } from "./phone-match";
 import { helpMenu, welcomeExamples, type HelpAction } from "./assistant-help";
 import {
   buttonAsText,
@@ -52,6 +53,7 @@ import { formatCallbacks } from "./assistant-callbacks";
 import { summarizeData } from "./assistant-results";
 import { prospectReplyText } from "./prospect-reply";
 import { WhatsAppSendService } from "./whatsapp-send.service";
+import { WhatsAppLinkService } from "./whatsapp-link.service";
 
 /**
  * הסוכן האישי בוואטסאפ (docs/05 §1) — אותו סוכן שבמסך הקולי, דרך
@@ -88,6 +90,17 @@ const HANDLED_KEPT = 30;
 const PROSPECT_REPLY_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 /** מעל זה התמלול מקבל הודעת „מתמלל…” — מתחת לזה התשובה עצמה מגיעה. */
 const SLOW_TRANSCRIBE_NOTICE_MS = 6_000;
+/**
+ * מספר שהמערכת מכירה אך אינו מקושר — **מוכר, ולא מוכח.**
+ *
+ * זה מצב שלישי, ולא „לא זוהה”: המספר תואם משתמש רשום, אבל הקישור
+ * שלו נותק, פג, או הועבר לחשבון אחר. מענה שיווקי כאן היה מטעה, וזיהוי
+ * לפי ההשוואה בלבד היה מבטל את הניתוק עצמו.
+ */
+const NEEDS_LINK = "needs-link";
+/** מה שנאמר למספר מוכר שאינו מקושר. בלי שם ובלי פרט מזהה. */
+const NEEDS_LINK_TEXT =
+  "המכשיר הזה אינו מחובר לחשבון. היכנסו למערכת ← פרופיל ← „המכשיר שמחובר לסוכן”, הפיקו קוד חיבור, ושלחו אותו לכאן.";
 /**
  * מה שנאמר כשההצעה שהמתווך פעל עליה כבר אינה הממתינה.
  *
@@ -187,6 +200,7 @@ export class WhatsAppAssistantService {
     private readonly interpreter: AgentInterpretService,
     private readonly resolver: AgentResolveService,
     private readonly executor: AgentExecuteService,
+    private readonly links: WhatsAppLinkService,
   ) {}
 
   /**
@@ -206,7 +220,48 @@ export class WhatsAppAssistantService {
   }
 
   private async handleInner(msg: AssistantInbound): Promise<void> {
-    const user = await this.identifyUser(msg.fromWaId);
+    /*
+     * **קוד קישור נבדק לפני הכול — גם לפני הזיהוי.**
+     *
+     * זו כל הנקודה שלו: הוא מגיע ממספר שהמערכת עדיין אינה מכירה,
+     * או שהיא מכירה בטעות. בדיקה אחריו הייתה מגלגלת אותו למסלול
+     * המתעניין ומחזירה מענה שיווקי על ניסיון קישור.
+     *
+     * המבחן הוא על **הקידומת** ולא על תקינות הקוד: טעות הקלדה אחת
+     * הייתה מוציאה את ההודעה מהמסלול הזה בדיוק כשהמתווך זקוק
+     * למשפט „הקוד אינו תקף” (ביקורת Codex).
+     */
+    if (msg.type === "text" && looksLikeWhatsappLinkCode(msg.text ?? "")) {
+      /*
+       * תפיסה לפי מזהה ההודעה — **גם כאן, ולא רק אחרי הזיהוי.**
+       *
+       * המסלול הזה עוקף את `claimMessage` (שדורש משתמש ומשרד), ולכן
+       * שליחה חוזרת של Meta הייתה מקבלת „הקוד אינו תקף” על אותו קוד
+       * שהמשלוח הראשון בדיוק ניצל — שתי תשובות סותרות, בסדר אקראי
+       * (ביקורת Codex).
+       */
+      if (!(await this.links.claimInbound(msg.externalId))) return;
+      void this.sender.markRead(msg.externalId);
+      await this.completeLink(msg);
+      return;
+    }
+
+    const identified = await this.identifyUser(msg.fromWaId);
+    /*
+     * מספר מוכר שאינו מקושר — נאמר לו בדיוק זאת, פעם ביממה.
+     *
+     * לא מענה שיווקי (הוא אינו מתעניין) ולא שתיקה: הוא ניתק, או
+     * שהקישור פג, והדרך חזרה היא קוד. התקרה נחוצה מפני שהשולח אינו
+     * מזוהה — ייתכן שמדובר במי שמחזיק עכשיו במספר שהוחלף.
+     */
+    if (identified === NEEDS_LINK) {
+      void this.sender.markRead(msg.externalId);
+      if (await this.links.claimUnlinkedHint(msg.fromWaId)) {
+        await this.sender.sendText(msg.fromWaId, NEEDS_LINK_TEXT, { replyTo: msg.externalId });
+      }
+      return;
+    }
+    const user = identified;
     if (!user) {
       // גם למתעניין: „נקרא” מיידי, כדי שלא ידבר לקיר
       void this.sender.markRead(msg.externalId);
@@ -485,26 +540,105 @@ export class WhatsAppAssistantService {
    * מקפים). users מחוץ ל-RLS בכוונה — זו תשתית אימות, כמו ב-Login.
    * הטבלה קטנה (סוכני המשרדים, לא לקוחות קצה), אז סריקה זולה.
    */
-  private async identifyUser(waId: string): Promise<IdentifiedUser | null> {
-    const variants = waPhoneVariants(waId);
-    if (variants[0] === undefined || variants[0] === "") return null;
-    // שתי השוואות מפורשות ולא IN על מערך — פרמטרים פשוטים ובטוחים
+  private async identifyUser(waId: string): Promise<IdentifiedUser | typeof NEEDS_LINK | null> {
+    /*
+     * **הקישור קודם — הוא ההצהרה; ההשוואה היא רק ההנחה.**
+     *
+     * מספר שהמתווך אישר במפורש (או שנקשר בהודעה הראשונה שלו) מזוהה
+     * מהשורה שלו, בלי לגעת בשדה `phone`. זה מה שמונע ממספר שהוחזר
+     * לשוק לפתוח מאגר של מישהו אחר: השדה במערכת יכול להתיישן,
+     * הקישור אינו מתיישן בשקט — הוא פג.
+     */
+    const linked = await this.links.resolve(waId);
+    if (linked !== null) return this.loadUser(linked.userId);
+
+    const identified = await this.identifyByPhone(waId);
+    if (identified === null || identified === NEEDS_LINK) return identified;
+    /*
+     * הודעה ראשונה ממספר שכבר רשום במערכת — הקישור נוצר עכשיו,
+     * ומכאן הוא הזהות. משתמש קיים אינו נעצר, אבל גם אינו נשען שוב
+     * ושוב על השוואה שאיש לא אישר.
+     *
+     * הצירוף נדחה כשלמספר הזה כבר היה קישור שנותק או פג. אז ההשוואה
+     * אינה מכריעה יותר — היא בדיוק מה שהניתוק ביטל — והמענה הוא
+     * בקשה לקוד.
+     */
+    const bound = await this.links.bindByPhone(waId, identified.tenantId, identified.id);
+    return bound ? identified : NEEDS_LINK;
+  }
+
+  /**
+   * הודעת קוד — קישור, או סירוב שאומר בדיוק מה קרה.
+   *
+   * הניסוח נמנע מלהבחין בין „קוד שגוי” ל„קוד שפג”: ההבדל אינו עוזר
+   * למי שהקליד נכון, ומועיל דווקא למי שמנחש.
+   */
+  private async completeLink(msg: AssistantInbound): Promise<void> {
+    const linked = await this.links.redeemCode(msg.fromWaId, msg.text ?? "");
+    if (linked === null) {
+      await this.sender.sendText(
+        msg.fromWaId,
+        "הקוד אינו תקף — ייתכן שפג או שכבר נוצל. הפיקו קוד חדש במסך ההגדרות ושלחו אותו לכאן.",
+        { replyTo: msg.externalId },
+      );
+      return;
+    }
+    const user = await this.loadUser(linked.userId);
+    await this.sender.sendText(
+      msg.fromWaId,
+      user === null
+        ? "המכשיר קושר."
+        : `שלום ${user.name}, המכשיר קושר לחשבון שלך. אפשר להתחיל — כתבו לי מה לעשות.`,
+      { replyTo: msg.externalId },
+    );
+  }
+
+  /**
+   * השוואת ספרות — **רק כשהתשובה חד-משמעית.**
+   *
+   * שאילתת גלם כי הנרמול חייב לקרות בצד ה-SQL ("050-123..." שמור עם
+   * מקפים). users מחוץ ל-RLS בכוונה — זו תשתית אימות, כמו ב-Login.
+   *
+   * ריבוי אינו מוכרע יותר: „הפעיל לאחרונה מנצח” היה ניחוש שקט
+   * ברשומות של מישהו אחר, והאזהרה שנרשמה לצדו לא עצרה דבר. שניים
+   * שחולקים מספר מקבלים בקשה לקוד, וזו התשובה הנכונה — רק הם יודעים
+   * מי מהם מחזיק במכשיר.
+   */
+  private async identifyByPhone(
+    waId: string,
+  ): Promise<IdentifiedUser | typeof NEEDS_LINK | null> {
+    const digits = phoneDigitsCondition(waId);
+    if (digits === null) return null;
     const matched = await this.prisma.$queryRaw<{ id: string }[]>`
       SELECT id FROM users
       WHERE is_active = TRUE
         AND phone IS NOT NULL
-        AND (regexp_replace(phone, '\\D', '', 'g') = ${variants[0]}
-             OR regexp_replace(phone, '\\D', '', 'g') = ${variants[1] ?? variants[0]})
+        AND ${digits}
       ORDER BY last_login_at DESC NULLS LAST
       LIMIT 2`;
     const first = matched[0];
     if (!first) return null;
     if (matched.length > 1) {
-      // אותו מספר אצל שני משתמשים — הפעיל לאחרונה מנצח, אבל זה נרשם
-      this.logger.warn(`מספר וואטסאפ משויך ליותר ממשתמש אחד — נבחר ${first.id}`);
+      /*
+       * ריבוי הוא **מוכר-ולא-מוכח**, ולא „לא מוכר”.
+       *
+       * ‎`null` כאן היה בלתי נבדל ממספר שאיננו מכירים כלל, ולכן שני
+       * שותפים שחולקים מספר קיבלו את עמוד המכירות — ואף נרשמו
+       * כמתעניינים במאגר (ביקורת Codex). מי שהמערכת מכירה מקבל את
+       * ההוראה להפיק קוד, וזו בדיוק התשובה שהריבוי דורש: רק הם
+       * יודעים מי מהם מחזיק במכשיר.
+       */
+      this.logger.warn("מספר וואטסאפ משויך ליותר ממשתמש אחד — נדרש קוד קישור");
+      return NEEDS_LINK;
     }
-    const user = await this.prisma.user.findUnique({
-      where: { id: first.id },
+    return this.loadUser(first.id);
+  }
+
+  private async loadUser(userId: string): Promise<IdentifiedUser | null> {
+    // `findFirst` ולא `findUnique`: „פעיל” אינו חלק מהמפתח, וחשבון
+    // שהושבת אינו מזוהה גם כשהקישור שלו עדיין קיים
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, isActive: true },
       select: {
         id: true,
         tenantId: true,

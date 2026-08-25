@@ -43,6 +43,7 @@ import {
   resolveAutomationSettings,
   type AutomationSettings,
   type AutomationSpec,
+  normalizePhone,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { onboardingSteps, type OnboardingProgress } from "@metavchim/shared";
@@ -59,6 +60,10 @@ import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { AuthService, type SessionInfo } from "../auth/auth.service";
 import { LoginThrottleService } from "../auth/login-throttle.service";
 import { MatchRefreshService } from "../matching/match-refresh.service";
+import {
+  WhatsAppLinkService,
+  type LinkStatus,
+} from "../messaging/whatsapp-link.service";
 import { AccountDeletionService } from "./account-deletion.service";
 import { MAX_LOGO_BYTES, TenantLogoService } from "./tenant-logo.service";
 
@@ -230,6 +235,7 @@ export class SettingsController {
     private readonly accountDeletion: AccountDeletionService,
     private readonly matchRefresh: MatchRefreshService,
     private readonly platformSettings: PlatformSettingsService,
+    private readonly whatsappLinks: WhatsAppLinkService,
   ) {}
 
   /**
@@ -1290,9 +1296,15 @@ export class SettingsController {
        * assertSeatAvailable שלוקח אותו שוב אינו נחסם.
        */
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seat-quota:${ctx.tenantId}`}))`;
+      /*
+       * ונעילה שנייה, לפי החשבון: ההכרעה „האם המספר השתנה” נקראת
+       * מתוכה, ולכן היא רואה את מה שקדם לה ולא צילום מצב שהתיישן.
+       * שתי הנעילות באותה עסקה, ושתיהן ניתנות לנעילה חוזרת.
+       */
+      await this.whatsappLinks.lockAccount(tx, id);
       const target = await tx.user.findFirst({
         where: { id, tenantId: ctx.tenantId },
-        select: { role: true, isActive: true },
+        select: { role: true, isActive: true, phone: true },
       });
       if (!target) throw new BadRequestException("משתמש לא נמצא");
       if (target.role === "owner") {
@@ -1301,6 +1313,21 @@ export class SettingsController {
       // הפעלה מחדש תופסת מושב — אותה מכסה בדיוק כמו ביצירה
       if (body.isActive === true && !target.isActive) {
         await this.assertSeatAvailable(tx, ctx.tenantId);
+      }
+      const nextPhone =
+        body.phone === undefined ? undefined : body.phone.trim() === "" ? null : body.phone.trim();
+      const phoneChanging =
+        nextPhone !== undefined &&
+        normalizePhone(nextPhone ?? "") !== normalizePhone(target.phone ?? "");
+      /*
+       * ונעילה שלישית, לפי המספר עצמו: הצירוף האוטומטי בוואטסאפ נכתב
+       * רק כשמספר שייך לחשבון אחד, והספירה הזו רצה על חשבון אחר —
+       * כלומר מחוץ לנעילת החשבון. בלי התור של המספר, הקצאה שנכתבת
+       * כאן יכולה להיכנס בין הספירה לכתיבה (ביקורת Codex). הסדר קבוע
+       * — מושב, חשבון, מספר — ולכן אין מעגל המתנה.
+       */
+      if (phoneChanging && nextPhone !== null) {
+        await this.whatsappLinks.lockPhone(tx, nextPhone);
       }
       await tx.user.update({
         where: { id },
@@ -1313,14 +1340,35 @@ export class SettingsController {
            * אותם לסוכן הוואטסאפ. שורת ה-owner מוגנת למעלה — מנהל
            * אינו יכול להחליף את מספר בעל המשרד ולחטוף את זהותו.
            */
-          ...(body.phone !== undefined
-            ? { phone: body.phone.trim() === "" ? null : body.phone.trim() }
-            : {}),
+          ...(nextPhone === undefined ? {} : { phone: nextPhone }),
           ...(body.whatsappAccess !== undefined
             ? { whatsappAccess: body.whatsappAccess }
             : {}),
         },
       });
+      /*
+       * **גם כאן המספר משנה זהות, ולכן גם כאן הקישור מנותק.**
+       *
+       * המסלול הזה הוא הצד השני של אותו שינוי: בעל המשרד מעדכן את
+       * מספר הסוכן מניהול הצוות. בלי הניתוק המכשיר הישן — זה שמחזיק
+       * במספר שהוחלף — היה ממשיך להיפתר לחשבון הסוכן ולקרוא את
+       * המאגר, בעוד המסך מציג מספר אחר לגמרי (ביקורת Codex).
+       *
+       * בתוך אותה טרנזקציה, מאותו נימוק: חצי כתיבה כאן היא בדיוק
+       * החור שהניתוק נועד לסגור.
+       */
+      /*
+       * **והשבתת חשבון מנתקת גם היא.**
+       *
+       * השורה מתחת מוחקת את כל ה-Session של המושבת, אבל הקישור
+       * בוואטסאפ שרד: ההודעות נחסמו רק משום ש-`loadUser` דורש חשבון
+       * פעיל, וברגע שהחשבון הופעל מחדש המכשיר הישן חזר לגישה מלאה
+       * בלי לאמת דבר (ביקורת Codex). „הושבת” פירושו שהמכשיר מתנתק,
+       * בדיוק כמו הדפדפן.
+       */
+      if (phoneChanging || body.isActive === false) {
+        await this.whatsappLinks.revoke(id, phoneChanging ? "phone_changed" : "user", tx);
+      }
     });
     if (body.isActive === false) {
       // ניתוק מיידי: משתמש שהושבת לא ממשיך לעבוד עם Session חי
@@ -1461,6 +1509,42 @@ export class SettingsController {
        */
       lastInboundAt: lastInbound?.createdAt,
     };
+  }
+
+  /**
+   * הקישור בין המכשיר של המתווך לחשבון שלו.
+   *
+   * `@AnyAuthenticated` ולא `settings.manage`: זו אינה הגדרת משרד
+   * אלא **הזהות של הסוכן עצמו**, וכל סוכן מנהל את המכשיר שלו. כל
+   * שלוש הפעולות עובדות על `userId` מההקשר בלבד — אין פרמטר שמאפשר
+   * לגעת בקישור של מישהו אחר.
+   */
+  @Get("whatsapp-link")
+  @AnyAuthenticated()
+  async whatsappLink(): Promise<LinkStatus> {
+    return this.whatsappLinks.status(TenantContext.current().userId);
+  }
+
+  /**
+   * קוד חדש. הוא מוחזר **פעם אחת** ואינו נשמר בגלוי בשום מקום —
+   * המסך מציג אותו, והמתווך שולח אותו מהמכשיר שהוא רוצה לקשר.
+   */
+  @Post("whatsapp-link/code")
+  @AnyAuthenticated()
+  async whatsappLinkCode(): Promise<{ code: string; expiresInSeconds: number }> {
+    const ctx = TenantContext.current();
+    return this.whatsappLinks.issueCode(ctx.tenantId, ctx.userId);
+  }
+
+  /**
+   * ניתוק. מכאן ואילך אותו מספר חוזר להיות „לא מוכר” — כולל אם הוא
+   * עדיין רשום בשדה הטלפון של המשתמש: ניתוק מפורש גובר על השוואה.
+   */
+  @Delete("whatsapp-link")
+  @AnyAuthenticated()
+  async whatsappUnlink(): Promise<{ ok: true }> {
+    await this.whatsappLinks.revoke(TenantContext.current().userId, "user");
+    return { ok: true };
   }
 
   /**

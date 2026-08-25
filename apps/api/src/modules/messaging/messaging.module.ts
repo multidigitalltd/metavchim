@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { MessagingService } from "./messaging.service";
+import { WhatsAppLinkService } from "./whatsapp-link.service";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 
 /*
@@ -9,8 +10,13 @@ import { WhatsAppSendService } from "./whatsapp-send.service";
  * הנפרד — שאיש אינו מייבא חוץ מ-AppModule.
  */
 @Module({
-  providers: [MessagingService, WhatsAppSendService],
-  // WhatsAppSendService מיוצא לסוכן ולבדיקת החיבור ממסך הפלטפורמה
-  exports: [MessagingService, WhatsAppSendService],
+  providers: [MessagingService, WhatsAppSendService, WhatsAppLinkService],
+  /*
+   * WhatsAppSendService מיוצא לסוכן ולבדיקת החיבור ממסך הפלטפורמה.
+   * WhatsAppLinkService יושב כאן ולא ב-WhatsAppModule כי שני צדדים
+   * זקוקים לו: הסוכן (זיהוי) ומסך ההגדרות (הנפקה וניתוק), ומודול
+   * העלה הזה הוא היחיד ששניהם יכולים לייבא בלי מעגל.
+   */
+  exports: [MessagingService, WhatsAppSendService, WhatsAppLinkService],
 })
 export class MessagingModule {}

@@ -96,6 +96,25 @@ describe("פענוח הרשימה", () => {
       expect(parse015RecordingsList(body)).toEqual([]);
     }
   });
+
+  /*
+   * הצורה הנפוצה אצל 015: מערך של תשובה אחת, והשורות בתוכה. בלי
+   * פתיחת המעטפת נבחר המערך החיצוני, השורה היחידה שנבדקה הייתה
+   * המעטפת עצמה, והייבוא דיווח אפס הקלטות על תשובה מלאה.
+   */
+  it("קורא שורות גם מתוך מעטפת שהיא מערך", () => {
+    const rows = parse015RecordingsList({
+      responses: [{ code: "200", message: "", data: LIST_RESPONSE.data }],
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.recordId).toBe("23747");
+  });
+
+  /* ונתיב שמחזיר את השורות ישירות ב-`responses` ממשיך לעבוד */
+  it("וגם כשהשורות עצמן הן המעטפת", () => {
+    const rows = parse015RecordingsList({ responses: LIST_RESPONSE.data });
+    expect(rows).toHaveLength(2);
+  });
 });
 
 /*

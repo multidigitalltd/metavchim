@@ -12,6 +12,7 @@ import {
   MAX_RECORDING_BYTES,
   parse015RecordingResponse,
   parse015RecordingsList,
+  parse015Status,
   pbx015RecordingPath,
   split015RecordingPath,
   unmatched015ListKeys,
@@ -576,6 +577,18 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
        * מוחלפים. אותו עיקרון של `TelephonyWebhookHit`.
        */
       const detail = describeProviderResponse(payload, [authUsername, authPassword]);
+      /*
+       * **הספק ענה, ומה שהוא אמר יושב במעטפת.** 015 מחזירה 200 גם
+       * על סיסמה שגויה וגם על הקלטה שנמחקה, והקוד האמיתי נמצא
+       * ב-`responses`. „לא נקראה” על מקרה כזה הוא תיאור שגוי ולא
+       * רק חסר: התשובה נקראה היטב, היא פשוט אמרה „לא”.
+       */
+      const status = parse015Status(payload);
+      if (status !== null && status.code !== "200") {
+        this.logger.warn(`015 סירבה (${status.code}) על הקלטה ${job.recordingPath}`);
+        await this.note(job, `${RECORDING_ERRORS.provider}_${status.code}`, detail);
+        return;
+      }
       this.logger.warn(`תשובת 015 לא נקראה על הקלטה ${job.recordingPath} — ${detail}`);
       await this.note(job, RECORDING_ERRORS.unreadable, detail);
       return;
