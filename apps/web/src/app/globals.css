@@ -5814,7 +5814,19 @@ a.mv-bar-row:focus-visible {
 .mv-greet {
   display: flex;
   align-items: center;
-  gap: 20px;
+  /*
+   * ‎**עוטף.** השורה הזו נושאת כותרת בגודל `--type-h1` ולצדה כרטיס
+   * מונה מרופד בן שתי שורות. במסך צר שורה שאינה עוטפת דוחסת את
+   * הכותרת לעמודה צרה, ושם פרטי ארוך גולש ממנה — והמונה הוא בדיוק
+   * מה שהופך את זה מתיאורטי למעשי, כי הוא מופיע רק כשיש פעולות
+   * (ביקורת Codex).
+   *
+   * המבנה הקודם היה `flex-wrap` ואיבד את היכולת הזו במעבר לרכיב.
+   * ‎`row-gap` קטן מ-`column-gap`: כשהמונה יורד שורה הוא נצמד
+   * לברכה ולא נראה כאילו הוא שייך למשהו אחר.
+   */
+  flex-wrap: wrap;
+  gap: 12px 20px;
 }
 .mv-greet__title {
   font-size: var(--type-h1);
@@ -5886,6 +5898,22 @@ a.mv-bar-row:focus-visible {
   color: #cbb6f5; /* 9.72:1 */
   font-size: 14px;
   font-weight: 900;
+}
+/*
+ * תגית „בקרוב” על הכרטיס הכהה.
+ *
+ * ‎`margin-inline-start: auto` דוחפת אותה לקצה השורה, ולכן היא
+ * נקראת כמצב של הכרטיס ולא כחלק מהכותרת.
+ */
+.mv-dark-card__soon {
+  margin-inline-start: auto;
+  flex: none;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #70ee91 16%, #141a15);
+  color: #9fe6b3; /* 9.4:1 על רקע הכרטיס */
+  font-size: var(--type-caption);
+  font-weight: 800;
 }
 .mv-dark-card__title {
   font-size: var(--type-card-title);

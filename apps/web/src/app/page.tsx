@@ -711,114 +711,6 @@ export default function DashboardPage() {
       </section>
       ) : null}
 
-      {/* ---- פילוחים: איפה עומד המשרד, במבט אחד ---- */}
-      {canSeeBuyers || canSeeLeads ? (
-      <section aria-labelledby="charts-heading" className="mb-7">
-        <h2 id="charts-heading" className="mv-visually-hidden">פילוחי המאגר</h2>
-        <div className="grid gap-3.5 lg:grid-cols-2">
-          {/*
-            פילוח הוא טענה על המאגר. „0 בכל פרוסה” למי שאינו רשאי
-            לראות קונים או לידים אינו „ריק” אלא תיאור שגוי — ולכן
-            הכרטיס נעלם ולא מתרוקן.
-          */}
-          {canSeeBuyers ? (
-            <div className="mv-list-card flex flex-col px-5 py-[18px]">
-              <div className="mv-card-head mv-domain-violet">
-                <span className="mv-tile" aria-hidden="true">
-                  <IconUsers s={19} />
-                </span>
-                <h3 className="mv-card-head__title m-0">בשלות הקונים</h3>
-              </div>
-              <p className="mv-card-sub m-0">לחיצה על שורה פותחת את הרשימה המסוננת.</p>
-              <ul className="m-0 mt-3 flex list-none flex-col gap-2 p-0">
-                {maturityRows.map((row) => (
-                  <li key={row.label}>
-                    <Link
-                      href={row.href}
-                      className={`mv-metric no-underline ${
-                        row.value === 0 ? "mv-domain-neutral" : row.domain
-                      }`}
-                    >
-                      {/*
-                        הנקודה נושאת את **הדרגה**, לא את הדומיין: „חם
-                        מאוד” ו„חם” חולקים משפחת צבע, והנקודה היא מה
-                        שמפריד ביניהן. בשורת אפס היא יורשת את הניטרלי
-                        ואינה צובעת דרגה שאין לה נציגים.
-                      */}
-                      <span
-                        className="mv-metric__dot"
-                        aria-hidden="true"
-                        style={row.value === 0 ? undefined : { color: row.dot }}
-                      />
-                      <span className="mv-metric__label">{row.label}</span>
-                      <span className="mv-metric__value mv-ltr">
-                        {buyerBreakdown === null ? "…" : row.value}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-              {/*
-                הסך-הכול בתחתית, ו-`margin-top:auto` כדי ששני
-                כרטיסי הניתוח יסתיימו באותו גובה גם כשמספר השורות
-                בהם שונה.
-              */}
-              <p
-                className="m-0 mt-auto pt-3 text-[length:var(--type-body-sm)]"
-                style={{ color: "var(--color-text-muted)" }}
-              >
-                סה&quot;כ{" "}
-                <b style={{ color: "var(--color-text)" }}>
-                  {buyerBreakdown === null ? "…" : buyerBreakdown.total}
-                </b>{" "}
-                קונים במאגר
-              </p>
-            </div>
-          ) : null}
-
-          {canSeeLeads ? (
-            <div className="mv-list-card flex flex-col px-5 py-[18px]">
-              <div className="mv-card-head mv-domain-peach">
-                <span className="mv-tile" aria-hidden="true">
-                  <IconFilter s={19} />
-                </span>
-                <h3 className="mv-card-head__title m-0">מצב הלידים</h3>
-              </div>
-              <p className="mv-card-sub m-0">המשפך מהפנייה ועד ההמרה.</p>
-              <ul className="m-0 mt-3 flex list-none flex-col gap-2 p-0">
-                {leadRows.map((row) => (
-                  <li key={row.label}>
-                    <Link
-                      href={row.href}
-                      className={`mv-metric no-underline ${
-                        row.value === 0 ? "mv-domain-neutral" : row.domain
-                      }`}
-                    >
-                      <span className="mv-metric__dot" aria-hidden="true" />
-                      <span className="mv-metric__label">{row.label}</span>
-                      <span className="mv-metric__value mv-ltr">
-                        {leadBreakdown === null ? "…" : row.value}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-              {/*
-                מצב ריק (§22): אישור ירוק ולא פאנל ריק ולא אזהרה.
-                „הכל טופל” היא עובדה טובה, וזה מה שהיא צריכה להיראות.
-              */}
-              <div className="mt-auto pt-3">
-                {leadBreakdown !== null && leadsWaiting === 0 ? (
-                  <p className="mv-zero-line m-0">
-                    <IconCheck s={18} /> אין לידים שממתינים — הכל טופל
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      </section>
-      ) : null}
 
       {/*
         ‎`align-items: stretch` (ברירת המחדל) ולא `items-start`, ו-372
@@ -828,91 +720,212 @@ export default function DashboardPage() {
         אותו.
       */}
       <div className="grid gap-4 lg:[grid-template-columns:1fr_372px]">
-        {/* ---- מה חשוב לעשות היום ---- */}
-        <section
-          aria-labelledby="today-tasks-heading"
-          className="overflow-hidden rounded-xl border"
-          style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-        >
-          <div
-            className="flex flex-wrap items-center gap-2.5 px-5 py-4"
-            style={{ borderBottom: "1px solid var(--color-card-head-border)" }}
+        {/*
+          ‎**הטור הראשי הוא מכל אחד** — הרשימה המדורגת, ואז תת-רשת
+          של שני כרטיסי הניתוח (§24).
+
+          קודם כרטיסי הניתוח ישבו **מחוץ** לרשת, ולכן הילד היחיד של
+          הטור הראשי היה הרשימה המדורגת. עם `stretch` היא נמתחה לגובה
+          הטור הצדדי כולו והשאירה מתחת לשורותיה שטח ריק — בדיוק במשרד
+          שבו יש מעט פעולות, כלומר במסך שאמור להיראות רגוע ולא חסר
+          (ביקורת Codex).
+        */}
+        <div className="flex flex-col gap-4">
+          {/* ---- מה חשוב לעשות היום ---- */}
+          <section
+            aria-labelledby="today-tasks-heading"
+            className="overflow-hidden rounded-xl border"
+            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
           >
-            <h2 id="today-tasks-heading" className="m-0" style={{ fontSize: "calc(18 / 16 * 1rem)", fontWeight: 800 }}>
-              מה חשוב לעשות היום
-            </h2>
-            <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-              מתעדכן לבד לפי המצב בשטח
-            </span>
-            {shownTasks.length > 0 ? (
-              <span
-                className="ms-auto rounded-full px-2.5 py-0.5 text-sm font-bold"
-                style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}
-              >
-                {shownTasks.length} פעולות
+            <div
+              className="flex flex-wrap items-center gap-2.5 px-5 py-4"
+              style={{ borderBottom: "1px solid var(--color-card-head-border)" }}
+            >
+              <h2 id="today-tasks-heading" className="m-0" style={{ fontSize: "calc(18 / 16 * 1rem)", fontWeight: 800 }}>
+                מה חשוב לעשות היום
+              </h2>
+              <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
+                מתעדכן לבד לפי המצב בשטח
               </span>
+              {shownTasks.length > 0 ? (
+                <span
+                  className="ms-auto rounded-full px-2.5 py-0.5 text-sm font-bold"
+                  style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}
+                >
+                  {shownTasks.length} פעולות
+                </span>
+              ) : null}
+            </div>
+
+            {loading ? (
+              <p aria-live="polite" className="px-5 py-4">טוען…</p>
+            ) : shownTasks.length === 0 ? (
+              <p className="px-5 py-6 text-center" style={{ color: "var(--color-text-muted)" }}>
+                הכל מטופל ✓ — אפשר לקלוט נכס או קונה חדשים.
+              </p>
+            ) : (
+              <ul className="m-0 list-none p-0">
+                {shownTasks.map((t, index) => (
+                  /*
+                    ‎**„PRIORITY RULE” — רק השורה הראשונה** (§13).
+
+                    החבילה קוראת לזה „the core UX decision of the
+                    product”, ולא בכדי: חמש שורות עם חמש קריאות זהות
+                    לפעולה אינן מדרג אלא רשימה, ומתווך שקורא את המסך
+                    בין שתי פגישות צריך לדעת מה **הדבר האחד**.
+
+                    ‎`index === 0` ולא סוג פעולה מסוים: הצבע והכפתור
+                    הראשי נגזרים מהדירוג, ולכן הם עוברים עם הראש
+                    כשהסדר משתנה — ולא נדבקים לשורה שהייתה ראשונה פעם.
+                  */
+                  <li
+                    key={t.key}
+                    className={`mv-row mv-row--action mv-row--flush mv-domain-${t.domain} ${
+                      index === 0 ? "mv-row--rank-1" : ""
+                    }`}
+                  >
+                    {/*
+                      המספר הסידורי חזר לשורה — הוא הדירוג עצמו, וזה
+                      מה שהכרטיס הזה מוכר. האייקון נשאר לצדו ועונה על
+                      השאלה השנייה, „מה זה בכלל”, כדי שאפשר יהיה לזהות
+                      שורה בסריקה לפני קריאת הכותרת.
+                    */}
+                    <span className="mv-row__ordinal mv-ltr" aria-hidden="true">
+                      {index + 1}
+                    </span>
+                    <span className="mv-tile mv-tile--44" aria-hidden="true">
+                      {t.icon}
+                    </span>
+                    <span className="mv-visually-hidden">פעולה {index + 1}:</span>
+                    <span className="min-w-0">
+                      <span className="mv-row__title block">{t.title}</span>
+                      <span className="mv-row__why block">{t.why}</span>
+                    </span>
+                    {t.href ? (
+                      <Link
+                        href={t.href}
+                        className={`mv-row__action mv-button flex-none no-underline ${
+                          index === 0 ? "mv-button--primary" : "mv-button--secondary"
+                        }`}
+                      >
+                        {t.action}
+                      </Link>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+        {/* ---- פילוחים: איפה עומד המשרד, במבט אחד ---- */}
+        {canSeeBuyers || canSeeLeads ? (
+        <section aria-labelledby="charts-heading" className="flex flex-1 flex-col">
+          <h2 id="charts-heading" className="mv-visually-hidden">פילוחי המאגר</h2>
+          <div className="grid flex-1 items-stretch gap-4 lg:grid-cols-2">
+            {/*
+              פילוח הוא טענה על המאגר. „0 בכל פרוסה” למי שאינו רשאי
+              לראות קונים או לידים אינו „ריק” אלא תיאור שגוי — ולכן
+              הכרטיס נעלם ולא מתרוקן.
+            */}
+            {canSeeBuyers ? (
+              <div className="mv-list-card flex flex-col px-5 py-[18px]">
+                <div className="mv-card-head mv-domain-violet">
+                  <span className="mv-tile" aria-hidden="true">
+                    <IconUsers s={19} />
+                  </span>
+                  <h3 className="mv-card-head__title m-0">בשלות הקונים</h3>
+                </div>
+                <p className="mv-card-sub m-0">לחיצה על שורה פותחת את הרשימה המסוננת.</p>
+                <ul className="m-0 mt-3 flex list-none flex-col gap-2 p-0">
+                  {maturityRows.map((row) => (
+                    <li key={row.label}>
+                      <Link
+                        href={row.href}
+                        className={`mv-metric no-underline ${
+                          row.value === 0 ? "mv-domain-neutral" : row.domain
+                        }`}
+                      >
+                        {/*
+                          הנקודה נושאת את **הדרגה**, לא את הדומיין: „חם
+                          מאוד” ו„חם” חולקים משפחת צבע, והנקודה היא מה
+                          שמפריד ביניהן. בשורת אפס היא יורשת את הניטרלי
+                          ואינה צובעת דרגה שאין לה נציגים.
+                        */}
+                        <span
+                          className="mv-metric__dot"
+                          aria-hidden="true"
+                          style={row.value === 0 ? undefined : { color: row.dot }}
+                        />
+                        <span className="mv-metric__label">{row.label}</span>
+                        <span className="mv-metric__value mv-ltr">
+                          {buyerBreakdown === null ? "…" : row.value}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+                {/*
+                  הסך-הכול בתחתית, ו-`margin-top:auto` כדי ששני
+                  כרטיסי הניתוח יסתיימו באותו גובה גם כשמספר השורות
+                  בהם שונה.
+                */}
+                <p
+                  className="m-0 mt-auto pt-3 text-[length:var(--type-body-sm)]"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  סה&quot;כ{" "}
+                  <b style={{ color: "var(--color-text)" }}>
+                    {buyerBreakdown === null ? "…" : buyerBreakdown.total}
+                  </b>{" "}
+                  קונים במאגר
+                </p>
+              </div>
+            ) : null}
+
+            {canSeeLeads ? (
+              <div className="mv-list-card flex flex-col px-5 py-[18px]">
+                <div className="mv-card-head mv-domain-peach">
+                  <span className="mv-tile" aria-hidden="true">
+                    <IconFilter s={19} />
+                  </span>
+                  <h3 className="mv-card-head__title m-0">מצב הלידים</h3>
+                </div>
+                <p className="mv-card-sub m-0">המשפך מהפנייה ועד ההמרה.</p>
+                <ul className="m-0 mt-3 flex list-none flex-col gap-2 p-0">
+                  {leadRows.map((row) => (
+                    <li key={row.label}>
+                      <Link
+                        href={row.href}
+                        className={`mv-metric no-underline ${
+                          row.value === 0 ? "mv-domain-neutral" : row.domain
+                        }`}
+                      >
+                        <span className="mv-metric__dot" aria-hidden="true" />
+                        <span className="mv-metric__label">{row.label}</span>
+                        <span className="mv-metric__value mv-ltr">
+                          {leadBreakdown === null ? "…" : row.value}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+                {/*
+                  מצב ריק (§22): אישור ירוק ולא פאנל ריק ולא אזהרה.
+                  „הכל טופל” היא עובדה טובה, וזה מה שהיא צריכה להיראות.
+                */}
+                <div className="mt-auto pt-3">
+                  {leadBreakdown !== null && leadsWaiting === 0 ? (
+                    <p className="mv-zero-line m-0">
+                      <IconCheck s={18} /> אין לידים שממתינים — הכל טופל
+                    </p>
+                  ) : null}
+                </div>
+              </div>
             ) : null}
           </div>
-
-          {loading ? (
-            <p aria-live="polite" className="px-5 py-4">טוען…</p>
-          ) : shownTasks.length === 0 ? (
-            <p className="px-5 py-6 text-center" style={{ color: "var(--color-text-muted)" }}>
-              הכל מטופל ✓ — אפשר לקלוט נכס או קונה חדשים.
-            </p>
-          ) : (
-            <ul className="m-0 list-none p-0">
-              {shownTasks.map((t, index) => (
-                /*
-                  ‎**„PRIORITY RULE” — רק השורה הראשונה** (§13).
-
-                  החבילה קוראת לזה „the core UX decision of the
-                  product”, ולא בכדי: חמש שורות עם חמש קריאות זהות
-                  לפעולה אינן מדרג אלא רשימה, ומתווך שקורא את המסך
-                  בין שתי פגישות צריך לדעת מה **הדבר האחד**.
-
-                  ‎`index === 0` ולא סוג פעולה מסוים: הצבע והכפתור
-                  הראשי נגזרים מהדירוג, ולכן הם עוברים עם הראש
-                  כשהסדר משתנה — ולא נדבקים לשורה שהייתה ראשונה פעם.
-                */
-                <li
-                  key={t.key}
-                  className={`mv-row mv-row--action mv-row--flush mv-domain-${t.domain} ${
-                    index === 0 ? "mv-row--rank-1" : ""
-                  }`}
-                >
-                  {/*
-                    המספר הסידורי חזר לשורה — הוא הדירוג עצמו, וזה
-                    מה שהכרטיס הזה מוכר. האייקון נשאר לצדו ועונה על
-                    השאלה השנייה, „מה זה בכלל”, כדי שאפשר יהיה לזהות
-                    שורה בסריקה לפני קריאת הכותרת.
-                  */}
-                  <span className="mv-row__ordinal mv-ltr" aria-hidden="true">
-                    {index + 1}
-                  </span>
-                  <span className="mv-tile mv-tile--44" aria-hidden="true">
-                    {t.icon}
-                  </span>
-                  <span className="mv-visually-hidden">פעולה {index + 1}:</span>
-                  <span className="min-w-0">
-                    <span className="mv-row__title block">{t.title}</span>
-                    <span className="mv-row__why block">{t.why}</span>
-                  </span>
-                  {t.href ? (
-                    <Link
-                      href={t.href}
-                      className={`mv-row__action mv-button flex-none no-underline ${
-                        index === 0 ? "mv-button--primary" : "mv-button--secondary"
-                      }`}
-                    >
-                      {t.action}
-                    </Link>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
         </section>
+        ) : null}
+        </div>
 
         {/* ---- הטור הצדדי: יומן, משימות, רשת, והמנטור ---- */}
         <div className="flex flex-col gap-4">
@@ -1153,12 +1166,27 @@ export default function DashboardPage() {
                 <h2 id="mentor-heading" className="mv-dark-card__title m-0">
                   המנטור האישי שלך
                 </h2>
+                <span className="mv-dark-card__soon">בקרוב</span>
               </div>
+              {/*
+                ‎**מה שכתוב כאן חייב להיות מה שקורה בלחיצה.**
+
+                הניסוח מהחבילה הוא „שואל אותי כל שאלה…” וכפתור „לדבר
+                עם המנטור” — והנתיב `/mentor` הוא עמוד „בקרוב” בלי
+                שום ממשק שיחה. כלומר הפעולה שקודמה כאן מובילה לקיר
+                (ביקורת Codex).
+
+                לא הסרתי את הכרטיס: הלשונית קיימת בתפריט בבקשת בעל
+                המוצר, ומתווך שרואה אותה יודע מה מגיע. מה שתוקן הוא
+                ההבטחה — תגית „בקרוב” וכפתור שאומר מה הלחיצה באמת
+                עושה. „Never blame the user for an empty state. State
+                the fact” חל גם על פיצ'ר שטרם הושק.
+              */}
               <p className="mv-dark-card__body m-0">
-                שואל אותי כל שאלה על המערכת, על שת&quot;פים או על איך לסגור עסקה מהר יותר.
+                הליווי שיזכיר לכם את היעד, ויענה על כל שאלה על המערכת ועל שת&quot;פים.
               </p>
               <Link href="/mentor" className="mv-button mv-dark-card__action no-underline">
-                לדבר עם המנטור
+                לראות מה מגיע
               </Link>
             </section>
           ) : null}
