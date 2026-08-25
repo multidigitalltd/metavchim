@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatJerusalemTime, jerusalemDayRange } from "./israel-time.js";
+import { formatJerusalemTime, jerusalemDayRange, jerusalemWeekStart } from "./israel-time.js";
 
 /*
  * הבדיקות מנוסחות ברגעי UTC מפורשים ולא ב"עכשיו": כל התקלה שהן
@@ -39,5 +39,47 @@ describe("jerusalemDayRange", () => {
     const { start, end } = jerusalemDayRange(new Date("2026-10-25T09:00:00Z"));
     expect(end.getTime()).toBeGreaterThan(start.getTime());
     expect(end.getTime() - start.getTime()).toBeLessThanOrEqual(25 * 3_600_000);
+  });
+});
+
+/*
+ * ‎**תחילת השבוע** — הגבול שהשרת בוחר לפיו מה להמליץ והיומן מציג
+ * לפיו. שני הצדדים חייבים לקבל את אותו רגע, גם ביום מעבר שעון וגם
+ * כשהתהליך רץ באזור זמן אחר.
+ */
+describe("jerusalemWeekStart — שבוע ישראלי אחד לשני הצדדים", () => {
+  it("יום ראשון בחצות ישראל, לכל יום בשבוע", () => {
+    /* 23–29 באוגוסט 2026: ראשון עד שבת. כולם שייכים לאותו שבוע. */
+    const starts = new Set<string>();
+    for (let d = 23; d <= 29; d++) {
+      starts.add(jerusalemWeekStart(new Date(`2026-08-${d}T09:00:00Z`)).toISOString());
+    }
+    expect(starts.size).toBe(1);
+    /* ראשון 23/08 ב-00:00 בישראל = 22/08 21:00 UTC (שעון קיץ) */
+    expect([...starts][0]).toBe("2026-08-22T21:00:00.000Z");
+  });
+
+  it("היסט שבועות מזיז שבועות שלמים ולא 168 שעות", () => {
+    const now = new Date("2026-08-26T09:00:00Z");
+    const back = jerusalemWeekStart(now, -2);
+    expect(back.toISOString()).toBe("2026-08-08T21:00:00.000Z");
+  });
+
+  /*
+   * המקרה שבגללו החשבון נעשה על תווית התאריך: חיסור מילישניות היה
+   * נופל ב-23:00 של שבת בשבוע שאחרי מעבר השעון.
+   */
+  it("מעבר שעון אינו מזיז את הגבול מחצות", () => {
+    /* מעבר לשעון חורף בישראל חל ב-25/10/2026 */
+    const after = jerusalemWeekStart(new Date("2026-10-28T09:00:00Z"));
+    expect(after.toISOString()).toBe("2026-10-24T21:00:00.000Z");
+    const across = jerusalemWeekStart(new Date("2026-10-28T09:00:00Z"), -1);
+    expect(across.toISOString()).toBe("2026-10-17T21:00:00.000Z");
+  });
+
+  it("אזור הזמן של התהליך אינו משנה את התוצאה", () => {
+    /* אותו רגע, אותו גבול — הפונקציה קוראת רק ללוח הישראלי */
+    const at = new Date("2026-08-26T09:00:00Z");
+    expect(jerusalemWeekStart(at).toISOString()).toBe("2026-08-22T21:00:00.000Z");
   });
 });

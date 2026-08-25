@@ -57,6 +57,28 @@ export function jerusalemDayRange(now: Date): { start: Date; end: Date } {
 }
 
 /**
+ * תחילת השבוע הישראלי — יום ראשון ב-00:00 שעון ישראל, כערך UTC.
+ *
+ * ‎`offsetWeeks` מזיז שבועות שלמים: ‎`-2` הוא ראשון של לפני שבועיים.
+ *
+ * ‎**החשבון על תווית התאריך ולא על מילישניות.** חיסור של `n×7×24`
+ * שעות מדלג או חוזר על שעה ביום מעבר שעון, ואז „תחילת השבוע” נופלת
+ * ב-23:00 של שבת. כאן נגזר קודם התאריך הישראלי, החיסור נעשה בימי
+ * לוח על עוגן UTC (שאין בו מעבר שעון), והתוצאה מומרת בחזרה לחצות
+ * ישראלית אמיתית.
+ *
+ * שני הצדדים חייבים את אותו גבול: השרת בוחר לפיו מה להמליץ, והיומן
+ * מציג לפיו — ושבוע דפדפן במקום שבוע ישראלי היה מחזיר בדיוק את
+ * הפער שהפונקציה נועדה לסגור, למתווך שנמצא בחו"ל.
+ */
+export function jerusalemWeekStart(now: Date, offsetWeeks = 0): Date {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: JERUSALEM_TZ }).format(now);
+  const anchor = new Date(`${today}T00:00:00Z`);
+  anchor.setUTCDate(anchor.getUTCDate() - anchor.getUTCDay() + offsetWeeks * 7);
+  return jerusalemWallIsoToUtc(`${anchor.toISOString().slice(0, 10)}T00:00:00.000`);
+}
+
+/**
  * תאריך בשעון ישראל — "24.08.2026", ללא תלות באזור הזמן של התהליך.
  *
  * ‎`toLocaleDateString` בלי `timeZone` היה נותן את התאריך של השרת:

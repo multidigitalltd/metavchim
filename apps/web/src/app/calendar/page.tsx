@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
-import { hebrewDateFull, hebrewDateShort } from "@metavchim/shared";
+import { hebrewDateFull, hebrewDateShort, jerusalemWeekStart } from "@metavchim/shared";
 import { NowStamp } from "../now-stamp";
 import { AppointmentFollowUp } from "./appointment-followup";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
@@ -66,13 +66,15 @@ const longFmt = new Intl.DateTimeFormat("he-IL", {
   minute: "2-digit",
 });
 
-/** תחילת השבוע (יום ראשון 00:00) של תאריך נתון, בהיסט שבועות. */
-function weekStart(offsetWeeks: number): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - d.getDay() + offsetWeeks * 7);
-  return d;
-}
+/*
+ * תחילת השבוע — **בשעון ישראל**, מהפונקציה המשותפת.
+ *
+ * הגרסה המקומית חישבה חצי-לילה של הדפדפן: מתווך בחו"ל קיבל רשת
+ * שגבולותיה אינם גבולות השבוע שהשרת בוחר לפיו מה להמליץ, ולכן סיור
+ * שההמלצה נקבה בשמו יכול היה ליפול מחוץ לרשת. אותה פונקציה בשני
+ * הצדדים, כמו בטווח היום בדשבורד.
+ */
+const weekStart = (offsetWeeks: number): Date => jerusalemWeekStart(new Date(), offsetWeeks);
 
 type Tab = "calendar" | "tasks";
 
