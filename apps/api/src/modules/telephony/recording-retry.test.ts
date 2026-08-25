@@ -76,6 +76,21 @@ describe("הדיווח נושא את מה שנשלח", () => {
     expect(source).toContain("recordid=${ids.recordId}");
   });
 
+  /*
+   * ‎`provider_recording_detail` הוא `VARCHAR(200)`, וחריגה ממנו
+   * **זורקת** — ו-`note` בולעת את השגיאה כדי שרישום כישלון לא יפיל
+   * את הסבב. בלי הגבול, תיאור ספק ארוך היה מוחק גם את הסיבה וגם את
+   * הפירוט, והשיחה נשארת עם מצב ישן בדיוק כשיש מה לומר.
+   */
+  it("והפירוט נכתב בתוך גבול העמודה — מה שנחתך הוא תיאור הספק", () => {
+    expect(source).toContain("const PROVIDER_DETAIL_MAX = 200");
+    expect(source).toContain("joinDetail(lastRefusal.detail, asked)");
+    const join = source.slice(source.indexOf("function joinDetail("));
+    expect(join).toContain("PROVIDER_DETAIL_MAX - asked.length");
+    // הגבול נאכף גם בכתיבה עצמה, לכל קורא ולא רק לזה
+    expect(source).toContain("detail.slice(0, PROVIDER_DETAIL_MAX)");
+  });
+
   /* האישורים לעולם לא — אותו כלל של כל מסלול המרכזייה */
   it("והאישורים אינם", () => {
     const start = source.indexOf("const asked =");

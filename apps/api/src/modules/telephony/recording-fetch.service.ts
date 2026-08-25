@@ -87,6 +87,32 @@ const GIVE_UP_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
  */
 const RETRY_AFTER_MS = 30 * 60 * 1000;
 
+/**
+ * גבול העמודה `provider_recording_detail` — **מספר של המסד, לא העדפה.**
+ *
+ * חריגה ממנו אינה נחתכת אלא **זורקת**, ו-`note` בולעת את השגיאה כדי
+ * שרישום כישלון לא יפיל את הסבב. התוצאה הייתה השילוב הגרוע ביותר:
+ * גם הסיבה וגם הפירוט אינם נכתבים, והשיחה נשארת עם מצב ישן או ריק
+ * — בדיוק כשיש מה לומר (ביקורת Codex).
+ */
+const PROVIDER_DETAIL_MAX = 200;
+
+/**
+ * חיבור תיאור הספק למה שביקשנו, בתוך גבול העמודה.
+ *
+ * מה שנחתך הוא **תיאור הספק** ולא הפרמטרים: „לא נמצא” על הקלטה
+ * שקיימת בממשק הוא שאלה על הבקשה, ולכן המזהים ששלחנו הם החלק שאי
+ * אפשר לוותר עליו.
+ */
+function joinDetail(providerDetail: string, asked: string): string {
+  const separator = " · ";
+  const room = PROVIDER_DETAIL_MAX - asked.length - separator.length;
+  if (room <= 0) return asked.slice(0, PROVIDER_DETAIL_MAX);
+  const head =
+    providerDetail.length > room ? `${providerDetail.slice(0, room - 1)}…` : providerDetail;
+  return `${head}${separator}${asked}`;
+}
+
 /** שיחה אחת שממתינה למשיכה, עם אישורי המרכזייה של המשרד שלה. */
 /**
  * הסיבות שמשיכה יכולה להיכשל בהן — **רשימה סגורה.**
@@ -482,7 +508,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
              * פירוט חייבת למחוק את הפירוט של הסיבה הקודמת, אחרת
              * המסך יצרף הסבר על כשל שכבר לא קיים.
              */
-            providerRecordingDetail: detail ?? null,
+            providerRecordingDetail: detail === undefined ? null : detail.slice(0, PROVIDER_DETAIL_MAX),
           },
         }),
       )
@@ -571,7 +597,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       await this.note(
         job,
         `${RECORDING_ERRORS.provider}_${lastRefusal.code}`,
-        `${lastRefusal.detail} · ${asked}`,
+        joinDetail(lastRefusal.detail, asked),
       );
     }
   }
