@@ -650,6 +650,8 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       uniqueIds.map((uniqueId) => ({ uniqueId, recordGroup })),
     );
     let lastRefusal: { code: string; detail: string } | null = null;
+    /* מה שנשלח בניסיון האחרון, כדי ששורת הכישלון תתאר את הבקשה שבאמת יצאה */
+    let attemptedAuthoritative: { recordGroup: string; recordId: string } | null = null;
 
     for (const [index, candidate] of candidates.entries()) {
       const attempt = await this.attemptFetch(job, {
@@ -714,6 +716,21 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
         derivedRecordId: ids.recordId,
       });
       if (authoritative !== null) {
+        /*
+         * ‎**האבחון נרשם לפני הניסיון, ולא רק כשהוא מצליח.**
+         *
+         * כל התוספת הזו קיימת כדי לענות על שאלה אחת: האם המזהה
+         * שחילצנו שווה לזה שהספק מכיר. אם השורה נכתבת רק במסלול
+         * המוצלח, אז דווקא במקרה שבו המשיכה ממשיכה להיכשל — המקרה
+         * שבו התשובה הכי נחוצה — לא נדע דבר (ביקורת Codex).
+         */
+        this.logger.log(
+          `הספק מסר recordid=${authoritative.recordId} בקבוצה ${authoritative.recordGroup}` +
+            ` · חילצנו recordid=${ids.recordId} בקבוצה ${ids.recordGroup}` +
+            ` · ${authoritative.recordId === ids.recordId ? "זהה" : "**שונה**"}` +
+            ` — ${job.callId}`,
+        );
+        attemptedAuthoritative = authoritative;
         const attempt = await this.attemptFetch(job, {
           authUsername,
           authPassword,
@@ -728,11 +745,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
            * שחילצנו, הפענוח של שם הקובץ הוא הבאג — ואפשר לתקן אותו
            * במקור במקום להישען על הרשימה בכל משיכה.
            */
-          this.logger.log(
-            `הקלטה נמצאה עם recordid מהספק: ${authoritative.recordId} ` +
-              `(חילצנו ${ids.recordId}${authoritative.recordId === ids.recordId ? "" : " — שונה"})` +
-              ` — ${job.callId}`,
-          );
+          this.logger.log(`הקלטה נמצאה עם המזהה שהספק מסר — ${job.callId}`);
           await this.storeAudio(job, attempt.base64, attempt.contentType);
           return;
         }
@@ -761,7 +774,11 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
         .map((form) => `${form === job.providerCallId ? "כפי שנשלח" : "ספרות"}(${form.length})`)
         .join("|");
       const asked =
-        `נשלח: recordgroup=${groups.join("|")} uniqueid=${forms} recordid=${ids.recordId}`;
+        `נשלח: recordgroup=${groups.join("|")} uniqueid=${forms} recordid=${ids.recordId}` +
+        (attemptedAuthoritative === null
+          ? ""
+          : ` · ואז מהספק: recordgroup=${attemptedAuthoritative.recordGroup}` +
+            ` recordid=${attemptedAuthoritative.recordId}`);
       await this.note(
         job,
         `${RECORDING_ERRORS.provider}_${lastRefusal.code}`,
@@ -848,7 +865,20 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
         );
         continue;
       }
-      return { recordGroup, uniqueId: match.uniqueId, recordId: match.recordId };
+      /*
+       * ‎**הקבוצה של הספק, לא זו שביקשנו.**
+       *
+       * ‎`parse015RecordingsList` שומר בכוונה את `recordGroup` שהשורה
+       * נושאת, ונופל לזו שביקשנו רק כשהיא חסרה. להחזיר כאן את משתנה
+       * הלולאה זה לזרוק בדיוק את המידע שהלכנו לחפש: אם הספק אומר
+       * שההקלטה יושבת בקבוצה אחרת, הניסיון החוזר היה חוזר לניחוש
+       * שכבר נכשל (ביקורת Codex).
+       */
+      return {
+        recordGroup: match.recordGroup,
+        uniqueId: match.uniqueId,
+        recordId: match.recordId,
+      };
     }
     return null;
   }

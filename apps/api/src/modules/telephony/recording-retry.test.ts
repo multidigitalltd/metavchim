@@ -209,6 +209,36 @@ describe("recordid נשאל מהספק במקום להיות מנוחש", () => 
    * מזהה הורדה” הם שני אבחונים שונים לחלוטין, ומבחוץ הם נראים זהים
    * אם לא מבדילים ביניהם בכתב.
    */
+  /*
+   * ‎`parse015RecordingsList` שומר בכוונה את הקבוצה שהשורה נושאת.
+   * להחזיר במקומה את משתנה הלולאה זה לזרוק בדיוק את המידע שהלכנו
+   * לחפש, והניסיון החוזר היה חוזר לניחוש שכבר נכשל.
+   */
+  it("הקבוצה שמוחזרת היא של הספק ולא זו שביקשנו", () => {
+    const fn = source.slice(source.indexOf("private async recordIdFromProvider"));
+    expect(fn).toContain("recordGroup: match.recordGroup,");
+  });
+
+  /*
+   * **האבחון הוא כל התכלית, ולכן הוא נרשם לפני הניסיון.**
+   *
+   * אם ההשוואה נכתבת רק במסלול המוצלח, אז דווקא כשהמשיכה ממשיכה
+   * להיכשל — המקרה שבו התשובה הכי נחוצה — לא נדע אם המזהה של
+   * הספק זהה לשלנו או שונה ממנו.
+   */
+  it("ההשוואה בין המזהים נרשמת עוד לפני הניסיון החוזר", () => {
+    const after = source.slice(source.indexOf("if (authoritative !== null) {"));
+    const log = after.indexOf("הספק מסר recordid=");
+    const retry = after.indexOf("const attempt = await this.attemptFetch");
+    expect(log).toBeGreaterThan(-1);
+    expect(retry).toBeGreaterThan(log);
+  });
+
+  it("ושורת הכישלון מתארת גם את המזהה שהגיע מהספק", () => {
+    expect(source).toContain("ואז מהספק: recordgroup=");
+    expect(source).toContain("attemptedAuthoritative");
+  });
+
   it("שני מצבי הכישלון של הרשימה נבדלים ביומן", () => {
     expect(source).toContain("ואף אחת אינה השיחה הזו");
     expect(source).toContain("אך שורתה בלי מזהה הורדה");
