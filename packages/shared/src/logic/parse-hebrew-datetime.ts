@@ -149,6 +149,66 @@ function quantityOf(word: string): number | undefined {
 }
 
 /**
+ * ההמשך החיבורי: „**ועשרים דקות**”, „**ושלוש שעות**”, „**ויומיים**”.
+ *
+ * „בעוד שעה ועשרים דקות” הוא ניסוח יומיומי, והצורה שקדמה לזה בלעה
+ * את היחידה הראשונה והתעלמה מההמשך — תזכורת אחרי שישים דקות במקום
+ * שמונים (ביקורת Codex). זה אינו שדה ריק אלא שעה שגויה שנראית
+ * כהחלטה, וזה הכישלון המסוכן מבין השניים.
+ *
+ * ‎`וחצי`/`ורבע` אינם כאן: הם **שבר של אותה יחידה** („שעה וחצי” =
+ * 1.5 שעות) ונבלעים לפני כן. כאן מדובר ביחידה **נוספת**, שנצברת.
+ *
+ * הכלל הוא צירוף מלא ולא מילה בודדת: „בעוד שעה ועשרה אנשים” נעצר,
+ * כי „אנשים” אינה יחידת זמן. מה שאינו צירוף זמן שלם עוצר את
+ * הצבירה במקום להיבלע.
+ *
+ * ‎`ms: null` = נמצא המשך שהוא זמן ומשכו נדחה. גם אז הוא **נבלע**,
+ * כדי שהמספר שבתוכו לא ייקרא כשעון — אותו נימוק של הביטוי הראשי.
+ */
+function additiveTail(
+  rest: string,
+  from: number,
+): { ms: number | null; evidence: string; consumed: number } {
+  let ms: number | null = 0;
+  let evidence = "";
+  let consumed = from;
+  // שלוש תוספות לכל היותר — „שעה ועשרים דקות” הוא הניסוח האמיתי,
+  // ומעבר לכך אין דיבור אלא קלט מנוון
+  for (let step = 0; step < 3; step += 1) {
+    const words = [...rest.slice(consumed).matchAll(/\S+/gu)].slice(0, 2);
+    const head = words[0];
+    if (head?.index === undefined) break;
+    const raw = bareWord(head[0]);
+    // וי"ו החיבור היא התנאי — בלעדיה זו כבר מילה אחרת במשפט
+    if (raw === undefined || raw.length < 2 || !raw.startsWith("ו")) break;
+    const body = raw.slice(1);
+
+    // „ויומיים”, „ושבוע” — יחידה שעומדת לבדה ונושאת את כמותה
+    const solo = soloUnit(body);
+    if (solo !== undefined) {
+      const step0 = Math.round((solo.soloCount ?? 1) * solo.ms);
+      consumed += (head.index ?? 0) + head[0].length;
+      evidence += ` ${raw}`;
+      if (ms !== null) ms += step0;
+      continue;
+    }
+
+    const quantity = quantityOf(body);
+    const nextWord = words[1];
+    const next = nextWord === undefined ? undefined : bareWord(nextWord[0]);
+    const unit = next === undefined ? undefined : countedUnit(next);
+    if (quantity === undefined || unit === undefined || nextWord === undefined) break;
+
+    consumed += (nextWord.index ?? 0) + nextWord[0].length;
+    evidence += ` ${raw} ${next}`;
+    if (quantity > unit.max) ms = null;
+    else if (ms !== null) ms += Math.round(quantity * unit.ms);
+  }
+  return { ms, evidence, consumed };
+}
+
+/**
  * „עוד שעה”, „בעוד עשרים דקות”, „תוך יומיים” ⟵ היסט במילישניות.
  *
  * ## למה זה נכתב מחדש
@@ -261,6 +321,10 @@ function offsetAt(
    * אינה אומרת כמות — „שעתיים” הן שתיים מעצם המילה — ולכן התקרה
    * שלה אינה חלה, והיחידות הזוגיות אף מצהירות `max: 1` שהיה פוסל
    * אותן על עצמן.
+   *
+   * ההמשך החיבורי נצבר **כאן**, ולא בכל אחד מחמשת מקומות ההחזרה:
+   * „ועשרים דקות” יכולה לבוא אחרי כל אחת מהצורות, וטיפול נפרד בכל
+   * ענף היה נשמט מאחד מהם בשקט.
    */
   const bounded = (
     units: number,
@@ -269,11 +333,18 @@ function offsetAt(
     evidence: string,
     consumed: number,
   ): { ms: number | null; evidence: string; consumed: number } => {
-    const ms = Math.round(units * unit.ms);
-    if (units > max || !Number.isFinite(ms) || ms <= 0) {
-      return { ms: null, evidence, consumed };
+    const head = Math.round(units * unit.ms);
+    const tail = additiveTail(rest, consumed);
+    const text = evidence + tail.evidence;
+    if (units > max || !Number.isFinite(head) || head <= 0 || tail.ms === null) {
+      return { ms: null, evidence: text, consumed: tail.consumed };
     }
-    return { ms, evidence, consumed };
+    const total = head + tail.ms;
+    return {
+      ms: Number.isFinite(total) && total > 0 ? total : null,
+      evidence: text,
+      consumed: tail.consumed,
+    };
   };
 
   // „שעתיים”, „שעה” — היחידה עומדת לבדה ונושאת את הכמות שלה
