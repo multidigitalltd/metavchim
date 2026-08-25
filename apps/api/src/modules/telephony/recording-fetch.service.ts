@@ -21,6 +21,8 @@ import {
   pbx015UniqueIdForms,
   split015RecordingPath,
   unmatched015ListKeys,
+  nextRefusalStreak,
+  type RecordingPullResult,
 } from "@metavchim/shared";
 import { ulid } from "ulid";
 import { CryptoService } from "../../core/crypto.service";
@@ -179,7 +181,12 @@ export const RECORDING_ERRORS = {
  * תשובה פגומה אינם „לא” של הספק, ואינם מעידים על חנק, ולכן הם
  * ‎`other`. איחוד השניים היה עוצר את הסבב על תקלת רשת מקומית.
  */
-type PullResult = "stored" | "refused" | "other";
+/*
+ * שלוש התוצאות והכלל שמכריע מה כל אחת עושה למונה יושבים ב-`shared`
+ * (`nextRefusalStreak`), כדי שיהיו **נבדקים**. כאן זה היה שורה אחת
+ * שאפשר להפוך בלי שאף בדיקה תרגיש — וזה קרה פעמיים.
+ */
+type PullResult = RecordingPullResult;
 
 interface RecordingJob {
   callId: string;
@@ -288,11 +295,11 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
           return "other" as PullResult;
         });
         /*
-         * ‎**כל הצלחה מאפסת את המונה.** בלי האיפוס שלושה סירובים
-         * מפוזרים על פני סבב מוצלח לגמרי היו עוצרים אותו, והמנגנון
-         * שנועד להגן על הספק היה מאט את המשיכה בלי שום חנק.
+         * ‎**רק משיכה שהצליחה מאפסת.** ההערה הקודמת כאן הבטיחה בדיוק
+         * את זה, והשורה שמתחתיה איפסה על כל מה שאינו סירוב — כולל
+         * כישלון מקומי, שאינו מוכיח דבר על הספק. ראו `nextRefusalStreak`.
          */
-        refusalsInARow = result === "refused" ? refusalsInARow + 1 : 0;
+        refusalsInARow = nextRefusalStreak(refusalsInARow, result);
         if (refusalsInARow >= REFUSALS_BEFORE_PAUSE) {
           /*
            * ‎**כאן אין מה להחזיר.** השורות שלא הגיע אליהן התור לא

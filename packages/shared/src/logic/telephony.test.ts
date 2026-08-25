@@ -4,6 +4,7 @@ import {
   callAction,
   callIsFinal,
   callOutcomeOf,
+  nextRefusalStreak,
   callSpoke,
   describeCall,
   incomingCallTitle,
@@ -979,5 +980,39 @@ describe("TELEPHONY_PROVIDERS", () => {
   it("ספק שדורש שדות הוא ספק שקורא אותם", () => {
     // הגנרי אינו מבקש דבר — קליטת השיחות אינה תלוית ספק
     expect(telephonyProvider("generic")?.fields).toEqual([]);
+  });
+});
+
+describe("nextRefusalStreak", () => {
+  it("סירוב מגדיל", () => {
+    expect(nextRefusalStreak(0, "refused")).toBe(1);
+    expect(nextRefusalStreak(2, "refused")).toBe(3);
+  });
+
+  it("הצלחה מאפסת — הספק ענה, והוא בסדר", () => {
+    expect(nextRefusalStreak(2, "stored")).toBe(0);
+  });
+
+  /*
+   * ‎**זה הכלל שנשבר פעמיים.** הקוד איפס על כל מה שאינו סירוב,
+   * וההערה שמעליו הבטיחה „כל הצלחה מאפסת” — שני ניסוחים שונים של
+   * אותו כלל, והמחמיר שבהם לא היה זה שרץ.
+   */
+  it("כישלון מקומי אינו מאפס — הוא אינו מוכיח שהספק התאושש", () => {
+    expect(nextRefusalStreak(2, "other")).toBe(2);
+  });
+
+  it("וגם אינו מגדיל — תקלה אצלנו אינה „לא” של הספק", () => {
+    expect(nextRefusalStreak(0, "other")).toBe(0);
+  });
+
+  /*
+   * הרצף שהממצא מתאר: שני סירובים, כישלון מקומי, ואז סירוב שלישי.
+   * הכלל השבור היה מחזיר 1 כאן — כלומר העצירה לעולם לא הייתה
+   * מתרחשת בזמן חנק שמלווה בכשלים מקומיים.
+   */
+  it("כישלון מקומי בין סירובים אינו מבטל את הרצף", () => {
+    const seq = ["refused", "refused", "other", "refused"] as const;
+    expect(seq.reduce<number>((n, r) => nextRefusalStreak(n, r), 0)).toBe(3);
   });
 });
