@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import IORedis from "ioredis";
@@ -126,15 +131,42 @@ export class WhatsAppLinkService implements OnModuleDestroy {
    * שכח ממנו נשאר תקף על המסך הקודם.
    */
   async issueCode(tenantId: string, userId: string): Promise<{ code: string; expiresInSeconds: number }> {
-    const body = Array.from({ length: WHATSAPP_LINK_CODE_LENGTH }, () =>
-      WHATSAPP_LINK_CODE_ALPHABET.charAt(randomInt(0, WHATSAPP_LINK_CODE_ALPHABET.length)),
-    ).join("");
     /*
      * המפתח הוא **הקוד**, לא המשתמש: ההודעה בוואטסאפ מגיעה בלי שום
      * הקשר מלבד הקוד עצמו, ולכן זה הצד שצריך להיות ניתן לחיפוש.
      * מפתח שני לפי משתמש קיים רק כדי למחוק קוד קודם.
+     *
+     * **הכתיבה מותנית (`NX`), ולכן התנגשות אינה השתלטות.**
+     *
+     * שני משתמשים יכולים להגריל את אותן שש אותיות בזמן שהקוד הראשון
+     * עדיין חי. כתיבה גורפת הייתה מחליפה את הבעלות על הקוד — והמתווך
+     * הראשון, שהמסך שלו עדיין מציג אותו, היה שולח אותו ומקשר את
+     * המכשיר שלו לחשבון של השני (ביקורת Codex). התנגשות מגרילה מחדש.
      */
-    const codeHmac = this.hmac(body);
+    let body = "";
+    let codeHmac = "";
+    for (let attempt = 0; ; attempt += 1) {
+      body = Array.from({ length: WHATSAPP_LINK_CODE_LENGTH }, () =>
+        WHATSAPP_LINK_CODE_ALPHABET.charAt(randomInt(0, WHATSAPP_LINK_CODE_ALPHABET.length)),
+      ).join("");
+      codeHmac = this.hmac(body);
+      const claimed = await this.redis.set(
+        `wa-link:code:${codeHmac}`,
+        JSON.stringify({ tenantId, userId }),
+        "EX",
+        WHATSAPP_LINK_CODE_TTL_SECONDS,
+        "NX",
+      );
+      if (claimed === "OK") break;
+      /*
+       * מרחב הקודים הוא 31⁶, וחיי הקוד רבע שעה — חמש התנגשויות
+       * ברצף אינן מקריות אלא סימן לתקלה. עדיף להיכשל בגלוי מאשר
+       * להנפיק קוד שאיננו יודעים של מי הוא.
+       */
+      if (attempt >= 4) {
+        throw new ServiceUnavailableException("לא הצלחנו להפיק קוד חיבור — נסו שוב בעוד רגע");
+      }
+    }
     /*
      * **הסדר הוא מה שהופך „קוד אחד” לנכון גם במקביל.**
      *
@@ -144,12 +176,6 @@ export class WhatsAppLinkService implements OnModuleDestroy {
      * הקודמת (`GETDEL` ואז שתי כתיבות) יכלה להשאיר שניים תקפים —
      * שתיהן קראו „אין קודם” לפני שאיזו מהן כתבה (ביקורת Codex).
      */
-    await this.redis.set(
-      `wa-link:code:${codeHmac}`,
-      JSON.stringify({ tenantId, userId }),
-      "EX",
-      WHATSAPP_LINK_CODE_TTL_SECONDS,
-    );
     const previous = await this.redis.getset(`wa-link:user:${userId}`, codeHmac);
     // GETSET מאפס את התפוגה, ולכן היא נקבעת מחדש
     await this.redis.expire(`wa-link:user:${userId}`, WHATSAPP_LINK_CODE_TTL_SECONDS);
@@ -190,7 +216,22 @@ export class WhatsAppLinkService implements OnModuleDestroy {
     // שישלחו אותו יחד לא ייצרו שני קישורים
     const consumed = await this.redis.del(`wa-link:code:${codeHmac}`);
     if (consumed === 0) return null;
-    await this.redis.del(`wa-link:user:${claim.userId}`, attemptsKey);
+    /*
+     * **המצביע נמחק רק אם הוא עדיין מצביע על הקוד הזה.**
+     *
+     * מחיקה גורפת פתחה מחדש בדיוק את החלון ש-`GETSET` סגר: אם בין
+     * מחיקת הקוד לכאן הונפק קוד חדש, המחיקה הייתה מוחקת את **המצביע
+     * שלו**, וההנפקה הבאה הייתה רואה „אין קודם” — כלומר שני קודים
+     * תקפים במקביל (ביקורת Codex). ההשוואה והמחיקה קורות יחד בצד
+     * Redis, ולכן אין ביניהן רגע שבו מישהו יכול להיכנס.
+     */
+    await this.redis.eval(
+      "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+      1,
+      `wa-link:user:${claim.userId}`,
+      codeHmac,
+    );
+    await this.redis.del(attemptsKey);
 
     await this.bind(digits, claim.tenantId, claim.userId, SOURCE_CODE);
     return { userId: claim.userId, tenantId: claim.tenantId };

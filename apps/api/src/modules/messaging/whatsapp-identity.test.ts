@@ -186,6 +186,31 @@ describe("מכשיר אחד גם במקביל", () => {
     expect(fn.indexOf("wa-link:code:${codeHmac}")).toBeLessThan(fn.indexOf("getset("));
     expect(fn).not.toContain("getdel(");
   });
+
+  /*
+   * שני משתמשים יכולים להגריל את אותן שש אותיות. כתיבה גורפת הייתה
+   * מעבירה את הבעלות על הקוד לשני, והראשון היה מקשר את המכשיר שלו
+   * לחשבון שאינו שלו.
+   */
+  it("וקוד שכבר תפוס אינו נגזל — מגרילים מחדש", () => {
+    const fn = link.slice(link.indexOf("async issueCode("), link.indexOf("async redeemCode("));
+    expect(fn).toContain('"NX"');
+    expect(fn).toContain('claimed === "OK"');
+    expect(fn).toContain("ServiceUnavailableException");
+  });
+
+  /*
+   * מחיקה גורפת של המצביע פתחה מחדש את אותו חלון: קוד שהונפק בין
+   * מחיקת הקוד למחיקת המצביע היה מאבד את המצביע שלו, וההנפקה
+   * הבאה כבר לא הייתה יודעת לבטל אותו.
+   */
+  it("וניצול קוד מוחק את המצביע רק כשהוא עדיין שלו", () => {
+    const fn = link.slice(link.indexOf("async redeemCode("), link.indexOf("private async bind("));
+    expect(fn).toContain("redis.eval(");
+    expect(fn).toContain("redis.call('GET', KEYS[1]) == ARGV[1]");
+    // והמחיקה הגורפת של המצביע איננה עוד
+    expect(fn).not.toContain("del(`wa-link:user:${claim.userId}`");
+  });
 });
 
 /*
