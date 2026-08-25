@@ -61,7 +61,15 @@
    */
   --color-bg: #f6f7f3;
   --color-surface: #ffffff;
-  /* ‎`surface-sunken` — שורות פנימיות, שדות ותאי רשימה */
+  /*
+   * ‎`surface-sunken` — שורות פנימיות, שדות ותאי רשימה.
+   *
+   * הטוקן הזה היה מוגדר בערכה הבהירה בלבד ולא מופה לכהה כלל, כי
+   * עד עכשיו כמעט דבר לא צרך אותו. ‎`mv-row--nested` שנוסף בחבילה
+   * הזו כן צורך אותו — ולכן במצב כהה שורה מקוננת הייתה מקבלת
+   * משטח כמעט-לבן מתחת לטקסט של הערכה הכהה, כלומר בלתי קריאה
+   * לגמרי (ביקורת Codex).
+   */
   --color-surface-sunken: #f8faf6;
   /* טקסט ראשי — שחור למעשה.
 
@@ -297,6 +305,8 @@
    */
   --dk-input-border: #5a7461;
   --dk-border-hover: #66876e; /* 4.53:1 — כהה מהשניים */
+  /* מקבילו הכהה של ‎`surface-sunken`‎ — שקוע מתחת למשטח הכרטיס */
+  --dm-surface-sunken: #111a14;
   --dk-field: #101812;
   --dk-hover-soft: #1a231c;
   /* מפרידים שנראים — ראו את המקבילים בערכה הבהירה */
@@ -381,6 +391,7 @@
     --color-progress-track: var(--dk-progress-track);
     --color-seg-track: var(--dk-seg-track);
     --color-focus: var(--dk-primary);
+    --color-surface-sunken: var(--dm-surface-sunken);
     --color-data-muted: var(--dm-data-muted);
     --domain-green-bg: var(--dm-green-bg);
     --domain-green-line: var(--dm-green-line);
@@ -440,6 +451,7 @@
   --color-progress-track: var(--dk-progress-track);
   --color-seg-track: var(--dk-seg-track);
   --color-focus: var(--dk-primary);
+  --color-surface-sunken: var(--dm-surface-sunken);
   --color-data-muted: var(--dm-data-muted);
   --domain-green-bg: var(--dm-green-bg);
   --domain-green-line: var(--dm-green-line);
@@ -845,6 +857,7 @@ code {
   --shadow-pop: none;
   /* מספרי נתונים — שחור, כמו כל טקסט אחר בבלוק הזה */
   --color-data-muted: #000000;
+  --color-surface-sunken: #ffffff;
   /* ============================================================
      חמשת הדומיינים בניגודיות גבוהה — **הגוון עובר לטקסט**
      ------------------------------------------------------------
@@ -890,6 +903,26 @@ code {
 }
 /* מצב ניגודיות גבוהה: טקסט לבן על כפתורי הפעולה (#0000cc) — גובר על
    כלל המצב הכהה שמגדיר טקסט כהה (ביקורת Codex, PR #8). */
+/*
+ * ‎**גם אריח המיקרופון, ולא רק הכפתורים.**
+ *
+ * שתי ההצהרות של ההדרגתיות נכתבו יחד, ואת הביטול כתבתי רק לאחת
+ * מהן. בניגודיות גבוהה ‎`--color-on-action` הופך ללבן, וההדרגתיות
+ * הירוקה-בהירה נשארה מתחתיו — אייקון לבן על ירוק בהיר, כ-1.4:1,
+ * דווקא במצב שכל תכליתו ניגודיות (ביקורת Codex).
+ *
+ * זו הפעם השנייה באותו סבב שתיקנתי אחד מבני זוג ושכחתי את השני.
+ * הכלל שנובע מכך: כל הצהרת `background-image` חדשה נבדקת מול
+ * הבלוק הזה באותה נשימה.
+ */
+:root[data-a11y-contrast="on"] .mv-agent-badge {
+  background: var(--color-primary);
+  background-image: none;
+  color: #ffffff;
+}
+:root[data-a11y-contrast="on"] .mv-agent-badge::before {
+  display: none;
+}
 :root[data-a11y-contrast="on"] .mv-button--primary,
 :root[data-a11y-contrast="on"] .mv-button--danger {
   background: var(--color-primary);
@@ -1297,7 +1330,15 @@ code {
 }
 @media (min-width: 640px) {
   .mv-screen-title {
-    font-size: 17px;
+    /*
+     * ‎19 גם כאן, ולא 17.
+     *
+     * הכלל הזה בא **אחרי** הכלל הבסיסי ובאותה ספציפיות, ולכן הוא
+     * גובר בכל מסך מ-640 ומעלה — כלומר ההגדלה ל-19 שנכתבה למעלה
+     * חלה על המובייל בלבד, והשולחן, שבשבילו היא נכתבה, נשאר ב-17.
+     * בדיוק ההפך מהכוונה (ביקורת Codex).
+     */
+    font-size: 19px;
     min-width: 170px;
     flex: none;
   }
@@ -4668,6 +4709,16 @@ a.mv-bar-row:focus-visible {
  */
 .mv-agent-badge {
   position: relative;
+  /*
+   * ‎`isolation: isolate` — בלעדיו ההילה נעלמת לגמרי.
+   *
+   * ‎`position: relative` לבדו אינו יוצר הקשר ערימה כש-`z-index`
+   * הוא `auto`. לכן ה-`::before` עם `z-index: -1` היה משתתף בהקשר
+   * של אב קדמון ונצבע **מאחורי הרקע הלבן של הפאנל** ולא מאחורי
+   * האריח — כלומר האנימציה היחידה במוצר לא הייתה נראית כלל
+   * (ביקורת Codex).
+   */
+  isolation: isolate;
   flex: none;
   display: grid;
   place-items: center;
