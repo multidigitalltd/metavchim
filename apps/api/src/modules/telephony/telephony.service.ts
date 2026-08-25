@@ -10,6 +10,8 @@ import { ulid } from "ulid";
 import {
   build015DialUrl,
   callAction,
+  callIsFinal,
+  callOutcomeOf,
   describeCall,
   incomingCallTitle,
   missedCallTitle,
@@ -720,16 +722,21 @@ export class TelephonyService {
      * כשיחה” היה הופך מרכזייה שמאבדת את ה-`Hangup` לתקינה למראית
      * עין — בדיוק התקלה שהאבחון קיים כדי לחשוף.
      *
-     * ההכרעה נשאלת מ-`callAction` עצמה ולא מרשימת סוגים שנכתבת
-     * כאן מחדש. ניסיון קודם שלי מנה את `ringing` בלבד ופספס את
+     * ההכרעה נשאלת מהמודול המשותף ולא מרשימת סוגים שנכתבת כאן
+     * מחדש. ניסיון קודם שלי מנה את `ringing` בלבד ופספס את
      * `answered`, שגם הוא אינו מסיים — כלומר בדיוק אותו באג, סוג
      * אחד הלאה (ביקורת Codex). מי שיוסיף סוג אירוע בעתיד לא יצטרך
      * לזכור את המקום הזה.
      *
-     * `knownContact: false` אינו משנה דבר כאן: הוא משפיע על
-     * `createLead` בלבד, לא על `logCall`.
+     * ‎`callIsFinal` ולא `callAction(event, false, false).logCall`:
+     * הקריאה כאן צריכה עובדה אחת על **סוג האירוע**, וכדי לשלוף
+     * אותה מ-`callAction` היה צריך להמציא שני ארגומנטים על הלקוח
+     * ועל ראיית המענה שאין לנו כאן ואינם משפיעים על התשובה. ערך
+     * מומצא שאינו משנה דבר היום הוא ערך שגוי ביום שבו יתחיל
+     * לשנות. ‎`callAction` עצמה קוראת ל-`callIsFinal`, ולכן שתי
+     * התשובות עדיין אינן יכולות להיפרד.
      */
-    const willLogCall = event !== null && callAction(event, false).logCall;
+    const willLogCall = event !== null && callIsFinal(event);
 
     /*
      * שורת היומן נכתבת **אחרי** העיבוד, ולא לפניו.
@@ -810,7 +817,6 @@ export class TelephonyService {
               select: { contact: { select: { id: true, nameEncrypted: true } } },
             });
         const contact = primary ?? secondary?.contact ?? null;
-        const action = callAction(event, contact !== null);
         const contactName = contact ? this.crypto.decrypt(contact.nameEncrypted) : null;
 
         /*
@@ -851,7 +857,33 @@ export class TelephonyService {
          * כש-`seen` — שורת השיחה כבר נכתבה, שני המסלולים חוזרים
          * מיד, ואין מה לצלם.
          */
-        const virtualNumber = seen ? null : await this.routeOf(tx, tenantId, event);
+        const scratch = seen
+          ? { rule: null, answerObserved: false }
+          : await this.callScratch(tx, tenantId, event);
+        const virtualNumber = scratch.rule;
+
+        /*
+         * ‎**אירוע המענה נשמר, ולא נזרק.**
+         *
+         * 015 שולחת `Answer` לפני ה-`Hangup`, וזו אמירה מפורשת של
+         * המרכזייה שהשיחה נענתה. האירוע אינו מסיים שיחה ולכן לא
+         * נכתב ממנו דבר — מה שהיה בסדר כל עוד „כל מה שאינו „לא
+         * נענתה” נרשם „נענתה””.
+         *
+         * מרגע שמענה דורש ראיה, ניתוק שמגיע בלי `talktime` נרשם
+         * „לא ידוע” **ואינו פותח ליד** ממספר לא מוכר — למרות
+         * שהראיה הגיעה, ופשוט נזרקה אירוע אחד קודם (ביקורת Codex,
+         * P1). זה החמור מבין השניים: תווית לא מדויקת אפשר לתקן,
+         * ליד שלא נפתח הוא לקוח שאיש לא יחזור אליו.
+         *
+         * הכתיבה מוגנת באותה נעילת `providerCallId` שנלקחה למעלה.
+         */
+        if (event.type === "answered") {
+          if (!seen) await this.rememberAnswer(tx, tenantId, event.providerCallId);
+          return;
+        }
+
+        const action = callAction(event, contact !== null, scratch.answerObserved);
 
         if (action.notify) {
           if (seen) return; // כבר הפכה לשיחה — ההתראה עליה כבר יצאה
@@ -949,7 +981,26 @@ export class TelephonyService {
               event.type === "missed" || event.durationSeconds === undefined
                 ? null
                 : Math.max(1, Math.round(event.durationSeconds / 60)),
-            outcome: event.type === "missed" ? "missed" : "answered",
+            /*
+             * ‎**„נענתה” נדרשת ראיה, ולא רק היעדר ראיה לכך שלא נענתה.**
+             *
+             * השורה הזו הייתה ‎`type === "missed" ? "missed" : "answered"`,
+             * כלומר כל מה שאינו „לא נענתה” נרשם כ„נענתה” — ובכלל זה
+             * אירוע ניתוק שהגיע **בלי משך**, שאינו מעיד על מענה כלל.
+             * ‎`eventTypeOf` מסווג ניתוק כזה כ-`ended`, ולכן שיחה שלא
+             * נענתה הוצגה למתווך כשיחה שנענתה; בשטח זה נראה כמו „על כל
+             * השיחות כתוב נענתה”.
+             *
+             * משך חיובי הוא הראיה: מדברים, ולכן נענתה. בלעדיו נרשם
+             * ‎`unknown`, ואת ההבדל הזה המתווך רואה — שיחה שאיננו יודעים
+             * עליה היא בדיוק זו שכדאי לו לבדוק.
+             *
+             * ‎**ואירוע `Answer` הוא ראיה באותה מידה** — ראו
+             * ‎`callSpoke`. ההכרעה יושבת במודול המשותף ולא כאן, כי
+             * אותה עובדה בדיוק קובעת גם אם נפתח ליד; שני ביטויים
+             * נפרדים של „דיבר” נוטים להסכים ביום שנכתבו ולא אחריו.
+             */
+            outcome: callOutcomeOf(event, scratch.answerObserved),
             summary: describeCall(event),
             // מצביע בלבד בשלב הזה; העובד מושך את האודיו וממיר אותו
             // ל-`recordingKey` שלנו. ראו `RecordingFetchService`.
@@ -1187,11 +1238,11 @@ export class TelephonyService {
    * הקריאה מוגנת בנעילת `providerCallId` שנלקחה למעלה, ולכן שתי
    * פניות מקבילות של אותה שיחה אינן יכולות לצלם שתי תצורות שונות.
    */
-  private async routeOf(
+  private async callScratch(
     tx: Parameters<Parameters<PrismaService["withExplicitTenant"]>[1]>[0],
     tenantId: string,
     event: { providerCallId: string; dialedNumber?: string },
-  ): Promise<VirtualNumberRule | null> {
+  ): Promise<{ rule: VirtualNumberRule | null; answerObserved: boolean }> {
     const seen = await tx.callRouting.findFirst({
       where: { tenantId, providerCallId: event.providerCallId },
       select: {
@@ -1200,21 +1251,39 @@ export class TelephonyService {
         leadSource: true,
         assignedToUserId: true,
         propertyId: true,
+        routeResolved: true,
+        answerObserved: true,
       },
     });
-    if (seen !== null) {
-      return seen.virtualNumberId === null
-        ? null
-        : {
-            id: seen.virtualNumberId,
-            // המספר שאליו חייגו, כפי שהאירוע דיווח עליו
-            phone: event.dialedNumber ?? "",
-            label: seen.label,
-            leadSource: seen.leadSource,
-            assignedToUserId: seen.assignedToUserId,
-            propertyId: seen.propertyId,
-            isActive: true,
-          };
+    const answerObserved = seen?.answerObserved ?? false;
+
+    /*
+     * ‎**`routeResolved` ולא עצם קיום השורה.**
+     *
+     * עד שהשורה שימשה גם לזכירת מענה, „יש שורה” היה שקול ל„הניתוב
+     * נצפה”. מרגע שאירוע `Answer` יכול ליצור אותה, קריאה כזו הייתה
+     * מפרשת שורה שנוצרה למטרה אחרת כ„נצפה מספר ולא התאים” — וה-
+     * ‎`Hangup`, שאצל חלק מהמרכזיות הוא היחיד שנושא את המספר, לא
+     * היה פותר את הניתוב. כל שיחה הייתה מאבדת את מקור הקמפיין,
+     * הנכס והסוכן, כלומר בדיוק התקלה שההבחנה הזו נכתבה למנוע.
+     */
+    if (seen !== null && seen.routeResolved) {
+      return {
+        rule:
+          seen.virtualNumberId === null
+            ? null
+            : {
+                id: seen.virtualNumberId,
+                // המספר שאליו חייגו, כפי שהאירוע דיווח עליו
+                phone: event.dialedNumber ?? "",
+                label: seen.label,
+                leadSource: seen.leadSource,
+                assignedToUserId: seen.assignedToUserId,
+                propertyId: seen.propertyId,
+                isActive: true,
+              },
+        answerObserved,
+      };
     }
 
     /*
@@ -1229,11 +1298,19 @@ export class TelephonyService {
      * שתי אי-ידיעות שונות, ולכן שתי תוצאות שונות: „לא נשאל” נדחה
      * לאירוע הבא, ו„נשאל ולא נמצא” נשמר.
      */
-    if (event.dialedNumber === undefined) return null;
+    if (event.dialedNumber === undefined) return { rule: null, answerObserved };
 
     const rule = await this.matchVirtualNumber(tx, tenantId, event.dialedNumber);
-    await tx.callRouting.create({
-      data: {
+    /*
+     * ‎`upsert` ולא `create`: אירוע `Answer` שהגיע לפני האירוע שנשא
+     * את המספר כבר יצר את השורה, ו-`create` היה נופל על מפתח כפול
+     * ומגלגל אחורה את כל הטרנזקציה — כלומר שיחה שנבלעת.
+     */
+    await tx.callRouting.upsert({
+      where: {
+        tenantId_providerCallId: { tenantId, providerCallId: event.providerCallId },
+      },
+      create: {
         tenantId,
         providerCallId: event.providerCallId,
         virtualNumberId: rule?.id ?? null,
@@ -1241,21 +1318,78 @@ export class TelephonyService {
         leadSource: rule?.leadSource ?? "",
         assignedToUserId: rule?.assignedToUserId ?? null,
         propertyId: rule?.propertyId ?? null,
+        routeResolved: true,
+      },
+      update: {
+        virtualNumberId: rule?.id ?? null,
+        label: rule?.label ?? "",
+        leadSource: rule?.leadSource ?? "",
+        assignedToUserId: rule?.assignedToUserId ?? null,
+        propertyId: rule?.propertyId ?? null,
+        routeResolved: true,
       },
     });
-    /*
-     * ניקוי היתומות — כאן, ולא בסבב רקע נפרד.
-     *
-     * שיחה שה-`Hangup` שלה לא הגיע מעולם משאירה שורה שאיש לא ימחק.
-     * הניקוי רץ פעם אחת לכל שיחה חדשה, מוגבל לדייר, ונשען על
-     * האינדקס `(tenant_id, created_at)` — כלומר משרד שמייצר הרבה
-     * יתומות הוא גם זה שמנקה אותן לעיתים קרובות. סבב רקע נוסף היה
-     * טיימר שלם שצריך לתחזק בשביל טבלה שמחזיקה דקות.
-     */
+    await this.pruneScratch(tx, tenantId);
+    return { rule, answerObserved };
+  }
+
+  /**
+   * ניקוי היתומות — **בכל נתיב שכותב שורה**, ולא בסבב רקע נפרד.
+   *
+   * שיחה שה-`Hangup` שלה לא הגיע מעולם משאירה שורה שאיש לא ימחק.
+   * הניקוי מוגבל לדייר ונשען על האינדקס `(tenant_id, created_at)` —
+   * כלומר משרד שמייצר הרבה יתומות הוא גם זה שמנקה אותן לעיתים
+   * קרובות. סבב רקע נוסף היה טיימר שלם שצריך לתחזק בשביל טבלה
+   * שמחזיקה שעות.
+   *
+   * ‎**למה זו פונקציה ולא שורה בסוף פתירת הניתוב.** כשהניקוי ישב שם
+   * הוא היה תלוי בכך שהשורה **תמיד** נוצרת באותו נתיב, וזה הפסיק
+   * להיות נכון ברגע שאירוע `Answer` קיבל יכולת ליצור שורה בעצמו:
+   * מרכזייה שאינה שולחת `dialedNumber` כלל חוזרת מוקדם לפני הניקוי,
+   * ולכן כל `Hangup` שאבד היה משאיר שורה לצמיתות (ביקורת Codex).
+   *
+   * הכלל עכשיו פשוט לניסוח ולכן קשה לשבור: מי שכותב שורה, מנקה.
+   */
+  private async pruneScratch(
+    tx: Parameters<Parameters<PrismaService["withExplicitTenant"]>[1]>[0],
+    tenantId: string,
+  ): Promise<void> {
     await tx.callRouting.deleteMany({
       where: { tenantId, createdAt: { lt: new Date(Date.now() - ROUTING_RETENTION_MS) } },
     });
-    return rule;
+  }
+
+  /**
+   * לזכור שהמרכזייה אמרה „נענתה”, לשיחה שעדיין באוויר.
+   *
+   * ‎`upsert` כי אין ודאות מי הגיע ראשון: אצל מרכזייה ששולחת את
+   * המספר כבר ב-`Calling`, השורה קיימת; אצל אחת ששולחת אותו רק
+   * ב-`Hangup`, האירוע הזה הוא שיוצר אותה.
+   *
+   * ‎**השורה החדשה נוצרת עם `routeResolved: false`** — היא אינה
+   * אומרת דבר על הניתוב, ורק ההבחנה הזו מונעת ממנה להיקרא אחר כך
+   * כ„נצפה מספר ולא התאים”.
+   *
+   * הרשומה נמחקת כששורת השיחה נכתבת, ובכל מקרה מתיישנת לפי
+   * ‎`ROUTING_RETENTION_MS` — שתים-עשרה שעות, כלומר יותר מכל פער
+   * סביר בין `Answer` ל-`Hangup` של אותה שיחה.
+   *
+   * ‎**והניקוי נקרא כאן במפורש.** מרכזייה שאינה שולחת `dialedNumber`
+   * כלל אינה מגיעה לעולם לנתיב פתירת הניתוב, ולכן שורה שנוצרה כאן
+   * ושה-`Hangup` שלה אבד הייתה נשארת לצמיתות (ביקורת Codex). מי
+   * שכותב שורה, מנקה — ראו `pruneScratch`.
+   */
+  private async rememberAnswer(
+    tx: Parameters<Parameters<PrismaService["withExplicitTenant"]>[1]>[0],
+    tenantId: string,
+    providerCallId: string,
+  ): Promise<void> {
+    await tx.callRouting.upsert({
+      where: { tenantId_providerCallId: { tenantId, providerCallId } },
+      create: { tenantId, providerCallId, answerObserved: true, routeResolved: false },
+      update: { answerObserved: true },
+    });
+    await this.pruneScratch(tx, tenantId);
   }
 
   /**

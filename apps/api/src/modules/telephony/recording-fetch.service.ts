@@ -21,6 +21,8 @@ import {
   pbx015UniqueIdForms,
   split015RecordingPath,
   unmatched015ListKeys,
+  nextRefusalStreak,
+  type RecordingPullResult,
 } from "@metavchim/shared";
 import { ulid } from "ulid";
 import { CryptoService } from "../../core/crypto.service";
@@ -92,6 +94,41 @@ const GIVE_UP_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 const RETRY_AFTER_MS = 30 * 60 * 1000;
 
 /**
+ * השהיה בין **בקשה לבקשה** — כדי לא לחנוק את הספק.
+ *
+ * הסבב רץ בטור אבל בלי רווח: עשרים הקלטות בזו אחר זו במלוא המהירות,
+ * וכל אחת שנכשלת מוסיפה עד ארבעה צירופי מועמדים, קריאת רשימה
+ * וניסיון חוזר. כשמצטברות הרבה הקלטות אלה עשרות בקשות בשניות
+ * ספורות, ואז 015 משיב „Bad request” על בקשות תקינות לחלוטין — מה
+ * שנראה מבחוץ כתקלה אקראית שנפתרת בלחיצה שנייה (דיווח מהמשרד).
+ *
+ * ‎**היחידה היא הבקשה ולא ההקלטה.** ריווח סביב משיכה שלמה היה
+ * מחטיא את מסלול הכישלון, שבו שש בקשות יוצאות בתוך „משיכה אחת” —
+ * וזה בדיוק המסלול שרץ כשהספק כבר עמוס.
+ *
+ * שנייה לבקשה הופכת מנה מוצלחת של עשרים לכדקה. זה זמן רקע שאיש
+ * אינו ממתין לו — ההקלטה מופיעה דקות אחרי השיחה בכל מקרה.
+ */
+const PAUSE_BETWEEN_REQUESTS_MS = 1_000;
+
+/**
+ * כמה סירובים רצופים עוצרים את הסבב.
+ *
+ * ‎**זה מה שמונע את מפולת השלג.** ברגע שהספק חונק, כל בקשה נוספת
+ * גם נכשלת וגם מאריכה את החנק — ובלי עצירה הסבב היה ממשיך לירות
+ * עוד תשע-עשרה הקלטות, לשרוף את חלון הניסיון של כולן, ולהציג
+ * למתווך תשע-עשרה שגיאות שאין להן דבר עם ההקלטות עצמן.
+ *
+ * שלושה ולא אחד: הקלטה בודדת שאינה קיימת אצל הספק היא מצב רגיל
+ * לחלוטין, ועצירה עליה הייתה מקפיאה את התור על שורה פגומה אחת.
+ * רצף של שלושה כבר אינו נראה כמו מקרה.
+ *
+ * מה שנעצר אינו אבוד: התנאי לשליפה עדיין מתקיים, והסבב הבא ייקח
+ * אותן.
+ */
+const REFUSALS_BEFORE_PAUSE = 3;
+
+/**
  * גבול העמודה `provider_recording_detail` — **מספר של המסד, לא העדפה.**
  *
  * חריגה ממנו אינה נחתכת אלא **זורקת**, ו-`note` בולעת את השגיאה כדי
@@ -137,6 +174,20 @@ export const RECORDING_ERRORS = {
   integration: "no_integration",
 } as const;
 
+/**
+ * תוצאת משיכה אחת, לעיני הסבב בלבד.
+ *
+ * ‎`refused` הוא **הספק אמר לא** — זה מה שנספר לעצירה. כשל רשת או
+ * תשובה פגומה אינם „לא” של הספק, ואינם מעידים על חנק, ולכן הם
+ * ‎`other`. איחוד השניים היה עוצר את הסבב על תקלת רשת מקומית.
+ */
+/*
+ * שלוש התוצאות והכלל שמכריע מה כל אחת עושה למונה יושבים ב-`shared`
+ * (`nextRefusalStreak`), כדי שיהיו **נבדקים**. כאן זה היה שורה אחת
+ * שאפשר להפוך בלי שאף בדיקה תרגיש — וזה קרה פעמיים.
+ */
+type PullResult = RecordingPullResult;
+
 interface RecordingJob {
   callId: string;
   /**
@@ -160,6 +211,51 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
   private first: NodeJS.Timeout | null = null;
   /** סבב אחד בכל רגע — שניים היו מושכים את אותן שורות פעמיים. */
   private running = false;
+  /**
+   * מתי יצאה הבקשה האחרונה ל-015 — **לכל הבקשות, לא לכל שיחה.**
+   *
+   * הריווח היה במקור סביב `fetchOne` כולה, וזה החטיא בדיוק את המקרה
+   * שבגללו הוא נוסף: שיחה שהמועמד הראשון שלה נדחה שולחת עוד שלושה
+   * צירופים, ואז קריאת רשימה וניסיון חוזר — שש בקשות ברצף בתוך
+   * „משיכה אחת”. כלומר דווקא מסלול הכישלון, זה שמופיע כשהספק כבר
+   * עמוס, נשאר בלי ריווח — ויכול להיחנק בדיוק על המועמד הנכון
+   * (ביקורת Codex).
+   *
+   * השעון גלובלי לשירות ולא לשיחה, כי מה שמעניין את הספק הוא הקצב
+   * שמגיע אליו, ולא איך חילקנו אותו אצלנו לפעולות.
+   */
+  private lastRequestAt = 0;
+  /** התור שמסדר את הפונים ל-`pace()` — ראו ההסבר שם. */
+  private paceChain: Promise<void> = Promise.resolve();
+
+  /**
+   * ממתין עד שחלף הריווח מאז הבקשה הקודמת, ומסמן את הזמן החדש.
+   *
+   * ‎**הפונים משורשרים זה אחר זה, ולא ישנים במקביל.**
+   *
+   * הגרסה הראשונה קראה את `lastRequestAt`, ישנה עד המועד, ואז כתבה.
+   * כל עוד רק הסבב קרא לה — והוא רץ בטור — זה הספיק. ברגע שגם
+   * הייבוא היזום עבר דרכה נוצרה מקבילוּת אמיתית: שני פונים קוראים
+   * את **אותה** חותמת, ישנים עד **אותו** מועד, ויוצאים יחד — כלומר
+   * בדיוק הפרץ שהמנגנון בא למנוע, ודווקא בתרחיש שבגללו הוא הורחב
+   * (ביקורת Codex).
+   *
+   * השרשרת מקצה את התור מראש: כל קריאה נתלית על קודמתה, ולכן
+   * הקריאה והכתיבה של החותמת אינן יכולות להשתזר.
+   *
+   * ‎`catch` על החוליה הנשמרת ולא על המוחזרת: כשל של פונה אחד אינו
+   * אמור לשבור את השרשרת לכל מי שאחריו, אבל גם אינו אמור להיבלע —
+   * הוא מוחזר לקורא כרגיל.
+   */
+  private pace(): Promise<void> {
+    const slot = this.paceChain.then(async () => {
+      const wait = this.lastRequestAt + PAUSE_BETWEEN_REQUESTS_MS - Date.now();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      this.lastRequestAt = Date.now();
+    });
+    this.paceChain = slot.catch(() => undefined);
+    return slot;
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -186,11 +282,36 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     if (this.running) return;
     this.running = true;
     try {
-      for (const job of await this.pending()) {
-        await this.fetchOne(job).catch((error: unknown) => {
+      const jobs = await this.pending();
+      let refusalsInARow = 0;
+      for (const [index, job] of jobs.entries()) {
+        /*
+         * אין כאן השהיה: היא יושבת ב-`pace()` שנקראת לפני **כל**
+         * בקשה לספק, כולל אלה שמסלול הכישלון של שיחה בודדת שולח.
+         */
+        const result = await this.fetchOne(job).catch((error: unknown) => {
           // כשל בשיחה אחת אינו עוצר את הסבב — הבאה בתור עשויה להצליח
           this.logger.warn(`משיכת הקלטה נכשלה (${job.callId}): ${String(error)}`);
+          return "other" as PullResult;
         });
+        /*
+         * ‎**רק משיכה שהצליחה מאפסת.** ההערה הקודמת כאן הבטיחה בדיוק
+         * את זה, והשורה שמתחתיה איפסה על כל מה שאינו סירוב — כולל
+         * כישלון מקומי, שאינו מוכיח דבר על הספק. ראו `nextRefusalStreak`.
+         */
+        refusalsInARow = nextRefusalStreak(refusalsInARow, result);
+        if (refusalsInARow >= REFUSALS_BEFORE_PAUSE) {
+          /*
+           * ‎**כאן אין מה להחזיר.** השורות שלא הגיע אליהן התור לא
+           * סומנו מלכתחילה — הסימון נעשה לכל שיחה ברגע שמתחילים
+           * לטפל בה — ולכן הן נשארות בתור כפי שהיו. ראו `claim`.
+           */
+          this.logger.warn(
+            `${refusalsInARow} סירובים רצופים מ-015 — הסבב נעצר, ` +
+              `${jobs.length - index - 1} הקלטות ממתינות לסבב הבא`,
+          );
+          break;
+        }
       }
     } catch (error: unknown) {
       /*
@@ -279,6 +400,12 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
+    /*
+     * גם הייבוא היזום עובר במרווח. הוא נראה כמו מסלול נפרד — אדם
+     * לוחץ, זו בקשה אחת — אבל הספק רואה תור אחד: לחיצה בזמן שהסבב
+     * רץ מוסיפה בקשה בדיוק לתוך הרצף שהמרווח בא לפרוס.
+     */
+    await this.pace();
     const res = await fetch(
       build015RecordingsListUrl({
         authUsername,
@@ -526,7 +653,12 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
             },
           ],
         },
-        select: { id: true, providerCallId: true, providerRecordingPath: true, occurredAt: true },
+        select: {
+          id: true,
+          providerCallId: true,
+          providerRecordingPath: true,
+          occurredAt: true,
+        },
         orderBy: [
           { providerRecordingAttemptAt: { sort: "asc", nulls: "first" } },
           // בין אלה שטרם נוסו — הישנה קודם, כי הזמן שלה אוזל
@@ -535,11 +667,6 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
         take,
       });
       if (calls.length === 0) return [];
-
-      await tx.call.updateMany({
-        where: { id: { in: calls.map((call) => call.id) }, tenantId },
-        data: { providerRecordingAttemptAt: new Date(now) },
-      });
 
       return calls.map((call) => ({
         callId: call.id,
@@ -581,12 +708,47 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       );
   }
 
-  private async fetchOne(job: RecordingJob): Promise<void> {
+  /**
+   * סימון שיחה כ„נוסתה” — **ברגע שמתחילים בה, ולא בבחירה.**
+   *
+   * הסימון היה כתיבה גורפת על כל השורות שנבחרו, לפני הלולאה. זה
+   * מנע משתי הרצות מקבילות לתפוס את אותן שורות, אבל יצר מצב שבו
+   * שורה שהעצירה דילגה עליה מסומנת כאילו נוסתה — ובגיל שמעבר
+   * לחלון הוויתור זה מוציא אותה מהתור **לצמיתות** (ביקורת Codex).
+   *
+   * ניסיתי קודם להחזיר את הדילוגים למצבם, וגם זה נמצא שביר: כתיבת
+   * ההחזרה עצמה יכולה להיכשל, וכשל כזה מחזיר בדיוק את אותה אבידה
+   * דרך הדלת האחורית. סימון לכל שיחה בתורה **מסיר את המחלקה
+   * כולה**: מה שלא טופל לא סומן, ואין מה לתקן.
+   *
+   * ‎**מה שנמסר בתמורה:** שתי הרצות בתהליכים נפרדים יכולות לבחור
+   * את אותה שורה ולמשוך אותה פעמיים. זו עבודה כפולה ולא נזק —
+   * ‎`storeAudio` כותב את אותו קובץ — ומול אובדן קבוע של הקלטה זו
+   * עסקה משתלמת בבירור.
+   *
+   * כשל בכתיבה הזו אינו עוצר את המשיכה: התוצאה היחידה היא שהשיחה
+   * תיבחר שוב בסבב הבא, וזה בדיוק מה שרוצים ממנה.
+   */
+  private async claim(job: RecordingJob): Promise<void> {
+    await this.prisma
+      .withExplicitTenant(job.tenantId, (tx) =>
+        tx.call.updateMany({
+          where: { id: job.callId, tenantId: job.tenantId, recordingKey: null },
+          data: { providerRecordingAttemptAt: new Date() },
+        }),
+      )
+      .catch((error: unknown) =>
+        this.logger.warn(`סימון ניסיון משיכה נכשל (${job.callId}): ${String(error)}`),
+      );
+  }
+
+  private async fetchOne(job: RecordingJob): Promise<PullResult> {
+    await this.claim(job);
     const ids = split015RecordingPath(job.recordingPath);
     if (!ids) {
       this.logger.warn(`נתיב הקלטה בצורה לא מוכרת: ${job.recordingPath}`);
       await this.note(job, RECORDING_ERRORS.path);
-      return;
+      return "other";
     }
 
     const secrets = this.readSecrets(job.secretsEncrypted);
@@ -603,7 +765,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
        */
       this.logger.warn(`אישורי 015 חסרים למשרד ${job.tenantId} — משיכת הקלטות מושבתת`);
       await this.note(job, RECORDING_ERRORS.credentials);
-      return;
+      return "other";
     }
 
     /*
@@ -674,7 +836,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
           );
         }
         await this.storeAudio(job, attempt.base64, attempt.contentType);
-        return;
+        return "stored";
       }
       if (attempt.kind === "refused") {
         lastRefusal = { code: attempt.code, detail: attempt.detail };
@@ -685,7 +847,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
        * כל שאר המצבים — רשת, גוף שאינו JSON, סירוב שאינו „לא נמצא”
        * — כבר נרשמו בתוך `attemptFetch`, ואין טעם לנסות צירוף אחר.
        */
-      if (attempt.kind !== "refused") return;
+      if (attempt.kind !== "refused") return "other";
       break;
     }
 
@@ -747,13 +909,13 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
            */
           this.logger.log(`הקלטה נמצאה עם המזהה שהספק מסר — ${job.callId}`);
           await this.storeAudio(job, attempt.base64, attempt.contentType);
-          return;
+          return "stored";
         }
         if (attempt.kind === "refused") {
           lastRefusal = { code: attempt.code, detail: attempt.detail };
         } else {
           // „audio” כבר טופל למעלה; מה שנשאר הוא „handled” — נרשם בפנים
-          return;
+          return "other";
         }
       }
     }
@@ -784,7 +946,9 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
         `${RECORDING_ERRORS.provider}_${lastRefusal.code}`,
         joinDetail(lastRefusal.detail, asked),
       );
+      return "refused";
     }
+    return "other";
   }
 
   /**
@@ -827,6 +991,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     for (const recordGroup of input.recordGroups) {
       let rows: Pbx015RecordingRow[];
       try {
+        await this.pace();
         const res = await fetch(
           build015RecordingsListUrl({
             authUsername: input.authUsername,
@@ -916,6 +1081,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
 
     let res: Response;
     try {
+      await this.pace();
       res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
     } catch (error: unknown) {
       // פסק זמן או תקלת רשת — נרשם כאן ולא נבלע ב-`tick`, כדי
@@ -925,9 +1091,19 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       return { kind: "handled" };
     }
     if (!res.ok) {
+      /*
+       * ‎**סירוב שמגיע ככשל HTTP הוא סירוב לכל דבר.**
+       *
+       * כאן נרשם קודם `handled`, ולכן הוא חזר לסבב כ-`other` ואיפס
+       * את מונה הסירובים הרצופים. התוצאה: העצירה שנועדה לעצור חנק
+       * עבדה רק על סירוב שנעטף ב-HTTP 200, בעוד שחנק אמיתי מגיע
+       * דווקא כ-429 או 400 — כלומר המנגנון היה עיוור לצורה הנפוצה
+       * ביותר של מה שהוא בא למנוע (ביקורת Codex).
+       *
+       * הרישום עובר לקורא, שם הוא נכתב יחד עם הפרמטרים ששלחנו.
+       */
       this.logger.warn(`015 השיב ${res.status} על הקלטה ${job.recordingPath}`);
-      await this.note(job, `${RECORDING_ERRORS.provider}_${res.status}`);
-      return { kind: "handled" };
+      return { kind: "refused", code: String(res.status), detail: `HTTP ${res.status}` };
     }
     /*
      * פענוח ה-JSON נתפס **כאן** ולא נופל ל-`tick`.
