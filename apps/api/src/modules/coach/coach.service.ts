@@ -124,15 +124,30 @@ export class CoachService {
        * בתוכו. הבחירה נשארת „מי הכי מתלבט” — אבל מבין מי שאפשר
        * להגיע אליו.
        */
+      /*
+       * ‎**העמוד נלקח ברוחב הדייר, וסינון הבעלות חל אחריו** — בדיוק
+       * הסדר של `OffersService.listAll`, שלוקח את מאה האחרונות של
+       * המשרד ורק אז מסתיר שמות של קונים שאינם של הסוכן.
+       *
+       * הסדר ההפוך מייצר בדיוק את הפער שהוא נועד לסגור: במשרד עם
+       * יותר ממאה הצעות, שבו החדשות שייכות לסוכנים אחרים, „מאה
+       * האחרונות **של הסוכן**” מגיעות עמוק יותר לעבר מ„מאה
+       * האחרונות של המשרד” — וההמלצה חוזרת לנקוב בהצעה שהמסך אינו
+       * מציג (ביקורת Codex).
+       */
       const listed = await tx.offer.findMany({
-        where: { tenantId, matchId: { in: scopedMatchIds } },
+        where: { tenantId },
         orderBy: { createdAt: "desc" },
         take: OFFERS_PAGE_SIZE,
-        select: { id: true, openCount: true, status: true, presentation: true },
+        select: { id: true, matchId: true, openCount: true, status: true, presentation: true },
       });
+      const scoped = new Set(scopedMatchIds);
       const hesitating = listed
         .filter(
-          (o) => o.openCount >= 3 && ["opened", "sent", "delivered"].includes(o.status),
+          (o) =>
+            scoped.has(o.matchId) &&
+            o.openCount >= 3 &&
+            ["opened", "sent", "delivered"].includes(o.status),
         )
         .sort((a, b) => b.openCount - a.openCount)
         .slice(0, 10);

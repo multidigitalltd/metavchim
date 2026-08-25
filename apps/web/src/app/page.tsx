@@ -361,18 +361,25 @@ export default function DashboardPage() {
   /** הקריאה לסוכן נכשלה — מוצג עם „נסו שוב”, ואינו כולל 403. */
   const [coachFailed, setCoachFailed] = useState(false);
   /*
-   * ‎**האם בקשת הפגישות עדיין בדרך.**
+   * ‎**כמה ממקורות הפעולה עדיין באוויר במנה הנוכחית.**
    *
-   * שתי הגרסאות הקודמות ענו על השאלה הזו בערך אחר: `today !== null`
-   * לא הבחין בין הפגישות של אתמול לשל היום, ו-`todayDay === dayKey`
-   * נשאר אמת בניסיון חוזר **באותו יום** — כלומר מבדיקה קודמת שכבר
-   * הסתיימה, בזמן שהבקשה החדשה באוויר (ביקורת Codex).
+   * השער שואל שאלה אחת — „האם עוד משהו בדרך” — ולכן יש לו ערך
+   * אחד. הדרך לכאן עברה בארבעה קירובים שכל אחד מהם נשבר במקום
+   * אחר: `today !== null` לא הבחין בין אתמול להיום, `todayDay ===
+   * dayKey` נשאר אמת בניסיון חוזר, `dataFailed` ענה על הקבוצה
+   * במקום על הבקשה, ודגל שכיסה רק את הפגישות השאיר את שלושת
+   * האוספים האחרים עם `x === null` — שמשמעו גם „טרם הגיע” וגם
+   * „נכשל”, ולכן כישלון של `/properties` הותיר את הרשימה על שלד
+   * טעינה **לנצח** (ביקורת Codex).
    *
-   * דגל אחד שנדלק בפתיחת כל מנה ונכבה כשהבקשה **נסתיימה** —
-   * בהצלחה או בכישלון, 403 כולל. זו בדיוק השאלה שהשער שואל, ולא
-   * קירוב שלה.
+   * מונה, ולא דגל לכל מקור: ארבעה דגלים היו ארבעה מקומות לשכוח
+   * בהם אחד. הוא נקבע פעם אחת בפתיחת המנה — לפי היכולות, כלומר
+   * לפי כמה בקשות באמת ייורו — ויורד ב-`finally` של כל אחת מהן,
+   * בהצלחה ובכישלון כאחד, 403 כולל.
+   *
+   * ‎`null` = טרם נורתה מנה, כלומר עדיין בטעינה.
    */
-  const [appointmentsPending, setAppointmentsPending] = useState(true);
+  const [sourcesPending, setSourcesPending] = useState<number | null>(null);
   const batch = useRef(0);
 
   const loadDashboard = useCallback(() => {
@@ -393,7 +400,19 @@ export default function DashboardPage() {
         apply(value);
       };
     setDataFailed(false);
-    if (canSeeCalendar) setAppointmentsPending(true);
+    /*
+     * נספר לפי היכולות ולא לפי מספר קבוע: הבקשות המותנות אינן
+     * נורות למי שאינו רשאי, ומונה שסופר אותן היה נתקע על מספר
+     * שלעולם לא ירד. הפירוקים (`/buyers/breakdown` וכו') אינם
+     * נספרים — הם מזינים קוביות ולא את רשימת הפעולות.
+     */
+    setSourcesPending(
+      [canSeeProperties, canSeeBuyers, canSeeLeads, canSeeCalendar].filter(Boolean).length,
+    );
+    const settled = (): void => {
+      if (mine !== batch.current) return;
+      setSourcesPending((n) => (n === null ? null : Math.max(0, n - 1)));
+    };
     /*
      * 403 אינו כישלון טעינה — הוא תשובה.
      *
@@ -416,12 +435,14 @@ export default function DashboardPage() {
     if (canSeeProperties) {
       apiGet<{ items: PropertyRow[] }>("/properties?limit=100")
         .then(ok((r: { items: PropertyRow[] }) => setProperties(r.items)))
-        .catch(fail);
+        .catch(fail)
+        .finally(settled);
     }
     if (canSeeBuyers) {
       apiGet<{ items: BuyerRow[] }>("/buyers?limit=100")
         .then(ok((r: { items: BuyerRow[] }) => setBuyers(r.items)))
-        .catch(fail);
+        .catch(fail)
+        .finally(settled);
       apiGet<Breakdown<"byMaturity">>("/buyers/breakdown")
         .then(ok(setBuyerBreakdown))
         .catch(fail);
@@ -429,7 +450,8 @@ export default function DashboardPage() {
     if (canSeeLeads) {
       apiGet<{ items: LeadRow[] }>("/leads?limit=100")
         .then(ok((r: { items: LeadRow[] }) => setLeads(r.items)))
-        .catch(fail);
+        .catch(fail)
+        .finally(settled);
       apiGet<Breakdown<"byStatus">>("/leads/breakdown")
         .then(ok(setLeadBreakdown))
         .catch(fail);
@@ -459,17 +481,10 @@ export default function DashboardPage() {
       apiGet<AppointmentRow[]>(
         `/appointments?from=${dayStart.toISOString()}&to=${dayEndInclusive.toISOString()}`,
       )
-        .then(
-          ok((rows: AppointmentRow[]) => {
-            setToday(rows);
-            setAppointmentsPending(false);
-          }),
-        )
-        .catch((err: unknown) => {
-          /* גם 403 — הבקשה הסתיימה, ולכן היא אינה „בדרך”. */
-          if (mine === batch.current) setAppointmentsPending(false);
-          fail(err);
-        });
+        .then(ok(setToday))
+        /* גם 403 — הבקשה הסתיימה, ולכן היא אינה „בדרך”. */
+        .catch(fail)
+        .finally(settled);
     }
     /*
      * רשימת ההצעות דורשת `offers.send` — אותו שער שכבר קיים
@@ -643,10 +658,8 @@ export default function DashboardPage() {
    * והרשימה ממשיכה עם מה שיש.
    */
   const loading =
-    (canSeeProperties && properties === null) ||
-    (canSeeBuyers && buyers === null) ||
-    (canSeeLeads && leads === null) ||
-    (canSeeCalendar && appointmentsPending) ||
+    sourcesPending === null ||
+    sourcesPending > 0 ||
     (canSeeCalendar && myTasks === null && !tasksFailed) ||
     (canSeeNetwork && network === null && !networkFailed);
 
