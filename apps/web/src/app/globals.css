@@ -952,9 +952,10 @@ code {
 }
 
 .mv-sidebar {
-  width: 230px;
+  /* 250 ו-#0B0E0C מהחבילה (§15). היה 230/#0E100F */
+  width: 250px;
   flex: none;
-  background: #0e100f;
+  background: #0b0e0c;
   color: #e8ece8;
   display: none; /* במובייל — מגירה; ראו mv-sidebar--drawer */
   flex-direction: column;
@@ -1026,12 +1027,17 @@ code {
 .mv-sidebar-link {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 10px 12px;
-  border-radius: 9px;
-  font-size: 14.5px;
+  gap: 12px;
+  /*
+   * גובה נקוב ולא ריפוד — כך כל הפריטים שווים גם כשאחד מהם עוטף
+   * לשתי שורות, וכך גם היעד למגע עומד ב-44 בלי חישוב (§15).
+   */
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 14px;
+  font-size: var(--type-nav);
   font-weight: 600;
-  color: #c3ccc4; /* הגוון מקובץ העיצוב — על #0E100F:‏ ~10:1 */
+  color: #b6c0b8; /* ‎`dark-text-2`‎ מהחבילה — על ‎#0B0E0C‎: ~9:1 */
   text-decoration: none;
   transition:
     background-color 0.15s ease,
@@ -1044,8 +1050,30 @@ code {
 }
 /* הפריט הפעיל — הערכים המדויקים מקובץ העיצוב: ‎#8CF2A6‎ על ‎16%‎ ירוק */
 .mv-sidebar-link[aria-current="page"] {
-  background: rgba(112, 238, 145, 0.16);
-  color: #8cf2a6;
+  background: rgba(112, 238, 145, 0.14);
+  color: #70ee91;
+  font-weight: 800;
+  /* המיקום היחסי נדרש כדי שפס הקצה למטה ייתלה על הפריט */
+  position: relative;
+}
+/*
+ * פס הקצה של הפריט הפעיל — 3×22 צמוד לשפת הסרגל (§15).
+ *
+ * ‎`inset-inline-end: -13px` הוא בדיוק הריפוד האופקי של הסרגל, ולכן
+ * הפס יוצא מהפריט ונוגע בקצה. תכונה **לוגית** ולא `right`: בעברית
+ * הסרגל יושב מימין, ותכונה פיזית הייתה מציירת את הפס בצד הפנימי.
+ *
+ * המצב מסומן גם ברקע, בצבע ובמשקל — הפס מוסיף לו ואינו לבדו, כי
+ * סימון שנשען על שלושה פיקסלים בלבד אינו נראה למי שרואה חלקית.
+ */
+.mv-sidebar-link[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  inset-inline-end: -13px;
+  width: 3px;
+  height: 22px;
+  border-radius: 2px;
+  background: #70ee91;
 }
 /* מונה ליד פריט ניווט (נכסים, קונים, התאמות) */
 .mv-nav-count {
@@ -1054,11 +1082,21 @@ code {
   font-weight: 700;
   color: #9aa89e;
 }
-/* תג "חדשים" — לידים שממתינים */
+/*
+ * תג „חדשים” — לידים שממתינים. **אפרסק, ולא אדום-חמרה.**
+ *
+ * הוא היה ‎#B0512C‎ מלא, כלומר צבע השגיאה של המערכת. לפי החבילה
+ * ליד ממתין הוא PEACH — „urgency: hot buyers, leads, time-critical”
+ * — ואדום שמור לחסימה ולשגיאה בלבד. ליד חדש אינו תקלה אלא הזדמנות
+ * שממתינה, ותג בצבע שגיאה קרא לו אחרת.
+ *
+ * הגוונים הם ערכי האפרסק של הערכה הכהה, כי הסרגל כהה בשתי
+ * הערכות — באותה צורה שבה שאר תגי הסרגל נכתבים כאן במפורש.
+ */
 .mv-nav-badge {
   margin-inline-start: auto;
-  background: #b0512c;
-  color: #fff;
+  background: rgba(245, 180, 142, 0.16);
+  color: #f5b48e;
   font-size: 14px;
   font-weight: 700;
   border-radius: 99px;
