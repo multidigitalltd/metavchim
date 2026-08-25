@@ -13,7 +13,6 @@ import { LoadError } from "./load-error";
 import { SetupBanner } from "./setup-banner";
 import { SystemUpdate } from "./system-update";
 import { NowStamp } from "./now-stamp";
-import { BarChart, DonutChart, type Slice } from "./charts";
 import {
   IconBell,
   IconCheck,
@@ -164,17 +163,22 @@ function greeting(): string {
   return "ערב טוב";
 }
 
-/* צבעי מספור השורות — הפלטה מקובץ העיצוב; ירוק הטקסט מועמק ל-AA */
-const TONE = {
-  danger: { bg: "#faf1ec", fg: "#b0512c" },
-  green: { bg: "#E5FCEA", fg: "#0C6E34" },
-  amber: { bg: "#f7efdd", fg: "#7a5c1f" },
-  neutral: { bg: "#EDEFED", fg: "#3F4742" },
-} as const;
+/*
+ * הדומיין של שורת פעולה — **על מה היא**, ולא כמה היא דחופה.
+ *
+ * השדה נקרא קודם `tone` ונשא ארבע פלטות הקסה מקומיות. שני דברים
+ * היו שגויים בו: הצבעים לא עברו מיפוי למצב כהה, ובעיקר — „דחיפות”
+ * כבר נאמרת על ידי המיקום ברשימה ועל ידי כלל השורה הראשונה. צבע
+ * שאומר שוב „דחוף” מבזבז את הממד היחיד שיכול לומר „וזה נכס”.
+ *
+ * לכן חמשת הדומיינים של §4, ולפי נושא: אפרסק לדחיפות, ענבר
+ * להמתנה, כחול לנכסים, סגול למנוע ההתאמות, ירוק לסוכן ולשת"פ.
+ */
+type ActionDomain = "green" | "peach" | "violet" | "blue" | "amber" | "neutral";
 
 interface TaskRow {
   key: string;
-  tone: keyof typeof TONE;
+  domain: ActionDomain;
   title: string;
   why: string;
   action: string;
@@ -424,7 +428,7 @@ export default function DashboardPage() {
   for (const l of urgentLeads) {
     push({
       key: `urgent-${l.id}`,
-      tone: "danger",
+      domain: "peach",
       title: `ליד דורש טיפול אנושי: ${l.contact.name}`,
       why: l.requiresHumanReason ?? "העוזר הדיגיטלי לא הצליח להתקדם לבד.",
       action: "טפל עכשיו",
@@ -435,7 +439,7 @@ export default function DashboardPage() {
   for (const rec of (recs ?? []).slice(0, 4)) {
     push({
       key: `rec-${rec.type}-${rec.entityId ?? ""}`,
-      tone: rec.priority >= 90 ? "danger" : "green",
+      domain: rec.priority >= 90 ? "peach" : "green",
       title: rec.title,
       why: rec.body,
       action: "לפרטים",
@@ -446,7 +450,7 @@ export default function DashboardPage() {
   for (const l of newLeads) {
     push({
       key: `new-${l.id}`,
-      tone: "amber",
+      domain: "amber",
       title: `ליד חדש ממתין: ${l.contact.name}`,
       why: "מענה מהיר מכפיל את סיכוי ההמרה.",
       action: "פתח ליד",
@@ -457,7 +461,7 @@ export default function DashboardPage() {
   for (const p of incomplete) {
     push({
       key: `inc-${p.id}`,
-      tone: "neutral",
+      domain: "blue",
       title: `${[p.street, p.city].filter(Boolean).join(", ") || "נכס ללא כתובת"} — מוכנות ${p.readinessScore}%`,
       why: `חסרים: ${p.missingFields.slice(0, 3).map((f) => FIELD_LABELS[f] ?? f).join(", ")}${p.missingFields.length > 3 ? " ועוד" : ""}. השלמה תפתח קונים חדשים.`,
       action: "השלם פרטים",
@@ -468,7 +472,7 @@ export default function DashboardPage() {
   for (const b of hotBuyers.slice(0, 2)) {
     push({
       key: `hot-${b.id}`,
-      tone: "green",
+      domain: "violet",
       title: `לבדוק התאמות עבור ${b.contact.name}`,
       why: `קונה ${labelOf(MATURITY_LABELS, b.maturity) ?? b.maturity} — כדאי לוודא שקיבל הצעות רלוונטיות.`,
       action: "צפה בהתאמות",
@@ -514,9 +518,9 @@ export default function DashboardPage() {
             value: offers === null ? undefined : pendingOffers.length,
             sub: mullingOffer !== undefined ? `אחת נפתחה ${mullingOffer.openCount} פעמים` : "",
             href: "/offers",
-            valueColor: undefined as string | undefined,
+            /* הצעות והתאמות הן מנוע ההתאמות — סגול (§4) */
+            domain: "violet",
             icon: <IconSend s={17} />,
-            tone: "var(--color-primary)",
           },
         ]
       : []),
@@ -531,9 +535,9 @@ export default function DashboardPage() {
                 ? `${incomplete.length} ממתינים להשלמת פרטים`
                 : "כולם מוכנים לשיווק",
             href: "/properties",
-            valueColor: undefined as string | undefined,
+            /* נכסים ויומן — כחול */
+            domain: "blue",
             icon: <IconHome s={17} />,
-            tone: "var(--color-primary)",
           },
         ]
       : []),
@@ -544,9 +548,13 @@ export default function DashboardPage() {
             value: buyers === null ? undefined : hotBuyers.length,
             sub: buyers === null ? "" : `מתוך ${buyers.length} קונים במאגר`,
             href: "/buyers",
-            valueColor: "var(--color-danger)" as string | undefined,
+            /*
+             * אפרסק ולא אדום. „קונה חם” הוא הזדמנות דחופה ולא כשל,
+             * ואדום שמור לשגיאה ולחסימה — הצבע היה אומר למתווך
+             * שמשהו רע קרה דווקא כשמשהו טוב קרה.
+             */
+            domain: "peach",
             icon: <IconFlame s={17} />,
-            tone: "var(--color-danger)",
           },
         ]
       : []),
@@ -557,9 +565,9 @@ export default function DashboardPage() {
             value: leads === null ? undefined : leads.filter((l) => l.status === "new").length,
             sub: urgentLeads.length > 0 ? `${urgentLeads.length} דורשים טיפול אנושי` : "",
             href: "/leads",
-            valueColor: undefined as string | undefined,
+            /* דחיפות: ליד חדש שממתין — אפרסק, כמו קונה חם */
+            domain: "peach",
             icon: <IconBell s={17} />,
-            tone: "var(--color-primary)",
           },
         ]
       : []),
@@ -570,21 +578,39 @@ export default function DashboardPage() {
    * לשרת בשביל הגרפים. כל פרוסה מקשרת לרשימה המסוננת, כי פילוח
    * שאי אפשר לצלול אליו הוא קישוט.
    */
+  /*
+   * ‎**שורות מדד, ולא דונאט ולא פס התקדמות** (§23).
+   *
+   * החבילה אוסרת את שניהם כאן במפורש — „Do not render donuts or pie
+   * charts for small integer counts, and never draw an empty progress
+   * bar… This replaced exactly that, on purpose”. והנימוק מעשי ולא
+   * טעם: פילוח של ארבעה מספרים קטנים אינו „צורה של נתונים”, ודונאט
+   * מבקש מהקורא להשוות שטחי גזרה כדי לשחזר מספר שאפשר פשוט לכתוב.
+   * במשרד חדש, שכל הערכים בו אפס, דונאט הוא עיגול ריק שאינו אומר
+   * דבר — ושורת מדד עדיין אומרת „לא בשל: 0”.
+   *
+   * הדומיין נושא את משפחת הצבע, והנקודה את הדרגה בתוכה.
+   */
   const bm = buyerBreakdown?.byMaturity ?? {};
-  const maturitySlices: Slice[] = [
-    { label: "חם מאוד", value: bm["very_hot"] ?? 0, color: "#b0512c", href: "/buyers?maturity=very_hot" },
-    { label: "חם", value: bm["hot"] ?? 0, color: "#d9a441", href: "/buyers?maturity=hot" },
-    { label: "מתעניין", value: bm["interested"] ?? 0, color: "var(--color-primary-accent)", href: "/buyers?maturity=interested" },
-    { label: "לא בשל", value: bm["not_ripe"] ?? 0, color: "#9aa79d", href: "/buyers?maturity=not_ripe" },
+  const maturityRows = [
+    { label: "חם מאוד", value: bm["very_hot"] ?? 0, domain: "mv-domain-peach", dot: "#b4471f", href: "/buyers?maturity=very_hot" },
+    { label: "חם", value: bm["hot"] ?? 0, domain: "mv-domain-amber", dot: "#8a6217", href: "/buyers?maturity=hot" },
+    { label: "מתעניין", value: bm["interested"] ?? 0, domain: "mv-domain-green", dot: "#15803d", href: "/buyers?maturity=interested" },
+    { label: "לא בשל", value: bm["not_ripe"] ?? 0, domain: "mv-domain-neutral", dot: "#5e6860", href: "/buyers?maturity=not_ripe" },
   ];
 
+  /*
+   * שלוש דרגות המשפך שעדיין דורשות מישהו. „הומר” אינו ביניהן —
+   * הוא הסוף הטוב, ואינו „ממתין”. הוא נספר בשורת האישור למטה ולא
+   * כשלב שמחכה לטיפול.
+   */
   const ls = leadBreakdown?.byStatus ?? {};
-  const leadSlices: Slice[] = [
-    { label: "חדש", value: ls["new"] ?? 0, color: "var(--color-primary-accent)", href: "/leads?status=new" },
-    { label: "בטיפול", value: ls["in_progress"] ?? 0, color: "#d9a441", href: "/leads?status=in_progress" },
-    { label: "ממתין ללקוח", value: ls["waiting_customer"] ?? 0, color: "#7a9bd4", href: "/leads?status=waiting_customer" },
-    { label: "הומר", value: ls["converted"] ?? 0, color: "var(--color-primary)", href: "/leads?status=converted" },
+  const leadRows = [
+    { label: "חדש", value: ls["new"] ?? 0, domain: "mv-domain-peach", href: "/leads?status=new" },
+    { label: "בטיפול", value: ls["in_progress"] ?? 0, domain: "mv-domain-blue", href: "/leads?status=in_progress" },
+    { label: "ממתין ללקוח", value: ls["waiting_customer"] ?? 0, domain: "mv-domain-neutral", href: "/leads?status=waiting_customer" },
   ];
+  const leadsWaiting = leadRows.reduce((sum, row) => sum + row.value, 0);
   return (
     <>
       <SetupBanner />
@@ -599,13 +625,34 @@ export default function DashboardPage() {
         </div>
       ) : null}
 
-      {/* ברכה + תאריך — בשורת בסיס אחת, כמו בעיצוב */}
-      <div className="mb-6 flex flex-wrap items-baseline gap-x-3.5 gap-y-1">
-        <h1 className="m-0" style={{ fontSize: "calc(26 / 16 * 1rem)", fontWeight: 800, letterSpacing: "-0.01em" }}>
-          {greeting()}, {user.name.split(" ")[0]}
-        </h1>
-        {/* לועזי + עברי + שעון — מתווך ישראלי חי בשני לוחות */}
-        <NowStamp />
+      {/*
+        שורת הברכה (§24) — כותרת ותאריך, ואז המונה בקצה השורה.
+
+        המונה אינו קישוט: הוא אומר כמה פעולות ממתינות, והמספר שלו
+        הוא **אורך הרשימה של §6.1** ולא ספירה נפרדת. שני מספרים
+        שמתארים את אותו דבר ומחושבים בשתי דרכים נפרדים ביום
+        שמישהו משנה את אחד מהם.
+      */}
+      <div className="mv-greet mb-6">
+        <div className="min-w-0">
+          <h1 className="mv-greet__title m-0">
+            {greeting()}, {user.name.split(" ")[0]}
+            <span style={{ color: "var(--color-primary)" }}>.</span>
+          </h1>
+          {/* לועזי + עברי + שעון — מתווך ישראלי חי בשני לוחות */}
+          <div className="mv-greet__date">
+            <NowStamp />
+          </div>
+        </div>
+        {shownTasks.length > 0 ? (
+          <div className="mv-greet__counter mv-counter">
+            <span className="mv-counter__number mv-ltr">{shownTasks.length}</span>
+            <span>
+              <span className="mv-counter__lead block">פעולות מחכות לך</span>
+              <span className="mv-counter__note block">מסודרות לפי דחיפות</span>
+            </span>
+          </div>
+        ) : null}
       </div>
 
       <DuplicateContacts />
@@ -627,23 +674,37 @@ export default function DashboardPage() {
       {statCards.length > 0 ? (
       <section aria-labelledby="counts-heading" className="mb-7">
         <h2 id="counts-heading" className="mv-visually-hidden">מונים</h2>
-        <dl className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
+        <dl className="grid grid-cols-2 items-stretch gap-4 lg:grid-cols-4">
           {statCards.map((card) => (
-            <Link key={card.label} href={card.href} className="mv-stat-card no-underline">
-              <dt className="flex items-center gap-2 text-[length:var(--type-caption-lg)] font-semibold" style={{ color: "var(--color-text-muted)" }}>
-                <span className="mv-stat-icon" style={{ color: card.tone }} aria-hidden="true">
+            /*
+              ‎**אפס עובר לניטרלי — מהנתון, לא מהמסך.**
+
+              „Any tile whose value is 0 switches to Neutral tokens
+              automatically — that is a data-driven rule, not
+              hard-coded”. הכלל הזה הוא מה שמונע מ„אין הצעות
+              פתוחות” להיראות כמו התרעה: אריח סגול עם 0 גדול קורא
+              כמו משהו שדורש טיפול, ובדיוק ההפך נכון.
+
+              ‎`undefined` (טרם נטען) אינו אפס ואינו עובר לניטרלי:
+              „עוד לא יודעים” ו„אין” הם שני מצבים שונים.
+            */
+            <Link
+              key={card.label}
+              href={card.href}
+              className={`mv-kpi no-underline ${
+                card.value === 0 ? "mv-domain-neutral" : `mv-domain-${card.domain}`
+              }`}
+            >
+              <dt className="mv-kpi__head">
+                <span className="mv-tile" aria-hidden="true">
                   {card.icon}
                 </span>
-                {card.label}
+                <span className="mv-kpi__label">{card.label}</span>
               </dt>
-              <dd className="mv-stat-value m-0" style={card.valueColor ? { color: card.valueColor } : undefined}>
-                {card.value ?? "…"}
-              </dd>
-              <dd className="m-0 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)", minHeight: "1.2em" }}>
+              <dd className="mv-kpi__value mv-ltr m-0">{card.value ?? "…"}</dd>
+              <dd className="mv-kpi__note m-0" style={{ minHeight: "1.2em" }}>
                 {card.sub}
               </dd>
-              {/* חץ שמופיע בריחוף — רמז שהכרטיס כולו לחיץ */}
-              <span className="mv-stat-go" aria-hidden="true">←</span>
             </Link>
           ))}
         </dl>
@@ -661,37 +722,112 @@ export default function DashboardPage() {
             הכרטיס נעלם ולא מתרוקן.
           */}
           {canSeeBuyers ? (
-            <div className="mv-list-card px-5 py-[18px]">
-              <h3 className="m-0 mb-1 flex items-center gap-2" style={{ fontSize: "var(--type-body)", fontWeight: 800 }}>
-                <IconUsers s={16} /> בשלות הקונים
-              </h3>
-              <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-                לחיצה על שורה פותחת את הרשימה המסוננת.
+            <div className="mv-list-card flex flex-col px-5 py-[18px]">
+              <div className="mv-card-head mv-domain-violet">
+                <span className="mv-tile" aria-hidden="true">
+                  <IconUsers s={19} />
+                </span>
+                <h3 className="mv-card-head__title m-0">בשלות הקונים</h3>
+              </div>
+              <p className="mv-card-sub m-0">לחיצה על שורה פותחת את הרשימה המסוננת.</p>
+              <ul className="m-0 mt-3 flex list-none flex-col gap-2 p-0">
+                {maturityRows.map((row) => (
+                  <li key={row.label}>
+                    <Link
+                      href={row.href}
+                      className={`mv-metric no-underline ${
+                        row.value === 0 ? "mv-domain-neutral" : row.domain
+                      }`}
+                    >
+                      {/*
+                        הנקודה נושאת את **הדרגה**, לא את הדומיין: „חם
+                        מאוד” ו„חם” חולקים משפחת צבע, והנקודה היא מה
+                        שמפריד ביניהן. בשורת אפס היא יורשת את הניטרלי
+                        ואינה צובעת דרגה שאין לה נציגים.
+                      */}
+                      <span
+                        className="mv-metric__dot"
+                        aria-hidden="true"
+                        style={row.value === 0 ? undefined : { color: row.dot }}
+                      />
+                      <span className="mv-metric__label">{row.label}</span>
+                      <span className="mv-metric__value mv-ltr">
+                        {buyerBreakdown === null ? "…" : row.value}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+              {/*
+                הסך-הכול בתחתית, ו-`margin-top:auto` כדי ששני
+                כרטיסי הניתוח יסתיימו באותו גובה גם כשמספר השורות
+                בהם שונה.
+              */}
+              <p
+                className="m-0 mt-auto pt-3 text-[length:var(--type-body-sm)]"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                סה&quot;כ{" "}
+                <b style={{ color: "var(--color-text)" }}>
+                  {buyerBreakdown === null ? "…" : buyerBreakdown.total}
+                </b>{" "}
+                קונים במאגר
               </p>
-              <DonutChart
-                slices={maturitySlices}
-                centerValue={buyerBreakdown === null ? "…" : String(buyerBreakdown.total)}
-                centerLabel="קונים"
-              />
             </div>
           ) : null}
 
           {canSeeLeads ? (
-            <div className="mv-list-card px-5 py-[18px]">
-              <h3 className="m-0 mb-1 flex items-center gap-2" style={{ fontSize: "var(--type-body)", fontWeight: 800 }}>
-                <IconFilter s={16} /> מצב הלידים
-              </h3>
-              <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-                המשפך מהפנייה ועד ההמרה.
-              </p>
-              <BarChart slices={leadSlices} />
+            <div className="mv-list-card flex flex-col px-5 py-[18px]">
+              <div className="mv-card-head mv-domain-peach">
+                <span className="mv-tile" aria-hidden="true">
+                  <IconFilter s={19} />
+                </span>
+                <h3 className="mv-card-head__title m-0">מצב הלידים</h3>
+              </div>
+              <p className="mv-card-sub m-0">המשפך מהפנייה ועד ההמרה.</p>
+              <ul className="m-0 mt-3 flex list-none flex-col gap-2 p-0">
+                {leadRows.map((row) => (
+                  <li key={row.label}>
+                    <Link
+                      href={row.href}
+                      className={`mv-metric no-underline ${
+                        row.value === 0 ? "mv-domain-neutral" : row.domain
+                      }`}
+                    >
+                      <span className="mv-metric__dot" aria-hidden="true" />
+                      <span className="mv-metric__label">{row.label}</span>
+                      <span className="mv-metric__value mv-ltr">
+                        {leadBreakdown === null ? "…" : row.value}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+              {/*
+                מצב ריק (§22): אישור ירוק ולא פאנל ריק ולא אזהרה.
+                „הכל טופל” היא עובדה טובה, וזה מה שהיא צריכה להיראות.
+              */}
+              <div className="mt-auto pt-3">
+                {leadBreakdown !== null && leadsWaiting === 0 ? (
+                  <p className="mv-zero-line m-0">
+                    <IconCheck s={18} /> אין לידים שממתינים — הכל טופל
+                  </p>
+                ) : null}
+              </div>
             </div>
           ) : null}
         </div>
       </section>
       ) : null}
 
-      <div className="grid items-start gap-6 lg:[grid-template-columns:1fr_340px]">
+      {/*
+        ‎`align-items: stretch` (ברירת המחדל) ולא `items-start`, ו-372
+        ולא 340 — שניהם מ-§24. הכלל שם הוא „Both columns must end at
+        the same height… No dead space at the bottom of either
+        column”, והכרטיס האחרון בטור הצדדי מקבל `flex-1` כדי לממש
+        אותו.
+      */}
+      <div className="grid gap-4 lg:[grid-template-columns:1fr_372px]">
         {/* ---- מה חשוב לעשות היום ---- */}
         <section
           aria-labelledby="today-tasks-heading"
@@ -727,42 +863,47 @@ export default function DashboardPage() {
           ) : (
             <ul className="m-0 list-none p-0">
               {shownTasks.map((t, index) => (
+                /*
+                  ‎**„PRIORITY RULE” — רק השורה הראשונה** (§13).
+
+                  החבילה קוראת לזה „the core UX decision of the
+                  product”, ולא בכדי: חמש שורות עם חמש קריאות זהות
+                  לפעולה אינן מדרג אלא רשימה, ומתווך שקורא את המסך
+                  בין שתי פגישות צריך לדעת מה **הדבר האחד**.
+
+                  ‎`index === 0` ולא סוג פעולה מסוים: הצבע והכפתור
+                  הראשי נגזרים מהדירוג, ולכן הם עוברים עם הראש
+                  כשהסדר משתנה — ולא נדבקים לשורה שהייתה ראשונה פעם.
+                */
                 <li
                   key={t.key}
-                  className="mv-todo-row flex items-center gap-3.5 px-5 py-3.5"
-                  style={{ borderBottom: "1px solid var(--color-row-border)" }}
+                  className={`mv-row mv-row--action mv-row--flush mv-domain-${t.domain} ${
+                    index === 0 ? "mv-row--rank-1" : ""
+                  }`}
                 >
                   {/*
-                    אייקון במקום מספר סידורי: המספר חזר על עצמו בכל
-                    שורה ולא אמר דבר על התוכן, בעוד שהצורה מזהה את סוג
-                    הפעולה במבט. הסדר עצמו נשמר במיקום ברשימה, ונקרא
-                    לקורא מסך דרך aria-label.
+                    המספר הסידורי חזר לשורה — הוא הדירוג עצמו, וזה
+                    מה שהכרטיס הזה מוכר. האייקון נשאר לצדו ועונה על
+                    השאלה השנייה, „מה זה בכלל”, כדי שאפשר יהיה לזהות
+                    שורה בסריקה לפני קריאת הכותרת.
                   */}
-                  <span
-                    aria-hidden="true"
-                    className="grid flex-none place-items-center"
-                    style={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: 9,
-                      background: TONE[t.tone].bg,
-                      color: TONE[t.tone].fg,
-                    }}
-                  >
+                  <span className="mv-row__ordinal mv-ltr" aria-hidden="true">
+                    {index + 1}
+                  </span>
+                  <span className="mv-tile mv-tile--44" aria-hidden="true">
                     {t.icon}
                   </span>
                   <span className="mv-visually-hidden">פעולה {index + 1}:</span>
-                  <span className="min-w-0" style={{ lineHeight: 1.35 }}>
-                    <span className="block text-[length:var(--type-body)] font-bold">{t.title}</span>
-                    <span className="block text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-                      {t.why}
-                    </span>
+                  <span className="min-w-0">
+                    <span className="mv-row__title block">{t.title}</span>
+                    <span className="mv-row__why block">{t.why}</span>
                   </span>
                   {t.href ? (
                     <Link
                       href={t.href}
-                      className="ms-auto flex-none text-[length:var(--type-caption-lg)] font-bold no-underline"
-                      style={{ color: "var(--color-primary)" }}
+                      className={`mv-row__action mv-button flex-none no-underline ${
+                        index === 0 ? "mv-button--primary" : "mv-button--secondary"
+                      }`}
                     >
                       {t.action}
                     </Link>
@@ -773,7 +914,7 @@ export default function DashboardPage() {
           )}
         </section>
 
-        {/* ---- הטור הצדדי: היום ביומן + קליטה בקול ---- */}
+        {/* ---- הטור הצדדי: יומן, משימות, רשת, והמנטור ---- */}
         <div className="flex flex-col gap-4">
           {/*
             „אין פגישות מתוכננות להיום” היא טענה על היומן, ומי שאינו
@@ -938,27 +1079,49 @@ export default function DashboardPage() {
                     יחיד ורבים ולא "1 הצעות". מספר צמוד לשם עצם בעברית
                     מחייב התאמה, וברשימה קצרה כזו הפער בולט מיד.
                   */}
-                  <ul className="m-0 list-none p-0 text-[length:var(--type-caption-lg)]">
-                    <li className="flex items-baseline gap-2 py-1.5" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
-                      <b style={{ color: (network?.incomingOffers ?? 0) > 0 ? "var(--color-primary)" : undefined }}>
-                        {network === null ? "…" : network.incomingOffers}
-                      </b>
-                      <span>
-                        {network?.incomingOffers === 1
-                          ? "הצעה שהתקבלה על הביקושים שלכם"
-                          : "הצעות שהתקבלו על הביקושים שלכם"}
-                      </span>
-                    </li>
-                    <li className="flex items-baseline gap-2 py-1.5">
-                      <b style={{ color: (network?.openReferrals ?? 0) > 0 ? "var(--color-primary)" : undefined }}>
-                        {network === null ? "…" : network.openReferrals}
-                      </b>
-                      <span>
-                        {network?.openReferrals === 1
-                          ? "הפניית לקוח פתוחה ברשת"
-                          : "הפניות לקוחות פתוחות ברשת"}
-                      </span>
-                    </li>
+                  {/*
+                    שורות ירוקות שהמספר פותח אותן (§6.3): כאן המספר
+                    הוא העניין — „5 הצעות שהתקבלו” — ולכן הוא ראשון
+                    ובגודל שמאפשר לקרוא אותו בלי להתקרב.
+                  */}
+                  <ul className="m-0 mt-2 flex list-none flex-col gap-2 p-0">
+                    {[
+                      {
+                        value: network?.incomingOffers ?? 0,
+                        text:
+                          network?.incomingOffers === 1
+                            ? "הצעה שהתקבלה על הביקושים שלכם"
+                            : "הצעות שהתקבלו על הביקושים שלכם",
+                      },
+                      {
+                        value: network?.openReferrals ?? 0,
+                        text:
+                          network?.openReferrals === 1
+                            ? "הפניית לקוח פתוחה ברשת"
+                            : "הפניות לקוחות פתוחות ברשת",
+                      },
+                    ].map((row) => (
+                      <li
+                        key={row.text}
+                        className={`mv-row mv-row--nested ${
+                          row.value === 0 ? "mv-domain-neutral" : "mv-domain-green"
+                        }`}
+                      >
+                        <span
+                          className="mv-ltr flex-none text-center font-black"
+                          style={{
+                            minWidth: 26,
+                            fontSize: "var(--type-metric)",
+                            color: "var(--d-fg)",
+                          }}
+                        >
+                          {network === null ? "…" : row.value}
+                        </span>
+                        <span className="text-[length:var(--type-body-sm)] font-bold">
+                          {row.text}
+                        </span>
+                      </li>
+                    ))}
                   </ul>
                   <p className="m-0 mt-1.5 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                     {network === null
@@ -970,43 +1133,32 @@ export default function DashboardPage() {
             </section>
           ) : null}
 
-          {/* קידום שמוביל לפיצ'ר שאינו במסלול נחסם בשרת — אין טעם
-              להזמין אליו */}
-          {canVoice ? (
-            <section
-              aria-labelledby="voice-promo-heading"
-              className="rounded-xl p-[18px]"
-              style={{ background: "#111513", color: "#dfe3e0" }}
-            >
-              <div className="mb-2 flex items-center gap-2">
-                <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#70EE91"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  aria-hidden="true"
-                >
-                  <rect x="9" y="2.5" width="6" height="11" rx="3" />
-                  <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
-                  <line x1="12" y1="17.5" x2="12" y2="21" />
-                </svg>
-                <h2 id="voice-promo-heading" className="m-0 text-sm font-extrabold" style={{ color: "#fff" }}>
-                  קלטו נכס בדיבור
+          {/*
+            ‎**כרטיס כהה אחד למסך, והוא האחרון בטור** (§21).
+
+            עד עכשיו הוא היה קידום לקליטה בקול — אבל הסוכן הקולי כבר
+            יושב בראש המסך בפאנל משלו, כלומר הכרטיס הכהה חזר על
+            הזמנה שכבר נאמרה. לפי החבילה הוא המנטור: המקום היחיד
+            שבו אפשר לשאול שאלה פתוחה על המערכת ועל שת"פים, ולא
+            עוד קיצור לפעולה שיש לה כפתור.
+
+            ‎`flex-1` כאן הוא מה שמיישר את תחתית שני הטורים (§24).
+          */}
+          {hasCoach ? (
+            <section aria-labelledby="mentor-heading" className="mv-dark-card flex-1">
+              <div className="mv-dark-card__head">
+                <span className="mv-dark-card__badge" aria-hidden="true">
+                  AI
+                </span>
+                <h2 id="mentor-heading" className="mv-dark-card__title m-0">
+                  המנטור האישי שלך
                 </h2>
               </div>
-              <p className="m-0 text-[length:var(--type-caption-lg)]" style={{ lineHeight: 1.5, color: "#aab3ad" }}>
-                ״דירת 4 חדרים בהרצל 12 בית שמש, קומה 3, עם מעלית וחניה, 2.4 מיליון״ — פחות
-                מדקה, וכרטיס הנכס מוכן.
+              <p className="mv-dark-card__body m-0">
+                שואל אותי כל שאלה על המערכת, על שת&quot;פים או על איך לסגור עסקה מהר יותר.
               </p>
-              <Link
-                href="/voice"
-                className="mt-3 block rounded-[9px] py-[9px] text-center text-[length:var(--type-body-sm)] font-bold no-underline"
-                style={{ background: "#70EE91", color: "#0B1F12" }}
-              >
-                נסו עכשיו
+              <Link href="/mentor" className="mv-button mv-dark-card__action no-underline">
+                לדבר עם המנטור
               </Link>
             </section>
           ) : null}
