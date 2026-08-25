@@ -51,14 +51,54 @@ function isNew(p: PropertyRow): boolean {
   return Date.now() - new Date(p.createdAt).getTime() < 7 * 24 * 60 * 60 * 1000;
 }
 
-/* צבעי פס המוכנות מהעיצוב; צבע הטקסט לצידו מועמק ל-AA (docs/06 §4) */
+/**
+ * שלוש רצועות המוכנות (SPEC-2 §4, SPEC-3b §4).
+ *
+ * ## הספים מהחבילה
+ *
+ * ‎90–100 ירוק · 60–89 ענבר · מתחת ל-60 אדום-חמרה. היו 85 ו-70,
+ * ובלי סיבה מתועדת.
+ *
+ * ## למה לא הגוונים של החבילה
+ *
+ * החבילה נוקבת ב-‎#3FBF63‎ ו-‎#B4801F‎, ומדדתי אותם מול מסילת הפס
+ * (‎#EAEDE6‎): **2.01:1 ו-2.94:1**. מילוי של פס התקדמות הוא „חלק
+ * מאובייקט גרפי שנדרש להבנת התוכן” ולכן כפוף ל-3:1 של WCAG 1.4.11
+ * — כלומר בדיוק העמודה שאמורה לומר „מה חסר בנכס” הייתה זו שאי
+ * אפשר לקרוא. האדום-חמרה דווקא עובר (4.22:1) ונשאר.
+ *
+ * לכן נלקחים הטוקנים הסמנטיים שכבר קיימים במערכת: אותן שלוש
+ * משמעויות, ערכים שעומדים בסף, ומיפוי נכון בשלוש הערכות בלי
+ * הצהרה נוספת.
+ *
+ * המילוי והטקסט נפרדים כי הסף שונה: 3:1 לגרפיקה, 4.5:1 לטקסט.
+ */
 function readinessColors(score: number): { bar: string; text: string } {
-  if (score >= 85) return { bar: "#12A150", text: "var(--color-primary)" };
-  if (score >= 70) return { bar: "#c98a2e", text: "#8a6414" };
-  return { bar: "#b0512c", text: "#b0512c" };
+  if (score >= 90) {
+    return { bar: "var(--color-primary-accent)", text: "var(--color-primary)" };
+  }
+  if (score >= 60) return { bar: "var(--color-warning)", text: "var(--color-warning)" };
+  return { bar: "var(--color-danger)", text: "var(--color-danger)" };
 }
 
-const GRID = "2.2fr 0.9fr 0.7fr 1fr 1.2fr 0.9fr 0.6fr";
+/**
+ * הדומיין של סטטוס הנכס (SPEC-2 §4).
+ *
+ * ‎**„טיוטה” הוא ניטרלי ולעולם לא ענבר** — החבילה מדגישה זאת
+ * פעמיים, ובצדק: טיוטה אינה תקלה ואינה דורשת תשומת לב דחופה,
+ * היא פשוט נכס שטרם הושלם. ענבר היה קורא לה „טפל בי עכשיו”.
+ */
+function statusDomain(status: string): string {
+  if (status === "active") return "mv-domain-green";
+  return "mv-domain-neutral";
+}
+
+/*
+ * שתי העמודות האחרונות התרחבו יחד עם התוכן שנכנס אליהן: המוכנות
+ * נושאת כעת שתי שורות („‎82%” ומתחתיו „חסרים 2 שדות”), והסטטוס
+ * וההתאמות הפכו מטקסט לגלולות. ‎0.6fr‎ היה חותך „12 התאמות”.
+ */
+const GRID = "2fr 0.8fr 0.6fr 0.9fr 1.3fr 1fr 1fr";
 
 const SORTS: [string, string][] = [
   ["newest", "חדשים קודם"],
@@ -478,22 +518,53 @@ export default function PropertiesPage() {
                         {p.rooms ?? "—"}
                       </span>
                       <span className="text-sm font-bold">{formatPrice(p.priceAgorot)}</span>
-                      <span className="flex items-center gap-2">
-                        <span className="mv-progress">
-                          <span style={{ width: `${p.readinessScore}%`, background: ready.bar }} />
+                      <span className="flex flex-col gap-1">
+                        <span className="flex items-center gap-2">
+                          <span className="mv-progress">
+                            <span style={{ width: `${p.readinessScore}%`, background: ready.bar }} />
+                          </span>
+                          <span className="font-bold" style={{ color: ready.text, fontSize: "14px" }}>
+                            {p.readinessScore}%
+                          </span>
                         </span>
-                        <span className="font-bold" style={{ color: ready.text, fontSize: "14px" }}>
-                          {p.readinessScore}%
+                        {/*
+                          „‎82% · חסרים 2 שדות” — **גלוי, ולא רק לקורא מסך.**
+
+                          המספר היה כאן ב-`mv-visually-hidden`, כלומר מתווך
+                          רואה אחוז ואינו יודע כמה שדות עומדים מאחוריו ולא
+                          שהם בכלל ניתנים להשלמה. זו העמודה שכל תכליתה לומר
+                          „מה חסר”, והמידע כבר הגיע מהשרת.
+                        */}
+                        <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                          {p.missingFields.length > 0
+                            ? `חסרים ${p.missingFields.length} שדות`
+                            : "כל השדות מלאים"}
                         </span>
-                        {p.missingFields.length > 0 ? (
-                          <span className="mv-visually-hidden">חסרים {p.missingFields.length} פרטים</span>
-                        ) : null}
                       </span>
-                      <span className="text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
-                        {STATUS_LABELS[p.status] ?? p.status}
+                      <span>
+                        <span className={`mv-pill ${statusDomain(p.status)}`}>
+                          {STATUS_LABELS[p.status] ?? p.status}
+                        </span>
                       </span>
-                      <span className="text-[14.5px] font-extrabold" style={{ color: "var(--color-primary)" }}>
-                        {p.suggestedMatchCount || "—"}
+                      {/*
+                        התאמות הן **סגול** ולא ירוק (§2 של מערכת העיצוב:
+                        „VIOLET — matching engine: matches, offers”). הירוק
+                        שהיה כאן שייך לכסף ולשיתופי פעולה, ושורה אחת בשני
+                        דומיינים היא בדיוק מה שהכלל אוסר.
+
+                        אפס עובר לניטרלי — „Zero must never look like
+                        failure”.
+                      */}
+                      <span>
+                        <span
+                          className={`mv-pill ${
+                            p.suggestedMatchCount ? "mv-domain-violet" : "mv-domain-neutral"
+                          }`}
+                        >
+                          {p.suggestedMatchCount
+                            ? `${p.suggestedMatchCount} התאמות`
+                            : "אין עדיין"}
+                        </span>
                       </span>
                     </button>
                     </div>

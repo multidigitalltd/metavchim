@@ -1766,6 +1766,14 @@ button.mv-list-row:hover {
 }
 
 /* גלולה (סטטוס, בשלות) — radius מלא */
+/*
+ * גלולה — כעת מודעת לדומיין.
+ *
+ * הצבעים נלקחים מכינויי הדומיין, עם **נפילה לניטרלי** ולא לשקוף:
+ * גלולה שהוצבה בלי מחלקת דומיין ובלי סגנון בשורה מקבלת מראה תקין
+ * במקום להיעלם. סגנון בשורה גובר על שניהם, ולכן כל הגלולות
+ * הקיימות במערכת — שצובעות את עצמן ידנית — אינן משתנות כלל.
+ */
 .mv-pill {
   display: inline-block;
   font-size: 14px;
@@ -1773,6 +1781,8 @@ button.mv-list-row:hover {
   border-radius: 99px;
   padding: 4px 11px;
   white-space: nowrap;
+  background: var(--d-bg, var(--domain-neutral-bg));
+  color: var(--d-fg, var(--domain-neutral-fg));
 }
 /* תג קטן ("חדש", "דחוף") — פינות 6px */
 .mv-tag {
