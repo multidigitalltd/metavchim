@@ -21,7 +21,7 @@ import { loadEnv } from "../../config/env";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService } from "../../core/prisma.service";
 import { waPhoneVariants } from "./assistant-lang";
-import { phoneDigitsCondition } from "./phone-match";
+import { phoneDigitsCondition, phoneLockKey } from "./phone-match";
 
 /**
  * הקישור בין מספר וואטסאפ לחשבון — **מי מדבר איתנו, ומי אמר את זה.**
@@ -249,8 +249,25 @@ export class WhatsAppLinkService implements OnModuleDestroy {
     if (body === null || digits === null) return null;
 
     const attemptsKey = `wa-link:attempts:${this.hmac(digits)}`;
-    const attemptNo = await this.redis.incr(attemptsKey);
-    if (attemptNo === 1) await this.redis.expire(attemptsKey, WHATSAPP_LINK_CODE_TTL_SECONDS);
+    /*
+     * **הספירה והתפוגה נקבעות יחד.**
+     *
+     * ‎`INCR` ואחריו `EXPIRE` הם שתי פקודות, ובין השתיים אפשר ליפול:
+     * המונה נשאר בלי תפוגה, ואחרי חמישה ניסיונות המספר הזה חסום
+     * לתמיד — לא תקרה אלא נעילה שקטה (ביקורת Codex). התסריט עושה את
+     * שניהם בפעולה אחת, וגם **מתקן** מונה שנשאר בלי תפוגה מריצה
+     * קודמת: `TTL` שלילי הוא „אין תפוגה”, והוא נקבע כאן מחדש.
+     */
+    const attemptNo = Number(
+      await this.redis.eval(
+        `local n = redis.call('INCR', KEYS[1])
+         if redis.call('TTL', KEYS[1]) < 0 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+         return n`,
+        1,
+        attemptsKey,
+        String(WHATSAPP_LINK_CODE_TTL_SECONDS),
+      ),
+    );
     if (attemptNo > WHATSAPP_LINK_CODE_MAX_ATTEMPTS) return null;
 
     const codeHmac = this.hmac(body);
@@ -384,14 +401,29 @@ export class WhatsAppLinkService implements OnModuleDestroy {
            */
           const phoneMatches = phoneDigitsCondition(digits);
           if (phoneMatches === null) return false;
-          const [current] = await tx.$queryRaw<{ id: string }[]>`
+          /*
+           * **והמספר עדיין שלו בלבד.**
+           *
+           * הזיהוי בדק יחידוּת, אבל הוא בדק אותה מחוץ לתור: אם בין
+           * הבדיקה לכאן הוקצה אותו מספר גם למשתמש אחר, שאלה כמו
+           * „האם הוא עדיין שלו” הייתה עונה „כן” — ונכתב קישור שקט
+           * לאחד משניים, בזמן שהמסלול הרגיל היה עוצר ואומר „לא
+           * מוכרע” (ביקורת Codex). לכן נספרות **כל** ההתאמות, לא
+           * ההתאמה שלו.
+           *
+           * הנעילה על המספר היא מה שהופך את הספירה לתקפה גם רגע
+           * אחריה: כל כתיבה של המספר הזה — בפרופיל או בידי בעל
+           * המשרד — מחכה בתור הזה, ולכן היא או לפני הספירה או אחרי
+           * הקישור, לעולם לא באמצע.
+           */
+          await this.lockPhone(tx, digits);
+          const matches = await tx.$queryRaw<{ id: string }[]>`
             SELECT id FROM users
-             WHERE id = ${userId}
-               AND is_active = TRUE
+             WHERE is_active = TRUE
                AND phone IS NOT NULL
                AND ${phoneMatches}
-             LIMIT 1`;
-          if (current === undefined) return false;
+             LIMIT 2`;
+          if (matches.length !== 1 || matches[0]?.id !== userId) return false;
           /*
            * **גם היסטוריה של החשבון עוצרת, לא רק של המספר.**
            *
@@ -465,6 +497,25 @@ export class WhatsAppLinkService implements OnModuleDestroy {
 
   private async lock(tx: Prisma.TransactionClient, userId: string): Promise<void> {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wa-link:${userId}`}))`;
+  }
+
+  /**
+   * נעילה לפי **מספר** — מה שהופך „בדיוק אחד” לתשובה שנשארת נכונה.
+   *
+   * הנעילה לפי חשבון אינה מסדרת שני חשבונות שונים, ובדיוק זה הצירוף
+   * שמסוכן כאן: הקצאת המספר למשתמש שני קורית על חשבון אחר לגמרי,
+   * ולכן היא חוצה את הספירה בלי לפגוש אותה. מרגע שגם היא וגם הצירוף
+   * לפי מספר עוברים בתור של המספר עצמו, ספירה שראתה אחד עדיין רואה
+   * אחד כשהיא כותבת.
+   *
+   * הסדר קבוע בכל הקוראים — חשבון ואז מספר — ולכן אין מעגל המתנה.
+   * ציבורית משום שהכותבים (פרופיל, ניהול משתמשים) חייבים אותה לפני
+   * שהם משנים מספר.
+   */
+  async lockPhone(tx: Prisma.TransactionClient, phone: string): Promise<void> {
+    const key = phoneLockKey(phone);
+    if (key === null) return;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`wa-phone:${key}`}))`;
   }
 
   /**

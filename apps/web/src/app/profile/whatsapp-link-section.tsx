@@ -58,16 +58,25 @@ export function WhatsAppLinkSection() {
       .finally(() => setBusy(false));
   }
 
-  function unlink(): void {
+  /**
+   * ניתוק — וגם ביטול של קוד שממתין.
+   *
+   * שתי הפעולות הן אותה בקשה בשרת: הניתוק שורף גם את הקוד הפתוח.
+   * הכפתור היה מותנה בחיבור קיים, ולכן מי שהפיק קוד ולא שלח אותו
+   * נשאר בלי שום דרך לבטל אותו עד שיפוג — רבע שעה שבה קוד שנחשף
+   * מעל הכתף עדיין תקף (ביקורת Codex).
+   */
+  function revokeLink(): void {
+    const wasLinked = status?.linked === true;
     setBusy(true);
     setMessage(null);
     apiDelete("/settings/whatsapp-link")
       .then(() => {
         setCode(null);
-        setMessage("✓ המכשיר נותק");
+        setMessage(wasLinked ? "✓ המכשיר נותק" : "✓ הקוד בוטל");
         load();
       })
-      .catch(() => setMessage("הניתוק נכשל — נסו שוב"))
+      .catch(() => setMessage(wasLinked ? "הניתוק נכשל — נסו שוב" : "ביטול הקוד נכשל — נסו שוב"))
       .finally(() => setBusy(false));
   }
 
@@ -134,7 +143,7 @@ export function WhatsAppLinkSection() {
             {code}
           </p>
           <p className="m-0 mt-1 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
-            הקוד תקף לרבע שעה ולשימוש אחד.
+            הקוד תקף לרבע שעה ולשימוש אחד. אם נמלכתם בדעתכם — אפשר לבטל אותו כאן.
           </p>
         </div>
       )}
@@ -143,9 +152,9 @@ export function WhatsAppLinkSection() {
         <button type="button" className="mv-btn-primary" onClick={issue} disabled={busy}>
           {status?.linked === true ? "לחבר מכשיר אחר" : "הפקת קוד חיבור"}
         </button>
-        {status?.linked === true ? (
-          <button type="button" className="mv-btn-ghost" onClick={unlink} disabled={busy}>
-            לנתק את המכשיר
+        {status?.linked === true || code !== null ? (
+          <button type="button" className="mv-btn-ghost" onClick={revokeLink} disabled={busy}>
+            {status?.linked === true ? "לנתק את המכשיר" : "לבטל את הקוד"}
           </button>
         ) : null}
       </div>

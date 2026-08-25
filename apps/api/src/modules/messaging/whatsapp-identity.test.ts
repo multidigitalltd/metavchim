@@ -394,3 +394,94 @@ describe("גם החלפת מספר בידי בעל המשרד מנתקת", () =>
     expect(route).toContain("normalizePhone(target.phone");
   });
 });
+
+/*
+ * הזיהוי מסרב להכריע כששני חשבונות מחזיקים באותו מספר — אבל הוא
+ * בדק זאת מחוץ לתור. הקצאת המספר לחשבון שני קורית על **חשבון אחר**,
+ * ולכן הנעילה לפי חשבון אינה פוגשת אותה: היא יכולה להיכנס בדיוק בין
+ * הבדיקה לכתיבה, והתוצאה היא קישור שקט לאחד משניים — בזמן שהמסלול
+ * הרגיל היה עוצר.
+ */
+describe("„בדיוק אחד” נבדק שוב, ובתוך התור של המספר", () => {
+  const link = readFileSync(new URL("./whatsapp-link.service.ts", import.meta.url), "utf8");
+  const bind = link.slice(link.indexOf("private async bind("), link.indexOf("private async lock("));
+
+  it("הצירוף סופר את כל בעלי המספר, לא את ההתאמה שלו", () => {
+    // בלי סינון לפי המשתמש — אחרת „עדיין שלו” עונה כן גם בריבוי
+    expect(bind).not.toContain("WHERE id = ${userId}");
+    expect(bind).toContain("LIMIT 2");
+    expect(bind).toContain("matches.length !== 1");
+    expect(bind).toContain("matches[0]?.id !== userId");
+  });
+
+  it("והספירה נעשית אחרי נעילת המספר", () => {
+    const lockPhone = bind.indexOf("await this.lockPhone(tx, digits)");
+    const count = bind.indexOf("SELECT id FROM users");
+    expect(lockPhone).toBeGreaterThan(-1);
+    expect(count).toBeGreaterThan(lockPhone);
+  });
+
+  it("ונעילת המספר היא לפי צורה אחת לשתי הצורות", () => {
+    const phoneMatch = readFileSync(new URL("./phone-match.ts", import.meta.url), "utf8");
+    expect(phoneMatch).toContain("export function phoneLockKey");
+    expect(link).toContain("hashtext(${`wa-phone:${key}`})");
+  });
+
+  it("וגם מי שכותב מספר נכנס לאותו תור — בפרופיל ובניהול הצוות", () => {
+    const auth = readFileSync(new URL("../auth/auth.service.ts", import.meta.url), "utf8");
+    const profile = auth.slice(auth.indexOf("lockAccount(tx, userId)"));
+    expect(profile.indexOf("lockPhone(tx, phoneIncoming)")).toBeLessThan(
+      profile.indexOf("tx.user.update"),
+    );
+    const settings = readFileSync(
+      new URL("../settings/settings.controller.ts", import.meta.url),
+      "utf8",
+    );
+    const route = settings.slice(settings.indexOf("this.whatsappLinks.lockAccount(tx, id)"));
+    expect(route.indexOf("lockPhone(tx, nextPhone)")).toBeLessThan(route.indexOf("tx.user.update"));
+  });
+});
+
+/*
+ * ‎`INCR` ואחריו `EXPIRE` הם שתי פקודות. נפילה ביניהן מותירה מונה
+ * בלי תפוגה — ואחרי חמישה ניסיונות המספר הזה חסום לתמיד.
+ */
+describe("מונה הניסיונות אינו יכול להישאר בלי תפוגה", () => {
+  const link = readFileSync(new URL("./whatsapp-link.service.ts", import.meta.url), "utf8");
+  const redeem = link.slice(link.indexOf("async redeemCode("), link.indexOf("async claimInbound("));
+
+  it("הספירה והתפוגה נקבעות בפעולה אחת", () => {
+    expect(redeem).not.toContain("this.redis.incr(attemptsKey)");
+    const script = redeem.slice(redeem.indexOf("attemptsKey"), redeem.indexOf("attemptNo >"));
+    expect(script).toContain("this.redis.eval");
+    expect(script).toContain("INCR");
+    expect(script).toContain("EXPIRE");
+  });
+
+  it("ומונה שנשאר בלי תפוגה מתוקן בניסיון הבא", () => {
+    expect(redeem).toContain("TTL");
+    expect(redeem).toContain("< 0");
+  });
+});
+
+/*
+ * הכפתור היה מותנה בחיבור קיים, ולכן מי שהפיק קוד ולא שלח אותו נשאר
+ * בלי דרך לבטל אותו עד שיפוג — רבע שעה שבה קוד שנחשף עדיין תקף.
+ */
+describe("קוד ממתין אפשר לבטל גם בלי מכשיר מחובר", () => {
+  const section = readFileSync(
+    new URL("../../../../web/src/app/profile/whatsapp-link-section.tsx", import.meta.url),
+    "utf8",
+  );
+
+  it("הפעולה מוצעת גם כשאין קישור פעיל", () => {
+    expect(section).toContain('status?.linked === true || code !== null ? (');
+    expect(section).toContain("לבטל את הקוד");
+  });
+
+  it("והיא אותה בקשה שמנתקת — הניתוק שורף גם קוד פתוח", () => {
+    const revoke = section.slice(section.indexOf("function revokeLink("));
+    expect(revoke).toContain('apiDelete("/settings/whatsapp-link")');
+    expect(revoke).toContain("✓ הקוד בוטל");
+  });
+});

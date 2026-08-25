@@ -406,6 +406,18 @@ export class AuthService {
       const phoneChanging =
         phoneIncoming !== undefined &&
         normalizePhone(phoneIncoming ?? "") !== normalizePhone(current?.phone ?? "");
+      /*
+       * **וגם המספר עצמו נכנס לתור.**
+       *
+       * הצירוף האוטומטי בוואטסאפ נכתב רק כשמספר שייך לחשבון **אחד**,
+       * והספירה הזו נעשית על חשבון אחר לגמרי — ולכן הנעילה לפי חשבון
+       * אינה פוגשת אותה. בלי התור של המספר, הקצאה שנכתבת כאן יכולה
+       * להיכנס בדיוק בין הספירה לכתיבה ולהפוך מספר משותף לקישור שקט
+       * לאחד משני החשבונות (ביקורת Codex).
+       */
+      if (phoneChanging && phoneIncoming !== null && phoneIncoming !== undefined) {
+        await this.whatsappLinks.lockPhone(tx, phoneIncoming);
+      }
       const next = await tx.user.update({ where: { id: userId }, data });
       if (phoneChanging) await this.whatsappLinks.revoke(userId, "phone_changed", tx);
       return next;

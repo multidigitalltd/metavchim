@@ -20,6 +20,23 @@ import { waPhoneVariants } from "./assistant-lang";
  * מוחזר `null` כשאין מה להשוות: מספר ריק אינו „לא נמצא”, הוא שאלה
  * שאין לה משמעות, והקורא חייב לעצור לפניה.
  */
+/**
+ * מפתח הנעילה של מספר — **צורה אחת לשתי הצורות.**
+ *
+ * ‎`0501234567` ו-`972501234567` הם אותו מספר, ולכן הם חייבים להיות
+ * אותה נעילה: אחרת כותב שמחזיק בצורה המקומית וקורא שמחזיק בצורה
+ * הבינלאומית עוברים זה לצד זה בלי לראות אחד את השני — וזו בדיוק
+ * ההצטלבות שהנעילה נועדה למנוע.
+ *
+ * מוחזר `null` כשאין ספרות: אין מה לנעול, והקורא חייב לעצור.
+ */
+export function phoneLockKey(phone: string): string | null {
+  const variants = waPhoneVariants(phone);
+  const key = variants.find((value) => value.startsWith("972")) ?? variants[0];
+  if (key === undefined || key === "") return null;
+  return key;
+}
+
 export function phoneDigitsCondition(waId: string): Prisma.Sql | null {
   const variants = waPhoneVariants(waId);
   const first = variants[0];

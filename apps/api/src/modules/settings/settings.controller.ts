@@ -1316,6 +1316,19 @@ export class SettingsController {
       }
       const nextPhone =
         body.phone === undefined ? undefined : body.phone.trim() === "" ? null : body.phone.trim();
+      const phoneChanging =
+        nextPhone !== undefined &&
+        normalizePhone(nextPhone ?? "") !== normalizePhone(target.phone ?? "");
+      /*
+       * ונעילה שלישית, לפי המספר עצמו: הצירוף האוטומטי בוואטסאפ נכתב
+       * רק כשמספר שייך לחשבון אחד, והספירה הזו רצה על חשבון אחר —
+       * כלומר מחוץ לנעילת החשבון. בלי התור של המספר, הקצאה שנכתבת
+       * כאן יכולה להיכנס בין הספירה לכתיבה (ביקורת Codex). הסדר קבוע
+       * — מושב, חשבון, מספר — ולכן אין מעגל המתנה.
+       */
+      if (phoneChanging && nextPhone !== null) {
+        await this.whatsappLinks.lockPhone(tx, nextPhone);
+      }
       await tx.user.update({
         where: { id },
         data: {
@@ -1344,9 +1357,6 @@ export class SettingsController {
        * בתוך אותה טרנזקציה, מאותו נימוק: חצי כתיבה כאן היא בדיוק
        * החור שהניתוק נועד לסגור.
        */
-      const phoneChanging =
-        nextPhone !== undefined &&
-        normalizePhone(nextPhone ?? "") !== normalizePhone(target.phone ?? "");
       /*
        * **והשבתת חשבון מנתקת גם היא.**
        *
