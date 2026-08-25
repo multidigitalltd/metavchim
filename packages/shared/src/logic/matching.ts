@@ -9,6 +9,14 @@ import { CUSTOM_FEATURE_PREFIX, customFeatureMap, isCustomFeature } from "./cust
 export interface MatchResult {
   /** 0–100 */
   score: number;
+  /**
+   * איזה חלק ממשקל הליבה נבדק בפועל, 0–1.
+   *
+   * חשוף ולא פנימי, כי הוא ההבדל בין „מתאים” לבין „מתאים בכל מה
+   * שהספקנו לבדוק” — ומסך שמציג ציון בלי לדעת על כמה הוא נשען
+   * אינו יכול לומר את האמת עליו.
+   */
+  coverage: number;
   breakdown: ScoreComponent[];
   /** הסבר קריא בעברית — נבנה מהפירוט, לא מנוסח חופשי (docs/01 §5.4) */
   explanation: string;
@@ -26,17 +34,35 @@ export interface MatchResult {
 }
 
 /**
- * כמה קריטריונים חייבים להיבחן כדי שהתאמה תיחשב בכלל.
+ * הקריטריונים שעליהם „התאמה” נשענת.
  *
- * שלושה, ולא אחד: ציון של 100% שנשען על קריטריון יחיד אינו התאמה
- * אלא צירוף מקרים — נכס שמחירו מתחת לתקציב, בלי שנבדקו אזור,
- * חדרים או סוג. שלושה קריטריונים הם המינימום שבו „מתאים” אומר
- * משהו על יותר ממימד אחד.
- *
- * לא ארבעה ומעלה: כרטיס סביר לגמרי — אזור, תקציב וחדרים — היה
- * נופל בשער, וזה בדיוק סוג הקונה שהמנוע נועד לשרת.
+ * ארבעה, והם אינם שרירותיים: מיקום, תקציב, חדרים וסוג הנכס הם מה
+ * שמתווך שואל בשיחה הראשונה. שטח, מועד כניסה ו„נחמד שיהיה” מוסיפים
+ * דיוק להתאמה קיימת — הם אינם מייצרים אותה. לכן הכיסוי נמדד עליהם
+ * בלבד: שלושה קריטריונים שוליים אינם „שלושה קריטריונים”.
  */
-export const MIN_MATCH_CRITERIA = 3;
+export const CORE_MATCH_CRITERIA: readonly MatchCriterion[] = [
+  "location",
+  "budget",
+  "rooms",
+  "property_type",
+];
+
+/**
+ * כמה ממשקל הליבה חייב להיבחן בפועל כדי שתיווצר התאמה בכלל.
+ *
+ * חצי. בברירת המחדל (מיקום .25, תקציב .25, חדרים .15, סוג .1) זה
+ * אומר בפועל „לפחות שני קריטריונים מרכזיים, ולפחות אחד מהכבדים”:
+ * עיר+תקציב הם 67%, תקציב+חדרים 53%, ואילו תקציב לבדו 33% וחדרים
+ * וסוג יחד 33% — ואלה נחסמים.
+ *
+ * ‎**זו החלפה של שער הספירה שהיה כאן, ולא הידוק שלו.** ספירה
+ * התייחסה לכל הקריטריונים כשווים, ולכן תקציב+שטח+מועד-כניסה עברו
+ * (שלושה!) וקיבלו 100%, בעוד עיר+תקציב — צמד שאומר הרבה יותר —
+ * נחסם. הכיוון החדש מחמיר על הראשון ומקל על השני, וזה בדיוק
+ * ההבדל שהמשקלים כבר מבטאים.
+ */
+export const MIN_CORE_COVERAGE = 0.5;
 
 /**
  * תווית לתצוגה בהסבר ההתאמה. מאפיין מותאם מוצג בשמו בלי הקידומת —
@@ -459,38 +485,102 @@ export function scoreMatch(
    * הסוכן להשלים את הכרטיס הוא מונה השלמות שכבר קיים בכרטיס
    * הקונה ובציון המוכנות של הנכס.
    */
-  const decisive = parts.length;
-  if (decisive < MIN_MATCH_CRITERIA) {
+  /*
+   * ‎**הכיסוי נמדד במשקלי ברירת המחדל, לא במשקלי המשרד.**
+   *
+   * הכיסוי עונה על „כמה ממה שחשוב באמת נבדק” — תכונה של הנתונים,
+   * לא של ההעדפות. גזירתו מ-`weights` הפכה אותו לניתן לכיול, וזה
+   * החזיר בדיוק את הבאג: משרד שמעלה את משקל התקציב ל-0.5 (התקרה,
+   * ובכיול האוטומטי שדולק כברירת מחדל זה קורה מעצמו) הופך את משקל
+   * הליבה ל-1.0, וקונה עם תקציב בלבד מקבל כיסוי 0.5 — עובר את
+   * השער, מקבל ציון 50, ו-`MATCH_THRESHOLDS.review` הוא 50 בדיוק,
+   * כך שהוא נשמר. נמדד (ביקורת Codex).
+   *
+   * בברירת המחדל אף קריטריון ליבה בודד אינו מגיע לחצי (הכבד ביותר
+   * הוא 0.25 מתוך 0.75), ולכן „לפחות חצי” פירושו בהכרח לפחות שניים
+   * — בלי תלות במה שהמשרד כיוון.
+   *
+   * זה גם מה שמאפשר להשוות: „87%” על ביקוש ברשת חייב לומר את אותו
+   * דבר בשני משרדים, בדיוק כמו הציון עצמו שרץ שם בברירת המחדל.
+   */
+  const coreWeight = CORE_MATCH_CRITERIA.reduce((sum, c) => sum + DEFAULT_MATCH_WEIGHTS[c], 0);
+  const examinedCore = parts
+    .filter((p) => CORE_MATCH_CRITERIA.includes(p.criterion as MatchCriterion))
+    .reduce((sum, p) => sum + DEFAULT_MATCH_WEIGHTS[p.criterion as MatchCriterion], 0);
+  const coverage = coreWeight > 0 ? Math.min(1, examinedCore / coreWeight) : 0;
+
+  if (coverage < MIN_CORE_COVERAGE) {
+    const missing = CORE_MATCH_CRITERIA.filter(
+      (c) => !parts.some((p) => p.criterion === c),
+    ).map((c) => MATCH_CRITERION_LABELS[c]);
     return {
       score: 0,
+      coverage,
       breakdown: parts,
-      explanation: `אין מספיק פרטים להתאמה — נבדקו ${decisive} קריטריונים מתוך ${MIN_MATCH_CRITERIA} נדרשים. השלימו את הפרטים בכרטיס.`,
+      /* נוקב במה שחסר, כי „אין מספיק פרטים” לבדו אינו אומר מה לעשות */
+      explanation: `אין מספיק פרטים להתאמה — לא נבדקו ${missing.join(", ")}. השלימו את הפרטים בכרטיס.`,
       excluded: true,
       insufficientData: true,
     };
   }
 
-  // --- שקלול: ממוצע משוקלל של מה שנבחן בפועל ---
+  /*
+   * --- שקלול: מה שנבדק, כפול כמה שנבדק ---
+   *
+   * ‎**הממוצע המשוקלל לבדו הוא „מתאים בכל מה שנבדק”, והוא נקרא
+   * „מתאים”.** אלה אינם אותו דבר: קונה שיש עליו תקציב ועיר בלבד
+   * קיבל 100% על נכס בעיר הנכונה ובמחיר הנכון — בלי שאיש בדק
+   * חדרים או סוג נכס. המתווך ראה „100%”, פתח את הכרטיס, וגילה
+   * וילה לזוג שחיפש דירת שלושה חדרים. אחרי פעמיים כאלה הוא מפסיק
+   * להאמין למספר, וזה מבטל את המנוע כולו.
+   *
+   * הכפלה בכיסוי הופכת את המספר לכן: 100% אומר „נבדק הכול והכול
+   * התאים”, ו-67% על התאמה מושלמת אומר „מה שנבדק התאים, ושליש לא
+   * נבדק”. הדירוג בין המועמדים כמעט אינו משתנה — כולם מוכפלים
+   * באותו כיסוי כשהכרטיס זהה — אבל המשמעות המוחלטת של המספר כן,
+   * והיא זו שנשענים עליה כדי להחליט אם בכלל להתקשר.
+   */
   const totalWeight = parts.reduce((sum, p) => sum + p.weight, 0);
   const weighted = parts.reduce((sum, p) => sum + p.weight * p.score, 0);
-  const score = totalWeight > 0 ? Math.round((weighted / totalWeight) * 100) : 0;
+  const fit = totalWeight > 0 ? weighted / totalWeight : 0;
+  const score = Math.round(fit * coverage * 100);
 
   return {
     score: excluded ? 0 : score,
+    coverage,
     breakdown: parts,
-    explanation: buildExplanation(parts, excluded),
+    explanation: buildExplanation(parts, excluded, coverage),
     excluded,
     insufficientData: false,
   };
 }
 
-function buildExplanation(parts: ScoreComponent[], excluded: boolean): string {
+function buildExplanation(
+  parts: ScoreComponent[],
+  excluded: boolean,
+  coverage: number,
+): string {
   const notes = parts.filter((p) => p.note).map((p) => p.note as string);
   if (excluded) {
     const blocker = parts.find((p) => p.score === 0 && p.note);
     return blocker?.note ?? "לא מתאים לדרישות הקונה";
   }
-  return notes.length > 0 ? notes.join(". ") + "." : "התאמה מלאה לדרישות שהוגדרו.";
+  const body = notes.length > 0 ? notes.join(". ") + "." : "התאמה מלאה לדרישות שהוגדרו.";
+  if (coverage >= 1) return body;
+  /*
+   * ‎**הסיבה לציון מופיעה לצד הציון.** בלי המשפט הזה „67%” נראה
+   * כמו „מתאים חלקית”, כלומר כמו פגם בנכס — בעוד שהוא אומר שחסר
+   * מידע בכרטיס. הפעולה הנדרשת שונה לגמרי: לא לוותר על הנכס אלא
+   * להשלים את הקונה.
+   */
+  const missing = CORE_MATCH_CRITERIA.filter((c) => !parts.some((p) => p.criterion === c)).map(
+    (c) => MATCH_CRITERION_LABELS[c],
+  );
+  const why =
+    missing.length > 0
+      ? `הציון מוגבל ל-${Math.round(coverage * 100)}% כי לא נבדקו ${missing.join(", ")} — להשלים בכרטיס.`
+      : `הציון מוגבל ל-${Math.round(coverage * 100)}% כי לא כל הקריטריונים המרכזיים נבדקו.`;
+  return `${body} ${why}`;
 }
 
 /**
