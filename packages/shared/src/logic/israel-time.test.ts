@@ -7,8 +7,10 @@ import {
   jerusalemWallIsoToUtc,
   jerusalemWallParts,
   jerusalemWeekday,
+  jerusalemWallErrorMessage,
   jerusalemWeekStart,
   resolveJerusalemWall,
+  type JerusalemWallResult,
 } from "./israel-time.js";
 
 /*
@@ -166,6 +168,13 @@ describe("jerusalemWeekday / jerusalemDayStart — לוח ישראלי, לא ש�
 describe("resolveJerusalemWall — עריכה לא מזיזה מה שלא נגעו בו", () => {
   const EARLIER = new Date("2026-10-24T22:30:00Z");
   const LATER = new Date("2026-10-24T23:30:00Z");
+  const NONEXISTENT = { ok: false, reason: "nonexistent" };
+  const MISSING = { ok: false, reason: "missing" };
+  /** הרגע שהתקבל, כמחרוזת — ונכשל ברעש אם הפונקציה סירבה. */
+  const ok = (r: JerusalemWallResult): string => {
+    if (!r.ok) throw new Error(`ציפינו להצלחה, התקבל ${r.reason}`);
+    return r.at.toISOString();
+  };
 
   it("שני הרגעים באמת נושאים אותה שעת קיר — אחרת אין מה לבדוק", () => {
     expect(jerusalemWallParts(EARLIER)).toEqual({ date: "2026-10-25", time: "01:30" });
@@ -180,7 +189,7 @@ describe("resolveJerusalemWall — עריכה לא מזיזה מה שלא נגע
   it("שעה שחוזרת פעמיים — כל מופע נשמר על עצמו", () => {
     for (const at of [EARLIER, LATER]) {
       const { date, time } = jerusalemWallParts(at);
-      expect(resolveJerusalemWall(date, time, at)?.toISOString()).toBe(at.toISOString());
+      expect(resolveJerusalemWall(date, time, at)).toEqual({ ok: true, at });
     }
   });
 
@@ -192,10 +201,10 @@ describe("resolveJerusalemWall — עריכה לא מזיזה מה שלא נגע
   });
 
   it("שינוי אמיתי של שעה מומר, והעוגן אינו גובר עליו", () => {
-    expect(resolveJerusalemWall("2026-10-25", "09:00", EARLIER)?.toISOString()).toBe(
+    expect(ok(resolveJerusalemWall("2026-10-25", "09:00", EARLIER))).toBe(
       "2026-10-25T07:00:00.000Z",
     );
-    expect(resolveJerusalemWall("2026-10-26", "01:30", EARLIER)?.toISOString()).toBe(
+    expect(ok(resolveJerusalemWall("2026-10-26", "01:30", EARLIER))).toBe(
       "2026-10-25T23:30:00.000Z",
     );
   });
@@ -210,13 +219,13 @@ describe("resolveJerusalemWall — עריכה לא מזיזה מה שלא נגע
   it("שעה שדולגה במעבר לשעון קיץ נדחית, ולא מתורגמת בשקט", () => {
     for (let m = 0; m < 60; m += 10) {
       const time = `02:${String(m).padStart(2, "0")}`;
-      expect(resolveJerusalemWall("2026-03-27", time, null)).toBeNull();
+      expect(resolveJerusalemWall("2026-03-27", time, null)).toEqual(NONEXISTENT);
     }
     /* השעות שמסביב לפער קיימות, ונשארות תקינות */
-    expect(resolveJerusalemWall("2026-03-27", "01:30", null)?.toISOString()).toBe(
+    expect(ok(resolveJerusalemWall("2026-03-27", "01:30", null))).toBe(
       "2026-03-26T23:30:00.000Z",
     );
-    expect(resolveJerusalemWall("2026-03-27", "03:30", null)?.toISOString()).toBe(
+    expect(ok(resolveJerusalemWall("2026-03-27", "03:30", null))).toBe(
       "2026-03-27T00:30:00.000Z",
     );
   });
@@ -225,18 +234,55 @@ describe("resolveJerusalemWall — עריכה לא מזיזה מה שלא נגע
     const anchor = new Date("2026-03-27T00:30:00Z");
     /* העוגן עצמו נקרא 03:30 — הוא אינו יכול לאשר בקשה ל-02:30 */
     expect(jerusalemWallParts(anchor).time).toBe("03:30");
-    expect(resolveJerusalemWall("2026-03-27", "02:30", anchor)).toBeNull();
+    expect(resolveJerusalemWall("2026-03-27", "02:30", anchor)).toEqual(NONEXISTENT);
   });
 
   it("יצירה חדשה — אין עוגן, וההמרה רגילה", () => {
-    expect(resolveJerusalemWall("2026-08-13", "14:30", null)?.toISOString()).toBe(
+    expect(ok(resolveJerusalemWall("2026-08-13", "14:30", null))).toBe(
       "2026-08-13T11:30:00.000Z",
     );
   });
 
   it("שניות של הרגע השמור נשמרות כשלא נגעו בשעה", () => {
     const at = new Date("2026-08-13T11:30:45.000Z");
-    expect(resolveJerusalemWall("2026-08-13", "14:30", at)?.toISOString()).toBe(at.toISOString());
+    expect(ok(resolveJerusalemWall("2026-08-13", "14:30", at))).toBe(at.toISOString());
+  });
+
+  /*
+   * ‎**טוטליות.** שני הטפסים הם `noValidate`, ולכן `required` אינו
+   * נאכף ושדה ריק הוא מצב שגרתי ולא קצה נדיר. בגרסה הקודמת הוא הגיע
+   * כ-`Date` פסול ל-`formatToParts` וזרק `RangeError` — ובמסך
+   * הקליטה הקריאה יושבת מחוץ ל-`try`, כך שלא הוצגה שום הודעה
+   * והכפתור נתקע (ביקורת Codex).
+   */
+  it("קלט חסר או פגום מוחזר כסיבה, ולא נזרק", () => {
+    const bad: [string, string][] = [
+      ["", ""],
+      ["2026-08-13", ""],
+      ["", "14:30"],
+      ["מחר", "14:30"],
+      ["2026-08-13", "אחר הצהריים"],
+      ["13/08/2026", "14:30"],
+      ["2026-08-13", "2:30"],
+      /* עובר את התבנית, ו-`Date` מגלגל ל-3 במרץ — תאריך, לא פער שעון */
+      ["2026-02-31", "14:30"],
+      /* עובר את התבנית ואינו שעה */
+      ["2026-08-13", "99:99"],
+    ];
+    for (const [date, time] of bad) {
+      expect(resolveJerusalemWall(date, time, null)).toEqual(MISSING);
+    }
+  });
+
+  it("גם עוגן תקין אינו מכשיר שדה ריק", () => {
+    expect(resolveJerusalemWall("", "", EARLIER)).toEqual(MISSING);
+  });
+
+  it("„חסר” ו„אינה קיימת” הם שני משפטים שונים למשתמש", () => {
+    expect(jerusalemWallErrorMessage("missing")).not.toBe(
+      jerusalemWallErrorMessage("nonexistent"),
+    );
+    expect(jerusalemWallErrorMessage("nonexistent")).toContain("02:00");
   });
 
   it("אזור הזמן של הדפדפן אינו משנה את התוצאה", () => {
@@ -244,10 +290,10 @@ describe("resolveJerusalemWall — עריכה לא מזיזה מה שלא נגע
     try {
       for (const tz of ["UTC", "America/New_York", "Asia/Tokyo"]) {
         process.env.TZ = tz;
-        expect(resolveJerusalemWall("2026-10-25", "01:30", EARLIER)?.toISOString()).toBe(
+        expect(ok(resolveJerusalemWall("2026-10-25", "01:30", EARLIER))).toBe(
           EARLIER.toISOString(),
         );
-        expect(resolveJerusalemWall("2026-08-13", "14:30", null)?.toISOString()).toBe(
+        expect(ok(resolveJerusalemWall("2026-08-13", "14:30", null))).toBe(
           "2026-08-13T11:30:00.000Z",
         );
       }

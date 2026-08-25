@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import {
   JERUSALEM_TZ,
-  JERUSALEM_WALL_GAP_MESSAGE,
+  jerusalemWallErrorMessage,
   jerusalemWallParts,
   resolveJerusalemWall,
 } from "@metavchim/shared";
@@ -61,12 +61,19 @@ function NewAppointmentForm() {
     const date = String(f.get("date"));
     const time = String(f.get("time"));
     const kind = String(f.get("kind"));
-    const startsAt = resolveJerusalemWall(date, time, null);
-    if (startsAt === null) {
-      setError(JERUSALEM_WALL_GAP_MESSAGE);
+    /*
+     * הטופס הוא `noValidate`, ולכן `required` אינו נאכף ושדה ריק
+     * מגיע לכאן כמחרוזת ריקה. הפונקציה טוטלית ומחזירה סיבה במקום
+     * לזרוק, והמסך אומר איזו — „מלאו תאריך ושעה” אינו „השעה אינה
+     * קיימת” (ביקורת Codex).
+     */
+    const resolved = resolveJerusalemWall(date, time, null);
+    if (!resolved.ok) {
+      setError(jerusalemWallErrorMessage(resolved.reason));
       setSubmitting(false);
       return;
     }
+    const startsAt = resolved.at;
     try {
       await apiPost("/appointments", {
         kind,

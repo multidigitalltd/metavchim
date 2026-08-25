@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
 import {
-  JERUSALEM_WALL_GAP_MESSAGE,
+  jerusalemWallErrorMessage,
   jerusalemWallParts,
   resolveJerusalemWall,
 } from "@metavchim/shared";
@@ -97,12 +97,13 @@ export default function EditAppointmentPage({ params }: { params: Promise<{ id: 
      * חוזרת פעמיים, ובלעדיו שינוי משך בלבד היה מזיז את הפגישה בשעה
      * (ביקורת Codex).
      */
-    const nextStart = resolveJerusalemWall(date, time, started);
-    if (nextStart === null) {
-      setError(JERUSALEM_WALL_GAP_MESSAGE);
+    const resolved = resolveJerusalemWall(date, time, started);
+    if (!resolved.ok) {
+      setError(jerusalemWallErrorMessage(resolved.reason));
       setSubmitting(false);
       return;
     }
+    const nextStart = resolved.at;
     const moved = nextStart.getTime() !== started.getTime() || duration !== currentDuration;
 
     try {
