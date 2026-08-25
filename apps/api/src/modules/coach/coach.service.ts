@@ -12,6 +12,22 @@ import { PrismaService } from "../../core/prisma.service";
 import { rowToFields } from "../properties/property.mapper";
 import { loadEnv } from "../../config/env";
 
+/*
+ * ‎**המלצה לא תנקוב בשם דבר שהיעד שלה אינו יכול להציג.**
+ *
+ * שני האותות שמפנים לרשימה — ולא לכרטיס — נבחרו בלי קשר לחלון
+ * שהרשימה טוענת, ולכן „לפרטים” היה פותח מסך שהפריט שההמלצה דיברה
+ * עליו אינו בתוכו (ביקורת Codex). שני הקבועים כאן הם החלונות של
+ * המסכים ההם, והשאילתות למטה נחתכות לפיהם.
+ *
+ * הם מוצמדים למספרים שבצד השני ולא מנוחשים: אם מסך יורחב, המקום
+ * לעדכן הוא כאן, ליד ההסבר למה הערך הוא הערך.
+ */
+/** `GET /offers` — ברירת המחדל של `limit` ב-`ListQuerySchema`. */
+const OFFERS_PAGE_SIZE = 100;
+/** היומן פותח בתחילת השבוע שלפני שבועיים — 14 יום נמצאים בתוכו תמיד. */
+const VIEWING_FOLLOWUP_DAYS = 14;
+
 /**
  * אוסף את האותות מהדאטה של הדייר (מכבד בעלות — סוכן רואה המלצות על
  * הישויות שלו) ומזין את מנוע הכללים הטהור מ-shared.
@@ -96,16 +112,30 @@ export class CoachService {
           select: { id: true },
         })
       ).map((m) => m.id);
-      const hesitating = await tx.offer.findMany({
-        where: {
-          tenantId,
-          matchId: { in: scopedMatchIds },
-          openCount: { gte: 3 },
-          status: { in: ["opened", "sent", "delivered"] },
-        },
-        orderBy: { openCount: "desc" },
-        take: 10,
+      /*
+       * ‎**רק מתוך מה שמסך ההצעות באמת יציג.**
+       *
+       * ההמלצה מפנה ל-`/offers`, שטוען את מאה ההצעות האחרונות לפי
+       * ‎`createdAt`. מיון לפי `openCount` בלבד בוחר דווקא הצעות
+       * ישנות — הן צברו פתיחות לאורך זמן — ואז „לפרטים” פותח רשימה
+       * שההצעה שנקבה בשמה אינה בתוכה (ביקורת Codex).
+       *
+       * לכן החלון נלקח קודם, בדיוק כמו במסך, והמתלבטים נבחרים
+       * בתוכו. הבחירה נשארת „מי הכי מתלבט” — אבל מבין מי שאפשר
+       * להגיע אליו.
+       */
+      const listed = await tx.offer.findMany({
+        where: { tenantId, matchId: { in: scopedMatchIds } },
+        orderBy: { createdAt: "desc" },
+        take: OFFERS_PAGE_SIZE,
+        select: { id: true, openCount: true, status: true, presentation: true },
       });
+      const hesitating = listed
+        .filter(
+          (o) => o.openCount >= 3 && ["opened", "sent", "delivered"].includes(o.status),
+        )
+        .sort((a, b) => b.openCount - a.openCount)
+        .slice(0, 10);
       const hesitatingOffers: CoachSignals["hesitatingOffers"] = [];
       for (const offer of hesitating) {
         const presentation = offer.presentation as { title?: string };
@@ -131,14 +161,28 @@ export class CoachService {
       // להכיל שם לקוח, ביקורת Codex)
       let pastViewingsWithoutOutcome: CoachSignals["pastViewingsWithoutOutcome"] = [];
       if (canSeeCalendar) {
+        /*
+         * ‎**רק סיורים שהיומן עדיין מציג.**
+         *
+         * בלי גבול תחתון נבחר גם סיור מלפני חצי שנה, ו„לפרטים”
+         * פותח יומן שמציג שבועיים אחורה — כלומר בלי הסיור שההמלצה
+         * נקבה בשמו. בלי `orderBy` גם לא היה קבוע *אילו* חמישה
+         * נבחרים (ביקורת Codex).
+         *
+         * החלון צר מזה של היומן ולא רחב ממנו: היומן פותח בתחילת
+         * השבוע שלפני שבועיים, כלומר 14–20 יום אחורה לפי היום
+         * בשבוע, ו-14 יום נמצאים בתוכו תמיד.
+         */
+        const viewingSince = new Date(Date.now() - VIEWING_FOLLOWUP_DAYS * 24 * 60 * 60 * 1000);
         const pastViewings = await tx.appointment.findMany({
           where: {
             tenantId,
             kind: "viewing",
             status: "scheduled",
-            startsAt: { lt: new Date() },
+            startsAt: { lt: new Date(), gte: viewingSince },
             outcome: null,
           },
+          orderBy: { startsAt: "desc" },
           take: 5,
         });
         pastViewingsWithoutOutcome = pastViewings.map((a) => ({
