@@ -4876,3 +4876,319 @@ a.mv-bar-row:focus-visible {
     height: 104px;
   }
 }
+
+/* ============================================================
+   רכיבי מערכת העיצוב — אריח, כרטיס, KPI, שורה ומדד
+   ------------------------------------------------------------
+   ‎§9 ו-§12–§14 של החבילה. הכול **מוסף**: אף מחלקה קיימת אינה
+   משנה כאן התנהגות, ולכן אין מסך שנשבר בעטיו של הקובץ הזה.
+   ============================================================ */
+
+/*
+ * הדומיין נקבע **פעם אחת, על המכל** — וכל מה שבתוכו יורש אותו.
+ *
+ * זו לא נוחות אלא אכיפה של הכלל „Never two domain colors in one
+ * component. One card equals one domain”. ארבעת הכינויים המקומיים
+ * הם היחידים שהרכיבים למטה מכירים, ולכן כדי לערבב שני דומיינים
+ * בכרטיס אחד צריך לקנן שתי מחלקות דומיין זו בזו — פעולה שנראית
+ * שגויה בקוד, וזו בדיוק המטרה.
+ *
+ * מדד שערכו אפס עובר ל-`mv-domain-neutral` בזמן ריצה, כי „Zero
+ * must never look like failure” — ההחלטה נגזרת מהנתון ואינה
+ * נכתבת קשיח במסך.
+ */
+.mv-domain-green {
+  --d-bg: var(--domain-green-bg);
+  --d-line: var(--domain-green-line);
+  --d-tile: var(--domain-green-tile);
+  --d-fg: var(--domain-green-fg);
+}
+.mv-domain-peach {
+  --d-bg: var(--domain-peach-bg);
+  --d-line: var(--domain-peach-line);
+  --d-tile: var(--domain-peach-tile);
+  --d-fg: var(--domain-peach-fg);
+}
+.mv-domain-violet {
+  --d-bg: var(--domain-violet-bg);
+  --d-line: var(--domain-violet-line);
+  --d-tile: var(--domain-violet-tile);
+  --d-fg: var(--domain-violet-fg);
+}
+.mv-domain-blue {
+  --d-bg: var(--domain-blue-bg);
+  --d-line: var(--domain-blue-line);
+  --d-tile: var(--domain-blue-tile);
+  --d-fg: var(--domain-blue-fg);
+}
+.mv-domain-neutral {
+  --d-bg: var(--domain-neutral-bg);
+  --d-line: var(--domain-neutral-line);
+  --d-tile: var(--domain-neutral-tile);
+  --d-fg: var(--domain-neutral-fg);
+}
+
+/*
+ * אריח האייקון — שלושה גדלים, ולכל אחד הרדיוס שלו (§3).
+ *
+ * הרדיוס אינו יחסי לגודל אלא נקוב לכל מידה, ולכן הוא נכתב כאן
+ * ולא מחושב: 13 ב-38, 15 ב-44, 17 ב-52.
+ *
+ * ‎`--d-tile` עם נפילה לניטרלי: אריח שהוצב בטעות מחוץ למכל דומיין
+ * מקבל מראה ניטרלי תקין במקום רקע שקוף.
+ */
+.mv-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 13px;
+  background: var(--d-tile, var(--domain-neutral-tile));
+  color: var(--d-fg, var(--domain-neutral-fg));
+}
+.mv-tile svg {
+  width: 19px;
+  height: 19px;
+}
+.mv-tile--44 {
+  width: 44px;
+  height: 44px;
+  border-radius: 15px;
+}
+.mv-tile--44 svg {
+  width: 21px;
+  height: 21px;
+}
+.mv-tile--52 {
+  width: 52px;
+  height: 52px;
+  border-radius: 17px;
+}
+.mv-tile--52 svg {
+  width: 23px;
+  height: 23px;
+}
+
+/*
+ * כותרת כרטיס — שלושה חלקים, תמיד באותו סדר (§9).
+ *
+ * ‎`margin-inline-start: auto` ולא `margin-left`: העמוד כולו RTL,
+ * ותכונה פיזית הייתה דוחפת את הקישור לצד הלא נכון.
+ */
+.mv-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.mv-card-head__title {
+  font-size: var(--type-card-title);
+  font-weight: 900;
+  letter-spacing: var(--type-card-title-track);
+  color: var(--color-text);
+}
+.mv-card-head__link {
+  margin-inline-start: auto;
+  font-size: 14.5px;
+  font-weight: 800;
+  color: var(--color-primary);
+}
+.mv-card-sub {
+  margin-top: 10px;
+  font-size: 14.5px;
+  color: var(--color-text-muted);
+}
+
+/*
+ * אריח KPI (§12) — גובה קבוע, והמספר נדחף לתחתית.
+ *
+ * ‎`margin-top: auto` על המספר הוא מה שמחזיק את הכלל „ALL TILES IN
+ * A ROW SHARE ONE HEIGHT”: התוויות באריחים שונים אינן באותו אורך,
+ * ובלי הדחיפה הזו המספרים היו יושבים בגבהים שונים ושורת האריחים
+ * הייתה נראית עקומה בלי שאפשר להצביע על הסיבה.
+ */
+.mv-kpi {
+  display: flex;
+  flex-direction: column;
+  height: 150px;
+  padding: 20px 22px;
+  border-radius: var(--radius);
+  background: var(--d-bg, var(--domain-neutral-bg));
+  border: 1px solid var(--d-line, var(--domain-neutral-line));
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+  transition:
+    transform 0.16s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.2s ease;
+}
+.mv-kpi:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 22px 40px -28px rgba(16, 24, 18, 0.45);
+}
+.mv-kpi__head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.mv-kpi__label {
+  font-size: 15.5px;
+  font-weight: 800;
+  color: var(--color-text-muted);
+}
+.mv-kpi__value {
+  margin-top: auto;
+  font-size: var(--type-kpi);
+  font-weight: 900;
+  letter-spacing: var(--type-kpi-track);
+  line-height: 1;
+  color: var(--d-fg, var(--domain-neutral-fg));
+}
+.mv-kpi__note {
+  margin-top: 8px;
+  font-size: var(--type-caption);
+  color: var(--color-text-muted);
+}
+
+/*
+ * שורת רשימה (§13) — „the workhorse”, ושתי צורות לה.
+ *
+ * ‎`--mv-row-pad` מאפשר לשורת הפעולות לקבל 18/24 בלי מחלקה נוספת:
+ * שורה בתוך כרטיס היא 14/16, ושורה שרצה עד קצה הכרטיס רחבה יותר.
+ */
+.mv-row {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  min-height: 66px;
+  padding: 14px 16px;
+}
+.mv-row--action {
+  min-height: 96px;
+  padding: 18px 24px;
+}
+.mv-row--nested {
+  border: 1px solid var(--color-row-border);
+  background: var(--color-surface-sunken);
+  border-radius: 16px;
+}
+.mv-row--flush {
+  border-bottom: 1px solid var(--color-row-border);
+  background: var(--color-surface);
+}
+.mv-row__ordinal {
+  flex: none;
+  width: 26px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--color-data-muted);
+}
+.mv-row__title {
+  font-size: var(--type-row-title);
+  font-weight: 800;
+  letter-spacing: var(--type-row-title-track);
+  line-height: 1.4;
+  color: var(--color-text);
+}
+.mv-row__why {
+  margin-top: 4px;
+  font-size: 15px;
+  color: var(--color-text-muted);
+}
+.mv-row__action {
+  margin-inline-start: auto;
+}
+/*
+ * „PRIORITY RULE” — **רק** השורה הראשונה נצבעת ומקבלת כפתור ראשי.
+ *
+ * החבילה קוראת לזה „the core UX decision of the product”, והנימוק
+ * שלה מדויק: חמש שורות עם חמש קריאות זהות לפעולה אינן מדרג אלא
+ * רשימה, ומתווך שנמצא באמצע נסיעה צריך לדעת מה **הדבר האחד**
+ * שכדאי לעשות עכשיו. הצבע כאן הוא הדירוג, ולכן הוא נגזר מהמיקום
+ * ואינו נכתב קשיח לשורה מסוימת.
+ */
+.mv-row--rank-1 {
+  /*
+   * דרך `--color-success-soft` ולא כ-‎#F7FCF9‎ מהחבילה כלשונו.
+   *
+   * הגוון של החבילה נכון לערכה הבהירה בלבד, וכהקסה קבועה הוא היה
+   * צובע את השורה הראשונה בלבן-כמעט על כרטיס כהה — כלומר דווקא
+   * השורה החשובה ביותר הייתה הופכת לבלתי קריאה במצב כהה. הטוקן
+   * כבר ממופה בשלוש הערכות, ולכן „רמז ירקרק” נשמר בכולן.
+   */
+  background: var(--color-success-soft);
+}
+.mv-row:not(.mv-row--rank-1):hover {
+  background: var(--color-row-hover);
+}
+
+/*
+ * שורת מדד (§14) — תווית ומספר, ולחיצה פותחת את הרשימה המסוננת.
+ *
+ * ‎`--d-fg` נושא גם את התווית וגם את המספר, ולכן שורה שעברה
+ * לניטרלי בגלל אפס נעשית שקטה בשלמותה ולא רק בחציה.
+ */
+.mv-metric {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 16px;
+  border-radius: 15px;
+  background: var(--d-bg, var(--domain-neutral-bg));
+  border: 1px solid var(--d-line, var(--domain-neutral-line));
+  /*
+   * ‎`color` על השורה, כדי שהנקודה תוכל לרשת אותו.
+   *
+   * הנקודה מצוירת ב-`currentColor` כדי שמסך יוכל לדרוס אותה בצבע
+   * מצב משלו (בשלות הקונים נותנת גוון לכל דרגה) בלי לגעת ברקע.
+   * בלי ההצהרה הזו `currentColor` היה נופל לצבע שיורש מהכרטיס,
+   * ונקודת הסטטוס הייתה יוצאת בגוון שאינו קשור לשורה.
+   */
+  color: var(--d-fg, var(--domain-neutral-fg));
+  cursor: pointer;
+  transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mv-metric:hover {
+  transform: translateY(-2px);
+}
+.mv-metric__dot {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  background: currentColor;
+}
+.mv-metric__label {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--d-fg, var(--domain-neutral-fg));
+}
+.mv-metric__value {
+  margin-inline-start: auto;
+  font-size: var(--type-metric);
+  font-weight: 900;
+  letter-spacing: var(--type-metric-track);
+  color: var(--d-fg, var(--domain-neutral-fg));
+}
+
+/*
+ * כפתור בגוון הדומיין (§10) — פעולה ששייכת לתחום.
+ *
+ * הוא אינו ראשי ואינו משני: הוא אומר „הפעולה הזו שייכת לתחום
+ * שהשורה מדברת עליו”. לכן הוא לוקח את שלושת ערכי הדומיין ולא
+ * צבע משלו.
+ */
+.mv-button--domain {
+  background: var(--d-tile, var(--domain-neutral-tile));
+  border-color: var(--d-line, var(--domain-neutral-line));
+  color: var(--d-fg, var(--domain-neutral-fg));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mv-kpi:hover,
+  .mv-metric:hover {
+    transform: none;
+  }
+}
