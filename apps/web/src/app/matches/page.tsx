@@ -268,7 +268,7 @@ function MatchesView() {
                   {g.sub}
                 </span>
               ) : null}
-              <span className="mv-pill ms-auto" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)", fontSize: 14 }}>
+              <span className="mv-pill ms-auto" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)", fontSize: "var(--type-caption)" }}>
                 {g.items.length} התאמות
               </span>
             </div>
@@ -313,7 +313,7 @@ function MatchesView() {
                       <button
                         type="button"
                         className="mv-btn-action"
-                        style={{ padding: "7px 15px", fontSize: 14.5 }}
+                        style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
                         disabled={sending !== null}
                         onClick={() => void sendOffer(m)}
                       >

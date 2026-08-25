@@ -450,7 +450,7 @@ export default function CallsPage() {
                       <span
                         className="mv-pill block"
                         style={{
-                          fontSize: 14,
+                          fontSize: "var(--type-caption)",
                           padding: "2px 10px",
                           color: call.outcome === "answered" ? "#0C6E34" : "#b0512c",
                           background: call.outcome === "answered" ? "#E5FCEA" : "#faf1ec",
@@ -494,11 +494,11 @@ export default function CallsPage() {
                       target="_blank"
                       rel="noopener noreferrer"
                       className="mv-btn-plain"
-                      style={{ padding: "7px 14px", fontSize: 14.5 }}
+                      style={{ padding: "7px 14px", fontSize: "var(--type-caption-lg)" }}
                     >
                       וואטסאפ
                     </a>
-                    <a href={`tel:${selected.phone}`} className="mv-btn-plain" style={{ padding: "7px 14px", fontSize: 14.5 }}>
+                    <a href={`tel:${selected.phone}`} className="mv-btn-plain" style={{ padding: "7px 14px", fontSize: "var(--type-caption-lg)" }}>
                       חייג
                     </a>
                   </div>

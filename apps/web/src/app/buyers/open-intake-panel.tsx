@@ -124,7 +124,7 @@ export function OpenIntakePanel({ canEdit }: { canEdit: boolean }) {
       <button
         type="button"
         className="mv-btn-plain"
-        style={{ minHeight: 38, paddingInline: 14, fontSize: "14px" }}
+        style={{ minHeight: 38, paddingInline: 14, fontSize: "var(--type-caption)" }}
         onClick={() => setOpen(true)}
       >
         <IconSend s={15} /> קישור ללקוח חדש

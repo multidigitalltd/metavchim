@@ -291,7 +291,7 @@ export function OwnerActivity({
             <button
               type="button"
               className="mv-btn-plain"
-              style={{ padding: "8px 16px", fontSize: 14.5 }}
+              style={{ padding: "8px 16px", fontSize: "var(--type-caption-lg)" }}
               disabled={downloading}
               onClick={() => void download()}
             >
@@ -300,7 +300,7 @@ export function OwnerActivity({
             <button
               type="button"
               className="mv-btn-plain"
-              style={{ padding: "8px 16px", fontSize: 14.5 }}
+              style={{ padding: "8px 16px", fontSize: "var(--type-caption-lg)" }}
               onClick={() => void copy.copy(messageText(), "activity")}
             >
               {copy.key === "activity" && copy.state === "copied"

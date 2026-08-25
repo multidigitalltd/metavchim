@@ -513,7 +513,7 @@ export default function IntakeFormPage({
       <button
         type="button"
         className="mv-btn-action mt-5 w-full"
-        style={{ padding: "14px", fontSize: 17 }}
+        style={{ padding: "14px", fontSize: "calc(17px * var(--a11y-font-scale))" }}
         disabled={busy}
         onClick={() => void submit()}
       >

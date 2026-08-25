@@ -466,7 +466,7 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   className="mv-btn-action ms-auto"
-                  style={{ padding: "6px 13px", fontSize: 14 }}
+                  style={{ padding: "6px 13px", fontSize: "var(--type-caption)" }}
                   onClick={() => setAdding((v) => !v)}
                 >
                   {adding ? "ביטול" : "+ הוסף סוכן"}
@@ -693,7 +693,7 @@ export default function SettingsPage() {
                                     type="button"
                                     className="mv-pill"
                                     style={{
-                                      fontSize: 14,
+                                      fontSize: "var(--type-caption)",
                                       cursor: "pointer",
                                       border: "none",
                                       color: member.whatsappAccess
@@ -714,7 +714,7 @@ export default function SettingsPage() {
                                   <span
                                     className="mv-pill"
                                     style={{
-                                      fontSize: 14,
+                                      fontSize: "var(--type-caption)",
                                       color: member.whatsappAccess
                                         ? "var(--color-primary)"
                                         : "var(--color-text-muted)",
@@ -737,7 +737,7 @@ export default function SettingsPage() {
                                 <span
                                   className="mv-pill"
                                   style={{
-                                    fontSize: 14,
+                                    fontSize: "var(--type-caption)",
                                     color:
                                       member.role === "owner" ||
                                       member.whatsappAccess
@@ -769,7 +769,7 @@ export default function SettingsPage() {
                             <span
                               className="mv-pill"
                               style={{
-                                fontSize: 14,
+                                fontSize: "var(--type-caption)",
                                 color: canExport ? "var(--color-primary)" : "var(--color-text-muted)",
                                 background: canExport ? "var(--color-primary-soft)" : "var(--color-hover-soft)",
                               }}
@@ -1366,7 +1366,7 @@ export default function SettingsPage() {
                 <Link
                   href="/import"
                   className="mv-btn-plain flex-1 text-center"
-                  style={{ padding: "8px 0", fontSize: 14.5 }}
+                  style={{ padding: "8px 0", fontSize: "var(--type-caption-lg)" }}
                 >
                   ייבוא מאקסל
                 </Link>

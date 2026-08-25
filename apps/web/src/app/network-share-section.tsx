@@ -346,7 +346,7 @@ export function NetworkShareSection({
               <button
                 type="button"
                 className="mv-btn-plain"
-                style={{ padding: "5px 12px", fontSize: 14 }}
+                style={{ padding: "5px 12px", fontSize: "var(--type-caption)" }}
                 disabled={busy}
                 onClick={() => setStage("form")}
               >
@@ -355,7 +355,7 @@ export function NetworkShareSection({
               <button
                 type="button"
                 className="mv-btn-plain"
-                style={{ padding: "5px 12px", fontSize: 14 }}
+                style={{ padding: "5px 12px", fontSize: "var(--type-caption)" }}
                 disabled={busy}
                 onClick={() => void stopSharing()}
               >

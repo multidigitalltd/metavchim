@@ -898,7 +898,7 @@ export default function CollaborationPage() {
               incoming.length + openInterests.length > 0 ? (
                 <span
                   className="mv-chip ms-1.5"
-                  style={{ padding: "1px 7px", fontSize: 14 }}
+                  style={{ padding: "1px 7px", fontSize: "var(--type-caption)" }}
                 >
                   {incoming.length + openInterests.length}
                 </span>

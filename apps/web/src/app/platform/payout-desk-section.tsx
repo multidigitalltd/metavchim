@@ -107,7 +107,7 @@ export function PayoutDeskSection(): React.JSX.Element {
       <h2 id="payout-desk-heading" className="mb-1 text-lg font-semibold">
         <IconCoins s={16} /> בקשות משיכה
         {pending.length > 0 ? (
-          <span className="mv-chip ms-2" style={{ fontSize: 14 }}>
+          <span className="mv-chip ms-2" style={{ fontSize: "var(--type-caption)" }}>
             {pending.length} ממתינות
           </span>
         ) : null}

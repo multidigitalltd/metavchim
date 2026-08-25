@@ -213,7 +213,7 @@ export function MediaSection({ propertyId, address }: { propertyId: string; addr
                     style={{
                       cursor: "default",
                       padding: "2px 9px",
-                      fontSize: 14,
+                      fontSize: "var(--type-caption)",
                       color: "var(--color-primary)",
                     }}
                   >

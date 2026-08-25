@@ -171,7 +171,7 @@ export function UserPermissions({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
                   <span className="text-sm font-bold">{module.label}</span>
-                  <span className="mv-pill mr-2" style={{ fontSize: 14, ...tone }}>
+                  <span className="mv-pill mr-2" style={{ fontSize: "var(--type-caption)", ...tone }}>
                     {state}
                   </span>
                   <span

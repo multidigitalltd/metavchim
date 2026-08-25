@@ -529,14 +529,14 @@ export default function PropertyDetailPage({
               <Link
                 href={`/properties/${id}/edit`}
                 className="mv-btn-plain"
-                style={{ padding: "7px 13px", fontSize: 14.5 }}
+                style={{ padding: "7px 13px", fontSize: "var(--type-caption-lg)" }}
               >
                 עריכה
               </Link>
               <Link
                 href={`/calendar/new?propertyId=${id}`}
                 className="mv-btn-plain"
-                style={{ padding: "7px 13px", fontSize: 14.5 }}
+                style={{ padding: "7px 13px", fontSize: "var(--type-caption-lg)" }}
               >
                 קבע סיור
               </Link>
@@ -552,7 +552,7 @@ export default function PropertyDetailPage({
                 className="mv-btn-plain"
                 style={{
                   padding: "7px 13px",
-                  fontSize: 14.5,
+                  fontSize: "var(--type-caption-lg)",
                   color:
                     archiveConfirm || purgeConfirm
                       ? "var(--color-danger)"
@@ -572,7 +572,7 @@ export default function PropertyDetailPage({
                 <button
                   type="button"
                   className="mv-btn-plain"
-                  style={{ padding: "7px 13px", fontSize: 14.5 }}
+                  style={{ padding: "7px 13px", fontSize: "var(--type-caption-lg)" }}
                   onClick={() => {
                     setArchiveConfirm(false);
                     setPurgeConfirm(false);
@@ -585,7 +585,7 @@ export default function PropertyDetailPage({
                 <button
                   type="button"
                   className="mv-btn-soft"
-                  style={{ padding: "7px 13px", fontSize: 14.5 }}
+                  style={{ padding: "7px 13px", fontSize: "var(--type-caption-lg)" }}
                   disabled={landingBusy}
                   onClick={() => void createLanding()}
                 >
@@ -601,7 +601,7 @@ export default function PropertyDetailPage({
               <button
                 type="button"
                 className="mv-btn-action"
-                style={{ padding: "7px 15px", fontSize: 14.5 }}
+                style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
                 onClick={() => {
                   selectTab("matches");
                   requestAnimationFrame(() => {
@@ -975,7 +975,7 @@ export default function PropertyDetailPage({
                   style={
                     bulkConfirm
                       ? { color: "var(--color-danger)" }
-                      : { padding: "7px 15px", fontSize: 14.5 }
+                      : { padding: "7px 15px", fontSize: "var(--type-caption-lg)" }
                   }
                   onClick={() => void bulkSend()}
                 >
@@ -1051,7 +1051,7 @@ export default function PropertyDetailPage({
                               color: tag.fg,
                               background: tag.bg,
                               fontWeight: 600,
-                              fontSize: 14,
+                              fontSize: "var(--type-caption)",
                               padding: "1px 8px",
                             }}
                           >
@@ -1135,7 +1135,7 @@ export default function PropertyDetailPage({
                         <button
                           type="button"
                           className="mv-btn-action"
-                          style={{ padding: "7px 15px", fontSize: 14.5 }}
+                          style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
                           onClick={() => void sendWhatsApp(offer.id)}
                         >
                           שלח בוואטסאפ
@@ -1144,7 +1144,7 @@ export default function PropertyDetailPage({
                         <button
                           type="button"
                           className="mv-btn-action"
-                          style={{ padding: "7px 15px", fontSize: 14.5 }}
+                          style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
                           onClick={() => void createOffer(m.id)}
                         >
                           שלח הצעה

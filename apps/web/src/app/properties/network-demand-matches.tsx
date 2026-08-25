@@ -209,7 +209,7 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
                 <button
                   type="button"
                   className="mv-btn-action"
-                  style={{ padding: "7px 15px", fontSize: 14.5 }}
+                  style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
                   disabled={busy !== null}
                   onClick={() => void offer(row)}
                 >

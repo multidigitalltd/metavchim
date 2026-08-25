@@ -989,14 +989,14 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             target="_blank"
             rel="noreferrer"
             className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: 14.5 }}
+            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
           >
             <IconChat s={14} /> וואטסאפ
           </a>
           <a
             href={`tel:${lead.contact.phone}`}
             className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: 14.5 }}
+            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
           >
             <IconPhone s={14} /> חייג
           </a>
@@ -1009,7 +1009,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             <a
               href={`mailto:${lead.contact.email}`}
               className="mv-btn-plain"
-              style={{ minHeight: 36, paddingInline: 13, fontSize: 14.5 }}
+              style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
             >
               <IconMail s={14} /> אימייל
             </a>
@@ -1017,7 +1017,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           <Link
             href={`/calendar/new?leadId=${lead.id}`}
             className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: 14.5 }}
+            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
           >
             <IconCalendar s={14} /> קבע פגישה
           </Link>

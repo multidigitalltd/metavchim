@@ -361,14 +361,14 @@ export default function BuyerDetailPage({
             target="_blank"
             rel="noreferrer"
             className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: 14.5 }}
+            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
           >
             <IconChat s={14} /> וואטסאפ
           </a>
           <a
             href={`tel:${buyer.contact.phone}`}
             className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: 14.5 }}
+            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
           >
             <IconPhone s={14} /> חייג
           </a>
@@ -380,7 +380,7 @@ export default function BuyerDetailPage({
           <Link
             href={`/buyers/${id}/edit`}
             className="mv-btn-plain"
-            style={{ minHeight: 36, paddingInline: 13, fontSize: 14.5 }}
+            style={{ minHeight: 36, paddingInline: 13, fontSize: "var(--type-caption-lg)" }}
           >
             <IconEdit s={14} /> ערוך דרישות
           </Link>
@@ -634,7 +634,7 @@ export default function BuyerDetailPage({
                       style={{
                         background: "#111513",
                         color: "#fff",
-                        fontSize: 14,
+                        fontSize: "var(--type-caption)",
                         padding: "4px 12px",
                       }}
                     >
@@ -666,7 +666,7 @@ export default function BuyerDetailPage({
                       style={{
                         background: "#eef1ec",
                         color: "#4a534c",
-                        fontSize: 14,
+                        fontSize: "var(--type-caption)",
                         padding: "4px 12px",
                       }}
                     >
@@ -847,7 +847,7 @@ export default function BuyerDetailPage({
                           <button
                             type="button"
                             className="mv-btn-action"
-                            style={{ padding: "7px 15px", fontSize: 14.5 }}
+                            style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
                             disabled={sending !== null}
                             onClick={() => void sendOffer(m)}
                           >
@@ -915,7 +915,7 @@ export default function BuyerDetailPage({
                       style={{
                         color: chip.fg,
                         background: chip.bg,
-                        fontSize: 14,
+                        fontSize: "var(--type-caption)",
                       }}
                     >
                       {chip.label}

@@ -218,7 +218,7 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
                 <Notice tone="danger">{formError}</Notice>
               ) : null}
               <div className="sm:col-span-2">
-                <button type="submit" disabled={sending} className="mv-btn-action w-full" style={{ padding: "12px 0", fontSize: 16 }}>
+                <button type="submit" disabled={sending} className="mv-btn-action w-full" style={{ padding: "12px 0", fontSize: "var(--type-button)" }}>
                   {sending ? "שולח…" : "השאירו לי פרטים"}
                 </button>
               </div>

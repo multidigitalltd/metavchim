@@ -182,6 +182,28 @@ const RULES = [
     },
   },
   {
+    /*
+     * ‎**גודל קבוע בשורה על אלמנט שנושא מחלקה של מערכת העיצוב.**
+     *
+     * מחלקות ה-`mv-` עברו לסולם, כלומר הן גדלות עם הגדרת הנגישות.
+     * ‎`style={{ fontSize: 14 }}` על אותו אלמנט גובר עליהן ומכבה את
+     * ההגדלה בדיוק שם — וכל עוד הכיתוב סביבו כן גדל, נוצר רכיב
+     * חצי-מוגדל.
+     *
+     * זה קרה כאן ב-44 מקומות, והתגלה שלוש פעמים בשלושה סבבים כי
+     * הסריקות הידניות שלי היו צרות ממה שהצהרתי עליהן. כלל אוטומטי
+     * הוא מה שמפסיק את זה: הוא אינו תלוי בכך שאזכור לסרוק.
+     *
+     * הבדיקה היא על **התג**, לא על השורה: `className` ו-`style`
+     * יושבים לעיתים קרובות באותה שורה ולעיתים בשורות נפרדות.
+     */
+    tagScan: true,
+    pattern: /fontSize:\s*"?(\d[\d.]*)(?:px)?"?/gu,
+    fails: () => true,
+    describe: (m) =>
+      `${m[0]} על אלמנט עם מחלקת mv- — גודל קבוע מכבה את סקלת הנגישות`,
+  },
+  {
     pattern: /\bfont-(light|thin|extralight)\b/gu,
     fails: () => true,
     describe: (m) => `${m[0]} — משקל דק אסור`,
@@ -226,6 +248,28 @@ for (const scope of SCOPED) {
     const text = readFileSync(file, "utf8");
     const lines = text.split("\n");
     for (const rule of RULES) {
+      /*
+       * ‎`tagScan` — הכלל נבדק על **התג** ולא על השורה.
+       *
+       * ‎`className` ו-`style` יושבים לפעמים באותה שורה ולפעמים
+       * בשורות נפרדות, ולכן כלל שמסתכל על שורה בודדת מפספס בדיוק
+       * את המקרים שבהם הקוד מפורמט לרוחב. מספר השורה מחושב מהיסט
+       * ההתאמה כדי שהשגיאה תישאר ניתנת ללחיצה.
+       */
+      if (rule.tagScan) {
+        for (const tag of text.matchAll(/<[a-zA-Z][^>]*?>/gsu)) {
+          if (!tag[0].includes("mv-")) continue;
+          for (const match of tag[0].matchAll(rule.pattern)) {
+            if (!rule.fails(match)) continue;
+            const at = tag.index + (match.index ?? 0);
+            const line = text.slice(0, at).split("\n").length;
+            offenders.push(
+              `  ${relative(repo, file)}:${line}  ←  ${rule.describe(match)}`,
+            );
+          }
+        }
+        continue;
+      }
       for (const [index, line] of lines.entries()) {
         for (const match of line.matchAll(rule.pattern)) {
           if (!rule.fails(match)) continue;

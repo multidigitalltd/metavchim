@@ -182,7 +182,7 @@ export function DuplicateContacts() {
               <button
                 type="button"
                 className="mv-btn-plain ms-auto"
-                style={{ padding: "4px 10px", fontSize: 14 }}
+                style={{ padding: "4px 10px", fontSize: "var(--type-caption)" }}
                 disabled={busyId !== null}
                 onClick={() => void dismiss(group.key)}
               >
@@ -199,7 +199,7 @@ export function DuplicateContacts() {
                 <button
                   type="button"
                   className="mv-btn-action ms-auto"
-                  style={{ padding: "5px 12px", fontSize: 14 }}
+                  style={{ padding: "5px 12px", fontSize: "var(--type-caption)" }}
                   disabled={busyId !== null}
                   onClick={() => void merge(group.survivor.contactId, dupe.contactId)}
                 >
