@@ -607,7 +607,8 @@ export default function SettingsPage() {
                                 height: 30,
                                 background: "var(--color-primary-soft)",
                                 color: "var(--color-primary)",
-                                fontSize: "var(--type-caption)",
+                                /* מונוגרם בעיגול קבוע — ראו ההערה ב-.mv-avatar-dot */
+                                fontSize: "14px",
                                 fontWeight: 800,
                               }}
                             >

@@ -914,7 +914,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             background: "var(--color-primary-soft)",
             color: "var(--color-primary)",
             fontWeight: 800,
-            fontSize: "var(--type-screen-title)",
+            fontSize: "19px",
           }}
         >
           {initials(lead.contact.name)}

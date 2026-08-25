@@ -195,7 +195,7 @@ export default function ProfilePage() {
         <span
           aria-hidden="true"
           className="grid flex-none place-items-center rounded-full"
-          style={{ width: 52, height: 52, background: "var(--color-primary-soft)", color: "var(--color-primary)", fontWeight: 800, fontSize: "var(--type-metric)" }}
+          style={{ width: 52, height: 52, background: "var(--color-primary-soft)", color: "var(--color-primary)", fontWeight: 800, fontSize: "20px" }}
         >
           {user.name.trim().slice(0, 1)}
         </span>

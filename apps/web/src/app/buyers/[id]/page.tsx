@@ -293,7 +293,7 @@ export default function BuyerDetailPage({
             background: "var(--color-primary-soft)",
             color: "var(--color-primary)",
             fontWeight: 800,
-            fontSize: "var(--type-screen-title)",
+            fontSize: "19px",
           }}
         >
           {initials(buyer.contact.name)}
