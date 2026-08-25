@@ -136,7 +136,22 @@ export class OnboardingOutreachService implements OnModuleInit, OnModuleDestroy 
         select: { name: true, email: true },
       }),
     );
-    if (owners.length === 0) return false;
+    if (owners.length === 0) {
+      // אין למי לשלוח כרגע — משחררים כדי שבעלים שיופעל בתוך החלון עוד יקבל
+      await this.releaseClaim(tenantId);
+      return false;
+    }
+
+    /*
+     * כמה נשלחו בפועל — ולא רק „הצליח / נכשל”.
+     *
+     * הסימון הוא **ברמת המשרד**, והלולאה שולחת לכל בעלים בנפרד.
+     * שחרור הסימון אחרי שהראשון כבר קיבל היה מחזיר את המשרד לתור,
+     * והסבב הבא היה שולח לו שוב — ושוב בכל שעה עד סוף החלון, כל עוד
+     * הבעלים השני אינו ניתן לשליחה (ביקורת Codex). לכן השחרור מותנה
+     * בכך ש**איש** לא קיבל: אז אין כפילות אפשרית, ויש טעם לנסות שוב.
+     */
+    let delivered = 0;
 
     try {
       for (const owner of owners) {
@@ -158,25 +173,42 @@ export class OnboardingOutreachService implements OnModuleInit, OnModuleDestroy 
            * הסימון `onboardingCallEmailAt` נתפס **לפני** השליחה והוא
            * חד-פעמי לכל משרד. בלי `required` היעדר ספק היה חוזר
            * בשקט, הסימון היה נשאר, והמשרד לא היה מקבל את ההזמנה
-           * לעולם. עם `required` נזרקת שגיאה, ה-`catch` למטה משחרר
-           * את הסימון, והסבב הבא ינסה שוב (ביקורת Codex).
+           * לעולם. עם `required` נזרקת שגיאה, וכשאיש עוד לא קיבל —
+           * ה-`catch` למטה משחרר את הסימון (ביקורת Codex).
            */
           { required: true },
         );
+        delivered += 1;
       }
       return true;
     } catch (error: unknown) {
+      if (delivered > 0) {
+        /*
+         * חלק מהבעלים כבר קיבלו. שחרור הסימון כאן היה גורם להם לקבל
+         * את אותה הזמנה בכל סבב מחדש — נזק ודאי וחוזר, לעומת בעלים
+         * אחד שלא קיבל הזמנה שיווקית. הסימון נשאר, והפער נרשם.
+         */
+        this.logger.warn(
+          `שיחת היכרות ל-${tenantId}: ${delivered} מתוך ${owners.length} נשלחו; הסימון נשמר כדי לא לשלוח שוב למי שכבר קיבל`,
+        );
+        return true;
+      }
       /*
-       * השליחה נכשלה אחרי שהסימון נתפס — משחררים אותו, אחרת המשרד
-       * לא יקבל את ההצעה לעולם בגלל תקלת רשת רגעית.
+       * איש לא קיבל — משחררים, אחרת המשרד לא יקבל את ההצעה לעולם
+       * בגלל תקלת רשת רגעית.
        */
-      await this.prisma.$executeRaw`
-        UPDATE tenants
-        SET settings = COALESCE(settings, '{}'::jsonb) - 'onboardingCallEmailAt'
-        WHERE id = ${tenantId}
-      `;
+      await this.releaseClaim(tenantId);
       throw error;
     }
+  }
+
+  /** ביטול הסימון — רק כשבטוח שאיש לא קיבל את ההזמנה. */
+  private async releaseClaim(tenantId: string): Promise<void> {
+    await this.prisma.$executeRaw`
+      UPDATE tenants
+      SET settings = COALESCE(settings, '{}'::jsonb) - 'onboardingCallEmailAt'
+      WHERE id = ${tenantId}
+    `;
   }
 }
 
