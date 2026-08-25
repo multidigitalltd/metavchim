@@ -164,6 +164,98 @@
     0 1px 2px rgba(16, 24, 18, 0.04), 0 14px 32px -26px rgba(16, 24, 18, 0.32);
   --shadow-pop: 0 16px 38px rgba(30, 40, 32, 0.16);
   --header-bg: rgba(255, 255, 255, 0.85);
+
+  /* ==================== סולם הטיפוגרפיה ====================
+   *
+   * מהחבילה, §1. הסולם נשמר כטוקנים ולא כמספרים בתוך הרכיבים, כי
+   * גודל טקסט הוא ההחלטה שנכתבת מחדש בכל מסך חדש — תמיד לכיוון
+   * הקטן. `verify:typography` חוסם את הרצפה; הטוקנים האלה נותנים
+   * לכותב המסך מה לבחור **במקום** לנחש.
+   *
+   * שלישיית ערכים לכל דרגה: גודל, משקל, מרווח אותיות. גובה השורה
+   * נשמר בנפרד רק היכן שהחבילה נוקבת בו.
+   */
+  --type-h1: 38px; /* ברכת העמוד */
+  --type-h1-track: -0.035em;
+  --type-kpi: 46px; /* מספר ב-KPI, בצבע הדומיין */
+  --type-kpi-track: -0.04em;
+  --type-panel: 22px; /* כותרת פאנל */
+  --type-panel-track: -0.025em;
+  --type-metric: 20px; /* מספר בשורת מדד */
+  --type-metric-track: -0.02em;
+  --type-card-title: 18.5px;
+  --type-card-title-track: -0.02em;
+  --type-row-title: 17.5px;
+  --type-row-title-track: -0.015em;
+  --type-button: 16px;
+  --type-body: 15.5px;
+  --type-nav: 15.5px;
+  /*
+   * כיתוב עזר ועינית — **14px, ולא 11.5 ולא 13.5.**
+   *
+   * כאן החבילה סותרת את עצמה: §1 מפרט „eyebrow, group label
+   * 11.5”, ומיד מתחתיו „HARD FLOORS: never below 13.5px anywhere”.
+   * ‎`INDEX.md` חוזר על הרצפה ברשימת הבלתי-ניתנים-למשא-ומתן. רצפה
+   * שמוכרזת פעמיים כרצפה גוברת על שורה בטבלה, ולכן 11.5 יוצא.
+   *
+   * מ-13.5 עלינו ל-14 כי זו הרצפה שהמערכת כבר אוכפת (ראו
+   * `scripts/verify-typography.mjs`) — היא מחמירה יותר, וכל ערך
+   * מתחתיה היה מפיל את השער. בעברית אין אותיות גדולות, ולכן מה
+   * שמבדיל עינית מטקסט רגיל הוא המרווח והמשקל, לא הקוטן.
+   */
+  --type-caption: 14px;
+  --type-eyebrow: 14px;
+  --type-eyebrow-track: 0.09em;
+  /*
+   * ‎`ink-3` מהחבילה — הרצפה למספרי נתונים.
+   *
+   * „data numbers never lighter than #4A544C”: אפס, סופרר ומונה
+   * שמוצגים בגוון מרוסן עדיין נקראים כנתון. בלי טוקן ייעודי הם
+   * נופלים ל-`--color-text-muted` שמשמש לטקסט משני, ואז „0” נראה
+   * כהערת שוליים במקום כמדידה.
+   */
+  --color-data-muted: #4a544c; /* על לבן: 7.9:1 */
+
+  /* ==================== חמשת הדומיינים ====================
+   *
+   * מהחבילה, §2. **הצבע אומר איזה סוג דבר זה — ולא מקשט.** ארבעה
+   * ערכים לכל דומיין: רקע, מסגרת, אריח האייקון וצבע הטקסט. כלל
+   * הברזל שנלווה אליהם: כרטיס אחד = דומיין אחד, ומדד שערכו אפס
+   * עובר לניטרלי כדי שאפס לא ייראה ככישלון.
+   *
+   * ‎**אדום אינו דומיין.** החבילה אומרת „Red is not in the palette”
+   * ו„peach is as loud as the product gets”, ואילו `--color-danger`
+   * הקיים נשאר בתפקידו הצר: פעולה הרסנית ושגיאה. זו הבחנה בין
+   * סימן לבין תחום, ולכן השניים אינם מתנגשים.
+   */
+  --domain-green-bg: #dff6e7; /* שיתופי פעולה, הסוכן, אישורים */
+  --domain-green-line: #a5d9b9;
+  --domain-green-tile: #c6eed6;
+  --domain-green-fg: #075e2c; /* על הרקע שלו: 8.9:1 */
+  --domain-peach-bg: #fbe3d5; /* דחיפות: קונים חמים, לידים */
+  --domain-peach-line: #edbc9d;
+  --domain-peach-tile: #f7d2b9;
+  --domain-peach-fg: #8f3d1c; /* 6.4:1 */
+  --domain-violet-bg: #e9e1fb; /* מנוע ההתאמות: התאמות, הצעות */
+  --domain-violet-line: #c9baf0;
+  --domain-violet-tile: #dcd1f7;
+  --domain-violet-fg: #4a2691; /* 9.1:1 */
+  --domain-blue-bg: #e2edf9; /* נכסים, יומן */
+  --domain-blue-line: #bad2ec;
+  --domain-blue-tile: #d0e2f4;
+  --domain-blue-fg: #17497c; /* 7.7:1 */
+  --domain-neutral-bg: #f8faf6; /* אפס, ואין מה שממתין */
+  --domain-neutral-line: #dee3d9;
+  --domain-neutral-tile: #eaede6;
+  /*
+   * ‎#4A544C ולא #5E6860 שבטבלה — שוב הרצפה של החבילה עצמה.
+   *
+   * הדומיין הניטרלי הוא זה שנושא את האפסים („אין הצעות פתוחות”,
+   * „הכל טופל”), כלומר `fg` שלו צובע **מספר**. והחבילה קובעת
+   * „data numbers never lighter than #4A544C” — ‎#5E6860 בהיר ממנו.
+   * שתי השורות אינן יכולות להתקיים יחד, והרצפה גוברת על התא.
+   */
+  --domain-neutral-fg: #4a544c; /* על הרקע שלו: 7.5:1 */
 }
 
 /* ---------- ערכת נושא כהה ----------
@@ -215,6 +307,42 @@
   --dk-text-soft: #c3cfc6;
   --dk-progress-track: #26332a;
   --dk-seg-track: #1c2620;
+  /* ==================== הדומיינים בערכה הכהה ====================
+   *
+   * **החבילה אינה מכסה מצב כהה** — כל ערכיה נבנו על קנבס בהיר.
+   * להשאיר את הגוונים הבהירים כמות שהם היה מדביק ריבוע כמעט-לבן
+   * על מסך כמעט-שחור, כלומר לשבור מסך עובד בשם נאמנות למסמך שלא
+   * דיבר עליו.
+   *
+   * לכן הגוונים נגזרו כאן, והמשמעות היא שנשמרה: אותו **גוון** לכל
+   * דומיין, רק שהרקע הוא גרסה כהה שלו והטקסט גרסה בהירה. מתווך
+   * שלמד ש„סגול = התאמות” מזהה אותו בשתי הערכות.
+   *
+   * ‎`neutral` נשען על משטחי הערכה הקיימים ולא על גוון חדש, כי
+   * ניטרלי פירושו „בלי גוון” בשתי הערכות באותה מידה.
+   */
+  --dm-green-bg: #17301f;
+  --dm-green-line: #2f5c3d;
+  --dm-green-tile: #1e402a;
+  --dm-green-fg: #7ceb9c; /* על הרקע שלו: 8.4:1 */
+  --dm-peach-bg: #331f14;
+  --dm-peach-line: #5f3b26;
+  --dm-peach-tile: #422718;
+  --dm-peach-fg: #f5b48e; /* 7.9:1 */
+  --dm-violet-bg: #241c3d;
+  --dm-violet-line: #453a6b;
+  --dm-violet-tile: #2e2450;
+  --dm-violet-fg: #c3aef5; /* 7.5:1 */
+  --dm-blue-bg: #13233a;
+  --dm-blue-line: #2c4667;
+  --dm-blue-tile: #182d4a;
+  --dm-blue-fg: #9cc4ef; /* 7.6:1 */
+  --dm-neutral-bg: #101812;
+  --dm-neutral-line: #2b3a2f;
+  --dm-neutral-tile: #1a231c;
+  --dm-neutral-fg: #c3cfc6; /* 11.1:1 */
+  /* מקבילו הכהה של ‎`ink-3` — מרוסן מהטקסט הראשי, ועדיין נתון */
+  --dm-data-muted: #a9b6ac;
   --dk-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
   --dk-shadow-pop: 0 16px 38px rgba(0, 0, 0, 0.5);
   --dk-header-bg: rgba(13, 19, 15, 0.85);
@@ -253,6 +381,27 @@
     --color-progress-track: var(--dk-progress-track);
     --color-seg-track: var(--dk-seg-track);
     --color-focus: var(--dk-primary);
+    --color-data-muted: var(--dm-data-muted);
+    --domain-green-bg: var(--dm-green-bg);
+    --domain-green-line: var(--dm-green-line);
+    --domain-green-tile: var(--dm-green-tile);
+    --domain-green-fg: var(--dm-green-fg);
+    --domain-peach-bg: var(--dm-peach-bg);
+    --domain-peach-line: var(--dm-peach-line);
+    --domain-peach-tile: var(--dm-peach-tile);
+    --domain-peach-fg: var(--dm-peach-fg);
+    --domain-violet-bg: var(--dm-violet-bg);
+    --domain-violet-line: var(--dm-violet-line);
+    --domain-violet-tile: var(--dm-violet-tile);
+    --domain-violet-fg: var(--dm-violet-fg);
+    --domain-blue-bg: var(--dm-blue-bg);
+    --domain-blue-line: var(--dm-blue-line);
+    --domain-blue-tile: var(--dm-blue-tile);
+    --domain-blue-fg: var(--dm-blue-fg);
+    --domain-neutral-bg: var(--dm-neutral-bg);
+    --domain-neutral-line: var(--dm-neutral-line);
+    --domain-neutral-tile: var(--dm-neutral-tile);
+    --domain-neutral-fg: var(--dm-neutral-fg);
     --shadow-card: var(--dk-shadow-card);
     --shadow-pop: var(--dk-shadow-pop);
     --header-bg: var(--dk-header-bg);
@@ -291,6 +440,27 @@
   --color-progress-track: var(--dk-progress-track);
   --color-seg-track: var(--dk-seg-track);
   --color-focus: var(--dk-primary);
+  --color-data-muted: var(--dm-data-muted);
+  --domain-green-bg: var(--dm-green-bg);
+  --domain-green-line: var(--dm-green-line);
+  --domain-green-tile: var(--dm-green-tile);
+  --domain-green-fg: var(--dm-green-fg);
+  --domain-peach-bg: var(--dm-peach-bg);
+  --domain-peach-line: var(--dm-peach-line);
+  --domain-peach-tile: var(--dm-peach-tile);
+  --domain-peach-fg: var(--dm-peach-fg);
+  --domain-violet-bg: var(--dm-violet-bg);
+  --domain-violet-line: var(--dm-violet-line);
+  --domain-violet-tile: var(--dm-violet-tile);
+  --domain-violet-fg: var(--dm-violet-fg);
+  --domain-blue-bg: var(--dm-blue-bg);
+  --domain-blue-line: var(--dm-blue-line);
+  --domain-blue-tile: var(--dm-blue-tile);
+  --domain-blue-fg: var(--dm-blue-fg);
+  --domain-neutral-bg: var(--dm-neutral-bg);
+  --domain-neutral-line: var(--dm-neutral-line);
+  --domain-neutral-tile: var(--dm-neutral-tile);
+  --domain-neutral-fg: var(--dm-neutral-fg);
   --shadow-card: var(--dk-shadow-card);
   --shadow-pop: var(--dk-shadow-pop);
   --header-bg: var(--dk-header-bg);
@@ -639,6 +809,46 @@ code {
   --header-bg: #ffffff;
   --shadow-card: none;
   --shadow-pop: none;
+  /* מספרי נתונים — שחור, כמו כל טקסט אחר בבלוק הזה */
+  --color-data-muted: #000000;
+  /* ============================================================
+     חמשת הדומיינים בניגודיות גבוהה — **הגוון עובר לטקסט**
+     ------------------------------------------------------------
+     הדומיינים אומרים „איזה סוג דבר זה”, וזו הבחנה שאסור לאבד רק
+     משום שהמשתמש ביקש ניגודיות: מי שלמד ש„סגול = התאמות” צריך
+     להמשיך לזהות את זה. אבל הגוונים עצמם הם גוונים חיוורים על
+     קנבס חמים, וכאן הקנבס לבן — כלומר רקע ‎#DFF6E7‎ ייקרא כלבן,
+     והמסר ייעלם ממילא.
+
+     לכן ההיפוך: הרקע נעשה לבן והמסגרת שחורה כמו בכל שאר הבלוק,
+     והגוון עובר לצבע הטקסט והאייקון בגרסה עמוקה ורוויה. ההבחנה
+     נשמרת במקום שבו היא נראית גם בניגודיות גבוהה, וכל חמשת
+     הצבעים עומדים הרבה מעל הסף על לבן.
+
+     בלי הבלוק הזה חמישה-עשר טוקנים היו נשארים בערך **הכהה** שלהם
+     על עמוד לבן — בדיוק הכשל שהשער הזה נבנה כדי לתפוס, והוא אכן
+     תפס אותו כאן.
+     ============================================================ */
+  --domain-green-bg: #ffffff;
+  --domain-green-line: #000000;
+  --domain-green-tile: #eeeeee;
+  --domain-green-fg: #00521f;
+  --domain-peach-bg: #ffffff;
+  --domain-peach-line: #000000;
+  --domain-peach-tile: #eeeeee;
+  --domain-peach-fg: #7a2b00;
+  --domain-violet-bg: #ffffff;
+  --domain-violet-line: #000000;
+  --domain-violet-tile: #eeeeee;
+  --domain-violet-fg: #3b0f8f;
+  --domain-blue-bg: #ffffff;
+  --domain-blue-line: #000000;
+  --domain-blue-tile: #eeeeee;
+  --domain-blue-fg: #003c7a;
+  --domain-neutral-bg: #ffffff;
+  --domain-neutral-line: #000000;
+  --domain-neutral-tile: #eeeeee;
+  --domain-neutral-fg: #000000;
 }
 :root[data-a11y-contrast="on"] body {
   background: #ffffff;
