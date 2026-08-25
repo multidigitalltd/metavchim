@@ -4,6 +4,7 @@ import {
   parse015RecordingResponse,
   parse015Status,
   parseTelephonyEvent,
+  pbx015RecordingGroups,
   split015RecordingPath,
 } from "./telephony.js";
 
@@ -90,6 +91,33 @@ describe("פענוח נתיב ההקלטה", () => {
     expect(split015RecordingPath("")).toBeNull();
     expect(split015RecordingPath("record_only")).toBeNull();
     expect(split015RecordingPath("abc/def/record_x_y")).toBeNull();
+  });
+});
+
+/*
+ * „לא נמצא” על הקלטה שקיימת בממשק של 015 (דיווח מהשטח): בנתיב שני
+ * מספרים, והקוד לקח תמיד את הראשון. מספר שגוי מייצר תשובה זהה
+ * לחלוטין לתשובה על הקלטה שנמחקה — ולכן שניהם נשלחים והספק מכריע.
+ */
+describe("מועמדים לקבוצת ההקלטה", () => {
+  it("שני המספרים שבפתח הנתיב, לפי הסדר", () => {
+    expect(pbx015RecordingGroups("54936/12048/2026/08/20/record_1787_23747")).toEqual([
+      "54936",
+      "12048",
+    ]);
+  });
+
+  it("והתאריך אינו מספר קבוצה", () => {
+    expect(pbx015RecordingGroups("54936/2026/08/20/record_1787_23747")).toEqual(["54936"]);
+  });
+
+  it("נתיב שנבנה אצלנו מהרשימה נושא מועמד יחיד", () => {
+    expect(pbx015RecordingGroups("54936/record_17872047751258756_23747")).toEqual(["54936"]);
+  });
+
+  it("וצורה שאינה מתחילה במספר אינה מנחשת", () => {
+    expect(pbx015RecordingGroups("record_x_y")).toEqual([]);
+    expect(pbx015RecordingGroups("")).toEqual([]);
   });
 });
 

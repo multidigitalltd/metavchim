@@ -14,6 +14,7 @@ import {
   parse015RecordingsList,
   parse015Status,
   pbx015RecordingPath,
+  pbx015RecordingGroups,
   split015RecordingPath,
   unmatched015ListKeys,
 } from "@metavchim/shared";
@@ -515,13 +516,94 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    /*
+     * **בנתיב יש יותר ממספר קבוצה אחד, והראשון אינו בהכרח הנכון.**
+     *
+     * ‎`54936/12048/2026/08/20/record_…` — הקוד לקח תמיד את הראשון,
+     * וההנחה הזו לא נבדקה מול הספק עד שהתקבל „לא נמצא” על הקלטה
+     * שקיימת בממשק של 015 (דיווח מהשטח). כשהמספר שגוי התשובה זהה
+     * לחלוטין לתשובה על הקלטה שנמחקה — ולכן ניחוש מתוקן היה רק
+     * מחליף הנחה בהנחה. שניהם נשלחים, והספק מכריע.
+     */
+    const groups = pbx015RecordingGroups(job.recordingPath);
+    const candidates = groups.length > 0 ? groups : [ids.recordGroup];
+    let lastRefusal: { code: string; detail: string } | null = null;
+
+    for (const [index, recordGroup] of candidates.entries()) {
+      const attempt = await this.attemptFetch(job, {
+        authUsername,
+        authPassword,
+        recordGroup,
+        recordId: ids.recordId,
+      });
+      if (attempt.kind === "audio") {
+        if (index > 0) {
+          this.logger.log(
+            `הקלטה נמצאה בקבוצה ${recordGroup} ולא ב-${candidates[0] ?? "?"} — ${job.callId}`,
+          );
+        }
+        await this.storeAudio(job, attempt.base64, attempt.contentType);
+        return;
+      }
+      if (attempt.kind === "refused") {
+        lastRefusal = { code: attempt.code, detail: attempt.detail };
+        // „לא נמצא” הוא בדיוק מה שמספר קבוצה שגוי מייצר — ננסה את הבא
+        if (attempt.code === "404" && index + 1 < candidates.length) continue;
+      }
+      /*
+       * כל שאר המצבים — רשת, גוף שאינו JSON, סירוב שאינו „לא נמצא”
+       * — כבר נרשמו בתוך `attemptFetch`, ואין טעם לנסות מספר אחר.
+       */
+      if (attempt.kind !== "refused") return;
+      break;
+    }
+
+    if (lastRefusal !== null) {
+      /*
+       * הפרמטרים שנשלחו נכנסים לתיאור — **בלי האישורים.**
+       *
+       * „לא נמצא” על הקלטה שקיימת בממשק הוא שאלה על הבקשה, לא על
+       * ההקלטה, ובלי לדעת מה ביקשנו אין דרך להשוות מול הממשק.
+       * המזהים האלה הם מספרים פנימיים של המרכזייה — לא מספרי טלפון
+       * ולא תוכן שיחה.
+       */
+      const asked = `נשלח: recordgroup=${candidates.join("|")} recordid=${ids.recordId}`;
+      await this.note(
+        job,
+        `${RECORDING_ERRORS.provider}_${lastRefusal.code}`,
+        `${lastRefusal.detail} · ${asked}`,
+      );
+    }
+  }
+
+  /**
+   * פנייה אחת ל-015 — **התוצאה, לא תופעת הלוואי.**
+   *
+   * הופרדה כדי שאפשר יהיה לנסות יותר ממספר קבוצה אחד: כל מה שאינו
+   * „הספק סירב” נרשם כאן ומסיים את המסלול, ו„סירב” חוזר לקורא כדי
+   * שיחליט אם יש עוד מה לנסות.
+   */
+  private async attemptFetch(
+    job: RecordingJob,
+    input: {
+      authUsername: string;
+      authPassword: string;
+      recordGroup: string;
+      recordId: string;
+    },
+  ): Promise<
+    | { kind: "audio"; base64: string; contentType: string }
+    | { kind: "refused"; code: string; detail: string }
+    | { kind: "handled" }
+  > {
+    const { authUsername, authPassword } = input;
     const url = build015RecordingUrl({
       authUsername,
       authPassword,
-      recordGroup: ids.recordGroup,
+      recordGroup: input.recordGroup,
       // מזהה השיחה כפי שהוובהוק שלח — לא כפי שהוא מופיע בשם הקובץ
       uniqueId: job.providerCallId,
-      recordId: ids.recordId,
+      recordId: input.recordId,
     });
 
     let res: Response;
@@ -532,12 +614,12 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       // שהמסך יבחין בין „לא הצלחנו להגיע” לבין „אין הקלטה”
       this.logger.warn(`פנייה ל-015 נכשלה (${job.callId}): ${String(error)}`);
       await this.note(job, RECORDING_ERRORS.network);
-      return;
+      return { kind: "handled" };
     }
     if (!res.ok) {
       this.logger.warn(`015 השיב ${res.status} על הקלטה ${job.recordingPath}`);
       await this.note(job, `${RECORDING_ERRORS.provider}_${res.status}`);
-      return;
+      return { kind: "handled" };
     }
     /*
      * פענוח ה-JSON נתפס **כאן** ולא נופל ל-`tick`.
@@ -557,7 +639,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     } catch {
       this.logger.warn(`תשובת 015 לא נקראה (${job.callId}) — גוף שאינו JSON תקין`);
       await this.note(job, RECORDING_ERRORS.unreadable);
-      return;
+      return { kind: "handled" };
     }
 
     const parsed = parse015RecordingResponse(payload);
@@ -586,15 +668,27 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       const status = parse015Status(payload);
       if (status !== null && status.code !== "200") {
         this.logger.warn(`015 סירבה (${status.code}) על הקלטה ${job.recordingPath}`);
-        await this.note(job, `${RECORDING_ERRORS.provider}_${status.code}`, detail);
-        return;
+        /*
+         * הסירוב **חוזר לקורא** ואינו נרשם כאן: „לא נמצא” הוא בדיוק
+         * מה שמספר קבוצה שגוי מייצר, והקורא הוא זה שיודע אם נשאר
+         * מספר לנסות.
+         */
+        return { kind: "refused", code: status.code, detail };
       }
       this.logger.warn(`תשובת 015 לא נקראה על הקלטה ${job.recordingPath} — ${detail}`);
       await this.note(job, RECORDING_ERRORS.unreadable, detail);
-      return;
+      return { kind: "handled" };
     }
+    return { kind: "audio", base64: parsed.base64, contentType: parsed.contentType };
+  }
 
-    const audio = Buffer.from(parsed.base64, "base64");
+  /** האודיו שהגיע ⟵ אחסון, שיחה, ותור תמלול. */
+  private async storeAudio(
+    job: RecordingJob,
+    base64: string,
+    contentType: string,
+  ): Promise<void> {
+    const audio = Buffer.from(base64, "base64");
     if (audio.length === 0) {
       // 015 מכין את ההקלטה לאחר סיום השיחה; ריק כאן הוא „עדיין לא”
       await this.note(job, RECORDING_ERRORS.empty);
@@ -613,7 +707,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
      * שהמערכת הצהירה שהכול נמחק.
      */
     const key = `calls/${job.tenantId}/${job.callId}/${ulid()}`;
-    await this.storage.put(key, audio, parsed.contentType);
+    await this.storage.put(key, audio, contentType);
 
     const available = (await this.transcription.status()).available;
     const claimed = await this.prisma.withExplicitTenant(job.tenantId, (tx) =>
