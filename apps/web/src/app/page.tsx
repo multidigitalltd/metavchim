@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
+  formatJerusalemTime,
   groupTasksByBucket,
   isTaskUrgent,
   jerusalemDayRange,
+  JERUSALEM_TZ,
   recommendationCapability,
   recommendationHref,
   taskBucket,
@@ -120,8 +122,26 @@ const APPOINTMENT_KIND_LABELS: Record<string, string> = {
   call: "שיחה",
 };
 
-const timeFmt = new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit" });
-const dayFmt = new Intl.DateTimeFormat("he-IL", { day: "2-digit", month: "2-digit" });
+/*
+ * ‎**המסך מציג בשעון ישראל, כי בשעון ישראל הוא גם מחליט.**
+ *
+ * כל ההכרעות כאן ירושלמיות: הטווח שהבקשה מבקשת, `dayKey` שקובע מתי
+ * מרעננים, `startsToday` שמכריע מה „של היום”, ו-`taskBucket`
+ * שמכריע מה „באיחור”. העיצוב הזמני הישן היה בשעון הדפדפן, ולכן
+ * מתווך בחו"ל קיבל שורה שסוננה כ„היום בירושלים” ומודפסת בשעה
+ * ניו-יורקית: פגישת 09:00 מוצגת „היום 02:00” (ביקורת Codex).
+ *
+ * אזור הזמן נקבע כאן, במקום ההגדרה, ולא בכל אתר קריאה — ארבעה
+ * צרכנים משתמשים בשני העיצובים האלה, ותיקון באחד מהם היה משאיר
+ * שלושה שסותרים אותו.
+ */
+const timeFmt = { format: formatJerusalemTime };
+/* בלי שנה — „24.08”. `formatJerusalemDate` כולל שנה ומשמש במסמכים. */
+const dayFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ,
+  day: "2-digit",
+  month: "2-digit",
+});
 
 /**
  * מתי המשימה. "באיחור" ו"היום" ולא תאריך: אלה שתי המילים שקובעות אם
