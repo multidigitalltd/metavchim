@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MIN_MATCH_CRITERIA, scoreMatch } from "./matching.js";
+import { MIN_CORE_COVERAGE, scoreMatch } from "./matching.js";
 import type { PropertyFields } from "../schemas/property.js";
 import type { BuyerRequirements } from "../schemas/buyer.js";
 
@@ -419,32 +419,95 @@ describe("סף המידע — כרטיס ריק אינו נכנס להתאמות
   });
 
   /*
-   * השער חייב לא לפגוע במי שהוא נועד לשרת. כרטיס סביר לגמרי —
-   * אזור, תקציב, חדרים וסוג — עובר, ומקבל את הציון המלא שלו.
+   * השער חייב לא לפגוע במי שהוא נועד לשרת. כרטיס שנבדקה בו כל
+   * הליבה עובר, כיסוי מלא, והציון אינו נוגס בכלום.
    */
   it("כרטיס מלא עובר את השער ואינו נפגע", () => {
     const result = scoreMatch(baseProperty, baseBuyer);
     expect(result.insufficientData).toBe(false);
-    expect(result.breakdown.length).toBeGreaterThanOrEqual(MIN_MATCH_CRITERIA);
+    expect(result.coverage).toBe(1);
     expect(result.score).toBeGreaterThanOrEqual(90);
   });
 
-  /* בדיוק על הסף — שלושה קריטריונים עוברים, שניים לא. */
-  it("הסף עצמו: שלושה קריטריונים עוברים, שניים נחסמים", () => {
-    const twoCriteria: BuyerRequirements = {
+  /*
+   * ‎**הבאג המדויק שדווח, בצורתו העמידה יותר.** תקציב+שטח+מועד
+   * כניסה הם שלושה קריטריונים — ולכן עברו את שער הספירה הישן
+   * וקיבלו 100%, אף שאיש לא בדק היכן הנכס, כמה חדרים בו או מה
+   * סוגו. ספירה מתייחסת לכל הקריטריונים כשווים; משקל לא.
+   */
+  it("שלושה קריטריונים שוליים אינם „שלושה קריטריונים”", () => {
+    const thin: BuyerRequirements = {
+      ...importedBuyer,
+      areaSqmMin: 80,
+      entryDatePreference: "flexible",
+    };
+    const result = scoreMatch(baseProperty, thin);
+    expect(result.breakdown.length).toBeGreaterThanOrEqual(2);
+    expect(result.insufficientData).toBe(true);
+    expect(result.score).toBe(0);
+  });
+
+  /*
+   * הצד השני של אותה החלפה, וזו הקלה מכוונת: עיר+תקציב נחסמו
+   * בשער הספירה הישן, אף שהם צמד שאומר הרבה יותר מהשלישייה
+   * שלמעלה. הם עוברים — ומקבלים ציון שנוקב בכך שנבדקו שני שליש.
+   */
+  it("צמד מרכזי עובר, ואומר במפורש שנבדקו שני שליש", () => {
+    const cityAndBudget: BuyerRequirements = {
       cities: ["בני ברק"],
       neighborhoods: [],
       dealType: "sale",
       propertyTypes: [],
-      // בתוך רצועת התקציב של הנכס (2.65M) — הבדיקה על סף המידע, לא על הרצועה
+      // בתוך רצועת התקציב של הנכס (2.65M) — הבדיקה על הכיסוי, לא על הרצועה
       budgetMaxAgorot: 280_000_000,
       features: {},
     };
-    expect(scoreMatch(baseProperty, twoCriteria).insufficientData).toBe(true);
+    const result = scoreMatch(baseProperty, cityAndBudget);
+    expect(result.insufficientData).toBe(false);
+    expect(result.coverage).toBeCloseTo(2 / 3, 2);
+    /* התאמה מושלמת במה שנבדק — ובכל זאת לא 100% */
+    expect(result.score).toBe(67);
+    expect(result.explanation).toContain("מספר חדרים");
+  });
 
-    const threeCriteria: BuyerRequirements = { ...twoCriteria, roomsMin: 3, roomsMax: 5 };
-    const passed = scoreMatch(baseProperty, threeCriteria);
-    expect(passed.insufficientData).toBe(false);
-    expect(passed.score).toBeGreaterThan(0);
+  /*
+   * הלב של התיקון. אותה התאמה מושלמת בדיוק, בשני כרטיסים שנבדלים
+   * רק במידע שיש עליהם — ושני מספרים שונים. זה מה שהופך את הציון
+   * מ„מתאים בכל מה שנבדק” ל„מתאים”.
+   */
+  it("התאמה מושלמת מקבלת ציון נמוך יותר כשנבדק פחות", () => {
+    const full = scoreMatch(baseProperty, baseBuyer);
+    const partial = scoreMatch(baseProperty, {
+      ...baseBuyer,
+      propertyTypes: [],
+      roomsMin: undefined,
+      roomsMax: undefined,
+    });
+    expect(partial.breakdown.every((p) => p.score === 1)).toBe(true);
+    expect(partial.score).toBeLessThan(full.score);
+    expect(partial.coverage).toBeLessThan(full.coverage);
+  });
+
+  /* השער מנוסח על משקל, ולכן הוא חייב להיאמר במשקל ולא בספירה. */
+  it("הסף עצמו: מתחת לחצי ממשקל הליבה — אין התאמה", () => {
+    const belowGate = scoreMatch(baseProperty, importedBuyer);
+    expect(belowGate.coverage).toBeLessThan(MIN_CORE_COVERAGE);
+    expect(belowGate.insufficientData).toBe(true);
+
+    const atGate = scoreMatch(baseProperty, {
+      ...importedBuyer,
+      roomsMin: 3,
+      roomsMax: 5,
+    });
+    expect(atGate.coverage).toBeGreaterThanOrEqual(MIN_CORE_COVERAGE);
+    expect(atGate.insufficientData).toBe(false);
+  });
+
+  /* ההסבר החסום נוקב במה שחסר — „אין מספיק פרטים” לבדו אינו פעולה. */
+  it("ההסבר החסום מונה את הקריטריונים שלא נבדקו", () => {
+    const result = scoreMatch(baseProperty, importedBuyer);
+    for (const label of ["מיקום", "מספר חדרים", "סוג הנכס"]) {
+      expect(result.explanation).toContain(label);
+    }
   });
 });
