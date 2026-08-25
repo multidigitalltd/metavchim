@@ -169,16 +169,44 @@ export function jerusalemWallParts(at: Date): { date: string; time: string } {
  * אין מה לפרש: זה אותו מועד, והוא מוחזר כמות שהוא (כולל שניות).
  * רק שינוי אמיתי של תאריך או שעה עובר המרה.
  *
+ * ‎**`null` פירושו „השעה הזו אינה קיימת”.** למעבר יש גם צד שני: בליל
+ * המעבר לשעון קיץ השעון קופץ מ-02:00 ל-03:00, ולכן 02:30 אינה קיימת
+ * כלל. ‎`jerusalemWallIsoToUtc` מחזירה עליה רגע שקורא בחזרה 03:30 —
+ * כלומר הטופס ביקש שתיים וחצי והמערכת שמרה שלוש וחצי, בלי לומר דבר
+ * (ביקורת Codex). מוטב לסרב ולהסביר מאשר לשמור מועד שאיש לא ביקש.
+ *
+ * המבחן אינו כלל שעון מקודד אלא הלוך-ושוב: אם הרגע שהתקבל אינו קורא
+ * בחזרה את אותם שדות בדיוק, שעת הקיר הזו אינה קיימת. אותה בדיקה
+ * תעבוד גם אם ישראל תשנה את תאריכי המעבר.
+ *
  * מה שנשאר פתוח, במפורש: מי שמקליד ידנית שעה שחוזרת פעמיים יקבל את
  * המופע המאוחר. אין בטופס שדה שיבחין ביניהם, ולנחש עבורו זה להמציא.
  */
-export function resolveJerusalemWall(date: string, time: string, current: Date | null): Date {
+export function resolveJerusalemWall(
+  date: string,
+  time: string,
+  current: Date | null,
+): Date | null {
   if (current !== null) {
     const parts = jerusalemWallParts(current);
     if (parts.date === date && parts.time === time) return current;
   }
-  return jerusalemWallIsoToUtc(`${date}T${time}:00.000`);
+  const at = jerusalemWallIsoToUtc(`${date}T${time}:00.000`);
+  const back = jerusalemWallParts(at);
+  if (back.date !== date || back.time !== time) return null;
+  return at;
 }
+
+/**
+ * מה שאומרים למשתמש כש-`resolveJerusalemWall` מחזירה `null`.
+ *
+ * יושב לצד הפונקציה ולא בכל מסך בנפרד: שלושה טפסים מחזירים את אותו
+ * ‎`null`, ושלוש גרסאות של אותו משפט הן שלוש הזדמנויות שאחת מהן
+ * תשקר. המשפט נוקב בסיבה **ובפעולה** — מסך שאומר „שגיאה” בלבד מותיר
+ * את המתווך בלי מושג מה לעשות.
+ */
+export const JERUSALEM_WALL_GAP_MESSAGE =
+  "השעה שנבחרה אינה קיימת בתאריך הזה: בליל המעבר לשעון קיץ השעון מדלג מ-02:00 ל-03:00. בחרו שעה אחרת.";
 
 /** התאריך הישראלי כתווית `YYYY-MM-DD` — הבסיס לכל חשבון הלוח כאן. */
 function jerusalemDayLabel(at: Date): string {

@@ -4,6 +4,11 @@ import { useEffect, useState, use, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@metavchim/ui";
+import {
+  JERUSALEM_WALL_GAP_MESSAGE,
+  jerusalemWallParts,
+  resolveJerusalemWall,
+} from "@metavchim/shared";
 import { apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
 import { Notice } from "../../../notice";
@@ -52,10 +57,6 @@ const OUTCOME_LABELS: Record<string, string> = {
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
-function pad(n: number): string {
-  return String(n).padStart(2, "0");
-}
-
 export default function EditAppointmentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { loading: authLoading } = useRequireAuth();
@@ -87,7 +88,21 @@ export default function EditAppointmentPage({ params }: { params: Promise<{ id: 
       appointment.endsAt !== undefined
         ? Math.round((new Date(appointment.endsAt).getTime() - started.getTime()) / 60_000)
         : 30;
-    const nextStart = new Date(`${date}T${time}`);
+    /*
+     * ‎**המועד נקרא ונכתב בשעת קיר ישראלית, עם הרגע השמור כעוגן.**
+     *
+     * ‎`new Date(`${date}T${time}`)` פירש את השדות בשעון הדפדפן: מתווך
+     * בחו"ל שפתח פגישה של 09:00 בישראל ראה 02:00, ושמירה הזיזה אותה
+     * באמת. העוגן מוסיף את הצד השני — בליל המעבר לשעון חורף שעת הקיר
+     * חוזרת פעמיים, ובלעדיו שינוי משך בלבד היה מזיז את הפגישה בשעה
+     * (ביקורת Codex).
+     */
+    const nextStart = resolveJerusalemWall(date, time, started);
+    if (nextStart === null) {
+      setError(JERUSALEM_WALL_GAP_MESSAGE);
+      setSubmitting(false);
+      return;
+    }
     const moved = nextStart.getTime() !== started.getTime() || duration !== currentDuration;
 
     try {
@@ -122,6 +137,7 @@ export default function EditAppointmentPage({ params }: { params: Promise<{ id: 
   if (!appointment) return <p aria-live="polite">טוען…</p>;
 
   const starts = new Date(appointment.startsAt);
+  const startsWall = jerusalemWallParts(starts);
   const durationMinutes =
     appointment.endsAt !== undefined
       ? Math.round((new Date(appointment.endsAt).getTime() - starts.getTime()) / 60_000)
@@ -167,7 +183,7 @@ export default function EditAppointmentPage({ params }: { params: Promise<{ id: 
               name="date"
               type="date"
               required
-              defaultValue={`${starts.getFullYear()}-${pad(starts.getMonth() + 1)}-${pad(starts.getDate())}`}
+              defaultValue={startsWall.date}
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
             />
@@ -179,7 +195,7 @@ export default function EditAppointmentPage({ params }: { params: Promise<{ id: 
               name="time"
               type="time"
               required
-              defaultValue={`${pad(starts.getHours())}:${pad(starts.getMinutes())}`}
+              defaultValue={startsWall.time}
               className="w-full rounded-lg border px-3 py-2.5"
               style={inputStyle}
             />

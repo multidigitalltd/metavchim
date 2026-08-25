@@ -180,7 +180,7 @@ describe("resolveJerusalemWall — עריכה לא מזיזה מה שלא נגע
   it("שעה שחוזרת פעמיים — כל מופע נשמר על עצמו", () => {
     for (const at of [EARLIER, LATER]) {
       const { date, time } = jerusalemWallParts(at);
-      expect(resolveJerusalemWall(date, time, at).toISOString()).toBe(at.toISOString());
+      expect(resolveJerusalemWall(date, time, at)?.toISOString()).toBe(at.toISOString());
     }
   });
 
@@ -192,23 +192,51 @@ describe("resolveJerusalemWall — עריכה לא מזיזה מה שלא נגע
   });
 
   it("שינוי אמיתי של שעה מומר, והעוגן אינו גובר עליו", () => {
-    expect(resolveJerusalemWall("2026-10-25", "09:00", EARLIER).toISOString()).toBe(
+    expect(resolveJerusalemWall("2026-10-25", "09:00", EARLIER)?.toISOString()).toBe(
       "2026-10-25T07:00:00.000Z",
     );
-    expect(resolveJerusalemWall("2026-10-26", "01:30", EARLIER).toISOString()).toBe(
+    expect(resolveJerusalemWall("2026-10-26", "01:30", EARLIER)?.toISOString()).toBe(
       "2026-10-25T23:30:00.000Z",
     );
   });
 
+  /*
+   * ‎**הצד השני של המעבר: השעה שאינה קיימת כלל.**
+   *
+   * ב-27.03.2026 השעון קופץ מ-02:00 ל-03:00. 02:30 באותו לילה אינה
+   * זמן — והמרה „סלחנית” הייתה שומרת 03:30 בלי לומר דבר. הבדיקה
+   * סורקת את כל השעה החסרה, כדי שהתשובה לא תהיה נכונה בדגימה אחת.
+   */
+  it("שעה שדולגה במעבר לשעון קיץ נדחית, ולא מתורגמת בשקט", () => {
+    for (let m = 0; m < 60; m += 10) {
+      const time = `02:${String(m).padStart(2, "0")}`;
+      expect(resolveJerusalemWall("2026-03-27", time, null)).toBeNull();
+    }
+    /* השעות שמסביב לפער קיימות, ונשארות תקינות */
+    expect(resolveJerusalemWall("2026-03-27", "01:30", null)?.toISOString()).toBe(
+      "2026-03-26T23:30:00.000Z",
+    );
+    expect(resolveJerusalemWall("2026-03-27", "03:30", null)?.toISOString()).toBe(
+      "2026-03-27T00:30:00.000Z",
+    );
+  });
+
+  it("גם עוגן אינו מכשיר שעה שאינה קיימת", () => {
+    const anchor = new Date("2026-03-27T00:30:00Z");
+    /* העוגן עצמו נקרא 03:30 — הוא אינו יכול לאשר בקשה ל-02:30 */
+    expect(jerusalemWallParts(anchor).time).toBe("03:30");
+    expect(resolveJerusalemWall("2026-03-27", "02:30", anchor)).toBeNull();
+  });
+
   it("יצירה חדשה — אין עוגן, וההמרה רגילה", () => {
-    expect(resolveJerusalemWall("2026-08-13", "14:30", null).toISOString()).toBe(
+    expect(resolveJerusalemWall("2026-08-13", "14:30", null)?.toISOString()).toBe(
       "2026-08-13T11:30:00.000Z",
     );
   });
 
   it("שניות של הרגע השמור נשמרות כשלא נגעו בשעה", () => {
     const at = new Date("2026-08-13T11:30:45.000Z");
-    expect(resolveJerusalemWall("2026-08-13", "14:30", at).toISOString()).toBe(at.toISOString());
+    expect(resolveJerusalemWall("2026-08-13", "14:30", at)?.toISOString()).toBe(at.toISOString());
   });
 
   it("אזור הזמן של הדפדפן אינו משנה את התוצאה", () => {
@@ -216,10 +244,10 @@ describe("resolveJerusalemWall — עריכה לא מזיזה מה שלא נגע
     try {
       for (const tz of ["UTC", "America/New_York", "Asia/Tokyo"]) {
         process.env.TZ = tz;
-        expect(resolveJerusalemWall("2026-10-25", "01:30", EARLIER).toISOString()).toBe(
+        expect(resolveJerusalemWall("2026-10-25", "01:30", EARLIER)?.toISOString()).toBe(
           EARLIER.toISOString(),
         );
-        expect(resolveJerusalemWall("2026-08-13", "14:30", null).toISOString()).toBe(
+        expect(resolveJerusalemWall("2026-08-13", "14:30", null)?.toISOString()).toBe(
           "2026-08-13T11:30:00.000Z",
         );
       }

@@ -9,6 +9,7 @@ import {
   JERUSALEM_TZ,
   jerusalemDayRange,
   jerusalemDayStart,
+  JERUSALEM_WALL_GAP_MESSAGE,
   jerusalemWallParts,
   jerusalemWeekStart,
   resolveJerusalemWall,
@@ -149,8 +150,14 @@ function EditAppointment({
       const timeChanged =
         date !== initialDate || time !== initialTime || duration !== initialDuration;
       if (timeChanged) {
+        const startsAt = resolveJerusalemWall(date, time, start);
+        if (startsAt === null) {
+          setError(JERUSALEM_WALL_GAP_MESSAGE);
+          setBusy(false);
+          return;
+        }
         await apiPost(`/appointments/${appointment.id}/reschedule`, {
-          startsAt: resolveJerusalemWall(date, time, start).toISOString(),
+          startsAt: startsAt.toISOString(),
           durationMinutes: duration,
         });
       }
