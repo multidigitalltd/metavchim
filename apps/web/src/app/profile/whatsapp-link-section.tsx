@@ -49,9 +49,18 @@ export function WhatsAppLinkSection() {
 
   useEffect(load, [load]);
 
+  /**
+   * קוד חדש — והישן יורד מהמסך **לפני** הבקשה.
+   *
+   * ההנפקה מקדמת את דור החשבון, כלומר הקוד המוצג מתבטל ברגע שהשרת
+   * מטפל בבקשה — גם אם התשובה אבדה בדרך חזרה. השארתו על המסך לצד
+   * „ההפקה נכשלה” מציגה אישור שכבר אינו תקף, והמתווך יגלה זאת רק
+   * אחרי ששלח אותו בוואטסאפ (ביקורת Codex).
+   */
   function issue(): void {
     setBusy(true);
     setMessage(null);
+    setCode(null);
     apiPost<{ code: string }>("/settings/whatsapp-link/code", {})
       .then((res) => setCode(res.code))
       .catch(() => setMessage("הפקת הקוד נכשלה — נסו שוב"))

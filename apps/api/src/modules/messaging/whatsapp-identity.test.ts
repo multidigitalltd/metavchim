@@ -509,6 +509,16 @@ describe("קוד ממתין אפשר לבטל גם בלי מכשיר מחובר"
     expect(section).toContain("לבטל את הקוד");
   });
 
+  /*
+   * ההנפקה מקדמת את דור החשבון, ולכן הקוד המוצג מתבטל ברגע שהשרת
+   * טיפל בבקשה — גם אם התשובה אבדה. השארתו על המסך לצד „ההפקה
+   * נכשלה” מציגה אישור שכבר אינו תקף.
+   */
+  it("ובקשת קוד חדש מורידה את הישן מהמסך לפני שהיא נשלחת", () => {
+    const issue = section.slice(section.indexOf("function issue("), section.indexOf("function revokeLink("));
+    expect(issue.indexOf("setCode(null)")).toBeLessThan(issue.indexOf("apiPost"));
+  });
+
   it("והיא אותה בקשה שמנתקת — הניתוק שורף גם קוד פתוח", () => {
     const revoke = section.slice(section.indexOf("function revokeLink("));
     expect(revoke).toContain('apiDelete("/settings/whatsapp-link")');
