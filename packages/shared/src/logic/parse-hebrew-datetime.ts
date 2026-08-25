@@ -148,6 +148,47 @@ function quantityOf(word: string): number | undefined {
   return QUANTITY_WORDS[word];
 }
 
+/** „עשרים וחמש” — העשרות שהיחידות נתלות בהן, ורק הן. */
+const TENS = new Set([20, 30, 40, 50]);
+
+/**
+ * כמות, ובכללה **צורת העשרות של העברית**: „עשרים וחמש דקות”.
+ *
+ * זו אינה הרחבה אלא סגירת פער: „בעוד עשרים וחמש דקות” לא ייצר
+ * תאריך כלל, ו„בעוד שעה ועשרים וחמש דקות” נתן שעה עגולה — כלומר
+ * אותו חוסר הופיע גם כשדה ריק וגם כשעה שגויה, תלוי במיקום
+ * (ביקורת Codex על ההמשך החיבורי; הראש סבל מכך באותה מידה).
+ *
+ * ‎`words` הוא מספר המילים שנבלעו — אחת או שתיים — כדי שהקורא ידע
+ * היכן היחידה. הקלט הוא מילים מנוקות ולא התאמות, כי שני הקוראים
+ * כבר מנקים אותן ממילא — ואחד מהם קורא מילה שוי"ו החיבור הוסרה
+ * ממנה, שאינה קיימת בטקסט המקורי כלל.
+ *
+ * החיבור מוגבל לעשרות ויחידות שלמות בכוונה. „שעה וחצי” הוא שבר
+ * של יחידה ולא כמות מורכבת, ו-`חצי`/`רבע` יושבים באותו מילון
+ * כמויות — בלי ההגבלה „עשרים וחצי” היה נקרא 20.5.
+ */
+function quantityAt(
+  texts: readonly (string | undefined)[],
+  index: number,
+): { value: number; words: number } | undefined {
+  const text = texts[index];
+  if (text === undefined) return undefined;
+  const base = quantityOf(text);
+  if (base === undefined) return undefined;
+  if (!TENS.has(base)) return { value: base, words: 1 };
+
+  const next = texts[index + 1];
+  if (next === undefined || next.length < 2 || !next.startsWith("ו")) {
+    return { value: base, words: 1 };
+  }
+  const addend = quantityOf(next.slice(1));
+  if (addend === undefined || !Number.isInteger(addend) || addend < 1 || addend > 9) {
+    return { value: base, words: 1 };
+  }
+  return { value: base + addend, words: 2 };
+}
+
 /**
  * ההמשך החיבורי: „**ועשרים דקות**”, „**ושלוש שעות**”, „**ויומיים**”.
  *
@@ -176,34 +217,53 @@ function additiveTail(
   // שלוש תוספות לכל היותר — „שעה ועשרים דקות” הוא הניסוח האמיתי,
   // ומעבר לכך אין דיבור אלא קלט מנוון
   for (let step = 0; step < 3; step += 1) {
-    const words = [...rest.slice(consumed).matchAll(/\S+/gu)].slice(0, 2);
+    // ארבע מילים — „ועשרים וחמש דקות וחצי” הוא הצירוף הארוך ביותר
+    const words = [...rest.slice(consumed).matchAll(/\S+/gu)].slice(0, 4);
     const head = words[0];
     if (head?.index === undefined) break;
     const raw = bareWord(head[0]);
     // וי"ו החיבור היא התנאי — בלעדיה זו כבר מילה אחרת במשפט
     if (raw === undefined || raw.length < 2 || !raw.startsWith("ו")) break;
     const body = raw.slice(1);
+    const endOf = (at: number): number | undefined => {
+      const word = words[at];
+      return word === undefined ? undefined : consumed + (word.index ?? 0) + word[0].length;
+    };
 
     // „ויומיים”, „ושבוע” — יחידה שעומדת לבדה ונושאת את כמותה
     const solo = soloUnit(body);
     if (solo !== undefined) {
-      const step0 = Math.round((solo.soloCount ?? 1) * solo.ms);
-      consumed += (head.index ?? 0) + head[0].length;
+      consumed = endOf(0)!;
       evidence += ` ${raw}`;
-      if (ms !== null) ms += step0;
+      if (ms !== null) ms += Math.round((solo.soloCount ?? 1) * solo.ms);
       continue;
     }
 
-    const quantity = quantityOf(body);
-    const nextWord = words[1];
-    const next = nextWord === undefined ? undefined : bareWord(nextWord[0]);
-    const unit = next === undefined ? undefined : countedUnit(next);
-    if (quantity === undefined || unit === undefined || nextWord === undefined) break;
+    /*
+     * הכמות נקראת מהמילה **בלי וי"ו החיבור**, ומשם ואילך זה אותו
+     * דקדוק של הראש: כמות (ובכללה „עשרים וחמש”), יחידה, ושבר.
+     */
+    const texts = [body, ...words.slice(1).map((word) => bareWord(word[0]))];
+    const quantity = quantityAt(texts, 0);
+    if (quantity === undefined) break;
 
-    consumed += (nextWord.index ?? 0) + nextWord[0].length;
-    evidence += ` ${raw} ${next}`;
-    if (quantity > unit.max) ms = null;
-    else if (ms !== null) ms += Math.round(quantity * unit.ms);
+    const unitText = texts[quantity.words];
+    const unit = unitText === undefined ? undefined : countedUnit(unitText);
+    if (unit === undefined) break;
+
+    // „ושלוש שעות **וחצי**” — השבר שייך ליחידה שנוספה, כמו בראש
+    const fractionText = texts[quantity.words + 1];
+    const fraction = fractionText === undefined ? undefined : FRACTION_SUFFIX[fractionText];
+    const lastIndex = quantity.words + (fraction === undefined ? 0 : 1);
+    const end = endOf(lastIndex);
+    if (end === undefined) break;
+
+    consumed = end;
+    // וי"ו החיבור נשארת בראיה — היא חלק ממה שהדובר אמר
+    evidence += ` ${[raw, ...texts.slice(1, lastIndex + 1)].join(" ")}`;
+    const total = quantity.value + (fraction ?? 0);
+    if (total > unit.max) ms = null;
+    else if (ms !== null) ms += Math.round(total * unit.ms);
   }
   return { ms, evidence, consumed };
 }
@@ -294,7 +354,7 @@ function offsetAt(
    * התיקון הקודם כיסה רק את היחידה שעומדת לבדה („שעה וחצי”), והשבר
    * אחרי כמות נשאר נבלע (ביקורת Codex).
    */
-  const words = [...rest.matchAll(/\S+/gu)].slice(0, 3);
+  const words = [...rest.matchAll(/\S+/gu)].slice(0, 4);
   const firstWord = words[0];
   if (firstWord?.index === undefined) return null;
   const endOf = (word: RegExpExecArray | RegExpMatchArray): number =>
@@ -364,10 +424,19 @@ function offsetAt(
     return bounded(whole, alone, Number.POSITIVE_INFINITY, `${lead} ${first}`, endOf(firstWord));
   }
 
-  const quantity = quantityOf(first);
-  if (quantity === undefined) return null;
+  /*
+   * הכמות עוברת דרך אותו קורא של ההמשך החיבורי, ולכן „בעוד עשרים
+   * וחמש דקות” נקרא כאן גם הוא. הפער היה סימטרי: באמצע המשפט הוא
+   * נתן שעה עגולה, ובראשו הוא לא נתן תאריך כלל.
+   */
+  const counted = quantityAt(
+    words.map((word) => bareWord(word[0])),
+    0,
+  );
+  if (counted === undefined) return null;
+  const quantity = counted.value;
 
-  const secondWord = words[1];
+  const secondWord = words[counted.words];
   const second = secondWord === undefined ? undefined : bareWord(secondWord[0]);
   const unit = second === undefined ? undefined : countedUnit(second);
 
@@ -400,17 +469,21 @@ function offsetAt(
   }
 
   // „עשרים דקות”, „רבע שעה”, „3 ימים”, „שלוש שעות וחצי”
-  const fraction = fractionAt(words[2]);
+  const said = `${lead} ${words
+    .slice(0, counted.words + 1)
+    .map((word) => bareWord(word[0]))
+    .join(" ")}`;
+  const fraction = fractionAt(words[counted.words + 1]);
   if (fraction !== undefined) {
     return bounded(
       quantity + fraction.value,
       unit,
       unit.max,
-      `${lead} ${first} ${second} ${fraction.text}`,
+      `${said} ${fraction.text}`,
       endOf(fraction.word),
     );
   }
-  return bounded(quantity, unit, unit.max, `${lead} ${first} ${second}`, endOf(secondWord!));
+  return bounded(quantity, unit, unit.max, said, endOf(secondWord!));
 }
 
 /**
