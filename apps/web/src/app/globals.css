@@ -941,7 +941,7 @@ code {
   background-image: none;
   color: #ffffff;
 }
-:root[data-a11y-contrast="on"] .mv-agent-badge::before {
+:root[data-a11y-contrast="on"] .mv-agent .mv-agent-badge::before {
   display: none;
 }
 :root[data-a11y-contrast="on"] .mv-button--primary,
@@ -1128,11 +1128,24 @@ code {
   align-items: center;
   gap: 12px;
   /*
-   * גובה נקוב ולא ריפוד — כך כל הפריטים שווים גם כשאחד מהם עוטף
-   * לשתי שורות, וכך גם היעד למגע עומד ב-44 בלי חישוב (§15).
+   * ‎`min-height` ולא `height`, ועם ריפוד אנכי.
+   *
+   * כתבתי כאן „גובה נקוב… כך כל הפריטים שווים גם כשאחד מהם עוטף
+   * לשתי שורות”, וזה **הפוך מהנכון**: גובה נעול אינו מאפשר עטיפה,
+   * הוא גורם לה לגלוש החוצה.
+   *
+   * זה לא הזיק כל עוד הגופן היה 15.5 קבוע. אבל בסבב הקודם קשרתי
+   * את הסולם לסקלת הנגישות, ולכן ב-200% ‎`--type-nav` מגיע ל-31px
+   * בתוך תיבה שנשארה 44 — התוויות הארוכות, ובמיוחד אלה שנושאות
+   * גם מונה או תג „בקרוב”, גולשות ומכסות את פריט הניווט שמתחת.
+   * כלומר דווקא ההגדרה שנועדה לעזור למי שמתקשה לקרוא היא זו
+   * שהפכה את הניווט הראשי לבלתי שמיש (ביקורת Codex, P1).
+   *
+   * שני שינויים שלי, כל אחד נכון לעצמו, שנפגשו רע. ‎`min-height`
+   * שומר על יעד המגע של 44 (WCAG 2.5.8) ומאפשר לשורה לגדול.
    */
-  height: 44px;
-  padding: 0 12px;
+  min-height: 44px;
+  padding: 8px 12px;
   border-radius: 14px;
   font-size: var(--type-nav);
   font-weight: 600;
@@ -4780,8 +4793,15 @@ a.mv-bar-row:focus-visible {
  *
  * ‎`z-index: -1` מציב אותה מאחורי האריח, ו-`pointer-events: none`
  * מונע ממנה לבלוע לחיצה.
+ *
+ * ‎**הבורר מתחיל ב-`.mv-agent` בכוונה.** ‎`mv-agent-badge` משמשת
+ * בשני מקומות: פאנל הסוכן, ו„זוהה חיבור ממכשיר נוסף” של
+ * ‎`single-session-guard`. בלי הסייג ההילה הייתה פועמת גם מאחורי
+ * אריח המגן — כלומר דיאלוג אבטחה שנפתח מעל הדשבורד היה מוסיף
+ * פעימה שנייה, והמוצר היה מפר את הכלל שהקוד הזה בא ליישם
+ * (ביקורת Codex).
  */
-.mv-agent-badge::before {
+.mv-agent .mv-agent-badge::before {
   content: "";
   position: absolute;
   inset: -6px;
@@ -4803,7 +4823,7 @@ a.mv-bar-row:focus-visible {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .mv-agent-badge::before {
+  .mv-agent .mv-agent-badge::before {
     animation: none;
     opacity: 0.45;
   }
