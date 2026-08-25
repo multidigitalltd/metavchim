@@ -118,6 +118,24 @@ describe("parseHebrewDateTime", () => {
     expect(parseHebrewDateTime("תעדכן אותי כשהמצב מעודכן", NOW).date).toBeUndefined();
   });
 
+  /*
+   * „עוד שעות” אינו „עוד שעה”. רק היחיד והזוגי נושאים כמות מוגדרת;
+   * רבים בלי מספר הוא ניסוח מעורפל, ומועד מדויק שנגזר ממנו גרוע
+   * משדה ריק.
+   */
+  it("ורבים בלי מספר אינו מועד", () => {
+    expect(parseHebrewDateTime("תזכיר לי עוד שעות", NOW).date).toBeUndefined();
+    expect(parseHebrewDateTime("נדבר בעוד ימים", NOW).date).toBeUndefined();
+    // אבל עם מספר — כן
+    expect(il(parseHebrewDateTime("תזכיר לי בעוד שלוש שעות", NOW).date).hour).toBe(12);
+  });
+
+  /* „תזכיר לי,עוד שעה” ומרכאות — פיסוק שלפני הביטוי אינו גבול חוקי פחות */
+  it("ופיסוק שלפני הביטוי אינו מבטל אותו", () => {
+    expect(il(parseHebrewDateTime("תזכיר לי,עוד שעה", NOW).date).hour).toBe(10);
+    expect(il(parseHebrewDateTime('אמרתי "בעוד שעתיים"', NOW).date).hour).toBe(11);
+  });
+
   it("ו'תוך' עובד כמו 'עוד'", () => {
     expect(il(parseHebrewDateTime("תחזור אליו תוך שעתיים", NOW).date).hour).toBe(11);
   });

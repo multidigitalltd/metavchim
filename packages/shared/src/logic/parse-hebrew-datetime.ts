@@ -44,11 +44,21 @@ const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
 /**
- * יחידות זמן יחסיות. הזוגי בעברית הוא **מילה ולא מספר**, ולכן
- * „שעתיים” ו„יומיים” נושאים את הכמות בתוכם.
+ * יחידת זמן יחסית — **שתי צורות, ולא אחת.**
+ *
+ * ‎`solo` היא הצורה שעומדת לבדה ונושאת כמות מוגדרת: „שעה” היא אחת,
+ * „שעתיים” הן שתיים. ‎`counted` היא הצורה שבאה **אחרי** כמות.
+ *
+ * ההפרדה אינה קוסמטית. טבלה אחת שכללה גם את הרבים אמרה ש„תזכיר לי
+ * עוד **שעות**” הוא שעה אחת בדיוק — כלומר המציאה מועד מדויק ממשפט
+ * מעורפל, וזה גרוע משדה ריק (ביקורת Codex). רבים בלי מספר אינו
+ * זמן, והוא נדחה.
  */
 interface RelativeUnit {
-  pattern: RegExp;
+  /** עומדת לבדה — יחיד וזוגי בלבד */
+  solo?: RegExp;
+  /** באה אחרי כמות — יחיד ורבים */
+  counted?: RegExp;
   ms: number;
   /**
    * הכמות הגדולה ביותר שאדם אומר ביחידה הזו.
@@ -62,19 +72,19 @@ interface RelativeUnit {
 }
 
 const RELATIVE_UNITS: RelativeUnit[] = [
-  // הזוגי בעברית הוא מילה ולא מספר — היחידה נושאת את הכמות
-  { pattern: /^שעתיים$/u, ms: 2 * HOUR_MS, max: 1 },
-  { pattern: /^יומיים$/u, ms: 2 * DAY_MS, max: 1 },
-  { pattern: /^שבועיים$/u, ms: 14 * DAY_MS, max: 1 },
+  // הזוגי בעברית הוא מילה ולא מספר — ולכן הוא עומד לבדו בלבד
+  { solo: /^שעתיים$/u, ms: 2 * HOUR_MS, max: 1 },
+  { solo: /^יומיים$/u, ms: 2 * DAY_MS, max: 1 },
+  { solo: /^שבועיים$/u, ms: 14 * DAY_MS, max: 1 },
   /*
    * הרבים בעברית אינו סיומת שאפשר לסמן ב-`?`: „שעות” אינו „שעה”
    * ועוד אות. כל צורה נכתבת במלואה — קיצור כאן היה מזהה את הרבים
    * ומפספס בדיוק את היחיד, שהוא הצורה השכיחה בשיחה.
    */
-  { pattern: /^דקה$|^דקות$/u, ms: MINUTE_MS, max: 180 },
-  { pattern: /^שעה$|^שעות$/u, ms: HOUR_MS, max: 48 },
-  { pattern: /^יום$|^ימים$/u, ms: DAY_MS, max: 60 },
-  { pattern: /^שבוע$|^שבועות$/u, ms: 7 * DAY_MS, max: 8 },
+  { solo: /^דקה$/u, counted: /^דקה$|^דקות$/u, ms: MINUTE_MS, max: 180 },
+  { solo: /^שעה$/u, counted: /^שעה$|^שעות$/u, ms: HOUR_MS, max: 48 },
+  { solo: /^יום$/u, counted: /^יום$|^ימים$/u, ms: DAY_MS, max: 60 },
+  { solo: /^שבוע$/u, counted: /^שבוע$|^שבועות$/u, ms: 7 * DAY_MS, max: 8 },
 ];
 
 /**
@@ -89,8 +99,14 @@ const QUANTITY_WORDS: Record<string, number> = {
   עשרים: 20, שלושים: 30, ארבעים: 40, חמישים: 50,
 };
 
-function unitOf(word: string): RelativeUnit | undefined {
-  return RELATIVE_UNITS.find((unit) => unit.pattern.test(word));
+/** „עוד שעה” — יחידה שעומדת לבדה. רבים בלי מספר אינו נכנס לכאן. */
+function soloUnit(word: string): RelativeUnit | undefined {
+  return RELATIVE_UNITS.find((unit) => unit.solo?.test(word) === true);
+}
+
+/** „עוד שלוש שעות” — היחידה שאחרי הכמות. */
+function countedUnit(word: string): RelativeUnit | undefined {
+  return RELATIVE_UNITS.find((unit) => unit.counted?.test(word) === true);
 }
 
 function quantityOf(word: string): number | undefined {
@@ -131,10 +147,12 @@ function bareWord(raw: string | undefined): string | undefined {
 /**
  * מילת הפתיחה בלבד — **בגבול מילה, וכל המופעים.**
  *
- * ‎`(?:^|\s)` מונע התאמה בתוך מילה („מעודכן”, „עודף”), והדגל
- * הגלובלי הוא מה שמאפשר לעבור על כל המופעים.
+ * המבט לאחור דוחה **אות או ספרה** בלבד, ולכן „מעודכן” ו„עודף” אינם
+ * נקראים כ„עוד” — אבל פיסוק שלפני כן כן עובר. ‎`(?:^|\s)` דרש רווח
+ * ממש, ולכן „תזכיר לי,עוד שעה” ו„עוד שעה” במרכאות לא נתפסו כלל
+ * (ביקורת Codex). הדגל הגלובלי הוא מה שמאפשר לעבור על כל המופעים.
  */
-const RELATIVE_TRIGGER = /(?:^|\s)(ב?עוד|תוך)\s+/gu;
+const RELATIVE_TRIGGER = /(?<![\p{L}\p{N}])(ב?עוד|תוך)\s+/gu;
 
 /** מועמד אחד: מילת פתיחה, ומה שבא אחריה. */
 function offsetAt(lead: string, rest: string): { ms: number; evidence: string } | null {
@@ -143,14 +161,14 @@ function offsetAt(lead: string, rest: string): { ms: number; evidence: string } 
   if (first === undefined) return null;
 
   // „שעתיים”, „שעה” — היחידה עומדת לבדה ונושאת את הכמות שלה
-  const alone = unitOf(first);
+  const alone = soloUnit(first);
   if (alone !== undefined) return { ms: alone.ms, evidence: `${lead} ${first}` };
 
   // „עשרים דקות”, „רבע שעה”, „3 ימים”
   const second = bareWord(words[1]);
   const quantity = quantityOf(first);
   if (quantity === undefined || second === undefined) return null;
-  const unit = unitOf(second);
+  const unit = countedUnit(second);
   if (unit === undefined || quantity > unit.max) return null;
   const ms = Math.round(quantity * unit.ms);
   if (!Number.isFinite(ms) || ms <= 0) return null;
