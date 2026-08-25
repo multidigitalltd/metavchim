@@ -444,11 +444,16 @@ export function agentResultList(data: unknown): AgentResultList | null {
       const record = contact as Record<string, unknown>;
       const name = text(record["name"]);
       if (name !== null) {
+        /*
+         * **בלי קישור.** לאיש קשר אין מסך משלו — הוא נצפה דרך כרטיס
+         * הקונה או הליד, ו-`/contacts/…` הוא 404 (ביקורת Codex).
+         * הכרטיסים עצמם מופיעים כשורות במקטעים שמתחת, ומהם אפשר
+         * להמשיך.
+         */
         rows.push({
           label: name,
           detail: "",
           ...(phoneOf(record) !== null ? { phone: phoneOf(record)! } : {}),
-          ...(text(record["id"]) !== null ? { href: `/contacts/${String(record["id"])}` } : {}),
         });
       }
     }
@@ -521,4 +526,98 @@ export function agentResultText(data: unknown): string | null {
   if (hidden > 0) lines.push(`ועוד ${hidden} ${list.noun}${beyond}`);
   else if (list.hasMore) lines.push(`מוצגים ${shown.length} ה${list.noun} הראשונים — יש עוד`);
   return lines.join("\n");
+}
+
+/**
+ * תקרת הזיכרון שנשמר לתור הבא — **מוסכמת עם סכימת הנתיב.**
+ *
+ * `resultSummary` בבקר מוגבל לאותו אורך, ושני מספרים נפרדים היו
+ * נפרדים ביום שאחד מהם משתנה — וההודעה הייתה נדחית או נקטעת בשקט.
+ */
+export const AGENT_RESULT_SUMMARY_MAX = 600;
+
+/** שורה כפי שהיא נזכרת: כותרת, מה שנשמר במקומה, והטלפון לתצוגה. */
+export interface AgentMemoryRow {
+  label: string;
+  memoryLabel?: string;
+  phone?: string;
+}
+
+/**
+ * שורות התוצאה לפי הסדר שהוחזר — **קודם הרשימה המשותפת.**
+ *
+ * זו לא אופטימיזציה אלא מה שמחזיק את ההמשך הרב-תורי: מה שהמתווך
+ * ראה נבנה מ-`agentResultList`, וכשהזיכרון נבנה מסריקה אחרת — עם
+ * תקרה אחרת ועם שמות משדות אחרים — נוצר פער שהוא נופל לתוכו.
+ * אחרי `show_calls` אפילו „הראשון מהם” לא היה מוכר, כי שורת שיחה
+ * נושאת `contactName` ולא `name` (ביקורת Codex).
+ *
+ * הסריקה הכללית נשארת לצורות שהרשימה המשותפת אינה מכירה — כרטיס
+ * יחיד, ותוצאות של פעולות שאינן קריאה. רשימת השדות שהיא אוספת
+ * סגורה, ולכן שדה חדש בתשובה אינו יכול לזלוג לזיכרון בלי שמישהו
+ * יוסיף אותו כאן במפורש.
+ */
+export function agentResultRows(data: unknown): AgentMemoryRow[] {
+  const shared = agentResultList(data);
+  if (shared !== null) {
+    return shared.rows.slice(0, AGENT_RESULT_ROWS).map((row) => ({
+      label: row.label,
+      ...(row.memoryLabel === undefined ? {} : { memoryLabel: row.memoryLabel }),
+      ...(row.phone === undefined ? {} : { phone: row.phone }),
+    }));
+  }
+
+  const rows: AgentMemoryRow[] = [];
+  const collect = (items: unknown): void => {
+    if (!Array.isArray(items)) return;
+    for (const item of items) {
+      if (rows.length >= AGENT_RESULT_ROWS) return;
+      if (typeof item !== "object" || item === null) continue;
+      const record = item as Record<string, unknown>;
+      const label = record["name"] ?? record["title"] ?? record["marketingTitle"];
+      if (typeof label !== "string" || label === "") continue;
+      /* `contactPhone` הוא השם שפעולות השיחה משתמשות בו. */
+      const phone = record["phone"] ?? record["contactPhone"];
+      rows.push(typeof phone === "string" && phone !== "" ? { label, phone } : { label });
+    }
+  };
+  if (Array.isArray(data)) collect(data);
+  else if (typeof data === "object" && data !== null) {
+    for (const value of Object.values(data as Record<string, unknown>)) collect(value);
+  }
+  return rows;
+}
+
+/**
+ * מה שנשמר לתור הבא — שורת המצב, ואחריה השמות לפי הסדר.
+ *
+ * ## למה כאן ולא בכל מסך
+ *
+ * לסוכן שני פנים, ולשניהם אותו זיכרון בדיוק: „תקבע לראשון מהם”
+ * חייב להתייחס לאותה רשימה שהמתווך ראה, ולא משנה אם ראה אותה
+ * בפאנל או בוואטסאפ. שני מנסחים נפרדים כבר נפרדו בפועל — אחד
+ * שמר חמישה שמות והאחר שמונה, אחד חיפש `name` והאחר את השורות
+ * המשותפות — ולכן אותה שאלה בשני הערוצים נזכרה אחרת (ביקורת Codex).
+ *
+ * ## מה לעולם אינו נכנס
+ *
+ * שם וסדר בלבד. לא טלפון, לא אימייל, לא הערות ולא תקצירי שיחות:
+ * הזיכרון נוסע בתור הבא לפרומפט של מודל חיצוני, והתשובה שנשלחה
+ * למתווך נשארת אצלו. `memoryLabel` מחליף כותרת שהיא עצמה פרט מזהה.
+ *
+ * ## למה ההודעה נחתכת ולא השמות
+ *
+ * שם קטוע אינו רק פחות קריא — הוא מפתח חיפוש שבור, ובתור הבא
+ * הרשומה שהמתווך בדיוק ראה חוזרת כ„לא נמצא במאגר”. ההודעה, לעומת
+ * זאת, היא ניסוח שהמודל מייצר מחדש ממילא.
+ */
+export function agentHistorySummary(message: string, data: unknown): string {
+  const labels = agentResultRows(data).map((row) => row.memoryLabel ?? row.label);
+  const head = message.replaceAll("\n", " ").trim();
+  if (labels.length === 0) return head.slice(0, AGENT_RESULT_SUMMARY_MAX);
+  const tail = ` | לפי הסדר: ${labels.join(", ")}`;
+  return `${head.slice(0, Math.max(0, AGENT_RESULT_SUMMARY_MAX - tail.length))}${tail}`.slice(
+    0,
+    AGENT_RESULT_SUMMARY_MAX,
+  );
 }

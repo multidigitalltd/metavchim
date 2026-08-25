@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   AGENT_RESULT_LABEL_MAX,
+  agentHistorySummary,
   agentResultList,
+  agentResultRows,
   agentResultText,
   officeReportStats,
 } from "./result-lines.js";
@@ -314,6 +316,23 @@ describe("חיפוש כללי — כל המקטעים חוזרים תמיד, ג�
     expect(list.rows[0]).toMatchObject({ label: "דנה לוי", phone: "0521111111" });
   });
 
+  /*
+   * לאיש קשר אין מסך משלו — הוא נצפה דרך כרטיס הקונה או הליד.
+   * הקישור שכתבתי הוביל ל-404 (ביקורת Codex).
+   */
+  it("שורת הזהות אינה מקשרת לשומקום", () => {
+    const list = agentResultList({
+      ...search,
+      contact: { id: "c1", name: "דנה לוי", phone: "0521111111" },
+    })!;
+    expect(list.rows[0]!.href).toBeUndefined();
+  });
+
+  it("קיטום שהחיפוש עשה נאמר גם בתוצאה המאוחדת", () => {
+    const text = agentResultText({ ...search, hasMore: true })!;
+    expect(text).toContain("יש עוד");
+  });
+
   it("הערה שנמצאה אינה נבלעת — „לא נמצא כלום” הוא טענה על המאגר", () => {
     const text = agentResultText({
       ...search,
@@ -469,5 +488,98 @@ describe("תוצאת השיחה — כל הערכים שהסכימה מקבלת"
       calls: [{ id: "c", direction: "inbound", phone: "050", occurredAt: "2026-08-24T11:30:00Z", outcome }],
     })!;
     expect(text).toContain(label);
+  });
+});
+
+describe("הזיכרון לתור הבא — גזירה אחת לשני המסכים", () => {
+  const RESULTS = {
+    buyers: [
+      { name: "משה כהן", phone: "050-1234567" },
+      { name: "דנה לוי", contactPhone: "050-7654321" },
+    ],
+  };
+
+  it("שומר את הסדר והשמות — בלי זה „תקבע לראשון” נשבר", () => {
+    const summary = agentHistorySummary("נמצאו 2 קונים", RESULTS);
+    expect(summary).toContain("נמצאו 2 קונים");
+    expect(summary).toContain("משה כהן, דנה לוי");
+  });
+
+  it("לא טלפון ולא אימייל — הזיכרון נשלח למודל חיצוני", () => {
+    const summary = agentHistorySummary("נמצאו 2 קונים", RESULTS);
+    expect(summary).not.toContain("050-1234567");
+    expect(summary).not.toContain("050-7654321");
+  });
+
+  it("שדות הכרטיס המלא אינם נכנסים לזיכרון", () => {
+    const summary = agentHistorySummary("הכרטיס של משה כהן", {
+      card: {
+        kind: "buyer",
+        contact: { name: "משה כהן", phone: "050-1234567", email: "m@example.com" },
+        agentNotes: "גמיש בקומה",
+        calls: [{ id: "c1", summary: "דיבר על תקציב" }],
+      },
+    });
+    expect(summary).toBe("הכרטיס של משה כהן");
+  });
+
+  it("תשובה בלי תוצאות נשמרת כמות שהיא, בשורה אחת", () => {
+    expect(agentHistorySummary("הקונה נוצר\nבהצלחה", undefined)).toBe("הקונה נוצר בהצלחה");
+  });
+
+  it("נחתך לתקרת השדה בסכימת הנתיב", () => {
+    expect(agentHistorySummary("א".repeat(900), undefined)).toHaveLength(600);
+  });
+
+  /*
+   * שיחה ממספר לא מוכר מוצגת עם המספר — הוא בדיוק מה שדרוש כדי
+   * לחזור אליו. אבל אז הוא גם הכותרת, והכותרות הן מה שנשמר לתור
+   * הבא ונשלח לפרומפט של מודל חיצוני (ביקורת Codex).
+   */
+  it("מספר של מתקשר לא מוכר אינו נכנס לזיכרון", () => {
+    const calls = {
+      calls: [
+        {
+          id: "c1",
+          direction: "inbound",
+          contactPhone: "052-1111111",
+          occurredAt: "2026-08-24T11:30:00Z",
+          outcome: "missed",
+        },
+      ],
+    };
+    // המספר נשלח למתווך בשדה שלו, ולא נשמר
+    expect(agentResultRows(calls)[0]!.phone).toBe("052-1111111");
+    const summary = agentHistorySummary("שיחה אחת אחרונה", calls);
+    expect(summary).not.toContain("052-1111111");
+    expect(summary).toContain("מספר לא מזוהה");
+  });
+
+  it("שמונה כותרות ארוכות נכנסות בשלמותן — בלי קטיעה באמצע שם", () => {
+    const buyers = Array.from({ length: 8 }, (_, i) => ({
+      id: String(i),
+      name: `${"א".repeat(120)}${i}`,
+      cities: [],
+    }));
+    const summary = agentHistorySummary("נמצאו 8 קונים", { buyers });
+    expect(summary.length).toBeLessThan(600);
+    expect(summary.split(", ")).toHaveLength(8);
+  });
+
+  /*
+   * מה שנשמר חוזר בתור הבא כביטוי מזהה, והחיפוש מוצא רשומה לפי
+   * `name.includes(phrase)`. שם שנקטע באמצע מפני שההודעה הייתה
+   * ארוכה הוא מפתח חיפוש שבור, וההודעה — לעומתו — היא ניסוח שהמודל
+   * מייצר מחדש ממילא.
+   */
+  it("הודעה ארוכה נחתכת, והשמות נשארים שלמים", () => {
+    const buyers = Array.from({ length: 8 }, (_, i) => ({
+      id: String(i),
+      name: `קונה מספר ${i}`,
+      cities: [],
+    }));
+    const summary = agentHistorySummary("א".repeat(900), { buyers });
+    expect(summary).toHaveLength(600);
+    expect(summary.endsWith("קונה מספר 7")).toBe(true);
   });
 });

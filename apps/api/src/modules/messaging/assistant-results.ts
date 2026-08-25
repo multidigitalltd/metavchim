@@ -1,104 +1,29 @@
-import { AGENT_RESULT_ROWS, agentResultList } from "@metavchim/shared";
+import { agentResultRows } from "@metavchim/shared";
 
 /**
- * שתי קריאות של אותן תוצאות — אחת למתווך, אחת לזיכרון השיחה.
+ * מה שהמתווך קורא בוואטסאפ — שם וטלפון, שורה לכל תוצאה.
  *
- * ## למה שתיים, ולמה מאותו מקום
+ * ## מה נמצא כאן ומה עבר למשותף
  *
- * מה שהמתווך רואה ומה שנשמר בזיכרון אינם אותו דבר, ואסור שיהיו:
- * התשובה נשלחת אליו בלבד, והזיכרון נשלח בתור הבא לפרומפט של מודל
- * חיצוני. לכן התשובה כוללת טלפונים והזיכרון לא.
+ * **הזיכרון אינו כאן.** מה שנשמר לתור הבא נגזר ב-`agentHistorySummary`
+ * שבחבילה המשותפת, כי לסוכן שני פנים ולשניהם אותו זיכרון בדיוק:
+ * „תקבע לראשון מהם” חייב להתייחס לאותה רשימה, בין שהמתווך ראה
+ * אותה בפאנל ובין שבוואטסאפ. כל עוד לכל ערוץ היה מנסח משלו הם
+ * נפרדו בפועל — אחד שמר חמישה שמות והאחר שמונה (ביקורת Codex).
  *
- * מה שכן חייב להיות זהה הוא **הסדר והשמות**: „תקבע לראשון מהם”
- * עובד רק אם הרשימה שהמודל זוכר היא בדיוק הרשימה שהמתווך ראה. שני
- * מנסחים נפרדים היו נפרדים ברגע שאחד מהם משתנה — ולכן שניהם
- * נגזרים כאן מ-`resultRows` אחת.
+ * מה שנשאר כאן הוא התצוגה בוואטסאפ בלבד: אותן שורות, עם הטלפונים
+ * שאינם נשמרים לזיכרון לעולם.
  *
- * ## מה לעולם אינו נכנס לזיכרון
- *
- * שם וסדר בלבד. לא טלפון, לא אימייל, לא הערות ולא תקצירי שיחות.
- * זה אינו סינון של השדות הידועים אלא ההפך — רשימת השדות שנאספים
- * היא סגורה, ולכן שדה חדש שיתווסף לתשובה בעתיד אינו יכול לזלוג
- * לזיכרון בלי שמישהו יוסיף אותו לכאן במפורש.
- */
-
-interface ResultRow {
-  label: string;
-  /**
-   * מה שנשמר לזיכרון במקום `label` — **כשה-`label` עצמו מזהה.**
-   *
-   * שיחה ממספר לא מוכר מוצגת עם המספר, כי הוא בדיוק מה שדרוש כדי
-   * לחזור אליו; אבל אז הוא גם הכותרת, והכותרות הן מה שנשמר. הפרדת
-   * `phone` לשדה משלו לא כיסתה את המקרה הזה, ולכן מספר של מתקשר
-   * לא מוכר היה מגיע לפרומפט של המודל החיצוני (ביקורת Codex).
-   */
-  memoryLabel?: string;
-  phone?: string;
-}
-
-/**
- * שורות התוצאה לפי הסדר שהוחזר.
- *
- * **קודם הרשימה המשותפת, ורק אחר כך הסריקה הכללית.**
- *
- * זו לא אופטימיזציה אלא מה שמחזיק את ההמשך הרב-תורי: התשובה
- * שנשלחה למתווך נבנית מ-`agentResultList`, וכשהזיכרון נבנה מסריקה
- * אחרת — עם תקרה אחרת ועם שמות משדות אחרים — נוצר פער שהמתווך
- * נופל לתוכו. אחרי `show_calls` אפילו „הראשון מהם” לא היה מוכר,
- * כי שורת שיחה נושאת `contactName` ולא `name` (ביקורת Codex).
- *
- * הסריקה הכללית נשארת לצורות שהרשימה המשותפת אינה מכירה — כרטיס
- * יחיד, ותוצאות של פעולות שאינן קריאה.
- *
- * `data` מגיע כמערך או כאובייקט של מערכים (`{buyers: [...]}`),
- * ושתי הצורות נסרקות באותו אופן.
- */
-function resultRows(data: unknown): ResultRow[] {
-  const shared = agentResultList(data);
-  if (shared !== null) {
-    return shared.rows.slice(0, AGENT_RESULT_ROWS).map((row) => ({
-      label: row.label,
-      ...(row.memoryLabel === undefined ? {} : { memoryLabel: row.memoryLabel }),
-      ...(row.phone === undefined ? {} : { phone: row.phone }),
-    }));
-  }
-
-  const rows: ResultRow[] = [];
-  const collect = (items: unknown): void => {
-    if (!Array.isArray(items)) return;
-    for (const item of items) {
-      if (rows.length >= AGENT_RESULT_ROWS) return;
-      if (typeof item !== "object" || item === null) continue;
-      const record = item as Record<string, unknown>;
-      const label = record["name"] ?? record["title"] ?? record["marketingTitle"];
-      if (typeof label !== "string" || label === "") continue;
-      /* `contactPhone` הוא השם שפעולות השיחה משתמשות בו. */
-      const phone = record["phone"] ?? record["contactPhone"];
-      rows.push(
-        typeof phone === "string" && phone !== "" ? { label, phone } : { label },
-      );
-    }
-  };
-  if (Array.isArray(data)) collect(data);
-  else if (typeof data === "object" && data !== null) {
-    for (const value of Object.values(data as Record<string, unknown>)) collect(value);
-  }
-  return rows;
-}
-
-/**
- * מה שהמתווך קורא — שם וטלפון, שורה לכל תוצאה.
+ * ## למה שורה לכל תוצאה
  *
  * הטלפון נאמר לצד השם ולא נבלע: קודם נאספה רק התווית, ולכן „מה
  * הטלפון של משה כהן?” נענה ב„בין התוצאות: משה כהן” — בלי מספר,
  * תמיד. הסוכן נבנה כדי לחסוך כניסה לדשבורד, ורשימת שמות בלי
- * מספרים מחייבת בדיוק אותה.
- *
- * שורה לכל תוצאה ולא משפט רץ: מספר טלפון בתוך משפט אי אפשר להעתיק
- * בנוחות בטלפון.
+ * מספרים מחייבת בדיוק אותה. שורה לכל תוצאה ולא משפט רץ: מספר
+ * טלפון בתוך משפט אי אפשר להעתיק בנוחות בטלפון.
  */
 export function summarizeData(data: unknown): string {
-  const rows = resultRows(data);
+  const rows = agentResultRows(data);
   if (rows.length === 0) return "";
   /* כשהכותרת **היא** המספר (מתקשר לא מוכר), הוא נאמר פעם אחת. */
   const lines = rows.map((row) =>
@@ -107,35 +32,4 @@ export function summarizeData(data: unknown): string {
       : `• ${row.label} · ${row.phone}`,
   );
   return `בין התוצאות, לפי הסדר:\n${lines.join("\n")}`;
-}
-
-/** תקרת הזיכרון — מוסכמת עם `resultSummary` בסכימת הנתיב. */
-const MAX_SUMMARY = 600;
-
-/**
- * מה שנשמר לתור הבא — שורת המצב, ואחריה השמות לפי הסדר.
- *
- * שורת המצב („נמצאו 3 קונים”) לבדה אינה מספיקה: `buildInterpretPrompt`
- * מסתמך על השמות כדי לתרגם „הראשון מהם” לרשומה, וזיכרון בלי שמות
- * שובר את ההמשך הרב-תורי (ביקורת Codex). התשובה המלאה, לעומת זאת,
- * כוללת מאז הכרטיס המלא גם טלפונים והערות — ושמירתה כמות שהיא
- * הייתה מעקפת את `redactForInsight` בדלת האחורית.
- *
- * לכן: הסדר והשמות נשמרים, כל השאר נשאר בתשובה שנשלחה למתווך
- * בלבד.
- */
-export function historySummary(message: string, data: unknown): string {
-  const labels = resultRows(data).map((row) => row.memoryLabel ?? row.label);
-  const head = message.replaceAll("\n", " ").trim();
-  if (labels.length === 0) return head.slice(0, MAX_SUMMARY);
-  /*
-   * **התקציב שמור לשמות, וההודעה היא זו שנחתכת.**
-   *
-   * חיתוך של המחרוזת המחוברת היה חותך את השם האחרון באמצע ברגע
-   * שההודעה ארוכה — ושם קטוע אינו רק פחות קריא, הוא **מפתח חיפוש
-   * שבור**: התור הבא מחזיר „לא נמצא במאגר” על שורה שהמתווך בדיוק
-   * ראה. ההודעה, לעומת זאת, היא ניסוח שהמודל מייצר מחדש ממילא.
-   */
-  const tail = ` | לפי הסדר: ${labels.join(", ")}`;
-  return `${head.slice(0, Math.max(0, MAX_SUMMARY - tail.length))}${tail}`.slice(0, MAX_SUMMARY);
 }

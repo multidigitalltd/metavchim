@@ -595,6 +595,7 @@ export class MatchingService {
 
   async listForProperty(
     propertyId: string,
+    limit: number = MATCH_LIST_LIMIT,
   ): Promise<(MatchDto & { buyerName: string | null; buyerMaturity: string | null })[]> {
     return this.prisma.withTenant(async (tx) => {
       const tenantId = TenantContext.current().tenantId;
@@ -605,7 +606,7 @@ export class MatchingService {
           status: { not: "dismissed" },
         },
         orderBy: { score: "desc" },
-        take: MATCH_LIST_LIMIT,
+        take: limit,
       });
 
       /*
@@ -653,6 +654,7 @@ export class MatchingService {
 
   async listForBuyer(
     buyerId: string,
+    limit: number = MATCH_LIST_LIMIT,
   ): Promise<(MatchDto & { property: { address: string; title?: string; priceAgorot?: number } })[]> {
     return this.prisma.withTenant(async (tx) => {
       const tenantId = TenantContext.current().tenantId;
@@ -666,7 +668,7 @@ export class MatchingService {
           status: { not: "dismissed" },
         },
         orderBy: { score: "desc" },
-        take: MATCH_LIST_LIMIT,
+        take: limit,
       });
 
       // שם הנכס לכל התאמה — לכרטיס הקונה (קובץ העיצוב); שאילתה אחת לעמוד

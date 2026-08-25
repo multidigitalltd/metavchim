@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
   agentAction,
+  agentHistorySummary,
   agentResultText,
   applyBlockedModules,
   resolveCapabilities,
@@ -47,7 +48,7 @@ import {
 } from "./assistant-buttons";
 import { formatCard } from "./assistant-card";
 import { formatCallbacks } from "./assistant-callbacks";
-import { historySummary, summarizeData } from "./assistant-results";
+import { summarizeData } from "./assistant-results";
 import { prospectReplyText } from "./prospect-reply";
 import { WhatsAppSendService } from "./whatsapp-send.service";
 
@@ -984,10 +985,10 @@ export class WhatsAppAssistantService {
       /*
        * זיכרון השיחה נשלח לפרומפט של המודל בתור הבא, ולכן הוא
        * **אינו** התשובה שהמתווך ראה: שורת המצב והשמות לפי הסדר,
-       * בלי טלפונים, אימיילים, הערות ותקצירי שיחות. `historySummary`
+       * בלי טלפונים, אימיילים, הערות ותקצירי שיחות. `agentHistorySummary`
        * מסביר למה בדיוק כך ולא פחות ולא יותר.
        */
-      resultSummary: historySummary(primary.message, primary.data),
+      resultSummary: agentHistorySummary(primary.message, primary.data),
     };
     /*
      * שתי הרשימות: `history` היא מה שנשלח לפרומפט ולכן נחתכת

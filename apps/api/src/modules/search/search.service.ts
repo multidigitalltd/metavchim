@@ -34,6 +34,15 @@ import { PrismaService, type TenantTx } from "../../core/prisma.service";
  */
 
 export interface SearchResults {
+  /**
+   * **קבוצה כלשהי נחתכה בשרת** — „מוצגים הראשונים” ולא „נמצאו N”.
+   *
+   * כל קבוצה מוגבלת ל-`GROUP_LIMIT`, ובלי הסימן הזה תשובה חתוכה
+   * נקראת כרשימה מלאה בשני המסכים — והמתווך מסיק שאין יותר על סמך
+   * תקרה שלנו (ביקורת Codex). נשאלת שורה אחת מעבר לתקרה, ולכן
+   * הסימן מודד את מה שקיים ולא את מה שהוחזר.
+   */
+  hasMore: boolean;
   /** זהות בהתאמת-טלפון מדויקת — "מי מתקשר אליי?" */
   contact: { id: string; name: string; phone: string } | null;
   properties: {
@@ -74,6 +83,7 @@ export interface SearchResults {
 
 /** תוצאה ריקה — נקודת פתיחה אחת לכל מסלולי החיפוש. */
 const EMPTY: SearchResults = {
+  hasMore: false,
   contact: null,
   properties: [],
   buyers: [],
@@ -85,6 +95,19 @@ const EMPTY: SearchResults = {
 };
 
 const GROUP_LIMIT = 8;
+/**
+ * נשאלת שורה אחת מעבר לתקרה — **כדי לדעת אם יש עוד.**
+ *
+ * השוואת אורך התוצאה לתקרה אינה מבחינה בין „בדיוק שמונה” לבין
+ * „שמונה מתוך רבים”, ושורה עודפת אחת הופכת את ההבחנה למדידה.
+ * היא נחתכת מיד אחרי (`capped`), ולכן אינה מגיעה לאף מסך.
+ */
+const GROUP_PROBE = GROUP_LIMIT + 1;
+
+/** הקבוצה בגודלה המוצג, והאם נחתכה. */
+function capped<T>(rows: T[]): { rows: T[]; more: boolean } {
+  return { rows: rows.slice(0, GROUP_LIMIT), more: rows.length > GROUP_LIMIT };
+}
 /**
  * הערות נשלפות בעודף ומסוננות לפי בעלות אחרי כן (ראו visibleNotes) —
  * בלי העודף, סינון של סוכן עם view_own היה מרוקן את הקבוצה כמעט תמיד.
@@ -141,7 +164,7 @@ export class SearchService {
                 id: true, city: true, street: true, neighborhood: true,
                 marketingTitle: true, status: true,
               },
-              take: GROUP_LIMIT,
+              take: GROUP_PROBE,
             })
           : [],
         can.canBuyers
@@ -153,7 +176,7 @@ export class SearchService {
                 ...ownershipFilter("buyers.view_all", "ownerUserId"),
               },
               select: { id: true, maturity: true, cities: true },
-              take: GROUP_LIMIT,
+              take: GROUP_PROBE,
             })
           : [],
         can.canLeads
@@ -164,7 +187,7 @@ export class SearchService {
                 ...ownershipFilter("leads.view_all", "assignedToUserId"),
               },
               select: { id: true, status: true, requiresHuman: true },
-              take: GROUP_LIMIT,
+              take: GROUP_PROBE,
             })
           : [],
       ]);
@@ -186,16 +209,21 @@ export class SearchService {
         where: { tenantId, contactId: contact.id },
         select: { id: true, summary: true, occurredAt: true, direction: true },
         orderBy: { occurredAt: "desc" },
-        take: GROUP_LIMIT,
+        take: GROUP_PROBE,
       });
 
+      const shownProperties = capped(properties);
+      const shownBuyers = capped(buyers);
+      const shownLeads = capped(leads);
+      const shownCalls = capped(calls);
       return {
         ...EMPTY,
+        hasMore: [shownProperties, shownBuyers, shownLeads, shownCalls].some((g) => g.more),
         contact: identity,
-        properties,
-        buyers: buyers.map((b) => ({ ...b, name: identity.name })),
-        leads: leads.map((l) => ({ ...l, name: identity.name })),
-        calls: calls.map((c) => ({ ...c, summary: c.summary ?? "" })),
+        properties: shownProperties.rows,
+        buyers: shownBuyers.rows.map((b) => ({ ...b, name: identity.name })),
+        leads: shownLeads.rows.map((l) => ({ ...l, name: identity.name })),
+        calls: shownCalls.rows.map((c) => ({ ...c, summary: c.summary ?? "" })),
       };
     });
   }
@@ -254,7 +282,7 @@ export class SearchService {
                 marketingTitle: true, status: true,
               },
               orderBy: { updatedAt: "desc" },
-              take: GROUP_LIMIT,
+              take: GROUP_PROBE,
             })
           : [];
 
@@ -277,7 +305,7 @@ export class SearchService {
           where: { tenantId, OR: [{ title: like }, { notes: like }] },
           select: { id: true, title: true, kind: true, startsAt: true, status: true },
           orderBy: { startsAt: "desc" },
-          take: GROUP_LIMIT,
+          take: GROUP_PROBE,
         }),
         tx.task.findMany({
           where: {
@@ -287,13 +315,13 @@ export class SearchService {
           },
           select: { id: true, title: true, status: true, dueAt: true },
           orderBy: { createdAt: "desc" },
-          take: GROUP_LIMIT,
+          take: GROUP_PROBE,
         }),
         tx.call.findMany({
           where: { tenantId, summary: like },
           select: { id: true, summary: true, occurredAt: true, direction: true },
           orderBy: { occurredAt: "desc" },
-          take: GROUP_LIMIT,
+          take: GROUP_PROBE,
         }),
         /*
          * מועמדים בלבד — הסינון לפי בעלות נעשה מיד אחרי, ולכן שולפים
@@ -307,17 +335,30 @@ export class SearchService {
         }),
       ]);
 
+      const visibleNotes = searchesFreeText ? await this.visibleNotes(tx, tenantId, notes) : [];
+      const shownAppointments = capped(appointments);
+      const shownTasks = capped(tasks);
+      const shownCalls = capped(calls);
+      const shownNotes = capped(visibleNotes);
+      const shownProperties = capped(properties);
       const freeText = searchesFreeText
         ? {
-            appointments: appointments.map((a) => ({ ...a, title: a.title ?? "פגישה" })),
-            tasks,
-            calls: calls.map((c) => ({ ...c, summary: c.summary ?? "" })),
-            notes: await this.labelNotes(tx, tenantId, await this.visibleNotes(tx, tenantId, notes)),
+            appointments: shownAppointments.rows.map((a) => ({ ...a, title: a.title ?? "פגישה" })),
+            tasks: shownTasks.rows,
+            calls: shownCalls.rows.map((c) => ({ ...c, summary: c.summary ?? "" })),
+            notes: await this.labelNotes(tx, tenantId, shownNotes.rows),
           }
         : { appointments: [], tasks: [], calls: [], notes: [] };
+      /** האם קבוצה כלשהי נחתכה — נצבר עד ההחזרה. */
+      const truncated = [shownProperties, shownAppointments, shownTasks, shownCalls, shownNotes];
 
       if (!can.canBuyers && !can.canLeads) {
-        return { ...EMPTY, properties, ...freeText };
+        return {
+          ...EMPTY,
+          hasMore: truncated.some((g) => g.more),
+          properties: shownProperties.rows,
+          ...freeText,
+        };
       }
 
       /*
@@ -411,7 +452,7 @@ export class SearchService {
               where: buyerWhere,
               select: { id: true, maturity: true, cities: true, contactId: true },
               orderBy: { updatedAt: "desc" },
-              take: GROUP_LIMIT,
+              take: GROUP_PROBE,
             })
           : [],
         can.canLeads && wantsLeads && matchedIds.length > 0
@@ -422,7 +463,7 @@ export class SearchService {
                 ...ownershipFilter("leads.view_all", "assignedToUserId"),
               },
               select: { id: true, status: true, requiresHuman: true, contactId: true },
-              take: GROUP_LIMIT,
+              take: GROUP_PROBE,
             })
           : [],
       ]);
@@ -444,18 +485,21 @@ export class SearchService {
         }
       }
 
+      const shownBuyers = capped(buyers);
+      const shownLeads = capped(leads);
       return {
         ...EMPTY,
-        properties,
+        hasMore: [...truncated, shownBuyers, shownLeads].some((g) => g.more),
+        properties: shownProperties.rows,
         ...freeText,
-        buyers: buyers.map((b) => ({
+        buyers: shownBuyers.rows.map((b) => ({
           id: b.id,
           maturity: b.maturity,
           cities: b.cities,
           name: nameById.get(b.contactId) ?? "",
           ...(phoneById.has(b.contactId) ? { phone: phoneById.get(b.contactId)! } : {}),
         })),
-        leads: leads.map((l) => ({
+        leads: shownLeads.rows.map((l) => ({
           id: l.id,
           status: l.status,
           requiresHuman: l.requiresHuman,
@@ -619,7 +663,7 @@ export class SearchService {
     const ctx = TenantContext.current();
     const seesAllLeads = ctx.capabilities.has("leads.view_all");
     const seesAllBuyers = ctx.capabilities.has("buyers.view_all");
-    if (seesAllLeads && seesAllBuyers) return candidates.slice(0, GROUP_LIMIT);
+    if (seesAllLeads && seesAllBuyers) return candidates.slice(0, GROUP_PROBE);
 
     const leadIds = [...new Set(candidates.map((n) => n.leadId).filter((id): id is string => id !== null))];
     const buyerIds = [...new Set(candidates.map((n) => n.buyerId).filter((id): id is string => id !== null))];
@@ -650,7 +694,7 @@ export class SearchService {
     return filterVisibleNotes(
       candidates,
       { leadIds: new Set(leads.map((l) => l.id)), buyerIds: new Set(buyers.map((b) => b.id)) },
-      GROUP_LIMIT,
+      GROUP_PROBE,
     );
   }
 }
