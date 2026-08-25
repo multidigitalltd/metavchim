@@ -226,17 +226,6 @@ export default function PropertiesPage() {
     type !== "" ||
     sort !== "newest";
 
-  /**
-   * האם **מסנן** כלשהו פעיל — בלי המיון.
-   *
-   * ‎`filtering` שמעליו כולל גם את המיון, כי הוא משרת את הערת
-   * התקרה („יש עוד תוצאות”). לבחירת מצב הריק הוא אינו מתאים:
-   * שינוי סדר אינו מצמצם את הרשימה, ולכן רשימה ריקה אחרי מיון
-   * פירושה שאין נכסים ולא שהסינון לא החזיר כלום.
-   */
-  const anyFilterActive =
-    hasActiveFilters(filters) || city !== "הכל" || status !== "" || type !== "";
-
   return (
     <>
       {/* לפני הסינון והרשימה: בלעדיות שנגמרת היא נכס שעובר למתחרה,
@@ -283,17 +272,36 @@ export default function PropertiesPage() {
       ) : items === null ? (
         <p aria-live="polite">טוען נכסים…</p>
       ) : items.length === 0 && !hasActiveFilters(filters) ? (
+        /*
+         * **מצב „אין נכסים בכלל” יושב כאן, ולא בתוך הרשימה.**
+         *
+         * הענף הזה קודם לסרגל הסינון, וזה נכון: למשרד שאין לו נכסים
+         * אין מה לסנן, וצ׳יפים ריקים מעל כרטיס ריק הם רעש.
+         *
+         * בגרסה הקודמת כתבתי מצב „אין נכסים” משופר **בתוך** בלוק
+         * הרשימה, ולא שמתי לב שהענף הזה תופס את המקרה לפניו. התוצאה
+         * הייתה קוד מת: משרד חדש קיבל את הנוסח הישן, והפעולה שהוספתי
+         * („קליטה בקול”) לא הופיעה לעולם. הנוסח המשופר עבר לכאן
+         * (ביקורת Codex).
+         */
         <div
           className="rounded-xl border p-8 text-center"
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
         >
-          <p className="mb-3 text-lg font-semibold">עדיין אין נכסים</p>
+          <p className="mb-1 text-[19px] font-black">עוד לא הוספת נכסים</p>
           <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
-            הוסיפו את הנכס הראשון — ותוך שניות תראו קונים מתאימים.
+            כל נכס שתוסיפו ייבדק מול הקונים שבמאגר, וההתאמות יחושבו לבד.
           </p>
-          <Link href="/properties/new">
-            <Button>הוסף נכס ראשון</Button>
-          </Link>
+          <div className="flex flex-wrap items-center justify-center gap-2.5">
+            <Link href="/properties/new" className="mv-btn-action">
+              <IconPlus s={16} /> נכס חדש
+            </Link>
+            {canVoice ? (
+              <Link href="/voice" className="mv-btn-plain">
+                <IconMic s={16} /> קליטה בקול
+              </Link>
+            ) : null}
+          </div>
         </div>
       ) : (
         <>
@@ -329,74 +337,31 @@ export default function PropertiesPage() {
 
           {visible.length === 0 ? (
             /*
-             * **שני מצבי ריק שונים, ולא אחד** (SPEC-2 §5).
+             * כאן **תמיד** „הסינון לא החזיר כלום”, ולא „אין נכסים”.
              *
-             * עד עכשיו שניהם קיבלו „אף נכס לא תואם את הסינון”. למשרד
-             * שזה עתה נפתח ואין לו נכסים בכלל, המשפט הזה שגוי פעמיים:
-             * הוא מדבר על סינון שלא הופעל, והוא מציע פעולה — ניקוי
-             * סינון — שלא תעשה דבר. במסך הראשון שהמתווך רואה.
-             *
-             * הכלל של החבילה הוא „every empty state names the action
-             * that fills it”, וכדי לקיים אותו צריך קודם לדעת איזה
-             * מצב זה: אין נכסים, או אין התאמה לסינון.
-             *
-             * **ההכרעה היא לפי המסננים ולא לפי אורך הרשימה.** בגרסה
-             * הראשונה בדקתי `items.length === 0`, ו-`items` הוא
-             * התוצאה **המסוננת** מהשרת — כלומר משרד עם חמישים נכסים
-             * שהקליד חיפוש בלי תוצאות היה מקבל „עוד לא הוספת נכסים”.
-             * בדיוק אותו בלבול שבאתי לתקן, רק בכיוון ההפוך
-             * (ביקורת Codex).
+             * המקרה השני נתפס בענף שלפני סרגל הסינון. אם הגענו לכאן
+             * והרשימה ריקה, בהכרח פעיל מסנן כלשהו — שרת או צ׳יפ —
+             * ולכן אין כאן תנאי, ואין ענף שני שלעולם לא ירוץ.
              */
             <div
               className="rounded-xl border p-8 text-center"
               style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
             >
-              {!anyFilterActive ? (
-                <>
-                  <p className="mb-1 text-[19px] font-black">עוד לא הוספת נכסים</p>
-                  <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
-                    כל נכס שתוסיפו ייבדק מול הקונים שבמאגר, וההתאמות יחושבו לבד.
-                  </p>
-                  <div className="flex flex-wrap items-center justify-center gap-2.5">
-                    <Link href="/properties/new" className="mv-btn-action">
-                      <IconPlus s={16} /> נכס חדש
-                    </Link>
-                    {canVoice ? (
-                      <Link href="/voice" className="mv-btn-plain">
-                        <IconMic s={16} /> קליטה בקול
-                      </Link>
-                    ) : null}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="mb-1 text-[19px] font-black">אין נכסים שמתאימים לסינון</p>
-                  {/*
-                    כאן עמד „יש N נכסים במאגר”, ו-N היה `items.length`
-                    — כלומר **התוצאה המסוננת**, לא המאגר. במצב ריק הוא
-                    תמיד אפס, ובכל מקרה מעולם לא היה המספר שהובטח.
-
-                    זו בדיוק ההפרה של „never invent facts a record does
-                    not hold”: מספר אמיתי שהוצג כמשהו אחר. אין לנו את
-                    סך המאגר בלי בקשה נוספת, ולכן המשפט אינו מתיימר
-                    לדעת אותו.
-                  */}
-                  <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
-                    הסינון הנוכחי לא מחזיר אף נכס. נסו לצמצם אותו או לנקות אותו לגמרי.
-                  </p>
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      setFilters(EMPTY_FILTERS);
-                      setCity("הכל");
-                      setStatus("");
-                      setType("");
-                    }}
-                  >
-                    ניקוי הסינון
-                  </Button>
-                </>
-              )}
+              <p className="mb-1 text-[19px] font-black">אין נכסים שמתאימים לסינון</p>
+              <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
+                הסינון הנוכחי לא מחזיר אף נכס. נסו לצמצם אותו או לנקות אותו לגמרי.
+              </p>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setFilters(EMPTY_FILTERS);
+                  setCity("הכל");
+                  setStatus("");
+                  setType("");
+                }}
+              >
+                ניקוי הסינון
+              </Button>
             </div>
           ) : (
             <>
@@ -429,9 +394,21 @@ export default function PropertiesPage() {
 
               {bulkNote ? <Notice tone="success">{bulkNote}</Notice> : null}
 
-              {/* מובייל: כרטיסים. טבלת grid במסך 375px דורשת גלילה לצדדים —
-                  והמתווך עומד בשטח עם יד אחת פנויה (docs/06 §1.5) */}
-              <ul className="flex flex-col gap-3 sm:hidden">
+              {/*
+                כרטיסים עד 1024, טבלה מעליו — **ולא 640 כמו קודם.**
+
+                הטבלה נפתחה ב-`sm`, ובטווח 640–1023 נשארו לשתי
+                העמודות האחרונות כשישים פיקסלים כל אחת. כל עוד הן
+                נשאו טקסט זה עבד; מרגע שהפכתי אותן לגלולות — שהן
+                ‎`white-space: nowrap` עם 22 פיקסלים ריפוד אופקי —
+                „12 התאמות” ותוויות סטטוס ארוכות נחתכות או דורסות
+                את העמודה השכנה (ביקורת Codex).
+
+                העברה ל-`lg` ולא הוספת גלילה אופקית: בטאבלט כרטיס
+                קריא עדיף על טבלה שצריך לגרור, וזה גם הנימוק המקורי
+                של תצוגת הכרטיסים (docs/06 §1.5).
+              */}
+              <ul className="flex flex-col gap-3 lg:hidden">
                 {visible.map((p) => (
                   <li
                     key={p.id}
@@ -497,7 +474,7 @@ export default function PropertiesPage() {
               </ul>
 
               {/* שולחני: טבלת ה-grid מהעיצוב */}
-              <div className="mv-list-card hidden sm:block">
+              <div className="mv-list-card hidden lg:block">
                 <div className="mv-list-head" style={{ gridTemplateColumns: GRID }}>
                   <span className="flex items-center gap-2">
                     {mayShare ? (
