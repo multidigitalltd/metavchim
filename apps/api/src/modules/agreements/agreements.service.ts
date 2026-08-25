@@ -339,16 +339,28 @@ export class AgreementsService {
       if (!(await this.email.isConfigured())) {
         throw new BadRequestException("שליחת אימייל אינה מוגדרת במערכת — שלחו בוואטסאפ");
       }
-      await this.email.send(contact.email, `${kindLabel} לחתימה — ${officeName}`, {
-        heading: `${kindLabel} לחתימה`,
-        greeting: `שלום ${contact.name},`,
-        paragraphs: [
-          `${officeName} שלח לכם ${kindLabel} לחתימה דיגיטלית.`,
-          "החתימה נעשית ישירות בדפדפן, ללא צורך בהדפסה או בסריקה.",
-        ],
-        button: { label: "לצפייה ולחתימה", url },
-        footnote: "הקישור אישי ותקף 30 יום. אם לא ציפיתם להודעה זו — אפשר להתעלם ממנה.",
-      });
+      await this.email.send(
+        contact.email,
+        `${kindLabel} לחתימה — ${officeName}`,
+        {
+          heading: `${kindLabel} לחתימה`,
+          greeting: `שלום ${contact.name},`,
+          paragraphs: [
+            `${officeName} שלח לכם ${kindLabel} לחתימה דיגיטלית.`,
+            "החתימה נעשית ישירות בדפדפן, ללא צורך בהדפסה או בסריקה.",
+          ],
+          button: { label: "לצפייה ולחתימה", url },
+          footnote: "הקישור אישי ותקף 30 יום. אם לא ציפיתם להודעה זו — אפשר להתעלם ממנה.",
+        },
+        /*
+         * מה שנרשם מיד אחרי זה הוא **טענת עובדה**: הודעה יוצאת
+         * בכרטיס איש הקשר ו-`sentAt` על ההסכם. הבדיקה למעלה אינה
+         * ערובה — ההגדרות יכולות להשתנות בין שתי הקריאות — ובלי
+         * `required` המתווך היה רואה „נשלח לחתימה” על מסמך שאיש לא
+         * קיבל (ביקורת Codex).
+         */
+        { required: true },
+      );
       await this.messaging.recordOutbound(tx, {
         contactId: contact.id,
         channel: "email",

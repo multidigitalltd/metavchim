@@ -80,14 +80,24 @@ export class PasswordResetService implements OnModuleDestroy {
       .exec();
 
     const url = `${loadEnv().WEB_ORIGIN}/reset-password?token=${token}`;
-    await this.email.send(normalized, "איפוס סיסמה — מתווכים", {
-      heading: "איפוס סיסמה",
-      greeting: `שלום ${user.name},`,
-      paragraphs: ["התקבלה בקשה לאיפוס הסיסמה שלכם במערכת מתווכים."],
-      button: { label: "לאיפוס הסיסמה", url },
-      footnote:
-        "הקישור תקף לשלושים דקות וניתן לשימוש פעם אחת. אם לא ביקשתם לאפס סיסמה — אפשר להתעלם מהודעה זו, ולא יבוצע שום שינוי.",
-    });
+    await this.email.send(
+      normalized,
+      "איפוס סיסמה — מתווכים",
+      {
+        heading: "איפוס סיסמה",
+        greeting: `שלום ${user.name},`,
+        paragraphs: ["התקבלה בקשה לאיפוס הסיסמה שלכם במערכת מתווכים."],
+        button: { label: "לאיפוס הסיסמה", url },
+        footnote:
+          "הקישור תקף לשלושים דקות וניתן לשימוש פעם אחת. אם לא ביקשתם לאפס סיסמה — אפשר להתעלם מהודעה זו, ולא יבוצע שום שינוי.",
+      },
+      /*
+       * הקישור **הוא** הפעולה. בלי `required` היעדר ספק היה חוזר
+       * בשקט, השורה למטה הייתה מדווחת „נשלח”, והמשתמש היה נחסם
+       * בצינון עשר דקות על מייל שלא יצא (ביקורת Codex).
+       */
+      { required: true },
+    );
     this.logger.log("נשלח קישור איפוס סיסמה");
   }
 
