@@ -215,6 +215,43 @@ const RULES = [
   },
 ];
 
+/*
+ * ‎`jsxTags` — פירוק תג פתיחה עד סופו האמיתי.
+ *
+ * ‎`<[a-zA-Z][^>]*?>` נעצר על ה-`>` הראשון, וזה נשבר בדיוק על התגים
+ * שכותבים `onClick={() => ...}` לפני `className`: התג נחתך באמצע,
+ * הוא כבר לא מכיל `mv-`, והכלל מדלג עליו בשקט — כלומר `fontSize`
+ * קבוע עובר את השער (ביקורת Codex). לכן צריך מונה סוגריים ומעקב
+ * מחרוזות, ולא ביטוי רגולרי.
+ */
+function* jsxTags(text) {
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] !== "<") continue;
+    if (!/[a-zA-Z]/u.test(text[i + 1] ?? "")) continue;
+    let depth = 0;
+    let quote = "";
+    for (let j = i + 1; j < text.length; j += 1) {
+      const ch = text[j];
+      if (quote !== "") {
+        if (ch === "\\") j += 1;
+        else if (ch === quote) quote = "";
+        continue;
+      }
+      if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+      else if (ch === "{") depth += 1;
+      else if (ch === "}") depth -= 1;
+      else if (depth === 0 && ch === ">") {
+        yield { text: text.slice(i, j + 1), index: i };
+        i = j;
+        break;
+      } else if (depth === 0 && ch === "<") {
+        /* לא תג אחרי הכול — לא לבלוע את המשך הקובץ */
+        break;
+      }
+    }
+  }
+}
+
 function files(path) {
   const out = [];
   for (const entry of readdirSync(path, { withFileTypes: true })) {
@@ -257,9 +294,9 @@ for (const scope of SCOPED) {
        * ההתאמה כדי שהשגיאה תישאר ניתנת ללחיצה.
        */
       if (rule.tagScan) {
-        for (const tag of text.matchAll(/<[a-zA-Z][^>]*?>/gsu)) {
-          if (!tag[0].includes("mv-")) continue;
-          for (const match of tag[0].matchAll(rule.pattern)) {
+        for (const tag of jsxTags(text)) {
+          if (!tag.text.includes("mv-")) continue;
+          for (const match of tag.text.matchAll(rule.pattern)) {
             if (!rule.fails(match)) continue;
             const at = tag.index + (match.index ?? 0);
             const line = text.slice(0, at).split("\n").length;
