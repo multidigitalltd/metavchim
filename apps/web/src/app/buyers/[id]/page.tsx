@@ -269,7 +269,7 @@ export default function BuyerDetailPage({
     <>
       <Link
         href="/buyers"
-        className="mb-3.5 inline-block text-[15px] font-bold no-underline hover:underline"
+        className="mb-3.5 inline-block text-[length:var(--type-body-sm)] font-bold no-underline hover:underline"
         style={{ color: "var(--color-primary)" }}
       >
         → חזרה לרשימת הקונים
@@ -342,7 +342,7 @@ export default function BuyerDetailPage({
             />
           </div>
           <p
-            className="m-0 mt-1 text-[14.5px]"
+            className="m-0 mt-1 text-[length:var(--type-caption-lg)]"
             style={{ color: "var(--color-text-muted)" }}
           >
             <span dir="ltr">{buyer.contact.phone}</span> ·{" "}
@@ -432,7 +432,7 @@ export default function BuyerDetailPage({
                   פרטי חיפוש
                 </h2>
                 <span
-                  className="ms-auto text-[14px] font-bold"
+                  className="ms-auto text-[length:var(--type-caption)] font-bold"
                   style={{ color: "var(--color-text-muted)" }}
                 >
                   {profile.filled} מתוך {profile.total}
@@ -452,7 +452,7 @@ export default function BuyerDetailPage({
               </div>
               {profile.missing.length === 0 ? (
                 <p
-                  className="m-0 text-[14.5px]"
+                  className="m-0 text-[length:var(--type-caption-lg)]"
                   style={{ color: "var(--color-text-muted)" }}
                 >
                   הפרופיל מלא — ההתאמות רצות על כל מה שהלקוח אמר.
@@ -495,7 +495,7 @@ export default function BuyerDetailPage({
               </h2>
 
               <div
-                className="mb-1.5 text-[14.5px] font-semibold"
+                className="mb-1.5 text-[length:var(--type-caption-lg)] font-semibold"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 תקציב
@@ -512,7 +512,7 @@ export default function BuyerDetailPage({
               </div>
               {/* גם במילים — אימות מהיר שהסכום שנשמר הוא הסכום שהתכוונו לו */}
               <div
-                className="mb-[13px] -mt-2 text-[14px]"
+                className="mb-[13px] -mt-2 text-[length:var(--type-caption)]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 {buyer.requirements.budgetMaxAgorot === undefined
@@ -523,12 +523,12 @@ export default function BuyerDetailPage({
               </div>
 
               <div
-                className="mb-1.5 text-[14.5px] font-semibold"
+                className="mb-1.5 text-[length:var(--type-caption-lg)] font-semibold"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 אזורים
               </div>
-              <div className="mb-1 text-[15.5px] font-bold">
+              <div className="mb-1 text-[length:var(--type-body)] font-bold">
                 {buyer.requirements.cities.join(", ") || "—"}
               </div>
               {/*
@@ -538,7 +538,7 @@ export default function BuyerDetailPage({
               */}
               {buyer.requirements.neighborhoods.length > 0 ? (
                 <div
-                  className="mb-3.5 text-[14.5px]"
+                  className="mb-3.5 text-[length:var(--type-caption-lg)]"
                   style={{ color: "var(--color-text-muted)" }}
                 >
                   שכונות: {buyer.requirements.neighborhoods.join(" · ")}
@@ -556,12 +556,12 @@ export default function BuyerDetailPage({
               {buyer.requirements.propertyTypes.length > 0 ? (
                 <>
                   <div
-                    className="mb-1.5 text-[14.5px] font-semibold"
+                    className="mb-1.5 text-[length:var(--type-caption-lg)] font-semibold"
                     style={{ color: "var(--color-text-muted)" }}
                   >
                     סוג נכס
                   </div>
-                  <div className="mb-3.5 text-[15.5px] font-bold">
+                  <div className="mb-3.5 text-[length:var(--type-body)] font-bold">
                     {buyer.requirements.propertyTypes
                       .map((t) => PROPERTY_TYPE_LABELS[t] ?? t)
                       .join(" · ")}
@@ -573,12 +573,12 @@ export default function BuyerDetailPage({
               buyer.requirements.roomsMax !== undefined ? (
                 <>
                   <div
-                    className="mb-1.5 text-[14.5px] font-semibold"
+                    className="mb-1.5 text-[length:var(--type-caption-lg)] font-semibold"
                     style={{ color: "var(--color-text-muted)" }}
                   >
                     חדרים
                   </div>
-                  <div className="mb-3.5 text-[15.5px] font-bold">
+                  <div className="mb-3.5 text-[length:var(--type-body)] font-bold">
                     {buyer.requirements.roomsMin ?? "—"}–
                     {buyer.requirements.roomsMax ?? "—"}
                   </div>
@@ -587,12 +587,12 @@ export default function BuyerDetailPage({
               {buyer.requirements.areaSqmMin !== undefined ? (
                 <>
                   <div
-                    className="mb-1.5 text-[14.5px] font-semibold"
+                    className="mb-1.5 text-[length:var(--type-caption-lg)] font-semibold"
                     style={{ color: "var(--color-text-muted)" }}
                   >
                     שטח מינימלי
                   </div>
-                  <div className="mb-3.5 text-[15.5px] font-bold">
+                  <div className="mb-3.5 text-[length:var(--type-body)] font-bold">
                     {buyer.requirements.areaSqmMin} מ&quot;ר
                   </div>
                 </>
@@ -601,19 +601,19 @@ export default function BuyerDetailPage({
               {entryNeed !== undefined ? (
                 <>
                   <div
-                    className="mb-1.5 text-[14.5px] font-semibold"
+                    className="mb-1.5 text-[length:var(--type-caption-lg)] font-semibold"
                     style={{ color: "var(--color-text-muted)" }}
                   >
                     מועד כניסה
                   </div>
-                  <div className="mb-3.5 text-[15.5px] font-bold">
+                  <div className="mb-3.5 text-[length:var(--type-body)] font-bold">
                     {entryNeed}
                   </div>
                 </>
               ) : null}
 
               <div
-                className="mb-[7px] text-[14.5px] font-semibold"
+                className="mb-[7px] text-[length:var(--type-caption-lg)] font-semibold"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 דרישות חובה — שוברות התאמה
@@ -645,7 +645,7 @@ export default function BuyerDetailPage({
               </div>
 
               <div
-                className="mb-[7px] text-[14.5px] font-semibold"
+                className="mb-[7px] text-[length:var(--type-caption-lg)] font-semibold"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 עדיפויות — משפיעות על הניקוד בלבד
@@ -679,7 +679,7 @@ export default function BuyerDetailPage({
               {buyer.requirements.flexibilityNotes ? (
                 <>
                   <div
-                    className="mb-1.5 mt-3.5 text-[14.5px] font-semibold"
+                    className="mb-1.5 mt-3.5 text-[length:var(--type-caption-lg)] font-semibold"
                     style={{ color: "var(--color-text-muted)" }}
                   >
                     גמישות
@@ -759,7 +759,7 @@ export default function BuyerDetailPage({
                 נכסים מתאימים
               </h2>
               <p
-                className="m-0 mb-2.5 text-[14px]"
+                className="m-0 mb-2.5 text-[length:var(--type-caption)]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 נכסים ששוברים דרישת חובה אינם מופיעים
@@ -805,7 +805,7 @@ export default function BuyerDetailPage({
                         className="min-w-0 flex-1"
                         style={{ lineHeight: 1.4 }}
                       >
-                        <div className="text-[15.5px] font-bold">
+                        <div className="text-[length:var(--type-body)] font-bold">
                           <Link
                             href={`/properties/${m.propertyId}`}
                             className="no-underline hover:underline"
@@ -815,7 +815,7 @@ export default function BuyerDetailPage({
                           </Link>
                           {m.property.priceAgorot !== undefined ? (
                             <span
-                              className="ms-1.5 text-[14px] font-semibold"
+                              className="ms-1.5 text-[length:var(--type-caption)] font-semibold"
                               style={{ color: "var(--color-text-muted)" }}
                             >
                               · {formatPrice(m.property.priceAgorot)}
@@ -823,7 +823,7 @@ export default function BuyerDetailPage({
                           ) : null}
                         </div>
                         <div
-                          className="text-[14.5px]"
+                          className="text-[length:var(--type-caption-lg)]"
                           style={{ color: "var(--color-text-muted)" }}
                         >
                           {m.explanation}
@@ -875,7 +875,7 @@ export default function BuyerDetailPage({
             {sentOffers.length === 0 ? (
               isHotNoOffers ? (
                 <p
-                  className="m-0 rounded-[9px] px-[13px] py-2.5 text-[15px] font-bold"
+                  className="m-0 rounded-[9px] px-[13px] py-2.5 text-[length:var(--type-body-sm)] font-bold"
                   style={{ color: "#b0512c", background: "#faf1ec" }}
                 >
                   קונה חם שעדיין לא קיבל אף הצעה — שווה לטפל היום.
@@ -895,7 +895,7 @@ export default function BuyerDetailPage({
                 return (
                   <div
                     key={offer.id}
-                    className="flex flex-wrap items-center gap-2.5 py-[9px] text-[15px]"
+                    className="flex flex-wrap items-center gap-2.5 py-[9px] text-[length:var(--type-body-sm)]"
                     style={{
                       borderBottom: "1px solid var(--color-row-border)",
                     }}

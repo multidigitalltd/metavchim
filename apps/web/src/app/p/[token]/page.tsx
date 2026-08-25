@@ -97,7 +97,7 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
     <div className="mx-auto max-w-3xl pb-16">
       {/* כותרת */}
       <header className="mb-5 pt-4">
-        <p className="m-0 text-[14.5px] font-bold" style={{ color: "var(--color-primary)" }}>
+        <p className="m-0 text-[length:var(--type-caption-lg)] font-bold" style={{ color: "var(--color-primary)" }}>
           {view.officeName}
         </p>
         <h1 className="m-0 mt-1" style={{ fontSize: 27, fontWeight: 800, letterSpacing: "-0.01em" }}>
@@ -138,7 +138,7 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
                 <div className="text-sm font-semibold" style={{ color: "var(--color-text-muted)" }}>
                   {label}
                 </div>
-                <div className="mt-0.5 text-[16px] font-bold">{value}</div>
+                <div className="mt-0.5 text-[length:var(--type-button)] font-bold">{value}</div>
               </div>
             ))}
           </div>

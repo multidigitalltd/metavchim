@@ -313,12 +313,12 @@ export default function CalendarPage() {
         </div>
         {/* התאריך העברי של תחילת השבוע — הקשר ללוח שהמתווך חי בו */}
         {hebrewDateFull(start) ? (
-          <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+          <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
             {hebrewDateFull(start)}
           </span>
         ) : null}
         {/* ועכשיו — התאריך המלא והשעה, אותו רכיב כמו בדשבורד */}
-        <NowStamp className="text-[14px]" />
+        <NowStamp className="text-[length:var(--type-caption)]" />
         <Link href="/calendar/new" className="mv-btn-action ms-auto">
           + פגישה חדשה
         </Link>
@@ -346,15 +346,15 @@ export default function CalendarPage() {
                       background: d.isToday ? "var(--color-primary-soft)" : "var(--color-surface)",
                     }}
                   >
-                    <div className="text-[14.5px] font-extrabold" style={{ color: d.isToday ? "var(--color-primary)" : "var(--color-text)" }}>
+                    <div className="text-[length:var(--type-caption-lg)] font-extrabold" style={{ color: d.isToday ? "var(--color-primary)" : "var(--color-text)" }}>
                       {d.name}
                     </div>
-                    <div className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                    <div className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                       {shortDateFmt.format(d.date)}
                     </div>
                     {/* התאריך העברי — תוספת, ולכן ריק כשההמרה לא זמינה */}
                     {hebrewDateShort(d.date) ? (
-                      <div className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                      <div className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                         {hebrewDateShort(d.date)}
                       </div>
                     ) : null}
@@ -384,10 +384,10 @@ export default function CalendarPage() {
                             className="rounded-lg px-[9px] py-[7px]"
                             style={{ background: colors.bg, lineHeight: 1.3 }}
                           >
-                            <div className="text-[14px] font-extrabold" style={{ color: colors.fg }}>
+                            <div className="text-[length:var(--type-caption)] font-extrabold" style={{ color: colors.fg }}>
                               {timeFmt.format(new Date(a.startsAt))} · {KIND_LABELS[a.kind] ?? a.kind}
                             </div>
-                            <div className="text-[14px] font-bold" style={{ color: "#212722" }}>
+                            <div className="text-[length:var(--type-caption)] font-bold" style={{ color: "#212722" }}>
                               {a.title ?? ""}
                               {a.outcome ? " ✓" : ""}
                             </div>
@@ -434,7 +434,7 @@ export default function CalendarPage() {
                     <div className="text-sm font-bold">
                       {a.title ?? KIND_LABELS[a.kind] ?? a.kind}
                     </div>
-                    <div className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                    <div className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                       {longFmt.format(new Date(a.startsAt))}
                     </div>
                   </div>
@@ -497,7 +497,7 @@ export default function CalendarPage() {
                     className="flex flex-wrap items-center gap-3 py-[9px]"
                     style={{ borderBottom: "1px solid var(--color-row-border)" }}
                   >
-                    <span className="text-[14.5px] font-extrabold" style={{ color: "var(--color-primary)" }}>
+                    <span className="text-[length:var(--type-caption-lg)] font-extrabold" style={{ color: "var(--color-primary)" }}>
                       {longFmt.format(new Date(a.startsAt))}
                     </span>
                     <span className="text-sm font-bold">

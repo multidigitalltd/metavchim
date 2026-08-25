@@ -128,7 +128,7 @@ export function IntakePanel({
         הלקוח ממלא בעצמו
       </h2>
       <p
-        className="m-0 mt-1 text-[14.5px] leading-relaxed"
+        className="m-0 mt-1 text-[length:var(--type-caption-lg)] leading-relaxed"
         style={{ color: "var(--color-text-muted)" }}
       >
         שלחו ללקוח קישור לטופס קצר — מה הוא מחפש, באיזה אזור ובאיזה
@@ -181,7 +181,7 @@ export function IntakePanel({
 
           {rows.length === 0 ? (
             <p
-              className="m-0 mt-4 rounded-xl border p-4 text-[15px]"
+              className="m-0 mt-4 rounded-xl border p-4 text-[length:var(--type-body-sm)]"
               style={{
                 borderColor: "var(--color-border)",
                 background: "var(--color-field)",
@@ -235,7 +235,7 @@ export function IntakePanel({
                       ) : null}
                     </div>
                     <p
-                      className="m-0 mt-1 text-[14px]"
+                      className="m-0 mt-1 text-[length:var(--type-caption)]"
                       style={{ color: "var(--color-text-muted)" }}
                     >
                       נוצר {formatDateTime(row.createdAt)}
@@ -246,7 +246,7 @@ export function IntakePanel({
                           : ""}
                     </p>
                     {row.status !== "revoked" && !expired ? (
-                      <p className="m-0 mt-1 break-all text-[14px]" dir="ltr">
+                      <p className="m-0 mt-1 break-all text-[length:var(--type-caption)]" dir="ltr">
                         {row.url}
                       </p>
                     ) : null}

@@ -77,7 +77,7 @@ export function ReplyEmail({
           תשובה במייל
         </h2>
         {state.from ? (
-          <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+          <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
             נשלח מ-<span dir="ltr">{state.from}</span>
           </span>
         ) : null}
@@ -95,7 +95,7 @@ export function ReplyEmail({
 
       {open ? (
         <form onSubmit={submit} className="flex flex-col gap-2.5">
-          <p className="m-0 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
             אל: <b dir="ltr">{contactEmail}</b>
           </p>
           <label className="text-sm font-semibold">

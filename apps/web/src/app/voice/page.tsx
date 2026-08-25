@@ -270,8 +270,8 @@ export default function AgentPage(): React.JSX.Element {
           <IconMic s={24} />
         </span>
         <div>
-          <h1 className="m-0 text-[26px] font-extrabold leading-tight">הסוכן</h1>
-          <p className="m-0 mt-1 text-[16px]" style={{ color: "var(--color-text-muted)" }}>
+          <h1 className="m-0 text-[length:calc(26/16*1rem)] font-extrabold leading-tight">הסוכן</h1>
+          <p className="m-0 mt-1 text-[length:var(--type-button)]" style={{ color: "var(--color-text-muted)" }}>
             דברו או הקלידו רגיל. אראה לכם מה הבנתי לפני שאעשה משהו.
           </p>
         </div>
@@ -324,14 +324,14 @@ export default function AgentPage(): React.JSX.Element {
       */}
       {recs.length === 0 ? null : (
         <section className="mv-example-box mb-5" aria-labelledby="agent-today">
-          <h2 id="agent-today" className="m-0 mb-2.5 text-[15px] font-bold">
+          <h2 id="agent-today" className="m-0 mb-2.5 text-[length:var(--type-body-sm)] font-bold">
             <IconTarget s={15} /> כדאי לטפל היום:
           </h2>
           <ul className="m-0 flex list-none flex-col gap-2 p-0">
             {recs.map((rec) => {
               const href = recHref(rec);
               return (
-                <li key={`${rec.type}-${rec.entityId ?? rec.title}`} className="text-[14.5px]">
+                <li key={`${rec.type}-${rec.entityId ?? rec.title}`} className="text-[length:var(--type-caption-lg)]">
                   <span className="font-semibold">{rec.title}</span>
                   <span style={{ color: "var(--color-text-muted)" }}> — {rec.body}</span>{" "}
                   {href === null ? null : (
@@ -349,12 +349,12 @@ export default function AgentPage(): React.JSX.Element {
       {examples.length === 0 || examplesBox.hidden ? null : (
         <section className="mv-example-box mb-5" aria-labelledby="agent-examples">
           <div className="mb-2.5 flex items-center gap-2">
-            <h2 id="agent-examples" className="m-0 text-[15px] font-bold">
+            <h2 id="agent-examples" className="m-0 text-[length:var(--type-body-sm)] font-bold">
               למשל, אפשר להגיד:
             </h2>
             <button
               type="button"
-              className="ms-auto text-[14px] underline"
+              className="ms-auto text-[length:var(--type-caption)] underline"
               style={{ color: "var(--color-text-muted)" }}
               onClick={examplesBox.never}
             >
@@ -419,7 +419,7 @@ export default function AgentPage(): React.JSX.Element {
       ) : proposal.actionId === "unknown" ? (
         <div className="mv-proposal">
           <p className="m-0 mb-2 font-semibold">לא הצלחתי לזהות מה לעשות</p>
-          <p className="m-0 text-[15px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-muted)" }}>
             {proposal.clarify ??
               "אפשר לנסח אחרת, או ללחוץ על אחת הדוגמאות למעלה כדי לראות מה אני יודע לעשות."}
           </p>
@@ -438,7 +438,7 @@ export default function AgentPage(): React.JSX.Element {
           */}
           {proposal.fallback ? (
             <p
-              className="m-0 mt-2 text-[14.5px]"
+              className="m-0 mt-2 text-[length:var(--type-caption-lg)]"
               style={{ color: "var(--color-text-muted)" }}
             >
               שירות ההבנה החכמה אינו זמין כרגע, ולכן זוהו רק ניסוחים
@@ -447,7 +447,7 @@ export default function AgentPage(): React.JSX.Element {
             </p>
           ) : null}
           {proposal.warnings.length === 0 ? null : (
-            <ul className="mt-2 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+            <ul className="mt-2 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
               {proposal.warnings.map((warning) => (
                 <li key={warning}>{warning}</li>
               ))}
@@ -489,7 +489,7 @@ export default function AgentPage(): React.JSX.Element {
           {/* התובנה לפני הרשימה: המסקנה קודם, הפירוט למי שרוצה */}
           {result.insight === undefined ? null : (
             <p
-              className="mb-2 mt-3 rounded-lg px-4 py-2.5 text-[15.5px] font-semibold"
+              className="mb-2 mt-3 rounded-lg px-4 py-2.5 text-[length:var(--type-body)] font-semibold"
               style={{ background: "var(--color-primary-soft)" }}
             >
               {result.insight}

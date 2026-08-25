@@ -250,7 +250,7 @@ function MatchesView() {
               className="flex flex-wrap items-center gap-2.5 px-5 py-[13px]"
               style={{ background: "var(--color-table-head)", borderBottom: "1px solid var(--color-card-head-border)" }}
             >
-              <span className="text-[16px] font-extrabold">
+              <span className="text-[length:var(--type-button)] font-extrabold">
                 {direction === "byProperty" ? (
                   <Link href={`/properties/${g.items[0]?.propertyId}`} className="no-underline hover:underline" style={{ color: "inherit" }}>
                     {g.title}
@@ -264,7 +264,7 @@ function MatchesView() {
                 )}
               </span>
               {g.sub ? (
-                <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                   {g.sub}
                 </span>
               ) : null}
@@ -276,7 +276,7 @@ function MatchesView() {
               <div key={m.id} className="flex items-center gap-[15px] px-5 py-3" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
                 <ScoreRing score={m.score} />
                 <div className="min-w-0" style={{ lineHeight: 1.4 }}>
-                  <div className="text-[15.5px] font-bold">
+                  <div className="text-[length:var(--type-body)] font-bold">
                     {direction === "byProperty" ? (
                       m.buyerName ? (
                         <Link href={`/buyers/${m.buyerId}`} className="no-underline hover:underline" style={{ color: "inherit" }}>
@@ -291,7 +291,7 @@ function MatchesView() {
                       </Link>
                     )}
                   </div>
-                  <div className="text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
+                  <div className="text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
                     {m.explanation}
                   </div>
                 </div>
@@ -329,7 +329,7 @@ function MatchesView() {
                 */}
                 {dismissing === m.id ? (
                   <div className="mt-2 flex w-full flex-wrap items-center gap-1.5 border-t pt-2" style={{ borderColor: "var(--color-border)" }}>
-                    <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                    <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                       למה לא מתאים?
                     </span>
                     {DISMISS_REASONS.map((reason) => (

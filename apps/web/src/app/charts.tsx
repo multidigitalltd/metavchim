@@ -130,7 +130,7 @@ export function DonutChart({
             </>
           );
           return (
-            <li key={slice.label} className="text-[14.5px]">
+            <li key={slice.label} className="text-[length:var(--type-caption-lg)]">
               {slice.href ? (
                 <a
                   href={slice.href}
@@ -163,7 +163,7 @@ export function BarChart({ slices }: { slices: readonly Slice[] }) {
         const percent = Math.round((slice.value / max) * 100);
         const body = (
           <>
-            <div className="mb-1 flex items-baseline justify-between gap-2 text-[14.5px]">
+            <div className="mb-1 flex items-baseline justify-between gap-2 text-[length:var(--type-caption-lg)]">
               <span className="truncate">{slice.label}</span>
               <b style={{ fontVariantNumeric: "tabular-nums" }}>{slice.value}</b>
             </div>

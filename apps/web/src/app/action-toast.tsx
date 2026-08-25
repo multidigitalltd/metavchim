@@ -79,7 +79,7 @@ export function ActionToast({
         >
           {success ? <IconCheck s={18} /> : <IconWarning s={18} />}
         </span>
-        <div className="text-[15px]">
+        <div className="text-[length:var(--type-body-sm)]">
           {state.text}
           {state.extra ? <div className="mt-1">{state.extra}</div> : null}
         </div>

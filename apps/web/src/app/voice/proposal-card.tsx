@@ -223,11 +223,11 @@ export function ProposalCard({
     <section className="mv-proposal" aria-labelledby="proposal-title">
       <header className="mv-proposal-head">
         <div>
-          <h2 id="proposal-title" className="m-0 text-[19px] font-bold">
+          <h2 id="proposal-title" className="m-0 text-[length:var(--type-screen-title)] font-bold">
             {proposal.title}
           </h2>
           {proposal.summary === "" ? null : (
-            <p className="m-0 mt-1 text-[15px]" style={{ color: "var(--color-text-muted)" }}>
+            <p className="m-0 mt-1 text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-muted)" }}>
               {proposal.summary}
             </p>
           )}
@@ -259,7 +259,7 @@ export function ProposalCard({
       )}
 
       {proposal.fields.length === 0 ? (
-        <p className="text-[15px]" style={{ color: "var(--color-text-muted)" }}>
+        <p className="text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-muted)" }}>
           לא זוהו פרטים במשפט. אפשר להשלים אותם במסך הבא.
         </p>
       ) : (
@@ -298,7 +298,7 @@ export function ProposalCard({
       */}
       {proposal.missing.length === 0 ? null : (
         <div className="mt-2">
-          <p className="m-0 mb-1 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 mb-1 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
             <IconPin s={14} /> לא זוהה בדיבור — אפשר להשלים כאן:
           </p>
           <dl className="mv-proposal-grid">
@@ -329,9 +329,9 @@ export function ProposalCard({
       */}
       {proposal.candidates === undefined ? null : (
         <fieldset className="mv-proposal-choice">
-          <legend className="text-[15px] font-semibold">{proposal.candidates.label}</legend>
+          <legend className="text-[length:var(--type-body-sm)] font-semibold">{proposal.candidates.label}</legend>
           {noCandidates ? (
-            <p className="m-0 text-[15px]" style={{ color: "var(--color-danger)" }}>
+            <p className="m-0 text-[length:var(--type-body-sm)]" style={{ color: "var(--color-danger)" }}>
               {proposal.candidates.reason === "unsaid"
                 ? 'לא הבנתי על מי מדובר. לחצו „תקנו אותי” ואמרו את השם.'
                 : "לא נמצאה רשומה מתאימה במאגר. אפשר לחפש ידנית ולהמשיך משם."}
@@ -364,7 +364,7 @@ export function ProposalCard({
       */}
       {proposal.followUps === undefined || proposal.followUps.length === 0 ? null : (
         <div className="mt-3">
-          <p className="m-0 mb-1 text-[14.5px] font-semibold">
+          <p className="m-0 mb-1 text-[length:var(--type-caption-lg)] font-semibold">
             וגם, באותו אישור:
           </p>
           {proposal.followUps.map((step, i) => (
@@ -373,7 +373,7 @@ export function ProposalCard({
               className="mb-2 rounded-lg border px-3 py-2"
               style={{ borderColor: "var(--color-border)" }}
             >
-              <p className="m-0 text-[15px] font-semibold">
+              <p className="m-0 text-[length:var(--type-body-sm)] font-semibold">
                 {step.title}
                 {step.summary === "" ? null : (
                   <span className="font-normal" style={{ color: "var(--color-text-muted)" }}>
@@ -383,7 +383,7 @@ export function ProposalCard({
                 )}
               </p>
               {step.fields.length === 0 ? null : (
-                <p className="m-0 mt-1 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                <p className="m-0 mt-1 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                   {step.fields.map((f) => `${f.label}: ${f.display}`).join(" · ")}
                 </p>
               )}

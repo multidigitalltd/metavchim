@@ -65,13 +65,13 @@ export function PriceField({
       */}
       <p
         aria-live="polite"
-        className="m-0 mt-1 text-[14px] font-semibold"
+        className="m-0 mt-1 text-[length:var(--type-caption)] font-semibold"
         style={{ color: "var(--color-primary)", minHeight: "1.1em" }}
       >
         {words}
       </p>
       {words === "" && hint !== undefined ? (
-        <p className="m-0 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+        <p className="m-0 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
           {hint}
         </p>
       ) : null}

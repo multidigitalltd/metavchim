@@ -150,7 +150,7 @@ export function MatchRefreshCard({ reloadKey }: { reloadKey: number }) {
             </p>
             {status.state ? (
               <p
-                className="m-0 mt-1 text-[14px]"
+                className="m-0 mt-1 text-[length:var(--type-caption)]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 {MATCH_REFRESH_REASON_LABELS[status.state.reason]} ·{" "}

@@ -464,7 +464,7 @@ export default function PropertyDetailPage({
     <>
       <Link
         href="/properties"
-        className="mb-3.5 inline-block text-[15px] font-bold no-underline hover:underline"
+        className="mb-3.5 inline-block text-[length:var(--type-body-sm)] font-bold no-underline hover:underline"
         style={{ color: "var(--color-primary)" }}
       >
         → חזרה לרשימת הנכסים
@@ -724,7 +724,7 @@ export default function PropertyDetailPage({
                     >
                       {label}
                     </dt>
-                    <dd className="m-0 mt-0.5 text-[15.5px] font-bold">
+                    <dd className="m-0 mt-0.5 text-[length:var(--type-body)] font-bold">
                       {value}
                     </dd>
                   </div>
@@ -738,7 +738,7 @@ export default function PropertyDetailPage({
               כדי למקם נכס פשוט לא ימקם אותו.
             */}
             <section className="mv-list-card mb-[18px] p-5">
-              <h2 className="m-0 mb-2 text-[16px] font-bold">מיקום על המפה</h2>
+              <h2 className="m-0 mb-2 text-[length:var(--type-button)] font-bold">מיקום על המפה</h2>
               <LocationPicker
                 value={{
                   latitude: property.latitude,
@@ -959,7 +959,7 @@ export default function PropertyDetailPage({
                 קונים מתאימים מהמאגר
               </h2>
               <span
-                className="text-[14px]"
+                className="text-[length:var(--type-caption)]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 כל התאמה מוסברת — בלי קופסה שחורה
@@ -1030,7 +1030,7 @@ export default function PropertyDetailPage({
                       </span>
                     </span>
                     <div className="min-w-0 flex-1" style={{ lineHeight: 1.4 }}>
-                      <div className="text-[15.5px] font-bold">
+                      <div className="text-[length:var(--type-body)] font-bold">
                         {m.buyerName ? (
                           <Link
                             href={`/buyers/${m.buyerId}`}
@@ -1061,13 +1061,13 @@ export default function PropertyDetailPage({
                         ) : null}
                       </div>
                       <div
-                        className="text-[14.5px]"
+                        className="text-[length:var(--type-caption-lg)]"
                         style={{ color: "var(--color-text-muted)" }}
                       >
                         {m.explanation}
                       </div>
                       {awaitingSignature[m.id] ? (
-                        <div className="mt-1.5 text-[14.5px]">
+                        <div className="mt-1.5 text-[length:var(--type-caption-lg)]">
                           <span style={{ color: "var(--color-danger)" }}>
                             ממתין לחתימה על הזמנה בכתב
                           </span>
@@ -1083,7 +1083,7 @@ export default function PropertyDetailPage({
                         </div>
                       ) : null}
                       {offer ? (
-                        <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-[14.5px]">
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-[length:var(--type-caption-lg)]">
                           <span
                             className="font-bold"
                             style={{
@@ -1156,7 +1156,7 @@ export default function PropertyDetailPage({
               })
             )}
             <p
-              className="m-0 mt-3 rounded-[9px] px-[13px] py-[9px] text-[14px]"
+              className="m-0 mt-3 rounded-[9px] px-[13px] py-[9px] text-[length:var(--type-caption)]"
               style={{
                 color: "var(--color-text-muted)",
                 background: "var(--color-table-head)",

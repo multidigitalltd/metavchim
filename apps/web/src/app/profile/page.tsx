@@ -201,7 +201,7 @@ export default function ProfilePage() {
         </span>
         <div className="min-w-0">
           <h1 className="m-0" style={{ fontSize: 22, fontWeight: 800 }}>{user.name}</h1>
-          <p className="m-0 mt-1 text-[15px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 mt-1 text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-muted)" }}>
             <span dir="ltr">{user.email}</span> · {roleLabel(user.role)}
             {user.tenantName ? ` · ${user.tenantName}` : ""}
           </p>
@@ -218,7 +218,7 @@ export default function ProfilePage() {
             <h2 id="details-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
               הפרטים שלי
             </h2>
-            <p className="m-0 mb-3 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
+            <p className="m-0 mb-3 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
               הטלפון ישמש להתראות בוואטסאפ כשהחיבור יופעל במשרד.
             </p>
 
@@ -270,7 +270,7 @@ export default function ProfilePage() {
             <h2 id="display-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
               תצוגה
             </h2>
-            <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+            <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
               ההגדרות נשמרות במכשיר הזה בלבד.
             </p>
             <ThemeToggle />
@@ -319,7 +319,7 @@ export default function ProfilePage() {
           <h2 id="sessions-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
             חיבורים פתוחים
           </h2>
-          <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
             כל מכשיר שמחובר לחשבון שלך עכשיו. חיבור שאינך מזהה — נתק אותו
             והחלף סיסמה.
           </p>
@@ -331,7 +331,7 @@ export default function ProfilePage() {
           <h2 id="a11y-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
             נגישות
           </h2>
-          <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
             ההתאמות חלות מיד ונשמרות למכשיר הזה.
           </p>
 
@@ -444,7 +444,7 @@ function PushSection() {
       <h2 id="push-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
         התראות בדפדפן
       </h2>
-      <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
         ליד חדש, הצעה שנפתחה או תזכורת לפגישה — קופצים על המסך גם כשהמערכת
         סגורה. ההגדרה היא לדפדפן הזה בלבד; במכשיר אחר צריך להפעיל שוב.
       </p>

@@ -156,7 +156,7 @@ export function DuplicateContacts() {
           <IconX s={15} />
         </button>
       </div>
-      <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
         אותו שם מופיע ביותר מכרטיס אחד — בדרך כלל אותו אדם שנקלט פעמיים עם שני
         מספרים. מיזוג מעביר את כל ההיסטוריה לכרטיס אחד ושומר את שני המספרים.
       </p>

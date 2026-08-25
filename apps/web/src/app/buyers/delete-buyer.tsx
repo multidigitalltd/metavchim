@@ -93,7 +93,7 @@ export function DeleteBuyer({ buyerId }: { buyerId: string }) {
       <p className="m-0 mb-2 text-sm font-semibold">
         {preview.archived ? "הכרטיס בארכיון" : "מחיקת כרטיס הקונה"}
       </p>
-      <p className="m-0 mb-2 text-[14.5px]">
+      <p className="m-0 mb-2 text-[length:var(--type-caption-lg)]">
         {items.length > 0 ? `תלויים בכרטיס: ${items.join(" · ")}.` : "אין תוכן מקושר לכרטיס."}
         {preview.appointments > 0
           ? ` ${preview.appointments === 1 ? "פגישה אחת תישאר" : `${preview.appointments} פגישות יישארו`} ביומן, בלי הקישור לכרטיס.`
@@ -101,12 +101,12 @@ export function DeleteBuyer({ buyerId }: { buyerId: string }) {
       </p>
 
       {!preview.archived ? (
-        <p className="m-0 mb-2 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
+        <p className="m-0 mb-2 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
           <b>ארכיון</b> מוריד את הכרטיס מהרשימות ומההתאמות ושומר את ההיסטוריה — אפשר
           למחוק לצמיתות אחר כך. זו הפעולה המומלצת.
         </p>
       ) : (
-        <p className="m-0 mb-2 text-[14.5px]" style={{ color: "var(--color-danger)" }}>
+        <p className="m-0 mb-2 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-danger)" }}>
           מחיקה לצמיתות אינה הפיכה. הלקוח עצמו והלידים שלו יישארו — נמחק רק הכרטיס הזה.
         </p>
       )}

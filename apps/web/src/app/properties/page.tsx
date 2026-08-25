@@ -288,7 +288,7 @@ export default function PropertiesPage() {
           className="rounded-xl border p-8 text-center"
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
         >
-          <p className="mb-1 text-[19px] font-black">עוד לא הוספת נכסים</p>
+          <p className="mb-1 text-[length:var(--type-screen-title)] font-black">עוד לא הוספת נכסים</p>
           <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
             כל נכס שתוסיפו ייבדק מול הקונים שבמאגר, וההתאמות יחושבו לבד.
           </p>
@@ -358,7 +358,7 @@ export default function PropertiesPage() {
               className="rounded-xl border p-8 text-center"
               style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
             >
-              <p className="mb-1 text-[19px] font-black">אין נכסים שמתאימים לסינון</p>
+              <p className="mb-1 text-[length:var(--type-screen-title)] font-black">אין נכסים שמתאימים לסינון</p>
               <p className="mb-4" style={{ color: "var(--color-text-muted)" }}>
                 הסינון הנוכחי לא מחזיר אף נכס. נסו לצמצם אותו או לנקות אותו לגמרי.
               </p>
@@ -382,7 +382,7 @@ export default function PropertiesPage() {
                   className="mv-list-card mb-3 flex flex-wrap items-center gap-2 px-4 py-3"
                   role="status"
                 >
-                  <strong className="text-[15px]">{selectedVisible.length} נבחרו</strong>
+                  <strong className="text-[length:var(--type-body-sm)]">{selectedVisible.length} נבחרו</strong>
                   <button
                     type="button"
                     className="mv-btn-plain"
@@ -568,7 +568,7 @@ export default function PropertiesPage() {
                       style={{ gridTemplateColumns: GRID }}
                       onClick={() => router.push(`/properties/${p.id}`)}
                     >
-                      <span className="flex items-center gap-2 truncate text-[15.5px] font-bold">
+                      <span className="flex items-center gap-2 truncate text-[length:var(--type-body)] font-bold">
                         {addressOf(p)}
                         {isNew(p) ? (
                           <span className="mv-tag" style={{ background: "var(--color-primary-soft)", color: "var(--color-primary)" }}>
@@ -576,10 +576,10 @@ export default function PropertiesPage() {
                           </span>
                         ) : null}
                       </span>
-                      <span className="truncate text-[15px]" style={{ color: "var(--color-text-soft)" }}>
+                      <span className="truncate text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-soft)" }}>
                         {p.city ?? "—"}
                       </span>
-                      <span className="text-[15px]" style={{ color: "var(--color-text-soft)" }}>
+                      <span className="text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-soft)" }}>
                         {p.rooms ?? "—"}
                       </span>
                       <span className="text-sm font-bold">{formatPrice(p.priceAgorot)}</span>

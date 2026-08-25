@@ -261,7 +261,7 @@ export default function IntakeFormPage({
         <h1 className="m-0 text-center text-2xl font-extrabold">
           {view.inactive === "expired" ? "הקישור פג תוקף" : "הקישור בוטל"}
         </h1>
-        <p className="m-0 mt-3 text-center text-[16px] leading-relaxed">
+        <p className="m-0 mt-3 text-center text-[length:var(--type-button)] leading-relaxed">
           {view.inactive === "expired"
             ? `בקשו מ${view.officeName} קישור חדש — ניצור אותו בשנייה.`
             : "פנו אלינו ונשלח לכם קישור חדש."}
@@ -273,7 +273,7 @@ export default function IntakeFormPage({
     return (
       <Shell officeName={view.officeName}>
         <h1 className="m-0 text-center text-2xl font-extrabold">✓ קיבלנו, תודה!</h1>
-        <p className="m-0 mt-3 text-center text-[16px] leading-relaxed">
+        <p className="m-0 mt-3 text-center text-[length:var(--type-button)] leading-relaxed">
           הפרטים נשמרו אצל {view.officeName}. אם יימצא נכס שמתאים למה שסימנתם —
           ניצור אתכם קשר.
         </p>
@@ -292,14 +292,14 @@ export default function IntakeFormPage({
           הבטחה שהעמוד עומד לשבור מיד, והלקוח שנתקל בשגיאה אחרי
           שהובטח לו אחרת קורא אותה כתקלה ולא כהוראה.
         */}
-        <p className="m-0 mt-2 text-[16px] leading-relaxed">
+        <p className="m-0 mt-2 text-[length:var(--type-button)] leading-relaxed">
           {view.needsIdentity
             ? "כמה שאלות קצרות, כדי שנציע לכם בדיוק את מה שמתאים. רק השם, הטלפון וסוג העסקה נחוצים — את השאר מלאו כמה שידוע."
             : "כמה שאלות קצרות, כדי שנציע לכם בדיוק את מה שמתאים. אין שדות חובה — מלאו את מה שידוע, ואת השאר נשלים בשיחה."}
         </p>
         {view.submittedAt !== null ? (
           <p
-            className="m-0 mt-2 text-[15px] font-semibold"
+            className="m-0 mt-2 text-[length:var(--type-body-sm)] font-semibold"
             style={{ color: "var(--color-primary)" }}
           >
             כבר מילאתם את הטופס. אפשר לעדכן ולשלוח שוב.
@@ -520,7 +520,7 @@ export default function IntakeFormPage({
         {busy ? "שולח…" : "שליחה"}
       </button>
       <p
-        className="m-0 mt-3 text-center text-[14px]"
+        className="m-0 mt-3 text-center text-[length:var(--type-caption)]"
         style={{ color: "var(--color-text-muted)" }}
       >
         הפרטים נשמרים אצל {view.officeName} בלבד ואינם מועברים לאיש.
@@ -542,7 +542,7 @@ function Shell({
     <main className="mx-auto w-full max-w-xl px-4 py-8">
       {officeName !== undefined ? (
         <p
-          className="m-0 mb-4 text-center text-[15px] font-bold"
+          className="m-0 mb-4 text-center text-[length:var(--type-body-sm)] font-bold"
           style={{ color: "var(--color-primary)" }}
         >
           {officeName}
@@ -572,10 +572,10 @@ function Field({
 }) {
   return (
     <section className="mt-6">
-      <h2 className="m-0 mb-1 text-[16.5px] font-bold">{label}</h2>
+      <h2 className="m-0 mb-1 text-[length:calc(16.5/16*1rem)] font-bold">{label}</h2>
       {hint !== undefined ? (
         <p
-          className="m-0 mb-2 text-[14px]"
+          className="m-0 mb-2 text-[length:var(--type-caption)]"
           style={{ color: "var(--color-text-muted)" }}
         >
           {hint}

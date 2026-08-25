@@ -47,12 +47,12 @@ export default function KankoComingSoonPage() {
           />
         </h1>
         {/* גדול ומודגש, בצבע הטקסט המלא — זה המסר של העמוד, לא הערת שוליים */}
-        <p className="m-0 mt-4 text-[19px] font-bold leading-relaxed">
+        <p className="m-0 mt-4 text-[length:var(--type-screen-title)] font-bold leading-relaxed">
           פה תוכלו להציע נכסים לקונים מפולחים שמחכים להצעות — בלחיצת
           כפתור ובלי צורך בשיחה.
         </p>
         <p
-          className="mx-auto mt-5 inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[15px] font-bold"
+          className="mx-auto mt-5 inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[length:var(--type-body-sm)] font-bold"
           style={{
             background: "var(--color-primary-soft)",
             color: "var(--color-primary)",

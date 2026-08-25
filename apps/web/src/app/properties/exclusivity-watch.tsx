@@ -75,7 +75,7 @@ export function ExclusivityWatch() {
         {items.slice(0, 8).map((item) => (
           <li
             key={item.id}
-            className="flex flex-wrap items-baseline gap-2 border-b py-1.5 text-[14.5px] last:border-b-0"
+            className="flex flex-wrap items-baseline gap-2 border-b py-1.5 text-[length:var(--type-caption-lg)] last:border-b-0"
             style={{ borderColor: "var(--color-border)" }}
           >
             <Link href={`/properties/${item.propertyId}`} className="font-semibold">

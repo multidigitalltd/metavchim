@@ -59,7 +59,7 @@ export function ExportSection() {
           {busy === "buyers.csv" ? "מוריד…" : "ייצוא קונים"}
         </button>
       </div>
-      <p className="m-0 mt-[9px] text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mt-[9px] text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
         קבצים בעברית שנפתחים באקסל וניתנים לייבוא חזרה. כל ייצוא מתועד ביומן הפעילות.
       </p>
       {error ? (

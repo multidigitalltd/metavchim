@@ -102,7 +102,7 @@ export default function ForumComingSoonPage() {
             פורום המתווכים
           </h1>
           <p
-            className="m-0 mt-1 inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[15px] font-bold"
+            className="m-0 mt-1 inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[length:var(--type-body-sm)] font-bold"
             style={{
               background: "var(--color-primary-soft)",
               color: "var(--color-primary)",
@@ -112,7 +112,7 @@ export default function ForumComingSoonPage() {
           </p>
         </header>
 
-        <p className="m-0 mt-6 text-[19px] font-bold leading-relaxed">
+        <p className="m-0 mt-6 text-[length:var(--type-screen-title)] font-bold leading-relaxed">
           בקרוב ייפתח כאן פורום מקצועי למתווכים — מקום להעלות שאלות,
           להתייעץ עם עמיתים ולקבל תשובות ממי שכבר עבר את זה.
         </p>
@@ -129,10 +129,10 @@ export default function ForumComingSoonPage() {
             background: "var(--color-surface)",
           }}
         >
-          <h2 className="m-0 text-[17px] font-extrabold">
+          <h2 className="m-0 text-[length:calc(17/16*1rem)] font-extrabold">
             והיתרון הגדול — אפשר לשאול בעילום שם
           </h2>
-          <p className="m-0 mt-2 text-[16px] leading-relaxed">
+          <p className="m-0 mt-2 text-[length:var(--type-button)] leading-relaxed">
             לא מעט שאלות מקצועיות פשוט אינן נשאלות, כי אי אפשר לשאול
             אותן בשם מלא: סעיף בהסכם שלא ברור, התנהלות מול לקוח,
             מקרה שנתקעתם בו, או פשוט שאלה שמעדיפים לשאול בלי שאיש
@@ -142,7 +142,7 @@ export default function ForumComingSoonPage() {
           </p>
         </div>
 
-        <ul className="m-0 mt-5 list-none space-y-2.5 p-0 text-[16px] leading-relaxed">
+        <ul className="m-0 mt-5 list-none space-y-2.5 p-0 text-[length:var(--type-button)] leading-relaxed">
           <li>• שאלות והתייעצויות מקצועיות — בשם או בעילום שם, לבחירתכם.</li>
           <li>• דיונים בין מתווכים מכל הארץ, במקום אחד ולא בעשר קבוצות.</li>
           <li>• תשובות שנשמרות וניתנות לחיפוש — לא נעלמות בגלילה.</li>
@@ -159,12 +159,12 @@ export default function ForumComingSoonPage() {
           }}
         >
           {signed === true ? (
-            <p className="m-0 text-[16.5px] font-bold" role="status">
+            <p className="m-0 text-[length:calc(16.5/16*1rem)] font-bold" role="status">
               ✓ נרשמתם — נעדכן אתכם במייל ברגע שהפורום יעלה.
             </p>
           ) : (
             <>
-              <p className="m-0 mb-3 text-[16.5px] font-bold">
+              <p className="m-0 mb-3 text-[length:calc(16.5/16*1rem)] font-bold">
                 רוצים לדעת ברגע שהפורום נפתח?
               </p>
               <Button onClick={() => void join()} disabled={busy}>

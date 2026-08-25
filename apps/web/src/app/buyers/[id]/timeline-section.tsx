@@ -175,7 +175,7 @@ export function TimelineSection({ buyerId }: { buyerId: string }) {
       <h2 id="timeline-heading" className="mb-1 text-lg font-semibold">
         היסטוריה {items ? `(${items.length}${nextCursor ? "+" : ""})` : ""}
       </h2>
-      <p className="m-0 mb-4 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+      <p className="m-0 mb-4 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
         כל מה שנאמר עם הלקוח, בסדר כרונולוגי. מי שיפתח את הכרטיס אחריכם
         יראה בדיוק את אותה תמונה.
       </p>
@@ -194,7 +194,7 @@ export function TimelineSection({ buyerId }: { buyerId: string }) {
           }}
         >
           <fieldset className="m-0 mb-3 border-0 p-0">
-            <legend className="mb-2 p-0 text-[14px] font-bold">מה קרה?</legend>
+            <legend className="mb-2 p-0 text-[length:var(--type-caption)] font-bold">מה קרה?</legend>
             <div className="flex flex-wrap gap-2">
               {(["note", "call"] as const).map((option) => {
                 const meta = KINDS[option] ?? FALLBACK;
@@ -217,7 +217,7 @@ export function TimelineSection({ buyerId }: { buyerId: string }) {
             </div>
           </fieldset>
 
-          <label htmlFor="int-content" className="mb-1 block text-[14px] font-bold">
+          <label htmlFor="int-content" className="mb-1 block text-[length:var(--type-caption)] font-bold">
             {kind === "call" ? "מה סוכם בשיחה?" : "מה חשוב לזכור?"}
           </label>
           <WithDictation value={content} onChange={setContent}>
@@ -232,7 +232,7 @@ export function TimelineSection({ buyerId }: { buyerId: string }) {
                   ? 'למשל: "דיברנו — מחפש כניסה מיידית, גמיש בתקציב עד 2.7"'
                   : 'למשל: "מעדיף קומה גבוהה, לא ראה עדיין את הרחוב"'
               }
-              className="w-full rounded-xl border px-3 py-2.5 text-[15px]"
+              className="w-full rounded-xl border px-3 py-2.5 text-[length:var(--type-body-sm)]"
               style={{
                 borderColor: "var(--color-input-border)",
                 background: "var(--color-surface)",
@@ -242,7 +242,7 @@ export function TimelineSection({ buyerId }: { buyerId: string }) {
           </WithDictation>
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+            <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
               נשמר לצמיתות ומשויך אליכם.
             </span>
             <Button type="submit" disabled={busy || content.trim() === ""}>
@@ -276,8 +276,8 @@ export function TimelineSection({ buyerId }: { buyerId: string }) {
           >
             <IconDoc s={20} />
           </span>
-          <p className="m-0 text-[15.5px] font-bold">הציר עוד ריק</p>
-          <p className="m-0 mt-1 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 text-[length:var(--type-body)] font-bold">הציר עוד ריק</p>
+          <p className="m-0 mt-1 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
             {canEdit
               ? "אחרי השיחה הראשונה — שורה אחת כאן שווה יותר מזיכרון."
               : "עדיין לא תועד דבר על הלקוח הזה."}
@@ -288,7 +288,7 @@ export function TimelineSection({ buyerId }: { buyerId: string }) {
           {groups.map(([label, group]) => (
             <div key={label} className="mb-5">
               <h3
-                className="m-0 mb-2 text-[14px] font-bold"
+                className="m-0 mb-2 text-[length:var(--type-caption)] font-bold"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 {label}
@@ -330,20 +330,20 @@ export function TimelineSection({ buyerId }: { buyerId: string }) {
                         {meta.icon}
                       </span>
                       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                        <span className="text-[14px] font-bold" style={{ color: meta.fg }}>
+                        <span className="text-[length:var(--type-caption)] font-bold" style={{ color: meta.fg }}>
                           {meta.label}
                           {i.direction ? (i.direction === "in" ? " נכנסת" : " יוצאת") : ""}
                         </span>
                         <time
                           dateTime={i.createdAt}
-                          className="text-[14px]"
+                          className="text-[length:var(--type-caption)]"
                           style={{ color: "var(--color-text-muted)" }}
                         >
                           {hourFmt.format(new Date(i.createdAt))}
                         </time>
                       </div>
                       <p
-                        className="m-0 mt-1 whitespace-pre-wrap text-[15px]"
+                        className="m-0 mt-1 whitespace-pre-wrap text-[length:var(--type-body-sm)]"
                         style={{ lineHeight: 1.6 }}
                       >
                         {i.content}

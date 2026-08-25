@@ -89,7 +89,7 @@ function BankField({
       />
       {hint !== undefined ? (
         <span
-          className="mt-0.5 block text-[14px]"
+          className="mt-0.5 block text-[length:var(--type-caption)]"
           style={{ color: "var(--color-text-muted)" }}
         >
           {hint}
@@ -181,7 +181,7 @@ export function PayoutPanel() {
       >
         יתרה כספית
       </h3>
-      <p className="m-0 mb-2 text-[14.5px]">
+      <p className="m-0 mb-2 text-[length:var(--type-caption-lg)]">
         <b>{shekels(balance.balanceAgorot)} ₪</b> זמינים למשיכה.
         {balance.pendingAgorot > 0 ? (
           <>
@@ -193,7 +193,7 @@ export function PayoutPanel() {
         ) : null}
       </p>
       <p
-        className="m-0 mb-2 text-[14px]"
+        className="m-0 mb-2 text-[length:var(--type-caption)]"
         style={{ color: "var(--color-text-muted)" }}
       >
         היתרה נצברת מהפניות שפרסמתם ובחרתם לקבל עליהן תמורה בכסף. הסכום המינימלי
@@ -269,7 +269,7 @@ export function PayoutPanel() {
           />
           {localProblem !== null ? (
             <p
-              className="m-0 mt-2 text-[14px]"
+              className="m-0 mt-2 text-[length:var(--type-caption)]"
               style={{ color: "var(--color-danger)" }}
             >
               {localProblem}
@@ -310,7 +310,7 @@ export function PayoutPanel() {
       {rows.length > 0 ? (
         <div className="mt-3">
           <h4 className="m-0 mb-1 text-sm font-semibold">בקשות קודמות</h4>
-          <ul className="m-0 list-none p-0 text-[14px]">
+          <ul className="m-0 list-none p-0 text-[length:var(--type-caption)]">
             {rows.map((row) => (
               <li
                 key={row.id}

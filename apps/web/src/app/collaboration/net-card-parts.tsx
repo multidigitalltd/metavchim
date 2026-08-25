@@ -301,9 +301,9 @@ export function NetDetailsButton({
         <div className="mv-net-dialog-body">
           <div className="mv-net-dialog-head">
             <div className="min-w-0">
-              <h3 className="m-0 text-[18px] font-extrabold">{title}</h3>
+              <h3 className="m-0 text-[length:calc(18/16*1rem)] font-extrabold">{title}</h3>
               {subtitle ? (
-                <p className="m-0 mt-0.5 text-[14.5px]" style={{ color: "var(--color-text-soft)" }}>
+                <p className="m-0 mt-0.5 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-soft)" }}>
                   {subtitle}
                 </p>
               ) : null}
@@ -341,7 +341,7 @@ export function NetDetailsButton({
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
             <NetMeta id={id} {...(publishedAt === undefined ? {} : { publishedAt })} />
             {officeName ? (
-              <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+              <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                 פורסם על ידי {officeName}
               </span>
             ) : null}
@@ -372,8 +372,8 @@ export function NetNoMatch({
         <IconUsers s={17} />
       </span>
       <span className="min-w-0">
-        <b className="block text-[14.5px]">{what}</b>
-        <span className="text-[14px]" style={{ color: "var(--color-text-soft)" }}>
+        <b className="block text-[length:var(--type-caption-lg)]">{what}</b>
+        <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-soft)" }}>
           {hint}
         </span>
       </span>

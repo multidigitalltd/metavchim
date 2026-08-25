@@ -88,16 +88,16 @@ export function BuyCredits({
                   background: "var(--color-surface)",
                 }}
               >
-                <span className="block text-[15.5px] font-bold">
+                <span className="block text-[length:var(--type-body)] font-bold">
                   {pkg.credits} קרדיטים
                 </span>
-                <span className="block text-[14.5px]">
+                <span className="block text-[length:var(--type-caption-lg)]">
                   {shekels(pkg.priceAgorot)} ₪
                 </span>
                 {/* הנחה שלילית לא מוצגת כ"הנחה" — היא טעות תמחור, לא מבצע */}
                 {discount > 0 ? (
                   <span
-                    className="block text-[14px] font-bold"
+                    className="block text-[length:var(--type-caption)] font-bold"
                     style={{ color: "var(--color-success)" }}
                   >
                     {discount}% הנחה
@@ -144,7 +144,7 @@ export function BuyCredits({
       ) : null}
 
       <p
-        className="m-0 mt-2 text-[14px]"
+        className="m-0 mt-2 text-[length:var(--type-caption)]"
         style={{ color: "var(--color-text-muted)" }}
       >
         התשלום מתבצע בדף המאובטח של חברת הסליקה; פרטי האשראי אינם עוברים דרך

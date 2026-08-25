@@ -114,7 +114,7 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
         <IconHome s={16} /> נכסים מהרשת
       </h2>
       <p
-        className="m-0 mb-2.5 text-[14px]"
+        className="m-0 mb-2.5 text-[length:var(--type-caption)]"
         style={{ color: "var(--color-text-muted)" }}
       >
         נכסים שמשרדים אחרים הציעו על הביקוש הזה
@@ -143,13 +143,13 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
             style={{ borderBottom: "1px solid var(--color-row-border)" }}
           >
             <div className="min-w-0 flex-1" style={{ lineHeight: 1.4 }}>
-              <div className="mb-1.5 text-[15.5px] font-bold">
+              <div className="mb-1.5 text-[length:var(--type-body)] font-bold">
                 {offer.presentation.title ?? "נכס ברשת"}
               </div>
               {/* כל מה שאינו מזהה — לפני אישור החיבור, לא אחריו */}
               <NetChips chips={presentationChips(offer.presentation)} />
               <div
-                className="text-[14px]"
+                className="text-[length:var(--type-caption)]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 <IconHandshake s={13} /> העמלה שלי {100 - offer.commissionSplit}

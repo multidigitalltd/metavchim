@@ -57,7 +57,7 @@ export default function GuidesPage() {
           <h2 id="support-heading" className="m-0 text-sm font-extrabold">
             לא מצאתם תשובה?
           </h2>
-          <p className="m-0 mt-0.5 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
+          <p className="m-0 mt-0.5 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
             צוות התמיכה שלנו כאן — כתבו לנו ונחזור אליכם.
           </p>
         </div>
@@ -70,7 +70,7 @@ export default function GuidesPage() {
         </a>
         <a
           href={`mailto:${SUPPORT_EMAIL}`}
-          className="text-[14.5px] underline"
+          className="text-[length:var(--type-caption-lg)] underline"
           style={{ color: "var(--color-text-muted)" }}
           dir="ltr"
         >

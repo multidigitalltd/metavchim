@@ -276,7 +276,7 @@ export function AgreementsPanel({
                   {STATUS_LABELS[row.status] ?? row.status}
                 </span>
                 {row.sentAt ? (
-                  <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                  <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                     נשלח {new Date(row.sentAt).toLocaleDateString("he-IL")}
                   </span>
                 ) : null}
@@ -318,7 +318,7 @@ export function AgreementsPanel({
                     href={row.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-[14.5px] underline"
+                    className="text-[length:var(--type-caption-lg)] underline"
                   >
                     קישור לחתימה
                   </a>
@@ -327,7 +327,7 @@ export function AgreementsPanel({
 
               {row.status === "signed" ? (
                 /* המסמך החתום עצמו — עד כה החתימה נשמרה ולא היה מה להראות */
-                <a href={`/agreements/${row.id}/document`} className="text-[14.5px] underline">
+                <a href={`/agreements/${row.id}/document`} className="text-[length:var(--type-caption-lg)] underline">
                   <IconDoc s={15} /> המסמך החתום
                 </a>
               ) : null}

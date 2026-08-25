@@ -1052,7 +1052,7 @@ export default function CollaborationPage() {
                       <div className="w-full">
                         <label
                           htmlFor={`decline-offer-${offer.id}`}
-                          className="mb-1 block text-[14px] font-medium"
+                          className="mb-1 block text-[length:var(--type-caption)] font-medium"
                         >
                           למה ההצעה לא מתאימה? הסיבה תישלח למשרד שהציע
                         </label>
@@ -1060,7 +1060,7 @@ export default function CollaborationPage() {
                           id={`decline-offer-${offer.id}`}
                           rows={2}
                           maxLength={300}
-                          className="w-full rounded-lg border p-2 text-[14px]"
+                          className="w-full rounded-lg border p-2 text-[length:var(--type-caption)]"
                           style={{
                             borderColor: "var(--color-input-border)",
                             background: "var(--color-bg)",
@@ -1220,7 +1220,7 @@ export default function CollaborationPage() {
                           <div className="w-full">
                             <label
                               htmlFor={`decline-interest-${interest.id}`}
-                              className="mb-1 block text-[14px] font-medium"
+                              className="mb-1 block text-[length:var(--type-caption)] font-medium"
                             >
                               למה הקונה לא מתאים? הסיבה תישלח למשרד שהציע
                             </label>
@@ -1228,7 +1228,7 @@ export default function CollaborationPage() {
                               id={`decline-interest-${interest.id}`}
                               rows={2}
                               maxLength={300}
-                              className="w-full rounded-lg border p-2 text-[14px]"
+                              className="w-full rounded-lg border p-2 text-[length:var(--type-caption)]"
                               style={{
                                 borderColor: "var(--color-input-border)",
                                 background: "var(--color-bg)",
@@ -1414,7 +1414,7 @@ export default function CollaborationPage() {
           את ההחלטה בשנייה הראשונה.
         */}
               <p
-                className="mb-3.5 text-[15.5px]"
+                className="mb-3.5 text-[length:var(--type-body)]"
                 style={{ color: "var(--color-text-soft)" }}
               >
                 קונים של משרדים אחרים — <b>בלי שם ובלי טלפון</b>. יש לכם נכס
@@ -1595,7 +1595,7 @@ export default function CollaborationPage() {
                           {demand.myMatches && demand.myMatches.length > 0 ? (
                             <div className="mb-3">
                               <p
-                                className="m-0 mb-2 text-[15.5px] font-bold"
+                                className="m-0 mb-2 text-[length:var(--type-body)] font-bold"
                                 style={{ color: "var(--color-primary)" }}
                               >
                                 <IconTarget s={16} /> {demand.myMatches.length}{" "}
@@ -1638,7 +1638,7 @@ export default function CollaborationPage() {
                                         <IconEye s={13} />
                                       </Link>
                                       <span
-                                        className="block text-[14.5px]"
+                                        className="block text-[length:var(--type-caption-lg)]"
                                         style={{
                                           color: "var(--color-text-soft)",
                                         }}
@@ -1802,7 +1802,7 @@ export default function CollaborationPage() {
                 <IconTag s={17} /> נכסים ברשת
               </h2>
               <p
-                className="mb-3.5 text-[15.5px]"
+                className="mb-3.5 text-[length:var(--type-body)]"
                 style={{ color: "var(--color-text-soft)" }}
               >
                 נכסים של משרדים אחרים — <b>בלי כתובת מדויקת ובלי בעלים</b>. יש
@@ -1963,7 +1963,7 @@ export default function CollaborationPage() {
                             listing.myMatches.length > 0 ? (
                             <div className="mb-3">
                               <p
-                                className="m-0 mb-2 text-[15.5px] font-bold"
+                                className="m-0 mb-2 text-[length:var(--type-body)] font-bold"
                                 style={{ color: "var(--color-primary)" }}
                               >
                                 <IconTarget s={16} /> {listing.myMatches.length}{" "}
@@ -2001,7 +2001,7 @@ export default function CollaborationPage() {
                                         <IconEye s={13} />
                                       </Link>
                                       <span
-                                        className="block text-[14.5px]"
+                                        className="block text-[length:var(--type-caption-lg)]"
                                         style={{
                                           color: "var(--color-text-soft)",
                                         }}
@@ -2141,7 +2141,7 @@ export default function CollaborationPage() {
             <IconHandshake s={17} /> הפניות ברשת
           </h2>
           <p
-            className="mb-3 text-[15.5px]"
+            className="mb-3 text-[length:var(--type-body)]"
             style={{ color: "var(--color-text-soft)" }}
           >
             לקוחות שמשרד אחר לא יכול לשרת — ואתם כן.
@@ -2162,7 +2162,7 @@ export default function CollaborationPage() {
               {balance === null ? "…" : `${balance} קרדיטים`}
             </span>
             <span
-              className="text-[14px]"
+              className="text-[length:var(--type-caption)]"
               style={{ color: "var(--color-text-muted)" }}
             >
               שת"פ עם משרד תיווך — חינם. קרדיטים רק על הפניות ומקורות חיצוניים.
@@ -2175,7 +2175,7 @@ export default function CollaborationPage() {
           */}
           {expiry !== null && expiry.nextAt !== undefined ? (
             <p
-              className="m-0 mt-1.5 text-[14px]"
+              className="m-0 mt-1.5 text-[length:var(--type-caption)]"
               style={{ color: "var(--color-text-muted)" }}
             >
               {expiry.nextAmount} מהם פגים ב-
@@ -2207,7 +2207,7 @@ export default function CollaborationPage() {
           */}
           {myReferrals.length > 0 ? (
             <>
-              <h3 className="mb-2 mt-4 text-[16px] font-semibold">
+              <h3 className="mb-2 mt-4 text-[length:var(--type-button)] font-semibold">
                 <IconUpload s={15} /> ההפניות שפרסמתי
               </h3>
               <ul className="mv-net-grid mb-5">
@@ -2287,7 +2287,7 @@ export default function CollaborationPage() {
 
           {receivedReferrals.length > 0 ? (
             <>
-              <h3 className="mb-2 text-[16px] font-semibold">
+              <h3 className="mb-2 text-[length:var(--type-button)] font-semibold">
                 <IconDownload s={15} /> הפניות שקלטתי
               </h3>
               <ul className="mv-net-grid mb-5">
@@ -2327,7 +2327,7 @@ export default function CollaborationPage() {
           ) : null}
 
           {myReferrals.length > 0 || receivedReferrals.length > 0 ? (
-            <h3 className="mb-2 text-[16px] font-semibold">
+            <h3 className="mb-2 text-[length:var(--type-button)] font-semibold">
               <IconGlobe s={15} /> הפניות פתוחות ברשת
             </h3>
           ) : null}

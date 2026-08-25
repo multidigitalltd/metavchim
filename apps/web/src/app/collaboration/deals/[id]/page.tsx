@@ -206,7 +206,7 @@ export default function DealRoomPage() {
               {deal.property.address}
             </h1>
             <p
-              className="m-0 mt-0.5 text-[15px]"
+              className="m-0 mt-0.5 text-[length:var(--type-body-sm)]"
               style={{ color: "var(--color-text-soft)" }}
             >
               עסקה משותפת מול {deal.counterpartOffice} · נפתחה{" "}
@@ -228,7 +228,7 @@ export default function DealRoomPage() {
           ) : null}
         </div>
         {deal.closedNote === undefined ? null : (
-          <p className="mt-3 mb-0 text-[15.5px]">
+          <p className="mt-3 mb-0 text-[length:var(--type-body)]">
             <strong>סיבת הסגירה:</strong> {deal.closedNote}
           </p>
         )}
@@ -295,7 +295,7 @@ export default function DealRoomPage() {
             </h2>
             <p className="m-0 mb-1">{deal.property.address}</p>
             <p
-              className="m-0 text-[15px]"
+              className="m-0 text-[length:var(--type-body-sm)]"
               style={{ color: "var(--color-text-muted)" }}
             >
               {[
@@ -330,7 +330,7 @@ export default function DealRoomPage() {
               הקונה
             </h2>
             <p
-              className="m-0 text-[15px]"
+              className="m-0 text-[length:var(--type-body-sm)]"
               style={{ color: "var(--color-text-muted)" }}
             >
               {[
@@ -361,7 +361,7 @@ export default function DealRoomPage() {
                * הכלל, לא תקלה.
                */
               <p
-                className="mt-2 mb-0 text-[14.5px]"
+                className="mt-2 mb-0 text-[length:var(--type-caption-lg)]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 הקונה שייך למשרד השותף. לתיאום מולו — דרך הסוכן שמולכם.
@@ -435,7 +435,7 @@ function StageRail({
         })}
       </div>
       <p
-        className="mt-2 mb-0 text-[15px]"
+        className="mt-2 mb-0 text-[length:var(--type-body-sm)]"
         style={{ color: "var(--color-text-muted)" }}
       >
         {COOP_DEAL_STAGE_HINTS[stage]}
@@ -476,7 +476,7 @@ function StageRail({
             </button>
           </div>
           <p
-            className="mt-2 mb-0 text-[14.5px]"
+            className="mt-2 mb-0 text-[length:var(--type-caption-lg)]"
             style={{ color: "var(--color-text-muted)" }}
           >
             עסקה סגורה אינה נפתחת מחדש — שני המשרדים נשענים על הרישום
@@ -582,7 +582,7 @@ function SideCard({
         {side.officeName}
       </p>
       {side.agentName === undefined ? (
-        <p className="m-0 text-[15px]" style={{ color: "var(--color-text-muted)" }}>
+        <p className="m-0 text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-muted)" }}>
           אין סוכן משויך
         </p>
       ) : (

@@ -141,9 +141,9 @@ export function ContactErasure({
         <IconWarning s={16} /> מחיקת {name} מהמערכת — אי אפשר לשחזר
       </p>
       {items.length > 0 ? (
-        <p className="m-0 mb-2 text-[14.5px]">יימחקו: {items.join(" · ")}.</p>
+        <p className="m-0 mb-2 text-[length:var(--type-caption-lg)]">יימחקו: {items.join(" · ")}.</p>
       ) : (
-        <p className="m-0 mb-2 text-[14.5px]">
+        <p className="m-0 mb-2 text-[length:var(--type-caption-lg)]">
           לכרטיס הזה אין עדיין תוכן מקושר — יימחק הכרטיס עצמו.
         </p>
       )}
@@ -153,7 +153,7 @@ export function ContactErasure({
         יכול להבטיח לו.
       */}
       {preview.signedAgreements > 0 ? (
-        <p className="m-0 mb-2 text-[14.5px]">
+        <p className="m-0 mb-2 text-[length:var(--type-caption-lg)]">
           <b>
             {preview.signedAgreements === 1
               ? "הסכם חתום אחד יישמר"
@@ -166,7 +166,7 @@ export function ContactErasure({
       ) : null}
       {preview.properties > 0 ? (
         <p
-          className="m-0 mb-2 text-[14.5px]"
+          className="m-0 mb-2 text-[length:var(--type-caption-lg)]"
           style={{ color: "var(--color-text-muted)" }}
         >
           {preview.properties === 1

@@ -628,7 +628,7 @@ export default function SettingsPage() {
                             </span>
                           </span>
                           <span
-                            className="text-[14.5px]"
+                            className="text-[length:var(--type-caption-lg)]"
                             style={{ color: "var(--color-text-soft)" }}
                           >
                             {editable ? (
@@ -760,7 +760,7 @@ export default function SettingsPage() {
                             )}
                           </span>
                           <span
-                            className="text-[14.5px]"
+                            className="text-[length:var(--type-caption-lg)]"
                             style={{ color: "var(--color-text-soft)" }}
                           >
                             {seesAll ? "את כל הקונים" : "רק את הקונים שלו"}
@@ -864,7 +864,7 @@ export default function SettingsPage() {
                 </div>
               </div>
               <p
-                className="m-0 px-5 py-[13px] text-[14px]"
+                className="m-0 px-5 py-[13px] text-[length:var(--type-caption)]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 הרשאות לפי תפקיד — הגנה מפני סוכן שעוזב עם המאגר. כל פעולה
@@ -1256,7 +1256,7 @@ export default function SettingsPage() {
                   יומן פעילות
                 </h2>
                 <p
-                  className="m-0 mt-0.5 text-[14px]"
+                  className="m-0 mt-0.5 text-[length:var(--type-caption)]"
                   style={{ color: "var(--color-text-muted)" }}
                 >
                   מי עשה מה ומתי — כל פעולה במערכת מתועדת ואינה ניתנת למחיקה.
@@ -1274,7 +1274,7 @@ export default function SettingsPage() {
                   {audit.map((row, index) => (
                     <li
                       key={index}
-                      className="flex flex-wrap gap-1.5 px-5 py-2.5 text-[15px]"
+                      className="flex flex-wrap gap-1.5 px-5 py-2.5 text-[length:var(--type-body-sm)]"
                       style={{
                         borderBottom: "1px solid var(--color-row-border)",
                       }}
@@ -1289,7 +1289,7 @@ export default function SettingsPage() {
                         {row.supportAdmin ? (
                           <span style={{ color: "var(--color-warning)" }}>
                             תמיכה{" "}
-                            <span className="font-normal text-[14px]" dir="ltr">
+                            <span className="font-normal text-[length:var(--type-caption)]" dir="ltr">
                               ({row.supportAdmin})
                             </span>
                           </span>
@@ -1332,7 +1332,7 @@ export default function SettingsPage() {
               {SECURITY_ROWS.map((row) => (
                 <div
                   key={row}
-                  className="flex items-center gap-[9px] py-1.5 text-[15px]"
+                  className="flex items-center gap-[9px] py-1.5 text-[length:var(--type-body-sm)]"
                   style={{ color: "var(--color-text-soft)" }}
                 >
                   <span
@@ -1403,13 +1403,13 @@ export default function SettingsPage() {
                 </h2>
               </div>
               <p
-                className="m-0 text-[14.5px]"
+                className="m-0 text-[length:var(--type-caption-lg)]"
                 style={{ color: "var(--color-text-soft)", lineHeight: 1.6 }}
               >
                 שליחה אוטומטית בוואטסאפ
               </p>
               <p
-                className="m-0 mt-2 text-[14px]"
+                className="m-0 mt-2 text-[length:var(--type-caption)]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 כשפיצ׳ר עולה — באנר "מה חדש" מופיע לכולם בכניסה הבאה.

@@ -267,7 +267,7 @@ export default function SignupPage(): React.JSX.Element {
             className="mb-2"
             aria-describedby={error ? "signup-error" : undefined}
           >
-            <p className="mt-0 mb-3 text-[15px]">
+            <p className="mt-0 mb-3 text-[length:var(--type-body-sm)]">
               שלחנו קוד בן שש ספרות אל{" "}
               <strong dir="ltr" className="inline-block">
                 {pending.email}
@@ -295,7 +295,7 @@ export default function SignupPage(): React.JSX.Element {
             </div>
 
             {resent === null ? null : (
-              <p aria-live="polite" className="m-0 mb-3 text-[15px]" style={{ color: "var(--color-success)" }}>
+              <p aria-live="polite" className="m-0 mb-3 text-[length:var(--type-body-sm)]" style={{ color: "var(--color-success)" }}>
                 {resent}
               </p>
             )}
@@ -313,7 +313,7 @@ export default function SignupPage(): React.JSX.Element {
               {submitting ? "פותח משרד…" : "אישור ופתיחת המשרד"}
             </button>
 
-            <p className="mt-3 mb-0 text-[15px]" style={{ color: "var(--color-text-muted)" }}>
+            <p className="mt-3 mb-0 text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-muted)" }}>
               לא הגיע?{" "}
               <button type="button" className="underline" onClick={() => void resend()}>
                 שלחו קוד שוב
@@ -341,7 +341,7 @@ export default function SignupPage(): React.JSX.Element {
         <div style={{ display: pending === null ? "block" : "none" }}>
         <form method="post" onSubmit={(e) => void submit(e)} noValidate aria-describedby={error ? "signup-error" : undefined}>
           <fieldset className="m-0 mb-5 border-0 p-0">
-            <legend className="mb-2 text-[15px] font-bold">בחרו מסלול</legend>
+            <legend className="mb-2 text-[length:var(--type-body-sm)] font-bold">בחרו מסלול</legend>
             <div className="grid gap-2">
               {plans.map((plan) => {
                 const active = plan.code === chosen;
@@ -386,12 +386,12 @@ export default function SignupPage(): React.JSX.Element {
                         </span>
                       </span>
                       <span
-                        className="mt-0.5 block text-[14.5px]"
+                        className="mt-0.5 block text-[length:var(--type-caption-lg)]"
                         style={{ color: "var(--color-text-muted)" }}
                       >
                         {plan.description}
                       </span>
-                      <span className="mt-1 block text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                      <span className="mt-1 block text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                         {plan.maxUsers === null ? "משתמשים ללא הגבלה" : `עד ${plan.maxUsers} משתמשים`}
                         {" · "}
                         {plan.maxProperties === null
@@ -406,7 +406,7 @@ export default function SignupPage(): React.JSX.Element {
                         ) : null}
                       </span>
                       {active ? (
-                        <span className="mt-1.5 block text-[14px]">
+                        <span className="mt-1.5 block text-[length:var(--type-caption)]">
                           {plan.features.map(featureLabel).join(" · ")}
                         </span>
                       ) : null}
@@ -422,7 +422,7 @@ export default function SignupPage(): React.JSX.Element {
             */}
             {priceNote === "" ? null : (
               <p
-                className="mt-2 mb-0 text-[14px]"
+                className="mt-2 mb-0 text-[length:var(--type-caption)]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 {priceNote}
@@ -549,7 +549,7 @@ export default function SignupPage(): React.JSX.Element {
             השרת דורש `acceptTerms: true` ולא מקבל הרשמה בלעדיו, ולכן
             תיבה שלא סומנה עוצרת כאן ולא בשגיאת שרת סתומה.
           */}
-          <label className="mb-4 flex items-start gap-2 text-[15px]">
+          <label className="mb-4 flex items-start gap-2 text-[length:var(--type-body-sm)]">
             <input
               type="checkbox"
               checked={accepted}

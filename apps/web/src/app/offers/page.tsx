@@ -217,17 +217,17 @@ export default function OffersPage() {
                   className={`mv-list-row${isMulling(offer) ? " mv-list-row--highlight" : ""}`}
                   style={{ gridTemplateColumns: GRID }}
                 >
-                  <span className="truncate text-[15.5px] font-bold">
+                  <span className="truncate text-[length:var(--type-body)] font-bold">
                     {offer.buyerName ?? "קונה של סוכן אחר"}
                   </span>
-                  <span className="truncate text-[15px]" style={{ color: "var(--color-text-soft)" }}>
+                  <span className="truncate text-[length:var(--type-body-sm)]" style={{ color: "var(--color-text-soft)" }}>
                     {offer.title}
                   </span>
-                  <span className="text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
+                  <span className="text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
                     {offer.sentAt ? formatDate(offer.sentAt) : "—"}
                   </span>
                   <span
-                    className="text-[15px] font-extrabold"
+                    className="text-[length:var(--type-body-sm)] font-extrabold"
                     style={{ color: isMulling(offer) ? "var(--color-danger)" : "var(--color-text-soft)" }}
                   >
                     {offer.openCount === 0 ? "טרם נפתחה" : `נפתחה ${offer.openCount} פעמים`}
@@ -257,7 +257,7 @@ export default function OffersPage() {
               className="mt-3.5 flex flex-wrap items-center gap-2.5 rounded-xl border px-[18px] py-[13px]"
               style={{ background: "#fdf8ef", borderColor: "#ecdfc2" }}
             >
-              <span className="text-[15px]" style={{ color: "#7a5c1f" }}>
+              <span className="text-[length:var(--type-body-sm)]" style={{ color: "#7a5c1f" }}>
                 <b>{mulling.buyerName ?? "קונה"}</b> פתח את ההצעה ל{mulling.title}{" "}
                 {mulling.openCount} פעמים ולא ענה — סימן שהוא מתלבט. שווה טלפון עכשיו.
               </span>

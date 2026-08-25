@@ -120,7 +120,7 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
         <IconGlobe s={16} /> ביקושים ברשת
       </h2>
       <p
-        className="m-0 mb-2.5 text-[14px]"
+        className="m-0 mb-2.5 text-[length:var(--type-caption)]"
         style={{ color: "var(--color-text-muted)" }}
       >
         קונים של משרדים אחרים שהנכס מתאים להם
@@ -158,13 +158,13 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
               {/* כל מה שידוע על הביקוש, למעט מה שמזהה אדם */}
               <NetChips chips={demandChips(row)} />
               <div
-                className="text-[14.5px]"
+                className="text-[length:var(--type-caption-lg)]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 {row.notes ?? row.explanation}
               </div>
               <div
-                className="text-[14px]"
+                className="text-[length:var(--type-caption)]"
                 style={{ color: "var(--color-text-muted)" }}
               >
                 {/*
@@ -185,7 +185,7 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
               */}
               {publisherStatedSplit(row.terms, "buyer") === null ? (
                 <div
-                  className="text-[14px]"
+                  className="text-[length:var(--type-caption)]"
                   style={{ color: "var(--color-text-muted)" }}
                 >
                   החלוקה נוסחה במילים, ולכן ההצעה תישלח על{" "}

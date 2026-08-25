@@ -630,7 +630,7 @@ export default function DashboardPage() {
         <dl className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
           {statCards.map((card) => (
             <Link key={card.label} href={card.href} className="mv-stat-card no-underline">
-              <dt className="flex items-center gap-2 text-[14.5px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
+              <dt className="flex items-center gap-2 text-[length:var(--type-caption-lg)] font-semibold" style={{ color: "var(--color-text-muted)" }}>
                 <span className="mv-stat-icon" style={{ color: card.tone }} aria-hidden="true">
                   {card.icon}
                 </span>
@@ -639,7 +639,7 @@ export default function DashboardPage() {
               <dd className="mv-stat-value m-0" style={card.valueColor ? { color: card.valueColor } : undefined}>
                 {card.value ?? "…"}
               </dd>
-              <dd className="m-0 text-[14px]" style={{ color: "var(--color-text-muted)", minHeight: "1.2em" }}>
+              <dd className="m-0 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)", minHeight: "1.2em" }}>
                 {card.sub}
               </dd>
               {/* חץ שמופיע בריחוף — רמז שהכרטיס כולו לחיץ */}
@@ -665,7 +665,7 @@ export default function DashboardPage() {
               <h3 className="m-0 mb-1 flex items-center gap-2" style={{ fontSize: 15.5, fontWeight: 800 }}>
                 <IconUsers s={16} /> בשלות הקונים
               </h3>
-              <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+              <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                 לחיצה על שורה פותחת את הרשימה המסוננת.
               </p>
               <DonutChart
@@ -681,7 +681,7 @@ export default function DashboardPage() {
               <h3 className="m-0 mb-1 flex items-center gap-2" style={{ fontSize: 15.5, fontWeight: 800 }}>
                 <IconFilter s={16} /> מצב הלידים
               </h3>
-              <p className="m-0 mb-3 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+              <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                 המשפך מהפנייה ועד ההמרה.
               </p>
               <BarChart slices={leadSlices} />
@@ -705,7 +705,7 @@ export default function DashboardPage() {
             <h2 id="today-tasks-heading" className="m-0" style={{ fontSize: 18, fontWeight: 800 }}>
               מה חשוב לעשות היום
             </h2>
-            <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+            <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
               מתעדכן לבד לפי המצב בשטח
             </span>
             {shownTasks.length > 0 ? (
@@ -753,15 +753,15 @@ export default function DashboardPage() {
                   </span>
                   <span className="mv-visually-hidden">פעולה {index + 1}:</span>
                   <span className="min-w-0" style={{ lineHeight: 1.35 }}>
-                    <span className="block text-[15.5px] font-bold">{t.title}</span>
-                    <span className="block text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                    <span className="block text-[length:var(--type-body)] font-bold">{t.title}</span>
+                    <span className="block text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                       {t.why}
                     </span>
                   </span>
                   {t.href ? (
                     <Link
                       href={t.href}
-                      className="ms-auto flex-none text-[14.5px] font-bold no-underline"
+                      className="ms-auto flex-none text-[length:var(--type-caption-lg)] font-bold no-underline"
                       style={{ color: "var(--color-primary)" }}
                     >
                       {t.action}
@@ -792,14 +792,14 @@ export default function DashboardPage() {
               </h2>
               <Link
                 href="/calendar"
-                className="ms-auto text-[14px] font-bold no-underline"
+                className="ms-auto text-[length:var(--type-caption)] font-bold no-underline"
                 style={{ color: "var(--color-primary)" }}
               >
                 ליומן המלא
               </Link>
             </div>
             {todayEvents.length === 0 ? (
-              <p className="m-0 py-2 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
+              <p className="m-0 py-2 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
                 אין פגישות מתוכננות להיום.
               </p>
             ) : (
@@ -810,13 +810,13 @@ export default function DashboardPage() {
                   style={{ borderBottom: "1px solid var(--color-row-border)" }}
                 >
                   <span
-                    className="flex-none text-[14.5px] font-extrabold"
+                    className="flex-none text-[length:var(--type-caption-lg)] font-extrabold"
                     style={{ width: 40, color: "var(--color-primary)" }}
                   >
                     {timeFmt.format(new Date(a.startsAt))}
                   </span>
                   <span style={{ lineHeight: 1.3 }}>
-                    <span className="block text-[15px] font-bold">
+                    <span className="block text-[length:var(--type-body-sm)] font-bold">
                       {a.title ?? APPOINTMENT_KIND_LABELS[a.kind] ?? a.kind}
                     </span>
                     <span className="block text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -849,7 +849,7 @@ export default function DashboardPage() {
                 </h2>
                 {dueNow > 0 ? (
                   <span
-                    className="rounded-full px-2 py-0.5 text-[14px] font-bold"
+                    className="rounded-full px-2 py-0.5 text-[length:var(--type-caption)] font-bold"
                     style={{ background: "var(--color-danger-soft)", color: "var(--color-danger)" }}
                   >
                     {dueNow} להיום
@@ -857,7 +857,7 @@ export default function DashboardPage() {
                 ) : null}
                 <Link
                   href="/tasks"
-                  className="ms-auto text-[14px] font-bold no-underline"
+                  className="ms-auto text-[length:var(--type-caption)] font-bold no-underline"
                   style={{ color: "var(--color-primary)" }}
                 >
                   לכל המשימות
@@ -866,11 +866,11 @@ export default function DashboardPage() {
               {tasksFailed ? (
                 <LoadError message="לא הצלחנו לטעון את המשימות" onRetry={loadTasks} />
               ) : myTasks === null ? (
-                <p className="m-0 py-2 text-[14.5px]" aria-live="polite" style={{ color: "var(--color-text-muted)" }}>
+                <p className="m-0 py-2 text-[length:var(--type-caption-lg)]" aria-live="polite" style={{ color: "var(--color-text-muted)" }}>
                   טוען…
                 </p>
               ) : shownMyTasks.length === 0 ? (
-                <p className="m-0 py-2 text-[14.5px]" style={{ color: "var(--color-text-muted)" }}>
+                <p className="m-0 py-2 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
                   <IconCheck s={14} /> אין משימות פתוחות על שמכם.
                 </p>
               ) : (
@@ -883,7 +883,7 @@ export default function DashboardPage() {
                       style={{ borderBottom: "1px solid var(--color-row-border)" }}
                     >
                       <span
-                        className="flex-none text-[14px] font-extrabold"
+                        className="flex-none text-[length:var(--type-caption)] font-extrabold"
                         style={{
                           width: 58,
                           color: due.urgent ? "var(--color-danger)" : "var(--color-text-muted)",
@@ -892,7 +892,7 @@ export default function DashboardPage() {
                         {due.text}
                       </span>
                       <span style={{ lineHeight: 1.3 }}>
-                        <span className="block text-[15px] font-bold">{t.title}</span>
+                        <span className="block text-[length:var(--type-body-sm)] font-bold">{t.title}</span>
                         {t.entityLabel ? (
                           <span className="block text-sm" style={{ color: "var(--color-text-muted)" }}>
                             {t.entityLabel}
@@ -924,7 +924,7 @@ export default function DashboardPage() {
                 </h2>
                 <Link
                   href="/collaboration"
-                  className="ms-auto text-[14px] font-bold no-underline"
+                  className="ms-auto text-[length:var(--type-caption)] font-bold no-underline"
                   style={{ color: "var(--color-primary)" }}
                 >
                   לרשת
@@ -938,7 +938,7 @@ export default function DashboardPage() {
                     יחיד ורבים ולא "1 הצעות". מספר צמוד לשם עצם בעברית
                     מחייב התאמה, וברשימה קצרה כזו הפער בולט מיד.
                   */}
-                  <ul className="m-0 list-none p-0 text-[14.5px]">
+                  <ul className="m-0 list-none p-0 text-[length:var(--type-caption-lg)]">
                     <li className="flex items-baseline gap-2 py-1.5" style={{ borderBottom: "1px solid var(--color-row-border)" }}>
                       <b style={{ color: (network?.incomingOffers ?? 0) > 0 ? "var(--color-primary)" : undefined }}>
                         {network === null ? "…" : network.incomingOffers}
@@ -960,7 +960,7 @@ export default function DashboardPage() {
                       </span>
                     </li>
                   </ul>
-                  <p className="m-0 mt-1.5 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
+                  <p className="m-0 mt-1.5 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
                     {network === null
                       ? "שיתוף פעולה על ביקושים אינו עולה קרדיטים."
                       : `יתרה: ${network.credits} קרדיטים · שיתוף פעולה על ביקושים אינו עולה קרדיטים.`}
@@ -997,13 +997,13 @@ export default function DashboardPage() {
                   קלטו נכס בדיבור
                 </h2>
               </div>
-              <p className="m-0 text-[14.5px]" style={{ lineHeight: 1.5, color: "#aab3ad" }}>
+              <p className="m-0 text-[length:var(--type-caption-lg)]" style={{ lineHeight: 1.5, color: "#aab3ad" }}>
                 ״דירת 4 חדרים בהרצל 12 בית שמש, קומה 3, עם מעלית וחניה, 2.4 מיליון״ — פחות
                 מדקה, וכרטיס הנכס מוכן.
               </p>
               <Link
                 href="/voice"
-                className="mt-3 block rounded-[9px] py-[9px] text-center text-[15px] font-bold no-underline"
+                className="mt-3 block rounded-[9px] py-[9px] text-center text-[length:var(--type-body-sm)] font-bold no-underline"
                 style={{ background: "#70EE91", color: "#0B1F12" }}
               >
                 נסו עכשיו
