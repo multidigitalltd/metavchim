@@ -324,6 +324,14 @@ export default function DashboardPage() {
    * ייאמר בחצות על סמך הרשימה של אתמול, שהתנאי החי מרוקן ממילא.
    */
   const [todayDay, setTodayDay] = useState<number | null>(null);
+  /*
+   * כישלון של בקשת הפגישות **בלבד**.
+   *
+   * ‎`dataFailed` הוא דגל של המנה כולה, ולכן כישלון של `/offers` היה
+   * משחרר את שער „הכל מטופל” בזמן שהפגישות עדיין באוויר — דגל
+   * מצרפי שעונה על שאלה פר-מקור (ביקורת Codex).
+   */
+  const [appointmentsFailed, setAppointmentsFailed] = useState(false);
   const [coachFailed, setCoachFailed] = useState(false);
   const batch = useRef(0);
 
@@ -347,6 +355,7 @@ export default function DashboardPage() {
         apply(value);
       };
     setDataFailed(false);
+    setAppointmentsFailed(false);
     /*
      * 403 אינו כישלון טעינה — הוא תשובה.
      *
@@ -418,7 +427,11 @@ export default function DashboardPage() {
             setTodayDay(requestedDay);
           }),
         )
-        .catch(fail);
+        .catch((err: unknown) => {
+          /* גם 403 — בכל אחד מהמקרים הפגישות לא יגיעו, והשער חייב להשתחרר. */
+          if (mine === batch.current) setAppointmentsFailed(true);
+          fail(err);
+        });
     }
     /*
      * רשימת ההצעות דורשת `offers.send` — אותו שער שכבר קיים
@@ -595,7 +608,7 @@ export default function DashboardPage() {
     (canSeeProperties && properties === null) ||
     (canSeeBuyers && buyers === null) ||
     (canSeeLeads && leads === null) ||
-    (canSeeCalendar && todayDay !== dayKey && !dataFailed) ||
+    (canSeeCalendar && todayDay !== dayKey && !appointmentsFailed) ||
     (canSeeCalendar && myTasks === null && !tasksFailed) ||
     (canSeeNetwork && network === null && !networkFailed);
 
