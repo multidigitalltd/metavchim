@@ -163,6 +163,24 @@ describe("parseHebrewDateTime", () => {
     expect(parseHebrewDateTime("תחזור אליו בעוד שלוש", NOW).date).toBeUndefined();
   });
 
+  /*
+   * ‎„שעה וחצי” — השבר נגרר אחרי היחידה, והענף שקיבל „שעה” בלע
+   * אותו. עד שהצורה בלי בי"ת נתמכה המשפט לא ייצר תאריך כלל, כלומר
+   * שדה ריק וגלוי; ההתעלמות הפכה אותו למועד סביר-למראה ומוקדם
+   * בחצי שעה (ביקורת Codex). מוקדם מדי הוא הכשל שאיש אינו מבחין
+   * בו עד שהשיחה קורית בזמן הלא נכון.
+   *
+   * החצי הוא **חצי יחידה** ולא חצי מהצורה: „שעתיים וחצי” הן 2.5
+   * שעות, לא שלוש.
+   */
+  it("השבר שנגרר אחרי היחידה נספר, ולא נבלע", () => {
+    expect(il(parseHebrewDateTime("תזכיר לי עוד שעה וחצי", NOW).date).minute).toBe(30);
+    expect(il(parseHebrewDateTime("תזכיר לי עוד שעה וחצי", NOW).date).hour).toBe(10);
+    expect(il(parseHebrewDateTime("תחזור אליו בעוד שעתיים וחצי", NOW).date).hour).toBe(11);
+    expect(il(parseHebrewDateTime("תחזור אליו בעוד שעתיים וחצי", NOW).date).minute).toBe(30);
+    expect(il(parseHebrewDateTime("תזכיר לי עוד שעה ורבע", NOW).date).minute).toBe(15);
+  });
+
   /* וביטוי שנדחה אינו עוצר את הסריקה — ביטוי תקין אחריו עדיין נמצא */
   it("היסט שנדחה אינו מסתיר היסט תקין שאחריו", () => {
     expect(il(parseHebrewDateTime("עוד 900 שעות, לא, בעוד שעה", NOW).date).hour).toBe(10);

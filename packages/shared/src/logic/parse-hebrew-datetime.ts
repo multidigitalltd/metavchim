@@ -57,6 +57,14 @@ const DAY_MS = 24 * HOUR_MS;
 interface RelativeUnit {
   /** עומדת לבדה — יחיד וזוגי בלבד */
   solo?: RegExp;
+  /**
+   * כמה יחידות שוות הצורה שעומדת לבדה. „שעה” אחת, „שעתיים” שתיים.
+   *
+   * ‎`ms` הוא **תמיד יחידה אחת**, גם בזוגי. זה מה שמאפשר לחשב „שעה
+   * וחצי” ו„שעתיים וחצי” באותה נוסחה: החצי הוא חצי יחידה, לא חצי
+   * מהצורה שנאמרה.
+   */
+  soloCount?: number;
   /** באה אחרי כמות — יחיד ורבים */
   counted?: RegExp;
   ms: number;
@@ -82,9 +90,9 @@ interface RelativeUnit {
 
 const RELATIVE_UNITS: RelativeUnit[] = [
   // הזוגי בעברית הוא מילה ולא מספר — ולכן הוא עומד לבדו בלבד
-  { solo: /^שעתיים$/u, ms: 2 * HOUR_MS, max: 1 },
-  { solo: /^יומיים$/u, ms: 2 * DAY_MS, max: 1 },
-  { solo: /^שבועיים$/u, ms: 14 * DAY_MS, max: 1 },
+  { solo: /^שעתיים$/u, soloCount: 2, ms: HOUR_MS, max: 1 },
+  { solo: /^יומיים$/u, soloCount: 2, ms: DAY_MS, max: 1 },
+  { solo: /^שבועיים$/u, soloCount: 2, ms: 7 * DAY_MS, max: 1 },
   /*
    * הרבים בעברית אינו סיומת שאפשר לסמן ב-`?`: „שעות” אינו „שעה”
    * ועוד אות. כל צורה נכתבת במלואה — קיצור כאן היה מזהה את הרבים
@@ -120,6 +128,20 @@ function countedUnit(word: string): RelativeUnit | undefined {
 
 /** „בעוד 2” — היחידה שמספר עירום מתכוון אליה. */
 const BARE_UNIT = RELATIVE_UNITS.find((unit) => unit.bare === true)!;
+
+/**
+ * „שעה **וחצי**” — השבר שנגרר אחרי יחידה שעומדת לבדה.
+ *
+ * בלעדיו הענף קיבל „שעה” והתעלם מ„וחצי” — תזכורת אחרי שעה במקום
+ * אחרי שעה וחצי (ביקורת Codex). זה גרוע במיוחד כאן: לפני התמיכה
+ * בצורה בלי בי"ת המשפט לא ייצר תאריך כלל, כלומר שדה ריק וגלוי.
+ * עכשיו הוא היה מייצר מועד סביר-למראה ומוקדם מדי, וזה כשל שאיש
+ * אינו מבחין בו עד שהשיחה מתרחשת בזמן הלא נכון.
+ */
+const FRACTION_SUFFIX: Record<string, number | undefined> = {
+  וחצי: 0.5,
+  ורבע: 0.25,
+};
 
 function quantityOf(word: string): number | undefined {
   if (/^\d+$/u.test(word)) return Number(word);
@@ -193,7 +215,19 @@ function offsetAt(
   // „שעתיים”, „שעה” — היחידה עומדת לבדה ונושאת את הכמות שלה
   const alone = soloUnit(first);
   if (alone !== undefined) {
-    return { ms: alone.ms, evidence: `${lead} ${first}`, consumed: endOf(firstWord) };
+    const whole = (alone.soloCount ?? 1) * alone.ms;
+    // „שעה וחצי” — השבר שייך לביטוי, ואסור לבלוע אותו
+    const next = words[1];
+    const suffix = next === undefined ? undefined : bareWord(next[0]);
+    const fraction = suffix === undefined ? undefined : FRACTION_SUFFIX[suffix];
+    if (fraction !== undefined && next !== undefined) {
+      return {
+        ms: whole + fraction * alone.ms,
+        evidence: `${lead} ${first} ${suffix}`,
+        consumed: endOf(next),
+      };
+    }
+    return { ms: whole, evidence: `${lead} ${first}`, consumed: endOf(firstWord) };
   }
 
   const quantity = quantityOf(first);
