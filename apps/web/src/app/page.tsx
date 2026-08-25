@@ -286,6 +286,7 @@ export default function DashboardPage() {
    * session שפג), ושמונה הודעות נפרדות על אותה תקלה הן רעש.
    */
   const [dataFailed, setDataFailed] = useState(false);
+  const [coachFailed, setCoachFailed] = useState(false);
   const batch = useRef(0);
 
   const loadDashboard = useCallback(() => {
@@ -392,9 +393,17 @@ export default function DashboardPage() {
    */
   const loadCoach = useCallback(() => {
     if (!featuresReady || !hasCoach) return;
+    setCoachFailed(false);
     apiGet<Recommendation[]>("/coach/recommendations")
       .then(setRecs)
-      .catch(() => undefined);
+      /*
+       * ‎**כישלון נשמר ואינו נבלע.** קודם הוא הושתק, ולכן `recs`
+       * נשאר `null` לנצח בלי שאיש ידע. כל עוד השורות נראו זהות זה
+       * היה חוסר בלבד; מרגע שהשורה הראשונה מכריזה „זה הדבר לעשות
+       * עכשיו”, שתיקה כזו הופכת להכרזה על סמך חלק מהמקורות
+       * (ביקורת Codex).
+       */
+      .catch(() => setCoachFailed(true));
   }, [featuresReady, hasCoach]);
 
   useEffect(() => {
@@ -448,6 +457,25 @@ export default function DashboardPage() {
     (canSeeBuyers && buyers === null) ||
     (canSeeLeads && leads === null);
 
+  /*
+   * ‎**מותר להכריז „זה הדבר לעשות עכשיו” רק כשכל המקורות הגיעו.**
+   *
+   * ‎`recs` מתחיל `null`, ו-`loading` ממתין לנכסים, לקונים וללידים
+   * בלבד — הקריאה לסוכן רצה בנפרד בכוונה, כדי שתקלה בה לא תשבית
+   * את המסך. התוצאה: השורה הראשונה יכולה להיצבע ולקבל את הכפתור
+   * הראשי לפני שהמלצה בדחיפות 110 בכלל הגיעה, ולהישאר כך לתמיד אם
+   * הבקשה נכשלה (ביקורת Codex).
+   *
+   * ‎`useFeature` מחזיר „כן” כל עוד רשימת היכולות לא הגיעה, ולכן
+   * הביטוי הזה מכסה גם את חלון אי-הידיעה: כל עוד ייתכן שיגיעו
+   * המלצות — אין דירוג.
+   *
+   * ‎**הרשימה עצמה מוצגת בכל מקרה.** מה שממתין הוא הטענה, לא
+   * הנתונים: מתווך שרואה חמש פעולות בלי אחת מודגשת קיבל פחות,
+   * ומתווך שרואה הדגשה שגויה קיבל **מידע כוזב**.
+   */
+  const ranked = !hasCoach || recs !== null;
+
   const activeProps = (properties ?? []).filter(
     (p) => p.status === undefined || ["draft", "active", "on_hold"].includes(p.status),
   );
@@ -471,7 +499,16 @@ export default function DashboardPage() {
       href: `/leads/${l.id}`,
     });
   }
-  for (const rec of (recs ?? []).slice(0, 4)) {
+  /*
+   * ‎**בלי חיתוך מוקדם.** קודם נלקחו ארבע ההמלצות הראשונות בלבד,
+   * והחיתוך רץ **לפני** המיון והסרת הכפילויות — כך שאם שתיים מהן
+   * מובילות לאותו כרטיס (כמה המלצות פגישה מצביעות כולן על
+   * `/calendar`), המלצה חמישית דחופה יותר נזרקה בעוד שורה מקומית
+   * פחות דחופה הוצגה במקומה (ביקורת Codex).
+   *
+   * הגבול היחיד הוא זה שבסוף הצינור, אחרי שהכול מוזג ומוין.
+   */
+  for (const rec of recs ?? []) {
     push({
       key: `rec-${rec.type}-${rec.entityId ?? ""}`,
       priority: rec.priority,
@@ -819,6 +856,24 @@ export default function DashboardPage() {
               ) : null}
             </div>
 
+            {/*
+              ‎**„הדירוג חלקי” נאמר בקול, ולא נבלע.**
+
+              כשהקריאה לסוכן נכשלת אין דרך לדעת אם המלצה דחופה יותר
+              הייתה מגיעה, ולכן אף שורה אינה מודגשת (`ranked`).
+              משתמש שרואה חמש פעולות בלי אחת מודגשת ובלי הסבר יחשוב
+              שהמסך נשבר; לכן נאמר מה חסר ומוצע ניסיון חוזר — כל מצב
+              ריק או חלקי מציין את הפעולה שסוגרת אותו.
+            */}
+            {coachFailed ? (
+              <div className="px-5 pt-4">
+                <LoadError
+                  message="לא הצלחנו לטעון את המלצות הסוכן — הסדר כאן חלקי"
+                  onRetry={loadCoach}
+                />
+              </div>
+            ) : null}
+
             {loading ? (
               <p aria-live="polite" className="px-5 py-4">טוען…</p>
             ) : shownTasks.length === 0 ? (
@@ -843,7 +898,7 @@ export default function DashboardPage() {
                   <li
                     key={t.key}
                     className={`mv-row mv-row--action mv-row--flush mv-domain-${t.domain} ${
-                      index === 0 ? "mv-row--rank-1" : ""
+                      index === 0 && ranked ? "mv-row--rank-1" : ""
                     }`}
                   >
                     {/*
@@ -867,7 +922,7 @@ export default function DashboardPage() {
                       <Link
                         href={t.href}
                         className={`mv-row__action mv-button flex-none no-underline ${
-                          index === 0 ? "mv-button--primary" : "mv-button--secondary"
+                          index === 0 && ranked ? "mv-button--primary" : "mv-button--secondary"
                         }`}
                       >
                         {t.action}
