@@ -22,6 +22,34 @@ describe("describeProviderResponse — מה שמותר לשמור", () => {
     expect(text).toContain("recording not found");
   });
 
+  /*
+   * **‎`key` הוא קוד השגיאה, והתיעוד של 015 מפנה אליו במפורש:**
+   * „Check the key and message fields for more details”.
+   *
+   * בלעדיו הוא נפל לענף האורך והוצג כ-`responses.key(15 תווים)` —
+   * הודעה שאומרת שיש תשובה ואינה אומרת מה בה. מול 404 שמשמעותו
+   * „לא קיים **או** אין הרשאה”, זה בדיוק המידע שמבדיל ביניהם
+   * (דיווח מהשטח: ארבעה סבבי ניחוש על מזהים).
+   */
+  it("קוד השגיאה של הספק נקרא, ולא נספר בתווים", () => {
+    const text = describeProviderResponse(
+      { code: "404", key: "recording_denied", message: "Not found" },
+      SECRETS,
+    );
+    expect(text).toContain("key=recording_denied");
+    expect(text).not.toContain("תווים");
+  });
+
+  /* והוא עובר את אותו ניקוי — הוא אינו ערוץ עוקף */
+  it("וגם הוא מנוקה מכתובות ומסודות", () => {
+    const text = describeProviderResponse(
+      { key: "https://www.015pbx.net/api/x?auth_password=s3cr3t-pass" },
+      SECRETS,
+    );
+    expect(text).not.toContain("015pbx.net");
+    expect(text).not.toContain("s3cr3t-pass");
+  });
+
   it("כתובת נמחקת — גם כשהסוד בתוכה ולא מוכר לנו", () => {
     /*
      * זו ההגנה העיקרית: היא אינה תלויה בכך שנזהה את מחרוזת הסוד.
