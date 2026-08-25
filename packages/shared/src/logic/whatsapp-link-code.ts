@@ -85,14 +85,28 @@ export function normalizeWhatsappLinkCode(raw: string): string | null {
 }
 
 /**
- * האם ההודעה הזו היא ניסיון קישור.
- *
- * נבדק **לפני** הפירוש, ולכן הוא חייב להיות זול וּודאי: הודעה
- * שנראית כמו קוד לעולם אינה נשלחת למודל, והודעה שאינה — לעולם
- * אינה נחשבת לניסיון.
+ * אורך מרבי להודעה שנחשבת **ניסיון** קישור — קידומת, מפריד וגוף,
+ * ועוד קצת סבלנות להקלדה. משפט בעברית שמתחיל ב-„MV” אינו נכנס.
  */
-export function isWhatsappLinkCodeMessage(text: string): boolean {
-  return normalizeWhatsappLinkCode(text) !== null;
+const ATTEMPT_MAX_LENGTH = WHATSAPP_LINK_CODE_PREFIX.length + WHATSAPP_LINK_CODE_LENGTH + 4;
+
+/**
+ * האם ההודעה **מתיימרת** להיות קוד — גם כשהיא שגויה.
+ *
+ * ההבחנה הזו נחוצה כי טעות הקלדה אחת (`MV-4F7K2O` במקום `…2Q`) הפכה
+ * את ההודעה למשהו אחר לגמרי: שולח לא מוכר קיבל את עמוד המכירות
+ * ונרשם כמתעניין, ושולח מוכר שלח את „הקוד” שלו למודל כפקודה. שניהם
+ * במקום המשפט היחיד שעוזר — „הקוד אינו תקף, הפיקו חדש” (ביקורת
+ * Codex).
+ *
+ * הקידומת היא מה שמכריע, והאורך הוא מה ששומר על „פקודה נשארת
+ * פקודה”: מי שכותב משפט אמיתי לסוכן לא מגיע לכאן.
+ */
+export function looksLikeWhatsappLinkCode(text: string): boolean {
+  const stripped = stripPastedNoise(text).toUpperCase();
+  return (
+    stripped.startsWith(WHATSAPP_LINK_CODE_PREFIX) && stripped.length <= ATTEMPT_MAX_LENGTH
+  );
 }
 
 /**

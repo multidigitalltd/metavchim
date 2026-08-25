@@ -433,6 +433,16 @@ export class WhatsAppLinkService implements OnModuleDestroy {
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date(), revokedReason: reason },
     });
+    /*
+     * **וגם הקוד שממתין נשרף.**
+     *
+     * מי שהפיק קוד ואז לחץ „נתק” השאיר מאחוריו מפתח חי לרבע שעה: כל
+     * מי שהקוד הגיע לידיו יכול היה לשלוח אותו ולהחזיר את הקישור,
+     * בעוד המסך כבר אומר „המכשיר נותק” (ביקורת Codex). אותו הדבר
+     * בהחלפת מספר — הקוד הופק מול הזהות הקודמת.
+     */
+    const pending = await this.redis.getdel(`wa-link:user:${userId}`);
+    if (pending !== null) await this.redis.del(`wa-link:code:${pending}`);
     if (count > 0) this.logger.log(`קישור וואטסאפ נותק (${reason}) למשתמש ${userId}`);
   }
 

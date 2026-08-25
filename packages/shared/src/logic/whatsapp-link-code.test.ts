@@ -4,7 +4,7 @@ import {
   WHATSAPP_LINK_CODE_LENGTH,
   WHATSAPP_LINK_MAX_AGE_DAYS,
   formatWhatsappLinkCode,
-  isWhatsappLinkCodeMessage,
+  looksLikeWhatsappLinkCode,
   linkNeedsReverification,
   normalizeWhatsappLinkCode,
 } from "./whatsapp-link-code.js";
@@ -46,11 +46,26 @@ describe("סלחנות שאינה פגיעה", () => {
 describe("מה שאינו קוד אינו נחשב לניסיון", () => {
   it("פקודה בעברית", () => {
     expect(normalizeWhatsappLinkCode("תוסיף קונה משה כהן")).toBeNull();
-    expect(isWhatsappLinkCodeMessage("תוסיף קונה משה כהן")).toBe(false);
+    expect(looksLikeWhatsappLinkCode("תוסיף קונה משה כהן")).toBe(false);
   });
 
   it("שש ספרות בלי קידומת — מספר, לא קוד", () => {
     expect(normalizeWhatsappLinkCode("123456")).toBeNull();
+  });
+
+  /*
+   * טעות הקלדה בגוף הקוד היא עדיין **ניסיון קישור**, ולכן היא
+   * חייבת להגיע למסלול הקישור ולקבל „הקוד אינו תקף” — ולא להתגלגל
+   * למסלול המתעניין או להישלח למודל כפקודה.
+   */
+  it("אבל קוד שגוי עם קידומת עדיין נראה כניסיון", () => {
+    expect(normalizeWhatsappLinkCode("MV-4F7K2O")).toBeNull();
+    expect(looksLikeWhatsappLinkCode("MV-4F7K2O")).toBe(true);
+    expect(looksLikeWhatsappLinkCode("MV-4F7K2")).toBe(true);
+  });
+
+  it("ומשפט ארוך שמתחיל ב-MV נשאר פקודה", () => {
+    expect(looksLikeWhatsappLinkCode("MV תראה לי את הפגישות של מחר")).toBe(false);
   });
 
   it("קידומת עם אורך שגוי", () => {

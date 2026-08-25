@@ -24,7 +24,7 @@ const source = readFileSync(
 
 describe("סדר ההכרעה בהודעה נכנסת", () => {
   it("קוד הקישור נבדק לפני זיהוי המשתמש", () => {
-    const code = source.indexOf("isWhatsappLinkCodeMessage");
+    const code = source.indexOf("looksLikeWhatsappLinkCode");
     const identify = source.indexOf("await this.identifyUser(");
     expect(code).toBeGreaterThan(0);
     expect(identify).toBeGreaterThan(0);

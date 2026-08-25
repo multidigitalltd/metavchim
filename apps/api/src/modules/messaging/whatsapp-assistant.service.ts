@@ -37,7 +37,7 @@ import {
   isHelpMessage,
   waPhoneVariants,
 } from "./assistant-lang";
-import { isWhatsappLinkCodeMessage } from "@metavchim/shared";
+import { looksLikeWhatsappLinkCode } from "@metavchim/shared";
 import { helpMenu, welcomeExamples, type HelpAction } from "./assistant-help";
 import {
   buttonAsText,
@@ -226,8 +226,12 @@ export class WhatsAppAssistantService {
      * זו כל הנקודה שלו: הוא מגיע ממספר שהמערכת עדיין אינה מכירה,
      * או שהיא מכירה בטעות. בדיקה אחריו הייתה מגלגלת אותו למסלול
      * המתעניין ומחזירה מענה שיווקי על ניסיון קישור.
+     *
+     * המבחן הוא על **הקידומת** ולא על תקינות הקוד: טעות הקלדה אחת
+     * הייתה מוציאה את ההודעה מהמסלול הזה בדיוק כשהמתווך זקוק
+     * למשפט „הקוד אינו תקף” (ביקורת Codex).
      */
-    if (msg.type === "text" && isWhatsappLinkCodeMessage(msg.text ?? "")) {
+    if (msg.type === "text" && looksLikeWhatsappLinkCode(msg.text ?? "")) {
       void this.sender.markRead(msg.externalId);
       await this.completeLink(msg);
       return;
