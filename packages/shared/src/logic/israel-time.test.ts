@@ -4,8 +4,11 @@ import {
   jerusalemDayRange,
   jerusalemDayStart,
   jerusalemOffsetMs,
+  jerusalemWallIsoToUtc,
+  jerusalemWallParts,
   jerusalemWeekday,
   jerusalemWeekStart,
+  resolveJerusalemWall,
 } from "./israel-time.js";
 
 /*
@@ -146,6 +149,80 @@ describe("jerusalemWeekday / jerusalemDayStart — לוח ישראלי, לא ש�
       );
       /* חמישה ימים של 24 שעות ואחד של 25 — ולא שישה של 24 */
       expect(spans).toEqual([25, 24, 24, 24, 24, 24]);
+    } finally {
+      process.env.TZ = original;
+    }
+  });
+});
+
+/*
+ * ‎**ליל המעבר לשעון חורף — השעה שקיימת פעמיים.**
+ *
+ * ב-25.10.2026 השעון בישראל חוזר מ-03:00 ל-02:00, ולכן 01:30 קורית
+ * פעם אחת בשעון קיץ (22:30Z) ופעם בשעון חורף (23:30Z). שדות טופס
+ * אינם מבחינים ביניהן, ומסך העריכה שולח את המועד מחדש גם כששונה רק
+ * המשך — כך ששמירה בלבד הזיזה פגישה בשעה.
+ */
+describe("resolveJerusalemWall — עריכה לא מזיזה מה שלא נגעו בו", () => {
+  const EARLIER = new Date("2026-10-24T22:30:00Z");
+  const LATER = new Date("2026-10-24T23:30:00Z");
+
+  it("שני הרגעים באמת נושאים אותה שעת קיר — אחרת אין מה לבדוק", () => {
+    expect(jerusalemWallParts(EARLIER)).toEqual({ date: "2026-10-25", time: "01:30" });
+    expect(jerusalemWallParts(LATER)).toEqual({ date: "2026-10-25", time: "01:30" });
+  });
+
+  /*
+   * הבדיקה המרכזית: אותם שדות בדיוק, שני עוגנים — וכל אחד חוזר
+   * לעצמו. שום פונקציה שמקבלת רק תאריך ושעה אינה יכולה לעבור את
+   * זה, כי המידע שמבחין בין השניים אינו בשדות.
+   */
+  it("שעה שחוזרת פעמיים — כל מופע נשמר על עצמו", () => {
+    for (const at of [EARLIER, LATER]) {
+      const { date, time } = jerusalemWallParts(at);
+      expect(resolveJerusalemWall(date, time, at).toISOString()).toBe(at.toISOString());
+    }
+  });
+
+  it("בלי עוגן אי אפשר להבחין — וזה בדיוק הבאג שהעוגן סוגר", () => {
+    const { date, time } = jerusalemWallParts(EARLIER);
+    expect(jerusalemWallIsoToUtc(`${date}T${time}:00.000`).toISOString()).not.toBe(
+      EARLIER.toISOString(),
+    );
+  });
+
+  it("שינוי אמיתי של שעה מומר, והעוגן אינו גובר עליו", () => {
+    expect(resolveJerusalemWall("2026-10-25", "09:00", EARLIER).toISOString()).toBe(
+      "2026-10-25T07:00:00.000Z",
+    );
+    expect(resolveJerusalemWall("2026-10-26", "01:30", EARLIER).toISOString()).toBe(
+      "2026-10-25T23:30:00.000Z",
+    );
+  });
+
+  it("יצירה חדשה — אין עוגן, וההמרה רגילה", () => {
+    expect(resolveJerusalemWall("2026-08-13", "14:30", null).toISOString()).toBe(
+      "2026-08-13T11:30:00.000Z",
+    );
+  });
+
+  it("שניות של הרגע השמור נשמרות כשלא נגעו בשעה", () => {
+    const at = new Date("2026-08-13T11:30:45.000Z");
+    expect(resolveJerusalemWall("2026-08-13", "14:30", at).toISOString()).toBe(at.toISOString());
+  });
+
+  it("אזור הזמן של הדפדפן אינו משנה את התוצאה", () => {
+    const original = process.env.TZ;
+    try {
+      for (const tz of ["UTC", "America/New_York", "Asia/Tokyo"]) {
+        process.env.TZ = tz;
+        expect(resolveJerusalemWall("2026-10-25", "01:30", EARLIER).toISOString()).toBe(
+          EARLIER.toISOString(),
+        );
+        expect(resolveJerusalemWall("2026-08-13", "14:30", null).toISOString()).toBe(
+          "2026-08-13T11:30:00.000Z",
+        );
+      }
     } finally {
       process.env.TZ = original;
     }

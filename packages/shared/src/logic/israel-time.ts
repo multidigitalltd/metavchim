@@ -154,6 +154,32 @@ export function jerusalemWallParts(at: Date): { date: string; time: string } {
   };
 }
 
+/**
+ * שעת קיר ישראלית מטופס → רגע UTC, **בלי להזיז פגישה שלא נגעו בשעתה.**
+ *
+ * ‎`jerusalemWallIsoToUtc` לבדה אינה מספיקה כאן, כי שעת קיר אינה
+ * תמיד רגע יחיד: בליל המעבר לשעון חורף השעה 01:30 מתרחשת פעמיים —
+ * ‎`22:30Z` בשעון קיץ ו-`23:30Z` בשעון חורף — ולשתיהן אותם שדות
+ * טופס בדיוק. הפונקציה ההיא מחזירה תמיד את המאוחרת, ולכן פגישה
+ * שנקבעה למופע הראשון הייתה **זזה בשעה מעצם השמירה**: מסך העריכה
+ * שולח מחדש את המועד גם כששונה רק המשך, וגלגול הלוך-ושוב של
+ * ‎`22:30Z` היה מחזיר `23:30Z` (ביקורת Codex).
+ *
+ * לכן `current` — הרגע השמור. אם שדות הטופס זהים לשעת הקיר שלו,
+ * אין מה לפרש: זה אותו מועד, והוא מוחזר כמות שהוא (כולל שניות).
+ * רק שינוי אמיתי של תאריך או שעה עובר המרה.
+ *
+ * מה שנשאר פתוח, במפורש: מי שמקליד ידנית שעה שחוזרת פעמיים יקבל את
+ * המופע המאוחר. אין בטופס שדה שיבחין ביניהם, ולנחש עבורו זה להמציא.
+ */
+export function resolveJerusalemWall(date: string, time: string, current: Date | null): Date {
+  if (current !== null) {
+    const parts = jerusalemWallParts(current);
+    if (parts.date === date && parts.time === time) return current;
+  }
+  return jerusalemWallIsoToUtc(`${date}T${time}:00.000`);
+}
+
 /** התאריך הישראלי כתווית `YYYY-MM-DD` — הבסיס לכל חשבון הלוח כאן. */
 function jerusalemDayLabel(at: Date): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: JERUSALEM_TZ }).format(at);

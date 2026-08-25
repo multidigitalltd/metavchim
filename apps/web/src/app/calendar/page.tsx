@@ -9,9 +9,9 @@ import {
   JERUSALEM_TZ,
   jerusalemDayRange,
   jerusalemDayStart,
-  jerusalemWallIsoToUtc,
   jerusalemWallParts,
   jerusalemWeekStart,
+  resolveJerusalemWall,
 } from "@metavchim/shared";
 import { NowStamp } from "../now-stamp";
 import { AppointmentFollowUp } from "./appointment-followup";
@@ -150,7 +150,7 @@ function EditAppointment({
         date !== initialDate || time !== initialTime || duration !== initialDuration;
       if (timeChanged) {
         await apiPost(`/appointments/${appointment.id}/reschedule`, {
-          startsAt: jerusalemWallIsoToUtc(`${date}T${time}:00.000`).toISOString(),
+          startsAt: resolveJerusalemWall(date, time, start).toISOString(),
           durationMinutes: duration,
         });
       }
