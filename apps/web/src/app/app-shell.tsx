@@ -406,12 +406,18 @@ export function AppShell({ children }: { children: ReactNode }) {
       return;
     }
     let cancelled = false;
+    /*
+     * ‎**הדגל מתאפס בפתיחת הניסיון, לא בסיומו.**
+     *
+     * אחרת כישלון במסך אחד נשאר דולק לאורך כל המעבר למסך הבא, ובחלון
+     * הזה צרכן שמפרש „לא ייוודע” כרשות לפעול יוצא לרשת על סמך מידע
+     * ישן — ומקבל 403 שנרשם כתקלה (ביקורת Codex). מרגע שבקשה חדשה
+     * באוויר המצב הוא „עוד לא ידוע”, וזו האמת.
+     */
+    setFeaturesFailed(false);
     apiGet<NavSummary>("/nav/summary")
       .then((summary) => {
-        if (!cancelled) {
-          setCounts(summary);
-          setFeaturesFailed(false);
-        }
+        if (!cancelled) setCounts(summary);
       })
       .catch(() => {
         if (!cancelled) {

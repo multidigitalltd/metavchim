@@ -418,7 +418,18 @@ export default function DashboardPage() {
      * `coachFailed` שמוצג עם „נסו שוב”. בשני המקרים המצב **נפתר**.
      */
     if (!featuresReady && !featuresFailed) return;
-    if (featuresReady && !hasCoach) return;
+    /*
+     * ‎**זכאות שנודעה כשלילית מוחקת גם שגיאה קודמת.** ניסיון שנעשה
+     * על סמך „לא ייוודע” ונדחה ב-403 השאיר `coachFailed` דולק, ואז
+     * הרשימה שהגיעה סגרה את השער לפני הניקוי — כלומר הודעת „לא
+     * הצלחנו לטעון את המלצות הסוכן” נשארה לנצח על מסך של משרד שאין
+     * לו סוכן חכם בכלל (ביקורת Codex). ברגע שידוע שאין — אין גם על
+     * מה לדווח.
+     */
+    if (featuresReady && !hasCoach) {
+      setCoachFailed(false);
+      return;
+    }
     setCoachFailed(false);
     apiGet<Recommendation[]>("/coach/recommendations")
       .then(setRecs)
@@ -616,7 +627,23 @@ export default function DashboardPage() {
    * הכרטיס אומר מה יש. כשהסוכן החכם דולק הוא שולח את אותן המלצות,
    * והסרת הכפילות לפי היעד — שכבר רצה אחרי המיון — משאירה אחת.
    */
-  for (const a of (today ?? []).filter((x) => x.status !== "cancelled")) {
+  /*
+   * ‎**„פעולה” היא פגישה שעוד לא קרתה.**
+   *
+   * הסינון הראשון פסל רק `cancelled`, ולכן `completed` ו-`no_show`
+   * נכנסו — ופגישה שכבר התקיימה ב-09:00 יכלה לקבל 105 ולדחוק בשתיים
+   * אחר הצהריים כל פעולה אמיתית, בתור „הדבר לעשות עכשיו”
+   * (ביקורת Codex). הנתיב מחזיר את כל הסטטוסים בטווח, ולקחתי את
+   * הטווח מחצות.
+   *
+   * התנאים כאן הם בדיוק אלה של שאילתת הסוכן — `status: "scheduled"`
+   * ו-`startsAt >= now` — כי שתי הדרכים מייצרות את אותה שורה
+   * בדחיפות 105, ואסור שהן יחלוקו על מה נכלל בה.
+   */
+  const upcomingToday = (today ?? []).filter(
+    (a) => a.status === "scheduled" && new Date(a.startsAt).getTime() >= now.getTime(),
+  );
+  for (const a of upcomingToday) {
     push({
       key: `appt-${a.id}`,
       priority: PRIORITY.todayAppointment,
