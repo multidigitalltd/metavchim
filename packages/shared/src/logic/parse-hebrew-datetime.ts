@@ -377,11 +377,17 @@ export interface RelativeOffset {
  * לכן לא „הראשון תמיד” ולא „האחרון תמיד”, אלא: הראשון, אלא אם
  * הדובר אמר במפורש שהוא מתקן.
  *
- * ## תיקון אינו שלילה
+ * ## תיקון אינו שלילה, ואינו תוכן המשפט
  *
- * הסימן חייב להיות **המילה האחרונה לפני הביטוי הבא**. „המסמך **לא
- * צריך** להגיע בעוד יומיים” ממשיך לפועל, וקריאתו כתיקון העבירה את
- * התזכורת למועד המסמך (ביקורת Codex).
+ * הסימן חייב **לעמוד בפני עצמו**: בפתח הטקסט שאחרי הביטוי הראשון,
+ * או אחרי פיסוק. „המסמך **לא צריך** להגיע בעוד יומיים” ממשיך
+ * לפועל, ו„תזכיר לי בעוד שעה **לבקש סליחה** בעוד יומיים” הוא
+ * מושא של „לבקש” — בשני המקרים הקריאה כתיקון העבירה את התזכורת
+ * למועד שאינו מועד הפעולה (שתי ביקורות Codex).
+ *
+ * „אחרי פיסוק” ולא „בפתח בלבד”, כי התיקון בא גם אחרי פסוקית שלמה:
+ * „בעוד שעה לשלוח את המסמך**, בעצם** בעוד שעתיים”. מה שמבדיל אינו
+ * המרחק מהביטוי אלא הניתוק התחבירי, והפיסוק הוא העדות לו.
  *
  * ## ולמה „לא” נבדק אחרת מכולן
  *
@@ -394,12 +400,28 @@ export interface RelativeOffset {
  * הכישלון הבטוח הוא להשאיר את הראשון. המסוכן הוא לבחור דווקא את מה
  * שהדובר פסל.
  */
-const CORRECTION_WORD = /(?<![\p{L}\p{N}])(סליחה|בעצם|טעות|תיקון)[^\p{L}\p{N}]*$/u;
-const CORRECTION_NOT = /(?<![\p{L}\p{N}])לא\s*[^\s\p{L}\p{N}][^\p{L}\p{N}]*$/u;
+const CORRECTION_MARKER = /(?:^|[^\s\p{L}\p{N}])\s*(לא|סליחה|בעצם|טעות|תיקון)(?![\p{L}\p{N}])/gu;
 
-/** האם הטקסט שבין שני הביטויים מסתיים בסימן תיקון. */
+/**
+ * הסימן הראשון שעומד בפני עצמו, ומה שנאמר אחריו.
+ *
+ * הלולאה אינה קישוט: „לא” שנפסלה כשלילה אינה אמורה להסתיר „בעצם”
+ * שבא אחריה. `null` = אין תיקון, כלומר הביטוי הראשון עומד בעינו —
+ * וזהו הכישלון הבטוח מבין השניים.
+ */
+function correctionAt(after: string): { rest: string } | null {
+  for (const match of after.matchAll(CORRECTION_MARKER)) {
+    const rest = after.slice(match.index + match[0].length);
+    // „לא” שוללת את מה שאחריה; רק פיסוק מפריד הופך אותה לתיקון
+    if (match[1] === "לא" && !/^\s*[^\s\p{L}\p{N}]/u.test(rest)) continue;
+    return { rest };
+  }
+  return null;
+}
+
+/** האם הדובר תיקן את עצמו בין שני הביטויים. */
 function isCorrection(between: string): boolean {
-  return CORRECTION_WORD.test(between) || CORRECTION_NOT.test(between);
+  return correctionAt(between) !== null;
 }
 
 export function parseRelativeOffset(text: string): RelativeOffset | null {
@@ -640,19 +662,21 @@ function parseExplicitDate(
  * (ביקורת Codex).
  */
 function correctedToCalendar(text: string, offsetEnd: number): boolean {
-  const after = text.slice(offsetEnd);
-  const marker = /(?<![\p{L}\p{N}])(לא|סליחה|בעצם|טעות|תיקון)(?![\p{L}\p{N}])/u.exec(after);
-  if (marker === null || marker.index === undefined) return false;
-  const gap = after.slice(marker.index + marker[0].length);
   /*
-   * ‎„לא” דורשת פיסוק מפריד, כמו בבחירה בין שני היסטים: „תזכיר לי
-   * בעוד שעה, **לא מחר**” דוחה את מחר במפורש, וקריאתה כתיקון קבעה
-   * את התזכורת דווקא ליום שנפסל (ביקורת Codex).
+   * **אותו כלל תיקון של הבחירה בין שני היסטים, ולא ניסוח שני.**
+   *
+   * גם כאן הסימן חייב לעמוד בפני עצמו: „תזכיר לי בעוד שעה לבקש
+   * סליחה מחר בבוקר” אמר „סליחה” כמושא של „לבקש”, וחיפוש הסימן
+   * בכל מה שאחרי ההיסט מצא אותו וביטל את השעה. זו בדיוק התקלה
+   * ש-Codex מצא במסלול המקביל — היא הייתה חיה בשני המסלולים,
+   * ולכן הכלל יושב עכשיו במקום אחד. „לא” והדרישה לפיסוק אחריה
+   * נכללות בו.
    */
-  if (marker[1] === "לא" && !/^\s*[^\s\p{L}\p{N}]/u.test(gap)) return false;
+  const correction = correctionAt(text.slice(offsetEnd));
+  if (correction === null) return false;
   // הלוח חייב להיות צמוד לסימן — אחרת יום שמופיע במקרה בהמשך המשפט
   // היה מוחק את ההיסט
-  const tail = gap.replace(/^[^\p{L}\p{N}]+/u, "");
+  const tail = correction.rest.replace(/^[^\p{L}\p{N}]+/u, "");
   const calendarStart =
     /^(מחר|מחרתיים|היום|ב?יום\s+(ראשון|שני|שלישי|רביעי|חמישי|שישי)|ב?שבת|ב?מוצ["״]ש)/u;
   return calendarStart.test(tail) || parseExplicitDate(tail.slice(0, 30)) !== undefined;
