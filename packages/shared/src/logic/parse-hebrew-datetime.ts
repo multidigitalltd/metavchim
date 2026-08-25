@@ -368,8 +368,17 @@ export interface RelativeOffset {
  *
  * לכן לא „הראשון תמיד” ולא „האחרון תמיד”, אלא: הראשון, אלא אם
  * הדובר אמר במפורש שהוא מתקן.
+ *
+ * ## תיקון אינו שלילה
+ *
+ * הסימן חייב להיות **המילה האחרונה לפני הביטוי הבא** — רק פיסוק
+ * ורווחים אחריו. „לא” של תיקון עומד לבדו: „עוד שעה, לא, בעוד
+ * שעתיים”. „לא” של שלילה ממשיך למשפט: „המסמך **לא צריך** להגיע
+ * בעוד יומיים” — וקריאתו כתיקון העבירה את התזכורת למועד המסמך
+ * (ביקורת Codex). הכישלון הבטוח הוא להשאיר את הראשון; המסוכן הוא
+ * להחליף אותו בגלל שלילה של פסוקית אחרת.
  */
-const CORRECTION = /(?<![\p{L}\p{N}])(לא|סליחה|בעצם|טעות|תיקון)(?![\p{L}\p{N}])/u;
+const CORRECTION = /(?<![\p{L}\p{N}])(לא|סליחה|בעצם|טעות|תיקון)[^\p{L}\p{N}]*$/u;
 
 export function parseRelativeOffset(text: string): RelativeOffset | null {
   /*
@@ -431,6 +440,14 @@ export function parseRelativeOffset(text: string): RelativeOffset | null {
        */
       if (corrects) {
         chosen = null;
+        invalidated = true;
+      } else if (chosen === null) {
+        /*
+         * **גם ביטוי פסול תופס את הבחירה.** „בעוד 900 שעות, והמסמך
+         * צריך להגיע בעוד יומיים” — בלי זה המקום נשאר פנוי, והיסט
+         * של משפט אחר נכנס אליו בלי שום תיקון (ביקורת Codex). מכאן
+         * והלאה רק תיקון מפורש בוחר, בדיוק כמו אחרי ביטול.
+         */
         invalidated = true;
       }
       continue;
@@ -588,6 +605,31 @@ function parseExplicitDate(
   return undefined;
 }
 
+/**
+ * האם אחרי ההיסט בא תיקון אל **לוח השנה** — „עוד שעה, בעצם ביום
+ * שלישי”.
+ *
+ * מילות היום (מחר/היום) גוברות על היסט מעצם נוכחותן, אבל יום בשבוע
+ * או תאריך מפורש אינם יכולים לקבל אותו מעמד: „תזכיר לי בעוד שעה
+ * לקבוע פגישה ליום שלישי” — שם ההיסט הוא מועד התזכורת ויום שלישי
+ * שייך לפגישה. מה שמכריע הוא **מילת תיקון שצמוד אחריה לוח שנה**:
+ * הדובר החליף את ההיסט ביום. בלעדיה ההיסט של המנוע הישן דווקא לא
+ * נתפס כאן („עוד שעה” בלי בי"ת), ויום שלישי המתוקן כן — כלומר
+ * ההרחבה של הצורה בלי בי"ת הייתה הופכת תיקון שעבד לתיקון שנבלע
+ * (ביקורת Codex).
+ */
+function correctedToCalendar(text: string, offsetEnd: number): boolean {
+  const after = text.slice(offsetEnd);
+  const marker = /(?<![\p{L}\p{N}])(לא|סליחה|בעצם|טעות|תיקון)(?![\p{L}\p{N}])/u.exec(after);
+  if (marker === null || marker.index === undefined) return false;
+  // הלוח חייב להיות צמוד לסימן — אחרת „לא” של שלילה בפסוקית אחרת
+  // עם יום שבמקרה מופיע בהמשך היה מוחק את ההיסט
+  const tail = after.slice(marker.index + marker[0].length).replace(/^[^\p{L}\p{N}]+/u, "");
+  const calendarStart =
+    /^(מחר|מחרתיים|היום|ב?יום\s+(ראשון|שני|שלישי|רביעי|חמישי|שישי)|ב?שבת|ב?מוצ["״]ש)/u;
+  return calendarStart.test(tail) || parseExplicitDate(tail.slice(0, 30)) !== undefined;
+}
+
 export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTime {
   const text = transcript.replace(/\s+/gu, " ").trim();
   const relative = parseRelativeOffset(text);
@@ -597,7 +639,12 @@ export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTi
    * הוא מחושב לפני המעבר לשעון ירושלמי: ביום מעבר שעון "בעוד שעתיים"
    * הוא בדיוק שעתיים, גם אם שעון הקיר קפץ.
    */
-  if (relative !== null && relative.ms !== null && !/מחר|מחרתיים|היום/u.test(text)) {
+  if (
+    relative !== null &&
+    relative.ms !== null &&
+    !/מחר|מחרתיים|היום/u.test(text) &&
+    !correctedToCalendar(text, relative.end)
+  ) {
     const at = new Date(now.getTime() + relative.ms);
     /*
      * עיגול **כלפי מעלה** לדקה השלמה.
