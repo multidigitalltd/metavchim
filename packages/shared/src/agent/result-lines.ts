@@ -1,4 +1,5 @@
 import { COOP_DEAL_STAGE_LABELS, type CoopDealStage } from "../logic/coop-deal.js";
+import type { AgentHistoryRef } from "./prompt.js";
 import { formatJerusalemDate, formatJerusalemTime } from "../logic/israel-time.js";
 import { CALL_OUTCOME_LABELS } from "../schemas/labels.js";
 
@@ -639,4 +640,51 @@ export function agentHistorySummary(message: string, data: unknown): string {
     0,
     AGENT_RESULT_SUMMARY_MAX,
   );
+}
+
+/** הקידומת בקישור ⟵ סוג הרשומה שאפשר להצביע עליה. */
+const REF_TYPE_BY_SECTION: Record<string, AgentHistoryRef["entityType"]> = {
+  buyers: "buyer",
+  leads: "lead",
+  properties: "property",
+};
+
+/**
+ * הפניות לרשומות שהוצגו — **מזהה יציב לצד התווית, ולא במקומה.**
+ *
+ * ## למה תווית לבדה אינה מספיקה
+ *
+ * מה שנשמר לזיכרון חוזר בתור הבא כביטוי מזהה, והחיפוש מתרגם אותו
+ * חזרה לרשומה בשתי דרכים: גיבוב מדויק של השם, וסריקה מפוענחת של
+ * אלף אנשי הקשר שעודכנו לאחרונה. שתיהן נכשלות על **רישא** של שם
+ * ארוך שבעליו אינו בין האלף — הגיבוב אינו של השם, והסריקה אינה
+ * מגיעה אליו. כלומר קונה שהמתווך רואה מולו, ו„תוסיף לו הערה”
+ * שעונה „לא נמצא במאגר” (ביקורת Codex).
+ *
+ * ## למה זה בטוח
+ *
+ * המזהה **אינו נכתב לפרומפט** — `buildInterpretPrompt` מדפיס את
+ * התווית בלבד, ויש בדיקה שאוכפת זאת. הוא נשאר בצד שלנו,
+ * ו-`matchHistoryRef` הוא שמתרגם את מה שהמודל החזיר בחזרה לרשומה,
+ * **לפני** שהוא בכלל מגיע לחיפוש. המנגנון כבר קיים לעדכונים
+ * שהסוכן יוזם; מה שחסר היה להשתמש בו גם בתוצאות של שאילתה.
+ *
+ * התווית זהה למה שנשמר בסיכום (`memoryLabel ?? label`), כי זו
+ * המחרוזת שהמודל רואה ומעתיק. שורה בלי רשומה שאפשר להצביע עליה
+ * (שיחה, פגישה, משימה) אינה מייצרת הפניה — היא הייתה מזמינה את
+ * המודל להשתמש בה ואז נופלת בשקט.
+ */
+export function agentResultRefs(data: unknown): AgentHistoryRef[] {
+  const list = agentResultList(data);
+  if (list === null) return [];
+  const refs: AgentHistoryRef[] = [];
+  for (const row of list.rows.slice(0, AGENT_RESULT_ROWS)) {
+    const parts = (row.href ?? "").split("/");
+    if (parts.length !== 3) continue;
+    const entityType = REF_TYPE_BY_SECTION[parts[1] ?? ""];
+    const entityId = parts[2] ?? "";
+    if (entityType === undefined || entityId === "") continue;
+    refs.push({ label: row.memoryLabel ?? row.label, entityType, entityId });
+  }
+  return refs;
 }

@@ -3,6 +3,7 @@ import {
   AGENT_RESULT_LABEL_MAX,
   agentHistorySummary,
   agentResultList,
+  agentResultRefs,
   agentResultRows,
   agentResultText,
   officeReportStats,
@@ -618,5 +619,53 @@ describe("הזיכרון לתור הבא — גזירה אחת לשני המסכ
     const summary = agentHistorySummary("א".repeat(900), { buyers });
     expect(summary).toHaveLength(600);
     expect(summary.endsWith("קונה מספר 7")).toBe(true);
+  });
+});
+
+
+/*
+ * התווית שנשמרת היא רישא, והחיפוש מוצא רשומה לפי גיבוב מדויק או
+ * לפי סריקה של אלף אנשי הקשר האחרונים — שתי דרכים שנכשלות על שם
+ * ארוך של לקוח ותיק. ההפניה פותרת את הביטוי לפני החיפוש, ולכן
+ * „תוסיף לו הערה” עובד גם שם (ביקורת Codex).
+ */
+describe("ההפניות — מזהה יציב לצד התווית", () => {
+  it("כל שורה עם כרטיס מייצרת הפניה, עם התווית שנשמרה", () => {
+    const refs = agentResultRefs({
+      buyers: [{ id: "01J000000000000000000000AA", name: "משה כהן", cities: [] }],
+    });
+    expect(refs).toEqual([
+      { label: "משה כהן", entityType: "buyer", entityId: "01J000000000000000000000AA" },
+    ]);
+  });
+
+  it("התווית זהה לזו שנשמרה — גם כשהיא נחתכה", () => {
+    const long = "א".repeat(120);
+    const refs = agentResultRefs({ buyers: [{ id: "b1", name: long, cities: [] }] });
+    const rows = agentResultRows({ buyers: [{ id: "b1", name: long, cities: [] }] });
+    expect(refs[0]!.label).toBe(rows[0]!.memoryLabel);
+  });
+
+  it("שורה בלי כרטיס אינה מייצרת הפניה", () => {
+    // פגישה ומשימה מקשרות למסך ולא לרשומה, ולשיחה אין סוג חיפוש
+    expect(
+      agentResultRefs({
+        appointments: [{ id: "a1", title: "סיור", startsAt: "2026-08-24T13:00:00Z" }],
+      }),
+    ).toEqual([]);
+    expect(agentResultRefs({ tasks: [{ id: "t1", title: "משימה" }] })).toEqual([]);
+  });
+
+  it("צורה שאינה מוכרת אינה מייצרת הפניות", () => {
+    expect(agentResultRefs({ something: [1, 2] })).toEqual([]);
+  });
+
+  it("לא יותר ממה שנשמר לזיכרון", () => {
+    const buyers = Array.from({ length: 20 }, (_, i) => ({
+      id: `b${i}`,
+      name: `קונה ${i}`,
+      cities: [],
+    }));
+    expect(agentResultRefs({ buyers })).toHaveLength(8);
   });
 });

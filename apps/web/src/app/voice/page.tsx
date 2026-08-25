@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { agentHistorySummary } from "@metavchim/shared";
+import {
+  agentHistorySummary,
+  agentResultRefs,
+  type AgentHistoryRef,
+} from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { useUserDismissed } from "@/lib/dismissed-panels";
@@ -44,6 +48,13 @@ interface HistoryTurn {
   action: string;
   params: Record<string, unknown>;
   resultSummary?: string;
+  /**
+   * ההפניות לרשומות שהוצגו — תווית ומזהה.
+   *
+   * המזהה נשאר בין הדפדפן לשרת ו**אינו** נכתב לפרומפט: הוא מה
+   * שהופך „הראשון מהם” לרשומה בלי לחפש את התווית כטקסט.
+   */
+  refs?: AgentHistoryRef[];
 }
 
 interface Recommendation {
@@ -227,6 +238,12 @@ export default function AgentPage(): React.JSX.Element {
            * שהמתווך ראה (ביקורת Codex).
            */
           resultSummary: agentHistorySummary(executed.message, executed.data),
+          /*
+           * המזהים של מה שהוצג — כדי ש„הראשון מהם” ייפתר בלי חיפוש
+           * טקסט. התווית לבדה אינה מפתח אמין כשהיא רישא של שם ארוך
+           * (ביקורת Codex). המזהה אינו מגיע לפרומפט של המודל.
+           */
+          refs: agentResultRefs(executed.data),
         },
       ]);
     }

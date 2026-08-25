@@ -3,6 +3,9 @@ import { z } from "zod";
 import {
   AGENT_ACTION_IDS,
   AGENT_ID_KEYS,
+  AGENT_RESULT_LABEL_MAX,
+  AGENT_RESULT_ROWS,
+  AGENT_RESULT_SUMMARY_MAX,
   agentAction,
   historyRefs,
   type AgentHistoryTurn,
@@ -65,7 +68,25 @@ const InterpretSchema = z
           transcript: z.string().trim().min(1).max(4000),
           action: z.enum(AGENT_ACTION_IDS as unknown as [string, ...string[]]),
           params: z.record(z.string(), z.unknown()),
-          resultSummary: z.string().max(600).optional(),
+          resultSummary: z.string().max(AGENT_RESULT_SUMMARY_MAX).optional(),
+          /*
+           * ההפניות לרשומות שהוצגו בתור ההוא — התווית והמזהה.
+           *
+           * **המזהה אינו מרחיב את מה שהדפדפן יכול לעשות:** פרמטרי
+           * הפעולה מגיעים ממנו ממילא, ובעלות נאכפת בפעולה עצמה. מה
+           * שהוא כן עושה הוא לפתור „הראשון מהם” בלי חיפוש טקסט —
+           * ולכן גם כשהתווית היא רישא של שם ארוך (ביקורת Codex).
+           */
+          refs: z
+            .array(
+              z.object({
+                label: z.string().trim().min(1).max(AGENT_RESULT_LABEL_MAX),
+                entityType: z.enum(["lead", "buyer", "property"]),
+                entityId: z.string().length(26),
+              }),
+            )
+            .max(AGENT_RESULT_ROWS)
+            .optional(),
         }),
       )
       .max(6)

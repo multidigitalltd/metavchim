@@ -4,6 +4,7 @@ import { ulid } from "ulid";
 import {
   agentAction,
   agentHistorySummary,
+  agentResultRefs,
   agentResultText,
   applyBlockedModules,
   resolveCapabilities,
@@ -978,6 +979,7 @@ export class WhatsAppAssistantService {
       }
     }
 
+    const refs = agentResultRefs(primary.data);
     const turn: AgentHistoryTurn = {
       transcript: state.transcript,
       action: state.proposal.actionId,
@@ -989,6 +991,14 @@ export class WhatsAppAssistantService {
        * מסביר למה בדיוק כך ולא פחות ולא יותר.
        */
       resultSummary: agentHistorySummary(primary.message, primary.data),
+      /*
+       * המזהים של מה שהוצג — **בצד שלנו, לא בפרומפט.**
+       *
+       * התווית לבדה אינה מפתח חיפוש אמין: רישא של שם ארוך שבעליו
+       * אינו בין אלף אנשי הקשר האחרונים אינה נמצאת בשום מסלול.
+       * ההפניה פותרת את הביטוי לפני החיפוש (ביקורת Codex).
+       */
+      ...(refs.length === 0 ? {} : { refs }),
     };
     /*
      * שתי הרשימות: `history` היא מה שנשלח לפרומפט ולכן נחתכת
