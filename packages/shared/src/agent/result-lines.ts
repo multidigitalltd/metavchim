@@ -345,10 +345,21 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
        * אותו למקום שממנו בא, ולא לקונה שהשורה מדברת עליו
        * (ביקורת Codex).
        */
+      /*
+       * **ההפניה מצביעה על מה שבכותרת — ואם הכותרת אינה ישות, אין
+       * הפניה.**
+       *
+       * „קונה של סוכן אחר” היא נפילה אנונימית: אין שם ואין נכס
+       * מקונן, ורק `propertyId` של **הנכס שממנו נשאלנו** נשאר. נפילה
+       * אליו נתנה לכל שורה כזו הפניה יציבה לאותו נכס — כלומר „תוסיף
+       * הערה לראשון” היה כותב לנכס שהמתווך כבר עומד עליו, או נופל
+       * כי הפעולה מצפה לקונה (ביקורת Codex). לשורה כזו אין לאן
+       * להמשיך, וזו התשובה הנכונה.
+       */
       const target: { entityType: "buyer" | "property"; entityId: string } | null =
         buyerName !== null && text(match["buyerId"]) !== null
           ? { entityType: "buyer", entityId: String(match["buyerId"]) }
-          : text(match["propertyId"]) !== null
+          : label === address && text(match["propertyId"]) !== null
             ? { entityType: "property", entityId: String(match["propertyId"]) }
             : null;
       return {

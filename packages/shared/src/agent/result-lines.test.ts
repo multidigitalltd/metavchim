@@ -169,6 +169,21 @@ describe("התאמות — הצורה שאף מסך לא זיהה", () => {
     })!;
     expect(text).toContain("קונה של סוכן אחר");
   });
+
+  /*
+   * ולנפילה האנונימית אין לאן להמשיך: `propertyId` שנשאר הוא של
+   * הנכס שממנו נשאלנו, והפניה אליו הייתה מכוונת „תוסיף הערה
+   * לראשון” לכרטיס שהמתווך כבר עומד עליו (ביקורת Codex).
+   */
+  it("ולנפילה האנונימית אין הפניה — ולא לנכס שממנו נשאלנו", () => {
+    const anonymous = {
+      matches: [
+        { id: "m2", propertyId: "p1", buyerId: "b2", score: 71, explanation: "עיר", buyerName: null },
+      ],
+    };
+    expect(agentResultList(anonymous)!.rows[0]!.href).toBeUndefined();
+    expect(agentResultRefs(anonymous)).toEqual([]);
+  });
 });
 
 describe("פגישות ומשימות — היו בלי שעה ובלי מועד", () => {
