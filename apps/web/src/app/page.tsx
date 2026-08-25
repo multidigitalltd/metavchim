@@ -321,6 +321,23 @@ export default function DashboardPage() {
   const [coachFailed, setCoachFailed] = useState(false);
   /** 403 מהסוכן — כלומר נודע בוודאות שאין סוכן במסלול. אינו שגיאה. */
   const [coachDenied, setCoachDenied] = useState(false);
+  /*
+   * ‎**האם המקור הגיע במלואו, או שזה רק העמוד הראשון.**
+   *
+   * הנתיבים מחזירים 100 רשומות ממוינות מהחדש לישן, עם `nextCursor`
+   * כשיש עוד. הסרת התקרות המקומיות לא הספיקה: במשרד עם יותר
+   * מ-100 לידים, ליד ותיק שדורש טיפול אנושי פשוט אינו נמצא
+   * בדפדפן — ודירוג „גלובלי” מעל העמוד הראשון בלבד הוא טענה שאין
+   * לה כיסוי (ביקורת Codex).
+   *
+   * השרת כבר אומר לנו את זה; רק לא הקשבנו. מי שהמאגר שלו נכנס
+   * בעמוד אחד — ורוב המשרדים — מקבל דירוג מלא כרגיל.
+   */
+  const [propertiesComplete, setPropertiesComplete] = useState(false);
+  const [buyersComplete, setBuyersComplete] = useState(false);
+  const [leadsComplete, setLeadsComplete] = useState(false);
+  /** היום שאליו שייכות הפגישות שבידינו — ראו ההסבר בטעינה. */
+  const [todayDay, setTodayDay] = useState<number | null>(null);
   const batch = useRef(0);
 
   const loadDashboard = useCallback(() => {
@@ -334,6 +351,8 @@ export default function DashboardPage() {
      * Codex). רק המנה האחרונה רשאית לכתוב.
      */
     const mine = ++batch.current;
+    /* היום שאליו הבקשה הזו שייכת — נשמר יחד עם התוצאה. */
+    const requestedDay = dayKey;
     const ok =
       <T,>(apply: (value: T) => void) =>
       (value: T): void => {
@@ -361,34 +380,69 @@ export default function DashboardPage() {
       setDataFailed(true);
     };
     if (canSeeProperties) {
-      apiGet<{ items: PropertyRow[] }>("/properties?limit=100")
-        .then(ok((r: { items: PropertyRow[] }) => setProperties(r.items)))
+      apiGet<{ items: PropertyRow[]; nextCursor: string | null }>("/properties?limit=100")
+        .then(
+          ok((r: { items: PropertyRow[]; nextCursor: string | null }) => {
+            setProperties(r.items);
+            setPropertiesComplete(r.nextCursor === null);
+          }),
+        )
         .catch(fail);
     }
     if (canSeeBuyers) {
-      apiGet<{ items: BuyerRow[] }>("/buyers?limit=100")
-        .then(ok((r: { items: BuyerRow[] }) => setBuyers(r.items)))
+      apiGet<{ items: BuyerRow[]; nextCursor: string | null }>("/buyers?limit=100")
+        .then(
+          ok((r: { items: BuyerRow[]; nextCursor: string | null }) => {
+            setBuyers(r.items);
+            setBuyersComplete(r.nextCursor === null);
+          }),
+        )
         .catch(fail);
       apiGet<Breakdown<"byMaturity">>("/buyers/breakdown")
         .then(ok(setBuyerBreakdown))
         .catch(fail);
     }
     if (canSeeLeads) {
-      apiGet<{ items: LeadRow[] }>("/leads?limit=100")
-        .then(ok((r: { items: LeadRow[] }) => setLeads(r.items)))
+      apiGet<{ items: LeadRow[]; nextCursor: string | null }>("/leads?limit=100")
+        .then(
+          ok((r: { items: LeadRow[]; nextCursor: string | null }) => {
+            setLeads(r.items);
+            setLeadsComplete(r.nextCursor === null);
+          }),
+        )
         .catch(fail);
       apiGet<Breakdown<"byStatus">>("/leads/breakdown")
         .then(ok(setLeadBreakdown))
         .catch(fail);
     }
     if (canSeeCalendar) {
-      const dayStart = new Date();
-      dayStart.setHours(0, 0, 0, 0);
-      const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+      /*
+       * ‎**הטווח המבוקש בשעון ישראל, לא בשעון הדפדפן.**
+       *
+       * ‎`jerusalemDayRange` שימש עד כה רק כמפתח לרענון, בעוד הבקשה
+       * עצמה נבנתה מ-`setHours(0,0,0,0)` מקומי ועוד 24 שעות קבועות.
+       * דפדפן בניו-יורק היה מרענן בחצות ירושלים ומבקש **יום
+       * ניו-יורקי**, ומציג את התוצאה כדירוג מלא של „היום”; 24 שעות
+       * קבועות גם שגויות ביום מעבר שעון (ביקורת Codex).
+       *
+       * אותה פונקציה קובעת עכשיו גם מתי מרעננים וגם מה מבקשים.
+       */
+      const { start: dayStart, end: dayEnd } = jerusalemDayRange(new Date());
       apiGet<AppointmentRow[]>(
         `/appointments?from=${dayStart.toISOString()}&to=${dayEnd.toISOString()}`,
       )
-        .then(ok(setToday))
+        .then(
+          ok((rows: AppointmentRow[]) => {
+            setToday(rows);
+            /*
+             * הנתונים נושאים את היום שאליו הם שייכים. בלי זה
+             * ‎`today !== null` נשאר אמת עם המערך של אתמול לאורך כל
+             * הבקשה החדשה — ולנצח אם היא נכשלת — והדירוג ממשיך
+             * להכריז בזמן שפגישות היום החדש עדיין לא ידועות.
+             */
+            setTodayDay(requestedDay);
+          }),
+        )
         .catch(fail);
     }
     /*
@@ -586,7 +640,12 @@ export default function DashboardPage() {
   const canSeeNetwork = can(user, "collaboration.offer");
   const ranked =
     (!hasCoach || coachDenied || recs !== null) &&
-    (!canSeeCalendar || today !== null) &&
+    /* לא „הגיע משהו”, אלא **הכול הגיע** — אחרת אין מעל מה לדרג. */
+    (!canSeeProperties || propertiesComplete) &&
+    (!canSeeBuyers || buyersComplete) &&
+    (!canSeeLeads || leadsComplete) &&
+    /* והפגישות שבידינו הן של היום הזה, לא של אתמול בזמן שהבקשה באוויר. */
+    (!canSeeCalendar || todayDay === dayKey) &&
     (!canSeeCalendar || myTasks !== null) &&
     (!canSeeNetwork || network !== null);
 
