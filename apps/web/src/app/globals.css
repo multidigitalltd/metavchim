@@ -651,31 +651,65 @@ code {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  min-height: 44px; /* יעד מגע מינימלי (WCAG 2.5.8) */
-  padding: 0.55rem 1.25rem;
-  border-radius: var(--radius);
+  /*
+   * ‎46 בגובה ו-15 ברדיוס (§10). הרדיוס היה `--radius` — 22, שהוא
+   * רדיוס **הכרטיס**. כפתור באותו רדיוס ככרטיס נקרא כמשטח ולא
+   * כפקד, וזה מה שגרם לכפתורים להיראות רכים מדי לצד הכרטיסים
+   * שסביבם.
+   *
+   * ‎`min-height` ולא `height`: כפתור עם טקסט שעוטף לשתי שורות
+   * חייב לגדול. 46 גדול מ-44 שהוא יעד המגע (WCAG 2.5.8), ולכן
+   * הדרישה נשמרת בלי להישען עליה.
+   */
+  min-height: 46px;
+  padding: 0 22px;
+  border-radius: 15px;
   border: 1px solid transparent;
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: var(--type-button);
+  font-weight: 800;
   cursor: pointer;
   transition:
     background-color 0.15s ease,
-    transform 0.1s ease,
-    box-shadow 0.15s ease;
+    border-color 0.18s ease,
+    transform 0.16s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.2s ease;
 }
+/* ‎`scale(.98)` מהחבילה — לחיצה שמרגישה כלחיצה ולא כקפיצה */
 .mv-button:active {
-  transform: translateY(1px);
+  transform: translateY(0) scale(0.98);
+}
+.mv-button:hover {
+  transform: translateY(-2px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mv-button:hover,
+  .mv-button:active {
+    transform: none;
+  }
 }
 .mv-button--primary {
   /* כפתור הפעולה של העיצוב: ירוק בהיר עם טקסט כהה — 11.8:1, גבוה
      מהניגודיות של ירוק כהה עם טקסט לבן, ובולט יותר על רקע בהיר */
+  /*
+   * ‎`background` **וגם** `background-image`, ולא הדרגתיות לבדה.
+   *
+   * החבילה מבקשת `brand-grad` על הכפתור הראשי. הדרגתיות אינה
+   * נפתרת לצבע יחיד, ולכן שער הניגודיות היה מאבד את היכולת למדוד
+   * את הכפתור **הכי חשוב במערכת** — ההגדרה שנועדה ליפות הייתה
+   * מכבה בדיקה. הצבע השטוח נשאר מתחת, והוא בדיוק אמצע הטווח של
+   * הדרגתיות (‎#7DF39C‎ עד ‎#5FE083‎), כך שהמדידה נכונה גם למה
+   * שנראה בפועל.
+   */
   background: var(--color-action);
+  background-image: linear-gradient(180deg, #7df39c 0%, #5fe083 100%);
   color: var(--color-on-action);
-  box-shadow: var(--shadow-card);
+  font-weight: 900;
+  box-shadow: 0 12px 24px -14px rgba(40, 170, 88, 0.8);
 }
 .mv-button--primary:hover {
   background: var(--color-action-hover);
-  box-shadow: var(--shadow-pop);
+  background-image: linear-gradient(180deg, #8bf7ac 0%, #6ee791 100%);
+  box-shadow: 0 18px 30px -14px rgba(40, 170, 88, 0.7);
 }
 
 /* ההתחברות עם Google היא `<a>` ולא `<button>` — ולכן היא נשארה על
@@ -859,6 +893,17 @@ code {
 :root[data-a11y-contrast="on"] .mv-button--primary,
 :root[data-a11y-contrast="on"] .mv-button--danger {
   background: var(--color-primary);
+  /*
+   * ‎`background-image: none` — אחרת ההדרגתיות של החבילה מכסה את
+   * המילוי הזה.
+   *
+   * הכלל הזה דורס `background`, אבל הדרגתיות היא `background-image`
+   * ויושבת **מעליו**: הכפתור היה נצבע ירוק-בהיר עם טקסט לבן, כלומר
+   * דווקא במצב שנועד להגביר ניגודיות הוא היה נעשה בלתי קריא.
+   * בדיוק אותו דפוס כשל שהשער תפס בטוקנים — בלוק שנכתב בהנחת
+   * מצב אחד, ופוגש הצהרה חדשה שנוספה אחריו.
+   */
+  background-image: none;
   color: #ffffff;
 }
 
