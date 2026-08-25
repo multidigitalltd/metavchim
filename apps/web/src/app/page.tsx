@@ -319,20 +319,21 @@ export default function DashboardPage() {
    * session שפג), ושמונה הודעות נפרדות על אותה תקלה הן רעש.
    */
   const [dataFailed, setDataFailed] = useState(false);
-  /*
-   * היום שאליו שייכות הפגישות שבידינו. נדרש כדי ש„הכל מטופל” לא
-   * ייאמר בחצות על סמך הרשימה של אתמול, שהתנאי החי מרוקן ממילא.
-   */
-  const [todayDay, setTodayDay] = useState<number | null>(null);
-  /*
-   * כישלון של בקשת הפגישות **בלבד**.
-   *
-   * ‎`dataFailed` הוא דגל של המנה כולה, ולכן כישלון של `/offers` היה
-   * משחרר את שער „הכל מטופל” בזמן שהפגישות עדיין באוויר — דגל
-   * מצרפי שעונה על שאלה פר-מקור (ביקורת Codex).
-   */
-  const [appointmentsFailed, setAppointmentsFailed] = useState(false);
+  /** הקריאה לסוכן נכשלה — מוצג עם „נסו שוב”, ואינו כולל 403. */
   const [coachFailed, setCoachFailed] = useState(false);
+  /*
+   * ‎**האם בקשת הפגישות עדיין בדרך.**
+   *
+   * שתי הגרסאות הקודמות ענו על השאלה הזו בערך אחר: `today !== null`
+   * לא הבחין בין הפגישות של אתמול לשל היום, ו-`todayDay === dayKey`
+   * נשאר אמת בניסיון חוזר **באותו יום** — כלומר מבדיקה קודמת שכבר
+   * הסתיימה, בזמן שהבקשה החדשה באוויר (ביקורת Codex).
+   *
+   * דגל אחד שנדלק בפתיחת כל מנה ונכבה כשהבקשה **נסתיימה** —
+   * בהצלחה או בכישלון, 403 כולל. זו בדיוק השאלה שהשער שואל, ולא
+   * קירוב שלה.
+   */
+  const [appointmentsPending, setAppointmentsPending] = useState(true);
   const batch = useRef(0);
 
   const loadDashboard = useCallback(() => {
@@ -346,8 +347,6 @@ export default function DashboardPage() {
      * Codex). רק המנה האחרונה רשאית לכתוב.
      */
     const mine = ++batch.current;
-    /* היום שאליו הבקשה הזו שייכת — נשמר יחד עם התוצאה. */
-    const requestedDay = dayKey;
     const ok =
       <T,>(apply: (value: T) => void) =>
       (value: T): void => {
@@ -355,7 +354,7 @@ export default function DashboardPage() {
         apply(value);
       };
     setDataFailed(false);
-    setAppointmentsFailed(false);
+    if (canSeeCalendar) setAppointmentsPending(true);
     /*
      * 403 אינו כישלון טעינה — הוא תשובה.
      *
@@ -424,12 +423,12 @@ export default function DashboardPage() {
         .then(
           ok((rows: AppointmentRow[]) => {
             setToday(rows);
-            setTodayDay(requestedDay);
+            setAppointmentsPending(false);
           }),
         )
         .catch((err: unknown) => {
-          /* גם 403 — בכל אחד מהמקרים הפגישות לא יגיעו, והשער חייב להשתחרר. */
-          if (mine === batch.current) setAppointmentsFailed(true);
+          /* גם 403 — הבקשה הסתיימה, ולכן היא אינה „בדרך”. */
+          if (mine === batch.current) setAppointmentsPending(false);
           fail(err);
         });
     }
@@ -608,7 +607,7 @@ export default function DashboardPage() {
     (canSeeProperties && properties === null) ||
     (canSeeBuyers && buyers === null) ||
     (canSeeLeads && leads === null) ||
-    (canSeeCalendar && todayDay !== dayKey && !appointmentsFailed) ||
+    (canSeeCalendar && appointmentsPending) ||
     (canSeeCalendar && myTasks === null && !tasksFailed) ||
     (canSeeNetwork && network === null && !networkFailed);
 
