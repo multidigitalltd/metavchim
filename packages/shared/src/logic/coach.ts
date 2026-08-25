@@ -217,17 +217,47 @@ const AGGREGATE_HREF: Record<string, string> = {
  * המפה יושבת כאן ולא במסך מאותה סיבה שהיעד עצמו יושב כאן: הכלל
  * נשבר פעם אחר פעם כשהוא מפוזר, ומי שמוסיף סוג המלצה חדש צריך
  * למצוא את שתי השאלות באותו מקום.
+ *
+ * ‎**המפתח הוא סוג ההמלצה ולא היעד** — כי השאלה אינה „לאן זה
+ * מוביל” אלא „מה ביקשנו מהסוכן לעשות”. הגרסה הקודמת נגזרה
+ * מקידומת ה-href, כלומר ענתה „האם מותר לו לראות את המסך”:
+ * ‎`unsent_matches` מוביל ל-`/properties/…` וקיבל `properties.view`,
+ * בעוד שגוף ההמלצה אומר „כדאי לשלוח הצעות” וכפתור „שלח הצעה”
+ * שבמסך יורה `POST /offers` שדורש `offers.send`. סוכן בלי היכולת
+ * קיבל את ההמלצה, לחץ, וקיבל 403 (ביקורת Codex).
+ *
+ * אותה טעות ישבה גם ב-`incomplete_property`: „להשלים פרטים” היא
+ * עריכה, `properties.edit`, ולא צפייה. שתיהן נבעו מכך שהמסך והפעולה
+ * אינם אותה שאלה, ולכן המפה מפתחת לפי הפעולה.
+ *
+ * סוג שאינו במפה מחזיר `null`, כלומר „בלי דרישה” — ולכן הבדיקה
+ * מונה את הסוגים ונופלת על סוג חדש שנשכח, בדיוק כמו הבדיקה של
+ * ‎`recommendationHref` שמעל.
  */
+const ACTION_CAPABILITY: Record<string, Capability> = {
+  /* „זו השיחה הראשונה להיום” — לפתוח את הליד ולהתקשר. */
+  stale_lead: "leads.view_own",
+  urgent_lead: "leads.view_own",
+  /* „לוודא מול הלקוח שהפגישה בתוקף” — נגיעה ביומן. */
+  today_appointment: "calendar.manage",
+  /* „עדיף לסגור אותה” — שינוי סטטוס המשימה. */
+  overdue_task: "calendar.manage",
+  /* „עדכון תוצאת הסיור” — כתיבה על הפגישה. */
+  viewing_followup: "calendar.manage",
+  /* „משרד אחר… מחכה לתשובה” — מענה להצעת שת"פ. */
+  pending_coop_offers: "collaboration.offer",
+  /* „מומלץ לשלוח הודעת המשך” — שליחה על הצעה קיימת. */
+  hesitating_buyer: "offers.send",
+  /* „כדאי לשלוח הצעות — לחיצה אחת שולחת לכל המתאימים”. */
+  unsent_matches: "offers.send",
+  /* „להשלים פרטים” — עריכת הנכס, לא צפייה בו. */
+  incomplete_property: "properties.edit",
+  /* „עברו על ההתאמות שלהם” — קריאה בכרטיסי הקונים. */
+  hot_buyers_idle: "buyers.view_own",
+};
+
 export function recommendationCapability(rec: CoachRecommendation): Capability | null {
-  const href = recommendationHref(rec);
-  if (href === null) return null;
-  if (href.startsWith("/collaboration")) return "collaboration.offer";
-  if (href.startsWith("/tasks") || href.startsWith("/calendar")) return "calendar.manage";
-  if (href.startsWith("/offers")) return "offers.send";
-  if (href.startsWith("/properties")) return "properties.view";
-  if (href.startsWith("/buyers")) return "buyers.view_own";
-  if (href.startsWith("/leads")) return "leads.view_own";
-  return null;
+  return ACTION_CAPABILITY[rec.type] ?? null;
 }
 
 export function recommendationHref(rec: CoachRecommendation): string | null {

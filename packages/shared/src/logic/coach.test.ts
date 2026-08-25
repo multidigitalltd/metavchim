@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildRecommendations, recommendationHref, type CoachSignals } from "./coach.js";
+import {
+  buildRecommendations,
+  recommendationCapability,
+  recommendationHref,
+  type CoachSignals,
+} from "./coach.js";
+import type { Capability } from "../rbac.js";
 
 const empty: CoachSignals = {
   hotBuyersWithoutOffer: 0,
@@ -179,5 +185,56 @@ describe("recommendationHref — לכל המלצה יש לאן ללחוץ", () =
 
   it("סוג שאינו מוכר ואין לו ישות — אין יעד, ולא ניחוש", () => {
     expect(recommendationHref({ priority: 1, type: "מומצא", title: "", body: "" })).toBeNull();
+  });
+});
+
+/*
+ * ‎**היכולת נמדדת לפי הפעולה, לא לפי המסך.**
+ *
+ * ‎`/coach/recommendations` יושב מאחורי `matches.view`, והיעדים
+ * שאליהם הוא מפנה דורשים יכולות אחרות. הגרסה הראשונה של המפה
+ * נגזרה מקידומת ה-href, כלומר ענתה „האם מותר לו לראות את המסך” —
+ * שאלה אחרת מ„האם מותר לו לעשות את מה שביקשנו”. שתיהן מתלכדות רק
+ * כשההמלצה היא לקרוא; ברגע שהיא מבקשת לשלוח או לערוך, הן נפרדות,
+ * והסוכן מקבל הזמנה לפעולה שתחזיר לו 403.
+ */
+describe("recommendationCapability — היכולת שהפעולה דורשת", () => {
+  it("כל סוג שהסוכן מייצר נושא יכולת — אין המלצה בלי דרישה", () => {
+    const recs = buildRecommendations(allSignals);
+    const without = recs.filter((r) => recommendationCapability(r) === null).map((r) => r.type);
+    expect(without).toEqual([]);
+  });
+
+  it("„לשלוח הצעות” דורש offers.send ולא properties.view", () => {
+    const recs = buildRecommendations(allSignals);
+    const cap = (type: string): Capability | null =>
+      recommendationCapability(recs.find((r) => r.type === type)!);
+    /* שתי ההמלצות שמבקשות לשלוח — אחת מכרטיס הנכס, אחת מההצעה */
+    expect(cap("unsent_matches")).toBe("offers.send");
+    expect(cap("hesitating_buyer")).toBe("offers.send");
+  });
+
+  it("„להשלים פרטים” היא עריכה, לא צפייה", () => {
+    const recs = buildRecommendations(allSignals);
+    expect(recommendationCapability(recs.find((r) => r.type === "incomplete_property")!)).toBe(
+      "properties.edit",
+    );
+  });
+
+  it("המלצות קריאה נשארות ביכולת הקריאה", () => {
+    const recs = buildRecommendations(allSignals);
+    const cap = (type: string): Capability | null =>
+      recommendationCapability(recs.find((r) => r.type === type)!);
+    expect(cap("stale_lead")).toBe("leads.view_own");
+    expect(cap("urgent_lead")).toBe("leads.view_own");
+    expect(cap("hot_buyers_idle")).toBe("buyers.view_own");
+    expect(cap("pending_coop_offers")).toBe("collaboration.offer");
+    expect(cap("today_appointment")).toBe("calendar.manage");
+    expect(cap("overdue_task")).toBe("calendar.manage");
+    expect(cap("viewing_followup")).toBe("calendar.manage");
+  });
+
+  it("סוג שאינו מוכר — אין דרישה מומצאת", () => {
+    expect(recommendationCapability({ priority: 1, type: "מומצא", title: "", body: "" })).toBeNull();
   });
 });
