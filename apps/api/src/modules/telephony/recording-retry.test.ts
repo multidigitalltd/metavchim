@@ -24,7 +24,37 @@ const source = readFileSync(new URL("./recording-fetch.service.ts", import.meta.
 describe("מספר קבוצה שגוי אינו נראה כמו הקלטה שנמחקה", () => {
   it("שני המועמדים נשלחים, לפי הסדר שבנתיב", () => {
     expect(source).toContain("pbx015RecordingGroups(job.recordingPath)");
-    expect(source).toContain("for (const [index, recordGroup] of candidates.entries())");
+    expect(source).toContain("for (const [index, candidate] of candidates.entries())");
+  });
+
+  /*
+   * **גם `uniqueid` הוא מועמד.**
+   *
+   * הקבוצה נבדקה מול הספק בשני ערכיה וקיבלה 404 בשניהם (דיווח
+   * מהשטח: `recordgroup=12048|54936`), כלומר היא אינה החשוד. הצורה
+   * שאנחנו שולחים — עם הנקודה — היא ההנחה הבאה, והדוגמה בתיעוד של
+   * 015 היא ספרות בלבד.
+   *
+   * **הקבוצה בלולאה החיצונית והצורה בפנים** — כך שתי הצורות נבדקות
+   * עם הקבוצה המוגדרת (הערך המהימן היחיד) לפני כל ניחוש מהנתיב.
+   * הקינון ההפוך שם את הצורה המתוקנת מאחורי ניחוש הנתיב, וכל
+   * תשובה שאינה 404 על הניחוש עצרה את הלולאה לפניה (ביקורת Codex).
+   */
+  it("וגם שתי צורות מזהה השיחה — הקבוצה בחוץ והצורה בפנים", () => {
+    expect(source).toContain("pbx015UniqueIdForms(job.providerCallId)");
+    expect(source).toContain(
+      "groups.flatMap((recordGroup) =>\n      uniqueIds.map((uniqueId) => ({ uniqueId, recordGroup })),",
+    );
+  });
+
+  /* הצורה שהוובהוק שלח נשארת ראשונה — היא מגיעה מהספק עצמו */
+  it("והצורה שהתקבלה מהספק נבדקת ראשונה", () => {
+    const forms = readFileSync(
+      new URL("../../../../../packages/shared/src/logic/telephony.ts", import.meta.url),
+      "utf8",
+    );
+    const fn = forms.slice(forms.indexOf("export function pbx015UniqueIdForms"));
+    expect(fn.slice(0, 400)).toContain("return [uniqueId, digitsOnly]");
   });
 
   /*
@@ -33,7 +63,7 @@ describe("מספר קבוצה שגוי אינו נראה כמו הקלטה שנ�
    */
   it("והניסיון השני נעשה רק על „לא נמצא”", () => {
     const loop = source.slice(
-      source.indexOf("for (const [index, recordGroup]"),
+      source.indexOf("for (const [index, candidate]"),
       source.indexOf("private async attemptFetch("),
     );
     expect(loop).toContain('attempt.code === "404"');
@@ -84,8 +114,20 @@ describe("מספר קבוצה שגוי אינו נראה כמו הקלטה שנ�
  */
 describe("הדיווח נושא את מה שנשלח", () => {
   it("מספרי הקבוצה והרשומה מופיעים בתיאור הכישלון", () => {
-    expect(source).toContain("recordgroup=${candidates.join(\"|\")}");
+    expect(source).toContain("recordgroup=${groups.join(\"|\")}");
     expect(source).toContain("recordid=${ids.recordId}");
+  });
+
+  /*
+   * ‎`uniqueid` מדווח ב**צורה ובאורך** ולא בערך: הוא מזהה שיחה
+   * ספציפית, והדיווח הזה עובר בערוצים שאין סיבה שיישאו אותו. מה
+   * שנחוץ לאבחון הוא אילו צורות נוסו — וזה בדיוק מה שנרשם.
+   */
+  it("וצורות מזהה השיחה מדווחות בלי הערך עצמו", () => {
+    expect(source).toContain("uniqueid=${forms}");
+    const detail = source.slice(source.indexOf("const forms = uniqueIds"));
+    expect(detail.slice(0, 300)).toContain("form.length");
+    expect(detail.slice(0, 300)).not.toContain("${form}");
   });
 
   /*

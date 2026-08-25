@@ -15,6 +15,7 @@ import {
   parse015Status,
   pbx015RecordingPath,
   pbx015RecordingGroups,
+  pbx015UniqueIdForms,
   split015RecordingPath,
   unmatched015ListKeys,
 } from "@metavchim/shared";
@@ -575,21 +576,49 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     const configured = (config["recordGroup"] ?? "").trim();
     const fromPath = pbx015RecordingGroups(job.recordingPath);
     const guesses = fromPath.length > 0 ? fromPath : [ids.recordGroup];
-    const candidates =
+    const groups =
       configured === "" ? guesses : [configured, ...guesses.filter((g) => g !== configured)];
+
+    /*
+     * **גם `uniqueid` הוא מועמד, ולא רק הקבוצה.**
+     *
+     * הקבוצה נבדקה מול הספק בשני ערכיה וקיבלה 404 בשניהם, כלומר היא
+     * אינה החשוד. הצורה שאנחנו שולחים — עם הנקודה — היא ההנחה
+     * הבאה בתור, והדוגמה בתיעוד היא ספרות בלבד.
+     *
+     * הסדר: **הקבוצה בחוץ והצורה בפנים.** הקבוצה המוגדרת היא הערך
+     * המהימן היחיד כאן, ולכן שתי הצורות נבדקות איתה לפני כל ניחוש
+     * מהנתיב — אם הצורה היא הבעיה, הניסיון **השני** פותר אותה.
+     *
+     * הקינון ההפוך נכתב כאן תחילה, והוא עשה בדיוק את ההפך ממה
+     * שהוצהר: `נקודה/מוגדרת, נקודה/ניחוש, ספרות/מוגדרת` — הצורה
+     * המתוקנת חיכתה מאחורי ניחוש הנתיב, וכל תשובה שאינה 404 על
+     * הניחוש הייתה עוצרת את הלולאה לפניה (ביקורת Codex).
+     */
+    const uniqueIds = pbx015UniqueIdForms(job.providerCallId);
+    const candidates = groups.flatMap((recordGroup) =>
+      uniqueIds.map((uniqueId) => ({ uniqueId, recordGroup })),
+    );
     let lastRefusal: { code: string; detail: string } | null = null;
 
-    for (const [index, recordGroup] of candidates.entries()) {
+    for (const [index, candidate] of candidates.entries()) {
       const attempt = await this.attemptFetch(job, {
         authUsername,
         authPassword,
-        recordGroup,
+        recordGroup: candidate.recordGroup,
+        uniqueId: candidate.uniqueId,
         recordId: ids.recordId,
       });
       if (attempt.kind === "audio") {
         if (index > 0) {
+          /*
+           * מה שעבד נרשם ביומן — זו התשובה לשאלה שהחזיקה את המסלול
+           * הזה תקוע, והיא שווה שורה. מזהים בלבד, בלי אישורים.
+           */
           this.logger.log(
-            `הקלטה נמצאה בקבוצה ${recordGroup} ולא ב-${candidates[0] ?? "?"} — ${job.callId}`,
+            `הקלטה נמצאה בניסיון ${index + 1}: recordgroup=${candidate.recordGroup} ` +
+              `uniqueid=${candidate.uniqueId === job.providerCallId ? "כפי שנשלח" : "ספרות בלבד"}` +
+              ` — ${job.callId}`,
           );
         }
         await this.storeAudio(job, attempt.base64, attempt.contentType);
@@ -597,12 +626,12 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       }
       if (attempt.kind === "refused") {
         lastRefusal = { code: attempt.code, detail: attempt.detail };
-        // „לא נמצא” הוא בדיוק מה שמספר קבוצה שגוי מייצר — ננסה את הבא
+        // „לא נמצא” הוא בדיוק מה שמזהה שגוי מייצר — ננסה את הבא
         if (attempt.code === "404" && index + 1 < candidates.length) continue;
       }
       /*
        * כל שאר המצבים — רשת, גוף שאינו JSON, סירוב שאינו „לא נמצא”
-       * — כבר נרשמו בתוך `attemptFetch`, ואין טעם לנסות מספר אחר.
+       * — כבר נרשמו בתוך `attemptFetch`, ואין טעם לנסות צירוף אחר.
        */
       if (attempt.kind !== "refused") return;
       break;
@@ -616,8 +645,15 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
        * ההקלטה, ובלי לדעת מה ביקשנו אין דרך להשוות מול הממשק.
        * המזהים האלה הם מספרים פנימיים של המרכזייה — לא מספרי טלפון
        * ולא תוכן שיחה.
+       *
+       * ‎`uniqueid` נרשם ב**אורך ובצורה** ולא בערך: הוא מזהה שיחה
+       * ספציפית, והדיווח הזה עובר בערוצים שאין סיבה שיישאו אותו.
        */
-      const asked = `נשלח: recordgroup=${candidates.join("|")} recordid=${ids.recordId}`;
+      const forms = uniqueIds
+        .map((form) => `${form === job.providerCallId ? "כפי שנשלח" : "ספרות"}(${form.length})`)
+        .join("|");
+      const asked =
+        `נשלח: recordgroup=${groups.join("|")} uniqueid=${forms} recordid=${ids.recordId}`;
       await this.note(
         job,
         `${RECORDING_ERRORS.provider}_${lastRefusal.code}`,
@@ -639,6 +675,8 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       authUsername: string;
       authPassword: string;
       recordGroup: string;
+      /** הצורה שנבדקת בניסיון הזה — עם הנקודה או ספרות בלבד. */
+      uniqueId: string;
       recordId: string;
     },
   ): Promise<
@@ -651,8 +689,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       authUsername,
       authPassword,
       recordGroup: input.recordGroup,
-      // מזהה השיחה כפי שהוובהוק שלח — לא כפי שהוא מופיע בשם הקובץ
-      uniqueId: job.providerCallId,
+      uniqueId: input.uniqueId,
       recordId: input.recordId,
     });
 
