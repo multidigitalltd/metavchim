@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { agentResultList, agentResultText, officeReportStats } from "./result-lines.js";
+import {
+  AGENT_RESULT_LABEL_MAX,
+  agentResultList,
+  agentResultText,
+  officeReportStats,
+} from "./result-lines.js";
 
 /**
  * הבדיקות מתחילות מהצורות שלא ענו כלל — שיחות, דוח והתאמות.
@@ -222,6 +227,121 @@ describe("הטלפון — מה שהמנסח הקודם הציג, ואסור ה�
     })!;
     expect(list.rows[0]!.phone).toBe("0501234567");
     expect(list.rows[0]!.detail).not.toContain("050");
+  });
+});
+
+describe("חיפוש כללי — כל המקטעים חוזרים תמיד, גם הריקים", () => {
+  /** בדיוק הצורה ש-`SearchService.search` מחזירה. */
+  const search = {
+    contact: null,
+    properties: [],
+    buyers: [{ id: "b1", name: "משה כהן", cities: ["רמת גן"], phone: "0501234567" }],
+    leads: [],
+    appointments: [],
+    tasks: [],
+    calls: [],
+    notes: [],
+  };
+
+  it("הקונה שנמצא מוצג — ולא „אין פגישות ביום הזה”", () => {
+    const text = agentResultText(search)!;
+    expect(text).toContain("משה כהן");
+    expect(text).not.toContain("אין פגישות");
+  });
+
+  it("כל המקטעים שיש בהם תוצאות מאוחדים לרשימה אחת", () => {
+    const list = agentResultList({
+      ...search,
+      appointments: [{ id: "a1", title: "סיור בהרצל", startsAt: "2026-08-24T13:00:00Z" }],
+    })!;
+    expect(list.rows.map((row) => row.label)).toEqual(["סיור בהרצל", "משה כהן"]);
+  });
+
+  it("הזהות בהתאמת-טלפון פותחת את הרשימה", () => {
+    const list = agentResultList({
+      ...search,
+      contact: { id: "c1", name: "דנה לוי", phone: "0521111111" },
+    })!;
+    expect(list.rows[0]).toMatchObject({ label: "דנה לוי", phone: "0521111111" });
+  });
+
+  it("הערה שנמצאה אינה נבלעת — „לא נמצא כלום” הוא טענה על המאגר", () => {
+    const text = agentResultText({
+      ...search,
+      buyers: [],
+      notes: [{ id: "n1", content: "אמר שהוא גמיש בקומה", createdAt: "2026-08-24T11:30:00Z" }],
+    })!;
+    expect(text).toContain("אמר שהוא גמיש בקומה");
+    expect(text).not.toContain("לא נמצא כלום");
+  });
+
+  it("חיפוש שלא מצא דבר אומר זאת פעם אחת", () => {
+    expect(agentResultText({ ...search, buyers: [] })).toBe("לא נמצא כלום");
+  });
+
+  it("תוכן ההערה נשאר בפרטים — הוא אינו נשמר לזיכרון", () => {
+    const list = agentResultList({
+      ...search,
+      buyers: [],
+      notes: [{ id: "n1", content: "התקשר ל-0501234567", createdAt: "2026-08-24T11:30:00Z" }],
+    })!;
+    expect(list.rows[0]!.label).toBe("הערה");
+    expect(list.rows[0]!.detail).toContain("0501234567");
+  });
+});
+
+describe("מתקשר לא מוכר — המספר בתשובה, ולא בזיכרון", () => {
+  const calls = {
+    calls: [
+      {
+        id: "c",
+        direction: "inbound",
+        phone: "0521111111",
+        occurredAt: "2026-08-24T11:30:00Z",
+        outcome: "missed",
+      },
+    ],
+  };
+
+  it("הכותרת היא המספר — הוא מה שדרוש כדי לחזור", () => {
+    expect(agentResultList(calls)!.rows[0]!.label).toBe("0521111111");
+  });
+
+  it("ומה שנשמר לזיכרון אינו המספר", () => {
+    expect(agentResultList(calls)!.rows[0]!.memoryLabel).toBe("מספר לא מזוהה");
+  });
+
+  it("שיחה עם שם אינה נושאת כותרת זיכרון נפרדת", () => {
+    const list = agentResultList({
+      calls: [{ ...calls.calls[0]!, contactName: "שרה לוי" }],
+    })!;
+    expect(list.rows[0]!.memoryLabel).toBeUndefined();
+  });
+
+  it("המספר נאמר פעם אחת ולא פעמיים", () => {
+    expect(agentResultText(calls)!.match(/0521111111/gu)).toHaveLength(1);
+  });
+});
+
+describe("אורך הכותרת — התקציב של הזיכרון", () => {
+  const long = "א".repeat(120);
+
+  it("כותרת ארוכה נחתכת, ונאמר שהיא נחתכה", () => {
+    const list = agentResultList({ buyers: [{ id: "b", name: long, cities: [] }] })!;
+    expect(list.rows[0]!.label).toHaveLength(AGENT_RESULT_LABEL_MAX);
+    expect(list.rows[0]!.label.endsWith("…")).toBe(true);
+  });
+
+  it("שמונה שורות מלאות נכנסות בתקציב 600 התווים", () => {
+    const buyers = Array.from({ length: 8 }, (_, i) => ({ id: String(i), name: long, cities: [] }));
+    const labels = agentResultList({ buyers })!.rows.map((row) => row.label);
+    expect(labels.join(", ")).toHaveLength(8 * AGENT_RESULT_LABEL_MAX + 7 * 2);
+    expect(labels.join(", ").length).toBeLessThan(600);
+  });
+
+  it("כותרת קצרה אינה נוגעת", () => {
+    const list = agentResultList({ buyers: [{ id: "b", name: "משה כהן", cities: [] }] })!;
+    expect(list.rows[0]!.label).toBe("משה כהן");
   });
 });
 

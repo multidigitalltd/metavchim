@@ -57,6 +57,19 @@ export interface AgentResultRow {
    * מוסיף אותו שם בלי לשים לב.
    */
   phone?: string;
+  /**
+   * מה שנשמר לזיכרון במקום `label` — **כשה-`label` עצמו הוא פרט מזהה.**
+   *
+   * שיחה ממספר לא מוכר מוצגת עם המספר, כי הוא בדיוק מה שדרוש כדי
+   * לחזור אליו. אבל ה-`label` נשמר לזיכרון שנוסע בתור הבא לפרומפט
+   * של מודל חיצוני, וכלל הבית הוא שטלפון אינו מגיע לשם לעולם.
+   * הפרדת השדה `phone` לא הספיקה למקרה הזה, כי המספר היה גם
+   * הכותרת (ביקורת Codex).
+   *
+   * הסדר נשמר גם כך, וזה מה שהזיכרון קיים בשבילו: „הראשון מהם”
+   * עובד לפי מיקום ולא לפי שם.
+   */
+  memoryLabel?: string;
   /** קישור יחסי למסך המלא של השורה, כשיש כזה. */
   href?: string;
 }
@@ -124,6 +137,119 @@ function rowsOf(value: unknown): Record<string, unknown>[] {
 }
 
 /**
+ * בונה השורות לכל מקטע, ומה שמסביבו — **טבלה אחת ולא שרשרת תנאים.**
+ *
+ * שרשרת `if` על מפתחות עבדה כל עוד לכל תשובה היה מקטע אחד. תוצאת
+ * החיפוש הכללי נושאת את כולם בבת אחת, והשרשרת בחרה את הראשון —
+ * גם כשהוא ריק. בטבלה אפשר גם לבחור אחד וגם לאחד את כולם.
+ */
+const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
+  appointments: (value) =>
+    rowsOf(value).map((a) => ({
+      label: text(a["title"]) ?? APPOINTMENT_KIND_LABELS[String(a["kind"])] ?? "פגישה",
+      detail: whenText(a["startsAt"]),
+      href: "/calendar",
+    })),
+  tasks: (value) =>
+    rowsOf(value).map((t) => ({
+      label: text(t["title"]) ?? "משימה",
+      detail: join([text(t["entityLabel"]), whenText(t["dueAt"])]),
+      href: "/tasks",
+    })),
+  calls: (value) =>
+    rowsOf(value).map((c) => {
+      const phone = phoneOf(c);
+      const name = text(c["contactName"]);
+      return {
+        /*
+         * מספר לא מוכר נשאר מספר **בתשובה** — הוא בדיוק מה שדרוש
+         * כדי לחזור אליו. אבל אז הוא גם ה-`label`, ו-`label` נשמר
+         * לזיכרון שנוסע למודל חיצוני; לכן `memoryLabel` מחליף אותו
+         * שם (ביקורת Codex).
+         */
+        label: name ?? phone ?? "מספר לא מזוהה",
+        ...(name === null ? { memoryLabel: "מספר לא מזוהה" } : {}),
+        detail: join([
+          CALL_DIRECTION_LABELS[String(c["direction"])],
+          CALL_OUTCOME_LABELS[String(c["outcome"])],
+          whenText(c["occurredAt"]),
+          text(c["summary"]),
+        ]),
+        ...(phone !== null ? { phone } : {}),
+        href: "/calls",
+      };
+    }),
+  deals: (value) =>
+    rowsOf(value).map((d) => ({
+      label: text(d["title"]) ?? "עסקה משותפת",
+      detail: join([
+        COOP_DEAL_STAGE_LABELS[String(d["stage"]) as CoopDealStage],
+        text(d["counterpartOffice"]),
+        whenText(d["lastActivityAt"]),
+      ]),
+      ...(text(d["id"]) !== null ? { href: `/collaboration/deals/${String(d["id"])}` } : {}),
+    })),
+  buyers: (value) =>
+    rowsOf(value).map((b) => ({
+      label: text(b["name"]) ?? "קונה",
+      detail: join([
+        rooms(b["roomsMin"], b["roomsMax"]),
+        Array.isArray(b["cities"]) ? b["cities"].join(" / ") : null,
+        price(b["budgetMaxAgorot"]) === null ? null : `עד ${price(b["budgetMaxAgorot"])!}`,
+      ]),
+      /*
+       * `summarizeData` הציג את הטלפון, והמנסח הזה קודם לו — ולכן
+       * השמטתו כאן הייתה **נסיגה** (ביקורת Codex).
+       */
+      ...(phoneOf(b) !== null ? { phone: phoneOf(b)! } : {}),
+      ...(text(b["id"]) !== null ? { href: `/buyers/${String(b["id"])}` } : {}),
+    })),
+  leads: (value) =>
+    rowsOf(value).map((l) => ({
+      label: text(l["name"]) ?? "ליד",
+      detail: join([text(l["status"]), l["requiresHuman"] === true ? "דורש טיפול" : null]),
+      ...(phoneOf(l) !== null ? { phone: phoneOf(l)! } : {}),
+      ...(text(l["id"]) !== null ? { href: `/leads/${String(l["id"])}` } : {}),
+    })),
+  /*
+   * הערה שנמצאה בחיפוש היא **תוצאה לכל דבר**: היא הסיבה היחידה
+   * שהחיפוש מוצא „מי אמר שהוא גמיש בקומה”. השמטתה מהאיחוד הייתה
+   * הופכת חיפוש שנפל רק עליה ל„לא נמצא כלום” — טענה שקרית על
+   * המאגר, וזה בדיוק הכשל שהמקטעים אוחדו בגללו.
+   *
+   * הכותרת קבועה, והתוכן יורד ל-`detail`: `detail` נשלח למתווך
+   * ואינו נשמר לזיכרון, וכך תוכן ההערה — שהוא טקסט חופשי ויכול
+   * להכיל כל פרט — אינו נוסע לפרומפט של המודל החיצוני.
+   */
+  notes: (value) =>
+    rowsOf(value).map((n) => ({
+      label: "הערה",
+      detail: join([text(n["content"]), whenText(n["createdAt"])]),
+    })),
+  properties: (value) =>
+    rowsOf(value).map((p) => ({
+      label: text(p["title"]) ?? text(p["marketingTitle"]) ?? text(p["street"]) ?? "נכס",
+      detail: join([rooms(p["rooms"], undefined), text(p["city"]), price(p["priceAgorot"])]),
+      ...(text(p["id"]) !== null ? { href: `/properties/${String(p["id"])}` } : {}),
+    })),
+};
+
+/** שם הרשימה ומה לומר כשאין — למקטע שעומד לבדו. */
+const SECTION_META: Record<string, { noun: string; empty: string; counted: boolean }> = {
+  appointments: { noun: "פגישות", empty: "אין פגישות ביום הזה", counted: false },
+  tasks: { noun: "משימות פתוחות", empty: "אין משימות פתוחות", counted: false },
+  calls: { noun: "שיחות אחרונות", empty: "אין שיחות אחרונות", counted: false },
+  deals: { noun: "עסקאות משותפות", empty: "אין עסקאות משותפות", counted: false },
+  buyers: { noun: "קונים", empty: "לא נמצאו קונים שמתאימים לקריטריונים", counted: true },
+  leads: { noun: "לידים", empty: "לא נמצאו לידים", counted: true },
+  notes: { noun: "הערות", empty: "לא נמצאו הערות", counted: false },
+  properties: { noun: "נכסים", empty: "אין נכסים שעונים על התנאים", counted: true },
+};
+
+/** הסדר קובע מה מוצג ראשון בתוצאת חיפוש כללי. */
+const SECTION_KEYS = Object.keys(SECTION_ROWS);
+
+/**
  * המדדים שהסוכן מוסר מדוח המשרד, לפי הסדר.
  *
  * **עסקאות שנסגרו ראשונה במכוון** — זה המדד היחיד שמודד תוצאה
@@ -148,6 +274,47 @@ export function officeReportStats(report: unknown): { label: string; value: numb
 }
 
 /**
+ * אורך כותרת מרבי — **כדי שהזיכרון לא ייחתך באמצע שם.**
+ *
+ * ‎`historySummary` חותכת ל-600 תווים. שם איש קשר יכול להגיע ל-120,
+ * ולכן שמונה כותרות מלאות יכלו לחרוג ולהיקטע באמצע החמישית: המסך
+ * הראה שמונה, והתור הבא קיבל ארבע וחצי — כלומר „השמינית” נשברה
+ * שוב, רק בדלת אחורית (ביקורת Codex).
+ *
+ * החיתוך כאן ולא שם, כי הוא חייב לחול על **שניהם**: מה שנקטע
+ * להצגה ולא לזיכרון (או להפך) הוא בדיוק אותו פער. שמונה כותרות
+ * של 40 תווים הן 336 תווים — מתחת לתקציב בכל מקרה.
+ */
+export const AGENT_RESULT_LABEL_MAX = 40;
+
+/** כותרת חתוכה לאורך המרבי, עם סימן שהיא נחתכה. */
+function clamp(label: string): string {
+  return label.length <= AGENT_RESULT_LABEL_MAX
+    ? label
+    : `${label.slice(0, AGENT_RESULT_LABEL_MAX - 1)}…`;
+}
+
+/**
+ * שער היציאה היחיד של `agentResultList` — **כאן, ורק כאן, נחתכות
+ * הכותרות.**
+ *
+ * חיתוך בכל בונה מקטע בנפרד היה שבעה מקומות לזכור, ובונה שמיני
+ * שיתווסף מחר היה נכנס בלי חיתוך — בדיוק צורת הכפילות שהביאה
+ * לכאן. מעבר אחד על התוצאה מבטיח שגם הכותרת המוצגת וגם זו שנשמרת
+ * לזיכרון נחתכו **באותו מקום בדיוק**.
+ */
+function bounded(list: AgentResultList): AgentResultList {
+  return {
+    ...list,
+    rows: list.rows.map((row) => ({
+      ...row,
+      label: clamp(row.label),
+      ...(row.memoryLabel !== undefined ? { memoryLabel: clamp(row.memoryLabel) } : {}),
+    })),
+  };
+}
+
+/**
  * התשובה כרשימה — או `null` כשהצורה אינה מוכרת.
  *
  * `null` ולא רשימה ריקה: „לא זיהיתי את הצורה” ו„הצורה מוכרת ואין
@@ -160,7 +327,7 @@ export function agentResultList(data: unknown): AgentResultList | null {
    * מפתח בתוך אובייקט, ולכן „תראה לי התאמות” לא הציג דבר בשניהם.
    */
   if (Array.isArray(data)) {
-    return {
+    return bounded({
       noun: "התאמות",
       emptyText: "אין התאמות פעילות",
       hasMore: false,
@@ -194,134 +361,64 @@ export function agentResultList(data: unknown): AgentResultList | null {
             : {}),
         };
       }),
-    };
+    });
   }
 
   if (typeof data !== "object" || data === null) return null;
   const payload = data as Record<string, unknown>;
   const hasMore = payload["hasMore"] === true;
 
-  if (Array.isArray(payload["appointments"])) {
-    return {
-      noun: "פגישות",
-      emptyText: "אין פגישות ביום הזה",
-      hasMore: false,
-      rows: rowsOf(payload["appointments"]).map((a) => ({
-        label:
-          text(a["title"]) ??
-          APPOINTMENT_KIND_LABELS[String(a["kind"])] ??
-          "פגישה",
-        detail: whenText(a["startsAt"]),
-        href: "/calendar",
-      })),
-    };
+  /*
+   * **צורת החיפוש הכללי — לפני כל מקטע בודד.**
+   *
+   * `SearchService.search` מחזירה תמיד את כל המקטעים, כולל
+   * `appointments: []` גם כשהתוצאה היא קונה. בדיקת מקטע-אחר-מקטע
+   * זיהתה כל חיפוש כרשימת פגישות **ריקה**, ענתה „אין פגישות ביום
+   * הזה”, וחסמה גם את המקטעים שאחריה וגם את הסורק הכללי — כלומר
+   * שברה את פעולת הקריאה הנפוצה ביותר (ביקורת Codex).
+   *
+   * הסימן: יותר ממקטע מוכר אחד. תוצאה של פעולה יחידה נושאת מקטע
+   * אחד בלבד.
+   */
+  const sections = SECTION_KEYS.filter((key) => Array.isArray(payload[key]));
+  if (sections.length > 1 || payload["contact"] !== undefined) {
+    const rows: AgentResultRow[] = [];
+    const contact = payload["contact"];
+    if (typeof contact === "object" && contact !== null) {
+      const record = contact as Record<string, unknown>;
+      const name = text(record["name"]);
+      if (name !== null) {
+        rows.push({
+          label: name,
+          detail: "",
+          ...(phoneOf(record) !== null ? { phone: phoneOf(record)! } : {}),
+          ...(text(record["id"]) !== null ? { href: `/contacts/${String(record["id"])}` } : {}),
+        });
+      }
+    }
+    for (const key of sections) rows.push(...SECTION_ROWS[key]!(payload[key]));
+    return bounded({ noun: "תוצאות", emptyText: "לא נמצא כלום", hasMore, rows });
   }
 
-  if (Array.isArray(payload["tasks"])) {
-    return {
-      noun: "משימות פתוחות",
-      emptyText: "אין משימות פתוחות",
-      hasMore: false,
-      rows: rowsOf(payload["tasks"]).map((t) => ({
-        label: text(t["title"]) ?? "משימה",
-        detail: join([text(t["entityLabel"]), whenText(t["dueAt"])]),
-        href: "/tasks",
-      })),
-    };
-  }
-
-  if (Array.isArray(payload["calls"])) {
-    return {
-      noun: "שיחות אחרונות",
-      emptyText: "אין שיחות אחרונות",
-      hasMore: false,
-      rows: rowsOf(payload["calls"]).map((c) => ({
-        /*
-         * מספר לא מוכר נשאר מספר. „לא מזוהה” בלבד היה מוחק בדיוק
-         * את מה שהמתווך צריך כדי לחזור אליו.
-         */
-        label: text(c["contactName"]) ?? phoneOf(c) ?? "מספר לא מזוהה",
-        detail: join([
-          CALL_DIRECTION_LABELS[String(c["direction"])],
-          CALL_OUTCOME_LABELS[String(c["outcome"])],
-          whenText(c["occurredAt"]),
-          text(c["summary"]),
-        ]),
-        /*
-         * המספר נשלח גם כשיש שם: „תחזור לשרה” בלי מספר מחייב
-         * בדיוק את הכניסה לדשבורד שהסוכן קיים כדי לחסוך.
-         */
-        ...(phoneOf(c) !== null ? { phone: phoneOf(c)! } : {}),
-        href: "/calls",
-      })),
-    };
-  }
-
-  if (Array.isArray(payload["deals"])) {
-    return {
-      noun: "עסקאות משותפות",
-      emptyText: "אין עסקאות משותפות",
-      hasMore: false,
-      rows: rowsOf(payload["deals"]).map((d) => ({
-        label: text(d["title"]) ?? "עסקה משותפת",
-        detail: join([
-          COOP_DEAL_STAGE_LABELS[String(d["stage"]) as CoopDealStage],
-          text(d["counterpartOffice"]),
-          whenText(d["lastActivityAt"]),
-        ]),
-        ...(text(d["id"]) !== null ? { href: `/collaboration/deals/${String(d["id"])}` } : {}),
-      })),
-    };
-  }
-
-  if (Array.isArray(payload["buyers"])) {
-    return {
-      noun: "קונים",
-      emptyText: "לא נמצאו קונים שמתאימים לקריטריונים",
-      hasMore,
-      rows: rowsOf(payload["buyers"]).map((b) => ({
-        label: text(b["name"]) ?? "קונה",
-        detail: join([
-          rooms(b["roomsMin"], b["roomsMax"]),
-          Array.isArray(b["cities"]) ? b["cities"].join(" / ") : null,
-          price(b["budgetMaxAgorot"]) === null ? null : `עד ${price(b["budgetMaxAgorot"])!}`,
-        ]),
-        /*
-         * `summarizeData` הציג את הטלפון, והמנסח הזה קודם לו —
-         * ולכן השמטתו כאן הייתה **נסיגה**: חיפוש קונים היה מחזיר
-         * קריטריונים עשירים יותר ומספר אחד פחות (ביקורת Codex).
-         */
-        ...(phoneOf(b) !== null ? { phone: phoneOf(b)! } : {}),
-        ...(text(b["id"]) !== null ? { href: `/buyers/${String(b["id"])}` } : {}),
-      })),
-    };
-  }
-
-  if (Array.isArray(payload["properties"])) {
-    return {
-      noun: "נכסים",
-      emptyText: "אין נכסים שעונים על התנאים",
-      hasMore,
-      rows: rowsOf(payload["properties"]).map((p) => ({
-        label: text(p["title"]) ?? "נכס",
-        detail: join([
-          rooms(p["rooms"], undefined),
-          text(p["city"]),
-          price(p["priceAgorot"]),
-        ]),
-        ...(text(p["id"]) !== null ? { href: `/properties/${String(p["id"])}` } : {}),
-      })),
-    };
+  const only = sections[0];
+  if (only !== undefined) {
+    const meta = SECTION_META[only]!;
+    return bounded({
+      noun: meta.noun,
+      emptyText: meta.empty,
+      hasMore: meta.counted ? hasMore : false,
+      rows: SECTION_ROWS[only]!(payload[only]),
+    });
   }
 
   if (typeof payload["report"] === "object" && payload["report"] !== null) {
     const stats = officeReportStats(payload["report"]);
-    return {
+    return bounded({
       noun: "נתוני המשרד",
       emptyText: "אין נתונים לתקופה שנבחרה",
       hasMore: false,
       rows: stats.map((stat) => ({ label: stat.label, detail: String(stat.value) })),
-    };
+    });
   }
 
   return null;
@@ -348,7 +445,10 @@ export function agentResultText(data: unknown): string | null {
 
   const shown = list.rows.slice(0, AGENT_RESULT_ROWS);
   const lines = shown.map((row) =>
-    [`• ${row.label}`, row.detail, row.phone].filter((part) => part !== undefined && part !== "").join(" — "),
+    /* כשהכותרת **היא** המספר (מתקשר לא מוכר), הוא נאמר פעם אחת. */
+    [`• ${row.label}`, row.detail, row.phone === row.label ? undefined : row.phone]
+      .filter((part) => part !== undefined && part !== "")
+      .join(" — "),
   );
   /*
    * „ועוד N” נאמר במפורש. רשימה שנחתכת בשקט נקראת כרשימה מלאה,

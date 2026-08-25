@@ -57,4 +57,38 @@ describe("historySummary", () => {
   it("נחתך לתקרת השדה בסכימת הנתיב", () => {
     expect(historySummary("א".repeat(900), undefined)).toHaveLength(600);
   });
+
+  /*
+   * שיחה ממספר לא מוכר מוצגת עם המספר — הוא בדיוק מה שדרוש כדי
+   * לחזור אליו. אבל אז הוא גם הכותרת, והכותרות הן מה שנשמר לתור
+   * הבא ונשלח לפרומפט של מודל חיצוני (ביקורת Codex).
+   */
+  it("מספר של מתקשר לא מוכר אינו נכנס לזיכרון", () => {
+    const calls = {
+      calls: [
+        {
+          id: "c1",
+          direction: "inbound",
+          contactPhone: "052-1111111",
+          occurredAt: "2026-08-24T11:30:00Z",
+          outcome: "missed",
+        },
+      ],
+    };
+    expect(summarizeData(calls)).toContain("052-1111111");
+    const summary = historySummary("שיחה אחת אחרונה", calls);
+    expect(summary).not.toContain("052-1111111");
+    expect(summary).toContain("מספר לא מזוהה");
+  });
+
+  it("שמונה כותרות ארוכות נכנסות בשלמותן — בלי קטיעה באמצע שם", () => {
+    const buyers = Array.from({ length: 8 }, (_, i) => ({
+      id: String(i),
+      name: `${"א".repeat(120)}${i}`,
+      cities: [],
+    }));
+    const summary = historySummary("נמצאו 8 קונים", { buyers });
+    expect(summary.length).toBeLessThan(600);
+    expect(summary.endsWith("…")).toBe(true);
+  });
 });

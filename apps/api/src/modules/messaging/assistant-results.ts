@@ -24,6 +24,15 @@ import { AGENT_RESULT_ROWS, agentResultList } from "@metavchim/shared";
 
 interface ResultRow {
   label: string;
+  /**
+   * מה שנשמר לזיכרון במקום `label` — **כשה-`label` עצמו מזהה.**
+   *
+   * שיחה ממספר לא מוכר מוצגת עם המספר, כי הוא בדיוק מה שדרוש כדי
+   * לחזור אליו; אבל אז הוא גם הכותרת, והכותרות הן מה שנשמר. הפרדת
+   * `phone` לשדה משלו לא כיסתה את המקרה הזה, ולכן מספר של מתקשר
+   * לא מוכר היה מגיע לפרומפט של המודל החיצוני (ביקורת Codex).
+   */
+  memoryLabel?: string;
   phone?: string;
 }
 
@@ -47,9 +56,11 @@ interface ResultRow {
 function resultRows(data: unknown): ResultRow[] {
   const shared = agentResultList(data);
   if (shared !== null) {
-    return shared.rows
-      .slice(0, AGENT_RESULT_ROWS)
-      .map((row) => (row.phone === undefined ? { label: row.label } : { label: row.label, phone: row.phone }));
+    return shared.rows.slice(0, AGENT_RESULT_ROWS).map((row) => ({
+      label: row.label,
+      ...(row.memoryLabel === undefined ? {} : { memoryLabel: row.memoryLabel }),
+      ...(row.phone === undefined ? {} : { phone: row.phone }),
+    }));
   }
 
   const rows: ResultRow[] = [];
@@ -89,8 +100,11 @@ function resultRows(data: unknown): ResultRow[] {
 export function summarizeData(data: unknown): string {
   const rows = resultRows(data);
   if (rows.length === 0) return "";
+  /* כשהכותרת **היא** המספר (מתקשר לא מוכר), הוא נאמר פעם אחת. */
   const lines = rows.map((row) =>
-    row.phone === undefined ? `• ${row.label}` : `• ${row.label} · ${row.phone}`,
+    row.phone === undefined || row.phone === row.label
+      ? `• ${row.label}`
+      : `• ${row.label} · ${row.phone}`,
   );
   return `בין התוצאות, לפי הסדר:\n${lines.join("\n")}`;
 }
@@ -111,7 +125,7 @@ const MAX_SUMMARY = 600;
  * בלבד.
  */
 export function historySummary(message: string, data: unknown): string {
-  const labels = resultRows(data).map((row) => row.label);
+  const labels = resultRows(data).map((row) => row.memoryLabel ?? row.label);
   const head = message.replaceAll("\n", " ").trim();
   const full = labels.length === 0 ? head : `${head} | לפי הסדר: ${labels.join(", ")}`;
   return full.slice(0, MAX_SUMMARY);
