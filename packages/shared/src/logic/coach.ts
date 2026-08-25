@@ -218,22 +218,41 @@ const AGGREGATE_HREF: Record<string, string> = {
  * נשבר פעם אחר פעם כשהוא מפוזר, ומי שמוסיף סוג המלצה חדש צריך
  * למצוא את שתי השאלות באותו מקום.
  *
- * ‎**המפתח הוא סוג ההמלצה ולא היעד** — כי השאלה אינה „לאן זה
- * מוביל” אלא „מה ביקשנו מהסוכן לעשות”. הגרסה הקודמת נגזרה
- * מקידומת ה-href, כלומר ענתה „האם מותר לו לראות את המסך”:
- * ‎`unsent_matches` מוביל ל-`/properties/…` וקיבל `properties.view`,
- * בעוד שגוף ההמלצה אומר „כדאי לשלוח הצעות” וכפתור „שלח הצעה”
- * שבמסך יורה `POST /offers` שדורש `offers.send`. סוכן בלי היכולת
- * קיבל את ההמלצה, לחץ, וקיבל 403 (ביקורת Codex).
+ * ‎**שתי שאלות, ושתיהן חייבות להתקיים** — לפתוח את המסך, ולבצע
+ * בו את מה שביקשנו. הן נראות כאחת רק כשההמלצה מזמינה לקרוא;
+ * ברגע שהיא מבקשת לשלוח או לערוך, הן נפרדות, ואפשר להיכשל בכל
+ * אחת מהן בנפרד.
  *
- * אותה טעות ישבה גם ב-`incomplete_property`: „להשלים פרטים” היא
- * עריכה, `properties.edit`, ולא צפייה. שתיהן נבעו מכך שהמסך והפעולה
- * אינם אותה שאלה, ולכן המפה מפתחת לפי הפעולה.
+ * ‎**הגרסה הראשונה** נגזרה מקידומת ה-href בלבד, כלומר שאלה רק
+ * „האם מותר לו לראות את המסך”: `unsent_matches` מוביל
+ * ל-`/properties/…` וקיבל `properties.view`, בעוד שגוף ההמלצה אומר
+ * „כדאי לשלוח הצעות” וכפתור „שלח הצעה” שבמסך יורה `POST /offers`
+ * שדורש `offers.send`. אותה טעות ישבה גם ב-`incomplete_property`:
+ * „להשלים פרטים” היא `properties.edit` (ביקורת Codex).
  *
- * סוג שאינו במפה מחזיר `null`, כלומר „בלי דרישה” — ולכן הבדיקה
- * מונה את הסוגים ונופלת על סוג חדש שנשכח, בדיוק כמו הבדיקה של
+ * ‎**הגרסה השנייה החליפה** את שאלת המסך בשאלת הפעולה — ובכך פתחה
+ * את הכיוון ההפוך: משרד ששולל `properties.view` מסוכן מסוים ומשאיר
+ * לו `offers.send` היה מקבל את ההמלצה, ונופל על `GET /properties/:id`
+ * עוד לפני שראה כפתור (ביקורת Codex). „במקום” היה תיקון של צד אחד.
+ *
+ * לכן `recommendationCapabilities` מחזירה **קבוצה**, והמסך דורש את
+ * כולה. סוג שאינו במפת הפעולות אינו מוסיף דרישה — ולכן הבדיקה מונה
+ * את הסוגים ונופלת על סוג חדש שנשכח, בדיוק כמו הבדיקה של
  * ‎`recommendationHref` שמעל.
  */
+/** מה שדרוש כדי **לפתוח** את היעד — הנתיב שהמסך טוען בכניסה. */
+function destinationCapability(href: string | null): Capability | null {
+  if (href === null) return null;
+  if (href.startsWith("/collaboration")) return "collaboration.offer";
+  if (href.startsWith("/tasks") || href.startsWith("/calendar")) return "calendar.manage";
+  if (href.startsWith("/offers")) return "offers.send";
+  if (href.startsWith("/properties")) return "properties.view";
+  if (href.startsWith("/buyers")) return "buyers.view_own";
+  if (href.startsWith("/leads")) return "leads.view_own";
+  return null;
+}
+
+/** מה שדרוש כדי **לבצע** את מה שההמלצה מבקשת, אחרי שהמסך נפתח. */
 const ACTION_CAPABILITY: Record<string, Capability> = {
   /* „זו השיחה הראשונה להיום” — לפתוח את הליד ולהתקשר. */
   stale_lead: "leads.view_own",
@@ -256,8 +275,13 @@ const ACTION_CAPABILITY: Record<string, Capability> = {
   hot_buyers_idle: "buyers.view_own",
 };
 
-export function recommendationCapability(rec: CoachRecommendation): Capability | null {
-  return ACTION_CAPABILITY[rec.type] ?? null;
+export function recommendationCapabilities(rec: CoachRecommendation): Capability[] {
+  const destination = destinationCapability(recommendationHref(rec));
+  const action = ACTION_CAPABILITY[rec.type];
+  const out: Capability[] = [];
+  if (destination !== undefined && destination !== null) out.push(destination);
+  if (action !== undefined && action !== destination) out.push(action);
+  return out;
 }
 
 export function recommendationHref(rec: CoachRecommendation): string | null {

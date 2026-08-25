@@ -8,7 +8,7 @@ import {
   isTaskUrgent,
   jerusalemDayRange,
   JERUSALEM_TZ,
-  recommendationCapability,
+  recommendationCapabilities,
   recommendationHref,
   taskBucket,
   labelOf,
@@ -720,8 +720,8 @@ export default function DashboardPage() {
    */
   const reachable = (recs ?? []).filter((r) => {
     if (r.type === "today_appointment") return false;
-    const capability = recommendationCapability(r);
-    return capability === null || can(user, capability);
+    /* פתיחת היעד **וגם** ביצוע הפעולה — ראו `coach.ts`. */
+    return recommendationCapabilities(r).every((c) => can(user, c));
   });
   for (const rec of reachable) {
     push({

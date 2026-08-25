@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildRecommendations,
-  recommendationCapability,
+  recommendationCapabilities,
   recommendationHref,
   type CoachSignals,
 } from "./coach.js";
@@ -198,43 +198,43 @@ describe("recommendationHref — לכל המלצה יש לאן ללחוץ", () =
  * כשההמלצה היא לקרוא; ברגע שהיא מבקשת לשלוח או לערוך, הן נפרדות,
  * והסוכן מקבל הזמנה לפעולה שתחזיר לו 403.
  */
-describe("recommendationCapability — היכולת שהפעולה דורשת", () => {
-  it("כל סוג שהסוכן מייצר נושא יכולת — אין המלצה בלי דרישה", () => {
+describe("recommendationCapabilities — לפתוח את המסך וגם לבצע", () => {
+  const capsOf = (type: string): Capability[] =>
+    recommendationCapabilities(buildRecommendations(allSignals).find((r) => r.type === type)!);
+
+  it("כל סוג שהסוכן מייצר נושא לפחות דרישה אחת — אין המלצה בלי שער", () => {
     const recs = buildRecommendations(allSignals);
-    const without = recs.filter((r) => recommendationCapability(r) === null).map((r) => r.type);
+    const without = recs.filter((r) => recommendationCapabilities(r).length === 0).map((r) => r.type);
     expect(without).toEqual([]);
   });
 
-  it("„לשלוח הצעות” דורש offers.send ולא properties.view", () => {
-    const recs = buildRecommendations(allSignals);
-    const cap = (type: string): Capability | null =>
-      recommendationCapability(recs.find((r) => r.type === type)!);
-    /* שתי ההמלצות שמבקשות לשלוח — אחת מכרטיס הנכס, אחת מההצעה */
-    expect(cap("unsent_matches")).toBe("offers.send");
-    expect(cap("hesitating_buyer")).toBe("offers.send");
+  /*
+   * הלב של הביקורת השנייה: „שלח הצעות” דורש גם לפתוח את כרטיס הנכס
+   * וגם לשלוח. שלילת כל אחת מהשתיים לבדה מספיקה כדי שההמלצה תוביל
+   * לשגיאה, ולכן שתיהן חייבות להופיע.
+   */
+  it("„לשלוח הצעות” דורש גם צפייה בנכס וגם שליחה", () => {
+    expect(capsOf("unsent_matches").sort()).toEqual(["offers.send", "properties.view"]);
   });
 
-  it("„להשלים פרטים” היא עריכה, לא צפייה", () => {
-    const recs = buildRecommendations(allSignals);
-    expect(recommendationCapability(recs.find((r) => r.type === "incomplete_property")!)).toBe(
-      "properties.edit",
-    );
+  it("„להשלים פרטים” דורש גם צפייה וגם עריכה", () => {
+    expect(capsOf("incomplete_property").sort()).toEqual(["properties.edit", "properties.view"]);
   });
 
-  it("המלצות קריאה נשארות ביכולת הקריאה", () => {
-    const recs = buildRecommendations(allSignals);
-    const cap = (type: string): Capability | null =>
-      recommendationCapability(recs.find((r) => r.type === type)!);
-    expect(cap("stale_lead")).toBe("leads.view_own");
-    expect(cap("urgent_lead")).toBe("leads.view_own");
-    expect(cap("hot_buyers_idle")).toBe("buyers.view_own");
-    expect(cap("pending_coop_offers")).toBe("collaboration.offer");
-    expect(cap("today_appointment")).toBe("calendar.manage");
-    expect(cap("overdue_task")).toBe("calendar.manage");
-    expect(cap("viewing_followup")).toBe("calendar.manage");
+  it("כשהמסך והפעולה הם אותה יכולת — היא נספרת פעם אחת", () => {
+    expect(capsOf("hesitating_buyer")).toEqual(["offers.send"]);
+    expect(capsOf("stale_lead")).toEqual(["leads.view_own"]);
+    expect(capsOf("today_appointment")).toEqual(["calendar.manage"]);
+    expect(capsOf("overdue_task")).toEqual(["calendar.manage"]);
+    expect(capsOf("viewing_followup")).toEqual(["calendar.manage"]);
+    expect(capsOf("pending_coop_offers")).toEqual(["collaboration.offer"]);
+    expect(capsOf("urgent_lead")).toEqual(["leads.view_own"]);
+    expect(capsOf("hot_buyers_idle")).toEqual(["buyers.view_own"]);
   });
 
   it("סוג שאינו מוכר — אין דרישה מומצאת", () => {
-    expect(recommendationCapability({ priority: 1, type: "מומצא", title: "", body: "" })).toBeNull();
+    expect(recommendationCapabilities({ priority: 1, type: "מומצא", title: "", body: "" })).toEqual(
+      [],
+    );
   });
 });
