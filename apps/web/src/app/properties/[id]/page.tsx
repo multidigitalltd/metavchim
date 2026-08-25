@@ -1019,15 +1019,13 @@ export default function PropertyDetailPage({
                     }}
                   >
                     <span
-                      className="mv-score-ring"
+                      className="mv-score-ring mv-score-ring--lg"
                       style={{
-                        width: 46,
-                        height: 46,
                         background: `conic-gradient(#2ECC66 ${Math.round(m.score * 3.6)}deg, var(--color-progress-track) 0deg)`,
                       }}
                       aria-hidden="true"
                     >
-                      <span style={{ width: 35, height: 35, fontSize: 14 }}>
+                      <span>
                         {m.score}%
                       </span>
                     </span>

@@ -188,7 +188,7 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
                   required
                   minLength={2}
                   className="mv-search-input"
-                  style={{ height: 44 }}
+                  style={{ minHeight: 44 }}
                 />
               </label>
               <label>
@@ -199,7 +199,7 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
                   dir="ltr"
                   inputMode="tel"
                   className="mv-search-input"
-                  style={{ height: 44 }}
+                  style={{ minHeight: 44 }}
                 />
               </label>
               <label className="sm:col-span-2">
