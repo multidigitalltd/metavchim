@@ -57,7 +57,25 @@ const FILTERS: [string, string][] = [
   ["answered", "נענו"],
   ["missed", "לא נענו"],
   ["no_answer", "אין מענה"],
+  ["unknown", "לא ידוע"],
 ];
+
+/*
+ * ‎**שלושה מצבים ולא שניים.**
+ *
+ * הקוד צבע „נענתה” בירוק וכל השאר באדום־חמרה, כלומר שיחה שאיננו
+ * יודעים עליה נצבעה כמו כשל. שני אלה אינם אותו דבר: „לא נענתה” היא
+ * עובדה שדורשת חזרה, ו„לא ידוע” היא היעדר מידע. לפי החבילה אדום
+ * שמור לשגיאה ולחסימה, ומצב ניטרלי מקבל טוקנים ניטרליים — עם
+ * ‎#4A544C, שהוא הכהה המינימלי לערכי נתונים.
+ *
+ * הצבע לעולם אינו לבדו: התווית מופיעה לצדו תמיד.
+ */
+function outcomeTone(outcome: string): { fg: string; bg: string; dot: string } {
+  if (outcome === "answered") return { fg: "#0C6E34", bg: "#E5FCEA", dot: "#12A150" };
+  if (outcome === "unknown") return { fg: "#4A544C", bg: "#F1F4EE", dot: "#8A938B" };
+  return { fg: "#b0512c", bg: "#faf1ec", dot: "#b0512c" };
+}
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
@@ -435,7 +453,7 @@ export default function CallsPage() {
                     <span
                       aria-hidden="true"
                       className="h-2.5 w-2.5 flex-none rounded-full"
-                      style={{ background: call.outcome === "answered" ? "#12A150" : "#b0512c" }}
+                      style={{ background: outcomeTone(call.outcome).dot }}
                     />
                     <span className="min-w-0" style={{ lineHeight: 1.35 }}>
                       <span className="block truncate text-[15.5px] font-bold">
@@ -452,8 +470,8 @@ export default function CallsPage() {
                         style={{
                           fontSize: 14,
                           padding: "2px 10px",
-                          color: call.outcome === "answered" ? "#0C6E34" : "#b0512c",
-                          background: call.outcome === "answered" ? "#E5FCEA" : "#faf1ec",
+                          color: outcomeTone(call.outcome).fg,
+                          background: outcomeTone(call.outcome).bg,
                         }}
                       >
                         {OUTCOME_LABELS[call.outcome] ?? call.outcome}

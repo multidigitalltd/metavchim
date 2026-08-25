@@ -92,6 +92,38 @@ const GIVE_UP_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 const RETRY_AFTER_MS = 30 * 60 * 1000;
 
 /**
+ * השהיה בין משיכה למשיכה — **כדי לא לחנוק את הספק.**
+ *
+ * הסבב רץ בטור, אבל בלי רווח: עשרים הקלטות נמשכות בזו אחר זו במלוא
+ * המהירות, וכל אחת שנכשלת מוסיפה עד ארבעה ניסיונות ועוד קריאת
+ * רשימה. כשמצטברות הרבה הקלטות זה עשרות בקשות בשניות ספורות, ואז
+ * 015 משיב „Bad request” על בקשות תקינות לחלוטין — מה שנראה מבחוץ
+ * כמו תקלה אקראית שנפתרת בלחיצה שנייה (דיווח מהמשרד).
+ *
+ * שנייה לכל הקלטה הופכת מנה של עשרים לכדקה. זה זמן רקע שאיש אינו
+ * ממתין לו — ההקלטה מופיעה דקות אחרי השיחה בכל מקרה — ובתמורה
+ * הבקשות מפסיקות להיכשל.
+ */
+const PAUSE_BETWEEN_PULLS_MS = 1_000;
+
+/**
+ * כמה סירובים רצופים עוצרים את הסבב.
+ *
+ * ‎**זה מה שמונע את מפולת השלג.** ברגע שהספק חונק, כל בקשה נוספת
+ * גם נכשלת וגם מאריכה את החנק — ובלי עצירה הסבב היה ממשיך לירות
+ * עוד תשע-עשרה הקלטות, לשרוף את חלון הניסיון של כולן, ולהציג
+ * למתווך תשע-עשרה שגיאות שאין להן דבר עם ההקלטות עצמן.
+ *
+ * שלושה ולא אחד: הקלטה בודדת שאינה קיימת אצל הספק היא מצב רגיל
+ * לחלוטין, ועצירה עליה הייתה מקפיאה את התור על שורה פגומה אחת.
+ * רצף של שלושה כבר אינו נראה כמו מקרה.
+ *
+ * מה שנעצר אינו אבוד: התנאי לשליפה עדיין מתקיים, והסבב הבא ייקח
+ * אותן.
+ */
+const REFUSALS_BEFORE_PAUSE = 3;
+
+/**
  * גבול העמודה `provider_recording_detail` — **מספר של המסד, לא העדפה.**
  *
  * חריגה ממנו אינה נחתכת אלא **זורקת**, ו-`note` בולעת את השגיאה כדי
@@ -136,6 +168,15 @@ export const RECORDING_ERRORS = {
   network: "network_error",
   integration: "no_integration",
 } as const;
+
+/**
+ * תוצאת משיכה אחת, לעיני הסבב בלבד.
+ *
+ * ‎`refused` הוא **הספק אמר לא** — זה מה שנספר לעצירה. כשל רשת או
+ * תשובה פגומה אינם „לא” של הספק, ואינם מעידים על חנק, ולכן הם
+ * ‎`other`. איחוד השניים היה עוצר את הסבב על תקלת רשת מקומית.
+ */
+type PullResult = "stored" | "refused" | "other";
 
 interface RecordingJob {
   callId: string;
@@ -186,11 +227,32 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     if (this.running) return;
     this.running = true;
     try {
-      for (const job of await this.pending()) {
-        await this.fetchOne(job).catch((error: unknown) => {
+      const jobs = await this.pending();
+      let refusalsInARow = 0;
+      for (const [index, job] of jobs.entries()) {
+        /*
+         * ההשהיה **לפני** הבקשה ולא אחריה, ומדולגת בראשונה: אחרי
+         * האחרונה אין למי להתחשב, והמתנה שם רק מאריכה את הסבב.
+         */
+        if (index > 0) await new Promise((r) => setTimeout(r, PAUSE_BETWEEN_PULLS_MS));
+        const result = await this.fetchOne(job).catch((error: unknown) => {
           // כשל בשיחה אחת אינו עוצר את הסבב — הבאה בתור עשויה להצליח
           this.logger.warn(`משיכת הקלטה נכשלה (${job.callId}): ${String(error)}`);
+          return "other" as PullResult;
         });
+        /*
+         * ‎**כל הצלחה מאפסת את המונה.** בלי האיפוס שלושה סירובים
+         * מפוזרים על פני סבב מוצלח לגמרי היו עוצרים אותו, והמנגנון
+         * שנועד להגן על הספק היה מאט את המשיכה בלי שום חנק.
+         */
+        refusalsInARow = result === "refused" ? refusalsInARow + 1 : 0;
+        if (refusalsInARow >= REFUSALS_BEFORE_PAUSE) {
+          this.logger.warn(
+            `${refusalsInARow} סירובים רצופים מ-015 — הסבב נעצר, ` +
+              `${jobs.length - index - 1} הקלטות יחכו לסבב הבא`,
+          );
+          break;
+        }
       }
     } catch (error: unknown) {
       /*
@@ -581,12 +643,12 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       );
   }
 
-  private async fetchOne(job: RecordingJob): Promise<void> {
+  private async fetchOne(job: RecordingJob): Promise<PullResult> {
     const ids = split015RecordingPath(job.recordingPath);
     if (!ids) {
       this.logger.warn(`נתיב הקלטה בצורה לא מוכרת: ${job.recordingPath}`);
       await this.note(job, RECORDING_ERRORS.path);
-      return;
+      return "other";
     }
 
     const secrets = this.readSecrets(job.secretsEncrypted);
@@ -603,7 +665,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
        */
       this.logger.warn(`אישורי 015 חסרים למשרד ${job.tenantId} — משיכת הקלטות מושבתת`);
       await this.note(job, RECORDING_ERRORS.credentials);
-      return;
+      return "other";
     }
 
     /*
@@ -674,7 +736,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
           );
         }
         await this.storeAudio(job, attempt.base64, attempt.contentType);
-        return;
+        return "stored";
       }
       if (attempt.kind === "refused") {
         lastRefusal = { code: attempt.code, detail: attempt.detail };
@@ -685,7 +747,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
        * כל שאר המצבים — רשת, גוף שאינו JSON, סירוב שאינו „לא נמצא”
        * — כבר נרשמו בתוך `attemptFetch`, ואין טעם לנסות צירוף אחר.
        */
-      if (attempt.kind !== "refused") return;
+      if (attempt.kind !== "refused") return "other";
       break;
     }
 
@@ -747,13 +809,13 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
            */
           this.logger.log(`הקלטה נמצאה עם המזהה שהספק מסר — ${job.callId}`);
           await this.storeAudio(job, attempt.base64, attempt.contentType);
-          return;
+          return "stored";
         }
         if (attempt.kind === "refused") {
           lastRefusal = { code: attempt.code, detail: attempt.detail };
         } else {
           // „audio” כבר טופל למעלה; מה שנשאר הוא „handled” — נרשם בפנים
-          return;
+          return "other";
         }
       }
     }
@@ -784,7 +846,9 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
         `${RECORDING_ERRORS.provider}_${lastRefusal.code}`,
         joinDetail(lastRefusal.detail, asked),
       );
+      return "refused";
     }
+    return "other";
   }
 
   /**

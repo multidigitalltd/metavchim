@@ -949,7 +949,26 @@ export class TelephonyService {
               event.type === "missed" || event.durationSeconds === undefined
                 ? null
                 : Math.max(1, Math.round(event.durationSeconds / 60)),
-            outcome: event.type === "missed" ? "missed" : "answered",
+            /*
+             * ‎**„נענתה” נדרשת ראיה, ולא רק היעדר ראיה לכך שלא נענתה.**
+             *
+             * השורה הזו הייתה ‎`type === "missed" ? "missed" : "answered"`,
+             * כלומר כל מה שאינו „לא נענתה” נרשם כ„נענתה” — ובכלל זה
+             * אירוע ניתוק שהגיע **בלי משך**, שאינו מעיד על מענה כלל.
+             * ‎`eventTypeOf` מסווג ניתוק כזה כ-`ended`, ולכן שיחה שלא
+             * נענתה הוצגה למתווך כשיחה שנענתה; בשטח זה נראה כמו „על כל
+             * השיחות כתוב נענתה”.
+             *
+             * משך חיובי הוא הראיה: מדברים, ולכן נענתה. בלעדיו נרשם
+             * ‎`unknown`, ואת ההבדל הזה המתווך רואה — שיחה שאיננו יודעים
+             * עליה היא בדיוק זו שכדאי לו לבדוק.
+             */
+            outcome:
+              event.type === "missed"
+                ? "missed"
+                : event.durationSeconds !== undefined && event.durationSeconds > 0
+                  ? "answered"
+                  : "unknown",
             summary: describeCall(event),
             // מצביע בלבד בשלב הזה; העובד מושך את האודיו וממיר אותו
             // ל-`recordingKey` שלנו. ראו `RecordingFetchService`.
