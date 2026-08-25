@@ -37,6 +37,104 @@ const HOUR_WORDS: Record<string, number> = {
   שבע: 7, שמונה: 8, תשע: 9, עשר: 10, "אחת עשרה": 11, "שתים עשרה": 12,
 };
 
+/* ==================== „עוד שעה” ==================== */
+
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * יחידות זמן יחסיות. הזוגי בעברית הוא **מילה ולא מספר**, ולכן
+ * „שעתיים” ו„יומיים” נושאים את הכמות בתוכם.
+ */
+interface RelativeUnit {
+  pattern: RegExp;
+  ms: number;
+  /**
+   * הכמות הגדולה ביותר שאדם אומר ביחידה הזו.
+   *
+   * הגבול הוא **לפי יחידה** ולא סכום אחד: „עוד 900 שעות” הן כחודש
+   * וחצי, כלומר הן עוברות כל תקרת משך סבירה — אבל איש אינו אומר
+   * אותן, וזה תמלול שגוי או הקלדה. „עוד 45 ימים” הוא אותו משך
+   * בדיוק והוא לגיטימי לגמרי. מה שמבדיל ביניהם הוא היחידה.
+   */
+  max: number;
+}
+
+const RELATIVE_UNITS: RelativeUnit[] = [
+  // הזוגי בעברית הוא מילה ולא מספר — היחידה נושאת את הכמות
+  { pattern: /^שעתיים$/u, ms: 2 * HOUR_MS, max: 1 },
+  { pattern: /^יומיים$/u, ms: 2 * DAY_MS, max: 1 },
+  { pattern: /^שבועיים$/u, ms: 14 * DAY_MS, max: 1 },
+  /*
+   * הרבים בעברית אינו סיומת שאפשר לסמן ב-`?`: „שעות” אינו „שעה”
+   * ועוד אות. כל צורה נכתבת במלואה — קיצור כאן היה מזהה את הרבים
+   * ומפספס בדיוק את היחיד, שהוא הצורה השכיחה בשיחה.
+   */
+  { pattern: /^דקה$|^דקות$/u, ms: MINUTE_MS, max: 180 },
+  { pattern: /^שעה$|^שעות$/u, ms: HOUR_MS, max: 48 },
+  { pattern: /^יום$|^ימים$/u, ms: DAY_MS, max: 60 },
+  { pattern: /^שבוע$|^שבועות$/u, ms: 7 * DAY_MS, max: 8 },
+];
+
+/**
+ * כמויות שנאמרות במילה. „רבע שעה” ו„חצי שעה” הן הצורות השכיחות
+ * ביותר בשיחה, ושתיהן שברים — ולכן הן חלק מאותה טבלה.
+ */
+const QUANTITY_WORDS: Record<string, number> = {
+  רבע: 0.25, חצי: 0.5,
+  אחת: 1, אחד: 1, שתי: 2, שתיים: 2, שני: 2, שלוש: 3, שלושה: 3,
+  ארבע: 4, ארבעה: 4, חמש: 5, חמישה: 5, שש: 6, שישה: 6, שבע: 7, שבעה: 7,
+  שמונה: 8, שמונת: 8, תשע: 9, תשעה: 9, עשר: 10, עשרה: 10,
+  עשרים: 20, שלושים: 30, ארבעים: 40, חמישים: 50,
+};
+
+function unitOf(word: string): RelativeUnit | undefined {
+  return RELATIVE_UNITS.find((unit) => unit.pattern.test(word));
+}
+
+function quantityOf(word: string): number | undefined {
+  if (/^\d+$/u.test(word)) return Number(word);
+  return QUANTITY_WORDS[word];
+}
+
+/**
+ * „עוד שעה”, „בעוד עשרים דקות”, „תוך יומיים” ⟵ היסט במילישניות.
+ *
+ * ## למה זה נכתב מחדש
+ *
+ * הצורה הקודמת דרשה את המילה `בעוד` בדיוק, וכיסתה שעות בלבד. מתווך
+ * שענה לסוכן „תזכיר לי להתקשר אליו **עוד שעה**” — בלי בי"ת, כפי
+ * שאומרים — לא נענה כלל, ו„עוד שעה” הופיע במסך תחת „נאמר ולא שויך
+ * לשדה” (דיווח מהשטח, עם צילום). ביטוי הזמן הבסיסי ביותר בעברית
+ * נפל בדיוק בגלל אות אחת.
+ *
+ * ## למה חישוב על הרגע ולא על שעון הקיר
+ *
+ * „בעוד שעתיים” הוא אריתמטיקה על **הרגע**: ביום מעבר שעון הוא בדיוק
+ * שעתיים, גם אם שעון הקיר קפץ.
+ */
+export function parseRelativeOffset(text: string): { ms: number; evidence: string } | null {
+  const trigger = /(?<lead>ב?עוד|תוך)\s+(?<rest>\S+)(?:\s+(?<tail>\S+))?/u.exec(text);
+  const lead = trigger?.groups?.["lead"];
+  const first = trigger?.groups?.["rest"];
+  if (lead === undefined || first === undefined) return null;
+
+  // „שעתיים”, „שעה” — היחידה עומדת לבדה ונושאת את הכמות שלה
+  const alone = unitOf(first);
+  if (alone !== undefined) return { ms: alone.ms, evidence: `${lead} ${first}` };
+
+  // „עשרים דקות”, „רבע שעה”, „3 ימים”
+  const second = trigger?.groups?.["tail"];
+  const quantity = quantityOf(first);
+  if (quantity === undefined || second === undefined) return null;
+  const unit = unitOf(second);
+  if (unit === undefined || quantity > unit.max) return null;
+  const ms = Math.round(quantity * unit.ms);
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  return { ms, evidence: `${lead} ${first} ${second}` };
+}
+
 /** שמות החודשים הלועזיים כפי שאומרים אותם. */
 const MONTH_NAMES: Record<string, number> = {
   ינואר: 1, פברואר: 2, מרץ: 3, מרס: 3, אפריל: 4, מאי: 5, יוני: 6,
@@ -171,15 +269,11 @@ export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTi
    * הוא מחושב לפני המעבר לשעון ירושלמי: ביום מעבר שעון "בעוד שעתיים"
    * הוא בדיוק שעתיים, גם אם שעון הקיר קפץ.
    */
-  const inHours = /בעוד\s+(?<n>שעה|שעתיים|\d+)\s*(?:שעות)?/u.exec(text);
-  if (inHours?.groups?.["n"] !== undefined && !/מחר|מחרתיים|היום/u.test(text)) {
-    const raw = inHours.groups["n"];
-    const hours = raw === "שעה" ? 1 : raw === "שעתיים" ? 2 : Number(raw);
-    if (!Number.isNaN(hours) && hours > 0 && hours <= 72) {
-      const at = new Date(now.getTime() + hours * 60 * 60 * 1000);
-      at.setSeconds(0, 0);
-      return { date: at, timeExplicit: true, evidence: inHours[0] };
-    }
+  const relative = /מחר|מחרתיים|היום/u.test(text) ? null : parseRelativeOffset(text);
+  if (relative !== null) {
+    const at = new Date(now.getTime() + relative.ms);
+    at.setSeconds(0, 0);
+    return { date: at, timeExplicit: true, evidence: relative.evidence };
   }
 
   // מכאן והלאה החישוב הוא בשעון קיר ירושלמי, והמרה אחת בסוף

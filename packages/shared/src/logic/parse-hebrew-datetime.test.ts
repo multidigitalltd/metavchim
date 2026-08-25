@@ -72,6 +72,45 @@ describe("parseHebrewDateTime", () => {
     expect(result.timeExplicit).toBe(true);
   });
 
+  /*
+   * מהשטח, עם צילום: המתווך ענה לסוכן „תזכיר לי להתקשר אליו **עוד
+   * שעה**” — בדיוק המשפט שהסוכן עצמו הציע — ו„עוד שעה” הופיע במסך
+   * תחת „נאמר ולא שויך לשדה”. הצורה הקודמת דרשה את המילה `בעוד`
+   * בדיוק, כלומר ביטוי הזמן הבסיסי בעברית נפל בגלל אות אחת.
+   */
+  it("'עוד שעה' — בלי בי\"ת — הוא מועד ולא טקסט חופשי", () => {
+    const result = parseHebrewDateTime("תזכיר לי להתקשר אליו עוד שעה", NOW);
+    expect(il(result.date).hour).toBe(10);
+    expect(result.timeExplicit).toBe(true);
+    expect(result.evidence).toBe("עוד שעה");
+  });
+
+  it("וגם דקות, ימים ושבועות — לא רק שעות", () => {
+    expect(il(parseHebrewDateTime("תזכיר לי עוד עשרים דקות", NOW).date).minute).toBe(20);
+    expect(il(parseHebrewDateTime("תזכיר לי בעוד רבע שעה", NOW).date).minute).toBe(15);
+    expect(il(parseHebrewDateTime("תזכיר לי עוד חצי שעה", NOW).date).minute).toBe(30);
+    expect(il(parseHebrewDateTime("תזכיר לי עוד יומיים", NOW).date).day).toBe(3);
+    expect(il(parseHebrewDateTime("תזכיר לי עוד שבוע", NOW).date).day).toBe(8);
+  });
+
+  it("ו'תוך' עובד כמו 'עוד'", () => {
+    expect(il(parseHebrewDateTime("תחזור אליו תוך שעתיים", NOW).date).hour).toBe(11);
+  });
+
+  /*
+   * „עוד 900 שעות” הוא כמעט תמיד תמלול שגוי, ותאריך שנקבע ממנו
+   * נראה על המסך כמו החלטה. שדה ריק לפחות נראה כמו משהו למלא.
+   */
+  it("והיסט לא סביר נדחה ולא הופך לתאריך", () => {
+    expect(parseHebrewDateTime("תזכיר לי עוד 900 שעות", NOW).date).toBeUndefined();
+    expect(parseHebrewDateTime("תזכיר לי עוד קצת", NOW).date).toBeUndefined();
+  });
+
+  /* „מחר בעוד שעה” סותר את עצמו — מילת היום גוברת על ההיסט */
+  it("ומילת יום מפורשת גוברת על ההיסט", () => {
+    expect(il(parseHebrewDateTime("מחר בעוד שעה", NOW).date).day).toBe(2);
+  });
+
   it("בלי שעה — ברירת מחדל 10:00 ומסומן שלא נאמר במפורש", () => {
     const result = parseHebrewDateTime("פגישה מחר", NOW);
     expect(il(result.date).hour).toBe(10);
