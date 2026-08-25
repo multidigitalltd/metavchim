@@ -218,7 +218,7 @@ export function SupportButton() {
           className="mv-support-panel"
         >
           <div className="flex items-center gap-2">
-            <h2 id="support-panel-heading" className="m-0 grow" style={{ fontSize: 17, fontWeight: 800 }}>
+            <h2 id="support-panel-heading" className="m-0 grow" style={{ fontSize: "calc(17 / 16 * 1rem)", fontWeight: 800 }}>
               פנייה לתמיכה
             </h2>
             <button

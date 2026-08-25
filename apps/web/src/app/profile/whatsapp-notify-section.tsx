@@ -88,7 +88,7 @@ export function WhatsAppNotifySection() {
       <h2
         id="wa-notify-heading"
         className="m-0 mb-1"
-        style={{ fontSize: 16.5, fontWeight: 800 }}
+        style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
       >
         עדכונים בוואטסאפ
       </h2>

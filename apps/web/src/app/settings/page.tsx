@@ -459,7 +459,7 @@ export default function SettingsPage() {
                 <h2
                   id="team-heading"
                   className="m-0"
-                  style={{ fontSize: 16.5, fontWeight: 800 }}
+                  style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
                 >
                   סוכני המשרד
                 </h2>
@@ -607,7 +607,7 @@ export default function SettingsPage() {
                                 height: 30,
                                 background: "var(--color-primary-soft)",
                                 color: "var(--color-primary)",
-                                fontSize: 14,
+                                fontSize: "var(--type-caption)",
                                 fontWeight: 800,
                               }}
                             >
@@ -884,7 +884,7 @@ export default function SettingsPage() {
               <h2
                 id="office-heading"
                 className="m-0 mb-3"
-                style={{ fontSize: 16.5, fontWeight: 800 }}
+                style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
               >
                 פרטי המשרד
               </h2>
@@ -1107,7 +1107,7 @@ export default function SettingsPage() {
                 <h2
                   id="modules-heading"
                   className="m-0 mb-1"
-                  style={{ fontSize: 16.5, fontWeight: 800 }}
+                  style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
                 >
                   מודולים וחיבורים
                 </h2>
@@ -1251,7 +1251,7 @@ export default function SettingsPage() {
                 <h2
                   id="audit-heading"
                   className="m-0"
-                  style={{ fontSize: 16.5, fontWeight: 800 }}
+                  style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
                 >
                   יומן פעילות
                 </h2>
@@ -1325,7 +1325,7 @@ export default function SettingsPage() {
               <h2
                 id="security-heading"
                 className="m-0 mb-[11px]"
-                style={{ fontSize: 16.5, fontWeight: 800 }}
+                style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
               >
                 אבטחה ופרטיות
               </h2>
@@ -1358,7 +1358,7 @@ export default function SettingsPage() {
               <h2
                 id="data-heading"
                 className="m-0 mb-[11px]"
-                style={{ fontSize: 16.5, fontWeight: 800 }}
+                style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
               >
                 נתונים
               </h2>
@@ -1397,7 +1397,7 @@ export default function SettingsPage() {
                 <h2
                   id="roadmap-heading"
                   className="m-0"
-                  style={{ fontSize: 15.5, fontWeight: 800 }}
+                  style={{ fontSize: "var(--type-body)", fontWeight: 800 }}
                 >
                   בפיתוח עכשיו
                 </h2>

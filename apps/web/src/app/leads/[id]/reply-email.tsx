@@ -73,7 +73,7 @@ export function ReplyEmail({
       aria-labelledby="reply-email-heading"
     >
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h2 id="reply-email-heading" className="m-0" style={{ fontSize: 16.5, fontWeight: 800 }}>
+        <h2 id="reply-email-heading" className="m-0" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
           תשובה במייל
         </h2>
         {state.from ? (

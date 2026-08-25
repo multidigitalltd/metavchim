@@ -99,7 +99,7 @@ export default function LeadsPage() {
         מקום לנצח, מעל התוכן שבאמת מסתכלים עליו. מקומו במדריכים.
       */}
       <div className="mb-[18px] flex flex-wrap items-center gap-3">
-        <h1 className="m-0" style={{ fontSize: 22, fontWeight: 800 }}>
+        <h1 className="m-0" style={{ fontSize: "var(--type-panel)", fontWeight: 800 }}>
           לידים
         </h1>
         <div className="ms-auto flex flex-wrap gap-2.5">

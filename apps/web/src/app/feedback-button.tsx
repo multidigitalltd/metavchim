@@ -122,7 +122,7 @@ export function FeedbackButton() {
             <h2
               id="feedback-heading"
               className="m-0 grow"
-              style={{ fontSize: 17, fontWeight: 800, lineHeight: 1.35 }}
+              style={{ fontSize: "calc(17 / 16 * 1rem)", fontWeight: 800, lineHeight: 1.35 }}
             >
               את המערכת הזו אתם מפתחים
             </h2>

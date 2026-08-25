@@ -95,7 +95,7 @@ export function CouponsSection(): React.JSX.Element {
 
   return (
     <section className="mv-list-card px-5 py-[17px]" aria-labelledby="coupons-heading">
-      <h2 id="coupons-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
+      <h2 id="coupons-heading" className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
         קודי קופון
       </h2>
       <p className="m-0 mb-3 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>

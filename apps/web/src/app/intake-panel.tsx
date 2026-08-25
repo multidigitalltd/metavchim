@@ -124,7 +124,7 @@ export function IntakePanel({
       className="mv-list-card px-[22px] py-[18px]"
       aria-labelledby="intake-heading"
     >
-      <h2 id="intake-heading" className="m-0" style={{ fontSize: 16.5, fontWeight: 800 }}>
+      <h2 id="intake-heading" className="m-0" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
         הלקוח ממלא בעצמו
       </h2>
       <p

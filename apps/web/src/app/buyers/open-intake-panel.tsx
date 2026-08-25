@@ -141,7 +141,7 @@ export function OpenIntakePanel({ canEdit }: { canEdit: boolean }) {
         <h2
           id="open-intake-heading"
           className="m-0"
-          style={{ fontSize: 16.5, fontWeight: 800 }}
+          style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
         >
           קישור ללקוח שעדיין לא אצלנו
         </h2>

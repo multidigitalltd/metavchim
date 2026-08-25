@@ -92,7 +92,7 @@ function StatCard({
         {icon}
         {label}
       </dt>
-      <dd className="m-0" style={{ fontSize: 24, fontWeight: 800, color }}>
+      <dd className="m-0" style={{ fontSize: "calc(24 / 16 * 1rem)", fontWeight: 800, color }}>
         {value}
       </dd>
       {hint ? <p className="m-0" style={{ color: "var(--color-text-muted)" }}>{hint}</p> : null}
@@ -252,7 +252,7 @@ export default function ReportsPage() {
             הדליפה, ובארבעה ריבועים צריך לחשב אותה.
           */}
           <div className="mv-list-card px-5 py-4">
-            <h3 className="m-0 mb-3" style={{ fontSize: 16, fontWeight: 700 }}>
+            <h3 className="m-0 mb-3" style={{ fontSize: "var(--type-button)", fontWeight: 700 }}>
               מסע ההצעה
             </h3>
             <BarChart

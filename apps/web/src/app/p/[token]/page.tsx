@@ -100,7 +100,7 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
         <p className="m-0 text-[length:var(--type-caption-lg)] font-bold" style={{ color: "var(--color-primary)" }}>
           {view.officeName}
         </p>
-        <h1 className="m-0 mt-1" style={{ fontSize: 27, fontWeight: 800, letterSpacing: "-0.01em" }}>
+        <h1 className="m-0 mt-1" style={{ fontSize: "calc(27 / 16 * 1rem)", fontWeight: 800, letterSpacing: "-0.01em" }}>
           {view.title}
         </h1>
         <p className="m-0 mt-1 flex flex-wrap items-baseline gap-3">
@@ -174,7 +174,7 @@ export default function LandingPage({ params }: { params: Promise<{ token: strin
           </div>
         ) : (
           <>
-            <h2 id="contact-heading" className="m-0 mb-1" style={{ fontSize: 20, fontWeight: 800 }}>
+            <h2 id="contact-heading" className="m-0 mb-1" style={{ fontSize: "var(--type-metric)", fontWeight: 800 }}>
               מעוניינים בנכס?
             </h2>
             <p className="m-0 mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>

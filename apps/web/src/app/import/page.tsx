@@ -395,7 +395,7 @@ export default function ImportPage() {
           className="mb-4 rounded-xl border-2 p-4"
           style={{ borderColor: "var(--color-warning, #d97706)", background: "var(--color-warning-bg)", color: "var(--color-text)" }}
         >
-          <p className="m-0 mb-1 font-bold" style={{ fontSize: 16 }}>
+          <p className="m-0 mb-1 font-bold" style={{ fontSize: "var(--type-button)" }}>
             <IconWarning s={15} />{" "}
             {parsed.unmappedHeaders.length > 0
               ? `${parsed.unmappedHeaders.length} עמודות לא זוהו — הנתונים שבהן לא ייובאו`

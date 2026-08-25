@@ -67,7 +67,7 @@ export function ExclusivityWatch() {
       <h2
         id="exclusivity-watch-heading"
         className="m-0 mb-1.5"
-        style={{ fontSize: 15, fontWeight: 800 }}
+        style={{ fontSize: "var(--type-body-sm)", fontWeight: 800 }}
       >
         בלעדיויות שדורשות טיפול
       </h2>

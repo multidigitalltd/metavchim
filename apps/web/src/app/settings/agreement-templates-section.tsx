@@ -124,7 +124,7 @@ export function AgreementTemplatesSection() {
 
   return (
     <section className="mv-list-card px-5 py-[17px]" aria-labelledby="agreements-heading">
-      <h2 id="agreements-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
+      <h2 id="agreements-heading" className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
         נוסחי הסכמים לחתימה
       </h2>
       <p className="m-0 mb-3 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>

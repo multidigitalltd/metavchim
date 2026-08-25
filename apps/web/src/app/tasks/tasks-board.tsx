@@ -496,7 +496,7 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
               <h2
                 id={`b-${group.bucket}`}
                 className="mb-2 flex items-center gap-2"
-                style={{ fontSize: 16, fontWeight: 800, color: BUCKET_COLOR[group.bucket] }}
+                style={{ fontSize: "var(--type-button)", fontWeight: 800, color: BUCKET_COLOR[group.bucket] }}
               >
                 {/* נקודת צבע ולא כותרת צבועה בלבד — היא מה שמאתר את
                     הקבוצה הנכונה בגלילה, לפני שקוראים את המילים */}

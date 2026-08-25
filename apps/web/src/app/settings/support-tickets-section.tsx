@@ -57,7 +57,7 @@ export function SupportTicketsSection(): React.JSX.Element {
   return (
     <section className="mv-list-card px-5 py-[17px]" aria-labelledby="support-tickets-heading">
       <div className="mb-1 flex flex-wrap items-center gap-2">
-        <h2 id="support-tickets-heading" className="m-0 grow" style={{ fontSize: 16.5, fontWeight: 800 }}>
+        <h2 id="support-tickets-heading" className="m-0 grow" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
           הפניות שלכם
         </h2>
         <button type="button" className="mv-btn-plain" onClick={load}>

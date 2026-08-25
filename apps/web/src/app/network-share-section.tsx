@@ -302,7 +302,7 @@ export function NetworkShareSection({
             background: "var(--color-primary-soft)",
           }}
         >
-          <p className="m-0 mb-1 font-bold" style={{ fontSize: 15.5 }}>
+          <p className="m-0 mb-1 font-bold" style={{ fontSize: "var(--type-body)" }}>
             ✓ {copy.sent}
           </p>
           <p

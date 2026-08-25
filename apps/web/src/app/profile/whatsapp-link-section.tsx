@@ -91,7 +91,7 @@ export function WhatsAppLinkSection() {
 
   return (
     <section className="mv-list-card px-5 py-[17px]" aria-labelledby="wa-link-heading">
-      <h2 id="wa-link-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
+      <h2 id="wa-link-heading" className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
         המכשיר שמחובר לסוכן
       </h2>
       <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
@@ -148,7 +148,7 @@ export function WhatsAppLinkSection() {
           <p className="m-0 mb-1 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
             שלחו את הקוד הזה בהודעת וואטסאפ לסוכן, מהמכשיר שתרצו לחבר:
           </p>
-          <p className="m-0 select-all" style={{ fontSize: 22, fontWeight: 800, letterSpacing: 2 }}>
+          <p className="m-0 select-all" style={{ fontSize: "var(--type-panel)", fontWeight: 800, letterSpacing: 2 }}>
             {code}
           </p>
           <p className="m-0 mt-1 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>

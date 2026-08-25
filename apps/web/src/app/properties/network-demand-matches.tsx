@@ -115,7 +115,7 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
       <h2
         id="network-matches-heading"
         className="m-0 mb-1"
-        style={{ fontSize: 16.5, fontWeight: 800 }}
+        style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
       >
         <IconGlobe s={16} /> ביקושים ברשת
       </h2>

@@ -141,7 +141,7 @@ export function DuplicateContacts() {
   return (
     <section className="mv-list-card mb-[18px] px-5 py-[17px]" aria-labelledby="dupes-heading">
       <div className="mb-1 flex items-baseline gap-2">
-        <h2 id="dupes-heading" className="m-0" style={{ fontSize: 16.5, fontWeight: 800 }}>
+        <h2 id="dupes-heading" className="m-0" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
           כפילויות אפשריות
           {groups.length > 0 ? <span className="mv-chip ms-2">{groups.length}</span> : null}
         </h2>

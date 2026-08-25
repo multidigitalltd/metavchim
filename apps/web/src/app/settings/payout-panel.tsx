@@ -177,7 +177,7 @@ export function PayoutPanel() {
       <h3
         id="payout-heading"
         className="m-0 mb-1"
-        style={{ fontSize: 16.5, fontWeight: 800 }}
+        style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
       >
         יתרה כספית
       </h3>

@@ -95,7 +95,7 @@ export default function OffersPage() {
       {/* כותרת ולא הרצאה: „כל הצעה נשלחת כקישור לדף נכס נקי…” הוא
           טקסט שיווקי שנקרא פעם אחת ואז תופס מקום לנצח */}
       <div className="mb-[18px] flex flex-wrap items-center gap-3">
-        <h1 className="m-0" style={{ fontSize: 22, fontWeight: 800 }}>
+        <h1 className="m-0" style={{ fontSize: "var(--type-panel)", fontWeight: 800 }}>
           הצעות
         </h1>
         <div className="ms-auto flex flex-wrap gap-2">

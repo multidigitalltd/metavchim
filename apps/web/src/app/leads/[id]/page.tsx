@@ -368,7 +368,7 @@ function ReferLeadSection({ leadId }: { leadId: string }) {
       עליו כדי להגיע לטופס שהוא כל תוכן המסך הוא חיכוך בלי תמורה.
     */
     <section className="mv-list-card px-5 py-[18px]">
-      <h2 className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
+      <h2 className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
         <IconHandshake s={16} /> הפניית הלקוח למשרד אחר
       </h2>
       <p className="mt-1 mb-4 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
@@ -914,14 +914,14 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             background: "var(--color-primary-soft)",
             color: "var(--color-primary)",
             fontWeight: 800,
-            fontSize: 19,
+            fontSize: "var(--type-screen-title)",
           }}
         >
           {initials(lead.contact.name)}
         </span>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="m-0" style={{ fontSize: 21, fontWeight: 800 }}>
+            <h1 className="m-0" style={{ fontSize: "calc(21 / 16 * 1rem)", fontWeight: 800 }}>
               {lead.contact.name}
             </h1>
             {/* הכוונה צמודה לשם: "קונה" ו"מוכר" הן שתי שיחות שונות */}
@@ -1094,7 +1094,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                   id="lead-summary-heading"
                   className="m-0 mb-1.5"
                   style={{
-                    fontSize: 14.5,
+                    fontSize: "var(--type-caption-lg)",
                     fontWeight: 800,
                     color: "var(--color-primary)",
                   }}
@@ -1104,7 +1104,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                 {/* whitespace-pre-line: שורות ההודעה נשמרות כפי שנשלחו */}
                 <p
                   className="m-0 whitespace-pre-line"
-                  style={{ fontSize: 15.5, lineHeight: 1.5 }}
+                  style={{ fontSize: "var(--type-body)", lineHeight: 1.5 }}
                 >
                   {lead.summary}
                 </p>
@@ -1117,7 +1117,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
                 <h2
                   id="lead-summary-heading"
                   className="m-0 mb-1.5"
-                  style={{ fontSize: 16.5, fontWeight: 800 }}
+                  style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
                 >
                   תוכן הפנייה
                 </h2>
@@ -1189,7 +1189,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           <div className="grid gap-[18px] lg:grid-cols-2">
             {can(user, "buyers.edit") ? (
               <section className="mv-list-card px-5 py-[18px]">
-                <h2 className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
+                <h2 className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
                   <IconUser s={16} /> המרה לקונה
                 </h2>
                 <p
@@ -1206,7 +1206,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             {/* ליד אינו תמיד קונה — "יש לי דירה למכור" הוא בעל נכס */}
             {can(user, "properties.create") ? (
               <section className="mv-list-card px-5 py-[18px]">
-                <h2 className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
+                <h2 className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
                   <IconHome s={16} /> המרה לנכס
                 </h2>
                 <p
@@ -1274,7 +1274,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           <h2
             id="timeline-heading"
             className="m-0 mb-3"
-            style={{ fontSize: 16.5, fontWeight: 800 }}
+            style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
           >
             ציר זמן
           </h2>

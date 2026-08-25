@@ -601,7 +601,7 @@ export default function DashboardPage() {
 
       {/* ברכה + תאריך — בשורת בסיס אחת, כמו בעיצוב */}
       <div className="mb-6 flex flex-wrap items-baseline gap-x-3.5 gap-y-1">
-        <h1 className="m-0" style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-0.01em" }}>
+        <h1 className="m-0" style={{ fontSize: "calc(26 / 16 * 1rem)", fontWeight: 800, letterSpacing: "-0.01em" }}>
           {greeting()}, {user.name.split(" ")[0]}
         </h1>
         {/* לועזי + עברי + שעון — מתווך ישראלי חי בשני לוחות */}
@@ -662,7 +662,7 @@ export default function DashboardPage() {
           */}
           {canSeeBuyers ? (
             <div className="mv-list-card px-5 py-[18px]">
-              <h3 className="m-0 mb-1 flex items-center gap-2" style={{ fontSize: 15.5, fontWeight: 800 }}>
+              <h3 className="m-0 mb-1 flex items-center gap-2" style={{ fontSize: "var(--type-body)", fontWeight: 800 }}>
                 <IconUsers s={16} /> בשלות הקונים
               </h3>
               <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
@@ -678,7 +678,7 @@ export default function DashboardPage() {
 
           {canSeeLeads ? (
             <div className="mv-list-card px-5 py-[18px]">
-              <h3 className="m-0 mb-1 flex items-center gap-2" style={{ fontSize: 15.5, fontWeight: 800 }}>
+              <h3 className="m-0 mb-1 flex items-center gap-2" style={{ fontSize: "var(--type-body)", fontWeight: 800 }}>
                 <IconFilter s={16} /> מצב הלידים
               </h3>
               <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
@@ -702,7 +702,7 @@ export default function DashboardPage() {
             className="flex flex-wrap items-center gap-2.5 px-5 py-4"
             style={{ borderBottom: "1px solid var(--color-card-head-border)" }}
           >
-            <h2 id="today-tasks-heading" className="m-0" style={{ fontSize: 18, fontWeight: 800 }}>
+            <h2 id="today-tasks-heading" className="m-0" style={{ fontSize: "calc(18 / 16 * 1rem)", fontWeight: 800 }}>
               מה חשוב לעשות היום
             </h2>
             <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
@@ -787,7 +787,7 @@ export default function DashboardPage() {
             style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
           >
             <div className="mb-1 flex items-center">
-              <h2 id="today-heading" className="m-0" style={{ fontSize: 16.5, fontWeight: 800 }}>
+              <h2 id="today-heading" className="m-0" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
                 היום ביומן
               </h2>
               <Link
@@ -844,7 +844,7 @@ export default function DashboardPage() {
               style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
             >
               <div className="mb-1 flex items-center gap-2">
-                <h2 id="my-tasks-heading" className="m-0" style={{ fontSize: 16.5, fontWeight: 800 }}>
+                <h2 id="my-tasks-heading" className="m-0" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
                   המשימות שלי
                 </h2>
                 {dueNow > 0 ? (
@@ -919,7 +919,7 @@ export default function DashboardPage() {
               style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
             >
               <div className="mb-2 flex items-center gap-2">
-                <h2 id="coop-heading" className="m-0 flex items-center gap-2" style={{ fontSize: 16.5, fontWeight: 800 }}>
+                <h2 id="coop-heading" className="m-0 flex items-center gap-2" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
                   <IconHandshake s={16} /> שת&quot;פים
                 </h2>
                 <Link

@@ -364,8 +364,8 @@ export default function SignupPage(): React.JSX.Element {
                     />
                     <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-baseline justify-between gap-2">
-                        <strong style={{ fontSize: 16 }}>{plan.name}</strong>
-                        <span style={{ fontSize: 15, fontWeight: 800 }}>
+                        <strong style={{ fontSize: "var(--type-button)" }}>{plan.name}</strong>
+                        <span style={{ fontSize: "var(--type-body-sm)", fontWeight: 800 }}>
                           {plan.monthlyPrice}
                           {/*
                             „חינם / חודש” קורא כמו מבצע לחודש הראשון,

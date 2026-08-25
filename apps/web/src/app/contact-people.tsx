@@ -191,7 +191,7 @@ export function ContactPeople({
         <h2
           id="people-heading"
           className="m-0"
-          style={{ fontSize: 16.5, fontWeight: 800 }}
+          style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
         >
           אנשי קשר וטלפונים
         </h2>

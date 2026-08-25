@@ -109,7 +109,7 @@ export function NetworkPropertyMatches({ buyerId }: { buyerId: string }) {
       <h2
         id="network-offers-heading"
         className="m-0 mb-1"
-        style={{ fontSize: 16.5, fontWeight: 800 }}
+        style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
       >
         <IconHome s={16} /> נכסים מהרשת
       </h2>

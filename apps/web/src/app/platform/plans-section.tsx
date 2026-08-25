@@ -458,7 +458,7 @@ export function PlansSection({
           className="mb-3 rounded-xl border p-3.5"
           style={{ borderColor: "var(--color-primary-accent)", background: "var(--color-bg)" }}
         >
-          <h3 className="m-0 mb-2" style={{ fontSize: 16, fontWeight: 800 }}>
+          <h3 className="m-0 mb-2" style={{ fontSize: "var(--type-button)", fontWeight: 800 }}>
             מסלול חדש
           </h3>
           <label className="mb-2.5 block text-sm font-semibold">
@@ -506,7 +506,7 @@ export function PlansSection({
                 style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
               >
                 <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                  <h3 className="m-0" style={{ fontSize: 16, fontWeight: 800 }}>
+                  <h3 className="m-0" style={{ fontSize: "var(--type-button)", fontWeight: 800 }}>
                     {isEditing ? draft.name : plan.name}{" "}
                     <span dir="ltr" className="font-mono text-sm" style={{ color: "var(--color-text-muted)" }}>
                       {plan.code}

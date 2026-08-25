@@ -234,7 +234,7 @@ export default function CallsPage() {
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <h1 className="m-0" style={{ fontSize: 22, fontWeight: 800 }}>
+        <h1 className="m-0" style={{ fontSize: "var(--type-panel)", fontWeight: 800 }}>
           שיחות
         </h1>
         {mayEdit ? (
@@ -477,7 +477,7 @@ export default function CallsPage() {
                 style={{ borderBottom: "1px solid var(--color-card-head-border)" }}
               >
                 <div style={{ lineHeight: 1.35 }}>
-                  <h2 className="m-0" style={{ fontSize: 18, fontWeight: 800 }}>
+                  <h2 className="m-0" style={{ fontSize: "calc(18 / 16 * 1rem)", fontWeight: 800 }}>
                     {selected.contactName ?? selected.phone ?? "לא מזוהה"}
                   </h2>
                   <p className="m-0 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>

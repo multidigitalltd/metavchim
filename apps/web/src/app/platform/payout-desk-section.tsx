@@ -138,7 +138,7 @@ export function PayoutDeskSection(): React.JSX.Element {
               <div className="flex flex-wrap items-baseline gap-2">
                 <b className="text-[length:var(--type-button)]">{shekels(row.amountAgorot)} ₪</b>
                 <span>{row.tenantName}</span>
-                <span style={{ color: STATUS_COLOR[row.status], fontWeight: 700, fontSize: 14 }}>
+                <span style={{ color: STATUS_COLOR[row.status], fontWeight: 700, fontSize: "var(--type-caption)" }}>
                   {PAYOUT_STATUS_LABEL[row.status]}
                 </span>
                 <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>

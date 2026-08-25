@@ -96,7 +96,7 @@ export default function GuidesPage() {
             className="mv-list-card px-5 py-[18px]"
             style={{ scrollMarginTop: 80 }}
           >
-            <h2 id={`gh-${guide.id}`} className="m-0 mb-1" style={{ fontSize: 18, fontWeight: 800 }}>
+            <h2 id={`gh-${guide.id}`} className="m-0 mb-1" style={{ fontSize: "calc(18 / 16 * 1rem)", fontWeight: 800 }}>
               {guide.title}
             </h2>
             <p className="m-0 mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>

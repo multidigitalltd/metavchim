@@ -478,7 +478,7 @@ export default function PropertyDetailPage({
         <div className="flex flex-wrap items-start gap-4">
           <div>
             <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="m-0" style={{ fontSize: 23, fontWeight: 800 }}>
+              <h1 className="m-0" style={{ fontSize: "calc(23 / 16 * 1rem)", fontWeight: 800 }}>
                 {property.marketingTitle ?? (address || "נכס")}
               </h1>
               <label>
@@ -522,7 +522,7 @@ export default function PropertyDetailPage({
             </p>
           </div>
           <div className="ms-auto text-start">
-            <div style={{ fontSize: 25, fontWeight: 800 }}>
+            <div style={{ fontSize: "calc(25 / 16 * 1rem)", fontWeight: 800 }}>
               {formatPrice(property.priceAgorot)}
             </div>
             <div className="mt-[9px] flex flex-wrap gap-2">
@@ -706,7 +706,7 @@ export default function PropertyDetailPage({
               <h2
                 id="details-heading"
                 className="m-0 mb-3.5"
-                style={{ fontSize: 16.5, fontWeight: 800 }}
+                style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
               >
                 פרטי הנכס
               </h2>
@@ -875,7 +875,7 @@ export default function PropertyDetailPage({
               <h2
                 id="media-heading"
                 className="m-0 mb-3"
-                style={{ fontSize: 16.5, fontWeight: 800 }}
+                style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
               >
                 תמונות
               </h2>
@@ -954,7 +954,7 @@ export default function PropertyDetailPage({
               <h2
                 id="matches-heading"
                 className="m-0"
-                style={{ fontSize: 16.5, fontWeight: 800 }}
+                style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
               >
                 קונים מתאימים מהמאגר
               </h2>

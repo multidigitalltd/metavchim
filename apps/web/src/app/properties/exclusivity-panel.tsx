@@ -138,7 +138,7 @@ export function ExclusivityPanel({
   return (
     <section className="mv-list-card px-[22px] py-[18px]" aria-labelledby="exclusivity-heading">
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h2 id="exclusivity-heading" className="m-0" style={{ fontSize: 16.5, fontWeight: 800 }}>
+        <h2 id="exclusivity-heading" className="m-0" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
           בלעדיות
         </h2>
         {data ? (

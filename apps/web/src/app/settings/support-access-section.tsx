@@ -61,7 +61,7 @@ export function SupportAccessSection(): React.JSX.Element {
 
   return (
     <section className="mv-list-card px-5 py-[17px]" aria-labelledby="support-access-heading">
-      <h2 id="support-access-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
+      <h2 id="support-access-heading" className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
         גישת תמיכה
       </h2>
       <p className="m-0 mb-3 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>

@@ -293,14 +293,14 @@ export default function BuyerDetailPage({
             background: "var(--color-primary-soft)",
             color: "var(--color-primary)",
             fontWeight: 800,
-            fontSize: 19,
+            fontSize: "var(--type-screen-title)",
           }}
         >
           {initials(buyer.contact.name)}
         </span>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="m-0" style={{ fontSize: 21, fontWeight: 800 }}>
+            <h1 className="m-0" style={{ fontSize: "calc(21 / 16 * 1rem)", fontWeight: 800 }}>
               {buyer.contact.name}
             </h1>
             {/*
@@ -427,7 +427,7 @@ export default function BuyerDetailPage({
                 <h2
                   id="profile-heading"
                   className="m-0"
-                  style={{ fontSize: 16.5, fontWeight: 800 }}
+                  style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
                 >
                   פרטי חיפוש
                 </h2>
@@ -489,7 +489,7 @@ export default function BuyerDetailPage({
               <h2
                 id="req-heading"
                 className="m-0 mb-3"
-                style={{ fontSize: 16.5, fontWeight: 800 }}
+                style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
               >
                 מה הוא מחפש
               </h2>
@@ -502,7 +502,7 @@ export default function BuyerDetailPage({
               </div>
               <div
                 className="mb-[13px]"
-                style={{ fontSize: 20, fontWeight: 800 }}
+                style={{ fontSize: "var(--type-metric)", fontWeight: 800 }}
               >
                 {buyer.requirements.budgetMaxAgorot === undefined
                   ? "תקציב לא צוין"
@@ -754,7 +754,7 @@ export default function BuyerDetailPage({
               <h2
                 id="matches-heading"
                 className="m-0 mb-1"
-                style={{ fontSize: 16.5, fontWeight: 800 }}
+                style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
               >
                 נכסים מתאימים
               </h2>
@@ -868,7 +868,7 @@ export default function BuyerDetailPage({
           <section className="mv-list-card px-[22px] py-[18px]">
             <h2
               className="m-0 mb-2"
-              style={{ fontSize: 16.5, fontWeight: 800 }}
+              style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
             >
               היסטוריית הצעות
             </h2>

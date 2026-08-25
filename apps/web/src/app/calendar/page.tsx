@@ -410,7 +410,7 @@ export default function CalendarPage() {
                 מחר היא חוזרת, כי העבודה עצמה עדיין פתוחה.
               */}
               <div className="flex items-start gap-2">
-                <h2 id="pending-tours-heading" className="m-0 mb-2.5 flex-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
+                <h2 id="pending-tours-heading" className="m-0 mb-2.5 flex-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
                   סיורים שהתקיימו — וטרם תועדה תוצאה
                 </h2>
                 <button
@@ -488,7 +488,7 @@ export default function CalendarPage() {
             if (upcoming.length === 0) return null;
             return (
               <section className="mv-list-card mb-[18px] px-5 py-4" aria-labelledby="upcoming-heading">
-                <h2 id="upcoming-heading" className="m-0 mb-2.5" style={{ fontSize: 16.5, fontWeight: 800 }}>
+                <h2 id="upcoming-heading" className="m-0 mb-2.5" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
                   הפגישות הקרובות
                 </h2>
                 {upcoming.map((a) => (

@@ -85,7 +85,7 @@ export function PropertyOwner({
   return (
     <section className="mv-list-card mb-[18px] px-5 py-[17px]" aria-labelledby="owner-heading">
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="owner-heading" className="m-0" style={{ fontSize: 16.5, fontWeight: 800 }}>
+        <h2 id="owner-heading" className="m-0" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
           בעל הנכס
         </h2>
         {owner ? (

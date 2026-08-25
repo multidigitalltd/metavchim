@@ -120,7 +120,7 @@ export function AgentUsageSection(): React.JSX.Element {
     <section className="mv-list-card px-5 py-[17px]" aria-labelledby="agent-usage-heading">
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <IconSparkle s={20} />
-        <h2 id="agent-usage-heading" className="m-0" style={{ fontSize: 18, fontWeight: 800 }}>
+        <h2 id="agent-usage-heading" className="m-0" style={{ fontSize: "calc(18 / 16 * 1rem)", fontWeight: 800 }}>
           שימוש ועלות של הסוכן
         </h2>
         <span className="mv-tag" style={{ background: "var(--color-hover-soft)" }}>
@@ -189,7 +189,7 @@ export function AgentUsageSection(): React.JSX.Element {
 
       {report.perTenant.length > 1 ? (
         <div className="mb-4">
-          <h3 className="m-0 mb-2" style={{ fontSize: 16, fontWeight: 700 }}>
+          <h3 className="m-0 mb-2" style={{ fontSize: "var(--type-button)", fontWeight: 700 }}>
             לפי משרד
           </h3>
           <ul className="m-0 list-none p-0">
@@ -264,7 +264,7 @@ function Stat({
         {icon}
         {label}
       </span>
-      <strong style={{ fontSize: 20, fontWeight: 800, color }}>{value}</strong>
+      <strong style={{ fontSize: "var(--type-metric)", fontWeight: 800, color }}>{value}</strong>
       <span style={{ color: "var(--color-text-muted)" }}>{sub}</span>
     </div>
   );

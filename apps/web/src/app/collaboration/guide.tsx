@@ -89,7 +89,7 @@ export function CollaborationGuide() {
       <h2
         id="coop-guide-heading"
         className="m-0 mb-1"
-        style={{ fontSize: 17, fontWeight: 800 }}
+        style={{ fontSize: "calc(17 / 16 * 1rem)", fontWeight: 800 }}
       >
         איך עובדת רשת שיתופי הפעולה
       </h2>

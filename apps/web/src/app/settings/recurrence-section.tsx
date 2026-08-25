@@ -124,7 +124,7 @@ export function RecurrenceSection(): React.JSX.Element {
 
   return (
     <section className="mv-list-card mt-[18px] px-5 py-4" aria-labelledby="recurrence-heading">
-      <h2 id="recurrence-heading" className="m-0 mb-1" style={{ fontSize: 16.5, fontWeight: 800 }}>
+      <h2 id="recurrence-heading" className="m-0 mb-1" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
         משימות אוטומטיות קבועות
       </h2>
       <p className="m-0 mb-3 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
