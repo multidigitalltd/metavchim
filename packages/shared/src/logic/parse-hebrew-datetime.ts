@@ -306,6 +306,14 @@ function offsetAt(
    * ולכן הוא נשאר מחוץ לתחום.
    */
   if (unit === undefined) {
+    /*
+     * **ורק אחרי „בעוד”.** „תזכיר לי לקנות עוד 2 תפוחים” אינו מועד,
+     * והצורה הזו החזירה עליו שעתיים — תאריך יעד שאיש לא ביקש
+     * (ביקורת Codex). התאימות נועדה ל„בעוד 2” בלבד, שהוא מה שהביטוי
+     * הישן תמך בו; „עוד” סתם הוא ספירה של דברים לפחות באותה מידה
+     * שהוא זמן.
+     */
+    if (lead !== "בעוד") return null;
     if (!/^\d+$/u.test(first)) return null;
     const fraction = fractionAt(secondWord);
     if (fraction !== undefined) {
@@ -371,14 +379,28 @@ export interface RelativeOffset {
  *
  * ## תיקון אינו שלילה
  *
- * הסימן חייב להיות **המילה האחרונה לפני הביטוי הבא** — רק פיסוק
- * ורווחים אחריו. „לא” של תיקון עומד לבדו: „עוד שעה, לא, בעוד
- * שעתיים”. „לא” של שלילה ממשיך למשפט: „המסמך **לא צריך** להגיע
- * בעוד יומיים” — וקריאתו כתיקון העבירה את התזכורת למועד המסמך
- * (ביקורת Codex). הכישלון הבטוח הוא להשאיר את הראשון; המסוכן הוא
- * להחליף אותו בגלל שלילה של פסוקית אחרת.
+ * הסימן חייב להיות **המילה האחרונה לפני הביטוי הבא**. „המסמך **לא
+ * צריך** להגיע בעוד יומיים” ממשיך לפועל, וקריאתו כתיקון העבירה את
+ * התזכורת למועד המסמך (ביקורת Codex).
+ *
+ * ## ולמה „לא” נבדק אחרת מכולן
+ *
+ * „בעצם” ו„סליחה” הן תיקון מעצם עצמן. „לא” אינה: היא גם שוללת את
+ * מה שבא **אחריה**. „תזכיר לי בעוד שעה, **לא בעוד שעתיים**” דוחה
+ * את השעתיים במפורש — וקריאתה כתיקון קבעה את התזכורת בדיוק למה
+ * שנדחה (ביקורת Codex). מה שמבדיל הוא הפיסוק: „לא**,** בעוד
+ * שעתיים” הוא תיקון; „לא בעוד שעתיים” הוא שלילה.
+ *
+ * הכישלון הבטוח הוא להשאיר את הראשון. המסוכן הוא לבחור דווקא את מה
+ * שהדובר פסל.
  */
-const CORRECTION = /(?<![\p{L}\p{N}])(לא|סליחה|בעצם|טעות|תיקון)[^\p{L}\p{N}]*$/u;
+const CORRECTION_WORD = /(?<![\p{L}\p{N}])(סליחה|בעצם|טעות|תיקון)[^\p{L}\p{N}]*$/u;
+const CORRECTION_NOT = /(?<![\p{L}\p{N}])לא\s*[^\s\p{L}\p{N}][^\p{L}\p{N}]*$/u;
+
+/** האם הטקסט שבין שני הביטויים מסתיים בסימן תיקון. */
+function isCorrection(between: string): boolean {
+  return CORRECTION_WORD.test(between) || CORRECTION_NOT.test(between);
+}
 
 export function parseRelativeOffset(text: string): RelativeOffset | null {
   /*
@@ -423,8 +445,7 @@ export function parseRelativeOffset(text: string): RelativeOffset | null {
       masks,
     };
     masks.push({ start: found.start, end: found.end });
-    const corrects =
-      previousEnd !== null && CORRECTION.test(text.slice(previousEnd, found.start));
+    const corrects = previousEnd !== null && isCorrection(text.slice(previousEnd, found.start));
     previousEnd = found.end;
 
     if (found.ms === null) {
@@ -622,16 +643,42 @@ function correctedToCalendar(text: string, offsetEnd: number): boolean {
   const after = text.slice(offsetEnd);
   const marker = /(?<![\p{L}\p{N}])(לא|סליחה|בעצם|טעות|תיקון)(?![\p{L}\p{N}])/u.exec(after);
   if (marker === null || marker.index === undefined) return false;
-  // הלוח חייב להיות צמוד לסימן — אחרת „לא” של שלילה בפסוקית אחרת
-  // עם יום שבמקרה מופיע בהמשך היה מוחק את ההיסט
-  const tail = after.slice(marker.index + marker[0].length).replace(/^[^\p{L}\p{N}]+/u, "");
+  const gap = after.slice(marker.index + marker[0].length);
+  /*
+   * ‎„לא” דורשת פיסוק מפריד, כמו בבחירה בין שני היסטים: „תזכיר לי
+   * בעוד שעה, **לא מחר**” דוחה את מחר במפורש, וקריאתה כתיקון קבעה
+   * את התזכורת דווקא ליום שנפסל (ביקורת Codex).
+   */
+  if (marker[1] === "לא" && !/^\s*[^\s\p{L}\p{N}]/u.test(gap)) return false;
+  // הלוח חייב להיות צמוד לסימן — אחרת יום שמופיע במקרה בהמשך המשפט
+  // היה מוחק את ההיסט
+  const tail = gap.replace(/^[^\p{L}\p{N}]+/u, "");
   const calendarStart =
     /^(מחר|מחרתיים|היום|ב?יום\s+(ראשון|שני|שלישי|רביעי|חמישי|שישי)|ב?שבת|ב?מוצ["״]ש)/u;
   return calendarStart.test(tail) || parseExplicitDate(tail.slice(0, 30)) !== undefined;
 }
 
+/**
+ * „לא מחר” — **יום שנשלל אינו יום.**
+ *
+ * מילות היום גוברות על היסט מעצם נוכחותן, וזה נכון כשהן נאמרו.
+ * „תזכיר לי בעוד שעה, לא מחר” אומר את ההפך: הדובר פסל את מחר, וה
+ * שלילה הזאת קבעה את התזכורת בדיוק ליום שנדחה (ביקורת Codex).
+ *
+ * ההסתרה היא ברווחים ולא במחיקה, כדי שהאינדקסים יישארו תקפים —
+ * גבולות הביטויים היחסיים נמדדים על אותו טקסט.
+ *
+ * ‎`לא` בלי פיסוק בלבד: „לא**,** מחר” הוא תיקון **אל** מחר, והוא
+ * נשאר.
+ */
+const NEGATED_CALENDAR =
+  /(?<![\p{L}\p{N}])לא\s+(מחר|מחרתיים|היום|ב?יום\s+(?:ראשון|שני|שלישי|רביעי|חמישי|שישי)|ב?שבת)(?![\p{L}\p{N}])/gu;
+
 export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTime {
-  const text = transcript.replace(/\s+/gu, " ").trim();
+  const text = transcript
+    .replace(/\s+/gu, " ")
+    .trim()
+    .replace(NEGATED_CALENDAR, (match) => " ".repeat(match.length));
   const relative = parseRelativeOffset(text);
 
   /*
