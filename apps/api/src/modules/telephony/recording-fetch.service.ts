@@ -184,17 +184,6 @@ type PullResult = "stored" | "refused" | "other";
 interface RecordingJob {
   callId: string;
   /**
-   * החותמת שהייתה על השורה **לפני** שהסבב תפס אותה.
-   *
-   * הסבב מסמן את כל השורות שנבחרו בבת אחת, וזה מה שמונע משתי הרצות
-   * לתפוס את אותן שורות. אבל מרגע שיש עצירה באמצע, השורות שלא הגיע
-   * אליהן התור נשארות מסומנות בלי שנגענו בהן — והסימון הזה מוציא
-   * אותן מהתור לחצי שעה, ואם הן ישנות מחלון הוויתור הוא מוציא אותן
-   * לצמיתות (ביקורת Codex). שמירת הערך הקודם היא מה שמאפשר להחזיר
-   * אותן **בדיוק** למצב שבו היו.
-   */
-  previousAttemptAt: Date | null;
-  /**
    * מועד השיחה — נדרש לחלון הזמן של `recordings/list`.
    *
    * הרשימה של 015 מתבקשת בטווח זמנים, ולכן בלי המועד אין דרך לשאול
@@ -306,20 +295,13 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
         refusalsInARow = result === "refused" ? refusalsInARow + 1 : 0;
         if (refusalsInARow >= REFUSALS_BEFORE_PAUSE) {
           /*
-           * ‎**מה שנעצר חייב לחזור לתור, ולא רק „לא להימשך”.**
-           *
-           * כתבתי שהעצירה אינה מאבדת דבר כי „התנאי לשליפה עדיין
-           * מתקיים”. זה לא היה נכון: `pendingFor` מסמן את כל השורות
-           * שנבחרו **לפני** הלולאה, ולכן אלה שלא הגיע אליהן התור
-           * יוצאות מהתור לחצי שעה — ואם הן ישנות מחלון הוויתור,
-           * לצמיתות, כי רק שורה בלי חותמת נכנסת בגיל כזה. ייבוא
-           * הקלטות היסטוריות הוא בדיוק המקרה שבו זה קורה.
+           * ‎**כאן אין מה להחזיר.** השורות שלא הגיע אליהן התור לא
+           * סומנו מלכתחילה — הסימון נעשה לכל שיחה ברגע שמתחילים
+           * לטפל בה — ולכן הן נשארות בתור כפי שהיו. ראו `claim`.
            */
-          const skipped = jobs.slice(index + 1);
-          await this.restoreAttempt(skipped);
           this.logger.warn(
             `${refusalsInARow} סירובים רצופים מ-015 — הסבב נעצר, ` +
-              `${skipped.length} הקלטות הוחזרו לתור`,
+              `${jobs.length - index - 1} הקלטות ממתינות לסבב הבא`,
           );
           break;
         }
@@ -669,7 +651,6 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
           providerCallId: true,
           providerRecordingPath: true,
           occurredAt: true,
-          providerRecordingAttemptAt: true,
         },
         orderBy: [
           { providerRecordingAttemptAt: { sort: "asc", nulls: "first" } },
@@ -680,16 +661,10 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       });
       if (calls.length === 0) return [];
 
-      await tx.call.updateMany({
-        where: { id: { in: calls.map((call) => call.id) }, tenantId },
-        data: { providerRecordingAttemptAt: new Date(now) },
-      });
-
       return calls.map((call) => ({
         callId: call.id,
         tenantId,
         occurredAt: call.occurredAt,
-        previousAttemptAt: call.providerRecordingAttemptAt,
         providerCallId: call.providerCallId!,
         recordingPath: call.providerRecordingPath!,
         secretsEncrypted: integration.secretsEncrypted,
@@ -705,51 +680,6 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
    * מותנית: אם בינתיים כבר נמשכה הקלטה (סבב מקביל, העלאה ידנית),
    * אסור לסמן את השיחה ככושלת.
    */
-  /**
-   * החזרת שורות שהסבב לא הגיע אליהן למצב שבו היו.
-   *
-   * ‎**הערך הקודם ולא `null`.** איפוס לריק היה הופך שורה ישנה
-   * שכבר ויתרנו עליה לזכאית לנצח — התנאי מכניס כל שורה בלי חותמת
-   * ללא הגבלת גיל. מה שנדרש כאן אינו „לפתוח מחדש” אלא **לבטל את
-   * התפיסה**, ולכן נכתב בדיוק מה שהיה.
-   *
-   * ‎`recordingKey: null` כמו בכל כתיבה אחרת כאן: אם בינתיים
-   * ההקלטה כבר נמשכה, אין להחזיר אותה לתור.
-   */
-  private async restoreAttempt(jobs: readonly RecordingJob[]): Promise<void> {
-    const byTenant = new Map<string, RecordingJob[]>();
-    for (const job of jobs) {
-      const list = byTenant.get(job.tenantId);
-      if (list) list.push(job);
-      else byTenant.set(job.tenantId, [job]);
-    }
-    for (const [tenantId, list] of byTenant) {
-      /*
-       * קיבוץ לפי הערך שיש להחזיר — רוב השורות חולקות אותו (בדרך
-       * כלל `null`), ולכן זו כתיבה אחת או שתיים ולא אחת לכל שורה.
-       */
-      const byValue = new Map<number | null, string[]>();
-      for (const job of list) {
-        const key = job.previousAttemptAt === null ? null : job.previousAttemptAt.getTime();
-        const ids = byValue.get(key);
-        if (ids) ids.push(job.callId);
-        else byValue.set(key, [job.callId]);
-      }
-      await this.prisma
-        .withExplicitTenant(tenantId, async (tx) => {
-          for (const [value, ids] of byValue) {
-            await tx.call.updateMany({
-              where: { id: { in: ids }, tenantId, recordingKey: null },
-              data: { providerRecordingAttemptAt: value === null ? null : new Date(value) },
-            });
-          }
-        })
-        .catch((error: unknown) =>
-          this.logger.warn(`החזרת הקלטות לתור נכשלה (${tenantId}): ${String(error)}`),
-        );
-    }
-  }
-
   private async note(job: RecordingJob, reason: string, detail?: string): Promise<void> {
     await this.prisma
       .withExplicitTenant(job.tenantId, (tx) =>
@@ -771,7 +701,42 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       );
   }
 
+  /**
+   * סימון שיחה כ„נוסתה” — **ברגע שמתחילים בה, ולא בבחירה.**
+   *
+   * הסימון היה כתיבה גורפת על כל השורות שנבחרו, לפני הלולאה. זה
+   * מנע משתי הרצות מקבילות לתפוס את אותן שורות, אבל יצר מצב שבו
+   * שורה שהעצירה דילגה עליה מסומנת כאילו נוסתה — ובגיל שמעבר
+   * לחלון הוויתור זה מוציא אותה מהתור **לצמיתות** (ביקורת Codex).
+   *
+   * ניסיתי קודם להחזיר את הדילוגים למצבם, וגם זה נמצא שביר: כתיבת
+   * ההחזרה עצמה יכולה להיכשל, וכשל כזה מחזיר בדיוק את אותה אבידה
+   * דרך הדלת האחורית. סימון לכל שיחה בתורה **מסיר את המחלקה
+   * כולה**: מה שלא טופל לא סומן, ואין מה לתקן.
+   *
+   * ‎**מה שנמסר בתמורה:** שתי הרצות בתהליכים נפרדים יכולות לבחור
+   * את אותה שורה ולמשוך אותה פעמיים. זו עבודה כפולה ולא נזק —
+   * ‎`storeAudio` כותב את אותו קובץ — ומול אובדן קבוע של הקלטה זו
+   * עסקה משתלמת בבירור.
+   *
+   * כשל בכתיבה הזו אינו עוצר את המשיכה: התוצאה היחידה היא שהשיחה
+   * תיבחר שוב בסבב הבא, וזה בדיוק מה שרוצים ממנה.
+   */
+  private async claim(job: RecordingJob): Promise<void> {
+    await this.prisma
+      .withExplicitTenant(job.tenantId, (tx) =>
+        tx.call.updateMany({
+          where: { id: job.callId, tenantId: job.tenantId, recordingKey: null },
+          data: { providerRecordingAttemptAt: new Date() },
+        }),
+      )
+      .catch((error: unknown) =>
+        this.logger.warn(`סימון ניסיון משיכה נכשל (${job.callId}): ${String(error)}`),
+      );
+  }
+
   private async fetchOne(job: RecordingJob): Promise<PullResult> {
+    await this.claim(job);
     const ids = split015RecordingPath(job.recordingPath);
     if (!ids) {
       this.logger.warn(`נתיב הקלטה בצורה לא מוכרת: ${job.recordingPath}`);
