@@ -287,11 +287,28 @@ export function officeReportStats(report: unknown): { label: string; value: numb
  */
 export const AGENT_RESULT_LABEL_MAX = 40;
 
-/** כותרת חתוכה לאורך המרבי, עם סימן שהיא נחתכה. */
+/** הכותרת המוצגת — חתוכה, **עם סימן** שהיא נחתכה. */
 function clamp(label: string): string {
   return label.length <= AGENT_RESULT_LABEL_MAX
     ? label
     : `${label.slice(0, AGENT_RESULT_LABEL_MAX - 1)}…`;
+}
+
+/**
+ * הכותרת הנשמרת — אותו גבול, **בלי הסימן.**
+ *
+ * ההבדל בתו אחד הוא ההבדל בין שם שנמצא לשם שלא: הכותרת שנשמרת
+ * חוזרת בתור הבא כביטוי מזהה, ו-`SearchService` מוצאת רשומה בשתי
+ * דרכים — גיבוב מדויק של השם, וסריקה שבודקת `name.includes(phrase)`.
+ * „…” בסוף שוברת את שתיהן, ולכן שורה שהמתווך בדיוק ראה הייתה
+ * חוזרת כ„לא נמצא במאגר” (ביקורת Codex). רישא נקייה עדיין נמצאת
+ * בדרך השנייה.
+ *
+ * הגבול זהה לזה של התצוגה במכוון: מה שנראה ומה שנזכר חייבים
+ * להיחתך באותה נקודה, אחרת „השמינית” נשברת שוב.
+ */
+function remembered(label: string): string {
+  return label.slice(0, AGENT_RESULT_LABEL_MAX);
 }
 
 /**
@@ -302,15 +319,18 @@ function clamp(label: string): string {
  * שיתווסף מחר היה נכנס בלי חיתוך — בדיוק צורת הכפילות שהביאה
  * לכאן. מעבר אחד על התוצאה מבטיח שגם הכותרת המוצגת וגם זו שנשמרת
  * לזיכרון נחתכו **באותו מקום בדיוק**.
+ *
+ * `memoryLabel` נשאר חסר כשאין הבדל בין השתיים — כך „יש כאן משהו
+ * לזכור אחרת” נשאר סימן ולא רעש על כל שורה.
  */
 function bounded(list: AgentResultList): AgentResultList {
   return {
     ...list,
-    rows: list.rows.map((row) => ({
-      ...row,
-      label: clamp(row.label),
-      ...(row.memoryLabel !== undefined ? { memoryLabel: clamp(row.memoryLabel) } : {}),
-    })),
+    rows: list.rows.map((row) => {
+      const label = clamp(row.label);
+      const memory = remembered(row.memoryLabel ?? row.label);
+      return { ...row, label, ...(memory === label ? {} : { memoryLabel: memory }) };
+    }),
   };
 }
 

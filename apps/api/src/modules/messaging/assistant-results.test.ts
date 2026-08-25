@@ -89,6 +89,23 @@ describe("historySummary", () => {
     }));
     const summary = historySummary("נמצאו 8 קונים", { buyers });
     expect(summary.length).toBeLessThan(600);
-    expect(summary.endsWith("…")).toBe(true);
+    expect(summary.split(", ")).toHaveLength(8);
+  });
+
+  /*
+   * מה שנשמר חוזר בתור הבא כביטוי מזהה, והחיפוש מוצא רשומה לפי
+   * `name.includes(phrase)`. שם שנקטע באמצע מפני שההודעה הייתה
+   * ארוכה הוא מפתח חיפוש שבור, וההודעה — לעומתו — היא ניסוח שהמודל
+   * מייצר מחדש ממילא.
+   */
+  it("הודעה ארוכה נחתכת, והשמות נשארים שלמים", () => {
+    const buyers = Array.from({ length: 8 }, (_, i) => ({
+      id: String(i),
+      name: `קונה מספר ${i}`,
+      cities: [],
+    }));
+    const summary = historySummary("א".repeat(900), { buyers });
+    expect(summary).toHaveLength(600);
+    expect(summary.endsWith("קונה מספר 7")).toBe(true);
   });
 });

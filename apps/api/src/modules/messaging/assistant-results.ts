@@ -127,6 +127,15 @@ const MAX_SUMMARY = 600;
 export function historySummary(message: string, data: unknown): string {
   const labels = resultRows(data).map((row) => row.memoryLabel ?? row.label);
   const head = message.replaceAll("\n", " ").trim();
-  const full = labels.length === 0 ? head : `${head} | לפי הסדר: ${labels.join(", ")}`;
-  return full.slice(0, MAX_SUMMARY);
+  if (labels.length === 0) return head.slice(0, MAX_SUMMARY);
+  /*
+   * **התקציב שמור לשמות, וההודעה היא זו שנחתכת.**
+   *
+   * חיתוך של המחרוזת המחוברת היה חותך את השם האחרון באמצע ברגע
+   * שההודעה ארוכה — ושם קטוע אינו רק פחות קריא, הוא **מפתח חיפוש
+   * שבור**: התור הבא מחזיר „לא נמצא במאגר” על שורה שהמתווך בדיוק
+   * ראה. ההודעה, לעומת זאת, היא ניסוח שהמודל מייצר מחדש ממילא.
+   */
+  const tail = ` | לפי הסדר: ${labels.join(", ")}`;
+  return `${head.slice(0, Math.max(0, MAX_SUMMARY - tail.length))}${tail}`.slice(0, MAX_SUMMARY);
 }

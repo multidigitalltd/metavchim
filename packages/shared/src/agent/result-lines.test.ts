@@ -311,7 +311,7 @@ describe("מתקשר לא מוכר — המספר בתשובה, ולא בזיכ�
     expect(agentResultList(calls)!.rows[0]!.memoryLabel).toBe("מספר לא מזוהה");
   });
 
-  it("שיחה עם שם אינה נושאת כותרת זיכרון נפרדת", () => {
+  it("שיחה עם שם קצר אינה נושאת כותרת זיכרון נפרדת", () => {
     const list = agentResultList({
       calls: [{ ...calls.calls[0]!, contactName: "שרה לוי" }],
     })!;
@@ -342,6 +342,28 @@ describe("אורך הכותרת — התקציב של הזיכרון", () => {
   it("כותרת קצרה אינה נוגעת", () => {
     const list = agentResultList({ buyers: [{ id: "b", name: "משה כהן", cities: [] }] })!;
     expect(list.rows[0]!.label).toBe("משה כהן");
+    expect(list.rows[0]!.memoryLabel).toBeUndefined();
+  });
+
+  /*
+   * הכותרת שנשמרת חוזרת בתור הבא כביטוי מזהה, והחיפוש מוצא רשומה
+   * לפי גיבוב מדויק או לפי `name.includes(phrase)`. „…” שוברת את
+   * שתי הדרכים, ולכן שורה שהמתווך בדיוק ראה הייתה חוזרת כ„לא נמצא
+   * במאגר” (ביקורת Codex).
+   */
+  it("מה שנשמר הוא רישא נקייה — מפתח שהחיפוש עדיין מוצא", () => {
+    const list = agentResultList({ buyers: [{ id: "b", name: long, cities: [] }] })!;
+    const memory = list.rows[0]!.memoryLabel!;
+    expect(memory).not.toContain("…");
+    expect(memory).toHaveLength(AGENT_RESULT_LABEL_MAX);
+    expect(long.includes(memory)).toBe(true);
+  });
+
+  it("ושתי הכותרות נחתכות באותה נקודה", () => {
+    const row = agentResultList({ buyers: [{ id: "b", name: long, cities: [] }] })!.rows[0]!;
+    expect(row.label.slice(0, AGENT_RESULT_LABEL_MAX - 1)).toBe(
+      row.memoryLabel!.slice(0, AGENT_RESULT_LABEL_MAX - 1),
+    );
   });
 });
 
