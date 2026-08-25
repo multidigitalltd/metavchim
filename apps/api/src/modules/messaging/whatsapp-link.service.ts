@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Injectable,
   Logger,
   OnModuleDestroy,
@@ -163,6 +164,21 @@ export class WhatsAppLinkService implements OnModuleDestroy {
      */
     return this.prisma.$transaction(async (tx) => {
       await this.lock(tx, userId);
+      /*
+       * **והחשבון נבדק כאן, אחרי הנעילה.**
+       *
+       * הבקשה נכנסת עם הרשאה שנבדקה לפני התור, ובתוך התור עשויה
+       * להמתין מולה השבתה של אותו חשבון. ההשבתה מנתקת ומקדמת את
+       * הדור — אבל הנפקה שממשיכה אחריה כותבת קוד **חדש**, שהדור שלו
+       * תקין, ולכן ניתן לנצל אותו ולקשר מכשיר לחשבון מושבת. ברגע
+       * שהחשבון יופעל מחדש המכשיר שב לגישה מלאה בלי לאמת דבר — בדיוק
+       * ההתמדה שההשבתה נועדה למנוע (ביקורת Codex).
+       */
+      const [current] = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM users
+         WHERE id = ${userId} AND tenant_id = ${tenantId} AND is_active = TRUE
+         LIMIT 1`;
+      if (current === undefined) throw new ForbiddenException("החשבון אינו פעיל");
       return this.writeCode(tenantId, userId);
     });
   }
@@ -379,6 +395,17 @@ export class WhatsAppLinkService implements OnModuleDestroy {
          * תקף, גם אם הניצול שלו התחיל קודם.
          */
         if (generation !== undefined && (await this.generation(userId)) !== generation) return false;
+        /*
+         * **וגם הכתיבה עצמה אינה נוגעת בחשבון מושבת או זר.**
+         *
+         * ההנפקה כבר עוצרת שם, וזו שכבה שנייה: קישור לחשבון מושבת
+         * הוא בדיוק מה שההשבתה מבטלת, ואין מסלול שבו הוא נכון.
+         */
+        const [account] = await tx.$queryRaw<{ id: string }[]>`
+          SELECT id FROM users
+           WHERE id = ${userId} AND tenant_id = ${tenantId} AND is_active = TRUE
+           LIMIT 1`;
+        if (account === undefined) return false;
         /*
          * **וגם המצבה נבדקת כאן — בתוך הנעילה.**
          *

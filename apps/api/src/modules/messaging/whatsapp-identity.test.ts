@@ -406,17 +406,20 @@ describe("„בדיוק אחד” נבדק שוב, ובתוך התור של המ
   const link = readFileSync(new URL("./whatsapp-link.service.ts", import.meta.url), "utf8");
   const bind = link.slice(link.indexOf("private async bind("), link.indexOf("private async lock("));
 
+  /* רק ענף הצירוף לפי מספר — בדיקת החשבון שלפניו היא שאלה אחרת */
+  const phoneBranch = bind.slice(bind.indexOf("source === SOURCE_PHONE"));
+
   it("הצירוף סופר את כל בעלי המספר, לא את ההתאמה שלו", () => {
     // בלי סינון לפי המשתמש — אחרת „עדיין שלו” עונה כן גם בריבוי
-    expect(bind).not.toContain("WHERE id = ${userId}");
-    expect(bind).toContain("LIMIT 2");
-    expect(bind).toContain("matches.length !== 1");
-    expect(bind).toContain("matches[0]?.id !== userId");
+    expect(phoneBranch).not.toContain("WHERE id = ${userId}");
+    expect(phoneBranch).toContain("LIMIT 2");
+    expect(phoneBranch).toContain("matches.length !== 1");
+    expect(phoneBranch).toContain("matches[0]?.id !== userId");
   });
 
   it("והספירה נעשית אחרי נעילת המספר", () => {
-    const lockPhone = bind.indexOf("await this.lockPhone(tx, digits)");
-    const count = bind.indexOf("SELECT id FROM users");
+    const lockPhone = phoneBranch.indexOf("await this.lockPhone(tx, digits)");
+    const count = phoneBranch.indexOf("SELECT id FROM users");
     expect(lockPhone).toBeGreaterThan(-1);
     expect(count).toBeGreaterThan(lockPhone);
   });
@@ -439,6 +442,33 @@ describe("„בדיוק אחד” נבדק שוב, ובתוך התור של המ
     );
     const route = settings.slice(settings.indexOf("this.whatsappLinks.lockAccount(tx, id)"));
     expect(route.indexOf("lockPhone(tx, nextPhone)")).toBeLessThan(route.indexOf("tx.user.update"));
+  });
+});
+
+/*
+ * הבקשה נכנסת עם הרשאה שנבדקה לפני התור, ובתוכו עשויה להמתין מולה
+ * השבתה של אותו חשבון. ההשבתה מנתקת ומקדמת את הדור — אבל הנפקה
+ * שממשיכה אחריה כותבת קוד חדש ותקין, וניצולו מקשר מכשיר לחשבון
+ * מושבת שיחזור לגישה מלאה ברגע שיופעל.
+ */
+describe("חשבון מושבת אינו מקבל קוד ואינו נקשר", () => {
+  const link = readFileSync(new URL("./whatsapp-link.service.ts", import.meta.url), "utf8");
+
+  it("ההנפקה קוראת את החשבון מתוך הנעילה, לפני הכתיבה", () => {
+    const issue = link.slice(link.indexOf("async issueCode("), link.indexOf("private async writeCode("));
+    const lock = issue.indexOf("await this.lock(tx, userId)");
+    const read = issue.indexOf("is_active = TRUE");
+    const write = issue.indexOf("this.writeCode(");
+    expect(read).toBeGreaterThan(lock);
+    expect(write).toBeGreaterThan(read);
+    expect(issue).toContain("tenant_id = ${tenantId}");
+  });
+
+  it("וגם הכתיבה עצמה מסרבת לחשבון מושבת או זר", () => {
+    const bind = link.slice(link.indexOf("private async bind("), link.indexOf("private async lock("));
+    const check = bind.indexOf("AND tenant_id = ${tenantId} AND is_active = TRUE");
+    expect(check).toBeGreaterThan(bind.indexOf("await this.lock(tx, userId)"));
+    expect(check).toBeLessThan(bind.indexOf("tx.whatsAppLink.create"));
   });
 });
 
