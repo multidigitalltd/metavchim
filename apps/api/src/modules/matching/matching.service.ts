@@ -98,6 +98,16 @@ const NO_MATCHES: RecomputeResult = { matches: 0, opened: 0 };
  * סטטוסים ידניים (dismissed/offered) לעולם לא נדרסים ע"י חישוב מחדש —
  * החלטת המתווך גוברת על האלגוריתם.
  */
+/**
+ * כמה התאמות מוחזרות לכרטיס אחד — **קבוע אחד, כי הקורא צריך לדעת.**
+ *
+ * רשימה שהגיעה לתקרה אינה „כל ההתאמות”, והתשובה של הסוכן אמורה
+ * לומר זאת. כל עוד המספר היה כתוב פעמיים ב-`take` בלבד, הקורא לא
+ * יכול היה להשוות אליו — ולכן הציג עמוד חתוך כרשימה מלאה
+ * (ביקורת Codex).
+ */
+export const MATCH_LIST_LIMIT = 100;
+
 @Injectable()
 export class MatchingService {
   constructor(
@@ -595,7 +605,7 @@ export class MatchingService {
           status: { not: "dismissed" },
         },
         orderBy: { score: "desc" },
-        take: 100,
+        take: MATCH_LIST_LIMIT,
       });
 
       /*
@@ -656,7 +666,7 @@ export class MatchingService {
           status: { not: "dismissed" },
         },
         orderBy: { score: "desc" },
-        take: 100,
+        take: MATCH_LIST_LIMIT,
       });
 
       // שם הנכס לכל התאמה — לכרטיס הקונה (קובץ העיצוב); שאילתה אחת לעמוד

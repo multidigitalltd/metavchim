@@ -3,6 +3,8 @@
 import {
   APPOINTMENT_KIND_LABELS,
   COOP_DEAL_STAGE_LABELS,
+  agentResultList,
+  isAggregateResult,
   officeReportStats,
   type CoopDealStage,
 } from "@metavchim/shared";
@@ -134,8 +136,33 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
     callbacks?: CallbackRow[];
     calls?: CallRow[];
     deals?: DealRow[];
+    matches?: unknown[];
     report?: unknown;
   };
+
+  /*
+   * **תוצאת חיפוש כללי — לפני כל מקטע בודד.**
+   *
+   * `SearchService.search` מחזירה תמיד את כל המקטעים, כולל הריקים,
+   * ולכן שרשרת התנאים שלמטה זיהתה כל חיפוש כרשימת פגישות ריקה
+   * וענתה „אין פגישות”. אותו באג בדיוק היה בצד וואטסאפ, ולכן
+   * ההכרעה עצמה משותפת (`isAggregateResult`) ולא נכתבת כאן שוב.
+   *
+   * הרשימה המאוחדת מרונדרת מהשורות המשותפות — היא חוצה סוגים,
+   * ולכן אין לה JSX ייעודי. מקטע יחיד ממשיך לתצוגה העשירה שלו.
+   */
+  if (isAggregateResult(data)) {
+    return <SharedRows data={data} empty="לא נמצא כלום" />;
+  }
+
+  /*
+   * התאמות — הצורה היחידה שלא הוצגה כאן **בכלל**. הן חוצות סוגים
+   * (קונים לנכס, נכסים לקונה), ולכן הן מרונדרות מהשורות המשותפות
+   * ולא מ-JSX ייעודי.
+   */
+  if (Array.isArray(payload.matches)) {
+    return <SharedRows data={data} empty="אין התאמות פעילות" />;
+  }
 
   if (Array.isArray(payload.appointments)) {
     return (
@@ -356,6 +383,36 @@ export function AgentResults({ data }: { data: unknown }): React.JSX.Element | n
   }
 
   return null;
+}
+
+/**
+ * רשימה שנבנתה מהשורות המשותפות — לצורות שאין להן JSX ייעודי.
+ *
+ * אלה הצורות שחוצות סוגים: תוצאת חיפוש כללי והתאמות. הכותרת,
+ * הפרטים והקישור נגזרים ב-`agentResultList`, בדיוק כמו בוואטסאפ —
+ * ולכן שתי התשובות זהות בתוכן ונבדלות רק בצורה.
+ */
+function SharedRows({ data, empty }: { data: unknown; empty: string }): React.JSX.Element | null {
+  const list = agentResultList(data);
+  if (list === null) return null;
+  return (
+    <ResultList hasMore={list.hasMore} count={list.rows.length} noun={list.noun} empty={empty}>
+      {list.rows.map((row, index) => (
+        <li key={`${row.href ?? row.label}-${index}`} className="mv-result-row">
+          {row.href === undefined ? (
+            <span className="font-medium">{row.label}</span>
+          ) : (
+            <a href={row.href} className="font-medium underline">
+              {row.label}
+            </a>
+          )}
+          <span style={{ color: "var(--color-text-muted)" }}>
+            {[row.detail, row.phone].filter(Boolean).join(" · ")}
+          </span>
+        </li>
+      ))}
+    </ResultList>
+  );
 }
 
 function ResultList({

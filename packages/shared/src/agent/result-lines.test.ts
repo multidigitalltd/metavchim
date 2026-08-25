@@ -86,8 +86,8 @@ describe("דוח המשרד — אינו מערך, ולכן לא הוצג", () =
   });
 });
 
-describe("התאמות — מערך חשוף, שאף מסך לא זיהה", () => {
-  const matches = [
+describe("התאמות — הצורה שאף מסך לא זיהה", () => {
+  const rows = [
     {
       id: "m1",
       propertyId: "p1",
@@ -99,6 +99,7 @@ describe("התאמות — מערך חשוף, שאף מסך לא זיהה", () =
       buyerName: "משה כהן",
     },
   ];
+  const matches = { matches: rows };
 
   it("השם, הנכס והציון", () => {
     const text = agentResultText(matches)!;
@@ -113,18 +114,43 @@ describe("התאמות — מערך חשוף, שאף מסך לא זיהה", () =
    * רשימה נכונה לרשימה שכל שורה בה מתויגת בשם של ישות אחרת.
    */
   it("שורה שממוקדת בקונה — הנכס הוא הכותרת, ולא „קונה של סוכן אחר”", () => {
-    const text = agentResultText([{ ...matches[0], buyerName: null }])!;
+    const text = agentResultText({ matches: [{ ...rows[0]!, buyerName: null }] })!;
     expect(text).toContain("דירת 4 חדרים");
     expect(text).not.toContain("קונה של סוכן אחר");
     // והכתובת אינה מופיעה פעמיים — פעם ככותרת ופעם בפרטים
     expect(text.match(/דירת 4 חדרים/gu)).toHaveLength(1);
   });
 
+  /*
+   * מערך חשוף אינו יכול לשאת `hasMore` — ‏`JSON.stringify` משמיט
+   * מאפיינים שאינם אינדקסים — ולכן עמוד חתוך הוצג כרשימה מלאה
+   * (ביקורת Codex). העטיפה באובייקט היא מה שנותן להתאמות את אותו
+   * סימן קיטום שיש לכל רשימה אחרת.
+   */
+  it("עמוד חתוך של התאמות אומר שיש עוד", () => {
+    const many = Array.from({ length: 50 }, (_, i) => ({
+      id: String(i),
+      propertyId: "p1",
+      buyerId: String(i),
+      score: 80,
+      buyerName: `קונה ${i}`,
+    }));
+    const text = agentResultText({ matches: many, hasMore: true })!;
+    expect(text).toContain("ועוד 42 התאמות");
+    expect(text).toContain("יש עוד מעבר להם");
+  });
+
+  it("מערך חשוף כבר אינו צורה מוכרת — הוא לא יכול לשאת קיטום", () => {
+    expect(agentResultList(rows)).toBeNull();
+  });
+
   it("קונה של סוכן אחר ברשימה שמרכזה נכס — הנפילה האנונימית נשמרת", () => {
     // `listForProperty` מחזירה שורות בלי `property` מקונן
-    const text = agentResultText([
-      { id: "m2", propertyId: "p1", buyerId: "b2", score: 71, explanation: "עיר", buyerName: null },
-    ])!;
+    const text = agentResultText({
+      matches: [
+        { id: "m2", propertyId: "p1", buyerId: "b2", score: 71, explanation: "עיר", buyerName: null },
+      ],
+    })!;
     expect(text).toContain("קונה של סוכן אחר");
   });
 });
@@ -292,10 +318,52 @@ describe("חיפוש כללי — כל המקטעים חוזרים תמיד, ג�
     const text = agentResultText({
       ...search,
       buyers: [],
-      notes: [{ id: "n1", content: "אמר שהוא גמיש בקומה", createdAt: "2026-08-24T11:30:00Z" }],
+      notes: [
+        {
+          id: "n1",
+          content: "אמר שהוא גמיש בקומה",
+          createdAt: "2026-08-24T11:30:00Z",
+          buyerId: "b1",
+          entityLabel: "דנה לוי",
+        },
+      ],
     })!;
     expect(text).toContain("אמר שהוא גמיש בקומה");
     expect(text).not.toContain("לא נמצא כלום");
+  });
+
+  /*
+   * „מי אמר שהוא גמיש בקומה” נענה ב„הערה — אמר שהוא גמיש בקומה”,
+   * כלומר בחזרה על השאלה במקום בתשובה עליה (ביקורת Codex).
+   */
+  it("ההערה נושאת את שם הלקוח, ומקשרת לכרטיס שלו", () => {
+    const list = agentResultList({
+      ...search,
+      buyers: [],
+      notes: [
+        {
+          id: "n1",
+          content: "אמר שהוא גמיש בקומה",
+          createdAt: "2026-08-24T11:30:00Z",
+          buyerId: "b1",
+          leadId: null,
+          entityLabel: "דנה לוי",
+        },
+      ],
+    })!;
+    expect(list.rows[0]!.label).toBe("דנה לוי");
+    expect(list.rows[0]!.href).toBe("/buyers/b1");
+  });
+
+  it("כרטיס שנמחק בינתיים נופל ל„הערה” ולא לשורה בלי כותרת", () => {
+    const list = agentResultList({
+      ...search,
+      buyers: [],
+      notes: [
+        { id: "n1", content: "טקסט", createdAt: "2026-08-24T11:30:00Z", entityLabel: null },
+      ],
+    })!;
+    expect(list.rows[0]!.label).toBe("הערה");
   });
 
   it("חיפוש שלא מצא דבר אינו מוסיף שורה — הפעולה כבר ענתה", () => {

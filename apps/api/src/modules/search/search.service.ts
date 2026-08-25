@@ -62,6 +62,13 @@ export interface SearchResults {
     createdAt: Date;
     leadId: string | null;
     buyerId: string | null;
+    /**
+     * שם הלקוח שההערה נכתבה עליו — **התשובה לשאלה עצמה.**
+     *
+     * „מי אמר שהוא גמיש בקומה” נענה עד כה ב„הערה — אמר שהוא גמיש
+     * בקומה”, כלומר בחזרה על השאלה. `null` רק כשהכרטיס נמחק בינתיים.
+     */
+    entityLabel: string | null;
   }[];
 }
 
@@ -305,7 +312,7 @@ export class SearchService {
             appointments: appointments.map((a) => ({ ...a, title: a.title ?? "פגישה" })),
             tasks,
             calls: calls.map((c) => ({ ...c, summary: c.summary ?? "" })),
-            notes: await this.visibleNotes(tx, tenantId, notes),
+            notes: await this.labelNotes(tx, tenantId, await this.visibleNotes(tx, tenantId, notes)),
           }
         : { appointments: [], tasks: [], calls: [], notes: [] };
 
@@ -528,6 +535,76 @@ export class SearchService {
    * סוכן אחר — וזה בדיוק המידע המסחרי הרגיש ביותר במערכת (תקציב,
    * מניעים, מצב מו"מ).
    */
+  /**
+   * שם הלקוח לכל הערה — **אחרי סינון הנראות, לא לפניו.**
+   *
+   * הסדר אינו סגנון: `visibleNotes` כבר צמצמה לשמונה הערות שהמשתמש
+   * רשאי לראות, ולכן כאן נפתחים רק הכרטיסים שלהן. פענוח לפני הסינון
+   * היה מפענח שמות של לקוחות שהמשתמש אינו רשאי לראות בכלל — עלות
+   * מיותרת, וגרוע מכך, PII שנפתח בלי סיבה.
+   *
+   * שלוש שאילתות חסומות בגודלן (‏≤8 הערות): הליד/הקונה למזהה
+   * הכרטיס, והכרטיסים לשמות. שדה יחס אינו קיים בסכימה, ולכן
+   * ‎`contactId` נשלף במפורש.
+   */
+  private async labelNotes(
+    tx: TenantTx,
+    tenantId: string,
+    notes: {
+      id: string;
+      content: string;
+      createdAt: Date;
+      leadId: string | null;
+      buyerId: string | null;
+    }[],
+  ): Promise<SearchResults["notes"]> {
+    const leadIds = [...new Set(notes.map((n) => n.leadId).filter((id): id is string => id !== null))];
+    const buyerIds = [...new Set(notes.map((n) => n.buyerId).filter((id): id is string => id !== null))];
+    if (leadIds.length === 0 && buyerIds.length === 0) {
+      return notes.map((note) => ({ ...note, entityLabel: null }));
+    }
+
+    const [leads, buyers] = await Promise.all([
+      leadIds.length > 0
+        ? tx.lead.findMany({
+            where: { tenantId, id: { in: leadIds } },
+            select: { id: true, contactId: true },
+          })
+        : [],
+      buyerIds.length > 0
+        ? tx.buyer.findMany({
+            where: { tenantId, id: { in: buyerIds } },
+            select: { id: true, contactId: true },
+          })
+        : [],
+    ]);
+
+    const contactIds = [...new Set([...leads, ...buyers].map((row) => row.contactId))];
+    const contacts =
+      contactIds.length > 0
+        ? await tx.contact.findMany({
+            where: { tenantId, id: { in: contactIds } },
+            select: { id: true, nameEncrypted: true },
+          })
+        : [];
+    const nameByContact = new Map(
+      contacts.map((c) => [c.id, this.crypto.decrypt(c.nameEncrypted)] as const),
+    );
+    const nameByLead = new Map(
+      leads.map((l) => [l.id, nameByContact.get(l.contactId) ?? null] as const),
+    );
+    const nameByBuyer = new Map(
+      buyers.map((b) => [b.id, nameByContact.get(b.contactId) ?? null] as const),
+    );
+
+    return notes.map((note) => ({
+      ...note,
+      entityLabel:
+        (note.buyerId === null ? null : (nameByBuyer.get(note.buyerId) ?? null)) ??
+        (note.leadId === null ? null : (nameByLead.get(note.leadId) ?? null)),
+    }));
+  }
+
   private async visibleNotes(
     tx: TenantTx,
     tenantId: string,

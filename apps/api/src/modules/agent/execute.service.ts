@@ -23,7 +23,7 @@ import type { Readable } from "node:stream";
 import { CallsService, type CallDto } from "../calls/calls.service";
 import { DealRoomService } from "../collaboration/deal-room.service";
 import { LeadsService } from "../leads/leads.service";
-import { MatchingService } from "../matching/matching.service";
+import { MATCH_LIST_LIMIT, MatchingService } from "../matching/matching.service";
 import { PropertiesService } from "../properties/properties.service";
 import { SearchService } from "../search/search.service";
 import { TasksService } from "../tasks/tasks.service";
@@ -94,6 +94,15 @@ export interface ExecuteResult {
    */
   audio?: { callId: string; label: string };
 }
+
+/**
+ * כמה התאמות משרדיות הסוכן מוסר — ומול מה נבדק „יש עוד”.
+ *
+ * רשימה שחזרה בדיוק בגודל התקרה אינה בהכרח הרשימה כולה, וזה מה
+ * ש-`hasMore` אומר. בלעדיו „ועוד 42 התאמות” נקרא כסך הכול, והמתווך
+ * מפסיק לחפש על סמך תקרה שלנו (ביקורת Codex).
+ */
+const OFFICE_MATCHES = 50;
 
 @Injectable()
 export class AgentExecuteService {
@@ -426,26 +435,29 @@ export class AgentExecuteService {
 
     if (propertyId !== undefined) {
       if (refresh) await this.matching.recomputeForProperty(propertyId);
+      const rows = await this.matching.listForProperty(propertyId);
       return {
         href: `/properties/${propertyId}`,
         message: refresh ? "ההתאמות חושבו מחדש" : "ההתאמות של הנכס",
-        data: await this.matching.listForProperty(propertyId),
+        data: { matches: rows, hasMore: rows.length >= MATCH_LIST_LIMIT },
       };
     }
     if (buyerId !== undefined) {
       if (refresh) await this.matching.recomputeForBuyer(buyerId);
+      const rows = await this.matching.listForBuyer(buyerId);
       return {
         href: `/buyers/${buyerId}`,
         message: refresh ? "ההתאמות חושבו מחדש" : "ההתאמות של הקונה",
-        data: await this.matching.listForBuyer(buyerId),
+        data: { matches: rows, hasMore: rows.length >= MATCH_LIST_LIMIT },
       };
     }
+    // אותו סף שמסך ההתאמות מציג — תשובה של הסוכן לא אמורה לכלול
+    // התאמות שהמסך מסתיר, אחרת שתי דרכים לשאול נותנות שתי תשובות
+    const rows = await this.matching.listAll({ limit: OFFICE_MATCHES, minScore: 50 });
     return {
       href: "/matches",
       message: "ההתאמות של המשרד",
-      // אותו סף שמסך ההתאמות מציג — תשובה של הסוכן לא אמורה לכלול
-      // התאמות שהמסך מסתיר, אחרת שתי דרכים לשאול נותנות שתי תשובות
-      data: await this.matching.listAll({ limit: 50, minScore: 50 }),
+      data: { matches: rows, hasMore: rows.length >= OFFICE_MATCHES },
     };
   }
 

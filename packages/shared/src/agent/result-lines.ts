@@ -229,10 +229,60 @@ const SECTION_ROWS: Record<string, (value: unknown) => AgentResultRow[]> = {
    * להכיל כל פרט — אינו נוסע לפרומפט של המודל החיצוני.
    */
   notes: (value) =>
-    rowsOf(value).map((n) => ({
-      label: "הערה",
-      detail: join([text(n["content"]), whenText(n["createdAt"])]),
-    })),
+    rowsOf(value).map((n) => {
+      const who = text(n["entityLabel"]);
+      return {
+        /*
+         * **מי אמר את זה** — זו כל השאלה. „מי אמר שהוא גמיש בקומה”
+         * נענה ב„הערה — אמר שהוא גמיש בקומה”, כלומר חזר על השאלה
+         * במקום לענות עליה (ביקורת Codex). השם מגיע מ-`SearchService`,
+         * שכבר יודע לאיזה קונה או ליד ההערה שייכת.
+         */
+        label: who ?? "הערה",
+        detail: join([text(n["content"]), whenText(n["createdAt"])]),
+        ...(text(n["buyerId"]) !== null
+          ? { href: `/buyers/${String(n["buyerId"])}` }
+          : text(n["leadId"]) !== null
+            ? { href: `/leads/${String(n["leadId"])}` }
+            : {}),
+      };
+    }),
+  /*
+   * התאמות — **מקטע ככל האחרים, ולא מערך חשוף.**
+   *
+   * הן חזרו כמערך, וטופלו בענף נפרד. מערך אינו יכול לשאת `hasMore`
+   * (‏`JSON.stringify` משמיט מאפיינים שאינם אינדקסים), ולכן עמוד
+   * חתוך הוצג כרשימה מלאה: „ועוד 42 התאמות” על 50 שהן התקרה
+   * (ביקורת Codex). עטיפה באובייקט נותנת להן את אותו סימן קיטום
+   * שיש לכל רשימה אחרת.
+   */
+  matches: (value) =>
+    rowsOf(value).map((match) => {
+      const property = match["property"];
+      const address =
+        typeof property === "object" && property !== null
+          ? (text((property as Record<string, unknown>)["title"]) ??
+            text((property as Record<string, unknown>)["address"]))
+          : null;
+      const score = typeof match["score"] === "number" ? `${match["score"]}%` : null;
+      /*
+       * **שתי צורות הפוכות של אותה שאלה.**
+       *
+       * „התאמות לנכס” מחזירה קונים, ו„התאמות לקונה” מחזירה נכסים —
+       * עם `property` מקונן ובלי `buyerName`. נפילה אחידה ל„קונה של
+       * סוכן אחר” תייגה כל שורה בצד השני של המשוואה בשם של ישות
+       * שאינה שם בכלל (ביקורת Codex).
+       */
+      const buyerName = text(match["buyerName"]);
+      const label = buyerName ?? address ?? "קונה של סוכן אחר";
+      return {
+        label,
+        detail: join([label === address ? null : address, score, text(match["explanation"])]),
+        ...(text(match["propertyId"]) !== null
+          ? { href: `/properties/${String(match["propertyId"])}` }
+          : {}),
+      };
+    }),
   properties: (value) =>
     rowsOf(value).map((p) => ({
       label: text(p["title"]) ?? text(p["marketingTitle"]) ?? text(p["street"]) ?? "נכס",
@@ -255,6 +305,7 @@ const SECTION_META: Record<string, { noun: string; counted: boolean }> = {
   buyers: { noun: "קונים", counted: true },
   leads: { noun: "לידים", counted: true },
   notes: { noun: "הערות", counted: false },
+  matches: { noun: "התאמות", counted: true },
   properties: { noun: "נכסים", counted: true },
 };
 
@@ -347,6 +398,21 @@ function bounded(list: AgentResultList): AgentResultList {
 }
 
 /**
+ * האם זו תוצאת חיפוש כללי — **הכרעה אחת לשני המסכים.**
+ *
+ * `SearchService.search` מחזירה תמיד את כל המקטעים, כולל הריקים,
+ * ולכן מסך שבודק מקטע-אחר-מקטע מזהה כל חיפוש כרשימת פגישות ריקה
+ * ועונה „אין פגישות”. זה קרה **בשני המסכים בנפרד**, ולכן הסימן
+ * יושב כאן: יותר ממקטע מוכר אחד, או זהות בהתאמת-טלפון.
+ */
+export function isAggregateResult(data: unknown): boolean {
+  if (typeof data !== "object" || data === null) return false;
+  const payload = data as Record<string, unknown>;
+  if (payload["contact"] !== undefined) return true;
+  return SECTION_KEYS.filter((key) => Array.isArray(payload[key])).length > 1;
+}
+
+/**
  * התשובה כרשימה — או `null` כשהצורה אינה מוכרת.
  *
  * `null` ולא רשימה ריקה: „לא זיהיתי את הצורה” ו„הצורה מוכרת ואין
@@ -354,47 +420,6 @@ function bounded(list: AgentResultList): AgentResultList {
  * ביניהן. רשימה ריקה אומרת „אין לך פגישות היום” — טענה על המאגר.
  */
 export function agentResultList(data: unknown): AgentResultList | null {
-  /*
-   * התאמות חוזרות כמערך **חשוף**, ולא תחת מפתח. שני המסכים חיפשו
-   * מפתח בתוך אובייקט, ולכן „תראה לי התאמות” לא הציג דבר בשניהם.
-   */
-  if (Array.isArray(data)) {
-    return bounded({
-      noun: "התאמות",
-      hasMore: false,
-      rows: rowsOf(data).map((match) => {
-        const property = match["property"];
-        const address =
-          typeof property === "object" && property !== null
-            ? (text((property as Record<string, unknown>)["title"]) ??
-              text((property as Record<string, unknown>)["address"]))
-            : null;
-        const score = typeof match["score"] === "number" ? `${match["score"]}%` : null;
-        /*
-         * **שתי צורות הפוכות של אותה שאלה.**
-         *
-         * „התאמות לנכס” מחזירה קונים, ו„התאמות לקונה” מחזירה
-         * נכסים — עם `property` מקונן ובלי `buyerName`. נפילה
-         * אחידה ל„קונה של סוכן אחר” תייגה כל שורה בצד השני של
-         * המשוואה בשם של ישות שאינה שם בכלל (ביקורת Codex).
-         *
-         * לכן: שם הקונה כשיש, אחרת הנכס — והנפילה האנונימית
-         * נשמרת למה שהיא נועדה לו, קונה של סוכן אחר ברשימה
-         * שמרכזה נכס.
-         */
-        const buyerName = text(match["buyerName"]);
-        const label = buyerName ?? address ?? "קונה של סוכן אחר";
-        return {
-          label,
-          detail: join([label === address ? null : address, score, text(match["explanation"])]),
-          ...(text(match["propertyId"]) !== null
-            ? { href: `/properties/${String(match["propertyId"])}` }
-            : {}),
-        };
-      }),
-    });
-  }
-
   if (typeof data !== "object" || data === null) return null;
   const payload = data as Record<string, unknown>;
   const hasMore = payload["hasMore"] === true;
@@ -412,7 +437,7 @@ export function agentResultList(data: unknown): AgentResultList | null {
    * אחד בלבד.
    */
   const sections = SECTION_KEYS.filter((key) => Array.isArray(payload[key]));
-  if (sections.length > 1 || payload["contact"] !== undefined) {
+  if (isAggregateResult(data)) {
     const rows: AgentResultRow[] = [];
     const contact = payload["contact"];
     if (typeof contact === "object" && contact !== null) {
