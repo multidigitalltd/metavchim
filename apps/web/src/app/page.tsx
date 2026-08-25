@@ -14,6 +14,7 @@ import { apiGet, ApiError } from "@/lib/api";
 import { FIELD_LABELS, MATURITY_LABELS } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature, useFeaturesFailed, useFeaturesReady } from "@/lib/use-features";
+import { useMinuteNow } from "@/lib/use-minute-now";
 import { VoiceConsole } from "./voice-console";
 import { DuplicateContacts } from "./duplicate-contacts";
 import { LoadError } from "./load-error";
@@ -255,6 +256,12 @@ export default function DashboardPage() {
   const featuresFailed = useFeaturesFailed();
   const hasCoach = useFeature("ai_coach");
   /*
+   * „עכשיו” אחד לכל המסך, **ומתקדם מעצמו**. קודם הוא חושב בזמן
+   * הרינדור, ולכן קפא: מסך שנשאר פתוח המשיך להציג פגישת 09:00
+   * כפעולה הדחופה ביותר גם אחרי שהתחילה (ביקורת Codex).
+   */
+  const now = useMinuteNow();
+  /*
    * כל מקור נתונים בדשבורד מאחורי היכולת שהשרת דורש עבורו — לא רק
    * ההצעות. כל אחת מהיכולות האלה ניתנת לשלילה פרטנית למשתמש בודד
    * (`capability-overrides`), ואז הנתיב מחזיר 403.
@@ -299,6 +306,8 @@ export default function DashboardPage() {
    */
   const [dataFailed, setDataFailed] = useState(false);
   const [coachFailed, setCoachFailed] = useState(false);
+  /** 403 מהסוכן — כלומר נודע בוודאות שאין סוכן במסלול. אינו שגיאה. */
+  const [coachDenied, setCoachDenied] = useState(false);
   const batch = useRef(0);
 
   const loadDashboard = useCallback(() => {
@@ -431,6 +440,7 @@ export default function DashboardPage() {
       return;
     }
     setCoachFailed(false);
+    setCoachDenied(false);
     apiGet<Recommendation[]>("/coach/recommendations")
       .then(setRecs)
       /*
@@ -440,7 +450,26 @@ export default function DashboardPage() {
        * עכשיו”, שתיקה כזו הופכת להכרזה על סמך חלק מהמקורות
        * (ביקורת Codex).
        */
-      .catch(() => setCoachFailed(true));
+      /*
+       * ‎**403 הוא תשובה, לא תקלה** — אותה הבחנה שכבר קיימת ב-`fail`
+       * של מנת הדשבורד, ולא החלתי אותה כאן.
+       *
+       * הקריאה הזו יוצאת ביודעין גם כשרשימת היכולות לא הגיעה, ולכן
+       * משרד שאין לו סוכן חכם מקבל 403 ודאי. רישומו ככישלון טעינה
+       * הציג „לא הצלחנו לטעון את המלצות הסוכן” עם „נסו שוב” שקורא
+       * לאותה קריאה ומחזיר את אותו 403 — לולאה שלא נסגרת, על מסך של
+       * מי שאין לו את הפיצ'ר בכלל (ביקורת Codex).
+       *
+       * ‎`coachDenied` הוא **ידיעה**: משם והלאה ברור שאין סוכן, ולכן
+       * גם הדירוג יכול להימשך בלי להמתין להמלצות שלא יגיעו לעולם.
+       */
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 403) {
+          setCoachDenied(true);
+          return;
+        }
+        setCoachFailed(true);
+      });
   }, [featuresReady, featuresFailed, hasCoach]);
 
   useEffect(() => {
@@ -528,13 +557,10 @@ export default function DashboardPage() {
    */
   const canSeeNetwork = can(user, "collaboration.offer");
   const ranked =
-    (!hasCoach || recs !== null) &&
+    (!hasCoach || coachDenied || recs !== null) &&
     (!canSeeCalendar || today !== null) &&
     (!canSeeCalendar || myTasks !== null) &&
     (!canSeeNetwork || network !== null);
-
-  /* „עכשיו” אחד לכל המסך — הדירוג והרשימות חייבים למדוד מאותה נקודה. */
-  const now = new Date();
 
   const activeProps = (properties ?? []).filter(
     (p) => p.status === undefined || ["draft", "active", "on_hold"].includes(p.status),
