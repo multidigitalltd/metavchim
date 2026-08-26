@@ -7,6 +7,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import * as argon2 from "argon2";
+import { lockTenantProperties } from "../../common/locks";
 import { ulid } from "ulid";
 import { TenantContext } from "../../common/tenant-context";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
@@ -341,6 +342,15 @@ export class AccountDeletionService {
         // תיק הבלעדיות — פעולות לפני תקופות, ושתיהן לפני הנכסים
         await tx.marketingAction.deleteMany({ where: { tenantId } });
         await tx.propertyExclusivity.deleteMany({ where: { tenantId } });
+        /*
+         * ‎**נעילת נכסי המשרד לפני המדיה שלהם** — הסדר של `locks.ts`.
+         *
+         * גם כאן המחיקה היא מדיה ואז נכסים, בעוד מחיקת תמונה בודדת
+         * נועלת את הנכס ואז את המדיה. סוכן שמוחק תמונה בשנייה שבה
+         * המשרד נמחק סגר מעגל (ביקורת Codex — אותו כשל שנמצא
+         * במחיקה לצמיתות; זהו האח שלו).
+         */
+        await lockTenantProperties(tx, tenantId);
         await tx.propertyMedia.deleteMany({ where: { tenantId } });
         await tx.property.deleteMany({ where: { tenantId } });
         await tx.buyer.deleteMany({ where: { tenantId } });

@@ -16,6 +16,17 @@ import type { TenantTx } from "../core/prisma.service";
  * שנעלה קודם את השורה ואז ביקשה את הכרטיס סגרה מעגל, ו-Postgres
  * מפיל אחת מהשתיים — או שהעריכה נכשלת, או שבקשת מחיקה של אדם
  * נכשלת (ביקורת Codex).
+ *
+ * ## וגם: נכס לפני המדיה שלו
+ *
+ * אותו כלל בדיוק, בזוג הבא: העלאת תמונה ומחיקתה נועלות את שורת
+ * הנכס ואז נוגעות ב-`property_media`, בעוד מחיקה לצמיתות ומחיקת
+ * משרד מחקו קודם את המדיה ואז את הנכס — סדר הפוך, ולכן אותו
+ * deadlock (ביקורת Codex). `lockProperty` היא הצורה המפורשת של
+ * הצעד הראשון, ו**כל מי שמוחק מדיה נוקט אותו קודם.**
+ *
+ * הסדר המלא, מלמעלה למטה: **כרטיס איש קשר → שורת נכס → מדיה של
+ * הנכס.** מי שנוגע בשניים מהם נועל בסדר הזה.
  */
 
 /**
@@ -104,4 +115,40 @@ export async function lockProviderCall(
   providerCallId: string,
 ): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`call:${tenantId}:${providerCallId}`}, 0))`;
+}
+
+/**
+ * נעילת שורת נכס — נקודת הסנכרון של כל מי שכותב מוכנות או מוחק מדיה.
+ *
+ * ‎`readiness_score` נגזר גם ממה שאינו בשורה עצמה — תמונות יושבות
+ * בטבלה אחרת — ולכן שתי טרנזקציות שקוראות „יש תמונות” ומוחקות כל
+ * אחת את התמונה שלה משאירות ציון שמתאר מצב שכבר אינו קיים. הנעילה
+ * מסדרת אותן זו אחר זו.
+ *
+ * ‎**זו גם הנעילה הראשונה בסדר מול המדיה** — ראו ההערה בראש הקובץ.
+ * נכס שכבר נמחק אינו שגיאה: אין שורה לנעול, והקורא ייכשל מיד אחר כך
+ * על היעדרה.
+ */
+export async function lockProperty(
+  tx: TenantTx,
+  tenantId: string,
+  propertyId: string,
+): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM properties WHERE id = ${propertyId} AND tenant_id = ${tenantId} FOR UPDATE`;
+}
+
+/**
+ * נעילת **כל** נכסי המשרד — למחיקת משרד בלבד.
+ *
+ * מחיקת משרד מוחקת את המדיה ואז את הנכסים, כלומר בסדר ההפוך
+ * ל-`lockProperty` שלוקחת העלאה או מחיקת תמונה. סוכן שמוחק תמונה
+ * ברגע שהמשרד נמחק היה סוגר מעגל. הקבוצה חסומה — נכסיו של משרד
+ * אחד — והמיון לפי מזהה קובע סדר יציב גם בין שתי מחיקות משרד
+ * שרצות במקביל.
+ */
+export async function lockTenantProperties(
+  tx: TenantTx,
+  tenantId: string,
+): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id = ${tenantId} ORDER BY id FOR UPDATE`;
 }

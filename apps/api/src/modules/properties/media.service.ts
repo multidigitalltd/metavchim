@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { lockProperty } from "../../common/locks";
 import { ulid } from "ulid";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
@@ -140,7 +141,7 @@ export class MediaService {
       await this.prisma.withTenant(async (tx) => {
         // נעילת שורת הנכס מסדרת העלאות מקבילות: המכסה וה-sortOrder
         // מוקצים אטומית תחת אותה נעילה (ביקורת Codex, PR #12).
-        await tx.$queryRaw`SELECT id FROM properties WHERE id = ${propertyId} FOR UPDATE`;
+        await lockProperty(tx, tenantId, propertyId);
         const count = await tx.propertyMedia.count({ where: { tenantId, propertyId } });
         if (count >= MAX_IMAGES_PER_PROPERTY) {
           throw new BadRequestException(`עד ${MAX_IMAGES_PER_PROPERTY} תמונות לנכס`);
@@ -266,7 +267,7 @@ export class MediaService {
        * שמרו „יש תמונות”, ואחרי שתיהן לא נשארה אף אחת — ציון גבוה
        * ב-11 נקודות מהמצב (ביקורת Codex).
        */
-      await tx.$queryRaw`SELECT id FROM properties WHERE id = ${propertyId} FOR UPDATE`;
+      await lockProperty(tx, tenantId, propertyId);
       const row = await tx.propertyMedia.findFirst({
         where: { id: mediaId, tenantId, propertyId },
         select: { s3Key: true },

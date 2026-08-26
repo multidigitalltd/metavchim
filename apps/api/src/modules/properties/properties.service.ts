@@ -29,6 +29,7 @@ function propertyTypesFor(term: string): string[] {
     .filter(([, label]) => label.toLowerCase().includes(needle))
     .map(([value]) => value);
 }
+import { lockProperty } from "../../common/locks";
 import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
@@ -542,7 +543,7 @@ export class PropertiesService {
        * הקריאה של השורה ושל המדיה חייבת להיות **אחרי** הנעילה: מצב
        * שנקרא לפניה עלול כבר להיות ישן ברגע החישוב.
        */
-      await tx.$queryRaw`SELECT id FROM properties WHERE id = ${id} FOR UPDATE`;
+      await lockProperty(tx, tenantId, id);
       const existing = await tx.property.findFirst({
         where: {
           id,
@@ -1090,6 +1091,16 @@ export class PropertiesService {
        */
       const twins = await this.twins.purgeFor(tx, id);
 
+      /*
+       * ‎**נעילת שורת הנכס לפני המדיה** — הסדר של `locks.ts`.
+       *
+       * המחיקה כאן היא מדיה ואז נכס, בעוד מחיקת תמונה בודדת נועלת
+       * את הנכס ואז נוגעת במדיה. סוכן שמוחק תמונה מלשונית פתוחה
+       * בזמן שהנכס נמחק לצמיתות סגר מעגל, ו-Postgres הפיל אחת
+       * מהשתיים (ביקורת Codex). המסלול פתוח: `remove` אינה דוחה
+       * נכס בארכיון, וארכיון הוא בדיוק התנאי למחיקה לצמיתות.
+       */
+      await lockProperty(tx, ctx.tenantId, id);
       // property_media לפני properties — מפתח זר RESTRICT
       await tx.propertyMedia.deleteMany({
         where: { tenantId: ctx.tenantId, propertyId: id },
