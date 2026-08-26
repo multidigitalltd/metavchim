@@ -64,18 +64,40 @@ export function EntityTasks({
   const [dueAt, setDueAt] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * ‎**„עכשיו” כמצב, ולא קריאה לשעון בכל רינדור.**
+   *
+   * ‎`quickDueOptions` נקרא את השעון רק כשריאקט במקרה מרנדר. טופס
+   * שנשאר פתוח מעבר ל-18:00 המשיך להציג „היום” — והבטחנו במפורש
+   * לא להציע מועד שחלף (ביקורת Codex). הצ'יפ מאמת מחדש בלחיצה,
+   * וכאן נשמר הרגע שלפיו הרשימה מוצגת.
+   */
+  const [clock, setClock] = useState(() => new Date());
 
   /* „אין משימות פתוחות על הכרטיס הזה” אינו מה שאומרים על טעינה שנכשלה. */
   const [loadFailed, setLoadFailed] = useState(false);
 
-  const load = useCallback(() => {
+  /*
+   * ‎**מחזירה הבטחה, כדי שאפשר יהיה להמתין לה.**
+   *
+   * כשהיא נקראה בלי `await`, `busy` התנקה לפני שהרשימה התרעננה —
+   * כלומר ההצעה שנלחצה נשארה על המסך ופעילה, ולחיצה שנייה בזמן
+   * טעינה איטית ייצרה משימה כפולה (ביקורת Codex).
+   */
+  const load = useCallback(async (): Promise<void> => {
     setLoadFailed(false);
-    apiGet<Task[]>(`/tasks/for/${entityType}/${entityId}`)
-      .then(setTasks)
-      .catch(() => setLoadFailed(true));
+    try {
+      setTasks(await apiGet<Task[]>(`/tasks/for/${entityType}/${entityId}`));
+      /* השעון מתעדכן עם הרשימה — ראו `now` למטה */
+      setClock(new Date());
+    } catch {
+      setLoadFailed(true);
+    }
   }, [entityType, entityId]);
 
-  useEffect(load, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   async function onCreate(event: React.FormEvent): Promise<void> {
     event.preventDefault();
@@ -106,7 +128,7 @@ export function EntityTasks({
       });
       setTitle("");
       setDueAt("");
-      load();
+      await load();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "הוספת המשימה נכשלה");
     } finally {
@@ -145,14 +167,26 @@ export function EntityTasks({
       ? []
       : suggestedPropertyTasks(suggestFrom, open.map((t) => t.title));
 
-  const quickDue = quickDueOptions(new Date());
+  const quickDue = quickDueOptions(clock);
+
+  /*
+   * ‎**האימות בלחיצה הוא זה שמחייב.** הרשימה המוצגת יכולה להיות
+   * דקה מיושנת; מה שנקבע בפועל נגזר משעון שנקרא **ברגע הלחיצה**.
+   * אם המועד כבר חלף, הצ'יפ פשוט נעלם מהרשימה במקום לקבוע פיגור.
+   */
+  function chooseQuickDue(key: string): void {
+    const fresh = new Date();
+    setClock(fresh);
+    const option = quickDueOptions(fresh).find((o) => o.key === key);
+    if (option !== undefined) setDueAt(option.value);
+  }
 
   async function addSuggested(title: string): Promise<void> {
     setBusy(true);
     setError(null);
     try {
       await apiPost("/tasks", { title, entityType, entityId });
-      load();
+      await load();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "הוספת המשימה נכשלה");
     } finally {
@@ -295,7 +329,7 @@ export function EntityTasks({
               type="button"
               className="mv-chip"
               aria-pressed={dueAt === option.value}
-              onClick={() => setDueAt(option.value)}
+              onClick={() => chooseQuickDue(option.key)}
             >
               {option.label}
             </button>
@@ -345,9 +379,26 @@ export function EntityTasks({
         שדורשת קריאה של כל השורות. מה שהושלם אינו נעלם — הוא נשמר עם
         המועד — אבל הוא אינו מתחרה על תשומת הלב עם מה שעוד לא נעשה.
       */}
-      {done.length > 0 ? (
+      {/*
+        ‎**מוצג רק כשהרשימה באמת נטענה.** „עוד לא הושלמו משימות” על
+        טעינה שנכשלה או שטרם חזרה הוא אותו „לא ידוע” שנקרא כ„לא”.
+      */}
+      {tasks !== null && !loadFailed ? (
         <div className="mt-4">
-          <h3 className="mb-2 text-sm font-semibold">משימות שהושלמו ({done.length})</h3>
+          <h3 className="mb-2 text-sm font-semibold">
+            משימות שהושלמו{done.length > 0 ? ` (${done.length})` : ""}
+          </h3>
+          {done.length === 0 ? (
+            /*
+              ‎**המצב הריק כאן מלמד ולא מתנצל.** האפיון מבקש אותו
+              במפורש, והסיבה נכונה: בלעדיו המתווך שמסמן משימה
+              כבוצעה רואה אותה נעלמת מהרשימה ואינו יודע לאן. השורה
+              הזו אומרת מראש לאן.
+            */
+            <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
+              משימה שתסומן כבוצעה תישמר כאן, עם התאריך והשעה שבהם הושלמה.
+            </p>
+          ) : (
           <ul className="flex flex-col gap-2">
             {done.map((task) => (
               <li key={task.id} className="flex flex-wrap items-start gap-2">
@@ -374,6 +425,7 @@ export function EntityTasks({
               </li>
             ))}
           </ul>
+          )}
         </div>
       ) : null}
     </section>
