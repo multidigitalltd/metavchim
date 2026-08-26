@@ -95,6 +95,25 @@ export class PropertiesService {
    * `app.tenant_id` היא מחזירה אפס שורות **בלי שגיאה** — כלומר מכסה
    * שלעולם אינה נחצית, ובדיקה שנראית עובדת.
    */
+  /**
+   * האם לנכס יש ולו תמונה אחת — **קיום, לא ספירה.**
+   *
+   * המוכנות שואלת „יש תמונות?” ולא „כמה”, ולכן `findFirst` עם שדה
+   * אחד: `count` על נכס עם מאה תמונות סורק את כולן כדי להחזיר מספר
+   * שאיש אינו קורא.
+   *
+   * ‎`propertyMedia` תחת FORCE RLS כמו כל טבלה, ולכן התנאי כולל
+   * `tenantId` במפורש — שאילתה בלי הקשר דייר מחזירה ריק בלי שגיאה,
+   * כלומר „אין תמונות” על כל נכס במערכת.
+   */
+  private async hasMedia(tx: TenantTx, propertyId: string): Promise<boolean> {
+    const one = await tx.propertyMedia.findFirst({
+      where: { tenantId: TenantContext.current().tenantId, propertyId },
+      select: { id: true },
+    });
+    return one !== null;
+  }
+
   private async assertCanAddProperty(
     tx: TenantTx,
     tenantId: string,
@@ -398,8 +417,13 @@ export class PropertiesService {
      */
     const fields = await this.withGeocodedLocation(input.fields);
     const readiness = computeReadiness(fields, {
-      hasTitle: Boolean(input.marketingTitle),
+      /*
+       * נכס חדש אין לו עדיין מדיה — התמונות נטענות אחרי היצירה,
+       * במסך שלו. שאילתה כאן הייתה מחזירה ריק תמיד.
+       */
+      hasImages: false,
       hasDescription: Boolean(input.marketingDescription),
+      hasOwner: input.owner !== undefined,
     });
 
     await this.prisma.withTenant(async (tx) => {
@@ -516,10 +540,16 @@ export class PropertiesService {
         : null;
       const mergedFields = { ...rowToFields(existing), ...fieldPatch };
       const readiness = computeReadiness(mergedFields, {
-        hasTitle: Boolean(marketingTitle ?? existing.marketingTitle),
+        hasImages: await this.hasMedia(tx, id),
         hasDescription: Boolean(
           marketingDescription ?? existing.marketingDescription,
         ),
+        /*
+         * הבעלים שנוצר בעדכון הזה גובר על מה שהיה: `ownerContact`
+         * נכתב לרשומה מיד אחרי החישוב, וקריאת העמודה הישנה בלבד
+         * הייתה נותנת „חסר בעל הנכס” על עדכון שהרגע הוסיף אותו.
+         */
+        hasOwner: ownerContact !== null || Boolean(existing.ownerContactId),
       });
 
       await tx.property.update({
@@ -599,8 +629,9 @@ export class PropertiesService {
       if (!row) throw new NotFoundException("נכס לא נמצא");
       const fields = rowToFields(row);
       const readiness = computeReadiness(fields, {
-        hasTitle: Boolean(row.marketingTitle),
+        hasImages: await this.hasMedia(tx, id),
         hasDescription: Boolean(row.marketingDescription),
+        hasOwner: Boolean(row.ownerContactId),
       });
       const ownerContact = row.ownerContactId
         ? await this.contacts.getById(tx, row.ownerContactId)
@@ -793,8 +824,10 @@ export class PropertiesService {
       const items = pageRows.map((row) => {
         const fields = rowToFields(row);
         const readiness = computeReadiness(fields, {
-          hasTitle: Boolean(row.marketingTitle),
+          // מפת התמונה הראשית כבר עונה על „יש מדיה” — בלי שאילתה נוספת
+          hasImages: primaryIdByProperty.has(row.id),
           hasDescription: Boolean(row.marketingDescription),
+          hasOwner: Boolean(row.ownerContactId),
         });
         const primaryId = primaryIdByProperty.get(row.id);
         return {

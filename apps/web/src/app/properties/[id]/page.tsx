@@ -5,13 +5,13 @@ import Link from "next/link";
 import {
   describeEntry,
   labelOf,
-  PROPERTY_REQUIRED_FOR_MARKETING,
+  PROPERTY_READINESS_FIELDS,
+  readinessFieldLabel,
 } from "@metavchim/shared";
 import { useRouter } from "next/navigation";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
 import {
-  FIELD_LABELS,
   formatDate,
   formatPrice,
   MATURITY_LABELS,
@@ -831,7 +831,7 @@ export default function PropertyDetailPage({
                 אחד ולא המרה חלקית שמפזרת חוסר עקביות.
               */}
               <p className="m-0 mb-2" style={{ fontSize: "var(--type-body)", color: "var(--color-text-muted)" }}>
-                {readinessCount(property.missingFields.length, PROPERTY_REQUIRED_FOR_MARKETING.length)}
+                {readinessCount(property.missingFields.length, PROPERTY_READINESS_FIELDS.length)}
               </p>
               {property.missingFields.length === 0 ? (
                 <p
@@ -854,7 +854,7 @@ export default function PropertyDetailPage({
                       className="h-1.5 w-1.5 flex-none rounded-full"
                       style={{ background: "#c98a2e" }}
                     />
-                    {FIELD_LABELS[field] ?? field}
+                    {readinessFieldLabel(field)}
                   </div>
                 ))
               )}

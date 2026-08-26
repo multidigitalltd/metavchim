@@ -66,6 +66,20 @@ export class CoachService {
       const activeProps = await tx.property.findMany({
         where: { tenantId, deletedAt: null, status: { in: ["draft", "active"] } },
       });
+      /*
+       * תמונות: שאילתה מקובצת אחת לכל העמוד, כמו ספירת ההתאמות.
+       * המוכנות סופרת תמונות (SPEC-3b §4), ובלעדיהן כל נכס היה
+       * נראה חסר-תמונה — כלומר אזהרה על כל נכס במשרד.
+       */
+      const withMedia = new Set(
+        (
+          await tx.propertyMedia.findMany({
+            where: { tenantId, propertyId: { in: activeProps.map((p) => p.id) } },
+            distinct: ["propertyId"],
+            select: { propertyId: true },
+          })
+        ).map((m) => m.propertyId),
+      );
       // ספירת התאמות מוצעות בשאילתה מקובצת אחת — לא N שאילתות (ביקורת Codex)
       const matchCounts = await tx.match.groupBy({
         by: ["propertyId"],
@@ -89,8 +103,9 @@ export class CoachService {
           propertiesWithUnsentMatches.push({ propertyId: prop.id, title, matchCount });
         }
         const readiness = computeReadiness(rowToFields(prop), {
-          hasTitle: Boolean(prop.marketingTitle),
+          hasImages: withMedia.has(prop.id),
           hasDescription: Boolean(prop.marketingDescription),
+          hasOwner: Boolean(prop.ownerContactId),
         });
         if (readiness.missingFields.length > 0) {
           incompleteProperties.push({
