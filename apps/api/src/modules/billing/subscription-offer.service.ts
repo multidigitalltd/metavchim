@@ -13,6 +13,7 @@ import {
   type OfferLineItem,
   type PlanDefinition,
   type SubscriptionOfferDefinition,
+  type TenantPriceOverride,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
@@ -169,13 +170,18 @@ export class SubscriptionOfferService {
     if (rejection !== null) throw new BadRequestException(rejection);
 
     let tenantName: string | null = null;
+    let override: TenantPriceOverride | undefined;
     if (input.tenantId !== null) {
       const tenant = await this.prisma.tenant.findUnique({
         where: { id: input.tenantId },
-        select: { name: true },
+        select: { name: true, priceOverrideMonthlyAgorot: true, priceOverrideYearlyAgorot: true },
       });
       if (!tenant) throw new BadRequestException("משרד היעד לא נמצא");
       tenantName = tenant.name;
+      override = {
+        monthlyAgorot: tenant.priceOverrideMonthlyAgorot,
+        yearlyAgorot: tenant.priceOverrideYearlyAgorot,
+      };
     }
 
     /*
@@ -202,7 +208,7 @@ export class SubscriptionOfferService {
         createdBy,
       },
     });
-    return this.toRow(this.toDefinition(row), plan, tenantName, row.createdAt);
+    return this.toRow(this.toDefinition(row), plan, tenantName, row.createdAt, override);
   }
 
   /** ההצעות למסך הפלטפורמה, החדשות קודם. */
@@ -216,10 +222,26 @@ export class SubscriptionOfferService {
       tenantIds.length > 0
         ? await this.prisma.tenant.findMany({
             where: { id: { in: tenantIds } },
-            select: { id: true, name: true },
+            /*
+             * המחיר המוסכם נשלף באותה שאילתה שמביאה את השם, ולא
+             * בקריאה לכל שורה: הרשימה מחזירה עד 200 הצעות, ושאילתה
+             * לכל אחת מהן היא N+1 על מסך שנפתח בכל כניסה לפלטפורמה.
+             */
+            select: {
+              id: true,
+              name: true,
+              priceOverrideMonthlyAgorot: true,
+              priceOverrideYearlyAgorot: true,
+            },
           })
         : [];
     const nameById = new Map(tenants.map((t) => [t.id, t.name]));
+    const overrideById = new Map<string, TenantPriceOverride>(
+      tenants.map((t) => [
+        t.id,
+        { monthlyAgorot: t.priceOverrideMonthlyAgorot, yearlyAgorot: t.priceOverrideYearlyAgorot },
+      ]),
+    );
     const plans = await this.plans.all();
     return rows.map((row) => {
       const definition = this.toDefinition(row);
@@ -228,15 +250,24 @@ export class SubscriptionOfferService {
         plans.find((p) => p.code === definition.planCode),
         row.tenantId === null ? null : (nameById.get(row.tenantId) ?? null),
         row.createdAt,
+        row.tenantId === null ? undefined : overrideById.get(row.tenantId),
       );
     });
   }
 
+  /**
+   * שורה למסך הפלטפורמה.
+   *
+   * `override` הוא המחיר המוסכם של **משרד היעד**, ונמסר רק להצעה
+   * אישית — בלינק מכירה אין משרד ידוע מראש, ולכן גם אין מחיר מוסכם
+   * להחיל.
+   */
   private toRow(
     offer: SubscriptionOfferDefinition,
     plan: PlanDefinition | undefined,
     tenantName: string | null,
     createdAt: Date,
+    override?: TenantPriceOverride,
   ): PlatformOfferRow {
     return {
       id: offer.id,
@@ -249,11 +280,14 @@ export class SubscriptionOfferService {
       billingCycle: offer.billingCycle,
       priceAgorot: offer.priceAgorot,
       /*
-       * מחיר תצוגה לפי המסלול, בלי המחיר המוסכם של משרד ספציפי:
-       * בלינק מכירה אין משרד ידוע מראש, והסכום המדויק נקבע ממילא
-       * בפתיחת התשלום.
+       * **אותו חישוב שהלקוח יראה בדף ההצעה, כולל המחיר המוסכם.**
+       *
+       * `resolve` מחיל את המחיר המוסכם של המשרד; שורה שחישבה בלי
+       * אותו נתון הראתה למפעיל סכום אחד בעוד שהמקבל רואה — ומשלם —
+       * אחר. „מחיר תצוגה” אינו קטגוריה נפרדת: זה הסכום שהמפעיל מצטט
+       * כשהוא שולח את הלינק, ולכן הוא חייב להיות אותו מספר.
        */
-      amountAgorot: offerAmountAgorot(offer, plan),
+      amountAgorot: offerAmountAgorot(offer, plan, override),
       lineItems: offer.lineItems,
       featureGrants: offer.featureGrants,
       note: offer.note,
