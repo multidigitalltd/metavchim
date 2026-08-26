@@ -458,6 +458,13 @@ const DURATION_KEYS = ["duration", "billsec", "seconds", "talktime"] as const;
  * הרים.
  */
 const TOTAL_DURATION_KEYS = ["totaltime"] as const;
+
+/** משך בשניות, או `undefined` כשהשדה ריק או אינו מספר. */
+function finiteSeconds(raw: string): number | undefined {
+  if (raw === "") return undefined;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : undefined;
+}
 const EXTENSION_KEYS = ["extension", "ext", "agent"] as const;
 const CALLER_NAME_KEYS = ["callername", "caller_name", "callerName", "name"] as const;
 /** ‎`start` של 015 הוא epoch בשניות; השאר הם שמות מקובלים אחרים. */
@@ -708,17 +715,22 @@ export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEven
   if (!ISRAELI_PHONE.test(peerPhone)) return null;
 
   const status = pick(...STATUS_KEYS).toLowerCase();
-  const totalRaw = pick(...TOTAL_DURATION_KEYS);
-  const totalParsed = totalRaw === "" ? undefined : Number(totalRaw);
   /*
    * ספק ששולח `totaltime` בלבד — הוא המשך היחיד שיש, ואין הפרש
    * לבחון. נשמר כמשך ולא כסך, אחרת ההשוואה `total > talk` הייתה
    * מחזירה „לא נענתה” על כל שיחה אצלו.
    */
+  const totalRaw = pick(...TOTAL_DURATION_KEYS);
   const talkRaw = pick(...DURATION_KEYS);
-  const durationRaw = talkRaw === "" ? totalRaw : talkRaw;
-  const durationSeconds = durationRaw === "" ? undefined : Number(durationRaw);
-  const totalSeconds = talkRaw === "" ? undefined : totalParsed;
+  /*
+   * ‎**מנורמל פעם אחת, לפני הסיווג.** ערך שאינו מספר — "N/A" בשדה
+   * אופציונלי — היה מגיע כ-`NaN` ל-`eventTypeOf`, שם השוואה מחזירה
+   * `false` תמיד ומסווגת „לא נענתה”, בעוד שהאובייקט המוחזר סינן את
+   * אותו ערך ל-`undefined`. שני מקומות שקראו את אותו שדה אחרת
+   * (ביקורת Codex).
+   */
+  const durationSeconds = finiteSeconds(talkRaw === "" ? totalRaw : talkRaw);
+  const totalSeconds = talkRaw === "" ? undefined : finiteSeconds(totalRaw);
 
   return {
     type: eventTypeOf(status, durationSeconds, totalSeconds),
@@ -735,9 +747,8 @@ export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEven
      * הגדרה — ורעש בדוח הקמפיינים.
      */
     dialedNumber: dialedNumberOf(ownRaw),
-    durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : undefined,
-    totalSeconds:
-      totalSeconds !== undefined && Number.isFinite(totalSeconds) ? totalSeconds : undefined,
+    durationSeconds,
+    totalSeconds,
     callerName: callerNameOf(pick(...CALLER_NAME_KEYS)),
     startedAt: startedAtOf(pick(...START_KEYS)),
     providerRecordingPath: recordingPathOf(pick(...RECORDING_KEYS)),
@@ -815,6 +826,15 @@ function eventTypeOf(
      * לטופס ללקוח — ולא רק לקבל מילה אחרת ביומן. הלקוח שניתק בתוך
      * ההודעה הוא בדיוק מי שצריך שיחזרו אליו.
      */
+    /*
+     * ‎**בלי משך כלל — „הסתיימה”, כפי שהיה.** אירוע ניתוק בלי שום
+     * שדה משך אינו ראיה לכך שאיש לא ענה; הוא היעדר ראיה. ספק
+     * ששולח `Answer` ואז ניתוק חסר-משך היה מסווג כאן „לא נענתה”,
+     * ו-`callSpoke` דוחה כל `missed` מיד — כלומר הראיה החוצת-אירועים
+     * שכן קיימת אצלו לא הייתה מגיעה להכרעה, ולא היה נפתח ליד
+     * (ביקורת Codex).
+     */
+    if (duration === undefined) return "ended";
     return destinationAnswered(duration, total, false) ? "ended" : "missed";
   }
   /*

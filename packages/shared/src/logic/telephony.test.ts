@@ -715,6 +715,40 @@ describe("שמות השדות של 015", () => {
   });
 
   /*
+   * ‎**ניתוק בלי שום שדה משך אינו ראיה לכך שאיש לא ענה.**
+   *
+   * הוא היעדר ראיה. ספק ששולח `Answer` ואז ניתוק חסר-משך היה מסווג
+   * „לא נענתה”, ומכיוון ש-`callSpoke` דוחה כל `missed` מיד — הראיה
+   * החוצת-אירועים שכן קיימת אצלו לא הייתה מגיעה להכרעה, ולא היה
+   * נפתח ליד ממספר לא מוכר (ביקורת Codex).
+   */
+  it("ניתוק בלי משך נשאר „הסתיימה”, ואירוע המענה מכריע", () => {
+    const parsed = parseTelephonyEvent({
+      callid: "x2",
+      status: "Hangup",
+      callerid_external: "0501234567",
+      direction: "inbound",
+    });
+    expect(parsed?.type).toBe("ended");
+    expect(callOutcomeOf(parsed!, true)).toBe("answered");
+    expect(callOutcomeOf(parsed!, false)).toBe("unknown");
+  });
+
+  /*
+   * ערך שאינו מספר בשדה אופציונלי נוּרמל פעם אחת, לפני הסיווג —
+   * אחרת `NaN` היה מגיע להשוואה, שמחזירה `false` תמיד, בעוד
+   * שהאובייקט המוחזר סינן את אותו ערך ל-`undefined`.
+   */
+  it("totaltime שאינו מספר נופל למסלול המשך היחיד", () => {
+    const parsed = parseTelephonyEvent(
+      pbx015({ status: "Hangup", talktime: "42", totaltime: "N/A" }),
+    );
+    expect(parsed?.totalSeconds).toBeUndefined();
+    expect(parsed?.type).toBe("ended");
+    expect(callOutcomeOf(parsed!, false)).toBe("answered");
+  });
+
+  /*
    * ספק ששולח משך אחד בלבד ממשיך לעבוד כמו קודם — אין הפרש לבחון,
    * ומשך חיובי הוא הראיה הטובה ביותר שיש.
    */
