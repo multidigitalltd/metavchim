@@ -5,6 +5,7 @@ import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
+import { JERUSALEM_TZ } from "@metavchim/shared";
 
 /**
  * משימות אוטומטיות קבועות — ברמת המשרד.
@@ -34,7 +35,8 @@ interface Recurrence {
 
 const WEEKDAYS = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
-const nextFmt = new Intl.DateTimeFormat("he-IL", { dateStyle: "short", timeStyle: "short" });
+const nextFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ, dateStyle: "short", timeStyle: "short" });
 
 const EMPTY = {
   title: "",

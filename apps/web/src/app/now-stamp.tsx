@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { hebrewDateFull } from "@metavchim/shared";
+import { hebrewDateFull,
+  JERUSALEM_TZ,
+} from "@metavchim/shared";
 
 /**
  * התאריך והשעה, בשורת הכותרת.
@@ -18,11 +20,13 @@ import { hebrewDateFull } from "@metavchim/shared";
  */
 
 const dateFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ,
   weekday: "long",
   day: "numeric",
   month: "long",
 });
-const timeFmt = new Intl.DateTimeFormat("he-IL", { hour: "2-digit", minute: "2-digit" });
+const timeFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ, hour: "2-digit", minute: "2-digit" });
 
 export function NowStamp({ className }: { className?: string }): React.JSX.Element | null {
   const [now, setNow] = useState<Date | null>(null);

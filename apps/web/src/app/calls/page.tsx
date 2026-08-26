@@ -15,6 +15,7 @@ import {
   resolveJerusalemLocalInput,
   type CallHighlights,
   type RecordingStatus,
+  JERUSALEM_TZ,
 } from "@metavchim/shared";
 import { CallHighlightFields, CallTranscript } from "./call-parts";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -98,6 +99,7 @@ function nowLocal(): string {
 }
 
 const timeFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ,
   day: "numeric",
   month: "numeric",
   hour: "2-digit",

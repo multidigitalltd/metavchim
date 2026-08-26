@@ -8,9 +8,11 @@ import {
   TASK_PRIORITY_LABELS,
   groupTasksByBucket,
   jerusalemLocalInputValue,
+  jerusalemWallErrorMessage,
   resolveJerusalemLocalInput,
   taskEntityHref,
   type TaskBucket,
+  JERUSALEM_TZ,
 } from "@metavchim/shared";
 import { api, apiGet, apiPost, ApiError } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
@@ -59,7 +61,8 @@ interface Member {
   name: string;
 }
 
-const dueFmt = new Intl.DateTimeFormat("he-IL", { dateStyle: "short", timeStyle: "short" });
+const dueFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ, dateStyle: "short", timeStyle: "short" });
 
 /** הצבע של הדלי. באיחור אדום, היום כתום, השאר ניטרלי. */
 const BUCKET_COLOR: Record<TaskBucket, string> = {
@@ -84,11 +87,17 @@ function toLocalInput(iso?: string): string {
   return jerusalemLocalInputValue(new Date(iso));
 }
 
-/** ערך השדה → ISO, או `null` כשהשדה ריק או שהשעה אינה קיימת. */
-function fromLocalInput(value: string, current: Date | null): string | null {
-  const resolved = resolveJerusalemLocalInput(value, current);
-  return resolved.ok ? resolved.at.toISOString() : null;
-}
+/*
+ * ‎**סירוב אינו „אין מועד”.**
+ *
+ * הגרסה הראשונה החזירה `null` על כל סירוב, ושני הנתיבים פירשו אותו
+ * כהיעדר: היצירה שלחה `undefined` ופתחה משימה בלי מועד, והעריכה
+ * שלחה `null` ו**מחקה מועד קיים** — בשקט, כי המשתמש בחר שעה
+ * שנראתה לו תקינה לגמרי (ביקורת Codex). אובדן נתון, שנכנס דווקא
+ * בתיקון שנועד למנוע אובדן נתונים.
+ *
+ * הסיבה נשמרת ועולה למסך; המוטציה לא נשלחת בכלל.
+ */
 
 export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
   const { user, loading } = useRequireAuth();
@@ -144,12 +153,21 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
   async function onCreate(event: React.FormEvent): Promise<void> {
     event.preventDefault();
     if (title.trim() === "") return;
+    let due: string | undefined;
+    if (dueAt !== "") {
+      const resolved = resolveJerusalemLocalInput(dueAt, null);
+      if (!resolved.ok) {
+        setError(jerusalemWallErrorMessage(resolved.reason));
+        return;
+      }
+      due = resolved.at.toISOString();
+    }
     setBusy(true);
     setError(null);
     try {
       await apiPost("/tasks", {
         title: title.trim(),
-        ...(dueAt !== "" ? { dueAt: fromLocalInput(dueAt, null) ?? undefined } : {}),
+        ...(due !== undefined ? { dueAt: due } : {}),
         ...(priority !== "normal" ? { priority } : {}),
         ...(assignee !== "" ? { assignedToUserId: assignee } : {}),
       });
@@ -323,15 +341,38 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
               const f = new FormData(event.currentTarget);
               const due = String(f.get("dueAt") ?? "");
               const nextAssignee = String(f.get("assignee") ?? "");
+              /*
+                * ריק = ניקוי מכוון של המועד, וזה נשלח כ-`null`.
+                * סירוב הוא דבר אחר לגמרי: שעה שאינה קיימת אינה
+                * „בלי מועד”, ושליחתה כ-`null` הייתה **מוחקת מועד
+                * קיים** בשקט.
+                */
+              if (due !== "") {
+                const resolved = resolveJerusalemLocalInput(
+                  due,
+                  task.dueAt !== undefined ? new Date(task.dueAt) : null,
+                );
+                if (!resolved.ok) {
+                  setError(jerusalemWallErrorMessage(resolved.reason));
+                  return;
+                }
+              }
+              const resolvedDue =
+                due === ""
+                  ? null
+                  : resolveJerusalemLocalInput(
+                      due,
+                      task.dueAt !== undefined ? new Date(task.dueAt) : null,
+                    );
               void patch(task.id, {
                 title: String(f.get("title") ?? "").trim() || task.title,
                 notes: String(f.get("notes") ?? "").trim(),
-                /*
-                 * ריק = ניקוי המועד. שעה שאינה קיימת בליל מעבר
-                 * השעון מוחזרת כ-`null` גם היא — עדיף לא לשנות
-                 * מועד מאשר לשמור אחד שלא נבחר.
-                 */
-                dueAt: due === "" ? null : fromLocalInput(due, task.dueAt ? new Date(task.dueAt) : null),
+                dueAt:
+                  resolvedDue === null
+                    ? null
+                    : resolvedDue.ok
+                      ? resolvedDue.at.toISOString()
+                      : null,
                 priority: String(f.get("priority") ?? task.priority),
                 ...(canAssign && nextAssignee !== "" && nextAssignee !== task.assignedToUserId
                   ? { assignedToUserId: nextAssignee }

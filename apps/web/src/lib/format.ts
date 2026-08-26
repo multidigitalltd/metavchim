@@ -1,4 +1,6 @@
-import { buyerSourceLabel, normalizePhoneForWhatsapp } from "@metavchim/shared";
+import { buyerSourceLabel, normalizePhoneForWhatsapp,
+  JERUSALEM_TZ,
+} from "@metavchim/shared";
 
 const nis = new Intl.NumberFormat("he-IL", {
   style: "currency",
@@ -16,13 +18,15 @@ export function shekelsToAgorot(shekels: number): number {
   return Math.round(shekels * 100);
 }
 
-const dateFmt = new Intl.DateTimeFormat("he-IL", { dateStyle: "medium" });
+const dateFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ, dateStyle: "medium" });
 
 export function formatDate(value: string | Date | undefined): string {
   return value === undefined ? "—" : dateFmt.format(new Date(value));
 }
 
-const dateTimeFmt = new Intl.DateTimeFormat("he-IL", { dateStyle: "medium", timeStyle: "short" });
+const dateTimeFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ, dateStyle: "medium", timeStyle: "short" });
 
 export function formatDateTime(value: string | Date | undefined): string {
   return value === undefined ? "—" : dateTimeFmt.format(new Date(value));

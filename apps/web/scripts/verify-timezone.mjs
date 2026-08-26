@@ -45,12 +45,74 @@ function walk(dir) {
 }
 walk(root);
 
+/**
+ * ‎`Intl.DateTimeFormat` בלי `timeZone` — **קורא את שעון המכשיר בדיוק
+ * כמו `getHours()`.**
+ *
+ * זה מה שהגרסה הראשונה של השער החמיצה, ולכן היא הדפיסה „כל המועדים
+ * נקראים ונכתבים בשעון ישראל” בזמן ש-11 מעצבים הציגו שעות מכשיר:
+ * שיחה שנקלטה כ-14:30 ירושלים הוצגה ברשימה כ-07:30 בניו-יורק
+ * (ביקורת Codex). שם של שער אינו השער — בדיוק הלקח שכבר נרשם כאן
+ * על בדיקה שנשאה כותרת שלא בדקה.
+ *
+ * הבדיקה נעשית על הקריאה כולה ולא על השורה, כי הקריאות נכתבות על
+ * פני כמה שורות. גם `dateStyle` בלבד נספר: גבול יממה זז עם אזור
+ * הזמן, ולכן „24.08” הופך ל„23.08” אחרי חצות ישראלית.
+ */
+function intlWithoutTimeZone(text) {
+  const found = [];
+  const pattern = /new Intl\.DateTimeFormat\s*\(/gu;
+  let match;
+  while ((match = pattern.exec(text)) !== null) {
+    const open = text.indexOf("(", match.index);
+    let depth = 0;
+    let end = open;
+    for (let i = open; i < text.length; i++) {
+      if (text[i] === "(") depth += 1;
+      else if (text[i] === ")") {
+        depth -= 1;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    const call = text.slice(match.index, end + 1);
+    /* ‎`timeStyle`/`dateStyle`/`hour`… — כל מה שמציג רגע */
+    const showsMoment = /(?:time|date)Style|hour|minute|weekday|day|month|year/u.test(call);
+    if (showsMoment && !call.includes("timeZone") && !call.includes(ALLOW)) {
+      found.push(text.slice(0, match.index).split("\n").length);
+    }
+  }
+  return found;
+}
+
+/**
+ * קובץ שמצייר `datetime-local` **חייב** לעבור דרך העזר המשותף.
+ *
+ * הבדיקה מבנית ולא תבניתית, בכוונה: `new Date(dueAt)` על משתנה הוא
+ * ביטוי תקין לגמרי ברוב ההקשרים, ואי אפשר לזהות מתוכו לבדו שהערך
+ * הגיע משדה טופס. מה שכן ודאי הוא שקובץ שיש בו שדה כזה **מוכרח**
+ * להמיר אותו — וזה בדיוק מה שנשמט בשדה החמישי, שעבר את הגרסה
+ * הראשונה של השער בלי להיתפס (ביקורת Codex).
+ */
+const LOCAL_FIELD = 'type="datetime-local"';
+const RESOLVER = "resolveJerusalemLocalInput";
+
 const offenders = [];
 let scanned = 0;
 
 for (const file of FILES) {
   scanned += 1;
-  const lines = readFileSync(file, "utf8").split("\n");
+  const source = readFileSync(file, "utf8");
+  const short = file.replace(`${root}/`, "");
+  for (const line of intlWithoutTimeZone(source)) {
+    offenders.push(`  ${short}:${line}  ←  Intl.DateTimeFormat בלי timeZone`);
+  }
+  if (source.includes(LOCAL_FIELD) && !source.includes(RESOLVER)) {
+    offenders.push(`  ${short}  ←  שדה datetime-local בלי ${RESOLVER}`);
+  }
+  const lines = source.split("\n");
   lines.forEach((line, index) => {
     /* הערות אינן קוד — הן מתארות את הבאג, ולעיתים מצטטות אותו */
     const trimmed = line.trim();
@@ -77,6 +139,7 @@ if (offenders.length > 0) {
       "",
       "  השתמשו בעזרי `israel-time.ts` שב-@metavchim/shared:",
       "    תצוגה   — formatJerusalemDate / formatJerusalemTime / jerusalemWallParts",
+      "    מעצב    — new Intl.DateTimeFormat(\"he-IL\", { timeZone: JERUSALEM_TZ, … })",
       "    טופס     — jerusalemLocalInputValue ⟷ resolveJerusalemLocalInput",
       "    גבולות   — jerusalemDayRange / jerusalemDayStart / jerusalemWeekStart",
       "",

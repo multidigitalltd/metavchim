@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Button } from "@metavchim/ui";
-import { jerusalemDayRange } from "@metavchim/shared";
+import { jerusalemDayRange,
+  JERUSALEM_TZ,
+} from "@metavchim/shared";
 import { apiGet, apiPost } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { WithDictation } from "../../dictation-field";
@@ -65,8 +67,10 @@ const KINDS: Record<string, { icon: ReactNode; label: string; fg: string; bg: st
 
 const FALLBACK = { icon: <IconDoc s={14} />, label: "אירוע", fg: "#616a63", bg: "#eef1ec" };
 
-const hourFmt = new Intl.DateTimeFormat("he-IL", { timeStyle: "short" });
+const hourFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ, timeStyle: "short" });
 const dayFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ,
   day: "numeric",
   month: "long",
   year: "numeric",
