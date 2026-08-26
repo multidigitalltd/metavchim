@@ -78,7 +78,6 @@ export function EntityTasks({
       const resolved = resolveJerusalemLocalInput(dueAt, null);
       if (!resolved.ok) {
         setError(jerusalemWallErrorMessage(resolved.reason));
-        setBusy(false);
         return;
       }
       due = resolved.at.toISOString();

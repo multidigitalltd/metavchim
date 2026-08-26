@@ -347,6 +347,7 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
                 * „בלי מועד”, ושליחתה כ-`null` הייתה **מוחקת מועד
                 * קיים** בשקט.
                 */
+              let nextDueAt: string | null = null;
               if (due !== "") {
                 const resolved = resolveJerusalemLocalInput(
                   due,
@@ -356,23 +357,12 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
                   setError(jerusalemWallErrorMessage(resolved.reason));
                   return;
                 }
+                nextDueAt = resolved.at.toISOString();
               }
-              const resolvedDue =
-                due === ""
-                  ? null
-                  : resolveJerusalemLocalInput(
-                      due,
-                      task.dueAt !== undefined ? new Date(task.dueAt) : null,
-                    );
               void patch(task.id, {
                 title: String(f.get("title") ?? "").trim() || task.title,
                 notes: String(f.get("notes") ?? "").trim(),
-                dueAt:
-                  resolvedDue === null
-                    ? null
-                    : resolvedDue.ok
-                      ? resolvedDue.at.toISOString()
-                      : null,
+                dueAt: nextDueAt,
                 priority: String(f.get("priority") ?? task.priority),
                 ...(canAssign && nextAssignee !== "" && nextAssignee !== task.assignedToUserId
                   ? { assignedToUserId: nextAssignee }
