@@ -778,6 +778,41 @@ describe("שמות השדות של 015", () => {
     expect(callOutcomeOf(parsed!, false)).toBe("answered");
   });
 
+  /*
+   * ‎**הכלל שייך ל-`talktime`, לא לכל שדה משך.**
+   *
+   * ספק שאינו מודד צלצול בנפרד ישלח `duration` שווה ל-`totaltime`
+   * בכל שיחה. אילו ההשוואה הייתה חלה גם עליו, **כל** שיחה שהתקיימה
+   * אצלו הייתה „לא נענתה” — בלי ליד, ומעכשיו גם בלי הקלטה שתחשוף
+   * את הטעות. הזוג נבדק על 015 בלבד, ולכן הוא חל שם בלבד.
+   */
+  it("ספק שאינו 015 — duration שווה ל-totaltime נשאר „נענתה”", () => {
+    const parsed = parseTelephonyEvent({
+      callid: "x2",
+      status: "Hangup",
+      callerid_external: "0501234567",
+      direction: "inbound",
+      duration: "42",
+      totaltime: "42",
+    });
+    // אין סך בר-השוואה — ולכן הוא כלל אינו נחשף
+    expect(parsed?.totalSeconds).toBeUndefined();
+    expect(parsed?.type).toBe("ended");
+    expect(callOutcomeOf(parsed!, false)).toBe("answered");
+  });
+
+  /*
+   * ואותו זוג בדיוק, מ-015: כאן ההפרש אפס **הוא** הראיה, וזו
+   * הדגימה השנייה מהמשרד — הנייד צלצל עד שעבר לתא קולי.
+   */
+  it("015 — talktime שווה ל-totaltime הוא „לא נענתה”", () => {
+    const parsed = parseTelephonyEvent(
+      pbx015({ status: "Hangup", talktime: "20", totaltime: "20", extension: "" }),
+    );
+    expect(parsed?.totalSeconds).toBe(20);
+    expect(parsed?.type).toBe("missed");
+  });
+
   it("Abandon — מתקשר שוויתר בתור — נרשם כשיחה שלא נענתה", () => {
     expect(parseTelephonyEvent(pbx015({ status: "Abandon", talktime: "" }))?.type).toBe("missed");
   });

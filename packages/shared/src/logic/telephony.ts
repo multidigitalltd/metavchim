@@ -459,6 +459,23 @@ const DURATION_KEYS = ["duration", "billsec", "seconds", "talktime"] as const;
  */
 const TOTAL_DURATION_KEYS = ["totaltime"] as const;
 
+/**
+ * ‎**השדה שעליו הכלל נבדק, ורק הוא.**
+ *
+ * ההפרש בין המשכים מעיד על זמן צלצול **רק אם הספק מודד צלצול
+ * בנפרד**. את זה אנחנו יודעים על `talktime` של 015: התיעוד אומר
+ * זאת, ושלוש דגימות מהשטח מאששות. על `duration`, `billsec` או
+ * `seconds` של ספק כלשהו איננו יודעים דבר — וספק שאינו מודד צלצול
+ * בנפרד ישלח אותם שווים ל-`totaltime` בכל שיחה, כך שכל שיחה
+ * שהתקיימה הייתה מסווגת „לא נענתה”, נחסמת מפתיחת ליד, ומעכשיו גם
+ * מאבדת את ההקלטה שהייתה חושפת את הטעות (ביקורת Codex, P1).
+ *
+ * לכן ההשוואה מותנית ב**מוצא** הערך ולא רק בקיומו: כשהמשך לא הגיע
+ * מ-`talktime`, אין לנו סך בר-השוואה, ו-`totalSeconds` נשאר ריק.
+ * זו אותה תבנית שהקובץ הזה חוזר אליה — כשאי אפשר להסיק, נסוגים.
+ */
+const RING_AWARE_TALK_KEY = "talktime";
+
 /** משך בשניות, או `undefined` כשהשדה ריק או אינו מספר. */
 function finiteSeconds(raw: string): number | undefined {
   if (raw === "") return undefined;
@@ -566,16 +583,41 @@ function readCore(raw: Record<string, unknown>): {
   };
 }
 
+/**
+ * ‎„השדה קיים ויש בו משהו” — הגדרה **אחת**.
+ *
+ * ‎`pickFrom` ו-`firstPresentKey` שואלות את אותה שאלה על אותו שדה,
+ * אחת מחזירה ערך והשנייה שם. שתי הגדרות של „קיים” היו נוטות
+ * להסכים ביום שנכתבו ולא אחריו — ואז שם השדה שהוחזר לא היה זה
+ * שממנו נלקח הערך.
+ */
+function fieldValue(raw: Record<string, unknown>, key: string): string | undefined {
+  const value = raw[key];
+  if (typeof value === "string" && value.trim() !== "") return value.trim();
+  if (typeof value === "number") return String(value);
+  return undefined;
+}
+
 /** קורא שדה בשמות המקובלים. משותף לניתוח ולאבחון — לא שני העתקים. */
 function pickFrom(raw: Record<string, unknown>): (...keys: string[]) => string {
   return (...keys: string[]): string => {
     for (const key of keys) {
-      const value = raw[key];
-      if (typeof value === "string" && value.trim() !== "") return value.trim();
-      if (typeof value === "number") return String(value);
+      const value = fieldValue(raw, key);
+      if (value !== undefined) return value;
     }
     return "";
   };
+}
+
+/** **מאיזה** שדה נלקח הערך; `undefined` כשאף אחד מהם אינו קיים. */
+function firstPresentKey(
+  raw: Record<string, unknown>,
+  keys: readonly string[],
+): string | undefined {
+  for (const key of keys) {
+    if (fieldValue(raw, key) !== undefined) return key;
+  }
+  return undefined;
 }
 
 /**
@@ -730,7 +772,16 @@ export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEven
    * (ביקורת Codex).
    */
   const durationSeconds = finiteSeconds(talkRaw === "" ? totalRaw : talkRaw);
-  const totalSeconds = talkRaw === "" ? undefined : finiteSeconds(totalRaw);
+  /*
+   * ‎**סך בר-השוואה, ולא סתם סך.** תנאי אחד שמחליף שניים: כשהמשך
+   * לא הגיע מ-`talktime` — או משום שאין שדה משך כלל, או משום שהוא
+   * הגיע מ-`duration`/`billsec`/`seconds` של ספק אחר — אין ממה
+   * לחשב זמן צלצול. ראו `RING_AWARE_TALK_KEY`.
+   */
+  const totalSeconds =
+    firstPresentKey(raw, DURATION_KEYS) === RING_AWARE_TALK_KEY
+      ? finiteSeconds(totalRaw)
+      : undefined;
 
   return {
     type: eventTypeOf(status, durationSeconds, totalSeconds),
