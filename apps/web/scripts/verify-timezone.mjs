@@ -18,14 +18,37 @@ import { join } from "node:path";
 
 const root = new URL("../src", import.meta.url).pathname;
 
-/** ‎`getHours()` וחבריו על `Date` — קוראים את שעון המכשיר. */
-const LOCAL_READ = /\.get(?:Hours|Minutes|Seconds|Date|Day|FullYear|Month)\s*\(\s*\)/u;
+/**
+ * ‎`getHours()` וחבריו על `Date` — קוראים את שעון המכשיר.
+ *
+ * הרשימה נספרה **מהתקן ולא מהמופעים בשטח**, וזה השינוי המהותי:
+ * ‎`getMilliseconds` ו-`getYear` אינם קיימים כרגע באף קובץ, ובכל
+ * שלוש הגרסאות הקודמות של השער נכתב רק מה שכבר נמצא — ולכן כל
+ * גרסה החמיצה את הווריאנט הבא. וריאנטי `getUTC…` אינם ברשימה מעצם
+ * היותה מפורשת; הם הדרך הנכונה.
+ */
+const LOCAL_READ =
+  /\.get(?:Hours|Minutes|Seconds|Milliseconds|Date|Day|FullYear|Year|Month)\s*\(\s*\)/u;
 /** ההיסט של המכשיר — שימש לבניית „עכשיו מקומי” לשדות טופס. */
 const LOCAL_OFFSET = /getTimezoneOffset\s*\(\s*\)/u;
-/** ‎`new Date("YYYY-MM-DDTHH:MM")` — נקרא באזור הזמן של המכשיר. */
+/** ‎`new Date(`…T…`)` בתבנית — נקרא באזור הזמן של המכשיר. */
 const WALL_PARSE = /new Date\(\s*`[^`]*\$\{[^`]*\}T\$\{/u;
+/** אותה שעת קיר כמחרוזת רגילה: `new Date("2026-03-27T02:30")` בלי `Z`. */
+const WALL_LITERAL = /new Date\(\s*(["'])\d{4}-\d{2}-\d{2}T(?:(?!\1)[^Z])*\1/u;
+/**
+ * ‎`new Date(2026, 2, 27, 2, 30)` — **הבנאי הרב-ארגומנטי מקומי תמיד.**
+ *
+ * אין לו וריאנט מקביל בכתיב הזה: `Date.UTC(...)` היא הדרך הנכונה.
+ * הפסיק חייב להיות ברמת הסוגריים העליונה, ולכן הביטוי אינו מקבל
+ * סוגריים או פסיקים מקוננים — `new Date(a.b(c, d))` אינו בנאי
+ * רב-ארגומנטי ואינו נתפס.
+ */
+const LOCAL_CTOR = /new Date\(\s*[^(),;`]+,\s*[^(),;`]+[,)]/u;
+/** ‎`Date.parse("…T…")` — אותו פרסור מקומי בשם אחר. */
+const LOCAL_PARSE = /\bDate\.parse\s*\(/u;
 /** ‎`setHours`/`setDate` — כותבים בשעון המכשיר, אותו נזק בכיוון השני. */
-const LOCAL_WRITE = /\.set(?:Hours|Minutes|Date|FullYear|Month)\s*\(/u;
+const LOCAL_WRITE =
+  /\.set(?:Hours|Minutes|Seconds|Milliseconds|Date|FullYear|Year|Month)\s*\(/u;
 /**
  * ‎`toLocaleString` וחבריו — **שעון המכשיר בשם אחר.**
  *
@@ -41,6 +64,20 @@ const LOCAL_WRITE = /\.set(?:Hours|Minutes|Date|FullYear|Month)\s*\(/u;
  */
 const LOCALE_METHOD =
   /\.(?:toLocaleString|toLocaleDateString|toLocaleTimeString|toDateString|toTimeString)\s*\(/u;
+
+/**
+ * ‎**מה השער הזה עדיין אינו תופס — `Date#toString()`.**
+ *
+ * ‎`new Date(x).toString()` מחזיר שעת מכשיר, בדיוק כמו כל השאר. הוא
+ * אינו נאסר כאן כי `toString` היא מתודה של **כל** אובייקט: בעץ יש
+ * שבעה מופעים, כולם על `URLSearchParams` ו-`Buffer`, וכולם נכונים.
+ * איסור גורף היה מייצר שבע התרעות שווא, ורשימת היתרים היא בדיוק
+ * המנגנון שהחזיר את המחלקה שלוש פעמים.
+ *
+ * זה נכתב כאן ולא מושתק: **גבול ידוע עדיף על ביטחון שגוי.** אם
+ * ‎`Date#toString` יופיע אי-פעם, `formatDate`/`formatDateTime` הם
+ * התשובה — ובדיקת הקוד היא שתתפוס אותו, לא השער.
+ */
 
 /**
  * הסימון שמתיר שורה: **שעון המכשיר הוא התשובה הנכונה כאן.**
@@ -157,6 +194,9 @@ for (const file of FILES) {
       (LOCAL_READ.test(code) && "קריאה בשעון המכשיר") ||
       (LOCAL_OFFSET.test(code) && "היסט אזור הזמן של המכשיר") ||
       (WALL_PARSE.test(code) && "פרסור שעת קיר בשעון המכשיר") ||
+      (WALL_LITERAL.test(code) && "מחרוזת שעת קיר בלי Z — נקראת בשעון המכשיר") ||
+      (LOCAL_CTOR.test(code) && "בנאי Date רב-ארגומנטי — מקומי תמיד") ||
+      (LOCAL_PARSE.test(code) && "Date.parse — פרסור בשעון המכשיר") ||
       (LOCAL_WRITE.test(code) && "כתיבה בשעון המכשיר") ||
       (LOCALE_METHOD.test(code) && "עיצוב בשעון המכשיר (toLocale…)");
     if (hit) {
