@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { followUpFromCall, summarizeCall } from "./call-summary.js";
+import { CALL_HIGHLIGHT_LABELS, followUpFromCall, parseCallHighlights, summarizeCall } from "./call-summary.js";
 
 describe("summarizeCall — חילוץ פרטים", () => {
   it("תקציב במיליונים", () => {
@@ -140,5 +140,65 @@ describe("followUpFromCall", () => {
   it("הכותרת אינה נושאת שם לקוח — הוא נקרא מהכרטיס המקושר", () => {
     const s = summarizeCall("נחזור מחר");
     expect(followUpFromCall(s, now)!.title).toBe("לחזור ללקוח כפי שסוכם בשיחה");
+  });
+});
+
+/*
+ * ‎**מה שחוזר מ-JSONB אינו `CallHighlights` — הוא `unknown`.**
+ *
+ * שורות שנכתבו בגרסה קודמת, ייבוא, או תיקון ידני יכולים להחזיר כל
+ * צורה. הטלה הייתה מעבירה מחרוזת במקום מספר עד למסך, ושם היא
+ * הופכת ל„NaN חדרים” או לתקציב שנראה תקין ואינו.
+ */
+describe("parseCallHighlights — קריאה מהמסד בלי לסמוך", () => {
+  it("ערכים תקינים עוברים כמות שהם", () => {
+    expect(
+      parseCallHighlights({ budget: 2_400_000, rooms: 4, city: "בני ברק", callback: "מחר" }),
+    ).toEqual({ budget: 2_400_000, rooms: 4, city: "בני ברק", callback: "מחר" });
+  });
+
+  it("„לא חולץ דבר” הוא מצב תקין, לא כשל", () => {
+    expect(parseCallHighlights({})).toEqual({});
+  });
+
+  it("מה שאינו אובייקט חוזר ריק ולא זורק", () => {
+    for (const bad of [null, undefined, "טקסט", 42, true, [1, 2], []]) {
+      expect(parseCallHighlights(bad)).toEqual({});
+    }
+  });
+
+  /*
+   * הלב: שדה פסול נופל **לבדו**. שיחה שבה זוהה רק אזור תחזיר את
+   * האזור, גם אם התקציב שנשמר לצידו מקולקל — אותו נימוק כמו
+   * ב-`resolveMatchWeights`.
+   */
+  it("שדה פסול נופל לבדו ואינו מפיל את השאר", () => {
+    expect(
+      parseCallHighlights({ budget: "הרבה", rooms: Number.NaN, city: "חולון", callback: 7 }),
+    ).toEqual({ city: "חולון" });
+  });
+
+  it("מספרים לא-חיוביים אינם ערך — הם רעש", () => {
+    expect(parseCallHighlights({ budget: 0, rooms: -2 })).toEqual({});
+    expect(parseCallHighlights({ budget: Number.POSITIVE_INFINITY })).toEqual({});
+  });
+
+  it("מחרוזת ריקה או רווחים אינה אזור", () => {
+    expect(parseCallHighlights({ city: "   ", callback: "" })).toEqual({});
+    expect(parseCallHighlights({ city: "  רמת גן  " })).toEqual({ city: "רמת גן" });
+  });
+
+  /* מה שהמסכם מייצר חייב לשרוד את המסד ולחזור זהה. */
+  it("הלוך-ושוב: מה שחולץ הוא מה שנקרא בחזרה", () => {
+    const { highlights } = summarizeCall(
+      "מחפש 4 חדרים בבני ברק, תקציב עד 2.4 מיליון, לחזור מחר",
+    );
+    expect(parseCallHighlights(JSON.parse(JSON.stringify(highlights)))).toEqual(highlights);
+  });
+
+  it("לכל שדה יש תווית — אין שדה שיוצג בשמו האנגלי", () => {
+    for (const key of ["budget", "rooms", "city", "callback"] as const) {
+      expect(CALL_HIGHLIGHT_LABELS[key]).toBeTruthy();
+    }
   });
 });

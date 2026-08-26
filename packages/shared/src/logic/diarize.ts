@@ -221,3 +221,65 @@ export function formatDiarizedTranscript(
     .join("\n");
   return { text, speakerCount };
 }
+
+/** תור אחד בתמלול, כפי שהוא מוצג — מה שנשמר הוא טקסט, לא מבנה. */
+export type TranscriptLine = {
+  /** „דובר 1” וכו', או `null` כשהשורה אינה נושאת תווית. */
+  speaker: string | null;
+  /** ‎`mm:ss` כפי שנכתב, או `null` כשאין חותמת. */
+  timestamp: string | null;
+  text: string;
+};
+
+/*
+ * ‎**קריאה חזרה של הפורמט שנכתב מעל.**
+ *
+ * ‎`formatDiarizedTranscript` משטח את `LabeledSegment[]` למחרוזת,
+ * והמבנה נזרק — הוא אינו נשמר בשום עמודה. מסך שרוצה להציג כל דובר
+ * כתור נפרד חייב להחזיר אותו, ויש לכך שתי דרכים: לשנות את מה
+ * שנשמר, או לקרוא בחזרה את מה שכבר נשמר.
+ *
+ * כאן הדרך השנייה, ובכוונה: היא עובדת גם על כל השיחות שכבר תומללו,
+ * ולא רק על אלה שיוקלטו מהיום. הסיכון המובהק בפרסור הוא פורמט זר —
+ * וזה אינו זר: הוא נכתב בפונקציה שמעליה בקובץ הזה, ובדיקת הלוך-ושוב
+ * אוכפת שהשתיים נשארות צמודות.
+ *
+ * ‎**מה שאי אפשר לדעת, ולכן לא מנוחש:** בשיחה עם דובר אחד הפורמט
+ * מוותר על התוויות לגמרי, ואין דגל שמבחין בין „דובר יחיד” לבין
+ * „תמלול ישן בלי זיהוי”. שתיהן חוזרות כשורה אחת בלי דובר — וזה
+ * מדויק, כי בשתיהן באמת אין מידע על מי מדבר.
+ */
+const LINE_PATTERN = /^\[(\d{1,2}:\d{2}(?::\d{2})?)\]\s*(?:(דובר \d+):\s*)?(.*)$/u;
+
+export function parseDiarizedTranscript(transcript: string): TranscriptLine[] {
+  const text = transcript.trim();
+  if (text === "") return [];
+  const lines: TranscriptLine[] = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (line === "") continue;
+    const match = LINE_PATTERN.exec(line);
+    if (match === null) {
+      /*
+       * שורה שאינה נושאת חותמת מצטרפת לתור שלפניה, ולא פותחת תור
+       * חדש בלי דובר: תמלול עם ירידות שורה בתוך דברי דובר אחד היה
+       * מתפצל לגושים שנראים כמו החלפת דובר.
+       */
+      const previous = lines[lines.length - 1];
+      if (previous === undefined) lines.push({ speaker: null, timestamp: null, text: line });
+      else previous.text = `${previous.text} ${line}`.trim();
+      continue;
+    }
+    lines.push({
+      timestamp: match[1] ?? null,
+      speaker: match[2] ?? null,
+      text: (match[3] ?? "").trim(),
+    });
+  }
+  return lines;
+}
+
+/** האם התמלול נושא תוויות דובר — כלומר יש מה להציג כתורות. */
+export function hasSpeakerTurns(lines: readonly TranscriptLine[]): boolean {
+  return lines.some((line) => line.speaker !== null);
+}

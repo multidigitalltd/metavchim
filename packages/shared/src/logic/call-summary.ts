@@ -16,14 +16,20 @@
 import { parseHebrewDateTime } from "./parse-hebrew-datetime.js";
 import { jerusalemWallToUtc, toJerusalemWall } from "./recurrence.js";
 
-export interface CallHighlights {
+/*
+ * ‎`type` ולא `interface`, ובכוונה: `interface` אינו מקבל חתימת
+ * אינדקס משתמעת, ולכן אינו נחשב `InputJsonValue` של Prisma —
+ * והכתיבה לעמודת JSON הייתה מחייבת הטלה שמכבה את הבדיקה בדיוק
+ * במקום שבו הנתון עובר גבול.
+ */
+export type CallHighlights = {
   /** תקציב שנאמר, בשקלים. */
   budget?: number;
   rooms?: number;
   city?: string;
   /** מתי סוכם לחזור — כפי שנאמר, לא כתאריך. */
   callback?: string;
-}
+};
 
 export interface CallSummary {
   /** שורה אחת לרשימת השיחות. */
@@ -232,3 +238,40 @@ export function followUpFromCall(summary: CallSummary, now: Date): CallFollowUp 
 
   return null;
 }
+
+/**
+ * קריאת `calls.highlights` מהמסד — **בלי לסמוך על מה שכתוב שם.**
+ *
+ * העמודה היא JSONB, כלומר `unknown` בזמן ריצה: שורות שנכתבו
+ * בגרסה קודמת, ייבוא, או תיקון ידני יכולים להחזיר כל צורה. הטלה
+ * (`as CallHighlights`) הייתה מעבירה מחרוזת במקום מספר עד למסך,
+ * ושם היא הופכת ל-„NaN חדרים” או לתקציב שנראה תקין ואינו.
+ *
+ * אותו נימוק כמו ב-`resolveMatchWeights`: ערך פסול נופל לבדו,
+ * ואינו מפיל את שאר השדות איתו. שיחה שבה זוהה רק אזור תחזיר את
+ * האזור, גם אם התקציב שנשמר לצידו מקולקל.
+ */
+export function parseCallHighlights(value: unknown): CallHighlights {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  const source = value as Record<string, unknown>;
+  const out: CallHighlights = {};
+  const positive = (raw: unknown): number | undefined =>
+    typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : undefined;
+  const budget = positive(source["budget"]);
+  if (budget !== undefined) out.budget = budget;
+  const rooms = positive(source["rooms"]);
+  if (rooms !== undefined) out.rooms = rooms;
+  const city = source["city"];
+  if (typeof city === "string" && city.trim() !== "") out.city = city.trim();
+  const callback = source["callback"];
+  if (typeof callback === "string" && callback.trim() !== "") out.callback = callback.trim();
+  return out;
+}
+
+/** תוויות בעברית לשדות שחולצו — למסך, במקום אחד. */
+export const CALL_HIGHLIGHT_LABELS: Record<keyof CallHighlights, string> = {
+  budget: "תקציב",
+  rooms: "חדרים",
+  city: "אזור",
+  callback: "לחזור",
+};

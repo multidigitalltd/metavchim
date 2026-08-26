@@ -1700,7 +1700,7 @@ async function transcribeOneCall(): Promise<void> {
       // הסיכום מחולץ מהטקסט הנקי, בלי תוויות הדובר וחותמות הזמן —
       // ביטויי המפתח שהוא מחפש היו נשברים על "[01:15] דובר 2:"
       const parsedCall = summarizeCall((body.text ?? "").trim() || transcript);
-      const { summary } = parsedCall;
+      const { summary, highlights } = parsedCall;
       const followUp = followUpFromCall(parsedCall, new Date());
       /** המשימה שנוצרה, אם נוצרה — קובעת את נוסח ההתראה היחידה. */
       let followUpNotice:
@@ -1719,6 +1719,16 @@ async function transcribeOneCall(): Promise<void> {
             // הסיכום נכתב רק כשלא נרשם אחד ידנית — מה שהמתווך
             // כתב בעצמו גובר תמיד על החילוץ האוטומטי
             ...(summary ? { summary } : {}),
+            /*
+             * ‎**השדות שחולצו נשמרים, ולא רק השורה שנבנתה מהם.**
+             *
+             * ‎`summarizeCall` מחזיר גם `highlights` — תקציב, חדרים,
+             * אזור ומועד חזרה — ועד כה הם נזרקו כאן, כך שמה שנשאר
+             * היה מחרוזת אחת שאי אפשר לסנן לפיה או להזין ממנה שדה
+             * בכרטיס. הם נכתבים תמיד, גם ריקים: „לא זוהה דבר” הוא
+             * עובדה על השיחה, ולא היעדר עדכון.
+             */
+            highlights,
             transcriptionStatus: "done",
             transcribedAt: new Date(),
           },
