@@ -668,9 +668,66 @@ describe("שמות השדות של 015", () => {
      * אירוע הניתוק היחיד כ"נענתה" — ואז שורת השיחה לא נרשמת כלל,
      * כי רק אירוע סופי נרשם.
      */
-    const parsed = parseTelephonyEvent(pbx015({ status: "Hangup Answered Only", talktime: "42" }));
+    /*
+     * ‎`totaltime` מוגדל יחד עם `talktime`: משך שיחה הגדול מהמשך
+     * הכולל אינו מצב שיכול לקרות — הכולל מכיל את הצלצול — והצירוף
+     * הישן (42 מול 35) בדק את קדימות שם הסטטוס על נתון בלתי אפשרי.
+     */
+    const parsed = parseTelephonyEvent(
+      pbx015({ status: "Hangup Answered Only", talktime: "42", totaltime: "60" }),
+    );
     expect(parsed?.type).toBe("ended");
     expect(callAction(parsed!, true, false).logCall).toBe(true);
+  });
+
+  /**
+   * ‎**שלוש הדגימות מהמשרד, כפי שהגיעו.**
+   *
+   * הן כאן ולא בניסוח מופשט כי הן מה שהפריך את שתי ההשערות הקודמות
+   * שלי: ש-`talktime` חסר בשיחה שלא נענתה (הוא 14), ושאפשר להסתמך
+   * על `answered` (הוא מלא גם כשאיש לא ענה — זו חותמת ה-IVR).
+   */
+  describe("משרד עם הודעת פתיחה — ההפרש הוא הראיה", () => {
+    const call = (talktime: string, totaltime: string) =>
+      parseTelephonyEvent(pbx015({ status: "Hangup", talktime, totaltime, extension: "" }));
+
+    it("ניתק בתוך ההודעה — לא נענתה", () => {
+      const parsed = call("14", "14");
+      expect(parsed?.type).toBe("missed");
+      expect(callOutcomeOf(parsed!, true)).toBe("missed");
+    });
+
+    it("הנייד צלצל עד הסוף ואיש לא ענה — לא נענתה", () => {
+      const parsed = call("20", "20");
+      expect(parsed?.type).toBe("missed");
+      expect(callOutcomeOf(parsed!, true)).toBe("missed");
+    });
+
+    /*
+     * ‎`answerObserved` הוא `true` בשלושתן — ה-IVR ענה בכולן. אילו
+     * הוא היה עדיין נחשב ראיה, שלושתן היו „נענתה”.
+     */
+    it("אדם ענה — ההפרש חיובי, וזו הראיה", () => {
+      const parsed = call("115", "138");
+      expect(parsed?.type).toBe("ended");
+      expect(callOutcomeOf(parsed!, true)).toBe("answered");
+    });
+  });
+
+  /*
+   * ספק ששולח משך אחד בלבד ממשיך לעבוד כמו קודם — אין הפרש לבחון,
+   * ומשך חיובי הוא הראיה הטובה ביותר שיש.
+   */
+  it("ספק בלי totaltime — משך חיובי נשאר הראיה", () => {
+    const parsed = parseTelephonyEvent({
+      callid: "x1",
+      status: "Hangup",
+      callerid_external: "0501234567",
+      direction: "inbound",
+      duration: "42",
+    });
+    expect(parsed?.type).toBe("ended");
+    expect(callOutcomeOf(parsed!, false)).toBe("answered");
   });
 
   it("Abandon — מתקשר שוויתר בתור — נרשם כשיחה שלא נענתה", () => {

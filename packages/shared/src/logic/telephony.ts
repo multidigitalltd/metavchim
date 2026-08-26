@@ -316,6 +316,13 @@ export interface TelephonyEvent {
   dialedNumber?: string;
   durationSeconds?: number;
   /**
+   * המשך כולל הצלצול, כשהספק שולח את שניהם.
+   *
+   * ‎`undefined` אצל ספק ששולח משך אחד בלבד — ואז אין הפרש לבחון,
+   * והראיה חוזרת להיות „משך חיובי”.
+   */
+  totalSeconds?: number;
+  /**
    * שם המתקשר כפי שהמרכזייה מציגה אותו.
    *
    * 015 שולח `callername` בכל אירוע. עד כה הוא נבלע, ולכן ליד
@@ -441,7 +448,16 @@ const STATUS_KEYS = ["status", "event", "state", "call_status"] as const;
  * אפס — והעדפת `totaltime` הייתה מסווגת כל שיחה שלא נענתה כשיחה
  * שהתקיימה, כלומר בדיוק ההפך ממה שהמתווך צריך לראות.
  */
-const DURATION_KEYS = ["duration", "billsec", "seconds", "talktime", "totaltime"] as const;
+const DURATION_KEYS = ["duration", "billsec", "seconds", "talktime"] as const;
+/**
+ * המשך **כולל הצלצול** — נשמר בנפרד, וזה כל האות.
+ *
+ * ‎`totaltime` היה עד כה אחרון ב-`DURATION_KEYS`, כלומר שימש כמשך
+ * חלופי כשאין אחר — ולעולם לא נבדק מול `talktime`. ההפרש ביניהם הוא
+ * זמן הצלצול של היעד, והוא הראיה היחידה שמכשיר אמיתי צלצל ומישהו
+ * הרים.
+ */
+const TOTAL_DURATION_KEYS = ["totaltime"] as const;
 const EXTENSION_KEYS = ["extension", "ext", "agent"] as const;
 const CALLER_NAME_KEYS = ["callername", "caller_name", "callerName", "name"] as const;
 /** ‎`start` של 015 הוא epoch בשניות; השאר הם שמות מקובלים אחרים. */
@@ -462,6 +478,7 @@ const KNOWN_KEYS = new Set<string>([
   ...DESTINATION_KEYS,
   ...STATUS_KEYS,
   ...DURATION_KEYS,
+  ...TOTAL_DURATION_KEYS,
   ...EXTENSION_KEYS,
   ...CALLER_NAME_KEYS,
   ...START_KEYS,
@@ -691,11 +708,20 @@ export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEven
   if (!ISRAELI_PHONE.test(peerPhone)) return null;
 
   const status = pick(...STATUS_KEYS).toLowerCase();
-  const durationRaw = pick(...DURATION_KEYS);
+  const totalRaw = pick(...TOTAL_DURATION_KEYS);
+  const totalParsed = totalRaw === "" ? undefined : Number(totalRaw);
+  /*
+   * ספק ששולח `totaltime` בלבד — הוא המשך היחיד שיש, ואין הפרש
+   * לבחון. נשמר כמשך ולא כסך, אחרת ההשוואה `total > talk` הייתה
+   * מחזירה „לא נענתה” על כל שיחה אצלו.
+   */
+  const talkRaw = pick(...DURATION_KEYS);
+  const durationRaw = talkRaw === "" ? totalRaw : talkRaw;
   const durationSeconds = durationRaw === "" ? undefined : Number(durationRaw);
+  const totalSeconds = talkRaw === "" ? undefined : totalParsed;
 
   return {
-    type: eventTypeOf(status, durationSeconds),
+    type: eventTypeOf(status, durationSeconds, totalSeconds),
     direction,
     peerPhone,
     providerCallId,
@@ -710,6 +736,8 @@ export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEven
      */
     dialedNumber: dialedNumberOf(ownRaw),
     durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : undefined,
+    totalSeconds:
+      totalSeconds !== undefined && Number.isFinite(totalSeconds) ? totalSeconds : undefined,
     callerName: callerNameOf(pick(...CALLER_NAME_KEYS)),
     startedAt: startedAtOf(pick(...START_KEYS)),
     providerRecordingPath: recordingPathOf(pick(...RECORDING_KEYS)),
@@ -769,7 +797,11 @@ function dialedNumberOf(raw: string): string | undefined {
  * שיחה שהסתיימה באורך אפס היא שיחה שלא נענתה. הספקים לא עקביים
  * בשם הסטטוס, אבל כולם עקביים במשך — ולכן המשך מכריע כשיש סתירה.
  */
-function eventTypeOf(status: string, duration: number | undefined): CallEventType {
+function eventTypeOf(
+  status: string,
+  duration: number | undefined,
+  total: number | undefined,
+): CallEventType {
   /*
    * **סיום נבדק ראשון.** ‎"Hangup Answered Only" של 015 הוא אירוע
    * ניתוק, אבל הוא מכיל את המילה "answered" — ובדיקת המענה לפניו
@@ -777,7 +809,13 @@ function eventTypeOf(status: string, duration: number | undefined): CallEventTyp
    * ואז שורת השיחה לא הייתה נרשמת כלל, כי רק אירוע סופי נרשם.
    */
   if (status.includes("hangup") || status.includes("end") || status.includes("complete")) {
-    return duration !== undefined && duration <= 0 ? "missed" : "ended";
+    /*
+     * ‎**„לא נענתה” ולא רק „תווית לא מדויקת”.** שיחה שאיש לא ענה בה
+     * חייבת להיכנס למסלול של שיחה שלא נענתה — התראה למתווך וקישור
+     * לטופס ללקוח — ולא רק לקבל מילה אחרת ביומן. הלקוח שניתק בתוך
+     * ההודעה הוא בדיוק מי שצריך שיחזרו אליו.
+     */
+    return destinationAnswered(duration, total, false) ? "ended" : "missed";
   }
   /*
    * הצורות השליליות לפני "answer" מאותה סיבה: `"noanswer".includes("answer")`
@@ -903,7 +941,51 @@ export function callIsFinal(event: TelephonyEvent): boolean {
  */
 export function callSpoke(event: TelephonyEvent, answerObserved: boolean): boolean {
   if (event.type === "missed") return false;
-  return answerObserved || (event.durationSeconds !== undefined && event.durationSeconds > 0);
+  return destinationAnswered(event.durationSeconds, event.totalSeconds, answerObserved);
+}
+
+/**
+ * ‎**„המרכזייה ענתה” אינו „אדם ענה”.**
+ *
+ * זו ההבחנה שנשברה בשטח. במשרד עם הודעת פתיחה (IVR) המרכזייה עונה
+ * **מיד** כדי להשמיע אותה, ומאותו רגע `talktime` רץ. לכן כל שיחה —
+ * גם כזו שאיש לא הרים בה — נראתה „נענתה”, וזה מה שהמתווכת ראתה על
+ * כל שורה ביומן.
+ *
+ * ‎**`talktime` חיובי לבדו הספיק.** ביומן הקליטה של אותה שיחה היו
+ * שלושה אירועים — `Calling`, `Calling`, `Hangup` — ו**אף `Answer`
+ * ביניהם**, אף שהוא מסומן אצל הספק. כלומר הראיה השנייה שהקוד הכיר,
+ * אירוע המענה, לא השתתפה כאן בכלל.
+ *
+ * ‎**ההפרש הוא הראיה.** התיעוד של 015 אומר ש-`totaltime` כולל צלצול
+ * ו-`talktime` לא, ובפועל היא מודדת את שניהם מרגע שה-IVR ענה
+ * ומעדכנת את `talktime` לזמן השיחה עם היעד בלבד. לכן:
+ *
+ * | מה קרה | talktime | totaltime | הפרש |
+ * |---|---|---|---|
+ * | ניתק בתוך ההודעה | 14 | 14 | 0 |
+ * | הנייד צלצל עד הסוף, לא ענו | 20 | 20 | 0 |
+ * | אדם ענה | 115 | 138 | 23 |
+ *
+ * שלוש דגימות מהמשרד, שלושה תרחישים — וההפרש מפריד ביניהם נקי.
+ *
+ * ‎**`answered` אינו משמש כאן בכוונה**, אף שהוא קיים אצל 015: הוא
+ * מלא גם בשיחה שאיש לא ענה לה, כי הוא חותמת המענה של ה-IVR. שדה
+ * ששמו „נענתה” ואינו אומר „נענתה” הוא בדיוק המלכודת שנפלנו בה.
+ *
+ * שני מסלולי נסיגה, לספקים שאינם 015: משך יחיד ⇒ „חיובי = דיברו”,
+ * כפי שהיה; בלי משך כלל ⇒ אירוע המענה הוא הראיה היחידה שיש.
+ */
+export function destinationAnswered(
+  talkSeconds: number | undefined,
+  totalSeconds: number | undefined,
+  answerObserved: boolean,
+): boolean {
+  if (talkSeconds !== undefined && totalSeconds !== undefined) {
+    return talkSeconds > 0 && totalSeconds > talkSeconds;
+  }
+  if (talkSeconds !== undefined) return talkSeconds > 0;
+  return answerObserved;
 }
 
 /* ==================== משיכת הקלטות — עצירת הסבב ==================== */
