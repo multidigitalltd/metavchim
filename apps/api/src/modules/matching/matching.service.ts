@@ -262,13 +262,30 @@ export class MatchingService {
       const property = await tx.property.findFirst({
         where: { id: propertyId, tenantId, deletedAt: null },
       });
+      if (!property) return NO_MATCHES;
+      /*
+       * בלי עיר, מחיר וסוג עסקה אין סינון אמין — ולכן לא מחשבים.
+       *
+       * ‎**אבל כן מנקים.** קודם החזרה הזו יצאה לפני כל מחיקה, וזה
+       * השאיר בדיוק את השורות שכלל הברזל נועד להסיר: התאמה שנשמרה
+       * למאגר לפני הכלל, על נכס בלי מיקום, שרדה כל סבב רענון —
+       * מפני שהסבב עובר על נכסים, וכל נכס כזה יצא כאן מיד
+       * (ביקורת Codex).
+       *
+       * ‎`recomputeForBuyer` הוא שיצר אותן: הסינון שלו מכניס נכס
+       * ‎`latitude: null` לקונה עם אזורי מפה, בלי לדרוש עיר.
+       *
+       * ההיגיון זהה לזה של הענף שמתחת: מה שאיננו יכולים לנקד,
+       * איננו יכולים לעמוד מאחוריו. רק `suggested` נמחק — הצעה
+       * שהסוכן כבר נגע בה נשארת שלו.
+       */
       if (
-        !property ||
         property.city === null ||
         property.priceAgorot === null ||
         property.dealType === null
       ) {
-        return NO_MATCHES; // בלי עיר, מחיר וסוג עסקה אין סינון אמין — יחושב כשיושלם
+        await tx.match.deleteMany({ where: { tenantId, propertyId, status: "suggested" } });
+        return NO_MATCHES;
       }
 
       /*
