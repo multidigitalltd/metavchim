@@ -764,6 +764,20 @@ describe("שמות השדות של 015", () => {
     expect(callOutcomeOf(parsed!, false)).toBe("answered");
   });
 
+  /*
+   * ‎`totaltime` כולל את הצלצול ולכן אינו יכול להיות קטן מ-`talktime`.
+   * ספק ששלח זוג כזה אמר משהו בלתי אפשרי, כלומר ההפרש שלו אינו זמן
+   * צלצול — ואי אפשר להסיק ממנו „לא נענתה”. זו אותה טעות שכל
+   * הקובץ הזה עוסק בה: אות שאי אפשר לקרוא, שמקודם למסקנה.
+   */
+  it("זוג סותר — totaltime קטן מ-talktime — נופל למשך היחיד ולא ל„לא נענתה”", () => {
+    const parsed = parseTelephonyEvent(
+      pbx015({ status: "Hangup", talktime: "42", totaltime: "35" }),
+    );
+    expect(parsed?.type).toBe("ended");
+    expect(callOutcomeOf(parsed!, false)).toBe("answered");
+  });
+
   it("Abandon — מתקשר שוויתר בתור — נרשם כשיחה שלא נענתה", () => {
     expect(parseTelephonyEvent(pbx015({ status: "Abandon", talktime: "" }))?.type).toBe("missed");
   });

@@ -995,13 +995,21 @@ export function callSpoke(event: TelephonyEvent, answerObserved: boolean): boole
  *
  * שני מסלולי נסיגה, לספקים שאינם 015: משך יחיד ⇒ „חיובי = דיברו”,
  * כפי שהיה; בלי משך כלל ⇒ אירוע המענה הוא הראיה היחידה שיש.
+ *
+ * ‎**וזוג סותר הוא נסיגה שלישית, לא מסקנה.** `totaltime` כולל את
+ * הצלצול ולכן אינו יכול להיות קטן מ-`talktime`; ספק ששלח 42 מול 35
+ * אמר משהו שאינו יכול להיות נכון, כלומר ה„הפרש” שלו אינו זמן צלצול
+ * ואי אפשר להסיק ממנו דבר. קריאת הסתירה כ„לא נענתה” היא אותה טעות
+ * שה-PR הזה מתקן — אות שאי אפשר לקרוא שמקודם למסקנה — והמחיר שלה
+ * גבוה: `callSpoke` דוחה כל `missed`, ולכן שיחה שדיברו בה נסגרת
+ * בלי ליד (ביקורת Codex). כשהזוג סותר נופלים למשך היחיד.
  */
 export function destinationAnswered(
   talkSeconds: number | undefined,
   totalSeconds: number | undefined,
   answerObserved: boolean,
 ): boolean {
-  if (talkSeconds !== undefined && totalSeconds !== undefined) {
+  if (talkSeconds !== undefined && totalSeconds !== undefined && totalSeconds >= talkSeconds) {
     return talkSeconds > 0 && totalSeconds > talkSeconds;
   }
   if (talkSeconds !== undefined) return talkSeconds > 0;
@@ -1056,6 +1064,15 @@ export function nextRefusalStreak(streak: number, result: RecordingPullResult): 
 export type CallOutcome = "answered" | "missed" | "unknown";
 
 /**
+ * ‎„לא נענתה” כערך שנשמר — קבוע ולא מחרוזת חוזרת.
+ *
+ * שאילתת המסד אינה יכולה לקרוא ל-`recordingWorthPulling`, ולכן היא
+ * מסננת לפי הערך עצמו. קבוע אחד מבטיח שהשאילתה והפונקציה מדברות
+ * על אותו דבר.
+ */
+export const CALL_OUTCOME_MISSED: CallOutcome = "missed";
+
+/**
  * התוצאה שנרשמת לשורת השיחה — **מאותה ראיה** שפותחת ליד.
  *
  * הפונקציה קיימת כדי ששני הדברים לא ייפרדו: קודם הביטוי היה כתוב
@@ -1065,6 +1082,29 @@ export type CallOutcome = "answered" | "missed" | "unknown";
 export function callOutcomeOf(event: TelephonyEvent, answerObserved: boolean): CallOutcome {
   if (event.type === "missed") return "missed";
   return callSpoke(event, answerObserved) ? "answered" : "unknown";
+}
+
+/**
+ * ‎**האם בכלל יש מה לשמוע** — השאלה שקודמת למשיכת ההקלטה.
+ *
+ * שיחה שלא נענתה מותירה אצל הספק קובץ שיש בו הודעת הפתיחה ואולי
+ * צפצוף של תא קולי, ותו לא. משיכה שלו עולה בקשה מול המרכזייה,
+ * שטח אחסון ותמלול שלם — וכל אלה כדי להפיק תמליל של המענה
+ * האוטומטי של המשרד עצמו. בעלת המערכת הכריעה במפורש: שיחה שעברה
+ * לתא קולי היא שיחה שלא נענתה, ואין לתמלל אותה.
+ *
+ * ‎**„לא ידוע” אינו „לא נענתה”, ולכן הוא נמשך.** זו אותה הבחנה
+ * שחוזרת בכל הקובץ הזה: `unknown` פירושו שאין בידינו ראיה, ובמקרה
+ * הזה ההקלטה היא בדיוק הראיה החסרה. רק `missed` — אמירה מפורשת
+ * שאיש לא ענה — עוצר את המשיכה.
+ *
+ * ‎**הכרעה אחת לשלושה מקומות.** הסבב בוחר לפיה, המסך מסביר לפיה,
+ * וכפתור „נסו שוב” מסרב לפיה. שלושתם חייבים לומר את אותו דבר,
+ * אחרת המסך מבטיח משיכה שלא תקרה — התקלה שכבר תוקנה כאן פעם
+ * אחת עם `no_integration`.
+ */
+export function recordingWorthPulling(outcome: string | null | undefined): boolean {
+  return outcome !== CALL_OUTCOME_MISSED;
 }
 
 /** כותרת ההתראה שהמתווך רואה כשהטלפון מצלצל. */

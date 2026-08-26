@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   RECORDING_BLOCKED_REASON,
   RECORDING_GIVE_UP_MS,
+  RECORDING_STATES,
   recordingReasonLabel,
   recordingStateLabel,
   recordingStateOf,
@@ -41,6 +42,66 @@ describe("recordingStateOf", () => {
 
   it("בלי נתיב מהמרכזייה — באמת אין הקלטה", () => {
     expect(recordingStateOf({ occurredAt: minutesAgo(10) }, now)).toEqual({ state: "none" });
+  });
+
+  /*
+   * ‎**שיחה שלא נענתה — לא נמשכת, והמסך אומר זאת.**
+   *
+   * שלוש טענות בבדיקה אחת, כי הן חייבות להיות עקביות: הסבב מדלג,
+   * המסך אינו מבטיח „בדרך”, והזמן אינו הופך את זה ל„נכשלה”. אלמלא
+   * כן היה המסך מבטיח משיכה שלא תקרה — התקלה שכבר תוקנה כאן פעם
+   * אחת עם `no_integration`.
+   */
+  it("שיחה שלא נענתה — מדולגת, ולא „בדרך” ולא „נכשלה”", () => {
+    const row = {
+      providerRecordingPath: "54936/12048/record_1_2",
+      outcome: "missed",
+      occurredAt: minutesAgo(10),
+    };
+    expect(recordingStateOf(row, now)).toEqual({ state: "skipped" });
+    // גם אחרי שחלון הוויתור נסגר — עדיין „מדולגת”, לא „נכשלה”
+    expect(
+      recordingStateOf(
+        { ...row, providerRecordingAttemptAt: minutesAgo(5) },
+        now + RECORDING_GIVE_UP_MS + hour,
+      ),
+    ).toEqual({ state: "skipped" });
+  });
+
+  /*
+   * ‎**„לא ידוע” אינו „לא נענתה”.** אין בידינו ראיה שמישהו ענה,
+   * וההקלטה היא בדיוק הראיה החסרה — ולכן היא כן נמשכת. זו ההבחנה
+   * שהופרה שלוש פעמים בקובץ הטלפוניה, ואין להפר אותה כאן בעקיפין.
+   */
+  it("„לא ידוע” נמשכת כרגיל — היעדר ראיה אינו ראיה", () => {
+    expect(
+      recordingStateOf(
+        {
+          providerRecordingPath: "54936/12048/record_1_2",
+          outcome: "unknown",
+          occurredAt: minutesAgo(10),
+        },
+        now,
+      ),
+    ).toEqual({ state: "pending" });
+  });
+
+  /*
+   * החלטה של אדם גוברת על הכלל האוטומטי: הקלטה שכבר שמורה אצלנו
+   * נשמעת, גם על שיחה שלא נענתה.
+   */
+  it("הקלטה ששמורה כבר — זמינה גם בשיחה שלא נענתה", () => {
+    expect(
+      recordingStateOf(
+        {
+          recordingKey: "calls/t/c/x",
+          providerRecordingPath: "54936/12048/record_1_2",
+          outcome: "missed",
+          occurredAt: minutesAgo(10),
+        },
+        now,
+      ),
+    ).toEqual({ state: "ready" });
   });
 
   it("נתיב הגיע וטרם נוסה — ממתינה, ולא „אין”", () => {
@@ -189,13 +250,13 @@ describe("recordingStateOf", () => {
 });
 
 describe("הניסוח למתווך", () => {
+  /*
+   * הרשימה נגזרת מ-`RECORDING_STATES` ואינה מועתקת: מצב חדש שיצטרף
+   * בלי ניסוח משלו ייפול כאן, במקום להיבלע בבדיקה שממשיכה לעבור.
+   */
   it("כל מצב מקבל משפט משלו", () => {
-    const seen = new Set(
-      (["ready", "none", "pending", "retrying", "blocked", "failed"] as const).map((state) =>
-        recordingStateLabel({ state }),
-      ),
-    );
-    expect(seen.size).toBe(6);
+    const seen = new Set(RECORDING_STATES.map((state) => recordingStateLabel({ state })));
+    expect(seen.size).toBe(RECORDING_STATES.length);
   });
 
   it("„חסומה” אינה מבטיחה ניסיון נוסף", () => {

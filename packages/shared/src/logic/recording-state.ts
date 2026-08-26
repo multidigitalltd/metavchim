@@ -24,6 +24,8 @@
  * פעמיים ולהתפצל, ולאפליקציית ה-web אין ממילא הרצת בדיקות.
  */
 
+import { recordingWorthPulling } from "./telephony.js";
+
 /** אחרי כמה זמן הסבב מפסיק לנסות — חייב להתאים ל-`GIVE_UP_AFTER_MS`. */
 export const RECORDING_GIVE_UP_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -35,7 +37,24 @@ export const RECORDING_GIVE_UP_MS = 7 * 24 * 60 * 60 * 1000;
  */
 export const RECORDING_BLOCKED_REASON = "no_integration";
 
-export type RecordingState = "ready" | "none" | "pending" | "retrying" | "blocked" | "failed";
+/**
+ * המצבים עצמם כרשימה, והטיפוס נגזר ממנה — ולא להפך.
+ *
+ * הבדיקה שדורשת „לכל מצב משפט משלו” חייבת לרוץ על **כל** המצבים;
+ * רשימה מועתקת בקובץ הבדיקה הייתה ממשיכה לעבור כשמצב חדש מצטרף
+ * ונשאר בלי ניסוח. אותו לקח בדיוק כבר נלמד במשקלי ההתאמה.
+ */
+export const RECORDING_STATES = [
+  "ready",
+  "none",
+  "skipped",
+  "pending",
+  "retrying",
+  "blocked",
+  "failed",
+] as const;
+
+export type RecordingState = (typeof RECORDING_STATES)[number];
 
 export interface RecordingStatus {
   state: RecordingState;
@@ -48,6 +67,11 @@ export interface RecordingFields {
   providerRecordingPath?: string | null;
   providerRecordingAttemptAt?: Date | null;
   providerRecordingError?: string | null;
+  /**
+   * תוצאת השיחה — קובעת אם בכלל מנסים למשוך. ראו
+   * ‎`recordingWorthPulling`. חסר ⇒ אין ידיעה, ולכן אין דילוג.
+   */
+  outcome?: string | null;
   occurredAt: Date;
 }
 
@@ -58,6 +82,21 @@ export interface RecordingFields {
 export function recordingStateOf(row: RecordingFields, now: number = Date.now()): RecordingStatus {
   if ((row.recordingKey ?? null) !== null) return { state: "ready" };
   if ((row.providerRecordingPath ?? null) === null) return { state: "none" };
+
+  /*
+   * ‎**שיחה שלא נענתה — לא נמשכת, ולכן גם לא „בדרך”.**
+   *
+   * ‎`recordingWorthPulling` היא אותה הכרעה שהסבב בוחר לפיה. בלי
+   * השורה הזו המסך היה מכריז „ההקלטה בדרך מהמרכזייה — נמשכת תוך
+   * דקות” על שיחה שלא תיגע בה לעולם, ואחרי שבוע היה מכריז עליה
+   * „נכשלה”. שתי האמירות שקריות, וזו בדיוק התקלה שכבר תוקנה כאן
+   * פעם אחת עם `no_integration`.
+   *
+   * ‎**אחרי `recordingKey`, ובכוונה.** הקלטה שכבר שמורה אצלנו —
+   * למשל כזו שנמשכה לפני השינוי, או שמתווך צירף בעצמו — נשמעת
+   * כרגיל. ההחלטה של אדם גוברת על הכלל האוטומטי.
+   */
+  if (!recordingWorthPulling(row.outcome)) return { state: "skipped" };
 
   const reason = row.providerRecordingError ?? undefined;
   /*
@@ -97,6 +136,9 @@ export function recordingStateLabel(status: RecordingStatus): string {
       return "ההקלטה זמינה";
     case "none":
       return "לא צורפה הקלטה לשיחה הזו";
+    case "skipped":
+      // בלי „ננסה שוב”: אין מה לשמוע, וזו החלטה ולא תקלה
+      return "השיחה לא נענתה — אין הקלטה לתמלל";
     case "pending":
       return "ההקלטה בדרך מהמרכזייה — נמשכת תוך דקות";
     case "retrying":

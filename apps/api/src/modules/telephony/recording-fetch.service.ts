@@ -23,6 +23,7 @@ import {
   unmatched015ListKeys,
   nextRefusalStreak,
   type RecordingPullResult,
+  CALL_OUTCOME_MISSED,
 } from "@metavchim/shared";
 import { ulid } from "ulid";
 import { CryptoService } from "../../core/crypto.service";
@@ -605,6 +606,12 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
             tenantId,
             providerRecordingPath: { not: null },
             recordingKey: null,
+            /*
+             * שיחה שלא נענתה אינה ממתינה לחיבור — היא לא נמשכת
+             * ממילא. סימונה „אין חיבור פעיל” היה שולח את המתווכת
+             * לתקן הגדרה שאינה שבורה.
+             */
+            outcome: { not: CALL_OUTCOME_MISSED },
             OR: [
               { providerRecordingError: null },
               { providerRecordingError: { not: RECORDING_ERRORS.integration } },
@@ -626,6 +633,16 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
           providerRecordingPath: { not: null },
           recordingKey: null,
           providerCallId: { not: null },
+          /*
+           * שיחה שלא נענתה אינה נמשכת — ראו `recordingWorthPulling`.
+           * מה שיש בקובץ שלה הוא הודעת הפתיחה של המשרד ואולי צפצוף
+           * של תא קולי, ותמלול שלו הוא עלות בלי תשובה.
+           *
+           * ‎`not` על ערך מפורש ולא רשימת מותרים: `unknown` פירושו
+           * שאין בידינו ראיה, וההקלטה היא בדיוק הראיה החסרה. רק
+           * ‎„לא נענתה” מפורשת עוצרת.
+           */
+          outcome: { not: CALL_OUTCOME_MISSED },
           /*
            * חלון הוויתור חל על מי ש**כבר נוסתה**, ולא על כל שורה.
            *

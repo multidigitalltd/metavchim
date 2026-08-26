@@ -14,6 +14,7 @@ import { CryptoService } from "../../core/crypto.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
 import {
+  CALL_OUTCOME_MISSED,
   parseCallHighlights,
   RECORDING_BLOCKED_REASON,
   recordingStateOf,
@@ -583,6 +584,12 @@ export class CallsService {
            * חותמת הניסיון שלו ריקה (ביקורת Codex).
            */
           NOT: { providerRecordingError: RECORDING_BLOCKED_REASON },
+          /*
+           * ומאותו נימוק בדיוק — שיחה שלא נענתה אינה נכנסת לתור.
+           * הסבב מסנן אותה החוצה, ולכן `queued: true` כאן היה הבטחה
+           * שלא תתקיים. ראו `recordingWorthPulling`.
+           */
+          outcome: { not: CALL_OUTCOME_MISSED },
         },
         data: { providerRecordingAttemptAt: null, providerRecordingError: null },
       });
