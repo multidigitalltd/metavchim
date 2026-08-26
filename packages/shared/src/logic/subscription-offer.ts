@@ -195,6 +195,7 @@ export interface OfferDraft {
   priceAgorot: number | null;
   lineItems: OfferLineItem[];
   maxRedemptions: number | null;
+  expiresAt: Date | null;
 }
 
 /**
@@ -213,7 +214,7 @@ export interface OfferDraft {
 export function offerCreationRejection(
   draft: OfferDraft,
   plan: PlanDefinition | undefined,
-  override?: TenantPriceOverride,
+  ctx: { override?: TenantPriceOverride; now: Date },
 ): string | null {
   if (!plan) return "המסלול אינו קיים";
   if (!isBillingCycle(draft.billingCycle)) return "מחזור חיוב לא מוכר";
@@ -238,7 +239,7 @@ export function offerCreationRejection(
      * שהמימוש מריץ, ושער שמחשב אחרת מהמימוש דוחה הצעות שהיו נפרעות
      * בלי בעיה.
      */
-    const base = effectiveCyclePriceAgorot(plan, draft.billingCycle, override);
+    const base = effectiveCyclePriceAgorot(plan, draft.billingCycle, ctx.override);
     if (base === null || base <= 0) {
       return "למסלול אין מחיר במחזור הזה — יש לקבוע מחיר סופי להצעה";
     }
@@ -248,6 +249,16 @@ export function offerCreationRejection(
   }
   if (draft.maxRedemptions !== null && draft.maxRedemptions < 1) {
     return "מגבלת המימושים חייבת להיות חיובית";
+  }
+  /*
+   * תפוגה שכבר חלפה — נעצרת כאן ולא בלחיצה של הלקוח. `offerRejection`
+   * דוחה אותה במימוש, ולכן בלי הבדיקה הזו טעות הקלדה בתאריך מייצרת
+   * לינק שנראה תקין, נשלח, ונדחה ברגע שנפתח (ביקורת Codex). אותו
+   * היגיון כמו שאר הבדיקות כאן: מוטב שהטעות תיעצר מול מי שיכול
+   * לתקן אותה.
+   */
+  if (draft.expiresAt !== null && draft.expiresAt.getTime() <= ctx.now.getTime()) {
+    return "תאריך התפוגה כבר עבר";
   }
   return null;
 }

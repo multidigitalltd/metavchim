@@ -194,9 +194,10 @@ export class SubscriptionOfferService {
         priceAgorot: input.priceAgorot,
         lineItems,
         maxRedemptions: input.maxRedemptions,
+        expiresAt: input.expiresAt,
       },
       plan,
-      override,
+      { override, now: new Date() },
     );
     if (rejection !== null) throw new BadRequestException(rejection);
 
