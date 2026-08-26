@@ -25,14 +25,23 @@ describe("suggestedPropertyTasks", () => {
    * גם למעלה הוא ילחץ שוב, ויקבל שתי משימות זהות.
    */
   it("הצעה שכבר נפתחה כמשימה אינה חוזרת", () => {
-    const first = suggestedPropertyTasks(["images"]);
-    expect(first).toHaveLength(1);
-    expect(suggestedPropertyTasks(["images"], [first[0]!.title])).toEqual([]);
+    expect(suggestedPropertyTasks(["images"])).toHaveLength(1);
+    expect(suggestedPropertyTasks(["images"], ["images"])).toEqual([]);
   });
 
-  it("השוואת הכותרת מתעלמת מרווחים בקצוות", () => {
+  /*
+   * ‎**הכותרת ניתנת לעריכה, ולכן אינה זהות.**
+   *
+   * מתווך שפתח משימה מהצעה ואז שינה את שמה גרם לכך שההצעה חוזרת
+   * להופיע — ולחיצה עליה אינה מתקנת, כי השרת מזהה שהמשימה קיימת
+   * ומחזיר אותה בעוד המסך ממשיך להציג את ההצעה. השדה מגיע ממפתח
+   * שהשרת בנה, ואיש אינו יכול לערוך אותו.
+   */
+  it("שינוי שם המשימה אינו מחזיר את ההצעה", () => {
     const [only] = suggestedPropertyTasks(["rooms"]);
-    expect(suggestedPropertyTasks(["rooms"], [`  ${only!.title}  `])).toEqual([]);
+    /* הכותרת השתנתה לגמרי — ובכל זאת ההצעה אינה חוזרת */
+    expect(only!.title).not.toBe("משהו אחר לגמרי");
+    expect(suggestedPropertyTasks(["rooms"], ["rooms"])).toEqual([]);
   });
 
   /*

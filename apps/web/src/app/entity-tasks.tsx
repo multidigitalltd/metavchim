@@ -50,13 +50,13 @@ interface Task {
  */
 export interface TaskListResponse {
   tasks: Task[];
-  openTitles: string[];
+  openSuggestionFields: string[];
 }
 
 type ListState =
   | { kind: "loading" }
   | { kind: "failed" }
-  | { kind: "ready"; rows: Task[]; openTitles: string[] };
+  | { kind: "ready"; rows: Task[]; openSuggestionFields: string[] };
 
 const dueFmt = new Intl.DateTimeFormat("he-IL", {
   timeZone: JERUSALEM_TZ, dateStyle: "short", timeStyle: "short" });
@@ -152,7 +152,7 @@ export function EntityTasks({
     try {
       const data = await apiGet<TaskListResponse>(`/tasks/for/${entityType}/${entityId}`);
       if (mine !== requestId.current) return;
-      setList({ kind: "ready", rows: data.tasks, openTitles: data.openTitles });
+      setList({ kind: "ready", rows: data.tasks, openSuggestionFields: data.openSuggestionFields });
       /* השעון מתעדכן עם הרשימה — ראו `clock` למעלה */
       setClock(new Date());
     } catch {
@@ -265,7 +265,7 @@ export function EntityTasks({
   const suggestions =
     suggestFrom === undefined || list.kind !== "ready"
       ? []
-      : suggestedPropertyTasks(suggestFrom, list.openTitles);
+      : suggestedPropertyTasks(suggestFrom, list.openSuggestionFields);
 
   const quickDue = quickDueOptions(clock);
 

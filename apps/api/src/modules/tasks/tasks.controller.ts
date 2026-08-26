@@ -98,7 +98,7 @@ export class TasksController {
   listForEntity(
     @Param("entityType", new ZodValidationPipe(EntityTypeSchema)) entityType: string,
     @Param("entityId", IdParam) entityId: string,
-  ): Promise<{ tasks: TaskDto[]; openTitles: string[] }> {
+  ): Promise<{ tasks: TaskDto[]; openSuggestionFields: string[] }> {
     return this.tasks.listForEntity(entityType, entityId);
   }
 

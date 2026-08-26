@@ -84,26 +84,30 @@ const SUGGESTIONS: Record<PropertyReadinessField, { title: string; reason: strin
 /**
  * ההצעות לנכס — לפי מה שחסר בו **בפועל**, ובלי לחזור על מה שכבר פתוח.
  *
- * ‎`openTitles` אינו קישוט: מתווך שלחץ „הוסף” על הצעה רואה אותה
- * נכנסת לרשימת המשימות, ואם היא נשארת גם ברשימת ההצעות הוא ילחץ
- * שוב — ויקבל שתי משימות זהות. ההשוואה על הכותרת, כי זה מה
- * שנשמר.
+ * ‎**ההשוואה על השדה, לא על הכותרת.**
+ *
+ * הכותרת **ניתנת לעריכה**: מתווך שפתח משימה מהצעה ואז שינה את
+ * שמה בלוח המשימות גרם לכך שההצעה חוזרת להופיע — ולחיצה עליה לא
+ * יכולה לתקן, כי השרת מזהה שהמשימה כבר קיימת ומחזיר אותה, והמסך
+ * ממשיך להציג את ההצעה. לולאה שאין ממנה מוצא (ביקורת Codex).
+ *
+ * השדה הוא זהות יציבה: הוא מגיע ממפתח ה-`sourceKey` שהשרת בנה,
+ * ואיש אינו יכול לערוך אותו.
  *
  * הסדר הוא של `PROPERTY_READINESS_FIELDS` ולא של מה שהשרת החזיר:
  * אותו נכס מציג את אותן הצעות באותו סדר בכל טעינה.
  */
 export function suggestedPropertyTasks(
   missingFields: readonly string[],
-  openTitles: readonly string[] = [],
+  openSuggestionFields: readonly string[] = [],
 ): SuggestedTask[] {
   const missing = new Set(missingFields);
-  const taken = new Set(openTitles.map((t) => t.trim()));
+  const taken = new Set(openSuggestionFields);
   const out: SuggestedTask[] = [];
   for (const field of PROPERTY_READINESS_FIELDS) {
     if (!missing.has(field)) continue;
-    const suggestion = SUGGESTIONS[field];
-    if (taken.has(suggestion.title)) continue;
-    out.push({ field, ...suggestion });
+    if (taken.has(field)) continue;
+    out.push({ field, ...SUGGESTIONS[field] });
   }
   return out;
 }

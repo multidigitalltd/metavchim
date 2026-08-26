@@ -71,6 +71,15 @@ interface TaskRow {
   createdAt: Date;
 }
 
+/**
+ * מרחב השמות של משימות שנוצרו מהצעה.
+ *
+ * ‎**קבוע אחד**: השרת בונה לפיו את המפתח, שולף לפיו את מה שכבר
+ * פתוח, והמיגרציה מגדירה לפיו את האינדקס הייחודי החלקי. שלושה
+ * מקומות שחייבים להסכים, ולכן אחד.
+ */
+export const SUGGESTION_PREFIX = "suggestion:";
+
 @Injectable()
 export class TasksService {
   constructor(
@@ -268,11 +277,77 @@ export class TasksService {
      * (`lead-sla:`, `offer:`), ולכן זו אינה המצאה חדשה אלא שימוש
      * בו במקום שהוא שייך אליו.
      *
-     * ‎**מה זה כן נותן ומה לא:** הבדיקה יושבת בתוך הטרנזקציה, ולכן
-     * היא מצמצמת את החלון למשך הכתיבה. היא **אינה** ערובה קשה —
-     * לשם כך נדרש אינדקס ייחודי, והוא היה אוסר גם שתי משימות
-     * ידניות באותו שם, שזה שימוש לגיטימי לגמרי.
+     * ‎**הערובה היא באינדקס, לא בבדיקה.** הבדיקה למטה חוסכת
+     * שגיאה במקרה הרגיל; מה שמונע כפילות בפועל הוא אינדקס ייחודי
+     * **חלקי** על מרחב `suggestion:` בלבד (ראו המיגרציה
+     * `20260826213000_suggestion_task_unique`).
+     *
+     * זו התשובה לשאלה ששאלתי בביקורת ולא ידעתי לענות עליה: משימה
+     * ידנית נושאת `sourceKey = NULL` ואינה נכנסת לאינדקס, ולכן שתי
+     * משימות „להתקשר” על אותו כרטיס נשארות מותרות — הערובה קשה
+     * בדיוק היכן שצריך ולא סנטימטר מעבר.
      */
+    sourceKey?: string;
+  }): Promise<TaskDto> {
+    try {
+      return await this.writeCreate(input);
+    } catch (error) {
+      /*
+       * ‎**המפסיד במרוץ מחזיר את השורה שניצחה.**
+       *
+       * הבדיקה שבתוך הטרנזקציה חוסכת שגיאה במקרה הרגיל; מה שמכריע
+       * במרוץ אמיתי הוא האינדקס הייחודי החלקי. חריגת האילוץ פוסלת
+       * את הטרנזקציה כולה, ולכן ההתאוששות **חייבת** לשבת מחוץ לה
+       * ולא בתוך ה-`catch` הפנימי.
+       *
+       * ניסיון אחד בלבד, כמו ב-`whatsapp-link`: שני כשלים ברצף
+       * אינם מרוץ אלא תקלה אמיתית, ולולאה כאן הייתה מסתירה אותה.
+       */
+      if (
+        input.sourceKey === undefined ||
+        !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+        error.code !== "P2002"
+      ) {
+        throw error;
+      }
+      const existing = await this.findOpenBySourceKey(input);
+      if (!existing) throw error;
+      return existing;
+    }
+  }
+
+  /** המשימה הפתוחה שכבר נושאת את המפתח — אחרי שהאינדקס הכריע. */
+  private async findOpenBySourceKey(input: {
+    entityType?: string;
+    entityId?: string;
+    sourceKey?: string;
+  }): Promise<TaskDto | null> {
+    const ctx = TenantContext.current();
+    return this.prisma.withTenant(async (tx) => {
+      const row = await tx.task.findFirst({
+        where: {
+          tenantId: ctx.tenantId,
+          entityType: input.entityType ?? null,
+          entityId: input.entityId ?? null,
+          sourceKey: input.sourceKey ?? null,
+          status: "open",
+        },
+      });
+      if (!row) return null;
+      const [dto] = await this.toDtos(tx, [row]);
+      return dto ?? null;
+    });
+  }
+
+  /** גוף היצירה — ראו `create` להתאוששות מהמרוץ. */
+  private async writeCreate(input: {
+    title: string;
+    notes?: string;
+    dueAt?: Date;
+    priority?: TaskPriority;
+    entityType?: string;
+    entityId?: string;
+    assignedToUserId?: string;
     sourceKey?: string;
   }): Promise<TaskDto> {
     const ctx = TenantContext.current();
@@ -294,8 +369,20 @@ export class TasksService {
           const [dto] = await this.toDtos(tx, [existing]);
           return dto as TaskDto;
         }
+        /*
+         * ומי שהגיע לכאן במקביל לאחר — האינדקס יפיל את אחד משניהם
+         * ב-P2002, והמפסיד מחזיר את השורה שנכתבה. ראו התפיסה
+         * ב-`createOrReturnExisting` למטה.
+         */
       }
       const assignee = await this.resolveAssignee(tx, input.assignedToUserId);
+      /*
+       * ‎**המפסיד במרוץ מחזיר את השורה שניצחה.**
+       *
+       * האינדקס הייחודי החלקי הוא מה שמונע את הכפילות; כאן רק
+       * מתרגמים את הסירוב שלו לתשובה שקטה ונכונה, במקום שגיאה
+       * שהמתווך לא עשה דבר כדי לקבל.
+       */
       const created = await tx.task.create({
         data: {
           id,
@@ -400,7 +487,7 @@ export class TasksService {
   async listForEntity(
     entityType: string,
     entityId: string,
-  ): Promise<{ tasks: TaskDto[]; openTitles: string[] }> {
+  ): Promise<{ tasks: TaskDto[]; openSuggestionFields: string[] }> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
       /*
@@ -411,7 +498,7 @@ export class TasksService {
        * פתוחות — כרטיס שמדווח "אין מה לעשות" בזמן שיש (ביקורת Codex).
        * אותו דפוס בדיוק כמו ב-`list`.
        */
-      const [open, done, openTitles] = await Promise.all([
+      const [open, done, openSuggestions] = await Promise.all([
         tx.task.findMany({
           where: { tenantId, entityType, entityId, status: "open", deletedAfterSync: false },
           orderBy: { dueAt: { sort: "asc", nulls: "last" } },
@@ -419,7 +506,19 @@ export class TasksService {
         }),
         tx.task.findMany({
           where: { tenantId, entityType, entityId, status: "done" },
-          orderBy: { updatedAt: "desc" },
+          /*
+           * ‎**לפי מתי הושלמו, ולא לפי מתי נגעו בהן.**
+           *
+           * `updatedAt` היה מקדם משימה ישנה שנערכה ודוחק החוצה
+           * השלמה חדשה יותר מתוך העשרים. זה סותר בדיוק את הסיבה
+           * שבגללה `completedAt` נוסף — שעריכה לא תגדיר מחדש מתי
+           * משהו נגמר (ביקורת Codex).
+           *
+           * `nulls: "last"` לשורות שקדמו לשדה: אין להן זמן השלמה,
+           * ולמיין אותן כאילו הושלמו עכשיו היה ניחוש. `updatedAt`
+           * נשאר כשובר שוויון ביניהן.
+           */
+          orderBy: [{ completedAt: { sort: "desc", nulls: "last" } }, { updatedAt: "desc" }],
           take: 20,
         }),
         /*
@@ -435,14 +534,22 @@ export class TasksService {
          * מביא כותרת בלבד.
          */
         tx.task.findMany({
-          where: { tenantId, entityType, entityId, status: "open", deletedAfterSync: false },
-          select: { title: true },
-          distinct: ["title"],
+          where: {
+            tenantId,
+            entityType,
+            entityId,
+            status: "open",
+            deletedAfterSync: false,
+            sourceKey: { startsWith: SUGGESTION_PREFIX },
+          },
+          select: { sourceKey: true },
         }),
       ]);
       return {
         tasks: await this.toDtos(tx, [...open, ...done]),
-        openTitles: openTitles.map((t) => t.title),
+        openSuggestionFields: openSuggestions
+          .map((t) => t.sourceKey?.slice(SUGGESTION_PREFIX.length))
+          .filter((f): f is string => f !== undefined),
       };
     });
   }
