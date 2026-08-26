@@ -1173,6 +1173,7 @@ export default function PropertyDetailPage({
             ) : matches.length === 0 ? (
               <MatchesEmptyState
                 blocking={matchGateMissing(property)}
+                propertyId={id}
               />
             ) : visibleMatches.length === 0 ? (
               /*

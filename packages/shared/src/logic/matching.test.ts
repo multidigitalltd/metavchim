@@ -759,3 +759,46 @@ describe("כלל הברזל — מיקום חייב להיבחן", () => {
     }
   });
 });
+
+/*
+ * ‎**רצועת הסטייה בשטח** (בקשת המשתמשת: „שטח — מותרת סטייה קטנה של
+ * הטווח, כמו במחיר”).
+ *
+ * שטח אינו קריטריון חובה ואינו פוסל; מה שנבדק כאן הוא שהניקוד יורד
+ * ברצף בתוך הרצועה, ולא במדרגה שמתייחסת ל-87 מ״ר ול-80 מ״ר כאל
+ * אותו דבר.
+ */
+describe("שטח — רצועת סטייה חד-צדדית", () => {
+  const buyer = { ...baseBuyer, areaSqmMin: 100 };
+  const areaScore = (areaSqm: number): number => {
+    const result = scoreMatch({ ...baseProperty, areaSqm }, buyer);
+    return result.breakdown.find((p) => p.criterion === "area")?.score ?? -1;
+  };
+
+  it("שטח מלא או גדול מהמבוקש — ניקוד מלא, בלי הערה", () => {
+    expect(areaScore(100)).toBe(1);
+    expect(areaScore(140)).toBe(1);
+    const result = scoreMatch({ ...baseProperty, areaSqm: 140 }, buyer);
+    expect(result.breakdown.find((p) => p.criterion === "area")?.note).toBeUndefined();
+  });
+
+  it("בתוך הרצועה — ניקוד חלקי שיורד ברצף", () => {
+    const at97 = areaScore(97);
+    const at93 = areaScore(93);
+    expect(at97).toBeGreaterThan(at93);
+    expect(at93).toBeGreaterThan(0);
+    expect(at97).toBeLessThan(1);
+  });
+
+  it("מחוץ לרצועה — אפס, אבל בלי לפסול את ההתאמה", () => {
+    expect(areaScore(85)).toBe(0);
+    const result = scoreMatch({ ...baseProperty, areaSqm: 85 }, buyer);
+    expect(result.excluded).toBe(false);
+    expect(result.score).toBeGreaterThan(0);
+  });
+
+  it("ההערה נוקבת בפער ולא רק בעובדה", () => {
+    const result = scoreMatch({ ...baseProperty, areaSqm: 95 }, buyer);
+    expect(result.breakdown.find((p) => p.criterion === "area")?.note).toContain("5%");
+  });
+});

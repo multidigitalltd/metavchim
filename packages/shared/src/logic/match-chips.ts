@@ -37,6 +37,19 @@ export interface MatchChip {
   /** מה שמוצג — תווית הקריטריון, או ההערה שהמנוע ניסח כשיש כזו. */
   label: string;
   criterion: MatchCriterion;
+  /**
+   * המשקל שההתאמה **הזו** חושבה לפיו.
+   *
+   * משרד יכול לכייל משקלים בהגדרות, והרכיב שחזר נושא את המשקל
+   * שבפועל שימש. מיון לפי ברירת המחדל היה מציג את סדר החשיבות של
+   * המערכת ולא של המשרד — כלומר דוחף קריטריון שהמשרד הכריז עליו
+   * כחשוב אל סוף השורה (ביקורת Codex).
+   *
+   * לקריטריון שלא נבחן אין משקל אפקטיבי — הוא לא השתתף בחישוב —
+   * ולכן הוא ממוין לפי ברירת המחדל. זה נכון: הסדר שם עונה על „מה
+   * הכי כדאי להשלים”, וזו שאלה על המערכת ולא על ההתאמה שלא קרתה.
+   */
+  weight: number;
 }
 
 /**
@@ -68,11 +81,16 @@ export function matchChips(breakdown: readonly ScoreComponent[]): MatchChip[] {
     const part = byCriterion.get(criterion);
     const label = MATCH_CRITERION_LABELS[criterion];
     if (part === undefined) {
-      chips.push({ tone: "missing", label: `לא נבדק: ${label}`, criterion });
+      chips.push({
+        tone: "missing",
+        label: `לא נבדק: ${label}`,
+        criterion,
+        weight: DEFAULT_MATCH_WEIGHTS[criterion],
+      });
       continue;
     }
     if (part.score >= FULL) {
-      chips.push({ tone: "matched", label, criterion });
+      chips.push({ tone: "matched", label, criterion, weight: part.weight });
       continue;
     }
     /*
@@ -80,13 +98,14 @@ export function matchChips(breakdown: readonly ScoreComponent[]): MatchChip[] {
      * יותר מכל ניסוח שנמציא כאן. כשאין — התווית לבדה, בלי להמציא
      * סיבה שאיננו יודעים.
      */
-    chips.push({ tone: "partial", label: part.note ?? label, criterion });
+    chips.push({
+      tone: "partial",
+      label: part.note ?? label,
+      criterion,
+      weight: part.weight,
+    });
   }
 
   const order: Record<MatchChipTone, number> = { matched: 0, partial: 1, missing: 2 };
-  return chips.sort(
-    (a, b) =>
-      order[a.tone] - order[b.tone] ||
-      DEFAULT_MATCH_WEIGHTS[b.criterion] - DEFAULT_MATCH_WEIGHTS[a.criterion],
-  );
+  return chips.sort((a, b) => order[a.tone] - order[b.tone] || b.weight - a.weight);
 }

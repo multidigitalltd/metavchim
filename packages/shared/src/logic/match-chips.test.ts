@@ -32,6 +32,7 @@ describe("matchChips", () => {
       tone: "partial",
       label: "תקציב נמוך ב-5%",
       criterion: "budget",
+      weight: 0.1,
     });
 
     const never = matchChips([]);
@@ -39,6 +40,8 @@ describe("matchChips", () => {
       tone: "missing",
       label: "לא נבדק: תקציב",
       criterion: "budget",
+      // קריטריון שלא נבחן — ברירת המחדל, כי לא היה לו משקל אפקטיבי
+      weight: 0.25,
     });
   });
 
@@ -86,8 +89,30 @@ describe("matchChips", () => {
 
   it("בתוך אותה קבוצה — הכבד קודם", () => {
     // מיקום .25 כבד מחדרים .15, ושניהם תואמים
-    const chips = matchChips([part("rooms", 1), part("location", 1)]);
+    const chips = matchChips([
+      { criterion: "rooms", score: 1, weight: 0.15 },
+      { criterion: "location", score: 1, weight: 0.25 },
+    ]);
     expect(chips[0]?.criterion).toBe("location");
     expect(chips[1]?.criterion).toBe("rooms");
+  });
+
+  /*
+   * ‎**המשקל של המשרד, לא של המערכת.**
+   *
+   * משרד יכול לכייל משקלים בהגדרות, והרכיב שחזר נושא את המשקל
+   * שבפועל שימש. מיון לפי ברירת המחדל היה דוחף לסוף השורה דווקא את
+   * הקריטריון שהמשרד הכריז עליו כחשוב.
+   *
+   * כאן חדרים מכוילים ל-.5 ומיקום ל-.1 — ההפך מברירת המחדל — ולכן
+   * חדרים חייבים להופיע ראשונים.
+   */
+  it("המיון לפי המשקל שההתאמה חושבה בו, ולא לפי ברירת המחדל", () => {
+    const chips = matchChips([
+      { criterion: "location", score: 1, weight: 0.1 },
+      { criterion: "rooms", score: 1, weight: 0.5 },
+    ]);
+    expect(chips[0]?.criterion).toBe("rooms");
+    expect(chips[1]?.criterion).toBe("location");
   });
 });

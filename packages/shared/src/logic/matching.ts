@@ -65,6 +65,15 @@ export const CORE_MATCH_CRITERIA: readonly MatchCriterion[] = [
 export const MIN_CORE_COVERAGE = 0.5;
 
 /**
+ * ‎**רצועת הסטייה בשטח — 10% מתחת למבוקש.**
+ *
+ * מקבילה לרצועת התקציב, ומאותו נימוק: המספר שהקונה סימן הוא כוונה
+ * ולא מדידה. ההבדל היחיד הוא שזו רצועה חד-צדדית — נכס **גדול**
+ * מהמבוקש אינו חריגה.
+ */
+export const AREA_TOLERANCE = 0.1;
+
+/**
  * קריטריונים שחייבים **להיבחן בפועל**, ולא רק להיות כבדים.
  *
  * ‎**כלל ברזל: התאמה בלי השוואת מיקום וסוג נכס אינה התאמה.** לא
@@ -499,13 +508,43 @@ export function scoreMatch(
   }
 
   // --- שטח (0.05) ---
+  /*
+   * ‎**רצועת סטייה, כמו בתקציב** (בקשת המשתמשת).
+   *
+   * „‎88 מ״ר” אינו מספר שהקונה מדד — הוא סימון של מה שהוא מחפש.
+   * נכס של 85 מ״ר אינו „לא מתאים”, והורדתו לאפס הייתה מוחקת ממנו
+   * ‎5% מהציון על שלושה מטרים.
+   *
+   * הרצועה **חד-צדדית**, כי לקונה יש מינימום בלבד ואין מקסימום:
+   * נכס גדול מהמבוקש אינו חריגה אלא בונוס, ואין מה לנכות עליו.
+   * זה ההבדל מהתקציב, ששם החריגה כלפי מטה **כן** משמעותית (מי
+   * שסימן 3.5 מיליון אינו מחפש 2.5).
+   *
+   * ‎**הניקוד יורד ברצף ולא במדרגה.** מדרגה ל-0.5 הייתה מתייחסת
+   * ל-87 מ״ר ול-80 מ״ר כאל אותו דבר, וזו בדיוק ההשטחה שהופכת ציון
+   * למספר שאי אפשר לסמוך עליו.
+   *
+   * שטח אינו קריטריון חובה ואינו פוסל — נכס מחוץ לרצועה מקבל 0
+   * בקריטריון שמשקלו .05, ותו לא.
+   */
   if (property.areaSqm !== undefined && buyer.areaSqmMin !== undefined) {
-    const ok = property.areaSqm >= buyer.areaSqmMin;
+    const min = buyer.areaSqmMin;
+    const actual = property.areaSqm;
+    const shortfall = min > 0 ? (min - actual) / min : 0;
+    const score =
+      shortfall <= 0 ? 1 : shortfall >= AREA_TOLERANCE ? 0 : 1 - shortfall / AREA_TOLERANCE;
     parts.push({
       criterion: "area",
       weight: weights.area,
-      score: ok ? 1 : property.areaSqm >= buyer.areaSqmMin * 0.9 ? 0.5 : 0,
-      note: ok ? undefined : `שטח קטן מהמבוקש (${property.areaSqm} מ"ר)`,
+      score,
+      /*
+       * ההערה נוקבת בפער ולא רק בעובדה: „קטן ב-3%” אומר למתווך אם
+       * זה בכלל מפריע, ו„קטן מהמבוקש” אינו אומר דבר.
+       */
+      note:
+        shortfall <= 0
+          ? undefined
+          : `שטח קטן ב-${Math.round(shortfall * 100)}% מהמבוקש (${actual} מ"ר מול ${min})`,
     });
   }
 
