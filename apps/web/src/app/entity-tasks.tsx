@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { api, apiGet, apiPost, ApiError } from "@/lib/api";
 import { IconCheck, IconClock, IconUser } from "./icons";
@@ -84,13 +84,30 @@ export function EntityTasks({
    * כלומר ההצעה שנלחצה נשארה על המסך ופעילה, ולחיצה שנייה בזמן
    * טעינה איטית ייצרה משימה כפולה (ביקורת Codex).
    */
+  /*
+   * ‎**מונה בקשות — כי `await` לבדו אינו מסדר את הסדר.**
+   *
+   * ‎`entityId` בתלויות מייצר פונקציה חדשה; הוא אינו מבטל בקשה
+   * שכבר באוויר. טעינה שיצאה **לפני** הכתיבה יכולה לחזור
+   * **אחריה** ולדרוס את הרשימה הטרייה — וההצעה שנלחצה תופיע שוב,
+   * למרות שהמשימה כבר נוצרה. אותו דבר בין שתי ישויות: תשובה של
+   * הכרטיס הקודם נוחתת על הנוכחי (ביקורת Codex).
+   *
+   * אותו מנגנון בדיוק כמו ב-`OwnerActivity`, ומאותה סיבה.
+   */
+  const requestId = useRef(0);
+
   const load = useCallback(async (): Promise<void> => {
+    const mine = ++requestId.current;
     setLoadFailed(false);
     try {
-      setTasks(await apiGet<Task[]>(`/tasks/for/${entityType}/${entityId}`));
-      /* השעון מתעדכן עם הרשימה — ראו `now` למטה */
+      const rows = await apiGet<Task[]>(`/tasks/for/${entityType}/${entityId}`);
+      if (mine !== requestId.current) return;
+      setTasks(rows);
+      /* השעון מתעדכן עם הרשימה — ראו `clock` למעלה */
       setClock(new Date());
     } catch {
+      if (mine !== requestId.current) return;
       setLoadFailed(true);
     }
   }, [entityType, entityId]);
@@ -163,8 +180,17 @@ export function EntityTasks({
    * הכותרות הפתוחות נשלחות פנימה כדי שהצעה שנלחצה לא תישאר למעלה
    * ותיפתח פעמיים.
    */
+  /*
+   * ‎**רק אחרי שהרשימה ידועה** — `tasks ?? []` הפך „עוד לא יודעים
+   * אילו משימות פתוחות” ל„אין משימות פתוחות”, ולכן כל ההצעות
+   * הוצגו פעילות בזמן הטעינה. לחיצה שם על הצעה שכבר קיימת כמשימה
+   * יוצרת כפילות, כי הסינון מול הכותרות הפתוחות רץ על רשימה ריקה
+   * (ביקורת Codex).
+   *
+   * זו הפעם הרביעית בקובץ הזה שאותו „לא ידוע” נקרא כ„לא”.
+   */
   const suggestions =
-    suggestFrom === undefined
+    suggestFrom === undefined || tasks === null || loadFailed
       ? []
       : suggestedPropertyTasks(suggestFrom, open.map((t) => t.title));
 
