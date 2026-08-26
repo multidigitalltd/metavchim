@@ -20,7 +20,7 @@ import {
 } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
-import { readinessBand, readinessCount } from "@/lib/readiness";
+import { readinessBand, readinessCount, readinessHref } from "@/lib/readiness";
 import { MediaSection } from "./media-section";
 import { PropertyTwins } from "./property-twins";
 import { NetworkDemandMatches } from "../network-demand-matches";
@@ -860,7 +860,7 @@ export default function PropertyDetailPage({
               )}
               {property.missingFields.length > 0 ? (
                 <Link
-                  href={`/properties/${id}/edit`}
+                  href={readinessHref(id, property.missingFields)}
                   className="mv-btn-soft mt-2 inline-block"
                 >
                   השלם פרטים

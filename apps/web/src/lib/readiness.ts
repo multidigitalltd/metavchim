@@ -71,3 +71,47 @@ export function readinessBand(score: number): ReadinessBand {
 export function readinessCount(missing: number, total: number): string {
   return `${total - missing} מתוך ${total} שדות מלאים`;
 }
+
+/**
+ * שני שדות המוכנות ש**אין להם פקד בטופס העריכה.**
+ *
+ * טופס העריכה הוא שדות של שורת הנכס: מחיר, שטח, חדרים, קומה,
+ * מעלית, חניה ותיאור שיווקי. תמונות יושבות בטבלה אחרת ומועלות
+ * דרך רכיב ההעלאה שבסקירה, ובעל הנכס הוא קישור לכרטיס איש קשר
+ * שנבחר בלשונית שלו. שניהם נספרים במוכנות מאז המעבר לתשעת
+ * השדות — ולכן ההמלצה יכולה עכשיו להצביע על חוסר שהיעד שלה
+ * אינו יודע לתקן.
+ */
+const FIELDS_OUTSIDE_EDIT_FORM = ["images", "owner"];
+
+/**
+ * לאן שולח „השלם פרטים” — **למקום שבו באמת אפשר להשלים.**
+ *
+ * ## הבאג
+ *
+ * הכפתור שלח תמיד ל-`/properties/:id/edit`. לנכס שחסרות בו רק
+ * תמונות ובעלים — מצב שנעשה שכיח בדיוק מפני שהוספנו את שניהם
+ * למוכנות — ההמלצה נקבה בשני החוסרים ואז פתחה מסך שאין בו לא
+ * מעלה תמונות ולא בורר איש קשר. המשתמש שמר טופס בלי לשנות דבר,
+ * הציון לא זז, וההמלצה חזרה מחר (ביקורת Codex).
+ *
+ * ## הכלל
+ *
+ * יש ולו חוסר אחד שהטופס יודע לתקן — הטופס. אחרת כרטיס הנכס:
+ * בעלים-בלבד נפתח היישר בלשונית „בעל הנכס”, וכל מקרה שכולל
+ * תמונות נוחת על עוגן רכיב ההעלאה שבסקירה. השדות עצמם מגיעים
+ * מהשרת, כך שהניתוב הוא תוצאה של אותו חישוב שהפיק את הגלולות
+ * ולא ניחוש מקביל.
+ *
+ * העוגן חשוב במיוחד לכפתור שבכרטיס עצמו: בלעדיו „השלם פרטים”
+ * היה קישור לעמוד שהמשתמש כבר נמצא בו, כלומר לחיצה שאינה עושה
+ * דבר. עם העוגן היא גוללת אל מעלה התמונות.
+ */
+export function readinessHref(propertyId: string, missingFields: readonly string[]): string {
+  const fixableInForm = missingFields.some((f) => !FIELDS_OUTSIDE_EDIT_FORM.includes(f));
+  if (fixableInForm) return `/properties/${propertyId}/edit`;
+  if (missingFields.length === 1 && missingFields[0] === "owner") {
+    return `/properties/${propertyId}?tab=owner`;
+  }
+  return `/properties/${propertyId}#media-heading`;
+}

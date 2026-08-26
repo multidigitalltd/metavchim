@@ -509,6 +509,16 @@ export class PropertiesService {
     let trigger: MatchTrigger | undefined;
 
     await this.prisma.withTenant(async (tx) => {
+      /*
+       * **אותה נעילה שההעלאה והמחיקה לוקחות** — נקודת סנכרון אחת
+       * לכל מי שכותב מוכנות.
+       *
+       * העריכה קוראת את מצב המדיה (`hasMedia`) וכותבת ציון. בלי
+       * הנעילה, טרנזקציית מדיה שרצה במקביל יכולה לסגור ביניהן: העריכה
+       * קראה „אין תמונות”, המדיה כתבה את הציון הנכון, והעריכה דרסה
+       * אותו בערך שחישבה קודם (ביקורת Codex).
+       */
+      await tx.$queryRaw`SELECT id FROM properties WHERE id = ${id} FOR UPDATE`;
       const existing = await tx.property.findFirst({
         where: {
           id,

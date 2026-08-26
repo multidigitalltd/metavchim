@@ -7,6 +7,7 @@ import { normalizeNameForMatch } from "@metavchim/shared";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
+import { refreshReadiness } from "../properties/readiness.writer";
 
 /**
  * מחיקת לקוח מהמערכת — זכות המחיקה של האדם, לא ניקוי זבל.
@@ -349,10 +350,28 @@ export class ContactErasureService {
      * כרטיס איש הקשר שנמחק כאן. מחיקת הנכס הייתה גוררת איתה התאמות
      * והצעות של קונים אחרים שאין להם קשר לבקשה.
      */
+    /*
+     * המזהים נאספים **לפני** הניתוק: אחריו כבר אי אפשר למצוא אילו
+     * נכסים היו שייכים לאיש הקשר.
+     */
+    const formerlyOwned = await tx.property.findMany({
+      where: { tenantId, ownerContactId: contactId },
+      select: { id: true },
+    });
     await tx.property.updateMany({
       where: { tenantId, ownerContactId: contactId },
       data: { ownerContactId: null },
     });
+    /*
+     * „בעל הנכס” הוא אחד מתשעת שדות המוכנות, ולכן הניתוק מוריד את
+     * הציון. בלי החישוב מחדש נכס עם שאר השדות ותמונה היה נשאר על 89
+     * במקום 78: הדוח לא היה סופר אותו כלא-שלם, ואם יתווסף לו בעלים
+     * מחדש — הציון השמור עדיין מעל הסף, ולכן גם `property.ready` לא
+     * היה נפלט (ביקורת Codex).
+     */
+    for (const property of formerlyOwned) {
+      await refreshReadiness(tx, property.id);
+    }
     /*
      * ואותו דבר למי שגר בנכס.
      *
