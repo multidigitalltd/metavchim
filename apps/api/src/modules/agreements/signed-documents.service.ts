@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ulid } from "ulid";
 import {
   DOCUMENT_KINDS,
@@ -10,6 +10,7 @@ import {
   sniffDocumentType,
   type DocumentKind,
 } from "@metavchim/shared";
+import { lockContact } from "../../common/locks";
 import { assertContactAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
@@ -93,6 +94,8 @@ function propertyLabel(p: {
 
 @Injectable()
 export class SignedDocumentsService {
+  private readonly logger = new Logger(SignedDocumentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
@@ -200,6 +203,22 @@ export class SignedDocumentsService {
     let createdAt: Date;
     try {
       createdAt = await this.prisma.withTenant(async (tx) => {
+        /*
+         * ‎**הנעילה והבדיקה החוזרת בטרנזקציה שכותבת, ולא רק לפניה.**
+         *
+         * הבדיקה המקדימה למעלה רצה בטרנזקציה נפרדת, ובין השתיים
+         * יכולה להסתיים מחיקת לקוח. ל-`signed_documents.contact_id`
+         * אין מפתח זר, ולכן ה-INSERT היה מצליח על כרטיס שכבר איננו:
+         * שורה וקובץ ב-S3 שמצביעים ללקוח מחוק, מחוץ לניקוי המחיקה
+         * ובלתי נגישים מהממשק (ביקורת Codex). ההעלאה גם הייתה
+         * מדווחת „נשמר”.
+         *
+         * ‎`lockContact` היא אותה נעילה בדיוק שהמחיקה לוקחת ראשונה,
+         * ולכן המפסיד במרוץ ממתין וקורא מחדש — ואז
+         * ‎`assertContactAccess` נכשל כראוי.
+         */
+        await lockContact(tx, input.contactId);
+        await assertContactAccess(tx, tenantId, input.contactId);
         const row = await tx.signedDocument.create({
           data: {
             id,
@@ -450,19 +469,25 @@ export class SignedDocumentsService {
     /*
      * ‎**הרישום תלוי במה שהזרם עשה, ולא בכך שנפתח.**
      *
-     * ‎`getObject` מחזיר זרם שטרם נקרא, ולכן רישום כאן היה עדיין
-     * טענה על העתיד: אם S3 מתנתק באמצע, או שהתגובה נקטעת לפני
-     * שהגיעה, היומן היה מספר על הורדה שלא הושלמה (ביקורת Codex).
+     * ‎`getObject` מחזיר זרם שטרם נקרא, ולכן רישום מיד אחריו הוא
+     * עדיין טענה על העתיד: ניתוק באמצע היה משאיר ביומן הורדה שלא
+     * הושלמה (ביקורת Codex).
      *
-     * לכן הרישום נתלה על סיום הזרם — `end` כשהכול נמסר, `error`
-     * כשנקטע — ובשני המקרים הוא נכתב. חשיפה חלקית היא אירוע אמיתי
-     * ולא „לא קרה כלום”, ולכן היא נרשמת בשמה ולא נשמטת.
+     * שלושת האירועים, ולא רק שניים: זרם שנהרס בלי שגיאה פולט
+     * ‎`close` בלבד — ובלעדיו הייתה **הורדה בלי שום רישום**, שהיא
+     * הכשל החמור מבין השלושה. הנעילה על יישוב יחיד מונעת שורה
+     * כפולה כשגם `error` וגם `close` נפלטים.
      *
-     * ‎`fire-and-forget` במכוון: התגובה כבר בדרך אל המתווך, ואין
-     * למי לזרוק. כשל בכתיבה נרשם ביומן השרת ואינו קוטע הורדה
-     * שהצליחה.
+     * ‎**שמות התוצאות מתארים את מה שנצפה בפועל.** מה שנצפה כאן הוא
+     * זרם המקור מ-S3, לא תגובת ה-HTTP: `source_completed` אינו
+     * „הלקוח קיבל”, והוא לא ייקרא כך. חשבונאות ברמת ה-HTTP דורשת
+     * ‎`@Res()` ושינוי מסלול ההורדה כולו — ראו ההערה ב-PR; לא הרחבתי
+     * את ה-PR בשבילה, ולא אכנה בינתיים את מה שיש בשם חזק ממנו.
      */
-    const writeAudit = (outcome: "completed" | "aborted"): void => {
+    let settled = false;
+    const writeAudit = (outcome: "source_completed" | "aborted"): void => {
+      if (settled) return;
+      settled = true;
       void this.prisma
         .withTenant((tx) =>
           this.audit.record(tx, {
@@ -472,10 +497,22 @@ export class SignedDocumentsService {
             metadata: { documentId: id, retained: row.contactId === null, outcome },
           }),
         )
-        .catch(() => undefined);
+        .catch((error: unknown) => {
+          /*
+           * ‎**לא נבלע.** ההערה הקודמת טענה שכשל „נרשם ביומן השרת”,
+           * ולא היה שום רישום — כלומר תיאור שגוי של הקוד שמתחתיו
+           * (ביקורת Codex). מסמך שנמסר בלי שורה ביומן הוא בדיוק
+           * הפער שהמסלול הזה קיים כדי למנוע, ולכן הוא חייב להיות
+           * גלוי למי שקורא את יומני השרת.
+           */
+          this.logger.error(
+            `רישום הורדת מסמך ${id} נכשל (${outcome}): ${(error as Error).message}`,
+          );
+        });
     };
-    obj.body.once("end", () => writeAudit("completed"));
+    obj.body.once("end", () => writeAudit("source_completed"));
     obj.body.once("error", () => writeAudit("aborted"));
+    obj.body.once("close", () => writeAudit("aborted"));
 
     return {
       body: obj.body,

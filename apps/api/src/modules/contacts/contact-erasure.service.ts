@@ -68,9 +68,20 @@ export class ContactErasureService {
     calls: number;
     recordings: number;
     messages: number;
-    /** הסכמים שטרם נחתמו — אלה שיימחקו. */
+    /**
+     * מה שיימחק: הסכמים שטרם נחתמו, **וגם** מסמכים שהועלו ואינם
+     * הצהרה על חתימה („מסמך אחר” — תעודה, נספח).
+     */
     agreements: number;
-    /** הסכמים חתומים — **נשמרים** ועוברים לארכיון המשרד. */
+    /**
+     * מה ש**נשמר** ועובר לארכיון המשרד: הסכמים חתומים, וגם סריקות
+     * של הזמנה בכתב או בלעדיות שנחתמו על נייר.
+     *
+     * הסריקות נספרו כאן רק אחרי שהתברר שהן חסרו: המסך הבטיח „לא
+     * נשמר דבר” על לקוח שיש לו סריקה חתומה בלבד — והיא כן נשמרה
+     * (ביקורת Codex). זו הבטחה שקרית למי שמממש זכות מחיקה, וזה
+     * המסך היחיד שהוא רואה לפניה.
+     */
     signedAgreements: number;
     appointments: number;
     properties: number;
@@ -98,6 +109,8 @@ export class ContactErasureService {
         messages,
         agreements,
         signedAgreements,
+        retainedScans,
+        deletedScans,
         appointments,
         properties,
         sharedLeads,
@@ -109,6 +122,22 @@ export class ContactErasureService {
         tx.message.count({ where: { tenantId, contactId } }),
         tx.agreement.count({ where: { tenantId, contactId, status: { not: "signed" } } }),
         tx.agreement.count({ where: { tenantId, contactId, status: "signed" } }),
+        // אותם שני תנאים בדיוק שמכריעים ב-`eraseWithin` — לא ניסוח שני
+        tx.signedDocument.count({
+          where: {
+            tenantId,
+            contactId,
+            kind: { in: [...OFFER_DOCUMENT_KINDS] },
+            signedOn: { not: null },
+          },
+        }),
+        tx.signedDocument.count({
+          where: {
+            tenantId,
+            contactId,
+            NOT: { kind: { in: [...OFFER_DOCUMENT_KINDS] }, signedOn: { not: null } },
+          },
+        }),
         tx.appointment.count({
           where: {
             tenantId,
@@ -132,8 +161,12 @@ export class ContactErasureService {
         calls,
         recordings,
         messages,
-        agreements,
-        signedAgreements,
+        /*
+         * הסריקות מתווספות לשני הצדדים — לא כשורה נפרדת: המסך
+         * שואל „מה יימחק ומה יישמר”, ולא „לפי איזו טבלה”.
+         */
+        agreements: agreements + deletedScans,
+        signedAgreements: signedAgreements + retainedScans,
         appointments,
         properties,
         sharedListings: sharedLeads + sharedDemands,
