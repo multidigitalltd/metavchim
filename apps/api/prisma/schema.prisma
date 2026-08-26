@@ -2007,6 +2007,43 @@ model Agreement {
   @@map("agreements")
 }
 
+/// מסמך שנחתם על נייר ונסרק לתוך המערכת.
+///
+/// טבלה נפרדת מ-`Agreement` **כי אין לנו את הנוסח.** `renderedBody`
+/// ו-`bodyHash` שם מוכיחים שהטקסט שהלקוח חתם עליו לא שונה; על
+/// סריקה אי אפשר לטעון את זה, ו-`fileHash` כאן טוען רק שהבתים
+/// שהועלו הם הבתים שנשמרו.
+///
+/// ‎**התוצאה המשפטית זהה**: `kind` של `brokerage`/`exclusivity` הוא
+/// הצהרת המתווך על הסכם חתום, והוא פותח את שער ההצעות כמו חתימה
+/// במערכת (`AgreementsService.hasSigned`). ההיגיון —
+/// packages/shared — signed-documents.ts.
+model SignedDocument {
+  id         String    @id @db.Char(26)
+  tenantId   String    @map("tenant_id") @db.Char(26)
+  /// brokerage | exclusivity | other
+  kind       String    @db.VarChar(20)
+  /// null = הלקוח נמחק. מסמך חתום אינו נמחק — ראו `Agreement.contactId`
+  contactId  String?   @map("contact_id") @db.Char(26)
+  propertyId String?   @map("property_id") @db.Char(26)
+  fileName   String    @map("file_name") @db.VarChar(200)
+  mimeType   String    @map("mime_type") @db.VarChar(80)
+  byteSize   Int       @map("byte_size")
+  s3Key      String    @map("s3_key") @db.VarChar(300)
+  /// SHA-256 של הקובץ כפי שהועלה
+  fileHash   String    @map("file_hash") @db.Char(64)
+  /// מתי נחתם על הנייר, כפי שהמתווך מסר
+  signedOn   DateTime? @map("signed_on") @db.Date
+  signerName String?   @map("signer_name") @db.VarChar(120)
+  note       String?   @db.VarChar(500)
+  uploadedBy String?   @map("uploaded_by") @db.Char(26)
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([tenantId, propertyId])
+  @@index([tenantId, contactId, kind])
+  @@map("signed_documents")
+}
+
 /// תקופת בלעדיות על נכס — **מה שההסכם הבטיח, כמצב שאפשר לבדוק.**
 ///
 /// עד כה התקופה חיה כטקסט חופשי בתוך גוף ההסכם החתום, ו-

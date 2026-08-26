@@ -133,9 +133,23 @@ export class AccountDeletionService {
      * בהקשר של דייר אחר לגמרי, והטבלאות תחת FORCE RLS היו מחזירות
      * אפס מפתחות בשקט — כלומר הקבצים היו נשארים ב-S3 לנצח.
      */
-    const [media, calls, tickets, tenantRow] = await Promise.all([
+    const [media, documents, calls, tickets, tenantRow] = await Promise.all([
       this.prisma.withExplicitTenant(tenantId, (tx) =>
         tx.propertyMedia.findMany({
+          where: { tenantId },
+          select: { s3Key: true },
+        }),
+      ),
+      /*
+       * המסמכים שנחתמו על נייר.
+       *
+       * טבלה חדשה עם קבצים מאחוריה היא בדיוק מה שנשכח כאן: השורות
+       * נמחקות עם המשרד, והקבצים — סריקות של הזמנות בכתב חתומות,
+       * עם שמות ומספרי זהות — היו נשארים ב-S3 אחרי שהמשרד ביקש
+       * להימחק.
+       */
+      this.prisma.withExplicitTenant(tenantId, (tx) =>
+        tx.signedDocument.findMany({
           where: { tenantId },
           select: { s3Key: true },
         }),
@@ -173,6 +187,7 @@ export class AccountDeletionService {
     const logoKey = (tenantRow?.settings as Record<string, unknown> | null)?.["logoKey"];
     const s3Keys = [
       ...media.map((m) => m.s3Key),
+      ...documents.map((d) => d.s3Key),
       ...tickets
         .map((t) => t.screenshotKey)
         .filter((k): k is string => k !== null),
@@ -246,6 +261,8 @@ export class AccountDeletionService {
         await tx.pushSubscription.deleteMany({ where: { tenantId } });
         await tx.agreement.deleteMany({ where: { tenantId } });
         await tx.agreementTemplate.deleteMany({ where: { tenantId } });
+        // הקבצים שמאחוריהן נאספו למעלה ונמחקים דרך storage.cleanup_object
+        await tx.signedDocument.deleteMany({ where: { tenantId } });
         await tx.integration.deleteMany({ where: { tenantId } });
         await tx.sharedDemand.deleteMany({ where: { tenantId } });
         /*

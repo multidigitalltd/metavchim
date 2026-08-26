@@ -340,6 +340,46 @@ export class ContactErasureService {
     // מה שלא נחתם הוא טיוטה או קישור שפג — נמחק עם השאר
     await tx.agreement.deleteMany({ where: { tenantId, contactId } });
 
+    /*
+     * ‎**מסמך שנחתם על נייר — אותו כלל בדיוק.**
+     *
+     * הסריקה של הזמנה בכתב חתומה היא אותה ראיה משפטית ואותו בסיס
+     * זכאות, ולכן היא מנותקת ואינה נמחקת. מה שמבדיל אותה משורה
+     * ב-`agreements` הוא שיש מאחוריה קובץ: הוא **נשאר** באחסון, כי
+     * שורה מנותקת שמצביעה לאובייקט שנמחק אינה ראיה אלא רישום ריק.
+     *
+     * ‎`signedOn` ולא `kind`, ומאותו נימוק שב-`hasSigned`: העמודה
+     * הזו היא מה שאומר „הוצהר עליו כחתום”, והיא נדרשת בדיוק לסוגים
+     * שנושאים את ההצהרה.
+     */
+    await tx.signedDocument.updateMany({
+      where: { tenantId, contactId, signedOn: { not: null } },
+      data: { contactId: null },
+    });
+    /*
+     * ‎**מה שאינו הצהרה על חתימה — נמחק עם הקובץ שלו.**
+     *
+     * „מסמך אחר” הוא תעודת זהות, אישור זכויות, נספח — מסמכי הלקוח
+     * עצמו. זכות המחיקה חלה עליהם במלואה, ומחיקת השורה בלי מחיקת
+     * הקובץ הייתה משאירה אותם ב-S3 בדיוק כמו קודם. המפתחות נאספים
+     * לפני המחיקה, ואירוע ניקוי נרשם על כל אחד.
+     */
+    const looseDocuments = await tx.signedDocument.findMany({
+      where: { tenantId, contactId },
+      select: { s3Key: true },
+    });
+    await tx.signedDocument.deleteMany({ where: { tenantId, contactId } });
+    if (looseDocuments.length > 0) {
+      await tx.outboxEvent.createMany({
+        data: looseDocuments.map((doc) => ({
+          id: ulid(),
+          tenantId,
+          name: "storage.cleanup_object",
+          payload: { tenantId, s3Key: doc.s3Key },
+        })),
+      });
+    }
+
     await tx.buyer.deleteMany({ where: { tenantId, contactId } });
     await tx.lead.deleteMany({ where: { tenantId, contactId } });
 

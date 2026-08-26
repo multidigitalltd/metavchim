@@ -23,6 +23,7 @@ import { PropertyTwins } from "./property-twins";
 import { NetworkDemandMatches } from "../network-demand-matches";
 import { NetworkShareSection } from "../../network-share-section";
 import { AgreementsPanel } from "../../agreements-panel";
+import { DocumentsPanel } from "../../documents-panel";
 import { EntityTasks } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
 import { OwnerActivity } from "./owner-activity";
@@ -822,7 +823,7 @@ export default function PropertyDetailPage({
           { key: "network", label: "שיתופי פעולה" },
           { key: "owner", label: "בעל הנכס" },
           { key: "exclusivity", label: "בלעדיות" },
-          { key: "agreements", label: "הסכמים" },
+          { key: "agreements", label: "מסמכים והסכמים" },
           { key: "tasks", label: "משימות", count: openTasks },
         ]}
       />
@@ -1330,19 +1331,36 @@ export default function PropertyDetailPage({
         {/* בלעדיות נחתמת מול בעל הנכס — ולכן מיד אחרי הסעיף שלו,
               ולא בכרטיס הקונה */}
         {property.ownerContact ? (
-          <AgreementsPanel
-            contactId={property.ownerContact.id}
-            kind="exclusivity"
-            propertyId={property.id}
-            title="הסכם בלעדיות מול בעל הנכס"
-          />
-        ) : null}
-
-        {/*
-            תיק הבלעדיות — מיד אחרי הסכם הבלעדיות, כי זה בדיוק מה
-            שקורה אחריו: ההסכם נחתם, והשאלה הבאה היא מתי הוא נגמר
-            ומה תועד בתוכו.
-          */}
+          <>
+            <AgreementsPanel
+              contactId={property.ownerContact.id}
+              kind="exclusivity"
+              propertyId={property.id}
+              title="הסכם בלעדיות מול בעל הנכס"
+            />
+            {/*
+              ‎**אותה לשונית, ולא כרטיס „מסמכים” נפרד** (בקשת
+              המשתמשת). בלעדיות שנחתמה על נייר וסריקה שלה הן אותו
+              דבר מבחינת המתווך, ושתי רשימות בשני מקומות היו מחייבות
+              אותו לזכור באיזו מהן לחפש.
+            */}
+            <DocumentsPanel
+              contactId={property.ownerContact.id}
+              propertyId={property.id}
+              defaultKind="exclusivity"
+              canEdit={can(user, "offers.send")}
+            />
+          </>
+        ) : (
+          /*
+            הלשונית הזו הייתה ריקה לגמרי בלי בעל נכס — מסך שאינו
+            אומר מה חסר ואינו אומר מה לעשות.
+          */
+          <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
+            הסכמים ומסמכים נשמרים על בעל הנכס. הוסיפו את פרטי בעל הנכס בלשונית
+            „סקירה”, וההסכמים ייפתחו כאן.
+          </p>
+        )}
       </TabPanel>
 
       <TabPanel tab="tasks" active={tab}>
