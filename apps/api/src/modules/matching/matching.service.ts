@@ -13,6 +13,7 @@ import {
   resolveMatchWeights,
   scoreMatch,
   MATCH_THRESHOLDS,
+  MATCHABLE_PROPERTY_STATUSES,
   type BuyerRequirements,
   type MatchWeights,
   SCORE_NOTE_MAX,
@@ -69,15 +70,8 @@ export interface MatchTrigger {
   toAgorot: number;
 }
 
-/**
- * נכס נסרק מול קונים רק בסטטוסים האלה.
- *
- * **הצד השני כבר סינן כך** (`recomputeForBuyer`), והאי-סימטריה הייתה
- * באג של ממש: עריכה של נכס שנמכר ייצרה לו התאמות מחדש, והסבב הבא
- * מצד הקונה מחק אותן. הסוכן ראה קונים מוצעים לנכס שאינו למכירה,
- * ואז ראה אותם נעלמים בלי סיבה נראית לעין.
- */
-export const MATCHABLE_PROPERTY_STATUSES = ["draft", "active"] as const;
+/* `MATCHABLE_PROPERTY_STATUSES` עבר לחבילה — גם המסך זקוק לו. */
+export { MATCHABLE_PROPERTY_STATUSES };
 
 /** אפשרויות חישוב מחדש — ראו `silent` בסבב הרענון. */
 export interface RecomputeOptions {

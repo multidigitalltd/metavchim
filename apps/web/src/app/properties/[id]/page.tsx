@@ -32,6 +32,7 @@ import { MatchExplanation } from "../../match-explanation";
 import {
   MatchesEmptyState,
   matchGateMissing,
+  outOfMarket,
   propertySideOnlyMissing,
 } from "../matches-empty-state";
 import { useFeature } from "@/lib/use-features";
@@ -1345,6 +1346,7 @@ export default function PropertyDetailPage({
               <MatchesEmptyState
                 blocking={matchGateMissing(property, matchEvaluable)}
                 oneSided={propertySideOnlyMissing(property)}
+                status={property.status}
                 propertyId={id}
               />
             ) : filterAwaitingOffers ? (
@@ -1591,7 +1593,9 @@ export default function PropertyDetailPage({
               מהמאגר, אולי יש עוד ברשת” היא הצעה מועילה ולא רק מוצא
               אחרון — והניסוח משתנה בין שני המצבים.
             */}
-            {matches !== null && matchGateMissing(property, matchEvaluable).length === 0 ? (
+            {matches !== null &&
+            !outOfMarket(property.status) &&
+            matchGateMissing(property, matchEvaluable).length === 0 ? (
               <div
                 className="mt-4 flex flex-wrap items-center gap-3 px-4 py-3.5"
                 style={{ background: "#0B0E0C", borderRadius: 18 }}

@@ -2,7 +2,9 @@ import Link from "next/link";
 import {
   MANDATORY_MATCH_CRITERIA,
   MATCH_CRITERION_LABELS,
+  MATCHABLE_PROPERTY_STATUSES,
   type MatchCriterion,
+  type PropertyStatus,
 } from "@metavchim/shared";
 
 /**
@@ -111,17 +113,72 @@ export function propertySideOnlyMissing(property: {
   return missing;
 }
 
+/**
+ * ‎**נכס שיצא מהשוק אינו „בלי קונים מתאימים”.**
+ *
+ * שני הכיוונים מסננים `status: { in: MATCHABLE_PROPERTY_STATUSES }`,
+ * והכיוון מצד הנכס אף **מוחק** את ההצעות שנותרו. כלומר נכס שנמכר,
+ * הושכר, הוקפא או הועבר לארכיון מציג רשימה ריקה — והמסך הציע עליה
+ * „הוסיפו קונה למאגר”, שהיא עצה שאינה יכולה לעבוד.
+ *
+ * זה אינו שדה חסר ולכן אינו ברשימות למעלה; זו סיבה שלישית לרשימה
+ * ריקה, ואין לה מה להשלים.
+ */
+export function outOfMarket(status: string): boolean {
+  return !(MATCHABLE_PROPERTY_STATUSES as readonly string[]).includes(status);
+}
+
+/** התוויות שהמשתמשת רואה במסכים האחרים — לא ניסוח חדש. */
+const STATUS_LABELS: Record<PropertyStatus, string> = {
+  draft: "טיוטה",
+  active: "פעיל",
+  on_hold: "מוקפא",
+  sold: "נמכר",
+  rented: "מושכר",
+  archived: "בארכיון",
+};
+
 export function MatchesEmptyState({
   blocking,
   oneSided,
+  status,
   propertyId,
 }: {
   /** חוסמים אמיתיים — בלעדיהם אף התאמה אינה נוצרת. */
   blocking: string[];
   /** חסר רק לחישוב מצד הנכס; התאמות עדיין ייווצרו מצד הקונה. */
   oneSided: string[];
+  /** סטטוס הנכס — נכס שיצא מהשוק אינו מחושב כלל. */
+  status: string;
   propertyId: string;
 }): React.JSX.Element {
+  /*
+    ‎**נכס שיצא מהשוק מקבל מסך משלו, ולא הוספה לשאר.**
+
+    „הוסיפו קונה” היא עצה שאינה יכולה לעבוד כאן, ואין שדה להשלים.
+    להציג אותה לצד הסבר היה משאיר את הפעולה השגויה על המסך.
+  */
+  if (outOfMarket(status)) {
+    const label = STATUS_LABELS[status as PropertyStatus] ?? status;
+    return (
+      <div className="py-2">
+        <h3
+          className="m-0 mb-1.5 text-[length:var(--type-title-sm)]"
+          style={{ fontWeight: 900, letterSpacing: "-0.025em" }}
+        >
+          הנכס אינו מחושב מול קונים
+        </h3>
+        <p
+          className="m-0 text-[length:var(--type-body-sm)]"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          סטטוס הנכס הוא <b>{label}</b>, ולכן הוא אינו נסרק מול המאגר. החזרתו
+          ל„פעיל” תחזיר גם את ההתאמות.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="py-2">
       <h3
