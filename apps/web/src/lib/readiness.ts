@@ -85,6 +85,27 @@ export function readinessCount(missing: number, total: number): string {
 const FIELDS_OUTSIDE_EDIT_FORM = ["images", "owner"];
 
 /**
+ * הפקד שבטופס העריכה שמתקן כל אחד משבעת השדות שהוא כן מכיר.
+ *
+ * ‎`SPEC-3c §7` דורש שלחיצה על גלולת „חסר” תפתח **את השדה**, ולא
+ * את הטופס. טופס עריכת נכס הוא ארוך — כתובת, מאפיינים, מחיר,
+ * שיווק — ומי שנשלח אליו בגלל „חסרה קומה” היה מקבל מסך ומחפש.
+ *
+ * המזהים הם אלה שכבר קיימים בטופס; שני המאפיינים (מעלית, חניה)
+ * הם צ'יפים ולא שדות, וקיבלו מזהה משלהם לצורך זה. שדה שאין לו
+ * ערך כאן פשוט פותח את ראש הטופס — נפילה לאחור ולא שגיאה.
+ */
+const EDIT_FORM_CONTROL: Record<string, string> = {
+  priceAgorot: "price",
+  areaSqm: "areaSqm",
+  rooms: "rooms",
+  floor: "floor",
+  hasElevator: "feature-hasElevator",
+  hasParking: "feature-hasParking",
+  marketingDescription: "marketingDescription",
+};
+
+/**
  * לאן שולח „השלם פרטים” — **למקום שבו באמת אפשר להשלים.**
  *
  * ## הבאג
@@ -118,12 +139,29 @@ const FIELDS_OUTSIDE_EDIT_FORM = ["images", "owner"];
  * הדף. כלל אחד, שתי דרכי מימוש — במקום שני כללים שיתפצלו.
  */
 export type ReadinessTarget =
-  /** טופס העריכה — יש בו לפחות חוסר אחד שהוא יודע לתקן */
-  | { kind: "form" }
+  /**
+   * טופס העריכה. `control` הוא מזהה הפקד שיש למקד בו — קיים כשהיעד
+   * נגזר משדה יחיד, ריק כשהוא נגזר מרשימת חוסרים שאין לה שדה אחד.
+   */
+  | { kind: "form"; control?: string }
   /** לשונית בכרטיס הנכס */
   | { kind: "tab"; tab: string }
   /** סעיף בלשונית הסקירה */
   | { kind: "section"; id: string };
+
+/**
+ * היעד של **שדה יחיד** — הגלולה שנלחצה.
+ *
+ * ‎`readinessTarget` עונה על „לאן שולח כפתור אחד שמייצג את כל
+ * החוסרים”; זו עונה על „לאן שולחת הגלולה של הקומה”. אותה חלוקה
+ * לשלושה יעדים, אותה רשימה של שדות שאינם בטופס — ולכן שתיהן
+ * קוראות מאותם שני קבועים ואינן יכולות להיפרד.
+ */
+export function readinessFieldTarget(field: string): ReadinessTarget {
+  if (field === "owner") return { kind: "tab", tab: "owner" };
+  if (field === "images") return { kind: "section", id: "media-heading" };
+  return { kind: "form", control: EDIT_FORM_CONTROL[field] };
+}
 
 export function readinessTarget(missingFields: readonly string[]): ReadinessTarget {
   const fixableInForm = missingFields.some((f) => !FIELDS_OUTSIDE_EDIT_FORM.includes(f));
@@ -136,8 +174,21 @@ export function readinessTarget(missingFields: readonly string[]): ReadinessTarg
 
 /** אותו יעד ככתובת — למי שמגיע ממסך אחר, ולכן מרכיב את הכרטיס מחדש. */
 export function readinessHref(propertyId: string, missingFields: readonly string[]): string {
-  const target = readinessTarget(missingFields);
-  if (target.kind === "form") return `/properties/${propertyId}/edit`;
+  return readinessTargetHref(propertyId, readinessTarget(missingFields));
+}
+
+/**
+ * תרגום יעד לכתובת.
+ *
+ * ‎`?focus=` ולא עוגן: עוגן גולל אל האלמנט אבל אינו ממקד אותו, ומי
+ * שנשלח לשדה חסר צריך להתחיל להקליד — לא לחפש איפה לחצו. הטופס
+ * קורא את הפרמטר בטעינה.
+ */
+export function readinessTargetHref(propertyId: string, target: ReadinessTarget): string {
+  if (target.kind === "form") {
+    const base = `/properties/${propertyId}/edit`;
+    return target.control ? `${base}?focus=${encodeURIComponent(target.control)}` : base;
+  }
   if (target.kind === "tab") return `/properties/${propertyId}?tab=${target.tab}`;
   return `/properties/${propertyId}#${target.id}`;
 }

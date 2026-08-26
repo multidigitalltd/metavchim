@@ -2,12 +2,7 @@
 
 import { useCallback, useEffect, useState, use, type ReactNode } from "react";
 import Link from "next/link";
-import {
-  describeEntry,
-  labelOf,
-  PROPERTY_READINESS_FIELDS,
-  readinessFieldLabel,
-} from "@metavchim/shared";
+import { describeEntry, labelOf } from "@metavchim/shared";
 import { useRouter } from "next/navigation";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
@@ -20,7 +15,7 @@ import {
 } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
-import { readinessBand, readinessCount, readinessTarget } from "@/lib/readiness";
+import { ReadinessCard } from "./readiness-card";
 import { MediaSection } from "./media-section";
 import { PropertyTwins } from "./property-twins";
 import { NetworkDemandMatches } from "../network-demand-matches";
@@ -35,7 +30,7 @@ import { ExclusivityPanel } from "../exclusivity-panel";
 import { EntityNotes } from "../../entity-notes";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { RelatedEntities } from "../../related-entities";
-import { IconCheck, IconThumbUp } from "../../icons";
+import { IconThumbUp } from "../../icons";
 import { LoadError } from "../../load-error";
 import { Notice } from "../../notice";
 
@@ -699,6 +694,30 @@ export default function PropertyDetailPage({
       <TabPanel tab="overview" active={tab}>
         <div className="grid items-start gap-[18px] lg:[grid-template-columns:1fr_340px]">
           <div className="flex flex-col gap-[18px]">
+            {/*
+              ‎**המוכנות היא הכרטיס הראשון של הלשונית** — „the reason the
+              screen exists” (SPEC-3b §4). היא ישבה בטור הצדדי, שם רשת
+              של תשעה תאים ברוחב 340 נדחסת לעמודה אחת ארוכה; המסמך
+              מבקש שלוש עמודות, וזה הטור שיש בו מקום להן.
+            */}
+            <ReadinessCard
+              propertyId={id}
+              property={property}
+              onSelectTab={selectTab}
+              onScrollToSection={(sectionId) => {
+                /*
+                  שני פריימים ולא אחד: `selectTab` מרכיב את הפאנל, והעוגן
+                  נכנס ל-DOM רק אחרי הרינדור שאחרי העדכון. גלילה באותו
+                  פריים מחפשת אלמנט שטרם קיים.
+                */
+                requestAnimationFrame(() => {
+                  document
+                    .getElementById(sectionId)
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                });
+              }}
+            />
+
             <section
               className="mv-list-card px-[22px] py-[18px]"
               aria-labelledby="details-heading"
@@ -774,126 +793,6 @@ export default function PropertyDetailPage({
             />
           </div>
           <div className="flex flex-col gap-[18px]">
-            <section
-              className="mv-list-card px-5 py-[18px]"
-              aria-labelledby="readiness-heading"
-            >
-              <div className="flex items-baseline">
-                <h2
-                  id="readiness-heading"
-                  className="m-0"
-                  style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
-                >
-                  מוכנות לשיווק
-                </h2>
-                <span
-                  className="ms-auto"
-                  style={{
-                    /* ‎21 כשהוא, אבל מגיב להגדרת הנגישות — ראו ההערה למטה */
-                    fontSize: "calc(21 / 16 * 1rem)",
-                    fontWeight: 800,
-                    color: readinessBand(property.readinessScore).text,
-                  }}
-                >
-                  {property.readinessScore}%
-                </span>
-              </div>
-              <div
-                className="my-[11px] mb-[13px] overflow-hidden rounded-full"
-                style={{ height: 7, background: "var(--color-progress-track)" }}
-              >
-                <div
-                  style={{
-                    height: "100%",
-                    width: `${property.readinessScore}%`,
-                    background: readinessBand(property.readinessScore).bar,
-                    borderRadius: 99,
-                  }}
-                />
-              </div>
-              {/*
-                „‎N מתוך M שדות מלאים” — הניסוח שהחבילה נוקבת בו
-                (SPEC-3b §4), והשורה שהייתה חסרה כאן.
-
-                האחוז לבדו אומר „82%” ולא אומר על כמה שדות מדובר.
-                המכנה נגזר מהנתונים ואינו כתוב קשיח: `9` קבוע היה
-                הופך לשקר ברגע שיתווסף שדה עשירי לחישוב שבשרת, ואז
-                שוב יהיו שני מספרים לנכס אחד.
-
-                ‎**כל הכרטיס הזה מגיב להגדרת גודל הטקסט** — הכותרת,
-                האחוז, השורה הזו, שורת „מוכן לשיווק” ושורות השדות
-                החסרים. הגדלת אחת מהן לבדה הייתה יוצרת בדיוק את
-                הרכיב החצי-מוגדל שהביקורת מצביעה עליו: משפט בן 31
-                פיקסלים ב-200% מתחת לאחוז שנשאר על 21. הערכים עצמם
-                לא השתנו ב-100% (ביקורת Codex).
-
-                שאר המסכים עדיין נושאים גדלים קבועים; זה מעבר יסודי
-                אחד ולא המרה חלקית שמפזרת חוסר עקביות.
-              */}
-              <p className="m-0 mb-2" style={{ fontSize: "var(--type-body)", color: "var(--color-text-muted)" }}>
-                {readinessCount(property.missingFields.length, PROPERTY_READINESS_FIELDS.length)}
-              </p>
-              {property.missingFields.length === 0 ? (
-                <p
-                  className="m-0 flex items-center gap-2 font-bold"
-                  style={{ fontSize: "var(--type-body-sm)", color: "var(--color-primary)" }}
-                >
-                  {/* אייקון ולא „✓” — „NO EMOJI anywhere in the product UI” */}
-                  <IconCheck s={18} />
-                  הנכס מוכן לשיווק
-                </p>
-              ) : (
-                property.missingFields.map((field) => (
-                  <div
-                    key={field}
-                    className="flex items-center gap-2 py-[5px]"
-                    style={{ fontSize: "var(--type-caption-lg)", color: "var(--color-text-muted)" }}
-                  >
-                    <span
-                      aria-hidden="true"
-                      className="h-1.5 w-1.5 flex-none rounded-full"
-                      style={{ background: "#c98a2e" }}
-                    />
-                    {readinessFieldLabel(field)}
-                  </div>
-                ))
-              )}
-              {property.missingFields.length > 0 ? (
-                /*
-                  כפתור ולא קישור — אותו נימוק שכבר כתוב מעל „מצא לי
-                  קונים”. כאן היעד הוא הדף שהמשתמש כבר עומד בו, וניווט
-                  אליו אינו מרכיב אותו מחדש: `?tab=owner` היה משנה את
-                  הכתובת בזמן שהלשונית נשארת על הסקירה, ועוגן לסעיף
-                  שבתוך לשונית סגורה מצביע על אלמנט שאינו ב-DOM
-                  (ביקורת Codex). היעד עצמו נקבע ב-`readinessTarget`,
-                  אותה החלטה שמשרתת גם את הדשבורד.
-                */
-                <button
-                  type="button"
-                  className="mv-btn-soft mt-2 self-start"
-                  onClick={() => {
-                    const target = readinessTarget(property.missingFields);
-                    if (target.kind === "form") {
-                      router.push(`/properties/${id}/edit`);
-                      return;
-                    }
-                    if (target.kind === "tab") {
-                      selectTab(target.tab);
-                      return;
-                    }
-                    selectTab("overview");
-                    requestAnimationFrame(() => {
-                      document
-                        .getElementById(target.id)
-                        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-                    });
-                  }}
-                >
-                  השלם פרטים
-                </button>
-              ) : null}
-            </section>
-
             <section
               className="mv-list-card px-5 py-[18px]"
               aria-labelledby="media-heading"
