@@ -1262,7 +1262,7 @@ export default function PropertyDetailPage({
                     שאינה מוצגת ממילא כשאין התאמות מעל 85 — כלומר
                     אמירה על כפתור שלא היה שם.
                   */
-                  message="לא הצלחנו לטעון את מצב ההצעות — לא ידוע למי כבר נשלחה הצעה, ולכן הסינון „לא נשלחה הצעה” אינו זמין"
+                  message="לא הצלחנו לטעון את מצב ההצעות — לא ידוע למי כבר נשלחה הצעה, ולכן מצב ההצעה בשורות והסינון „לא נשלחה הצעה” אינם מוצגים"
                   onRetry={() => loadOffers(matches)}
                 />
               </div>
@@ -1381,7 +1381,24 @@ export default function PropertyDetailPage({
               </p>
             ) : (
               visibleMatches.map((m) => {
-                const offer = offers[m.id];
+                /*
+                  ‎**כשהמצב נכשל, המפה הישנה נשארת — ואסור לקרוא
+                  ממנה.**
+
+                  ‎`loadOffers` אינו מנקה את `offers` בכישלון, ולכן
+                  השורות המשיכו לגזור מצב ופעולה מתצלום ישן. אחרי
+                  „שלח לכולם” שהצליח ורענון שנכשל, זה מציג „שלח
+                  הצעה” על קונה שההצעה אליו נוצרה לפני שניות
+                  (ביקורת Codex).
+
+                  ‎**רק על `failed` ולא על `loading`.** טעינה היא
+                  מצב חולף שמתקן את עצמו, וחסימה עליה הייתה מבהבת
+                  בכל כניסה לכרטיס; כישלון נשאר עד ניסיון חוזר.
+                  דחיתי קודם את הגידור הזה בנימוק ההבהוב — כלומר
+                  שפטתי גרסה גרועה יותר שלו.
+                */
+                const offerKnown = offersState !== "failed";
+                const offer = offerKnown ? offers[m.id] : undefined;
                 const tag = m.buyerMaturity
                   ? MATURITY_TAG[m.buyerMaturity]
                   : undefined;
@@ -1516,7 +1533,13 @@ export default function PropertyDetailPage({
                       ) : null}
                     </div>
                     <div className="ms-auto flex flex-none gap-2">
-                      {offer && canWhatsApp ? (
+                      {/*
+                        ‎**„שלח הצעה” היא טענה, לא רק פעולה** — היא
+                        אומרת „לא נשלחה”. כשזה אינו ידוע היא נעלמת
+                        יחד עם שאר התוכן שנשען על אותה בקשה; הניסיון
+                        החוזר יושב מעל הרשימה ומחזיר את שניהם.
+                      */}
+                      {!offerKnown ? null : offer && canWhatsApp ? (
                         <button
                           type="button"
                           className="mv-btn-action"
