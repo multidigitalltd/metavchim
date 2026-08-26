@@ -42,6 +42,29 @@ import { SubscriptionOfferService } from "./subscription-offer.service";
  * ל-RLS) — ראו את ההסבר בסכימה. הסינון לפי דייר נעשה כאן, מפורשות,
  * בכל שאילתה.
  */
+
+/**
+ * דף תשלום שנפתח דף חדש במקומו — **אינו „נכשל”.**
+ *
+ * פתיחת דף חדש היא פעולה שלנו בלבד; דף התשלום הקודם נשאר חי אצל
+ * קארדקום וניתן לחיוב. לקוח שחזר ללשונית הישנה ושילם בה חויב
+ * באמת — ואם סימנו אותה „נכשל”, המעבר המותנה `pending ⟵ paid`
+ * לא תופס אותה, והתוצאה היא חיוב בלי מנוי ובלי מסלול התאוששות
+ * (ביקורת Codex).
+ *
+ * הסטטוס הנפרד אומר את האמת: לא נדחה, הוחלף. `apply` מתייחסת
+ * אליו כאל בר-תפיסה, כי אימות מול קארדקום גובר על ניחוש שלנו.
+ */
+const SUPERSEDED = "superseded";
+
+/**
+ * הסטטוסים שאישור תשלום מאומת רשאי לתפוס.
+ *
+ * ‎`paid` אינו כאן בכוונה — הוא נבדק לפני כן ומחזיר מוקדם, וזה
+ * השער מול הודעות כפולות של קארדקום.
+ */
+const CLAIMABLE: string[] = ["pending", SUPERSEDED];
+
 @Injectable()
 export class BillingService {
   private readonly logger = new Logger(BillingService.name);
@@ -213,7 +236,7 @@ export class BillingService {
      */
     await this.prisma.payment.updateMany({
       where: { tenantId: input.tenantId, status: "pending" },
-      data: { status: "failed", failureReason: "נפתח דף תשלום חדש במקומו" },
+      data: { status: SUPERSEDED, failureReason: "נפתח דף תשלום חדש במקומו" },
     });
 
     const paymentId = ulid();
@@ -409,7 +432,7 @@ export class BillingService {
     // תשלום פתוח אחד לכל משרד — אותו כלל ומאותה סיבה כמו ב-startCheckout
     await this.prisma.payment.updateMany({
       where: { tenantId: input.tenantId, status: "pending" },
-      data: { status: "failed", failureReason: "נפתח דף תשלום חדש במקומו" },
+      data: { status: SUPERSEDED, failureReason: "נפתח דף תשלום חדש במקומו" },
     });
 
     const paymentId = ulid();
@@ -474,7 +497,7 @@ export class BillingService {
       // כישלון מסומן, אבל רק על שורה שעדיין ממתינה — הודעת כישלון
       // מאוחרת לא תבטל תשלום שכבר נקלט
       await this.prisma.payment.updateMany({
-        where: { lowProfileId, status: "pending" },
+        where: { lowProfileId, status: { in: CLAIMABLE } },
         data: {
           status: "failed",
           failureReason: verified.message.slice(0, 300) || "התשלום לא אושר",
@@ -515,7 +538,7 @@ export class BillingService {
         `סכום שאינו תואם בתשלום ${payment.id}: נגבו ${verified.amountAgorot ?? "לא ידוע"} מול ${payment.amountAgorot}`,
       );
       await this.prisma.payment.updateMany({
-        where: { id: payment.id, status: "pending" },
+        where: { id: payment.id, status: { in: CLAIMABLE } },
         data: { status: "failed", failureReason: "הסכום שנגבה אינו תואם להזמנה" },
       });
       return { applied: false, status: "failed" };
@@ -556,7 +579,7 @@ export class BillingService {
      */
     const outcome = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.payment.updateMany({
-        where: { id: payment.id, status: "pending" },
+        where: { id: payment.id, status: { in: CLAIMABLE } },
         data: {
           status: "paid",
           paidAt: now,

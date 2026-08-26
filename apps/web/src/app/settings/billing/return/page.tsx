@@ -42,7 +42,13 @@ function ReturnContent(): React.JSX.Element | null {
           if (stopped) return;
           setStatus(res.status);
           setReason(res.failureReason);
-          if (res.status === "pending") {
+          /*
+           * ‎`superseded` ממשיך להיבדק כמו `pending`: דף שנפתח דף
+           * חדש במקומו נשאר חי אצל קארדקום, ולכן הוא עדיין יכול
+           * להפוך ל-`paid` כשהאישור מגיע. הפסקת הבדיקה עליו הייתה
+           * משאירה את מי שכן שילם בו מול מסך שאינו מתעדכן.
+           */
+          if (res.status === "pending" || res.status === "superseded") {
             if (attempts >= MAX_POLLS) setGaveUp(true);
             else timer = setTimeout(check, POLL_MS);
           }
