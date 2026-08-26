@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { STATUS_LABELS } from "@/lib/format";
 import {
   MANDATORY_MATCH_CRITERIA,
   MATCH_CRITERION_LABELS,
@@ -128,16 +129,6 @@ export function outOfMarket(status: string): boolean {
   return !(MATCHABLE_PROPERTY_STATUSES as readonly string[]).includes(status);
 }
 
-/** התוויות שהמשתמשת רואה במסכים האחרים — לא ניסוח חדש. */
-const STATUS_LABELS: Record<PropertyStatus, string> = {
-  draft: "טיוטה",
-  active: "פעיל",
-  on_hold: "מוקפא",
-  sold: "נמכר",
-  rented: "מושכר",
-  archived: "בארכיון",
-};
-
 export function MatchesEmptyState({
   blocking,
   oneSided,
@@ -149,7 +140,7 @@ export function MatchesEmptyState({
   /** חסר רק לחישוב מצד הנכס; התאמות עדיין ייווצרו מצד הקונה. */
   oneSided: string[];
   /** סטטוס הנכס — נכס שיצא מהשוק אינו מחושב כלל. */
-  status: string;
+  status: PropertyStatus;
   propertyId: string;
 }): React.JSX.Element {
   /*
@@ -159,7 +150,13 @@ export function MatchesEmptyState({
     להציג אותה לצד הסבר היה משאיר את הפעולה השגויה על המסך.
   */
   if (outOfMarket(status)) {
-    const label = STATUS_LABELS[status as PropertyStatus] ?? status;
+    /*
+      התווית מ-`@/lib/format` — **המקור שכבר קיים**, ולא מפה חדשה.
+      כתבתי כאן מפה משלי, וההבדל לא היה בטיפוס אלא במילים: „מוקפא”
+      מול „בהמתנה”, „מושכר” מול „הושכר”. אותו סטטוס בשני שמות בשני
+      מסכים — בדיוק מה שה-PR הזה בא לסלק, בשורה שכתבתי בשבילו.
+    */
+    const label = STATUS_LABELS[status] ?? status;
     return (
       <div className="py-2">
         <h3

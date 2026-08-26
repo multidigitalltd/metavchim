@@ -13,8 +13,10 @@ import {
   describeEntry,
   labelOf,
   propertyEvaluableCriteria,
+  PropertyStatusSchema,
   type MatchCriterion,
   type PropertyFields,
+  type PropertyStatus,
   type ScoreComponent,
 } from "@metavchim/shared";
 import { useRouter } from "next/navigation";
@@ -97,7 +99,13 @@ interface PropertyDetail {
   entryDate?: string;
   entryNote?: string;
   internalNotes?: string;
-  status: string;
+  /*
+   * ‎**הטיפוס מהחבילה, ולא `string`** — מאותו נימוק כמו מצב הכניסה
+   * למעלה. בלעדיו מפת התוויות דורשת `as` על נתון שהגיע מה-API,
+   * וזו טענה שלא נבדקה. עם הטיפוס, סטטוס חדש בסכמה נופל
+   * בקומפילציה במפה ולא נשמט בשקט למסך.
+   */
+  status: PropertyStatus;
   marketingTitle?: string;
   readinessScore: number;
   missingFields: string[];
@@ -457,7 +465,7 @@ export default function PropertyDetailPage({
   }
 
   /** שינוי סטטוס (פעיל/בהמתנה/נמכר…) ישירות מהכרטיס — בלי להיכנס לעריכה. */
-  async function changeStatus(status: string) {
+  async function changeStatus(status: PropertyStatus) {
     setStatusSaving(true);
     try {
       await apiPatch(`/properties/${id}`, { status });
@@ -753,7 +761,15 @@ export default function PropertyDetailPage({
                 <select
                   value={property.status}
                   disabled={statusSaving}
-                  onChange={(e) => void changeStatus(e.target.value)}
+                  /*
+                    ‎`e.target.value` הוא `string`, והאפשרויות נבנות
+                    מ-`STATUS_LABELS`. הסכמה מאמתת במקום `as` —
+                    ערך שאינו סטטוס מוכר פשוט אינו נשלח.
+                  */
+                  onChange={(e) => {
+                    const parsed = PropertyStatusSchema.safeParse(e.target.value);
+                    if (parsed.success) void changeStatus(parsed.data);
+                  }}
                   className="mv-pill"
                   style={{
                     ...STATUS_DOMAIN[property.status],
