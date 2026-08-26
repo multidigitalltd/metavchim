@@ -6225,19 +6225,3 @@ a.mv-bar-row:focus-visible {
   font-size: calc(14 / 16 * 1rem);
   color: var(--color-text-muted);
 }
-
-/* ============ SPEC-3c §6b — משבצת המפה בטור הצדדי ============ */
-
-/*
- * גובה קבוע לפי המסמך. המפה **האמיתית** נטענת לתוכה — המסמך אוסר
- * במפורש לצייר מפה מצורות, והרכיב כבר קיים במערכת.
- */
-.mv-map-slot {
-  height: 220px;
-  border-radius: 17px;
-  overflow: hidden;
-}
-
-.mv-map-slot > * {
-  height: 100%;
-}

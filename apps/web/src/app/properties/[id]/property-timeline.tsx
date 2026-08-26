@@ -27,10 +27,14 @@ import { IconClock } from "../../icons";
  *
  * ## חמש שורות, והחדשה למעלה
  *
- * המסמך מבקש „up to 5”. הדוח מחזיר בסדר עולה — הוא מסמך שנמסר
- * לבעל נכס וקוראים אותו מההתחלה — ואילו הטור הצדדי עונה על „מה
- * קרה לאחרונה”. לכן ההיפוך כאן, ולא בשרת: לשני הצרכנים אותה
- * אמת ושני סדרים, וזה הבדל של תצוגה.
+ * המסמך מבקש „up to 5”, והכרטיס עונה על „מה קרה לאחרונה” — ולכן
+ * חמש **החדשות**.
+ *
+ * ‎`buildOwnerActivity` כבר ממיין יורד (`b.at - a.at`), ולכן חיתוך
+ * ישיר הוא הסדר הנכון. הגרסה הראשונה היפכה את המערך לפי הנחה
+ * שהדוח מחזיר בסדר עולה — הנחה שלא נבדקה, ושהייתה שגויה: היא
+ * הציגה את חמש הפעולות **הישנות ביותר**, ובסדר הפוך, על כרטיס
+ * שכותרתו „מה קורה עם הנכס” (ביקורת Codex).
  */
 
 const MAX_ROWS = 5;
@@ -68,7 +72,7 @@ export function PropertyTimeline({ propertyId }: { propertyId: string }) {
     };
   }, [propertyId]);
 
-  const recent = entries === null ? [] : [...entries].reverse().slice(0, MAX_ROWS);
+  const recent = entries === null ? [] : entries.slice(0, MAX_ROWS);
 
   return (
     <section className="mv-card" aria-labelledby="timeline-heading">

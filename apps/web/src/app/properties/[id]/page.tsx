@@ -908,23 +908,28 @@ export default function PropertyDetailPage({
                   מקום הנכס
                 </h2>
               </div>
-              <div className="mv-map-slot">
-                <LocationPicker
-                  value={{
-                    latitude: property.latitude,
-                    longitude: property.longitude,
-                    locationSource: property.locationSource,
-                  }}
-                  addressText={address}
-                  disabled={!canEditOwner}
-                  onChange={(next) => {
-                    setProperty({ ...property, ...next });
-                    void apiPatch(`/properties/${id}`, next).catch(
-                      () => undefined,
-                    );
-                  }}
-                />
-              </div>
+              {/*
+                ‎**המפה מקבלת מידה, ולא נחתכת בעטיפה.** 220 הוא גובה
+                המפה לפי המסמך; הכרטיס עצמו גבוה ממנו, כי מעליה יש
+                שדה חיפוש ומתחתיה שורת מצב. עטיפה שחותכת ל-220
+                הייתה מסתירה בדיוק את הפקדים האלה.
+              */}
+              <LocationPicker
+                mapHeight="220px"
+                value={{
+                  latitude: property.latitude,
+                  longitude: property.longitude,
+                  locationSource: property.locationSource,
+                }}
+                addressText={address}
+                disabled={!canEditOwner}
+                onChange={(next) => {
+                  setProperty({ ...property, ...next });
+                  void apiPatch(`/properties/${id}`, next).catch(
+                    () => undefined,
+                  );
+                }}
+              />
               {/*
                 שורת הכתובת מתחת למשבצת — וכשאין כתובת נאמר זאת
                 במפורש, כי „every empty state names the action”.

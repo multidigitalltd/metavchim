@@ -39,6 +39,7 @@ export function LocationPicker({
   onChange,
   onAddressSuggested,
   disabled = false,
+  mapHeight = "300px",
 }: {
   value: LocationValue;
   /** הכתובת שכבר בטופס — נקודת הפתיחה לחיפוש. */
@@ -47,6 +48,15 @@ export function LocationPicker({
   /** הכתובת שהתקבלה מהמפה — הטופס מחליט מה לעשות איתה. */
   onAddressSuggested?: (label: string) => void;
   disabled?: boolean;
+  /**
+   * גובה המפה עצמה.
+   *
+   * ‎**הרכיב מקבל מידה ולא נחתך מבחוץ.** הטור הצדדי מבקש מפה
+   * נמוכה יותר (SPEC-3c §6b), וניסיון להשיג זאת בעטיפה עם
+   * ‎`overflow: hidden` חתך את שדה החיפוש, את תוצאותיו ואת שורת
+   * המצב — כלומר הסתיר פקדים במקום להקטין מפה (ביקורת Codex).
+   */
+  mapHeight?: string;
 }) {
   const [query, setQuery] = useState(addressText ?? "");
   /*
@@ -207,7 +217,7 @@ export function LocationPicker({
       ) : null}
 
       <MapCanvas
-        height="300px"
+        height={mapHeight}
         center={hasPoint ? [value.longitude!, value.latitude!] : undefined}
         zoom={hasPoint ? 16 : 12}
         onReady={(map) => {
