@@ -9,7 +9,10 @@ import { useUserDismissed } from "@/lib/dismissed-panels";
 import {
   CALL_OUTCOME_LABELS,
   CALL_OUTCOME_MANUAL,
+  jerusalemLocalInputValue,
+  jerusalemWallErrorMessage,
   recordingStateLabel,
+  resolveJerusalemLocalInput,
   type CallHighlights,
   type RecordingStatus,
 } from "@metavchim/shared";
@@ -84,11 +87,14 @@ function outcomeTone(outcome: string): { fg: string; bg: string; dot: string } {
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
-/** ערך ברירת מחדל לשדה datetime-local — "עכשיו" בשעון המקומי. */
+/**
+ * ערך ברירת מחדל לשדה `datetime-local` — „עכשיו” **בשעון ישראל**.
+ *
+ * ההיסט של המכשיר נתן „עכשיו” של המכשיר: מתווך בחו"ל שתיעד שיחה
+ * קיבל מועד ברירת מחדל שאינו השעה שבה השיחה התרחשה אצל הלקוח.
+ */
 function nowLocal(): string {
-  const now = new Date();
-  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-  return now.toISOString().slice(0, 16);
+  return jerusalemLocalInputValue(new Date());
 }
 
 const timeFmt = new Intl.DateTimeFormat("he-IL", {
@@ -221,11 +227,18 @@ export default function CallsPage() {
     const duration = String(form.get("durationMinutes")).trim();
     const phone = String(form.get("phone")).trim();
     const summary = String(form.get("summary")).trim();
+    /* המועד נקרא בשעון ישראל, כמו שהוא מוצג בשדה */
+    const occurred = resolveJerusalemLocalInput(String(form.get("occurredAt")), null);
+    if (!occurred.ok) {
+      setError(jerusalemWallErrorMessage(occurred.reason));
+      setBusy(false);
+      return;
+    }
     try {
       await apiPost("/calls", {
         direction: String(form.get("direction")),
         outcome: String(form.get("outcome")),
-        occurredAt: new Date(String(form.get("occurredAt"))).toISOString(),
+        occurredAt: occurred.at.toISOString(),
         ...(phone ? { phone } : {}),
         ...(duration ? { durationMinutes: Number(duration) } : {}),
         ...(summary ? { summary } : {}),

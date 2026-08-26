@@ -278,3 +278,34 @@ export function formatJerusalemTime(at: Date): string {
     minute: "2-digit",
   }).format(at);
 }
+
+/**
+ * שעת קיר ישראלית → ערך ל-`datetime-local` (`YYYY-MM-DDTHH:MM`).
+ *
+ * ‎`datetime-local` הוא שדה **חסר אזור זמן** לפי הגדרתו, והדפדפן
+ * מציג בו בדיוק את המחרוזת שנתנו לו. לכן „הזמן המקומי” שהשדה
+ * מדבר בו הוא מה שאנחנו מחליטים — ובמערכת שכל מועדיה ישראליים,
+ * זה שעון ישראל ולא שעון המכשיר.
+ *
+ * ‎`getHours()` היה נותן את שעת המכשיר: משימה שמועדה 10:00 בישראל
+ * נפתחה על 03:00 בניו-יורק, ושמירה החזירה אותה ל-10:00 ניו-יורקית
+ * — כלומר 17:00 בישראל. סימטרי, ולכן בלתי נראה בבדיקה מקומית,
+ * ושגוי בכל מכשיר שאינו על שעון ישראל.
+ */
+export function jerusalemLocalInputValue(at: Date): string {
+  const { date, time } = jerusalemWallParts(at);
+  return `${date}T${time}`;
+}
+
+/**
+ * הצד השני: ערך `datetime-local` → רגע UTC, עם אותן שתי הסיבות
+ * לסירוב כמו ב-`resolveJerusalemWall` — ואותו עוגן, כדי ששמירה
+ * שלא נגעה במועד לא תזיז אותו בליל מעבר השעון.
+ */
+export function resolveJerusalemLocalInput(
+  value: string,
+  current: Date | null,
+): JerusalemWallResult {
+  const [date, time] = value.split("T");
+  return resolveJerusalemWall(date ?? "", time ?? "", current);
+}

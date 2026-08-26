@@ -1,6 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import {
+  jerusalemLocalInputValue,
+  jerusalemWallErrorMessage,
+  resolveJerusalemLocalInput,
+} from "@metavchim/shared";
 import { API_BASE, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { Notice } from "../notice";
 
@@ -29,10 +34,13 @@ const OUTCOMES: { value: string; label: string }[] = [
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
-/** ‎`datetime-local` דורש זמן מקומי בלי אזור — לא ISO של UTC. */
+/**
+ * ‎`datetime-local` דורש זמן מקומי בלי אזור — **וה„מקומי” כאן הוא
+ * שעון ישראל**, לא שעון המכשיר. `getHours()` הציג למתווך בחו"ל
+ * שעה אחת ושמר אחרת.
+ */
 function localInputValue(date: Date): string {
-  const pad = (n: number): string => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return jerusalemLocalInputValue(date);
 }
 
 export function AppointmentFollowUp({
@@ -69,11 +77,20 @@ export function AppointmentFollowUp({
       setError("בחרו מועד חדש");
       return;
     }
+    /*
+     * שעה שאינה קיימת בליל המעבר לשעון קיץ נדחית עם הסבר, במקום
+     * להישמר כשעה אחרת — אותו כלל כמו בטפסי היומן.
+     */
+    const resolvedStart = resolveJerusalemLocalInput(startsAt, null);
+    if (!resolvedStart.ok) {
+      setError(jerusalemWallErrorMessage(resolvedStart.reason));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       await apiPost(`/appointments/${appointment.id}/reschedule`, {
-        startsAt: new Date(startsAt).toISOString(),
+        startsAt: resolvedStart.at.toISOString(),
         durationMinutes: Number(duration),
         ...(reason.trim() !== "" ? { reason: reason.trim() } : {}),
       });

@@ -7,8 +7,10 @@ import {
   jerusalemWallIsoToUtc,
   jerusalemWallParts,
   jerusalemWeekday,
+  jerusalemLocalInputValue,
   jerusalemWallErrorMessage,
   jerusalemWeekStart,
+  resolveJerusalemLocalInput,
   resolveJerusalemWall,
   type JerusalemWallResult,
 } from "./israel-time.js";
@@ -300,5 +302,63 @@ describe("resolveJerusalemWall — עריכה לא מזיזה מה שלא נגע
     } finally {
       process.env.TZ = original;
     }
+  });
+});
+
+/*
+ * ‎**`datetime-local` — שדה חסר אזור זמן, ולכן ההחלטה שלנו.**
+ *
+ * הדפדפן מציג בדיוק את המחרוזת שנתנו לו, ולכן „הזמן המקומי” שהשדה
+ * מדבר בו הוא מה שאנחנו קובעים. `getHours()` היה קובע את שעת
+ * המכשיר: משימה שמועדה 10:00 בישראל נפתחה על 03:00 בניו-יורק,
+ * ושמירה החזירה 10:00 ניו-יורקית — 17:00 בישראל. סימטרי, ולכן
+ * בלתי נראה במכשיר אחד, ושגוי בכל מכשיר אחר.
+ */
+describe("datetime-local בשעון ישראל", () => {
+  it("הצגה — הרגע נקרא בשעת הקיר הישראלית, לא של המכשיר", () => {
+    const original = process.env.TZ;
+    try {
+      /* 13/08 11:30Z = 14:30 בישראל, 07:30 בניו-יורק, 20:30 בטוקיו */
+      const at = new Date("2026-08-13T11:30:00Z");
+      for (const tz of ["UTC", "America/New_York", "Asia/Tokyo"]) {
+        process.env.TZ = tz;
+        expect(jerusalemLocalInputValue(at)).toBe("2026-08-13T14:30");
+      }
+    } finally {
+      process.env.TZ = original;
+    }
+  });
+
+  it("שמירה — אותה מחרוזת מייצרת אותו רגע בכל מכשיר", () => {
+    const original = process.env.TZ;
+    try {
+      for (const tz of ["UTC", "America/New_York", "Asia/Tokyo"]) {
+        process.env.TZ = tz;
+        const resolved = resolveJerusalemLocalInput("2026-08-13T14:30", null);
+        expect(resolved.ok && resolved.at.toISOString()).toBe("2026-08-13T11:30:00.000Z");
+      }
+    } finally {
+      process.env.TZ = original;
+    }
+  });
+
+  /* הלוך-ושוב: מה שהוצג הוא מה שנשמר, בלי היסט מצטבר. */
+  it("הצגה ושמירה הן היפוך זו של זו", () => {
+    const at = new Date("2026-01-15T12:00:00Z");
+    const resolved = resolveJerusalemLocalInput(jerusalemLocalInputValue(at), at);
+    expect(resolved.ok && resolved.at.toISOString()).toBe(at.toISOString());
+  });
+
+  it("שדה ריק או פגום מוחזר כסיבה, ולא נזרק", () => {
+    for (const bad of ["", "2026-08-13", "T14:30", "מחר", "2026-08-13T99:99"]) {
+      expect(resolveJerusalemLocalInput(bad, null)).toEqual({ ok: false, reason: "missing" });
+    }
+  });
+
+  it("שעה שדולגה במעבר לשעון קיץ נדחית גם כאן", () => {
+    expect(resolveJerusalemLocalInput("2026-03-27T02:30", null)).toEqual({
+      ok: false,
+      reason: "nonexistent",
+    });
   });
 });

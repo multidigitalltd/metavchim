@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Button } from "@metavchim/ui";
+import { jerusalemDayRange } from "@metavchim/shared";
 import { apiGet, apiPost } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { WithDictation } from "../../dictation-field";
@@ -78,8 +79,12 @@ const dayFmt = new Intl.DateTimeFormat("he-IL", {
  * יחסית, וכתיבת תאריך מלא עליהם מכריחה אותו לחשב.
  */
 function dayLabel(date: Date, now: Date): string {
-  const startOf = (d: Date): number =>
-    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  /*
+   * גבול היום בשעון ישראל, לא בשעון המכשיר. `getDate()` היה קובע
+   * את „היום” של המתווך: אירוע שקרה ב-23:00 בישראל נקרא „אתמול”
+   * למי שנמצא בניו-יורק, ולהפך.
+   */
+  const startOf = (d: Date): number => jerusalemDayRange(d).start.getTime();
   const days = Math.round((startOf(now) - startOf(date)) / 86_400_000);
   if (days <= 0) return "היום";
   if (days === 1) return "אתמול";

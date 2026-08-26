@@ -7,6 +7,8 @@ import {
   TASK_PRIORITIES,
   TASK_PRIORITY_LABELS,
   groupTasksByBucket,
+  jerusalemLocalInputValue,
+  resolveJerusalemLocalInput,
   taskEntityHref,
   type TaskBucket,
 } from "@metavchim/shared";
@@ -70,12 +72,22 @@ const BUCKET_COLOR: Record<TaskBucket, string> = {
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
-/** ISO → ערך לשדה datetime-local (בזמן המקומי של הדפדפן). */
+/**
+ * ISO → ערך לשדה `datetime-local`, **בשעון ישראל**.
+ *
+ * ‎`getHours()` נתן את שעת המכשיר: משימה שמועדה 10:00 בישראל נפתחה
+ * על 03:00 בניו-יורק, ושמירה החזירה 10:00 ניו-יורקית — 17:00
+ * בישראל. סימטרי, ולכן בלתי נראה במכשיר אחד ושגוי בכל אחר.
+ */
 function toLocalInput(iso?: string): string {
   if (!iso) return "";
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return jerusalemLocalInputValue(new Date(iso));
+}
+
+/** ערך השדה → ISO, או `null` כשהשדה ריק או שהשעה אינה קיימת. */
+function fromLocalInput(value: string, current: Date | null): string | null {
+  const resolved = resolveJerusalemLocalInput(value, current);
+  return resolved.ok ? resolved.at.toISOString() : null;
 }
 
 export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
@@ -137,7 +149,7 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
     try {
       await apiPost("/tasks", {
         title: title.trim(),
-        ...(dueAt !== "" ? { dueAt: new Date(dueAt).toISOString() } : {}),
+        ...(dueAt !== "" ? { dueAt: fromLocalInput(dueAt, null) ?? undefined } : {}),
         ...(priority !== "normal" ? { priority } : {}),
         ...(assignee !== "" ? { assignedToUserId: assignee } : {}),
       });
@@ -314,8 +326,12 @@ export function TasksBoard({ heading = "משימות" }: { heading?: string }) {
               void patch(task.id, {
                 title: String(f.get("title") ?? "").trim() || task.title,
                 notes: String(f.get("notes") ?? "").trim(),
-                // ריק = ניקוי המועד; null עובר ולידציה כ"אין מועד"
-                dueAt: due === "" ? null : new Date(due).toISOString(),
+                /*
+                 * ריק = ניקוי המועד. שעה שאינה קיימת בליל מעבר
+                 * השעון מוחזרת כ-`null` גם היא — עדיף לא לשנות
+                 * מועד מאשר לשמור אחד שלא נבחר.
+                 */
+                dueAt: due === "" ? null : fromLocalInput(due, task.dueAt ? new Date(task.dueAt) : null),
                 priority: String(f.get("priority") ?? task.priority),
                 ...(canAssign && nextAssignee !== "" && nextAssignee !== task.assignedToUserId
                   ? { assignedToUserId: nextAssignee }
