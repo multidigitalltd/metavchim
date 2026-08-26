@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   MAX_OFFER_LINE_ITEMS,
   PLAN_FEATURES,
-  cyclePriceAgorot,
+  effectiveCyclePriceAgorot,
   describeCycle,
   jerusalemWallIsoToUtc,
   type BillingCycle,
@@ -57,10 +57,25 @@ interface OfferRow {
 
 const inputStyle = { borderColor: "var(--color-input-border)", background: "var(--color-field)" } as const;
 
+/**
+ * המשרדים שאפשר לתפור להם הצעה — **כולל המחיר המוסכם.**
+ *
+ * בלעדיו המסך מציע את מחיר המחירון בזמן שהשרת יגבה את המוסכם:
+ * המפעיל רואה „ריק = מחיר המסלול” ויוצר הצעה שגובה אחרת, ולחיצה על
+ * ההצעה כותבת את מחיר המחירון כמחיר סופי — כלומר דורסת בשקט את
+ * המחיר שסוכם (ביקורת Codex).
+ */
+export interface OfferAgency {
+  id: string;
+  name: string;
+  priceOverrideMonthlyAgorot: number | null;
+  priceOverrideYearlyAgorot: number | null;
+}
+
 export function OffersSection({
   agencies,
 }: {
-  agencies: { id: string; name: string }[];
+  agencies: OfferAgency[];
 }): React.JSX.Element {
   const [offers, setOffers] = useState<OfferRow[] | null>(null);
   const [plans, setPlans] = useState<PlanDefinition[]>([]);
@@ -99,7 +114,23 @@ export function OffersSection({
   }, []);
 
   const plan = plans.find((p) => p.code === planCode);
-  const basePriceAgorot = plan ? cyclePriceAgorot(plan, cycle) : null;
+  /*
+   * אותו חישוב שהשרת מריץ: המחיר המוסכם של משרד היעד קודם למחירון.
+   * לינק מכירה אינו נעול למשרד ולכן אין לו מחיר מוסכם להחיל.
+   */
+  const targetAgency = agencies.find((a) => a.id === tenantId);
+  const basePriceAgorot = plan
+    ? effectiveCyclePriceAgorot(
+        plan,
+        cycle,
+        targetAgency === undefined
+          ? undefined
+          : {
+              monthlyAgorot: targetAgency.priceOverrideMonthlyAgorot,
+              yearlyAgorot: targetAgency.priceOverrideYearlyAgorot,
+            },
+      )
+    : null;
 
   /*
    * המחיר המוצע — בסיס + תוספות. הצעה בלבד: המחיר הסופי הוא שדה

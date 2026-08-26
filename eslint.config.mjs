@@ -28,6 +28,33 @@ export default tseslint.config(
       "@typescript-eslint/no-explicit-any": "error",
       "no-console": ["error", { allow: ["warn", "error"] }],
       eqeqeq: ["error", "always"],
+      /*
+       * **מי עונה „כמה עולה המסלול הזה”.**
+       *
+       * ‎`cyclePriceAgorot` עונה מהמחירון בלבד. `effectiveCyclePriceAgorot`
+       * מקדים לו את המחיר שסוכם עם המשרד — וזה המחיר שנגבה בפועל,
+       * גם בפתיחת תשלום וגם בחידוש. מסך שחישב מהמחירון הציג סכום
+       * אחד בזמן שהשרת גבה אחר; זה קרה שלוש פעמים בשלושה מסכים
+       * שונים, ובפעם השלישית הוא גם דרס בשקט את המחיר המוסכם
+       * (ביקורות Codex).
+       *
+       * הפונקציה נשארת — `effectiveCyclePriceAgorot` בנויה עליה, וזה
+       * המקום היחיד שבו „מחיר המחירון” הוא באמת השאלה. מחוץ לחבילה
+       * המשותפת אין הקשר כזה: לכל קורא יש משרד.
+       */
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@metavchim/shared",
+              importNames: ["cyclePriceAgorot"],
+              message:
+                "יש להשתמש ב-effectiveCyclePriceAgorot — המחיר המוסכם של המשרד קודם למחירון, וזה מה שייגבה.",
+            },
+          ],
+        },
+      ],
     },
   },
 );
