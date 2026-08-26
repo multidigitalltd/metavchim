@@ -484,7 +484,14 @@ export default function AgentPage(): React.JSX.Element {
         <div className="mt-4">
           {result.message === "" ? null : (
             <Notice tone="success" onClose={() => setResult(null)}>
-              {result.message}
+              {/*
+                ‎`pre-line` — הודעת התוצאה יכולה להיות רב-שורתית.
+                „קישור לחתימה” מחזיר שורת פתיחה, את הקישור עצמו,
+                ואת האזהרה שהוא טרם נשלח ללקוח; בלי זה השלוש
+                נמרחות לשורה אחת והקישור נבלע בין המשפטים. שורה
+                אחת אינה מושפעת.
+              */}
+              <span style={{ whiteSpace: "pre-line" }}>{result.message}</span>
               {result.href !== undefined && (result.data !== undefined || result.audio !== undefined) ? (
                 <>
                   {" "}

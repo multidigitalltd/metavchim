@@ -17,6 +17,8 @@ import { TenantContext } from "../../common/tenant-context";
 import { PrismaService } from "../../core/prisma.service";
 import { GeminiService } from "../../core/gemini.service";
 import { AgentEventsService } from "./agent-events.service";
+import { AgreementsService } from "../agreements/agreements.service";
+import { ContactsService } from "../contacts/contacts.service";
 import { AnalyticsService, type ReportWindowDays } from "../analytics/analytics.service";
 import { AgentResolveService } from "./resolve.service";
 import { BuyersService } from "../buyers/buyers.service";
@@ -181,6 +183,8 @@ export class AgentExecuteService {
     private readonly resolver: AgentResolveService,
     private readonly gemini: GeminiService,
     private readonly events: AgentEventsService,
+    private readonly agreements: AgreementsService,
+    private readonly contacts: ContactsService,
   ) {}
 
   async execute(
@@ -290,6 +294,8 @@ export class AgentExecuteService {
         return this.shareBuyer(params);
       case "send_offer":
         return this.sendOffer(params);
+      case "send_agreement":
+        return this.sendAgreement(params);
       default:
         throw new BadRequestException("פעולה לא מוכרת");
     }
@@ -1240,6 +1246,91 @@ export class AgentExecuteService {
     return {
       href: propertyId === undefined ? `/buyers/${buyerId}` : `/properties/${propertyId}`,
       message: "בחרו את ההתאמה ושלחו — השליחה ללקוח נעשית מהכרטיס",
+    };
+  }
+
+  /**
+   * ‎**קישור חתימה על הזמנה בכתב — הפעולה היחידה של הסוכן שמייצרת
+   * מסמך משפטי.**
+   *
+   * המתווך יושב מול הלקוח וצריך את הקישור עכשיו. עד כה התשובה
+   * הייתה „אני עדיין לא יכול” (דיווח המשתמשת), והדרך היחידה הייתה
+   * לפתוח דשבורד ולמצוא את הכרטיס.
+   *
+   * ‎**דרך `AgreementsService.create`, ולא כתיבה משלנו.** שם יושבות
+   * בדיקת הבעלות על הלקוח, מיחזור הסכם ממתין קיים במקום מסמך שני
+   * לאותה עסקה, שחרור קישורים שפגו, וסירוב לקפוא מסמך שחסרים בו
+   * פרטי חובה. כל אחת מהן היא תיקון שכבר עלה ביוקר פעם אחת.
+   *
+   * ‎**הנכס אינו רשות.** ההזמנה בכתב נוקבת בנכס מסוים — היא מתארת
+   * אותו, ו-`hasSigned` מחפש חתימה על אותו נכס בדיוק. מסמך שנוצר
+   * בלי נכס אינו פותח שום הצעה, ולכן קישור כזה הוא בזבוז של פעולה
+   * משפטית ולא „פחות מדויק”. כשהנכס לא נפתר — נעצרים ואומרים מה
+   * חסר.
+   */
+  private async sendAgreement(params: Record<string, unknown>): Promise<ExecuteResult> {
+    const buyerId = str(params["buyerId"]);
+    if (buyerId === undefined) throw new BadRequestException("לא נבחר לקוח להחתמה");
+    const propertyId = str(params["propertyId"]);
+    if (propertyId === undefined) {
+      throw new BadRequestException(
+        "הזמנה בכתב נוקבת בנכס מסוים. אמרו על איזה נכס מדובר, או שלחו את ההסכם מכרטיס הלקוח",
+      );
+    }
+
+    /*
+     * מהקונה אל איש הקשר. הבדיקה שהקונה שייך למשרד ולסוכן נעשית
+     * ב-`AgreementsService.create` דרך `assertContactAccess`, אבל
+     * השליפה עצמה חייבת להיות מסוננת לפי הדייר — אחרת מזהה קונה של
+     * משרד אחר היה מחזיר איש קשר שאפילו לא נבדק.
+     */
+    const tenantId = TenantContext.current().tenantId;
+    const { url, reused, unfilled, buyerName } = await this.prisma.withTenant(async (tx) => {
+      const buyer = await tx.buyer.findFirst({
+        where: { id: buyerId, tenantId, deletedAt: null },
+        select: { contactId: true },
+      });
+      if (!buyer) throw new BadRequestException("הלקוח לא נמצא");
+      /*
+       * השם נשלף **לפני** היצירה ודרך `ContactsService`, כי הוא
+       * מוצפן במסד ורק שם הוא מפוענח. הוא נחוץ בהודעה: זו הנקודה
+       * האחרונה שבה מתווך שעומד להעביר קישור חתימה יכול לראות
+       * שהוא בחר את הלקוח הלא נכון.
+       */
+      const contact = await this.contacts.getById(tx, buyer.contactId);
+      const created = await this.agreements.create(tx, {
+        kind: "brokerage",
+        contactId: buyer.contactId,
+        propertyId,
+      });
+      return { ...created, buyerName: contact?.name ?? "הלקוח" };
+    });
+
+    /*
+     * הקישור נוסע ב-`message` ולא ב-`href`: `href` הוא נתיב יחסי
+     * שכל ערוץ מקדים לו את מוצא האתר, והקישור הציבורי כבר מוחלט —
+     * הקידומת הייתה שוברת אותו. `href` נשאר מה שהוא: לאן ללכת
+     * בדשבורד.
+     */
+    const lines = [
+      reused
+        ? `יש כבר הסכם שממתין לחתימה של ${buyerName} — זה הקישור שלו:`
+        : `ההסכם מוכן לחתימה של ${buyerName}:`,
+      url,
+      /*
+       * ‎**נאמר במפורש שהוא לא נשלח.** „ההסכם מוכן” יכול להישמע
+       * כאילו הלקוח כבר קיבל אותו, והמתווך היה ממתין לחתימה שלא
+       * תגיע.
+       */
+      "עדיין לא נשלח ללקוח — העבירו לו את הקישור, או שלחו מהכרטיס בוואטסאפ או במייל.",
+      ...(unfilled.length > 0
+        ? [`פרטים שנשארו ריקים במסמך: ${unfilled.map((f) => f.replace(/_/gu, " ")).join(", ")}`]
+        : []),
+    ];
+
+    return {
+      href: `/buyers/${buyerId}?tab=agreements`,
+      message: lines.join("\n"),
     };
   }
 
