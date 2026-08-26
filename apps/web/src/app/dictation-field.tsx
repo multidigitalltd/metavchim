@@ -81,7 +81,7 @@ export function DictationControls({
    */
   browserOnly?: boolean;
 }) {
-  const { browserReady, serverReady, recording, transcribing, pending, error, start, stop } =
+  const { browserReady, detected, serverReady, recording, transcribing, pending, error, start, stop } =
     useDictation((text) => onAppend(text), { browserOnly: browserOnly === true });
 
   /*
@@ -110,7 +110,7 @@ export function DictationControls({
    * ואין בו מיקרופון, בלי שום רמז למה. המשפט אומר גם מה קרה וגם מה
    * לעשות במקום.
    */
-  if (browserOnly === true && !browserReady) {
+  if (browserOnly === true && detected && !browserReady) {
     return (
       <span className="mv-dictate-note">הדפדפן הזה אינו תומך בהכתבה — אפשר להקליד</span>
     );

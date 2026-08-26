@@ -163,6 +163,12 @@ function checkServerAvailability(): Promise<boolean> {
 export interface DictationState {
   /** האם המצב המהיר (דפדפן) נתמך כאן. */
   browserReady: boolean;
+  /**
+   * האם בדיקת התמיכה כבר רצה. `browserReady === false` לפני שהיא רצה
+   * אינו „לא נתמך” אלא „עוד לא ידוע”, ומסך שמכריז על השני צריך
+   * להמתין לזה.
+   */
+  detected: boolean;
   /** האם שירות התמלול בשרת מוגדר וזמין. */
   serverReady: boolean;
   recording: DictationMode | null;
@@ -185,6 +191,19 @@ export function useDictation(
   opts: { browserOnly?: boolean } = {},
 ): DictationState {
   const [browserReady, setBrowserReady] = useState(false);
+  /**
+   * ‎**האם הבדיקה בכלל רצה** — ולא „האם היא נכשלה”.
+   *
+   * ‎`browserReady` הוא `false` גם לפני שנבדק דבר, כי הזיהוי נעשה
+   * ב-effect שרץ אחרי הרינדור הראשון. כל עוד הכפתור פשוט לא הופיע
+   * זה לא הפריע; ברגע שיש הודעה שאומרת „הדפדפן אינו תומך”, אותו
+   * `false` הפך לטענה — וכל דפדפן, גם תומך, הבזיק אותה לרגע לפני
+   * שהמיקרופון הופיע (ביקורת Codex).
+   *
+   * שני הערכים אינם אותו דבר: „לא נמצא” ו„עוד לא חיפשנו” נראים זהים
+   * במשתנה בוליאני אחד, וזה בדיוק ההבדל שהודעה למשתמש חושפת.
+   */
+  const [detected, setDetected] = useState(false);
   const [serverReady, setServerReady] = useState(false);
   const [recording, setRecording] = useState<DictationMode | null>(null);
   const [transcribing, setTranscribing] = useState(false);
@@ -288,6 +307,7 @@ export function useDictation(
      */
     disposedRef.current = false;
     setBrowserReady(getSpeechRecognition() !== null);
+    setDetected(true);
     void checkServerAvailability().then((ok) => {
       if (!disposedRef.current) setServerReady(ok && canRecordAudio());
     });
@@ -640,6 +660,7 @@ export function useDictation(
 
   return {
     browserReady,
+    detected,
     serverReady,
     recording,
     transcribing,
