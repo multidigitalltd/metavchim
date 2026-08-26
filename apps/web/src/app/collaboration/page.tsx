@@ -35,6 +35,7 @@ import {
   ListFilters,
   type ListFilterValues,
 } from "../list-filters";
+import { formatDate } from "@/lib/format";
 import {
   IconBank,
   IconCheck,
@@ -2179,7 +2180,7 @@ export default function CollaborationPage() {
               style={{ color: "var(--color-text-muted)" }}
             >
               {expiry.nextAmount} מהם פגים ב-
-              {new Date(expiry.nextAt).toLocaleDateString("he-IL")}. קרדיטים
+              {formatDate(expiry.nextAt)}. קרדיטים
               שנרכשו בכסף אינם פגים.
             </p>
           ) : null}

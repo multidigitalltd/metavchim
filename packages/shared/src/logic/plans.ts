@@ -1,3 +1,4 @@
+import { formatIsraeliNumber } from "./israel-time.js";
 /**
  * מסלולי המנוי — מה כלול בכל אחד.
  *
@@ -425,7 +426,7 @@ export function formatPlanPrice(agorot: number): string {
   if (agorot <= 0) return FREE_PRICE_LABEL;
   const shekels = agorot / 100;
   const rounded = Number.isInteger(shekels) ? shekels : Number(shekels.toFixed(2));
-  return `${rounded.toLocaleString("he-IL")} ₪`;
+  return `${formatIsraeliNumber(rounded)} ₪`;
 }
 
 /**

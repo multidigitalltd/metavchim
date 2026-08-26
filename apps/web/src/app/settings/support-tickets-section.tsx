@@ -11,6 +11,7 @@ import {
 } from "@metavchim/shared";
 import { API_BASE, apiGet } from "@/lib/api";
 import { LoadError } from "../load-error";
+import { formatDateTime } from "@/lib/format";
 
 /**
  * תיק הפניות של המשרד.
@@ -99,7 +100,7 @@ export function SupportTicketsSection(): React.JSX.Element {
               </div>
               <p className="m-0 whitespace-pre-wrap text-[length:var(--type-body-sm)]">{t.message}</p>
               <p className="m-0 mt-1 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-                {t.userName} · {new Date(t.createdAt).toLocaleString("he-IL")}
+                {t.userName} · {formatDateTime(t.createdAt)}
                 {t.hasScreenshot ? (
                   <>
                     {" · "}

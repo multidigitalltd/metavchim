@@ -75,7 +75,7 @@ export function nextOccurrence(rule: RecurrenceRule, after: Date): Date | null {
 
   const at = (base: Date): Date => {
     const d = new Date(base);
-    d.setHours(rule.hour, rule.minute, 0, 0);
+    d.setHours(rule.hour, rule.minute, 0, 0);  // נושא-שעת-קיר
     return d;
   };
 
@@ -83,17 +83,17 @@ export function nextOccurrence(rule: RecurrenceRule, after: Date): Date | null {
     const today = at(after);
     if (today > after) return today;
     const tomorrow = new Date(after);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setDate(tomorrow.getDate() + 1);  // נושא-שעת-קיר
     return at(tomorrow);
   }
 
   if (rule.frequency === "weekly") {
-    const days = (rule.weekdays ?? []).length > 0 ? [...new Set(rule.weekdays)].sort() : [after.getDay()];
+    const days = (rule.weekdays ?? []).length > 0 ? [...new Set(rule.weekdays)].sort() : [after.getDay()];  // נושא-שעת-קיר
     // עד שבוע קדימה מכסה כל יום אפשרי; 0 = היום עצמו, אם השעה טרם עברה
     for (let offset = 0; offset <= 7; offset += 1) {
       const candidate = new Date(after);
-      candidate.setDate(candidate.getDate() + offset);
-      if (!days.includes(candidate.getDay())) continue;
+      candidate.setDate(candidate.getDate() + offset);  // נושא-שעת-קיר
+      if (!days.includes(candidate.getDay())) continue;  // נושא-שעת-קיר
       const withTime = at(candidate);
       if (withTime > after) return withTime;
     }
@@ -101,15 +101,15 @@ export function nextOccurrence(rule: RecurrenceRule, after: Date): Date | null {
   }
 
   // חודשי
-  const wanted = rule.dayOfMonth ?? after.getDate();
+  const wanted = rule.dayOfMonth ?? after.getDate();  // נושא-שעת-קיר
   // שני חודשים קדימה מספיקים: או שהחודש הנוכחי עוד לפנינו, או הבא
   for (let offset = 0; offset <= 2; offset += 1) {
-    const probe = new Date(after.getFullYear(), after.getMonth() + offset, 1);
-    const year = probe.getFullYear();
-    const monthIndex = probe.getMonth();
+    const probe = new Date(after.getFullYear(), after.getMonth() + offset, 1);  // נושא-שעת-קיר
+    const year = probe.getFullYear();  // נושא-שעת-קיר
+    const monthIndex = probe.getMonth();  // נושא-שעת-קיר
     // 31 בחודש קצר → היום האחרון בו, ולא דילוג על החודש
     const day = Math.min(wanted, daysInMonth(year, monthIndex));
-    const candidate = at(new Date(year, monthIndex, day));
+    const candidate = at(new Date(year, monthIndex, day));  // נושא-שעת-קיר
     if (candidate > after) return candidate;
   }
   return null;
@@ -180,7 +180,7 @@ export function toJerusalemWall(at: Date): Date {
     second: "2-digit",
     hour12: false,
   }).format(at);
-  return new Date(wall.replace(" ", "T"));
+  return new Date(wall.replace(" ", "T"));  // נושא-שעת-קיר
 }
 
 /**
@@ -191,7 +191,7 @@ export function toJerusalemWall(at: Date): Date {
  */
 export function jerusalemWallToUtc(wall: Date): Date {
   const pad = (n: number): string => String(n).padStart(2, "0");
-  const iso = `${wall.getFullYear()}-${pad(wall.getMonth() + 1)}-${pad(wall.getDate())}T${pad(wall.getHours())}:${pad(wall.getMinutes())}:00.000Z`;
+  const iso = `${wall.getFullYear()}-${pad(wall.getMonth() + 1)}-${pad(wall.getDate())}T${pad(wall.getHours())}:${pad(wall.getMinutes())}:00.000Z`;  // נושא-שעת-קיר
   const wallMs = new Date(iso).getTime();
   let guess = new Date(wallMs);
   for (let i = 0; i < 2; i += 1) guess = new Date(wallMs - jerusalemOffsetMs(guess));

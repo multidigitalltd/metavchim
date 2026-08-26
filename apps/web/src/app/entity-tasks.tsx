@@ -6,6 +6,11 @@ import { api, apiGet, apiPost, ApiError } from "@/lib/api";
 import { IconCheck, IconClock, IconUser } from "./icons";
 import { LoadError } from "./load-error";
 import { Notice } from "./notice";
+import {
+  JERUSALEM_TZ,
+  jerusalemWallErrorMessage,
+  resolveJerusalemLocalInput,
+} from "@metavchim/shared";
 
 /**
  * המשימות של לקוח או נכס — בתוך הכרטיס שלו.
@@ -32,7 +37,8 @@ interface Task {
   canEdit: boolean;
 }
 
-const dueFmt = new Intl.DateTimeFormat("he-IL", { dateStyle: "short", timeStyle: "short" });
+const dueFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ, dateStyle: "short", timeStyle: "short" });
 
 export function EntityTasks({
   entityType,
@@ -62,6 +68,20 @@ export function EntityTasks({
   async function onCreate(event: React.FormEvent): Promise<void> {
     event.preventDefault();
     if (title.trim() === "") return;
+    /*
+     * המועד נקרא בשעון ישראל, כמו שהוא מוצג בשדה. `new Date(dueAt)`
+     * פירש אותו בשעון המכשיר, ולכן מתווך בחו"ל שבחר 10:00 שמר שעה
+     * אחרת לגמרי — והשדה הזה נעלם ממני בסבב הקודם (ביקורת Codex).
+     */
+    let due: string | undefined;
+    if (dueAt !== "") {
+      const resolved = resolveJerusalemLocalInput(dueAt, null);
+      if (!resolved.ok) {
+        setError(jerusalemWallErrorMessage(resolved.reason));
+        return;
+      }
+      due = resolved.at.toISOString();
+    }
     setBusy(true);
     setError(null);
     try {
@@ -70,7 +90,7 @@ export function EntityTasks({
         // הקישור נקבע כאן ולא נבחר בטופס — המשימה נוצרה מתוך הכרטיס
         entityType,
         entityId,
-        ...(dueAt !== "" ? { dueAt: new Date(dueAt).toISOString() } : {}),
+        ...(due !== undefined ? { dueAt: due } : {}),
       });
       setTitle("");
       setDueAt("");

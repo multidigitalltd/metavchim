@@ -5,6 +5,7 @@ import { Button } from "@metavchim/ui";
 import { API_BASE, apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
 import { IconCalendar, IconWarning } from "../icons";
 import { Notice } from "../notice";
+import { formatDateTime } from "@/lib/format";
 
 /**
  * חיבור יומן Google.
@@ -168,7 +169,7 @@ export function GoogleCalendarSection(): React.JSX.Element | null {
           </p>
           <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
             {status.lastSyncAt
-              ? `סונכרן לאחרונה ב-${new Date(status.lastSyncAt).toLocaleString("he-IL")}`
+              ? `סונכרן לאחרונה ב-${formatDateTime(status.lastSyncAt)}`
               : "טרם סונכרן — הסבב הראשון ירוץ בקרוב"}
           </p>
           {/*

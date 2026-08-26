@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
-import { platformCreditKindLabel, shekels } from "@metavchim/shared";
+import { platformCreditKindLabel, shekels,
+  JERUSALEM_TZ,
+} from "@metavchim/shared";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { IconBanknote, IconCoins, IconFlame, IconGift, IconHandshake } from "../icons";
 import { Notice } from "../notice";
@@ -43,7 +45,8 @@ interface Entry {
   createdAt: string;
 }
 
-const dateFmt = new Intl.DateTimeFormat("he-IL", { dateStyle: "short", timeStyle: "short" });
+const dateFmt = new Intl.DateTimeFormat("he-IL", {
+  timeZone: JERUSALEM_TZ, dateStyle: "short", timeStyle: "short" });
 
 export function ReferralRevenueSection(): React.JSX.Element {
   const [report, setReport] = useState<Report | null>(null);

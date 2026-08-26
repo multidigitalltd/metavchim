@@ -1,7 +1,12 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState, type FormEvent } from "react";
-import { CAPABILITY_MODULES, PLAN_FEATURES, moduleLabel } from "@metavchim/shared";
+import {
+  CAPABILITY_MODULES,
+  PLAN_FEATURES,
+  jerusalemWallIsoToUtc,
+  moduleLabel,
+} from "@metavchim/shared";
 import { Button } from "@metavchim/ui";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { formatDate } from "@/lib/format";
@@ -319,9 +324,20 @@ function TenantOverrides({
               /*
                * סוף היום ולא תחילתו: „עד ה-31” פירושו שה-31 עוד
                * פתוח. חצות היה סוגר את המשרד יום שלם מוקדם מדי.
+               *
+               * ‎`23:59:59Z` היה סוף היום ב-UTC, כלומר 02:59 בישראל
+               * למחרת — המנוי נסגר כשלוש שעות לתוך היום הבא. אותו
+               * מסך קובע גם תוקף קופון, ושתי משמעויות ל„סוף היום”
+               * באותו מסך הן באג בהמתנה. שתיהן סוף היום בישראל.
                */
-              trialEndsAt: trialEndsAt === "" ? null : new Date(`${trialEndsAt}T23:59:59Z`).toISOString(),
-              paidUntil: paidUntil === "" ? null : new Date(`${paidUntil}T23:59:59Z`).toISOString(),
+              trialEndsAt:
+                trialEndsAt === ""
+                  ? null
+                  : jerusalemWallIsoToUtc(`${trialEndsAt}T23:59:59.000`).toISOString(),
+              paidUntil:
+                paidUntil === ""
+                  ? null
+                  : jerusalemWallIsoToUtc(`${paidUntil}T23:59:59.000`).toISOString(),
               priceOverrideMonthlyAgorot: shekelToAgorot(monthly),
               priceOverrideYearlyAgorot: shekelToAgorot(yearly),
             })

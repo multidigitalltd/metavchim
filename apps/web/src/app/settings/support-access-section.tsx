@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
 import { Notice } from "../notice";
+import { formatJerusalemTime } from "@metavchim/shared";
 
 /**
  * גישת תמיכה בהסכמה.
@@ -83,10 +84,7 @@ export function SupportAccessSection(): React.JSX.Element {
         <div className="flex flex-wrap items-center gap-3">
           <p className="m-0 text-sm font-bold" style={{ color: "var(--color-success)" }}>
             ✓ הגישה פתוחה עד{" "}
-            {new Date(activeUntil!).toLocaleTimeString("he-IL", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
+            {formatJerusalemTime(new Date(activeUntil!))}
           </p>
           <button type="button" className="mv-btn-plain" disabled={busy} onClick={() => void revoke()}>
             סגור גישה עכשיו

@@ -278,3 +278,54 @@ export function formatJerusalemTime(at: Date): string {
     minute: "2-digit",
   }).format(at);
 }
+
+/**
+ * שעת קיר ישראלית → ערך ל-`datetime-local` (`YYYY-MM-DDTHH:MM`).
+ *
+ * ‎`datetime-local` הוא שדה **חסר אזור זמן** לפי הגדרתו, והדפדפן
+ * מציג בו בדיוק את המחרוזת שנתנו לו. לכן „הזמן המקומי” שהשדה
+ * מדבר בו הוא מה שאנחנו מחליטים — ובמערכת שכל מועדיה ישראליים,
+ * זה שעון ישראל ולא שעון המכשיר.
+ *
+ * ‎`getHours()` היה נותן את שעת המכשיר: משימה שמועדה 10:00 בישראל
+ * נפתחה על 03:00 בניו-יורק, ושמירה החזירה אותה ל-10:00 ניו-יורקית
+ * — כלומר 17:00 בישראל. סימטרי, ולכן בלתי נראה בבדיקה מקומית,
+ * ושגוי בכל מכשיר שאינו על שעון ישראל.
+ */
+export function jerusalemLocalInputValue(at: Date): string {
+  const { date, time } = jerusalemWallParts(at);
+  return `${date}T${time}`;
+}
+
+/**
+ * הצד השני: ערך `datetime-local` → רגע UTC, עם אותן שתי הסיבות
+ * לסירוב כמו ב-`resolveJerusalemWall` — ואותו עוגן, כדי ששמירה
+ * שלא נגעה במועד לא תזיז אותו בליל מעבר השעון.
+ */
+export function resolveJerusalemLocalInput(
+  value: string,
+  current: Date | null,
+): JerusalemWallResult {
+  const [date, time] = value.split("T");
+  return resolveJerusalemWall(date ?? "", time ?? "", current);
+}
+
+const israeliNumber = new Intl.NumberFormat("he-IL");
+
+/**
+ * מספר בפורמט ישראלי — „2,650,000”.
+ *
+ * ‎**למה זה יושב דווקא כאן, בקובץ הזמן.** שער `verify:timezone` אוסר
+ * את שם המתודה `toLocaleString` בלי שום חריג, כי על `Date` היא קוראת
+ * את שעון המכשיר — ושם המתודה זהה על `Number`. שער טקסטואלי אינו
+ * יודע מה טיפוס המקבל, ורשימת היתרים הייתה מחזירה בדיוק את החור
+ * שהשער נועד לסגור. לכן מספרים עוברים כאן, והאיסור נשאר מוחלט.
+ */
+export function formatIsraeliNumber(
+  value: number,
+  options?: Intl.NumberFormatOptions,
+): string {
+  return options === undefined
+    ? israeliNumber.format(value)
+    : new Intl.NumberFormat("he-IL", options).format(value);
+}

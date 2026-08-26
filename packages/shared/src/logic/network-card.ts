@@ -27,6 +27,7 @@ import { labelOf } from "../schemas/labels.js";
 import { PROPERTY_TYPE_LABELS_HE } from "./csv-export.js";
 import { propertyFeatureLabel } from "./matching.js";
 import { describeDistance } from "./proximity.js";
+import { formatIsraeliNumber, formatJerusalemDate } from "./israel-time.js";
 
 /**
  * שם האייקון — **לא האייקון עצמו.**
@@ -106,7 +107,7 @@ export function entryChip(
   const when = date === undefined ? null : new Date(date);
   const dateText =
     when !== null && !Number.isNaN(when.getTime())
-      ? when.toLocaleDateString("he-IL")
+      ? formatJerusalemDate(when)
       : null;
   switch (type) {
     case "immediate":
@@ -131,7 +132,7 @@ export function entryChip(
 
 /** ₪ בפורמט קצר לכרטיס: 2,400,000 ולא "2400000 אגורות". */
 function money(agorot: number): string {
-  return `${Math.round(agorot / 100).toLocaleString("he-IL")} ₪`;
+  return `${formatIsraeliNumber(Math.round(agorot / 100))} ₪`;
 }
 
 /**

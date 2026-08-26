@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { IconFilter, IconSearch, IconX } from "./icons";
+import { formatNumber } from "@/lib/format";
 
 /**
  * סרגל הסינון של מסכי הרשימה — נכסים וקונים.
@@ -103,7 +104,7 @@ function stopIndex(stops: readonly number[], raw: string): number | null {
   return best;
 }
 
-const money = (value: number): string => value.toLocaleString("he-IL");
+const money = (value: number): string => formatNumber(value);
 
 /**
  * ציר טווח — שני גוררים על אותה סקאלה.

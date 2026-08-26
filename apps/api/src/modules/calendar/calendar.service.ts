@@ -6,6 +6,7 @@ import { OutboxService } from "../../core/outbox.service";
 import { PrismaService } from "../../core/prisma.service";
 import { CallsService } from "../calls/calls.service";
 import { ExclusivityService } from "../exclusivity/exclusivity.service";
+import { formatJerusalemDate, formatJerusalemTime } from "@metavchim/shared";
 
 export interface AppointmentDto {
   id: string;
@@ -133,7 +134,7 @@ export class CalendarService {
         await this.exclusivity.recordAuto(tx, input.propertyId, "viewing_scheduled", {
           sourceKey: `viewing:${id}`,
           performedAt: new Date(),
-          detail: `סיור בנכס תואם ליום ${input.startsAt.toLocaleDateString("he-IL")}`,
+          detail: `סיור בנכס תואם ליום ${formatJerusalemDate(input.startsAt)}`,
         });
       }
       await this.outbox.emit(tx, "appointment.scheduled", {
@@ -196,8 +197,8 @@ export class CalendarService {
        * מרים את הכרטיס, והשדה לבדו אינו מספר את הסיפור.
        */
       const line = [
-        `הפגישה נדחתה מ-${existing.startsAt.toLocaleString("he-IL")}`,
-        `ל-${input.startsAt.toLocaleString("he-IL")}`,
+        `הפגישה נדחתה מ-${formatJerusalemDate(existing.startsAt)} ${formatJerusalemTime(existing.startsAt)}`,
+        `ל-${formatJerusalemDate(input.startsAt)} ${formatJerusalemTime(input.startsAt)}`,
         input.reason ? `(${input.reason})` : "",
       ]
         .filter(Boolean)

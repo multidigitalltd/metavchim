@@ -1,5 +1,6 @@
 import type { PropertyFields } from "../schemas/property.js";
 import type { BuyerRequirements } from "../schemas/buyer.js";
+import { JERUSALEM_TZ } from "./israel-time.js";
 
 /**
  * התאמת מועד כניסה/מסירה — כשהתשובה אינה תאריך.
@@ -42,11 +43,12 @@ function daysLate(entry: Date, deadline: Date): number {
 
 /** "15/03/2027" — עקבי עם שאר ההסברים. */
 function formatDate(date: Date): string {
-  return date.toLocaleDateString("he-IL", {
+  return new Intl.DateTimeFormat("he-IL", {
+    timeZone: JERUSALEM_TZ,
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
-  });
+  }).format(date);
 }
 
 /**

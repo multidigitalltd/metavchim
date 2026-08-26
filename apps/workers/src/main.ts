@@ -1050,7 +1050,7 @@ function jerusalemDayRange(): { start: Date; end: Date } {
   const nextDay = new Intl.DateTimeFormat("en-CA", {
     timeZone: JERUSALEM_TZ,
   }).format(new Date(start.getTime() + 30 * 60 * 60 * 1000));
-  const end = new Date(
+  const end = new Date(  // נושא-שעת-קיר
     jerusalemWallToUtc(`${nextDay}T00:00:00.000`).getTime() - 1,
   );
   return { start, end };

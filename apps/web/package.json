@@ -11,6 +11,7 @@
     "verify:assets": "node scripts/verify-assets.mjs",
     "verify:contrast": "node scripts/verify-contrast.mjs",
     "verify:language": "node scripts/verify-referral-language.mjs",
+    "verify:timezone": "node scripts/verify-timezone.mjs",
     "verify:typography": "node scripts/verify-typography.mjs"
   },
   "dependencies": {

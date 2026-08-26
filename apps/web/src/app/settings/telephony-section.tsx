@@ -290,7 +290,7 @@ export function TelephonySection() {
                       }}
                     >
                       {why.tone === "warning" ? <IconWarning s={15} /> : <IconInfo s={15} />}{" "}
-                      האירוע האחרון הגיע ב-{new Date(status.lastEventAt).toLocaleString("he-IL")}.{" "}
+                      האירוע האחרון הגיע ב-{formatDateTime(status.lastEventAt)}.{" "}
                       {why.text}
                     </p>
                     {why.showKeys && status.lastEventKeys ? (
@@ -312,7 +312,7 @@ export function TelephonySection() {
               })()
             ) : (
               <p className="m-0 text-[length:var(--type-caption)]" style={{ color: "var(--color-success)" }}>
-                ✓ אירוע אחרון התקבל וזוהה ב-{new Date(status.lastEventAt).toLocaleString("he-IL")}
+                ✓ אירוע אחרון התקבל וזוהה ב-{formatDateTime(status.lastEventAt)}
               </p>
             )}
           </div>

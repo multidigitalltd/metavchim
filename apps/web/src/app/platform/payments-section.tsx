@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { formatDate, formatNumber } from "@/lib/format";
 import { IconCard } from "../icons";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
@@ -42,7 +43,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 function shekels(agorot: number): string {
-  return `${Math.round(agorot / 100).toLocaleString("he-IL")} ₪`;
+  return `${formatNumber(Math.round(agorot / 100))} ₪`;
 }
 
 export function PaymentsSection(): React.JSX.Element {
@@ -166,11 +167,11 @@ export function PaymentsSection(): React.JSX.Element {
                       </span>
                     ) : null}
                   </td>
-                  <td>{new Date(row.paidAt ?? row.createdAt).toLocaleDateString("he-IL")}</td>
+                  <td>{formatDate(row.paidAt ?? row.createdAt)}</td>
                   <td>
                     {row.refundedAt !== null ? (
                       <span style={{ color: "var(--color-text-muted)" }}>
-                        זוכה ב-{new Date(row.refundedAt).toLocaleDateString("he-IL")}
+                        זוכה ב-{formatDate(row.refundedAt)}
                       </span>
                     ) : row.status === "paid" && row.transactionId ? (
                       open === row.id ? (

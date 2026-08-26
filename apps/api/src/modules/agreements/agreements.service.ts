@@ -7,18 +7,7 @@ import {
 } from "@nestjs/common";
 import { createHash, randomBytes } from "node:crypto";
 import { ulid } from "ulid";
-import {
-  AGREEMENT_KIND_LABELS,
-  REQUIRED_PLACEHOLDERS,
-  SIGNER_BLANK,
-  SIGNER_PROVIDED_PLACEHOLDERS,
-  defaultAgreementTemplate,
-  fillSignerId,
-  renderAgreement,
-  whatsappLink,
-  type AgreementKind,
-  type AgreementValues,
-} from "@metavchim/shared";
+import { AGREEMENT_KIND_LABELS, REQUIRED_PLACEHOLDERS, SIGNER_BLANK, SIGNER_PROVIDED_PLACEHOLDERS, defaultAgreementTemplate, fillSignerId, formatIsraeliNumber, formatJerusalemDate, renderAgreement, type AgreementKind, type AgreementValues, whatsappLink } from "@metavchim/shared";
 import { assertContactAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { loadEnv } from "../../config/env";
@@ -448,7 +437,7 @@ export class AgreementsService {
           .join(", ");
         if (property.priceAgorot !== null) {
           // priceAgorot הוא bigint בסכמה — המרה מפורשת לפני חישוב
-          priceText = `${Math.round(Number(property.priceAgorot) / 100).toLocaleString("he-IL")} ₪`;
+          priceText = `${formatIsraeliNumber(Math.round(Number(property.priceAgorot) / 100))} ₪`;
         }
       }
     }
@@ -473,7 +462,7 @@ export class AgreementsService {
        */
       דמי_תיווך: asText("defaultCommission"),
       מועד_תשלום: asText("defaultPaymentTerms"),
-      תאריך: new Date().toLocaleDateString("he-IL"),
+      תאריך: formatJerusalemDate(new Date()),
       ...input.values,
       /*
        * שדות שהחותם ממלא נשארים בשליטת השרת — **אחרי** פריסת הערכים

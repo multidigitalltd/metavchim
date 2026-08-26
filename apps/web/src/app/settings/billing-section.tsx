@@ -16,7 +16,7 @@ import {
 } from "@metavchim/shared";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { can, useRequireAuth } from "@/lib/use-auth";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatNumber } from "@/lib/format";
 import { Notice } from "../notice";
 
 /**
@@ -370,7 +370,7 @@ export function BillingSection({ expired = false }: { expired?: boolean }): Reac
                       <td>
                         {row.planCode} · {describeCycle(row.billingCycle === "yearly" ? "yearly" : "monthly")}
                       </td>
-                      <td>{(row.amountAgorot / 100).toLocaleString("he-IL")} ₪</td>
+                      <td>{formatNumber(row.amountAgorot / 100)} ₪</td>
                       <td>{PAYMENT_STATUS[row.status] ?? row.status}</td>
                     </tr>
                   ))}

@@ -188,8 +188,8 @@ const RELATIVE_DAYS: [pattern: RegExp, days: number][] = [
 /** 10:00 בשעון ישראל ביום שמספר הימים קדימה — כמו ברירת המחדל של המנתח. */
 function atTenOnDayOffset(now: Date, days: number): Date {
   const wall = toJerusalemWall(now);
-  wall.setDate(wall.getDate() + days);
-  wall.setHours(10, 0, 0, 0);
+  wall.setDate(wall.getDate() + days);  // נושא-שעת-קיר
+  wall.setHours(10, 0, 0, 0);  // נושא-שעת-קיר
   return jerusalemWallToUtc(wall);
 }
 

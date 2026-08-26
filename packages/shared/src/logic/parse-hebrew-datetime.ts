@@ -936,7 +936,7 @@ export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTi
      * ל-10:01:00 — שנייה אחת, לא דקה (ביקורת Codex). תזכורת שמגיעה
      * מוקדם מהמבוקש נראית כתקלה; מאוחר בשניות ספורות איש אינו מרגיש.
      */
-    if (at.getSeconds() !== 0 || at.getMilliseconds() !== 0) at.setSeconds(60, 0);
+    if (at.getSeconds() !== 0 || at.getMilliseconds() !== 0) at.setSeconds(60, 0);  // נושא-שעת-קיר
     return { date: at, timeExplicit: true, evidence: relative.evidence };
   }
 
@@ -957,7 +957,7 @@ export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTi
 
   // מכאן והלאה החישוב הוא בשעון קיר ירושלמי, והמרה אחת בסוף
   const base = toJerusalemWall(now);
-  base.setSeconds(0, 0);
+  base.setSeconds(0, 0);  // נושא-שעת-קיר
 
   let wall: Date | undefined;
 
@@ -981,10 +981,10 @@ export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTi
      * כפגישה בעבר. נתיב הפגישות מקבל זמנים בעבר, ולכן זה נשמר בשקט
      * (ביקורת Codex).
      */
-    const year = explicit.year ?? base.getFullYear();
+    const year = explicit.year ?? base.getFullYear();  // נושא-שעת-קיר
     const beforeToday =
-      explicit.month < base.getMonth() + 1 ||
-      (explicit.month === base.getMonth() + 1 && explicit.day < base.getDate());
+      explicit.month < base.getMonth() + 1 ||  // נושא-שעת-קיר
+      (explicit.month === base.getMonth() + 1 && explicit.day < base.getDate());  // נושא-שעת-קיר
     const chosenYear = explicit.year === undefined && beforeToday ? year + 1 : year;
 
     /*
@@ -1002,7 +1002,7 @@ export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTi
       explicit.day <= daysInMonth(chosenYear, explicit.month)
     ) {
       wall = new Date(base);
-      wall.setFullYear(chosenYear, explicit.month - 1, explicit.day);
+      wall.setFullYear(chosenYear, explicit.month - 1, explicit.day);  // נושא-שעת-קיר
       evidenceParts.push(explicit.evidence);
     }
   }
@@ -1010,11 +1010,11 @@ export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTi
   if (wall === undefined) {
     if (/מחרתיים/u.test(text)) {
       wall = new Date(base);
-      wall.setDate(wall.getDate() + 2);
+      wall.setDate(wall.getDate() + 2);  // נושא-שעת-קיר
       evidenceParts.push("מחרתיים");
     } else if (/מחר/u.test(text)) {
       wall = new Date(base);
-      wall.setDate(wall.getDate() + 1);
+      wall.setDate(wall.getDate() + 1);  // נושא-שעת-קיר
       evidenceParts.push("מחר");
     } else if (/היום/u.test(text)) {
       wall = new Date(base);
@@ -1025,8 +1025,8 @@ export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTi
         const match = pattern.exec(text);
         if (!match) continue;
         wall = new Date(base);
-        const diff = (weekday - base.getDay() + 7) % 7;
-        wall.setDate(wall.getDate() + (diff === 0 ? 7 : diff));
+        const diff = (weekday - base.getDay() + 7) % 7;  // נושא-שעת-קיר
+        wall.setDate(wall.getDate() + (diff === 0 ? 7 : diff));  // נושא-שעת-קיר
         evidenceParts.push(match[0]);
         break;
       }
@@ -1036,10 +1036,10 @@ export function parseHebrewDateTime(transcript: string, now: Date): ParsedDateTi
   if (wall === undefined) return { timeExplicit: false };
 
   if (time) {
-    wall.setHours(time.hour, time.minute, 0, 0);
+    wall.setHours(time.hour, time.minute, 0, 0);  // נושא-שעת-קיר
     if (time.evidence) evidenceParts.push(time.evidence);
   } else {
-    wall.setHours(10, 0, 0, 0); // ברירת מחדל — המתווך רואה ומתקן
+    wall.setHours(10, 0, 0, 0); // ברירת מחדל — המתווך רואה ומתקן  // נושא-שעת-קיר
   }
 
   return {

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@metavchim/ui";
 import { packageDiscountPercent } from "@metavchim/shared";
 import { ApiError, apiPost } from "@/lib/api";
+import { formatNumber } from "@/lib/format";
 import { Notice } from "../notice";
 
 /**
@@ -24,7 +25,7 @@ interface CreditPackage {
 }
 
 const shekels = (agorot: number): string =>
-  (agorot / 100).toLocaleString("he-IL", { maximumFractionDigits: 2 });
+  formatNumber(agorot / 100, { maximumFractionDigits: 2 });
 
 export function BuyCredits({
   unitPriceAgorot,

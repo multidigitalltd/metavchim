@@ -1,3 +1,4 @@
+import { formatIsraeliNumber } from "./israel-time.js";
 /**
  * סינון רשימות — טווחים וחיפוש טקסט חופשי.
  *
@@ -108,7 +109,7 @@ export function describeFilters(parts: {
   const chunks: string[] = [];
   if (parts.terms && parts.terms.length > 0) chunks.push(`"${parts.terms.join(" ")}"`);
   if (parts.price?.min !== undefined || parts.price?.max !== undefined) {
-    chunks.push(describeRange(parts.price, (v) => `${v.toLocaleString("he-IL")} ₪`));
+    chunks.push(describeRange(parts.price, (v) => `${formatIsraeliNumber(v)} ₪`));
   }
   if (parts.rooms?.min !== undefined || parts.rooms?.max !== undefined) {
     chunks.push(describeRange(parts.rooms, (v) => `${v} חד׳`));

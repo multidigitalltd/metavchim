@@ -13,6 +13,7 @@ import {
 } from "@metavchim/shared";
 import { API_BASE, ApiError, apiGet, apiPatch } from "@/lib/api";
 import { Notice } from "../notice";
+import { formatDateTime } from "@/lib/format";
 
 /**
  * שולחן התמיכה — תור אחד לכל המשרדים.
@@ -125,7 +126,7 @@ export function SupportDeskSection(): React.JSX.Element {
                   <b style={{ color: "var(--color-danger)" }}>· {SUPPORT_SEVERITY_LABEL.blocking}</b>
                 ) : null}
                 <span className="ms-auto" style={{ color: "var(--color-text-muted)" }}>
-                  {new Date(t.createdAt).toLocaleString("he-IL")}
+                  {formatDateTime(t.createdAt)}
                 </span>
               </div>
 
