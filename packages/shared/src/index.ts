@@ -72,6 +72,7 @@ export * from "./logic/plans.js";
 export * from "./logic/recurrence.js";
 export * from "./logic/trial.js";
 export * from "./logic/billing.js";
+export * from "./logic/subscription-offer.js";
 export * from "./logic/email-template.js";
 export * from "./logic/collaboration-cost.js";
 export * from "./logic/commission-terms.js";

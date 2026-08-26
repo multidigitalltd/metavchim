@@ -27,10 +27,23 @@ const GOOGLE_ERRORS: Record<string, string> = {
   failed: "ההתחברות עם Google נכשלה — נסו שוב או התחברו עם סיסמה",
 };
 
+/**
+ * לאן ממשיכים אחרי התחברות מוצלחת.
+ *
+ * `next` מכובד **רק לדף הצעה בלינק** — הנתיב היחיד שמפנה לכאן עם
+ * חזרה. רשימת היתר צרה בכוונה: פרמטר הפניה פתוח הוא open redirect,
+ * וגם נתיב פנימי שרירותי היה מאפשר להנחית משתמש טרי על מסך מטעה.
+ */
+function afterLoginTarget(next: string | null): string {
+  if (next !== null && /^\/subscribe\/[A-Za-z0-9_-]{8,64}$/u.test(next)) return next;
+  return "/";
+}
+
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const justReset = params.get("reset") === "1";
+  const nextTarget = afterLoginTarget(params.get("next"));
   const googleError = params.get("googleError");
   const [error, setError] = useState<string | null>(
     googleError ? (GOOGLE_ERRORS[googleError] ?? GOOGLE_ERRORS["failed"]!) : null,
@@ -87,7 +100,7 @@ function LoginForm() {
        * אחרי הניווט, ולכן ההעדפות מוחלות כשהתשובה מגיעה.
        */
       void resyncA11yForUser();
-      router.replace(result.user.mustChangePassword ? "/change-password" : "/");
+      router.replace(result.user.mustChangePassword ? "/change-password" : nextTarget);
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "שגיאה בהתחברות — נסו שוב");
       setSubmitting(false);
@@ -107,7 +120,7 @@ function LoginForm() {
       clearSessionCache();
       // בלי `await` — ראו ההסבר במסלול הסיסמה
       void resyncA11yForUser();
-      router.replace(user.mustChangePassword ? "/change-password" : "/");
+      router.replace(user.mustChangePassword ? "/change-password" : nextTarget);
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "האימות נכשל — נסו שוב");
       setSubmitting(false);

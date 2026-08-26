@@ -1766,6 +1766,9 @@ model Payment {
   refundReason        String?   @map("refund_reason") @db.VarChar(300)
   /// מה קארדקום אמר כשזה נכשל — לתמיכה, לא למשתמש
   failureReason       String?   @map("failure_reason") @db.VarChar(300)
+  /// ההצעה שהתשלום הזה מממש. ריק בתשלום רגיל — ומלא, הוא מה שמפעיל
+  /// בהצלחה גם את המחיר המוסכם ואת התכונות שההצעה הבטיחה.
+  offerId             String?   @map("offer_id") @db.Char(26)
   paidAt              DateTime? @map("paid_at")
   createdBy           String?   @map("created_by") @db.Char(26)
   createdAt           DateTime  @default(now()) @map("created_at")
@@ -1773,6 +1776,49 @@ model Payment {
 
   @@index([tenantId, createdAt])
   @@map("payments")
+}
+
+/// הצעת מנוי בלינק — מחוץ ל-RLS: רמת פלטפורמה, כמו plans ו-coupons.
+///
+/// שני שימושים, טבלה אחת: הצעה אישית שמנהל הפלטפורמה תפר למשרד
+/// (מסלול + תוספות + מחיר סופי + תכונות), ולינק מכירה שפותח דף
+/// תשלום על מסלול קיים לכל משרד מחובר. ההבחנה בשדה `kind`, והשדות
+/// שאינם רלוונטיים ריקים — לא מלאים בערך מדומה.
+model SubscriptionOffer {
+  id             String    @id @db.Char(26)
+  /// הסוד שבלינק. אקראי וארוך מכדי לנחש — הוא ההרשאה לראות את ההצעה.
+  token          String    @unique @db.VarChar(64)
+  /// custom | plan_link
+  kind           String    @db.VarChar(20)
+  /// ההצעה נעולה למשרד הזה; null = כל משרד מחובר (לינק מכירה).
+  tenantId       String?   @map("tenant_id") @db.Char(26)
+  planCode       String    @map("plan_code") @db.VarChar(20)
+  /// monthly | yearly
+  billingCycle   String    @default("monthly") @map("billing_cycle") @db.VarChar(10)
+  /// המחיר הסופי למחזור, באגורות. null = מחיר המסלול (או המחיר
+  /// המוסכם של המשרד, אם יש) — אותו סדר עדיפויות כמו בחידוש.
+  priceAgorot    Int?      @map("price_agorot")
+  /// שורות התוספת [{label, amountAgorot}] — "2 מספרי טלפון" וכד'.
+  /// לתצוגה ולתיעוד; המחיר הסופי הוא שנגבה, לא סכימה מחדש.
+  lineItems      Json      @default("[]") @map("line_items")
+  /// תכונות שנפתחות למשרד עם התשלום, מעבר למסלול.
+  featureGrants  String[]  @default([]) @map("feature_grants")
+  /// הערה חופשית שמוצגת ללקוח בדף ההצעה.
+  note           String    @default("") @db.VarChar(500)
+  /// null = בלי הגבלת מימושים (לינק מכירה); הצעה אישית נוצרת עם 1.
+  maxRedemptions Int?      @map("max_redemptions")
+  redemptions    Int       @default(0)
+  expiresAt      DateTime? @map("expires_at")
+  /// ביטול ולא מחיקה — משרד ששילם דרך הלינק ממשיך לשאת את המזהה
+  /// בתשלומים שלו, ובלי השורה אי אפשר לענות "מה הובטח לו".
+  revokedAt      DateTime? @map("revoked_at")
+  createdBy      String?   @map("created_by") @db.Char(26)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@index([createdAt])
+  @@map("subscription_offers")
 }
 
 /// מחיר ליד לפי מקור. מחוץ ל-RLS: רמת פלטפורמה, כמו plans.

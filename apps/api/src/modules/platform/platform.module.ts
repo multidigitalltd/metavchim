@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { CardcomService } from "../../core/cardcom.service";
 import { AuthModule } from "../auth/auth.module";
+import { BillingModule } from "../billing/billing.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { TelephonyModule } from "../telephony/telephony.module";
 import { AccountDeletionService } from "../settings/account-deletion.service";
@@ -20,7 +21,8 @@ import { ServiceVersionsService } from "./service-versions.service";
   // יומן הוובהוקים של המרכזיות מוצג כאן ולא בהגדרות המשרד: פנייה
   // עם מפתח לא מוכר אינה שייכת לאף משרד, וזו בדיוק הפנייה שמחפשים
   // MessagingModule — בדיקת חיבור הוואטסאפ של הסוכן האישי מהמסך
-  imports: [AuthModule, TelephonyModule, MessagingModule],
+  // BillingModule — יצירת הצעות מנוי בלינק (SubscriptionOfferService)
+  imports: [AuthModule, TelephonyModule, MessagingModule, BillingModule],
   controllers: [PlatformController, AgentUsageController],
   providers: [
     BackupsService,
