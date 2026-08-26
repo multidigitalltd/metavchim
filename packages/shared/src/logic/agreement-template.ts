@@ -11,7 +11,21 @@
  * תחליף לבדיקת הנוסח בידי עורך דין.
  */
 
-export type AgreementKind = "brokerage" | "exclusivity";
+/**
+ * שני סוגי ההסכם — **רשימה אחת שהכול נגזר ממנה.**
+ *
+ * הטיפוס היה מוצהר כאיחוד, וכל מי שנזקק לסוגים כ**ערכים** ניסח
+ * אותם מחדש: `z.enum` בשני בקרים, ורשימה נפרדת בצד המסמכים
+ * שנסרקו. ההצהרות האלה הסכימו זו עם זו במקרה, לא בבנייה — וסוג
+ * שלישי שיתווסף כאן היה נדחה בשקט בשני הבקרים, לא היה פותח את
+ * שער ההצעות, ולא היה נשמר במחיקת לקוח. שלושתם כשלים שקטים.
+ *
+ * מכאן נגזרים `AgreementKind`, `OFFER_DOCUMENT_KINDS` ו-
+ * `DOCUMENT_KINDS`, ולכן הוספת סוג היא שורה אחת.
+ */
+export const AGREEMENT_KINDS = ["brokerage", "exclusivity"] as const;
+
+export type AgreementKind = (typeof AGREEMENT_KINDS)[number];
 
 export const AGREEMENT_KIND_LABELS: Record<AgreementKind, string> = {
   brokerage: "הזמנה בכתב (הסכם תיווך)",

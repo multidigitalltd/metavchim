@@ -23,7 +23,7 @@
  * „בלעדיות שנחתמה על נייר”.
  */
 
-import type { AgreementKind } from "./agreement-template.js";
+import { AGREEMENT_KINDS, type AgreementKind } from "./agreement-template.js";
 
 /**
  * סוג המסמך שהועלה.
@@ -33,7 +33,7 @@ import type { AgreementKind } from "./agreement-template.js";
  * ערך. `other` הוא כל השאר — נספח, תעודת זהות, אישור זכויות — ואינו
  * טוען דבר.
  */
-export const DOCUMENT_KINDS = ["brokerage", "exclusivity", "other"] as const;
+export const DOCUMENT_KINDS = [...AGREEMENT_KINDS, "other"] as const;
 
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
 
@@ -52,8 +52,13 @@ export const DOCUMENT_KIND_LABELS: Record<DocumentKind, string> = {
  * שנפער כאן פעם אחת — התנאי לשמירה היה „יש תאריך חתימה” בלי הסוג,
  * ולכן תעודת זהות שהועלתה עם תאריך שרדה מחיקת לקוח לנצח (ביקורת
  * Codex).
+ *
+ * ‎**הפניה ל-`AGREEMENT_KINDS` ולא העתק שלה.** ההעתק הסכים איתה
+ * במקרה ולא בבנייה: סוג הסכם שלישי שהיה מתווסף שם לא היה נכנס
+ * לכאן, ולכן לא היה פותח את שער ההצעות ולא היה נשמר במחיקת לקוח —
+ * שני כשלים שקטים שאיש לא היה רואה עד שיהיה מאוחר.
  */
-export const OFFER_DOCUMENT_KINDS = ["brokerage", "exclusivity"] as const;
+export const OFFER_DOCUMENT_KINDS = AGREEMENT_KINDS;
 
 /**
  * האם המסמך הזה הוא הצהרה על הסכם חתום — ולכן פותח את שער ההצעות,

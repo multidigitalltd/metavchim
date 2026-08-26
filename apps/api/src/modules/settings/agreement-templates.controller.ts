@@ -3,6 +3,7 @@ import { ulid } from "ulid";
 import { z } from "zod";
 import {
   AGREEMENT_KIND_LABELS,
+  AGREEMENT_KINDS,
   defaultAgreementTemplate,
   missingRequiredPlaceholders,
   type AgreementKind,
@@ -22,7 +23,7 @@ import { PrismaService } from "../../core/prisma.service";
  * השורה ולא העתקה מחדש של טקסט.
  */
 
-const KindSchema = z.enum(["brokerage", "exclusivity"]);
+const KindSchema = z.enum(AGREEMENT_KINDS);
 const BodySchema = z.object({ body: z.string().min(50).max(50_000) }).strict();
 
 export interface AgreementTemplateDto {

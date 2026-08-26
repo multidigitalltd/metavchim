@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { AGREEMENT_KINDS } from "./agreement-template.js";
 import {
   DOCUMENT_KINDS,
   DOCUMENT_KIND_LABELS,
@@ -61,6 +62,24 @@ describe("documentUnlocksOffers", () => {
       ).toBe(documentUnlocksOffers(kind));
     }
     expect(OFFER_DOCUMENT_KINDS).not.toContain("other");
+  });
+
+  /*
+   * ‎**סוגי ההסכם הם רשימה אחת, לא שתיים שמסכימות במקרה.**
+   *
+   * ‎`AGREEMENT_KINDS` הוא המקור; `DOCUMENT_KINDS` הוא הוא ועוד
+   * „מסמך אחר”, ו-`OFFER_DOCUMENT_KINDS` הוא הוא עצמו. סוג הסכם
+   * שלישי שיתווסף שם ולא כאן לא היה פותח את שער ההצעות ולא היה
+   * נשמר במחיקת לקוח — שני כשלים שקטים. הבדיקה עוברת על הרשימה
+   * החיה ולכן אינה יכולה להתיישן.
+   */
+  it("סוגי המסמך נגזרים מסוגי ההסכם ולא מנוסחים מחדש", () => {
+    expect([...OFFER_DOCUMENT_KINDS]).toEqual([...AGREEMENT_KINDS]);
+    expect([...DOCUMENT_KINDS]).toEqual([...AGREEMENT_KINDS, "other"]);
+    for (const kind of AGREEMENT_KINDS) {
+      expect(documentUnlocksOffers(kind), kind).toBe(true);
+      expect(DOCUMENT_KIND_LABELS[kind], kind).toBeTruthy();
+    }
   });
 });
 
