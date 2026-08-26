@@ -879,7 +879,7 @@ export default function PropertyDetailPage({
               >
                 תמונות
               </h2>
-              <MediaSection propertyId={id} address={address} />
+              <MediaSection propertyId={id} address={address} onMediaChanged={loadProperty} />
             </section>
 
             <button

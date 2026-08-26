@@ -6,6 +6,7 @@ import { OutboxService } from "../../core/outbox.service";
 import { PrismaService } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
 import { ListingsService } from "../collaboration/listings.service";
+import { refreshReadiness } from "./readiness.writer";
 
 /**
  * תמונות נכס (docs/03 — property_media): העלאה דרך ה-API בלבד עם ולידציית
@@ -161,6 +162,12 @@ export class MediaService {
             sortOrder: assignedOrder,
           },
         });
+        /*
+         * תמונות הן אחד מתשעת שדות המוכנות, ולכן ההעלאה משנה את
+         * הציון — ובאותה טרנזקציה, אחרת דוח המשרד (שקורא מהעמודה)
+         * היה חולק על הכרטיס (שמחשב מחדש) עד לעריכה מקרית.
+         */
+        await refreshReadiness(tx, propertyId);
         await this.audit.record(tx, {
           action: "property.media_upload",
           entityType: "property",
@@ -253,6 +260,8 @@ export class MediaService {
        * אחר באותו נכס. כאן או ששניהם קורים או שאף אחד מהם.
        */
       await this.listings.syncPhotoKeys(tx, propertyId);
+      // מחיקת התמונה האחרונה מורידה את המוכנות — ראו `refreshReadiness`
+      await refreshReadiness(tx, propertyId);
       await this.audit.record(tx, {
         action: "property.media_delete",
         entityType: "property",
