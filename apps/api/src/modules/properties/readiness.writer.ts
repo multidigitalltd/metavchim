@@ -1,6 +1,6 @@
 import { computeReadiness } from "@metavchim/shared";
 import type { TenantTx } from "../../core/prisma.service";
-import { rowToFields } from "./property.mapper";
+import { PROPERTY_READY_SCORE, rowToFields } from "./property.mapper";
 
 /**
  * חישוב מחדש של `readiness_score` **אחרי שינוי שאינו בשורת הנכס.**
@@ -32,14 +32,24 @@ import { rowToFields } from "./property.mapper";
  * הקריאה חייבת לרוץ **בתוך** הטרנזקציה שביצעה את השינוי: `properties`
  * ו-`property_media` תחת FORCE RLS, ובנוסף — עדכון שנבלע בכשל היה
  * משאיר ציון שמתאר מצב שכבר אינו קיים.
+ *
+ * ## מה היא מחזירה
+ *
+ * חציית סף המוכנות, כדי שהקורא יפלוט `property.ready`. הפליטה אינה
+ * כאן משתי סיבות: `OutboxService` הוא שירות מוזרק ולפונקציה חופשית
+ * אין אליו גישה, והאירוע שייך לשירות שביצע את הפעולה — שם גם
+ * הטרנזקציה שהוא חייב להיכתב בתוכה.
  */
-export async function refreshReadiness(tx: TenantTx, propertyId: string): Promise<void> {
+export async function refreshReadiness(
+  tx: TenantTx,
+  propertyId: string,
+): Promise<{ crossedReady: boolean; score: number }> {
   const row = await tx.property.findFirst({ where: { id: propertyId } });
   /*
    * נכס שנמחק בין השינוי לחישוב אינו שגיאה: מחיקת נכס מוחקת גם את
    * המדיה שלו, וכתיבת ציון לשורה שאיננה הייתה מפילה את המחיקה.
    */
-  if (!row) return;
+  if (!row) return { crossedReady: false, score: 0 };
 
   const anyMedia = await tx.propertyMedia.findFirst({
     where: { propertyId, tenantId: row.tenantId },
@@ -52,9 +62,15 @@ export async function refreshReadiness(tx: TenantTx, propertyId: string): Promis
     hasOwner: Boolean(row.ownerContactId),
   });
 
-  if (readiness.score === row.readinessScore) return;
-  await tx.property.update({
-    where: { id: propertyId },
-    data: { readinessScore: readiness.score },
-  });
+  if (readiness.score !== row.readinessScore) {
+    await tx.property.update({
+      where: { id: propertyId },
+      data: { readinessScore: readiness.score },
+    });
+  }
+
+  return {
+    crossedReady: row.readinessScore < PROPERTY_READY_SCORE && readiness.score >= PROPERTY_READY_SCORE,
+    score: readiness.score,
+  };
 }

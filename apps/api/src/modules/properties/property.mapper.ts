@@ -5,6 +5,16 @@ import { normalizeCustomFeatures, type CustomFeature, type PropertyFields } from
  * המרה מפורשת שורת DB ⇄ DTO — אין החזרת שורות גולמיות ללקוח
  * (BigInt/Decimal לא נצמדים ל-JSON, וזה גם שער ה-allowlist של השדות).
  */
+/**
+ * הסף שממנו נכס נחשב „מוכן לשיווק” — **מספר אחד לכל הפולטים.**
+ *
+ * `property.ready` נפלט עד כה רק ביצירה, והסף היה כתוב שם כליטרל.
+ * מרגע שתמונה יכולה לחצות אותו (תמונות הן אחד מתשעת שדות המוכנות),
+ * יש שלושה מקומות שצריכים לשאול את אותה שאלה — יצירה, עדכון ושינוי
+ * מדיה — ושלושה ליטרלים היו נפרדים ביום שהסף משתנה.
+ */
+export const PROPERTY_READY_SCORE = 80;
+
 export function rowToFields(row: PropertyRow): PropertyFields {
   return {
     city: row.city ?? undefined,

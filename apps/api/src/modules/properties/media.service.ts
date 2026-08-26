@@ -167,7 +167,20 @@ export class MediaService {
          * הציון — ובאותה טרנזקציה, אחרת דוח המשרד (שקורא מהעמודה)
          * היה חולק על הכרטיס (שמחשב מחדש) עד לעריכה מקרית.
          */
-        await refreshReadiness(tx, propertyId);
+        const readiness = await refreshReadiness(tx, propertyId);
+        /*
+         * תמונה ראשונה יכולה להעלות נכס מ-78 ל-89 ולחצות את סף
+         * המוכנות. `property.ready` נפלט עד כה ביצירה בלבד, ולכן
+         * האוטומציה „נכס הגיע למוכנות” הייתה מדלגת על המעבר החדש
+         * הזה (ביקורת Codex).
+         */
+        if (readiness.crossedReady) {
+          await this.outbox.emit(tx, "property.ready", {
+            propertyId,
+            tenantId,
+            readinessScore: readiness.score,
+          });
+        }
         await this.audit.record(tx, {
           action: "property.media_upload",
           entityType: "property",
@@ -245,6 +258,15 @@ export class MediaService {
   async remove(propertyId: string, mediaId: string): Promise<void> {
     const tenantId = TenantContext.current().tenantId;
     const { s3Key, referencedByOffer } = await this.prisma.withTenant(async (tx) => {
+      /*
+       * **נעילת שורת הנכס לפני המחיקה** — אותה נעילה שההעלאה כבר
+       * לוקחת, ומאותה סיבה שהתחדדה כאן: מחיקת שתי התמונות האחרונות
+       * משתי לשוניות במקביל נתנה לכל טרנזקציה למחוק אחת ועדיין
+       * לראות את השנייה, שטרם נסגרה, בזמן `refreshReadiness`. שתיהן
+       * שמרו „יש תמונות”, ואחרי שתיהן לא נשארה אף אחת — ציון גבוה
+       * ב-11 נקודות מהמצב (ביקורת Codex).
+       */
+      await tx.$queryRaw`SELECT id FROM properties WHERE id = ${propertyId} FOR UPDATE`;
       const row = await tx.propertyMedia.findFirst({
         where: { id: mediaId, tenantId, propertyId },
         select: { s3Key: true },
@@ -260,7 +282,11 @@ export class MediaService {
        * אחר באותו נכס. כאן או ששניהם קורים או שאף אחד מהם.
        */
       await this.listings.syncPhotoKeys(tx, propertyId);
-      // מחיקת התמונה האחרונה מורידה את המוכנות — ראו `refreshReadiness`
+      /*
+       * מחיקה יכולה רק להוריד את הציון, ולכן אין כאן חצייה כלפי
+       * מעלה ואין אירוע. „נכס ירד ממוכנות” אינו אירוע קיים במערכת,
+       * והמצאתו כאן הייתה הרחבה שאיש לא ביקש.
+       */
       await refreshReadiness(tx, propertyId);
       await this.audit.record(tx, {
         action: "property.media_delete",

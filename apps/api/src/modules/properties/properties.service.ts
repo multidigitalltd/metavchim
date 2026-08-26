@@ -49,6 +49,7 @@ import { mediaRawPath } from "./media.service";
 import { PropertyTwinsService } from "./property-twins.service";
 import {
   fieldsToColumns,
+  PROPERTY_READY_SCORE,
   rowToFields,
   type PropertyDto,
 } from "./property.mapper";
@@ -460,7 +461,7 @@ export class PropertiesService {
         tenantId,
         changedFields: Object.keys(fields),
       });
-      if (readiness.score >= 80) {
+      if (readiness.score >= PROPERTY_READY_SCORE) {
         await this.outbox.emit(tx, "property.ready", {
           propertyId: id,
           tenantId,
@@ -594,6 +595,25 @@ export class PropertiesService {
         entityId: id,
         metadata: { changedFields: Object.keys(patch) },
       });
+      /*
+       * **חציית הסף, ולא הימצאות מעליו.** האירוע נפלט עד כה ביצירה
+       * בלבד, ולכן נכס שהגיע למוכנות בעריכה לא הפעיל את האוטומציה
+       * „נכס הגיע למוכנות” — פער שקדם לשינוי הזה. מרגע שגם תמונה
+       * יכולה לחצות את הסף, שלושת המסלולים חייבים לשאול את אותה
+       * שאלה; אחרת ההפעלה תלויה במה שבמקרה גרם לחצייה (ביקורת Codex).
+       *
+       * תנאי החצייה מונע פליטה חוזרת בכל שמירה של נכס שכבר מוכן.
+       */
+      if (
+        existing.readinessScore < PROPERTY_READY_SCORE &&
+        readiness.score >= PROPERTY_READY_SCORE
+      ) {
+        await this.outbox.emit(tx, "property.ready", {
+          propertyId: id,
+          tenantId,
+          readinessScore: readiness.score,
+        });
+      }
       await this.outbox.emit(tx, "property.updated", {
         propertyId: id,
         tenantId,
