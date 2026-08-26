@@ -152,6 +152,7 @@ interface TenantSettings {
   /** מדיניות הרשת: כל נכס/קונה חדש מתפרסם לרשת השיתופים אוטומטית */
   autoShareProperties: boolean;
   autoShareBuyers: boolean;
+  autoEmailOffers: boolean;
 }
 
 /**
@@ -285,6 +286,7 @@ export default function SettingsPage() {
         // checkbox לא מסומן אינו נשלח ב-FormData — היעדרות פירושה כבוי
         autoShareProperties: f.get("autoShareProperties") === "on",
         autoShareBuyers: f.get("autoShareBuyers") === "on",
+        autoEmailOffers: f.get("autoEmailOffers") === "on",
       });
       setMessage("✓ ההגדרות נשמרו");
       load();
@@ -1071,6 +1073,37 @@ export default function SettingsPage() {
                         <span style={{ color: "var(--color-text-muted)" }}>
                           בלי שם ובלי טלפון, בתקציב מעוגל. קונה בלי אזור
                           חיפוש לא מתפרסם עד שיוגדר לו אזור.
+                        </span>
+                      </span>
+                    </label>
+                  </fieldset>
+                  {/*
+                    הצעות אוטומטיות במייל — אותה רמת החלטה כמו מדיניות
+                    הרשת שמעל: המשרד קובע, לא כל סוכן. שורת המשנה מפרטת
+                    את הסייגים כדי שההפעלה תהיה מודעת: מה נשלח, למי,
+                    ומה נשאר אצל הסוכן.
+                  */}
+                  <fieldset className="mb-3.5 rounded-lg border p-3.5" style={{ borderColor: "var(--color-border)" }}>
+                    <legend className="px-1 text-sm font-bold">
+                      הצעות ללקוחות במייל — ברירת מחדל
+                    </legend>
+                    <label className="flex items-start gap-2 text-sm" htmlFor="autoEmailOffers">
+                      <input
+                        type="checkbox"
+                        id="autoEmailOffers"
+                        name="autoEmailOffers"
+                        defaultChecked={tenant.autoEmailOffers}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <b className="block">
+                          לקוחות מקבלים אוטומטית במייל הצעות מהתאמות פנימיות של המשרד
+                        </b>
+                        <span style={{ color: "var(--color-text-muted)" }}>
+                          רק התאמות חדשות ומומלצות (85%+) לנכסים פעילים,
+                          ורק ללקוח עם אימייל שחתם על הזמנה בכתב לנכס.
+                          התאמות מהרשת אינן נשלחות. כל מייל כולל קישור
+                          הסרה, והשליחה מהדומיין של המשרד אם חובר.
                         </span>
                       </span>
                     </label>

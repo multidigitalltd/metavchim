@@ -1,4 +1,5 @@
 import { ConflictException, GoneException, Injectable, NotFoundException } from "@nestjs/common";
+import type { Property } from "@prisma/client";
 import { randomBytes } from "node:crypto";
 import { ulid } from "ulid";
 import { OfferPresentationSchema, whatsappLink, type OfferPresentation } from "@metavchim/shared";
@@ -9,7 +10,7 @@ import { ExclusivityService } from "../exclusivity/exclusivity.service";
 import { loadEnv } from "../../config/env";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { buildOfferMessage, MessagingService } from "../messaging/messaging.service";
@@ -122,6 +123,55 @@ export class OffersService {
     return this.agreements.hasSigned(tx, offer.tenantId, buyer.contactId, "brokerage", match.propertyId);
   }
 
+  /**
+   * ‏Snapshot תצוגת הנכס לקונה — ללא PII וללא הערות פנימיות.
+   *
+   * חילוץ ולא עוד עותק: גם ההצעה שסוכן יוצר וגם ההצעה האוטומטית
+   * במייל חייבות להציג בדיוק את אותו נכס; שני מבני Snapshot היו
+   * נפרדים בפיצ'ר הבא שנוסף לאחד מהם.
+   */
+  async presentationFor(
+    tx: TenantTx,
+    tenantId: string,
+    property: Property,
+  ): Promise<OfferPresentation> {
+    const tenant = await tx.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
+
+    // תמונות הנכס בזמן היצירה — עד 6, לפי הסדר (הראשית ראשונה)
+    const mediaRows = await tx.propertyMedia.findMany({
+      where: { tenantId, propertyId: property.id },
+      orderBy: { sortOrder: "asc" },
+      take: 6,
+      select: { s3Key: true, altText: true },
+    });
+
+    const features = [
+      property.hasElevator === true ? "מעלית" : null,
+      property.hasParking === true ? "חניה" : null,
+      property.hasBalcony === true ? "מרפסת" : null,
+      property.hasSafeRoom === true ? 'ממ"ד' : null,
+      property.hasStorage === true ? "מחסן" : null,
+    ].filter((f): f is string => f !== null);
+
+    return OfferPresentationSchema.parse({
+      title:
+        property.marketingTitle ??
+        [property.rooms ? `דירת ${Number(property.rooms)} חדרים` : "נכס", property.city]
+          .filter(Boolean)
+          .join(" ב"),
+      city: property.city ?? undefined,
+      neighborhood: property.neighborhood ?? undefined,
+      rooms: property.rooms === null ? undefined : Number(property.rooms),
+      areaSqm: property.areaSqm ?? undefined,
+      floor: property.floor ?? undefined,
+      priceAgorot: property.priceAgorot === null ? undefined : Number(property.priceAgorot),
+      features,
+      description: property.marketingDescription ?? undefined,
+      agencyName: tenant?.name ?? "משרד התיווך",
+      media: mediaRows.map((m) => ({ key: m.s3Key, alt: m.altText ?? undefined })),
+    });
+  }
+
   private static signatureRequired(signUrl: string): ConflictException {
     return new ConflictException({
       message: "הלקוח טרם חתם על הזמנה בכתב — שלחו לו קודם את ההסכם לחתימה",
@@ -182,42 +232,7 @@ export class OffersService {
       });
       if (!property) throw new NotFoundException("הנכס כבר אינו זמין לשיווק");
 
-      const tenant = await tx.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
-
-      // תמונות הנכס בזמן היצירה — עד 6, לפי הסדר (הראשית ראשונה)
-      const mediaRows = await tx.propertyMedia.findMany({
-        where: { tenantId, propertyId: property.id },
-        orderBy: { sortOrder: "asc" },
-        take: 6,
-        select: { s3Key: true, altText: true },
-      });
-
-      // Snapshot ללא PII וללא הערות פנימיות — רק מה שהקונה אמור לראות.
-      const features = [
-        property.hasElevator === true ? "מעלית" : null,
-        property.hasParking === true ? "חניה" : null,
-        property.hasBalcony === true ? "מרפסת" : null,
-        property.hasSafeRoom === true ? 'ממ"ד' : null,
-        property.hasStorage === true ? "מחסן" : null,
-      ].filter((f): f is string => f !== null);
-
-      const presentation = OfferPresentationSchema.parse({
-        title:
-          property.marketingTitle ??
-          [property.rooms ? `דירת ${Number(property.rooms)} חדרים` : "נכס", property.city]
-            .filter(Boolean)
-            .join(" ב"),
-        city: property.city ?? undefined,
-        neighborhood: property.neighborhood ?? undefined,
-        rooms: property.rooms === null ? undefined : Number(property.rooms),
-        areaSqm: property.areaSqm ?? undefined,
-        floor: property.floor ?? undefined,
-        priceAgorot: property.priceAgorot === null ? undefined : Number(property.priceAgorot),
-        features,
-        description: property.marketingDescription ?? undefined,
-        agencyName: tenant?.name ?? "משרד התיווך",
-        media: mediaRows.map((m) => ({ key: m.s3Key, alt: m.altText ?? undefined })),
-      });
+      const presentation = await this.presentationFor(tx, tenantId, property);
 
       await tx.offer.create({
         data: {
@@ -402,6 +417,47 @@ export class OffersService {
   }
 
   /** תגובת הקונה מהדף הציבורי: מעוניין / לא רלוונטי. */
+  /**
+   * הסרה מקבלת הצעות במייל — מקישור ההסרה שבתחתית כל מייל אוטומטי.
+   *
+   * הטוקן של ההצעה הוא ההוכחה: מי שמחזיק בו קיבל את המייל. בניגוד
+   * לצפייה, ההסרה מכובדת **גם אחרי פקיעת הטוקן** — אדם שלוחץ
+   * "הסירו אותי" ממייל בן חודש צריך לצאת מהרשימה, לא לקבל שגיאה
+   * (חוק התקשורת §30א: דרך פשוטה וסבירה להודיע על סירוב).
+   *
+   * ההסרה על **הכרטיס** (`Contact.optedOutAt`), לא על ההצעה: היא
+   * עוצרת את כל המיילים האוטומטיים העתידיים לאותו לקוח, וההתאמות
+   * שכבר נוצרו חוזרות לסוכן דרך הסבב (retryPending) להמשך ידני.
+   */
+  async publicEmailOptOut(token: string): Promise<void> {
+    await this.prisma.withPublicOffer(token, async (tx) => {
+      const offer = await tx.offer.findFirst({ where: { publicToken: token } });
+      if (!offer) throw new NotFoundException("הקישור אינו תקין");
+
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${offer.tenantId}, true)`;
+
+      const match = await tx.match.findFirst({
+        where: { id: offer.matchId, tenantId: offer.tenantId },
+        select: { buyerId: true },
+      });
+      if (!match) throw new NotFoundException("הקישור אינו תקין");
+      const buyer = await tx.buyer.findFirst({
+        where: { id: match.buyerId, tenantId: offer.tenantId },
+        select: { contactId: true },
+      });
+      if (!buyer) throw new NotFoundException("הקישור אינו תקין");
+
+      // אטומי ואידמפוטנטי — לחיצה שנייה אינה מזיזה את מועד ההסרה
+      const changed = await tx.contact.updateMany({
+        where: { id: buyer.contactId, tenantId: offer.tenantId, optedOutAt: null },
+        data: { optedOutAt: new Date() },
+      });
+      if (changed.count === 1) {
+        await this.recordOfferMoment(tx, offer, "הלקוח ביקש להפסיק לקבל הצעות במייל");
+      }
+    });
+  }
+
   async publicRespond(token: string, response: "interested" | "declined"): Promise<void> {
     await this.prisma.withPublicOffer(token, async (tx) => {
       const offer = await tx.offer.findFirst({ where: { publicToken: token } });
