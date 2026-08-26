@@ -180,14 +180,20 @@ export class SignedDocumentsService {
     const fileName = safeFileName(input.fileName ?? "", `מסמך.${sniffed.ext}`).slice(0, 200);
 
     // בדיקה מוקדמת — כישלון זול לפני כתיבה לאחסון
+    let label: string | undefined;
     await this.prisma.withTenant(async (tx) => {
       await assertContactAccess(tx, tenantId, input.contactId);
       if (input.propertyId !== undefined) {
         const property = await tx.property.findFirst({
           where: { id: input.propertyId, tenantId, deletedAt: null },
-          select: { id: true },
+          select: { id: true, city: true, neighborhood: true, street: true },
         });
         if (!property) throw new NotFoundException("נכס לא נמצא");
+        /*
+         * התווית נלקחת כאן ולא בשאילתה נוספת: הנכס כבר נקרא, וזו
+         * אותה שורה בדיוק שהתגובה תתאר.
+         */
+        label = propertyLabel(property);
       }
       const count = await tx.signedDocument.count({
         where: { tenantId, contactId: input.contactId },
@@ -200,9 +206,9 @@ export class SignedDocumentsService {
     // האחסון לפני הרשומה — כשל אחסון ⇒ אין שורה שמצביעה לכלום
     await this.storage.put(s3Key, file, sniffed.mime);
 
-    let createdAt: Date;
+    let dto: SignedDocumentDto;
     try {
-      createdAt = await this.prisma.withTenant(async (tx) => {
+      dto = await this.prisma.withTenant(async (tx) => {
         /*
          * ‎**הנעילה והבדיקה החוזרת בטרנזקציה שכותבת, ולא רק לפניה.**
          *
@@ -236,7 +242,6 @@ export class SignedDocumentsService {
             note: input.note?.trim() === "" ? null : (input.note ?? null),
             uploadedBy,
           },
-          select: { createdAt: true },
         });
         await this.audit.record(tx, {
           action: "agreement.document_upload",
@@ -255,25 +260,28 @@ export class SignedDocumentsService {
             unlocksOffers: documentUnlocksOffers(input.kind),
           },
         });
-        return row.createdAt;
+        /*
+         * ‎**התגובה נבנית באותה פונקציה שבונה כל שורה אחרת.**
+         *
+         * היא נבנתה כאן ביד, והצהירה על עצמה כ-`SignedDocumentDto`
+         * בלי `propertyId` ו-`propertyLabel` — בדיוק שני השדות שנוספו
+         * כדי שלא יהיה אפשר לבלבל בין נכסי אותו בעלים. זה לא נראה
+         * במסך רק משום שהפאנל טוען מחדש אחרי ההעלאה, כלומר הנכונות
+         * הייתה תלויה בהתנהגות הקורא ולא בקוד. צרכן שיציג את התגובה
+         * עצמה — הסוכן, לקוח אחר — היה מקבל שורה בלי זהות נכס.
+         */
+        return this.toDto(row, {
+          ...(label === undefined || input.propertyId === undefined
+            ? {}
+            : { labels: new Map([[input.propertyId, label]]) }),
+        });
       });
     } catch (error) {
       await this.deleteObjectDurably(s3Key);
       throw error;
     }
 
-    return {
-      id,
-      kind: input.kind,
-      fileName,
-      mimeType: sniffed.mime,
-      byteSize: file.length,
-      ...(input.signedOn ? { signedOn: input.signedOn.toISOString() } : {}),
-      ...(input.signerName ? { signerName: input.signerName.trim() } : {}),
-      ...(input.note && input.note.trim() !== "" ? { note: input.note.trim() } : {}),
-      createdAt: createdAt.toISOString(),
-      url: documentDownloadPath(id),
-    };
+    return dto;
   }
 
   /**
