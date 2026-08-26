@@ -7,6 +7,7 @@ import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { CardcomService } from "../../core/cardcom.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { BillingService } from "./billing.service";
+import { SubscriptionOfferService, type OfferView } from "./subscription-offer.service";
 
 const CheckoutSchema = z
   .object({
@@ -23,6 +24,12 @@ const BuyCreditsSchema = z.object({ credits: z.number().int().min(1).max(100_000
 
 /** מעבר למסלול חינמי — הקוד בלבד; השרת מוודא שהוא באמת חינמי. */
 const SwitchFreeSchema = z.object({ plan: z.string().min(1).max(20) }).strict();
+
+/**
+ * טוקן של הצעה בלינק — base64url בלבד. הצורה נבדקת כאן כדי שקלט
+ * שבור ייעצר לפני שאילתה; הקיום נבדק מול הטבלה, ששם זה רלוונטי.
+ */
+const OfferTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{8,64}$/u, "לינק לא תקין");
 
 /**
  * מסך החיוב של המשרד.
@@ -43,6 +50,7 @@ export class BillingController {
     private readonly billing: BillingService,
     private readonly plans: PlanCatalogService,
     private readonly cardcom: CardcomService,
+    private readonly offers: SubscriptionOfferService,
   ) {}
 
   @Get()
@@ -136,5 +144,38 @@ export class BillingController {
   async cancel(): Promise<{ ok: true }> {
     await this.billing.cancel(TenantContext.current().tenantId);
     return { ok: true };
+  }
+
+  /**
+   * דף ההצעה בלינק — מה מקבלים וכמה זה עולה.
+   *
+   * **לצפייה מספיקה התחברות**, כמו מסך המנוי: מי שקיבל את הלינק
+   * צריך לראות את ההצעה גם אם רק בעל המשרד ישלם עליה. דחייה (פג
+   * תוקף, בוטל) חוזרת כתשובה תקינה עם הסבר — זה מצב שהדף מציג,
+   * לא תקלה.
+   */
+  @Get("offers/:token")
+  @AnyAuthenticated()
+  async offerView(
+    @Param("token", new ZodValidationPipe(OfferTokenSchema)) token: string,
+  ): Promise<OfferView & { checkoutAvailable: boolean; mayManage: boolean }> {
+    const ctx = TenantContext.current();
+    return {
+      ...(await this.offers.view(token, ctx.tenantId)),
+      checkoutAvailable: await this.cardcom.isConfigured(),
+      // הדף מציג "רכישה נעשית ע"י בעל/ת המשרד" במקום כפתור שייכשל
+      mayManage: ctx.capabilities.has("billing.manage"),
+    };
+  }
+
+  /** פתיחת תשלום על הצעה. הסכום נקבע בשרת מההצעה — לא מהדפדפן. */
+  @Post("offers/:token/checkout")
+  @HttpCode(200)
+  @RequireCapability("billing.manage")
+  async offerCheckout(
+    @Param("token", new ZodValidationPipe(OfferTokenSchema)) token: string,
+  ): Promise<{ url: string; paymentId: string }> {
+    const { tenantId, userId } = TenantContext.current();
+    return this.billing.startOfferCheckout({ tenantId, userId, token });
   }
 }
