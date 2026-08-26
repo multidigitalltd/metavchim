@@ -262,13 +262,44 @@ export class MatchingService {
       const property = await tx.property.findFirst({
         where: { id: propertyId, tenantId, deletedAt: null },
       });
+      if (!property) return NO_MATCHES;
+
+      /*
+       * ‎**„אי אפשר לחשב כאן” אינו „אין מיקום”.** שתי שאלות נפרדות,
+       * ולערבב אותן עולה בנתונים של הלקוח.
+       *
+       * הסינון הגס כאן נשען על שם העיר, ולכן בלי עיר, מחיר או סוג
+       * עסקה אי אפשר לבחור מועמדים — ומכאן היציאה המוקדמת. אבל
+       * למנוע יש **שני** מסלולי מיקום, ונכס עם קואורדינטות ובלי
+       * עיר ממוקם לגמרי: `scoreMatch` בוחן אותו מול אזורי המפה של
+       * הקונה, ו-`recomputeForBuyer` בוחר אותו דרך התיבה התוחמת.
+       * ההתאמה שנוצרה שם אמיתית, והיא נוצרה בכיוון שכן יודע לנקד
+       * אותו.
+       *
+       * הגרסה הראשונה של הניקוי כאן מחקה על `city === null` לבדו,
+       * וכך הייתה מוחקת בכל סבב יומי בדיוק את ההתאמות התקינות
+       * האלה (ביקורת Codex). המחיקה מכוונת עכשיו למה שהיא נועדה
+       * לו: נכס שאין לו מיקום כלל.
+       */
+      const locatable = property.city !== null || property.latitude !== null;
+      if (!locatable) {
+        /*
+         * ‎**זה מה שהעלאת גרסת המנוע נועדה לנקות.** התאמה שנשמרה
+         * לפני כלל הברזל, על נכס בלי מיקום, שרדה כל סבב רענון —
+         * הסבב עובר על נכסים, וכל נכס כזה יצא כאן לפני כל מחיקה.
+         * רק `suggested` נמחק; הצעה שהסוכן נגע בה נשארת שלו.
+         */
+        await tx.match.deleteMany({ where: { tenantId, propertyId, status: "suggested" } });
+        return NO_MATCHES;
+      }
+
       if (
-        !property ||
         property.city === null ||
         property.priceAgorot === null ||
         property.dealType === null
       ) {
-        return NO_MATCHES; // בלי עיר, מחיר וסוג עסקה אין סינון אמין — יחושב כשיושלם
+        // ממוקם, אך חסר לסינון הגס — לא מחשבים כאן, וגם לא הורסים
+        return NO_MATCHES;
       }
 
       /*

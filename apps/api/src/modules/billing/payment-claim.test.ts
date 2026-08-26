@@ -79,3 +79,49 @@ describe("תפיסת תשלום מאומת", () => {
     expect(list).not.toContain('"paid"');
   });
 });
+
+/**
+ * **מכסת המימושים של הצעה היא חלק מאותה תפיסה.**
+ *
+ * כל עוד דף שהוחלף היה „נכשל”, חצייה של המכסה דרשה שני תשלומים
+ * שנפרעו במקביל — מרוץ נדיר, שהתועד ככזה והושאר בכוונה. מרגע ששורה
+ * מוחלפת נשארת בת-תפיסה, שתי לשוניות מספיקות כדי ששני דפים יהיו
+ * סליקים, והצעה חד-פעמית נפרעת פעמיים (ביקורת Codex).
+ *
+ * לכן ההגדלה חייבת להיות **מותנית וראשונה** — `updateMany` שמגדיל רק
+ * כשנשאר מקום מתחת למכסה הוא הנעילה עצמה, ומי שקיבל `count === 0`
+ * אינו מעניק דבר. הגדלה בסוף, או בלי תנאי, מחזירה את הפער.
+ */
+describe("מכסת מימושים נתפסת אטומית", () => {
+  const APPLY = /private async applyOfferWithin\([\s\S]*?\n {2}\}\n/u.exec(SERVICE)?.[0] ?? "";
+
+  it("הפונקציה נמצאה ומחזירה תשובה שאפשר לבדוק", () => {
+    expect(APPLY).not.toBe("");
+    expect(APPLY).toContain("Promise<boolean>");
+  });
+
+  it("כל הגדלת מימושים מותנית במקום שנשאר מתחת למכסה", () => {
+    const increments = [
+      ...SERVICE.matchAll(/updateMany\(\{[\s\S]*?redemptions:\s*\{\s*increment[\s\S]*?\}\);/gu),
+    ].map((m) => m[0]);
+    expect(increments).toHaveLength(1);
+    expect(increments[0]).toContain("redemptions: { lt: offer.maxRedemptions }");
+  });
+
+  /*
+   * „מותנה” בלי „ראשון” אינו שער: הגדלה בסוף הפונקציה משאירה את
+   * ההטבות מוענקות לפני שנבדק אם נשאר מקום.
+   */
+  it("ההגדלה קודמת לכל הענקה, והכישלון עוצר לפניה", () => {
+    const consume = APPLY.indexOf("redemptions: { increment: 1 }");
+    const guard = APPLY.indexOf("count === 0");
+    const grant = APPLY.indexOf("tx.tenant.update");
+    expect(consume).toBeGreaterThan(-1);
+    expect(guard).toBeGreaterThan(consume);
+    expect(grant).toBeGreaterThan(guard);
+  });
+
+  it("הקורא אינו מתעלם מהתשובה", () => {
+    expect(SERVICE).toMatch(/!\(await this\.applyOfferWithin\(/u);
+  });
+});

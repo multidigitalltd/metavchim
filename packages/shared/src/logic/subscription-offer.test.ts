@@ -161,6 +161,8 @@ describe("offerAmountAgorot", () => {
 });
 
 describe("offerCreationRejection", () => {
+  const CTX = { now: NOW };
+
   function draft(overrides: Partial<OfferDraft> = {}): OfferDraft {
     return {
       kind: "custom",
@@ -168,6 +170,7 @@ describe("offerCreationRejection", () => {
       planCode: "pro",
       billingCycle: "monthly",
       priceAgorot: 24_900,
+      expiresAt: null,
       lineItems: [],
       maxRedemptions: 1,
       ...overrides,
@@ -175,19 +178,19 @@ describe("offerCreationRejection", () => {
   }
 
   it("הצעה תקינה עוברת", () => {
-    expect(offerCreationRejection(draft(), plan())).toBeNull();
+    expect(offerCreationRejection(draft(), plan(), CTX)).toBeNull();
   });
 
   it("מסלול שאינו קיים נדחה", () => {
-    expect(offerCreationRejection(draft(), undefined)).toContain("אינו קיים");
+    expect(offerCreationRejection(draft(), undefined, CTX)).toContain("אינו קיים");
   });
 
   it("הצעה אישית בלי משרד יעד נדחית", () => {
-    expect(offerCreationRejection(draft({ tenantId: null }), plan())).toContain("משרד");
+    expect(offerCreationRejection(draft({ tenantId: null }), plan(), CTX)).toContain("משרד");
   });
 
   it("מחיר אפס אינו מחיר — דף תשלום על אפס נדחה בסולק", () => {
-    expect(offerCreationRejection(draft({ priceAgorot: 0 }), plan())).toContain("חיובי");
+    expect(offerCreationRejection(draft({ priceAgorot: 0 }), plan(), CTX)).toContain("חיובי");
   });
 
   it("בלי מחיר סופי, מסלול חינמי אינו נמכר בלינק", () => {
@@ -195,6 +198,7 @@ describe("offerCreationRejection", () => {
       offerCreationRejection(
         draft({ priceAgorot: null }),
         plan({ monthlyPriceAgorot: 0 }),
+        CTX,
       ),
     ).toContain("מחיר");
   });
@@ -209,7 +213,7 @@ describe("offerCreationRejection", () => {
       offerCreationRejection(
         draft({ priceAgorot: null }),
         plan({ monthlyPriceAgorot: 0 }),
-        { monthlyAgorot: 9_900, yearlyAgorot: null },
+        { override: { monthlyAgorot: 9_900, yearlyAgorot: null }, now: NOW },
       ),
     ).toBeNull();
   });
@@ -219,7 +223,7 @@ describe("offerCreationRejection", () => {
       offerCreationRejection(
         draft({ priceAgorot: null }),
         plan({ monthlyPriceAgorot: 0 }),
-        { monthlyAgorot: null, yearlyAgorot: 99_000 },
+        { override: { monthlyAgorot: null, yearlyAgorot: 99_000 }, now: NOW },
       ),
     ).toContain("מחיר");
   });
@@ -229,8 +233,31 @@ describe("offerCreationRejection", () => {
       offerCreationRejection(
         draft({ kind: "plan_link", tenantId: null, priceAgorot: null, maxRedemptions: null }),
         plan({ monthlyPriceAgorot: 0 }),
+        CTX,
       ),
     ).toContain("מחיר");
+  });
+
+  /*
+   * תפוגה שכבר עברה נעצרת ביצירה ולא בלחיצה: `offerRejection` דוחה
+   * אותה במימוש, ולכן בלעדיה נוצר לינק שנראה תקין ונשלח ללקוח.
+   */
+  it("תאריך תפוגה שכבר עבר נדחה — כולל בדיוק ברגע התפוגה", () => {
+    expect(offerCreationRejection(draft({ expiresAt: NOW }), plan(), CTX)).toContain("תפוגה");
+    expect(
+      offerCreationRejection(
+        draft({ expiresAt: new Date(NOW.getTime() - 1) }),
+        plan(),
+        CTX,
+      ),
+    ).toContain("תפוגה");
+    expect(
+      offerCreationRejection(
+        draft({ expiresAt: new Date(NOW.getTime() + 1) }),
+        plan(),
+        CTX,
+      ),
+    ).toBeNull();
   });
 
   it("לינק לחבילה במחיר המסלול — תקין", () => {
@@ -238,6 +265,7 @@ describe("offerCreationRejection", () => {
       offerCreationRejection(
         draft({ kind: "plan_link", tenantId: null, priceAgorot: null, maxRedemptions: null }),
         plan(),
+        CTX,
       ),
     ).toBeNull();
   });

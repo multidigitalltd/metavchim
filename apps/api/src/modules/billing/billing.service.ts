@@ -670,8 +670,16 @@ export class BillingService {
        * מה שההצעה הבטיחה — **באותה טרנזקציה שתפסה את התשלום**, מאותה
        * סיבה שהזיכוי בקרדיטים שם: רק מי שהעביר `pending ⟵ paid`
        * מפעיל, ולכן הודעה כפולה של קארדקום אינה מעניקה פעמיים.
+       *
+       * מכסה שנוצלה אינה מבטלת את התקופה — היא כבר הוארכה למעלה,
+       * והכסף שולם עבורה. היא כן חוסמת את הטבות ההצעה, ולכן זה מצב
+       * שדורש עין אנושית: החזר, או הצעה מעודכנת.
        */
-      if (offer !== null) await this.applyOfferWithin(tx, payment.tenantId, offer);
+      if (offer !== null && !(await this.applyOfferWithin(tx, payment.tenantId, offer))) {
+        this.logger.error(
+          `תשלום ${payment.id} מימש הצעה ${offer.id} שמכסתה כבר נוצלה — התקופה הוארכה, הטבות ההצעה לא הוענקו`,
+        );
+      }
       return periodEnd;
     });
 
@@ -791,16 +799,40 @@ export class BillingService {
    * 2. **התכונות שהובטחו נפתחות** — איחוד עם ההענקות הקיימות, לא
    *    החלפה: הצעה אינה אמורה למחוק חריג שניתן למשרד קודם לכן.
    *    הדחיות אינן נגועות — סגירה של הפלטפורמה גוברת תמיד.
-   * 3. **המימוש נספר**, כדי שהצעה חד-פעמית תיסגר ולינק מוגבל יידע
-   *    כמה נשאר. בלי תקרה בבדיקה כאן בכוונה: מי שכבר שילם מקבל את
-   *    השירות גם אם במרוץ נדיר נחצתה המכסה — הכיוון ההפוך היה גובה
-   *    כסף בלי לתת דבר.
+   * 3. **המימוש נספר** — וזה גם השער. הספירה נעשית **ראשונה
+   *    ובתנאי**: `updateMany` שמגדיל רק כשעוד נשאר מקום מתחת למכסה.
+   *    כשלא נשאר, הפונקציה מחזירה `false` ואינה מעניקה דבר.
+   *
+   * ‎**למה זה השתנה.** קודם הספירה הייתה אחרונה וללא תנאי, בהנחה
+   * מתועדת שחציית המכסה היא „מרוץ נדיר”, ושעדיף לתת שירות למי
+   * ששילם. ההנחה הראשונה נשברה כשדף שהוחלף הפך לבר-תפיסה: שתי
+   * לשוניות מספיקות כדי ששני דפים יהיו סליקים, וההצעה החד-פעמית
+   * הייתה נפרעת פעמיים (ביקורת Codex). המרוץ כבר לא נדיר.
+   *
+   * ההנחה השנייה נשמרת: **התקופה שנרכשה כן ניתנת** — הכסף שולם
+   * עבורה, וזה נקבע ב-`apply` לפני הקריאה לכאן. מה שהמכסה חוסמת הוא
+   * מה שהיא באמת מגבילה: המחיר המוסכם, התכונות, וספירת המימוש. כך
+   * אף אחד אינו מחויב בלי לקבל דבר, ו„חד-פעמית” נשארת חד-פעמית.
    */
   private async applyOfferWithin(
     tx: Parameters<Parameters<PrismaService["$transaction"]>[0]>[0],
     tenantId: string,
     offer: SubscriptionOfferDefinition,
-  ): Promise<void> {
+  ): Promise<boolean> {
+    /*
+     * ראשון ובתנאי: `updateMany` מותנה הוא הנעילה. שני תשלומים
+     * שמגיעים יחד — כל אחד בטרנזקציה משלו — רק אחד מהם יראה
+     * ‎`count === 1`.
+     */
+    const consumed = await tx.subscriptionOffer.updateMany({
+      where:
+        offer.maxRedemptions === null
+          ? { id: offer.id }
+          : { id: offer.id, redemptions: { lt: offer.maxRedemptions } },
+      data: { redemptions: { increment: 1 } },
+    });
+    if (consumed.count === 0) return false;
+
     if (offer.priceAgorot !== null) {
       await tx.tenant.update({
         where: { id: tenantId },
@@ -824,10 +856,7 @@ export class BillingService {
         });
       }
     }
-    await tx.subscriptionOffer.updateMany({
-      where: { id: offer.id },
-      data: { redemptions: { increment: 1 } },
-    });
+    return true;
   }
 
   /** מצב תשלום בודד — דף החזרה שואל עליו עד שהוא נסגר. */

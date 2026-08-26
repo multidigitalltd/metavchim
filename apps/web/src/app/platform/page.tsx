@@ -655,7 +655,14 @@ export default function PlatformPage() {
         מיד אחרי המסלולים: הצעה בלינק היא "מסלול + חריגים למשרד אחד",
         וזה המסך שממנו יוצאים אליה אחרי שיחת מכירה.
       */}
-      <OffersSection agencies={(agencies ?? []).map((a) => ({ id: a.id, name: a.name }))} />
+      <OffersSection
+        agencies={(agencies ?? []).map((a) => ({
+          id: a.id,
+          name: a.name,
+          priceOverrideMonthlyAgorot: a.priceOverrideMonthlyAgorot,
+          priceOverrideYearlyAgorot: a.priceOverrideYearlyAgorot,
+        }))}
+      />
       {/* מוצג רק כשיש השכרות — רוב הזמן אין, ורשימה ריקה קבועה היא רעש */}
       <NumberRentalsSection />
       <CouponsSection />

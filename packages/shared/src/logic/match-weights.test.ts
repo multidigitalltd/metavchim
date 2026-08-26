@@ -37,8 +37,16 @@ describe("resolveMatchWeights", () => {
     expect(resolveMatchWeights({ area: 0 }).area).toBe(0);
   });
 
+  /*
+   * הקלט נגזר מ-`HARD_MATCH_CRITERIA` ולא נכתב ידנית: רשימה מועתקת
+   * אינה מתעדכנת כשקריטריון מצטרף, והבדיקה ממשיכה לעבור על מה
+   * שנשאר. כך קרה כשסוג הנכס הפך לפוסל.
+   */
   it("קריטריון פוסל אינו יורד מתחת לרצפה", () => {
-    const out = resolveMatchWeights({ location: 0, budget: 0, rooms: 0, features_must: 0 });
+    const allZero = Object.fromEntries(
+      HARD_MATCH_CRITERIA.map((key) => [key, 0]),
+    ) as Partial<MatchWeights>;
+    const out = resolveMatchWeights(allZero);
     for (const key of HARD_MATCH_CRITERIA) {
       expect(out[key]).toBe(MIN_HARD_WEIGHT);
     }
