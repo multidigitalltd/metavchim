@@ -689,14 +689,18 @@ export default function PropertyDetailPage({
           */}
           <button
             type="button"
-            className="mv-btn-plain"
-            style={{
-              ...HEADER_ACTION,
-              color:
-                archiveConfirm || purgeConfirm
-                  ? "var(--color-danger)"
-                  : "var(--color-text-muted)",
-            }}
+            /*
+              מסגרת רגילה שנכנסת לאדום-חמרה בריחוף, ואדומה במנוחה רק
+              אחרי הלחיצה הראשונה — אז זה כבר מצב „ממתין לאישור” ולא
+              אזהרה. הצבע יושב במחלקה ולא בשורה, כדי שמצב הניגודיות
+              הגבוהה יוכל לגבור עליו.
+            */
+            className={
+              archiveConfirm || purgeConfirm
+                ? "mv-btn-plain mv-btn-plain--danger"
+                : "mv-btn-plain mv-btn-plain--danger-hover"
+            }
+            style={HEADER_ACTION}
             onClick={() => void (property.archived ? purge() : archive())}
           >
             {property.archived
