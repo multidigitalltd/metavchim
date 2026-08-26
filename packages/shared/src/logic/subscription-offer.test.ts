@@ -95,6 +95,21 @@ describe("offerRejection", () => {
     expect(offerRejection(offer({ tenantId: "01OTHER" }), ctx)).toBe("wrong_tenant");
   });
 
+  /*
+   * זר אינו לומד דבר על הצעה שאינה שלו — **גם לא את מצבה.** נוסח
+   * זהה ל-`not_found` אינו מגן אם בדיקה מוקדמת יותר עונה קודם:
+   * „ההצעה בוטלה” כבר מאשרת שהטוקן שייך להצעה אמיתית.
+   */
+  it("משרד אחר אינו לומד את מצב ההצעה — לא ביטול, לא תפוגה, לא מיצוי", () => {
+    for (const state of [
+      { revokedAt: NOW },
+      { expiresAt: NOW },
+      { maxRedemptions: 1, redemptions: 1 },
+    ]) {
+      expect(offerRejection(offer({ tenantId: "01OTHER", ...state }), ctx)).toBe("wrong_tenant");
+    }
+  });
+
   it("לינק מכירה פתוח לכל משרד", () => {
     expect(
       offerRejection(offer({ kind: "plan_link", tenantId: null, maxRedemptions: null }), ctx),

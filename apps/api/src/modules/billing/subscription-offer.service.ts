@@ -33,6 +33,15 @@ import { PrismaService } from "../../core/prisma.service";
  * מפנה אליה לתמיד, ומחיקה הייתה מוחקת את התשובה ל"מה הובטח לו".
  */
 
+/**
+ * כמה הצעות שכבר אינן ניתנות למימוש נשמרות ברשימה.
+ *
+ * הגבלה על ההיסטוריה בלבד: הצעה מבוטלת, פגה או מוצה היא מצב סופי,
+ * ואין פעולה שהחיתוך מונע. הצעות שעדיין ניתנות למימוש אינן נספרות
+ * כאן ואינן נחתכות לעולם.
+ */
+const HISTORY_LIMIT = 200;
+
 /** שורת הצעה למסך הפלטפורמה — כולל הלינק המוכן לשליחה. */
 export interface PlatformOfferRow {
   id: string;
@@ -218,12 +227,53 @@ export class SubscriptionOfferService {
     return this.toRow(this.toDefinition(row), plan, tenantName, row.createdAt, override);
   }
 
-  /** ההצעות למסך הפלטפורמה, החדשות קודם. */
+  /**
+   * ההצעות למסך הפלטפורמה, החדשות קודם.
+   *
+   * ‎**הצעה שעדיין ניתנת למימוש לעולם אינה נחתכת מהרשימה.** המסך
+   * הזה הוא הדרך היחידה לראות לינק, להעתיק אותו ולבטל אותו, וחיתוך
+   * ל-200 האחרונות אחרי מאתיים הצעות היה משאיר לינקי מכירה פתוחים
+   * — ללא תפוגה וללא מגבלת מימושים — שאפשר עדיין לממש אך אי אפשר
+   * עוד לראות או לבטל (ביקורת Codex). „הישן ביותר” אינו „כבר לא
+   * רלוונטי” כשאין לו תאריך תפוגה.
+   *
+   * ההיסטוריה — מבוטלות, פגות ומוצות — כן חסומה: אלה מצבים סופיים,
+   * ואין פעולה שאפשר לעשות עליהן ושהחיתוך מונע.
+   */
   async list(): Promise<PlatformOfferRow[]> {
-    const rows = await this.prisma.subscriptionOffer.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 200,
-    });
+    const now = new Date();
+    /*
+     * „ניתנת למימוש” — אותם שלושה תנאים שמכריעים ב-`offerRejection`,
+     * כאן כשאילתה. `fields.maxRedemptions` משווה עמודה לעמודה בלי
+     * לשלוף הכול ולסנן בזיכרון.
+     */
+    const redeemable = {
+      revokedAt: null,
+      AND: [
+        { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+        {
+          OR: [
+            { maxRedemptions: null },
+            { redemptions: { lt: this.prisma.subscriptionOffer.fields.maxRedemptions } },
+          ],
+        },
+      ],
+    };
+
+    const [live, history] = await Promise.all([
+      this.prisma.subscriptionOffer.findMany({
+        where: redeemable,
+        orderBy: { createdAt: "desc" },
+      }),
+      this.prisma.subscriptionOffer.findMany({
+        where: { NOT: redeemable },
+        orderBy: { createdAt: "desc" },
+        take: HISTORY_LIMIT,
+      }),
+    ]);
+    const rows = [...live, ...history].sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    );
     const tenantIds = [...new Set(rows.map((r) => r.tenantId).filter((id) => id !== null))];
     const tenants =
       tenantIds.length > 0

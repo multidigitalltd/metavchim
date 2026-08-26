@@ -135,18 +135,28 @@ export type OfferRejection =
 /**
  * האם ההצעה ניתנת למימוש עכשיו, על ידי המשרד הזה.
  *
- * הסדר מכוון: ביטול לפני תפוגה לפני מכסה — מי שקיבל לינק שבוטל צריך
- * לשמוע "ההצעה בוטלה" ולא "פג תוקפה", כי התגובה הנכונה שונה (לבקש
- * הצעה חדשה מול לבקש הארכה).
+ * ‎**`wrong_tenant` מיד אחרי „לא קיים”, לפני כל מצב אחר.**
  *
- * `wrong_tenant` אחרון ובנוסח זהה ל-`not_found` בהצגה: לינק אישי
- * שהגיע למשרד אחר לא אמור לגלות לו שההצעה קיימת ולמי.
+ * הנוסח שלו זהה ל-`not_found` כדי שמי שהגיע ללינק של משרד אחר לא
+ * ילמד ממנו דבר — אבל נוסח זהה אינו שווה דבר אם בדיקה מוקדמת יותר
+ * עונה קודם. לינק אישי שבוטל, פג או מוצה, שהגיע לזר, החזיר לו
+ * „ההצעה בוטלה”: זו כבר הודעה שאומרת „הטוקן הזה שייך להצעה
+ * אמיתית”, ומוסיפה את מצבה. ההגנה הייתה בניסוח בלבד, והסדר עקף
+ * אותה (ביקורת Codex).
+ *
+ * שאלת השייכות קודמת לשאלת המצב: למי שאינו בעל ההצעה אין מצב
+ * לדווח עליו.
+ *
+ * בין שלושת המצבים הסדר מכוון ונשאר: ביטול לפני תפוגה לפני מכסה —
+ * מי שקיבל לינק שבוטל צריך לשמוע „ההצעה בוטלה” ולא „פג תוקפה”, כי
+ * התגובה הנכונה שונה (לבקש הצעה חדשה מול לבקש הארכה).
  */
 export function offerRejection(
   offer: SubscriptionOfferDefinition | null | undefined,
   ctx: { tenantId: string; now: Date },
 ): OfferRejection | null {
   if (!offer) return "not_found";
+  if (offer.tenantId !== null && offer.tenantId !== ctx.tenantId) return "wrong_tenant";
   if (offer.revokedAt !== null) return "revoked";
   if (offer.expiresAt !== null && offer.expiresAt.getTime() <= ctx.now.getTime()) {
     return "expired";
@@ -154,7 +164,6 @@ export function offerRejection(
   if (offer.maxRedemptions !== null && offer.redemptions >= offer.maxRedemptions) {
     return "exhausted";
   }
-  if (offer.tenantId !== null && offer.tenantId !== ctx.tenantId) return "wrong_tenant";
   return null;
 }
 

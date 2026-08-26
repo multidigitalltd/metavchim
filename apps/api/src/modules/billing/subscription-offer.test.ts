@@ -98,9 +98,24 @@ function offerRow(overrides: Record<string, unknown> = {}): Record<string, unkno
   };
 }
 
+/**
+ * האם השורה עדיין ניתנת למימוש — שלושת התנאים ש-`list` שואלת עליהם
+ * במסד. ה-Prisma המזויף אינו יודע להריץ `where`, ולכן הוא מפריד
+ * בין שתי השאילתות לפי אותה הכרעה בדיוק.
+ */
+function isRedeemable(row: Record<string, unknown>): boolean {
+  if (row["revokedAt"] !== null) return false;
+  const expiresAt = row["expiresAt"] as Date | null;
+  if (expiresAt !== null && expiresAt.getTime() <= Date.now()) return false;
+  const max = row["maxRedemptions"] as number | null;
+  if (max !== null && (row["redemptions"] as number) >= max) return false;
+  return true;
+}
+
 /** השירות מעל Prisma מזויף — בלי מסד, בלי סולק. */
 function service(input: {
   offer: Record<string, unknown> | null;
+  offers?: Record<string, unknown>[];
   plans?: Record<string, unknown>[];
   priceOverride?: { monthly: number | null; yearly: number | null };
 }): SubscriptionOfferService {
@@ -113,8 +128,17 @@ function service(input: {
   const prisma = {
     plan: { findMany: async () => input.plans ?? [planRow("offer_test")] },
     subscriptionOffer: {
+      fields: { maxRedemptions: Symbol("maxRedemptions") },
       findUnique: async () => input.offer,
-      findMany: async () => (input.offer === null ? [] : [input.offer]),
+      findMany: async (args?: { where?: Record<string, unknown>; take?: number }) => {
+        const all = input.offers ?? (input.offer === null ? [] : [input.offer]);
+        // שאילתת ההיסטוריה היא זו שעטופה ב-NOT
+        const wanted =
+          args?.where !== undefined && "NOT" in args.where
+            ? all.filter((row) => !isRedeemable(row))
+            : all.filter(isRedeemable);
+        return args?.take === undefined ? wanted : wanted.slice(0, args.take);
+      },
     },
     tenant: {
       findUnique: async () => tenantRow,
@@ -183,6 +207,37 @@ describe("הסכום ברשימת הפלטפורמה", () => {
     });
     const [row] = await svc.list();
     expect(row!.amountAgorot).toBe(24_900);
+  });
+
+  /*
+   * המסך הזה הוא הדרך היחידה לראות לינק ולבטל אותו. לינק מכירה בלי
+   * תפוגה ובלי מגבלת מימושים נשאר ניתן למימוש לנצח — וחיתוך שמשמיט
+   * אותו הופך אותו ללינק פעיל שאי אפשר עוד לכבות.
+   */
+  it("לינק שעדיין ניתן למימוש אינו נחתך, גם מעבר לתקרת ההיסטוריה", async () => {
+    const live = Array.from({ length: 250 }, (_, i) =>
+      offerRow({
+        id: `live-${i}`,
+        kind: "plan_link",
+        tenantId: null,
+        maxRedemptions: null,
+        createdAt: new Date(NOW.getTime() - i * 1000),
+      }),
+    );
+    const dead = Array.from({ length: 300 }, (_, i) =>
+      offerRow({
+        id: `dead-${i}`,
+        revokedAt: NOW,
+        createdAt: new Date(NOW.getTime() - (1000 + i) * 1000),
+      }),
+    );
+    const rows = await service({ offer: null, offers: [...live, ...dead] }).list();
+
+    expect(rows.filter((r) => r.id.startsWith("live-"))).toHaveLength(250);
+    // ההיסטוריה כן חסומה — מצב סופי, אין פעולה שהחיתוך מונע
+    expect(rows.filter((r) => r.id.startsWith("dead-"))).toHaveLength(200);
+    // והחדשות קודם, אחרי המיזוג בין שתי השאילתות
+    expect(rows[0]!.id).toBe("live-0");
   });
 
   it("לינק מכירה — מחיר המחירון, כי אין משרד יעד שיש לו מחיר מוסכם", async () => {
