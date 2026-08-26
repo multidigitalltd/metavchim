@@ -127,6 +127,23 @@ export interface NetworkDemandMatchDto {
   demandId: string;
   score: number;
   explanation: string;
+  /**
+   * ‎**המשרד שפרסם את הביקוש — שם ולוגו.**
+   *
+   * לא היה כאן, וזו הייתה השמטה ולא החלטה: הפיד מציג את המשרד
+   * (‎`officeBadges`, ו-`SharedDemandDto.officeName`), והעמודה הזו
+   * הציגה „82% · 50/50” בלי שמי שעומד להוציא קרדיט ידע עם מי הוא
+   * עומד לשתף פעולה.
+   *
+   * ‎**וזה גם מה שהמערכת כבר מבטיחה למפרסם.** פאנל „מה נחשף” בכרטיס
+   * הקונה אומר במפורש „שם המשרד שלכם והלוגו” נשלחים — ומסך שמסתיר
+   * אותם היה הופך את ההצהרה ההיא לטענה שהמוצר סותר.
+   *
+   * חסר = ביקוש ממקור חיצוני (Kanko), שאין לו משרד תיווך. שם המסך
+   * מציג את תג המקור, וזו התשובה הנכונה ולא „לא ידוע”.
+   */
+  officeName?: string;
+  officeLogoUrl?: string;
   cities: string[];
   neighborhoods: string[];
   notes?: string;
@@ -1182,6 +1199,11 @@ export class CollaborationService {
     const alreadyOffered = new Set(offered.map((o) => o.demandId));
 
     const prices = await this.pricing.all();
+    /*
+     * שאילתה אחת לכל הרשימה ולא שם לכל שורה — אותו N+1 שכבר תוקן
+     * פעם אחת במודול הזה, ואין סיבה להחזיר אותו בשביל שם.
+     */
+    const offices = await officeBadges(this.prisma, demands.map((d) => d.tenantId));
     const fields = rowToFields(property);
     return demands
       .map((demand) => ({
@@ -1199,6 +1221,14 @@ export class CollaborationService {
         demandId: demand.id,
         score: result.score,
         explanation: result.explanation,
+        ...(offices.get(demand.tenantId) === undefined
+          ? {}
+          : {
+              officeName: offices.get(demand.tenantId)!.name,
+              ...(offices.get(demand.tenantId)!.logoUrl === undefined
+                ? {}
+                : { officeLogoUrl: offices.get(demand.tenantId)!.logoUrl }),
+            }),
         cities: demand.cities,
         neighborhoods: demand.neighborhoods,
         searchAreas: readSearchAreas(demand.searchAreas),
