@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { agentTurnRefs, assistantMemoryTurn, historyRefs, matchHistoryRef } from "./history.js";
+import {
+  AGENT_RESULT_ROWS,
+  agentTurnRefs,
+  assistantMemoryTurn,
+  historyRefs,
+  matchHistoryRef,
+} from "./history.js";
 import { buildInterpretPrompt, type AgentHistoryRef, type AgentHistoryTurn } from "./prompt.js";
 
 const LEAD_ID = "01J0000000000000000000LEAD";
@@ -221,5 +227,33 @@ describe("agentTurnRefs — הרשומות שהפעולות נגעו בהן", ()
       entityId: "01J0000000000000000000000E",
     };
     expect(agentTurnRefs([dana, twin], shown)).toEqual([dana, ...shown]);
+  });
+});
+
+/*
+ * **מה שיוצא מ-`agentTurnRefs` נוסע בבקשה הבאה, ולכן חייב לעבור
+ * את `InterpretSchema`.**
+ *
+ * שאילתה שהחזירה שמונה שורות ועוד צעד המשך אחד ייצרו תשע הפניות,
+ * ו-`.max(AGENT_RESULT_ROWS)` דחה את הבקשה הבאה ב-400 — כלומר תור
+ * שלם נעלם, ולא „ערך חורג” (ביקורת Codex).
+ */
+describe("agentTurnRefs — תקרת הסכימה", () => {
+  const shown: AgentHistoryRef[] = Array.from({ length: AGENT_RESULT_ROWS }, (_, i) => ({
+    label: `שורה ${i + 1}`,
+    entityType: "buyer" as const,
+    entityId: `01J000000000000000000000${String.fromCharCode(65 + i)}`,
+  }));
+
+  it("אינה חורגת מהתקרה גם כשהרשימה מלאה ויש שרשרת", () => {
+    const acted: AgentHistoryRef[] = [
+      { label: "המשימה", entityType: "task", entityId: "01J0000000000000000000000Z" },
+      { label: "דנה לוי", entityType: "buyer", entityId: "01J0000000000000000000000Y" },
+    ];
+    const out = agentTurnRefs(acted, shown);
+    expect(out.length).toBe(AGENT_RESULT_ROWS);
+    // מה שנגעו בו שורד; הקיצוץ הוא מזנב השורות
+    expect(out.slice(0, 2)).toEqual(acted);
+    expect(out[2]).toEqual(shown[0]);
   });
 });
