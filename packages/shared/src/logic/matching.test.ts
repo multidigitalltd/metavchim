@@ -887,37 +887,100 @@ describe("propertyEvaluableCriteria", () => {
    * שיתווסף למנוע ולא יתווסף לקונה הזה יימדד כ„הנכס אינו מסוגל
    * לו” — כלומר יוצג כחסר גם בנכס מלא, בשקט. כאן זה נופל.
    */
+  /** נכס שכל נתון שקריטריון כלשהו זקוק לו קיים בו. */
+  const completeProperty: PropertyFields = {
+    ...baseProperty,
+    latitude: 32.08,
+    longitude: 34.83,
+    entryType: "on_date",
+    entryDate: new Date("2030-01-01"),
+  };
+
   it("נכס מלא מסוגל לכל הקריטריונים — בלי יוצא מן הכלל", () => {
-    const complete: PropertyFields = {
-      ...baseProperty,
-      latitude: 32.08,
-      longitude: 34.83,
-      entryType: "immediate",
-    };
-    expect([...propertyEvaluableCriteria(complete)].sort()).toEqual([...MATCH_CRITERIA].sort());
+    expect([...propertyEvaluableCriteria(completeProperty)].sort()).toEqual(
+      [...MATCH_CRITERIA].sort(),
+    );
   });
 
-  it("נכס בלי מחיר אינו מסוגל לקריטריון התקציב", () => {
-    const { priceAgorot: _omitted, ...noPrice } = baseProperty;
-    expect(propertyEvaluableCriteria(noPrice).has("budget")).toBe(false);
-    expect(propertyEvaluableCriteria(baseProperty).has("budget")).toBe(true);
-  });
+  /*
+   * ‎**הכיוון השני, וזה שנשבר.**
+   *
+   * הבדיקה למעלה בודקת שהכלי אינו **מחמיר** מדי — נכס מלא מסוגל
+   * להכול. היא אינה יכולה לתפוס כלי **סלחני** מדי, כלומר כזה
+   * שמכריז „מסוגל” על נכס שחסר בו הנתון. וזה מה שקרה: קונה-הבדיקה
+   * היה `entryType: "flexible"`, ו-`scoreEntryFit` מחזיר לו ציון
+   * ‎**לפני** שהוא בודק אם לנכס יש תאריך. נכס עם מצב כניסה ובלי
+   * תאריך נמדד כ„מסוגל”, הצ'יפ נעלם, ולמתווך לא נאמר מה חסר
+   * (ביקורת Codex).
+   *
+   * לכל קריטריון יש כאן נכס שחסר בו בדיוק הנתון שהוא זקוק לו, ומה
+   * שנדרש הוא שהכלי **יפול** עליו. הטבלה עצמה נשמרת שלמה על ידי
+   * הבדיקה שאחריה.
+   */
+  const MISSING_DATUM: Record<string, PropertyFields | null> = {
+    /* בלי עיר ובלי קואורדינטות — אין משני מסלולי המיקום */
+    location: (() => {
+      const { city: _c, latitude: _lat, longitude: _lon, ...rest } = completeProperty;
+      return rest;
+    })(),
+    budget: (() => {
+      const { priceAgorot: _p, ...rest } = completeProperty;
+      return rest;
+    })(),
+    rooms: (() => {
+      const { rooms: _r, ...rest } = completeProperty;
+      return rest;
+    })(),
+    property_type: (() => {
+      const { propertyType: _t, ...rest } = completeProperty;
+      return rest;
+    })(),
+    area: (() => {
+      const { areaSqm: _a, ...rest } = completeProperty;
+      return rest;
+    })(),
+    /*
+     * ‎**המקרה שנמצא בביקורת.** מצב כניסה „בתאריך” בלי תאריך — מצב
+     * שהסכמה והטופס מתירים. כל קונה עם אילוץ מקבל עליו `null`.
+     */
+    entry_date: (() => {
+      const { entryDate: _d, ...rest } = completeProperty;
+      return { ...rest, entryType: "on_date" as const };
+    })(),
+    /* אין שדה בנכס שחוסם מאפיינים — הם דרישה של הקונה בלבד */
+    features_must: null,
+    features_nice: null,
+  };
 
-  it("נכס בלי שטח אינו מסוגל לקריטריון השטח", () => {
-    const { areaSqm: _omitted, ...noArea } = baseProperty;
-    expect(propertyEvaluableCriteria(noArea).has("area")).toBe(false);
+  it.each(
+    Object.entries(MISSING_DATUM).filter(
+      (entry): entry is [string, PropertyFields] => entry[1] !== null,
+    ),
+  )("נכס שחסר בו הנתון של %s — אינו מסוגל לו", (criterion, property) => {
+    expect(propertyEvaluableCriteria(property).has(criterion as never)).toBe(false);
+    /* ושהנכס המלא כן מסוגל — אחרת הבדיקה עוברת מסיבה לא קשורה */
+    expect(propertyEvaluableCriteria(completeProperty).has(criterion as never)).toBe(true);
   });
 
   /*
    * המאפיינים הם קריטריון של **הקונה**: אין שדה בנכס שחוסם אותם,
    * ולכן היעדרם לעולם אינו „חסר בנכס”. זה בדיוק המקרה ש-Codex
-   * הצביע עליו — קונה שסימן הכול כ„לא רלוונטי”.
+   * הצביע עליו בסבב הקודם — קונה שסימן הכול כ„לא רלוונטי”.
    */
   it("המאפיינים אינם נחסמים בנכס — גם נכס ריק מסוגל להם", () => {
     const bare: PropertyFields = { dealType: "sale" };
     const evaluable = propertyEvaluableCriteria(bare);
     expect(evaluable.has("features_must")).toBe(true);
     expect(evaluable.has("features_nice")).toBe(true);
+  });
+
+  /*
+   * ‎**שער על הטבלה עצמה.** קריטריון חדש שיתווסף למנוע ולא יקבל
+   * כאן שורה יעבור בלי שאיש יבדוק מה קורה כשהנתון שלו חסר —
+   * וההשמטה תהיה שקטה, בדיוק כמו זו שנמצאה בביקורת.
+   */
+  it("לכל קריטריון יש שורה בטבלה — גם לזה שיתווסף מחר", () => {
+    expect(Object.keys(MISSING_DATUM).sort()).toEqual([...MATCH_CRITERIA].sort());
   });
 });
 

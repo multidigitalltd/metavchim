@@ -353,27 +353,38 @@ export default function PropertyDetailPage({
    * ממנה: האפקט לא ירוץ שוב כל עוד המתווך נשאר בכרטיס, ולכן
    * הדרך היחידה הייתה רענון העמוד כולו (ביקורת Codex).
    */
+  /**
+   * מצב ההצעות, בפונקציה משלו — **כדי שיהיה למה לחזור.**
+   *
+   * הבקשה נכשלה בשקט ובלי דרך לנסות שוב, ולכן „לא הצלחנו לטעון”
+   * היה מצב סופי עד רענון העמוד כולו. אותו נימוק בדיוק שהוציא את
+   * ‎`loadMatches` לפונקציה משלו.
+   */
+  const loadOffers = useCallback((rows: readonly MatchRow[]): void => {
+    if (rows.length === 0) {
+      /* אין התאמות — אין מה לדעת, וזו ידיעה מלאה ולא חוסר */
+      setOffersState("ready");
+      return;
+    }
+    setOffersState("loading");
+    const ids = rows.map((m) => m.id).join(",");
+    apiGet<Record<string, OfferInfo>>(`/offers/for-matches?matchIds=${ids}`)
+      .then((rowsById) => {
+        setOffers(rowsById);
+        setOffersState("ready");
+      })
+      .catch(() => setOffersState("failed"));
+  }, []);
+
   const loadMatches = useCallback((): void => {
     setMatchesFailed(false);
     apiGet<MatchRow[]>(`/properties/${id}/matches`)
       .then((rows) => {
         setMatches(rows);
-        if (rows.length === 0) {
-          /* אין התאמות — אין מה לדעת, וזו ידיעה מלאה ולא חוסר */
-          setOffersState("ready");
-          return;
-        }
-        setOffersState("loading");
-        const ids = rows.map((m) => m.id).join(",");
-        apiGet<Record<string, OfferInfo>>(`/offers/for-matches?matchIds=${ids}`)
-          .then((rowsById) => {
-            setOffers(rowsById);
-            setOffersState("ready");
-          })
-          .catch(() => setOffersState("failed"));
+        loadOffers(rows);
       })
       .catch(() => setMatchesFailed(true));
-  }, [id]);
+  }, [id, loadOffers]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -521,18 +532,7 @@ export default function PropertyDetailPage({
     );
     const rows = await apiGet<MatchRow[]>(`/properties/${id}/matches`);
     setMatches(rows);
-    if (rows.length === 0) {
-      setOffersState("ready");
-      return;
-    }
-    setOffersState("loading");
-    const ids = rows.map((m) => m.id).join(",");
-    apiGet<Record<string, OfferInfo>>(`/offers/for-matches?matchIds=${ids}`)
-      .then((rowsById) => {
-        setOffers(rowsById);
-        setOffersState("ready");
-      })
-      .catch(() => setOffersState("failed"));
+    loadOffers(rows);
   }
 
   async function saveNotes(next: string): Promise<void> {
@@ -663,16 +663,27 @@ export default function PropertyDetailPage({
    * הסינון מצטבר: כל צ'יפ שנבחר מצמצם עוד. השורה נשארת רק אם היא
    * עוברת את **כל** הבוררים הפעילים.
    */
+  /**
+   * ‎**בורר שנבחר והמידע שמתחתיו אינו ידוע — הרשימה אינה מוצגת.**
+   *
+   * הניסיון הראשון היה „הבורר מפסיק לסנן”, וזה החליף שקר אחד באחר:
+   * הצ'יפ נשאר `aria-pressed`, הרשימה נפרשה במלואה, ו`hiddenByFilter`
+   * קפץ — כלומר **רשימה לא-מסוננת מתחת לבורר פעיל**. אחרי „שלח
+   * לכולם” זה בדיוק המסך שמראה כשנשלחו כהתאמות שלא נשלחו, ואם
+   * הרענון נכשל הוא נשאר כך (ביקורת Codex).
+   *
+   * שלוש האפשרויות היו: לבטל את הבורר (מוחק בחירה של המתווך בלי
+   * שביקש), לסנן לפי מה שיש (מציג נתון ישן כאילו הוא עדכני), או לא
+   * להציג. השלישית היא היחידה שאינה טוענת דבר שאינו נכון — והבחירה
+   * נשמרת.
+   */
+  const filterAwaitingOffers =
+    offersState !== "ready" &&
+    MATCH_FILTERS.some((f) => f.needsOffers === true && matchFilters.has(f.key));
+
   const visibleMatches = (matches ?? []).filter((m) =>
     MATCH_FILTERS.every(
-      (f) =>
-        !matchFilters.has(f.key) ||
-        /*
-         * בורר שנבחר ואז המידע שמתחתיו הפך לבלתי ידוע (רענון אחרי
-         * חישוב מחדש, או תקלה) — מפסיק לסנן במקום לסנן לפי ניחוש.
-         */
-        (f.needsOffers === true && offersState !== "ready") ||
-        f.keep(m, offers[m.id] !== undefined),
+      (f) => !matchFilters.has(f.key) || f.keep(m, offers[m.id] !== undefined),
     ),
   );
   const hiddenByFilter = (matches?.length ?? 0) - visibleMatches.length;
@@ -1271,7 +1282,7 @@ export default function PropertyDetailPage({
                   בכמה נקראת כמו „אין יותר מזה” — וזו בדיוק הטעות
                   שגורמת למתווך לחשוב שהמאגר ריק.
                 */}
-                {hiddenByFilter > 0 ? (
+                {hiddenByFilter > 0 && !filterAwaitingOffers ? (
                   <span
                     className="text-[length:var(--type-caption-lg)]"
                     style={{ color: "var(--color-text-muted)" }}
@@ -1294,6 +1305,24 @@ export default function PropertyDetailPage({
                 blocking={matchGateMissing(property)}
                 propertyId={id}
               />
+            ) : filterAwaitingOffers ? (
+              /*
+                ‎**בורר פעיל שנשען על מידע שאינו ידוע.** רשימה
+                לא-מסוננת מתחת לצ'יפ לחוץ אומרת דבר שאינו נכון;
+                וסינון לפי המפה הישנה מציג התאמות שנשלחה עליהן הצעה
+                לפני שניות כאילו לא נשלחה. שתיהן גרועות משורה אחת
+                שאומרת מה קורה.
+              */
+              offersState === "failed" ? (
+                <LoadError
+                  message="לא הצלחנו לטעון את מצב ההצעות, ולכן הסינון „לא נשלחה הצעה” אינו יכול לרוץ"
+                  onRetry={() => loadOffers(matches)}
+                />
+              ) : (
+                <p className="m-0" aria-live="polite" style={{ color: "var(--color-text-muted)" }}>
+                  מעדכן את מצב ההצעות…
+                </p>
+              )
             ) : visibleMatches.length === 0 ? (
               /*
                 ‎**סינון שהסתיר הכול אומר זאת, ומציע לבטל.**
