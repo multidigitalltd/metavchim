@@ -1769,6 +1769,9 @@ model Payment {
   /// ההצעה שהתשלום הזה מממש. ריק בתשלום רגיל — ומלא, הוא מה שמפעיל
   /// בהצלחה גם את המחיר המוסכם ואת התכונות שההצעה הבטיחה.
   offerId             String?   @map("offer_id") @db.Char(26)
+  /// ההשכרה שהתשלום הזה משלם — ריק בתשלום שאינו השכרת מספר. זה מה
+  /// שמפעיל בהצלחה את תפיסת המספר אצל 015 ואת תקופת ההשכרה.
+  rentalId            String?   @map("rental_id") @db.Char(26)
   paidAt              DateTime? @map("paid_at")
   createdBy           String?   @map("created_by") @db.Char(26)
   createdAt           DateTime  @default(now()) @map("created_at")
@@ -1776,6 +1779,42 @@ model Payment {
 
   @@index([tenantId, createdAt])
   @@map("payments")
+}
+
+/// השכרת מספר וירטואלי מחשבון 015 של הפלטפורמה — מחוץ ל-RLS, כמו
+/// payments ומאותה סיבה: ההפעלה מגיעה מהוובהוק של קארדקום, נתיב
+/// ציבורי בלי הקשר דייר, וסורק החידושים עובר על כל המשרדים יחד.
+/// אין כאן מידע על לקוחות קצה; הסינון לפי דייר נאכף בשכבת האפליקציה.
+model RentedNumber {
+  id                  String    @id @db.Char(26)
+  tenantId            String    @map("tenant_id") @db.Char(26)
+  /// הספרות כפי ש-015 מכיר אותן — זה המפתח מול הספק.
+  number              String    @db.VarChar(20)
+  /// המחיר החודשי שסוכם ברגע ההשכרה, באגורות. צילום ולא הפניה
+  /// להגדרה: שינוי מחיר במסך הפלטפורמה חל על השכרות חדשות בלבד.
+  monthlyAgorot       Int       @map("monthly_agorot")
+  /// pending | active | past_due | cancelled | released
+  status              String    @default("pending") @db.VarChar(20)
+  /// יום החיוב בחודש — אותו עוגן ומאותה סיבה כמו במנוי: בלעדיו
+  /// השכרה מ-31 בחודש הייתה מתקצרת לצמיתות אחרי פברואר.
+  billingAnchorDay    Int?      @map("billing_anchor_day") @db.SmallInt
+  /// עד מתי שולם. חלק מחודש מחויב כחודש מלא — אין חישוב יחסי.
+  currentPeriodEnd    DateTime? @map("current_period_end")
+  cancelledAt         DateTime? @map("cancelled_at")
+  /// מתי המספר נתפס בפועל אצל 015. ריק אחרי תשלום = התפיסה נכשלה
+  /// והטיפול עבר לידיים של מנהל הפלטפורמה (שקיבל מייל).
+  providerPurchasedAt DateTime? @map("provider_purchased_at")
+  providerReleasedAt  DateTime? @map("provider_released_at")
+  /// השגיאה האחרונה מול הספק — לתמיכה, לא למשתמש.
+  providerError       String?   @map("provider_error") @db.VarChar(300)
+  createdBy           String?   @map("created_by") @db.Char(26)
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  /// סורק החידושים והשחרורים עובר על הצירוף הזה
+  @@index([status, currentPeriodEnd])
+  @@map("rented_numbers")
 }
 
 /// הצעת מנוי בלינק — מחוץ ל-RLS: רמת פלטפורמה, כמו plans ו-coupons.

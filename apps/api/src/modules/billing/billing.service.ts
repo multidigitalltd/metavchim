@@ -23,6 +23,7 @@ import { CardcomService, type Payer } from "../../core/cardcom.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
+import { NumberRentalService } from "./number-rental.service";
 import { SubscriptionOfferService } from "./subscription-offer.service";
 
 /**
@@ -77,6 +78,7 @@ export class BillingService {
     private readonly audit: AuditService,
     private readonly creditEconomy: CreditEconomyService,
     private readonly offers: SubscriptionOfferService,
+    private readonly numberRentals: NumberRentalService,
   ) {}
 
   /** מצב המנוי של הדייר הנוכחי, כולל יצירה עצלה לדיירים ותיקים. */
@@ -612,6 +614,37 @@ export class BillingService {
         return now;
       }
 
+      /*
+       * השכרת מספר — ההפעלה באותה טרנזקציה, מאותה סיבה כמו הקרדיטים.
+       * תפיסת המספר אצל 015 היא קריאת רשת ולכן רצה **אחרי** הטרנזקציה
+       * (ראו למטה); מה שקורה כאן הוא רק מה שחייב להיות אטומי: התקופה.
+       */
+      if (payment.purpose === "number_rental") {
+        if (payment.rentalId === null) return null;
+        const activated = await this.numberRentals.activateWithin(tx, payment.rentalId, now);
+        if (activated === null) return null;
+        /*
+         * הכרטיס נשמר על שורת המנוי — אמצעי תשלום אחד למשרד. זה מה
+         * שהחיוב החודשי המתחדש של ההשכרה יחייב בו, וגם משרד בניסיון
+         * ששכר מספר לפני שרכש מנוי מקבל כך כרטיס שמור.
+         */
+        if (token !== null) {
+          await tx.subscription.updateMany({
+            where: { tenantId: payment.tenantId },
+            data: {
+              cardTokenEncrypted: token,
+              cardLast4: verified.cardLast4,
+              cardMonth: verified.cardMonth,
+              cardYear: verified.cardYear,
+              cardOwnerIdEncrypted: verified.cardOwnerIdentity
+                ? this.crypto.encrypt(verified.cardOwnerIdentity)
+                : null,
+            },
+          });
+        }
+        return activated.periodEnd;
+      }
+
       // מכאן והלאה — מנוי. בלי מסלול אין מה להפעיל.
       const planCode = payment.planCode;
       if (planCode === null) return null;
@@ -644,10 +677,22 @@ export class BillingService {
 
     if (outcome === null) return { applied: false, status: "paid" };
 
+    /*
+     * תפיסת המספר אצל 015 — **אחרי** הטרנזקציה: קריאת רשת אינה
+     * יושבת בתוך טרנזקציית מסד. היא אידמפוטנטית בעצמה (מספר שכבר
+     * נתפס אינו נתפס שוב), וכישלון בה אינו מפיל את הוובהוק — הוא
+     * נרשם על ההשכרה ומגיע במייל למנהלי הפלטפורמה, לטיפול ידני.
+     */
+    if (payment.purpose === "number_rental" && payment.rentalId !== null) {
+      await this.numberRentals.provisionAfterPayment(payment.rentalId);
+    }
+
     this.logger.log(
       payment.purpose === "credits"
         ? `קרדיטים נרכשו: משרד ${payment.tenantId}, ${payment.creditsPurchased ?? 0} קרדיטים`
-        : `מנוי הופעל: משרד ${payment.tenantId}, מסלול ${payment.planCode}, עד ${outcome.toISOString()}`,
+        : payment.purpose === "number_rental"
+          ? `השכרת מספר שולמה: משרד ${payment.tenantId}, עד ${outcome.toISOString()}`
+          : `מנוי הופעל: משרד ${payment.tenantId}, מסלול ${payment.planCode}, עד ${outcome.toISOString()}`,
     );
     return { applied: true, status: "paid" };
   }

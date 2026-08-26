@@ -52,6 +52,8 @@ import {
   leadPriceRejectionReason,
   type LeadSourcePrice,
   MAX_OFFER_ITEM_LABEL,
+  MAX_RENTAL_MONTHLY_AGOROT,
+  formatRentalNumber,
   MAX_OFFER_LINE_ITEMS,
   MAX_OFFER_NOTE,
   MAX_OFFER_PRICE_AGOROT,
@@ -90,6 +92,8 @@ import {
   SubscriptionOfferService,
   type PlatformOfferRow,
 } from "../billing/subscription-offer.service";
+import { NumberRentalService } from "../billing/number-rental.service";
+import { Pbx015NumbersService } from "../../core/pbx015-numbers.service";
 import {
   BackupsService,
   type BackupsOverview,
@@ -307,6 +311,19 @@ const UpdateSettingsSchema = z
      * שבמסך הזה בכל מקרה. הכתובת רק מקצרת את זמן התגובה.
      */
     supportEmail: z.union([z.string().trim().email().max(254), z.literal("")]).optional(),
+
+    /*
+     * השכרת מספרים — חשבון 015 **של הפלטפורמה**. ריק = מחיקת ההגדרה.
+     * ה-ingroup הוא מזהה ולא כמות (ספרות בלבד, אפסים משמעותיים),
+     * והמחיר באגורות — ריק מוחק, לא מאפס: `Number("")` הוא 0, ושדה
+     * שנוקה בטעות היה מאפס את מחיר ההשכרה בשקט.
+     */
+    pbx015AuthUsername: z.union([z.string().trim().min(2).max(100), z.literal("")]).optional(),
+    pbx015AuthPassword: z.union([z.string().trim().min(4).max(200), z.literal("")]).optional(),
+    pbx015Ingroup: z.union([z.string().trim().regex(/^\d{1,12}$/u), z.literal("")]).optional(),
+    virtualNumberMonthlyAgorot: z
+      .union([z.number().int().min(1).max(MAX_RENTAL_MONTHLY_AGOROT), z.literal("")])
+      .optional(),
 
     /*
      * המסמכים המשפטיים. **ריק בכל שדה = הנוסח שבקוד**, ולא מסמך ריק:
@@ -552,6 +569,8 @@ export class PlatformController {
     private readonly gemini: GeminiService,
     private readonly whatsappSender: WhatsAppSendService,
     private readonly subscriptionOffers: SubscriptionOfferService,
+    private readonly pbx015: Pbx015NumbersService,
+    private readonly numberRentals: NumberRentalService,
   ) {}
 
   /**
@@ -1338,6 +1357,18 @@ export class PlatformController {
      */
     supportEmail: string;
     /**
+     * השכרת מספרים מ-015 — **הערכים העסקיים ולא רק "מוגדר"**: שם
+     * המשתמש, הקבוצה והמחיר מוצגים כי זה מסך העריכה שלהם; הסיסמה
+     * לעולם לא חוזרת — רק אם היא מוגדרת.
+     */
+    numberRental: {
+      configured: boolean;
+      username: string;
+      passwordSet: boolean;
+      ingroup: string;
+      monthlyAgorot: number | null;
+    };
+    /**
      * המסמכים המשפטיים — **ערכים ולא "מוגדר"**, כמו `supportEmail`
      * ומאותו טעם: זה מסך העריכה שלהם, ועורך שאינו רואה את הנוסח
      * הקיים אינו יכול לתקן בו מילה — רק לכתוב אותו מחדש.
@@ -1396,6 +1427,13 @@ export class PlatformController {
       },
       // הערך ולא רק "מוגדר" — ראו ההסבר בטיפוס המוחזר
       supportEmail: (await this.platformSettings.get("supportEmail")) ?? "",
+      numberRental: {
+        configured: await this.pbx015.isConfigured(),
+        username: (await this.platformSettings.get("pbx015AuthUsername")) ?? "",
+        passwordSet: (await this.platformSettings.get("pbx015AuthPassword")) !== undefined,
+        ingroup: (await this.platformSettings.get("pbx015Ingroup")) ?? "",
+        monthlyAgorot: await this.pbx015.monthlyPriceAgorot(),
+      },
       legal: {
         operator: (await this.platformSettings.get("legalOperator")) ?? "",
         companyId: (await this.platformSettings.get("legalCompanyId")) ?? "",
@@ -1827,6 +1865,74 @@ export class PlatformController {
       where: { code: normalizeCouponCode(code) },
       data: { isActive: false },
     });
+    return { ok: true };
+  }
+
+  /* ==================== השכרות מספרים מ-015 ==================== */
+
+  /**
+   * כל ההשכרות בפלטפורמה — הרשימה שהטיפול הידני עובד מולה.
+   *
+   * הרכישה והתפיסה אוטומטיות, אבל הניתוב הסופי אצל 015 ידני —
+   * וזה המסך שמראה מה ממתין: השכרה ששולמה בלי `provisioned` היא
+   * תפיסה שנכשלה, ו-`past_due` הוא חיוב חודשי שנדחה.
+   */
+  @Get("number-rentals")
+  async listNumberRentals(): Promise<{
+    rentals: {
+      id: string;
+      tenantId: string;
+      tenantName: string;
+      number: string;
+      numberDisplay: string;
+      monthlyAgorot: number;
+      status: string;
+      currentPeriodEnd: Date | null;
+      provisioned: boolean;
+      providerError: string | null;
+      createdAt: Date;
+    }[];
+  }> {
+    const rows = await this.prisma.rentedNumber.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    });
+    const tenants = await this.prisma.tenant.findMany({
+      where: { id: { in: [...new Set(rows.map((r) => r.tenantId))] } },
+      select: { id: true, name: true },
+    });
+    const names = new Map(tenants.map((t) => [t.id, t.name]));
+    return {
+      rentals: rows.map((row) => ({
+        id: row.id,
+        tenantId: row.tenantId,
+        tenantName: names.get(row.tenantId) ?? row.tenantId,
+        number: row.number,
+        numberDisplay: formatRentalNumber(row.number),
+        monthlyAgorot: row.monthlyAgorot,
+        status: row.status,
+        currentPeriodEnd: row.currentPeriodEnd,
+        provisioned: row.providerPurchasedAt !== null,
+        providerError: row.providerError,
+        createdAt: row.createdAt,
+      })),
+    };
+  }
+
+  /**
+   * שחרור מיידי — כלי הטיפול הידני של מנהל הפלטפורמה.
+   *
+   * עוקף את ההמתנה לסוף התקופה: משמש כשמשרד לא שילם והוחלט לשחרר,
+   * או כשתפיסה נכשלה והמספר מוחלף. פעולה מפורשת של מנהל — אין כאן
+   * החזר כספי אוטומטי; זיכוי נעשה במסך התשלומים כרגיל.
+   */
+  @Post("number-rentals/:id/release")
+  @HttpCode(200)
+  async releaseNumberRental(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ ok: true }> {
+    const result = await this.numberRentals.releaseNow(id);
+    if (!result.ok) throw new BadRequestException(result.message);
     return { ok: true };
   }
 

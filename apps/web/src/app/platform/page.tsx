@@ -18,6 +18,7 @@ import { PaymentsSection } from "./payments-section";
 import { PlansSection } from "./plans-section";
 import { CouponsSection } from "./coupons-section";
 import { OffersSection } from "./offers-section";
+import { NumberRentalsSection } from "./number-rentals-section";
 import { AgentUsageSection } from "./agent-usage-section";
 import { PlatformSettingsSection } from "./platform-settings-section";
 import { LegalDocsSection } from "./legal-docs-section";
@@ -655,6 +656,8 @@ export default function PlatformPage() {
         וזה המסך שממנו יוצאים אליה אחרי שיחת מכירה.
       */}
       <OffersSection agencies={(agencies ?? []).map((a) => ({ id: a.id, name: a.name }))} />
+      {/* מוצג רק כשיש השכרות — רוב הזמן אין, ורשימה ריקה קבועה היא רעש */}
+      <NumberRentalsSection />
       <CouponsSection />
       <LeadPricesSection />
       <CreditEconomySection refreshToken={referralFeeVersion} />
