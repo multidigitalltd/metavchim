@@ -160,6 +160,7 @@ export const HARD_MATCH_CRITERIA: readonly MatchCriterion[] = [
   "location",
   "budget",
   "rooms",
+  "property_type",
   "features_must",
 ];
 
@@ -389,7 +390,17 @@ export function scoreMatch(
     if (!nearMiss) excluded = true;
   }
 
-  // --- סוג נכס (0.1) ---
+  /*
+   * --- סוג נכס (0.1) ---
+   *
+   * ‎**סוג שאינו מבוקש פוסל, ולא רק גורע ניקוד.** קודם הוא קיבל
+   * ציון אפס והמשיך הלאה, ומכיוון שמשקלו הוא הקל בליבה, וילה מול
+   * מי שביקש דירה קיבלה ציון של כ-88 ונשארה ברשימה (ביקורת Codex).
+   *
+   * זו אינה „התאמה חלשה”. אי אפשר להפוך וילה לדירת שלושה חדרים,
+   * בדיוק כפי שאי אפשר להזיז אותה לעיר אחרת — ולכן ההתנהגות כאן
+   * זהה לזו של המיקום ושל החדרים שמעל.
+   */
   if (property.propertyType !== undefined && buyer.propertyTypes.length > 0) {
     const ok = buyer.propertyTypes.includes(property.propertyType);
     parts.push({
@@ -398,6 +409,7 @@ export function scoreMatch(
       score: ok ? 1 : 0,
       note: ok ? undefined : "סוג הנכס שונה מהמבוקש",
     });
+    if (!ok) excluded = true;
   }
 
   // --- מאפייני חובה/עדיפות (0.15) ---
