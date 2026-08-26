@@ -5,6 +5,7 @@ import {
   DOCUMENT_KIND_LABELS,
   documentUnlocksOffers,
   formatFileSize,
+  isAfterJerusalemToday,
   OFFER_DOCUMENT_KINDS,
   parseSignedOnDate,
   safeFileName,
@@ -108,6 +109,26 @@ describe("parseSignedOnDate", () => {
     expect(parseSignedOnDate("2026-00-10")).toBeNull();
     expect(parseSignedOnDate("2026-08-00")).toBeNull();
     expect(parseSignedOnDate("2026-08-32")).toBeNull();
+  });
+
+  /*
+   * ‎**הבדיקה שהחזירה „תאריך עתידי” על היום עצמו.**
+   *
+   * ב-01:30 בלילה בישראל (קיץ, UTC+3) השעון העולמי מראה עדיין
+   * את אתמול ב-22:30. חצות UTC של „היום” המקומי גדול מהרגע הזה,
+   * ולכן מתווך שרשם את התאריך של אותו ערב נדחה.
+   */
+  it("„היום” בשעון ישראל אינו עתידי, גם בשעה הקטנה", () => {
+    const lateNightInIsrael = new Date("2026-08-25T22:30:00Z"); // 01:30 ב-26.8
+    expect(isAfterJerusalemToday(parseSignedOnDate("2026-08-26")!, lateNightInIsrael)).toBe(false);
+    expect(isAfterJerusalemToday(parseSignedOnDate("2026-08-25")!, lateNightInIsrael)).toBe(false);
+    expect(isAfterJerusalemToday(parseSignedOnDate("2026-08-27")!, lateNightInIsrael)).toBe(true);
+  });
+
+  it("מחר הוא עתידי גם באמצע היום", () => {
+    const midday = new Date("2026-08-26T09:00:00Z");
+    expect(isAfterJerusalemToday(parseSignedOnDate("2026-08-27")!, midday)).toBe(true);
+    expect(isAfterJerusalemToday(parseSignedOnDate("2026-08-26")!, midday)).toBe(false);
   });
 
   it("מה שאינו בצורה הזו נדחה", () => {

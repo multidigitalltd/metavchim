@@ -5,6 +5,7 @@ import {
   DOCUMENT_KINDS,
   MAX_DOCUMENT_BYTES,
   documentUnlocksOffers,
+  isAfterJerusalemToday,
   safeFileName,
   sniffDocumentType,
   type DocumentKind,
@@ -47,6 +48,9 @@ export interface SignedDocumentDto {
   fileName: string;
   mimeType: string;
   byteSize: number;
+  /** הנכס שההסכם חל עליו — ריק ב„מסמך אחר”. */
+  propertyId?: string;
+  propertyLabel?: string;
   signedOn?: string;
   signerName?: string;
   note?: string;
@@ -70,6 +74,21 @@ const MAX_DOCUMENTS_PER_CONTACT = 50;
 
 export function documentDownloadPath(id: string): string {
   return `/signed-documents/${id}/raw`;
+}
+
+/** ההורדה מארכיון המשרד — שורה שכבר נותקה מלקוח שנמחק. */
+export function retainedDownloadPath(id: string): string {
+  return `/signed-documents/retained/${id}/raw`;
+}
+
+/** תיאור קצר של הנכס, כדי שמסמך לא ייקרא כשייך לנכס אחר. */
+function propertyLabel(p: {
+  city: string | null;
+  neighborhood: string | null;
+  street: string | null;
+}): string {
+  const where = [p.street, p.neighborhood, p.city].filter(Boolean).join(", ");
+  return where === "" ? "נכס ללא כתובת" : where;
 }
 
 @Injectable()
@@ -140,8 +159,14 @@ export class SignedDocumentsService {
        * תאריך עתידי אינו „חתם מחר” אלא טעות הקלדה. שגיאה כאן זולה;
        * הסכם שמתוארך קדימה מופיע בכרטיס כאילו נחתם, והתאריך שנשלף
        * ממנו לוויכוח עתידי שגוי.
+       *
+       * ‎**לפי לוח השנה בישראל ולא מול הרגע.** השוואה מול
+       * ‎`Date.now()` דחתה את „היום” עצמו בין חצות לשלוש לפנות בוקר
+       * מקומית, כי חצות UTC של היום המקומי עדיין לא הגיע (ביקורת
+       * Codex). מתווך שהחתים לקוח בערב ורשם את התאריך של אותו יום
+       * נחסם.
        */
-      if (input.signedOn.getTime() > Date.now()) {
+      if (isAfterJerusalemToday(input.signedOn, new Date())) {
         throw new BadRequestException("תאריך החתימה לא יכול להיות עתידי");
       }
     }
@@ -235,22 +260,48 @@ export class SignedDocumentsService {
   /**
    * המסמכים של לקוח.
    *
-   * ‎**בלי סינון לפי נכס.** הלשונית מוצגת גם בכרטיס הקונה, שאין לו
-   * נכס בהקשר, וגם בכרטיס הנכס — ובשניהם המתווך מחפש „מה יש לי על
-   * הלקוח הזה”. סינון היה מסתיר מסמך שהועלה מהמסך השני, בלי שום סימן
-   * שהוא קיים.
+   * ## למה `propertyId` מסנן, ובכל זאת לא מסתיר
+   *
+   * לבעל נכס אחד יכולים להיות כמה נכסים, וכולם תלויים באותו איש
+   * קשר. בלי סינון, סריקת בלעדיות של נכס א' הופיעה בלשונית של נכס
+   * ב' **בלי שום סימן לאיזה נכס היא שייכת** — כלומר אפשר היה לטעות
+   * בה, ואפשר היה למחוק אותה כאילו הייתה של ב' (ביקורת Codex).
+   *
+   * הסינון כולל גם שורות בלי נכס: הצהרה על הסכם חייבת נכס, ולכן
+   * שורה חסרת-נכס היא בהכרח „מסמך אחר” — תעודה או נספח ששייכים
+   * ללקוח עצמו ורלוונטיים בכל אחד מהכרטיסים שלו.
+   *
+   * ‎**וכל שורה נושאת את זהות הנכס שלה** גם כשאין סינון (כרטיס
+   * הקונה), כי שם דווקא רוצים לראות הכול — ואז ההבחנה היא מה
+   * שמונע את אותה טעות.
    */
-  async listForContact(contactId: string): Promise<SignedDocumentDto[]> {
+  async listForContact(contactId: string, propertyId?: string): Promise<SignedDocumentDto[]> {
     const tenantId = TenantContext.current().tenantId;
-    const rows = await this.prisma.withTenant(async (tx) => {
+    const { rows, labels } = await this.prisma.withTenant(async (tx) => {
       await assertContactAccess(tx, tenantId, contactId);
-      return tx.signedDocument.findMany({
-        where: { tenantId, contactId },
+      const found = await tx.signedDocument.findMany({
+        where: {
+          tenantId,
+          contactId,
+          ...(propertyId === undefined ? {} : { OR: [{ propertyId }, { propertyId: null }] }),
+        },
         orderBy: { createdAt: "desc" },
         take: MAX_DOCUMENTS_PER_CONTACT,
       });
+      const ids = [...new Set(found.map((r) => r.propertyId).filter((v): v is string => v !== null))];
+      const properties =
+        ids.length === 0
+          ? []
+          : await tx.property.findMany({
+              where: { id: { in: ids }, tenantId },
+              select: { id: true, city: true, neighborhood: true, street: true },
+            });
+      return {
+        rows: found,
+        labels: new Map(properties.map((p) => [p.id, propertyLabel(p)])),
+      };
     });
-    return rows.map((row) => this.toDto(row));
+    return rows.map((row) => this.toDto(row, { labels }));
   }
 
   /**
@@ -259,18 +310,28 @@ export class SignedDocumentsService {
    * ‎`kind` מגיע מהמסד כמחרוזת. הוא נכתב רק דרך `upload`, שמקבל
    * ערך מאומת — אבל התצוגה לא תסמוך על כך ותציג „מסמך אחר” לערך
    * שאיננו מכירים, במקום תווית ריקה.
+   *
+   * ‎`retained` קובע **לאיזה נתיב הורדה** ה-DTO מפנה. הארכיון החזיר
+   * את הנתיב הרגיל, וזה דוחה שורה מנותקת — כלומר הרשימה פרסמה
+   * קישורים שכל אחד מהם 404 (ביקורת Codex). זו אותה מחלה: כתובת
+   * שמבטיחה מה שאין מאחוריה.
    */
-  private toDto(row: {
-    id: string;
-    kind: string;
-    fileName: string;
-    mimeType: string;
-    byteSize: number;
-    signedOn: Date | null;
-    signerName: string | null;
-    note: string | null;
-    createdAt: Date;
-  }): SignedDocumentDto {
+  private toDto(
+    row: {
+      id: string;
+      kind: string;
+      fileName: string;
+      mimeType: string;
+      byteSize: number;
+      propertyId: string | null;
+      signedOn: Date | null;
+      signerName: string | null;
+      note: string | null;
+      createdAt: Date;
+    },
+    opts: { labels?: Map<string, string>; retained?: boolean } = {},
+  ): SignedDocumentDto {
+    const label = row.propertyId === null ? undefined : opts.labels?.get(row.propertyId);
     return {
       id: row.id,
       kind: (DOCUMENT_KINDS as readonly string[]).includes(row.kind)
@@ -279,11 +340,16 @@ export class SignedDocumentsService {
       fileName: row.fileName,
       mimeType: row.mimeType,
       byteSize: row.byteSize,
+      ...(row.propertyId === null ? {} : { propertyId: row.propertyId }),
+      ...(label === undefined ? {} : { propertyLabel: label }),
       ...(row.signedOn ? { signedOn: row.signedOn.toISOString() } : {}),
       ...(row.signerName ? { signerName: row.signerName } : {}),
       ...(row.note ? { note: row.note } : {}),
       createdAt: row.createdAt.toISOString(),
-      url: documentDownloadPath(row.id),
+      url:
+        opts.retained === true
+          ? retainedDownloadPath(row.id)
+          : documentDownloadPath(row.id),
     };
   }
 
@@ -307,7 +373,7 @@ export class SignedDocumentsService {
         take: 500,
       }),
     );
-    return rows.map((row) => this.toDto(row));
+    return rows.map((row) => this.toDto(row, { retained: true }));
   }
 
   /**
@@ -381,14 +447,35 @@ export class SignedDocumentsService {
       throw error;
     }
 
-    await this.prisma.withTenant((tx) =>
-      this.audit.record(tx, {
-        action: "agreement.document_download",
-        entityType: row.contactId === null ? "tenant" : "contact",
-        entityId: row.contactId ?? tenantId,
-        metadata: { documentId: id, retained: row.contactId === null },
-      }),
-    );
+    /*
+     * ‎**הרישום תלוי במה שהזרם עשה, ולא בכך שנפתח.**
+     *
+     * ‎`getObject` מחזיר זרם שטרם נקרא, ולכן רישום כאן היה עדיין
+     * טענה על העתיד: אם S3 מתנתק באמצע, או שהתגובה נקטעת לפני
+     * שהגיעה, היומן היה מספר על הורדה שלא הושלמה (ביקורת Codex).
+     *
+     * לכן הרישום נתלה על סיום הזרם — `end` כשהכול נמסר, `error`
+     * כשנקטע — ובשני המקרים הוא נכתב. חשיפה חלקית היא אירוע אמיתי
+     * ולא „לא קרה כלום”, ולכן היא נרשמת בשמה ולא נשמטת.
+     *
+     * ‎`fire-and-forget` במכוון: התגובה כבר בדרך אל המתווך, ואין
+     * למי לזרוק. כשל בכתיבה נרשם ביומן השרת ואינו קוטע הורדה
+     * שהצליחה.
+     */
+    const writeAudit = (outcome: "completed" | "aborted"): void => {
+      void this.prisma
+        .withTenant((tx) =>
+          this.audit.record(tx, {
+            action: "agreement.document_download",
+            entityType: row.contactId === null ? "tenant" : "contact",
+            entityId: row.contactId ?? tenantId,
+            metadata: { documentId: id, retained: row.contactId === null, outcome },
+          }),
+        )
+        .catch(() => undefined);
+    };
+    obj.body.once("end", () => writeAudit("completed"));
+    obj.body.once("error", () => writeAudit("aborted"));
 
     return {
       body: obj.body,

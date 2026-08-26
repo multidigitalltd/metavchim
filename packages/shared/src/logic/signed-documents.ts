@@ -24,6 +24,7 @@
  */
 
 import { AGREEMENT_KINDS, type AgreementKind } from "./agreement-template.js";
+import { jerusalemWallParts } from "./israel-time.js";
 
 /**
  * סוג המסמך שהועלה.
@@ -99,6 +100,23 @@ export function parseSignedOnDate(text: string): Date | null {
     return null;
   }
   return built;
+}
+
+/**
+ * האם תאריך החתימה עתידי — **לפי לוח השנה בישראל.**
+ *
+ * ‎`parseSignedOnDate` בונה חצות UTC, והשוואה שלו מול `Date.now()`
+ * אינה שאלה על תאריכים אלא על רגעים. בין חצות לשלוש לפנות בוקר
+ * בשעון ישראל, „היום” המקומי הוא עדיין מחר ב-UTC — ולכן מתווך
+ * שהחתים לקוח בערב ורשם את התאריך של אותו יום נדחה ב„תאריך החתימה
+ * לא יכול להיות עתידי” (ביקורת Codex).
+ *
+ * ההשוואה היא בין שתי מחרוזות `YYYY-MM-DD`, וסדר לקסיקוגרפי בהן
+ * זהה לסדר כרונולוגי. `now` מפורש כדי שהפונקציה תהיה טהורה
+ * וניתנת לבדיקה בכל שעה.
+ */
+export function isAfterJerusalemToday(day: Date, now: Date): boolean {
+  return day.toISOString().slice(0, 10) > jerusalemWallParts(now).date;
 }
 
 /* ---------- זיהוי סוג הקובץ ---------- */

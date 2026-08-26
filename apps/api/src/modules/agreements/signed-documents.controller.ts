@@ -7,6 +7,7 @@ import {
   HttpCode,
   Param,
   Post,
+  Query,
   StreamableFile,
   UploadedFile,
   UseInterceptors,
@@ -128,12 +129,18 @@ export class SignedDocumentsController {
     });
   }
 
+  /**
+   * ‎`propertyId` מצמצם לנכס אחד — ולשורות בלי נכס, שהן בהכרח
+   * „מסמך אחר” ושייכות ללקוח עצמו. בלעדיו סריקת בלעדיות של נכס
+   * אחד הופיעה בלשונית של נכס אחר של אותו בעלים (ביקורת Codex).
+   */
   @Get("signed-documents/contact/:contactId")
   @RequireCapability("buyers.view_own")
   list(
     @Param("contactId", IdParam) contactId: string,
+    @Query("propertyId", new ZodValidationPipe(IdSchema.optional())) propertyId?: string,
   ): Promise<SignedDocumentDto[]> {
-    return this.documents.listForContact(contactId);
+    return this.documents.listForContact(contactId, propertyId);
   }
 
   /**

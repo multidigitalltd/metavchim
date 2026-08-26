@@ -39,6 +39,7 @@ interface DocumentRow {
   kind: DocumentKind;
   fileName: string;
   byteSize: number;
+  propertyLabel?: string;
   signedOn?: string;
   signerName?: string;
   note?: string;
@@ -103,12 +104,15 @@ export function DocumentsPanel({
 
   function load(): void {
     setLoadFailed(false);
-    apiGet<DocumentRow[]>(`/signed-documents/contact/${contactId}`)
+    apiGet<DocumentRow[]>(
+      `/signed-documents/contact/${contactId}` +
+        (propertyId === undefined ? "" : `?propertyId=${encodeURIComponent(propertyId)}`),
+    )
       .then(setRows)
       .catch(() => setLoadFailed(true));
   }
 
-  useEffect(load, [contactId]);
+  useEffect(load, [contactId, propertyId]);
 
   const declares = documentUnlocksOffers(kind);
 
@@ -251,6 +255,20 @@ export function DocumentsPanel({
                   {formatFileSize(row.byteSize)}
                 </span>
               </div>
+
+              {/*
+                לאיזה נכס המסמך שייך. בכרטיס הנכס זה אישור, ובכרטיס
+                הקונה — שבו מוצגים כל המסמכים של הלקוח — זו ההבחנה
+                שמונעת לקרוא סריקה של נכס אחד כשייכת לאחר.
+              */}
+              {row.propertyLabel ? (
+                <p
+                  className="m-0 mb-2 text-[length:var(--type-caption-lg)]"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  על הנכס: {row.propertyLabel}
+                </p>
+              ) : null}
 
               {row.signerName || row.signedOn ? (
                 <p
@@ -449,10 +467,16 @@ export function DocumentsPanel({
           הקובץ יימחק מהמערכת ולא ניתן יהיה לשחזר אותו.
         </p>
         {askDelete && documentUnlocksOffers(askDelete.kind) ? (
+          /*
+            „סוגרת” היה שקר כשקיים הסכם חתום נוסף על אותו נכס —
+            ‎`hasSigned` עדיין מוצא אותו, והשער נשאר פתוח (ביקורת
+            Codex). המסך אינו יודע מה עוד קיים, ולכן הוא אומר את מה
+            שהוא כן יודע.
+          */
           <p className="m-0">
-            <IconWarning s={15} /> <strong>זהו הסכם חתום.</strong> מחיקתו סוגרת את
-            האפשרות לשלוח ללקוח הצעות על הנכס, עד שיצורף מסמך אחר או שייחתם הסכם
-            במערכת.
+            <IconWarning s={15} /> <strong>זהו הסכם חתום.</strong> אם זהו ההסכם
+            החתום היחיד על הנכס הזה, מחיקתו תסגור את האפשרות לשלוח ללקוח הצעות
+            עליו — עד שיצורף מסמך אחר או שייחתם הסכם במערכת.
           </p>
         ) : null}
       </ConfirmDialog>
