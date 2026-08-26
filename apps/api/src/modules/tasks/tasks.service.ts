@@ -358,7 +358,10 @@ export class TasksService {
    * לעשות" בזמן שסוכן אחר כבר קבע איתו פגישה. הגישה לכרטיס עצמו
    * כבר נבדקה במסך שמכיל את הפאנל.
    */
-  async listForEntity(entityType: string, entityId: string): Promise<TaskDto[]> {
+  async listForEntity(
+    entityType: string,
+    entityId: string,
+  ): Promise<{ tasks: TaskDto[]; openTitles: string[] }> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
       /*
@@ -369,7 +372,7 @@ export class TasksService {
        * פתוחות — כרטיס שמדווח "אין מה לעשות" בזמן שיש (ביקורת Codex).
        * אותו דפוס בדיוק כמו ב-`list`.
        */
-      const [open, done] = await Promise.all([
+      const [open, done, openTitles] = await Promise.all([
         tx.task.findMany({
           where: { tenantId, entityType, entityId, status: "open", deletedAfterSync: false },
           orderBy: { dueAt: { sort: "asc", nulls: "last" } },
@@ -380,8 +383,28 @@ export class TasksService {
           orderBy: { updatedAt: "desc" },
           take: 20,
         }),
+        /*
+         * ‎**הכותרות הפתוחות — בלי התקרה, ובכוונה.**
+         *
+         * המסך מסנן „משימות מוצעות” מול מה שכבר פתוח, וסינון מול
+         * **רשימה חתוכה** אינו סינון: משימה מוצעת נוצרת בלי מועד,
+         * ‎`nulls: "last"` דוחף אותה לסוף, ולכן היא בדיוק השורה
+         * שהתקרה של 50 מפילה ראשונה. הכרטיס היה מציע שוב בדיוק את
+         * מה שכבר קיים (ביקורת Codex).
+         *
+         * ‎`distinct` חוסם את הגודל בלי תקרה שרירותית, ו-`select`
+         * מביא כותרת בלבד.
+         */
+        tx.task.findMany({
+          where: { tenantId, entityType, entityId, status: "open", deletedAfterSync: false },
+          select: { title: true },
+          distinct: ["title"],
+        }),
       ]);
-      return this.toDtos(tx, [...open, ...done]);
+      return {
+        tasks: await this.toDtos(tx, [...open, ...done]),
+        openTitles: openTitles.map((t) => t.title),
+      };
     });
   }
 
