@@ -10,8 +10,10 @@ import {
   CALL_OUTCOME_LABELS,
   CALL_OUTCOME_MANUAL,
   recordingStateLabel,
+  type CallHighlights,
   type RecordingStatus,
 } from "@metavchim/shared";
+import { CallHighlightFields, CallTranscript } from "./call-parts";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { FilterBar, SearchField, textMatches } from "../list-controls";
@@ -42,6 +44,8 @@ interface CallRow {
   /** pending | running | done | failed | unavailable — חסר = לא הועלתה הקלטה. */
   transcriptionStatus?: string;
   transcript?: string;
+  /** הפרטים שחולצו — מוחזר תמיד, ריק כשלא זוהה דבר. */
+  highlights?: CallHighlights;
   /** יש קובץ להשמעה — לא נגזר מסטטוס התמלול, ראו ה-DTO בשרת. */
   hasRecording?: boolean;
   /** למה אין — „אין בכלל”, „בדרך”, או „נכשלה” עם הסיבה. */
@@ -542,6 +546,7 @@ export default function CallsPage() {
                     <span style={{ color: "var(--color-text-muted)" }}>לא נרשם סיכום.</span>
                   )}
                 </div>
+                <CallHighlightFields highlights={selected.highlights ?? {}} />
 
                 <CallRecording
                   call={selected}
@@ -809,13 +814,8 @@ function CallRecording({
           >
             {showFull ? "הסתר תמלול מלא" : <><IconDoc s={15} /> הצג תמלול מלא</>}
           </button>
-          {showFull ? (
-            <div
-              className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap rounded-[13px] border p-3.5 text-sm"
-              style={{ background: "var(--color-field)", borderColor: "var(--color-border)", lineHeight: 1.6 }}
-            >
-              {call.transcript}
-            </div>
+          {showFull && call.transcript !== undefined ? (
+            <CallTranscript transcript={call.transcript} />
           ) : null}
         </>
       )}
