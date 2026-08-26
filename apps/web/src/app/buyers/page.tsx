@@ -49,9 +49,9 @@ const MATURITY_ORDER = ["very_hot", "hot", "interested", "not_ripe"];
 
 /* גלולות הבשלות — הפלטה המדויקת מקובץ העיצוב (mat()) */
 const MATURITY_PILL: Record<string, { fg: string; bg: string }> = {
-  very_hot: { fg: "#b0512c", bg: "#faf1ec" },
+  very_hot: { fg: "var(--color-danger)", bg: "var(--color-danger-soft)" },
   hot: { fg: "#7a5c1f", bg: "#f7efdd" },
-  interested: { fg: "#0C6E34", bg: "#E5FCEA" },
+  interested: { fg: "var(--color-success)", bg: "var(--color-success-soft)" },
   not_ripe: { fg: "#616a63", bg: "#eef1ec" },
 };
 
@@ -271,7 +271,7 @@ export default function BuyersPage() {
       {/* מקרא הבשלות + פעולות — כמו בעיצוב */}
       <div className="mb-[18px] flex flex-wrap items-center gap-3">
         <div className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-          דירוג בשלות: <b style={{ color: "#b0512c" }}>חם מאוד</b> ·{" "}
+          דירוג בשלות: <b style={{ color: "var(--color-danger)" }}>חם מאוד</b> ·{" "}
           <b style={{ color: "#8a6414" }}>חם</b> ·{" "}
           <b style={{ color: "var(--color-primary)" }}>מתעניין</b> ·{" "}
           <b style={{ color: "var(--color-text-muted)" }}>לא בשל</b>

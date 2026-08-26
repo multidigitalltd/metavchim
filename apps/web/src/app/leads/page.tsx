@@ -36,12 +36,12 @@ interface LeadRow {
 const WAITING_COLOR: Record<LeadWaitingLevel, string> = {
   ok: "var(--color-text-muted)",
   warn: "#8a6414",
-  late: "#b0512c",
+  late: "var(--color-danger)",
 };
 
 /* גלולת הסטטוס — אותה משפחת צבעים כמו בעיצוב */
 const STATUS_PILL: Record<string, { fg: string; bg: string }> = {
-  new: { fg: "#0C6E34", bg: "#E5FCEA" },
+  new: { fg: "var(--color-success)", bg: "var(--color-success-soft)" },
   in_progress: { fg: "#7a5c1f", bg: "#f7efdd" },
   converted: { fg: "#3F4742", bg: "#EDEFED" },
   closed: { fg: "#616a63", bg: "#eef1ec" },
@@ -232,7 +232,7 @@ export default function LeadsPage() {
                           {lead.contact.name}
                         </Link>
                         {lead.requiresHuman ? (
-                          <span className="mv-tag" style={{ background: "#faf1ec", color: "#b0512c" }}>דחוף</span>
+                          <span className="mv-tag" style={{ background: "var(--color-danger-soft)", color: "var(--color-danger)" }}>דחוף</span>
                         ) : null}
                         <span className="mv-pill ms-auto" style={{ color: pill.fg, background: pill.bg }}>
                           {labelOf(LEAD_STATUS_LABELS, lead.status) ?? lead.status}
@@ -288,7 +288,7 @@ export default function LeadsPage() {
                           {lead.contact.name}
                         </Link>
                         {lead.requiresHuman ? (
-                          <span className="mv-tag" style={{ background: "#faf1ec", color: "#b0512c" }}>דחוף</span>
+                          <span className="mv-tag" style={{ background: "var(--color-danger-soft)", color: "var(--color-danger)" }}>דחוף</span>
                         ) : null}
                       </span>
                       <span className="flex items-center gap-1.5 truncate text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-soft)" }}>

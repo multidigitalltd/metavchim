@@ -31,9 +31,20 @@ export function TrialBanner({
     <p
       role="status"
       className="m-0 flex flex-wrap items-center justify-center gap-2 px-4 py-2 text-sm"
+      /*
+        ‎**שני הענפים בטוקנים, ולא אחד.**
+
+        המרתי כאן קודם רק את ענף „פג” והשארתי את ענף האזהרה בערך
+        ישיר — כלומר במצב כהה הפג היה מתחלף והמתקרב היה נשאר בהיר
+        על סרגל כהה. טרנזיציה חצי-ממופה גרועה משתיהן.
+
+        ‎`--domain-amber-*` הוא הצמד שהחבילה מייעדת ל„אזהרה שאינה
+        שגיאה”, וההפרש מהערכים שהיו כאן הוא מאית: `#f7efdd` מול
+        ‎`#fbefd3`, ו-`#7a5c1f` מול `#79541a`.
+      */
       style={{
-        background: expired ? "#faf1ec" : "#f7efdd",
-        color: expired ? "#b0512c" : "#7a5c1f",
+        background: expired ? "var(--color-danger-soft)" : "var(--domain-amber-bg)",
+        color: expired ? "var(--color-danger)" : "var(--domain-amber-fg)",
         borderBottom: "1px solid var(--color-border)",
       }}
     >

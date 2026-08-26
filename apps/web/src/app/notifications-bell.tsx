@@ -27,7 +27,7 @@ interface NotificationDto {
 
 /* צבע הנקודה לפי סוג ההתראה — כמו בעיצוב: חדש=כתום-אדמדם, חיובי=ירוק */
 function dotColor(type: string): string {
-  if (type.includes("lead")) return "#b0512c";
+  if (type.includes("lead")) return "var(--color-danger)";
   if (type.includes("interest") || type.includes("signed") || type.includes("match"))
     return "#12A150";
   return "#c98a2e";

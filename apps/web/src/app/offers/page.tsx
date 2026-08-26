@@ -38,7 +38,7 @@ const FILTERS: [string, string][] = [
 
 /* גלולות הסטטוס — הכללים מקובץ העיצוב (stChip) */
 function statusChip(o: OfferRow): { label: string; fg: string; bg: string } {
-  if (o.status === "interested") return { label: "מעוניין ✓", fg: "#0C6E34", bg: "#E5FCEA" };
+  if (o.status === "interested") return { label: "מעוניין ✓", fg: "var(--color-success)", bg: "var(--color-success-soft)" };
   if (o.status === "declined") return { label: "לא מתאים", fg: "#616a63", bg: "#eef1ec" };
   if (o.status === "pending_approval") return { label: "ממתין לאישור", fg: "#616a63", bg: "#eef1ec" };
   if (o.openCount >= 3) return { label: "מתלבט — שווה טלפון", fg: "#7a5c1f", bg: "#f7efdd" };
