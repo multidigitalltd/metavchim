@@ -762,37 +762,32 @@ export default function PropertyDetailPage({
       </div>
 
       {/* ---- לשוניות ---- */}
-      <div
-        className="mv-list-card mb-[18px] px-4"
-        style={{ overflow: "visible" }}
-      >
-        <EntityTabs
-          label="לשוניות כרטיס הנכס"
-          active={tab}
-          onSelect={selectTab}
-          tabs={[
-            { key: "overview", label: "סקירה" },
-            { key: "matches", label: "התאמות", count: matches?.length },
-            /*
-              נכסים תאומים — צמוד להתאמות ולא בסוף הסרגל. שתי
-              הלשוניות עונות על אותה שאלה בשיחה עם לקוח ("מה עוד
-              אפשר להציע לו"), ומי שפתח את ההתאמות הוא בדיוק מי
-              שיזדקק לתאומים בשנייה שאחר כך.
-            */
-            { key: "twins", label: "נכסים תאומים", count: twinCount },
-            /*
-              לשונית משלה, כמו בכרטיס הקונה. הפרסום לרשת ישב עד כה
-              בתחתית לשונית ההתאמות — כלומר מי שרצה לפרסם נכס היה
-              צריך לדעת לגלול לשם, ורוב הנכסים פשוט לא פורסמו.
-            */
-            { key: "network", label: "שיתופי פעולה" },
-            { key: "owner", label: "בעל הנכס" },
-            { key: "exclusivity", label: "בלעדיות" },
-            { key: "agreements", label: "הסכמים" },
-            { key: "tasks", label: "משימות", count: openTasks },
-          ]}
-        />
-      </div>
+      <EntityTabs
+        label="לשוניות כרטיס הנכס"
+        active={tab}
+        onSelect={selectTab}
+        tabs={[
+          { key: "overview", label: "סקירה" },
+          { key: "matches", label: "התאמות", count: matches?.length },
+          /*
+            נכסים תאומים — צמוד להתאמות ולא בסוף הסרגל. שתי
+            הלשוניות עונות על אותה שאלה בשיחה עם לקוח ("מה עוד
+            אפשר להציע לו"), ומי שפתח את ההתאמות הוא בדיוק מי
+            שיזדקק לתאומים בשנייה שאחר כך.
+          */
+          { key: "twins", label: "נכסים תאומים", count: twinCount },
+          /*
+            לשונית משלה, כמו בכרטיס הקונה. הפרסום לרשת ישב עד כה
+            בתחתית לשונית ההתאמות — כלומר מי שרצה לפרסם נכס היה
+            צריך לדעת לגלול לשם, ורוב הנכסים פשוט לא פורסמו.
+          */
+          { key: "network", label: "שיתופי פעולה" },
+          { key: "owner", label: "בעל הנכס" },
+          { key: "exclusivity", label: "בלעדיות" },
+          { key: "agreements", label: "הסכמים" },
+          { key: "tasks", label: "משימות", count: openTasks },
+        ]}
+      />
 
       {/* סקירה — הנכס עצמו, ומה שמעכב את שיווקו */}
       <TabPanel tab="overview" active={tab}>

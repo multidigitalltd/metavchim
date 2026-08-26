@@ -2511,6 +2511,18 @@ button.mv-list-row:hover {
   gap: 8px;
   overflow-x: auto;
   scrollbar-width: none;
+  /*
+   * הריווח מתחת לסרגל שייך לסרגל, לא לעוטף.
+   *
+   * „directly under the header card, **never inside a card**”. שלושת
+   * הכרטיסים עטפו אותו ב-`mv-list-card` — מה שהיה נכון לרצועה עם קו
+   * תחתון, שנשענה על משטח, ואינו נכון לגלולות: הן משטח בפני עצמן,
+   * ובתוך כרטיס הן נראות ככרטיס בתוך כרטיס (ביקורת Codex).
+   *
+   * העוטפים הוסרו, ואיתם גם הריווח שהם נשאו. כאן הוא לא יישכח
+   * בקורא הבא שיוסיף סרגל.
+   */
+  margin-bottom: 18px;
 }
 .mv-entity-tabs::-webkit-scrollbar {
   display: none;

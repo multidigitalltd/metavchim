@@ -388,24 +388,19 @@ export default function BuyerDetailPage({
       </div>
 
       {/* ---- לשוניות ---- */}
-      <div
-        className="mv-list-card mb-[18px] px-4"
-        style={{ overflow: "visible" }}
-      >
-        <EntityTabs
-          label="לשוניות כרטיס הקונה"
-          active={tab}
-          onSelect={selectTab}
-          tabs={[
-            { key: "overview", label: "סקירה" },
-            { key: "matches", label: "התאמות", count: matches?.length },
-            { key: "tasks", label: "משימות", count: openTasks },
-            { key: "timeline", label: "ציר זמן" },
-            { key: "agreements", label: "הסכמים" },
-            { key: "network", label: "שיתופי פעולה" },
-          ]}
-        />
-      </div>
+      <EntityTabs
+        label="לשוניות כרטיס הקונה"
+        active={tab}
+        onSelect={selectTab}
+        tabs={[
+          { key: "overview", label: "סקירה" },
+          { key: "matches", label: "התאמות", count: matches?.length },
+          { key: "tasks", label: "משימות", count: openTasks },
+          { key: "timeline", label: "ציר זמן" },
+          { key: "agreements", label: "הסכמים" },
+          { key: "network", label: "שיתופי פעולה" },
+        ]}
+      />
 
       {/* ============================================================
           סקירה — מה שסוכן קורא לפני שיחה
