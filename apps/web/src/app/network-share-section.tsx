@@ -7,11 +7,13 @@ import {
   describeCommissionSide,
   COMMISSION_SIDES,
   COMMISSION_SIDE_LABEL,
+  NETWORK_DISCLOSURE,
   type CommissionTerms,
+  type DisclosureChip,
 } from "@metavchim/shared";
 import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { CommissionTermsTabs } from "./collaboration/commission-terms-tabs";
-import { IconHandshake } from "./icons";
+import { IconEye, IconHandshake, IconLock } from "./icons";
 import { Notice } from "./notice";
 
 /**
@@ -109,6 +111,100 @@ interface ActiveShare {
    * הכפתורים נשארים כפי שהיו, והשרת עדיין יאכוף.
    */
   canManage?: boolean;
+}
+
+/**
+ * ‎**„מה בדיוק יוצא מכאן.”**
+ *
+ * השאלה שעוצרת מתווך לפני פרסום אינה המחיר — היא מה נחשף. עד כה
+ * התשובה הייתה משפט בתוך פסקה, ומשפט הוא דבר שסורקים. שתי רשימות
+ * הן דבר שקוראים.
+ *
+ * ‎**התוכן אינו כאן.** הוא ב-`NETWORK_DISCLOSURE` שבחבילה המשותפת,
+ * ובדיקה ב-`apps/api` מוודאת אותו מול `schema.prisma` בכל בנייה:
+ * עמודה חדשה בטבלה המשותפת מפילה אותה עד שמישהו יאמר עליה אם היא
+ * נחשפת. פאנל שמבטיח „זה הכול” ואינו יודע על שדה חדש גרוע ממסך
+ * בלי פאנל, ולכן ההצהרה אינה יכולה לחיות ב-JSX.
+ *
+ * ‎**שתי הקבוצות באותו רכיב ובאותו מבנה**, ונבדלות בגוון ובאייקון
+ * בלבד. שני בלוקים נפרדים היו מתפצלים ביום שאחד מהם משתנה — ואת
+ * ההפרש הזה בדיוק הפאנל הזה נועד להציג.
+ */
+function DisclosureList({
+  tone,
+  title,
+  chips,
+}: {
+  tone: "shown" | "hidden";
+  title: string;
+  chips: readonly DisclosureChip[];
+}) {
+  /* רשימה ריקה אינה כותרת ריקה — בביקוש אין „נשמר ואינו נשלח” */
+  if (chips.length === 0) return null;
+  const shown = tone === "shown";
+  return (
+    <div>
+      <div
+        className="mb-1.5 flex items-center gap-1.5 text-[length:var(--type-caption-lg)]"
+        style={{ color: shown ? "var(--color-primary)" : "var(--color-text-muted)", fontWeight: 800 }}
+      >
+        {shown ? <IconEye s={14} /> : <IconLock s={14} />}
+        {title}
+      </div>
+      <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
+        {chips.map((chip) => (
+          <li
+            key={chip.label}
+            className="rounded-full px-2.5 py-1 text-[length:var(--type-caption-lg)]"
+            style={
+              shown
+                ? {
+                    background: "var(--color-primary-soft)",
+                    color: "var(--color-primary)",
+                    fontWeight: 700,
+                  }
+                : {
+                    background: "var(--domain-neutral-bg)",
+                    border: "1px solid var(--domain-neutral-line)",
+                    color: "var(--domain-neutral-fg)",
+                    fontWeight: 700,
+                  }
+            }
+          >
+            {chip.label}
+            {/*
+              ההסתייגות בתוך הצ'יפ ולא בהערת שוליים. „תקציב” לבדו
+              עונה תשובה שגויה לשאלה שנשאלה — הוא מתפרסם מעוגל
+              ל-100 אלף, וזה ההבדל בין „נחשף” ל„נחשף במידה”.
+            */}
+            {chip.qualifier === undefined ? null : (
+              <span style={{ fontWeight: 400, opacity: 0.85 }}> · {chip.qualifier}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function DisclosurePanel({ kind }: { kind: "buyer" | "property" }) {
+  const disclosure = NETWORK_DISCLOSURE[kind];
+  return (
+    <div
+      className="mb-4 flex flex-col gap-3 rounded-xl border p-3.5"
+      style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+    >
+      <DisclosureList tone="shown" title="מה משרד אחר מקבל" chips={disclosure.shown} />
+      {/*
+        ‎**הקבוצה השלישית, ובלעדיה שתי האחרות משקרות.** המיקום
+        המעוגל נשמר בטבלה המשותפת, אינו נשלח בתשובה, ובכל זאת מזין
+        את מנוע ההתאמות — והמרחק שנגזר ממנו כן מגיע לצד השני. „נחשף”
+        היה שקר, „מוסתר” היה שקר, ורק שלוש קבוצות אומרות את האמת.
+      */}
+      <DisclosureList tone="hidden" title="נשמר ואינו נשלח" chips={disclosure.storedOnly} />
+      <DisclosureList tone="hidden" title="מה נשאר אצלכם" chips={disclosure.hidden} />
+    </div>
+  );
 }
 
 export function NetworkShareSection({
@@ -325,6 +421,15 @@ export function NetworkShareSection({
             ))}
           </ul>
           {/*
+            ואותה רשימה **אחרי** הפרסום. השאלה משתנה מ„מה ייצא” ל„מה
+            יצא”, וזו אותה תשובה בדיוק — ולכן אותו רכיב. מסך שמראה
+            את הפירוט רק לפני הלחיצה מותיר את מי שכבר פרסם בלי דרך
+            לבדוק על מה הוא חתם.
+          */}
+          <div className="mt-3">
+            <DisclosurePanel kind={kind} />
+          </div>
+          {/*
             עדכון ולא פרסום מחדש: הביקוש הקיים מתעדכן במקום, ולכן
             ההיסטוריה וההצעות שכבר התקבלו עליו נשמרות
           */}
@@ -373,6 +478,11 @@ export function NetworkShareSection({
             {copy.invite} <strong>{copy.privacy}</strong>, ואתם בוחרים את חלוקת
             העמלה.
           </p>
+          {/*
+            הרשימה **לפני** ההחלטה. זה הרגע שבו השאלה „מה יוצא מכאן”
+            נשאלת, ומשפט בתוך פסקה אינו עונה עליה.
+          */}
+          <DisclosurePanel kind={kind} />
           {/*
             "כמה זה עולה לי" היא השאלה הראשונה שמתווך שואל לפני שהוא
             משתף, ובלי תשובה הוא פשוט לא לוחץ. שיתוף פעולה חינם;
