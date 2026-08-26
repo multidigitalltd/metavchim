@@ -57,6 +57,21 @@ describe("תפיסת תשלום מאומת", () => {
     expect(offending).toEqual([]);
   });
 
+  /*
+   * **הבדיקה הזו נולדה מפער בבדיקה שמעליה.**
+   *
+   * הבדיקה הקודמת סרקה תנאי `where` בלבד, ולכן לא ראתה השוואה
+   * רגילה ב-JS. וכך `paymentStatus` נשארה עם `=== "pending"`: דף
+   * החזרה המשיך לבדוק שורה `superseded`, אבל השרת לא פנה לקארדקום
+   * עליה — סיבוב סרק בזמן שהלקוח כבר חויב (ביקורת Codex).
+   *
+   * „לא נשאר `where` צר” אינו „לא נשאר שער צר”.
+   */
+  it("שום השוואה בקוד אינה בודקת pending לבדו", () => {
+    const comparisons = [...SERVICE.matchAll(/\w+\.status\s*===\s*"pending"/gu)].map((m) => m[0]);
+    expect(comparisons).toEqual([]);
+  });
+
   it("רשימת הסטטוסים הניתנים לתפיסה כוללת את superseded ואינה כוללת paid", () => {
     const list = /const CLAIMABLE: string\[\] = \[([^\]]+)\]/u.exec(SERVICE)?.[1] ?? "";
     expect(list).toContain("pending");

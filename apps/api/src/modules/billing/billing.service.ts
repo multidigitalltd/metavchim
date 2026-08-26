@@ -788,9 +788,17 @@ export class BillingService {
     });
     if (!payment) throw new BadRequestException("התשלום לא נמצא");
 
-    // עדיין ממתין ⇒ הוובהוק טרם הגיע. שואלים את קארדקום ישירות במקום
-    // להשאיר את המשרד מול "ממתין" עד שהוא מרענן
-    if (payment.status === "pending" && payment.lowProfileId !== paymentId) {
+    /*
+     * טרם הוכרע ⇒ הוובהוק טרם הגיע. שואלים את קארדקום ישירות במקום
+     * להשאיר את המשרד מול „ממתין” עד שהוא מרענן.
+     *
+     * ‎**גם `superseded`, לא רק `pending`.** דף שנפתח דף חדש במקומו
+     * נשאר חי וניתן לחיוב, ולכן דווקא הוא זה שעלול להיות משולם בלי
+     * שהוובהוק הגיע. בדיקה שמדלגת עליו הופכת את הבדיקה החוזרת של
+     * דף החזרה לסיבוב סרק — הלקוח מחויב, המסך מסתובב, ואיש אינו
+     * שואל את הסולק (ביקורת Codex).
+     */
+    if (CLAIMABLE.includes(payment.status) && payment.lowProfileId !== paymentId) {
       await this.apply(payment.lowProfileId);
       const fresh = await this.prisma.payment.findFirst({
         where: { id: paymentId, tenantId },
