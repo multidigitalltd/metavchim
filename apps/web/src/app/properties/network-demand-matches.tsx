@@ -8,7 +8,7 @@ import {
   publisherStatedSplit,
   type CommissionTerms,
 } from "@metavchim/shared";
-import { ApiError, apiGet, apiPost } from "@/lib/api";
+import { ApiError, apiGet, apiPost, mediaSrc } from "@/lib/api";
 import { NetChips } from "../collaboration/net-chips";
 import { IconGlobe, IconHandshake } from "../icons";
 import { Notice } from "../notice";
@@ -26,13 +26,22 @@ import { Notice } from "../notice";
  *
  * מה שנחשף על הביקוש הוא בדיוק מה שהרשת חושפת — הרשימה נבנית
  * ב-`packages/shared/logic/network-card.ts`, אותו מקור שמזין את פיד
- * הרשת. שם הקונה, הטלפון והמשרד לעולם לא כאן.
+ * הרשת. **שם הקונה והטלפון לעולם לא כאן.**
+ *
+ * ‎**המשרד כן, וזה תיקון.** ההערה הזו אמרה קודם „והמשרד” באותה
+ * נשימה — אבל משרד אינו אדם, הפיד מציג אותו ממילא, ופאנל „מה נחשף”
+ * מבטיח למפרסם במפורש ששם המשרד שלו נשלח. עמודה שהסתירה אותו
+ * הציגה „82% · 50/50” בלי שמי שעומד להוציא קרדיט ידע עם מי הוא
+ * משתף פעולה — והפכה את ההצהרה ההיא לטענה שהמוצר סותר.
  */
 
 interface NetworkDemandMatch {
   demandId: string;
   score: number;
   explanation: string;
+  /** המשרד שפרסם — חסר בביקוש ממקור חיצוני, שאין לו משרד תיווך. */
+  officeName?: string;
+  officeLogoUrl?: string;
   cities: string[];
   neighborhoods: string[];
   notes?: string;
@@ -118,6 +127,24 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
         style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
       >
         <IconGlobe s={16} /> ביקושים ברשת
+        {/*
+          המונה בכותרת, בגוון הדומיין של מנוע ההתאמות. הוא נכתב רק
+          כשהרשימה נטענה: „0 קונים” בזמן טעינה הוא מספר שגוי, ולא
+          „עדיין לא ידוע”.
+        */}
+        {rows !== null && rows.length > 0 ? (
+          <span
+            className="mv-pill ms-2"
+            style={{
+              background: "var(--domain-violet-bg)",
+              borderColor: "var(--domain-violet-line)",
+              color: "var(--domain-violet-fg)",
+              fontWeight: 800,
+            }}
+          >
+            {rows.length} {rows.length === 1 ? "קונה" : "קונים"}
+          </span>
+        ) : null}
       </h2>
       <p
         className="m-0 mb-2.5 text-[length:var(--type-caption)]"
@@ -155,6 +182,33 @@ export function NetworkDemandMatches({ propertyId }: { propertyId: string }) {
               </span>
             </span>
             <div className="min-w-0 flex-1" style={{ lineHeight: 1.4 }}>
+              {/*
+                ‎**מי מבקש — לפני מה מבקשים.**
+
+                זו ההחלטה הראשונה שהמתווך מקבל בשורה הזו: האם הוא
+                רוצה לשתף פעולה עם המשרד הזה בכלל. ביקוש ממקור חיצוני
+                אין לו משרד תיווך, ואז נאמר מה כן ידוע במקום „לא ידוע”.
+              */}
+              <div
+                className="mb-0.5 flex items-center gap-1.5 text-[length:var(--type-caption-lg)]"
+                style={{ color: "var(--color-text)", fontWeight: 800 }}
+              >
+                {row.officeLogoUrl === undefined ? null : (
+                  /*
+                    ‎`mediaSrc` ולא הנתיב כמות שהוא: `officeBadges`
+                    מחזיר נתיב API יחסי, וכתובת יחסית מהדפדפן הייתה
+                    פונה למקור של הווב ולא של ה-API. אותו דפוס בדיוק
+                    כמו בחדר העסקה.
+                  */
+                  <img
+                    src={mediaSrc(row.officeLogoUrl)}
+                    alt=""
+                    loading="lazy"
+                    style={{ height: 18, width: "auto", borderRadius: 4 }}
+                  />
+                )}
+                {row.officeName ?? "ביקוש ממקור חיצוני"}
+              </div>
               {/* כל מה שידוע על הביקוש, למעט מה שמזהה אדם */}
               <NetChips chips={demandChips(row)} />
               <div
