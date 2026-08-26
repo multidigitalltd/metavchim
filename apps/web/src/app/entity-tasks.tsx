@@ -144,7 +144,8 @@ export function EntityTasks({
         method: "PATCH",
         body: JSON.stringify({ status: task.status === "open" ? "done" : "open" }),
       });
-      load();
+      /* אותו נימוק כמו בשני הכותבים האחרים — ראו `load` */
+      await load();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "עדכון המשימה נכשל");
     } finally {
