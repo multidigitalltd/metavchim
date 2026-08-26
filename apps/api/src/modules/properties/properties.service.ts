@@ -510,6 +510,27 @@ export class PropertiesService {
 
     await this.prisma.withTenant(async (tx) => {
       /*
+       * ‎**כרטיסי איש הקשר נפתרים ראשונים — לפני נעילת שורת הנכס.**
+       *
+       * ‎`findOrCreateByPhone` נועלת את הכרטיס (`lockContact`), ומחיקת
+       * לקוח נועלת בסדר ההפוך: קודם הכרטיס, אחר כך שורות הנכסים
+       * שהיא מנתקת מהם. עריכה שהייתה נועלת קודם את הנכס ואז ממתינה
+       * לכרטיס הייתה סוגרת מעגל — Postgres מפיל אחת מהשתיים
+       * כ-deadlock, כלומר או שהעריכה נכשלת או שבקשת מחיקה של אדם
+       * נכשלת (ביקורת Codex).
+       *
+       * הסדר הוא הכלל, לא המקרה: **כרטיס לפני נכס, בכל מי שנוגע
+       * בשניהם.** נכס שאינו קיים מפיל את הטרנזקציה מיד אחרי כן,
+       * וכרטיס שנוצר כאן מתגלגל אחורה איתה.
+       */
+      const ownerContact = owner
+        ? await this.contacts.findOrCreateByPhone(tx, owner)
+        : null;
+      const occupantContact = occupant
+        ? await this.contacts.findOrCreateByPhone(tx, occupant)
+        : null;
+
+      /*
        * **אותה נעילה שההעלאה והמחיקה לוקחות** — נקודת סנכרון אחת
        * לכל מי שכותב מוכנות.
        *
@@ -517,6 +538,9 @@ export class PropertiesService {
        * הנעילה, טרנזקציית מדיה שרצה במקביל יכולה לסגור ביניהן: העריכה
        * קראה „אין תמונות”, המדיה כתבה את הציון הנכון, והעריכה דרסה
        * אותו בערך שחישבה קודם (ביקורת Codex).
+       *
+       * הקריאה של השורה ושל המדיה חייבת להיות **אחרי** הנעילה: מצב
+       * שנקרא לפניה עלול כבר להיות ישן ברגע החישוב.
        */
       await tx.$queryRaw`SELECT id FROM properties WHERE id = ${id} FOR UPDATE`;
       const existing = await tx.property.findFirst({
@@ -543,12 +567,6 @@ export class PropertiesService {
         };
       }
 
-      const ownerContact = owner
-        ? await this.contacts.findOrCreateByPhone(tx, owner)
-        : null;
-      const occupantContact = occupant
-        ? await this.contacts.findOrCreateByPhone(tx, occupant)
-        : null;
       const mergedFields = { ...rowToFields(existing), ...fieldPatch };
       const readiness = computeReadiness(mergedFields, {
         hasImages: await this.hasMedia(tx, id),

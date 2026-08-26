@@ -20,7 +20,7 @@ import {
 } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
-import { readinessBand, readinessCount, readinessHref } from "@/lib/readiness";
+import { readinessBand, readinessCount, readinessTarget } from "@/lib/readiness";
 import { MediaSection } from "./media-section";
 import { PropertyTwins } from "./property-twins";
 import { NetworkDemandMatches } from "../network-demand-matches";
@@ -859,12 +859,38 @@ export default function PropertyDetailPage({
                 ))
               )}
               {property.missingFields.length > 0 ? (
-                <Link
-                  href={readinessHref(id, property.missingFields)}
-                  className="mv-btn-soft mt-2 inline-block"
+                /*
+                  כפתור ולא קישור — אותו נימוק שכבר כתוב מעל „מצא לי
+                  קונים”. כאן היעד הוא הדף שהמשתמש כבר עומד בו, וניווט
+                  אליו אינו מרכיב אותו מחדש: `?tab=owner` היה משנה את
+                  הכתובת בזמן שהלשונית נשארת על הסקירה, ועוגן לסעיף
+                  שבתוך לשונית סגורה מצביע על אלמנט שאינו ב-DOM
+                  (ביקורת Codex). היעד עצמו נקבע ב-`readinessTarget`,
+                  אותה החלטה שמשרתת גם את הדשבורד.
+                */
+                <button
+                  type="button"
+                  className="mv-btn-soft mt-2 self-start"
+                  onClick={() => {
+                    const target = readinessTarget(property.missingFields);
+                    if (target.kind === "form") {
+                      router.push(`/properties/${id}/edit`);
+                      return;
+                    }
+                    if (target.kind === "tab") {
+                      selectTab(target.tab);
+                      return;
+                    }
+                    selectTab("overview");
+                    requestAnimationFrame(() => {
+                      document
+                        .getElementById(target.id)
+                        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    });
+                  }}
                 >
                   השלם פרטים
-                </Link>
+                </button>
               ) : null}
             </section>
 

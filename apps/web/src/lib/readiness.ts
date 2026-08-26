@@ -98,20 +98,46 @@ const FIELDS_OUTSIDE_EDIT_FORM = ["images", "owner"];
  * ## הכלל
  *
  * יש ולו חוסר אחד שהטופס יודע לתקן — הטופס. אחרת כרטיס הנכס:
- * בעלים-בלבד נפתח היישר בלשונית „בעל הנכס”, וכל מקרה שכולל
- * תמונות נוחת על עוגן רכיב ההעלאה שבסקירה. השדות עצמם מגיעים
- * מהשרת, כך שהניתוב הוא תוצאה של אותו חישוב שהפיק את הגלולות
- * ולא ניחוש מקביל.
+ * בעלים-בלבד נפתח בלשונית „בעל הנכס”, וכל מקרה שכולל תמונות נוחת
+ * על סעיף ההעלאה שבסקירה. השדות עצמם מגיעים מהשרת, כך שהניתוב
+ * הוא תוצאה של אותו חישוב שהפיק את הגלולות ולא ניחוש מקביל.
  *
- * העוגן חשוב במיוחד לכפתור שבכרטיס עצמו: בלעדיו „השלם פרטים”
- * היה קישור לעמוד שהמשתמש כבר נמצא בו, כלומר לחיצה שאינה עושה
- * דבר. עם העוגן היא גוללת אל מעלה התמונות.
+ * ## למה יעד מתואר ולא כתובת
+ *
+ * ‎**לשני הקוראים אין אותה דרך להגיע לאותו מקום.** הדשבורד נמצא
+ * במסלול אחר וניווט משם מרכיב את הכרטיס מחדש, כך ש-`?tab=owner`
+ * אכן נקרא. הכפתור שבכרטיס עצמו כבר עומד באותו מסלול: ניווט
+ * „אליו” אינו מרכיב דבר, `useEntityTab` קורא את הכתובת רק באפקט
+ * הכניסה — והתוצאה היא כתובת שהשתנתה בזמן שהלשונית נשארה על
+ * הסקירה (ביקורת Codex). אותה מלכודת בדיוק שהכפתור „מצא לי קונים”
+ * שבאותו קובץ כבר תועד עליה: לשונית שאינה פתוחה אינה קיימת ב-DOM,
+ * ולכן פעולה בתוך הדף היא פעולה — לא קישור.
+ *
+ * ‎`readinessTarget` מתאר **מה צריך לקרות**; `readinessHref` מתרגם
+ * את זה לכתובת עבור מי שבא מבחוץ, והכרטיס מבצע את אותו יעד בתוך
+ * הדף. כלל אחד, שתי דרכי מימוש — במקום שני כללים שיתפצלו.
  */
-export function readinessHref(propertyId: string, missingFields: readonly string[]): string {
+export type ReadinessTarget =
+  /** טופס העריכה — יש בו לפחות חוסר אחד שהוא יודע לתקן */
+  | { kind: "form" }
+  /** לשונית בכרטיס הנכס */
+  | { kind: "tab"; tab: string }
+  /** סעיף בלשונית הסקירה */
+  | { kind: "section"; id: string };
+
+export function readinessTarget(missingFields: readonly string[]): ReadinessTarget {
   const fixableInForm = missingFields.some((f) => !FIELDS_OUTSIDE_EDIT_FORM.includes(f));
-  if (fixableInForm) return `/properties/${propertyId}/edit`;
+  if (fixableInForm) return { kind: "form" };
   if (missingFields.length === 1 && missingFields[0] === "owner") {
-    return `/properties/${propertyId}?tab=owner`;
+    return { kind: "tab", tab: "owner" };
   }
-  return `/properties/${propertyId}#media-heading`;
+  return { kind: "section", id: "media-heading" };
+}
+
+/** אותו יעד ככתובת — למי שמגיע ממסך אחר, ולכן מרכיב את הכרטיס מחדש. */
+export function readinessHref(propertyId: string, missingFields: readonly string[]): string {
+  const target = readinessTarget(missingFields);
+  if (target.kind === "form") return `/properties/${propertyId}/edit`;
+  if (target.kind === "tab") return `/properties/${propertyId}?tab=${target.tab}`;
+  return `/properties/${propertyId}#${target.id}`;
 }
