@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BadRequestException } from "@nestjs/common";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import type { PrismaService } from "../../core/prisma.service";
@@ -12,6 +12,42 @@ import { SubscriptionOfferService } from "./subscription-offer.service";
  */
 
 const NOW = new Date("2026-08-26T09:00:00.000Z");
+
+/*
+ * ‎`list` בונה גם את הלינק, ולכן היא נוגעת ב-`loadEnv` — בעוד
+ * שמסלול פתיחת התשלום אינו נוגע בו כלל.
+ *
+ * הערכים נכתבים כאן **תמיד**, ולא רק כשהם חסרים. Vite טוען `.env`
+ * מהשורש לתוך `process.env`, וכך בדיקה שנשענת על הסביבה עוברת
+ * במכונת פיתוח ונופלת ב-CI — בדיוק מה שקרה כאן. בדיקת יחידה
+ * שהתוצאה שלה תלויה במה שמותקן מסביבה אינה בדיקה: `vitest.config.ts`
+ * אומר „בלי תשתית, ולכן תמיד רצות”, וסביבה היא תשתית.
+ *
+ * הערכים מזויפים ומינימליים — אף אחד מהם אינו נבדק כאן לגופו.
+ */
+const BASE_ENV: Record<string, string> = {
+  WEB_ORIGIN: "https://app.example.test",
+  DATABASE_URL: "postgresql://u:p@localhost:5432/db",
+  REDIS_URL: "redis://localhost:6379",
+  DATA_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
+  PHONE_HASH_KEY: "x".repeat(32),
+};
+const previousEnv = new Map<string, string | undefined>();
+
+beforeAll(() => {
+  for (const [key, value] of Object.entries(BASE_ENV)) {
+    previousEnv.set(key, process.env[key]);
+    process.env[key] = value;
+  }
+});
+
+afterAll(() => {
+  for (const [key, value] of previousEnv) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  previousEnv.clear();
+});
 
 /** שורת מסלול מלאה, כפי ש-Prisma מחזירה. */
 function planRow(code: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
