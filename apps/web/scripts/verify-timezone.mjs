@@ -93,7 +93,7 @@ const LOCALE_METHOD =
 /** קריאת `toLocale…` בלי `timeZone` — על הקריאה כולה, כמו המעצבים. */
 function localeWithoutTimeZone(text) {
   return callsOf(text, LOCALE_METHOD)
-    .filter(({ call }) => !call.includes("timeZone") && !call.includes(ALLOW))
+    .filter(({ call }) => !namesTimeZone(call) && !call.includes(ALLOW))
     .map(({ line }) => line);
 }
 
@@ -210,12 +210,27 @@ function callsOf(source, pattern) {
   return calls;
 }
 
+/**
+ * ‎`timeZone` כ**מפתח אפשרות**, ולא כמחרוזת שמופיעה איפשהו בקריאה.
+ *
+ * ‎`call.includes("timeZone")` נתן ציון עובר גם ל-`timeZoneName: "short"`,
+ * שהיא אפשרות **תצוגה** — היא מוסיפה „GMT+3” לפלט ואינה קובעת דבר.
+ * מעצב כזה ממשיך לעצב בשעון המכשיר, ועובר את השער (ביקורת Codex).
+ *
+ * הבדיקה דורשת `timeZone` שאחריו `:`, `,` או `}` — כלומר מפתח עם
+ * ערך, או קיצור `{ timeZone }`. ‎`timeZoneName` נופל מעצם האות `N`
+ * שבאה מיד אחרי.
+ */
+function namesTimeZone(call) {
+  return /\btimeZone\s*[:,}]/u.test(call);
+}
+
 function intlWithoutTimeZone(text) {
   const found = [];
   for (const { line, call } of callsOf(text, /new Intl\.DateTimeFormat\s*\(/gu)) {
     /* ‎`timeStyle`/`dateStyle`/`hour`… — כל מה שמציג רגע */
     const showsMoment = /(?:time|date)Style|hour|minute|weekday|day|month|year/u.test(call);
-    if (showsMoment && !call.includes("timeZone") && !call.includes(ALLOW)) found.push(line);
+    if (showsMoment && !namesTimeZone(call) && !call.includes(ALLOW)) found.push(line);
   }
   return found;
 }
