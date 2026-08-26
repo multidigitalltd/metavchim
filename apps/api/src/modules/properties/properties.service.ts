@@ -8,7 +8,9 @@ import {
 import { ulid } from "ulid";
 import {
   DEFAULT_COMMISSION_SPLIT,
+  occupancyConflict,
   uniformTerms,
+  type OccupancyState,
   computeReadiness,
   limitState,
   type Page,
@@ -487,6 +489,10 @@ export class PropertiesService {
       occupant?: { name: string; phone: string };
       /** הדירה התפנתה — מסירים את הדייר במקום להחליף אותו. */
       occupantCleared?: boolean;
+      /** ‎`null` = „טרם נשאל”, וזה ערך ולא היעדר. */
+      occupancy?: OccupancyState | null;
+      leaseEndsAt?: string | null;
+      noticePeriodDays?: number | null;
     },
   ): Promise<PropertyDto> {
     const tenantId = TenantContext.current().tenantId;
@@ -498,6 +504,9 @@ export class PropertiesService {
       owner,
       occupant,
       occupantCleared,
+      occupancy,
+      leaseEndsAt,
+      noticePeriodDays,
       ...fieldPatch
     } = patch;
 
@@ -553,6 +562,28 @@ export class PropertiesService {
         },
       });
       if (!existing) throw new NotFoundException("נכס לא נמצא");
+
+      /*
+       * ‎**סתירה נדחית, ואינה נשמרת בשקט.**
+       *
+       * „הבעלים גר בנכס” בזמן ששוכר רשום משאיר טלפון של אדם בכרטיס
+       * שמצהיר שאין שם אדם — מספר שאיש כבר לא יודע למה הוא שם, ושלא
+       * ימצא בבקשת מחיקה. הבדיקה כאן ולא בלקוח בלבד, כי נתיב API
+       * אינו נגזר מהמסך.
+       *
+       * ‎**המצב אחרי העדכון ולא לפניו**, וזה ההבדל: מי שסימן „מושכר”
+       * והוסיף שוכר באותה בקשה עושה דבר תקין לגמרי, ובדיקה על השורה
+       * הישנה הייתה חוסמת אותו.
+       */
+      if (occupancy !== undefined && occupancy !== null) {
+        const tenantAfter =
+          occupantCleared === true
+            ? false
+            : occupantContact !== null || existing.occupantContactId !== null;
+        const conflict = occupancyConflict(occupancy, tenantAfter);
+        if (conflict !== null) throw new BadRequestException(conflict);
+      }
+
       const priceBefore =
         existing.priceAgorot === null ? null : Number(existing.priceAgorot);
       const priceAfter = fieldPatch.priceAgorot;
@@ -601,6 +632,26 @@ export class PropertiesService {
            */
           ...(occupantContact ? { occupantContactId: occupantContact.id } : {}),
           ...(occupantCleared === true ? { occupantContactId: null } : {}),
+          ...(occupancy === undefined ? {} : { occupancy }),
+          ...(leaseEndsAt === undefined
+            ? {}
+            : { leaseEndsAt: leaseEndsAt === null ? null : new Date(`${leaseEndsAt}T00:00:00Z`) }),
+          ...(noticePeriodDays === undefined ? {} : { noticePeriodDays }),
+          /*
+           * ‎**פרטי חוזה נמחקים כשנאמר במפורש שאין שכירות.**
+           *
+           * שורה שמצהירה „אין דייר” ונושאת תום חוזה עתידי היא סתירה
+           * שהמסך יציג בלי לדעת מה לומר עליה, וכך גם „הדירה התפנתה”
+           * שמשאיר את תאריך החוזה שהסתיים.
+           *
+           * ‎**ו-`null` אינו ברשימה, בכוונה.** ביטול הסימון פירושו
+           * „איני יודע”, לא „אין שכירות” — ומחיקת תאריך שהמתווך
+           * הקליד על סמך „לא ידוע” היא בדיוק אותה קפיצה למסקנה שכל
+           * השדה הזה נועד למנוע.
+           */
+          ...(occupancy === "owner" || occupancy === "vacant" || occupantCleared === true
+            ? { leaseEndsAt: null, noticePeriodDays: null }
+            : {}),
           readinessScore: readiness.score,
         },
       });
@@ -726,6 +777,17 @@ export class PropertiesService {
               },
             }
           : {}),
+        ...(row.occupancy === null ? {} : { occupancy: row.occupancy as OccupancyState }),
+        /*
+         * תאריך ולא חותמת זמן. העמודה היא `DATE`, ו-Prisma מחזירה
+         * אותה כחצות UTC — הפורמט שהמסך מזין בו הוא בדיוק העשרה
+         * הראשונים, וזו אינה גזירת „היום” משעון כלשהו אלא קריאה של
+         * תאריך שנשמר ככזה.
+         */
+        ...(row.leaseEndsAt === null
+          ? {}
+          : { leaseEndsAt: row.leaseEndsAt.toISOString().slice(0, 10) }),
+        ...(row.noticePeriodDays === null ? {} : { noticePeriodDays: row.noticePeriodDays }),
         archived: row.deletedAt !== null,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,

@@ -15,6 +15,7 @@ import {
   propertyEvaluableCriteria,
   PropertyStatusSchema,
   type MatchCriterion,
+  type OccupancyState,
   type PropertyFields,
   type PropertyStatus,
   type ScoreComponent,
@@ -112,6 +113,16 @@ interface PropertyDetail {
   ownerContact?: OwnerContact;
   /** מי גר בנכס כשזה אינו הבעלים — דירה שמושכרת בזמן שהיא מוצעת. */
   occupantContact?: OccupantContact;
+  /**
+   * ‎`undefined` = **טרם נסומן**, ולא „הבעלים גר בנכס”.
+   *
+   * ‎`apiGet` הוא הצהרת טיפוס ולא ולידציה, ולכן ההערה הזו היא מה
+   * שמחזיק את ההבחנה: כל הנכסים שקדמו לשדה מגיעים חסרים, והנחת ערך
+   * כאן הייתה ממציאה עובדה על כל המאגר בבת אחת.
+   */
+  occupancy?: OccupancyState;
+  leaseEndsAt?: string;
+  noticePeriodDays?: number;
   /** מתי הנכס נקלט — היה בשרת מאז ומתמיד ולא הוצהר כאן */
   createdAt: string;
 }
@@ -1688,6 +1699,9 @@ export default function PropertyDetailPage({
           <PropertyOccupant
             propertyId={id}
             occupant={property.occupantContact}
+            occupancy={property.occupancy}
+            leaseEndsAt={property.leaseEndsAt}
+            noticePeriodDays={property.noticePeriodDays}
             canEdit={canEditOwner}
             canEditPeople={canEditOwnerPeople}
             canErase={can(user, "contacts.delete")}

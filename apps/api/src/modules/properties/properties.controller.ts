@@ -13,6 +13,8 @@ import {
 import { z } from "zod";
 import {
   IdSchema,
+  MAX_NOTICE_PERIOD_DAYS,
+  OCCUPANCY_STATES,
   PAGE_LIMIT_MAX,
   PhoneSchema,
   PropertyFieldsSchema,
@@ -57,6 +59,32 @@ const UpdatePropertySchema = CreatePropertySchema.partial()
      * דרך להסיר דייר אחרי שהוא עזב — והמספר שלו היה נשאר בכרטיס.
      */
     occupantCleared: z.literal(true).optional(),
+    /*
+     * ‎**מי גר בנכס — בעדכון בלבד, ובמכוון.**
+     *
+     * הוספתי אותם קודם ל-`CreatePropertySchema`, ומסלול היצירה
+     * **זרק אותם בשקט**: `create()` אינו מקבל אותם, ו-TypeScript
+     * אינו מסמן מפתח עודף שנכנס דרך spread מותנה. כלומר ה-API היה
+     * מקבל 200 ומאבד את הערך. שדה שנשלח ונעלם גרוע משדה שנדחה,
+     * ולכן `.strict()` של היצירה דוחה אותם עכשיו במפורש.
+     *
+     * ‎`null` מפורש מותר: „טרם נשאל” הוא ערך, ומי שסימן בטעות צריך
+     * דרך לחזור אליו. שדה שלא נשלח פירושו „בלי שינוי”.
+     */
+    occupancy: z.enum(OCCUPANCY_STATES).nullable().optional(),
+    /** תום חוזה השכירות — תאריך בלבד, `YYYY-MM-DD`. */
+    leaseEndsAt: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/u)
+      .nullable()
+      .optional(),
+    noticePeriodDays: z
+      .number()
+      .int()
+      .min(0)
+      .max(MAX_NOTICE_PERIOD_DAYS)
+      .nullable()
+      .optional(),
   })
   .strict();
 
