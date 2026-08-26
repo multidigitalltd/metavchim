@@ -194,7 +194,7 @@ export function MatchesEmptyState({
       {blocking.length > 0 ? (
         <div
           className="mb-3 rounded-xl px-3.5 py-2.5 text-[length:var(--type-body-sm)]"
-          style={{ background: "#FDF3DE", border: "1px solid #EFD79B", color: "#79541A" }}
+          style={{ background: "var(--domain-amber-bg)", border: "1px solid var(--domain-amber-line)", color: "var(--domain-amber-fg)" }}
         >
           {/*
             הניסוח נוקב בשדות ומיד אחריהם בתוצאה, ולא להפך: מתווך

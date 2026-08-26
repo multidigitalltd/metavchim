@@ -102,10 +102,10 @@ interface TimelineItem {
  * אמורים להיראות אותו דבר משלושה מטרים.
  */
 const STATUS_PILL: Record<string, { fg: string; bg: string }> = {
-  new: { fg: "#b0512c", bg: "#faf1ec" },
+  new: { fg: "var(--color-danger)", bg: "var(--color-danger-soft)" },
   in_progress: { fg: "#7a5c1f", bg: "#f7efdd" },
   waiting_customer: { fg: "#3F4742", bg: "#EDEFED" },
-  converted: { fg: "#0C6E34", bg: "#E5FCEA" },
+  converted: { fg: "var(--color-success)", bg: "var(--color-success-soft)" },
   closed: { fg: "#616a63", bg: "#eef1ec" },
 };
 

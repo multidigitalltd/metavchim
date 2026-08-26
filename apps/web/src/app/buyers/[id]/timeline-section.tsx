@@ -59,9 +59,9 @@ interface InteractionsPage {
  */
 const KINDS: Record<string, { icon: ReactNode; label: string; fg: string; bg: string }> = {
   note: { icon: <IconDoc s={14} />, label: "הערה", fg: "#3F4742", bg: "#EDEFED" },
-  call: { icon: <IconPhone s={14} />, label: "שיחה", fg: "#0C6E34", bg: "#E5FCEA" },
+  call: { icon: <IconPhone s={14} />, label: "שיחה", fg: "var(--color-success)", bg: "var(--color-success-soft)" },
   whatsapp: { icon: <IconChat s={14} />, label: "וואטסאפ", fg: "#7a5c1f", bg: "#f7efdd" },
-  status_change: { icon: <IconRefresh s={14} />, label: "שינוי סטטוס", fg: "#b0512c", bg: "#faf1ec" },
+  status_change: { icon: <IconRefresh s={14} />, label: "שינוי סטטוס", fg: "var(--color-danger)", bg: "var(--color-danger-soft)" },
   system: { icon: <IconGear s={14} />, label: "מערכת", fg: "#616a63", bg: "#eef1ec" },
 };
 

@@ -43,7 +43,7 @@ interface Row {
 }
 
 /* צבעי תגי הסוג מקובץ העיצוב; ירוק הטקסט הועמק ל-AA (docs/06 §4) */
-const KIND_PROPERTY = { fg: "#0C6E34", bg: "#E5FCEA" };
+const KIND_PROPERTY = { fg: "var(--color-success)", bg: "var(--color-success-soft)" };
 const KIND_BUYER = { fg: "#7a5c1f", bg: "#f7efdd" };
 const KIND_LEAD = { fg: "#3F4742", bg: "#EDEFED" };
 /* טקסט חופשי שנכתב במערכת — יומן, משימות, שיחות והערות */

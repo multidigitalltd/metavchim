@@ -234,9 +234,9 @@ const MATCH_FILTERS: readonly {
 ];
 
 const MATURITY_TAG: Record<string, { fg: string; bg: string }> = {
-  very_hot: { fg: "#b0512c", bg: "#faf1ec" },
+  very_hot: { fg: "var(--color-danger)", bg: "var(--color-danger-soft)" },
   hot: { fg: "#7a5c1f", bg: "#f7efdd" },
-  interested: { fg: "#0C6E34", bg: "#E5FCEA" },
+  interested: { fg: "var(--color-success)", bg: "var(--color-success-soft)" },
   not_ripe: { fg: "#616a63", bg: "#eef1ec" },
 };
 
@@ -1630,11 +1630,19 @@ export default function PropertyDetailPage({
             matchGateMissing(property, matchEvaluable).length === 0 ? (
               <div
                 className="mt-4 flex flex-wrap items-center gap-3 px-4 py-3.5"
-                style={{ background: "#0B0E0C", borderRadius: 18 }}
+                style={{ background: "var(--color-tab-active-bg)", borderRadius: 18 }}
               >
                 <span
                   className="min-w-0 flex-1 text-[length:var(--type-body-sm)]"
-                  style={{ color: "#E8EDE9" }}
+                  /*
+                    ‎**הטקסט נגזר מאותו צמד כמו הרקע.**
+
+                    ‎`--color-tab-active-*` **מתהפך** בערכה הכהה: הרקע
+                    הופך ל-`#d8e6dc` הבהיר והטקסט ל-`#111710` הכהה.
+                    הרקע כאן הומר לטוקן והטקסט נשאר `#E8EDE9` — כלומר
+                    לבן על בהיר, ‎1.07:1, בלתי קריא (ביקורת Codex).
+                  */
+                  style={{ color: "var(--color-tab-active-fg)" }}
                 >
                   {matches.length === 0
                     ? "אף קונה מהמאגר לא התאים — אולי יש קונה מתאים אצל משרד אחר."

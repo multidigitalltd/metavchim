@@ -33,7 +33,7 @@ const TONE: Record<MatchChipTone, { bg: string; border: string; fg: string }> = 
   /* ירוק — התחום שכבר מסמן „תקין” בכל המערכת */
   matched: { bg: "#E9F7EE", border: "#BCE3C9", fg: "#1E6B39" },
   /* ענבר — בדיוק הצמד מ-SPEC-4a לאזהרה שאינה שגיאה */
-  partial: { bg: "#FDF3DE", border: "#EFD79B", fg: "#79541A" },
+  partial: { bg: "var(--domain-amber-bg)", border: "var(--domain-amber-line)", fg: "var(--domain-amber-fg)" },
   /* אפור — „אין נתון”, ובמכוון לא אזהרה: איש לא עשה כאן דבר שגוי */
   missing: { bg: "#F1F3EF", border: "#DCE1D8", fg: "#5E6860" },
 };
@@ -59,7 +59,7 @@ export function MatchExplanation({
     <div
       className="mt-2 flex flex-wrap gap-1.5 px-3 py-2"
       style={{
-        background: "#F8FAF6",
+        background: "var(--domain-neutral-bg)",
         borderTop: "1px solid #EDF0EA",
         borderRadius: "0 0 12px 12px",
       }}

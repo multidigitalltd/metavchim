@@ -118,16 +118,16 @@ const FEATURE_LABELS: Record<string, string> = {
 };
 
 const MATURITY_PILL: Record<string, { fg: string; bg: string }> = {
-  very_hot: { fg: "#b0512c", bg: "#faf1ec" },
+  very_hot: { fg: "var(--color-danger)", bg: "var(--color-danger-soft)" },
   hot: { fg: "#7a5c1f", bg: "#f7efdd" },
-  interested: { fg: "#0C6E34", bg: "#E5FCEA" },
+  interested: { fg: "var(--color-success)", bg: "var(--color-success-soft)" },
   not_ripe: { fg: "#616a63", bg: "#eef1ec" },
 };
 
 /* גלולות סטטוס ההצעה בהיסטוריה — כללי stChip מהעיצוב */
 function offerChip(o: OfferInfo): { label: string; fg: string; bg: string } {
   if (o.status === "interested")
-    return { label: "מעוניין ✓", fg: "#0C6E34", bg: "#E5FCEA" };
+    return { label: "מעוניין ✓", fg: "var(--color-success)", bg: "var(--color-success-soft)" };
   if (o.status === "declined")
     return { label: "לא מתאים", fg: "#616a63", bg: "#eef1ec" };
   if (o.openCount >= 3)
@@ -877,7 +877,7 @@ export default function BuyerDetailPage({
               isHotNoOffers ? (
                 <p
                   className="m-0 rounded-[9px] px-[13px] py-2.5 text-[length:var(--type-body-sm)] font-bold"
-                  style={{ color: "#b0512c", background: "#faf1ec" }}
+                  style={{ color: "var(--color-danger)", background: "var(--color-danger-soft)" }}
                 >
                   קונה חם שעדיין לא קיבל אף הצעה — שווה לטפל היום.
                 </p>

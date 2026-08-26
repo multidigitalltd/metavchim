@@ -156,7 +156,7 @@ export function UserPermissions({
             state === "חסום"
               ? { color: "#8a1c1c", background: "#fde8e8" }
               : state === "מלא"
-                ? { color: "#0C6E34", background: "#E5FCEA" }
+                ? { color: "var(--color-success)", background: "var(--color-success-soft)" }
                 : { color: "#616a63", background: "#eef1ec" };
           const timed = module.capabilities
             .map((c) => overrideOf.get(c))

@@ -20,6 +20,17 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  /*
+   * ‎**ערך ישיר, וכאן זה נכון — ‎ערך-מפורש-במכוון.**
+   *
+   * ‎`theme-color` הוא תגית `meta` שהדפדפן קורא **לפני** שיש CSS.
+   * ‎`var(--color-primary-accent)` שם אינו ערך אלא מחרוזת חסרת
+   * מובן, ולכן זה המקום היחיד בעץ שחייב את המספר עצמו. שתי השורות
+   * כבר מכסות את שתי הערכות בעצמן, וזו הסיבה שאין כאן מה לתקן.
+   *
+   * הערכים מכוונים ל-`--color-primary-accent` ול-`--dk-bg`; שינוי
+   * שם מחייב שינוי כאן, ואין דרך לאכוף את זה מלבד השורה הזו.
+   */
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#0F8A43" },
     { media: "(prefers-color-scheme: dark)", color: "#0d130f" },

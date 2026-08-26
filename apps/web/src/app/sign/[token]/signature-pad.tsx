@@ -57,6 +57,16 @@ export function SignaturePad({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.scale(dpr, dpr);
+    /*
+     * ‎**לבן קבוע, ולא טוקן — ‎ערך-מפורש-במכוון.**
+     *
+     * החתימה הזו נצרבת למסמך חתום שיוצא כ-PDF ללקוח. הרקע שלה הוא
+     * נייר, לא משטח של ממשק: חתימה שנוצרה במצב כהה ונשמרה על רקע
+     * ‎#151d17 הייתה מגיעה למסמך כמלבן כהה עם קו כהה בתוכו.
+     *
+     * זה גם אינו קריא לקנבס: `getContext("2d").fillStyle` דורש ערך
+     * צבע ולא `var(...)`.
+     */
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
   }, []);
@@ -107,6 +117,7 @@ export function SignaturePad({
     const canvas = canvasRef.current;
     const ctx = prepare();
     if (!canvas || !ctx) return;
+    /* אותו נייר לבן כמו בהכנה — ראו ההסבר שם. ערך-מפורש-במכוון */
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
     setHasInk(false);
@@ -137,6 +148,7 @@ export function SignaturePad({
         className="w-full cursor-crosshair rounded-lg border"
         style={{
           borderColor: "var(--color-input-border)",
+          /* המשטח שמתחת לקנבס, באותו לבן — ערך-מפורש-במכוון */
           background: "#ffffff",
           aspectRatio: `${WIDTH} / ${HEIGHT}`,
           // בלי זה הדפדפן גולל את העמוד במקום לצייר, בטלפון
