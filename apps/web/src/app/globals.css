@@ -2793,6 +2793,18 @@ a.mv-bar-row:focus-visible {
   font-weight: 600;
   color: var(--color-text-muted);
 }
+/*
+   „הדפדפן הזה אינו תומך בהכתבה” — במקום כפתור שנעלם בשקט.
+   אותה מידה ואותו צבע כמו `mv-dictate-live`, כי זו אותה שורת מצב
+   ולא הודעת שגיאה: לא קרתה תקלה, פשוט אין כאן את היכולת.
+*/
+.mv-dictate-note {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--type-caption);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
 .mv-dictate-dot {
   width: 7px;
   height: 7px;
