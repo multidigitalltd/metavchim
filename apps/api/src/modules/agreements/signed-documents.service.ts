@@ -11,7 +11,7 @@ import {
   sniffDocumentType,
   type DocumentKind,
 } from "@metavchim/shared";
-import { lockContact } from "../../common/locks";
+import { lockContact, lockProperty } from "../../common/locks";
 import { assertContactAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
@@ -249,6 +249,31 @@ export class SignedDocumentsService {
          */
         await lockContact(tx, input.contactId);
         await assertContactAccess(tx, tenantId, input.contactId);
+        /*
+         * ‎**והנכס נבדק מחדש, תחת אותה נעילה שהמחיקה לוקחת.**
+         *
+         * הבדיקה המקדימה רצה לפני העלאת הקובץ ל-S3, ובין השתיים
+         * אפשר למחוק את הנכס לצמיתות. שאילתת הניתוק של המחיקה כבר
+         * רצה עד אז, ולכן השורה שנוצרת אחריה נושאת מזהה שאין
+         * מאחוריו כלום — בדיוק המזהה האטום שסבב קודם בא לחסל
+         * (ביקורת Codex).
+         *
+         * ‎`lockProperty` היא **אותה נעילה** ש-`PropertiesService.purge`
+         * לוקחת, ולכן זו אינה הצרה של החלון אלא סגירתו: או שהמחיקה
+         * סיימה ואז הבדיקה נכשלת, או שהיא ממתינה ואז הניתוק שלה
+         * רואה את השורה הזו.
+         *
+         * הסדר כרטיס⟵נכס הוא הסדר שמסמך הנעילות מחייב; היפוכו הוא
+         * ה-deadlock שכבר תועד שם.
+         */
+        if (input.propertyId !== undefined) {
+          await lockProperty(tx, tenantId, input.propertyId);
+          const live = await tx.property.findFirst({
+            where: { id: input.propertyId, tenantId, deletedAt: null },
+            select: { id: true },
+          });
+          if (!live) throw new NotFoundException("נכס לא נמצא");
+        }
         const row = await tx.signedDocument.create({
           data: {
             id,
