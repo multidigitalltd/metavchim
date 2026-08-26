@@ -91,9 +91,23 @@ export function EntityTasks({
    */
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [title, setTitle] = useState("");
-  const [dueAt, setDueAt] = useState("");
-  /** איזה צ'יפ קבע את המועד הנוכחי — כדי לדעת מה מותר למחוק. */
-  const [dueSource, setDueSource] = useState<string | null>(null);
+  /**
+   * ‎**המועד ומקורו כמצב אחד — ולא שני משתנים שצריך לזכור לעדכן יחד.**
+   *
+   * המקור קובע מה מותר למחוק: מועד שהצ'יפ קבע ופג נמחק, ומועד
+   * שהוקלד ביד — גם בעבר — הוא תיעוד לגיטימי שאין רשות לגעת בו.
+   *
+   * חמישה מקומות כותבים לשדה הזה. כשהם היו שני משתנים נפרדים, כל
+   * כותב היה **צריך לזכור** לעדכן את שניהם — וזו בדיוק צורת התלות
+   * שדלפה כאן ארבע פעמים ברצף (הפונקציה, הקריאה, הלחיצה,
+   * השליחה). כמצב אחד אי אפשר לקבוע ערך בלי להצהיר מאיפה הגיע.
+   */
+  const [due, setDue] = useState<{ value: string; source: string | null }>({
+    value: "",
+    source: null,
+  });
+  const dueAt = due.value;
+  const dueSource = due.source;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /**
@@ -178,8 +192,7 @@ export function EntityTasks({
        */
       if (dueSource !== null && resolved.at.getTime() <= Date.now()) {
         setError("המועד המהיר שנבחר כבר חלף. בחרו מועד חדש.");
-        setDueAt("");
-        setDueSource(null);
+        setDue({ value: "", source: null });
         setClock(new Date());
         return;
       }
@@ -196,8 +209,7 @@ export function EntityTasks({
         ...(due !== undefined ? { dueAt: due } : {}),
       });
       setTitle("");
-      setDueAt("");
-      setDueSource(null);
+      setDue({ value: "", source: null });
       await load();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "הוספת המשימה נכשלה");
@@ -265,8 +277,7 @@ export function EntityTasks({
     setClock(fresh);
     const option = quickDueOptions(fresh).find((o) => o.key === key);
     if (option !== undefined) {
-      setDueAt(option.value);
-      setDueSource(key);
+      setDue({ value: option.value, source: key });
       return;
     }
     /*
@@ -280,10 +291,7 @@ export function EntityTasks({
      * נמחק **רק** מה שהצ'יפ הזה קבע. מועד שהמתווך הקליד ביד הוא
      * בחירה שלו, וגם אם הוא בעבר אין לי רשות לדרוס אותה.
      */
-    if (dueSource === key) {
-      setDueAt("");
-      setDueSource(null);
-    }
+    if (dueSource === key) setDue({ value: "", source: null });
   }
 
   async function addSuggested(title: string): Promise<void> {
@@ -403,9 +411,8 @@ export function EntityTasks({
             type="datetime-local"
             value={dueAt}
             onChange={(e) => {
-              setDueAt(e.target.value);
               /* הקלדה ידנית — המועד אינו של הצ'יפ עוד */
-              setDueSource(null);
+              setDue({ value: e.target.value, source: null });
             }}
             className="rounded-lg border px-3 py-2.5"
             style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
