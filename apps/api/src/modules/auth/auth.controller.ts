@@ -16,7 +16,7 @@ import {
 import { Throttle } from "@nestjs/throttler";
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { IdSchema } from "@metavchim/shared";
+import { afterLoginTarget, IdSchema, safeLoginReturnPath } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { AnyAuthenticated, BillingAllowed, Public } from "../../common/auth.decorators";
@@ -33,7 +33,7 @@ import { LoginThrottleService } from "./login-throttle.service";
 import { PasswordResetService } from "./password-reset.service";
 
 export const SESSION_COOKIE = "mv_session";
-/** state+nonce של סבב ה-OAuth — קצר-חיים, נמחק מיד בסיום. */
+/** state+nonce (ואם יש — יעד החזרה) של סבב ה-OAuth — קצר-חיים, נמחק מיד בסיום. */
 const OAUTH_COOKIE = "mv_oauth";
 const OAUTH_TTL_MS = 10 * 60 * 1000;
 
@@ -112,12 +112,18 @@ export class AuthController {
    * שלב 1 — הפניה ל-Google. ה-state וה-nonce נשמרים בעוגייה
    * httpOnly קצרת-חיים: state מגן מ-CSRF (תשובה שלא נולדה מבקשה
    * שלנו), ו-nonce מונע שידור חוזר של id_token ישן.
+   *
+   * גם יעד החזרה נוסע באותה עוגייה, ולא בכתובת של Google: מי שמגיע
+   * מלינק הצעה צריך לחזור אליו, ולסבב OAuth אין דרך אחרת להחזיק
+   * הקשר. הנתיב נבדק כאן מול רשימת ההיתר המשותפת — ושוב בחזרה,
+   * כי הפניה לפי קלט שלא נבדק היא open redirect.
    */
   @Public()
   @Get("google/start")
-  async googleStart(@Res() res: Response): Promise<void> {
+  async googleStart(@Req() req: Request, @Res() res: Response): Promise<void> {
     const { state, nonce } = GoogleAuthService.newHandshake();
-    res.cookie(OAUTH_COOKIE, `${state}.${nonce}`, {
+    const next = safeLoginReturnPath((req.query as Record<string, unknown>)["next"]);
+    res.cookie(OAUTH_COOKIE, `${state}.${nonce}${next === null ? "" : `.${next}`}`, {
       httpOnly: true,
       secure: loadEnv().COOKIE_SECURE,
       // lax ולא strict: העוגייה חייבת להישלח בחזרה מהניווט של Google
@@ -140,16 +146,30 @@ export class AuthController {
     const handshake = (req.cookies as Record<string, string> | undefined)?.[OAUTH_COOKIE];
     res.clearCookie(OAUTH_COOKIE, { path: "/" }); // חד-פעמי בכל מקרה
 
-    const [expectedState, expectedNonce] = (handshake ?? "").split(".");
+    /*
+     * שלושת החלקים מופרדים בנקודה, ואף אחד מהם אינו יכול להכיל
+     * אותה: state ו-nonce הם base64url, ורשימת ההיתר של יעד החזרה
+     * אינה מתירה נקודה. נתיב שנכנס בכל זאת ייחתך כאן ואז ייפול
+     * בבדיקה החוזרת — כלומר ליעד ברירת המחדל, לא ליעד זר.
+     */
+    const [expectedState, expectedNonce, returnPath] = (handshake ?? "").split(".");
+    const target = afterLoginTarget(returnPath);
+    /*
+     * גם כישלון חוזר עם היעד: מי שניסה עם Google ונדחה מנסה מיד
+     * אחר כך עם סיסמה, ואם היעד נשמט כאן הלינק אבד באותה מידה.
+     */
+    const loginError = (reason: string): string =>
+      `${webOrigin}/login?googleError=${reason}` +
+      (target === "/" ? "" : `&next=${encodeURIComponent(target)}`);
     const code = query["code"];
 
     if (query["error"] !== undefined || !code || !expectedState || !expectedNonce) {
-      res.redirect(`${webOrigin}/login?googleError=failed`);
+      res.redirect(loginError("failed"));
       return;
     }
     // השוואת state לפני כל פנייה החוצה
     if (query["state"] !== expectedState) {
-      res.redirect(`${webOrigin}/login?googleError=failed`);
+      res.redirect(loginError("failed"));
       return;
     }
 
@@ -157,7 +177,7 @@ export class AuthController {
       const identity = await this.google.exchangeCode(code, expectedNonce);
       // כתובת שלא אומתה אצל Google אינה הוכחת בעלות
       if (!identity.emailVerified) {
-        res.redirect(`${webOrigin}/login?googleError=unverified`);
+        res.redirect(loginError("unverified"));
         return;
       }
       const user = await this.auth.loginWithVerifiedEmail(identity.email);
@@ -166,12 +186,12 @@ export class AuthController {
         userAgent: req.headers["user-agent"],
       });
       this.setSessionCookie(res, token, expiresAt);
-      res.redirect(`${webOrigin}/`);
+      res.redirect(`${webOrigin}${target}`);
     } catch (error) {
       // אימייל שאינו רשום במשרד — הודעה נפרדת, כי זו לא תקלה אלא
       // חוסר הרשאה, והמתווך צריך לדעת לפנות למנהל
       const unknown = error instanceof UnauthorizedException && /לא קיים/u.test(error.message);
-      res.redirect(`${webOrigin}/login?googleError=${unknown ? "unknown" : "failed"}`);
+      res.redirect(loginError(unknown ? "unknown" : "failed"));
     }
   }
 

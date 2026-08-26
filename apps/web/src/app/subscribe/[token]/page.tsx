@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { describeCycle, describeOfferPrice, featureLabel, type BillingCycle } from "@metavchim/shared";
+import {
+  describeCycle,
+  describeOfferPrice,
+  featureLabel,
+  withLoginReturn,
+  type BillingCycle,
+} from "@metavchim/shared";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { clearSessionCache, fetchMe } from "@/lib/session-cache";
 import type { AuthUser } from "@/lib/use-auth";
@@ -66,7 +72,8 @@ export default function SubscribeOfferPage(): React.JSX.Element | null {
       .then((user) => {
         if (cancelled) return;
         if (user.mustChangePassword) {
-          router.replace("/change-password");
+          // ההחלפה היא תחנה, לא יעד — אחריה חוזרים לכאן
+          router.replace(withLoginReturn("/change-password", `/subscribe/${token}`));
           return;
         }
         setMe(user);
@@ -77,7 +84,7 @@ export default function SubscribeOfferPage(): React.JSX.Element | null {
         if (err instanceof ApiError && err.status === 401) {
           clearSessionCache();
           // ההתחברות חוזרת לכאן — הלינק הוא כל הסיבה שהלקוח הגיע
-          router.replace(`/login?next=${encodeURIComponent(`/subscribe/${token}`)}`);
+          router.replace(withLoginReturn("/login", `/subscribe/${token}`));
           return;
         }
         setAuthLoading(false);
