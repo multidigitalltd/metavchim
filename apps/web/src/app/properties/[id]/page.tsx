@@ -104,6 +104,47 @@ const OFFER_STATUS_LABELS: Record<string, ReactNode> = {
   declined: "הקונה דחה",
 };
 
+/**
+ * ‎**כל כפתורי סרגל הפעולות באותה מידה** — 44px, המינימום שהחבילה
+ * אוכפת לשטח נגיעה, ו-`gap: 10px` ביניהם (SPEC-3a §2 שורה 2).
+ *
+ * קבוע ולא חמש הצהרות: הם ישבו קודם על `7px 13px` וריחפו סביב 33,
+ * וכל אחד קיבל את המידה שלו בנפרד — כלומר גם כשאחד תוקן, האחרים
+ * נשארו. שורה אחת שכולם קוראים ממנה אינה יכולה להתפצל.
+ */
+const HEADER_ACTION = {
+  minHeight: 44,
+  padding: "0 18px",
+  fontSize: "var(--type-button)",
+} as const;
+
+/**
+ * צבע התחום של סטטוס הנכס.
+ *
+ * „Color says WHAT KIND OF THING this is, never decoration”, ובמסמך
+ * הכרטיס במפורש: „a draft listing is NEUTRAL, never amber”. טיוטה
+ * אינה בעיה שממתינה לטיפול אלא נכס שטרם נפתח לשיווק, וענבר היה
+ * צועק „דחוף” על מצב רגיל לחלוטין.
+ *
+ * ‎`active` הוא ירוק — נכס שמשווק עכשיו. `on_hold` ענבר: מצב
+ * שממתין להחלטה, ולא דחיפות. אפרסק שמור ל„urgency: hot buyers,
+ * leads, time-critical”, ונכס בהמתנה אינו אף אחד מהם — הוא פשוט
+ * לא זז כרגע. `sold`/`rented` ניטרליים: העסקה נגמרה ואין בהם מה
+ * לעשות.
+ *
+ * זה גם מה שהמסמך אומר בשלילה: „a draft listing is NEUTRAL, never
+ * amber” נאמר על **טיוטה** דווקא, כלומר ענבר הוא הצבע שהיה מתבקש
+ * למצב ממתין — והמסמך שולל אותו רק עבור המצב שאינו ממתין לכלום.
+ */
+const STATUS_DOMAIN: Record<string, { background: string; color: string }> = {
+  draft: { background: "var(--domain-neutral-bg)", color: "var(--domain-neutral-fg)" },
+  active: { background: "var(--domain-green-bg)", color: "var(--domain-green-fg)" },
+  on_hold: { background: "var(--domain-amber-bg)", color: "var(--domain-amber-fg)" },
+  sold: { background: "var(--domain-neutral-bg)", color: "var(--domain-neutral-fg)" },
+  rented: { background: "var(--domain-neutral-bg)", color: "var(--domain-neutral-fg)" },
+  archived: { background: "var(--domain-neutral-bg)", color: "var(--domain-neutral-fg)" },
+};
+
 const MATURITY_TAG: Record<string, { fg: string; bg: string }> = {
   very_hot: { fg: "#b0512c", bg: "#faf1ec" },
   hot: { fg: "#7a5c1f", bg: "#f7efdd" },
@@ -459,34 +500,69 @@ export default function PropertyDetailPage({
     <>
       <Link
         href="/properties"
-        className="mb-3.5 inline-block text-[length:var(--type-body-sm)] font-bold no-underline hover:underline"
-        style={{ color: "var(--color-primary)" }}
+        className="mb-3.5 inline-block no-underline hover:underline"
+        style={{
+          fontSize: "var(--type-body)",
+          fontWeight: 800,
+          color: "var(--color-primary)",
+        }}
       >
         → חזרה לרשימת הנכסים
       </Link>
 
-      {/* ---- כרטיס הכותרת ---- */}
+      {/*
+        ‎**כרטיס הכותרת — SPEC-3a §2.** כרטיס אחד, ריפוד 24, שתי שורות:
+        מי הנכס ומה מחירו למעלה, ומה אפשר לעשות איתו מתחת.
+
+        הפעולות ישבו עד כה בטור המחיר, מימין לו, בכפתורים של 7px
+        ריפוד. שתי בעיות: הן נדחסו לרוחב שנשאר אחרי המחיר, והן היו
+        נמוכות מ-44 — המינימום לשטח נגיעה. שורה משלהן פותרת את שתיהן,
+        וגם קובעת סדר: „מצא לי קונים” היא הפעולה הראשית, ואחריה השאר.
+      */}
       <div
         className="mv-list-card mb-[18px] p-6"
         style={{ overflow: "visible" }}
       >
+        {/* ---- שורה 1: מי הנכס, ומה מחירו ---- */}
         <div className="flex flex-wrap items-start gap-4">
-          <div>
+          <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="m-0" style={{ fontSize: "calc(23 / 16 * 1rem)", fontWeight: 800 }}>
+              <h1
+                className="m-0"
+                style={{
+                  fontSize: "calc(27 / 16 * 1rem)",
+                  fontWeight: 900,
+                  letterSpacing: "-0.03em",
+                }}
+              >
                 {property.marketingTitle ?? (address || "נכס")}
               </h1>
               <label>
                 <span className="mv-visually-hidden">שינוי סטטוס הנכס</span>
+                {/*
+                  הגלולה בצבע התחום של הסטטוס. „a draft listing is
+                  NEUTRAL, never amber” — טיוטה אינה בעיה שממתינה
+                  לטיפול אלא נכס שטרם נפתח לשיווק, וענבר היה אומר
+                  „דחוף” על מצב שאינו דחוף כלל.
+                */}
                 <select
                   value={property.status}
                   disabled={statusSaving}
                   onChange={(e) => void changeStatus(e.target.value)}
-                  className="mv-pill border-0"
+                  className="mv-pill"
                   style={{
-                    background: "var(--color-primary-soft)",
-                    color: "var(--color-primary)",
+                    ...STATUS_DOMAIN[property.status],
+                    /*
+                      גבול פקד, למרות שהמסמך מצייר גלולה בלי מסגרת.
+                      זה `select` ולא תווית: המשתמש משנה בו את סטטוס
+                      הנכס. פקד שנראה כמו תג הוא פקד שאיש אינו יודע
+                      שאפשר ללחוץ עליו, וגבול פקד כפוף ל-3:1
+                      (WCAG 1.4.11). הצבע ממשיך לומר מה הסטטוס;
+                      המסגרת אומרת שאפשר לשנות אותו.
+                    */
+                    border: "1px solid var(--color-input-border)",
                     cursor: "pointer",
+                    fontSize: "var(--type-caption-lg)",
                   }}
                 >
                   {Object.entries(STATUS_LABELS)
@@ -500,116 +576,154 @@ export default function PropertyDetailPage({
               </label>
             </div>
             <p
-              className="m-0 mt-[5px] text-sm"
-              style={{ color: "var(--color-text-muted)" }}
+              className="m-0 mt-[5px]"
+              style={{ fontSize: "var(--type-body-sm)", color: "var(--color-text-muted)" }}
             >
               {/*
                 בעל הנכס היה כאן כשורה בכותרת המשנה. הוא עבר לסעיף
                 משלו בטור הראשי — הוא צד לעסקה, לא הערת שוליים לכתובת.
+
+                הפרטים מצטרפים בנקודה אמצעית, כמו „מימון · נקלט: 25
+                באוג׳ 2026” שבמסמך. הנקודה מופיעה רק כשיש לה שני צדדים —
+                כתובת ריקה הייתה משאירה „· נקלט:” פותח בנקודה.
               */}
-              {address}
-              {/* מתי הכרטיס נכנס למערכת — ראו את אותה שורה בכרטיס הליד */}
-              {address === "" ? "" : " · "}
-              נקלט:{" "}
-              <span style={{ color: "var(--color-text)" }}>
-                {formatDate(property.createdAt)}
-              </span>
+              {[address, `נקלט: ${formatDate(property.createdAt)}`]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
           </div>
+
           <div className="ms-auto text-start">
-            <div style={{ fontSize: "calc(25 / 16 * 1rem)", fontWeight: 800 }}>
-              {formatPrice(property.priceAgorot)}
-            </div>
-            <div className="mt-[9px] flex flex-wrap gap-2">
-              <Link
-                href={`/properties/${id}/edit`}
-                className="mv-btn-plain"
-                style={{ padding: "7px 13px", fontSize: "var(--type-caption-lg)" }}
-              >
-                עריכה
-              </Link>
-              <Link
-                href={`/calendar/new?propertyId=${id}`}
-                className="mv-btn-plain"
-                style={{ padding: "7px 13px", fontSize: "var(--type-caption-lg)" }}
-              >
-                קבע סיור
-              </Link>
-              {/*
-                מחיקה ליד עריכה — שם מחפשים אותה. היא נשארת בשני
-                שלבים: לחיצה ראשונה שואלת, שנייה מבצעת. נכס פעיל
-                עובר לארכיון וניתן לשחזור, ורק נכס שכבר בארכיון
-                נמחק לצמיתות — ולכן גם הניסוח משתנה, ואינו מבטיח
-                "מחיקה" למשהו שהוא שחזיר.
-              */}
-              <button
-                type="button"
-                className="mv-btn-plain"
-                style={{
-                  padding: "7px 13px",
-                  fontSize: "var(--type-caption-lg)",
-                  color:
-                    archiveConfirm || purgeConfirm
-                      ? "var(--color-danger)"
-                      : "var(--color-text-muted)",
-                }}
-                onClick={() => void (property.archived ? purge() : archive())}
-              >
-                {property.archived
-                  ? purgeConfirm
-                    ? "למחוק לצמיתות?"
-                    : "מחיקה לצמיתות"
-                  : archiveConfirm
-                    ? "להעביר לארכיון?"
-                    : "מחיקה"}
-              </button>
-              {archiveConfirm || purgeConfirm ? (
+            {property.priceAgorot === undefined ? (
+              /*
+                „טרם הוזן מחיר” — ולא „—”.
+                מחיר חסר הוא הדבר היחיד בכרטיס שעוצר שיווק בפועל,
+                ולכן הוא נאמר במילים ועם דרך לתקן אותו. המסמך מוסיף:
+                כשיש מחיר, אין שום אזהרה על מחיר חסר בשום מקום במסך.
+              */
+              <div className="flex flex-col items-start gap-1">
+                <span
+                  style={{
+                    fontSize: "calc(19 / 16 * 1rem)",
+                    fontWeight: 800,
+                    color: "var(--color-warning)",
+                  }}
+                >
+                  טרם הוזן מחיר
+                </span>
                 <button
                   type="button"
                   className="mv-btn-plain"
-                  style={{ padding: "7px 13px", fontSize: "var(--type-caption-lg)" }}
-                  onClick={() => {
-                    setArchiveConfirm(false);
-                    setPurgeConfirm(false);
-                  }}
+                  style={{ color: "var(--color-warning)", fontWeight: 800 }}
+                  onClick={() => router.push(`/properties/${id}/edit?focus=price`)}
                 >
-                  ביטול
+                  הזנת מחיר
                 </button>
-              ) : null}
-              {canLanding ? (
-                <button
-                  type="button"
-                  className="mv-btn-soft"
-                  style={{ padding: "7px 13px", fontSize: "var(--type-caption-lg)" }}
-                  disabled={landingBusy}
-                  onClick={() => void createLanding()}
-                >
-                  {landingBusy ? "יוצר…" : "צור דף נחיתה"}
-                </button>
-              ) : null}
-              {/*
-                כפתור ולא עוגן: מאז שההתאמות עברו ללשונית, הפאנל שלהן
-                אינו קיים ב-DOM כל עוד לשונית אחרת פתוחה — ועוגן אל
-                מזהה שאינו קיים אינו עושה דבר. הלחיצה קודם בוחרת את
-                הלשונית, ורק אחרי שהיא הורכבה גוללת אליה (ביקורת Codex).
-              */}
-              <button
-                type="button"
-                className="mv-btn-action"
-                style={{ padding: "7px 15px", fontSize: "var(--type-caption-lg)" }}
-                onClick={() => {
-                  selectTab("matches");
-                  requestAnimationFrame(() => {
-                    document
-                      .getElementById("matches-heading")
-                      ?.scrollIntoView({ behavior: "smooth", block: "start" });
-                  });
+              </div>
+            ) : (
+              <div
+                dir="ltr"
+                style={{
+                  unicodeBidi: "isolate",
+                  fontSize: "calc(27 / 16 * 1rem)",
+                  fontWeight: 900,
+                  letterSpacing: "-0.03em",
                 }}
               >
-                מצא לי קונים
-              </button>
-            </div>
+                {formatPrice(property.priceAgorot)}
+              </div>
+            )}
           </div>
+        </div>
+
+        {/* ---- שורה 2: סרגל הפעולות ---- */}
+        <div className="mt-[18px] flex flex-wrap gap-2.5">
+          {/*
+            כפתור ולא עוגן: מאז שההתאמות עברו ללשונית, הפאנל שלהן
+            אינו קיים ב-DOM כל עוד לשונית אחרת פתוחה — ועוגן אל
+            מזהה שאינו קיים אינו עושה דבר. הלחיצה קודם בוחרת את
+            הלשונית, ורק אחרי שהיא הורכבה גוללת אליה (ביקורת Codex).
+          */}
+          <button
+            type="button"
+            className="mv-btn-action"
+            style={HEADER_ACTION}
+            onClick={() => {
+              selectTab("matches");
+              requestAnimationFrame(() => {
+                document
+                  .getElementById("matches-heading")
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              });
+            }}
+          >
+            מצא לי קונים
+          </button>
+          {canLanding ? (
+            <button
+              type="button"
+              className="mv-btn-soft"
+              style={HEADER_ACTION}
+              disabled={landingBusy}
+              onClick={() => void createLanding()}
+            >
+              {landingBusy ? "יוצר…" : "צור דף נחיתה"}
+            </button>
+          ) : null}
+          <Link
+            href={`/calendar/new?propertyId=${id}`}
+            className="mv-btn-plain"
+            style={HEADER_ACTION}
+          >
+            קבע סיור
+          </Link>
+          <Link href={`/properties/${id}/edit`} className="mv-btn-plain" style={HEADER_ACTION}>
+            עריכה
+          </Link>
+          {/*
+            מחיקה ליד עריכה — שם מחפשים אותה. היא נשארת בשני
+            שלבים: לחיצה ראשונה שואלת, שנייה מבצעת. נכס פעיל
+            עובר לארכיון וניתן לשחזור, ורק נכס שכבר בארכיון
+            נמחק לצמיתות — ולכן גם הניסוח משתנה, ואינו מבטיח
+            "מחיקה" למשהו שהוא שחזיר.
+          */}
+          <button
+            type="button"
+            /*
+              מסגרת רגילה שנכנסת לאדום-חמרה בריחוף, ואדומה במנוחה רק
+              אחרי הלחיצה הראשונה — אז זה כבר מצב „ממתין לאישור” ולא
+              אזהרה. הצבע יושב במחלקה ולא בשורה, כדי שמצב הניגודיות
+              הגבוהה יוכל לגבור עליו.
+            */
+            className={
+              archiveConfirm || purgeConfirm
+                ? "mv-btn-plain mv-btn-plain--danger"
+                : "mv-btn-plain mv-btn-plain--danger-hover"
+            }
+            style={HEADER_ACTION}
+            onClick={() => void (property.archived ? purge() : archive())}
+          >
+            {property.archived
+              ? purgeConfirm
+                ? "למחוק לצמיתות?"
+                : "מחיקה לצמיתות"
+              : archiveConfirm
+                ? "להעביר לארכיון?"
+                : "מחיקה"}
+          </button>
+          {archiveConfirm || purgeConfirm ? (
+            <button
+              type="button"
+              className="mv-btn-plain"
+              style={HEADER_ACTION}
+              onClick={() => {
+                setArchiveConfirm(false);
+                setPurgeConfirm(false);
+              }}
+            >
+              ביטול
+            </button>
+          ) : null}
         </div>
 
         {landingUrl ? (
@@ -658,37 +772,32 @@ export default function PropertyDetailPage({
       </div>
 
       {/* ---- לשוניות ---- */}
-      <div
-        className="mv-list-card mb-[18px] px-4"
-        style={{ overflow: "visible" }}
-      >
-        <EntityTabs
-          label="לשוניות כרטיס הנכס"
-          active={tab}
-          onSelect={selectTab}
-          tabs={[
-            { key: "overview", label: "סקירה" },
-            { key: "matches", label: "התאמות", count: matches?.length },
-            /*
-              נכסים תאומים — צמוד להתאמות ולא בסוף הסרגל. שתי
-              הלשוניות עונות על אותה שאלה בשיחה עם לקוח ("מה עוד
-              אפשר להציע לו"), ומי שפתח את ההתאמות הוא בדיוק מי
-              שיזדקק לתאומים בשנייה שאחר כך.
-            */
-            { key: "twins", label: "נכסים תאומים", count: twinCount },
-            /*
-              לשונית משלה, כמו בכרטיס הקונה. הפרסום לרשת ישב עד כה
-              בתחתית לשונית ההתאמות — כלומר מי שרצה לפרסם נכס היה
-              צריך לדעת לגלול לשם, ורוב הנכסים פשוט לא פורסמו.
-            */
-            { key: "network", label: "שיתופי פעולה" },
-            { key: "owner", label: "בעל הנכס" },
-            { key: "exclusivity", label: "בלעדיות" },
-            { key: "agreements", label: "הסכמים" },
-            { key: "tasks", label: "משימות", count: openTasks },
-          ]}
-        />
-      </div>
+      <EntityTabs
+        label="לשוניות כרטיס הנכס"
+        active={tab}
+        onSelect={selectTab}
+        tabs={[
+          { key: "overview", label: "סקירה" },
+          { key: "matches", label: "התאמות", count: matches?.length },
+          /*
+            נכסים תאומים — צמוד להתאמות ולא בסוף הסרגל. שתי
+            הלשוניות עונות על אותה שאלה בשיחה עם לקוח ("מה עוד
+            אפשר להציע לו"), ומי שפתח את ההתאמות הוא בדיוק מי
+            שיזדקק לתאומים בשנייה שאחר כך.
+          */
+          { key: "twins", label: "נכסים תאומים", count: twinCount },
+          /*
+            לשונית משלה, כמו בכרטיס הקונה. הפרסום לרשת ישב עד כה
+            בתחתית לשונית ההתאמות — כלומר מי שרצה לפרסם נכס היה
+            צריך לדעת לגלול לשם, ורוב הנכסים פשוט לא פורסמו.
+          */
+          { key: "network", label: "שיתופי פעולה" },
+          { key: "owner", label: "בעל הנכס" },
+          { key: "exclusivity", label: "בלעדיות" },
+          { key: "agreements", label: "הסכמים" },
+          { key: "tasks", label: "משימות", count: openTasks },
+        ]}
+      />
 
       {/* סקירה — הנכס עצמו, ומה שמעכב את שיווקו */}
       <TabPanel tab="overview" active={tab}>

@@ -5,6 +5,7 @@ import {
   accessorsByTable,
   cascadingFromTenants,
   rlsTables,
+  tenantScopedOutsideRls,
 } from "../../common/rls-tables.testkit";
 
 /**
@@ -46,6 +47,21 @@ const KEPT_ON_PURPOSE: Record<string, string> = {
 };
 
 /**
+ * טבלאות מחוץ ל-RLS שנשמרות — **בכוונה, ועם נימוק.**
+ *
+ * ‎`outbox_events` אינה כאן: היא נמחקת בתוך הטרנזקציה, ומיד אחריה
+ * נכתבות אליה משימות ניקוי ה-S3 — כלומר היא כן מטופלת, פשוט לא
+ * בבלוק האחרון.
+ */
+const KEPT_OUTSIDE_RLS: Record<string, string> = {
+  // מסמכים כספיים בחובת שמירה חוקית — סכומים ומזהי עסקה בלבד.
+  // מתועד גם בראש `account-deletion.service.ts`.
+  payments: "רשומות סליקה בחובת שמירה, בלי פרט אישי",
+  // נמחקת בתוך הטרנזקציה ואז נכתבת מחדש למשימות ניקוי אחסון
+  outbox_events: "נמחקת בטרנזקציה; אחריה נכתבות משימות ניקוי S3",
+};
+
+/**
  * אילו מאפיינים נמחקים בפועל — בשירות **ובעוזרים שהוא קורא להם.**
  *
  * ‎`deleteCoopDeals` מוחקת את חדר העסקה ואת השרשור שלו, ונקראת מכאן
@@ -73,6 +89,24 @@ function purgedAccessors(): Set<string> {
   const found = new Set<string>();
   for (const source of sources) {
     for (const match of source.matchAll(/\btx\.(\w+)\.deleteMany\(/gu)) found.add(match[1]!);
+  }
+  return found;
+}
+
+/**
+ * מה שמטופל בבלוק שמחוץ ל-RLS — `this.prisma.<x>` ולא `tx.<x>`.
+ *
+ * גם `updateMany` ולא רק `deleteMany`: יש טבלה שהתשובה הנכונה בה
+ * היא ניתוק השיוך ולא מחיקה (יומן הוובהוקים). „לא נשאר שיוך” היא
+ * הדרישה; מחיקה היא רק אחת משתי הדרכים לקיים אותה.
+ */
+function purgedOutsideRls(): Set<string> {
+  const service = readFileSync(SERVICE, "utf8");
+  const found = new Set<string>();
+  for (const match of service.matchAll(
+    /\bthis\.prisma\.(\w+)\.(?:deleteMany|updateMany)\(/gu,
+  )) {
+    found.add(match[1]!);
   }
   return found;
 }
@@ -112,6 +146,39 @@ describe("מחיקת משרד — כיסוי הטבלאות", () => {
   it("הרשימה של „נשמר בכוונה” אינה מכילה טבלה שכבר אינה תחת RLS", () => {
     const tables = rlsTables(PRISMA_DIR);
     const stale = Object.keys(KEPT_ON_PURPOSE).filter((table) => !tables.has(table));
+    expect(stale).toEqual([]);
+  });
+
+  /*
+   * **גם טבלה שאינה תחת RLS.**
+   *
+   * הבדיקה שלמעלה גוזרת „מה צריך להימחק” מ-RLS, וזו הייתה נקודת
+   * העיוורון: `subscription_offers` יושבת ברמת הפלטפורמה בכוונה,
+   * ולכן שרדה מחיקת משרד עם הטוקן הסודי שלה, מזהה המשרד, שורות
+   * התוספת וההערה החופשית שנכתבה ללקוח — והמשיכה להופיע ברשימת
+   * ההצעות (ביקורת Codex).
+   *
+   * RLS הוא מנגנון, לא הגדרה. „נתוני דייר” הם כל שורה שיש בה
+   * `tenant_id`, ומחיקת משרד חייבת לכסות את כולן — או להסביר למה
+   * לא.
+   */
+  it("כל טבלה עם tenant_id שאינה תחת RLS נמחקת, מנותקת, או רשומה כנשמרת", () => {
+    const accessors = accessorsByTable(PRISMA_DIR, { requireTenantId: false });
+    const cascading = cascadingFromTenants(PRISMA_DIR);
+    const purged = purgedOutsideRls();
+
+    const missing = [...tenantScopedOutsideRls(PRISMA_DIR)]
+      .filter((table) => KEPT_OUTSIDE_RLS[table] === undefined)
+      .filter((table) => !cascading.has(table))
+      .filter((table) => accessors.has(table))
+      .filter((table) => !purged.has(accessors.get(table)!));
+
+    expect(missing).toEqual([]);
+  });
+
+  it("הרשימה של „נשמר בכוונה מחוץ ל-RLS” אינה מכילה טבלה שכבר אינה כזו", () => {
+    const outside = tenantScopedOutsideRls(PRISMA_DIR);
+    const stale = Object.keys(KEPT_OUTSIDE_RLS).filter((table) => !outside.has(table));
     expect(stale).toEqual([]);
   });
 });

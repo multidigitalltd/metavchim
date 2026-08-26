@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@metavchim/ui";
+import { afterLoginTarget, withLoginReturn } from "@metavchim/shared";
 import { API_BASE, apiGet, apiPost, ApiError } from "@/lib/api";
 import { resyncA11yForUser } from "@/lib/a11y-sync";
 import { clearSessionCache } from "@/lib/session-cache";
@@ -27,10 +28,17 @@ const GOOGLE_ERRORS: Record<string, string> = {
   failed: "ההתחברות עם Google נכשלה — נסו שוב או התחברו עם סיסמה",
 };
 
+/*
+ * לאן ממשיכים אחרי התחברות — `afterLoginTarget` ורשימת ההיתר שלה
+ * יושבות ב-`@metavchim/shared`, כי החזרה מ-Google נשפטת בשרת ושתי
+ * הבדיקות חייבות להישאר זהות.
+ */
+
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const justReset = params.get("reset") === "1";
+  const nextTarget = afterLoginTarget(params.get("next"));
   const googleError = params.get("googleError");
   const [error, setError] = useState<string | null>(
     googleError ? (GOOGLE_ERRORS[googleError] ?? GOOGLE_ERRORS["failed"]!) : null,
@@ -87,7 +95,15 @@ function LoginForm() {
        * אחרי הניווט, ולכן ההעדפות מוחלות כשהתשובה מגיעה.
        */
       void resyncA11yForUser();
-      router.replace(result.user.mustChangePassword ? "/change-password" : "/");
+      /*
+       * סיסמה זמנית מוסיפה תחנה בדרך, לא מבטלת את היעד: מקבל הצעה
+       * שנכנס בפעם הראשונה היה מאבד כאן את הלינק שבגללו הגיע.
+       */
+      router.replace(
+        result.user.mustChangePassword
+          ? withLoginReturn("/change-password", nextTarget)
+          : nextTarget,
+      );
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "שגיאה בהתחברות — נסו שוב");
       setSubmitting(false);
@@ -107,7 +123,10 @@ function LoginForm() {
       clearSessionCache();
       // בלי `await` — ראו ההסבר במסלול הסיסמה
       void resyncA11yForUser();
-      router.replace(user.mustChangePassword ? "/change-password" : "/");
+      // היעד נשמר גם דרך החלפת הסיסמה — ראו המסלול שלמעלה
+      router.replace(
+        user.mustChangePassword ? withLoginReturn("/change-password", nextTarget) : nextTarget,
+      );
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "האימות נכשל — נסו שוב");
       setSubmitting(false);
@@ -182,9 +201,11 @@ function LoginForm() {
         <form method="post" onSubmit={onSubmit} noValidate aria-describedby={error ? "login-error" : undefined}>
           {googleEnabled ? (
             <>
-              {/* ניווט מלא ולא fetch: זרימת OAuth דורשת הפניה של הדפדפן */}
+              {/* ניווט מלא ולא fetch: זרימת OAuth דורשת הפניה של הדפדפן.
+                  היעד נוסע איתו כדי שגם מי שנכנס עם Google יחזור אל
+                  הלינק שבגללו הגיע — השרת בודק אותו שוב בחזרה. */}
               <a
-                href={`${API_BASE}/auth/google/start`}
+                href={withLoginReturn(`${API_BASE}/auth/google/start`, nextTarget)}
                 className="mv-button mv-button--secondary w-full"
               >
                 {/* הסימן של Google עצמו ולא אייקון מפתח כללי: כפתור

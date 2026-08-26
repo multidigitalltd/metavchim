@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { afterLoginTarget } from "@metavchim/shared";
 import { apiPost, ApiError } from "@/lib/api";
 import { clearSessionCache } from "@/lib/session-cache";
 import { AuthShell } from "../auth-shell";
@@ -9,8 +10,14 @@ import { Notice } from "../notice";
 
 
 /** החלפת סיסמה — חובה בכניסה ראשונה עם סיסמה זמנית (ביקורת Codex). */
-export default function ChangePasswordPage() {
+function ChangePasswordForm() {
   const router = useRouter();
+  /*
+   * המסך הזה הוא תחנת ביניים בדרך פנימה, ולכן הוא מחזיר לאן שביקשו
+   * ולא תמיד ללוח הבקרה: מקבל הצעה שנכנס בפעם הראשונה חוזר ללינק
+   * שבגללו הגיע. אותה רשימת היתר בדיוק כמו במסך ההתחברות.
+   */
+  const target = afterLoginTarget(useSearchParams().get("next"));
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -35,7 +42,7 @@ export default function ChangePasswordPage() {
        * עד שהתפוגה חולפת. ראו session-cache.
        */
       clearSessionCache();
-      router.replace("/");
+      router.replace(target);
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "החלפת הסיסמה נכשלה");
       setSubmitting(false);
@@ -43,12 +50,7 @@ export default function ChangePasswordPage() {
   }
 
   return (
-    <AuthShell
-      title="בחירת סיסמה חדשה"
-      subtitle="לפני שממשיכים — החליפו את הסיסמה הזמנית בסיסמה קבועה משלכם."
-      points={["הסיסמה הזמנית תפוג ברגע שתשמרו", "בחרו סיסמה שרק אתם מכירים", "אפשר לשנות אותה שוב מהפרופיל"]}
-    >
-      <form method="post" onSubmit={(e) => void onSubmit(e)} noValidate>
+    <form method="post" onSubmit={(e) => void onSubmit(e)} noValidate>
         {error ? (
           <Notice tone="danger">{error}</Notice>
         ) : null}
@@ -64,10 +66,25 @@ export default function ChangePasswordPage() {
           <label htmlFor="confirm" className="mb-1 block font-medium">אימות סיסמה</label>
           <input id="confirm" name="confirm" type="password" required minLength={10} dir="ltr" autoComplete="new-password" className="mv-auth-input" />
         </div>
-        <button type="submit" disabled={submitting} className="mv-auth-submit">
+      <button type="submit" disabled={submitting} className="mv-auth-submit">
         {submitting ? "שומר…" : "שמור והמשך"}
       </button>
-      </form>
+    </form>
+  );
+}
+
+/* `useSearchParams` דורש גבול Suspense כדי שהמסך לא ייצא מהרינדור
+   הסטטי — אותו דפוס בדיוק כמו במסך ההתחברות. */
+export default function ChangePasswordPage() {
+  return (
+    <AuthShell
+      title="בחירת סיסמה חדשה"
+      subtitle="לפני שממשיכים — החליפו את הסיסמה הזמנית בסיסמה קבועה משלכם."
+      points={["הסיסמה הזמנית תפוג ברגע שתשמרו", "בחרו סיסמה שרק אתם מכירים", "אפשר לשנות אותה שוב מהפרופיל"]}
+    >
+      <Suspense fallback={<p aria-live="polite">טוען…</p>}>
+        <ChangePasswordForm />
+      </Suspense>
     </AuthShell>
   );
 }

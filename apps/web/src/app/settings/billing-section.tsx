@@ -63,6 +63,8 @@ const PAYMENT_STATUS: Record<string, string> = {
   pending: "ממתין",
   paid: "שולם",
   failed: "נכשל",
+  // דף שנפתח דף חדש במקומו — לא נדחה, הוחלף
+  superseded: "הוחלף",
 };
 
 export function BillingSection({ expired = false }: { expired?: boolean }): React.JSX.Element | null {

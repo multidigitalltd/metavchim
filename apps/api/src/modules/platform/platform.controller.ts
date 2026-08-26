@@ -51,6 +51,10 @@ import {
   downgradeWarnings,
   leadPriceRejectionReason,
   type LeadSourcePrice,
+  MAX_OFFER_ITEM_LABEL,
+  MAX_OFFER_LINE_ITEMS,
+  MAX_OFFER_NOTE,
+  MAX_OFFER_PRICE_AGOROT,
   planRejectionReason,
   sanitizeFeatures,
   type PlanDefinition,
@@ -82,6 +86,10 @@ import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
 import { AuthService, tenantPeriodEnded } from "../auth/auth.service";
 import { SESSION_COOKIE } from "../auth/auth.controller";
+import {
+  SubscriptionOfferService,
+  type PlatformOfferRow,
+} from "../billing/subscription-offer.service";
 import {
   BackupsService,
   type BackupsOverview,
@@ -451,6 +459,46 @@ const BurnCreditsSchema = z
   })
   .strict();
 
+/**
+ * יצירת הצעת מנוי בלינק.
+ *
+ * הסוג אינו נשלח — הוא נגזר מהיעד: משרד יעד ⇒ הצעה אישית (חד-פעמית
+ * כברירת מחדל), בלי יעד ⇒ לינק מכירה לחבילה, פתוח לכל משרד מחובר.
+ * שליחת סוג בנפרד הייתה מאפשרת "הצעה אישית בלי משרד" — צירוף שאין
+ * לו משמעות ושהיה נדחה ממילא.
+ */
+const CreateOfferSchema = z
+  .object({
+    tenantId: IdSchema.nullable().optional(),
+    planCode: PlanCodeSchema,
+    billingCycle: z.enum(["monthly", "yearly"]).default("monthly"),
+    /** המחיר הסופי באגורות; null/חסר = מחיר המסלול. חיובי בלבד. */
+    priceAgorot: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_OFFER_PRICE_AGOROT)
+      .nullable()
+      .optional(),
+    lineItems: z
+      .array(
+        z
+          .object({
+            label: z.string().trim().min(1).max(MAX_OFFER_ITEM_LABEL),
+            // אפס תקין — "כלול במחיר" הוא שורה לגיטימית בהצעה
+            amountAgorot: z.number().int().min(0).max(MAX_OFFER_PRICE_AGOROT),
+          })
+          .strict(),
+      )
+      .max(MAX_OFFER_LINE_ITEMS)
+      .default([]),
+    featureGrants: z.array(z.string().min(1).max(40)).max(PLAN_FEATURES.length).default([]),
+    note: z.string().trim().max(MAX_OFFER_NOTE).default(""),
+    maxRedemptions: z.number().int().min(1).max(100_000).nullable().optional(),
+    expiresAt: z.union([z.string().datetime(), z.null()]).optional(),
+  })
+  .strict();
+
 /** הגדרת קופון מהמסך. `redemptions` אינו כאן — הוא מונה ולא שדה. */
 const CouponSchema = z
   .object({
@@ -503,6 +551,7 @@ export class PlatformController {
     private readonly platformCredits: PlatformCreditsService,
     private readonly gemini: GeminiService,
     private readonly whatsappSender: WhatsAppSendService,
+    private readonly subscriptionOffers: SubscriptionOfferService,
   ) {}
 
   /**
@@ -1778,6 +1827,62 @@ export class PlatformController {
       where: { code: normalizeCouponCode(code) },
       data: { isActive: false },
     });
+    return { ok: true };
+  }
+
+  /* ==================== הצעות מנוי בלינק ==================== */
+
+  /**
+   * ההצעות שנוצרו, החדשות קודם — כולל הלינק המוכן להעתקה ומונה
+   * המימושים, שהוא המספר שבודקים אחרי ששולחים לינק ללקוח.
+   */
+  @Get("offers")
+  async listOffers(): Promise<{ offers: PlatformOfferRow[] }> {
+    return { offers: await this.subscriptionOffers.list() };
+  }
+
+  /**
+   * יצירת הצעה — התשובה כוללת את הלינק לשליחה ללקוח.
+   *
+   * משרד יעד ⇒ הצעה אישית: מסלול + תוספות + מחיר סופי + תכונות,
+   * נעולה למשרד וחד-פעמית כברירת מחדל. בלי יעד ⇒ לינק מכירה לחבילה,
+   * לכל משרד מחובר — מה שסוכן מכירות שולח אחרי שיחה.
+   */
+  @Post("offers")
+  @HttpCode(200)
+  async createOffer(
+    @Body(new ZodValidationPipe(CreateOfferSchema)) body: z.infer<typeof CreateOfferSchema>,
+  ): Promise<{ ok: true; offer: PlatformOfferRow }> {
+    const offer = await this.subscriptionOffers.create(
+      {
+        tenantId: body.tenantId ?? null,
+        planCode: body.planCode,
+        billingCycle: body.billingCycle,
+        priceAgorot: body.priceAgorot ?? null,
+        lineItems: body.lineItems,
+        featureGrants: sanitizeFeatures(body.featureGrants),
+        note: body.note,
+        maxRedemptions: body.maxRedemptions ?? null,
+        expiresAt:
+          body.expiresAt === undefined || body.expiresAt === null
+            ? null
+            : new Date(body.expiresAt),
+      },
+      TenantContext.current().userId,
+    );
+    return { ok: true, offer };
+  }
+
+  /**
+   * ביטול הצעה — הלינק מפסיק להתקבל. לא מחיקה: תשלום שמימש את
+   * ההצעה מפנה אליה, ובלי השורה אין תשובה ל"מה הובטח לו".
+   */
+  @Delete("offers/:id")
+  @HttpCode(200)
+  async revokeOffer(
+    @Param("id", new ZodValidationPipe(IdSchema)) id: string,
+  ): Promise<{ ok: true }> {
+    await this.subscriptionOffers.revoke(id);
     return { ok: true };
   }
 

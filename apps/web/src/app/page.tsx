@@ -29,12 +29,14 @@ import { SystemUpdate } from "./system-update";
 import { NowStamp } from "./now-stamp";
 import {
   IconBell,
+  IconBolt,
   IconCalendar,
   IconCheck,
-  IconFilter,
   IconFlame,
   IconHandshake,
   IconHome,
+  IconLink,
+  IconList,
   IconSend,
   IconStar,
   IconUsers,
@@ -673,18 +675,14 @@ export default function DashboardPage() {
     (canSeeNetwork && network === null && !networkFailed);
 
   /*
-   * ‎**אין הכרזה על „הדבר לעשות עכשיו”, ובכוונה.**
+   * ‎**השורה הראשונה מוכרזת „הדבר לעשות עכשיו”** — §13, ולפי המוקאפ
+   * שבעל המוצר אישר מחדש.
    *
-   * ‎§13 מתאר שורה ראשונה מודגשת עם הכפתור הראשי. תשעה סבבי ביקורת
-   * הראו שההכרזה הזו אינה נתמכת מכאן: הרשימה נשענת על מקורות
-   * שהדפדפן רואה מהם עמוד ראשון בלבד, והסוכן בשרת חותך 30→5 לידים
-   * בלי לדווח על כך — כלומר גם „הכול הגיע” אינו ניתן לקביעה כאן.
-   * שורה מודגשת שגויה גרועה משורה שאינה מודגשת, ולכן ההדגשה
-   * יורדת עד שיהיה נתיב דירוג בשרת (החלטת בעל המוצר).
-   *
-   * ‎**מה שנשאר תקף:** המיון לפי דחיפות, המספור, ואיחוד המקורות —
-   * סדר טוב יותר מסדר הכנסה שרירותי, בלי לטעון שהראשון הוא
-   * „הדבר”. כל השורות נראות זהות ומקבלות כפתור משני.
+   * ההסתייגות הקודמת (הרשימה נשענת על עמוד ראשון של כל מקור, והסוכן
+   * חותך 30→5 לידים בשרת) עדיין נכונה כעובדה — הדירוג הוא הטוב
+   * ביותר שידוע לדפדפן, לא אמת מוחלטת. אבל ההכרעה העיצובית היא
+   * שסדר-כמעט-נכון עם ראש מודגש עדיף על רשימה שטוחה: המספור ממילא
+   * מכריז על דירוג, והשורה הראשונה רק אומרת אותו בקול.
    */
   const activeProps = (properties ?? []).filter(
     (p) => p.status === undefined || ["draft", "active", "on_hold"].includes(p.status),
@@ -929,7 +927,18 @@ export default function DashboardPage() {
           {
             label: "הצעות ממתינות למענה",
             value: offers === null ? undefined : pendingOffers.length,
-            sub: mullingOffer !== undefined ? `אחת נפתחה ${mullingOffer.openCount} פעמים` : "",
+            /*
+              גם לאפס יש שורת משנה — "אין הצעות פתוחות" (המוקאפ).
+              אריח שמספרו 0 בלי מילה מתחתיו נקרא כטעינה שנתקעה.
+            */
+            sub:
+              offers === null
+                ? ""
+                : pendingOffers.length === 0
+                  ? "אין הצעות פתוחות"
+                  : mullingOffer !== undefined
+                    ? `אחת נפתחה ${mullingOffer.openCount} פעמים`
+                    : "",
             href: "/offers",
             /* הצעות והתאמות הן מנוע ההתאמות — סגול (§4) */
             domain: "violet",
@@ -976,7 +985,15 @@ export default function DashboardPage() {
           {
             label: "לידים חדשים",
             value: leads === null ? undefined : leads.filter((l) => l.status === "new").length,
-            sub: urgentLeads.length > 0 ? `${urgentLeads.length} דורשים טיפול אנושי` : "",
+            // אפס לידים חדשים הוא בשורה טובה, והמוקאפ אומר אותה: "הכל טופל"
+            sub:
+              leads === null
+                ? ""
+                : urgentLeads.length > 0
+                  ? `${urgentLeads.length} דורשים טיפול אנושי`
+                  : leads.filter((l) => l.status === "new").length === 0
+                    ? "הכל טופל"
+                    : "",
             href: "/leads",
             /* דחיפות: ליד חדש שממתין — אפרסק, כמו קונה חם */
             domain: "peach",
@@ -1108,11 +1125,16 @@ export default function DashboardPage() {
                 card.value === 0 ? "mv-domain-neutral" : `mv-domain-${card.domain}`
               }`}
             >
+              {/*
+                התווית בתחילת השורה והאריח בקצה — כמו במוקאפ: העין
+                הסורקת ימין-לשמאל פוגשת קודם את המילים, והאייקון
+                יושב בפינה כסימן זיהוי ולא כתחילת משפט.
+              */}
               <dt className="mv-kpi__head">
+                <span className="mv-kpi__label">{card.label}</span>
                 <span className="mv-tile" aria-hidden="true">
                   {card.icon}
                 </span>
-                <span className="mv-kpi__label">{card.label}</span>
               </dt>
               <dd className="mv-kpi__value mv-ltr m-0">{card.value ?? "…"}</dd>
               <dd className="mv-kpi__note m-0" style={{ minHeight: "1.2em" }}>
@@ -1145,21 +1167,36 @@ export default function DashboardPage() {
         */}
         <div className="flex flex-col gap-4">
           {/* ---- מה חשוב לעשות היום ---- */}
-          <section
-            aria-labelledby="today-tasks-heading"
-            className="overflow-hidden rounded-xl border"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-          >
+          <section aria-labelledby="today-tasks-heading" className="mv-card overflow-hidden">
+            {/*
+              כותרת הכרטיס כמו במוקאפ: אריח וי ירוק בקצה הימני,
+              ולידו הכותרת עם שורת המשנה **מתחתיה** — לא לצדה. שורת
+              משנה שיושבת באותה שורה נקראת כהמשך הכותרת, וזה בדיוק
+              מה שהיא לא.
+            */}
             <div
-              className="flex flex-wrap items-center gap-2.5 px-5 py-4"
+              className="flex flex-wrap items-center gap-3 px-5 py-4"
               style={{ borderBottom: "1px solid var(--color-card-head-border)" }}
             >
-              <h2 id="today-tasks-heading" className="m-0" style={{ fontSize: "calc(18 / 16 * 1rem)", fontWeight: 800 }}>
-                מה חשוב לעשות היום
-              </h2>
-              <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-                מתעדכן לבד לפי המצב בשטח
+              <span className="mv-tile mv-domain-green" aria-hidden="true">
+                <IconCheck s={19} />
               </span>
+              <div className="min-w-0">
+                <h2
+                  id="today-tasks-heading"
+                  className="m-0"
+                  style={{
+                    fontSize: "var(--type-card-title)",
+                    fontWeight: 900,
+                    letterSpacing: "var(--type-card-title-track)",
+                  }}
+                >
+                  מה חשוב לעשות היום
+                </h2>
+                <p className="m-0 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
+                  מתעדכן לבד לפי המצב בשטח
+                </p>
+              </div>
               {shownTasks.length > 0 ? (
                 <span
                   className="ms-auto rounded-full px-2.5 py-0.5 text-sm font-bold"
@@ -1203,6 +1240,7 @@ export default function DashboardPage() {
                     product”, ולא בכדי: חמש שורות עם חמש קריאות זהות
                     לפעולה אינן מדרג אלא רשימה, ומתווך שקורא את המסך
                     בין שתי פגישות צריך לדעת מה **הדבר האחד**.
+                    בעל המוצר אישר את הכלל מחדש מול המוקאפ.
 
                     ‎`index === 0` ולא סוג פעולה מסוים: הצבע והכפתור
                     הראשי נגזרים מהדירוג, ולכן הם עוברים עם הראש
@@ -1210,7 +1248,9 @@ export default function DashboardPage() {
                   */
                   <li
                     key={t.key}
-                    className={`mv-row mv-row--action mv-row--flush mv-domain-${t.domain}`}
+                    className={`mv-row mv-row--action mv-row--flush mv-domain-${t.domain}${
+                      index === 0 ? " mv-row--rank-1" : ""
+                    }`}
                   >
                     {/*
                       המספר הסידורי חזר לשורה — הוא הדירוג עצמו, וזה
@@ -1232,7 +1272,9 @@ export default function DashboardPage() {
                     {t.href ? (
                       <Link
                         href={t.href}
-                        className="mv-row__action mv-button mv-button--secondary flex-none no-underline"
+                        className={`mv-row__action mv-button ${
+                          index === 0 ? "mv-button--primary" : "mv-button--secondary"
+                        } flex-none no-underline`}
                       >
                         {t.action}
                       </Link>
@@ -1254,7 +1296,7 @@ export default function DashboardPage() {
               הכרטיס נעלם ולא מתרוקן.
             */}
             {canSeeBuyers ? (
-              <div className="mv-list-card flex flex-col px-5 py-[18px]">
+              <div className="mv-card flex flex-col p-6">
                 <div className="mv-card-head mv-domain-violet">
                   <span className="mv-tile" aria-hidden="true">
                     <IconUsers s={19} />
@@ -1309,10 +1351,11 @@ export default function DashboardPage() {
             ) : null}
 
             {canSeeLeads ? (
-              <div className="mv-list-card flex flex-col px-5 py-[18px]">
+              <div className="mv-card flex flex-col p-6">
+                {/* ברק ולא משפך — האייקון של הלידים במוקאפ ובאוצר §7 */}
                 <div className="mv-card-head mv-domain-peach">
                   <span className="mv-tile" aria-hidden="true">
-                    <IconFilter s={19} />
+                    <IconBolt s={19} />
                   </span>
                   <h3 className="mv-card-head__title m-0">מצב הלידים</h3>
                 </div>
@@ -1320,13 +1363,13 @@ export default function DashboardPage() {
                 <ul className="m-0 mt-3 flex list-none flex-col gap-2 p-0">
                   {leadRows.map((row) => (
                     <li key={row.label}>
+                      {/* בלי נקודת סטטוס — במוקאפ שורות המשפך חלקות; הנקודה היא של סולם הבשלות */}
                       <Link
                         href={row.href}
                         className={`mv-metric no-underline ${
                           row.value === 0 ? "mv-domain-neutral" : row.domain
                         }`}
                       >
-                        <span className="mv-metric__dot" aria-hidden="true" />
                         <span className="mv-metric__label">{row.label}</span>
                         <span className="mv-metric__value mv-ltr">
                           {leadBreakdown === null ? "…" : row.value}
@@ -1361,51 +1404,49 @@ export default function DashboardPage() {
             „ליומן המלא” שמוביל לנתיב שיסרב (ביקורת Codex).
           */}
           {canSeeCalendar ? (
-          <section
-            aria-labelledby="today-heading"
-            className="rounded-xl border px-5 py-4"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-          >
-            <div className="mb-1 flex items-center">
-              <h2 id="today-heading" className="m-0" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
+          <section aria-labelledby="today-heading" className="mv-card p-5">
+            {/* כותרת כרטיס לפי §9 — אריח יומן כחול, ואז הקישור בקצה */}
+            <div className="mv-card-head mv-domain-blue">
+              <span className="mv-tile" aria-hidden="true">
+                <IconCalendar s={19} />
+              </span>
+              <h2 id="today-heading" className="mv-card-head__title m-0">
                 היום ביומן
               </h2>
-              <Link
-                href="/calendar"
-                className="ms-auto text-[length:var(--type-caption)] font-bold no-underline"
-                style={{ color: "var(--color-primary)" }}
-              >
+              <Link href="/calendar" className="mv-card-head__link no-underline">
                 ליומן המלא
               </Link>
             </div>
             {todayEvents.length === 0 ? (
-              <p className="m-0 py-2 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
+              <p className="m-0 mt-3 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
                 אין פגישות מתוכננות להיום.
               </p>
             ) : (
-              todayEvents.map((a) => (
-                <div
-                  key={a.id}
-                  className="flex items-baseline gap-3 py-2"
-                  style={{ borderBottom: "1px solid var(--color-row-border)" }}
-                >
-                  <span
-                    className="flex-none text-[length:var(--type-caption-lg)] font-extrabold"
-                    style={{ width: 40, color: "var(--color-primary)" }}
-                  >
-                    {timeFmt.format(new Date(a.startsAt))}
-                  </span>
-                  <span style={{ lineHeight: 1.3 }}>
-                    <span className="block text-[length:var(--type-body-sm)] font-bold">
-                      {a.title ?? APPOINTMENT_KIND_LABELS[a.kind] ?? a.kind}
+              /*
+                שורות מקוננות (§13) ולא קווי הפרדה: במוקאפ כל פגישה
+                יושבת על משטח שקוע מעוגל, והשעה — מודגשת, בקצה השורה.
+              */
+              <ul className="m-0 mt-3 flex list-none flex-col gap-2 p-0">
+                {todayEvents.map((a) => (
+                  <li key={a.id} className="mv-row mv-row--nested">
+                    <span className="min-w-0" style={{ lineHeight: 1.3 }}>
+                      <span className="block text-[length:var(--type-body-sm)] font-bold">
+                        {a.title ?? APPOINTMENT_KIND_LABELS[a.kind] ?? a.kind}
+                      </span>
+                      <span className="block text-sm" style={{ color: "var(--color-text-muted)" }}>
+                        {APPOINTMENT_KIND_LABELS[a.kind] ?? a.kind}
+                        {a.propertyId ? " · נכס" : a.leadId ? " · ליד" : ""}
+                      </span>
                     </span>
-                    <span className="block text-sm" style={{ color: "var(--color-text-muted)" }}>
-                      {APPOINTMENT_KIND_LABELS[a.kind] ?? a.kind}
-                      {a.propertyId ? " · נכס" : a.leadId ? " · ליד" : ""}
+                    <span
+                      className="mv-ltr ms-auto flex-none font-extrabold"
+                      style={{ fontSize: "var(--type-body)" }}
+                    >
+                      {timeFmt.format(new Date(a.startsAt))}
                     </span>
-                  </span>
-                </div>
-              ))
+                  </li>
+                ))}
+              </ul>
             )}
           </section>
           ) : null}
@@ -1418,13 +1459,12 @@ export default function DashboardPage() {
             אליו. הדחופות כאן, השאר שם.
           */}
           {canSeeCalendar ? (
-            <section
-              aria-labelledby="my-tasks-heading"
-              className="rounded-xl border px-5 py-4"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-            >
-              <div className="mb-1 flex items-center gap-2">
-                <h2 id="my-tasks-heading" className="m-0" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
+            <section aria-labelledby="my-tasks-heading" className="mv-card p-5">
+              <div className="mv-card-head mv-domain-neutral">
+                <span className="mv-tile" aria-hidden="true">
+                  <IconList s={19} />
+                </span>
+                <h2 id="my-tasks-heading" className="mv-card-head__title m-0">
                   המשימות שלי
                 </h2>
                 {dueNow > 0 ? (
@@ -1435,53 +1475,57 @@ export default function DashboardPage() {
                     {dueNow} להיום
                   </span>
                 ) : null}
-                <Link
-                  href="/tasks"
-                  className="ms-auto text-[length:var(--type-caption)] font-bold no-underline"
-                  style={{ color: "var(--color-primary)" }}
-                >
+                <Link href="/tasks" className="mv-card-head__link no-underline">
                   לכל המשימות
                 </Link>
               </div>
               {tasksFailed ? (
-                <LoadError message="לא הצלחנו לטעון את המשימות" onRetry={loadTasks} />
+                <div className="mt-3">
+                  <LoadError message="לא הצלחנו לטעון את המשימות" onRetry={loadTasks} />
+                </div>
               ) : myTasks === null ? (
-                <p className="m-0 py-2 text-[length:var(--type-caption-lg)]" aria-live="polite" style={{ color: "var(--color-text-muted)" }}>
+                <p className="m-0 mt-3 text-[length:var(--type-caption-lg)]" aria-live="polite" style={{ color: "var(--color-text-muted)" }}>
                   טוען…
                 </p>
               ) : shownMyTasks.length === 0 ? (
-                <p className="m-0 py-2 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
+                <p className="m-0 mt-3 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
                   <IconCheck s={14} /> אין משימות פתוחות על שמכם.
                 </p>
               ) : (
-                shownMyTasks.map((t) => {
-                  const due = dueLabel(t.dueAt, now);
-                  return (
-                    <div
-                      key={t.id}
-                      className="flex items-baseline gap-3 py-2"
-                      style={{ borderBottom: "1px solid var(--color-row-border)" }}
-                    >
-                      <span
-                        className="flex-none text-[length:var(--type-caption)] font-extrabold"
-                        style={{
-                          width: 58,
-                          color: due.urgent ? "var(--color-danger)" : "var(--color-text-muted)",
-                        }}
-                      >
-                        {due.text}
-                      </span>
-                      <span style={{ lineHeight: 1.3 }}>
-                        <span className="block text-[length:var(--type-body-sm)] font-bold">{t.title}</span>
-                        {t.entityLabel ? (
-                          <span className="block text-sm" style={{ color: "var(--color-text-muted)" }}>
-                            {t.entityLabel}
-                          </span>
-                        ) : null}
-                      </span>
-                    </div>
-                  );
-                })
+                /*
+                  המועד הוא גלולה בקצה השורה, כמו במוקאפ — והצבע שלה
+                  אומר את הדחיפות: תאריך רגיל ירקרק, „ללא יעד” ענברי
+                  (המתנה), ובאיחור/היום — אדום. הצבע לעולם לא לבדו:
+                  המילה שבתוך הגלולה אומרת את אותו הדבר.
+                */
+                <ul className="m-0 mt-3 flex list-none flex-col gap-2 p-0">
+                  {shownMyTasks.map((t) => {
+                    const due = dueLabel(t.dueAt, now);
+                    const chip = due.urgent
+                      ? { background: "var(--color-danger-soft)", color: "var(--color-danger)" }
+                      : due.text === "ללא יעד"
+                        ? { background: "var(--domain-amber-tile)", color: "var(--domain-amber-fg)" }
+                        : { background: "var(--domain-green-tile)", color: "var(--domain-green-fg)" };
+                    return (
+                      <li key={t.id} className="mv-row mv-row--nested">
+                        <span className="min-w-0" style={{ lineHeight: 1.3 }}>
+                          <span className="block text-[length:var(--type-body-sm)] font-bold">{t.title}</span>
+                          {t.entityLabel ? (
+                            <span className="block text-sm" style={{ color: "var(--color-text-muted)" }}>
+                              {t.entityLabel}
+                            </span>
+                          ) : null}
+                        </span>
+                        <span
+                          className="ms-auto flex-none rounded-full px-2.5 py-1 text-[length:var(--type-caption)] font-bold"
+                          style={chip}
+                        >
+                          {due.text}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
             </section>
           ) : null}
@@ -1493,25 +1537,31 @@ export default function DashboardPage() {
             אחרי שהיה מאוחר.
           */}
           {can(user, "collaboration.offer") ? (
+            /*
+              מסגרת ירקרקה, כמו במוקאפ: הרשת היא הדומיין הירוק, וזה
+              הכרטיס היחיד בטור שמסגרתו נצבעת — אותה שפה כמו פאנל
+              הסוכן, שגם מסגרתו ירוקה.
+            */
             <section
               aria-labelledby="coop-heading"
-              className="rounded-xl border px-5 py-4"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+              className="mv-card p-5"
+              style={{ borderColor: "var(--domain-green-line)" }}
             >
-              <div className="mb-2 flex items-center gap-2">
-                <h2 id="coop-heading" className="m-0 flex items-center gap-2" style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}>
-                  <IconHandshake s={16} /> שת&quot;פים
+              <div className="mv-card-head mv-domain-green">
+                <span className="mv-tile" aria-hidden="true">
+                  <IconLink s={19} />
+                </span>
+                <h2 id="coop-heading" className="mv-card-head__title m-0">
+                  שת&quot;פים
                 </h2>
-                <Link
-                  href="/collaboration"
-                  className="ms-auto text-[length:var(--type-caption)] font-bold no-underline"
-                  style={{ color: "var(--color-primary)" }}
-                >
+                <Link href="/collaboration" className="mv-card-head__link no-underline">
                   לרשת
                 </Link>
               </div>
               {networkFailed ? (
-                <LoadError message="לא הצלחנו לטעון את מצב הרשת" onRetry={loadNetwork} />
+                <div className="mt-3">
+                  <LoadError message="לא הצלחנו לטעון את מצב הרשת" onRetry={loadNetwork} />
+                </div>
               ) : (
                 <>
                   {/*
@@ -1523,7 +1573,7 @@ export default function DashboardPage() {
                     הוא העניין — „5 הצעות שהתקבלו” — ולכן הוא ראשון
                     ובגודל שמאפשר לקרוא אותו בלי להתקרב.
                   */}
-                  <ul className="m-0 mt-2 flex list-none flex-col gap-2 p-0">
+                  <ul className="m-0 mt-3 flex list-none flex-col gap-2 p-0">
                     {[
                       {
                         value: network?.incomingOffers ?? 0,
@@ -1608,8 +1658,10 @@ export default function DashboardPage() {
                 עושה. „Never blame the user for an empty state. State
                 the fact” חל גם על פיצ'ר שטרם הושק.
               */}
+              {/* הנוסח מהמוקאפ, בזמן עתיד — כי הפיצ'ר מסומן „בקרוב” */}
               <p className="mv-dark-card__body m-0">
-                הליווי שיזכיר לכם את היעד, ויענה על כל שאלה על המערכת ועל שת&quot;פים.
+                שואלים אותו כל שאלה על המערכת, על שת&quot;פים או על איך לסגור עסקה
+                מהר יותר.
               </p>
               <Link href="/mentor" className="mv-button mv-dark-card__action no-underline">
                 לראות מה מגיע

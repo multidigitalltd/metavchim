@@ -17,6 +17,7 @@ import { LeadPricesSection } from "./lead-prices-section";
 import { PaymentsSection } from "./payments-section";
 import { PlansSection } from "./plans-section";
 import { CouponsSection } from "./coupons-section";
+import { OffersSection } from "./offers-section";
 import { AgentUsageSection } from "./agent-usage-section";
 import { PlatformSettingsSection } from "./platform-settings-section";
 import { LegalDocsSection } from "./legal-docs-section";
@@ -371,6 +372,7 @@ const JUMP_LINKS: readonly (readonly [string, string])[] = [
   ["platform-system-heading", "עדכוני מערכת"],
   ["platform-backups-heading", "גיבויים"],
   ["plans-heading", "מסלולים"],
+  ["offers-heading", "הצעות בלינק"],
   ["coupons-heading", "קופונים"],
   ["lead-prices-heading", "תמחור לידים"],
   ["payments-heading", "תשלומים"],
@@ -648,6 +650,11 @@ export default function PlatformPage() {
       <BackupsSection />
 
       <PlansSection onCatalogChange={loadPlanOptions} />
+      {/*
+        מיד אחרי המסלולים: הצעה בלינק היא "מסלול + חריגים למשרד אחד",
+        וזה המסך שממנו יוצאים אליה אחרי שיחת מכירה.
+      */}
+      <OffersSection agencies={(agencies ?? []).map((a) => ({ id: a.id, name: a.name }))} />
       <CouponsSection />
       <LeadPricesSection />
       <CreditEconomySection refreshToken={referralFeeVersion} />

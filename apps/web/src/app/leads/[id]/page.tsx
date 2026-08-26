@@ -1052,23 +1052,18 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
       ) : null}
 
       {/* ---- לשוניות ---- */}
-      <div
-        className="mv-list-card mb-[18px] px-4"
-        style={{ overflow: "visible" }}
-      >
-        <EntityTabs
-          label="לשוניות כרטיס הליד"
-          active={tab}
-          onSelect={selectTab}
-          tabs={[
-            { key: "overview", label: "סקירה" },
-            { key: "next", label: "המשך טיפול" },
-            { key: "calls", label: "שיחות" },
-            { key: "referral", label: "הפניות" },
-            { key: "timeline", label: "ציר זמן", count: timeline.length },
-          ]}
-        />
-      </div>
+      <EntityTabs
+        label="לשוניות כרטיס הליד"
+        active={tab}
+        onSelect={selectTab}
+        tabs={[
+          { key: "overview", label: "סקירה" },
+          { key: "next", label: "המשך טיפול" },
+          { key: "calls", label: "שיחות" },
+          { key: "referral", label: "הפניות" },
+          { key: "timeline", label: "ציר זמן", count: timeline.length },
+        ]}
+      />
 
       {/* ============================================================
           סקירה — מה שסוכן קורא לפני שהוא מרים טלפון

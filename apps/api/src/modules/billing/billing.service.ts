@@ -11,7 +11,9 @@ import {
   isFreePlan,
   nextPeriodEnd,
   periodDaysLeft,
+  sanitizeFeatures,
   type BillingCycle,
+  type SubscriptionOfferDefinition,
   type SubscriptionStatus,
 } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
@@ -21,6 +23,7 @@ import { CardcomService, type Payer } from "../../core/cardcom.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
+import { SubscriptionOfferService } from "./subscription-offer.service";
 
 /**
  * מנוי בתשלום.
@@ -39,6 +42,29 @@ import { PrismaService } from "../../core/prisma.service";
  * ל-RLS) — ראו את ההסבר בסכימה. הסינון לפי דייר נעשה כאן, מפורשות,
  * בכל שאילתה.
  */
+
+/**
+ * דף תשלום שנפתח דף חדש במקומו — **אינו „נכשל”.**
+ *
+ * פתיחת דף חדש היא פעולה שלנו בלבד; דף התשלום הקודם נשאר חי אצל
+ * קארדקום וניתן לחיוב. לקוח שחזר ללשונית הישנה ושילם בה חויב
+ * באמת — ואם סימנו אותה „נכשל”, המעבר המותנה `pending ⟵ paid`
+ * לא תופס אותה, והתוצאה היא חיוב בלי מנוי ובלי מסלול התאוששות
+ * (ביקורת Codex).
+ *
+ * הסטטוס הנפרד אומר את האמת: לא נדחה, הוחלף. `apply` מתייחסת
+ * אליו כאל בר-תפיסה, כי אימות מול קארדקום גובר על ניחוש שלנו.
+ */
+const SUPERSEDED = "superseded";
+
+/**
+ * הסטטוסים שאישור תשלום מאומת רשאי לתפוס.
+ *
+ * ‎`paid` אינו כאן בכוונה — הוא נבדק לפני כן ומחזיר מוקדם, וזה
+ * השער מול הודעות כפולות של קארדקום.
+ */
+const CLAIMABLE: string[] = ["pending", SUPERSEDED];
+
 @Injectable()
 export class BillingService {
   private readonly logger = new Logger(BillingService.name);
@@ -50,6 +76,7 @@ export class BillingService {
     private readonly crypto: CryptoService,
     private readonly audit: AuditService,
     private readonly creditEconomy: CreditEconomyService,
+    private readonly offers: SubscriptionOfferService,
   ) {}
 
   /** מצב המנוי של הדייר הנוכחי, כולל יצירה עצלה לדיירים ותיקים. */
@@ -209,7 +236,7 @@ export class BillingService {
      */
     await this.prisma.payment.updateMany({
       where: { tenantId: input.tenantId, status: "pending" },
-      data: { status: "failed", failureReason: "נפתח דף תשלום חדש במקומו" },
+      data: { status: SUPERSEDED, failureReason: "נפתח דף תשלום חדש במקומו" },
     });
 
     const paymentId = ulid();
@@ -375,6 +402,85 @@ export class BillingService {
   }
 
   /**
+   * פתיחת תשלום על הצעה בלינק — הצעה אישית או לינק מכירה לחבילה.
+   *
+   * אותה זרימה בדיוק כמו `startCheckout`, עם שני הבדלים מכוונים:
+   *
+   * 1. **אין שער `isPublic` ואין קופון.** יצירת ההצעה בפלטפורמה היא
+   *    ההרשאה למכור את המסלול הזה במחיר הזה, כולל מסלול מוסתר —
+   *    וההנחה כבר בתוך המחיר שנקבע, כך שקופון מעליה היה הנחה כפולה
+   *    שאיש לא התכוון אליה.
+   * 2. **התשלום נושא את מזהה ההצעה.** זה מה שמפעיל, בתשלום שמצליח,
+   *    גם את המחיר המוסכם לחידושים הבאים ואת התכונות שהובטחו.
+   *
+   * הסכום מחושב בשרת מההצעה — כמו תמיד, שום סכום אינו מגיע מהדפדפן.
+   */
+  async startOfferCheckout(input: {
+    tenantId: string;
+    userId: string;
+    token: string;
+  }): Promise<{ url: string; paymentId: string }> {
+    const { offer, plan, amountAgorot } = await this.offers.resolveForCheckout(
+      input.token,
+      input.tenantId,
+      new Date(),
+    );
+    if (!(await this.cardcom.isConfigured())) {
+      throw new BadRequestException("הסליקה טרם הופעלה במערכת — פנו אלינו");
+    }
+
+    // תשלום פתוח אחד לכל משרד — אותו כלל ומאותה סיבה כמו ב-startCheckout
+    await this.prisma.payment.updateMany({
+      where: { tenantId: input.tenantId, status: "pending" },
+      data: { status: SUPERSEDED, failureReason: "נפתח דף תשלום חדש במקומו" },
+    });
+
+    const paymentId = ulid();
+    await this.prisma.payment.create({
+      data: {
+        id: paymentId,
+        tenantId: input.tenantId,
+        planCode: plan.code,
+        billingCycle: offer.billingCycle,
+        amountAgorot,
+        status: "pending",
+        lowProfileId: paymentId,
+        offerId: offer.id,
+        createdBy: input.userId,
+      },
+    });
+
+    const origin = loadEnv().WEB_ORIGIN;
+    try {
+      const page = await this.cardcom.createPaymentPage({
+        reference: paymentId,
+        amountAgorot,
+        productName:
+          offer.kind === "custom"
+            ? `${plan.name} — מנוי ${describeCycle(offer.billingCycle)} בהתאמה אישית`
+            : `${plan.name} — מנוי ${describeCycle(offer.billingCycle)}`,
+        successUrl: `${origin}/settings/billing/return?payment=${paymentId}`,
+        failureUrl: `${origin}/settings/billing/return?payment=${paymentId}&failed=1`,
+        webhookUrl: `${origin}/api/v1/webhooks/cardcom`,
+        // טוקן נשמר — המנוי מתחדש חודש בחודשו באותו סכום
+        createToken: true,
+        payer: await this.payer(input.tenantId, input.userId),
+      });
+      await this.prisma.payment.update({
+        where: { id: paymentId },
+        data: { lowProfileId: page.lowProfileId },
+      });
+      return { url: page.url, paymentId };
+    } catch (error) {
+      await this.prisma.payment.update({
+        where: { id: paymentId },
+        data: { status: "failed", failureReason: "פתיחת דף התשלום נכשלה" },
+      });
+      throw error;
+    }
+  }
+
+  /**
    * אימות תשלום והפעלת המנוי — **הפונקציה היחידה שמפעילה מנוי**.
    *
    * נקראת גם מהוובהוק וגם מדף החזרה, ולכן היא אידמפוטנטית: המעבר
@@ -391,7 +497,7 @@ export class BillingService {
       // כישלון מסומן, אבל רק על שורה שעדיין ממתינה — הודעת כישלון
       // מאוחרת לא תבטל תשלום שכבר נקלט
       await this.prisma.payment.updateMany({
-        where: { lowProfileId, status: "pending" },
+        where: { lowProfileId, status: { in: CLAIMABLE } },
         data: {
           status: "failed",
           failureReason: verified.message.slice(0, 300) || "התשלום לא אושר",
@@ -432,7 +538,7 @@ export class BillingService {
         `סכום שאינו תואם בתשלום ${payment.id}: נגבו ${verified.amountAgorot ?? "לא ידוע"} מול ${payment.amountAgorot}`,
       );
       await this.prisma.payment.updateMany({
-        where: { id: payment.id, status: "pending" },
+        where: { id: payment.id, status: { in: CLAIMABLE } },
         data: { status: "failed", failureReason: "הסכום שנגבה אינו תואם להזמנה" },
       });
       return { applied: false, status: "failed" };
@@ -450,6 +556,13 @@ export class BillingService {
      * מנוי בעקבותיה הייתה ממציאה מנוי למי שרק קנה קרדיטים.
      */
     if (payment.purpose !== "credits") await this.ensureSubscription(payment.tenantId);
+    /*
+     * ההצעה שהתשלום מממש — נקראת לפני הטרנזקציה, כמו ensureSubscription.
+     * הצעה שנעלמה (לא אמור לקרות — מבטלים, לא מוחקים) אינה עוצרת את
+     * ההפעלה: הלקוח שילם, והמסלול שעל שורת התשלום מופעל בכל מקרה.
+     */
+    const offer =
+      payment.offerId !== null ? await this.offers.definitionById(payment.offerId) : null;
     const token = verified.token ? this.crypto.encrypt(verified.token) : null;
 
     /*
@@ -466,7 +579,7 @@ export class BillingService {
      */
     const outcome = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.payment.updateMany({
-        where: { id: payment.id, status: "pending" },
+        where: { id: payment.id, status: { in: CLAIMABLE } },
         data: {
           status: "paid",
           paidAt: now,
@@ -520,6 +633,12 @@ export class BillingService {
             }
           : null,
       });
+      /*
+       * מה שההצעה הבטיחה — **באותה טרנזקציה שתפסה את התשלום**, מאותה
+       * סיבה שהזיכוי בקרדיטים שם: רק מי שהעביר `pending ⟵ paid`
+       * מפעיל, ולכן הודעה כפולה של קארדקום אינה מעניקה פעמיים.
+       */
+      if (offer !== null) await this.applyOfferWithin(tx, payment.tenantId, offer);
       return periodEnd;
     });
 
@@ -605,6 +724,57 @@ export class BillingService {
     return periodEnd;
   }
 
+  /**
+   * מימוש מה שההצעה הבטיחה — אחרי שהמנוי עצמו כבר הופעל.
+   *
+   * שלושה דברים, כולם באותה טרנזקציה של התשלום:
+   *
+   * 1. **המחיר הסופי הופך למחיר המוסכם של המשרד**, במחזור שנרכש.
+   *    זה מה שהופך "מנוי מותאם אישית" לאמת מתמשכת: החידוש האוטומטי
+   *    קורא את `priceOverride*` — בלי הכתיבה הזו החודש הראשון היה
+   *    במחיר שסוכם והשני במחיר המחירון.
+   * 2. **התכונות שהובטחו נפתחות** — איחוד עם ההענקות הקיימות, לא
+   *    החלפה: הצעה אינה אמורה למחוק חריג שניתן למשרד קודם לכן.
+   *    הדחיות אינן נגועות — סגירה של הפלטפורמה גוברת תמיד.
+   * 3. **המימוש נספר**, כדי שהצעה חד-פעמית תיסגר ולינק מוגבל יידע
+   *    כמה נשאר. בלי תקרה בבדיקה כאן בכוונה: מי שכבר שילם מקבל את
+   *    השירות גם אם במרוץ נדיר נחצתה המכסה — הכיוון ההפוך היה גובה
+   *    כסף בלי לתת דבר.
+   */
+  private async applyOfferWithin(
+    tx: Parameters<Parameters<PrismaService["$transaction"]>[0]>[0],
+    tenantId: string,
+    offer: SubscriptionOfferDefinition,
+  ): Promise<void> {
+    if (offer.priceAgorot !== null) {
+      await tx.tenant.update({
+        where: { id: tenantId },
+        data:
+          offer.billingCycle === "yearly"
+            ? { priceOverrideYearlyAgorot: offer.priceAgorot }
+            : { priceOverrideMonthlyAgorot: offer.priceAgorot },
+      });
+    }
+    if (offer.featureGrants.length > 0) {
+      const tenant = await tx.tenant.findUnique({
+        where: { id: tenantId },
+        select: { featureGrants: true },
+      });
+      if (tenant) {
+        await tx.tenant.update({
+          where: { id: tenantId },
+          data: {
+            featureGrants: sanitizeFeatures([...tenant.featureGrants, ...offer.featureGrants]),
+          },
+        });
+      }
+    }
+    await tx.subscriptionOffer.updateMany({
+      where: { id: offer.id },
+      data: { redemptions: { increment: 1 } },
+    });
+  }
+
   /** מצב תשלום בודד — דף החזרה שואל עליו עד שהוא נסגר. */
   async paymentStatus(
     tenantId: string,
@@ -618,9 +788,17 @@ export class BillingService {
     });
     if (!payment) throw new BadRequestException("התשלום לא נמצא");
 
-    // עדיין ממתין ⇒ הוובהוק טרם הגיע. שואלים את קארדקום ישירות במקום
-    // להשאיר את המשרד מול "ממתין" עד שהוא מרענן
-    if (payment.status === "pending" && payment.lowProfileId !== paymentId) {
+    /*
+     * טרם הוכרע ⇒ הוובהוק טרם הגיע. שואלים את קארדקום ישירות במקום
+     * להשאיר את המשרד מול „ממתין” עד שהוא מרענן.
+     *
+     * ‎**גם `superseded`, לא רק `pending`.** דף שנפתח דף חדש במקומו
+     * נשאר חי וניתן לחיוב, ולכן דווקא הוא זה שעלול להיות משולם בלי
+     * שהוובהוק הגיע. בדיקה שמדלגת עליו הופכת את הבדיקה החוזרת של
+     * דף החזרה לסיבוב סרק — הלקוח מחויב, המסך מסתובב, ואיש אינו
+     * שואל את הסולק (ביקורת Codex).
+     */
+    if (CLAIMABLE.includes(payment.status) && payment.lowProfileId !== paymentId) {
       await this.apply(payment.lowProfileId);
       const fresh = await this.prisma.payment.findFirst({
         where: { id: paymentId, tenantId },
