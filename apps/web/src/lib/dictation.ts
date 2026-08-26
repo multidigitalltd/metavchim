@@ -5,12 +5,13 @@ import {
   AUDIO_RECORDING_FORMATS,
   collectDictation,
   createDictationSessions,
+  dictationErrorMessage,
   extensionForAudioType,
   type DictationResultSegment,
 } from "@metavchim/shared";
 import { API_BASE, apiGet } from "@/lib/api";
 
-export { extensionForAudioType, collectDictation };
+export { extensionForAudioType, collectDictation, dictationErrorMessage };
 export type { DictationResultSegment };
 
 /**
@@ -85,23 +86,6 @@ interface SpeechRecognitionLike {
  * חבילת השפה שמותקנת במכשיר — ואם אין בה עברית, הזיהוי נכשל שם
  * ועובד כאן.
  */
-export function dictationErrorMessage(code: string | undefined): string {
-  switch (code) {
-    case "not-allowed":
-    case "service-not-allowed":
-      return "הדפדפן חסם את המיקרופון — אשרו גישה למיקרופון בהגדרות האתר ונסו שוב";
-    case "audio-capture":
-      return "לא נמצא מיקרופון במכשיר — אפשר להקליד או לנסות ממכשיר אחר";
-    case "language-not-supported":
-      return "זיהוי הדיבור במכשיר הזה אינו תומך בעברית — השתמשו ב„מדויק”, שמתמלל בשרת";
-    case "network":
-      return "זיהוי הדיבור בדפדפן דורש חיבור לרשת — נסו „מדויק” או בדקו את החיבור";
-    case "no-speech":
-      return "לא נשמע דיבור — נסו שוב קרוב יותר למיקרופון";
-    default:
-      return "זיהוי הדיבור בדפדפן נכשל — אפשר לנסות הקלטה מדויקת או להקליד";
-  }
-}
 
 /*
  * `collectDictation` ו-`DictationResultSegment` עברו ל-`@metavchim/shared`
@@ -179,6 +163,12 @@ function checkServerAvailability(): Promise<boolean> {
 export interface DictationState {
   /** האם המצב המהיר (דפדפן) נתמך כאן. */
   browserReady: boolean;
+  /**
+   * האם בדיקת התמיכה כבר רצה. `browserReady === false` לפני שהיא רצה
+   * אינו „לא נתמך” אלא „עוד לא ידוע”, ומסך שמכריז על השני צריך
+   * להמתין לזה.
+   */
+  detected: boolean;
   /** האם שירות התמלול בשרת מוגדר וזמין. */
   serverReady: boolean;
   recording: DictationMode | null;
@@ -196,8 +186,24 @@ export interface DictationState {
  * שזוהה. הפרדה זו מאפשרת לחבר את אותו מנוע גם ל-input, גם ל-textarea
  * וגם לשדה שמנוהל בטופס לא-מבוקר.
  */
-export function useDictation(onAppend: (text: string, isInterim: boolean) => void): DictationState {
+export function useDictation(
+  onAppend: (text: string, isInterim: boolean) => void,
+  opts: { browserOnly?: boolean } = {},
+): DictationState {
   const [browserReady, setBrowserReady] = useState(false);
+  /**
+   * ‎**האם הבדיקה בכלל רצה** — ולא „האם היא נכשלה”.
+   *
+   * ‎`browserReady` הוא `false` גם לפני שנבדק דבר, כי הזיהוי נעשה
+   * ב-effect שרץ אחרי הרינדור הראשון. כל עוד הכפתור פשוט לא הופיע
+   * זה לא הפריע; ברגע שיש הודעה שאומרת „הדפדפן אינו תומך”, אותו
+   * `false` הפך לטענה — וכל דפדפן, גם תומך, הבזיק אותה לרגע לפני
+   * שהמיקרופון הופיע (ביקורת Codex).
+   *
+   * שני הערכים אינם אותו דבר: „לא נמצא” ו„עוד לא חיפשנו” נראים זהים
+   * במשתנה בוליאני אחד, וזה בדיוק ההבדל שהודעה למשתמש חושפת.
+   */
+  const [detected, setDetected] = useState(false);
   const [serverReady, setServerReady] = useState(false);
   const [recording, setRecording] = useState<DictationMode | null>(null);
   const [transcribing, setTranscribing] = useState(false);
@@ -301,6 +307,7 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
      */
     disposedRef.current = false;
     setBrowserReady(getSpeechRecognition() !== null);
+    setDetected(true);
     void checkServerAvailability().then((ok) => {
       if (!disposedRef.current) setServerReady(ok && canRecordAudio());
     });
@@ -378,7 +385,7 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
       browserTokenRef.current = 0;
       busyRef.current = false;
       setRecording(null);
-      setError(dictationErrorMessage(event?.error));
+      setError(dictationErrorMessage(event?.error, opts.browserOnly === true));
     };
     recognitionRef.current = recognition;
     browserTokenRef.current = token;
@@ -389,7 +396,7 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
       sessions.end(token);
       retireBrowser();
       busyRef.current = false;
-      setError(dictationErrorMessage(undefined));
+      setError(dictationErrorMessage(undefined, opts.browserOnly === true));
       return;
     }
     setRecording("browser");
@@ -653,6 +660,7 @@ export function useDictation(onAppend: (text: string, isInterim: boolean) => voi
 
   return {
     browserReady,
+    detected,
     serverReady,
     recording,
     transcribing,

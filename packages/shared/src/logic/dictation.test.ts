@@ -3,6 +3,7 @@ import {
   appendDictated,
   collectDictation,
   createDictationSessions,
+  dictationErrorMessage,
   type DictationResultSegment,
 } from "./dictation.js";
 
@@ -138,5 +139,49 @@ describe("createDictationSessions", () => {
     sessions.end(first);
     const second = sessions.begin();
     expect(second).not.toBe(first);
+  });
+});
+
+describe("dictationErrorMessage", () => {
+  /** כל הקודים שהדפדפן פולט, ועוד אחד שאיננו מכירים. */
+  const CODES = [
+    "not-allowed",
+    "service-not-allowed",
+    "audio-capture",
+    "language-not-supported",
+    "network",
+    "no-speech",
+    undefined,
+    "something-new-from-a-future-browser",
+  ];
+
+  /*
+   * ‎**הכלל, ולא שלושה מופעים שלו.**
+   *
+   * בחלון הסוכן שבדשבורד מוצג „מהיר” בלבד. הודעה שמפנה שם ל„מדויק”
+   * שולחת את המתווך ללחוץ על כפתור שאינו קיים — אותה מחלה שרודפת
+   * את הקוד הזה: המסך מבטיח דבר שאין מאחוריו. הבדיקה עוברת על כל
+   * הקודים ולא על אלה שזכרתי, ולכן קוד חדש שיתווסף עם ניסוח שגוי
+   * ייתפס.
+   */
+  it("במצב „מהיר בלבד” אף הודעה אינה מפנה ל„מדויק”", () => {
+    for (const code of CODES) {
+      const message = dictationErrorMessage(code, true);
+      expect(message, `${code}`).not.toContain("מדויק");
+      expect(message.length, `${code}`).toBeGreaterThan(0);
+    }
+  });
+
+  it("במצב הרגיל ההפניה ל„מדויק” נשמרת — היא עצה טובה כשהכפתור קיים", () => {
+    expect(dictationErrorMessage("language-not-supported")).toContain("מדויק");
+    expect(dictationErrorMessage("network")).toContain("מדויק");
+    expect(dictationErrorMessage(undefined)).toContain("מדויק");
+  });
+
+  /* קודים שאינם תלויים במצב — אותה הודעה בשניהם, ובלי הפניה לכפתור. */
+  it("שגיאות שאינן קשורות למנוע אינן משתנות בין המצבים", () => {
+    for (const code of ["not-allowed", "service-not-allowed", "audio-capture", "no-speech"]) {
+      expect(dictationErrorMessage(code, true), code).toBe(dictationErrorMessage(code, false));
+    }
   });
 });

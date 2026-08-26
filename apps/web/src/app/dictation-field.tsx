@@ -59,6 +59,7 @@ export function DictationControls({
   onIdle,
   onBusyChange,
   disabled,
+  browserOnly,
 }: {
   onAppend: (text: string) => void;
   /** נקרא כשסבב ההקלטה הסתיים — הזדמנות לאפס את טקסט הבסיס. */
@@ -66,9 +67,22 @@ export function DictationControls({
   /** מקליט או מתמלל כרגע — המיקרופון הגלובלי לא מתקפל באמצע סבב. */
   onBusyChange?: (busy: boolean) => void;
   disabled?: boolean;
+  /**
+   * ‎**„מהיר” בלבד — בלי „מדויק”.**
+   *
+   * בחלון הסוכן שבדשבורד, לפי בקשת המשתמשת. ההיגיון תומך בה: שם
+   * מדברים פקודה קצרה („תוסיף קונה משה כהן”) ורוצים לראות אותה
+   * מיד, ולא ממתינים לתמלול בשרת. שני כפתורים לפעולה אחת קצרה הם
+   * בחירה מיותרת.
+   *
+   * זו **הצרה של התצוגה בלבד** ולא ביטול המצב המדויק — הוא נשאר
+   * בכל שדות הטקסט האחרים במערכת, שם מכתיבים תיאור נכס או סיכום
+   * שיחה וכן משתלם לחכות.
+   */
+  browserOnly?: boolean;
 }) {
-  const { browserReady, serverReady, recording, transcribing, pending, error, start, stop } =
-    useDictation((text) => onAppend(text));
+  const { browserReady, detected, serverReady, recording, transcribing, pending, error, start, stop } =
+    useDictation((text) => onAppend(text), { browserOnly: browserOnly === true });
 
   /*
    * סוף סבב = לא מקליט ולא מתמלל. בלי האיפוס הזה הקלטה שנייה באותו
@@ -87,6 +101,20 @@ export function DictationControls({
     busyRef.current?.(busy);
   }, [busy]);
 
+  /*
+   * ‎**„מהיר” בלבד בדפדפן שאינו תומך בו — נאמר, לא נעלם.**
+   *
+   * זיהוי הדיבור של הדפדפן אינו קיים בפיירפוקס ובחלק מגרסאות ספארי.
+   * בכל שאר המערכת יש נפילה טבעית ל„מדויק”, וכאן אין — ולכן הסתרה
+   * שקטה של הכפתור הייתה משאירה את המשתמש מול חלון שאמור להקליט
+   * ואין בו מיקרופון, בלי שום רמז למה. המשפט אומר גם מה קרה וגם מה
+   * לעשות במקום.
+   */
+  if (browserOnly === true && detected && !browserReady) {
+    return (
+      <span className="mv-dictate-note">הדפדפן הזה אינו תומך בהכתבה — אפשר להקליד</span>
+    );
+  }
   if (!browserReady && !serverReady) return null;
 
   function begin(next: DictationMode): void {
@@ -134,7 +162,7 @@ export function DictationControls({
               <MicIcon /> מהיר
             </button>
           ) : null}
-          {serverReady ? (
+          {serverReady && browserOnly !== true ? (
             <button
               type="button"
               className="mv-dictate-btn"
