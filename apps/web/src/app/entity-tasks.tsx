@@ -9,7 +9,9 @@ import { Notice } from "./notice";
 import {
   JERUSALEM_TZ,
   jerusalemWallErrorMessage,
+  quickDueOptions,
   resolveJerusalemLocalInput,
+  suggestedPropertyTasks,
 } from "@metavchim/shared";
 
 /**
@@ -43,9 +45,19 @@ const dueFmt = new Intl.DateTimeFormat("he-IL", {
 export function EntityTasks({
   entityType,
   entityId,
+  suggestFrom,
 }: {
   entityType: "lead" | "buyer" | "property";
   entityId: string;
+  /**
+   * שדות המוכנות שחסרים בכרטיס — המקור ל„משימות מוצעות” (SPEC-4c §6).
+   *
+   * ‎**מגיע מבחוץ ואינו מחושב כאן**, כי זה בדיוק אותו `missingFields`
+   * שמניע את ציון המוכנות בכרטיס. חישוב שני היה יכול לסתור את
+   * הראשון, וההצעה הייתה שולחת את המתווך להשלים שדה שהכרטיס מציג
+   * כמלא.
+   */
+  suggestFrom?: readonly string[];
 }): React.JSX.Element {
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [title, setTitle] = useState("");
@@ -119,7 +131,34 @@ export function EntityTasks({
   }
 
   const open = (tasks ?? []).filter((t) => t.status === "open");
+  const done = (tasks ?? []).filter((t) => t.status !== "open");
   const now = Date.now();
+
+  /*
+   * ‎**ההצעות נגזרות ממה שחסר, ומנוקות ממה שכבר נפתח.**
+   *
+   * הכותרות הפתוחות נשלחות פנימה כדי שהצעה שנלחצה לא תישאר למעלה
+   * ותיפתח פעמיים.
+   */
+  const suggestions =
+    suggestFrom === undefined
+      ? []
+      : suggestedPropertyTasks(suggestFrom, open.map((t) => t.title));
+
+  const quickDue = quickDueOptions(new Date());
+
+  async function addSuggested(title: string): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      await apiPost("/tasks", { title, entityType, entityId });
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "הוספת המשימה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <section
@@ -141,13 +180,13 @@ export function EntityTasks({
         </div>
       ) : tasks === null ? (
         <p aria-live="polite">טוען…</p>
-      ) : tasks.length === 0 ? (
+      ) : open.length === 0 ? (
         <p className="mb-3" style={{ color: "var(--color-text-muted)" }}>
           אין משימות פתוחות על הכרטיס הזה.
         </p>
       ) : (
         <ul className="mb-3 flex flex-col gap-2">
-          {tasks.map((task) => {
+          {open.map((task) => {
             const overdue =
               task.status === "open" && task.dueAt !== undefined && new Date(task.dueAt).getTime() < now;
             return (
@@ -233,6 +272,110 @@ export function EntityTasks({
           הוסף
         </Button>
       </form>
+
+      {/*
+        ‎**„מועד מהיר” — SPEC-4c §6.**
+
+        שדה `datetime-local` הוא ארבע פעולות, ומתווך שמקליד משימה בין
+        שתי שיחות לא יעשה אותן — כלומר המשימה נשמרת בלי מועד, ומשימה
+        בלי מועד אינה מזכירה לאיש דבר.
+
+        המועדים מחושבים ב-`@metavchim/shared` ולא כאן: „מחר בבוקר”
+        הוא 09:00 בשעון **ישראל**, ו„מחר” הוא היום הישראלי הבא — שאינו
+        „עוד 24 שעות” בליל מעבר שעון. מועד שכבר חלף אינו מוצע.
+      */}
+      {quickDue.length > 0 ? (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+            מועד מהיר
+          </span>
+          {quickDue.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              className="mv-chip"
+              aria-pressed={dueAt === option.value}
+              onClick={() => setDueAt(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {/*
+        ‎**„משימות מוצעות לנכס הזה” — SPEC-4c §6.**
+
+        האפיון נוקב בכלל אחד: „Only ever suggest something the record
+        actually lacks”. הוא מובטח בבנייה — המקור הוא `missingFields`
+        שהשרת מחשב, אותו שדה שמניע את ציון המוכנות בכרטיס — ולכן
+        ההצעה אינה יכולה לסתור את מה שהמתווך רואה שם.
+      */}
+      {suggestions.length > 0 ? (
+        <div className="mt-4">
+          <h3 className="mb-2 text-sm font-semibold">משימות מוצעות לנכס הזה</h3>
+          <ul className="flex flex-col gap-2">
+            {suggestions.map((suggestion) => (
+              <li
+                key={suggestion.field}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1"
+              >
+                <span className="font-semibold">{suggestion.title}</span>
+                <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+                  {suggestion.reason}
+                </span>
+                <button
+                  type="button"
+                  className="mv-chip ms-auto"
+                  disabled={busy}
+                  onClick={() => void addSuggested(suggestion.title)}
+                >
+                  הוסף
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {/*
+        ‎**„משימות שהושלמו” — כרטיס משלהן.**
+
+        הן היו מעורבות ברשימה הפתוחה, וזה הפך „מה פתוח עליי” לשאלה
+        שדורשת קריאה של כל השורות. מה שהושלם אינו נעלם — הוא נשמר עם
+        המועד — אבל הוא אינו מתחרה על תשומת הלב עם מה שעוד לא נעשה.
+      */}
+      {done.length > 0 ? (
+        <div className="mt-4">
+          <h3 className="mb-2 text-sm font-semibold">משימות שהושלמו ({done.length})</h3>
+          <ul className="flex flex-col gap-2">
+            {done.map((task) => (
+              <li key={task.id} className="flex flex-wrap items-start gap-2">
+                <input
+                  type="checkbox"
+                  className="mt-1.5"
+                  checked
+                  disabled={busy || !task.canEdit}
+                  onChange={() => void toggle(task)}
+                  aria-label={
+                    task.canEdit
+                      ? `החזר לפתוחות: ${task.title}`
+                      : `${task.title} — משימה של סוכן אחר, לא ניתנת לשינוי`
+                  }
+                />
+                <div>
+                  <span className="line-through opacity-70">{task.title}</span>
+                  {task.dueAt ? (
+                    <div className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+                      <IconClock s={15} /> {dueFmt.format(new Date(task.dueAt))}
+                    </div>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </section>
   );
 }

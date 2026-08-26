@@ -1761,7 +1761,12 @@ export default function PropertyDetailPage({
       </TabPanel>
 
       <TabPanel tab="tasks" active={tab}>
-        <EntityTasks entityType="property" entityId={property.id} />
+        <EntityTasks
+          entityType="property"
+          entityId={property.id}
+          /* אותו `missingFields` שמניע את ציון המוכנות בכרטיס */
+          suggestFrom={property.missingFields}
+        />
       </TabPanel>
     </>
   );
