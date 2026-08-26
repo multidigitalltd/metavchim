@@ -6105,3 +6105,123 @@ a.mv-bar-row:focus-visible {
     margin-inline-start: 0;
   }
 }
+
+/* ============ SPEC-3c §5 — רשימת הגדרות (תווית / ערך) ============ */
+
+/*
+ * שתי עמודות: התווית בתחילת השורה והערך בסופה. `space-between`
+ * ולא `grid`, כי הערך משתנה באורכו ורשת קבועה הייתה חותכת „כניסה
+ * מיידית, בכפוף לתיאום” באמצע.
+ *
+ * ‎`min-height` ולא `height`: המסמך מבקש 48px, אבל ערך ארוך במסך
+ * צר חייב לגלוש לשורה שנייה ולא להישפך מחוץ לכרטיס.
+ */
+.mv-deflist {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mv-deflist__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 48px;
+  padding: 6px 0;
+  /*
+   * ‎`--color-row-border` ולא צבע קבוע: הוא כבר קיים, כבר מוגדר
+   * לשני המצבים, וכבר רשום בשער הניגודיות כמפריד דקורטיבי. קבוע
+   * ‎#EDF0EA מהמסמך היה נכון במצב הבהיר ומאיר קו לבן במצב הכהה.
+   */
+  border-bottom: 1px solid var(--color-row-border);
+}
+
+/* השורה האחרונה אינה נושאת קו — אחרת נוצר קו כפול עם שולי הכרטיס */
+.mv-deflist__row:last-child {
+  border-bottom: 0;
+}
+
+.mv-deflist__label {
+  margin: 0;
+  font-size: calc(15 / 16 * 1rem);
+  font-weight: 700;
+  color: var(--color-text-muted);
+  flex: none;
+}
+
+.mv-deflist__value {
+  margin: 0;
+  font-size: calc(16 / 16 * 1rem);
+  font-weight: 800;
+  text-align: end;
+}
+
+/* ערך חסר — מקף באורך em בגוון המושתק, ולעולם לא תא ריק */
+.mv-deflist__value[data-empty="true"] {
+  color: var(--color-text-muted);
+  font-weight: 700;
+}
+
+/* ============ SPEC-3c §6a — ציר הפעילות ============ */
+
+.mv-timeline {
+  display: flex;
+  flex-direction: column;
+}
+
+.mv-timeline__row {
+  display: flex;
+  gap: 12px;
+  min-height: 52px;
+}
+
+/*
+ * עמודת הנקודה, והקו שמחבר בין הנקודות. הקו הוא `::after` על
+ * העמודה ולא גבול על השורה, כדי שהוא יימתח בין הנקודות בלבד —
+ * ולא ייצא מעל הראשונה או מתחת לאחרונה.
+ */
+.mv-timeline__dot {
+  position: relative;
+  width: 30px;
+  flex: none;
+  display: flex;
+  justify-content: center;
+  padding-top: 5px;
+}
+
+.mv-timeline__dot::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--color-primary);
+  flex: none;
+  z-index: 1;
+}
+
+.mv-timeline__row:not(:last-child) .mv-timeline__dot::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 16px;
+  inset-block-end: -6px;
+  inset-inline-start: calc(50% - 0.5px);
+  width: 1px;
+  background: #dee3d9;
+}
+
+.mv-timeline__body {
+  padding-bottom: 14px;
+}
+
+.mv-timeline__event {
+  margin: 0;
+  font-size: calc(15.5 / 16 * 1rem);
+  font-weight: 800;
+}
+
+.mv-timeline__when {
+  margin: 2px 0 0;
+  font-size: calc(14 / 16 * 1rem);
+  color: var(--color-text-muted);
+}
