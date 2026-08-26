@@ -65,20 +65,6 @@ const LOCAL_READ =
   /\.get(?:Hours|Minutes|Seconds|Milliseconds|Date|Day|FullYear|Year|Month)\s*\(\s*\)/u;
 /** ההיסט של המכשיר — שימש לבניית „עכשיו מקומי” לשדות טופס. */
 const LOCAL_OFFSET = /getTimezoneOffset\s*\(\s*\)/u;
-/**
- * ‎`Date()` בלי `new` — **מחזיר מחרוזת בשעון המארח.**
- *
- * זו אינה יצירת `Date` אלא קריאה לפונקציה גלובלית שמחזירה את הרגע
- * הנוכחי כטקסט מעוצב באזור הזמן של המכשיר או של תהליך השרת. שונה
- * מ-`Date#toString` שנשאר מחוץ לשער: הצורה הזו **ניתנת לזיהוי
- * ודאי**, כי `Date` הוא שם גלובלי יחיד ולא מתודה של כל אובייקט
- * (ביקורת Codex).
- *
- * המבטים לאחור מוציאים את שלוש הצורות התקינות: `new Date(`,
- * ‎`Date.UTC(`/`Date.parse(` (יש נקודה), וכל שם שנגמר ב-Date כמו
- * ‎`formatDate(`.
- */
-const CALLABLE_DATE = /(?<!\bnew\s{1,20})(?<![.\w$])Date\s*\(/u;
 /** ‎`Date.parse("…T…")` — אותו פרסור מקומי בשם אחר. */
 const LOCAL_PARSE = /\bDate\.parse\s*\(/u;
 /** ‎`setHours`/`setDate` — כותבים בשעון המכשיר, אותו נזק בכיוון השני. */
@@ -105,6 +91,35 @@ const LOCALE_METHOD =
   /\.(?:toLocaleString|toLocaleDateString|toLocaleTimeString|toDateString|toTimeString)\s*\(/gu;
 
 /** קריאת `toLocale…` בלי `timeZone` — על הקריאה כולה, כמו המעצבים. */
+/**
+ * ‎`Date()` בלי `new` — **מחזיר מחרוזת בשעון המארח.**
+ *
+ * זו אינה יצירת `Date` אלא קריאה לפונקציה גלובלית שמחזירה את הרגע
+ * הנוכחי כטקסט מעוצב באזור הזמן של המכשיר או של תהליך השרת.
+ *
+ * ‎**גם בהסמכה גלובלית.** `globalThis.Date()` ו-`window.Date()` הן
+ * אותה פונקציה בדיוק, והמבט לאחור שכתבתי פסל אותן בגלל הנקודה —
+ * כלומר הכלל שנועד לסגור חור פתח אחד חדש (ביקורת Codex). לכן
+ * הבדיקה קוראת את הטקסט שלפני הקריאה במקום לנסות לדחוס הכול
+ * לביטוי רגולרי אחד: מסירים מסמיך גלובלי אם יש, ואז שואלים אם
+ * נשאר `new` (הצורה הנכונה) או תו מזהה/נקודה (מתודה של אובייקט
+ * אחר, לא שלנו).
+ */
+const GLOBAL_QUALIFIER = /\b(?:globalThis|window|self|global)\.\s*$/u;
+
+function callableDateLines(text) {
+  const found = [];
+  const pattern = /\bDate\s*\(/gu;
+  let match;
+  while ((match = pattern.exec(text)) !== null) {
+    const before = text.slice(0, match.index).replace(GLOBAL_QUALIFIER, "");
+    if (/\bnew\s+$/u.test(before)) continue;
+    if (/[.\w$]$/u.test(before)) continue;
+    found.push(text.slice(0, match.index).split("\n").length);
+  }
+  return found;
+}
+
 function localeWithoutTimeZone(text) {
   return callsOf(text, LOCALE_METHOD)
     .filter(({ call }) => !namesTimeZone(call) && !call.includes(ALLOW))
@@ -354,6 +369,9 @@ for (const { full, short, arithmetic } of FILES) {
   for (const line of localeWithoutTimeZone(source)) {
     offenders.push(`  ${short}:${line}  ←  toLocale… בלי timeZone`);
   }
+  for (const line of callableDateLines(withoutComments(source))) {
+    offenders.push(`  ${short}:${line}  ←  ()Date בלי new — מחרוזת בשעון המארח`);
+  }
   if (arithmetic) {
     for (const { line, why } of localDateCtor(source)) {
       offenders.push(`  ${short}:${line}  ←  ${why}`);
@@ -377,7 +395,6 @@ for (const { full, short, arithmetic } of FILES) {
     const hit =
       /* תצוגה — שגויה בכל שכבה, בדפדפן ובשרת כאחד */
       (LOCAL_OFFSET.test(code) && "היסט אזור הזמן של המכשיר") ||
-      (CALLABLE_DATE.test(code) && "()Date בלי new — מחרוזת בשעון המארח") ||
       /* אריתמטיקה — נאכפת בשכבת המסך, שאין בה דפוס „נושא שעת קיר” */
       (arithmetic &&
         ((LOCAL_READ.test(code) && "קריאה בשעון המכשיר") ||
