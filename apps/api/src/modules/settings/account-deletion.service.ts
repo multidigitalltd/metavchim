@@ -208,6 +208,24 @@ export class AccountDeletionService {
     await this.prisma.$transaction(
       async (tx) => {
         await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+        /*
+         * ‎**נעילת נכסי המשרד — הדבר הראשון בטרנזקציה.**
+         *
+         * מחיקת המשרד נוגעת בכל מה שתלוי בנכס: המדיה שלו, הפרסום
+         * שלו ברשת, ההצעות עליו. כל אחד מהם הוא שורה שנתיב אחר
+         * נועל **אחרי** שהוא כבר מחזיק את שורת הנכס — מחיקת תמונה
+         * נועלת נכס ואז מעדכנת את הפרסום דרך `syncPhotoKeys`.
+         *
+         * נעילה שנלקחת באמצע הרשימה סוגרת מעגל מול כל מה שקדם לה:
+         * המחיקה מחזיקה פרסום וממתינה לנכס, בעוד מחיקת התמונה
+         * מחזיקה נכס וממתינה לפרסום. זו בדיוק הטעות שתיקנתי כאן
+         * פעם אחת ונשארה, כי הזזתי את הנעילה במקום להקדים אותה
+         * (ביקורת Codex).
+         *
+         * לכן היא ראשונה, ולא „לפני המדיה”: כשהיא ראשונה אין מה
+         * שיקדם לה, ואין צורך לדעת מראש איזו טבלה מתנגשת עם מי.
+         */
+        await lockTenantProperties(tx, tenantId);
         await tx.contactLink.deleteMany({ where: { tenantId } });
         await tx.contactPhone.deleteMany({ where: { tenantId } });
         await tx.interaction.deleteMany({ where: { tenantId } });
@@ -342,15 +360,6 @@ export class AccountDeletionService {
         // תיק הבלעדיות — פעולות לפני תקופות, ושתיהן לפני הנכסים
         await tx.marketingAction.deleteMany({ where: { tenantId } });
         await tx.propertyExclusivity.deleteMany({ where: { tenantId } });
-        /*
-         * ‎**נעילת נכסי המשרד לפני המדיה שלהם** — הסדר של `locks.ts`.
-         *
-         * גם כאן המחיקה היא מדיה ואז נכסים, בעוד מחיקת תמונה בודדת
-         * נועלת את הנכס ואז את המדיה. סוכן שמוחק תמונה בשנייה שבה
-         * המשרד נמחק סגר מעגל (ביקורת Codex — אותו כשל שנמצא
-         * במחיקה לצמיתות; זהו האח שלו).
-         */
-        await lockTenantProperties(tx, tenantId);
         await tx.propertyMedia.deleteMany({ where: { tenantId } });
         await tx.property.deleteMany({ where: { tenantId } });
         await tx.buyer.deleteMany({ where: { tenantId } });

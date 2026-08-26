@@ -1016,6 +1016,22 @@ export class PropertiesService {
   async purge(id: string): Promise<void> {
     const ctx = TenantContext.current();
     await this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**נעילת שורת הנכס — הדבר הראשון בטרנזקציה.**
+       *
+       * המחיקה לצמיתות נוגעת בכל מה שתלוי בנכס: המדיה, ההתאמות,
+       * ההצעות, התאומים. כל אחד מהם הוא שורה שנתיב אחר נועל
+       * **אחרי** שהוא כבר מחזיק את שורת הנכס — מחיקת תמונה נועלת
+       * נכס ואז נוגעת במדיה ובפרסום שברשת.
+       *
+       * נעילה באמצע הרשימה סוגרת מעגל מול כל מה שקדם לה, ולכן היא
+       * ראשונה ולא „לפני המדיה”: כשהיא ראשונה אין מה שיקדם לה, ואין
+       * צורך לדעת מראש איזו טבלה מתנגשת עם מי (ביקורת Codex).
+       *
+       * המסלול פתוח: `MediaService.remove` אינה דוחה נכס בארכיון,
+       * וארכיון הוא בדיוק התנאי למחיקה לצמיתות.
+       */
+      await lockProperty(tx, ctx.tenantId, id);
       const existing = await tx.property.findFirst({
         where: { id, tenantId: ctx.tenantId },
         select: { deletedAt: true },
@@ -1091,16 +1107,6 @@ export class PropertiesService {
        */
       const twins = await this.twins.purgeFor(tx, id);
 
-      /*
-       * ‎**נעילת שורת הנכס לפני המדיה** — הסדר של `locks.ts`.
-       *
-       * המחיקה כאן היא מדיה ואז נכס, בעוד מחיקת תמונה בודדת נועלת
-       * את הנכס ואז נוגעת במדיה. סוכן שמוחק תמונה מלשונית פתוחה
-       * בזמן שהנכס נמחק לצמיתות סגר מעגל, ו-Postgres הפיל אחת
-       * מהשתיים (ביקורת Codex). המסלול פתוח: `remove` אינה דוחה
-       * נכס בארכיון, וארכיון הוא בדיוק התנאי למחיקה לצמיתות.
-       */
-      await lockProperty(tx, ctx.tenantId, id);
       // property_media לפני properties — מפתח זר RESTRICT
       await tx.propertyMedia.deleteMany({
         where: { tenantId: ctx.tenantId, propertyId: id },
