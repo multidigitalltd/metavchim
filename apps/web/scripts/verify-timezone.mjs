@@ -307,9 +307,19 @@ function argsOf(call) {
  * בשעון המכשיר של מנהל הפלטפורמה (ביקורת Codex). מה שקובע אינו
  * היכן השיבוצים אלא **האם יש `Z`**.
  */
+/**
+ * בנאי `Date` — **גם בהסמכה גלובלית.**
+ *
+ * ‎`new globalThis.Date(...)` ו-`new window.Date(...)` הם אותו בנאי
+ * בדיוק. בסבב הקודם הרחבתי את **הקריאה** בלי `new` למסמיכים האלה,
+ * ושכחתי את התאום שלה — הבנאי **עם** `new` (ביקורת Codex). שני
+ * צדדים לאותה שאלה, ותיקנתי רק אחד.
+ */
+const DATE_CTOR = /new\s+(?:(?:globalThis|window|self|global)\.)?Date\s*\(/gu;
+
 function localDateCtor(text) {
   const found = [];
-  for (const { line, call } of callsOf(text, /new Date\s*\(/gu)) {
+  for (const { line, call } of callsOf(text, DATE_CTOR)) {
     if (call.includes(ALLOW)) continue;
     const args = argsOf(call);
     let depth = 0;
