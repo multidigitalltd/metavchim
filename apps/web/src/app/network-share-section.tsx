@@ -139,6 +139,8 @@ function DisclosureList({
   title: string;
   chips: readonly DisclosureChip[];
 }) {
+  /* רשימה ריקה אינה כותרת ריקה — בביקוש אין „נשמר ואינו נשלח” */
+  if (chips.length === 0) return null;
   const shown = tone === "shown";
   return (
     <div>
@@ -192,7 +194,14 @@ function DisclosurePanel({ kind }: { kind: "buyer" | "property" }) {
       className="mb-4 flex flex-col gap-3 rounded-xl border p-3.5"
       style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
     >
-      <DisclosureList tone="shown" title="מה משרדים אחרים רואים" chips={disclosure.shown} />
+      <DisclosureList tone="shown" title="מה משרד אחר מקבל" chips={disclosure.shown} />
+      {/*
+        ‎**הקבוצה השלישית, ובלעדיה שתי האחרות משקרות.** המיקום
+        המעוגל נשמר בטבלה המשותפת, אינו נשלח בתשובה, ובכל זאת מזין
+        את מנוע ההתאמות — והמרחק שנגזר ממנו כן מגיע לצד השני. „נחשף”
+        היה שקר, „מוסתר” היה שקר, ורק שלוש קבוצות אומרות את האמת.
+      */}
+      <DisclosureList tone="hidden" title="נשמר ואינו נשלח" chips={disclosure.storedOnly} />
       <DisclosureList tone="hidden" title="מה נשאר אצלכם" chips={disclosure.hidden} />
     </div>
   );

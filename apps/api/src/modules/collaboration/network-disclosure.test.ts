@@ -1,47 +1,41 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { NETWORK_DISCLOSURE, disclosureColumns } from "@metavchim/shared";
+import {
+  NETWORK_DISCLOSURE,
+  disclosureColumns,
+  disclosureDtoFields,
+  type DisclosureChip,
+} from "@metavchim/shared";
 import { describe, expect, it } from "vitest";
 
 /**
- * ‎**„זה מה שנחשף” — נבדק מול הסכימה, לא מול הזיכרון.**
+ * ‎**„זה מה שנשלח” — נבדק מול הקוד, לא מול הזיכרון.**
  *
- * הפאנל בכרטיס הנכס ובכרטיס הקונה מציג שתי רשימות: מה משרד אחר
- * רואה, ומה נשאר. זו ההצהרה היחידה במערכת על מידע שחוצה את גבול
- * הדייר, והיא נקראת בדיוק ברגע שבו מתווך מחליט אם ללחוץ.
+ * הפאנל בכרטיס הנכס ובכרטיס הקונה מציג שלוש רשימות: מה משרד אחר
+ * מקבל, מה נשמר ואינו נשלח, ומה נשאר אצלכם. זו ההצהרה היחידה
+ * במערכת על מידע שחוצה את גבול הדייר, והיא נקראת בדיוק ברגע שבו
+ * מתווך מחליט אם ללחוץ.
  *
- * ‎**למה בדיקה ולא הערה.** ‎`snapshot()` ב-`listings.service.ts`
- * מחזיר ‎`Omit<Prisma.SharedListingUncheckedCreateInput, …>`, וכל
- * שדותיו של הטיפוס הזה אופציונליים — כלומר עמודה חדשה בטבלה
- * המשותפת **אינה** מפילה את הקומפילציה. בלי הבדיקה הזו אפשר להוסיף
- * שדה, לפרסם אותו לרשת, והמסך ימשיך להציג את אותם צ'יפים בדיוק:
- * פאנל שמבטיח „זה הכול” ואינו יודע על שדה חדש גרוע ממסך בלי פאנל.
+ * ‎**שני גבולות, ולא אחד — וזה תיקון לגרסה הראשונה של הבדיקה.**
+ * היא בדקה עמודות בלבד, והכריזה „מיקום נחשף” על שדה שאינו קיים
+ * ב-`SharedListingDto` כלל (ביקורת Codex). הטבלה היא אחסון; ה-DTO
+ * הוא מה שיוצא בתשובה. בדיקה שמכירה רק אחד מהם תטעה בשני הכיוונים:
+ * תבטיח חשיפה שאינה קורית, ותחמיץ שדה שנוסף לתשובה ולא לטבלה.
  *
- * שלוש טענות, וכל אחת מהן יכולה להיכשל לבדה:
+ * ‎**למה בדיקה ולא הערה.** ‎`snapshot()` מחזיר
+ * ‎`Omit<Prisma.SharedListingUncheckedCreateInput, …>`, שכל שדותיו
+ * אופציונליים — עמודה חדשה אינה מפילה קומפילציה. ושדה חדש ב-DTO
+ * מתווסף בלי שאיש ישאל אם הוא נחשף. פאנל שמבטיח „זה הכול” ואינו
+ * יודע על תוספת גרוע ממסך בלי פאנל.
  *
- * ‎**1 · כיסוי מלא, בשני הכיוונים.** כל עמודה בטבלה המשותפת מופיעה
- * או בצ'יפ ירוק או ברשימת התשתית — ואין ברשימות עמודה שאינה קיימת.
- * הכיוון השני חשוב לא פחות: עמודה שנמחקה מהסכימה משאירה צ'יפ
- * שמבטיח שדה שכבר אינו מתפרסם.
- *
- * ‎**2 · המוסתר באמת אינו שם.** „הכתובת נשארת אצלכם” שווה בדיוק כמה
- * שהיא נבדקת. אם `street` יופיע אי-פעם בטבלה המשותפת, זו הבדיקה
- * שתיפול.
- *
- * ‎**3 · המוסתר קיים במקור.** עמודה שנמחקה או שונתה בטבלת המקור
- * הופכת את ההבטחה לחסרת מובן — היא מבטיחה על שדה שאינו קיים, ולכן
- * לעולם לא תיפול על גילוי.
- *
- * ‎**מה הבדיקה הזו אינה עושה.** היא אינה מריצה שאילתה ואינה בודקת
- * שהערך שנכתב בפועל תואם לעמודה. היא בדיקה מבנית — באותו דפוס של
- * ‎`suggestion-identity` ו-`tenant-purge-coverage` — ומטרתה למנוע
- * סחיפה שקטה בין ההצהרה לסכימה.
+ * ‎**מה הבדיקה אינה עושה.** היא אינה מריצה שאילתה ואינה בודקת איזה
+ * **ערך** נכתב לתוך שדה. ‎`publishBulk` מעתיק את
+ * ‎`marketingDescription` לתוך `notes`, וזה זרם שהיא אינה רואה —
+ * הגבול הזה רשום גם בראש `network-disclosure.ts`.
  */
 
-const SCHEMA = readFileSync(
-  join(import.meta.dirname, "..", "..", "..", "prisma", "schema.prisma"),
-  "utf8",
-);
+const API_SRC = join(import.meta.dirname, "..", "..");
+const SCHEMA = readFileSync(join(API_SRC, "..", "prisma", "schema.prisma"), "utf8");
 
 /** שמות העמודות של מודל אחד ב-`schema.prisma`. */
 function columnsOf(model: string): string[] {
@@ -62,6 +56,24 @@ function columnsOf(model: string): string[] {
 }
 
 /**
+ * שמות השדות של הגדרת DTO אחת.
+ *
+ * ‎**רק שדות ברמה העליונה.** ‎`searchAreas` מוגדר כמערך של אובייקט
+ * מוטבע (`{ lat; lon; radiusKm; label? }`), ו-`myMatches` כך גם —
+ * והשדות שבתוכם אינם שדות של ה-DTO. הזחה של שני רווחים בדיוק היא
+ * מה שמפריד ביניהם, ולכן היא בתבנית ולא ב-`trim`.
+ */
+function dtoFieldsOf(file: string, name: string): string[] {
+  const source = readFileSync(join(API_SRC, file), "utf8");
+  const body = new RegExp(String.raw`export interface ${name} \{([\s\S]*?)\n\}`, "u").exec(
+    source,
+  )?.[1];
+  if (body === undefined) throw new Error(`${name} לא נמצא ב-${file}`);
+  const withoutComments = body.replace(/\/\*[\s\S]*?\*\//gu, "").replace(/\/\/.*/gu, "");
+  return [...withoutComments.matchAll(/^ {2}([A-Za-z_]\w*)\??\s*:/gmu)].map((m) => m[1]!);
+}
+
+/**
  * שדות יחס של Prisma — אינם עמודות במסד ואינם מידע שמתפרסם.
  *
  * ‎`Property` נושא `tenant` ו-`media`, שהם ניווט בין טבלאות. שער
@@ -70,83 +82,164 @@ function columnsOf(model: string): string[] {
  */
 const RELATION_FIELDS = new Set(["tenant", "media"]);
 
-describe("הצהרת החשיפה לרשת — מול הסכימה", () => {
-  it("שליפת העמודות עובדת, אחרת כל השאר משווה רשימות ריקות", () => {
+const BUYER = NETWORK_DISCLOSURE.buyer;
+
+/** מיון, כדי שכישלון יקרא כרשימה ולא כחידה על סדר. */
+function missing(from: readonly string[], covered: Iterable<string>): string[] {
+  const known = new Set(covered);
+  return [...new Set(from.filter((n) => !known.has(n)))].sort();
+}
+
+describe("הצהרת החשיפה לרשת — מול הסכימה ומול ה-DTO", () => {
+  it("שתי השליפות עובדות, אחרת כל השאר משווה רשימות ריקות", () => {
     /*
-     * שער על הבדיקה עצמה. שינוי בפורמט הסכימה היה מרוקן את
-     * ‎`columnsOf`, וכל ההשוואות למטה היו הופכות ל-`[] ⊆ []` —
+     * שער על הבדיקה עצמה. שינוי בפורמט הסכימה או בהגדרת ה-DTO היה
+     * מרוקן את השולפים, וכל ההשוואות למטה היו הופכות ל-`[] ⊆ []` —
      * בדיקה שעוברת תמיד. זה כבר קרה בבדיקה מבנית אחרת כאן.
      */
     expect(columnsOf("SharedListing")).toContain("photoKeys");
     expect(columnsOf("Property")).toContain("street");
     expect(columnsOf("Buyer")).toContain("contactId");
+    for (const d of Object.values(NETWORK_DISCLOSURE)) {
+      expect(dtoFieldsOf(d.dtoFile, d.dtoName).length).toBeGreaterThan(10);
+    }
+    /* ‎`searchAreas` הוא מערך של אובייקט מוטבע — `lat` אינו שדה DTO */
+    expect(dtoFieldsOf(BUYER.dtoFile, BUYER.dtoName)).toContain("searchAreas");
+    expect(dtoFieldsOf(BUYER.dtoFile, BUYER.dtoName)).not.toContain("radiusKm");
   });
 
   for (const [kind, disclosure] of Object.entries(NETWORK_DISCLOSURE)) {
     describe(kind, () => {
       const shared = columnsOf(disclosure.sharedTable).filter((c) => !RELATION_FIELDS.has(c));
       const origin = columnsOf(disclosure.originTable).filter((c) => !RELATION_FIELDS.has(c));
-      const shown = disclosureColumns(disclosure.shown);
+      const dto = dtoFieldsOf(disclosure.dtoFile, disclosure.dtoName);
+      const all: DisclosureChip[] = [
+        ...disclosure.shown,
+        ...disclosure.storedOnly,
+        ...disclosure.hidden,
+      ];
 
-      it("כל עמודה בטבלה המשותפת מסווגת — או צ'יפ, או תשתית", () => {
-        const classified = new Set([...shown, ...disclosure.nonFactColumns]);
-        expect(shared.filter((c) => !classified.has(c))).toEqual([]);
+      /* ---------- גבול א׳: הטבלה המשותפת ---------- */
+
+      it("כל עמודה בטבלה המשותפת מסווגת", () => {
+        expect(
+          missing(shared, [
+            ...disclosureColumns(disclosure.shown),
+            ...disclosureColumns(disclosure.storedOnly),
+            ...disclosure.nonFactColumns,
+          ]),
+        ).toEqual([]);
       });
 
-      it("ואין סיווג לעמודה שאינה קיימת", () => {
-        const present = new Set(shared);
-        const stale = [...shown, ...disclosure.nonFactColumns].filter((c) => !present.has(c));
-        expect(stale).toEqual([]);
+      it("ואין סיווג לעמודה שאינה קיימת בה", () => {
+        expect(
+          missing(
+            [
+              ...disclosureColumns(disclosure.shown),
+              ...disclosureColumns(disclosure.storedOnly),
+              ...disclosure.nonFactColumns,
+            ],
+            shared,
+          ),
+        ).toEqual([]);
       });
 
-      it("אותה עמודה אינה גם צ'יפ וגם תשתית", () => {
-        const infra = new Set(disclosure.nonFactColumns);
-        expect(shown.filter((c) => infra.has(c))).toEqual([]);
+      /* ---------- גבול ב׳: התשובה שיוצאת ---------- */
+
+      /*
+       * ‎**זהו גבול החשיפה עצמו.** שדה חדש כאן הוא דבר חדש שמשרד אחר
+       * מקבל, וזו בדיוק השאלה שהפאנל מתיימר לענות עליה.
+       */
+      it("כל שדה ב-DTO מסווג", () => {
+        expect(
+          missing(dto, [
+            ...disclosureDtoFields(disclosure.shown),
+            ...disclosure.nonFactDtoFields,
+          ]),
+        ).toEqual([]);
+      });
+
+      it("ואין סיווג לשדה שאינו קיים ב-DTO", () => {
+        expect(
+          missing(
+            [...disclosureDtoFields(disclosure.shown), ...disclosure.nonFactDtoFields],
+            dto,
+          ),
+        ).toEqual([]);
       });
 
       /*
-       * ‎**זו הטענה שהמתווך מסתמך עליה.** כל השאר הוא שלמות; זו
-       * ההבטחה עצמה.
+       * ‎**הטענה שהגרסה הראשונה נכשלה בה.** צ'יפ ירוק אומר „משרד אחר
+       * מקבל את זה”; בלי שדה ב-DTO הוא אומר את זה על שדה שאינו יוצא
+       * מהשרת כלל.
        */
-      it("מה שהוצהר כמוסתר באמת אינו בטבלה המשותפת", () => {
-        const present = new Set(shared);
-        const leaked = disclosureColumns(disclosure.hidden).filter((c) => present.has(c));
-        expect(leaked).toEqual([]);
+      it("כל צ'יפ ירוק באמת יוצא בתשובה", () => {
+        for (const chip of disclosure.shown) {
+          expect(chip.dtoFields.length).toBeGreaterThan(0);
+        }
+      });
+
+      /*
+       * ‎**והכיוון ההפוך.** „נשמר ואינו נשלח” חייב באמת לא להישלח,
+       * אחרת זו הבטחה הפוכה בדיוק.
+       */
+      it("„נשמר ואינו נשלח” באמת אינו ב-DTO", () => {
+        const present = new Set(dto);
+        for (const chip of disclosure.storedOnly) {
+          expect(chip.dtoFields).toEqual([]);
+          expect(chip.columns.filter((c) => present.has(c))).toEqual([]);
+        }
+      });
+
+      /* ---------- ההבטחה ---------- */
+
+      it("מה שהוצהר כמוסתר אינו בטבלה המשותפת ואינו ב-DTO", () => {
+        const sharedSet = new Set(shared);
+        const dtoSet = new Set(dto);
+        const columns = disclosureColumns(disclosure.hidden);
+        expect(columns.filter((c) => sharedSet.has(c))).toEqual([]);
+        expect(columns.filter((c) => dtoSet.has(c))).toEqual([]);
       });
 
       it("ומה שהוצהר כמוסתר קיים בטבלת המקור", () => {
-        const present = new Set(origin);
-        const phantom = disclosureColumns(disclosure.hidden).filter((c) => !present.has(c));
-        expect(phantom).toEqual([]);
+        expect(missing(disclosureColumns(disclosure.hidden), origin)).toEqual([]);
       });
 
-      it("לכל צ'יפ יש תווית ולפחות עמודה אחת", () => {
-        for (const chip of [...disclosure.shown, ...disclosure.hidden]) {
+      /* ---------- שלמות הרשימות ---------- */
+
+      it("לכל צ'יפ יש תווית ולפחות שם אחד", () => {
+        for (const chip of all) {
           expect(chip.label.trim()).not.toBe("");
-          expect(chip.columns.length).toBeGreaterThan(0);
+          expect(chip.columns.length + chip.dtoFields.length).toBeGreaterThan(0);
         }
       });
 
       /*
        * המסך ממפתח את הרשימות בתווית. תווית כפולה אינה רק אזהרת
        * ‎React — היא שתי שורות שנראות זהות ברשימה שכל תפקידה למנות
-       * מה נחשף.
+       * מה נשלח.
        */
-      it("אין שתי תוויות זהות באותה רשימה", () => {
-        for (const list of [disclosure.shown, disclosure.hidden]) {
-          const labels = list.map((chip) => chip.label);
-          expect(labels).toEqual([...new Set(labels)]);
-        }
+      it("אין שתי תוויות זהות בפאנל", () => {
+        const labels = all.map((chip) => chip.label);
+        expect(labels).toEqual([...new Set(labels)]);
       });
 
       /*
-       * ‎**אותה עמודה אינה נחשפת וגם מוסתרת.** שתי הרשימות מדברות על
-       * טבלאות שונות, ולכן חפיפה כזו לא תיתפס באף אחת מהבדיקות
-       * שלמעלה — היא פשוט תוצג כשתי הבטחות סותרות באותו פאנל.
+       * ‎**אותה עמודה אינה בשתי קבוצות.** שלוש הרשימות מדברות על
+       * טבלאות שונות בחלקן, ולכן חפיפה לא תיתפס באף בדיקה שלמעלה —
+       * היא פשוט תוצג כשתי הבטחות סותרות באותו פאנל.
        */
-      it("אין עמודה שמופיעה גם כנחשפת וגם כמוסתרת", () => {
+      it("אין שם שמופיע בשתי קבוצות", () => {
+        const shownCols = new Set(disclosureColumns(disclosure.shown));
+        const stored = new Set(disclosureColumns(disclosure.storedOnly));
         const hidden = new Set(disclosureColumns(disclosure.hidden));
-        expect(shown.filter((c) => hidden.has(c))).toEqual([]);
+        expect([...stored].filter((c) => shownCols.has(c))).toEqual([]);
+        expect([...hidden].filter((c) => shownCols.has(c) || stored.has(c))).toEqual([]);
+      });
+
+      it("שדה DTO אינו גם צ'יפ וגם תשתית", () => {
+        const infra = new Set(disclosure.nonFactDtoFields);
+        expect(disclosureDtoFields(disclosure.shown).filter((f) => infra.has(f))).toEqual([]);
       });
     });
   }
