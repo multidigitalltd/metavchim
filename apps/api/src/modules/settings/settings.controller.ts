@@ -35,7 +35,9 @@ import {
   type Capability,
   type LimitState,
   DEFAULT_MATCH_WEIGHTS,
+  HARD_MATCH_CRITERIA,
   MIN_HARD_WEIGHT,
+  type MatchCriterion,
   resolveMatchWeights,
   type MatchWeights,
   AUTOMATIONS,
@@ -184,18 +186,26 @@ const LeadWebhookSchema = z
  * משקלי ההתאמה. כל קריטריון בין 0 ל-1, וסכום חיובי אחד לפחות —
  * איפוס מוחלט היה מייצר ציון 0 לכל נכס, כלומר מסך ריק בלי הסבר.
  */
+/*
+ * הרצפה **נגזרת** מ-`HARD_MATCH_CRITERIA` ואינה מועתקת לכאן ביד.
+ *
+ * הרשימה הידנית שהייתה כאן פספסה את סוג הנכס כשהוא הפך לפוסל,
+ * ולכן `property_type: 0` התקבל ונשמר — בעוד ש-`resolveMatchWeights`
+ * מחזיר 0.05 בפועל. כלומר ההגדרה שנשמרה אינה זו שחלה: המסך אמר
+ * „מבוטל”, והקריטריון המשיך למחוק מועמדים (ביקורת Codex).
+ *
+ * זו הרשימה השלישית באותו PR שהועתקה ביד וסטתה. לכן היא נסגרת
+ * כאן ולא מתוקנת: כל קריטריון שיצטרף לפוסלים יקבל את הרצפה מעצמו.
+ */
 const MatchWeightsSchema = z
-  .object({
-    // הפוסלים לא יורדים מתחת למינימום — ראו HARD_MATCH_CRITERIA
-    location: z.number().min(MIN_HARD_WEIGHT).max(1),
-    budget: z.number().min(MIN_HARD_WEIGHT).max(1),
-    rooms: z.number().min(MIN_HARD_WEIGHT).max(1),
-    property_type: z.number().min(0).max(1),
-    features_must: z.number().min(MIN_HARD_WEIGHT).max(1),
-    features_nice: z.number().min(0).max(1),
-    area: z.number().min(0).max(1),
-    entry_date: z.number().min(0).max(1),
-  })
+  .object(
+    Object.fromEntries(
+      (Object.keys(DEFAULT_MATCH_WEIGHTS) as MatchCriterion[]).map((key) => [
+        key,
+        z.number().min(HARD_MATCH_CRITERIA.includes(key) ? MIN_HARD_WEIGHT : 0).max(1),
+      ]),
+    ) as Record<MatchCriterion, z.ZodNumber>,
+  )
   .strict()
   .refine((w) => Object.values(w).reduce((sum, v) => sum + v, 0) > 0, {
     message: "לפחות קריטריון אחד חייב משקל גדול מאפס",

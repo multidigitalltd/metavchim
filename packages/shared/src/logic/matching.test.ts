@@ -271,10 +271,22 @@ describe("scoreMatch — מיקום", () => {
     expect(result.excluded).toBe(false);
   });
 
-  it("בלי ערים ובלי אזורים — הקריטריון מדולג ואינו גורע", () => {
+  /*
+   * ‎**היפוך מכוון של התנהגות קודמת.** הבדיקה הזו קבעה קודם שקונה
+   * בלי ערים ובלי אזורים הוא „בלי מגבלת אזור”, ולכן הקריטריון
+   * מדולג וההתאמה נשארת. זה נשמע סביר — הקונה לא ביקש להגביל —
+   * אבל התוצאה בפועל היא התאמה שהוצגה למתווך **בלי שאיש השווה
+   * מיקום**, וזו בדיוק ההתאמה שכלל הברזל אוסר.
+   *
+   * „הקונה לא ביקש” אינו „בדקנו”. הנימוק החדש קרוב יותר לאמת:
+   * כרטיס קונה בלי אזור חיפוש אינו כרטיס שאפשר להתאים לפיו, והוא
+   * צריך להוביל להשלמת הכרטיס ולא לרשימת נכסים אקראית.
+   */
+  it("בלי ערים ובלי אזורים — הקריטריון אינו נבחן, ולכן אין התאמה", () => {
     const result = scoreMatch(baseProperty, { ...baseBuyer, cities: [] });
     expect(result.breakdown.some((p) => p.criterion === "location")).toBe(false);
-    expect(result.excluded).toBe(false);
+    expect(result.insufficientData).toBe(true);
+    expect(result.excluded).toBe(true);
   });
 });
 
@@ -385,13 +397,24 @@ describe("קונה בלי תקציב", () => {
  * עבורו”.
  */
 describe("סף המידע — כרטיס ריק אינו נכנס להתאמות", () => {
-  /** בדיוק המקרה שדווח: שם וטלפון אינם דרישות, ונשאר התקציב בלבד. */
+  /**
+   * בדיוק המקרה שדווח: שם וטלפון אינם דרישות, ונשאר התקציב בלבד.
+   *
+   * ‎**התקציב חייב להיות בתוך הרצועה של הנכס, ולא סתם „גדול ממנו”.**
+   * קודם עמד כאן 3.5 מיליון מול נכס של 2.65 — פער של 850 אלף, הרבה
+   * מעבר לרצועת ה-400 אלף — ולכן הכרטיס נפסל על **התקציב** ולא על
+   * חוסר המידע שהבדיקות כאן מתיימרות לבדוק. הן עברו רק מפני ששער
+   * הכיסוי דרס את הדחייה ההיא ב„אין מספיק פרטים”, וזו בדיוק
+   * הדריסה שתוקנה (ביקורת Codex).
+   *
+   * כלומר הבדיקות האלה מעולם לא בחנו את מה שנכתב בהן. עכשיו כן.
+   */
   const importedBuyer: BuyerRequirements = {
     cities: [],
     neighborhoods: [],
     dealType: "sale",
     propertyTypes: [],
-    budgetMaxAgorot: 350_000_000,
+    budgetMaxAgorot: 280_000_000,
     features: {},
   };
 
@@ -448,25 +471,29 @@ describe("סף המידע — כרטיס ריק אינו נכנס להתאמות
   });
 
   /*
-   * הצד השני של אותה החלפה, וזו הקלה מכוונת: עיר+תקציב נחסמו
-   * בשער הספירה הישן, אף שהם צמד שאומר הרבה יותר מהשלישייה
-   * שלמעלה. הם עוברים — ומקבלים ציון שנוקב בכך שנבדקו שני שליש.
+   * הצד השני של אותה החלפה, וזו הקלה מכוונת: צירוף מרכזי חלקי
+   * נחסם בשער הספירה הישן, אף שהוא אומר הרבה יותר מהשלישייה
+   * שלמעלה. הוא עובר — ומקבל ציון שנוקב בכך שלא הכול נבדק.
+   *
+   * סוג הנכס נכלל כאן כי הוא קריטריון חובה; בלעדיו זה כבר לא
+   * „צירוף מרכזי חלקי” אלא כרטיס שאי אפשר להתאים לפיו.
    */
-  it("צמד מרכזי עובר, ואומר במפורש שנבדקו שני שליש", () => {
-    const cityAndBudget: BuyerRequirements = {
+  it("צירוף מרכזי עובר, ואומר במפורש שלא הכול נבדק", () => {
+    const withoutRooms: BuyerRequirements = {
       cities: ["בני ברק"],
       neighborhoods: [],
       dealType: "sale",
-      propertyTypes: [],
+      propertyTypes: ["apartment"],
       // בתוך רצועת התקציב של הנכס (2.65M) — הבדיקה על הכיסוי, לא על הרצועה
       budgetMaxAgorot: 280_000_000,
       features: {},
     };
-    const result = scoreMatch(baseProperty, cityAndBudget);
+    const result = scoreMatch(baseProperty, withoutRooms);
     expect(result.insufficientData).toBe(false);
-    expect(result.coverage).toBeCloseTo(2 / 3, 2);
+    // מיקום .25 + תקציב .25 + סוג .1 = .6 מתוך .75
+    expect(result.coverage).toBeCloseTo(0.8, 2);
     /* התאמה מושלמת במה שנבדק — ובכל זאת לא 100% */
-    expect(result.score).toBe(67);
+    expect(result.score).toBe(80);
     expect(result.explanation).toContain("מספר חדרים");
   });
 
@@ -488,16 +515,36 @@ describe("סף המידע — כרטיס ריק אינו נכנס להתאמות
     expect(partial.coverage).toBeLessThan(full.coverage);
   });
 
-  /* השער מנוסח על משקל, ולכן הוא חייב להיאמר במשקל ולא בספירה. */
+  /*
+   * השער מנוסח על משקל, ולכן הוא חייב להיאמר במשקל ולא בספירה.
+   *
+   * ‎**שני הצדדים כאן ממוקמים בכוונה.** קודם הצד העובר היה תקציב
+   * וחדרים בלי עיר — כלומר בדיוק ההתאמה שכלל הברזל אוסר, והבדיקה
+   * הזו הצהירה עליה כתקינה. הסף שנבדק כאן הוא הכמות שנבחנה, ולכן
+   * הוא חייב להיבדק כששאלת החובה כבר נענתה; אחרת שני שערים שונים
+   * נמדדים בבדיקה אחת ואי אפשר לדעת מי מהם נפל.
+   */
   it("הסף עצמו: מתחת לחצי ממשקל הליבה — אין התאמה", () => {
-    const belowGate = scoreMatch(baseProperty, importedBuyer);
+    // מיקום + סוג נכס = .35 מתוך .75 ⇒ ‎.467, מתחת לסף
+    const belowGate = scoreMatch(baseProperty, {
+      cities: ["בני ברק"],
+      neighborhoods: [],
+      dealType: "sale",
+      propertyTypes: ["apartment"],
+      features: {},
+    });
     expect(belowGate.coverage).toBeLessThan(MIN_CORE_COVERAGE);
     expect(belowGate.insufficientData).toBe(true);
 
+    // מיקום + סוג + חדרים = .5 מתוך .75 ⇒ ‎.667, מעל הסף
     const atGate = scoreMatch(baseProperty, {
-      ...importedBuyer,
+      cities: ["בני ברק"],
+      neighborhoods: [],
+      dealType: "sale",
+      propertyTypes: ["apartment"],
       roomsMin: 3,
       roomsMax: 5,
+      features: {},
     });
     expect(atGate.coverage).toBeGreaterThanOrEqual(MIN_CORE_COVERAGE);
     expect(atGate.insufficientData).toBe(false);
@@ -549,6 +596,166 @@ describe("סף המידע — כרטיס ריק אינו נכנס להתאמות
     const result = scoreMatch(baseProperty, importedBuyer);
     for (const label of ["מיקום", "מספר חדרים", "סוג הנכס"]) {
       expect(result.explanation).toContain(label);
+    }
+  });
+});
+
+/**
+ * ‎**כלל ברזל: התאמה בלי השוואת מיקום אינה התאמה.**
+ *
+ * שער הכיסוי לבדו לא אכף את זה, כי הוא מודד כמות ולא זהות: בלי
+ * מיקום נשאר כיסוי של 67%, הרבה מעל הסף. הבדיקות כאן הן על השער
+ * השני — זה ששואל *מה* נבחן ולא *כמה*.
+ */
+describe("כלל הברזל — מיקום חייב להיבחן", () => {
+  /*
+   * שלוש הדרכים שבהן המיקום נשמט. הן נבדקות יחד ובכוונה: זה אותו
+   * כלל, וכיסוי של אחת מהן בלבד היה משאיר את השתיים האחרות פתוחות
+   * — בדיוק הדפוס של „תיקנתי את המקום שהצביעו עליו”.
+   */
+  it("נכס בלי מיקום מול קונה עם ערים — אין התאמה", () => {
+    const { city: _city, ...noCity } = baseProperty;
+    const result = scoreMatch(noCity, baseBuyer);
+    expect(result.breakdown.some((p) => p.criterion === "location")).toBe(false);
+    expect(result.insufficientData).toBe(true);
+    expect(result.excluded).toBe(true);
+    expect(result.score).toBe(0);
+  });
+
+  it("קונה בלי ערים ובלי אזורים — אין התאמה, גם על כרטיס נכס מלא", () => {
+    const result = scoreMatch(baseProperty, { ...baseBuyer, cities: [], searchAreas: [] });
+    expect(result.insufficientData).toBe(true);
+    expect(result.score).toBe(0);
+  });
+
+  /*
+   * הקונה סימן אזורים על מפה, ולנכס אין קואורדינטות — ואין ערים
+   * ליפול אליהן. זה המצב שנוצר מייבוא: אזור מצויר יפה, וכתובת
+   * שלא פוענחה.
+   */
+  it("אזורי מפה מול נכס בלי קואורדינטות ובלי עיר — אין התאמה", () => {
+    const { city: _city, ...noCity } = baseProperty;
+    const result = scoreMatch(noCity, {
+      ...baseBuyer,
+      cities: [],
+      searchAreas: [{ lat: 32.08, lon: 34.78, radiusKm: 3 }],
+    });
+    expect(result.insufficientData).toBe(true);
+    expect(result.score).toBe(0);
+  });
+
+  /*
+   * ‎**הכלל אוסר להציג, לא להשוות.** מיקום שנבדק ונמצא רחוק הוא
+   * תשובה — `excluded` בלי `insufficientData`. ההבחנה הזו היא כל
+   * ההבדל בין „בדקנו וזה לא מתאים” לבין „לא היה מה לבדוק”, ומי
+   * שסופר למה הרשימה ריקה צריך אותה.
+   */
+  it("מיקום שנבדק ונדחה אינו „חוסר מידע”", () => {
+    const result = scoreMatch(baseProperty, { ...baseBuyer, cities: ["חיפה"] });
+    expect(result.breakdown.some((p) => p.criterion === "location")).toBe(true);
+    expect(result.excluded).toBe(true);
+    expect(result.insufficientData).toBe(false);
+  });
+
+  /*
+   * ‎**סוג הנכס הוא הקל במשקל ובכל זאת חובה.** וילה למי שמחפש דירת
+   * שלושה חדרים אינה „התאמה חלשה” אלא טעות, ומשקל נמוך אומר שהוא
+   * מבדיל פחות בין מועמדים — לא שמותר לדלג עליו.
+   */
+  it("נכס בלי סוג מול קונה שביקש סוג — אין התאמה", () => {
+    const { propertyType: _type, ...noType } = baseProperty;
+    const result = scoreMatch(noType, baseBuyer);
+    expect(result.breakdown.some((p) => p.criterion === "property_type")).toBe(false);
+    expect(result.insufficientData).toBe(true);
+    expect(result.score).toBe(0);
+  });
+
+  it("קונה בלי סוגי נכס — אין התאמה, גם על כרטיס נכס מלא", () => {
+    const result = scoreMatch(baseProperty, { ...baseBuyer, propertyTypes: [] });
+    expect(result.insufficientData).toBe(true);
+    expect(result.score).toBe(0);
+  });
+
+  /*
+   * ‎**הווילה עצמה — הבדיקה שהייתה חסרה.**
+   *
+   * „חייב להיבחן” אינו „חייב להתאים”, ובגרסה הראשונה של הכלל
+   * נבדקה רק קיומו של הקריטריון. סוג שאינו מבוקש נתן ציון אפס
+   * לרכיב, הרכיב היה קיים, השער היה מרוצה — ומכיוון שמשקלו הוא
+   * הקל בליבה, שאר הכרטיס גרר את הציון לכ-88 והווילה נשארה
+   * ברשימה (ביקורת Codex). כלומר התיקון לא סיפק את הדוגמה שבשמה
+   * הוא נעשה.
+   */
+  it("וילה למי שביקש דירה — נפסלת, לא „מתאימה ב-88%”", () => {
+    const villa = scoreMatch({ ...baseProperty, propertyType: "house" }, baseBuyer);
+    expect(villa.breakdown.some((p) => p.criterion === "property_type")).toBe(true);
+    expect(villa.excluded).toBe(true);
+    expect(villa.score).toBe(0);
+    /* נבדק ונדחה — לא „חסר מידע” */
+    expect(villa.insufficientData).toBe(false);
+  });
+
+  /*
+   * שני תנאי הסף יחד הם .35 — מתחת ל-`MIN_CORE_COVERAGE`. זו אינה
+   * תקלה אלא ההגדרה: הם תנאי כניסה ולא התאמה בפני עצמה.
+   */
+  it("מיקום וסוג לבדם אינם מספיקים — נדרש עוד קריטריון ליבה", () => {
+    const bare = scoreMatch(baseProperty, {
+      cities: ["בני ברק"],
+      neighborhoods: [],
+      dealType: "sale",
+      propertyTypes: ["apartment"],
+      features: {},
+    });
+    expect(bare.breakdown.some((p) => p.criterion === "location")).toBe(true);
+    expect(bare.breakdown.some((p) => p.criterion === "property_type")).toBe(true);
+    expect(bare.insufficientData).toBe(true);
+  });
+
+  /*
+   * ‎**דחייה מפורשת גוברת על „חסר מידע” — גם כששניהם נכונים.**
+   *
+   * נכס בעיר שאינה מבוקשת ובלי סוג נכס הוא גם נדחה וגם חסר. השער
+   * החדש דיווח עליו „אין מספיק פרטים”, כלומר הזמין את הסוכן להשלים
+   * שדה — בזמן שהמיקום כבר נבדק ונדחה, והשלמת הסוג לא תשנה דבר
+   * (ביקורת Codex). זו ההבחנה שהשער הזה עצמו נועד להגן עליה.
+   */
+  it("נדחה על המיקום **וגם** חסר סוג — הדחייה גוברת", () => {
+    const { propertyType: _type, ...noType } = baseProperty;
+    const result = scoreMatch(noType, { ...baseBuyer, cities: ["חיפה"] });
+    expect(result.excluded).toBe(true);
+    expect(result.insufficientData).toBe(false);
+    expect(result.explanation).not.toContain("אין מספיק פרטים");
+  });
+
+  it("סוג שאינו מתאים **וגם** בלי מיקום — הדחייה גוברת", () => {
+    const result = scoreMatch(
+      { ...baseProperty, propertyType: "house" },
+      { ...baseBuyer, cities: [] },
+    );
+    expect(result.excluded).toBe(true);
+    expect(result.insufficientData).toBe(false);
+  });
+
+  /* ההסבר חייב לנקוב במיקום, אחרת אין לסוכן מה להשלים. */
+  it("ההסבר נוקב במיקום ומכוון להשלמת הכרטיס", () => {
+    const { city: _city, ...noCity } = baseProperty;
+    const result = scoreMatch(noCity, baseBuyer);
+    expect(result.explanation).toContain("מיקום");
+    expect(result.explanation).toContain("השלימו");
+  });
+
+  /*
+   * ‎**המשקלים אינם יכולים לבטל את הכלל.** משרד שמאפס את משקל
+   * המיקום אינו מוותר על השאלה — הוא רק אומר שהיא שוקלת פחות.
+   * הכיול נוגע לניקוד; החובה קודמת לו.
+   */
+  it("אין משקל שמכשיר התאמה בלי מיקום", () => {
+    const { city: _city, ...noCity } = baseProperty;
+    for (const stored of [{ location: 0.5 }, { budget: 0.5 }, { rooms: 0.5 }]) {
+      const result = scoreMatch(noCity, baseBuyer, resolveMatchWeights(stored));
+      expect(result.insufficientData).toBe(true);
+      expect(result.score).toBe(0);
     }
   });
 });

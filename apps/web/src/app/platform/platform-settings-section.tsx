@@ -8,7 +8,7 @@ import {
   PLATFORM_REFERRAL_FEE_PERCENT,
   referralPayout,
 } from "@metavchim/shared";
-import { IconCard, IconChat, IconCoins, IconKey, IconLock, IconMail, IconPin } from "../icons";
+import { IconCard, IconChat, IconCoins, IconKey, IconLock, IconMail, IconPhone, IconPin } from "../icons";
 import { Notice } from "../notice";
 
 /**
@@ -50,6 +50,14 @@ interface PlatformSettings {
   geocoding?: { provider: string; forward: boolean; reverse: boolean };
   /** כתובת התמיכה — הערך עצמו. אופציונלי לשמרנות מול שרת שטרם עודכן. */
   supportEmail?: string;
+  /** השכרת מספרים מ-015 — הערכים העסקיים; הסיסמה רק "מוגדרת/לא". */
+  numberRental?: {
+    configured: boolean;
+    username: string;
+    passwordSet: boolean;
+    ingroup: string;
+    monthlyAgorot: number | null;
+  };
 }
 
 function StatusBadge({ configured, source }: { configured: boolean; source: string }) {
@@ -119,6 +127,39 @@ export function PlatformSettingsSection({
       });
       form.reset();
       setMessage("✓ הגדרות האימייל נשמרו");
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * חשבון 015 להשכרת מספרים. שם המשתמש והקבוצה נשלחים כמו שהם
+   * (ריק = מחיקה); הסיסמה נשלחת רק כשהוקלדה — ריק = ללא שינוי,
+   * כמו בכל הסודות. המחיר בשקלים במסך ובאגורות בשרת.
+   */
+  async function saveNumberRental(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setMessage(null);
+    setBusy(true);
+    const f = new FormData(event.currentTarget);
+    try {
+      const password = String(f.get("pbx015AuthPassword") ?? "").trim();
+      const shekels = String(f.get("rentalMonthly") ?? "").trim();
+      const monthly = Number(shekels);
+      await apiPatch("/platform/settings", {
+        pbx015AuthUsername: String(f.get("pbx015AuthUsername") ?? "").trim(),
+        ...(password !== "" ? { pbx015AuthPassword: password } : {}),
+        pbx015Ingroup: String(f.get("pbx015Ingroup") ?? "").trim(),
+        virtualNumberMonthlyAgorot:
+          shekels !== "" && Number.isFinite(monthly) && monthly > 0
+            ? Math.round(monthly * 100)
+            : "",
+      });
+      setMessage("✓ הגדרות השכרת המספרים נשמרו");
       load();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "השמירה נכשלה");
@@ -741,6 +782,99 @@ export function PlatformSettingsSection({
           ) : null}
         </form>
       </div>
+
+      {/* ---------- השכרת מספרים (015) ---------- */}
+      {settings.numberRental !== undefined ? (
+        <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-semibold"><IconPhone s={16} /> השכרת מספרים וירטואליים (015)</h3>
+            <StatusBadge
+              configured={settings.numberRental.configured}
+              source={settings.numberRental.configured ? "db" : "none"}
+            />
+          </div>
+          <p className="mb-3 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            חשבון ה-015 <strong>של הפלטפורמה</strong> — ממנו נקנים המספרים שמושכרים
+            למשרדים. משרד ששוכר משלם חודש מראש, המספר נתפס אוטומטית, ותקבלו מייל על
+            כל רכישה — הניתוב הסופי אצל 015 נשאר ידני. חלק מחודש מחויב כחודש מלא.
+          </p>
+          <form method="post" autoComplete="off" onSubmit={(e) => void saveNumberRental(e)} className="flex flex-wrap items-end gap-3">
+            <div className="flex-1" style={{ minWidth: "160px" }}>
+              <label htmlFor="pbx015AuthUsername" className="mb-1 block font-medium">
+                שם משתמש ב-015
+              </label>
+              <input
+                id="pbx015AuthUsername"
+                name="pbx015AuthUsername"
+                type="text"
+                dir="ltr"
+                autoComplete="new-password"
+                data-1p-ignore
+                data-lpignore="true"
+                defaultValue={settings.numberRental.username}
+                key={`u-${settings.numberRental.username}`}
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+            </div>
+            <div className="flex-1" style={{ minWidth: "160px" }}>
+              <label htmlFor="pbx015AuthPassword" className="mb-1 block font-medium">
+                סיסמה {settings.numberRental.passwordSet ? <span className="font-normal">(ריק = ללא שינוי)</span> : null}
+              </label>
+              <input
+                id="pbx015AuthPassword"
+                name="pbx015AuthPassword"
+                type="password"
+                dir="ltr"
+                autoComplete="new-password"
+                data-1p-ignore
+                data-lpignore="true"
+                placeholder={settings.numberRental.passwordSet ? "••••••••" : ""}
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+            </div>
+            <div style={{ minWidth: "130px" }}>
+              <label htmlFor="pbx015Ingroup" className="mb-1 block font-medium">
+                קבוצת נכנסות (ingroup)
+              </label>
+              <input
+                id="pbx015Ingroup"
+                name="pbx015Ingroup"
+                type="text"
+                inputMode="numeric"
+                dir="ltr"
+                defaultValue={settings.numberRental.ingroup}
+                key={`g-${settings.numberRental.ingroup}`}
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+            </div>
+            <div style={{ minWidth: "150px" }}>
+              <label htmlFor="rentalMonthly" className="mb-1 block font-medium">
+                מחיר חודשי (₪)
+              </label>
+              <input
+                id="rentalMonthly"
+                name="rentalMonthly"
+                type="number"
+                min={0.01}
+                step="0.01"
+                dir="ltr"
+                defaultValue={
+                  settings.numberRental.monthlyAgorot === null
+                    ? ""
+                    : String(settings.numberRental.monthlyAgorot / 100)
+                }
+                key={`p-${settings.numberRental.monthlyAgorot ?? ""}`}
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              />
+            </div>
+            <Button type="submit" disabled={busy}>שמור</Button>
+          </form>
+        </div>
+      ) : null}
 
       {/* ---------- וואטסאפ ---------- */}
       <div className="mb-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
