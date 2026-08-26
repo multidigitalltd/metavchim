@@ -65,14 +65,21 @@ function service(input: {
   plans?: Record<string, unknown>[];
   priceOverride?: { monthly: number | null; yearly: number | null };
 }): SubscriptionOfferService {
+  const tenantRow = {
+    id: (input.offer?.["tenantId"] as string | null) ?? "01TENANT000000000000000000",
+    name: "משרד היעד",
+    priceOverrideMonthlyAgorot: input.priceOverride?.monthly ?? null,
+    priceOverrideYearlyAgorot: input.priceOverride?.yearly ?? null,
+  };
   const prisma = {
     plan: { findMany: async () => input.plans ?? [planRow("offer_test")] },
-    subscriptionOffer: { findUnique: async () => input.offer },
+    subscriptionOffer: {
+      findUnique: async () => input.offer,
+      findMany: async () => (input.offer === null ? [] : [input.offer]),
+    },
     tenant: {
-      findUnique: async () => ({
-        priceOverrideMonthlyAgorot: input.priceOverride?.monthly ?? null,
-        priceOverrideYearlyAgorot: input.priceOverride?.yearly ?? null,
-      }),
+      findUnique: async () => tenantRow,
+      findMany: async () => [tenantRow],
     },
   } as unknown as PrismaService;
   return new SubscriptionOfferService(prisma, new PlanCatalogService(prisma));
@@ -110,6 +117,42 @@ describe("מחיר ההצעה בפתיחת תשלום", () => {
     await expect(svc.resolveForCheckout("test-token", TENANT, NOW)).rejects.toThrow(
       BadRequestException,
     );
+  });
+});
+
+/*
+ * הסכום שהמפעיל רואה ברשימה הוא הסכום שהוא מצטט כשהוא שולח את
+ * הלינק. שורה שחישבה אותו אחרת מ-`resolve` הפכה את המסך למקור
+ * שני לאמת — ומקור שני נבדל מהראשון ביום שמישהו סוכם מחיר.
+ */
+describe("הסכום ברשימת הפלטפורמה", () => {
+  it("הצעה אישית ללא מחיר — הרשימה מציגה את המחיר המוסכם, כמו הלקוח", async () => {
+    const svc = service({
+      offer: offerRow({ priceAgorot: null }),
+      priceOverride: { monthly: 9_900, yearly: null },
+    });
+    const [row] = await svc.list();
+    const resolved = await svc.resolveForCheckout("test-token", TENANT, NOW);
+    expect(row!.amountAgorot).toBe(9_900);
+    expect(row!.amountAgorot).toBe(resolved.amountAgorot);
+  });
+
+  it("מחיר סופי בהצעה גובר גם ברשימה", async () => {
+    const svc = service({
+      offer: offerRow({ priceAgorot: 24_900 }),
+      priceOverride: { monthly: 9_900, yearly: null },
+    });
+    const [row] = await svc.list();
+    expect(row!.amountAgorot).toBe(24_900);
+  });
+
+  it("לינק מכירה — מחיר המחירון, כי אין משרד יעד שיש לו מחיר מוסכם", async () => {
+    const svc = service({
+      offer: offerRow({ kind: "plan_link", tenantId: null, priceAgorot: null }),
+      priceOverride: { monthly: 9_900, yearly: null },
+    });
+    const [row] = await svc.list();
+    expect(row!.amountAgorot).toBe(19_900);
   });
 });
 
