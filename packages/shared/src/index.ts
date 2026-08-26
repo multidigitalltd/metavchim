@@ -43,6 +43,7 @@ export * from "./logic/buyer-profile.js";
 export * from "./logic/match-refresh.js";
 export * from "./logic/custom-features.js";
 export * from "./logic/network-card.js";
+export * from "./logic/network-disclosure.js";
 export * from "./logic/network-reach.js";
 export * from "./logic/note-visibility.js";
 export * from "./logic/web-push.js";
