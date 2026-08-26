@@ -322,7 +322,7 @@ function stripBrackets(text: string): string {
 }
 
 /**
- * ההפניות של תור אחד — **הרשומה שהפעולה נגעה בה, ואחריה מה שהוצג.**
+ * ההפניות של תור אחד — **הרשומות שהפעולות נגעו בהן, ואחריהן מה שהוצג.**
  *
  * ## מה היה חסר
  *
@@ -336,6 +336,17 @@ function stripBrackets(text: string): string {
  * זו הייתה דווקא הרשומה שהכי סביר שכינוי הגוף מצביע עליה — זו
  * שהמתווך בדיוק פתח, יצר או עדכן.
  *
+ * ## למה ‎`acted` הוא **רשימה** ולא ערך יחיד
+ *
+ * „תוסיף קונה דנה ותזכיר לי להתקשר אליה” הוא אישור אחד ושתי פעולות,
+ * ולכן התור נושא שתי רשומות: הקונה שנוצר והמשימה שנוצרה. שמירת
+ * הראשית בלבד הייתה מאבדת את המשימה, ו„תסגור אותה” בתור הבא היה
+ * חוזר לחיפוש כותרת (ביקורת Codex).
+ *
+ * הסדר הוא **מהמאוחר לקדום** — הפעולה האחרונה שבוצעה ראשונה.
+ * ‎`matchHistoryRef` משאירה את ההופעה הראשונה של כל תווית, ולכן
+ * הסדר הזה הוא מה שגורם לכינוי גוף להצביע על מה שזה עתה קרה.
+ *
  * ## מדוע התווית היא **השם** ולא תווית תפקיד
  *
  * ‎`buildInterpretPrompt` מדפיס ‎`נוגע ב: ⟪…⟫`‎ רק לתורות של הסוכן.
@@ -347,19 +358,28 @@ function stripBrackets(text: string): string {
  *
  * שורות התוצאה כבר ממוספרות ומקוצרות מול תקציר הזיכרון, ומספור
  * חוזר כאן היה מנתק את התווית שבהפניה מזו שבתקציר. לכן כשהתווית
- * שווה לשורה שהוצגה אבל הרשומה אחרת — ההפניה **יורדת**, וההכרעה
- * חוזרת לחיפוש שיודע לומר „נמצאו כמה” ולבקש בחירה. אותה רשומה
- * בדיוק (אותו מזהה) אינה התנגשות אלא כפילות, ונשמרת פעם אחת.
+ * שווה לרשומה אחרת שכבר נכנסה — ההפניה **יורדת**, וההכרעה חוזרת
+ * לחיפוש שיודע לומר „נמצאו כמה” ולבקש בחירה. אותה רשומה בדיוק
+ * (אותו מזהה) אינה התנגשות אלא כפילות, ונשמרת פעם אחת.
  */
 export function agentTurnRefs(
-  acted: AgentHistoryRef | undefined,
+  acted: readonly (AgentHistoryRef | undefined)[],
   shown: readonly AgentHistoryRef[],
 ): AgentHistoryRef[] {
-  if (acted === undefined) return [...shown];
-  const sameRecord = shown.some((ref) => ref.entityId === acted.entityId);
-  const sameLabel = shown.some((ref) => ref.label === acted.label);
-  if (sameRecord || sameLabel) return [...shown];
-  return [acted, ...shown];
+  const kept: AgentHistoryRef[] = [];
+  for (const ref of acted) {
+    if (ref === undefined) continue;
+    /*
+     * הבדיקה היא מול מה שכבר **נשמר** ומול השורות שהוצגו גם יחד:
+     * שתי פעולות בשרשרת יכולות לגעת באותה רשומה, ופעולה יכולה לגעת
+     * ברשומה ששמה זהה לשורה ברשימה.
+     */
+    const against = [...kept, ...shown];
+    if (against.some((other) => other.entityId === ref.entityId)) continue;
+    if (against.some((other) => other.label === ref.label)) continue;
+    kept.push(ref);
+  }
+  return [...kept, ...shown];
 }
 
 /**

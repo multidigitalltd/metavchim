@@ -6,6 +6,7 @@ import {
   agentHistorySummary,
   agentResultRefs,
   agentTurnRefs,
+  type AgentHistoryRef,
   agentResultText,
   applyBlockedModules,
   resolveCapabilities,
@@ -1047,6 +1048,16 @@ export class WhatsAppAssistantService {
     if (primary.insight !== undefined && primary.insight !== "") lines.push(`💡 ${primary.insight}`);
 
     // צעדי המשך — לפי הסדר, וכישלון באמצע מדווח בשקיפות (כמו במסך)
+    /*
+     * הרשומות שנגעו בהן, **מהמאוחרת לקדומה.**
+     *
+     * „תוסיף קונה דנה ותזכיר לי להתקשר אליה” הוא אישור אחד ושתי
+     * פעולות, ותוצאת צעד ההמשך נזרקה אחרי שההודעה שלה נוספה — ולכן
+     * „תסגור אותה” בתור הבא חזר לחיפוש כותרת (ביקורת Codex).
+     * ‎`unshift` שומר על הסדר שבו `matchHistoryRef` בוחרת את האחרון
+     * שבוצע.
+     */
+    const acted: (AgentHistoryRef | undefined)[] = [primary.ref];
     for (const followUp of state.proposal.followUps ?? []) {
       const stepParams = this.narrow(
         followUp.actionId,
@@ -1060,6 +1071,8 @@ export class WhatsAppAssistantService {
           "whatsapp",
         );
         lines.push(`· ${result.message}`);
+        // רק צעד שהצליח — הפניה לרשומה שלא נוצרה היא שיוך לכלום
+        acted.unshift(result.ref);
       } catch (error) {
         lines.push(`· „${followUp.title}” לא בוצע: ${errorMessage(error)}`);
         break;
@@ -1114,7 +1127,11 @@ export class WhatsAppAssistantService {
       }
     }
 
-    const refs = agentTurnRefs(primary.ref, agentResultRefs(primary.data));
+    /*
+     * שורות התוצאה נלקחות מהראשית בלבד — הן מה שנשלח למתווך
+     * כרשימה. לצעד המשך יש שורת הודעה, לא רשימה.
+     */
+    const refs = agentTurnRefs(acted, agentResultRefs(primary.data));
     const turn: AgentHistoryTurn = {
       transcript: state.transcript,
       action: state.proposal.actionId,

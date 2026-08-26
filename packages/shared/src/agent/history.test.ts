@@ -148,22 +148,39 @@ describe("matchHistoryRef — ריבוי אינו הכרעה", () => {
   });
 });
 
-describe("agentTurnRefs — הרשומה שהפעולה נגעה בה", () => {
+describe("agentTurnRefs — הרשומות שהפעולות נגעו בהן", () => {
   const shown: AgentHistoryRef[] = [
     { label: "משה כהן", entityType: "buyer", entityId: "01J0000000000000000000000A" },
   ];
+  const dana: AgentHistoryRef = {
+    label: "דנה לוי",
+    entityType: "buyer",
+    entityId: "01J0000000000000000000000B",
+  };
 
-  it("נכנסת בראש, לפני שורות שהוצגו", () => {
-    const acted: AgentHistoryRef = {
-      label: "דנה לוי",
-      entityType: "buyer",
-      entityId: "01J0000000000000000000000B",
-    };
-    expect(agentTurnRefs(acted, shown)).toEqual([acted, ...shown]);
+  it("נכנסות בראש, לפני שורות שהוצגו", () => {
+    expect(agentTurnRefs([dana], shown)).toEqual([dana, ...shown]);
   });
 
-  it("ובלעדיה נשארות רק השורות שהוצגו", () => {
-    expect(agentTurnRefs(undefined, shown)).toEqual(shown);
+  it("ובלעדיהן נשארות רק השורות שהוצגו", () => {
+    expect(agentTurnRefs([undefined], shown)).toEqual(shown);
+    expect(agentTurnRefs([], shown)).toEqual(shown);
+  });
+
+  /*
+   * **שרשרת שומרת את כל חוליותיה, מהמאוחרת לקדומה.**
+   *
+   * „תוסיף קונה דנה ותזכיר לי להתקשר אליה” הוא אישור אחד ושתי
+   * פעולות. שמירת הראשית בלבד איבדה את המשימה, ו„תסגור אותה”
+   * בתור הבא חזר לחיפוש כותרת (ביקורת Codex).
+   */
+  it("ושרשרת נשמרת כולה, המאוחרת ראשונה", () => {
+    const task: AgentHistoryRef = {
+      label: "להתקשר לדנה",
+      entityType: "task",
+      entityId: "01J0000000000000000000000D",
+    };
+    expect(agentTurnRefs([task, dana], shown)).toEqual([task, dana, ...shown]);
   });
 
   /*
@@ -171,8 +188,12 @@ describe("agentTurnRefs — הרשומה שהפעולה נגעה בה", () => {
    * הייתה נראית למודל כשתי אפשרויות לאותו שם.
    */
   it("אותה רשומה אינה נכנסת פעמיים", () => {
-    const acted: AgentHistoryRef = { ...shown[0]!, label: "משה כהן" };
-    expect(agentTurnRefs(acted, shown)).toEqual(shown);
+    expect(agentTurnRefs([{ ...shown[0]! }], shown)).toEqual(shown);
+  });
+
+  /** וגם כששתי חוליות בשרשרת נגעו בה. */
+  it("וגם לא כששתי פעולות בשרשרת נגעו בה", () => {
+    expect(agentTurnRefs([dana, { ...dana }], shown)).toEqual([dana, ...shown]);
   });
 
   /*
@@ -184,11 +205,21 @@ describe("agentTurnRefs — הרשומה שהפעולה נגעה בה", () => {
    * חוזרת לחיפוש, שיודע לומר „נמצאו כמה”.
    */
   it("ותווית שמתנגשת ברשומה אחרת יורדת", () => {
-    const acted: AgentHistoryRef = {
+    const other: AgentHistoryRef = {
       label: "משה כהן",
       entityType: "lead",
       entityId: "01J0000000000000000000000C",
     };
-    expect(agentTurnRefs(acted, shown)).toEqual(shown);
+    expect(agentTurnRefs([other], shown)).toEqual(shown);
+  });
+
+  /** וגם כשההתנגשות היא בין שתי חוליות של אותה שרשרת. */
+  it("וגם כשההתנגשות היא בתוך השרשרת עצמה", () => {
+    const twin: AgentHistoryRef = {
+      label: "דנה לוי",
+      entityType: "lead",
+      entityId: "01J0000000000000000000000E",
+    };
+    expect(agentTurnRefs([dana, twin], shown)).toEqual([dana, ...shown]);
   });
 });

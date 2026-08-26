@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { ApiError, apiPost } from "@/lib/api";
-import type { AgentHistoryRef } from "@metavchim/shared";
+import { agentResultRefs, agentTurnRefs, type AgentHistoryRef } from "@metavchim/shared";
 import { IconCheck, IconInfo, IconPin, IconX } from "../icons";
 import { Notice } from "../notice";
 
@@ -121,7 +121,16 @@ export function ProposalCard({
    * ובחירת מועמד. זיכרון השיחה נבנה מהם ולא מההצעה המקורית: תיקון
    * ידני של עיר או בחירת רשומה הם חלק ממה שבוצע (ביקורת Codex).
    */
-  onDone: (result: ExecuteResult, executedParams?: Record<string, unknown>) => void;
+  /**
+   * ‎`refs` נבנות **כאן** ולא אצל הקורא, כי רק כאן ידועות תוצאות
+   * צעדי ההמשך: התוצאה המצטברת נושאת הודעה אחת, ובה כבר אין
+   * ‎`ref`‎ ואין `data` של אף צעד (ביקורת Codex).
+   */
+  onDone: (
+    result: ExecuteResult,
+    executedParams?: Record<string, unknown>,
+    refs?: AgentHistoryRef[],
+  ) => void;
   /** תיקון בדיבור — „לא, 4 חדרים”. ההצעה הקודמת נשלחת כהקשר. */
   onRefine?: (params: Record<string, unknown>) => void;
 }): React.JSX.Element {
@@ -181,8 +190,13 @@ export function ProposalCard({
           : {}),
       });
       const followUps = proposal.followUps ?? [];
+      /*
+       * שורות התוצאה נלקחות מהראשית בלבד — הן מה שהמתווך **ראה**.
+       * לצעד המשך יש הודעה בתוך ההודעה המצטברת, לא רשימה על המסך.
+       */
+      const shown = agentResultRefs(primary.data);
       if (followUps.length === 0) {
-        onDone(primary, sent);
+        onDone(primary, sent, agentTurnRefs([primary.ref], shown));
         return;
       }
       /*
@@ -192,6 +206,12 @@ export function ProposalCard({
        * במקום להיראות כאילו הכול הצליח.
        */
       const messages = [primary.message];
+      /*
+       * מהמאוחר לקדום: „תוסיף קונה דנה ותזכיר לי להתקשר אליה” ואז
+       * „תסגור אותה” מתכוון למשימה, לא לקונה. `agentTurnRefs` שומרת
+       * על הסדר, ו-`matchHistoryRef` בוחרת את הראשון.
+       */
+      const acted: (AgentHistoryRef | undefined)[] = [primary.ref];
       let failure: string | null = null;
       for (const step of followUps) {
         try {
@@ -202,6 +222,8 @@ export function ProposalCard({
             params: stepParams,
           });
           messages.push(done.message);
+          // רק צעד שהצליח — הפניה לרשומה שלא נוצרה היא שיוך לכלום
+          acted.unshift(done.ref);
         } catch (err: unknown) {
           failure = `„${step.title}” לא בוצע: ${
             err instanceof ApiError ? err.message : "שגיאה"
@@ -219,6 +241,7 @@ export function ProposalCard({
           ...(failure === null && primary.href !== undefined ? { href: primary.href } : {}),
         },
         sent,
+        agentTurnRefs(acted, shown),
       );
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "הפעולה נכשלה");
