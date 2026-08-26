@@ -920,3 +920,88 @@ describe("propertyEvaluableCriteria", () => {
     expect(evaluable.has("features_nice")).toBe(true);
   });
 });
+
+/*
+ * ‎**שער אחד על כל ההערות, ולא בדיקה לכל ניסוח.**
+ *
+ * הבדיקות למעלה נוקבות במסלולי המאפיינים, כי שם היה הליקוי. הן
+ * לא היו תופסות ניסוח **חדש** שיוסיף קלט חיצוני להערה — וזו
+ * בדיוק הצורה שבה הליקוי הזה נולד: הערה שנכתבה בלי לדעת על התקרה.
+ *
+ * כאן מריצים את המנוע על הקלט הארוך ביותר שהסכמות מתירות משני
+ * הצדדים, ומודדים **כל** רכיב שיצא מול הסכמה. הבדיקה אינה יודעת
+ * אילו קריטריונים קיימים, ולכן היא מכסה גם את מה שיתווסף.
+ */
+describe("כל ההערות עומדות בסכמה, על הקלט המרבי", () => {
+  const maxText = (n: number): string => "א".repeat(n);
+
+  it("קלט מרבי משני הצדדים — כל רכיב עובר, וכולם נבחנו", () => {
+    const property: PropertyFields = {
+      city: maxText(80),
+      neighborhood: maxText(80),
+      propertyType: "apartment",
+      dealType: "sale",
+      rooms: 4,
+      areaSqm: 95,
+      priceAgorot: 265_000_000,
+      entryType: "on_date",
+      entryDate: new Date("2030-01-01"),
+      customFeatures: Array.from({ length: 12 }, (_, i) => ({
+        key: `custom:${maxText(50)}${i}`,
+        label: maxText(24),
+        value: false,
+      })),
+    };
+    const buyer: BuyerRequirements = {
+      cities: [maxText(80)],
+      neighborhoods: [maxText(80)],
+      searchAreas: [],
+      dealType: "sale",
+      propertyTypes: ["penthouse"],
+      budgetMaxAgorot: 100_000_000,
+      budgetMinAgorot: 90_000_000,
+      roomsMin: 9,
+      roomsMax: 10,
+      areaSqmMin: 400,
+      features: Object.fromEntries(
+        Array.from({ length: 30 }, (_, i) => [
+          `custom:${maxText(50)}${i}`,
+          i % 2 === 0 ? "must" : "nice",
+        ]),
+      ),
+      entryType: "by_date",
+      entryBy: new Date("2026-01-01"),
+    };
+
+    const { breakdown } = scoreMatch(property, buyer);
+    /*
+     * שער על הבדיקה עצמה: בלעדיו היא יכולה לכסות שני קריטריונים
+     * ולדווח הצלחה. הקלט למעלה בנוי כך שכולם ייבחנו.
+     */
+    expect(breakdown).toHaveLength(MATCH_CRITERIA.length);
+    for (const part of breakdown) {
+      expect(ScoreComponentSchema.safeParse(part).success).toBe(true);
+    }
+  });
+
+  /*
+   * אזור חיפוש נושא תווית עד 60 תווים, והיא נכנסת להערת המיקום.
+   * מסלול נפרד מהעיר, ולכן נבדק בנפרד.
+   */
+  it("תווית אזור חיפוש באורך המרבי — הערת המיקום עומדת בסכמה", () => {
+    const property: PropertyFields = {
+      ...baseProperty,
+      latitude: 32.08,
+      longitude: 34.83,
+    };
+    const buyer: BuyerRequirements = {
+      ...baseBuyer,
+      searchAreas: [{ lat: 32.08, lon: 34.83, radiusKm: 5, label: maxText(60) }],
+    };
+    const part = scoreMatch(property, buyer).breakdown.find(
+      (p) => p.criterion === "location",
+    );
+    expect(part?.note).toBeDefined();
+    expect(ScoreComponentSchema.safeParse(part).success).toBe(true);
+  });
+});
