@@ -155,20 +155,12 @@ export class SubscriptionOfferService {
     const kind = input.tenantId !== null ? "custom" : "plan_link";
     const plan = await this.plans.byCode(input.planCode);
     const lineItems = sanitizeOfferLineItems(input.lineItems);
-    const rejection = offerCreationRejection(
-      {
-        kind,
-        tenantId: input.tenantId,
-        planCode: input.planCode,
-        billingCycle: input.billingCycle,
-        priceAgorot: input.priceAgorot,
-        lineItems,
-        maxRedemptions: input.maxRedemptions,
-      },
-      plan,
-    );
-    if (rejection !== null) throw new BadRequestException(rejection);
 
+    /*
+     * משרד היעד נקרא **לפני** בדיקת התקינות ולא אחריה: המחיר המוסכם
+     * שלו הוא חלק מהשאלה „האם יש להצעה הזו מחיר”, ובלעדיו השער דוחה
+     * בדיוק את המקרה שהחריגה נועדה לו.
+     */
     let tenantName: string | null = null;
     let override: TenantPriceOverride | undefined;
     if (input.tenantId !== null) {
@@ -183,6 +175,21 @@ export class SubscriptionOfferService {
         yearlyAgorot: tenant.priceOverrideYearlyAgorot,
       };
     }
+
+    const rejection = offerCreationRejection(
+      {
+        kind,
+        tenantId: input.tenantId,
+        planCode: input.planCode,
+        billingCycle: input.billingCycle,
+        priceAgorot: input.priceAgorot,
+        lineItems,
+        maxRedemptions: input.maxRedemptions,
+      },
+      plan,
+      override,
+    );
+    if (rejection !== null) throw new BadRequestException(rejection);
 
     /*
      * 24 בייטים אקראיים — 32 תווי base64url. הטוקן הוא ההרשאה לראות

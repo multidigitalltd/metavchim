@@ -184,6 +184,40 @@ describe("offerCreationRejection", () => {
     ).toContain("מחיר");
   });
 
+  /*
+   * השער חייב לשאול את אותה שאלה שהמימוש ישאל. מסלול „לפי הצעה”
+   * שהמחיר היחיד שלו הוא זה שסוכם עם המשרד הוא בדיוק המקרה שהמנגנון
+   * נועד לו — ושער שמסתכל רק במחירון היה חוסם אותו.
+   */
+  it("מחיר מוסכם למשרד היעד מכשיר הצעה שהמחירון לבדו היה דוחה", () => {
+    expect(
+      offerCreationRejection(
+        draft({ priceAgorot: null }),
+        plan({ monthlyPriceAgorot: 0 }),
+        { monthlyAgorot: 9_900, yearlyAgorot: null },
+      ),
+    ).toBeNull();
+  });
+
+  it("מחיר מוסכם במחזור אחר אינו מכשיר את המחזור המבוקש", () => {
+    expect(
+      offerCreationRejection(
+        draft({ priceAgorot: null }),
+        plan({ monthlyPriceAgorot: 0 }),
+        { monthlyAgorot: null, yearlyAgorot: 99_000 },
+      ),
+    ).toContain("מחיר");
+  });
+
+  it("לינק מכירה אינו נהנה ממחיר מוסכם — אין לו משרד יעד", () => {
+    expect(
+      offerCreationRejection(
+        draft({ kind: "plan_link", tenantId: null, priceAgorot: null, maxRedemptions: null }),
+        plan({ monthlyPriceAgorot: 0 }),
+      ),
+    ).toContain("מחיר");
+  });
+
   it("לינק לחבילה במחיר המסלול — תקין", () => {
     expect(
       offerCreationRejection(

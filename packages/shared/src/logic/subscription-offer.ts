@@ -17,7 +17,6 @@
  */
 
 import {
-  cyclePriceAgorot,
   effectiveCyclePriceAgorot,
   isBillingCycle,
   type BillingCycle,
@@ -195,10 +194,17 @@ export interface OfferDraft {
  * הבדיקה מול המסלול **בזמן היצירה** ולא רק במימוש: לינק שנשלח
  * ללקוח ונדחה כשהוא לוחץ הוא מכירה שנשרפה. עדיף שהטעות תיעצר מול
  * מנהל הפלטפורמה, שיכול לתקן אותה.
+ *
+ * ‎**`override` הוא המחיר המוסכם של משרד היעד, ונדרש כדי שהשער הזה
+ * ישאל את אותה שאלה שהמימוש ישאל.** בהצעה אישית יש משרד ידוע, ולכן
+ * גם מחיר מוסכם אפשרי; בלינק מכירה אין. שער שבודק רק את המחירון
+ * חוסם בדיוק את המקרה שהחריגה נועדה לו — מסלול „לפי הצעה” שהמחיר
+ * היחיד שלו הוא זה שסוכם.
  */
 export function offerCreationRejection(
   draft: OfferDraft,
   plan: PlanDefinition | undefined,
+  override?: TenantPriceOverride,
 ): string | null {
   if (!plan) return "המסלול אינו קיים";
   if (!isBillingCycle(draft.billingCycle)) return "מחזור חיוב לא מוכר";
@@ -215,11 +221,15 @@ export function offerCreationRejection(
     }
   } else {
     /*
-     * בלי מחיר בהצעה נופלים למחיר המסלול — והוא חייב להתקיים במחזור
-     * הזה. מסלול חינמי או "לפי הצעה" בלי מחיר סופי היה יוצר לינק
-     * שכל לחיצה עליו נדחית.
+     * בלי מחיר בהצעה נופלים למחיר שהמשרד באמת ישלם — והוא חייב
+     * להתקיים במחזור הזה. מסלול חינמי בלי מחיר סופי ובלי מחיר מוסכם
+     * היה יוצר לינק שכל לחיצה עליו נדחית.
+     *
+     * ‎`effectiveCyclePriceAgorot` ולא `cyclePriceAgorot`: זו הפונקציה
+     * שהמימוש מריץ, ושער שמחשב אחרת מהמימוש דוחה הצעות שהיו נפרעות
+     * בלי בעיה.
      */
-    const base = cyclePriceAgorot(plan, draft.billingCycle);
+    const base = effectiveCyclePriceAgorot(plan, draft.billingCycle, override);
     if (base === null || base <= 0) {
       return "למסלול אין מחיר במחזור הזה — יש לקבוע מחיר סופי להצעה";
     }
