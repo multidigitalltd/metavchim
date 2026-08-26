@@ -3,7 +3,12 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { parseSearchQuery, type ParsedSearchQuery , labelOf } from "@metavchim/shared";
+import {
+  parseSearchQuery,
+  type ParsedSearchQuery,
+  type PropertyStatus,
+  labelOf,
+} from "@metavchim/shared";
 import { apiGet } from "@/lib/api";
 import { formatDateTime, MATURITY_LABELS, STATUS_LABELS } from "@/lib/format";
 import { LEAD_STATUS_LABELS } from "@/lib/lead-labels";
@@ -18,7 +23,8 @@ interface SearchResults {
     street: string | null;
     neighborhood: string | null;
     marketingTitle: string | null;
-    status: string;
+    /* סטטוס נכס — הטיפוס מהחבילה; שאר ה„status” כאן הם תחומים אחרים */
+    status: PropertyStatus;
   }[];
   buyers: { id: string; name: string; maturity: string; cities: string[] }[];
   leads: { id: string; name: string; status: string; requiresHuman: boolean }[];

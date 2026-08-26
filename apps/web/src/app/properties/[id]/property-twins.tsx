@@ -7,6 +7,7 @@ import {
   PAGE_LIMIT_MAX,
   propertyHeadline,
   TWIN_NOTE_MAX,
+  type PropertyStatus,
 } from "@metavchim/shared";
 import { ApiError, API_BASE, apiDelete, apiGet, apiPost } from "@/lib/api";
 import { formatPrice, PROPERTY_TYPE_LABELS, STATUS_LABELS } from "@/lib/format";
@@ -45,7 +46,11 @@ export interface TwinRow {
   areaSqm?: number;
   floor?: number;
   priceAgorot?: number;
-  status: string;
+  /*
+   * הטיפוס מהחבילה, כדי שמפת התוויות תוכל להיות ממצה: סטטוס חדש
+   * בסכמה ייפול בקומפילציה במקום להיות מוצג כמפתח באנגלית.
+   */
+  status: PropertyStatus;
   marketingTitle?: string;
   thumbnailUrl?: string;
   note?: string;
@@ -61,7 +66,11 @@ interface PickerRow {
   houseNumber?: string;
   rooms?: number;
   priceAgorot?: number;
-  status: string;
+  /*
+   * הטיפוס מהחבילה, כדי שמפת התוויות תוכל להיות ממצה: סטטוס חדש
+   * בסכמה ייפול בקומפילציה במקום להיות מוצג כמפתח באנגלית.
+   */
+  status: PropertyStatus;
   thumbnailUrl?: string;
 }
 
