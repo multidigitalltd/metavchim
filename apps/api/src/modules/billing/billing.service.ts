@@ -675,7 +675,17 @@ export class BillingService {
       return periodEnd;
     });
 
-    if (outcome === null) return { applied: false, status: "paid" };
+    if (outcome === null) {
+      /*
+       * בהשכרת מספר, תוצאה ריקה אינה בהכרח "עותק מקביל הקדים": ייתכן
+       * שהתשלום נתפס אך ההשכרה כבר שוחררה (דף שנשאר פתוח אחרי ביטול)
+       * — כסף בלי שירות. הדיווח בודק את המצב בפועל ושותק בכפילות רגילה.
+       */
+      if (payment.purpose === "number_rental") {
+        await this.numberRentals.reportOrphanPayment(payment.id, payment.rentalId);
+      }
+      return { applied: false, status: "paid" };
+    }
 
     /*
      * תפיסת המספר אצל 015 — **אחרי** הטרנזקציה: קריאת רשת אינה

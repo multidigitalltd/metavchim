@@ -1814,6 +1814,9 @@ model RentedNumber {
   @@index([tenantId])
   /// סורק החידושים והשחרורים עובר על הצירוף הזה
   @@index([status, currentPeriodEnd])
+  /// בנוסף, במיגרציה בלבד (Prisma אינו יודע לבטא אינדקס חלקי):
+  /// UNIQUE (number) WHERE status <> 'released' — שורה חיה אחת לכל
+  /// מספר בכל המשרדים, כולל pending; הפרה נתפסת כ-P2002 בפתיחת השכרה.
   @@map("rented_numbers")
 }
 

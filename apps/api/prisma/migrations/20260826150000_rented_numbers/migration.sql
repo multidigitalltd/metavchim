@@ -35,6 +35,15 @@ CREATE INDEX rented_numbers_tenant_id_idx ON rented_numbers (tenant_id);
 CREATE INDEX rented_numbers_status_current_period_end_idx
   ON rented_numbers (status, current_period_end);
 
+-- שורה חיה אחת לכל מספר — בכל המשרדים. גם `pending` מחזיקה את
+-- המספר: הזמנה פתוחה היא שריון, אחרת שני משרדים פותחים דף תשלום על
+-- אותו מספר באותה שנייה, שניהם משלמים, ורק תפיסה אחת אצל 015 תצליח.
+-- האכיפה במסד ולא בבדיקת-לפני-כתיבה, כי רק המסד רואה את שתי
+-- הכתיבות יחד. אינדקס חלקי — כמו מדיניות ה-RLS, הוא חי במיגרציה
+-- בלבד: prisma/schema.prisma אינו יודע לבטא אותו (מתועד שם בהערה).
+CREATE UNIQUE INDEX rented_numbers_live_number_key
+  ON rented_numbers (number) WHERE status <> 'released';
+
 -- ההשכרה שהתשלום משלם. ריק בתשלום שאינו השכרת מספר; מלא, הוא מה
 -- שמפעיל בהצלחה את תפיסת המספר אצל 015 ואת תקופת ההשכרה.
 ALTER TABLE payments ADD COLUMN rental_id CHAR(26);

@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { ulid } from "ulid";
 import {
   billingAnchorDay,
@@ -97,11 +98,31 @@ export class NumberRentalService {
       where: { tenantId, status: { not: "released" } },
       orderBy: { createdAt: "desc" },
     });
+    const available = configured ? await this.pbx015.availableNumbers(20) : [];
+    /*
+     * 015 עוד לא יודע על שריונים אצלנו: מספר עם שורה חיה — של כל
+     * משרד, כולל `pending` של הזמנה פתוחה — מוסתר מהרשימה, אחרת
+     * לחיצה עליו הייתה נדחית ממילא בפתיחת התשלום. ה-`pending` של
+     * המשרד עצמו נשאר מוצג — הלחיצה עליו היא הדרך חזרה לדף תשלום
+     * שננטש, בדיוק כמו ההחרגה שבבדיקת התפוס בפתיחת התשלום.
+     */
+    const held = new Set(
+      (
+        await this.prisma.rentedNumber.findMany({
+          where: {
+            number: { in: available },
+            status: { not: "released" },
+            NOT: { tenantId, status: "pending" },
+          },
+          select: { number: true },
+        })
+      ).map((row) => row.number),
+    );
     return {
       configured,
       checkoutAvailable: await this.cardcom.isConfigured(),
       monthlyAgorot: await this.pbx015.monthlyPriceAgorot(),
-      available: configured ? await this.pbx015.availableNumbers(20) : [],
+      available: available.filter((number) => !held.has(number)),
       rentals: rentals.map((row) => this.toRow(row)),
     };
   }
@@ -129,12 +150,19 @@ export class NumberRentalService {
     }
 
     /*
-     * מספר ששכור אצלנו — לכל משרד שהוא — אינו מוצע שוב. הבדיקה
+     * מספר עם שורה חיה אצלנו — לכל משרד שהוא — אינו מוצע שוב. הבדיקה
      * במסד לפני הבדיקה אצל הספק: מספר שנתפס עבור משרד אחר כבר אינו
-     * "פנוי" גם אם 015 עוד לא עודכן.
+     * "פנוי" גם אם 015 עוד לא עודכן. **גם `pending` של משרד אחר
+     * חוסם** — הזמנה פתוחה היא שריון, אחרת שני משרדים משלמים על אותו
+     * מספר ורק תפיסה אחת תצליח (ביקורת Codex). ה-`pending` של המשרד
+     * עצמו מוחרג — הוא נתיב החזרה לדף תשלום שננטש, בהמשך.
      */
     const taken = await this.prisma.rentedNumber.findFirst({
-      where: { number: input.number, status: { in: ["active", "past_due", "cancelled"] } },
+      where: {
+        number: input.number,
+        status: { not: "released" },
+        NOT: { tenantId: input.tenantId, status: "pending" },
+      },
       select: { id: true },
     });
     if (taken !== null) throw new BadRequestException("המספר הזה כבר שכור — בחרו מספר אחר");
@@ -152,17 +180,42 @@ export class NumberRentalService {
     });
     const rentalId = existing?.id ?? ulid();
     if (existing === null) {
-      await this.prisma.rentedNumber.create({
-        data: {
-          id: rentalId,
-          tenantId: input.tenantId,
-          number: input.number,
-          monthlyAgorot: monthlyAgorot!,
-          status: "pending",
-          createdBy: input.userId,
-        },
-      });
+      try {
+        await this.prisma.rentedNumber.create({
+          data: {
+            id: rentalId,
+            tenantId: input.tenantId,
+            number: input.number,
+            monthlyAgorot: monthlyAgorot!,
+            status: "pending",
+            createdBy: input.userId,
+          },
+        });
+      } catch (error) {
+        /*
+         * האינדקס החלקי במסד (שורה חיה אחת לכל מספר) תפס מרוץ ששתי
+         * בדיקות-הקריאה שלמעלה לא רואות: שתי פתיחות בו-זמנית. ה-create
+         * אינו בתוך טרנזקציה, ולכן try/catch כאן בטוח (בניגוד לאזהרה
+         * שב-property-twins על P2002 בתוך טרנזקציה).
+         */
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          throw new BadRequestException("המספר נתפס הרגע — רעננו את הרשימה ובחרו שוב");
+        }
+        throw error;
+      }
     }
+
+    /*
+     * דף תשלום קודם על אותה השכרה מוחלף, לא מוכפל: בלי זה חזרה לדף
+     * פתוחה פעמיים משאירה שני דפים חיים אצל קארדקום, ותשלום בשניהם
+     * מאריך את אותה השכרה חודשיים (ביקורת Codex). `superseded` ולא
+     * `failed` — הדף הישן עדיין ניתן לחיוב אצל הסולק, ואם ישולם שם
+     * בכל זאת, `apply` רשאי לתפוס אותו (אותה מוסכמה כמו במנוי).
+     */
+    await this.prisma.payment.updateMany({
+      where: { rentalId, status: "pending" },
+      data: { status: "superseded", failureReason: "נפתח דף תשלום חדש במקומו" },
+    });
 
     const paymentId = ulid();
     await this.prisma.payment.create({
@@ -216,7 +269,14 @@ export class NumberRentalService {
     });
     if (rental === null) throw new BadRequestException("ההשכרה לא נמצאה");
     if (rental.status === "pending") {
-      await this.prisma.rentedNumber.delete({ where: { id: rentalId } });
+      /*
+       * בוטל לפני תשלום — אין מה לשחרר אצל 015, אבל השורה **נסגרת ולא
+       * נמחקת**: אם דף התשלום שנשאר פתוח ישולם בכל זאת, התשלום ייתפס
+       * מול השכרה ששוחררה, ו-`reportOrphanPayment` יעלה את זה למנהלים
+       * במקום שהכסף ייעלם בשקט (ביקורת Codex). `releaseNow` על שורה
+       * שמעולם לא נתפסה רק מסמן אותה released — ומפנה את המספר מיד.
+       */
+      await this.releaseNow(rentalId);
       return;
     }
     if (rental.status !== "active" && rental.status !== "past_due") {
@@ -251,7 +311,13 @@ export class NumberRentalService {
     now: Date,
   ): Promise<{ number: string; tenantId: string; periodEnd: Date } | null> {
     const rental = await tx.rentedNumber.findUnique({ where: { id: rentalId } });
-    if (rental === null) return null;
+    /*
+     * ‎`released` אינו קם לתחייה: המספר כבר אינו בחשבון 015 שלנו —
+     * ואולי כבר אצל משרד אחר (האינדקס החלקי היה מפיל כאן את תפיסת
+     * התשלום כולה). הקורא מדווח למנהלים על תשלום בלי השכרה חיה.
+     * ביטול שטרם שוחרר, לעומת זאת, כן מתחדש — הלקוח שילם, המספר שלנו.
+     */
+    if (rental === null || rental.status === "released") return null;
     const anchorDay = rental.billingAnchorDay ?? billingAnchorDay(now);
     const periodEnd = nextPeriodEnd(rental.currentPeriodEnd, now, "monthly", anchorDay);
     await tx.rentedNumber.update({
@@ -322,6 +388,46 @@ export class NumberRentalService {
       }
     } catch (error) {
       this.logger.error(`הקצאת השכרה ${rentalId} נכשלה: ${String(error)}`);
+    }
+  }
+
+  /**
+   * תשלום שנתפס בלי השכרה חיה להפעיל — כסף שנגבה בלי שירות.
+   *
+   * קורה כשההשכרה בוטלה או שוחררה בזמן שדף התשלום עוד היה פתוח אצל
+   * הלקוח, והוא שילם בו בכל זאת. את הדף אצל קארדקום אי אפשר לסגור
+   * מרחוק, ולכן ההגנה היא בקצה הזה: המצב אינו נבלע — מנהלי הפלטפורמה
+   * מקבלים מייל ומחליטים, החזר או תפיסה ידנית (ביקורת Codex).
+   *
+   * שקט רק כשעותק מקביל של הוובהוק כבר הפעיל את ההשכרה — אז אין
+   * יתום, רק כפילות הודעות רגילה של קארדקום.
+   */
+  async reportOrphanPayment(paymentId: string, rentalId: string | null): Promise<void> {
+    try {
+      const payment = await this.prisma.payment.findUnique({
+        where: { id: paymentId },
+        select: { status: true, amountAgorot: true, tenantId: true },
+      });
+      if (payment === null || payment.status !== "paid") return;
+      const rental =
+        rentalId === null
+          ? null
+          : await this.prisma.rentedNumber.findUnique({ where: { id: rentalId } });
+      if (rental !== null && (rental.status === "active" || rental.status === "past_due")) return;
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { id: payment.tenantId },
+        select: { name: true },
+      });
+      await this.notifyAdmins(
+        "תשלום על השכרת מספר נקלט בלי השכרה חיה — נדרש טיפול ידני",
+        [
+          `המשרד "${tenant?.name ?? payment.tenantId}" שילם ${(payment.amountAgorot / 100).toFixed(2)} ₪ על השכרת מספר`,
+          rental === null ? "שכבר אינה קיימת" : `של המספר ${formatRentalNumber(rental.number)} שכבר שוחררה`,
+          `(תשלום ${paymentId}). הכסף נגבה בלי שהופעל שירות — יש להחזיר אותו או לתפוס את המספר ידנית ולעדכן את המשרד.`,
+        ].join(" "),
+      );
+    } catch (error) {
+      this.logger.error(`דיווח תשלום יתום ${paymentId} נכשל: ${String(error)}`);
     }
   }
 

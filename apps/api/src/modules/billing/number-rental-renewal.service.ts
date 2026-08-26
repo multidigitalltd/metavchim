@@ -122,60 +122,89 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
     });
     if (claimed.count === 0) return false;
 
+    /*
+     * מכאן ועד סימון התשלום, השורה מחזיקה תקופה שטרם שולמה. חריגה
+     * באמצע (רשת, פענוח טוקן) בלי טיפול הייתה משאירה אותה כך לצמיתות
+     * — הסבב הבא מדלג כי התקופה "בעתיד", והמשרד קיבל חודש חינם
+     * (ביקורת Codex). לכן הכול עטוף: חריגה מחזירה את התקופה, עוצרת
+     * ניסיונות חוזרים (`past_due`, לא active — כי אולי החיוב דווקא
+     * נקלט אצל קארדקום, וניסיון נוסף היה מחייב פעמיים), ושולחת את
+     * ההכרעה למנהלים עם הוראה לבדוק מול הסולק.
+     */
     const paymentId = ulid();
-    await this.prisma.payment.create({
-      data: {
-        id: paymentId,
-        tenantId: rental.tenantId,
-        purpose: "number_rental",
-        rentalId: rental.id,
+    try {
+      await this.prisma.payment.create({
+        data: {
+          id: paymentId,
+          tenantId: rental.tenantId,
+          purpose: "number_rental",
+          rentalId: rental.id,
+          amountAgorot: rental.monthlyAgorot,
+          status: "pending",
+          lowProfileId: paymentId,
+        },
+      });
+
+      const payer = await this.payer(rental.tenantId);
+      const result = await this.cardcom.chargeToken({
+        token: this.crypto.decrypt(subscription.cardTokenEncrypted),
         amountAgorot: rental.monthlyAgorot,
-        status: "pending",
-        lowProfileId: paymentId,
-      },
-    });
+        cardMonth: subscription.cardMonth,
+        cardYear: subscription.cardYear,
+        cardOwnerIdentity: subscription.cardOwnerIdEncrypted
+          ? this.crypto.decrypt(subscription.cardOwnerIdEncrypted)
+          : null,
+        productName: `השכרת מספר וירטואלי ${formatRentalNumber(rental.number)} — חידוש חודשי`,
+        payer,
+      });
 
-    const payer = await this.payer(rental.tenantId);
-    const result = await this.cardcom.chargeToken({
-      token: this.crypto.decrypt(subscription.cardTokenEncrypted),
-      amountAgorot: rental.monthlyAgorot,
-      cardMonth: subscription.cardMonth,
-      cardYear: subscription.cardYear,
-      cardOwnerIdentity: subscription.cardOwnerIdEncrypted
-        ? this.crypto.decrypt(subscription.cardOwnerIdEncrypted)
-        : null,
-      productName: `השכרת מספר וירטואלי ${formatRentalNumber(rental.number)} — חידוש חודשי`,
-      payer,
-    });
+      if (!result.paid) {
+        // החזרת התקופה לקדמותה — התפיסה הייתה אופטימית והחיוב לא עבר
+        await this.prisma.rentedNumber.updateMany({
+          where: { id: rental.id, currentPeriodEnd: periodEnd },
+          data: { currentPeriodEnd: rental.currentPeriodEnd },
+        });
+        await this.prisma.payment.update({
+          where: { id: paymentId },
+          data: { status: "failed", failureReason: result.message.slice(0, 300) || "החיוב נדחה" },
+        });
+        await this.markPastDue(rental.id, rental.tenantId, rental.number, result.message);
+        return false;
+      }
 
-    if (!result.paid) {
-      // החזרת התקופה לקדמותה — התפיסה הייתה אופטימית והחיוב לא עבר
+      await this.prisma.payment.update({
+        where: { id: paymentId },
+        data: {
+          status: "paid",
+          paidAt: now,
+          transactionId: result.transactionId,
+          documentType: result.documentType,
+          documentNumber: result.documentNumber,
+        },
+      });
+      this.logger.log(
+        `השכרת מספר חודשה: ${rental.number} של ${rental.tenantId} עד ${periodEnd.toISOString()}`,
+      );
+      return true;
+    } catch (error) {
+      this.logger.error(`חידוש השכרה ${rental.id} קרס באמצע: ${String(error)}`);
       await this.prisma.rentedNumber.updateMany({
         where: { id: rental.id, currentPeriodEnd: periodEnd },
         data: { currentPeriodEnd: rental.currentPeriodEnd },
       });
-      await this.prisma.payment.update({
-        where: { id: paymentId },
-        data: { status: "failed", failureReason: result.message.slice(0, 300) || "החיוב נדחה" },
+      // updateMany — ייתכן שהחריגה קדמה ליצירת שורת התשלום
+      await this.prisma.payment.updateMany({
+        where: { id: paymentId, status: "pending" },
+        data: { status: "failed", failureReason: `תקלה טכנית בחידוש: ${String(error)}`.slice(0, 300) },
       });
-      await this.markPastDue(rental.id, rental.tenantId, rental.number, result.message);
+      await this.markPastDue(
+        rental.id,
+        rental.tenantId,
+        rental.number,
+        "תקלה טכנית באמצע החיוב — ייתכן שהחיוב כן נקלט אצל קארדקום; יש לבדוק שם לפני גבייה חוזרת",
+      );
       return false;
     }
-
-    await this.prisma.payment.update({
-      where: { id: paymentId },
-      data: {
-        status: "paid",
-        paidAt: now,
-        transactionId: result.transactionId,
-        documentType: result.documentType,
-        documentNumber: result.documentNumber,
-      },
-    });
-    this.logger.log(
-      `השכרת מספר חודשה: ${rental.number} של ${rental.tenantId} עד ${periodEnd.toISOString()}`,
-    );
-    return true;
   }
 
   /**
@@ -238,10 +267,16 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
          */
         const result = await this.rentals.releaseNow(rental.id);
         if (!result.ok) continue;
-        await this.rentals.notifyAdmins(
-          "מספר שכור שוחרר",
-          `השכרת המספר ${formatRentalNumber(rental.number)} הסתיימה והמספר שוחרר מחשבון 015 של הפלטפורמה. ודאו שאין ניתוב ידני שנשאר מאחור.`,
-        );
+        /*
+         * המייל רק כשבאמת היה מה לשחרר אצל 015 — ביטול של השכרה
+         * שמעולם לא שולמה (ולכן לא נתפסה) אינו עבודה ידנית לאיש.
+         */
+        if (rental.providerPurchasedAt !== null) {
+          await this.rentals.notifyAdmins(
+            "מספר שכור שוחרר",
+            `השכרת המספר ${formatRentalNumber(rental.number)} הסתיימה והמספר שוחרר מחשבון 015 של הפלטפורמה. ודאו שאין ניתוב ידני שנשאר מאחור.`,
+          );
+        }
         released += 1;
       } catch (error) {
         this.logger.error(`שחרור השכרה ${rental.id} נכשל: ${String(error)}`);
@@ -253,13 +288,18 @@ export class NumberRentalRenewalService implements OnModuleInit, OnModuleDestroy
 
   /**
    * שורות שממתינות לתשלום שלא הגיע — דף תשלום שנפתח וננטש. אחרי
-   * שלושה ימים אין תשלום בדרך (דף קארדקום פג הרבה קודם), והשורה
-   * רק מסתירה את המספר מהמלאי.
+   * שלושה ימים אין תשלום בדרך (דף קארדקום פג הרבה קודם), והשורה רק
+   * חוסמת את המספר (האינדקס החלקי מונע שורה חיה נוספת לאותו מספר).
+   *
+   * סימון `released` ולא מחיקה: אם תשלום מאוחר בכל זאת יגיע, הוא
+   * ייתפס מול שורה ששוחררה — ו-`reportOrphanPayment` יידע את המנהלים
+   * — במקום להיעלם מול שורה שאינה קיימת.
    */
   async purgeStalePending(now = new Date()): Promise<void> {
     const cutoff = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
-    await this.prisma.rentedNumber.deleteMany({
+    await this.prisma.rentedNumber.updateMany({
       where: { status: "pending", createdAt: { lt: cutoff } },
+      data: { status: "released", cancelledAt: now },
     });
   }
 

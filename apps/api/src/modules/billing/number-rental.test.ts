@@ -49,7 +49,13 @@ interface Fakes {
   monthlyAgorot?: number | null;
   configured?: boolean;
   numberAvailable?: boolean;
+  /** מה שמאותר לפי מזהה — `cancel`, `releaseNow`, תשלום יתום. */
   existingRental?: Record<string, unknown> | null;
+  /** מה שבדיקת התפוס חוצת-המשרדים מוצאת. */
+  takenRental?: Record<string, unknown> | null;
+  /** שורת ה-pending של המשרד עצמו — נתיב השימוש החוזר. */
+  pendingRental?: Record<string, unknown> | null;
+  orphanPayment?: Record<string, unknown> | null;
   cardcomConfigured?: boolean;
 }
 
@@ -58,16 +64,27 @@ function service(fakes: Fakes = {}): {
   svc: NumberRentalService;
   sentEmails: { to: string; subject: string }[];
   updates: Record<string, unknown>[];
+  paymentBatchUpdates: Record<string, unknown>[];
+  releaseCalls: string[];
 } {
   const sentEmails: { to: string; subject: string }[] = [];
   const updates: Record<string, unknown>[] = [];
+  const paymentBatchUpdates: Record<string, unknown>[] = [];
+  const releaseCalls: string[] = [];
   const prisma = {
     rentedNumber: {
-      findFirst: async (args: { where: Record<string, unknown> }) =>
-        "status" in args.where && JSON.stringify(args.where).includes("pending")
-          ? null
-          : (fakes.existingRental ?? null),
+      /*
+       * שלוש שאילתות שונות עוברות כאן, וההבחנה לפי צורת ה-where:
+       * לפי מזהה (cancel), עם NOT (בדיקת תפוס), או לפי מספר+pending
+       * (איתור שורה לשימוש חוזר).
+       */
+      findFirst: async (args: { where: Record<string, unknown> }) => {
+        if ("id" in args.where) return fakes.existingRental ?? null;
+        if ("NOT" in args.where) return fakes.takenRental ?? null;
+        return fakes.pendingRental ?? null;
+      },
       findUnique: async () => fakes.existingRental ?? null,
+      findMany: async () => [],
       create: async (args: { data: Record<string, unknown> }) => args.data,
       update: async (args: { data: Record<string, unknown> }) => {
         updates.push(args.data);
@@ -75,9 +92,25 @@ function service(fakes: Fakes = {}): {
       },
       delete: async () => ({}),
     },
-    payment: { create: async (args: { data: unknown }) => args.data, update: async () => ({}) },
+    payment: {
+      create: async (args: { data: unknown }) => args.data,
+      update: async () => ({}),
+      updateMany: async (args: { data: Record<string, unknown> }) => {
+        paymentBatchUpdates.push(args.data);
+        return { count: 1 };
+      },
+      findUnique: async () => fakes.orphanPayment ?? null,
+    },
     tenant: { findUnique: async () => ({ name: "משרד הבדיקה" }) },
     user: { findFirst: async () => null, findUnique: async () => null },
+    withExplicitTenant: async (_tenantId: string, fn: (tx: unknown) => Promise<unknown>) =>
+      fn({
+        virtualNumber: {
+          updateMany: async () => ({ count: 0 }),
+          findFirst: async () => null,
+          create: async () => ({}),
+        },
+      }),
   } as unknown as PrismaService;
   const pbx015 = {
     // `=== undefined` ולא `??`: `null` כאן הוא ערך הבדיקה, לא חוסר
@@ -87,7 +120,10 @@ function service(fakes: Fakes = {}): {
     isNumberAvailable: async () => fakes.numberAvailable ?? true,
     availableNumbers: async () => ["0722776123"],
     purchase: async () => ({ ok: true, code: "204", message: "OK" }),
-    release: async () => ({ ok: true, code: "204", message: "OK" }),
+    release: async (number: string) => {
+      releaseCalls.push(number);
+      return { ok: true, code: "204", message: "OK" };
+    },
     setDescription: async () => undefined,
   } as unknown as Pbx015NumbersService;
   const cardcom = {
@@ -99,7 +135,13 @@ function service(fakes: Fakes = {}): {
       sentEmails.push({ to, subject });
     },
   } as unknown as EmailService;
-  return { svc: new NumberRentalService(prisma, pbx015, cardcom, email), sentEmails, updates };
+  return {
+    svc: new NumberRentalService(prisma, pbx015, cardcom, email),
+    sentEmails,
+    updates,
+    paymentBatchUpdates,
+    releaseCalls,
+  };
 }
 
 describe("שערי פתיחת ההשכרה", () => {
@@ -112,11 +154,31 @@ describe("שערי פתיחת ההשכרה", () => {
 
   it("מספר שכבר שכור אצלנו — לכל משרד שהוא — נדחה", async () => {
     const { svc } = service({
-      existingRental: { id: "01R", status: "active" },
+      takenRental: { id: "01R", status: "active" },
     });
     await expect(
       svc.startCheckout({ tenantId: TENANT, userId: "01U", number: "0722776123" }),
     ).rejects.toThrow(/כבר שכור/u);
+  });
+
+  it("גם הזמנה פתוחה של משרד אחר חוסמת — pending הוא שריון", async () => {
+    const { svc } = service({
+      takenRental: { id: "01R", tenantId: "01OTHER", status: "pending" },
+    });
+    await expect(
+      svc.startCheckout({ tenantId: TENANT, userId: "01U", number: "0722776123" }),
+    ).rejects.toThrow(/כבר שכור/u);
+  });
+
+  it("פתיחה חוזרת מחליפה את דף התשלום הקודם, לא מכפילה אותו", async () => {
+    const { svc, paymentBatchUpdates } = service({
+      pendingRental: { id: "01R", status: "pending" },
+    });
+    await svc.startCheckout({ tenantId: TENANT, userId: "01U", number: "0722776123" });
+    // הדף הישן עדיין ניתן לחיוב אצל קארדקום — ולכן superseded, לא failed
+    expect(paymentBatchUpdates).toContainEqual(
+      expect.objectContaining({ status: "superseded" }),
+    );
   });
 
   it("מספר שאינו פנוי אצל 015 נדחה — הזמינות נבדקת מול הספק", async () => {
@@ -204,5 +266,62 @@ describe("ביטול", () => {
     await svc.cancel(TENANT, "01R");
     expect(sentEmails.length).toBe(1);
     expect(sentEmails[0]!.to).toBe("admin@example.test");
+  });
+
+  it("ביטול לפני תשלום סוגר את השורה — בלי מחיקה ובלי פנייה ל-015", async () => {
+    const { svc, updates, releaseCalls, sentEmails } = service({
+      existingRental: {
+        id: "01R",
+        tenantId: TENANT,
+        number: "0722776123",
+        status: "pending",
+        providerPurchasedAt: null,
+        providerReleasedAt: null,
+        cancelledAt: null,
+      },
+    });
+    await svc.cancel(TENANT, "01R");
+    /*
+     * השורה נסגרת (released) ולא נמחקת: אם דף התשלום שנשאר פתוח
+     * ישולם בכל זאת, יש מול מה לזהות את התשלום היתום. המספר מעולם
+     * לא נתפס — אז אין מה לשחרר אצל הספק ואין מה להטריד מנהלים.
+     */
+    expect(updates).toContainEqual(expect.objectContaining({ status: "released" }));
+    expect(releaseCalls.length).toBe(0);
+    expect(sentEmails.length).toBe(0);
+  });
+});
+
+describe("תשלום שאיחר את ההשכרה שלו", () => {
+  it("השכרה ששוחררה אינה קמה לתחייה מתשלום מאוחר", async () => {
+    const { svc } = service();
+    const tx = {
+      rentedNumber: {
+        findUnique: async () => ({ id: "01R", status: "released" }),
+        update: async () => {
+          throw new Error("released אסור שיתעדכן");
+        },
+      },
+    };
+    expect(await svc.activateWithin(tx as never, "01R", NOW)).toBeNull();
+  });
+
+  it("תשלום שנתפס בלי השכרה חיה מדווח למנהלים — הכסף לא נעלם בשקט", async () => {
+    const { svc, sentEmails } = service({
+      orphanPayment: { status: "paid", amountAgorot: 5_000, tenantId: TENANT },
+      existingRental: { id: "01R", number: "0722776123", status: "released" },
+    });
+    await svc.reportOrphanPayment("01P", "01R");
+    expect(sentEmails.length).toBe(1);
+    expect(sentEmails[0]!.subject).toMatch(/טיפול ידני/u);
+  });
+
+  it("כשעותק מקביל של הוובהוק כבר הפעיל — שקט, זו כפילות רגילה", async () => {
+    const { svc, sentEmails } = service({
+      orphanPayment: { status: "paid", amountAgorot: 5_000, tenantId: TENANT },
+      existingRental: { id: "01R", number: "0722776123", status: "active" },
+    });
+    await svc.reportOrphanPayment("01P", "01R");
+    expect(sentEmails.length).toBe(0);
   });
 });
