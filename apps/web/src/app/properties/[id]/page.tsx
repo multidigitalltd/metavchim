@@ -540,6 +540,37 @@ export default function PropertyDetailPage({
     setProperty((prev) => (prev ? { ...prev, internalNotes: next } : prev));
   }
 
+  /**
+   * ‎**מה שהנכס מסוגל להיבחן בו — כדי להבדיל „חסר בנכס” מ„הקונה
+   * לא ביקש”.**
+   *
+   * קריטריון שנעדר מפירוט ההתאמה יכול להיות אחד משניים, והם
+   * הפוכים: שדה ריק בנכס (יש מה לעשות) או דרישה שהקונה לא הגדיר
+   * (אין מה לעשות, וההתאמה מלאה). ראו `propertyEvaluableCriteria`.
+   *
+   * ‎**וכאן, לפני ההחזרות המוקדמות, ולא ליד השימוש בו.**
+   *
+   * ‎`property` הוא `null` בטעינה הראשונה, והרכיב חוזר מוקדם
+   * ב-`if (!property)`. הוק שיושב אחרי ההחזרה הזו **אינו נקרא**
+   * ברינדור הראשון ונקרא בשני — „Rendered more hooks than during
+   * the previous render”, כלומר קריסה של כרטיס הנכס בכל כניסה
+   * ראשונה (ביקורת Codex). הסדר של ההוקים הוא חוזה, לא סגנון.
+   *
+   * ‎**הפיזור, ולא רשימת שדות ביד.** `{...property}` מעביר גם שדה
+   * שיתווסף מחר לכרטיס; רשימה ידנית הייתה משמיטה אותו בשקט, והמסך
+   * היה מכריז „חסר בנכס” על שדה מלא. רק `entryDate` מומר, כי ה-API
+   * מחזיר מחרוזת והמנוע קורא תאריך.
+   */
+  const matchEvaluable = useMemo<ReadonlySet<MatchCriterion>>(() => {
+    if (property === null) return new Set<MatchCriterion>();
+    const { entryDate, ...rest } = property;
+    const fields: PropertyFields = {
+      ...rest,
+      ...(entryDate !== undefined ? { entryDate: new Date(entryDate) } : {}),
+    };
+    return propertyEvaluableCriteria(fields);
+  }, [property]);
+
   if (error) {
     return (
       <Notice tone="danger">{error} —{" "}
@@ -619,29 +650,6 @@ export default function PropertyDetailPage({
       value: features.length > 0 ? features.join(", ") : null,
     },
   ];
-
-  /**
-   * ‎**מה שהנכס מסוגל להיבחן בו — כדי להבדיל „חסר בנכס” מ„הקונה
-   * לא ביקש”.**
-   *
-   * קריטריון שנעדר מפירוט ההתאמה יכול להיות אחד משניים, והם
-   * הפוכים: שדה ריק בנכס (יש מה לעשות) או דרישה שהקונה לא הגדיר
-   * (אין מה לעשות, וההתאמה מלאה). ראו `propertyEvaluableCriteria`.
-   *
-   * ‎**הפיזור, ולא רשימת שדות ביד.** `{...property}` מעביר גם שדה
-   * שיתווסף מחר לכרטיס; רשימה ידנית הייתה משמיטה אותו בשקט, והמסך
-   * היה מכריז „חסר בנכס” על שדה מלא. רק `entryDate` מומר, כי ה-API
-   * מחזיר מחרוזת והמנוע קורא תאריך.
-   */
-  const matchEvaluable = useMemo<ReadonlySet<MatchCriterion>>(() => {
-    if (property === null) return new Set<MatchCriterion>();
-    const { entryDate, ...rest } = property;
-    const fields: PropertyFields = {
-      ...rest,
-      ...(entryDate !== undefined ? { entryDate: new Date(entryDate) } : {}),
-    };
-    return propertyEvaluableCriteria(fields);
-  }, [property]);
 
   /*
    * ‎**אותו „לא ידוע” שנקרא כ„לא”, בכפתור שמייצר הצעות.**
