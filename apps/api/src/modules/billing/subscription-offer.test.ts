@@ -4,6 +4,20 @@ import { PlanCatalogService } from "../../core/plan-catalog.service";
 import type { PrismaService } from "../../core/prisma.service";
 import { SubscriptionOfferService } from "./subscription-offer.service";
 
+/*
+ * ‎`list` בונה את כתובת הלינק מ-`WEB_ORIGIN`, ו-`loadEnv` מאמת את
+ * הסביבה כולה — כלומר בדיקות שקוראות ל-`list` נופלות בסביבת CI
+ * שאין בה ‎.env, על משתנים שאין להם שום תפקיד בבדיקה. הערכים כאן
+ * סינתטיים, אינם מגיעים לשום רשת, ו-`??=` משאיר סביבה אמיתית
+ * כשהיא קיימת. vitest מריץ כל קובץ בתהליך מבודד, ולכן ההזרקה
+ * אינה מדליפה לקבצים אחרים.
+ */
+process.env["WEB_ORIGIN"] ??= "https://test.invalid";
+process.env["DATABASE_URL"] ??= "postgresql://test:test@localhost:5432/test";
+process.env["REDIS_URL"] ??= "redis://localhost:6379";
+process.env["DATA_ENCRYPTION_KEY"] ??= "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+process.env["PHONE_HASH_KEY"] ??= "test-phone-hash-key-not-a-real-secret-0000";
+
 /**
  * הבטחת המחיר של הצעה בלינק: הסכום שנפתח בו דף התשלום הוא בדיוק
  * הסכום שההצעה קבעה — והוא זה שיהפוך למחיר המתחדש. הבדיקות כאן הן

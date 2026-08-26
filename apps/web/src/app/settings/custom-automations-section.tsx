@@ -150,14 +150,14 @@ export function CustomAutomationsSection() {
 
   if (data === null) {
     return (
-      <section className="mv-card">
+      <section className="mv-card p-6">
         <p aria-live="polite">טוען…</p>
       </section>
     );
   }
 
   return (
-    <section className="mv-card" id="custom-automations">
+    <section className="mv-card p-6" id="custom-automations">
       <h2 className="mb-1 text-lg font-semibold">
         <IconBolt s={17} /> האוטומציות שלכם
       </h2>

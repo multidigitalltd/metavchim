@@ -105,7 +105,9 @@ export function VoiceConsole(): React.JSX.Element | null {
           </p>
         </div>
         <Link href="/voice" className="mv-agent-link">
-          למסך הסוכן ←
+          {/* שברון ולא חץ — „a text link with a chevron” (§17).
+              ‎`dir="ltr"` כי U+2039 הוא תו מראה, וב-RTL היה מתהפך. */}
+          למסך הסוכן <span aria-hidden="true" dir="ltr">‹</span>
         </Link>
       </div>
 
