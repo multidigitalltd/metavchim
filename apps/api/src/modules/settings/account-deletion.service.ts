@@ -384,12 +384,30 @@ export class AccountDeletionService {
     /*
      * מחוץ ל-RLS: משתמשים (sessions נופלים איתם ב-CASCADE), המנוי —
      * שמכיל טוקן אשראי ות"ז מוצפנת ולכן נמחק ולא מבוטל, מפתחות
-     * קליטת הלידים, ולבסוף שורת המשרד עצמה (אחרי המשתמשים — יש
-     * עליה FK RESTRICT).
+     * קליטת הלידים, הצעות המנוי שנתפרו למשרד, ולבסוף שורת המשרד
+     * עצמה (אחרי המשתמשים — יש עליה FK RESTRICT).
+     *
+     * **הצעות בלינק**: השורה נושאת טוקן סודי שעדיין פותח דף הצעה,
+     * את מזהה המשרד, ואת ההערה החופשית שנכתבה ללקוח. `tenantId`
+     * מסנן להצעות האישיות בלבד — ללינק מכירה `tenantId` הוא null,
+     * והוא נכס של הפלטפורמה ולא של המשרד שנמחק. הראיה הכספית אינה
+     * הולכת לאיבוד: `payments` שומרת את `offer_id` ואת הסכום, והיא
+     * החריג המתועד שנשאר.
      */
     await this.prisma.$transaction([
       this.prisma.leadWebhook.deleteMany({ where: { tenantId } }),
+      this.prisma.subscriptionOffer.deleteMany({ where: { tenantId } }),
       this.prisma.subscription.deleteMany({ where: { tenantId } }),
+      /*
+       * יומן הוובהוקים מנוקה מהשיוך ולא נמחק: הערך שלו הוא „האם
+       * הגיעה בקשה בכלל”, והוא נשמר גם בלי לדעת של מי. השורות
+       * שמעולם לא שויכו למשרד נשארות כפי שהן — הן כל הסיבה שהטבלה
+       * אינה תחת RLS מלכתחילה.
+       */
+      this.prisma.telephonyWebhookHit.updateMany({
+        where: { tenantId },
+        data: { tenantId: null },
+      }),
       this.prisma.user.deleteMany({ where: { tenantId } }),
       this.prisma.tenant.delete({ where: { id: tenantId } }),
     ]);

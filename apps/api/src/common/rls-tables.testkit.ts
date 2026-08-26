@@ -127,6 +127,34 @@ export function cascadingFromTenants(prismaDir: string): Set<string> {
 }
 
 /**
+ * טבלאות שיש בהן `tenant_id` **ואינן תחת RLS**.
+ *
+ * RLS אינו ההגדרה של „נתוני דייר”, רק המנגנון הנפוץ לשמור עליהם.
+ * טבלה ברמת הפלטפורמה — מנוי, תשלום, הצעה בלינק, יומן וובהוק —
+ * נושאת `tenant_id` ואינה תחת RLS, בכוונה: היא נקראת גם כשאין
+ * הקשר דייר, או שהשורות המעניינות בה הן דווקא אלה שלא שויכו.
+ *
+ * הקטגוריה הזו לא נבדקה על ידי איש עד שהצעה בלינק שרדה מחיקת משרד
+ * עם הטוקן הסודי שלה ועם הערה חופשית ללקוח (ביקורת Codex). „מה
+ * שנמחק” נגזר מ-RLS, ולכן טבלה שנשמרת מחוץ לו הייתה שקופה לבדיקה
+ * שכל תפקידה לוודא שלא נשאר דבר.
+ */
+export function tenantScopedOutsideRls(prismaDir: string): Set<string> {
+  const sql = migrationSql(prismaDir);
+  const rls = rlsTables(prismaDir);
+  const found = new Set<string>();
+
+  for (const match of sql.matchAll(
+    new RegExp(String.raw`CREATE TABLE\s+(?:IF NOT EXISTS\s+)?${TABLE}\s*\(([\s\S]*?)\n\);`, "gu"),
+  )) {
+    const table = match[1]!;
+    if (rls.has(table)) continue;
+    if (/^\s*"?tenant_id"?\s/mu.test(match[2]!)) found.add(table);
+  }
+  return found;
+}
+
+/**
  * שם הטבלה ⟵ שם המאפיין ב-Prisma Client.
  *
  * `model PropertyMedia { … @@map("property_media") }` ⟵ `propertyMedia`.
