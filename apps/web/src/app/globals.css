@@ -5595,6 +5595,20 @@ a.mv-bar-row:focus-visible {
 }
 
 /*
+ * הכרטיס עצמו (§9) — „the same card contract throughout”.
+ *
+ * רדיוס 22 והצל של החבילה. הדשבורד השתמש קודם ב-`rounded-xl` (12)
+ * בטור הצדדי וב-`mv-list-card` (14) בכרטיסי הניתוח — שלושה רדיוסים
+ * שונים על מסך אחד, וזה בדיוק סוג אי-הדיוק שקובץ העיצוב אוסר.
+ */
+.mv-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+
+/*
  * כותרת כרטיס — שלושה חלקים, תמיד באותו סדר (§9).
  *
  * ‎`margin-inline-start: auto` ולא `margin-left`: העמוד כולו RTL,
@@ -5665,6 +5679,21 @@ a.mv-bar-row:focus-visible {
   display: flex;
   align-items: center;
   gap: 11px;
+}
+/*
+ * אריח האייקון באריח ה-KPI — **לבן, ובקצה השורה** (קובץ העיצוב).
+ *
+ * הכרטיס כולו צבוע ברקע הדומיין, ולכן אריח בגוון-הדומיין-העמוק
+ * כמעט נבלע בו; במוקאפ האייקון יושב על עיגול-כמעט לבן שמובחן מן
+ * הרקע הצבעוני. באריח ניטרלי (ערך אפס) לבן-על-לבן היה נעלם —
+ * ולכן שם נשאר גוון האריח הניטרלי.
+ */
+.mv-kpi .mv-tile {
+  margin-inline-start: auto;
+  background: var(--color-surface);
+}
+.mv-kpi.mv-domain-neutral .mv-tile {
+  background: var(--domain-neutral-tile);
 }
 .mv-kpi__label {
   font-size: var(--type-body);
@@ -6023,19 +6052,24 @@ a.mv-bar-row:focus-visible {
  * שמאפשר לכרטיס למתוח את עצמו כדי ליישר את תחתית שני הטורים בלי
  * שהכפתור יצוף באמצע.
  *
- * גבול ‎#5a6a5d ולא לבן-שקוף: 3.08:1 מול הרקע, כלומר גבול פקד
- * שנראה — ובניגוד ל-`rgba()` הוא גם ערך שהשער יודע לפתור ולמדוד.
+ * ‎**ירקרק, לפי §10**: „border rgba(112,238,145,.35), background
+ * rgba(112,238,145,.1), color #70EE91” — הגרסה האפורה שהייתה כאן
+ * סטתה מהחבילה, וזה בדיוק הכפתור שנראה במוקאפ ירקרק. הערכים
+ * כתובים כהקסה שטוחה ולא כ-`rgba()`, כדי שהשער ימדוד אותם:
+ * ‎#1d2f21 הוא 10% ירוק על רקע הכרטיס, והגבול חזק מה-35% של
+ * החבילה — כי הרף (3:1, WCAG 1.4.11) נמדד מול רקע הכפתור עצמו,
+ * ושם 35% נותן 2.7:1 בלבד. הטקסט ‎#70ee91‎ על ‎#1d2f21‎: ‎9.7:1‎.
  */
 .mv-dark-card .mv-dark-card__action {
   margin-top: auto;
   justify-content: center;
-  background: transparent;
-  border-color: #5a6a5d;
-  color: #e9eeea; /* 15.05:1 */
+  background: #1d2f21;
+  border-color: #4c9560; /* 3.9:1 מול #1d2f21 */
+  color: #70ee91; /* 9.7:1 */
 }
 .mv-dark-card .mv-dark-card__action:hover {
-  background: color-mix(in srgb, #ffffff 8%, #141a15);
-  border-color: #7f9184;
+  background: #24402b;
+  border-color: #5fb374;
 }
 
 /*
