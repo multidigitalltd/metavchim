@@ -476,6 +476,16 @@ const TOTAL_DURATION_KEYS = ["totaltime"] as const;
  */
 const RING_AWARE_TALK_KEY = "talktime";
 
+/**
+ * הספק היחיד שידוע עליו שהוא מודד צלצול בנפרד.
+ *
+ * ‎**שני תנאים ולא אחד**, והם אינם מיותרים זה לזה: הספק אומר
+ * „המרכזייה הזו מדווחת זמן צלצול”, והשדה אומר „והערך שבידינו הוא
+ * זה שנמדד כך”. מטען של 015 שיישא גם `duration` היה נבחר ראשון
+ * ב-`DURATION_KEYS`, וההשוואה שלו מול `totaltime` חסרת משמעות.
+ */
+const RING_AWARE_PROVIDER: TelephonyProviderId = "015";
+
 /** משך בשניות, או `undefined` כשהשדה ריק או אינו מספר. */
 function finiteSeconds(raw: string): number | undefined {
   if (raw === "") return undefined;
@@ -741,7 +751,24 @@ export function safeDiagnosticKeys(keys: readonly string[]): string {
   return [...seen].join(", ").slice(0, 400);
 }
 
-export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEvent | null {
+/**
+ * ‎**הספק, כפי שהמשרד הגדיר אותו — ולא כפי שניחשנו משם שדה.**
+ *
+ * הפרמטר חובה בכוונה. שם השדה `talktime` הוא *סימן* לכך שמדובר
+ * ב-015, וזהות הספק היא *העובדה* — והיא שמורה על שורת האינטגרציה
+ * וזמינה בנקודת הקליטה. ספק `generic` הוא ברירת המחדל במסך
+ * ההגדרות, ואין שום מניעה שישלח שדה בשם `talktime` במשמעות אחרת
+ * (ביקורת Codex).
+ *
+ * חובה ולא אופציונלי, כי לשני ערכי ברירת המחדל האפשריים יש מחיר:
+ * „ללא כלל ההפרש” היה מחזיר את הבאג המקורי ל-015, ו„עם הכלל” היה
+ * משאיר את הבאג הזה לגנרי. קורא שאינו יודע מי הספק חייב לומר זאת,
+ * והמהדר אוכף.
+ */
+export function parseTelephonyEvent(
+  raw: Record<string, unknown>,
+  provider: TelephonyProviderId,
+): TelephonyEvent | null {
   // אותם שמות שדות בדיוק כמו באבחון — readCore הוא המקור היחיד
   const pick = pickFrom(raw);
   const { providerCallId, direction, peerRaw, ownRaw } = readCore(raw);
@@ -779,6 +806,7 @@ export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEven
    * לחשב זמן צלצול. ראו `RING_AWARE_TALK_KEY`.
    */
   const totalSeconds =
+    provider === RING_AWARE_PROVIDER &&
     firstPresentKey(raw, DURATION_KEYS) === RING_AWARE_TALK_KEY
       ? finiteSeconds(totalRaw)
       : undefined;

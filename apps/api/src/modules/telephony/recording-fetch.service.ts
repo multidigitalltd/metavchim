@@ -24,6 +24,7 @@ import {
   nextRefusalStreak,
   type RecordingPullResult,
   UNANSWERED_OUTCOMES,
+  recordingWorthPulling,
   RECORDING_GIVE_UP_MS,
   RECORDING_BLOCKED_REASON,
 } from "@metavchim/shared";
@@ -383,6 +384,15 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
   ): Promise<{
     found: number;
     linked: number;
+    /**
+     * הקלטות של שיחות שלא נענו — הנתיב נשמר, המשיכה לא תקרה.
+     *
+     * נספרות בנפרד ולא בתוך `linked`, כי המסך מבטיח על `linked`
+     * „ייכנסו לכרטיסים תוך כמה דקות” — הבטחה שאינה מתקיימת עליהן
+     * (ביקורת Codex). הנתיב כן נשמר, כדי שכרטיס השיחה יאמר „השיחה
+     * לא נענתה — אין הקלטה לתמלל” במקום „לא צורפה הקלטה”.
+     */
+    skipped: number;
     alreadyHad: number;
     withoutCall: number;
     /** הקלטות שהספק החזיר ואין בהן מזהה הורדה שאנחנו מכירים */
@@ -485,6 +495,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     }
 
     let linked = 0;
+    let skipped = 0;
     let alreadyHad = 0;
     let withoutCall = 0;
     let withoutRecordId = 0;
@@ -503,7 +514,13 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
         }
         const call = await tx.call.findFirst({
           where: { tenantId, providerCallId: row.uniqueId },
-          select: { id: true, recordingKey: true, providerRecordingPath: true },
+          // `outcome` — שיחה שלא נענתה אינה נמשכת; ראו `recordingWorthPulling`
+          select: {
+            id: true,
+            recordingKey: true,
+            providerRecordingPath: true,
+            outcome: true,
+          },
         });
         if (!call) {
           withoutCall += 1;
@@ -521,7 +538,11 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
             providerRecordingAttemptAt: null,
           },
         });
-        linked += 1;
+        if (recordingWorthPulling(call.outcome)) {
+          linked += 1;
+        } else {
+          skipped += 1;
+        }
       }
     });
 
@@ -536,7 +557,15 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       `ייבוא הקלטות (${tenantId}): ${rows.length} אצל הספק, ${linked} סומנו למשיכה` +
         (withoutRecordId > 0 ? `, ${withoutRecordId} בלי מזהה הורדה` : ""),
     );
-    return { found: rows.length, linked, alreadyHad, withoutCall, withoutRecordId, rowKeys };
+    return {
+      found: rows.length,
+      linked,
+      skipped,
+      alreadyHad,
+      withoutCall,
+      withoutRecordId,
+      rowKeys,
+    };
   }
 
   /**
