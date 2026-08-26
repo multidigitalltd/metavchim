@@ -16,6 +16,8 @@ import {
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
 import { ReadinessCard } from "./readiness-card";
+import { DetailsCard, type DetailField } from "./details-card";
+import { PropertyTimeline } from "./property-timeline";
 import { MediaSection } from "./media-section";
 import { PropertyTwins } from "./property-twins";
 import { NetworkDemandMatches } from "../network-demand-matches";
@@ -30,7 +32,7 @@ import { ExclusivityPanel } from "../exclusivity-panel";
 import { EntityNotes } from "../../entity-notes";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
 import { RelatedEntities } from "../../related-entities";
-import { IconThumbUp } from "../../icons";
+import { IconThumbUp, IconMap } from "../../icons";
 import { LoadError } from "../../load-error";
 import { Notice } from "../../notice";
 
@@ -458,38 +460,64 @@ export default function PropertyDetailPage({
     property.hasSafeRoom && 'ממ"ד',
   ].filter(Boolean) as string[];
 
-  const detailFields: [string, string][] = [
-    [
-      "סוג",
-      property.propertyType
+  /*
+   * ‎`null` הוא החוסר, ולא המחרוזת "—".
+   *
+   * המקף הוא **תצוגה**, ומי שמחליט עליו הוא הכרטיס. אילו נכתב כאן,
+   * לא היה אפשר להבדיל בין שדה שאין בו ערך לבין שדה שערכו הוא
+   * במקרה מקף — וגם `data-empty`, שצובע את החוסר, היה צריך לנחש
+   * לפי תוכן.
+   */
+  const detailFields: DetailField[] = [
+    {
+      label: "סוג",
+      value: property.propertyType
         ? (PROPERTY_TYPE_LABELS[property.propertyType] ?? property.propertyType)
-        : "—",
-    ],
-    ["חדרים", property.rooms !== undefined ? String(property.rooms) : "—"],
-    ["שטח", property.areaSqm ? `${property.areaSqm} מ"ר` : "—"],
-    [
-      "קומה",
-      property.floor !== undefined
-        ? `${property.floor}${property.totalFloors ? ` מתוך ${property.totalFloors}` : ""}`
-        : "—",
-    ],
-    [
-      "כניסה / מסירה",
+        : null,
+    },
+    {
+      label: "חדרים",
+      value: property.rooms !== undefined ? String(property.rooms) : null,
+      ltr: true,
+    },
+    {
+      label: "שטח",
+      value: property.areaSqm ? `${property.areaSqm} מ"ר` : null,
+      ltr: true,
+    },
+    {
+      label: "קומה",
+      value:
+        property.floor !== undefined
+          ? `${property.floor}${property.totalFloors ? ` מתוך ${property.totalFloors}` : ""}`
+          : null,
+      /*
+       * ‎**לא `ltr`, אף שיש בה מספרים.** „3 מתוך 8” הוא ביטוי עברי
+       * שמכיל ספרות, ובידודו ל-LTR היה הופך אותו ל„8 מתוך 3”.
+       * הדגל שייך למספר עצמו, לא לכל דבר שיש בו ספרה.
+       */
+    },
+    {
+      label: "כניסה / מסירה",
       // מצב + תאריך + ההערה החופשית בשורה אחת; "מיידי" ו"גמיש" הם
       // תשובות ולא חוסר, ולכן אינם מוצגים כמקף
-      describeEntry({
-        entryType: property.entryType as Parameters<
-          typeof describeEntry
-        >[0]["entryType"],
-        ...(property.entryDate !== undefined
-          ? { entryDate: new Date(property.entryDate) }
-          : {}),
-        ...(property.entryNote !== undefined
-          ? { entryNote: property.entryNote }
-          : {}),
-      }) ?? "—",
-    ],
-    ["מאפיינים", features.length > 0 ? features.join(", ") : "—"],
+      value:
+        describeEntry({
+          entryType: property.entryType as Parameters<
+            typeof describeEntry
+          >[0]["entryType"],
+          ...(property.entryDate !== undefined
+            ? { entryDate: new Date(property.entryDate) }
+            : {}),
+          ...(property.entryNote !== undefined
+            ? { entryNote: property.entryNote }
+            : {}),
+        }) ?? null,
+    },
+    {
+      label: "מאפיינים",
+      value: features.length > 0 ? features.join(", ") : null,
+    },
   ];
 
   const bulkEligible = (matches ?? []).filter(
@@ -801,7 +829,13 @@ export default function PropertyDetailPage({
 
       {/* סקירה — הנכס עצמו, ומה שמעכב את שיווקו */}
       <TabPanel tab="overview" active={tab}>
-        <div className="grid items-start gap-[18px] lg:[grid-template-columns:1fr_340px]">
+        {/*
+          ‎`1fr / 372px`, `gap: 20`, `align-items: start` — SPEC-3c §6
+          ו-DESIGN-SYSTEM-4 §24 („DETAIL PAGE: 1fr 372px”). 340 היה
+          מספר שלנו; 372 הוא של החבילה, ומאותו טור נגזרות גם מידות
+          הכרטיסים שבתוכו.
+        */}
+        <div className="grid items-start gap-5 lg:[grid-template-columns:1fr_372px]">
           <div className="flex flex-col gap-[18px]">
             {/*
               ‎**המוכנות היא הכרטיס הראשון של הלשונית** — „the reason the
@@ -827,62 +861,10 @@ export default function PropertyDetailPage({
               }}
             />
 
-            <section
-              className="mv-list-card px-[22px] py-[18px]"
-              aria-labelledby="details-heading"
-            >
-              <h2
-                id="details-heading"
-                className="m-0 mb-3.5"
-                style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
-              >
-                פרטי הנכס
-              </h2>
-              <dl
-                className="m-0 grid gap-x-[18px] gap-y-3.5"
-                style={{
-                  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
-                }}
-              >
-                {detailFields.map(([label, value]) => (
-                  <div key={label}>
-                    <dt
-                      className="text-sm font-semibold"
-                      style={{ color: "var(--color-text-muted)" }}
-                    >
-                      {label}
-                    </dt>
-                    <dd className="m-0 mt-0.5 text-[length:var(--type-body)] font-bold">
-                      {value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-
-            {/*
-              מיקום הנכס — טקסט ומפה בשני הכיוונים. יושב ליד פרטי הנכס
-              ולא במסך נפרד: זה חלק מהפרטים, וסוכן שצריך לנווט למסך אחר
-              כדי למקם נכס פשוט לא ימקם אותו.
-            */}
-            <section className="mv-list-card mb-[18px] p-5">
-              <h2 className="m-0 mb-2 text-[length:var(--type-button)] font-bold">מיקום על המפה</h2>
-              <LocationPicker
-                value={{
-                  latitude: property.latitude,
-                  longitude: property.longitude,
-                  locationSource: property.locationSource,
-                }}
-                addressText={address}
-                disabled={!canEditOwner}
-                onChange={(next) => {
-                  setProperty({ ...property, ...next });
-                  void apiPatch(`/properties/${id}`, next).catch(
-                    () => undefined,
-                  );
-                }}
-              />
-            </section>
+            <DetailsCard
+              fields={detailFields}
+              {...(canEditOwner ? { editHref: `/properties/${id}/edit` } : {})}
+            />
 
             {/*
               הערות פנימיות — מה שנאמר בשיחה עם בעל הנכס ואינו נכנס
@@ -902,6 +884,56 @@ export default function PropertyDetailPage({
             />
           </div>
           <div className="flex flex-col gap-[18px]">
+            {/* „מה קורה עם הנכס” — SPEC-3c §6a */}
+            <PropertyTimeline propertyId={id} />
+
+            {/*
+              ‎**„מקום הנכס” — SPEC-3c §6b.**
+
+              המסמך מבקש „משבצת שמורה” בגובה 220 ומורה במפורש
+              ‎„never hand-draw a map — mount the real map component
+              here”. המפה האמיתית כבר קיימת במערכת, ולכן המשבצת אינה
+              מציין מקום אלא המסגרת שלה.
+
+              והיא נשארת **עריכה** ולא תצוגה: זו הדרך היחידה למקם
+              נכס בלי לעזוב את הכרטיס, וסוכן שצריך לנווט למסך אחר
+              כדי למקם נכס פשוט לא ימקם אותו.
+            */}
+            <section className="mv-card" aria-labelledby="place-heading">
+              <div className="mv-card-head">
+                <span className="mv-tile mv-tile--44 mv-domain-blue" aria-hidden="true">
+                  <IconMap s={20} />
+                </span>
+                <h2 id="place-heading" className="mv-card-head__title">
+                  מקום הנכס
+                </h2>
+              </div>
+              <div className="mv-map-slot">
+                <LocationPicker
+                  value={{
+                    latitude: property.latitude,
+                    longitude: property.longitude,
+                    locationSource: property.locationSource,
+                  }}
+                  addressText={address}
+                  disabled={!canEditOwner}
+                  onChange={(next) => {
+                    setProperty({ ...property, ...next });
+                    void apiPatch(`/properties/${id}`, next).catch(
+                      () => undefined,
+                    );
+                  }}
+                />
+              </div>
+              {/*
+                שורת הכתובת מתחת למשבצת — וכשאין כתובת נאמר זאת
+                במפורש, כי „every empty state names the action”.
+              */}
+              <p className="m-0 mt-2.5 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
+                {address === "" ? "טרם הוזנה כתובת לנכס." : address}
+              </p>
+            </section>
+
             <section
               className="mv-list-card px-5 py-[18px]"
               aria-labelledby="media-heading"
