@@ -760,18 +760,37 @@ function parseTime(text: string): { hour: number; minute: number; evidence: stri
  * הצורה המספרית דורשת "בתאריך" או שנה מלאה בכוונה: "3.5 חדרים"
  * בתוך אותו משפט היה נקרא כ-3 במאי, וניחוש כזה גרוע מלא לזהות
  * תאריך בכלל — המתווך לפחות רואה שדה ריק ומשלים אותו.
+ *
+ * ## שני צרכנים, **שתי שאלות שונות**
+ *
+ * „איזה תאריך נאמר” אינה „היכן מתחיל תאריך”, ולכן שתי הכרעות
+ * נפרדות יושבות מעל אוסף אחד:
+ *
+ * - `parseExplicitDate` עונה על הראשונה, לפי **סדר הצורות**. זהו
+ *   הכלל שהיה כאן מאז ומעולם, והוא נשמר.
+ * - `explicitDateStart` עונה על השנייה, לפי **המיקום בטקסט**.
+ *
+ * הניסיון לאחד אותן לכלל אחד — המוקדם בטקסט תמיד — נכשל דווקא על
+ * תיקון עצמי: „קבע פגישה בתאריך 3.4.2027, בעצם ב-5 במרץ” הוא משפט
+ * שבו הדובר החליף את התאריך, והתשובה היא **המאוחר**. הכלל האחיד
+ * החזיר 3.4 והתעלם מהתיקון (ביקורת Codex). גבול הפסוקית, לעומת
+ * זאת, חייב את המוקדם — הוא מגדיר איפה נגמרת הפסוקית הקודמת.
+ *
+ * האוסף אחד ומשותף כדי ששלוש הצורות לא ייכתבו פעמיים; מה שנפרד
+ * הוא ההכרעה, וזה בדיוק מה ששונה בין השאלות.
  */
-function parseExplicitDate(
-  text: string,
-): { day: number; month: number; year?: number; evidence: string } | undefined {
+function explicitDates(text: string): ExplicitDate[] {
+  const found: ExplicitDate[] = [];
+
   const monthNames = Object.keys(MONTH_NAMES).join("|");
   const byName = new RegExp(`(?<d>[0-3]?\\d)\\s*[בל]?(?<mon>${monthNames})`, "u").exec(text);
   if (byName?.groups?.["d"] && byName.groups["mon"]) {
-    return {
+    found.push({
       day: Number(byName.groups["d"]),
       month: MONTH_NAMES[byName.groups["mon"]]!,
       evidence: byName[0],
-    };
+      index: byName.index,
+    });
   }
 
   const ordinals = Object.keys(ORDINAL_MONTHS).join("|");
@@ -784,11 +803,12 @@ function parseExplicitDate(
     text,
   );
   if (byOrdinal?.groups?.["d"] && byOrdinal.groups["mon"]) {
-    return {
+    found.push({
       day: Number(byOrdinal.groups["d"]),
       month: ORDINAL_MONTHS[byOrdinal.groups["mon"]]!,
       evidence: byOrdinal[0],
-    };
+      index: byOrdinal.index,
+    });
   }
 
   const numeric =
@@ -799,14 +819,51 @@ function parseExplicitDate(
   const month = numeric?.groups?.["m"] ?? numeric?.groups?.["m2"];
   if (day !== undefined && month !== undefined) {
     const year = numeric?.groups?.["y"] ?? numeric?.groups?.["y2"];
-    return {
+    found.push({
       day: Number(day),
       month: Number(month),
       ...(year ? { year: Number(year) } : {}),
       evidence: numeric![0],
-    };
+      index: numeric!.index,
+    });
   }
-  return undefined;
+
+  return found;
+}
+
+/** התאריך שנאמר, לפי סדר הצורות. ראו `explicitDates`. */
+function parseExplicitDate(text: string): ExplicitDate | undefined {
+  return explicitDates(text)[0];
+}
+
+/**
+ * היכן מתחיל התאריך המפורש **המוקדם ביותר**, או `undefined` כשאין.
+ *
+ * כאן דווקא המיקום מכריע ולא סדר הצורות: הגבול מסמן את סוף הפסוקית
+ * הקודמת, ולכן כל תאריך שנאמר לפניו כבר שייך לפסוקית הבאה. „…שמגיע
+ * **בתאריך 3.4.2027**, בעצם ב-5 במרץ” — הצורה המספרית נאמרה ראשונה
+ * והשמית שנייה, ובחירה לפי סדר הצורות החזירה את השמית, שיושבת
+ * אחרי „בעצם”. הגבול נפל אחרי סימן התיקון, והתיקון של המסמך נקרא
+ * כתיקון של התזכורת (ביקורת Codex).
+ *
+ * ‎`reduce` ולא מיון: המוקדם ביותר הוא כל מה שנדרש, והשוואת שוויון
+ * (שתי צורות שתפסו באותו מיקום) שומרת על הקודמת — כלומר על סדר
+ * הצורות, למקרה היחיד שבו הוא עדיין מכריע.
+ */
+function explicitDateStart(text: string): number | undefined {
+  return explicitDates(text).reduce<number | undefined>(
+    (best, item) => (best === undefined || item.index < best ? item.index : best),
+    undefined,
+  );
+}
+
+interface ExplicitDate {
+  day: number;
+  month: number;
+  year?: number;
+  evidence: string;
+  /** היכן הראיה מתחילה בטקסט שנמסר — גבול הפסוקית נמדד לפיה */
+  index: number;
 }
 
 /**
@@ -907,6 +964,34 @@ function nextExpressionStart(relative: RelativeOffset, text: string): number {
       break;
     }
   }
+
+  /*
+   * **גם תאריך מפורש פותח פסוקית משלו.**
+   *
+   * ‎`CALENDAR_ANYWHERE` מכירה רק ביטויי לוח שנה **במילים** (מחר,
+   * יום שני, שבת), ולכן „תזכיר לי בעוד שעה לשלוח את המסמך שצריך
+   * להגיע ב-3 בספטמבר, בעצם ב-5 בספטמבר” לא נחסם: הפסוקית של
+   * ההיסט נשארה פתוחה עד סוף המשפט, „בעצם” של פסוקית המסמך נקרא
+   * כתיקון של התזכורת, וזו נחתה על **3 בספטמבר** — תאריך ההגעה
+   * המקורי, לא אפילו המתוקן. תזכורת שנאמרה „בעוד שעה” יצאה שמונה
+   * ימים קדימה.
+   *
+   * ‎`correctedToCalendar` כבר מקבלת תאריך מפורש כיעד תיקון, ולכן
+   * הצד השני של אותו כלל חסר כאן היה חוסר עקביות ולא החלטה: מה
+   * שיכול **לקבל** תיקון חייב גם **לחצוץ**.
+   *
+   * החיפוש מוגבל למה שכבר בתוך ‎`limit`‎ — הוא רק מצר, לעולם לא
+   * מרחיב. תיקון שמצביע ישירות על תאריך („בעוד שעה, בעצם ב-5
+   * בספטמבר”) שורד: ‎`correctionAt` מוצאת את הסימן לפני הגבול
+   * וקוראת את היעד שאחריו בלי חיתוך.
+   *
+   * הגבול הוא מיקומו של התאריך **המוקדם בטקסט**, ולא של זה שסדר
+   * הצורות בקוד מחזיר. ‎`explicitDateStart` מסבירה למה השאלה הזאת
+   * נפרדת משאלת „איזה תאריך נאמר”.
+   */
+  const start = explicitDateStart(text.slice(relative.end, limit));
+  if (start !== undefined) limit = relative.end + start;
+
   return limit;
 }
 
