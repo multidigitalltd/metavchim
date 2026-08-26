@@ -122,6 +122,15 @@
   --color-input-border: #808a82;
   --color-border-hover: #66716a; /* 4.7:1 — כהה מהשניים */
   /*
+   * הלשונית הפעילה — ‎`dark` ו-`#fff` מהחבילה (SPEC-3b §3).
+   *
+   * טוקן ולא ערך קשיח: בערכה הכהה גלולה שחורה על רקע כהה נעלמת,
+   * וההיפוך שם הוא היפוך של תפקיד ולא של גוון — הפעילה נעשית
+   * הבהירה, ועליה טקסט כהה.
+   */
+  --color-tab-active-bg: #0b0e0c;
+  --color-tab-active-fg: #ffffff;
+  /*
    * שדה קלט לבן, ולא אפור בהיר.
    *
    * האפור שהיה כאן היה כמעט זהה לרקע העמוד **כפי שהיה אז**, ולכן שדה
@@ -377,6 +386,8 @@
   --dk-text-soft: #c3cfc6;
   --dk-progress-track: #26332a;
   --dk-seg-track: #1c2620;
+  --dk-tab-active-bg: #d8e6dc;
+  --dk-tab-active-fg: #111710;
   /* ==================== הדומיינים בערכה הכהה ====================
    *
    * **החבילה אינה מכסה מצב כהה** — כל ערכיה נבנו על קנבס בהיר.
@@ -454,6 +465,8 @@
     --color-text-soft: var(--dk-text-soft);
     --color-progress-track: var(--dk-progress-track);
     --color-seg-track: var(--dk-seg-track);
+    --color-tab-active-bg: var(--dk-tab-active-bg);
+    --color-tab-active-fg: var(--dk-tab-active-fg);
     --color-focus: var(--dk-primary);
     --color-surface-sunken: var(--dm-surface-sunken);
     --color-data-muted: var(--dm-data-muted);
@@ -518,6 +531,8 @@
   --color-text-soft: var(--dk-text-soft);
   --color-progress-track: var(--dk-progress-track);
   --color-seg-track: var(--dk-seg-track);
+  --color-tab-active-bg: var(--dk-tab-active-bg);
+  --color-tab-active-fg: var(--dk-tab-active-fg);
   --color-focus: var(--dk-primary);
   --color-surface-sunken: var(--dm-surface-sunken);
   --color-data-muted: var(--dm-data-muted);
@@ -939,6 +954,14 @@ code {
    */
   --color-input-border: #000000;
   --color-border-hover: #000000;
+  /*
+   * הלשונית הפעילה בניגודיות גבוהה — שחור מלא, לא הגוון של החבילה.
+   * הבלוק הזה יושב גם מעל הערכה הכהה, ובלי ההגדרה כאן הוא היה יורש
+   * ממנה גלולה בהירה על רקע לבן שנכפה — כלומר מצב „נבחר” שאינו
+   * נראה בדיוק בהגדרה שנועדה להבליט אותו (שער הניגודיות).
+   */
+  --color-tab-active-bg: #000000;
+  --color-tab-active-fg: #ffffff;
   /* ============================================================
      שאר הפלטה — כי הבלוק הזה יושב גם **מעל הערכה הכהה**
      ------------------------------------------------------------
@@ -2468,61 +2491,93 @@ button.mv-list-row:hover {
    ומעלה, ואז הרקע האפור הופך לגוש רועש והפריטים נדחסים. פס תחתון
    נושם, נגלל אופקית בטלפון, ומשאיר את הדגש על התוכן.
    ------------------------------------------------------------ */
+/*
+ * ‎**סרגל הלשוניות — גלולות, לא קו תחתון** (SPEC-3b §3).
+ *
+ * „Active tab: background #0B0E0C, white text, weight 800, radius 14px,
+ * height 44px. Inactive tab: white, border 1px, text weight 700.”
+ *
+ * מה שהיה כאן הוא הדפוס ההפוך: רצועה עם קו תחתון, והלשונית הפעילה
+ * מסומנת בקו ירוק בלבד. זה עבד, אבל הוא אינו השפה של החבילה ואינו
+ * מתנהג כמוה: קו של 2px הוא סימון עדין, וגלולה כהה היא הצהרה. במסך
+ * שנועד למי שמסתכל עליו בין סיור לסיור, ההבדל הזה הוא ההבדל בין
+ * „איפה אני?” לבין תשובה.
+ *
+ * ‎**44px גובה** — המינימום לשטח נגיעה שהחבילה אוכפת, וכאן הוא גם
+ * המידה שהיא נוקבת בה במפורש.
+ */
 .mv-entity-tabs {
   display: flex;
-  gap: 2px;
+  gap: 8px;
   overflow-x: auto;
   scrollbar-width: none;
-  border-bottom: 1px solid var(--color-border);
 }
 .mv-entity-tabs::-webkit-scrollbar {
   display: none;
 }
 .mv-entity-tabs > button {
   position: relative;
-  border: none;
-  background: transparent;
-  padding: 12px 14px 11px;
-  font-size: var(--type-caption);
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 14px;
+  background: var(--color-surface);
+  /*
+   * גבול פקד ולא המסגרת הדקורטיבית: הלשונית היא כפתור, וגבול כפתור
+   * כפוף ל-3:1 של WCAG 1.4.11. ‎`#DEE3D9` שבחבילה עומד על 1.2:1 מול
+   * לבן — אותה סטייה מתועדת שכבר נעשתה לכל הפקדים במערכת.
+   */
+  border: 1px solid var(--color-input-border);
+  font-size: var(--type-caption-lg);
   font-weight: 700;
-  color: var(--color-text-soft);
+  color: var(--color-text);
   cursor: pointer;
   white-space: nowrap;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  /* הקו יושב על הגבול של המכל ולא מתחתיו */
-  margin-bottom: -1px;
-  border-bottom: 2px solid transparent;
+  gap: 7px;
+  transition:
+    background-color 0.14s ease,
+    border-color 0.14s ease,
+    transform 0.14s ease;
 }
 .mv-entity-tabs > button:hover {
-  color: var(--color-text);
+  background: var(--color-surface-sunken);
+  border-color: var(--color-border-hover);
+  transform: translateY(-2px);
 }
 .mv-entity-tabs > button[aria-selected="true"] {
-  color: var(--color-text);
-  border-bottom-color: var(--color-primary);
-}
-/* מונה בתוך הלשונית — כמה יש שם, בלי להיכנס */
-.mv-tab-count {
-  min-width: calc(19 / 16 * 1rem);
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--color-seg-track);
-  color: var(--color-text-soft);
-  font-size: var(--type-caption);
+  background: var(--color-tab-active-bg);
+  border-color: var(--color-tab-active-bg);
+  color: var(--color-tab-active-fg);
   font-weight: 800;
-  /*
-   * ‎יחס ולא 19 פיקסלים. הגופן כאן גדל עם ההגדרה, ותיבת שורה
-   * נעולה הפכה אותו לחורג: ב-200% הספרה היא 28 בתוך 19
-   * (ביקורת Codex). ‎`min-width` נשאר ומבטיח עיגול ולא סגלגל
-   * כשיש ספרה אחת.
-   */
-  line-height: 1.35;
-  text-align: center;
+}
+/*
+ * הריחוף אינו חל על הפעילה: היא כבר במצב שאליו הריחוף מוביל, והרמה
+ * נוספת הייתה קופצת בכל מעבר עכבר על הלשונית שכבר פתוחה.
+ */
+.mv-entity-tabs > button[aria-selected="true"]:hover {
+  background: var(--color-tab-active-bg);
+  border-color: var(--color-tab-active-bg);
+  transform: none;
+}
+/*
+ * המונה **בתוך התווית**, לא כתג לצידה.
+ *
+ * „A tab with a count prints it inside its own label (‏‎`התאמות 14`‎),
+ * never as a red dot” (SPEC-3b §3). מה שהיה כאן הוא גלולה נפרדת עם
+ * רקע משלה — לא נקודה אדומה, אבל גם לא „בתוך התווית”, וכל רקע נוסף
+ * בתוך הגלולה הפעילה הוא משטח שלישי שצריך לעמוד בסף מול השני.
+ *
+ * המשקל מבחין בין השם למספר; הצבע עושה את השאר. בלשונית הפעילה
+ * המספר יורש את צבע הטקסט שלה, ולכן הוא נקרא בשתי הערכות בלי כלל
+ * נוסף.
+ */
+.mv-tab-count {
+  font-weight: 800;
+  color: var(--color-text-muted);
 }
 .mv-entity-tabs > button[aria-selected="true"] .mv-tab-count {
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
+  color: inherit;
 }
 
 /* כרטיס מונה בדשבורד — לפי קובץ העיצוב: מספר גדול ומסגרת שמתחדדת בריחוף */
