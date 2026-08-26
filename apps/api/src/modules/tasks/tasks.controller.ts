@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
 import { z } from "zod";
-import { IdSchema, TASK_PRIORITIES } from "@metavchim/shared";
+import { IdSchema, PROPERTY_READINESS_FIELDS, TASK_PRIORITIES } from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { TasksService, type TaskDto } from "./tasks.service";
@@ -19,6 +19,17 @@ const CreateTaskSchema = z
     entityId: IdSchema.optional(),
     /** ריק = על עצמי. אחר דורש tasks.assign — נאכף בשירות. */
     assignedToUserId: IdSchema.optional(),
+    /**
+     * ‎**שדה המוכנות שממנו נולדה ההצעה — ולא `sourceKey` חופשי.**
+     *
+     * המפתח נבנה בשרת מתוך רשימה סגורה, ובכוונה: `sourceKey` פתוח
+     * היה מאפשר ללקוח לשלוח `lead-sla:<id>` או `offer:<id>` —
+     * מפתחות שהמערכת עצמה משתמשת בהם — ובכך **למנוע** יצירה של
+     * משימת מערכת אמיתית מאוחר יותר, כי היא תיראה כקיימת.
+     *
+     * מרחב שמות סגור סוגר את זה בלי להסתמך על ולידציה של מחרוזת.
+     */
+    suggestionField: z.enum(PROPERTY_READINESS_FIELDS).optional(),
   })
   .strict()
   .refine((v) => (v.entityId === undefined) === (v.entityType === undefined), {
@@ -96,7 +107,13 @@ export class TasksController {
   create(
     @Body(new ZodValidationPipe(CreateTaskSchema)) body: z.infer<typeof CreateTaskSchema>,
   ): Promise<TaskDto> {
-    return this.tasks.create(body);
+    const { suggestionField, ...rest } = body;
+    return this.tasks.create({
+      ...rest,
+      ...(suggestionField === undefined
+        ? {}
+        : { sourceKey: `suggestion:${suggestionField}` }),
+    });
   }
 
   @Patch(":id")

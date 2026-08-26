@@ -28,6 +28,8 @@ export interface TaskDto {
   title: string;
   notes?: string;
   dueAt?: Date;
+  /** מתי הושלמה בפועל — ריק על משימה פתוחה ועל שורות שקדמו לשדה. */
+  completedAt?: Date;
   status: string;
   priority: string;
   entityType?: string;
@@ -58,6 +60,7 @@ interface TaskRow {
   title: string;
   notes: string | null;
   dueAt: Date | null;
+  completedAt: Date | null;
   status: string;
   priority: string;
   entityType: string | null;
@@ -201,6 +204,7 @@ export class TasksService {
         title: row.title,
         notes: row.notes ?? undefined,
         dueAt: row.dueAt ?? undefined,
+        completedAt: row.completedAt ?? undefined,
         status: row.status,
         priority: row.priority,
         entityType: row.entityType ?? undefined,
@@ -252,11 +256,45 @@ export class TasksService {
     entityType?: string;
     entityId?: string;
     assignedToUserId?: string;
+    /**
+     * מפתח אידמפוטנטיות — למשימה שנוצרת ממקור מזוהה ולא מהקלדה.
+     *
+     * ‎**שני סוכנים על אותו כרטיס** רואים את אותה „משימה מוצעת”,
+     * ושניהם לוחצים. הדדופליקציה במסך רצה על מה שכל אחד מהם טען
+     * בנפרד, ולכן אינה יכולה למנוע זאת — היא מסננת תצוגה, לא
+     * יצירה (ביקורת Codex).
+     *
+     * המנגנון כבר קיים במודל ומשמש משימות מאירועי מערכת
+     * (`lead-sla:`, `offer:`), ולכן זו אינה המצאה חדשה אלא שימוש
+     * בו במקום שהוא שייך אליו.
+     *
+     * ‎**מה זה כן נותן ומה לא:** הבדיקה יושבת בתוך הטרנזקציה, ולכן
+     * היא מצמצמת את החלון למשך הכתיבה. היא **אינה** ערובה קשה —
+     * לשם כך נדרש אינדקס ייחודי, והוא היה אוסר גם שתי משימות
+     * ידניות באותו שם, שזה שימוש לגיטימי לגמרי.
+     */
+    sourceKey?: string;
   }): Promise<TaskDto> {
     const ctx = TenantContext.current();
     const id = ulid();
 
     return this.prisma.withTenant(async (tx) => {
+      if (input.sourceKey !== undefined) {
+        const existing = await tx.task.findFirst({
+          where: {
+            tenantId: ctx.tenantId,
+            entityType: input.entityType ?? null,
+            entityId: input.entityId ?? null,
+            sourceKey: input.sourceKey,
+            status: "open",
+          },
+        });
+        /* כבר קיימת ופתוחה — מחזירים אותה, ולא יוצרים שנייה */
+        if (existing) {
+          const [dto] = await this.toDtos(tx, [existing]);
+          return dto as TaskDto;
+        }
+      }
       const assignee = await this.resolveAssignee(tx, input.assignedToUserId);
       const created = await tx.task.create({
         data: {
@@ -270,6 +308,7 @@ export class TasksService {
           priority: input.priority ?? "normal",
           entityType: input.entityType ?? null,
           entityId: input.entityId ?? null,
+          sourceKey: input.sourceKey ?? null,
         },
       });
       await this.audit.record(tx, {
@@ -546,9 +585,25 @@ export class TasksService {
           ? existing.assignedToUserId
           : await this.resolveAssignee(tx, patch.assignedToUserId);
 
+      /*
+       * ‎**רגע ההשלמה נרשם במעבר, ולא נגזר מ-`updatedAt`.**
+       *
+       * הכרטיס מבטיח „התאריך והשעה שבהם הושלמה”. `updatedAt` נדרס
+       * בכל עריכה מאוחרת, ואז הוא מדווח מתי נגעו במשימה ולא מתי
+       * היא נגמרה — הבטחה שנשענת עליו הייתה נכונה רק עד העריכה
+       * הבאה (ביקורת Codex).
+       *
+       * חזרה לפתוחות מנקה אותו: משימה פתוחה לא הושלמה.
+       */
+      const completedAt =
+        patch.status === undefined || patch.status === existing.status
+          ? {}
+          : { completedAt: patch.status === "done" ? new Date() : null };
+
       const updated = await tx.task.update({
         where: { id },
         data: {
+          ...completedAt,
           ...(patch.title !== undefined ? { title: patch.title } : {}),
           ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
           ...(patch.dueAt !== undefined ? { dueAt: patch.dueAt } : {}),

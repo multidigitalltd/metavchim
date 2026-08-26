@@ -31,6 +31,8 @@ interface Task {
   id: string;
   title: string;
   dueAt?: string;
+  /** מתי הושלמה בפועל — ריק על משימות שקדמו לשדה. */
+  completedAt?: string;
   status: string;
   priority: string;
   assigneeName?: string;
@@ -294,11 +296,17 @@ export function EntityTasks({
     if (dueSource === key) setDue({ value: "", source: null });
   }
 
-  async function addSuggested(title: string): Promise<void> {
+  async function addSuggested(title: string, field: string): Promise<void> {
     setBusy(true);
     setError(null);
     try {
-      await apiPost("/tasks", { title, entityType, entityId });
+      /*
+        ‎`suggestionField` ולא `sourceKey`: השרת בונה את המפתח
+        ממרחב שמות סגור, כדי ששני סוכנים על אותו כרטיס לא ייצרו
+        את אותה משימה פעמיים — והמסך לא יוכל להתנגש במפתחות
+        המערכת.
+      */
+      await apiPost("/tasks", { title, entityType, entityId, suggestionField: field });
       await load();
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "הוספת המשימה נכשלה");
@@ -478,7 +486,7 @@ export function EntityTasks({
                   type="button"
                   className="mv-chip ms-auto"
                   disabled={busy}
-                  onClick={() => void addSuggested(suggestion.title)}
+                  onClick={() => void addSuggested(suggestion.title, suggestion.field)}
                 >
                   הוסף
                 </button>
@@ -532,9 +540,19 @@ export function EntityTasks({
                 />
                 <div>
                   <span className="line-through opacity-70">{task.title}</span>
-                  {task.dueAt ? (
+                  {/*
+                    ‎**מתי הושלמה, ולא מתי הייתה אמורה.** קודם הוצג
+                    כאן `dueAt` — כלומר המועד שנקבע — ולכן משימה
+                    שהושלמה מוקדם הראתה תאריך **עתידי**, ומשימה בלי
+                    מועד לא הראתה דבר. זה סתר את ההבטחה שכתבתי
+                    במצב הריק שתי שורות מכאן (ביקורת Codex).
+
+                    משימה שהושלמה לפני שהשדה קיים אינה מציגה זמן —
+                    לא רשמנו אותו, ואין דרך לשחזר.
+                  */}
+                  {task.completedAt ? (
                     <div className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-                      <IconClock s={15} /> {dueFmt.format(new Date(task.dueAt))}
+                      <IconCheck s={15} /> הושלמה {dueFmt.format(new Date(task.completedAt))}
                     </div>
                   ) : null}
                 </div>
