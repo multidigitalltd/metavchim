@@ -4,6 +4,7 @@ import {
   billingAnchorDay,
   canonicalVirtualNumber,
   describeRentalStatus,
+  formatJerusalemDate,
   formatRentalNumber,
   isRentedNumberStatus,
   nextPeriodEnd,
@@ -230,7 +231,7 @@ export class NumberRentalService {
       [
         `משרד ביטל את השכרת המספר ${formatRentalNumber(rental.number)}.`,
         rental.currentPeriodEnd !== null
-          ? `המספר יישאר פעיל עד ${rental.currentPeriodEnd.toLocaleDateString("he-IL")} וישוחרר אוטומטית אצל 015 בתום התקופה.`
+          ? `המספר יישאר פעיל עד ${formatJerusalemDate(rental.currentPeriodEnd)} וישוחרר אוטומטית אצל 015 בתום התקופה.`
           : "המספר ישוחרר אוטומטית אצל 015 בסבב הסורק הבא.",
       ].join(" "),
     );
