@@ -103,6 +103,31 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
       .catch(() => setError("הנכס לא נמצא"));
   }, [authLoading, id]);
 
+  /*
+   * ‎`?focus=<control>` — הגלולה שנלחצה פותחת את **השדה**, לא את הטופס.
+   *
+   * „Clicking a `חסר` pill opens the edit drawer focused on that field”
+   * (SPEC-3c §7). טופס עריכת נכס הוא ארוך, ומי שנשלח אליו בגלל „חסרה
+   * קומה” היה מקבל מסך ומחפש בו.
+   *
+   * ‎**אחרי `property` ולא בטעינה**: הטופס מרונדר רק כשיש נכס, ולפני
+   * כן אין פקד למקד. `defaultValue` בכל השדות אומר שאין סיכון לדרוס
+   * הקלדה — הפוקוס קורה בפריים הראשון שבו הטופס בכלל קיים.
+   *
+   * המזהה מגיע מהכתובת ולכן הוא קלט: `getElementById` מחזיר `null`
+   * לכל ערך שאינו מזהה קיים בטופס הזה, וזו נפילה שקטה לראש הטופס —
+   * ההתנהגות שהייתה קודם.
+   */
+  useEffect(() => {
+    if (!property) return;
+    const control = new URLSearchParams(window.location.search).get("focus");
+    if (control === null) return;
+    const el = document.getElementById(control);
+    if (!(el instanceof HTMLElement)) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.focus({ preventScroll: true });
+  }, [property]);
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);

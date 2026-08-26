@@ -89,6 +89,12 @@ export function FeatureChips({
           return (
             <button
               key={name}
+              /*
+                מזהה לכל צ'יפ — כדי שגלולת „חסר” של מעלית או חניה
+                תוכל למקד את הפקד עצמו ולא רק לפתוח את הטופס
+                (SPEC-3c §7). המזהים מרוכזים ב-`lib/readiness.ts`.
+              */
+              id={`feature-${name}`}
               type="button"
               className="mv-chip"
               aria-pressed={value === "yes"}
