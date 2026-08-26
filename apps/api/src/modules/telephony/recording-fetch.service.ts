@@ -24,6 +24,8 @@ import {
   nextRefusalStreak,
   type RecordingPullResult,
   UNANSWERED_OUTCOMES,
+  RECORDING_GIVE_UP_MS,
+  RECORDING_BLOCKED_REASON,
 } from "@metavchim/shared";
 import { ulid } from "ulid";
 import { CryptoService } from "../../core/crypto.service";
@@ -82,8 +84,15 @@ const MAX_PER_SWEEP = 20;
  * בלי גבול, הקלטה שהספק כבר מחק הייתה נשלפת בכל סבב לנצח — ותופסת
  * את המכסה של הקלטות שכן אפשר למשוך. שבוע הוא זמן ארוך דיו לכל
  * תקלה זמנית (מנוי, רשת, הקלטה שטרם הסתיימה).
+ *
+ * ‎**מיובא ולא נכתב שוב.** קודם ישב כאן `7 * 24 * 60 * 60 * 1000`
+ * לצד הערה בצד המשותף שאומרת „חייב להתאים” — כלומר בדיקה בדמות
+ * משפט, שאיש אינו מריץ. אילו אחד מהשניים היה זז, המסך היה מבטיח
+ * „ננסה שוב” על שיחה שהסבב כבר ויתר עליה, או מכריז „נכשלה” על
+ * שיחה שממתינה בתור. זה בדיוק הכשל ש-`recordingStateOf` נכתב כדי
+ * למנוע — ושתי ההגדרות עצמן היו הדרך אליו.
  */
-const GIVE_UP_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+const GIVE_UP_AFTER_MS = RECORDING_GIVE_UP_MS;
 
 /**
  * כמה להמתין לפני ניסיון חוזר על שיחה שכבר נוסתה.
@@ -172,7 +181,15 @@ export const RECORDING_ERRORS = {
   empty: "empty_audio",
   tooLarge: "too_large",
   network: "network_error",
-  integration: "no_integration",
+  /*
+   * ‎**הערך היחיד ברשימה שיש לו משמעות גם בצד המשותף**, ולכן הוא
+   * מיובא משם. `recordingStateOf` מבדילה לפיו בין „ננסה שוב” לבין
+   * „אי אפשר לנסות”; קודם ישבה כאן מחרוזת זהה לצד הערה שאומרת
+   * „חייב להתאים”, כלומר בדיקה בדמות משפט. אילו אחד מהשניים היה
+   * זז, המסך היה מציג „ננסה שוב” וכפתור שאינו עושה דבר — התקלה
+   * שכבר תוקנה כאן פעם אחת.
+   */
+  integration: RECORDING_BLOCKED_REASON,
 } as const;
 
 /**
