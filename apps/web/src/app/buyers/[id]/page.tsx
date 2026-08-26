@@ -28,7 +28,7 @@ import { DeleteBuyer } from "../delete-buyer";
 import { ContactErasure } from "../../contact-erasure";
 import { DangerZone } from "../../danger-zone";
 import { RelatedEntities } from "../../related-entities";
-import { EntityTasks } from "../../entity-tasks";
+import { EntityTasks, type TaskListResponse } from "../../entity-tasks";
 import { ClickToDial } from "../../click-to-dial";
 import { AgreementsPanel } from "../../agreements-panel";
 import { DocumentsPanel } from "../../documents-panel";
@@ -173,9 +173,14 @@ export default function BuyerDetailPage({
    * מוקדם הוא שגיאת React, והכרטיס מציג "טוען…" לפני שיש קונה.
    */
   useEffect(() => {
-    apiGet<{ status: string }[]>(`/tasks/for/buyer/${id}`)
-      .then((rows) =>
-        setOpenTasks(rows.filter((t) => t.status === "open").length),
+    /*
+     * הטיפוס מיובא ואינו נכתב כאן שוב: `apiGet<T>` הוא **הצהרה**
+     * ולא אימות, ולכן צורה שנכתבת ביד בכל קורא מתיישנת בשקט
+     * כשהשרת משתנה — וזה בדיוק מה שקרה כאן (ביקורת עצמית).
+     */
+    apiGet<TaskListResponse>(`/tasks/for/buyer/${id}`)
+      .then((data) =>
+        setOpenTasks(data.tasks.filter((t) => t.status === "open").length),
       )
       .catch(() => setOpenTasks(undefined));
   }, [id]);

@@ -46,7 +46,7 @@ interface Task {
  * מוצעת נוצרת בלי מועד והמיון דוחף אותה לסוף, כלומר היא הראשונה
  * שנחתכת. הכותרות מגיעות בשאילתה נפרדת ובלי תקרה.
  */
-interface TaskListResponse {
+export interface TaskListResponse {
   tasks: Task[];
   openTitles: string[];
 }
