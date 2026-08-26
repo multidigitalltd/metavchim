@@ -1634,7 +1634,15 @@ export default function PropertyDetailPage({
               >
                 <span
                   className="min-w-0 flex-1 text-[length:var(--type-body-sm)]"
-                  style={{ color: "#E8EDE9" }}
+                  /*
+                    ‎**הטקסט נגזר מאותו צמד כמו הרקע.**
+
+                    ‎`--color-tab-active-*` **מתהפך** בערכה הכהה: הרקע
+                    הופך ל-`#d8e6dc` הבהיר והטקסט ל-`#111710` הכהה.
+                    הרקע כאן הומר לטוקן והטקסט נשאר `#E8EDE9` — כלומר
+                    לבן על בהיר, ‎1.07:1, בלתי קריא (ביקורת Codex).
+                  */
+                  style={{ color: "var(--color-tab-active-fg)" }}
                 >
                   {matches.length === 0
                     ? "אף קונה מהמאגר לא התאים — אולי יש קונה מתאים אצל משרד אחר."
