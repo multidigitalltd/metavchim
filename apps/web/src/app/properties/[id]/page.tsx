@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, use, type ReactNode } from "react";
 import Link from "next/link";
-import { describeEntry, labelOf } from "@metavchim/shared";
+import { describeEntry, labelOf, type ScoreComponent } from "@metavchim/shared";
 import { useRouter } from "next/navigation";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
@@ -14,6 +14,8 @@ import {
   STATUS_LABELS,
 } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
+import { MatchExplanation } from "../../match-explanation";
+import { MatchesEmptyState, matchGateMissing } from "../matches-empty-state";
 import { useFeature } from "@/lib/use-features";
 import { ReadinessCard } from "./readiness-card";
 import { DetailsCard, type DetailField } from "./details-card";
@@ -84,6 +86,8 @@ interface MatchRow {
   buyerId: string;
   score: number;
   explanation: string;
+  /** הפירוט לפי קריטריון — הבסיס לרצועת ההסבר מתחת לשורה. */
+  breakdown: ScoreComponent[];
   status: string;
   buyerName: string | null;
   buyerMaturity: string | null;
@@ -1069,13 +1073,9 @@ export default function PropertyDetailPage({
             ) : matches === null ? (
               <p aria-live="polite">מחשב התאמות…</p>
             ) : matches.length === 0 ? (
-              <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
-                אין עדיין קונים מתאימים.{" "}
-                <Link href="/buyers/new" className="underline">
-                  הוסיפו קונה
-                </Link>{" "}
-                — וההתאמות יחושבו אוטומטית.
-              </p>
+              <MatchesEmptyState
+                blocking={matchGateMissing(property)}
+              />
             ) : (
               matches.map((m) => {
                 const offer = offers[m.id];
@@ -1138,6 +1138,13 @@ export default function PropertyDetailPage({
                       >
                         {m.explanation}
                       </div>
+                      {/*
+                        רצועת ההסבר — SPEC-4a §1: „זה מה שהופך ציון
+                        לפעולה”. היא יושבת אחרי ההסבר המילולי ולא
+                        במקומו: המשפט אומר את המסקנה, והצ'יפים אומרים
+                        על מה היא נשענת ומה אפשר להשלים.
+                      */}
+                      <MatchExplanation breakdown={m.breakdown} />
                       {awaitingSignature[m.id] ? (
                         <div className="mt-1.5 text-[length:var(--type-caption-lg)]">
                           <span style={{ color: "var(--color-danger)" }}>
