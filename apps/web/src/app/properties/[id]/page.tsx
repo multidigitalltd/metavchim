@@ -29,7 +29,11 @@ import {
 } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { MatchExplanation } from "../../match-explanation";
-import { MatchesEmptyState, matchGateMissing } from "../matches-empty-state";
+import {
+  MatchesEmptyState,
+  matchGateMissing,
+  propertySideOnlyMissing,
+} from "../matches-empty-state";
 import { useFeature } from "@/lib/use-features";
 import { ReadinessCard } from "./readiness-card";
 import { DetailsCard, type DetailField } from "./details-card";
@@ -1339,7 +1343,8 @@ export default function PropertyDetailPage({
               <p aria-live="polite">מחשב התאמות…</p>
             ) : matches.length === 0 ? (
               <MatchesEmptyState
-                blocking={matchGateMissing(property)}
+                blocking={matchGateMissing(property, matchEvaluable)}
+                oneSided={propertySideOnlyMissing(property)}
                 propertyId={id}
               />
             ) : filterAwaitingOffers ? (
@@ -1586,7 +1591,7 @@ export default function PropertyDetailPage({
               מהמאגר, אולי יש עוד ברשת” היא הצעה מועילה ולא רק מוצא
               אחרון — והניסוח משתנה בין שני המצבים.
             */}
-            {matches !== null && matchGateMissing(property).length === 0 ? (
+            {matches !== null && matchGateMissing(property, matchEvaluable).length === 0 ? (
               <div
                 className="mt-4 flex flex-wrap items-center gap-3 px-4 py-3.5"
                 style={{ background: "#0B0E0C", borderRadius: 18 }}
