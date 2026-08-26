@@ -45,9 +45,15 @@ export function LeadCalls({ leadId }: { leadId: string }): React.JSX.Element {
 
   useEffect(() => {
     let live = true;
-    apiGet<{ items: LeadCall[] }>(`/calls?leadId=${leadId}`)
-      .then((res) => {
-        if (live) setCalls(res.items);
+    /*
+     * ‎`GET /calls` מחזיר מערך חשוף (`Promise<CallDto[]>`), לא
+     * ‎`{ items }`. ‎`apiGet` גנרי, ולכן טיפוס שגוי כאן **משתיק** את
+     * המהדר במקום להיתפס בו — הקריאה הייתה מחזירה `undefined`,
+     * ו-`calls.length` היה מפיל את הלשונית (ביקורת Codex).
+     */
+    apiGet<LeadCall[]>(`/calls?leadId=${leadId}`)
+      .then((items) => {
+        if (live) setCalls(items);
       })
       .catch(() => {
         if (live) setFailed(true);
