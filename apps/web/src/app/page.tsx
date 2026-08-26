@@ -8,6 +8,7 @@ import {
   isTaskUrgent,
   jerusalemDayRange,
   JERUSALEM_TZ,
+  readinessFieldLabel,
   recommendationCapabilities,
   recommendationHref,
   taskBucket,
@@ -15,7 +16,8 @@ import {
   type CoachRecommendation,
 } from "@metavchim/shared";
 import { apiGet, ApiError } from "@/lib/api";
-import { FIELD_LABELS, MATURITY_LABELS } from "@/lib/format";
+import { MATURITY_LABELS } from "@/lib/format";
+import { readinessHref } from "@/lib/readiness";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature, useFeaturesFailed, useFeaturesReady } from "@/lib/use-features";
 import { useMinuteNow } from "@/lib/use-minute-now";
@@ -773,10 +775,10 @@ export default function DashboardPage() {
       priority: PRIORITY.incompleteProperty,
       domain: "blue",
       title: `${[p.street, p.city].filter(Boolean).join(", ") || "נכס ללא כתובת"} — מוכנות ${p.readinessScore}%`,
-      why: `חסרים: ${p.missingFields.slice(0, 3).map((f) => FIELD_LABELS[f] ?? f).join(", ")}${p.missingFields.length > 3 ? " ועוד" : ""}. השלמה תפתח קונים חדשים.`,
+      why: `חסרים: ${p.missingFields.slice(0, 3).map(readinessFieldLabel).join(", ")}${p.missingFields.length > 3 ? " ועוד" : ""}. השלמה תפתח קונים חדשים.`,
       action: "השלם פרטים",
       icon: <IconHome s={16} />,
-      href: `/properties/${p.id}/edit`,
+      href: readinessHref(p.id, p.missingFields),
     });
   }
   /*

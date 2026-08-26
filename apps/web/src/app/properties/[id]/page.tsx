@@ -5,13 +5,13 @@ import Link from "next/link";
 import {
   describeEntry,
   labelOf,
-  PROPERTY_REQUIRED_FOR_MARKETING,
+  PROPERTY_READINESS_FIELDS,
+  readinessFieldLabel,
 } from "@metavchim/shared";
 import { useRouter } from "next/navigation";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
 import {
-  FIELD_LABELS,
   formatDate,
   formatPrice,
   MATURITY_LABELS,
@@ -20,7 +20,7 @@ import {
 } from "@/lib/format";
 import { can, useRequireAuth } from "@/lib/use-auth";
 import { useFeature } from "@/lib/use-features";
-import { readinessBand, readinessCount } from "@/lib/readiness";
+import { readinessBand, readinessCount, readinessTarget } from "@/lib/readiness";
 import { MediaSection } from "./media-section";
 import { PropertyTwins } from "./property-twins";
 import { NetworkDemandMatches } from "../network-demand-matches";
@@ -831,7 +831,7 @@ export default function PropertyDetailPage({
                 אחד ולא המרה חלקית שמפזרת חוסר עקביות.
               */}
               <p className="m-0 mb-2" style={{ fontSize: "var(--type-body)", color: "var(--color-text-muted)" }}>
-                {readinessCount(property.missingFields.length, PROPERTY_REQUIRED_FOR_MARKETING.length)}
+                {readinessCount(property.missingFields.length, PROPERTY_READINESS_FIELDS.length)}
               </p>
               {property.missingFields.length === 0 ? (
                 <p
@@ -854,17 +854,43 @@ export default function PropertyDetailPage({
                       className="h-1.5 w-1.5 flex-none rounded-full"
                       style={{ background: "#c98a2e" }}
                     />
-                    {FIELD_LABELS[field] ?? field}
+                    {readinessFieldLabel(field)}
                   </div>
                 ))
               )}
               {property.missingFields.length > 0 ? (
-                <Link
-                  href={`/properties/${id}/edit`}
-                  className="mv-btn-soft mt-2 inline-block"
+                /*
+                  כפתור ולא קישור — אותו נימוק שכבר כתוב מעל „מצא לי
+                  קונים”. כאן היעד הוא הדף שהמשתמש כבר עומד בו, וניווט
+                  אליו אינו מרכיב אותו מחדש: `?tab=owner` היה משנה את
+                  הכתובת בזמן שהלשונית נשארת על הסקירה, ועוגן לסעיף
+                  שבתוך לשונית סגורה מצביע על אלמנט שאינו ב-DOM
+                  (ביקורת Codex). היעד עצמו נקבע ב-`readinessTarget`,
+                  אותה החלטה שמשרתת גם את הדשבורד.
+                */
+                <button
+                  type="button"
+                  className="mv-btn-soft mt-2 self-start"
+                  onClick={() => {
+                    const target = readinessTarget(property.missingFields);
+                    if (target.kind === "form") {
+                      router.push(`/properties/${id}/edit`);
+                      return;
+                    }
+                    if (target.kind === "tab") {
+                      selectTab(target.tab);
+                      return;
+                    }
+                    selectTab("overview");
+                    requestAnimationFrame(() => {
+                      document
+                        .getElementById(target.id)
+                        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    });
+                  }}
                 >
                   השלם פרטים
-                </Link>
+                </button>
               ) : null}
             </section>
 
@@ -879,7 +905,7 @@ export default function PropertyDetailPage({
               >
                 תמונות
               </h2>
-              <MediaSection propertyId={id} address={address} />
+              <MediaSection propertyId={id} address={address} onMediaChanged={loadProperty} />
             </section>
 
             <button

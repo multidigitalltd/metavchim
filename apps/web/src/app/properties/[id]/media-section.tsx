@@ -20,7 +20,21 @@ interface MediaItem {
 
 const API_BASE = (process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:3001") + "/api/v1";
 
-export function MediaSection({ propertyId, address }: { propertyId: string; address: string }) {
+export function MediaSection({
+  propertyId,
+  address,
+  onMediaChanged,
+}: {
+  propertyId: string;
+  address: string;
+  /**
+   * תמונות הן אחד מתשעת שדות המוכנות, ולכן העלאה או מחיקה משנות
+   * את הציון שבכרטיס — והכרטיס אינו יודע על כך. בלי הקריאה הזאת
+   * „תמונות” המשיך להופיע כחסר אחרי העלאה, עד רענון דף מלא
+   * (ביקורת Codex).
+   */
+  onMediaChanged?: () => void;
+}) {
   const [items, setItems] = useState<MediaItem[] | null>(null);
   const [altText, setAltText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -44,8 +58,14 @@ export function MediaSection({ propertyId, address }: { propertyId: string; addr
 
   useEffect(load, [load]);
 
+  /*
+   * משפך אחד לכל שינוי במדיה — כולל בחירת תמונה ראשית, שאינה משנה
+   * מוכנות. שאילתת נכס אחת מיותרת שם עדיפה על משפך שני שיסטה ביום
+   * שיתווסף סוג שינוי שלישי.
+   */
   async function refresh(): Promise<void> {
     setItems(await apiGet<MediaItem[]>(`/properties/${propertyId}/media`));
+    onMediaChanged?.();
   }
 
   async function onUpload(event: React.ChangeEvent<HTMLInputElement>): Promise<void> {

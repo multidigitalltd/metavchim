@@ -29,6 +29,7 @@ function propertyTypesFor(term: string): string[] {
     .filter(([, label]) => label.toLowerCase().includes(needle))
     .map(([value]) => value);
 }
+import { lockProperty } from "../../common/locks";
 import { ownershipFilter } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
@@ -49,6 +50,7 @@ import { mediaRawPath } from "./media.service";
 import { PropertyTwinsService } from "./property-twins.service";
 import {
   fieldsToColumns,
+  PROPERTY_READY_SCORE,
   rowToFields,
   type PropertyDto,
 } from "./property.mapper";
@@ -95,6 +97,25 @@ export class PropertiesService {
    * `app.tenant_id` היא מחזירה אפס שורות **בלי שגיאה** — כלומר מכסה
    * שלעולם אינה נחצית, ובדיקה שנראית עובדת.
    */
+  /**
+   * האם לנכס יש ולו תמונה אחת — **קיום, לא ספירה.**
+   *
+   * המוכנות שואלת „יש תמונות?” ולא „כמה”, ולכן `findFirst` עם שדה
+   * אחד: `count` על נכס עם מאה תמונות סורק את כולן כדי להחזיר מספר
+   * שאיש אינו קורא.
+   *
+   * ‎`propertyMedia` תחת FORCE RLS כמו כל טבלה, ולכן התנאי כולל
+   * `tenantId` במפורש — שאילתה בלי הקשר דייר מחזירה ריק בלי שגיאה,
+   * כלומר „אין תמונות” על כל נכס במערכת.
+   */
+  private async hasMedia(tx: TenantTx, propertyId: string): Promise<boolean> {
+    const one = await tx.propertyMedia.findFirst({
+      where: { tenantId: TenantContext.current().tenantId, propertyId },
+      select: { id: true },
+    });
+    return one !== null;
+  }
+
   private async assertCanAddProperty(
     tx: TenantTx,
     tenantId: string,
@@ -398,8 +419,13 @@ export class PropertiesService {
      */
     const fields = await this.withGeocodedLocation(input.fields);
     const readiness = computeReadiness(fields, {
-      hasTitle: Boolean(input.marketingTitle),
+      /*
+       * נכס חדש אין לו עדיין מדיה — התמונות נטענות אחרי היצירה,
+       * במסך שלו. שאילתה כאן הייתה מחזירה ריק תמיד.
+       */
+      hasImages: false,
       hasDescription: Boolean(input.marketingDescription),
+      hasOwner: input.owner !== undefined,
     });
 
     await this.prisma.withTenant(async (tx) => {
@@ -436,7 +462,7 @@ export class PropertiesService {
         tenantId,
         changedFields: Object.keys(fields),
       });
-      if (readiness.score >= 80) {
+      if (readiness.score >= PROPERTY_READY_SCORE) {
         await this.outbox.emit(tx, "property.ready", {
           propertyId: id,
           tenantId,
@@ -484,6 +510,40 @@ export class PropertiesService {
     let trigger: MatchTrigger | undefined;
 
     await this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**כרטיסי איש הקשר נפתרים ראשונים — לפני נעילת שורת הנכס.**
+       *
+       * ‎`findOrCreateByPhone` נועלת את הכרטיס (`lockContact`), ומחיקת
+       * לקוח נועלת בסדר ההפוך: קודם הכרטיס, אחר כך שורות הנכסים
+       * שהיא מנתקת מהם. עריכה שהייתה נועלת קודם את הנכס ואז ממתינה
+       * לכרטיס הייתה סוגרת מעגל — Postgres מפיל אחת מהשתיים
+       * כ-deadlock, כלומר או שהעריכה נכשלת או שבקשת מחיקה של אדם
+       * נכשלת (ביקורת Codex).
+       *
+       * הסדר הוא הכלל, לא המקרה: **כרטיס לפני נכס, בכל מי שנוגע
+       * בשניהם.** נכס שאינו קיים מפיל את הטרנזקציה מיד אחרי כן,
+       * וכרטיס שנוצר כאן מתגלגל אחורה איתה.
+       */
+      const ownerContact = owner
+        ? await this.contacts.findOrCreateByPhone(tx, owner)
+        : null;
+      const occupantContact = occupant
+        ? await this.contacts.findOrCreateByPhone(tx, occupant)
+        : null;
+
+      /*
+       * **אותה נעילה שההעלאה והמחיקה לוקחות** — נקודת סנכרון אחת
+       * לכל מי שכותב מוכנות.
+       *
+       * העריכה קוראת את מצב המדיה (`hasMedia`) וכותבת ציון. בלי
+       * הנעילה, טרנזקציית מדיה שרצה במקביל יכולה לסגור ביניהן: העריכה
+       * קראה „אין תמונות”, המדיה כתבה את הציון הנכון, והעריכה דרסה
+       * אותו בערך שחישבה קודם (ביקורת Codex).
+       *
+       * הקריאה של השורה ושל המדיה חייבת להיות **אחרי** הנעילה: מצב
+       * שנקרא לפניה עלול כבר להיות ישן ברגע החישוב.
+       */
+      await lockProperty(tx, tenantId, id);
       const existing = await tx.property.findFirst({
         where: {
           id,
@@ -508,18 +568,18 @@ export class PropertiesService {
         };
       }
 
-      const ownerContact = owner
-        ? await this.contacts.findOrCreateByPhone(tx, owner)
-        : null;
-      const occupantContact = occupant
-        ? await this.contacts.findOrCreateByPhone(tx, occupant)
-        : null;
       const mergedFields = { ...rowToFields(existing), ...fieldPatch };
       const readiness = computeReadiness(mergedFields, {
-        hasTitle: Boolean(marketingTitle ?? existing.marketingTitle),
+        hasImages: await this.hasMedia(tx, id),
         hasDescription: Boolean(
           marketingDescription ?? existing.marketingDescription,
         ),
+        /*
+         * הבעלים שנוצר בעדכון הזה גובר על מה שהיה: `ownerContact`
+         * נכתב לרשומה מיד אחרי החישוב, וקריאת העמודה הישנה בלבד
+         * הייתה נותנת „חסר בעל הנכס” על עדכון שהרגע הוסיף אותו.
+         */
+        hasOwner: ownerContact !== null || Boolean(existing.ownerContactId),
       });
 
       await tx.property.update({
@@ -564,6 +624,25 @@ export class PropertiesService {
         entityId: id,
         metadata: { changedFields: Object.keys(patch) },
       });
+      /*
+       * **חציית הסף, ולא הימצאות מעליו.** האירוע נפלט עד כה ביצירה
+       * בלבד, ולכן נכס שהגיע למוכנות בעריכה לא הפעיל את האוטומציה
+       * „נכס הגיע למוכנות” — פער שקדם לשינוי הזה. מרגע שגם תמונה
+       * יכולה לחצות את הסף, שלושת המסלולים חייבים לשאול את אותה
+       * שאלה; אחרת ההפעלה תלויה במה שבמקרה גרם לחצייה (ביקורת Codex).
+       *
+       * תנאי החצייה מונע פליטה חוזרת בכל שמירה של נכס שכבר מוכן.
+       */
+      if (
+        existing.readinessScore < PROPERTY_READY_SCORE &&
+        readiness.score >= PROPERTY_READY_SCORE
+      ) {
+        await this.outbox.emit(tx, "property.ready", {
+          propertyId: id,
+          tenantId,
+          readinessScore: readiness.score,
+        });
+      }
       await this.outbox.emit(tx, "property.updated", {
         propertyId: id,
         tenantId,
@@ -599,8 +678,9 @@ export class PropertiesService {
       if (!row) throw new NotFoundException("נכס לא נמצא");
       const fields = rowToFields(row);
       const readiness = computeReadiness(fields, {
-        hasTitle: Boolean(row.marketingTitle),
+        hasImages: await this.hasMedia(tx, id),
         hasDescription: Boolean(row.marketingDescription),
+        hasOwner: Boolean(row.ownerContactId),
       });
       const ownerContact = row.ownerContactId
         ? await this.contacts.getById(tx, row.ownerContactId)
@@ -793,8 +873,10 @@ export class PropertiesService {
       const items = pageRows.map((row) => {
         const fields = rowToFields(row);
         const readiness = computeReadiness(fields, {
-          hasTitle: Boolean(row.marketingTitle),
+          // מפת התמונה הראשית כבר עונה על „יש מדיה” — בלי שאילתה נוספת
+          hasImages: primaryIdByProperty.has(row.id),
           hasDescription: Boolean(row.marketingDescription),
+          hasOwner: Boolean(row.ownerContactId),
         });
         const primaryId = primaryIdByProperty.get(row.id);
         return {
@@ -934,6 +1016,22 @@ export class PropertiesService {
   async purge(id: string): Promise<void> {
     const ctx = TenantContext.current();
     await this.prisma.withTenant(async (tx) => {
+      /*
+       * ‎**נעילת שורת הנכס — הדבר הראשון בטרנזקציה.**
+       *
+       * המחיקה לצמיתות נוגעת בכל מה שתלוי בנכס: המדיה, ההתאמות,
+       * ההצעות, התאומים. כל אחד מהם הוא שורה שנתיב אחר נועל
+       * **אחרי** שהוא כבר מחזיק את שורת הנכס — מחיקת תמונה נועלת
+       * נכס ואז נוגעת במדיה ובפרסום שברשת.
+       *
+       * נעילה באמצע הרשימה סוגרת מעגל מול כל מה שקדם לה, ולכן היא
+       * ראשונה ולא „לפני המדיה”: כשהיא ראשונה אין מה שיקדם לה, ואין
+       * צורך לדעת מראש איזו טבלה מתנגשת עם מי (ביקורת Codex).
+       *
+       * המסלול פתוח: `MediaService.remove` אינה דוחה נכס בארכיון,
+       * וארכיון הוא בדיוק התנאי למחיקה לצמיתות.
+       */
+      await lockProperty(tx, ctx.tenantId, id);
       const existing = await tx.property.findFirst({
         where: { id, tenantId: ctx.tenantId },
         select: { deletedAt: true },

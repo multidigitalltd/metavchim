@@ -123,22 +123,70 @@ export const PropertySchema = PropertyFieldsSchema.extend({
 });
 export type Property = z.infer<typeof PropertySchema>;
 
-/** השדות שבלעדיהם נכס לא נחשב "מוכן לשיווק" — הבסיס לציון המוכנות. */
-export const PROPERTY_REQUIRED_FOR_MARKETING = [
-  "city",
-  "propertyType",
-  "dealType",
-  "rooms",
-  "areaSqm",
+/**
+ * תשעת השדות שמהם נגזרת מוכנות הנכס — **רשימה אחת לכל המערכת.**
+ *
+ * ## למה דווקא התשעה האלה
+ *
+ * חבילת העיצוב נוקבת בהם בשמם (SPEC-3b §4) ומוסיפה כלל: „That count,
+ * the grid below and the percentage above MUST agree. Never three
+ * numbers for one listing”. הרשימה שקדמה להם הייתה אחרת — עיר, סוג
+ * נכס וסוג עסקה נספרו בה, תמונות ובעל הנכס לא — והציון היה משוקלל
+ * (80% לשדות החובה, 10% לכותרת, 10% לתיאור). כלומר „10 מתוך 10 שדות
+ * מלאים” הופיע לצד „90%”, ושתי השורות סתרו זו את זו על המסך.
+ *
+ * עכשיו הציון הוא בדיוק ‎`filled / 9`‎, ולכן שלושת המספרים שהמסמך
+ * מדבר עליהם הם אותו מספר בשלוש צורות. **בעל הפלטפורמה אישר את
+ * המעבר במפורש**, כולל המשמעות שלו: ציוני מוכנות של נכסים קיימים
+ * זזים — נכס בלי תמונות או בלי פרטי בעלים יורד, ונכס שקיבל ניקוד
+ * על עיר וסוג נכס עולה.
+ *
+ * ## שלושה מהם אינם שדות תוכן
+ *
+ * ‎`images`, `marketingDescription` ו-`owner` אינם ב-`PropertyFields`:
+ * הראשון הוא מדיה, השני טקסט שיווקי והשלישי איש קשר מקושר. הם
+ * נמסרים ל-`computeReadiness` בנפרד, ומופיעים כאן כדי שהרשימה תהיה
+ * **תשעה** — המכנה שהמסך מדפיס נגזר מאורכה, ולא נכתב קשיח.
+ */
+export const PROPERTY_READINESS_FIELDS = [
   "priceAgorot",
+  "areaSqm",
+  "rooms",
   "floor",
   "hasElevator",
   "hasParking",
-  /*
-   * המצב ולא התאריך: "מיידי" ו"גמיש" הן תשובות מלאות לשאלת המסירה,
-   * ונכס שנענה בהן מוכן לשיווק בדיוק כמו נכס עם תאריך נקוב. הדרישה
-   * הקודמת ל-`entryDate` הורידה להם את ציון המוכנות על שדה שאין לו
-   * ערך אמיתי במקרה שלהם.
-   */
-  "entryType",
-] as const satisfies readonly (keyof PropertyFields)[];
+  "images",
+  "marketingDescription",
+  "owner",
+] as const;
+export type PropertyReadinessField = (typeof PROPERTY_READINESS_FIELDS)[number];
+
+/**
+ * שמות התשעה בעברית — **המקור היחיד**, לרשת השדות שבכרטיס ולכל
+ * מקום שמונה חוסרים („חסרים: מחיר, תמונות”).
+ *
+ * מיפוי שני היה נפרד ביום שהרשימה משתנה, ואז המתווך היה רואה מפתח
+ * באנגלית באחד המסכים.
+ */
+export const PROPERTY_READINESS_LABELS: Record<PropertyReadinessField, string> = {
+  priceAgorot: "מחיר",
+  areaSqm: 'שטח במ"ר',
+  rooms: "חדרים",
+  floor: "קומה",
+  hasElevator: "מעלית",
+  hasParking: "חניה",
+  images: "תמונות",
+  marketingDescription: "תיאור",
+  owner: "בעל הנכס",
+};
+
+/**
+ * תווית לשדה מוכנות שהגיע כמחרוזת — מה-DTO, שאינו נושא את הטיפוס.
+ *
+ * המפה עצמה נשארת ‎`Record<PropertyReadinessField, string>`‎ כדי
+ * שהוספת שדה עשירי תפיל את הקומפילציה עד שתינתן לו תווית; הנגישה
+ * הזאת היא הגשר לצד הקורא, ולא הרפיה של הדרישה.
+ */
+export function readinessFieldLabel(field: string): string {
+  return PROPERTY_READINESS_LABELS[field as PropertyReadinessField] ?? field;
+}
