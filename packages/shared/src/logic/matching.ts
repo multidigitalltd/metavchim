@@ -568,7 +568,20 @@ export function scoreMatch(
     (c) => !parts.some((p) => p.criterion === c),
   );
 
-  if (coverage < MIN_CORE_COVERAGE || missingMandatory) {
+  /*
+   * ‎**דחייה מפורשת גוברת על „חסר מידע”.**
+   *
+   * ‎`!excluded` אינו קישוט: נכס בעיר שאינה מבוקשת **וגם** בלי סוג
+   * נכס הוא גם נדחה וגם חסר — ובלי התנאי הזה החזרה המוקדמת הייתה
+   * מדווחת עליו „אין מספיק פרטים”, בעוד שהמיקום נבדק ונדחה
+   * מפורשות (ביקורת Codex).
+   *
+   * זו בדיוק ההבחנה שהקובץ הזה מגן עליה, והיא נשברה כאן דווקא
+   * בשער שנועד לחזק אותה: „בדקנו וזה לא מתאים” אינו „לא היה מה
+   * לבדוק”, ומי שנדחה מסיבה ידועה צריך לראות אותה — ולא הזמנה
+   * להשלים פרטים שלא ישנו דבר.
+   */
+  if (!excluded && (coverage < MIN_CORE_COVERAGE || missingMandatory)) {
     const missing = CORE_MATCH_CRITERIA.filter(
       (c) => !parts.some((p) => p.criterion === c),
     ).map((c) => MATCH_CRITERION_LABELS[c]);

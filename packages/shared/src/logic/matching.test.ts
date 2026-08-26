@@ -397,13 +397,24 @@ describe("קונה בלי תקציב", () => {
  * עבורו”.
  */
 describe("סף המידע — כרטיס ריק אינו נכנס להתאמות", () => {
-  /** בדיוק המקרה שדווח: שם וטלפון אינם דרישות, ונשאר התקציב בלבד. */
+  /**
+   * בדיוק המקרה שדווח: שם וטלפון אינם דרישות, ונשאר התקציב בלבד.
+   *
+   * ‎**התקציב חייב להיות בתוך הרצועה של הנכס, ולא סתם „גדול ממנו”.**
+   * קודם עמד כאן 3.5 מיליון מול נכס של 2.65 — פער של 850 אלף, הרבה
+   * מעבר לרצועת ה-400 אלף — ולכן הכרטיס נפסל על **התקציב** ולא על
+   * חוסר המידע שהבדיקות כאן מתיימרות לבדוק. הן עברו רק מפני ששער
+   * הכיסוי דרס את הדחייה ההיא ב„אין מספיק פרטים”, וזו בדיוק
+   * הדריסה שתוקנה (ביקורת Codex).
+   *
+   * כלומר הבדיקות האלה מעולם לא בחנו את מה שנכתב בהן. עכשיו כן.
+   */
   const importedBuyer: BuyerRequirements = {
     cities: [],
     neighborhoods: [],
     dealType: "sale",
     propertyTypes: [],
-    budgetMaxAgorot: 350_000_000,
+    budgetMaxAgorot: 280_000_000,
     features: {},
   };
 
@@ -699,6 +710,31 @@ describe("כלל הברזל — מיקום חייב להיבחן", () => {
     expect(bare.breakdown.some((p) => p.criterion === "location")).toBe(true);
     expect(bare.breakdown.some((p) => p.criterion === "property_type")).toBe(true);
     expect(bare.insufficientData).toBe(true);
+  });
+
+  /*
+   * ‎**דחייה מפורשת גוברת על „חסר מידע” — גם כששניהם נכונים.**
+   *
+   * נכס בעיר שאינה מבוקשת ובלי סוג נכס הוא גם נדחה וגם חסר. השער
+   * החדש דיווח עליו „אין מספיק פרטים”, כלומר הזמין את הסוכן להשלים
+   * שדה — בזמן שהמיקום כבר נבדק ונדחה, והשלמת הסוג לא תשנה דבר
+   * (ביקורת Codex). זו ההבחנה שהשער הזה עצמו נועד להגן עליה.
+   */
+  it("נדחה על המיקום **וגם** חסר סוג — הדחייה גוברת", () => {
+    const { propertyType: _type, ...noType } = baseProperty;
+    const result = scoreMatch(noType, { ...baseBuyer, cities: ["חיפה"] });
+    expect(result.excluded).toBe(true);
+    expect(result.insufficientData).toBe(false);
+    expect(result.explanation).not.toContain("אין מספיק פרטים");
+  });
+
+  it("סוג שאינו מתאים **וגם** בלי מיקום — הדחייה גוברת", () => {
+    const result = scoreMatch(
+      { ...baseProperty, propertyType: "house" },
+      { ...baseBuyer, cities: [] },
+    );
+    expect(result.excluded).toBe(true);
+    expect(result.insufficientData).toBe(false);
   });
 
   /* ההסבר חייב לנקוב במיקום, אחרת אין לסוכן מה להשלים. */
