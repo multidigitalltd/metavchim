@@ -53,6 +53,14 @@ interface RetainedScan {
   byteSize: number;
   signerName?: string;
   signedOn?: string;
+  /**
+   * הנכס שההסכם חל עליו.
+   *
+   * לבעלים שנמחק יכולות להיות סריקות על כמה נכסים, וכאן אין כרטיס
+   * שמפריד ביניהן — בלי התווית הן נבדלות רק בשם החותם ובתאריך.
+   * ריק כשהנכס עצמו נמחק לצמיתות.
+   */
+  propertyLabel?: string;
   url: string;
 }
 
@@ -119,6 +127,15 @@ export function RetainedAgreementsSection() {
               <span style={{ color: "var(--color-text-muted)" }}>
                 {" · "}
                 {DOCUMENT_KIND_LABELS[scan.kind]}
+              </span>
+              {/*
+                הנכס בשורה נפרדת ולא בהמשך אותה שורה: הוא מה שמבדיל
+                בין שתי סריקות של אותו בעלים, ולכן הוא צריך להיקרא
+                ולא להידחס בין נקודות. „נכס שנמחק” נאמר במפורש —
+                מסמך בלי נכס אינו מסמך שאין לו נכס.
+              */}
+              <span className="block" style={{ color: "var(--color-text-muted)" }}>
+                {scan.propertyLabel ?? "הנכס נמחק לצמיתות"}
               </span>
             </span>
             <span className="flex items-center gap-3">

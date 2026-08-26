@@ -4,6 +4,7 @@ import { ulid } from "ulid";
 import {
   DOCUMENT_KINDS,
   MAX_DOCUMENT_BYTES,
+  OFFER_DOCUMENT_KINDS,
   documentUnlocksOffers,
   isAfterJerusalemToday,
   safeFileName,
@@ -15,7 +16,7 @@ import { assertContactAccess } from "../../common/ownership";
 import { TenantContext } from "../../common/tenant-context";
 import { AuditService } from "../../core/audit.service";
 import { OutboxService } from "../../core/outbox.service";
-import { PrismaService } from "../../core/prisma.service";
+import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
 
 /**
@@ -90,6 +91,29 @@ function propertyLabel(p: {
 }): string {
   const where = [p.street, p.neighborhood, p.city].filter(Boolean).join(", ");
   return where === "" ? "נכס ללא כתובת" : where;
+}
+
+/**
+ * תוויות הנכסים לקבוצת שורות — שאילתה אחת, לא אחת לשורה.
+ *
+ * ‎**משותפת לשתי הרשימות בכוונה.** הארכיון בנה את שורותיו בלי
+ * התוויות, ולכן מי שנמחק לו לקוח עם סריקות על כמה נכסים ראה כמה
+ * הסכמים חתומים שאי אפשר להבחין ביניהם לפני ההורדה (ביקורת
+ * Codex). זו אותה הבחנה שנוספה לכרטיס הלקוח סבב קודם, ושתי
+ * מימושים שלה היו נפרדים ברגע שאחד מהם משתנה.
+ */
+async function loadPropertyLabels(
+  tx: TenantTx,
+  tenantId: string,
+  rows: readonly { propertyId: string | null }[],
+): Promise<Map<string, string>> {
+  const ids = [...new Set(rows.map((r) => r.propertyId).filter((v): v is string => v !== null))];
+  if (ids.length === 0) return new Map();
+  const properties = await tx.property.findMany({
+    where: { id: { in: ids }, tenantId },
+    select: { id: true, city: true, neighborhood: true, street: true },
+  });
+  return new Map(properties.map((p) => [p.id, propertyLabel(p)]));
 }
 
 @Injectable()
@@ -310,23 +334,32 @@ export class SignedDocumentsService {
         where: {
           tenantId,
           contactId,
-          ...(propertyId === undefined ? {} : { OR: [{ propertyId }, { propertyId: null }] }),
+          /*
+           * ‎**השורות חסרות-הנכס מסויגות לפי הסוג, ולא נלקחות כמובן
+           * מאליו.**
+           *
+           * הנימוק המקורי היה „הצהרה על הסכם מחייבת נכס, ולכן שורה
+           * חסרת-נכס היא בהכרח מסמך אחר”. זה נכון בכתיבה — ומחיקת
+           * נכס לצמיתות מנתקת את הסריקה ממנו, ומייצרת בדיוק את
+           * השורה שהטענה שוללת. הסתמכות על הטענה הייתה מחזירה הסכם
+           * חתום מנכס שנמחק אל הלשונית של כל נכס אחר של אותו בעלים.
+           *
+           * התנאי בודק עכשיו את מה שהוא באמת צריך — הסוג — במקום
+           * להסיק אותו מהיעדר ערך.
+           */
+          ...(propertyId === undefined
+            ? {}
+            : {
+                OR: [
+                  { propertyId },
+                  { propertyId: null, kind: { notIn: [...OFFER_DOCUMENT_KINDS] } },
+                ],
+              }),
         },
         orderBy: { createdAt: "desc" },
         take: MAX_DOCUMENTS_PER_CONTACT,
       });
-      const ids = [...new Set(found.map((r) => r.propertyId).filter((v): v is string => v !== null))];
-      const properties =
-        ids.length === 0
-          ? []
-          : await tx.property.findMany({
-              where: { id: { in: ids }, tenantId },
-              select: { id: true, city: true, neighborhood: true, street: true },
-            });
-      return {
-        rows: found,
-        labels: new Map(properties.map((p) => [p.id, propertyLabel(p)])),
-      };
+      return { rows: found, labels: await loadPropertyLabels(tx, tenantId, found) };
     });
     return rows.map((row) => this.toDto(row, { labels }));
   }
@@ -393,14 +426,23 @@ export class SignedDocumentsService {
    */
   async listRetained(): Promise<SignedDocumentDto[]> {
     const tenantId = TenantContext.current().tenantId;
-    const rows = await this.prisma.withTenant((tx) =>
-      tx.signedDocument.findMany({
+    const { rows, labels } = await this.prisma.withTenant(async (tx) => {
+      const found = await tx.signedDocument.findMany({
         where: { tenantId, contactId: null },
         orderBy: { signedOn: "desc" },
         take: 500,
-      }),
-    );
-    return rows.map((row) => this.toDto(row, { retained: true }));
+      });
+      /*
+       * ‎**גם כאן זהות הנכס, ולא רק בכרטיס הלקוח.**
+       *
+       * לבעלים שנמחק יכולות להיות סריקות על כמה נכסים, וכאן אין
+       * כרטיס שמפריד ביניהן. בלי התווית הארכיון הציג כמה הסכמים
+       * חתומים שנבדלים רק בשם החותם ובתאריך — כלומר אי אפשר לדעת
+       * על איזה נכס כל אחד חל בלי להוריד אותו (ביקורת Codex).
+       */
+      return { rows: found, labels: await loadPropertyLabels(tx, tenantId, found) };
+    });
+    return rows.map((row) => this.toDto(row, { labels, retained: true }));
   }
 
   /**

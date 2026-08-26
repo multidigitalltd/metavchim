@@ -166,9 +166,22 @@ export function DocumentsPanel({
       form.append("contactId", contactId);
       form.append("kind", kind);
       form.append("fileName", file.name);
-      if (effectiveProperty !== "") form.append("propertyId", effectiveProperty);
-      if (signerName.trim() !== "") form.append("signerName", signerName.trim());
-      if (signedOn !== "") form.append("signedOn", signedOn);
+      /*
+       * ‎**רק מה שהמסך מציג נשלח.**
+       *
+       * מי שמילא שם ותאריך עבור „הזמנה בכתב” ואז החליף ל„מסמך אחר”
+       * ראה את השדות נעלמים — אבל הם נשארו ב-state ונשלחו, והשרת
+       * דוחה בדיוק את הצירוף הזה. התוצאה הייתה מבוי סתום: כל העלאה
+       * נכשלת, וההודעה מפנה לשדות שאינם על המסך כדי לרוקן אותם
+       * (ביקורת Codex).
+       *
+       * הגבול הוא `declares` — אותו תנאי בדיוק שקובע אם השדות מוצגים.
+       * שדה שאינו נראה אינו נשלח, ולכן אין מצב שבו המשתמש מתבקש
+       * לתקן משהו שאין לו דרך להגיע אליו.
+       */
+      if (declares && effectiveProperty !== "") form.append("propertyId", effectiveProperty);
+      if (declares && signerName.trim() !== "") form.append("signerName", signerName.trim());
+      if (declares && signedOn !== "") form.append("signedOn", signedOn);
       if (note.trim() !== "") form.append("note", note.trim());
 
       // multipart — בלי Content-Type ידני; הדפדפן קובע boundary
@@ -261,12 +274,21 @@ export function DocumentsPanel({
                 הקונה — שבו מוצגים כל המסמכים של הלקוח — זו ההבחנה
                 שמונעת לקרוא סריקה של נכס אחד כשייכת לאחר.
               */}
-              {row.propertyLabel ? (
+              {/*
+                ‎**הסכם חתום אומר תמיד על מה הוא חל** — גם כשהנכס
+                עצמו נמחק לצמיתות. הסריקה נשמרת ומנותקת מהנכס, ובלי
+                השורה הזו היא נראית בדיוק כמו „מסמך אחר” שלא חל על
+                שום נכס. „מסמך אחר” באמת אינו נושא נכס, ולכן הוא
+                נשאר בלי השורה.
+              */}
+              {row.propertyLabel !== undefined || documentUnlocksOffers(row.kind) ? (
                 <p
                   className="m-0 mb-2 text-[length:var(--type-caption-lg)]"
                   style={{ color: "var(--color-text-muted)" }}
                 >
-                  על הנכס: {row.propertyLabel}
+                  {row.propertyLabel === undefined
+                    ? "הנכס נמחק לצמיתות"
+                    : `על הנכס: ${row.propertyLabel}`}
                 </p>
               ) : null}
 

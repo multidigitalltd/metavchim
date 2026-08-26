@@ -209,11 +209,33 @@ export class ContactErasureService {
         throw new BadRequestException("השם שהוקלד אינו תואם — המחיקה בוטלה");
       }
 
-      const [buyerRows, leadRows, retainedAgreements] = await Promise.all([
+      /*
+       * ‎**היומן סופר את שני המקורות, כמו מסך האישור.**
+       *
+       * ‎`retainedAgreements` נכתב ליומן ה-Append-Only של המחיקה, והוא
+       * הרישום שאומר מה נשמר. הוא ספר `agreement` בלבד — ולכן לקוח
+       * שכל הסכמיו נחתמו על נייר תועד כמי ש„לא נשמר לו דבר”, בזמן
+       * שהסריקה, שם החותם ותאריך החתימה נשארו במסד (ביקורת Codex).
+       *
+       * תיקנתי את `preview()` בסבב הקודם ולא שאלתי מי עוד סופר את
+       * אותה שאלה. שני הסופרים משתמשים עכשיו באותו תנאי בדיוק —
+       * הסוג מ-`OFFER_DOCUMENT_KINDS` ותאריך חתימה קיים — שהוא גם
+       * התנאי ש-`eraseWithin` מכריע לפיו בפועל.
+       */
+      const [buyerRows, leadRows, signedAgreements, retainedScans] = await Promise.all([
         tx.buyer.findMany({ where: { tenantId, contactId }, select: { id: true } }),
         tx.lead.findMany({ where: { tenantId, contactId }, select: { id: true } }),
         tx.agreement.count({ where: { tenantId, contactId, status: "signed" } }),
+        tx.signedDocument.count({
+          where: {
+            tenantId,
+            contactId,
+            kind: { in: [...OFFER_DOCUMENT_KINDS] },
+            signedOn: { not: null },
+          },
+        }),
       ]);
+      const retainedAgreements = signedAgreements + retainedScans;
       const buyers = buyerRows.map((b) => b.id);
       const leads = leadRows.map((l) => l.id);
 
