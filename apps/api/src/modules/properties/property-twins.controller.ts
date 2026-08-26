@@ -17,7 +17,7 @@ import {
 } from "./property-twins.service";
 
 /**
- * נכסים תאומים — קריאה תחת `properties.view`, כתיבה תחת
+ * נכסים תואמים — קריאה תחת `properties.view`, כתיבה תחת
  * `properties.edit`.
  *
  * הקישור הוא הצהרה מקצועית על המאגר, ולא מידע אישי: מי שמורשה

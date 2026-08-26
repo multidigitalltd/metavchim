@@ -17,7 +17,7 @@ import { LoadError } from "../../load-error";
 import { Notice } from "../../notice";
 
 /**
- * נכסים תאומים — „עוד כמה כאלה יש לי”.
+ * נכסים תואמים — „עוד כמה כאלה יש לי”.
  *
  * ## מתי זה נקרא
  *
@@ -156,7 +156,7 @@ export function PropertyTwins({
     } catch {
       /*
        * `twins` נשאר `null` — „לא ידוע”. רשימה ריקה כאן הייתה
-       * אומרת „לא הגדרת תאומים” על סמך כשל רשת, וזו הצהרה שאין
+       * אומרת „לא הגדרת נכסים תואמים” על סמך כשל רשת, וזו הצהרה שאין
        * לנו עליה מידע.
        */
       setLoadFailed(true);
@@ -283,7 +283,7 @@ export function PropertyTwins({
             className="m-0"
             style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
           >
-            נכסים תאומים
+            נכסים תואמים
           </h2>
           <p
             className="m-0 mt-1 text-[length:var(--type-caption-lg)] leading-relaxed"
@@ -300,7 +300,7 @@ export function PropertyTwins({
             disabled={atLimit}
             title={
               atLimit
-                ? `הגעתם ל-${MAX_TWINS_PER_PROPERTY} נכסים תאומים`
+                ? `הגעתם ל-${MAX_TWINS_PER_PROPERTY} נכסים תואמים`
                 : undefined
             }
             onClick={() => void openPicker()}
@@ -315,7 +315,7 @@ export function PropertyTwins({
           className="m-0 mt-3 text-[length:var(--type-caption-lg)] font-semibold"
           style={{ color: "var(--color-text-muted)" }}
         >
-          סימנתם {MAX_TWINS_PER_PROPERTY} נכסים תאומים — המקסימום. הסירו
+          סימנתם {MAX_TWINS_PER_PROPERTY} נכסים תואמים — המקסימום. הסירו
           אחד כדי להוסיף אחר.
         </p>
       ) : null}
@@ -346,7 +346,7 @@ export function PropertyTwins({
             color: "var(--color-text-muted)",
           }}
         >
-          עדיין לא סימנתם נכסים תאומים לנכס הזה.
+          עדיין לא סימנתם נכסים תואמים לנכס הזה.
           {canEdit
             ? " לחצו „הוסף נכס תאום” ובחרו מהמאגר שלכם."
             : ""}
@@ -376,7 +376,7 @@ export function PropertyTwins({
                       <button
                         type="button"
                         className="mv-btn-plain"
-                        aria-label={`הסרת ${twin.headline} מהנכסים התאומים`}
+                        aria-label={`הסרת ${twin.headline} מהנכסים התואמים`}
                         onClick={() => setRemoving(twin)}
                       >
                         <IconX s={14} />
@@ -522,7 +522,7 @@ export function PropertyTwins({
           htmlFor="twin-note"
           className="mt-3 block text-[length:var(--type-caption-lg)] font-semibold"
         >
-          למה הם תאומים? <span className="font-normal">(רשות)</span>
+          למה הם תואמים? <span className="font-normal">(רשות)</span>
         </label>
         <input
           id="twin-note"

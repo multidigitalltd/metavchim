@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { jerusalemWallParts } from "@metavchim/shared";
 
 /**
  * הודעה במערכת — **תמיד אפשר לסגור אותה.**
@@ -44,9 +45,14 @@ export type NoticeTone = "success" | "danger" | "warning" | "info";
  * המפתח כולל את **התאריך** במכוון. הסגירה שווה ליום אחד: מי שסגר
  * את „סיורים שטרם תועדו” היום אמר „לא עכשיו”, לא „לעולם לא”. סגירה
  * לצמיתות הייתה מסתירה עבודה אמיתית עד שמישהו ימחק localStorage.
+ *
+ * ‎**והיום הוא היום הישראלי.** ‎`toISOString` נותן את התאריך ב-UTC,
+ * ולכן בין חצות לשלוש לפנות בוקר הוא עדיין מציין את אתמול: מי שסגר
+ * ב-00:30 היה מקבל את ההודעה בחזרה שלוש שעות אחר כך, ומי שסגר
+ * ב-23:00 היה מוסתר מחר עד הבוקר. שני הכיוונים שגויים.
  */
 export function useDismissedToday(key: string): [boolean, () => void] {
-  const storageKey = `mv-dismiss:${key}:${new Date().toISOString().slice(0, 10)}`;
+  const storageKey = `mv-dismiss:${key}:${jerusalemWallParts(new Date()).date}`;
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {

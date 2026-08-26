@@ -372,6 +372,67 @@ function localDateCtor(text) {
 }
 
 /**
+ * ‎**„היום” שנגזר מ-`toISOString` — כלומר היום ב-UTC.**
+ *
+ * ‎`new Date().toISOString().slice(0, 10)` נראה כמו הדרך הבטוחה
+ * לכתוב „היום”, ובניגוד לכל השאר בקובץ הזה הוא **אינו** תלוי בשעון
+ * המכשיר — הוא תלוי ב-UTC. וזו בדיוק הסיבה שהוא חמקן: הוא נכון
+ * בשעון של איש הפיתוח, נכון ב-CI, ושגוי בכל לילה בין חצות לשלוש
+ * לפנות בוקר בישראל (שתיים בחורף), שבהן הוא מציין את **אתמול**.
+ *
+ * שלוש התקלות שהכלל הזה נולד מהן ישבו על שדות שסופרים בהם ימים:
+ * תאריך ההתחלה המוצע של תקופת בלעדיות, מועד תיעוד פעולת שיווק,
+ * ומפתח „נסגר להיום”. הראשונים שניים הם מסמך רגולטורי.
+ *
+ * ‎**למה הכלל נוקב ב-`new Date()` ולא בכל `Date`.** הוא **אינו**
+ * יוריסטיקה של „איך הבאג נראה”, שהפסידה כאן חמש פעמים — הוא הפרדה
+ * אמיתית: `toISOString` על רגע אמיתי ואז חיתוך לתווית תאריך הוא
+ * המרה של רגע ללוח שנה, וזו המרה שחייבת לנקוב באזור זמן. לעומת זאת
+ * ארבעת המופעים האחרים בעץ אינם רגעים אלא **עוגנים** שנבנו במפורש
+ * כחצות UTC (גבולות תקופה, `entryBy`, יום בלוח) — שם `toISOString`
+ * מחזיר בדיוק את התווית שממנה הם נבנו, וזו הדרך הנכונה.
+ *
+ * ‎**הגבול, במפורש:** `const now = new Date()` ואז
+ * ‎`now.toISOString().slice(0, 10)` בשורה אחרת לא ייתפס. שער טקסטואלי
+ * אינו עוקב אחרי כינויים — אותו גבול בדיוק שנרשם כאן על
+ * ‎`Date#toString` ועל כינויי `Intl`. גבול ידוע עדיף על ביטחון שגוי.
+ *
+ * ‎**ואין לכלל הזה סימון חריגה.** „התאריך של הרגע הזה ב-UTC” אינו
+ * תשובה נכונה לשום שאלה במוצר הזה; מי שצריך את היום הישראלי קורא
+ * ל-`jerusalemWallParts(new Date()).date`.
+ */
+/** „הרגע הזה” — `new Date()` ריק, גם בהסמכה גלובלית וגם דרך `Date.now()`. */
+const NOW = String.raw`new\s+(?:(?:globalThis|window|self|global)\.)?Date\s*\(\s*(?:Date\.now\s*\(\s*\)\s*)?\)`;
+/**
+ * גרש, גרשיים או תו תבנית.
+ *
+ * תו התבנית נכתב כ-``` ולא כעצמו: ‎`String.raw` מעביר את ששת
+ * התווים כמות שהם, ומנוע הביטויים הרגולריים הוא שמפענח אותם — בעוד
+ * שהתו עצמו היה סוגר כאן את המחרוזת.
+ */
+const QUOTE = String.raw`["'\u0060]`;
+/** חיתוך לתווית קצרה מחותמת זמן מלאה — תאריך, חודש או שנה */
+const TRUNCATE = String.raw`(?:slice|substring|substr)\s*\(\s*0\s*,\s*(\d{1,2})\s*\)`;
+const SPLIT_T = String.raw`split\s*\(\s*${QUOTE}T${QUOTE}\s*\)\s*\[\s*0\s*\]`;
+const UTC_TODAY = new RegExp(
+  String.raw`${NOW}\s*\.\s*toISOString\s*\(\s*\)\s*\.\s*(?:${TRUNCATE}|${SPLIT_T})`,
+  "gu",
+);
+
+function utcTodayLabel(source) {
+  const text = withoutComments(source);
+  const found = [];
+  let match;
+  UTC_TODAY.lastIndex = 0;
+  while ((match = UTC_TODAY.exec(text)) !== null) {
+    /* ‎`split("T")[0]` אינו לוכד ספרה; חיתוך באורך חותמת מלאה אינו תווית */
+    if (match[1] !== undefined && Number(match[1]) >= 19) continue;
+    found.push(text.slice(0, match.index).split("\n").length);
+  }
+  return found;
+}
+
+/**
  * לכל `datetime-local` בקובץ — המרה משלו דרך העזר המשותף.
  *
  * הבדיקה מבנית ולא תבניתית, בכוונה: `new Date(dueAt)` על משתנה הוא
@@ -411,6 +472,9 @@ for (const { full, short, arithmetic } of FILES) {
   }
   for (const line of callableDateLines(withoutComments(source))) {
     offenders.push(`  ${short}:${line}  ←  ()Date בלי new — מחרוזת בשעון המארח`);
+  }
+  for (const line of utcTodayLabel(source)) {
+    offenders.push(`  ${short}:${line}  ←  „היום” מ-toISOString — התאריך ב-UTC ולא בישראל`);
   }
   const sourceLines = source.split("\n");
   const carries = (line) => (sourceLines[line - 1] ?? "").includes(WALL_CARRIER);
@@ -463,6 +527,7 @@ if (offenders.length > 0) {
       "    מעצב    — new Intl.DateTimeFormat(\"he-IL\", { timeZone: JERUSALEM_TZ, … })",
       "    טופס     — jerusalemLocalInputValue ⟷ resolveJerusalemLocalInput",
       "    גבולות   — jerusalemDayRange / jerusalemDayStart / jerusalemWeekStart",
+      "    „היום”   — jerusalemWallParts(new Date()).date",
       "",
       `  אם שעון המכשיר הוא באמת התשובה הנכונה — סמנו את השורה ב-„${ALLOW}”`,
       "  והסבירו למה. סימון בלי סיבה הוא בדיוק מה שהשער נועד לתפוס.",
