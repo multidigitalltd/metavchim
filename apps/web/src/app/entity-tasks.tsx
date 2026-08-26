@@ -164,6 +164,25 @@ export function EntityTasks({
         setError(jerusalemWallErrorMessage(resolved.reason));
         return;
       }
+      /*
+       * ‎**מועד מהיר שפג בין הבחירה לשליחה.**
+       *
+       * מי שבחר „היום” ב-17:55 ושלח ב-18:05 שולח ערך שכבר בעבר,
+       * בלי שנגע בצ'יפ שוב. `dueSource` נבדק עד כה **רק** בלחיצה,
+       * וזו הדליפה הרביעית של אותה הבטחה — כל פעם שכבה אחת
+       * פנימה: הפונקציה, הקריאה, הלחיצה, ועכשיו השליחה (ביקורת
+       * Codex).
+       *
+       * ‎**רק על מועד שהצ'יפ קבע.** תאריך שהוקלד ביד, גם בעבר, הוא
+       * תיעוד לגיטימי — ואת זה איני דוחה.
+       */
+      if (dueSource !== null && resolved.at.getTime() <= Date.now()) {
+        setError("המועד המהיר שנבחר כבר חלף. בחרו מועד חדש.");
+        setDueAt("");
+        setDueSource(null);
+        setClock(new Date());
+        return;
+      }
       due = resolved.at.toISOString();
     }
     setBusy(true);
