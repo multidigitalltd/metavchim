@@ -65,6 +65,20 @@ const LOCAL_READ =
   /\.get(?:Hours|Minutes|Seconds|Milliseconds|Date|Day|FullYear|Year|Month)\s*\(\s*\)/u;
 /** ההיסט של המכשיר — שימש לבניית „עכשיו מקומי” לשדות טופס. */
 const LOCAL_OFFSET = /getTimezoneOffset\s*\(\s*\)/u;
+/**
+ * ‎`Date()` בלי `new` — **מחזיר מחרוזת בשעון המארח.**
+ *
+ * זו אינה יצירת `Date` אלא קריאה לפונקציה גלובלית שמחזירה את הרגע
+ * הנוכחי כטקסט מעוצב באזור הזמן של המכשיר או של תהליך השרת. שונה
+ * מ-`Date#toString` שנשאר מחוץ לשער: הצורה הזו **ניתנת לזיהוי
+ * ודאי**, כי `Date` הוא שם גלובלי יחיד ולא מתודה של כל אובייקט
+ * (ביקורת Codex).
+ *
+ * המבטים לאחור מוציאים את שלוש הצורות התקינות: `new Date(`,
+ * ‎`Date.UTC(`/`Date.parse(` (יש נקודה), וכל שם שנגמר ב-Date כמו
+ * ‎`formatDate(`.
+ */
+const CALLABLE_DATE = /(?<!\bnew\s{1,20})(?<![.\w$])Date\s*\(/u;
 /** ‎`Date.parse("…T…")` — אותו פרסור מקומי בשם אחר. */
 const LOCAL_PARSE = /\bDate\.parse\s*\(/u;
 /** ‎`setHours`/`setDate` — כותבים בשעון המכשיר, אותו נזק בכיוון השני. */
@@ -363,6 +377,7 @@ for (const { full, short, arithmetic } of FILES) {
     const hit =
       /* תצוגה — שגויה בכל שכבה, בדפדפן ובשרת כאחד */
       (LOCAL_OFFSET.test(code) && "היסט אזור הזמן של המכשיר") ||
+      (CALLABLE_DATE.test(code) && "()Date בלי new — מחרוזת בשעון המארח") ||
       /* אריתמטיקה — נאכפת בשכבת המסך, שאין בה דפוס „נושא שעת קיר” */
       (arithmetic &&
         ((LOCAL_READ.test(code) && "קריאה בשעון המכשיר") ||
