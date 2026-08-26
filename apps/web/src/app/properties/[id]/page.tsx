@@ -126,14 +126,20 @@ const HEADER_ACTION = {
  * אינה בעיה שממתינה לטיפול אלא נכס שטרם נפתח לשיווק, וענבר היה
  * צועק „דחוף” על מצב רגיל לחלוטין.
  *
- * ‎`active` הוא ירוק — נכס שמשווק עכשיו. `on_hold` ענבר, כי זה
- * באמת מצב שממתין להחלטה. `sold`/`rented` ניטרליים: העסקה נגמרה,
- * ואין בהם מה לעשות.
+ * ‎`active` הוא ירוק — נכס שמשווק עכשיו. `on_hold` ענבר: מצב
+ * שממתין להחלטה, ולא דחיפות. אפרסק שמור ל„urgency: hot buyers,
+ * leads, time-critical”, ונכס בהמתנה אינו אף אחד מהם — הוא פשוט
+ * לא זז כרגע. `sold`/`rented` ניטרליים: העסקה נגמרה ואין בהם מה
+ * לעשות.
+ *
+ * זה גם מה שהמסמך אומר בשלילה: „a draft listing is NEUTRAL, never
+ * amber” נאמר על **טיוטה** דווקא, כלומר ענבר הוא הצבע שהיה מתבקש
+ * למצב ממתין — והמסמך שולל אותו רק עבור המצב שאינו ממתין לכלום.
  */
 const STATUS_DOMAIN: Record<string, { background: string; color: string }> = {
   draft: { background: "var(--domain-neutral-bg)", color: "var(--domain-neutral-fg)" },
   active: { background: "var(--domain-green-bg)", color: "var(--domain-green-fg)" },
-  on_hold: { background: "var(--domain-peach-bg)", color: "var(--domain-peach-fg)" },
+  on_hold: { background: "var(--domain-amber-bg)", color: "var(--domain-amber-fg)" },
   sold: { background: "var(--domain-neutral-bg)", color: "var(--domain-neutral-fg)" },
   rented: { background: "var(--domain-neutral-bg)", color: "var(--domain-neutral-fg)" },
   archived: { background: "var(--domain-neutral-bg)", color: "var(--domain-neutral-fg)" },
