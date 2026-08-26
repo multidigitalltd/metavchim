@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MANDATORY_MATCH_CRITERIA,
   MIN_CORE_COVERAGE,
   propertyEvaluableCriteria,
   resolveMatchWeights,
@@ -1066,5 +1067,44 @@ describe("כל ההערות עומדות בסכמה, על הקלט המרבי", 
     );
     expect(part?.note).toBeDefined();
     expect(ScoreComponentSchema.safeParse(part).success).toBe(true);
+  });
+});
+
+/*
+ * ‎**מה שמאפשר לצ'יפ האפור להיות נכון על קריטריון חובה.**
+ *
+ * המיקום וסוג הנכס יכולים להיעדר מהפירוט, ואז השאלה „חסר בנכס או
+ * שהקונה לא ביקש” נעשית עדינה: המיקום נבחן בשני מסלולים (עיר או
+ * קואורדינטות), וקונה שסימן רק על המפה מול נכס שיש לו רק עיר
+ * מייצר היעדר שאינו „חסר בנכס”.
+ *
+ * זה אינו מגיע למסך, ולא במקרה: `MatchingService` שומר פירוט רק
+ * כש-`excluded === false`, והשער של קריטריוני החובה מסמן `excluded`
+ * בדיוק כשאחד מהם נעדר. כלומר **כל פירוט שנשמר מכיל אותם**.
+ *
+ * זו הייתה מסקנה משתי שכבות שהחזקתי בקריאה בלבד. כאן היא הופכת
+ * לתכונה של המנוע עצמו, שנבדקת בלעדיו.
+ */
+describe("פירוט שנשמר מכיל תמיד את קריטריוני החובה", () => {
+  const noCoordsProperty: PropertyFields = { ...baseProperty };
+  const mapOnlyBuyer: BuyerRequirements = {
+    ...baseBuyer,
+    cities: [],
+    searchAreas: [{ lat: 32.08, lon: 34.83, radiusKm: 5 }],
+  };
+  const { propertyType: _t, ...noTypeProperty } = baseProperty;
+
+  it.each([
+    ["התאמה מלאה", baseProperty, baseBuyer],
+    ["קונה שסימן רק על המפה, נכס בלי קואורדינטות", noCoordsProperty, mapOnlyBuyer],
+    ["נכס בלי סוג", noTypeProperty, baseBuyer],
+    ["קונה בלי ערים ובלי אזורים", baseProperty, { ...baseBuyer, cities: [] }],
+  ])("%s", (_name, property, buyer) => {
+    const result = scoreMatch(property, buyer);
+    if (result.excluded) return; // לא נשמר, ולכן לא מגיע למסך
+    const criteria = new Set(result.breakdown.map((p) => p.criterion));
+    for (const mandatory of MANDATORY_MATCH_CRITERIA) {
+      expect(criteria.has(mandatory)).toBe(true);
+    }
   });
 });
