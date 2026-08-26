@@ -507,6 +507,15 @@ export default function DashboardPage() {
         .then(ok((r: { items: OfferRow[] }) => setOffers(r.items)))
         .catch(fail);
     }
+    /*
+     * ‎**`dayKey` הוא טריגר ולא ערך — ולכן ההשתקה, ולא הסרה.**
+     *
+     * הכלל צודק עובדתית: הגוף אינו קורא אותו. אבל הוא גבול היממה
+     * הישראלית, והנוכחות שלו כאן היא מה שמחליף את זהות ה-callback
+     * כשהיום מתחלף — וכך האפקט שמתחתיו טוען מחדש. הסרתו „לפי
+     * הכלל” הייתה משאירה את הדשבורד על טווחי אתמול אחרי חצות.
+     */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canSeeOffers, canSeeProperties, canSeeBuyers, canSeeLeads, canSeeCalendar, dayKey]);
 
   useEffect(() => {
@@ -586,6 +595,8 @@ export default function DashboardPage() {
         }
         setCoachFailed(true);
       });
+    /* אותו טריגר, ומאותה סיבה — ראו ההסבר ב-`loadDashboard` */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [featuresReady, featuresFailed, hasCoach, dayKey]);
 
   useEffect(() => {

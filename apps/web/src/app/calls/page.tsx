@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Button } from "@metavchim/ui";
 import { API_BASE, ApiError, apiDelete, apiGet, apiPost } from "@/lib/api";
@@ -160,7 +160,18 @@ export default function CallsPage() {
       : new URLSearchParams(window.location.search).get("call"),
   );
 
-  function load(current = outcome): void {
+  /*
+   * ‎**`useCallback` ולא השתקה — כי כאן הכלל צודק ואין מה לתרץ.**
+   *
+   * ‎`load` נקרא משלושה מקומות, ואחד מהם הוא אפקט. בלי עטיפה הוא
+   * נוצר מחדש בכל רינדור, ולכן לא היה אפשר להכליל אותו בתלויות בלי
+   * לולאה — וההשמטה הסתירה את השאלה האמיתית: **על מה הוא סוגר.**
+   *
+   * התשובה: על `outcome` בלבד (כברירת מחדל לפרמטר). כל השאר `ref`
+   * או `setState`, ששניהם יציבים; ‎`rows` שבתוך ה-`then` הוא הפרמטר
+   * של ההבטחה ולא state, ולכן אין כאן סגור מיושן.
+   */
+  const load = useCallback(function load(current = outcome): void {
     const query = current ? `?outcome=${current}` : "";
     apiGet<CallRow[]>(`/calls${query}`)
       .then((rows) => {
@@ -200,11 +211,11 @@ export default function CallsPage() {
         }
       })
       .catch(() => setError("טעינת השיחות נכשלה"));
-  }
+  }, [outcome]);
 
   useEffect(() => {
     if (!authLoading) load(outcome);
-  }, [authLoading, outcome]);
+  }, [authLoading, outcome, load]);
 
   useEffect(() => {
     if (authLoading) return;
