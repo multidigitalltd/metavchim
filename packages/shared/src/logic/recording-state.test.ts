@@ -7,6 +7,7 @@ import {
   recordingStateLabel,
   recordingStateOf,
 } from "./recording-state";
+import { UNANSWERED_OUTCOMES } from "./telephony";
 
 /**
  * הטענה שנבדקת כאן היא **שלא נשארים שלושה מצבים שנראים כאחד.**
@@ -66,6 +67,29 @@ describe("recordingStateOf", () => {
         now + RECORDING_GIVE_UP_MS + hour,
       ),
     ).toEqual({ state: "skipped" });
+  });
+
+  /*
+   * ‎**כל תוצאה שמשמעותה „לא נענתה”, ולא רק `missed`.**
+   *
+   * ‎`callOutcomeOf` כותב `missed` בלבד, אבל מתווכת יכולה לסמן שיחה
+   * ידנית כ-`voicemail` — וזה בדיוק המקרה שנאמר עליו במפורש שאין
+   * לתמלל. הרשימה נגזרת מ-`UNANSWERED_OUTCOMES` ואינה מועתקת, כדי
+   * שתוצאה חדשה לא תישאר בחוץ בשקט (ביקורת Codex).
+   */
+  it("כל תוצאה שאינה מענה — מדולגת", () => {
+    for (const outcome of UNANSWERED_OUTCOMES) {
+      expect(
+        recordingStateOf(
+          {
+            providerRecordingPath: "54936/12048/record_1_2",
+            outcome,
+            occurredAt: minutesAgo(10),
+          },
+          now,
+        ),
+      ).toEqual({ state: "skipped" });
+    }
   });
 
   /*

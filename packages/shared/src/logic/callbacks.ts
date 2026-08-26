@@ -1,4 +1,5 @@
 import { hebrewElapsed } from "./lead-waiting.js";
+import { UNANSWERED_OUTCOMES } from "./telephony.js";
 
 /**
  * „למי אני צריך לחזור” — הרשימה שמתווך באמת מבקש.
@@ -89,8 +90,14 @@ export interface CallbackCallRow {
   summary?: string;
 }
 
-/** תוצאות שמשמעותן „הלקוח ניסה ולא קיבל מענה”. */
-const UNANSWERED = new Set(["missed", "no_answer", "voicemail"]);
+/**
+ * תוצאות שמשמעותן „הלקוח ניסה ולא קיבל מענה”.
+ *
+ * הרשימה עברה ל-`telephony.ts`, לצד יתר משמעויות התוצאה, כשגם
+ * מנגנון משיכת ההקלטות נזקק לה. עותק שני היה מסכים איתה ביום
+ * שנכתב בלבד.
+ */
+const UNANSWERED = new Set<string>(UNANSWERED_OUTCOMES);
 
 /** מעבר לזה זו כבר היסטוריה, לא מטלה. */
 const MISSED_CALL_WINDOW_DAYS = 14;

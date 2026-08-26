@@ -1115,13 +1115,24 @@ export function nextRefusalStreak(streak: number, result: RecordingPullResult): 
 export type CallOutcome = "answered" | "missed" | "unknown";
 
 /**
- * ‎„לא נענתה” כערך שנשמר — קבוע ולא מחרוזת חוזרת.
+ * ‎**כל התוצאות שמשמעותן „הלקוח ניסה ולא קיבל מענה”.**
+ *
+ * שלוש ולא אחת. `callOutcomeOf` כותב `missed` בלבד, אבל
+ * ‎`OutcomeSchema` מקבל גם `no_answer` ו-`voicemail` — מתווכת יכולה
+ * לסמן שיחה ידנית, וזה בדיוק המקרה של תא קולי. סינון לפי
+ * ‎`missed` בלבד היה ממשיך למשוך ולתמלל בדיוק את השיחות שנאמר
+ * עליהן במפורש שאין לתמלל (ביקורת Codex).
+ *
+ * ‎**הרשימה הזו הייתה קיימת כבר**, פרטית ב-`callbacks.ts` תחת השם
+ * ‎`UNANSWERED`, ומשם היא הועברה לכאן. שתי הגדרות של „לא נענתה”
+ * היו נפרדות ביום שנכתבו ומסכימות רק במקרה — וזו הטעות שהקובץ
+ * הזה מתעד שוב ושוב. תוצאה חדשה נוספת כאן, ושני הצרכנים מקבלים
+ * אותה יחד.
  *
  * שאילתת המסד אינה יכולה לקרוא ל-`recordingWorthPulling`, ולכן היא
- * מסננת לפי הערך עצמו. קבוע אחד מבטיח שהשאילתה והפונקציה מדברות
- * על אותו דבר.
+ * מסננת ב-`notIn` על אותה רשימה בדיוק.
  */
-export const CALL_OUTCOME_MISSED: CallOutcome = "missed";
+export const UNANSWERED_OUTCOMES = ["missed", "no_answer", "voicemail"] as const;
 
 /**
  * התוצאה שנרשמת לשורת השיחה — **מאותה ראיה** שפותחת ליד.
@@ -1155,7 +1166,7 @@ export function callOutcomeOf(event: TelephonyEvent, answerObserved: boolean): C
  * אחת עם `no_integration`.
  */
 export function recordingWorthPulling(outcome: string | null | undefined): boolean {
-  return outcome !== CALL_OUTCOME_MISSED;
+  return !UNANSWERED_OUTCOMES.includes(outcome as (typeof UNANSWERED_OUTCOMES)[number]);
 }
 
 /** כותרת ההתראה שהמתווך רואה כשהטלפון מצלצל. */

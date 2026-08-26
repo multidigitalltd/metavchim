@@ -14,7 +14,7 @@ import { CryptoService } from "../../core/crypto.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
 import {
-  CALL_OUTCOME_MISSED,
+  UNANSWERED_OUTCOMES,
   parseCallHighlights,
   RECORDING_BLOCKED_REASON,
   recordingStateOf,
@@ -589,7 +589,7 @@ export class CallsService {
            * הסבב מסנן אותה החוצה, ולכן `queued: true` כאן היה הבטחה
            * שלא תתקיים. ראו `recordingWorthPulling`.
            */
-          outcome: { not: CALL_OUTCOME_MISSED },
+          outcome: { notIn: [...UNANSWERED_OUTCOMES] },
         },
         data: { providerRecordingAttemptAt: null, providerRecordingError: null },
       });

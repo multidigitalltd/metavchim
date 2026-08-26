@@ -23,7 +23,7 @@ import {
   unmatched015ListKeys,
   nextRefusalStreak,
   type RecordingPullResult,
-  CALL_OUTCOME_MISSED,
+  UNANSWERED_OUTCOMES,
 } from "@metavchim/shared";
 import { ulid } from "ulid";
 import { CryptoService } from "../../core/crypto.service";
@@ -611,7 +611,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
              * ממילא. סימונה „אין חיבור פעיל” היה שולח את המתווכת
              * לתקן הגדרה שאינה שבורה.
              */
-            outcome: { not: CALL_OUTCOME_MISSED },
+            outcome: { notIn: [...UNANSWERED_OUTCOMES] },
             OR: [
               { providerRecordingError: null },
               { providerRecordingError: { not: RECORDING_ERRORS.integration } },
@@ -642,7 +642,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
            * שאין בידינו ראיה, וההקלטה היא בדיוק הראיה החסרה. רק
            * ‎„לא נענתה” מפורשת עוצרת.
            */
-          outcome: { not: CALL_OUTCOME_MISSED },
+          outcome: { notIn: [...UNANSWERED_OUTCOMES] },
           /*
            * חלון הוויתור חל על מי ש**כבר נוסתה**, ולא על כל שורה.
            *
