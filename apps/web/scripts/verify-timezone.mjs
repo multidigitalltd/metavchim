@@ -228,9 +228,20 @@ function namesTimeZone(call) {
 function intlWithoutTimeZone(text) {
   const found = [];
   for (const { line, call } of callsOf(text, /new Intl\.DateTimeFormat\s*\(/gu)) {
-    /* ‎`timeStyle`/`dateStyle`/`hour`… — כל מה שמציג רגע */
-    const showsMoment = /(?:time|date)Style|hour|minute|weekday|day|month|year/u.test(call);
-    if (showsMoment && !namesTimeZone(call) && !call.includes(ALLOW)) found.push(line);
+    /*
+     * ‎**כל מעצב, בלי לשאול מה הוא מציג.**
+     *
+     * כאן ישבה רשימת רכיבים — `timeStyle`, `hour`, `day`… — והיא
+     * הייתה ניחוש: `new Intl.DateTimeFormat("he-IL")` בלי אפשרויות
+     * כלל אינה מכילה אף אחד מהם, ולכן עברה — בעוד שברירת המחדל
+     * של ה-API היא להציג יום/חודש/שנה בשעון המארח. ב-New_York
+     * ‎`2026-08-13T01:30Z` יוצא „12.8.2026” במקום „13.8.2026”
+     * (ביקורת Codex).
+     *
+     * זו הפעם החמישית שהיוריסטיקה „איך הבאג נראה” מפסידה לשאלה
+     * „מה הכלל”. הכלל הוא אחד: מעצב חייב לנקוב באזור זמן.
+     */
+    if (!namesTimeZone(call) && !call.includes(ALLOW)) found.push(line);
   }
   return found;
 }
