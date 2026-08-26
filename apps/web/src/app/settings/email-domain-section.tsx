@@ -227,7 +227,7 @@ export function EmailDomainSection(): React.JSX.Element {
               required
               placeholder="office.co.il"
               className="w-full rounded-lg border px-3 py-2.5"
-              style={{ borderColor: "var(--color-border)" }}
+              style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
             />
           </div>
           <div className="flex-1" style={{ minWidth: "200px" }}>
@@ -242,7 +242,7 @@ export function EmailDomainSection(): React.JSX.Element {
               required
               placeholder="info@office.co.il"
               className="w-full rounded-lg border px-3 py-2.5"
-              style={{ borderColor: "var(--color-border)" }}
+              style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
             />
           </div>
           <div className="flex-1" style={{ minWidth: "180px" }}>
@@ -257,7 +257,7 @@ export function EmailDomainSection(): React.JSX.Element {
               maxLength={80}
               placeholder="שם המשרד"
               className="w-full rounded-lg border px-3 py-2.5"
-              style={{ borderColor: "var(--color-border)" }}
+              style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
             />
           </div>
           <Button type="submit" disabled={busy}>
@@ -305,7 +305,7 @@ export function EmailDomainSection(): React.JSX.Element {
                   required
                   defaultValue={status.fromEmail}
                   className="w-full rounded-lg border px-3 py-2.5"
-                  style={{ borderColor: "var(--color-border)" }}
+                  style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
                 />
               </div>
               <div className="flex-1" style={{ minWidth: "180px" }}>
@@ -320,7 +320,7 @@ export function EmailDomainSection(): React.JSX.Element {
                   maxLength={80}
                   defaultValue={status.fromName}
                   className="w-full rounded-lg border px-3 py-2.5"
-                  style={{ borderColor: "var(--color-border)" }}
+                  style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
                 />
               </div>
               <Button type="submit" disabled={busy}>
@@ -439,7 +439,7 @@ export function EmailDomainSection(): React.JSX.Element {
                   required
                   placeholder="you@example.com"
                   className="w-full rounded-lg border px-3 py-2.5"
-                  style={{ borderColor: "var(--color-border)" }}
+                  style={{ borderColor: "var(--color-input-border)", background: "var(--color-bg)" }}
                 />
               </div>
               <Button type="submit" variant="secondary" disabled={busy}>
