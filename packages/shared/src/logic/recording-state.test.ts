@@ -6,6 +6,7 @@ import {
   recordingReasonLabel,
   recordingStateLabel,
   recordingStateOf,
+  importSentences,
 } from "./recording-state";
 import { UNANSWERED_OUTCOMES } from "./telephony";
 
@@ -331,5 +332,61 @@ describe("הניסוח למתווך", () => {
       recordingReasonLabel("missing_credentials"),
     );
     expect(recordingReasonLabel("no_integration")).toContain("הגדרות");
+  });
+});
+
+describe("importSentences", () => {
+  const empty = {
+    found: 0,
+    linked: 0,
+    skipped: 0,
+    alreadyHad: 0,
+    withoutCall: 0,
+    withoutRecordId: 0,
+  };
+
+  /*
+   * ‎**המקרה שנולד עם פיצול המונה, וזו הבדיקה שלו.**
+   *
+   * ייבוא שכל תוצאותיו שיחות שלא נענו: `linked === 0` אבל נתיבים
+   * כן צורפו. הגרסה הקודמת אמרה „לא נמצאו הקלטות חדשות לצרף”
+   * ומנתה אותן במשפט הבא — שתי אמירות סותרות באותה הודעה
+   * (ביקורת Codex).
+   */
+  it("הכול דולג — לא נאמר „לא נמצאו”, כי כן נמצאו", () => {
+    const lines = importSentences({ ...empty, found: 3, skipped: 3 });
+    expect(lines.join(" ")).not.toContain("לא נמצאו");
+    expect(lines.join(" ")).toContain("3");
+  });
+
+  it("באמת לא נמצא דבר — וזה המקרה היחיד שאומר „לא נמצאו”", () => {
+    expect(importSentences(empty)).toEqual(["לא נמצאו הקלטות חדשות לצרף."]);
+  });
+
+  /*
+   * ‎`withoutRecordId` הוא „נמצא משהו”, גם אם אי אפשר למשוך אותו —
+   * והמסך מציג אותו בשורה נפרדת. „לא נמצאו” לצדו היה סותר אותו.
+   */
+  it("הספק החזיר הקלטות בלי מזהה הורדה — לא „לא נמצאו”", () => {
+    expect(importSentences({ ...empty, found: 4, withoutRecordId: 4 })).toEqual([]);
+  });
+
+  /*
+   * אף משפט אינו נושא רווח מוביל ואינו מניח מי לפניו: החיבור הוא
+   * ‎`join`, וזה מה שנשבר פעמיים כששורשר ידנית.
+   */
+  it("אף משפט אינו תלוי במי שלפניו", () => {
+    for (const lines of [
+      importSentences({ ...empty, linked: 1 }),
+      importSentences({ ...empty, skipped: 1 }),
+      importSentences({ ...empty, alreadyHad: 1 }),
+      importSentences({ ...empty, withoutCall: 1 }),
+      importSentences({ ...empty, linked: 1, skipped: 2, alreadyHad: 3, withoutCall: 4 }),
+    ]) {
+      for (const line of lines) {
+        expect(line).toBe(line.trim());
+        expect(line.endsWith(".")).toBe(true);
+      }
+    }
   });
 });
