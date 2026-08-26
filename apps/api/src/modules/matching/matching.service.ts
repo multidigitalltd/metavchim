@@ -15,6 +15,7 @@ import {
   MATCH_THRESHOLDS,
   type BuyerRequirements,
   type MatchWeights,
+  SCORE_NOTE_MAX,
   ScoreComponentSchema,
   type ScoreComponent,
 } from "@metavchim/shared";
@@ -891,14 +892,37 @@ function toMatchDto(row: {
  * אותם למסך ומפיל אותו שם; הסכמה מסננת כל רכיב בנפרד, כך ששורה
  * אחת פגומה אינה מוחקת את הפירוט כולו.
  *
- * מה שלא נותר הוא **חסר**, לא שגוי — והמסך יודע להציג „לא נבדק”.
+ * ## ‎**הערה ארוכה מדי מקצצים, לא זורקים**
+ *
+ * המנוע ייצר הערות ארוכות מ-`SCORE_NOTE_MAX` (רשימת מאפיינים
+ * משורשרת, בלי גבול על מספר הדרישות של הקונה), והכתיבה שמרה אותן
+ * בלי אימות. סינון הרכיב כולו על סמך אורך ההערה היה מוחק מהמסך
+ * קריטריון ש**נבדק, נכשל, ואף פסל את ההתאמה** — ורצועת ההסבר
+ * הייתה מציגה אותו כאילו לא נבדק כלל (ביקורת Codex).
+ *
+ * זו ההבחנה שהרצועה כולה קיימת בשבילה, שנשברה בשלב הקריאה. הציון
+ * והמשקל תקינים; רק הטקסט ארוך. מקצצים את הטקסט ושומרים את העובדה.
+ *
+ * המנוע כבר אינו מייצר הערות כאלה — הקיצוץ כאן הוא בשביל שורות
+ * שנכתבו לפני כן ועדיין יושבות במסד.
+ *
+ * מה שלא נותר אחרי כל זה הוא **חסר**, לא שגוי.
  */
 function parseBreakdown(raw: unknown): ScoreComponent[] {
   if (!Array.isArray(raw)) return [];
   const out: ScoreComponent[] = [];
   for (const item of raw) {
-    const parsed = ScoreComponentSchema.safeParse(item);
+    const parsed = ScoreComponentSchema.safeParse(trimNote(item));
     if (parsed.success) out.push(parsed.data);
   }
   return out;
+}
+
+/** קיצוץ הערה שנשמרה לפני שהמנוע הכיר את התקרה. */
+function trimNote(item: unknown): unknown {
+  if (typeof item !== "object" || item === null) return item;
+  const note = (item as { note?: unknown }).note;
+  if (typeof note !== "string" || note.length <= SCORE_NOTE_MAX) return item;
+  /* „…” במקום חיתוך חד, כדי שייקרא כקטוע ולא כמשפט שנגמר באמצע */
+  return { ...item, note: `${note.slice(0, SCORE_NOTE_MAX - 1)}…` };
 }

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { MIN_CORE_COVERAGE, resolveMatchWeights, scoreMatch } from "./matching.js";
+import {
+  MIN_CORE_COVERAGE,
+  propertyEvaluableCriteria,
+  resolveMatchWeights,
+  scoreMatch,
+} from "./matching.js";
+import { MATCH_CRITERIA, ScoreComponentSchema } from "../schemas/match.js";
 import type { PropertyFields } from "../schemas/property.js";
 import type { BuyerRequirements } from "../schemas/buyer.js";
 
@@ -800,5 +806,117 @@ describe("שטח — רצועת סטייה חד-צדדית", () => {
   it("ההערה נוקבת בפער ולא רק בעובדה", () => {
     const result = scoreMatch({ ...baseProperty, areaSqm: 95 }, buyer);
     expect(result.breakdown.find((p) => p.criterion === "area")?.note).toContain("5%");
+  });
+});
+
+/*
+ * ‎**ההערה חייבת להיכנס לסכמה שהיא נשמרת בה.**
+ *
+ * המנוע כתב הערות בלי לדעת על התקרה, הכתיבה שמרה בלי לאמת,
+ * והקריאה השמיטה את הרכיב בשקט — כך שקריטריון שפסל את ההתאמה
+ * הופיע על המסך כ„לא נבדק” (ביקורת Codex). הבדיקה מודדת מול
+ * הסכמה עצמה, ולא מול חשבון תווים שכתבתי בהערה.
+ */
+describe("אורך ההערות מול הסכמה", () => {
+  /** מפתח מותאם באורך המרבי שהסכמה מתירה — התרחיש הגרוע ביותר. */
+  const longFeature = (i: number): string =>
+    `custom:${`מאפיין-ארוך-במיוחד-${i}`.padEnd(50, "־")}`.slice(0, 64);
+
+  function withFeatures(level: "must" | "nice", count: number): BuyerRequirements {
+    const features: Record<string, "must" | "nice"> = {};
+    for (let i = 0; i < count; i += 1) features[longFeature(i)] = level;
+    return { ...baseBuyer, features };
+  }
+
+  it("דרישות חובה רבות וארוכות — ההערה עדיין עוברת את הסכמה", () => {
+    /*
+     * המאפיינים המותאמים אינם קיימים בנכס, ולכן הם „לא ידוע”
+     * ונכנסים כולם להערה. אין בסכמה גבול על מספר הדרישות של הקונה.
+     */
+    const result = scoreMatch(baseProperty, withFeatures("must", 40));
+    const part = result.breakdown.find((p) => p.criterion === "features_must");
+    expect(part).toBeDefined();
+    expect(ScoreComponentSchema.safeParse(part).success).toBe(true);
+  });
+
+  it("„נחמד שיהיה” רבים וארוכים — אותו דבר", () => {
+    const result = scoreMatch(baseProperty, withFeatures("nice", 40));
+    const part = result.breakdown.find((p) => p.criterion === "features_nice");
+    expect(ScoreComponentSchema.safeParse(part).success).toBe(true);
+  });
+
+  it("דרישה שהנכס מפר במפורש — הרשימה מקוצצת והספירה נשמרת", () => {
+    const buyer = withFeatures("must", 40);
+    /* הנכס מצהיר `false` על כולם — כלומר הפרה מפורשת, לא „לא ידוע” */
+    const property: PropertyFields = {
+      ...baseProperty,
+      /* המפתח נשמר **עם** הקידומת — כך המנוע מחפש אותו */
+      customFeatures: Object.keys(buyer.features).map((key) => ({
+        key,
+        label: key.slice("custom:".length).slice(0, 24),
+        value: false,
+      })),
+    };
+    const result = scoreMatch(property, buyer);
+    const part = result.breakdown.find((p) => p.criterion === "features_must");
+    /*
+     * שער על הבדיקה עצמה: הפרה מפורשת מאפסת את הקריטריון ופוסלת
+     * את ההתאמה. בלי זה הבדיקה יכולה לרוץ בענף „לא ידוע” ולדווח
+     * הצלחה בלי לגעת בענף שהיא נכתבה בשבילו — וכך בדיוק קרה.
+     */
+    expect(part?.score).toBe(0);
+    expect(result.excluded).toBe(true);
+    expect(ScoreComponentSchema.safeParse(part).success).toBe(true);
+    /* מה שקוצץ נספר — „ועוד N” הוא ההבדל בין שלושה חסרים לארבעים */
+    expect(part?.note).toMatch(/ועוד \d+/);
+  });
+});
+
+/*
+ * ‎**„חסר בנכס” מול „הקונה לא ביקש”.**
+ *
+ * שני קריטריונים נעדרים מהפירוט מאותה סיבה נראית — אין להם ציון —
+ * ומשתי סיבות הפוכות. רצועת ההסבר צבעה את שניהם באפור, ולכן שלחה
+ * את המתווך למלא שדות בהתאמה שכבר מלאה (ביקורת Codex).
+ */
+describe("propertyEvaluableCriteria", () => {
+  /*
+   * ‎**השער שמגן על קונה-הבדיקה.**
+   *
+   * הפונקציה מודדת את הנכס בעזרת קונה שמבקש הכול. קריטריון חדש
+   * שיתווסף למנוע ולא יתווסף לקונה הזה יימדד כ„הנכס אינו מסוגל
+   * לו” — כלומר יוצג כחסר גם בנכס מלא, בשקט. כאן זה נופל.
+   */
+  it("נכס מלא מסוגל לכל הקריטריונים — בלי יוצא מן הכלל", () => {
+    const complete: PropertyFields = {
+      ...baseProperty,
+      latitude: 32.08,
+      longitude: 34.83,
+      entryType: "immediate",
+    };
+    expect([...propertyEvaluableCriteria(complete)].sort()).toEqual([...MATCH_CRITERIA].sort());
+  });
+
+  it("נכס בלי מחיר אינו מסוגל לקריטריון התקציב", () => {
+    const { priceAgorot: _omitted, ...noPrice } = baseProperty;
+    expect(propertyEvaluableCriteria(noPrice).has("budget")).toBe(false);
+    expect(propertyEvaluableCriteria(baseProperty).has("budget")).toBe(true);
+  });
+
+  it("נכס בלי שטח אינו מסוגל לקריטריון השטח", () => {
+    const { areaSqm: _omitted, ...noArea } = baseProperty;
+    expect(propertyEvaluableCriteria(noArea).has("area")).toBe(false);
+  });
+
+  /*
+   * המאפיינים הם קריטריון של **הקונה**: אין שדה בנכס שחוסם אותם,
+   * ולכן היעדרם לעולם אינו „חסר בנכס”. זה בדיוק המקרה ש-Codex
+   * הצביע עליו — קונה שסימן הכול כ„לא רלוונטי”.
+   */
+  it("המאפיינים אינם נחסמים בנכס — גם נכס ריק מסוגל להם", () => {
+    const bare: PropertyFields = { dealType: "sale" };
+    const evaluable = propertyEvaluableCriteria(bare);
+    expect(evaluable.has("features_must")).toBe(true);
+    expect(evaluable.has("features_nice")).toBe(true);
   });
 });

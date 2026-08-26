@@ -1,8 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useState, use, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  use,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
-import { describeEntry, labelOf, type ScoreComponent } from "@metavchim/shared";
+import {
+  describeEntry,
+  labelOf,
+  propertyEvaluableCriteria,
+  type MatchCriterion,
+  type PropertyFields,
+  type ScoreComponent,
+} from "@metavchim/shared";
 import { useRouter } from "next/navigation";
 import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
@@ -55,8 +69,17 @@ interface PropertyDetail {
   /** בארכיון — רק אז מוצגת מחיקה לצמיתות. */
   archived?: boolean;
   locationSource?: "pin" | "geocode";
-  propertyType?: string;
-  dealType?: string;
+  /*
+   * ‎**הטיפוסים של החבילה, ולא `string`.**
+   *
+   * השרת מאמת את השדות האלה מול אותן סכמות בדיוק, ולכן `string`
+   * כאן לא היה „זהירות” אלא ויתור: הוא אילץ `as` בכל מקום שנדרשה
+   * המשמעות (ראו „כניסה / מסירה” למטה, שנשען על מצב הכניסה ולא רק
+   * על קיומו), וכל `as` כזה הוא טענה על נתון שלא נבדקה.
+   */
+  propertyType?: PropertyFields["propertyType"];
+  dealType?: PropertyFields["dealType"];
+  entryType?: PropertyFields["entryType"];
   rooms?: number;
   areaSqm?: number;
   floor?: number;
@@ -66,7 +89,6 @@ interface PropertyDetail {
   hasBalcony?: boolean;
   hasSafeRoom?: boolean;
   priceAgorot?: number;
-  entryType?: string;
   entryDate?: string;
   entryNote?: string;
   internalNotes?: string;
@@ -167,9 +189,19 @@ const MATCH_FILTERS: readonly {
   key: string;
   label: string;
   keep: (m: MatchRow, hasOffer: boolean) => boolean;
+  /**
+   * האם הבורר נשען על מצב ההצעות — שמגיע בבקשה נפרדת שעשויה
+   * להיכשל. בורר כזה אינו זמין עד שהתשובה ידועה.
+   */
+  needsOffers?: boolean;
 }[] = [
   { key: "score90", label: "ציון 90+", keep: (m) => m.score >= 90 },
-  { key: "noOffer", label: "לא נשלחה הצעה", keep: (_m, hasOffer) => !hasOffer },
+  {
+    key: "noOffer",
+    label: "לא נשלחה הצעה",
+    keep: (_m, hasOffer) => !hasOffer,
+    needsOffers: true,
+  },
   {
     key: "hot",
     label: "קונה חם",
@@ -267,6 +299,25 @@ export default function PropertyDetailPage({
    */
   const [matchesFailed, setMatchesFailed] = useState(false);
   const [offers, setOffers] = useState<Record<string, OfferInfo>>({});
+  /**
+   * ‎**האם אנחנו כבר יודעים למי נשלחה הצעה.**
+   *
+   * ‎`offers` מתחיל ריק, והבקשה שממלאת אותו נכשלת בשקט
+   * (`.catch(() => undefined)`). כלומר „אין הצעה” היה גם התשובה
+   * הנכונה וגם מצב חוסר-הידיעה — ובורר „לא נשלחה הצעה” החזיר את
+   * **כל** ההתאמות: זמנית בכל טעינה, ולצמיתות אחרי תקלה (ביקורת
+   * Codex).
+   *
+   * זו אותה טעות שכל המסך הזה עוסק בה — „לא ידוע” שנקרא כ„לא” —
+   * והפעם היא הייתה בבורר עצמו.
+   *
+   * ‎**שלושה מצבים ולא שניים**, מאותו נימוק: „עוד לא חזר” ו„נכשל”
+   * נראים זהים למי שמסתכל על הבורר, אבל הראשון ייגמר מעצמו והשני
+   * לא. תווית „טוען…” על תקלה קבועה היא הבטחה שלא תתממש.
+   */
+  const [offersState, setOffersState] = useState<"loading" | "ready" | "failed">(
+    "loading",
+  );
   /*
    * קישור ההצעה מועתק לפי התאמה, ולכן ההודעה נושאת את מזהה ההתאמה.
    * שתיהן בלי איפוס אוטומטי: הן יושבות בתוך שורה/באנר שנשארים על
@@ -307,14 +358,19 @@ export default function PropertyDetailPage({
     apiGet<MatchRow[]>(`/properties/${id}/matches`)
       .then((rows) => {
         setMatches(rows);
-        if (rows.length > 0) {
-          const ids = rows.map((m) => m.id).join(",");
-          apiGet<Record<string, OfferInfo>>(
-            `/offers/for-matches?matchIds=${ids}`,
-          )
-            .then(setOffers)
-            .catch(() => undefined);
+        if (rows.length === 0) {
+          /* אין התאמות — אין מה לדעת, וזו ידיעה מלאה ולא חוסר */
+          setOffersState("ready");
+          return;
         }
+        setOffersState("loading");
+        const ids = rows.map((m) => m.id).join(",");
+        apiGet<Record<string, OfferInfo>>(`/offers/for-matches?matchIds=${ids}`)
+          .then((rowsById) => {
+            setOffers(rowsById);
+            setOffersState("ready");
+          })
+          .catch(() => setOffersState("failed"));
       })
       .catch(() => setMatchesFailed(true));
   }, [id]);
@@ -465,12 +521,18 @@ export default function PropertyDetailPage({
     );
     const rows = await apiGet<MatchRow[]>(`/properties/${id}/matches`);
     setMatches(rows);
-    if (rows.length > 0) {
-      const ids = rows.map((m) => m.id).join(",");
-      apiGet<Record<string, OfferInfo>>(`/offers/for-matches?matchIds=${ids}`)
-        .then(setOffers)
-        .catch(() => undefined);
+    if (rows.length === 0) {
+      setOffersState("ready");
+      return;
     }
+    setOffersState("loading");
+    const ids = rows.map((m) => m.id).join(",");
+    apiGet<Record<string, OfferInfo>>(`/offers/for-matches?matchIds=${ids}`)
+      .then((rowsById) => {
+        setOffers(rowsById);
+        setOffersState("ready");
+      })
+      .catch(() => setOffersState("failed"));
   }
 
   async function saveNotes(next: string): Promise<void> {
@@ -541,9 +603,9 @@ export default function PropertyDetailPage({
       // תשובות ולא חוסר, ולכן אינם מוצגים כמקף
       value:
         describeEntry({
-          entryType: property.entryType as Parameters<
-            typeof describeEntry
-          >[0]["entryType"],
+          ...(property.entryType !== undefined
+            ? { entryType: property.entryType }
+            : {}),
           ...(property.entryDate !== undefined
             ? { entryDate: new Date(property.entryDate) }
             : {}),
@@ -558,9 +620,44 @@ export default function PropertyDetailPage({
     },
   ];
 
-  const bulkEligible = (matches ?? []).filter(
-    (m) => m.score >= 85 && !offers[m.id],
-  ).length;
+  /**
+   * ‎**מה שהנכס מסוגל להיבחן בו — כדי להבדיל „חסר בנכס” מ„הקונה
+   * לא ביקש”.**
+   *
+   * קריטריון שנעדר מפירוט ההתאמה יכול להיות אחד משניים, והם
+   * הפוכים: שדה ריק בנכס (יש מה לעשות) או דרישה שהקונה לא הגדיר
+   * (אין מה לעשות, וההתאמה מלאה). ראו `propertyEvaluableCriteria`.
+   *
+   * ‎**הפיזור, ולא רשימת שדות ביד.** `{...property}` מעביר גם שדה
+   * שיתווסף מחר לכרטיס; רשימה ידנית הייתה משמיטה אותו בשקט, והמסך
+   * היה מכריז „חסר בנכס” על שדה מלא. רק `entryDate` מומר, כי ה-API
+   * מחזיר מחרוזת והמנוע קורא תאריך.
+   */
+  const matchEvaluable = useMemo<ReadonlySet<MatchCriterion>>(() => {
+    if (property === null) return new Set<MatchCriterion>();
+    const { entryDate, ...rest } = property;
+    const fields: PropertyFields = {
+      ...rest,
+      ...(entryDate !== undefined ? { entryDate: new Date(entryDate) } : {}),
+    };
+    return propertyEvaluableCriteria(fields);
+  }, [property]);
+
+  /*
+   * ‎**אותו „לא ידוע” שנקרא כ„לא”, בכפתור שמייצר הצעות.**
+   *
+   * הכפתור נוקב במספר („לאשר יצירת 7 הצעות?”), והמספר נשען על
+   * ‎`offers` שעדיין ריק בזמן הטעינה — כלומר הוא מנופח, והמתווך
+   * מאשר כמות שאינה מה שייווצר. השרת מחשב את הזכאות בעצמו ולכן לא
+   * נשלחות הצעות כפולות, אבל המספר שהוצג לאישור היה שקרי.
+   *
+   * זה היה כאן לפני הבוררים ולא נולד איתם; הוא נסגר כאן כי זה אותו
+   * מצב בדיוק, בשורה אחת.
+   */
+  const bulkEligible =
+    offersState === "ready"
+      ? (matches ?? []).filter((m) => m.score >= 85 && !offers[m.id]).length
+      : 0;
 
   /*
    * הסינון מצטבר: כל צ'יפ שנבחר מצמצם עוד. השורה נשארת רק אם היא
@@ -568,7 +665,14 @@ export default function PropertyDetailPage({
    */
   const visibleMatches = (matches ?? []).filter((m) =>
     MATCH_FILTERS.every(
-      (f) => !matchFilters.has(f.key) || f.keep(m, offers[m.id] !== undefined),
+      (f) =>
+        !matchFilters.has(f.key) ||
+        /*
+         * בורר שנבחר ואז המידע שמתחתיו הפך לבלתי ידוע (רענון אחרי
+         * חישוב מחדש, או תקלה) — מפסיק לסנן במקום לסנן לפי ניחוש.
+         */
+        (f.needsOffers === true && offersState !== "ready") ||
+        f.keep(m, offers[m.id] !== undefined),
     ),
   );
   const hiddenByFilter = (matches?.length ?? 0) - visibleMatches.length;
@@ -1120,10 +1224,25 @@ export default function PropertyDetailPage({
               <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
                 {MATCH_FILTERS.map((f) => {
                   const on = matchFilters.has(f.key);
+                  /*
+                    ‎**בורר שאינו יודע — אינו נלחץ.** „לא נשלחה
+                    הצעה” נשען על בקשה נפרדת; כל עוד היא לא חזרה,
+                    „אין הצעה” הוא ניחוש ולא תשובה, והבורר היה
+                    מחזיר גם התאמות שכבר נשלחה עליהן הצעה.
+                  */
+                  const blocked = f.needsOffers === true && offersState !== "ready";
                   return (
                     <button
                       key={f.key}
                       type="button"
+                      disabled={blocked}
+                      title={
+                        blocked
+                          ? offersState === "failed"
+                            ? "לא הצלחנו לטעון את מצב ההצעות"
+                            : "טוען את מצב ההצעות…"
+                          : undefined
+                      }
                       aria-pressed={on}
                       /*
                         ‎`mv-chip` ולא `mv-example-chip`: הראשון כבר
@@ -1261,7 +1380,10 @@ export default function PropertyDetailPage({
                         במקומו: המשפט אומר את המסקנה, והצ'יפים אומרים
                         על מה היא נשענת ומה אפשר להשלים.
                       */}
-                      <MatchExplanation breakdown={m.breakdown} />
+                      <MatchExplanation
+                        breakdown={m.breakdown}
+                        propertyEvaluable={matchEvaluable}
+                      />
                       {awaitingSignature[m.id] ? (
                         <div className="mt-1.5 text-[length:var(--type-caption-lg)]">
                           <span style={{ color: "var(--color-danger)" }}>

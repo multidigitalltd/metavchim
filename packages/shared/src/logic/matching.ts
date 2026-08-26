@@ -114,6 +114,48 @@ export function propertyFeatureLabel(key: string): string {
   return FEATURE_LABELS[key] ?? key;
 }
 
+/**
+ * ‎**תקציב התווים לרשימת תוויות בתוך הערה.**
+ *
+ * ההערות של המאפיינים משרשרות רשימה שאין עליה גבול: לקונה מותר
+ * לדרוש כמה מאפיינים שירצה, ומפתח מותאם מגיע עד 64 תווים. הערה
+ * כזו חרגה מ-`SCORE_NOTE_MAX`, נשמרה בלי אימות, ובקריאה חזרה
+ * הרכיב **נשמט בשקט** — כך שקריטריון שפסל את ההתאמה הוצג כ„לא
+ * נבדק” (ביקורת Codex).
+ *
+ * ‎180 ועוד הקידומת והסיומת הארוכות ביותר („ ‎— סומן כעדיפות ולא
+ * כחובה”) ועוד „ ועוד 999” נשארים הרחק מתחת לתקרה. הבדיקה מודדת
+ * זאת מול הסכמה עצמה ולא מול החשבון הזה.
+ */
+const NOTE_LABEL_BUDGET = 180;
+
+/**
+ * רשימת תוויות מקוצרת — **ובלי לאבד את הספירה.**
+ *
+ * „ועוד 4” אינו קישוט: מתווך שרואה שלושה מאפיינים חסרים מתוך
+ * שבעה מקבל החלטה אחרת ממי שחושב שחסרים שלושה. הקיצוץ נוגע למה
+ * שנכתב, לא למה שנספר.
+ */
+function joinFeatureLabels(labels: readonly string[]): string {
+  const shown: string[] = [];
+  let used = 0;
+  for (const label of labels) {
+    const cost = shown.length === 0 ? label.length : label.length + 2;
+    if (used + cost > NOTE_LABEL_BUDGET) break;
+    shown.push(label);
+    used += cost;
+  }
+  if (shown.length === labels.length) return labels.join(", ");
+  /*
+   * תווית אחת לפחות תמיד. „ועוד 7” לבדו אינו אומר על מה, וזו הערה
+   * שעדיף היה שלא תיכתב.
+   */
+  if (shown.length === 0 && labels.length > 0) {
+    shown.push(labels[0]!.slice(0, NOTE_LABEL_BUDGET));
+  }
+  return `${shown.join(", ")} ועוד ${labels.length - shown.length}`;
+}
+
 const FEATURE_LABELS: Record<string, string> = {
   hasElevator: "מעלית",
   hasParking: "חניה",
@@ -463,7 +505,7 @@ export function scoreMatch(
         criterion: "features_must",
         weight: weights.features_must,
         score: 0,
-        note: `חסר: ${mustMissingExplicit.join(", ")} (חובה עבור הקונה)`,
+        note: `חסר: ${joinFeatureLabels(mustMissingExplicit)} (חובה עבור הקונה)`,
       });
     } else if (featureEntries.some(([, level]) => level === "must")) {
       /*
@@ -481,7 +523,7 @@ export function scoreMatch(
         score: mustScore,
         note:
           mustUnknown.length > 0
-            ? `לא ידוע אם יש ${mustUnknown.join(", ")} — להשלים בנכס`
+            ? `לא ידוע אם יש ${joinFeatureLabels(mustUnknown)} — להשלים בנכס`
             : "כל דרישות החובה מתקיימות",
       });
     }
@@ -501,7 +543,7 @@ export function scoreMatch(
         score: niceHit / niceTotal,
         note:
           missedNice.length > 0
-            ? `חסר ${missedNice.join(", ")} — סומן כעדיפות ולא כחובה`
+            ? `חסר ${joinFeatureLabels(missedNice)} — סומן כעדיפות ולא כחובה`
             : "כל ההעדפות מתקיימות",
       });
     }
@@ -670,6 +712,72 @@ export function scoreMatch(
     excluded,
     insufficientData: false,
   };
+}
+
+/**
+ * ‎**קונה שמבקש הכול — כלי מדידה, לא נתון.**
+ *
+ * כל קריטריון נבחן רק כששני הצדדים תרמו: הנכס נותן מחיר והקונה
+ * נותן תקציב, הנכס נותן שטח והקונה נותן מינימום. הקונה הזה מספק
+ * את **כל** החצי שלו, ולכן מה שנשאר אחרי הרצה מולו הוא בדיוק
+ * החצי של הנכס.
+ *
+ * הערכים חסרי משמעות בכוונה — הם נבחרו כדי שהקריטריון **ייבחן**,
+ * לא כדי שיעבור. הציון שיוצא נזרק; רק זהות הרכיבים נקראת.
+ *
+ * ‎`entryType: "flexible"` הוא המפתח בשורת מועד הכניסה: קונה גמיש
+ * מקבל ציון מיד כשלנכס יש מצב כניסה כלשהו, בלי לדרוש תאריך — כלומר
+ * הוא מודד את הנכס ולא את עצמו. אותו עיקרון בשאר השדות.
+ */
+const EVERY_REQUIREMENT_BUYER: BuyerRequirements = {
+  cities: ["*"],
+  neighborhoods: [],
+  /* שני מסלולי המיקום מסופקים — ייבחן זה שהנכס תומך בו */
+  searchAreas: [{ lat: 32, lon: 34.8, radiusKm: 50 }],
+  dealType: "sale",
+  propertyTypes: ["apartment"],
+  budgetMaxAgorot: Number.MAX_SAFE_INTEGER,
+  roomsMin: 0,
+  areaSqmMin: 1,
+  /* דרישה אחת מכל רמה — כדי ששני קריטריוני המאפיינים ייבחנו */
+  features: { hasElevator: "must", hasParking: "nice" },
+  entryType: "flexible",
+};
+
+/**
+ * ‎**אילו קריטריונים הנכס הזה מסוגל להיבחן בהם בכלל.**
+ *
+ * ## השאלה שזה עונה עליה
+ *
+ * קריטריון שאינו בפירוט ההתאמה יכול להיות שני דברים הפוכים:
+ *
+ * - ‎**חסר בנכס** — אין מחיר, אין שטח. המתווך יכול לתקן, וכדאי
+ *   שיידע.
+ * - ‎**הקונה לא ביקש** — לא הגדיר תקציב, לא סימן „נחמד שיהיה”.
+ *   אין כאן פער ואין מה להשלים; ההתאמה **מלאה כפי שהיא**.
+ *
+ * רצועת ההסבר צבעה את שניהם באפור „לא נבדק”, ולכן התאמה תקינה
+ * לחלוטין נראתה כמלאה בשדות פתוחים (ביקורת Codex). זו אותה טעות
+ * שהרצועה עצמה נבנתה כדי לתקן — שני מצבים שונים באותו צבע — רק
+ * מדרגה אחת פנימה.
+ *
+ * ## למה זה מריץ את המנוע ולא מפרט תנאים
+ *
+ * אפשר היה לכתוב כאן „תקציב דורש `priceAgorot`, שטח דורש
+ * ‎`areaSqm`”. זו הייתה **רשימה שנייה שמסכימה עם `scoreMatch`
+ * בקריאה שלי בלבד** — ותנאי שישתנה שם היה משאיר כאן טענה שקרית,
+ * בשקט.
+ *
+ * במקום זה `scoreMatch` עצמו הוא התשובה: מריצים אותו מול קונה
+ * שמבקש הכול, ומה שיצא הוא מה שהנכס מסוגל לתרום. אין תנאי משוכפל
+ * ואין מה שיתיישן.
+ */
+export function propertyEvaluableCriteria(
+  property: PropertyFields,
+  now: Date = new Date(),
+): Set<MatchCriterion> {
+  const probe = scoreMatch(property, EVERY_REQUIREMENT_BUYER, DEFAULT_MATCH_WEIGHTS, now);
+  return new Set(probe.breakdown.map((p) => p.criterion));
 }
 
 function buildExplanation(

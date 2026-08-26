@@ -35,11 +35,25 @@ export const MATCH_CRITERIA = [
 
 export type MatchCriterion = (typeof MATCH_CRITERIA)[number];
 
+/**
+ * ‎**אורך ההערה המרבי — קבוע אחד, ולא מספר שמופיע בשני מקומות.**
+ *
+ * ההערה נוצרת במנוע ונקראת חזרה מ-JSON דרך הסכמה הזו. כשהמנוע לא
+ * הכיר את התקרה הוא ייצר הערות ארוכות ממנה (רשימת מאפיינים שרשורה,
+ * בלי גבול על מספר הדרישות של הקונה), הכתיבה שמרה אותן בלי אימות,
+ * והקריאה **השמיטה את הרכיב בשקט** — כך שקריטריון שנבדק, נכשל,
+ * ואף פסל את ההתאמה, הופיע על המסך כ„לא נבדק” (ביקורת Codex).
+ *
+ * זו בדיוק ההבחנה שרצועת ההסבר קיימת בשבילה, שנשברה בדרך אליה.
+ * הקבוע מיוצא כדי ששני הצדדים יימדדו מולו ולא מול זיכרון.
+ */
+export const SCORE_NOTE_MAX = 300;
+
 export const ScoreComponentSchema = z.object({
   criterion: z.enum(MATCH_CRITERIA),
   weight: z.number().min(0).max(1),
   score: z.number().min(0).max(1),
-  note: z.string().max(300).optional(),
+  note: z.string().max(SCORE_NOTE_MAX).optional(),
 });
 export type ScoreComponent = z.infer<typeof ScoreComponentSchema>;
 
