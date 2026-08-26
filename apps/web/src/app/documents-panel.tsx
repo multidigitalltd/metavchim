@@ -57,6 +57,21 @@ const inputStyle = {
  */
 const ACCEPT = "application/pdf,image/jpeg,image/png,image/webp,image/heic,.pdf,.heic";
 
+/** נכס לבחירה כשהמסך אינו מזהה נכס בעצמו — כמו ב-`AgreementsPanel`. */
+interface PropertyOption {
+  id: string;
+  city?: string;
+  neighborhood?: string;
+  street?: string;
+  rooms?: number;
+}
+
+function propertyLabel(p: PropertyOption): string {
+  const where = [p.street, p.neighborhood, p.city].filter(Boolean).join(", ");
+  const rooms = p.rooms !== undefined ? `${p.rooms} חדרים` : "";
+  return [rooms, where].filter(Boolean).join(" · ") || "נכס ללא כתובת";
+}
+
 export function DocumentsPanel({
   contactId,
   propertyId,
@@ -82,6 +97,8 @@ export function DocumentsPanel({
   const [signerName, setSignerName] = useState("");
   const [signedOn, setSignedOn] = useState("");
   const [note, setNote] = useState("");
+  const [chosenProperty, setChosenProperty] = useState("");
+  const [properties, setProperties] = useState<PropertyOption[] | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function load(): void {
@@ -94,6 +111,25 @@ export function DocumentsPanel({
   useEffect(load, [contactId]);
 
   const declares = documentUnlocksOffers(kind);
+
+  /*
+   * ‎**הנכס שההסכם חל עליו — נבחר כאן כשהמסך אינו מספק אותו.**
+   *
+   * ‎`hasSigned` מחפש חתימה על נכס מסוים, ולכן מסמך שנשמר בלי נכס
+   * אינו פותח שום הצעה. הגרסה הראשונה של המסך הזה לא שאלה על נכס
+   * בכרטיס הקונה, ובכל זאת הודיעה „אפשר לשלוח ללקוח הצעות על
+   * הנכס” — הבטחה שהמערכת לא קיימה (ביקורת Codex). זו אותה בחירה
+   * בדיוק שכבר קיימת ב-`AgreementsPanel`, ומאותה סיבה.
+   */
+  const needsProperty = propertyId === undefined && declares;
+  const effectiveProperty = propertyId ?? chosenProperty;
+
+  useEffect(() => {
+    if (!open || !needsProperty || properties !== null) return;
+    apiGet<{ items: PropertyOption[] }>("/properties?limit=100")
+      .then((res) => setProperties(res.items))
+      .catch(() => setProperties([]));
+  }, [open, needsProperty, properties]);
 
   async function upload(): Promise<void> {
     const file = fileRef.current?.files?.[0];
@@ -113,6 +149,10 @@ export function DocumentsPanel({
       setError("מתי נחתם? התאריך נדרש כדי לשמור את המסמך כהסכם חתום");
       return;
     }
+    if (declares && effectiveProperty === "") {
+      setError("בחרו את הנכס שההסכם חל עליו");
+      return;
+    }
 
     setBusy(true);
     setError(null);
@@ -122,7 +162,7 @@ export function DocumentsPanel({
       form.append("contactId", contactId);
       form.append("kind", kind);
       form.append("fileName", file.name);
-      if (propertyId !== undefined) form.append("propertyId", propertyId);
+      if (effectiveProperty !== "") form.append("propertyId", effectiveProperty);
       if (signerName.trim() !== "") form.append("signerName", signerName.trim());
       if (signedOn !== "") form.append("signedOn", signedOn);
       if (note.trim() !== "") form.append("note", note.trim());
@@ -139,13 +179,14 @@ export function DocumentsPanel({
       }
       setDone(
         declares
-          ? "המסמך צורף ונשמר כהסכם חתום. אפשר לשלוח ללקוח הצעות על הנכס."
+          ? "המסמך צורף ונשמר כהסכם חתום. אפשר לשלוח ללקוח הצעות על אותו נכס."
           : "המסמך צורף לכרטיס.",
       );
       setSignerName("");
       setSignedOn("");
       setNote("");
       setKind(defaultKind);
+      setChosenProperty("");
       if (fileRef.current) fileRef.current.value = "";
       setOpen(false);
       load();
@@ -279,8 +320,39 @@ export function DocumentsPanel({
             <Notice tone="warning">
               <strong>זו הצהרה שלכם שהלקוח חתם.</strong> המערכת אינה יכולה לאמת את
               הדף, ולכן היא נסמכת עליכם — ומרגע השמירה אפשר לשלוח ללקוח הצעות על
-              הנכס, בדיוק כמו אחרי חתימה במערכת.
+              אותו נכס, בדיוק כמו אחרי חתימה במערכת.
             </Notice>
+          ) : null}
+
+          {/*
+            הנכס שההסכם חל עליו. מוצג רק כשהמסך אינו יודע אותו
+            בעצמו (כרטיס הקונה) וכשהסוג הוא הצהרה — „מסמך אחר”
+            אינו נוגע לנכס מסוים ואינו פותח דבר.
+          */}
+          {needsProperty ? (
+            <div>
+              <label htmlFor={`doc-prop-${contactId}`} className="mb-1 block font-medium">
+                הנכס שההסכם חל עליו
+              </label>
+              <p className="m-0 mb-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                ההזמנה בכתב מתארת נכס מסוים, והחתימה עליה פותחת הצעות על אותו נכס
+                בלבד.
+              </p>
+              <select
+                id={`doc-prop-${contactId}`}
+                value={chosenProperty}
+                onChange={(event) => setChosenProperty(event.target.value)}
+                className="w-full rounded-lg border px-3 py-2.5"
+                style={inputStyle}
+              >
+                <option value="">בחרו נכס…</option>
+                {(properties ?? []).map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {propertyLabel(option)}
+                  </option>
+                ))}
+              </select>
+            </div>
           ) : null}
 
           <div>

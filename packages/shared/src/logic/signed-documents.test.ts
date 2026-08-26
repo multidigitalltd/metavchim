@@ -4,6 +4,8 @@ import {
   DOCUMENT_KIND_LABELS,
   documentUnlocksOffers,
   formatFileSize,
+  OFFER_DOCUMENT_KINDS,
+  parseSignedOnDate,
   safeFileName,
   sniffDocumentType,
 } from "./signed-documents.js";
@@ -45,6 +47,54 @@ describe("documentUnlocksOffers", () => {
 
   it("לכל סוג יש תווית, ואין תווית לסוג שאינו קיים", () => {
     expect(Object.keys(DOCUMENT_KIND_LABELS).sort()).toEqual([...DOCUMENT_KINDS].sort());
+  });
+
+  /*
+   * הרשימה והפונקציה הן אותו דבר — זו הנקודה שבה שמירת מסמכים
+   * במחיקת לקוח נפרדה מהן ושמרה תעודת זהות לנצח.
+   */
+  it("הרשימה שהשאילתות משתמשות בה זהה לפונקציה", () => {
+    for (const kind of DOCUMENT_KINDS) {
+      expect(
+        (OFFER_DOCUMENT_KINDS as readonly string[]).includes(kind),
+        kind,
+      ).toBe(documentUnlocksOffers(kind));
+    }
+    expect(OFFER_DOCUMENT_KINDS).not.toContain("other");
+  });
+});
+
+describe("parseSignedOnDate", () => {
+  it("תאריך אמיתי נקרא כפי שנמסר", () => {
+    expect(parseSignedOnDate("2026-08-26")?.toISOString()).toBe("2026-08-26T00:00:00.000Z");
+    // שנה מעוברת — 29 בפברואר קיים ב-2028
+    expect(parseSignedOnDate("2028-02-29")?.toISOString()).toBe("2028-02-29T00:00:00.000Z");
+  });
+
+  /*
+   * שתי הצורות שעברו את הרגקס ונשברו אחריו.
+   *
+   * ‎`2026-02-31` גלש בשקט ל-3 במרץ — תאריך חתימה שגוי על מסמך
+   * משפטי. `2026-13-01` הפך ל-Invalid Date, וכל השוואה עליו היא
+   * `false`: הוא **עבר** את בדיקת „לא עתידי” והגיע למסד.
+   */
+  it("יום שאינו קיים בחודש נדחה ואינו גולש", () => {
+    expect(parseSignedOnDate("2026-02-31")).toBeNull();
+    expect(parseSignedOnDate("2027-02-29")).toBeNull();
+    expect(parseSignedOnDate("2026-04-31")).toBeNull();
+  });
+
+  it("חודש או יום מחוץ לתחום נדחים", () => {
+    expect(parseSignedOnDate("2026-13-01")).toBeNull();
+    expect(parseSignedOnDate("2026-00-10")).toBeNull();
+    expect(parseSignedOnDate("2026-08-00")).toBeNull();
+    expect(parseSignedOnDate("2026-08-32")).toBeNull();
+  });
+
+  it("מה שאינו בצורה הזו נדחה", () => {
+    for (const value of ["", "26-08-2026", "2026-8-6", "2026-08-26T10:00", "אתמול"]) {
+      expect(parseSignedOnDate(value), value).toBeNull();
+    }
   });
 });
 

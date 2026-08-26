@@ -118,6 +118,18 @@ export class SignedDocumentsService {
      * בו אחר כך.
      */
     if (documentUnlocksOffers(input.kind)) {
+      /*
+       * ‎**הנכס ראשון, כי בלעדיו כל השאר חסר תועלת.**
+       *
+       * ‎`hasSigned` מחפש חתימה על נכס מסוים, ולכן שורה עם
+       * ‎`property_id = NULL` אינה פותחת שום הצעה. המסך בכרטיס
+       * הקונה לא ביקש נכס והודיע „אפשר לשלוח הצעות” — הבטחה
+       * שהמערכת לא קיימה (ביקורת Codex). הבדיקה כאן ולא רק
+       * בסכימה, כי זו הנקודה שבה השורה נכתבת.
+       */
+      if (input.propertyId === undefined) {
+        throw new BadRequestException("הסכם חתום נוגע לנכס מסוים — בחרו את הנכס שההסכם חל עליו");
+      }
       if (input.signerName === undefined || input.signerName.trim() === "") {
         throw new BadRequestException("מי חתם? השם נדרש כדי לשמור את המסמך כהסכם חתום");
       }
@@ -238,13 +250,29 @@ export class SignedDocumentsService {
         take: MAX_DOCUMENTS_PER_CONTACT,
       });
     });
-    return rows.map((row) => ({
+    return rows.map((row) => this.toDto(row));
+  }
+
+  /**
+   * שורה ⟵ מה שהמסך מקבל.
+   *
+   * ‎`kind` מגיע מהמסד כמחרוזת. הוא נכתב רק דרך `upload`, שמקבל
+   * ערך מאומת — אבל התצוגה לא תסמוך על כך ותציג „מסמך אחר” לערך
+   * שאיננו מכירים, במקום תווית ריקה.
+   */
+  private toDto(row: {
+    id: string;
+    kind: string;
+    fileName: string;
+    mimeType: string;
+    byteSize: number;
+    signedOn: Date | null;
+    signerName: string | null;
+    note: string | null;
+    createdAt: Date;
+  }): SignedDocumentDto {
+    return {
       id: row.id,
-      /*
-       * ‎`kind` מגיע מהמסד כמחרוזת. הוא נכתב רק דרך `upload`, שמקבל
-       * ערך מאומת — אבל התצוגה לא תסמוך על כך ותציג „מסמך אחר”
-       * לערך שאיננו מכירים, במקום תווית ריקה.
-       */
       kind: (DOCUMENT_KINDS as readonly string[]).includes(row.kind)
         ? (row.kind as DocumentKind)
         : "other",
@@ -256,7 +284,30 @@ export class SignedDocumentsService {
       ...(row.note ? { note: row.note } : {}),
       createdAt: row.createdAt.toISOString(),
       url: documentDownloadPath(row.id),
-    }));
+    };
+  }
+
+  /**
+   * המסמכים ששרדו מחיקת לקוח — ארכיון המשרד.
+   *
+   * ‎**בלי הרשימה הזו השמירה הייתה חסרת ערך.** מחיקת לקוח מנתקת
+   * סריקה של הזמנה בכתב חתומה במקום למחוק אותה, כי היא ראיה
+   * ובסיס הזכאות לדמי התיווך — אבל כל שאר המסלולים אליה עוברים
+   * דרך כרטיס הלקוח, ולכרטיס אין קיום. התוצאה הייתה שורה שאיש
+   * אינו יכול להגיע אליה, כלומר PII שנשמר לנצח בלי שישרת דבר
+   * (ביקורת Codex). אותו פתרון בדיוק כמו ב-`listRetained` של
+   * ההסכמים, ותחת אותה יכולת.
+   */
+  async listRetained(): Promise<SignedDocumentDto[]> {
+    const tenantId = TenantContext.current().tenantId;
+    const rows = await this.prisma.withTenant((tx) =>
+      tx.signedDocument.findMany({
+        where: { tenantId, contactId: null },
+        orderBy: { signedOn: "desc" },
+        take: 500,
+      }),
+    );
+    return rows.map((row) => this.toDto(row));
   }
 
   /**
@@ -264,8 +315,14 @@ export class SignedDocumentsService {
    *
    * ההורדה נרשמת ב-Audit: המסמך עוזב את המערכת, וזו הנקודה שבה יש
    * מה לתעד — אותו כלל בדיוק כמו בייצוא דוח הפעילות לבעל הנכס.
+   *
+   * ‎`retained` מסמן שהקורא הגיע מארכיון המשרד ולא מכרטיס לקוח.
+   * שם הבעלות אינה ניתנת לבדיקה — אין כרטיס — ולכן השער הוא
+   * היכולת שבנתיב (`settings.manage`), והוא חל **רק** על שורה
+   * שכבר נותקה. שורה משויכת נבדקת מול הלקוח שלה כרגיל, גם במסלול
+   * הזה.
    */
-  async getRaw(id: string): Promise<{
+  async getRaw(id: string, opts: { retained?: boolean } = {}): Promise<{
     body: NodeJS.ReadableStream;
     contentType?: string;
     contentLength?: number;
@@ -282,18 +339,25 @@ export class SignedDocumentsService {
        * ‎**שער הבעלות כאן ולא רק ברשימה.** הרשימה נשלפת לפי לקוח
        * ועוברת `assertContactAccess`, אבל ההורדה מקבלת מזהה מסמך —
        * ובלי הבדיקה סוכן שמנחש מזהה היה מוריד מסמך חתום של לקוח
-       * שאינו שלו. מסמך שנותק מלקוח שנמחק (`contactId = null`) אינו
-       * שייך לאיש, ולכן אינו יורד במסלול הזה.
+       * שאינו שלו.
        */
       if (found.contactId === null) {
-        throw new NotFoundException("המסמך אינו משויך ללקוח — הלקוח נמחק מהמערכת");
+        /*
+         * שורה מנותקת שייכת לארכיון המשרד. היא נגישה רק דרך הנתיב
+         * שגדור ב-`settings.manage`; מסלול הלקוח הרגיל אינו מגיע
+         * אליה, כי אין לקוח שמולו לבדוק.
+         */
+        if (opts.retained !== true) {
+          throw new NotFoundException("המסמך אינו משויך ללקוח — הלקוח נמחק מהמערכת");
+        }
+      } else {
+        await assertContactAccess(tx, tenantId, found.contactId);
       }
-      await assertContactAccess(tx, tenantId, found.contactId);
       await this.audit.record(tx, {
         action: "agreement.document_download",
-        entityType: "contact",
-        entityId: found.contactId,
-        metadata: { documentId: id },
+        entityType: found.contactId === null ? "tenant" : "contact",
+        entityId: found.contactId ?? tenantId,
+        metadata: { documentId: id, retained: found.contactId === null },
       });
       return found;
     });

@@ -3,7 +3,7 @@ import { ulid } from "ulid";
 import { lockContact } from "../../common/locks";
 import { TenantContext } from "../../common/tenant-context";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
-import { normalizeNameForMatch } from "@metavchim/shared";
+import { normalizeNameForMatch, OFFER_DOCUMENT_KINDS } from "@metavchim/shared";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
@@ -348,12 +348,25 @@ export class ContactErasureService {
      * ב-`agreements` הוא שיש מאחוריה קובץ: הוא **נשאר** באחסון, כי
      * שורה מנותקת שמצביעה לאובייקט שנמחק אינה ראיה אלא רישום ריק.
      *
-     * ‎`signedOn` ולא `kind`, ומאותו נימוק שב-`hasSigned`: העמודה
-     * הזו היא מה שאומר „הוצהר עליו כחתום”, והיא נדרשת בדיוק לסוגים
-     * שנושאים את ההצהרה.
+     * ‎**התנאי הוא הסוג, ולא „יש תאריך חתימה”.**
+     *
+     * קודם הוא היה `signedOn: { not: null }` בלבד, מתוך הנחה
+     * שתאריך חתימה מופיע רק על שני הסוגים שנושאים הצהרה. ההנחה
+     * שגויה: הסכמה הרשתה `kind: "other"` עם `signedOn`, ולכן
+     * תעודת זהות שהועלתה עם תאריך נשמרה כאילו הייתה ראיה משפטית —
+     * היא נותקה, נעלמה משאילתת הניקוי שאחריה, ונשארה במסד וב-S3
+     * אחרי שהלקוח ביקש להימחק (ביקורת Codex).
+     *
+     * הרשימה מגיעה מ-shared, מאותו מקום שמכריע גם על שער ההצעות
+     * ועל שדות החובה. שני ניסוחים של אותה קבוצה הם הפער עצמו.
      */
     await tx.signedDocument.updateMany({
-      where: { tenantId, contactId, signedOn: { not: null } },
+      where: {
+        tenantId,
+        contactId,
+        kind: { in: [...OFFER_DOCUMENT_KINDS] },
+        signedOn: { not: null },
+      },
       data: { contactId: null },
     });
     /*

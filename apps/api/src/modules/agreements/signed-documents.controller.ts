@@ -13,7 +13,13 @@ import {
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { z } from "zod";
-import { DOCUMENT_KINDS, IdSchema, MAX_DOCUMENT_BYTES } from "@metavchim/shared";
+import {
+  DOCUMENT_KINDS,
+  documentUnlocksOffers,
+  IdSchema,
+  MAX_DOCUMENT_BYTES,
+  parseSignedOnDate,
+} from "@metavchim/shared";
 import { RequireCapability } from "../../common/auth.decorators";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
@@ -45,17 +51,52 @@ const UploadSchema = z
     contactId: IdSchema,
     kind: z.enum(DOCUMENT_KINDS),
     propertyId: IdSchema.optional(),
-    /** ‎YYYY-MM-DD — מה שהמתווך הקליד בשדה התאריך */
+    /**
+     * ‎YYYY-MM-DD, ו**קיים בלוח השנה**.
+     *
+     * הרגקס לבדו בדק צורה בלבד: `2026-02-31` גלש בשקט ל-3 במרץ
+     * ונשמר כתאריך החתימה, ו-`2026-13-01` הפך ל-`Invalid Date`
+     * שכל השוואה עליו היא `false` — כלומר הוא **עבר** את בדיקת
+     * „לא עתידי” והגיע למסד (ביקורת Codex). ההמרה עצמה חיה
+     * ב-shared ונבדקת שם.
+     */
     signedOn: z
       .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/u, "תאריך לא תקין")
+      .refine((value) => parseSignedOnDate(value) !== null, "תאריך לא תקין")
       .optional(),
     signerName: z.string().min(2).max(120).optional(),
     note: z.string().max(500).optional(),
     /** שם הקובץ כפי שהדפדפן מסר — מנוקה בשירות (`safeFileName`) */
     fileName: z.string().max(300).optional(),
   })
-  .strict();
+  .strict()
+  /*
+   * ‎**„מסמך אחר” אינו נושא פרטי חתימה.**
+   *
+   * הסכמה הרשתה את הצירוף, והוא לא היה תיאורטי: תאריך חתימה על
+   * מסמך מסוג `other` הפך אותו לשורה שמחיקת לקוח **שומרת** — ולכן
+   * תעודת זהות של לקוח שביקש להימחק הייתה נשארת במסד וב-S3 לנצח
+   * (ביקורת Codex). התנאי לשמירה תוקן לפי הסוג, וגם הקלט הזה נחסם:
+   * נתון שאין לו משמעות ויש לו תוצאה לא ייכתב מלכתחילה.
+   */
+  .refine(
+    (body) =>
+      documentUnlocksOffers(body.kind) ||
+      (body.signedOn === undefined && body.signerName === undefined),
+    { message: "„מסמך אחר” נשמר בלי פרטי חתימה — בחרו סוג הסכם כדי לציין מי חתם ומתי" },
+  )
+  /*
+   * ‎**הצהרה על הסכם חתום נוקבת בנכס.**
+   *
+   * ההזמנה בכתב מתארת נכס מסוים, ו-`hasSigned` מחפש חתימה על אותו
+   * נכס בדיוק. מסמך שנשמר בלי נכס אינו פותח שום הצעה — ולכן מסך
+   * שאמר „אפשר לשלוח הצעות” אחרי העלאה כזו הבטיח פעולה שהמערכת לא
+   * ביצעה (ביקורת Codex). זה נאכף כאן ולא רק במסך, כי הבטחה שקרית
+   * לא נולדת במסך אלא בשורה שנכתבה.
+   */
+  .refine((body) => !documentUnlocksOffers(body.kind) || body.propertyId !== undefined, {
+    message: "הסכם חתום נוגע לנכס מסוים — בחרו את הנכס שההסכם חל עליו",
+  });
 
 const IdParam = new ZodValidationPipe(IdSchema);
 
@@ -70,17 +111,18 @@ export class SignedDocumentsController {
     @UploadedFile() file: Express.Multer.File | undefined,
     @Body(new ZodValidationPipe(UploadSchema)) body: z.infer<typeof UploadSchema>,
   ): Promise<SignedDocumentDto> {
+    const signedOn = body.signedOn === undefined ? null : parseSignedOnDate(body.signedOn);
     return this.documents.upload(file?.buffer ?? Buffer.alloc(0), {
       contactId: body.contactId,
       kind: body.kind,
       ...(body.propertyId !== undefined ? { propertyId: body.propertyId } : {}),
       ...(body.fileName !== undefined ? { fileName: body.fileName } : {}),
       /*
-       * ‎`T00:00:00Z` ולא `new Date("2026-08-26")` בלבד — אותה
-       * מחרוזת, אבל המפורשת אומרת מה נשמר. העמודה היא DATE, והשעה
-       * נזרקת בכל מקרה.
+       * אותה פונקציה שהסכמה אימתה איתה, ולא בנייה שנייה מהמחרוזת:
+       * שתי קריאות של אותו טקסט הן בדיוק המקום שבו „נבדק” ו„נשמר”
+       * מתפצלים.
        */
-      ...(body.signedOn !== undefined ? { signedOn: new Date(`${body.signedOn}T00:00:00Z`) } : {}),
+      ...(signedOn !== null ? { signedOn } : {}),
       ...(body.signerName !== undefined ? { signerName: body.signerName } : {}),
       ...(body.note !== undefined ? { note: body.note } : {}),
     });
@@ -92,6 +134,28 @@ export class SignedDocumentsController {
     @Param("contactId", IdParam) contactId: string,
   ): Promise<SignedDocumentDto[]> {
     return this.documents.listForContact(contactId);
+  }
+
+  /**
+   * המסמכים ששרדו מחיקת לקוח — ארכיון המשרד.
+   *
+   * מוצב **לפני** הנתיבים עם הפרמטר כדי ש-"retained" לא ייקלט
+   * כמזהה, בדיוק כמו `/agreements/retained`. אותה יכולת ואותו
+   * נימוק: לשורה מנותקת אין לקוח שמולו לבדוק בעלות, ולכן השער הוא
+   * הרשאת ניהול המשרד.
+   */
+  @Get("signed-documents/retained")
+  @RequireCapability("settings.manage")
+  retained(): Promise<SignedDocumentDto[]> {
+    return this.documents.listRetained();
+  }
+
+  @Get("signed-documents/retained/:id/raw")
+  @RequireCapability("settings.manage")
+  @Header("Cache-Control", "no-store")
+  @Header("X-Content-Type-Options", "nosniff")
+  async retainedRaw(@Param("id", IdParam) id: string): Promise<StreamableFile> {
+    return this.stream(await this.documents.getRaw(id, { retained: true }));
   }
 
   /**
@@ -109,7 +173,16 @@ export class SignedDocumentsController {
   @Header("Cache-Control", "no-store")
   @Header("X-Content-Type-Options", "nosniff")
   async raw(@Param("id", IdParam) id: string): Promise<StreamableFile> {
-    const obj = await this.documents.getRaw(id);
+    return this.stream(await this.documents.getRaw(id));
+  }
+
+  /** אותה תגובה לשני מסלולי ההורדה — כותרת אחת, לא שתי גרסאות שיסטו. */
+  private stream(obj: {
+    body: NodeJS.ReadableStream;
+    contentType?: string;
+    contentLength?: number;
+    fileName: string;
+  }): StreamableFile {
     return new StreamableFile(obj.body as never, {
       type: obj.contentType ?? "application/octet-stream",
       ...(obj.contentLength !== undefined ? { length: obj.contentLength } : {}),

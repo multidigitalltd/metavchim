@@ -44,8 +44,20 @@ export const DOCUMENT_KIND_LABELS: Record<DocumentKind, string> = {
 };
 
 /**
- * האם המסמך הזה הוא הצהרה על הסכם חתום — ולכן פותח את שער ההצעות
- * ומחייב את פרטי החתימה.
+ * שני הסוגים שנושאים הצהרה משפטית.
+ *
+ * ‎**מערך ולא רק פונקציה**, כי חלק מהצרכנים הם שאילתות: מחיקת לקוח
+ * שואלת „אילו שורות נשמרות” ב-`kind: { in: … }`, ופונקציה אינה
+ * נכנסת לשם. שני ניסוחים של אותה רשימה בשני מקומות הם בדיוק הפער
+ * שנפער כאן פעם אחת — התנאי לשמירה היה „יש תאריך חתימה” בלי הסוג,
+ * ולכן תעודת זהות שהועלתה עם תאריך שרדה מחיקת לקוח לנצח (ביקורת
+ * Codex).
+ */
+export const OFFER_DOCUMENT_KINDS = ["brokerage", "exclusivity"] as const;
+
+/**
+ * האם המסמך הזה הוא הצהרה על הסכם חתום — ולכן פותח את שער ההצעות,
+ * מחייב את פרטי החתימה, ונשמר במחיקת לקוח.
  *
  * ‎**מנוסחת כ-type predicate** כדי שהקורא לא יצטרך המרה: מה שעובר
  * כאן הוא `AgreementKind` תקף, ומה שלא — אינו. בלי זה כל אתר קריאה
@@ -53,7 +65,35 @@ export const DOCUMENT_KIND_LABELS: Record<DocumentKind, string> = {
  * שמסתירה ערך לא צפוי במקום לעצור אותו.
  */
 export function documentUnlocksOffers(kind: string): kind is AgreementKind {
-  return kind === "brokerage" || kind === "exclusivity";
+  return (OFFER_DOCUMENT_KINDS as readonly string[]).includes(kind);
+}
+
+/**
+ * ‎`YYYY-MM-DD` ⟵ תאריך, או `null` כשאין כזה תאריך בלוח השנה.
+ *
+ * ‎**הצורה אינה קיום.** ‎`new Date("2026-02-31")` אינו נכשל — הוא
+ * גולש בשקט ל-3 במרץ, ואז נשמר כתאריך החתימה של מסמך משפטי. ‎
+ * `new Date("2026-13-01")` גרוע יותר: הוא `Invalid Date`, וכל
+ * השוואה עליו היא `false` — כולל „האם התאריך עתידי”. כלומר ערך
+ * בלתי קריא **עבר** את השער שנועד לעצור אותו, והגיע למסד (ביקורת
+ * Codex).
+ *
+ * הבדיקה היא הלוך-ושוב: מה שנבנה חייב להחזיר בדיוק את שלושת
+ * המספרים שנמסרו. יום שגלש לחודש הבא אינו מחזיר אותם.
+ */
+export function parseSignedOnDate(text: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(text);
+  if (!match) return null;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const built = new Date(Date.UTC(year, month - 1, day));
+  if (
+    built.getUTCFullYear() !== year ||
+    built.getUTCMonth() !== month - 1 ||
+    built.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return built;
 }
 
 /* ---------- זיהוי סוג הקובץ ---------- */
