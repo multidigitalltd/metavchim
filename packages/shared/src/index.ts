@@ -11,6 +11,8 @@ export * from "./logic/audio-format.js";
 export * from "./logic/readiness.js";
 export * from "./logic/matching.js";
 export * from "./logic/match-chips.js";
+export * from "./logic/quick-due.js";
+export * from "./logic/task-suggestions.js";
 export * from "./logic/entry-timing.js";
 export * from "./logic/credit-economy.js";
 export * from "./logic/service-versions.js";

@@ -28,6 +28,8 @@ export interface TaskDto {
   title: string;
   notes?: string;
   dueAt?: Date;
+  /** מתי הושלמה בפועל — ריק על משימה פתוחה ועל שורות שקדמו לשדה. */
+  completedAt?: Date;
   status: string;
   priority: string;
   entityType?: string;
@@ -58,6 +60,7 @@ interface TaskRow {
   title: string;
   notes: string | null;
   dueAt: Date | null;
+  completedAt: Date | null;
   status: string;
   priority: string;
   entityType: string | null;
@@ -67,6 +70,15 @@ interface TaskRow {
   createdByUserId: string | null;
   createdAt: Date;
 }
+
+/**
+ * מרחב השמות של משימות שנוצרו מהצעה.
+ *
+ * ‎**קבוע אחד**: השרת בונה לפיו את המפתח, שולף לפיו את מה שכבר
+ * פתוח, והמיגרציה מגדירה לפיו את האינדקס הייחודי החלקי. שלושה
+ * מקומות שחייבים להסכים, ולכן אחד.
+ */
+export const SUGGESTION_PREFIX = "suggestion:";
 
 @Injectable()
 export class TasksService {
@@ -201,6 +213,7 @@ export class TasksService {
         title: row.title,
         notes: row.notes ?? undefined,
         dueAt: row.dueAt ?? undefined,
+        completedAt: row.completedAt ?? undefined,
         status: row.status,
         priority: row.priority,
         entityType: row.entityType ?? undefined,
@@ -252,11 +265,71 @@ export class TasksService {
     entityType?: string;
     entityId?: string;
     assignedToUserId?: string;
+    /**
+     * מפתח אידמפוטנטיות — למשימה שנוצרת ממקור מזוהה ולא מהקלדה.
+     *
+     * ‎**שני סוכנים על אותו כרטיס** רואים את אותה „משימה מוצעת”,
+     * ושניהם לוחצים. הדדופליקציה במסך רצה על מה שכל אחד מהם טען
+     * בנפרד, ולכן אינה יכולה למנוע זאת — היא מסננת תצוגה, לא
+     * יצירה (ביקורת Codex).
+     *
+     * המנגנון כבר קיים במודל ומשמש משימות מאירועי מערכת
+     * (`lead-sla:`, `offer:`), ולכן זו אינה המצאה חדשה אלא שימוש
+     * בו במקום שהוא שייך אליו.
+     *
+     * ‎**מה זה נותן ומה לא — ואני נוקב בשני החלקים.**
+     *
+     * הבדיקה יושבת בתוך הטרנזקציה ולכן מצמצמת את החלון למשך
+     * הכתיבה. היא **אינה ערובה קשה**: תחת `READ COMMITTED` שתי
+     * טרנזקציות מקבילות יכולות שתיהן לקרוא „אין” ושתיהן לכתוב.
+     *
+     * ‎**ערובה קשה קיימת, ובכוונה אינה כאן.** אינדקס ייחודי חלקי
+     * על מרחב `suggestion:` הפתוח היה סוגר את החלון בלי לאסור
+     * כפילות ידנית לגיטימית (`sourceKey = NULL` אינו נכנס אליו).
+     * אבל בניית אינדקס רגיל נועלת את `tasks` לכתיבה עד לסריקת כל
+     * הערמה, והמיגרציות כאן רצות **בזמן העלייה של ה-API** מול מסד
+     * חי (docs/10 §deploy) — כלומר עצירת דפלוי בעלות לא נמדדת,
+     * בשביל למנוע שתי משימות זהות. יחס גרוע (ביקורת Codex).
+     *
+     * זה נדחה לפעולת תחזוקה מדודה עם `CONCURRENTLY` — ראו הגיליון
+     * שנפתח לכך. עד אז המגבלה כתובה כאן ולא מוצגת כערובה.
+     */
+    sourceKey?: string;
+  }): Promise<TaskDto> {
+    return this.writeCreate(input);
+  }
+
+  /** גוף היצירה. */
+  private async writeCreate(input: {
+    title: string;
+    notes?: string;
+    dueAt?: Date;
+    priority?: TaskPriority;
+    entityType?: string;
+    entityId?: string;
+    assignedToUserId?: string;
+    sourceKey?: string;
   }): Promise<TaskDto> {
     const ctx = TenantContext.current();
     const id = ulid();
 
     return this.prisma.withTenant(async (tx) => {
+      if (input.sourceKey !== undefined) {
+        const existing = await tx.task.findFirst({
+          where: {
+            tenantId: ctx.tenantId,
+            entityType: input.entityType ?? null,
+            entityId: input.entityId ?? null,
+            sourceKey: input.sourceKey,
+            status: "open",
+          },
+        });
+        /* כבר קיימת ופתוחה — מחזירים אותה, ולא יוצרים שנייה */
+        if (existing) {
+          const [dto] = await this.toDtos(tx, [existing]);
+          return dto as TaskDto;
+        }
+      }
       const assignee = await this.resolveAssignee(tx, input.assignedToUserId);
       const created = await tx.task.create({
         data: {
@@ -270,6 +343,7 @@ export class TasksService {
           priority: input.priority ?? "normal",
           entityType: input.entityType ?? null,
           entityId: input.entityId ?? null,
+          sourceKey: input.sourceKey ?? null,
         },
       });
       await this.audit.record(tx, {
@@ -358,7 +432,10 @@ export class TasksService {
    * לעשות" בזמן שסוכן אחר כבר קבע איתו פגישה. הגישה לכרטיס עצמו
    * כבר נבדקה במסך שמכיל את הפאנל.
    */
-  async listForEntity(entityType: string, entityId: string): Promise<TaskDto[]> {
+  async listForEntity(
+    entityType: string,
+    entityId: string,
+  ): Promise<{ tasks: TaskDto[]; openSuggestionFields: string[] }> {
     const tenantId = TenantContext.current().tenantId;
     return this.prisma.withTenant(async (tx) => {
       /*
@@ -369,7 +446,7 @@ export class TasksService {
        * פתוחות — כרטיס שמדווח "אין מה לעשות" בזמן שיש (ביקורת Codex).
        * אותו דפוס בדיוק כמו ב-`list`.
        */
-      const [open, done] = await Promise.all([
+      const [open, done, openSuggestions] = await Promise.all([
         tx.task.findMany({
           where: { tenantId, entityType, entityId, status: "open", deletedAfterSync: false },
           orderBy: { dueAt: { sort: "asc", nulls: "last" } },
@@ -377,11 +454,51 @@ export class TasksService {
         }),
         tx.task.findMany({
           where: { tenantId, entityType, entityId, status: "done" },
-          orderBy: { updatedAt: "desc" },
+          /*
+           * ‎**לפי מתי הושלמו, ולא לפי מתי נגעו בהן.**
+           *
+           * `updatedAt` היה מקדם משימה ישנה שנערכה ודוחק החוצה
+           * השלמה חדשה יותר מתוך העשרים. זה סותר בדיוק את הסיבה
+           * שבגללה `completedAt` נוסף — שעריכה לא תגדיר מחדש מתי
+           * משהו נגמר (ביקורת Codex).
+           *
+           * `nulls: "last"` לשורות שקדמו לשדה: אין להן זמן השלמה,
+           * ולמיין אותן כאילו הושלמו עכשיו היה ניחוש. `updatedAt`
+           * נשאר כשובר שוויון ביניהן.
+           */
+          orderBy: [{ completedAt: { sort: "desc", nulls: "last" } }, { updatedAt: "desc" }],
           take: 20,
         }),
+        /*
+         * ‎**הכותרות הפתוחות — בלי התקרה, ובכוונה.**
+         *
+         * המסך מסנן „משימות מוצעות” מול מה שכבר פתוח, וסינון מול
+         * **רשימה חתוכה** אינו סינון: משימה מוצעת נוצרת בלי מועד,
+         * ‎`nulls: "last"` דוחף אותה לסוף, ולכן היא בדיוק השורה
+         * שהתקרה של 50 מפילה ראשונה. הכרטיס היה מציע שוב בדיוק את
+         * מה שכבר קיים (ביקורת Codex).
+         *
+         * ‎`distinct` חוסם את הגודל בלי תקרה שרירותית, ו-`select`
+         * מביא כותרת בלבד.
+         */
+        tx.task.findMany({
+          where: {
+            tenantId,
+            entityType,
+            entityId,
+            status: "open",
+            deletedAfterSync: false,
+            sourceKey: { startsWith: SUGGESTION_PREFIX },
+          },
+          select: { sourceKey: true },
+        }),
       ]);
-      return this.toDtos(tx, [...open, ...done]);
+      return {
+        tasks: await this.toDtos(tx, [...open, ...done]),
+        openSuggestionFields: openSuggestions
+          .map((t) => t.sourceKey?.slice(SUGGESTION_PREFIX.length))
+          .filter((f): f is string => f !== undefined),
+      };
     });
   }
 
@@ -523,9 +640,25 @@ export class TasksService {
           ? existing.assignedToUserId
           : await this.resolveAssignee(tx, patch.assignedToUserId);
 
+      /*
+       * ‎**רגע ההשלמה נרשם במעבר, ולא נגזר מ-`updatedAt`.**
+       *
+       * הכרטיס מבטיח „התאריך והשעה שבהם הושלמה”. `updatedAt` נדרס
+       * בכל עריכה מאוחרת, ואז הוא מדווח מתי נגעו במשימה ולא מתי
+       * היא נגמרה — הבטחה שנשענת עליו הייתה נכונה רק עד העריכה
+       * הבאה (ביקורת Codex).
+       *
+       * חזרה לפתוחות מנקה אותו: משימה פתוחה לא הושלמה.
+       */
+      const completedAt =
+        patch.status === undefined || patch.status === existing.status
+          ? {}
+          : { completedAt: patch.status === "done" ? new Date() : null };
+
       const updated = await tx.task.update({
         where: { id },
         data: {
+          ...completedAt,
           ...(patch.title !== undefined ? { title: patch.title } : {}),
           ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
           ...(patch.dueAt !== undefined ? { dueAt: patch.dueAt } : {}),

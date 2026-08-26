@@ -283,7 +283,8 @@ export class PropertiesService {
           id: { in: slaTasks.map((t) => t.id) },
           tenantId: ctx.tenantId,
         },
-        data: { status: "done" },
+        /* `completedAt` נרשם בכל מסלול שסוגר משימה — ראו TasksService */
+        data: { status: "done", completedAt: new Date() },
       });
 
       const contact = await tx.contact.findFirst({

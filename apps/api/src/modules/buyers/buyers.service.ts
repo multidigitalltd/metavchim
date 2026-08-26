@@ -239,7 +239,8 @@ export class BuyersService {
           sourceKey: `lead-sla:${leadId}`,
           status: "open",
         },
-        data: { status: "done" },
+        /* `completedAt` נרשם בכל מסלול שסוגר משימה — ראו TasksService */
+        data: { status: "done", completedAt: new Date() },
       });
 
       await tx.buyer.create({

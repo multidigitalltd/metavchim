@@ -1452,6 +1452,17 @@ model Task {
    */
   deletedAfterSync Boolean   @default(false) @map("deleted_after_sync")
   status           String    @default("open") @db.VarChar(10) // open | done
+  /**
+   * מתי הושלמה בפועל — ולא `dueAt`, שהוא המועד שנקבע לה.
+   *
+   * כרטיס „משימות שהושלמו” מבטיח תאריך ושעה של השלמה. `dueAt` היה
+   * מציג תאריך **עתידי** על משימה שהושלמה מוקדם, ולא כלום על
+   * משימה בלי מועד. `updatedAt` אינו תחליף: עריכה מאוחרת דורסת
+   * אותו, ואז הוא מדווח מתי נגעו ולא מתי נגמר.
+   *
+   * NULL על שורות שקדמו לשדה — לא נרשם, ואינו ניתן לשחזור.
+   */
+  completedAt      DateTime? @map("completed_at")
   // קישור אופציונלי לישות — "להתקשר לקונה X", "להשלים פרטי נכס Y"
   entityType       String?   @map("entity_type") @db.VarChar(20) // lead | buyer | property
   entityId         String?   @map("entity_id") @db.Char(26)

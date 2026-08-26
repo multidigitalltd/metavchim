@@ -47,7 +47,7 @@ import { NetworkDemandMatches } from "../network-demand-matches";
 import { NetworkShareSection } from "../../network-share-section";
 import { AgreementsPanel } from "../../agreements-panel";
 import { DocumentsPanel } from "../../documents-panel";
-import { EntityTasks } from "../../entity-tasks";
+import { EntityTasks, type TaskListResponse } from "../../entity-tasks";
 import { PropertyOwner, type OwnerContact } from "../property-owner";
 import { OwnerActivity } from "./owner-activity";
 import { PropertyOccupant, type OccupantContact } from "../property-occupant";
@@ -280,9 +280,14 @@ export default function PropertyDetailPage({
       .catch(() => setTwinCount(undefined));
   }, [id]);
   useEffect(() => {
-    apiGet<{ status: string }[]>(`/tasks/for/property/${id}`)
-      .then((rows) =>
-        setOpenTasks(rows.filter((t) => t.status === "open").length),
+    /*
+     * הטיפוס מיובא ואינו נכתב כאן שוב: `apiGet<T>` הוא **הצהרה**
+     * ולא אימות, ולכן צורה שנכתבת ביד בכל קורא מתיישנת בשקט
+     * כשהשרת משתנה — וזה בדיוק מה שקרה כאן (ביקורת עצמית).
+     */
+    apiGet<TaskListResponse>(`/tasks/for/property/${id}`)
+      .then((data) =>
+        setOpenTasks(data.tasks.filter((t) => t.status === "open").length),
       )
       .catch(() => setOpenTasks(undefined));
   }, [id]);
@@ -1761,7 +1766,12 @@ export default function PropertyDetailPage({
       </TabPanel>
 
       <TabPanel tab="tasks" active={tab}>
-        <EntityTasks entityType="property" entityId={property.id} />
+        <EntityTasks
+          entityType="property"
+          entityId={property.id}
+          /* אותו `missingFields` שמניע את ציון המוכנות בכרטיס */
+          suggestFrom={property.missingFields}
+        />
       </TabPanel>
     </>
   );
