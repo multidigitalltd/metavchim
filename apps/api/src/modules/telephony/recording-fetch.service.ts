@@ -23,6 +23,10 @@ import {
   unmatched015ListKeys,
   nextRefusalStreak,
   type RecordingPullResult,
+  UNANSWERED_OUTCOMES,
+  recordingWorthPulling,
+  RECORDING_GIVE_UP_MS,
+  RECORDING_BLOCKED_REASON,
 } from "@metavchim/shared";
 import { ulid } from "ulid";
 import { CryptoService } from "../../core/crypto.service";
@@ -81,8 +85,15 @@ const MAX_PER_SWEEP = 20;
  * בלי גבול, הקלטה שהספק כבר מחק הייתה נשלפת בכל סבב לנצח — ותופסת
  * את המכסה של הקלטות שכן אפשר למשוך. שבוע הוא זמן ארוך דיו לכל
  * תקלה זמנית (מנוי, רשת, הקלטה שטרם הסתיימה).
+ *
+ * ‎**מיובא ולא נכתב שוב.** קודם ישב כאן `7 * 24 * 60 * 60 * 1000`
+ * לצד הערה בצד המשותף שאומרת „חייב להתאים” — כלומר בדיקה בדמות
+ * משפט, שאיש אינו מריץ. אילו אחד מהשניים היה זז, המסך היה מבטיח
+ * „ננסה שוב” על שיחה שהסבב כבר ויתר עליה, או מכריז „נכשלה” על
+ * שיחה שממתינה בתור. זה בדיוק הכשל ש-`recordingStateOf` נכתב כדי
+ * למנוע — ושתי ההגדרות עצמן היו הדרך אליו.
  */
-const GIVE_UP_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+const GIVE_UP_AFTER_MS = RECORDING_GIVE_UP_MS;
 
 /**
  * כמה להמתין לפני ניסיון חוזר על שיחה שכבר נוסתה.
@@ -171,7 +182,15 @@ export const RECORDING_ERRORS = {
   empty: "empty_audio",
   tooLarge: "too_large",
   network: "network_error",
-  integration: "no_integration",
+  /*
+   * ‎**הערך היחיד ברשימה שיש לו משמעות גם בצד המשותף**, ולכן הוא
+   * מיובא משם. `recordingStateOf` מבדילה לפיו בין „ננסה שוב” לבין
+   * „אי אפשר לנסות”; קודם ישבה כאן מחרוזת זהה לצד הערה שאומרת
+   * „חייב להתאים”, כלומר בדיקה בדמות משפט. אילו אחד מהשניים היה
+   * זז, המסך היה מציג „ננסה שוב” וכפתור שאינו עושה דבר — התקלה
+   * שכבר תוקנה כאן פעם אחת.
+   */
+  integration: RECORDING_BLOCKED_REASON,
 } as const;
 
 /**
@@ -365,6 +384,15 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
   ): Promise<{
     found: number;
     linked: number;
+    /**
+     * הקלטות של שיחות שלא נענו — הנתיב נשמר, המשיכה לא תקרה.
+     *
+     * נספרות בנפרד ולא בתוך `linked`, כי המסך מבטיח על `linked`
+     * „ייכנסו לכרטיסים תוך כמה דקות” — הבטחה שאינה מתקיימת עליהן
+     * (ביקורת Codex). הנתיב כן נשמר, כדי שכרטיס השיחה יאמר „השיחה
+     * לא נענתה — אין הקלטה לתמלל” במקום „לא צורפה הקלטה”.
+     */
+    skipped: number;
     alreadyHad: number;
     withoutCall: number;
     /** הקלטות שהספק החזיר ואין בהן מזהה הורדה שאנחנו מכירים */
@@ -467,6 +495,7 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
     }
 
     let linked = 0;
+    let skipped = 0;
     let alreadyHad = 0;
     let withoutCall = 0;
     let withoutRecordId = 0;
@@ -485,7 +514,13 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
         }
         const call = await tx.call.findFirst({
           where: { tenantId, providerCallId: row.uniqueId },
-          select: { id: true, recordingKey: true, providerRecordingPath: true },
+          // `outcome` — שיחה שלא נענתה אינה נמשכת; ראו `recordingWorthPulling`
+          select: {
+            id: true,
+            recordingKey: true,
+            providerRecordingPath: true,
+            outcome: true,
+          },
         });
         if (!call) {
           withoutCall += 1;
@@ -503,7 +538,11 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
             providerRecordingAttemptAt: null,
           },
         });
-        linked += 1;
+        if (recordingWorthPulling(call.outcome)) {
+          linked += 1;
+        } else {
+          skipped += 1;
+        }
       }
     });
 
@@ -518,7 +557,15 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
       `ייבוא הקלטות (${tenantId}): ${rows.length} אצל הספק, ${linked} סומנו למשיכה` +
         (withoutRecordId > 0 ? `, ${withoutRecordId} בלי מזהה הורדה` : ""),
     );
-    return { found: rows.length, linked, alreadyHad, withoutCall, withoutRecordId, rowKeys };
+    return {
+      found: rows.length,
+      linked,
+      skipped,
+      alreadyHad,
+      withoutCall,
+      withoutRecordId,
+      rowKeys,
+    };
   }
 
   /**
@@ -605,6 +652,12 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
             tenantId,
             providerRecordingPath: { not: null },
             recordingKey: null,
+            /*
+             * שיחה שלא נענתה אינה ממתינה לחיבור — היא לא נמשכת
+             * ממילא. סימונה „אין חיבור פעיל” היה שולח את המתווכת
+             * לתקן הגדרה שאינה שבורה.
+             */
+            outcome: { notIn: [...UNANSWERED_OUTCOMES] },
             OR: [
               { providerRecordingError: null },
               { providerRecordingError: { not: RECORDING_ERRORS.integration } },
@@ -626,6 +679,16 @@ export class RecordingFetchService implements OnModuleInit, OnModuleDestroy {
           providerRecordingPath: { not: null },
           recordingKey: null,
           providerCallId: { not: null },
+          /*
+           * שיחה שלא נענתה אינה נמשכת — ראו `recordingWorthPulling`.
+           * מה שיש בקובץ שלה הוא הודעת הפתיחה של המשרד ואולי צפצוף
+           * של תא קולי, ותמלול שלו הוא עלות בלי תשובה.
+           *
+           * ‎`not` על ערך מפורש ולא רשימת מותרים: `unknown` פירושו
+           * שאין בידינו ראיה, וההקלטה היא בדיוק הראיה החסרה. רק
+           * ‎„לא נענתה” מפורשת עוצרת.
+           */
+          outcome: { notIn: [...UNANSWERED_OUTCOMES] },
           /*
            * חלון הוויתור חל על מי ש**כבר נוסתה**, ולא על כל שורה.
            *

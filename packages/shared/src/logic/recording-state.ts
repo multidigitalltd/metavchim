@@ -24,18 +24,43 @@
  * פעמיים ולהתפצל, ולאפליקציית ה-web אין ממילא הרצת בדיקות.
  */
 
-/** אחרי כמה זמן הסבב מפסיק לנסות — חייב להתאים ל-`GIVE_UP_AFTER_MS`. */
+import { recordingWorthPulling } from "./telephony.js";
+
+/**
+ * אחרי כמה זמן הסבב מפסיק לנסות.
+ *
+ * ‎**המקור, ולא עותק.** `GIVE_UP_AFTER_MS` בשרת מיובא מכאן. קודם
+ * ישבו כאן ושם שני מספרים זהים לצד הערה „חייב להתאים” — שהיא
+ * בדיקה בדמות משפט, ואיש אינו מריץ משפטים.
+ */
 export const RECORDING_GIVE_UP_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * הסיבה היחידה שאינה „ננסה שוב” אלא „אי אפשר לנסות”.
  *
- * חייב להתאים ל-`RECORDING_ERRORS.integration` בשרת. מוגדר כאן ולא
- * מיובא משם, כי הלוגיקה המשותפת אינה תלויה ב-API.
+ * ‎**המקור, ולא עותק.** `RECORDING_ERRORS.integration` בשרת מיובא
+ * מכאן. הכיוון הזה ולא ההפוך, כי הלוגיקה המשותפת אינה תלויה ב-API.
  */
 export const RECORDING_BLOCKED_REASON = "no_integration";
 
-export type RecordingState = "ready" | "none" | "pending" | "retrying" | "blocked" | "failed";
+/**
+ * המצבים עצמם כרשימה, והטיפוס נגזר ממנה — ולא להפך.
+ *
+ * הבדיקה שדורשת „לכל מצב משפט משלו” חייבת לרוץ על **כל** המצבים;
+ * רשימה מועתקת בקובץ הבדיקה הייתה ממשיכה לעבור כשמצב חדש מצטרף
+ * ונשאר בלי ניסוח. אותו לקח בדיוק כבר נלמד במשקלי ההתאמה.
+ */
+export const RECORDING_STATES = [
+  "ready",
+  "none",
+  "skipped",
+  "pending",
+  "retrying",
+  "blocked",
+  "failed",
+] as const;
+
+export type RecordingState = (typeof RECORDING_STATES)[number];
 
 export interface RecordingStatus {
   state: RecordingState;
@@ -48,6 +73,11 @@ export interface RecordingFields {
   providerRecordingPath?: string | null;
   providerRecordingAttemptAt?: Date | null;
   providerRecordingError?: string | null;
+  /**
+   * תוצאת השיחה — קובעת אם בכלל מנסים למשוך. ראו
+   * ‎`recordingWorthPulling`. חסר ⇒ אין ידיעה, ולכן אין דילוג.
+   */
+  outcome?: string | null;
   occurredAt: Date;
 }
 
@@ -58,6 +88,21 @@ export interface RecordingFields {
 export function recordingStateOf(row: RecordingFields, now: number = Date.now()): RecordingStatus {
   if ((row.recordingKey ?? null) !== null) return { state: "ready" };
   if ((row.providerRecordingPath ?? null) === null) return { state: "none" };
+
+  /*
+   * ‎**שיחה שלא נענתה — לא נמשכת, ולכן גם לא „בדרך”.**
+   *
+   * ‎`recordingWorthPulling` היא אותה הכרעה שהסבב בוחר לפיה. בלי
+   * השורה הזו המסך היה מכריז „ההקלטה בדרך מהמרכזייה — נמשכת תוך
+   * דקות” על שיחה שלא תיגע בה לעולם, ואחרי שבוע היה מכריז עליה
+   * „נכשלה”. שתי האמירות שקריות, וזו בדיוק התקלה שכבר תוקנה כאן
+   * פעם אחת עם `no_integration`.
+   *
+   * ‎**אחרי `recordingKey`, ובכוונה.** הקלטה שכבר שמורה אצלנו —
+   * למשל כזו שנמשכה לפני השינוי, או שמתווך צירף בעצמו — נשמעת
+   * כרגיל. ההחלטה של אדם גוברת על הכלל האוטומטי.
+   */
+  if (!recordingWorthPulling(row.outcome)) return { state: "skipped" };
 
   const reason = row.providerRecordingError ?? undefined;
   /*
@@ -97,6 +142,9 @@ export function recordingStateLabel(status: RecordingStatus): string {
       return "ההקלטה זמינה";
     case "none":
       return "לא צורפה הקלטה לשיחה הזו";
+    case "skipped":
+      // בלי „ננסה שוב”: אין מה לשמוע, וזו החלטה ולא תקלה
+      return "השיחה לא נענתה — אין הקלטה לתמלל";
     case "pending":
       return "ההקלטה בדרך מהמרכזייה — נמשכת תוך דקות";
     case "retrying":
@@ -160,4 +208,79 @@ export function recordingReasonLabel(reason: string | undefined): string {
     default:
       return "הסיבה אינה ידועה";
   }
+}
+
+/* ============ סיכום ייבוא ההקלטות — משפטים שאינם סותרים ============ */
+
+/**
+ * תוצאת ייבוא הקלטות היסטוריות, כפי שהמסך מקבל אותה.
+ *
+ * ‎`rowKeys` אינו כאן: הוא נטול היגיון וגם אינו משפט אלא רשימת
+ * שמות שדות שהמסך מציג בנפרד.
+ */
+export interface RecordingImportSummary {
+  found: number;
+  /** צורפו ונכנסו לתור. */
+  linked: number;
+  /** צורפו ו**לא** ייכנסו לתור — שיחות שלא נענו. */
+  skipped: number;
+  alreadyHad: number;
+  withoutCall: number;
+  withoutRecordId: number;
+}
+
+/**
+ * ‎**המשפטים שהמסך מציג, כרשימה — ולא כשרשור.**
+ *
+ * ## הכשל שזה מתקן
+ *
+ * הגרסה הקודמת פתחה במשפט אחד ובנתה את השאר סביבו: „סומנו
+ * למשיכה” **או** „לא נמצאו הקלטות חדשות לצרף”, ואחריו משפטים עם
+ * רווח מוביל. זה נכון כל עוד המשפט הראשון מכסה את כל המקרים.
+ *
+ * ברגע שהמונה פוצל ל-`linked` ול-`skipped`, נולד מצב שלא היה
+ * קיים קודם: ייבוא שכל תוצאותיו שיחות שלא נענו. שם `linked === 0`,
+ * ולכן המסך הכריז „לא נמצאו הקלטות חדשות לצרף” — ומיד אחר כך מנה
+ * אותן. הנתיבים **כן** צורפו; מה שלא קרה הוא הכניסה לתור.
+ *
+ * ‎**זו הפעם הרביעית באותו שינוי שמשפט מפסיק להיות נכון בגלל
+ * דילוג חדש.** ולכן התיקון אינו תנאי נוסף אלא צורה אחרת: „מה
+ * מופיע” הוא `filter`, „איך זה מחובר” הוא `join`, ומשפט חדש מצטרף
+ * בלי להחזיק דעה על מי לפניו.
+ *
+ * ## למה כאן ולא במסך
+ *
+ * לאפליקציית ה-web אין הרצת בדיקות, ושלוש מתוך ארבע הפעמים שהמשפט
+ * הזה נשבר התגלו בקריאה ולא בבדיקה. כאן יש בדיקות.
+ */
+export function importSentences(summary: RecordingImportSummary): string[] {
+  const lines: string[] = [];
+
+  if (summary.linked > 0) {
+    lines.push(`${summary.linked} הקלטות סומנו למשיכה — הן ייכנסו לכרטיסים תוך כמה דקות.`);
+  }
+  if (summary.alreadyHad > 0) {
+    lines.push(`${summary.alreadyHad} כבר היו אצלנו.`);
+  }
+  if (summary.skipped > 0) {
+    lines.push(
+      `${summary.skipped} הקלטות שייכות לשיחות שלא נענו — הן צורפו לכרטיס, אך לא יימשכו ולא יתומללו.`,
+    );
+  }
+  if (summary.withoutCall > 0) {
+    lines.push(
+      `${summary.withoutCall} הקלטות אצל הספק שייכות לשיחות שאינן רשומות במערכת — אלה שיחות שקדמו לחיבור, ואין להן כרטיס לקוח לשייך אליו.`,
+    );
+  }
+
+  /*
+   * ‎**„לא נמצאו” הוא נסיגה, ולא ענף של `linked`.** הוא נאמר רק
+   * כשאין שום משפט אחר — כלומר כשבאמת לא היה מה לומר. `withoutRecordId`
+   * אינו נספר כאן: המסך מציג אותו בשורה נפרדת משלו, והוא כן „נמצא
+   * משהו”.
+   */
+  if (lines.length === 0 && summary.withoutRecordId === 0) {
+    return ["לא נמצאו הקלטות חדשות לצרף."];
+  }
+  return lines;
 }

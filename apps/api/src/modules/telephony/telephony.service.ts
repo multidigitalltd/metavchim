@@ -17,6 +17,7 @@ import {
   missedCallTitle,
   parse015DialResponse,
   parseTelephonyEvent,
+  type TelephonyProviderId,
   resolveAutomationSettings,
   diagnosticFields,
   safeDiagnosticKeys,
@@ -651,7 +652,8 @@ export class TelephonyService {
     const integration = await this.prisma.withPublicIntegration(key, (tx) =>
       tx.integration.findFirst({
         where: { webhookKey: key },
-        select: { tenantId: true, id: true, status: true },
+        // `provider` — כלל ההפרש בין המשכים חל על 015 בלבד; ראו `parseTelephonyEvent`
+        select: { tenantId: true, id: true, status: true, provider: true },
       }),
     );
     /*
@@ -712,7 +714,18 @@ export class TelephonyService {
      * `parseTelephonyEvent` הוא חישוב טהור על ה-payload ואינו נוגע
      * במסד, ולכן הזזתו לכאן אינה משנה דבר מלבד מה שהיומן יודע.
      */
-    const event = parseTelephonyEvent(payload);
+    /*
+     * ‎**הספק נמסר, ולא מנוחש מהמטען.** כלל ההפרש בין `talktime`
+     * ל-`totaltime` נבדק על 015 בלבד, וזהות הספק שמורה כאן —
+     * ניחוש לפי שם שדה היה מחיל אותו על מרכזייה גנרית שבמקרה
+     * משתמשת באותו שם (ביקורת Codex).
+     *
+     * כל ערך שאינו „015” נחשב גנרי, וזו הנסיגה הנכונה: ספק שאיננו
+     * מזהים אינו ספק שידוע עלינו שהוא מודד צלצול בנפרד.
+     */
+    const providerId: TelephonyProviderId =
+      integration.provider === "015" ? "015" : "generic";
+    const event = parseTelephonyEvent(payload, providerId);
     const issue = event === null ? telephonyParseIssue(payload) : null;
     /*
      * אירוע ביניים אינו שיחה שנרשמה.

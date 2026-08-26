@@ -44,7 +44,7 @@ describe("parseTelephonyEvent", () => {
       caller: "050-123-4567",
       call_id: "x1",
       status: "ringing",
-    });
+    }, "015");
     expect(parsed).toMatchObject({
       type: "ringing",
       direction: "inbound",
@@ -56,38 +56,38 @@ describe("parseTelephonyEvent", () => {
   });
 
   it("מקבל שמות שדות חלופיים של ספקים שונים", () => {
-    const parsed = parseTelephonyEvent({ from: "0521111111", uniqueid: 77, event: "hangup", billsec: "42" });
+    const parsed = parseTelephonyEvent({ from: "0521111111", uniqueid: 77, event: "hangup", billsec: "42" }, "015");
     expect(parsed?.providerCallId).toBe("77");
     expect(parsed?.durationSeconds).toBe(42);
     expect(parsed?.type).toBe("ended");
   });
 
   it("בלי מספר אין אירוע — אי אפשר לשייך לאיש קשר", () => {
-    expect(parseTelephonyEvent({ call_id: "x1", status: "ringing" })).toBeNull();
+    expect(parseTelephonyEvent({ call_id: "x1", status: "ringing" }, "015")).toBeNull();
   });
 
   it("בלי מזהה שיחה אין אירוע — כל ניסיון חוזר היה נרשם שוב", () => {
-    expect(parseTelephonyEvent({ caller: "0501234567" })).toBeNull();
+    expect(parseTelephonyEvent({ caller: "0501234567" }, "015")).toBeNull();
   });
 
   it("מספר לא תקין נדחה ולא נרשם כמחרוזת ריקה", () => {
-    expect(parseTelephonyEvent({ caller: "חסוי", call_id: "x1" })).toBeNull();
+    expect(parseTelephonyEvent({ caller: "חסוי", call_id: "x1" }, "015")).toBeNull();
   });
 
   it("מזהה שיחה יוצאת", () => {
-    expect(parseTelephonyEvent({ caller: "0501234567", call_id: "x", direction: "outbound" })?.direction).toBe(
+    expect(parseTelephonyEvent({ caller: "0501234567", call_id: "x", direction: "outbound" }, "015")?.direction).toBe(
       "outbound",
     );
   });
 
   it("סיום באורך אפס הוא שיחה שלא נענתה — המשך מכריע על שם הסטטוס", () => {
-    const parsed = parseTelephonyEvent({ caller: "0501234567", call_id: "x", status: "hangup", duration: "0" });
+    const parsed = parseTelephonyEvent({ caller: "0501234567", call_id: "x", status: "hangup", duration: "0" }, "015");
     expect(parsed?.type).toBe("missed");
   });
 
   it("מנרמל את המספר לצורה אחת", () => {
-    const a = parseTelephonyEvent({ caller: "+972501234567", call_id: "1" });
-    const b = parseTelephonyEvent({ caller: "050-123-4567", call_id: "2" });
+    const a = parseTelephonyEvent({ caller: "+972501234567", call_id: "1" }, "015");
+    const b = parseTelephonyEvent({ caller: "050-123-4567", call_id: "2" }, "015");
     expect(a?.peerPhone).toBe(b?.peerPhone);
   });
 });
@@ -312,7 +312,7 @@ describe("בחירת הצד השני לפי הכיוון", () => {
       to: "037654321",
       call_id: "x",
       direction: "inbound",
-    });
+    }, "015");
     expect(parsed?.peerPhone).toBe("+972501234567");
   });
 
@@ -323,15 +323,15 @@ describe("בחירת הצד השני לפי הכיוון", () => {
       to: "0501234567",
       call_id: "x",
       direction: "outbound",
-    });
+    }, "015");
     expect(parsed?.peerPhone).toBe("+972501234567");
   });
 
   it("כשיש רק שדה אחד הוא נבחר בכל כיוון", () => {
-    expect(parseTelephonyEvent({ to: "0501234567", call_id: "x", direction: "inbound" })?.peerPhone).toBe(
+    expect(parseTelephonyEvent({ to: "0501234567", call_id: "x", direction: "inbound" }, "015")?.peerPhone).toBe(
       "+972501234567",
     );
-    expect(parseTelephonyEvent({ caller: "0501234567", call_id: "x", direction: "outbound" })?.peerPhone).toBe(
+    expect(parseTelephonyEvent({ caller: "0501234567", call_id: "x", direction: "outbound" }, "015")?.peerPhone).toBe(
       "+972501234567",
     );
   });
@@ -342,23 +342,23 @@ describe("בחירת הצד השני לפי הכיוון", () => {
       to: "0501234567",
       call_id: "x",
       direction: "outbound",
-    });
+    }, "015");
     expect(parsed?.extension).toBeUndefined();
   });
 });
 
 describe("ולידציה של המספר", () => {
   it("מספר קצר מדי נדחה — אחרת היה נפתח לו כרטיס לקוח וליד", () => {
-    expect(parseTelephonyEvent({ caller: "123", call_id: "x" })).toBeNull();
+    expect(parseTelephonyEvent({ caller: "123", call_id: "x" }, "015")).toBeNull();
   });
 
   it("מספר ארוך מדי נדחה", () => {
-    expect(parseTelephonyEvent({ caller: "05012345678901", call_id: "x" })).toBeNull();
+    expect(parseTelephonyEvent({ caller: "05012345678901", call_id: "x" }, "015")).toBeNull();
   });
 
   it("מספר ישראלי תקין מתקבל — נייד וקווי", () => {
-    expect(parseTelephonyEvent({ caller: "0501234567", call_id: "x" })?.peerPhone).toBe("+972501234567");
-    expect(parseTelephonyEvent({ caller: "037654321", call_id: "x" })?.peerPhone).toBe("+97237654321");
+    expect(parseTelephonyEvent({ caller: "0501234567", call_id: "x" }, "015")?.peerPhone).toBe("+972501234567");
+    expect(parseTelephonyEvent({ caller: "037654321", call_id: "x" }, "015")?.peerPhone).toBe("+97237654321");
   });
 });
 
@@ -467,9 +467,9 @@ describe("telephonyParseIssue", () => {
   });
 
   it("מסכים עם parseTelephonyEvent — null בדיוק כשיש בעיה", () => {
-    expect(parseTelephonyEvent(ok) === null).toBe(telephonyParseIssue(ok) !== null);
+    expect(parseTelephonyEvent(ok, "015") === null).toBe(telephonyParseIssue(ok) !== null);
     const bad = { ...ok, caller: "123" };
-    expect(parseTelephonyEvent(bad) === null).toBe(telephonyParseIssue(bad) !== null);
+    expect(parseTelephonyEvent(bad, "015") === null).toBe(telephonyParseIssue(bad) !== null);
   });
 });
 
@@ -631,7 +631,7 @@ describe("שמות השדות של 015", () => {
   }
 
   it("התבנית המקורית של 015 נקלטת בלי לגעת בה", () => {
-    const parsed = parseTelephonyEvent(pbx015());
+    const parsed = parseTelephonyEvent(pbx015(), "015");
     expect(parsed).not.toBeNull();
     expect(parsed?.peerPhone).toBe("+972501234567");
     expect(parsed?.providerCallId).toBe("1712345678.99");
@@ -640,7 +640,7 @@ describe("שמות השדות של 015", () => {
   it("callid עדיף על uniqueid — uniqueid הוא רגל בודדת", () => {
     // שתי רגליים של אותה שיחה נושאות callid זהה; חיבור לפי uniqueid
     // היה רושם את הצלצול ואת הניתוק כשתי שיחות נפרדות
-    expect(parseTelephonyEvent(pbx015())?.providerCallId).toBe("1712345678.99");
+    expect(parseTelephonyEvent(pbx015(), "015")?.providerCallId).toBe("1712345678.99");
   });
 
   it("talktime אפס עם totaltime חיובי = שיחה שלא נענתה", () => {
@@ -649,17 +649,17 @@ describe("שמות השדות של 015", () => {
      * totaltime הייתה מסווגת אותו כשיחה שהתקיימה — 35 שניות של צלצול
      * שנרשמות כשיחה בת 35 שניות.
      */
-    expect(parseTelephonyEvent(pbx015())?.type).toBe("missed");
+    expect(parseTelephonyEvent(pbx015(), "015")?.type).toBe("missed");
   });
 
   it("שיחה שנענתה באמת מקבלת את משך הדיבור", () => {
-    const parsed = parseTelephonyEvent(pbx015({ totaltime: "95", talktime: "60" }));
+    const parsed = parseTelephonyEvent(pbx015({ totaltime: "95", talktime: "60" }), "015");
     expect(parsed?.type).toBe("ended");
     expect(parsed?.durationSeconds).toBe(60);
   });
 
   it("Calling הוא צלצול ולא ניחוש של ברירת המחדל", () => {
-    expect(parseTelephonyEvent(pbx015({ status: "Calling", talktime: "" }))?.type).toBe("ringing");
+    expect(parseTelephonyEvent(pbx015({ status: "Calling", talktime: "" }), "015")?.type).toBe("ringing");
   });
 
   it("Hangup Answered Only הוא סיום ולא מענה", () => {
@@ -668,30 +668,195 @@ describe("שמות השדות של 015", () => {
      * אירוע הניתוק היחיד כ"נענתה" — ואז שורת השיחה לא נרשמת כלל,
      * כי רק אירוע סופי נרשם.
      */
-    const parsed = parseTelephonyEvent(pbx015({ status: "Hangup Answered Only", talktime: "42" }));
+    /*
+     * ‎`totaltime` מוגדל יחד עם `talktime`: משך שיחה הגדול מהמשך
+     * הכולל אינו מצב שיכול לקרות — הכולל מכיל את הצלצול — והצירוף
+     * הישן (42 מול 35) בדק את קדימות שם הסטטוס על נתון בלתי אפשרי.
+     */
+    const parsed = parseTelephonyEvent(
+      pbx015({ status: "Hangup Answered Only", talktime: "42", totaltime: "60" }), "015");
     expect(parsed?.type).toBe("ended");
     expect(callAction(parsed!, true, false).logCall).toBe(true);
   });
 
+  /**
+   * ‎**שלוש הדגימות מהמשרד, כפי שהגיעו.**
+   *
+   * הן כאן ולא בניסוח מופשט כי הן מה שהפריך את שתי ההשערות הקודמות
+   * שלי: ש-`talktime` חסר בשיחה שלא נענתה (הוא 14), ושאפשר להסתמך
+   * על `answered` (הוא מלא גם כשאיש לא ענה — זו חותמת ה-IVR).
+   */
+  describe("משרד עם הודעת פתיחה — ההפרש הוא הראיה", () => {
+    const call = (talktime: string, totaltime: string) =>
+      parseTelephonyEvent(pbx015({ status: "Hangup", talktime, totaltime, extension: "" }), "015");
+
+    it("ניתק בתוך ההודעה — לא נענתה", () => {
+      const parsed = call("14", "14");
+      expect(parsed?.type).toBe("missed");
+      expect(callOutcomeOf(parsed!, true)).toBe("missed");
+    });
+
+    it("הנייד צלצל עד הסוף ואיש לא ענה — לא נענתה", () => {
+      const parsed = call("20", "20");
+      expect(parsed?.type).toBe("missed");
+      expect(callOutcomeOf(parsed!, true)).toBe("missed");
+    });
+
+    /*
+     * ‎`answerObserved` הוא `true` בשלושתן — ה-IVR ענה בכולן. אילו
+     * הוא היה עדיין נחשב ראיה, שלושתן היו „נענתה”.
+     */
+    it("אדם ענה — ההפרש חיובי, וזו הראיה", () => {
+      const parsed = call("115", "138");
+      expect(parsed?.type).toBe("ended");
+      expect(callOutcomeOf(parsed!, true)).toBe("answered");
+    });
+  });
+
+  /*
+   * ‎**ניתוק בלי שום שדה משך אינו ראיה לכך שאיש לא ענה.**
+   *
+   * הוא היעדר ראיה. ספק ששולח `Answer` ואז ניתוק חסר-משך היה מסווג
+   * „לא נענתה”, ומכיוון ש-`callSpoke` דוחה כל `missed` מיד — הראיה
+   * החוצת-אירועים שכן קיימת אצלו לא הייתה מגיעה להכרעה, ולא היה
+   * נפתח ליד ממספר לא מוכר (ביקורת Codex).
+   */
+  it("ניתוק בלי משך נשאר „הסתיימה”, ואירוע המענה מכריע", () => {
+    const parsed = parseTelephonyEvent({
+      callid: "x2",
+      status: "Hangup",
+      callerid_external: "0501234567",
+      direction: "inbound",
+    }, "015");
+    expect(parsed?.type).toBe("ended");
+    expect(callOutcomeOf(parsed!, true)).toBe("answered");
+    expect(callOutcomeOf(parsed!, false)).toBe("unknown");
+  });
+
+  /*
+   * ערך שאינו מספר בשדה אופציונלי נוּרמל פעם אחת, לפני הסיווג —
+   * אחרת `NaN` היה מגיע להשוואה, שמחזירה `false` תמיד, בעוד
+   * שהאובייקט המוחזר סינן את אותו ערך ל-`undefined`.
+   */
+  it("totaltime שאינו מספר נופל למסלול המשך היחיד", () => {
+    const parsed = parseTelephonyEvent(
+      pbx015({ status: "Hangup", talktime: "42", totaltime: "N/A" }), "015");
+    expect(parsed?.totalSeconds).toBeUndefined();
+    expect(parsed?.type).toBe("ended");
+    expect(callOutcomeOf(parsed!, false)).toBe("answered");
+  });
+
+  /*
+   * ספק ששולח משך אחד בלבד ממשיך לעבוד כמו קודם — אין הפרש לבחון,
+   * ומשך חיובי הוא הראיה הטובה ביותר שיש.
+   */
+  it("ספק בלי totaltime — משך חיובי נשאר הראיה", () => {
+    const parsed = parseTelephonyEvent({
+      callid: "x1",
+      status: "Hangup",
+      callerid_external: "0501234567",
+      direction: "inbound",
+      duration: "42",
+    }, "015");
+    expect(parsed?.type).toBe("ended");
+    expect(callOutcomeOf(parsed!, false)).toBe("answered");
+  });
+
+  /*
+   * ‎`totaltime` כולל את הצלצול ולכן אינו יכול להיות קטן מ-`talktime`.
+   * ספק ששלח זוג כזה אמר משהו בלתי אפשרי, כלומר ההפרש שלו אינו זמן
+   * צלצול — ואי אפשר להסיק ממנו „לא נענתה”. זו אותה טעות שכל
+   * הקובץ הזה עוסק בה: אות שאי אפשר לקרוא, שמקודם למסקנה.
+   */
+  it("זוג סותר — totaltime קטן מ-talktime — נופל למשך היחיד ולא ל„לא נענתה”", () => {
+    const parsed = parseTelephonyEvent(
+      pbx015({ status: "Hangup", talktime: "42", totaltime: "35" }), "015");
+    expect(parsed?.type).toBe("ended");
+    expect(callOutcomeOf(parsed!, false)).toBe("answered");
+  });
+
+  /*
+   * ‎**הכלל שייך ל-`talktime`, לא לכל שדה משך.**
+   *
+   * ספק שאינו מודד צלצול בנפרד ישלח `duration` שווה ל-`totaltime`
+   * בכל שיחה. אילו ההשוואה הייתה חלה גם עליו, **כל** שיחה שהתקיימה
+   * אצלו הייתה „לא נענתה” — בלי ליד, ומעכשיו גם בלי הקלטה שתחשוף
+   * את הטעות. הזוג נבדק על 015 בלבד, ולכן הוא חל שם בלבד.
+   */
+  it("ספק שאינו 015 — duration שווה ל-totaltime נשאר „נענתה”", () => {
+    const parsed = parseTelephonyEvent({
+      callid: "x2",
+      status: "Hangup",
+      callerid_external: "0501234567",
+      direction: "inbound",
+      duration: "42",
+      totaltime: "42",
+    }, "015");
+    // אין סך בר-השוואה — ולכן הוא כלל אינו נחשף
+    expect(parsed?.totalSeconds).toBeUndefined();
+    expect(parsed?.type).toBe("ended");
+    expect(callOutcomeOf(parsed!, false)).toBe("answered");
+  });
+
+  /*
+   * ואותו זוג בדיוק, מ-015: כאן ההפרש אפס **הוא** הראיה, וזו
+   * הדגימה השנייה מהמשרד — הנייד צלצל עד שעבר לתא קולי.
+   */
+  it("015 — talktime שווה ל-totaltime הוא „לא נענתה”", () => {
+    const parsed = parseTelephonyEvent(
+      pbx015({ status: "Hangup", talktime: "20", totaltime: "20", extension: "" }), "015");
+    expect(parsed?.totalSeconds).toBe(20);
+    expect(parsed?.type).toBe("missed");
+  });
+
+  /*
+   * ‎**שם השדה הוא סימן; זהות הספק היא העובדה.**
+   *
+   * ‎`generic` הוא ברירת המחדל במסך ההגדרות, ואין מה שמונע ממרכזייה
+   * כזו לשלוח שדה בשם `talktime`. אילו הכלל היה נקבע לפי שם השדה
+   * בלבד, שיחה שנענתה אצלה — עם שני המשכים שווים, כי היא אינה
+   * מודדת צלצול בנפרד — הייתה מסווגת „לא נענתה”, בלי ליד ובלי
+   * הקלטה (ביקורת Codex).
+   *
+   * אותו מטען בדיוק, שני ספקים, שתי תוצאות — וזו הבדיקה שמראה
+   * שהזהות היא שמכריעה ולא הכתיב.
+   */
+  it("מרכזייה גנרית עם שדה talktime — הכלל של 015 אינו חל עליה", () => {
+    const payload = {
+      callid: "x3",
+      status: "Hangup",
+      callerid_external: "0501234567",
+      direction: "inbound",
+      talktime: "20",
+      totaltime: "20",
+    };
+    const generic = parseTelephonyEvent(payload, "generic");
+    expect(generic?.totalSeconds).toBeUndefined();
+    expect(generic?.type).toBe("ended");
+    expect(callOutcomeOf(generic!, false)).toBe("answered");
+
+    // ואותו מטען מ-015 — שם ההפרש אפס הוא ראיה, והשיחה לא נענתה
+    expect(parseTelephonyEvent(payload, "015")?.type).toBe("missed");
+  });
+
   it("Abandon — מתקשר שוויתר בתור — נרשם כשיחה שלא נענתה", () => {
-    expect(parseTelephonyEvent(pbx015({ status: "Abandon", talktime: "" }))?.type).toBe("missed");
+    expect(parseTelephonyEvent(pbx015({ status: "Abandon", talktime: "" }), "015")?.type).toBe("missed");
   });
 
   it("noanswer אינו 'נענתה' — הבדיקה הזו הייתה קוד מת", () => {
     // "noanswer".includes("answer") הוא אמת
-    expect(parseTelephonyEvent(pbx015({ status: "NoAnswer", talktime: "" }))?.type).toBe("missed");
+    expect(parseTelephonyEvent(pbx015({ status: "NoAnswer", talktime: "" }), "015")?.type).toBe("missed");
   });
 
   it("שיחה יוצאת נתלית על cnumber — הלקוח, לא השלוחה", () => {
     const parsed = parseTelephonyEvent(
-      pbx015({ direction: "outbound", snumber: "0501111111", cnumber: "0529876543" }),
-    );
+      pbx015({ direction: "outbound", snumber: "0501111111", cnumber: "0529876543" }), "015");
     expect(parsed?.peerPhone).toBe("+972529876543");
   });
 
   it("שלוחה פנימית ב-snumber אינה מפילה שיחה נכנסת", () => {
     // callerid_external נקרא לפניו; בלי זה "101" היה נכשל בוולידציה
-    expect(parseTelephonyEvent(pbx015())?.peerPhone).toBe("+972501234567");
+    expect(parseTelephonyEvent(pbx015(), "015")?.peerPhone).toBe("+972501234567");
   });
 
   it("האבחון והניתוח מסכימים על כל שדות 015", () => {
@@ -702,10 +867,10 @@ describe("שמות השדות של 015", () => {
      */
     expect(telephonyParseIssue(pbx015())).toBeNull();
     const noPhone = pbx015({ callerid_external: "", snumber: "", cnumber: "", dnumber: "" });
-    expect(parseTelephonyEvent(noPhone)).toBeNull();
+    expect(parseTelephonyEvent(noPhone, "015")).toBeNull();
     expect(telephonyParseIssue(noPhone)).toBe("no_phone");
     const noId = pbx015({ callid: "", uniqueid: "" });
-    expect(parseTelephonyEvent(noId)).toBeNull();
+    expect(parseTelephonyEvent(noId, "015")).toBeNull();
     expect(telephonyParseIssue(noId)).toBe("no_call_id");
   });
 });

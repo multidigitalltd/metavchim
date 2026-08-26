@@ -7,6 +7,7 @@ import { formatDateTime } from "@/lib/format";
 import { IconInfo, IconWarning } from "../icons";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
+import { importSentences, type RecordingImportSummary } from "@metavchim/shared";
 
 /**
  * חיבור מרכזיית הטלפון של המשרד.
@@ -23,13 +24,11 @@ interface Provider {
   clickToDial: boolean;
 }
 
-interface ImportResult {
-  found: number;
-  linked: number;
-  alreadyHad: number;
-  withoutCall: number;
-  /** הקלטות שהספק החזיר ואין בהן מזהה הורדה שאנחנו מכירים */
-  withoutRecordId: number;
+/*
+ * המונים עצמם מגיעים מ-`RecordingImportSummary` שבחבילה המשותפת —
+ * שם גם נבנים המשפטים, ושם יש בדיקות. כאן נוסף רק מה שאינו משפט.
+ */
+interface ImportResult extends RecordingImportSummary {
   /** שמות השדות בשורה שהספק החזיר — שמות בלבד, בלי ערכים */
   rowKeys: string[];
 }
@@ -664,18 +663,23 @@ function ImportRecordings() {
       {error ? <Notice tone="danger">{error}</Notice> : null}
       {result ? (
         <Notice tone="success">
-          {result.linked > 0
-            ? `${result.linked} הקלטות סומנו למשיכה — הן ייכנסו לכרטיסים תוך כמה דקות.`
-            : "לא נמצאו הקלטות חדשות לצרף."}
-          {result.alreadyHad > 0 ? ` ${result.alreadyHad} כבר היו אצלנו.` : ""}
           {/*
-            הפער מדווח ולא נבלע: הקלטה של שיחה שקדמה לחיבור המרכזייה
-            אין לה כרטיס להיתלות עליו, ובלי המשפט הזה המשרד היה מניח
-            שהכול נכנס.
+            ‎**המשפטים נבנים כרשימה ומחוברים ברווח — לא משורשרים
+            ידנית.**
+
+            הצורה הקודמת פתחה במשפט אחד („סומנו למשיכה” או „לא
+            נמצאו”) והוסיפה אחריו משפטים שכל אחד מהם נשא רווח מוביל
+            משלו. זה עבד כל עוד המשפט הראשון תמיד הופיע. ברגע
+            שהמונה פוצל ל-`linked`/`skipped`, ייבוא שכל תוצאותיו
+            שיחות שלא נענו הגיע לכאן עם `linked === 0` — והמסך אמר
+            „לא נמצאו הקלטות חדשות לצרף” ומיד אחר כך מנה אותן.
+            שני משפטים סותרים באותה הודעה (ביקורת Codex).
+
+            ‎`importSentences` הופכת „מה מופיע” ל-`filter(Boolean)`
+            ו„איך זה מחובר” ל-`join`. משפט חדש מצטרף בלי להחזיק דעה
+            על מי לפניו — וזה מה שנשבר כאן פעמיים.
           */}
-          {result.withoutCall > 0
-            ? ` ${result.withoutCall} הקלטות אצל הספק שייכות לשיחות שאינן רשומות במערכת — אלה שיחות שקדמו לחיבור, ואין להן כרטיס לקוח לשייך אליו.`
-            : ""}
+          {importSentences(result).join(" ")}
           {/*
             „הספק החזיר הקלטות ואין לנו מזהה הורדה” הוא אבחון; „לא
             נמצאו הקלטות” הוא מבוי סתום. צורת השורה אינה מתועדת אצל

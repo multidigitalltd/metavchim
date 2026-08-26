@@ -316,6 +316,13 @@ export interface TelephonyEvent {
   dialedNumber?: string;
   durationSeconds?: number;
   /**
+   * המשך כולל הצלצול, כשהספק שולח את שניהם.
+   *
+   * ‎`undefined` אצל ספק ששולח משך אחד בלבד — ואז אין הפרש לבחון,
+   * והראיה חוזרת להיות „משך חיובי”.
+   */
+  totalSeconds?: number;
+  /**
    * שם המתקשר כפי שהמרכזייה מציגה אותו.
    *
    * 015 שולח `callername` בכל אירוע. עד כה הוא נבלע, ולכן ליד
@@ -441,7 +448,50 @@ const STATUS_KEYS = ["status", "event", "state", "call_status"] as const;
  * אפס — והעדפת `totaltime` הייתה מסווגת כל שיחה שלא נענתה כשיחה
  * שהתקיימה, כלומר בדיוק ההפך ממה שהמתווך צריך לראות.
  */
-const DURATION_KEYS = ["duration", "billsec", "seconds", "talktime", "totaltime"] as const;
+const DURATION_KEYS = ["duration", "billsec", "seconds", "talktime"] as const;
+/**
+ * המשך **כולל הצלצול** — נשמר בנפרד, וזה כל האות.
+ *
+ * ‎`totaltime` היה עד כה אחרון ב-`DURATION_KEYS`, כלומר שימש כמשך
+ * חלופי כשאין אחר — ולעולם לא נבדק מול `talktime`. ההפרש ביניהם הוא
+ * זמן הצלצול של היעד, והוא הראיה היחידה שמכשיר אמיתי צלצל ומישהו
+ * הרים.
+ */
+const TOTAL_DURATION_KEYS = ["totaltime"] as const;
+
+/**
+ * ‎**השדה שעליו הכלל נבדק, ורק הוא.**
+ *
+ * ההפרש בין המשכים מעיד על זמן צלצול **רק אם הספק מודד צלצול
+ * בנפרד**. את זה אנחנו יודעים על `talktime` של 015: התיעוד אומר
+ * זאת, ושלוש דגימות מהשטח מאששות. על `duration`, `billsec` או
+ * `seconds` של ספק כלשהו איננו יודעים דבר — וספק שאינו מודד צלצול
+ * בנפרד ישלח אותם שווים ל-`totaltime` בכל שיחה, כך שכל שיחה
+ * שהתקיימה הייתה מסווגת „לא נענתה”, נחסמת מפתיחת ליד, ומעכשיו גם
+ * מאבדת את ההקלטה שהייתה חושפת את הטעות (ביקורת Codex, P1).
+ *
+ * לכן ההשוואה מותנית ב**מוצא** הערך ולא רק בקיומו: כשהמשך לא הגיע
+ * מ-`talktime`, אין לנו סך בר-השוואה, ו-`totalSeconds` נשאר ריק.
+ * זו אותה תבנית שהקובץ הזה חוזר אליה — כשאי אפשר להסיק, נסוגים.
+ */
+const RING_AWARE_TALK_KEY = "talktime";
+
+/**
+ * הספק היחיד שידוע עליו שהוא מודד צלצול בנפרד.
+ *
+ * ‎**שני תנאים ולא אחד**, והם אינם מיותרים זה לזה: הספק אומר
+ * „המרכזייה הזו מדווחת זמן צלצול”, והשדה אומר „והערך שבידינו הוא
+ * זה שנמדד כך”. מטען של 015 שיישא גם `duration` היה נבחר ראשון
+ * ב-`DURATION_KEYS`, וההשוואה שלו מול `totaltime` חסרת משמעות.
+ */
+const RING_AWARE_PROVIDER: TelephonyProviderId = "015";
+
+/** משך בשניות, או `undefined` כשהשדה ריק או אינו מספר. */
+function finiteSeconds(raw: string): number | undefined {
+  if (raw === "") return undefined;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : undefined;
+}
 const EXTENSION_KEYS = ["extension", "ext", "agent"] as const;
 const CALLER_NAME_KEYS = ["callername", "caller_name", "callerName", "name"] as const;
 /** ‎`start` של 015 הוא epoch בשניות; השאר הם שמות מקובלים אחרים. */
@@ -462,6 +512,7 @@ const KNOWN_KEYS = new Set<string>([
   ...DESTINATION_KEYS,
   ...STATUS_KEYS,
   ...DURATION_KEYS,
+  ...TOTAL_DURATION_KEYS,
   ...EXTENSION_KEYS,
   ...CALLER_NAME_KEYS,
   ...START_KEYS,
@@ -542,16 +593,41 @@ function readCore(raw: Record<string, unknown>): {
   };
 }
 
+/**
+ * ‎„השדה קיים ויש בו משהו” — הגדרה **אחת**.
+ *
+ * ‎`pickFrom` ו-`firstPresentKey` שואלות את אותה שאלה על אותו שדה,
+ * אחת מחזירה ערך והשנייה שם. שתי הגדרות של „קיים” היו נוטות
+ * להסכים ביום שנכתבו ולא אחריו — ואז שם השדה שהוחזר לא היה זה
+ * שממנו נלקח הערך.
+ */
+function fieldValue(raw: Record<string, unknown>, key: string): string | undefined {
+  const value = raw[key];
+  if (typeof value === "string" && value.trim() !== "") return value.trim();
+  if (typeof value === "number") return String(value);
+  return undefined;
+}
+
 /** קורא שדה בשמות המקובלים. משותף לניתוח ולאבחון — לא שני העתקים. */
 function pickFrom(raw: Record<string, unknown>): (...keys: string[]) => string {
   return (...keys: string[]): string => {
     for (const key of keys) {
-      const value = raw[key];
-      if (typeof value === "string" && value.trim() !== "") return value.trim();
-      if (typeof value === "number") return String(value);
+      const value = fieldValue(raw, key);
+      if (value !== undefined) return value;
     }
     return "";
   };
+}
+
+/** **מאיזה** שדה נלקח הערך; `undefined` כשאף אחד מהם אינו קיים. */
+function firstPresentKey(
+  raw: Record<string, unknown>,
+  keys: readonly string[],
+): string | undefined {
+  for (const key of keys) {
+    if (fieldValue(raw, key) !== undefined) return key;
+  }
+  return undefined;
 }
 
 /**
@@ -675,7 +751,24 @@ export function safeDiagnosticKeys(keys: readonly string[]): string {
   return [...seen].join(", ").slice(0, 400);
 }
 
-export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEvent | null {
+/**
+ * ‎**הספק, כפי שהמשרד הגדיר אותו — ולא כפי שניחשנו משם שדה.**
+ *
+ * הפרמטר חובה בכוונה. שם השדה `talktime` הוא *סימן* לכך שמדובר
+ * ב-015, וזהות הספק היא *העובדה* — והיא שמורה על שורת האינטגרציה
+ * וזמינה בנקודת הקליטה. ספק `generic` הוא ברירת המחדל במסך
+ * ההגדרות, ואין שום מניעה שישלח שדה בשם `talktime` במשמעות אחרת
+ * (ביקורת Codex).
+ *
+ * חובה ולא אופציונלי, כי לשני ערכי ברירת המחדל האפשריים יש מחיר:
+ * „ללא כלל ההפרש” היה מחזיר את הבאג המקורי ל-015, ו„עם הכלל” היה
+ * משאיר את הבאג הזה לגנרי. קורא שאינו יודע מי הספק חייב לומר זאת,
+ * והמהדר אוכף.
+ */
+export function parseTelephonyEvent(
+  raw: Record<string, unknown>,
+  provider: TelephonyProviderId,
+): TelephonyEvent | null {
   // אותם שמות שדות בדיוק כמו באבחון — readCore הוא המקור היחיד
   const pick = pickFrom(raw);
   const { providerCallId, direction, peerRaw, ownRaw } = readCore(raw);
@@ -691,11 +784,35 @@ export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEven
   if (!ISRAELI_PHONE.test(peerPhone)) return null;
 
   const status = pick(...STATUS_KEYS).toLowerCase();
-  const durationRaw = pick(...DURATION_KEYS);
-  const durationSeconds = durationRaw === "" ? undefined : Number(durationRaw);
+  /*
+   * ספק ששולח `totaltime` בלבד — הוא המשך היחיד שיש, ואין הפרש
+   * לבחון. נשמר כמשך ולא כסך, אחרת ההשוואה `total > talk` הייתה
+   * מחזירה „לא נענתה” על כל שיחה אצלו.
+   */
+  const totalRaw = pick(...TOTAL_DURATION_KEYS);
+  const talkRaw = pick(...DURATION_KEYS);
+  /*
+   * ‎**מנורמל פעם אחת, לפני הסיווג.** ערך שאינו מספר — "N/A" בשדה
+   * אופציונלי — היה מגיע כ-`NaN` ל-`eventTypeOf`, שם השוואה מחזירה
+   * `false` תמיד ומסווגת „לא נענתה”, בעוד שהאובייקט המוחזר סינן את
+   * אותו ערך ל-`undefined`. שני מקומות שקראו את אותו שדה אחרת
+   * (ביקורת Codex).
+   */
+  const durationSeconds = finiteSeconds(talkRaw === "" ? totalRaw : talkRaw);
+  /*
+   * ‎**סך בר-השוואה, ולא סתם סך.** תנאי אחד שמחליף שניים: כשהמשך
+   * לא הגיע מ-`talktime` — או משום שאין שדה משך כלל, או משום שהוא
+   * הגיע מ-`duration`/`billsec`/`seconds` של ספק אחר — אין ממה
+   * לחשב זמן צלצול. ראו `RING_AWARE_TALK_KEY`.
+   */
+  const totalSeconds =
+    provider === RING_AWARE_PROVIDER &&
+    firstPresentKey(raw, DURATION_KEYS) === RING_AWARE_TALK_KEY
+      ? finiteSeconds(totalRaw)
+      : undefined;
 
   return {
-    type: eventTypeOf(status, durationSeconds),
+    type: eventTypeOf(status, durationSeconds, totalSeconds),
     direction,
     peerPhone,
     providerCallId,
@@ -709,7 +826,8 @@ export function parseTelephonyEvent(raw: Record<string, unknown>): TelephonyEven
      * הגדרה — ורעש בדוח הקמפיינים.
      */
     dialedNumber: dialedNumberOf(ownRaw),
-    durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : undefined,
+    durationSeconds,
+    totalSeconds,
     callerName: callerNameOf(pick(...CALLER_NAME_KEYS)),
     startedAt: startedAtOf(pick(...START_KEYS)),
     providerRecordingPath: recordingPathOf(pick(...RECORDING_KEYS)),
@@ -769,7 +887,11 @@ function dialedNumberOf(raw: string): string | undefined {
  * שיחה שהסתיימה באורך אפס היא שיחה שלא נענתה. הספקים לא עקביים
  * בשם הסטטוס, אבל כולם עקביים במשך — ולכן המשך מכריע כשיש סתירה.
  */
-function eventTypeOf(status: string, duration: number | undefined): CallEventType {
+function eventTypeOf(
+  status: string,
+  duration: number | undefined,
+  total: number | undefined,
+): CallEventType {
   /*
    * **סיום נבדק ראשון.** ‎"Hangup Answered Only" של 015 הוא אירוע
    * ניתוק, אבל הוא מכיל את המילה "answered" — ובדיקת המענה לפניו
@@ -777,7 +899,22 @@ function eventTypeOf(status: string, duration: number | undefined): CallEventTyp
    * ואז שורת השיחה לא הייתה נרשמת כלל, כי רק אירוע סופי נרשם.
    */
   if (status.includes("hangup") || status.includes("end") || status.includes("complete")) {
-    return duration !== undefined && duration <= 0 ? "missed" : "ended";
+    /*
+     * ‎**„לא נענתה” ולא רק „תווית לא מדויקת”.** שיחה שאיש לא ענה בה
+     * חייבת להיכנס למסלול של שיחה שלא נענתה — התראה למתווך וקישור
+     * לטופס ללקוח — ולא רק לקבל מילה אחרת ביומן. הלקוח שניתק בתוך
+     * ההודעה הוא בדיוק מי שצריך שיחזרו אליו.
+     */
+    /*
+     * ‎**בלי משך כלל — „הסתיימה”, כפי שהיה.** אירוע ניתוק בלי שום
+     * שדה משך אינו ראיה לכך שאיש לא ענה; הוא היעדר ראיה. ספק
+     * ששולח `Answer` ואז ניתוק חסר-משך היה מסווג כאן „לא נענתה”,
+     * ו-`callSpoke` דוחה כל `missed` מיד — כלומר הראיה החוצת-אירועים
+     * שכן קיימת אצלו לא הייתה מגיעה להכרעה, ולא היה נפתח ליד
+     * (ביקורת Codex).
+     */
+    if (duration === undefined) return "ended";
+    return destinationAnswered(duration, total, false) ? "ended" : "missed";
   }
   /*
    * הצורות השליליות לפני "answer" מאותה סיבה: `"noanswer".includes("answer")`
@@ -903,7 +1040,59 @@ export function callIsFinal(event: TelephonyEvent): boolean {
  */
 export function callSpoke(event: TelephonyEvent, answerObserved: boolean): boolean {
   if (event.type === "missed") return false;
-  return answerObserved || (event.durationSeconds !== undefined && event.durationSeconds > 0);
+  return destinationAnswered(event.durationSeconds, event.totalSeconds, answerObserved);
+}
+
+/**
+ * ‎**„המרכזייה ענתה” אינו „אדם ענה”.**
+ *
+ * זו ההבחנה שנשברה בשטח. במשרד עם הודעת פתיחה (IVR) המרכזייה עונה
+ * **מיד** כדי להשמיע אותה, ומאותו רגע `talktime` רץ. לכן כל שיחה —
+ * גם כזו שאיש לא הרים בה — נראתה „נענתה”, וזה מה שהמתווכת ראתה על
+ * כל שורה ביומן.
+ *
+ * ‎**`talktime` חיובי לבדו הספיק.** ביומן הקליטה של אותה שיחה היו
+ * שלושה אירועים — `Calling`, `Calling`, `Hangup` — ו**אף `Answer`
+ * ביניהם**, אף שהוא מסומן אצל הספק. כלומר הראיה השנייה שהקוד הכיר,
+ * אירוע המענה, לא השתתפה כאן בכלל.
+ *
+ * ‎**ההפרש הוא הראיה.** התיעוד של 015 אומר ש-`totaltime` כולל צלצול
+ * ו-`talktime` לא, ובפועל היא מודדת את שניהם מרגע שה-IVR ענה
+ * ומעדכנת את `talktime` לזמן השיחה עם היעד בלבד. לכן:
+ *
+ * | מה קרה | talktime | totaltime | הפרש |
+ * |---|---|---|---|
+ * | ניתק בתוך ההודעה | 14 | 14 | 0 |
+ * | הנייד צלצל עד הסוף, לא ענו | 20 | 20 | 0 |
+ * | אדם ענה | 115 | 138 | 23 |
+ *
+ * שלוש דגימות מהמשרד, שלושה תרחישים — וההפרש מפריד ביניהם נקי.
+ *
+ * ‎**`answered` אינו משמש כאן בכוונה**, אף שהוא קיים אצל 015: הוא
+ * מלא גם בשיחה שאיש לא ענה לה, כי הוא חותמת המענה של ה-IVR. שדה
+ * ששמו „נענתה” ואינו אומר „נענתה” הוא בדיוק המלכודת שנפלנו בה.
+ *
+ * שני מסלולי נסיגה, לספקים שאינם 015: משך יחיד ⇒ „חיובי = דיברו”,
+ * כפי שהיה; בלי משך כלל ⇒ אירוע המענה הוא הראיה היחידה שיש.
+ *
+ * ‎**וזוג סותר הוא נסיגה שלישית, לא מסקנה.** `totaltime` כולל את
+ * הצלצול ולכן אינו יכול להיות קטן מ-`talktime`; ספק ששלח 42 מול 35
+ * אמר משהו שאינו יכול להיות נכון, כלומר ה„הפרש” שלו אינו זמן צלצול
+ * ואי אפשר להסיק ממנו דבר. קריאת הסתירה כ„לא נענתה” היא אותה טעות
+ * שה-PR הזה מתקן — אות שאי אפשר לקרוא שמקודם למסקנה — והמחיר שלה
+ * גבוה: `callSpoke` דוחה כל `missed`, ולכן שיחה שדיברו בה נסגרת
+ * בלי ליד (ביקורת Codex). כשהזוג סותר נופלים למשך היחיד.
+ */
+export function destinationAnswered(
+  talkSeconds: number | undefined,
+  totalSeconds: number | undefined,
+  answerObserved: boolean,
+): boolean {
+  if (talkSeconds !== undefined && totalSeconds !== undefined && totalSeconds >= talkSeconds) {
+    return talkSeconds > 0 && totalSeconds > talkSeconds;
+  }
+  if (talkSeconds !== undefined) return talkSeconds > 0;
+  return answerObserved;
 }
 
 /* ==================== משיכת הקלטות — עצירת הסבב ==================== */
@@ -954,6 +1143,26 @@ export function nextRefusalStreak(streak: number, result: RecordingPullResult): 
 export type CallOutcome = "answered" | "missed" | "unknown";
 
 /**
+ * ‎**כל התוצאות שמשמעותן „הלקוח ניסה ולא קיבל מענה”.**
+ *
+ * שלוש ולא אחת. `callOutcomeOf` כותב `missed` בלבד, אבל
+ * ‎`OutcomeSchema` מקבל גם `no_answer` ו-`voicemail` — מתווכת יכולה
+ * לסמן שיחה ידנית, וזה בדיוק המקרה של תא קולי. סינון לפי
+ * ‎`missed` בלבד היה ממשיך למשוך ולתמלל בדיוק את השיחות שנאמר
+ * עליהן במפורש שאין לתמלל (ביקורת Codex).
+ *
+ * ‎**הרשימה הזו הייתה קיימת כבר**, פרטית ב-`callbacks.ts` תחת השם
+ * ‎`UNANSWERED`, ומשם היא הועברה לכאן. שתי הגדרות של „לא נענתה”
+ * היו נפרדות ביום שנכתבו ומסכימות רק במקרה — וזו הטעות שהקובץ
+ * הזה מתעד שוב ושוב. תוצאה חדשה נוספת כאן, ושני הצרכנים מקבלים
+ * אותה יחד.
+ *
+ * שאילתת המסד אינה יכולה לקרוא ל-`recordingWorthPulling`, ולכן היא
+ * מסננת ב-`notIn` על אותה רשימה בדיוק.
+ */
+export const UNANSWERED_OUTCOMES = ["missed", "no_answer", "voicemail"] as const;
+
+/**
  * התוצאה שנרשמת לשורת השיחה — **מאותה ראיה** שפותחת ליד.
  *
  * הפונקציה קיימת כדי ששני הדברים לא ייפרדו: קודם הביטוי היה כתוב
@@ -963,6 +1172,29 @@ export type CallOutcome = "answered" | "missed" | "unknown";
 export function callOutcomeOf(event: TelephonyEvent, answerObserved: boolean): CallOutcome {
   if (event.type === "missed") return "missed";
   return callSpoke(event, answerObserved) ? "answered" : "unknown";
+}
+
+/**
+ * ‎**האם בכלל יש מה לשמוע** — השאלה שקודמת למשיכת ההקלטה.
+ *
+ * שיחה שלא נענתה מותירה אצל הספק קובץ שיש בו הודעת הפתיחה ואולי
+ * צפצוף של תא קולי, ותו לא. משיכה שלו עולה בקשה מול המרכזייה,
+ * שטח אחסון ותמלול שלם — וכל אלה כדי להפיק תמליל של המענה
+ * האוטומטי של המשרד עצמו. בעלת המערכת הכריעה במפורש: שיחה שעברה
+ * לתא קולי היא שיחה שלא נענתה, ואין לתמלל אותה.
+ *
+ * ‎**„לא ידוע” אינו „לא נענתה”, ולכן הוא נמשך.** זו אותה הבחנה
+ * שחוזרת בכל הקובץ הזה: `unknown` פירושו שאין בידינו ראיה, ובמקרה
+ * הזה ההקלטה היא בדיוק הראיה החסרה. רק `missed` — אמירה מפורשת
+ * שאיש לא ענה — עוצר את המשיכה.
+ *
+ * ‎**הכרעה אחת לשלושה מקומות.** הסבב בוחר לפיה, המסך מסביר לפיה,
+ * וכפתור „נסו שוב” מסרב לפיה. שלושתם חייבים לומר את אותו דבר,
+ * אחרת המסך מבטיח משיכה שלא תקרה — התקלה שכבר תוקנה כאן פעם
+ * אחת עם `no_integration`.
+ */
+export function recordingWorthPulling(outcome: string | null | undefined): boolean {
+  return !UNANSWERED_OUTCOMES.includes(outcome as (typeof UNANSWERED_OUTCOMES)[number]);
 }
 
 /** כותרת ההתראה שהמתווך רואה כשהטלפון מצלצל. */

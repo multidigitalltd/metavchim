@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   RECORDING_BLOCKED_REASON,
   RECORDING_GIVE_UP_MS,
+  RECORDING_STATES,
   recordingReasonLabel,
   recordingStateLabel,
   recordingStateOf,
+  importSentences,
 } from "./recording-state";
+import { UNANSWERED_OUTCOMES } from "./telephony";
 
 /**
  * הטענה שנבדקת כאן היא **שלא נשארים שלושה מצבים שנראים כאחד.**
@@ -41,6 +44,89 @@ describe("recordingStateOf", () => {
 
   it("בלי נתיב מהמרכזייה — באמת אין הקלטה", () => {
     expect(recordingStateOf({ occurredAt: minutesAgo(10) }, now)).toEqual({ state: "none" });
+  });
+
+  /*
+   * ‎**שיחה שלא נענתה — לא נמשכת, והמסך אומר זאת.**
+   *
+   * שלוש טענות בבדיקה אחת, כי הן חייבות להיות עקביות: הסבב מדלג,
+   * המסך אינו מבטיח „בדרך”, והזמן אינו הופך את זה ל„נכשלה”. אלמלא
+   * כן היה המסך מבטיח משיכה שלא תקרה — התקלה שכבר תוקנה כאן פעם
+   * אחת עם `no_integration`.
+   */
+  it("שיחה שלא נענתה — מדולגת, ולא „בדרך” ולא „נכשלה”", () => {
+    const row = {
+      providerRecordingPath: "54936/12048/record_1_2",
+      outcome: "missed",
+      occurredAt: minutesAgo(10),
+    };
+    expect(recordingStateOf(row, now)).toEqual({ state: "skipped" });
+    // גם אחרי שחלון הוויתור נסגר — עדיין „מדולגת”, לא „נכשלה”
+    expect(
+      recordingStateOf(
+        { ...row, providerRecordingAttemptAt: minutesAgo(5) },
+        now + RECORDING_GIVE_UP_MS + hour,
+      ),
+    ).toEqual({ state: "skipped" });
+  });
+
+  /*
+   * ‎**כל תוצאה שמשמעותה „לא נענתה”, ולא רק `missed`.**
+   *
+   * ‎`callOutcomeOf` כותב `missed` בלבד, אבל מתווכת יכולה לסמן שיחה
+   * ידנית כ-`voicemail` — וזה בדיוק המקרה שנאמר עליו במפורש שאין
+   * לתמלל. הרשימה נגזרת מ-`UNANSWERED_OUTCOMES` ואינה מועתקת, כדי
+   * שתוצאה חדשה לא תישאר בחוץ בשקט (ביקורת Codex).
+   */
+  it("כל תוצאה שאינה מענה — מדולגת", () => {
+    for (const outcome of UNANSWERED_OUTCOMES) {
+      expect(
+        recordingStateOf(
+          {
+            providerRecordingPath: "54936/12048/record_1_2",
+            outcome,
+            occurredAt: minutesAgo(10),
+          },
+          now,
+        ),
+      ).toEqual({ state: "skipped" });
+    }
+  });
+
+  /*
+   * ‎**„לא ידוע” אינו „לא נענתה”.** אין בידינו ראיה שמישהו ענה,
+   * וההקלטה היא בדיוק הראיה החסרה — ולכן היא כן נמשכת. זו ההבחנה
+   * שהופרה שלוש פעמים בקובץ הטלפוניה, ואין להפר אותה כאן בעקיפין.
+   */
+  it("„לא ידוע” נמשכת כרגיל — היעדר ראיה אינו ראיה", () => {
+    expect(
+      recordingStateOf(
+        {
+          providerRecordingPath: "54936/12048/record_1_2",
+          outcome: "unknown",
+          occurredAt: minutesAgo(10),
+        },
+        now,
+      ),
+    ).toEqual({ state: "pending" });
+  });
+
+  /*
+   * החלטה של אדם גוברת על הכלל האוטומטי: הקלטה שכבר שמורה אצלנו
+   * נשמעת, גם על שיחה שלא נענתה.
+   */
+  it("הקלטה ששמורה כבר — זמינה גם בשיחה שלא נענתה", () => {
+    expect(
+      recordingStateOf(
+        {
+          recordingKey: "calls/t/c/x",
+          providerRecordingPath: "54936/12048/record_1_2",
+          outcome: "missed",
+          occurredAt: minutesAgo(10),
+        },
+        now,
+      ),
+    ).toEqual({ state: "ready" });
   });
 
   it("נתיב הגיע וטרם נוסה — ממתינה, ולא „אין”", () => {
@@ -189,13 +275,13 @@ describe("recordingStateOf", () => {
 });
 
 describe("הניסוח למתווך", () => {
+  /*
+   * הרשימה נגזרת מ-`RECORDING_STATES` ואינה מועתקת: מצב חדש שיצטרף
+   * בלי ניסוח משלו ייפול כאן, במקום להיבלע בבדיקה שממשיכה לעבור.
+   */
   it("כל מצב מקבל משפט משלו", () => {
-    const seen = new Set(
-      (["ready", "none", "pending", "retrying", "blocked", "failed"] as const).map((state) =>
-        recordingStateLabel({ state }),
-      ),
-    );
-    expect(seen.size).toBe(6);
+    const seen = new Set(RECORDING_STATES.map((state) => recordingStateLabel({ state })));
+    expect(seen.size).toBe(RECORDING_STATES.length);
   });
 
   it("„חסומה” אינה מבטיחה ניסיון נוסף", () => {
@@ -246,5 +332,61 @@ describe("הניסוח למתווך", () => {
       recordingReasonLabel("missing_credentials"),
     );
     expect(recordingReasonLabel("no_integration")).toContain("הגדרות");
+  });
+});
+
+describe("importSentences", () => {
+  const empty = {
+    found: 0,
+    linked: 0,
+    skipped: 0,
+    alreadyHad: 0,
+    withoutCall: 0,
+    withoutRecordId: 0,
+  };
+
+  /*
+   * ‎**המקרה שנולד עם פיצול המונה, וזו הבדיקה שלו.**
+   *
+   * ייבוא שכל תוצאותיו שיחות שלא נענו: `linked === 0` אבל נתיבים
+   * כן צורפו. הגרסה הקודמת אמרה „לא נמצאו הקלטות חדשות לצרף”
+   * ומנתה אותן במשפט הבא — שתי אמירות סותרות באותה הודעה
+   * (ביקורת Codex).
+   */
+  it("הכול דולג — לא נאמר „לא נמצאו”, כי כן נמצאו", () => {
+    const lines = importSentences({ ...empty, found: 3, skipped: 3 });
+    expect(lines.join(" ")).not.toContain("לא נמצאו");
+    expect(lines.join(" ")).toContain("3");
+  });
+
+  it("באמת לא נמצא דבר — וזה המקרה היחיד שאומר „לא נמצאו”", () => {
+    expect(importSentences(empty)).toEqual(["לא נמצאו הקלטות חדשות לצרף."]);
+  });
+
+  /*
+   * ‎`withoutRecordId` הוא „נמצא משהו”, גם אם אי אפשר למשוך אותו —
+   * והמסך מציג אותו בשורה נפרדת. „לא נמצאו” לצדו היה סותר אותו.
+   */
+  it("הספק החזיר הקלטות בלי מזהה הורדה — לא „לא נמצאו”", () => {
+    expect(importSentences({ ...empty, found: 4, withoutRecordId: 4 })).toEqual([]);
+  });
+
+  /*
+   * אף משפט אינו נושא רווח מוביל ואינו מניח מי לפניו: החיבור הוא
+   * ‎`join`, וזה מה שנשבר פעמיים כששורשר ידנית.
+   */
+  it("אף משפט אינו תלוי במי שלפניו", () => {
+    for (const lines of [
+      importSentences({ ...empty, linked: 1 }),
+      importSentences({ ...empty, skipped: 1 }),
+      importSentences({ ...empty, alreadyHad: 1 }),
+      importSentences({ ...empty, withoutCall: 1 }),
+      importSentences({ ...empty, linked: 1, skipped: 2, alreadyHad: 3, withoutCall: 4 }),
+    ]) {
+      for (const line of lines) {
+        expect(line).toBe(line.trim());
+        expect(line.endsWith(".")).toBe(true);
+      }
+    }
   });
 });
