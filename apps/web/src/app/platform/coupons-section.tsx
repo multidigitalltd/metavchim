@@ -5,6 +5,7 @@ import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
 import { formatDate } from "@/lib/format";
+import { jerusalemWallIsoToUtc } from "@metavchim/shared";
 
 /**
  * קודי קופון להצטרפות.
@@ -71,8 +72,14 @@ export function CouponsSection(): React.JSX.Element {
         /*
          * התפוגה נשלחת כסוף היום שנבחר ולא כתחילתו: מי שכותב "בתוקף
          * עד 31.12" מתכוון שכל ה-31 בפנים.
+         *
+         * סוף היום הוא **סוף היום בישראל**. `new Date(`…T23:59:59`)`
+         * פירש אותו בשעון המכשיר, ולכן מנהל פלטפורמה שיושב בחו"ל
+         * סגר קופון שעות מוקדם או מאוחר מדי (ביקורת Codex).
          */
-        ...(expires !== "" ? { expiresAt: new Date(`${expires}T23:59:59`).toISOString() } : {}),
+        ...(expires !== ""
+          ? { expiresAt: jerusalemWallIsoToUtc(`${expires}T23:59:59.000`).toISOString() }
+          : {}),
       });
       setMessage("✓ הקופון נשמר");
       event.currentTarget.reset();

@@ -31,19 +31,6 @@ const LOCAL_READ =
   /\.get(?:Hours|Minutes|Seconds|Milliseconds|Date|Day|FullYear|Year|Month)\s*\(\s*\)/u;
 /** ההיסט של המכשיר — שימש לבניית „עכשיו מקומי” לשדות טופס. */
 const LOCAL_OFFSET = /getTimezoneOffset\s*\(\s*\)/u;
-/** ‎`new Date(`…T…`)` בתבנית — נקרא באזור הזמן של המכשיר. */
-const WALL_PARSE = /new Date\(\s*`[^`]*\$\{[^`]*\}T\$\{/u;
-/** אותה שעת קיר כמחרוזת רגילה: `new Date("2026-03-27T02:30")` בלי `Z`. */
-const WALL_LITERAL = /new Date\(\s*(["'])\d{4}-\d{2}-\d{2}T(?:(?!\1)[^Z])*\1/u;
-/**
- * ‎`new Date(2026, 2, 27, 2, 30)` — **הבנאי הרב-ארגומנטי מקומי תמיד.**
- *
- * אין לו וריאנט מקביל בכתיב הזה: `Date.UTC(...)` היא הדרך הנכונה.
- * הפסיק חייב להיות ברמת הסוגריים העליונה, ולכן הביטוי אינו מקבל
- * סוגריים או פסיקים מקוננים — `new Date(a.b(c, d))` אינו בנאי
- * רב-ארגומנטי ואינו נתפס.
- */
-const LOCAL_CTOR = /new Date\(\s*[^(),;`]+,\s*[^(),;`]+[,)]/u;
 /** ‎`Date.parse("…T…")` — אותו פרסור מקומי בשם אחר. */
 const LOCAL_PARSE = /\bDate\.parse\s*\(/u;
 /** ‎`setHours`/`setDate` — כותבים בשעון המכשיר, אותו נזק בכיוון השני. */
@@ -111,12 +98,47 @@ walk(root);
  * פני כמה שורות. גם `dateStyle` בלבד נספר: גבול יממה זז עם אזור
  * הזמן, ולכן „24.08” הופך ל„23.08” אחרי חצות ישראלית.
  */
-function intlWithoutTimeZone(text) {
-  const found = [];
-  const pattern = /new Intl\.DateTimeFormat\s*\(/gu;
+/**
+ * כל קריאה שמתחילה בתבנית — **כביטוי שלם, לא כשורה.**
+ *
+ * ‎**זה הכלי המרכזי של השער, וכל בדיקה שאינה משתמשת בו חוזרת לטעות
+ * שכבר תוקנה כאן פעמיים.** מעצבי `Intl` נכתבים על פני כמה שורות,
+ * וכך גם בנאי `Date`: `new Date(2026, 2, 27,\n  2, 30)` מפוצל אחרי
+ * הסוגר, ולולאת שורות אינה רואה בשום שורה גם את `new Date(` וגם את
+ * הפסיקים (ביקורת Codex). בניתי סורק כזה למעצבים בסבב הקודם, ואז
+ * הוספתי את בדיקת הבנאי כתבנית-שורה — כלומר החזרתי ידנית בדיוק את
+ * החולשה שהסורק נבנה כדי לסגור.
+ *
+ * מחזיר לכל מופע את מספר השורה שבה הוא נפתח ואת גוף הקריאה כולו.
+ */
+/**
+ * הערות אינן קוד — **והן מצטטות את הבאג כדי לתאר אותו.**
+ *
+ * לולאת השורות דילגה על הערות מהיום הראשון; הסורק שעובד על הקריאה
+ * כולה נכתב בלעדי הדילוג, ומיד סימן את ההערה ב-`calendar/[id]/edit`
+ * שמצטטת ‎``new Date(`${date}T${time}`)`` כדי להסביר מה תוקן שם.
+ * שורה מרוקנת ולא נמחקת, כדי שמספרי השורות יישארו נכונים.
+ */
+function withoutComments(text) {
+  return text
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trim();
+      return trimmed.startsWith("*") || trimmed.startsWith("//") || trimmed.startsWith("/*")
+        ? ""
+        : line;
+    })
+    .join("\n");
+}
+
+function callsOf(source, pattern) {
+  const text = withoutComments(source);
+  const calls = [];
   let match;
+  pattern.lastIndex = 0;
   while ((match = pattern.exec(text)) !== null) {
     const open = text.indexOf("(", match.index);
+    if (open === -1) break;
     let depth = 0;
     let end = open;
     for (let i = open; i < text.length; i++) {
@@ -129,11 +151,61 @@ function intlWithoutTimeZone(text) {
         }
       }
     }
-    const call = text.slice(match.index, end + 1);
+    calls.push({
+      line: text.slice(0, match.index).split("\n").length,
+      call: text.slice(match.index, end + 1),
+    });
+  }
+  return calls;
+}
+
+function intlWithoutTimeZone(text) {
+  const found = [];
+  for (const { line, call } of callsOf(text, /new Intl\.DateTimeFormat\s*\(/gu)) {
     /* ‎`timeStyle`/`dateStyle`/`hour`… — כל מה שמציג רגע */
     const showsMoment = /(?:time|date)Style|hour|minute|weekday|day|month|year/u.test(call);
-    if (showsMoment && !call.includes("timeZone") && !call.includes(ALLOW)) {
-      found.push(text.slice(0, match.index).split("\n").length);
+    if (showsMoment && !call.includes("timeZone") && !call.includes(ALLOW)) found.push(line);
+  }
+  return found;
+}
+
+/** הארגומנטים של `new Date(...)`, בלי `new Date(` ובלי הסוגר הסוגר. */
+function argsOf(call) {
+  return call.slice(call.indexOf("(") + 1, -1);
+}
+
+/**
+ * בנאי `Date` שקורא את שעון המכשיר — שתי הצורות, על הקריאה כולה.
+ *
+ * ‎**רב-ארגומנטי** — `new Date(2026, 2, 27, 2, 30)` מקומי תמיד, ואין
+ * לו וריאנט מקביל בכתיב הזה (`Date.UTC(...)` היא הדרך). הפסיק נספר
+ * ברמת הסוגריים העליונה בלבד, ולכן `new Date(f(a, b))` אינו נתפס.
+ *
+ * ‎**שעת קיר בלי `Z`** — `new Date("2026-03-27T02:30")` וגם
+ * ‎`new Date(`${d}T23:59:59`)`. הגרסה הקודמת דרשה שיבוץ **משני צדי**
+ * ה-`T`, ולכן החמיצה תבנית שהזמן בה קבוע — וכך נשמר תוקף קופון
+ * בשעון המכשיר של מנהל הפלטפורמה (ביקורת Codex). מה שקובע אינו
+ * היכן השיבוצים אלא **האם יש `Z`**.
+ */
+function localDateCtor(text) {
+  const found = [];
+  for (const { line, call } of callsOf(text, /new Date\s*\(/gu)) {
+    if (call.includes(ALLOW)) continue;
+    const args = argsOf(call);
+    let depth = 0;
+    let topLevelComma = false;
+    for (const ch of args) {
+      if (ch === "(" || ch === "[" || ch === "{") depth += 1;
+      else if (ch === ")" || ch === "]" || ch === "}") depth -= 1;
+      else if (ch === "," && depth === 0) topLevelComma = true;
+    }
+    if (topLevelComma) {
+      found.push({ line, why: "בנאי Date רב-ארגומנטי — מקומי תמיד" });
+      continue;
+    }
+    /* מחרוזת או תבנית שיש בה שעת קיר, ואין בה `Z` שיקבע אזור זמן */
+    if (/["'`][^"'`]*T[^"'`]*["'`]/u.test(args) && !/Z\s*["'`]/u.test(args)) {
+      found.push({ line, why: "שעת קיר בלי Z — נקראת בשעון המכשיר" });
     }
   }
   return found;
@@ -175,6 +247,9 @@ for (const file of FILES) {
   for (const line of intlWithoutTimeZone(source)) {
     offenders.push(`  ${short}:${line}  ←  Intl.DateTimeFormat בלי timeZone`);
   }
+  for (const { line, why } of localDateCtor(source)) {
+    offenders.push(`  ${short}:${line}  ←  ${why}`);
+  }
   const fields = countOf(LOCAL_FIELD, source);
   const resolved = countOf(RESOLVER, source);
   if (fields > resolved) {
@@ -193,9 +268,6 @@ for (const file of FILES) {
     const hit =
       (LOCAL_READ.test(code) && "קריאה בשעון המכשיר") ||
       (LOCAL_OFFSET.test(code) && "היסט אזור הזמן של המכשיר") ||
-      (WALL_PARSE.test(code) && "פרסור שעת קיר בשעון המכשיר") ||
-      (WALL_LITERAL.test(code) && "מחרוזת שעת קיר בלי Z — נקראת בשעון המכשיר") ||
-      (LOCAL_CTOR.test(code) && "בנאי Date רב-ארגומנטי — מקומי תמיד") ||
       (LOCAL_PARSE.test(code) && "Date.parse — פרסור בשעון המכשיר") ||
       (LOCAL_WRITE.test(code) && "כתיבה בשעון המכשיר") ||
       (LOCALE_METHOD.test(code) && "עיצוב בשעון המכשיר (toLocale…)");
