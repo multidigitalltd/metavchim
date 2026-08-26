@@ -760,18 +760,33 @@ function parseTime(text: string): { hour: number; minute: number; evidence: stri
  * הצורה המספרית דורשת "בתאריך" או שנה מלאה בכוונה: "3.5 חדרים"
  * בתוך אותו משפט היה נקרא כ-3 במאי, וניחוש כזה גרוע מלא לזהות
  * תאריך בכלל — המתווך לפחות רואה שדה ריק ומשלים אותו.
+ *
+ * ## הראשון **בטקסט**, ולא הראשון בסדר הצורות
+ *
+ * שלוש הצורות נבדקו בזו אחר זו, והראשונה שתפסה ניצחה — כלומר סדר
+ * הכתיבה של הקוד הכריע בין שני תאריכים שנאמרו באותו משפט. במשפט
+ * „…שמגיע **בתאריך 3.4.2027**, בעצם ב-5 במרץ” הצורה המספרית באה
+ * ראשונה בדיבור והשמית שנייה, ובכל זאת חזרה השמית — ולכן גבול
+ * הפסוקית נמדד אחרי „בעצם”, התיקון של המסמך נקרא כתיקון של
+ * התזכורת, והיא יצאה ל-5 במרץ במקום בעוד שעה (ביקורת Codex).
+ *
+ * לדובר יש סדר אחד, והוא סדר המילים. שלוש הצורות נאספות, והמוקדמת
+ * שבהן — לפי מיקומה בטקסט — היא התשובה. ‎`index` מוחזר יחד איתה כי
+ * גבול הפסוקית הוא בדיוק המיקום הזה; חיפוש חוזר של הראיה כמחרוזת
+ * היה מוצא את ההופעה הראשונה שלה ולא את זו שנמצאה.
  */
-function parseExplicitDate(
-  text: string,
-): { day: number; month: number; year?: number; evidence: string } | undefined {
+function parseExplicitDate(text: string): ExplicitDate | undefined {
+  const found: ExplicitDate[] = [];
+
   const monthNames = Object.keys(MONTH_NAMES).join("|");
   const byName = new RegExp(`(?<d>[0-3]?\\d)\\s*[בל]?(?<mon>${monthNames})`, "u").exec(text);
   if (byName?.groups?.["d"] && byName.groups["mon"]) {
-    return {
+    found.push({
       day: Number(byName.groups["d"]),
       month: MONTH_NAMES[byName.groups["mon"]]!,
       evidence: byName[0],
-    };
+      index: byName.index,
+    });
   }
 
   const ordinals = Object.keys(ORDINAL_MONTHS).join("|");
@@ -784,11 +799,12 @@ function parseExplicitDate(
     text,
   );
   if (byOrdinal?.groups?.["d"] && byOrdinal.groups["mon"]) {
-    return {
+    found.push({
       day: Number(byOrdinal.groups["d"]),
       month: ORDINAL_MONTHS[byOrdinal.groups["mon"]]!,
       evidence: byOrdinal[0],
-    };
+      index: byOrdinal.index,
+    });
   }
 
   const numeric =
@@ -799,14 +815,33 @@ function parseExplicitDate(
   const month = numeric?.groups?.["m"] ?? numeric?.groups?.["m2"];
   if (day !== undefined && month !== undefined) {
     const year = numeric?.groups?.["y"] ?? numeric?.groups?.["y2"];
-    return {
+    found.push({
       day: Number(day),
       month: Number(month),
       ...(year ? { year: Number(year) } : {}),
       evidence: numeric![0],
-    };
+      index: numeric!.index,
+    });
   }
-  return undefined;
+
+  /*
+   * ‎`reduce` ולא מיון: המוקדם ביותר הוא כל מה שנדרש, והשוואת
+   * שוויון (שתי צורות שתפסו באותו מיקום) שומרת על הקודמת — כלומר
+   * על סדר הצורות שהיה כאן קודם, למקרה היחיד שבו הוא עדיין מכריע.
+   */
+  return found.reduce<ExplicitDate | undefined>(
+    (best, item) => (best === undefined || item.index < best.index ? item : best),
+    undefined,
+  );
+}
+
+interface ExplicitDate {
+  day: number;
+  month: number;
+  year?: number;
+  evidence: string;
+  /** היכן הראיה מתחילה בטקסט שנמסר — גבול הפסוקית נמדד לפיה */
+  index: number;
 }
 
 /**
@@ -919,21 +954,21 @@ function nextExpressionStart(relative: RelativeOffset, text: string): number {
    * המקורי, לא אפילו המתוקן. תזכורת שנאמרה „בעוד שעה” יצאה שמונה
    * ימים קדימה.
    *
-   * ‎`correctedToCalendar` כבר מקבלת תאריך מפורש כיעד תיקון (שורה
-   * 855), ולכן הצד השני של אותו כלל חסר כאן היה חוסר עקביות ולא
-   * החלטה: מה שיכול **לקבל** תיקון חייב גם **לחצוץ**.
+   * ‎`correctedToCalendar` כבר מקבלת תאריך מפורש כיעד תיקון, ולכן
+   * הצד השני של אותו כלל חסר כאן היה חוסר עקביות ולא החלטה: מה
+   * שיכול **לקבל** תיקון חייב גם **לחצוץ**.
    *
    * החיפוש מוגבל למה שכבר בתוך ‎`limit`‎ — הוא רק מצר, לעולם לא
    * מרחיב. תיקון שמצביע ישירות על תאריך („בעוד שעה, בעצם ב-5
    * בספטמבר”) שורד: ‎`correctionAt` מוצאת את הסימן לפני הגבול
    * וקוראת את היעד שאחריו בלי חיתוך.
+   *
+   * הגבול הוא ‎`index` של התאריך **המוקדם בטקסט**. `parseExplicitDate`
+   * מסבירה למה זה אינו מובן מאליו: קודם הכריע סדר הצורות בקוד, ולכן
+   * תאריך מספרי שנאמר ראשון הפסיד לשמי שנאמר אחריו.
    */
-  const tail = text.slice(relative.end, limit);
-  const explicit = parseExplicitDate(tail);
-  if (explicit !== undefined) {
-    const at = tail.indexOf(explicit.evidence);
-    if (at >= 0) limit = relative.end + at;
-  }
+  const explicit = parseExplicitDate(text.slice(relative.end, limit));
+  if (explicit !== undefined) limit = relative.end + explicit.index;
 
   return limit;
 }
