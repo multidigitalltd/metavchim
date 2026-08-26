@@ -360,7 +360,7 @@ export class AccountDeletionService {
         await tx.gmailLink.deleteMany({ where: { tenantId } });
         await tx.userCapability.deleteMany({ where: { tenantId } });
         /*
-         * רישומי „עדכנו אותי כשזה עולה” וקישורי הנכסים התאומים.
+         * רישומי „עדכנו אותי כשזה עולה” וקישורי הנכסים התואמים.
          *
          * לשתי הטבלאות אין מפתח זר לשורת המשרד, ולכן הן **אינן**
          * נופלות איתה: בלי המחיקה כאן היו נשארות שורות עם `tenant_id`

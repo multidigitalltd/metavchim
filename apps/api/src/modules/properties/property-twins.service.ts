@@ -17,21 +17,28 @@ import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { mediaRawPath } from "./media.service";
 
 /**
- * נכסים תאומים — הקישור שמופיע בכרטיס כשהמתווך על הקו.
+ * נכסים תואמים — הקישור שמופיע בכרטיס כשהמתווך על הקו.
  *
  * ## מה הלוגיקה כאן שומרת
  *
  * 1. **סימטריה.** הזוג נשמר פעם אחת בסדר קנוני, ושני הכרטיסים
  *    קוראים את אותה שורה. סוכן שהגדיר מכרטיס א׳ רואה את הקשר גם
  *    בכרטיס ב׳, בלי להגדיר שוב.
- * 2. **רק נכסים חיים.** נכס שהועבר לארכיון אינו מוצג כתאום — אין
+ * 2. **רק נכסים חיים.** נכס שהועבר לארכיון אינו מוצג כנכס תואם — אין
  *    טעם להציע ללקוח נכס שירד מהשיווק — והקשר עצמו נשאר. לכן
  *    הקריאה מסננת לפי `deletedAt`, ולא נשענת על מחיקת השורה.
  * 3. **הצד השני קיים ושייך למשרד.** בלי זה נתיב הכתיבה היה מקבל
  *    מזהה זר, נכשל רק בפוליסת RLS, ומחזיר שגיאת שרת במקום תשובה.
  */
 
-/** נכס תאום כפי שהוא מוצג — מספיק כדי להציע אותו בטלפון. */
+/**
+ * שני הנתיבים — סימון והסרה — נשענים על אותה בדיקה, ולכן על אותה
+ * הודעה. שני עותקים של מחרוזת עברית נפרדים ביום שאחד מהם מנוסח
+ * מחדש, וזה כבר קרה במערכת הזו בתוויות סטטוס.
+ */
+const SELF_TWIN_MESSAGE = "נכס אינו יכול להיות תואם לעצמו";
+
+/** נכס תואם כפי שהוא מוצג — מספיק כדי להציע אותו בטלפון. */
 export interface PropertyTwinDto {
   id: string;
   headline: string;
@@ -48,7 +55,7 @@ export interface PropertyTwinDto {
   status: string;
   marketingTitle?: string;
   thumbnailUrl?: string;
-  /** למה הם תאומים, בלשונו של מי שהגדיר. */
+  /** למה הם תואמים, בלשונו של מי שהגדיר. */
   note?: string;
   linkedAt: Date;
 }
@@ -76,7 +83,7 @@ export class PropertyTwinsService {
   }
 
   /**
-   * סימון תאום — **אידמפוטנטי**.
+   * סימון נכס תואם — **אידמפוטנטי**.
    *
    * לחיצה שנייה על נכס שכבר מסומן אינה שגיאה אלא אישור: הבורר כבר
    * מסתיר את מי שמסומן, ולכן הדרך היחידה להגיע לכאן פעמיים היא
@@ -90,7 +97,7 @@ export class PropertyTwinsService {
   ): Promise<PropertyTwinDto> {
     const pair = canonicalTwinPair(propertyId, twinId);
     if (pair === null) {
-      throw new BadRequestException("נכס אינו יכול להיות תאום של עצמו");
+      throw new BadRequestException(SELF_TWIN_MESSAGE);
     }
     const trimmed = note?.trim() ?? "";
     const noteReason = twinNoteRejectionReason(trimmed);
@@ -104,10 +111,10 @@ export class PropertyTwinsService {
       /*
        * שני הנכסים ננעלים לפני הספירה — אחרת התקרה אינה תקרה.
        *
-       * תחת `READ COMMITTED` שתי בקשות שמוסיפות **תאומים שונים**
+       * תחת `READ COMMITTED` שתי בקשות שמוסיפות **נכסים תואמים שונים**
        * לאותו נכס רואות שתיהן את אותן 11 שורות, שתיהן עוברות את
        * הבדיקה, ושתיהן מכניסות זוג אחר — שאינו מתנגש באינדקס
-       * הייחודי, כי הוא באמת זוג אחר. התוצאה היא 13 תאומים על נכס
+       * הייחודי, כי הוא באמת זוג אחר. התוצאה היא 13 קישורים על נכס
        * שהמסך מרשה עליו 12. הנעילה מסדרת את הבקשות בתור, וכל אחת
        * סופרת אחרי שקודמתה נכתבה.
        *
@@ -136,12 +143,12 @@ export class PropertyTwinsService {
          * **גם הצד השני.** הקשר סימטרי, ולכן הוא נספר בשני
          * הכרטיסים; בדיקה של צד אחד בלבד הייתה מאפשרת לעקוף את
          * התקרה פשוט על ידי הוספה מהכרטיס הריק — ומשאירה את הנכס
-         * השני עם יותר תאומים ממה שהמסך שלו מרשה להוסיף.
+         * השני עם יותר קישורים ממה שהמסך שלו מרשה להוסיף.
          */
         const theirs = await this.resolve(tx, await this.linksOf(tx, twinId));
         if (twinLimitRejectionReason(theirs.length) !== null) {
           throw new BadRequestException(
-            `לנכס שנבחר כבר יש ${MAX_TWINS_PER_PROPERTY} נכסים תאומים — המקסימום. בחרו נכס אחר.`,
+            `לנכס שנבחר כבר יש ${MAX_TWINS_PER_PROPERTY} נכסים תואמים — המקסימום. בחרו נכס אחר.`,
           );
         }
       }
@@ -195,13 +202,13 @@ export class PropertyTwinsService {
 
   /**
    * הסרה — **מהצד שממנו לחצו, ומהצד השני יחד**. זו שורה אחת, ולכן
-   * זה אותו קשר. סוכן שמסיר תאום מכרטיס א׳ אינו מצפה שהוא יישאר
+   * זה אותו קשר. סוכן שמסיר נכס תואם מכרטיס א׳ אינו מצפה שהוא יישאר
    * מוצג בכרטיס ב׳.
    */
   async remove(propertyId: string, twinId: string): Promise<void> {
     const pair = canonicalTwinPair(propertyId, twinId);
     if (pair === null) {
-      throw new BadRequestException("נכס אינו יכול להיות תאום של עצמו");
+      throw new BadRequestException(SELF_TWIN_MESSAGE);
     }
     const ctx = TenantContext.current();
     await this.prisma.withTenant(async (tx) => {
@@ -375,7 +382,7 @@ export class PropertyTwinsService {
           } satisfies PropertyTwinDto,
         ];
       })
-      /* החדש ראשון — התאום שהוגדר לאחרונה הוא זה שנמצא בראש */
+      /* החדש ראשון — הקישור שהוגדר לאחרונה הוא זה שנמצא בראש */
       .sort((a, b) => b.linkedAt.getTime() - a.linkedAt.getTime());
   }
 }

@@ -17,7 +17,7 @@ import { LoadError } from "../../load-error";
 import { Notice } from "../../notice";
 
 /**
- * נכסים תאומים — „עוד כמה כאלה יש לי”.
+ * נכסים תואמים — „עוד כמה כאלה יש לי”.
  *
  * ## מתי זה נקרא
  *
@@ -156,7 +156,7 @@ export function PropertyTwins({
     } catch {
       /*
        * `twins` נשאר `null` — „לא ידוע”. רשימה ריקה כאן הייתה
-       * אומרת „לא הגדרת תאומים” על סמך כשל רשת, וזו הצהרה שאין
+       * אומרת „לא הגדרת נכסים תואמים” על סמך כשל רשת, וזו הצהרה שאין
        * לנו עליה מידע.
        */
       setLoadFailed(true);
@@ -205,7 +205,7 @@ export function PropertyTwins({
 
   /**
    * מה שמוצג בבורר: לא הנכס עצמו, לא מי שכבר מסומן, ורק מה שתואם
-   * לחיפוש. נכס שכבר תאום נשאר מוסתר ולא מוצג „מסומן” — רשימה
+   * לחיפוש. נכס שכבר סומן כתואם נשאר מוסתר ולא מוצג „מסומן” — רשימה
    * שמציגה שורות שאי אפשר לבחור בהן מבזבזת את זמן הסריקה.
    */
   const visible = useMemo(() => {
@@ -226,11 +226,11 @@ export function PropertyTwins({
     /*
      * הודעה ולא שתיקה. `ConfirmDialog` שאינו מקבל `onConfirm` מחליף
      * את כפתור האישור בכפתור **סגירה** שנושא את אותה תווית — כלומר
-     * „סימון כתאום” היה סוגר את החלון בלי לסמן דבר. כפתור שעושה
+     * „סימון כנכס תואם” היה סוגר את החלון בלי לסמן דבר. כפתור שעושה
      * ההפך ממה שכתוב עליו גרוע מכפתור שאומר מה חסר.
      */
     if (chosen === null) {
-      setError("בחרו נכס מהרשימה כדי לסמן אותו כתאום.");
+      setError("בחרו נכס מהרשימה כדי לסמן אותו כנכס תואם.");
       return;
     }
     setBusy(true);
@@ -283,7 +283,7 @@ export function PropertyTwins({
             className="m-0"
             style={{ fontSize: "calc(16.5 / 16 * 1rem)", fontWeight: 800 }}
           >
-            נכסים תאומים
+            נכסים תואמים
           </h2>
           <p
             className="m-0 mt-1 text-[length:var(--type-caption-lg)] leading-relaxed"
@@ -300,12 +300,12 @@ export function PropertyTwins({
             disabled={atLimit}
             title={
               atLimit
-                ? `הגעתם ל-${MAX_TWINS_PER_PROPERTY} נכסים תאומים`
+                ? `הגעתם ל-${MAX_TWINS_PER_PROPERTY} נכסים תואמים`
                 : undefined
             }
             onClick={() => void openPicker()}
           >
-            <IconPlus s={16} /> הוסף נכס תאום
+            <IconPlus s={16} /> הוסף נכס תואם
           </button>
         ) : null}
       </div>
@@ -315,7 +315,7 @@ export function PropertyTwins({
           className="m-0 mt-3 text-[length:var(--type-caption-lg)] font-semibold"
           style={{ color: "var(--color-text-muted)" }}
         >
-          סימנתם {MAX_TWINS_PER_PROPERTY} נכסים תאומים — המקסימום. הסירו
+          סימנתם {MAX_TWINS_PER_PROPERTY} נכסים תואמים — המקסימום. הסירו
           אחד כדי להוסיף אחר.
         </p>
       ) : null}
@@ -346,9 +346,9 @@ export function PropertyTwins({
             color: "var(--color-text-muted)",
           }}
         >
-          עדיין לא סימנתם נכסים תאומים לנכס הזה.
+          עדיין לא סימנתם נכסים תואמים לנכס הזה.
           {canEdit
-            ? " לחצו „הוסף נכס תאום” ובחרו מהמאגר שלכם."
+            ? " לחצו „הוסף נכס תואם” ובחרו מהמאגר שלכם."
             : ""}
         </p>
       ) : (
@@ -376,7 +376,7 @@ export function PropertyTwins({
                       <button
                         type="button"
                         className="mv-btn-plain"
-                        aria-label={`הסרת ${twin.headline} מהנכסים התאומים`}
+                        aria-label={`הסרת ${twin.headline} מהנכסים התואמים`}
                         onClick={() => setRemoving(twin)}
                       >
                         <IconX s={14} />
@@ -423,8 +423,8 @@ export function PropertyTwins({
           ------------------------------------------------------------ */}
       <ConfirmDialog
         open={pickerOpen}
-        title="הוספת נכס תאום"
-        confirmLabel="סימון כתאום"
+        title="הוספת נכס תואם"
+        confirmLabel="סימון כנכס תואם"
         busy={busy}
         onConfirm={() => void add()}
         onClose={() => {
@@ -461,7 +461,7 @@ export function PropertyTwins({
               עוד נכסים” ו„החיפוש לא מצא” מובילים לפעולות שונות.
             */}
             {query.trim() === ""
-              ? "אין במאגר נכס נוסף שאפשר לסמן כתאום."
+              ? "אין במאגר נכס נוסף שאפשר לסמן כנכס תואם."
               : "לא נמצא נכס שתואם לחיפוש."}
           </p>
         ) : (
@@ -522,7 +522,7 @@ export function PropertyTwins({
           htmlFor="twin-note"
           className="mt-3 block text-[length:var(--type-caption-lg)] font-semibold"
         >
-          למה הם תאומים? <span className="font-normal">(רשות)</span>
+          למה הם תואמים? <span className="font-normal">(רשות)</span>
         </label>
         <input
           id="twin-note"
@@ -538,7 +538,7 @@ export function PropertyTwins({
 
       <ConfirmDialog
         open={removing !== null}
-        title="הסרת נכס תאום"
+        title="הסרת נכס תואם"
         tone="danger"
         confirmLabel="הסרה"
         busy={busy}

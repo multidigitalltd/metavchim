@@ -4,7 +4,7 @@ import { ulid } from "ulid";
 import { canonicalTwinPair } from "@metavchim/shared";
 
 /**
- * הסדר הקנוני של זוג נכסים תאומים — **מול מסד אמיתי.**
+ * הסדר הקנוני של זוג נכסים תואמים — **מול מסד אמיתי.**
  *
  * ## למה זו בדיקת אינטגרציה
  *
@@ -82,7 +82,7 @@ describe("property_twins — הסדר הקנוני", () => {
     );
   });
 
-  it("נכס אינו תאום של עצמו — גם ברמת המסד", async () => {
+  it("נכס אינו תואם לעצמו — גם ברמת המסד", async () => {
     await clean();
     await expect(insertPair(LOW, LOW)).rejects.toThrow(
       /property_twins_canonical_order/u,

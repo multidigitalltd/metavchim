@@ -13,6 +13,7 @@ import {
   defaultExclusivityEnd,
   exclusivityRejectionReason,
   formatJerusalemDate,
+  jerusalemWallParts,
   ownerReportText,
   type ExclusivitySubject,
   type MarketingActionKind,
@@ -21,6 +22,7 @@ import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
 import { useCopy } from "@/lib/clipboard";
 import { SelectMenu } from "../select-menu";
 import { Notice } from "../notice";
+import { IconCalendar, IconCheck, IconClock } from "../icons";
 
 /**
  * תיק הבלעדיות בכרטיס הנכס.
@@ -229,6 +231,114 @@ export function ExclusivityPanel({
    מצב פעיל
    ============================================================ */
 
+/**
+ * ‎**שלושת אריחי הסיכום (SPEC-4c §5).**
+ *
+ * ‎**אותו רכיב בשני המצבים, ובכוונה.** האפיון מזהיר במפורש „do not
+ * let one drift” — ואם המצב הריק והמצב הפעיל מציירים אריחים משלהם,
+ * הם יתפצלו ביום שאחד מהם משתנה. כאן הם נבדלים **בערכים בלבד**.
+ *
+ * ‎**במצב הריק שלושת הערכים אפורים**, ואין בהם אף צבע: לא נפתחה
+ * בלעדיות, ולכן לא קרה דבר שראוי לצבוע אותו. ענבר על „0 מתוך 2”
+ * בנכס שאין עליו בלעדיות היה אומר „דחוף” על מצב שאינו קיים.
+ */
+function SummaryTiles({
+  period,
+  third,
+  done,
+  active,
+}: {
+  period: React.ReactNode;
+  third: React.ReactNode;
+  /** כמה פעולות שיווק נספרו — `null` כשאין בלעדיות. */
+  done: number | null;
+  active: boolean;
+}): React.JSX.Element {
+  const tiles: { icon: React.ReactNode; label: string; value: React.ReactNode; sub: string }[] = [
+    {
+      icon: <IconCalendar s={20} />,
+      label: "תקופת הבלעדיות",
+      value: period,
+      sub: "תאריך התחלה וסיום ייקבעו בפתיחה",
+    },
+    {
+      icon: <IconClock s={20} />,
+      label: "מועד השליש",
+      value: third,
+      sub: `המועד שבו נדרשות ${MIN_MARKETING_ACTIONS} פעולות שיווק מתועדות`,
+    },
+    {
+      icon: <IconCheck s={20} />,
+      label: "פעולות שיווק",
+      value: (
+        <>
+          {done ?? 0} <span style={{ fontWeight: 800 }}>מתוך {MIN_MARKETING_ACTIONS}</span>
+        </>
+      ),
+      sub: "הנדרשות בתקנות עד מועד השליש",
+    },
+  ];
+
+  return (
+    <div className="mb-3 grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+      {tiles.map((tile) => (
+        <div
+          key={tile.label}
+          className="px-3.5 py-3"
+          /*
+            טוקנים ולא ערכי הקס. ‎`globals.css` נוקב בטעם הזה במפורש:
+            ערך שנכתב בשורה אינו עובר מיפוי לערכה כהה, ולכן אריח
+            שנכתב כך היה נשאר בהיר על מסך כהה. הדומיין הניטרלי הוא
+            בדיוק זה שנושא אפסים וממתינים, וזה מה שהאריחים האלה הם
+            לפני שנפתחה בלעדיות.
+          */
+          style={{
+            background: "var(--domain-neutral-bg)",
+            border: "1px solid var(--domain-neutral-line)",
+            borderRadius: 17,
+          }}
+        >
+          <div
+            className="flex items-center gap-1.5 text-[length:var(--type-body-sm)]"
+            style={{ color: "var(--color-text-muted)", fontWeight: 800 }}
+          >
+            {tile.icon}
+            {tile.label}
+          </div>
+          <div
+            className="mt-1"
+            style={{
+              fontSize: "calc(22 / 16 * 1rem)",
+              fontWeight: 900,
+              letterSpacing: "-0.025em",
+              /*
+                אפור כשאין בלעדיות — אין מה לצבוע לפני שקרה משהו.
+                ‎`--domain-neutral-fg` ולא ‎#5E6860: זהו **מספר**, וחבילת
+                העיצוב קובעת רצפה למספרים שהאפור ההוא נמצא מתחתיה.
+              */
+              color: active ? "var(--color-text)" : "var(--domain-neutral-fg)",
+            }}
+          >
+            {tile.value}
+          </div>
+          {/*
+            שורת ההסבר מוצגת רק כשאין בלעדיות. במצב פעיל היא הופכת
+            לרעש: הערך עצמו כבר אומר את מה שהיא מסבירה.
+          */}
+          {active ? null : (
+            <div
+              className="mt-0.5 text-[length:var(--type-caption)]"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              {tile.sub}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ActiveExclusivity({
   data,
   canEdit,
@@ -245,33 +355,48 @@ function ActiveExclusivity({
         {data.summary}
       </p>
 
-      <dl className="m-0 grid gap-x-4 gap-y-1 text-[length:var(--type-caption-lg)]" style={{ gridTemplateColumns: "auto 1fr" }}>
-        <dt style={{ color: "var(--color-text-muted)" }}>תקופה בהסכם</dt>
-        {/*
+      <SummaryTiles
+        active
+        /*
           "מ-X עד Y" ולא "X – Y": מקף בין שני תאריכים בתוך פסקה
           בעברית מתהפך ויזואלית, והתקופה נקראה כאילו היא מתחילה
           באוקטובר ונגמרת ביולי. מילים אינן מתהפכות.
-        */}
-        <dd className="m-0">
-          מ-{formatDate(data.startsAt)} עד {formatDate(data.endsAt)}
-        </dd>
-        <dt style={{ color: "var(--color-text-muted)" }}>מועד השליש</dt>
-        <dd className="m-0">
-          {formatDate(data.thirdAt)}
-          {data.daysToThird !== null ? (
-            <span style={{ color: "var(--color-text-muted)" }}> · בעוד {data.daysToThird} ימים</span>
-          ) : null}
-        </dd>
-      </dl>
+        */
+        period={
+          <span className="text-[length:var(--type-body)]">
+            מ-{formatDate(data.startsAt)} עד {formatDate(data.endsAt)}
+          </span>
+        }
+        third={
+          <>
+            <span className="text-[length:var(--type-body)]">{formatDate(data.thirdAt)}</span>
+            {data.daysToThird !== null ? (
+              <span
+                className="text-[length:var(--type-caption)]"
+                style={{ color: "var(--color-text-muted)", fontWeight: 800 }}
+              >
+                {" "}· בעוד {data.daysToThird} ימים
+              </span>
+            ) : null}
+          </>
+        }
+        done={done}
+      />
 
       {/*
         המונה הוא הדבר שהסוכן צריך לפעול לפיו, ולכן הוא לא מספר יבש
         אלא רשימה של מה כבר נספר — "שילוט ✓, עיתון ✗" אומר מה לעשות
         עכשיו, בעוד "1 מתוך 2" משאיר אותו לנחש.
+
+        ‎**והמספר עצמו ירד מכאן.** אריח הסיכום שמעל אומר בדיוק
+        ‎"{done} מתוך {MIN_MARKETING_ACTIONS}", ושתי שורות שאומרות את
+        אותו מספר במרחק שלוש שורות אינן דגש אלא ספק: הקורא עוצר כדי
+        לבדוק אם הן מסכימות. חלוקת העבודה היא זו — האריח נושא את
+        המספר, והרשימה כאן נושאת את **מה** נספר.
       */}
       <div className="mt-2">
         <p className="m-0 mb-1 text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-          פעולות שיווק שנספרו — {done} מתוך {MIN_MARKETING_ACTIONS} הנדרשות בתקנות
+          מה כבר נספר
         </p>
         <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
           {MARKETING_ACTION_KINDS.filter(
@@ -359,7 +484,16 @@ function NoExclusivity({
   propertyId: string;
   onCreated: (next: ExclusivityDto) => void;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  /*
+   * ‎**היום הישראלי, לא היום ב-UTC.**
+   *
+   * זהו תאריך ההתחלה שמוצע לתקופת בלעדיות — כלומר שדה בחוזה. בין
+   * חצות לשלוש לפנות בוקר ‎`toISOString` עדיין מציין את אתמול, ולכן
+   * הטופס היה מציע להתחיל יום קודם, ואיתו זז גם מועד הסיום ומועד
+   * השליש שנגזרים ממנו. גבולות התקופה נשמרים כחצות UTC, ולכן די
+   * בכך שהתאריך עצמו יהיה הנכון.
+   */
+  const today = jerusalemWallParts(new Date()).date;
   const [subject, setSubject] = useState<ExclusivitySubject>("apartment");
   const [startsAt, setStartsAt] = useState(today);
   const [endsAt, setEndsAt] = useState(
@@ -371,6 +505,7 @@ function NoExclusivity({
   if (!opening) {
     return (
       <div>
+        <SummaryTiles active={false} period="לא נפתחה" third="—" done={null} />
         <p className="m-0 mb-2 text-[length:var(--type-caption-lg)]" style={{ color: "var(--color-text-muted)" }}>
           אין בלעדיות פעילה על הנכס. מעקב אחר התקופה כולל את מועד השליש — המועד
           שבו הבלעדיות מסתיימת אם לא תועדו {MIN_MARKETING_ACTIONS} פעולות שיווק.
@@ -492,7 +627,12 @@ function LogAction({
   onCancel: () => void;
 }) {
   const [kind, setKind] = useState<MarketingActionKind>("signage");
-  const [performedAt, setPerformedAt] = useState(new Date().toISOString().slice(0, 10));
+  /*
+   * ‎**מועד הפעולה מתחיל בהיום הישראלי.** פעולת שיווק היא הראיה
+   * שמאריכה את הבלעדיות מעבר לשליש, ומתווך שתיעד ב-00:30 היה מקבל
+   * את אתמול כברירת מחדל — תאריך שגוי במסמך שסופרים בו ימים.
+   */
+  const [performedAt, setPerformedAt] = useState(jerusalemWallParts(new Date()).date);
   const [detail, setDetail] = useState("");
   const [brokerCount, setBrokerCount] = useState("1");
   const [problem, setProblem] = useState<string | null>(null);
