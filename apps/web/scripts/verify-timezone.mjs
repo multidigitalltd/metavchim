@@ -225,9 +225,23 @@ function namesTimeZone(call) {
   return /\btimeZone\s*[:,}]/u.test(call);
 }
 
+/**
+ * ‎`Intl.DateTimeFormat` — **גם בלי `new`.**
+ *
+ * הבנאי חוקי לגמרי גם כקריאה רגילה, ומחזיר אותו מעצב:
+ * ‎`Intl.DateTimeFormat("he-IL").format(at)`. התבנית דרשה `new`,
+ * ולכן הצורה הזו עברה (ביקורת Codex).
+ *
+ * ‎**הגבול, במפורש:** שער טקסטואלי אינו עוקב אחרי כינויים. `const F =
+ * Intl.DateTimeFormat` ואז `F("he-IL")` לא ייתפס, וכך גם ייבוא בשם
+ * אחר. אין לכך פתרון בלי לנתח את העץ; זה נרשם כאן ולא מוסתר, כמו
+ * הגבול של `Date#toString`. גבול ידוע עדיף על ביטחון שגוי.
+ */
+const INTL_FORMAT = /(?:new\s+)?Intl\.DateTimeFormat\s*\(/gu;
+
 function intlWithoutTimeZone(text) {
   const found = [];
-  for (const { line, call } of callsOf(text, /new Intl\.DateTimeFormat\s*\(/gu)) {
+  for (const { line, call } of callsOf(text, INTL_FORMAT)) {
     /*
      * ‎**כל מעצב, בלי לשאול מה הוא מציג.**
      *
@@ -303,7 +317,7 @@ function localDateCtor(text) {
  * השער ירוק (ביקורת Codex). זהו בדיוק ההבדל בין „הקובץ יודע על
  * העזר” לבין „כל שדה עובר דרכו”.
  */
-const LOCAL_FIELD = /type="datetime-local"/gu;
+const LOCAL_FIELD = /type=\{?\s*["']datetime-local["']\s*\}?/gu;
 const RESOLVER = /resolveJerusalemLocalInput\s*\(/gu;
 
 /** כמה פעמים תבנית גלובלית מופיעה בטקסט. */
