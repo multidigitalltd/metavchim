@@ -734,7 +734,16 @@ function CallRecording({
       {recording.state === "pending" ||
       recording.state === "retrying" ||
       recording.state === "blocked" ||
-      recording.state === "failed" ? (
+      recording.state === "failed" ||
+      /*
+        ‎`skipped` — „השיחה לא נענתה, אין הקלטה לתמלל”.
+        הרשימה כאן חיובית בכוונה (ראו הכפתור למטה), ולכן מצב חדש
+        חייב להצטרף אליה במפורש. בלי השורה הזו הניסוח שנכתב בשרת
+        לא היה מוצג לעולם — מצב שקיים ואינו נראה, שהוא בדיוק הכשל
+        שהסעיף הזה נכתב כדי למנוע. כפתור „נסו שוב” **אינו** מקבל
+        אותו: אין מה לנסות.
+      */
+      recording.state === "skipped" ? (
         <div className="mb-2">
           <p className="m-0 text-sm" style={{ color: "var(--color-text-muted)" }}>
             {recordingStateLabel(recording)}
