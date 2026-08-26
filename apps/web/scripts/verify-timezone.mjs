@@ -16,7 +16,41 @@ import { join } from "node:path";
  * **התשובה הנכונה**, והוא מסומן במקום עצמו ולא ברשימה כאן.
  */
 
-const root = new URL("../src", import.meta.url).pathname;
+/**
+ * ‎**מה נסרק — וזה היה החור הגדול ביותר בשער הזה.**
+ *
+ * ‎`root` היה `apps/web/src` בלבד, ולכן השער הכריז „כל המועדים
+ * נקראים ונכתבים בשעון ישראל” בזמן שהוא מעולם לא הסתכל על
+ * ‎`packages/shared` — שרץ **בתוך** הדפדפן — ולא על `apps/api`, שם
+ * ‎`toLocaleString` קוראת את אזור הזמן של תהליך השרת. שם של שער
+ * אינו השער, בפעם הרביעית (ביקורת Codex).
+ *
+ * ‎`monoRoot` נגזר מכאן: הקובץ יושב ב-`apps/web/scripts`.
+ */
+const monoRoot = new URL("../../..", import.meta.url).pathname;
+
+/**
+ * ‎**שני סוגי כללים, ולא רשימת פטורים.**
+ *
+ * ‎`display` — `toLocale…`, `Intl` בלי `timeZone`, היסט המכשיר. אלה
+ * שגויים בכל מקום בלי יוצא מן הכלל: בדפדפן זה שעון המכשיר, בשרת
+ * זה אזור הזמן של התהליך.
+ *
+ * ‎`arithmetic` — `getHours`/`setDate` ובנאי `Date`. אלה **נכונים
+ * בכוונה** ב-`packages/shared` וב-`apps/api`, ששם קיים דפוס מוכר
+ * וסימטרי: `toJerusalemWall(at)` מחזיר `Date` שהשדות המקומיים שלו
+ * הם שעת הקיר הירושלמית, מבצעים עליו אריתמטיקה מקומית, ומחזירים
+ * דרך `jerusalemWallToUtc`. אכיפת הכללים האלה שם הייתה מסמנת
+ * עשרות שורות תקינות — וההרגל למחוק סימונים הוא בדיוק מה שהורג
+ * שערים. בשכבת המסך אין את הדפוס הזה, ושם הם נאכפים במלואם.
+ */
+const ROOTS = [
+  { path: "apps/web/src", arithmetic: true },
+  { path: "packages/shared/src", arithmetic: false },
+  { path: "packages/ui/src", arithmetic: false },
+  { path: "apps/api/src", arithmetic: false },
+  { path: "apps/workers/src", arithmetic: false },
+];
 
 /**
  * ‎`getHours()` וחבריו על `Date` — קוראים את שעון המכשיר.
@@ -40,17 +74,28 @@ const LOCAL_WRITE =
  * ‎`toLocaleString` וחבריו — **שעון המכשיר בשם אחר.**
  *
  * ‎`getHours()` נאסר מהיום הראשון, `Intl.DateTimeFormat` בלי אזור זמן
- * נוסף בסבב הקודם, ואלה נשארו: 17 מופעים על `Date` עברו את השער בזמן
+ * נוסף בסבב שאחריו, ואלה נשארו: 17 מופעים על `Date` עברו את השער בזמן
  * שהוא הכריז „כל המועדים נקראים ונכתבים בשעון ישראל” (ביקורת Codex).
- * זו הפעם השלישית שאותה מחלקה חוזרת בשם אחר, ולכן האיסור כאן מוחלט.
  *
- * ‎**האיסור מוחלט ואין רשימת היתרים — בכוונה.** `toLocaleString` קיימת
- * גם על `Number`, ושער טקסטואלי אינו יודע מה טיפוס המקבל. חריג היה
- * דורש לנחש, וניחוש הוא בדיוק החור. לכן ארבעת המופעים על מספרים
- * עברו ל-`formatNumber` שב-`lib/format.ts`, ואין מה להתיר.
+ * ‎**הכלל: אסור, אלא אם הקריאה נוקבת ב-`timeZone` מפורש.** זו תיקון
+ * לניסוח הקודם שלי, שהיה „איסור מוחלט בלי חריגים” — והוא היה שגוי:
+ * ‎`at.toLocaleString("en-US", { timeZone: JERUSALEM_TZ })` בעובד הרקע
+ * הוא **הדרך הנכונה**, והכלל המוחלט סימן אותו. כלל שמסמן קוד נכון
+ * מלמד למחוק סימונים, וזה הורג שערים מהר יותר מכל חור.
+ *
+ * הכלל החדש אינו רשימת היתרים ואינו מנחש טיפוסים: מספרים לעולם
+ * אינם מקבלים `timeZone`, ולכן הם עדיין נתפסים ועוברים דרך
+ * ‎`formatIsraeliNumber`. אותה שאלה בדיוק שנשאלת על `Intl`.
  */
 const LOCALE_METHOD =
-  /\.(?:toLocaleString|toLocaleDateString|toLocaleTimeString|toDateString|toTimeString)\s*\(/u;
+  /\.(?:toLocaleString|toLocaleDateString|toLocaleTimeString|toDateString|toTimeString)\s*\(/gu;
+
+/** קריאת `toLocale…` בלי `timeZone` — על הקריאה כולה, כמו המעצבים. */
+function localeWithoutTimeZone(text) {
+  return callsOf(text, LOCALE_METHOD)
+    .filter(({ call }) => !call.includes("timeZone") && !call.includes(ALLOW))
+    .map(({ line }) => line);
+}
 
 /**
  * ‎**מה השער הזה עדיין אינו תופס — `Date#toString()`.**
@@ -74,15 +119,21 @@ const LOCALE_METHOD =
  */
 const ALLOW = "שעון-המכשיר-במכוון";
 
+/** כל קובץ מקור בכל שורש, עם הכללים שחלים עליו. בדיקות אינן קוד מוצר. */
 const FILES = [];
-function walk(dir) {
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) walk(full);
-    else if (/\.tsx?$/u.test(entry)) FILES.push(full);
-  }
+for (const { path: rel, arithmetic } of ROOTS) {
+  const base = join(monoRoot, rel);
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.tsx?$/u.test(entry) && !/\.test\.tsx?$/u.test(entry)) {
+        FILES.push({ full, short: `${rel}/${full.slice(base.length + 1)}`, arithmetic });
+      }
+    }
+  };
+  walk(base);
 }
-walk(root);
 
 /**
  * ‎`Intl.DateTimeFormat` בלי `timeZone` — **קורא את שעון המכשיר בדיוק
@@ -240,15 +291,19 @@ function countOf(pattern, text) {
 const offenders = [];
 let scanned = 0;
 
-for (const file of FILES) {
+for (const { full, short, arithmetic } of FILES) {
   scanned += 1;
-  const source = readFileSync(file, "utf8");
-  const short = file.replace(`${root}/`, "");
+  const source = readFileSync(full, "utf8");
   for (const line of intlWithoutTimeZone(source)) {
     offenders.push(`  ${short}:${line}  ←  Intl.DateTimeFormat בלי timeZone`);
   }
-  for (const { line, why } of localDateCtor(source)) {
-    offenders.push(`  ${short}:${line}  ←  ${why}`);
+  for (const line of localeWithoutTimeZone(source)) {
+    offenders.push(`  ${short}:${line}  ←  toLocale… בלי timeZone`);
+  }
+  if (arithmetic) {
+    for (const { line, why } of localDateCtor(source)) {
+      offenders.push(`  ${short}:${line}  ←  ${why}`);
+    }
   }
   const fields = countOf(LOCAL_FIELD, source);
   const resolved = countOf(RESOLVER, source);
@@ -266,13 +321,15 @@ for (const file of FILES) {
     /* `setUTCDate` וחבריו הם בדיוק הדרך הנכונה, ואינם נאסרים */
     const code = line.replace(/\.set(?:UTC|Time)[A-Za-z]*\s*\(/gu, ".setSAFE(");
     const hit =
-      (LOCAL_READ.test(code) && "קריאה בשעון המכשיר") ||
+      /* תצוגה — שגויה בכל שכבה, בדפדפן ובשרת כאחד */
       (LOCAL_OFFSET.test(code) && "היסט אזור הזמן של המכשיר") ||
-      (LOCAL_PARSE.test(code) && "Date.parse — פרסור בשעון המכשיר") ||
-      (LOCAL_WRITE.test(code) && "כתיבה בשעון המכשיר") ||
-      (LOCALE_METHOD.test(code) && "עיצוב בשעון המכשיר (toLocale…)");
+      /* אריתמטיקה — נאכפת בשכבת המסך, שאין בה דפוס „נושא שעת קיר” */
+      (arithmetic &&
+        ((LOCAL_READ.test(code) && "קריאה בשעון המכשיר") ||
+          (LOCAL_PARSE.test(code) && "Date.parse — פרסור בשעון המכשיר") ||
+          (LOCAL_WRITE.test(code) && "כתיבה בשעון המכשיר")));
     if (hit) {
-      offenders.push(`  ${file.replace(`${root}/`, "")}:${index + 1}  ←  ${hit}`);
+      offenders.push(`  ${short}:${index + 1}  ←  ${hit}`);
     }
   });
 }

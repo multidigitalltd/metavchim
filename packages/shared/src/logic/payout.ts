@@ -21,6 +21,7 @@
  */
 
 import type { PayoutMode } from "./credit-economy.js";
+import { formatIsraeliNumber } from "./israel-time.js";
 
 /**
  * מסלול תמורה על הפניה — הבחירה שנעשית ברגע הפרסום.
@@ -130,7 +131,7 @@ export function payoutRequestRejectionReason(
 
 /** אגורות → שקלים מנוקדים, לטקסט שמוצג למשתמש. */
 export function shekels(agorot: number): string {
-  return (agorot / 100).toLocaleString("he-IL", { maximumFractionDigits: 2 });
+  return formatIsraeliNumber(agorot / 100, { maximumFractionDigits: 2 });
 }
 
 /**

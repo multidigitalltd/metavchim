@@ -1,11 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { ulid } from "ulid";
-import {
-  couponRejectionMessage,
-  describeCoupon,
-  isFreePlan,
-  type PlanDefinition,
-} from "@metavchim/shared";
+import { couponRejectionMessage, describeCoupon, formatJerusalemDate, isFreePlan, type PlanDefinition } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { PlanCatalogService } from "../../core/plan-catalog.service";
 import { PrismaService } from "../../core/prisma.service";
@@ -335,7 +330,7 @@ export class SignupService {
         paragraphs: [
           trialEndsAt === null
             ? `המשרד נפתח במסלול "${plan.name}" — מסלול ללא תשלום, בלי הגבלת זמן.`
-            : `המשרד נפתח במסלול "${plan.name}", ותקופת הניסיון פתוחה עד ${trialEndsAt.toLocaleDateString("he-IL")}.`,
+            : `המשרד נפתח במסלול "${plan.name}", ותקופת הניסיון פתוחה עד ${formatJerusalemDate(trialEndsAt)}.`,
           "אפשר להתחיל להזין נכסים וקונים כבר עכשיו — המערכת תתאים ביניהם בעצמה.",
         ],
         button: { label: "כניסה למערכת", url: loadEnv().WEB_ORIGIN },

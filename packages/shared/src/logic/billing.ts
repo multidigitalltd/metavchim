@@ -10,6 +10,7 @@
  */
 
 import type { PlanDefinition } from "./plans.js";
+import { formatIsraeliNumber } from "./israel-time.js";
 
 /** מחזור החיוב. אין "שבועי" ואין "רבעוני" — לא נמכרים. */
 export type BillingCycle = "monthly" | "yearly";
@@ -223,7 +224,7 @@ export function describeCyclePrice(plan: PlanDefinition, cycle: BillingCycle): s
   if (agorot === null || agorot <= 0) return null;
   const shekels = agorot / 100;
   const rounded = Number.isInteger(shekels) ? shekels : Number(shekels.toFixed(2));
-  return `${rounded.toLocaleString("he-IL")} ₪ ${cycle === "yearly" ? "לשנה" : "לחודש"}`;
+  return `${formatIsraeliNumber(rounded)} ₪ ${cycle === "yearly" ? "לשנה" : "לחודש"}`;
 }
 
 /**

@@ -1,13 +1,14 @@
 import { z } from "zod";
 import { IdSchema } from "../schemas/common.js";
 import type { DomainEventName, DomainEventPayload } from "../events.js";
+import { formatIsraeliNumber } from "./israel-time.js";
 
 /**
  * אגורות לשקלים מנוקדים. בהתראה מציגים מספר שאפשר לקרוא בלי לספור
  * אפסים — "1,900,000" ולא "190000000".
  */
 function shekels(agorot: number): string {
-  return Math.round(agorot / 100).toLocaleString("he-IL");
+  return formatIsraeliNumber(Math.round(agorot / 100));
 }
 
 /**

@@ -309,3 +309,23 @@ export function resolveJerusalemLocalInput(
   const [date, time] = value.split("T");
   return resolveJerusalemWall(date ?? "", time ?? "", current);
 }
+
+const israeliNumber = new Intl.NumberFormat("he-IL");
+
+/**
+ * מספר בפורמט ישראלי — „2,650,000”.
+ *
+ * ‎**למה זה יושב דווקא כאן, בקובץ הזמן.** שער `verify:timezone` אוסר
+ * את שם המתודה `toLocaleString` בלי שום חריג, כי על `Date` היא קוראת
+ * את שעון המכשיר — ושם המתודה זהה על `Number`. שער טקסטואלי אינו
+ * יודע מה טיפוס המקבל, ורשימת היתרים הייתה מחזירה בדיוק את החור
+ * שהשער נועד לסגור. לכן מספרים עוברים כאן, והאיסור נשאר מוחלט.
+ */
+export function formatIsraeliNumber(
+  value: number,
+  options?: Intl.NumberFormatOptions,
+): string {
+  return options === undefined
+    ? israeliNumber.format(value)
+    : new Intl.NumberFormat("he-IL", options).format(value);
+}

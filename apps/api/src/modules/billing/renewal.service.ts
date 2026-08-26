@@ -1,17 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ulid } from "ulid";
-import {
-  BILLING_GRACE_DAYS,
-  RENEWAL_WARN_WITHIN_DAYS,
-  accessUntil,
-  billingAnchorDay,
-  effectiveCyclePriceAgorot,
-  describeCycle,
-  isBillingCycle,
-  nextPeriodEnd,
-  periodDaysLeft,
-  type BillingCycle,
-} from "@metavchim/shared";
+import { BILLING_GRACE_DAYS, RENEWAL_WARN_WITHIN_DAYS, accessUntil, billingAnchorDay, describeCycle, effectiveCyclePriceAgorot, formatIsraeliNumber, formatJerusalemDate, isBillingCycle, nextPeriodEnd, periodDaysLeft, type BillingCycle } from "@metavchim/shared";
 import { loadEnv } from "../../config/env";
 import { CardcomService } from "../../core/cardcom.service";
 import { CryptoService } from "../../core/crypto.service";
@@ -200,9 +189,9 @@ export class RenewalService implements OnModuleInit, OnModuleDestroy {
     const priceOverride = await this.plans.tenantPriceOverride(tenantId);
     const amountAgorot = plan ? effectiveCyclePriceAgorot(plan, cycle, priceOverride) : null;
     const days = periodDaysLeft(row.currentPeriodEnd, now) ?? 0;
-    const when = row.currentPeriodEnd?.toLocaleDateString("he-IL") ?? "";
+    const when = row.currentPeriodEnd ? formatJerusalemDate(row.currentPeriodEnd) : "";
     const amount =
-      amountAgorot !== null ? `${Math.round(amountAgorot / 100).toLocaleString("he-IL")} ₪` : "";
+      amountAgorot !== null ? `${formatIsraeliNumber(Math.round(amountAgorot / 100))} ₪` : "";
 
     await this.email.send(payer.email, "המנוי מתחדש בקרוב", {
       heading: "תזכורת לפני חידוש",
