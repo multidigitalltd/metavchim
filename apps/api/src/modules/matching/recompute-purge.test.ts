@@ -34,33 +34,51 @@ describe("רענון נכס מנקה מה שאינו ניתן לניקוד", () 
   });
 
   /*
-   * שני ענפי היציאה המוקדמת — „חסרים שדות” ו„יצא משיווק” — חייבים
-   * שניהם למחוק. הבדיקה סופרת, כדי שהוספת ענף שלישי בלי מחיקה
-   * תיתפס גם היא.
+   * ‎**המחיקה מכוונת לנכס בלי מיקום, ולא לנכס שאי אפשר לחשב כאן.**
+   *
+   * שתי שאלות נפרדות. הסינון הגס נשען על שם העיר, ולכן בלי עיר אין
+   * ממה לבחור מועמדים — אבל נכס עם קואורדינטות ובלי עיר **ממוקם**:
+   * המנוע בוחן אותו מול אזורי המפה, ו-`recomputeForBuyer` בוחר
+   * אותו דרך התיבה התוחמת. הגרסה הראשונה של הניקוי מחקה על
+   * ‎`city === null` לבדו, וכך הרסה בכל סבב יומי התאמות תקינות
+   * (ביקורת Codex).
    */
-  it("כל יציאה מוקדמת שאינה „הנכס לא נמצא” מוחקת הצעות", () => {
-    const earlyReturns = [...RECOMPUTE.matchAll(/return NO_MATCHES;/gu)];
-    // „הנכס לא נמצא” + „חסרים שדות” + „יצא משיווק”
-    expect(earlyReturns).toHaveLength(3);
+  it("„ממוקם” נשען על עיר **או** קואורדינטה", () => {
+    expect(RECOMPUTE).toMatch(
+      /const locatable = property\.city !== null \|\| property\.latitude !== null;/u,
+    );
+  });
 
+  it("המחיקה תלויה בהיעדר מיקום, לא בהיעדר עיר", () => {
+    const guard = /if \(!locatable\) \{[\s\S]*?return NO_MATCHES;\s*\}/u.exec(RECOMPUTE)?.[0] ?? "";
+    expect(guard).not.toBe("");
+    expect(guard).toContain("deleteMany");
+    expect(guard.indexOf("deleteMany")).toBeLessThan(guard.indexOf("return NO_MATCHES;"));
+  });
+
+  /*
+   * ‎**הענף שאינו מוחק חייב להישאר לא-מוחק.** נכס ממוקם שחסרים לו
+   * שדות לסינון הגס יוצא בלי לגעת בהתאמות שהכיוון ההפוך יצר.
+   */
+  it("ממוקם אך חסר לסינון — יוצא בלי למחוק", () => {
+    const branch =
+      /if \(\s*property\.city === null \|\|[\s\S]*?return NO_MATCHES;\s*\}/u.exec(RECOMPUTE)?.[0] ??
+      "";
+    expect(branch).not.toBe("");
+    expect(branch).not.toContain("deleteMany");
+  });
+
+  /*
+   * שני ענפים מוחקים — „אין מיקום” ו„יצא משיווק”. הספירה תופסת
+   * הוספת ענף מחיקה שלישי שלא נשקל.
+   */
+  it("בדיוק שני ענפים מוחקים הצעות", () => {
     const deletes = [
       ...RECOMPUTE.matchAll(
         /tx\.match\.deleteMany\(\{\s*where:\s*\{[^}]*status:\s*"suggested"[^}]*\}\s*\}\)/gu,
       ),
     ];
     expect(deletes).toHaveLength(2);
-  });
-
-  /*
-   * ‎**סדר, לא רק נוכחות.** מחיקה שיושבת אחרי ה-`return` אינה רצה,
-   * וזו בדיוק הצורה של הבאג שהיה כאן.
-   */
-  it("המחיקה קודמת ליציאה בענף השדות החסרים", () => {
-    const branch =
-      /property\.city === null[\s\S]*?return NO_MATCHES;/u.exec(RECOMPUTE)?.[0] ?? "";
-    expect(branch).not.toBe("");
-    expect(branch.indexOf("deleteMany")).toBeGreaterThan(-1);
-    expect(branch.indexOf("deleteMany")).toBeLessThan(branch.indexOf("return NO_MATCHES;"));
   });
 
   /*
