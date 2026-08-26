@@ -5,7 +5,9 @@ import {
   diarizeTimeoutMs,
   formatDiarizedTranscript,
   formatTimestamp,
+  hasSpeakerTurns,
   mergeConsecutive,
+  parseDiarizedTranscript,
   relabelByFirstAppearance,
   type SpeakerTurn,
   type TranscriptSegment,
@@ -217,5 +219,85 @@ describe("countSpeakers", () => {
         { start: 3, end: 4, text: "ד", speaker: null },
       ]),
     ).toBe(2);
+  });
+});
+
+/*
+ * ‎**קריאה חזרה של מה שנכתב.**
+ *
+ * המבנה אינו נשמר בשום מקום — `formatDiarizedTranscript` משטח אותו
+ * למחרוזת, ומה שיושב ב-`calls.transcript` הוא טקסט. מסך שמציג כל
+ * דובר כתור נפרד חייב להחזיר את המבנה, והבדיקות כאן הן מה שמונע
+ * מהשתיים להיפרד: שינוי בפורמט בלי שינוי בפרסור נופל כאן.
+ */
+describe("parseDiarizedTranscript — התמלול חוזר לתורות", () => {
+  const segments: TranscriptSegment[] = [
+    { start: 0, end: 4, text: "שלום, מדבר יוסי מהמשרד" },
+    { start: 5, end: 9, text: "היי, כן, חיכיתי לשיחה" },
+    { start: 75, end: 80, text: "אני מחפש ארבעה חדרים בבני ברק" },
+  ];
+  const turns: SpeakerTurn[] = [
+    { start: 0, end: 4.5, speaker: "SPEAKER_01" },
+    { start: 4.5, end: 9.5, speaker: "SPEAKER_00" },
+    { start: 74, end: 81, speaker: "SPEAKER_00" },
+  ];
+
+  /* הבדיקה המרכזית: מה שנכתב הוא מה שנקרא, בלי אובדן. */
+  it("הלוך-ושוב — כל תור חוזר עם הדובר, הזמן והטקסט שלו", () => {
+    const { text, speakerCount } = formatDiarizedTranscript(segments, turns);
+    expect(speakerCount).toBe(2);
+    const lines = parseDiarizedTranscript(text);
+    expect(lines).toEqual([
+      { speaker: "דובר 1", timestamp: "00:00", text: "שלום, מדבר יוסי מהמשרד" },
+      { speaker: "דובר 2", timestamp: "00:05", text: "היי, כן, חיכיתי לשיחה" },
+      { speaker: "דובר 2", timestamp: "01:15", text: "אני מחפש ארבעה חדרים בבני ברק" },
+    ]);
+    expect(hasSpeakerTurns(lines)).toBe(true);
+  });
+
+  /*
+   * ‎**דובר יחיד — ובכוונה בלי תוויות.** הפורמט מוותר עליהן כשאין מה
+   * להבחין, ואין דגל ששומר את ההבדל בין „דובר אחד” לבין „תמלול ישן
+   * בלי זיהוי”. שתיהן חוזרות כשורה אחת בלי דובר, וזה מדויק: בשתיהן
+   * באמת לא ידוע מי מדבר.
+   */
+  it("דובר יחיד חוזר כשורה אחת בלי תווית", () => {
+    const oneSpeaker = formatDiarizedTranscript(segments, [
+      { start: 0, end: 81, speaker: "SPEAKER_00" },
+    ]);
+    expect(oneSpeaker.speakerCount).toBe(1);
+    const lines = parseDiarizedTranscript(oneSpeaker.text);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.speaker).toBeNull();
+    expect(hasSpeakerTurns(lines)).toBe(false);
+  });
+
+  it("תמלול ישן בלי חותמות — שורה אחת, בלי להמציא דובר", () => {
+    const lines = parseDiarizedTranscript("שיחה שתומללה לפני שהופעל זיהוי הדוברים.");
+    expect(lines).toEqual([
+      { speaker: null, timestamp: null, text: "שיחה שתומללה לפני שהופעל זיהוי הדוברים." },
+    ]);
+  });
+
+  /*
+   * ירידת שורה בתוך דברי דובר אחד אינה החלפת דובר. בלי הכלל הזה
+   * המסך היה מצייר גוש חדש וחסר-תווית באמצע משפט.
+   */
+  it("שורת המשך מצטרפת לתור שלפניה", () => {
+    const lines = parseDiarizedTranscript("[00:00] דובר 1: שלום\nוגם המשך המשפט\n[00:20] דובר 2: כן");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]?.text).toBe("שלום וגם המשך המשפט");
+    expect(lines[1]?.speaker).toBe("דובר 2");
+  });
+
+  it("תמלול ריק אינו תור ריק", () => {
+    expect(parseDiarizedTranscript("")).toEqual([]);
+    expect(parseDiarizedTranscript("   \n  ")).toEqual([]);
+    expect(hasSpeakerTurns([])).toBe(false);
+  });
+
+  it("שיחה מעל שעה — חותמת h:mm:ss נקראת גם היא", () => {
+    const lines = parseDiarizedTranscript("[1:02:03] דובר 1: עדיין כאן");
+    expect(lines[0]).toEqual({ speaker: "דובר 1", timestamp: "1:02:03", text: "עדיין כאן" });
   });
 });

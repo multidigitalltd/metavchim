@@ -37,6 +37,7 @@ import { DictateFor } from "../../dictation-field";
 import { RelatedEntities } from "../../related-entities";
 import { EntityTasks } from "../../entity-tasks";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
+import { LeadCalls } from "./lead-calls";
 import { IntakePanel } from "../../intake-panel";
 import { SelectMenu } from "../../select-menu";
 import { ReplyEmail } from "./reply-email";
@@ -839,7 +840,14 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
    * נשאר האחרון שהיה גלילה אחת ארוכה — שבע-עשרה קופסאות בטור,
    * שבהן הדבר הדחוף ביותר ("דורש טיפול אנושי") ישב מתחת לקיפול.
    */
-  const [tab, selectTab] = useEntityTab(["overview", "next", "timeline"], "overview");
+  /*
+   * ‎`referral` היה חסר מהרשימה אף שהלשונית מוצגת — כלומר `?tab=referral`
+   * נפל בחזרה לסקירה. תוקן יחד עם הוספת `calls` (ביקורת עצמית).
+   */
+  const [tab, selectTab] = useEntityTab(
+    ["overview", "next", "calls", "referral", "timeline"],
+    "overview",
+  );
 
   useEffect(() => {
     if (authLoading) return;
@@ -1055,6 +1063,7 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
           tabs={[
             { key: "overview", label: "סקירה" },
             { key: "next", label: "המשך טיפול" },
+            { key: "calls", label: "שיחות" },
             { key: "referral", label: "הפניות" },
             { key: "timeline", label: "ציר זמן", count: timeline.length },
           ]}
@@ -1228,6 +1237,13 @@ export default function LeadDetailPage({ params }: { params: Promise<{ id: strin
             <DeleteLeadSection leadId={lead.id} contactName={lead.contact.name} />
           </div>
         ) : null}
+      </TabPanel>
+
+      {/* ============================================================
+          שיחות — ההקלטה, הסיכום והתמלול בכרטיס עצמו
+          ============================================================ */}
+      <TabPanel tab="calls" active={tab}>
+        <LeadCalls leadId={id} />
       </TabPanel>
 
       {/* ============================================================

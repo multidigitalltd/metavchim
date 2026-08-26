@@ -2085,6 +2085,8 @@ model Call {
    */
   providerRecordingDetail String? @map("provider_recording_detail") @db.VarChar(200)
   transcript          String?
+  /// budget | rooms | city | callback — מה שחולץ מהתמלול, כפי שחולץ.
+  highlights          Json      @default("{}")
   transcribedAt       DateTime? @map("transcribed_at")
   /**
    * pending | running | done | failed | unavailable

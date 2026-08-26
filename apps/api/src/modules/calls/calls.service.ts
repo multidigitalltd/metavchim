@@ -14,8 +14,10 @@ import { CryptoService } from "../../core/crypto.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
 import { StorageService } from "../../core/storage.service";
 import {
+  parseCallHighlights,
   RECORDING_BLOCKED_REASON,
   recordingStateOf,
+  type CallHighlights,
   type RecordingStatus,
 } from "@metavchim/shared";
 import { ContactsService, type ContactDto } from "../contacts/contacts.service";
@@ -44,6 +46,14 @@ export interface CallDto {
   /** pending | running | done | failed | unavailable — null = לא הועלתה הקלטה. */
   transcriptionStatus?: string;
   transcript?: string;
+  /**
+   * הפרטים שחולצו מהשיחה — תקציב, חדרים, אזור ומועד חזרה.
+   *
+   * מוחזר תמיד, גם ריק: `{}` פירושו „לא זוהה דבר”, וזה מצב תקין
+   * ושכיח. השמטת השדה הייתה מחייבת כל מסך להבחין בין „אין” לבין
+   * „גרסה ישנה של ה-API”, ואלה שתי שאלות שונות.
+   */
+  highlights: CallHighlights;
   /**
    * יש קובץ להשמעה.
    *
@@ -601,6 +611,7 @@ export class CallsService {
       summary: string | null;
       transcriptionStatus?: string | null;
       transcript?: string | null;
+      highlights?: unknown;
       recordingKey?: string | null;
       providerRecordingPath?: string | null;
       providerRecordingAttemptAt?: Date | null;
@@ -653,6 +664,7 @@ export class CallsService {
       ...(row.summary ? { summary: row.summary } : {}),
       ...(row.transcriptionStatus ? { transcriptionStatus: row.transcriptionStatus } : {}),
       ...(row.transcript ? { transcript: row.transcript } : {}),
+      highlights: parseCallHighlights(row.highlights),
       createdAt: row.createdAt,
     };
   }
