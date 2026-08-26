@@ -21,6 +21,7 @@ import { TelephonySection } from "./telephony-section";
 import { VirtualNumbersSection } from "./virtual-numbers-section";
 import { SupportAccessSection } from "./support-access-section";
 import { SupportTicketsSection } from "./support-tickets-section";
+import { EmailDomainSection } from "./email-domain-section";
 import { GmailSection } from "./gmail-section";
 import { GoogleCalendarSection } from "./google-calendar-section";
 import { MatchWeightsSection } from "./match-weights-section";
@@ -1163,6 +1164,16 @@ export default function SettingsPage() {
               <div id="gmail">
                 <GmailSection />
               </div>
+
+              {/*
+                חיבור דומיין הוא פעולת הגדרות של המשרד (settings.manage) —
+                לשאר הצוות הקטע היה רק טופס שמחזיר 403.
+              */}
+              {can(user, "settings.manage") ? (
+                <div id="email-domain">
+                  <EmailDomainSection />
+                </div>
+              ) : null}
 
               <div id="lead-webhook">
                 <LeadWebhookSection />
