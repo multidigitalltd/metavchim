@@ -245,7 +245,7 @@ export class RecurrenceService {
     const chosen = [...new Set(sent ?? [])].sort();
     if (chosen.length > 0) return chosen;
     if (existing && existing.length > 0) return existing;
-    return [toJerusalemWall(new Date()).getDay()];
+    return [toJerusalemWall(new Date()).getDay()];  // נושא-שעת-קיר
   }
 
   private assertValid(input: RecurrenceInput): void {
@@ -323,7 +323,7 @@ export class RecurrenceService {
         input.frequency === "monthly"
           ? (input.dayOfMonth ??
             existing?.dayOfMonth ??
-            toJerusalemWall(new Date()).getDate())
+            toJerusalemWall(new Date()).getDate())  // נושא-שעת-קיר
           : null,
       hour: input.hour,
       minute: input.minute,

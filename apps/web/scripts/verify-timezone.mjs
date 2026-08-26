@@ -46,10 +46,10 @@ const monoRoot = new URL("../../..", import.meta.url).pathname;
  */
 const ROOTS = [
   { path: "apps/web/src", arithmetic: true },
-  { path: "packages/shared/src", arithmetic: false },
-  { path: "packages/ui/src", arithmetic: false },
-  { path: "apps/api/src", arithmetic: false },
-  { path: "apps/workers/src", arithmetic: false },
+  { path: "packages/shared/src", arithmetic: true },
+  { path: "packages/ui/src", arithmetic: true },
+  { path: "apps/api/src", arithmetic: true },
+  { path: "apps/workers/src", arithmetic: true },
 ];
 
 /**
@@ -147,6 +147,26 @@ function localeWithoutTimeZone(text) {
  * שמדברת אל מי שמסתכל על המסך ולא על שעות העבודה בישראל.
  */
 const ALLOW = "שעון-המכשיר-במכוון";
+
+/**
+ * ‎**„ה-`Date` הזה נושא שעת קיר ירושלמית, לא רגע.”**
+ *
+ * הדפוס: `toJerusalemWall(at)` מחזיר `Date` שהשדות **המקומיים** שלו
+ * הם שעת הקיר בישראל, מבצעים עליו אריתמטיקה מקומית, ומחזירים דרך
+ * ‎`jerusalemWallToUtc`. שם `getHours()` הוא הדבר הנכון.
+ *
+ * ‎**למה סימון בשורה ולא פטור לשורש שלם.** קודם כיביתי את כל בדיקות
+ * האריתמטיקה על `shared`, `api`, `workers` ו-`ui` — ארבעה שורשים
+ * שלמים — בנימוק שהדפוס הזה חי בהם. אבל הוא חי ב-**חמישה קבצים**,
+ * ופטור לשורש היה נותן ל-`Date.parse(wallInput)` עתידי בכל נתיב API
+ * לעבור בשקט (ביקורת Codex). זה גם סתר את מה שכתוב בראש הקובץ
+ * הזה: החריג מסומן במקום עצמו ולא ברשימה.
+ *
+ * הסימון מתיר **אריתמטיקה בלבד**. כללי התצוגה — `toLocale…`,
+ * ‎`Intl` בלי אזור זמן — חלים גם על שורה מסומנת, כי נושא שעת קיר
+ * שמעוצב ישירות הוא באג בכל מקרה.
+ */
+const WALL_CARRIER = "נושא-שעת-קיר";
 
 /** כל קובץ מקור בכל שורש, עם הכללים שחלים עליו. בדיקות אינן קוד מוצר. */
 const FILES = [];
@@ -324,10 +344,20 @@ function localDateCtor(text) {
     const args = argsOf(call);
     let depth = 0;
     let topLevelComma = false;
-    for (const ch of args) {
+    for (let i = 0; i < args.length; i += 1) {
+      const ch = args[i];
       if (ch === "(" || ch === "[" || ch === "{") depth += 1;
       else if (ch === ")" || ch === "]" || ch === "}") depth -= 1;
-      else if (ch === "," && depth === 0) topLevelComma = true;
+      else if (ch === "," && depth === 0) {
+        /*
+         * פסיק **נגרר** אינו מפריד בין ארגומנטים.
+         * ‎`new Date(\n  Date.now() - ms,\n)` בסגנון prettier הוא
+         * ארגומנט אחד, והספירה הראשונה שלי סימנה שישה מופעים תקינים
+         * ב-`workers` וב-`shared` כבנאי רב-ארגומנטי. התרעת שווא היא
+         * לא רק רעש: היא מלמדת למחוק סימונים.
+         */
+        if (args.slice(i + 1).trim() !== "") topLevelComma = true;
+      }
     }
     if (topLevelComma) {
       found.push({ line, why: "בנאי Date רב-ארגומנטי — מקומי תמיד" });
@@ -382,8 +412,11 @@ for (const { full, short, arithmetic } of FILES) {
   for (const line of callableDateLines(withoutComments(source))) {
     offenders.push(`  ${short}:${line}  ←  ()Date בלי new — מחרוזת בשעון המארח`);
   }
+  const sourceLines = source.split("\n");
+  const carries = (line) => (sourceLines[line - 1] ?? "").includes(WALL_CARRIER);
   if (arithmetic) {
     for (const { line, why } of localDateCtor(source)) {
+      if (carries(line)) continue;
       offenders.push(`  ${short}:${line}  ←  ${why}`);
     }
   }
@@ -407,6 +440,7 @@ for (const { full, short, arithmetic } of FILES) {
       (LOCAL_OFFSET.test(code) && "היסט אזור הזמן של המכשיר") ||
       /* אריתמטיקה — נאכפת בשכבת המסך, שאין בה דפוס „נושא שעת קיר” */
       (arithmetic &&
+        !line.includes(WALL_CARRIER) &&
         ((LOCAL_READ.test(code) && "קריאה בשעון המכשיר") ||
           (LOCAL_PARSE.test(code) && "Date.parse — פרסור בשעון המכשיר") ||
           (LOCAL_WRITE.test(code) && "כתיבה בשעון המכשיר")));
