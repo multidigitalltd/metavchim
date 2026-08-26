@@ -1,5 +1,10 @@
 import type { Prisma, Property as PropertyRow } from "@prisma/client";
-import { normalizeCustomFeatures, type CustomFeature, type PropertyFields } from "@metavchim/shared";
+import {
+  normalizeCustomFeatures,
+  type CustomFeature,
+  type OccupancyState,
+  type PropertyFields,
+} from "@metavchim/shared";
 
 /**
  * המרה מפורשת שורת DB ⇄ DTO — אין החזרת שורות גולמיות ללקוח
@@ -87,6 +92,17 @@ export interface PropertyDto extends PropertyFields {
    * אפשר להגיע אליו גם בלי מחיקה רכה, והמסך היה מציע מחיקה שהשרת
    * דוחה.
    */
+  /**
+   * ‎**מי גר בנכס — ו-`undefined` הוא „טרם נשאל”, לא „הבעלים”.**
+   *
+   * המסך מציג את זה כמצב רביעי מפורש. שדה שחסר אינו רשות להניח
+   * ערך: כל הנכסים שקדמו לשדה מגיעים כך, והנחה כאן הייתה ממציאה
+   * עובדה על אלפי כרטיסים בבת אחת.
+   */
+  occupancy?: OccupancyState;
+  /** תום חוזה השכירות, `YYYY-MM-DD`. רק כשהמצב „מושכר”. */
+  leaseEndsAt?: string;
+  noticePeriodDays?: number;
   archived: boolean;
   createdAt: Date;
   updatedAt: Date;
