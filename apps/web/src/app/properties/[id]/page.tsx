@@ -152,6 +152,31 @@ const STATUS_DOMAIN: Record<string, { background: string; color: string }> = {
   archived: { background: "var(--domain-neutral-bg)", color: "var(--domain-neutral-fg)" },
 };
 
+/**
+ * צ'יפי הסינון בלשונית ההתאמות (SPEC-4a §1).
+ *
+ * שלושת אלה ולא אחרים, כי שלוש השאלות שמתווך שואל מול רשימת התאמות
+ * הן „מי הכי מתאים”, „למי עוד לא פניתי” ו„מי מוכן לקנות”. כל בורר
+ * נוסף הוא בורר שצריך להחליט עליו.
+ *
+ * ‎`hot` **וגם** `very_hot` — „קונה חם” בעברית כולל את שניהם, ובורר
+ * שהיה מחזיר רק את אחד מהם היה מסתיר בשקט בדיוק את הקונים החמים
+ * ביותר.
+ */
+const MATCH_FILTERS: readonly {
+  key: string;
+  label: string;
+  keep: (m: MatchRow, hasOffer: boolean) => boolean;
+}[] = [
+  { key: "score90", label: "ציון 90+", keep: (m) => m.score >= 90 },
+  { key: "noOffer", label: "לא נשלחה הצעה", keep: (_m, hasOffer) => !hasOffer },
+  {
+    key: "hot",
+    label: "קונה חם",
+    keep: (m) => m.buyerMaturity === "hot" || m.buyerMaturity === "very_hot",
+  },
+];
+
 const MATURITY_TAG: Record<string, { fg: string; bg: string }> = {
   very_hot: { fg: "#b0512c", bg: "#faf1ec" },
   hot: { fg: "#7a5c1f", bg: "#f7efdd" },
@@ -223,6 +248,14 @@ export default function PropertyDetailPage({
   const canWhatsApp = useFeature("whatsapp");
   const router = useRouter();
   const [property, setProperty] = useState<PropertyDetail | null>(null);
+  /**
+   * צ'יפי הסינון בלשונית ההתאמות (SPEC-4a §1).
+   *
+   * ‎**סינון מצטבר ולא בלעדי**: מי שבוחר „ציון 90+” וגם „לא נשלחה
+   * הצעה” מתכוון לשניהם. בורר יחיד היה מחייב אותו לבחור איזו שאלה
+   * חשובה יותר, וזו בדיוק ההחלטה שהוא רוצה לא לקבל.
+   */
+  const [matchFilters, setMatchFilters] = useState<Set<string>>(new Set());
   const [archiveConfirm, setArchiveConfirm] = useState(false);
   const [purgeConfirm, setPurgeConfirm] = useState(false);
   const [purgeError, setPurgeError] = useState<string | null>(null);
@@ -528,6 +561,17 @@ export default function PropertyDetailPage({
   const bulkEligible = (matches ?? []).filter(
     (m) => m.score >= 85 && !offers[m.id],
   ).length;
+
+  /*
+   * הסינון מצטבר: כל צ'יפ שנבחר מצמצם עוד. השורה נשארת רק אם היא
+   * עוברת את **כל** הבוררים הפעילים.
+   */
+  const visibleMatches = (matches ?? []).filter((m) =>
+    MATCH_FILTERS.every(
+      (f) => !matchFilters.has(f.key) || f.keep(m, offers[m.id] !== undefined),
+    ),
+  );
+  const hiddenByFilter = (matches?.length ?? 0) - visibleMatches.length;
 
   return (
     <>
@@ -1065,6 +1109,60 @@ export default function PropertyDetailPage({
               <Notice tone="success">✓ {bulkResult}</Notice>
             ) : null}
 
+            {/*
+              צ'יפי הסינון — SPEC-4a §1.
+
+              ‎**מוצגים רק כשיש מה לסנן.** שורת בוררים מעל רשימה של
+              שתי שורות היא רעש, ומעל רשימה ריקה היא הבטחה לתוכן
+              שאינו קיים.
+            */}
+            {matches !== null && matches.length > 1 ? (
+              <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
+                {MATCH_FILTERS.map((f) => {
+                  const on = matchFilters.has(f.key);
+                  return (
+                    <button
+                      key={f.key}
+                      type="button"
+                      aria-pressed={on}
+                      /*
+                        ‎`mv-chip` ולא `mv-example-chip`: הראשון כבר
+                        נושא מצב „נבחר” שעבר את שער הניגודיות
+                        בשלוש הערכות. הצבעים שכתבתי בהתחלה ביד היו
+                        ‎1.68:1 בערכה הכהה — לבן על ירוק בהיר — והשער
+                        תפס זאת. אותו כשל בדיוק מתועד ב-CSS לצד
+                        הכלל הזה, מגלולת סינון קודמת.
+                      */
+                      className="mv-chip"
+                      onClick={() =>
+                        setMatchFilters((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(f.key)) next.delete(f.key);
+                          else next.add(f.key);
+                          return next;
+                        })
+                      }
+                    >
+                      {f.label}
+                    </button>
+                  );
+                })}
+                {/*
+                  ‎**מה שהוסתר נאמר במספר.** רשימה שהתקצרה בלי לומר
+                  בכמה נקראת כמו „אין יותר מזה” — וזו בדיוק הטעות
+                  שגורמת למתווך לחשוב שהמאגר ריק.
+                */}
+                {hiddenByFilter > 0 ? (
+                  <span
+                    className="text-[length:var(--type-caption-lg)]"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    {hiddenByFilter} מוסתרים בסינון
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+
             {matchesFailed ? (
               <LoadError
                 message="לא הצלחנו לטעון את ההתאמות"
@@ -1076,8 +1174,26 @@ export default function PropertyDetailPage({
               <MatchesEmptyState
                 blocking={matchGateMissing(property)}
               />
+            ) : visibleMatches.length === 0 ? (
+              /*
+                ‎**סינון שהסתיר הכול אומר זאת, ומציע לבטל.**
+                רשימה ריקה בלי משפט נקראת „אין קונים מתאימים” — בזמן
+                שיש, והמתווך עצמו הסתיר אותם לפני שניות. זה בדיוק
+                המצב שבו מסך שותק משקר.
+              */
+              <p className="m-0" style={{ color: "var(--color-text-muted)" }}>
+                כל {matches.length} ההתאמות מוסתרות בסינון.{" "}
+                <button
+                  type="button"
+                  className="underline"
+                  style={{ color: "inherit" }}
+                  onClick={() => setMatchFilters(new Set())}
+                >
+                  ניקוי הסינון
+                </button>
+              </p>
             ) : (
-              matches.map((m) => {
+              visibleMatches.map((m) => {
                 const offer = offers[m.id];
                 const tag = m.buyerMaturity
                   ? MATURITY_TAG[m.buyerMaturity]
