@@ -3,6 +3,7 @@ import { AuditService } from "./audit.service";
 import { AutomationQuotaService } from "./automation-quota.service";
 import { CryptoService } from "./crypto.service";
 import { EmailDomainProviderService } from "./email-domain-provider.service";
+import { EmailDomainRecheckService } from "./email-domain-recheck.service";
 import { EmailService } from "./email.service";
 import { OutboxDispatcherService } from "./outbox-dispatcher.service";
 import { LeadPricingService } from "./lead-pricing.service";
@@ -26,6 +27,7 @@ import { StorageService } from "./storage.service";
     CryptoService,
     EmailService,
     EmailDomainProviderService,
+    EmailDomainRecheckService,
     AuditService,
     OutboxService,
     OutboxDispatcherService,
@@ -46,6 +48,7 @@ import { StorageService } from "./storage.service";
     CryptoService,
     EmailService,
     EmailDomainProviderService,
+    EmailDomainRecheckService,
     AuditService,
     OutboxService,
     PlatformSettingsService,

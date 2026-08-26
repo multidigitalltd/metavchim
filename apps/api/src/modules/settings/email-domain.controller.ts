@@ -29,6 +29,7 @@ import {
   EmailDomainProviderService,
   type ProviderDomain,
 } from "../../core/email-domain-provider.service";
+import { EmailDomainRecheckService } from "../../core/email-domain-recheck.service";
 import { EmailService } from "../../core/email.service";
 import { PrismaService } from "../../core/prisma.service";
 
@@ -97,6 +98,7 @@ export class EmailDomainController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly provider: EmailDomainProviderService,
+    private readonly recheck: EmailDomainRecheckService,
     private readonly email: EmailService,
     private readonly audit: AuditService,
   ) {}
@@ -193,13 +195,19 @@ export class EmailDomainController {
         }),
       );
     } catch (error) {
+      /*
+       * **כל** כתיבה שנכשלה מפצה את הרישום אצל הספק, לא רק התנגשות
+       * הייחודיות: גם תקלת מסד חולפת משאירה דומיין רשום שם בלי שורה
+       * אצלנו — והניסיון הבא של המנהל היה נתקל ב"כבר רשום אצל הספק"
+       * בלי שום דרך לתקן מהמסך (ביקורת Codex). מחיקת הפיצוי עצמה
+       * best-effort ובשקט: ההודעה למנהל היא העיקר, וכשל בה נרשם
+       * ממילא ביומן הספק.
+       */
+      await this.provider.deleteDomain(created.providerDomainId).catch(() => {});
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === "P2002"
       ) {
-        // הדומיין של משרד אחר. הרישום שיצרנו הרגע אצל הספק מיותר —
-        // ומחיקתו אסור שתיכשל בקול: ההודעה למנהל היא העיקר.
-        await this.provider.deleteDomain(created.providerDomainId).catch(() => {});
         throw new BadRequestException(
           "הדומיין הזה כבר מחובר במערכת — אם הוא בבעלות המשרד שלכם, פנו לתמיכה",
         );
@@ -219,59 +227,33 @@ export class EmailDomainController {
   }
 
   /**
-   * בדיקת אימות — הספק ניגש ל-DNS עכשיו. נשמר כל מה שחזר, כולל
-   * רשומות שהתעדכנו אצלו (DKIM עובר משדה Pending לקבוע באימות).
+   * בדיקת אימות — הספק ניגש ל-DNS עכשיו. המימוש עצמו יושב
+   * ב-`EmailDomainRecheckService`, אותו מימוש שהסורק התקופתי מריץ
+   * — כדי שכפתור וסורק יכתבו את אותם דגלים באותם כללים.
    */
   @Post("verify")
   @RequireCapability("settings.manage")
   @HttpCode(200)
   async verify(): Promise<EmailDomainView> {
     const tenantId = TenantContext.current().tenantId;
-    const row = await this.prisma.withTenant((tx) =>
-      tx.emailDomain.findUnique({ where: { tenantId } }),
-    );
-    if (row === null) throw new NotFoundException("לא מחובר דומיין למשרד");
-
-    const checked = await this.provider.verifyDomain(row.providerDomainId);
-    const nowVerified = emailDomainStatus(checked) === "verified";
-    const updated = await this.prisma.withTenant((tx) =>
-      tx.emailDomain.update({
-        where: { tenantId },
-        data: {
-          dkimHost: this.keepIfEmpty(checked.dkimHost, row.dkimHost),
-          dkimValue: this.keepIfEmpty(checked.dkimValue, row.dkimValue),
-          returnPathHost: this.keepIfEmpty(checked.returnPathHost, row.returnPathHost),
-          returnPathValue: this.keepIfEmpty(checked.returnPathValue, row.returnPathValue),
-          dkimVerified: checked.dkimVerified,
-          returnPathVerified: checked.returnPathVerified,
-          lastCheckedAt: new Date(),
-          // נקבע פעם אחת, במעבר הראשון לאימות מלא — לתצוגה ולתמיכה
-          ...(nowVerified && row.verifiedAt === null
-            ? { verifiedAt: new Date() }
-            : {}),
-        },
-      }),
-    );
-    if (nowVerified && row.verifiedAt === null) {
+    const result = await this.recheck.recheckTenant(tenantId);
+    if (result === null) throw new NotFoundException("לא מחובר דומיין למשרד");
+    /*
+     * ביקורת רק על מעבר ראשון לאימות מלא, ורק כאן ולא בסורק:
+     * היומן מתעד פעולות של בני אדם, והסורק אינו כזה (וגם אין לו
+     * הקשר בקשה לרשום ממנו).
+     */
+    if (result.nowVerified && !result.wasVerified && result.row.verifiedAt !== null) {
       await this.prisma.withTenant((tx) =>
         this.audit.record(tx, {
           action: "settings.email_domain_verified",
           entityType: "tenant",
           entityId: tenantId,
-          metadata: { domain: row.domain },
+          metadata: { domain: result.row.domain },
         }),
       );
     }
-    return this.view(updated, true);
-  }
-
-  /**
-   * אחרי אימות DKIM הספק מאפס את שדות ה-Pending בלי למלא מיד את
-   * הקבועים בכל תשובה — ערך ריק ממנו אינו סיבה למחוק את מה שהמנהל
-   * עוד צריך להעתיק.
-   */
-  private keepIfEmpty(next: string, current: string): string {
-    return next === "" ? current : next;
+    return this.view(result.row, true);
   }
 
   /** עדכון כתובת השולח ושם התצוגה — על הדומיין שכבר חובר. */

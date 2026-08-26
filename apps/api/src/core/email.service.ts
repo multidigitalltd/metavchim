@@ -115,7 +115,7 @@ export class EmailService {
     to: string,
     subject: string,
     content: EmailContent | string,
-    options: { required?: boolean; tenantId?: string } = {},
+    options: { required?: boolean; tenantId?: string; tenantOnly?: boolean } = {},
   ): Promise<void> {
     const body: EmailContent =
       typeof content === "string" ? { paragraphs: [content] } : content;
@@ -139,18 +139,33 @@ export class EmailService {
      * הדומיין יכול להישבר אצל הספק אחרי שאומת (רשומה שנמחקה אצל רשם
      * הדומיינים), והלקוח שמחכה להסכם חשוב מהמיתוג. הכישלון נרשם
      * ברעש כדי שהתקלה לא תוסתר — המשרד יראה גם סטטוס שבור במסך.
+     *
+     * ‏`tenantOnly` הופך את הנפילה הרכה לכישלון מפורש — בשביל מייל
+     * **הבדיקה** של החיבור, שכל תכליתו לוודא שהשליחה מכתובת המשרד
+     * עובדת. בדיקה שנופלת בשקט לכתובת הפלטפורמה ומדווחת "נשלח"
+     * מאשרת בדיוק את החיבור השבור שהיא נועדה לחשוף (ביקורת Codex).
      */
     const tenantFrom =
       options.tenantId === undefined ? null : await this.tenantSender(options.tenantId);
+    if (options.tenantOnly === true && tenantFrom === null) {
+      throw new EmailRejectedError(
+        "הדומיין של המשרד אינו מאומת — בדקו את החיבור במסך ההגדרות",
+      );
+    }
     if (tenantFrom !== null) {
       const res = await this.postmarkSend(creds.token, tenantFrom, to, subject, body);
       if (res.ok) return;
       const detail = await res.text().catch(() => "");
       this.logger.error(
-        `Postmark דחה שולח של משרד (${res.status}): ${detail.slice(0, 300)} — נשלח שוב מכתובת הפלטפורמה`,
+        `Postmark דחה שולח של משרד (${res.status}): ${detail.slice(0, 300)}${options.tenantOnly === true ? "" : " — נשלח שוב מכתובת הפלטפורמה"}`,
       );
       if (res.status >= 500) {
         throw new ServiceUnavailableException("שליחת האימייל נכשלה — נסו שוב");
+      }
+      if (options.tenantOnly === true) {
+        throw new EmailRejectedError(
+          "ספק האימייל דחה את הכתובת של המשרד — בדקו את האימות במסך ההגדרות",
+        );
       }
     }
 
@@ -219,9 +234,12 @@ export class EmailService {
    * מייל בדיקה **מהכתובת של המשרד** — ממסך חיבור הדומיין.
    *
    * אותו היגיון כמו `sendTest`: `required`, כי "נשלח" אחרי שלא נשלח
-   * הוא ההפך מבדיקה. הקורא (המסך) מוודא שהדומיין מאומת לפני שהוא
-   * מציע את הכפתור — אבל זו נוחות, לא ערובה, ולכן גם דומיין שאיבד
-   * אימות בינתיים פשוט ייצא מכתובת הפלטפורמה ויגלה את זה במסך.
+   * הוא ההפך מבדיקה. ו-`tenantOnly`, כי הנפילה הרכה לכתובת
+   * הפלטפורמה — נכונה להסכם שחייב להגיע — הייתה הופכת כאן את
+   * הבדיקה לשקר: מייל שמדווח "השליחה מהדומיין שלכם עובדת" אחרי
+   * שיצא מכתובת הפלטפורמה מאשר בדיוק את החיבור השבור שהבדיקה
+   * נועדה לחשוף (ביקורת Codex). דומיין שאיבד אימות מקבל כאן
+   * שגיאה מפורשת, לא הצלחה מזויפת.
    */
   async sendTenantTest(tenantId: string, to: string): Promise<void> {
     await this.send(
@@ -235,7 +253,7 @@ export class EmailService {
         ],
         footnote: "הודעת בדיקה שנשלחה ממסך הגדרות המשרד. אין צורך להשיב.",
       },
-      { required: true, tenantId },
+      { required: true, tenantId, tenantOnly: true },
     );
   }
 

@@ -39,6 +39,17 @@ export interface ProviderDomain {
  */
 export class DomainAlreadyClaimedError extends BadRequestException {}
 
+/**
+ * הדומיין אינו קיים אצל הספק — 404, ורק 404.
+ *
+ * הסוג הנפרד קיים בשביל הבחנה אחת קריטית במחיקה: "כבר לא שם" הוא
+ * הצלחה, אבל כל 4xx אחר — טוקן שפג, הרשאה שנשללה — אומר שהדומיין
+ * **עדיין רשום שם** ורק הבקשה נכשלה. קריאה שבולעת את שניהם מוחקת
+ * את השורה המקומית ומשאירה רישום יתום שחוסם את הדומיין לנצח
+ * (ביקורת Codex).
+ */
+export class DomainNotFoundAtProviderError extends BadRequestException {}
+
 const API_BASE = "https://api.postmarkapp.com";
 
 /** צורת התשובה של Postmark על דומיין — השדות שאנחנו קוראים בלבד. */
@@ -114,13 +125,17 @@ export class EmailDomainProviderService {
 
   /**
    * מחיקת הדומיין אצל הספק — בניתוק מהמסך או במחיקת המשרד.
-   * ‎404 נבלע: דומיין שכבר אינו קיים שם הוא בדיוק התוצאה הרצויה.
+   *
+   * ‏404 **בלבד** נבלע: דומיין שכבר אינו קיים שם הוא בדיוק התוצאה
+   * הרצויה. כל 4xx אחר (טוקן שפג, הרשאה שנשללה) חייב לעצור את
+   * הניתוק — הדומיין עדיין רשום אצל הספק, ומחיקת השורה המקומית
+   * הייתה משאירה רישום יתום שחוסם חיבור מחדש (ביקורת Codex).
    */
   async deleteDomain(providerDomainId: string): Promise<void> {
     try {
       await this.request("DELETE", `/domains/${providerDomainId}`);
     } catch (error) {
-      if (error instanceof BadRequestException) return;
+      if (error instanceof DomainNotFoundAtProviderError) return;
       throw error;
     }
   }
@@ -195,6 +210,11 @@ export class EmailDomainProviderService {
        * לא תקלה כללית.
        */
       if (res.status < 500) {
+        if (res.status === 404) {
+          throw new DomainNotFoundAtProviderError(
+            "הדומיין אינו רשום אצל ספק האימייל — נתקו את החיבור וחברו מחדש",
+          );
+        }
         if (detail.includes('"ErrorCode":503') || detail.includes("already exists")) {
           throw new DomainAlreadyClaimedError(
             "הדומיין כבר רשום אצל ספק האימייל — פנו לתמיכה",
