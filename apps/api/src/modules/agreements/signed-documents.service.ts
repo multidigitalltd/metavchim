@@ -353,23 +353,26 @@ export class SignedDocumentsService {
       } else {
         await assertContactAccess(tx, tenantId, found.contactId);
       }
-      await this.audit.record(tx, {
-        action: "agreement.document_download",
-        entityType: found.contactId === null ? "tenant" : "contact",
-        entityId: found.contactId ?? tenantId,
-        metadata: { documentId: id, retained: found.contactId === null },
-      });
       return found;
     });
 
+    /*
+     * ‎**האחזור לפני הרישום, והרישום לפני הזרימה.**
+     *
+     * הרישום ישב קודם בטרנזקציית ההרשאה, כלומר **לפני** שידענו אם
+     * האובייקט בכלל קיים. בקשה שנענתה ב-404 או ב-500 השאירה ביומן
+     * הביקורת שורה שאומרת „המסמך הורד” — ויומן שהוא Append-Only
+     * מדווח מכאן על חשיפה שלא קרתה (ביקורת Codex). על מסמך חתום
+     * זהו בדיוק התיעוד שקובע מי ראה מה, ורישום עודף בו גרוע מאין
+     * רישום.
+     *
+     * הסדר הזה גם אינו יוצר את הכשל ההפוך: אם כתיבת היומן נכשלת,
+     * הפונקציה זורקת והזרם אינו מוחזר — כלומר הבתים לא יצאו, ואין
+     * חשיפה שלא נרשמה.
+     */
+    let obj: Awaited<ReturnType<StorageService["getObject"]>>;
     try {
-      const obj = await this.storage.getObject(row.s3Key);
-      return {
-        body: obj.body,
-        contentType: obj.contentType ?? row.mimeType,
-        ...(obj.contentLength !== undefined ? { contentLength: obj.contentLength } : {}),
-        fileName: row.fileName,
-      };
+      obj = await this.storage.getObject(row.s3Key);
     } catch (error) {
       // רק „האובייקט איננו” הוא 404; כשל תשתית זמני נשאר 500
       if (StorageService.isMissingObjectError(error)) {
@@ -377,6 +380,22 @@ export class SignedDocumentsService {
       }
       throw error;
     }
+
+    await this.prisma.withTenant((tx) =>
+      this.audit.record(tx, {
+        action: "agreement.document_download",
+        entityType: row.contactId === null ? "tenant" : "contact",
+        entityId: row.contactId ?? tenantId,
+        metadata: { documentId: id, retained: row.contactId === null },
+      }),
+    );
+
+    return {
+      body: obj.body,
+      contentType: obj.contentType ?? row.mimeType,
+      ...(obj.contentLength !== undefined ? { contentLength: obj.contentLength } : {}),
+      fileName: row.fileName,
+    };
   }
 
   /**
