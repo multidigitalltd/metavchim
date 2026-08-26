@@ -6,6 +6,7 @@ import { apiGet, ApiError } from "@/lib/api";
 import { useRequireAuth } from "@/lib/use-auth";
 import { IconPrinter } from "../../../icons";
 import { Notice } from "../../../notice";
+import { formatDateTime } from "@/lib/format";
 
 /**
  * המסמך החתום — מה שהיה חסר בכרטיס הלקוח.
@@ -37,7 +38,7 @@ interface SignedDocument {
 
 function stamp(value?: string): string {
   if (!value) return "—";
-  return new Date(value).toLocaleString("he-IL");
+  return formatDateTime(value);
 }
 
 export default function AgreementDocumentPage({ params }: { params: Promise<{ id: string }> }) {

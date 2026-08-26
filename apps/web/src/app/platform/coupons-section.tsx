@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
 import { LoadError } from "../load-error";
 import { Notice } from "../notice";
+import { formatDate } from "@/lib/format";
 
 /**
  * קודי קופון להצטרפות.
@@ -231,7 +232,7 @@ export function CouponsSection(): React.JSX.Element {
               ) : null}
               {c.expiresAt ? (
                 <span style={{ color: "var(--color-text-muted)" }}>
-                  עד {new Date(c.expiresAt).toLocaleDateString("he-IL")}
+                  עד {formatDate(c.expiresAt)}
                 </span>
               ) : null}
               {c.note ? <span style={{ color: "var(--color-text-muted)" }}>· {c.note}</span> : null}

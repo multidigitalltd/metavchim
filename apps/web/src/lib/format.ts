@@ -18,6 +18,26 @@ export function shekelsToAgorot(shekels: number): number {
   return Math.round(shekels * 100);
 }
 
+const numberFmt = new Intl.NumberFormat("he-IL");
+
+/**
+ * מספר בפורמט ישראלי — „2,650,000”.
+ *
+ * ‎**למה מספרים עוברים דרך עזר ולא קוראים ל-`toLocaleString` בעצמם.**
+ * שער `verify:timezone` אוסר את שם המתודה `toLocaleString` בלי שום
+ * חריג, כי על `Date` היא קוראת את שעון המכשיר — ושם המתודה זהה
+ * בשני הטיפוסים. שער טקסטואלי אינו יודע מה טיפוס המקבל, ולכן
+ * האפשרות היחידה הייתה רשימת היתרים — בדיוק המנגנון שמחזיר את
+ * החור שהשער נועד לסגור (ארבעה מופעים על `Date` חמקו ממנו כך
+ * בסבב הקודם, ביקורת Codex). ארבעה מופעים על מספרים עברו לכאן,
+ * והאיסור נעשה מוחלט.
+ */
+export function formatNumber(value: number, options?: Intl.NumberFormatOptions): string {
+  return options === undefined
+    ? numberFmt.format(value)
+    : new Intl.NumberFormat("he-IL", options).format(value);
+}
+
 const dateFmt = new Intl.DateTimeFormat("he-IL", {
   timeZone: JERUSALEM_TZ, dateStyle: "medium" });
 

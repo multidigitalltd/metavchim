@@ -13,6 +13,7 @@ import {
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { DictationTextarea } from "../dictation-field";
 import { Notice } from "../notice";
+import { formatDate } from "@/lib/format";
 
 /**
  * היתרה הכספית ומשיכתה — בלשונית "מנוי ותשלום" בניהול המשרד.
@@ -318,7 +319,7 @@ export function PayoutPanel() {
                 style={{ borderColor: "var(--color-border)" }}
               >
                 <b>{shekels(row.amountAgorot)} ₪</b> ·{" "}
-                {new Date(row.createdAt).toLocaleDateString("he-IL")} ·{" "}
+                {formatDate(row.createdAt)} ·{" "}
                 <span style={{ color: STATUS_COLOR[row.status] }}>
                   {PAYOUT_STATUS_LABEL[row.status]}
                 </span>

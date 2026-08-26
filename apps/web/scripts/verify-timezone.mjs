@@ -26,6 +26,21 @@ const LOCAL_OFFSET = /getTimezoneOffset\s*\(\s*\)/u;
 const WALL_PARSE = /new Date\(\s*`[^`]*\$\{[^`]*\}T\$\{/u;
 /** ‎`setHours`/`setDate` — כותבים בשעון המכשיר, אותו נזק בכיוון השני. */
 const LOCAL_WRITE = /\.set(?:Hours|Minutes|Date|FullYear|Month)\s*\(/u;
+/**
+ * ‎`toLocaleString` וחבריו — **שעון המכשיר בשם אחר.**
+ *
+ * ‎`getHours()` נאסר מהיום הראשון, `Intl.DateTimeFormat` בלי אזור זמן
+ * נוסף בסבב הקודם, ואלה נשארו: 17 מופעים על `Date` עברו את השער בזמן
+ * שהוא הכריז „כל המועדים נקראים ונכתבים בשעון ישראל” (ביקורת Codex).
+ * זו הפעם השלישית שאותה מחלקה חוזרת בשם אחר, ולכן האיסור כאן מוחלט.
+ *
+ * ‎**האיסור מוחלט ואין רשימת היתרים — בכוונה.** `toLocaleString` קיימת
+ * גם על `Number`, ושער טקסטואלי אינו יודע מה טיפוס המקבל. חריג היה
+ * דורש לנחש, וניחוש הוא בדיוק החור. לכן ארבעת המופעים על מספרים
+ * עברו ל-`formatNumber` שב-`lib/format.ts`, ואין מה להתיר.
+ */
+const LOCALE_METHOD =
+  /\.(?:toLocaleString|toLocaleDateString|toLocaleTimeString|toDateString|toTimeString)\s*\(/u;
 
 /**
  * הסימון שמתיר שורה: **שעון המכשיר הוא התשובה הנכונה כאן.**
@@ -88,16 +103,30 @@ function intlWithoutTimeZone(text) {
 }
 
 /**
- * קובץ שמצייר `datetime-local` **חייב** לעבור דרך העזר המשותף.
+ * לכל `datetime-local` בקובץ — המרה משלו דרך העזר המשותף.
  *
  * הבדיקה מבנית ולא תבניתית, בכוונה: `new Date(dueAt)` על משתנה הוא
  * ביטוי תקין לגמרי ברוב ההקשרים, ואי אפשר לזהות מתוכו לבדו שהערך
  * הגיע משדה טופס. מה שכן ודאי הוא שקובץ שיש בו שדה כזה **מוכרח**
  * להמיר אותו — וזה בדיוק מה שנשמט בשדה החמישי, שעבר את הגרסה
  * הראשונה של השער בלי להיתפס (ביקורת Codex).
+ *
+ * ‎**למה סופרים ולא שואלים „האם קיים”.** `tasks-board.tsx` מחזיק שני
+ * מסלולים נפרדים — יצירה ועריכה — ובדיקת „יש אזכור אחד בקובץ” נתנה
+ * לאחד מהם לחזור ל-`new Date(dueAt)` בזמן שהאזכור של השני מחזיק את
+ * השער ירוק (ביקורת Codex). זהו בדיוק ההבדל בין „הקובץ יודע על
+ * העזר” לבין „כל שדה עובר דרכו”.
  */
-const LOCAL_FIELD = 'type="datetime-local"';
-const RESOLVER = "resolveJerusalemLocalInput";
+const LOCAL_FIELD = /type="datetime-local"/gu;
+const RESOLVER = /resolveJerusalemLocalInput\s*\(/gu;
+
+/** כמה פעמים תבנית גלובלית מופיעה בטקסט. */
+function countOf(pattern, text) {
+  pattern.lastIndex = 0;
+  let n = 0;
+  while (pattern.exec(text) !== null) n += 1;
+  return n;
+}
 
 const offenders = [];
 let scanned = 0;
@@ -109,8 +138,12 @@ for (const file of FILES) {
   for (const line of intlWithoutTimeZone(source)) {
     offenders.push(`  ${short}:${line}  ←  Intl.DateTimeFormat בלי timeZone`);
   }
-  if (source.includes(LOCAL_FIELD) && !source.includes(RESOLVER)) {
-    offenders.push(`  ${short}  ←  שדה datetime-local בלי ${RESOLVER}`);
+  const fields = countOf(LOCAL_FIELD, source);
+  const resolved = countOf(RESOLVER, source);
+  if (fields > resolved) {
+    offenders.push(
+      `  ${short}  ←  ${fields} שדות datetime-local מול ${resolved} המרות resolveJerusalemLocalInput`,
+    );
   }
   const lines = source.split("\n");
   lines.forEach((line, index) => {
@@ -124,7 +157,8 @@ for (const file of FILES) {
       (LOCAL_READ.test(code) && "קריאה בשעון המכשיר") ||
       (LOCAL_OFFSET.test(code) && "היסט אזור הזמן של המכשיר") ||
       (WALL_PARSE.test(code) && "פרסור שעת קיר בשעון המכשיר") ||
-      (LOCAL_WRITE.test(code) && "כתיבה בשעון המכשיר");
+      (LOCAL_WRITE.test(code) && "כתיבה בשעון המכשיר") ||
+      (LOCALE_METHOD.test(code) && "עיצוב בשעון המכשיר (toLocale…)");
     if (hit) {
       offenders.push(`  ${file.replace(`${root}/`, "")}:${index + 1}  ←  ${hit}`);
     }
@@ -138,7 +172,9 @@ if (offenders.length > 0) {
     [
       "",
       "  השתמשו בעזרי `israel-time.ts` שב-@metavchim/shared:",
-      "    תצוגה   — formatJerusalemDate / formatJerusalemTime / jerusalemWallParts",
+      "    תצוגה   — formatDate / formatDateTime שב-lib/format, או",
+      "              formatJerusalemDate / formatJerusalemTime / jerusalemWallParts",
+      "    מספרים  — formatNumber שב-lib/format (ולא toLocaleString)",
       "    מעצב    — new Intl.DateTimeFormat(\"he-IL\", { timeZone: JERUSALEM_TZ, … })",
       "    טופס     — jerusalemLocalInputValue ⟷ resolveJerusalemLocalInput",
       "    גבולות   — jerusalemDayRange / jerusalemDayStart / jerusalemWeekStart",

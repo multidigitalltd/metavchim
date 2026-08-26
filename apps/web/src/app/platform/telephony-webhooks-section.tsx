@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@metavchim/ui";
 import { apiGet } from "@/lib/api";
 import { IconPhone } from "../icons";
+import { formatDateTime } from "@/lib/format";
 
 /**
  * יומן הפניות שהגיעו מהמרכזיות — **כולל אלה שנדחו**.
@@ -178,7 +179,7 @@ export function TelephonyWebhooksSection() {
                 return (
                   <tr key={hit.id}>
                     <td dir="ltr" className="whitespace-nowrap">
-                      {new Date(hit.receivedAt).toLocaleString("he-IL")}
+                      {formatDateTime(hit.receivedAt)}
                     </td>
                     <td>
                       <span

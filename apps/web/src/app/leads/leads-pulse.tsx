@@ -1,6 +1,6 @@
 "use client";
 
-import { leadWaiting } from "@metavchim/shared";
+import { jerusalemWallParts, leadWaiting } from "@metavchim/shared";
 import { IconBolt, IconClock, IconFlame, IconInbox } from "../icons";
 
 /**
@@ -86,8 +86,17 @@ function countLate(items: LeadLike[], at: Date): LeadLike[] {
   return items.filter((lead) => leadWaiting(lead.createdAt, lead.status, at)?.level === "late");
 }
 
+/*
+ * „היום” הוא היום **בישראל**, ולא היום של המכשיר.
+ *
+ * ‎`toDateString()` על שני הצדדים קורא את שעון המכשיר, ולכן על
+ * מכשיר בניו-יורק הדלי „נכנסו היום” היה היום הניו-יורקי: ליד
+ * שנקלט ב-01:30 בישראל נספר אצל אתמול, וליד של אתמול בערב נספר
+ * אצל היום (ביקורת Codex). ההשוואה נעשית על תאריך הקיר הירושלמי.
+ */
 function countToday(items: LeadLike[], at: Date): LeadLike[] {
-  return items.filter((lead) => new Date(lead.createdAt).toDateString() === at.toDateString());
+  const today = jerusalemWallParts(at).date;
+  return items.filter((lead) => jerusalemWallParts(new Date(lead.createdAt)).date === today);
 }
 
 const TONE_COLOR = {

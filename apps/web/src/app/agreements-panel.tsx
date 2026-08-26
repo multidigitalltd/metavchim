@@ -7,6 +7,7 @@ import { ConfirmDialog } from "./confirm-dialog";
 import { IconDoc, IconEdit, IconWarning } from "./icons";
 import { LoadError } from "./load-error";
 import { Notice } from "./notice";
+import { formatDate } from "@/lib/format";
 
 /**
  * שליחת הסכם לחתימה ומעקב אחריו — מוצג בכרטיס הקונה (הזמנה בכתב)
@@ -277,7 +278,7 @@ export function AgreementsPanel({
                 </span>
                 {row.sentAt ? (
                   <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-                    נשלח {new Date(row.sentAt).toLocaleDateString("he-IL")}
+                    נשלח {formatDate(row.sentAt)}
                   </span>
                 ) : null}
               </div>

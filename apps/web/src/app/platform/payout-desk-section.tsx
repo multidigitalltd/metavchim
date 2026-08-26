@@ -11,6 +11,7 @@ import {
 import { ApiError, apiGet, apiPost } from "@/lib/api";
 import { IconCoins } from "../icons";
 import { Notice } from "../notice";
+import { formatDate } from "@/lib/format";
 
 /**
  * תור המשיכות — כסף שיוצא מהפלטפורמה למשרדים.
@@ -142,7 +143,7 @@ export function PayoutDeskSection(): React.JSX.Element {
                   {PAYOUT_STATUS_LABEL[row.status]}
                 </span>
                 <span className="text-[length:var(--type-caption)]" style={{ color: "var(--color-text-muted)" }}>
-                  {new Date(row.createdAt).toLocaleDateString("he-IL")} · חשבון {row.accountMasked}
+                  {formatDate(row.createdAt)} · חשבון {row.accountMasked}
                 </span>
               </div>
               {row.note !== undefined ? (

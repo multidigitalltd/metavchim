@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { WHATSAPP_LINK_MAX_AGE_DAYS } from "@metavchim/shared";
 import { apiDelete, apiGet, apiPost } from "@/lib/api";
 import { Notice } from "../notice";
+import { formatDate } from "@/lib/format";
 
 /**
  * „איזה מכשיר מחובר אליי” — הזהות בערוץ הוואטסאפ.
@@ -32,7 +33,7 @@ interface LinkStatus {
 function dateText(iso: string | undefined): string {
   if (iso === undefined) return "";
   const at = new Date(iso);
-  return Number.isNaN(at.getTime()) ? "" : at.toLocaleDateString("he-IL");
+  return Number.isNaN(at.getTime()) ? "" : formatDate(at);
 }
 
 export function WhatsAppLinkSection() {
