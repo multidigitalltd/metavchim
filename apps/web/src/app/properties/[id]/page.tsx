@@ -1361,6 +1361,42 @@ export default function PropertyDetailPage({
               קונים שדרישת חובה שלהם נשברת (למשל: חובה מעלית ואין) — לא מוצגים
               כאן בכלל.
             </p>
+
+            {/*
+              ‎**רצועת הרשת (SPEC-4a §1).**
+
+              מוצגת **רק כשהחישוב באמת רץ** — כלומר `matches` נטען
+              ואין שדה חוסם. רצועה שמציעה „להרחיב את החיפוש” על נכס
+              שחסר לו מחיר אינה הרחבה אלא הסחה: היא שולחת את המתווך
+              לרשת במקום להשלים את השדה שעוצר אותו כאן.
+
+              מופיעה גם כשיש התאמות וגם כשאין, ובכוונה: „יש שלושה
+              מהמאגר, אולי יש עוד ברשת” היא הצעה מועילה ולא רק מוצא
+              אחרון — והניסוח משתנה בין שני המצבים.
+            */}
+            {matches !== null && matchGateMissing(property).length === 0 ? (
+              <div
+                className="mt-4 flex flex-wrap items-center gap-3 px-4 py-3.5"
+                style={{ background: "#0B0E0C", borderRadius: 18 }}
+              >
+                <span
+                  className="min-w-0 flex-1 text-[length:var(--type-body-sm)]"
+                  style={{ color: "#E8EDE9" }}
+                >
+                  {matches.length === 0
+                    ? "אף קונה מהמאגר לא התאים — אולי יש קונה מתאים אצל משרד אחר."
+                    : "אפשר להרחיב את החיפוש גם לקונים של משרדים אחרים ברשת."}
+                </span>
+                <button
+                  type="button"
+                  className="mv-btn-action"
+                  style={{ padding: "8px 16px", fontSize: "var(--type-caption-lg)" }}
+                  onClick={() => selectTab("network")}
+                >
+                  פרסום לרשת
+                </button>
+              </div>
+            ) : null}
           </section>
         </div>
       </TabPanel>
