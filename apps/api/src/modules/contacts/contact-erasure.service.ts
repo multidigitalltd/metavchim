@@ -3,7 +3,7 @@ import { ulid } from "ulid";
 import { lockContact } from "../../common/locks";
 import { TenantContext } from "../../common/tenant-context";
 import { deleteCoopDeals } from "../../common/coop-deal-cleanup";
-import { normalizeNameForMatch } from "@metavchim/shared";
+import { normalizeNameForMatch, OFFER_DOCUMENT_KINDS } from "@metavchim/shared";
 import { AuditService } from "../../core/audit.service";
 import { CryptoService } from "../../core/crypto.service";
 import { PrismaService, type TenantTx } from "../../core/prisma.service";
@@ -68,9 +68,20 @@ export class ContactErasureService {
     calls: number;
     recordings: number;
     messages: number;
-    /** הסכמים שטרם נחתמו — אלה שיימחקו. */
+    /**
+     * מה שיימחק: הסכמים שטרם נחתמו, **וגם** מסמכים שהועלו ואינם
+     * הצהרה על חתימה („מסמך אחר” — תעודה, נספח).
+     */
     agreements: number;
-    /** הסכמים חתומים — **נשמרים** ועוברים לארכיון המשרד. */
+    /**
+     * מה ש**נשמר** ועובר לארכיון המשרד: הסכמים חתומים, וגם סריקות
+     * של הזמנה בכתב או בלעדיות שנחתמו על נייר.
+     *
+     * הסריקות נספרו כאן רק אחרי שהתברר שהן חסרו: המסך הבטיח „לא
+     * נשמר דבר” על לקוח שיש לו סריקה חתומה בלבד — והיא כן נשמרה
+     * (ביקורת Codex). זו הבטחה שקרית למי שמממש זכות מחיקה, וזה
+     * המסך היחיד שהוא רואה לפניה.
+     */
     signedAgreements: number;
     appointments: number;
     properties: number;
@@ -98,6 +109,8 @@ export class ContactErasureService {
         messages,
         agreements,
         signedAgreements,
+        retainedScans,
+        deletedScans,
         appointments,
         properties,
         sharedLeads,
@@ -109,6 +122,22 @@ export class ContactErasureService {
         tx.message.count({ where: { tenantId, contactId } }),
         tx.agreement.count({ where: { tenantId, contactId, status: { not: "signed" } } }),
         tx.agreement.count({ where: { tenantId, contactId, status: "signed" } }),
+        // אותם שני תנאים בדיוק שמכריעים ב-`eraseWithin` — לא ניסוח שני
+        tx.signedDocument.count({
+          where: {
+            tenantId,
+            contactId,
+            kind: { in: [...OFFER_DOCUMENT_KINDS] },
+            signedOn: { not: null },
+          },
+        }),
+        tx.signedDocument.count({
+          where: {
+            tenantId,
+            contactId,
+            NOT: { kind: { in: [...OFFER_DOCUMENT_KINDS] }, signedOn: { not: null } },
+          },
+        }),
         tx.appointment.count({
           where: {
             tenantId,
@@ -132,8 +161,12 @@ export class ContactErasureService {
         calls,
         recordings,
         messages,
-        agreements,
-        signedAgreements,
+        /*
+         * הסריקות מתווספות לשני הצדדים — לא כשורה נפרדת: המסך
+         * שואל „מה יימחק ומה יישמר”, ולא „לפי איזו טבלה”.
+         */
+        agreements: agreements + deletedScans,
+        signedAgreements: signedAgreements + retainedScans,
         appointments,
         properties,
         sharedListings: sharedLeads + sharedDemands,
@@ -176,11 +209,33 @@ export class ContactErasureService {
         throw new BadRequestException("השם שהוקלד אינו תואם — המחיקה בוטלה");
       }
 
-      const [buyerRows, leadRows, retainedAgreements] = await Promise.all([
+      /*
+       * ‎**היומן סופר את שני המקורות, כמו מסך האישור.**
+       *
+       * ‎`retainedAgreements` נכתב ליומן ה-Append-Only של המחיקה, והוא
+       * הרישום שאומר מה נשמר. הוא ספר `agreement` בלבד — ולכן לקוח
+       * שכל הסכמיו נחתמו על נייר תועד כמי ש„לא נשמר לו דבר”, בזמן
+       * שהסריקה, שם החותם ותאריך החתימה נשארו במסד (ביקורת Codex).
+       *
+       * תיקנתי את `preview()` בסבב הקודם ולא שאלתי מי עוד סופר את
+       * אותה שאלה. שני הסופרים משתמשים עכשיו באותו תנאי בדיוק —
+       * הסוג מ-`OFFER_DOCUMENT_KINDS` ותאריך חתימה קיים — שהוא גם
+       * התנאי ש-`eraseWithin` מכריע לפיו בפועל.
+       */
+      const [buyerRows, leadRows, signedAgreements, retainedScans] = await Promise.all([
         tx.buyer.findMany({ where: { tenantId, contactId }, select: { id: true } }),
         tx.lead.findMany({ where: { tenantId, contactId }, select: { id: true } }),
         tx.agreement.count({ where: { tenantId, contactId, status: "signed" } }),
+        tx.signedDocument.count({
+          where: {
+            tenantId,
+            contactId,
+            kind: { in: [...OFFER_DOCUMENT_KINDS] },
+            signedOn: { not: null },
+          },
+        }),
       ]);
+      const retainedAgreements = signedAgreements + retainedScans;
       const buyers = buyerRows.map((b) => b.id);
       const leads = leadRows.map((l) => l.id);
 
@@ -339,6 +394,59 @@ export class ContactErasureService {
     });
     // מה שלא נחתם הוא טיוטה או קישור שפג — נמחק עם השאר
     await tx.agreement.deleteMany({ where: { tenantId, contactId } });
+
+    /*
+     * ‎**מסמך שנחתם על נייר — אותו כלל בדיוק.**
+     *
+     * הסריקה של הזמנה בכתב חתומה היא אותה ראיה משפטית ואותו בסיס
+     * זכאות, ולכן היא מנותקת ואינה נמחקת. מה שמבדיל אותה משורה
+     * ב-`agreements` הוא שיש מאחוריה קובץ: הוא **נשאר** באחסון, כי
+     * שורה מנותקת שמצביעה לאובייקט שנמחק אינה ראיה אלא רישום ריק.
+     *
+     * ‎**התנאי הוא הסוג, ולא „יש תאריך חתימה”.**
+     *
+     * קודם הוא היה `signedOn: { not: null }` בלבד, מתוך הנחה
+     * שתאריך חתימה מופיע רק על שני הסוגים שנושאים הצהרה. ההנחה
+     * שגויה: הסכמה הרשתה `kind: "other"` עם `signedOn`, ולכן
+     * תעודת זהות שהועלתה עם תאריך נשמרה כאילו הייתה ראיה משפטית —
+     * היא נותקה, נעלמה משאילתת הניקוי שאחריה, ונשארה במסד וב-S3
+     * אחרי שהלקוח ביקש להימחק (ביקורת Codex).
+     *
+     * הרשימה מגיעה מ-shared, מאותו מקום שמכריע גם על שער ההצעות
+     * ועל שדות החובה. שני ניסוחים של אותה קבוצה הם הפער עצמו.
+     */
+    await tx.signedDocument.updateMany({
+      where: {
+        tenantId,
+        contactId,
+        kind: { in: [...OFFER_DOCUMENT_KINDS] },
+        signedOn: { not: null },
+      },
+      data: { contactId: null },
+    });
+    /*
+     * ‎**מה שאינו הצהרה על חתימה — נמחק עם הקובץ שלו.**
+     *
+     * „מסמך אחר” הוא תעודת זהות, אישור זכויות, נספח — מסמכי הלקוח
+     * עצמו. זכות המחיקה חלה עליהם במלואה, ומחיקת השורה בלי מחיקת
+     * הקובץ הייתה משאירה אותם ב-S3 בדיוק כמו קודם. המפתחות נאספים
+     * לפני המחיקה, ואירוע ניקוי נרשם על כל אחד.
+     */
+    const looseDocuments = await tx.signedDocument.findMany({
+      where: { tenantId, contactId },
+      select: { s3Key: true },
+    });
+    await tx.signedDocument.deleteMany({ where: { tenantId, contactId } });
+    if (looseDocuments.length > 0) {
+      await tx.outboxEvent.createMany({
+        data: looseDocuments.map((doc) => ({
+          id: ulid(),
+          tenantId,
+          name: "storage.cleanup_object",
+          payload: { tenantId, s3Key: doc.s3Key },
+        })),
+      });
+    }
 
     await tx.buyer.deleteMany({ where: { tenantId, contactId } });
     await tx.lead.deleteMany({ where: { tenantId, contactId } });

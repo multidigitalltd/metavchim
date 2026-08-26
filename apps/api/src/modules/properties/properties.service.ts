@@ -1073,6 +1073,23 @@ export class PropertiesService {
         where: { tenantId: ctx.tenantId, propertyId: id },
         data: { propertyId: null },
       });
+      /*
+       * ‎**סריקות שנחתמו על נייר — מנותקות, לא נמחקות.**
+       *
+       * ‎`signed_documents.property_id` הוא מזהה חופשי בלי מפתח זר,
+       * ולכן מחיקת הנכס לא נגעה בו: הסריקה נשארה מצביעה לשורה שאיננה,
+       * והתווית שהמסך בונה ממנה חדלה להיפתר — מזהה אטום על ראיה
+       * משפטית (ביקורת Codex).
+       *
+       * ‎**ניתוק ולא מחיקה**, בדיוק כמו `agreement` שורה מעל: דף חתום
+       * הוא בסיס הזכאות לדמי תיווך, ומחיקת רשומת הנכס אינה מבטלת
+       * חתימה שכבר נחתמה. מה שנסגר הוא שער ההצעות על אותו נכס — ואין
+       * מה לפתוח, הנכס עצמו נמחק.
+       */
+      await tx.signedDocument.updateMany({
+        where: { tenantId: ctx.tenantId, propertyId: id },
+        data: { propertyId: null },
+      });
       await tx.appointment.updateMany({
         where: { tenantId: ctx.tenantId, propertyId: id },
         data: { propertyId: null },

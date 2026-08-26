@@ -2,7 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { apiGet } from "@/lib/api";
+import {
+  DOCUMENT_KIND_LABELS,
+  formatFileSize,
+  type DocumentKind,
+} from "@metavchim/shared";
+import { apiGet, API_BASE } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 
 /**
@@ -19,6 +24,17 @@ import { formatDate } from "@/lib/format";
  *
  * הרכיב אינו מציג כלום כשאין מה להציג: משרד שמעולם לא מחק לקוח אינו
  * צריך לקרוא הסבר על מחיקות.
+ *
+ * ## שני מקורות, רשימה אחת
+ *
+ * ‎`/agreements/retained` — מה שנחתם במערכת. `/signed-documents/retained`
+ * — סריקות של הזמנה בכתב או בלעדיות שנחתמו על נייר, שנשמרות מאותו
+ * נימוק בדיוק.
+ *
+ * הסריקות נוספו כאן רק אחרי שהתברר שהנתיב בשרת נבנה ואיש לא צרך
+ * אותו: המסך הבטיח ארכיון, והסריקות לא הופיעו בו (ביקורת Codex).
+ * מסמך שנשמר מטעמים משפטיים ואי אפשר להגיע אליו הוא מסמך שנאבד —
+ * רק בלי שאיש יודע.
  */
 
 interface RetainedAgreement {
@@ -29,16 +45,41 @@ interface RetainedAgreement {
   url: string;
 }
 
+/** סריקה שנחתמה על נייר ושרדה מחיקת לקוח. */
+interface RetainedScan {
+  id: string;
+  kind: DocumentKind;
+  fileName: string;
+  byteSize: number;
+  signerName?: string;
+  signedOn?: string;
+  /**
+   * הנכס שההסכם חל עליו.
+   *
+   * לבעלים שנמחק יכולות להיות סריקות על כמה נכסים, וכאן אין כרטיס
+   * שמפריד ביניהן — בלי התווית הן נבדלות רק בשם החותם ובתאריך.
+   * ריק כשהנכס עצמו נמחק לצמיתות.
+   */
+  propertyLabel?: string;
+  url: string;
+}
+
 export function RetainedAgreementsSection() {
   const [rows, setRows] = useState<RetainedAgreement[] | null>(null);
+  const [scans, setScans] = useState<RetainedScan[] | null>(null);
 
   useEffect(() => {
+    // שתי הבקשות בנפרד: הרשאה או תקלה באחת אינה מסתירה את השנייה
     apiGet<RetainedAgreement[]>("/agreements/retained")
       .then(setRows)
       .catch(() => setRows([])); // אין הרשאה או שגיאה — פשוט לא מציגים
+    apiGet<RetainedScan[]>("/signed-documents/retained")
+      .then(setScans)
+      .catch(() => setScans([]));
   }, []);
 
-  if (rows === null || rows.length === 0) return null;
+  if (rows === null || scans === null) return null;
+  if (rows.length === 0 && scans.length === 0) return null;
 
   return (
     <section className="mv-list-card mt-4" aria-labelledby="retained-agreements-heading">
@@ -72,6 +113,50 @@ export function RetainedAgreementsSection() {
               <Link href={row.url} className="mv-btn-plain">
                 פתח מסמך
               </Link>
+            </span>
+          </li>
+        ))}
+        {scans.map((scan) => (
+          <li
+            key={scan.id}
+            className="flex flex-wrap items-center justify-between gap-2 border-t px-5 py-3 text-sm"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            <span>
+              <b>{scan.signerName ?? "ללא שם חותם"}</b>
+              <span style={{ color: "var(--color-text-muted)" }}>
+                {" · "}
+                {DOCUMENT_KIND_LABELS[scan.kind]}
+              </span>
+              {/*
+                הנכס בשורה נפרדת ולא בהמשך אותה שורה: הוא מה שמבדיל
+                בין שתי סריקות של אותו בעלים, ולכן הוא צריך להיקרא
+                ולא להידחס בין נקודות. „נכס שנמחק” נאמר במפורש —
+                מסמך בלי נכס אינו מסמך שאין לו נכס.
+              */}
+              <span className="block" style={{ color: "var(--color-text-muted)" }}>
+                {scan.propertyLabel ?? "הנכס נמחק לצמיתות"}
+              </span>
+            </span>
+            <span className="flex items-center gap-3">
+              <span className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+                {scan.signedOn !== undefined ? `נחתם ${formatDate(scan.signedOn)}` : "—"}
+              </span>
+              {/* גודל הקובץ ב-LTR מבודד, כמו כל מספר במערכת */}
+              <span
+                className="text-sm"
+                dir="ltr"
+                style={{ color: "var(--color-text-muted)", unicodeBidi: "isolate" }}
+              >
+                {formatFileSize(scan.byteSize)}
+              </span>
+              {/*
+                ‎`<a>` ולא `<Link>`: זו הורדת קובץ מה-API, לא ניווט
+                בתוך האפליקציה.
+              */}
+              <a href={API_BASE + scan.url} className="mv-btn-plain">
+                הורד סריקה
+              </a>
             </span>
           </li>
         ))}

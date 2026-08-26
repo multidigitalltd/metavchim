@@ -97,20 +97,40 @@ export class AgreementsService {
     kind: AgreementKind,
     propertyId?: string,
   ): Promise<boolean> {
+    // ההזמנה בכתב נוקבת בנכס מסוים, ולכן חתימה עליו אינה מכסה נכס
+    // אחר. בלי הסינון הזה חתימה אחת הייתה פותחת את השער לכל הנכסים
+    // שיוצעו ללקוח מכאן והלאה (ביקורת Codex).
+    const scope = { tenantId, contactId, kind, propertyId: propertyId ?? null };
+
     const signed = await tx.agreement.findFirst({
-      where: {
-        tenantId,
-        contactId,
-        kind,
-        // ההזמנה בכתב נוקבת בנכס מסוים, ולכן חתימה עליו אינה מכסה
-        // נכס אחר. בלי הסינון הזה חתימה אחת הייתה פותחת את השער לכל
-        // הנכסים שיוצעו ללקוח מכאן והלאה (ביקורת Codex).
-        propertyId: propertyId ?? null,
-        status: "signed",
-      },
+      where: { ...scope, status: "signed" },
       select: { id: true },
     });
-    return signed !== null;
+    if (signed !== null) return true;
+
+    /*
+     * ‎**וגם מסמך שנחתם על נייר.**
+     *
+     * חוק המתווכים מתנה את דמי התיווך בהזמנה בכתב חתומה — לא בהזמנה
+     * שנחתמה דווקא במסך שלנו. מתווך שהחתים לקוח על דף וסרק אותו
+     * מחזיק בדיוק את מה שהשער הזה בודק, ובלי השורה הזו המערכת הייתה
+     * מסרבת להראות לו הצעה על לקוח שחתם — בלי שום מסלול לתקן זאת.
+     *
+     * ‎`kind` נשמר באותם ערכים בשתי הטבלאות (shared —
+     * `documentUnlocksOffers`), ולכן אותו `scope` בדיוק: אותו לקוח,
+     * אותו סוג, ואותו נכס. מסמך מסוג `other` אינו נושא ערך כזה
+     * ולעולם אינו מתאים כאן.
+     *
+     * ‎`signedOn: { not: null }` — לא ייתור: `upload` דורש תאריך
+     * חתימה בדיוק לסוגים האלה, וזו העמודה שאומרת „הוצהר עליו
+     * כחתום”. שורה בלעדיה היא נתון שלא היה אמור להיכתב, ואינה
+     * פותחת שער.
+     */
+    const onPaper = await tx.signedDocument.findFirst({
+      where: { ...scope, signedOn: { not: null } },
+      select: { id: true },
+    });
+    return onPaper !== null;
   }
 
   /** הסכם ממתין קיים — כדי לא להציף את הלקוח בקישורים כפולים. */

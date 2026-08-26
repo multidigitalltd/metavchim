@@ -123,6 +123,8 @@ export class AgentResolveService {
 
     const { candidates, chosen, warning } = await this.resolveEntity(action.id, params, refs);
     if (warning !== undefined) warnings.push(warning);
+    const second = await this.resolveSecondEntity(action.id, params);
+    if (second.warning !== undefined) warnings.push(second.warning);
 
     for (const key of interpretation.rejected) {
       warnings.push(`לא הצלחתי לקרוא את הערך של „${agentFieldLabel(action.id, key)}”`);
@@ -139,6 +141,7 @@ export class AgentResolveService {
      * (דיווח המשתמש). ההצגה כשדה שנפתר, כמו תאריך.
      */
     if (chosen) fields.push(chosen);
+    if (second.chosen) fields.push(second.chosen);
 
     /*
      * צעדי המשך נפתרים כל אחד כהצעה מלאה — אותם תאריכים, טלפונים
@@ -473,6 +476,60 @@ export class AgentResolveService {
     return { candidates: { key: spec.key, idKey: spec.idKey, label: spec.label, options } };
   }
 
+  /**
+   * הרשומה **השנייה** של הפעולה — בלי בורר.
+   *
+   * המסך מציג בורר אחד (`AgentProposal.candidates`), ולכן השנייה
+   * נפתרת רק כשהיא חד-משמעית: התאמה יחידה נכנסת לפרמטרים ומוצגת
+   * כשדה שנפתר, וכל מצב אחר — לא נאמר, לא נמצא, מתאים לכמה — משאיר
+   * את המזהה ריק ואומר זאת באזהרה.
+   *
+   * ‎**היא אינה חוסמת את האישור.** מה שקורה בלעדיה נקבע בביצוע, כי
+   * שם ההבדל אמיתי: `send_offer` מתכווץ לניווט לכרטיס הקונה, ואילו
+   * `send_agreement` נעצר — הזמנה בכתב שנוצרת בלי נכס אינה מתארת
+   * נכס, אינה פותחת שום הצעה, ומשאירה קישור חתימה שאין ממנו תועלת.
+   *
+   * ‎`alwaysChoose` של הרשומה הראשית אינו חל כאן: הבחירה המפורשת
+   * נוגעת ל**נמען** — מי מקבל את הקישור — ולא לנכס שהמסמך מתאר.
+   */
+  private async resolveSecondEntity(
+    actionId: string,
+    params: Record<string, unknown>,
+  ): Promise<{ chosen?: AgentField; warning?: string }> {
+    const spec = ENTITY_LOOKUP[actionId]?.also;
+    if (spec === undefined) return {};
+    // כבר נבחר במסך (סבב שני של אותה הצעה) — אין מה לפתור
+    if (typeof params[spec.idKey] === "string") return {};
+
+    const phrase = params[spec.key];
+    if (typeof phrase !== "string" || phrase.trim().length < 2) {
+      // לא נאמר כלל. הביצוע יאמר מה חסר; אזהרה כאן הייתה רעש על
+      // משפט תקין לגמרי שפשוט לא הזכיר נכס
+      return {};
+    }
+
+    const options = await this.candidatesFor(spec.kind, phrase.trim());
+    if (options.length === 1) {
+      const match = options[0]!;
+      params[spec.idKey] = match.id;
+      return {
+        chosen: {
+          key: spec.idKey,
+          label: spec.label,
+          value: match.id,
+          display: [match.label, match.detail].filter(Boolean).join(" — "),
+          source: "resolved",
+        },
+      };
+    }
+    if (options.length === 0) {
+      return { warning: `„${phrase.trim()}” לא נמצא במאגר — ${spec.label} נשאר ריק` };
+    }
+    return {
+      warning: `„${phrase.trim()}” מתאים ליותר מרשומה אחת — ${spec.label} נשאר ריק`,
+    };
+  }
+
   /** מועמדים לביטוי, לפי סוג הרשומה שהפעולה מדברת עליה. */
   private async candidatesFor(kind: LookupKind, phrase: string): Promise<AgentCandidate[]> {
     /*
@@ -626,6 +683,23 @@ const ENTITY_LOOKUP: Record<
      * לכמה — הפעולה ממשיכה בלי קישור, עם אזהרה גלויה.
      */
     optional?: boolean;
+    /**
+     * ‎**רשומה שנייה שהפעולה מדברת עליה.**
+     *
+     * „שלח את הדירה ברמת גן למשה כהן” נושא שתי רשומות, לא אחת.
+     * ‎`AgentProposal.candidates` הוא יחיד — המסך מציג בורר אחד —
+     * ולכן השנייה נפתרת בלי בורר: התאמה יחידה נבחרת ומוצגת כשדה,
+     * וכל מצב אחר יורד עם אזהרה.
+     *
+     * זו אינה הרחבה תיאורטית: `sendOffer` קרא `params.propertyId`
+     * שאף אחד לא כתב אליו אי פעם, ולכן ניווט **תמיד** לכרטיס הקונה
+     * גם כשנאמר נכס מפורש. השדה היה מת מהיום הראשון.
+     *
+     * מה שקורה כשהיא לא נפתרה נקבע בביצוע ולא כאן: ב-`send_offer`
+     * הניווט מתכווץ לכרטיס הקונה, וב-`send_agreement` הפעולה
+     * נעצרת — הזמנה בכתב בלי נכס אינה פותחת שום הצעה.
+     */
+    also?: { key: string; idKey: string; label: string; kind: LookupKind };
   }
 > = {
   update_buyer: { key: "buyerPhrase", idKey: "buyerId", label: "איזה קונה", kind: "buyer" },
@@ -675,8 +749,40 @@ const ENTITY_LOOKUP: Record<
     kind: "buyer",
     // פעולה שיוצאת ללקוח — תמיד בחירה מפורשת, גם כשיש התאמה אחת
     alwaysChoose: true,
+    also: { key: "propertyPhrase", idKey: "propertyId", label: "איזה נכס", kind: "property" },
+  },
+  send_agreement: {
+    key: "buyerPhrase",
+    idKey: "buyerId",
+    label: "את מי להחתים",
+    kind: "buyer",
+    /*
+     * הקישור נושא טוקן, ומי שמחזיק בו יכול לחתום על מסמך משפטי.
+     * זו בדיוק הפעולה שבה בחירה אוטומטית „כי יש רק שרה אחת” היא
+     * הטעות שמגיעה ללקוח.
+     */
+    alwaysChoose: true,
+    also: {
+      key: "propertyPhrase",
+      idKey: "propertyId",
+      label: "על איזה נכס",
+      kind: "property",
+    },
   },
 };
+
+/**
+ * האם הפעולה דורשת בחירה מפורשת של הרשומה, גם כשיש התאמה יחידה.
+ *
+ * ‎**מיוצאת כדי שאפשר יהיה לבדוק אותה.** קטלוג הפעולות מצהיר
+ * ש-`outbound` „דורש גם בחירה מפורשת של הנמען שזוהה”, וההצהרה הזו
+ * חיה עד כה בהערה בלבד: פעולה יוצאת חדשה שנוספה בלי `alwaysChoose`
+ * הייתה בוחרת נמען אוטומטית, ושום דבר לא היה אומר זאת. הבדיקה
+ * עוברת על כל הקטלוג ולכן אינה יכולה להתיישן.
+ */
+export function requiresExplicitChoice(actionId: string): boolean {
+  return ENTITY_LOOKUP[actionId]?.alwaysChoose === true;
+}
 
 const RECOMMENDED: Record<string, readonly string[]> = {
   create_lead: ["name", "phone"],
@@ -695,6 +801,7 @@ const RECOMMENDED: Record<string, readonly string[]> = {
   update_property: ["propertyPhrase"],
   complete_task: ["taskPhrase"],
   send_offer: ["buyerPhrase", "propertyPhrase"],
+  send_agreement: ["buyerPhrase", "propertyPhrase"],
   share_property: ["propertyPhrase"],
   share_buyer: ["buyerPhrase"],
 };

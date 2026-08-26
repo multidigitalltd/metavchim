@@ -31,6 +31,7 @@ import { RelatedEntities } from "../../related-entities";
 import { EntityTasks } from "../../entity-tasks";
 import { ClickToDial } from "../../click-to-dial";
 import { AgreementsPanel } from "../../agreements-panel";
+import { DocumentsPanel } from "../../documents-panel";
 import { EntityNotes } from "../../entity-notes";
 import { SelectMenu } from "../../select-menu";
 import { EntityTabs, TabPanel, useEntityTab } from "../../entity-tabs";
@@ -397,7 +398,7 @@ export default function BuyerDetailPage({
           { key: "matches", label: "התאמות", count: matches?.length },
           { key: "tasks", label: "משימות", count: openTasks },
           { key: "timeline", label: "ציר זמן" },
-          { key: "agreements", label: "הסכמים" },
+          { key: "agreements", label: "מסמכים והסכמים" },
           { key: "network", label: "שיתופי פעולה" },
         ]}
       />
@@ -936,6 +937,17 @@ export default function BuyerDetailPage({
           contactId={buyer.contact.id}
           kind="brokerage"
           title="הזמנה בכתב (הסכם תיווך)"
+        />
+        {/*
+          ‎**אותה לשונית** (בקשת המשתמשת): הזמנה בכתב שנחתמה במערכת
+          והזמנה בכתב שנחתמה על נייר הן אותה עובדה, ושתיהן פותחות את
+          שער ההצעות. הפרדה לשני מקומות הייתה מבקשת מהמתווך לזכור
+          איפה חתם הלקוח הזה.
+        */}
+        <DocumentsPanel
+          contactId={buyer.contact.id}
+          defaultKind="brokerage"
+          canEdit={can(user, "offers.send")}
         />
       </TabPanel>
 

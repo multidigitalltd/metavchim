@@ -1,9 +1,11 @@
 import { Module } from "@nestjs/common";
+import { AgreementsModule } from "../agreements/agreements.module";
 import { AnalyticsModule } from "../analytics/analytics.module";
 import { BuyersModule } from "../buyers/buyers.module";
 import { CalendarModule } from "../calendar/calendar.module";
 import { CallsModule } from "../calls/calls.module";
 import { CollaborationModule } from "../collaboration/collaboration.module";
+import { ContactsModule } from "../contacts/contacts.module";
 import { LeadsModule } from "../leads/leads.module";
 import { MatchingModule } from "../matching/matching.module";
 import { PropertiesModule } from "../properties/properties.module";
@@ -40,6 +42,10 @@ import { AgentResolveService } from "./resolve.service";
     CallsModule,
     AnalyticsModule,
     CollaborationModule,
+    // „קישור לחתימה על הזמנה בכתב” — דרך אותו שירות שהכרטיס משתמש בו
+    AgreementsModule,
+    // שם הלקוח מוצפן במסד — רק ContactsService מפענח אותו
+    ContactsModule,
   ],
   controllers: [AgentController],
   providers: [

@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Req } from "@nestjs/common";
 import type { Request } from "express";
 import { z } from "zod";
-import { IdSchema, isSignatureDataUrl } from "@metavchim/shared";
+import { AGREEMENT_KINDS, IdSchema, isSignatureDataUrl } from "@metavchim/shared";
 import { Throttle } from "@nestjs/throttler";
 import { Public, RequireCapability } from "../../common/auth.decorators";
 import { assertContactAccess } from "../../common/ownership";
@@ -16,7 +16,7 @@ import {
 
 const CreateSchema = z
   .object({
-    kind: z.enum(["brokerage", "exclusivity"]),
+    kind: z.enum(AGREEMENT_KINDS),
     contactId: IdSchema,
     propertyId: IdSchema.optional(),
     /** ערכים שהמתווך משלים ידנית — דמי תיווך, מועד תשלום, תקופת בלעדיות */
