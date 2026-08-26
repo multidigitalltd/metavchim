@@ -20,7 +20,7 @@ describe("canonicalTwinPair", () => {
     expect(canonicalTwinPair("B", "A")).toEqual({ first: "A", second: "B" });
   });
 
-  it("נכס אינו תאום של עצמו", () => {
+  it("נכס אינו תואם לעצמו", () => {
     expect(canonicalTwinPair("A", "A")).toBeNull();
   });
 
