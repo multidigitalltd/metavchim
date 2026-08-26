@@ -6,6 +6,7 @@ import { apiDelete, apiGet, apiPatch, apiPost, ApiError } from "@/lib/api";
 import { LoadError } from "../load-error";
 import { IconPhone } from "../icons";
 import { Notice } from "../notice";
+import { NumberRentalPanel } from "./number-rental-panel";
 
 /**
  * מספרים וירטואליים — **מאיפה הגיעה השיחה, לא רק ממי.**
@@ -158,6 +159,9 @@ export function VirtualNumbersSection() {
         מספר נפרד לכל פרסום. כל שיחה נספרת לפי המספר שאליו התקשרו, כך שרואים איזה
         ערוץ מביא לקוחות — והליד נפתח עם המקור, הסוכן והנכס הנכונים.
       </p>
+
+      {/* השכרת מספר מהמלאי של הפלטפורמה — הפאנל נעלם כשהשירות כבוי */}
+      <NumberRentalPanel />
 
       {data === null ? (
         <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>

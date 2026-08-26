@@ -399,6 +399,17 @@ export class AccountDeletionService {
       this.prisma.subscriptionOffer.deleteMany({ where: { tenantId } }),
       this.prisma.subscription.deleteMany({ where: { tenantId } }),
       /*
+       * המספרים השכורים **מבוטלים ולא נמחקים**: המספר עדיין תפוס
+       * בחשבון 015 של הפלטפורמה, ומחיקת השורה הייתה משאירה אותו
+       * משלם-בלי-רישום לנצח. ביטול עם תקופה שהסתיימה מכניס אותם
+       * למסלול הרגיל — הסורק החודשי משחרר אותם אצל הספק ומודיע
+       * למנהלי הפלטפורמה. אין בשורה פרט אישי, כמו ב-payments.
+       */
+      this.prisma.rentedNumber.updateMany({
+        where: { tenantId, status: { not: "released" } },
+        data: { status: "cancelled", cancelledAt: new Date(), currentPeriodEnd: new Date() },
+      }),
+      /*
        * יומן הוובהוקים מנוקה מהשיוך ולא נמחק: הערך שלו הוא „האם
        * הגיעה בקשה בכלל”, והוא נשמר גם בלי לדעת של מי. השורות
        * שמעולם לא שויכו למשרד נשארות כפי שהן — הן כל הסיבה שהטבלה

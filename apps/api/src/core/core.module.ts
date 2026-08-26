@@ -11,6 +11,7 @@ import { GeocodingService } from "./geocoding.service";
 import { CreditEconomyService } from "./credit-economy.service";
 import { CreditExpiryService } from "./credit-expiry.service";
 import { OnboardingOutreachService } from "./onboarding-outreach.service";
+import { Pbx015NumbersService } from "./pbx015-numbers.service";
 import { PlatformSettingsService } from "./platform-settings.service";
 import { OutboxService } from "./outbox.service";
 import { PrismaService } from "./prisma.service";
@@ -27,6 +28,7 @@ import { StorageService } from "./storage.service";
     OutboxService,
     OutboxDispatcherService,
     PlatformSettingsService,
+    Pbx015NumbersService,
     GeocodingService,
     CreditEconomyService,
     CreditExpiryService,
@@ -44,6 +46,7 @@ import { StorageService } from "./storage.service";
     AuditService,
     OutboxService,
     PlatformSettingsService,
+    Pbx015NumbersService,
     /*
      * חייב להיות מיוצא ולא רק מסופק: `@Global()` חושף את מה שהמודול
      * **מייצא**, ולא את מה שהוא מחזיק. בלי השורה הזו כל מודול שתלוי
